@@ -39,3 +39,6 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+
+# Planning documents
+plans/
