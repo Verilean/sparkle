@@ -40,11 +40,12 @@ def getModule : CircuitM Module := do
 def setModule (m : Module) : CircuitM Unit := do
   modify fun s => { s with module := m }
 
-/-- Generate a fresh unique name -/
+/-- Generate a fresh unique name with _gen_ prefix to avoid collisions -/
 def freshName (hint : String) : CircuitM String := do
   let s ← get
   let baseName := if hint.isEmpty then "wire" else hint
-  let name := s!"{baseName}_{s.counter}"
+  -- Use _gen_ prefix to avoid collisions with user-defined variables
+  let name := s!"_gen_{baseName}_{s.counter}"
   set { s with counter := s.counter + 1, usedNames := name :: s.usedNames }
   return name
 
@@ -74,6 +75,9 @@ def makeWire (hint : String) (ty : HWType) : CircuitM String := do
 /--
   Emit a continuous assignment statement.
   lhs := rhs
+
+  Note: Mux validation is performed at Verilog generation time.
+  Always use: .op .mux [cond, thenVal, elseVal] (exactly 3 arguments)
 -/
 def emitAssign (lhs : String) (rhs : Expr) : CircuitM Unit := do
   let m ← getModule

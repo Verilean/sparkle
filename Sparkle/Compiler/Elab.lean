@@ -122,6 +122,59 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
     return none
 
 /--
+  Infer hardware type from Signal dom α type.
+  Extracts the inner type α and calls inferHWType on it.
+-/
+def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
+  let signalType ← CompilerM.liftMetaM (whnf signalType)
+
+  match signalType with
+  -- Signal dom α pattern - Signal is a structure, match on application
+  | .app (.app signalConstr _dom) innerType =>
+    -- Check if this is actually the Signal constructor
+    match signalConstr with
+    | .const name _ =>
+      if name.toString.endsWith "Signal" then
+        match ← CompilerM.liftMetaM (inferHWType innerType) with
+        | some hwType => return hwType
+        | none => CompilerM.liftMetaM $ throwError s!"Cannot infer hardware type from {innerType}"
+      else
+        -- Not a Signal, try fallback
+        match ← CompilerM.liftMetaM (inferHWType signalType) with
+        | some hwType => return hwType
+        | none => return .bitVector 8
+    | _ =>
+      match ← CompilerM.liftMetaM (inferHWType signalType) with
+      | some hwType => return hwType
+      | none => return .bitVector 8
+
+  -- Fallback: try to infer directly (for non-Signal types)
+  | _ =>
+    match ← CompilerM.liftMetaM (inferHWType signalType) with
+    | some hwType => return hwType
+    | none => return .bitVector 8  -- Default to 8-bit for MVP
+
+/--
+  Extract numeric value and width from BitVec literal.
+  Handles patterns like: 0#8, 42#16, etc.
+-/
+def extractBitVecLiteral (expr : Lean.Expr) : CompilerM (Nat × Nat) := do
+  let expr ← CompilerM.liftMetaM (whnf expr)
+
+  match expr with
+  -- BitVec.ofNat (w : Nat) (x : Nat) : BitVec w
+  -- Appears as: (.app (.app (.app (.const ``BitVec.ofNat _) (.lit (.natVal width))) _) (.lit (.natVal value)))
+  | .app (.app (.app (.const ``BitVec.ofNat _) (.lit (.natVal width))) _) (.lit (.natVal value)) =>
+    return (value, width)
+
+  -- Plain Nat literal - assume 8-bit width
+  | .lit (.natVal value) =>
+    return (value, 8)
+
+  | _ =>
+    CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got: {expr}"
+
+/--
   Translate a Lean expression to a wire name (creating assignments as needed).
   Returns the wire name holding the result.
 -/
@@ -179,8 +232,50 @@ partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") : Comp
     CompilerM.emitAssign wire (.const (Int.ofNat value) width)
     return wire
 
-  -- Note: Register synthesis requires special handling and is not yet fully implemented
-  -- For now, we focus on pure combinational logic
+  -- Signal.register primitive: register {dom} {α} init input
+  | .app (.app (.app (.app (.const regName _) _dom) _ty) init) input =>
+    if regName.toString.endsWith ".register" then do
+      -- Extract init value using helper
+      let (initVal, _width) ← extractBitVecLiteral init
+
+      -- Translate input signal recursively
+      let inputWire ← translateExprToWire input "reg_input"
+
+      -- Infer hardware type from the expression's type
+      let exprType ← CompilerM.liftMetaM (inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+
+      -- Emit register with hardcoded clock/reset names (will be added as inputs automatically)
+      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+
+      return regWire
+    else
+      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {regName}"
+
+  -- Signal.mux primitive: mux {dom} {α} cond thenSig elseSig
+  | .app (.app (.app (.app (.app (.const muxName _) _dom) _ty) cond) thenSig) elseSig =>
+    if muxName.toString.endsWith ".mux" then do
+      -- Translate all three arguments to wire names
+      let condWire ← translateExprToWire cond "mux_cond"
+      let thenWire ← translateExprToWire thenSig "mux_then"
+      let elseWire ← translateExprToWire elseSig "mux_else"
+
+      -- Create result wire
+      let resultWire ← CompilerM.makeWire hint (.bitVector 8)
+
+      -- Emit assignment with mux operator (3 arguments required)
+      CompilerM.emitAssign resultWire (.op .mux [.ref condWire, .ref thenWire, .ref elseWire])
+
+      return resultWire
+    else
+      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {muxName}"
+
+  -- Unsupported Signal operations
+  | .app (.const name _) _ =>
+    if name.toString.startsWith "Sparkle.Core.Signal" then
+      CompilerM.liftMetaM $ throwError s!"Signal operation '{name}' is not yet supported for synthesis. Supported: register, mux, pure, map. Consider using manual IR construction."
+    else
+      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {name}"
 
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Cannot synthesize expression: {e}"
@@ -254,7 +349,20 @@ def synthesizeCombinational (declName : Name) : MetaM Sparkle.IR.AST.Module := d
 
     let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
 
-    return finalCircuitState.module
+    -- POST-PROCESSING: Add clock and reset inputs if any registers exist
+    let mut module := finalCircuitState.module
+    let hasRegisters := module.body.any (fun stmt =>
+      match stmt with
+      | .register _ _ _ _ _ => true
+      | _ => false
+    )
+
+    if hasRegisters then
+      -- Add clock and reset as first inputs
+      module := module.addInput { name := "clk", ty := .bit }
+      module := module.addInput { name := "rst", ty := .bit }
+
+    return module
 
   | _ =>
     throwError s!"Cannot synthesize {declName}: not a definition"
