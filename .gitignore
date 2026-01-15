@@ -1,0 +1,41 @@
+# Lean 4 build artifacts
+.lake/
+build/
+lake-packages/
+*.olean
+*.ilean
+*.trace
+*.c
+*.o
+*.so
+*.dylib
+*.dll
+
+# Lake manifest (generated, often committed but can be regenerated)
+# Uncomment if you prefer not to commit it:
+# lake-manifest.json
+
+# Generated SystemVerilog files
+*.sv
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.code-workspace
+
+# Temporary files
+*.tmp
+*.bak
+*.log
