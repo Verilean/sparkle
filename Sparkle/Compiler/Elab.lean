@@ -40,11 +40,16 @@ def lookupVar (fvarId : FVarId) : CompilerM (Option String) := do
   let s ← getCompilerState
   return s.varMap.lookup fvarId
 
-/-- Add a variable mapping (not used in current ReaderT-based implementation) -/
-def addVarMapping (fvarId : FVarId) (wireName : String) : CompilerM Unit :=
-  -- Note: In the current implementation with ReaderT, we can't modify the compiler state
-  -- This is a placeholder for future enhancement
-  pure ()
+/-- Execute an action with an additional variable mapping in scope -/
+def withVarMapping {α : Type} (fvarId : FVarId) (wireName : String) (k : CompilerM α) : CompilerM α := do
+  -- Save old state
+  let oldState ← getCompilerState
+
+  -- Modify state: push new mapping
+  let newState := { oldState with varMap := (fvarId, wireName) :: oldState.varMap }
+
+  -- Use withReader to create a scoped context with the new mapping
+  withReader (fun _ => newState) k
 
 /-- Lift MetaM into CompilerM -/
 def liftMetaM {α : Type} (m : MetaM α) : CompilerM α :=
@@ -270,10 +275,40 @@ partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") : Comp
     else
       CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {muxName}"
 
+  -- Signal.loop primitive: loop {dom} {α} f
+  -- Matches: Signal.loop (fun feedback => body)
+  | .app (.app (.app (.const loopName _) _dom) _ty) f =>
+    if loopName.toString.endsWith ".loop" then do
+      match f with
+      | .lam binderName binderType body _ =>
+        -- 1. Create the feedback wire ahead of time.
+        let loopWire ← CompilerM.makeWire "loop" (.bitVector 8)
+
+        -- 2. Create a fresh FVar and instantiate the body (in MetaM)
+        let (fvarId, bodyInst) ← CompilerM.liftMetaM do
+          withLocalDeclD binderName binderType fun fvar => do
+            let fvarId := fvar.fvarId!
+            let bodyInst := body.instantiate1 fvar
+            return (fvarId, bodyInst)
+
+        -- 3. Translate the body with the FVar mapped to the loop wire
+        let resultWire ← CompilerM.withVarMapping fvarId loopWire do
+          translateExprToWire bodyInst "loop_body"
+
+        -- 4. Close the loop: connect the result back to the start
+        CompilerM.emitAssign loopWire (.ref resultWire)
+
+        return resultWire
+
+      | _ =>
+        CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda function."
+    else
+      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {loopName}"
+
   -- Unsupported Signal operations
   | .app (.const name _) _ =>
     if name.toString.startsWith "Sparkle.Core.Signal" then
-      CompilerM.liftMetaM $ throwError s!"Signal operation '{name}' is not yet supported for synthesis. Supported: register, mux, pure, map. Consider using manual IR construction."
+      CompilerM.liftMetaM $ throwError s!"Signal operation '{name}' is not yet supported for synthesis. Supported: register, mux, loop, pure, map. Consider using manual IR construction."
     else
       CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {name}"
 

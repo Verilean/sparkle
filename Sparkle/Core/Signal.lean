@@ -27,6 +27,10 @@ def Stream (α : Type u) : Type u := Nat → α
 structure Signal (dom : DomainConfig) (α : Type u) where
   val : Stream α
 
+-- Inhabited instance needed for opaque definitions
+instance [Inhabited α] : Inhabited (Signal dom α) where
+  default := ⟨fun _ => default⟩
+
 namespace Signal
 
 variable {dom : DomainConfig} {α β γ : Type u}
@@ -133,6 +137,22 @@ partial def counter : Signal dom Nat :=
 /-- Mux (multiplexer): select between two signals based on condition -/
 def mux (cond : Signal dom Bool) (thenSig : Signal dom α) (elseSig : Signal dom α) : Signal dom α :=
   ⟨fun t => if cond.val t then thenSig.val t else elseSig.val t⟩
+
+/--
+  Fixed-point combinator for feedback loops.
+
+  Allows defining circuits where the output feeds back into the input,
+  such as counters or state machines.
+
+  Usage:
+    Signal.loop fun feedback =>
+      let next := ... use feedback ...
+      register 0 next
+
+  Note: The simulation semantics are defined as a fixed point.
+  For synthesis, this is recognized by the compiler.
+-/
+opaque loop [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
 
 end Signal
 
