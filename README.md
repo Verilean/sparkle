@@ -23,12 +23,15 @@ Sparkle is a functional HDL that allows you to:
 - **Circuit Builder**: Compositional monad for building netlists
 - **Name Hygiene**: Automatic unique wire naming with collision avoidance
 
-### ✅ Phase 3: Compiler (Complete - MVP)
+### ✅ Phase 3: Compiler (Complete)
 - **Primitive Registry**: Maps Lean functions (BitVec.add, BitVec.and, etc.) to hardware operators
 - **Translation Kernel**: Translates Lean expressions to hardware IR
 - **Synthesis Commands**: `#synthesize` and `#synthesizeVerilog` for automatic compilation
-- **Supported**: Combinational logic, constants, let-bindings, binary operations
-- **Limitations**: Register synthesis, higher-order functions need manual IR construction
+- **Signal Synthesis**: Automatic compilation of `Signal.register` and `Signal.mux` primitives
+- **Automatic Clock/Reset**: Detects registers and adds clock/reset inputs automatically
+- **Supported**: Combinational logic, registers, mux, constants, let-bindings, binary operations
+- **Name Hygiene**: `_gen_` prefix on generated wires prevents collisions with user code
+- **Limitations**: Recursive Signal definitions, higher-order functions need manual IR construction
 
 ### ✅ Phase 4: Verilog Backend (Complete)
 - **Code Generation**: Clean, synthesizable SystemVerilog output
@@ -85,6 +88,28 @@ def myCircuit (a b : BitVec 8) : BitVec 8 :=
 
 #synthesize myCircuit        -- Generate IR
 #synthesizeVerilog myCircuit -- Generate Verilog
+```
+
+**Signal-level synthesis** (NEW):
+```bash
+lake env lean --run Examples/SignalSynthesis.lean
+```
+
+Demonstrates automatic Signal-to-IR compilation:
+- Simple register with constant input
+- Register chains (multi-cycle delays)
+- Mux selection
+- Combined register + mux (enabled register)
+- Automatic clock/reset input generation
+
+Example usage:
+```lean
+def simpleRegister {dom} : Signal dom (BitVec 8) :=
+  let input := Signal.pure 42#8
+  register 0#8 input
+
+#synthesizeVerilog simpleRegister
+-- Generates module with clk, rst inputs and always_ff block
 ```
 
 #### Phase 4: Verilog Generation
@@ -247,7 +272,8 @@ sparkle/
 ├── Examples/
 │   ├── Counter.lean         # Phase 1: Simulation examples
 │   ├── ManualIR.lean        # Phase 2: IR building examples
-│   ├── SynthesisTest.lean   # Phase 3: Automatic synthesis
+│   ├── SynthesisTest.lean   # Phase 3: Automatic synthesis (BitVec)
+│   ├── SignalSynthesis.lean # Phase 3: Signal-to-IR synthesis
 │   ├── VerilogTest.lean     # Phase 4: Verilog generation
 │   └── FullCycle.lean       # Phase 4: Advanced examples
 ├── Tests/
