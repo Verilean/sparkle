@@ -163,4 +163,90 @@ def halfAdderExample : Module :=
 -- Test the example
 #eval IO.println halfAdderExample
 
+/-
+  Primitive Module Helpers
+
+  Helper functions for creating common technology-specific primitives.
+  These create blackbox module definitions that will be provided by the vendor.
+-/
+
+/-- Create an SRAM primitive module (single-port synchronous RAM)
+
+    Parameters:
+    - name: Module name (e.g., "SRAM_256x32")
+    - addrWidth: Address width in bits (depth = 2^addrWidth)
+    - dataWidth: Data width in bits
+
+    Interface:
+    - Inputs: clk, we (write enable), addr, din (data in)
+    - Outputs: dout (data out)
+-/
+def mkSRAMPrimitive (name : String) (addrWidth : Nat) (dataWidth : Nat) : Module :=
+  Module.primitive name
+    [ { name := "clk",  ty := .bit }
+    , { name := "we",   ty := .bit }
+    , { name := "addr", ty := .bitVector addrWidth }
+    , { name := "din",  ty := .bitVector dataWidth }
+    ]
+    [ { name := "dout", ty := .bitVector dataWidth }
+    ]
+
+/-- Create a dual-port SRAM primitive module
+
+    Parameters:
+    - name: Module name (e.g., "SRAM_DP_256x32")
+    - addrWidth: Address width in bits (depth = 2^addrWidth)
+    - dataWidth: Data width in bits
+
+    Interface:
+    - Inputs: clk, we, raddr (read addr), waddr (write addr), din
+    - Outputs: dout
+-/
+def mkSRAMDualPortPrimitive (name : String) (addrWidth : Nat) (dataWidth : Nat) : Module :=
+  Module.primitive name
+    [ { name := "clk",   ty := .bit }
+    , { name := "we",    ty := .bit }
+    , { name := "raddr", ty := .bitVector addrWidth }
+    , { name := "waddr", ty := .bitVector addrWidth }
+    , { name := "din",   ty := .bitVector dataWidth }
+    ]
+    [ { name := "dout",  ty := .bitVector dataWidth }
+    ]
+
+/-- Create a clock gating cell primitive
+
+    Parameters:
+    - name: Module name (e.g., "CKGT_X2" for a 2x drive strength clock gate)
+
+    Interface:
+    - Inputs: clk (clock in), en (enable)
+    - Outputs: clk_out (gated clock)
+-/
+def mkClockGatePrimitive (name : String) : Module :=
+  Module.primitive name
+    [ { name := "clk", ty := .bit }
+    , { name := "en",  ty := .bit }
+    ]
+    [ { name := "clk_out", ty := .bit }
+    ]
+
+/-- Create a ROM primitive module
+
+    Parameters:
+    - name: Module name (e.g., "ROM_512x16")
+    - addrWidth: Address width in bits (depth = 2^addrWidth)
+    - dataWidth: Data width in bits
+
+    Interface:
+    - Inputs: clk, addr
+    - Outputs: dout
+-/
+def mkROMPrimitive (name : String) (addrWidth : Nat) (dataWidth : Nat) : Module :=
+  Module.primitive name
+    [ { name := "clk",  ty := .bit }
+    , { name := "addr", ty := .bitVector addrWidth }
+    ]
+    [ { name := "dout", ty := .bitVector dataWidth }
+    ]
+
 end Sparkle.IR.Builder

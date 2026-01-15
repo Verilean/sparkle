@@ -157,13 +157,17 @@ end Stmt
   Module: A hardware module with inputs, outputs, internal wires, and logic
 
   This represents a synthesizable hardware component.
+
+  If isPrimitive is true, this is a blackbox module (e.g., vendor SRAM, clock gate)
+  that should be instantiated but not defined. The body is ignored for primitives.
 -/
 structure Module where
-  name    : String
-  inputs  : List Port
-  outputs : List Port
-  wires   : List Port    -- Internal wires
-  body    : List Stmt    -- Logic (assignments, registers, instances)
+  name        : String
+  inputs      : List Port
+  outputs     : List Port
+  wires       : List Port    -- Internal wires (ignored for primitives)
+  body        : List Stmt    -- Logic (ignored for primitives)
+  isPrimitive : Bool := false  -- True for vendor-provided blackbox modules
   deriving Repr, BEq
 
 namespace Module
@@ -175,6 +179,17 @@ def empty (name : String) : Module :=
   , outputs := []
   , wires := []
   , body := []
+  , isPrimitive := false
+  }
+
+/-- Create a primitive (blackbox) module with specified interface -/
+def primitive (name : String) (inputs : List Port) (outputs : List Port) : Module :=
+  { name := name
+  , inputs := inputs
+  , outputs := outputs
+  , wires := []
+  , body := []
+  , isPrimitive := true
   }
 
 /-- Add an input port -/
