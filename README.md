@@ -54,6 +54,14 @@ Sparkle is a functional HDL that allows you to:
 - **Module Instantiation**: Seamless instantiation of primitive modules
 - **Use Cases**: Memory blocks, clock gating, IO pads, technology-specific cells
 
+### ✅ Phase 7: Example CPU & Formal Verification (In Progress)
+- **Sparkle-16 CPU**: 16-bit RISC processor demonstrating complex hardware design
+- **ISA Definition**: 8 instructions (LDI, ADD, SUB, AND, LD, ST, BEQ, JMP)
+- **ALU**: Arithmetic Logic Unit with formal correctness proofs
+- **Register File**: 8 registers with R0 hardwired to zero
+- **Verification Framework**: Lean 4 proofs for hardware correctness
+- **Example**: Complete CPU architecture from ISA to Verilog
+
 ## Quick Start
 
 ### Running Examples
@@ -210,6 +218,20 @@ TSMC_SRAM_256x32 u_sram (
 );
 ```
 
+#### Phase 7: Example CPU (Sparkle-16)
+```bash
+lake env lean --run Examples/Sparkle16/ALU.lean
+lake env lean --run Examples/Sparkle16/RegisterFile.lean
+```
+
+Demonstrates a complete 16-bit RISC CPU:
+- **ISA**: 8 instructions with encode/decode
+- **ALU**: 3 operations (ADD, SUB, AND) with zero flag
+- **RegisterFile**: 8 registers, R0 hardwired to 0
+- **Verification**: Formal proofs of ALU correctness
+
+See [Examples/Sparkle16/README.md](Examples/Sparkle16/README.md) for details.
+
 #### Test Suites
 ```bash
 lake env lean --run Tests/Simulation.lean  # Phase 1 tests
@@ -341,8 +363,11 @@ sparkle/
 │   │   └── Builder.lean     # Circuit builder monad
 │   ├── Compiler/
 │   │   └── Elab.lean        # Metaprogramming compiler
-│   └── Backend/
-│       └── Verilog.lean     # SystemVerilog code generation
+│   ├── Backend/
+│   │   └── Verilog.lean     # SystemVerilog code generation
+│   └── Verification/
+│       ├── Basic.lean       # Fundamental BitVec lemmas
+│       └── ALUProps.lean    # ALU correctness proofs
 ├── Examples/
 │   ├── Counter.lean         # Phase 1: Simulation examples
 │   ├── ManualIR.lean        # Phase 2: IR building examples
@@ -350,6 +375,11 @@ sparkle/
 │   ├── SignalSynthesis.lean # Phase 3: Signal-to-IR synthesis
 │   ├── LoopSynthesis.lean   # Phase 5: Feedback loop synthesis
 │   ├── PrimitiveTest.lean   # Phase 6: Technology primitives (SRAM, clock gates)
+│   ├── Sparkle16/           # Phase 7: Example CPU with formal verification
+│   │   ├── ISA.lean         # Instruction set architecture
+│   │   ├── ALU.lean         # Arithmetic Logic Unit
+│   │   ├── RegisterFile.lean # 8-register file
+│   │   └── README.md        # CPU documentation
 │   ├── VerilogTest.lean     # Phase 4: Verilog generation
 │   └── FullCycle.lean       # Phase 4: Advanced examples
 ├── Tests/
