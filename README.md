@@ -47,6 +47,13 @@ Sparkle is a functional HDL that allows you to:
 - **Loop Closure**: Automatic wire allocation and connection for feedback paths
 - **Variable Mapping**: Scoped tracking of loop variables during compilation
 
+### ✅ Phase 6: Primitive Modules (Complete)
+- **Blackbox Support**: Declare technology-specific modules without defining them
+- **Vendor Integration**: Support for ASIC/FPGA vendor libraries (TSMC, Intel, Xilinx, etc.)
+- **Common Primitives**: Helper functions for SRAM, ROM, clock gating cells
+- **Module Instantiation**: Seamless instantiation of primitive modules
+- **Use Cases**: Memory blocks, clock gating, IO pads, technology-specific cells
+
 ## Quick Start
 
 ### Running Examples
@@ -163,6 +170,45 @@ Generates advanced `.sv` files for:
 - TrafficLight.sv (State machine)
 - ShiftRegister8.sv (Serial-to-parallel converter)
 - FIFO4.sv (4-entry FIFO buffer)
+
+#### Phase 6: Primitive Modules
+```bash
+lake env lean --run Examples/PrimitiveTest.lean
+```
+
+Demonstrates technology-specific blackbox modules:
+- **Single-port SRAM**: Vendor memory compiler blocks (TSMC, Intel, etc.)
+- **Dual-port SRAM**: Independent read/write ports for higher throughput
+- **Clock Gating**: Power optimization with clock gating cells
+- **ROM**: Read-only memory for lookup tables and constants
+- **Complex Design**: Memory controller with gated clocks and SRAM
+
+Example usage:
+```lean
+-- Declare a vendor-provided SRAM primitive
+let sramPrimitive := mkSRAMPrimitive "TSMC_SRAM_256x32" 8 32
+
+-- Instantiate the SRAM in your design
+emitInstance "TSMC_SRAM_256x32" "u_sram"
+  [ ("clk",  .ref "clk")
+  , ("we",   .ref "we")
+  , ("addr", .ref "addr")
+  , ("din",  .ref "din")
+  , ("dout", .ref doutWire)
+  ]
+```
+
+Generated Verilog references the primitive without defining it:
+```systemverilog
+// The SRAM is instantiated but not defined (comes from vendor library)
+TSMC_SRAM_256x32 u_sram (
+    .clk(clk),
+    .we(we),
+    .addr(addr),
+    .din(din),
+    .dout(sram_dout)
+);
+```
 
 #### Test Suites
 ```bash
@@ -303,6 +349,7 @@ sparkle/
 │   ├── SynthesisTest.lean   # Phase 3: Automatic synthesis (BitVec)
 │   ├── SignalSynthesis.lean # Phase 3: Signal-to-IR synthesis
 │   ├── LoopSynthesis.lean   # Phase 5: Feedback loop synthesis
+│   ├── PrimitiveTest.lean   # Phase 6: Technology primitives (SRAM, clock gates)
 │   ├── VerilogTest.lean     # Phase 4: Verilog generation
 │   └── FullCycle.lean       # Phase 4: Advanced examples
 ├── Tests/
