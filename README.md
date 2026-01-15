@@ -29,9 +29,9 @@ Sparkle is a functional HDL that allows you to:
 - **Synthesis Commands**: `#synthesize` and `#synthesizeVerilog` for automatic compilation
 - **Signal Synthesis**: Automatic compilation of `Signal.register` and `Signal.mux` primitives
 - **Automatic Clock/Reset**: Detects registers and adds clock/reset inputs automatically
-- **Supported**: Combinational logic, registers, mux, constants, let-bindings, binary operations
+- **Supported**: Combinational logic, registers, mux, feedback loops (Signal.loop), constants, let-bindings, binary operations
 - **Name Hygiene**: `_gen_` prefix on generated wires prevents collisions with user code
-- **Limitations**: Recursive Signal definitions, higher-order functions need manual IR construction
+- **Limitations**: Complex higher-order functions may need manual IR construction
 
 ### ✅ Phase 4: Verilog Backend (Complete)
 - **Code Generation**: Clean, synthesizable SystemVerilog output
@@ -39,6 +39,13 @@ Sparkle is a functional HDL that allows you to:
 - **Operator Mapping**: IR operators → Verilog syntax
 - **Register Generation**: Proper always_ff blocks with reset
 - **Advanced Examples**: MAC, FIR filter, traffic light, shift register, FIFO
+
+### ✅ Phase 5: Feedback Loops (Complete)
+- **Signal.loop Primitive**: Fixed-point combinator for feedback loops
+- **Counter Support**: Enable circuits where output feeds back to input
+- **State Machines**: Support for stateful hardware designs
+- **Loop Closure**: Automatic wire allocation and connection for feedback paths
+- **Variable Mapping**: Scoped tracking of loop variables during compilation
 
 ## Quick Start
 
@@ -110,6 +117,27 @@ def simpleRegister {dom} : Signal dom (BitVec 8) :=
 
 #synthesizeVerilog simpleRegister
 -- Generates module with clk, rst inputs and always_ff block
+```
+
+**Feedback loop synthesis** (NEW):
+```bash
+lake env lean --run Examples/LoopSynthesis.lean
+```
+
+Demonstrates Signal.loop for feedback paths:
+- Counter with feedback (cnt = cnt + 1)
+- Automatic loop wire allocation
+- Loop closure with register to break combinational cycles
+
+Example usage:
+```lean
+def counter {dom} : Signal dom (BitVec 8) :=
+  Signal.loop fun cnt =>
+    let next := (· + ·) <$> cnt <*> Signal.pure 1#8
+    register 0#8 next
+
+#synthesizeVerilog counter
+-- Generates counter with feedback path properly closed
 ```
 
 #### Phase 4: Verilog Generation
@@ -274,6 +302,7 @@ sparkle/
 │   ├── ManualIR.lean        # Phase 2: IR building examples
 │   ├── SynthesisTest.lean   # Phase 3: Automatic synthesis (BitVec)
 │   ├── SignalSynthesis.lean # Phase 3: Signal-to-IR synthesis
+│   ├── LoopSynthesis.lean   # Phase 5: Feedback loop synthesis
 │   ├── VerilogTest.lean     # Phase 4: Verilog generation
 │   └── FullCycle.lean       # Phase 4: Advanced examples
 ├── Tests/
@@ -296,11 +325,6 @@ lake env lean --run Examples/VerilogTest.lean
 ```
 
 ## Future Work
-
-### Phase 3 Enhancements
-- Improve variable binding tracking for complex let-expressions
-- Add support for register synthesis through metaprogramming
-- Extend to handle higher-order functions and Signal-based code
 
 ### Additional Features
 - Vector types (`Vec n α`) for parameterized hardware
