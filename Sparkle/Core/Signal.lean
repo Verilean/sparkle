@@ -1,3 +1,5 @@
+import Sparkle.Core.Domain
+
 /-!
 # Signal Module
 
@@ -49,8 +51,6 @@ Signals can be simulated directly to verify behavior before synthesis:
 
 See also: `Sparkle.Core.Domain` for clock domain configuration.
 -/
-
-import Sparkle.Core.Domain
 
 namespace Sparkle.Core.Signal
 
