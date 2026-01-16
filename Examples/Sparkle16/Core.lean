@@ -458,6 +458,7 @@ def main : IO Unit := do
   IO.println ""
   IO.println "✓ CPU core simulation complete!"
 
-#eval! main
-
 end Sparkle16
+
+-- Export main at the top level for `lake env lean --run`
+def main : IO Unit := Sparkle16.main
