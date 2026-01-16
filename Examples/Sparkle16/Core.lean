@@ -265,14 +265,14 @@ def executeInstruction (instr : Instruction) (state : CPUState) (memData : Word)
       let result := val1 &&& val2
       state.writeReg rd result |>.incPC
 
-  | .LD rd rs1 =>
+  | .LD rd _rs1 =>
       -- Load from memory: Rd := mem[Rs1]
-      -- Memory data is passed in as parameter
+      -- Note: Address resolution happens in cpuStep, memData contains the loaded value
       state.writeReg rd memData |>.incPC
 
-  | .ST rs1 rs2 =>
+  | .ST _rs1 _rs2 =>
       -- Store to memory: mem[Rs1] := Rs2
-      -- Actual write happens in memory module
+      -- Note: Actual address resolution and write happens in cpuStep
       state.incPC
 
   | .BEQ rs1 rs2 offset =>
@@ -316,7 +316,7 @@ def cpuStep (state : CPUState) (instrMem : SimMemory) (dataMem : SimMemory) :
           ({ state with phase := .Fetch } |>.incPC, dataMem)
       | some instr =>
           match instr with
-          | .LD rd rs1 =>
+          | .LD _rd rs1 =>
               -- Load: read from data memory
               let addr := state.readReg rs1
               let memData := dataMem.read (addr.truncate 8)
