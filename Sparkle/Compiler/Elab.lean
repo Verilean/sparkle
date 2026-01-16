@@ -203,9 +203,9 @@ partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") : Comp
   -- Let bindings
   | .letE name _type value body _ => do
     -- Translate the value expression to a wire
-    let valueWire ← translateExprToWire value name.toString
+    let _valueWire ← translateExprToWire value name.toString
     -- For now, we inline the body evaluation
-    -- TODO: Properly handle variable bindings in body
+    -- TODO: Properly handle variable bindings in body (use _valueWire for scoping)
     translateExprToWire body hint
 
   -- Lambda expressions (parameters become inputs)

@@ -160,8 +160,9 @@ def halfAdderExample : Module :=
     CircuitM.addOutput "carry" .bit
     CircuitM.emitAssign "carry" (.ref carryWire)
 
--- Test the example
-#eval IO.println halfAdderExample
+-- Test the example (commented out to avoid printing during build)
+-- Uncomment to see the module structure:
+-- #eval IO.println halfAdderExample
 
 /-
   Primitive Module Helpers
