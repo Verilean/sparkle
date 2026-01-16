@@ -54,13 +54,15 @@ Sparkle is a functional HDL that allows you to:
 - **Module Instantiation**: Seamless instantiation of primitive modules
 - **Use Cases**: Memory blocks, clock gating, IO pads, technology-specific cells
 
-### ✅ Phase 7: Example CPU & Formal Verification (In Progress)
+### ✅ Phase 7: Example CPU & Formal Verification (Complete)
 - **Sparkle-16 CPU**: 16-bit RISC processor demonstrating complex hardware design
-- **ISA Definition**: 8 instructions (LDI, ADD, SUB, AND, LD, ST, BEQ, JMP)
-- **ALU**: Arithmetic Logic Unit with formal correctness proofs
+- **ISA Definition**: 8 instructions (LDI, ADD, SUB, AND, LD, ST, BEQ, JMP) with encode/decode
+- **ALU**: Arithmetic Logic Unit with 9 formal correctness proofs
 - **Register File**: 8 registers with R0 hardwired to zero
-- **Verification Framework**: Lean 4 proofs for hardware correctness
-- **Example**: Complete CPU architecture from ISA to Verilog
+- **Memory Interface**: Instruction/data memory with SimMemory and SRAM modules
+- **CPU Core**: Complete fetch-decode-execute state machine with simulation
+- **Verification Framework**: ISA correctness, ALU proofs, instruction classification
+- **Example Programs**: Arithmetic operations and control flow demonstrations
 
 ## Quick Start
 
@@ -220,15 +222,25 @@ TSMC_SRAM_256x32 u_sram (
 
 #### Phase 7: Example CPU (Sparkle-16)
 ```bash
+# Individual components
 lake env lean --run Examples/Sparkle16/ALU.lean
 lake env lean --run Examples/Sparkle16/RegisterFile.lean
+lake env lean --run Examples/Sparkle16/Memory.lean
+
+# Complete CPU simulation
+lake env lean --run Examples/Sparkle16/Core.lean
+
+# Verification proofs
+lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 ```
 
 Demonstrates a complete 16-bit RISC CPU:
-- **ISA**: 8 instructions with encode/decode
-- **ALU**: 3 operations (ADD, SUB, AND) with zero flag
+- **ISA**: 8 instructions (LDI, ADD, SUB, AND, LD, ST, BEQ, JMP)
+- **ALU**: 3 operations with 9 formal correctness proofs
 - **RegisterFile**: 8 registers, R0 hardwired to 0
-- **Verification**: Formal proofs of ALU correctness
+- **Memory**: Instruction/data memory with SimMemory and SRAM primitives
+- **CPU Core**: Fetch-decode-execute state machine with example programs
+- **Verification**: ISA correctness, ALU proofs, instruction classification
 
 See [Examples/Sparkle16/README.md](Examples/Sparkle16/README.md) for details.
 
@@ -367,7 +379,8 @@ sparkle/
 │   │   └── Verilog.lean     # SystemVerilog code generation
 │   └── Verification/
 │       ├── Basic.lean       # Fundamental BitVec lemmas
-│       └── ALUProps.lean    # ALU correctness proofs
+│       ├── ALUProps.lean    # ALU correctness proofs
+│       └── ISAProps.lean    # ISA encoding/decoding correctness
 ├── Examples/
 │   ├── Counter.lean         # Phase 1: Simulation examples
 │   ├── ManualIR.lean        # Phase 2: IR building examples
@@ -379,6 +392,9 @@ sparkle/
 │   │   ├── ISA.lean         # Instruction set architecture
 │   │   ├── ALU.lean         # Arithmetic Logic Unit
 │   │   ├── RegisterFile.lean # 8-register file
+│   │   ├── Memory.lean      # Memory interface (instruction & data)
+│   │   ├── Core.lean        # CPU core with state machine
+│   │   ├── ISAProofTests.lean # ISA correctness tests
 │   │   └── README.md        # CPU documentation
 │   ├── VerilogTest.lean     # Phase 4: Verilog generation
 │   └── FullCycle.lean       # Phase 4: Advanced examples
@@ -400,6 +416,26 @@ lake env lean --run Examples/Counter.lean
 lake env lean --run Examples/ManualIR.lean
 lake env lean --run Examples/VerilogTest.lean
 ```
+
+## Documentation
+
+Generate API documentation using doc-gen4:
+
+```bash
+# Generate documentation
+lake -R -Kenv=dev build Sparkle:docs
+
+# Documentation will be in .lake/build/doc/
+# Open .lake/build/doc/index.html in your browser
+```
+
+The documentation includes:
+- API reference for all Sparkle modules
+- Signal semantics and primitives
+- IR builder and AST types
+- Verilog backend
+- Verification framework (ALU and ISA proofs)
+- Example CPU architecture
 
 ## Future Work
 
@@ -430,6 +466,11 @@ Sparkle is an educational project demonstrating:
 - Hardware synthesis
 
 Improvements welcome!
+
+## Author
+
+**Junji Hashimoto**
+- Twitter/X: [@junjihashimoto3](https://x.com/junjihashimoto3)
 
 ## License
 
