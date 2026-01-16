@@ -118,6 +118,83 @@ module RegisterFile (
 lake env lean --run Examples/Sparkle16/RegisterFile.lean
 ```
 
+### 4. CPU Core (Core.lean)
+
+Complete CPU implementation integrating all components:
+
+**Features:**
+- **Fetch-Decode-Execute** state machine
+- **3-phase pipeline**: Fetch, Decode, Execute
+- **Harvard architecture**: Separate instruction and data memory
+- **Single-cycle execution**: Simplified design for clarity
+- **Memory interface**: SimMemory for simulation
+- **Full ISA support**: All 8 instructions implemented
+
+**CPU State:**
+```lean
+structure CPUState where
+  pc : Word                    -- Program counter
+  regs : Fin 8 → Word         -- Register file (functional)
+  phase : Phase                -- Current execution phase
+  instr : Option Instruction   -- Currently decoded instruction
+  memData : Word               -- Data from memory load
+```
+
+**Execution Phases:**
+1. **Fetch**: Read instruction from instruction memory at PC
+2. **Decode**: Parse instruction fields (opcode, registers, immediates)
+3. **Execute**: Perform operation, update registers, PC, or memory
+
+**Run CPU Simulation:**
+```bash
+lake env lean --run Examples/Sparkle16/Core.lean
+```
+
+**Example Output:**
+```
+=== Sparkle-16 CPU Core ===
+
+Example 1: Simple arithmetic
+Program:
+  LDI R1, 10
+  LDI R2, 20
+  ADD R3, R1, R2
+  SUB R4, R3, R1
+
+After 12 cycles:
+PC=4 Phase=Fetch Instr=None
+R0=0x0000#16 R1=0x000a#16 R2=0x0014#16 R3=0x001e#16
+R4=0x0014#16 R5=0x0000#16 R6=0x0000#16 R7=0x0000#16
+
+✓ All values correct!
+```
+
+**Implementation Details:**
+- Pure functional execution semantics (`executeInstruction`)
+- Separate memory handling for LD/ST instructions
+- R0 always reads as 0, writes ignored
+- Branch instructions update PC directly
+- Jump instruction sets PC to absolute address
+
+### 5. Memory Interface (Memory.lean)
+
+Provides both simulation and synthesis-level memory:
+
+**SimMemory (for testing):**
+- Functional array model (256 words × 16 bits)
+- Synchronous read/write operations
+- Address wrapping for bounds safety
+
+**Hardware Modules (for synthesis):**
+- `instructionMemoryModule`: Read-only SRAM for instructions
+- `dataMemoryModule`: Read/write SRAM for data
+- Uses vendor SRAM primitives (SRAM_256x16)
+
+**Run Memory Tests:**
+```bash
+lake env lean --run Examples/Sparkle16/Memory.lean
+```
+
 ## Formal Verification
 
 ### Verification Framework (Sparkle/Verification/)
@@ -174,6 +251,12 @@ lake env lean --run Examples/Sparkle16/ALU.lean
 
 # Build and test RegisterFile
 lake env lean --run Examples/Sparkle16/RegisterFile.lean
+
+# Build and test Memory
+lake env lean --run Examples/Sparkle16/Memory.lean
+
+# Run CPU Core simulation
+lake env lean --run Examples/Sparkle16/Core.lean
 ```
 
 ### Generated Verilog
@@ -181,6 +264,8 @@ lake env lean --run Examples/Sparkle16/RegisterFile.lean
 Running the examples generates SystemVerilog files:
 - `ALU.sv` - Arithmetic Logic Unit
 - `RegisterFile.sv` - 8-register file
+- `InstructionMemory.sv` - Instruction memory (SRAM)
+- `DataMemory.sv` - Data memory (SRAM)
 
 These files are synthesizable and can be used in FPGA or ASIC flows.
 
@@ -191,6 +276,8 @@ Examples/Sparkle16/
 ├── ISA.lean           # Instruction set definitions
 ├── ALU.lean           # Arithmetic Logic Unit
 ├── RegisterFile.lean  # 8-register file
+├── Memory.lean        # Memory interface (instruction & data)
+├── Core.lean          # Complete CPU core with state machine
 └── README.md          # This file
 
 Sparkle/Verification/
@@ -209,24 +296,26 @@ Sparkle/Verification/
 ## Future Work
 
 ### Near Term
-- **Memory Interface**: Instruction and data memory modules
-- **CPU Core**: State machine integrating all components
-- **Control Unit**: Fetch-decode-execute FSM
-- **Test Programs**: Assembly programs for validation
+- **Test Programs**: More comprehensive assembly programs for validation
+- **ISA Correctness Proofs**: Encode/decode bijectivity, instruction semantics
+- **State Machine Proofs**: PC increment correctness, phase transitions
+- **Hardware Synthesis**: Generate complete CPU Verilog (currently simulation-only)
 
 ### Extended Features
-- **More Instructions**: OR, XOR, SLT (set less than), shifts
-- **Branch Prediction**: Simple static prediction
-- **Pipeline**: 3-stage pipeline (Fetch, Decode, Execute)
-- **Interrupts**: Basic interrupt handling
-- **Formal Proofs**: State machine invariants, ISA correctness
+- **More Instructions**: OR, XOR, SLT (set less than), shifts, rotates
+- **Branch Prediction**: Simple static or dynamic prediction
+- **Pipeline**: Multi-stage pipeline with hazard detection
+- **Interrupts**: Basic interrupt handling and exception support
+- **Cache**: Simple instruction/data caches
 
 ### Verification Goals
-- Prove R0 always reads as 0
-- Prove PC increments correctly (except branches)
-- Prove instruction decode is bijective
-- Prove register writes are isolated (no crosstalk)
-- Prove memory safety (bounds checking)
+- ✅ Prove ALU operations are correct
+- ⏳ Prove R0 always reads as 0
+- ⏳ Prove PC increments correctly (except branches)
+- ⏳ Prove instruction decode is bijective
+- ⏳ Prove register writes are isolated (no crosstalk)
+- ⏳ Prove memory safety (bounds checking)
+- ⏳ Prove state machine invariants hold
 
 ## Example Usage
 
@@ -296,11 +385,26 @@ MIT
 
 ---
 
-**Status**: Foundation Complete ✓
-- ISA defined with encode/decode
-- ALU implemented and tested
-- RegisterFile implemented with R0=0
-- Verification framework established
-- Basic proofs completed
+**Status**: CPU Core Complete ✓
 
-**Next Steps**: CPU Core integration, memory system, test programs
+**Completed Components:**
+- ✅ ISA defined with encode/decode
+- ✅ ALU implemented with formal correctness proofs
+- ✅ RegisterFile implemented with R0=0 invariant
+- ✅ Memory interface (simulation and hardware modules)
+- ✅ CPU Core with fetch-decode-execute state machine
+- ✅ Verification framework with BitVec lemmas
+- ✅ Example programs demonstrating all instruction types
+
+**Verification Status:**
+- ✅ ALU correctness proven (9 theorems)
+- ⏳ ISA correctness (encode/decode bijectivity)
+- ⏳ State machine invariants
+- ⏳ R0=0 invariant
+- ⏳ Memory safety proofs
+
+**Next Steps**:
+- ISA correctness proofs
+- State machine verification
+- Hardware synthesis for complete CPU
+- More comprehensive test programs
