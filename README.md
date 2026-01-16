@@ -1,5 +1,8 @@
 # Sparkle HDL
 
+[![Build](https://github.com/Verilean/sparkle/actions/workflows/build.yml/badge.svg)](https://github.com/Verilean/sparkle/actions/workflows/build.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
 **Write hardware in Lean 4. Prove it correct. Generate Verilog.**
 
 A type-safe hardware description language that brings the power of dependent types and theorem proving to hardware design.
@@ -47,7 +50,7 @@ endmodule
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/sparkle.git
+git clone https://github.com/Verilean/sparkle.git
 cd sparkle
 
 # Build the project
@@ -395,7 +398,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed development phases and implementat
 
 ## License
 
-MIT
+Apache License 2.0 - see [LICENSE](LICENSE) file for details
 
 ## Acknowledgments
 

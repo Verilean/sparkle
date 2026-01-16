@@ -1,0 +1,45 @@
+name: Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Update PATH
+      run: echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: |
+        elan default leanprover/lean4:v4.27.0-rc1
+
+    - name: Lake update
+      run: lake update
+
+    - name: Build project
+      run: lake build
+
+    - name: Run Counter example
+      run: lake env lean --run Examples/Counter.lean
+
+    - name: Run Sparkle-16 CPU Core
+      run: lake env lean --run Examples/Sparkle16/Core.lean
+
+    - name: Run ISA Proof Tests
+      run: |
+        lake build Sparkle.Verification.ISAProps
+        lake env lean --run Examples/Sparkle16/ISAProofTests.lean
