@@ -233,6 +233,37 @@ theorem my_add_proof (a b : BitVec 16) :
   apply alu_add_correct
 ```
 
+#### ISAProps.lean
+
+ISA correctness proofs for instruction encoding/decoding:
+
+**Proven Theorems:**
+1. `opcode_encode_decode`: Opcode encoding is bijective (all opcodes roundtrip)
+2. `opcode_decode_total`: Every 3-bit value maps to an opcode
+3. `writes_has_dest`: Instructions that write have a destination register
+4. `branch_no_write`: Branch instructions don't write to registers
+5. `encode_preserves_dest`: Encoding preserves destination registers
+6. `encode_decode_id`: Full instruction encode/decode roundtrip (in progress)
+
+**Example:**
+```lean
+import Sparkle.Verification.ISAProps
+
+-- Prove opcode roundtrip
+example : Opcode.fromBitVec (Opcode.toBitVec Opcode.ADD) = some Opcode.ADD :=
+  opcode_encode_decode Opcode.ADD
+
+-- Prove branch instructions don't write
+example (instr : Instruction) (h : instr.isBranch = true) :
+    instr.writesRegister = false :=
+  branch_no_write instr h
+```
+
+**Test ISA Proofs:**
+```bash
+lake env lean --run Examples/Sparkle16/ISAProofTests.lean
+```
+
 ## Building and Testing
 
 ### Prerequisites
@@ -273,16 +304,18 @@ These files are synthesizable and can be used in FPGA or ASIC flows.
 
 ```
 Examples/Sparkle16/
-├── ISA.lean           # Instruction set definitions
-├── ALU.lean           # Arithmetic Logic Unit
-├── RegisterFile.lean  # 8-register file
-├── Memory.lean        # Memory interface (instruction & data)
-├── Core.lean          # Complete CPU core with state machine
-└── README.md          # This file
+├── ISA.lean            # Instruction set definitions
+├── ALU.lean            # Arithmetic Logic Unit
+├── RegisterFile.lean   # 8-register file
+├── Memory.lean         # Memory interface (instruction & data)
+├── Core.lean           # Complete CPU core with state machine
+├── ISAProofTests.lean  # ISA correctness proof tests
+└── README.md           # This file
 
 Sparkle/Verification/
-├── Basic.lean         # Fundamental BitVec lemmas
-└── ALUProps.lean      # ALU correctness proofs
+├── Basic.lean          # Fundamental BitVec lemmas
+├── ALUProps.lean       # ALU correctness proofs
+└── ISAProps.lean       # ISA encoding/decoding correctness
 ```
 
 ## Design Principles
@@ -398,13 +431,16 @@ MIT
 
 **Verification Status:**
 - ✅ ALU correctness proven (9 theorems)
-- ⏳ ISA correctness (encode/decode bijectivity)
+- ✅ ISA opcode correctness (encode/decode bijection)
+- ✅ ISA instruction classification (branches, register writes)
+- ⏳ Full instruction encode/decode bijectivity (in progress)
 - ⏳ State machine invariants
 - ⏳ R0=0 invariant
 - ⏳ Memory safety proofs
 
 **Next Steps**:
-- ISA correctness proofs
-- State machine verification
+- Complete full instruction encode/decode roundtrip proofs
+- State machine verification (phase transitions, PC increment)
+- R0=0 invariant proof
 - Hardware synthesis for complete CPU
 - More comprehensive test programs
