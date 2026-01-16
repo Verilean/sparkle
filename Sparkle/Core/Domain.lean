@@ -1,8 +1,62 @@
-/-
-  Domain Configuration for Sparkle HDL
+/-!
+# Domain Module
 
-  Defines clock domains, edge sensitivity, and reset behavior.
-  Each domain has a specific clock period, active edge, and reset kind.
+Clock domain configuration for Sparkle HDL.
+
+## Purpose
+
+This module defines clock domains, which specify timing and reset behavior
+for hardware signals. Each domain has:
+- A clock period (in picoseconds)
+- An active edge (rising or falling)
+- A reset type (synchronous or asynchronous)
+
+## Type Safety
+
+Signals are tagged with their domain at the type level (`Signal d α`),
+preventing accidental mixing of signals from different clock domains.
+
+## Usage
+
+Define a custom clock domain:
+
+```lean
+def FastClock : DomainConfig where
+  period := 5000        -- 5ns period (200MHz)
+  activeEdge := .rising
+  resetKind := .synchronous
+```
+
+Most designs use the default `Domain`:
+
+```lean
+def myCircuit : Signal Domain (BitVec 16) := do
+  -- Your circuit here
+  ...
+```
+
+## Multi-Clock Designs
+
+For designs with multiple clock domains, create separate domain configurations
+and use type-level tracking to ensure safety:
+
+```lean
+def Domain100MHz : DomainConfig where
+  period := 10000       -- 10ns (100MHz)
+  activeEdge := .rising
+  resetKind := .synchronous
+
+def Domain50MHz : DomainConfig where
+  period := 20000       -- 20ns (50MHz)
+  activeEdge := .rising
+  resetKind := .synchronous
+
+-- These cannot be mixed due to type safety!
+def fast : Signal Domain100MHz (BitVec 8) := ...
+def slow : Signal Domain50MHz (BitVec 8) := ...
+```
+
+See also: `Sparkle.Core.Signal` for signal operations.
 -/
 
 namespace Sparkle.Core.Domain

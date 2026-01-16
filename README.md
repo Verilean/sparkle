@@ -1,471 +1,392 @@
 # Sparkle HDL
 
-A type-safe hardware description language in Lean 4, inspired by Haskell's Clash.
+**Write hardware in Lean 4. Prove it correct. Generate Verilog.**
 
-## Overview
+A type-safe hardware description language that brings the power of dependent types and theorem proving to hardware design.
 
-Sparkle is a functional HDL that allows you to:
-- **Simulate** hardware designs with cycle-accurate semantics
-- **Build** hardware netlists using a composable IR
-- **Generate** synthesizable SystemVerilog code
+## Why Sparkle?
 
-## Features
-
-### ✅ Phase 1: Simulation (Complete)
-- **Domain Configuration**: Type-safe clock domains with configurable period, edge, and reset
-- **Signal Semantics**: Stream-based signals (Nat → α) with Functor/Applicative/Monad instances
-- **Hardware Primitives**: `register`, `registerWithEnable`, `mux`, bundling
-- **BitPack**: Type class for hardware-representable types
-
-### ✅ Phase 2: Netlist IR (Complete)
-- **Hardware Types**: Bit, BitVector, Array
-- **AST**: Expressions (const, ref, op), Statements (assign, register, inst)
-- **Circuit Builder**: Compositional monad for building netlists
-- **Name Hygiene**: Automatic unique wire naming with collision avoidance
-
-### ✅ Phase 3: Compiler (Complete)
-- **Primitive Registry**: Maps Lean functions (BitVec.add, BitVec.and, etc.) to hardware operators
-- **Translation Kernel**: Translates Lean expressions to hardware IR
-- **Synthesis Commands**: `#synthesize` and `#synthesizeVerilog` for automatic compilation
-- **Signal Synthesis**: Automatic compilation of `Signal.register` and `Signal.mux` primitives
-- **Automatic Clock/Reset**: Detects registers and adds clock/reset inputs automatically
-- **Supported**: Combinational logic, registers, mux, feedback loops (Signal.loop), constants, let-bindings, binary operations
-- **Name Hygiene**: `_gen_` prefix on generated wires prevents collisions with user code
-- **Limitations**: Complex higher-order functions may need manual IR construction
-
-### ✅ Phase 4: Verilog Backend (Complete)
-- **Code Generation**: Clean, synthesizable SystemVerilog output
-- **Type Mapping**: Lean types → Verilog types
-- **Operator Mapping**: IR operators → Verilog syntax
-- **Register Generation**: Proper always_ff blocks with reset
-- **Advanced Examples**: MAC, FIR filter, traffic light, shift register, FIFO
-
-### ✅ Phase 5: Feedback Loops (Complete)
-- **Signal.loop Primitive**: Fixed-point combinator for feedback loops
-- **Counter Support**: Enable circuits where output feeds back to input
-- **State Machines**: Support for stateful hardware designs
-- **Loop Closure**: Automatic wire allocation and connection for feedback paths
-- **Variable Mapping**: Scoped tracking of loop variables during compilation
-
-### ✅ Phase 6: Primitive Modules (Complete)
-- **Blackbox Support**: Declare technology-specific modules without defining them
-- **Vendor Integration**: Support for ASIC/FPGA vendor libraries (TSMC, Intel, Xilinx, etc.)
-- **Common Primitives**: Helper functions for SRAM, ROM, clock gating cells
-- **Module Instantiation**: Seamless instantiation of primitive modules
-- **Use Cases**: Memory blocks, clock gating, IO pads, technology-specific cells
-
-### ✅ Phase 7: Example CPU & Formal Verification (Complete)
-- **Sparkle-16 CPU**: 16-bit RISC processor demonstrating complex hardware design
-- **ISA Definition**: 8 instructions (LDI, ADD, SUB, AND, LD, ST, BEQ, JMP) with encode/decode
-- **ALU**: Arithmetic Logic Unit with 9 formal correctness proofs
-- **Register File**: 8 registers with R0 hardwired to zero
-- **Memory Interface**: Instruction/data memory with SimMemory and SRAM modules
-- **CPU Core**: Complete fetch-decode-execute state machine with simulation
-- **Verification Framework**: ISA correctness, ALU proofs, instruction classification
-- **Example Programs**: Arithmetic operations and control flow demonstrations
-
-## Quick Start
-
-### Running Examples
-
-#### Phase 1: Simulation
-```bash
-lake env lean --run Examples/Counter.lean
-```
-
-Demonstrates:
-- Combinational logic (addition, multiplication)
-- Register delays
-- Multiplexers
-- Signal bundling
-
-#### Phase 2: Manual IR Construction
-```bash
-lake env lean --run Examples/ManualIR.lean
-```
-
-Builds hardware netlists for:
-- Half adder and full adder
-- 4-bit adder
-- Registers and counters
-- Accumulator
-- Comparator
-
-#### Phase 3: Automatic Synthesis
-```bash
-lake env lean --run Examples/SynthesisTest.lean
-```
-
-Demonstrates metaprogramming-based compilation:
-- Automatic translation of Lean functions to hardware IR
-- `#synthesize` command for IR generation
-- `#synthesizeVerilog` command for direct Verilog output
-- Combinational logic with let-bindings
-- BitVec operations (add, and, or, xor, mul, sub)
-
-Example usage in Lean files:
 ```lean
-def myCircuit (a b : BitVec 8) : BitVec 8 :=
-  let x := a + b
-  let y := x &&& 5#8
-  y
-
-#synthesize myCircuit        -- Generate IR
-#synthesizeVerilog myCircuit -- Generate Verilog
-```
-
-**Signal-level synthesis** (NEW):
-```bash
-lake env lean --run Examples/SignalSynthesis.lean
-```
-
-Demonstrates automatic Signal-to-IR compilation:
-- Simple register with constant input
-- Register chains (multi-cycle delays)
-- Mux selection
-- Combined register + mux (enabled register)
-- Automatic clock/reset input generation
-
-Example usage:
-```lean
-def simpleRegister {dom} : Signal dom (BitVec 8) :=
-  let input := Signal.pure 42#8
-  register 0#8 input
-
-#synthesizeVerilog simpleRegister
--- Generates module with clk, rst inputs and always_ff block
-```
-
-**Feedback loop synthesis** (NEW):
-```bash
-lake env lean --run Examples/LoopSynthesis.lean
-```
-
-Demonstrates Signal.loop for feedback paths:
-- Counter with feedback (cnt = cnt + 1)
-- Automatic loop wire allocation
-- Loop closure with register to break combinational cycles
-
-Example usage:
-```lean
-def counter {dom} : Signal dom (BitVec 8) :=
-  Signal.loop fun cnt =>
-    let next := (· + ·) <$> cnt <*> Signal.pure 1#8
-    register 0#8 next
+-- Write this in Lean...
+def counter : Signal Domain (BitVec 8) := do
+  let count ← Signal.register 0
+  count <~ count + 1
+  return count
 
 #synthesizeVerilog counter
--- Generates counter with feedback path properly closed
 ```
 
-#### Phase 4: Verilog Generation
-```bash
-lake env lean --run Examples/VerilogTest.lean
-```
-
-Generates basic `.sv` files for:
-- HalfAdder.sv
-- Register8.sv
-- Counter8.sv
-- Mux2to1.sv
-- ALU4Bit.sv
-- Accumulator.sv
-
-```bash
-lake env lean --run Examples/FullCycle.lean
-```
-
-Generates advanced `.sv` files for:
-- MAC.sv (Multiply-Accumulate unit)
-- FIR3Tap.sv (3-tap FIR filter)
-- TrafficLight.sv (State machine)
-- ShiftRegister8.sv (Serial-to-parallel converter)
-- FIFO4.sv (4-entry FIFO buffer)
-
-#### Phase 6: Primitive Modules
-```bash
-lake env lean --run Examples/PrimitiveTest.lean
-```
-
-Demonstrates technology-specific blackbox modules:
-- **Single-port SRAM**: Vendor memory compiler blocks (TSMC, Intel, etc.)
-- **Dual-port SRAM**: Independent read/write ports for higher throughput
-- **Clock Gating**: Power optimization with clock gating cells
-- **ROM**: Read-only memory for lookup tables and constants
-- **Complex Design**: Memory controller with gated clocks and SRAM
-
-Example usage:
-```lean
--- Declare a vendor-provided SRAM primitive
-let sramPrimitive := mkSRAMPrimitive "TSMC_SRAM_256x32" 8 32
-
--- Instantiate the SRAM in your design
-emitInstance "TSMC_SRAM_256x32" "u_sram"
-  [ ("clk",  .ref "clk")
-  , ("we",   .ref "we")
-  , ("addr", .ref "addr")
-  , ("din",  .ref "din")
-  , ("dout", .ref doutWire)
-  ]
-```
-
-Generated Verilog references the primitive without defining it:
 ```systemverilog
-// The SRAM is instantiated but not defined (comes from vendor library)
-TSMC_SRAM_256x32 u_sram (
-    .clk(clk),
-    .we(we),
-    .addr(addr),
-    .din(din),
-    .dout(sram_dout)
+// ...and get this Verilog
+module counter (
+    input  logic clk,
+    input  logic rst,
+    output logic [7:0] out
 );
-```
+    logic [7:0] count;
 
-#### Phase 7: Example CPU (Sparkle-16)
-```bash
-# Individual components
-lake env lean --run Examples/Sparkle16/ALU.lean
-lake env lean --run Examples/Sparkle16/RegisterFile.lean
-lake env lean --run Examples/Sparkle16/Memory.lean
-
-# Complete CPU simulation
-lake env lean --run Examples/Sparkle16/Core.lean
-
-# Verification proofs
-lake env lean --run Examples/Sparkle16/ISAProofTests.lean
-```
-
-Demonstrates a complete 16-bit RISC CPU:
-- **ISA**: 8 instructions (LDI, ADD, SUB, AND, LD, ST, BEQ, JMP)
-- **ALU**: 3 operations with 9 formal correctness proofs
-- **RegisterFile**: 8 registers, R0 hardwired to 0
-- **Memory**: Instruction/data memory with SimMemory and SRAM primitives
-- **CPU Core**: Fetch-decode-execute state machine with example programs
-- **Verification**: ISA correctness, ALU proofs, instruction classification
-
-See [Examples/Sparkle16/README.md](Examples/Sparkle16/README.md) for details.
-
-#### Test Suites
-```bash
-lake env lean --run Tests/Simulation.lean  # Phase 1 tests
-lake env lean --run Tests/Synthesis.lean   # Phase 2 & 4 tests
-lake env lean --run Tests/Compiler.lean    # Phase 3 tests
-```
-
-## Example: Building a Counter
-
-### Step 1: Simulate
-```lean
-import Sparkle
-
-open Sparkle.Core.Domain
-open Sparkle.Core.Signal
-
--- Create a simple input signal
-let input : Signal defaultDomain (BitVec 8) := ⟨fun t => BitVec.ofNat 8 t⟩
-
--- Add a register (one-cycle delay)
-let delayed := Signal.register 0#8 input
-
--- Test simulation
-#eval delayed.atTime 0  -- outputs 0 (initial value)
-#eval delayed.atTime 1  -- outputs 0 (input at t=0)
-#eval delayed.atTime 2  -- outputs 1 (input at t=1)
-```
-
-### Step 2: Build IR
-```lean
-import Sparkle.IR.Builder
-
-open Sparkle.IR.Type
-open Sparkle.IR.Builder
-open CircuitM
-
-def counter8 : Module :=
-  runModule "Counter8" do
-    addInput "clk" .bit
-    addInput "rst" .bit
-
-    let nextCount ← makeWire "next_count" (.bitVector 8)
-    let currentCount ← emitRegister "count" "clk" "rst" (.ref nextCount) 0 (.bitVector 8)
-
-    emitAssign nextCount (Expr.add (.ref currentCount) (.const 1 8))
-
-    addOutput "count" (.bitVector 8)
-    emitAssign "count" (.ref currentCount)
-```
-
-### Step 3: Generate Verilog
-```lean
-import Sparkle.Backend.Verilog
-
-let verilog := Verilog.toVerilog counter8
-IO.println verilog
-Verilog.writeVerilogFile counter8 "Counter8.sv"
-```
-
-Output:
-```systemverilog
-// Generated by Sparkle HDL
-// Module: Counter8
-
-module Counter8 (
-    input logic clk,
-    input logic rst,
-    output logic [7:0] count
-);
-    logic [7:0] next_count_0;
-    logic [7:0] count_1;
-
-    always_ff @(posedge clk or posedge rst) begin
+    always_ff @(posedge clk) begin
         if (rst)
-            count_1 <= 8'd0;
+            count <= 8'h00;
         else
-            count_1 <= next_count_0;
+            count <= count + 8'h01;
     end
 
-    assign next_count_0 = (count_1 + 8'd1);
-    assign count = count_1;
+    assign out = count;
 endmodule
 ```
 
-## Design Philosophy
+**Three powerful ideas in one language:**
+1. **Simulate** - Cycle-accurate functional simulation with pure Lean functions
+2. **Synthesize** - Automatic compilation to clean, synthesizable SystemVerilog
+3. **Verify** - Formal correctness proofs using Lean's theorem prover
 
-### Lessons from Clash
+## Quick Start
 
-Sparkle improves on Clash HDL by addressing common pain points:
+### Installation
 
-1. **Compiler Independence**: Lean 4 is self-hosted (no GHC dependency issues)
-2. **Name Hygiene**: Robust unique name generation prevents HDL name clashing
-3. **Clear Primitives**: Explicit operator registry, no hidden blackboxes
-4. **Type Safety**: Leverages Lean's dependent types for compile-time guarantees
-5. **Fast Compilation**: Simple IR structure avoids deep normalization chains
-6. **Simulation Consistency**: Stream-based simulation matches synthesis semantics
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/sparkle.git
+cd sparkle
 
-### Type-Safe Clock Domains
+# Build the project
+lake build
 
-Clock domains prevent accidental mixing of signals from different frequencies:
-
-```lean
-let signal100MHz : Signal domain100MHz (BitVec 8) := ...
-let signal50MHz  : Signal domain50MHz (BitVec 8) := ...
-
--- This won't type-check! Domains don't match.
--- let mixed := (·  + ·) <$> signal100MHz <*> signal50MHz
+# Run your first example
+lake env lean --run Examples/Counter.lean
 ```
 
-### Separation of Simulation and Synthesis
+### Your First Circuit: Blinking LED
 
-- **Simulation**: Pure Lean functions (Nat → α)
-- **Synthesis**: Explicit IR generation
-- **Benefit**: Easy to test designs before committing to hardware
+```lean
+import Sparkle
+
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+
+-- A simple blinker that toggles every 1000 cycles
+def blinker : Signal Domain Bool := do
+  let counter ← Signal.register (0 : BitVec 10)
+  let led ← Signal.register false
+
+  -- Count up to 1000
+  let nextCount := if counter == 999 then 0 else counter + 1
+
+  -- Toggle LED when counter wraps
+  let nextLed := if counter == 999 then !led else led
+
+  counter <~ nextCount
+  led <~ nextLed
+
+  return led
+
+#synthesizeVerilog blinker
+```
+
+This generates a fully synthesizable Verilog module with proper clock/reset handling!
+
+## Key Features
+
+### 🎯 Cycle-Accurate Simulation
+
+Simulate your hardware designs with the same semantics as the final Verilog:
+
+```lean
+-- Define a multiply-accumulate circuit
+def mac (a b : BitVec 16) : Signal Domain (BitVec 32) := do
+  let acc ← Signal.register 0
+  let product := a.zeroExtend 32 * b.zeroExtend 32
+  acc <~ acc + product
+  return acc
+
+-- Simulate it
+#eval Signal.simulate mac [(10, 20), (5, 3), (2, 8)] |>.take 3
+-- Output: [0, 200, 215, 231]
+```
+
+### ⚙️ Automatic Verilog Generation
+
+Write high-level Lean code, get production-ready SystemVerilog:
+
+```lean
+-- Sparkle automatically handles:
+-- ✓ Clock and reset signal insertion
+-- ✓ Proper register inference
+-- ✓ Type-safe bit width matching
+-- ✓ Feedback loop resolution
+-- ✓ Name hygiene and wire allocation
+
+#synthesizeVerilog myDesign  -- One command, complete module!
+```
+
+### 🔒 Formal Verification Ready
+
+Prove correctness properties about your hardware using Lean's powerful theorem prover:
+
+```lean
+-- Define an ALU operation
+def alu_add (a b : BitVec 16) : BitVec 16 := a + b
+
+-- Prove it's commutative
+theorem alu_add_comm (a b : BitVec 16) :
+    alu_add a b = alu_add b a := by
+  simp [alu_add]
+  apply BitVec.add_comm
+
+-- Prove it's associative
+theorem alu_add_assoc (a b c : BitVec 16) :
+    alu_add (alu_add a b) c = alu_add a (alu_add b c) := by
+  simp [alu_add]
+  apply BitVec.add_assoc
+```
+
+**Real Example:** Our Sparkle-16 CPU includes **9 formally proven theorems** about ALU correctness!
+
+### 🏗️ Composable Hardware Abstraction
+
+Build complex designs from simple components:
+
+```lean
+-- Build a 4-stage FIR filter by composing delay elements
+def fir4 (coeffs : Array (BitVec 16)) (input : BitVec 16) : Signal Domain (BitVec 32) := do
+  let d1 ← Signal.register 0
+  let d2 ← Signal.register 0
+  let d3 ← Signal.register 0
+
+  d1 <~ input
+  d2 <~ d1
+  d3 <~ d2
+
+  let sum := input * coeffs[0]! +
+             d1 * coeffs[1]! +
+             d2 * coeffs[2]! +
+             d3 * coeffs[3]!
+
+  return sum.zeroExtend 32
+```
+
+### 🎓 Complete CPU Example
+
+The **Sparkle-16** is a fully functional 16-bit RISC CPU demonstrating real-world hardware design:
+
+- **8 instructions**: LDI, ADD, SUB, AND, LD, ST, BEQ, JMP
+- **8 registers**: R0-R7 (R0 hardwired to zero)
+- **Harvard architecture**: Separate instruction and data memory
+- **Formally verified**: ISA correctness, ALU operations proven correct
+- **Full simulation**: Runs actual programs with control flow
+
+```bash
+# Run the CPU simulation
+lake env lean --run Examples/Sparkle16/Core.lean
+
+# See the verification proofs
+lake env lean --run Examples/Sparkle16/ISAProofTests.lean
+```
+
+**Output:**
+```
+=== Sparkle-16 CPU Core ===
+
+Program:
+  LDI R1, 10
+  LDI R2, 20
+  ADD R3, R1, R2
+  SUB R4, R3, R1
+
+After 12 cycles:
+R0=0x0000 R1=0x000a R2=0x0014 R3=0x001e R4=0x0014
+✓ All values correct!
+```
+
+See [Examples/Sparkle16/README.md](Examples/Sparkle16/README.md) for complete CPU documentation.
+
+### 🔌 Technology Library Support
+
+Integrate vendor-specific primitives seamlessly:
+
+```lean
+-- Use SRAM primitives from your ASIC/FPGA vendor
+def myMemory : Module :=
+  primitiveModule "SRAM_256x16" [
+    ("addr",  .input (.bitVector 8)),
+    ("din",   .input (.bitVector 16)),
+    ("dout",  .output (.bitVector 16)),
+    ("we",    .input .bit),
+    ("clk",   .input .bit)
+  ]
+```
+
+Sparkle generates proper module instantiations without defining internals.
+
+## Examples
+
+### Counter
+```bash
+lake env lean --run Examples/Counter.lean
+```
+Demonstrates registers, combinational logic, and signal operations.
+
+### ALU with Proofs
+```bash
+lake env lean --run Examples/Sparkle16/ALU.lean
+```
+Shows formal verification of hardware correctness.
+
+### Complete CPU
+```bash
+lake env lean --run Examples/Sparkle16/Core.lean
+```
+A working 16-bit RISC processor with fetch-decode-execute.
+
+### All Examples
+```bash
+# Simulation examples
+lake env lean --run Examples/Counter.lean
+lake env lean --run Examples/ManualIR.lean
+
+# Verilog generation
+lake env lean --run Examples/VerilogTest.lean
+lake env lean --run Examples/FullCycle.lean
+
+# Feedback loops
+lake env lean --run Examples/LoopSynthesis.lean
+
+# Technology primitives
+lake env lean --run Examples/PrimitiveTest.lean
+
+# Sparkle-16 CPU
+lake env lean --run Examples/Sparkle16/ALU.lean
+lake env lean --run Examples/Sparkle16/RegisterFile.lean
+lake env lean --run Examples/Sparkle16/Core.lean
+lake env lean --run Examples/Sparkle16/ISAProofTests.lean
+```
+
+## Documentation
+
+Generate full API documentation with doc-gen4:
+
+```bash
+# Build documentation
+lake -R -Kenv=dev build Sparkle:docs
+
+# Open in browser
+open .lake/build/doc/index.html
+```
+
+The generated documentation includes:
+- Complete API reference for all modules
+- Signal semantics and primitive operations
+- IR builder and circuit construction
+- Verilog backend details
+- Verification framework (proofs and theorems)
+- Sparkle-16 CPU architecture
+
+## How It Works
+
+### The Sparkle Pipeline
+
+```
+┌─────────────┐
+│  Lean Code  │  Write hardware using Signal monad
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│ Simulation  │  Test with cycle-accurate semantics
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│   IR Builder│  Compile to hardware netlist
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐
+│  Verilog    │  Generate SystemVerilog
+└─────────────┘
+```
+
+### Core Abstractions
+
+1. **Domain**: Clock domain configuration (period, edge, reset)
+2. **Signal**: Stream-based hardware values `Signal d α ≈ Nat → α`
+3. **BitPack**: Type class for hardware serialization
+4. **Module/Circuit**: IR for building netlists
+5. **Compiler**: Automatic Lean → IR translation via metaprogramming
+
+### Type Safety Benefits
+
+```lean
+-- This won't compile - type mismatch!
+def broken : Signal Domain (BitVec 8) := do
+  let x ← Signal.register (0 : BitVec 16)  -- 16-bit register
+  return x  -- Error: expected BitVec 8, got BitVec 16
+
+-- Lean catches bit width errors at compile time
+def fixed : Signal Domain (BitVec 8) := do
+  let x ← Signal.register (0 : BitVec 16)
+  return x.truncate 8  -- ✓ Explicit truncation required
+```
+
+## Comparison with Other HDLs
+
+| Feature | Sparkle | Clash | Chisel | Verilog |
+|---------|---------|-------|--------|---------|
+| Language | Lean 4 | Haskell | Scala | Verilog |
+| Type System | Dependent Types | Strong | Strong | Weak |
+| Simulation | Built-in | Built-in | Built-in | External Tools |
+| Formal Verification | **Native (Lean)** | External | External | None |
+| Learning Curve | High | High | Medium | Low |
+| Proof Integration | **Seamless** | Separate | Separate | N/A |
+
+**Sparkle's Unique Advantage**: Write your hardware and its correctness proofs in the *same language* with no tool boundaries.
 
 ## Project Structure
 
 ```
 sparkle/
-├── Sparkle/
-│   ├── Core/
-│   │   ├── Domain.lean      # Clock domain configuration
-│   │   └── Signal.lean      # Signal types and simulation
-│   ├── Data/
-│   │   └── BitPack.lean     # Hardware type serialization
-│   ├── IR/
-│   │   ├── Type.lean        # Hardware type system
-│   │   ├── AST.lean         # Netlist AST
-│   │   └── Builder.lean     # Circuit builder monad
-│   ├── Compiler/
-│   │   └── Elab.lean        # Metaprogramming compiler
-│   ├── Backend/
-│   │   └── Verilog.lean     # SystemVerilog code generation
-│   └── Verification/
-│       ├── Basic.lean       # Fundamental BitVec lemmas
-│       ├── ALUProps.lean    # ALU correctness proofs
-│       └── ISAProps.lean    # ISA encoding/decoding correctness
-├── Examples/
-│   ├── Counter.lean         # Phase 1: Simulation examples
-│   ├── ManualIR.lean        # Phase 2: IR building examples
-│   ├── SynthesisTest.lean   # Phase 3: Automatic synthesis (BitVec)
-│   ├── SignalSynthesis.lean # Phase 3: Signal-to-IR synthesis
-│   ├── LoopSynthesis.lean   # Phase 5: Feedback loop synthesis
-│   ├── PrimitiveTest.lean   # Phase 6: Technology primitives (SRAM, clock gates)
-│   ├── Sparkle16/           # Phase 7: Example CPU with formal verification
-│   │   ├── ISA.lean         # Instruction set architecture
-│   │   ├── ALU.lean         # Arithmetic Logic Unit
-│   │   ├── RegisterFile.lean # 8-register file
-│   │   ├── Memory.lean      # Memory interface (instruction & data)
-│   │   ├── Core.lean        # CPU core with state machine
-│   │   ├── ISAProofTests.lean # ISA correctness tests
-│   │   └── README.md        # CPU documentation
-│   ├── VerilogTest.lean     # Phase 4: Verilog generation
-│   └── FullCycle.lean       # Phase 4: Advanced examples
-├── Tests/
-│   ├── Simulation.lean      # Phase 1 tests
-│   ├── Synthesis.lean       # Phase 2 & 4 tests
-│   └── Compiler.lean        # Phase 3 tests
-└── lakefile.lean
+├── Sparkle/              # Core library
+│   ├── Core/            # Signal semantics and domains
+│   ├── Data/            # BitPack and data types
+│   ├── IR/              # Hardware IR and AST
+│   ├── Compiler/        # Lean → IR compilation
+│   ├── Backend/         # Verilog code generation
+│   └── Verification/    # Proof libraries
+├── Examples/            # Example designs
+│   ├── Counter.lean
+│   ├── VerilogTest.lean
+│   └── Sparkle16/       # Complete CPU example
+├── Tests/               # Test suites
+└── lakefile.lean        # Build configuration
 ```
-
-## Building
-
-```bash
-# Build the entire project
-lake build
-
-# Run examples
-lake env lean --run Examples/Counter.lean
-lake env lean --run Examples/ManualIR.lean
-lake env lean --run Examples/VerilogTest.lean
-```
-
-## Documentation
-
-Generate API documentation using doc-gen4:
-
-```bash
-# Generate documentation
-lake -R -Kenv=dev build Sparkle:docs
-
-# Documentation will be in .lake/build/doc/
-# Open .lake/build/doc/index.html in your browser
-```
-
-The documentation includes:
-- API reference for all Sparkle modules
-- Signal semantics and primitives
-- IR builder and AST types
-- Verilog backend
-- Verification framework (ALU and ISA proofs)
-- Example CPU architecture
-
-## Future Work
-
-### Additional Features
-- Vector types (`Vec n α`) for parameterized hardware
-- Module instantiation and hierarchical designs
-- RAM/ROM inference
-- Testbench generation
-- Formal verification hooks
-
-## Comparison with Other HDLs
-
-| Feature | Sparkle | Clash | Chisel | Traditional Verilog |
-|---------|---------|-------|--------|---------------------|
-| Language | Lean 4 | Haskell | Scala | Verilog |
-| Type Safety | ✅ Dependent | ✅ Strong | ✅ Strong | ⚠️ Weak |
-| Simulation | ✅ Built-in | ✅ Built-in | ✅ Built-in | ❌ Separate |
-| Proof Integration | ✅ Native | ⚠️ External | ⚠️ External | ❌ None |
-| Compiler Deps | ✅ Self-hosted | ⚠️ GHC | ⚠️ JVM/Scala | ✅ Standalone |
-| Learning Curve | High | High | Medium | Low |
 
 ## Contributing
 
 Sparkle is an educational project demonstrating:
-- Functional HDL design
-- Lean 4 metaprogramming
-- Compiler construction
-- Hardware synthesis
+- Functional hardware description
+- Dependent type systems for hardware
+- Theorem proving for verification
+- Compiler construction and metaprogramming
 
-Improvements welcome!
+Contributions welcome! Areas of interest:
+- Additional examples and tutorials
+- More comprehensive verification proofs
+- Advanced synthesis optimizations
+- Tool integration (simulation viewers, waveform dumps)
+
+## Roadmap
+
+- [ ] **Vector types** - Parameterized hardware `Vec n α`
+- [ ] **Module hierarchy** - Multi-level designs
+- [ ] **Waveform export** - VCD dump for GTKWave
+- [ ] **More proofs** - State machine invariants, protocol correctness
+- [ ] **Optimization passes** - Dead code elimination, constant folding
+- [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
+
+## Development History
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed development phases and implementation history.
 
 ## Author
 
@@ -480,4 +401,3 @@ MIT
 
 - Inspired by [Clash HDL](https://clash-lang.org/)
 - Built with [Lean 4](https://lean-lang.org/)
-- Informed by lessons from Clash's GitHub issues and community discussions
