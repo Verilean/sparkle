@@ -1,8 +1,53 @@
-/-
-  Signal and Stream semantics for Sparkle HDL
+/-!
+# Signal Module
 
-  Provides cycle-accurate simulation based on infinite streams.
-  Signals are functions from time (Nat) to values.
+This module defines the stream-based signal semantics for Sparkle HDL.
+
+## Overview
+
+Signals represent time-varying hardware values using infinite streams.
+A `Signal d α` is essentially a function `Nat → α` where `Nat` represents
+discrete time steps (clock cycles).
+
+## Key Concepts
+
+- **Stream**: An infinite sequence `Nat → α` representing values over time
+- **Signal**: A stream tagged with a clock domain for type safety
+- **Domain**: Type-level clock domain tracking prevents mixing signals from different clocks
+
+## Core Primitives
+
+### Registers
+
+Use `Signal.register` to create state elements (delays by 1 cycle):
+
+```lean
+def counter : Signal Domain (BitVec 8) := do
+  let count ← Signal.register 0
+  count <~ count + 1
+  return count
+```
+
+### Multiplexers
+
+Use `Signal.mux` or if-then-else for conditional logic:
+
+```lean
+def conditionalInc (enable : Bool) (x : BitVec 8) : Signal Domain (BitVec 8) := do
+  let val ← Signal.register 0
+  val <~ if enable then val + x else val
+  return val
+```
+
+## Simulation
+
+Signals can be simulated directly to verify behavior before synthesis:
+
+```lean
+#eval Signal.simulate myCircuit inputs |>.take 10
+```
+
+See also: `Sparkle.Core.Domain` for clock domain configuration.
 -/
 
 import Sparkle.Core.Domain
