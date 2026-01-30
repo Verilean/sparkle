@@ -332,6 +332,94 @@ def fixed : Signal Domain (BitVec 8) := do
   return x.truncate 8  -- ✓ Explicit truncation required
 ```
 
+## Known Limitations and Gotchas
+
+### ⚠️ Pattern Matching on Tuples (IMPORTANT!)
+
+**unbundle2 and pattern matching DO NOT WORK in synthesis:**
+
+```lean
+-- ❌ WRONG: This will fail with "Unbound variable" errors
+def example_WRONG (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
+  let (a, b) := unbundle2 input  -- ❌ FAILS!
+  (· + ·) <$> a <*> b
+
+-- ✓ RIGHT: Use .fst and .snd projection methods
+def example_RIGHT (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
+  let a := input.fst  -- ✓ Works!
+  let b := input.snd  -- ✓ Works!
+  (· + ·) <$> a <*> b
+```
+
+**Why this happens:**
+- `unbundle2` returns a Lean-level tuple `(Signal α × Signal β)`
+- Lean compiles pattern matches into intermediate forms during elaboration
+- By the time synthesis runs, these patterns are compiled away
+- The synthesis compiler cannot track the destructured variables
+
+**Solution:** Use projection methods instead:
+- For 2-tuples: `.fst` and `.snd`
+- For 3-tuples: `.proj3_1`, `.proj3_2`, `.proj3_3`
+- For 4-tuples: `.proj4_1`, `.proj4_2`, `.proj4_3`, `.proj4_4`
+- For 5-8 tuples: `unbundle5` through `unbundle8` (but access via tuple projections, not pattern matching)
+
+See [Tests/TestUnbundle2.lean](Tests/TestUnbundle2.lean) for detailed examples.
+
+### 🔁 Feedback Loops (Circular Let-Bindings)
+
+**Recursive definitions with forward references don't work:**
+
+```lean
+-- ❌ WRONG: Forward reference in let-bindings
+def counter_WRONG : Signal Domain (BitVec 16) :=
+  let next := Signal.map (· + 1) count  -- ❌ Error: count not defined yet
+  let count := Signal.register 0 next   -- ❌ Circular dependency
+  count
+
+-- ✓ RIGHT: For complex state, use manual IR construction
+-- See Examples/Sparkle16/ALU.lean for working examples
+```
+
+**Why this happens:**
+- Lean evaluates let-bindings sequentially
+- No forward references are allowed
+- Circular dependencies cannot be expressed with let-bindings
+
+**Workaround:** Use manual IR construction with `CircuitM` for stateful circuits with feedback.
+
+### 📋 What's Supported
+
+**✓ Fully supported in synthesis:**
+- Basic arithmetic: `+`, `-`, `*`, `&&&`, `|||`, `^^^`
+- Comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Bitwise operations: shifts, rotations
+- Signal operations: `map`, `pure`, `<*>` (applicative)
+- Registers: `Signal.register`
+- Mux: `Signal.mux`
+- Tuples: `bundle2`/`bundle3` and `.fst`/`.snd`/`.proj*` projections
+- Hierarchical modules: function calls generate module instantiations
+
+**⚠️ Limitations:**
+- Pattern matching on Signal tuples (use `.fst`/`.snd` instead)
+- Recursive let-bindings (use manual IR for feedback loops)
+- Higher-order functions beyond `map`, `<*>`, and basic combinators
+- General match expressions on Signals
+
+### 🧪 Testing
+
+Run the comprehensive test suite (65 tests):
+
+```bash
+lake test
+```
+
+Tests include:
+- Signal simulation (18 tests)
+- IR and Verilog synthesis (13 tests)
+- Verilog generation verification (19 tests)
+- Combinational and sequential circuits
+- Hierarchical module instantiation
+
 ## Comparison with Other HDLs
 
 | Feature | Sparkle | Clash | Chisel | Verilog |
@@ -380,8 +468,10 @@ Contributions welcome! Areas of interest:
 
 ## Roadmap
 
+- [x] **Module hierarchy** - Multi-level designs ✓
+- [x] **Tuple projections** - Readable `.fst`/`.snd`/`.proj*` methods ✓
+- [x] **Comprehensive testing** - 65 LSpec-based tests ✓
 - [ ] **Vector types** - Parameterized hardware `Vec n α`
-- [ ] **Module hierarchy** - Multi-level designs
 - [ ] **Waveform export** - VCD dump for GTKWave
 - [ ] **More proofs** - State machine invariants, protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
