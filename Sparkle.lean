@@ -15,3 +15,4 @@ import Sparkle.IR.Builder
 import Sparkle.Compiler.Elab
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.VCD
+import Sparkle.Verification.Temporal

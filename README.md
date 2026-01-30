@@ -146,6 +146,36 @@ theorem alu_add_assoc (a b c : BitVec 16) :
 
 **Real Example:** Our Sparkle-16 CPU includes **9 formally proven theorems** about ALU correctness!
 
+### ⏱️ Temporal Logic for Hardware Verification
+
+Express and prove properties about hardware behavior over time using Linear Temporal Logic (LTL):
+
+```lean
+-- Define temporal properties
+theorem counter_stable_during_reset :
+  let counter : Signal d Nat := ⟨fun t => if t < 10 then 0 else t - 10⟩
+  stableFor counter 0 10 := by
+  intro t h_bound
+  simp [Signal.atTime]
+  omega
+
+-- Prove state machine properties
+theorem active_state_duration :
+  let isActive := stateMachine.map (· == State.Active)
+  -- Active state lasts exactly 100 cycles
+  always (next 100 isActive) := by
+  sorry -- Proof goes here
+```
+
+**Features:**
+- Core LTL operators: `always`, `eventually`, `next`, `Until`
+- Derived operators: `implies`, `release`, `WeakUntil`
+- Optimization-enabling: `stableFor` for cycle-skipping simulation
+- Temporal induction principles for proof automation
+- Temporal oracle interface for future performance optimization
+
+See [Examples/TemporalLogicExample.md](Examples/TemporalLogicExample.md) for detailed usage and design rationale.
+
 ### 🏗️ Composable Hardware Abstraction
 
 Build complex designs from simple components:
@@ -307,8 +337,14 @@ The generated documentation includes:
 - Signal semantics and primitive operations
 - IR builder and circuit construction
 - Verilog backend details
-- Verification framework (proofs and theorems)
+- Verification framework (proofs, theorems, and temporal logic)
+- Temporal logic for hardware verification (LTL operators)
 - Sparkle-16 CPU architecture
+
+**Temporal Logic Examples:**
+- See [Examples/TemporalLogicExample.md](Examples/TemporalLogicExample.md) for comprehensive temporal logic usage
+- Includes reset stability, state machine verification, and pipeline examples
+- Documents cycle-skipping optimizations and proof obligations
 
 ## How It Works
 
@@ -457,7 +493,7 @@ def counter_WRONG : Signal Domain (BitVec 16) :=
 
 ### 🧪 Testing
 
-Run the comprehensive test suite (100+ tests):
+Run the comprehensive test suite (130+ tests):
 
 ```bash
 lake test
@@ -468,6 +504,7 @@ Tests include:
 - IR and Verilog synthesis (13 tests)
 - Verilog generation verification (19 tests)
 - Array/Vector operations (27 tests)
+- **Temporal Logic verification (33 tests)** - NEW!
 - Overflow/underflow behavior (26 tests)
 - Sparkle-16 CPU verification tests
 - Combinational and sequential circuits
@@ -507,6 +544,7 @@ sparkle/
 │   │   ├── Verilog.lean # SystemVerilog backend
 │   │   └── VCD.lean     # Waveform dump generation
 │   └── Verification/    # Proof libraries and co-simulation
+│       ├── Temporal.lean # Linear Temporal Logic (LTL) operators (NEW!)
 │       └── CoSim.lean   # Verilator integration
 ├── Examples/            # Example designs
 │   ├── Counter.lean
@@ -536,11 +574,13 @@ Contributions welcome! Areas of interest:
 
 - [x] **Module hierarchy** - Multi-level designs ✓
 - [x] **Tuple projections** - Readable `.fst`/`.snd`/`.proj*` methods ✓
-- [x] **Comprehensive testing** - 100+ LSpec-based tests ✓
+- [x] **Comprehensive testing** - 130+ LSpec-based tests ✓
 - [x] **Vector types** - Hardware arrays `HWVector α n` with indexing ✓
 - [x] **Type inference** - Correct overflow/underflow for all bit widths ✓
 - [x] **Waveform export** - VCD dump for GTKWave ✓
 - [x] **Co-simulation** - Verilator integration for hardware validation ✓
+- [x] **Temporal Logic** - Linear Temporal Logic (LTL) for verification ✓
+- [ ] **Cycle-skipping simulation** - Use proven temporal properties for optimization
 - [ ] **More proofs** - State machine invariants, protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
 - [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
