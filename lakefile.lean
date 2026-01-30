@@ -26,5 +26,5 @@ lean_exe «verilog-tests» where
 
 @[test_driver]
 lean_exe «test» where
-  root := `Tests.VerilogTests
+  root := `Tests.AllTests
   supportInterpreter := true
