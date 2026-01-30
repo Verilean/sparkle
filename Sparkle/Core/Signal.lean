@@ -184,6 +184,58 @@ def mux (cond : Signal dom Bool) (thenSig : Signal dom α) (elseSig : Signal dom
   ⟨fun t => if cond.val t then thenSig.val t else elseSig.val t⟩
 
 /--
+  Synchronous memory primitive (RAM/BRAM).
+
+  Creates a memory with registered read (1-cycle latency).
+  Writes occur on the clock edge when writeEnable is true.
+
+  Parameters:
+  - addrWidth: Address width (memory size = 2^addrWidth)
+  - dataWidth: Data width (width of each memory word)
+  - writeAddr: Write address signal
+  - writeData: Write data signal
+  - writeEnable: Write enable signal (write occurs when true)
+  - readAddr: Read address signal
+
+  Returns: Read data signal (registered, 1-cycle latency)
+
+  Behavior:
+  - At time t, if writeEnable.atTime t is true:
+      memory[writeAddr.atTime t] := writeData.atTime t
+  - readData.atTime (t+1) = memory[readAddr.atTime t]
+
+  Example:
+    ```lean
+    -- 256-byte memory (8-bit address, 8-bit data)
+    let readData := Signal.memory 8 8 writeAddr writeData writeEnable readAddr
+    ```
+-/
+def memory {addrWidth dataWidth : Nat}
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth) :=
+  -- Memory state: maps addresses to data
+  -- We model memory as evolving over time
+  let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
+    match t with
+    | 0 => fun _ => 0#dataWidth  -- Initial state: all zeros
+    | n + 1 =>
+      let prevMem := memState n
+      fun addr =>
+        -- If writing to this address at time n, return the written value
+        if writeEnable.val n && addr == writeAddr.val n then
+          writeData.val n
+        else
+          prevMem addr
+  -- Registered read: read data at time t is the memory contents at time t-1
+  ⟨fun t =>
+    match t with
+    | 0 => 0#dataWidth  -- Initial read value
+    | n + 1 => memState n (readAddr.val n)⟩
+
+/--
   Fixed-point combinator for feedback loops.
 
   Allows defining circuits where the output feeds back into the input,

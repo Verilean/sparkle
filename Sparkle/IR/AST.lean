@@ -137,6 +137,7 @@ end Expr
 
   - Assign: Continuous assignment (combinational logic)
   - Register: Sequential logic (D flip-flop)
+  - Memory: Synchronous RAM/BRAM primitive
   - Inst: Instantiation of another module
 -/
 inductive Stmt where
@@ -147,6 +148,17 @@ inductive Stmt where
       (reset : String)       -- Reset signal name
       (input : Expr)         -- Input expression
       (initValue : Int)      -- Reset/initial value
+      : Stmt
+  | memory
+      (name : String)         -- Memory instance name
+      (addrWidth : Nat)       -- Address width (size = 2^addrWidth)
+      (dataWidth : Nat)       -- Data width
+      (clock : String)        -- Clock signal
+      (writeAddr : Expr)      -- Write address port
+      (writeData : Expr)      -- Write data port
+      (writeEnable : Expr)    -- Write enable port
+      (readAddr : Expr)       -- Read address port
+      (readData : String)     -- Read data output wire
       : Stmt
   | inst
       (moduleName : String)   -- Name of module to instantiate
@@ -162,6 +174,9 @@ def toString : Stmt → String
   | assign lhs rhs => s!"{lhs} := {rhs}"
   | register output clock reset input initValue =>
       s!"reg {output} @(posedge {clock}, {reset}) <= {input} (init: {initValue})"
+  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData =>
+      s!"memory {name}[2^{addrWidth}][{dataWidth}] @(posedge {clock}) " ++
+      s!"write({writeAddr}, {writeData}, {writeEnable}) read({readAddr}) => {readData}"
   | inst modName instName conns =>
       let connStr := String.intercalate ", " (conns.map fun (p, e) => s!".{p}({e})")
       s!"{modName} {instName}({connStr})"

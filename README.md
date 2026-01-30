@@ -224,6 +224,52 @@ assign out = vec[idx];
 - Type-safe indexing with compile-time size checks
 - Automatic bit-width calculation
 
+### 💾 Memory Primitives (SRAM/BRAM)
+
+Build RAMs and register files with synchronous read/write:
+
+```lean
+-- 256-byte memory (8-bit address, 8-bit data)
+def simpleRAM
+    (writeAddr : Signal d (BitVec 8))
+    (writeData : Signal d (BitVec 8))
+    (writeEnable : Signal d Bool)
+    (readAddr : Signal d (BitVec 8))
+    : Signal d (BitVec 8) :=
+  Signal.memory writeAddr writeData writeEnable readAddr
+```
+
+Generates synthesizable memory blocks:
+```systemverilog
+logic [7:0] mem [0:255];  // 256-byte memory array
+
+always_ff @(posedge clk) begin
+  if (write_enable) begin
+    mem[write_addr] <= write_data;
+  end
+  read_data <= mem[read_addr];  // Registered read (1-cycle latency)
+end
+```
+
+**Features:**
+- Synchronous writes (on clock edge when write-enable is high)
+- Registered reads (1-cycle latency, matches FPGA BRAM behavior)
+- Configurable address and data widths
+- Synthesizable to FPGA Block RAM or ASIC SRAM
+- Perfect for register files, instruction memory, data caches
+
+**Example: 8-register CPU register file**
+```lean
+-- 8 registers x 16-bit (3-bit address, 16-bit data)
+def cpuRegisterFile
+    (writeReg : Signal d (BitVec 3))   -- R0-R7
+    (writeData : Signal d (BitVec 16))
+    (writeEnable : Signal d Bool)
+    (readReg : Signal d (BitVec 3))
+    : Signal d (BitVec 16) :=
+  Signal.memory writeReg writeData writeEnable readReg
+```
+
 ### 🎓 Complete CPU Example
 
 The **Sparkle-16** is a fully functional 16-bit RISC CPU demonstrating real-world hardware design:
@@ -302,10 +348,12 @@ A working 16-bit RISC processor with fetch-decode-execute.
 # Simulation examples
 lake env lean --run Examples/Counter.lean
 lake env lean --run Examples/ManualIR.lean
+lake env lean --run Examples/SimpleMemory.lean          # NEW: Memory simulation
 
 # Verilog generation
 lake env lean --run Examples/VerilogTest.lean
 lake env lean --run Examples/FullCycle.lean
+lake env lean --run Examples/MemoryManualIR.lean        # NEW: Memory Verilog generation
 
 # Feedback loops
 lake env lean --run Examples/LoopSynthesis.lean
@@ -480,6 +528,7 @@ def counter_WRONG : Signal Domain (BitVec 16) :=
 - Mux: `Signal.mux`
 - Tuples: `bundle2`/`bundle3` and `.fst`/`.snd`/`.proj*` projections
 - **Arrays/Vectors**: `HWVector α n` with `.get` indexing
+- **Memory primitives**: `Signal.memory` for SRAM/BRAM with synchronous read/write
 - **Correct overflow**: All bit widths preserve wrap-around semantics
 - Hierarchical modules: function calls generate module instantiations
 - **Co-simulation**: Verilator integration for validation
@@ -580,11 +629,12 @@ Contributions welcome! Areas of interest:
 - [x] **Waveform export** - VCD dump for GTKWave ✓
 - [x] **Co-simulation** - Verilator integration for hardware validation ✓
 - [x] **Temporal Logic** - Linear Temporal Logic (LTL) for verification ✓
+- [x] **Memory primitives** - SRAM/BRAM with synchronous read/write ✓
 - [ ] **Cycle-skipping simulation** - Use proven temporal properties for optimization
 - [ ] **More proofs** - State machine invariants, protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
 - [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
-- [ ] **Memory primitives** - SRAM/BRAM with read/write ports
+- [ ] **Memory initialization** - Load memory from files for ROM/RAM init
 
 ## Development History
 

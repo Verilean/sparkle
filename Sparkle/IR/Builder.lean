@@ -110,6 +110,32 @@ def emitRegister (hint : String) (clock : String) (reset : String)
   return outputName
 
 /--
+  Emit a synchronous memory (RAM/BRAM) primitive.
+  Returns the name of the read data output wire.
+
+  Parameters:
+  - hint: Base name for the memory instance
+  - addrWidth: Address width (memory size = 2^addrWidth)
+  - dataWidth: Data width (width of each memory word)
+  - clock: Clock signal name
+  - writeAddr: Write address expression
+  - writeData: Write data expression
+  - writeEnable: Write enable expression
+  - readAddr: Read address expression
+-/
+def emitMemory (hint : String) (addrWidth : Nat) (dataWidth : Nat) (clock : String)
+    (writeAddr : Expr) (writeData : Expr) (writeEnable : Expr) (readAddr : Expr) : CircuitM String := do
+  let memName ← freshName (sanitizeName hint)
+  let readDataName ← freshName (sanitizeName s!"{hint}_rdata")
+  let m ← getModule
+  -- Add the read data output wire
+  let m := m.addWire { name := readDataName, ty := .bitVector dataWidth }
+  -- Add the memory statement
+  let m := m.addStmt (.memory memName addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readDataName)
+  setModule m
+  return readDataName
+
+/--
   Emit a module instantiation.
 -/
 def emitInstance (moduleName : String) (instName : String)

@@ -117,6 +117,19 @@ def emitStmt (stmt : Stmt) (indent : String := "    ") : String :=
     s!"{indent}        {sanitizeName output} <= {emitExpr input};\n" ++
     s!"{indent}end"
 
+  | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData =>
+    -- Generate memory array and always_ff block
+    let memSize := 2 ^ addrWidth
+    let memDecl := s!"{indent}logic [{dataWidth-1}:0] {sanitizeName name} [0:{memSize-1}];"
+    let alwaysBlock :=
+      s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
+      s!"{indent}    if ({emitExpr writeEnable}) begin\n" ++
+      s!"{indent}        {sanitizeName name}[{emitExpr writeAddr}] <= {emitExpr writeData};\n" ++
+      s!"{indent}    end\n" ++
+      s!"{indent}    {sanitizeName readData} <= {sanitizeName name}[{emitExpr readAddr}];\n" ++
+      s!"{indent}end"
+    memDecl ++ "\n" ++ alwaysBlock
+
   | .inst moduleName instName connections =>
     let connStrs := connections.map fun (portName, expr) =>
       s!".{sanitizeName portName}({emitExpr expr})"

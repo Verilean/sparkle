@@ -102,6 +102,13 @@ def emitRegister (hint : String) (clk : String) (rst : String) (input : Sparkle.
   set cs'
   return name
 
+def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
+    (writeAddr writeData writeEnable readAddr : Sparkle.IR.AST.Expr) : CompilerM String := do
+  let cs ← get
+  let (name, cs') := CircuitM.emitMemory hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr cs
+  set cs'
+  return name
+
 def emitInstance (moduleName : String) (instName : String) (connections : List (String × Sparkle.IR.AST.Expr)) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.emitInstance moduleName instName connections cs
@@ -251,9 +258,13 @@ def extractBitVecLiteral (expr : Lean.Expr) : CompilerM (Nat × Nat) := do
       return (v, w)
     else
       CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got application of {name}"
-  | .lit (.natVal value) => return (value, 8)
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got: {expr}"
+
+/-- Extract a Nat literal from an expression -/
+def extractNatLiteral (expr : Lean.Expr) : CompilerM (Nat × Unit) := do
+  let n ← extractNat expr
+  return (n, ())
 
 mutual
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) : CompilerM String := do
@@ -765,6 +776,27 @@ mutual
         let rW ← CompilerM.makeWire hint hwType
         CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
         return rW
+
+      -- Signal.memory: synchronous RAM/BRAM
+      if name.toString.endsWith ".memory" && args.size >= 4 then
+        -- Extract addrWidth and dataWidth from explicit arguments
+        let addrWidthArg := args[args.size-6]!
+        let dataWidthArg := args[args.size-5]!
+        let (addrWidth, _) ← extractNatLiteral addrWidthArg
+        let (dataWidth, _) ← extractNatLiteral dataWidthArg
+        -- Extract signal arguments
+        let writeAddr := args[args.size-4]!
+        let writeData := args[args.size-3]!
+        let writeEnable := args[args.size-2]!
+        let readAddr := args[args.size-1]!
+        -- Translate to wires
+        let waW ← translateExprToWire writeAddr "mem_waddr"
+        let wdW ← translateExprToWire writeData "mem_wdata"
+        let weW ← translateExprToWire writeEnable "mem_we"
+        let raW ← translateExprToWire readAddr "mem_raddr"
+        -- Emit memory and return read data wire
+        return ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
+          (.ref waW) (.ref wdW) (.ref weW) (.ref raW)
 
       -- HWVector.get: array indexing
       if name == ``Sparkle.Core.Vector.HWVector.get && args.size >= 2 then
