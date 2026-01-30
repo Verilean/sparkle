@@ -304,13 +304,19 @@ mutual
            let fFn := f.getAppFn
            if fFn.isConstOf ``Prod.fst then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
-               let resWire ← CompilerM.makeWire hint (.bitVector 8)
-               CompilerM.emitAssign resWire (.slice (.ref wireS) 15 8)
+               let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+               let hwType ← inferHWTypeFromSignal exprType
+               let resWire ← CompilerM.makeWire hint hwType
+               let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+               CompilerM.emitAssign resWire (.slice (.ref wireS) (width * 2 - 1) width)
                return resWire
            if fFn.isConstOf ``Prod.snd then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
-               let resWire ← CompilerM.makeWire hint (.bitVector 8)
-               CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
+               let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+               let hwType ← inferHWTypeFromSignal exprType
+               let resWire ← CompilerM.makeWire hint hwType
+               let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+               CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
                return resWire
 
         -- Detect if-then-else and match expressions that cannot be synthesized
@@ -348,11 +354,24 @@ mutual
               -- Translate the base expression to get the tuple wire
               let tupleWire ← translateExprToWire baseExpr "tuple" (isTopLevel := false)
 
+              -- Infer component types from the continuation lambda types
+              let (ty1, ty2) ← match cont with
+                | .lam _ t1 (.lam _ t2 _ _) _ => pure (t1, t2)
+                | .lam _ t1 _ _ =>
+                  -- Single lambda, need to infer second type from first lambda body
+                  pure (t1, t1) -- Fallback: assume same types
+                | _ => CompilerM.liftMetaM $ throwError "Expected lambda in Prod.rec continuation"
+
+              let hwType1 ← inferHWTypeFromSignal ty1
+              let hwType2 ← inferHWTypeFromSignal ty2
+              let width1 := match hwType1 with | .bitVector w => w | .bit => 1 | _ => 8
+              let width2 := match hwType2 with | .bitVector w => w | .bit => 1 | _ => 8
+
               -- Extract the two components
-              let wire1 ← CompilerM.makeWire (hint ++ "_fst") (.bitVector 8)
-              let wire2 ← CompilerM.makeWire (hint ++ "_snd") (.bitVector 8)
-              CompilerM.emitAssign wire1 (.slice (.ref tupleWire) 15 8)
-              CompilerM.emitAssign wire2 (.slice (.ref tupleWire) 7 0)
+              let wire1 ← CompilerM.makeWire (hint ++ "_fst") hwType1
+              let wire2 ← CompilerM.makeWire (hint ++ "_snd") hwType2
+              CompilerM.emitAssign wire1 (.slice (.ref tupleWire) (width1 + width2 - 1) width2)
+              CompilerM.emitAssign wire2 (.slice (.ref tupleWire) (width2 - 1) 0)
 
               -- Now we need to apply the continuation with these wires
               -- The continuation should be a lambda (or nested lambdas)
@@ -434,7 +453,10 @@ mutual
                 let opName ← getPrimitiveNameFromLambda f
                 match getOperator opName with
                 | some op =>
-                   let resWire ← CompilerM.makeWire hint (.bitVector 8)
+                   -- Infer result type from the expression type
+                   let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                   let hwType ← inferHWTypeFromSignal exprType
+                   let resWire ← CompilerM.makeWire hint hwType
                    CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
                    return resWire
                 | none => pure ()
@@ -455,7 +477,10 @@ mutual
                    -- For now, only handle the simple case: unary map (no constants in lambda)
                    -- The more complex case with constants needs better handling
                    let wireA ← translateExprToWire a "a" (isTopLevel := false)
-                   let resWire ← CompilerM.makeWire hint (.bitVector 8)
+                   -- Infer result type from the expression type
+                   let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                   let hwType ← inferHWTypeFromSignal exprType
+                   let resWire ← CompilerM.makeWire hint hwType
                    CompilerM.emitAssign resWire (.op op [.ref wireA])
                    return resWire
              | _ => pure ()
@@ -504,15 +529,23 @@ mutual
 
     | .proj _ idx eStruct => do
       let wireS ← translateExprToWire eStruct "s"
-      let resWire ← CompilerM.makeWire hint (.bitVector 8)
-      let lo := (1 - idx) * 8
-      let hi := lo + 7
+      -- Infer result type from the expression type
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType
+      let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+      let lo := (1 - idx) * width
+      let hi := lo + width - 1
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
       return resWire
 
     | .lit (.natVal n) => do
-      let wire ← CompilerM.makeWire hint (.bitVector 8)
-      CompilerM.emitAssign wire (.const (Int.ofNat n) 8)
+      -- Infer result type from the expression type
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+      let wire ← CompilerM.makeWire hint hwType
+      CompilerM.emitAssign wire (.const (Int.ofNat n) width)
       return wire
 
     | .fvar fvarId => do
@@ -617,16 +650,22 @@ mutual
       if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
         let s := args[args.size-1]!
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
-        let resWire ← CompilerM.makeWire hint (.bitVector 8)
-        CompilerM.emitAssign resWire (.slice (.ref wireS) 15 8)
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let resWire ← CompilerM.makeWire hint hwType
+        let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+        CompilerM.emitAssign resWire (.slice (.ref wireS) (width * 2 - 1) width)
         return resWire
 
       -- Special case: Signal.snd for tuple extraction (new readable syntax)
       if name == ``Sparkle.Core.Signal.Signal.snd && args.size >= 1 then
         let s := args[args.size-1]!
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
-        let resWire ← CompilerM.makeWire hint (.bitVector 8)
-        CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let resWire ← CompilerM.makeWire hint hwType
+        let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+        CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
         return resWire
 
       -- Special case: Signal.map Prod.fst/snd for tuple extraction (legacy syntax)
@@ -635,13 +674,21 @@ mutual
         let s := args[args.size-1]!
         if f.isConstOf ``Prod.fst then
           let wireS ← translateExprToWire s "s" (isTopLevel := false)
-          let resWire ← CompilerM.makeWire hint (.bitVector 8)
-          CompilerM.emitAssign resWire (.slice (.ref wireS) 15 8)
+          -- Infer result type from the expression type
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let resWire ← CompilerM.makeWire hint hwType
+          let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+          CompilerM.emitAssign resWire (.slice (.ref wireS) (width * 2 - 1) width)
           return resWire
         if f.isConstOf ``Prod.snd then
           let wireS ← translateExprToWire s "s" (isTopLevel := false)
-          let resWire ← CompilerM.makeWire hint (.bitVector 8)
-          CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
+          -- Infer result type from the expression type
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let resWire ← CompilerM.makeWire hint hwType
+          let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+          CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
           return resWire
 
       if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
@@ -657,7 +704,10 @@ mutual
           let opName ← getPrimitiveNameFromLambda f
           match getOperator opName with
           | some op =>
-            let resWire ← CompilerM.makeWire hint (.bitVector 8)
+            -- Infer result type from the expression type
+            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let hwType ← inferHWTypeFromSignal exprType
+            let resWire ← CompilerM.makeWire hint hwType
             CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
             return resWire
           | none =>
@@ -669,12 +719,18 @@ mutual
           if args.size >= 2 then
             let wire1 ← translateExprToWire args[args.size-2]! "arg1"
             let wire2 ← translateExprToWire args[args.size-1]! "arg2"
-            let resultWire ← CompilerM.makeWire hint (.bitVector 8)
+            -- Infer result type from the expression type
+            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let hwType ← inferHWTypeFromSignal exprType
+            let resultWire ← CompilerM.makeWire hint hwType
             CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
             return resultWire
           else if args.size == 1 then
              let wire1 ← translateExprToWire args[0]! "arg1"
-             let resultWire ← CompilerM.makeWire hint (.bitVector 8)
+             -- Infer result type from the expression type
+             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+             let hwType ← inferHWTypeFromSignal exprType
+             let resultWire ← CompilerM.makeWire hint hwType
              CompilerM.emitAssign resultWire (.op op [.ref wire1])
              return resultWire
         | none =>
@@ -696,7 +752,10 @@ mutual
         let cW ← translateExprToWire cond "mux_cond"
         let tW ← translateExprToWire thenSig "mux_then"
         let eW ← translateExprToWire elseSig "mux_else"
-        let rW ← CompilerM.makeWire hint (.bitVector 8)
+        -- Infer result type from the expression type
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let rW ← CompilerM.makeWire hint hwType
         CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
         return rW
 
@@ -704,7 +763,10 @@ mutual
         let f := args.back!
         match f with
         | .lam binderName binderType body _ =>
-          let loopWire ← CompilerM.makeWire "loop" (.bitVector 8)
+          -- Infer result type from the expression type
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let loopWire ← CompilerM.makeWire "loop" hwType
           let (fvarId, bodyInst) ← CompilerM.liftMetaM do
             withLocalDeclD binderName binderType fun fvar => do
               return (fvar.fvarId!, body.instantiate1 fvar)
@@ -738,7 +800,10 @@ mutual
            let argWire ← translateExprToWire argExpr s!"arg{i}"
            connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
 
-        let resWire ← CompilerM.makeWire hint (.bitVector 8)
+        -- Infer result type from the expression type
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let resWire ← CompilerM.makeWire hint hwType
         connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
 
         CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
@@ -776,7 +841,21 @@ mutual
       let body := defnInfo.value
       let compiler : CompilerM String := do
         let resultWire ← translateExprToWire body "result" (isTopLevel := true)
-        CompilerM.addOutput "out" (.bitVector 8)
+        -- Look up the actual wire type that was created
+        let cs ← get
+        let resultWireDecl := cs.module.wires.find? (fun (p : Port) => p.name == resultWire)
+        let outputType := match resultWireDecl with
+          | some decl =>
+            -- DEBUG: Found wire with correct type
+            decl.ty
+          | none =>
+            -- DEBUG: Wire not found, using fallback
+            -- This happens when result is input wire, not internal wire
+            -- Try to infer from inputs
+            match cs.module.inputs.find? (fun p => p.name == resultWire) with
+            | some inputPort => inputPort.ty
+            | none => .bitVector 8  -- True fallback
+        CompilerM.addOutput "out" outputType
         CompilerM.emitAssign "out" (.ref resultWire)
         return resultWire
       let circuitState := CircuitM.init declName.toString
