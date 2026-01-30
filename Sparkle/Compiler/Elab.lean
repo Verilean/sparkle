@@ -313,8 +313,26 @@ mutual
                CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
                return resWire
 
+        -- Detect if-then-else and match expressions that cannot be synthesized
+        if name == ``ite || name == ``dite then
+          CompilerM.liftMetaM $ throwError
+            "if-then-else expressions cannot be synthesized to hardware.\n\n\
+            Use Signal.mux instead:\n\
+            ❌ WRONG: if cond then a else b\n\
+            ✓ RIGHT:  Signal.mux cond a b\n\n\
+            See Tests/TestConditionals.lean for examples."
+
+        if name == ``Decidable.rec || name == ``Decidable.casesOn then
+          CompilerM.liftMetaM $ throwError
+            "Decidable.rec (from if-then-else) cannot be synthesized.\n\n\
+            Use Signal.mux for hardware multiplexers:\n\
+            ✓ Signal.mux (cond : Signal d Bool) (ifTrue ifFalse : Signal d α) : Signal d α\n\n\
+            See Tests/TestConditionals.lean for examples."
+
+        -- Note: unbundle pattern matching detection removed (see comment in translateExprToWireApp)
+
         -- Handle recursors by forcing reduction (use reduce for full beta reduction)
-        if name == ``Prod.rec || name == ``Prod.casesOn || name == ``Sparkle.Core.Signal.unbundle2 then
+        if name == ``Prod.rec || name == ``Prod.casesOn then
           let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.all $ reduce e)
 
           -- Check if the result is: fvar proj1 proj2 (tuple destructuring continuation pattern)
@@ -564,6 +582,37 @@ mutual
 
     match fn with
     | .const name _ =>
+      -- ============================================================================
+      -- Error detection for problematic patterns that cannot be synthesized
+      -- ============================================================================
+
+      -- Detect if-then-else expressions (compile to Decidable.rec)
+      if name == ``ite || name == ``dite then
+        CompilerM.liftMetaM $ throwError
+          "if-then-else expressions cannot be synthesized to hardware.\n\n\
+          Use Signal.mux instead:\n\
+          ❌ WRONG: if cond then a else b\n\
+          ✓ RIGHT:  Signal.mux cond a b\n\n\
+          See Tests/TestConditionals.lean for examples."
+
+      -- Detect Decidable recursors (from if-then-else compilation)
+      if name == ``Decidable.rec || name == ``Decidable.casesOn then
+        CompilerM.liftMetaM $ throwError
+          "Decidable.rec (from if-then-else) cannot be synthesized.\n\n\
+          Use Signal.mux for hardware multiplexers:\n\
+          ✓ Signal.mux (cond : Signal d Bool) (ifTrue ifFalse : Signal d α) : Signal d α\n\n\
+          See Tests/TestConditionals.lean for examples."
+
+      -- Note: We don't detect unbundle2 usage here because:
+      -- 1. unbundle2 itself is fine (returns a tuple)
+      -- 2. Pattern matching on unbundle2 gets compiled away before synthesis
+      -- 3. We'd only catch non-problematic uses, creating false positives
+      -- The pattern matching problem is documented in Tests/TestUnbundle2.lean and README
+
+      -- ============================================================================
+      -- Normal synthesis cases
+      -- ============================================================================
+
       -- Special case: Signal.fst for tuple extraction (new readable syntax)
       if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
         let s := args[args.size-1]!
@@ -695,8 +744,17 @@ mutual
         CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
         return resWire
       else
-        -- Not a valid module - throw error
-        CompilerM.liftMetaM $ throwError s!"Cannot instantiate {name}: not a hardware module definition"
+        -- Not a valid module - throw error with debug info
+        CompilerM.liftMetaM $ do
+          -- Check if this is a known problematic pattern that should have been caught
+          if name.toString.contains "ite" || name.toString.contains "Decidable" then
+            throwError s!"Detected problematic pattern {name}.\n\n\
+              This might be from if-then-else which cannot be synthesized.\n\
+              Use Signal.mux instead:\n\
+              ❌ WRONG: if cond then a else b\n\
+              ✓ RIGHT:  Signal.mux cond a b"
+          else
+            throwError s!"Cannot instantiate {name}: not a hardware module definition"
 
     | _ =>
       let fn := e.getAppFn
