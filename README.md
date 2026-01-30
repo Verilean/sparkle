@@ -169,6 +169,31 @@ def fir4 (coeffs : Array (BitVec 16)) (input : BitVec 16) : Signal Domain (BitVe
   return sum.zeroExtend 32
 ```
 
+### 📦 Vector/Array Types
+
+Create register files and memory structures with hardware arrays:
+
+```lean
+-- 4-element register file with 8-bit values
+def registerFile (vec : Signal d (HWVector (BitVec 8) 4))
+    (idx : Signal d (BitVec 2)) : Signal d (BitVec 8) :=
+  (fun v i => v.get ⟨i.toNat, by omega⟩) <$> vec <*> idx
+```
+
+Generates clean Verilog arrays:
+```systemverilog
+input logic [7:0] vec [3:0];  // 4-element array of 8-bit values
+input logic [1:0] idx;
+output logic [7:0] out;
+assign out = vec[idx];
+```
+
+**Features:**
+- Fixed-size vectors: `HWVector α n`
+- Nested arrays: `HWVector (HWVector (BitVec 8) 4) 8`
+- Type-safe indexing with compile-time size checks
+- Automatic bit-width calculation
+
 ### 🎓 Complete CPU Example
 
 The **Sparkle-16** is a fully functional 16-bit RISC CPU demonstrating real-world hardware design:
@@ -418,17 +443,21 @@ def counter_WRONG : Signal Domain (BitVec 16) :=
 - Registers: `Signal.register`
 - Mux: `Signal.mux`
 - Tuples: `bundle2`/`bundle3` and `.fst`/`.snd`/`.proj*` projections
+- **Arrays/Vectors**: `HWVector α n` with `.get` indexing
+- **Correct overflow**: All bit widths preserve wrap-around semantics
 - Hierarchical modules: function calls generate module instantiations
+- **Co-simulation**: Verilator integration for validation
 
 **⚠️ Limitations:**
 - Pattern matching on Signal tuples (use `.fst`/`.snd` instead)
 - Recursive let-bindings (use manual IR for feedback loops)
 - Higher-order functions beyond `map`, `<*>`, and basic combinators
 - General match expressions on Signals
+- Array writes (only indexing reads supported currently)
 
 ### 🧪 Testing
 
-Run the comprehensive test suite (65 tests):
+Run the comprehensive test suite (100+ tests):
 
 ```bash
 lake test
@@ -438,8 +467,12 @@ Tests include:
 - Signal simulation (18 tests)
 - IR and Verilog synthesis (13 tests)
 - Verilog generation verification (19 tests)
+- Array/Vector operations (27 tests)
+- Overflow/underflow behavior (26 tests)
+- Sparkle-16 CPU verification tests
 - Combinational and sequential circuits
 - Hierarchical module instantiation
+- Co-simulation with Verilator
 
 ## Comparison with Other HDLs
 
@@ -459,17 +492,29 @@ Tests include:
 ```
 sparkle/
 ├── Sparkle/              # Core library
-│   ├── Core/            # Signal semantics and domains
+│   ├── Core/            # Signal semantics, domains, and vectors
+│   │   ├── Signal.lean  # Signal monad and operations
+│   │   ├── Domain.lean  # Clock domain configuration
+│   │   └── Vector.lean  # Hardware vector types (NEW!)
 │   ├── Data/            # BitPack and data types
 │   ├── IR/              # Hardware IR and AST
+│   │   ├── AST.lean     # Expressions, statements, modules
+│   │   ├── Type.lean    # HWType with array support
+│   │   └── Builder.lean # Circuit construction monad
 │   ├── Compiler/        # Lean → IR compilation
+│   │   └── Elab.lean    # Metaprogramming synthesis
 │   ├── Backend/         # Verilog code generation
-│   └── Verification/    # Proof libraries
+│   │   ├── Verilog.lean # SystemVerilog backend
+│   │   └── VCD.lean     # Waveform dump generation
+│   └── Verification/    # Proof libraries and co-simulation
+│       └── CoSim.lean   # Verilator integration
 ├── Examples/            # Example designs
 │   ├── Counter.lean
 │   ├── VerilogTest.lean
 │   └── Sparkle16/       # Complete CPU example
-├── Tests/               # Test suites
+├── Tests/               # Test suites (100+ tests)
+│   ├── TestArray.lean   # Vector/array tests (NEW!)
+│   └── Sparkle16/       # CPU-specific tests
 └── lakefile.lean        # Build configuration
 ```
 
@@ -491,12 +536,15 @@ Contributions welcome! Areas of interest:
 
 - [x] **Module hierarchy** - Multi-level designs ✓
 - [x] **Tuple projections** - Readable `.fst`/`.snd`/`.proj*` methods ✓
-- [x] **Comprehensive testing** - 65 LSpec-based tests ✓
-- [ ] **Vector types** - Parameterized hardware `Vec n α`
-- [ ] **Waveform export** - VCD dump for GTKWave
+- [x] **Comprehensive testing** - 100+ LSpec-based tests ✓
+- [x] **Vector types** - Hardware arrays `HWVector α n` with indexing ✓
+- [x] **Type inference** - Correct overflow/underflow for all bit widths ✓
+- [x] **Waveform export** - VCD dump for GTKWave ✓
+- [x] **Co-simulation** - Verilator integration for hardware validation ✓
 - [ ] **More proofs** - State machine invariants, protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
 - [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
+- [ ] **Memory primitives** - SRAM/BRAM with read/write ports
 
 ## Development History
 
