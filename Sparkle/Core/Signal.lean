@@ -217,4 +217,81 @@ def unbundle2 {dom : DomainConfig} {α β : Type u}
     (s : Signal dom (α × β)) : Signal dom α × Signal dom β :=
   (s.map Prod.fst, s.map Prod.snd)
 
+-- ============================================================================
+-- Tuple Projection Methods (Readable alternatives to map Prod.fst/snd)
+-- ============================================================================
+
+/-- Project first element from a 2-tuple signal -/
+def Signal.fst {dom : DomainConfig} {α β : Type u} (s : Signal dom (α × β)) : Signal dom α :=
+  s.map Prod.fst
+
+/-- Project second element from a 2-tuple signal -/
+def Signal.snd {dom : DomainConfig} {α β : Type u} (s : Signal dom (α × β)) : Signal dom β :=
+  s.map Prod.snd
+
+/-- Unbundle a 3-tuple signal -/
+def unbundle3 {dom : DomainConfig} {α β γ : Type u}
+    (s : Signal dom (α × β × γ)) : Signal dom α × Signal dom β × Signal dom γ :=
+  (s.map (·.1), s.map (·.2.1), s.map (·.2.2))
+
+/-- Project first element from a 3-tuple signal -/
+def Signal.proj3_1 {dom : DomainConfig} {α β γ : Type u}
+    (s : Signal dom (α × β × γ)) : Signal dom α :=
+  s.map (·.1)
+
+/-- Project second element from a 3-tuple signal -/
+def Signal.proj3_2 {dom : DomainConfig} {α β γ : Type u}
+    (s : Signal dom (α × β × γ)) : Signal dom β :=
+  s.map (·.2.1)
+
+/-- Project third element from a 3-tuple signal -/
+def Signal.proj3_3 {dom : DomainConfig} {α β γ : Type u}
+    (s : Signal dom (α × β × γ)) : Signal dom γ :=
+  s.map (·.2.2)
+
+/-- Unbundle a 4-tuple signal -/
+def unbundle4 {dom : DomainConfig} {α β γ δ : Type u}
+    (s : Signal dom (α × β × γ × δ)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ :=
+  (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2))
+
+/-- Project first element from a 4-tuple signal -/
+def Signal.proj4_1 {dom : DomainConfig} {α β γ δ : Type u}
+    (s : Signal dom (α × β × γ × δ)) : Signal dom α :=
+  s.map (·.1)
+
+/-- Project second element from a 4-tuple signal -/
+def Signal.proj4_2 {dom : DomainConfig} {α β γ δ : Type u}
+    (s : Signal dom (α × β × γ × δ)) : Signal dom β :=
+  s.map (·.2.1)
+
+/-- Project third element from a 4-tuple signal -/
+def Signal.proj4_3 {dom : DomainConfig} {α β γ δ : Type u}
+    (s : Signal dom (α × β × γ × δ)) : Signal dom γ :=
+  s.map (·.2.2.1)
+
+/-- Project fourth element from a 4-tuple signal -/
+def Signal.proj4_4 {dom : DomainConfig} {α β γ δ : Type u}
+    (s : Signal dom (α × β × γ × δ)) : Signal dom δ :=
+  s.map (·.2.2.2)
+
+/-- Unbundle a 5-tuple signal -/
+def unbundle5 {dom : DomainConfig} {α β γ δ ε : Type u}
+    (s : Signal dom (α × β × γ × δ × ε)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ × Signal dom ε :=
+  (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2.1), s.map (·.2.2.2.2))
+
+/-- Unbundle a 6-tuple signal -/
+def unbundle6 {dom : DomainConfig} {α β γ δ ε ζ : Type u}
+    (s : Signal dom (α × β × γ × δ × ε × ζ)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ × Signal dom ε × Signal dom ζ :=
+  (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2.1), s.map (·.2.2.2.2.1), s.map (·.2.2.2.2.2))
+
+/-- Unbundle a 7-tuple signal -/
+def unbundle7 {dom : DomainConfig} {α β γ δ ε ζ η : Type u}
+    (s : Signal dom (α × β × γ × δ × ε × ζ × η)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ × Signal dom ε × Signal dom ζ × Signal dom η :=
+  (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2.1), s.map (·.2.2.2.2.1), s.map (·.2.2.2.2.2.1), s.map (·.2.2.2.2.2.2))
+
+/-- Unbundle an 8-tuple signal -/
+def unbundle8 {dom : DomainConfig} {α β γ δ ε ζ η θ : Type u}
+    (s : Signal dom (α × β × γ × δ × ε × ζ × η × θ)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ × Signal dom ε × Signal dom ζ × Signal dom η × Signal dom θ :=
+  (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2.1), s.map (·.2.2.2.2.1), s.map (·.2.2.2.2.2.1), s.map (·.2.2.2.2.2.2.1), s.map (·.2.2.2.2.2.2.2))
+
 end Sparkle.Core.Signal

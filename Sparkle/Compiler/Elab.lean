@@ -564,7 +564,23 @@ mutual
 
     match fn with
     | .const name _ =>
-      -- Special case: Signal.map Prod.fst/snd for tuple extraction
+      -- Special case: Signal.fst for tuple extraction (new readable syntax)
+      if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
+        let s := args[args.size-1]!
+        let wireS ← translateExprToWire s "s" (isTopLevel := false)
+        let resWire ← CompilerM.makeWire hint (.bitVector 8)
+        CompilerM.emitAssign resWire (.slice (.ref wireS) 15 8)
+        return resWire
+
+      -- Special case: Signal.snd for tuple extraction (new readable syntax)
+      if name == ``Sparkle.Core.Signal.Signal.snd && args.size >= 1 then
+        let s := args[args.size-1]!
+        let wireS ← translateExprToWire s "s" (isTopLevel := false)
+        let resWire ← CompilerM.makeWire hint (.bitVector 8)
+        CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
+        return resWire
+
+      -- Special case: Signal.map Prod.fst/snd for tuple extraction (legacy syntax)
       if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
         let f := args[args.size-2]!
         let s := args[args.size-1]!

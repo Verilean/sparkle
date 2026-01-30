@@ -14,40 +14,27 @@ def halfAdder (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8 × BitV
 --
 -- IMPORTANT: Tuple Extraction Pattern
 -- ====================================
--- Use Signal.map Prod.fst/snd for extracting tuple components:
---   ✓ let sum1 := Signal.map Prod.fst res1
---   ✓ let carry1 := Signal.map Prod.snd res1
+-- Use .fst/.snd methods for extracting tuple components:
+--   ✓ let sum1 := res1.fst
+--   ✓ let carry1 := res1.snd
 --
 -- DO NOT use pattern matching on unbundle2:
 --   ✗ let (sum1, carry1) := unbundle2 res1
 --
--- Why unbundle2 pattern matching doesn't work:
--- -------------------------------------------
--- unbundle2 returns a Lean-level tuple: (Signal α × Signal β)
--- When you write: let (a, b) := unbundle2 x
--- Lean compiles this pattern match into:
---   1. A custom match function (e.g., fullAdder.match_1)
---   2. Nested lambda abstractions that destructure the tuple
---   3. Complex reduced expressions where fvars are deeply embedded
+-- Why pattern matching doesn't work:
+-- Lean compiles pattern matches into match functions that get reduced away
+-- during elaboration, causing "unbound variable" errors in the synthesis context.
 --
--- By the time the Sparkle compiler sees the code, the pattern match has been
--- compiled away into deeply nested Signal operations with references to fvars
--- that are no longer accessible at the let-binding level. The compiler cannot
--- intercept and properly wire these pattern variables.
---
--- In contrast, Signal.map Prod.fst/snd works because:
---   - It stays at the Signal DSL level
---   - No Lean-level pattern matching is involved
---   - The compiler has explicit handlers that recognize these patterns
---   - The generated Verilog correctly creates slice wires for tuple components
+-- Solution: Use readable projection methods (.fst, .snd, .proj3_1, etc.)
+-- These are much more readable than the old Signal.map Prod.fst/snd style!
 --
 def fullAdder (a b cin : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8 × BitVec 8) :=
   let res1 := halfAdder a b
-  let sum1 := Signal.map Prod.fst res1
-  let carry1 := Signal.map Prod.snd res1
+  let sum1 := res1.fst       -- ✨ Readable!
+  let carry1 := res1.snd     -- ✨ Readable!
   let res2 := halfAdder sum1 cin
-  let sum2 := Signal.map Prod.fst res2
-  let carry2 := Signal.map Prod.snd res2
+  let sum2 := res2.fst
+  let carry2 := res2.snd
   let carryOut := (· ||| ·) <$> carry1 <*> carry2
   bundle2 sum2 carryOut
 
