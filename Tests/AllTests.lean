@@ -2,6 +2,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import Sparkle.Backend.Verilog
 import Tests.TestCircuits
+import Tests.TestArray
 import Tests.Sparkle16.TestALU
 import Tests.Sparkle16.TestHierarchical
 import Tests.Sparkle16.TestVCD
@@ -298,11 +299,15 @@ def main : IO UInt32 := do
   let sparkle16CoSimTests ← Sparkle16.Test.coSimTests
   let sparkle16OverflowTests ← Sparkle.Test.Overflow.overflowTests
 
+  -- Run Array/Vector tests
+  let arrayTests ← Sparkle.Test.Array.arrayTests
+
   -- Combine all test suites
   let allTests :=
     simulationTests ++
     irSynthesisTests ++
     makeVerilogTests outputs ++
+    arrayTests ++
     sparkle16AluTests ++
     sparkle16HierarchicalTests ++
     sparkle16VCDTests ++

@@ -7,6 +7,7 @@
 
 import Sparkle.Core.Domain
 import Sparkle.Core.Signal
+import Sparkle.Core.Vector
 import Sparkle.Data.BitPack
 import Sparkle.IR.Type
 import Sparkle.IR.AST

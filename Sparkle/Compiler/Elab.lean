@@ -12,6 +12,7 @@ import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
 import Sparkle.Core.Signal
+import Sparkle.Core.Vector
 
 namespace Sparkle.Compiler.Elab
 
@@ -166,6 +167,12 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
     | some (.bitVector w1), some .bit => return some (.bitVector (w1 + 1))
     | some .bit, some .bit => return some (.bitVector 2)
     | _, _ => return none
+  | .app (.app (.const ``Sparkle.Core.Vector.HWVector _) elemType) size =>
+    -- HWVector α n: extract element type and size
+    let n ← extractWidth size
+    match ← inferHWType elemType with
+    | some hwElemType => return some (.array n hwElemType)
+    | none => return none
   | _ =>
     return none
 where
@@ -758,6 +765,19 @@ mutual
         let rW ← CompilerM.makeWire hint hwType
         CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
         return rW
+
+      -- HWVector.get: array indexing
+      if name == ``Sparkle.Core.Vector.HWVector.get && args.size >= 2 then
+        let vec := args[args.size-2]!
+        let idx := args[args.size-1]!
+        let vecWire ← translateExprToWire vec "vec"
+        let idxWire ← translateExprToWire idx "idx"
+        -- Infer result type from the expression type
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let resWire ← CompilerM.makeWire hint hwType
+        CompilerM.emitAssign resWire (.index (.ref vecWire) (.ref idxWire))
+        return resWire
 
       if name.toString.endsWith ".loop" && args.size >= 1 then
         let f := args.back!

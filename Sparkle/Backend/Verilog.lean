@@ -69,6 +69,9 @@ partial def emitExpr (e : Expr) : String :=
   | .slice e hi lo =>
     s!"{emitExpr e}[{hi}:{lo}]"
 
+  | .index arr idx =>
+    s!"{emitExpr arr}[{emitExpr idx}]"
+
   | .op .mux args =>
     -- Mux is special: cond ? then_val : else_val
     match args with
