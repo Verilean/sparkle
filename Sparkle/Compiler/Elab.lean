@@ -11,6 +11,7 @@ import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
+import Sparkle.Core.Signal
 
 namespace Sparkle.Compiler.Elab
 
@@ -19,6 +20,9 @@ open Sparkle.IR.Builder
 open Sparkle.IR.AST (Operator Port Module Expr Stmt)
 open Sparkle.IR.Type
 open Sparkle.Backend.Verilog
+
+instance : Inhabited Sparkle.IR.AST.Port := ⟨{ name := "default", ty := .bit }⟩
+
 
 /-- Compiler state tracking variable mappings and context -/
 structure CompilerState where
@@ -42,14 +46,27 @@ def lookupVar (fvarId : FVarId) : CompilerM (Option String) := do
 
 /-- Execute an action with an additional variable mapping in scope -/
 def withVarMapping {α : Type} (fvarId : FVarId) (wireName : String) (k : CompilerM α) : CompilerM α := do
-  -- Save old state
   let oldState ← getCompilerState
-
-  -- Modify state: push new mapping
   let newState := { oldState with varMap := (fvarId, wireName) :: oldState.varMap }
-
-  -- Use withReader to create a scoped context with the new mapping
   withReader (fun _ => newState) k
+
+/-- Execute an action with a new local declaration in MetaM scope -/
+def withLocalDecl {α : Type} (name : Name) (type : Lean.Expr) (k : Lean.Expr → CompilerM α) : CompilerM α := do
+  let ctx ← read
+  let s ← get
+  let (res, newS) ← liftMetaM <| withLocalDeclD name type fun fvar => do
+    (k fvar ctx).run s
+  set newS
+  return res
+
+/-- Execute an action with a new let declaration in MetaM scope (for logic values) -/
+def withLetDecl {α : Type} (name : Name) (type : Lean.Expr) (value : Lean.Expr) (k : Lean.Expr → CompilerM α) : CompilerM α := do
+  let ctx ← read
+  let s ← get
+  let (res, newS) ← liftMetaM <| Lean.Meta.withLetDecl name type value fun fvar => do
+    (k fvar ctx).run s
+  set newS
+  return res
 
 /-- Lift MetaM into CompilerM -/
 def liftMetaM {α : Type} (m : MetaM α) : CompilerM α :=
@@ -72,6 +89,7 @@ def addInput (name : String) (ty : HWType) : CompilerM Unit := do
   let ((), cs') := CircuitM.addInput name ty cs
   set cs'
 
+
 def addOutput (name : String) (ty : HWType) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.addOutput name ty cs
@@ -83,60 +101,96 @@ def emitRegister (hint : String) (clk : String) (rst : String) (input : Sparkle.
   set cs'
   return name
 
+def emitInstance (moduleName : String) (instName : String) (connections : List (String × Sparkle.IR.AST.Expr)) : CompilerM Unit := do
+  let cs ← get
+  let ((), cs') := CircuitM.emitInstance moduleName instName connections cs
+  set cs'
+
+def addModuleToDesign (m : Sparkle.IR.AST.Module) : CompilerM Unit := do
+  let cs ← get
+  let ((), cs') := CircuitM.addModuleToDesign m cs
+  set cs'
+
 end CompilerM
 
 /--
   Primitive Registry: Maps Lean function names to IR operators
 -/
-def primitiveRegistry : List (Name × Operator) :=
+def primitiveRegistry : List (Name × Sparkle.IR.AST.Operator) :=
   [
     -- Logical operations
     (``BitVec.and, .and),
+    (``HAnd.hAnd, .and),
     (``BitVec.or, .or),
+    (``HOr.hOr, .or),
     (``BitVec.xor, .xor),
+    (``HXor.hXor, .xor),
     -- Arithmetic operations
     (``BitVec.add, .add),
+    (``HAdd.hAdd, .add),
     (``BitVec.sub, .sub),
+    (``HSub.hSub, .sub),
     (``BitVec.mul, .mul),
-    -- Comparison operations
+    (``HMul.hMul, .mul),
+    -- Comparison operations (unsigned)
+    (``BitVec.ult, .lt_u),
+    (``BitVec.ule, .le_u),
+    (``LT.lt, .lt_u),
+    (``LE.le, .le_u),
     (``BEq.beq, .eq),
-    (``LT.lt, .lt),
-    (``LE.le, .le)
+    -- Comparison operations (signed)
+    (``BitVec.slt, .lt_s),
+    (``BitVec.sle, .le_s)
   ]
 
-/-- Check if a name is a known primitive -/
 def isPrimitive (name : Name) : Bool :=
   primitiveRegistry.any (fun (n, _) => n == name)
 
-/-- Get the operator for a primitive -/
 def getOperator (name : Name) : Option Operator :=
   primitiveRegistry.lookup name
 
-/--
-  Infer the hardware type from a Lean type expression.
--/
 partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
   let type ← whnf type
-
   match type with
-  | .app (.const ``BitVec _) (.lit (.natVal n)) =>
-    return some (if n == 1 then .bit else .bitVector n)
+  | .app (.const ``BitVec _) width =>
+    -- Width can be direct literal or OfNat wrapper
+    let w ← extractWidth width
+    return some (if w == 1 then .bit else .bitVector w)
   | .const ``Bool _ =>
     return some .bit
+  | .app (.app (.const ``Prod _) ty1) ty2 =>
+    -- Product type: concatenate the two types
+    match ← inferHWType ty1, ← inferHWType ty2 with
+    | some (.bitVector w1), some (.bitVector w2) => return some (.bitVector (w1 + w2))
+    | some .bit, some (.bitVector w2) => return some (.bitVector (1 + w2))
+    | some (.bitVector w1), some .bit => return some (.bitVector (w1 + 1))
+    | some .bit, some .bit => return some (.bitVector 2)
+    | _, _ => return none
   | _ =>
     return none
+where
+  extractWidth (e : Lean.Expr) : MetaM Nat := do
+    let e ← whnf e
+    match e with
+    | .lit (.natVal n) => return n
+    | .app fn _arg =>
+      let fnConst := fn.getAppFn
+      if fnConst.isConstOf ``OfNat.ofNat then
+        -- OfNat.ofNat Type n inst -> extract n
+        let args := e.getAppArgs
+        if args.size >= 2 then
+          extractWidth args[1]!
+        else
+          return 8
+      else
+        return 8
+    | _ => return 8
 
-/--
-  Infer hardware type from Signal dom α type.
-  Extracts the inner type α and calls inferHWType on it.
--/
+
 def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
   let signalType ← CompilerM.liftMetaM (whnf signalType)
-
   match signalType with
-  -- Signal dom α pattern - Signal is a structure, match on application
   | .app (.app signalConstr _dom) innerType =>
-    -- Check if this is actually the Signal constructor
     match signalConstr with
     | .const name _ =>
       if name.toString.endsWith "Signal" then
@@ -144,267 +198,530 @@ def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
         | some hwType => return hwType
         | none => CompilerM.liftMetaM $ throwError s!"Cannot infer hardware type from {innerType}"
       else
-        -- Not a Signal, try fallback
         match ← CompilerM.liftMetaM (inferHWType signalType) with
         | some hwType => return hwType
-        | none => return .bitVector 8
+        | none => CompilerM.liftMetaM $ throwError s!"Cannot infer hardware type from {signalType}"
     | _ =>
       match ← CompilerM.liftMetaM (inferHWType signalType) with
       | some hwType => return hwType
-      | none => return .bitVector 8
-
-  -- Fallback: try to infer directly (for non-Signal types)
+      | none => CompilerM.liftMetaM $ throwError s!"Cannot infer hardware type from {signalType}"
   | _ =>
     match ← CompilerM.liftMetaM (inferHWType signalType) with
     | some hwType => return hwType
-    | none => return .bitVector 8  -- Default to 8-bit for MVP
+    | none => CompilerM.liftMetaM $ throwError s!"Cannot infer hardware type from {signalType}"
 
-/--
-  Extract numeric value and width from BitVec literal.
-  Handles patterns like: 0#8, 42#16, etc.
--/
+/-- Helper to extract a Nat literal or OfNat.ofNat wrap. -/
+partial def extractNat (e : Lean.Expr) : CompilerM Nat := do
+  let e ← CompilerM.liftMetaM (whnf e)
+  let fn := e.getAppFn
+  let args := e.getAppArgs
+  match fn with
+  | .const name _ =>
+    if name == ``OfNat.ofNat && args.size >= 2 then
+       match args[1]! with
+       | .lit (.natVal n) => return n
+       | _ => CompilerM.liftMetaM $ throwError s!"Expected Nat literal in OfNat, got: {args[1]!}"
+    else if name == ``Fin.mk && args.size >= 2 then
+       extractNat args[1]!
+    else
+       CompilerM.liftMetaM $ throwError s!"Expected Nat literal, got constant: {name}"
+  | .lit (.natVal n) => return n
+  | _ => CompilerM.liftMetaM $ throwError s!"Expected Nat, got: {e}"
+
 def extractBitVecLiteral (expr : Lean.Expr) : CompilerM (Nat × Nat) := do
   let expr ← CompilerM.liftMetaM (whnf expr)
-
-  match expr with
-  -- BitVec.ofNat (w : Nat) (x : Nat) : BitVec w
-  -- Appears as: (.app (.app (.app (.const ``BitVec.ofNat _) (.lit (.natVal width))) _) (.lit (.natVal value)))
-  | .app (.app (.app (.const ``BitVec.ofNat _) (.lit (.natVal width))) _) (.lit (.natVal value)) =>
-    return (value, width)
-
-  -- Plain Nat literal - assume 8-bit width
-  | .lit (.natVal value) =>
-    return (value, 8)
-
+  let fn := expr.getAppFn
+  let args := expr.getAppArgs
+  match fn with
+  | .const name _ =>
+    if name == ``BitVec.ofNat && args.size >= 3 then
+      let w ← extractNat args[0]!
+      let v ← extractNat args[2]!
+      return (v, w)
+    else if name == ``BitVec.ofFin && args.size >= 2 then
+      let w ← extractNat args[0]!
+      let v ← extractNat args[1]!
+      return (v, w)
+    else
+      CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got application of {name}"
+  | .lit (.natVal value) => return (value, 8)
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got: {expr}"
 
-/--
-  Translate a Lean expression to a wire name (creating assignments as needed).
-  Returns the wire name holding the result.
--/
-partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") : CompilerM String := do
-  let e ← CompilerM.liftMetaM (whnf e)
-
-  match e with
-  -- Literal constants
-  | .lit (.natVal n) => do
-    let wire ← CompilerM.makeWire hint (.bitVector 8)
-    CompilerM.emitAssign wire (.const (Int.ofNat n) 8)
-    return wire
-
-  -- Variables
-  | .fvar fvarId => do
-    match ← CompilerM.lookupVar fvarId with
-    | some wireName => return wireName
-    | none =>
-      CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}"
-
-  -- Let bindings
-  | .letE name _type value body _ => do
-    -- Translate the value expression to a wire
-    let _valueWire ← translateExprToWire value name.toString
-    -- For now, we inline the body evaluation
-    -- TODO: Properly handle variable bindings in body (use _valueWire for scoping)
-    translateExprToWire body hint
-
-  -- Lambda expressions (parameters become inputs)
-  | .lam name _ body _ => do
-    -- Create an input wire for the parameter
-    let paramWire ← CompilerM.makeWire name.toString (.bitVector 8)
-    CompilerM.addInput paramWire (.bitVector 8)
-    -- TODO: Add proper parameter tracking
-    translateExprToWire body hint
-
-  -- Binary operations (primitives)
-  | .app (.app (.const name _) arg1) arg2 =>
-    if isPrimitive name then
-      match getOperator name with
-      | some op =>
-        let wire1 ← translateExprToWire arg1 "arg1"
-        let wire2 ← translateExprToWire arg2 "arg2"
-        let resultWire ← CompilerM.makeWire hint (.bitVector 8)
-        CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
-        return resultWire
+mutual
+  partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) : CompilerM String := do
+    -- IO.println s!"DEBUG: translateExprToWire {hint}, isTopLevel={isTopLevel}"
+    -- 0. Handle free variables first (before any whnf)
+    if let .fvar fvarId := e then
+      match ← CompilerM.lookupVar fvarId with
+      | some wireName => return wireName
       | none =>
-        CompilerM.liftMetaM $ throwError s!"Unknown operator for primitive: {name}"
-    else
-      CompilerM.liftMetaM $ throwError s!"Cannot synthesize application: {name}"
+        CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}"
 
-  -- BitVec literals
-  | .app (.app (.app (.const ``BitVec.ofNat _) (.lit (.natVal width))) _) (.lit (.natVal value)) => do
-    let wire ← CompilerM.makeWire hint (.bitVector width)
-    CompilerM.emitAssign wire (.const (Int.ofNat value) width)
-    return wire
+    let fn := e.getAppFn
+    let args := e.getAppArgs
 
-  -- Signal.register primitive: register {dom} {α} init input
-  | .app (.app (.app (.app (.const regName _) _dom) _ty) init) input =>
-    if regName.toString.endsWith ".register" then do
-      -- Extract init value using helper
-      let (initVal, _width) ← extractBitVecLiteral init
 
-      -- Translate input signal recursively
-      let inputWire ← translateExprToWire input "reg_input"
+    -- 1. High-priority Signal Recognition (Avoid premature unfolding)
+    if let .const name _ := fn then
+        -- Signal wrappers & identity casts
+        if name == ``Sparkle.Core.Signal.Signal.mk || name == ``Sparkle.Core.Signal.Signal.val ||
+           name == ``BitVec.ofFin || name == ``Fin.mk || name == ``BitVec.ofNat || name == ``BitVec.toNat ||
+           name.toString.endsWith ".ofFin" || name.toString.endsWith ".ofNat" || name.toString.endsWith ".toNat" then
+          if args.size >= 1 then
+            let payload := if name == ``Fin.mk && args.size >= 2 then args[args.size-2]! else args.back!
+            return ← translateExprToWire payload hint
 
-      -- Infer hardware type from the expression's type
-      let exprType ← CompilerM.liftMetaM (inferType e)
-      let hwType ← inferHWTypeFromSignal exprType
+        -- Signal.pure (constant signals)
+        if name == ``Sparkle.Core.Signal.Signal.pure && args.size >= 1 then
+           let constValue := args[args.size-1]!
+           -- Try to extract the BitVec literal value
+           let (value, width) ← try
+             extractBitVecLiteral constValue
+           catch _ =>
+             -- If not a BitVec literal, try to reduce and check again
+             let reduced ← CompilerM.liftMetaM (reduce constValue)
+             try
+               extractBitVecLiteral reduced
+             catch _ =>
+               throwError "Signal.pure: expected BitVec constant, got: {constValue}"
+           let resWire ← CompilerM.makeWire hint (.bitVector width)
+           CompilerM.emitAssign resWire (.const value width)
+           return resWire
 
-      -- Emit register with hardcoded clock/reset names (will be added as inputs automatically)
-      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+        -- bundle2
+        if name == ``Sparkle.Core.Signal.bundle2 && args.size >= 2 then
+           let wireA ← translateExprToWire args[args.size-2]! "a"
+           let wireB ← translateExprToWire args[args.size-1]! "b"
+           let resWire ← CompilerM.makeWire hint (.bitVector 16)
+           CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+           return resWire
 
-      return regWire
-    else
-      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {regName}"
+        -- map Prod.fst/snd
+        if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
+           let f := args[args.size-2]!
+           let s := args[args.size-1]!
+           let fFn := f.getAppFn
+           if fFn.isConstOf ``Prod.fst then
+               let wireS ← translateExprToWire s "s" (isTopLevel := false)
+               let resWire ← CompilerM.makeWire hint (.bitVector 8)
+               CompilerM.emitAssign resWire (.slice (.ref wireS) 15 8)
+               return resWire
+           if fFn.isConstOf ``Prod.snd then
+               let wireS ← translateExprToWire s "s" (isTopLevel := false)
+               let resWire ← CompilerM.makeWire hint (.bitVector 8)
+               CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
+               return resWire
 
-  -- Signal.mux primitive: mux {dom} {α} cond thenSig elseSig
-  | .app (.app (.app (.app (.app (.const muxName _) _dom) _ty) cond) thenSig) elseSig =>
-    if muxName.toString.endsWith ".mux" then do
-      -- Translate all three arguments to wire names
-      let condWire ← translateExprToWire cond "mux_cond"
-      let thenWire ← translateExprToWire thenSig "mux_then"
-      let elseWire ← translateExprToWire elseSig "mux_else"
+        -- Handle recursors by forcing reduction (use reduce for full beta reduction)
+        if name == ``Prod.rec || name == ``Prod.casesOn || name == ``Sparkle.Core.Signal.unbundle2 then
+          let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.all $ reduce e)
 
-      -- Create result wire
-      let resultWire ← CompilerM.makeWire hint (.bitVector 8)
+          -- Check if the result is: fvar proj1 proj2 (tuple destructuring continuation pattern)
+          let handled ← match e' with
+          | .app (.app cont arg1) arg2 =>
+            if arg1.isProj && arg2.isProj then do
+              -- Pattern: continuation applied to two projections
+              -- Extract the base of the projections and the continuation
+              let baseExpr := match arg1 with
+                | .proj _ _ base => base
+                | _ => arg1
 
-      -- Emit assignment with mux operator (3 arguments required)
-      CompilerM.emitAssign resultWire (.op .mux [.ref condWire, .ref thenWire, .ref elseWire])
+              -- Translate the base expression to get the tuple wire
+              let tupleWire ← translateExprToWire baseExpr "tuple" (isTopLevel := false)
 
-      return resultWire
-    else
-      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {muxName}"
+              -- Extract the two components
+              let wire1 ← CompilerM.makeWire (hint ++ "_fst") (.bitVector 8)
+              let wire2 ← CompilerM.makeWire (hint ++ "_snd") (.bitVector 8)
+              CompilerM.emitAssign wire1 (.slice (.ref tupleWire) 15 8)
+              CompilerM.emitAssign wire2 (.slice (.ref tupleWire) 7 0)
 
-  -- Signal.loop primitive: loop {dom} {α} f
-  -- Matches: Signal.loop (fun feedback => body)
-  | .app (.app (.app (.const loopName _) _dom) _ty) f =>
-    if loopName.toString.endsWith ".loop" then do
-      match f with
-      | .lam binderName binderType body _ =>
-        -- 1. Create the feedback wire ahead of time.
-        let loopWire ← CompilerM.makeWire "loop" (.bitVector 8)
+              -- Now we need to apply the continuation with these wires
+              -- The continuation should be a lambda (or nested lambdas)
+              let result ← match cont with
+              | .lam n1 ty1 body1 _ =>
+                -- Single lambda - check if body is another lambda
+                match body1 with
+                | .lam n2 ty2 body2 _ =>
+                  -- Nested lambdas: substitute both parameters
+                  CompilerM.withLocalDecl n1 ty1 fun fvar1 => do
+                    CompilerM.withVarMapping fvar1.fvarId! wire1 do
+                      let body1Inst := body2.instantiate1 fvar1
+                      CompilerM.withLocalDecl n2 ty2 fun fvar2 => do
+                        CompilerM.withVarMapping fvar2.fvarId! wire2 do
+                          let body2Inst := body1Inst.instantiate1 fvar2
+                          translateExprToWire body2Inst hint isTopLevel
+                | _ =>
+                  -- Single lambda body - substitute just the first parameter
+                  CompilerM.withLocalDecl n1 ty1 fun fvar1 => do
+                    CompilerM.withVarMapping fvar1.fvarId! wire1 do
+                      let bodyInst := body1.instantiate1 fvar1
+                      translateExprToWire bodyInst hint isTopLevel
+              | .fvar contId =>
+                -- The continuation is an fvar - check if it has a value in the local context
+                let contValue? ← CompilerM.liftMetaM do
+                  let lctx ← getLCtx
+                  match lctx.find? contId with
+                  | some decl => return decl.value?
+                  | none => return none
 
-        -- 2. Create a fresh FVar and instantiate the body (in MetaM)
-        let (fvarId, bodyInst) ← CompilerM.liftMetaM do
-          withLocalDeclD binderName binderType fun fvar => do
-            let fvarId := fvar.fvarId!
-            let bodyInst := body.instantiate1 fvar
-            return (fvarId, bodyInst)
+                match contValue? with
+                | some contExpr =>
+                  -- The fvar has a value - it should be a lambda
+                  match contExpr with
+                  | .lam n1 ty1 (.lam n2 ty2 body _) _ =>
+                    CompilerM.withLocalDecl n1 ty1 fun fvar1 => do
+                      CompilerM.withVarMapping fvar1.fvarId! wire1 do
+                        let body1 := body.instantiate1 fvar1
+                        CompilerM.withLocalDecl n2 ty2 fun fvar2 => do
+                          CompilerM.withVarMapping fvar2.fvarId! wire2 do
+                            let body2 := body1.instantiate1 fvar2
+                            translateExprToWire body2 hint isTopLevel
+                  | _ =>
+                    CompilerM.liftMetaM $ throwError s!"Expected nested lambda in continuation, got: {contExpr}"
+                | none =>
+                  CompilerM.liftMetaM $ throwError s!"Continuation fvar {contId.name} has no value in context"
+              | _ =>
+                CompilerM.liftMetaM $ throwError s!"Unexpected continuation type: {cont}"
+              pure (some result)
+            else if e' != e then do
+              let result ← translateExprToWire e' hint (isTopLevel := false)
+              pure (some result)
+            else
+              pure none
+          | _ =>
+            if e' != e then do
+              let result ← translateExprToWire e' hint (isTopLevel := false)
+              pure (some result)
+            else
+              pure none
 
-        -- 3. Translate the body with the FVar mapped to the loop wire
-        let resultWire ← CompilerM.withVarMapping fvarId loopWire do
-          translateExprToWire bodyInst "loop_body"
+          -- If we successfully handled it, return the result
+          match handled with
+          | some wire => return wire
+          | none => pure ()
 
-        -- 4. Close the loop: connect the result back to the start
-        CompilerM.emitAssign loopWire (.ref resultWire)
+        -- Handle Seq.seq and Functor.map which might appear if Signal.ap reduces
+        if name == ``Seq.seq && args.size >= 2 then
+            let sf := args[args.size-2]!
+            let b := args[args.size-1]!
+            let sfFn := sf.getAppFn
+            if sfFn.isConstOf ``Functor.map && sf.getAppArgs.size >= 2 then
+                let fmapArgs := sf.getAppArgs
+                let f := fmapArgs[fmapArgs.size-2]!
+                let a := fmapArgs[fmapArgs.size-1]!
+                let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                let wireB ← translateExprToWire b "b" (isTopLevel := false)
+                -- Get op name from lambda body
+                let opName ← getPrimitiveNameFromLambda f
+                match getOperator opName with
+                | some op =>
+                   let resWire ← CompilerM.makeWire hint (.bitVector 8)
+                   CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+                   return resWire
+                | none => pure ()
 
-        return resultWire
+        if name == ``Functor.map && args.size >= 2 then
+             let f := args[args.size-2]!
+             let a := args[args.size-1]!
 
-      | _ =>
-        CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda function."
-    else
-      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {loopName}"
+             -- Try to extract lambda body for partial application detection
+             match f with
+             | .lam _ _ body _ =>
+               let bodyApp := body
+               let bodyFn := bodyApp.getAppFn
 
-  -- Unsupported Signal operations
-  | .app (.const name _) _ =>
-    if name.toString.startsWith "Sparkle.Core.Signal" then
-      CompilerM.liftMetaM $ throwError s!"Signal operation '{name}' is not yet supported for synthesis. Supported: register, mux, loop, pure, map. Consider using manual IR construction."
-    else
-      CompilerM.liftMetaM $ throwError s!"Cannot synthesize: {name}"
+               -- Check if it's a primitive operation
+               if let .const opName _ := bodyFn then
+                 if let some op := getOperator opName then
+                   -- For now, only handle the simple case: unary map (no constants in lambda)
+                   -- The more complex case with constants needs better handling
+                   let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                   let resWire ← CompilerM.makeWire hint (.bitVector 8)
+                   CompilerM.emitAssign resWire (.op op [.ref wireA])
+                   return resWire
+             | _ => pure ()
 
-  | _ =>
-    CompilerM.liftMetaM $ throwError s!"Cannot synthesize expression: {e}"
 
-/--
-  Translate a Lean expression to an IR expression (for use in assignments).
--/
-partial def translateExpr (e : Lean.Expr) : CompilerM Sparkle.IR.AST.Expr := do
-  let e ← CompilerM.liftMetaM (whnf e)
-
-  match e with
-  -- Literal constants
-  | .lit (.natVal n) =>
-    return .const (Int.ofNat n) 8
-
-  -- Variables
-  | .fvar fvarId => do
-    match ← CompilerM.lookupVar fvarId with
-    | some wireName => return .ref wireName
-    | none =>
-      CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}"
-
-  -- Binary operations (primitives)
-  | .app (.app (.const name _) arg1) arg2 =>
-    if isPrimitive name then
-      match getOperator name with
-      | some op =>
-        let e1 ← translateExpr arg1
-        let e2 ← translateExpr arg2
-        return .op op [e1, e2]
-      | none =>
-        CompilerM.liftMetaM $ throwError s!"Unknown operator for primitive: {name}"
-    else
-      CompilerM.liftMetaM $ throwError s!"Cannot synthesize application: {name}"
-
-  -- BitVec literals
-  | .app (.app (.app (.const ``BitVec.ofNat _) (.lit (.natVal width))) _) (.lit (.natVal value)) =>
-    return .const (Int.ofNat value) width
-
-  | _ =>
-    CompilerM.liftMetaM $ throwError s!"Cannot synthesize expression: {e}"
-
-/--
-  Synthesize a simple combinational function into a hardware module.
-
-  Takes a function definition and compiles it to IR.
--/
-def synthesizeCombinational (declName : Name) : MetaM Sparkle.IR.AST.Module := do
-  -- Get the declaration
-  let constInfo ← getConstInfo declName
-
-  match constInfo with
-  | .defnInfo defnInfo =>
-    let body := defnInfo.value
-    let _type := defnInfo.type
-
-    -- Create initial states
-    let compilerState : CompilerState := { varMap := [], clockWire := none, resetWire := none }
-    let circuitState := CircuitM.init declName.toString
-
-    -- Translate the function body
-    let compiler : CompilerM String := do
-      -- Process the body to get result wire
-      let resultWire ← translateExprToWire body "result"
-
-      -- Add output port
-      CompilerM.addOutput "out" (.bitVector 8)
-      CompilerM.emitAssign "out" (.ref resultWire)
-
-      return resultWire
-
-    let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
-
-    -- POST-PROCESSING: Add clock and reset inputs if any registers exist
-    let mut module := finalCircuitState.module
-    let hasRegisters := module.body.any (fun stmt =>
-      match stmt with
-      | .register _ _ _ _ _ => true
+    -- Check if expression contains any of our mapped fvars (skip whnf if so)
+    let varMap ← CompilerM.getCompilerState
+    let hasMappedFvar := e.find? (fun sub =>
+      match sub with
+      | .fvar fid => varMap.varMap.any (fun (vid, _) => vid == fid)
       | _ => false
-    )
+    ) |>.isSome
 
-    if hasRegisters then
-      -- Add clock and reset as first inputs
-      module := module.addInput { name := "clk", ty := .bit }
-      module := module.addInput { name := "rst", ty := .bit }
+    -- 2. Fallback to normal reduction (only if no mapped fvars)
+    let e ← if hasMappedFvar then pure e
+            else CompilerM.liftMetaM (withTransparency TransparencyMode.reducible $ whnf e)
+    let fn := e.getAppFn
 
-    return module
 
-  | _ =>
-    throwError s!"Cannot synthesize {declName}: not a definition"
+    match e with
+    | .app .. =>
+      if let .const _ _ := fn then
+         translateExprToWireApp e hint
+      else
+         -- Manual Zeta Reduction: Check if head is a local definition (let-bound)
+         let zetaE ← if let .fvar fvarId := fn then
+             CompilerM.liftMetaM do
+                let lctx ← getLCtx
+                match lctx.find? fvarId with
+                | some decl =>
+                   match decl.value? with
+                   | some val =>
+                      return some (e.replaceFVarId fvarId val)
+                   | none =>
+                      return none
+                | none => return none
+           else pure none
 
-/--
-  Pretty-print a module's IR for debugging.
--/
+         match zetaE with
+         | some e' => translateExprToWire e' hint (isTopLevel := isTopLevel)
+         | none =>
+            -- Fallback to general reduction
+            let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.all $ whnf e)
+            if e' != e then translateExprToWire e' hint (isTopLevel := isTopLevel)
+            else translateExprToWireApp e hint
+
+    | .proj _ idx eStruct => do
+      let wireS ← translateExprToWire eStruct "s"
+      let resWire ← CompilerM.makeWire hint (.bitVector 8)
+      let lo := (1 - idx) * 8
+      let hi := lo + 7
+      CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
+      return resWire
+
+    | .lit (.natVal n) => do
+      let wire ← CompilerM.makeWire hint (.bitVector 8)
+      CompilerM.emitAssign wire (.const (Int.ofNat n) 8)
+      return wire
+
+    | .fvar fvarId => do
+      match ← CompilerM.lookupVar fvarId with
+      | some wireName => return wireName
+      | none =>
+        let st ← CompilerM.getCompilerState
+        let known := st.varMap.map (fun (k,_) => k.name)
+        CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}. Known: {known}"
+
+    | .letE name type value body _ => do
+      -- For any let binding, just use normal let handling
+      let isHW ← try
+        let _ ← inferHWTypeFromSignal type
+        pure true
+      catch _ =>
+        pure false
+
+      if isHW then
+        -- Hardware let: translate value to wire
+        let valueWire ← translateExprToWire value name.toString (isTopLevel := false)
+        CompilerM.withLocalDecl name type fun fvar => do
+          let fvarId := fvar.fvarId!
+          CompilerM.withVarMapping fvarId valueWire do
+            let bodyInst := body.instantiate1 fvar
+            translateExprToWire bodyInst hint isTopLevel
+      else
+        -- Logic let: add to context for reduction (zeta)
+        -- This allows let-bound values to be inlined when referenced
+        CompilerM.withLetDecl name type value fun fvar => do
+          let bodyInst := body.instantiate1 fvar
+          translateExprToWire bodyInst hint isTopLevel
+
+    | .lam binderName binderType body _ => do
+      let isHWArg ← try
+        let _ ← inferHWTypeFromSignal binderType
+        pure true
+      catch _ => pure false
+
+      if isHWArg then
+          let hwType ← inferHWTypeFromSignal binderType
+          let paramWire ← CompilerM.makeWire binderName.toString hwType
+          -- Only add as input if this is a top-level function parameter
+          if isTopLevel then
+            CompilerM.addInput paramWire hwType
+
+          -- Process the lambda body within a proper local context
+          CompilerM.withLocalDecl binderName binderType fun fvar => do
+            let fvarId := fvar.fvarId!
+            CompilerM.withVarMapping fvarId paramWire do
+              let bodyInst := body.instantiate1 fvar
+              -- Nested lambdas are also top-level if they're part of the function signature
+              translateExprToWire bodyInst hint isTopLevel
+      else
+          -- Logic argument (e.g. config): add to context but no wire/input
+          CompilerM.withLocalDecl binderName binderType fun fvar => do
+            let bodyInst := body.instantiate1 fvar
+            translateExprToWire bodyInst hint isTopLevel
+
+
+    | _ =>
+      translateExprToWireApp e hint
+
+  partial def translateExprToWireApp (e : Lean.Expr) (hint : String) : CompilerM String := do
+    let fn := e.getAppFn
+    let args := e.getAppArgs
+
+    match fn with
+    | .const name _ =>
+      -- Special case: Signal.map Prod.fst/snd for tuple extraction
+      if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
+        let f := args[args.size-2]!
+        let s := args[args.size-1]!
+        if f.isConstOf ``Prod.fst then
+          let wireS ← translateExprToWire s "s" (isTopLevel := false)
+          let resWire ← CompilerM.makeWire hint (.bitVector 8)
+          CompilerM.emitAssign resWire (.slice (.ref wireS) 15 8)
+          return resWire
+        if f.isConstOf ``Prod.snd then
+          let wireS ← translateExprToWire s "s" (isTopLevel := false)
+          let resWire ← CompilerM.makeWire hint (.bitVector 8)
+          CompilerM.emitAssign resWire (.slice (.ref wireS) 7 0)
+          return resWire
+
+      if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
+        let sf := args[args.size-2]!
+        let b := args[args.size-1]!
+        let sfFn := sf.getAppFn
+        let sfArgs := sf.getAppArgs
+        if sfFn.isConstOf ``Sparkle.Core.Signal.Signal.map && sfArgs.size >= 2 then
+          let f := sfArgs[sfArgs.size-2]!
+          let a := sfArgs[sfArgs.size-1]!
+          let wireA ← translateExprToWire a "a"
+          let wireB ← translateExprToWire b "b"
+          let opName ← getPrimitiveNameFromLambda f
+          match getOperator opName with
+          | some op =>
+            let resWire ← CompilerM.makeWire hint (.bitVector 8)
+            CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+            return resWire
+          | none =>
+            CompilerM.liftMetaM $ throwError s!"Complex lift of {opName} not yet supported: operator not found"
+
+      if isPrimitive name then
+        match getOperator name with
+        | some op =>
+          if args.size >= 2 then
+            let wire1 ← translateExprToWire args[args.size-2]! "arg1"
+            let wire2 ← translateExprToWire args[args.size-1]! "arg2"
+            let resultWire ← CompilerM.makeWire hint (.bitVector 8)
+            CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
+            return resultWire
+          else if args.size == 1 then
+             let wire1 ← translateExprToWire args[0]! "arg1"
+             let resultWire ← CompilerM.makeWire hint (.bitVector 8)
+             CompilerM.emitAssign resultWire (.op op [.ref wire1])
+             return resultWire
+        | none =>
+          CompilerM.liftMetaM $ throwError s!"Internal error: {name} is marked as primitive but has no operator"
+
+      if name.toString.endsWith ".register" && args.size >= 2 then
+        let init := args[args.size-2]!
+        let input := args[args.size-1]!
+        let (initVal, _) ← extractBitVecLiteral init
+        let inputWire ← translateExprToWire input "reg_input"
+        let exprType ← CompilerM.liftMetaM (inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        return ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+
+      if name.toString.endsWith ".mux" && args.size >= 3 then
+        let cond := args[args.size-3]!
+        let thenSig := args[args.size-2]!
+        let elseSig := args[args.size-1]!
+        let cW ← translateExprToWire cond "mux_cond"
+        let tW ← translateExprToWire thenSig "mux_then"
+        let eW ← translateExprToWire elseSig "mux_else"
+        let rW ← CompilerM.makeWire hint (.bitVector 8)
+        CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
+        return rW
+
+      if name.toString.endsWith ".loop" && args.size >= 1 then
+        let f := args.back!
+        match f with
+        | .lam binderName binderType body _ =>
+          let loopWire ← CompilerM.makeWire "loop" (.bitVector 8)
+          let (fvarId, bodyInst) ← CompilerM.liftMetaM do
+            withLocalDeclD binderName binderType fun fvar => do
+              return (fvar.fvarId!, body.instantiate1 fvar)
+          let resultWire ← CompilerM.withVarMapping fvarId loopWire do
+            translateExprToWire bodyInst "loop_body"
+          CompilerM.emitAssign loopWire (.ref resultWire)
+          return resultWire
+        | _ => CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda"
+
+      -- Check if this is a valid definition (not a type constructor or builtin)
+      let isValidDef ← CompilerM.liftMetaM do
+        try
+          let constInfo ← getConstInfo name
+          match constInfo with
+          | .defnInfo _ => return true
+          | _ => return false
+        catch _ => return false
+
+      if isValidDef then
+        let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
+        for m in subDesign.modules do CompilerM.addModuleToDesign m
+        CompilerM.addModuleToDesign subModule
+
+        let mut connections := []
+        let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+        if args.size < inputPorts.length then
+           CompilerM.liftMetaM $ throwError s!"Sub-module {name} requires {inputPorts.length} args, but got {args.size}"
+
+        for i in [:inputPorts.length] do
+           let argExpr := args[args.size - inputPorts.length + i]!
+           let argWire ← translateExprToWire argExpr s!"arg{i}"
+           connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
+
+        let resWire ← CompilerM.makeWire hint (.bitVector 8)
+        connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
+
+        CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
+        return resWire
+      else
+        -- Not a valid module - throw error
+        CompilerM.liftMetaM $ throwError s!"Cannot instantiate {name}: not a hardware module definition"
+
+    | _ =>
+      let fn := e.getAppFn
+      CompilerM.liftMetaM $ throwError s!"Unsupported application: {e}\nHead: {fn} (ctor: {fn.ctorName})"
+
+  partial def getPrimitiveNameFromLambda (e : Lean.Expr) : CompilerM Name := do
+    match e with
+    | .lam _ _ body _ => getPrimitiveNameFromLambda body
+    | _ =>
+      let fn := e.getAppFn
+      match fn with
+      | .const name _ => return name
+      | _ => CompilerM.liftMetaM $ throwError s!"Could not identify primitive in lambda body: {e}"
+
+  partial def synthesizeCombinational (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    let constInfo ← getConstInfo declName
+    match constInfo with
+    | .defnInfo defnInfo =>
+      let body := defnInfo.value
+      let compiler : CompilerM String := do
+        let resultWire ← translateExprToWire body "result" (isTopLevel := true)
+        CompilerM.addOutput "out" (.bitVector 8)
+        CompilerM.emitAssign "out" (.ref resultWire)
+        return resultWire
+      let circuitState := CircuitM.init declName.toString
+      let compilerState : CompilerState := { varMap := [], clockWire := none, resetWire := none }
+      let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
+      let mut module := finalCircuitState.module
+      let hasRegisters := module.body.any (fun stmt =>
+        match stmt with
+        | .register .. => true
+        | _ => false
+      )
+      if hasRegisters then
+        module := module.addInput { name := "clk", ty := .bit }
+        module := module.addInput { name := "rst", ty := .bit }
+      return (module, finalCircuitState.design)
+    | _ =>
+      throwError s!"Cannot synthesize {declName}: not a definition"
+end
+
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
   IO.println s!"Module: {m.name}"
   IO.println s!"Inputs: {m.inputs.length}"
@@ -420,35 +737,40 @@ def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
   for stmt in m.body do
     IO.println s!"  {stmt}"
 
-/--
-  Synthesize command: Compiles a Lean function to hardware IR and prints it.
-
-  Usage: #synthesize myFunction
--/
 elab "#synthesize" id:ident : command => do
   let declName := id.getId
   Lean.Elab.Command.liftTermElabM do
-    try
-      let module ← synthesizeCombinational declName
-      printModule module
-      IO.println "\n-- IR successfully generated!"
-    catch _ =>
-      logError m!"Synthesis failed for {declName}"
+    let (module, _) ← synthesizeCombinational declName
+    printModule module
+    IO.println "\n-- IR successfully generated!"
 
-/--
-  Synthesize to Verilog command: Compiles and generates SystemVerilog.
-
-  Usage: #synthesizeVerilog myFunction
--/
 elab "#synthesizeVerilog" id:ident : command => do
   let declName := id.getId
   Lean.Elab.Command.liftTermElabM do
-    try
-      let module ← synthesizeCombinational declName
-      let verilog := toVerilog module
-      IO.println verilog
-      IO.println "\n-- Verilog successfully generated!"
-    catch _ =>
-      logError m!"Synthesis failed for {declName}"
+    let (module, _) ← synthesizeCombinational declName
+    let verilog := toVerilog module
+    IO.println verilog
+    IO.println "\n-- Verilog successfully generated!"
+
+def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
+  let (module, design) ← synthesizeCombinational declName
+  let design' := if (design.modules.any (·.name == module.name)) then design else design.addModule module
+  return design'
+
+elab "#synthesizeDesign" id:ident : command => do
+  let declName := id.getId
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    for m in design.modules do
+      printModule m
+    IO.println "\n-- Hierarchical IR successfully generated!"
+
+elab "#synthesizeVerilogDesign" id:ident : command => do
+  let declName := id.getId
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let verilog := toVerilogDesign design
+    IO.println verilog
+    IO.println "\n-- Hierarchical Verilog successfully generated!"
 
 end Sparkle.Compiler.Elab

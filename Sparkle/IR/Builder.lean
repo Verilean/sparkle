@@ -16,6 +16,7 @@ open Sparkle.IR.Type
 structure CircuitState where
   counter : Nat                -- Counter for generating unique names
   module  : Module             -- The module being constructed
+  design  : Design             -- The design being constructed (multi-module)
   usedNames : List String      -- Track used names to prevent collisions
   deriving Repr
 
@@ -25,9 +26,10 @@ abbrev CircuitM := StateM CircuitState
 namespace CircuitM
 
 /-- Create initial circuit state -/
-def init (moduleName : String) : CircuitState :=
+def init (topModuleName : String) : CircuitState :=
   { counter := 0
-  , module := Module.empty moduleName
+  , module := Module.empty topModuleName
+  , design := Design.empty topModuleName
   , usedNames := []
   }
 
@@ -39,6 +41,15 @@ def getModule : CircuitM Module := do
 /-- Set the module -/
 def setModule (m : Module) : CircuitM Unit := do
   modify fun s => { s with module := m }
+
+/-- Get the current design -/
+def getDesign : CircuitM Design := do
+  let s ← get
+  return s.design
+
+/-- Add a completed module to the design -/
+def addModuleToDesign (m : Module) : CircuitM Unit := do
+  modify fun s => { s with design := s.design.addModule m }
 
 /-- Generate a fresh unique name with _gen_ prefix to avoid collisions -/
 def freshName (hint : String) : CircuitM String := do
@@ -135,6 +146,18 @@ def run (moduleName : String) (builder : CircuitM α) : Module × α :=
 -/
 def runModule (moduleName : String) (builder : CircuitM Unit) : Module :=
   (run moduleName builder).1
+
+/--
+  Run the circuit builder and return the full design.
+-/
+def runDesign (topModuleName : String) (builder : CircuitM Unit) : Design :=
+  let initialState := init topModuleName
+  let combined : CircuitM Unit := do
+    builder
+    let m ← getModule
+    addModuleToDesign m
+  let (_, finalState) := StateT.run combined initialState
+  finalState.design
 
 end CircuitM
 

@@ -40,12 +40,17 @@ def emitOperator (op : Operator) : String :=
   | .sub => "-"
   | .mul => "*"
   | .eq  => "=="
-  | .lt  => "<"
-  | .le  => "<="
-  | .gt  => ">"
-  | .ge  => ">="
+  | .lt_u => "<"
+  | .lt_s => "<" -- Handled in emitExpr with $signed()
+  | .le_u => "<="
+  | .le_s => "<=" -- Handled in emitExpr with $signed()
+  | .gt_u => ">"
+  | .gt_s => ">" -- Handled in emitExpr with $signed()
+  | .ge_u => ">="
+  | .ge_s => ">=" -- Handled in emitExpr with $signed()
   | .shl => "<<"
   | .shr => ">>"
+  | .asr => ">>>"
   | .neg => "-"
   | .mux => "?"  -- Special case, handled in emitExpr
 
@@ -57,6 +62,12 @@ partial def emitExpr (e : Expr) : String :=
 
   | .ref name =>
     sanitizeName name
+
+  | .concat args =>
+    s!"\{{String.intercalate ", " (args.map emitExpr)}}"
+
+  | .slice e hi lo =>
+    s!"{emitExpr e}[{hi}:{lo}]"
 
   | .op .mux args =>
     -- Mux is special: cond ? then_val : else_val
@@ -81,7 +92,11 @@ partial def emitExpr (e : Expr) : String :=
     -- Binary operators
     match args with
     | [arg1, arg2] =>
-      s!"({emitExpr arg1} {emitOperator operator} {emitExpr arg2})"
+      match operator with
+      | .lt_s | .le_s | .gt_s | .ge_s | .asr =>
+        s!"($signed({emitExpr arg1}) {emitOperator operator} $signed({emitExpr arg2}))"
+      | _ =>
+        s!"({emitExpr arg1} {emitOperator operator} {emitExpr arg2})"
     | _ => s!"/* ERROR: operator {operator} with wrong arity */"
 
 /-- Emit a single statement -/
@@ -158,9 +173,20 @@ def emitModule (m : Module) : String :=
 def toVerilog (m : Module) : String :=
   emitModule m
 
+/-- Convert a full Design to SystemVerilog -/
+def toVerilogDesign (d : Design) : String :=
+  let modules := d.modules.map emitModule
+  String.intercalate "\n" modules
+
 /-- Write module to a file -/
 def writeVerilogFile (m : Module) (filename : String) : IO Unit := do
   let verilog := toVerilog m
+  IO.FS.writeFile filename verilog
+  IO.println s!"Generated {filename}"
+
+/-- Write a full design to a file -/
+def writeVerilogDesignFile (d : Design) (filename : String) : IO Unit := do
+  let verilog := toVerilogDesign d
   IO.FS.writeFile filename verilog
   IO.println s!"Generated {filename}"
 

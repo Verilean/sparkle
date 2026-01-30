@@ -15,7 +15,8 @@ open Sparkle.IR.Type
 structure Port where
   name : String
   ty   : HWType
-  deriving Repr, BEq
+  deriving Repr, BEq, Inhabited
+
 
 /--
   Hardware operators
@@ -31,13 +32,18 @@ inductive Operator where
   | sub  : Operator  -- Subtraction
   | mul  : Operator  -- Multiplication
   | eq   : Operator  -- Equality comparison
-  | lt   : Operator  -- Less than comparison
-  | le   : Operator  -- Less than or equal
-  | gt   : Operator  -- Greater than
-  | ge   : Operator  -- Greater than or equal
+  | lt_u : Operator  -- Less than comparison (unsigned)
+  | lt_s : Operator  -- Less than comparison (signed)
+  | le_u : Operator  -- Less than or equal (unsigned)
+  | le_s : Operator  -- Less than or equal (signed)
+  | gt_u : Operator  -- Greater than (unsigned)
+  | gt_s : Operator  -- Greater than (signed)
+  | ge_u : Operator  -- Greater than or equal (unsigned)
+  | ge_s : Operator  -- Greater than or equal (signed)
   | mux  : Operator  -- Multiplexer (ternary: condition ? then : else)
   | shl  : Operator  -- Shift left
   | shr  : Operator  -- Shift right (logical)
+  | asr  : Operator  -- Arithmetic shift right (signed)
   | neg  : Operator  -- Arithmetic negation
   deriving Repr, BEq, DecidableEq
 
@@ -45,22 +51,27 @@ namespace Operator
 
 /-- Convert operator to string representation -/
 def toString : Operator → String
-  | and => "and"
-  | or  => "or"
-  | xor => "xor"
-  | not => "not"
-  | add => "add"
-  | sub => "sub"
-  | mul => "mul"
-  | eq  => "eq"
-  | lt  => "lt"
-  | le  => "le"
-  | gt  => "gt"
-  | ge  => "ge"
-  | mux => "mux"
-  | shl => "shl"
-  | shr => "shr"
-  | neg => "neg"
+  | and  => "and"
+  | or   => "or"
+  | xor  => "xor"
+  | not  => "not"
+  | add  => "add"
+  | sub  => "sub"
+  | mul  => "mul"
+  | eq   => "eq"
+  | lt_u => "lt_u"
+  | lt_s => "lt_s"
+  | le_u => "le_u"
+  | le_s => "le_s"
+  | gt_u => "gt_u"
+  | gt_s => "gt_s"
+  | ge_u => "ge_u"
+  | ge_s => "ge_s"
+  | mux  => "mux"
+  | shl  => "shl"
+  | shr  => "shr"
+  | asr  => "asr"
+  | neg  => "neg"
 
 instance : ToString Operator where
   toString := Operator.toString
@@ -78,6 +89,8 @@ inductive Expr where
   | const (value : Int) (width : Nat) : Expr
   | ref (name : String) : Expr
   | op (operator : Operator) (args : List Expr) : Expr
+  | concat (args : List Expr) : Expr
+  | slice (expr : Expr) (hi lo : Nat) : Expr
   deriving Repr, BEq
 
 namespace Expr
@@ -98,7 +111,8 @@ def add (a b : Expr) : Expr := .op .add [a, b]
 def sub (a b : Expr) : Expr := .op .sub [a, b]
 def mul (a b : Expr) : Expr := .op .mul [a, b]
 def eq (a b : Expr) : Expr := .op .eq [a, b]
-def lt (a b : Expr) : Expr := .op .lt [a, b]
+def lt_u (a b : Expr) : Expr := .op .lt_u [a, b]
+def lt_s (a b : Expr) : Expr := .op .lt_s [a, b]
 def mux (cond then_ else_ : Expr) : Expr := .op .mux [cond, then_, else_]
 
 /-- Convert expression to string (for debugging) -/
@@ -108,6 +122,8 @@ partial def toString : Expr → String
   | op operator args =>
       let argStr := String.intercalate ", " (args.map toString)
       s!"{operator}({argStr})"
+  | concat args => s!"\{{String.intercalate ", " (args.map toString)}}"
+  | slice e hi lo => s!"{toString e}[{hi}:{lo}]"
 
 instance : ToString Expr where
   toString := Expr.toString
@@ -224,5 +240,29 @@ instance : ToString Module where
   toString := Module.toString
 
 end Module
+
+/--
+  Design: A collection of modules that make up a hardware project.
+-/
+structure Design where
+  topModule : String
+  modules   : List Module
+  deriving Repr, BEq
+
+namespace Design
+
+/-- Create an empty design -/
+def empty (topName : String) : Design :=
+  { topModule := topName, modules := [] }
+
+/-- Add a module to the design -/
+def addModule (d : Design) (m : Module) : Design :=
+  { d with modules := d.modules ++ [m] }
+
+/-- Find a module by name -/
+def findModule (d : Design) (name : String) : Option Module :=
+  d.modules.find? (·.name == name)
+
+end Design
 
 end Sparkle.IR.AST

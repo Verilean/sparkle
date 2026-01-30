@@ -22,7 +22,8 @@ inductive HWType where
   | bit : HWType
   | bitVector (width : Nat) : HWType
   | array (size : Nat) (elemType : HWType) : HWType
-  deriving Repr, BEq, DecidableEq
+  deriving Repr, BEq, DecidableEq, Inhabited
+
 
 namespace HWType
 
