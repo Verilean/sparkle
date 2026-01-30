@@ -365,6 +365,27 @@ def example_RIGHT (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain
 
 See [Tests/TestUnbundle2.lean](Tests/TestUnbundle2.lean) for detailed examples.
 
+### 🔀 If-Then-Else in Signal Contexts
+
+**Standard if-then-else gets compiled to match expressions and doesn't work:**
+
+```lean
+-- ❌ WRONG: if-then-else in Signal contexts
+def example_WRONG (cond : Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  if cond then a else b  -- ❌ Error: Cannot instantiate Decidable.rec
+
+-- ✓ RIGHT: Use Signal.mux instead
+def example_RIGHT (cond : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  Signal.mux cond a b  -- ✓ Works!
+```
+
+**Why this happens:**
+- Lean compiles `if-then-else` into `ite` which becomes `Decidable.rec`
+- The synthesis compiler cannot handle general recursors
+- This is a fundamental limitation of how conditionals are compiled
+
+**Solution:** Always use `Signal.mux` for hardware multiplexers, which generates proper Verilog.
+
 ### 🔁 Feedback Loops (Circular Let-Bindings)
 
 **Recursive definitions with forward references don't work:**
