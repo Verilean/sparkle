@@ -2,6 +2,8 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import Sparkle.Backend.Verilog
 import Tests.TestCircuits
+import Tests.Sparkle16.TestALU
+import Tests.Sparkle16.TestHierarchical
 import LSpec
 
 open Sparkle.Core.Domain
@@ -286,10 +288,16 @@ def main : IO UInt32 := do
     coreCtx
     coreState
 
+  -- Run Sparkle16 tests
+  let sparkle16AluTests ← Sparkle16.Test.aluTests
+  let sparkle16HierarchicalTests ← Sparkle16.Test.hierarchicalTests
+
   -- Combine all test suites
   let allTests :=
     simulationTests ++
     irSynthesisTests ++
-    makeVerilogTests outputs
+    makeVerilogTests outputs ++
+    sparkle16AluTests ++
+    sparkle16HierarchicalTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []
