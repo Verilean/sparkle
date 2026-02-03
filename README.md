@@ -11,10 +11,9 @@ A type-safe hardware description language that brings the power of dependent typ
 
 ```lean
 -- Write this in Lean...
-def counter : Signal Domain (BitVec 8) := do
-  let count ← Signal.register 0
-  count <~ count + 1
-  return count
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  let rec count := Signal.register 0#8 (count.map (· + 1))
+  count
 
 #synthesizeVerilog counter
 ```
@@ -60,34 +59,28 @@ lake build
 lake env lean --run Examples/Counter.lean
 ```
 
-### Your First Circuit: Blinking LED
+### Your First Circuit: Simple Register
 
 ```lean
 import Sparkle
+import Sparkle.Compiler.Elab
 
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
 
--- A simple blinker that toggles every 1000 cycles
-def blinker : Signal Domain Bool := do
-  let counter ← Signal.register (0 : BitVec 10)
-  let led ← Signal.register false
+-- A simple register chain (3 cycles delay)
+def registerChain (input : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  let d1 := Signal.register 0#8 input
+  let d2 := Signal.register 0#8 d1
+  let d3 := Signal.register 0#8 d2
+  d3
 
-  -- Count up to 1000
-  let nextCount := if counter == 999 then 0 else counter + 1
-
-  -- Toggle LED when counter wraps
-  let nextLed := if counter == 999 then !led else led
-
-  counter <~ nextCount
-  led <~ nextLed
-
-  return led
-
-#synthesizeVerilog blinker
+#synthesizeVerilog registerChain
 ```
 
 This generates a fully synthesizable Verilog module with proper clock/reset handling!
+
+**Note:** More complex feedback loops (like counters with self-reference) currently require manual IR construction - see `Examples/LoopSynthesis.lean` for working examples.
 
 ## Key Features
 
@@ -96,16 +89,16 @@ This generates a fully synthesizable Verilog module with proper clock/reset hand
 Simulate your hardware designs with the same semantics as the final Verilog:
 
 ```lean
--- Define a multiply-accumulate circuit
-def mac (a b : BitVec 16) : Signal Domain (BitVec 32) := do
-  let acc ← Signal.register 0
-  let product := a.zeroExtend 32 * b.zeroExtend 32
-  acc <~ acc + product
-  return acc
+-- Define a simple adder
+def adder (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
+  (· + ·) <$> a <*> b
 
--- Simulate it
-#eval Signal.simulate mac [(10, 20), (5, 3), (2, 8)] |>.take 3
--- Output: [0, 200, 215, 231]
+-- Simulate signals
+def testSignalA : Signal Domain (BitVec 16) := ⟨fun t => t.toBitVec 16⟩
+def testSignalB : Signal Domain (BitVec 16) := ⟨fun t => (t * 2).toBitVec 16⟩
+
+#eval (adder testSignalA testSignalB).sample 5
+-- Output: [0, 3, 6, 9, 12]  -- t + 2t for t=0..4
 ```
 
 ### ⚙️ Automatic Verilog Generation
@@ -181,23 +174,35 @@ See [Examples/TemporalLogicExample.md](Examples/TemporalLogicExample.md) for det
 Build complex designs from simple components:
 
 ```lean
--- Build a 4-stage FIR filter by composing delay elements
-def fir4 (coeffs : Array (BitVec 16)) (input : BitVec 16) : Signal Domain (BitVec 32) := do
-  let d1 ← Signal.register 0
-  let d2 ← Signal.register 0
-  let d3 ← Signal.register 0
+-- Build a 4-tap FIR filter by composing delay elements
+-- y[n] = c0·x[n] + c1·x[n-1] + c2·x[n-2] + c3·x[n-3]
+def fir4
+    (c0 c1 c2 c3 : Signal Domain (BitVec 16))  -- Coefficients as inputs
+    (input : Signal Domain (BitVec 16))         -- Input sample stream
+    : Signal Domain (BitVec 16) :=
+  -- Create delay line
+  let d1 := Signal.register 0#16 input  -- x[n-1]
+  let d2 := Signal.register 0#16 d1     -- x[n-2]
+  let d3 := Signal.register 0#16 d2     -- x[n-3]
 
-  d1 <~ input
-  d2 <~ d1
-  d3 <~ d2
+  -- Multiply and accumulate using applicative style
+  let term0 := (· * ·) <$> input <*> c0
+  let term1 := (· * ·) <$> d1 <*> c1
+  let term2 := (· * ·) <$> d2 <*> c2
+  let term3 := (· * ·) <$> d3 <*> c3
 
-  let sum := input * coeffs[0]! +
-             d1 * coeffs[1]! +
-             d2 * coeffs[2]! +
-             d3 * coeffs[3]!
+  -- Sum all terms
+  let sum01 := (· + ·) <$> term0 <*> term1
+  let sum23 := (· + ·) <$> term2 <*> term3
+  (· + ·) <$> sum01 <*> sum23
 
-  return sum.zeroExtend 32
+#synthesizeVerilog fir4
 ```
+
+**Key patterns:**
+- `Signal.register init input` - Creates a D flip-flop (1-cycle delay)
+- `(· op ·) <$> sig1 <*> sig2` - Applicative style for binary operations
+- Coefficients must be Signals (module inputs), not runtime constants
 
 ### 📦 Vector/Array Types
 
@@ -443,6 +448,56 @@ def fixed : Signal Domain (BitVec 8) := do
 
 ## Known Limitations and Gotchas
 
+### ⚠️ Imperative Syntax NOT Supported (IMPORTANT!)
+
+**The `<~` feedback operator and imperative do-notation shown in some older documentation DO NOT WORK:**
+
+```lean
+-- ❌ WRONG: This syntax doesn't exist yet!
+def counter : Signal Domain (BitVec 8) := do
+  let count ← Signal.register 0
+  count <~ count + 1  -- ❌ The <~ operator is not implemented!
+  return count
+
+-- ❌ WRONG: This won't work either
+def fir4 (coeffs : Array (BitVec 16)) (input : BitVec 16) := do
+  let d1 ← Signal.register 0  -- ❌ Missing input signal argument!
+  d1 <~ input                 -- ❌ <~ doesn't exist!
+  ...
+```
+
+**Why these don't work:**
+1. **`<~` operator**: Not defined in the codebase - this is aspirational future syntax
+2. **`do`-notation for feedback**: Signal Monad doesn't support imperative assignment
+3. **Runtime values**: `Array`, single `BitVec` values can't be synthesized to hardware
+4. **Wrong mental model**: Signals are dataflow, not imperative assignments
+
+**✓ CORRECT approaches:**
+
+```lean
+-- For simple feedback: use let rec
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  let rec count := Signal.register 0#8 (count.map (· + 1))
+  count
+
+-- For feed-forward: direct dataflow
+def registerChain (input : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
+  let d1 := Signal.register 0#16 input
+  let d2 := Signal.register 0#16 d1
+  d2
+
+-- For complex feedback: manual IR construction
+-- See Examples/LoopSynthesis.lean and Examples/Sparkle16/
+```
+
+**Key differences:**
+- Signals are **wire streams**, not variables you assign to
+- Use `Signal.register init input` with both arguments
+- Coefficients/constants must be Signal inputs, not runtime values
+- Operations use applicative style: `(· + ·) <$> sig1 <*> sig2`
+
+See `test.lean` for a working FIR filter example.
+
 ### ⚠️ Pattern Matching on Tuples (IMPORTANT!)
 
 **unbundle2 and pattern matching DO NOT WORK in synthesis:**
@@ -495,27 +550,41 @@ def example_RIGHT (cond : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) :
 
 **Solution:** Always use `Signal.mux` for hardware multiplexers, which generates proper Verilog.
 
-### 🔁 Feedback Loops (Circular Let-Bindings)
+### 🔁 Feedback Loops (Circular Dependencies)
 
-**Recursive definitions with forward references don't work:**
+**Simple feedback with `let rec` works:**
 
 ```lean
--- ❌ WRONG: Forward reference in let-bindings
-def counter_WRONG : Signal Domain (BitVec 16) :=
-  let next := Signal.map (· + 1) count  -- ❌ Error: count not defined yet
-  let count := Signal.register 0 next   -- ❌ Circular dependency
+-- ✓ RIGHT: Simple counter with let rec
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  let rec count := Signal.register 0#8 (count.map (· + 1))
   count
 
--- ✓ RIGHT: For complex state, use manual IR construction
--- See Examples/Sparkle16/ALU.lean for working examples
+#synthesizeVerilog counter  -- ✓ Works!
 ```
 
-**Why this happens:**
-- Lean evaluates let-bindings sequentially
-- No forward references are allowed
-- Circular dependencies cannot be expressed with let-bindings
+**Complex feedback with multiple signals requires manual IR:**
 
-**Workaround:** Use manual IR construction with `CircuitM` for stateful circuits with feedback.
+```lean
+-- ❌ WRONG: Multiple interdependent signals
+def stateMachine : Signal Domain State :=
+  let next := computeNext state input
+  let state := Signal.register Idle next  -- ❌ Forward reference
+  state
+
+-- ✓ RIGHT: Use manual IR construction for complex feedback
+-- See Examples/LoopSynthesis.lean and Examples/Sparkle16/ for working patterns
+```
+
+**Why this limitation exists:**
+- Lean evaluates let-bindings sequentially (no forward references)
+- `let rec` works for single self-referential definitions
+- Multiple circular bindings need explicit fixed-point construction
+
+**Workarounds:**
+- **Simple loops**: Use `let rec` (counters, single-register state)
+- **Complex feedback**: Use manual IR construction with `CircuitM`
+- See `Examples/LoopSynthesis.lean` for comprehensive examples
 
 ### 📋 What's Supported
 
@@ -533,9 +602,12 @@ def counter_WRONG : Signal Domain (BitVec 16) :=
 - Hierarchical modules: function calls generate module instantiations
 - **Co-simulation**: Verilator integration for validation
 
-**⚠️ Limitations:**
+**⚠️ Current Limitations:**
+- **No `<~` feedback operator** - Use `let rec` or manual IR construction
+- **No imperative do-notation** - Use dataflow style with applicative operators
+- **No runtime constants** - Arrays, single BitVec values can't be synthesized
 - Pattern matching on Signal tuples (use `.fst`/`.snd` instead)
-- Recursive let-bindings (use manual IR for feedback loops)
+- Recursive let-bindings for complex feedback (use manual IR construction)
 - Higher-order functions beyond `map`, `<*>`, and basic combinators
 - General match expressions on Signals
 - Array writes (only indexing reads supported currently)
@@ -630,7 +702,10 @@ Contributions welcome! Areas of interest:
 - [x] **Co-simulation** - Verilator integration for hardware validation ✓
 - [x] **Temporal Logic** - Linear Temporal Logic (LTL) for verification ✓
 - [x] **Memory primitives** - SRAM/BRAM with synchronous read/write ✓
-- [ ] **Cycle-skipping simulation** - Use proven temporal properties for optimization
+- [x] **Cycle-skipping simulation** - Use proven temporal properties for optimization ✓
+- [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
+- [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
+- [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters
 - [ ] **More proofs** - State machine invariants, protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
 - [ ] **FIRRTL backend** - Alternative to Verilog for formal tools

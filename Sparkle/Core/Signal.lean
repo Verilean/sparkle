@@ -21,24 +21,30 @@ discrete time steps (clock cycles).
 
 ### Registers
 
-Use `Signal.register` to create state elements (delays by 1 cycle):
+Use `Signal.register init input` to create state elements (delays by 1 cycle):
 
 ```lean
-def counter : Signal Domain (BitVec 8) := do
-  let count ← Signal.register 0
-  count <~ count + 1
-  return count
+-- Simple register chain (feed-forward)
+def registerChain (input : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  let d1 := Signal.register 0#8 input
+  let d2 := Signal.register 0#8 d1
+  d2
+
+-- Counter with feedback (requires let rec)
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  let rec count := Signal.register 0#8 (count.map (· + 1))
+  count
 ```
 
 ### Multiplexers
 
-Use `Signal.mux` or if-then-else for conditional logic:
+Use `Signal.mux` for conditional logic (NOT if-then-else):
 
 ```lean
-def conditionalInc (enable : Bool) (x : BitVec 8) : Signal Domain (BitVec 8) := do
-  let val ← Signal.register 0
-  val <~ if enable then val + x else val
-  return val
+def conditionalInc (enable : Signal Domain Bool) (input : Signal Domain (BitVec 8))
+    : Signal Domain (BitVec 8) :=
+  let next := input.map (· + 1)
+  Signal.mux enable next input  -- Select between increment or hold
 ```
 
 ## Simulation

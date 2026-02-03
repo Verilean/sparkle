@@ -87,4 +87,8 @@ def simpleCPU (addr : Signal Domain (BitVec 2)) : Signal Domain (BitVec 16) :=
 --   └── simpleALU
 --       ├── add16
 --       └── sub16
-#synthesizeVerilogDesign simpleCPU
+-- #synthesizeVerilogDesign simpleCPU  -- Currently has synthesis issues with lambda
+
+-- Note: Counter with feedback requires let rec or manual IR construction
+-- The imperative <~ syntax shown in older docs doesn't exist yet
+-- See Examples/LoopSynthesis.lean for working counter examples
