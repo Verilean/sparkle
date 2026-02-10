@@ -92,7 +92,8 @@ private theorem mask_7_lt_8 (x : BitVec 16) : ((x &&& 0b111).toNat) < 8 := by
   -- The AND operation with 0b111 produces a 16-bit value that is at most 0b111
   -- We need to show that this is less than 8
   have h : (x &&& 0b111).toNat ≤ (0b111 : BitVec 16).toNat := by
-    sorry  -- TODO: Need proper BitVec lemma about AND bounds
+    simpa [BitVec.toNat_and] using
+      (Nat.and_le_right (n := x.toNat) (m := (0b111 : BitVec 16).toNat))
   have h2 : (0b111 : BitVec 16).toNat = 7 := by rfl
   rw [h2] at h
   omega
@@ -243,38 +244,32 @@ def executeInstruction (instr : Instruction) (state : CPUState) (memData : Word)
       -- Load immediate: Rd := imm (zero-extended)
       let value := imm.zeroExtend 16
       state.writeReg rd value |>.incPC
-
   | .ADD rd rs1 rs2 =>
       -- Add: Rd := Rs1 + Rs2
       let val1 := state.readReg rs1
       let val2 := state.readReg rs2
       let result := val1 + val2
       state.writeReg rd result |>.incPC
-
   | .SUB rd rs1 rs2 =>
       -- Subtract: Rd := Rs1 - Rs2
       let val1 := state.readReg rs1
       let val2 := state.readReg rs2
       let result := val1 - val2
       state.writeReg rd result |>.incPC
-
   | .AND rd rs1 rs2 =>
       -- Bitwise AND: Rd := Rs1 & Rs2
       let val1 := state.readReg rs1
       let val2 := state.readReg rs2
       let result := val1 &&& val2
       state.writeReg rd result |>.incPC
-
   | .LD rd _rs1 =>
       -- Load from memory: Rd := mem[Rs1]
       -- Note: Address resolution happens in cpuStep, memData contains the loaded value
       state.writeReg rd memData |>.incPC
-
   | .ST _rs1 _rs2 =>
       -- Store to memory: mem[Rs1] := Rs2
       -- Note: Actual address resolution and write happens in cpuStep
       state.incPC
-
   | .BEQ rs1 rs2 offset =>
       -- Branch if equal: if Rs1 == Rs2 then PC := PC + offset
       let val1 := state.readReg rs1
@@ -284,7 +279,6 @@ def executeInstruction (instr : Instruction) (state : CPUState) (memData : Word)
         state.setPC (state.pc + signExtOffset)
       else
         state.incPC
-
   | .JMP addr =>
       -- Jump: PC := addr
       state.setPC addr
@@ -304,11 +298,9 @@ def cpuStep (state : CPUState) (instrMem : SimMemory) (dataMem : SimMemory) :
       let instrWord := instrMem.read (state.pc.truncate 8)
       let instr? := Instruction.decode instrWord
       ({ state with phase := .Decode, instr := instr? }, dataMem)
-
   | .Decode =>
       -- Decode already happened in Fetch, move to Execute
       ({ state with phase := .Execute }, dataMem)
-
   | .Execute =>
       match state.instr with
       | none =>
@@ -322,7 +314,6 @@ def cpuStep (state : CPUState) (instrMem : SimMemory) (dataMem : SimMemory) :
               let memData := dataMem.read (addr.truncate 8)
               let newState := executeInstruction instr state memData
               ({ newState with phase := .Fetch, instr := none }, dataMem)
-
           | .ST rs1 rs2 =>
               -- Store: write to data memory
               let addr := state.readReg rs1
@@ -330,7 +321,6 @@ def cpuStep (state : CPUState) (instrMem : SimMemory) (dataMem : SimMemory) :
               let newDataMem := dataMem.write (addr.truncate 8) data
               let newState := executeInstruction instr state 0
               ({ newState with phase := .Fetch, instr := none }, newDataMem)
-
           | _ =>
               -- All other instructions (ALU, branches)
               let newState := executeInstruction instr state 0
