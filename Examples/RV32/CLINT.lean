@@ -1,8 +1,8 @@
 /-
-  CLINT (Core Local Interruptor)
+  CLINT (Core Local Interruptor) — Signal DSL
 
   Memory-mapped timer and software interrupt controller.
-  Base address: 0x02000000
+  Uses Signal.loop with 5 registers: msip, mtimeLo, mtimeHi, mtimecmpLo, mtimecmpHi.
 
   Register Map:
     0x0000       MSIP        - Software interrupt pending (bit 0)
@@ -10,162 +10,104 @@
     0xBFF8-BFFC  MTIME       - Timer counter (64-bit)
 -/
 
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+import Sparkle
+import Sparkle.Compiler.Elab
 import Examples.RV32.CSR.Types
 
 set_option maxRecDepth 4096
 
 namespace Sparkle.Examples.RV32.CLINT
 
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
 open Sparkle.Examples.RV32.CSR
-open CircuitM
 
-/-- Generate the CLINT module.
+/-- CLINT — Signal DSL.
 
     Inputs:
-      clk, rst           - Clock and reset
-      bus_addr[15:0]      - Bus address (offset from CLINT base)
-      bus_wdata[31:0]     - Bus write data
-      bus_we              - Bus write enable
-      bus_re              - Bus read enable
+      bus_addr[15:0]     - Bus address (offset from CLINT base)
+      bus_wdata[31:0]    - Bus write data
+      bus_we             - Bus write enable
 
-    Outputs:
-      bus_rdata[31:0]     - Bus read data
-      timer_irq           - Timer interrupt (mtime >= mtimecmp)
-      sw_irq              - Software interrupt (msip[0])
--/
-def generateCLINT : CircuitM Unit := do
-  addInput "clk" .bit
-  addInput "rst" .bit
-  addInput "bus_addr" (.bitVector 16)
-  addInput "bus_wdata" (.bitVector 32)
-  addInput "bus_we" .bit
-  addInput "bus_re" .bit
-  addOutput "bus_rdata" (.bitVector 32)
-  addOutput "timer_irq" .bit
-  addOutput "sw_irq" .bit
+    Output:
+      (bus_rdata[31:0] × timer_irq × sw_irq) -/
+def clintSignal {dom : DomainConfig}
+    (busAddr : Signal dom (BitVec 16))
+    (busWdata : Signal dom (BitVec 32))
+    (busWE : Signal dom Bool)
+    : Signal dom (BitVec 32 × (Bool × Bool)) :=
+  let clint := Signal.loop fun state =>
+    let msipReg       := projN! state 5 0  -- BitVec 32
+    let mtimeLoReg    := projN! state 5 1  -- BitVec 32
+    let mtimeHiReg    := projN! state 5 2  -- BitVec 32
+    let mtimecmpLoReg := projN! state 5 3  -- BitVec 32
+    let mtimecmpHiReg := projN! state 5 4  -- BitVec 32
 
-  let addr := Expr.ref "bus_addr"
-  let wdata := Expr.ref "bus_wdata"
-  let we := Expr.ref "bus_we"
+    -- Address matching
+    let msipMatch     := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMSIP)
+    let mtimeLoMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_LO)
+    let mtimeHiMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_HI)
+    let mtimecmpLoMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_LO)
+    let mtimecmpHiMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_HI)
 
-  -- =========================================================================
-  -- MSIP Register (1 bit, at offset 0x0000)
-  -- =========================================================================
-  let msipAddrMatch ← makeWire "msip_addr_match" .bit
-  emitAssign msipAddrMatch (.op .eq [addr, .const clintMSIP 16])
+    -- MTIME auto-increment
+    let mtimeLoInc := (· + ·) <$> mtimeLoReg <*> Signal.pure 1#32
+    let mtimeCarry := (· == ·) <$> mtimeLoInc <*> Signal.pure 0#32
+    let mtimeHiInc := Signal.mux mtimeCarry
+      ((· + ·) <$> mtimeHiReg <*> Signal.pure 1#32) mtimeHiReg
 
-  let msipWE ← makeWire "msip_we" .bit
-  emitAssign msipWE (.op .and [we, .ref msipAddrMatch])
+    -- Write logic: bus write takes priority over increment
+    let msipNext := Signal.mux ((· && ·) <$> busWE <*> msipMatch)
+      busWdata msipReg
+    let mtimeLoNext := Signal.mux ((· && ·) <$> busWE <*> mtimeLoMatch)
+      busWdata mtimeLoInc
+    let mtimeHiNext := Signal.mux ((· && ·) <$> busWE <*> mtimeHiMatch)
+      busWdata mtimeHiInc
+    let mtimecmpLoNext := Signal.mux ((· && ·) <$> busWE <*> mtimecmpLoMatch)
+      busWdata mtimecmpLoReg
+    let mtimecmpHiNext := Signal.mux ((· && ·) <$> busWE <*> mtimecmpHiMatch)
+      busWdata mtimecmpHiReg
 
-  let msipNext ← makeWire "msip_next" (.bitVector 32)
-  let msipReg ← emitRegister "msip" "clk" "rst" (.ref msipNext) 0 (.bitVector 32)
-  emitAssign msipNext (Expr.mux (.ref msipWE) wdata (.ref msipReg))
+    bundleAll! [
+      Signal.register 0#32 msipNext,
+      Signal.register 0#32 mtimeLoNext,
+      Signal.register 0#32 mtimeHiNext,
+      Signal.register 0xFFFFFFFF#32 mtimecmpLoNext,
+      Signal.register 0xFFFFFFFF#32 mtimecmpHiNext
+    ]
 
-  -- Software interrupt = msip[0]
-  emitAssign "sw_irq" (.slice (.ref msipReg) 0 0)
+  -- Extract registered state for outputs
+  let msipReg       := projN! clint 5 0
+  let mtimeLoReg    := projN! clint 5 1
+  let mtimeHiReg    := projN! clint 5 2
+  let mtimecmpLoReg := projN! clint 5 3
+  let mtimecmpHiReg := projN! clint 5 4
 
-  -- =========================================================================
-  -- MTIME Counter (64-bit, two 32-bit registers, increments every cycle)
-  -- =========================================================================
+  -- Bus read mux
+  let msipMatch     := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMSIP)
+  let mtimeLoMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_LO)
+  let mtimeHiMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_HI)
+  let mtimecmpLoMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_LO)
+  let mtimecmpHiMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_HI)
+  let busRdata :=
+    Signal.mux msipMatch msipReg
+    (Signal.mux mtimecmpLoMatch mtimecmpLoReg
+    (Signal.mux mtimecmpHiMatch mtimecmpHiReg
+    (Signal.mux mtimeLoMatch mtimeLoReg
+    (Signal.mux mtimeHiMatch mtimeHiReg
+      (Signal.pure 0#32)))))
 
-  -- Address matching for MTIME writes
-  let mtimeLoAddrMatch ← makeWire "mtime_lo_addr" .bit
-  emitAssign mtimeLoAddrMatch (.op .eq [addr, .const clintMTIME_LO 16])
-  let mtimeHiAddrMatch ← makeWire "mtime_hi_addr" .bit
-  emitAssign mtimeHiAddrMatch (.op .eq [addr, .const clintMTIME_HI 16])
+  -- Timer interrupt: mtime >= mtimecmp (unsigned 64-bit comparison)
+  let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
+  let hiEq := (· == ·) <$> mtimeHiReg <*> mtimecmpHiReg
+  let loGe := (fun x => !x) <$> ((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
+  let timerIrq := (· || ·) <$> hiGt <*> ((· && ·) <$> hiEq <*> loGe)
 
-  let mtimeLoWE ← makeWire "mtime_lo_we" .bit
-  emitAssign mtimeLoWE (.op .and [we, .ref mtimeLoAddrMatch])
-  let mtimeHiWE ← makeWire "mtime_hi_we" .bit
-  emitAssign mtimeHiWE (.op .and [we, .ref mtimeHiAddrMatch])
+  -- Software interrupt: msip[0]
+  let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
 
-  -- Increment logic: mtime_lo + 1, carry to mtime_hi
-  let mtimeLoNext ← makeWire "mtime_lo_next" (.bitVector 32)
-  let mtimeHiNext ← makeWire "mtime_hi_next" (.bitVector 32)
+  bundleAll! [busRdata, timerIrq, swIrq]
 
-  let mtimeLoReg ← emitRegister "mtime_lo" "clk" "rst" (.ref mtimeLoNext) 0 (.bitVector 32)
-  let mtimeHiReg ← emitRegister "mtime_hi" "clk" "rst" (.ref mtimeHiNext) 0 (.bitVector 32)
-
-  -- Increment: lo + 1
-  let mtimeLoInc ← makeWire "mtime_lo_inc" (.bitVector 32)
-  emitAssign mtimeLoInc (Expr.add (.ref mtimeLoReg) (.const 1 32))
-
-  -- Carry: lo_inc == 0 means overflow
-  let mtimeCarry ← makeWire "mtime_carry" .bit
-  emitAssign mtimeCarry (.op .eq [.ref mtimeLoInc, .const 0 32])
-
-  -- Hi increment
-  let mtimeHiInc ← makeWire "mtime_hi_inc" (.bitVector 32)
-  emitAssign mtimeHiInc (Expr.mux (.ref mtimeCarry)
-    (Expr.add (.ref mtimeHiReg) (.const 1 32))
-    (.ref mtimeHiReg))
-
-  -- Mux: write takes priority over increment
-  emitAssign mtimeLoNext (Expr.mux (.ref mtimeLoWE) wdata (.ref mtimeLoInc))
-  emitAssign mtimeHiNext (Expr.mux (.ref mtimeHiWE) wdata (.ref mtimeHiInc))
-
-  -- =========================================================================
-  -- MTIMECMP Register (64-bit, two 32-bit registers)
-  -- =========================================================================
-  let mtimecmpLoAddrMatch ← makeWire "mtimecmp_lo_addr" .bit
-  emitAssign mtimecmpLoAddrMatch (.op .eq [addr, .const clintMTIMECMP_LO 16])
-  let mtimecmpHiAddrMatch ← makeWire "mtimecmp_hi_addr" .bit
-  emitAssign mtimecmpHiAddrMatch (.op .eq [addr, .const clintMTIMECMP_HI 16])
-
-  let mtimecmpLoWE ← makeWire "mtimecmp_lo_we" .bit
-  emitAssign mtimecmpLoWE (.op .and [we, .ref mtimecmpLoAddrMatch])
-  let mtimecmpHiWE ← makeWire "mtimecmp_hi_we" .bit
-  emitAssign mtimecmpHiWE (.op .and [we, .ref mtimecmpHiAddrMatch])
-
-  let mtimecmpLoNext ← makeWire "mtimecmp_lo_next" (.bitVector 32)
-  let mtimecmpHiNext ← makeWire "mtimecmp_hi_next" (.bitVector 32)
-
-  let mtimecmpLoReg ← emitRegister "mtimecmp_lo" "clk" "rst" (.ref mtimecmpLoNext) 0xFFFFFFFF (.bitVector 32)
-  let mtimecmpHiReg ← emitRegister "mtimecmp_hi" "clk" "rst" (.ref mtimecmpHiNext) 0xFFFFFFFF (.bitVector 32)
-
-  emitAssign mtimecmpLoNext (Expr.mux (.ref mtimecmpLoWE) wdata (.ref mtimecmpLoReg))
-  emitAssign mtimecmpHiNext (Expr.mux (.ref mtimecmpHiWE) wdata (.ref mtimecmpHiReg))
-
-  -- =========================================================================
-  -- Timer Interrupt: mtime >= mtimecmp (unsigned 64-bit comparison)
-  -- =========================================================================
-  -- Compare high words first, then low words
-  let hiGt ← makeWire "hi_gt" .bit
-  emitAssign hiGt (.op .gt_u [.ref mtimeHiReg, .ref mtimecmpHiReg])
-  let hiEq ← makeWire "hi_eq" .bit
-  emitAssign hiEq (.op .eq [.ref mtimeHiReg, .ref mtimecmpHiReg])
-  let loGe ← makeWire "lo_ge" .bit
-  emitAssign loGe (.op .ge_u [.ref mtimeLoReg, .ref mtimecmpLoReg])
-
-  -- timer_irq = hi_gt || (hi_eq && lo_ge)
-  let hiEqLoGe ← makeWire "hi_eq_lo_ge" .bit
-  emitAssign hiEqLoGe (.op .and [.ref hiEq, .ref loGe])
-  emitAssign "timer_irq" (.op .or [.ref hiGt, .ref hiEqLoGe])
-
-  -- =========================================================================
-  -- Bus Read Mux
-  -- =========================================================================
-  let rdMsip ← makeWire "rd_msip" (.bitVector 32)
-  emitAssign rdMsip (.ref msipReg)
-
-  -- Read mux: select based on address
-  emitAssign "bus_rdata"
-    (Expr.mux (.ref msipAddrMatch) (.ref rdMsip)
-    (Expr.mux (.ref mtimecmpLoAddrMatch) (.ref mtimecmpLoReg)
-    (Expr.mux (.ref mtimecmpHiAddrMatch) (.ref mtimecmpHiReg)
-    (Expr.mux (.ref mtimeLoAddrMatch) (.ref mtimeLoReg)
-    (Expr.mux (.ref mtimeHiAddrMatch) (.ref mtimeHiReg)
-      (.const 0 32))))))
-
-/-- Build the CLINT module -/
-def buildCLINT : Module :=
-  CircuitM.runModule "RV32I_CLINT" do
-    generateCLINT
+#synthesizeVerilog clintSignal
 
 end Sparkle.Examples.RV32.CLINT

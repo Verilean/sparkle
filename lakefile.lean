@@ -33,9 +33,6 @@ lean_exe «verilog-tests» where
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
-lean_exe «sparkle-rv32-verilog-dump» where
-  root := `Tests.RV32.VerilogDump
-
 lean_exe «sparkle-rv32-sim» where
   root := `Tests.RV32.SimTest
 

@@ -47,9 +47,6 @@ jobs:
     - name: Build RV32 Signal DSL
       run: lake build Examples.RV32
 
-    - name: Generate Verilog from CircuitM
-      run: lake env lean --run Tests/RV32/VerilogDump.lean
-
     - name: Verify with iverilog (optional)
       continue-on-error: true
       run: |

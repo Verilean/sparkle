@@ -8,12 +8,12 @@
     lake env lean --run Tests/RV32/SimTest.lean [firmware.hex] [cycles]
 -/
 
-import Examples.RV32.SoCSignal
+import Examples.RV32.SoC
 import Sparkle.Utils.HexLoader
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.RV32.Signal.SoC
+open Sparkle.Examples.RV32.SoC
 open Sparkle.Utils.HexLoader
 
 def defaultDom : DomainConfig := {

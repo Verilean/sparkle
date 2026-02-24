@@ -1,670 +1,897 @@
 /-
-  RV32I SoC Top-Level
+  RV32I SoC — Signal DSL (flat design)
 
-  Integrates the RV32I core with memories, CLINT, bus, and optionally MMU.
+  All state (pipeline + CLINT + CSR) in a single Signal.loop.
+  56 registers total in a right-nested pair.
 
-  Phase 1 (M-mode RTOS):
-    ┌───────────────────────────────────┐
-    │  RV32I_SoC                        │
-    │  ┌──────┐  ┌──────┐  ┌──────┐   │
-    │  │ IMEM │──│ Core │──│ DMEM │   │
-    │  └──────┘  └──┬───┘  └──────┘   │
-    │               │                   │
-    │          ┌────┴────┐              │
-    │          │  CLINT  │              │
-    │          └─────────┘              │
-    └───────────────────────────────────┘
+  Register index map (0-55):
+  Pipeline (0-43): same as Pipeline.lean
+  CLINT (44-48): msip, mtimeLo, mtimeHi, mtimecmpLo, mtimecmpHi
+  CSR (49-55): mstatus, mie, mtvec, mscratch, mepc, mcause, mtval
 
-  Phase 2 (S-mode Linux):
-    Core → MMU (iTLB/dTLB) → Bus → {DRAM, CLINT, UART, Boot ROM}
-
-  Architecture: The core pipeline is inlined into the SoC (flat CircuitM).
-  The core manages its own PC, pipeline, and outputs signals that the SoC
-  wires to memories, CLINT, CSR register file, and trap logic.
-
-  Core outputs consumed by SoC:
-    imem_addr        → Instruction memory read address
-    dmem_addr        → Data memory / bus address (word-aligned slice)
-    dmem_wdata       → Data memory write data
-    dmem_we          → Data memory write enable
-    dmem_re          → Data memory read enable
-    debug_pc         → Current PC for debug output
-    csr_addr[11:0]   → CSR address for read/write
-    csr_funct3[2:0]  → CSR operation type (CSRRW/CSRRS/CSRRC/CSRRWI/CSRRSI/CSRRCI)
-    csr_wdata[31:0]  → CSR write data
-    csr_we           → CSR write enable
-    trap_ecall       → ECALL exception from pipeline
-    trap_ebreak      → EBREAK exception from pipeline
-    trap_mret        → MRET instruction from pipeline
-    trap_pc[31:0]    → PC of the trapping instruction
-
-  SoC inputs fed back to core:
-    imem_rdata[31:0] → Fetched instruction
-    dmem_rdata[31:0] → Data memory / bus read data
-    csr_rdata[31:0]  → CSR read data
-    trap_taken        → Trap has been taken (redirect PC)
-    trap_target[31:0] → Trap handler address (mtvec)
-    mret_target[31:0] → MRET return address (mepc)
+  Architecture note:
+    The DMEM read address uses an "approximate" ALU result that omits
+    load-result forwarding (WB→EX when exwb_m2r=true). This is safe
+    because load-use hazards are stalled, so the only cycle where the
+    approximation differs is the stall-bubble cycle, whose BRAM read
+    result is never consumed.
 -/
 
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
-import Examples.RV32.Types
-import Examples.RV32.CSR.Types
+import Sparkle
+import Sparkle.Compiler.Elab
 import Examples.RV32.Core
+import Examples.RV32.CSR.Types
 
-set_option maxRecDepth 8192
+set_option maxRecDepth 32768
+set_option maxHeartbeats 3200000
 
 namespace Sparkle.Examples.RV32.SoC
 
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+open Sparkle.Examples.RV32
 open Sparkle.Examples.RV32
 open Sparkle.Examples.RV32.CSR
-open Sparkle.Examples.RV32.Core
-open CircuitM
-
--- ============================================================================
--- Configuration
--- ============================================================================
-
-/-- Instruction memory address width (words) -/
-def socImemAddrBits : Nat := 12  -- 4096 words = 16KB
-
-/-- Data memory address width (words) -/
-def socDmemAddrBits : Nat := 14  -- 16384 words = 64KB
-
--- ============================================================================
--- Phase 1: SoC with Core + CLINT + IMEM + DMEM
--- ============================================================================
-
-/-- Generate Phase 1 SoC.
-
-    External Ports:
-      clk, rst           - Clock and reset
-      debug_pc[31:0]     - Current program counter (for debugging)
-      uart_tx_data[7:0]  - UART transmit data (optional)
-      uart_tx_valid      - UART transmit valid (optional)
-
-    The SoC inlines the RV32I core pipeline and connects it to:
-      - Instruction memory (BRAM, preloaded)
-      - Data memory (BRAM)
-      - CLINT (timer + software interrupt)
-      - CSR register file (M-mode)
-      - Trap detection and handling logic
-      - Address decoder for CLINT vs DMEM
--/
-def generateSoC : CircuitM Unit := do
-  -- =========================================================================
-  -- SoC external ports
-  -- =========================================================================
-  addInput "clk" .bit
-  addInput "rst" .bit
-  addOutput "debug_pc" (.bitVector 32)
-
-  -- =========================================================================
-  -- Core-to-SoC interface wires
-  -- =========================================================================
-  -- These wires are created here for the core to drive as outputs and
-  -- for the SoC peripherals to consume. The core (when its generateCore
-  -- is inlined) produces addOutput calls; since we are building a flat
-  -- module, we pre-create corresponding wires that the core will drive.
-
-  -- Core drives these (outputs from core perspective):
-  let coreImemAddr ← makeWire "core_imem_addr" (.bitVector imemAddrBits)
-  let coreDmemAddr ← makeWire "core_dmem_addr" (.bitVector dmemAddrBits)
-  let coreDmemWdata ← makeWire "core_dmem_wdata" (.bitVector 32)
-  let coreDmemWE ← makeWire "core_dmem_we" .bit
-  let coreDmemRE ← makeWire "core_dmem_re" .bit
-  let coreDebugPC ← makeWire "core_debug_pc" (.bitVector 32)
-
-  -- CSR interface (core outputs)
-  let csrAddr ← makeWire "csr_addr" (.bitVector 12)
-  let csrFunct3 ← makeWire "csr_funct3" (.bitVector 3)
-  let csrWdata ← makeWire "csr_wdata" (.bitVector 32)
-  let csrWE ← makeWire "csr_we" .bit
-
-  -- Trap signals from core
-  let trapEcall ← makeWire "trap_ecall" .bit
-  let trapEbreak ← makeWire "trap_ebreak" .bit
-  let trapMret ← makeWire "trap_mret" .bit
-  let trapPC ← makeWire "trap_pc" (.bitVector 32)
-
-  -- SoC drives these (inputs to core perspective):
-  let csrRdata ← makeWire "csr_rdata" (.bitVector 32)
-  let trapTaken ← makeWire "trap_taken" .bit
-  let trapTarget ← makeWire "trap_target" (.bitVector 32)
-  let mretTarget ← makeWire "mret_target" (.bitVector 32)
-
-  -- =========================================================================
-  -- Instruction Memory (BRAM)
-  -- =========================================================================
-  -- The core outputs imem_addr as a word index. The SoC IMEM is wider
-  -- (socImemAddrBits) so we use the core's address (which is imemAddrBits
-  -- wide) to index into the larger memory, zero-extending if needed.
-  -- The core computes imem_addr from its PC register (pc[imemAddrBits+1:2]).
-  let socImemAddr ← makeWire "soc_imem_addr" (.bitVector socImemAddrBits)
-  -- Zero-extend core's imem_addr (imemAddrBits bits) to socImemAddrBits
-  emitAssign socImemAddr (.concat [.const 0 (socImemAddrBits - imemAddrBits),
-    .ref coreImemAddr])
-
-  -- No write port needed (code is read-only in this SoC)
-  let imemRdata ← emitMemory "imem" socImemAddrBits 32 "clk"
-    (.const 0 socImemAddrBits) (.const 0 32) (.const 0 1)
-    (.ref socImemAddr)
-
-  -- Feed instruction data back to the core
-  -- The core expects this on its "imem_rdata" input
-  let imemRdataWire ← makeWire "imem_rdata_wire" (.bitVector 32)
-  emitAssign imemRdataWire (.ref imemRdata)
-
-  -- =========================================================================
-  -- Bus Address Decode
-  -- =========================================================================
-  -- The core's ALU result (full 32-bit address) is used for bus routing.
-  -- For the data memory path, we need the full 32-bit address.
-  -- The core outputs dmem_addr as a word-index (dmemAddrBits wide), but
-  -- we also need the full address for CLINT detection.
-  -- We reconstruct the full address from the core's dmem_addr output:
-  -- full_addr = {dmem_addr, 2'b00} (word-aligned)
-  -- However, the core actually computes dmem_addr = alu_result[dmemAddrBits+1:2]
-  -- For CLINT, we need the full 32-bit address. The core should output this
-  -- via trap_pc or a dedicated bus address. For now, we use the core pipeline's
-  -- ALU result which is stored as alu_result internally.
-  --
-  -- Since we are inlining, we access the core's internal alu_result wire.
-  -- The core's EX stage creates "alu_result" as a wire.
-  let coreAddr ← makeWire "core_full_addr" (.bitVector 32)
-  -- The core's alu_result wire is the full 32-bit address used for load/store.
-  -- In a flat design, we can reference it directly via the generated name.
-  -- However, since generateCore creates wires with _gen_ prefix via freshName,
-  -- we need a different approach. Instead, reconstruct the full address:
-  -- core_full_addr = {zeros, dmem_addr, 2'b00}
-  -- This works for DMEM range but NOT for CLINT range (0x0200_xxxx).
-  -- Solution: The core should output the full address. For now, we create
-  -- a dedicated wire that the core's EX stage will drive.
-  -- Actually, looking at the core pipeline: dmem_addr is assigned from
-  -- alu_result[dmemAddrBits+1:2]. The full alu_result IS available as an
-  -- internal wire. Since the SoC inlines the core, all wires are shared.
-  -- We will reference the internal _gen_alu_result_XX wire.
-  -- BUT: since freshName adds counters, we cannot predict the exact name.
-  --
-  -- Better approach: Add a full-address output to the core. Since the other
-  -- agent is already modifying the core, we should assume the core will
-  -- provide what we need. For now, we reconstruct from dmem signals:
-  --
-  -- For CLINT detection, we need to check if addr[31:16] == 0x0200.
-  -- The dmem_addr is only dmemAddrBits wide (10 bits = word addresses in
-  -- the 0x00000000-0x00000FFF range). CLINT at 0x02000000 cannot be reached
-  -- with a 10-bit address.
-  --
-  -- RESOLUTION: The SoC must use a wider address from the core for bus
-  -- routing. The core's dmem_addr output is a truncated word-address.
-  -- We need the core to also output the full 32-bit bus address.
-  -- For Phase 1, we add a SoC-level "bus_addr" wire that the core pipeline
-  -- drives with the full ALU result. Since the core code is about to be
-  -- modified, we assume it will output "bus_addr" or we handle it here.
-  --
-  -- PRACTICAL APPROACH: Since everything is flat CircuitM, the core's
-  -- internal alu_result wire is accessible. But its name is generated.
-  -- Instead, we create an explicit bus_addr wire that the core's EX stage
-  -- assigns. The core modification should add:
-  --   addOutput "bus_addr" (.bitVector 32)
-  -- For now, we treat bus_addr as coming from the pipeline.
-
-  let busAddr ← makeWire "bus_addr" (.bitVector 32)
-
-  -- CLINT address decode: check if addr[31:16] == 0x0200
-  let isCLINT ← makeWire "is_clint" .bit
-  emitAssign isCLINT (.op .eq [.slice (.ref busAddr) 31 16, .const 0x0200 16])
-
-  let isDMEM ← makeWire "is_dmem" .bit
-  emitAssign isDMEM (.op .not [.ref isCLINT])
-
-  -- CLINT offset
-  let clintOffset ← makeWire "clint_offset" (.bitVector 16)
-  emitAssign clintOffset (.slice (.ref busAddr) 15 0)
-
-  -- =========================================================================
-  -- Data Memory (BRAM)
-  -- =========================================================================
-  let socDmemAddr ← makeWire "soc_dmem_addr" (.bitVector socDmemAddrBits)
-  -- Word-aligned address from the full bus address
-  emitAssign socDmemAddr (.slice (.ref busAddr) (socDmemAddrBits + 1) 2)
-
-  let dmemWdataW ← makeWire "soc_dmem_wdata" (.bitVector 32)
-  emitAssign dmemWdataW (.ref coreDmemWdata)
-
-  let dmemWEW ← makeWire "soc_dmem_we" .bit
-  emitAssign dmemWEW (.op .and [.ref coreDmemWE, .ref isDMEM])
-
-  let dmemRdata ← emitMemory "dmem" socDmemAddrBits 32 "clk"
-    (.ref socDmemAddr) (.ref dmemWdataW) (.ref dmemWEW)
-    (.ref socDmemAddr)
-
-  -- =========================================================================
-  -- CLINT Registers (inline)
-  -- =========================================================================
-
-  -- MSIP Register
-  let msipAddrMatch ← makeWire "msip_match" .bit
-  emitAssign msipAddrMatch (.op .and [.ref isCLINT,
-    .op .eq [.ref clintOffset, .const clintMSIP 16]])
-  let msipNext ← makeWire "msip_next" (.bitVector 32)
-  let msipReg ← emitRegister "msip_reg" "clk" "rst" (.ref msipNext) 0 (.bitVector 32)
-
-  -- MTIME counter (64-bit)
-  let mtimeLoNext ← makeWire "mtime_lo_next" (.bitVector 32)
-  let mtimeLoReg ← emitRegister "mtime_lo" "clk" "rst" (.ref mtimeLoNext) 0 (.bitVector 32)
-  let mtimeHiNext ← makeWire "mtime_hi_next" (.bitVector 32)
-  let mtimeHiReg ← emitRegister "mtime_hi" "clk" "rst" (.ref mtimeHiNext) 0 (.bitVector 32)
-
-  -- MTIMECMP (64-bit)
-  let mtimecmpLoNext ← makeWire "mtimecmp_lo_next" (.bitVector 32)
-  let mtimecmpLoReg ← emitRegister "mtimecmp_lo" "clk" "rst" (.ref mtimecmpLoNext) 0xFFFFFFFF (.bitVector 32)
-  let mtimecmpHiNext ← makeWire "mtimecmp_hi_next" (.bitVector 32)
-  let mtimecmpHiReg ← emitRegister "mtimecmp_hi" "clk" "rst" (.ref mtimecmpHiNext) 0xFFFFFFFF (.bitVector 32)
-
-  -- MTIME auto-increment
-  let mtimeLoInc ← makeWire "mtime_lo_inc" (.bitVector 32)
-  emitAssign mtimeLoInc (Expr.add (.ref mtimeLoReg) (.const 1 32))
-  let mtimeCarry ← makeWire "mtime_carry" .bit
-  emitAssign mtimeCarry (.op .eq [.ref mtimeLoInc, .const 0 32])
-  let mtimeHiInc ← makeWire "mtime_hi_inc" (.bitVector 32)
-  emitAssign mtimeHiInc (Expr.mux (.ref mtimeCarry)
-    (Expr.add (.ref mtimeHiReg) (.const 1 32))
-    (.ref mtimeHiReg))
-
-  -- CLINT address matching
-  let mtimeLoMatch ← makeWire "mtime_lo_match" .bit
-  emitAssign mtimeLoMatch (.op .and [.ref isCLINT,
-    .op .eq [.ref clintOffset, .const clintMTIME_LO 16]])
-  let mtimeHiMatch ← makeWire "mtime_hi_match" .bit
-  emitAssign mtimeHiMatch (.op .and [.ref isCLINT,
-    .op .eq [.ref clintOffset, .const clintMTIME_HI 16]])
-  let mtimecmpLoMatch ← makeWire "mtimecmp_lo_match" .bit
-  emitAssign mtimecmpLoMatch (.op .and [.ref isCLINT,
-    .op .eq [.ref clintOffset, .const clintMTIMECMP_LO 16]])
-  let mtimecmpHiMatch ← makeWire "mtimecmp_hi_match" .bit
-  emitAssign mtimecmpHiMatch (.op .and [.ref isCLINT,
-    .op .eq [.ref clintOffset, .const clintMTIMECMP_HI 16]])
-
-  -- CLINT write logic: core dmem_we AND isCLINT drives CLINT registers
-  let clintWE ← makeWire "clint_we" .bit
-  emitAssign clintWE (.op .and [.ref coreDmemWE, .ref isCLINT])
-
-  emitAssign msipNext (Expr.mux (.op .and [.ref clintWE, .ref msipAddrMatch])
-    (.ref coreDmemWdata) (.ref msipReg))
-  emitAssign mtimeLoNext (Expr.mux (.op .and [.ref clintWE, .ref mtimeLoMatch])
-    (.ref coreDmemWdata) (.ref mtimeLoInc))
-  emitAssign mtimeHiNext (Expr.mux (.op .and [.ref clintWE, .ref mtimeHiMatch])
-    (.ref coreDmemWdata) (.ref mtimeHiInc))
-  emitAssign mtimecmpLoNext (Expr.mux (.op .and [.ref clintWE, .ref mtimecmpLoMatch])
-    (.ref coreDmemWdata) (.ref mtimecmpLoReg))
-  emitAssign mtimecmpHiNext (Expr.mux (.op .and [.ref clintWE, .ref mtimecmpHiMatch])
-    (.ref coreDmemWdata) (.ref mtimecmpHiReg))
-
-  -- Timer interrupt: mtime >= mtimecmp
-  let hiGt ← makeWire "timer_hi_gt" .bit
-  emitAssign hiGt (.op .gt_u [.ref mtimeHiReg, .ref mtimecmpHiReg])
-  let hiEq ← makeWire "timer_hi_eq" .bit
-  emitAssign hiEq (.op .eq [.ref mtimeHiReg, .ref mtimecmpHiReg])
-  let loGe ← makeWire "timer_lo_ge" .bit
-  emitAssign loGe (.op .ge_u [.ref mtimeLoReg, .ref mtimecmpLoReg])
-  let timerIrq ← makeWire "timer_irq" .bit
-  emitAssign timerIrq (.op .or [.ref hiGt, .op .and [.ref hiEq, .ref loGe]])
-
-  -- Software interrupt
-  let swIrq ← makeWire "sw_irq" .bit
-  emitAssign swIrq (.slice (.ref msipReg) 0 0)
-
-  -- CLINT read mux
-  let clintRdata ← makeWire "clint_rdata" (.bitVector 32)
-  emitAssign clintRdata
-    (Expr.mux (.ref msipAddrMatch) (.ref msipReg)
-    (Expr.mux (.ref mtimecmpLoMatch) (.ref mtimecmpLoReg)
-    (Expr.mux (.ref mtimecmpHiMatch) (.ref mtimecmpHiReg)
-    (Expr.mux (.ref mtimeLoMatch) (.ref mtimeLoReg)
-    (Expr.mux (.ref mtimeHiMatch) (.ref mtimeHiReg)
-      (.const 0 32))))))
-
-  -- =========================================================================
-  -- Bus Read Data Mux: CLINT or DMEM
-  -- =========================================================================
-  let busRdata ← makeWire "bus_rdata" (.bitVector 32)
-  emitAssign busRdata (Expr.mux (.ref isCLINT) (.ref clintRdata) (.ref dmemRdata))
-
-  -- Feed bus read data back to core as dmem_rdata
-  let dmemRdataWire ← makeWire "dmem_rdata_wire" (.bitVector 32)
-  emitAssign dmemRdataWire (.ref busRdata)
-
-  -- =========================================================================
-  -- CSR Register File (M-mode)
-  -- =========================================================================
-  let mstatusNext ← makeWire "mstatus_next" (.bitVector 32)
-  let mstatusReg ← emitRegister "mstatus" "clk" "rst" (.ref mstatusNext) 0 (.bitVector 32)
-  let mieNext ← makeWire "mie_next_soc" (.bitVector 32)
-  let mieReg ← emitRegister "mie_soc" "clk" "rst" (.ref mieNext) 0 (.bitVector 32)
-  let mtvecNext ← makeWire "mtvec_next" (.bitVector 32)
-  let mtvecReg ← emitRegister "mtvec" "clk" "rst" (.ref mtvecNext) 0 (.bitVector 32)
-  let mscratchNext ← makeWire "mscratch_next" (.bitVector 32)
-  let mscratchReg ← emitRegister "mscratch" "clk" "rst" (.ref mscratchNext) 0 (.bitVector 32)
-  let mepcNext ← makeWire "mepc_next" (.bitVector 32)
-  let mepcReg ← emitRegister "mepc" "clk" "rst" (.ref mepcNext) 0 (.bitVector 32)
-  let mcauseNext ← makeWire "mcause_next" (.bitVector 32)
-  let mcauseReg ← emitRegister "mcause" "clk" "rst" (.ref mcauseNext) 0 (.bitVector 32)
-  let mtvalNext ← makeWire "mtval_next" (.bitVector 32)
-  let mtvalReg ← emitRegister "mtval" "clk" "rst" (.ref mtvalNext) 0 (.bitVector 32)
-
-  -- CSR MIE bits
-  let mieMTIE ← makeWire "mie_mtie" .bit
-  emitAssign mieMTIE (.slice (.ref mieReg) CSR.mieMTIE CSR.mieMTIE)
-  let mieMSIE ← makeWire "mie_msie" .bit
-  emitAssign mieMSIE (.slice (.ref mieReg) CSR.mieMSIE CSR.mieMSIE)
-
-  -- MSTATUS MIE
-  let mstatusMIEBit ← makeWire "mstatus_mie_bit" .bit
-  emitAssign mstatusMIEBit (.slice (.ref mstatusReg) CSR.mstatusMIE CSR.mstatusMIE)
-  let mstatusMPIEBit ← makeWire "mstatus_mpie_bit" .bit
-  emitAssign mstatusMPIEBit (.slice (.ref mstatusReg) CSR.mstatusMPIE CSR.mstatusMPIE)
-
-  -- =========================================================================
-  -- CSR Read Mux (driven by core's csr_addr output)
-  -- =========================================================================
-  -- Address matching for CSR reads
-  let csrIsMstatus ← makeWire "csr_is_mstatus" .bit
-  emitAssign csrIsMstatus (.op .eq [.ref csrAddr, .const CSR.csrMSTATUS 12])
-  let csrIsMie ← makeWire "csr_is_mie" .bit
-  emitAssign csrIsMie (.op .eq [.ref csrAddr, .const CSR.csrMIE 12])
-  let csrIsMtvec ← makeWire "csr_is_mtvec" .bit
-  emitAssign csrIsMtvec (.op .eq [.ref csrAddr, .const CSR.csrMTVEC 12])
-  let csrIsMscratch ← makeWire "csr_is_mscratch" .bit
-  emitAssign csrIsMscratch (.op .eq [.ref csrAddr, .const CSR.csrMSCRATCH 12])
-  let csrIsMepc ← makeWire "csr_is_mepc" .bit
-  emitAssign csrIsMepc (.op .eq [.ref csrAddr, .const CSR.csrMEPC 12])
-  let csrIsMcause ← makeWire "csr_is_mcause" .bit
-  emitAssign csrIsMcause (.op .eq [.ref csrAddr, .const CSR.csrMCAUSE 12])
-  let csrIsMtval ← makeWire "csr_is_mtval" .bit
-  emitAssign csrIsMtval (.op .eq [.ref csrAddr, .const CSR.csrMTVAL 12])
-  let csrIsMip ← makeWire "csr_is_mip" .bit
-  emitAssign csrIsMip (.op .eq [.ref csrAddr, .const CSR.csrMIP 12])
-  let csrIsMisa ← makeWire "csr_is_misa" .bit
-  emitAssign csrIsMisa (.op .eq [.ref csrAddr, .const CSR.csrMISA 12])
-  let csrIsMhartid ← makeWire "csr_is_mhartid" .bit
-  emitAssign csrIsMhartid (.op .eq [.ref csrAddr, .const CSR.csrMHARTID 12])
-
-  -- Construct MIP value: read-only, reflects pending interrupt status
-  let mipValue ← makeWire "mip_value" (.bitVector 32)
-  let mipTimerBit ← makeWire "mip_timer_bit" (.bitVector 32)
-  emitAssign mipTimerBit (Expr.mux (.ref timerIrq)
-    (.const (1 <<< CSR.mieMTIE) 32) (.const 0 32))
-  let mipSwBit ← makeWire "mip_sw_bit" (.bitVector 32)
-  emitAssign mipSwBit (Expr.mux (.ref swIrq)
-    (.const (1 <<< CSR.mieMSIE) 32) (.const 0 32))
-  emitAssign mipValue (.op .or [.ref mipTimerBit, .ref mipSwBit])
-
-  -- CSR read data mux
-  emitAssign csrRdata
-    (Expr.mux (.ref csrIsMstatus) (.ref mstatusReg)
-    (Expr.mux (.ref csrIsMie) (.ref mieReg)
-    (Expr.mux (.ref csrIsMtvec) (.ref mtvecReg)
-    (Expr.mux (.ref csrIsMscratch) (.ref mscratchReg)
-    (Expr.mux (.ref csrIsMepc) (.ref mepcReg)
-    (Expr.mux (.ref csrIsMcause) (.ref mcauseReg)
-    (Expr.mux (.ref csrIsMtval) (.ref mtvalReg)
-    (Expr.mux (.ref csrIsMip) (.ref mipValue)
-    (Expr.mux (.ref csrIsMisa) (.const CSR.misaValue 32)
-    (Expr.mux (.ref csrIsMhartid) (.const 0 32)
-      (.const 0 32)))))))))))
-
-  -- =========================================================================
-  -- CSR Write Logic (driven by core's csr_we, csr_addr, csr_funct3, csr_wdata)
-  -- =========================================================================
-  -- Compute the new CSR value based on funct3 (CSRRW/CSRRS/CSRRC/CSRRWI/CSRRSI/CSRRCI)
-  -- funct3 encoding:
-  --   001 = CSRRW  (write csr_wdata)
-  --   010 = CSRRS  (set bits: old | csr_wdata)
-  --   011 = CSRRC  (clear bits: old & ~csr_wdata)
-  --   101 = CSRRWI (write csr_wdata, which is zimm zero-extended)
-  --   110 = CSRRSI (set bits with zimm)
-  --   111 = CSRRCI (clear bits with zimm)
-
-  -- The core provides csr_wdata already prepared (rs1 value or zimm zero-extended).
-  -- We compute the effective write value for each CSR.
-  -- funct3[1:0]: 01=RW, 10=RS, 11=RC
-
-  let csrF3Low ← makeWire "csr_f3_low" (.bitVector 2)
-  emitAssign csrF3Low (.slice (.ref csrFunct3) 1 0)
-
-  let csrIsRW ← makeWire "csr_is_rw" .bit
-  emitAssign csrIsRW (.op .eq [.ref csrF3Low, .const 0b01 2])
-  let csrIsRS ← makeWire "csr_is_rs" .bit
-  emitAssign csrIsRS (.op .eq [.ref csrF3Low, .const 0b10 2])
-  let csrIsRC ← makeWire "csr_is_rc" .bit
-  emitAssign csrIsRC (.op .eq [.ref csrF3Low, .const 0b11 2])
-
-  -- For a given old CSR value, compute the new value
-  -- Helper: compute CSR write value from old value
-  -- CSRRW: new = wdata
-  -- CSRRS: new = old | wdata
-  -- CSRRC: new = old & ~wdata
-  -- We need this for each writable CSR individually
-
-  -- Generic CSR write value computation (parameterized by old value)
-  let mkCsrWriteVal (oldVal : String) (suffix : String) : CircuitM String := do
-    let rsVal ← makeWire s!"csr_rs_val_{suffix}" (.bitVector 32)
-    emitAssign rsVal (.op .or [.ref oldVal, .ref csrWdata])
-    let rcVal ← makeWire s!"csr_rc_val_{suffix}" (.bitVector 32)
-    let notWdata ← makeWire s!"csr_not_wdata_{suffix}" (.bitVector 32)
-    emitAssign notWdata (.op .not [.ref csrWdata])
-    emitAssign rcVal (.op .and [.ref oldVal, .ref notWdata])
-    let newVal ← makeWire s!"csr_new_val_{suffix}" (.bitVector 32)
-    emitAssign newVal
-      (Expr.mux (.ref csrIsRW) (.ref csrWdata)
-      (Expr.mux (.ref csrIsRS) (.ref rsVal)
-      (Expr.mux (.ref csrIsRC) (.ref rcVal)
-        (.ref oldVal))))
-    return newVal
-
-  let mstatusNewCSR ← mkCsrWriteVal mstatusReg "mstatus"
-  let mieNewCSR ← mkCsrWriteVal mieReg "mie"
-  let mtvecNewCSR ← mkCsrWriteVal mtvecReg "mtvec"
-  let mscratchNewCSR ← mkCsrWriteVal mscratchReg "mscratch"
-  let mepcNewCSR ← mkCsrWriteVal mepcReg "mepc"
-  let mcauseNewCSR ← mkCsrWriteVal mcauseReg "mcause"
-  let mtvalNewCSR ← mkCsrWriteVal mtvalReg "mtval"
-
-  -- =========================================================================
-  -- Trap Detection (from core's trap output signals)
-  -- =========================================================================
-
-  -- Timer interrupt: globally enabled AND locally enabled AND pending
-  let timerIntEnabled ← makeWire "timer_int_en" .bit
-  emitAssign timerIntEnabled (.op .and [.ref mstatusMIEBit,
-    .op .and [.ref mieMTIE, .ref timerIrq]])
-
-  -- Software interrupt: globally enabled AND locally enabled AND pending
-  let swIntEnabled ← makeWire "sw_int_en" .bit
-  emitAssign swIntEnabled (.op .and [.ref mstatusMIEBit,
-    .op .and [.ref mieMSIE, .ref swIrq]])
-
-  -- Trap taken: exceptions (ecall, ebreak) have priority over interrupts
-  -- Note: trap_ecall and trap_ebreak come from the core pipeline
-  emitAssign trapTaken (.op .or [.ref trapEcall,
-    .op .or [.ref trapEbreak,
-    .op .or [.ref timerIntEnabled, .ref swIntEnabled]]])
-
-  -- Trap cause
-  let trapCause ← makeWire "trap_cause" (.bitVector 32)
-  emitAssign trapCause
-    (Expr.mux (.ref trapEcall) (.const causeECALL_M 32)
-    (Expr.mux (.ref trapEbreak) (.const causeEBREAK 32)
-    (Expr.mux (.ref timerIntEnabled) (.const causeM_TIMER_INT 32)
-    (Expr.mux (.ref swIntEnabled) (.const causeM_SW_INT 32)
-      (.const 0 32)))))
-
-  -- =========================================================================
-  -- CSR Register Update Logic
-  -- =========================================================================
-  -- Priority: trap entry > MRET > CSR write instruction > hold
-
-  -- MSTATUS updates on trap/MRET/CSR write
-  -- On trap entry: MPIE <- MIE, MIE <- 0, MPP <- 11 (M-mode)
-  let mstatusTrapVal ← makeWire "mstatus_trap_val" (.bitVector 32)
-  let msClearMIE ← makeWire "soc_ms_clear_mie" (.bitVector 32)
-  emitAssign msClearMIE (.op .and [.ref mstatusReg,
-    .const (0xFFFFFFFF - (1 <<< CSR.mstatusMIE)) 32])
-  let msSetMPIE ← makeWire "soc_ms_set_mpie" (.bitVector 32)
-  emitAssign msSetMPIE (Expr.mux (.ref mstatusMIEBit)
-    (.op .or [.ref msClearMIE, .const (1 <<< CSR.mstatusMPIE) 32])
-    (.op .and [.ref msClearMIE, .const (0xFFFFFFFF - (1 <<< CSR.mstatusMPIE)) 32]))
-  emitAssign mstatusTrapVal (.op .or [.ref msSetMPIE, .const (3 <<< CSR.mstatusMPP_LO) 32])
-
-  -- On MRET: MIE <- MPIE, MPIE <- 1, MPP <- 00
-  let mstatusMretVal ← makeWire "mstatus_mret_val" (.bitVector 32)
-  let msClearMPP ← makeWire "soc_ms_clear_mpp" (.bitVector 32)
-  emitAssign msClearMPP (.op .and [.ref mstatusReg,
-    .const (0xFFFFFFFF - (3 <<< CSR.mstatusMPP_LO)) 32])
-  let msRestoreMIE ← makeWire "soc_ms_restore_mie" (.bitVector 32)
-  emitAssign msRestoreMIE (Expr.mux (.ref mstatusMPIEBit)
-    (.op .or [.ref msClearMPP, .const (1 <<< CSR.mstatusMIE) 32])
-    (.op .and [.ref msClearMPP, .const (0xFFFFFFFF - (1 <<< CSR.mstatusMIE)) 32]))
-  emitAssign mstatusMretVal (.op .or [.ref msRestoreMIE, .const (1 <<< CSR.mstatusMPIE) 32])
-
-  -- MSTATUS next: trap > MRET > CSR write > hold
-  emitAssign mstatusNext
-    (Expr.mux (.ref trapTaken) (.ref mstatusTrapVal)
-    (Expr.mux (.ref trapMret) (.ref mstatusMretVal)
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMstatus]) (.ref mstatusNewCSR)
-      (.ref mstatusReg))))
-
-  -- MIE next: CSR write or hold (trap/MRET don't affect MIE register)
-  emitAssign mieNext
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMie]) (.ref mieNewCSR)
-      (.ref mieReg))
-
-  -- MTVEC next: CSR write or hold
-  emitAssign mtvecNext
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMtvec]) (.ref mtvecNewCSR)
-      (.ref mtvecReg))
-
-  -- MSCRATCH next: CSR write or hold
-  emitAssign mscratchNext
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMscratch]) (.ref mscratchNewCSR)
-      (.ref mscratchReg))
-
-  -- MEPC: set on trap entry (to trap_pc from core), CSR write, or hold
-  emitAssign mepcNext
-    (Expr.mux (.ref trapTaken) (.ref trapPC)
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMepc]) (.ref mepcNewCSR)
-      (.ref mepcReg)))
-
-  -- MCAUSE: set on trap entry, CSR write, or hold
-  emitAssign mcauseNext
-    (Expr.mux (.ref trapTaken) (.ref trapCause)
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMcause]) (.ref mcauseNewCSR)
-      (.ref mcauseReg)))
-
-  -- MTVAL: set on trap entry (0 for ecall/ebreak), CSR write, or hold
-  emitAssign mtvalNext
-    (Expr.mux (.ref trapTaken) (.const 0 32)
-    (Expr.mux (.op .and [.ref csrWE, .ref csrIsMtval]) (.ref mtvalNewCSR)
-      (.ref mtvalReg)))
-
-  -- =========================================================================
-  -- Trap Target and MRET Target (fed back to core)
-  -- =========================================================================
-  -- trap_target = mtvec base address (bits [31:2] << 2, i.e., aligned)
-  let mtvecBase ← makeWire "mtvec_base" (.bitVector 32)
-  emitAssign mtvecBase (.op .and [.ref mtvecReg, .const 0xFFFFFFFC 32])
-  emitAssign trapTarget (.ref mtvecBase)
-
-  -- mret_target = mepc (return address saved on trap entry)
-  emitAssign mretTarget (.ref mepcReg)
-
-  -- =========================================================================
-  -- Wire SoC Outputs
-  -- =========================================================================
-  -- Forward core's debug_pc to SoC output
-  emitAssign "debug_pc" (.ref coreDebugPC)
-
-  -- =========================================================================
-  -- Core Pipeline Integration
-  -- =========================================================================
-  -- The core pipeline is generated inline. Its addInput/addOutput calls
-  -- create module-level ports, but in a flat SoC those become internal wires.
-  -- We need to connect the SoC's memory/peripheral outputs to the core's inputs
-  -- and the core's outputs to the SoC's peripheral inputs.
-  --
-  -- Since generateCore uses addInput/addOutput (which create ports), we cannot
-  -- call it directly inside generateSoC (that would create conflicting ports).
-  -- Instead, we assign the interface wires that the core pipeline drives/reads.
-  --
-  -- The core expects these inputs (which the SoC provides):
-  --   imem_rdata   <- from instruction memory
-  --   dmem_rdata   <- from bus read mux (CLINT or DMEM)
-  --   csr_rdata    <- from CSR read mux (already assigned above)
-  --   trap_taken   <- from trap detection logic (already assigned above)
-  --   trap_target  <- from mtvec base (already assigned above)
-  --   mret_target  <- from mepc register (already assigned above)
-  --
-  -- The core drives these outputs (which the SoC consumes):
-  --   imem_addr    -> instruction memory address
-  --   dmem_addr    -> data memory address (truncated)
-  --   dmem_wdata   -> data memory write data
-  --   dmem_we      -> data memory write enable
-  --   dmem_re      -> data memory read enable
-  --   debug_pc     -> program counter for debug
-  --   csr_addr     -> CSR address
-  --   csr_funct3   -> CSR operation funct3
-  --   csr_wdata    -> CSR write data
-  --   csr_we       -> CSR write enable
-  --   trap_ecall   -> ECALL detected
-  --   trap_ebreak  -> EBREAK detected
-  --   trap_mret    -> MRET detected
-  --   trap_pc      -> PC of trapping instruction
-  --   bus_addr     -> Full 32-bit bus address for CLINT/DMEM routing
-  --
-  -- These are connected via the wire names created above. When the core
-  -- pipeline is instantiated (either via module instantiation or by
-  -- inlining), these wires form the interface contract.
-  --
-  -- For now, we emit instance connections that map our SoC wire names to
-  -- the core's port names. This uses Sparkle's emitInstance to instantiate
-  -- the core as a sub-module within the SoC.
-  emitInstance "RV32I_Core" "core" [
-    -- Inputs to core
-    ("clk",          .ref "clk"),
-    ("rst",          .ref "rst"),
-    ("imem_rdata",   .ref imemRdataWire),
-    ("dmem_rdata",   .ref dmemRdataWire),
-    ("csr_rdata",    .ref csrRdata),
-    ("trap_taken",   .ref trapTaken),
-    ("trap_target",  .ref trapTarget),
-    ("mret_target",  .ref mretTarget),
-    -- Outputs from core
-    ("imem_addr",    .ref coreImemAddr),
-    ("dmem_addr",    .ref coreDmemAddr),
-    ("dmem_wdata",   .ref coreDmemWdata),
-    ("dmem_we",      .ref coreDmemWE),
-    ("dmem_re",      .ref coreDmemRE),
-    ("debug_pc",     .ref coreDebugPC),
-    ("csr_addr",     .ref csrAddr),
-    ("csr_funct3",   .ref csrFunct3),
-    ("csr_wdata",    .ref csrWdata),
-    ("csr_we",       .ref csrWE),
-    ("trap_ecall",   .ref trapEcall),
-    ("trap_ebreak",  .ref trapEbreak),
-    ("trap_mret",    .ref trapMret),
-    ("trap_pc",      .ref trapPC),
-    ("bus_addr",     .ref busAddr)
-  ]
-
-/-- Build the Phase 1 SoC module -/
-def buildSoC : Module :=
-  CircuitM.runModule "RV32I_SoC" do
-    generateSoC
+
+def nopInst : BitVec 32 := 0x00000013#32
+
+/-- RV32I SoC — flat Signal DSL design.
+    Contains pipeline, register file, IMEM, DMEM, CLINT, CSR, trap logic.
+    Output: debug_pc (BitVec 32). -/
+def rv32iSoC {dom : DomainConfig}
+    : Signal dom (BitVec 32) :=
+  let soc := Signal.loop fun state =>
+    -- =================================================================
+    -- Extract all 56 register outputs
+    -- =================================================================
+    let pcReg          := projN! state 56 0
+    let fetchPC        := projN! state 56 1
+    let flushDelay     := projN! state 56 2
+    let ifid_inst      := projN! state 56 3
+    let ifid_pc        := projN! state 56 4
+    let ifid_pc4       := projN! state 56 5
+    let idex_aluOp     := projN! state 56 6
+    let idex_regWrite  := projN! state 56 7
+    let idex_memRead   := projN! state 56 8
+    let idex_memWrite  := projN! state 56 9
+    let idex_memToReg  := projN! state 56 10
+    let idex_branch    := projN! state 56 11
+    let idex_jump      := projN! state 56 12
+    let idex_auipc     := projN! state 56 13
+    let idex_aluSrcB   := projN! state 56 14
+    let idex_isJalr    := projN! state 56 15
+    let idex_isCsr     := projN! state 56 16
+    let idex_isEcall   := projN! state 56 17
+    let idex_isMret    := projN! state 56 18
+    let idex_rs1Val    := projN! state 56 19
+    let idex_rs2Val    := projN! state 56 20
+    let idex_imm       := projN! state 56 21
+    let idex_rd        := projN! state 56 22
+    let idex_rs1Idx    := projN! state 56 23
+    let idex_rs2Idx    := projN! state 56 24
+    let idex_funct3    := projN! state 56 25
+    let idex_pc        := projN! state 56 26
+    let idex_pc4       := projN! state 56 27
+    let idex_csrAddr   := projN! state 56 28
+    let idex_csrFunct3 := projN! state 56 29
+    let exwb_alu       := projN! state 56 30
+    let exwb_rd        := projN! state 56 31
+    let exwb_regW      := projN! state 56 32
+    let exwb_m2r       := projN! state 56 33
+    let exwb_pc4       := projN! state 56 34
+    let exwb_jump      := projN! state 56 35
+    let exwb_isCsr     := projN! state 56 36
+    let exwb_csrRdata  := projN! state 56 37
+    let prev_wb_addr   := projN! state 56 38
+    let prev_wb_data   := projN! state 56 39
+    let prev_wb_en     := projN! state 56 40
+    let prevStoreAddr  := projN! state 56 41
+    let prevStoreData  := projN! state 56 42
+    let prevStoreEn    := projN! state 56 43
+    let msipReg        := projN! state 56 44
+    let mtimeLoReg     := projN! state 56 45
+    let mtimeHiReg     := projN! state 56 46
+    let mtimecmpLoReg  := projN! state 56 47
+    let mtimecmpHiReg  := projN! state 56 48
+    let mstatusReg     := projN! state 56 49
+    let mieReg         := projN! state 56 50
+    let mtvecReg       := projN! state 56 51
+    let mscratchReg    := projN! state 56 52
+    let mepcReg        := projN! state 56 53
+    let mcauseReg      := projN! state 56 54
+    let mtvalReg       := projN! state 56 55
+
+    -- =================================================================
+    -- Phase 1: WB forwarding flags + non-mem WB data (no dmem_rdata dep)
+    -- =================================================================
+    let wbRdNz := (fun x => !x) <$> ((· == ·) <$> exwb_rd <*> Signal.pure 0#5)
+    let wb_addr := exwb_rd
+    let wb_en   := (· && ·) <$> exwb_regW <*> wbRdNz
+    -- WB result for non-load path (all registered, no dmem_rdata dependency)
+    let wb_data_non_mem := Signal.mux exwb_isCsr exwb_csrRdata
+                             (Signal.mux exwb_jump exwb_pc4 exwb_alu)
+    -- Forwarding match flags (all from registered values)
+    let fwd_rs1_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs1Idx)
+    let fwd_rs2_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs2Idx)
+
+    -- =================================================================
+    -- Phase 2: Approximate ALU result for BRAM read address
+    -- When WB has a load (exwb_m2r=true), use idex_rs1Val instead of
+    -- wb_data to avoid circular dependency through dmem_rdata.
+    -- =================================================================
+    let fwd_val_approx := Signal.mux exwb_m2r idex_rs1Val wb_data_non_mem
+    let ex_rs1_approx := Signal.mux fwd_rs1_match fwd_val_approx idex_rs1Val
+    let fwd_val2_approx := Signal.mux exwb_m2r idex_rs2Val wb_data_non_mem
+    let ex_rs2_approx := Signal.mux fwd_rs2_match fwd_val2_approx idex_rs2Val
+    let alu_a_approx := Signal.mux idex_auipc idex_pc ex_rs1_approx
+    let alu_b_approx := Signal.mux idex_aluSrcB idex_imm ex_rs2_approx
+    let alu_result_approx := aluSignal idex_aluOp alu_a_approx alu_b_approx
+
+    -- =================================================================
+    -- Phase 3: Memories (IMEM + DMEM) using approximate addresses
+    -- =================================================================
+    -- IMEM (read-only, 12-bit address = 4096 words = 16KB)
+    let imem_addr := fetchPC.map (BitVec.extractLsb' 2 12 ·)
+    let imem_rdata := Signal.memory (Signal.pure 0#12) (Signal.pure 0#32)
+                        (Signal.pure false) imem_addr
+
+    -- Bus decode for EX-stage writes (using approximate ALU result)
+    let busAddrHi_ex := alu_result_approx.map (BitVec.extractLsb' 16 16 ·)
+    let isCLINT_ex := (· == ·) <$> busAddrHi_ex <*> Signal.pure 0x0200#16
+    let isDMEM_ex := (fun x => !x) <$> isCLINT_ex
+
+    -- DMEM (read-write, 14-bit address = 16384 words = 64KB)
+    let dmem_write_addr := alu_result_approx.map (BitVec.extractLsb' 2 14 ·)
+    let dmem_read_addr  := alu_result_approx.map (BitVec.extractLsb' 2 14 ·)
+    let dmem_we := (· && ·) <$> idex_memWrite <*> isDMEM_ex
+    let dmem_rdata := Signal.memory dmem_write_addr ex_rs2_approx dmem_we
+                        dmem_read_addr
+
+    -- =================================================================
+    -- Phase 4: Full WB data (now dmem_rdata is available)
+    -- =================================================================
+    -- Store-to-load forwarding (DMEM only)
+    let storeAddrHi := prevStoreAddr.map (BitVec.extractLsb' 2 30 ·)
+    let loadAddrHi := exwb_alu.map (BitVec.extractLsb' 2 30 ·)
+    let addrMatch := (· == ·) <$> storeAddrHi <*> loadAddrHi
+    let storeLoadMatch := (· && ·) <$> prevStoreEn <*> addrMatch
+    let dmemRdataFwd := Signal.mux storeLoadMatch prevStoreData dmem_rdata
+    -- CLINT read mux (WB-stage address, for bus read data)
+    let clintOffset_wb := exwb_alu.map (BitVec.extractLsb' 0 16 ·)
+    let msipMatch_wb     := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x0000#16
+    let mtimeLoMatch_wb  := (· == ·) <$> clintOffset_wb <*> Signal.pure 0xBFF8#16
+    let mtimeHiMatch_wb  := (· == ·) <$> clintOffset_wb <*> Signal.pure 0xBFFC#16
+    let mtimecmpLoMatch_wb := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x4000#16
+    let mtimecmpHiMatch_wb := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x4004#16
+    let clintRdata :=
+      Signal.mux msipMatch_wb msipReg
+      (Signal.mux mtimecmpLoMatch_wb mtimecmpLoReg
+      (Signal.mux mtimecmpHiMatch_wb mtimecmpHiReg
+      (Signal.mux mtimeLoMatch_wb mtimeLoReg
+      (Signal.mux mtimeHiMatch_wb mtimeHiReg
+        (Signal.pure 0#32)))))
+    -- Bus read data: CLINT (combinational) vs DMEM (BRAM with forwarding)
+    let busAddrHi_wb := exwb_alu.map (BitVec.extractLsb' 16 16 ·)
+    let isCLINT_wb := (· == ·) <$> busAddrHi_wb <*> Signal.pure 0x0200#16
+    let busRdata := Signal.mux isCLINT_wb clintRdata dmemRdataFwd
+    -- Final WB data mux
+    let wb_result := Signal.mux exwb_isCsr exwb_csrRdata
+                       (Signal.mux exwb_jump exwb_pc4
+                       (Signal.mux exwb_m2r busRdata
+                         exwb_alu))
+    let wb_data := wb_result
+
+    -- =================================================================
+    -- Phase 5: Full EX stage (proper forwarding with wb_data)
+    -- =================================================================
+    let ex_rs1 := Signal.mux fwd_rs1_match wb_data idex_rs1Val
+    let ex_rs2 := Signal.mux fwd_rs2_match wb_data idex_rs2Val
+    let alu_a := Signal.mux idex_auipc idex_pc ex_rs1
+    let alu_b := Signal.mux idex_aluSrcB idex_imm ex_rs2
+    let alu_result := aluSignal idex_aluOp alu_a alu_b
+    -- Branch
+    let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
+    let branchTaken := (· && ·) <$> idex_branch <*> branchCond
+    -- Branch/jump target
+    let brTarget := (· + ·) <$> idex_pc <*> idex_imm
+    let jalrSum  := (· + ·) <$> ex_rs1 <*> idex_imm
+    let jalrTarget := (· &&& ·) <$> jalrSum <*> Signal.pure 0xFFFFFFFE#32
+    let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
+
+    -- =================================================================
+    -- CSR Read Mux (combinational, using EX-stage csrAddr)
+    -- =================================================================
+    -- CLINT interrupt signals
+    let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
+    let hiEq := (· == ·) <$> mtimeHiReg <*> mtimecmpHiReg
+    let loGe := (fun x => !x) <$> ((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
+    let timerIrq := (· || ·) <$> hiGt <*> ((· && ·) <$> hiEq <*> loGe)
+    let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    -- MIP value: bit 7 = timer, bit 3 = software
+    let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
+    let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
+    let mipValue := (· ||| ·) <$> mipTimerBit <*> mipSwBit
+    -- CSR address matching
+    let csrIsMstatus  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x300#12
+    let csrIsMie      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x304#12
+    let csrIsMtvec    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x305#12
+    let csrIsMscratch := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x340#12
+    let csrIsMepc     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x341#12
+    let csrIsMcause   := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x342#12
+    let csrIsMtval    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x343#12
+    let csrIsMip      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x344#12
+    let csrIsMisa     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x301#12
+    let csrIsMhartid  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0xF14#12
+    -- CSR read data
+    let csr_rdata :=
+      Signal.mux csrIsMstatus mstatusReg
+      (Signal.mux csrIsMie mieReg
+      (Signal.mux csrIsMtvec mtvecReg
+      (Signal.mux csrIsMscratch mscratchReg
+      (Signal.mux csrIsMepc mepcReg
+      (Signal.mux csrIsMcause mcauseReg
+      (Signal.mux csrIsMtval mtvalReg
+      (Signal.mux csrIsMip mipValue
+      (Signal.mux csrIsMisa (Signal.pure 0x40000100#32)
+      (Signal.mux csrIsMhartid (Signal.pure 0#32)
+        (Signal.pure 0#32))))))))))
+
+    -- =================================================================
+    -- Trap Detection
+    -- =================================================================
+    let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mieMTIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mieMSIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let timerIntEnabled := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMTIE_flag <*> timerIrq)
+    let swIntEnabled    := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMSIE_flag <*> swIrq)
+    let trap_taken := (· || ·) <$> idex_isEcall <*>
+                        ((· || ·) <$> timerIntEnabled <*> swIntEnabled)
+    let trapCause :=
+      Signal.mux idex_isEcall (Signal.pure 0x0000000B#32)
+      (Signal.mux timerIntEnabled (Signal.pure 0x80000007#32)
+      (Signal.mux swIntEnabled (Signal.pure 0x80000003#32)
+        (Signal.pure 0#32)))
+    let trap_target := (· &&& ·) <$> mtvecReg <*> Signal.pure 0xFFFFFFFC#32
+    let mret_target := mepcReg
+
+    -- =================================================================
+    -- Flush
+    -- =================================================================
+    let flush := (· || ·) <$> ((· || ·) <$> branchTaken <*> idex_jump) <*>
+                 ((· || ·) <$> trap_taken <*> idex_isMret)
+    let flushOrDelay := (· || ·) <$> flush <*> flushDelay
+
+    -- =================================================================
+    -- ID Stage (decode from ifid_inst)
+    -- =================================================================
+    let id_opcode := ifid_inst.map (BitVec.extractLsb' 0 7 ·)
+    let id_rd     := ifid_inst.map (BitVec.extractLsb' 7 5 ·)
+    let id_funct3 := ifid_inst.map (BitVec.extractLsb' 12 3 ·)
+    let id_rs1    := ifid_inst.map (BitVec.extractLsb' 15 5 ·)
+    let id_rs2    := ifid_inst.map (BitVec.extractLsb' 20 5 ·)
+    let id_funct7 := ifid_inst.map (BitVec.extractLsb' 25 7 ·)
+    let id_imm := immGenSignal ifid_inst id_opcode
+    let id_aluOp := aluControlSignal id_opcode id_funct3 id_funct7
+    let id_isALUrr  := (· == ·) <$> id_opcode <*> Signal.pure 0b0110011#7
+    let id_isALUimm := (· == ·) <$> id_opcode <*> Signal.pure 0b0010011#7
+    let id_isLoad   := (· == ·) <$> id_opcode <*> Signal.pure 0b0000011#7
+    let id_isStore  := (· == ·) <$> id_opcode <*> Signal.pure 0b0100011#7
+    let id_isBranch := (· == ·) <$> id_opcode <*> Signal.pure 0b1100011#7
+    let id_isLUI    := (· == ·) <$> id_opcode <*> Signal.pure 0b0110111#7
+    let id_isAUIPC  := (· == ·) <$> id_opcode <*> Signal.pure 0b0010111#7
+    let id_isJAL    := (· == ·) <$> id_opcode <*> Signal.pure 0b1101111#7
+    let id_isJALR   := (· == ·) <$> id_opcode <*> Signal.pure 0b1100111#7
+    let id_isSystem := (· == ·) <$> id_opcode <*> Signal.pure 0b1110011#7
+    let id_aluSrcB := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUimm <*> id_isLoad) <*>
+                      ((· || ·) <$> id_isStore <*> id_isLUI)) <*>
+                      ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
+    let id_regWrite := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUrr <*> id_isALUimm) <*>
+                       ((· || ·) <$> id_isLoad <*> id_isLUI)) <*>
+                       ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
+    let id_memRead  := id_isLoad
+    let id_memWrite := id_isStore
+    let id_memToReg := id_isLoad
+    let id_jump     := (· || ·) <$> id_isJAL <*> id_isJALR
+    let id_auipc    := (· || ·) <$> id_isAUIPC <*> id_isJAL
+    let f3isZero := (· == ·) <$> id_funct3 <*> Signal.pure 0#3
+    let f3notZero := (fun x => !x) <$> f3isZero
+    let id_isCsr := (· && ·) <$> id_isSystem <*> f3notZero
+    let id_isEcall := (· && ·) <$> id_isSystem <*> f3isZero
+    let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
+    let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
+    let isMretField := (· == ·) <$> mretField <*> Signal.pure 0x302#12
+    let id_isMret := (· && ·) <$> id_isSystem <*> isMretField
+
+    -- Stall (hazard detection)
+    let stall := hazardSignal idex_memRead idex_rd id_rs1 id_rs2
+
+    -- =================================================================
+    -- Register File (dual-read, single-write via Signal.memory)
+    -- =================================================================
+    let rf_rs1_addr := Signal.mux stall id_rs1
+                         (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
+    let rf_rs2_addr := Signal.mux stall id_rs2
+                         (ifid_inst.map (BitVec.extractLsb' 20 5 ·))
+    let rf_rs1_raw := Signal.memory wb_addr wb_data wb_en rf_rs1_addr
+    let rf_rs2_raw := Signal.memory wb_addr wb_data wb_en rf_rs2_addr
+    let wb_fwd_rs1 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs1)
+    let wb_fwd_rs2 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs2)
+    let prev_fwd_rs1 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs1)
+    let prev_fwd_rs2 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs2)
+    let rf_rs1_bypassed := Signal.mux wb_fwd_rs1 wb_data
+                             (Signal.mux prev_fwd_rs1 prev_wb_data rf_rs1_raw)
+    let rf_rs2_bypassed := Signal.mux wb_fwd_rs2 wb_data
+                             (Signal.mux prev_fwd_rs2 prev_wb_data rf_rs2_raw)
+    let id_rs1Val := Signal.mux ((· == ·) <$> id_rs1 <*> Signal.pure 0#5)
+                       (Signal.pure 0#32) rf_rs1_bypassed
+    let id_rs2Val := Signal.mux ((· == ·) <$> id_rs2 <*> Signal.pure 0#5)
+                       (Signal.pure 0#32) rf_rs2_bypassed
+
+    -- =================================================================
+    -- IF Stage
+    -- =================================================================
+    let pcPlus4 := (· + ·) <$> pcReg <*> Signal.pure 4#32
+    let fetchPCIn := Signal.mux stall fetchPC pcReg
+    let fetchPCPlus4 := (· + ·) <$> fetchPC <*> Signal.pure 4#32
+
+    -- IF/ID register inputs
+    let ifid_inst_in := Signal.mux flushOrDelay (Signal.pure nopInst)
+                          (Signal.mux stall ifid_inst imem_rdata)
+    let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
+    let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
+
+    -- ID/EX squash
+    let squash := (· || ·) <$> stall <*> flushOrDelay
+
+    -- =================================================================
+    -- CLINT Write Logic (using EX-stage bus address)
+    -- =================================================================
+    let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
+    let clintWE := (· && ·) <$> idex_memWrite <*> isCLINT_ex
+    let msipMatch     := (· == ·) <$> clintOffset <*> Signal.pure 0x0000#16
+    let mtimeLoMatch  := (· == ·) <$> clintOffset <*> Signal.pure 0xBFF8#16
+    let mtimeHiMatch  := (· == ·) <$> clintOffset <*> Signal.pure 0xBFFC#16
+    let mtimecmpLoMatch := (· == ·) <$> clintOffset <*> Signal.pure 0x4000#16
+    let mtimecmpHiMatch := (· == ·) <$> clintOffset <*> Signal.pure 0x4004#16
+    -- MTIME auto-increment
+    let mtimeLoInc := (· + ·) <$> mtimeLoReg <*> Signal.pure 1#32
+    let mtimeCarry := (· == ·) <$> mtimeLoInc <*> Signal.pure 0#32
+    let mtimeHiInc := Signal.mux mtimeCarry
+                        ((· + ·) <$> mtimeHiReg <*> Signal.pure 1#32) mtimeHiReg
+    -- CLINT register next values
+    let msipNext := Signal.mux ((· && ·) <$> clintWE <*> msipMatch)
+                      ex_rs2_approx msipReg
+    let mtimeLoNext := Signal.mux ((· && ·) <$> clintWE <*> mtimeLoMatch)
+                         ex_rs2_approx mtimeLoInc
+    let mtimeHiNext := Signal.mux ((· && ·) <$> clintWE <*> mtimeHiMatch)
+                         ex_rs2_approx mtimeHiInc
+    let mtimecmpLoNext := Signal.mux ((· && ·) <$> clintWE <*> mtimecmpLoMatch)
+                            ex_rs2_approx mtimecmpLoReg
+    let mtimecmpHiNext := Signal.mux ((· && ·) <$> clintWE <*> mtimecmpHiMatch)
+                            ex_rs2_approx mtimecmpHiReg
+
+    -- =================================================================
+    -- CSR Write Logic
+    -- =================================================================
+    let csrIsImm := (· == ·) <$> (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) <*> Signal.pure 1#1
+    let csrZimm := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
+    let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
+    let csrF3Low := idex_csrFunct3.map (BitVec.extractLsb' 0 2 ·)
+    let csrIsRW := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
+    let csrIsRS := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
+    let csrIsRC := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
+    let mkCsrNewVal (oldVal : Signal dom (BitVec 32)) :=
+      let rsVal := (· ||| ·) <$> oldVal <*> csrWdata
+      let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
+      Signal.mux csrIsRW csrWdata
+        (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
+    let mstatusNewCSR  := mkCsrNewVal mstatusReg
+    let mieNewCSR      := mkCsrNewVal mieReg
+    let mtvecNewCSR    := mkCsrNewVal mtvecReg
+    let mscratchNewCSR := mkCsrNewVal mscratchReg
+    let mepcNewCSR     := mkCsrNewVal mepcReg
+    let mcauseNewCSR   := mkCsrNewVal mcauseReg
+    let mtvalNewCSR    := mkCsrNewVal mtvalReg
+
+    -- =================================================================
+    -- CSR Register Updates (trap > MRET > CSR write > hold)
+    -- =================================================================
+    -- Pre-computed bitmasks (avoid <<<, which Lean may not fully reduce):
+    --   bit 3  (MIE):  set = 0x00000008, clear = 0xFFFFFFF7
+    --   bit 7  (MPIE): set = 0x00000080, clear = 0xFFFFFF7F
+    --   bits 12:11 (MPP): set = 0x00001800, clear = 0xFFFFE7FF
+
+    -- MSTATUS on trap: MPIE <- MIE, MIE <- 0, MPP <- 11 (M-mode)
+    let msClearMIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFF7#32
+    let msSetMPIE := Signal.mux mstatusMIE_flag
+      ((· ||| ·) <$> msClearMIE <*> Signal.pure 0x00000080#32)
+      ((· &&& ·) <$> msClearMIE <*> Signal.pure 0xFFFFFF7F#32)
+    let mstatusTrapVal := (· ||| ·) <$> msSetMPIE <*> Signal.pure 0x00001800#32
+    -- MSTATUS on MRET: MIE <- MPIE, MPIE <- 1, MPP <- 00
+    let msClearMPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFE7FF#32
+    let msRestoreMIE := Signal.mux mstatusMPIE_flag
+      ((· ||| ·) <$> msClearMPP <*> Signal.pure 0x00000008#32)
+      ((· &&& ·) <$> msClearMPP <*> Signal.pure 0xFFFFFFF7#32)
+    let mstatusMretVal := (· ||| ·) <$> msRestoreMIE <*> Signal.pure 0x00000080#32
+    -- Priority: trap > MRET > CSR write > hold
+    let mstatusNext := Signal.mux trap_taken mstatusTrapVal
+      (Signal.mux idex_isMret mstatusMretVal
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMstatus) mstatusNewCSR
+        mstatusReg))
+    let mieNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMie) mieNewCSR mieReg
+    let mtvecNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMtvec) mtvecNewCSR mtvecReg
+    let mscratchNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMscratch) mscratchNewCSR mscratchReg
+    let mepcNext := Signal.mux trap_taken idex_pc
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMepc) mepcNewCSR mepcReg)
+    let mcauseNext := Signal.mux trap_taken trapCause
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMcause) mcauseNewCSR mcauseReg)
+    let mtvalNext := Signal.mux trap_taken (Signal.pure 0#32)
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMtval) mtvalNewCSR mtvalReg)
+
+    -- =================================================================
+    -- PC Next
+    -- =================================================================
+    let pcNext := Signal.mux trap_taken trap_target
+                    (Signal.mux idex_isMret mret_target
+                    (Signal.mux flush jumpTarget
+                    (Signal.mux stall pcReg
+                      pcPlus4)))
+
+    -- =================================================================
+    -- Bundle all 56 registers
+    -- =================================================================
+    bundleAll! [
+      Signal.register 0#32 pcNext,                                              -- 0  pcReg
+      Signal.register 0#32 fetchPCIn,                                           -- 1  fetchPC
+      Signal.register false flush,                                              -- 2  flushDelay
+      Signal.register 0x00000013#32 ifid_inst_in,                               -- 3  ifid_inst
+      Signal.register 0#32 ifid_pc_in,                                          -- 4  ifid_pc
+      Signal.register 0#32 ifid_pc4_in,                                         -- 5  ifid_pc4
+      Signal.register 0#4 (Signal.mux squash (Signal.pure 0#4) id_aluOp),      -- 6  idex_aluOp
+      Signal.register false (Signal.mux squash (Signal.pure false) id_regWrite), -- 7
+      Signal.register false (Signal.mux squash (Signal.pure false) id_memRead), -- 8
+      Signal.register false (Signal.mux squash (Signal.pure false) id_memWrite), -- 9
+      Signal.register false (Signal.mux squash (Signal.pure false) id_memToReg), -- 10
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isBranch), -- 11
+      Signal.register false (Signal.mux squash (Signal.pure false) id_jump),    -- 12
+      Signal.register false (Signal.mux squash (Signal.pure false) id_auipc),   -- 13
+      Signal.register false (Signal.mux squash (Signal.pure false) id_aluSrcB), -- 14
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isJALR),  -- 15
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isCsr),   -- 16
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isEcall), -- 17
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isMret),  -- 18
+      Signal.register 0#32 id_rs1Val,                                           -- 19
+      Signal.register 0#32 id_rs2Val,                                           -- 20
+      Signal.register 0#32 id_imm,                                              -- 21
+      Signal.register 0#5 (Signal.mux squash (Signal.pure 0#5) id_rd),         -- 22
+      Signal.register 0#5 id_rs1,                                               -- 23
+      Signal.register 0#5 id_rs2,                                               -- 24
+      Signal.register 0#3 id_funct3,                                            -- 25
+      Signal.register 0#32 ifid_pc,                                             -- 26
+      Signal.register 0#32 ifid_pc4,                                            -- 27
+      Signal.register 0#12 id_csrAddr,                                          -- 28
+      Signal.register 0#3 id_funct3,                                            -- 29
+      Signal.register 0#32 alu_result,                                          -- 30 exwb_alu
+      Signal.register 0#5 idex_rd,                                              -- 31
+      Signal.register false idex_regWrite,                                      -- 32
+      Signal.register false idex_memToReg,                                      -- 33
+      Signal.register 0#32 idex_pc4,                                            -- 34
+      Signal.register false idex_jump,                                          -- 35
+      Signal.register false idex_isCsr,                                         -- 36
+      Signal.register 0#32 csr_rdata,                                           -- 37 exwb_csrRdata
+      Signal.register 0#5 wb_addr,                                              -- 38
+      Signal.register 0#32 wb_data,                                             -- 39
+      Signal.register false wb_en,                                              -- 40
+      Signal.register 0#32 alu_result,                                          -- 41 prevStoreAddr
+      Signal.register 0#32 ex_rs2,                                              -- 42 prevStoreData
+      Signal.register false idex_memWrite,                                      -- 43 prevStoreEn
+      Signal.register 0#32 msipNext,                                            -- 44
+      Signal.register 0#32 mtimeLoNext,                                         -- 45
+      Signal.register 0#32 mtimeHiNext,                                         -- 46
+      Signal.register 0xFFFFFFFF#32 mtimecmpLoNext,                             -- 47
+      Signal.register 0xFFFFFFFF#32 mtimecmpHiNext,                             -- 48
+      Signal.register 0#32 mstatusNext,                                         -- 49
+      Signal.register 0#32 mieNext,                                             -- 50
+      Signal.register 0#32 mtvecNext,                                           -- 51
+      Signal.register 0#32 mscratchNext,                                        -- 52
+      Signal.register 0#32 mepcNext,                                            -- 53
+      Signal.register 0#32 mcauseNext,                                          -- 54
+      Signal.register 0#32 mtvalNext                                            -- 55
+    ]
+  -- Output: debug_pc
+  Signal.fst soc
+
+#synthesizeVerilog rv32iSoC
+
+/-- RV32I SoC with pre-loaded firmware — Signal DSL.
+    Same as rv32iSoC but IMEM is initialized with firmware data
+    for Lean4-native simulation via Signal.atTime.
+
+    firmware: function from 12-bit address to 32-bit instruction word -/
+def rv32iSoCWithFirmware {dom : DomainConfig}
+    (firmware : BitVec 12 → BitVec 32)
+    : Signal dom (BitVec 32) :=
+  let soc := Signal.loop fun state =>
+    -- Extract all 56 register outputs (same layout as rv32iSoC)
+    let pcReg          := projN! state 56 0
+    let fetchPC        := projN! state 56 1
+    let flushDelay     := projN! state 56 2
+    let ifid_inst      := projN! state 56 3
+    let ifid_pc        := projN! state 56 4
+    let ifid_pc4       := projN! state 56 5
+    let idex_aluOp     := projN! state 56 6
+    let idex_regWrite  := projN! state 56 7
+    let idex_memRead   := projN! state 56 8
+    let idex_memWrite  := projN! state 56 9
+    let idex_memToReg  := projN! state 56 10
+    let idex_branch    := projN! state 56 11
+    let idex_jump      := projN! state 56 12
+    let idex_auipc     := projN! state 56 13
+    let idex_aluSrcB   := projN! state 56 14
+    let idex_isJalr    := projN! state 56 15
+    let idex_isCsr     := projN! state 56 16
+    let idex_isEcall   := projN! state 56 17
+    let idex_isMret    := projN! state 56 18
+    let idex_rs1Val    := projN! state 56 19
+    let idex_rs2Val    := projN! state 56 20
+    let idex_imm       := projN! state 56 21
+    let idex_rd        := projN! state 56 22
+    let idex_rs1Idx    := projN! state 56 23
+    let idex_rs2Idx    := projN! state 56 24
+    let idex_funct3    := projN! state 56 25
+    let idex_pc        := projN! state 56 26
+    let idex_pc4       := projN! state 56 27
+    let idex_csrAddr   := projN! state 56 28
+    let idex_csrFunct3 := projN! state 56 29
+    let exwb_alu       := projN! state 56 30
+    let exwb_rd        := projN! state 56 31
+    let exwb_regW      := projN! state 56 32
+    let exwb_m2r       := projN! state 56 33
+    let exwb_pc4       := projN! state 56 34
+    let exwb_jump      := projN! state 56 35
+    let exwb_isCsr     := projN! state 56 36
+    let exwb_csrRdata  := projN! state 56 37
+    let prev_wb_addr   := projN! state 56 38
+    let prev_wb_data   := projN! state 56 39
+    let prev_wb_en     := projN! state 56 40
+    let prevStoreAddr  := projN! state 56 41
+    let prevStoreData  := projN! state 56 42
+    let prevStoreEn    := projN! state 56 43
+    let msipReg        := projN! state 56 44
+    let mtimeLoReg     := projN! state 56 45
+    let mtimeHiReg     := projN! state 56 46
+    let mtimecmpLoReg  := projN! state 56 47
+    let mtimecmpHiReg  := projN! state 56 48
+    let mstatusReg     := projN! state 56 49
+    let mieReg         := projN! state 56 50
+    let mtvecReg       := projN! state 56 51
+    let mscratchReg    := projN! state 56 52
+    let mepcReg        := projN! state 56 53
+    let mcauseReg      := projN! state 56 54
+    let mtvalReg       := projN! state 56 55
+
+    -- Phase 1-5: identical to rv32iSoC except IMEM uses memoryWithInit
+    let wbRdNz := (fun x => !x) <$> ((· == ·) <$> exwb_rd <*> Signal.pure 0#5)
+    let wb_addr := exwb_rd
+    let wb_en   := (· && ·) <$> exwb_regW <*> wbRdNz
+    let wb_data_non_mem := Signal.mux exwb_isCsr exwb_csrRdata
+                             (Signal.mux exwb_jump exwb_pc4 exwb_alu)
+    let fwd_rs1_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs1Idx)
+    let fwd_rs2_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs2Idx)
+
+    let fwd_val_approx := Signal.mux exwb_m2r idex_rs1Val wb_data_non_mem
+    let ex_rs1_approx := Signal.mux fwd_rs1_match fwd_val_approx idex_rs1Val
+    let fwd_val2_approx := Signal.mux exwb_m2r idex_rs2Val wb_data_non_mem
+    let ex_rs2_approx := Signal.mux fwd_rs2_match fwd_val2_approx idex_rs2Val
+    let alu_a_approx := Signal.mux idex_auipc idex_pc ex_rs1_approx
+    let alu_b_approx := Signal.mux idex_aluSrcB idex_imm ex_rs2_approx
+    let alu_result_approx := aluSignal idex_aluOp alu_a_approx alu_b_approx
+
+    -- IMEM with pre-loaded firmware (the key difference)
+    let imem_addr := fetchPC.map (BitVec.extractLsb' 2 12 ·)
+    let imem_rdata := Signal.memoryWithInit firmware
+                        (Signal.pure 0#12) (Signal.pure 0#32)
+                        (Signal.pure false) imem_addr
+
+    let busAddrHi_ex := alu_result_approx.map (BitVec.extractLsb' 16 16 ·)
+    let isCLINT_ex := (· == ·) <$> busAddrHi_ex <*> Signal.pure 0x0200#16
+    let isDMEM_ex := (fun x => !x) <$> isCLINT_ex
+
+    let dmem_write_addr := alu_result_approx.map (BitVec.extractLsb' 2 14 ·)
+    let dmem_read_addr  := alu_result_approx.map (BitVec.extractLsb' 2 14 ·)
+    let dmem_we := (· && ·) <$> idex_memWrite <*> isDMEM_ex
+    let dmem_rdata := Signal.memory dmem_write_addr ex_rs2_approx dmem_we
+                        dmem_read_addr
+
+    let storeAddrHi := prevStoreAddr.map (BitVec.extractLsb' 2 30 ·)
+    let loadAddrHi := exwb_alu.map (BitVec.extractLsb' 2 30 ·)
+    let addrMatch := (· == ·) <$> storeAddrHi <*> loadAddrHi
+    let storeLoadMatch := (· && ·) <$> prevStoreEn <*> addrMatch
+    let dmemRdataFwd := Signal.mux storeLoadMatch prevStoreData dmem_rdata
+    let clintOffset_wb := exwb_alu.map (BitVec.extractLsb' 0 16 ·)
+    let msipMatch_wb     := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x0000#16
+    let mtimeLoMatch_wb  := (· == ·) <$> clintOffset_wb <*> Signal.pure 0xBFF8#16
+    let mtimeHiMatch_wb  := (· == ·) <$> clintOffset_wb <*> Signal.pure 0xBFFC#16
+    let mtimecmpLoMatch_wb := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x4000#16
+    let mtimecmpHiMatch_wb := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x4004#16
+    let clintRdata :=
+      Signal.mux msipMatch_wb msipReg
+      (Signal.mux mtimecmpLoMatch_wb mtimecmpLoReg
+      (Signal.mux mtimecmpHiMatch_wb mtimecmpHiReg
+      (Signal.mux mtimeLoMatch_wb mtimeLoReg
+      (Signal.mux mtimeHiMatch_wb mtimeHiReg
+        (Signal.pure 0#32)))))
+    let busAddrHi_wb := exwb_alu.map (BitVec.extractLsb' 16 16 ·)
+    let isCLINT_wb := (· == ·) <$> busAddrHi_wb <*> Signal.pure 0x0200#16
+    let busRdata := Signal.mux isCLINT_wb clintRdata dmemRdataFwd
+    let wb_result := Signal.mux exwb_isCsr exwb_csrRdata
+                       (Signal.mux exwb_jump exwb_pc4
+                       (Signal.mux exwb_m2r busRdata
+                         exwb_alu))
+    let wb_data := wb_result
+
+    let ex_rs1 := Signal.mux fwd_rs1_match wb_data idex_rs1Val
+    let ex_rs2 := Signal.mux fwd_rs2_match wb_data idex_rs2Val
+    let alu_a := Signal.mux idex_auipc idex_pc ex_rs1
+    let alu_b := Signal.mux idex_aluSrcB idex_imm ex_rs2
+    let alu_result := aluSignal idex_aluOp alu_a alu_b
+    let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
+    let branchTaken := (· && ·) <$> idex_branch <*> branchCond
+    let brTarget := (· + ·) <$> idex_pc <*> idex_imm
+    let jalrSum  := (· + ·) <$> ex_rs1 <*> idex_imm
+    let jalrTarget := (· &&& ·) <$> jalrSum <*> Signal.pure 0xFFFFFFFE#32
+    let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
+
+    let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
+    let hiEq := (· == ·) <$> mtimeHiReg <*> mtimecmpHiReg
+    let loGe := (fun x => !x) <$> ((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
+    let timerIrq := (· || ·) <$> hiGt <*> ((· && ·) <$> hiEq <*> loGe)
+    let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
+    let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
+    let mipValue := (· ||| ·) <$> mipTimerBit <*> mipSwBit
+    let csrIsMstatus  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x300#12
+    let csrIsMie      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x304#12
+    let csrIsMtvec    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x305#12
+    let csrIsMscratch := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x340#12
+    let csrIsMepc     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x341#12
+    let csrIsMcause   := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x342#12
+    let csrIsMtval    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x343#12
+    let csrIsMip      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x344#12
+    let csrIsMisa     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x301#12
+    let csrIsMhartid  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0xF14#12
+    let csr_rdata :=
+      Signal.mux csrIsMstatus mstatusReg
+      (Signal.mux csrIsMie mieReg
+      (Signal.mux csrIsMtvec mtvecReg
+      (Signal.mux csrIsMscratch mscratchReg
+      (Signal.mux csrIsMepc mepcReg
+      (Signal.mux csrIsMcause mcauseReg
+      (Signal.mux csrIsMtval mtvalReg
+      (Signal.mux csrIsMip mipValue
+      (Signal.mux csrIsMisa (Signal.pure 0x40000100#32)
+      (Signal.mux csrIsMhartid (Signal.pure 0#32)
+        (Signal.pure 0#32))))))))))
+
+    let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mieMTIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mieMSIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let timerIntEnabled := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMTIE_flag <*> timerIrq)
+    let swIntEnabled    := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMSIE_flag <*> swIrq)
+    let trap_taken := (· || ·) <$> idex_isEcall <*>
+                        ((· || ·) <$> timerIntEnabled <*> swIntEnabled)
+    let trapCause :=
+      Signal.mux idex_isEcall (Signal.pure 0x0000000B#32)
+      (Signal.mux timerIntEnabled (Signal.pure 0x80000007#32)
+      (Signal.mux swIntEnabled (Signal.pure 0x80000003#32)
+        (Signal.pure 0#32)))
+    let trap_target := (· &&& ·) <$> mtvecReg <*> Signal.pure 0xFFFFFFFC#32
+    let mret_target := mepcReg
+
+    let flush := (· || ·) <$> ((· || ·) <$> branchTaken <*> idex_jump) <*>
+                 ((· || ·) <$> trap_taken <*> idex_isMret)
+    let flushOrDelay := (· || ·) <$> flush <*> flushDelay
+
+    let id_opcode := ifid_inst.map (BitVec.extractLsb' 0 7 ·)
+    let id_rd     := ifid_inst.map (BitVec.extractLsb' 7 5 ·)
+    let id_funct3 := ifid_inst.map (BitVec.extractLsb' 12 3 ·)
+    let id_rs1    := ifid_inst.map (BitVec.extractLsb' 15 5 ·)
+    let id_rs2    := ifid_inst.map (BitVec.extractLsb' 20 5 ·)
+    let id_funct7 := ifid_inst.map (BitVec.extractLsb' 25 7 ·)
+    let id_imm := immGenSignal ifid_inst id_opcode
+    let id_aluOp := aluControlSignal id_opcode id_funct3 id_funct7
+    let id_isALUrr  := (· == ·) <$> id_opcode <*> Signal.pure 0b0110011#7
+    let id_isALUimm := (· == ·) <$> id_opcode <*> Signal.pure 0b0010011#7
+    let id_isLoad   := (· == ·) <$> id_opcode <*> Signal.pure 0b0000011#7
+    let id_isStore  := (· == ·) <$> id_opcode <*> Signal.pure 0b0100011#7
+    let id_isBranch := (· == ·) <$> id_opcode <*> Signal.pure 0b1100011#7
+    let id_isLUI    := (· == ·) <$> id_opcode <*> Signal.pure 0b0110111#7
+    let id_isAUIPC  := (· == ·) <$> id_opcode <*> Signal.pure 0b0010111#7
+    let id_isJAL    := (· == ·) <$> id_opcode <*> Signal.pure 0b1101111#7
+    let id_isJALR   := (· == ·) <$> id_opcode <*> Signal.pure 0b1100111#7
+    let id_isSystem := (· == ·) <$> id_opcode <*> Signal.pure 0b1110011#7
+    let id_aluSrcB := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUimm <*> id_isLoad) <*>
+                      ((· || ·) <$> id_isStore <*> id_isLUI)) <*>
+                      ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
+    let id_regWrite := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUrr <*> id_isALUimm) <*>
+                       ((· || ·) <$> id_isLoad <*> id_isLUI)) <*>
+                       ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
+    let id_memRead  := id_isLoad
+    let id_memWrite := id_isStore
+    let id_memToReg := id_isLoad
+    let id_jump     := (· || ·) <$> id_isJAL <*> id_isJALR
+    let id_auipc    := (· || ·) <$> id_isAUIPC <*> id_isJAL
+    let f3isZero := (· == ·) <$> id_funct3 <*> Signal.pure 0#3
+    let f3notZero := (fun x => !x) <$> f3isZero
+    let id_isCsr := (· && ·) <$> id_isSystem <*> f3notZero
+    let id_isEcall := (· && ·) <$> id_isSystem <*> f3isZero
+    let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
+    let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
+    let isMretField := (· == ·) <$> mretField <*> Signal.pure 0x302#12
+    let id_isMret := (· && ·) <$> id_isSystem <*> isMretField
+
+    let stall := hazardSignal idex_memRead idex_rd id_rs1 id_rs2
+
+    let rf_rs1_addr := Signal.mux stall id_rs1
+                         (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
+    let rf_rs2_addr := Signal.mux stall id_rs2
+                         (ifid_inst.map (BitVec.extractLsb' 20 5 ·))
+    let rf_rs1_raw := Signal.memory wb_addr wb_data wb_en rf_rs1_addr
+    let rf_rs2_raw := Signal.memory wb_addr wb_data wb_en rf_rs2_addr
+    let wb_fwd_rs1 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs1)
+    let wb_fwd_rs2 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs2)
+    let prev_fwd_rs1 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs1)
+    let prev_fwd_rs2 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs2)
+    let rf_rs1_bypassed := Signal.mux wb_fwd_rs1 wb_data
+                             (Signal.mux prev_fwd_rs1 prev_wb_data rf_rs1_raw)
+    let rf_rs2_bypassed := Signal.mux wb_fwd_rs2 wb_data
+                             (Signal.mux prev_fwd_rs2 prev_wb_data rf_rs2_raw)
+    let id_rs1Val := Signal.mux ((· == ·) <$> id_rs1 <*> Signal.pure 0#5)
+                       (Signal.pure 0#32) rf_rs1_bypassed
+    let id_rs2Val := Signal.mux ((· == ·) <$> id_rs2 <*> Signal.pure 0#5)
+                       (Signal.pure 0#32) rf_rs2_bypassed
+
+    let pcPlus4 := (· + ·) <$> pcReg <*> Signal.pure 4#32
+    let fetchPCIn := Signal.mux stall fetchPC pcReg
+    let fetchPCPlus4 := (· + ·) <$> fetchPC <*> Signal.pure 4#32
+    let ifid_inst_in := Signal.mux flushOrDelay (Signal.pure nopInst)
+                          (Signal.mux stall ifid_inst imem_rdata)
+    let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
+    let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
+    let squash := (· || ·) <$> stall <*> flushOrDelay
+
+    let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
+    let clintWE := (· && ·) <$> idex_memWrite <*> isCLINT_ex
+    let msipMatch     := (· == ·) <$> clintOffset <*> Signal.pure 0x0000#16
+    let mtimeLoMatch  := (· == ·) <$> clintOffset <*> Signal.pure 0xBFF8#16
+    let mtimeHiMatch  := (· == ·) <$> clintOffset <*> Signal.pure 0xBFFC#16
+    let mtimecmpLoMatch := (· == ·) <$> clintOffset <*> Signal.pure 0x4000#16
+    let mtimecmpHiMatch := (· == ·) <$> clintOffset <*> Signal.pure 0x4004#16
+    let mtimeLoInc := (· + ·) <$> mtimeLoReg <*> Signal.pure 1#32
+    let mtimeCarry := (· == ·) <$> mtimeLoInc <*> Signal.pure 0#32
+    let mtimeHiInc := Signal.mux mtimeCarry
+                        ((· + ·) <$> mtimeHiReg <*> Signal.pure 1#32) mtimeHiReg
+    let msipNext := Signal.mux ((· && ·) <$> clintWE <*> msipMatch)
+                      ex_rs2_approx msipReg
+    let mtimeLoNext := Signal.mux ((· && ·) <$> clintWE <*> mtimeLoMatch)
+                         ex_rs2_approx mtimeLoInc
+    let mtimeHiNext := Signal.mux ((· && ·) <$> clintWE <*> mtimeHiMatch)
+                         ex_rs2_approx mtimeHiInc
+    let mtimecmpLoNext := Signal.mux ((· && ·) <$> clintWE <*> mtimecmpLoMatch)
+                            ex_rs2_approx mtimecmpLoReg
+    let mtimecmpHiNext := Signal.mux ((· && ·) <$> clintWE <*> mtimecmpHiMatch)
+                            ex_rs2_approx mtimecmpHiReg
+
+    let csrIsImm := (· == ·) <$> (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) <*> Signal.pure 1#1
+    let csrZimm := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
+    let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
+    let csrF3Low := idex_csrFunct3.map (BitVec.extractLsb' 0 2 ·)
+    let csrIsRW := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
+    let csrIsRS := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
+    let csrIsRC := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
+    let mkCsrNewVal (oldVal : Signal dom (BitVec 32)) :=
+      let rsVal := (· ||| ·) <$> oldVal <*> csrWdata
+      let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
+      Signal.mux csrIsRW csrWdata
+        (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
+    let mstatusNewCSR  := mkCsrNewVal mstatusReg
+    let mieNewCSR      := mkCsrNewVal mieReg
+    let mtvecNewCSR    := mkCsrNewVal mtvecReg
+    let mscratchNewCSR := mkCsrNewVal mscratchReg
+    let mepcNewCSR     := mkCsrNewVal mepcReg
+    let mcauseNewCSR   := mkCsrNewVal mcauseReg
+    let mtvalNewCSR    := mkCsrNewVal mtvalReg
+
+    let msClearMIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFF7#32
+    let msSetMPIE := Signal.mux mstatusMIE_flag
+      ((· ||| ·) <$> msClearMIE <*> Signal.pure 0x00000080#32)
+      ((· &&& ·) <$> msClearMIE <*> Signal.pure 0xFFFFFF7F#32)
+    let mstatusTrapVal := (· ||| ·) <$> msSetMPIE <*> Signal.pure 0x00001800#32
+    let msClearMPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFE7FF#32
+    let msRestoreMIE := Signal.mux mstatusMPIE_flag
+      ((· ||| ·) <$> msClearMPP <*> Signal.pure 0x00000008#32)
+      ((· &&& ·) <$> msClearMPP <*> Signal.pure 0xFFFFFFF7#32)
+    let mstatusMretVal := (· ||| ·) <$> msRestoreMIE <*> Signal.pure 0x00000080#32
+    let mstatusNext := Signal.mux trap_taken mstatusTrapVal
+      (Signal.mux idex_isMret mstatusMretVal
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMstatus) mstatusNewCSR
+        mstatusReg))
+    let mieNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMie) mieNewCSR mieReg
+    let mtvecNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMtvec) mtvecNewCSR mtvecReg
+    let mscratchNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMscratch) mscratchNewCSR mscratchReg
+    let mepcNext := Signal.mux trap_taken idex_pc
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMepc) mepcNewCSR mepcReg)
+    let mcauseNext := Signal.mux trap_taken trapCause
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMcause) mcauseNewCSR mcauseReg)
+    let mtvalNext := Signal.mux trap_taken (Signal.pure 0#32)
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMtval) mtvalNewCSR mtvalReg)
+
+    let pcNext := Signal.mux trap_taken trap_target
+                    (Signal.mux idex_isMret mret_target
+                    (Signal.mux flush jumpTarget
+                    (Signal.mux stall pcReg
+                      pcPlus4)))
+
+    bundleAll! [
+      Signal.register 0#32 pcNext,
+      Signal.register 0#32 fetchPCIn,
+      Signal.register false flush,
+      Signal.register 0x00000013#32 ifid_inst_in,
+      Signal.register 0#32 ifid_pc_in,
+      Signal.register 0#32 ifid_pc4_in,
+      Signal.register 0#4 (Signal.mux squash (Signal.pure 0#4) id_aluOp),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_regWrite),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_memRead),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_memWrite),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_memToReg),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isBranch),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_jump),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_auipc),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_aluSrcB),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isJALR),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isCsr),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isEcall),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isMret),
+      Signal.register 0#32 id_rs1Val,
+      Signal.register 0#32 id_rs2Val,
+      Signal.register 0#32 id_imm,
+      Signal.register 0#5 (Signal.mux squash (Signal.pure 0#5) id_rd),
+      Signal.register 0#5 id_rs1,
+      Signal.register 0#5 id_rs2,
+      Signal.register 0#3 id_funct3,
+      Signal.register 0#32 ifid_pc,
+      Signal.register 0#32 ifid_pc4,
+      Signal.register 0#12 id_csrAddr,
+      Signal.register 0#3 id_funct3,
+      Signal.register 0#32 alu_result,
+      Signal.register 0#5 idex_rd,
+      Signal.register false idex_regWrite,
+      Signal.register false idex_memToReg,
+      Signal.register 0#32 idex_pc4,
+      Signal.register false idex_jump,
+      Signal.register false idex_isCsr,
+      Signal.register 0#32 csr_rdata,
+      Signal.register 0#5 wb_addr,
+      Signal.register 0#32 wb_data,
+      Signal.register false wb_en,
+      Signal.register 0#32 alu_result,
+      Signal.register 0#32 ex_rs2,
+      Signal.register false idex_memWrite,
+      Signal.register 0#32 msipNext,
+      Signal.register 0#32 mtimeLoNext,
+      Signal.register 0#32 mtimeHiNext,
+      Signal.register 0xFFFFFFFF#32 mtimecmpLoNext,
+      Signal.register 0xFFFFFFFF#32 mtimecmpHiNext,
+      Signal.register 0#32 mstatusNext,
+      Signal.register 0#32 mieNext,
+      Signal.register 0#32 mtvecNext,
+      Signal.register 0#32 mscratchNext,
+      Signal.register 0#32 mepcNext,
+      Signal.register 0#32 mcauseNext,
+      Signal.register 0#32 mtvalNext
+    ]
+  Signal.fst soc
 
 end Sparkle.Examples.RV32.SoC

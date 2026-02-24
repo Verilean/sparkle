@@ -32,12 +32,12 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
-import Examples.RV32.CoreSignal
+import Examples.RV32.Core
 
 set_option maxRecDepth 16384
 set_option maxHeartbeats 800000
 
-namespace Sparkle.Examples.RV32.Signal
+namespace Sparkle.Examples.RV32
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -46,7 +46,7 @@ open Sparkle.Core.Signal
 def nopInst : BitVec 32 := 0x00000013#32
 
 -- Number of pipeline registers
-def numRegs : Nat := 44
+def numPipelineRegs : Nat := 44
 
 /-- RV32I 4-stage pipeline core (Signal DSL).
 
@@ -314,4 +314,4 @@ def rv32iCore {dom : DomainConfig}
 -- Test synthesis of the pipeline core
 #synthesizeVerilog rv32iCore
 
-end Sparkle.Examples.RV32.Signal
+end Sparkle.Examples.RV32

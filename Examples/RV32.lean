@@ -9,28 +9,14 @@
 -/
 
 import Examples.RV32.Types
-import Examples.RV32.Decode
+import Examples.RV32.CSR.Types
 import Examples.RV32.Core
--- CircuitM modules
+import Examples.RV32.Pipeline
+import Examples.RV32.SoC
 import Examples.RV32.Bus
 import Examples.RV32.UART
 import Examples.RV32.CLINT
 import Examples.RV32.Trap
-import Examples.RV32.SoC
-import Examples.RV32.CSR.Types
 import Examples.RV32.CSR.File
 import Examples.RV32.CSR.Supervisor
 import Examples.RV32.MMU.Top
-import Examples.RV32.MMU.TLB
-import Examples.RV32.MMU.PageWalker
--- Signal DSL modules
-import Examples.RV32.CoreSignal
-import Examples.RV32.PipelineSignal
-import Examples.RV32.SoCSignal
-import Examples.RV32.BusSignal
-import Examples.RV32.UARTSignal
-import Examples.RV32.CLINTSignal
-import Examples.RV32.TrapSignal
-import Examples.RV32.CSR.FileSignal
-import Examples.RV32.CSR.SupervisorSignal
-import Examples.RV32.MMU.TopSignal

@@ -12,17 +12,10 @@
 -/
 
 import Examples.RV32.Types
-import Examples.RV32.Decode
-import Examples.RV32.Core
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
 
 namespace Sparkle.Examples.RV32.Tests.IsaTests
 
 open Sparkle.Examples.RV32
-open Sparkle.IR.AST
-open Sparkle.IR.Type
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -344,123 +337,7 @@ def testInstrFormat : IO Unit := do
   check "JAL is J-type" (InstrFormat.fromOpcode .JAL == .J)
 
 -- ============================================================================
--- 9. RTL Module Structure Tests
--- ============================================================================
-
-def testDecoderModule : IO Unit := do
-  IO.println "--- Decoder Module Structure Tests ---"
-
-  let m := Decode.buildDecoder
-
-  check "decoder module name" (m.name == "RV32I_Decoder")
-  check "decoder has 1 input (inst)" (m.inputs.length == 1)
-  check "decoder input is 32-bit" (m.inputs.head?.map (·.ty) == some (.bitVector 32))
-
-  -- Count output ports
-  -- opcode(7) + rd(5) + funct3(3) + rs1(5) + rs2(5) + funct7(7) + imm(32)
-  -- + alu_op(4) + alu_src_b(1) + reg_write(1) + mem_read(1) + mem_write(1)
-  -- + mem_to_reg(1) + is_branch(1) + is_jump(1) + auipc(1)
-  check "decoder has 16 outputs" (m.outputs.length == 16)
-
-  -- No registers (fully combinational)
-  let hasRegister := m.body.any (fun s => match s with | .register .. => true | _ => false)
-  check "decoder is combinational (no registers)" (!hasRegister)
-
-  -- Verify specific output names exist
-  let outputNames := m.outputs.map (·.name)
-  check "has opcode output" (outputNames.contains "opcode")
-  check "has rd output" (outputNames.contains "rd")
-  check "has funct3 output" (outputNames.contains "funct3")
-  check "has rs1 output" (outputNames.contains "rs1")
-  check "has rs2 output" (outputNames.contains "rs2")
-  check "has imm output" (outputNames.contains "imm")
-  check "has alu_op output" (outputNames.contains "alu_op")
-  check "has alu_src_b output" (outputNames.contains "alu_src_b")
-  check "has reg_write output" (outputNames.contains "reg_write")
-  check "has mem_read output" (outputNames.contains "mem_read")
-  check "has mem_write output" (outputNames.contains "mem_write")
-  check "has is_branch output" (outputNames.contains "is_branch")
-  check "has is_jump output" (outputNames.contains "is_jump")
-
-def testALUModule : IO Unit := do
-  IO.println "--- ALU Module Structure Tests ---"
-
-  let m := Core.buildALU
-
-  check "ALU module name" (m.name == "RV32I_ALU")
-  check "ALU has 3 inputs" (m.inputs.length == 3)
-  check "ALU has 2 outputs" (m.outputs.length == 2)
-
-  -- No registers (fully combinational)
-  let hasRegister := m.body.any (fun s => match s with | .register .. => true | _ => false)
-  check "ALU is combinational (no registers)" (!hasRegister)
-
-  -- Verify input types
-  let inputA := m.inputs.find? (·.name == "alu_a")
-  check "ALU input a is 32-bit" (inputA.map (·.ty) == some (.bitVector 32))
-  let inputB := m.inputs.find? (·.name == "alu_b")
-  check "ALU input b is 32-bit" (inputB.map (·.ty) == some (.bitVector 32))
-  let inputOp := m.inputs.find? (·.name == "alu_op")
-  check "ALU input op is 4-bit" (inputOp.map (·.ty) == some (.bitVector 4))
-
-def testBranchCompModule : IO Unit := do
-  IO.println "--- Branch Comparator Module Structure Tests ---"
-
-  let m := Core.buildBranchComp
-
-  check "BranchComp module name" (m.name == "RV32I_BranchComp")
-  check "BranchComp has 3 inputs" (m.inputs.length == 3)
-  check "BranchComp has 1 output" (m.outputs.length == 1)
-
-  -- Output is 1-bit
-  check "BranchComp output is 1-bit" (m.outputs.head?.map (·.ty) == some .bit)
-
-def testHazardUnitModule : IO Unit := do
-  IO.println "--- Hazard Unit Module Structure Tests ---"
-
-  let m := Core.buildHazardUnit
-
-  check "HazardUnit module name" (m.name == "RV32I_HazardUnit")
-  check "HazardUnit has 4 inputs" (m.inputs.length == 4)
-  check "HazardUnit has 1 output" (m.outputs.length == 1)
-  check "HazardUnit output is stall" (m.outputs.head?.map (·.name) == some "stall")
-
-def testCoreModule : IO Unit := do
-  IO.println "--- Core Pipeline Module Structure Tests ---"
-
-  let m := Core.buildCore
-
-  check "Core module name" (m.name == "RV32I_Core")
-
-  -- Verify key input ports
-  let inputNames := m.inputs.map (·.name)
-  check "Core has clk input" (inputNames.contains "clk")
-  check "Core has rst input" (inputNames.contains "rst")
-  check "Core has imem_rdata input" (inputNames.contains "imem_rdata")
-  check "Core has dmem_rdata input" (inputNames.contains "dmem_rdata")
-
-  -- Verify key output ports
-  let outputNames := m.outputs.map (·.name)
-  check "Core has imem_addr output" (outputNames.contains "imem_addr")
-  check "Core has dmem_addr output" (outputNames.contains "dmem_addr")
-  check "Core has dmem_wdata output" (outputNames.contains "dmem_wdata")
-  check "Core has dmem_we output" (outputNames.contains "dmem_we")
-  check "Core has dmem_re output" (outputNames.contains "dmem_re")
-  check "Core has debug_pc output" (outputNames.contains "debug_pc")
-
-  -- Verify pipeline registers exist
-  let regCount := m.body.foldl (fun acc s =>
-    match s with | .register .. => acc + 1 | _ => acc) 0
-  check "Core has pipeline registers" (regCount > 0)
-  check "Core has many pipeline registers (4-stage)" (regCount >= 10)
-
-  -- Verify memory statements exist (register file)
-  let memCount := m.body.foldl (fun acc s =>
-    match s with | .memory .. => acc + 1 | _ => acc) 0
-  check "Core has memory blocks (regfile)" (memCount >= 2)
-
--- ============================================================================
--- 10. Formal Proofs (native_decide)
+-- 9. Formal Proofs (native_decide)
 -- ============================================================================
 
 section FormalProofs
@@ -622,10 +499,5 @@ def main : IO Unit := do
   testDecoderControlSignals
   testBranchEvaluation
   testInstrFormat
-  testDecoderModule
-  testALUModule
-  testBranchCompModule
-  testHazardUnitModule
-  testCoreModule
   IO.println "=== Formal proofs verified by Lean type checker ==="
   IO.println "=== Tests complete ==="
