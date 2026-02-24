@@ -43,3 +43,23 @@ jobs:
       run: |
         lake build Sparkle.Verification.ISAProps
         lake env lean --run Examples/Sparkle16/ISAProofTests.lean
+
+    - name: Build RV32 Signal DSL
+      run: lake build Examples.RV32
+
+    - name: Generate Verilog from CircuitM
+      run: lake env lean --run Tests/RV32/VerilogDump.lean
+
+    - name: Verify with iverilog (optional)
+      continue-on-error: true
+      run: |
+        if command -v iverilog &> /dev/null; then
+          if [ -f "hw/sim/tb_rv32.v" ]; then
+            iverilog -g2012 -o /tmp/rv32i_sim hw/gen/rv32i_soc.sv hw/sim/tb_rv32.v
+            vvp /tmp/rv32i_sim
+          else
+            echo "No testbench found, skipping"
+          fi
+        else
+          echo "iverilog not installed, skipping"
+        fi

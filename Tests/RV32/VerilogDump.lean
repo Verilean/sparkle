@@ -1,9 +1,12 @@
 /-
   Dump RV32I SoC Verilog for simulation with iverilog.
 
-  Generates two SystemVerilog files:
-    - rv32i_core.sv  (the 4-stage pipeline)
-    - rv32i_soc.sv   (top-level SoC with memories, CLINT, CSR)
+  Generates SystemVerilog files from both CircuitM and Signal DSL:
+    - rv32i_core.sv    (CircuitM: 4-stage pipeline)
+    - rv32i_soc.sv     (CircuitM: top-level SoC)
+
+  Signal DSL Verilog is generated at compile time via #synthesizeVerilog
+  in each *Signal.lean file.
 -/
 
 import Examples.RV32.Core

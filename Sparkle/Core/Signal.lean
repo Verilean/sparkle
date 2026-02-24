@@ -242,6 +242,44 @@ def memory {addrWidth dataWidth : Nat}
     | n + 1 => memState n (readAddr.val n)⟩
 
 /--
+  Synchronous memory with initial contents (RAM/BRAM).
+
+  Like `memory`, but starts with pre-loaded data instead of all zeros.
+  Synthesizable: generates Verilog `initial $readmemh(...)` or inline
+  `initial begin mem[0]=...; end` blocks.
+
+  Parameters:
+  - initData: Initial memory contents as a function from address to data
+  - writeAddr: Write address signal
+  - writeData: Write data signal
+  - writeEnable: Write enable signal
+  - readAddr: Read address signal
+
+  Returns: Read data signal (registered, 1-cycle latency)
+-/
+def memoryWithInit {addrWidth dataWidth : Nat}
+    (initData : BitVec addrWidth → BitVec dataWidth)
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth) :=
+  let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
+    match t with
+    | 0 => initData
+    | n + 1 =>
+      let prevMem := memState n
+      fun addr =>
+        if writeEnable.val n && addr == writeAddr.val n then
+          writeData.val n
+        else
+          prevMem addr
+  ⟨fun t =>
+    match t with
+    | 0 => initData (readAddr.val 0)
+    | n + 1 => memState n (readAddr.val n)⟩
+
+/--
   Fixed-point combinator for feedback loops.
 
   Allows defining circuits where the output feeds back into the input,
