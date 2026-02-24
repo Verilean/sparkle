@@ -9,6 +9,11 @@ import Tests.Sparkle16.TestHierarchical
 import Tests.Sparkle16.TestVCD
 import Tests.Sparkle16.TestCoSim
 import Tests.Sparkle16.TestOverflow
+import Tests.BitNet.TestBitLinear
+import Tests.BitNet.TestLayers
+import Tests.BitNet.TestAttention
+import Tests.BitNet.TestComparison
+import Tests.BitNet.TestSoC
 import LSpec
 
 open Sparkle.Core.Domain
@@ -292,6 +297,19 @@ def main : IO UInt32 := do
     synthesizeAll
     coreCtx
     coreState
+
+  -- Run BitNet tests (migrated from Hespera — validates expectation values)
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  BitNet Integration Tests             ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Examples.BitNet.Tests.BitLinear.runAll
+  Sparkle.Examples.BitNet.Tests.Layers.runAll
+  Sparkle.Examples.BitNet.Tests.Attention.runAll
+  Sparkle.Examples.BitNet.Tests.Comparison.runAll
+  Sparkle.Examples.BitNet.Tests.SoC.runAll
+  IO.println ""
 
   -- Run Sparkle16 tests
   let sparkle16AluTests ← Sparkle16.Test.aluTests

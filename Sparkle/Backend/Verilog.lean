@@ -58,7 +58,14 @@ def emitOperator (op : Operator) : String :=
 partial def emitExpr (e : Expr) : String :=
   match e with
   | .const value width =>
-    s!"{width}'d{value}"
+    if value < 0 then
+      -- Negative values: convert to two's complement hex to avoid
+      -- invalid Verilog literals like 32'd-2147483648
+      let modulus : Int := (2 : Int) ^ width
+      let unsigned := ((value % modulus) + modulus) % modulus
+      s!"{width}'h{String.ofList (Nat.toDigits 16 unsigned.toNat)}"
+    else
+      s!"{width}'d{value}"
 
   | .ref name =>
     sanitizeName name
@@ -102,17 +109,27 @@ partial def emitExpr (e : Expr) : String :=
         s!"({emitExpr arg1} {emitOperator operator} {emitExpr arg2})"
     | _ => s!"/* ERROR: operator {operator} with wrong arity */"
 
-/-- Emit a single statement -/
-def emitStmt (stmt : Stmt) (indent : String := "    ") : String :=
+/-- Emit a single statement.
+    The optional `wires` parameter provides wire declarations for register
+    reset value width lookup. -/
+def emitStmt (stmt : Stmt) (indent : String := "    ")
+    (wires : List Port := []) : String :=
   match stmt with
   | .assign lhs rhs =>
     s!"{indent}assign {sanitizeName lhs} = {emitExpr rhs};"
 
   | .register output clock reset input initValue =>
     -- Generate always_ff block for register
+    -- Look up output wire width for correct reset literal width
+    let resetWidth := match wires.find? (fun p => p.name == output) with
+      | some p => match p.ty with
+        | .bitVector w => w
+        | .bit => 1
+        | _ => 8
+      | none => 8
     s!"{indent}always_ff @(posedge {sanitizeName clock} or posedge {sanitizeName reset}) begin\n" ++
     s!"{indent}    if ({sanitizeName reset})\n" ++
-    s!"{indent}        {sanitizeName output} <= {emitExpr (.const initValue 8)};\n" ++
+    s!"{indent}        {sanitizeName output} <= {emitExpr (.const initValue resetWidth)};\n" ++
     s!"{indent}    else\n" ++
     s!"{indent}        {sanitizeName output} <= {emitExpr input};\n" ++
     s!"{indent}end"
@@ -178,7 +195,7 @@ def emitModule (m : Module) : String :=
     let body := if m.body.isEmpty then
       ""
     else
-      let stmts := m.body.map (emitStmt · "    ")
+      let stmts := m.body.map (emitStmt · "    " m.wires)
       "\n" ++ String.intercalate "\n\n" stmts ++ "\n"
 
     let footer := "\nendmodule\n"
