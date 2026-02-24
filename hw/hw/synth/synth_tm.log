@@ -1,0 +1,1745 @@
+
+ /----------------------------------------------------------------------------\
+ |  yosys -- Yosys Open SYnthesis Suite                                       |
+ |  Copyright (C) 2012 - 2026  Claire Xenia Wolf <claire@yosyshq.com>         |
+ |  Distributed under an ISC-like license, type "license" to see terms        |
+ \----------------------------------------------------------------------------/
+ Yosys 0.62 (git sha1 7326bb7d6641500ecb285c291a54a662cb1e76cf, clang++ 17.0.0 -fPIC -O3)
+
+-- Running command `
+read_verilog -sv time_muxed.sv
+hierarchy -top BitNet_SoC_TM_12L_64d
+proc; opt; fsm; opt; memory; opt; techmap; opt; abc
+opt_clean -purge; flatten; opt_clean -purge
+stat
+write_verilog -noattr synth_tm.v
+' --
+
+1. Executing Verilog-2005 frontend: time_muxed.sv
+Parsing SystemVerilog input from `time_muxed.sv' to AST representation.
+Generating RTLIL representation for module `\ScaleMultiply'.
+Generating RTLIL representation for module `\ReLUSq'.
+Generating RTLIL representation for module `\ElemMul'.
+Generating RTLIL representation for module `\ResidualAdd'.
+Generating RTLIL representation for module `\DynamicBitLinear_64'.
+Generating RTLIL representation for module `\BitNet_SoC_TM_12L_64d'.
+time_muxed.sv:1487: Warning: Identifier `\layer_idx' is implicitly declared.
+Successfully finished Verilog frontend.
+
+2. Executing HIERARCHY pass (managing design hierarchy).
+
+2.1. Analyzing design hierarchy..
+Top module:  \BitNet_SoC_TM_12L_64d
+Used module:     \ResidualAdd
+Used module:     \ScaleMultiply
+Used module:     \DynamicBitLinear_64
+Used module:     \ElemMul
+Used module:     \ReLUSq
+
+2.2. Analyzing design hierarchy..
+Top module:  \BitNet_SoC_TM_12L_64d
+Used module:     \ResidualAdd
+Used module:     \ScaleMultiply
+Used module:     \DynamicBitLinear_64
+Used module:     \ElemMul
+Used module:     \ReLUSq
+Removed 0 unused modules.
+Warning: Resizing cell port BitNet_SoC_TM_12L_64d.u_down_dyn.result from 48 bits to 38 bits.
+Warning: Resizing cell port BitNet_SoC_TM_12L_64d.u_up_dyn.result from 48 bits to 38 bits.
+Warning: Resizing cell port BitNet_SoC_TM_12L_64d.u_gate_dyn.result from 48 bits to 38 bits.
+
+3. Executing PROC pass (convert processes to netlists).
+
+3.1. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Cleaned up 0 empty switches.
+
+3.2. Executing PROC_RMDEAD pass (remove dead branches from decision trees).
+Marked 1 switch rules as full_case in process $proc$time_muxed.sv:1480$403 in module BitNet_SoC_TM_12L_64d.
+Marked 1 switch rules as full_case in process $proc$time_muxed.sv:1473$402 in module BitNet_SoC_TM_12L_64d.
+Marked 1 switch rules as full_case in process $proc$time_muxed.sv:1466$401 in module BitNet_SoC_TM_12L_64d.
+Removed a total of 0 dead cases.
+
+3.3. Executing PROC_PRUNE pass (remove redundant assignments in processes).
+Removed 3 redundant assignments.
+Promoted 0 assignments to connections.
+
+3.4. Executing PROC_INIT pass (extract init attributes).
+
+3.5. Executing PROC_ARST pass (detect async resets in processes).
+Found async reset \rst in `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1480$403'.
+Found async reset \rst in `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1473$402'.
+Found async reset \rst in `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1466$401'.
+
+3.6. Executing PROC_ROM pass (convert switches to ROMs).
+Converted 0 switches.
+
+3.7. Executing PROC_MUX pass (convert decision trees to multiplexers).
+Creating decoders for process `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1480$403'.
+     1/1: $0\_gen_act_reg_5[31:0]
+Creating decoders for process `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1473$402'.
+     1/1: $0\_gen_layer_idx_3[3:0]
+Creating decoders for process `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1466$401'.
+     1/1: $0\_gen_state_1[1:0]
+
+3.8. Executing PROC_DLATCH pass (convert process syncs to latches).
+
+3.9. Executing PROC_DFF pass (convert process syncs to FFs).
+Creating register for signal `\BitNet_SoC_TM_12L_64d.\_gen_act_reg_5' using process `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1480$403'.
+  created $adff cell `$procdff$5109' with positive edge clock and positive level reset.
+Creating register for signal `\BitNet_SoC_TM_12L_64d.\_gen_layer_idx_3' using process `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1473$402'.
+  created $adff cell `$procdff$5112' with positive edge clock and positive level reset.
+Creating register for signal `\BitNet_SoC_TM_12L_64d.\_gen_state_1' using process `\BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1466$401'.
+  created $adff cell `$procdff$5115' with positive edge clock and positive level reset.
+
+3.10. Executing PROC_MEMWR pass (convert process memory writes to cells).
+
+3.11. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Removing empty process `BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1480$403'.
+Removing empty process `BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1473$402'.
+Removing empty process `BitNet_SoC_TM_12L_64d.$proc$time_muxed.sv:1466$401'.
+Cleaned up 0 empty switches.
+
+3.12. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+<suppressed ~4513 debug messages>
+Optimizing module DynamicBitLinear_64.
+<suppressed ~64 debug messages>
+Optimizing module ResidualAdd.
+Optimizing module ElemMul.
+<suppressed ~1 debug messages>
+Optimizing module ReLUSq.
+<suppressed ~1 debug messages>
+Optimizing module ScaleMultiply.
+<suppressed ~1 debug messages>
+
+4. Executing OPT pass (performing simple optimizations).
+
+4.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ResidualAdd.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ScaleMultiply.
+
+4.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 543 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 344 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 343 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+<suppressed ~600 debug messages>
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 200 cells.
+
+4.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1529$920.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1551$1184.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1603$1808.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1755$3632.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1775$3872.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1811$4304.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1579$1520.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1733$3368.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1855$4832.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1845$4712.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1621$2024.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1611$1904.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1695$2912.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1841$4664.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1823$4448.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1549$1160.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1635$2192.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1743$3488.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1797$4136.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1511$704.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1771$3824.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1747$3536.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1671$2624.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1523$848.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1777$3896.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1547$1136.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1703$3008.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1509$680.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1607$1856.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1825$4472.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1709$3080.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1655$2432.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1619$2000.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1791$4064.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1761$3704.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1737$3416.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1847$4736.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1507$656.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1545$1112.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1557$1256.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1599$1760.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1719$3200.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1861$4904.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1645$2312.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1633$2168.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1649$2360.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1769$3800.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1697$2936.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1505$632.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1521$824.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1699$2960.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1665$2552.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1617$1976.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1863$4928.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1749$3560.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1573$1448.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1829$4520.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1503$608.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1561$1304.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1817$4376.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1689$2840.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1597$1736.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1729$3320.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1687$2816.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1763$3728.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1865$4952.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1541$1064.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1651$2384.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1681$2744.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1849$4760.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1501$584.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1685$2792.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1803$4208.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1781$3944.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1831$4544.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1673$2648.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1555$1232.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1683$2768.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1631$2144.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1705$3032.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1499$560.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1519$800.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1539$1040.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1563$1328.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1717$3176.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1595$1712.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1583$1568.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1739$3440.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1773$3848.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1531$944.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1833$4568.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1805$4232.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1793$4088.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1869$5000.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1497$536.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1569$1400.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1537$1016.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1605$1832.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1843$4688.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1623$2048.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1765$3752.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1609$1880.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1661$2504.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1753$3608.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1787$4016.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1813$4328.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1835$4592.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1593$1688.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1535$992.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1517$776.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1807$4256.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1567$1376.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1745$3512.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1613$1928.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1725$3272.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1629$2120.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1873$5048.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1675$2672.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1677$2696.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1581$1544.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1837$4616.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1587$1616.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1785$3992.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1735$3392.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1491$464.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1767$3776.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1591$1664.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1679$2720.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1875$5072.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1565$1352.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1795$4112.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1809$4280.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1693$2888.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1853$4808.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1489$440.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1741$3464.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1515$752.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1487$416.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1821$4424.
+    dead port 1/2 on $mux $ternary$time_muxed.sv:1727$3296.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 140 multiplexer ports.
+<suppressed ~707 debug messages>
+
+4.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 47 changes.
+
+4.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 156 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 38 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+<suppressed ~354 debug messages>
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 118 cells.
+
+4.6. Executing OPT_DFF pass (perform DFF optimizations).
+Adding EN signal on $procdff$5109 ($adff) from module BitNet_SoC_TM_12L_64d (D = $ternary$time_muxed.sv:1903$5105_Y, Q = \_gen_act_reg_5).
+Adding EN signal on $procdff$5112 ($adff) from module BitNet_SoC_TM_12L_64d (D = $ternary$time_muxed.sv:1901$5100_Y, Q = \_gen_layer_idx_3).
+
+4.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 1 unused cells and 4906 unused wires.
+<suppressed ~7 debug messages>
+
+4.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+<suppressed ~2 debug messages>
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+4.9. Rerunning OPT passes. (Maybe there is more to do..)
+
+4.10. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~237 debug messages>
+
+4.11. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+4.12. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 39 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 38 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+<suppressed ~3 debug messages>
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 1 cells.
+
+4.13. Executing OPT_DFF pass (perform DFF optimizations).
+
+4.14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 0 unused cells and 1 unused wires.
+<suppressed ~1 debug messages>
+
+4.15. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+4.16. Rerunning OPT passes. (Maybe there is more to do..)
+
+4.17. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~237 debug messages>
+
+4.18. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+4.19. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 38 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+4.20. Executing OPT_DFF pass (perform DFF optimizations).
+
+4.21. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+
+4.22. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+4.23. Finished fast OPT passes. (There is nothing left to do.)
+
+5. Executing FSM pass (extract and optimize FSM).
+
+5.1. Executing FSM_DETECT pass (finding FSMs in design).
+Found FSM state register BitNet_SoC_TM_12L_64d._gen_state_1.
+
+5.2. Executing FSM_EXTRACT pass (extracting FSM from design).
+Extracting FSM `\_gen_state_1' from module `\BitNet_SoC_TM_12L_64d'.
+  found $adff cell for state register: $procdff$5115
+  root of input selection tree: \_gen_state_next_0
+  found reset state: 2'00 (from async reset)
+  found ctrl input: $eq$time_muxed.sv:1899$5086_Y
+  found ctrl input: $eq$time_muxed.sv:1899$5088_Y
+  found ctrl input: $eq$time_muxed.sv:1899$5089_Y
+  found ctrl input: \_gen_layer_done_211
+  found state code: 2'01
+  found state code: 2'11
+  found state code: 2'10
+  found ctrl input: \start
+  found ctrl output: $eq$time_muxed.sv:1899$5086_Y
+  found ctrl output: $eq$time_muxed.sv:1899$5088_Y
+  found ctrl output: $eq$time_muxed.sv:1899$5089_Y
+  found ctrl output: \done
+  ctrl inputs: { \_gen_layer_done_211 \start }
+  ctrl outputs: { $eq$time_muxed.sv:1899$5089_Y $eq$time_muxed.sv:1899$5088_Y $eq$time_muxed.sv:1899$5086_Y \_gen_state_next_0 \done }
+  transition:       2'00 2'-0 ->       2'00 6'001000
+  transition:       2'00 2'-1 ->       2'01 6'001010
+  transition:       2'10 2'0- ->       2'01 6'100010
+  transition:       2'10 2'1- ->       2'11 6'100110
+  transition:       2'01 2'-- ->       2'10 6'010100
+  transition:       2'11 2'-- ->       2'00 6'000001
+
+5.3. Executing FSM_OPT pass (simple optimizations of FSMs).
+Optimizing FSM `$fsm$\_gen_state_1$5122' from module `\BitNet_SoC_TM_12L_64d'.
+
+5.4. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 10 unused cells and 10 unused wires.
+<suppressed ~11 debug messages>
+
+5.5. Executing FSM_OPT pass (simple optimizations of FSMs).
+Optimizing FSM `$fsm$\_gen_state_1$5122' from module `\BitNet_SoC_TM_12L_64d'.
+  Removing unused output signal \_gen_state_next_0 [0].
+  Removing unused output signal \_gen_state_next_0 [1].
+  Removing unused output signal $eq$time_muxed.sv:1899$5088_Y.
+
+5.6. Executing FSM_RECODE pass (re-assigning FSM state encoding).
+Recoding FSM `$fsm$\_gen_state_1$5122' from module `\BitNet_SoC_TM_12L_64d' using `auto' encoding:
+  mapping auto encoding to `one-hot` for this FSM.
+  00 -> ---1
+  10 -> --1-
+  01 -> -1--
+  11 -> 1---
+
+5.7. Executing FSM_INFO pass (dumping all available information on FSM cells).
+
+FSM `$fsm$\_gen_state_1$5122' from module `BitNet_SoC_TM_12L_64d':
+-------------------------------------
+
+  Information on FSM $fsm$\_gen_state_1$5122 (\_gen_state_1):
+
+  Number of input signals:    2
+  Number of output signals:   3
+  Number of state bits:       4
+
+  Input signals:
+    0: \start
+    1: \_gen_layer_done_211
+
+  Output signals:
+    0: \done
+    1: $eq$time_muxed.sv:1899$5086_Y
+    2: $eq$time_muxed.sv:1899$5089_Y
+
+  State encoding:
+    0:     4'---1  <RESET STATE>
+    1:     4'--1-
+    2:     4'-1--
+    3:     4'1---
+
+  Transition Table (state_in, ctrl_in, state_out, ctrl_out):
+      0:     0 2'-0   ->     0 3'010
+      1:     0 2'-1   ->     2 3'010
+      2:     1 2'0-   ->     2 3'100
+      3:     1 2'1-   ->     3 3'100
+      4:     2 2'--   ->     1 3'000
+      5:     3 2'--   ->     0 3'001
+
+-------------------------------------
+
+5.8. Executing FSM_MAP pass (mapping FSMs to basic logic).
+Mapping FSM `$fsm$\_gen_state_1$5122' from module `\BitNet_SoC_TM_12L_64d'.
+
+6. Executing OPT pass (performing simple optimizations).
+
+6.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+<suppressed ~4 debug messages>
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+6.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 37 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 36 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+<suppressed ~3 debug messages>
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 1 cells.
+
+6.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~231 debug messages>
+
+6.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+6.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 36 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+6.6. Executing OPT_DFF pass (perform DFF optimizations).
+
+6.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 0 unused cells and 9 unused wires.
+<suppressed ~2 debug messages>
+
+6.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+6.9. Rerunning OPT passes. (Maybe there is more to do..)
+
+6.10. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~231 debug messages>
+
+6.11. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+6.12. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 36 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+6.13. Executing OPT_DFF pass (perform DFF optimizations).
+
+6.14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+
+6.15. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+6.16. Finished fast OPT passes. (There is nothing left to do.)
+
+7. Executing MEMORY pass.
+
+7.1. Executing OPT_MEM pass (optimize memories).
+Performed a total of 0 transformations.
+
+7.2. Executing OPT_MEM_PRIORITY pass (removing unnecessary memory write priority relations).
+Performed a total of 0 transformations.
+
+7.3. Executing OPT_MEM_FEEDBACK pass (finding memory read-to-write feedback paths).
+
+7.4. Executing MEMORY_BMUX2ROM pass (converting muxes to ROMs).
+
+7.5. Executing MEMORY_DFF pass (merging $dff cells to $memrd).
+
+7.6. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+
+7.7. Executing MEMORY_SHARE pass (consolidating $memrd/$memwr cells).
+
+7.8. Executing OPT_MEM_WIDEN pass (optimize memories where all ports are wide).
+Performed a total of 0 transformations.
+
+7.9. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+
+7.10. Executing MEMORY_COLLECT pass (generating $mem cells).
+
+7.11. Executing MEMORY_MAP pass (converting memories to logic and flip-flops).
+
+8. Executing OPT pass (performing simple optimizations).
+
+8.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+8.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 36 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+8.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~231 debug messages>
+
+8.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+8.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 36 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 383 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 3 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 3 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 5 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 3 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+8.6. Executing OPT_DFF pass (perform DFF optimizations).
+
+8.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+
+8.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+8.9. Finished fast OPT passes. (There is nothing left to do.)
+
+9. Executing TECHMAP pass (map to technology primitives).
+
+9.1. Executing Verilog-2005 frontend: /opt/homebrew/bin/../share/yosys/techmap.v
+Parsing Verilog input from `/opt/homebrew/bin/../share/yosys/techmap.v' to AST representation.
+Generating RTLIL representation for module `\_90_simplemap_bool_ops'.
+Generating RTLIL representation for module `\_90_simplemap_reduce_ops'.
+Generating RTLIL representation for module `\_90_simplemap_logic_ops'.
+Generating RTLIL representation for module `\_90_simplemap_compare_ops'.
+Generating RTLIL representation for module `\_90_simplemap_various'.
+Generating RTLIL representation for module `\_90_simplemap_registers'.
+Generating RTLIL representation for module `\_90_shift_ops_shr_shl_sshl_sshr'.
+Generating RTLIL representation for module `\_90_shift_shiftx'.
+Generating RTLIL representation for module `\_90_fa'.
+Generating RTLIL representation for module `\_90_lcu_brent_kung'.
+Generating RTLIL representation for module `\_90_alu'.
+Generating RTLIL representation for module `\_90_macc'.
+Generating RTLIL representation for module `\_90_alumacc'.
+Generating RTLIL representation for module `$__div_mod_u'.
+Generating RTLIL representation for module `$__div_mod_trunc'.
+Generating RTLIL representation for module `\_90_div'.
+Generating RTLIL representation for module `\_90_mod'.
+Generating RTLIL representation for module `$__div_mod_floor'.
+Generating RTLIL representation for module `\_90_divfloor'.
+Generating RTLIL representation for module `\_90_modfloor'.
+Generating RTLIL representation for module `\_90_pow'.
+Generating RTLIL representation for module `\_90_pmux'.
+Generating RTLIL representation for module `\_90_demux'.
+Generating RTLIL representation for module `\_90_lut'.
+Generating RTLIL representation for module `$connect'.
+Generating RTLIL representation for module `$input_port'.
+Successfully finished Verilog frontend.
+
+9.2. Continuing TECHMAP pass.
+Using extmapper simplemap for cells of type $mux.
+Running "alumacc" on wrapper $extern:wrap:$mul:A_SIGNED=0:A_WIDTH=80:B_SIGNED=0:B_WIDTH=80:Y_WIDTH=80:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$mul:A_SIGNED=0:A_WIDTH=80:B_SIGNED=0:B_WIDTH=80:Y_WIDTH=80:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$mul:A_SIGNED=0:A_WIDTH=80:B_SIGNED=0:B_WIDTH=80:Y_WIDTH=80:394426c56d1a028ba8fdd5469b163e04011def47.
+Using extmapper maccmap for cells of type $macc_v2.
+  add { \_gen_high_fill_0 \acc } * { \_gen_high_fill_2 \scale } (80x80 bits, unsigned)
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000001010000 for cells of type $fa.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000001001111 for cells of type $fa.
+Using template $paramod$a92831075656df19a0fdd49709d69bdc5e21e9f8\_90_alu for cells of type $alu.
+Using extmapper simplemap for cells of type $and.
+Using extmapper simplemap for cells of type $not.
+Using extmapper simplemap for cells of type $pos.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000001010000 for cells of type $lcu.
+Using extmapper simplemap for cells of type $xor.
+Using extmapper simplemap for cells of type $or.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=33:B_SIGNED=0:B_WIDTH=33:Y_WIDTH=33:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=33:B_SIGNED=0:B_WIDTH=33:Y_WIDTH=33:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=33:B_SIGNED=0:B_WIDTH=33:Y_WIDTH=33:394426c56d1a028ba8fdd5469b163e04011def47.
+Using extmapper simplemap for cells of type $eq.
+Using template $paramod$cc6a978c1b57cdb49efcec348c88d8e28bf1a01f\_90_alu for cells of type $alu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100001 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100001 for cells of type $lcu.
+Running "alumacc" on wrapper $extern:wrap:$mul:A_SIGNED=0:A_WIDTH=64:B_SIGNED=0:B_WIDTH=64:Y_WIDTH=64:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$mul:A_SIGNED=0:A_WIDTH=64:B_SIGNED=0:B_WIDTH=64:Y_WIDTH=64:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$mul:A_SIGNED=0:A_WIDTH=64:B_SIGNED=0:B_WIDTH=64:Y_WIDTH=64:394426c56d1a028ba8fdd5469b163e04011def47.
+  add { \_gen_high_fill_0 \x } * { \_gen_high_fill_0 \x } (64x64 bits, unsigned)
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000001000000 for cells of type $fa.
+Using template $paramod$039520c137afc9cd69dd56c3fb11a4e1fbe5f664\_90_alu for cells of type $alu.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000001000000 for cells of type $lcu.
+  add { \_gen_high_fill_0 \a } * { \_gen_high_fill_2 \b } (64x64 bits, unsigned)
+Running "alumacc" on wrapper $extern:wrap:$sub:A_SIGNED=0:A_WIDTH=32:B_SIGNED=0:B_WIDTH=32:Y_WIDTH=32:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$sub:A_SIGNED=0:A_WIDTH=32:B_SIGNED=0:B_WIDTH=32:Y_WIDTH=32:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$sub:A_SIGNED=0:A_WIDTH=32:B_SIGNED=0:B_WIDTH=32:Y_WIDTH=32:394426c56d1a028ba8fdd5469b163e04011def47.
+Using extmapper simplemap for cells of type $logic_not.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=34:B_SIGNED=0:B_WIDTH=34:Y_WIDTH=34:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=34:B_SIGNED=0:B_WIDTH=34:Y_WIDTH=34:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=34:B_SIGNED=0:B_WIDTH=34:Y_WIDTH=34:394426c56d1a028ba8fdd5469b163e04011def47.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=35:B_SIGNED=0:B_WIDTH=35:Y_WIDTH=35:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=35:B_SIGNED=0:B_WIDTH=35:Y_WIDTH=35:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=35:B_SIGNED=0:B_WIDTH=35:Y_WIDTH=35:394426c56d1a028ba8fdd5469b163e04011def47.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=36:B_SIGNED=0:B_WIDTH=36:Y_WIDTH=36:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=36:B_SIGNED=0:B_WIDTH=36:Y_WIDTH=36:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=36:B_SIGNED=0:B_WIDTH=36:Y_WIDTH=36:394426c56d1a028ba8fdd5469b163e04011def47.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=37:B_SIGNED=0:B_WIDTH=37:Y_WIDTH=37:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=37:B_SIGNED=0:B_WIDTH=37:Y_WIDTH=37:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=37:B_SIGNED=0:B_WIDTH=37:Y_WIDTH=37:394426c56d1a028ba8fdd5469b163e04011def47.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=38:B_SIGNED=0:B_WIDTH=38:Y_WIDTH=38:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=38:B_SIGNED=0:B_WIDTH=38:Y_WIDTH=38:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=38:B_SIGNED=0:B_WIDTH=38:Y_WIDTH=38:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $paramod$dbef6e48cd28208af1b77a9bd7dfc80580f16131\_90_alu for cells of type $alu.
+Using template $paramod$46bb7404051772a584cf91a8bfdc4832ffc1d8ba\_90_alu for cells of type $alu.
+Using template $paramod$9fb24bf0faa43f804d3c379242188667e42c235c\_90_alu for cells of type $alu.
+Using template $paramod$7fa6970f0c97644a990ba1d0dcc56c6042128be7\_90_alu for cells of type $alu.
+Using template $paramod$c7f685413b22256ea2bbbfc71a16a94e0ecdf3fb\_90_alu for cells of type $alu.
+Using template $paramod$fbc7873bff55778c0b3173955b7e4bce1d9d6834\_90_alu for cells of type $alu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100010 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100010 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100011 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100011 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100100 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100100 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100101 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100101 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100110 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100110 for cells of type $lcu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000100000 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000100000 for cells of type $lcu.
+Using extmapper simplemap for cells of type $reduce_or.
+Using extmapper simplemap for cells of type $adff.
+Using extmapper simplemap for cells of type $adffe.
+Using extmapper simplemap for cells of type $reduce_bool.
+Running "alumacc" on wrapper $extern:wrap:$add:A_SIGNED=0:A_WIDTH=4:B_SIGNED=0:B_WIDTH=4:Y_WIDTH=4:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $extern:wrap:$add:A_SIGNED=0:A_WIDTH=4:B_SIGNED=0:B_WIDTH=4:Y_WIDTH=4:394426c56d1a028ba8fdd5469b163e04011def47 for cells of type $extern:wrap:$add:A_SIGNED=0:A_WIDTH=4:B_SIGNED=0:B_WIDTH=4:Y_WIDTH=4:394426c56d1a028ba8fdd5469b163e04011def47.
+Using template $paramod$740b056ede97228d3eae64ea2fdc81f0a33e0fe7\_90_alu for cells of type $alu.
+Using template $paramod\_90_fa\WIDTH=32'00000000000000000000000000000100 for cells of type $fa.
+Using template $paramod\_90_lcu_brent_kung\WIDTH=32'00000000000000000000000000000100 for cells of type $lcu.
+No more expansions possible.
+<suppressed ~25099 debug messages>
+
+10. Executing OPT pass (performing simple optimizations).
+
+10.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+<suppressed ~143 debug messages>
+Optimizing module DynamicBitLinear_64.
+<suppressed ~30940 debug messages>
+Optimizing module ElemMul.
+<suppressed ~12234 debug messages>
+Optimizing module ReLUSq.
+<suppressed ~12236 debug messages>
+Optimizing module ResidualAdd.
+<suppressed ~204 debug messages>
+Optimizing module ScaleMultiply.
+<suppressed ~19094 debug messages>
+
+10.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 151 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 144 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+<suppressed ~21 debug messages>
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 29775 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Computing hashes of 29586 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+<suppressed ~567 debug messages>
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 12578 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 11522 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 10900 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 10300 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9972 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9688 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9415 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9282 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9200 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9122 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9083 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9051 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9019 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 9003 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 8995 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 8987 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 8983 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 8977 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 8971 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Computing hashes of 8968 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+<suppressed ~10830 debug messages>
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 12576 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 11026 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 10294 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 9694 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 9366 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 9082 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8809 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8676 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8594 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8516 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8477 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8445 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8413 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8397 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8389 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8381 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8377 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8371 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8365 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Computing hashes of 8362 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+<suppressed ~12642 debug messages>
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 343 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Computing hashes of 340 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+<suppressed ~9 debug messages>
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 19598 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 17894 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 16912 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 15962 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 15443 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 14891 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 14421 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 14180 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 14030 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13916 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13861 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13815 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13769 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13746 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13734 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13722 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Computing hashes of 13716 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+<suppressed ~17646 debug messages>
+Removed a total of 13905 cells.
+
+10.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Removed 0 multiplexer ports.
+
+10.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+10.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 144 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 29586 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 8968 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 8362 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 340 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 13716 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+10.6. Executing OPT_DFF pass (perform DFF optimizations).
+
+10.7. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 13274 unused cells and 14287 unused wires.
+<suppressed ~13282 debug messages>
+
+10.8. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+<suppressed ~38 debug messages>
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+10.9. Rerunning OPT passes. (Maybe there is more to do..)
+
+10.10. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Removed 0 multiplexer ports.
+
+10.11. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+10.12. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 142 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 26864 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 6218 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 5660 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 304 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 8616 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+10.13. Executing OPT_DFF pass (perform DFF optimizations).
+
+10.14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 1 unused cells and 0 unused wires.
+<suppressed ~1 debug messages>
+
+10.15. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+10.16. Rerunning OPT passes. (Maybe there is more to do..)
+
+10.17. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \BitNet_SoC_TM_12L_64d..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \DynamicBitLinear_64..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ElemMul..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ReLUSq..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ResidualAdd..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Running muxtree optimizer on module \ScaleMultiply..
+  Creating internal representation of mux trees.
+  No muxes found in this module.
+Removed 0 multiplexer ports.
+
+10.18. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \BitNet_SoC_TM_12L_64d.
+  Optimizing cells in module \DynamicBitLinear_64.
+  Optimizing cells in module \ElemMul.
+  Optimizing cells in module \ReLUSq.
+  Optimizing cells in module \ResidualAdd.
+  Optimizing cells in module \ScaleMultiply.
+Performed a total of 0 changes.
+
+10.19. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\BitNet_SoC_TM_12L_64d'.
+Computing hashes of 142 cells of `\BitNet_SoC_TM_12L_64d'.
+Finding duplicate cells in `\BitNet_SoC_TM_12L_64d'.
+Finding identical cells in module `\DynamicBitLinear_64'.
+Computing hashes of 26864 cells of `\DynamicBitLinear_64'.
+Finding duplicate cells in `\DynamicBitLinear_64'.
+Finding identical cells in module `\ElemMul'.
+Computing hashes of 6218 cells of `\ElemMul'.
+Finding duplicate cells in `\ElemMul'.
+Finding identical cells in module `\ReLUSq'.
+Computing hashes of 5659 cells of `\ReLUSq'.
+Finding duplicate cells in `\ReLUSq'.
+Finding identical cells in module `\ResidualAdd'.
+Computing hashes of 304 cells of `\ResidualAdd'.
+Finding duplicate cells in `\ResidualAdd'.
+Finding identical cells in module `\ScaleMultiply'.
+Computing hashes of 8616 cells of `\ScaleMultiply'.
+Finding duplicate cells in `\ScaleMultiply'.
+Removed a total of 0 cells.
+
+10.20. Executing OPT_DFF pass (perform DFF optimizations).
+
+10.21. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+
+10.22. Executing OPT_EXPR pass (perform const folding).
+Optimizing module BitNet_SoC_TM_12L_64d.
+Optimizing module DynamicBitLinear_64.
+Optimizing module ElemMul.
+Optimizing module ReLUSq.
+Optimizing module ResidualAdd.
+Optimizing module ScaleMultiply.
+
+10.23. Finished fast OPT passes. (There is nothing left to do.)
+
+11. Executing ABC pass (technology mapping using ABC).
+
+11.1. Extracting gate netlist of module `\BitNet_SoC_TM_12L_64d' to `<abc-temp-dir>/input.blif'..
+Replacing 36 occurrences of constant undef bits with constant zero bits
+
+11.1.1. Executed ABC.
+Extracted 93 gates and 168 wires to a netlist network with 73 inputs and 41 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library /var/folders/ss/68v6wr1s4q99778mv5718f8c0000gq/T/yosys-abc-E5cXaA/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+11.1.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:        7
+ABC RESULTS:            ANDNOT cells:        5
+ABC RESULTS:              NAND cells:       98
+ABC RESULTS:               NOT cells:        1
+ABC RESULTS:                OR cells:        4
+ABC RESULTS:              XNOR cells:        1
+ABC RESULTS:               XOR cells:        1
+ABC RESULTS:        internal signals:       54
+ABC RESULTS:           input signals:       73
+ABC RESULTS:          output signals:       41
+Removing temp directory.
+
+11.2. Extracting gate netlist of module `\DynamicBitLinear_64' to `<abc-temp-dir>/input.blif'..
+
+11.2.1. Executed ABC.
+Extracted 26864 gates and 29041 wires to a netlist network with 2176 inputs and 38 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library /var/folders/ss/68v6wr1s4q99778mv5718f8c0000gq/T/yosys-abc-E5cXaA/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+11.2.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:     1928
+ABC RESULTS:            ANDNOT cells:     4012
+ABC RESULTS:              NAND cells:     5955
+ABC RESULTS:               NOR cells:     2296
+ABC RESULTS:               NOT cells:       98
+ABC RESULTS:                OR cells:      955
+ABC RESULTS:             ORNOT cells:      493
+ABC RESULTS:              XNOR cells:     1533
+ABC RESULTS:               XOR cells:     3258
+ABC RESULTS:        internal signals:    26827
+ABC RESULTS:           input signals:     2176
+ABC RESULTS:          output signals:       38
+Removing temp directory.
+
+11.3. Extracting gate netlist of module `\ElemMul' to `<abc-temp-dir>/input.blif'..
+
+11.3.1. Executed ABC.
+Extracted 6218 gates and 6282 wires to a netlist network with 64 inputs and 32 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library /var/folders/ss/68v6wr1s4q99778mv5718f8c0000gq/T/yosys-abc-E5cXaA/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+11.3.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:     1088
+ABC RESULTS:            ANDNOT cells:       18
+ABC RESULTS:               MUX cells:       22
+ABC RESULTS:              NAND cells:     2792
+ABC RESULTS:               NOR cells:       28
+ABC RESULTS:               NOT cells:        6
+ABC RESULTS:                OR cells:       51
+ABC RESULTS:             ORNOT cells:       52
+ABC RESULTS:              XNOR cells:      191
+ABC RESULTS:               XOR cells:     1898
+ABC RESULTS:        internal signals:     6186
+ABC RESULTS:           input signals:       64
+ABC RESULTS:          output signals:       32
+Removing temp directory.
+
+11.4. Extracting gate netlist of module `\ReLUSq' to `<abc-temp-dir>/input.blif'..
+
+11.4.1. Executed ABC.
+Extracted 5659 gates and 5692 wires to a netlist network with 32 inputs and 32 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library /var/folders/ss/68v6wr1s4q99778mv5718f8c0000gq/T/yosys-abc-E5cXaA/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+11.4.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:      630
+ABC RESULTS:            ANDNOT cells:       25
+ABC RESULTS:               MUX cells:       19
+ABC RESULTS:              NAND cells:     2580
+ABC RESULTS:               NOR cells:       66
+ABC RESULTS:               NOT cells:        8
+ABC RESULTS:                OR cells:       70
+ABC RESULTS:             ORNOT cells:       89
+ABC RESULTS:              XNOR cells:      411
+ABC RESULTS:               XOR cells:     1449
+ABC RESULTS:        internal signals:     5628
+ABC RESULTS:           input signals:       32
+ABC RESULTS:          output signals:       32
+Removing temp directory.
+
+11.5. Extracting gate netlist of module `\ResidualAdd' to `<abc-temp-dir>/input.blif'..
+
+11.5.1. Executed ABC.
+Extracted 304 gates and 370 wires to a netlist network with 64 inputs and 32 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library /var/folders/ss/68v6wr1s4q99778mv5718f8c0000gq/T/yosys-abc-E5cXaA/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+11.5.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:       45
+ABC RESULTS:              NAND cells:      111
+ABC RESULTS:               NOR cells:        2
+ABC RESULTS:                OR cells:       24
+ABC RESULTS:              XNOR cells:       19
+ABC RESULTS:               XOR cells:       31
+ABC RESULTS:        internal signals:      274
+ABC RESULTS:           input signals:       64
+ABC RESULTS:          output signals:       32
+Removing temp directory.
+
+11.6. Extracting gate netlist of module `\ScaleMultiply' to `<abc-temp-dir>/input.blif'..
+
+11.6.1. Executed ABC.
+Extracted 8616 gates and 8696 wires to a netlist network with 80 inputs and 32 outputs.
+Running ABC script: <abc-temp-dir>/abc.script
+ABC: ======== ABC command line "source <abc-temp-dir>/abc.script"
+ABC: + read_blif <abc-temp-dir>/input.blif 
+ABC: + read_library /var/folders/ss/68v6wr1s4q99778mv5718f8c0000gq/T/yosys-abc-E5cXaA/stdcells.genlib 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &fraig -x 
+ABC: + &put 
+ABC: + scorr 
+ABC: Warning: The network is combinational (run "fraig" or "fraig_sweep").
+ABC: + dc2 
+ABC: + dretime 
+ABC: + strash 
+ABC: + &get -n 
+ABC: + &dch -f 
+ABC: + &nf 
+ABC: + &put 
+ABC: + write_blif <abc-temp-dir>/output.blif 
+
+11.6.2. Re-integrating ABC results.
+ABC RESULTS:               AND cells:     1481
+ABC RESULTS:            ANDNOT cells:       22
+ABC RESULTS:               MUX cells:       26
+ABC RESULTS:              NAND cells:     3962
+ABC RESULTS:               NOR cells:       17
+ABC RESULTS:               NOT cells:        2
+ABC RESULTS:                OR cells:       68
+ABC RESULTS:             ORNOT cells:       45
+ABC RESULTS:              XNOR cells:      235
+ABC RESULTS:               XOR cells:     2660
+ABC RESULTS:        internal signals:     8584
+ABC RESULTS:           input signals:       80
+ABC RESULTS:          output signals:       32
+Removing temp directory.
+Removing global temp directory.
+
+12. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Finding unused cells or wires in module \DynamicBitLinear_64..
+Finding unused cells or wires in module \ElemMul..
+Finding unused cells or wires in module \ReLUSq..
+Finding unused cells or wires in module \ResidualAdd..
+Finding unused cells or wires in module \ScaleMultiply..
+Removed 0 unused cells and 13714 unused wires.
+<suppressed ~546 debug messages>
+
+13. Executing FLATTEN pass (flatten design).
+Deleting now unused module DynamicBitLinear_64.
+Deleting now unused module ElemMul.
+Deleting now unused module ReLUSq.
+Deleting now unused module ResidualAdd.
+Deleting now unused module ScaleMultiply.
+<suppressed ~9 debug messages>
+
+14. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \BitNet_SoC_TM_12L_64d..
+Removed 9 unused cells and 416 unused wires.
+<suppressed ~425 debug messages>
+
+15. Printing statistics.
+
+=== BitNet_SoC_TM_12L_64d ===
+
+        +----------Local Count, excluding submodules.
+        | 
+    98657 wires
+    99117 wire bits
+       20 public wires
+      480 public wire bits
+        6 ports
+       68 port bits
+    99020 cells
+    12150   $_ANDNOT_
+    11997   $_AND_
+       36   $_DFFE_PP0P_
+        3   $_DFF_PP0_
+        1   $_DFF_PP1_
+      119   $_MUX_
+    35332   $_NAND_
+     7035   $_NOR_
+      315   $_NOT_
+     1755   $_ORNOT_
+     3218   $_OR_
+     5926   $_XNOR_
+    21133   $_XOR_
+
+16. Executing Verilog backend.
+
+16.1. Executing BMUXMAP pass.
+
+16.2. Executing DEMUXMAP pass.
+Dumping module `\BitNet_SoC_TM_12L_64d'.
+
+Warnings: 4 unique messages, 4 total
+End of script. Logfile hash: bd1a71b275, CPU: user 3.05s system 0.08s, MEM: 355.78 MB peak
+Yosys 0.62 (git sha1 7326bb7d6641500ecb285c291a54a662cb1e76cf, clang++ 17.0.0 -fPIC -O3)
+Time spent: 60% 1x abc (4 sec), 9% 24x opt_clean (0 sec), ...
