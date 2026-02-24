@@ -1,0 +1,21 @@
+# Hespera Yosys Synthesis Script
+#
+# Usage (run from hw/synth/ directory):
+#
+# HW mode:
+#   yosys -p "read_verilog -sv hw_unrolled.sv; hierarchy -top BitNet_SoC_HW_4L_4d; \
+#     proc; opt; fsm; opt; memory; opt; techmap; opt; abc; opt_clean -purge; \
+#     flatten; opt_clean -purge; stat; write_verilog -noattr synth_hw.v" -l synth_hw.log
+#
+# TM mode:
+#   yosys -p "read_verilog -sv time_muxed.sv; hierarchy -top BitNet_SoC_TM_4L_4d; \
+#     proc; opt; fsm; opt; memory; opt; techmap; opt; abc; opt_clean -purge; \
+#     flatten; opt_clean -purge; stat; write_verilog -noattr synth_tm.v" -l synth_tm.log
+#
+# Steps:
+#   1. Read SystemVerilog input
+#   2. Elaborate design hierarchy
+#   3. Technology-independent synthesis (proc, opt, fsm, memory, techmap)
+#   4. Map to generic cells via ABC
+#   5. Flatten for accurate total cell count
+#   6. Print statistics and write synthesized netlist

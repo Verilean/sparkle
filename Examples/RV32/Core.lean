@@ -211,6 +211,19 @@ structure PipelineWires where
   pcNext    : String
   flush     : String
   stall     : String
+  -- Write-back forwarding (pre-created for register file BRAM)
+  wrAddrFwd : String
+  wrDataFwd : String
+  wrEnFwd   : String
+  -- Delayed PC for IFID alignment (accounts for IMEM BRAM 1-cycle latency)
+  fetchPC     : String
+  fetchPCPlus4 : String
+  -- Previous-cycle WB forwarding (for pre-read bypass, see ID stage)
+  prevWrAddr : String
+  prevWrData : String
+  prevWrEn   : String
+  -- Delayed flush: extends flush by 1 cycle for 2-cycle IF delay
+  flushDelay : String
 
 /-- IF/ID pipeline register outputs -/
 structure IFID_Wires where
@@ -239,6 +252,12 @@ structure ID_Signals where
   isJalr    : String
   rs1Val    : String
   rs2Val    : String
+  isCsr     : String
+  isEcall   : String
+  isEbreak  : String
+  isMret    : String
+  csrAddr   : String
+  csrFunct3 : String
 
 /-- ID/EX pipeline register outputs -/
 structure IDEX_Wires where
@@ -255,35 +274,65 @@ structure IDEX_Wires where
   rs2Val   : String
   imm      : String
   rd       : String
+  rs1Idx   : String  -- rs1 register index for forwarding
+  rs2Idx   : String  -- rs2 register index for forwarding
   funct3   : String
   pc       : String
   pc4      : String
   isJalr   : String
+  isCsr     : String
+  isEcall   : String
+  isEbreak  : String
+  isMret    : String
+  csrAddr   : String
+  csrFunct3 : String
 
 /-- Stage 1: IF — Instruction Fetch -/
 def generateIF (pw : PipelineWires) : CircuitM Unit := do
   emitAssign pw.pcPlus4 (Expr.add (.ref pw.pcReg) (.const 4 32))
-  emitAssign "imem_addr" (.slice (.ref pw.pcReg) (imemAddrBits + 1) 2)
+  -- CRITICAL: During a load-use stall, pcReg is held at its current value
+  -- (2 instructions ahead of IFID). The IMEM BRAM reads at this address,
+  -- producing the wrong instruction for when the stall clears. To fix this,
+  -- during a stall we redirect the IMEM address to fetchPC (1 instruction
+  -- ahead of IFID = the correct next instruction to enter IFID).
+  emitAssign "imem_addr"
+    (Expr.mux (.ref pw.stall)
+      (.slice (.ref pw.fetchPC) (imemAddrBits + 1) 2)
+      (.slice (.ref pw.pcReg) (imemAddrBits + 1) 2))
   emitAssign "debug_pc" (.ref pw.pcReg)
 
 /-- IF/ID pipeline registers -/
 def generateIFID (pw : PipelineWires) : CircuitM IFID_Wires := do
   let nopInst : Int := (Opcode.toBitVec7 .ALUI).toNat
 
+  -- IFID instruction register:
+  --   flush/flushDelay → NOP (wrong-path instruction must be squashed;
+  --     flushDelay covers the 2nd wrong-path instruction from BRAM latency)
+  --   stall → HOLD (instruction must stay in IFID for re-decode next cycle)
+  --   normal → new instruction from IMEM BRAM
+  let flushAny ← makeWire "flush_any" .bit
+  emitAssign flushAny (.op .or [.ref pw.flush, .ref pw.flushDelay])
   let ifid_inst_in ← makeWire "ifid_inst_in" (.bitVector 32)
-  emitAssign ifid_inst_in
-    (Expr.mux (.ref pw.flush) (.const nopInst 32)
-    (Expr.mux (.ref pw.stall) (.const nopInst 32)
-      (.ref "imem_rdata")))
   let ifid_inst ← emitRegister "ifid_inst" "clk" "rst" (.ref ifid_inst_in) nopInst (.bitVector 32)
+  emitAssign ifid_inst_in
+    (Expr.mux (.ref flushAny) (.const nopInst 32)
+    (Expr.mux (.ref pw.stall) (.ref ifid_inst)
+      (.ref "imem_rdata")))
 
-  let ifid_pc ← emitRegister "ifid_pc" "clk" "rst" (.ref pw.pcReg) 0 (.bitVector 32)
-  let ifid_pc4 ← emitRegister "ifid_pc4" "clk" "rst" (.ref pw.pcPlus4) 4 (.bitVector 32)
+  -- IFID PC registers: hold on stall, update from fetchPC otherwise.
+  -- fetchPC is delayed by 1 cycle from pcReg so ifid_pc aligns with IMEM BRAM output.
+  let ifid_pc_in ← makeWire "ifid_pc_in" (.bitVector 32)
+  let ifid_pc ← emitRegister "ifid_pc" "clk" "rst" (.ref ifid_pc_in) 0 (.bitVector 32)
+  emitAssign ifid_pc_in (Expr.mux (.ref pw.stall) (.ref ifid_pc) (.ref pw.fetchPC))
+
+  let ifid_pc4_in ← makeWire "ifid_pc4_in" (.bitVector 32)
+  let ifid_pc4 ← emitRegister "ifid_pc4" "clk" "rst" (.ref ifid_pc4_in) 4 (.bitVector 32)
+  emitAssign ifid_pc4_in (Expr.mux (.ref pw.stall) (.ref ifid_pc4) (.ref pw.fetchPCPlus4))
 
   return { inst := ifid_inst, pc := ifid_pc, pc4 := ifid_pc4 }
 
 /-- Stage 2a: ID — Field extraction and immediate generation -/
-def generateID_FieldsAndImm (ifid : IFID_Wires) : CircuitM ID_Signals := do
+def generateID_FieldsAndImm (pw : PipelineWires) (ifid : IFID_Wires) : CircuitM ID_Signals := do
   let id_opcode ← makeWire "id_opcode" (.bitVector 7)
   emitAssign id_opcode (.slice (.ref ifid.inst) 6 0)
   let id_rd ← makeWire "id_rd" (.bitVector 5)
@@ -382,6 +431,55 @@ def generateID_FieldsAndImm (ifid : IFID_Wires) : CircuitM ID_Signals := do
   let id_is_jump ← makeWire "id_is_jump" .bit
   emitAssign id_is_jump (.op .or [.ref id_is_jal, .ref id_is_jalr])
 
+  -- SYSTEM instruction decoding
+  let opcSYSTEM_val : Int := (Opcode.toBitVec7 .SYSTEM).toNat
+  let id_is_system ← makeWire "id_is_system" .bit
+  emitAssign id_is_system (.op .eq [.ref id_opcode, .const opcSYSTEM_val 7])
+
+  -- CSR address is in imm field (bits [31:20] of instruction)
+  let id_csr_addr ← makeWire "id_csr_addr" (.bitVector 12)
+  emitAssign id_csr_addr (.slice (.ref ifid.inst) 31 20)
+
+  -- CSR funct3 (same as id_funct3, but named for clarity)
+  let id_csr_funct3 ← makeWire "id_csr_funct3" (.bitVector 3)
+  emitAssign id_csr_funct3 (.ref id_funct3)
+
+  -- CSR operations: funct3 ∈ {001, 010, 011, 101, 110, 111}
+  let id_funct3_nz ← makeWire "id_funct3_nz" .bit
+  emitAssign id_funct3_nz (.op .not [.op .eq [.ref id_funct3, .const 0 3]])
+  let id_is_csr ← makeWire "id_is_csr" .bit
+  emitAssign id_is_csr (.op .and [.ref id_is_system, .ref id_funct3_nz])
+
+  -- ECALL: funct3=000, rs2=00000, funct7=0000000
+  let id_funct3_zero ← makeWire "id_funct3_zero" .bit
+  emitAssign id_funct3_zero (.op .eq [.ref id_funct3, .const 0 3])
+  let id_rs2_is_0 ← makeWire "id_rs2_is_0" .bit
+  emitAssign id_rs2_is_0 (.op .eq [.ref id_rs2, .const 0 5])
+  let id_funct7_is_0 ← makeWire "id_funct7_is_0" .bit
+  emitAssign id_funct7_is_0 (.op .eq [.ref id_funct7, .const 0 7])
+  let id_is_ecall ← makeWire "id_is_ecall" .bit
+  emitAssign id_is_ecall (.op .and [.ref id_is_system,
+    .op .and [.ref id_funct3_zero,
+    .op .and [.ref id_rs2_is_0, .ref id_funct7_is_0]]])
+
+  -- EBREAK: funct3=000, rs2=00001
+  let id_rs2_is_1 ← makeWire "id_rs2_is_1" .bit
+  emitAssign id_rs2_is_1 (.op .eq [.ref id_rs2, .const 1 5])
+  let id_is_ebreak ← makeWire "id_is_ebreak" .bit
+  emitAssign id_is_ebreak (.op .and [.ref id_is_system,
+    .op .and [.ref id_funct3_zero,
+    .op .and [.ref id_rs2_is_1, .ref id_funct7_is_0]]])
+
+  -- MRET: funct3=000, rs2=00010, funct7=0011000
+  let id_rs2_is_2 ← makeWire "id_rs2_is_2" .bit
+  emitAssign id_rs2_is_2 (.op .eq [.ref id_rs2, .const 2 5])
+  let id_funct7_mret ← makeWire "id_funct7_mret" .bit
+  emitAssign id_funct7_mret (.op .eq [.ref id_funct7, .const 0b0011000 7])
+  let id_is_mret ← makeWire "id_is_mret" .bit
+  emitAssign id_is_mret (.op .and [.ref id_is_system,
+    .op .and [.ref id_funct3_zero,
+    .op .and [.ref id_rs2_is_2, .ref id_funct7_mret]]])
+
   -- ALU op from funct3
   let f7_bit5 ← makeWire "id_f7_bit5" .bit
   emitAssign f7_bit5 (.slice (.ref id_funct7) 5 5)
@@ -449,7 +547,8 @@ def generateID_FieldsAndImm (ifid : IFID_Wires) : CircuitM ID_Signals := do
     .op .or [.ref id_is_load,
     .op .or [.ref id_is_lui,
     .op .or [.ref id_is_auipc,
-    .op .or [.ref id_is_jal, .ref id_is_jalr]]]]]])
+    .op .or [.ref id_is_jal,
+    .op .or [.ref id_is_jalr, .ref id_is_csr]]]]]]])
 
   let id_mem_read ← makeWire "id_mem_read" .bit
   emitAssign id_mem_read (.ref id_is_load)
@@ -461,12 +560,66 @@ def generateID_FieldsAndImm (ifid : IFID_Wires) : CircuitM ID_Signals := do
   emitAssign id_auipc (.op .or [.ref id_is_auipc, .ref id_is_jal])
 
   -- Register file reads (using memory primitives for BRAM inference)
+  -- Read addresses come from imem_rdata (BEFORE the IFID register) so the
+  -- BRAM output aligns with the next cycle when the instruction is in IFID.
+  -- The BRAM has 1-cycle read latency: address at cycle N → output at N+1.
+  --
+  -- On stall: IFID holds its instruction, so we must re-read the regfile
+  -- with the HELD instruction's rs1/rs2 (from ifid_inst) instead of the
+  -- new instruction from imem_rdata. This ensures the regfile output aligns
+  -- with the held instruction when the stall clears.
+  let pre_rs1 ← makeWire "pre_rs1" (.bitVector 5)
+  emitAssign pre_rs1 (Expr.mux (.ref pw.stall)
+    (.slice (.ref ifid.inst) 19 15)
+    (.slice (.ref "imem_rdata") 19 15))
+  let pre_rs2 ← makeWire "pre_rs2" (.bitVector 5)
+  emitAssign pre_rs2 (Expr.mux (.ref pw.stall)
+    (.slice (.ref ifid.inst) 24 20)
+    (.slice (.ref "imem_rdata") 24 20))
+
   let rs1_data ← emitMemory "regfile_rs1" 5 32 "clk"
-    (.ref "wr_addr_fwd") (.ref "wr_data_fwd") (.ref "wr_en_fwd")
-    (.ref id_rs1)
+    (.ref pw.wrAddrFwd) (.ref pw.wrDataFwd) (.ref pw.wrEnFwd)
+    (.ref pre_rs1)
   let rs2_data ← emitMemory "regfile_rs2" 5 32 "clk"
-    (.ref "wr_addr_fwd") (.ref "wr_data_fwd") (.ref "wr_en_fwd")
-    (.ref id_rs2)
+    (.ref pw.wrAddrFwd) (.ref pw.wrDataFwd) (.ref pw.wrEnFwd)
+    (.ref pre_rs2)
+
+  -- WB→ID bypass (two levels):
+  --
+  -- Level 1 (current WB): The current WB instruction writes to the regfile
+  -- at the same posedge when the IFID instruction is decoded. If the WB rd
+  -- matches the IFID rs1/rs2, bypass the WB data.
+  --
+  -- Level 2 (previous WB): Due to the 2-cycle IF delay, the regfile BRAM
+  -- pre-read (from pre_rs1/pre_rs2) happens 1 cycle BEFORE the instruction
+  -- enters IFID. If the WB at THAT cycle (= previous cycle relative to IFID)
+  -- writes to the same register, the BRAM gets the stale value (read-before-
+  -- write). The current-WB bypass misses this because it checks 1 cycle too
+  -- late. The prevWr* registers capture that write so we can bypass here.
+  --
+  -- Priority: current WB > previous WB > BRAM output.
+  let wb_bypass_rs1 ← makeWire "wb_bypass_rs1" .bit
+  emitAssign wb_bypass_rs1 (.op .and [.ref pw.wrEnFwd,
+    .op .eq [.ref pw.wrAddrFwd, .ref id_rs1]])
+  let wb_bypass_rs2 ← makeWire "wb_bypass_rs2" .bit
+  emitAssign wb_bypass_rs2 (.op .and [.ref pw.wrEnFwd,
+    .op .eq [.ref pw.wrAddrFwd, .ref id_rs2]])
+  let prev_wb_bypass_rs1 ← makeWire "prev_wb_bypass_rs1" .bit
+  emitAssign prev_wb_bypass_rs1 (.op .and [.ref pw.prevWrEn,
+    .op .eq [.ref pw.prevWrAddr, .ref id_rs1]])
+  let prev_wb_bypass_rs2 ← makeWire "prev_wb_bypass_rs2" .bit
+  emitAssign prev_wb_bypass_rs2 (.op .and [.ref pw.prevWrEn,
+    .op .eq [.ref pw.prevWrAddr, .ref id_rs2]])
+  let rs1_bypassed ← makeWire "rs1_bypassed" (.bitVector 32)
+  emitAssign rs1_bypassed (Expr.mux (.ref wb_bypass_rs1)
+    (.ref pw.wrDataFwd)
+    (Expr.mux (.ref prev_wb_bypass_rs1)
+      (.ref pw.prevWrData) (.ref rs1_data)))
+  let rs2_bypassed ← makeWire "rs2_bypassed" (.bitVector 32)
+  emitAssign rs2_bypassed (Expr.mux (.ref wb_bypass_rs2)
+    (.ref pw.wrDataFwd)
+    (Expr.mux (.ref prev_wb_bypass_rs2)
+      (.ref pw.prevWrData) (.ref rs2_data)))
 
   -- x0 hardwiring
   let rs1_zero ← makeWire "rs1_is_zero" .bit
@@ -474,9 +627,9 @@ def generateID_FieldsAndImm (ifid : IFID_Wires) : CircuitM ID_Signals := do
   let rs2_zero ← makeWire "rs2_is_zero" .bit
   emitAssign rs2_zero (.op .eq [.ref id_rs2, .const 0 5])
   let rs1_val ← makeWire "rs1_val" (.bitVector 32)
-  emitAssign rs1_val (Expr.mux (.ref rs1_zero) (.const 0 32) (.ref rs1_data))
+  emitAssign rs1_val (Expr.mux (.ref rs1_zero) (.const 0 32) (.ref rs1_bypassed))
   let rs2_val ← makeWire "rs2_val" (.bitVector 32)
-  emitAssign rs2_val (Expr.mux (.ref rs2_zero) (.const 0 32) (.ref rs2_data))
+  emitAssign rs2_val (Expr.mux (.ref rs2_zero) (.const 0 32) (.ref rs2_bypassed))
 
   return {
     opcode := id_opcode, rd := id_rd, funct3 := id_funct3
@@ -487,6 +640,9 @@ def generateID_FieldsAndImm (ifid : IFID_Wires) : CircuitM ID_Signals := do
     isBranch := id_is_branch, isJump := id_is_jump
     auipc := id_auipc, isJalr := id_is_jalr
     rs1Val := rs1_val, rs2Val := rs2_val
+    isCsr := id_is_csr, isEcall := id_is_ecall
+    isEbreak := id_is_ebreak, isMret := id_is_mret
+    csrAddr := id_csr_addr, csrFunct3 := id_csr_funct3
   }
 
 /-- Hazard detection between ID and EX/MEM stages -/
@@ -506,11 +662,16 @@ def generateHazardDetection (pw : PipelineWires)
 /-- ID/EX pipeline registers -/
 def generateIDEX (pw : PipelineWires) (idSig : ID_Signals) (ifid : IFID_Wires)
     : CircuitM IDEX_Wires := do
-  -- Helper: register with stall bubble (zeroes control on stall)
+  -- Helper: register with bubble on stall OR flush OR flushDelay.
+  -- On stall: insert bubble because load-use hazard (IDEX holds dependent instruction)
+  -- On flush/flushDelay: insert bubble because the instruction in IFID is from the wrong path
+  --   (flushDelay covers the 2nd wrong-path instruction from 2-cycle BRAM latency)
+  let squash ← makeWire "idex_squash" .bit
+  emitAssign squash (.op .or [.ref pw.stall, .op .or [.ref pw.flush, .ref pw.flushDelay]])
   let mkCtrlReg (hint : String) (input : String) (ty : HWType) : CircuitM String := do
     let muxIn ← makeWire s!"idex_in_{hint}" ty
     let zeroVal := match ty with | .bit => 1 | .bitVector w => w | _ => 1
-    emitAssign muxIn (Expr.mux (.ref pw.stall) (.const 0 zeroVal) (.ref input))
+    emitAssign muxIn (Expr.mux (.ref squash) (.const 0 zeroVal) (.ref input))
     emitRegister s!"idex_{hint}" "clk" "rst" (.ref muxIn) 0 ty
 
   let aluOp ← mkCtrlReg "alu_op" idSig.aluOp (.bitVector 4)
@@ -523,16 +684,29 @@ def generateIDEX (pw : PipelineWires) (idSig : ID_Signals) (ifid : IFID_Wires)
   let auipc ← mkCtrlReg "auipc" idSig.auipc .bit
   let aluSrcB ← mkCtrlReg "alu_src_b" idSig.aluSrcB .bit
   let isJalr ← mkCtrlReg "is_jalr" idSig.isJalr .bit
+  let isCsr ← mkCtrlReg "is_csr" idSig.isCsr .bit
+  let isEcall ← mkCtrlReg "is_ecall" idSig.isEcall .bit
+  let isEbreak ← mkCtrlReg "is_ebreak" idSig.isEbreak .bit
+  let isMret ← mkCtrlReg "is_mret" idSig.isMret .bit
+
+  let csrAddrIn ← makeWire "idex_in_csr_addr" (.bitVector 12)
+  emitAssign csrAddrIn (Expr.mux (.ref squash) (.const 0 12) (.ref idSig.csrAddr))
+  let csrAddr ← emitRegister "idex_csr_addr" "clk" "rst" (.ref csrAddrIn) 0 (.bitVector 12)
+  let csrFunct3 ← emitRegister "idex_csr_funct3" "clk" "rst" (.ref idSig.csrFunct3) 0 (.bitVector 3)
 
   -- Data registers (always pass through)
   let rs1Val ← emitRegister "idex_rs1_val" "clk" "rst" (.ref idSig.rs1Val) 0 (.bitVector 32)
   let rs2Val ← emitRegister "idex_rs2_val" "clk" "rst" (.ref idSig.rs2Val) 0 (.bitVector 32)
   let imm ← emitRegister "idex_imm" "clk" "rst" (.ref idSig.imm) 0 (.bitVector 32)
 
-  -- rd with stall bubble
+  -- rd with stall/flush bubble
   let rdIn ← makeWire "idex_in_rd" (.bitVector 5)
-  emitAssign rdIn (Expr.mux (.ref pw.stall) (.const 0 5) (.ref idSig.rd))
+  emitAssign rdIn (Expr.mux (.ref squash) (.const 0 5) (.ref idSig.rd))
   let rd ← emitRegister "idex_rd" "clk" "rst" (.ref rdIn) 0 (.bitVector 5)
+
+  -- rs1/rs2 register indices (needed for forwarding in EX stage)
+  let rs1Idx ← emitRegister "idex_rs1_idx" "clk" "rst" (.ref idSig.rs1) 0 (.bitVector 5)
+  let rs2Idx ← emitRegister "idex_rs2_idx" "clk" "rst" (.ref idSig.rs2) 0 (.bitVector 5)
 
   let funct3 ← emitRegister "idex_funct3" "clk" "rst" (.ref idSig.funct3) 0 (.bitVector 3)
   let pc ← emitRegister "idex_pc" "clk" "rst" (.ref ifid.pc) 0 (.bitVector 32)
@@ -541,18 +715,39 @@ def generateIDEX (pw : PipelineWires) (idSig : ID_Signals) (ifid : IFID_Wires)
   return {
     aluOp, regWrite, memRead, memWrite, memToReg
     branch, jump, auipc, aluSrcB, rs1Val, rs2Val
-    imm, rd, funct3, pc, pc4, isJalr
+    imm, rd, rs1Idx, rs2Idx, funct3, pc, pc4, isJalr
+    isCsr, isEcall, isEbreak, isMret, csrAddr, csrFunct3
   }
 
 /-- Stage 3: EX/MEM — ALU, branch resolution, data memory -/
 def generateEXMEM (pw : PipelineWires) (idex : IDEX_Wires) : CircuitM Unit := do
-  -- ALU operand A: PC for AUIPC/JAL, otherwise rs1
-  let alu_a ← makeWire "alu_a" (.bitVector 32)
-  emitAssign alu_a (Expr.mux (.ref idex.auipc) (.ref idex.pc) (.ref idex.rs1Val))
+  -- =========================================================================
+  -- WB→EX Forwarding
+  -- =========================================================================
+  -- If the WB stage is writing to a register that EX is reading, forward
+  -- the WB result instead of the stale BRAM output.
+  -- Forwarding condition: wb_we && wb_rd != 0 && wb_rd == ex_rs_idx
+  let fwd_rs1_match ← makeWire "fwd_rs1_match" .bit
+  emitAssign fwd_rs1_match (.op .and [.ref pw.wrEnFwd,
+    .op .eq [.ref pw.wrAddrFwd, .ref idex.rs1Idx]])
+  let fwd_rs2_match ← makeWire "fwd_rs2_match" .bit
+  emitAssign fwd_rs2_match (.op .and [.ref pw.wrEnFwd,
+    .op .eq [.ref pw.wrAddrFwd, .ref idex.rs2Idx]])
 
-  -- ALU operand B: immediate or rs2
+  let ex_rs1 ← makeWire "ex_rs1_fwd" (.bitVector 32)
+  emitAssign ex_rs1 (Expr.mux (.ref fwd_rs1_match)
+    (.ref pw.wrDataFwd) (.ref idex.rs1Val))
+  let ex_rs2 ← makeWire "ex_rs2_fwd" (.bitVector 32)
+  emitAssign ex_rs2 (Expr.mux (.ref fwd_rs2_match)
+    (.ref pw.wrDataFwd) (.ref idex.rs2Val))
+
+  -- ALU operand A: PC for AUIPC/JAL, otherwise rs1 (forwarded)
+  let alu_a ← makeWire "alu_a" (.bitVector 32)
+  emitAssign alu_a (Expr.mux (.ref idex.auipc) (.ref idex.pc) (.ref ex_rs1))
+
+  -- ALU operand B: immediate or rs2 (forwarded)
   let alu_b ← makeWire "alu_b" (.bitVector 32)
-  emitAssign alu_b (Expr.mux (.ref idex.aluSrcB) (.ref idex.imm) (.ref idex.rs2Val))
+  emitAssign alu_b (Expr.mux (.ref idex.aluSrcB) (.ref idex.imm) (.ref ex_rs2))
 
   -- ALU results
   let addR  ← makeWire "ex_add" (.bitVector 32)
@@ -616,13 +811,37 @@ def generateEXMEM (pw : PipelineWires) (idex : IDEX_Wires) : CircuitM Unit := do
     (Expr.mux (.ref isOp0) (.ref addR)
       (.ref alu_b)))))))))))
 
-  -- Branch condition evaluation
+  -- Full 32-bit bus address for SoC bus routing (CLINT vs DMEM)
+  emitAssign "bus_addr" (.ref alu_result)
+
+  -- CSR interface signals
+  -- CSR write data: register value for CSRRW/CSRRS/CSRRC, zimm for immediate variants
+  -- funct3[2] = 1 → immediate variant, use zero-extended rs1 field (5 bits)
+  let csrIsImm ← makeWire "csr_is_imm" .bit
+  emitAssign csrIsImm (.slice (.ref idex.csrFunct3) 2 2)
+  let csrZimm ← makeWire "csr_zimm" (.bitVector 32)
+  emitAssign csrZimm (.concat [.const 0 27, .ref idex.rs1Idx])
+  let csrWdataMux ← makeWire "csr_wdata_mux" (.bitVector 32)
+  emitAssign csrWdataMux (Expr.mux (.ref csrIsImm) (.ref csrZimm) (.ref ex_rs1))
+
+  emitAssign "csr_addr" (.ref idex.csrAddr)
+  emitAssign "csr_funct3" (.ref idex.csrFunct3)
+  emitAssign "csr_wdata" (.ref csrWdataMux)
+  emitAssign "csr_we" (.ref idex.isCsr)
+
+  -- Trap signals
+  emitAssign "trap_ecall" (.ref idex.isEcall)
+  emitAssign "trap_ebreak" (.ref idex.isEbreak)
+  emitAssign "trap_mret" (.ref idex.isMret)
+  emitAssign "trap_pc" (.ref idex.pc)
+
+  -- Branch condition evaluation (using forwarded values)
   let beq ← makeWire "ex_beq" .bit
-  emitAssign beq (.op .eq [.ref idex.rs1Val, .ref idex.rs2Val])
+  emitAssign beq (.op .eq [.ref ex_rs1, .ref ex_rs2])
   let blt ← makeWire "ex_blt" .bit
-  emitAssign blt (.op .lt_s [.ref idex.rs1Val, .ref idex.rs2Val])
+  emitAssign blt (.op .lt_s [.ref ex_rs1, .ref ex_rs2])
   let bltu ← makeWire "ex_bltu" .bit
-  emitAssign bltu (.op .lt_u [.ref idex.rs1Val, .ref idex.rs2Val])
+  emitAssign bltu (.op .lt_u [.ref ex_rs1, .ref ex_rs2])
 
   let br_f3_0 ← makeWire "br_f3_0" .bit
   emitAssign br_f3_0 (.op .eq [.ref idex.funct3, .const 0 3])
@@ -654,18 +873,20 @@ def generateEXMEM (pw : PipelineWires) (idex : IDEX_Wires) : CircuitM Unit := do
   let brTarget ← makeWire "br_target" (.bitVector 32)
   emitAssign brTarget (Expr.add (.ref idex.pc) (.ref idex.imm))
   let jalrSum ← makeWire "jalr_sum" (.bitVector 32)
-  emitAssign jalrSum (Expr.add (.ref idex.rs1Val) (.ref idex.imm))
+  emitAssign jalrSum (Expr.add (.ref ex_rs1) (.ref idex.imm))
   let jalrTarget ← makeWire "jalr_target" (.bitVector 32)
   emitAssign jalrTarget (.op .and [.ref jalrSum, .const 0xFFFFFFFE 32])
   let jumpTarget ← makeWire "jump_target" (.bitVector 32)
   emitAssign jumpTarget (Expr.mux (.ref idex.isJalr) (.ref jalrTarget) (.ref brTarget))
 
-  -- Flush signal
-  emitAssign pw.flush (.op .or [.ref branchTaken, .ref idex.jump])
+  -- Flush signal (includes branch, jump, trap, and MRET)
+  emitAssign pw.flush (.op .or [.ref branchTaken,
+    .op .or [.ref idex.jump,
+    .op .or [.ref "trap_taken", .ref idex.isMret]]])
 
   -- Data memory interface
   emitAssign "dmem_addr" (.slice (.ref alu_result) (dmemAddrBits + 1) 2)
-  emitAssign "dmem_wdata" (.ref idex.rs2Val)
+  emitAssign "dmem_wdata" (.ref ex_rs2)
   emitAssign "dmem_we" (.ref idex.memWrite)
   emitAssign "dmem_re" (.ref idex.memRead)
 
@@ -676,29 +897,54 @@ def generateEXMEM (pw : PipelineWires) (idex : IDEX_Wires) : CircuitM Unit := do
   let exwb_m2r ← emitRegister "exwb_m2r" "clk" "rst" (.ref idex.memToReg) 0 .bit
   let exwb_pc4 ← emitRegister "exwb_pc4" "clk" "rst" (.ref idex.pc4) 0 (.bitVector 32)
   let exwb_jump ← emitRegister "exwb_jump" "clk" "rst" (.ref idex.jump) 0 .bit
+  let exwb_isCsr ← emitRegister "exwb_is_csr" "clk" "rst" (.ref idex.isCsr) 0 .bit
+  let exwb_csrRdata ← emitRegister "exwb_csr_rdata" "clk" "rst" (.ref "csr_rdata") 0 (.bitVector 32)
 
-  -- WB stage: result mux
+  -- Store-to-Load forwarding (Memory RAW hazard):
+  -- When a STORE writes to DMEM BRAM at cycle N, a LOAD from the same address
+  -- at cycle N+1 gets stale data due to read-before-write BRAM behavior.
+  -- We save the previous cycle's store address/data/enable and bypass the
+  -- BRAM output when the addresses match.
+  let prevStoreAddr ← emitRegister "prev_store_addr" "clk" "rst"
+    (.ref alu_result) 0 (.bitVector 32)
+  let prevStoreData ← emitRegister "prev_store_data" "clk" "rst"
+    (.ref ex_rs2) 0 (.bitVector 32)
+  let prevStoreEn ← emitRegister "prev_store_en" "clk" "rst"
+    (.ref idex.memWrite) 0 .bit
+
+  -- Detect store-to-load address match (word-aligned comparison)
+  let storeLoadMatch ← makeWire "store_load_match" .bit
+  emitAssign storeLoadMatch (.op .and [.ref prevStoreEn,
+    .op .eq [.slice (.ref prevStoreAddr) 31 2,
+             .slice (.ref exwb_alu) 31 2]])
+
+  -- Forwarded DMEM read data: bypass BRAM output when store-to-load match
+  let dmemRdataFwd ← makeWire "dmem_rdata_fwd" (.bitVector 32)
+  emitAssign dmemRdataFwd (Expr.mux (.ref storeLoadMatch)
+    (.ref prevStoreData) (.ref "dmem_rdata"))
+
+  -- WB stage: result mux (uses forwarded dmem_rdata)
   let wb_result ← makeWire "wb_result" (.bitVector 32)
   emitAssign wb_result
+    (Expr.mux (.ref exwb_isCsr) (.ref exwb_csrRdata)
     (Expr.mux (.ref exwb_jump) (.ref exwb_pc4)
-    (Expr.mux (.ref exwb_m2r) (.ref "dmem_rdata")
-      (.ref exwb_alu)))
+    (Expr.mux (.ref exwb_m2r) (.ref dmemRdataFwd)
+      (.ref exwb_alu))))
 
-  -- Write-back forwarding
-  let wrAddr ← makeWire "wr_addr_fwd" (.bitVector 5)
-  emitAssign wrAddr (.ref exwb_rd)
-  let wrData ← makeWire "wr_data_fwd" (.bitVector 32)
-  emitAssign wrData (.ref wb_result)
+  -- Write-back forwarding (wires pre-created in PipelineWires)
+  emitAssign pw.wrAddrFwd (.ref exwb_rd)
+  emitAssign pw.wrDataFwd (.ref wb_result)
   let wbRdNz ← makeWire "wb_rd_nz" .bit
   emitAssign wbRdNz (.op .not [.op .eq [.ref exwb_rd, .const 0 5]])
-  let wrEn ← makeWire "wr_en_fwd" .bit
-  emitAssign wrEn (.op .and [.ref exwb_regW, .ref wbRdNz])
+  emitAssign pw.wrEnFwd (.op .and [.ref exwb_regW, .ref wbRdNz])
 
-  -- PC update
+  -- PC update (priority: trap > MRET > branch/jump > stall > normal)
   emitAssign pw.pcNext
+    (Expr.mux (.ref "trap_taken") (.ref "trap_target")
+    (Expr.mux (.ref idex.isMret) (.ref "mret_target")
     (Expr.mux (.ref pw.flush) (.ref jumpTarget)
     (Expr.mux (.ref pw.stall) (.ref pw.pcReg)
-      (.ref pw.pcPlus4)))
+      (.ref pw.pcPlus4)))))
 
 /-- Generate the complete 4-stage RV32I pipeline core. -/
 def generateCore : CircuitM Unit := do
@@ -713,6 +959,25 @@ def generateCore : CircuitM Unit := do
   addOutput "dmem_re" .bit
   addInput "dmem_rdata" (.bitVector 32)
   addOutput "debug_pc" (.bitVector 32)
+  addOutput "bus_addr" (.bitVector 32)  -- Full 32-bit address for bus routing
+
+  -- CSR interface (directly connected by SoC)
+  addOutput "csr_addr" (.bitVector 12)
+  addOutput "csr_funct3" (.bitVector 3)
+  addOutput "csr_wdata" (.bitVector 32)
+  addOutput "csr_we" .bit
+  addInput "csr_rdata" (.bitVector 32)
+
+  -- Trap outputs
+  addOutput "trap_ecall" .bit
+  addOutput "trap_ebreak" .bit
+  addOutput "trap_mret" .bit
+  addOutput "trap_pc" (.bitVector 32)
+
+  -- Trap input (redirect PC)
+  addInput "trap_taken" .bit
+  addInput "trap_target" (.bitVector 32)
+  addInput "mret_target" (.bitVector 32)
 
   -- Shared pipeline wires
   let pcNext ← makeWire "pc_next" (.bitVector 32)
@@ -721,8 +986,47 @@ def generateCore : CircuitM Unit := do
   let flush ← makeWire "flush" .bit
   let stall ← makeWire "stall" .bit
 
+  -- Pre-create write-back forwarding wires (needed by register file BRAM
+  -- which is emitted in ID stage, before WB stage assigns them)
+  let wrAddrFwd ← makeWire "wr_addr_fwd" (.bitVector 5)
+  let wrDataFwd ← makeWire "wr_data_fwd" (.bitVector 32)
+  let wrEnFwd ← makeWire "wr_en_fwd" .bit
+
+  -- Delayed flush: the 2-cycle IF delay means a branch/jump creates TWO
+  -- wrong-path instructions in the fetch pipeline. The flush signal only
+  -- squashes the first one (at posedge N+1). The second wrong-path
+  -- instruction arrives from the stale BRAM output at posedge N+2 and
+  -- sneaks through IFID. flushDelay extends the flush by one cycle so
+  -- both wrong-path instructions are squashed.
+  let flushDelay ← emitRegister "flush_delay" "clk" "rst" (.ref flush) 0 .bit
+
+  -- Delayed PC: captures the current PC value each cycle.
+  -- The IMEM BRAM reads at address pc[11:2] and produces the result one
+  -- cycle later. fetchPC holds the PC that was used for the IMEM read,
+  -- so ifid_pc (which captures fetchPC) aligns with the IMEM BRAM output.
+  -- CRITICAL: fetchPC must HOLD during stall. Otherwise, during a load-use
+  -- stall, fetchPC advances to pcReg (which is 2 ahead of IFID), and when
+  -- the stall clears, IFID gets the instruction at the advanced fetchPC,
+  -- skipping the instruction immediately after the stalled one.
+  let fetchPCIn ← makeWire "fetch_pc_in" (.bitVector 32)
+  let fetchPC ← emitRegister "fetch_pc" "clk" "rst" (.ref fetchPCIn) 0 (.bitVector 32)
+  emitAssign fetchPCIn (Expr.mux (.ref stall) (.ref fetchPC) (.ref pcReg))
+  let fetchPCPlus4 ← makeWire "fetch_pc_plus4" (.bitVector 32)
+  emitAssign fetchPCPlus4 (Expr.add (.ref fetchPC) (.const 4 32))
+
+  -- Previous-cycle WB forwarding: the regfile BRAM pre-read (from imem_rdata)
+  -- happens 1 cycle before the instruction enters IFID. If WB writes to the
+  -- same register at the same posedge, the BRAM gets the stale value (read-
+  -- before-write). The current WB→ID bypass only checks the WB at the IFID
+  -- cycle, missing the write from the previous cycle. These registers capture
+  -- the previous cycle's WB data to enable a second-level bypass.
+  let prevWrAddr ← emitRegister "prev_wr_addr" "clk" "rst" (.ref wrAddrFwd) 0 (.bitVector 5)
+  let prevWrData ← emitRegister "prev_wr_data" "clk" "rst" (.ref wrDataFwd) 0 (.bitVector 32)
+  let prevWrEn ← emitRegister "prev_wr_en" "clk" "rst" (.ref wrEnFwd) 0 .bit
+
   let pw : PipelineWires := {
-    pcReg, pcPlus4, pcNext, flush, stall
+    pcReg, pcPlus4, pcNext, flush, stall, wrAddrFwd, wrDataFwd, wrEnFwd,
+    fetchPC, fetchPCPlus4, prevWrAddr, prevWrData, prevWrEn, flushDelay
   }
 
   -- Stage 1: IF
@@ -732,7 +1036,7 @@ def generateCore : CircuitM Unit := do
   let ifid ← generateIFID pw
 
   -- Stage 2: ID (decode + register file)
-  let idSig ← generateID_FieldsAndImm ifid
+  let idSig ← generateID_FieldsAndImm pw ifid
 
   -- Hazard detection
   -- Use the idex pipeline reg outputs for hazard detection.

@@ -148,7 +148,26 @@ def primitiveRegistry : List (Name × Sparkle.IR.AST.Operator) :=
     (``BEq.beq, .eq),
     -- Comparison operations (signed)
     (``BitVec.slt, .lt_s),
-    (``BitVec.sle, .le_s)
+    (``BitVec.sle, .le_s),
+    -- Shift operations (BitVec × BitVec via typeclass operators <<<, >>>)
+    (``HShiftLeft.hShiftLeft, .shl),
+    (``ShiftLeft.shiftLeft, .shl),
+    (``HShiftRight.hShiftRight, .shr),
+    (``ShiftRight.shiftRight, .shr),
+    -- Negation (unary: -x)
+    (``Neg.neg, .neg),
+    (``BitVec.neg, .neg),
+    -- Bitwise NOT (unary: ~~~x)
+    (``Complement.complement, .not),
+    (``BitVec.not, .not),
+    -- Arithmetic shift right (BitVec × BitVec wrapper for sshiftRight)
+    (``Sparkle.Core.Signal.ashr, .asr),
+    -- Boolean operations (for Signal dom Bool combinators)
+    (``Bool.not, .not),
+    (``not, .not),
+    (``Bool.and, .and),
+    (``Bool.or, .or),
+    (``Bool.xor, .xor)
   ]
 
 def isPrimitive (name : Name) : Bool :=
@@ -256,6 +275,10 @@ def extractBitVecLiteral (expr : Lean.Expr) : CompilerM (Nat × Nat) := do
       let w ← extractNat args[0]!
       let v ← extractNat args[1]!
       return (v, w)
+    else if name == ``Bool.false then
+      return (0, 1)
+    else if name == ``Bool.true then
+      return (1, 1)
     else
       CompilerM.liftMetaM $ throwError s!"Expected BitVec literal, got application of {name}"
   | _ =>
@@ -282,10 +305,38 @@ mutual
 
     -- 1. High-priority Signal Recognition (Avoid premature unfolding)
     if let .const name _ := fn then
+        -- OfNat.ofNat: numeric literal (e.g., 0#4, 0xFFFFF#20, 35)
+        -- Must be checked BEFORE `.endsWith ".ofNat"` which would take args.back! (the instance)
+        if name == ``OfNat.ofNat && args.size >= 3 then
+          let type ← CompilerM.liftMetaM (whnf args[0]!)
+          if let .app (.const ``BitVec _) widthExpr := type then
+            let w ← extractNat widthExpr
+            let v ← extractNat args[1]!
+            let resWire ← CompilerM.makeWire hint (if w == 1 then .bit else .bitVector w)
+            CompilerM.emitAssign resWire (.const v w)
+            return resWire
+
+        -- Bool constants
+        if name == ``Bool.true then
+          let resWire ← CompilerM.makeWire hint .bit
+          CompilerM.emitAssign resWire (.const 1 1)
+          return resWire
+        if name == ``Bool.false then
+          let resWire ← CompilerM.makeWire hint .bit
+          CompilerM.emitAssign resWire (.const 0 1)
+          return resWire
+
+        -- OfNat.mk: unwrap the constructor to its value
+        if name == ``OfNat.mk && args.size >= 1 then
+          return ← translateExprToWire args.back! hint
+
         -- Signal wrappers & identity casts
+        -- Note: exclude OfNat.ofNat from .endsWith ".ofNat" (already handled above)
         if name == ``Sparkle.Core.Signal.Signal.mk || name == ``Sparkle.Core.Signal.Signal.val ||
            name == ``BitVec.ofFin || name == ``Fin.mk || name == ``BitVec.ofNat || name == ``BitVec.toNat ||
-           name.toString.endsWith ".ofFin" || name.toString.endsWith ".ofNat" || name.toString.endsWith ".toNat" then
+           name.toString.endsWith ".ofFin" ||
+           (name.toString.endsWith ".ofNat" && name != ``OfNat.ofNat) ||
+           name.toString.endsWith ".toNat" then
           if args.size >= 1 then
             let payload := if name == ``Fin.mk && args.size >= 2 then args[args.size-2]! else args.back!
             return ← translateExprToWire payload hint
@@ -293,6 +344,22 @@ mutual
         -- Signal.pure (constant signals)
         if name == ``Sparkle.Core.Signal.Signal.pure && args.size >= 1 then
            let constValue := args[args.size-1]!
+           -- Check for Bool constants first
+           let constReduced ← CompilerM.liftMetaM (whnf constValue)
+           if let .const boolName _ := constReduced then
+             if boolName == ``Bool.true then
+               let resWire ← CompilerM.makeWire hint .bit
+               CompilerM.emitAssign resWire (.const 1 1)
+               return resWire
+             if boolName == ``Bool.false then
+               let resWire ← CompilerM.makeWire hint .bit
+               CompilerM.emitAssign resWire (.const 0 1)
+               return resWire
+           -- Check if argument is an fvar with wire mapping (let-bound constant)
+           if let .fvar fvarId := constValue then
+             match ← CompilerM.lookupVar fvarId with
+             | some wireName => return wireName
+             | none => pure ()
            -- Try to extract the BitVec literal value
            let (value, width) ← try
              extractBitVecLiteral constValue
@@ -302,7 +369,8 @@ mutual
              try
                extractBitVecLiteral reduced
              catch _ =>
-               throwError "Signal.pure: expected BitVec constant, got: {constValue}"
+               -- Last resort: try translateExprToWire (handles OfNat.ofNat, etc.)
+               return ← translateExprToWire constValue hint
            let resWire ← CompilerM.makeWire hint (.bitVector width)
            CompilerM.emitAssign resWire (.const value width)
            return resWire
@@ -337,10 +405,35 @@ mutual
                CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
                return resWire
 
+           -- Handle lambda functions in Signal.map (extractLsb', unary primitives)
+           if let .lam _ _ body _ := f then
+             let bodyFn := body.getAppFn
+             if let .const opName _ := bodyFn then
+               -- BitVec.extractLsb' → slice
+               if opName == ``BitVec.extractLsb' then
+                 let bodyArgs := body.getAppArgs
+                 if bodyArgs.size >= 4 then
+                   let start ← extractNat bodyArgs[bodyArgs.size - 3]!
+                   let len ← extractNat bodyArgs[bodyArgs.size - 2]!
+                   let wireS ← translateExprToWire s "s" (isTopLevel := false)
+                   let resWire ← CompilerM.makeWire hint (.bitVector len)
+                   CompilerM.emitAssign resWire (.slice (.ref wireS) (start + len - 1) start)
+                   return resWire
+               -- Unary primitives (neg, not, etc.)
+               if let some op := getOperator opName then
+                 let wireS ← translateExprToWire s "s" (isTopLevel := false)
+                 let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                 let hwType ← inferHWTypeFromSignal exprType
+                 let resWire ← CompilerM.makeWire hint hwType
+                 CompilerM.emitAssign resWire (.op op [.ref wireS])
+                 return resWire
+
         -- Detect if-then-else and match expressions that cannot be synthesized
         if name == ``ite || name == ``dite then
+          let exprStr ← CompilerM.liftMetaM (ppExpr e)
           CompilerM.liftMetaM $ throwError
             "if-then-else expressions cannot be synthesized to hardware.\n\n\
+            Expression: {exprStr}\n\n\
             Use Signal.mux instead:\n\
             ❌ WRONG: if cond then a else b\n\
             ✓ RIGHT:  Signal.mux cond a b\n\n\
@@ -477,7 +570,22 @@ mutual
                    let resWire ← CompilerM.makeWire hint hwType
                    CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
                    return resWire
-                | none => pure ()
+                | none =>
+                   -- Special: BitVec.append / HAppend → concat
+                   if opName == ``HAppend.hAppend || opName == ``BitVec.append then
+                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let hwType ← inferHWTypeFromSignal exprType
+                     let resWire ← CompilerM.makeWire hint hwType
+                     CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+                     return resWire
+                   -- Special: BitVec.sshiftRight → asr
+                   if opName == ``BitVec.sshiftRight then
+                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let hwType ← inferHWTypeFromSignal exprType
+                     let resWire ← CompilerM.makeWire hint hwType
+                     CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
+                     return resWire
+                   pure ()
 
         if name == ``Functor.map && args.size >= 2 then
              let f := args[args.size-2]!
@@ -491,6 +599,17 @@ mutual
 
                -- Check if it's a primitive operation
                if let .const opName _ := bodyFn then
+                 -- Special: BitVec.extractLsb' → slice (unary on signal, start/len are constants)
+                 if opName == ``BitVec.extractLsb' then
+                   let bodyArgs := bodyApp.getAppArgs
+                   if bodyArgs.size >= 4 then
+                     let start ← extractNat bodyArgs[bodyArgs.size - 3]!
+                     let len ← extractNat bodyArgs[bodyArgs.size - 2]!
+                     let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                     let resWire ← CompilerM.makeWire hint (.bitVector len)
+                     CompilerM.emitAssign resWire (.slice (.ref wireA) (start + len - 1) start)
+                     return resWire
+
                  if let some op := getOperator opName then
                    -- For now, only handle the simple case: unary map (no constants in lambda)
                    -- The more complex case with constants needs better handling
@@ -513,8 +632,14 @@ mutual
     ) |>.isSome
 
     -- 2. Fallback to normal reduction (only if no mapped fvars)
-    let e ← if hasMappedFvar then pure e
-            else CompilerM.liftMetaM (withTransparency TransparencyMode.reducible $ whnf e)
+    --    Exception: lambda applications (beta-redexes) are always reduced with
+    --    reducible transparency, which beta-reduces without unfolding Signal
+    --    primitives (mux, register, memory). This handles local function inlining
+    --    (e.g., `let f := fun x => ... Signal.mux ...; f arg`).
+    let isBetaRedex := e.isApp && e.getAppFn.isLambda
+    let e ← if !hasMappedFvar || isBetaRedex then
+              CompilerM.liftMetaM (withTransparency TransparencyMode.reducible $ whnf e)
+            else pure e
     let fn := e.getAppFn
 
 
@@ -639,8 +764,10 @@ mutual
 
       -- Detect if-then-else expressions (compile to Decidable.rec)
       if name == ``ite || name == ``dite then
+        let exprStr ← CompilerM.liftMetaM (ppExpr e)
         CompilerM.liftMetaM $ throwError
           "if-then-else expressions cannot be synthesized to hardware.\n\n\
+          Expression: {exprStr}\n\n\
           Use Signal.mux instead:\n\
           ❌ WRONG: if cond then a else b\n\
           ✓ RIGHT:  Signal.mux cond a b\n\n\
@@ -729,7 +856,59 @@ mutual
             CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
             return resWire
           | none =>
+            -- Special: BitVec.append / HAppend → concat
+            if opName == ``HAppend.hAppend || opName == ``BitVec.append then
+              let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+              let hwType ← inferHWTypeFromSignal exprType
+              let resWire ← CompilerM.makeWire hint hwType
+              CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+              return resWire
+            -- Special: BitVec.sshiftRight → asr (Nat arg handled via signal wire)
+            if opName == ``BitVec.sshiftRight then
+              let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+              let hwType ← inferHWTypeFromSignal exprType
+              let resWire ← CompilerM.makeWire hint hwType
+              CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
+              return resWire
             CompilerM.liftMetaM $ throwError s!"Complex lift of {opName} not yet supported: operator not found"
+
+      -- BitVec.extractLsb': bit slice extraction
+      if name == ``BitVec.extractLsb' && args.size >= 4 then
+        let start ← extractNat args[args.size - 3]!
+        let len ← extractNat args[args.size - 2]!
+        let bvWire ← translateExprToWire args[args.size - 1]! "slice_src"
+        let resWire ← CompilerM.makeWire hint (.bitVector len)
+        CompilerM.emitAssign resWire (.slice (.ref bvWire) (start + len - 1) start)
+        return resWire
+
+      -- BitVec.shiftLeft / BitVec.ushiftRight / BitVec.sshiftRight:
+      -- These take Nat as shift amount. Unwrap BitVec.toNat if present,
+      -- otherwise treat as a constant shift amount.
+      if (name == ``BitVec.shiftLeft || name == ``BitVec.ushiftRight || name == ``BitVec.sshiftRight)
+          && args.size >= 3 then
+        let bvExpr := args[args.size - 2]!
+        let natExpr := args[args.size - 1]!
+        let wire1 ← translateExprToWire bvExpr "shift_a"
+        -- Try to unwrap BitVec.toNat / Fin.val from the Nat argument
+        let wire2 ← translateShiftAmount bvExpr natExpr "shift_b"
+        let op := if name == ``BitVec.shiftLeft then Operator.shl
+                  else if name == ``BitVec.ushiftRight then Operator.shr
+                  else Operator.asr
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let resWire ← CompilerM.makeWire hint hwType
+        CompilerM.emitAssign resWire (.op op [.ref wire1, .ref wire2])
+        return resWire
+
+      -- BitVec.append / HAppend.hAppend: concatenation
+      if (name == ``HAppend.hAppend || name == ``BitVec.append) && args.size >= 2 then
+        let hiWire ← translateExprToWire args[args.size - 2]! "concat_hi"
+        let loWire ← translateExprToWire args[args.size - 1]! "concat_lo"
+        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        let resWire ← CompilerM.makeWire hint hwType
+        CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
+        return resWire
 
       if isPrimitive name then
         match getOperator name with
@@ -762,6 +941,25 @@ mutual
         let exprType ← CompilerM.liftMetaM (inferType e)
         let hwType ← inferHWTypeFromSignal exprType
         return ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+
+      -- Signal.registerWithEnable: register with conditional update
+      -- Synthesizes as: reg <= en ? input : reg (register + mux feedback)
+      if name.toString.endsWith ".registerWithEnable" && args.size >= 3 then
+        let init := args[args.size-3]!
+        let en := args[args.size-2]!
+        let input := args[args.size-1]!
+        let (initVal, _) ← extractBitVecLiteral init
+        let enWire ← translateExprToWire en "reg_en"
+        let inputWire ← translateExprToWire input "reg_input"
+        let exprType ← CompilerM.liftMetaM (inferType e)
+        let hwType ← inferHWTypeFromSignal exprType
+        -- Create mux wire for conditional input
+        let muxWire ← CompilerM.makeWire (hint ++ "_mux") hwType
+        -- Create register (input is the mux output)
+        let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType
+        -- Connect mux: en ? input : reg_output (hold value when disabled)
+        CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
+        return regWire
 
       if name.toString.endsWith ".mux" && args.size >= 3 then
         let cond := args[args.size-3]!
@@ -877,6 +1075,27 @@ mutual
       let fn := e.getAppFn
       CompilerM.liftMetaM $ throwError s!"Unsupported application: {e}\nHead: {fn} (ctor: {fn.ctorName})"
 
+  /-- Translate a Nat shift amount argument to a hardware wire.
+      Unwraps BitVec.toNat / Fin.val if the Nat came from a BitVec signal,
+      otherwise treats it as a constant shift amount. -/
+  partial def translateShiftAmount (bvExpr natExpr : Lean.Expr) (hint : String) : CompilerM String := do
+    let natExpr' ← CompilerM.liftMetaM (whnf natExpr)
+    let natFn := natExpr'.getAppFn
+    let natArgs := natExpr'.getAppArgs
+    if let .const natName _ := natFn then
+      if natName == ``BitVec.toNat && natArgs.size >= 2 then
+        return ← translateExprToWire natArgs[natArgs.size - 1]! hint
+      if natName == ``Fin.val && natArgs.size >= 2 then
+        return ← translateExprToWire natArgs[natArgs.size - 1]! hint
+    -- Fallback: treat as a constant shift amount
+    let n ← extractNat natExpr'
+    let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType bvExpr)
+    let bvHwType ← inferHWTypeFromSignal exprType
+    let width := match bvHwType with | .bitVector w => w | .bit => 1 | _ => 32
+    let constWire ← CompilerM.makeWire "shift_const" (.bitVector width)
+    CompilerM.emitAssign constWire (.const (Int.ofNat n) width)
+    return constWire
+
   partial def getPrimitiveNameFromLambda (e : Lean.Expr) : CompilerM Name := do
     match e with
     | .lam _ _ body _ => getPrimitiveNameFromLambda body
@@ -943,14 +1162,16 @@ def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
     IO.println s!"  {stmt}"
 
 elab "#synthesize" id:ident : command => do
-  let declName := id.getId
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let (module, _) ← synthesizeCombinational declName
     printModule module
     IO.println "\n-- IR successfully generated!"
 
 elab "#synthesizeVerilog" id:ident : command => do
-  let declName := id.getId
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let (module, _) ← synthesizeCombinational declName
     let verilog := toVerilog module
@@ -963,7 +1184,8 @@ def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
   return design'
 
 elab "#synthesizeDesign" id:ident : command => do
-  let declName := id.getId
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     for m in design.modules do
@@ -971,7 +1193,8 @@ elab "#synthesizeDesign" id:ident : command => do
     IO.println "\n-- Hierarchical IR successfully generated!"
 
 elab "#synthesizeVerilogDesign" id:ident : command => do
-  let declName := id.getId
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let verilog := toVerilogDesign design

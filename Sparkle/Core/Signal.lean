@@ -255,9 +255,24 @@ def memory {addrWidth dataWidth : Nat}
   Note: The simulation semantics are defined as a fixed point.
   For synthesis, this is recognized by the compiler.
 -/
+private unsafe def loopImpl [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α :=
+  let rec result := f result
+  result
+
+@[implemented_by loopImpl]
 opaque loop [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
 
 end Signal
+
+-- ============================================================================
+-- BitVec Utilities for Signal DSL
+-- ============================================================================
+
+/-- Arithmetic shift right with BitVec shift amount.
+    Wraps `BitVec.sshiftRight` (which takes Nat) so it can be used
+    in the applicative Signal DSL pattern: `(ashr · ·) <$> a <*> b` -/
+def ashr (a b : BitVec n) : BitVec n :=
+  a.sshiftRight b.toNat
 
 -- Notation and syntax sugar
 
@@ -361,5 +376,50 @@ def unbundle7 {dom : DomainConfig} {α β γ δ ε ζ η : Type u}
 def unbundle8 {dom : DomainConfig} {α β γ δ ε ζ η θ : Type u}
     (s : Signal dom (α × β × γ × δ × ε × ζ × η × θ)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ × Signal dom ε × Signal dom ζ × Signal dom η × Signal dom θ :=
   (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2.1), s.map (·.2.2.2.2.1), s.map (·.2.2.2.2.2.1), s.map (·.2.2.2.2.2.2.1), s.map (·.2.2.2.2.2.2.2))
+
+-- ============================================================================
+-- Tuple Macros for Signal.loop Pipeline Pattern
+-- ============================================================================
+
+/-- Project the i-th element (0-indexed) from a right-nested pair signal.
+    `projN! state n i` extracts element `i` from `n`-element nested pair.
+
+    Example (4-element tuple `(A × (B × (C × D)))`):
+      `projN! s 4 0` → `Signal.fst s`              -- A
+      `projN! s 4 1` → `Signal.fst (Signal.snd s)`  -- B
+      `projN! s 4 2` → `Signal.fst (Signal.snd (Signal.snd s))`  -- C
+      `projN! s 4 3` → `Signal.snd (Signal.snd (Signal.snd s))`  -- D (last uses snd) -/
+syntax "projN!" term:max num num : term
+
+macro_rules
+  | `(projN! $s $n 0) => do
+    if n.getNat == 1 then `($s)
+    else `(Signal.fst $s)
+  | `(projN! $s $n $i) => do
+    let n' := n.getNat
+    let i' := i.getNat
+    if i' == n' - 1 then
+      -- Last element: chain of Signal.snd
+      let mut result ← `($s)
+      for _ in [:i'] do
+        result ← `(Signal.snd $result)
+      return result
+    else
+      -- Middle element: Signal.fst after i chains of Signal.snd
+      let mut result ← `($s)
+      for _ in [:i'] do
+        result ← `(Signal.snd $result)
+      `(Signal.fst $result)
+
+/-- Bundle a list of signals into a right-nested pair using `bundle2`.
+    `bundleAll! [a, b, c, d]` → `bundle2 a (bundle2 b (bundle2 c d))`
+
+    For a single element, returns that element directly. -/
+syntax "bundleAll!" "[" term,+ "]" : term
+
+macro_rules
+  | `(bundleAll! [$a]) => `($a)
+  | `(bundleAll! [$a, $b]) => `(bundle2 $a $b)
+  | `(bundleAll! [$a, $bs,*]) => `(bundle2 $a (bundleAll! [$bs,*]))
 
 end Sparkle.Core.Signal
