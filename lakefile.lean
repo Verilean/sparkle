@@ -11,11 +11,11 @@ require LSpec from git
 
 -- C FFI library for Signal memoization barriers (defeats Lean 4.28 LICM)
 extern_lib «sparkle_barrier» pkg := do
-  let srcFile := pkg.dir / "c" / "sparkle_barrier.c"
-  let oFile := pkg.buildDir / "c" / "sparkle_barrier.o"
+  let srcFile := pkg.dir / "c_src" / "sparkle_barrier.c"
+  let oFile := pkg.buildDir / "c_src" / "sparkle_barrier.o"
   let srcJob ← inputTextFile srcFile
   let oJob ← buildLeanO oFile srcJob (weakArgs := #["-O2"])
-  buildStaticLib (pkg.buildDir / "c" / nameToStaticLib "sparkle_barrier") #[oJob]
+  buildStaticLib (pkg.buildDir / "c_src" / nameToStaticLib "sparkle_barrier") #[oJob]
 
 lean_lib «Sparkle» where
 

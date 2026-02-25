@@ -6,7 +6,7 @@ lake-packages/
 *.ilean
 *.trace
 *.c
-!c/*.c
+!c_src/*.c
 *.o
 *.so
 *.dylib
