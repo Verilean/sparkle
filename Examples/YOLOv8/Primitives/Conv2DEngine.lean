@@ -81,8 +81,8 @@ def conv2DEngine {dom : DomainConfig}
 
     -- MAC: sign-extend weight4 to 8-bit, then both to 32-bit, multiply and accumulate
     let w8 := dequantInt4ToInt8 weight4
-    let w32 := w8.map (BitVec.signExtend 32 ·)
-    let a32 := activation8.map (BitVec.signExtend 32 ·)
+    let w32 := extendInt8ToInt32 w8
+    let a32 := extendInt8ToInt32 activation8
     let product := (· * ·) <$> w32 <*> a32
     let accPlusProduct := (· + ·) <$> accReg <*> product
 
@@ -137,7 +137,6 @@ def conv2DEngine {dom : DomainConfig}
   let doneOut := projN! loopState 5 4
   bundle2 resultOut doneOut
 
--- Note: `.map (BitVec.signExtend ·)` pattern not yet supported by synthesizer.
--- #synthesizeVerilog conv2DEngine
+#synthesizeVerilog conv2DEngine
 
 end Sparkle.Examples.YOLOv8.Primitives.Conv2DEngine

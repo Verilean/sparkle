@@ -105,9 +105,8 @@
 ## Phase 6: Top-Level Integration
 
 - [x] **6.1** `Examples/YOLOv8/Top.lean` — Full SoC (**synthesizes to Verilog**)
-- [ ] **6.2** Verilog synthesis (`#synthesizeVerilog` per module)
-  - 3/15 modules synthesize: upsample2x, headController, yolov8nTop
-  - 12/15 need pattern refactoring (replace `decide`/`signExtend` with MSB checks)
+- [x] **6.2** Verilog synthesis (`#synthesizeVerilog` per module)
+  - **All 15/15 modules synthesize to Verilog** (refactored `decide`/`signExtend` → MSB checks)
 
 ### Phase 6 Tests
 - [ ] **6.T1** `Tests/YOLOv8/TestEndToEnd.lean` — Detection mAP within 10% of float
@@ -119,15 +118,12 @@
 - [x] Update `Tests/AllTests.lean` to include YOLOv8 test suite
 - [x] Verify `lake build` compiles all modules (155 jobs)
 - [x] Verify `lake test` passes all YOLOv8 tests (20 primitive + 9 golden = 29 pass)
-- [ ] Verify `#synthesizeVerilog` on each primitive generates valid Verilog
-  - Needs: refactor `decide` in lambdas → MSB bit-check pattern
-  - Needs: refactor `.map (BitVec.signExtend ·)` → explicit bit concat
-  - Needs: refactor `ashr` → synthesizable shift pattern
+- [x] Verify `#synthesizeVerilog` on all 15 modules generates valid Verilog
+  - Refactored: `decide` in lambdas → MSB bit-check pattern
+  - Refactored: `.map (BitVec.signExtend ·)` → explicit bit concat
+  - `ashr` already supported by synthesizer (no refactoring needed)
 
 ## Known Issues
 
 - **Stack overflow with Signal.loop tests**: TestConv2D and TestUpsample use `Signal.loop`
   and `atTime` evaluation causes stack overflow. Fix: use `Signal.loopMemo` for simulation.
-- **12/15 modules unsynthesizable**: Patterns like `decide`, `signExtend`, `ashr` not
-  supported by `#synthesizeVerilog`. Need refactoring to use MSB-check comparisons
-  and explicit bit concatenation.

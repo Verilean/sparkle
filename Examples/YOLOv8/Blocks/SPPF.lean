@@ -113,7 +113,6 @@ def sppfController {dom : DomainConfig}
   let doneOut := projN! loopState 4 3
   bundle3 phaseOut poolStgOut doneOut
 
--- Note: Complex FSM not yet synthesizable.
--- #synthesizeVerilog sppfController
+#synthesizeVerilog sppfController
 
 end Sparkle.Examples.YOLOv8.Blocks.SPPF

@@ -26,14 +26,13 @@ variable {dom : DomainConfig}
 -- ============================================================================
 
 /-- ReLU activation for INT8: max(0, x).
-    Uses Signal.mux (NOT if-then-else). -/
+    Synthesizable: checks MSB (sign bit) via extractLsb'. -/
 def relu {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  let isNeg := (fun v => decide (v.toInt < 0)) <$> x
+  let msb := x.map (BitVec.extractLsb' 7 1 ·)
+  let isNeg := (· == ·) <$> msb <*> Signal.pure 1#1
   Signal.mux isNeg (Signal.pure 0#8) x
 
--- Note: `decide` in lambda not supported by synthesizer yet.
--- Synthesis requires refactoring to use MSB check instead of toInt comparison.
--- #synthesizeVerilog relu
+#synthesizeVerilog relu
 
 -- ============================================================================
 -- SiLU (Swish) via ROM Lookup Table
@@ -71,14 +70,18 @@ def siluLut {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom (BitVe
   -- Lookup sigmoid(x) from LUT using mux tree
   let sigVal := lutMuxTree sigmoidLut x
   -- Multiply: x_int8 (signed) * sigmoid_u8 (unsigned Q0.7)
-  -- Sign-extend x to 16 bits
-  let xExt := x.map (BitVec.signExtend 16 ·)
+  -- Sign-extend x to 16 bits (synthesizable MSB check)
+  let xMsb := x.map (BitVec.extractLsb' 7 1 ·)
+  let xIsNeg := (· == ·) <$> xMsb <*> Signal.pure 1#1
+  let xPadOnes := (· ++ ·) <$> Signal.pure 255#8 <*> x
+  let xPadZeros := (· ++ ·) <$> Signal.pure 0#8 <*> x
+  let xExt := Signal.mux xIsNeg xPadOnes xPadZeros
   -- Zero-extend sigmoid to 16 bits
-  let sigExt := sigVal.map (fun v => (BitVec.ofNat 16 v.toNat))
+  let sigExt := (· ++ ·) <$> Signal.pure 0#8 <*> sigVal
   -- Multiply (16-bit signed × 16-bit unsigned = 16-bit result sufficient for INT8)
   let product := (· * ·) <$> xExt <*> sigExt
-  -- Arithmetic shift right by 7 (Q0.7 scaling)
-  let shifted := product.map (fun v => BitVec.ofInt 8 (v.toInt / 128))
-  shifted
+  -- Arithmetic shift right by 7 (Q0.7 scaling), then truncate to 8 bits
+  let shifted := (ashr · ·) <$> product <*> Signal.pure 7#16
+  shifted.map (BitVec.extractLsb' 0 8 ·)
 
 end Sparkle.Examples.YOLOv8.Primitives.Activation

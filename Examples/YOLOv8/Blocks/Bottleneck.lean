@@ -108,7 +108,6 @@ def bottleneckController {dom : DomainConfig}
   let phaseOut := projN! loopState 4 0
   bundle3 resultOut doneOut phaseOut
 
--- Note: Complex FSM not yet synthesizable.
--- #synthesizeVerilog bottleneckController
+#synthesizeVerilog bottleneckController
 
 end Sparkle.Examples.YOLOv8.Blocks.Bottleneck

@@ -129,7 +129,6 @@ def c2fController {dom : DomainConfig}
   let doneOut := projN! loopState 5 4
   bundle3 phaseOut bnIdxOut doneOut
 
--- Note: Complex FSM not yet synthesizable (unbound variable in negation chain).
--- #synthesizeVerilog c2fController
+#synthesizeVerilog c2fController
 
 end Sparkle.Examples.YOLOv8.Blocks.C2f

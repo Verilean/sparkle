@@ -98,8 +98,15 @@ def lineBuffer3x3 {dom : DomainConfig}
     let rowNext := rowPos  -- Row tracking managed by external controller
 
     -- Window valid: true after first 2 rows + 2 columns
-    let hasEnoughRows := (fun r => decide (r.toNat >= 2)) <$> rowPos
-    let hasEnoughCols := (fun c => decide (c.toNat >= 2)) <$> colPos
+    -- r >= 2 ⟺ ¬(r < 2) ⟺ ¬(r == 0 || r == 1)
+    let rowIs0 := (· == ·) <$> rowPos <*> Signal.pure 0#8
+    let rowIs1 := (· == ·) <$> rowPos <*> Signal.pure 1#8
+    let rowLt2 := (· || ·) <$> rowIs0 <*> rowIs1
+    let hasEnoughRows := (fun x => !x) <$> rowLt2
+    let colIs0 := (· == ·) <$> colPos <*> Signal.pure 0#8
+    let colIs1 := (· == ·) <$> colPos <*> Signal.pure 1#8
+    let colLt2 := (· || ·) <$> colIs0 <*> colIs1
+    let hasEnoughCols := (fun x => !x) <$> colLt2
     let validNext := (· && ·) <$> hasEnoughRows <*> hasEnoughCols
 
     -- Write address for line buffers

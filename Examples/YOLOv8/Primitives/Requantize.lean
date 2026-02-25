@@ -21,28 +21,33 @@ open Sparkle.Core.Signal
 variable {dom : DomainConfig}
 
 /-- Multiply accumulator by scale factor.
-    Result is 32-bit (we keep lower 32 bits of the 48-bit product
-    since scale is typically small). -/
+    Synthesizable: sign-extends scale via MSB check + concat. -/
 def mulAccScale (acc : Signal dom (BitVec 32)) (scale : Signal dom (BitVec 16))
     : Signal dom (BitVec 32) :=
-  -- Sign-extend scale to 32 bits, then multiply
-  let scaleExt := scale.map (BitVec.signExtend 32 ·)
+  -- Sign-extend scale to 32 bits
+  let sMsb := scale.map (BitVec.extractLsb' 15 1 ·)
+  let sIsNeg := (· == ·) <$> sMsb <*> Signal.pure 1#1
+  let sPadOnes := (· ++ ·) <$> Signal.pure (BitVec.ofNat 16 0xFFFF) <*> scale
+  let sPadZeros := (· ++ ·) <$> Signal.pure 0#16 <*> scale
+  let scaleExt := Signal.mux sIsNeg sPadOnes sPadZeros
   (· * ·) <$> acc <*> scaleExt
 
 /-- Arithmetic shift right by a 5-bit shift amount.
-    Uses the `ashr` helper from Signal.lean. -/
+    Synthesizable: zero-extends shift to 32-bit, uses ashr. -/
 def shiftRight32 (val : Signal dom (BitVec 32)) (shift : Signal dom (BitVec 5))
     : Signal dom (BitVec 32) :=
-  let shiftExt := shift.map (fun s => BitVec.ofNat 32 s.toNat)
+  -- Zero-extend shift amount to 32 bits (shift is unsigned)
+  let shiftExt := (· ++ ·) <$> Signal.pure 0#27 <*> shift
   (ashr · ·) <$> val <*> shiftExt
 
 /-- Clamp a 32-bit signed value to INT8 range [-128, 127].
-    Uses Signal.mux cascade (no if-then-else). -/
+    Synthesizable: uses BitVec.slt for signed comparison. -/
 def clampToInt8 (val : Signal dom (BitVec 32)) : Signal dom (BitVec 8) :=
-  -- Check overflow: val > 127
-  let isOverflow := (fun x => decide (x.toInt > 127)) <$> val
+  -- Check overflow: val > 127  ⟺  ¬(val ≤ 127)  ⟺  ¬(val < 128)
+  -- Using slt: 127 < val  ⟺  val > 127
+  let isOverflow := (BitVec.slt · ·) <$> Signal.pure (BitVec.ofNat 32 127) <*> val
   -- Check underflow: val < -128
-  let isUnderflow := (fun x => decide (x.toInt < -128)) <$> val
+  let isUnderflow := (BitVec.slt · ·) <$> val <*> Signal.pure (BitVec.ofInt 32 (-128))
   -- Truncate to 8 bits (for normal case)
   let truncated := val.map (BitVec.extractLsb' 0 8 ·)
   -- Mux cascade: overflow → 127, underflow → -128, else → truncated
@@ -61,7 +66,6 @@ def requantize {dom : DomainConfig}
   let shifted := shiftRight32 product shift
   clampToInt8 shifted
 
--- Note: `decide` and `ashr` patterns not yet supported by synthesizer.
--- #synthesizeVerilog requantize
+#synthesizeVerilog requantize
 
 end Sparkle.Examples.YOLOv8.Primitives.Requantize

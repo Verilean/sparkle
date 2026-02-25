@@ -65,7 +65,6 @@ def convBnSiLU {dom : DomainConfig}
   -- Output activated result with the same done timing
   bundle2 activated convDone
 
--- Note: Depends on conv2DEngine which uses unsupported patterns.
--- #synthesizeVerilog convBnSiLU
+#synthesizeVerilog convBnSiLU
 
 end Sparkle.Examples.YOLOv8.Blocks.ConvBnSiLU

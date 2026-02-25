@@ -22,10 +22,11 @@ open Sparkle.Examples.BitNet.SignalHelpers
 variable {dom : DomainConfig}
 
 /-- Signed max of two INT8 signals.
-    Uses Signal.mux with signed comparison. -/
+    Uses Signal.mux with signed less-than (BitVec.slt). -/
 def maxInt8Signal (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  let aGtB := (fun x y => decide (x.toInt > y.toInt)) <$> a <*> b
-  Signal.mux aGtB a b
+  -- a > b ⟺ b < a (signed)
+  let bLtA := (BitVec.slt · ·) <$> b <*> a
+  Signal.mux bLtA a b
 
 /-- Signed max of four INT8 signals (2x2 window).
     Binary reduction tree: max(max(a,b), max(c,d)). -/
@@ -45,7 +46,6 @@ def maxPool2x2 {dom : DomainConfig}
     : Signal dom (BitVec 8) :=
   max4Int8 a b c d
 
--- Note: Signed comparison via `decide` not yet supported by synthesizer.
--- #synthesizeVerilog maxPool2x2
+#synthesizeVerilog maxPool2x2
 
 end Sparkle.Examples.YOLOv8.Primitives.MaxPool

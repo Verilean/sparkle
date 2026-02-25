@@ -148,7 +148,6 @@ def neckController {dom : DomainConfig}
   let doneOut   := projN! loopState 6 5
   bundle3 phaseOut pathOut doneOut
 
--- Note: Complex FSM not yet synthesizable.
--- #synthesizeVerilog neckController
+#synthesizeVerilog neckController
 
 end Sparkle.Examples.YOLOv8.Neck

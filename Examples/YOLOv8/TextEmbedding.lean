@@ -13,7 +13,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import Examples.YOLOv8.Config
 import Examples.YOLOv8.Types
-import Examples.BitNet.SignalHelpers
+import Examples.YOLOv8.Primitives.Dequant
 
 set_option maxRecDepth 8192
 set_option maxHeartbeats 800000
@@ -22,7 +22,7 @@ namespace Sparkle.Examples.YOLOv8.TextEmbedding
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.BitNet.SignalHelpers
+open Sparkle.Examples.YOLOv8.Primitives.Dequant
 
 /-- INT8 dot product engine.
 
@@ -64,8 +64,8 @@ def dotProductEngine {dom : DomainConfig}
     let startAndIdle := (· && ·) <$> start <*> isIdle
 
     -- MAC: sign-extend both to 32 bits, multiply, accumulate
-    let aExt := vecA.map (BitVec.signExtend 32 ·)
-    let bExt := vecB.map (BitVec.signExtend 32 ·)
+    let aExt := extendInt8ToInt32 vecA
+    let bExt := extendInt8ToInt32 vecB
     let product := (· * ·) <$> aExt <*> bExt
     let accPlus := (· + ·) <$> accReg <*> product
 
@@ -104,7 +104,6 @@ def dotProductEngine {dom : DomainConfig}
   let doneOut := projN! loopState 4 3
   bundle2 accOut doneOut
 
--- Note: `.map (BitVec.signExtend ·)` pattern not yet supported by synthesizer.
--- #synthesizeVerilog dotProductEngine
+#synthesizeVerilog dotProductEngine
 
 end Sparkle.Examples.YOLOv8.TextEmbedding

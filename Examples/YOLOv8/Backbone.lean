@@ -104,7 +104,11 @@ def backboneController {dom : DomainConfig}
     -- Check if current stage needs SPPF (stage 4 only)
     let isStage4 := (· == ·) <$> stageReg <*> Signal.pure 4#3
     -- Check if current stage needs feature save (stages 2, 3, 4)
-    let needsSave := (fun s => decide (s.toNat >= 2)) <$> stageReg
+    -- s >= 2 ⟺ ¬(s == 0 || s == 1)
+    let sIs0 := (· == ·) <$> stageReg <*> Signal.pure 0#3
+    let sIs1 := (· == ·) <$> stageReg <*> Signal.pure 1#3
+    let sLt2 := (· || ·) <$> sIs0 <*> sIs1
+    let needsSave := (fun x => !x) <$> sLt2
 
     -- Check if all stages complete (stage >= 5 means done)
     let stageInc := (· + ·) <$> stageReg <*> Signal.pure 1#3
@@ -179,7 +183,6 @@ def backboneController {dom : DomainConfig}
 
   bundle2 fsmOut (bundle2 stageOut (bundle2 layerOut (bundle2 wBaseOut (bundle2 bufSelOut doneOut))))
 
--- Note: `decide` in lambda not yet supported by synthesizer.
--- #synthesizeVerilog backboneController
+#synthesizeVerilog backboneController
 
 end Sparkle.Examples.YOLOv8.Backbone
