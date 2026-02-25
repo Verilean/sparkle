@@ -14,6 +14,7 @@ import Tests.BitNet.TestLayers
 import Tests.BitNet.TestAttention
 import Tests.BitNet.TestComparison
 import Tests.BitNet.TestSoC
+import Tests.BitNet.RTLGoldenValidation
 import LSpec
 
 open Sparkle.Core.Domain
@@ -309,6 +310,8 @@ def main : IO UInt32 := do
   Sparkle.Examples.BitNet.Tests.Attention.runAll
   Sparkle.Examples.BitNet.Tests.Comparison.runAll
   Sparkle.Examples.BitNet.Tests.SoC.runAll
+  IO.println ""
+  Sparkle.Examples.BitNet.Tests.RTLGoldenValidation.runAll
   IO.println ""
 
   -- Run Sparkle16 tests

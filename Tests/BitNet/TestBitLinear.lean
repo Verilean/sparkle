@@ -1,27 +1,32 @@
 /-
-  Hespera BitLinear Tests
+  BitNet BitLinear Tests — Signal DSL
 
-  Tests for the pipelined dataflow BitLinear engine.
-  Verifies zero-weight pruning, adder tree structure, bit-width propagation,
-  and pipeline register insertion.
+  Tests for the BitLinear engine:
+  - Ternary encoding (pure spec)
+  - Sign extension (pure spec)
+  - Fixed-point scale (pure spec)
+  - Dot product (pure spec)
+  - Config and memory map (pure spec)
+  - BitLinear Signal DSL functional tests
 -/
 
 import Examples.BitNet.Config
 import Examples.BitNet.Types
 import Examples.BitNet.MemoryMap
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
-import Sparkle.Backend.Verilog
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
+import Examples.BitNet.SignalHelpers
 import Examples.BitNet.BitLinear.Core
 import Examples.BitNet.BitLinear.Top
+import Examples.BitNet.BitLinear.Dynamic
 
 namespace Sparkle.Examples.BitNet.Tests.BitLinear
 
 open Sparkle.Examples.BitNet
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Backend.Verilog
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
+open Sparkle.Examples.BitNet.BitLinear
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -168,108 +173,69 @@ def testMemoryMap : IO Unit := do
   check "invalid group"  (validWeightAddr cfg 0 16 == false)
 
 -- ============================================================================
--- Pipelined BitLinear tests (NEW)
+-- BitLinear Signal DSL Functional Tests
 -- ============================================================================
 
-def testPipelinedBitLinear : IO Unit := do
-  IO.println "--- Pipelined BitLinear Tests ---"
+def testBitLinearSignal : IO Unit := do
+  IO.println "--- BitLinear Signal Tests ---"
 
-  -- Define test weights: 16 elements, 10 active (6 zeros pruned)
-  let weights : Array Int := #[-1, 1, 0, 1, -1, 0, 0, 1, 1, -1, 0, 0, 1, -1, 1, 0]
-  let cfg : GeneratorConfig := {
-    baseBitWidth := 8
-    pipelineEvery := 2
-  }
+  -- All +1 weights: sum of all activations
+  let weights1 : Array Int := #[1, 1, 1, 1]
+  let acts : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000)]
+  let result1 := bitLinearSignal weights1 acts
+  -- 4 × 1.0 = 4.0 (Q16.16: 0x40000)
+  check "signal: all +1 × 1.0 = 4.0" (result1.atTime 0 == BitVec.ofNat 32 0x40000)
 
-  -- Count active/zero weights
-  let activeCount := weights.foldl (fun acc w => if w != 0 then acc + 1 else acc) 0
-  let zeroCount := weights.size - activeCount
-  check "16 total weights" (weights.size == 16)
-  check "10 active weights" (activeCount == 10)
-  check "6 pruned zeros" (zeroCount == 6)
+  -- All -1 weights: negate and sum
+  let weightsNeg : Array Int := #[-1, -1, -1, -1]
+  let resultNeg := bitLinearSignal weightsNeg acts
+  check "signal: all -1 × 1.0 = -4.0" (resultNeg.atTime 0 == BitVec.ofInt 32 (-0x40000))
 
-  -- Generate the pipelined module
-  let m := BitLinear.buildTop weights cfg
+  -- Mixed weights with zeros (pruning)
+  let weightsMixed : Array Int := #[1, 0, -1, 0]
+  let actsMixed : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x20000),  -- 2.0
+      Signal.pure (BitVec.ofNat 32 0x30000),  -- 3.0 (pruned)
+      Signal.pure (BitVec.ofNat 32 0x10000),  -- 1.0
+      Signal.pure (BitVec.ofNat 32 0x40000)]  -- 4.0 (pruned)
+  let resultMixed := bitLinearSignal weightsMixed actsMixed
+  -- 1×2.0 + 0 + (-1)×1.0 + 0 = 2.0 - 1.0 = 1.0
+  check "signal: mixed weights" (resultMixed.atTime 0 == BitVec.ofNat 32 0x10000)
 
-  -- Verify input count: clk + rst + 10 activation inputs = 12
-  check "12 inputs (clk + rst + 10 act)" (m.inputs.length == 12)
+  -- All zero weights: constant 0
+  let weightsZero : Array Int := #[0, 0, 0, 0]
+  let resultZero := bitLinearSignal weightsZero acts
+  check "signal: all-zero weights = 0" (resultZero.atTime 0 == BitVec.ofNat 32 0)
 
-  -- Verify the activation inputs are only for non-zero weights
-  let actInputNames := m.inputs.filter (fun p => p.name.startsWith "act_")
-  check "10 activation inputs" (actInputNames.length == 10)
+  -- Single +1 weight: pass-through
+  let weightsSingle : Array Int := #[1]
+  let actsSingle : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x50000)]  -- 5.0
+  let resultSingle := bitLinearSignal weightsSingle actsSingle
+  check "signal: single +1 = pass-through" (resultSingle.atTime 0 == BitVec.ofNat 32 0x50000)
 
-  -- Verify activation input names match non-zero weight indices
-  let expectedActNames := ["act_0", "act_1", "act_3", "act_4", "act_7",
-                           "act_8", "act_9", "act_12", "act_13", "act_14"]
-  let actualActNames := actInputNames.map (·.name)
-  check "correct activation input names" (actualActNames == expectedActNames)
+def testDynamicBitLinearSignal : IO Unit := do
+  IO.println "--- Dynamic BitLinear Signal Tests ---"
 
-  -- Verify all activation inputs are baseBitWidth
-  let allCorrectWidth := actInputNames.all (fun p => p.ty == .bitVector 8)
-  check "all act inputs are 8-bit" allCorrectWidth
+  -- Dynamic weights: +1, -1, 0, +1
+  let wCodes : Array (Signal defaultDomain (BitVec 2)) :=
+    #[Signal.pure 0b10#2,   -- +1
+      Signal.pure 0b00#2,   -- -1
+      Signal.pure 0b01#2,   -- 0
+      Signal.pure 0b10#2]   -- +1
+  let acts : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x10000),  -- 1.0
+      Signal.pure (BitVec.ofNat 32 0x20000),  -- 2.0
+      Signal.pure (BitVec.ofNat 32 0x30000),  -- 3.0
+      Signal.pure (BitVec.ofNat 32 0x10000)]  -- 1.0
 
-  -- Verify output exists and has correct width
-  -- Adder tree: 10 inputs, 8-bit each
-  -- Level 0 (10→5): 9-bit sums
-  -- Level 1 (5→3): 10-bit (+ pipeline)
-  -- Level 2 (3→2): 11-bit
-  -- Level 3 (2→1): 12-bit (+ pipeline)
-  -- Expected output width: 12 bits
-  check "1 output port" (m.outputs.length == 1)
-  check "output named 'result'" (m.outputs.head?.map (·.name) == some "result")
-  check "output is 12-bit" (m.outputs.head?.map (·.ty) == some (.bitVector 12))
-
-  -- Count pipeline registers (register statements in body)
-  let regCount := m.body.foldl (fun acc s =>
-    match s with
-    | .register .. => acc + 1
-    | _ => acc) 0
-  -- Pipeline at level 1 (3 elements) + level 3 (1 element) = 4 registers
-  -- Plus the initial pipeline registers if any
-  check "pipeline registers present" (regCount > 0)
-
-  -- Verify no FSM states (no state register, no state_next wire)
-  let hasStateMachine := m.wires.any (fun p => p.name.find? "state" |>.isSome)
-  check "no FSM state machine" (!hasStateMachine)
-
-  -- Print generated Verilog for manual inspection
-  IO.println ""
-  IO.println "--- Generated Verilog (for inspection) ---"
-  let verilog := toVerilog m
-  IO.println verilog
-
--- ============================================================================
--- Edge case tests
--- ============================================================================
-
-def testEdgeCases : IO Unit := do
-  IO.println "--- Edge Case Tests ---"
-
-  -- All zeros: should produce constant 0 output
-  let allZeroWeights : Array Int := #[0, 0, 0, 0]
-  let cfg : GeneratorConfig := { baseBitWidth := 8, pipelineEvery := 2 }
-  let m := BitLinear.buildTop allZeroWeights cfg
-  check "all-zero: 2 inputs (clk+rst only)" (m.inputs.length == 2)
-  check "all-zero: 1 output" (m.outputs.length == 1)
-
-  -- Single +1 weight: output should be 8-bit pass-through
-  let singleWeight : Array Int := #[1]
-  let m2 := BitLinear.buildTop singleWeight cfg
-  check "single +1: 3 inputs (clk+rst+act_0)" (m2.inputs.length == 3)
-  check "single +1: output is 8-bit" (m2.outputs.head?.map (·.ty) == some (.bitVector 8))
-
-  -- Two weights: single addition
-  let twoWeights : Array Int := #[1, -1]
-  let m3 := BitLinear.buildTop twoWeights cfg
-  check "two weights: 4 inputs" (m3.inputs.length == 4)
-  check "two weights: output is 9-bit" (m3.outputs.head?.map (·.ty) == some (.bitVector 9))
-
-  -- All +1: no negation wires needed
-  let allPosWeights : Array Int := #[1, 1, 1, 1]
-  let m4 := BitLinear.buildTop allPosWeights cfg
-  check "all +1: 6 inputs" (m4.inputs.length == 6)
-  -- 4 inputs → 2 sums (9-bit) → 1 sum (10-bit), pipeline at level 1
-  check "all +1: output is 10-bit" (m4.outputs.head?.map (·.ty) == some (.bitVector 10))
+  let result := dynamicBitLinearSignal wCodes acts
+  -- 1×1.0 + (-1)×2.0 + 0×3.0 + 1×1.0 = 1.0 - 2.0 + 0.0 + 1.0 = 0.0
+  check "dynamic: +1,-1,0,+1 = 0.0" (result.atTime 0 == BitVec.ofNat 32 0)
 
 def runAll : IO Unit := do
   IO.println "=== BitLinear Tests ==="
@@ -279,8 +245,8 @@ def runAll : IO Unit := do
   testDotProduct
   testConfig
   testMemoryMap
-  testPipelinedBitLinear
-  testEdgeCases
+  testBitLinearSignal
+  testDynamicBitLinearSignal
   IO.println "=== Tests complete ==="
 
 end Sparkle.Examples.BitNet.Tests.BitLinear

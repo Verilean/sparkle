@@ -1,237 +1,111 @@
 /-
-  Hespera Attention — Softmax
+  BitNet Attention — Softmax — Signal DSL
 
-  Fully combinational softmax for fixed seqLen.
-
-  Architecture:
-    scores[0..seqLen-1]
-      │
-      ├─ [Max Reduction] ── comparator tree (gt_s + mux)
-      │         │
-      │      max_val
-      │         │
-      ├─ [Subtract Max] ── diff_i = score_i - max (non-positive)
-      │         │
-      ├─ [Exp LUT × seqLen] ── 256-entry exp(-|diff|) lookup (mux tree)
-      │         │
-      ├─ [Sum Reduction] ── adder tree over exp values
-      │         │
-      ├─ [Reciprocal LUT] ── 256-entry 1/sum lookup (mux tree)
-      │         │
-      └─ [Normalize × seqLen] ── weight_i = exp_i × recip >> 24
-
-  No FSM — pure combinational datapath for small seqLen.
+  Fully combinational softmax for fixed seqLen:
+    1. Max reduction (comparator tree)
+    2. Subtract max from each score
+    3. Exp LUT lookup (256-entry mux tree)
+    4. Sum reduction (adder tree)
+    5. Reciprocal LUT (256-entry mux tree)
+    6. Normalize: weight_i = exp_i × recip >> 24
 -/
 
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
-import Examples.BitNet.BitLinear.Core
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.Attention
 
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Examples.BitNet.BitLinear
-open CircuitM
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
+
+variable {dom : DomainConfig}
 
 /-- Generate a 256-entry exp(-i) LUT in Q8.24.
-    Index i maps to round(exp(-i) × 2^24).
-    For i ≥ ~20, exp(-i) ≈ 0. -/
+    Index i maps to round(exp(-i) × 2^24). -/
 def generateExpLUT : Array Int := Id.run do
   let mut lut : Array Int := #[]
   for i in [:256] do
     if i == 0 then
-      lut := lut.push ((2^softmaxFracBits : Nat) : Int)  -- exp(0) = 1.0 = 2^24
+      lut := lut.push ((2 ^ softmaxFracBits : Nat) : Int)
     else
       let val : Float := Float.exp (-(Float.ofNat i))
-      let q8_24 := (val * Float.ofNat (2^softmaxFracBits)).toUInt64.toNat
+      let q8_24 := (val * Float.ofNat (2 ^ softmaxFracBits)).toUInt64.toNat
       lut := lut.push (q8_24 : Int)
   return lut
 
 /-- Generate a 256-entry reciprocal LUT in Q8.24.
-    Indexed by the top 8 bits of the exp sum.
-    Entry i ≈ 2^24 / mapped_sum_value.
-    Index 0 clamps to 2^24 (avoid div/0). -/
+    Indexed by top 8 bits of the exp sum. -/
 def generateRecipLUT (maxSumBits : Nat) : Array Int := Id.run do
   let mut lut : Array Int := #[]
   let shift := if maxSumBits > 8 then maxSumBits - 8 else 0
   for i in [:256] do
     if i == 0 then
-      -- Clamp: avoid division by zero, return max weight
-      lut := lut.push ((2^softmaxFracBits : Nat) : Int)
+      lut := lut.push ((2 ^ softmaxFracBits : Nat) : Int)
     else
-      -- Map index back to approximate sum value
       let sumApprox : Nat := i <<< shift
       if sumApprox == 0 then
-        lut := lut.push ((2^softmaxFracBits : Nat) : Int)
+        lut := lut.push ((2 ^ softmaxFracBits : Nat) : Int)
       else
-        -- recip = 2^24 / sumApprox
-        let recip := (2^softmaxFracBits : Nat) / sumApprox
+        let recip := (2 ^ (2 * softmaxFracBits) : Nat) / sumApprox
         lut := lut.push (recip : Int)
   return lut
 
-/-- Build a binary max-reduction tree using gt_s + mux.
-    Returns the maximum value as a SizedExpr. -/
-partial def buildMaxTree (inputs : Array SizedExpr) (level : Nat)
-    : CircuitM SizedExpr := do
-  if inputs.size == 0 then
-    return { expr := .const 0 32, width := 32 }
-  if inputs.size == 1 then
-    return inputs[0]!
+/-- Softmax over an array of score signals using Signal DSL.
+    Returns Q8.24 attention weights (32-bit). -/
+def softmaxSignal (scores : Array (Signal dom (BitVec 32)))
+    : Array (Signal dom (BitVec 32)) :=
+  if scores.size == 0 then #[]
+  else Id.run do
+    -- Stage 1: Max reduction (signed comparator tree)
+    let maxVal := maxTree scores
 
-  let mut results : Array SizedExpr := #[]
-  let pairs := inputs.size / 2
+    -- Stage 2: Subtract max (diff ≤ 0)
+    let mut diffs : Array (Signal dom (BitVec 32)) := #[]
+    for score in scores do
+      diffs := diffs.push ((· - ·) <$> score <*> maxVal)
 
-  for i in [:pairs] do
-    let a := inputs[2 * i]!
-    let b := inputs[2 * i + 1]!
-    -- Compare: a > b (signed)
-    let cmpWire ← makeWire s!"max_cmp_L{level}_{i}" (.bitVector 1)
-    emitAssign cmpWire (Expr.op .gt_s [a.expr, b.expr])
-    -- Select max
-    let maxWire ← makeWire s!"max_L{level}_{i}" (.bitVector a.width)
-    emitAssign maxWire (Expr.mux (.ref cmpWire) a.expr b.expr)
-    results := results.push { expr := .ref maxWire, width := a.width }
+    -- Stage 3: Exp LUT lookup
+    let expLUTData := generateExpLUT
+    let expTable : Array (BitVec 32) := expLUTData.map (fun i => BitVec.ofInt 32 i)
 
-  -- Handle odd element
-  if inputs.size % 2 == 1 then
-    results := results.push inputs[inputs.size - 1]!
+    let mut expVals : Array (Signal dom (BitVec 32)) := #[]
+    for diff in diffs do
+      -- Negate diff to get positive index (diff ≤ 0)
+      let absDiff := (fun x => 0 - x) <$> diff
+      -- Lower 8 bits as index
+      let idx := absDiff.map (BitVec.extractLsb' 0 8 ·)
+      -- Check upper bits for saturation (if |diff| ≥ 256, exp ≈ 0)
+      let upperBits := absDiff.map (BitVec.extractLsb' 8 24 ·)
+      let isZero := (· == ·) <$> upperBits <*> Signal.pure (0 : BitVec 24)
+      let isLarge := (fun x => !x) <$> isZero
+      let satIdx := Signal.mux isLarge (Signal.pure 255#8) idx
+      -- LUT lookup via mux tree
+      let expVal := lutMuxTree expTable satIdx
+      expVals := expVals.push expVal
 
-  buildMaxTree results (level + 1)
+    -- Stage 4: Sum of exp values
+    let expSum := adderTree expVals
 
-/-- Build a LUT as a mux tree: if idx==N-1 then lut[N-1] else if idx==N-2 ...
-    Same pattern as RMSNorm rsqrt LUT. -/
-def buildLUTMuxTree (entries : Array Int) (indexExpr : Expr)
-    (indexBits outputBits : Nat) (namePrefix : String)
-    : CircuitM SizedExpr := do
-  -- Build chained mux tree
-  let mut lutExpr := Expr.const (entries[0]!) outputBits
-  for i in [:entries.size] do
-    let entry := entries[i]!
-    lutExpr := Expr.mux
-      (Expr.op .eq [indexExpr, .const i indexBits])
-      (.const entry outputBits)
-      lutExpr
-  let outWire ← makeWire s!"{namePrefix}_out" (.bitVector outputBits)
-  emitAssign outWire lutExpr
-  return { expr := .ref outWire, width := outputBits }
+    -- Stage 5: Reciprocal LUT (indexed by top 8 bits of sum)
+    let recipLUTData := generateRecipLUT 32
+    let recipTable : Array (BitVec 32) := recipLUTData.map (fun i => BitVec.ofInt 32 i)
+    let recipIdx := expSum.map (BitVec.extractLsb' 24 8 ·)
+    let recipVal := lutMuxTree recipTable recipIdx
 
-/-- Generate the complete softmax module.
+    -- Stage 6: Normalize — weight_i = (exp_i × recip) >> 24
+    let mut weights : Array (Signal dom (BitVec 32)) := #[]
+    for expVal in expVals do
+      -- Sign-extend to 64 bits for multiplication
+      let expExt := signExtendSignal 32 expVal
+      let recipExt := signExtendSignal 32 recipVal
+      let prod := (· * ·) <$> expExt <*> recipExt
+      -- Shift right by 24 and truncate to 32 bits
+      let weight := prod.map (BitVec.extractLsb' 24 32 ·)
+      weights := weights.push weight
 
-    Inputs:  score_0..score_{seqLen-1}[scoreBits-1:0]
-    Outputs: weight_0..weight_{seqLen-1}[31:0] (Q8.24) -/
-def generateSoftmax (seqLen scoreBits : Nat) : CircuitM Unit := do
-  -- ==========================================
-  -- Input declarations
-  -- ==========================================
-  let mut scoreRefs : Array SizedExpr := #[]
-  for i in [:seqLen] do
-    addInput s!"score_{i}" (.bitVector scoreBits)
-    scoreRefs := scoreRefs.push { expr := .ref s!"score_{i}", width := scoreBits }
-
-  -- ==========================================
-  -- Stage 1: Max reduction (signed comparator tree)
-  -- ==========================================
-  let maxVal ← buildMaxTree scoreRefs 0
-
-  -- ==========================================
-  -- Stage 2: Subtract max from each score (diff_i = score_i - max, non-positive)
-  -- ==========================================
-  let mut diffs : Array SizedExpr := #[]
-  for i in [:seqLen] do
-    let diffWire ← makeWire s!"diff_{i}" (.bitVector scoreBits)
-    emitAssign diffWire (Expr.sub scoreRefs[i]!.expr maxVal.expr)
-    diffs := diffs.push { expr := .ref diffWire, width := scoreBits }
-
-  -- ==========================================
-  -- Stage 3: Exp LUT lookup for each diff
-  -- ==========================================
-  -- Take absolute value of diff (diff is non-positive, so negate)
-  -- Then use lower 8 bits as LUT index (saturate for large values)
-  let expLUT := generateExpLUT
-
-  let mut expVals : Array SizedExpr := #[]
-  for i in [:seqLen] do
-    -- Negate diff to get positive index (diff ≤ 0, so -diff ≥ 0)
-    let absDiffWire ← makeWire s!"abs_diff_{i}" (.bitVector scoreBits)
-    emitAssign absDiffWire (Expr.sub (.const 0 scoreBits) diffs[i]!.expr)
-
-    -- LUT index: lower 8 bits of |diff|, clamped by checking upper bits
-    -- If |diff| ≥ 256, exp ≈ 0, so we saturate index to 255
-    let idxWire ← makeWire s!"exp_idx_{i}" (.bitVector expLutBits)
-    if scoreBits > expLutBits then
-      -- Check if upper bits are non-zero (overflow → saturate to 255)
-      let upperBits ← makeWire s!"exp_upper_{i}" (.bitVector (scoreBits - expLutBits))
-      emitAssign upperBits (Expr.slice (.ref absDiffWire) (scoreBits - 1) expLutBits)
-      let isLarge ← makeWire s!"exp_large_{i}" (.bitVector 1)
-      emitAssign isLarge (Expr.op .not [Expr.op .eq [.ref upperBits, .const 0 (scoreBits - expLutBits)]])
-      let lowBits ← makeWire s!"exp_low_{i}" (.bitVector expLutBits)
-      emitAssign lowBits (Expr.slice (.ref absDiffWire) (expLutBits - 1) 0)
-      emitAssign idxWire (Expr.mux (.ref isLarge)
-        (.const 255 expLutBits)
-        (.ref lowBits))
-    else
-      emitAssign idxWire (Expr.slice (.ref absDiffWire) (expLutBits - 1) 0)
-
-    -- LUT lookup
-    let expResult ← buildLUTMuxTree expLUT (.ref idxWire)
-      expLutBits softmaxTotalBits s!"exp_lut_{i}"
-    expVals := expVals.push expResult
-
-  -- ==========================================
-  -- Stage 4: Sum reduction over exp values
-  -- ==========================================
-  -- Use adder tree (reuse from BitLinear)
-  let noPipelineCfg : GeneratorConfig := {
-    baseBitWidth := softmaxTotalBits
-    pipelineEvery := 0
-  }
-  let expSum ← buildAdderTree expVals 0 noPipelineCfg
-
-  -- ==========================================
-  -- Stage 5: Reciprocal LUT (1/sum)
-  -- ==========================================
-  let recipLUT := generateRecipLUT expSum.width
-
-  -- Index: top 8 bits of the sum
-  let recipIdx ← makeWire "recip_idx" (.bitVector recipLutBits)
-  if expSum.width > recipLutBits then
-    emitAssign recipIdx (Expr.slice expSum.expr (expSum.width - 1) (expSum.width - recipLutBits))
-  else
-    emitAssign recipIdx (Expr.slice expSum.expr (recipLutBits - 1) 0)
-
-  let recipVal ← buildLUTMuxTree recipLUT (.ref recipIdx)
-    recipLutBits softmaxTotalBits "recip_lut"
-
-  -- ==========================================
-  -- Stage 6: Normalize — weight_i = (exp_i × recip) >> 24
-  -- ==========================================
-  let mulWidth := softmaxTotalBits * 2  -- 64-bit product
-  for i in [:seqLen] do
-    -- Multiply exp_i × recip (unsigned: both are non-negative Q8.24)
-    let expExt ← signExtendExpr expVals[i]! mulWidth
-    let recipExt ← signExtendExpr recipVal mulWidth
-    let prodWire ← makeWire s!"norm_prod_{i}" (.bitVector mulWidth)
-    emitAssign prodWire (Expr.mul expExt.expr recipExt.expr)
-
-    -- Shift right by 24 (Q8.24 × Q8.24 → Q8.24)
-    let shiftWire ← makeWire s!"norm_shift_{i}" (.bitVector mulWidth)
-    emitAssign shiftWire (Expr.op .asr [.ref prodWire, .const softmaxFracBits mulWidth])
-
-    -- Take lower 32 bits as Q8.24 weight
-    let weightWire ← makeWire s!"norm_weight_{i}" (.bitVector softmaxTotalBits)
-    emitAssign weightWire (Expr.slice (.ref shiftWire) (softmaxTotalBits - 1) 0)
-
-    addOutput s!"weight_{i}" (.bitVector softmaxTotalBits)
-    emitAssign s!"weight_{i}" (.ref weightWire)
-
-/-- Build a standalone softmax module -/
-def buildSoftmax (seqLen scoreBits : Nat) : Module :=
-  CircuitM.runModule s!"Softmax_{seqLen}seq" do
-    generateSoftmax seqLen scoreBits
+    return weights
 
 end Sparkle.Examples.BitNet.Attention

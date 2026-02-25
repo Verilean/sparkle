@@ -1,100 +1,67 @@
 /-
-  Hespera Attention — Score-V Multiplication
+  BitNet Attention — Score-V Multiplication — Signal DSL
 
   Computes attention-weighted V output for one head:
-    out[j] = Σ_{i=0}^{seqLen-1} weight[i] × V[i][j]  >> 24
+    out[j] = Σ_{i=0}^{seqLen-1} weight[i] × V[i][j] >> 24
 
   - weight[i]: Q8.24 (32-bit) from softmax
-  - V[i][j]: INT8 (8-bit), sign-extended to 32-bit before multiply
-  - Product: 64-bit (safe: max |w|=2^24, max |v|=128, product < 2^31)
-  - Sum: via buildAdderTree (reused from BitLinear/Core.lean)
-  - Final: asr 24 → slice [31:0]
-
-  No FSM — pure combinational datapath.
+  - V[i][j]: INT8 (8-bit), sign-extended to 32 bits
 -/
 
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
-import Examples.BitNet.BitLinear.Core
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.Attention
 
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Examples.BitNet.BitLinear
-open CircuitM
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
 
-/-- Generate the weighted sum for one output element j:
+variable {dom : DomainConfig}
+
+/-- Weighted sum for one output element j:
     out[j] = (Σ_i weight[i] × V[i][j]) >> 24
 
-    Multiplies each Q8.24 weight by the sign-extended INT8 V value,
-    then sums with an adder tree and shifts right by 24. -/
-def generateWeightedVElement (seqLen j : Nat)
-    (weightRefs : Array SizedExpr) (mulWidth : Nat) : CircuitM SizedExpr := do
-  let mut products : Array SizedExpr := #[]
-  for i in [:seqLen] do
-    -- Sign-extend V[i][j] from 8 to mulWidth bits
-    let vRef : SizedExpr := { expr := .ref s!"v_{i}_{j}", width := qkvBits }
-    let vExt ← signExtendExpr vRef mulWidth
+    Each weight is Q8.24 (32-bit), each V is INT8 (sign-extended to 32 bits).
+    Product is computed in 64 bits to avoid overflow. -/
+def weightedVElementSignal
+    (weights : Array (Signal dom (BitVec 32)))
+    (vColumn : Array (Signal dom (BitVec 8)))
+    : Signal dom (BitVec 32) :=
+  let products : Array (Signal dom (BitVec 64)) := Id.run do
+    let mut prods : Array (Signal dom (BitVec 64)) := #[]
+    for i in [:weights.size] do
+      if i < vColumn.size then
+        -- Sign-extend weight (32 → 64) and V (8 → 64)
+        let wExt := signExtendSignal 32 weights[i]!
+        let vExt := signExtendSignal 56 vColumn[i]!   -- 56 + 8 = 64
+        prods := prods.push ((· * ·) <$> wExt <*> vExt)
+    return prods
+  -- Sum via adder tree
+  let sum := adderTree products
+  -- Shift right by 24 and truncate to 32 bits
+  sum.map (BitVec.extractLsb' 24 32 ·)
 
-    -- Sign-extend weight[i] to mulWidth bits
-    let wExt ← signExtendExpr weightRefs[i]! mulWidth
-
-    -- Multiply
-    let prodWire ← makeWire s!"sv_prod_{j}_{i}" (.bitVector mulWidth)
-    emitAssign prodWire (Expr.mul wExt.expr vExt.expr)
-    products := products.push { expr := .ref prodWire, width := mulWidth }
-
-  -- Adder tree reduction
-  let noPipelineCfg : GeneratorConfig := {
-    baseBitWidth := mulWidth
-    pipelineEvery := 0
-  }
-  let sum ← buildAdderTree products 0 noPipelineCfg
-
-  -- Arithmetic shift right by 24 (Q8.24 back to integer)
-  let shiftWire ← makeWire s!"sv_shift_{j}" (.bitVector sum.width)
-  emitAssign shiftWire (Expr.op .asr [sum.expr, .const softmaxFracBits sum.width])
-
-  -- Slice to 32-bit output
-  let outWire ← makeWire s!"sv_out_{j}" (.bitVector softmaxTotalBits)
-  emitAssign outWire (Expr.slice (.ref shiftWire) (softmaxTotalBits - 1) 0)
-
-  return { expr := .ref outWire, width := softmaxTotalBits }
-
-/-- Generate the complete Score-V multiply module.
-
-    Inputs:  weight_0..weight_{seqLen-1}[31:0] (Q8.24 from softmax),
-             v_0_0..v_{seqLen-1}_{headDim-1}[7:0] (INT8 V cache)
-    Outputs: out_0..out_{headDim-1}[31:0] -/
-def generateScoreVMul (seqLen headDim : Nat) : CircuitM Unit := do
-  -- Weight inputs
-  let mut weightRefs : Array SizedExpr := #[]
-  for i in [:seqLen] do
-    addInput s!"weight_{i}" (.bitVector softmaxTotalBits)
-    weightRefs := weightRefs.push { expr := .ref s!"weight_{i}", width := softmaxTotalBits }
-
-  -- V cache inputs: v_{position}_{element}
-  for i in [:seqLen] do
+/-- Score-V multiply for one attention head.
+    Computes weighted V output for each element j in [0, headDim). -/
+def scoreVMulSignal
+    (weights : Array (Signal dom (BitVec 32)))
+    (vMatrix : Array (Array (Signal dom (BitVec 8))))
+    (headDim : Nat)
+    : Array (Signal dom (BitVec 32)) :=
+  Id.run do
+    let mut outputs : Array (Signal dom (BitVec 32)) := #[]
     for j in [:headDim] do
-      addInput s!"v_{i}_{j}" (.bitVector qkvBits)
-
-  -- Multiply width: 40 bits is safe (2^24 × 128 < 2^31 < 2^39)
-  let mulWidth := 40
-
-  -- Generate weighted sum for each output element
-  for j in [:headDim] do
-    let result ← generateWeightedVElement seqLen j weightRefs mulWidth
-    addOutput s!"out_{j}" (.bitVector softmaxTotalBits)
-    emitAssign s!"out_{j}" result.expr
-
-/-- Build a standalone Score-V multiply module -/
-def buildScoreVMul (seqLen headDim : Nat) : Module :=
-  CircuitM.runModule s!"ScoreVMul_{seqLen}x{headDim}" do
-    generateScoreVMul seqLen headDim
+      -- Extract column j from V matrix
+      let vColumn : Array (Signal dom (BitVec 8)) := Id.run do
+        let mut col : Array (Signal dom (BitVec 8)) := #[]
+        for i in [:vMatrix.size] do
+          if j < vMatrix[i]!.size then
+            col := col.push vMatrix[i]![j]!
+        return col
+      outputs := outputs.push (weightedVElementSignal weights vColumn)
+    return outputs
 
 end Sparkle.Examples.BitNet.Attention

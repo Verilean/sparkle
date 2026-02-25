@@ -1,31 +1,37 @@
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+/-
+  BitNet Layers — ReLU² (Squared ReLU) — Signal DSL
+
+  Implements max(0,x)² in Q16.16 fixed-point using Signal combinators.
+  Square gives Q32.32 (64-bit), shift right 16 → Q16.16 (32-bit).
+-/
+
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.Layers
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Examples.BitNet.BitLinear
-open CircuitM
 
-def generateReLUSq (inputName outputName : String) : CircuitM Unit := do
-  let inputRef : SizedExpr := { expr := .ref inputName, width := actTotalBits }
-  let signBit := Expr.slice inputRef.expr (actTotalBits - 1) (actTotalBits - 1)
-  let inputExt ← signExtendExpr inputRef squaredBits
-  let sqWire ← makeWire "relusq_squared" (.bitVector squaredBits)
-  emitAssign sqWire (Expr.mul inputExt.expr inputExt.expr)
-  let shiftWire ← makeWire "relusq_shifted" (.bitVector squaredBits)
-  emitAssign shiftWire (Expr.op .asr [.ref sqWire, .const 16 squaredBits])
-  let posResult ← makeWire "relusq_pos" (.bitVector actTotalBits)
-  emitAssign posResult (Expr.slice (.ref shiftWire) (actTotalBits - 1) 0)
-  emitAssign outputName (Expr.mux signBit (.const 0 actTotalBits) (.ref posResult))
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
 
-def buildReLUSq : Module :=
-  CircuitM.runModule "ReLUSq" do
-    addInput "x" (.bitVector actTotalBits)
-    addOutput "y" (.bitVector actTotalBits)
-    generateReLUSq "x" "y"
+variable {dom : DomainConfig}
+
+/-- ReLU²: max(0,x)² in Q16.16 using Signal DSL.
+    Extract sign bit → if negative: output 0.
+    Otherwise: sign-extend to 64 bits, square, extract bits [47:16]. -/
+def reluSqSignal (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  -- Extract sign bit (bit 31)
+  let signBit := x.map (BitVec.extractLsb' 31 1 ·)
+  let isNeg := (· == ·) <$> signBit <*> Signal.pure 1#1
+  -- Sign-extend input to 64 bits
+  let xExt := signExtendSignal 32 x
+  -- Square (64-bit × 64-bit → 64-bit, no overflow for 32-bit inputs)
+  let squared := (· * ·) <$> xExt <*> xExt
+  -- Extract bits [47:16] = ASR 16 then truncate to 32 bits
+  let shifted := squared.map (BitVec.extractLsb' 16 32 ·)
+  -- If negative → 0, else → shifted result
+  Signal.mux isNeg (Signal.pure 0#32) shifted
+
 end Sparkle.Examples.BitNet.Layers

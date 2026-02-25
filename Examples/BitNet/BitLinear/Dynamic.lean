@@ -1,59 +1,31 @@
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+/-
+  BitNet BitLinear Dynamic — Signal DSL
+
+  Dynamic (runtime) weight BitLinear layer using Signal DSL.
+  Weight codes are 2-bit runtime signals decoded via mux:
+    0b10 → +1 (pass-through), 0b00 → -1 (negate), else → 0.
+-/
+
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
-import Examples.BitNet.BitLinear.Core
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.BitLinear
 
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open CircuitM
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
 
-def generateDynamicMAC (inDim : Nat) (cfg : GeneratorConfig)
-    : CircuitM (Array SizedExpr) := do
-  let mut results : Array SizedExpr := #[]
-  for i in [:inDim] do
-    let negWire ← makeWire s!"neg_{i}" (.bitVector cfg.baseBitWidth)
-    emitAssign negWire (Expr.sub (.const 0 cfg.baseBitWidth) (.ref s!"act_{i}"))
-    let decodedWire ← makeWire s!"decoded_{i}" (.bitVector cfg.baseBitWidth)
-    emitAssign decodedWire
-      (Expr.mux
-        (Expr.op .eq [.ref s!"w_{i}", .const 0b10 2])
-        (.ref s!"act_{i}")
-        (Expr.mux
-          (Expr.op .eq [.ref s!"w_{i}", .const 0b00 2])
-          (.ref negWire)
-          (.const 0 cfg.baseBitWidth)))
-    results := results.push { expr := .ref decodedWire, width := cfg.baseBitWidth }
-  return results
+variable {dom : DomainConfig}
 
-def generateDynamicBitLinearRow (namePrefix : String) (inDim : Nat)
-    (cfg : GeneratorConfig) : CircuitM SizedExpr := do
-  for i in [:inDim] do
-    addInput s!"{namePrefix}w_{i}" (.bitVector 2)
-    addInput s!"{namePrefix}act_{i}" (.bitVector cfg.baseBitWidth)
-  let macs ← generateDynamicMAC inDim cfg
-  if macs.size == 0 then
-    return { expr := .const 0 cfg.baseBitWidth, width := cfg.baseBitWidth }
-  buildAdderTree macs 0 cfg
-
-def buildDynamicBitLinear (inDim : Nat) (cfg : GeneratorConfig) : Module :=
-  CircuitM.runModule s!"DynamicBitLinear_{inDim}" do
-    addInput cfg.clockName .bit
-    addInput cfg.resetName .bit
-    for i in [:inDim] do
-      addInput s!"w_{i}" (.bitVector 2)
-      addInput s!"act_{i}" (.bitVector cfg.baseBitWidth)
-    let macs ← generateDynamicMAC inDim cfg
-    if macs.size == 0 then
-      addOutput "result" (.bitVector cfg.baseBitWidth)
-      emitAssign "result" (.const 0 cfg.baseBitWidth)
-      return
-    let finalSum ← buildAdderTree macs 0 cfg
-    addOutput "result" (.bitVector finalSum.width)
-    emitAssign "result" finalSum.expr
+/-- Dynamic BitLinear layer with runtime 2-bit weight codes.
+    Decodes each weight, applies to activation, and sums via adder tree. -/
+def dynamicBitLinearSignal (weightCodes : Array (Signal dom (BitVec 2)))
+    (activations : Array (Signal dom (BitVec n)))
+    : Signal dom (BitVec n) :=
+  let decoded := dynamicMACStage weightCodes activations
+  if decoded.size == 0 then Signal.pure 0
+  else adderTree decoded
 
 end Sparkle.Examples.BitNet.BitLinear

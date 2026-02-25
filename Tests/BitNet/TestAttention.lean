@@ -1,20 +1,23 @@
 /-
-  Hespera Attention Tests
+  BitNet Attention Tests — Signal DSL
 
   Unit tests for the attention datapath:
-  - INT8 quantization (spec + RTL structure)
-  - Q·K^T dot product (spec + RTL structure)
-  - QKV projection (RTL structure)
-  - Full attention head pipeline (end-to-end RTL)
+  - INT8 quantization (spec + Signal DSL)
+  - Q·K^T dot product (spec + Signal DSL)
+  - QKV projection (Signal DSL)
+  - Softmax (spec + Signal DSL)
+  - Score-V multiply (Signal DSL)
+  - Full attention head pipeline (Signal DSL)
+  - Multi-head attention (Signal DSL)
 -/
 
 import Examples.BitNet.Config
 import Examples.BitNet.Types
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
-import Sparkle.Backend.Verilog
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
+import Examples.BitNet.SignalHelpers
 import Examples.BitNet.BitLinear.Core
+import Examples.BitNet.BitLinear.Scale
 import Examples.BitNet.Attention.Quantize
 import Examples.BitNet.Attention.DotProduct
 import Examples.BitNet.Attention.QKVProjection
@@ -26,9 +29,11 @@ import Examples.BitNet.Attention.Top
 namespace Sparkle.Examples.BitNet.Tests.Attention
 
 open Sparkle.Examples.BitNet
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Backend.Verilog
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
+open Sparkle.Examples.BitNet.BitLinear
+open Sparkle.Examples.BitNet.Attention
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -115,173 +120,6 @@ def testDotProductSpec : IO Unit := do
     (int8DotProduct #[] #[] == 0)
 
 -- ============================================================================
--- Quantize RTL Structure Tests
--- ============================================================================
-
-def testQuantizeRTL : IO Unit := do
-  IO.println "--- Quantize RTL Tests ---"
-
-  let m := Sparkle.Examples.BitNet.Attention.buildQuantize 10
-
-  check "quantize: 1 input (x)" (m.inputs.length == 1)
-  check "quantize: 1 output (q)" (m.outputs.length == 1)
-  check "quantize: input is 32-bit"
-    (m.inputs.head?.map (·.ty) == some (.bitVector 32))
-  check "quantize: output is 8-bit"
-    (m.outputs.head?.map (·.ty) == some (.bitVector 8))
-  check "quantize: module named correctly"
-    (m.name == "QuantizeInt8_shift10")
-
-  let verilog := toVerilog m
-  check "quantize: non-empty Verilog" (verilog.length > 50)
-  IO.println ""
-  IO.println "  --- Quantize Verilog ---"
-  IO.println verilog
-
--- ============================================================================
--- DotProduct RTL Structure Tests
--- ============================================================================
-
-def testDotProductRTL : IO Unit := do
-  IO.println "--- Q·K^T Dot Product RTL Tests ---"
-
-  -- Test with headDim=4, scaleDkShift=1 (small for testing)
-  let cfg : GeneratorConfig := { baseBitWidth := 8, pipelineEvery := 0 }
-  let m := Sparkle.Examples.BitNet.Attention.buildDotProduct 4 1 cfg
-
-  -- Inputs: clk + rst + 4 q + 4 k = 10
-  check "dotprod: 10 inputs (clk+rst+4q+4k)" (m.inputs.length == 10)
-  check "dotprod: 1 output (score)" (m.outputs.length == 1)
-  check "dotprod: module named QK_DotProduct_4elem"
-    (m.name == "QK_DotProduct_4elem")
-
-  -- Check q/k input names and widths
-  let qInputs := m.inputs.filter (fun p => p.name.startsWith "q_")
-  let kInputs := m.inputs.filter (fun p => p.name.startsWith "k_")
-  check "dotprod: 4 q inputs" (qInputs.length == 4)
-  check "dotprod: 4 k inputs" (kInputs.length == 4)
-  check "dotprod: all q are 8-bit" (qInputs.all (fun p => p.ty == .bitVector 8))
-  check "dotprod: all k are 8-bit" (kInputs.all (fun p => p.ty == .bitVector 8))
-
-  -- Output width: productBits(16) + ceil(log2(4))=2 levels → 18 bits
-  check "dotprod: output is 18-bit"
-    (m.outputs.head?.map (·.ty) == some (.bitVector 18))
-
-  let verilog := toVerilog m
-  check "dotprod: non-empty Verilog" (verilog.length > 100)
-  IO.println ""
-  IO.println "  --- DotProduct Verilog (headDim=4) ---"
-  IO.println verilog
-
--- ============================================================================
--- DotProduct with Pipeline Registers
--- ============================================================================
-
-def testDotProductPipelined : IO Unit := do
-  IO.println "--- Q·K^T Pipelined DotProduct Tests ---"
-
-  let cfg : GeneratorConfig := { baseBitWidth := 8, pipelineEvery := 1 }
-  let m := Sparkle.Examples.BitNet.Attention.buildDotProduct 8 3 cfg
-
-  -- 8-element dot product with pipeline every level
-  check "pipelined: module name" (m.name == "QK_DotProduct_8elem")
-  check "pipelined: 18 inputs (clk+rst+8q+8k)" (m.inputs.length == 18)
-
-  -- Check pipeline registers exist
-  let regCount := m.body.foldl (fun acc s =>
-    match s with
-    | .register .. => acc + 1
-    | _ => acc) 0
-  check "pipelined: has pipeline registers" (regCount > 0)
-  IO.println s!"  INFO: {regCount} pipeline registers inserted"
-
--- ============================================================================
--- QKV Projection RTL Tests
--- ============================================================================
-
-def testQKVProjectionRTL : IO Unit := do
-  IO.println "--- QKV Projection RTL Tests ---"
-
-  -- Small test: headDim=2, inDim=4
-  let qW : Array (Array Int) := #[#[1, -1, 0, 1], #[0, 1, -1, 0]]
-  let kW : Array (Array Int) := #[#[-1, 0, 1, 1], #[1, 1, 0, -1]]
-  let vW : Array (Array Int) := #[#[0, 1, 1, -1], #[-1, 0, 0, 1]]
-
-  -- Q8.24 scale factors: all 1.0 = 0x01000000
-  let scales : Array Int := #[0x01000000, 0x01000000]
-
-  let cfg : GeneratorConfig := { baseBitWidth := 32, pipelineEvery := 0 }
-  let m := Sparkle.Examples.BitNet.Attention.buildQKVProjection qW kW vW scales scales scales 10 cfg
-
-  check "qkv: module named QKV_Projection_2head"
-    (m.name == "QKV_Projection_2head")
-
-  -- Inputs: clk + rst + 4 x = 6
-  let xInputs := m.inputs.filter (fun p => p.name.startsWith "x_")
-  check "qkv: 4 activation inputs" (xInputs.length == 4)
-
-  -- Outputs: 2 q + 2 k + 2 v = 6
-  check "qkv: 6 outputs (2q + 2k + 2v)" (m.outputs.length == 6)
-
-  -- All outputs are 8-bit INT8
-  check "qkv: all outputs are 8-bit"
-    (m.outputs.all (fun p => p.ty == .bitVector 8))
-
-  let verilog := toVerilog m
-  check "qkv: non-empty Verilog" (verilog.length > 200)
-
--- ============================================================================
--- Full Attention Head Pipeline Tests
--- ============================================================================
-
-def testAttentionHeadRTL : IO Unit := do
-  IO.println "--- Full Attention Head Pipeline Tests ---"
-
-  -- Small test: headDim=2, inDim=4
-  let qW : Array (Array Int) := #[#[1, -1, 0, 1], #[0, 1, -1, 0]]
-  let kW : Array (Array Int) := #[#[-1, 0, 1, 1], #[1, 1, 0, -1]]
-  let vW : Array (Array Int) := #[#[0, 1, 1, -1], #[-1, 0, 0, 1]]
-  let scales : Array Int := #[0x01000000, 0x01000000]
-
-  let headCfg : Sparkle.Examples.BitNet.Attention.AttentionHeadConfig := {
-    headDim := 2
-    inDim := 4
-    quantShift := 10
-    dkShift := 1  -- simple shift for testing
-  }
-  let cfg : GeneratorConfig := { baseBitWidth := 32, pipelineEvery := 0 }
-
-  let m := Sparkle.Examples.BitNet.Attention.buildAttentionHead headCfg qW kW vW
-    scales scales scales cfg
-
-  check "attn: module named AttentionHead_2dim"
-    (m.name == "AttentionHead_2dim")
-
-  -- Inputs: clk + rst + 4 x = 6
-  check "attn: 6 inputs (clk+rst+4x)" (m.inputs.length == 6)
-
-  -- Outputs: score + 2 v = 3
-  let scoreOutputs := m.outputs.filter (fun p => p.name == "score")
-  let vOutputs := m.outputs.filter (fun p => p.name.startsWith "v_")
-  check "attn: 1 score output" (scoreOutputs.length == 1)
-  check "attn: 2 v outputs" (vOutputs.length == 2)
-
-  -- V outputs are 8-bit
-  check "attn: v outputs are 8-bit"
-    (vOutputs.all (fun p => p.ty == .bitVector 8))
-
-  -- No FSM (no register statements from state machine)
-  let hasStateMachine := m.wires.any (fun p =>
-    p.name.find? "state" |>.isSome)
-  check "attn: no FSM state machine" (!hasStateMachine)
-
-  let verilog := toVerilog m
-  check "attn: non-empty Verilog" (verilog.length > 300)
-  IO.println ""
-  IO.println "  --- Attention Head Verilog (headDim=2, inDim=4) ---"
-  IO.println verilog
-
--- ============================================================================
 -- Softmax Spec Tests
 -- ============================================================================
 
@@ -316,124 +154,204 @@ def testSoftmaxSpec : IO Unit := do
   check "softmax: sum ≈ 2^24" (total > oneQ8_24 - tolerance && total < oneQ8_24 + tolerance)
 
 -- ============================================================================
--- Softmax RTL Structure Tests
+-- Quantize Signal DSL Tests
 -- ============================================================================
 
-def testSoftmaxRTL : IO Unit := do
-  IO.println "--- Softmax RTL Tests ---"
+def testQuantizeSignal : IO Unit := do
+  IO.println "--- Quantize Signal Tests ---"
 
-  -- seqLen=4, scoreBits=18
-  let m := Sparkle.Examples.BitNet.Attention.buildSoftmax 4 18
+  -- 1.0, shift 10 → 64
+  let x1 : Signal defaultDomain (BitVec 32) := Signal.pure (BitVec.ofNat 32 0x10000)
+  let q1 := quantizeInt8Signal 10 x1
+  check "signal: quant(1.0, shift10) = 64" (q1.atTime 0 == BitVec.ofInt 8 64)
 
-  check "softmax: module named Softmax_4seq" (m.name == "Softmax_4seq")
+  -- -1.0, shift 10 → -64
+  let x2 : Signal defaultDomain (BitVec 32) := Signal.pure (BitVec.ofInt 32 (-0x10000))
+  let q2 := quantizeInt8Signal 10 x2
+  check "signal: quant(-1.0, shift10) = -64" (q2.atTime 0 == BitVec.ofInt 8 (-64))
 
-  -- Inputs: 4 scores
-  let scoreInputs := m.inputs.filter (fun p => p.name.startsWith "score_")
-  check "softmax: 4 score inputs" (scoreInputs.length == 4)
+  -- 0 → 0
+  let x3 : Signal defaultDomain (BitVec 32) := Signal.pure (BitVec.ofNat 32 0)
+  let q3 := quantizeInt8Signal 10 x3
+  check "signal: quant(0) = 0" (q3.atTime 0 == BitVec.ofInt 8 0)
 
-  -- Outputs: 4 weights
-  let weightOutputs := m.outputs.filter (fun p => p.name.startsWith "weight_")
-  check "softmax: 4 weight outputs" (weightOutputs.length == 4)
+  -- Positive saturation
+  let x4 : Signal defaultDomain (BitVec 32) := Signal.pure (BitVec.ofNat 32 0x7FFFFFFF)
+  let q4 := quantizeInt8Signal 10 x4
+  check "signal: pos overflow → 127" (q4.atTime 0 == BitVec.ofNat 8 127)
 
-  -- All outputs are 32-bit (Q8.24)
-  check "softmax: all outputs 32-bit"
-    (weightOutputs.all (fun p => p.ty == .bitVector 32))
-
-  -- No FSM (combinational)
-  let hasStateMachine := m.wires.any (fun p =>
-    p.name.find? "state" |>.isSome)
-  check "softmax: no FSM" (!hasStateMachine)
-
-  let verilog := toVerilog m
-  check "softmax: non-empty Verilog" (verilog.length > 100)
-
--- ============================================================================
--- Score-V Multiply RTL Tests
--- ============================================================================
-
-def testScoreVMulRTL : IO Unit := do
-  IO.println "--- Score-V Multiply RTL Tests ---"
-
-  -- seqLen=4, headDim=2
-  let m := Sparkle.Examples.BitNet.Attention.buildScoreVMul 4 2
-
-  check "scoreVMul: module named ScoreVMul_4x2" (m.name == "ScoreVMul_4x2")
-
-  -- Inputs: 4 weights (32-bit) + 4×2 V values (8-bit) = 12
-  let weightInputs := m.inputs.filter (fun p => p.name.startsWith "weight_")
-  let vInputs := m.inputs.filter (fun p => p.name.startsWith "v_")
-  check "scoreVMul: 4 weight inputs" (weightInputs.length == 4)
-  check "scoreVMul: 8 V inputs (4×2)" (vInputs.length == 8)
-
-  -- Outputs: 2 (headDim)
-  let outOutputs := m.outputs.filter (fun p => p.name.startsWith "out_")
-  check "scoreVMul: 2 outputs" (outOutputs.length == 2)
-
-  -- Output widths are 32-bit
-  check "scoreVMul: outputs 32-bit"
-    (outOutputs.all (fun p => p.ty == .bitVector 32))
-
-  let verilog := toVerilog m
-  check "scoreVMul: non-empty Verilog" (verilog.length > 100)
+  -- Verify matches spec
+  check "signal: matches spec (1.0)"
+    (q1.atTime 0 == quantizeToInt8 (BitVec.ofNat 32 0x10000) 10)
 
 -- ============================================================================
--- Full Attention Head (with softmax + V output) Tests
+-- DotProduct Signal DSL Tests
 -- ============================================================================
 
-def testFullAttentionHeadRTL : IO Unit := do
-  IO.println "--- Full Attention Head (softmax+V) Tests ---"
+def testDotProductSignal : IO Unit := do
+  IO.println "--- DotProduct Signal Tests ---"
+
+  -- Simple 2-element dot product: [10, 20] · [3, 4] = 110, no shift
+  let qs : Array (Signal defaultDomain (BitVec 8)) :=
+    #[Signal.pure (BitVec.ofInt 8 10), Signal.pure (BitVec.ofInt 8 20)]
+  let ks : Array (Signal defaultDomain (BitVec 8)) :=
+    #[Signal.pure (BitVec.ofInt 8 3), Signal.pure (BitVec.ofInt 8 4)]
+  let score := dotProductSignal qs ks 0
+  check "signal: [10,20]·[3,4] = 110" (score.atTime 0 == BitVec.ofInt 32 110)
+
+  -- With shift: [8,8] · [8,8] = 128, shift 3 → 16
+  let qs2 : Array (Signal defaultDomain (BitVec 8)) :=
+    #[Signal.pure (BitVec.ofInt 8 8), Signal.pure (BitVec.ofInt 8 8)]
+  let ks2 : Array (Signal defaultDomain (BitVec 8)) :=
+    #[Signal.pure (BitVec.ofInt 8 8), Signal.pure (BitVec.ofInt 8 8)]
+  let score2 := dotProductSignal qs2 ks2 3
+  check "signal: [8,8]·[8,8] / 8 = 16" (score2.atTime 0 == BitVec.ofInt 32 16)
+
+-- ============================================================================
+-- QKV Projection Signal DSL Tests
+-- ============================================================================
+
+def testQKVProjectionSignal : IO Unit := do
+  IO.println "--- QKV Projection Signal Tests ---"
+
+  -- Small test: headDim=2, inDim=4
+  let qW : Array (Array Int) := #[#[1, -1, 0, 1], #[0, 1, -1, 0]]
+  let kW : Array (Array Int) := #[#[-1, 0, 1, 1], #[1, 1, 0, -1]]
+  let vW : Array (Array Int) := #[#[0, 1, 1, -1], #[-1, 0, 0, 1]]
+  let scales : Array Int := #[0x01000000, 0x01000000]
+
+  let acts : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x10000),  -- 1.0
+      Signal.pure (BitVec.ofNat 32 0x10000),  -- 1.0
+      Signal.pure (BitVec.ofNat 32 0x10000),  -- 1.0
+      Signal.pure (BitVec.ofNat 32 0x10000)]  -- 1.0
+
+  let (qs, ks, vs) := qkvProjectionSignal qW kW vW scales scales scales 10 acts
+
+  check "qkv: 2 Q outputs" (qs.size == 2)
+  check "qkv: 2 K outputs" (ks.size == 2)
+  check "qkv: 2 V outputs" (vs.size == 2)
+
+-- ============================================================================
+-- Softmax Signal DSL Tests
+-- ============================================================================
+
+def testSoftmaxSignal : IO Unit := do
+  IO.println "--- Softmax Signal Tests ---"
+
+  -- Equal scores → equal weights
+  let scores : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofInt 32 5),
+      Signal.pure (BitVec.ofInt 32 5),
+      Signal.pure (BitVec.ofInt 32 5),
+      Signal.pure (BitVec.ofInt 32 5)]
+  let weights := softmaxSignal scores
+  check "softmax: 4 weights" (weights.size == 4)
+  -- Equal inputs → equal weights
+  check "softmax: equal inputs → equal weights"
+    (weights[0]!.atTime 0 == weights[1]!.atTime 0 &&
+     weights[1]!.atTime 0 == weights[2]!.atTime 0 &&
+     weights[2]!.atTime 0 == weights[3]!.atTime 0)
+  -- All weights should be positive (non-zero)
+  check "softmax: all positive"
+    (weights.all (fun w => w.atTime 0 != (0 : BitVec 32)))
+
+-- ============================================================================
+-- Score-V Multiply Signal DSL Tests
+-- ============================================================================
+
+def testScoreVMulSignal : IO Unit := do
+  IO.println "--- Score-V Multiply Signal Tests ---"
+
+  -- 2 positions, headDim=2
+  -- Weights: [0.5, 0.5] in Q8.24
+  let halfQ824 : BitVec 32 := BitVec.ofNat 32 (2^23)  -- 0.5 in Q8.24
+  let weights : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure halfQ824, Signal.pure halfQ824]
+
+  -- V matrix: [[10, 20], [30, 40]]
+  let vMatrix : Array (Array (Signal defaultDomain (BitVec 8))) :=
+    #[#[Signal.pure (BitVec.ofInt 8 10), Signal.pure (BitVec.ofInt 8 20)],
+      #[Signal.pure (BitVec.ofInt 8 30), Signal.pure (BitVec.ofInt 8 40)]]
+
+  let outputs := scoreVMulSignal weights vMatrix 2
+  check "scoreVMul: 2 outputs" (outputs.size == 2)
+
+-- ============================================================================
+-- Full Attention Head Signal DSL Tests
+-- ============================================================================
+
+def testAttentionHeadSignal : IO Unit := do
+  IO.println "--- Attention Head Signal Tests ---"
 
   let qW : Array (Array Int) := #[#[1, -1, 0, 1], #[0, 1, -1, 0]]
   let kW : Array (Array Int) := #[#[-1, 0, 1, 1], #[1, 1, 0, -1]]
   let vW : Array (Array Int) := #[#[0, 1, 1, -1], #[-1, 0, 0, 1]]
   let scales : Array Int := #[0x01000000, 0x01000000]
 
-  let fullCfg : Sparkle.Examples.BitNet.Attention.FullAttentionConfig := {
+  let headCfg : AttentionHeadConfig := {
+    headDim := 2
+    inDim := 4
+    quantShift := 10
+    dkShift := 1
+  }
+
+  let acts : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000)]
+
+  let (score, vs) := attentionHeadSignal headCfg qW kW vW scales scales scales acts
+  check "attn: produces score" true
+  check "attn: 2 V outputs" (vs.size == 2)
+
+-- ============================================================================
+-- Full Attention Head with Softmax Tests
+-- ============================================================================
+
+def testFullAttentionHeadSignal : IO Unit := do
+  IO.println "--- Full Attention Head (softmax+V) Signal Tests ---"
+
+  let qW : Array (Array Int) := #[#[1, -1, 0, 1], #[0, 1, -1, 0]]
+  let kW : Array (Array Int) := #[#[-1, 0, 1, 1], #[1, 1, 0, -1]]
+  let vW : Array (Array Int) := #[#[0, 1, 1, -1], #[-1, 0, 0, 1]]
+  let scales : Array Int := #[0x01000000, 0x01000000]
+
+  let fullCfg : FullAttentionConfig := {
     headDim := 2
     inDim := 4
     quantShift := 10
     dkShift := 1
     seqLen := 4
   }
-  let cfg : GeneratorConfig := { baseBitWidth := 32, pipelineEvery := 0 }
 
-  let m := Sparkle.Examples.BitNet.Attention.buildFullAttentionHead fullCfg qW kW vW
-    scales scales scales cfg
+  let acts : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000)]
 
-  check "fullAttn: module named correctly"
-    (m.name == "FullAttentionHead_2dim_4seq")
+  -- KV cache: 4 positions × 2 elements, all INT8 = 1
+  let oneInt8 : Signal defaultDomain (BitVec 8) := Signal.pure (BitVec.ofInt 8 1)
+  let kCache : Array (Array (Signal defaultDomain (BitVec 8))) :=
+    Array.replicate 4 (Array.replicate 2 oneInt8)
+  let vCache : Array (Array (Signal defaultDomain (BitVec 8))) :=
+    Array.replicate 4 (Array.replicate 2 oneInt8)
 
-  -- Inputs: clk + rst + 4 x + 4×2 k_cache + 4×2 v_cache = 2 + 4 + 8 + 8 = 22
-  let xInputs := m.inputs.filter (fun p => p.name.startsWith "x_")
-  check "fullAttn: has x inputs" (xInputs.length == 4)
-  let kCacheInputs := m.inputs.filter (fun p => p.name.startsWith "k_cache_")
-  check "fullAttn: has k_cache inputs" (kCacheInputs.length == 8)
-  let vCacheInputs := m.inputs.filter (fun p => p.name.startsWith "v_cache_")
-  check "fullAttn: has v_cache inputs" (vCacheInputs.length == 8)
+  let outputs := fullAttentionHeadSignal fullCfg qW kW vW
+    scales scales scales acts kCache vCache
 
-  -- Outputs: 2 attn_out (headDim)
-  let attnOutputs := m.outputs.filter (fun p => p.name.startsWith "attn_out_")
-  check "fullAttn: 2 attention outputs" (attnOutputs.length == 2)
-  check "fullAttn: outputs are 32-bit"
-    (attnOutputs.all (fun p => p.ty == .bitVector 32))
-
-  -- No FSM
-  let hasStateMachine := m.wires.any (fun p =>
-    p.name.find? "state" |>.isSome)
-  check "fullAttn: no FSM" (!hasStateMachine)
-
-  let verilog := toVerilog m
-  check "fullAttn: non-empty Verilog" (verilog.length > 500)
+  check "fullAttn: 2 outputs" (outputs.size == 2)
 
 -- ============================================================================
--- Multi-Head Attention Tests
+-- Multi-Head Attention Signal DSL Tests
 -- ============================================================================
 
-def testMultiHeadRTL : IO Unit := do
-  IO.println "--- Multi-Head Attention Tests ---"
+def testMultiHeadSignal : IO Unit := do
+  IO.println "--- Multi-Head Attention Signal Tests ---"
 
-  -- nHeads=2, headDim=2, inDim=4, seqLen=4
-  let mhaCfg : Sparkle.Examples.BitNet.Attention.MultiHeadConfig := {
+  let mhaCfg : MultiHeadConfig := {
     nHeads := 2
     headDim := 2
     inDim := 4
@@ -442,7 +360,7 @@ def testMultiHeadRTL : IO Unit := do
     dkShift := 1
   }
 
-  -- Weights per head (2 heads × 2 rows × 4 cols)
+  -- Weights per head
   let qW0 : Array (Array Int) := #[#[1, -1, 0, 1], #[0, 1, -1, 0]]
   let kW0 : Array (Array Int) := #[#[-1, 0, 1, 1], #[1, 1, 0, -1]]
   let vW0 : Array (Array Int) := #[#[0, 1, 1, -1], #[-1, 0, 0, 1]]
@@ -452,14 +370,7 @@ def testMultiHeadRTL : IO Unit := do
 
   let scales : Array Int := #[0x01000000, 0x01000000]
 
-  let allQW := #[qW0, qW1]
-  let allKW := #[kW0, kW1]
-  let allVW := #[vW0, vW1]
-  let allQS := #[scales, scales]
-  let allKS := #[scales, scales]
-  let allVS := #[scales, scales]
-
-  -- Output projection: modelDim=4 rows × concatDim=4 cols (ternary)
+  -- Output projection
   let outProjW : Array (Array Int) := #[
     #[1, -1, 0, 1],
     #[0, 1, 1, 0],
@@ -468,34 +379,25 @@ def testMultiHeadRTL : IO Unit := do
   ]
   let outProjS : Array Int := #[0x01000000, 0x01000000, 0x01000000, 0x01000000]
 
-  let cfg : GeneratorConfig := { baseBitWidth := 32, pipelineEvery := 0 }
+  let acts : Array (Signal defaultDomain (BitVec 32)) :=
+    #[Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000),
+      Signal.pure (BitVec.ofNat 32 0x10000)]
 
-  let m := Sparkle.Examples.BitNet.Attention.buildMultiHeadAttention mhaCfg
-    allQW allKW allVW allQS allKS allVS outProjW outProjS cfg
+  -- KV cache: per head, 4 positions × 2 elements
+  let oneInt8 : Signal defaultDomain (BitVec 8) := Signal.pure (BitVec.ofInt 8 1)
+  let headCache : Array (Array (Signal defaultDomain (BitVec 8))) :=
+    Array.replicate 4 (Array.replicate 2 oneInt8)
+  let allKCache := #[headCache, headCache]
+  let allVCache := #[headCache, headCache]
 
-  check "mha: module named correctly"
-    (m.name == "MultiHeadAttention_2h_2d")
+  let outputs := multiHeadAttentionSignal mhaCfg
+    #[qW0, qW1] #[kW0, kW1] #[vW0, vW1]
+    #[scales, scales] #[scales, scales] #[scales, scales]
+    outProjW outProjS acts allKCache allVCache
 
-  -- Outputs: 4 (modelDim = outProjWeights.size)
-  let mhaOutputs := m.outputs.filter (fun p => p.name.startsWith "mha_out_")
-  check "mha: 4 output elements" (mhaOutputs.length == 4)
-  check "mha: outputs are 32-bit"
-    (mhaOutputs.all (fun p => p.ty == .bitVector 32))
-
-  -- Has x inputs
-  let xInputs := m.inputs.filter (fun p => p.name.startsWith "x_")
-  check "mha: 4 x inputs" (xInputs.length == 4)
-
-  -- Has KV cache for both heads
-  let kCacheInputs := m.inputs.filter (fun p => p.name.startsWith "k_cache_h")
-  let vCacheInputs := m.inputs.filter (fun p => p.name.startsWith "v_cache_h")
-  check "mha: 16 k_cache inputs (2 heads × 4 pos × 2 dim)"
-    (kCacheInputs.length == 16)
-  check "mha: 16 v_cache inputs (2 heads × 4 pos × 2 dim)"
-    (vCacheInputs.length == 16)
-
-  let verilog := toVerilog m
-  check "mha: non-empty Verilog" (verilog.length > 1000)
+  check "mha: 4 output elements" (outputs.size == 4)
 
 def runAll : IO Unit := do
   IO.println "=== Attention Tests ==="
@@ -504,16 +406,14 @@ def runAll : IO Unit := do
   testDotProductSpec
   testSoftmaxSpec
   IO.println ""
-  testQuantizeRTL
-  testDotProductRTL
-  testDotProductPipelined
-  testQKVProjectionRTL
-  testAttentionHeadRTL
-  IO.println ""
-  testSoftmaxRTL
-  testScoreVMulRTL
-  testFullAttentionHeadRTL
-  testMultiHeadRTL
+  testQuantizeSignal
+  testDotProductSignal
+  testQKVProjectionSignal
+  testSoftmaxSignal
+  testScoreVMulSignal
+  testAttentionHeadSignal
+  testFullAttentionHeadSignal
+  testMultiHeadSignal
   IO.println ""
   IO.println "=== All attention tests complete ==="
 

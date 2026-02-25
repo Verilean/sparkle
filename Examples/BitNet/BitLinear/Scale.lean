@@ -1,38 +1,35 @@
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+/-
+  BitNet BitLinear — Scale Multiply — Signal DSL
+
+  Fixed-point scale: (acc48 × scale32) >>> 24, truncated to 32 bits.
+  Uses 80-bit intermediate (mulProductBits = 48 + 32).
+-/
+
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.BitLinear
 
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open CircuitM
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
 
-def generateScaleMultiply (accResult : SizedExpr) (scaleName : String)
-    (_cfg : GeneratorConfig) : CircuitM SizedExpr := do
-  let accExt ← signExtendExpr accResult mulProductBits
-  let scaleRef : SizedExpr := { expr := .ref scaleName, width := scaleTotalBits }
-  let scaleExt ← signExtendExpr scaleRef mulProductBits
-  let prodWire ← makeWire "scale_prod" (.bitVector mulProductBits)
-  emitAssign prodWire (Expr.mul accExt.expr scaleExt.expr)
-  let shiftWire ← makeWire "scale_shifted" (.bitVector mulProductBits)
-  emitAssign shiftWire (Expr.op .asr [.ref prodWire, .const scaleFracBits mulProductBits])
-  let resultWire ← makeWire "scale_result" (.bitVector actTotalBits)
-  emitAssign resultWire (Expr.slice (.ref shiftWire) (actTotalBits - 1) 0)
-  return { expr := .ref resultWire, width := actTotalBits }
+variable {dom : DomainConfig}
 
-def buildScaleMultiply (cfg : GeneratorConfig) : Module :=
-  CircuitM.runModule "ScaleMultiply" do
-    addInput cfg.clockName .bit
-    addInput cfg.resetName .bit
-    addInput "acc" (.bitVector accBits)
-    addInput "scale" (.bitVector scaleTotalBits)
-    let accRef : SizedExpr := { expr := .ref "acc", width := accBits }
-    let result ← generateScaleMultiply accRef "scale" cfg
-    addOutput "result" (.bitVector actTotalBits)
-    emitAssign "result" result.expr
+/-- Fixed-point scale multiply: (acc × scale) >>> 24, result in 32 bits.
+    acc is 48-bit accumulator, scale is 32-bit Q8.24.
+    Intermediate product is 80 bits. -/
+def scaleMultiplySignal (acc : Signal dom (BitVec 48)) (scale : Signal dom (BitVec 32))
+    : Signal dom (BitVec 32) :=
+  -- Sign-extend acc to 80 bits (add 32 bits)
+  let accExt := signExtendSignal 32 acc
+  -- Sign-extend scale to 80 bits (add 48 bits)
+  let scaleExt := signExtendSignal 48 scale
+  -- Multiply in 80-bit domain
+  let prod := (· * ·) <$> accExt <*> scaleExt
+  -- Extract bits [55:24] = ASR 24 + truncate to 32 bits
+  prod.map (BitVec.extractLsb' 24 32 ·)
 
 end Sparkle.Examples.BitNet.BitLinear

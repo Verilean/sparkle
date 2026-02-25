@@ -1,0 +1,11 @@
+{
+  "model": "/Users/junji.hashimoto/git/verilean/bitnet.lean/data/gguf/ggml-model-i2_s.gguf",
+  "prompt": "Hello world",
+  "vocab_size": 128256,
+  "hidden_dim": 2560,
+  "num_layers": 30,
+  "seq_len": 3,
+  "format": "float32_little_endian",
+  "source": "bitnet.cpp",
+  "tokens": [128000, 9906, 1917]
+}

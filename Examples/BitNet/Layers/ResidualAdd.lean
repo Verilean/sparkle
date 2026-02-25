@@ -1,46 +1,45 @@
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+/-
+  BitNet Layers — Saturating Residual Addition — Signal DSL
+
+  Signed 32-bit addition with overflow detection and saturation.
+  Uses 33-bit intermediate to detect overflow via top 2 bits.
+-/
+
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.Layers
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Examples.BitNet.BitLinear
-open CircuitM
 
-def generateResidualAdd (aName bName outputName : String) : CircuitM Unit := do
-  let extWidth := actTotalBits + 1
-  let aRef : SizedExpr := { expr := .ref aName, width := actTotalBits }
-  let bRef : SizedExpr := { expr := .ref bName, width := actTotalBits }
-  let aExt ← signExtendExpr aRef extWidth
-  let bExt ← signExtendExpr bRef extWidth
-  let sumWire ← makeWire "resadd_sum" (.bitVector extWidth)
-  emitAssign sumWire (Expr.add aExt.expr bExt.expr)
-  let topBits ← makeWire "resadd_top2" (.bitVector 2)
-  emitAssign topBits (Expr.slice (.ref sumWire) (extWidth - 1) (extWidth - 2))
-  let lowBits ← makeWire "resadd_low" (.bitVector actTotalBits)
-  emitAssign lowBits (Expr.slice (.ref sumWire) (actTotalBits - 1) 0)
-  let maxPos : Int := (2^31 : Nat) - 1
-  let maxNeg : Int := -(2^31 : Nat)
-  let posOvf ← makeWire "resadd_pos_ovf" (.bitVector 1)
-  emitAssign posOvf (Expr.op .eq [.ref topBits, .const 0b01 2])
-  let negOvf ← makeWire "resadd_neg_ovf" (.bitVector 1)
-  emitAssign negOvf (Expr.op .eq [.ref topBits, .const 0b10 2])
-  let satResult ← makeWire "resadd_sat" (.bitVector actTotalBits)
-  emitAssign satResult (Expr.mux (.ref negOvf)
-    (.const maxNeg actTotalBits)
-    (Expr.mux (.ref posOvf)
-      (.const maxPos actTotalBits)
-      (.ref lowBits)))
-  emitAssign outputName (.ref satResult)
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
 
-def buildResidualAdd : Module :=
-  CircuitM.runModule "ResidualAdd" do
-    addInput "a" (.bitVector actTotalBits)
-    addInput "b" (.bitVector actTotalBits)
-    addOutput "y" (.bitVector actTotalBits)
-    generateResidualAdd "a" "b" "y"
+variable {dom : DomainConfig}
+
+/-- Saturating signed 32-bit addition using Signal DSL.
+    Sign-extend to 33 bits, add, check top 2 bits for overflow,
+    saturate to [−2³¹, 2³¹−1]. -/
+def residualAddSignal (a b : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  -- Sign-extend both to 33 bits
+  let aExt := signExtendSignal 1 a
+  let bExt := signExtendSignal 1 b
+  -- Add in 33-bit domain
+  let sum := (· + ·) <$> aExt <*> bExt
+  -- Extract top 2 bits [32:31]
+  let top2 := sum.map (BitVec.extractLsb' 31 2 ·)
+  -- Extract lower 32 bits
+  let low32 := sum.map (BitVec.extractLsb' 0 32 ·)
+  -- Positive overflow: top2 == 0b01
+  let posOvf := (· == ·) <$> top2 <*> Signal.pure 0b01#2
+  -- Negative overflow: top2 == 0b10
+  let negOvf := (· == ·) <$> top2 <*> Signal.pure 0b10#2
+  -- Saturation constants
+  let maxPos : BitVec 32 := BitVec.ofInt 32 (2 ^ 31 - 1)
+  let maxNeg : BitVec 32 := BitVec.ofInt 32 (-(2 ^ 31 : Int))
+  -- Mux chain: negOvf → maxNeg, posOvf → maxPos, else → low32
+  Signal.mux negOvf (Signal.pure maxNeg)
+    (Signal.mux posOvf (Signal.pure maxPos) low32)
+
 end Sparkle.Examples.BitNet.Layers

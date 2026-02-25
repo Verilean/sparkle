@@ -1,33 +1,31 @@
-import Sparkle.IR.Builder
-import Sparkle.IR.AST
-import Sparkle.IR.Type
+/-
+  BitNet Layers — Element-wise Multiply — Signal DSL
+
+  Fixed-point Q16.16 element-wise multiplication: (a × b) >>> 16.
+-/
+
+import Sparkle.Core.Signal
+import Sparkle.Core.Domain
 import Examples.BitNet.Config
-import Examples.BitNet.BitLinear.BitWidth
+import Examples.BitNet.SignalHelpers
 
 namespace Sparkle.Examples.BitNet.Layers
-open Sparkle.IR.Builder
-open Sparkle.IR.AST
-open Sparkle.IR.Type
-open Sparkle.Examples.BitNet.BitLinear
-open CircuitM
 
-def generateElemMul (aName bName outputName : String) : CircuitM Unit := do
-  let aRef : SizedExpr := { expr := .ref aName, width := actTotalBits }
-  let bRef : SizedExpr := { expr := .ref bName, width := actTotalBits }
-  let aExt ← signExtendExpr aRef squaredBits
-  let bExt ← signExtendExpr bRef squaredBits
-  let prodWire ← makeWire "emul_prod" (.bitVector squaredBits)
-  emitAssign prodWire (Expr.mul aExt.expr bExt.expr)
-  let shiftWire ← makeWire "emul_shifted" (.bitVector squaredBits)
-  emitAssign shiftWire (Expr.op .asr [.ref prodWire, .const 16 squaredBits])
-  let resultWire ← makeWire "emul_result" (.bitVector actTotalBits)
-  emitAssign resultWire (Expr.slice (.ref shiftWire) (actTotalBits - 1) 0)
-  emitAssign outputName (.ref resultWire)
+open Sparkle.Core.Signal
+open Sparkle.Core.Domain
+open Sparkle.Examples.BitNet.SignalHelpers
 
-def buildElemMul : Module :=
-  CircuitM.runModule "ElemMul" do
-    addInput "a" (.bitVector actTotalBits)
-    addInput "b" (.bitVector actTotalBits)
-    addOutput "y" (.bitVector actTotalBits)
-    generateElemMul "a" "b" "y"
+variable {dom : DomainConfig}
+
+/-- Element-wise multiply in Q16.16: (a × b) >>> 16 using Signal DSL.
+    Sign-extend to 64 bits, multiply, extract bits [47:16]. -/
+def elemMulSignal (a b : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  -- Sign-extend both to 64 bits
+  let aExt := signExtendSignal 32 a
+  let bExt := signExtendSignal 32 b
+  -- Multiply (64-bit, no overflow for 32-bit signed inputs)
+  let prod := (· * ·) <$> aExt <*> bExt
+  -- Extract bits [47:16] = ASR 16 + truncate to 32 bits
+  prod.map (BitVec.extractLsb' 16 32 ·)
+
 end Sparkle.Examples.BitNet.Layers
