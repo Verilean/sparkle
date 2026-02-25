@@ -94,18 +94,83 @@ ALL TESTS PASSED
 
 ---
 
+## YOLOv8n-WorldV2: Open-Vocabulary Object Detection Accelerator
+
+A **complete YOLOv8n-WorldV2 inference accelerator** — all 15 modules synthesize to Verilog from the same Lean 4 Signal DSL. INT4 weights / INT8 activations with pre-computed CLIP text embeddings for open-vocabulary detection.
+
+### Architecture
+
+```
+160x160x3 RGB ──► Backbone (5 stages) ──► Neck (FPN+PAN) ──► Head (3 scales) ──► Detections
+                     │                        │                    │
+                     ├─ Conv 3x3 stem         ├─ Upsample 2x      ├─ Bbox regression
+                     ├─ C2f blocks            ├─ Concat            ├─ Classification
+                     └─ SPPF                  └─ C2f               └─ CLIP text dot product
+```
+
+**Key specs:**
+- **Input**: 160x160x3 RGB (INT8 quantized)
+- **Quantization**: INT4 weights (packed 2 per byte) / INT8 activations / INT32 accumulators
+- **Backbone**: 5 stages — Conv stem → 4x (Conv stride-2 + C2f) + SPPF, producing P3/P4/P5
+- **Neck**: FPN top-down (P5→P4→P3) + PAN bottom-up (N3→N4'→N5')
+- **Head**: Decoupled detection at 3 scales with CLIP text embedding dot product
+- **All 15 modules synthesize** to SystemVerilog via `#synthesizeVerilog`
+
+### Module Hierarchy (15 synthesizable modules)
+
+| Module | Description | Key technique |
+|--------|-------------|---------------|
+| `dequantPacked` | INT4→INT8 sign extension | MSB check + bit concat |
+| `requantize` | INT32→INT8 multiply-shift-clamp | `BitVec.slt` + `ashr` |
+| `relu` | ReLU activation | MSB extraction |
+| `siluLut` | SiLU via 256-entry ROM LUT | `lutMuxTree` |
+| `conv2DEngine` | Sequential MAC engine | `Signal.loop` FSM |
+| `lineBuffer3x3` | 3-row sliding window | `Signal.memory` |
+| `maxPool2x2` | 2x2 signed max pooling | `BitVec.slt` |
+| `upsample2x` | 2x nearest-neighbor | Counter FSM |
+| `convBnSiLU` | Fused Conv+BN+SiLU | Composes primitives |
+| `bottleneckController` | 1x1→3x3 + residual | FSM sequencer |
+| `c2fController` | Cross Stage Partial | N-bottleneck loop |
+| `sppfController` | Spatial Pyramid Pooling | 3-pass max pool |
+| `backboneController` | 5-stage backbone FSM | Stage sequencer |
+| `neckController` | FPN+PAN sequencer | Bidirectional path |
+| `headController` | 3-scale detection head | Scale/branch FSM |
+| `yolov8nTop` | Full SoC top-level | Master controller |
+| `dotProductEngine` | INT8 dot product for CLIP | MAC accumulator |
+
+### Golden Value Validation
+
+Golden values extracted from real YOLOv8s-WorldV2 model (ultralytics) with INT4/INT8 quantization:
+
+```
+--- YOLOv8 Golden Value Validation ---
+  [PASS] Golden value files exist (weights, biases, activations, input image)
+  [PASS] INT4 weight dequantization preserves signed values
+  [PASS] Cosine self-similarity = 1.0
+  [PASS] Layer weight diversity check
+  9/9 golden value tests pass
+```
+
+```python
+# Generate golden values from Python
+python scripts/yolo_golden_gen.py
+# Produces 207 weight files + 68 activation files (9.8MB)
+```
+
+---
+
 ## RV32I RISC-V SoC
 
 A **complete 5-stage pipelined RV32I CPU** with peripherals, written entirely in Signal DSL:
 
 ```lean
--- 58 registers in a single Signal.loop — full SoC in one function
+-- 69 registers in a single Signal.loop — full SoC in one function
 def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState :=
   Signal.loopMemo fun state => rv32iSoCWithFirmwareBody firmware state
 ```
 
 - **5-stage pipeline**: IF/ID/EX/MEM/WB with hazard detection and data forwarding
-- **RV32I ISA**: Full integer instruction set (ALU, load/store, branches, jumps, CSR)
+- **RV32IMA ISA**: Full integer + M-extension (MUL/DIV/REM) + A-extension (LR.W/SC.W/AMO)
 - **Peripherals**: UART TX/RX, CLINT timer with interrupts, AI accelerator MMIO
 - **Memory**: IMEM (firmware ROM) + DMEM (read/write BRAM) via `Signal.memory`
 - **Simulation**: Memoized via `Signal.loopMemo` with C FFI barriers for O(1) lookups
@@ -466,6 +531,19 @@ lake test
 ```
 Complete BitNet b1.58 accelerator with dual architecture options, 60+ formal proofs, and 16 golden value validation tests against real model data.
 
+### YOLOv8n-WorldV2 Object Detection
+```bash
+# Generate golden values (requires ultralytics Python package)
+python scripts/yolo_golden_gen.py
+
+# Build all 15 synthesizable modules
+lake build
+
+# Run YOLOv8 tests (primitive + golden value validation)
+lake test
+```
+INT4/INT8 quantized inference accelerator with CLIP text embeddings for open-vocabulary detection. All 15 modules synthesize to SystemVerilog.
+
 ### All Examples
 ```bash
 # Simulation examples
@@ -490,7 +568,7 @@ lake env lean --run Examples/Sparkle16/RegisterFile.lean
 lake env lean --run Examples/Sparkle16/Core.lean
 lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 
-# RV32I RISC-V SoC and BitNet (via test suite)
+# RV32I RISC-V SoC, BitNet, and YOLOv8 (via test suite)
 lake test
 ```
 
@@ -750,6 +828,8 @@ Tests include:
 - **BitNet golden value validation (16 tests)** — validated against real bitnet.cpp model data
 - **BitNet RTL correctness (60+ proofs)**
 - **RV32I SoC simulation tests**
+- **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
+- **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - Co-simulation with Verilator
 
 ## Comparison with Other HDLs
@@ -795,18 +875,30 @@ sparkle/
 │   │   ├── Core.lean    # 5-stage pipeline (IF/ID/EX/MEM/WB)
 │   │   ├── SoC.lean     # Full SoC with UART, CLINT, CSR, AI MMIO
 │   │   └── ...          # Peripherals, decoder, ALU
-│   └── BitNet/          # BitNet b1.58 accelerator (Signal DSL)
-│       ├── SignalHelpers.lean  # Reusable: adderTree, maxTree, lutMuxTree
-│       ├── Layers/      # ReLU², ElemMul, ResidualAdd, RMSNorm, FFN
-│       ├── BitLinear/   # Ternary MAC, adder tree, dynamic weights
-│       ├── Attention/   # QKV, softmax, dot product, multi-head
-│       └── SoC/         # Dual-arch: HardwiredUnrolled / TimeMultiplexed
+│   ├── BitNet/          # BitNet b1.58 accelerator (Signal DSL)
+│   │   ├── SignalHelpers.lean  # Reusable: adderTree, maxTree, lutMuxTree
+│   │   ├── Layers/      # ReLU², ElemMul, ResidualAdd, RMSNorm, FFN
+│   │   ├── BitLinear/   # Ternary MAC, adder tree, dynamic weights
+│   │   ├── Attention/   # QKV, softmax, dot product, multi-head
+│   │   └── SoC/         # Dual-arch: HardwiredUnrolled / TimeMultiplexed
+│   └── YOLOv8/          # YOLOv8n-WorldV2 object detection (Signal DSL)
+│       ├── Config.lean   # Model dimensions, quantization params
+│       ├── Types.lean    # Type aliases (WeightInt4, ActivationInt8, etc.)
+│       ├── Top.lean      # Full SoC top-level controller
+│       ├── Backbone.lean # 5-stage backbone FSM
+│       ├── Neck.lean     # FPN + PAN controller
+│       ├── Head.lean     # 3-scale detection head
+│       ├── TextEmbedding.lean  # CLIP text embedding dot product
+│       ├── Primitives/   # Conv2DEngine, LineBuffer, MaxPool, Dequant, etc.
+│       └── Blocks/       # ConvBnSiLU, C2f, Bottleneck, SPPF
 ├── Tests/               # Test suites
 │   ├── TestArray.lean   # Vector/array tests
 │   ├── Sparkle16/       # CPU-specific tests
 │   ├── RV32/            # RV32I simulation tests
 │   ├── BitNet/          # BitNet Signal DSL + golden validation tests
-│   └── golden-values/   # Real model data from bitnet.cpp
+│   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
+│   ├── golden-values/   # Real model data from bitnet.cpp
+│   └── yolo-golden/     # Real model data from ultralytics YOLOv8
 ├── c_src/               # C FFI barriers for Signal.loopMemo
 └── lakefile.lean        # Build configuration
 ```
@@ -840,8 +932,9 @@ Contributions welcome! Areas of interest:
 - [x] **BitNet b1.58 ASIC inference** - Complete accelerator with 60+ formal proofs ✓
 - [x] **Signal DSL migration** - BitNet fully rewritten from CircuitM to Signal DSL ✓
 - [x] **Golden value validation** - 16 tests against real bitnet.cpp model data ✓
-- [x] **RV32I RISC-V SoC** - 5-stage pipelined CPU with UART, CLINT, CSR ✓
+- [x] **RV32IMA RISC-V SoC** - 5-stage pipelined CPU with M-ext, A-ext, UART, CLINT, CSR ✓
 - [x] **Signal.loopMemo** - Memoized simulation with C FFI barriers ✓
+- [x] **YOLOv8n-WorldV2** - Open-vocabulary object detection, 15 synthesizable modules ✓
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
 - [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters
