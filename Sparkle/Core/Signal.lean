@@ -62,6 +62,17 @@ namespace Sparkle.Core.Signal
 
 open Sparkle.Core.Domain
 
+-- Cache reader: reads arr[t] from an IORef, with the entire read in C.
+-- Prevents Lean 4.28's LICM from hoisting `unsafeIO cacheRef.get` out of
+-- lambdas by making the read genuinely depend on `t` (opaque + @[extern]).
+@[extern "sparkle_cache_get"]
+private opaque cacheGet {α : Type} [Nonempty α] (ref : @& IO.Ref (Array α)) (t : @& Nat) (fallback : α) : α
+
+-- Signal evaluator: calls signal_val(t) inside IO for proper sequencing.
+-- Prevents the Lean compiler from reordering pure signal evaluation after
+-- IO operations like cacheRef.swap that empty the cache.
+@[extern "sparkle_eval_at"]
+private opaque evalSignalAt {α : Type} (f : @& (Nat → α)) (t : @& Nat) : IO α
 /--
   Stream is an infinite sequence of values indexed by natural numbers.
   Time 0 is the initial state, time 1 is after first clock cycle, etc.
@@ -216,30 +227,154 @@ def mux (cond : Signal dom Bool) (thenSig : Signal dom α) (elseSig : Signal dom
     let readData := Signal.memory 8 8 writeAddr writeData writeEnable readAddr
     ```
 -/
-def memory {addrWidth dataWidth : Nat}
+-- Memoized memory implementation: uses a flat Array (size 2^addrWidth) to cache
+-- memory state incrementally. Writes are applied sequentially; reads are O(1).
+-- Falls back to the recursive O(t) implementation for addrWidth > 20.
+private unsafe def memoryImpl {addrWidth dataWidth : Nat}
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
     (writeEnable : Signal dom Bool)
     (readAddr : Signal dom (BitVec addrWidth))
     : Signal dom (BitVec dataWidth) :=
-  -- Memory state: maps addresses to data
-  -- We model memory as evolving over time
-  let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
-    match t with
-    | 0 => fun _ => 0#dataWidth  -- Initial state: all zeros
-    | n + 1 =>
-      let prevMem := memState n
-      fun addr =>
-        -- If writing to this address at time n, return the written value
-        if writeEnable.val n && addr == writeAddr.val n then
-          writeData.val n
-        else
-          prevMem addr
-  -- Registered read: read data at time t is the memory contents at time t-1
-  ⟨fun t =>
-    match t with
-    | 0 => 0#dataWidth  -- Initial read value
-    | n + 1 => memState n (readAddr.val n)⟩
+  if addrWidth > 20 then
+    -- Fallback: recursive implementation for huge address spaces
+    let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
+      match t with
+      | 0 => fun _ => 0#dataWidth
+      | n + 1 =>
+        let prevMem := memState n
+        fun addr =>
+          if writeEnable.val n && addr == writeAddr.val n then
+            writeData.val n
+          else
+            prevMem addr
+    ⟨fun t =>
+      match t with
+      | 0 => 0#dataWidth
+      | n + 1 => memState n (readAddr.val n)⟩
+  else
+    let size := 2 ^ addrWidth
+    match unsafeIO (do
+      let arrRef ← IO.mkRef (Array.replicate size (0#dataWidth))
+      let stepRef ← IO.mkRef (0 : Nat)
+      -- Process writes and read in a single IO action so the result is used
+      -- and the compiler cannot DCE the write operations.
+      -- IMPORTANT: Never hold a `take`d array while evaluating signals (.val).
+      -- Signal evaluation can re-enter this function at a different timestep,
+      -- causing a double-take on arrRef → segfault (Lean's take leaves a dummy).
+      -- Fix: evaluate signals first, then briefly take/mutate/set.
+      let processAndRead (t : Nat) : IO (BitVec dataWidth) := do
+        if t == 0 then return 0#dataWidth
+        let mut step ← stepRef.get
+        while step + 1 < t do
+          -- Evaluate signals BEFORE touching the array ref
+          let we := writeEnable.val step
+          let waddr := (writeAddr.val step).toNat
+          let wdata := writeData.val step
+          if we && waddr < size then
+            -- Briefly take, mutate in-place (rc=1), set back
+            let arr ← arrRef.take
+            arrRef.set (arr.set! waddr wdata)
+          step := step + 1
+        stepRef.set step
+        -- Evaluate read address first
+        let raddr := (readAddr.val (t - 1)).toNat
+        -- Briefly take to read
+        let arr ← arrRef.take
+        let result := if raddr < arr.size then arr[raddr]! else 0#dataWidth
+        arrRef.set arr
+        return result
+      return (⟨fun t =>
+        match unsafeIO (processAndRead t) with
+        | .ok v => v
+        | .error _ => 0#dataWidth
+      ⟩ : Signal dom (BitVec dataWidth))
+    ) with
+    | .ok sig => sig
+    | .error _ => ⟨fun _ => 0#dataWidth⟩
+
+@[implemented_by memoryImpl]
+opaque memory {addrWidth dataWidth : Nat}
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth)
+
+/--
+  Memory with combinational (same-cycle) reads.
+
+  Unlike `memory` which has 1-cycle read latency (reads `readAddr` from the
+  previous cycle), `memoryComboRead` reads `readAddr` from the current cycle.
+  Writes from previous cycles (0..t-1) are visible; the write at cycle t is not.
+
+  Use this for register files where reads must be combinational.
+  NOT synthesizable — use `memory` for synthesis targets.
+-/
+private unsafe def memoryComboReadImpl {addrWidth dataWidth : Nat}
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth) :=
+  if addrWidth > 20 then
+    let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
+      match t with
+      | 0 => fun _ => 0#dataWidth
+      | n + 1 =>
+        let prevMem := memState n
+        fun addr =>
+          if writeEnable.val n && addr == writeAddr.val n then
+            writeData.val n
+          else
+            prevMem addr
+    ⟨fun t => memState t (readAddr.val t)⟩
+  else
+    let size := 2 ^ addrWidth
+    match unsafeIO (do
+      let arrRef ← IO.mkRef (Array.replicate size (0#dataWidth))
+      let stepRef ← IO.mkRef (0 : Nat)
+      -- IMPORTANT: Never hold a `take`d array while evaluating signals (.val).
+      -- Signal evaluation can re-enter this function at a different timestep,
+      -- causing a double-take on arrRef → segfault (Lean's take leaves a dummy).
+      -- Fix: evaluate signals first, then briefly take/mutate/set.
+      let processAndRead (t : Nat) : IO (BitVec dataWidth) := do
+        let mut step ← stepRef.get
+        -- Process writes from step 0..t-1
+        while step < t do
+          -- Evaluate signals BEFORE touching the array ref
+          let we := writeEnable.val step
+          let waddr := (writeAddr.val step).toNat
+          let wdata := writeData.val step
+          if we && waddr < size then
+            -- Briefly take, mutate in-place (rc=1), set back
+            let arr ← arrRef.take
+            arrRef.set (arr.set! waddr wdata)
+          step := step + 1
+        stepRef.set step
+        -- Evaluate read address BEFORE taking array
+        let raddr := (readAddr.val t).toNat
+        -- Briefly take to read
+        let arr ← arrRef.take
+        let result := if raddr < arr.size then arr[raddr]! else 0#dataWidth
+        arrRef.set arr
+        return result
+      return (⟨fun t =>
+        match unsafeIO (processAndRead t) with
+        | .ok v => v
+        | .error _ => 0#dataWidth
+      ⟩ : Signal dom (BitVec dataWidth))
+    ) with
+    | .ok sig => sig
+    | .error _ => ⟨fun _ => 0#dataWidth⟩
+
+@[implemented_by memoryComboReadImpl]
+opaque memoryComboRead {addrWidth dataWidth : Nat}
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth)
 
 /--
   Synchronous memory with initial contents (RAM/BRAM).
@@ -257,27 +392,79 @@ def memory {addrWidth dataWidth : Nat}
 
   Returns: Read data signal (registered, 1-cycle latency)
 -/
-def memoryWithInit {addrWidth dataWidth : Nat}
+private unsafe def memoryWithInitImpl {addrWidth dataWidth : Nat}
     (initData : BitVec addrWidth → BitVec dataWidth)
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
     (writeEnable : Signal dom Bool)
     (readAddr : Signal dom (BitVec addrWidth))
     : Signal dom (BitVec dataWidth) :=
-  let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
-    match t with
-    | 0 => initData
-    | n + 1 =>
-      let prevMem := memState n
-      fun addr =>
-        if writeEnable.val n && addr == writeAddr.val n then
-          writeData.val n
-        else
-          prevMem addr
-  ⟨fun t =>
-    match t with
-    | 0 => initData (readAddr.val 0)
-    | n + 1 => memState n (readAddr.val n)⟩
+  if addrWidth > 20 then
+    -- Fallback: recursive implementation for huge address spaces
+    let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
+      match t with
+      | 0 => initData
+      | n + 1 =>
+        let prevMem := memState n
+        fun addr =>
+          if writeEnable.val n && addr == writeAddr.val n then
+            writeData.val n
+          else
+            prevMem addr
+    ⟨fun t =>
+      match t with
+      | 0 => initData (readAddr.val 0)
+      | n + 1 => memState n (readAddr.val n)⟩
+  else
+    let size := 2 ^ addrWidth
+    -- Initialize array from initData
+    let initArr := Array.ofFn (n := size) fun (i : Fin size) =>
+      initData (BitVec.ofNat addrWidth i.val)
+    match unsafeIO (do
+      let arrRef ← IO.mkRef initArr
+      let stepRef ← IO.mkRef (0 : Nat)
+      -- IMPORTANT: Never hold a `take`d array while evaluating signals (.val).
+      -- Signal evaluation can re-enter this function at a different timestep,
+      -- causing a double-take on arrRef → segfault (Lean's take leaves a dummy).
+      -- Fix: evaluate signals first, then briefly take/mutate/set.
+      let processAndRead (t : Nat) : IO (BitVec dataWidth) := do
+        if t == 0 then return initData (readAddr.val 0)
+        let mut step ← stepRef.get
+        while step + 1 < t do
+          -- Evaluate signals BEFORE touching the array ref
+          let we := writeEnable.val step
+          let waddr := (writeAddr.val step).toNat
+          let wdata := writeData.val step
+          if we && waddr < size then
+            -- Briefly take, mutate in-place (rc=1), set back
+            let arr ← arrRef.take
+            arrRef.set (arr.set! waddr wdata)
+          step := step + 1
+        stepRef.set step
+        -- Evaluate read address first
+        let raddr := (readAddr.val (t - 1)).toNat
+        -- Briefly take to read
+        let arr ← arrRef.take
+        let result := if raddr < arr.size then arr[raddr]! else initData (readAddr.val (t - 1))
+        arrRef.set arr
+        return result
+      return (⟨fun t =>
+        match unsafeIO (processAndRead t) with
+        | .ok v => v
+        | .error _ => initData (readAddr.val 0)
+      ⟩ : Signal dom (BitVec dataWidth))
+    ) with
+    | .ok sig => sig
+    | .error _ => ⟨fun _ => initData (readAddr.val 0)⟩
+
+@[implemented_by memoryWithInitImpl]
+opaque memoryWithInit {addrWidth dataWidth : Nat}
+    (initData : BitVec addrWidth → BitVec dataWidth)
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth)
 
 /--
   Fixed-point combinator for feedback loops.
@@ -300,6 +487,55 @@ private unsafe def loopImpl [Inhabited α] (f : Signal dom α → Signal dom α)
 @[implemented_by loopImpl]
 opaque loop [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
 
+/--
+  Memoized fixed-point combinator for feedback loops.
+
+  Like `loop`, but caches the loop output per timestep in an array.
+  When evaluating sequentially (t=0,1,2,...), prior timesteps are O(1) lookups
+  instead of rebuilding the entire temporal chain.
+
+  This eliminates stack overflow for large loop bodies (e.g., 56-register SoC)
+  by turning O(t) stack depth per evaluation into O(1) with cached results.
+
+  Returns IO because it allocates a mutable cache internally.
+-/
+private unsafe def loopMemoImpl {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) : IO (Signal dom α) := do
+  let cacheRef ← IO.mkRef (#[] : Array α)
+  let cacheSizeRef ← IO.mkRef (0 : Nat)
+  -- cacheGet is an @[extern] C function: reads cacheRef[t] entirely in C.
+  -- The Lean compiler cannot hoist this because cacheGet is opaque and
+  -- genuinely depends on t. Without this, LICM hoists unsafeIO cacheRef.get
+  -- out of the lambda, caching a stale empty array forever.
+  let result : Signal dom α := ⟨fun t => cacheGet cacheRef t default⟩
+  let inner := f result
+  -- evalAt: populate cache sequentially up to t, return value at t.
+  -- Each inner.val i reads result.val (i-1) which is a cache hit (already pushed).
+  let evalAt (t : Nat) : IO α := do
+    let sz ← cacheSizeRef.get
+    if t < sz then
+      let arr ← cacheRef.get
+      return if h : t < arr.size then arr[t] else default
+    else
+      for i in [sz:t + 1] do
+        -- evalSignalAt forces evaluation BEFORE the swap.
+        -- Without it, the compiler reorders `inner.val i` (pure) after
+        -- `cacheRef.swap #[]` (IO), emptying the cache during evaluation.
+        let v ← evalSignalAt inner.val i
+        -- swap out (rc=1), push in-place, set back
+        let arr ← cacheRef.swap #[]
+        cacheRef.set (arr.push v)
+      cacheSizeRef.set (t + 1)
+      let arr ← cacheRef.get
+      return if h : t < arr.size then arr[t] else default
+  return ⟨fun t =>
+    match unsafeIO (evalAt t) with
+    | .ok v => v
+    | .error _ => default⟩
+
+@[implemented_by loopMemoImpl]
+opaque loopMemo {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : IO (Signal dom α)
+
 end Signal
 
 -- ============================================================================
@@ -315,10 +551,20 @@ def ashr (a b : BitVec n) : BitVec n :=
 -- Notation and syntax sugar
 
 /-- Bundle multiple signals for convenience -/
+private unsafe def bundle2Impl {dom : DomainConfig} {α β : Type u}
+    (a : Signal dom α) (b : Signal dom β) : Signal dom (α × β) :=
+  ⟨fun t => (a.val t, b.val t)⟩
+
+@[implemented_by bundle2Impl]
 def bundle2 {dom : DomainConfig} {α β : Type u}
     (a : Signal dom α) (b : Signal dom β) : Signal dom (α × β) :=
   (·, ·) <$> a <*> b
 
+private unsafe def bundle3Impl {dom : DomainConfig} {α β γ : Type u}
+    (a : Signal dom α) (b : Signal dom β) (c : Signal dom γ) : Signal dom (α × β × γ) :=
+  ⟨fun t => (a.val t, b.val t, c.val t)⟩
+
+@[implemented_by bundle3Impl]
 def bundle3 {dom : DomainConfig} {α β γ : Type u}
     (a : Signal dom α) (b : Signal dom β) (c : Signal dom γ) : Signal dom (α × β × γ) :=
   (·, ·, ·) <$> a <*> b <*> c
@@ -340,10 +586,20 @@ def unbundle2 {dom : DomainConfig} {α β : Type u}
 -- ============================================================================
 
 /-- Project first element from a 2-tuple signal -/
+private unsafe def fstImpl {dom : DomainConfig} {α β : Type u}
+    (s : Signal dom (α × β)) : Signal dom α :=
+  ⟨fun t => (s.val t).1⟩
+
+@[implemented_by fstImpl]
 def Signal.fst {dom : DomainConfig} {α β : Type u} (s : Signal dom (α × β)) : Signal dom α :=
   s.map Prod.fst
 
 /-- Project second element from a 2-tuple signal -/
+private unsafe def sndImpl {dom : DomainConfig} {α β : Type u}
+    (s : Signal dom (α × β)) : Signal dom β :=
+  ⟨fun t => (s.val t).2⟩
+
+@[implemented_by sndImpl]
 def Signal.snd {dom : DomainConfig} {α β : Type u} (s : Signal dom (α × β)) : Signal dom β :=
   s.map Prod.snd
 
