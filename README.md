@@ -9,22 +9,25 @@ A type-safe hardware description language that brings the power of dependent typ
 
 ## Killer App: BitNet b1.58 ASIC Inference Engine
 
-Sparkle ships with a **complete, formally verified BitNet b1.58 RTL generator** — a production-grade ternary-weight neural network inference core targeting ASIC synthesis. This is the world's first formally verified LLM inference hardware generated from a theorem prover.
+Sparkle ships with a **complete, formally verified BitNet b1.58 accelerator** — a production-grade ternary-weight neural network inference core targeting ASIC synthesis, written entirely in the Signal DSL. This is the world's first formally verified LLM inference hardware generated from a theorem prover.
 
 ### What It Does
 
-One Lean command generates a **complete 12-layer, 64-dimension BitNet SoC** as synthesizable SystemVerilog:
+Pure Signal DSL functions compose into a **complete BitNet SoC** — simulate directly or synthesize to SystemVerilog:
 
 ```lean
-import Examples.BitNet
+import Examples.BitNet.SoC.Top
 
--- Generate a TimeMultiplexed SoC: 1 shared core + weight ROM + FSM
-let soc ← buildBitNetSoC {
-  archMode := .TimeMultiplexed, nLayers := 12, dim := 64, ffnDim := 64
-} weights scales
+open Sparkle.Core.Signal
+open Sparkle.Examples.BitNet.SoC
 
--- Emit 1,909 lines of synthesizable SystemVerilog
-IO.println (toVerilog soc)
+-- Build a 2-layer, 4-dimension BitNet SoC as a Signal function
+let cfg : SoCConfig := { archMode := .HardwiredUnrolled, nLayers := 2, dim := 4, ffnDim := 4 }
+let x : Signal defaultDomain (BitVec 32) := Signal.pure (BitVec.ofNat 32 0x10000)  -- 1.0 Q16.16
+let result := bitNetSoCSignal cfg layerWeights layerScales x
+
+-- Simulate: evaluate at any timestep
+IO.println s!"Output at t=0: {result.atTime 0}"
 ```
 
 ### Dual-Architecture: Choose Your Trade-off
@@ -71,27 +74,46 @@ x[dim] ──► BitLinear(gate) ──► Scale ──► ReLU² ──┐
 - **LUT-based softmax**: 256-entry exp/reciprocal lookup tables as mux trees
 - **Full attention pipeline**: QKV projection, INT8 dot product, softmax, score-V multiply, multi-head
 
-### End-to-End RTL Simulation
+### Golden Value Validation
+
+RTL spec functions are validated against real model data from bitnet.cpp (16 tests):
+
+```
+=== RTL Golden Value Validation ===
+  [PASS] Q16.16 round-trip       (cosine: 0.9999+)
+  [PASS] reluSquared              (cosine: 0.999+)
+  [PASS] elemMul                  (cosine: 0.999+)
+  [PASS] residualAdd              (cosine: 0.9999+)
+  [PASS] fixedPointScale          (cosine: 0.9999+)
+  [PASS] quantizeToInt8           (exact match)
+  [PASS] FFN forward pass         (cosine: 0.999+)
+  [PASS] Attention score pipeline (exact match)
+  [PASS] Softmax + weighted V sum
+ALL TESTS PASSED
+```
+
+---
+
+## RV32I RISC-V SoC
+
+A **complete 5-stage pipelined RV32I CPU** with peripherals, written entirely in Signal DSL:
+
+```lean
+-- 58 registers in a single Signal.loop — full SoC in one function
+def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState :=
+  Signal.loopMemo fun state => rv32iSoCWithFirmwareBody firmware state
+```
+
+- **5-stage pipeline**: IF/ID/EX/MEM/WB with hazard detection and data forwarding
+- **RV32I ISA**: Full integer instruction set (ALU, load/store, branches, jumps, CSR)
+- **Peripherals**: UART TX/RX, CLINT timer with interrupts, AI accelerator MMIO
+- **Memory**: IMEM (firmware ROM) + DMEM (read/write BRAM) via `Signal.memory`
+- **Simulation**: Memoized via `Signal.loopMemo` with C FFI barriers for O(1) lookups
+- **Synthesis**: `#synthesizeVerilog` generates SystemVerilog from the same Signal DSL code
 
 ```bash
-# Compile and simulate with Icarus Verilog
-cd hw/sim/tb
-iverilog -g2012 -o tb_soc_hello tb_soc_hello.sv ../../synth/time_muxed.sv
-vvp tb_soc_hello
-```
-
-```
-=== BitNet End-to-End RTL Simulation ===
-Input: "hello" (5 chars as Q16.16)
-Architecture: TimeMultiplexed, 12 layers, dim=64
-
-  Char[0] 'h': x_in=0x00680000 -> y_out=0x80000000
-  Char[1] 'e': x_in=0x00650000 -> y_out=0x3af75fc5
-  Char[2] 'l': x_in=0x006c0000 -> y_out=0x80000000
-  Char[3] 'l': x_in=0x006c0000 -> y_out=0x80000000  (deterministic!)
-  Char[4] 'o': x_in=0x006f0000 -> y_out=0x4ae5ffa3
-
-=== Simulation Complete ===
+# Run RV32I SoC simulation with firmware
+lake test  # Includes RV32 simulation tests
 ```
 
 ---
@@ -439,22 +461,22 @@ A working 16-bit RISC processor with fetch-decode-execute.
 
 ### BitNet ASIC Inference Engine
 ```bash
-# Generate and simulate BitNet SoC RTL
-lake env lean --run Examples/BitNet/Top.lean
+# Run BitNet tests (Signal DSL functional tests + golden validation)
+lake test
 ```
-Generates a complete 12-layer BitNet SoC with dual architecture options, 60+ formal proofs, and Yosys-synthesizable SystemVerilog.
+Complete BitNet b1.58 accelerator with dual architecture options, 60+ formal proofs, and 16 golden value validation tests against real model data.
 
 ### All Examples
 ```bash
 # Simulation examples
 lake env lean --run Examples/Counter.lean
 lake env lean --run Examples/ManualIR.lean
-lake env lean --run Examples/SimpleMemory.lean          # NEW: Memory simulation
+lake env lean --run Examples/SimpleMemory.lean          # Memory simulation
 
 # Verilog generation
 lake env lean --run Examples/VerilogTest.lean
 lake env lean --run Examples/FullCycle.lean
-lake env lean --run Examples/MemoryManualIR.lean        # NEW: Memory Verilog generation
+lake env lean --run Examples/MemoryManualIR.lean        # Memory Verilog generation
 
 # Feedback loops
 lake env lean --run Examples/LoopSynthesis.lean
@@ -467,6 +489,9 @@ lake env lean --run Examples/Sparkle16/ALU.lean
 lake env lean --run Examples/Sparkle16/RegisterFile.lean
 lake env lean --run Examples/Sparkle16/Core.lean
 lake env lean --run Examples/Sparkle16/ISAProofTests.lean
+
+# RV32I RISC-V SoC and BitNet (via test suite)
+lake test
 ```
 
 ## Documentation
@@ -501,23 +526,15 @@ The generated documentation includes:
 
 ```
 ┌─────────────┐
-│  Lean Code  │  Write hardware using Signal monad
+│  Lean Code  │  Write hardware using Signal DSL
 └──────┬──────┘
        │
-       ▼
-┌─────────────┐
-│ Simulation  │  Test with cycle-accurate semantics
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│   IR Builder│  Compile to hardware netlist
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│  Verilog    │  Generate SystemVerilog
-└─────────────┘
+       ├──────────────────────────┐
+       ▼                          ▼
+┌─────────────┐          ┌──────────────────┐
+│ Simulation  │          │ #synthesizeVerilog│
+│  .atTime t  │          │  Lean → IR → SV  │
+└─────────────┘          └──────────────────┘
 ```
 
 ### Core Abstractions
@@ -659,7 +676,7 @@ def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
 #synthesizeVerilog counter  -- ✓ Works!
 ```
 
-**Complex feedback with multiple signals requires manual IR:**
+**Complex feedback with multiple signals — use `Signal.loop`:**
 
 ```lean
 -- ❌ WRONG: Multiple interdependent signals
@@ -668,19 +685,24 @@ def stateMachine : Signal Domain State :=
   let state := Signal.register Idle next  -- ❌ Forward reference
   state
 
--- ✓ RIGHT: Use manual IR construction for complex feedback
--- See Examples/LoopSynthesis.lean and Examples/Sparkle16/ for working patterns
+-- ✓ RIGHT: Use Signal.loop for multi-register state machines
+def stateMachine (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.loop fun state =>
+    -- state is the previous cycle's output (right-nested tuple)
+    let next := computeNext state input
+    next
+-- See Examples/RV32/SoC.lean for a 58-register Signal.loop example
 ```
 
 **Why this limitation exists:**
 - Lean evaluates let-bindings sequentially (no forward references)
 - `let rec` works for single self-referential definitions
-- Multiple circular bindings need explicit fixed-point construction
+- Multiple circular bindings use `Signal.loop` which provides the previous state
 
 **Workarounds:**
 - **Simple loops**: Use `let rec` (counters, single-register state)
-- **Complex feedback**: Use manual IR construction with `CircuitM`
-- See `Examples/LoopSynthesis.lean` for comprehensive examples
+- **Complex feedback**: Use `Signal.loop` for multi-register state machines
+- See `Examples/LoopSynthesis.lean` and `Examples/RV32/SoC.lean` for working patterns
 
 ### 📋 What's Supported
 
@@ -699,7 +721,7 @@ def stateMachine : Signal Domain State :=
 - **Co-simulation**: Verilator integration for validation
 
 **⚠️ Current Limitations:**
-- **No `<~` feedback operator** - Use `let rec` or manual IR construction
+- **No `<~` feedback operator** - Use `let rec` or `Signal.loop`
 - **No imperative do-notation** - Use dataflow style with applicative operators
 - **No runtime constants** - Arrays, single BitVec values can't be synthesized
 - Pattern matching on Signal tuples (use `.fst`/`.snd` instead)
@@ -710,7 +732,7 @@ def stateMachine : Signal Domain State :=
 
 ### 🧪 Testing
 
-Run the comprehensive test suite (190+ tests):
+Run the comprehensive test suite:
 
 ```bash
 lake test
@@ -724,9 +746,10 @@ Tests include:
 - Temporal Logic verification (33 tests)
 - Overflow/underflow behavior (26 tests)
 - Sparkle-16 CPU verification tests
-- **BitNet RTL correctness (60+ proofs)** - NEW!
-- Combinational and sequential circuits
-- Hierarchical module instantiation
+- **BitNet Signal DSL functional tests** — spec-vs-Signal exact match
+- **BitNet golden value validation (16 tests)** — validated against real bitnet.cpp model data
+- **BitNet RTL correctness (60+ proofs)**
+- **RV32I SoC simulation tests**
 - Co-simulation with Verilator
 
 ## Comparison with Other HDLs
@@ -748,31 +771,43 @@ Tests include:
 sparkle/
 ├── Sparkle/              # Core library
 │   ├── Core/            # Signal semantics, domains, and vectors
-│   │   ├── Signal.lean  # Signal monad and operations
+│   │   ├── Signal.lean  # Signal DSL: register, memory, loop, loopMemo, mux
 │   │   ├── Domain.lean  # Clock domain configuration
-│   │   └── Vector.lean  # Hardware vector types (NEW!)
+│   │   └── Vector.lean  # Hardware vector types
 │   ├── Data/            # BitPack and data types
 │   ├── IR/              # Hardware IR and AST
 │   │   ├── AST.lean     # Expressions, statements, modules
 │   │   ├── Type.lean    # HWType with array support
 │   │   └── Builder.lean # Circuit construction monad
 │   ├── Compiler/        # Lean → IR compilation
-│   │   └── Elab.lean    # Metaprogramming synthesis
+│   │   └── Elab.lean    # #synthesizeVerilog metaprogramming
 │   ├── Backend/         # Verilog code generation
 │   │   ├── Verilog.lean # SystemVerilog backend
 │   │   └── VCD.lean     # Waveform dump generation
 │   └── Verification/    # Proof libraries and co-simulation
-│       ├── Temporal.lean # Linear Temporal Logic (LTL) operators (NEW!)
+│       ├── Temporal.lean # Linear Temporal Logic (LTL) operators
 │       └── CoSim.lean   # Verilator integration
 ├── Examples/            # Example designs
 │   ├── Counter.lean
 │   ├── VerilogTest.lean
 │   ├── Sparkle16/       # Complete 16-bit RISC CPU
-│   └── BitNet/          # BitNet b1.58 ASIC inference engine (NEW!)
-├── Tests/               # Test suites (100+ tests)
+│   ├── RV32/            # RV32I RISC-V SoC (Signal DSL)
+│   │   ├── Core.lean    # 5-stage pipeline (IF/ID/EX/MEM/WB)
+│   │   ├── SoC.lean     # Full SoC with UART, CLINT, CSR, AI MMIO
+│   │   └── ...          # Peripherals, decoder, ALU
+│   └── BitNet/          # BitNet b1.58 accelerator (Signal DSL)
+│       ├── SignalHelpers.lean  # Reusable: adderTree, maxTree, lutMuxTree
+│       ├── Layers/      # ReLU², ElemMul, ResidualAdd, RMSNorm, FFN
+│       ├── BitLinear/   # Ternary MAC, adder tree, dynamic weights
+│       ├── Attention/   # QKV, softmax, dot product, multi-head
+│       └── SoC/         # Dual-arch: HardwiredUnrolled / TimeMultiplexed
+├── Tests/               # Test suites
 │   ├── TestArray.lean   # Vector/array tests
 │   ├── Sparkle16/       # CPU-specific tests
-│   └── BitNet/          # BitNet correctness tests (NEW!)
+│   ├── RV32/            # RV32I simulation tests
+│   ├── BitNet/          # BitNet Signal DSL + golden validation tests
+│   └── golden-values/   # Real model data from bitnet.cpp
+├── c_src/               # C FFI barriers for Signal.loopMemo
 └── lakefile.lean        # Build configuration
 ```
 
@@ -794,7 +829,7 @@ Contributions welcome! Areas of interest:
 
 - [x] **Module hierarchy** - Multi-level designs ✓
 - [x] **Tuple projections** - Readable `.fst`/`.snd`/`.proj*` methods ✓
-- [x] **Comprehensive testing** - 130+ LSpec-based tests ✓
+- [x] **Comprehensive testing** - LSpec-based tests ✓
 - [x] **Vector types** - Hardware arrays `HWVector α n` with indexing ✓
 - [x] **Type inference** - Correct overflow/underflow for all bit widths ✓
 - [x] **Waveform export** - VCD dump for GTKWave ✓
@@ -802,14 +837,17 @@ Contributions welcome! Areas of interest:
 - [x] **Temporal Logic** - Linear Temporal Logic (LTL) for verification ✓
 - [x] **Memory primitives** - SRAM/BRAM with synchronous read/write ✓
 - [x] **Cycle-skipping simulation** - Use proven temporal properties for optimization ✓
-- [x] **BitNet b1.58 ASIC inference** - Complete RTL generator with 60+ formal proofs ✓
+- [x] **BitNet b1.58 ASIC inference** - Complete accelerator with 60+ formal proofs ✓
+- [x] **Signal DSL migration** - BitNet fully rewritten from CircuitM to Signal DSL ✓
+- [x] **Golden value validation** - 16 tests against real bitnet.cpp model data ✓
+- [x] **RV32I RISC-V SoC** - 5-stage pipelined CPU with UART, CLINT, CSR ✓
+- [x] **Signal.loopMemo** - Memoized simulation with C FFI barriers ✓
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
 - [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters
 - [ ] **More proofs** - State machine invariants, protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
 - [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
-- [ ] **Memory initialization** - Load memory from files for ROM/RAM init
 
 ## Development History
 
