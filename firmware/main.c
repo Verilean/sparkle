@@ -173,6 +173,110 @@ static unsigned int test_timer(void) {
     return (_trap_cause == 0x80000007) ? 1 : 0;
 }
 
+/* ---------- Test 8: M-extension (MUL/DIV/REM) ---------- */
+
+static unsigned int test_mext(void) {
+    unsigned int pass = 1;
+
+    /* MUL: 7 * 13 = 91 */
+    unsigned int mul_r = 7u * 13u;
+    uart_putword(mul_r);           /* Expected: 91 = 0x5B */
+    pass &= (mul_r == 91);
+
+    /* MUL signed: -3 * 5 = -15 */
+    int smul_r = (-3) * 5;
+    uart_putword((unsigned int)smul_r);  /* Expected: 0xFFFFFFF1 (-15) */
+    pass &= (smul_r == -15);
+
+    /* DIV: 100 / 7 = 14 */
+    unsigned int div_r = 100u / 7u;
+    uart_putword(div_r);           /* Expected: 14 = 0x0E */
+    pass &= (div_r == 14);
+
+    /* DIV signed: -100 / 7 = -14 (truncated toward zero) */
+    int sdiv_r = (-100) / 7;
+    uart_putword((unsigned int)sdiv_r);  /* Expected: 0xFFFFFFF2 (-14) */
+    pass &= (sdiv_r == -14);
+
+    /* REM: 100 % 7 = 2 */
+    unsigned int rem_r = 100u % 7u;
+    uart_putword(rem_r);           /* Expected: 2 */
+    pass &= (rem_r == 2);
+
+    /* REM signed: -100 % 7 = -2 */
+    int srem_r = (-100) % 7;
+    uart_putword((unsigned int)srem_r);  /* Expected: 0xFFFFFFFE (-2) */
+    pass &= (srem_r == -2);
+
+    return pass;
+}
+
+/* ---------- Test 9: BitNet MMIO ---------- */
+
+#define AI_STATUS  (*(volatile unsigned int *)0x40000000)
+#define AI_INPUT   (*(volatile unsigned int *)0x40000004)
+#define AI_OUTPUT  (*(volatile unsigned int *)0x40000008)
+
+static unsigned int test_bitnet_mmio(void) {
+    AI_STATUS = 1;
+    unsigned int status = AI_STATUS;
+    uart_putword(status);           /* Expected: 1 */
+    if (status != 1) return 0;
+
+    unsigned int output = AI_OUTPUT;
+    uart_putword(output);           /* Expected: 0xDEADBEEF */
+    if (output != 0xDEADBEEF) return 0;
+
+    return 1;
+}
+
+/* ---------- Test 10: A-extension (Atomics) ---------- */
+
+static unsigned int test_atomics(void) {
+    volatile unsigned int shared = 100;
+    unsigned int old;
+
+    /* LR.W / SC.W: load-reserved, store-conditional */
+    asm volatile(
+        "lr.w %0, (%1)\n"
+        : "=r"(old) : "r"(&shared) : "memory"
+    );
+    uart_putword(old);  /* Expected: 100 = 0x64 */
+    if (old != 100) return 0;
+
+    unsigned int sc_result;
+    asm volatile(
+        "sc.w %0, %1, (%2)\n"
+        : "=r"(sc_result) : "r"(200u), "r"(&shared) : "memory"
+    );
+    uart_putword(sc_result);  /* Expected: 0 (success) */
+    if (sc_result != 0) return 0;
+    uart_putword(shared);     /* Expected: 200 = 0xC8 */
+    if (shared != 200) return 0;
+
+    /* AMOSWAP: swap value atomically */
+    asm volatile(
+        "amoswap.w %0, %1, (%2)\n"
+        : "=r"(old) : "r"(999u), "r"(&shared) : "memory"
+    );
+    uart_putword(old);     /* Expected: 200 = 0xC8 (old value) */
+    if (old != 200) return 0;
+    uart_putword(shared);  /* Expected: 999 = 0x3E7 */
+    if (shared != 999) return 0;
+
+    /* AMOADD: atomic add */
+    asm volatile(
+        "amoadd.w %0, %1, (%2)\n"
+        : "=r"(old) : "r"(1u), "r"(&shared) : "memory"
+    );
+    uart_putword(old);     /* Expected: 999 = 0x3E7 (old value) */
+    if (old != 999) return 0;
+    uart_putword(shared);  /* Expected: 1000 = 0x3E8 */
+    if (shared != 1000) return 0;
+
+    return 1;
+}
+
 /* ---------- Main ---------- */
 
 int main(void) {
@@ -201,18 +305,33 @@ int main(void) {
     result = test_gcd();
     pass &= (result == 32);
 
-    /* Test 5: CSR Read/Write */
+    /* Test 5: M-extension */
     uart_putword(0xAAAA0005);
+    result = test_mext();
+    pass &= result;
+
+    /* Test 6: BitNet MMIO */
+    uart_putword(0xAAAA0006);
+    result = test_bitnet_mmio();
+    pass &= result;
+
+    /* Test 7: A-extension (Atomics) — moved before trap tests */
+    uart_putword(0xAAAA0007);
+    result = test_atomics();
+    pass &= result;
+
+    /* Test 8: CSR Read/Write */
+    uart_putword(0xAAAA0008);
     result = test_csr();
     pass &= result;
 
-    /* Test 6: ECALL Trap */
-    uart_putword(0xAAAA0006);
+    /* Test 9: ECALL Trap */
+    uart_putword(0xAAAA0009);
     result = test_ecall();
     pass &= result;
 
-    /* Test 7: Timer Interrupt */
-    uart_putword(0xAAAA0007);
+    /* Test 10: Timer Interrupt */
+    uart_putword(0xAAAA000A);
     result = test_timer();
     pass &= result;
 

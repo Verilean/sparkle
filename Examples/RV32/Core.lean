@@ -373,4 +373,99 @@ def controlSignalsSignal {dom : DomainConfig}
 
 #synthesizeVerilog controlSignalsSignal
 
+-- ============================================================================
+-- M-Extension: Multiply/Divide (Pure Lean computation for simulation)
+-- ============================================================================
+
+/-- Pure Lean computation for all 8 M-extension instructions.
+
+    funct3 encoding (within opcode=0110011, funct7=0000001):
+      0 = MUL      lower 32 bits of signed * signed
+      1 = MULH     upper 32 bits of signed * signed
+      2 = MULHSU   upper 32 bits of signed * unsigned
+      3 = MULHU    upper 32 bits of unsigned * unsigned
+      4 = DIV      signed division
+      5 = DIVU     unsigned division
+      6 = REM      signed remainder
+      7 = REMU     unsigned remainder
+
+    Edge cases per RISC-V spec:
+      DIV  by 0 -> 0xFFFFFFFF (-1 in two's complement)
+      DIVU by 0 -> 0xFFFFFFFF
+      REM  by 0 -> dividend
+      REMU by 0 -> dividend
+      Signed overflow: INT_MIN / -1 -> INT_MIN (DIV), 0 (REM) -/
+def mextCompute (funct3 : BitVec 3) (rs1 rs2 : BitVec 32) : BitVec 32 :=
+  match funct3.toNat with
+  | 0 => -- MUL: lower 32 bits of signed * signed
+    let prod : Int := rs1.toInt * rs2.toInt
+    BitVec.ofInt 32 prod
+  | 1 => -- MULH: upper 32 bits of signed * signed
+    let prod : Int := rs1.toInt * rs2.toInt
+    BitVec.ofInt 32 (prod >>> 32)
+  | 2 => -- MULHSU: upper 32 bits of signed * unsigned
+    let prod : Int := rs1.toInt * rs2.toNat
+    BitVec.ofInt 32 (prod >>> 32)
+  | 3 => -- MULHU: upper 32 bits of unsigned * unsigned
+    let prod : Nat := rs1.toNat * rs2.toNat
+    BitVec.ofNat 32 (prod >>> 32)
+  | 4 => -- DIV: signed division
+    if rs2 == 0#32 then
+      0xFFFFFFFF#32  -- Division by zero
+    else if rs1 == 0x80000000#32 && rs2 == 0xFFFFFFFF#32 then
+      0x80000000#32  -- Signed overflow: INT_MIN / -1 = INT_MIN
+    else
+      BitVec.ofInt 32 (rs1.toInt / rs2.toInt)
+  | 5 => -- DIVU: unsigned division
+    if rs2 == 0#32 then
+      0xFFFFFFFF#32  -- Division by zero
+    else
+      BitVec.ofNat 32 (rs1.toNat / rs2.toNat)
+  | 6 => -- REM: signed remainder
+    if rs2 == 0#32 then
+      rs1  -- Remainder by zero returns dividend
+    else if rs1 == 0x80000000#32 && rs2 == 0xFFFFFFFF#32 then
+      0#32  -- Signed overflow: INT_MIN % -1 = 0
+    else
+      BitVec.ofInt 32 (rs1.toInt % rs2.toInt)
+  | 7 => -- REMU: unsigned remainder
+    if rs2 == 0#32 then
+      rs1  -- Remainder by zero returns dividend
+    else
+      BitVec.ofNat 32 (rs1.toNat % rs2.toNat)
+  | _ => 0#32  -- unreachable
+
+-- ============================================================================
+-- A-Extension: Atomic Read-Modify-Write (Pure Lean computation for simulation)
+-- ============================================================================
+
+/-- Pure Lean computation for AMO instructions (non-LR/SC).
+
+    amoOp = funct7[6:2] (5 bits):
+      00001 = AMOSWAP.W
+      00000 = AMOADD.W
+      00100 = AMOXOR.W
+      01100 = AMOAND.W
+      01000 = AMOOR.W
+      10000 = AMOMIN.W
+      10100 = AMOMAX.W
+      11000 = AMOMINU.W
+      11100 = AMOMAXU.W
+
+    memVal: current value at memory address
+    rs2Val: register value to combine with memVal
+    Returns: new value to write back to memory -/
+def amoCompute (amoOp : BitVec 5) (memVal rs2Val : BitVec 32) : BitVec 32 :=
+  match amoOp.toNat with
+  | 0b00001 => rs2Val                                                     -- AMOSWAP
+  | 0b00000 => memVal + rs2Val                                            -- AMOADD
+  | 0b00100 => memVal ^^^ rs2Val                                          -- AMOXOR
+  | 0b01100 => memVal &&& rs2Val                                          -- AMOAND
+  | 0b01000 => memVal ||| rs2Val                                          -- AMOOR
+  | 0b10000 => if memVal.toInt ≤ rs2Val.toInt then memVal else rs2Val     -- AMOMIN
+  | 0b10100 => if memVal.toInt ≥ rs2Val.toInt then memVal else rs2Val     -- AMOMAX
+  | 0b11000 => if memVal.toNat ≤ rs2Val.toNat then memVal else rs2Val     -- AMOMINU
+  | 0b11100 => if memVal.toNat ≥ rs2Val.toNat then memVal else rs2Val     -- AMOMAXU
+  | _ => memVal
+
 end Sparkle.Examples.RV32

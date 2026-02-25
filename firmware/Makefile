@@ -31,7 +31,7 @@ OBJDUMP = $(CROSS)objdump
 SIZE    = $(CROSS)size
 
 # ---------- Flags ----------
-ARCH    = -march=rv32i_zicsr -mabi=ilp32
+ARCH    = -march=rv32ima_zicsr -mabi=ilp32
 
 CFLAGS  = $(ARCH) -O2 -Wall -Wextra \
            -ffreestanding -nostdlib -nostartfiles \

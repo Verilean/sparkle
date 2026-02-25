@@ -42,15 +42,15 @@ def main (args : List String) : IO Unit := do
   IO.println s!"Running Lean4 simulation for {maxCycles} cycles..."
   let soc ← @rv32iSoCSimulateFull defaultDom initFn
 
-  -- Extract signals from the 56-element state tuple
-  let pcSig := projN! soc 56 0           -- PC
-  let storeAddrSig := projN! soc 56 41   -- Previous store address (ALU result)
-  let storeDataSig := projN! soc 56 42   -- Previous store data (ex_rs2)
-  let storeEnSig := projN! soc 56 43     -- Previous store enable (idex_memWrite)
+  -- Extract signals from the 69-element state tuple
+  let pcSig := projN! soc 69 0           -- PC
+  let storeAddrSig := projN! soc 69 41   -- Previous store address (ALU result)
+  let storeDataSig := projN! soc 69 42   -- Previous store data (ex_rs2)
+  let storeEnSig := projN! soc 69 43     -- Previous store enable (idex_memWrite)
   -- Extra diagnostics
-  let exwbAluSig := projN! soc 56 30     -- exwb_alu (should match prevStoreAddr)
-  let idexMemWriteSig := projN! soc 56 9 -- idex_memWrite (EX stage store enable)
-  let idexPcSig := projN! soc 56 26      -- idex_pc (PC of EX stage instruction)
+  let exwbAluSig := projN! soc 69 30     -- exwb_alu (should match prevStoreAddr)
+  let idexMemWriteSig := projN! soc 69 9 -- idex_memWrite (EX stage store enable)
+  let idexPcSig := projN! soc 69 26      -- idex_pc (PC of EX stage instruction)
 
   let mut prevPC := 0#32
   let mut haltCount := 0
