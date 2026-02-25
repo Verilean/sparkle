@@ -68,7 +68,7 @@ def allTests : LSpec.TestSeq :=
 
 def runAll : IO Unit := do
   IO.println "--- YOLOv8 Dequant Tests ---"
-  let results := allTests
+  let _results := allTests
   IO.println s!"  Tests defined (run via lake test)"
 
 end Sparkle.Examples.YOLOv8.Tests.TestDequant

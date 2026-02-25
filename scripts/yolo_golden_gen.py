@@ -250,8 +250,8 @@ def generate_real_golden():
     os.makedirs(f"{OUTPUT_DIR}/weights", exist_ok=True)
     os.makedirs(f"{OUTPUT_DIR}/activations", exist_ok=True)
 
-    print("Loading YOLOv8n-WorldV2...")
-    model = YOLOWorld("yolov8n-worldv2.pt")
+    print("Loading YOLOv8s-WorldV2 (auto-downloads if not present)...")
+    model = YOLOWorld("yolov8s-worldv2.pt")
     model.set_classes(["person", "car", "dog", "cat", "bicycle"])
 
     # Generate test image

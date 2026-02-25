@@ -15,6 +15,13 @@ import Tests.BitNet.TestAttention
 import Tests.BitNet.TestComparison
 import Tests.BitNet.TestSoC
 import Tests.BitNet.RTLGoldenValidation
+import Tests.YOLOv8.TestDequant
+import Tests.YOLOv8.TestRequantize
+import Tests.YOLOv8.TestActivation
+-- import Tests.YOLOv8.TestConv2D  -- Uses Signal.loop (needs loopMemo)
+import Tests.YOLOv8.TestMaxPool
+-- import Tests.YOLOv8.TestUpsample  -- Uses Signal.loop (needs loopMemo)
+import Tests.YOLOv8.TestGoldenValues
 import LSpec
 
 open Sparkle.Core.Domain
@@ -327,6 +334,20 @@ def main : IO UInt32 := do
   -- Run Temporal Logic tests
   let temporalTests ← Sparkle.Test.Temporal.temporalTests
 
+  -- YOLOv8 primitive tests
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  YOLOv8 Primitive Tests               ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  let yolov8DequantTests := Sparkle.Examples.YOLOv8.Tests.TestDequant.allTests
+  let yolov8RequantTests := Sparkle.Examples.YOLOv8.Tests.TestRequantize.allTests
+  let yolov8ActivationTests := Sparkle.Examples.YOLOv8.Tests.TestActivation.allTests
+  let yolov8MaxPoolTests := Sparkle.Examples.YOLOv8.Tests.TestMaxPool.allTests
+  -- Upsample and Conv2D use Signal.loop — skip for now to avoid stack overflow
+  -- let yolov8Conv2DTests := Sparkle.Examples.YOLOv8.Tests.TestConv2D.allTests
+  -- let yolov8UpsampleTests := Sparkle.Examples.YOLOv8.Tests.TestUpsample.allTests
+
   -- Combine all test suites
   let allTests :=
     simulationTests ++
@@ -338,6 +359,16 @@ def main : IO UInt32 := do
     sparkle16HierarchicalTests ++
     sparkle16VCDTests ++
     sparkle16CoSimTests ++
-    sparkle16OverflowTests
+    sparkle16OverflowTests ++
+    yolov8DequantTests ++
+    yolov8RequantTests ++
+    yolov8ActivationTests ++
+    yolov8MaxPoolTests
+
+  -- Golden value tests (IO-based, run separately)
+  IO.println ""
+  IO.println "--- YOLOv8 Golden Value Validation ---"
+  let yolov8GoldenTests ← Sparkle.Examples.YOLOv8.Tests.TestGoldenValues.allTests
+  let allTests := allTests ++ yolov8GoldenTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []
