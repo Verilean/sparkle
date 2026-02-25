@@ -1011,7 +1011,11 @@ mutual
 
       if name.toString.endsWith ".loop" && args.size >= 1 then
         let f := args.back!
-        match f with
+        -- Try syntactic lambda first, then unfold via whnf
+        let fReduced ← match f with
+          | .lam .. => pure f
+          | _ => CompilerM.liftMetaM (Lean.Meta.whnf f)
+        match fReduced with
         | .lam binderName binderType body _ =>
           -- Infer result type from the expression type
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)

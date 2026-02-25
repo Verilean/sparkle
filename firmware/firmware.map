@@ -23,19 +23,19 @@ DMEM             0x00010000         0x00010000         rw
 Linker script and memory map
 
 
-.text           0x00000000      0x500
+.text           0x00000000      0x510
  *(.text.init)
- .text.init     0x00000000       0xa4 boot.o
+ .text.init     0x00000000       0xb4 boot.o
                 0x00000000                _start
                 0x0000004c                _trap_handler
  *(.text .text.*)
  .text.startup.main
-                0x000000a4      0x45c main.o
-                0x000000a4                main
+                0x000000b4      0x45c main.o
+                0x000000b4                main
 
-.rela.dyn       0x00000500        0x0
+.rela.dyn       0x00000510        0x0
  .rela.text.init
-                0x00000500        0x0 boot.o
+                0x00000510        0x0 boot.o
 
 .rodata
  *(.rodata .rodata.*)

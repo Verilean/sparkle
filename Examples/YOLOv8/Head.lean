@@ -26,6 +26,8 @@ namespace Sparkle.Examples.YOLOv8.Head
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
+private abbrev HeadState := BitVec 4 × BitVec 2 × Bool × BitVec 2 × Bool × Bool
+
 /-- Detection head controller FSM.
 
     Processes three feature map scales sequentially.
@@ -57,11 +59,9 @@ open Sparkle.Core.Signal
       - branchSel: which branch
       - done:    head complete
 -/
-def headController {dom : DomainConfig}
-    (subOpDone : Signal dom Bool)
-    (start : Signal dom Bool)
-    : Signal dom (BitVec 4 × BitVec 2 × Bool × Bool) :=
-  let loopState := Signal.loop fun state =>
+private def headControllerBody {dom : DomainConfig}
+    (subOpDone : Signal dom Bool) (start : Signal dom Bool)
+    (state : Signal dom HeadState) : Signal dom HeadState :=
     let fsmReg      := projN! state 6 0  -- BitVec 4
     let scaleReg    := projN! state 6 1  -- BitVec 2
     let branchReg   := projN! state 6 2  -- Bool
@@ -147,12 +147,26 @@ def headController {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+def headController {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    : Signal dom (BitVec 4 × BitVec 2 × Bool × Bool) :=
+  let loopState := Signal.loop fun state => headControllerBody subOpDone start state
   let phaseOut  := projN! loopState 6 0
   let scaleOut  := projN! loopState 6 1
   let branchOut := projN! loopState 6 2
   let doneOut   := projN! loopState 6 5
-
   bundle2 phaseOut (bundle2 scaleOut (bundle2 branchOut doneOut))
+
+def headControllerSimulate {dom : DomainConfig}
+    (subOpDone : Signal dom Bool) (start : Signal dom Bool)
+    : IO (Signal dom (BitVec 4 × BitVec 2 × Bool × Bool)) := do
+  let loopState ← Signal.loopMemo (headControllerBody subOpDone start)
+  let phaseOut  := projN! loopState 6 0
+  let scaleOut  := projN! loopState 6 1
+  let branchOut := projN! loopState 6 2
+  let doneOut   := projN! loopState 6 5
+  return bundle2 phaseOut (bundle2 scaleOut (bundle2 branchOut doneOut))
 
 #synthesizeVerilog headController
 

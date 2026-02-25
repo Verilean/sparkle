@@ -18,10 +18,17 @@ import Tests.BitNet.RTLGoldenValidation
 import Tests.YOLOv8.TestDequant
 import Tests.YOLOv8.TestRequantize
 import Tests.YOLOv8.TestActivation
--- import Tests.YOLOv8.TestConv2D  -- Uses Signal.loop (needs loopMemo)
+import Tests.YOLOv8.TestConv2D
 import Tests.YOLOv8.TestMaxPool
--- import Tests.YOLOv8.TestUpsample  -- Uses Signal.loop (needs loopMemo)
+import Tests.YOLOv8.TestUpsample
 import Tests.YOLOv8.TestGoldenValues
+import Tests.YOLOv8.TestConv2DGolden
+import Tests.YOLOv8.TestEndToEnd
+import Tests.YOLOv8.TestHead
+-- Note: TestBottleneck/TestBackbone/TestNeck/TestC2f are excluded because they
+-- import modules with pre-existing #synthesizeVerilog errors:
+-- ConvBnSiLU (if-then-else), C2f/SPPF/Neck ("Unbound variable")
+-- These errors exist in the original code, not caused by our changes.
 import LSpec
 
 open Sparkle.Core.Domain
@@ -344,9 +351,8 @@ def main : IO UInt32 := do
   let yolov8RequantTests := Sparkle.Examples.YOLOv8.Tests.TestRequantize.allTests
   let yolov8ActivationTests := Sparkle.Examples.YOLOv8.Tests.TestActivation.allTests
   let yolov8MaxPoolTests := Sparkle.Examples.YOLOv8.Tests.TestMaxPool.allTests
-  -- Upsample and Conv2D use Signal.loop — skip for now to avoid stack overflow
-  -- let yolov8Conv2DTests := Sparkle.Examples.YOLOv8.Tests.TestConv2D.allTests
-  -- let yolov8UpsampleTests := Sparkle.Examples.YOLOv8.Tests.TestUpsample.allTests
+  let yolov8Conv2DTests ← Sparkle.Examples.YOLOv8.Tests.TestConv2D.allTests
+  let yolov8UpsampleTests ← Sparkle.Examples.YOLOv8.Tests.TestUpsample.allTests
 
   -- Combine all test suites
   let allTests :=
@@ -363,12 +369,28 @@ def main : IO UInt32 := do
     yolov8DequantTests ++
     yolov8RequantTests ++
     yolov8ActivationTests ++
-    yolov8MaxPoolTests
+    yolov8MaxPoolTests ++
+    yolov8Conv2DTests ++
+    yolov8UpsampleTests
 
   -- Golden value tests (IO-based, run separately)
   IO.println ""
   IO.println "--- YOLOv8 Golden Value Validation ---"
   let yolov8GoldenTests ← Sparkle.Examples.YOLOv8.Tests.TestGoldenValues.allTests
   let allTests := allTests ++ yolov8GoldenTests
+
+  -- Conv2D golden + end-to-end tests
+  IO.println ""
+  IO.println "--- YOLOv8 Conv2D Golden + End-to-End ---"
+  let yolov8Conv2DGoldenTests ← Sparkle.Examples.YOLOv8.Tests.TestConv2DGolden.allTests
+  let yolov8EndToEndTests ← Sparkle.Examples.YOLOv8.Tests.TestEndToEnd.allTests
+  let allTests := allTests ++ yolov8Conv2DGoldenTests ++ yolov8EndToEndTests
+
+  -- Controller FSM tests (only Head compiles cleanly; others blocked by
+  -- pre-existing #synthesizeVerilog errors in ConvBnSiLU/C2f/SPPF/Neck)
+  IO.println ""
+  IO.println "--- YOLOv8 Controller FSM Tests ---"
+  let yolov8HeadTests ← Sparkle.Examples.YOLOv8.Tests.TestHead.allTests
+  let allTests := allTests ++ yolov8HeadTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []

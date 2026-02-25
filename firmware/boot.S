@@ -79,8 +79,10 @@ _halt:
     .balign 4
 
 _trap_handler:
-    # Save t0 to mscratch
+    # Save t0 to mscratch, t1 to stack
     csrw  mscratch, t0
+    addi  sp, sp, -8
+    sw    t1, 0(sp)
 
     # Read mcause to determine trap type
     csrr  t0, mcause
@@ -108,7 +110,9 @@ _trap_not_timer:
     la    t1, _trap_cause
     sw    t0, 0(t1)
 
-    # Restore t0 from mscratch
+    # Restore t1 from stack, t0 from mscratch
+    lw    t1, 0(sp)
+    addi  sp, sp, 8
     csrr  t0, mscratch
     mret
 

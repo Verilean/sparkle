@@ -19,27 +19,11 @@ open Sparkle.Core.Signal
 
 variable {dom : DomainConfig}
 
-/-- Nearest-neighbor 2x upsample controller.
-    Inputs:
-      - pixelIn: incoming pixel value (INT8)
-      - valid:   input pixel valid strobe
-    Outputs:
-      - pixelOut: upsampled pixel (each input pixel appears 2x horizontally)
-      - outValid: output valid strobe
+private abbrev UpsampleState := Bool × BitVec 8 × Bool
 
-    The horizontal duplication is handled by toggling a phase bit.
-    Vertical duplication requires reading each row twice (managed by the
-    upstream controller).
-
-    State: (phase : Bool × heldPixel : BitVec 8 × outValid : Bool)
-    - phase = false: latch new input pixel, output it, set phase = true
-    - phase = true:  output held pixel again, set phase = false
--/
-def upsample2x {dom : DomainConfig}
-    (pixelIn : Signal dom (BitVec 8))
-    (valid : Signal dom Bool)
-    : Signal dom (BitVec 8 × Bool) :=
-  let loopState := Signal.loop fun state =>
+private def upsample2xBody {dom : DomainConfig}
+    (pixelIn : Signal dom (BitVec 8)) (valid : Signal dom Bool)
+    (state : Signal dom UpsampleState) : Signal dom UpsampleState :=
     let phaseReg  := projN! state 3 0  -- Bool: false=first pixel, true=duplicate
     let heldReg   := projN! state 3 1  -- BitVec 8: held pixel value
     let validReg  := projN! state 3 2  -- Bool: output valid
@@ -69,12 +53,42 @@ def upsample2x {dom : DomainConfig}
       Signal.register false outValidNext
     ]
 
+/-- Nearest-neighbor 2x upsample controller.
+    Inputs:
+      - pixelIn: incoming pixel value (INT8)
+      - valid:   input pixel valid strobe
+    Outputs:
+      - pixelOut: upsampled pixel (each input pixel appears 2x horizontally)
+      - outValid: output valid strobe
+
+    The horizontal duplication is handled by toggling a phase bit.
+    Vertical duplication requires reading each row twice (managed by the
+    upstream controller).
+
+    State: (phase : Bool × heldPixel : BitVec 8 × outValid : Bool)
+    - phase = false: latch new input pixel, output it, set phase = true
+    - phase = true:  output held pixel again, set phase = false
+-/
+def upsample2x {dom : DomainConfig}
+    (pixelIn : Signal dom (BitVec 8))
+    (valid : Signal dom Bool)
+    : Signal dom (BitVec 8 × Bool) :=
+  let loopState := Signal.loop fun state => upsample2xBody pixelIn valid state
   let pixelOut := Signal.mux (projN! loopState 3 0)
     (projN! loopState 3 1)
     (projN! loopState 3 1)
   let outValid := projN! loopState 3 2
-
   bundle2 pixelOut outValid
+
+def upsample2xSimulate {dom : DomainConfig}
+    (pixelIn : Signal dom (BitVec 8)) (valid : Signal dom Bool)
+    : IO (Signal dom (BitVec 8 × Bool)) := do
+  let loopState ← Signal.loopMemo (upsample2xBody pixelIn valid)
+  let pixelOut := Signal.mux (projN! loopState 3 0)
+    (projN! loopState 3 1)
+    (projN! loopState 3 1)
+  let outValid := projN! loopState 3 2
+  return bundle2 pixelOut outValid
 
 #synthesizeVerilog upsample2x
 

@@ -35,6 +35,8 @@ namespace Sparkle.Examples.YOLOv8.Blocks.C2f
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
+private abbrev C2fState := BitVec 3 × BitVec 4 × BitVec 4 × Bool × Bool
+
 /-- C2f block controller FSM.
 
     Manages the data flow through split → bottleneck(s) → concat → merge.
@@ -58,12 +60,11 @@ open Sparkle.Core.Signal
       - bottleneckIdx: which bottleneck is active
       - done:   result valid pulse
 -/
-def c2fController {dom : DomainConfig}
+private def c2fControllerBody {dom : DomainConfig}
     (subOpDone : Signal dom Bool)
     (start : Signal dom Bool)
     (numBottlenecks : Signal dom (BitVec 4))
-    : Signal dom (BitVec 3 × BitVec 4 × Bool) :=
-  let loopState := Signal.loop fun state =>
+    (state : Signal dom C2fState) : Signal dom C2fState :=
     let fsmReg    := projN! state 5 0  -- BitVec 3
     let bnIdxReg  := projN! state 5 1  -- BitVec 4
     let maxBnReg  := projN! state 5 2  -- BitVec 4
@@ -124,10 +125,27 @@ def c2fController {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+def c2fController {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    (numBottlenecks : Signal dom (BitVec 4))
+    : Signal dom (BitVec 3 × BitVec 4 × Bool) :=
+  let loopState := Signal.loop fun state => c2fControllerBody subOpDone start numBottlenecks state
   let phaseOut := projN! loopState 5 0
   let bnIdxOut := projN! loopState 5 1
   let doneOut := projN! loopState 5 4
   bundle3 phaseOut bnIdxOut doneOut
+
+def c2fControllerSimulate {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    (numBottlenecks : Signal dom (BitVec 4))
+    : IO (Signal dom (BitVec 3 × BitVec 4 × Bool)) := do
+  let loopState ← Signal.loopMemo (c2fControllerBody subOpDone start numBottlenecks)
+  let phaseOut := projN! loopState 5 0
+  let bnIdxOut := projN! loopState 5 1
+  let doneOut := projN! loopState 5 4
+  return bundle3 phaseOut bnIdxOut doneOut
 
 #synthesizeVerilog c2fController
 

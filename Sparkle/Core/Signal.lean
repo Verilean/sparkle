@@ -1,4 +1,5 @@
 import Sparkle.Core.Domain
+import Std.Data.HashMap
 
 /-!
 # Signal Module
@@ -230,6 +231,43 @@ def mux (cond : Signal dom Bool) (thenSig : Signal dom α) (elseSig : Signal dom
 -- Memoized memory implementation: uses a flat Array (size 2^addrWidth) to cache
 -- memory state incrementally. Writes are applied sequentially; reads are O(1).
 -- Falls back to the recursive O(t) implementation for addrWidth > 20.
+-- HashMap-backed sparse memory for large address spaces (addrWidth > 20).
+-- Uses a HashMap instead of a dense Array to avoid O(2^addrWidth) initialization.
+-- Only stores entries that have been written, so memory usage is proportional
+-- to the number of unique addresses written, not the address space size.
+private unsafe def memorySparseImpl {addrWidth dataWidth : Nat}
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth) :=
+  match unsafeIO (do
+    let mapRef ← IO.mkRef (Std.HashMap.emptyWithCapacity : Std.HashMap Nat (BitVec dataWidth))
+    let stepRef ← IO.mkRef (0 : Nat)
+    let processAndRead (t : Nat) : IO (BitVec dataWidth) := do
+      if t == 0 then return 0#dataWidth
+      let mut step ← stepRef.get
+      while step + 1 < t do
+        let we := writeEnable.val step
+        let waddr := (writeAddr.val step).toNat
+        let wdata := writeData.val step
+        if we then
+          let m ← mapRef.get
+          mapRef.set (m.insert waddr wdata)
+        step := step + 1
+      stepRef.set step
+      let raddr := (readAddr.val (t - 1)).toNat
+      let m ← mapRef.get
+      return m.getD raddr (0#dataWidth)
+    return (⟨fun t =>
+      match unsafeIO (processAndRead t) with
+      | .ok v => v
+      | .error _ => 0#dataWidth
+    ⟩ : Signal dom (BitVec dataWidth))
+  ) with
+  | .ok sig => sig
+  | .error _ => ⟨fun _ => 0#dataWidth⟩
+
 private unsafe def memoryImpl {addrWidth dataWidth : Nat}
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
@@ -237,21 +275,7 @@ private unsafe def memoryImpl {addrWidth dataWidth : Nat}
     (readAddr : Signal dom (BitVec addrWidth))
     : Signal dom (BitVec dataWidth) :=
   if addrWidth > 20 then
-    -- Fallback: recursive implementation for huge address spaces
-    let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
-      match t with
-      | 0 => fun _ => 0#dataWidth
-      | n + 1 =>
-        let prevMem := memState n
-        fun addr =>
-          if writeEnable.val n && addr == writeAddr.val n then
-            writeData.val n
-          else
-            prevMem addr
-    ⟨fun t =>
-      match t with
-      | 0 => 0#dataWidth
-      | n + 1 => memState n (readAddr.val n)⟩
+    memorySparseImpl writeAddr writeData writeEnable readAddr
   else
     let size := 2 ^ addrWidth
     match unsafeIO (do
@@ -311,6 +335,41 @@ opaque memory {addrWidth dataWidth : Nat}
   Use this for register files where reads must be combinational.
   NOT synthesizable — use `memory` for synthesis targets.
 -/
+-- HashMap-backed sparse memory with combinational (same-cycle) reads.
+-- For large address spaces (addrWidth > 20) where a flat Array would be too large.
+-- Writes from cycles 0..t-1 are applied, then readAddr at cycle t is looked up.
+private unsafe def memoryComboReadSparseImpl {addrWidth dataWidth : Nat}
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool)
+    (readAddr : Signal dom (BitVec addrWidth))
+    : Signal dom (BitVec dataWidth) :=
+  match unsafeIO (do
+    let mapRef ← IO.mkRef (Std.HashMap.emptyWithCapacity : Std.HashMap Nat (BitVec dataWidth))
+    let stepRef ← IO.mkRef (0 : Nat)
+    let processAndRead (t : Nat) : IO (BitVec dataWidth) := do
+      let mut step ← stepRef.get
+      while step < t do
+        let we := writeEnable.val step
+        let waddr := (writeAddr.val step).toNat
+        let wdata := writeData.val step
+        if we then
+          let m ← mapRef.get
+          mapRef.set (m.insert waddr wdata)
+        step := step + 1
+      stepRef.set step
+      let raddr := (readAddr.val t).toNat
+      let m ← mapRef.get
+      return m.getD raddr (0#dataWidth)
+    return (⟨fun t =>
+      match unsafeIO (processAndRead t) with
+      | .ok v => v
+      | .error _ => 0#dataWidth
+    ⟩ : Signal dom (BitVec dataWidth))
+  ) with
+  | .ok sig => sig
+  | .error _ => ⟨fun _ => 0#dataWidth⟩
+
 private unsafe def memoryComboReadImpl {addrWidth dataWidth : Nat}
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
@@ -318,17 +377,7 @@ private unsafe def memoryComboReadImpl {addrWidth dataWidth : Nat}
     (readAddr : Signal dom (BitVec addrWidth))
     : Signal dom (BitVec dataWidth) :=
   if addrWidth > 20 then
-    let rec memState (t : Nat) : BitVec addrWidth → BitVec dataWidth :=
-      match t with
-      | 0 => fun _ => 0#dataWidth
-      | n + 1 =>
-        let prevMem := memState n
-        fun addr =>
-          if writeEnable.val n && addr == writeAddr.val n then
-            writeData.val n
-          else
-            prevMem addr
-    ⟨fun t => memState t (readAddr.val t)⟩
+    memoryComboReadSparseImpl writeAddr writeData writeEnable readAddr
   else
     let size := 2 ^ addrWidth
     match unsafeIO (do

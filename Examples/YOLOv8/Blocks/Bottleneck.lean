@@ -24,6 +24,8 @@ namespace Sparkle.Examples.YOLOv8.Blocks.Bottleneck
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
+private abbrev BottleneckState := BitVec 2 × BitVec 8 × BitVec 8 × Bool
+
 /-- Bottleneck block controller FSM.
 
     Sequences two ConvBnSiLU operations:
@@ -53,14 +55,13 @@ open Sparkle.Core.Signal
       - done:   result valid pulse
       - phase:  current phase (0=idle, 1=conv1, 2=conv2, 3=done)
 -/
-def bottleneckController {dom : DomainConfig}
+private def bottleneckControllerBody {dom : DomainConfig}
     (convResult : Signal dom (BitVec 8))
     (convDone : Signal dom Bool)
     (inputVal : Signal dom (BitVec 8))
     (start : Signal dom Bool)
     (addResidual : Signal dom Bool)
-    : Signal dom (BitVec 8 × Bool × BitVec 2) :=
-  let loopState := Signal.loop fun state =>
+    (state : Signal dom BottleneckState) : Signal dom BottleneckState :=
     let fsmReg      := projN! state 4 0  -- BitVec 2
     let residualReg := projN! state 4 1  -- BitVec 8
     let resultReg   := projN! state 4 2  -- BitVec 8
@@ -103,10 +104,31 @@ def bottleneckController {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+def bottleneckController {dom : DomainConfig}
+    (convResult : Signal dom (BitVec 8))
+    (convDone : Signal dom Bool)
+    (inputVal : Signal dom (BitVec 8))
+    (start : Signal dom Bool)
+    (addResidual : Signal dom Bool)
+    : Signal dom (BitVec 8 × Bool × BitVec 2) :=
+  let loopState := Signal.loop fun state => bottleneckControllerBody convResult convDone inputVal start addResidual state
   let resultOut := projN! loopState 4 2
   let doneOut := projN! loopState 4 3
   let phaseOut := projN! loopState 4 0
   bundle3 resultOut doneOut phaseOut
+
+def bottleneckControllerSimulate {dom : DomainConfig}
+    (convResult : Signal dom (BitVec 8))
+    (convDone : Signal dom Bool)
+    (inputVal : Signal dom (BitVec 8))
+    (start : Signal dom Bool)
+    (addResidual : Signal dom Bool)
+    : IO (Signal dom (BitVec 8 × Bool × BitVec 2)) := do
+  let loopState ← Signal.loopMemo (bottleneckControllerBody convResult convDone inputVal start addResidual)
+  let resultOut := projN! loopState 4 2
+  let doneOut := projN! loopState 4 3
+  let phaseOut := projN! loopState 4 0
+  return bundle3 resultOut doneOut phaseOut
 
 #synthesizeVerilog bottleneckController
 

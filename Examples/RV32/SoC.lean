@@ -1,10 +1,10 @@
 /-
   RV32I SoC — Signal DSL (flat design)
 
-  All state (pipeline + CLINT + CSR + AI MMIO) in a single Signal.loop.
-  69 registers total in a right-nested pair.
+  All state (pipeline + CLINT + CSR + AI MMIO + S-mode + MMU) in a single Signal.loop.
+  109 registers total in a right-nested pair.
 
-  Register index map (0-68):
+  Register index map (0-108):
   Pipeline (0-43): same as Pipeline.lean
   CLINT (44-48): msip, mtimeLo, mtimeHi, mtimecmpLo, mtimecmpHi
   CSR (49-55): mstatus, mie, mtvec, mscratch, mepc, mcause, mtval
@@ -13,6 +13,12 @@
   M-ext (59): idex_isMext
   A-ext (60-68): reservationValid, reservationAddr, idex_isAMO, idex_amoOp, exwb_isAMO, exwb_amoOp,
                  pendingWriteEn, pendingWriteAddr, pendingWriteData
+  S-mode CSRs + privilege (69-78): privMode, sie, stvec, sscratch, sepc, scause, stval, satp,
+                                    medeleg, mideleg
+  MMU TLB + PTW (79-106): mmuState, ptwState, ptwVaddr, ptwPte, ptwMega, replPtr,
+                           4×TLB entries (valid, vpn, ppn, flags, mega),
+                           ptwIsIfetch, ifetchFaultPending
+  Pipeline additions (107-108): idex_isSret, idex_isSFenceVMA
 
   Architecture note:
     The DMEM read address uses an "approximate" ALU result that omits
@@ -27,8 +33,8 @@ import Sparkle.Compiler.Elab
 import Examples.RV32.Core
 import Examples.RV32.CSR.Types
 
-set_option maxRecDepth 32768
-set_option maxHeartbeats 3200000
+set_option maxRecDepth 65536
+set_option maxHeartbeats 16000000
 
 namespace Sparkle.Examples.RV32.SoC
 
@@ -43,7 +49,11 @@ def nopInst : BitVec 32 := 0x00000013#32
 -- rv32iSoC (synthesis-only, phantom-type-safe version) is in SoCVerilog.lean
 -- to prevent module-init stack overflow from closed-term evaluation.
 
-/-- State type for the 69-register SoC loop (right-nested tuple). -/
+/-- State type for the 109-register SoC loop (right-nested tuple).
+    Registers 0-68: pipeline + CLINT + CSR + AI MMIO + sub-word + M-ext + A-ext
+    Registers 69-78: S-mode CSRs + privilege mode + delegation
+    Registers 79-106: MMU TLB + PTW
+    Registers 107-108: SRET + SFENCE.VMA pipeline -/
 private abbrev SoCState :=
   BitVec 32 × BitVec 32 × Bool × BitVec 32 × BitVec 32 × BitVec 32 ×
   BitVec 4 × Bool × Bool × Bool × Bool × Bool × Bool × Bool × Bool ×
@@ -56,7 +66,19 @@ private abbrev SoCState :=
   BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
   BitVec 32 × BitVec 32 × BitVec 3 × Bool ×
   Bool × BitVec 32 × Bool × BitVec 5 × Bool × BitVec 5 ×
-  Bool × BitVec 32 × BitVec 32
+  Bool × BitVec 32 × BitVec 32 ×
+  -- S-mode CSRs + privilege (69-78)
+  BitVec 2 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
+  BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
+  -- MMU TLB + PTW (79-106)
+  BitVec 3 × BitVec 3 × BitVec 32 × BitVec 32 × Bool × BitVec 2 ×
+  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
+  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
+  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
+  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
+  Bool × Bool ×
+  -- Pipeline additions (107-108)
+  Bool × Bool
 
 -- Deep tuple needs explicit Inhabited instance
 private def defaultSoCState : SoCState :=
@@ -71,7 +93,18 @@ private def defaultSoCState : SoCState :=
    0#32, 0#32, 0#32, 0#32,
    0#32, 0#32, 0#3, false,
    false, 0#32, false, 0#5, false, 0#5,
-   false, 0#32, 0#32)
+   false, 0#32, 0#32,
+   -- S-mode CSRs + privilege (69-78)
+   3#2, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32,
+   -- MMU TLB + PTW (79-106)
+   0#3, 0#3, 0#32, 0#32, false, 0#2,
+   false, 0#20, 0#22, 0#8, false,
+   false, 0#20, 0#22, 0#8, false,
+   false, 0#20, 0#22, 0#8, false,
+   false, 0#20, 0#22, 0#8, false,
+   false, false,
+   -- Pipeline additions (107-108)
+   false, false)
 
 instance : Inhabited SoCState := ⟨defaultSoCState⟩
 
@@ -82,75 +115,118 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     (firmware : BitVec 12 → BitVec 32)
     (state : Signal dom SoCState) : Signal dom SoCState :=
     -- Extract all 69 register outputs (same layout as rv32iSoC)
-    let pcReg          := projN! state 69 0
-    let fetchPC        := projN! state 69 1
-    let flushDelay     := projN! state 69 2
-    let ifid_inst      := projN! state 69 3
-    let ifid_pc        := projN! state 69 4
-    let ifid_pc4       := projN! state 69 5
-    let idex_aluOp     := projN! state 69 6
-    let idex_regWrite  := projN! state 69 7
-    let idex_memRead   := projN! state 69 8
-    let idex_memWrite  := projN! state 69 9
-    let idex_memToReg  := projN! state 69 10
-    let idex_branch    := projN! state 69 11
-    let idex_jump      := projN! state 69 12
-    let idex_auipc     := projN! state 69 13
-    let idex_aluSrcB   := projN! state 69 14
-    let idex_isJalr    := projN! state 69 15
-    let idex_isCsr     := projN! state 69 16
-    let idex_isEcall   := projN! state 69 17
-    let idex_isMret    := projN! state 69 18
-    let idex_rs1Val    := projN! state 69 19
-    let idex_rs2Val    := projN! state 69 20
-    let idex_imm       := projN! state 69 21
-    let idex_rd        := projN! state 69 22
-    let idex_rs1Idx    := projN! state 69 23
-    let idex_rs2Idx    := projN! state 69 24
-    let idex_funct3    := projN! state 69 25
-    let idex_pc        := projN! state 69 26
-    let idex_pc4       := projN! state 69 27
-    let idex_csrAddr   := projN! state 69 28
-    let idex_csrFunct3 := projN! state 69 29
-    let exwb_alu       := projN! state 69 30
-    let exwb_rd        := projN! state 69 31
-    let exwb_regW      := projN! state 69 32
-    let exwb_m2r       := projN! state 69 33
-    let exwb_pc4       := projN! state 69 34
-    let exwb_jump      := projN! state 69 35
-    let exwb_isCsr     := projN! state 69 36
-    let exwb_csrRdata  := projN! state 69 37
-    let prev_wb_addr   := projN! state 69 38
-    let prev_wb_data   := projN! state 69 39
-    let prev_wb_en     := projN! state 69 40
-    let prevStoreAddr  := projN! state 69 41
-    let prevStoreData  := projN! state 69 42
-    let prevStoreEn    := projN! state 69 43
-    let msipReg        := projN! state 69 44
-    let mtimeLoReg     := projN! state 69 45
-    let mtimeHiReg     := projN! state 69 46
-    let mtimecmpLoReg  := projN! state 69 47
-    let mtimecmpHiReg  := projN! state 69 48
-    let mstatusReg     := projN! state 69 49
-    let mieReg         := projN! state 69 50
-    let mtvecReg       := projN! state 69 51
-    let mscratchReg    := projN! state 69 52
-    let mepcReg        := projN! state 69 53
-    let mcauseReg      := projN! state 69 54
-    let mtvalReg       := projN! state 69 55
-    let aiStatusReg    := projN! state 69 56
-    let aiInputReg     := projN! state 69 57
-    let exwb_funct3    := projN! state 69 58
-    let idex_isMext    := projN! state 69 59
-    let reservationValid := projN! state 69 60
-    let reservationAddr  := projN! state 69 61
-    let idex_isAMO     := projN! state 69 62
-    let idex_amoOp     := projN! state 69 63
-    let exwb_isAMO     := projN! state 69 64
-    let exwb_amoOp     := projN! state 69 65
-    let pendingWriteEn   := projN! state 69 66
-    let pendingWriteAddr := projN! state 69 67
-    let pendingWriteData := projN! state 69 68
+    let pcReg          := projN! state 109 0
+    let fetchPC        := projN! state 109 1
+    let flushDelay     := projN! state 109 2
+    let ifid_inst      := projN! state 109 3
+    let ifid_pc        := projN! state 109 4
+    let ifid_pc4       := projN! state 109 5
+    let idex_aluOp     := projN! state 109 6
+    let idex_regWrite  := projN! state 109 7
+    let idex_memRead   := projN! state 109 8
+    let idex_memWrite  := projN! state 109 9
+    let idex_memToReg  := projN! state 109 10
+    let idex_branch    := projN! state 109 11
+    let idex_jump      := projN! state 109 12
+    let idex_auipc     := projN! state 109 13
+    let idex_aluSrcB   := projN! state 109 14
+    let idex_isJalr    := projN! state 109 15
+    let idex_isCsr     := projN! state 109 16
+    let idex_isEcall   := projN! state 109 17
+    let idex_isMret    := projN! state 109 18
+    let idex_rs1Val    := projN! state 109 19
+    let idex_rs2Val    := projN! state 109 20
+    let idex_imm       := projN! state 109 21
+    let idex_rd        := projN! state 109 22
+    let idex_rs1Idx    := projN! state 109 23
+    let idex_rs2Idx    := projN! state 109 24
+    let idex_funct3    := projN! state 109 25
+    let idex_pc        := projN! state 109 26
+    let idex_pc4       := projN! state 109 27
+    let idex_csrAddr   := projN! state 109 28
+    let idex_csrFunct3 := projN! state 109 29
+    let exwb_alu       := projN! state 109 30
+    let exwb_rd        := projN! state 109 31
+    let exwb_regW      := projN! state 109 32
+    let exwb_m2r       := projN! state 109 33
+    let exwb_pc4       := projN! state 109 34
+    let exwb_jump      := projN! state 109 35
+    let exwb_isCsr     := projN! state 109 36
+    let exwb_csrRdata  := projN! state 109 37
+    let prev_wb_addr   := projN! state 109 38
+    let prev_wb_data   := projN! state 109 39
+    let prev_wb_en     := projN! state 109 40
+    let prevStoreAddr  := projN! state 109 41
+    let prevStoreData  := projN! state 109 42
+    let prevStoreEn    := projN! state 109 43
+    let msipReg        := projN! state 109 44
+    let mtimeLoReg     := projN! state 109 45
+    let mtimeHiReg     := projN! state 109 46
+    let mtimecmpLoReg  := projN! state 109 47
+    let mtimecmpHiReg  := projN! state 109 48
+    let mstatusReg     := projN! state 109 49
+    let mieReg         := projN! state 109 50
+    let mtvecReg       := projN! state 109 51
+    let mscratchReg    := projN! state 109 52
+    let mepcReg        := projN! state 109 53
+    let mcauseReg      := projN! state 109 54
+    let mtvalReg       := projN! state 109 55
+    let aiStatusReg    := projN! state 109 56
+    let aiInputReg     := projN! state 109 57
+    let exwb_funct3    := projN! state 109 58
+    let idex_isMext    := projN! state 109 59
+    let reservationValid := projN! state 109 60
+    let reservationAddr  := projN! state 109 61
+    let idex_isAMO     := projN! state 109 62
+    let idex_amoOp     := projN! state 109 63
+    let exwb_isAMO     := projN! state 109 64
+    let exwb_amoOp     := projN! state 109 65
+    let pendingWriteEn   := projN! state 109 66
+    let pendingWriteAddr := projN! state 109 67
+    let pendingWriteData := projN! state 109 68
+    -- S-mode CSRs + privilege (69-78)
+    let privMode         := projN! state 109 69
+    let sieReg           := projN! state 109 70
+    let stvecReg         := projN! state 109 71
+    let sscratchReg      := projN! state 109 72
+    let sepcReg          := projN! state 109 73
+    let scauseReg        := projN! state 109 74
+    let stvalReg         := projN! state 109 75
+    let satpReg          := projN! state 109 76
+    let medelegReg       := projN! state 109 77
+    let midelegReg       := projN! state 109 78
+    -- MMU TLB + PTW (79-106)
+    let mmuStateReg      := projN! state 109 79
+    let ptwStateReg      := projN! state 109 80
+    let ptwVaddrReg      := projN! state 109 81
+    let ptwPteReg        := projN! state 109 82
+    let ptwMegaReg       := projN! state 109 83
+    let replPtrReg       := projN! state 109 84
+    let tlb0Valid        := projN! state 109 85
+    let tlb0VPN          := projN! state 109 86
+    let tlb0PPN          := projN! state 109 87
+    let tlb0Flags        := projN! state 109 88
+    let tlb0Mega         := projN! state 109 89
+    let tlb1Valid        := projN! state 109 90
+    let tlb1VPN          := projN! state 109 91
+    let tlb1PPN          := projN! state 109 92
+    let tlb1Flags        := projN! state 109 93
+    let tlb1Mega         := projN! state 109 94
+    let tlb2Valid        := projN! state 109 95
+    let tlb2VPN          := projN! state 109 96
+    let tlb2PPN          := projN! state 109 97
+    let tlb2Flags        := projN! state 109 98
+    let tlb2Mega         := projN! state 109 99
+    let tlb3Valid        := projN! state 109 100
+    let tlb3VPN          := projN! state 109 101
+    let tlb3PPN          := projN! state 109 102
+    let tlb3Flags        := projN! state 109 103
+    let tlb3Mega         := projN! state 109 104
+    let ptwIsIfetch      := projN! state 109 105
+    let ifetchFaultPending := projN! state 109 106
+    -- Pipeline additions (107-108)
+    let idex_isSret      := projN! state 109 107
+    let idex_isSFenceVMA := projN! state 109 108
 
     -- Phase 1-5: identical to rv32iSoC except IMEM uses memoryWithInit
     let wbRdNz := (fun x => !x) <$> ((· == ·) <$> exwb_rd <*> Signal.pure 0#5)
@@ -177,14 +253,55 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let imem_addr := fetchPC.map (BitVec.extractLsb' 2 12 ·)
     let imem_rdata := imem_addr.map firmware
 
+    -- =========================================================================
+    -- MMU/PTW state decode and address computation (early, for DMEM addr mux)
+    -- =========================================================================
+    let satpMode := (· == ·) <$> (satpReg.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let isMmode := (· == ·) <$> privMode <*> Signal.pure 3#2
+    let bypassMMU := (· || ·) <$> isMmode <*> ((fun x => !x) <$> satpMode)
+    -- MMU FSM: IDLE=0, TLB_LOOKUP=1, PTW_WALK=2, DONE=3, FAULT=4
+    let isMMUIdle   := (· == ·) <$> mmuStateReg <*> Signal.pure 0#3
+    let isTLBLookup := (· == ·) <$> mmuStateReg <*> Signal.pure 1#3
+    let isPTWWalk   := (· == ·) <$> mmuStateReg <*> Signal.pure 2#3
+    let isMMUDone   := (· == ·) <$> mmuStateReg <*> Signal.pure 3#3
+    let isMMUFault  := (· == ·) <$> mmuStateReg <*> Signal.pure 4#3
+    -- PTW FSM: IDLE=0, L1_REQ=1, L1_WAIT=2, L0_REQ=3, L0_WAIT=4, DONE=5, FAULT=6
+    let ptwIsIdle   := (· == ·) <$> ptwStateReg <*> Signal.pure 0#3
+    let ptwIsL1Req  := (· == ·) <$> ptwStateReg <*> Signal.pure 1#3
+    let ptwIsL1Wait := (· == ·) <$> ptwStateReg <*> Signal.pure 2#3
+    let ptwIsL0Req  := (· == ·) <$> ptwStateReg <*> Signal.pure 3#3
+    let ptwIsL0Wait := (· == ·) <$> ptwStateReg <*> Signal.pure 4#3
+    let ptwIsDone   := (· == ·) <$> ptwStateReg <*> Signal.pure 5#3
+    let ptwIsFault  := (· == ·) <$> ptwStateReg <*> Signal.pure 6#3
+    -- PTW memory address generation
+    let satpPPN := satpReg.map (BitVec.extractLsb' 0 22 ·)
+    let satpPPNShifted := (· ++ ·) <$> satpPPN <*> Signal.pure 0#10
+    let ptwVPN1 := ptwVaddrReg.map (BitVec.extractLsb' 22 10 ·)
+    let ptwVPN0 := ptwVaddrReg.map (BitVec.extractLsb' 12 10 ·)
+    let ptwVPN1x4 := (· ++ ·) <$> ptwVPN1 <*> Signal.pure 0#2
+    let ptwVPN1Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4
+    let l1Addr := (· + ·) <$> satpPPNShifted <*> ptwVPN1Ext
+    let ptePPNFull := ptwPteReg.map (BitVec.extractLsb' 10 22 ·)
+    let ptePPNShifted := (· ++ ·) <$> ptePPNFull <*> Signal.pure 0#10
+    let ptwVPN0x4 := (· ++ ·) <$> ptwVPN0 <*> Signal.pure 0#2
+    let ptwVPN0Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4
+    let l0Addr := (· + ·) <$> ptePPNShifted <*> ptwVPN0Ext
+    let ptwMemAddr := Signal.mux ptwIsL1Req l1Addr l0Addr
+    let ptwMemActive := (· || ·) <$> ptwIsL1Req <*> ptwIsL0Req
+    let ptwMemWordAddr := ptwMemAddr.map (BitVec.extractLsb' 2 23 ·)
+    -- MMU stall: busy (not IDLE/DONE/FAULT) and not bypassed
+    let mmuBusy := (fun x => !x) <$> ((· || ·) <$> ((· || ·) <$> isMMUIdle <*> isMMUDone) <*> isMMUFault)
+    let mmuStall := (· && ·) <$> mmuBusy <*> ((fun x => !x) <$> bypassMMU)
+
     let busAddrHi_ex := alu_result_approx.map (BitVec.extractLsb' 16 16 ·)
     let isCLINT_ex := (· == ·) <$> busAddrHi_ex <*> Signal.pure 0x0200#16
     let mmioAddrBit30_ex := alu_result_approx.map (BitVec.extractLsb' 30 1 ·)
     let is_mmio_ex := (· == ·) <$> mmioAddrBit30_ex <*> Signal.pure 1#1
     let isDMEM_ex := (· && ·) <$> ((fun x => !x) <$> isCLINT_ex) <*> ((fun x => !x) <$> is_mmio_ex)
 
-    let dmem_write_addr := alu_result_approx.map (BitVec.extractLsb' 2 14 ·)
-    let dmem_read_addr  := alu_result_approx.map (BitVec.extractLsb' 2 14 ·)
+    let dmem_write_addr := alu_result_approx.map (BitVec.extractLsb' 2 23 ·)
+    let dmem_read_addr  := Signal.mux ptwMemActive ptwMemWordAddr
+      (alu_result_approx.map (BitVec.extractLsb' 2 23 ·))
     let dmem_we := (· && ·) <$> idex_memWrite <*> isDMEM_ex
 
     -- Sub-word store: byte-enable logic based on funct3 and addr[1:0]
@@ -223,7 +340,7 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
 
     -- Pending AMO write: registered data from previous WB stage AMO computation
     -- pendingWriteEn/Addr/Data are registers set when non-LR/SC AMO was in WB
-    let pendWriteWordAddr := pendingWriteAddr.map (BitVec.extractLsb' 2 14 ·)
+    let pendWriteWordAddr := pendingWriteAddr.map (BitVec.extractLsb' 2 23 ·)
     let pendByte0 := pendingWriteData.map (BitVec.extractLsb' 0 8 ·)
     let pendByte1 := pendingWriteData.map (BitVec.extractLsb' 8 8 ·)
     let pendByte2 := pendingWriteData.map (BitVec.extractLsb' 16 8 ·)
@@ -375,6 +492,7 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
     let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
     let mipValue := (· ||| ·) <$> mipTimerBit <*> mipSwBit
+    -- CSR address matching (M-mode)
     let csrIsMstatus  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x300#12
     let csrIsMie      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x304#12
     let csrIsMtvec    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x305#12
@@ -385,6 +503,25 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let csrIsMip      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x344#12
     let csrIsMisa     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x301#12
     let csrIsMhartid  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0xF14#12
+    -- CSR address matching (S-mode)
+    let csrIsSstatus  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x100#12
+    let csrIsSie      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x104#12
+    let csrIsStvec    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x105#12
+    let csrIsSscratch := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x140#12
+    let csrIsSepc     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x141#12
+    let csrIsScause   := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x142#12
+    let csrIsStval    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x143#12
+    let csrIsSip      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x144#12
+    let csrIsSatp     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x180#12
+    -- CSR address matching (delegation)
+    let csrIsMedeleg  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x302#12
+    let csrIsMideleg  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x303#12
+
+    -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
+    let sstatusMask := Signal.pure 0x000C0122#32
+    let sstatusView := (· &&& ·) <$> mstatusReg <*> sstatusMask
+
+    -- CSR read mux (expanded with S-mode CSRs)
     let csr_rdata :=
       Signal.mux csrIsMstatus mstatusReg
       (Signal.mux csrIsMie mieReg
@@ -394,28 +531,81 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
       (Signal.mux csrIsMcause mcauseReg
       (Signal.mux csrIsMtval mtvalReg
       (Signal.mux csrIsMip mipValue
-      (Signal.mux csrIsMisa (Signal.pure 0x40001101#32)  -- misa: RV32IMA
+      (Signal.mux csrIsMisa (Signal.pure 0x40001101#32)
       (Signal.mux csrIsMhartid (Signal.pure 0#32)
-        (Signal.pure 0#32))))))))))
+      (Signal.mux csrIsMedeleg medelegReg
+      (Signal.mux csrIsMideleg midelegReg
+      (Signal.mux csrIsSstatus sstatusView
+      (Signal.mux csrIsSie sieReg
+      (Signal.mux csrIsStvec stvecReg
+      (Signal.mux csrIsSscratch sscratchReg
+      (Signal.mux csrIsSepc sepcReg
+      (Signal.mux csrIsScause scauseReg
+      (Signal.mux csrIsStval stvalReg
+      (Signal.mux csrIsSip (Signal.pure 0#32)
+      (Signal.mux csrIsSatp satpReg
+        (Signal.pure 0#32)))))))))))))))))))))
 
+    -- Interrupt enable flags
     let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
     let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mstatusSIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
+    let mstatusSPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 5 1 ·)) <*> Signal.pure 1#1
     let mieMTIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
     let mieMSIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
     let timerIntEnabled := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMTIE_flag <*> timerIrq)
     let swIntEnabled    := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMSIE_flag <*> swIrq)
-    let trap_taken := (· || ·) <$> idex_isEcall <*>
+
+    -- ECALL cause depends on privilege level
+    let privIsU := (· == ·) <$> privMode <*> Signal.pure 0#2
+    let privIsS := (· == ·) <$> privMode <*> Signal.pure 1#2
+    let ecallCause := Signal.mux privIsU (Signal.pure 0x00000008#32)
+      (Signal.mux privIsS (Signal.pure 0x00000009#32) (Signal.pure 0x0000000B#32))
+
+    -- Page fault from MMU FAULT state (D-side: load=13, store=15)
+    let pageFault := (· && ·) <$> isMMUFault <*> ((fun x => !x) <$> bypassMMU)
+    let isStoreFault := (· && ·) <$> pageFault <*> idex_memWrite
+    let pageFaultCause := Signal.mux isStoreFault (Signal.pure 0x0000000F#32) (Signal.pure 0x0000000D#32)
+
+    let trap_taken := (· || ·) <$> ((· || ·) <$> idex_isEcall <*> pageFault) <*>
                         ((· || ·) <$> timerIntEnabled <*> swIntEnabled)
     let trapCause :=
-      Signal.mux idex_isEcall (Signal.pure 0x0000000B#32)
+      Signal.mux idex_isEcall ecallCause
+      (Signal.mux pageFault pageFaultCause
       (Signal.mux timerIntEnabled (Signal.pure 0x80000007#32)
       (Signal.mux swIntEnabled (Signal.pure 0x80000003#32)
-        (Signal.pure 0#32)))
-    let trap_target := (· &&& ·) <$> mtvecReg <*> Signal.pure 0xFFFFFFFC#32
+        (Signal.pure 0#32))))
+
+    -- Trap delegation: check medeleg/mideleg bits
+    let isInterrupt := (· == ·) <$> (trapCause.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
+    let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
+    let medelegShifted := (· >>> ·) <$> medelegReg <*> causeIdxExt
+    let medelegBit := (· == ·) <$> (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let midelegShifted := (· >>> ·) <$> midelegReg <*> causeIdxExt
+    let midelegBit := (· == ·) <$> (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let delegated := Signal.mux isInterrupt midelegBit medelegBit
+    -- Trap goes to S if delegated AND priv ≤ S
+    let privGtS := (BitVec.ult · ·) <$> Signal.pure 1#2 <*> privMode
+    let privLeS := (fun x => !x) <$> privGtS
+    let trapToS := (· && ·) <$> trap_taken <*> ((· && ·) <$> delegated <*> privLeS)
+    let trapToM := (· && ·) <$> trap_taken <*> ((fun x => !x) <$> trapToS)
+
+    -- Trap target: S-mode or M-mode tvec
+    let mtvecBase := (· &&& ·) <$> mtvecReg <*> Signal.pure 0xFFFFFFFC#32
+    let stvecBase := (· &&& ·) <$> stvecReg <*> Signal.pure 0xFFFFFFFC#32
+    let trap_target := Signal.mux trapToS stvecBase mtvecBase
     let mret_target := mepcReg
+    let sret_target := sepcReg
+
+    -- MPP and SPP for privilege mode transitions
+    let mpp := mstatusReg.map (BitVec.extractLsb' 11 2 ·)
+    let sppBit := mstatusReg.map (BitVec.extractLsb' 8 1 ·)
+    let sretPriv := (· ++ ·) <$> Signal.pure 0#1 <*> sppBit
 
     let flush := (· || ·) <$> ((· || ·) <$> branchTaken <*> idex_jump) <*>
-                 ((· || ·) <$> trap_taken <*> idex_isMret)
+                 ((· || ·) <$> ((· || ·) <$> trap_taken <*> idex_isMret) <*>
+                  ((· || ·) <$> idex_isSret <*> idex_isSFenceVMA))
     let flushOrDelay := (· || ·) <$> flush <*> flushDelay
 
     let id_opcode := ifid_inst.map (BitVec.extractLsb' 0 7 ·)
@@ -450,11 +640,19 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let f3isZero := (· == ·) <$> id_funct3 <*> Signal.pure 0#3
     let f3notZero := (fun x => !x) <$> f3isZero
     let id_isCsr := (· && ·) <$> id_isSystem <*> f3notZero
-    let id_isEcall := (· && ·) <$> id_isSystem <*> f3isZero
+    let ecallField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
+    let isEcallField := (· == ·) <$> ecallField <*> Signal.pure 0x000#12
+    let id_isEcall := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*> isEcallField
     let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let isMretField := (· == ·) <$> mretField <*> Signal.pure 0x302#12
     let id_isMret := (· && ·) <$> id_isSystem <*> isMretField
+    -- SRET: funct12 = 0x102 (SYSTEM opcode, funct3 = 0)
+    let isSretField := (· == ·) <$> (ifid_inst.map (BitVec.extractLsb' 20 12 ·)) <*> Signal.pure 0x102#12
+    let id_isSret := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*> isSretField
+    -- SFENCE.VMA: funct7 = 0b0001001, funct3 = 0, SYSTEM opcode
+    let id_isSFenceVMA := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*>
+      ((· == ·) <$> id_funct7 <*> Signal.pure 0b0001001#7)
     -- M-extension: R-type with funct7 = 0000001
     let id_isMext := (· && ·) <$> id_isALUrr <*> ((· == ·) <$> id_funct7 <*> Signal.pure 0b0000001#7)
     -- A-extension: opcode = 0101111
@@ -477,7 +675,7 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let idex_isSC := (· && ·) <$> idex_isAMO <*> ((· == ·) <$> idex_amoOp <*> Signal.pure 0b00011#5)
     let idex_isAMOrw := (· && ·) <$> idex_isAMO <*> ((fun x => !x) <$> ((· || ·) <$> idex_isLR <*> idex_isSC))
 
-    let stall := (· || ·) <$> (hazardSignal idex_memRead idex_rd id_rs1 id_rs2)
+    let stall := (· || ·) <$> ((· || ·) <$> (hazardSignal idex_memRead idex_rd id_rs1 id_rs2) <*> mmuStall)
                    <*> ((· || ·) <$> idex_isAMOrw <*> pendingWriteEn)
 
     let rf_rs1_addr := Signal.mux stall id_rs1
@@ -505,8 +703,22 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let pcPlus4 := (· + ·) <$> pcReg <*> Signal.pure 4#32
     let fetchPCIn := Signal.mux stall fetchPC pcReg
     let fetchPCPlus4 := (· + ·) <$> fetchPC <*> Signal.pure 4#32
+    -- DRAM instruction fetch: 4 combo-read instances sharing DMEM write signals
+    let ifetch_word_addr := fetchPC.map (BitVec.extractLsb' 2 23 ·)
+    let dram_ifetch_b0 := Signal.memoryComboRead final_dmem_write_addr final_byte0_wdata final_byte0_we ifetch_word_addr
+    let dram_ifetch_b1 := Signal.memoryComboRead final_dmem_write_addr final_byte1_wdata final_byte1_we ifetch_word_addr
+    let dram_ifetch_b2 := Signal.memoryComboRead final_dmem_write_addr final_byte2_wdata final_byte2_we ifetch_word_addr
+    let dram_ifetch_b3 := Signal.memoryComboRead final_dmem_write_addr final_byte3_wdata final_byte3_we ifetch_word_addr
+    let dram_ifetch_lo := (· ++ ·) <$> dram_ifetch_b1 <*> dram_ifetch_b0
+    let dram_ifetch_hi := (· ++ ·) <$> dram_ifetch_b3 <*> dram_ifetch_b2
+    let dram_ifetch_word := (· ++ ·) <$> dram_ifetch_hi <*> dram_ifetch_lo
+    -- Instruction source mux: DRAM if fetch address is in DRAM range, else firmware IMEM
+    -- DRAM range: addresses >= 0x80000000 (bit 31 = 1)
+    let fetchInDRAM := (· == ·) <$> (fetchPC.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let final_imem_rdata := Signal.mux fetchInDRAM dram_ifetch_word imem_rdata
+
     let ifid_inst_in := Signal.mux flushOrDelay (Signal.pure nopInst)
-                          (Signal.mux stall ifid_inst imem_rdata)
+                          (Signal.mux stall ifid_inst final_imem_rdata)
     let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
     let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
     let squash := (· || ·) <$> stall <*> flushOrDelay
@@ -552,6 +764,7 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
       let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
       Signal.mux csrIsRW csrWdata
         (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
+    -- CSR new values (M-mode)
     let mstatusNewCSR  := mkCsrNewVal mstatusReg
     let mieNewCSR      := mkCsrNewVal mieReg
     let mtvecNewCSR    := mkCsrNewVal mtvecReg
@@ -559,41 +772,261 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     let mepcNewCSR     := mkCsrNewVal mepcReg
     let mcauseNewCSR   := mkCsrNewVal mcauseReg
     let mtvalNewCSR    := mkCsrNewVal mtvalReg
+    -- CSR new values (S-mode)
+    let sieNewCSR      := mkCsrNewVal sieReg
+    let stvecNewCSR    := mkCsrNewVal stvecReg
+    let sscratchNewCSR := mkCsrNewVal sscratchReg
+    let sepcNewCSR     := mkCsrNewVal sepcReg
+    let scauseNewCSR   := mkCsrNewVal scauseReg
+    let stvalNewCSR    := mkCsrNewVal stvalReg
+    let satpNewCSR     := mkCsrNewVal satpReg
+    -- CSR new values (delegation)
+    let medelegNewCSR  := mkCsrNewVal medelegReg
+    let midelegNewCSR  := mkCsrNewVal midelegReg
 
+    -- SSTATUS write: merge S-mode bits back into mstatus
+    let sstatusNewVal  := mkCsrNewVal sstatusView
+    let mstatusNonS := (· &&& ·) <$> mstatusReg <*> ((fun x => ~~~ x) <$> sstatusMask)
+    let sstatusMasked := (· &&& ·) <$> sstatusNewVal <*> sstatusMask
+    let sstatusWdataOut := (· ||| ·) <$> mstatusNonS <*> sstatusMasked
+    let sstatusWriteActive := (· && ·) <$> idex_isCsr <*> csrIsSstatus
+
+    -- M-mode trap: MIE→MPIE, clear MIE, MPP←privMode
     let msClearMIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFF7#32
     let msSetMPIE := Signal.mux mstatusMIE_flag
       ((· ||| ·) <$> msClearMIE <*> Signal.pure 0x00000080#32)
       ((· &&& ·) <$> msClearMIE <*> Signal.pure 0xFFFFFF7F#32)
-    let mstatusTrapVal := (· ||| ·) <$> msSetMPIE <*> Signal.pure 0x00001800#32
+    -- Set MPP to current privilege: clear MPP bits, then OR in privMode<<11
+    let msSetMPIE_clearMPP := (· &&& ·) <$> msSetMPIE <*> Signal.pure 0xFFFFE7FF#32
+    let privModeExt := (· ++ ·) <$> Signal.pure 0#21 <*> ((· ++ ·) <$> privMode <*> Signal.pure 0#9)
+    let privShifted := (· <<< ·) <$> privModeExt <*> Signal.pure 2#32
+    let mstatusTrapMVal := (· ||| ·) <$> msSetMPIE_clearMPP <*> privShifted
+
+    -- S-mode trap: SIE→SPIE, clear SIE, SPP←privMode[0]
+    let msClearSIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFFD#32
+    let msSetSPIE := Signal.mux mstatusSIE_flag
+      ((· ||| ·) <$> msClearSIE <*> Signal.pure 0x00000020#32)
+      ((· &&& ·) <$> msClearSIE <*> Signal.pure 0xFFFFFFDF#32)
+    -- SPP = privMode[0] (1 bit at position 8)
+    let privBit0 := privMode.map (BitVec.extractLsb' 0 1 ·)
+    let privBit0IsOne := (· == ·) <$> privBit0 <*> Signal.pure 1#1
+    let msSetSPP := Signal.mux privBit0IsOne
+      ((· ||| ·) <$> msSetSPIE <*> Signal.pure 0x00000100#32)
+      ((· &&& ·) <$> msSetSPIE <*> Signal.pure 0xFFFFFEFF#32)
+    let mstatusTrapSVal := msSetSPP
+
+    let mstatusTrapVal := Signal.mux trapToS mstatusTrapSVal mstatusTrapMVal
+
+    -- MRET: MIE←MPIE, MPIE←1, MPP←0
     let msClearMPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFE7FF#32
     let msRestoreMIE := Signal.mux mstatusMPIE_flag
       ((· ||| ·) <$> msClearMPP <*> Signal.pure 0x00000008#32)
       ((· &&& ·) <$> msClearMPP <*> Signal.pure 0xFFFFFFF7#32)
     let mstatusMretVal := (· ||| ·) <$> msRestoreMIE <*> Signal.pure 0x00000080#32
+
+    -- SRET: SIE←SPIE, SPIE←1, SPP←0
+    let msClearSPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFEFF#32
+    let msRestoreSIE := Signal.mux mstatusSPIE_flag
+      ((· ||| ·) <$> msClearSPP <*> Signal.pure 0x00000002#32)
+      ((· &&& ·) <$> msClearSPP <*> Signal.pure 0xFFFFFFFD#32)
+    let mstatusSretVal := (· ||| ·) <$> msRestoreSIE <*> Signal.pure 0x00000020#32
+
     let mstatusNext := Signal.mux trap_taken mstatusTrapVal
       (Signal.mux idex_isMret mstatusMretVal
+      (Signal.mux idex_isSret mstatusSretVal
+      (Signal.mux sstatusWriteActive sstatusWdataOut
       (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMstatus) mstatusNewCSR
-        mstatusReg))
+        mstatusReg))))
     let mieNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMie) mieNewCSR mieReg
     let mtvecNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMtvec) mtvecNewCSR mtvecReg
     let mscratchNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMscratch) mscratchNewCSR mscratchReg
-    let mepcNext := Signal.mux trap_taken idex_pc
+    let mepcNext := Signal.mux trapToM idex_pc
       (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMepc) mepcNewCSR mepcReg)
-    let mcauseNext := Signal.mux trap_taken trapCause
+    let mcauseNext := Signal.mux trapToM trapCause
       (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMcause) mcauseNewCSR mcauseReg)
-    let mtvalNext := Signal.mux trap_taken (Signal.pure 0#32)
+    let trapVal := Signal.mux pageFault alu_result_approx (Signal.pure 0#32)
+    let mtvalNext := Signal.mux trapToM trapVal
       (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMtval) mtvalNewCSR mtvalReg)
+
+    -- S-mode CSR next-state
+    let sieNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsSie) sieNewCSR sieReg
+    let stvecNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsStvec) stvecNewCSR stvecReg
+    let sscratchNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsSscratch) sscratchNewCSR sscratchReg
+    let sepcNext := Signal.mux trapToS idex_pc
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsSepc) sepcNewCSR sepcReg)
+    let scauseNext := Signal.mux trapToS trapCause
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsScause) scauseNewCSR scauseReg)
+    let stvalNext := Signal.mux trapToS trapVal
+      (Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsStval) stvalNewCSR stvalReg)
+    let satpNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsSatp) satpNewCSR satpReg
+
+    -- Delegation register next-state
+    let medelegNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMedeleg) medelegNewCSR medelegReg
+    let midelegNext := Signal.mux ((· && ·) <$> idex_isCsr <*> csrIsMideleg) midelegNewCSR midelegReg
+
+    -- Privilege mode next-state
+    let privModeNext := Signal.mux trapToM (Signal.pure 3#2)
+      (Signal.mux trapToS (Signal.pure 1#2)
+      (Signal.mux idex_isMret mpp
+      (Signal.mux idex_isSret sretPriv
+        privMode)))
 
     -- A-ext: Reservation management (LR sets, SC clears)
     let resValidNext := Signal.mux exwb_isLR (Signal.pure true)
                           (Signal.mux exwb_isSC (Signal.pure false) reservationValid)
     let resAddrNext := Signal.mux exwb_isLR exwb_alu reservationAddr
 
+    -- =========================================================================
+    -- MMU TLB + PTW (simplified: D-side only for now)
+    -- =========================================================================
+
+    -- VPN and page offset from alu_result_approx (D-side virtual address)
+    let dVPN := alu_result_approx.map (BitVec.extractLsb' 12 20 ·)
+    let dPageOffset := alu_result_approx.map (BitVec.extractLsb' 0 12 ·)
+
+    -- TLB lookup (4-entry, D-side, using alu_result_approx VPN)
+    let tlb0FullMatch := (· == ·) <$> tlb0VPN <*> dVPN
+    let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
+    let tlb0Hit := (· && ·) <$> tlb0Valid <*> tlb0VPNMatch
+
+    let tlb1FullMatch := (· == ·) <$> tlb1VPN <*> dVPN
+    let tlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb1VPNMatch := Signal.mux tlb1Mega tlb1MegaMatch tlb1FullMatch
+    let tlb1Hit := (· && ·) <$> tlb1Valid <*> tlb1VPNMatch
+
+    let tlb2FullMatch := (· == ·) <$> tlb2VPN <*> dVPN
+    let tlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb2VPNMatch := Signal.mux tlb2Mega tlb2MegaMatch tlb2FullMatch
+    let tlb2Hit := (· && ·) <$> tlb2Valid <*> tlb2VPNMatch
+
+    let tlb3FullMatch := (· == ·) <$> tlb3VPN <*> dVPN
+    let tlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb3VPNMatch := Signal.mux tlb3Mega tlb3MegaMatch tlb3FullMatch
+    let tlb3Hit := (· && ·) <$> tlb3Valid <*> tlb3VPNMatch
+
+    let anyTLBHit := (· || ·) <$> ((· || ·) <$> tlb0Hit <*> tlb1Hit) <*> ((· || ·) <$> tlb2Hit <*> tlb3Hit)
+
+    -- TLB output PPN (priority mux)
+    let tlbPPN := Signal.mux tlb0Hit tlb0PPN
+      (Signal.mux tlb1Hit tlb1PPN
+      (Signal.mux tlb2Hit tlb2PPN
+      (Signal.mux tlb3Hit tlb3PPN
+        (Signal.pure 0#22))))
+
+    -- D-side MMU request: memory access in EX stage + not bypassed
+    let dMemAccess := (· || ·) <$> idex_memRead <*> idex_memWrite
+    let needTranslateD := (· && ·) <$> dMemAccess <*> ((fun x => !x) <$> bypassMMU)
+
+    -- PTW request: on TLB miss during TLB_LOOKUP
+    let ptwReq := (· && ·) <$> isTLBLookup <*> ((fun x => !x) <$> anyTLBHit)
+
+    -- PTW latch vaddr on start
+    let ptwVaddrNext := Signal.mux ((· && ·) <$> ptwIsIdle <*> ptwReq)
+      alu_result_approx ptwVaddrReg
+
+    -- PTE fields decoded from dmem_rdata (valid in L1_WAIT/L0_WAIT states)
+    let dmemPteValid := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let dmemPteRBit := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
+    let dmemPteXBit := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let dmemPteIsLeaf := (· || ·) <$> dmemPteRBit <*> dmemPteXBit
+    let dmemPteInvalid := (fun x => !x) <$> dmemPteValid
+    let pteFlags := ptwPteReg.map (BitVec.extractLsb' 0 8 ·)
+
+    -- PTE latching: in WAIT states, latch dmem_rdata (has PTE from prior REQ addr)
+    let isDataReady := (· || ·) <$> ptwIsL1Wait <*> ptwIsL0Wait
+    let ptwPteNext := Signal.mux isDataReady dmem_rdata ptwPteReg
+
+    -- PTW state transitions (7-state FSM with DMEM read latency handling)
+    -- IDLE(0) → L1_REQ(1) on TLB miss
+    let nextFromPtwIdle := Signal.mux ptwReq (Signal.pure 1#3) (Signal.pure 0#3)
+    -- L1_REQ(1) → L1_WAIT(2): always wait 1 cycle for DMEM read
+    -- L1_WAIT(2): dmem_rdata has L1 PTE → DONE(5)/L0_REQ(3)/FAULT(6)
+    let nextFromL1Wait := Signal.mux dmemPteInvalid (Signal.pure 6#3)
+      (Signal.mux dmemPteIsLeaf (Signal.pure 5#3) (Signal.pure 3#3))
+    -- L0_REQ(3) → L0_WAIT(4): always wait 1 cycle for DMEM read
+    -- L0_WAIT(4): dmem_rdata has L0 PTE → DONE(5)/FAULT(6)
+    let nextFromL0Wait := Signal.mux dmemPteInvalid (Signal.pure 6#3)
+      (Signal.mux dmemPteIsLeaf (Signal.pure 5#3) (Signal.pure 6#3))
+    let ptwStateNext := Signal.mux ptwIsIdle nextFromPtwIdle
+      (Signal.mux ptwIsL1Req (Signal.pure 2#3)
+      (Signal.mux ptwIsL1Wait nextFromL1Wait
+      (Signal.mux ptwIsL0Req (Signal.pure 4#3)
+      (Signal.mux ptwIsL0Wait nextFromL0Wait
+        (Signal.pure 0#3)))))
+
+    -- Megapage tracking: leaf found at L1 level
+    let ptwMegaNext := Signal.mux ((· && ·) <$> ptwIsL1Wait <*>
+        ((· && ·) <$> dmemPteIsLeaf <*> ((fun x => !x) <$> dmemPteInvalid)))
+      (Signal.pure true)
+      (Signal.mux ptwIsIdle (Signal.pure false) ptwMegaReg)
+
+    -- TLB fill on PTW completion
+    let tlbFill := ptwIsDone
+    let fillVPN := ptwVaddrReg.map (BitVec.extractLsb' 12 20 ·)
+
+    -- Replacement pointer: which entry to fill
+    let replIs0 := (· == ·) <$> replPtrReg <*> Signal.pure 0#2
+    let replIs1 := (· == ·) <$> replPtrReg <*> Signal.pure 1#2
+    let replIs2 := (· == ·) <$> replPtrReg <*> Signal.pure 2#2
+    let replIs3 := (· == ·) <$> replPtrReg <*> Signal.pure 3#2
+    let doFill0 := (· && ·) <$> tlbFill <*> replIs0
+    let doFill1 := (· && ·) <$> tlbFill <*> replIs1
+    let doFill2 := (· && ·) <$> tlbFill <*> replIs2
+    let doFill3 := (· && ·) <$> tlbFill <*> replIs3
+
+    -- SFENCE.VMA clears all TLB entries
+    let sfenceVMA := idex_isSFenceVMA
+
+    -- TLB entry next-state
+    let tlb0ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill0 (Signal.pure true) tlb0Valid)
+    let tlb0VPNNext := Signal.mux doFill0 fillVPN tlb0VPN
+    let tlb0PPNNext := Signal.mux doFill0 ptePPNFull tlb0PPN
+    let tlb0FlagsNext := Signal.mux doFill0 pteFlags tlb0Flags
+    let tlb0MegaNext := Signal.mux doFill0 ptwMegaReg tlb0Mega
+
+    let tlb1ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill1 (Signal.pure true) tlb1Valid)
+    let tlb1VPNNext := Signal.mux doFill1 fillVPN tlb1VPN
+    let tlb1PPNNext := Signal.mux doFill1 ptePPNFull tlb1PPN
+    let tlb1FlagsNext := Signal.mux doFill1 pteFlags tlb1Flags
+    let tlb1MegaNext := Signal.mux doFill1 ptwMegaReg tlb1Mega
+
+    let tlb2ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill2 (Signal.pure true) tlb2Valid)
+    let tlb2VPNNext := Signal.mux doFill2 fillVPN tlb2VPN
+    let tlb2PPNNext := Signal.mux doFill2 ptePPNFull tlb2PPN
+    let tlb2FlagsNext := Signal.mux doFill2 pteFlags tlb2Flags
+    let tlb2MegaNext := Signal.mux doFill2 ptwMegaReg tlb2Mega
+
+    let tlb3ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill3 (Signal.pure true) tlb3Valid)
+    let tlb3VPNNext := Signal.mux doFill3 fillVPN tlb3VPN
+    let tlb3PPNNext := Signal.mux doFill3 ptePPNFull tlb3PPN
+    let tlb3FlagsNext := Signal.mux doFill3 pteFlags tlb3Flags
+    let tlb3MegaNext := Signal.mux doFill3 ptwMegaReg tlb3Mega
+
+    -- Replacement pointer: increment on fill
+    let replPtrNext := Signal.mux tlbFill
+      ((· + ·) <$> replPtrReg <*> Signal.pure 1#2) replPtrReg
+
+    -- MMU state transitions
+    let nextFromMMUIdle := Signal.mux needTranslateD (Signal.pure 1#3) (Signal.pure 0#3)
+    let nextFromTLBLookup := Signal.mux anyTLBHit (Signal.pure 3#3) (Signal.pure 2#3)
+    let nextFromPTWWalk := Signal.mux ptwIsDone (Signal.pure 3#3)
+      (Signal.mux ptwIsFault (Signal.pure 4#3) (Signal.pure 2#3))
+    let mmuStateNext := Signal.mux isMMUIdle nextFromMMUIdle
+      (Signal.mux isTLBLookup nextFromTLBLookup
+      (Signal.mux isPTWWalk nextFromPTWWalk
+        (Signal.pure 0#3)))
+
+    -- PTW isIfetch and ifetchFaultPending: placeholder (not yet wired)
+    let ptwIsIfetchNext := ptwIsIfetch
+    let ifetchFaultPendingNext := ifetchFaultPending
+
     let pcNext := Signal.mux trap_taken trap_target
                     (Signal.mux idex_isMret mret_target
+                    (Signal.mux idex_isSret sret_target
                     (Signal.mux flush jumpTarget
                     (Signal.mux stall pcReg
-                      pcPlus4)))
+                      pcPlus4))))
 
     bundleAll! [
       Signal.register 0#32 pcNext,
@@ -665,7 +1098,50 @@ private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
       Signal.register 0#5 idex_amoOp,
       Signal.register false pendingWriteEnNext,
       Signal.register 0#32 pendingWriteAddrNext,
-      Signal.register 0#32 pendingWriteDataNext
+      Signal.register 0#32 pendingWriteDataNext,
+      -- S-mode CSRs + privilege (69-78)
+      Signal.register 3#2 privModeNext,
+      Signal.register 0#32 sieNext,
+      Signal.register 0#32 stvecNext,
+      Signal.register 0#32 sscratchNext,
+      Signal.register 0#32 sepcNext,
+      Signal.register 0#32 scauseNext,
+      Signal.register 0#32 stvalNext,
+      Signal.register 0#32 satpNext,
+      Signal.register 0#32 medelegNext,
+      Signal.register 0#32 midelegNext,
+      -- MMU TLB + PTW (79-106)
+      Signal.register 0#3 mmuStateNext,
+      Signal.register 0#3 ptwStateNext,
+      Signal.register 0#32 ptwVaddrNext,
+      Signal.register 0#32 ptwPteNext,
+      Signal.register false ptwMegaNext,
+      Signal.register 0#2 replPtrNext,
+      Signal.register false tlb0ValidNext,
+      Signal.register 0#20 tlb0VPNNext,
+      Signal.register 0#22 tlb0PPNNext,
+      Signal.register 0#8 tlb0FlagsNext,
+      Signal.register false tlb0MegaNext,
+      Signal.register false tlb1ValidNext,
+      Signal.register 0#20 tlb1VPNNext,
+      Signal.register 0#22 tlb1PPNNext,
+      Signal.register 0#8 tlb1FlagsNext,
+      Signal.register false tlb1MegaNext,
+      Signal.register false tlb2ValidNext,
+      Signal.register 0#20 tlb2VPNNext,
+      Signal.register 0#22 tlb2PPNNext,
+      Signal.register 0#8 tlb2FlagsNext,
+      Signal.register false tlb2MegaNext,
+      Signal.register false tlb3ValidNext,
+      Signal.register 0#20 tlb3VPNNext,
+      Signal.register 0#22 tlb3PPNNext,
+      Signal.register 0#8 tlb3FlagsNext,
+      Signal.register false tlb3MegaNext,
+      Signal.register false ptwIsIfetchNext,
+      Signal.register false ifetchFaultPendingNext,
+      -- Pipeline additions (107-108)
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isSret),
+      Signal.register false (Signal.mux squash (Signal.pure false) id_isSFenceVMA)
     ]
 
 /-- RV32I SoC with pre-loaded firmware — Signal DSL.
@@ -690,7 +1166,7 @@ def rv32iSoCSimulate {dom : DomainConfig}
 /-- RV32I SoC simulation returning full state tuple.
     Allows extracting PC, store signals, CSRs, etc. for verification.
     State indices: 0=PC, 41=storeAddr, 42=storeData, 43=storeEn
-    69 registers total (incl. A-ext LR/SC/AMO with pending write). -/
+    109 registers total (incl. S-mode, MMU, trap delegation). -/
 def rv32iSoCSimulateFull {dom : DomainConfig}
     (firmware : BitVec 12 → BitVec 32)
     : IO (Signal dom SoCState) := do

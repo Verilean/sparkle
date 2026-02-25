@@ -23,6 +23,8 @@ namespace Sparkle.Examples.YOLOv8.Blocks.SPPF
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
+private abbrev SPPFState := BitVec 3 × BitVec 2 × Bool × Bool
+
 /-- SPPF controller FSM.
 
     Sequences: ConvBnSiLU → MaxPool1 → MaxPool2 → MaxPool3 → Concat → ConvBnSiLU
@@ -51,11 +53,10 @@ open Sparkle.Core.Signal
       - poolStage: which max-pool pass (0..2)
       - done:      result valid pulse
 -/
-def sppfController {dom : DomainConfig}
+private def sppfControllerBody {dom : DomainConfig}
     (subOpDone : Signal dom Bool)
     (start : Signal dom Bool)
-    : Signal dom (BitVec 3 × BitVec 2 × Bool) :=
-  let loopState := Signal.loop fun state =>
+    (state : Signal dom SPPFState) : Signal dom SPPFState :=
     let fsmReg     := projN! state 4 0  -- BitVec 3
     let poolStgReg := projN! state 4 1  -- BitVec 2
     let readyReg   := projN! state 4 2  -- Bool
@@ -108,10 +109,25 @@ def sppfController {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+def sppfController {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    : Signal dom (BitVec 3 × BitVec 2 × Bool) :=
+  let loopState := Signal.loop fun state => sppfControllerBody subOpDone start state
   let phaseOut := projN! loopState 4 0
   let poolStgOut := projN! loopState 4 1
   let doneOut := projN! loopState 4 3
   bundle3 phaseOut poolStgOut doneOut
+
+def sppfControllerSimulate {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    : IO (Signal dom (BitVec 3 × BitVec 2 × Bool)) := do
+  let loopState ← Signal.loopMemo (sppfControllerBody subOpDone start)
+  let phaseOut := projN! loopState 4 0
+  let poolStgOut := projN! loopState 4 1
+  let doneOut := projN! loopState 4 3
+  return bundle3 phaseOut poolStgOut doneOut
 
 #synthesizeVerilog sppfController
 

@@ -33,6 +33,13 @@ open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 open Sparkle.Examples.YOLOv8
 
+private abbrev BackboneState := BitVec 4 × BitVec 3 × BitVec 4 × BitVec 20 × Bool × Bool × Bool × Bool
+
+private def defaultBackboneState : BackboneState :=
+  (0#4, 0#3, 0#4, 0#20, false, false, false, false)
+
+instance : Inhabited BackboneState := ⟨defaultBackboneState⟩
+
 /-- Backbone controller FSM.
 
     Sequences through all backbone layers, managing:
@@ -72,11 +79,9 @@ open Sparkle.Examples.YOLOv8
       - bufferSel:   which buffer to read/write
       - done:        backbone complete
 -/
-def backboneController {dom : DomainConfig}
-    (subOpDone : Signal dom Bool)
-    (start : Signal dom Bool)
-    : Signal dom (BitVec 4 × BitVec 3 × BitVec 4 × BitVec 20 × Bool × Bool) :=
-  let loopState := Signal.loop fun state =>
+private def backboneControllerBody {dom : DomainConfig}
+    (subOpDone : Signal dom Bool) (start : Signal dom Bool)
+    (state : Signal dom BackboneState) : Signal dom BackboneState :=
     let fsmReg      := projN! state 8 0  -- BitVec 4
     let stageReg    := projN! state 8 1  -- BitVec 3
     let layerReg    := projN! state 8 2  -- BitVec 4
@@ -174,6 +179,12 @@ def backboneController {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+def backboneController {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    : Signal dom (BitVec 4 × BitVec 3 × BitVec 4 × BitVec 20 × Bool × Bool) :=
+  let loopState := Signal.loop fun state => backboneControllerBody subOpDone start state
+
   let fsmOut     := projN! loopState 8 0
   let stageOut   := projN! loopState 8 1
   let layerOut   := projN! loopState 8 2
@@ -182,6 +193,18 @@ def backboneController {dom : DomainConfig}
   let doneOut    := projN! loopState 8 7
 
   bundle2 fsmOut (bundle2 stageOut (bundle2 layerOut (bundle2 wBaseOut (bundle2 bufSelOut doneOut))))
+
+def backboneControllerSimulate {dom : DomainConfig}
+    (subOpDone : Signal dom Bool) (start : Signal dom Bool)
+    : IO (Signal dom (BitVec 4 × BitVec 3 × BitVec 4 × BitVec 20 × Bool × Bool)) := do
+  let loopState ← Signal.loopMemo (backboneControllerBody subOpDone start)
+  let fsmOut     := projN! loopState 8 0
+  let stageOut   := projN! loopState 8 1
+  let layerOut   := projN! loopState 8 2
+  let wBaseOut   := projN! loopState 8 3
+  let bufSelOut  := projN! loopState 8 4
+  let doneOut    := projN! loopState 8 7
+  return bundle2 fsmOut (bundle2 stageOut (bundle2 layerOut (bundle2 wBaseOut (bundle2 bufSelOut doneOut))))
 
 #synthesizeVerilog backboneController
 

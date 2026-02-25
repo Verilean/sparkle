@@ -30,6 +30,8 @@ namespace Sparkle.Examples.YOLOv8.Neck
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
+private abbrev NeckState := BitVec 4 × BitVec 3 × Bool × Bool × Bool × Bool
+
 /-- Neck controller FSM.
 
     Sequences the FPN top-down and PAN bottom-up paths.
@@ -61,11 +63,9 @@ open Sparkle.Core.Signal
       - pathIdx: which path step
       - done:    neck complete
 -/
-def neckController {dom : DomainConfig}
-    (subOpDone : Signal dom Bool)
-    (start : Signal dom Bool)
-    : Signal dom (BitVec 4 × BitVec 3 × Bool) :=
-  let loopState := Signal.loop fun state =>
+private def neckControllerBody {dom : DomainConfig}
+    (subOpDone : Signal dom Bool) (start : Signal dom Bool)
+    (state : Signal dom NeckState) : Signal dom NeckState :=
     let fsmReg    := projN! state 6 0  -- BitVec 4
     let pathReg   := projN! state 6 1  -- BitVec 3
     let bufSelReg := projN! state 6 2  -- Bool
@@ -143,10 +143,24 @@ def neckController {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+def neckController {dom : DomainConfig}
+    (subOpDone : Signal dom Bool)
+    (start : Signal dom Bool)
+    : Signal dom (BitVec 4 × BitVec 3 × Bool) :=
+  let loopState := Signal.loop fun state => neckControllerBody subOpDone start state
   let phaseOut  := projN! loopState 6 0
   let pathOut   := projN! loopState 6 1
   let doneOut   := projN! loopState 6 5
   bundle3 phaseOut pathOut doneOut
+
+def neckControllerSimulate {dom : DomainConfig}
+    (subOpDone : Signal dom Bool) (start : Signal dom Bool)
+    : IO (Signal dom (BitVec 4 × BitVec 3 × Bool)) := do
+  let loopState ← Signal.loopMemo (neckControllerBody subOpDone start)
+  let phaseOut  := projN! loopState 6 0
+  let pathOut   := projN! loopState 6 1
+  let doneOut   := projN! loopState 6 5
+  return bundle3 phaseOut pathOut doneOut
 
 #synthesizeVerilog neckController
 

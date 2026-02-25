@@ -42,28 +42,14 @@ open Sparkle.Core.Signal
 open Sparkle.Examples.YOLOv8.Primitives.Dequant
 open Sparkle.Examples.YOLOv8.Primitives.Requantize
 
-/-- Sequential convolution MAC engine.
+private abbrev Conv2DState := BitVec 32 × BitVec 16 × BitVec 2 × BitVec 8 × Bool
 
-    Uses Signal.loop with 5 state registers:
-      0: accumulator  (BitVec 32) — running MAC sum
-      1: counter      (BitVec 16) — remaining MAC operations
-      2: fsmState     (BitVec 2)  — IDLE/ACCUMULATE/REQUANTIZE/OUTPUT
-      3: resultReg    (BitVec 8)  — final INT8 output
-      4: doneReg      (Bool)      — output valid pulse
-
-    The engine performs `macCount` MAC operations sequentially,
-    one per clock cycle. After accumulation, it applies requantization
-    (multiply-shift-clamp) and outputs the INT8 result. -/
-def conv2DEngine {dom : DomainConfig}
-    (weight4 : Signal dom (BitVec 4))
-    (activation8 : Signal dom (BitVec 8))
-    (scale : Signal dom (BitVec 16))
-    (shift : Signal dom (BitVec 5))
-    (bias32 : Signal dom (BitVec 32))
-    (start : Signal dom Bool)
+private def conv2DEngineBody {dom : DomainConfig}
+    (weight4 : Signal dom (BitVec 4)) (activation8 : Signal dom (BitVec 8))
+    (scale : Signal dom (BitVec 16)) (shift : Signal dom (BitVec 5))
+    (bias32 : Signal dom (BitVec 32)) (start : Signal dom Bool)
     (macCount : Signal dom (BitVec 16))
-    : Signal dom (BitVec 8 × Bool) :=
-  let loopState := Signal.loop fun state =>
+    (state : Signal dom Conv2DState) : Signal dom Conv2DState :=
     let accReg     := projN! state 5 0  -- BitVec 32
     let counterReg := projN! state 5 1  -- BitVec 16
     let fsmReg     := projN! state 5 2  -- BitVec 2
@@ -133,9 +119,42 @@ def conv2DEngine {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+/-- Sequential convolution MAC engine.
+
+    Uses Signal.loop with 5 state registers:
+      0: accumulator  (BitVec 32) — running MAC sum
+      1: counter      (BitVec 16) — remaining MAC operations
+      2: fsmState     (BitVec 2)  — IDLE/ACCUMULATE/REQUANTIZE/OUTPUT
+      3: resultReg    (BitVec 8)  — final INT8 output
+      4: doneReg      (Bool)      — output valid pulse
+
+    The engine performs `macCount` MAC operations sequentially,
+    one per clock cycle. After accumulation, it applies requantization
+    (multiply-shift-clamp) and outputs the INT8 result. -/
+def conv2DEngine {dom : DomainConfig}
+    (weight4 : Signal dom (BitVec 4))
+    (activation8 : Signal dom (BitVec 8))
+    (scale : Signal dom (BitVec 16))
+    (shift : Signal dom (BitVec 5))
+    (bias32 : Signal dom (BitVec 32))
+    (start : Signal dom Bool)
+    (macCount : Signal dom (BitVec 16))
+    : Signal dom (BitVec 8 × Bool) :=
+  let loopState := Signal.loop fun state => conv2DEngineBody weight4 activation8 scale shift bias32 start macCount state
   let resultOut := projN! loopState 5 3
   let doneOut := projN! loopState 5 4
   bundle2 resultOut doneOut
+
+def conv2DEngineSimulate {dom : DomainConfig}
+    (weight4 : Signal dom (BitVec 4)) (activation8 : Signal dom (BitVec 8))
+    (scale : Signal dom (BitVec 16)) (shift : Signal dom (BitVec 5))
+    (bias32 : Signal dom (BitVec 32)) (start : Signal dom Bool)
+    (macCount : Signal dom (BitVec 16))
+    : IO (Signal dom (BitVec 8 × Bool)) := do
+  let loopState ← Signal.loopMemo (conv2DEngineBody weight4 activation8 scale shift bias32 start macCount)
+  let resultOut := projN! loopState 5 3
+  let doneOut := projN! loopState 5 4
+  return bundle2 resultOut doneOut
 
 #synthesizeVerilog conv2DEngine
 

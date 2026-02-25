@@ -109,29 +109,30 @@ static unsigned int test_gcd(void) {
 
 static unsigned int test_csr(void) {
     unsigned int val;
+    unsigned int pass = 1;
 
     /* Write mtvec, read back */
     asm volatile("csrw mtvec, %0" :: "r"(0x100));
     asm volatile("csrr %0, mtvec" : "=r"(val));
-    if (val != 0x100) return 0;
+    if (val != 0x100) pass = 0;
 
     /* Test CSRRSI (immediate variant) — set MIE bit (bit 3) */
     asm volatile("csrsi mstatus, 0x8");
     asm volatile("csrr %0, mstatus" : "=r"(val));
-    if (!(val & 0x8)) return 0;
+    if (!(val & 0x8)) pass = 0;
 
     /* Clear MIE bit back */
     asm volatile("csrci mstatus, 0x8");
 
     /* Test read-only CSR (mhartid should be 0) */
     asm volatile("csrr %0, mhartid" : "=r"(val));
-    if (val != 0) return 0;
+    if (val != 0) pass = 0;
 
-    /* Restore mtvec to trap handler */
+    /* Always restore mtvec to trap handler (even on failure) */
     extern void _trap_handler(void);
     asm volatile("csrw mtvec, %0" :: "r"(&_trap_handler));
 
-    return 1;
+    return pass;
 }
 
 /* ---------- Test 6: ECALL Trap Entry/Return ---------- */

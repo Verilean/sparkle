@@ -42,15 +42,21 @@ def main (args : List String) : IO Unit := do
   IO.println s!"Running Lean4 simulation for {maxCycles} cycles..."
   let soc ← @rv32iSoCSimulateFull defaultDom initFn
 
-  -- Extract signals from the 69-element state tuple
-  let pcSig := projN! soc 69 0           -- PC
-  let storeAddrSig := projN! soc 69 41   -- Previous store address (ALU result)
-  let storeDataSig := projN! soc 69 42   -- Previous store data (ex_rs2)
-  let storeEnSig := projN! soc 69 43     -- Previous store enable (idex_memWrite)
+  -- Extract signals from the 109-element state tuple
+  let pcSig := projN! soc 109 0           -- PC
+  let storeAddrSig := projN! soc 109 41   -- Previous store address (ALU result)
+  let storeDataSig := projN! soc 109 42   -- Previous store data (ex_rs2)
+  let storeEnSig := projN! soc 109 43     -- Previous store enable (idex_memWrite)
   -- Extra diagnostics
-  let exwbAluSig := projN! soc 69 30     -- exwb_alu (should match prevStoreAddr)
-  let idexMemWriteSig := projN! soc 69 9 -- idex_memWrite (EX stage store enable)
-  let idexPcSig := projN! soc 69 26      -- idex_pc (PC of EX stage instruction)
+  let exwbAluSig := projN! soc 109 30     -- exwb_alu (should match prevStoreAddr)
+  let idexMemWriteSig := projN! soc 109 9 -- idex_memWrite (EX stage store enable)
+  let idexPcSig := projN! soc 109 26      -- idex_pc (PC of EX stage instruction)
+  -- LR.W debug: pipeline memToReg signals
+  let idexMemToRegSig := projN! soc 109 10  -- idex_memToReg
+  let exwbM2rSig := projN! soc 109 33       -- exwb_m2r
+  let idexMemReadSig := projN! soc 109 8    -- idex_memRead
+  let exwbIsAMOSig := projN! soc 109 64    -- exwb_isAMO
+  let ifidInstSig := projN! soc 109 3       -- ifid_inst
 
   let mut prevPC := 0#32
   let mut haltCount := 0
@@ -64,24 +70,14 @@ def main (args : List String) : IO Unit := do
       if storeEn then
         let storeAddr := storeAddrSig.atTime cycle
         let storeData := storeDataSig.atTime cycle
-        -- Debug: show all stores for cycles 28-50
-        if cycle >= 28 && cycle <= 70 then
-          let exwbAlu := exwbAluSig.atTime cycle
-          let idexPc := idexPcSig.atTime cycle
-          IO.println s!"  cycle {cycle} STORE: addr=0x{storeAddr.toHex} exwb=0x{exwbAlu.toHex} data=0x{storeData.toHex} exPC=0x{idexPc.toHex}"
         -- UART is at 0x10000000
         let addrHi := storeAddr.extractLsb' 24 8
         if addrHi == 0x10#8 then
           uartLog := uartLog.push storeData
           IO.println s!"  UART[{uartLog.size}]: 0x{storeData.toHex}"
 
-    -- Print EX stage info for early cycles
-    if cycle >= 28 && cycle <= 50 then
-      let exwbAlu := exwbAluSig.atTime cycle
-      let idexMW := idexMemWriteSig.atTime cycle
-      let idexPc := idexPcSig.atTime cycle
-      IO.println s!"cycle {cycle}: PC=0x{pc.toHex} EX_PC=0x{idexPc.toHex} ALU=0x{exwbAlu.toHex} memW={idexMW}"
-    else if cycle < 28 || cycle % 5000 == 0 then
+    -- Print periodic progress
+    if cycle < 10 || cycle % 2000 == 0 then
       IO.println s!"cycle {cycle}: PC = 0x{pc.toHex}"
 
     -- Detect halt (PC stuck for 10+ cycles)
