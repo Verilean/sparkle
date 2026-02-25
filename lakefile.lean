@@ -25,6 +25,9 @@ lean_lib «Examples.BitNet» where
 lean_lib «Examples.RV32» where
   roots := #[`Examples.RV32]
 
+lean_lib «Examples.YOLOv8» where
+  roots := #[`Examples.YOLOv8]
+
 lean_lib «Tests» where
   -- Test circuits library
 
