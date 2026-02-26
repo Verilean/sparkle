@@ -4,7 +4,7 @@
 // Direct translation of Examples/RV32/SoC.lean Signal DSL.
 // 5-stage pipeline (IF/ID/EX/WB) with CLINT, CSR, UART MMIO,
 // S-mode CSRs, trap delegation, privilege tracking, MMU (Sv32 TLB+PTW).
-// 115 pipeline registers, 4 byte-wide data memories, register file.
+// 117 pipeline registers, 4 byte-wide data memories, register file.
 //
 // Generated to match Lean simulation semantics for cross-validation.
 // ============================================================================
@@ -16,13 +16,29 @@ module rv32i_soc (
     input  logic        imem_wr_en,
     input  logic [11:0] imem_wr_addr,
     input  logic [31:0] imem_wr_data,
+    // DMEM write port (for binary preloading during reset)
+    input  logic        dmem_wr_en,
+    input  logic [22:0] dmem_wr_addr,   // word address [22:0]
+    input  logic [31:0] dmem_wr_data,
     // UART RX input (active-high valid pulse with data byte)
     input  logic        uart_rx_valid,
     input  logic [7:0]  uart_rx_data,
     // Outputs for testbench monitoring
     output logic [31:0] pc_out,
     output logic        uart_tx_valid,
-    output logic [31:0] uart_tx_data
+    output logic [31:0] uart_tx_data,
+    // Debug: trap signals
+    output logic        trap_out,
+    output logic [31:0] trap_cause_out,
+    output logic [31:0] trap_pc_out,
+    // Debug: iTLB signals
+    output logic        itlb_need_translate,
+    output logic        itlb_hit,
+    output logic        itlb_miss,
+    output logic        itlb_stall,
+    output logic        itlb_ptw_req,
+    output logic [31:0] itlb_phys_addr,
+    output logic [31:0] itlb_fetch_pc
 );
 
     // ========================================================================
@@ -71,6 +87,7 @@ module rv32i_soc (
 
     // EX/WB
     logic [31:0] exwb_alu, exwb_alu_next;
+    logic [31:0] exwb_physAddr, exwb_physAddr_next;  // physical address for WB bus decode
     logic [4:0]  exwb_rd, exwb_rd_next;
     logic        exwb_regW, exwb_regW_next;
     logic        exwb_m2r, exwb_m2r_next;
@@ -126,6 +143,8 @@ module rv32i_soc (
     logic [31:0] pendingWriteAddr, pendingWriteAddr_next;
     logic [31:0] pendingWriteData, pendingWriteData_next;
 
+    // Debug cycle counter
+    logic [63:0] cycle_count;
     // S-mode CSRs + privilege (69-78)
     logic [1:0]  privMode, privMode_next;
     logic [31:0] sieReg, sieReg_next;
@@ -137,6 +156,10 @@ module rv32i_soc (
     logic [31:0] satpReg, satpReg_next;
     logic [31:0] medelegReg, medelegReg_next;
     logic [31:0] midelegReg, midelegReg_next;
+
+    // Counter enable CSRs (115-116)
+    logic [31:0] mcounterenReg, mcounterenReg_next;
+    logic [31:0] scounterenReg, scounterenReg_next;
 
     // MMU TLB + PTW (79-106)
     logic [2:0]  mmuState, mmuState_next;
@@ -172,6 +195,10 @@ module rv32i_soc (
     // PTW ifetch tracking
     logic        ptwIsIfetch, ptwIsIfetch_next;
     logic        ifetchFaultPending, ifetchFaultPending_next;
+    // D-side TLB miss saved state (for redirect/page-fault after PTW)
+    logic [31:0] dMissPC;
+    logic [31:0] dMissVaddr;
+    logic        dMissIsStore;
 
     // Pipeline additions (107-108)
     logic        idex_isSret, idex_isSret_next;
@@ -199,13 +226,14 @@ module rv32i_soc (
     assign imem_rdata = imem[imem_addr];
 
     // DRAM instruction fetch: combinational read from same DMEM byte arrays
-    wire [22:0] ifetch_word_addr = fetchPC[24:2];
+    // NOTE: ifetch_word_addr is now computed AFTER iTLB lookup (see below)
+    wire [22:0] ifetch_word_addr;
     wire [7:0] dram_ifetch_b0 = dmem_b0[ifetch_word_addr];
     wire [7:0] dram_ifetch_b1 = dmem_b1[ifetch_word_addr];
     wire [7:0] dram_ifetch_b2 = dmem_b2[ifetch_word_addr];
     wire [7:0] dram_ifetch_b3 = dmem_b3[ifetch_word_addr];
     wire [31:0] dram_ifetch_word = {dram_ifetch_b3, dram_ifetch_b2, dram_ifetch_b1, dram_ifetch_b0};
-    wire fetchInDRAM = fetchPC[31];
+    wire fetchInDRAM;
     wire [31:0] final_imem_rdata = fetchInDRAM ? dram_ifetch_word : imem_rdata;
 
     // DMEM: 4 byte-wide memories (each 8M x 8-bit = 32 MB total), synchronous read
@@ -247,17 +275,17 @@ module rv32i_soc (
         .result(alu_result_approx)
     );
 
-    // Bus address decode (EX stage)
-    wire [15:0] busAddrHi_ex = alu_result_approx[31:16];
+    // Bus address decode (EX stage) — uses effectiveAddr (physical after MMU translation)
+    wire [15:0] busAddrHi_ex = effectiveAddr[31:16];
     wire isCLINT_ex = (busAddrHi_ex == 16'h0200);
-    wire is_mmio_ex = alu_result_approx[30];
-    wire [7:0] busAddrByte24_ex = alu_result_approx[31:24];
+    wire is_mmio_ex = effectiveAddr[30];
+    wire [7:0] busAddrByte24_ex = effectiveAddr[31:24];
     wire isUART_ex = (busAddrByte24_ex == 8'h10);
     wire isDMEM_ex  = !isCLINT_ex & !is_mmio_ex & !isUART_ex;
 
     // DMEM address and write enable (23-bit word address = 8M words = 32 MB)
-    wire [22:0] dmem_addr_ex = alu_result_approx[24:2];
-    wire dmem_we = (idex_memWrite & isDMEM_ex) | pendingWriteEn;
+    wire [22:0] dmem_addr_ex = effectiveAddr[24:2];
+    wire dmem_we = (idex_memWrite & isDMEM_ex & !dTLBMiss) | pendingWriteEn;
 
     // MMU/PTW bypass and state decode (early, for DMEM addr mux and stall)
     wire satpMode = satpReg[31];
@@ -279,9 +307,10 @@ module rv32i_soc (
     wire ptwIsFault  = (ptwState == 3'd6);
     // PTW memory address generation
     wire [21:0] satpPPN = satpReg[21:0];
-    wire [31:0] l1Addr = {satpPPN, 10'd0} + {20'd0, ptwVaddr[31:22], 2'd0};
+    // Sv32: page table physical address = PPN << 12 (4KB pages), truncated to 32 bits
+    wire [31:0] l1Addr = {satpPPN[19:0], 12'd0} + {20'd0, ptwVaddr[31:22], 2'd0};
     wire [21:0] ptePPNFull_w = ptwPte[31:10];
-    wire [31:0] l0Addr = {ptePPNFull_w, 10'd0} + {20'd0, ptwVaddr[21:12], 2'd0};
+    wire [31:0] l0Addr = {ptePPNFull_w[19:0], 12'd0} + {20'd0, ptwVaddr[21:12], 2'd0};
     wire ptwMemActive = ptwIsL1Req | ptwIsL0Req;
     wire [31:0] ptwMemAddr = ptwIsL1Req ? l1Addr : l0Addr;
     wire [22:0] ptwMemWordAddr = ptwMemAddr[24:2];
@@ -356,12 +385,76 @@ module rv32i_soc (
     wire tlb3Hit = tlb3Valid & tlb3VPNMatch;
     wire anyTLBHit = tlb0Hit | tlb1Hit | tlb2Hit | tlb3Hit;
 
+    // D-side physical address from TLB
+    wire [21:0] dtlbPPN = tlb0Hit ? tlb0PPN :
+                           tlb1Hit ? tlb1PPN :
+                           tlb2Hit ? tlb2PPN :
+                           tlb3Hit ? tlb3PPN : 22'd0;
+    wire dtlbMega = tlb0Hit ? tlb0Mega :
+                     tlb1Hit ? tlb1Mega :
+                     tlb2Hit ? tlb2Mega :
+                     tlb3Hit ? tlb3Mega : 1'b0;
+
+    // D-side physical address computation (same logic as iTLB)
+    wire [31:0] dPhysAddr = dtlbMega ?
+        ({dtlbPPN[19:0], 12'd0} + {10'd0, alu_result_approx[21:0]}) :
+        {dtlbPPN[19:0], alu_result_approx[11:0]};
+
+    // Effective address: use translated physical address when MMU active and TLB hit
+    wire useTranslatedAddr = !bypassMMU & anyTLBHit;
+    wire [31:0] effectiveAddr = useTranslatedAddr ? dPhysAddr : alu_result_approx;
+
+    // ========================================================================
+    // I-side TLB lookup (shared TLB entries, for instruction fetch translation)
+    // ========================================================================
+    wire [19:0] iVPN = fetchPC[31:12];
+    wire itlb0Hit = tlb0Valid & (tlb0Mega ? (tlb0VPN[19:10] == iVPN[19:10]) : (tlb0VPN == iVPN));
+    wire itlb1Hit = tlb1Valid & (tlb1Mega ? (tlb1VPN[19:10] == iVPN[19:10]) : (tlb1VPN == iVPN));
+    wire itlb2Hit = tlb2Valid & (tlb2Mega ? (tlb2VPN[19:10] == iVPN[19:10]) : (tlb2VPN == iVPN));
+    wire itlb3Hit = tlb3Valid & (tlb3Mega ? (tlb3VPN[19:10] == iVPN[19:10]) : (tlb3VPN == iVPN));
+    wire anyITLBHit = itlb0Hit | itlb1Hit | itlb2Hit | itlb3Hit;
+
+    wire [21:0] itlbPPN = itlb0Hit ? tlb0PPN :
+                           itlb1Hit ? tlb1PPN :
+                           itlb2Hit ? tlb2PPN :
+                           itlb3Hit ? tlb3PPN : 22'd0;
+    wire itlbMega = itlb0Hit ? tlb0Mega :
+                     itlb1Hit ? tlb1Mega :
+                     itlb2Hit ? tlb2Mega :
+                     itlb3Hit ? tlb3Mega : 1'b0;
+
+    // I-side physical address from iTLB
+    // Megapage: PA = PPN << 12 + VA[21:0]  (use ALL PPN bits, not just [21:10])
+    //   Linux creates megapages with PPN[9:0]!=0 when kernel is not 4MB-aligned
+    // Regular:  PA = {PPN[19:0], vaddr[11:0]}
+    wire [31:0] ifetch_phys = itlbMega ?
+        ({itlbPPN[19:0], 12'd0} + {10'd0, fetchPC[21:0]}) :
+        {itlbPPN[19:0], fetchPC[11:0]};
+
+    // Need to translate instruction fetch? (S/U-mode with MMU enabled, DRAM region)
+    wire needTranslateI = satpMode & !isMmode & fetchPC[31];
+    wire ifetchTranslated = needTranslateI & anyITLBHit;
+    wire ifetchTLBMiss = needTranslateI & !anyITLBHit;
+
+    // Instruction fetch address: use translated physical or raw virtual
+    assign ifetch_word_addr = ifetchTranslated ? ifetch_phys[24:2] : fetchPC[24:2];
+    assign fetchInDRAM = ifetchTranslated ? ifetch_phys[31] : fetchPC[31];
+
+    // I-side stall on TLB miss (until PTW fills the entry)
+    wire ifetchStall = ifetchTLBMiss & !ifetchFaultPending;
+
     // D-side MMU request
     wire dMemAccess = idex_memRead | idex_memWrite;
     wire needTranslateD = dMemAccess & !bypassMMU;
 
-    // PTW request: TLB miss during TLB_LOOKUP
-    wire ptwReq = isTLBLookup & !anyTLBHit;
+    // D-side TLB miss: need translation but no TLB hit (first cycle only, while MMU+PTW idle)
+    wire dTLBMiss = needTranslateD & !anyTLBHit & isMMUIdle & ptwIsIdle;
+
+    // D-side MMU redirect: after PTW completes, re-execute the faulting instruction
+    wire dMMURedirect = isMMUDone & !bypassMMU;
+
+    // I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority
+    wire ifetchPTWReq = ifetchTLBMiss & ptwIsIdle & !dTLBMiss & isMMUIdle;
 
     // PTE fields from dmem_rdata (valid in L1_WAIT/L0_WAIT states)
     wire dmemPteValid  = dmem_rdata[0];
@@ -391,13 +484,13 @@ module rv32i_soc (
 
     // Store-load forwarding
     wire [29:0] storeAddrHi = prevStoreAddr[31:2];
-    wire [29:0] loadAddrHi  = exwb_alu[31:2];
+    wire [29:0] loadAddrHi  = exwb_physAddr[31:2];
     wire addrMatch = (storeAddrHi == loadAddrHi);
     wire storeLoadMatch = prevStoreEn & addrMatch;
     wire [31:0] dmemRdataFwd = storeLoadMatch ? prevStoreData : dmem_rdata;
 
     // CLINT read
-    wire [15:0] clintOffset_wb = exwb_alu[15:0];
+    wire [15:0] clintOffset_wb = exwb_physAddr[15:0];
     wire [31:0] clintRdata =
         (clintOffset_wb == 16'h0000) ? msipReg :
         (clintOffset_wb == 16'h4000) ? mtimecmpLoReg :
@@ -407,19 +500,19 @@ module rv32i_soc (
         32'd0;
 
     // Bus address decode (WB stage)
-    wire isCLINT_wb = (exwb_alu[31:16] == 16'h0200);
-    wire is_mmio_wb = exwb_alu[30];
+    wire isCLINT_wb = (exwb_physAddr[31:16] == 16'h0200);
+    wire is_mmio_wb = exwb_physAddr[30];
 
     // MMIO read
-    wire [3:0] mmioOffset_wb = exwb_alu[3:0];
+    wire [3:0] mmioOffset_wb = exwb_physAddr[3:0];
     wire [31:0] mmioRdata =
         (mmioOffset_wb == 4'h0) ? aiStatusReg :
         (mmioOffset_wb == 4'h8) ? 32'hDEADBEEF :
         32'd0;
 
     // UART 8250 read logic (WB stage)
-    wire isUART_wb = (exwb_alu[31:24] == 8'h10);
-    wire [2:0] uartOffset_wb = exwb_alu[2:0];
+    wire isUART_wb = (exwb_physAddr[31:24] == 8'h10);
+    wire [2:0] uartOffset_wb = exwb_physAddr[2:0];
     wire uartDLAB_wb = uartLCR[7];
     wire [31:0] uartRd0 = uartDLAB_wb ? {24'd0, uartDLL} : {24'd0, uartRxBuf};
     wire [31:0] uartRd1 = uartDLAB_wb ? {24'd0, uartDLM} : {24'd0, uartIER};
@@ -444,7 +537,7 @@ module rv32i_soc (
                                (is_mmio_wb ? mmioRdata : dmemRdataFwd));
 
     // Sub-word load extraction
-    wire [1:0] loadByteOff = exwb_alu[1:0];
+    wire [1:0] loadByteOff = exwb_physAddr[1:0];
     wire [7:0] loadByte0 = busRdataRaw[7:0];
     wire [7:0] loadByte1 = busRdataRaw[15:8];
     wire [7:0] loadByte2 = busRdataRaw[23:16];
@@ -455,7 +548,7 @@ module rv32i_soc (
                           (loadByteOff == 2'd2) ? loadByte2 :
                           loadByte3;
 
-    wire [15:0] selHalf = exwb_alu[1] ? busRdataRaw[31:16] : busRdataRaw[15:0];
+    wire [15:0] selHalf = exwb_physAddr[1] ? busRdataRaw[31:16] : busRdataRaw[15:0];
 
     // Sign/zero extend byte
     wire [31:0] byteSext = {{24{selByte[7]}}, selByte};
@@ -473,8 +566,9 @@ module rv32i_soc (
         (exwb_funct3 == 3'd5) ? halfZext :
         busRdataRaw;
 
-    // Gate: only use extracted value for loads
-    wire [31:0] busRdata = exwb_m2r ? loadExtracted : busRdataRaw;
+    // Gate: only use extracted value for DMEM loads; peripheral reads bypass sub-word extraction
+    wire isDMEM_wb = !isCLINT_wb & !isUART_wb & !is_mmio_wb;
+    wire [31:0] busRdata = exwb_m2r ? (isDMEM_wb ? loadExtracted : busRdataRaw) : busRdataRaw;
 
     // AMO compute: read-modify-write for non-LR/SC atomics
     wire exwb_isLR  = exwb_isAMO & (exwb_amoOp == 5'b00010);
@@ -551,7 +645,7 @@ module rv32i_soc (
         (idex_csrAddr == 12'h342) ? mcauseReg :
         (idex_csrAddr == 12'h343) ? mtvalReg :
         (idex_csrAddr == 12'h344) ? mipValue :
-        (idex_csrAddr == 12'h301) ? 32'h40001101 :  // misa: RV32IMA
+        (idex_csrAddr == 12'h301) ? 32'h40141101 :  // misa: RV32IMASU
         (idex_csrAddr == 12'hF14) ? 32'd0 :          // mhartid
         (idex_csrAddr == 12'h302) ? medelegReg :
         (idex_csrAddr == 12'h303) ? midelegReg :
@@ -564,6 +658,14 @@ module rv32i_soc (
         (idex_csrAddr == 12'h143) ? stvalReg :
         (idex_csrAddr == 12'h144) ? 32'd0 :           // sip
         (idex_csrAddr == 12'h180) ? satpReg :
+        (idex_csrAddr == 12'h306) ? mcounterenReg :   // mcounteren
+        (idex_csrAddr == 12'h106) ? scounterenReg :   // scounteren
+        // PMP CSRs: return 0 (not implemented, but avoid illegal-instr trap)
+        (idex_csrAddr[11:4] == 8'h3A) ? 32'd0 :       // pmpcfg0-pmpcfg15
+        (idex_csrAddr[11:4] == 8'h3B) ? 32'd0 :       // pmpaddr0-pmpaddr15
+        (idex_csrAddr[11:4] == 8'h3C) ? 32'd0 :       // pmpaddr16-pmpaddr31
+        (idex_csrAddr[11:4] == 8'h3D) ? 32'd0 :       // pmpaddr32-pmpaddr47
+        (idex_csrAddr[11:4] == 8'h3E) ? 32'd0 :       // pmpaddr48-pmpaddr63
         32'd0;
 
     // ========================================================================
@@ -578,17 +680,20 @@ module rv32i_soc (
     wire swIntEnabled    = mstatusMIE & mieMSIE & swIrq;
     // Page fault from MMU FAULT state (D-side: load=13, store=15)
     wire pageFault = isMMUFault & !bypassMMU;
-    wire isStoreFault = pageFault & idex_memWrite;
+    wire isStoreFault = pageFault & dMissIsStore;  // use saved info from miss detection
     wire [31:0] pageFaultCause = isStoreFault ? 32'h0000000F : 32'h0000000D;
+    // I-side page fault: PTW completed with fault for instruction fetch
+    wire ifetchPageFault = ifetchFaultPending & !bypassMMU;
 
-    wire trap_taken      = idex_isEcall | pageFault | timerIntEnabled | swIntEnabled;
+    wire trap_taken      = idex_isEcall | pageFault | timerIntEnabled | swIntEnabled | ifetchPageFault;
 
     // ECALL cause depends on privilege level
     wire [31:0] ecallCause = (privMode == 2'd0) ? 32'h00000008 :
                               (privMode == 2'd1) ? 32'h00000009 :
                               32'h0000000B;
 
-    wire [31:0] trapCause = idex_isEcall ? ecallCause :
+    wire [31:0] trapCause = ifetchPageFault ? 32'h0000000C :  // cause 12: instruction page fault
+                             idex_isEcall ? ecallCause :
                              pageFault       ? pageFaultCause :
                              timerIntEnabled ? 32'h80000007 :
                              swIntEnabled    ? 32'h80000003 :
@@ -617,7 +722,7 @@ module rv32i_soc (
     // ========================================================================
     // Control flow
     // ========================================================================
-    wire flush = branchTaken | idex_jump | trap_taken | idex_isMret | idex_isSret | idex_isSFenceVMA;
+    wire flush = branchTaken | idex_jump | trap_taken | idex_isMret | idex_isSret | idex_isSFenceVMA | dMMURedirect;
     wire flushOrDelay = flush | flushDelay;
 
     // ========================================================================
@@ -669,7 +774,7 @@ module rv32i_soc (
     wire id_isEcall  = id_isSystem & id_f3isZero & (ifid_inst[31:20] == 12'h000);
     wire [11:0] id_csrAddr = ifid_inst[31:20];
     wire isMretField = (ifid_inst[31:20] == 12'h302);
-    wire id_isMret   = id_isSystem & isMretField;
+    wire id_isMret   = id_isSystem & id_f3isZero & isMretField;
     // M-extension: R-type with funct7 = 0000001
     wire id_isMext   = id_isALUrr & (id_funct7 == 7'b0000001);
     // A-extension: opcode = 0101111
@@ -692,8 +797,11 @@ module rv32i_soc (
     // Hazard detection (+ AMO stall for delayed write)
     wire loadUseHazard = idex_memRead & (idex_rd != 5'd0) &
                          ((idex_rd == id_rs1) | (idex_rd == id_rs2));
-    wire stall = loadUseHazard | idex_isAMOrw | pendingWriteEn | mmuStall;
-    wire squash = stall | flushOrDelay;
+    wire stall = loadUseHazard | idex_isAMOrw | pendingWriteEn | mmuStall | ifetchStall;
+    // holdEX: freeze EX stage when DMEM port is hijacked by pending write or PTW
+    // Prevents load/store from advancing to WB with wrong DMEM data
+    wire holdEX = pendingWriteEn;
+    wire squash = (stall & !holdEX) | flushOrDelay;
 
     // ========================================================================
     // Register file read (combinational)
@@ -721,7 +829,7 @@ module rv32i_soc (
     // ========================================================================
     // CLINT write
     // ========================================================================
-    wire [15:0] clintOffset = alu_result_approx[15:0];
+    wire [15:0] clintOffset = effectiveAddr[15:0];
     wire clintWE = idex_memWrite & isCLINT_ex;
 
     wire [31:0] mtimeLoInc = mtimeLoReg + 32'd1;
@@ -732,7 +840,7 @@ module rv32i_soc (
     // MMIO write
     // ========================================================================
     wire mmioWE = idex_memWrite & is_mmio_ex;
-    wire [3:0] mmioOffset_ex = alu_result_approx[3:0];
+    wire [3:0] mmioOffset_ex = effectiveAddr[3:0];
 
     // ========================================================================
     // CSR write logic
@@ -771,6 +879,9 @@ module rv32i_soc (
     // Delegation CSR new values
     wire [31:0] medelegNewCSR  = mkCsrNewVal(medelegReg,  csrWdata, csrIsRW, csrIsRS, csrIsRC);
     wire [31:0] midelegNewCSR  = mkCsrNewVal(midelegReg,  csrWdata, csrIsRW, csrIsRS, csrIsRC);
+    // Counter enable CSR new values
+    wire [31:0] mcounterenNewCSR = mkCsrNewVal(mcounterenReg, csrWdata, csrIsRW, csrIsRS, csrIsRC);
+    wire [31:0] scounterenNewCSR = mkCsrNewVal(scounterenReg, csrWdata, csrIsRW, csrIsRS, csrIsRC);
     // SSTATUS write: merge S-mode bits back into mstatus
     wire [31:0] sstatusNewVal  = mkCsrNewVal(sstatus_view, csrWdata, csrIsRW, csrIsRS, csrIsRC);
     wire [31:0] sstatus_wdata_out = (mstatusReg & ~sstatus_mask) | (sstatusNewVal & sstatus_mask);
@@ -822,11 +933,13 @@ module rv32i_soc (
         pcReg_next = trap_taken ? trap_target :
                      idex_isMret ? mret_target :
                      idex_isSret ? sret_target :
+                     dMMURedirect ? dMissPC :  // D-side TLB miss: re-execute after PTW fill
+                     idex_isSFenceVMA ? idex_pc4 :  // SFENCE.VMA: flush but resume at pc+4
                      flush ? jumpTarget :
                      stall ? pcReg :
                      pcPlus4;
 
-        fetchPC_next = stall ? fetchPC : pcReg;
+        fetchPC_next = flush ? pcReg_next : (stall ? fetchPC : pcReg);
         flushDelay_next = flush;
 
         // IF/ID
@@ -834,42 +947,43 @@ module rv32i_soc (
         ifid_pc_next   = stall ? ifid_pc : fetchPC;
         ifid_pc4_next  = stall ? ifid_pc4 : fetchPCPlus4;
 
-        // ID/EX (squash on stall or flush)
-        idex_aluOp_next    = squash ? 4'd0 : id_aluOp;
-        idex_regWrite_next = squash ? 1'b0 : id_regWrite;
-        idex_memRead_next  = squash ? 1'b0 : id_memRead;
-        idex_memWrite_next = squash ? 1'b0 : id_memWrite;
-        idex_memToReg_next = squash ? 1'b0 : id_memToReg;
-        idex_branch_next   = squash ? 1'b0 : id_isBranch;
-        idex_jump_next     = squash ? 1'b0 : id_jump;
-        idex_auipc_next    = squash ? 1'b0 : id_auipc;
-        idex_aluSrcB_next  = squash ? 1'b0 : id_aluSrcB;
-        idex_isJalr_next   = squash ? 1'b0 : id_isJALR;
-        idex_isCsr_next    = squash ? 1'b0 : id_isCsr;
-        idex_isEcall_next  = squash ? 1'b0 : id_isEcall;
-        idex_isMret_next   = squash ? 1'b0 : id_isMret;
+        // ID/EX (squash on stall or flush; hold during holdEX to freeze EX stage)
+        idex_aluOp_next    = holdEX ? idex_aluOp    : (squash ? 4'd0 : id_aluOp);
+        idex_regWrite_next = holdEX ? idex_regWrite  : (squash ? 1'b0 : id_regWrite);
+        idex_memRead_next  = holdEX ? idex_memRead   : (squash ? 1'b0 : id_memRead);
+        idex_memWrite_next = holdEX ? idex_memWrite  : (squash ? 1'b0 : id_memWrite);
+        idex_memToReg_next = holdEX ? idex_memToReg  : (squash ? 1'b0 : id_memToReg);
+        idex_branch_next   = holdEX ? idex_branch    : (squash ? 1'b0 : id_isBranch);
+        idex_jump_next     = holdEX ? idex_jump      : (squash ? 1'b0 : id_jump);
+        idex_auipc_next    = holdEX ? idex_auipc     : (squash ? 1'b0 : id_auipc);
+        idex_aluSrcB_next  = holdEX ? idex_aluSrcB   : (squash ? 1'b0 : id_aluSrcB);
+        idex_isJalr_next   = holdEX ? idex_isJalr    : (squash ? 1'b0 : id_isJALR);
+        idex_isCsr_next    = holdEX ? idex_isCsr     : (squash ? 1'b0 : id_isCsr);
+        idex_isEcall_next  = holdEX ? idex_isEcall   : (squash ? 1'b0 : id_isEcall);
+        idex_isMret_next   = holdEX ? idex_isMret    : (squash ? 1'b0 : id_isMret);
 
-        idex_rs1Val_next    = id_rs1Val;
-        idex_rs2Val_next    = id_rs2Val;
-        idex_imm_next       = id_imm;
-        idex_rd_next        = squash ? 5'd0 : id_rd;
-        idex_rs1Idx_next    = id_rs1;
-        idex_rs2Idx_next    = id_rs2;
-        idex_funct3_next    = id_funct3;
-        idex_pc_next        = ifid_pc;
-        idex_pc4_next       = ifid_pc4;
-        idex_csrAddr_next   = id_csrAddr;
-        idex_csrFunct3_next = id_funct3;
+        idex_rs1Val_next    = holdEX ? idex_rs1Val    : id_rs1Val;
+        idex_rs2Val_next    = holdEX ? idex_rs2Val    : id_rs2Val;
+        idex_imm_next       = holdEX ? idex_imm       : id_imm;
+        idex_rd_next        = holdEX ? idex_rd        : (squash ? 5'd0 : id_rd);
+        idex_rs1Idx_next    = holdEX ? idex_rs1Idx    : id_rs1;
+        idex_rs2Idx_next    = holdEX ? idex_rs2Idx    : id_rs2;
+        idex_funct3_next    = holdEX ? idex_funct3    : id_funct3;
+        idex_pc_next        = holdEX ? idex_pc        : ifid_pc;
+        idex_pc4_next       = holdEX ? idex_pc4       : ifid_pc4;
+        idex_csrAddr_next   = holdEX ? idex_csrAddr   : id_csrAddr;
+        idex_csrFunct3_next = holdEX ? idex_csrFunct3 : id_funct3;
 
-        // EX/WB
-        exwb_alu_next      = alu_result;
-        exwb_rd_next       = idex_rd;
-        exwb_regW_next     = idex_regWrite;
-        exwb_m2r_next      = idex_memToReg;
-        exwb_pc4_next      = idex_pc4;
-        exwb_jump_next     = idex_jump;
-        exwb_isCsr_next    = idex_isCsr;
-        exwb_csrRdata_next = csr_rdata;
+        // EX/WB (suppress during holdEX — DMEM port is hijacked)
+        exwb_alu_next      = holdEX ? exwb_alu      : alu_result;
+        exwb_physAddr_next = holdEX ? exwb_physAddr  : effectiveAddr;
+        exwb_rd_next       = holdEX ? 5'd0           : idex_rd;
+        exwb_regW_next     = (dTLBMiss | holdEX) ? 1'b0 : idex_regWrite;
+        exwb_m2r_next      = holdEX ? 1'b0           : idex_memToReg;
+        exwb_pc4_next      = holdEX ? exwb_pc4      : idex_pc4;
+        exwb_jump_next     = holdEX ? 1'b0          : idex_jump;
+        exwb_isCsr_next    = holdEX ? 1'b0          : idex_isCsr;
+        exwb_csrRdata_next = holdEX ? exwb_csrRdata : csr_rdata;
 
         // WB history
         prev_wb_addr_next = wb_addr;
@@ -877,9 +991,9 @@ module rv32i_soc (
         prev_wb_en_next   = wb_en;
 
         // Store history
-        prevStoreAddr_next = alu_result;
+        prevStoreAddr_next = useTranslatedAddr ? dPhysAddr : alu_result;
         prevStoreData_next = ex_rs2;
-        prevStoreEn_next   = idex_memWrite;
+        prevStoreEn_next   = (dTLBMiss | holdEX) ? 1'b0 : idex_memWrite;  // gate on D-side TLB miss or holdEX
 
         // CLINT
         msipReg_next      = (clintWE & (clintOffset == 16'h0000)) ? ex_rs2_approx : msipReg;
@@ -898,28 +1012,32 @@ module rv32i_soc (
         mieReg_next     = (idex_isCsr & (idex_csrAddr == 12'h304)) ? mieNewCSR : mieReg;
         mtvecReg_next   = (idex_isCsr & (idex_csrAddr == 12'h305)) ? mtvecNewCSR : mtvecReg;
         mscratchReg_next = (idex_isCsr & (idex_csrAddr == 12'h340)) ? mscratchNewCSR : mscratchReg;
-        mepcReg_next    = trapToM ? idex_pc :
+        mepcReg_next    = trapToM ? (ifetchPageFault ? fetchPC : (pageFault ? dMissPC : idex_pc)) :
                            (idex_isCsr & (idex_csrAddr == 12'h341)) ? mepcNewCSR : mepcReg;
         mcauseReg_next  = trapToM ? trapCause :
                            (idex_isCsr & (idex_csrAddr == 12'h342)) ? mcauseNewCSR : mcauseReg;
-        mtvalReg_next   = trapToM ? (pageFault ? alu_result_approx : 32'd0) :
+        mtvalReg_next   = trapToM ? (ifetchPageFault ? fetchPC : (pageFault ? dMissVaddr : 32'd0)) :
                            (idex_isCsr & (idex_csrAddr == 12'h343)) ? mtvalNewCSR : mtvalReg;
 
         // CSR (S-mode)
         sieReg_next      = (idex_isCsr & (idex_csrAddr == 12'h104)) ? sieNewCSR : sieReg;
         stvecReg_next    = (idex_isCsr & (idex_csrAddr == 12'h105)) ? stvecNewCSR : stvecReg;
         sscratchReg_next = (idex_isCsr & (idex_csrAddr == 12'h140)) ? sscratchNewCSR : sscratchReg;
-        sepcReg_next     = trapToS ? idex_pc :
+        sepcReg_next     = trapToS ? (ifetchPageFault ? fetchPC : (pageFault ? dMissPC : idex_pc)) :
                             (idex_isCsr & (idex_csrAddr == 12'h141)) ? sepcNewCSR : sepcReg;
         scauseReg_next   = trapToS ? trapCause :
                             (idex_isCsr & (idex_csrAddr == 12'h142)) ? scauseNewCSR : scauseReg;
-        stvalReg_next    = trapToS ? (pageFault ? alu_result_approx : 32'd0) :
+        stvalReg_next    = trapToS ? (ifetchPageFault ? fetchPC : (pageFault ? dMissVaddr : 32'd0)) :
                             (idex_isCsr & (idex_csrAddr == 12'h143)) ? stvalNewCSR : stvalReg;
         satpReg_next     = (idex_isCsr & (idex_csrAddr == 12'h180)) ? satpNewCSR : satpReg;
 
         // Delegation
         medelegReg_next  = (idex_isCsr & (idex_csrAddr == 12'h302)) ? medelegNewCSR : medelegReg;
         midelegReg_next  = (idex_isCsr & (idex_csrAddr == 12'h303)) ? midelegNewCSR : midelegReg;
+
+        // Counter enable
+        mcounterenReg_next = (idex_isCsr & (idex_csrAddr == 12'h306)) ? mcounterenNewCSR : mcounterenReg;
+        scounterenReg_next = (idex_isCsr & (idex_csrAddr == 12'h106)) ? scounterenNewCSR : scounterenReg;
 
         // Privilege mode
         privMode_next = trapToM ? 2'd3 :
@@ -961,23 +1079,23 @@ module rv32i_soc (
         end
 
         // Sub-word
-        exwb_funct3_next = idex_funct3;
+        exwb_funct3_next = holdEX ? exwb_funct3 : idex_funct3;
 
         // M-extension
-        idex_isMext_next = squash ? 1'b0 : id_isMext;
+        idex_isMext_next = holdEX ? idex_isMext : (squash ? 1'b0 : id_isMext);
 
         // A-extension: ID/EX pipeline
-        idex_isAMO_next = squash ? 1'b0 : id_isAMO;
-        idex_amoOp_next = squash ? 5'd0 : id_amoOp;
+        idex_isAMO_next = holdEX ? idex_isAMO : (squash ? 1'b0 : id_isAMO);
+        idex_amoOp_next = holdEX ? idex_amoOp : (squash ? 5'd0 : id_amoOp);
 
         // A-extension: EX/WB pipeline
-        exwb_isAMO_next = idex_isAMO;
-        exwb_amoOp_next = idex_amoOp;
+        exwb_isAMO_next = holdEX ? 1'b0      : idex_isAMO;
+        exwb_amoOp_next = holdEX ? exwb_amoOp : idex_amoOp;
 
         // Reservation registers (LR sets, SC clears, store to same addr clears)
         if (exwb_isLR) begin
             reservationValid_next = 1'b1;
-            reservationAddr_next  = exwb_alu;
+            reservationAddr_next  = exwb_physAddr;
         end else if (exwb_isSC) begin
             reservationValid_next = 1'b0;
             reservationAddr_next  = reservationAddr;
@@ -993,7 +1111,7 @@ module rv32i_soc (
         // exwb_isAMO && !exwb_isLR && !exwb_isSC triggers pending write
         if (exwb_isAMO & !exwb_isLR & !exwb_isSC) begin
             pendingWriteEn_next   = 1'b1;
-            pendingWriteAddr_next = exwb_alu;
+            pendingWriteAddr_next = exwb_physAddr;
             pendingWriteData_next = amo_new_val;
         end else begin
             pendingWriteEn_next   = 1'b0;
@@ -1005,12 +1123,16 @@ module rv32i_soc (
         idex_isSret_next = squash ? 1'b0 : id_isSret;
         idex_isSFenceVMA_next = squash ? 1'b0 : id_isSFenceVMA;
 
-        // MMU TLB + PTW (D-side only)
-        ptwVaddr_next = (ptwIsIdle & ptwReq) ? alu_result_approx : ptwVaddr;
+        // MMU TLB + PTW (D-side and I-side)
+        // D-side dTLBMiss has priority; I-side only starts when PTW is idle and no D-side miss
+        ptwVaddr_next = (ptwIsIdle & dTLBMiss) ? alu_result_approx :
+                        (ptwIsIdle & ifetchPTWReq) ? fetchPC :
+                        ptwVaddr;
         ptwPte_next = isDataReady ? dmem_rdata : ptwPte;
 
         // PTW state transitions (7-state FSM)
-        ptwState_next = ptwIsIdle   ? (ptwReq ? 3'd1 : 3'd0) :
+        // Start on D-side dTLBMiss OR I-side ifetchPTWReq
+        ptwState_next = ptwIsIdle   ? ((dTLBMiss | ifetchPTWReq) ? 3'd1 : 3'd0) :
                         ptwIsL1Req  ? 3'd2 :
                         ptwIsL1Wait ? nextFromL1Wait :
                         ptwIsL0Req  ? 3'd4 :
@@ -1024,36 +1146,48 @@ module rv32i_soc (
         // Replacement pointer: increment on fill
         replPtr_next = tlbFill ? (replPtr + 2'd1) : replPtr;
 
-        // TLB entry next-state (SFENCE.VMA clears, fill updates)
-        tlb0Valid_next = idex_isSFenceVMA ? 1'b0 : (doFill0 ? 1'b1 : tlb0Valid);
+        // TLB entry next-state (fill takes priority over SFENCE.VMA invalidation)
+        // When both happen simultaneously, the fill is from the NEW page table (PTW uses current satp)
+        // SFENCE.VMA only invalidates entries that are NOT being filled
+        tlb0Valid_next = doFill0 ? 1'b1 : (idex_isSFenceVMA ? 1'b0 : tlb0Valid);
         tlb0VPN_next   = doFill0 ? fillVPN   : tlb0VPN;
         tlb0PPN_next   = doFill0 ? fillPPN   : tlb0PPN;
         tlb0Flags_next = doFill0 ? fillFlags  : tlb0Flags;
         tlb0Mega_next  = doFill0 ? ptwMega    : tlb0Mega;
-        tlb1Valid_next = idex_isSFenceVMA ? 1'b0 : (doFill1 ? 1'b1 : tlb1Valid);
+        tlb1Valid_next = doFill1 ? 1'b1 : (idex_isSFenceVMA ? 1'b0 : tlb1Valid);
         tlb1VPN_next   = doFill1 ? fillVPN   : tlb1VPN;
         tlb1PPN_next   = doFill1 ? fillPPN   : tlb1PPN;
         tlb1Flags_next = doFill1 ? fillFlags  : tlb1Flags;
         tlb1Mega_next  = doFill1 ? ptwMega    : tlb1Mega;
-        tlb2Valid_next = idex_isSFenceVMA ? 1'b0 : (doFill2 ? 1'b1 : tlb2Valid);
+        tlb2Valid_next = doFill2 ? 1'b1 : (idex_isSFenceVMA ? 1'b0 : tlb2Valid);
         tlb2VPN_next   = doFill2 ? fillVPN   : tlb2VPN;
         tlb2PPN_next   = doFill2 ? fillPPN   : tlb2PPN;
         tlb2Flags_next = doFill2 ? fillFlags  : tlb2Flags;
         tlb2Mega_next  = doFill2 ? ptwMega    : tlb2Mega;
-        tlb3Valid_next = idex_isSFenceVMA ? 1'b0 : (doFill3 ? 1'b1 : tlb3Valid);
+        tlb3Valid_next = doFill3 ? 1'b1 : (idex_isSFenceVMA ? 1'b0 : tlb3Valid);
         tlb3VPN_next   = doFill3 ? fillVPN   : tlb3VPN;
         tlb3PPN_next   = doFill3 ? fillPPN   : tlb3PPN;
         tlb3Flags_next = doFill3 ? fillFlags  : tlb3Flags;
         tlb3Mega_next  = doFill3 ? ptwMega    : tlb3Mega;
 
-        // MMU state transitions
-        mmuState_next = isMMUIdle   ? (needTranslateD ? 3'd1 : 3'd0) :
-                        isTLBLookup ? (anyTLBHit ? 3'd3 : 3'd2) :
+        // MMU state transitions (D-side only)
+        // On dTLBMiss: skip TLB_LOOKUP, go directly to PTW_WALK (state 2)
+        mmuState_next = isMMUIdle   ? (dTLBMiss ? 3'd2 : 3'd0) :
                         isPTWWalk   ? (ptwIsDone ? 3'd3 : (ptwIsFault ? 3'd4 : 3'd2)) :
                         3'd0;  // DONE/FAULT → IDLE
 
-        ptwIsIfetch_next = ptwIsIfetch;
-        ifetchFaultPending_next = ifetchFaultPending;
+        // Track whether PTW is serving an I-side miss
+        ptwIsIfetch_next = (ptwIsIdle & ifetchPTWReq & !dTLBMiss) ? 1'b1 :
+                           (ptwIsIdle & dTLBMiss) ? 1'b0 :
+                           ptwIsIdle ? 1'b0 : ptwIsIfetch;
+
+        // I-side page fault (PTW completed with fault for ifetch)
+        // Clear when trap is taken (ifetchPageFault triggers a trap)
+        // Also clear when entering M-mode (bypassMMU) to prevent stale faults
+        ifetchFaultPending_next = ifetchPageFault ? 1'b0 :
+                                   bypassMMU ? 1'b0 :
+                                   (ptwIsFault & ptwIsIfetch) ? 1'b1 :
+                                   ifetchFaultPending;
     end
 
     // ========================================================================
@@ -1061,8 +1195,18 @@ module rv32i_soc (
     // ========================================================================
     // Detect store in WB stage (prevStoreEn is the registered memWrite)
     // UART address: 0x10xxxxxx (bit 28 = 1)
-    assign uart_tx_valid = prevStoreEn & (prevStoreAddr[31:24] == 8'h10);
+    assign uart_tx_valid = prevStoreEn & (prevStoreAddr[31:24] == 8'h10)
+                         & (prevStoreAddr[2:0] == 3'd0);
     assign uart_tx_data  = prevStoreData;
+
+    // Debug: iTLB signals
+    assign itlb_need_translate = needTranslateI;
+    assign itlb_hit = anyITLBHit;
+    assign itlb_miss = ifetchTLBMiss;
+    assign itlb_stall = ifetchStall;
+    assign itlb_ptw_req = ifetchPTWReq;
+    assign itlb_phys_addr = ifetch_phys;
+    assign itlb_fetch_pc = fetchPC;
 
     // ========================================================================
     // Sequential logic
@@ -1100,6 +1244,7 @@ module rv32i_soc (
             idex_csrAddr   <= 12'd0;
             idex_csrFunct3 <= 3'd0;
             exwb_alu       <= 32'd0;
+            exwb_physAddr  <= 32'd0;
             exwb_rd        <= 5'd0;
             exwb_regW      <= 1'b0;
             exwb_m2r       <= 1'b0;
@@ -1139,6 +1284,8 @@ module rv32i_soc (
             pendingWriteEn   <= 1'b0;
             pendingWriteAddr <= 32'd0;
             pendingWriteData <= 32'd0;
+            // Debug cycle counter
+            cycle_count      <= 64'd0;
             // S-mode CSRs + privilege
             privMode         <= 2'd3;  // M-mode
             sieReg           <= 32'd0;
@@ -1150,6 +1297,9 @@ module rv32i_soc (
             satpReg          <= 32'd0;
             medelegReg       <= 32'd0;
             midelegReg       <= 32'd0;
+            // Counter enable
+            mcounterenReg    <= 32'd0;
+            scounterenReg    <= 32'd0;
             // MMU TLB + PTW
             mmuState         <= 3'd0;
             ptwState         <= 3'd0;
@@ -1163,6 +1313,10 @@ module rv32i_soc (
             tlb3Valid <= 1'b0; tlb3VPN <= 20'd0; tlb3PPN <= 22'd0; tlb3Flags <= 8'd0; tlb3Mega <= 1'b0;
             ptwIsIfetch      <= 1'b0;
             ifetchFaultPending <= 1'b0;
+            // D-side miss saved state
+            dMissPC          <= 32'd0;
+            dMissVaddr       <= 32'd0;
+            dMissIsStore     <= 1'b0;
             // Pipeline additions
             idex_isSret      <= 1'b0;
             idex_isSFenceVMA <= 1'b0;
@@ -1207,6 +1361,7 @@ module rv32i_soc (
             idex_csrAddr   <= idex_csrAddr_next;
             idex_csrFunct3 <= idex_csrFunct3_next;
             exwb_alu       <= exwb_alu_next;
+            exwb_physAddr  <= exwb_physAddr_next;
             exwb_rd        <= exwb_rd_next;
             exwb_regW      <= exwb_regW_next;
             exwb_m2r       <= exwb_m2r_next;
@@ -1246,17 +1401,27 @@ module rv32i_soc (
             pendingWriteEn   <= pendingWriteEn_next;
             pendingWriteAddr <= pendingWriteAddr_next;
             pendingWriteData <= pendingWriteData_next;
+            // Debug cycle counter
+            cycle_count      <= cycle_count + 1;
             // S-mode CSRs + privilege
             privMode         <= privMode_next;
+            // Privilege mode change trace (disabled for clean output)
+            // Boot address traces (disabled for clean output)
+            // Boot verify traces (disabled for clean output)
             sieReg           <= sieReg_next;
             stvecReg         <= stvecReg_next;
             sscratchReg      <= sscratchReg_next;
             sepcReg          <= sepcReg_next;
             scauseReg        <= scauseReg_next;
             stvalReg         <= stvalReg_next;
+            // SATP trace (disabled for clean output)
             satpReg          <= satpReg_next;
             medelegReg       <= medelegReg_next;
             midelegReg       <= midelegReg_next;
+            // Counter enable
+            mcounterenReg    <= mcounterenReg_next;
+            scounterenReg    <= scounterenReg_next;
+            // Debug traces (disabled for clean output)
             // MMU TLB + PTW
             mmuState         <= mmuState_next;
             ptwState         <= ptwState_next;
@@ -1274,6 +1439,12 @@ module rv32i_soc (
             tlb3Flags <= tlb3Flags_next; tlb3Mega <= tlb3Mega_next;
             ptwIsIfetch      <= ptwIsIfetch_next;
             ifetchFaultPending <= ifetchFaultPending_next;
+            // Save D-side miss info on first cycle of miss
+            if (dTLBMiss) begin
+                dMissPC      <= idex_pc;
+                dMissVaddr   <= alu_result_approx;
+                dMissIsStore <= idex_memWrite;
+            end
             // Pipeline additions
             idex_isSret      <= idex_isSret_next;
             idex_isSFenceVMA <= idex_isSFenceVMA_next;
@@ -1302,16 +1473,21 @@ module rv32i_soc (
     // DMEM: 4 byte-wide synchronous memories
     // ========================================================================
     always_ff @(posedge clk) begin
-        if (byte0_we) dmem_b0[dmem_addr] <= byte0_wdata;
+        if (dmem_wr_en) begin
+            // Preload port (priority over CPU writes, used during reset)
+            dmem_b0[dmem_wr_addr] <= dmem_wr_data[7:0];
+            dmem_b1[dmem_wr_addr] <= dmem_wr_data[15:8];
+            dmem_b2[dmem_wr_addr] <= dmem_wr_data[23:16];
+            dmem_b3[dmem_wr_addr] <= dmem_wr_data[31:24];
+        end else begin
+            if (byte0_we) dmem_b0[dmem_addr] <= byte0_wdata;
+            if (byte1_we) dmem_b1[dmem_addr] <= byte1_wdata;
+            if (byte2_we) dmem_b2[dmem_addr] <= byte2_wdata;
+            if (byte3_we) dmem_b3[dmem_addr] <= byte3_wdata;
+        end
         dmem_b0_rdata <= dmem_b0[dmem_addr];
-
-        if (byte1_we) dmem_b1[dmem_addr] <= byte1_wdata;
         dmem_b1_rdata <= dmem_b1[dmem_addr];
-
-        if (byte2_we) dmem_b2[dmem_addr] <= byte2_wdata;
         dmem_b2_rdata <= dmem_b2[dmem_addr];
-
-        if (byte3_we) dmem_b3[dmem_addr] <= byte3_wdata;
         dmem_b3_rdata <= dmem_b3[dmem_addr];
     end
 
@@ -1326,6 +1502,11 @@ module rv32i_soc (
 
     // Output PC
     assign pc_out = pcReg;
+
+    // Debug: trap signals
+    assign trap_out       = trap_taken;
+    assign trap_cause_out = trapCause;
+    assign trap_pc_out    = idex_pc;
 
 endmodule
 

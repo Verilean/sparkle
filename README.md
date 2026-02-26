@@ -159,26 +159,57 @@ python scripts/yolo_golden_gen.py
 
 ---
 
-## RV32I RISC-V SoC
+## RV32IMA RISC-V SoC — Boots Linux
 
-A **complete 5-stage pipelined RV32I CPU** with peripherals, written entirely in Signal DSL:
+A **complete pipelined RV32IMA CPU** with S-mode, Sv32 MMU, and peripherals — written entirely in Signal DSL. **Boots Linux 6.6.0 via OpenSBI v0.9 on Verilator.**
+
+```
+OpenSBI v0.9 — Platform: Sparkle RV32IMA SoC — ISA: rv32imasu
+Linux version 6.6.0 ... #6 Thu Feb 26 06:29:23 UTC 2026
+Machine model: Sparkle RV32IMA SoC
+Memory: 26208K/28672K available (1279K kernel code, 465K rwdata, ...)
+```
 
 ```lean
--- 69 registers in a single Signal.loop — full SoC in one function
+-- 117 registers in a single Signal.loop — full SoC in one function
 def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState :=
   Signal.loopMemo fun state => rv32iSoCWithFirmwareBody firmware state
 ```
 
-- **5-stage pipeline**: IF/ID/EX/MEM/WB with hazard detection and data forwarding
+### CPU Core
+- **4-stage pipeline**: IF/ID/EX/WB with hazard detection and data forwarding
 - **RV32IMA ISA**: Full integer + M-extension (MUL/DIV/REM) + A-extension (LR.W/SC.W/AMO)
-- **Peripherals**: UART TX/RX, CLINT timer with interrupts, AI accelerator MMIO
-- **Memory**: IMEM (firmware ROM) + DMEM (read/write BRAM) via `Signal.memory`
-- **Simulation**: Memoized via `Signal.loopMemo` with C FFI barriers for O(1) lookups
-- **Synthesis**: `#synthesizeVerilog` generates SystemVerilog from the same Signal DSL code
+- **Multi-cycle divider**: Restoring division algorithm in Signal DSL
+
+### Privilege & Virtual Memory
+- **S-mode + M-mode**: Full privilege separation with trap delegation (medeleg/mideleg)
+- **Sv32 MMU**: 4-entry TLB + hardware page table walker (PTW), megapage support
+- **CSRs**: mstatus, mie, mtvec, mepc, mcause, mtval, satp, sstatus, stvec, sepc, scause, stval, medeleg, mideleg, mcounteren, scounteren, PMP stubs
+
+### Peripherals
+- **UART 8250**: TX/RX with LSR/IER/LCR/DLL/DLM registers (Linux-compatible)
+- **CLINT**: Machine timer with mtime/mtimecmp
+- **Memory**: 32 MB DRAM (byte-addressable, sub-word load/store: LB/LH/LBU/LHU/SB/SH)
+
+### Verilator Backend (~1000x faster)
+- Hand-written SystemVerilog translation at `verilator/rv32i_soc.sv`
+- Boots OpenSBI v0.9 → Linux 6.6.0 kernel in ~7M cycles (~3944 UART bytes)
+- VCD waveform tracing for debugging
+- Firmware test mode + OpenSBI/Linux boot mode
 
 ```bash
-# Run RV32I SoC simulation with firmware
+# Lean simulation
 lake test  # Includes RV32 simulation tests
+
+# Verilator simulation (much faster)
+cd verilator && make build
+./obj_dir/Vrv32i_soc ../firmware/firmware.hex 500000  # Firmware tests
+
+# Linux kernel boot
+./obj_dir/Vrv32i_soc ../firmware/opensbi/boot.hex 10000000 \
+    --dram /tmp/opensbi/build/platform/generic/firmware/fw_jump.bin \
+    --dtb ../firmware/opensbi/sparkle-soc.dtb \
+    --payload /tmp/linux/arch/riscv/boot/Image
 ```
 
 ---
@@ -568,8 +599,11 @@ lake env lean --run Examples/Sparkle16/RegisterFile.lean
 lake env lean --run Examples/Sparkle16/Core.lean
 lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 
-# RV32I RISC-V SoC, BitNet, and YOLOv8 (via test suite)
+# RV32IMA SoC, BitNet, and YOLOv8 (via test suite)
 lake test
+
+# Verilator: build and run firmware tests
+cd verilator && make build && ./obj_dir/Vrv32i_soc ../firmware/firmware.hex 500000
 ```
 
 ## Documentation
@@ -769,7 +803,7 @@ def stateMachine (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
     -- state is the previous cycle's output (right-nested tuple)
     let next := computeNext state input
     next
--- See Examples/RV32/SoC.lean for a 58-register Signal.loop example
+-- See Examples/RV32/SoC.lean for a 117-register Signal.loop example
 ```
 
 **Why this limitation exists:**
@@ -827,7 +861,7 @@ Tests include:
 - **BitNet Signal DSL functional tests** — spec-vs-Signal exact match
 - **BitNet golden value validation (16 tests)** — validated against real bitnet.cpp model data
 - **BitNet RTL correctness (60+ proofs)**
-- **RV32I SoC simulation tests**
+- **RV32IMA SoC simulation tests** (firmware + Verilator Linux boot)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - Co-simulation with Verilator
@@ -871,9 +905,10 @@ sparkle/
 │   ├── Counter.lean
 │   ├── VerilogTest.lean
 │   ├── Sparkle16/       # Complete 16-bit RISC CPU
-│   ├── RV32/            # RV32I RISC-V SoC (Signal DSL)
-│   │   ├── Core.lean    # 5-stage pipeline (IF/ID/EX/MEM/WB)
-│   │   ├── SoC.lean     # Full SoC with UART, CLINT, CSR, AI MMIO
+│   ├── RV32/            # RV32IMA RISC-V SoC (Signal DSL) — boots Linux
+│   │   ├── Core.lean    # ALU, branch comparator, hazard detection, decoder
+│   │   ├── SoC.lean     # Full SoC: 117 registers, S-mode, Sv32 MMU, UART 8250
+│   │   ├── Divider.lean # Multi-cycle restoring divider
 │   │   └── ...          # Peripherals, decoder, ALU
 │   ├── BitNet/          # BitNet b1.58 accelerator (Signal DSL)
 │   │   ├── SignalHelpers.lean  # Reusable: adderTree, maxTree, lutMuxTree
@@ -899,6 +934,13 @@ sparkle/
 │   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
 │   ├── golden-values/   # Real model data from bitnet.cpp
 │   └── yolo-golden/     # Real model data from ultralytics YOLOv8
+├── verilator/           # Verilator simulation backend
+│   ├── rv32i_soc.sv    # SoC in SystemVerilog (matches Lean semantics)
+│   ├── tb_soc.cpp      # C++ testbench (firmware, OpenSBI, Linux boot)
+│   └── Makefile        # make build / make run
+├── firmware/            # Boot firmware and device tree
+│   ├── sparkle-soc.dts # Device tree source for Linux
+│   └── opensbi/        # OpenSBI v0.9 boot support
 ├── c_src/               # C FFI barriers for Signal.loopMemo
 └── lakefile.lean        # Build configuration
 ```
@@ -932,9 +974,14 @@ Contributions welcome! Areas of interest:
 - [x] **BitNet b1.58 ASIC inference** - Complete accelerator with 60+ formal proofs ✓
 - [x] **Signal DSL migration** - BitNet fully rewritten from CircuitM to Signal DSL ✓
 - [x] **Golden value validation** - 16 tests against real bitnet.cpp model data ✓
-- [x] **RV32IMA RISC-V SoC** - 5-stage pipelined CPU with M-ext, A-ext, UART, CLINT, CSR ✓
+- [x] **RV32IMA RISC-V SoC** - 4-stage pipelined CPU with M-ext, A-ext, UART, CLINT, CSR ✓
 - [x] **Signal.loopMemo** - Memoized simulation with C FFI barriers ✓
 - [x] **YOLOv8n-WorldV2** - Open-vocabulary object detection, 15 synthesizable modules ✓
+- [x] **S-mode + Sv32 MMU** - Privilege separation, TLB, hardware page table walker ✓
+- [x] **UART 8250** - Linux-compatible serial interface with RX support ✓
+- [x] **OpenSBI v0.9 boot** - M-mode firmware with SBI ecall handling ✓
+- [x] **Linux 6.6.0 boot** - Kernel boot on Verilator (prints version, memory zones, ISA) ✓
+- [x] **Verilator backend** - ~1000x faster simulation, VCD tracing, Linux boot support ✓
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
 - [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters
