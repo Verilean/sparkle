@@ -4,7 +4,7 @@
 // Direct translation of Examples/RV32/SoC.lean Signal DSL.
 // 5-stage pipeline (IF/ID/EX/WB) with CLINT, CSR, UART MMIO,
 // S-mode CSRs, trap delegation, privilege tracking, MMU (Sv32 TLB+PTW).
-// 109 pipeline registers, 4 byte-wide data memories, register file.
+// 115 pipeline registers, 4 byte-wide data memories, register file.
 //
 // Generated to match Lean simulation semantics for cross-validation.
 // ============================================================================
@@ -16,6 +16,9 @@ module rv32i_soc (
     input  logic        imem_wr_en,
     input  logic [11:0] imem_wr_addr,
     input  logic [31:0] imem_wr_data,
+    // UART RX input (active-high valid pulse with data byte)
+    input  logic        uart_rx_valid,
+    input  logic [7:0]  uart_rx_data,
     // Outputs for testbench monitoring
     output logic [31:0] pc_out,
     output logic        uart_tx_valid,
@@ -174,6 +177,17 @@ module rv32i_soc (
     logic        idex_isSret, idex_isSret_next;
     logic        idex_isSFenceVMA, idex_isSFenceVMA_next;
 
+    // UART 8250 registers (109-114)
+    logic [7:0]  uartLCR, uartLCR_next;
+    logic [7:0]  uartIER, uartIER_next;
+    logic [7:0]  uartMCR, uartMCR_next;
+    logic [7:0]  uartSCR, uartSCR_next;
+    logic [7:0]  uartDLL, uartDLL_next;
+    logic [7:0]  uartDLM, uartDLM_next;
+    // UART RX-only registers (Verilator only, not in Lean)
+    logic [7:0]  uartRxBuf, uartRxBuf_next;
+    logic        uartRxReady, uartRxReady_next;
+
     // ========================================================================
     // Memories
     // ========================================================================
@@ -237,7 +251,9 @@ module rv32i_soc (
     wire [15:0] busAddrHi_ex = alu_result_approx[31:16];
     wire isCLINT_ex = (busAddrHi_ex == 16'h0200);
     wire is_mmio_ex = alu_result_approx[30];
-    wire isDMEM_ex  = !isCLINT_ex & !is_mmio_ex;
+    wire [7:0] busAddrByte24_ex = alu_result_approx[31:24];
+    wire isUART_ex = (busAddrByte24_ex == 8'h10);
+    wire isDMEM_ex  = !isCLINT_ex & !is_mmio_ex & !isUART_ex;
 
     // DMEM address and write enable (23-bit word address = 8M words = 32 MB)
     wire [22:0] dmem_addr_ex = alu_result_approx[24:2];
@@ -401,9 +417,31 @@ module rv32i_soc (
         (mmioOffset_wb == 4'h8) ? 32'hDEADBEEF :
         32'd0;
 
+    // UART 8250 read logic (WB stage)
+    wire isUART_wb = (exwb_alu[31:24] == 8'h10);
+    wire [2:0] uartOffset_wb = exwb_alu[2:0];
+    wire uartDLAB_wb = uartLCR[7];
+    wire [31:0] uartRd0 = uartDLAB_wb ? {24'd0, uartDLL} : {24'd0, uartRxBuf};
+    wire [31:0] uartRd1 = uartDLAB_wb ? {24'd0, uartDLM} : {24'd0, uartIER};
+    wire [31:0] uartRd2 = 32'h00000001;  // IIR: no interrupt pending
+    wire [31:0] uartRd3 = {24'd0, uartLCR};
+    wire [31:0] uartRd4 = {24'd0, uartMCR};
+    wire [31:0] uartRd5 = {24'd0, 8'h60 | {7'd0, uartRxReady}};  // LSR: THRE+TEMT + DR
+    wire [31:0] uartRd7 = {24'd0, uartSCR};
+    wire [31:0] uartRdata =
+        (uartOffset_wb == 3'd0) ? uartRd0 :
+        (uartOffset_wb == 3'd1) ? uartRd1 :
+        (uartOffset_wb == 3'd2) ? uartRd2 :
+        (uartOffset_wb == 3'd3) ? uartRd3 :
+        (uartOffset_wb == 3'd4) ? uartRd4 :
+        (uartOffset_wb == 3'd5) ? uartRd5 :
+        (uartOffset_wb == 3'd7) ? uartRd7 :
+        32'd0;
+
     // Raw bus read data
     wire [31:0] busRdataRaw = isCLINT_wb ? clintRdata :
-                               (is_mmio_wb ? mmioRdata : dmemRdataFwd);
+                               (isUART_wb ? uartRdata :
+                               (is_mmio_wb ? mmioRdata : dmemRdataFwd));
 
     // Sub-word load extraction
     wire [1:0] loadByteOff = exwb_alu[1:0];
@@ -894,6 +932,34 @@ module rv32i_soc (
         aiStatusReg_next = (mmioWE & (mmioOffset_ex == 4'h0)) ? ex_rs2_approx : aiStatusReg;
         aiInputReg_next  = (mmioWE & (mmioOffset_ex == 4'h4)) ? ex_rs2_approx : aiInputReg;
 
+        // UART 8250 write logic
+        begin
+            automatic logic uartWE = idex_memWrite & isUART_ex;
+            automatic logic [2:0] uartOff = alu_result_approx[2:0];
+            automatic logic uartDLAB = uartLCR[7];
+            automatic logic [7:0] uartWdata8 = ex_rs2_approx[7:0];
+
+            uartLCR_next = (uartWE & (uartOff == 3'd3)) ? uartWdata8 : uartLCR;
+            uartIER_next = (uartWE & (uartOff == 3'd1) & !uartDLAB) ? uartWdata8 : uartIER;
+            uartMCR_next = (uartWE & (uartOff == 3'd4)) ? uartWdata8 : uartMCR;
+            uartSCR_next = (uartWE & (uartOff == 3'd7)) ? uartWdata8 : uartSCR;
+            uartDLL_next = (uartWE & (uartOff == 3'd0) & uartDLAB) ? uartWdata8 : uartDLL;
+            uartDLM_next = (uartWE & (uartOff == 3'd1) & uartDLAB) ? uartWdata8 : uartDLM;
+
+            // RX logic: uart_rx_valid sets buffer, RBR read clears ready
+            if (uart_rx_valid) begin
+                uartRxBuf_next = uart_rx_data;
+                uartRxReady_next = 1'b1;
+            end else if (exwb_m2r & isUART_wb & (uartOffset_wb == 3'd0) & !uartDLAB_wb) begin
+                // RBR read clears RX ready
+                uartRxBuf_next = uartRxBuf;
+                uartRxReady_next = 1'b0;
+            end else begin
+                uartRxBuf_next = uartRxBuf;
+                uartRxReady_next = uartRxReady;
+            end
+        end
+
         // Sub-word
         exwb_funct3_next = idex_funct3;
 
@@ -1100,6 +1166,15 @@ module rv32i_soc (
             // Pipeline additions
             idex_isSret      <= 1'b0;
             idex_isSFenceVMA <= 1'b0;
+            // UART 8250
+            uartLCR          <= 8'd0;
+            uartIER          <= 8'd0;
+            uartMCR          <= 8'd0;
+            uartSCR          <= 8'd0;
+            uartDLL          <= 8'd0;
+            uartDLM          <= 8'd0;
+            uartRxBuf        <= 8'd0;
+            uartRxReady      <= 1'b0;
         end else begin
             pcReg          <= pcReg_next;
             fetchPC        <= fetchPC_next;
@@ -1202,6 +1277,15 @@ module rv32i_soc (
             // Pipeline additions
             idex_isSret      <= idex_isSret_next;
             idex_isSFenceVMA <= idex_isSFenceVMA_next;
+            // UART 8250
+            uartLCR          <= uartLCR_next;
+            uartIER          <= uartIER_next;
+            uartMCR          <= uartMCR_next;
+            uartSCR          <= uartSCR_next;
+            uartDLL          <= uartDLL_next;
+            uartDLM          <= uartDLM_next;
+            uartRxBuf        <= uartRxBuf_next;
+            uartRxReady      <= uartRxReady_next;
         end
     end
 

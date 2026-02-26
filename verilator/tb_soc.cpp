@@ -65,6 +65,8 @@ int main(int argc, char** argv) {
     dut->imem_wr_en = 0;
     dut->imem_wr_addr = 0;
     dut->imem_wr_data = 0;
+    dut->uart_rx_valid = 0;
+    dut->uart_rx_data = 0;
     dut->eval();
 
     // Load firmware via IMEM write port during reset
