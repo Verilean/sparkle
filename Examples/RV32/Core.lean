@@ -468,4 +468,81 @@ def amoCompute (amoOp : BitVec 5) (memVal rs2Val : BitVec 32) : BitVec 32 :=
   | 0b11100 => if memVal.toNat ≥ rs2Val.toNat then memVal else rs2Val     -- AMOMAXU
   | _ => memVal
 
+/-- Signal-level MUL computation (funct3=0..3) using 64-bit multiply.
+    Only handles MUL/MULH/MULHSU/MULHU. DIV/REM use separate divider circuit. -/
+def mulComputeSignal {dom : DomainConfig}
+    (funct3 : Signal dom (BitVec 3))
+    (rs1 rs2 : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  -- Sign extension to 64 bits
+  let rs1Sign := rs1.map (BitVec.extractLsb' 31 1 ·)
+  let rs1IsNeg := (· == ·) <$> rs1Sign <*> Signal.pure 1#1
+  let rs1HiSigned := Signal.mux rs1IsNeg (Signal.pure 0xFFFFFFFF#32) (Signal.pure 0#32)
+  let rs1_64_signed := (· ++ ·) <$> rs1HiSigned <*> rs1
+  let rs1_64_unsigned := (· ++ ·) <$> Signal.pure 0#32 <*> rs1
+  let rs2Sign := rs2.map (BitVec.extractLsb' 31 1 ·)
+  let rs2IsNeg := (· == ·) <$> rs2Sign <*> Signal.pure 1#1
+  let rs2HiSigned := Signal.mux rs2IsNeg (Signal.pure 0xFFFFFFFF#32) (Signal.pure 0#32)
+  let rs2_64_signed := (· ++ ·) <$> rs2HiSigned <*> rs2
+  let rs2_64_unsigned := (· ++ ·) <$> Signal.pure 0#32 <*> rs2
+  -- 64-bit products (ss=signed×signed, su=signed×unsigned, uu=unsigned×unsigned)
+  let prod_ss := (· * ·) <$> rs1_64_signed <*> rs2_64_signed
+  let prod_su := (· * ·) <$> rs1_64_signed <*> rs2_64_unsigned
+  let prod_uu := (· * ·) <$> rs1_64_unsigned <*> rs2_64_unsigned
+  -- Extract results
+  let mulResult := prod_uu.map (BitVec.extractLsb' 0 32 ·)       -- MUL: lower 32
+  let mulhResult := prod_ss.map (BitVec.extractLsb' 32 32 ·)     -- MULH: upper 32 signed×signed
+  let mulhsuResult := prod_su.map (BitVec.extractLsb' 32 32 ·)   -- MULHSU: upper 32 signed×unsigned
+  let mulhuResult := prod_uu.map (BitVec.extractLsb' 32 32 ·)    -- MULHU: upper 32 unsigned×unsigned
+  -- Mux by funct3
+  let isMul := (· == ·) <$> funct3 <*> Signal.pure 0#3
+  let isMulh := (· == ·) <$> funct3 <*> Signal.pure 1#3
+  let isMulhsu := (· == ·) <$> funct3 <*> Signal.pure 2#3
+  Signal.mux isMul mulResult
+    (Signal.mux isMulh mulhResult
+    (Signal.mux isMulhsu mulhsuResult
+      mulhuResult))
+
+/-- Signal-level AMO computation using Signal.mux chains (synthesizable).
+    Equivalent to `amoCompute` but uses mux instead of if-then-else. -/
+def amoComputeSignal {dom : DomainConfig}
+    (amoOp : Signal dom (BitVec 5))
+    (memVal rs2Val : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  -- Comparison signals
+  let isSwap := (· == ·) <$> amoOp <*> Signal.pure 0b00001#5
+  let isAdd  := (· == ·) <$> amoOp <*> Signal.pure 0b00000#5
+  let isXor  := (· == ·) <$> amoOp <*> Signal.pure 0b00100#5
+  let isAnd  := (· == ·) <$> amoOp <*> Signal.pure 0b01100#5
+  let isOr   := (· == ·) <$> amoOp <*> Signal.pure 0b01000#5
+  let isMin  := (· == ·) <$> amoOp <*> Signal.pure 0b10000#5
+  let isMax  := (· == ·) <$> amoOp <*> Signal.pure 0b10100#5
+  let isMinu := (· == ·) <$> amoOp <*> Signal.pure 0b11000#5
+  let isMaxu := (· == ·) <$> amoOp <*> Signal.pure 0b11100#5
+  -- Arithmetic results
+  let addResult := (· + ·) <$> memVal <*> rs2Val
+  let xorResult := (· ^^^ ·) <$> memVal <*> rs2Val
+  let andResult := (· &&& ·) <$> memVal <*> rs2Val
+  let orResult  := (· ||| ·) <$> memVal <*> rs2Val
+  -- Signed ≤ (BitVec.sle) and unsigned ≤ (BitVec.ule)
+  let signedLe   := (BitVec.sle · ·) <$> memVal <*> rs2Val
+  let signedGe   := (BitVec.sle · ·) <$> rs2Val <*> memVal
+  let unsignedLe := (BitVec.ule · ·) <$> memVal <*> rs2Val
+  let unsignedGe := (BitVec.ule · ·) <$> rs2Val <*> memVal
+  -- Min/max results
+  let minResult  := Signal.mux signedLe memVal rs2Val
+  let maxResult  := Signal.mux signedGe memVal rs2Val
+  let minuResult := Signal.mux unsignedLe memVal rs2Val
+  let maxuResult := Signal.mux unsignedGe memVal rs2Val
+  -- Priority mux chain (last match wins = first mux in chain)
+  let result := memVal  -- default
+  let result := Signal.mux isMaxu maxuResult result
+  let result := Signal.mux isMinu minuResult result
+  let result := Signal.mux isMax maxResult result
+  let result := Signal.mux isMin minResult result
+  let result := Signal.mux isOr orResult result
+  let result := Signal.mux isAnd andResult result
+  let result := Signal.mux isXor xorResult result
+  let result := Signal.mux isAdd addResult result
+  let result := Signal.mux isSwap rs2Val result
+  result
+
 end Sparkle.Examples.RV32

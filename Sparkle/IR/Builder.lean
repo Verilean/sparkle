@@ -136,6 +136,20 @@ def emitMemory (hint : String) (addrWidth : Nat) (dataWidth : Nat) (clock : Stri
   return readDataName
 
 /--
+  Emit a memory with combinational (same-cycle) read.
+  Returns the name of the read data output wire.
+-/
+def emitMemoryComboRead (hint : String) (addrWidth : Nat) (dataWidth : Nat) (clock : String)
+    (writeAddr : Expr) (writeData : Expr) (writeEnable : Expr) (readAddr : Expr) : CircuitM String := do
+  let memName ← freshName (sanitizeName hint)
+  let readDataName ← freshName (sanitizeName s!"{hint}_rdata")
+  let m ← getModule
+  let m := m.addWire { name := readDataName, ty := .bitVector dataWidth }
+  let m := m.addStmt (.memory memName addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readDataName (comboRead := true))
+  setModule m
+  return readDataName
+
+/--
   Emit a module instantiation.
 -/
 def emitInstance (moduleName : String) (instName : String)

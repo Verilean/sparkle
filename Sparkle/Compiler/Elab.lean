@@ -109,6 +109,13 @@ def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
   set cs'
   return name
 
+def emitMemoryComboRead (hint : String) (addrWidth dataWidth : Nat) (clk : String)
+    (writeAddr writeData writeEnable readAddr : Sparkle.IR.AST.Expr) : CompilerM String := do
+  let cs ← get
+  let (name, cs') := CircuitM.emitMemoryComboRead hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr cs
+  set cs'
+  return name
+
 def emitInstance (moduleName : String) (instName : String) (connections : List (String × Sparkle.IR.AST.Expr)) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.emitInstance moduleName instName connections cs
@@ -343,7 +350,20 @@ mutual
         match inlinedVal with
         | some val => return ← translateExprToWire val hint isTopLevel
         | none =>
-          CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}"
+          -- Try full reduction for type-level fvars (Nat widths, erased params)
+          let reduced ← CompilerM.liftMetaM (try Lean.Meta.reduce e catch _ => pure e)
+          if reduced != e then
+            return ← translateExprToWire reduced hint isTopLevel
+          let ty ← CompilerM.liftMetaM (try Lean.Meta.inferType e catch _ => pure (.const `unknown []))
+          let tyPP ← CompilerM.liftMetaM (try ppExpr ty catch _ => pure s!"{ty}")
+          let userName ← CompilerM.liftMetaM do
+            let lctx ← getLCtx
+            match lctx.find? fvarId with
+            | some decl => return s!"{decl.userName}"
+            | none => return "not_in_lctx"
+          let st ← CompilerM.getCompilerState
+          let known := st.varMap.map (fun (k,_) => k.name)
+          CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name} (userName={userName})\n  type: {tyPP}\n  hint: {hint}\n  known: {known}"
 
     let fn := e.getAppFn
     let args := e.getAppArgs
@@ -1051,7 +1071,7 @@ mutual
         return rW
 
       -- Signal.memory: synchronous RAM/BRAM
-      if name.toString.endsWith ".memory" && args.size >= 4 then
+      if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
         -- Extract addrWidth and dataWidth from explicit arguments
         let addrWidthArg := args[args.size-6]!
         let dataWidthArg := args[args.size-5]!
@@ -1069,6 +1089,23 @@ mutual
         let raW ← translateExprToWire readAddr "mem_raddr"
         -- Emit memory and return read data wire
         return ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
+          (.ref waW) (.ref wdW) (.ref weW) (.ref raW)
+
+      -- Signal.memoryComboRead: memory with combinational (same-cycle) read
+      if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+        let addrWidthArg := args[args.size-6]!
+        let dataWidthArg := args[args.size-5]!
+        let (addrWidth, _) ← extractNatLiteral addrWidthArg
+        let (dataWidth, _) ← extractNatLiteral dataWidthArg
+        let writeAddr := args[args.size-4]!
+        let writeData := args[args.size-3]!
+        let writeEnable := args[args.size-2]!
+        let readAddr := args[args.size-1]!
+        let waW ← translateExprToWire writeAddr "mem_waddr"
+        let wdW ← translateExprToWire writeData "mem_wdata"
+        let weW ← translateExprToWire writeEnable "mem_we"
+        let raW ← translateExprToWire readAddr "mem_raddr"
+        return ← CompilerM.emitMemoryComboRead hint addrWidth dataWidth "clk"
           (.ref waW) (.ref wdW) (.ref weW) (.ref raW)
 
       -- HWVector.get: array indexing
@@ -1120,10 +1157,18 @@ mutual
         -- loop body functions (reduces to let-chains with Signal primitives),
         -- and lutMuxTree (reduces if-then-else on concrete table to Signal.mux chain).
         -- If inline translation fails, fall back to sub-module synthesis.
-        let eReduced ← CompilerM.liftMetaM (Lean.Meta.whnf e)
+        let eReduced ← CompilerM.liftMetaM do
+          -- Use unfoldDefinition? for 1-step unfolding to avoid exponential blowup
+          -- from whnf reducing through 118-register tuple projections.
+          match ← Lean.Meta.unfoldDefinition? e with
+          | some e' => return e'
+          | none => return e
         if eReduced != e then
-          try return ← translateExprToWire eReduced hint
-          catch _ => pure ()  -- inline failed, fall through to sub-module
+          try
+            return ← translateExprToWire eReduced hint
+          catch ex =>
+            let msg := ex.toMessageData
+            CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
 
         let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
         for m in subDesign.modules do CompilerM.addModuleToDesign m
@@ -1225,6 +1270,7 @@ mutual
       let hasRegisters := module.body.any (fun stmt =>
         match stmt with
         | .register .. => true
+        | .memory .. => true
         | _ => false
       )
       if hasRegisters then

@@ -159,6 +159,7 @@ inductive Stmt where
       (writeEnable : Expr)    -- Write enable port
       (readAddr : Expr)       -- Read address port
       (readData : String)     -- Read data output wire
+      (comboRead : Bool := false) -- Combinational (same-cycle) read
       : Stmt
   | inst
       (moduleName : String)   -- Name of module to instantiate
@@ -174,9 +175,10 @@ def toString : Stmt → String
   | assign lhs rhs => s!"{lhs} := {rhs}"
   | register output clock reset input initValue =>
       s!"reg {output} @(posedge {clock}, {reset}) <= {input} (init: {initValue})"
-  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData =>
+  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
+      let readKind := if comboRead then "combo_read" else "read"
       s!"memory {name}[2^{addrWidth}][{dataWidth}] @(posedge {clock}) " ++
-      s!"write({writeAddr}, {writeData}, {writeEnable}) read({readAddr}) => {readData}"
+      s!"write({writeAddr}, {writeData}, {writeEnable}) {readKind}({readAddr}) => {readData}"
   | inst modName instName conns =>
       let connStr := String.intercalate ", " (conns.map fun (p, e) => s!".{p}({e})")
       s!"{modName} {instName}({connStr})"

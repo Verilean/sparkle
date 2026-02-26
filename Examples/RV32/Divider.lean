@@ -60,6 +60,7 @@ def dividerSignal {dom : DomainConfig}
     (start : Signal dom Bool)
     (is_signed : Signal dom Bool)
     (is_rem : Signal dom Bool)
+    (abort : Signal dom Bool := Signal.pure false)
     : Signal dom (BitVec 32 × Bool) :=
   let loopState := Signal.loop fun state =>
     let counterReg    := projN! state 8 0  -- BitVec 6
@@ -197,10 +198,11 @@ def dividerSignal {dom : DomainConfig}
     let counterNext_work := counterDec
     let counterNext_finish := Signal.pure 0#6
     let counterNext :=
-      Signal.mux startAndIdle counterNext_start
-        (Signal.mux isWorking counterNext_work
-          (Signal.mux isFinishing counterNext_finish
-            counterReg))
+      Signal.mux abort (Signal.pure 0#6)
+        (Signal.mux startAndIdle counterNext_start
+          (Signal.mux isWorking counterNext_work
+            (Signal.mux isFinishing counterNext_finish
+              counterReg)))
 
     -- Remainder next
     let initRemainder := Signal.pure 0#33
@@ -236,7 +238,8 @@ def dividerSignal {dom : DomainConfig}
         isRemReg
 
     -- Done flag: true for exactly 1 cycle when counter transitions 1->0
-    let doneNext := isFinishing
+    -- Suppress on abort to avoid stale done pulses
+    let doneNext := (· && ·) <$> isFinishing <*> ((fun x => !x) <$> abort)
 
     bundleAll! [
       Signal.register 0#6 counterNext,
