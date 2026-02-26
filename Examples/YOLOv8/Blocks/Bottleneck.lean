@@ -115,7 +115,7 @@ def bottleneckController {dom : DomainConfig}
   let resultOut := projN! loopState 4 2
   let doneOut := projN! loopState 4 3
   let phaseOut := projN! loopState 4 0
-  bundle3 resultOut doneOut phaseOut
+  bundle2 resultOut (bundle2 doneOut phaseOut)
 
 def bottleneckControllerSimulate {dom : DomainConfig}
     (convResult : Signal dom (BitVec 8))

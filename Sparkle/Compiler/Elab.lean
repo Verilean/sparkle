@@ -289,6 +289,42 @@ def extractNatLiteral (expr : Lean.Expr) : CompilerM (Nat × Unit) := do
   let n ← extractNat expr
   return (n, ())
 
+/-- Extract values from a List (BitVec n) expression into an array of (value, width) pairs -/
+partial def extractBitVecList (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
+  let expr ← CompilerM.liftMetaM (whnf expr)
+  let fn := expr.getAppFn
+  let args := expr.getAppArgs
+  match fn with
+  | .const name _ =>
+    if name == ``List.cons && args.size >= 3 then
+      let head := args[1]!
+      let tail := args[2]!
+      let (val, width) ← extractBitVecLiteral head
+      let rest ← extractBitVecList tail
+      return #[(val, width)] ++ rest
+    else if name == ``List.nil then
+      return #[]
+    else
+      CompilerM.liftMetaM $ throwError s!"Expected List.cons or List.nil, got: {name}"
+  | _ =>
+    CompilerM.liftMetaM $ throwError s!"Expected List expression, got: {expr}"
+
+/-- Extract values from an Array (BitVec n) expression -/
+def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
+  let expr ← CompilerM.liftMetaM (Lean.Meta.reduce expr (skipTypes := true) (skipProofs := true))
+  let fn := expr.getAppFn
+  let args := expr.getAppArgs
+  match fn with
+  | .const name _ =>
+    if name == ``Array.mk && args.size >= 2 then
+      extractBitVecList args[1]!
+    else if name == ``List.toArray && args.size >= 2 then
+      extractBitVecList args[1]!
+    else
+      CompilerM.liftMetaM $ throwError s!"Expected Array.mk, got: {name} with {args.size} args"
+  | _ =>
+    CompilerM.liftMetaM $ throwError s!"Expected Array expression, got: {expr}"
+
 mutual
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) : CompilerM String := do
     -- IO.println s!"DEBUG: translateExprToWire {hint}, isTopLevel={isTopLevel}"
@@ -297,7 +333,17 @@ mutual
       match ← CompilerM.lookupVar fvarId with
       | some wireName => return wireName
       | none =>
-        CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}"
+        -- Check if this is a non-HW fvar (typeclass instance, config, etc.)
+        -- with a value in the local context that we can inline (zeta-reduce)
+        let inlinedVal ← CompilerM.liftMetaM do
+          let lctx ← getLCtx
+          match lctx.find? fvarId with
+          | some decl => return decl.value?
+          | none => return none
+        match inlinedVal with
+        | some val => return ← translateExprToWire val hint isTopLevel
+        | none =>
+          CompilerM.liftMetaM $ throwError s!"Unbound variable: {fvarId.name}"
 
     let fn := e.getAppFn
     let args := e.getAppArgs
@@ -961,6 +1007,35 @@ mutual
         CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
         return regWire
 
+      -- lutMuxTree: generate mux chain from concrete lookup table
+      if name.toString.endsWith ".lutMuxTree" && args.size >= 5 then
+        let tableArg := args[args.size-2]!  -- table : Array (BitVec n)
+        let indexArg := args[args.size-1]!  -- index : Signal dom (BitVec k)
+        -- Extract concrete table values
+        let tableValues ← extractBitVecArray tableArg
+        if tableValues.size > 0 then
+          -- Get output type
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let (_, dataWidth) := tableValues[0]!
+          -- Get index width from type
+          let indexType ← CompilerM.liftMetaM (Lean.Meta.inferType indexArg)
+          let indexHwType ← inferHWTypeFromSignal indexType
+          let indexWidth := indexHwType.bitWidth
+          -- Translate index signal to wire
+          let indexWire ← translateExprToWire indexArg "lut_idx"
+          -- Build mux chain: default is table[0], then mux for each entry
+          let mut resultWire ← CompilerM.makeWire (hint ++ "_d") hwType
+          CompilerM.emitAssign resultWire (.const tableValues[0]!.1 dataWidth)
+          for i in [:tableValues.size] do
+            let (val, _) := tableValues[i]!
+            let eqWire ← CompilerM.makeWire s!"{hint}_eq{i}" (.bitVector 1)
+            CompilerM.emitAssign eqWire (.op .eq [.ref indexWire, .const i indexWidth])
+            let muxWire ← CompilerM.makeWire s!"{hint}_m{i}" hwType
+            CompilerM.emitAssign muxWire (.op .mux [.ref eqWire, .const val dataWidth, .ref resultWire])
+            resultWire := muxWire
+          return resultWire
+
       if name.toString.endsWith ".mux" && args.size >= 3 then
         let cond := args[args.size-3]!
         let thenSig := args[args.size-2]!
@@ -1040,6 +1115,16 @@ mutual
         catch _ => return false
 
       if isValidDef then
+        -- First try to reduce the function call and translate inline.
+        -- This handles functions like bundle3 (reduces to bundle2 calls),
+        -- loop body functions (reduces to let-chains with Signal primitives),
+        -- and lutMuxTree (reduces if-then-else on concrete table to Signal.mux chain).
+        -- If inline translation fails, fall back to sub-module synthesis.
+        let eReduced ← CompilerM.liftMetaM (Lean.Meta.whnf e)
+        if eReduced != e then
+          try return ← translateExprToWire eReduced hint
+          catch _ => pure ()  -- inline failed, fall through to sub-module
+
         let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
         for m in subDesign.modules do CompilerM.addModuleToDesign m
         CompilerM.addModuleToDesign subModule

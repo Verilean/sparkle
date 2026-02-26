@@ -117,7 +117,7 @@ def sppfController {dom : DomainConfig}
   let phaseOut := projN! loopState 4 0
   let poolStgOut := projN! loopState 4 1
   let doneOut := projN! loopState 4 3
-  bundle3 phaseOut poolStgOut doneOut
+  bundle2 phaseOut (bundle2 poolStgOut doneOut)
 
 def sppfControllerSimulate {dom : DomainConfig}
     (subOpDone : Signal dom Bool)
@@ -127,7 +127,7 @@ def sppfControllerSimulate {dom : DomainConfig}
   let phaseOut := projN! loopState 4 0
   let poolStgOut := projN! loopState 4 1
   let doneOut := projN! loopState 4 3
-  return bundle3 phaseOut poolStgOut doneOut
+  return bundle2 phaseOut (bundle2 poolStgOut doneOut)
 
 #synthesizeVerilog sppfController
 

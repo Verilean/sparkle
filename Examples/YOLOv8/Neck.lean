@@ -151,7 +151,7 @@ def neckController {dom : DomainConfig}
   let phaseOut  := projN! loopState 6 0
   let pathOut   := projN! loopState 6 1
   let doneOut   := projN! loopState 6 5
-  bundle3 phaseOut pathOut doneOut
+  bundle2 phaseOut (bundle2 pathOut doneOut)
 
 def neckControllerSimulate {dom : DomainConfig}
     (subOpDone : Signal dom Bool) (start : Signal dom Bool)

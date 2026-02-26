@@ -25,10 +25,10 @@ import Tests.YOLOv8.TestGoldenValues
 import Tests.YOLOv8.TestConv2DGolden
 import Tests.YOLOv8.TestEndToEnd
 import Tests.YOLOv8.TestHead
--- Note: TestBottleneck/TestBackbone/TestNeck/TestC2f are excluded because they
--- import modules with pre-existing #synthesizeVerilog errors:
--- ConvBnSiLU (if-then-else), C2f/SPPF/Neck ("Unbound variable")
--- These errors exist in the original code, not caused by our changes.
+import Tests.YOLOv8.TestBottleneck
+import Tests.YOLOv8.TestC2f
+import Tests.YOLOv8.TestBackbone
+import Tests.YOLOv8.TestNeck
 import LSpec
 
 open Sparkle.Core.Domain
@@ -386,11 +386,14 @@ def main : IO UInt32 := do
   let yolov8EndToEndTests ← Sparkle.Examples.YOLOv8.Tests.TestEndToEnd.allTests
   let allTests := allTests ++ yolov8Conv2DGoldenTests ++ yolov8EndToEndTests
 
-  -- Controller FSM tests (only Head compiles cleanly; others blocked by
-  -- pre-existing #synthesizeVerilog errors in ConvBnSiLU/C2f/SPPF/Neck)
+  -- Controller FSM tests
   IO.println ""
   IO.println "--- YOLOv8 Controller FSM Tests ---"
   let yolov8HeadTests ← Sparkle.Examples.YOLOv8.Tests.TestHead.allTests
-  let allTests := allTests ++ yolov8HeadTests
+  let yolov8BottleneckTests ← Sparkle.Examples.YOLOv8.Tests.TestBottleneck.allTests
+  let yolov8C2fTests ← Sparkle.Examples.YOLOv8.Tests.TestC2f.allTests
+  let yolov8BackboneTests ← Sparkle.Examples.YOLOv8.Tests.TestBackbone.allTests
+  let yolov8NeckTests ← Sparkle.Examples.YOLOv8.Tests.TestNeck.allTests
+  let allTests := allTests ++ yolov8HeadTests ++ yolov8BottleneckTests ++ yolov8C2fTests ++ yolov8BackboneTests ++ yolov8NeckTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []

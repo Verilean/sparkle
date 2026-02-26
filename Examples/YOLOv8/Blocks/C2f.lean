@@ -134,7 +134,7 @@ def c2fController {dom : DomainConfig}
   let phaseOut := projN! loopState 5 0
   let bnIdxOut := projN! loopState 5 1
   let doneOut := projN! loopState 5 4
-  bundle3 phaseOut bnIdxOut doneOut
+  bundle2 phaseOut (bundle2 bnIdxOut doneOut)
 
 def c2fControllerSimulate {dom : DomainConfig}
     (subOpDone : Signal dom Bool)
