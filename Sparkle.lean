@@ -16,5 +16,6 @@ import Sparkle.IR.Builder
 import Sparkle.Compiler.Elab
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.VCD
+import Sparkle.Backend.CppSim
 import Sparkle.Verification.Temporal
 import Sparkle.Utils.HexLoader

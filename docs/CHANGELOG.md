@@ -2,6 +2,30 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 10: C++ Simulation Backend (Complete)
+
+**Date**: 2026-03-01
+
+**Goal**: Generate C++ simulation code from IR (`Module`/`Design`), producing a C++ class with `eval()`/`tick()`/`reset()` methods. Phase 1 — purely string generation (no compilation or FFI).
+
+**Implementation**:
+- **CppSim backend**: Mirrors `Verilog.lean` structure — same IR traversal, C++ target
+- **Type mapping**: `HWType` → `uint8_t`/`uint16_t`/`uint32_t`/`uint64_t`/`std::array<T,N>`
+- **Expression translation**: constants as `(uint32_t)42ULL`, signed ops via `(int32_t)` casts, concat as shift+OR chain, slice as `(expr >> lo) & mask`
+- **Statement splitting**: `StmtParts` structure separates declarations/eval/tick/reset
+- **Sub-module instantiation**: resolves input/output ports via `Design` lookup
+- **Masking**: applied at assignment for non-native widths (∉ {8,16,32,64})
+
+**Tests**: 25 tests across 4 modules — counter (10 tests), combo-read memory (5), combinational ops (5), registered memory (3). Verified via `String.containsSubstr` checks on generated C++.
+
+**Files Added**:
+- `Sparkle/Backend/CppSim.lean` — C++ simulation code generator (~280 lines)
+- `Tests/TestCppSim.lean` — Test suite (25 tests)
+
+**Files Modified**:
+- `Sparkle.lean` — Added `import Sparkle.Backend.CppSim`
+- `Tests/AllTests.lean` — Added `import Tests.TestCppSim`, integrated `cppSimTests`
+
 ## Phase 9: Auto-Generate SystemVerilog from SoC.lean (Complete)
 
 **Date**: 2026-02-27

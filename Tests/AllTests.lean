@@ -29,6 +29,7 @@ import Tests.YOLOv8.TestBottleneck
 import Tests.YOLOv8.TestC2f
 import Tests.YOLOv8.TestBackbone
 import Tests.YOLOv8.TestNeck
+import Tests.TestCppSim
 import LSpec
 
 open Sparkle.Core.Domain
@@ -395,5 +396,9 @@ def main : IO UInt32 := do
   let yolov8BackboneTests ← Sparkle.Examples.YOLOv8.Tests.TestBackbone.allTests
   let yolov8NeckTests ← Sparkle.Examples.YOLOv8.Tests.TestNeck.allTests
   let allTests := allTests ++ yolov8HeadTests ++ yolov8BottleneckTests ++ yolov8C2fTests ++ yolov8BackboneTests ++ yolov8NeckTests
+
+  -- C++ Simulation Backend tests
+  let cppSimTests ← Sparkle.Test.CppSim.cppSimTests
+  let allTests := allTests ++ cppSimTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []

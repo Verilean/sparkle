@@ -1,7 +1,37 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-02-28
+**Date**: 2026-03-01
 **Branch**: main
+
+---
+
+## C++ Simulation Backend (Phase 10) — DONE
+
+JIT simulator foundation: generates C++ code from IR (`Module`/`Design`), producing a C++ class with `eval()`/`tick()`/`reset()` methods. Phase 1 is purely string generation (no compilation or FFI loading).
+
+### Completed
+
+| # | Task | Status |
+|---|------|--------|
+| 1 | `Sparkle/Backend/CppSim.lean` — C++ code generator (~280 lines) | Done |
+| 2 | `Tests/TestCppSim.lean` — 25 tests (counter, memory, combinational, registered memory) | Done |
+| 3 | Integrated into `Sparkle.lean` and `Tests/AllTests.lean` | Done |
+| 4 | `lake build` + `lake test` — all 25 CppSim tests pass | Done |
+
+### Architecture
+
+- Mirrors `Sparkle/Backend/Verilog.lean`: same IR traversal, different target language
+- **Type mapping**: `bit`/`bv≤8` → `uint8_t`, `bv≤16` → `uint16_t`, `bv≤32` → `uint32_t`, else `uint64_t`, arrays → `std::array<T,N>`
+- **Bit-width masking**: mask at assignment only (widths ∉ {8,16,32,64})
+- **eval()/tick()/reset() split**: combinational in `eval()`, register update in `tick()`, initialization in `reset()`
+- **Expression translation**: constants as `(uint32_t)42ULL`, signed ops as `(int32_t)` casts, concat as shift+OR chain, slice as `>> lo & mask`
+- **Sub-module instantiation**: uses `Design` to resolve input/output port directions
+
+### TODO (Future Phases)
+
+- [ ] Phase 2: Compile generated C++ to shared library (dlopen/FFI)
+- [ ] Phase 3: Lean FFI bridge — call eval()/tick()/reset() from Lean
+- [ ] Phase 4: Integrate with `Signal.loopMemo` for transparent JIT acceleration
 
 ---
 
