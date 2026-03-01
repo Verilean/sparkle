@@ -48,6 +48,12 @@ lean_exe «sparkle-rv32-sim» where
 lean_exe «sparkle-rv32-min» where
   root := `Tests.RV32.MinTest
 
+lean_exe «rv32-flow-test» where
+  root := `Tests.RV32.TestFlowMain
+
+lean_exe «rv32-lean-sim-runner» where
+  root := `Tests.RV32.LeanSimRunner
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

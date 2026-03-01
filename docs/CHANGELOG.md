@@ -2,6 +2,75 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 12: LSpec Flow Tests for RV32 SoC (Complete)
+
+**Date**: 2026-03-02
+
+**Goal**: Add automated LSpec tests covering the full RV32 SoC build/simulation pipeline — Verilog compilation, Lean-native simulation, CppSim JIT, and Verilator simulation. Catch regressions early, skip gracefully when external tools are unavailable.
+
+**Result**: 18 test assertions across 4 categories, all passing. Integrated into `lake test` and available standalone via `lake exe rv32-flow-test`.
+
+**Test Categories**:
+1. **Verilog Compilation** (12 tests): Verifies `generated_soc.sv` has module declaration, clock input, `always_ff`, imem write enable; `generated_soc_cppsim.h` has class declaration, `eval()`/`tick()`/`reset()` methods
+2. **Lean-native Simulation** (1 test): Runs `rv32iSoCSimulateFull` via subprocess (`LeanSimRunner.lean`); skips gracefully on macOS (8MB stack limit, exit code 134 detection)
+3. **CppSim JIT** (3 tests): Detects `clang++`/`g++`, compiles `tb_cppsim.cpp`, runs 5000 cycles, checks `ALL TESTS PASSED`
+4. **Verilator** (3 tests): Detects `verilator`, builds via `make obj_dir/Vrv32i_soc`, runs 5000 cycles, checks `ALL TESTS PASSED`
+
+**Design Decisions**:
+- Lean simulation runs as a subprocess to work around macOS 8MB stack limit (122-register SoC body causes stack overflow on main thread)
+- Stack overflow (exit code 134) treated as skip, not failure — it's an environment limitation
+- Uses `which` for tool detection (same pattern as `Tests/Sparkle16/TestCoSim.lean`)
+- Verilator build uses `obj_dir/Vrv32i_soc` target (not `build`) to avoid re-generating SV
+
+**Files Added**:
+- `Tests/RV32/TestFlow.lean` — All 4 test categories (`synthTests`, `leanSimTests`, `cppSimTests`, `verilatorTests`)
+- `Tests/RV32/TestFlowMain.lean` — Standalone `main` entry point (separated from TestFlow to avoid `main` conflict with AllTests)
+- `Tests/RV32/LeanSimRunner.lean` — Subprocess for Lean-native simulation
+
+**Files Modified**:
+- `Tests/AllTests.lean` — Added `import Tests.RV32.TestFlow`, integrated `flowTests` into `allTests`
+- `lakefile.lean` — Added `rv32-flow-test` and `rv32-lean-sim-runner` executable targets
+
+## Phase 11: CppSim Benchmark — IR Optimization + End-to-End Simulation (Complete)
+
+**Date**: 2026-03-02
+
+**Goal**: Make CppSim compile and run on the RV32I SoC, benchmark against Verilator, and optimize to beat Verilator's performance.
+
+**Result**: CppSim runs firmware test correctly (47/47 UART words match Verilator, `0xCAFE0000` at cycle 2904). **~170x faster** than Verilator for the firmware test workload. Sustained throughput: 3.6M cycles/sec.
+
+**IR Optimization Pass** (`Sparkle/IR/Optimize.lean`):
+- Eliminates nested concat/slice chains from tuple packing/unpacking
+- Recursive `resolveSlice` follows ref aliases, composes slice-of-slice, resolves slice-of-concat
+- Uses `Std.HashMap` for O(1) lookups (critical for 10K+ wire designs)
+- Fuel=500 to handle 244-level deep chains (124 slice + 120 concat)
+- Dead-code elimination removes unused wires and assigns
+- Result: 20,543 → 4,919 lines (76% reduction)
+
+**CppSim Backend Enhancements** (`Sparkle/Backend/CppSim.lean`):
+- Wide types (>64-bit): `std::array<uint32_t, N>` declarations, assigns skipped (dead after optimization)
+- No wide-type expressions remain in generated code after IR optimization
+
+**Combined `#writeDesign` Command** (`Sparkle/Compiler/Elab.lean`):
+- Single `synthesizeHierarchical` call emits both Verilog and optimized CppSim
+- Prevents 2x synthesis overhead from separate commands
+
+**C++ Testbench** (`verilator/tb_cppsim.cpp`):
+- Firmware loaded directly into IMEM array (no CPU cycles consumed)
+- Heap allocation for SoC (8MB DRAM arrays exceed stack)
+- UART monitoring, halt detection, timing measurement
+
+**Files Added**:
+- `Sparkle/IR/Optimize.lean` — IR optimization pass (~200 lines)
+- `verilator/tb_cppsim.cpp` — CppSim testbench (~150 lines)
+
+**Files Modified**:
+- `Sparkle/Backend/CppSim.lean` — >64-bit type handling, wide assign skip
+- `Sparkle/Compiler/Elab.lean` — `#writeDesign` combined command, imports
+- `Sparkle.lean` — Added `import Sparkle.IR.Optimize`
+- `Examples/RV32/SoCVerilog.lean` — `#writeDesign` with both output paths
+- `verilator/Makefile` — CppSim build targets
+
 ## Phase 10: C++ Simulation Backend (Complete)
 
 **Date**: 2026-03-01

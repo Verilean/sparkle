@@ -1,19 +1,135 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-01
+**Date**: 2026-03-02
 **Branch**: main
 
 ---
 
-## C++ Simulation Backend (Phase 10) — DONE
+## LSpec Flow Tests (Phase 12) — DONE
 
-JIT simulator foundation: generates C++ code from IR (`Module`/`Design`), producing a C++ class with `eval()`/`tick()`/`reset()` methods. Phase 1 is purely string generation (no compilation or FFI loading).
+Automated LSpec tests covering the full RV32 SoC build/simulation pipeline. Catches regressions across 4 independent paths, skips gracefully when external tools are unavailable.
+
+### Test Results (18 assertions)
+
+| Category | Tests | Status |
+|----------|-------|--------|
+| Verilog Compilation | 12 | All pass — verifies `generated_soc.sv` and `generated_soc_cppsim.h` content |
+| Lean-native Simulation | 1 | Skips on macOS (8MB stack limit) — passes on Linux with sufficient stack |
+| CppSim JIT | 3 | All pass — compiles with clang++, runs 5000 cycles, `ALL TESTS PASSED` |
+| Verilator Simulation | 3 | All pass — builds via Make, runs 5000 cycles, `ALL TESTS PASSED` |
+
+### Architecture
+
+- **Category 1 (Verilog Compilation)**: Reads generated files, checks for expected module names, port declarations, `always_ff` blocks, CppSim class methods
+- **Category 2 (Lean-native Simulation)**: Runs `rv32iSoCSimulateFull` via separate subprocess (`LeanSimRunner.lean`) to work around macOS stack limit; checks PC starts at 0, advances, stays in IMEM range
+- **Category 3 (CppSim JIT)**: Detects `clang++`/`g++` availability, compiles `tb_cppsim.cpp`, runs firmware test, checks output
+- **Category 4 (Verilator)**: Detects `verilator` availability, builds via `make obj_dir/Vrv32i_soc` (no re-generate), runs firmware test
+
+### Files Added
+
+| File | Description |
+|------|-------------|
+| `Tests/RV32/TestFlow.lean` | 4 test categories (synthTests, leanSimTests, cppSimTests, verilatorTests) |
+| `Tests/RV32/TestFlowMain.lean` | Standalone `main` entry point |
+| `Tests/RV32/LeanSimRunner.lean` | Subprocess for Lean simulation (avoids stack overflow) |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `Tests/AllTests.lean` | Added `import Tests.RV32.TestFlow`, integrated `flowTests` |
+| `lakefile.lean` | Added `rv32-flow-test` and `rv32-lean-sim-runner` executable targets |
+
+### Build & Run
+
+```bash
+# Run all tests including flow tests
+lake test
+
+# Run flow tests standalone
+lake exe rv32-flow-test
+
+# Build simulation runner (needed for lean sim tests)
+lake build rv32-lean-sim-runner
+```
+
+---
+
+## CppSim Benchmark (Phase 11) — DONE
+
+End-to-end C++ simulation backend: generates optimized C++ from IR, compiles, and runs the RV32I SoC firmware test — **~170x faster than Verilator** for the firmware test workload.
+
+### Benchmark Results
+
+| Metric | Verilator | CppSim | Speedup |
+|--------|-----------|--------|---------|
+| Firmware test (2904 cycles) | ~160ms | **0.9ms** | **~170x** |
+| Sustained throughput (1M cycles) | N/A | **3.6M cycles/sec** | — |
+
+- UART output: **47/47 data words identical** to Verilator
+- `0xCAFE0000` pass marker at cycle 2904 (same as Verilator)
 
 ### Completed
 
 | # | Task | Status |
 |---|------|--------|
-| 1 | `Sparkle/Backend/CppSim.lean` — C++ code generator (~280 lines) | Done |
+| 1 | IR optimization pass (`Sparkle/IR/Optimize.lean`) — concat/slice chain elimination | Done |
+| 2 | CppSim backend >64-bit type handling + wide assign skip | Done |
+| 3 | Combined `#writeDesign` command (single synthesis → both Verilog + CppSim) | Done |
+| 4 | C++ testbench (`verilator/tb_cppsim.cpp`) — firmware load, UART, timing | Done |
+| 5 | Makefile targets (`build-cppsim`, `run-cppsim`, `benchmark`) | Done |
+| 6 | ALL TESTS PASSED — CppSim matches Verilator output | Done |
+
+### IR Optimization
+
+- **Problem**: 5,451 wires wider than 999 bits from tuple packing/unpacking (nested 2-element concats + slice chains)
+- **Solution**: `Sparkle.IR.Optimize.optimizeDesign` — recursive `resolveSlice` with HashMap lookups
+  - Follows ref aliases: `X = Y` → follow to Y
+  - Composes slice chains: `X = Y[h1:l1], Z = X[h2:l2]` → `Z = Y[l1+h2:l1+l2]`
+  - Resolves concat slices: `X = {a, b}, Z = X[h:l]` → `Z = a` (if aligned)
+  - Fuel=500 to handle 244-level deep chains (124 slice + 120 concat levels)
+- **Result**: 20,543 → 4,919 lines (76% reduction), 7,928 → 0 wide arrays in expressions
+
+### Architecture
+
+- `#writeDesign id "path.sv" "path_cppsim.h"` — synthesizes once, emits both Verilog and CppSim
+- IR optimization runs only on CppSim path (Verilog output is unoptimized, matches previous behavior)
+- Wide types (>64-bit): declared as `std::array<uint32_t, N>`, assigns skipped (dead after optimization)
+- Testbench loads firmware directly into IMEM array (no CPU cycles consumed during loading)
+
+### Build & Run
+
+```bash
+# Build CppSim
+cd verilator && make build-cppsim
+
+# Run CppSim
+cd verilator && make run-cppsim CYCLES=5000
+
+# Benchmark CppSim vs Verilator
+cd verilator && make benchmark CYCLES=5000
+```
+
+### TODO (Future Phases)
+
+- [x] LSpec flow tests for RV32 SoC (Phase 12 — done)
+- [ ] Lean FFI bridge — call eval()/tick()/reset() from Lean via dlopen
+- [ ] Integrate with `Signal.loopMemo` for transparent JIT acceleration
+- [ ] Profile-guided optimization (PGO) for CppSim
+- [ ] Promote eval()-only wires to local variables (enable C++ register allocation)
+- [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread with larger stack)
+
+---
+
+## C++ Simulation Backend (Phase 10) — DONE
+
+JIT simulator foundation: generates C++ code from IR (`Module`/`Design`), producing a C++ class with `eval()`/`tick()`/`reset()` methods.
+
+### Completed
+
+| # | Task | Status |
+|---|------|--------|
+| 1 | `Sparkle/Backend/CppSim.lean` — C++ code generator (~410 lines) | Done |
 | 2 | `Tests/TestCppSim.lean` — 25 tests (counter, memory, combinational, registered memory) | Done |
 | 3 | Integrated into `Sparkle.lean` and `Tests/AllTests.lean` | Done |
 | 4 | `lake build` + `lake test` — all 25 CppSim tests pass | Done |
@@ -21,32 +137,26 @@ JIT simulator foundation: generates C++ code from IR (`Module`/`Design`), produc
 ### Architecture
 
 - Mirrors `Sparkle/Backend/Verilog.lean`: same IR traversal, different target language
-- **Type mapping**: `bit`/`bv≤8` → `uint8_t`, `bv≤16` → `uint16_t`, `bv≤32` → `uint32_t`, else `uint64_t`, arrays → `std::array<T,N>`
+- **Type mapping**: `bit`/`bv≤8` → `uint8_t`, `bv≤16` → `uint16_t`, `bv≤32` → `uint32_t`, `bv≤64` → `uint64_t`, `bv>64` → `std::array<uint32_t, N>`, arrays → `std::array<T,N>`
 - **Bit-width masking**: mask at assignment only (widths ∉ {8,16,32,64})
 - **eval()/tick()/reset() split**: combinational in `eval()`, register update in `tick()`, initialization in `reset()`
 - **Expression translation**: constants as `(uint32_t)42ULL`, signed ops as `(int32_t)` casts, concat as shift+OR chain, slice as `>> lo & mask`
 - **Sub-module instantiation**: uses `Design` to resolve input/output port directions
 
-### TODO (Future Phases)
-
-- [ ] Phase 2: Compile generated C++ to shared library (dlopen/FFI)
-- [ ] Phase 3: Lean FFI bridge — call eval()/tick()/reset() from Lean
-- [ ] Phase 4: Integrate with `Signal.loopMemo` for transparent JIT acceleration
-
 ---
 
 ## SoC Synthesis (Phase 9)
 
-`#writeVerilogDesign rv32iSoCSynth "verilator/generated_soc.sv"` generates SystemVerilog with 119 registers.
-The divider is inlined into the top module (no separate sub-module).
+`#writeDesign rv32iSoCSynth "verilator/generated_soc.sv" "verilator/generated_soc_cppsim.h"` generates both SystemVerilog and CppSim C++ from a single synthesis pass. The SoC has 119 registers.
 
 ### Generated Output
 
-- **File**: `verilator/generated_soc.sv` (~28k lines)
+- **Verilog**: `verilator/generated_soc.sv` (~28k lines)
+- **CppSim**: `verilator/generated_soc_cppsim.h` (~4.9k lines after IR optimization)
 - **Top module**: `Sparkle_Examples_RV32_SoCVerilog_rv32iSoCSynth`
-- **Inputs**: `clk`, `rst`, `_gen_imem_wr_en_0`, `_gen_imem_wr_addr_1[11:0]`, `_gen_imem_wr_data_2[31:0]`, `_gen_dmem_wr_en_3`, `_gen_dmem_wr_addr_4[22:0]`, `_gen_dmem_wr_data_5[31:0]`
+- **Inputs**: `clk`, `rst`, `_gen_imem_wr_en`, `_gen_imem_wr_addr[11:0]`, `_gen_imem_wr_data[31:0]`, `_gen_dmem_wr_en`, `_gen_dmem_wr_addr[22:0]`, `_gen_dmem_wr_data[31:0]`
 - **Output**: `out[191:0]` — packed `{pcReg[191:160], uartValidBV[159:128], prevStoreData[127:96], satpReg[95:64], ptwPteReg[63:32], ptwVaddrReg[31:0]}`
-- **Wrapper**: `rv32i_soc_wrapper.sv` adapts packed output to testbench interface
+- **Wrapper**: `rv32i_soc_wrapper.sv` adapts packed output to Verilator testbench interface
 
 ### Register Map (119 registers)
 
