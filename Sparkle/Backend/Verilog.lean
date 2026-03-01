@@ -199,10 +199,13 @@ def emitModule (m : Module) : String :=
                   s!"// Module: {m.name}\n\n" ++
                   s!"module {sanitizeName m.name} ({emitPortList m.inputs m.outputs});\n"
 
-    let wires := if m.wires.isEmpty then
+    -- Filter out wires that are already declared as input/output ports
+    let portNames := (m.inputs ++ m.outputs).map (·.name)
+    let internalWires := m.wires.filter fun w => !portNames.contains w.name
+    let wires := if internalWires.isEmpty then
       ""
     else
-      "\n" ++ emitWireDecls m.wires ++ "\n"
+      "\n" ++ emitWireDecls internalWires ++ "\n"
 
     let body := if m.body.isEmpty then
       ""

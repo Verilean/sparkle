@@ -74,9 +74,9 @@ def liftMetaM {α : Type} (m : MetaM α) : CompilerM α :=
   liftM m
 
 /-- Lift CircuitM operations by modifying the circuit state -/
-def makeWire (hint : String) (ty : HWType) : CompilerM String := do
+def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CompilerM String := do
   let cs ← get
-  let (name, cs') := CircuitM.makeWire hint ty cs
+  let (name, cs') := CircuitM.makeWire hint ty named cs
   set cs'
   return name
 
@@ -96,23 +96,31 @@ def addOutput (name : String) (ty : HWType) : CompilerM Unit := do
   let ((), cs') := CircuitM.addOutput name ty cs
   set cs'
 
-def emitRegister (hint : String) (clk : String) (rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType) : CompilerM String := do
+/-- Look up the HW width of a wire by name (from wires, inputs, or outputs) -/
+def getWireWidth (wireName : String) : CompilerM Nat := do
   let cs ← get
-  let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty cs
+  let allPorts := cs.module.wires ++ cs.module.inputs ++ cs.module.outputs
+  match allPorts.find? (fun p => p.name == wireName) with
+  | some p => return match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
+  | none => return 8
+
+def emitRegister (hint : String) (clk : String) (rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType) (named : Bool := false) : CompilerM String := do
+  let cs ← get
+  let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty named cs
   set cs'
   return name
 
 def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
-    (writeAddr writeData writeEnable readAddr : Sparkle.IR.AST.Expr) : CompilerM String := do
+    (writeAddr writeData writeEnable readAddr : Sparkle.IR.AST.Expr) (named : Bool := false) : CompilerM String := do
   let cs ← get
-  let (name, cs') := CircuitM.emitMemory hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr cs
+  let (name, cs') := CircuitM.emitMemory hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr named cs
   set cs'
   return name
 
 def emitMemoryComboRead (hint : String) (addrWidth dataWidth : Nat) (clk : String)
-    (writeAddr writeData writeEnable readAddr : Sparkle.IR.AST.Expr) : CompilerM String := do
+    (writeAddr writeData writeEnable readAddr : Sparkle.IR.AST.Expr) (named : Bool := false) : CompilerM String := do
   let cs ← get
-  let (name, cs') := CircuitM.emitMemoryComboRead hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr cs
+  let (name, cs') := CircuitM.emitMemoryComboRead hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr named cs
   set cs'
   return name
 
@@ -333,7 +341,7 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
     CompilerM.liftMetaM $ throwError s!"Expected Array expression, got: {expr}"
 
 mutual
-  partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) : CompilerM String := do
+  partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     -- IO.println s!"DEBUG: translateExprToWire {hint}, isTopLevel={isTopLevel}"
     -- 0. Handle free variables first (before any whnf)
     if let .fvar fvarId := e then
@@ -348,12 +356,12 @@ mutual
           | some decl => return decl.value?
           | none => return none
         match inlinedVal with
-        | some val => return ← translateExprToWire val hint isTopLevel
+        | some val => return ← translateExprToWire val hint isTopLevel isNamed
         | none =>
           -- Try full reduction for type-level fvars (Nat widths, erased params)
           let reduced ← CompilerM.liftMetaM (try Lean.Meta.reduce e catch _ => pure e)
           if reduced != e then
-            return ← translateExprToWire reduced hint isTopLevel
+            return ← translateExprToWire reduced hint isTopLevel isNamed
           let ty ← CompilerM.liftMetaM (try Lean.Meta.inferType e catch _ => pure (.const `unknown []))
           let tyPP ← CompilerM.liftMetaM (try ppExpr ty catch _ => pure s!"{ty}")
           let userName ← CompilerM.liftMetaM do
@@ -378,23 +386,23 @@ mutual
           if let .app (.const ``BitVec _) widthExpr := type then
             let w ← extractNat widthExpr
             let v ← extractNat args[1]!
-            let resWire ← CompilerM.makeWire hint (if w == 1 then .bit else .bitVector w)
+            let resWire ← CompilerM.makeWire hint (if w == 1 then .bit else .bitVector w) (named := isNamed)
             CompilerM.emitAssign resWire (.const v w)
             return resWire
 
         -- Bool constants
         if name == ``Bool.true then
-          let resWire ← CompilerM.makeWire hint .bit
+          let resWire ← CompilerM.makeWire hint .bit (named := isNamed)
           CompilerM.emitAssign resWire (.const 1 1)
           return resWire
         if name == ``Bool.false then
-          let resWire ← CompilerM.makeWire hint .bit
+          let resWire ← CompilerM.makeWire hint .bit (named := isNamed)
           CompilerM.emitAssign resWire (.const 0 1)
           return resWire
 
         -- OfNat.mk: unwrap the constructor to its value
         if name == ``OfNat.mk && args.size >= 1 then
-          return ← translateExprToWire args.back! hint
+          return ← translateExprToWire args.back! hint (isNamed := isNamed)
 
         -- Signal wrappers & identity casts
         -- Note: exclude OfNat.ofNat from .endsWith ".ofNat" (already handled above)
@@ -405,7 +413,7 @@ mutual
            name.toString.endsWith ".toNat" then
           if args.size >= 1 then
             let payload := if name == ``Fin.mk && args.size >= 2 then args[args.size-2]! else args.back!
-            return ← translateExprToWire payload hint
+            return ← translateExprToWire payload hint (isNamed := isNamed)
 
         -- Signal.pure (constant signals)
         if name == ``Sparkle.Core.Signal.Signal.pure && args.size >= 1 then
@@ -414,11 +422,11 @@ mutual
            let constReduced ← CompilerM.liftMetaM (whnf constValue)
            if let .const boolName _ := constReduced then
              if boolName == ``Bool.true then
-               let resWire ← CompilerM.makeWire hint .bit
+               let resWire ← CompilerM.makeWire hint .bit (named := isNamed)
                CompilerM.emitAssign resWire (.const 1 1)
                return resWire
              if boolName == ``Bool.false then
-               let resWire ← CompilerM.makeWire hint .bit
+               let resWire ← CompilerM.makeWire hint .bit (named := isNamed)
                CompilerM.emitAssign resWire (.const 0 1)
                return resWire
            -- Check if argument is an fvar with wire mapping (let-bound constant)
@@ -436,8 +444,8 @@ mutual
                extractBitVecLiteral reduced
              catch _ =>
                -- Last resort: try translateExprToWire (handles OfNat.ofNat, etc.)
-               return ← translateExprToWire constValue hint
-           let resWire ← CompilerM.makeWire hint (.bitVector width)
+               return ← translateExprToWire constValue hint (isNamed := isNamed)
+           let resWire ← CompilerM.makeWire hint (.bitVector width) (named := isNamed)
            CompilerM.emitAssign resWire (.const value width)
            return resWire
 
@@ -445,7 +453,9 @@ mutual
         if name == ``Sparkle.Core.Signal.bundle2 && args.size >= 2 then
            let wireA ← translateExprToWire args[args.size-2]! "a"
            let wireB ← translateExprToWire args[args.size-1]! "b"
-           let resWire ← CompilerM.makeWire hint (.bitVector 16)
+           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+           let hwType ← inferHWTypeFromSignal exprType
+           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
            CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
            return resWire
 
@@ -456,17 +466,18 @@ mutual
            let fFn := f.getAppFn
            if fFn.isConstOf ``Prod.fst then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
+               let totalWidth ← CompilerM.getWireWidth wireS
                let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                let hwType ← inferHWTypeFromSignal exprType
-               let resWire ← CompilerM.makeWire hint hwType
+               let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               CompilerM.emitAssign resWire (.slice (.ref wireS) (width * 2 - 1) width)
+               CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
                return resWire
            if fFn.isConstOf ``Prod.snd then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
                let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                let hwType ← inferHWTypeFromSignal exprType
-               let resWire ← CompilerM.makeWire hint hwType
+               let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
                CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
                return resWire
@@ -482,7 +493,7 @@ mutual
                    let start ← extractNat bodyArgs[bodyArgs.size - 3]!
                    let len ← extractNat bodyArgs[bodyArgs.size - 2]!
                    let wireS ← translateExprToWire s "s" (isTopLevel := false)
-                   let resWire ← CompilerM.makeWire hint (.bitVector len)
+                   let resWire ← CompilerM.makeWire hint (.bitVector len) (named := isNamed)
                    CompilerM.emitAssign resWire (.slice (.ref wireS) (start + len - 1) start)
                    return resWire
                -- Unary primitives (neg, not, etc.)
@@ -490,7 +501,7 @@ mutual
                  let wireS ← translateExprToWire s "s" (isTopLevel := false)
                  let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                  let hwType ← inferHWTypeFromSignal exprType
-                 let resWire ← CompilerM.makeWire hint hwType
+                 let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                  CompilerM.emitAssign resWire (.op op [.ref wireS])
                  return resWire
 
@@ -564,13 +575,13 @@ mutual
                       CompilerM.withLocalDecl n2 ty2 fun fvar2 => do
                         CompilerM.withVarMapping fvar2.fvarId! wire2 do
                           let body2Inst := body1Inst.instantiate1 fvar2
-                          translateExprToWire body2Inst hint isTopLevel
+                          translateExprToWire body2Inst hint isTopLevel isNamed
                 | _ =>
                   -- Single lambda body - substitute just the first parameter
                   CompilerM.withLocalDecl n1 ty1 fun fvar1 => do
                     CompilerM.withVarMapping fvar1.fvarId! wire1 do
                       let bodyInst := body1.instantiate1 fvar1
-                      translateExprToWire bodyInst hint isTopLevel
+                      translateExprToWire bodyInst hint isTopLevel isNamed
               | .fvar contId =>
                 -- The continuation is an fvar - check if it has a value in the local context
                 let contValue? ← CompilerM.liftMetaM do
@@ -590,7 +601,7 @@ mutual
                         CompilerM.withLocalDecl n2 ty2 fun fvar2 => do
                           CompilerM.withVarMapping fvar2.fvarId! wire2 do
                             let body2 := body1.instantiate1 fvar2
-                            translateExprToWire body2 hint isTopLevel
+                            translateExprToWire body2 hint isTopLevel isNamed
                   | _ =>
                     CompilerM.liftMetaM $ throwError s!"Expected nested lambda in continuation, got: {contExpr}"
                 | none =>
@@ -599,13 +610,13 @@ mutual
                 CompilerM.liftMetaM $ throwError s!"Unexpected continuation type: {cont}"
               pure (some result)
             else if e' != e then do
-              let result ← translateExprToWire e' hint (isTopLevel := false)
+              let result ← translateExprToWire e' hint (isTopLevel := false) (isNamed := isNamed)
               pure (some result)
             else
               pure none
           | _ =>
             if e' != e then do
-              let result ← translateExprToWire e' hint (isTopLevel := false)
+              let result ← translateExprToWire e' hint (isTopLevel := false) (isNamed := isNamed)
               pure (some result)
             else
               pure none
@@ -633,7 +644,7 @@ mutual
                    -- Infer result type from the expression type
                    let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                    let hwType ← inferHWTypeFromSignal exprType
-                   let resWire ← CompilerM.makeWire hint hwType
+                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                    CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
                    return resWire
                 | none =>
@@ -641,14 +652,14 @@ mutual
                    if opName == ``HAppend.hAppend || opName == ``BitVec.append then
                      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                      let hwType ← inferHWTypeFromSignal exprType
-                     let resWire ← CompilerM.makeWire hint hwType
+                     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                      CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
                      return resWire
                    -- Special: BitVec.sshiftRight → asr
                    if opName == ``BitVec.sshiftRight then
                      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                      let hwType ← inferHWTypeFromSignal exprType
-                     let resWire ← CompilerM.makeWire hint hwType
+                     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                      CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
                      return resWire
                    pure ()
@@ -672,7 +683,7 @@ mutual
                      let start ← extractNat bodyArgs[bodyArgs.size - 3]!
                      let len ← extractNat bodyArgs[bodyArgs.size - 2]!
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
-                     let resWire ← CompilerM.makeWire hint (.bitVector len)
+                     let resWire ← CompilerM.makeWire hint (.bitVector len) (named := isNamed)
                      CompilerM.emitAssign resWire (.slice (.ref wireA) (start + len - 1) start)
                      return resWire
 
@@ -683,7 +694,7 @@ mutual
                    -- Infer result type from the expression type
                    let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
                    let hwType ← inferHWTypeFromSignal exprType
-                   let resWire ← CompilerM.makeWire hint hwType
+                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                    CompilerM.emitAssign resWire (.op op [.ref wireA])
                    return resWire
              | _ => pure ()
@@ -712,7 +723,7 @@ mutual
     match e with
     | .app .. =>
       if let .const _ _ := fn then
-         translateExprToWireApp e hint
+         translateExprToWireApp e hint isNamed
       else
          -- Manual Zeta Reduction: Check if head is a local definition (let-bound)
          let zetaE ← if let .fvar fvarId := fn then
@@ -729,19 +740,19 @@ mutual
            else pure none
 
          match zetaE with
-         | some e' => translateExprToWire e' hint (isTopLevel := isTopLevel)
+         | some e' => translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
          | none =>
             -- Fallback to general reduction
             let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.all $ whnf e)
-            if e' != e then translateExprToWire e' hint (isTopLevel := isTopLevel)
-            else translateExprToWireApp e hint
+            if e' != e then translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
+            else translateExprToWireApp e hint isNamed
 
     | .proj _ idx eStruct => do
       let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
       let hwType ← inferHWTypeFromSignal exprType
-      let resWire ← CompilerM.makeWire hint hwType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
       let lo := (1 - idx) * width
       let hi := lo + width - 1
@@ -753,7 +764,7 @@ mutual
       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
       let hwType ← inferHWTypeFromSignal exprType
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      let wire ← CompilerM.makeWire hint hwType
+      let wire ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign wire (.const (Int.ofNat n) width)
       return wire
 
@@ -775,18 +786,18 @@ mutual
 
       if isHW then
         -- Hardware let: translate value to wire
-        let valueWire ← translateExprToWire value name.toString (isTopLevel := false)
+        let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
           CompilerM.withVarMapping fvarId valueWire do
             let bodyInst := body.instantiate1 fvar
-            translateExprToWire bodyInst hint isTopLevel
+            translateExprToWire bodyInst hint isTopLevel isNamed
       else
         -- Logic let: add to context for reduction (zeta)
         -- This allows let-bound values to be inlined when referenced
         CompilerM.withLetDecl name type value fun fvar => do
           let bodyInst := body.instantiate1 fvar
-          translateExprToWire bodyInst hint isTopLevel
+          translateExprToWire bodyInst hint isTopLevel isNamed
 
     | .lam binderName binderType body _ => do
       let isHWArg ← try
@@ -796,7 +807,7 @@ mutual
 
       if isHWArg then
           let hwType ← inferHWTypeFromSignal binderType
-          let paramWire ← CompilerM.makeWire binderName.toString hwType
+          let paramWire ← CompilerM.makeWire binderName.toString hwType (named := true)
           -- Only add as input if this is a top-level function parameter
           if isTopLevel then
             CompilerM.addInput paramWire hwType
@@ -807,18 +818,18 @@ mutual
             CompilerM.withVarMapping fvarId paramWire do
               let bodyInst := body.instantiate1 fvar
               -- Nested lambdas are also top-level if they're part of the function signature
-              translateExprToWire bodyInst hint isTopLevel
+              translateExprToWire bodyInst hint isTopLevel isNamed
       else
           -- Logic argument (e.g. config): add to context but no wire/input
           CompilerM.withLocalDecl binderName binderType fun fvar => do
             let bodyInst := body.instantiate1 fvar
-            translateExprToWire bodyInst hint isTopLevel
+            translateExprToWire bodyInst hint isTopLevel isNamed
 
 
     | _ =>
-      translateExprToWireApp e hint
+      translateExprToWireApp e hint isNamed
 
-  partial def translateExprToWireApp (e : Lean.Expr) (hint : String) : CompilerM String := do
+  partial def translateExprToWireApp (e : Lean.Expr) (hint : String) (isNamed : Bool := false) : CompilerM String := do
     let fn := e.getAppFn
     let args := e.getAppArgs
 
@@ -861,11 +872,12 @@ mutual
       if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
         let s := args[args.size-1]!
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
+        let totalWidth ← CompilerM.getWireWidth wireS
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType
+        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        CompilerM.emitAssign resWire (.slice (.ref wireS) (width * 2 - 1) width)
+        CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
         return resWire
 
       -- Special case: Signal.snd for tuple extraction (new readable syntax)
@@ -874,7 +886,7 @@ mutual
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType
+        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
         CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
         return resWire
@@ -885,19 +897,18 @@ mutual
         let s := args[args.size-1]!
         if f.isConstOf ``Prod.fst then
           let wireS ← translateExprToWire s "s" (isTopLevel := false)
-          -- Infer result type from the expression type
+          let totalWidth ← CompilerM.getWireWidth wireS
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
           let hwType ← inferHWTypeFromSignal exprType
-          let resWire ← CompilerM.makeWire hint hwType
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
           let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-          CompilerM.emitAssign resWire (.slice (.ref wireS) (width * 2 - 1) width)
+          CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
           return resWire
         if f.isConstOf ``Prod.snd then
           let wireS ← translateExprToWire s "s" (isTopLevel := false)
-          -- Infer result type from the expression type
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
           let hwType ← inferHWTypeFromSignal exprType
-          let resWire ← CompilerM.makeWire hint hwType
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
           let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
           CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
           return resWire
@@ -918,7 +929,7 @@ mutual
             -- Infer result type from the expression type
             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
             let hwType ← inferHWTypeFromSignal exprType
-            let resWire ← CompilerM.makeWire hint hwType
+            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
             CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
             return resWire
           | none =>
@@ -926,14 +937,14 @@ mutual
             if opName == ``HAppend.hAppend || opName == ``BitVec.append then
               let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
               let hwType ← inferHWTypeFromSignal exprType
-              let resWire ← CompilerM.makeWire hint hwType
+              let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
               CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
               return resWire
             -- Special: BitVec.sshiftRight → asr (Nat arg handled via signal wire)
             if opName == ``BitVec.sshiftRight then
               let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
               let hwType ← inferHWTypeFromSignal exprType
-              let resWire ← CompilerM.makeWire hint hwType
+              let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
               CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
               return resWire
             CompilerM.liftMetaM $ throwError s!"Complex lift of {opName} not yet supported: operator not found"
@@ -943,7 +954,7 @@ mutual
         let start ← extractNat args[args.size - 3]!
         let len ← extractNat args[args.size - 2]!
         let bvWire ← translateExprToWire args[args.size - 1]! "slice_src"
-        let resWire ← CompilerM.makeWire hint (.bitVector len)
+        let resWire ← CompilerM.makeWire hint (.bitVector len) (named := isNamed)
         CompilerM.emitAssign resWire (.slice (.ref bvWire) (start + len - 1) start)
         return resWire
 
@@ -962,7 +973,7 @@ mutual
                   else Operator.asr
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType
+        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         CompilerM.emitAssign resWire (.op op [.ref wire1, .ref wire2])
         return resWire
 
@@ -972,7 +983,7 @@ mutual
         let loWire ← translateExprToWire args[args.size - 1]! "concat_lo"
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType
+        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
         return resWire
 
@@ -985,7 +996,7 @@ mutual
             -- Infer result type from the expression type
             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
             let hwType ← inferHWTypeFromSignal exprType
-            let resultWire ← CompilerM.makeWire hint hwType
+            let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
             CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
             return resultWire
           else if args.size == 1 then
@@ -993,7 +1004,7 @@ mutual
              -- Infer result type from the expression type
              let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
              let hwType ← inferHWTypeFromSignal exprType
-             let resultWire ← CompilerM.makeWire hint hwType
+             let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
              CompilerM.emitAssign resultWire (.op op [.ref wire1])
              return resultWire
         | none =>
@@ -1006,7 +1017,7 @@ mutual
         let inputWire ← translateExprToWire input "reg_input"
         let exprType ← CompilerM.liftMetaM (inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        return ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+        return ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType (named := isNamed)
 
       -- Signal.registerWithEnable: register with conditional update
       -- Synthesizes as: reg <= en ? input : reg (register + mux feedback)
@@ -1022,7 +1033,7 @@ mutual
         -- Create mux wire for conditional input
         let muxWire ← CompilerM.makeWire (hint ++ "_mux") hwType
         -- Create register (input is the mux output)
-        let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType
+        let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType (named := isNamed)
         -- Connect mux: en ? input : reg_output (hold value when disabled)
         CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
         return regWire
@@ -1066,7 +1077,7 @@ mutual
         -- Infer result type from the expression type
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let rW ← CompilerM.makeWire hint hwType
+        let rW ← CompilerM.makeWire hint hwType (named := isNamed)
         CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
         return rW
 
@@ -1089,7 +1100,7 @@ mutual
         let raW ← translateExprToWire readAddr "mem_raddr"
         -- Emit memory and return read data wire
         return ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
-          (.ref waW) (.ref wdW) (.ref weW) (.ref raW)
+          (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
 
       -- Signal.memoryComboRead: memory with combinational (same-cycle) read
       if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
@@ -1106,7 +1117,7 @@ mutual
         let weW ← translateExprToWire writeEnable "mem_we"
         let raW ← translateExprToWire readAddr "mem_raddr"
         return ← CompilerM.emitMemoryComboRead hint addrWidth dataWidth "clk"
-          (.ref waW) (.ref wdW) (.ref weW) (.ref raW)
+          (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
 
       -- HWVector.get: array indexing
       if name == ``Sparkle.Core.Vector.HWVector.get && args.size >= 2 then
@@ -1117,7 +1128,7 @@ mutual
         -- Infer result type from the expression type
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType
+        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         CompilerM.emitAssign resWire (.index (.ref vecWire) (.ref idxWire))
         return resWire
 
@@ -1165,7 +1176,7 @@ mutual
           | none => return e
         if eReduced != e then
           try
-            return ← translateExprToWire eReduced hint
+            return ← translateExprToWire eReduced hint (isNamed := isNamed)
           catch ex =>
             let msg := ex.toMessageData
             CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
@@ -1187,7 +1198,7 @@ mutual
         -- Infer result type from the expression type
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType
+        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
 
         CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
@@ -1335,5 +1346,15 @@ elab "#synthesizeVerilogDesign" id:ident : command => do
     let verilog := toVerilogDesign design
     IO.println verilog
     IO.println "\n-- Hierarchical Verilog successfully generated!"
+
+elab "#writeVerilogDesign" id:ident str:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let verilog := toVerilogDesign design
+    let path := str.getString
+    IO.FS.writeFile path verilog
+    IO.println s!"Written {design.modules.length} modules to {path}"
 
 end Sparkle.Compiler.Elab

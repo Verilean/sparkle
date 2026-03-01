@@ -51,14 +51,30 @@ def getDesign : CircuitM Design := do
 def addModuleToDesign (m : Module) : CircuitM Unit := do
   modify fun s => { s with design := s.design.addModule m }
 
-/-- Generate a fresh unique name with _gen_ prefix to avoid collisions -/
-def freshName (hint : String) : CircuitM String := do
+/-- Generate a fresh wire name.
+    When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
+    When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered. -/
+def freshName (hint : String) (named : Bool := false) : CircuitM String := do
   let s ← get
   let baseName := if hint.isEmpty then "wire" else hint
-  -- Use _gen_ prefix to avoid collisions with user-defined variables
-  let name := s!"_gen_{baseName}_{s.counter}"
-  set { s with counter := s.counter + 1, usedNames := name :: s.usedNames }
-  return name
+  if named then
+    -- Stable name: try `_gen_{hint}`, then `_gen_{hint}_1`, `_gen_{hint}_2`, ...
+    let base := s!"_gen_{baseName}"
+    if !s.usedNames.contains base then
+      set { s with usedNames := base :: s.usedNames }
+      return base
+    else
+      let mut n := 1
+      let mut candidate := s!"{base}_{n}"
+      while s.usedNames.contains candidate do
+        n := n + 1
+        candidate := s!"{base}_{n}"
+      set { s with usedNames := candidate :: s.usedNames }
+      return candidate
+  else
+    let name := s!"_tmp_{baseName}_{s.counter}"
+    set { s with counter := s.counter + 1, usedNames := name :: s.usedNames }
+    return name
 
 /-- Sanitize a name to be a valid Verilog identifier -/
 def sanitizeName (name : String) : String :=
@@ -77,8 +93,8 @@ def reserveName (name : String) : CircuitM Unit := do
   Create a new wire with the given type.
   Returns the unique name of the wire.
 -/
-def makeWire (hint : String) (ty : HWType) : CircuitM String := do
-  let name ← freshName (sanitizeName hint)
+def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CircuitM String := do
+  let name ← freshName (sanitizeName hint) named
   let m ← getModule
   setModule (m.addWire { name := name, ty := ty })
   return name
@@ -99,8 +115,8 @@ def emitAssign (lhs : String) (rhs : Expr) : CircuitM Unit := do
   Returns the name of the output wire.
 -/
 def emitRegister (hint : String) (clock : String) (reset : String)
-    (input : Expr) (initValue : Int) (ty : HWType) : CircuitM String := do
-  let outputName ← freshName (sanitizeName hint)
+    (input : Expr) (initValue : Int) (ty : HWType) (named : Bool := false) : CircuitM String := do
+  let outputName ← freshName (sanitizeName hint) named
   let m ← getModule
   -- Add the output wire
   let m := m.addWire { name := outputName, ty := ty }
@@ -124,9 +140,9 @@ def emitRegister (hint : String) (clock : String) (reset : String)
   - readAddr: Read address expression
 -/
 def emitMemory (hint : String) (addrWidth : Nat) (dataWidth : Nat) (clock : String)
-    (writeAddr : Expr) (writeData : Expr) (writeEnable : Expr) (readAddr : Expr) : CircuitM String := do
-  let memName ← freshName (sanitizeName hint)
-  let readDataName ← freshName (sanitizeName s!"{hint}_rdata")
+    (writeAddr : Expr) (writeData : Expr) (writeEnable : Expr) (readAddr : Expr) (named : Bool := false) : CircuitM String := do
+  let memName ← freshName (sanitizeName hint) named
+  let readDataName ← freshName (sanitizeName s!"{hint}_rdata") named
   let m ← getModule
   -- Add the read data output wire
   let m := m.addWire { name := readDataName, ty := .bitVector dataWidth }
@@ -140,9 +156,9 @@ def emitMemory (hint : String) (addrWidth : Nat) (dataWidth : Nat) (clock : Stri
   Returns the name of the read data output wire.
 -/
 def emitMemoryComboRead (hint : String) (addrWidth : Nat) (dataWidth : Nat) (clock : String)
-    (writeAddr : Expr) (writeData : Expr) (writeEnable : Expr) (readAddr : Expr) : CircuitM String := do
-  let memName ← freshName (sanitizeName hint)
-  let readDataName ← freshName (sanitizeName s!"{hint}_rdata")
+    (writeAddr : Expr) (writeData : Expr) (writeEnable : Expr) (readAddr : Expr) (named : Bool := false) : CircuitM String := do
+  let memName ← freshName (sanitizeName hint) named
+  let readDataName ← freshName (sanitizeName s!"{hint}_rdata") named
   let m ← getModule
   let m := m.addWire { name := readDataName, ty := .bitVector dataWidth }
   let m := m.addStmt (.memory memName addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readDataName (comboRead := true))

@@ -44,9 +44,11 @@ def aluSignal {dom : DomainConfig}
   let andR := (· &&& ·) <$> a <*> b
   let orR  := (· ||| ·) <$> a <*> b
   let xorR := (· ^^^ ·) <$> a <*> b
-  let sllR := (· <<< ·) <$> a <*> b
-  let srlR := (· >>> ·) <$> a <*> b
-  let sraR := (ashr · ·) <$> a <*> b
+  -- RV32I spec: shift amount uses only the lower 5 bits of b
+  let shamt := (· &&& ·) <$> b <*> Signal.pure 0x1F#32
+  let sllR := (· <<< ·) <$> a <*> shamt
+  let srlR := (· >>> ·) <$> a <*> shamt
+  let sraR := (ashr · ·) <$> a <*> shamt
   -- SLT/SLTU: compare and produce 0 or 1
   let sltCond  := (BitVec.slt · ·) <$> a <*> b
   let sltR     := Signal.mux sltCond (Signal.pure 1#32) (Signal.pure 0#32)
@@ -264,7 +266,8 @@ def aluControlSignal {dom : DomainConfig}
   let isALUany := (· || ·) <$> isALUrr <*> isALUimm
 
   -- funct7 bit 5 (distinguishes ADD/SUB, SRL/SRA)
-  let f7bit5 := funct7.map (fun f7 => BitVec.extractLsb' 5 1 f7 == 1#1)
+  let f7bit5_raw := funct7.map (BitVec.extractLsb' 5 1 ·)
+  let f7bit5 := (· == ·) <$> f7bit5_raw <*> Signal.pure 1#1
 
   -- funct3 comparisons
   let f3is0 := (· == ·) <$> funct3 <*> Signal.pure 0#3

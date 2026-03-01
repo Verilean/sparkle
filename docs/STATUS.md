@@ -132,26 +132,35 @@ type->total_size = size   → DMEM word 0x156159
 3. ~~`memblock_add` never called~~ — It IS called at cycle 3162213
 4. ~~`early_init_dt_add_memory_arch` never called~~ — Confirmed executing at C0151258
 
-### Current Debugging State
+### Prime Suspect: `holdEX` includes `divStall` in generated SoC but NOT in hand-written SV
 
-**Active question**: Why does `memblock_add_range` fail to write to the memblock region addresses?
+**Critical difference found:**
 
-Possible causes (to investigate):
-1. **Store instruction bug in generated SoC** — `sw` (store word) may produce wrong write address or data under specific conditions (e.g., after MMU translation in S-mode)
-2. **DMEM write address VA→PA translation error** — The stores in `memblock_add_range` go through Sv32 translation; if the physical address is wrong, data lands in the wrong location
-3. **memblock_add_range exits early** — The function may take a different path (size=0 due to register corruption from caller)
-4. **Data overwritten** — Another function overwrites the memblock data after it's written
-5. **Testbench reads from wrong addresses** — The DMEM word addresses in the monitoring code may be incorrect
+| | Hand-written SV (rv32i_soc.sv:803) | Generated (SoC.lean:995-996) |
+|---|---|---|
+| `holdEX` | `pendingWriteEn` | `pendingWriteEn \|\| (divStall && !flushOrDelay)` |
+
+The generated SoC includes `divStall` in `holdEX`. Since `suppressEXWB = dTLBMiss || holdEX`, and `prevStoreEn_next = suppressEXWB ? false : idex_memWrite`, **any store in the EX stage during a multi-cycle divide (~34 cycles) gets its `prevStoreEn` killed**.
+
+This is the most likely root cause: if a `sw` instruction in `memblock_add_range` happens to execute while `divStall` is active (e.g., from a prior DIV instruction still in flight), the store will be suppressed.
+
+### Debugging Strategy: Trace Diffing (Co-simulation comparison)
+
+Compare cycle-accurate traces from hand-written (working) and generated (broken) SoC:
+
+1. Add per-cycle trace output: `PC, dmem_we, dmem_addr, dmem_wdata, holdEX, divStall, suppressEXWB`
+2. Build both SoCs with same testbench
+3. Run both with identical firmware/DTB/payload
+4. `diff` the traces around memblock_add (cycle ~3162213)
+5. Identify exact cycle where generated SoC diverges (store suppressed)
 
 ### Next Steps (TODO)
 
-- [ ] **Run simulation and examine DMEM-WR logs** around cycle 3162213 (memblock_add entry) — the testbench already monitors writes to DMEM words 0x156155-0x156180 (memblock struct + init_regions)
-- [ ] **Add more memblock checkpoints** after cycle 3162213 (e.g., 3165000, 3170000, 3180000) to narrow down when/if memblock data appears and disappears
-- [ ] **Trace memblock_add_range execution** — monitor PCs 0xC0153D90-0xC0153DB0 (the simple-case write path) to confirm these instructions execute
-- [ ] **Compare store behavior** between generated and hand-written SoC for a specific `sw` instruction
-- [ ] **Verify DMEM word address calculations** — cross-check that memblock.memory.regions really maps to DMEM word 0x156166
-- [ ] **Fix the underlying bug** in SoC.lean once identified
+- [ ] **Implement Trace Diffing** — add unified trace format to tb_soc.cpp, build both SoCs
+- [ ] **Confirm `divStall` is active during memblock_add stores** — check if holdEX suppresses prevStoreEn
+- [ ] **Fix holdEX in SoC.lean** — remove `divStall` from `holdEX` (match hand-written SV) or fix suppression logic to not kill stores during divStall
 - [ ] **Verify** Linux boots on fixed generated SoC
+- [ ] **(Future) Formal verification** — prove Store Persistence invariant in Lean: `always (idex_isStore ∧ ¬trap ⟹ eventually (dmem_we ∧ correct_addr))`
 
 ### Relevant Verilator signal names
 

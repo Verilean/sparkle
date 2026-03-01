@@ -6,11 +6,13 @@
 #   Ubuntu: sudo apt install verilator
 #
 # Usage:
-#   make                  # Build verilator simulation
+#   make                  # Build verilator simulation (uses generated SV)
+#   make generate         # Generate SV from Lean (lake build)
 #   make run              # Run with default firmware
 #   make run CYCLES=50000 # Run with custom cycle count
 #   make run HEX=path.hex # Run with custom firmware
 #   make clean            # Clean build artifacts
+#   make build-handwritten # Build with hand-written SV (reference)
 # ============================================================================
 
 VERILATOR ?= verilator
@@ -20,7 +22,7 @@ VERILATOR_FLAGS = --cc --exe --build -j 0 \
     -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT \
     --top-module rv32i_soc
 
-SV_SRC = rv32i_soc.sv
+SV_SRC = generated_soc.sv rv32i_soc_wrapper.sv
 TB_SRC = tb_soc.cpp
 
 OBJ_DIR = obj_dir
@@ -30,14 +32,20 @@ SIM_BIN = $(OBJ_DIR)/Vrv32i_soc
 CYCLES ?= 100000
 HEX ?= ../firmware/firmware.hex
 
-.PHONY: all build run clean wave
+.PHONY: all build generate run clean wave build-handwritten
 
 all: build
 
-build: $(SIM_BIN)
+generate:
+	cd .. && lake build Examples.RV32.SoCVerilog
+
+build: generate $(SIM_BIN)
 
 $(SIM_BIN): $(SV_SRC) $(TB_SRC)
-	$(VERILATOR) $(VERILATOR_FLAGS) $(SV_SRC) $(TB_SRC)
+	$(VERILATOR) $(VERILATOR_FLAGS) -CFLAGS -DTRACE_INTERNAL_SIGNALS $(SV_SRC) $(TB_SRC)
+
+build-handwritten:
+	$(VERILATOR) $(VERILATOR_FLAGS) rv32i_soc.sv tb_soc_minimal.cpp
 
 run: $(SIM_BIN)
 	$(SIM_BIN) $(HEX) $(CYCLES)

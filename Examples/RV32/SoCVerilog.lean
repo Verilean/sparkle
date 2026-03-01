@@ -49,19 +49,23 @@ def rv32iSoCSynth {dom : DomainConfig}
     (dmem_wr_en : Signal dom Bool)
     (dmem_wr_addr : Signal dom (BitVec 23))
     (dmem_wr_data : Signal dom (BitVec 32))
-    : Signal dom (BitVec 32 × BitVec 32 × BitVec 32) :=
+    : Signal dom (BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32) :=
   -- Run the SoC loop
   let state := Signal.loop fun state =>
     -- Compute IMEM read data from state (fetchPC → address → memoryComboRead)
-    let fetchPC := projN! state 119 1
+    let fetchPC := projN! state 122 1
     let imem_addr := fetchPC.map (BitVec.extractLsb' 2 12 ·)
     let imem_rdata := Signal.memoryComboRead imem_wr_addr imem_wr_data imem_wr_en imem_addr
     rv32iSoCBody imem_rdata dmem_wr_en dmem_wr_addr dmem_wr_data state
   -- Extract outputs from state tuple
-  let pcReg         := projN! state 119 0
-  let prevStoreAddr := projN! state 119 42
-  let prevStoreData := projN! state 119 43
-  let prevStoreEn   := projN! state 119 44
+  let pcReg         := projN! state 122 0
+  let prevStoreAddr := projN! state 122 42
+  let prevStoreData := projN! state 122 43
+  let prevStoreEn   := projN! state 122 44
+  -- Debug outputs: satp + PTW state
+  let satpReg       := projN! state 122 77
+  let ptwPteReg     := projN! state 122 83
+  let ptwVaddrReg   := projN! state 122 82
   -- UART TX detection: store to 0x10xxxxxx (UART base), offset 0 (THR register)
   let addrHi := prevStoreAddr.map (BitVec.extractLsb' 24 8 ·)
   let isUartAddr := (· == ·) <$> addrHi <*> Signal.pure 0x10#8
@@ -70,9 +74,9 @@ def rv32iSoCSynth {dom : DomainConfig}
   let uartTxValid := (· && ·) <$> prevStoreEn <*> ((· && ·) <$> isUartAddr <*> isOffset0)
   -- Encode Bool as 32-bit for uniform output packing
   let uartValidBV := Signal.mux uartTxValid (Signal.pure 1#32) (Signal.pure 0#32)
-  -- Pack output: (pc, uart_valid, uart_data)
-  bundleAll! [pcReg, uartValidBV, prevStoreData]
+  -- Pack output: (pc, uart_valid, uart_data, satp, ptwPte, ptwVaddr)
+  bundleAll! [pcReg, uartValidBV, prevStoreData, satpReg, ptwPteReg, ptwVaddrReg]
 
-#synthesizeVerilog rv32iSoCSynth
+#writeVerilogDesign rv32iSoCSynth "verilator/generated_soc.sv"
 
 end Sparkle.Examples.RV32.SoCVerilog
