@@ -11,6 +11,8 @@ import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
+import Sparkle.Backend.CppSim
+import Sparkle.IR.Optimize
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 
@@ -1356,5 +1358,32 @@ elab "#writeVerilogDesign" id:ident str:str : command => do
     let path := str.getString
     IO.FS.writeFile path verilog
     IO.println s!"Written {design.modules.length} modules to {path}"
+
+elab "#writeCppSimDesign" id:ident str:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
+    let path := str.getString
+    IO.FS.writeFile path cpp
+    IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {path}"
+
+/-- Combined command: synthesize once, emit both Verilog and optimized C++ simulation -/
+elab "#writeDesign" id:ident svPath:str cppPath:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    -- Verilog (unoptimized)
+    let verilog := toVerilogDesign design
+    IO.FS.writeFile svPath.getString verilog
+    IO.println s!"Written {design.modules.length} modules to {svPath.getString}"
+    -- CppSim (optimized)
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
+    IO.FS.writeFile cppPath.getString cpp
+    IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {cppPath.getString}"
 
 end Sparkle.Compiler.Elab

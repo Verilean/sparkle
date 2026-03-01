@@ -77,6 +77,6 @@ def rv32iSoCSynth {dom : DomainConfig}
   -- Pack output: (pc, uart_valid, uart_data, satp, ptwPte, ptwVaddr)
   bundleAll! [pcReg, uartValidBV, prevStoreData, satpReg, ptwPteReg, ptwVaddrReg]
 
-#writeVerilogDesign rv32iSoCSynth "verilator/generated_soc.sv"
+#writeDesign rv32iSoCSynth "verilator/generated_soc.sv" "verilator/generated_soc_cppsim.h"
 
 end Sparkle.Examples.RV32.SoCVerilog

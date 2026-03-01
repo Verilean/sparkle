@@ -695,6 +695,18 @@ def rv32iSoCBody {dom : DomainConfig}
     let csrIsMcounteren := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x306#12
     let csrIsScounteren := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x106#12
 
+    -- PMP CSR range detection (0x3A0-0x3EF): return 0, silently ignore writes
+    let csrAddrHi := idex_csrAddr.map (BitVec.extractLsb' 4 8 ·)  -- bits [11:4]
+    let csrIsPmp := (· || ·) <$>
+      ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3A#8) <*>
+      ((· || ·) <$>
+        ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3B#8) <*>
+        ((· || ·) <$>
+          ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3C#8) <*>
+          ((· || ·) <$>
+            ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3D#8) <*>
+            ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3E#8))))
+
     -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
     let sstatusMask := Signal.pure 0x000C0122#32
     let sstatusView := (· &&& ·) <$> mstatusReg <*> sstatusMask
@@ -724,7 +736,8 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux csrIsSatp satpReg
       (Signal.mux csrIsMcounteren mcounterenReg
       (Signal.mux csrIsScounteren scounterenReg
-        (Signal.pure 0#32)))))))))))))))))))))))
+      (Signal.mux csrIsPmp (Signal.pure 0#32)         -- PMP: return 0
+        (Signal.pure 0#32))))))))))))))))))))))))
 
     -- Interrupt enable flags
     let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1

@@ -32,7 +32,13 @@ SIM_BIN = $(OBJ_DIR)/Vrv32i_soc
 CYCLES ?= 100000
 HEX ?= ../firmware/firmware.hex
 
-.PHONY: all build generate run clean wave build-handwritten
+# CppSim settings
+CPPSIM_CXX ?= clang++
+CPPSIM_FLAGS = -std=c++17 -O3 -march=native -DNDEBUG
+CPPSIM_BIN = cppsim_soc
+
+.PHONY: all build generate run clean wave build-handwritten \
+        generate-cppsim build-cppsim run-cppsim benchmark
 
 all: build
 
@@ -54,5 +60,19 @@ wave: run
 	@echo "VCD trace written to sim_trace.vcd"
 	@echo "Open with: gtkwave sim_trace.vcd"
 
+# CppSim targets
+generate-cppsim:
+	cd .. && lake build Examples.RV32.SoCVerilog
+
+build-cppsim: generate-cppsim
+	$(CPPSIM_CXX) $(CPPSIM_FLAGS) -o $(CPPSIM_BIN) tb_cppsim.cpp
+
+run-cppsim: build-cppsim
+	./$(CPPSIM_BIN) $(HEX) $(CYCLES)
+
+benchmark: $(SIM_BIN) build-cppsim
+	@echo "=== Verilator ===" && time ./$(SIM_BIN) $(HEX) $(CYCLES)
+	@echo "=== CppSim ===" && time ./$(CPPSIM_BIN) $(HEX) $(CYCLES)
+
 clean:
-	rm -rf $(OBJ_DIR) sim_trace.vcd
+	rm -rf $(OBJ_DIR) sim_trace.vcd $(CPPSIM_BIN)

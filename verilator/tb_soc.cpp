@@ -330,6 +330,28 @@ int main(int argc, char** argv) {
 
         prev_pc_log = pc;
 
+        // === Trap debug logging ===
+#ifdef TRACE_INTERNAL_SIGNALS
+        {
+            uint8_t trap_taken_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_trap_taken;
+            if (trap_taken_sig) {
+                uint32_t trap_cause_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_trapCause;
+                printf("*** TRAP at cycle %llu: PC=0x%08x cause=0x%08x",
+                       (unsigned long long)cycle, pc, trap_cause_sig);
+                if (trap_cause_sig == 0x00000002) printf(" (illegal instruction)");
+                else if (trap_cause_sig == 0x00000008) printf(" (U-mode ecall)");
+                else if (trap_cause_sig == 0x00000009) printf(" (S-mode ecall)");
+                else if (trap_cause_sig == 0x0000000B) printf(" (M-mode ecall)");
+                else if (trap_cause_sig == 0x0000000C) printf(" (instruction page fault)");
+                else if (trap_cause_sig == 0x0000000D) printf(" (load page fault)");
+                else if (trap_cause_sig == 0x0000000F) printf(" (store page fault)");
+                else if (trap_cause_sig == 0x80000003) printf(" (SW interrupt)");
+                else if (trap_cause_sig == 0x80000007) printf(" (timer interrupt)");
+                printf("\n");
+            }
+        }
+#endif
+
         // === AFTER rising edge: log DMEM write using pre-edge sampled values ===
         if (mon_match) {
             auto& b0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte0_rdata;

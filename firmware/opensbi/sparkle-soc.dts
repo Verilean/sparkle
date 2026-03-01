@@ -1,0 +1,59 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x01>;
+	#size-cells = <0x01>;
+	compatible = "sparkle,rv32ima-soc";
+	model = "Sparkle RV32IMA SoC";
+
+	chosen {
+		bootargs = "earlycon=sbi console=ttyS0";
+		stdout-path = "/soc/serial@10000000";
+	};
+
+	cpus {
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+		timebase-frequency = <0x2faf080>;
+
+		cpu@0 {
+			device_type = "cpu";
+			reg = <0x00>;
+			compatible = "riscv";
+			riscv,isa = "rv32ima";
+			mmu-type = "riscv,sv32";
+
+			interrupt-controller {
+				#interrupt-cells = <0x01>;
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				phandle = <0x01>;
+			};
+		};
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x2000000>;
+	};
+
+	soc {
+		#address-cells = <0x01>;
+		#size-cells = <0x01>;
+		compatible = "simple-bus";
+		ranges;
+
+		clint@2000000 {
+			compatible = "riscv,clint0";
+			reg = <0x2000000 0x10000>;
+			interrupts-extended = <0x01 0x03 0x01 0x07>;
+		};
+
+		serial@10000000 {
+			compatible = "ns16550a";
+			reg = <0x10000000 0x100>;
+			clock-frequency = <0x2faf080>;
+			current-speed = <0x1c200>;
+		};
+	};
+};

@@ -178,6 +178,27 @@ instance : Monad (Signal dom) where
   pure := Signal.pure
   bind := Signal.bind
 
+-- Hardware operator overloading for Signal (BitVec n)
+-- Enables writing `a + b` instead of `(· + ·) <$> a <*> b`
+
+instance : HAdd (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := (· + ·) <$> a <*> b
+
+instance : HSub (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hSub a b := (· - ·) <$> a <*> b
+
+instance : HMul (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hMul a b := (· * ·) <$> a <*> b
+
+instance : HAnd (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hAnd a b := (· &&& ·) <$> a <*> b
+
+instance : HOr (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hOr a b := (· ||| ·) <$> a <*> b
+
+instance : HXor (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hXor a b := (· ^^^ ·) <$> a <*> b
+
 -- Additional combinators
 
 namespace Signal
@@ -584,6 +605,12 @@ private unsafe def loopMemoImpl {dom : DomainConfig} {α : Type} [Inhabited α]
 
 @[implemented_by loopMemoImpl]
 opaque loopMemo {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : IO (Signal dom α)
+
+/-- Chained conditional mux: priority-encoded multiplexer.
+    `Signal.cond [(c1, v1), (c2, v2), ...] default` selects the first
+    matching condition's value, falling back to `default`. -/
+def cond (cases : List (Signal dom Bool × Signal dom α)) (default : Signal dom α) : Signal dom α :=
+  cases.foldr (fun (c, v) acc => Signal.mux c v acc) default
 
 end Signal
 

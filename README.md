@@ -7,6 +7,15 @@
 
 A type-safe hardware description language that brings the power of dependent types and theorem proving to hardware design.
 
+**Quick Start:** See the [Signal DSL Syntax Guide](docs/SignalDSL_Syntax.md) for writing hardware in Sparkle.
+
+## The Sparkle Way: Verification-Driven Design
+
+1. **Write a pure Lean spec** -- Define your hardware's behavior as pure functions
+2. **Implement via Signal DSL** -- Express the same logic using `Signal` combinators
+3. **Validate equivalence via LSpec** -- Prove your implementation matches the spec
+4. **Generate Verilog** -- Use `#synthesizeVerilog` or `#writeVerilogDesign` to emit SystemVerilog
+
 ## Killer App: BitNet b1.58 ASIC Inference Engine
 
 Sparkle ships with a **complete, formally verified BitNet b1.58 accelerator** — a production-grade ternary-weight neural network inference core targeting ASIC synthesis, written entirely in the Signal DSL. This is the world's first formally verified LLM inference hardware generated from a theorem prover.
@@ -673,174 +682,14 @@ def fixed : Signal Domain (BitVec 8) := do
 
 ## Known Limitations and Gotchas
 
-### ⚠️ Imperative Syntax NOT Supported (IMPORTANT!)
-
-**The `<~` feedback operator and imperative do-notation shown in some older documentation DO NOT WORK:**
-
-```lean
--- ❌ WRONG: This syntax doesn't exist yet!
-def counter : Signal Domain (BitVec 8) := do
-  let count ← Signal.register 0
-  count <~ count + 1  -- ❌ The <~ operator is not implemented!
-  return count
-
--- ❌ WRONG: This won't work either
-def fir4 (coeffs : Array (BitVec 16)) (input : BitVec 16) := do
-  let d1 ← Signal.register 0  -- ❌ Missing input signal argument!
-  d1 <~ input                 -- ❌ <~ doesn't exist!
-  ...
-```
-
-**Why these don't work:**
-1. **`<~` operator**: Not defined in the codebase - this is aspirational future syntax
-2. **`do`-notation for feedback**: Signal Monad doesn't support imperative assignment
-3. **Runtime values**: `Array`, single `BitVec` values can't be synthesized to hardware
-4. **Wrong mental model**: Signals are dataflow, not imperative assignments
-
-**✓ CORRECT approaches:**
-
-```lean
--- For simple feedback: use let rec
-def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  let rec count := Signal.register 0#8 (count.map (· + 1))
-  count
-
--- For feed-forward: direct dataflow
-def registerChain (input : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  let d1 := Signal.register 0#16 input
-  let d2 := Signal.register 0#16 d1
-  d2
-
--- For complex feedback: manual IR construction
--- See Examples/LoopSynthesis.lean and Examples/Sparkle16/
-```
-
-**Key differences:**
-- Signals are **wire streams**, not variables you assign to
-- Use `Signal.register init input` with both arguments
-- Coefficients/constants must be Signal inputs, not runtime values
-- Operations use applicative style: `(· + ·) <$> sig1 <*> sig2`
-
-See `test.lean` for a working FIR filter example.
-
-### ⚠️ Pattern Matching on Tuples (IMPORTANT!)
-
-**unbundle2 and pattern matching DO NOT WORK in synthesis:**
-
-```lean
--- ❌ WRONG: This will fail with "Unbound variable" errors
-def example_WRONG (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
-  let (a, b) := unbundle2 input  -- ❌ FAILS!
-  (· + ·) <$> a <*> b
-
--- ✓ RIGHT: Use .fst and .snd projection methods
-def example_RIGHT (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
-  let a := input.fst  -- ✓ Works!
-  let b := input.snd  -- ✓ Works!
-  (· + ·) <$> a <*> b
-```
-
-**Why this happens:**
-- `unbundle2` returns a Lean-level tuple `(Signal α × Signal β)`
-- Lean compiles pattern matches into intermediate forms during elaboration
-- By the time synthesis runs, these patterns are compiled away
-- The synthesis compiler cannot track the destructured variables
-
-**Solution:** Use projection methods instead:
-- For 2-tuples: `.fst` and `.snd`
-- For 3-tuples: `.proj3_1`, `.proj3_2`, `.proj3_3`
-- For 4-tuples: `.proj4_1`, `.proj4_2`, `.proj4_3`, `.proj4_4`
-- For 5-8 tuples: `unbundle5` through `unbundle8` (but access via tuple projections, not pattern matching)
-
-See [Tests/TestUnbundle2.lean](Tests/TestUnbundle2.lean) for detailed examples.
-
-### 🔀 If-Then-Else in Signal Contexts
-
-**Standard if-then-else gets compiled to match expressions and doesn't work:**
-
-```lean
--- ❌ WRONG: if-then-else in Signal contexts
-def example_WRONG (cond : Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
-  if cond then a else b  -- ❌ Error: Cannot instantiate Decidable.rec
-
--- ✓ RIGHT: Use Signal.mux instead
-def example_RIGHT (cond : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
-  Signal.mux cond a b  -- ✓ Works!
-```
-
-**Why this happens:**
-- Lean compiles `if-then-else` into `ite` which becomes `Decidable.rec`
-- The synthesis compiler cannot handle general recursors
-- This is a fundamental limitation of how conditionals are compiled
-
-**Solution:** Always use `Signal.mux` for hardware multiplexers, which generates proper Verilog.
-
-### 🔁 Feedback Loops (Circular Dependencies)
-
-**Simple feedback with `let rec` works:**
-
-```lean
--- ✓ RIGHT: Simple counter with let rec
-def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  let rec count := Signal.register 0#8 (count.map (· + 1))
-  count
-
-#synthesizeVerilog counter  -- ✓ Works!
-```
-
-**Complex feedback with multiple signals — use `Signal.loop`:**
-
-```lean
--- ❌ WRONG: Multiple interdependent signals
-def stateMachine : Signal Domain State :=
-  let next := computeNext state input
-  let state := Signal.register Idle next  -- ❌ Forward reference
-  state
-
--- ✓ RIGHT: Use Signal.loop for multi-register state machines
-def stateMachine (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  Signal.loop fun state =>
-    -- state is the previous cycle's output (right-nested tuple)
-    let next := computeNext state input
-    next
--- See Examples/RV32/SoC.lean for a 117-register Signal.loop example
-```
-
-**Why this limitation exists:**
-- Lean evaluates let-bindings sequentially (no forward references)
-- `let rec` works for single self-referential definitions
-- Multiple circular bindings use `Signal.loop` which provides the previous state
-
-**Workarounds:**
-- **Simple loops**: Use `let rec` (counters, single-register state)
-- **Complex feedback**: Use `Signal.loop` for multi-register state machines
-- See `Examples/LoopSynthesis.lean` and `Examples/RV32/SoC.lean` for working patterns
-
-### 📋 What's Supported
-
-**✓ Fully supported in synthesis:**
-- Basic arithmetic: `+`, `-`, `*`, `&&&`, `|||`, `^^^`
-- Comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`
-- Bitwise operations: shifts, rotations
-- Signal operations: `map`, `pure`, `<*>` (applicative)
-- Registers: `Signal.register`
-- Mux: `Signal.mux`
-- Tuples: `bundle2`/`bundle3` and `.fst`/`.snd`/`.proj*` projections
-- **Arrays/Vectors**: `HWVector α n` with `.get` indexing
-- **Memory primitives**: `Signal.memory` for SRAM/BRAM with synchronous read/write
-- **Correct overflow**: All bit widths preserve wrap-around semantics
-- Hierarchical modules: function calls generate module instantiations
-- **Co-simulation**: Verilator integration for validation
-
-**⚠️ Current Limitations:**
-- **No `<~` feedback operator** - Use `let rec` or `Signal.loop`
-- **No imperative do-notation** - Use dataflow style with applicative operators
-- **No runtime constants** - Arrays, single BitVec values can't be synthesized
-- Pattern matching on Signal tuples (use `.fst`/`.snd` instead)
-- Recursive let-bindings for complex feedback (use manual IR construction)
-- Higher-order functions beyond `map`, `<*>`, and basic combinators
-- General match expressions on Signals
-- Array writes (only indexing reads supported currently)
+See the [Troubleshooting Synthesis Guide](docs/Troubleshooting_Synthesis.md) for:
+- Imperative syntax limitations (`<~` operator)
+- Pattern matching on tuples
+- If-then-else in Signal contexts
+- Feedback loops and `Signal.loop`
+- `Signal.loop` vs `Signal.loopMemo` for simulation
+- What's supported vs. unsupported
+- Synthesis compiler patterns and fix recipes
 
 ### 🧪 Testing
 

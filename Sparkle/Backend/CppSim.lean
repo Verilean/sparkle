@@ -45,7 +45,10 @@ def emitCppType : HWType → String
     if w ≤ 8 then "uint8_t"
     else if w ≤ 16 then "uint16_t"
     else if w ≤ 32 then "uint32_t"
-    else "uint64_t"
+    else if w ≤ 64 then "uint64_t"
+    else  -- Wide type: use array of uint32_t words
+      let nWords := (w + 31) / 32
+      "std::array<uint32_t, " ++ toString nWords ++ ">"
   | .array size elemType =>
     "std::array<" ++ emitCppType elemType ++ ", " ++ toString size ++ ">"
 
@@ -242,12 +245,19 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
   match stmt with
   | .assign lhs rhs =>
     let width := lookupWidth typeMap lhs
-    let expr := emitExpr typeMap rhs
-    let masked := applyMask expr width
-    { declarations := []
-    , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
-    , tickBody := []
-    , resetBody := [] }
+    if width > 64 then
+      -- Skip wide assigns (dead after IR optimization, e.g. tuple packing)
+      { declarations := []
+      , evalBody := [s!"        // skipped: {sanitizeName lhs} ({width}-bit wide assign)"]
+      , tickBody := []
+      , resetBody := [] }
+    else
+      let expr := emitExpr typeMap rhs
+      let masked := applyMask expr width
+      { declarations := []
+      , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
+      , tickBody := []
+      , resetBody := [] }
 
   | .register output _clock _reset input initValue =>
     let width := lookupWidth typeMap output
