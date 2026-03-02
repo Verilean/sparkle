@@ -31,6 +31,7 @@ import Tests.YOLOv8.TestBackbone
 import Tests.YOLOv8.TestNeck
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
+import Tests.Library.TestSyncFIFO
 import LSpec
 
 open Sparkle.Core.Domain
@@ -405,5 +406,9 @@ def main : IO UInt32 := do
   -- RV32 SoC Flow tests
   let rv32FlowTests ← Sparkle.Tests.RV32.TestFlow.flowTests
   let allTests := allTests ++ rv32FlowTests
+
+  -- SyncFIFO tests
+  let syncFIFOTests ← Sparkle.Tests.Library.TestSyncFIFO.syncFIFOTests
+  let allTests := allTests ++ syncFIFOTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []

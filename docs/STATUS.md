@@ -5,6 +5,122 @@
 
 ---
 
+## Verified Standard IP Library — SyncFIFO (Phase 26) — DONE
+
+First component of the **Verified Standard IP Library**: a Synchronous FIFO with Valid/Ready (Decoupled) interface. Establishes the pattern for future verified IP (arbiter, crossbar, cache, AXI4, etc.).
+
+### What Was Built
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **Pure formal model** | `Sparkle/Library/Queue/QueueProps.lean` | 7 theorems (no `sorry`) — no overflow, no underflow, full/empty guards, idle/simultaneous preserves, inductive invariant |
+| **Synthesizable hardware** | `Sparkle/Library/Queue/SyncFIFO.lean` | Depth-4 FIFO using `declare_signal_state`, `Signal.loop`, `Signal.memoryComboRead`, `hw_cond` |
+| **LSpec tests** | `Tests/Library/TestSyncFIFO.lean` | 16 tests — fill, drain, FIFO ordering, full/empty conditions, simultaneous enq+deq |
+| **Test integration** | `Tests/AllTests.lean` | Import + invocation wired up |
+
+### Architecture
+
+- **Parameters**: depth=4 (addrWidth=2), dataWidth=32
+- **State**: `SyncFIFOState` = `BitVec 2 × BitVec 2 × BitVec 3` (wrPtr, rdPtr, count)
+- **Data buffer**: `Signal.memoryComboRead` (same-cycle read for dequeue data)
+- **Output**: `BitVec 32 × BitVec 32 × BitVec 32` (enqReady, deqValid, deqData)
+
+### Design Pattern (reusable for future IP)
+
+1. **Extract loop body** into standalone `def` — enables sharing between synthesis and simulation
+2. **Synthesis path**: `Signal.loop body` — generates valid SystemVerilog via `#synthesizeVerilog`
+3. **Simulation path**: `Signal.loopMemo body` — avoids stack overflow for functional tests
+4. **Pure model** (`QueueProps.lean`) — proven properties in a separate file, no hardware dependencies
+
+### Formal Properties (all proven)
+
+| Theorem | Statement |
+|---------|-----------|
+| `no_overflow` | `count ≤ depth → nextCount ≤ depth` |
+| `no_underflow` | `0 ≤ nextCount` (trivial for Nat) |
+| `full_blocks_enqueue` | `¬ canEnqueue depth depth` |
+| `empty_blocks_dequeue` | `¬ canDequeue 0` |
+| `idle_preserves` | `nextCount c d false false = c` |
+| `simultaneous_preserves` | `canEnqueue ∧ canDequeue → nextCount c d true true = c` |
+| `count_bounded_inductive` | Same as `no_overflow` (inductive invariant) |
+
+### Generated SystemVerilog (excerpt)
+
+```systemverilog
+module Sparkle_Library_Queue_SyncFIFO_syncFIFO (
+    input logic _gen_enqValid,
+    input logic [31:0] _gen_enqData,
+    input logic _gen_deqReady,
+    input logic clk, input logic rst,
+    output logic [95:0] out
+);
+    // 3 registers: wrPtr (2-bit), rdPtr (2-bit), count (3-bit)
+    // 4-entry memory: _gen_deqData [0:3]
+    // Priority mux for count update (enq-only / deq-only / simultaneous)
+    // Combo read for dequeue data
+endmodule
+```
+
+### Test Results (all 16 pass)
+
+```
+SyncFIFO:
+  Initial State:
+    ✓ enqReady=1 at t=0 (empty FIFO)
+    ✓ deqValid=0 at t=0 (empty FIFO)
+  Enqueue Phase:
+    ✓ enqReady=1 at t=1..3
+  Full Condition:
+    ✓ enqReady=0 at t=4 (full)
+    ✓ deqValid=1 at t=4
+  Dequeue Phase — FIFO Order:
+    ✓ deqData=0xA0..0xA3 at t=4..7
+  Empty After Drain:
+    ✓ deqValid=0 at t=8 (empty)
+    ✓ enqReady=1 at t=8
+  Simultaneous Enq+Deq:
+    ✓ enqReady=1, deqValid=1 at t=3
+```
+
+### Verification
+
+- `lake build` — all 103 modules compile
+- `lake test` — all 16 SyncFIFO tests pass (only pre-existing CppSim bit-accuracy failure)
+- `#synthesizeVerilog syncFIFO` — valid SystemVerilog with memory, registers, combinational logic
+- QueueProps theorems — all 7 compile without `sorry`
+
+---
+
+## Next Phases (TODO)
+
+### Verified Standard IP Library — Remaining Components
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| **SyncFIFO** | DONE | Depth-4 FIFO with Valid/Ready interface |
+| **Parameterized FIFO** | TODO | Generic depth/width FIFO (power-of-2 depth) |
+| **Credit-based flow control** | TODO | Backpressure via credits instead of ready/valid |
+| **Arbiter (N-way)** | TODO | Generalize 2-client arbiter to N clients |
+| **Crossbar** | TODO | N×M crossbar switch with arbitration |
+| **AXI4-Lite** | TODO | AXI4-Lite master/slave interfaces |
+| **Cache** | TODO | Direct-mapped / set-associative cache with write-back |
+| **TileLink** | TODO | TileLink Uncached Lightweight (TL-UL) |
+
+### Performance
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| **CppSim Phase 4** | TODO | eval()+tick() merge — eliminate register copy overhead |
+
+### Hardware Targets
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| **FPGA Tape-out** | TODO | End-to-end Sparkle → FPGA flow |
+| **GPGPU / Vector Core** | TODO | VDD framework applied to concurrent architectures |
+
+---
+
 ## CppSim Phase 3 — Store Reduction via Observable Wire Threading (Phase 25) — DONE
 
 Threaded `observableWires` through the IR optimizer, CppSim backend, and `#writeDesign` command. This unblocks `_gen_` wire inlining (previously deferred in Phase 24) by passing the 6 JIT-observable wire names explicitly from the application layer (`SoCOutput.wireNames`), rather than using the blanket `_gen_` prefix guard.

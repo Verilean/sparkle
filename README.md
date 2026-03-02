@@ -859,6 +859,7 @@ Tests include:
 - **JIT loop tests** — `loopMemoJIT` Signal API + `rv32iSoCJITRun` Streaming API (47 UART words pass)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
+- **SyncFIFO (16 tests)** — fill/drain, FIFO ordering, full/empty conditions, simultaneous enq+deq
 - Co-simulation with Verilator
 
 ## Comparison with Other HDLs
@@ -901,6 +902,10 @@ sparkle/
 │   │   ├── Verilog.lean # SystemVerilog backend
 │   │   ├── CppSim.lean  # C++ simulation + JIT wrapper generation
 │   │   └── VCD.lean     # Waveform dump generation
+│   ├── Library/         # Verified Standard IP Library
+│   │   └── Queue/       # FIFO components
+│   │       ├── QueueProps.lean # Pure formal model: 7 theorems (no sorry)
+│   │       └── SyncFIFO.lean   # Synthesizable depth-4 FIFO (Valid/Ready)
 │   └── Verification/    # Proof libraries and co-simulation
 │       ├── Temporal.lean # Linear Temporal Logic (LTL) operators
 │       ├── ArbiterProps.lean # Round-robin arbiter: 10 formal proofs (safety/liveness/fairness)
@@ -938,6 +943,8 @@ sparkle/
 │   ├── RV32/            # RV32I simulation tests
 │   ├── BitNet/          # BitNet Signal DSL + golden validation tests
 │   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
+│   ├── Library/         # Verified IP tests
+│   │   └── TestSyncFIFO.lean # SyncFIFO: 16 tests (fill, drain, FIFO order, full/empty)
 │   ├── golden-values/   # Real model data from bitnet.cpp
 │   └── yolo-golden/     # Real model data from ultralytics YOLOv8
 ├── verilator/           # Verilator simulation backend
@@ -962,7 +969,7 @@ Sparkle is an educational project demonstrating:
 - Compiler construction and metaprogramming
 
 Contributions welcome! Areas of interest:
-- Verified standard IP (FIFO, AXI4, TileLink) with formal proofs
+- Verified standard IP (parameterized FIFO, crossbar, AXI4, TileLink) with formal proofs
 - FPGA synthesis and tape-out examples
 - Advanced IR optimization passes
 - Additional examples and tutorials
@@ -1003,10 +1010,13 @@ Contributions welcome! Areas of interest:
 - [x] **CppSim Backend Optimization** - IR inlining + constant folding + local variable promotion → 2.1x speedup, gap closed from 2.7x to 1.3x ✓
 - [x] **CppSim Phase 2 — Mask Elimination** - Aggressive `exprIsMasked` analysis (`.ref` invariant, AND/OR/XOR/SHR/ASR rules) → 449→137 mask ops (69.5% reduction) ✓
 - [x] **CppSim Phase 3 — Observable Wire Threading** - Thread `observableWires` through optimizer/backend, demote ~950 `_gen_` to locals → 2.0x speedup (6.3M→12.6M cyc/s), JIT now **1.6x faster** than Verilator ✓
+- [x] **Verified Standard IP — SyncFIFO** - Depth-4 FIFO with Valid/Ready interface: 7 formal proofs (QueueProps), synthesizable hardware (Signal DSL), 16 LSpec tests ✓
 
 ### Next Phases (TODO)
 - [ ] **CppSim Phase 4 — eval()+tick() Merge** - Eliminate register copy overhead by combining both passes (4.2x tick instruction gap vs Verilator)
-- [ ] **Verified Standard IP Library** - Formally proven, synthesizable components for FIFO buffers, Caches, and AXI4/TileLink bus protocols
+- [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
+- [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients
+- [ ] **Verified Standard IP — AXI4-Lite / TileLink** - Bus protocol interfaces with formal properties
 - [ ] **GPGPU / Vector Core** - Apply the Verification-Driven Design (VDD) framework to highly concurrent, memory-bound accelerator architectures
 - [ ] **FPGA Tape-out Flow** - End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs
 
