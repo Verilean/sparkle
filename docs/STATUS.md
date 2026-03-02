@@ -1,7 +1,62 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-02
+**Date**: 2026-03-03
 **Branch**: main
+
+---
+
+## CppSim Phase 2 — Mask Elimination (Phase 24) — DONE
+
+Extended the `exprIsMasked` analysis in the CppSim backend to eliminate redundant `& mask` operations at runtime.
+
+### Results
+
+| Metric | Before (Phase 23) | After (Phase 24) | Change |
+|--------|-------------------|-------------------|--------|
+| **Mask operations** | 449 | **137** | **-69.5% (312 eliminated)** |
+| **CppSim speed** | 6.3M cyc/s | ~6.4M cyc/s | Marginal (masks are cheap on ARM64) |
+
+### New `exprIsMasked` Cases
+
+| Pattern | Rule | Reasoning |
+|---------|------|-----------|
+| `.ref _` | always masked | Invariant: every wire is masked at its assignment site |
+| `.op .and [a, b]` | `a \|\| b` | AND with a masked operand constrains the result (NOT unconditional — `AND(~x, ~y)` preserves garbage) |
+| `.op .or [a, b]` | `a && b` | OR of two masked values stays within width |
+| `.op .xor [a, b]` | `a && b` | XOR of two masked values stays within width |
+| `.op .shr _` | always masked | Right-shift moves bits toward LSB, no new upper bits |
+| `.op .asr _` | always masked | Masked input is positive in signed cast, no sign extension above `w` |
+
+Also applied `exprIsMasked` to register inputs (previously always masked unconditionally).
+
+### `_gen_` Wire Inlining — Deferred
+
+The plan's Step 1 (inline single-use `_gen_` wires with output-feeding protection) was investigated and found unsafe:
+- `_gen_` wires are accessed by name at runtime via `jit_get_wire()` and `loopMemoJIT`
+- Naming collisions (e.g., `_gen_ptwPteReg` vs `_gen_ptwPteReg_1`) mean the output-feeding set cannot reliably identify all JIT-observable wires
+- The `_gen_` prefix serves as a JIT observability contract — breaking it causes runtime lookup failures
+
+**Deferred until**: JIT wire API is redesigned to use indices instead of name lookup, or wires specify observability explicitly in the IR.
+
+### Key Bug Fix: AND Mask Rule
+
+The original plan specified `.op .and _ => true` (AND always masked). This is **incorrect**:
+- `AND(~a, ~b)` where both operands are bitwise-NOT of 1-bit values: `AND(0xFE, 0xFE) = 0xFE` — not 1-bit
+- Fix: `AND(a, b)` is masked if **either** `a` or `b` is masked (the masked one constrains the result)
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `Sparkle/Backend/CppSim.lean` | Extended `exprIsMasked` (6 new cases), applied to register inputs |
+
+### Remaining 1.3x Gap — Updated Bottleneck Analysis
+
+| Component | Status | Impact |
+|-----------|--------|--------|
+| Store count (`_gen_` members) | **Blocked** — requires JIT API redesign | ~3.9x vs Verilator |
+| Mask operations | **DONE** — 312 eliminated (69.5%) | Marginal perf impact |
+| tick() overhead | Deferred — eval()+tick() merge | ~4.2x vs Verilator |
 
 ---
 

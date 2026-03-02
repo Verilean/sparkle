@@ -68,14 +68,21 @@ def applyMask (expr : String) (w : Nat) : String :=
   if mask.isEmpty then expr
   else s!"(({expr}) & {mask})"
 
-/-- Check if an IR expression produces a result that is already correctly masked -/
+/-- Check if an IR expression produces a result that is already correctly masked.
+    Invariant: every assignment applies a mask, so .ref reads yield masked values. -/
 partial def exprIsMasked (w : Nat) : Expr → Bool
   | .const _ _ => true  -- constants are always exact
+  | .ref _ => true  -- all wires are masked at their assignment site
   | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
   | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
   | .op .ge_s _ => w == 1  -- comparisons produce 0 or 1
   | .slice _ hi lo => (hi - lo + 1) == w  -- slice is already exact width
   | .op .mux [_, t, e] => exprIsMasked w t && exprIsMasked w e
+  | .op .and [a, b] => exprIsMasked w a || exprIsMasked w b  -- AND is masked if either operand is
+  | .op .or [a, b] => exprIsMasked w a && exprIsMasked w b  -- OR of masked stays in width
+  | .op .xor [a, b] => exprIsMasked w a && exprIsMasked w b  -- XOR of masked stays in width
+  | .op .shr _ => true  -- right-shift moves bits toward LSB, no new upper bits
+  | .op .asr _ => true  -- cast to unsigned in emitExpr handles width
   | _ => !needsMask w  -- native widths don't need masking
 
 /-- Convert Operator to C++ operator symbol -/
@@ -274,7 +281,8 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     let cppType := emitCppType (.bitVector width)
     let outName := sanitizeName output
     let nextName := s!"{outName}_next"
-    let inputExpr := applyMask (emitExpr typeMap input) width
+    let rawExpr := emitExpr typeMap input
+    let inputExpr := if exprIsMasked width input then rawExpr else applyMask rawExpr width
     let initExpr := emitInitValue initValue width
     { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
     , evalBody := [s!"        {nextName} = {inputExpr};"]

@@ -286,7 +286,7 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 | **CppSim / JIT** | 6.3M cyc/s | ~1300x |
 | **Lean loopMemo** | ~5K cyc/s | 1x |
 
-CppSim/JIT is within 1.3x of Verilator after IR-level optimizations (single-use wire inlining, constant folding, local variable promotion, mask elimination). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and remaining bottleneck breakdown.
+CppSim/JIT is within 1.3x of Verilator after IR-level optimizations (single-use wire inlining, constant folding, local variable promotion, aggressive mask elimination). The mask elimination pass (Phase 24) reduced mask operations from 449 to 137 (69.5% reduction) via `.ref` invariant propagation and bitwise operator analysis. See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and remaining bottleneck breakdown.
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -1001,9 +1001,11 @@ Contributions welcome! Areas of interest:
 - [x] **Transparent JIT (`loopMemoJIT`)** - Same `Signal dom α` API as `loopMemo`, ~700x faster via JIT C++ ✓
 - [x] **Performance Analysis** - Identified CppSim bottleneck: 2x more instructions from unoptimized IR ✓
 - [x] **CppSim Backend Optimization** - IR inlining + constant folding + local variable promotion → 2.1x speedup, gap closed from 2.7x to 1.3x ✓
+- [x] **CppSim Phase 2 — Mask Elimination** - Aggressive `exprIsMasked` analysis (`.ref` invariant, AND/OR/XOR/SHR/ASR rules) → 449→137 mask ops (69.5% reduction) ✓
 
-### Next Phases
-- [ ] **CppSim Phase 2 Optimization** - Close the remaining 1.3x gap: promote unused `_gen_` wires to locals, extend mask elimination, merge eval()+tick()
+### Next Phases (TODO)
+- [ ] **CppSim Phase 3 — Store Reduction** - Redesign JIT wire API (index-based instead of name lookup) to unblock `_gen_` wire inlining → estimated ~560 fewer stores per cycle
+- [ ] **CppSim Phase 4 — eval()+tick() Merge** - Eliminate register copy overhead by combining both passes (4.2x tick instruction gap vs Verilator)
 - [ ] **Verified Standard IP Library** - Formally proven, synthesizable components for FIFO buffers, Caches, and AXI4/TileLink bus protocols
 - [ ] **GPGPU / Vector Core** - Apply the Verification-Driven Design (VDD) framework to highly concurrent, memory-bound accelerator architectures
 - [ ] **FPGA Tape-out Flow** - End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs
