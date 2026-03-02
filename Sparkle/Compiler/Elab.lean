@@ -1385,5 +1385,10 @@ elab "#writeDesign" id:ident svPath:str cppPath:str : command => do
     let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
     IO.FS.writeFile cppPath.getString cpp
     IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {cppPath.getString}"
+    -- JIT wrapper (self-contained .cpp with extern "C" API)
+    let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
+    let jitPath := cppPath.getString.replace "_cppsim.h" "_jit.cpp"
+    IO.FS.writeFile jitPath jitCpp
+    IO.println s!"Written JIT wrapper to {jitPath}"
 
 end Sparkle.Compiler.Elab

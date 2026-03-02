@@ -5,6 +5,113 @@
 
 ---
 
+## JIT FFI Implementation (Phase 14) — DONE
+
+Implemented JIT-accelerated simulation via dynamic compilation. The CppSim backend now generates self-contained `.cpp` files with `extern "C"` wrappers, compiled to shared libraries (`.dylib`) at runtime, and loaded from Lean via `dlopen`/`dlsym` FFI.
+
+### Architecture
+
+```
+┌─────────────┐    #writeDesign     ┌──────────────────┐
+│  Lean DSL   │ ──────────────────► │  *_jit.cpp       │
+│  (Signal)   │                     │  (CppSim class + │
+└─────────────┘                     │   extern "C" API)│
+                                    └────────┬─────────┘
+                                             │ c++ -shared
+                                             ▼
+                                    ┌──────────────────┐
+                                    │  *.dylib          │
+                                    │  (shared library) │
+                                    └────────┬─────────┘
+                                             │ dlopen/dlsym
+                                             ▼
+                                    ┌──────────────────┐
+                                    │  Lean JIT.lean   │
+                                    │  (eval/tick/reset │
+                                    │   setMem/getWire) │
+                                    └──────────────────┘
+```
+
+### Performance
+
+- **JIT simulation**: ~1M+ cycles/sec (firmware test: 2904 cycles)
+- **Interpreted loopMemo**: ~5K cycles/sec
+- **Speedup**: ~200x over Lean-native simulation
+
+### API (Sparkle.Core.JIT)
+
+| Function | Description |
+|----------|-------------|
+| `JIT.compileAndLoad cppPath` | Compile `.cpp` → `.dylib` (hash-cached) and load |
+| `JIT.eval handle` | Evaluate combinational logic |
+| `JIT.tick handle` | Advance clock (register update) |
+| `JIT.reset handle` | Reset all registers |
+| `JIT.setInput handle idx val` | Set input port by index |
+| `JIT.getOutput handle idx` | Get output port by index |
+| `JIT.getWire handle idx` | Get named internal wire by index |
+| `JIT.wireName handle idx` | Get wire name by index (for discovery) |
+| `JIT.findWire handle name` | Find wire index by name |
+| `JIT.setMem handle memIdx addr data` | Write to memory array |
+| `JIT.getMem handle memIdx addr` | Read from memory array |
+| `JIT.destroy handle` | Destroy instance (also runs on finalize) |
+
+### Generated Wrapper (extern "C")
+
+The `toCppSimJIT` function generates a self-contained `.cpp` with:
+- Full CppSim class inlined (no header dependency)
+- `jit_create/destroy/eval/tick/reset` — lifecycle management
+- `jit_set_input/get_output` — port access by index
+- `jit_get_wire/jit_wire_name` — named wire observation (980 wires for SoC)
+- `jit_set_mem/get_mem` — direct memory access (11 memories for SoC)
+- `jit_num_inputs/outputs/wires/memories` — metadata queries
+
+### Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `Sparkle/Backend/CppSim.lean` | Modified | Added `toCppSimJIT` + helpers |
+| `c_src/sparkle_jit.c` | Created | dlopen/dlsym FFI with `lean_external_class` |
+| `Sparkle/Core/JIT.lean` | Created | `@[extern]` opaque declarations + compile/load helpers |
+| `Sparkle.lean` | Modified | Added `import Sparkle.Core.JIT` |
+| `Sparkle/Compiler/Elab.lean` | Modified | `#writeDesign` now auto-emits JIT wrapper |
+| `lakefile.lean` | Modified | Added `extern_lib sparkle_jit` + `rv32-jit-test` exe |
+| `Tests/RV32/JITTest.lean` | Created | End-to-end JIT test with firmware |
+| `verilator/Makefile` | Modified | Added `build-jit` and `run-jit` targets |
+
+### Verification
+
+```
+$ lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+JIT: Compiling verilator/generated_soc_jit.cpp...
+JIT: Loaded shared library
+JIT: Wire indices — pcReg=8, uartValid=979, uartData=50
+JIT: Loading firmware from firmware/firmware.hex...
+JIT: Running for 5000 cycles...
+  UART[1]: 0xdead0001
+  ...
+  UART[47]: 0xcafe0000
+
+*** ALL TESTS PASSED (cycle 2904) ***
+```
+
+### Build & Run
+
+```bash
+# Generate all outputs (SV + CppSim + JIT wrapper)
+lake build Examples.RV32.SoCVerilog
+
+# Run JIT test from Lean
+lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+
+# Build JIT shared library manually
+cd verilator && make build-jit
+
+# Run JIT test via Makefile
+cd verilator && make run-jit
+```
+
+---
+
 ## holdEX/divStall Store Bug Fix (Phase 13) — DONE
 
 Fixed a critical bug where `holdEX` included `divStall`, causing `suppressEXWB` to kill valid stores during multi-cycle division. This prevented `memblock_add` stores from persisting during Linux boot, leaving `swapper_pg_dir` empty and causing a recursive page fault at PC 0xC0001C88.
@@ -180,8 +287,10 @@ cd verilator && make benchmark CYCLES=5000
 - [x] Fix holdEX/divStall store bug (Phase 13 — done)
 - [x] Signal Bool operator instances (Phase 13 — done)
 - [x] JIT FFI design document (Phase 13 — done, see `docs/JIT_FFI_Plan.md`)
-- [ ] Lean FFI bridge — call eval()/tick()/reset() from Lean via dlopen (see `docs/JIT_FFI_Plan.md`)
-- [ ] Integrate with `Signal.loopMemo` for transparent JIT acceleration
+- [x] JIT FFI implementation (Phase 14 — done)
+- [ ] `loopMemoJIT` integration — replace interpreted loopMemo with JIT-compiled evaluation
+- [ ] State marshalling between Lean tuples and C++ flat arrays
+- [ ] Runtime synthesis (porting MetaM synthesis to IO — major refactor)
 - [ ] Profile-guided optimization (PGO) for CppSim
 - [ ] Promote eval()-only wires to local variables (enable C++ register allocation)
 - [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread with larger stack)
@@ -427,7 +536,9 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 ## Future Work
 
 - [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
-- [ ] JIT FFI implementation (see `docs/JIT_FFI_Plan.md`)
+- [ ] `loopMemoJIT` — transparent JIT acceleration for Signal.loopMemo (replace interpreted sim)
+- [ ] State marshalling — bidirectional Lean tuple ↔ C++ flat array conversion
+- [ ] Runtime synthesis — port MetaM synthesis to IO for dynamic JIT compilation
 - [ ] Bulk refactoring of SoC.lean to use Signal Bool operators (`|||`, `&&&`, `~~~`)
 - [ ] Debug infrastructure cleanup (remove unused debug ports/traces)
 - [ ] Fix Verilator testbench internal signal references
@@ -444,8 +555,14 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 # Lean build (SoC simulation)
 lake build Examples.RV32.SoC
 
-# Lean build (Verilog synthesis → writes verilator/generated_soc.sv)
+# Lean build (Verilog synthesis → writes SV + CppSim + JIT wrapper)
 lake build Examples.RV32.SoCVerilog
+
+# JIT test (compile, load, run firmware from Lean)
+lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+
+# CppSim test (standalone C++)
+cd verilator && make build-cppsim && make run-cppsim CYCLES=5000
 
 # Verilator build (generated SV + wrapper)
 cd verilator && make build
@@ -455,6 +572,9 @@ cd verilator && make build-handwritten
 
 # Firmware test
 cd verilator && ./obj_dir/Vrv32i_soc ../firmware/firmware.hex 500000
+
+# JIT shared library build (manual)
+cd verilator && make build-jit
 
 # Linux boot test
 cd verilator && ./obj_dir/Vrv32i_soc ../firmware/opensbi/boot.hex 10000000 \

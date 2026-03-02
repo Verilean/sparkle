@@ -200,6 +200,21 @@ def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState 
 - **CLINT**: Machine timer with mtime/mtimecmp
 - **Memory**: 32 MB DRAM (byte-addressable, sub-word load/store: LB/LH/LBU/LHU/SB/SH)
 
+### JIT FFI Simulation (~200x faster than Lean)
+- **Compile C++ to shared library at runtime**, load via `dlopen` from Lean
+- Hash-based caching: recompilation skipped if source unchanged
+- 980 observable wires, 11 memories, 6 input ports
+- Wire discovery by name (`JIT.findWire handle "_gen_pcReg"`)
+
+```lean
+-- From Lean: compile, load, and run JIT simulation
+let handle ← JIT.compileAndLoad "verilator/generated_soc_jit.cpp"
+JIT.setMem handle 0 addr word   -- Load firmware into IMEM
+JIT.eval handle                  -- Evaluate combinational logic
+let pc ← JIT.getWire handle pcIdx  -- Read pcReg wire
+JIT.tick handle                  -- Advance clock
+```
+
 ### Verilator Backend (~1000x faster)
 - Hand-written SystemVerilog translation at `verilator/rv32i_soc.sv`
 - Boots OpenSBI v0.9 → Linux 6.6.0 kernel in ~7M cycles (~3944 UART bytes)
@@ -209,6 +224,12 @@ def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState 
 ```bash
 # Lean simulation
 lake test  # Includes RV32 simulation tests
+
+# JIT simulation from Lean (compile + load + run)
+lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+
+# CppSim (standalone C++)
+cd verilator && make build-cppsim && make run-cppsim
 
 # Verilator simulation (much faster)
 cd verilator && make build
@@ -650,12 +671,13 @@ The generated documentation includes:
 │  Lean Code  │  Write hardware using Signal DSL
 └──────┬──────┘
        │
-       ├──────────────────────────┐
-       ▼                          ▼
-┌─────────────┐          ┌──────────────────┐
-│ Simulation  │          │ #synthesizeVerilog│
-│  .atTime t  │          │  Lean → IR → SV  │
-└─────────────┘          └──────────────────┘
+       ├──────────────┬──────────────────┐
+       ▼              ▼                  ▼
+┌─────────────┐ ┌────────────┐  ┌──────────────────┐
+│ Simulation  │ │ JIT (FFI)  │  │ #synthesizeVerilog│
+│  .atTime t  │ │ C++ dlopen │  │  Lean → IR → SV  │
+│  ~5K cyc/s  │ │ ~1M cyc/s  │  │                  │
+└─────────────┘ └────────────┘  └──────────────────┘
 ```
 
 ### Core Abstractions
@@ -744,8 +766,9 @@ sparkle/
 │   │   └── Builder.lean # Circuit construction monad
 │   ├── Compiler/        # Lean → IR compilation
 │   │   └── Elab.lean    # #synthesizeVerilog metaprogramming
-│   ├── Backend/         # Verilog code generation
+│   ├── Backend/         # Code generation backends
 │   │   ├── Verilog.lean # SystemVerilog backend
+│   │   ├── CppSim.lean  # C++ simulation + JIT wrapper generation
 │   │   └── VCD.lean     # Waveform dump generation
 │   └── Verification/    # Proof libraries and co-simulation
 │       ├── Temporal.lean # Linear Temporal Logic (LTL) operators
@@ -790,7 +813,9 @@ sparkle/
 ├── firmware/            # Boot firmware and device tree
 │   ├── sparkle-soc.dts # Device tree source for Linux
 │   └── opensbi/        # OpenSBI v0.9 boot support
-├── c_src/               # C FFI barriers for Signal.loopMemo
+├── c_src/               # C FFI libraries
+│   ├── sparkle_barrier.c # Signal.loopMemo memoization barriers
+│   └── sparkle_jit.c    # JIT dlopen/dlsym FFI (lean_external_class)
 └── lakefile.lean        # Build configuration
 ```
 
@@ -831,6 +856,9 @@ Contributions welcome! Areas of interest:
 - [x] **OpenSBI v0.9 boot** - M-mode firmware with SBI ecall handling ✓
 - [x] **Linux 6.6.0 boot** - Kernel boot on Verilator (prints version, memory zones, ISA) ✓
 - [x] **Verilator backend** - ~1000x faster simulation, VCD tracing, Linux boot support ✓
+- [x] **CppSim backend** - C++ code generation from IR, ~170x faster than Verilator for firmware tests ✓
+- [x] **JIT FFI** - dlopen-based native simulation from Lean, ~200x faster than interpreted ✓
+- [ ] **loopMemoJIT** - Transparent JIT acceleration for Signal.loopMemo
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
 - [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters

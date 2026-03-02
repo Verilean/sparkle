@@ -408,4 +408,162 @@ def toCppSimDesign (d : Design) : String :=
     | none => []
   header ++ String.intercalate "\n" (subCode ++ topCode)
 
+/-- Collect memory entries from a module's body (name, addrWidth, dataWidth) -/
+private def collectMemories (body : List Stmt) : List (String × Nat × Nat) :=
+  body.filterMap fun stmt =>
+    match stmt with
+    | .memory name addrWidth dataWidth .. => some (name, addrWidth, dataWidth)
+    | _ => none
+
+/-- Generate set_input switch cases from Module.inputs (skip clk/rst) -/
+private def emitSetInputSwitch (inputs : List Port) : String :=
+  let userInputs := inputs.filter fun (p : Port) =>
+    p.name != "clk" && p.name != "rst"
+  let indexed := (List.range userInputs.length).zip userInputs
+  let cases := indexed.map fun (i, p) =>
+    let sName := sanitizeName p.name
+    let cppType := emitCppType p.ty
+    s!"            case {i}: s->{sName} = ({cppType})val; break;"
+  String.intercalate "\n" cases
+
+/-- Generate get_output switch cases from Module.outputs -/
+private def emitGetOutputSwitch (outputs : List Port) : String :=
+  -- For wide packed outputs (array), expose each 32-bit element
+  -- For scalar outputs, return directly
+  let cases := outputs.foldl (fun (acc : List String × Nat) (p : Port) =>
+    let sName := sanitizeName p.name
+    let w := p.ty.bitWidth
+    if w > 64 then
+      -- Wide array output: expose each 32-bit element
+      let nWords := (w + 31) / 32
+      let wordCases := List.range nWords |>.map fun j =>
+        s!"            case {acc.2 + j}: return (uint64_t)s->{sName}[{j}];"
+      (acc.1 ++ wordCases, acc.2 + nWords)
+    else
+      let cast := s!"(uint64_t)s->{sName}"
+      (acc.1 ++ [s!"            case {acc.2}: return {cast};"], acc.2 + 1)
+  ) ([], 0)
+  String.intercalate "\n" cases.1
+
+/-- Count total output slots (wide outputs expand to multiple slots) -/
+private def countOutputSlots (outputs : List Port) : Nat :=
+  outputs.foldl (fun acc p =>
+    let w := p.ty.bitWidth
+    if w > 64 then acc + (w + 31) / 32 else acc + 1
+  ) 0
+
+/-- Get the filtered list of named wires (_gen_ prefix, ≤64 bits) -/
+private def getNamedWires (wires : List Port) : List Port :=
+  wires.filter fun (w : Port) =>
+    (sanitizeName w.name).startsWith "_gen_" && w.ty.bitWidth ≤ 64
+
+/-- Generate get_wire switch for named internal wires (_gen_ prefix, ≤64 bits) -/
+private def emitGetWireSwitch (wires : List Port) : String × Nat :=
+  let namedWires := getNamedWires wires
+  let indexed := (List.range namedWires.length).zip namedWires
+  let cases := indexed.map fun (i, p) =>
+    let sName := sanitizeName p.name
+    s!"            case {i}: return (uint64_t)s->{sName};"
+  (String.intercalate "\n" cases, namedWires.length)
+
+/-- Generate wire_name switch (returns wire name by index for discovery) -/
+private def emitWireNameSwitch (wires : List Port) : String :=
+  let namedWires := getNamedWires wires
+  let indexed := (List.range namedWires.length).zip namedWires
+  let cases := indexed.map fun (i, p) =>
+    let sName := sanitizeName p.name
+    s!"            case {i}: return \"{sName}\";"
+  String.intercalate "\n" cases
+
+/-- Generate memory access switch cases from Module.body -/
+private def emitMemoryAccessSwitches (body : List Stmt) :
+    String × String × Nat :=
+  let mems := collectMemories body
+  let indexed := (List.range mems.length).zip mems
+  let setCases := indexed.map fun (i, name, _addrWidth, _dataWidth) =>
+    let sName := sanitizeName name
+    s!"            case {i}: s->{sName}[addr] = data; break;"
+  let getCases := indexed.map fun (i, name, _addrWidth, _dataWidth) =>
+    let sName := sanitizeName name
+    s!"            case {i}: return (uint32_t)s->{sName}[addr];"
+  ( String.intercalate "\n" setCases
+  , String.intercalate "\n" getCases
+  , mems.length )
+
+/-- Generate self-contained JIT wrapper .cpp from a Design -/
+def toCppSimJIT (d : Design) : String :=
+  -- Generate the CppSim class code (reuse existing)
+  let classCode := toCppSimDesign d
+  -- Find top module for port/wire introspection
+  let topModule := d.modules.find? fun (m : Module) => m.name == d.topModule
+  match topModule with
+  | none => classCode ++ "\n// ERROR: top module not found\n"
+  | some m =>
+    let className := sanitizeName m.name
+    let userInputs := m.inputs.filter fun (p : Port) =>
+      p.name != "clk" && p.name != "rst"
+    let numInputs := userInputs.length
+    let numOutputs := countOutputSlots m.outputs
+    let setInputCases := emitSetInputSwitch m.inputs
+    let getOutputCases := emitGetOutputSwitch m.outputs
+    let (wireSwitch, numWires) := emitGetWireSwitch m.wires
+    let wireNameSwitch := emitWireNameSwitch m.wires
+    let (memSetCases, memGetCases, numMems) :=
+      emitMemoryAccessSwitches m.body
+    -- Assemble extern "C" wrapper
+    classCode ++
+    "\n// ============================================================\n" ++
+    "// Auto-generated JIT FFI wrapper\n" ++
+    "// ============================================================\n\n" ++
+    s!"extern \"C\" {ob}\n\n" ++
+    s!"void* jit_create() {ob} return new {className}(); {cb}\n" ++
+    s!"void  jit_destroy(void* ctx) {ob} delete static_cast<{className}*>(ctx); {cb}\n" ++
+    s!"void  jit_reset(void* ctx) {ob} static_cast<{className}*>(ctx)->reset(); {cb}\n" ++
+    s!"void  jit_eval(void* ctx)  {ob} static_cast<{className}*>(ctx)->eval(); {cb}\n" ++
+    s!"void  jit_tick(void* ctx)  {ob} static_cast<{className}*>(ctx)->tick(); {cb}\n\n" ++
+    s!"void jit_set_input(void* ctx, uint32_t idx, uint64_t val) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (idx) {ob}\n" ++
+    setInputCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"{cb}\n\n" ++
+    s!"uint64_t jit_get_output(void* ctx, uint32_t idx) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (idx) {ob}\n" ++
+    getOutputCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"    return 0;\n" ++
+    s!"{cb}\n\n" ++
+    s!"uint64_t jit_get_wire(void* ctx, uint32_t idx) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (idx) {ob}\n" ++
+    wireSwitch ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"    return 0;\n" ++
+    s!"{cb}\n\n" ++
+    s!"void jit_set_mem(void* ctx, uint32_t mem_idx, uint32_t addr, uint32_t data) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (mem_idx) {ob}\n" ++
+    memSetCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"{cb}\n\n" ++
+    s!"uint32_t jit_get_mem(void* ctx, uint32_t mem_idx, uint32_t addr) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (mem_idx) {ob}\n" ++
+    memGetCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"    return 0;\n" ++
+    s!"{cb}\n\n" ++
+    s!"const char* jit_wire_name(uint32_t idx) {ob}\n" ++
+    s!"    switch (idx) {ob}\n" ++
+    wireNameSwitch ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"    return \"\";\n" ++
+    s!"{cb}\n\n" ++
+    s!"uint32_t jit_num_inputs()   {ob} return {numInputs}; {cb}\n" ++
+    s!"uint32_t jit_num_outputs()  {ob} return {numOutputs}; {cb}\n" ++
+    s!"uint32_t jit_num_wires()    {ob} return {numWires}; {cb}\n" ++
+    s!"uint32_t jit_num_memories() {ob} return {numMems}; {cb}\n\n" ++
+    s!"{cb} // extern \"C\"\n"
+
 end Sparkle.Backend.CppSim

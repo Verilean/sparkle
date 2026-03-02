@@ -38,7 +38,8 @@ CPPSIM_FLAGS = -std=c++17 -O3 -march=native -DNDEBUG
 CPPSIM_BIN = cppsim_soc
 
 .PHONY: all build generate run clean wave build-handwritten \
-        generate-cppsim build-cppsim run-cppsim benchmark
+        generate-cppsim build-cppsim run-cppsim benchmark \
+        build-jit run-jit
 
 all: build
 
@@ -74,5 +75,12 @@ benchmark: $(SIM_BIN) build-cppsim
 	@echo "=== Verilator ===" && time ./$(SIM_BIN) $(HEX) $(CYCLES)
 	@echo "=== CppSim ===" && time ./$(CPPSIM_BIN) $(HEX) $(CYCLES)
 
+# JIT targets
+build-jit: generate
+	$(CPPSIM_CXX) -shared -fPIC -O2 -std=c++17 -o generated_soc_jit.dylib generated_soc_jit.cpp
+
+run-jit: build-jit
+	cd .. && lake exe rv32-jit-test verilator/generated_soc_jit.cpp $(HEX) 5000
+
 clean:
-	rm -rf $(OBJ_DIR) sim_trace.vcd $(CPPSIM_BIN)
+	rm -rf $(OBJ_DIR) sim_trace.vcd $(CPPSIM_BIN) *.dylib

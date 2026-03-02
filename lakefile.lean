@@ -17,6 +17,14 @@ extern_lib «sparkle_barrier» pkg := do
   let oJob ← buildLeanO oFile srcJob (weakArgs := #["-O2"])
   buildStaticLib (pkg.buildDir / "c_src" / nameToStaticLib "sparkle_barrier") #[oJob]
 
+-- C FFI library for JIT dlopen/dlsym wrappers
+extern_lib «sparkle_jit» pkg := do
+  let srcFile := pkg.dir / "c_src" / "sparkle_jit.c"
+  let oFile := pkg.buildDir / "c_src" / "sparkle_jit.o"
+  let srcJob ← inputTextFile srcFile
+  let oJob ← buildLeanO oFile srcJob (weakArgs := #["-O2"])
+  buildStaticLib (pkg.buildDir / "c_src" / nameToStaticLib "sparkle_jit") #[oJob]
+
 lean_lib «Sparkle» where
 
 lean_lib «Examples.BitNet» where
@@ -53,6 +61,9 @@ lean_exe «rv32-flow-test» where
 
 lean_exe «rv32-lean-sim-runner» where
   root := `Tests.RV32.LeanSimRunner
+
+lean_exe «rv32-jit-test» where
+  root := `Tests.RV32.JITTest
 
 @[test_driver]
 lean_exe «test» where
