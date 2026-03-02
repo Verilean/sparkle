@@ -276,17 +276,17 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 - **Compile C++ to shared library at runtime**, load via `dlopen` from Lean
 - Hash-based caching: recompilation skipped if source unchanged
 - Uses stable **named output wires** (`_gen_pcReg`, `_gen_uartValidBV`, etc.) — immune to DCE
-- 980 observable wires, 11 memories, 6 input ports
+- 6 observable wires (via `SoCOutput.wireNames`), 11 memories, 6 input ports
 
 ### Simulation Performance (10M cycles, Apple Silicon)
 
 | Backend | Speed | vs Lean |
 |---------|-------|---------|
 | **Verilator** | 8.1M cyc/s | ~1600x |
-| **CppSim / JIT** | 6.3M cyc/s | ~1300x |
+| **CppSim / JIT** | 12.6M cyc/s | ~2500x |
 | **Lean loopMemo** | ~5K cyc/s | 1x |
 
-CppSim/JIT is within 1.3x of Verilator after IR-level optimizations (single-use wire inlining, constant folding, local variable promotion, aggressive mask elimination). The mask elimination pass (Phase 24) reduced mask operations from 449 to 137 (69.5% reduction) via `.ref` invariant propagation and bitwise operator analysis. See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and remaining bottleneck breakdown.
+CppSim/JIT now **exceeds Verilator speed** (1.6x faster) after observable wire threading (Phase 25), which demoted ~950 `_gen_` class members to `eval()` locals, reducing memory stores per cycle by 76%. Combined with IR-level optimizations (single-use wire inlining, constant folding, local variable promotion) and aggressive mask elimination (Phase 24, 69.5% reduction). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis.
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -797,7 +797,7 @@ The generated documentation includes:
 ┌─────────────┐ ┌────────────┐  ┌──────────────┐ ┌──────────────────┐
 │ Simulation  │ │ JIT (FFI)  │  │  Verilator   │ │ #synthesizeVerilog│
 │  .atTime t  │ │ C++ dlopen │  │ .sv → C++    │ │  Lean → IR → DRC │
-│  ~5K cyc/s  │ │ ~3.6M c/s  │  │ ~9.7M cyc/s  │ │  → SystemVerilog │
+│  ~5K cyc/s  │ │ ~12.6M c/s │  │ ~8.1M cyc/s  │ │  → SystemVerilog │
 └─────────────┘ └────────────┘  └──────────────┘ └──────────────────┘
 ```
 
@@ -1002,9 +1002,9 @@ Contributions welcome! Areas of interest:
 - [x] **Performance Analysis** - Identified CppSim bottleneck: 2x more instructions from unoptimized IR ✓
 - [x] **CppSim Backend Optimization** - IR inlining + constant folding + local variable promotion → 2.1x speedup, gap closed from 2.7x to 1.3x ✓
 - [x] **CppSim Phase 2 — Mask Elimination** - Aggressive `exprIsMasked` analysis (`.ref` invariant, AND/OR/XOR/SHR/ASR rules) → 449→137 mask ops (69.5% reduction) ✓
+- [x] **CppSim Phase 3 — Observable Wire Threading** - Thread `observableWires` through optimizer/backend, demote ~950 `_gen_` to locals → 2.0x speedup (6.3M→12.6M cyc/s), JIT now **1.6x faster** than Verilator ✓
 
 ### Next Phases (TODO)
-- [ ] **CppSim Phase 3 — Store Reduction** - Redesign JIT wire API (index-based instead of name lookup) to unblock `_gen_` wire inlining → estimated ~560 fewer stores per cycle
 - [ ] **CppSim Phase 4 — eval()+tick() Merge** - Eliminate register copy overhead by combining both passes (4.2x tick instruction gap vs Verilator)
 - [ ] **Verified Standard IP Library** - Formally proven, synthesizable components for FIFO buffers, Caches, and AXI4/TileLink bus protocols
 - [ ] **GPGPU / Vector Core** - Apply the Verification-Driven Design (VDD) framework to highly concurrent, memory-bound accelerator architectures

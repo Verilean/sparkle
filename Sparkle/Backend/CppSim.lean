@@ -333,8 +333,31 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     , tickBody := [s!"        {iName}.tick();"]
     , resetBody := [s!"        {iName}.reset();"] }
 
+/-- Collect all wire name references from an IR expression -/
+partial def collectExprRefs : Expr → List String
+  | .ref name => [name]
+  | .const _ _ => []
+  | .slice inner _ _ => collectExprRefs inner
+  | .concat args => args.foldl (fun acc a => acc ++ collectExprRefs a) []
+  | .op _ args => args.foldl (fun acc a => acc ++ collectExprRefs a) []
+  | .index arr idx => collectExprRefs arr ++ collectExprRefs idx
+
+/-- Collect all wire names referenced in tick() bodies (memory write exprs, read data for
+    non-combo-read memories). These must remain class members even when not in observableWires. -/
+def collectTickRefWires (body : List Stmt) : List String :=
+  body.foldl (fun acc stmt =>
+    match stmt with
+    | .memory _ _ _ _ wa wd we ra rd cr =>
+      let refs := collectExprRefs wa ++ collectExprRefs wd ++ collectExprRefs we
+      -- Non-combo-read: tick() assigns rd and references readAddr exprs
+      let refs := if !cr then refs ++ collectExprRefs ra ++ [rd] else refs
+      acc ++ refs.map sanitizeName
+    | _ => acc
+  ) []
+
 /-- Emit a complete C++ class for a module -/
-def emitModule (m : Module) (design : Option Design := none) : String :=
+def emitModule (m : Module) (design : Option Design := none)
+    (observableWires : Option (List String) := none) : String :=
   if m.isPrimitive then
     s!"// Primitive module: {m.name}\n// (blackbox - not generated)\n\n"
   else
@@ -360,11 +383,21 @@ def emitModule (m : Module) (design : Option Design := none) : String :=
     let internalWires := m.wires.filter fun (w : Port) =>
       !portNames.contains w.name && !registerNames.contains w.name
 
-    -- Partition into member wires (_gen_ prefix, JIT-observable) and local wires
-    let memberWires := internalWires.filter fun (w : Port) =>
-      (sanitizeName w.name).startsWith "_gen_"
-    let localWires := internalWires.filter fun (w : Port) =>
-      !(sanitizeName w.name).startsWith "_gen_"
+    -- Partition into member wires (observable/JIT) and local wires
+    -- Wires referenced in tick() bodies must always be class members
+    let tickRefs := match observableWires with
+      | some _ => collectTickRefWires m.body
+      | none => []
+    let memberWires := match observableWires with
+      | some ws => internalWires.filter fun (w : Port) =>
+          let sn := sanitizeName w.name
+          ws.contains sn || tickRefs.contains sn
+      | none => internalWires.filter fun (w : Port) => (sanitizeName w.name).startsWith "_gen_"
+    let localWires := match observableWires with
+      | some ws => internalWires.filter fun (w : Port) =>
+          let sn := sanitizeName w.name
+          !ws.contains sn && !tickRefs.contains sn
+      | none => internalWires.filter fun (w : Port) => !(sanitizeName w.name).startsWith "_gen_"
 
     let wireDecls := memberWires.map fun (p : Port) =>
       s!"    {emitCppType p.ty} {sanitizeName p.name};"
@@ -426,7 +459,8 @@ def toCppSim (m : Module) : String :=
   includes ++ emitModule m
 
 /-- Convert a full design to C++ simulation code -/
-def toCppSimDesign (d : Design) : String :=
+def toCppSimDesign (d : Design)
+    (observableWires : Option (List String) := none) : String :=
   let header := "#include <cstdint>\n#include <array>\n#include <cstring>\n\n"
   -- Emit sub-modules before top module (dependency order)
   let topName := d.topModule
@@ -434,7 +468,7 @@ def toCppSimDesign (d : Design) : String :=
   let topModule := d.modules.find? fun (m : Module) => m.name == topName
   let subCode := subModules.map (emitModule · (some d))
   let topCode := match topModule with
-    | some m => [emitModule m (some d)]
+    | some m => [emitModule m (some d) observableWires]
     | none => []
   header ++ String.intercalate "\n" (subCode ++ topCode)
 
@@ -482,14 +516,19 @@ private def countOutputSlots (outputs : List Port) : Nat :=
     if w > 64 then acc + (w + 31) / 32 else acc + 1
   ) 0
 
-/-- Get the filtered list of named wires (_gen_ prefix, ≤64 bits) -/
-private def getNamedWires (wires : List Port) : List Port :=
-  wires.filter fun (w : Port) =>
-    (sanitizeName w.name).startsWith "_gen_" && w.ty.bitWidth ≤ 64
+/-- Get the filtered list of named wires (observable or _gen_ prefix, ≤64 bits) -/
+private def getNamedWires (wires : List Port)
+    (observableWires : Option (List String) := none) : List Port :=
+  match observableWires with
+  | some ws => wires.filter fun (w : Port) =>
+      ws.contains (sanitizeName w.name) && w.ty.bitWidth ≤ 64
+  | none => wires.filter fun (w : Port) =>
+      (sanitizeName w.name).startsWith "_gen_" && w.ty.bitWidth ≤ 64
 
-/-- Generate get_wire switch for named internal wires (_gen_ prefix, ≤64 bits) -/
-private def emitGetWireSwitch (wires : List Port) : String × Nat :=
-  let namedWires := getNamedWires wires
+/-- Generate get_wire switch for named internal wires (observable or _gen_ prefix, ≤64 bits) -/
+private def emitGetWireSwitch (wires : List Port)
+    (observableWires : Option (List String) := none) : String × Nat :=
+  let namedWires := getNamedWires wires observableWires
   let indexed := (List.range namedWires.length).zip namedWires
   let cases := indexed.map fun (i, p) =>
     let sName := sanitizeName p.name
@@ -497,8 +536,9 @@ private def emitGetWireSwitch (wires : List Port) : String × Nat :=
   (String.intercalate "\n" cases, namedWires.length)
 
 /-- Generate wire_name switch (returns wire name by index for discovery) -/
-private def emitWireNameSwitch (wires : List Port) : String :=
-  let namedWires := getNamedWires wires
+private def emitWireNameSwitch (wires : List Port)
+    (observableWires : Option (List String) := none) : String :=
+  let namedWires := getNamedWires wires observableWires
   let indexed := (List.range namedWires.length).zip namedWires
   let cases := indexed.map fun (i, p) =>
     let sName := sanitizeName p.name
@@ -521,9 +561,10 @@ private def emitMemoryAccessSwitches (body : List Stmt) :
   , mems.length )
 
 /-- Generate self-contained JIT wrapper .cpp from a Design -/
-def toCppSimJIT (d : Design) : String :=
-  -- Generate the CppSim class code (reuse existing)
-  let classCode := toCppSimDesign d
+def toCppSimJIT (d : Design)
+    (observableWires : Option (List String) := none) : String :=
+  -- Generate the CppSim class code (reuse existing, with observableWires for member/local partitioning)
+  let classCode := toCppSimDesign d observableWires
   -- Find top module for port/wire introspection
   let topModule := d.modules.find? fun (m : Module) => m.name == d.topModule
   match topModule with
@@ -536,8 +577,8 @@ def toCppSimJIT (d : Design) : String :=
     let numOutputs := countOutputSlots m.outputs
     let setInputCases := emitSetInputSwitch m.inputs
     let getOutputCases := emitGetOutputSwitch m.outputs
-    let (wireSwitch, numWires) := emitGetWireSwitch m.wires
-    let wireNameSwitch := emitWireNameSwitch m.wires
+    let (wireSwitch, numWires) := emitGetWireSwitch m.wires observableWires
+    let wireNameSwitch := emitWireNameSwitch m.wires observableWires
     let (memSetCases, memGetCases, numMems) :=
       emitMemoryAccessSwitches m.body
     -- Assemble extern "C" wrapper

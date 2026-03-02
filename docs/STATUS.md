@@ -5,6 +5,61 @@
 
 ---
 
+## CppSim Phase 3 — Store Reduction via Observable Wire Threading (Phase 25) — DONE
+
+Threaded `observableWires` through the IR optimizer, CppSim backend, and `#writeDesign` command. This unblocks `_gen_` wire inlining (previously deferred in Phase 24) by passing the 6 JIT-observable wire names explicitly from the application layer (`SoCOutput.wireNames`), rather than using the blanket `_gen_` prefix guard.
+
+### Results
+
+| Metric | Before (Phase 24) | After (Phase 25) | Change |
+|--------|-------------------|-------------------|--------|
+| **JIT class members** | 1,242 | **295** | **-76%** |
+| **JIT `_gen_` members** | 980 | **33** | **-97%** (947 demoted to locals) |
+| **JIT `eval()` locals** | 0 | **321** | Stack-allocated, register-friendly |
+| **`jit_num_wires`** | ~976 | **6** | Only observable wires exposed |
+| **JIT pure eval+tick** | ~6.3M cyc/s | **12.6M cyc/s** | **2.0x speedup** |
+
+### How It Works
+
+1. **Optimizer** (`Optimize.lean`): `inlineSingleUseWires` now accepts `observableWires : Option (List String)`. When `some ws`, only wires in `ws` are protected from inlining (instead of ALL `_gen_` wires). When `none`, backwards-compatible `_gen_` guard.
+
+2. **CppSim backend** (`CppSim.lean`): Wire partitioning uses `observableWires` to decide member vs local. Wires referenced in `tick()` bodies (memory writes, non-combo reads) are always kept as members via `collectTickRefWires`.
+
+3. **`#writeDesign` command** (`Elab.lean`): Split into 3-arg (backwards-compatible) and 4-arg variant. The 4th arg is a constant name resolving to `Array String`. Header file (`_cppsim.h`) keeps all `_gen_` as members (no `observableWires`), JIT file (`_jit.cpp`) uses `observableWires` for aggressive optimization.
+
+4. **SoCVerilog.lean**: `#writeDesign rv32iSoCSynth "..." "..." SoCOutput.wireNames` — passes the 6 observable wire names.
+
+### Key Fix: Tick-Referenced Wires
+
+Initial implementation failed because memory `tick()` bodies reference wires via expressions (e.g., `if (_gen_wb_en) mem[_gen_exwb_rd] = _gen_wb_result`). These wires were demoted to `eval()` locals, making them inaccessible from `tick()`. Fixed by adding `collectTickRefWires` which scans memory statements for expression references and keeps those wires as class members.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `Sparkle/IR/Optimize.lean` | Added `observableWires` param to `inlineSingleUseWires`, `optimizeModule`, `optimizeDesign` |
+| `Sparkle/Backend/CppSim.lean` | Added `collectExprRefs`, `collectTickRefWires`; added `observableWires` param to 6 functions; tick-ref wires stay as members |
+| `Sparkle/Compiler/Elab.lean` | Split `#writeDesign` into 3-arg + 4-arg syntax; added `evalStringArray` helper; `writeDesignCore` shared implementation |
+| `Examples/RV32/SoCVerilog.lean` | Added `SoCOutput.wireNames` as 4th argument |
+
+### Verification
+
+- `lake build` — compiles
+- `lake test` — all pass (only pre-existing YOLOv8 float test fails)
+- `lake exe rv32-jit-test` — 47 UART words, 0xCAFE0000, ALL TESTS PASSED
+- `lake exe rv32-jit-loop-test` — both APIs pass
+- `./cppsim_soc ../firmware/firmware.hex 5000` — ALL TESTS PASSED (uses header, not JIT)
+
+### Updated Bottleneck Analysis
+
+| Component | Status | Impact |
+|-----------|--------|--------|
+| Store count (`_gen_` members) | **DONE** — 980 → 33 JIT members | **2.0x speedup** |
+| Mask operations | DONE (Phase 24) — 312 eliminated | Marginal |
+| tick() overhead | Deferred — eval()+tick() merge | ~4.2x vs Verilator |
+
+---
+
 ## CppSim Phase 2 — Mask Elimination (Phase 24) — DONE
 
 Extended the `exprIsMasked` analysis in the CppSim backend to eliminate redundant `& mask` operations at runtime.
@@ -36,7 +91,7 @@ The plan's Step 1 (inline single-use `_gen_` wires with output-feeding protectio
 - Naming collisions (e.g., `_gen_ptwPteReg` vs `_gen_ptwPteReg_1`) mean the output-feeding set cannot reliably identify all JIT-observable wires
 - The `_gen_` prefix serves as a JIT observability contract — breaking it causes runtime lookup failures
 
-**Deferred until**: JIT wire API is redesigned to use indices instead of name lookup, or wires specify observability explicitly in the IR.
+**Resolved in Phase 25**: Observable wire threading passes `SoCOutput.wireNames` explicitly, avoiding the naming collision problem entirely.
 
 ### Key Bug Fix: AND Mask Rule
 
@@ -50,11 +105,11 @@ The original plan specified `.op .and _ => true` (AND always masked). This is **
 |------|---------|
 | `Sparkle/Backend/CppSim.lean` | Extended `exprIsMasked` (6 new cases), applied to register inputs |
 
-### Remaining 1.3x Gap — Updated Bottleneck Analysis
+### Remaining 1.3x Gap — Updated Bottleneck Analysis (resolved in Phase 25)
 
 | Component | Status | Impact |
 |-----------|--------|--------|
-| Store count (`_gen_` members) | **Blocked** — requires JIT API redesign | ~3.9x vs Verilator |
+| Store count (`_gen_` members) | **DONE** (Phase 25) — 980 → 33 JIT members | **2.0x speedup**, JIT now faster than Verilator |
 | Mask operations | **DONE** — 312 eliminated (69.5%) | Marginal perf impact |
 | tick() overhead | Deferred — eval()+tick() merge | ~4.2x vs Verilator |
 

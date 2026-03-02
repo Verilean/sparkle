@@ -1420,26 +1420,51 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
     IO.FS.writeFile path cpp
     IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {path}"
 
+/-- Evaluate an Array String constant at elaboration time -/
+private unsafe def evalStringArrayImpl (name : Name) : TermElabM (Array String) :=
+  Lean.Meta.evalExpr (Array String)
+    (mkApp (mkConst ``Array [.zero]) (mkConst ``String []))
+    (mkConst name [])
+
+@[implemented_by evalStringArrayImpl]
+private opaque evalStringArray (name : Name) : TermElabM (Array String)
+
+/-- Core implementation for #writeDesign -/
+private def writeDesignCore (declName : Name) (svPath cppPath : String)
+    (observableWires : Option (List String)) : TermElabM Unit := do
+  let design ← synthesizeHierarchical declName
+  runDesignDRC design
+  -- Verilog (unoptimized)
+  let verilog := toVerilogDesign design
+  IO.FS.writeFile svPath verilog
+  IO.println s!"Written {design.modules.length} modules to {svPath}"
+  -- CppSim (optimized, no observableWires — keep all _gen_ as members for header)
+  let optimized := Sparkle.IR.Optimize.optimizeDesign design
+  let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
+  IO.FS.writeFile cppPath cpp
+  IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {cppPath}"
+  -- JIT wrapper (optimized with observableWires — demote non-observable to locals)
+  let jitOptimized := Sparkle.IR.Optimize.optimizeDesign design observableWires
+  let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT jitOptimized observableWires
+  let jitPath := cppPath.replace "_cppsim.h" "_jit.cpp"
+  IO.FS.writeFile jitPath jitCpp
+  IO.println s!"Written JIT wrapper to {jitPath}"
+
 /-- Combined command: synthesize once, emit both Verilog and optimized C++ simulation -/
 elab "#writeDesign" id:ident svPath:str cppPath:str : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
-    let design ← synthesizeHierarchical declName
-    runDesignDRC design
-    -- Verilog (unoptimized)
-    let verilog := toVerilogDesign design
-    IO.FS.writeFile svPath.getString verilog
-    IO.println s!"Written {design.modules.length} modules to {svPath.getString}"
-    -- CppSim (optimized)
-    let optimized := Sparkle.IR.Optimize.optimizeDesign design
-    let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
-    IO.FS.writeFile cppPath.getString cpp
-    IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {cppPath.getString}"
-    -- JIT wrapper (self-contained .cpp with extern "C" API)
-    let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
-    let jitPath := cppPath.getString.replace "_cppsim.h" "_jit.cpp"
-    IO.FS.writeFile jitPath jitCpp
-    IO.println s!"Written JIT wrapper to {jitPath}"
+    writeDesignCore declName svPath.getString cppPath.getString none
+
+/-- Combined command with observable wires: emit both Verilog and optimized C++ simulation,
+    with JIT code restricted to only the specified observable wires -/
+elab "#writeDesign" id:ident svPath:str cppPath:str wiresId:ident : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let wiresName ← Lean.resolveGlobalConstNoOverload wiresId
+    let wiresArr ← evalStringArray wiresName
+    writeDesignCore declName svPath.getString cppPath.getString (some wiresArr.toList)
 
 end Sparkle.Compiler.Elab

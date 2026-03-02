@@ -216,7 +216,8 @@ partial def substituteExpr (dm : DefMap) (inlinable : HashMap String Bool)
 
 /-- Inline single-use wires: replace references with their defining expressions
     and remove the now-dead assign statements. -/
-def inlineSingleUseWires (m : Module) (body : List Stmt) : List Stmt × List Port :=
+def inlineSingleUseWires (m : Module) (body : List Stmt)
+    (observableWires : Option (List String) := none) : List Stmt × List Port :=
   let dm := buildDefMap body
   let useCounts := countAllUses body
 
@@ -241,7 +242,9 @@ def inlineSingleUseWires (m : Module) (body : List Stmt) : List Stmt × List Por
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
         && !memoryReadData.contains lhs
-        && !lhs.startsWith "_gen_"  -- _gen_ wires are JIT-observable
+        && (match observableWires with
+            | some ws => !ws.contains lhs
+            | none => !lhs.startsWith "_gen_")  -- _gen_ wires are JIT-observable
       then s.insert lhs true
       else s
     | _ => s
@@ -273,7 +276,8 @@ def inlineSingleUseWires (m : Module) (body : List Stmt) : List Stmt × List Por
   (filteredBody, filteredWires)
 
 /-- Optimize a module: eliminate concat/slice chains, then remove dead code -/
-def optimizeModule (m : Module) : Module :=
+def optimizeModule (m : Module)
+    (observableWires : Option (List String) := none) : Module :=
   if m.isPrimitive then m
   else
     let wm := buildWidthMap m
@@ -298,7 +302,7 @@ def optimizeModule (m : Module) : Module :=
     let m2 := { m with body := prunedBody, wires := prunedWires }
 
     -- Phase 3: Single-use wire inlining
-    let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body
+    let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body observableWires
 
     -- Phase 4: Dead code elimination (again, to catch newly-dead wires)
     let useCounts2 := countAllUses inlinedBody
@@ -314,7 +318,8 @@ def optimizeModule (m : Module) : Module :=
     { m with body := finalBody, wires := finalWires }
 
 /-- Optimize all modules in a design -/
-def optimizeDesign (d : Design) : Design :=
-  { d with modules := d.modules.map optimizeModule }
+def optimizeDesign (d : Design)
+    (observableWires : Option (List String) := none) : Design :=
+  { d with modules := d.modules.map (optimizeModule · observableWires) }
 
 end Sparkle.IR.Optimize
