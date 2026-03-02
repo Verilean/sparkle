@@ -976,7 +976,7 @@ Contributions welcome! Areas of interest:
 
 ## Development History
 
-See [CHANGELOG.md](CHANGELOG.md) for detailed development phases and implementation history.
+See [CHANGELOG.md](docs/CHANGELOG.md) for detailed development phases and implementation history.
 
 ## Author
 
