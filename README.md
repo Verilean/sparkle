@@ -200,6 +200,33 @@ def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState 
 - **CLINT**: Machine timer with mtime/mtimecmp
 - **Memory**: 32 MB DRAM (byte-addressable, sub-word load/store: LB/LH/LBU/LHU/SB/SH)
 
+### Signal DSL Ergonomics
+
+Ergonomic operators and macros reduce boilerplate in hardware descriptions:
+
+```lean
+open Sparkle.Core.Signal
+
+-- Hardware equality (replaces (· == ·) <$> a <*> Signal.pure val)
+let isIdle := fsmReg === (0#4)
+
+-- Bool operators (replaces (· && ·) <$> a <*> b etc.)
+let startAndIdle := start &&& isIdle
+let shouldFlush  := branchTaken ||| trap_taken
+
+-- Implicit constant lifting via Coe (replaces Signal.pure)
+let p3SavedNext := Signal.mux cond (true : Signal dom _) p3SavedReg
+
+-- Hardware conditional macro (replaces deeply nested Signal.mux)
+let fsmNext := hw_cond fsmReg            -- default value
+  | startAndIdle  => (1#4 : Signal dom _)  -- first match wins
+  | stemDone      => (2#4 : Signal dom _)
+  | stageConvDone => (3#4 : Signal dom _)
+  | isDone        => (0#4 : Signal dom _)
+```
+
+All features are synthesis-compatible — `===` expands to `(· == ·) <$> a <*> b`, `hw_cond` expands to nested `Signal.mux` calls, and `Coe` unfolds to `Signal.pure`.
+
 ### JIT FFI Simulation (~200x faster than Lean)
 - **Compile C++ to shared library at runtime**, load via `dlopen` from Lean
 - Hash-based caching: recompilation skipped if source unchanged
@@ -667,9 +694,9 @@ The generated documentation includes:
 ### The Sparkle Pipeline
 
 ```
-┌─────────────┐
-│  Lean Code  │  Write hardware using Signal DSL
-└──────┬──────┘
+┌──────────────────┐
+│  Lean Signal DSL │  ===, &&&, |||, hw_cond, Coe
+└──────┬───────────┘
        │
        ├──────────────┬──────────────────┐
        ▼              ▼                  ▼
@@ -756,7 +783,7 @@ Tests include:
 sparkle/
 ├── Sparkle/              # Core library
 │   ├── Core/            # Signal semantics, domains, and vectors
-│   │   ├── Signal.lean  # Signal DSL: register, memory, loop, loopMemo, mux
+│   │   ├── Signal.lean  # Signal DSL: register, memory, loop, mux, ===, hw_cond
 │   │   ├── Domain.lean  # Clock domain configuration
 │   │   └── Vector.lean  # Hardware vector types
 │   ├── Data/            # BitPack and data types
@@ -858,6 +885,7 @@ Contributions welcome! Areas of interest:
 - [x] **Verilator backend** - ~1000x faster simulation, VCD tracing, Linux boot support ✓
 - [x] **CppSim backend** - C++ code generation from IR, ~170x faster than Verilator for firmware tests ✓
 - [x] **JIT FFI** - dlopen-based native simulation from Lean, ~200x faster than interpreted ✓
+- [x] **DSL Ergonomics** - `===` equality, `hw_cond` macro, `Coe` implicit constants, Bool operators ✓
 - [ ] **loopMemoJIT** - Transparent JIT acceleration for Signal.loopMemo
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits

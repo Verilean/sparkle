@@ -5,6 +5,92 @@
 
 ---
 
+## Signal DSL Ergonomics (Phase 15) — DONE
+
+Improved Signal DSL readability with new operators, implicit coercions, and a hardware conditional macro. Refactored YOLOv8 Backbone to demonstrate the improvements — FSM transition logic reduced from 18 lines of nested `Signal.mux` to 9 lines of flat `hw_cond`.
+
+### New Features (Sparkle/Core/Signal.lean)
+
+| Feature | Syntax | Expansion | Status |
+|---------|--------|-----------|--------|
+| Hardware equality | `a === b` | `(· == ·) <$> a <*> b` | Synthesizes |
+| Implicit BitVec lift | `(1#4 : Signal dom _)` | `Signal.pure 1#4` via `Coe` | Synthesizes |
+| Implicit Bool lift | `(true : Signal dom _)` | `Signal.pure true` via `Coe` | Synthesizes |
+| Hardware conditional | `hw_cond default \| cond => val` | Nested `Signal.mux` | Synthesizes |
+| Bool AND | `a &&& b` | `(· && ·) <$> a <*> b` | Synthesizes (Phase 13) |
+| Bool OR | `a \|\|\| b` | `(· \|\| ·) <$> a <*> b` | Synthesizes |
+| Bool NOT | `~~~a` | `(fun x => !x) <$> a` | **Does NOT synthesize** |
+
+### `hw_cond` Macro Design
+
+Default-first syntax avoids PEG parser greedy-`|` ambiguity:
+
+```lean
+-- Syntax: hw_cond <default> | <cond₁> => <val₁> | <cond₂> => <val₂> | ...
+let fsmNext := hw_cond fsmReg
+  | startAndIdle  => (1#4 : Signal dom _)  -- IDLE → STEM
+  | stemDone      => (2#4 : Signal dom _)  -- STEM → STAGE_CONV
+  | stageConvDone => (3#4 : Signal dom _)  -- STAGE_CONV → STAGE_C2F
+  | isDone        => (0#4 : Signal dom _)  -- DONE → IDLE
+```
+
+**Implementation notes:**
+- Defined after `end Signal` namespace (line 649) so ``Signal.mux`` resolves correctly via double-backtick
+- Uses `Lean.mkIdent ``Signal.mux` to bypass macro hygiene — prevents `_hyg.N` suffixes that would break the synthesis compiler's `name.endsWith ".mux"` check
+- PEG issue: `| else =>` fails because greedy `*` repetition consumes `|` before the default branch; default-first syntax avoids this entirely
+
+### Refactoring Demonstration (Backbone.lean)
+
+Before (verbose):
+```lean
+let isIdle := (· == ·) <$> fsmReg <*> Signal.pure 0#4
+let startAndIdle := (· && ·) <$> start <*> isIdle
+let fsmNext :=
+  Signal.mux startAndIdle (Signal.pure 1#4)
+    (Signal.mux stemDone (Signal.pure 2#4)
+      (Signal.mux stageConvDone (Signal.pure 3#4)
+        (...10+ levels of nesting...)))
+```
+
+After (clean):
+```lean
+let isIdle := fsmReg === (0#4)
+let startAndIdle := start &&& isIdle
+let fsmNext := hw_cond fsmReg
+  | startAndIdle  => (1#4 : Signal dom _)
+  | stemDone      => (2#4 : Signal dom _)
+  | stageConvDone => (3#4 : Signal dom _)
+  | ...9 flat lines...
+```
+
+### Known Limitation: `~~~` (Complement) Does Not Synthesize
+
+The `Complement` instance for `Signal dom Bool` (`~~~a` → `(fun x => !x) <$> a`) causes the synthesis compiler to see `Complement.mk` as a module instantiation attempt. The `unfoldDefinition?` mechanism doesn't fully reduce the typeclass instance before the compiler's expression walker encounters it.
+
+**Workaround:** Use `(fun x => !x) <$> signal` directly (which the compiler recognizes).
+
+**Future fix:** Add `Complement.complement` / `Complement.mk` to the synthesis compiler's unfolding list in Elab.lean.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `Sparkle/Core/Signal.lean` | Added `===`, `Coe` instances, `hw_cond` macro |
+| `Examples/YOLOv8/Backbone.lean` | Refactored using new ergonomic features |
+
+### Verification
+
+```bash
+$ lake build Examples.YOLOv8.Backbone
+# Build completed successfully (23 jobs).
+# Generated Verilog for all 3 sub-modules: c2fController, sppfController, backboneController
+
+$ lake exe rv32-flow-test
+# CppSim JIT: ✓ ALL TESTS PASSED (no regressions)
+```
+
+---
+
 ## JIT FFI Implementation (Phase 14) — DONE
 
 Implemented JIT-accelerated simulation via dynamic compilation. The CppSim backend now generates self-contained `.cpp` files with `extern "C"` wrappers, compiled to shared libraries (`.dylib`) at runtime, and loaded from Lean via `dlopen`/`dlsym` FFI.
@@ -288,6 +374,8 @@ cd verilator && make benchmark CYCLES=5000
 - [x] Signal Bool operator instances (Phase 13 — done)
 - [x] JIT FFI design document (Phase 13 — done, see `docs/JIT_FFI_Plan.md`)
 - [x] JIT FFI implementation (Phase 14 — done)
+- [x] Signal DSL ergonomics: `===`, `Coe`, `hw_cond` macro (Phase 15 — done)
+- [ ] Fix `~~~` (Complement) synthesis — add unfolding for `Complement.mk` in Elab.lean
 - [ ] `loopMemoJIT` integration — replace interpreted loopMemo with JIT-compiled evaluation
 - [ ] State marshalling between Lean tuples and C++ flat arrays
 - [ ] Runtime synthesis (porting MetaM synthesis to IO — major refactor)
@@ -535,11 +623,12 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 
 ## Future Work
 
+- [ ] Fix `~~~` (Complement) synthesis — add typeclass unfolding for `Complement.mk` in Elab.lean
+- [ ] Bulk refactoring of SoC.lean to use ergonomic operators (`===`, `&&&`, `|||`, `hw_cond`)
 - [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
 - [ ] `loopMemoJIT` — transparent JIT acceleration for Signal.loopMemo (replace interpreted sim)
 - [ ] State marshalling — bidirectional Lean tuple ↔ C++ flat array conversion
 - [ ] Runtime synthesis — port MetaM synthesis to IO for dynamic JIT compilation
-- [ ] Bulk refactoring of SoC.lean to use Signal Bool operators (`|||`, `&&&`, `~~~`)
 - [ ] Debug infrastructure cleanup (remove unused debug ports/traces)
 - [ ] Fix Verilator testbench internal signal references
 - [ ] Interrupt controller (PLIC)

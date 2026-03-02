@@ -214,6 +214,23 @@ instance : HXor (Signal dom Bool) (Signal dom Bool) (Signal dom Bool) where
 instance : Complement (Signal dom Bool) where
   complement a := (fun x => !x) <$> a
 
+-- Hardware equality operator
+-- Expands to (· == ·) <$> a <*> b, which the synthesis compiler recognizes
+
+/-- Hardware equality: `a === b` compares two signals element-wise each cycle. -/
+def Signal.beq [BEq α] (a b : Signal dom α) : Signal dom Bool :=
+  (· == ·) <$> a <*> b
+
+scoped infix:50 " === " => Signal.beq
+
+-- Implicit constant lifting (scoped to avoid global instance pollution)
+
+scoped instance {n : Nat} : Coe (BitVec n) (Signal dom (BitVec n)) where
+  coe x := Signal.pure x
+
+scoped instance : Coe Bool (Signal dom Bool) where
+  coe x := Signal.pure x
+
 -- Additional combinators
 
 namespace Signal
@@ -628,6 +645,28 @@ def cond (cases : List (Signal dom Bool × Signal dom α)) (default : Signal dom
   cases.foldr (fun (c, v) acc => Signal.mux c v acc) default
 
 end Signal
+
+-- Hardware conditional macro (synthesis-compatible)
+-- Defined after Signal.mux so ``Signal.mux`` resolves correctly.
+-- Uses mkIdent to bypass macro hygiene (prevents _hyg suffixes that would
+-- break the synthesis compiler's `name.endsWith ".mux"` check).
+
+/-- Hardware switch: replaces deeply nested `Signal.mux` chains.
+    Default value comes first, then condition/value pairs (first match wins):
+    ```
+    hw_cond fsmReg
+      | startAndIdle  => (1#4 : Signal dom _)
+      | stemDone      => (2#4 : Signal dom _)
+    ```
+    expands to `Signal.mux startAndIdle (1#4) (Signal.mux stemDone (2#4) fsmReg)` -/
+scoped syntax "hw_cond" term ("|" term " => " term)* : term
+
+macro_rules
+  | `(hw_cond $default) => `($default)
+  | `(hw_cond $default | $cond => $val $[| $conds => $vals]*) => do
+    let rest ← `(hw_cond $default $[| $conds => $vals]*)
+    let muxId := Lean.mkIdent ``Signal.mux
+    `($muxId $cond $val $rest)
 
 -- ============================================================================
 -- BitVec Utilities for Signal DSL

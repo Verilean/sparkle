@@ -91,80 +91,73 @@ private def backboneControllerBody {dom : DomainConfig}
     let p4SavedReg  := projN! state 8 6  -- Bool
     let doneReg     := projN! state 8 7  -- Bool
 
-    let isIdle      := (· == ·) <$> fsmReg <*> Signal.pure 0#4
-    let isStem      := (· == ·) <$> fsmReg <*> Signal.pure 1#4
-    let isStageConv := (· == ·) <$> fsmReg <*> Signal.pure 2#4
-    let isStageC2f  := (· == ·) <$> fsmReg <*> Signal.pure 3#4
-    let isStageSppf := (· == ·) <$> fsmReg <*> Signal.pure 4#4
-    let isSaveFeat  := (· == ·) <$> fsmReg <*> Signal.pure 5#4
-    let isNextStage := (· == ·) <$> fsmReg <*> Signal.pure 6#4
-    let isDone      := (· == ·) <$> fsmReg <*> Signal.pure 7#4
+    let isIdle      := fsmReg === (0#4)
+    let isStem      := fsmReg === (1#4)
+    let isStageConv := fsmReg === (2#4)
+    let isStageC2f  := fsmReg === (3#4)
+    let isStageSppf := fsmReg === (4#4)
+    let isSaveFeat  := fsmReg === (5#4)
+    let isNextStage := fsmReg === (6#4)
+    let isDone      := fsmReg === (7#4)
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
-    let stemDone     := (· && ·) <$> subOpDone <*> isStem
-    let stageConvDone := (· && ·) <$> subOpDone <*> isStageConv
-    let stageC2fDone := (· && ·) <$> subOpDone <*> isStageC2f
-    let stageSppfDone := (· && ·) <$> subOpDone <*> isStageSppf
+    let startAndIdle  := start &&& isIdle
+    let stemDone      := subOpDone &&& isStem
+    let stageConvDone := subOpDone &&& isStageConv
+    let stageC2fDone  := subOpDone &&& isStageC2f
+    let stageSppfDone := subOpDone &&& isStageSppf
 
     -- Check if current stage needs SPPF (stage 4 only)
-    let isStage4 := (· == ·) <$> stageReg <*> Signal.pure 4#3
+    let isStage4 := stageReg === (4#3)
     -- Check if current stage needs feature save (stages 2, 3, 4)
     -- s >= 2 ⟺ ¬(s == 0 || s == 1)
-    let sIs0 := (· == ·) <$> stageReg <*> Signal.pure 0#3
-    let sIs1 := (· == ·) <$> stageReg <*> Signal.pure 1#3
-    let sLt2 := (· || ·) <$> sIs0 <*> sIs1
-    let needsSave := (fun x => !x) <$> sLt2
+    let sIs0 := stageReg === (0#3)
+    let sIs1 := stageReg === (1#3)
+    let needsSave := (fun x => !x) <$> (sIs0 ||| sIs1)
 
     -- Check if all stages complete (stage >= 5 means done)
     let stageInc := (· + ·) <$> stageReg <*> Signal.pure 1#3
-    let allStagesDone := (· == ·) <$> stageReg <*> Signal.pure 4#3
+    let allStagesDone := stageReg === (4#3)
 
-    -- FSM transitions
-    let fsmNext :=
-      Signal.mux startAndIdle (Signal.pure 1#4)          -- IDLE → STEM
-        (Signal.mux stemDone (Signal.pure 2#4)            -- STEM → STAGE_CONV
-          (Signal.mux stageConvDone (Signal.pure 3#4)     -- STAGE_CONV → STAGE_C2F
-            (Signal.mux stageC2fDone
-              (Signal.mux isStage4
-                (Signal.pure 4#4)                          -- C2F → SPPF (stage 4)
-                (Signal.mux needsSave
-                  (Signal.pure 5#4)                        -- C2F → SAVE_FEATURE
-                  (Signal.pure 6#4)))                      -- C2F → NEXT_STAGE
-              (Signal.mux stageSppfDone (Signal.pure 5#4)  -- SPPF → SAVE_FEATURE
-                (Signal.mux isSaveFeat (Signal.pure 6#4)   -- SAVE → NEXT_STAGE
-                  (Signal.mux isNextStage
-                    (Signal.mux allStagesDone
-                      (Signal.pure 7#4)                    -- last stage → DONE
-                      (Signal.pure 2#4))                   -- NEXT → STAGE_CONV
-                    (Signal.mux isDone (Signal.pure 0#4)   -- DONE → IDLE
-                      fsmReg)))))))
+    -- FSM transitions (C2F next state depends on stage)
+    let c2fNext := hw_cond (6#4 : Signal dom _)  -- default: C2F → NEXT_STAGE
+      | isStage4  => (4#4 : Signal dom _)  -- C2F → SPPF (stage 4)
+      | needsSave => (5#4 : Signal dom _)  -- C2F → SAVE_FEATURE
+
+    let nextStageTarget := hw_cond (2#4 : Signal dom _)  -- default: NEXT → STAGE_CONV
+      | allStagesDone => (7#4 : Signal dom _)  -- last stage → DONE
+
+    let fsmNext := hw_cond fsmReg
+      | startAndIdle  => (1#4 : Signal dom _)  -- IDLE → STEM
+      | stemDone      => (2#4 : Signal dom _)  -- STEM → STAGE_CONV
+      | stageConvDone => (3#4 : Signal dom _)  -- STAGE_CONV → STAGE_C2F
+      | stageC2fDone  => c2fNext
+      | stageSppfDone => (5#4 : Signal dom _)  -- SPPF → SAVE_FEATURE
+      | isSaveFeat    => (6#4 : Signal dom _)  -- SAVE → NEXT_STAGE
+      | isNextStage   => nextStageTarget
+      | isDone        => (0#4 : Signal dom _)  -- DONE → IDLE
 
     -- Stage index
-    let stageNext :=
-      Signal.mux startAndIdle (Signal.pure 1#3)  -- Start at stage 1 (stage 0 is stem)
-        (Signal.mux isNextStage stageInc
-          stageReg)
+    let stageNext := hw_cond stageReg
+      | startAndIdle => (1#3 : Signal dom _)  -- Start at stage 1 (stage 0 is stem)
+      | isNextStage  => stageInc
 
     -- Layer within stage (reset per stage)
-    let layerNext :=
-      Signal.mux isNextStage (Signal.pure 0#4)
-        (Signal.mux startAndIdle (Signal.pure 0#4)
-          layerReg)
+    let layerNext := hw_cond layerReg
+      | isNextStage  => (0#4 : Signal dom _)
+      | startAndIdle => (0#4 : Signal dom _)
 
     -- Weight base address (incremented after each conv completes)
     let wBaseNext := wBaseReg  -- Managed by weight address generator
 
     -- Buffer select: toggle after each layer
-    let bufSelNext :=
-      Signal.mux (Signal.mux stemDone (Signal.pure true) (Signal.mux stageConvDone (Signal.pure true) (Signal.pure false)))
-        ((fun b => !b) <$> bufSelReg)
-        bufSelReg
+    let shouldToggle := stemDone ||| stageConvDone
+    let bufSelNext := Signal.mux shouldToggle ((fun b => !b) <$> bufSelReg) bufSelReg
 
     -- Feature map save flags
-    let isStage2 := (· == ·) <$> stageReg <*> Signal.pure 2#3
-    let isStage3 := (· == ·) <$> stageReg <*> Signal.pure 3#3
-    let p3SavedNext := Signal.mux ((· && ·) <$> isSaveFeat <*> isStage2) (Signal.pure true) p3SavedReg
-    let p4SavedNext := Signal.mux ((· && ·) <$> isSaveFeat <*> isStage3) (Signal.pure true) p4SavedReg
+    let isStage2 := stageReg === (2#3)
+    let isStage3 := stageReg === (3#3)
+    let p3SavedNext := Signal.mux (isSaveFeat &&& isStage2) (true : Signal dom _) p3SavedReg
+    let p4SavedNext := Signal.mux (isSaveFeat &&& isStage3) (true : Signal dom _) p4SavedReg
 
     let doneNext := isDone
 
