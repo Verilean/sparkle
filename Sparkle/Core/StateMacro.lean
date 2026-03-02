@@ -73,4 +73,34 @@ elab "declare_signal_state " name:ident fields:signalStateField* : command => do
   -- 4. Inhabited instance
   elabCommand (← `(instance : Inhabited $name := ⟨$defaultName⟩))
 
+  -- 5. Generate wireNames: Array String of "_gen_fieldName" for each field
+  let wireNameLits : Array (TSyntax `term) := fieldData.map fun (fieldName, _, _) =>
+    let wireName := s!"_gen_{fieldName.getId}"
+    ⟨Syntax.mkStrLit wireName⟩
+  let wireNamesArray ← `(#[$[$wireNameLits],*])
+  let wireNamesName := mkIdent (name.getId ++ `wireNames)
+  elabCommand (← `(def $wireNamesName : Array String := $wireNamesArray))
+
+  -- 6. Generate fromWires: Array UInt32 → Name
+  --    Converts raw UInt32 wire values back to BitVec n / Bool
+  --    by pattern-matching on the field type.
+  --    Builds a right-nested tuple: (conv ws[0], (conv ws[1], ... conv ws[n-1]))
+  --    where conv is .toNat for Bool, BitVec.ofNat n for BitVec n
+  let wsIdent := mkIdent `ws
+  let mkWireConv (fieldType : TSyntax `term) (idxLit : TSyntax `num) : CommandElabM (TSyntax `term) := do
+    let fieldTypeStr := fieldType.raw.getId.toString
+    if fieldTypeStr == "Bool" then
+      `(($wsIdent[$idxLit]!.toNat != 0 : Bool))
+    else
+      `((BitVec.ofNat _ $wsIdent[$idxLit]!.toNat : $fieldType))
+  let lastIdxLit : TSyntax `num := ⟨Syntax.mkNumLit (toString (n - 1))⟩
+  let mut fromWiresBody : TSyntax `term ← mkWireConv fieldData[n-1]!.2.1 lastIdxLit
+  for i in (List.range (n - 1)).reverse do
+    let (_, fieldType, _) := fieldData[i]!
+    let idxLit : TSyntax `num := ⟨Syntax.mkNumLit (toString i)⟩
+    let elem ← mkWireConv fieldType idxLit
+    fromWiresBody ← `(($elem, $fromWiresBody))
+  let fromWiresName := mkIdent (name.getId ++ `fromWires)
+  elabCommand (← `(def $fromWiresName ($wsIdent : Array UInt32) : $name := $fromWiresBody))
+
 end Sparkle.Core.StateMacro

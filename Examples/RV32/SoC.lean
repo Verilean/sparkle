@@ -42,6 +42,7 @@
 -/
 
 import Sparkle
+import Sparkle.Core.JITLoop
 import Sparkle.Compiler.Elab
 import Examples.RV32.Core
 import Examples.RV32.Divider
@@ -1589,5 +1590,92 @@ def rv32iSoCDebugFull {dom : DomainConfig}
     (firmware : BitVec 12 → BitVec 32)
     : Signal dom SoCState :=
   Signal.loop (rv32iSoCWithFirmwareBody firmware)
+
+-- ============================================================================
+-- JIT-accelerated simulation via named output wires
+-- ============================================================================
+--
+-- Uses wires that feed the top-level output in rv32iSoCSynth (SoCVerilog.lean).
+-- These are stable: they can't be DCE'd and their names don't collide.
+-- Note: JIT.getOutput doesn't work because the CppSim backend skips
+-- >64-bit packed output assignments. Use JIT.getWire with named wires instead.
+
+open Sparkle.Core.JIT
+open Sparkle.Core.JITLoop
+
+/-- Wire names for SoC output observation.
+    These correspond to the values computed in rv32iSoCSynth and are stable
+    because they feed the top-level output (immune to DCE). -/
+def SoCOutput.wireNames : Array String :=
+  #[ "_gen_pcReg"
+   , "_gen_uartValidBV"
+   , "_gen_prevStoreData"
+   , "_gen_satpReg"
+   , "_gen_ptwPteReg"
+   , "_gen_ptwVaddrReg" ]
+
+/-- SoC output snapshot — one cycle's worth of observable values -/
+structure SoCOutput where
+  pc        : BitVec 32
+  uartValid : Bool
+  uartData  : BitVec 32
+  satp      : BitVec 32
+  ptwPte    : BitVec 32
+  ptwVaddr  : BitVec 32
+  deriving Inhabited
+
+def SoCOutput.fromWireValues (vals : Array UInt64) : SoCOutput :=
+  { pc        := BitVec.ofNat 32 (vals[0]?.getD 0).toNat
+    uartValid := (vals[1]?.getD 0) != 0
+    uartData  := BitVec.ofNat 32 (vals[2]?.getD 0).toNat
+    satp      := BitVec.ofNat 32 (vals[3]?.getD 0).toNat
+    ptwPte    := BitVec.ofNat 32 (vals[4]?.getD 0).toNat
+    ptwVaddr  := BitVec.ofNat 32 (vals[5]?.getD 0).toNat }
+
+/-- JIT-accelerated SoC simulation returning output wires as a Signal.
+    Uses named output wires — immune to DCE and name collisions.
+
+    Parameters:
+    - `jitCppPath`: Path to the pre-generated JIT .cpp file
+    - `firmware`: Array of 32-bit instruction words to load into IMEM -/
+def rv32iSoCJITSimulate {dom : DomainConfig}
+    (jitCppPath : String)
+    (firmware : Array (BitVec 32))
+    : IO (Signal dom SoCOutput) := do
+  Signal.loopMemoJIT
+    (jitCppPath := jitCppPath)
+    (wireNames := SoCOutput.wireNames)
+    (loadMem := fun h => do
+      let memSize := min firmware.size (1 <<< 12)
+      for i in [:memSize] do
+        let word := if hi : i < firmware.size then firmware[i] else 0#32
+        JIT.setMem h 0 i.toUInt32 word.toNat.toUInt32)
+    (reconstruct := fun _h vals => pure (SoCOutput.fromWireValues vals))
+
+/-- JIT streaming simulation — O(1) memory, no caching.
+    Runs the SoC for up to `cycles` cycles, calling `callback` each cycle.
+    The callback receives (cycle, wire values) and returns false to stop.
+
+    Parameters:
+    - `jitCppPath`: Path to the pre-generated JIT .cpp file
+    - `firmware`: Array of 32-bit instruction words to load into IMEM
+    - `cycles`: Maximum number of cycles to run
+    - `callback`: Per-cycle callback; receives (cycle, wire values as UInt64 array) -/
+def rv32iSoCJITRun
+    (jitCppPath : String)
+    (firmware : Array (BitVec 32))
+    (cycles : Nat)
+    (callback : Nat → Array UInt64 → IO Bool)
+    : IO Unit := do
+  let handle ← JIT.compileAndLoad jitCppPath
+  -- Load firmware into IMEM (memory index 0)
+  let memSize := min firmware.size (1 <<< 12)
+  for i in [:memSize] do
+    let word := if hi : i < firmware.size then firmware[i] else 0#32
+    JIT.setMem handle 0 i.toUInt32 word.toNat.toUInt32
+  -- Resolve wire indices and run streaming simulation
+  let wireIndices ← JIT.resolveWires handle SoCOutput.wireNames
+  JIT.run handle cycles wireIndices callback
+  JIT.destroy handle
 
 end Sparkle.Examples.RV32.SoC

@@ -68,6 +68,9 @@ lean_exe «rv32-lean-sim-runner» where
 lean_exe «rv32-jit-test» where
   root := `Tests.RV32.JITTest
 
+lean_exe «rv32-jit-loop-test» where
+  root := `Tests.RV32.JITLoopTest
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

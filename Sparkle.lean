@@ -22,4 +22,5 @@ import Sparkle.Backend.VCD
 import Sparkle.Backend.CppSim
 import Sparkle.Verification.Temporal
 import Sparkle.Core.JIT
+import Sparkle.Core.JITLoop
 import Sparkle.Utils.HexLoader
