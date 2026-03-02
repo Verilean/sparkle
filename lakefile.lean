@@ -36,6 +36,9 @@ lean_lib «Examples.RV32» where
 lean_lib «Examples.YOLOv8» where
   roots := #[`Examples.YOLOv8]
 
+lean_lib «Examples.Arbiter» where
+  roots := #[`Examples.Arbiter]
+
 lean_lib «Tests» where
   -- Test circuits library
 
