@@ -180,7 +180,8 @@ Memory: 26208K/28672K available (1279K kernel code, 465K rwdata, ...)
 ```
 
 ```lean
--- 117 registers in a single Signal.loop — full SoC in one function
+-- 122 registers in a single Signal.loop — full SoC in one function
+-- State fields accessed by name via declare_signal_state macro
 def rv32iSoCSimulate (firmware : BitVec 12 → BitVec 32) : Signal dom SoCState :=
   Signal.loopMemo fun state => rv32iSoCWithFirmwareBody firmware state
 ```
@@ -226,6 +227,25 @@ let fsmNext := hw_cond fsmReg            -- default value
 ```
 
 All features are synthesis-compatible — `===` expands to `(· == ·) <$> a <*> b`, `hw_cond` expands to nested `Signal.mux` calls, and `Coe` unfolds to `Signal.pure`.
+
+### Named State Accessors (`declare_signal_state`)
+
+Eliminates error-prone magic-number indices for hardware state tuples:
+
+```lean
+-- Declare state with named fields, types, and defaults
+declare_signal_state BottleneckState
+  | fsmReg      : BitVec 2   := 0#2
+  | residualReg : BitVec 8   := 0#8
+  | resultReg   : BitVec 8   := 0#8
+  | doneReg     : Bool        := false
+
+-- Access fields by name (no more projN! state 122 47)
+let fsmReg := BottleneckState.fsmReg state
+let residualReg := BottleneckState.residualReg state
+```
+
+Generates a tuple type alias, synthesis-compatible accessor `def`s, default value, and `Inhabited` instance. The RV32 SoC uses this for all 122 registers — adding/removing a field no longer requires updating every index.
 
 ### JIT FFI Simulation (~200x faster than Lean)
 - **Compile C++ to shared library at runtime**, load via `dlopen` from Lean
@@ -784,6 +804,7 @@ sparkle/
 ├── Sparkle/              # Core library
 │   ├── Core/            # Signal semantics, domains, and vectors
 │   │   ├── Signal.lean  # Signal DSL: register, memory, loop, mux, ===, hw_cond
+│   │   ├── StateMacro.lean # declare_signal_state: named state accessors
 │   │   ├── Domain.lean  # Clock domain configuration
 │   │   └── Vector.lean  # Hardware vector types
 │   ├── Data/            # BitPack and data types
@@ -806,7 +827,7 @@ sparkle/
 │   ├── Sparkle16/       # Complete 16-bit RISC CPU
 │   ├── RV32/            # RV32IMA RISC-V SoC (Signal DSL) — boots Linux
 │   │   ├── Core.lean    # ALU, branch comparator, hazard detection, decoder
-│   │   ├── SoC.lean     # Full SoC: 117 registers, S-mode, Sv32 MMU, UART 8250
+│   │   ├── SoC.lean     # Full SoC: 122 registers, S-mode, Sv32 MMU, UART 8250
 │   │   ├── Divider.lean # Multi-cycle restoring divider
 │   │   └── ...          # Peripherals, decoder, ALU
 │   ├── BitNet/          # BitNet b1.58 accelerator (Signal DSL)
@@ -886,6 +907,7 @@ Contributions welcome! Areas of interest:
 - [x] **CppSim backend** - C++ code generation from IR, ~170x faster than Verilator for firmware tests ✓
 - [x] **JIT FFI** - dlopen-based native simulation from Lean, ~200x faster than interpreted ✓
 - [x] **DSL Ergonomics** - `===` equality, `hw_cond` macro, `Coe` implicit constants, Bool operators ✓
+- [x] **State Macro** - `declare_signal_state` for named state accessors (eliminates magic indices) ✓
 - [ ] **loopMemoJIT** - Transparent JIT acceleration for Signal.loopMemo
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits

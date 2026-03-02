@@ -5,6 +5,82 @@
 
 ---
 
+## `declare_signal_state` Macro (Phase 16) — DONE
+
+Replaced error-prone manual `projN!` state indexing with a `declare_signal_state` command macro that generates synthesis-compatible accessor defs. Eliminates magic-number indices for the 122-register SoC and all smaller state tuples.
+
+### Problem
+
+Hardware state in the Signal DSL uses right-nested tuples (`BitVec 32 × Bool × BitVec 8 × ...`). Accessing fields requires `projN! state N i` with numeric indices:
+
+```lean
+-- 122 lines of this — one typo silently breaks the design
+let pcReg := projN! state 122 0
+let fetchPC := projN! state 122 1
+...
+let dMissIsStore := projN! state 122 121
+```
+
+Adding/removing a field requires updating ALL subsequent indices manually. A previous attempt using Lean 4 structures failed because struct constructors (`.mk`) are not `.defnInfo` — the synthesis compiler's `unfoldDefinition?` can't inline them.
+
+### Solution
+
+The `declare_signal_state` command macro generates synthesis-compatible `def`s (which ARE `.defnInfo`):
+
+```lean
+declare_signal_state BottleneckState
+  | fsmReg      : BitVec 2   := 0#2
+  | residualReg : BitVec 8   := 0#8
+  | resultReg   : BitVec 8   := 0#8
+  | doneReg     : Bool        := false
+```
+
+Generates:
+1. **Type alias**: `abbrev BottleneckState := BitVec 2 × BitVec 8 × BitVec 8 × Bool`
+2. **Accessor defs**: `BottleneckState.fsmReg`, `.residualReg`, etc. (each expands to `projN!`)
+3. **Default value**: `BottleneckState.default : BottleneckState`
+4. **Inhabited instance**: `instance : Inhabited BottleneckState`
+
+Each accessor is a regular `def` → `.defnInfo` → `unfoldDefinition?` inlines it → synthesis works.
+
+### Usage
+
+```lean
+-- Before: magic numbers everywhere
+let pcReg := projN! state 122 0
+let fetchPC := projN! state 122 1
+
+-- After: named accessors, no indices
+let pcReg := SoCState.pcReg state
+let fetchPC := SoCState.fetchPC state
+```
+
+### Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `Sparkle/Core/StateMacro.lean` | Created | `declare_signal_state` command macro |
+| `Sparkle.lean` | Modified | Added `import Sparkle.Core.StateMacro` |
+| `Examples/YOLOv8/Blocks/Bottleneck.lean` | Modified | Replaced Record Wrapper with macro (4 fields) |
+| `Examples/RV32/SoC.lean` | Modified | Replaced 122-field `projN!` block with accessor calls |
+
+### Verification
+
+```bash
+$ lake build Examples.YOLOv8.Blocks.Bottleneck
+# Verilog successfully generated! (synthesis works through accessor defs)
+
+$ lake build Examples.RV32.SoCVerilog
+# Written 1 modules to verilator/generated_soc.sv
+# Written C++ simulation to verilator/generated_soc_cppsim.h
+# Written JIT wrapper to verilator/generated_soc_jit.cpp
+
+$ lake exe rv32-flow-test
+# CppSim JIT: ✓ ALL TESTS PASSED
+```
+
+---
+
 ## Signal DSL Ergonomics (Phase 15) — DONE
 
 Improved Signal DSL readability with new operators, implicit coercions, and a hardware conditional macro. Refactored YOLOv8 Backbone to demonstrate the improvements — FSM transition logic reduced from 18 lines of nested `Signal.mux` to 9 lines of flat `hw_cond`.
@@ -375,6 +451,7 @@ cd verilator && make benchmark CYCLES=5000
 - [x] JIT FFI design document (Phase 13 — done, see `docs/JIT_FFI_Plan.md`)
 - [x] JIT FFI implementation (Phase 14 — done)
 - [x] Signal DSL ergonomics: `===`, `Coe`, `hw_cond` macro (Phase 15 — done)
+- [x] `declare_signal_state` macro — named state accessors, no magic indices (Phase 16 — done)
 - [ ] Fix `~~~` (Complement) synthesis — add unfolding for `Complement.mk` in Elab.lean
 - [ ] `loopMemoJIT` integration — replace interpreted loopMemo with JIT-compiled evaluation
 - [ ] State marshalling between Lean tuples and C++ flat arrays
@@ -624,6 +701,7 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 ## Future Work
 
 - [ ] Fix `~~~` (Complement) synthesis — add typeclass unfolding for `Complement.mk` in Elab.lean
+- [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
 - [ ] Bulk refactoring of SoC.lean to use ergonomic operators (`===`, `&&&`, `|||`, `hw_cond`)
 - [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
 - [ ] `loopMemoJIT` — transparent JIT acceleration for Signal.loopMemo (replace interpreted sim)

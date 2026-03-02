@@ -24,7 +24,11 @@ namespace Sparkle.Examples.YOLOv8.Blocks.Bottleneck
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
-private abbrev BottleneckState := BitVec 2 × BitVec 8 × BitVec 8 × Bool
+declare_signal_state BottleneckState
+  | fsmReg      : BitVec 2   := 0#2
+  | residualReg : BitVec 8   := 0#8
+  | resultReg   : BitVec 8   := 0#8
+  | doneReg     : Bool        := false
 
 /-- Bottleneck block controller FSM.
 
@@ -62,31 +66,29 @@ private def bottleneckControllerBody {dom : DomainConfig}
     (start : Signal dom Bool)
     (addResidual : Signal dom Bool)
     (state : Signal dom BottleneckState) : Signal dom BottleneckState :=
-    let fsmReg      := projN! state 4 0  -- BitVec 2
-    let residualReg := projN! state 4 1  -- BitVec 8
-    let resultReg   := projN! state 4 2  -- BitVec 8
-    let doneReg     := projN! state 4 3  -- Bool
+    let fsmReg := BottleneckState.fsmReg state
+    let residualReg := BottleneckState.residualReg state
+    let resultReg := BottleneckState.resultReg state
 
-    let isIdle  := (· == ·) <$> fsmReg <*> Signal.pure 0#2
-    let isConv1 := (· == ·) <$> fsmReg <*> Signal.pure 1#2
-    let isConv2 := (· == ·) <$> fsmReg <*> Signal.pure 2#2
-    let isDone  := (· == ·) <$> fsmReg <*> Signal.pure 3#2
+    let isIdle  := fsmReg === (0#2)
+    let isConv1 := fsmReg === (1#2)
+    let isConv2 := fsmReg === (2#2)
+    let isDone  := fsmReg === (3#2)
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
-    let conv1Done := (· && ·) <$> convDone <*> isConv1
-    let conv2Done := (· && ·) <$> convDone <*> isConv2
+    let startAndIdle := start &&& isIdle
+    let conv1Done := convDone &&& isConv1
+    let conv2Done := convDone &&& isConv2
 
     -- Residual addition: saturating signed add
     let sumRaw := (· + ·) <$> convResult <*> residualReg
     let withResidual := Signal.mux addResidual sumRaw convResult
 
     -- FSM transitions
-    let fsmNext :=
-      Signal.mux startAndIdle (Signal.pure 1#2)    -- IDLE → CONV1
-        (Signal.mux conv1Done (Signal.pure 2#2)    -- CONV1 → CONV2
-          (Signal.mux conv2Done (Signal.pure 3#2)  -- CONV2 → DONE
-            (Signal.mux isDone (Signal.pure 0#2)   -- DONE → IDLE
-              fsmReg)))
+    let fsmNext := hw_cond fsmReg
+      | startAndIdle => (1#2 : Signal dom _)  -- IDLE → CONV1
+      | conv1Done    => (2#2 : Signal dom _)  -- CONV1 → CONV2
+      | conv2Done    => (3#2 : Signal dom _)  -- CONV2 → DONE
+      | isDone       => (0#2 : Signal dom _)  -- DONE → IDLE
 
     -- Latch input for residual on start
     let residualNext := Signal.mux startAndIdle inputVal residualReg
@@ -112,10 +114,7 @@ def bottleneckController {dom : DomainConfig}
     (addResidual : Signal dom Bool)
     : Signal dom (BitVec 8 × Bool × BitVec 2) :=
   let loopState := Signal.loop fun state => bottleneckControllerBody convResult convDone inputVal start addResidual state
-  let resultOut := projN! loopState 4 2
-  let doneOut := projN! loopState 4 3
-  let phaseOut := projN! loopState 4 0
-  bundle2 resultOut (bundle2 doneOut phaseOut)
+  bundle2 (BottleneckState.resultReg loopState) (bundle2 (BottleneckState.doneReg loopState) (BottleneckState.fsmReg loopState))
 
 def bottleneckControllerSimulate {dom : DomainConfig}
     (convResult : Signal dom (BitVec 8))
@@ -125,10 +124,7 @@ def bottleneckControllerSimulate {dom : DomainConfig}
     (addResidual : Signal dom Bool)
     : IO (Signal dom (BitVec 8 × Bool × BitVec 2)) := do
   let loopState ← Signal.loopMemo (bottleneckControllerBody convResult convDone inputVal start addResidual)
-  let resultOut := projN! loopState 4 2
-  let doneOut := projN! loopState 4 3
-  let phaseOut := projN! loopState 4 0
-  return bundle3 resultOut doneOut phaseOut
+  return bundle3 (BottleneckState.resultReg loopState) (BottleneckState.doneReg loopState) (BottleneckState.fsmReg loopState)
 
 #synthesizeVerilog bottleneckController
 

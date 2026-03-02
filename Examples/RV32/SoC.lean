@@ -63,84 +63,148 @@ def nopInst : BitVec 32 := 0x00000013#32
 -- rv32iSoC (synthesis-only, phantom-type-safe version) is in SoCVerilog.lean
 -- to prevent module-init stack overflow from closed-term evaluation.
 
-/-- State type for the 122-register SoC loop (right-nested tuple).
-    Registers 0-69: pipeline + CLINT + CSR + AI MMIO + sub-word + M-ext + A-ext
-    Registers 70-79: S-mode CSRs + privilege mode + delegation
-    Registers 80-107: MMU TLB + PTW
-    Registers 108-109: SRET + SFENCE.VMA pipeline
-    Registers 110-115: UART 8250 (LCR, IER, MCR, SCR, DLL, DLM)
-    Registers 116-117: mcounteren, scounteren
-    Register 118: divPending
-    Registers 119-121: dMissPC, dMissVaddr, dMissIsStore -/
-abbrev SoCState :=
-  BitVec 32 × BitVec 32 × Bool × BitVec 32 × BitVec 32 × BitVec 32 ×
-  BitVec 4 × Bool × Bool × Bool × Bool × Bool × Bool × Bool × Bool ×
-  Bool × Bool × Bool × Bool × BitVec 32 × BitVec 32 × BitVec 32 ×
-  BitVec 5 × BitVec 5 × BitVec 5 × BitVec 3 × BitVec 32 × BitVec 32 ×
-  BitVec 12 × BitVec 3 × BitVec 32 × BitVec 32 × BitVec 5 × Bool × Bool ×
-  BitVec 32 × Bool × Bool × BitVec 32 × BitVec 5 × BitVec 32 × Bool ×
-  BitVec 32 × BitVec 32 × Bool × BitVec 32 × BitVec 32 × BitVec 32 ×
-  BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
-  BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
-  BitVec 32 × BitVec 32 × BitVec 3 × Bool ×
-  Bool × BitVec 32 × Bool × BitVec 5 × Bool × BitVec 5 ×
-  Bool × BitVec 32 × BitVec 32 ×
-  -- S-mode CSRs + privilege (69-78)
-  BitVec 2 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
-  BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 × BitVec 32 ×
-  -- MMU TLB + PTW (79-106)
-  BitVec 3 × BitVec 3 × BitVec 32 × BitVec 32 × Bool × BitVec 2 ×
-  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
-  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
-  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
-  Bool × BitVec 20 × BitVec 22 × BitVec 8 × Bool ×
-  Bool × Bool ×
-  -- Pipeline additions (107-108)
-  Bool × Bool ×
-  -- UART 8250 registers (109-114)
-  BitVec 8 × BitVec 8 × BitVec 8 × BitVec 8 × BitVec 8 × BitVec 8 ×
-  -- Counter CSRs (115-116)
-  BitVec 32 × BitVec 32 ×
+declare_signal_state SoCState
+  -- Pipeline (0-5)
+  | pcReg          : BitVec 32  := 0#32
+  | fetchPC        : BitVec 32  := 0#32
+  | flushDelay     : Bool       := false
+  | ifid_inst      : BitVec 32  := 0x00000013#32
+  | ifid_pc        : BitVec 32  := 0#32
+  | ifid_pc4       : BitVec 32  := 0#32
+  -- ID/EX control (6-18)
+  | idex_aluOp     : BitVec 4   := 0#4
+  | idex_regWrite  : Bool       := false
+  | idex_memRead   : Bool       := false
+  | idex_memWrite  : Bool       := false
+  | idex_memToReg  : Bool       := false
+  | idex_branch    : Bool       := false
+  | idex_jump      : Bool       := false
+  | idex_auipc     : Bool       := false
+  | idex_aluSrcB   : Bool       := false
+  | idex_isJalr    : Bool       := false
+  | idex_isCsr     : Bool       := false
+  | idex_isEcall   : Bool       := false
+  | idex_isMret    : Bool       := false
+  -- ID/EX data (19-29)
+  | idex_rs1Val    : BitVec 32  := 0#32
+  | idex_rs2Val    : BitVec 32  := 0#32
+  | idex_imm       : BitVec 32  := 0#32
+  | idex_rd        : BitVec 5   := 0#5
+  | idex_rs1Idx    : BitVec 5   := 0#5
+  | idex_rs2Idx    : BitVec 5   := 0#5
+  | idex_funct3    : BitVec 3   := 0#3
+  | idex_pc        : BitVec 32  := 0#32
+  | idex_pc4       : BitVec 32  := 0#32
+  | idex_csrAddr   : BitVec 12  := 0#12
+  | idex_csrFunct3 : BitVec 3   := 0#3
+  -- EX/WB (30-38)
+  | exwb_alu       : BitVec 32  := 0#32
+  | exwb_physAddr  : BitVec 32  := 0#32
+  | exwb_rd        : BitVec 5   := 0#5
+  | exwb_regW      : Bool       := false
+  | exwb_m2r       : Bool       := false
+  | exwb_pc4       : BitVec 32  := 0#32
+  | exwb_jump      : Bool       := false
+  | exwb_isCsr     : Bool       := false
+  | exwb_csrRdata  : BitVec 32  := 0#32
+  -- WB forwarding (39-41)
+  | prev_wb_addr   : BitVec 5   := 0#5
+  | prev_wb_data   : BitVec 32  := 0#32
+  | prev_wb_en     : Bool       := false
+  -- Store history (42-44)
+  | prevStoreAddr  : BitVec 32  := 0#32
+  | prevStoreData  : BitVec 32  := 0#32
+  | prevStoreEn    : Bool       := false
+  -- CLINT (45-49)
+  | msipReg        : BitVec 32  := 0#32
+  | mtimeLoReg     : BitVec 32  := 0#32
+  | mtimeHiReg     : BitVec 32  := 0#32
+  | mtimecmpLoReg  : BitVec 32  := 0xFFFFFFFF#32
+  | mtimecmpHiReg  : BitVec 32  := 0xFFFFFFFF#32
+  -- CSR M-mode (50-56)
+  | mstatusReg     : BitVec 32  := 0#32
+  | mieReg         : BitVec 32  := 0#32
+  | mtvecReg       : BitVec 32  := 0#32
+  | mscratchReg    : BitVec 32  := 0#32
+  | mepcReg        : BitVec 32  := 0#32
+  | mcauseReg      : BitVec 32  := 0#32
+  | mtvalReg       : BitVec 32  := 0#32
+  -- AI MMIO (57-58)
+  | aiStatusReg    : BitVec 32  := 0#32
+  | aiInputReg     : BitVec 32  := 0#32
+  -- Sub-word (59)
+  | exwb_funct3    : BitVec 3   := 0#3
+  -- M-ext (60)
+  | idex_isMext    : Bool       := false
+  -- A-ext (61-69)
+  | reservationValid : Bool     := false
+  | reservationAddr  : BitVec 32 := 0#32
+  | idex_isAMO     : Bool       := false
+  | idex_amoOp     : BitVec 5   := 0#5
+  | exwb_isAMO     : Bool       := false
+  | exwb_amoOp     : BitVec 5   := 0#5
+  | pendingWriteEn   : Bool     := false
+  | pendingWriteAddr : BitVec 32 := 0#32
+  | pendingWriteData : BitVec 32 := 0#32
+  -- S-mode CSRs + privilege (70-79)
+  | privMode       : BitVec 2   := 3#2
+  | sieReg         : BitVec 32  := 0#32
+  | stvecReg       : BitVec 32  := 0#32
+  | sscratchReg    : BitVec 32  := 0#32
+  | sepcReg        : BitVec 32  := 0#32
+  | scauseReg      : BitVec 32  := 0#32
+  | stvalReg       : BitVec 32  := 0#32
+  | satpReg        : BitVec 32  := 0#32
+  | medelegReg     : BitVec 32  := 0#32
+  | midelegReg     : BitVec 32  := 0#32
+  -- MMU TLB + PTW (80-107)
+  | mmuStateReg    : BitVec 3   := 0#3
+  | ptwStateReg    : BitVec 3   := 0#3
+  | ptwVaddrReg    : BitVec 32  := 0#32
+  | ptwPteReg      : BitVec 32  := 0#32
+  | ptwMegaReg     : Bool       := false
+  | replPtrReg     : BitVec 2   := 0#2
+  | tlb0Valid      : Bool       := false
+  | tlb0VPN        : BitVec 20  := 0#20
+  | tlb0PPN        : BitVec 22  := 0#22
+  | tlb0Flags      : BitVec 8   := 0#8
+  | tlb0Mega       : Bool       := false
+  | tlb1Valid      : Bool       := false
+  | tlb1VPN        : BitVec 20  := 0#20
+  | tlb1PPN        : BitVec 22  := 0#22
+  | tlb1Flags      : BitVec 8   := 0#8
+  | tlb1Mega       : Bool       := false
+  | tlb2Valid      : Bool       := false
+  | tlb2VPN        : BitVec 20  := 0#20
+  | tlb2PPN        : BitVec 22  := 0#22
+  | tlb2Flags      : BitVec 8   := 0#8
+  | tlb2Mega       : Bool       := false
+  | tlb3Valid      : Bool       := false
+  | tlb3VPN        : BitVec 20  := 0#20
+  | tlb3PPN        : BitVec 22  := 0#22
+  | tlb3Flags      : BitVec 8   := 0#8
+  | tlb3Mega       : Bool       := false
+  | ptwIsIfetch    : Bool       := false
+  | ifetchFaultPending : Bool   := false
+  -- Pipeline additions (108-109)
+  | idex_isSret      : Bool     := false
+  | idex_isSFenceVMA : Bool     := false
+  -- UART 8250 registers (110-115)
+  | uartLCRReg     : BitVec 8   := 0#8
+  | uartIERReg     : BitVec 8   := 0#8
+  | uartMCRReg     : BitVec 8   := 0#8
+  | uartSCRReg     : BitVec 8   := 0#8
+  | uartDLLReg     : BitVec 8   := 0#8
+  | uartDLMReg     : BitVec 8   := 0#8
+  -- Counter CSRs (116-117)
+  | mcounterenReg  : BitVec 32  := 0#32
+  | scounterenReg  : BitVec 32  := 0#32
   -- Divider pending (118)
-  Bool ×
+  | divPending     : Bool       := false
   -- D-side TLB miss registers (119-121)
-  BitVec 32 × BitVec 32 × Bool
-
--- Deep tuple needs explicit Inhabited instance
-def defaultSoCState : SoCState :=
-  (0#32, 0#32, false, 0#32, 0#32, 0#32,
-   0#4, false, false, false, false, false, false, false, false,
-   false, false, false, false, 0#32, 0#32, 0#32,
-   0#5, 0#5, 0#5, 0#3, 0#32, 0#32,
-   0#12, 0#3, 0#32, 0#32, 0#5, false, false,
-   0#32, false, false, 0#32, 0#5, 0#32, false,
-   0#32, 0#32, false, 0#32, 0#32, 0#32,
-   0#32, 0#32, 0#32, 0#32, 0#32,
-   0#32, 0#32, 0#32, 0#32,
-   0#32, 0#32, 0#3, false,
-   false, 0#32, false, 0#5, false, 0#5,
-   false, 0#32, 0#32,
-   -- S-mode CSRs + privilege (69-78)
-   3#2, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32, 0#32,
-   -- MMU TLB + PTW (79-106)
-   0#3, 0#3, 0#32, 0#32, false, 0#2,
-   false, 0#20, 0#22, 0#8, false,
-   false, 0#20, 0#22, 0#8, false,
-   false, 0#20, 0#22, 0#8, false,
-   false, 0#20, 0#22, 0#8, false,
-   false, false,
-   -- Pipeline additions (107-108)
-   false, false,
-   -- UART 8250 registers (109-114)
-   0#8, 0#8, 0#8, 0#8, 0#8, 0#8,
-   -- Counter CSRs (115-116)
-   0#32, 0#32,
-   -- Divider pending (118)
-   false,
-   -- D-side TLB miss registers (119-121)
-   0#32, 0#32, false)
-
-instance : Inhabited SoCState := ⟨defaultSoCState⟩
+  | dMissPC        : BitVec 32  := 0#32
+  | dMissVaddr     : BitVec 32  := 0#32
+  | dMissIsStore   : Bool       := false
 
 /-- Loop body for RV32I SoC (122 registers).
     Parameterized by `imem_rdata` (pre-resolved instruction read data) so the
@@ -154,136 +218,136 @@ def rv32iSoCBody {dom : DomainConfig}
     (dmemExtWriteAddr : Signal dom (BitVec 23) := Signal.pure 0#23)
     (dmemExtWriteData : Signal dom (BitVec 32) := Signal.pure 0#32)
     (state : Signal dom SoCState) : Signal dom SoCState :=
-    -- Extract all 118 register outputs
-    let pcReg          := projN! state 122 0
-    let fetchPC        := projN! state 122 1
-    let flushDelay     := projN! state 122 2
-    let ifid_inst      := projN! state 122 3
-    let ifid_pc        := projN! state 122 4
-    let ifid_pc4       := projN! state 122 5
-    let idex_aluOp     := projN! state 122 6
-    let idex_regWrite  := projN! state 122 7
-    let idex_memRead   := projN! state 122 8
-    let idex_memWrite  := projN! state 122 9
-    let idex_memToReg  := projN! state 122 10
-    let idex_branch    := projN! state 122 11
-    let idex_jump      := projN! state 122 12
-    let idex_auipc     := projN! state 122 13
-    let idex_aluSrcB   := projN! state 122 14
-    let idex_isJalr    := projN! state 122 15
-    let idex_isCsr     := projN! state 122 16
-    let idex_isEcall   := projN! state 122 17
-    let idex_isMret    := projN! state 122 18
-    let idex_rs1Val    := projN! state 122 19
-    let idex_rs2Val    := projN! state 122 20
-    let idex_imm       := projN! state 122 21
-    let idex_rd        := projN! state 122 22
-    let idex_rs1Idx    := projN! state 122 23
-    let idex_rs2Idx    := projN! state 122 24
-    let idex_funct3    := projN! state 122 25
-    let idex_pc        := projN! state 122 26
-    let idex_pc4       := projN! state 122 27
-    let idex_csrAddr   := projN! state 122 28
-    let idex_csrFunct3 := projN! state 122 29
-    let exwb_alu       := projN! state 122 30
-    let exwb_physAddr  := projN! state 122 31
-    let exwb_rd        := projN! state 122 32
-    let exwb_regW      := projN! state 122 33
-    let exwb_m2r       := projN! state 122 34
-    let exwb_pc4       := projN! state 122 35
-    let exwb_jump      := projN! state 122 36
-    let exwb_isCsr     := projN! state 122 37
-    let exwb_csrRdata  := projN! state 122 38
-    let prev_wb_addr   := projN! state 122 39
-    let prev_wb_data   := projN! state 122 40
-    let prev_wb_en     := projN! state 122 41
-    let prevStoreAddr  := projN! state 122 42
-    let prevStoreData  := projN! state 122 43
-    let prevStoreEn    := projN! state 122 44
-    let msipReg        := projN! state 122 45
-    let mtimeLoReg     := projN! state 122 46
-    let mtimeHiReg     := projN! state 122 47
-    let mtimecmpLoReg  := projN! state 122 48
-    let mtimecmpHiReg  := projN! state 122 49
-    let mstatusReg     := projN! state 122 50
-    let mieReg         := projN! state 122 51
-    let mtvecReg       := projN! state 122 52
-    let mscratchReg    := projN! state 122 53
-    let mepcReg        := projN! state 122 54
-    let mcauseReg      := projN! state 122 55
-    let mtvalReg       := projN! state 122 56
-    let aiStatusReg    := projN! state 122 57
-    let aiInputReg     := projN! state 122 58
-    let exwb_funct3    := projN! state 122 59
-    let idex_isMext    := projN! state 122 60
-    let reservationValid := projN! state 122 61
-    let reservationAddr  := projN! state 122 62
-    let idex_isAMO     := projN! state 122 63
-    let idex_amoOp     := projN! state 122 64
-    let exwb_isAMO     := projN! state 122 65
-    let exwb_amoOp     := projN! state 122 66
-    let pendingWriteEn   := projN! state 122 67
-    let pendingWriteAddr := projN! state 122 68
-    let pendingWriteData := projN! state 122 69
+    -- Extract all 122 register outputs via accessor defs
+    let pcReg          := SoCState.pcReg state
+    let fetchPC        := SoCState.fetchPC state
+    let flushDelay     := SoCState.flushDelay state
+    let ifid_inst      := SoCState.ifid_inst state
+    let ifid_pc        := SoCState.ifid_pc state
+    let ifid_pc4       := SoCState.ifid_pc4 state
+    let idex_aluOp     := SoCState.idex_aluOp state
+    let idex_regWrite  := SoCState.idex_regWrite state
+    let idex_memRead   := SoCState.idex_memRead state
+    let idex_memWrite  := SoCState.idex_memWrite state
+    let idex_memToReg  := SoCState.idex_memToReg state
+    let idex_branch    := SoCState.idex_branch state
+    let idex_jump      := SoCState.idex_jump state
+    let idex_auipc     := SoCState.idex_auipc state
+    let idex_aluSrcB   := SoCState.idex_aluSrcB state
+    let idex_isJalr    := SoCState.idex_isJalr state
+    let idex_isCsr     := SoCState.idex_isCsr state
+    let idex_isEcall   := SoCState.idex_isEcall state
+    let idex_isMret    := SoCState.idex_isMret state
+    let idex_rs1Val    := SoCState.idex_rs1Val state
+    let idex_rs2Val    := SoCState.idex_rs2Val state
+    let idex_imm       := SoCState.idex_imm state
+    let idex_rd        := SoCState.idex_rd state
+    let idex_rs1Idx    := SoCState.idex_rs1Idx state
+    let idex_rs2Idx    := SoCState.idex_rs2Idx state
+    let idex_funct3    := SoCState.idex_funct3 state
+    let idex_pc        := SoCState.idex_pc state
+    let idex_pc4       := SoCState.idex_pc4 state
+    let idex_csrAddr   := SoCState.idex_csrAddr state
+    let idex_csrFunct3 := SoCState.idex_csrFunct3 state
+    let exwb_alu       := SoCState.exwb_alu state
+    let exwb_physAddr  := SoCState.exwb_physAddr state
+    let exwb_rd        := SoCState.exwb_rd state
+    let exwb_regW      := SoCState.exwb_regW state
+    let exwb_m2r       := SoCState.exwb_m2r state
+    let exwb_pc4       := SoCState.exwb_pc4 state
+    let exwb_jump      := SoCState.exwb_jump state
+    let exwb_isCsr     := SoCState.exwb_isCsr state
+    let exwb_csrRdata  := SoCState.exwb_csrRdata state
+    let prev_wb_addr   := SoCState.prev_wb_addr state
+    let prev_wb_data   := SoCState.prev_wb_data state
+    let prev_wb_en     := SoCState.prev_wb_en state
+    let prevStoreAddr  := SoCState.prevStoreAddr state
+    let prevStoreData  := SoCState.prevStoreData state
+    let prevStoreEn    := SoCState.prevStoreEn state
+    let msipReg        := SoCState.msipReg state
+    let mtimeLoReg     := SoCState.mtimeLoReg state
+    let mtimeHiReg     := SoCState.mtimeHiReg state
+    let mtimecmpLoReg  := SoCState.mtimecmpLoReg state
+    let mtimecmpHiReg  := SoCState.mtimecmpHiReg state
+    let mstatusReg     := SoCState.mstatusReg state
+    let mieReg         := SoCState.mieReg state
+    let mtvecReg       := SoCState.mtvecReg state
+    let mscratchReg    := SoCState.mscratchReg state
+    let mepcReg        := SoCState.mepcReg state
+    let mcauseReg      := SoCState.mcauseReg state
+    let mtvalReg       := SoCState.mtvalReg state
+    let aiStatusReg    := SoCState.aiStatusReg state
+    let aiInputReg     := SoCState.aiInputReg state
+    let exwb_funct3    := SoCState.exwb_funct3 state
+    let idex_isMext    := SoCState.idex_isMext state
+    let reservationValid := SoCState.reservationValid state
+    let reservationAddr  := SoCState.reservationAddr state
+    let idex_isAMO     := SoCState.idex_isAMO state
+    let idex_amoOp     := SoCState.idex_amoOp state
+    let exwb_isAMO     := SoCState.exwb_isAMO state
+    let exwb_amoOp     := SoCState.exwb_amoOp state
+    let pendingWriteEn   := SoCState.pendingWriteEn state
+    let pendingWriteAddr := SoCState.pendingWriteAddr state
+    let pendingWriteData := SoCState.pendingWriteData state
     -- S-mode CSRs + privilege (70-79)
-    let privMode         := projN! state 122 70
-    let sieReg           := projN! state 122 71
-    let stvecReg         := projN! state 122 72
-    let sscratchReg      := projN! state 122 73
-    let sepcReg          := projN! state 122 74
-    let scauseReg        := projN! state 122 75
-    let stvalReg         := projN! state 122 76
-    let satpReg          := projN! state 122 77
-    let medelegReg       := projN! state 122 78
-    let midelegReg       := projN! state 122 79
+    let privMode         := SoCState.privMode state
+    let sieReg           := SoCState.sieReg state
+    let stvecReg         := SoCState.stvecReg state
+    let sscratchReg      := SoCState.sscratchReg state
+    let sepcReg          := SoCState.sepcReg state
+    let scauseReg        := SoCState.scauseReg state
+    let stvalReg         := SoCState.stvalReg state
+    let satpReg          := SoCState.satpReg state
+    let medelegReg       := SoCState.medelegReg state
+    let midelegReg       := SoCState.midelegReg state
     -- MMU TLB + PTW (80-107)
-    let mmuStateReg      := projN! state 122 80
-    let ptwStateReg      := projN! state 122 81
-    let ptwVaddrReg      := projN! state 122 82
-    let ptwPteReg        := projN! state 122 83
-    let ptwMegaReg       := projN! state 122 84
-    let replPtrReg       := projN! state 122 85
-    let tlb0Valid        := projN! state 122 86
-    let tlb0VPN          := projN! state 122 87
-    let tlb0PPN          := projN! state 122 88
-    let tlb0Flags        := projN! state 122 89
-    let tlb0Mega         := projN! state 122 90
-    let tlb1Valid        := projN! state 122 91
-    let tlb1VPN          := projN! state 122 92
-    let tlb1PPN          := projN! state 122 93
-    let tlb1Flags        := projN! state 122 94
-    let tlb1Mega         := projN! state 122 95
-    let tlb2Valid        := projN! state 122 96
-    let tlb2VPN          := projN! state 122 97
-    let tlb2PPN          := projN! state 122 98
-    let tlb2Flags        := projN! state 122 99
-    let tlb2Mega         := projN! state 122 100
-    let tlb3Valid        := projN! state 122 101
-    let tlb3VPN          := projN! state 122 102
-    let tlb3PPN          := projN! state 122 103
-    let tlb3Flags        := projN! state 122 104
-    let tlb3Mega         := projN! state 122 105
-    let ptwIsIfetch      := projN! state 122 106
-    let ifetchFaultPending := projN! state 122 107
+    let mmuStateReg      := SoCState.mmuStateReg state
+    let ptwStateReg      := SoCState.ptwStateReg state
+    let ptwVaddrReg      := SoCState.ptwVaddrReg state
+    let ptwPteReg        := SoCState.ptwPteReg state
+    let ptwMegaReg       := SoCState.ptwMegaReg state
+    let replPtrReg       := SoCState.replPtrReg state
+    let tlb0Valid        := SoCState.tlb0Valid state
+    let tlb0VPN          := SoCState.tlb0VPN state
+    let tlb0PPN          := SoCState.tlb0PPN state
+    let tlb0Flags        := SoCState.tlb0Flags state
+    let tlb0Mega         := SoCState.tlb0Mega state
+    let tlb1Valid        := SoCState.tlb1Valid state
+    let tlb1VPN          := SoCState.tlb1VPN state
+    let tlb1PPN          := SoCState.tlb1PPN state
+    let tlb1Flags        := SoCState.tlb1Flags state
+    let tlb1Mega         := SoCState.tlb1Mega state
+    let tlb2Valid        := SoCState.tlb2Valid state
+    let tlb2VPN          := SoCState.tlb2VPN state
+    let tlb2PPN          := SoCState.tlb2PPN state
+    let tlb2Flags        := SoCState.tlb2Flags state
+    let tlb2Mega         := SoCState.tlb2Mega state
+    let tlb3Valid        := SoCState.tlb3Valid state
+    let tlb3VPN          := SoCState.tlb3VPN state
+    let tlb3PPN          := SoCState.tlb3PPN state
+    let tlb3Flags        := SoCState.tlb3Flags state
+    let tlb3Mega         := SoCState.tlb3Mega state
+    let ptwIsIfetch      := SoCState.ptwIsIfetch state
+    let ifetchFaultPending := SoCState.ifetchFaultPending state
     -- Pipeline additions (108-109)
-    let idex_isSret      := projN! state 122 108
-    let idex_isSFenceVMA := projN! state 122 109
+    let idex_isSret      := SoCState.idex_isSret state
+    let idex_isSFenceVMA := SoCState.idex_isSFenceVMA state
     -- UART 8250 registers (110-115)
-    let uartLCRReg   := projN! state 122 110
-    let uartIERReg   := projN! state 122 111
-    let uartMCRReg   := projN! state 122 112
-    let uartSCRReg   := projN! state 122 113
-    let uartDLLReg   := projN! state 122 114
-    let uartDLMReg   := projN! state 122 115
+    let uartLCRReg   := SoCState.uartLCRReg state
+    let uartIERReg   := SoCState.uartIERReg state
+    let uartMCRReg   := SoCState.uartMCRReg state
+    let uartSCRReg   := SoCState.uartSCRReg state
+    let uartDLLReg   := SoCState.uartDLLReg state
+    let uartDLMReg   := SoCState.uartDLMReg state
     -- Counter CSRs (116-117)
-    let mcounterenReg := projN! state 122 116
-    let scounterenReg := projN! state 122 117
+    let mcounterenReg := SoCState.mcounterenReg state
+    let scounterenReg := SoCState.scounterenReg state
     -- Divider state (118)
-    let divPending       := projN! state 122 118
+    let divPending       := SoCState.divPending state
     -- D-side TLB miss registers (119-121)
-    let dMissPC          := projN! state 122 119
-    let dMissVaddr       := projN! state 122 120
-    let dMissIsStore     := projN! state 122 121
+    let dMissPC          := SoCState.dMissPC state
+    let dMissVaddr       := SoCState.dMissVaddr state
+    let dMissIsStore     := SoCState.dMissIsStore state
 
     -- Phase 1-5: identical to rv32iSoC except IMEM uses memoryWithInit
     let wbRdNz := (fun x => !x) <$> ((· == ·) <$> exwb_rd <*> Signal.pure 0#5)
@@ -1487,7 +1551,7 @@ def rv32iSoCBody {dom : DomainConfig}
 private def rv32iSoCWithFirmwareBody {dom : DomainConfig}
     (firmware : BitVec 12 → BitVec 32)
     (state : Signal dom SoCState) : Signal dom SoCState :=
-  let fetchPC := projN! state 122 1
+  let fetchPC := SoCState.fetchPC state
   let imem_addr := fetchPC.map (BitVec.extractLsb' 2 12 ·)
   let imem_rdata := imem_addr.map firmware
   rv32iSoCBody imem_rdata (state := state)

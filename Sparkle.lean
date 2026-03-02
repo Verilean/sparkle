@@ -7,6 +7,7 @@
 
 import Sparkle.Core.Domain
 import Sparkle.Core.Signal
+import Sparkle.Core.StateMacro
 import Sparkle.Core.Vector
 import Sparkle.Core.OptimizedSim
 import Sparkle.Data.BitPack
