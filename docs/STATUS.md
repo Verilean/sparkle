@@ -5,6 +5,64 @@
 
 ---
 
+## CppSim Backend Optimization (Phase 23) — DONE
+
+Implemented IR-level optimizations and CppSim backend improvements to close the 2.7x performance gap with Verilator identified in Phase 22.
+
+### Results
+
+| Metric | Before (Phase 22) | After (Phase 23) | Change |
+|--------|-------------------|-------------------|--------|
+| **CppSim speed** | 3.6M cyc/s | **6.3M cyc/s** | **+75%** |
+| **vs Verilator** | 2.7x slower | **1.3x slower** | Gap closed by 2.1x |
+| Assignments in eval() | 2,242 | 1,375 | -39% |
+| Member variables | 3,009 | 1,254 | -58% |
+| Generated C++ lines | ~6,000 | 2,669 | -56% |
+
+### Benchmark (10M cycles, boot.hex stub, Apple Silicon)
+
+| Backend | Speed | vs Verilator |
+|---------|-------|-------------|
+| **Verilator** | **8.13M cyc/s** | 1.0x |
+| **CppSim (AOT, -O3)** | 6.31M cyc/s | 1.29x |
+| **JIT (dlopen, -O2)** | 6.27M cyc/s | 1.30x |
+
+### Optimizations Applied
+
+1. **Single-use wire inlining** (IR level, `Optimize.lean`): Replaces references to wires used exactly once with their defining expression, removing ~900 intermediate assignments. Preserves `_gen_` wires (JIT-observable), register outputs, memory read-data, and module outputs.
+
+2. **Constant folding** (IR level, `Optimize.lean`): Simplifies `mux(true,t,e)→t`, `mux(false,t,e)→e`, `eq(const,const)`, `add(0,x)→x`, `or(0,x)→x`, `and(0,x)→0`, `slice(const)→const`.
+
+3. **Local variable promotion** (CppSim, `CppSim.lean`): Partitions internal wires — `_gen_` prefix wires remain class members (JIT-observable via `jit_get_wire`), all `_tmp_` wires become local variables in `eval()`, enabling CPU register allocation.
+
+4. **Redundant mask elimination** (CppSim, `CppSim.lean`): Skips `& mask` for constants, comparison results (already 0/1), exact-width slices, and mux of already-masked operands.
+
+### Files Modified
+
+| File | Description |
+|------|-------------|
+| `Sparkle/IR/Optimize.lean` | Added `foldConstants`, `inlineSingleUseWires`, `substituteExpr`; integrated as Phase 3-4 in `optimizeModule` |
+| `Sparkle/Backend/CppSim.lean` | Local variable promotion in `emitModule`, `exprIsMasked` for redundant mask elimination |
+
+### Remaining 1.3x Gap — Assembly-Level Analysis
+
+Profiled JIT vs Verilator at the ARM64 instruction level:
+
+| Component | Verilator | JIT | Ratio | Root Cause |
+|-----------|-----------|-----|-------|------------|
+| Stores (str/strb) | 283 | 1,115 | 3.9x | JIT writes every `_gen_` wire to memory; Verilator uses locals |
+| Loads (ldr/ldrb) | 256 | 691 | 2.7x | Corresponding read traffic |
+| Masks (and) | 80 | 292 | 3.7x | JIT applies runtime masks; Verilator uses sized types |
+| Conditionals (cmp/csel) | 181 | 484 | 2.7x | JIT evaluates all muxes; Verilator may skip unchanged |
+| tick() instructions | 89 | 373 | 4.2x | JIT copies all registers unconditionally |
+
+**Next optimization targets:**
+- Promote `_gen_` wires that aren't read by `jit_get_wire` to locals (biggest impact)
+- Extend mask elimination to more expression patterns
+- Merge eval()+tick() into single pass (eliminate register copy overhead)
+
+---
+
 ## Simulation Performance Analysis (Phase 22) — DONE
 
 Benchmarked all simulation backends at 10M cycles (Linux boot) and identified the root cause of the CppSim/JIT vs Verilator performance gap.

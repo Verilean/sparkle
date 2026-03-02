@@ -68,6 +68,16 @@ def applyMask (expr : String) (w : Nat) : String :=
   if mask.isEmpty then expr
   else s!"(({expr}) & {mask})"
 
+/-- Check if an IR expression produces a result that is already correctly masked -/
+partial def exprIsMasked (w : Nat) : Expr → Bool
+  | .const _ _ => true  -- constants are always exact
+  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
+  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
+  | .op .ge_s _ => w == 1  -- comparisons produce 0 or 1
+  | .slice _ hi lo => (hi - lo + 1) == w  -- slice is already exact width
+  | .op .mux [_, t, e] => exprIsMasked w t && exprIsMasked w e
+  | _ => !needsMask w  -- native widths don't need masking
+
 /-- Convert Operator to C++ operator symbol -/
 def emitCppOperator (op : Operator) : String :=
   match op with
@@ -253,7 +263,7 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       , resetBody := [] }
     else
       let expr := emitExpr typeMap rhs
-      let masked := applyMask expr width
+      let masked := if exprIsMasked width rhs then expr else applyMask expr width
       { declarations := []
       , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
       , tickBody := []
@@ -341,8 +351,19 @@ def emitModule (m : Module) (design : Option Design := none) : String :=
       | _ => none
     let internalWires := m.wires.filter fun (w : Port) =>
       !portNames.contains w.name && !registerNames.contains w.name
-    let wireDecls := internalWires.map fun (p : Port) =>
+
+    -- Partition into member wires (_gen_ prefix, JIT-observable) and local wires
+    let memberWires := internalWires.filter fun (w : Port) =>
+      (sanitizeName w.name).startsWith "_gen_"
+    let localWires := internalWires.filter fun (w : Port) =>
+      !(sanitizeName w.name).startsWith "_gen_"
+
+    let wireDecls := memberWires.map fun (p : Port) =>
       s!"    {emitCppType p.ty} {sanitizeName p.name};"
+
+    -- Local variable declarations (emitted inside eval())
+    let localDecls := localWires.map fun (p : Port) =>
+      s!"        {emitCppType p.ty} {sanitizeName p.name};"
 
     -- Extra declarations from statements (registers, memories, sub-instances)
     let stmtDecls := allParts.foldl (fun acc p => acc ++ p.declarations) []
@@ -377,6 +398,7 @@ def emitModule (m : Module) (design : Option Design := none) : String :=
 
     let evalMethod :=
       "    void eval() {\n" ++
+      (if localDecls.isEmpty then "" else String.intercalate "\n" localDecls ++ "\n") ++
       (if evalBody.isEmpty then "" else String.intercalate "\n" evalBody ++ "\n") ++
       "    }\n\n"
 

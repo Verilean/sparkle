@@ -278,15 +278,15 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 - Uses stable **named output wires** (`_gen_pcReg`, `_gen_uartValidBV`, etc.) — immune to DCE
 - 980 observable wires, 11 memories, 6 input ports
 
-### Simulation Performance (10M cycles, Linux boot)
+### Simulation Performance (10M cycles, Apple Silicon)
 
 | Backend | Speed | vs Lean |
 |---------|-------|---------|
-| **Verilator** | 9.7M cyc/s | ~2000x |
-| **CppSim / JIT** | 3.6M cyc/s | ~700x |
+| **Verilator** | 8.1M cyc/s | ~1600x |
+| **CppSim / JIT** | 6.3M cyc/s | ~1300x |
 | **Lean loopMemo** | ~5K cyc/s | 1x |
 
-Verilator's 2.7x advantage over CppSim comes from aggressive expression inlining (2x fewer instructions per cycle) and better IPC from reduced memory traffic. See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis.
+CppSim/JIT is within 1.3x of Verilator after IR-level optimizations (single-use wire inlining, constant folding, local variable promotion, mask elimination). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and remaining bottleneck breakdown.
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -1000,10 +1000,10 @@ Contributions welcome! Areas of interest:
 - [x] **Linux Boot Verified** - Generated SV boots Linux 6.6.0, matches hand-written reference ✓
 - [x] **Transparent JIT (`loopMemoJIT`)** - Same `Signal dom α` API as `loopMemo`, ~700x faster via JIT C++ ✓
 - [x] **Performance Analysis** - Identified CppSim bottleneck: 2x more instructions from unoptimized IR ✓
+- [x] **CppSim Backend Optimization** - IR inlining + constant folding + local variable promotion → 2.1x speedup, gap closed from 2.7x to 1.3x ✓
 
 ### Next Phases
-
-- [ ] **CppSim Backend Optimization** - Expression inlining + constant folding to close the 2.7x gap with Verilator (see [performance analysis](docs/STATUS.md))
+- [ ] **CppSim Phase 2 Optimization** - Close the remaining 1.3x gap: promote unused `_gen_` wires to locals, extend mask elimination, merge eval()+tick()
 - [ ] **Verified Standard IP Library** - Formally proven, synthesizable components for FIFO buffers, Caches, and AXI4/TileLink bus protocols
 - [ ] **GPGPU / Vector Core** - Apply the Verification-Driven Design (VDD) framework to highly concurrent, memory-bound accelerator architectures
 - [ ] **FPGA Tape-out Flow** - End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs
