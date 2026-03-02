@@ -24,6 +24,8 @@ open Sparkle.IR.AST (Operator Port Module Expr Stmt)
 open Sparkle.IR.Type
 open Sparkle.Backend.Verilog
 
+initialize registerTraceClass `sparkle.compiler
+
 instance : Inhabited Sparkle.IR.AST.Port := ⟨{ name := "default", ty := .bit }⟩
 
 
@@ -344,7 +346,7 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
 
 mutual
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
-    -- IO.println s!"DEBUG: translateExprToWire {hint}, isTopLevel={isTopLevel}"
+    trace[sparkle.compiler] "translateExprToWire hint={hint} isTopLevel={isTopLevel}"
     -- 0. Handle free variables first (before any whnf)
     if let .fvar fvarId := e then
       match ← CompilerM.lookupVar fvarId with
@@ -831,48 +833,62 @@ mutual
     | _ =>
       translateExprToWireApp e hint isNamed
 
-  partial def translateExprToWireApp (e : Lean.Expr) (hint : String) (isNamed : Bool := false) : CompilerM String := do
-    let fn := e.getAppFn
-    let args := e.getAppArgs
+  -- ===========================================================================
+  -- Handler functions: each handles a category of expressions in translateExprToWireApp.
+  -- Returns `some wireName` if handled, `none` if not applicable.
+  -- ===========================================================================
 
-    match fn with
-    | .const name _ =>
-      -- ============================================================================
-      -- Error detection for problematic patterns that cannot be synthesized
-      -- ============================================================================
+  /-- Detect unsynthesizable patterns (if-then-else, Decidable) and throw errors -/
+  partial def handleErrorPatterns (_e : Lean.Expr) (name : Name) (_args : Array Lean.Expr) (_hint : String) (_isNamed : Bool) : CompilerM Unit := do
+    if name == ``ite || name == ``dite then
+      let exprStr ← CompilerM.liftMetaM (ppExpr _e)
+      CompilerM.liftMetaM $ throwError
+        "if-then-else expressions cannot be synthesized to hardware.\n\n\
+        Expression: {exprStr}\n\n\
+        Use Signal.mux instead:\n\
+        ❌ WRONG: if cond then a else b\n\
+        ✓ RIGHT:  Signal.mux cond a b\n\n\
+        See Tests/TestConditionals.lean for examples."
+    if name == ``Decidable.rec || name == ``Decidable.casesOn then
+      CompilerM.liftMetaM $ throwError
+        "Decidable.rec (from if-then-else) cannot be synthesized.\n\n\
+        Use Signal.mux for hardware multiplexers:\n\
+        ✓ Signal.mux (cond : Signal d Bool) (ifTrue ifFalse : Signal d α) : Signal d α\n\n\
+        See Tests/TestConditionals.lean for examples."
 
-      -- Detect if-then-else expressions (compile to Decidable.rec)
-      if name == ``ite || name == ``dite then
-        let exprStr ← CompilerM.liftMetaM (ppExpr e)
-        CompilerM.liftMetaM $ throwError
-          "if-then-else expressions cannot be synthesized to hardware.\n\n\
-          Expression: {exprStr}\n\n\
-          Use Signal.mux instead:\n\
-          ❌ WRONG: if cond then a else b\n\
-          ✓ RIGHT:  Signal.mux cond a b\n\n\
-          See Tests/TestConditionals.lean for examples."
+  /-- Handle Signal.fst, Signal.snd, Signal.map Prod.fst/Prod.snd -/
+  partial def handleTupleProjections (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- Signal.fst (new readable syntax)
+    if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
+      trace[sparkle.compiler] "→ tuple projection (fst)"
+      let s := args[args.size-1]!
+      let wireS ← translateExprToWire s "s" (isTopLevel := false)
+      let totalWidth ← CompilerM.getWireWidth wireS
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+      CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+      return some resWire
 
-      -- Detect Decidable recursors (from if-then-else compilation)
-      if name == ``Decidable.rec || name == ``Decidable.casesOn then
-        CompilerM.liftMetaM $ throwError
-          "Decidable.rec (from if-then-else) cannot be synthesized.\n\n\
-          Use Signal.mux for hardware multiplexers:\n\
-          ✓ Signal.mux (cond : Signal d Bool) (ifTrue ifFalse : Signal d α) : Signal d α\n\n\
-          See Tests/TestConditionals.lean for examples."
+    -- Signal.snd (new readable syntax)
+    if name == ``Sparkle.Core.Signal.Signal.snd && args.size >= 1 then
+      trace[sparkle.compiler] "→ tuple projection (snd)"
+      let s := args[args.size-1]!
+      let wireS ← translateExprToWire s "s" (isTopLevel := false)
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
+      CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+      return some resWire
 
-      -- Note: We don't detect unbundle2 usage here because:
-      -- 1. unbundle2 itself is fine (returns a tuple)
-      -- 2. Pattern matching on unbundle2 gets compiled away before synthesis
-      -- 3. We'd only catch non-problematic uses, creating false positives
-      -- The pattern matching problem is documented in Tests/TestUnbundle2.lean and README
-
-      -- ============================================================================
-      -- Normal synthesis cases
-      -- ============================================================================
-
-      -- Special case: Signal.fst for tuple extraction (new readable syntax)
-      if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
-        let s := args[args.size-1]!
+    -- Signal.map Prod.fst/snd (legacy syntax)
+    if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
+      let f := args[args.size-2]!
+      let s := args[args.size-1]!
+      if f.isConstOf ``Prod.fst then
+        trace[sparkle.compiler] "→ tuple projection (map fst)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let totalWidth ← CompilerM.getWireWidth wireS
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
@@ -880,343 +896,365 @@ mutual
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
         CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
-        return resWire
-
-      -- Special case: Signal.snd for tuple extraction (new readable syntax)
-      if name == ``Sparkle.Core.Signal.Signal.snd && args.size >= 1 then
-        let s := args[args.size-1]!
+        return some resWire
+      if f.isConstOf ``Prod.snd then
+        trace[sparkle.compiler] "→ tuple projection (map snd)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
         CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
-        return resWire
+        return some resWire
 
-      -- Special case: Signal.map Prod.fst/snd for tuple extraction (legacy syntax)
-      if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
-        let f := args[args.size-2]!
-        let s := args[args.size-1]!
-        if f.isConstOf ``Prod.fst then
-          let wireS ← translateExprToWire s "s" (isTopLevel := false)
-          let totalWidth ← CompilerM.getWireWidth wireS
+    return none
+
+  /-- Handle Signal.ap — binary op lifting, concat/sshiftRight special cases -/
+  partial def handleApplicative (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
+      let sf := args[args.size-2]!
+      let b := args[args.size-1]!
+      let sfFn := sf.getAppFn
+      let sfArgs := sf.getAppArgs
+      if sfFn.isConstOf ``Sparkle.Core.Signal.Signal.map && sfArgs.size >= 2 then
+        trace[sparkle.compiler] "→ applicative (Signal.ap)"
+        let f := sfArgs[sfArgs.size-2]!
+        let a := sfArgs[sfArgs.size-1]!
+        let wireA ← translateExprToWire a "a"
+        let wireB ← translateExprToWire b "b"
+        let opName ← getPrimitiveNameFromLambda f
+        match getOperator opName with
+        | some op =>
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
           let hwType ← inferHWTypeFromSignal exprType
           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-          let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-          CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
-          return resWire
-        if f.isConstOf ``Prod.snd then
-          let wireS ← translateExprToWire s "s" (isTopLevel := false)
-          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-          let hwType ← inferHWTypeFromSignal exprType
-          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-          let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-          CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
-          return resWire
-
-      if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
-        let sf := args[args.size-2]!
-        let b := args[args.size-1]!
-        let sfFn := sf.getAppFn
-        let sfArgs := sf.getAppArgs
-        if sfFn.isConstOf ``Sparkle.Core.Signal.Signal.map && sfArgs.size >= 2 then
-          let f := sfArgs[sfArgs.size-2]!
-          let a := sfArgs[sfArgs.size-1]!
-          let wireA ← translateExprToWire a "a"
-          let wireB ← translateExprToWire b "b"
-          let opName ← getPrimitiveNameFromLambda f
-          match getOperator opName with
-          | some op =>
-            -- Infer result type from the expression type
+          CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+          return some resWire
+        | none =>
+          -- Special: BitVec.append / HAppend → concat
+          if opName == ``HAppend.hAppend || opName == ``BitVec.append then
             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
             let hwType ← inferHWTypeFromSignal exprType
             let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-            CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
-            return resWire
-          | none =>
-            -- Special: BitVec.append / HAppend → concat
-            if opName == ``HAppend.hAppend || opName == ``BitVec.append then
-              let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-              let hwType ← inferHWTypeFromSignal exprType
-              let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-              CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
-              return resWire
-            -- Special: BitVec.sshiftRight → asr (Nat arg handled via signal wire)
-            if opName == ``BitVec.sshiftRight then
-              let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-              let hwType ← inferHWTypeFromSignal exprType
-              let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-              CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
-              return resWire
-            CompilerM.liftMetaM $ throwError s!"Complex lift of {opName} not yet supported: operator not found"
-
-      -- BitVec.extractLsb': bit slice extraction
-      if name == ``BitVec.extractLsb' && args.size >= 4 then
-        let start ← extractNat args[args.size - 3]!
-        let len ← extractNat args[args.size - 2]!
-        let bvWire ← translateExprToWire args[args.size - 1]! "slice_src"
-        let resWire ← CompilerM.makeWire hint (.bitVector len) (named := isNamed)
-        CompilerM.emitAssign resWire (.slice (.ref bvWire) (start + len - 1) start)
-        return resWire
-
-      -- BitVec.shiftLeft / BitVec.ushiftRight / BitVec.sshiftRight:
-      -- These take Nat as shift amount. Unwrap BitVec.toNat if present,
-      -- otherwise treat as a constant shift amount.
-      if (name == ``BitVec.shiftLeft || name == ``BitVec.ushiftRight || name == ``BitVec.sshiftRight)
-          && args.size >= 3 then
-        let bvExpr := args[args.size - 2]!
-        let natExpr := args[args.size - 1]!
-        let wire1 ← translateExprToWire bvExpr "shift_a"
-        -- Try to unwrap BitVec.toNat / Fin.val from the Nat argument
-        let wire2 ← translateShiftAmount bvExpr natExpr "shift_b"
-        let op := if name == ``BitVec.shiftLeft then Operator.shl
-                  else if name == ``BitVec.ushiftRight then Operator.shr
-                  else Operator.asr
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-        let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-        CompilerM.emitAssign resWire (.op op [.ref wire1, .ref wire2])
-        return resWire
-
-      -- BitVec.append / HAppend.hAppend: concatenation
-      if (name == ``HAppend.hAppend || name == ``BitVec.append) && args.size >= 2 then
-        let hiWire ← translateExprToWire args[args.size - 2]! "concat_hi"
-        let loWire ← translateExprToWire args[args.size - 1]! "concat_lo"
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-        let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-        CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
-        return resWire
-
-      if isPrimitive name then
-        match getOperator name with
-        | some op =>
-          if args.size >= 2 then
-            let wire1 ← translateExprToWire args[args.size-2]! "arg1"
-            let wire2 ← translateExprToWire args[args.size-1]! "arg2"
-            -- Infer result type from the expression type
+            CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+            return some resWire
+          -- Special: BitVec.sshiftRight → asr (Nat arg handled via signal wire)
+          if opName == ``BitVec.sshiftRight then
             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
             let hwType ← inferHWTypeFromSignal exprType
-            let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
-            CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
-            return resultWire
-          else if args.size == 1 then
-             let wire1 ← translateExprToWire args[0]! "arg1"
-             -- Infer result type from the expression type
-             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-             let hwType ← inferHWTypeFromSignal exprType
-             let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
-             CompilerM.emitAssign resultWire (.op op [.ref wire1])
-             return resultWire
-        | none =>
-          CompilerM.liftMetaM $ throwError s!"Internal error: {name} is marked as primitive but has no operator"
+            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+            CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
+            return some resWire
+          CompilerM.liftMetaM $ throwError s!"Complex lift of {opName} not yet supported: operator not found"
+    return none
 
-      if name.toString.endsWith ".register" && args.size >= 2 then
-        let init := args[args.size-2]!
-        let input := args[args.size-1]!
-        let (initVal, _) ← extractBitVecLiteral init
-        let inputWire ← translateExprToWire input "reg_input"
-        let exprType ← CompilerM.liftMetaM (inferType e)
-        let hwType ← inferHWTypeFromSignal exprType
-        return ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType (named := isNamed)
+  /-- Handle BitVec.extractLsb', shifts, concat, isPrimitive dispatch -/
+  partial def handleBitVecOps (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- BitVec.extractLsb': bit slice extraction
+    if name == ``BitVec.extractLsb' && args.size >= 4 then
+      trace[sparkle.compiler] "→ extractLsb'"
+      let start ← extractNat args[args.size - 3]!
+      let len ← extractNat args[args.size - 2]!
+      let bvWire ← translateExprToWire args[args.size - 1]! "slice_src"
+      let resWire ← CompilerM.makeWire hint (.bitVector len) (named := isNamed)
+      CompilerM.emitAssign resWire (.slice (.ref bvWire) (start + len - 1) start)
+      return some resWire
 
-      -- Signal.registerWithEnable: register with conditional update
-      -- Synthesizes as: reg <= en ? input : reg (register + mux feedback)
-      if name.toString.endsWith ".registerWithEnable" && args.size >= 3 then
-        let init := args[args.size-3]!
-        let en := args[args.size-2]!
-        let input := args[args.size-1]!
-        let (initVal, _) ← extractBitVecLiteral init
-        let enWire ← translateExprToWire en "reg_en"
-        let inputWire ← translateExprToWire input "reg_input"
-        let exprType ← CompilerM.liftMetaM (inferType e)
-        let hwType ← inferHWTypeFromSignal exprType
-        -- Create mux wire for conditional input
-        let muxWire ← CompilerM.makeWire (hint ++ "_mux") hwType
-        -- Create register (input is the mux output)
-        let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType (named := isNamed)
-        -- Connect mux: en ? input : reg_output (hold value when disabled)
-        CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
-        return regWire
+    -- BitVec.shiftLeft / BitVec.ushiftRight / BitVec.sshiftRight
+    if (name == ``BitVec.shiftLeft || name == ``BitVec.ushiftRight || name == ``BitVec.sshiftRight)
+        && args.size >= 3 then
+      trace[sparkle.compiler] "→ shift op {name}"
+      let bvExpr := args[args.size - 2]!
+      let natExpr := args[args.size - 1]!
+      let wire1 ← translateExprToWire bvExpr "shift_a"
+      let wire2 ← translateShiftAmount bvExpr natExpr "shift_b"
+      let op := if name == ``BitVec.shiftLeft then Operator.shl
+                else if name == ``BitVec.ushiftRight then Operator.shr
+                else Operator.asr
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign resWire (.op op [.ref wire1, .ref wire2])
+      return some resWire
 
-      -- lutMuxTree: generate mux chain from concrete lookup table
-      if name.toString.endsWith ".lutMuxTree" && args.size >= 5 then
-        let tableArg := args[args.size-2]!  -- table : Array (BitVec n)
-        let indexArg := args[args.size-1]!  -- index : Signal dom (BitVec k)
-        -- Extract concrete table values
-        let tableValues ← extractBitVecArray tableArg
-        if tableValues.size > 0 then
-          -- Get output type
+    -- BitVec.append / HAppend.hAppend: concatenation
+    if (name == ``HAppend.hAppend || name == ``BitVec.append) && args.size >= 2 then
+      trace[sparkle.compiler] "→ concat"
+      let hiWire ← translateExprToWire args[args.size - 2]! "concat_hi"
+      let loWire ← translateExprToWire args[args.size - 1]! "concat_lo"
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
+      return some resWire
+
+    -- isPrimitive dispatch
+    if isPrimitive name then
+      trace[sparkle.compiler] "→ primitive {name}"
+      match getOperator name with
+      | some op =>
+        if args.size >= 2 then
+          let wire1 ← translateExprToWire args[args.size-2]! "arg1"
+          let wire2 ← translateExprToWire args[args.size-1]! "arg2"
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
           let hwType ← inferHWTypeFromSignal exprType
-          let (_, dataWidth) := tableValues[0]!
-          -- Get index width from type
-          let indexType ← CompilerM.liftMetaM (Lean.Meta.inferType indexArg)
-          let indexHwType ← inferHWTypeFromSignal indexType
-          let indexWidth := indexHwType.bitWidth
-          -- Translate index signal to wire
-          let indexWire ← translateExprToWire indexArg "lut_idx"
-          -- Build mux chain: default is table[0], then mux for each entry
-          let mut resultWire ← CompilerM.makeWire (hint ++ "_d") hwType
-          CompilerM.emitAssign resultWire (.const tableValues[0]!.1 dataWidth)
-          for i in [:tableValues.size] do
-            let (val, _) := tableValues[i]!
-            let eqWire ← CompilerM.makeWire s!"{hint}_eq{i}" (.bitVector 1)
-            CompilerM.emitAssign eqWire (.op .eq [.ref indexWire, .const i indexWidth])
-            let muxWire ← CompilerM.makeWire s!"{hint}_m{i}" hwType
-            CompilerM.emitAssign muxWire (.op .mux [.ref eqWire, .const val dataWidth, .ref resultWire])
-            resultWire := muxWire
-          return resultWire
+          let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
+          CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
+          return some resultWire
+        else if args.size == 1 then
+           let wire1 ← translateExprToWire args[0]! "arg1"
+           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+           let hwType ← inferHWTypeFromSignal exprType
+           let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
+           CompilerM.emitAssign resultWire (.op op [.ref wire1])
+           return some resultWire
+      | none =>
+        CompilerM.liftMetaM $ throwError s!"Internal error: {name} is marked as primitive but has no operator"
 
-      if name.toString.endsWith ".mux" && args.size >= 3 then
-        let cond := args[args.size-3]!
-        let thenSig := args[args.size-2]!
-        let elseSig := args[args.size-1]!
-        let cW ← translateExprToWire cond "mux_cond"
-        let tW ← translateExprToWire thenSig "mux_then"
-        let eW ← translateExprToWire elseSig "mux_else"
-        -- Infer result type from the expression type
+    return none
+
+  /-- Handle Signal.register, Signal.registerWithEnable -/
+  partial def handleRegister (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    if name.toString.endsWith ".register" && args.size >= 2 then
+      trace[sparkle.compiler] "→ register"
+      let init := args[args.size-2]!
+      let input := args[args.size-1]!
+      let (initVal, _) ← extractBitVecLiteral init
+      let inputWire ← translateExprToWire input "reg_input"
+      let exprType ← CompilerM.liftMetaM (inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let w ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType (named := isNamed)
+      return some w
+
+    -- Signal.registerWithEnable: register with conditional update
+    if name.toString.endsWith ".registerWithEnable" && args.size >= 3 then
+      trace[sparkle.compiler] "→ registerWithEnable"
+      let init := args[args.size-3]!
+      let en := args[args.size-2]!
+      let input := args[args.size-1]!
+      let (initVal, _) ← extractBitVecLiteral init
+      let enWire ← translateExprToWire en "reg_en"
+      let inputWire ← translateExprToWire input "reg_input"
+      let exprType ← CompilerM.liftMetaM (inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let muxWire ← CompilerM.makeWire (hint ++ "_mux") hwType
+      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType (named := isNamed)
+      CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
+      return some regWire
+
+    return none
+
+  /-- Handle Signal.mux, lutMuxTree -/
+  partial def handleMux (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- lutMuxTree: generate mux chain from concrete lookup table
+    if name.toString.endsWith ".lutMuxTree" && args.size >= 5 then
+      trace[sparkle.compiler] "→ lutMuxTree"
+      let tableArg := args[args.size-2]!
+      let indexArg := args[args.size-1]!
+      let tableValues ← extractBitVecArray tableArg
+      if tableValues.size > 0 then
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let rW ← CompilerM.makeWire hint hwType (named := isNamed)
-        CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
-        return rW
+        let (_, dataWidth) := tableValues[0]!
+        let indexType ← CompilerM.liftMetaM (Lean.Meta.inferType indexArg)
+        let indexHwType ← inferHWTypeFromSignal indexType
+        let indexWidth := indexHwType.bitWidth
+        let indexWire ← translateExprToWire indexArg "lut_idx"
+        let mut resultWire ← CompilerM.makeWire (hint ++ "_d") hwType
+        CompilerM.emitAssign resultWire (.const tableValues[0]!.1 dataWidth)
+        for i in [:tableValues.size] do
+          let (val, _) := tableValues[i]!
+          let eqWire ← CompilerM.makeWire s!"{hint}_eq{i}" (.bitVector 1)
+          CompilerM.emitAssign eqWire (.op .eq [.ref indexWire, .const i indexWidth])
+          let muxWire ← CompilerM.makeWire s!"{hint}_m{i}" hwType
+          CompilerM.emitAssign muxWire (.op .mux [.ref eqWire, .const val dataWidth, .ref resultWire])
+          resultWire := muxWire
+        return some resultWire
 
-      -- Signal.memory: synchronous RAM/BRAM
-      if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
-        -- Extract addrWidth and dataWidth from explicit arguments
-        let addrWidthArg := args[args.size-6]!
-        let dataWidthArg := args[args.size-5]!
-        let (addrWidth, _) ← extractNatLiteral addrWidthArg
-        let (dataWidth, _) ← extractNatLiteral dataWidthArg
-        -- Extract signal arguments
-        let writeAddr := args[args.size-4]!
-        let writeData := args[args.size-3]!
-        let writeEnable := args[args.size-2]!
-        let readAddr := args[args.size-1]!
-        -- Translate to wires
-        let waW ← translateExprToWire writeAddr "mem_waddr"
-        let wdW ← translateExprToWire writeData "mem_wdata"
-        let weW ← translateExprToWire writeEnable "mem_we"
-        let raW ← translateExprToWire readAddr "mem_raddr"
-        -- Emit memory and return read data wire
-        return ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
-          (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
+    -- Signal.mux
+    if name.toString.endsWith ".mux" && args.size >= 3 then
+      trace[sparkle.compiler] "→ mux"
+      let cond := args[args.size-3]!
+      let thenSig := args[args.size-2]!
+      let elseSig := args[args.size-1]!
+      let cW ← translateExprToWire cond "mux_cond"
+      let tW ← translateExprToWire thenSig "mux_then"
+      let eW ← translateExprToWire elseSig "mux_else"
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let rW ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
+      return some rW
 
-      -- Signal.memoryComboRead: memory with combinational (same-cycle) read
-      if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
-        let addrWidthArg := args[args.size-6]!
-        let dataWidthArg := args[args.size-5]!
-        let (addrWidth, _) ← extractNatLiteral addrWidthArg
-        let (dataWidth, _) ← extractNatLiteral dataWidthArg
-        let writeAddr := args[args.size-4]!
-        let writeData := args[args.size-3]!
-        let writeEnable := args[args.size-2]!
-        let readAddr := args[args.size-1]!
-        let waW ← translateExprToWire writeAddr "mem_waddr"
-        let wdW ← translateExprToWire writeData "mem_wdata"
-        let weW ← translateExprToWire writeEnable "mem_we"
-        let raW ← translateExprToWire readAddr "mem_raddr"
-        return ← CompilerM.emitMemoryComboRead hint addrWidth dataWidth "clk"
-          (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
+    return none
 
-      -- HWVector.get: array indexing
-      if name == ``Sparkle.Core.Vector.HWVector.get && args.size >= 2 then
-        let vec := args[args.size-2]!
-        let idx := args[args.size-1]!
-        let vecWire ← translateExprToWire vec "vec"
-        let idxWire ← translateExprToWire idx "idx"
-        -- Infer result type from the expression type
+  /-- Handle Signal.memory, Signal.memoryComboRead -/
+  partial def handleMemory (_e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- Signal.memory: synchronous RAM/BRAM
+    if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+      trace[sparkle.compiler] "→ memory (sync)"
+      let addrWidthArg := args[args.size-6]!
+      let dataWidthArg := args[args.size-5]!
+      let (addrWidth, _) ← extractNatLiteral addrWidthArg
+      let (dataWidth, _) ← extractNatLiteral dataWidthArg
+      let writeAddr := args[args.size-4]!
+      let writeData := args[args.size-3]!
+      let writeEnable := args[args.size-2]!
+      let readAddr := args[args.size-1]!
+      let waW ← translateExprToWire writeAddr "mem_waddr"
+      let wdW ← translateExprToWire writeData "mem_wdata"
+      let weW ← translateExprToWire writeEnable "mem_we"
+      let raW ← translateExprToWire readAddr "mem_raddr"
+      let w ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
+        (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
+      return some w
+
+    -- Signal.memoryComboRead: memory with combinational (same-cycle) read
+    if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+      trace[sparkle.compiler] "→ memory (combo read)"
+      let addrWidthArg := args[args.size-6]!
+      let dataWidthArg := args[args.size-5]!
+      let (addrWidth, _) ← extractNatLiteral addrWidthArg
+      let (dataWidth, _) ← extractNatLiteral dataWidthArg
+      let writeAddr := args[args.size-4]!
+      let writeData := args[args.size-3]!
+      let writeEnable := args[args.size-2]!
+      let readAddr := args[args.size-1]!
+      let waW ← translateExprToWire writeAddr "mem_waddr"
+      let wdW ← translateExprToWire writeData "mem_wdata"
+      let weW ← translateExprToWire writeEnable "mem_we"
+      let raW ← translateExprToWire readAddr "mem_raddr"
+      let w ← CompilerM.emitMemoryComboRead hint addrWidth dataWidth "clk"
+        (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
+      return some w
+
+    return none
+
+  /-- Handle Signal.loop, HWVector.get -/
+  partial def handleLoop (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- HWVector.get: array indexing
+    if name == ``Sparkle.Core.Vector.HWVector.get && args.size >= 2 then
+      trace[sparkle.compiler] "→ HWVector.get"
+      let vec := args[args.size-2]!
+      let idx := args[args.size-1]!
+      let vecWire ← translateExprToWire vec "vec"
+      let idxWire ← translateExprToWire idx "idx"
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign resWire (.index (.ref vecWire) (.ref idxWire))
+      return some resWire
+
+    -- Signal.loop
+    if name.toString.endsWith ".loop" && args.size >= 1 then
+      trace[sparkle.compiler] "→ loop"
+      let f := args.back!
+      let fReduced ← match f with
+        | .lam .. => pure f
+        | _ => CompilerM.liftMetaM (Lean.Meta.whnf f)
+      match fReduced with
+      | .lam binderName binderType body _ =>
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-        CompilerM.emitAssign resWire (.index (.ref vecWire) (.ref idxWire))
-        return resWire
+        let loopWire ← CompilerM.makeWire "loop" hwType
+        let (fvarId, bodyInst) ← CompilerM.liftMetaM do
+          withLocalDeclD binderName binderType fun fvar => do
+            return (fvar.fvarId!, body.instantiate1 fvar)
+        let resultWire ← CompilerM.withVarMapping fvarId loopWire do
+          translateExprToWire bodyInst "loop_body"
+        CompilerM.emitAssign loopWire (.ref resultWire)
+        return some resultWire
+      | _ => CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda"
 
-      if name.toString.endsWith ".loop" && args.size >= 1 then
-        let f := args.back!
-        -- Try syntactic lambda first, then unfold via whnf
-        let fReduced ← match f with
-          | .lam .. => pure f
-          | _ => CompilerM.liftMetaM (Lean.Meta.whnf f)
-        match fReduced with
-        | .lam binderName binderType body _ =>
-          -- Infer result type from the expression type
-          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-          let hwType ← inferHWTypeFromSignal exprType
-          let loopWire ← CompilerM.makeWire "loop" hwType
-          let (fvarId, bodyInst) ← CompilerM.liftMetaM do
-            withLocalDeclD binderName binderType fun fvar => do
-              return (fvar.fvarId!, body.instantiate1 fvar)
-          let resultWire ← CompilerM.withVarMapping fvarId loopWire do
-            translateExprToWire bodyInst "loop_body"
-          CompilerM.emitAssign loopWire (.ref resultWire)
-          return resultWire
-        | _ => CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda"
+    return none
 
-      -- Check if this is a valid definition (not a type constructor or builtin)
-      let isValidDef ← CompilerM.liftMetaM do
-        try
-          let constInfo ← getConstInfo name
-          match constInfo with
-          | .defnInfo _ => return true
-          | _ => return false
-        catch _ => return false
+  /-- Handle definition unfolding (inline) or sub-module synthesis (fallback) -/
+  partial def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    let isValidDef ← CompilerM.liftMetaM do
+      try
+        let constInfo ← getConstInfo name
+        match constInfo with
+        | .defnInfo _ => return true
+        | _ => return false
+      catch _ => return false
 
-      if isValidDef then
-        -- First try to reduce the function call and translate inline.
-        -- This handles functions like bundle3 (reduces to bundle2 calls),
-        -- loop body functions (reduces to let-chains with Signal primitives),
-        -- and lutMuxTree (reduces if-then-else on concrete table to Signal.mux chain).
-        -- If inline translation fails, fall back to sub-module synthesis.
-        let eReduced ← CompilerM.liftMetaM do
-          -- Use unfoldDefinition? for 1-step unfolding to avoid exponential blowup
-          -- from whnf reducing through 118-register tuple projections.
-          match ← Lean.Meta.unfoldDefinition? e with
-          | some e' => return e'
-          | none => return e
-        if eReduced != e then
-          try
-            return ← translateExprToWire eReduced hint (isNamed := isNamed)
-          catch ex =>
-            let msg := ex.toMessageData
-            CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
+    if !isValidDef then return none
 
-        let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
-        for m in subDesign.modules do CompilerM.addModuleToDesign m
-        CompilerM.addModuleToDesign subModule
+    trace[sparkle.compiler] "→ definition unfold {name}"
 
-        let mut connections := []
-        let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
-        if args.size < inputPorts.length then
-           CompilerM.liftMetaM $ throwError s!"Sub-module {name} requires {inputPorts.length} args, but got {args.size}"
+    -- First try to reduce the function call and translate inline.
+    let eReduced ← CompilerM.liftMetaM do
+      match ← Lean.Meta.unfoldDefinition? e with
+      | some e' => return e'
+      | none => return e
+    if eReduced != e then
+      try
+        let w ← translateExprToWire eReduced hint (isNamed := isNamed)
+        return some w
+      catch ex =>
+        let msg := ex.toMessageData
+        CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
 
-        for i in [:inputPorts.length] do
-           let argExpr := args[args.size - inputPorts.length + i]!
-           let argWire ← translateExprToWire argExpr s!"arg{i}"
-           connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
+    -- Fallback: sub-module synthesis
+    trace[sparkle.compiler] "→ sub-module synthesis {name}"
+    let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
+    for m in subDesign.modules do CompilerM.addModuleToDesign m
+    CompilerM.addModuleToDesign subModule
 
-        -- Infer result type from the expression type
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-        let hwType ← inferHWTypeFromSignal exprType
-        let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-        connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
+    let mut connections := []
+    let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+    if args.size < inputPorts.length then
+       CompilerM.liftMetaM $ throwError s!"Sub-module {name} requires {inputPorts.length} args, but got {args.size}"
 
-        CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
-        return resWire
-      else
-        -- Not a valid module - throw error with debug info
-        CompilerM.liftMetaM $ do
-          -- Check if this is a known problematic pattern that should have been caught
-          if name.toString.contains "ite" || name.toString.contains "Decidable" then
-            throwError s!"Detected problematic pattern {name}.\n\n\
-              This might be from if-then-else which cannot be synthesized.\n\
-              Use Signal.mux instead:\n\
-              ❌ WRONG: if cond then a else b\n\
-              ✓ RIGHT:  Signal.mux cond a b"
-          else
-            throwError s!"Cannot instantiate {name}: not a hardware module definition"
+    for i in [:inputPorts.length] do
+       let argExpr := args[args.size - inputPorts.length + i]!
+       let argWire ← translateExprToWire argExpr s!"arg{i}"
+       connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
+
+    let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+    let hwType ← inferHWTypeFromSignal exprType
+    let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+    connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
+
+    CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
+    return some resWire
+
+  -- ===========================================================================
+  -- Main dispatcher: routes expressions to the appropriate handler
+  -- ===========================================================================
+
+  partial def translateExprToWireApp (e : Lean.Expr) (hint : String) (isNamed : Bool := false) : CompilerM String := do
+    let fn := e.getAppFn
+    let args := e.getAppArgs
+
+    match fn with
+    | .const name _ =>
+      trace[sparkle.compiler] "translateExprToWireApp name={name} args.size={args.size}"
+
+      -- Note: We don't detect unbundle2 usage here because:
+      -- 1. unbundle2 itself is fine (returns a tuple)
+      -- 2. Pattern matching on unbundle2 gets compiled away before synthesis
+      -- 3. We'd only catch non-problematic uses, creating false positives
+
+      handleErrorPatterns e name args hint isNamed  -- throws or returns ()
+      if let some w ← handleTupleProjections e name args hint isNamed then return w
+      if let some w ← handleApplicative e name args hint isNamed then return w
+      if let some w ← handleBitVecOps e name args hint isNamed then return w
+      if let some w ← handleRegister e name args hint isNamed then return w
+      if let some w ← handleMux e name args hint isNamed then return w
+      if let some w ← handleMemory e name args hint isNamed then return w
+      if let some w ← handleLoop e name args hint isNamed then return w
+      if let some w ← handleDefinitionUnfold e name args hint isNamed then return w
+      -- Not a valid module - throw error with debug info
+      CompilerM.liftMetaM $ do
+        if name.toString.contains "ite" || name.toString.contains "Decidable" then
+          throwError s!"Detected problematic pattern {name}.\n\n\
+            This might be from if-then-else which cannot be synthesized.\n\
+            Use Signal.mux instead:\n\
+            ❌ WRONG: if cond then a else b\n\
+            ✓ RIGHT:  Signal.mux cond a b"
+        else
+          throwError s!"Cannot instantiate {name}: not a hardware module definition"
 
     | _ =>
       let fn := e.getAppFn

@@ -813,7 +813,7 @@ sparkle/
 │   │   ├── Type.lean    # HWType with array support
 │   │   └── Builder.lean # Circuit construction monad
 │   ├── Compiler/        # Lean → IR compilation
-│   │   └── Elab.lean    # #synthesizeVerilog metaprogramming
+│   │   └── Elab.lean    # #synthesizeVerilog metaprogramming (9 handler functions + tracing)
 │   ├── Backend/         # Code generation backends
 │   │   ├── Verilog.lean # SystemVerilog backend
 │   │   ├── CppSim.lean  # C++ simulation + JIT wrapper generation
@@ -908,6 +908,7 @@ Contributions welcome! Areas of interest:
 - [x] **JIT FFI** - dlopen-based native simulation from Lean, ~200x faster than interpreted ✓
 - [x] **DSL Ergonomics** - `===` equality, `hw_cond` macro, `Coe` implicit constants, Bool operators ✓
 - [x] **State Macro** - `declare_signal_state` for named state accessors (eliminates magic indices) ✓
+- [x] **Compiler Refactor** - Tracing infrastructure (`trace[sparkle.compiler]`) + 9 handler functions ✓
 - [ ] **loopMemoJIT** - Transparent JIT acceleration for Signal.loopMemo
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits

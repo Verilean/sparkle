@@ -5,6 +5,72 @@
 
 ---
 
+## Compiler Tracing & Handler Extraction (Phase 17) — DONE
+
+Refactored `Sparkle/Compiler/Elab.lean` — added Lean tracing infrastructure and broke the monolithic `translateExprToWireApp` function (~393 lines, ~20 sequential `if name == ...` arms) into 9 categorized handler functions with a clean ~25-line dispatcher. No synthesis behavior changes.
+
+### Tracing Infrastructure
+
+Added `initialize registerTraceClass `sparkle.compiler`` — enables structured trace output for debugging the synthesis compiler.
+
+**Usage:**
+```lean
+set_option trace.sparkle.compiler true
+#synthesizeVerilog myDesign
+```
+
+Trace points at:
+- `translateExprToWire` entry (hint, isTopLevel)
+- `translateExprToWireApp` entry (name, args.size)
+- Each handler match (e.g., `→ tuple projection (fst)`, `→ register`, `→ loop`, `→ definition unfold {name}`)
+
+### Handler Extraction
+
+| # | Handler | Handles | ~Lines |
+|---|---------|---------|--------|
+| 1 | `handleErrorPatterns` | `ite`/`dite`, `Decidable.rec`/`casesOn` — throws on match | 20 |
+| 2 | `handleTupleProjections` | `Signal.fst`, `Signal.snd`, `Signal.map`+`Prod.fst`/`Prod.snd` | 50 |
+| 3 | `handleApplicative` | `Signal.ap` — binary op lifting, concat/sshiftRight special cases | 45 |
+| 4 | `handleBitVecOps` | `extractLsb'`, shifts, concat, `isPrimitive` dispatch | 55 |
+| 5 | `handleRegister` | `Signal.register`, `Signal.registerWithEnable` | 30 |
+| 6 | `handleMux` | `Signal.mux`, `lutMuxTree` | 40 |
+| 7 | `handleMemory` | `Signal.memory`, `Signal.memoryComboRead` | 35 |
+| 8 | `handleLoop` | `Signal.loop`, `HWVector.get` | 35 |
+| 9 | `handleDefinitionUnfold` | `unfoldDefinition?` → inline, fallback → sub-module synthesis | 50 |
+
+Each handler is a `partial def` returning `CompilerM (Option String)`:
+- `some wireName` → handled
+- `none` → not my pattern, try next handler
+- Throw → error detected
+
+The main dispatcher chains handlers in order:
+```lean
+handleErrorPatterns e name args hint isNamed  -- throws or returns ()
+if let some w ← handleTupleProjections e name args hint isNamed then return w
+if let some w ← handleApplicative e name args hint isNamed then return w
+-- ... 6 more handlers ...
+if let some w ← handleDefinitionUnfold e name args hint isNamed then return w
+```
+
+### Files Changed
+
+| File | Action | Description |
+|------|--------|-------------|
+| `Sparkle/Compiler/Elab.lean` | Modified | Added `registerTraceClass`, extracted 9 handlers, added trace points |
+
+### Verification
+
+```bash
+$ lake build                          # Full build — ✓
+$ lake test                           # Test suite — ✓ (all pass)
+$ lake build Examples.YOLOv8.Blocks.Bottleneck  # Bottleneck synthesis — ✓
+$ lake build Examples.RV32.SoCVerilog # SoC synthesis + CppSim + JIT — ✓
+```
+
+All produce identical output to pre-refactoring.
+
+---
+
 ## `declare_signal_state` Macro (Phase 16) — DONE
 
 Replaced error-prone manual `projN!` state indexing with a `declare_signal_state` command macro that generates synthesis-compatible accessor defs. Eliminates magic-number indices for the 122-register SoC and all smaller state tuples.
@@ -452,6 +518,7 @@ cd verilator && make benchmark CYCLES=5000
 - [x] JIT FFI implementation (Phase 14 — done)
 - [x] Signal DSL ergonomics: `===`, `Coe`, `hw_cond` macro (Phase 15 — done)
 - [x] `declare_signal_state` macro — named state accessors, no magic indices (Phase 16 — done)
+- [x] Compiler tracing & handler extraction — `registerTraceClass`, 9 handler functions (Phase 17 — done)
 - [ ] Fix `~~~` (Complement) synthesis — add unfolding for `Complement.mk` in Elab.lean
 - [ ] `loopMemoJIT` integration — replace interpreted loopMemo with JIT-compiled evaluation
 - [ ] State marshalling between Lean tuples and C++ flat arrays
@@ -700,15 +767,22 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 
 ## Future Work
 
+### Compiler & Tooling
 - [ ] Fix `~~~` (Complement) synthesis — add typeclass unfolding for `Complement.mk` in Elab.lean
-- [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
-- [ ] Bulk refactoring of SoC.lean to use ergonomic operators (`===`, `&&&`, `|||`, `hw_cond`)
-- [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
 - [ ] `loopMemoJIT` — transparent JIT acceleration for Signal.loopMemo (replace interpreted sim)
 - [ ] State marshalling — bidirectional Lean tuple ↔ C++ flat array conversion
 - [ ] Runtime synthesis — port MetaM synthesis to IO for dynamic JIT compilation
-- [ ] Debug infrastructure cleanup (remove unused debug ports/traces)
-- [ ] Fix Verilator testbench internal signal references
+- [ ] Profile-guided optimization (PGO) for CppSim
+- [ ] Promote eval()-only wires to local variables (enable C++ register allocation)
+
+### DSL & Ergonomics
+- [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
+- [ ] Bulk refactoring of SoC.lean to use ergonomic operators (`===`, `&&&`, `|||`, `hw_cond`)
+
+### SoC & Verification
+- [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
+- [ ] Fix Verilator testbench internal signal references (`_gen_dTLBMiss` access issue)
+- [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread)
 - [ ] Interrupt controller (PLIC)
 - [ ] Timer interrupt handling (CLINT timer compare)
 - [ ] Instruction cache, branch predictor
