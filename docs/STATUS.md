@@ -5,6 +5,86 @@
 
 ---
 
+## Simulation Performance Analysis (Phase 22) — DONE
+
+Benchmarked all simulation backends at 10M cycles (Linux boot) and identified the root cause of the CppSim/JIT vs Verilator performance gap.
+
+### Benchmark Results (10M cycles, Linux boot, Apple Silicon)
+
+| Backend | Time | Speed | Instructions | CPU Cycles | IPC |
+|---------|------|-------|-------------|-----------|-----|
+| **Verilator** | 1.03s | **9.7M cyc/s** | 27.65B | 4.13B | 6.69 |
+| **CppSim (AOT)** | 2.78s | 3.6M cyc/s | 54.94B | 11.38B | 4.83 |
+| **JIT (dlopen)** | 2.77s | 3.6M cyc/s | — | — | — |
+| **Lean loopMemo** | ~2000s | ~5K cyc/s | — | — | — |
+
+### Root Cause: CppSim generates 2x more instructions per cycle
+
+| Factor | Verilator | CppSim | Impact |
+|--------|-----------|--------|--------|
+| **Assignments/cycle** | 831 | 2,242 | **2.7x more work** |
+| **Member variables** | 375 | 3,009 | **8x more memory traffic** |
+| **Local variables** | 145 (stack) | 0 | Verilator benefits from register allocation |
+| **Expression inlining** | 20+ level nested | 1 per assignment | Verilator eliminates intermediate stores |
+| **Constant handling** | Inline literals | `_tmp = 0` in member | CppSim wastes stores on constants |
+| **Memory arrays** | 6 (35 MB) | 12 (68 MB) | CppSim duplicates regfile + DRAM |
+| **If-else usage** | 35 (reset/WE) | 0 | Verilator skips code via branch prediction |
+| **Bit masking** | Sized types (CData) | Runtime `& ((1<<N)-1)` | CppSim wastes instructions on masking |
+
+The 2.75x gap decomposes into: **2.0x instruction count** (CppSim executes 5494 vs 2765 instructions per sim-cycle) × **1.38x IPC penalty** (4.83 vs 6.69 IPC).
+
+### Key Insight
+
+CppSim's `_tmp_*` temporaries account for ~70% of all member variables (~2100 of 3009). These are single-use intermediate values that Verilator inlines into consumer expressions. Eliminating them is the single highest-impact optimization for closing the performance gap.
+
+### Disproved Hypotheses
+
+- **L1 cache miss theory**: Wrong — CppSim struct is ~12KB, fits in 128KB L1 cache
+- **Local variable promotion**: Only 6% improvement at -O3 — not the bottleneck
+- **Ternary → bitwise conversion**: Verilator does NOT use bitwise mux patterns
+
+---
+
+## Transparent JIT — `loopMemoJIT` (Phase 21) — DONE
+
+Implemented `Signal.loopMemoJIT` — a transparent JIT replacement for `Signal.loopMemo` that provides the same `IO (Signal dom α)` API but uses JIT-compiled C++ under the hood for ~200x speedup over interpreted simulation.
+
+### API
+
+```lean
+-- Signal API (cached, same interface as loopMemo)
+let soc ← rv32iSoCJITSimulate (jitCppPath := "verilator/generated_soc_jit.cpp") (firmware := fw)
+let out := soc.atTime 1000   -- SoCOutput: pc, uartValid, uartData, satp, ptwPte, ptwVaddr
+
+-- Streaming API (O(1) memory, for long runs)
+rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
+  (callback := fun cycle vals => do ...)
+```
+
+### Design Decisions
+
+- Uses **named output wires** (`_gen_pcReg`, `_gen_uartValidBV`, etc.) instead of internal state wires — immune to DCE and name collisions
+- `SoCOutput` struct (6 fields) instead of full `SoCState` (122 fields) — only output-port-observable values
+- `JIT.resolveWires` maps wire names → indices at init time
+- Wire read overhead: ~0.5% (negligible)
+
+### Files Created/Modified
+
+| File | Action | Description |
+|------|--------|-------------|
+| `Sparkle/Core/JITLoop.lean` | **Created** | `loopMemoJIT` + `JIT.run` + `JIT.resolveWires` |
+| `Sparkle/Core/StateMacro.lean` | Modified | Added `wireNames` + `fromWires` generation |
+| `Examples/RV32/SoC.lean` | Modified | `SoCOutput`, `rv32iSoCJITSimulate`, `rv32iSoCJITRun` |
+| `Tests/RV32/JITLoopTest.lean` | **Created** | Two-part test (Signal API + Streaming API) |
+| `Sparkle.lean` | Modified | Added `import Sparkle.Core.JITLoop` |
+| `lakefile.lean` | Modified | Added `rv32-jit-loop-test` executable |
+
+### Test Results
+
+Both Part 1 (Signal API via `loopMemoJIT`) and Part 2 (Streaming API via `rv32iSoCJITRun`) pass — 47 UART words, `0xCAFE0000` marker at cycle 2904.
+
+---
+
 ## Linux Boot Verified on Generated SoC (Phase 20) — DONE
 
 Verified that the holdEX/divStall fix (Phase 13) resolves the Linux boot hang. The generated SoC now boots Linux 6.6.0 via OpenSBI v0.9, matching the hand-written SV reference behavior.
@@ -696,11 +776,10 @@ cd verilator && make benchmark CYCLES=5000
 - [x] Verification-Driven Design framework + Round-Robin Arbiter — 10 formal proofs, Signal DSL implementation (Phase 18 — done)
 - [x] DRC/Linter Pass — registered output check, warns on combinational outputs (Phase 19 — done)
 - [ ] Fix `~~~` (Complement) synthesis — add unfolding for `Complement.mk` in Elab.lean
-- [ ] `loopMemoJIT` integration — replace interpreted loopMemo with JIT-compiled evaluation
-- [ ] State marshalling between Lean tuples and C++ flat arrays
-- [ ] Runtime synthesis (porting MetaM synthesis to IO — major refactor)
-- [ ] Profile-guided optimization (PGO) for CppSim
-- [ ] Promote eval()-only wires to local variables (enable C++ register allocation)
+- [x] `loopMemoJIT` integration — transparent JIT behind Signal.loopMemo (Phase 21 — done)
+- [x] Simulation performance analysis — root cause of 2.7x Verilator gap identified (Phase 22 — done)
+- [ ] CppSim expression inlining — eliminate single-use `_tmp_*` wires (biggest optimization opportunity)
+- [ ] CppSim constant folding — inline literal constants instead of storing as member variables
 - [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread with larger stack)
 - [x] Fix Verilator testbench internal signal access — `_gen_dTLBMiss` replaced with `0` (Verilator optimizes it away)
 
@@ -945,20 +1024,25 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 
 ### Next Phases
 
-1. **Transparent JIT (`loopMemoJIT`)** — Seamlessly replace interpreted simulation with native C++ JIT evaluation under the hood. JIT compiler exists (Phase 14), needs transparent integration into `Signal.loopMemo`.
+1. **CppSim Backend Optimization** — Close the 2.7x gap with Verilator by optimizing the generated C++:
+   - **Expression inlining**: Eliminate single-use `_tmp_*` wires by folding them into consumer expressions (biggest impact — would cut assignments from 2242 to ~800)
+   - **Constant folding**: Inline literal constants (`0`, `1`, bit masks) instead of storing as member variables
+   - **Sized types**: Use `uint8_t`/`uint32_t` instead of `uint64_t` + runtime masking
+   - **Memory deduplication**: Eliminate duplicate register file and DRAM arrays for multi-port reads
+   - **If-else for reset/WE**: Use `if` blocks instead of ternary for reset paths (enables branch prediction skip)
 
-2. **Advanced IR Optimizations** — Constant folding and sub-expression elimination for smaller Verilog output. DCE and slice optimization already implemented in `Sparkle/IR/Optimize.lean`.
-
-3. **Verified Standard IP Library** — Formally proven, synthesizable components:
+2. **Verified Standard IP Library** — Formally proven, synthesizable components:
    - FIFO buffers (overflow/underflow safety proofs)
    - Cache controllers (coherence proofs)
    - AXI4/TileLink bus protocol wrappers (deadlock-free proofs)
 
-4. **GPGPU / Vector Core** — Apply VDD framework to highly concurrent, memory-bound accelerator architectures. Thread-level parallelism + shared memory = ideal target for safety/liveness proofs.
+3. **GPGPU / Vector Core** — Apply VDD framework to highly concurrent, memory-bound accelerator architectures. Thread-level parallelism + shared memory = ideal target for safety/liveness proofs.
 
-5. **FPGA Tape-out Flow** — Deploy Sparkle-generated Linux SoCs to physical FPGAs (Gowin Tang Nano, Xilinx PYNQ, etc.).
+4. **FPGA Tape-out Flow** — Deploy Sparkle-generated Linux SoCs to physical FPGAs (Gowin Tang Nano, Xilinx PYNQ, etc.).
 
 ### Completed
+- [x] ~~Transparent JIT (`loopMemoJIT`)~~ — Done (Phase 21): Signal API + Streaming API, 47 UART words pass
+- [x] ~~Simulation performance analysis~~ — Done (Phase 22): Root cause identified (2x instruction count + 1.38x IPC)
 - [x] ~~Verify Linux boots on fixed generated SV~~ — Done (Phase 20): 5250 UART bytes, kernel init progressing
 - [x] ~~Fix Verilator testbench internal signal references~~ — `_gen_dTLBMiss` replaced with `0`
 
@@ -968,6 +1052,7 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 - [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
 - [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread)
 - [ ] Run Linux boot for more cycles (both generated and hand-written need >10M cycles to reach shell)
+- [ ] Fix CppSim >64-bit output port assignment (currently skipped, `getOutput` returns 0 for packed outputs)
 
 ---
 
@@ -982,6 +1067,9 @@ lake build Examples.RV32.SoCVerilog
 
 # JIT test (compile, load, run firmware from Lean)
 lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+
+# JIT loop test (loopMemoJIT Signal API + Streaming API)
+lake exe rv32-jit-loop-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
 
 # CppSim test (standalone C++)
 cd verilator && make build-cppsim && make run-cppsim CYCLES=5000

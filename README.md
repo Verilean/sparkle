@@ -256,20 +256,37 @@ let residualReg := BottleneckState.residualReg state
 
 Generates a tuple type alias, synthesis-compatible accessor `def`s, default value, and `Inhabited` instance. The RV32 SoC uses this for all 122 registers — adding/removing a field no longer requires updating every index.
 
-### JIT FFI Simulation (~200x faster than Lean)
-- **Compile C++ to shared library at runtime**, load via `dlopen` from Lean
-- Hash-based caching: recompilation skipped if source unchanged
-- 980 observable wires, 11 memories, 6 input ports
-- Wire discovery by name (`JIT.findWire handle "_gen_pcReg"`)
+### JIT Simulation — Transparent & Fast (~200x faster than Lean)
+
+Two APIs: **Signal API** (drop-in replacement for `loopMemo`) and **Streaming API** (O(1) memory for long runs):
 
 ```lean
--- From Lean: compile, load, and run JIT simulation
-let handle ← JIT.compileAndLoad "verilator/generated_soc_jit.cpp"
-JIT.setMem handle 0 addr word   -- Load firmware into IMEM
-JIT.eval handle                  -- Evaluate combinational logic
-let pc ← JIT.getWire handle pcIdx  -- Read pcReg wire
-JIT.tick handle                  -- Advance clock
+-- Signal API: same interface as loopMemo, JIT speed under the hood
+let soc ← rv32iSoCJITSimulate (jitCppPath := "verilator/generated_soc_jit.cpp") (firmware := fw)
+let out := soc.atTime 1000  -- SoCOutput with pc, uartValid, uartData, ...
+
+-- Streaming API: 10M+ cycles with per-cycle callback, O(1) memory
+rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
+  (callback := fun cycle vals => do
+    let out := SoCOutput.fromWireValues vals
+    if out.uartValid then IO.println s!"UART: {out.uartData}"
+    return true)  -- continue
 ```
+
+- **Compile C++ to shared library at runtime**, load via `dlopen` from Lean
+- Hash-based caching: recompilation skipped if source unchanged
+- Uses stable **named output wires** (`_gen_pcReg`, `_gen_uartValidBV`, etc.) — immune to DCE
+- 980 observable wires, 11 memories, 6 input ports
+
+### Simulation Performance (10M cycles, Linux boot)
+
+| Backend | Speed | vs Lean |
+|---------|-------|---------|
+| **Verilator** | 9.7M cyc/s | ~2000x |
+| **CppSim / JIT** | 3.6M cyc/s | ~700x |
+| **Lean loopMemo** | ~5K cyc/s | 1x |
+
+Verilator's 2.7x advantage over CppSim comes from aggressive expression inlining (2x fewer instructions per cycle) and better IPC from reduced memory traffic. See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis.
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -284,6 +301,9 @@ lake test  # Includes RV32 simulation tests
 
 # JIT simulation from Lean (compile + load + run)
 lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+
+# JIT loop test (loopMemoJIT Signal API + Streaming API)
+lake exe rv32-jit-loop-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
 
 # CppSim (standalone C++)
 cd verilator && make build-cppsim && make run-cppsim
@@ -772,13 +792,13 @@ The generated documentation includes:
 │  Lean Signal DSL │  ===, &&&, |||, hw_cond, Coe
 └──────┬───────────┘
        │
-       ├──────────────┬──────────────────┐
-       ▼              ▼                  ▼
-┌─────────────┐ ┌────────────┐  ┌──────────────────┐
-│ Simulation  │ │ JIT (FFI)  │  │ #synthesizeVerilog│
-│  .atTime t  │ │ C++ dlopen │  │  Lean → IR → DRC │
-│  ~5K cyc/s  │ │ ~1M cyc/s  │  │  → SystemVerilog │
-└─────────────┘ └────────────┘  └──────────────────┘
+       ├──────────────┬──────────────────┬────────────────┐
+       ▼              ▼                  ▼                ▼
+┌─────────────┐ ┌────────────┐  ┌──────────────┐ ┌──────────────────┐
+│ Simulation  │ │ JIT (FFI)  │  │  Verilator   │ │ #synthesizeVerilog│
+│  .atTime t  │ │ C++ dlopen │  │ .sv → C++    │ │  Lean → IR → DRC │
+│  ~5K cyc/s  │ │ ~3.6M c/s  │  │ ~9.7M cyc/s  │ │  → SystemVerilog │
+└─────────────┘ └────────────┘  └──────────────┘ └──────────────────┘
 ```
 
 ### Core Abstractions
@@ -836,6 +856,7 @@ Tests include:
 - **Round-Robin Arbiter** — 10 formal proofs (safety, liveness, fairness) + Signal DSL synthesis
 - **DRC (Design Rule Check)** — registered output check warns on combinational output ports
 - **RV32IMA SoC simulation tests** (firmware + Verilator Linux boot — generated SV verified)
+- **JIT loop tests** — `loopMemoJIT` Signal API + `rv32iSoCJITRun` Streaming API (47 UART words pass)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - Co-simulation with Verilator
@@ -864,6 +885,8 @@ sparkle/
 │   ├── Core/            # Signal semantics, domains, and vectors
 │   │   ├── Signal.lean  # Signal DSL: register, memory, loop, mux, ===, hw_cond
 │   │   ├── StateMacro.lean # declare_signal_state: named state accessors
+│   │   ├── JIT.lean     # JIT FFI: dlopen/dlsym, compile/load, eval/tick/getWire
+│   │   ├── JITLoop.lean # loopMemoJIT: transparent JIT behind Signal API
 │   │   ├── Domain.lean  # Clock domain configuration
 │   │   └── Vector.lean  # Hardware vector types
 │   ├── Data/            # BitPack and data types
@@ -975,11 +998,12 @@ Contributions welcome! Areas of interest:
 - [x] **VDD Framework** - Verification-Driven Design guide + Round-Robin Arbiter (10 formal proofs) ✓
 - [x] **DRC/Linter** - Registered output check warns on combinational outputs (like SpyGlass) ✓
 - [x] **Linux Boot Verified** - Generated SV boots Linux 6.6.0, matches hand-written reference ✓
+- [x] **Transparent JIT (`loopMemoJIT`)** - Same `Signal dom α` API as `loopMemo`, ~700x faster via JIT C++ ✓
+- [x] **Performance Analysis** - Identified CppSim bottleneck: 2x more instructions from unoptimized IR ✓
 
 ### Next Phases
 
-- [ ] **Transparent JIT (`loopMemoJIT`)** - Seamlessly replace interpreted simulation with native C++ JIT evaluation under the hood
-- [ ] **Advanced IR Optimizations** - Constant folding and sub-expression elimination for smaller Verilog output
+- [ ] **CppSim Backend Optimization** - Expression inlining + constant folding to close the 2.7x gap with Verilator (see [performance analysis](docs/STATUS.md))
 - [ ] **Verified Standard IP Library** - Formally proven, synthesizable components for FIFO buffers, Caches, and AXI4/TileLink bus protocols
 - [ ] **GPGPU / Vector Core** - Apply the Verification-Driven Design (VDD) framework to highly concurrent, memory-bound accelerator architectures
 - [ ] **FPGA Tape-out Flow** - End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs
