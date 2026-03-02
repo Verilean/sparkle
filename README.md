@@ -939,10 +939,10 @@ Sparkle is an educational project demonstrating:
 - Compiler construction and metaprogramming
 
 Contributions welcome! Areas of interest:
+- Verified standard IP (FIFO, AXI4, TileLink) with formal proofs
+- FPGA synthesis and tape-out examples
+- Advanced IR optimization passes
 - Additional examples and tutorials
-- More comprehensive verification proofs
-- Advanced synthesis optimizations
-- Tool integration (simulation viewers, waveform dumps)
 
 ## Roadmap
 
@@ -975,13 +975,14 @@ Contributions welcome! Areas of interest:
 - [x] **VDD Framework** - Verification-Driven Design guide + Round-Robin Arbiter (10 formal proofs) ✓
 - [x] **DRC/Linter** - Registered output check warns on combinational outputs (like SpyGlass) ✓
 - [x] **Linux Boot Verified** - Generated SV boots Linux 6.6.0, matches hand-written reference ✓
-- [ ] **loopMemoJIT** - Transparent JIT acceleration for Signal.loopMemo
-- [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
-- [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
-- [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters
-- [ ] **More proofs** - Refinement proofs, FIFO safety, bus protocol correctness
-- [ ] **Optimization passes** - Dead code elimination, constant folding
-- [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
+
+### Next Phases
+
+- [ ] **Transparent JIT (`loopMemoJIT`)** - Seamlessly replace interpreted simulation with native C++ JIT evaluation under the hood
+- [ ] **Advanced IR Optimizations** - Constant folding and sub-expression elimination for smaller Verilog output
+- [ ] **Verified Standard IP Library** - Formally proven, synthesizable components for FIFO buffers, Caches, and AXI4/TileLink bus protocols
+- [ ] **GPGPU / Vector Core** - Apply the Verification-Driven Design (VDD) framework to highly concurrent, memory-bound accelerator architectures
+- [ ] **FPGA Tape-out Flow** - End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs
 
 ## Development History
 

@@ -943,33 +943,31 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 
 ## Future Work
 
-### Compiler & Tooling
-- [ ] Fix `~~~` (Complement) synthesis — add typeclass unfolding for `Complement.mk` in Elab.lean
-- [ ] More DRC rules — clock domain crossing check, combinational loop detection, undriven wire detection
-- [ ] `loopMemoJIT` — transparent JIT acceleration for Signal.loopMemo (replace interpreted sim)
-- [ ] State marshalling — bidirectional Lean tuple ↔ C++ flat array conversion
-- [ ] Runtime synthesis — port MetaM synthesis to IO for dynamic JIT compilation
-- [ ] Profile-guided optimization (PGO) for CppSim
-- [ ] Promote eval()-only wires to local variables (enable C++ register allocation)
+### Next Phases
 
-### DSL & Ergonomics
-- [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
-- [ ] Bulk refactoring of SoC.lean to use ergonomic operators (`===`, `&&&`, `|||`, `hw_cond`)
+1. **Transparent JIT (`loopMemoJIT`)** — Seamlessly replace interpreted simulation with native C++ JIT evaluation under the hood. JIT compiler exists (Phase 14), needs transparent integration into `Signal.loopMemo`.
 
-### Verification
-- [ ] Refinement proofs: prove Signal DSL arbiter output matches ArbiterProps spec for all inputs
-- [ ] More VDD examples: FIFO (buffer overflow safety), bus protocol (handshake correctness)
-- [ ] Formal property for SoC: store persistence invariant (`idex_isStore ∧ ¬trap ⟹ eventually dmem_we`)
+2. **Advanced IR Optimizations** — Constant folding and sub-expression elimination for smaller Verilog output. DCE and slice optimization already implemented in `Sparkle/IR/Optimize.lean`.
 
-### SoC & Verification
+3. **Verified Standard IP Library** — Formally proven, synthesizable components:
+   - FIFO buffers (overflow/underflow safety proofs)
+   - Cache controllers (coherence proofs)
+   - AXI4/TileLink bus protocol wrappers (deadlock-free proofs)
+
+4. **GPGPU / Vector Core** — Apply VDD framework to highly concurrent, memory-bound accelerator architectures. Thread-level parallelism + shared memory = ideal target for safety/liveness proofs.
+
+5. **FPGA Tape-out Flow** — Deploy Sparkle-generated Linux SoCs to physical FPGAs (Gowin Tang Nano, Xilinx PYNQ, etc.).
+
+### Completed
 - [x] ~~Verify Linux boots on fixed generated SV~~ — Done (Phase 20): 5250 UART bytes, kernel init progressing
 - [x] ~~Fix Verilator testbench internal signal references~~ — `_gen_dTLBMiss` replaced with `0`
-- [ ] Run Linux boot for more cycles (both generated and hand-written need >10M cycles to reach shell)
+
+### Backlog (lower priority)
+- [ ] Fix `~~~` (Complement) synthesis — add typeclass unfolding for `Complement.mk` in Elab.lean
+- [ ] More DRC rules — clock domain crossing, combinational loop detection, undriven wire detection
+- [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
 - [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread)
-- [ ] Interrupt controller (PLIC)
-- [ ] Timer interrupt handling (CLINT timer compare)
-- [ ] Instruction cache, branch predictor
-- [ ] FPGA synthesis targeting
+- [ ] Run Linux boot for more cycles (both generated and hand-written need >10M cycles to reach shell)
 
 ---
 
