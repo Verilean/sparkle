@@ -494,7 +494,7 @@ int main(int argc, char** argv) {
 #ifdef TRACE_INTERNAL_SIGNALS
                 uint8_t sup_exwb = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_suppressEXWB != 0;
                 uint8_t div_stall = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_divStall != 0;
-                uint8_t dtlb_miss = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss;
+                uint8_t dtlb_miss = 0; // _gen_dTLBMiss optimized away by Verilator
                 uint8_t stall_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_stall;
                 uint32_t wr_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_dmem_write_addr;
                 uint8_t wr_en0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_byte0_we;
@@ -881,7 +881,7 @@ int main(int argc, char** argv) {
              dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_ptwStateNext != 0)) {
             uint32_t dmem_rd = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
             uint8_t use_translated = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_useTranslatedAddr;
-            uint8_t dtlb_miss = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss;
+            uint8_t dtlb_miss = 0; // _gen_dTLBMiss optimized away by Verilator
             uint32_t eff_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_effectiveAddr;
             uint32_t dphys = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dPhysAddr;
             uint32_t alu_approx = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_alu_result_approx;

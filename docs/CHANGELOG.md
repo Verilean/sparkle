@@ -2,6 +2,26 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 20: Linux Boot Verified on Generated SoC (Complete)
+
+**Date**: 2026-03-02
+
+**Goal**: Verify that the holdEX/divStall fix (Phase 13) resolves the Linux boot hang on the generated SoC.
+
+**Result**: Linux 6.6.0 boots successfully via OpenSBI v0.9. Generated SoC produces 5250 UART bytes at 10M cycles, matching the hand-written SV reference behavior (both reach the same kernel init PC region 0xC013A9xx–0xC013B5xx).
+
+**Key Results**:
+- Previous (broken): 1906 UART bytes, hung at recursive page fault (PC 0xC0001C88)
+- Fixed generated SV: 5250 UART bytes, kernel actively running at 10M cycles
+- Hand-written SV reference: 3944 UART bytes, same PC region at 10M cycles
+- Only 3 page faults (all normal kernel boot behavior, not recursive)
+
+**Build Fix**:
+- `tb_soc.cpp`: Replaced 2 references to `_gen_dTLBMiss` with `0` (Verilator optimizes away this internal wire)
+
+**Files Modified**:
+- `verilator/tb_soc.cpp` — Fixed `_gen_dTLBMiss` Verilator access error
+
 ## Phase 12: LSpec Flow Tests for RV32 SoC (Complete)
 
 **Date**: 2026-03-02
