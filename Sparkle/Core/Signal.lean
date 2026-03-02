@@ -199,6 +199,21 @@ instance : HOr (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitV
 instance : HXor (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
   hXor a b := (· ^^^ ·) <$> a <*> b
 
+-- Boolean operator overloading for Signal Bool
+-- Enables: a &&& b, a ||| b, a ^^^ b, ~~~a
+
+instance : HAnd (Signal dom Bool) (Signal dom Bool) (Signal dom Bool) where
+  hAnd a b := (· && ·) <$> a <*> b
+
+instance : HOr (Signal dom Bool) (Signal dom Bool) (Signal dom Bool) where
+  hOr a b := (· || ·) <$> a <*> b
+
+instance : HXor (Signal dom Bool) (Signal dom Bool) (Signal dom Bool) where
+  hXor a b := (xor · ·) <$> a <*> b
+
+instance : Complement (Signal dom Bool) where
+  complement a := (fun x => !x) <$> a
+
 -- Additional combinators
 
 namespace Signal

@@ -800,10 +800,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let sppBit := mstatusReg.map (BitVec.extractLsb' 8 1 ·)
     let sretPriv := (· ++ ·) <$> Signal.pure 0#1 <*> sppBit
 
-    let flush := (· || ·) <$> ((· || ·) <$> branchTaken <*> idex_jump) <*>
-                 ((· || ·) <$> ((· || ·) <$> trap_taken <*> idex_isMret) <*>
-                  ((· || ·) <$> ((· || ·) <$> idex_isSret <*> idex_isSFenceVMA) <*> dMMURedirect))
-    let flushOrDelay := (· || ·) <$> flush <*> flushDelay
+    let flush := branchTaken ||| idex_jump ||| trap_taken ||| idex_isMret |||
+                 idex_isSret ||| idex_isSFenceVMA ||| dMMURedirect
+    let flushOrDelay := flush ||| flushDelay
 
     -- M-extension: DIV/REM (multi-cycle) uses restoring divider circuit
     let divWanted := (· && ·) <$> idex_isMext <*> isDivOp
@@ -1005,7 +1004,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
     let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
     -- holdEX: freeze EX stage when DMEM port is hijacked by pending write
-    let holdEX := (· || ·) <$> pendingWriteEn <*>
+    let holdEX := pendingWriteEn
+    -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
+    let freezeIDEX := (· || ·) <$> holdEX <*>
       ((· && ·) <$> divStall <*> ((fun x => !x) <$> flushOrDelay))
     -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, or holdEX
     -- trap_taken must suppress EX stage side effects (register write, CSR write, pending store)
@@ -1013,7 +1014,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let suppressEXWB := (· || ·) <$> trap_taken <*> ((· || ·) <$> dTLBMiss <*> holdEX)
     let validEX := (fun x => !x) <$> suppressEXWB
     let idex_isCsr_valid := (· && ·) <$> idex_isCsr <*> validEX
-    let squash := (· || ·) <$> ((· && ·) <$> stall <*> ((fun x => !x) <$> holdEX)) <*> flushOrDelay
+    let squash := (· || ·) <$> ((· && ·) <$> stall <*> ((fun x => !x) <$> freezeIDEX)) <*> flushOrDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
     let clintWE := (· && ·) <$> idex_memWrite <*> ((· && ·) <$> isCLINT_ex <*> validEX)
@@ -1353,41 +1354,41 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register 0x00000013#32 ifid_inst_in,                           -- 3: ifid_inst
       Signal.register 0#32 ifid_pc_in,                                     -- 4: ifid_pc
       Signal.register 0#32 ifid_pc4_in,                                    -- 5: ifid_pc4
-      -- ID/EX (holdEX freeze: hold current when holdEX, else squash or pass)
-      Signal.register 0#4 (Signal.mux holdEX idex_aluOp (Signal.mux squash (Signal.pure 0#4) id_aluOp)),       -- 6
-      Signal.register false (Signal.mux holdEX idex_regWrite (Signal.mux squash (Signal.pure false) id_regWrite)),
-      Signal.register false (Signal.mux holdEX idex_memRead (Signal.mux squash (Signal.pure false) id_memRead)),
-      Signal.register false (Signal.mux holdEX idex_memWrite (Signal.mux squash (Signal.pure false) id_memWrite)),
-      Signal.register false (Signal.mux holdEX idex_memToReg (Signal.mux squash (Signal.pure false) id_memToReg)),
-      Signal.register false (Signal.mux holdEX idex_branch (Signal.mux squash (Signal.pure false) id_isBranch)),
-      Signal.register false (Signal.mux holdEX idex_jump (Signal.mux squash (Signal.pure false) id_jump)),
-      Signal.register false (Signal.mux holdEX idex_auipc (Signal.mux squash (Signal.pure false) id_auipc)),
-      Signal.register false (Signal.mux holdEX idex_aluSrcB (Signal.mux squash (Signal.pure false) id_aluSrcB)),
-      Signal.register false (Signal.mux holdEX idex_isJalr (Signal.mux squash (Signal.pure false) id_isJALR)),
-      Signal.register false (Signal.mux holdEX idex_isCsr (Signal.mux squash (Signal.pure false) id_isCsr)),
-      Signal.register false (Signal.mux holdEX idex_isEcall (Signal.mux squash (Signal.pure false) id_isEcall)),
-      Signal.register false (Signal.mux holdEX idex_isMret (Signal.mux squash (Signal.pure false) id_isMret)),
-      Signal.register 0#32 (Signal.mux holdEX idex_rs1Val id_rs1Val),       -- 19
-      Signal.register 0#32 (Signal.mux holdEX idex_rs2Val id_rs2Val),       -- 20
-      Signal.register 0#32 (Signal.mux holdEX idex_imm id_imm),             -- 21
-      Signal.register 0#5 (Signal.mux holdEX idex_rd (Signal.mux squash (Signal.pure 0#5) id_rd)),
-      Signal.register 0#5 (Signal.mux holdEX idex_rs1Idx id_rs1),
-      Signal.register 0#5 (Signal.mux holdEX idex_rs2Idx id_rs2),
-      Signal.register 0#3 (Signal.mux holdEX idex_funct3 id_funct3),
-      Signal.register 0#32 (Signal.mux holdEX idex_pc ifid_pc),
-      Signal.register 0#32 (Signal.mux holdEX idex_pc4 ifid_pc4),
-      Signal.register 0#12 (Signal.mux holdEX idex_csrAddr id_csrAddr),
-      Signal.register 0#3 (Signal.mux holdEX idex_csrFunct3 id_funct3),
-      -- EX/WB (suppress side-effects during suppressEXWB = dTLBMiss | holdEX)
-      Signal.register 0#32 (Signal.mux holdEX exwb_alu alu_result),          -- 30: exwb_alu
-      Signal.register 0#32 (Signal.mux holdEX exwb_physAddr effectiveAddr),  -- 31: exwb_physAddr
+      -- ID/EX (freezeIDEX freeze: hold current when freezeIDEX, else squash or pass)
+      Signal.register 0#4 (Signal.mux freezeIDEX idex_aluOp (Signal.mux squash (Signal.pure 0#4) id_aluOp)),       -- 6
+      Signal.register false (Signal.mux freezeIDEX idex_regWrite (Signal.mux squash (Signal.pure false) id_regWrite)),
+      Signal.register false (Signal.mux freezeIDEX idex_memRead (Signal.mux squash (Signal.pure false) id_memRead)),
+      Signal.register false (Signal.mux freezeIDEX idex_memWrite (Signal.mux squash (Signal.pure false) id_memWrite)),
+      Signal.register false (Signal.mux freezeIDEX idex_memToReg (Signal.mux squash (Signal.pure false) id_memToReg)),
+      Signal.register false (Signal.mux freezeIDEX idex_branch (Signal.mux squash (Signal.pure false) id_isBranch)),
+      Signal.register false (Signal.mux freezeIDEX idex_jump (Signal.mux squash (Signal.pure false) id_jump)),
+      Signal.register false (Signal.mux freezeIDEX idex_auipc (Signal.mux squash (Signal.pure false) id_auipc)),
+      Signal.register false (Signal.mux freezeIDEX idex_aluSrcB (Signal.mux squash (Signal.pure false) id_aluSrcB)),
+      Signal.register false (Signal.mux freezeIDEX idex_isJalr (Signal.mux squash (Signal.pure false) id_isJALR)),
+      Signal.register false (Signal.mux freezeIDEX idex_isCsr (Signal.mux squash (Signal.pure false) id_isCsr)),
+      Signal.register false (Signal.mux freezeIDEX idex_isEcall (Signal.mux squash (Signal.pure false) id_isEcall)),
+      Signal.register false (Signal.mux freezeIDEX idex_isMret (Signal.mux squash (Signal.pure false) id_isMret)),
+      Signal.register 0#32 (Signal.mux freezeIDEX idex_rs1Val id_rs1Val),       -- 19
+      Signal.register 0#32 (Signal.mux freezeIDEX idex_rs2Val id_rs2Val),       -- 20
+      Signal.register 0#32 (Signal.mux freezeIDEX idex_imm id_imm),             -- 21
+      Signal.register 0#5 (Signal.mux freezeIDEX idex_rd (Signal.mux squash (Signal.pure 0#5) id_rd)),
+      Signal.register 0#5 (Signal.mux freezeIDEX idex_rs1Idx id_rs1),
+      Signal.register 0#5 (Signal.mux freezeIDEX idex_rs2Idx id_rs2),
+      Signal.register 0#3 (Signal.mux freezeIDEX idex_funct3 id_funct3),
+      Signal.register 0#32 (Signal.mux freezeIDEX idex_pc ifid_pc),
+      Signal.register 0#32 (Signal.mux freezeIDEX idex_pc4 ifid_pc4),
+      Signal.register 0#12 (Signal.mux freezeIDEX idex_csrAddr id_csrAddr),
+      Signal.register 0#3 (Signal.mux freezeIDEX idex_csrFunct3 id_funct3),
+      -- EX/WB (suppress side-effects during suppressEXWB = dTLBMiss | holdEX, freeze data during freezeIDEX)
+      Signal.register 0#32 (Signal.mux freezeIDEX exwb_alu alu_result),          -- 30: exwb_alu
+      Signal.register 0#32 (Signal.mux freezeIDEX exwb_physAddr effectiveAddr),  -- 31: exwb_physAddr
       Signal.register 0#5 (Signal.mux suppressEXWB (Signal.pure 0#5) idex_rd),    -- 32: exwb_rd
       Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_regWrite), -- 33: exwb_regW
       Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_memToReg), -- 34: exwb_m2r
-      Signal.register 0#32 (Signal.mux holdEX exwb_pc4 idex_pc4),           -- 35: exwb_pc4
+      Signal.register 0#32 (Signal.mux freezeIDEX exwb_pc4 idex_pc4),           -- 35: exwb_pc4
       Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_jump),     -- 36: exwb_jump
       Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_isCsr),    -- 37: exwb_isCsr
-      Signal.register 0#32 (Signal.mux holdEX exwb_csrRdata csr_rdata),     -- 38: exwb_csrRdata
+      Signal.register 0#32 (Signal.mux freezeIDEX exwb_csrRdata csr_rdata),     -- 38: exwb_csrRdata
       Signal.register 0#5 wb_addr,                                          -- 39: prev_wb_addr
       Signal.register 0#32 wb_data,                                         -- 40: prev_wb_data
       Signal.register false wb_en,                                           -- 41: prev_wb_en
@@ -1409,15 +1410,15 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register 0#32 aiStatusNext,
       Signal.register 0#32 aiInputNext,
       -- Sub-word + M-ext (holdEX aware)
-      Signal.register 0#3 (Signal.mux holdEX exwb_funct3 idex_funct3),      -- 59: exwb_funct3
-      Signal.register false (Signal.mux holdEX idex_isMext (Signal.mux squash (Signal.pure false) id_isMext)),  -- 60
+      Signal.register 0#3 (Signal.mux freezeIDEX exwb_funct3 idex_funct3),      -- 59: exwb_funct3
+      Signal.register false (Signal.mux freezeIDEX idex_isMext (Signal.mux squash (Signal.pure false) id_isMext)),  -- 60
       -- A-ext registers (61-69)
       Signal.register false resValidNext,
       Signal.register 0#32 resAddrNext,
-      Signal.register false (Signal.mux holdEX idex_isAMO (Signal.mux squash (Signal.pure false) id_isAMO)),
-      Signal.register 0#5 (Signal.mux holdEX idex_amoOp (Signal.mux squash (Signal.pure 0#5) id_amoOp)),
+      Signal.register false (Signal.mux freezeIDEX idex_isAMO (Signal.mux squash (Signal.pure false) id_isAMO)),
+      Signal.register 0#5 (Signal.mux freezeIDEX idex_amoOp (Signal.mux squash (Signal.pure 0#5) id_amoOp)),
       Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_isAMO),   -- exwb_isAMO
-      Signal.register 0#5 (Signal.mux holdEX exwb_amoOp idex_amoOp),              -- exwb_amoOp
+      Signal.register 0#5 (Signal.mux freezeIDEX exwb_amoOp idex_amoOp),              -- exwb_amoOp
       Signal.register false pendingWriteEnNext,
       Signal.register 0#32 pendingWriteAddrNext,
       Signal.register 0#32 pendingWriteDataNext,
@@ -1462,8 +1463,8 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register false ptwIsIfetchNext,
       Signal.register false ifetchFaultPendingNext,
       -- Pipeline additions (108-109)
-      Signal.register false (Signal.mux holdEX idex_isSret (Signal.mux squash (Signal.pure false) id_isSret)),
-      Signal.register false (Signal.mux holdEX idex_isSFenceVMA (Signal.mux squash (Signal.pure false) id_isSFenceVMA)),
+      Signal.register false (Signal.mux freezeIDEX idex_isSret (Signal.mux squash (Signal.pure false) id_isSret)),
+      Signal.register false (Signal.mux freezeIDEX idex_isSFenceVMA (Signal.mux squash (Signal.pure false) id_isSFenceVMA)),
       -- UART 8250 registers (110-115)
       Signal.register 0#8 uartLCRNext,
       Signal.register 0#8 uartIERNext,

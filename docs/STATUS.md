@@ -5,6 +5,70 @@
 
 ---
 
+## holdEX/divStall Store Bug Fix (Phase 13) — DONE
+
+Fixed a critical bug where `holdEX` included `divStall`, causing `suppressEXWB` to kill valid stores during multi-cycle division. This prevented `memblock_add` stores from persisting during Linux boot, leaving `swapper_pg_dir` empty and causing a recursive page fault at PC 0xC0001C88.
+
+### The Bug
+
+| | Hand-written SV (working) | Generated SoC (broken) |
+|---|---|---|
+| `holdEX` | `pendingWriteEn` | `pendingWriteEn \|\| (divStall && !flushOrDelay)` |
+| `suppressEXWB` | `trap_taken \|\| dTLBMiss \|\| holdEX` | Same — but `holdEX` is wider |
+| **Effect on stores** | Stores only suppressed during pending AMO/TLB miss/trap | **Stores also suppressed during 34-cycle division** |
+
+### Fix (4 logical edits in `Examples/RV32/SoC.lean`)
+
+1. **`holdEX` simplified** to `pendingWriteEn` only — controls `suppressEXWB`
+2. **New `freezeIDEX`** = `holdEX || (divStall && !flushOrDelay)` — controls pipeline register freezing only
+3. **`squash`** uses `freezeIDEX` (not `holdEX`)
+4. **All 36 pipeline register muxes** use `freezeIDEX` (not `holdEX`)
+
+### Verification
+
+- `lake build Examples.RV32.SoCVerilog` — passes, regenerates SV + CppSim
+- CppSim firmware test — **ALL TESTS PASSED** (49 UART words, 0xCAFE0000 at cycle 2904)
+- `lake exe rv32-flow-test` — CppSim category passes
+
+---
+
+## Signal Bool Operator Instances (Phase 13) — DONE
+
+Added boolean operator overloading for `Signal dom Bool` in `Sparkle/Core/Signal.lean`.
+
+### New Instances
+
+| Syntax | Operator | Expansion |
+|--------|----------|-----------|
+| `a &&& b` | AND | `(· && ·) <$> a <*> b` |
+| `a \|\|\| b` | OR | `(· \|\| ·) <$> a <*> b` |
+| `a ^^^ b` | XOR | `(xor · ·) <$> a <*> b` |
+| `~~~a` | NOT | `(fun x => !x) <$> a` |
+
+### Refactoring Demo
+
+Flush logic in `SoC.lean` simplified:
+```lean
+-- Before (verbose):
+let flush := (· || ·) <$> ((· || ·) <$> branchTaken <*> idex_jump) <*>
+             ((· || ·) <$> ((· || ·) <$> trap_taken <*> idex_isMret) <*>
+              ((· || ·) <$> ((· || ·) <$> idex_isSret <*> idex_isSFenceVMA) <*> dMMURedirect))
+
+-- After (clean):
+let flush := branchTaken ||| idex_jump ||| trap_taken ||| idex_isMret |||
+             idex_isSret ||| idex_isSFenceVMA ||| dMMURedirect
+```
+
+Synthesis compatibility confirmed — compiler already has `Bool.and`/`Bool.or`/`Bool.not` in primitive registry.
+
+---
+
+## JIT FFI Design Document (Phase 13) — DONE
+
+Created `docs/JIT_FFI_Plan.md` — design document for native-speed simulation via dynamic compilation. Covers architecture, C++ shared library generation, background compilation with hash-based caching, Lean FFI bindings (`sparkle_jit.c` + `JIT.lean`), and `loopMemoJIT` integration with fallback to interpreted `loopMemo`.
+
+---
+
 ## LSpec Flow Tests (Phase 12) — DONE
 
 Automated LSpec tests covering the full RV32 SoC build/simulation pipeline. Catches regressions across 4 independent paths, skips gracefully when external tools are unavailable.
@@ -113,11 +177,15 @@ cd verilator && make benchmark CYCLES=5000
 ### TODO (Future Phases)
 
 - [x] LSpec flow tests for RV32 SoC (Phase 12 — done)
-- [ ] Lean FFI bridge — call eval()/tick()/reset() from Lean via dlopen
+- [x] Fix holdEX/divStall store bug (Phase 13 — done)
+- [x] Signal Bool operator instances (Phase 13 — done)
+- [x] JIT FFI design document (Phase 13 — done, see `docs/JIT_FFI_Plan.md`)
+- [ ] Lean FFI bridge — call eval()/tick()/reset() from Lean via dlopen (see `docs/JIT_FFI_Plan.md`)
 - [ ] Integrate with `Signal.loopMemo` for transparent JIT acceleration
 - [ ] Profile-guided optimization (PGO) for CppSim
 - [ ] Promote eval()-only wires to local variables (enable C++ register allocation)
 - [ ] Fix Lean simulation stack overflow on macOS (reduce tuple nesting depth or use worker thread with larger stack)
+- [ ] Fix Verilator testbench internal signal access (tb_soc.cpp references `_gen_dTLBMiss` which Verilator may optimize away)
 
 ---
 
@@ -294,12 +362,15 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 4. `diff` the traces around memblock_add (cycle ~3162213)
 5. Identify exact cycle where generated SoC diverges (store suppressed)
 
+### Resolution
+
+**FIXED** in Phase 13 — `holdEX` simplified to `pendingWriteEn` only; pipeline freezing uses new `freezeIDEX` signal. See "holdEX/divStall Store Bug Fix" section above.
+
 ### Next Steps (TODO)
 
-- [ ] **Implement Trace Diffing** — add unified trace format to tb_soc.cpp, build both SoCs
-- [ ] **Confirm `divStall` is active during memblock_add stores** — check if holdEX suppresses prevStoreEn
-- [ ] **Fix holdEX in SoC.lean** — remove `divStall` from `holdEX` (match hand-written SV) or fix suppression logic to not kill stores during divStall
-- [ ] **Verify** Linux boots on fixed generated SoC
+- [x] ~~**Fix holdEX in SoC.lean**~~ — Done (Phase 13)
+- [ ] **Verify Linux boots on fixed generated SoC** — run OpenSBI + Linux boot test with fixed holdEX
+- [ ] **Implement Trace Diffing** — add unified trace format to tb_soc.cpp for future debugging
 - [ ] **(Future) Formal verification** — prove Store Persistence invariant in Lean: `always (idex_isStore ∧ ¬trap ⟹ eventually (dmem_we ∧ correct_addr))`
 
 ### Relevant Verilator signal names
@@ -355,8 +426,11 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 
 ## Future Work
 
-- [ ] Fix memblock_add persistence bug and complete Linux boot on generated SV
+- [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
+- [ ] JIT FFI implementation (see `docs/JIT_FFI_Plan.md`)
+- [ ] Bulk refactoring of SoC.lean to use Signal Bool operators (`|||`, `&&&`, `~~~`)
 - [ ] Debug infrastructure cleanup (remove unused debug ports/traces)
+- [ ] Fix Verilator testbench internal signal references
 - [ ] Interrupt controller (PLIC)
 - [ ] Timer interrupt handling (CLINT timer compare)
 - [ ] Instruction cache, branch predictor
