@@ -13,6 +13,7 @@ import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CppSim
 import Sparkle.IR.Optimize
+import Sparkle.Compiler.DRC
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 
@@ -1355,11 +1356,20 @@ elab "#synthesize" id:ident : command => do
     printModule module
     IO.println "\n-- IR successfully generated!"
 
+def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
+  for m in design.modules do
+    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs m
+    for w in warnings do
+      Lean.logWarning m!"{w}"
+
 elab "#synthesizeVerilog" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let (module, _) ← synthesizeCombinational declName
+    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
+    for w in warnings do
+      Lean.logWarning m!"{w}"
     let verilog := toVerilog module
     IO.println verilog
     IO.println "\n-- Verilog successfully generated!"
@@ -1383,6 +1393,7 @@ elab "#synthesizeVerilogDesign" id:ident : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
+    runDesignDRC design
     let verilog := toVerilogDesign design
     IO.println verilog
     IO.println "\n-- Hierarchical Verilog successfully generated!"
@@ -1392,6 +1403,7 @@ elab "#writeVerilogDesign" id:ident str:str : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
+    runDesignDRC design
     let verilog := toVerilogDesign design
     let path := str.getString
     IO.FS.writeFile path verilog
@@ -1414,6 +1426,7 @@ elab "#writeDesign" id:ident svPath:str cppPath:str : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
+    runDesignDRC design
     -- Verilog (unoptimized)
     let verilog := toVerilogDesign design
     IO.FS.writeFile svPath.getString verilog

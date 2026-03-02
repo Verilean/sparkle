@@ -16,6 +16,7 @@ import Sparkle.IR.AST
 import Sparkle.IR.Builder
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.Elab
+import Sparkle.Compiler.DRC
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.VCD
 import Sparkle.Backend.CppSim

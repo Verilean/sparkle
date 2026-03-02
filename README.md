@@ -12,9 +12,11 @@ A type-safe hardware description language that brings the power of dependent typ
 ## The Sparkle Way: Verification-Driven Design
 
 1. **Write a pure Lean spec** -- Define your hardware's behavior as pure functions
-2. **Implement via Signal DSL** -- Express the same logic using `Signal` combinators
-3. **Validate equivalence via LSpec** -- Prove your implementation matches the spec
+2. **Prove properties** -- Safety, liveness, fairness via Lean's theorem prover
+3. **Implement via Signal DSL** -- Express the same logic using `Signal` combinators
 4. **Generate Verilog** -- Use `#synthesizeVerilog` or `#writeVerilogDesign` to emit SystemVerilog
+
+See the [Verification-Driven Design Framework](docs/Verification_Framework.md) for patterns and a worked example (Round-Robin Arbiter with 10 formal proofs).
 
 ## Killer App: BitNet b1.58 ASIC Inference Engine
 
@@ -326,6 +328,45 @@ endmodule
 1. **Simulate** - Cycle-accurate functional simulation with pure Lean functions
 2. **Synthesize** - Automatic compilation to clean, synthesizable SystemVerilog
 3. **Verify** - Formal correctness proofs using Lean's theorem prover
+
+## The Sparkle Advantage: Logical AND Physical Safety
+
+Modern HDLs like Chisel have successfully solved many "logical" hardware bugs (like preventing unintended latches) using intermediate representations like FIRRTL. However, they completely ignore the "physical" realities of backend design, leaving engineers to struggle with timing closures (STA) or rely on million-dollar commercial linters like SpyGlass to enforce basic physical design rules.
+
+Sparkle is designed to guarantee both **Logical Safety** and **Physical/Timing Safety** out of the box, without external tools.
+
+### 1. Logical Safety (Zero Latches & Comb Loops)
+
+Backed by Lean 4's rigorous type system:
+
+- **No Unintended Latches:** Lean's pattern-matching exhaustiveness check ensures all conditions are handled at compile-time. If you forget a `default` case, it won't even compile.
+- **No Combinational Loops:** The `Signal` monad enforces a strict DAG (Directed Acyclic Graph) for combinational logic. State feedback is only possible through explicit registers (`Signal.register`, `Signal.loop`), making combinational loops impossible by design.
+
+### 2. Physical & Timing Safety (Built-in DRC)
+
+Sparkle includes a built-in Design Rule Check (DRC) compiler pass that enforces backend-friendly RTL structures (inspired by industry standards like the STARC guidelines).
+
+- **Registered Outputs Enforcement:** The compiler automatically checks that module outputs are driven directly by Flip-Flops (Registers) rather than combinational logic, preventing critical path explosion across module boundaries and making Static Timing Analysis (STA) predictable.
+
+```
+-- Combinational output: DRC warns
+def combo (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  (· + ·) <$> a <*> b
+
+#synthesizeVerilog combo
+-- warning: [DRC] Module 'combo': output 'out' is not driven by a register
+
+-- Registered output: DRC passes clean
+def registered (a : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+  Signal.register 0#8 a
+
+#synthesizeVerilog registered
+-- (no warning)
+```
+
+### 3. Transparent, Readable Verilog
+
+Unlike Chisel, which shreds your design hierarchy into unreadable FIRRTL-generated Verilog, Sparkle's IR maintains a 1:1 structural correspondence with your Lean code. When the built-in DRC points out a timing issue, you can actually read the generated SystemVerilog to fix it.
 
 ## Quick Start
 
@@ -704,6 +745,11 @@ The generated documentation includes:
 - Temporal logic for hardware verification (LTL operators)
 - Sparkle-16 CPU architecture
 
+**Verification-Driven Design:**
+- See [docs/Verification_Framework.md](docs/Verification_Framework.md) for the VDD framework guide
+- Bug classification (Safety vs Liveness), four proof patterns, tactic quick-reference
+- Worked example: Round-Robin Arbiter with 10 formal proofs + synthesizable Signal DSL implementation
+
 **Temporal Logic Examples:**
 - See [Examples/TemporalLogicExample.md](Examples/TemporalLogicExample.md) for comprehensive temporal logic usage
 - Includes reset stability, state machine verification, and pipeline examples
@@ -722,8 +768,8 @@ The generated documentation includes:
        ▼              ▼                  ▼
 ┌─────────────┐ ┌────────────┐  ┌──────────────────┐
 │ Simulation  │ │ JIT (FFI)  │  │ #synthesizeVerilog│
-│  .atTime t  │ │ C++ dlopen │  │  Lean → IR → SV  │
-│  ~5K cyc/s  │ │ ~1M cyc/s  │  │                  │
+│  .atTime t  │ │ C++ dlopen │  │  Lean → IR → DRC │
+│  ~5K cyc/s  │ │ ~1M cyc/s  │  │  → SystemVerilog │
 └─────────────┘ └────────────┘  └──────────────────┘
 ```
 
@@ -779,6 +825,8 @@ Tests include:
 - **BitNet Signal DSL functional tests** — spec-vs-Signal exact match
 - **BitNet golden value validation (16 tests)** — validated against real bitnet.cpp model data
 - **BitNet RTL correctness (60+ proofs)**
+- **Round-Robin Arbiter** — 10 formal proofs (safety, liveness, fairness) + Signal DSL synthesis
+- **DRC (Design Rule Check)** — registered output check warns on combinational output ports
 - **RV32IMA SoC simulation tests** (firmware + Verilator Linux boot)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
@@ -792,10 +840,13 @@ Tests include:
 | Type System | Dependent Types | Strong | Strong | Weak |
 | Simulation | Built-in | Built-in | Built-in | External Tools |
 | Formal Verification | **Native (Lean)** | External | External | None |
+| Logical Safety (no latches/comb loops) | **By construction** | Partial | Via FIRRTL | None |
+| Physical/Timing Safety (DRC) | **Built-in** | None | None | SpyGlass ($$$) |
+| Generated Verilog Readability | **1:1 structural** | Readable | Obfuscated (FIRRTL) | N/A |
 | Learning Curve | High | High | Medium | Low |
 | Proof Integration | **Seamless** | Separate | Separate | N/A |
 
-**Sparkle's Unique Advantage**: Write your hardware and its correctness proofs in the *same language* with no tool boundaries.
+**Sparkle's Unique Advantage**: Logical safety (no latches, no comb loops) AND physical/timing safety (registered output DRC) AND formal verification — all in one language, no external tools.
 
 ## Project Structure
 
@@ -813,13 +864,15 @@ sparkle/
 │   │   ├── Type.lean    # HWType with array support
 │   │   └── Builder.lean # Circuit construction monad
 │   ├── Compiler/        # Lean → IR compilation
-│   │   └── Elab.lean    # #synthesizeVerilog metaprogramming (9 handler functions + tracing)
+│   │   ├── Elab.lean    # #synthesizeVerilog metaprogramming (9 handler functions + tracing)
+│   │   └── DRC.lean     # Design Rule Check: registered output check (linter pass)
 │   ├── Backend/         # Code generation backends
 │   │   ├── Verilog.lean # SystemVerilog backend
 │   │   ├── CppSim.lean  # C++ simulation + JIT wrapper generation
 │   │   └── VCD.lean     # Waveform dump generation
 │   └── Verification/    # Proof libraries and co-simulation
 │       ├── Temporal.lean # Linear Temporal Logic (LTL) operators
+│       ├── ArbiterProps.lean # Round-robin arbiter: 10 formal proofs (safety/liveness/fairness)
 │       └── CoSim.lean   # Verilator integration
 ├── Examples/            # Example designs
 │   ├── Counter.lean
@@ -836,6 +889,8 @@ sparkle/
 │   │   ├── BitLinear/   # Ternary MAC, adder tree, dynamic weights
 │   │   ├── Attention/   # QKV, softmax, dot product, multi-head
 │   │   └── SoC/         # Dual-arch: HardwiredUnrolled / TimeMultiplexed
+│   ├── Arbiter/         # Round-Robin Arbiter (VDD worked example)
+│   │   └── RoundRobin.lean # Signal DSL implementation + synthesis + simulation
 │   └── YOLOv8/          # YOLOv8n-WorldV2 object detection (Signal DSL)
 │       ├── Config.lean   # Model dimensions, quantization params
 │       ├── Types.lean    # Type aliases (WeightInt4, ActivationInt8, etc.)
@@ -909,11 +964,13 @@ Contributions welcome! Areas of interest:
 - [x] **DSL Ergonomics** - `===` equality, `hw_cond` macro, `Coe` implicit constants, Bool operators ✓
 - [x] **State Macro** - `declare_signal_state` for named state accessors (eliminates magic indices) ✓
 - [x] **Compiler Refactor** - Tracing infrastructure (`trace[sparkle.compiler]`) + 9 handler functions ✓
+- [x] **VDD Framework** - Verification-Driven Design guide + Round-Robin Arbiter (10 formal proofs) ✓
+- [x] **DRC/Linter** - Registered output check warns on combinational outputs (like SpyGlass) ✓
 - [ ] **loopMemoJIT** - Transparent JIT acceleration for Signal.loopMemo
 - [ ] **Feedback operator `<~`** - Ergonomic syntax for register feedback loops
 - [ ] **Imperative do-notation** - More intuitive syntax for stateful circuits
 - [ ] **Constant synthesis** - Support for BitVec literals and Arrays as parameters
-- [ ] **More proofs** - State machine invariants, protocol correctness
+- [ ] **More proofs** - Refinement proofs, FIFO safety, bus protocol correctness
 - [ ] **Optimization passes** - Dead code elimination, constant folding
 - [ ] **FIRRTL backend** - Alternative to Verilog for formal tools
 

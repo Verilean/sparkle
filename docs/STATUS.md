@@ -5,6 +5,140 @@
 
 ---
 
+## DRC/Linter Pass — Registered Output Check (Phase 19) — DONE
+
+Added an automated Design Rule Check (DRC) pass that warns when output ports are driven by combinational logic rather than registers. Similar to commercial linters like SpyGlass, this catches backend-unfriendly RTL patterns (synthesis + STA issues) at compile time.
+
+### Implementation
+
+Pure function `checkRegisteredOutputs` analyzes `Module` IR before Verilog emission:
+1. For each output port (skipping `clk`/`rst`), traces the driving statement
+2. If driven by `Stmt.register` or synchronous `Stmt.memory` → pass
+3. Otherwise → emit Lean warning (combinational path to output)
+
+Integrated into all 4 synthesis commands: `#synthesizeVerilog`, `#synthesizeVerilogDesign`, `#writeVerilogDesign`, `#writeDesign`.
+
+### Example Output
+
+```
+Tests/TestDRC.lean:17:0: warning: [DRC] Module 'drc_combo_output': output 'out' is not driven by a register (driven by wire '_tmp_result_0')
+```
+
+Registered outputs produce no warnings.
+
+### Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `Sparkle/Compiler/DRC.lean` | Created | `findDriver`, `checkRegisteredOutputs` — pure functions on `Module` IR |
+| `Sparkle/Compiler/Elab.lean` | Modified | Import DRC, add `runDesignDRC`, call in 4 synthesis commands |
+| `Sparkle.lean` | Modified | Added `import Sparkle.Compiler.DRC` |
+| `Tests/TestDRC.lean` | Created | Combinational (warns) + registered (clean) test circuits |
+
+### Verification
+
+```bash
+$ lake build                        # Full build — ✓
+$ lake env lean Tests/TestDRC.lean  # Combo warns, registered clean — ✓
+```
+
+---
+
+## Verification-Driven Design Framework + Round-Robin Arbiter (Phase 18) — DONE
+
+Created a formal Verification-Driven Design (VDD) framework document and a worked example demonstrating the full workflow: pure state-machine spec with 10 formal proofs, then synthesizable Signal DSL implementation.
+
+### Framework Document (`docs/Verification_Framework.md`)
+
+Professional ~200-line guide covering:
+1. **Bug Classification**: Safety vs Liveness with hardware examples (bus contention, starvation, deadlock)
+2. **Four Proof Patterns**: Invariant, Round-trip, Responsiveness, Refinement — each with tactic recipes
+3. **Worked example**: 2-client Round-Robin Arbiter (referencing the implementation files)
+4. **Tactic quick-reference** for hardware engineers
+
+### Formal Proofs (`Sparkle/Verification/ArbiterProps.lean`)
+
+Self-contained file (follows ISAProps.lean pattern) with:
+- **State machine**: `ArbiterState` (Idle/GrantA/GrantB), 12-entry `nextState` truth table
+- **Output functions**: `grantA`, `grantB`
+- **10 theorems**, all closing via `cases s <;> cases reqA <;> cases reqB <;> simp [...]` — zero `sorry`
+
+| # | Theorem | Category | Statement |
+|---|---------|----------|-----------|
+| 1 | `mutual_exclusion` | Safety | Never both granted after transition |
+| 2 | `mutual_exclusion_current` | Safety | Never both granted in any state |
+| 3 | `no_spurious_grant` | Safety | No grant without request |
+| 4 | `progress_A` | Liveness | A requesting → A granted or B holds |
+| 5 | `progress_B` | Liveness | B requesting → B granted or A holds |
+| 6 | `starvation_free_A` | Liveness | A granted within 2 cycles |
+| 7 | `starvation_free_B` | Liveness | B granted within 2 cycles |
+| 8 | `round_robin_A_to_B` | Fairness | GrantA + contention → GrantB |
+| 9 | `round_robin_B_to_A` | Fairness | GrantB + contention → GrantA |
+| 10 | `idle_tiebreak` | Fairness | Idle + contention → GrantA |
+
+### Signal DSL Implementation (`Examples/Arbiter/RoundRobin.lean`)
+
+Synthesizable arbiter mirroring the proven spec:
+- State encoded as `BitVec 2` (0=Idle, 1=GrantA, 2=GrantB)
+- `Signal.loop` + `Signal.register` for state feedback
+- `===` for state comparison, `&&&`/`|||` for Bool combinators
+- `hw_cond` for priority mux next-state logic
+- `#synthesizeVerilog arbiterSignal` — generates clean SystemVerilog
+- `#eval simTest` — simulation confirms round-robin alternation
+
+### Generated Verilog (excerpt)
+
+```systemverilog
+module Sparkle_Examples_Arbiter_RoundRobin_arbiterSignal (
+    input logic _gen_reqA,
+    input logic _gen_reqB,
+    input logic clk,
+    input logic rst,
+    output logic [1:0] out
+);
+    // ... combinational next-state logic (priority mux) ...
+    assign _gen_nextState = (_gen_goGrantA ? 2'd1 : (_gen_goGrantB ? 2'd2 : 2'd0));
+
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) _tmp_loop_body_12 <= 2'd0;
+        else     _tmp_loop_body_12 <= _gen_nextState;
+    end
+    assign out = _tmp_loop_body_12;
+endmodule
+```
+
+### Simulation Output
+
+```
+Cycle | reqA reqB | state | grantA grantB
+------+----------+-------+--------------
+  0   |  false  false  | Idle   |  false    false
+  1   |  true   false  | GrantA |  true     false
+  2   |  true   true   | GrantB |  false    true     ← round-robin
+  3   |  true   true   | GrantA |  true     false     ← alternates
+  4   |  true   true   | GrantB |  false    true
+  7   |  true   true   | GrantA |  true     false     ← tie-break from Idle
+```
+
+### Files
+
+| File | Action | Description |
+|------|--------|-------------|
+| `Sparkle/Verification/ArbiterProps.lean` | Created | Pure state machine + 10 formal proofs |
+| `Examples/Arbiter/RoundRobin.lean` | Created | Signal DSL implementation + synthesis + sim test |
+| `docs/Verification_Framework.md` | Created | VDD framework document |
+| `lakefile.lean` | Modified | Added `lean_lib «Examples.Arbiter»` |
+
+### Verification
+
+```bash
+$ lake build Sparkle.Verification.ArbiterProps  # 10 proofs, zero sorry ✓
+$ lake build Examples.Arbiter.RoundRobin        # Synthesis + simulation ✓
+$ lake test                                      # No regressions ✓
+```
+
+---
+
 ## Compiler Tracing & Handler Extraction (Phase 17) — DONE
 
 Refactored `Sparkle/Compiler/Elab.lean` — added Lean tracing infrastructure and broke the monolithic `translateExprToWireApp` function (~393 lines, ~20 sequential `if name == ...` arms) into 9 categorized handler functions with a clean ~25-line dispatcher. No synthesis behavior changes.
@@ -519,6 +653,8 @@ cd verilator && make benchmark CYCLES=5000
 - [x] Signal DSL ergonomics: `===`, `Coe`, `hw_cond` macro (Phase 15 — done)
 - [x] `declare_signal_state` macro — named state accessors, no magic indices (Phase 16 — done)
 - [x] Compiler tracing & handler extraction — `registerTraceClass`, 9 handler functions (Phase 17 — done)
+- [x] Verification-Driven Design framework + Round-Robin Arbiter — 10 formal proofs, Signal DSL implementation (Phase 18 — done)
+- [x] DRC/Linter Pass — registered output check, warns on combinational outputs (Phase 19 — done)
 - [ ] Fix `~~~` (Complement) synthesis — add unfolding for `Complement.mk` in Elab.lean
 - [ ] `loopMemoJIT` integration — replace interpreted loopMemo with JIT-compiled evaluation
 - [ ] State marshalling between Lean tuples and C++ flat arrays
@@ -769,6 +905,7 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 
 ### Compiler & Tooling
 - [ ] Fix `~~~` (Complement) synthesis — add typeclass unfolding for `Complement.mk` in Elab.lean
+- [ ] More DRC rules — clock domain crossing check, combinational loop detection, undriven wire detection
 - [ ] `loopMemoJIT` — transparent JIT acceleration for Signal.loopMemo (replace interpreted sim)
 - [ ] State marshalling — bidirectional Lean tuple ↔ C++ flat array conversion
 - [ ] Runtime synthesis — port MetaM synthesis to IO for dynamic JIT compilation
@@ -778,6 +915,11 @@ Compare cycle-accurate traces from hand-written (working) and generated (broken)
 ### DSL & Ergonomics
 - [ ] Apply `declare_signal_state` to remaining state tuples (Divider, Backbone, C2f, SPPF, Neck, Head)
 - [ ] Bulk refactoring of SoC.lean to use ergonomic operators (`===`, `&&&`, `|||`, `hw_cond`)
+
+### Verification
+- [ ] Refinement proofs: prove Signal DSL arbiter output matches ArbiterProps spec for all inputs
+- [ ] More VDD examples: FIFO (buffer overflow safety), bus protocol (handshake correctness)
+- [ ] Formal property for SoC: store persistence invariant (`idex_isStore ∧ ¬trap ⟹ eventually dmem_we`)
 
 ### SoC & Verification
 - [ ] Verify Linux boots on fixed generated SV (holdEX/divStall bug is fixed, needs retest)
