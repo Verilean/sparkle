@@ -592,6 +592,16 @@ private def emitMemoryAccessSwitches (body : List Stmt) :
   , String.intercalate "\n" getCases
   , mems.length )
 
+/-- Generate jit_memset_word switch cases from Module.body -/
+private def emitMemsetWordSwitch (body : List Stmt) : String :=
+  let mems := collectMemories body
+  let indexed := (List.range mems.length).zip mems
+  let cases := indexed.map fun (i, name, addrWidth, _dataWidth) =>
+    let sName := sanitizeName name
+    let memSize := 2 ^ addrWidth
+    s!"            case {i}: for (uint32_t k = 0; k < count && (addr + k) < {memSize}; k++) s->{sName}[addr + k] = val; break;"
+  String.intercalate "\n" cases
+
 /-- Generate self-contained JIT wrapper .cpp from a Design -/
 def toCppSimJIT (d : Design)
     (observableWires : Option (List String) := none) : String :=
@@ -613,6 +623,7 @@ def toCppSimJIT (d : Design)
     let wireNameSwitch := emitWireNameSwitch m.wires observableWires
     let (memSetCases, memGetCases, numMems) :=
       emitMemoryAccessSwitches m.body
+    let memsetWordCases := emitMemsetWordSwitch m.body
     let typeMap := buildTypeMap m
     let regs := collectRegisters m.body typeMap
     let numRegs := regs.length
@@ -662,6 +673,12 @@ def toCppSimJIT (d : Design)
     memGetCases ++ "\n" ++
     s!"    {cb}\n" ++
     s!"    return 0;\n" ++
+    s!"{cb}\n\n" ++
+    s!"void jit_memset_word(void* ctx, uint32_t mem_idx, uint32_t addr, uint32_t val, uint32_t count) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (mem_idx) {ob}\n" ++
+    memsetWordCases ++ "\n" ++
+    s!"    {cb}\n" ++
     s!"{cb}\n\n" ++
     s!"const char* jit_wire_name(uint32_t idx) {ob}\n" ++
     s!"    switch (idx) {ob}\n" ++

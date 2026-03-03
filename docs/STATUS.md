@@ -1,6 +1,6 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-03
+**Date**: 2026-03-04
 **Branch**: main
 
 ---
@@ -21,6 +21,38 @@
 
 ## Completed Phases
 
+### Linux Boot Time-Warping — Dynamic Oracle + Bulk Memory API (Phase 29) — DONE
+
+Direct JITHandle access for oracles and bulk memory API, enabling dynamic register introspection and fast BSS zeroing for Linux boot acceleration.
+
+### What Was Built
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **memsetWord API** | `Sparkle/Backend/CppSim.lean` | `emitMemsetWordSwitch` generates per-memory bulk fill with bounds checking |
+| **memsetWord FFI** | `c_src/sparkle_jit.c` | `memset_word` fn ptr, dlsym, `sparkle_jit_memset_word` LEAN_EXPORT |
+| **memsetWord binding** | `Sparkle/Core/JIT.lean` | `JIT.memsetWord` opaque extern |
+| **Refactored oracle** | `Sparkle/Core/JITLoop.lean` | Oracle signature: `JITHandle → Nat → Array UInt64 → IO (Option Nat)` |
+| **Self-contained oracle** | `Sparkle/Core/Oracle.lean` | `mkSelfLoopOracle` no longer takes `handle` — oracle receives it per-call, handles setReg internally |
+| **Dynamic warp test** | `Tests/RV32/JITDynamicWarpTest.lean` | memsetWord roundtrip + hand-written dynamic oracle — PASS |
+
+### Key Design Changes
+
+- **Oracle receives JITHandle per-call**: enables dynamic register reads (`JIT.getReg handle`), bulk memory ops (`JIT.memsetWord handle`), and direct state mutation (`JIT.setReg handle`) — all self-contained
+- **Simplified return type**: `IO (Option Nat)` instead of `IO (Option (Nat × Array (UInt32 × UInt64)))` — oracle handles all mutations internally
+- **memsetWord**: fills memory range with bounds checking, generated per-memory bank (same pattern as `emitMemoryAccessSwitches`)
+
+### Performance Results (firmware.hex, 10M cycles)
+
+| Metric | Value |
+|--------|-------|
+| memsetWord roundtrip | PASS (10 words verified) |
+| Dynamic oracle triggers | 9,998 |
+| Effective cyc/s | ~500M–1.4B |
+| UART words | 48 (0xCAFE0000 marker seen) |
+
+---
+
 ### JIT Cycle-Skipping — Self-Loop Oracle (Phase 28) — DONE
 
 Self-loop detection oracle that detects when the CPU is stuck in a tight halt loop and skips forward by advancing the cycle counter + CLINT timer registers. Achieves **706x speedup** on post-halt simulation.
@@ -29,8 +61,8 @@ Self-loop detection oracle that detects when the CPU is stuck in a tight halt lo
 
 | Component | File | Description |
 |-----------|------|-------------|
-| **Oracle module** | `Sparkle/Core/Oracle.lean` | `SelfLoopConfig`, `SelfLoopState`, `mkSelfLoopOracle` factory |
-| **Skip-count API** | `Sparkle/Core/JITLoop.lean` | `runOptimized` oracle type extended: `Option (Nat × Array ...)` for multi-cycle skip |
+| **Oracle module** | `Sparkle/Core/Oracle.lean` | `SelfLoopConfig`, `SelfLoopState`, `mkSelfLoopOracle` factory (Phase 29: oracle receives JITHandle per-call) |
+| **Skip-count API** | `Sparkle/Core/JITLoop.lean` | `runOptimized` with oracle callback (Phase 29: `JITHandle → Nat → Array UInt64 → IO (Option Nat)`) |
 | **End-to-end test** | `Tests/RV32/JITOracleTest.lean` | 10M-cycle firmware test with oracle — PASS |
 
 ### Self-Loop Detection Algorithm
@@ -84,11 +116,12 @@ JIT.regName  : JITHandle → UInt32 → IO String
 JIT.numRegs  : JITHandle → IO UInt32
 JIT.findReg  : JITHandle → String → IO (Option UInt32)
 
--- Oracle-driven run loop (Phase 28: extended with skip count)
+-- Oracle-driven run loop (Phase 29: oracle receives JITHandle directly)
 JIT.runOptimized : JITHandle → Nat → Array UInt32
-    → (Nat → Array UInt64 → IO (Option (Nat × Array (UInt32 × UInt64))))  -- oracle (skipCount, updates)
-    → (Nat → Array UInt64 → IO Bool)                                      -- callback
+    → (JITHandle → Nat → Array UInt64 → IO (Option Nat))  -- oracle (self-contained)
+    → (Nat → Array UInt64 → IO Bool)                       -- callback
     → IO Nat
+JIT.memsetWord : JITHandle → UInt32 → UInt32 → UInt32 → UInt32 → IO Unit
 ```
 
 ### Snapshot/Restore Test
@@ -230,14 +263,15 @@ SyncFIFO:
 
 ## Next Phases (TODO)
 
-### JIT Cycle-Skipping — Phase 2
+### JIT Cycle-Skipping — Completed
 
 | Task | Status | Description |
 |------|--------|-------------|
-| **Cycle-skip oracle** | TODO | Detect self-loop (PC unchanged N cycles) and skip forward |
-| **Sub-module registers** | TODO | Expose divider's 8 internal registers via JIT API |
-| **Memory snapshot/restore** | TODO | Bulk memory save/load API (avoid per-word loop) |
-| **Linux boot cycle-skip** | TODO | Oracle for OpenSBI/Linux idle loops (WFI, busy-wait) |
+| **Cycle-skip oracle** | DONE (Phase 28) | Self-loop detection: tolerance-based PC tracking, CLINT timer advancement |
+| **Sub-module registers** | DONE (Phase 27) | All 130 registers (8 divider + 122 SoCState) flattened and accessible |
+| **Bulk memory API** | DONE (Phase 29) | `JIT.memsetWord` for fast memory fills with bounds checking |
+| **Dynamic oracle API** | DONE (Phase 29) | Oracle receives `JITHandle` directly for dynamic register/memory access |
+| **Linux boot cycle-skip** | TODO | Oracle for OpenSBI/Linux idle loops (WFI, busy-wait, larger tolerance) |
 
 ### Performance Optimization
 
@@ -245,7 +279,7 @@ SyncFIFO:
 |-------|--------|-------------|-------------|
 | **eval()+tick() fusion** | TODO | ~1.3x → 17M cyc/s | Eliminate 260 `_next` memory ops/cycle (130 stores in eval + 130 load/store in tick). Requires topological ordering for circular register dependencies |
 | **Multi-cycle batching** | TODO | ~1.1-1.2x | Unroll 2-4 sim-cycles, keep registers in CPU registers across cycles |
-| **Cycle-skipping** | INFRA DONE | unbounded | Firmware halts at cycle 2904; remaining 99.97% is wasted compute. Oracle detects steady-state and jumps forward |
+| **Cycle-skipping** | DONE | unbounded | Self-loop oracle: 10M cycles in 9ms (706x). Dynamic oracle API with direct JITHandle access (Phase 29) |
 
 ### Verified Standard IP Library — Remaining Components
 

@@ -11,7 +11,7 @@
   for detection purposes.
 
   Usage:
-    let (oracle, stateRef) ← mkSelfLoopOracle handle config
+    let (oracle, stateRef) ← mkSelfLoopOracle config
     let cycles ← JIT.runOptimized handle 10_000_000 wireIndices oracle callback
     let stats ← stateRef.get
     IO.println s!"Skipped {stats.totalSkipped} cycles in {stats.triggerCount} triggers"
@@ -56,12 +56,13 @@ structure SelfLoopState where
     The oracle monitors the PC wire. When PC stays within `pcTolerance`
     bytes of an anchor PC for `config.threshold` consecutive cycles, it
     skips forward by `config.skipAmount` cycles, advancing the CLINT
-    timer to match. -/
-def mkSelfLoopOracle (handle : JITHandle) (config : SelfLoopConfig)
-    : IO ((Nat → Array UInt64 → IO (Option (Nat × Array (UInt32 × UInt64)))) × IO.Ref SelfLoopState) := do
+    timer to match. The oracle receives the JITHandle per-call and
+    handles all state mutations (setReg) internally. -/
+def mkSelfLoopOracle (config : SelfLoopConfig)
+    : IO ((JITHandle → Nat → Array UInt64 → IO (Option Nat)) × IO.Ref SelfLoopState) := do
   let stateRef ← IO.mkRef ({} : SelfLoopState)
 
-  let oracle : Nat → Array UInt64 → IO (Option (Nat × Array (UInt32 × UInt64))) := fun _cycle vals => do
+  let oracle : JITHandle → Nat → Array UInt64 → IO (Option Nat) := fun handle _cycle vals => do
     let pc := vals[config.pcWireArrayIdx]?.getD 0
     let st ← stateRef.get
 
@@ -85,6 +86,10 @@ def mkSelfLoopOracle (handle : JITHandle) (config : SelfLoopConfig)
         let carry : Nat := if sum >= 2 ^ 32 then 1 else 0
         let newHi := (oldHi.toNat + carry).toUInt64
 
+        -- Apply timer updates directly
+        JIT.setReg handle config.mtimeLoRegIdx newLo
+        JIT.setReg handle config.mtimeHiRegIdx newHi
+
         stateRef.set {
           anchorPC := st.anchorPC
           sameCount := newCount
@@ -92,10 +97,7 @@ def mkSelfLoopOracle (handle : JITHandle) (config : SelfLoopConfig)
           triggerCount := st.triggerCount + 1
         }
 
-        return some (skipN, #[
-          (config.mtimeLoRegIdx, newLo),
-          (config.mtimeHiRegIdx, newHi)
-        ])
+        return some skipN
       else
         stateRef.set { st with sameCount := newCount }
         return none

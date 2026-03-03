@@ -59,7 +59,7 @@ def main (args : List String) : IO UInt32 := do
     mtimeLoRegIdx := 54    -- SoCState field 46 + 8 divider regs
     mtimeHiRegIdx := 55    -- SoCState field 47 + 8 divider regs
   }
-  let (oracle, oracleStateRef) ← mkSelfLoopOracle handle config
+  let (oracle, oracleStateRef) ← mkSelfLoopOracle config
   IO.println s!"OracleTest: Created self-loop oracle (threshold={config.threshold}, skip={config.skipAmount})"
 
   -- Run simulation with oracle

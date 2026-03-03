@@ -8,7 +8,7 @@
  * The loaded shared library must export extern "C" functions:
  *   jit_create, jit_destroy, jit_reset, jit_eval, jit_tick,
  *   jit_set_input, jit_get_output, jit_get_wire,
- *   jit_set_mem, jit_get_mem,
+ *   jit_set_mem, jit_get_mem, jit_memset_word,
  *   jit_set_reg, jit_get_reg, jit_reg_name, jit_num_regs
  */
 
@@ -37,6 +37,7 @@ typedef struct {
     uint64_t (*get_wire)(void*, uint32_t);
     void  (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
     uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+    void  (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
     void  (*destroy)(void*);
     const char* (*wire_name)(uint32_t);
     uint32_t (*num_wires)(void);
@@ -115,6 +116,7 @@ LEAN_EXPORT lean_obj_res sparkle_jit_load(b_lean_obj_arg path, lean_obj_arg w) {
     h->get_wire   = (uint64_t(*)(void*, uint32_t))dlsym(lib, "jit_get_wire");
     h->set_mem    = (void(*)(void*, uint32_t, uint32_t, uint32_t))dlsym(lib, "jit_set_mem");
     h->get_mem    = (uint32_t(*)(void*, uint32_t, uint32_t))dlsym(lib, "jit_get_mem");
+    h->memset_word = (void(*)(void*, uint32_t, uint32_t, uint32_t, uint32_t))dlsym(lib, "jit_memset_word");
     h->wire_name  = (const char*(*)(uint32_t))dlsym(lib, "jit_wire_name");
     h->num_wires  = (uint32_t(*)(void))dlsym(lib, "jit_num_wires");
     h->set_reg    = (void(*)(void*, uint32_t, uint64_t))dlsym(lib, "jit_set_reg");
@@ -220,6 +222,16 @@ LEAN_EXPORT lean_obj_res sparkle_jit_get_mem(
     JITHandle* h = get_handle(handle);
     uint32_t val = h->get_mem ? h->get_mem(h->ctx, mem_idx, addr) : 0;
     return mk_io_ok(lean_box_uint32(val));
+}
+
+/* sparkle_jit_memset_word : @& JITHandle → UInt32 → UInt32 → UInt32 → UInt32 → IO Unit */
+LEAN_EXPORT lean_obj_res sparkle_jit_memset_word(
+    b_lean_obj_arg handle, uint32_t mem_idx, uint32_t addr, uint32_t val,
+    uint32_t count, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    if (h->memset_word) h->memset_word(h->ctx, mem_idx, addr, val, count);
+    return mk_io_ok(lean_box(0));
 }
 
 /* sparkle_jit_wire_name : @& JITHandle → UInt32 → IO String */

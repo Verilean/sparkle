@@ -289,16 +289,17 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 
 JIT **exceeds Verilator speed** (1.27x faster) thanks to: (1) no mutex/thread overhead (Verilator 5.x wastes 17.4% on locks even single-threaded), (2) observable wire optimization (33 class members + 321 locals, L1-cache friendly), and (3) fewer CPU instructions per sim-cycle (2,077 vs 2,714). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and profiling breakdown.
 
-### JIT Cycle-Skipping — Self-Loop Oracle
+### JIT Cycle-Skipping — Dynamic Oracle
 
-Detects when the CPU is stuck in a tight halt loop and skips forward by advancing the cycle counter + CLINT timer, achieving **706x effective speedup**:
+Detects when the CPU is stuck in a tight halt loop and skips forward by advancing the cycle counter + CLINT timer, achieving **706x effective speedup**. The oracle receives the `JITHandle` directly for dynamic register reads, bulk memory ops (`memsetWord`), and direct state mutation:
 
 ```lean
 import Sparkle.Core.Oracle
 open Sparkle.Core.Oracle
 
 -- Create oracle: detects PC stuck in ≤12-byte range for 50+ consecutive cycles
-let (oracle, statsRef) ← mkSelfLoopOracle handle {}
+-- Oracle receives JITHandle per-call and handles all state mutations internally
+let (oracle, statsRef) ← mkSelfLoopOracle {}
 
 -- Run with oracle — 10M cycles complete in 9ms instead of 5.5 seconds
 let cycles ← JIT.runOptimized handle 10_000_000 wireIndices oracle callback
@@ -306,6 +307,9 @@ let cycles ← JIT.runOptimized handle 10_000_000 wireIndices oracle callback
 -- Post-run: 9,998 triggers, 9,998,000 cycles skipped, UART output identical
 let stats ← statsRef.get
 IO.println s!"Skipped {stats.totalSkipped} cycles in {stats.triggerCount} triggers"
+
+-- Bulk memory fill (e.g., BSS zeroing for Linux boot)
+JIT.memsetWord handle memIdx addr 0 count
 ```
 
 | Metric | Without Oracle | With Oracle |
@@ -313,7 +317,7 @@ IO.println s!"Skipped {stats.totalSkipped} cycles in {stats.triggerCount} trigge
 | Wall-clock time (10M cycles) | ~5,500 ms | **9 ms** |
 | Effective cyc/s | 1.8M | **1.1 billion** |
 
-Also includes register snapshot/restore API (130 registers) for state introspection:
+Also includes register snapshot/restore API (130 registers) and bulk memory API for state introspection:
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -337,6 +341,9 @@ lake exe rv32-jit-cycle-skip-test
 
 # JIT oracle test (self-loop detection, 10M cycles with cycle-skipping)
 lake exe rv32-jit-oracle-test
+
+# JIT dynamic warp test (memsetWord + dynamic oracle with JITHandle access)
+lake exe rv32-jit-dynamic-warp-test
 
 # CppSim (standalone C++)
 cd verilator && make build-cppsim && make run-cppsim
@@ -893,6 +900,7 @@ Tests include:
 - **JIT loop tests** — `loopMemoJIT` Signal API + `rv32iSoCJITRun` Streaming API (47 UART words pass)
 - **JIT cycle-skip test** — Register snapshot/restore roundtrip (130 registers + 4 DMEM banks)
 - **JIT oracle test** — Self-loop detection oracle, 10M cycles with cycle-skipping (48 UART words, 9998 oracle triggers)
+- **JIT dynamic warp test** — memsetWord bulk fill roundtrip + dynamic oracle with direct JITHandle access (48 UART words, 9998 oracle triggers)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - **SyncFIFO (16 tests)** — fill/drain, FIFO ordering, full/empty conditions, simultaneous enq+deq
@@ -922,9 +930,9 @@ sparkle/
 │   ├── Core/            # Signal semantics, domains, and vectors
 │   │   ├── Signal.lean  # Signal DSL: register, memory, loop, mux, ===, hw_cond
 │   │   ├── StateMacro.lean # declare_signal_state: named state accessors
-│   │   ├── JIT.lean     # JIT FFI: dlopen/dlsym, compile/load, eval/tick/getWire
-│   │   ├── JITLoop.lean # loopMemoJIT: transparent JIT behind Signal API
-│   │   ├── Oracle.lean  # Self-loop oracle: cycle-skipping for halt/idle loops
+│   │   ├── JIT.lean     # JIT FFI: dlopen/dlsym, compile/load, eval/tick/getWire/memsetWord
+│   │   ├── JITLoop.lean # loopMemoJIT: transparent JIT behind Signal API + runOptimized
+│   │   ├── Oracle.lean  # Dynamic oracle: cycle-skipping with direct JITHandle access
 │   │   ├── Domain.lean  # Clock domain configuration
 │   │   └── Vector.lean  # Hardware vector types
 │   ├── Data/            # BitPack and data types
@@ -977,7 +985,7 @@ sparkle/
 ├── Tests/               # Test suites
 │   ├── TestArray.lean   # Vector/array tests
 │   ├── Sparkle16/       # CPU-specific tests
-│   ├── RV32/            # RV32I simulation tests + JIT cycle-skip test
+│   ├── RV32/            # RV32I simulation tests + JIT cycle-skip/oracle/dynamic-warp tests
 │   ├── BitNet/          # BitNet Signal DSL + golden validation tests
 │   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
 │   ├── Library/         # Verified IP tests
@@ -1050,10 +1058,11 @@ Contributions welcome! Areas of interest:
 - [x] **Verified Standard IP — SyncFIFO** - Depth-4 FIFO with Valid/Ready interface: 7 formal proofs (QueueProps), synthesizable hardware (Signal DSL), 16 LSpec tests ✓
 - [x] **JIT Cycle-Skipping Phase 1** - Register read/write API (C++ codegen → C FFI → Lean bindings), `JIT.runOptimized` with oracle callback, snapshot/restore roundtrip test passes. JIT now **1.27x faster** than Verilator (13.3M vs 10.4M cyc/s) ✓
 - [x] **JIT Cycle-Skipping Phase 2 — Self-Loop Oracle** - Tolerance-based PC tracking (pcTolerance=12, threshold=50) with CLINT timer advancement. 10M cycles in 9ms (706x effective speedup). Firmware UART output identical with/without oracle ✓
+- [x] **Linux Boot Time-Warping (Phase 29)** - Dynamic oracle receives `JITHandle` directly (register reads, `memsetWord`, `setReg`), simplified return type `IO (Option Nat)`, bulk memory API with bounds checking ✓
 
 ### Next Phases (TODO)
 - [ ] **eval()+tick() Fusion** - Eliminate 260 `_next` memory ops/cycle by fusing eval and tick into single function (est. ~1.3x → 17M cyc/s)
-- [ ] **Linux Boot Idle-Loop Skipping** - Extend self-loop oracle to detect WFI/idle loops during Linux boot
+- [ ] **Linux Boot Idle-Loop Skipping** - Extend dynamic oracle to detect WFI/idle loops during Linux boot
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
 - [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients
 - [ ] **Verified Standard IP — AXI4-Lite / TileLink** - Bus protocol interfaces with formal properties

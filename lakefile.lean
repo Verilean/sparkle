@@ -79,6 +79,10 @@ lean_exe «rv32-jit-oracle-test» where
   root := `Tests.RV32.JITOracleTest
   supportInterpreter := true
 
+lean_exe «rv32-jit-dynamic-warp-test» where
+  root := `Tests.RV32.JITDynamicWarpTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

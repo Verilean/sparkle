@@ -61,6 +61,10 @@ opaque JIT.setMem (h : @& JITHandle) (memIdx : UInt32) (addr : UInt32) (data : U
 @[extern "sparkle_jit_get_mem"]
 opaque JIT.getMem (h : @& JITHandle) (memIdx : UInt32) (addr : UInt32) : IO UInt32
 
+/-- Fill a range of memory words with a value (bulk write) -/
+@[extern "sparkle_jit_memset_word"]
+opaque JIT.memsetWord (h : @& JITHandle) (memIdx : UInt32) (addr : UInt32) (val : UInt32) (count : UInt32) : IO Unit
+
 /-- Get the name of a wire by index (for discovery) -/
 @[extern "sparkle_jit_wire_name"]
 opaque JIT.wireName (h : @& JITHandle) (wireIdx : UInt32) : IO String
