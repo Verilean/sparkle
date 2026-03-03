@@ -172,8 +172,8 @@ Self-loop detection oracle that detects when the CPU is stuck in a tight halt lo
 
 | Metric | Without Oracle | With Oracle |
 |--------|---------------|-------------|
-| Wall-clock time | ~5,500 ms | **8 ms** |
-| Effective cyc/s | 1.8M | **1.25 billion** |
+| Wall-clock time | ~770 ms | **7 ms** |
+| Effective cyc/s | 13.0M | **~1.4 billion** |
 | Oracle triggers | — | 9,998 |
 | Cycles skipped | — | 9,998,000 |
 | UART output | 48 words + 0xCAFE0000 | identical |
@@ -244,25 +244,30 @@ CycleSkip: PC after restore+eval+tick+eval (actual) = 0x8000100
 
 ### Updated Benchmark (10M cycles, firmware.hex, Apple Silicon)
 
-| Backend | Speed | CPU instrs/sim-cycle | vs Verilator |
-|---------|-------|---------------------|-------------|
-| **JIT (-O2 dylib)** | **13.3M cyc/s** | 2,077 | **1.27x faster** |
-| Verilator 5.044 | 10.4M cyc/s | 2,714 | 1.00x |
-| CppSim (-O3 AOT) | 6.0M cyc/s | — | 0.58x |
+| Backend | Speed | vs Verilator |
+|---------|-------|-------------|
+| **JIT (pure eval+tick)** | **13.0M cyc/s** | **1.17x faster** |
+| **JIT (eval+tick+6 wires)** | **12.4M cyc/s** | **1.12x faster** |
+| Verilator 5.044 | 11.1M cyc/s | 1.00x |
+| **JIT with oracle (cycle-skip)** | **~1.4B effective cyc/s** | ~126x |
 
-**Profile (sampling profiler, 10s):**
+**Profile (macOS `sample` profiler, JIT bench):**
 
-| Component | JIT | Verilator |
-|-----------|-----|-----------|
-| Combinational (eval/comb) | 74.1% | 23.0% |
-| Register update (tick/seq) | 23.5% | 44.7% |
-| Eval overhead | 2.4% | 14.9% |
-| Mutex/thread overhead | 0% | **17.4%** |
+| Component | Samples | % |
+|-----------|---------|---|
+| **eval()** (combinational) | 1059 | **72.2%** |
+| **tick()** (register update) | 343 | **23.4%** |
+| main loop overhead | 32 | 2.2% |
+| jit_get_wire | 29 | 2.0% |
+
+**Bottleneck: tick() at 23.4%** — 130 register `_next` → current copies (260 memory ops/cycle). The planned **eval()+tick() fusion** would eliminate these by computing values directly in topological order (est. ~1.3x → 17M cyc/s).
+
+**Wire read overhead**: 4-9% for 6 output wires (negligible). Oracle/cycle-skipping is effectively free when triggered.
 
 **Why JIT is faster than Verilator:**
-1. No mutex overhead — Verilator 5.x wastes 17.4% on `VlDeleter::deleteAll`, `VerilatedMutex`
-2. Fewer instructions — 2,077 vs 2,714 per sim-cycle (Verilator does 2 evals/cycle)
-3. Observable wire optimization — 33 class members + 321 locals (L1-friendly)
+1. No mutex overhead — Verilator 5.x wastes time on `VlDeleter::deleteAll`, `VerilatedMutex`
+2. Observable wire optimization — 33 class members + 321 locals (L1-friendly)
+3. Single eval per cycle (Verilator does 2 evals for clk=0/clk=1)
 
 ### Note on Sub-Module Registers
 

@@ -282,12 +282,13 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 
 | Backend | Speed | vs Verilator | vs Lean |
 |---------|-------|-------------|---------|
-| **JIT (-O2 dylib)** | **13.3M cyc/s** | **1.27x faster** | ~2660x |
-| Verilator 5.044 | 10.4M cyc/s | 1.00x | ~2080x |
-| CppSim (-O3 AOT) | 6.0M cyc/s | 0.58x | ~1200x |
+| **JIT (-O2 dylib)** | **13.0M cyc/s** | **1.17x faster** | ~2600x |
+| **JIT (+ 6 wires)** | **12.4M cyc/s** | **1.12x faster** | ~2480x |
+| Verilator 5.044 | 11.1M cyc/s | 1.00x | ~2220x |
+| CppSim (-O3 AOT) | 6.0M cyc/s | 0.54x | ~1200x |
 | Lean loopMemo | ~5K cyc/s | — | 1x |
 
-JIT **exceeds Verilator speed** (1.27x faster) thanks to: (1) no mutex/thread overhead (Verilator 5.x wastes 17.4% on locks even single-threaded), (2) observable wire optimization (33 class members + 321 locals, L1-cache friendly), and (3) fewer CPU instructions per sim-cycle (2,077 vs 2,714). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and profiling breakdown.
+JIT **exceeds Verilator speed** (1.17x faster) thanks to: (1) no mutex/thread overhead (Verilator 5.x wastes 17.4% on locks even single-threaded), (2) observable wire optimization (33 class members + 321 locals, L1-cache friendly), and (3) fewer CPU instructions per sim-cycle. Profile breakdown: eval() 72.2%, tick() 23.4%. Bottleneck is tick()'s 130 register `_next` → current copies (260 memory ops/cycle). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis.
 
 ### JIT Cycle-Skipping — Dynamic Oracle
 
@@ -314,8 +315,8 @@ JIT.memsetWord handle memIdx addr 0 count
 
 | Metric | Without Oracle | With Oracle |
 |--------|---------------|-------------|
-| Wall-clock time (10M cycles) | ~5,500 ms | **9 ms** |
-| Effective cyc/s | 1.8M | **1.1 billion** |
+| Wall-clock time (10M cycles) | ~770 ms | **7 ms** |
+| Effective cyc/s | 13.0M | **~1.4 billion** |
 
 **BSS-Clear Speculative Warp**: A custom inline firmware (7-instruction BSS-clear loop) demonstrates the full pattern — the oracle detects the memory-clearing loop, bulk-zeros all 4 DMEM byte banks via `memsetWord`, and skips ~100K cycles in <1 ms (389 triggers, 99,584 cycles skipped). See `Tests/RV32/JITDynamicWarpTest.lean`.
 
@@ -844,7 +845,7 @@ The generated documentation includes:
 ┌─────────────┐ ┌────────────┐  ┌──────────────┐ ┌──────────────────┐
 │ Simulation  │ │ JIT (FFI)  │  │  Verilator   │ │ #synthesizeVerilog│
 │  .atTime t  │ │ C++ dlopen │  │ .sv → C++    │ │  Lean → IR → DRC │
-│  ~5K cyc/s  │ │ ~13.3M c/s │  │ ~10.4M c/s   │ │  → SystemVerilog │
+│  ~5K cyc/s  │ │ ~13.0M c/s │  │ ~11.1M c/s   │ │  → SystemVerilog │
 │             │ │+oracle:1B+ │  │              │ │                  │
 └─────────────┘ └────────────┘  └──────────────┘ └──────────────────┘
 ```
@@ -1062,9 +1063,9 @@ Contributions welcome! Areas of interest:
 - [x] **Performance Analysis** - Identified CppSim bottleneck: 2x more instructions from unoptimized IR ✓
 - [x] **CppSim Backend Optimization** - IR inlining + constant folding + local variable promotion → 2.1x speedup, gap closed from 2.7x to 1.3x ✓
 - [x] **CppSim Phase 2 — Mask Elimination** - Aggressive `exprIsMasked` analysis (`.ref` invariant, AND/OR/XOR/SHR/ASR rules) → 449→137 mask ops (69.5% reduction) ✓
-- [x] **CppSim Phase 3 — Observable Wire Threading** - Thread `observableWires` through optimizer/backend, demote ~950 `_gen_` to locals → 2.0x speedup (6.3M→12.6M cyc/s), JIT now **1.6x faster** than Verilator ✓
+- [x] **CppSim Phase 3 — Observable Wire Threading** - Thread `observableWires` through optimizer/backend, demote ~950 `_gen_` to locals → 2.0x speedup (6.3M→12.6M cyc/s), JIT now **1.17x faster** than Verilator ✓
 - [x] **Verified Standard IP — SyncFIFO** - Depth-4 FIFO with Valid/Ready interface: 7 formal proofs (QueueProps), synthesizable hardware (Signal DSL), 16 LSpec tests ✓
-- [x] **JIT Cycle-Skipping Phase 1** - Register read/write API (C++ codegen → C FFI → Lean bindings), `JIT.runOptimized` with oracle callback, snapshot/restore roundtrip test passes. JIT now **1.27x faster** than Verilator (13.3M vs 10.4M cyc/s) ✓
+- [x] **JIT Cycle-Skipping Phase 1** - Register read/write API (C++ codegen → C FFI → Lean bindings), `JIT.runOptimized` with oracle callback, snapshot/restore roundtrip test passes. JIT now **1.17x faster** than Verilator (13.0M vs 11.1M cyc/s) ✓
 - [x] **JIT Cycle-Skipping Phase 2 — Self-Loop Oracle** - Tolerance-based PC tracking (pcTolerance=12, threshold=50) with CLINT timer advancement. 10M cycles in 9ms (706x effective speedup). Firmware UART output identical with/without oracle ✓
 - [x] **Linux Boot Time-Warping (Phase 29)** - Dynamic oracle receives `JITHandle` directly (register reads, `memsetWord`, `setReg`), simplified return type `IO (Option Nat)`, bulk memory API with bounds checking ✓
 - [x] **Speculative Simulation with Rollback (Phase 29 Step 5)** - Full-state snapshot/restore via C++ copy constructor, guard-and-rollback pattern for interrupt-safe cycle-skipping (3-part test: roundtrip, guard-pass, guard-rollback) ✓
