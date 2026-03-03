@@ -75,6 +75,10 @@ lean_exe «rv32-jit-cycle-skip-test» where
   root := `Tests.RV32.JITCycleSkipTest
   supportInterpreter := true
 
+lean_exe «rv32-jit-oracle-test» where
+  root := `Tests.RV32.JITOracleTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

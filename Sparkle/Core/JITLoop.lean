@@ -127,21 +127,24 @@ def JIT.resolveRegs (handle : JITHandle) (regNames : Array String) : IO (Array U
 
 /-- Run JIT simulation with an oracle callback for cycle-skipping.
     Same as `JIT.run` but with an additional `oracle` that can inject register
-    state to skip cycles. When the oracle returns `some updates`, the updates
-    are applied via `JIT.setReg` and `tick` is skipped.
+    state to skip cycles. When the oracle returns `some (skipCount, updates)`,
+    the updates are applied via `JIT.setReg` and the cycle counter advances
+    by `max skipCount 1` (skipping that many cycles at once).
 
     Parameters:
     - `handle`: Pre-loaded JIT handle
     - `cycles`: Maximum number of cycles to run
     - `wireIndices`: Pre-resolved wire indices (from JIT.resolveWires)
-    - `oracle`: Called each cycle with (cycle, wireValues); return `some` array
-      of (regIdx, value) pairs to skip the cycle, or `none` for normal tick
+    - `oracle`: Called each cycle with (cycle, wireValues); return
+      `some (skipCount, updates)` to skip forward, or `none` for normal tick.
+      `skipCount` is how many cycles to advance; `updates` is an array of
+      (regIdx, value) pairs to apply.
     - `callback`: Called each cycle with (cycle, wireValues); return false to stop
 
     Returns: the number of cycles actually executed -/
 def JIT.runOptimized (handle : JITHandle) (cycles : Nat)
     (wireIndices : Array UInt32)
-    (oracle : Nat → Array UInt64 → IO (Option (Array (UInt32 × UInt64))))
+    (oracle : Nat → Array UInt64 → IO (Option (Nat × Array (UInt32 × UInt64))))
     (callback : Nat → Array UInt64 → IO Bool)
     : IO Nat := do
   let mut cycle := 0
@@ -154,11 +157,12 @@ def JIT.runOptimized (handle : JITHandle) (cycles : Nat)
     | none =>
       -- Normal cycle: tick
       JIT.tick handle
-    | some updates =>
+      cycle := cycle + 1
+    | some (skipCount, updates) =>
       -- Cycle-skip: apply register state directly, skip tick
       for (regIdx, val) in updates do
         JIT.setReg handle regIdx val
-    cycle := cycle + 1
+      cycle := cycle + (max skipCount 1)
   return cycle
 
 end Sparkle.Core.JITLoop

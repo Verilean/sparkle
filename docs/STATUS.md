@@ -5,6 +5,53 @@
 
 ---
 
+## Next Phases (TODO)
+
+| Priority | Phase | Description | Status |
+|----------|-------|-------------|--------|
+| 1 | **eval()+tick() Fusion** | Eliminate 260 `_next` memory ops/cycle by fusing eval and tick into single function (est. ~1.3x → 17M cyc/s) | Not started |
+| 2 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
+| 3 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
+| 4 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
+| 5 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
+| 6 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
+| 7 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
+
+---
+
+## Completed Phases
+
+### JIT Cycle-Skipping — Self-Loop Oracle (Phase 28) — DONE
+
+Self-loop detection oracle that detects when the CPU is stuck in a tight halt loop and skips forward by advancing the cycle counter + CLINT timer registers. Achieves **706x speedup** on post-halt simulation.
+
+### What Was Built
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **Oracle module** | `Sparkle/Core/Oracle.lean` | `SelfLoopConfig`, `SelfLoopState`, `mkSelfLoopOracle` factory |
+| **Skip-count API** | `Sparkle/Core/JITLoop.lean` | `runOptimized` oracle type extended: `Option (Nat × Array ...)` for multi-cycle skip |
+| **End-to-end test** | `Tests/RV32/JITOracleTest.lean` | 10M-cycle firmware test with oracle — PASS |
+
+### Self-Loop Detection Algorithm
+
+- Monitors PC wire each cycle; tracks an **anchor PC** and counts consecutive cycles where the PC stays within `pcTolerance` bytes (default 12)
+- When count exceeds `threshold` (default 50, safely above 34-cycle divider stall), triggers a skip
+- On trigger: advances CLINT timer (mtimeLo/mtimeHi) by `skipAmount` (default 1000), skips `tick()`, advances cycle counter
+- Handles multi-instruction halt loops (e.g., 4-instruction loop at 0x48–0x54) via tolerance-based matching
+
+### Performance Results (firmware.hex, 10M cycles)
+
+| Metric | Without Oracle | With Oracle |
+|--------|---------------|-------------|
+| Wall-clock time | ~5,500 ms | **8 ms** |
+| Effective cyc/s | 1.8M | **1.25 billion** |
+| Oracle triggers | — | 9,998 |
+| Cycles skipped | — | 9,998,000 |
+| UART output | 48 words + 0xCAFE0000 | identical |
+
+---
+
 ## JIT Cycle-Skipping Infrastructure — Phase 1 (Phase 27) — DONE
 
 Register read/write API at every layer (C++ codegen → C FFI → Lean bindings → optimized run loop) enabling snapshot/restore of simulation state. This is the foundation for oracle-driven cycle-skipping, where an external function detects steady-state patterns (e.g., busy-wait loops) and jumps the simulation forward.
@@ -37,10 +84,10 @@ JIT.regName  : JITHandle → UInt32 → IO String
 JIT.numRegs  : JITHandle → IO UInt32
 JIT.findReg  : JITHandle → String → IO (Option UInt32)
 
--- Oracle-driven run loop
+-- Oracle-driven run loop (Phase 28: extended with skip count)
 JIT.runOptimized : JITHandle → Nat → Array UInt32
-    → (Nat → Array UInt64 → IO (Option (Array (UInt32 × UInt64))))  -- oracle
-    → (Nat → Array UInt64 → IO Bool)                                -- callback
+    → (Nat → Array UInt64 → IO (Option (Nat × Array (UInt32 × UInt64))))  -- oracle (skipCount, updates)
+    → (Nat → Array UInt64 → IO Bool)                                      -- callback
     → IO Nat
 ```
 
@@ -83,9 +130,9 @@ CycleSkip: PC after restore+eval+tick+eval (actual) = 0x8000100
 2. Fewer instructions — 2,077 vs 2,714 per sim-cycle (Verilator does 2 evals/cycle)
 3. Observable wire optimization — 33 class members + 321 locals (L1-friendly)
 
-### Limitation
+### Note on Sub-Module Registers
 
-Phase 1 only covers top-level module registers. Sub-module registers (e.g., divider's 8 internal registers) are not exposed. Extendable in Phase 2.
+Sub-module registers (e.g., divider's 8 internal registers) are already flattened into the single JIT class. All 130 registers (8 divider + 122 SoCState) are accessible via `JIT.setReg/getReg`. No hierarchical register work was needed for the Phase 28 oracle.
 
 ### Verification
 
