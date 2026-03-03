@@ -39,6 +39,9 @@ lean_lib «Examples.YOLOv8» where
 lean_lib «Examples.Arbiter» where
   roots := #[`Examples.Arbiter]
 
+lean_lib «IP.Video» where
+  roots := #[`IP.Video]
+
 lean_lib «Tests» where
   -- Test circuits library
 
@@ -93,6 +96,10 @@ lean_exe «rv32-jit-boot-oracle-test» where
 
 lean_exe «rv32-jit-linux-boot-test» where
   root := `Tests.RV32.JITLinuxBootTest
+  supportInterpreter := true
+
+lean_exe «h264-jit-test» where
+  root := `Tests.Video.H264JITTest
   supportInterpreter := true
 
 @[test_driver]

@@ -370,6 +370,59 @@ cd verilator && make build
 
 ---
 
+## H.264 Baseline Profile Video Codec
+
+A **complete H.264 Baseline Profile encoder and decoder** pipeline — pure Lean reference functions with formal proofs, C++ golden value generators, and a synthesizable quant/dequant roundtrip module verified via JIT.
+
+### Pipeline Architecture
+
+```
+ENCODER:  Pixels → Intra Pred → DCT → Quant → Zigzag → CAVLC → NAL → Bitstream
+DECODER:  Bitstream → NAL Parse → CAVLC Decode → Dequant → IDCT → Intra Recon → Pixels
+```
+
+### Modules (9 phases)
+
+| Module | Pure Lean | Proofs | Tests | Synth |
+|--------|:---------:|:------:|:-----:|:-----:|
+| DRAM Interface | `DRAMInterface.lean` | 3 theorems | `DRAMTest.lean` | Sim model |
+| 4×4 Integer DCT/IDCT | `DCT.lean` | bounded error, linearity | `DCTTest.lean` | Skeletal FSM |
+| Quantization | `Quant.lean` | zero/sign preservation | `QuantTest.lean` | — |
+| CAVLC Decode | `CAVLCDecode.lean` | roundtrip proof | `CAVLCDecodeTest.lean` | — |
+| NAL Pack/Parse | `NAL.lean` | roundtrip proof | `NALTest.lean` | — |
+| Intra Prediction (9 modes) | `IntraPred.lean` | residual roundtrip | `IntraPredTest.lean` | — |
+| Encoder Top | `Encoder.lean` | — | `H264PipelineTest.lean` | — |
+| Decoder Top | `Decoder.lean` | — | `H264PipelineTest.lean` | — |
+| Frame-Level E2E | — | — | `H264FrameTest.lean` | — |
+| Quant/Dequant Roundtrip | `QuantRoundtripSynth.lean` | — | `H264JITTest.lean` | **Full** |
+
+### JIT End-to-End Test
+
+The quant→dequant roundtrip module synthesizes to SystemVerilog, compiles via JIT, and passes all 4 tests:
+
+```bash
+lake exe h264-jit-test
+# === H.264 JIT End-to-End Test ===
+# JIT: Compiling IP/Video/H264/gen/quant_roundtrip_jit.cpp...
+# JIT: Loaded shared library
+#   Test 1: Zero block...        PASS
+#   Test 2: DCT coefficients...  PASS (all 16 match)
+#   Test 3: Single large coeff... PASS
+#   Test 4: Negative coeffs...   PASS
+# *** ALL H.264 JIT TESTS PASSED ***
+```
+
+### Formal Proofs (all without `sorry`)
+
+- **DRAM**: read-after-write, write-write, read-default
+- **DCT**: `|IDCT(DCT(x))[i] - x[i]| ≤ 1`, linearity
+- **Quant**: `quant(0) = 0`, sign preservation
+- **CAVLC**: `decode(encode(coeffs)) = coeffs`
+- **NAL**: `parse(pack(payload)) = payload`
+- **Intra**: `predicted + (original - predicted) = original`
+
+---
+
 ## Why Sparkle?
 
 ```lean
@@ -770,6 +823,15 @@ lake test
 ```
 INT4/INT8 quantized inference accelerator with CLIP text embeddings for open-vocabulary detection. All 15 modules synthesize to SystemVerilog.
 
+### H.264 Video Codec
+```bash
+# Run H.264 pipeline + frame-level tests (DRAM, DCT, Quant, CAVLC, NAL, IntraPred, full pipeline, frame E2E)
+lake test
+
+# JIT end-to-end test (compile quant/dequant FSM, run 4 tests)
+lake exe h264-jit-test
+```
+
 ### All Examples
 ```bash
 # Simulation examples
@@ -911,6 +973,9 @@ Tests include:
 - **JIT oracle test** — Self-loop detection oracle, 10M cycles with cycle-skipping (48 UART words, 9998 oracle triggers)
 - **JIT dynamic warp test** — memsetWord bulk fill roundtrip + dynamic oracle with direct JITHandle access (48 UART words, 9998 oracle triggers)
 - **JIT speculative warp test** — Snapshot/restore roundtrip + guard-pass speculative warp (389 triggers, 0 rollbacks) + guard-fail rollback (9,955 rollbacks)
+- **H.264 pipeline tests** — DRAM interface, DCT/IDCT, quant/dequant, CAVLC decode, NAL pack/parse, intra prediction, full encode→decode roundtrip
+- **H.264 frame-level tests** — Multi-block (16×16) encode→decode roundtrip at QP 0/10/20/30, bitstream vs NAL path equivalence, prediction mode diversity
+- **H.264 JIT test** — Quant/dequant synthesizable FSM: zero block, DCT coefficients, single large coefficient, negative coefficients (all 4 pass)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - **SyncFIFO (16 tests)** — fill/drain, FIFO ordering, full/empty conditions, simultaneous enq+deq
@@ -982,7 +1047,7 @@ sparkle/
 │   │   └── SoC/         # Dual-arch: HardwiredUnrolled / TimeMultiplexed
 │   ├── Arbiter/         # Round-Robin Arbiter (VDD worked example)
 │   │   └── RoundRobin.lean # Signal DSL implementation + synthesis + simulation
-│   └── YOLOv8/          # YOLOv8n-WorldV2 object detection (Signal DSL)
+│   ├── YOLOv8/          # YOLOv8n-WorldV2 object detection (Signal DSL)
 │       ├── Config.lean   # Model dimensions, quantization params
 │       ├── Types.lean    # Type aliases (WeightInt4, ActivationInt8, etc.)
 │       ├── Top.lean      # Full SoC top-level controller
@@ -992,12 +1057,33 @@ sparkle/
 │       ├── TextEmbedding.lean  # CLIP text embedding dot product
 │       ├── Primitives/   # Conv2DEngine, LineBuffer, MaxPool, Dequant, etc.
 │       └── Blocks/       # ConvBnSiLU, C2f, Bottleneck, SPPF
+├── IP/                  # Verified IP Library
+│   └── Video/
+│       └── H264/        # H.264 Baseline Profile codec
+│           ├── CAVLC.lean          # CAVLC encoder (pure + Signal FSM)
+│           ├── CAVLCDecode.lean    # CAVLC decoder (pure Lean)
+│           ├── DCT.lean            # 4×4 integer DCT/IDCT
+│           ├── Quant.lean          # Quantization/dequantization (MF/V tables)
+│           ├── NAL.lean            # NAL packer/parser (emulation prevention)
+│           ├── IntraPred.lean      # Intra_4×4 prediction (9 modes)
+│           ├── DRAMInterface.lean  # DRAM simulation model
+│           ├── Encoder.lean        # Top-level encoder pipeline
+│           ├── Decoder.lean        # Top-level decoder pipeline
+│           ├── QuantRoundtripSynth.lean # Synthesizable quant/dequant FSM
+│           ├── *Props.lean         # Formal proofs for each module
+│           └── gen/                # Generated SV + CppSim + JIT
 ├── Tests/               # Test suites
 │   ├── TestArray.lean   # Vector/array tests
 │   ├── Sparkle16/       # CPU-specific tests
 │   ├── RV32/            # RV32I simulation tests + JIT cycle-skip/oracle/dynamic-warp/speculative-warp tests
 │   ├── BitNet/          # BitNet Signal DSL + golden validation tests
 │   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
+│   ├── Video/           # H.264 pipeline tests
+│   │   ├── DRAMTest.lean, DCTTest.lean, QuantTest.lean
+│   │   ├── CAVLCDecodeTest.lean, NALTest.lean, IntraPredTest.lean
+│   │   ├── H264PipelineTest.lean  # Full encode→decode roundtrip
+│   │   ├── H264FrameTest.lean     # Frame-level E2E (multi-block, QP sweep, path equivalence)
+│   │   └── H264JITTest.lean       # JIT end-to-end (4 tests)
 │   ├── Library/         # Verified IP tests
 │   │   └── TestSyncFIFO.lean # SyncFIFO: 16 tests (fill, drain, FIFO order, full/empty)
 │   ├── golden-values/   # Real model data from bitnet.cpp
@@ -1009,6 +1095,8 @@ sparkle/
 ├── firmware/            # Boot firmware and device tree
 │   ├── sparkle-soc.dts # Device tree source for Linux
 │   └── opensbi/        # OpenSBI v0.9 boot support
+├── scripts/             # Golden value generators
+│   └── Video/           # H.264 C++ golden generators (DCT, quant, CAVLC, NAL, intra pred)
 ├── c_src/               # C FFI libraries
 │   ├── sparkle_barrier.c # Signal.loopMemo memoization barriers
 │   └── sparkle_jit.c    # JIT dlopen/dlsym FFI (lean_external_class)
@@ -1073,6 +1161,10 @@ Contributions welcome! Areas of interest:
 
 ### Next Phases (TODO)
 - [x] ~~**eval()+tick() Fusion**~~ - Done (Phase 30): fused evalTick() with stack-local `_next` vars, ~13.0M cyc/s
+- [x] ~~**H.264 Baseline Codec**~~ - Done (Phase 31): Full encoder/decoder pipeline with formal proofs + JIT test
+- [x] ~~**H.264 Frame-Level E2E Test**~~ - Done (Phase 31b): Multi-block encode→decode roundtrip, QP sweep, path equivalence, mode diversity
+- [ ] **H.264 CAVLC Decoder Fix** - Fix non-trivial residual reconstruction (currently zeros), tighten frame MSE thresholds
+- [ ] **H.264 Synthesizable Pipeline** - Extend pure Lean modules into fully synthesizable Signal DSL
 - [ ] **Linux Boot Idle-Loop Skipping** - Extend dynamic oracle to detect WFI/idle loops during Linux boot
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
 - [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients

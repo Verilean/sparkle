@@ -32,6 +32,15 @@ import Tests.YOLOv8.TestNeck
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
+import Tests.Video.CAVLCTest
+import Tests.Video.DRAMTest
+import Tests.Video.DCTTest
+import Tests.Video.QuantTest
+import Tests.Video.CAVLCDecodeTest
+import Tests.Video.NALTest
+import Tests.Video.IntraPredTest
+import Tests.Video.H264PipelineTest
+import Tests.Video.H264FrameTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -410,5 +419,24 @@ def main : IO UInt32 := do
   -- SyncFIFO tests
   let syncFIFOTests ← Sparkle.Tests.Library.TestSyncFIFO.syncFIFOTests
   let allTests := allTests ++ syncFIFOTests
+
+  -- CAVLC Encoder tests
+  IO.println ""
+  IO.println "--- CAVLC Encoder Tests ---"
+  let cavlcTests ← Sparkle.Tests.Video.CAVLCTest.allTests
+  let allTests := allTests ++ cavlcTests
+
+  -- H.264 Pipeline tests
+  IO.println ""
+  IO.println "--- H.264 Pipeline Tests ---"
+  let dramTests ← Sparkle.Tests.Video.DRAMTest.allTests
+  let dctTests ← Sparkle.Tests.Video.DCTTest.allTests
+  let quantTests ← Sparkle.Tests.Video.QuantTest.allTests
+  let cavlcDecTests ← Sparkle.Tests.Video.CAVLCDecodeTest.allTests
+  let nalTests ← Sparkle.Tests.Video.NALTest.allTests
+  let intraPredTests ← Sparkle.Tests.Video.IntraPredTest.allTests
+  let h264PipelineTests ← Sparkle.Tests.Video.H264PipelineTest.allTests
+  let h264FrameTests ← Sparkle.Tests.Video.H264FrameTest.allTests
+  let allTests := allTests ++ dramTests ++ dctTests ++ quantTests ++ cavlcDecTests ++ nalTests ++ intraPredTests ++ h264PipelineTests ++ h264FrameTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []
