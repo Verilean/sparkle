@@ -21,7 +21,75 @@
 
 ## Completed Phases
 
-### Linux Boot Time-Warping — Dynamic Oracle + Bulk Memory API (Phase 29) — DONE
+### Speculative Simulation with Snapshot/Restore (Phase 29 Step 5) — DONE
+
+Full-state snapshot/restore API using C++ default copy constructor, enabling guard-and-rollback speculative simulation. The oracle takes a snapshot, speculatively applies bulk updates (memsetWord, timer advancement), checks guard conditions (e.g., timer interrupt), and rolls back if the guard fails — providing bit-accurate cycle-skipping even in the presence of interrupts.
+
+### What Was Built
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **C++ codegen** | `Sparkle/Backend/CppSim.lean` | `jit_snapshot`, `jit_restore`, `jit_free_snapshot` in `toCppSimJIT` extern "C" block |
+| **C FFI** | `c_src/sparkle_jit.c` | 3 function pointers, dlsym calls, 3 LEAN_EXPORT wrappers |
+| **Lean bindings** | `Sparkle/Core/JIT.lean` | `JIT.snapshot`, `JIT.restore`, `JIT.freeSnapshot` opaque externs |
+| **Speculative warp test** | `Tests/RV32/JITSpeculativeWarpTest.lean` | 3-part test: roundtrip, guard-pass, guard-rollback |
+
+### Snapshot/Restore API
+
+```cpp
+// Auto-generated in JIT wrapper
+void* jit_snapshot(void* ctx);       // Copy constructor → new object
+void  jit_restore(void* ctx, void* snap);  // Copy assignment
+void  jit_free_snapshot(void* snap); // Delete snapshot
+```
+
+```lean
+JIT.snapshot     : JITHandle → IO UInt64   -- returns opaque pointer
+JIT.restore      : JITHandle → UInt64 → IO Unit
+JIT.freeSnapshot : JITHandle → UInt64 → IO Unit
+```
+
+### Design: C++ Default Copy Constructor
+
+The generated CppSim class uses only `std::array<T,N>` and scalar types — no raw pointers or dynamic allocation. The default copy constructor produces a safe full-state copy (~64MB for RV32 SoC with 8×8MB DRAM byte banks, ~3ms memcpy-bound). Acceptable for the guard-check pattern (a few snapshots per simulation, not per cycle).
+
+### Speculative Warp Test Results
+
+| Part | Test | Result |
+|------|------|--------|
+| **Part 1** | Snapshot/restore roundtrip (PC matches after restore) | PASS |
+| **Part 2** | Speculative warp, guard passes (mtimecmp=0xFFFFFFFF, no interrupt) | PASS — 389 triggers, 0 rollbacks, DMEM zeroed |
+| **Part 3** | Guard failure with rollback (mtimecmp=5, interrupt fires quickly) | PASS — 9,955 rollbacks detected |
+
+### Guard-and-Rollback Pattern
+
+```lean
+-- Oracle with speculative simulation
+let s ← JIT.snapshot h          -- Save full state
+-- Speculatively apply bulk updates
+JIT.memsetWord h bankIdx 0 0 64 -- Zero DMEM
+JIT.setReg h mtimeLoIdx newTime -- Advance timer
+-- Guard check
+let mtime ← JIT.getReg h mtimeLoIdx
+let mcmp ← JIT.getReg h mtimecmpLoIdx
+if mtime < mcmp then
+  JIT.freeSnapshot h s          -- Guard passed, keep speculative state
+  return some skipAmount
+else
+  JIT.restore h s               -- Guard failed, rollback
+  JIT.freeSnapshot h s
+  return none                   -- Fall through to normal tick
+```
+
+### Verification
+
+- `lake exe rv32-jit-speculative-warp-test` — ALL 3 PARTS PASS
+- `lake exe rv32-jit-dynamic-warp-test` — PASS (no regression)
+- `lake exe rv32-jit-oracle-test` — PASS (no regression)
+
+---
+
+### Linux Boot Time-Warping — Dynamic Oracle + Bulk Memory API (Phase 29 Steps 1-4) — DONE
 
 Direct JITHandle access for oracles and bulk memory API, enabling dynamic register introspection and fast BSS zeroing for Linux boot acceleration. Step 4 adds a BSS-clear speculative warp test demonstrating the full pattern: inline firmware, loop detection, bulk memory zeroing, and cycle-skipping.
 
@@ -150,6 +218,11 @@ JIT.runOptimized : JITHandle → Nat → Array UInt32
     → (Nat → Array UInt64 → IO Bool)                       -- callback
     → IO Nat
 JIT.memsetWord : JITHandle → UInt32 → UInt32 → UInt32 → UInt32 → IO Unit
+
+-- Full-state snapshot/restore (Phase 29 Step 5)
+JIT.snapshot     : JITHandle → IO UInt64   -- copy constructor → opaque pointer
+JIT.restore      : JITHandle → UInt64 → IO Unit  -- copy assignment from snapshot
+JIT.freeSnapshot : JITHandle → UInt64 → IO Unit  -- delete snapshot
 ```
 
 ### Snapshot/Restore Test
@@ -300,6 +373,8 @@ SyncFIFO:
 | **Bulk memory API** | DONE (Phase 29) | `JIT.memsetWord` for fast memory fills with bounds checking |
 | **Dynamic oracle API** | DONE (Phase 29) | Oracle receives `JITHandle` directly for dynamic register/memory access |
 | **BSS-clear speculative warp** | DONE (Phase 29 Step 4) | Inline firmware + 4-bank DMEM pre-fill/verify + loop-detection oracle + bulk zero — 389 triggers, 99K cycles skipped in <1 ms |
+| **Snapshot/restore API** | DONE (Phase 29 Step 5) | `JIT.snapshot/restore/freeSnapshot` — full-state copy via C++ default copy constructor |
+| **Speculative warp with rollback** | DONE (Phase 29 Step 5) | Guard-and-rollback pattern: snapshot → speculate → guard check → rollback if guard fails. 3-part test: roundtrip, guard-pass (389 triggers), guard-fail (9,955 rollbacks) |
 | **Linux boot cycle-skip** | TODO | Oracle for OpenSBI/Linux idle loops (WFI, busy-wait, larger tolerance) |
 
 ### Performance Optimization
@@ -308,7 +383,7 @@ SyncFIFO:
 |-------|--------|-------------|-------------|
 | **eval()+tick() fusion** | TODO | ~1.3x → 17M cyc/s | Eliminate 260 `_next` memory ops/cycle (130 stores in eval + 130 load/store in tick). Requires topological ordering for circular register dependencies |
 | **Multi-cycle batching** | TODO | ~1.1-1.2x | Unroll 2-4 sim-cycles, keep registers in CPU registers across cycles |
-| **Cycle-skipping** | DONE | unbounded | Self-loop oracle: 10M cycles in 9ms (706x). Dynamic oracle API with direct JITHandle access (Phase 29). BSS-clear speculative warp: 100K cycles in <1 ms with 4-bank DMEM zeroing |
+| **Cycle-skipping** | DONE | unbounded | Self-loop oracle: 10M cycles in 9ms (706x). Dynamic oracle API with direct JITHandle access (Phase 29). BSS-clear speculative warp + snapshot/restore with guard-and-rollback pattern |
 
 ### Verified Standard IP Library — Remaining Components
 

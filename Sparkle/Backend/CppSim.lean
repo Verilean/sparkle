@@ -710,6 +710,15 @@ def toCppSimJIT (d : Design)
     s!"    return \"\";\n" ++
     s!"{cb}\n\n" ++
     s!"uint32_t jit_num_regs() {ob} return {numRegs}; {cb}\n\n" ++
+    s!"void* jit_snapshot(void* ctx) {ob}\n" ++
+    s!"    return new {className}(*static_cast<{className}*>(ctx));\n" ++
+    s!"{cb}\n\n" ++
+    s!"void jit_restore(void* ctx, void* snap) {ob}\n" ++
+    s!"    *static_cast<{className}*>(ctx) = *static_cast<{className}*>(snap);\n" ++
+    s!"{cb}\n\n" ++
+    s!"void jit_free_snapshot(void* snap) {ob}\n" ++
+    s!"    delete static_cast<{className}*>(snap);\n" ++
+    s!"{cb}\n\n" ++
     s!"{cb} // extern \"C\"\n"
 
 end Sparkle.Backend.CppSim

@@ -319,7 +319,9 @@ JIT.memsetWord handle memIdx addr 0 count
 
 **BSS-Clear Speculative Warp**: A custom inline firmware (7-instruction BSS-clear loop) demonstrates the full pattern — the oracle detects the memory-clearing loop, bulk-zeros all 4 DMEM byte banks via `memsetWord`, and skips ~100K cycles in <1 ms (389 triggers, 99,584 cycles skipped). See `Tests/RV32/JITDynamicWarpTest.lean`.
 
-Also includes register snapshot/restore API (130 registers) and bulk memory API for state introspection:
+**Speculative Simulation with Rollback**: Full-state snapshot/restore via C++ default copy constructor enables guard-and-rollback speculation. The oracle snapshots state, speculatively applies bulk updates, checks guard conditions (e.g., timer interrupt), and rolls back if the guard fails — providing bit-accurate cycle-skipping even with interrupts. See `Tests/RV32/JITSpeculativeWarpTest.lean`.
+
+Also includes register snapshot/restore API (130 registers), bulk memory API, and full-state snapshot/restore for state introspection:
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -346,6 +348,9 @@ lake exe rv32-jit-oracle-test
 
 # JIT dynamic warp test (memsetWord + dynamic oracle with JITHandle access)
 lake exe rv32-jit-dynamic-warp-test
+
+# JIT speculative warp test (snapshot/restore + guard-and-rollback)
+lake exe rv32-jit-speculative-warp-test
 
 # CppSim (standalone C++)
 cd verilator && make build-cppsim && make run-cppsim
@@ -903,6 +908,7 @@ Tests include:
 - **JIT cycle-skip test** — Register snapshot/restore roundtrip (130 registers + 4 DMEM banks)
 - **JIT oracle test** — Self-loop detection oracle, 10M cycles with cycle-skipping (48 UART words, 9998 oracle triggers)
 - **JIT dynamic warp test** — memsetWord bulk fill roundtrip + dynamic oracle with direct JITHandle access (48 UART words, 9998 oracle triggers)
+- **JIT speculative warp test** — Snapshot/restore roundtrip + guard-pass speculative warp (389 triggers, 0 rollbacks) + guard-fail rollback (9,955 rollbacks)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - **SyncFIFO (16 tests)** — fill/drain, FIFO ordering, full/empty conditions, simultaneous enq+deq
@@ -932,7 +938,7 @@ sparkle/
 │   ├── Core/            # Signal semantics, domains, and vectors
 │   │   ├── Signal.lean  # Signal DSL: register, memory, loop, mux, ===, hw_cond
 │   │   ├── StateMacro.lean # declare_signal_state: named state accessors
-│   │   ├── JIT.lean     # JIT FFI: dlopen/dlsym, compile/load, eval/tick/getWire/memsetWord
+│   │   ├── JIT.lean     # JIT FFI: dlopen/dlsym, compile/load, eval/tick/getWire/memsetWord/snapshot/restore
 │   │   ├── JITLoop.lean # loopMemoJIT: transparent JIT behind Signal API + runOptimized
 │   │   ├── Oracle.lean  # Dynamic oracle: cycle-skipping with direct JITHandle access
 │   │   ├── Domain.lean  # Clock domain configuration
@@ -987,7 +993,7 @@ sparkle/
 ├── Tests/               # Test suites
 │   ├── TestArray.lean   # Vector/array tests
 │   ├── Sparkle16/       # CPU-specific tests
-│   ├── RV32/            # RV32I simulation tests + JIT cycle-skip/oracle/dynamic-warp tests
+│   ├── RV32/            # RV32I simulation tests + JIT cycle-skip/oracle/dynamic-warp/speculative-warp tests
 │   ├── BitNet/          # BitNet Signal DSL + golden validation tests
 │   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
 │   ├── Library/         # Verified IP tests
@@ -1061,6 +1067,7 @@ Contributions welcome! Areas of interest:
 - [x] **JIT Cycle-Skipping Phase 1** - Register read/write API (C++ codegen → C FFI → Lean bindings), `JIT.runOptimized` with oracle callback, snapshot/restore roundtrip test passes. JIT now **1.27x faster** than Verilator (13.3M vs 10.4M cyc/s) ✓
 - [x] **JIT Cycle-Skipping Phase 2 — Self-Loop Oracle** - Tolerance-based PC tracking (pcTolerance=12, threshold=50) with CLINT timer advancement. 10M cycles in 9ms (706x effective speedup). Firmware UART output identical with/without oracle ✓
 - [x] **Linux Boot Time-Warping (Phase 29)** - Dynamic oracle receives `JITHandle` directly (register reads, `memsetWord`, `setReg`), simplified return type `IO (Option Nat)`, bulk memory API with bounds checking ✓
+- [x] **Speculative Simulation with Rollback (Phase 29 Step 5)** - Full-state snapshot/restore via C++ copy constructor, guard-and-rollback pattern for interrupt-safe cycle-skipping (3-part test: roundtrip, guard-pass, guard-rollback) ✓
 
 ### Next Phases (TODO)
 - [ ] **eval()+tick() Fusion** - Eliminate 260 `_next` memory ops/cycle by fusing eval and tick into single function (est. ~1.3x → 17M cyc/s)

@@ -65,6 +65,19 @@ opaque JIT.getMem (h : @& JITHandle) (memIdx : UInt32) (addr : UInt32) : IO UInt
 @[extern "sparkle_jit_memset_word"]
 opaque JIT.memsetWord (h : @& JITHandle) (memIdx : UInt32) (addr : UInt32) (val : UInt32) (count : UInt32) : IO Unit
 
+/-- Take a full snapshot of the simulation state (registers + memories).
+    Returns an opaque pointer (as UInt64) that can be passed to restore/freeSnapshot. -/
+@[extern "sparkle_jit_snapshot"]
+opaque JIT.snapshot (h : @& JITHandle) : IO UInt64
+
+/-- Restore simulation state from a snapshot taken by JIT.snapshot. -/
+@[extern "sparkle_jit_restore"]
+opaque JIT.restore (h : @& JITHandle) (snap : UInt64) : IO Unit
+
+/-- Free a snapshot created by JIT.snapshot. Must be called to avoid memory leaks. -/
+@[extern "sparkle_jit_free_snapshot"]
+opaque JIT.freeSnapshot (h : @& JITHandle) (snap : UInt64) : IO Unit
+
 /-- Get the name of a wire by index (for discovery) -/
 @[extern "sparkle_jit_wire_name"]
 opaque JIT.wireName (h : @& JITHandle) (wireIdx : UInt32) : IO String

@@ -9,7 +9,8 @@
  *   jit_create, jit_destroy, jit_reset, jit_eval, jit_tick,
  *   jit_set_input, jit_get_output, jit_get_wire,
  *   jit_set_mem, jit_get_mem, jit_memset_word,
- *   jit_set_reg, jit_get_reg, jit_reg_name, jit_num_regs
+ *   jit_set_reg, jit_get_reg, jit_reg_name, jit_num_regs,
+ *   jit_snapshot, jit_restore, jit_free_snapshot
  */
 
 #include <lean/lean.h>
@@ -45,6 +46,9 @@ typedef struct {
     uint64_t (*get_reg)(void*, uint32_t);
     const char* (*reg_name)(uint32_t);
     uint32_t (*num_regs)(void);
+    void* (*snapshot)(void*);
+    void  (*restore)(void*, void*);
+    void  (*free_snapshot)(void*);
 } JITHandle;
 
 static lean_external_class* g_jit_class = NULL;
@@ -123,6 +127,9 @@ LEAN_EXPORT lean_obj_res sparkle_jit_load(b_lean_obj_arg path, lean_obj_arg w) {
     h->get_reg    = (uint64_t(*)(void*, uint32_t))dlsym(lib, "jit_get_reg");
     h->reg_name   = (const char*(*)(uint32_t))dlsym(lib, "jit_reg_name");
     h->num_regs   = (uint32_t(*)(void))dlsym(lib, "jit_num_regs");
+    h->snapshot      = (void*(*)(void*))dlsym(lib, "jit_snapshot");
+    h->restore       = (void(*)(void*, void*))dlsym(lib, "jit_restore");
+    h->free_snapshot = (void(*)(void*))dlsym(lib, "jit_free_snapshot");
 
     /* Create the simulation instance */
     void* (*create)(void) = (void*(*)(void))dlsym(lib, "jit_create");
@@ -286,4 +293,31 @@ LEAN_EXPORT lean_obj_res sparkle_jit_num_regs(
     JITHandle* h = get_handle(handle);
     uint32_t n = h->num_regs ? h->num_regs() : 0;
     return mk_io_ok(lean_box_uint32(n));
+}
+
+/* sparkle_jit_snapshot : @& JITHandle → IO UInt64 */
+LEAN_EXPORT lean_obj_res sparkle_jit_snapshot(
+    b_lean_obj_arg handle, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    void* snap = (h->snapshot) ? h->snapshot(h->ctx) : NULL;
+    return mk_io_ok(lean_box_uint64((uint64_t)snap));
+}
+
+/* sparkle_jit_restore : @& JITHandle → UInt64 → IO Unit */
+LEAN_EXPORT lean_obj_res sparkle_jit_restore(
+    b_lean_obj_arg handle, uint64_t snap, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    if (h->restore && snap) h->restore(h->ctx, (void*)snap);
+    return mk_io_ok(lean_box(0));
+}
+
+/* sparkle_jit_free_snapshot : @& JITHandle → UInt64 → IO Unit */
+LEAN_EXPORT lean_obj_res sparkle_jit_free_snapshot(
+    b_lean_obj_arg handle, uint64_t snap, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    if (h->free_snapshot && snap) h->free_snapshot((void*)snap);
+    return mk_io_ok(lean_box(0));
 }
