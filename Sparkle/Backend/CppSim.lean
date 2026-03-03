@@ -479,6 +479,38 @@ private def collectMemories (body : List Stmt) : List (String × Nat × Nat) :=
     | .memory name addrWidth dataWidth .. => some (name, addrWidth, dataWidth)
     | _ => none
 
+/-- Collect (sanitizedName, width) for all registers ≤64 bits -/
+private def collectRegisters (body : List Stmt) (typeMap : List (String × HWType))
+    : List (String × Nat) :=
+  body.filterMap fun stmt =>
+    match stmt with
+    | .register output .. =>
+      let width := lookupWidth typeMap output
+      if width ≤ 64 then some (sanitizeName output, width) else none
+    | _ => none
+
+/-- Generate jit_set_reg switch cases -/
+private def emitSetRegSwitch (regs : List (String × Nat)) : String :=
+  let indexed := (List.range regs.length).zip regs
+  let cases := indexed.map fun (i, sName, width) =>
+    let cppType := emitCppType (.bitVector width)
+    s!"            case {i}: s->{sName} = ({cppType})val; break;"
+  String.intercalate "\n" cases
+
+/-- Generate jit_get_reg switch cases -/
+private def emitGetRegSwitch (regs : List (String × Nat)) : String :=
+  let indexed := (List.range regs.length).zip regs
+  let cases := indexed.map fun (i, sName, _width) =>
+    s!"            case {i}: return (uint64_t)s->{sName};"
+  String.intercalate "\n" cases
+
+/-- Generate jit_reg_name switch cases -/
+private def emitRegNameSwitch (regs : List (String × Nat)) : String :=
+  let indexed := (List.range regs.length).zip regs
+  let cases := indexed.map fun (i, sName, _width) =>
+    s!"            case {i}: return \"{sName}\";"
+  String.intercalate "\n" cases
+
 /-- Generate set_input switch cases from Module.inputs (skip clk/rst) -/
 private def emitSetInputSwitch (inputs : List Port) : String :=
   let userInputs := inputs.filter fun (p : Port) =>
@@ -581,6 +613,12 @@ def toCppSimJIT (d : Design)
     let wireNameSwitch := emitWireNameSwitch m.wires observableWires
     let (memSetCases, memGetCases, numMems) :=
       emitMemoryAccessSwitches m.body
+    let typeMap := buildTypeMap m
+    let regs := collectRegisters m.body typeMap
+    let numRegs := regs.length
+    let setRegCases := emitSetRegSwitch regs
+    let getRegCases := emitGetRegSwitch regs
+    let regNameCases := emitRegNameSwitch regs
     -- Assemble extern "C" wrapper
     classCode ++
     "\n// ============================================================\n" ++
@@ -635,6 +673,26 @@ def toCppSimJIT (d : Design)
     s!"uint32_t jit_num_outputs()  {ob} return {numOutputs}; {cb}\n" ++
     s!"uint32_t jit_num_wires()    {ob} return {numWires}; {cb}\n" ++
     s!"uint32_t jit_num_memories() {ob} return {numMems}; {cb}\n\n" ++
+    s!"void jit_set_reg(void* ctx, uint32_t reg_idx, uint64_t val) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (reg_idx) {ob}\n" ++
+    setRegCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"{cb}\n\n" ++
+    s!"uint64_t jit_get_reg(void* ctx, uint32_t reg_idx) {ob}\n" ++
+    s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
+    s!"    switch (reg_idx) {ob}\n" ++
+    getRegCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"    return 0;\n" ++
+    s!"{cb}\n\n" ++
+    s!"const char* jit_reg_name(uint32_t idx) {ob}\n" ++
+    s!"    switch (idx) {ob}\n" ++
+    regNameCases ++ "\n" ++
+    s!"    {cb}\n" ++
+    s!"    return \"\";\n" ++
+    s!"{cb}\n\n" ++
+    s!"uint32_t jit_num_regs() {ob} return {numRegs}; {cb}\n\n" ++
     s!"{cb} // extern \"C\"\n"
 
 end Sparkle.Backend.CppSim

@@ -77,6 +77,30 @@ def JIT.findWire (h : JITHandle) (name : String) : IO (Option UInt32) := do
     if wireName == name then return some i.toUInt32
   return none
 
+/-- Set a register value by index (writes current state, not _next) -/
+@[extern "sparkle_jit_set_reg"]
+opaque JIT.setReg (h : @& JITHandle) (regIdx : UInt32) (value : UInt64) : IO Unit
+
+/-- Get a register value by index -/
+@[extern "sparkle_jit_get_reg"]
+opaque JIT.getReg (h : @& JITHandle) (regIdx : UInt32) : IO UInt64
+
+/-- Get the name of a register by index (for discovery) -/
+@[extern "sparkle_jit_reg_name"]
+opaque JIT.regName (h : @& JITHandle) (regIdx : UInt32) : IO String
+
+/-- Get the total number of registers -/
+@[extern "sparkle_jit_num_regs"]
+opaque JIT.numRegs (h : @& JITHandle) : IO UInt32
+
+/-- Find a register index by name, returns none if not found -/
+def JIT.findReg (h : JITHandle) (name : String) : IO (Option UInt32) := do
+  let n ← JIT.numRegs h
+  for i in [:n.toNat] do
+    let rn ← JIT.regName h i.toUInt32
+    if rn == name then return some i.toUInt32
+  return none
+
 /-- Compile a JIT .cpp file to a shared library, with hash-based caching -/
 def JIT.compile (cppPath : String) (cacheDir : String := ".lake/build/jit_cache") : IO String := do
   -- Read source, compute hash for caching

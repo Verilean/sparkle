@@ -8,7 +8,8 @@
  * The loaded shared library must export extern "C" functions:
  *   jit_create, jit_destroy, jit_reset, jit_eval, jit_tick,
  *   jit_set_input, jit_get_output, jit_get_wire,
- *   jit_set_mem, jit_get_mem
+ *   jit_set_mem, jit_get_mem,
+ *   jit_set_reg, jit_get_reg, jit_reg_name, jit_num_regs
  */
 
 #include <lean/lean.h>
@@ -39,6 +40,10 @@ typedef struct {
     void  (*destroy)(void*);
     const char* (*wire_name)(uint32_t);
     uint32_t (*num_wires)(void);
+    void     (*set_reg)(void*, uint32_t, uint64_t);
+    uint64_t (*get_reg)(void*, uint32_t);
+    const char* (*reg_name)(uint32_t);
+    uint32_t (*num_regs)(void);
 } JITHandle;
 
 static lean_external_class* g_jit_class = NULL;
@@ -112,6 +117,10 @@ LEAN_EXPORT lean_obj_res sparkle_jit_load(b_lean_obj_arg path, lean_obj_arg w) {
     h->get_mem    = (uint32_t(*)(void*, uint32_t, uint32_t))dlsym(lib, "jit_get_mem");
     h->wire_name  = (const char*(*)(uint32_t))dlsym(lib, "jit_wire_name");
     h->num_wires  = (uint32_t(*)(void))dlsym(lib, "jit_num_wires");
+    h->set_reg    = (void(*)(void*, uint32_t, uint64_t))dlsym(lib, "jit_set_reg");
+    h->get_reg    = (uint64_t(*)(void*, uint32_t))dlsym(lib, "jit_get_reg");
+    h->reg_name   = (const char*(*)(uint32_t))dlsym(lib, "jit_reg_name");
+    h->num_regs   = (uint32_t(*)(void))dlsym(lib, "jit_num_regs");
 
     /* Create the simulation instance */
     void* (*create)(void) = (void*(*)(void))dlsym(lib, "jit_create");
@@ -228,5 +237,41 @@ LEAN_EXPORT lean_obj_res sparkle_jit_num_wires(
     (void)w;
     JITHandle* h = get_handle(handle);
     uint32_t n = h->num_wires ? h->num_wires() : 0;
+    return mk_io_ok(lean_box_uint32(n));
+}
+
+/* sparkle_jit_set_reg : @& JITHandle → UInt32 → UInt64 → IO Unit */
+LEAN_EXPORT lean_obj_res sparkle_jit_set_reg(
+    b_lean_obj_arg handle, uint32_t idx, uint64_t val, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    if (h->set_reg) h->set_reg(h->ctx, idx, val);
+    return mk_io_ok(lean_box(0));
+}
+
+/* sparkle_jit_get_reg : @& JITHandle → UInt32 → IO UInt64 */
+LEAN_EXPORT lean_obj_res sparkle_jit_get_reg(
+    b_lean_obj_arg handle, uint32_t idx, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    uint64_t val = h->get_reg ? h->get_reg(h->ctx, idx) : 0;
+    return mk_io_ok(lean_box_uint64(val));
+}
+
+/* sparkle_jit_reg_name : @& JITHandle → UInt32 → IO String */
+LEAN_EXPORT lean_obj_res sparkle_jit_reg_name(
+    b_lean_obj_arg handle, uint32_t idx, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    const char* name = h->reg_name ? h->reg_name(idx) : "";
+    return mk_io_ok(lean_mk_string(name));
+}
+
+/* sparkle_jit_num_regs : @& JITHandle → IO UInt32 */
+LEAN_EXPORT lean_obj_res sparkle_jit_num_regs(
+    b_lean_obj_arg handle, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    uint32_t n = h->num_regs ? h->num_regs() : 0;
     return mk_io_ok(lean_box_uint32(n));
 }

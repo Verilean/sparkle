@@ -71,6 +71,10 @@ lean_exe «rv32-jit-test» where
 lean_exe «rv32-jit-loop-test» where
   root := `Tests.RV32.JITLoopTest
 
+lean_exe «rv32-jit-cycle-skip-test» where
+  root := `Tests.RV32.JITCycleSkipTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

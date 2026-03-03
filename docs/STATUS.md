@@ -5,6 +5,96 @@
 
 ---
 
+## JIT Cycle-Skipping Infrastructure — Phase 1 (Phase 27) — DONE
+
+Register read/write API at every layer (C++ codegen → C FFI → Lean bindings → optimized run loop) enabling snapshot/restore of simulation state. This is the foundation for oracle-driven cycle-skipping, where an external function detects steady-state patterns (e.g., busy-wait loops) and jumps the simulation forward.
+
+### What Was Built
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **C++ codegen** | `Sparkle/Backend/CppSim.lean` | `collectRegisters`, `emitSetRegSwitch`, `emitGetRegSwitch`, `emitRegNameSwitch`; 4 new extern "C" functions in JIT wrapper |
+| **C FFI** | `c_src/sparkle_jit.c` | 4 function pointers in `JITHandle`, 4 `dlsym` calls, 4 Lean export wrappers |
+| **Lean bindings** | `Sparkle/Core/JIT.lean` | `setReg`, `getReg`, `regName`, `numRegs` opaque bindings + `findReg` helper |
+| **Optimized run loop** | `Sparkle/Core/JITLoop.lean` | `JIT.runOptimized` (oracle callback for cycle-skipping) + `JIT.resolveRegs` |
+| **Roundtrip test** | `Tests/RV32/JITCycleSkipTest.lean` | Snapshot/restore roundtrip — PASS |
+
+### Register API
+
+```cpp
+// Auto-generated in JIT wrapper (130 registers for RV32 SoC)
+void     jit_set_reg(void* ctx, uint32_t reg_idx, uint64_t val);
+uint64_t jit_get_reg(void* ctx, uint32_t reg_idx);
+const char* jit_reg_name(uint32_t idx);
+uint32_t jit_num_regs();  // returns 130
+```
+
+```lean
+-- Lean bindings
+JIT.setReg   : JITHandle → UInt32 → UInt64 → IO Unit
+JIT.getReg   : JITHandle → UInt32 → IO UInt64
+JIT.regName  : JITHandle → UInt32 → IO String
+JIT.numRegs  : JITHandle → IO UInt32
+JIT.findReg  : JITHandle → String → IO (Option UInt32)
+
+-- Oracle-driven run loop
+JIT.runOptimized : JITHandle → Nat → Array UInt32
+    → (Nat → Array UInt64 → IO (Option (Array (UInt32 × UInt64))))  -- oracle
+    → (Nat → Array UInt64 → IO Bool)                                -- callback
+    → IO Nat
+```
+
+### Snapshot/Restore Test
+
+```
+CycleSkip: 130 registers found
+CycleSkip: Running 100 cycles...
+CycleSkip: PC at cycle 100 = 0x80000fc
+CycleSkip: Snapshotting 130 registers...
+CycleSkip: PC at cycle 101 (reference) = 0x8000100
+CycleSkip: Resetting simulation...
+CycleSkip: Restoring registers...
+CycleSkip: PC after restore+eval+tick+eval (actual) = 0x8000100
+
+*** PASS: Register snapshot/restore roundtrip works ***
+```
+
+**Key insight**: After restoring registers, must call `eval` before `tick` to recompute `_next` values (reset doesn't clear `_next` state).
+
+### Updated Benchmark (10M cycles, firmware.hex, Apple Silicon)
+
+| Backend | Speed | CPU instrs/sim-cycle | vs Verilator |
+|---------|-------|---------------------|-------------|
+| **JIT (-O2 dylib)** | **13.3M cyc/s** | 2,077 | **1.27x faster** |
+| Verilator 5.044 | 10.4M cyc/s | 2,714 | 1.00x |
+| CppSim (-O3 AOT) | 6.0M cyc/s | — | 0.58x |
+
+**Profile (sampling profiler, 10s):**
+
+| Component | JIT | Verilator |
+|-----------|-----|-----------|
+| Combinational (eval/comb) | 74.1% | 23.0% |
+| Register update (tick/seq) | 23.5% | 44.7% |
+| Eval overhead | 2.4% | 14.9% |
+| Mutex/thread overhead | 0% | **17.4%** |
+
+**Why JIT is faster than Verilator:**
+1. No mutex overhead — Verilator 5.x wastes 17.4% on `VlDeleter::deleteAll`, `VerilatedMutex`
+2. Fewer instructions — 2,077 vs 2,714 per sim-cycle (Verilator does 2 evals/cycle)
+3. Observable wire optimization — 33 class members + 321 locals (L1-friendly)
+
+### Limitation
+
+Phase 1 only covers top-level module registers. Sub-module registers (e.g., divider's 8 internal registers) are not exposed. Extendable in Phase 2.
+
+### Verification
+
+- `lake build` — compiles
+- `lake exe rv32-jit-cycle-skip-test` — PASS (snapshot/restore roundtrip)
+- Generated `verilator/generated_soc_jit.cpp` contains all 4 register functions with 130 register entries
+
+---
+
 ## Verified Standard IP Library — SyncFIFO (Phase 26) — DONE
 
 First component of the **Verified Standard IP Library**: a Synchronous FIFO with Valid/Ready (Decoupled) interface. Establishes the pattern for future verified IP (arbiter, crossbar, cache, AXI4, etc.).
@@ -93,6 +183,23 @@ SyncFIFO:
 
 ## Next Phases (TODO)
 
+### JIT Cycle-Skipping — Phase 2
+
+| Task | Status | Description |
+|------|--------|-------------|
+| **Cycle-skip oracle** | TODO | Detect self-loop (PC unchanged N cycles) and skip forward |
+| **Sub-module registers** | TODO | Expose divider's 8 internal registers via JIT API |
+| **Memory snapshot/restore** | TODO | Bulk memory save/load API (avoid per-word loop) |
+| **Linux boot cycle-skip** | TODO | Oracle for OpenSBI/Linux idle loops (WFI, busy-wait) |
+
+### Performance Optimization
+
+| Phase | Status | Est. Speedup | Description |
+|-------|--------|-------------|-------------|
+| **eval()+tick() fusion** | TODO | ~1.3x → 17M cyc/s | Eliminate 260 `_next` memory ops/cycle (130 stores in eval + 130 load/store in tick). Requires topological ordering for circular register dependencies |
+| **Multi-cycle batching** | TODO | ~1.1-1.2x | Unroll 2-4 sim-cycles, keep registers in CPU registers across cycles |
+| **Cycle-skipping** | INFRA DONE | unbounded | Firmware halts at cycle 2904; remaining 99.97% is wasted compute. Oracle detects steady-state and jumps forward |
+
 ### Verified Standard IP Library — Remaining Components
 
 | Component | Status | Description |
@@ -105,12 +212,6 @@ SyncFIFO:
 | **AXI4-Lite** | TODO | AXI4-Lite master/slave interfaces |
 | **Cache** | TODO | Direct-mapped / set-associative cache with write-back |
 | **TileLink** | TODO | TileLink Uncached Lightweight (TL-UL) |
-
-### Performance
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| **CppSim Phase 4** | TODO | eval()+tick() merge — eliminate register copy overhead |
 
 ### Hardware Targets
 

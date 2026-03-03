@@ -117,4 +117,48 @@ def JIT.resolveWires (handle : JITHandle) (wireNames : Array String) : IO (Array
     | some idx => pure idx
     | none => throw (IO.userError s!"JIT.resolveWires: wire '{name}' not found")
 
+/-- Resolve an array of register names to their JIT indices.
+    Throws if any register name is not found. -/
+def JIT.resolveRegs (handle : JITHandle) (regNames : Array String) : IO (Array UInt32) := do
+  regNames.mapM fun name => do
+    match ← JIT.findReg handle name with
+    | some idx => pure idx
+    | none => throw (IO.userError s!"JIT.resolveRegs: register '{name}' not found")
+
+/-- Run JIT simulation with an oracle callback for cycle-skipping.
+    Same as `JIT.run` but with an additional `oracle` that can inject register
+    state to skip cycles. When the oracle returns `some updates`, the updates
+    are applied via `JIT.setReg` and `tick` is skipped.
+
+    Parameters:
+    - `handle`: Pre-loaded JIT handle
+    - `cycles`: Maximum number of cycles to run
+    - `wireIndices`: Pre-resolved wire indices (from JIT.resolveWires)
+    - `oracle`: Called each cycle with (cycle, wireValues); return `some` array
+      of (regIdx, value) pairs to skip the cycle, or `none` for normal tick
+    - `callback`: Called each cycle with (cycle, wireValues); return false to stop
+
+    Returns: the number of cycles actually executed -/
+def JIT.runOptimized (handle : JITHandle) (cycles : Nat)
+    (wireIndices : Array UInt32)
+    (oracle : Nat → Array UInt64 → IO (Option (Array (UInt32 × UInt64))))
+    (callback : Nat → Array UInt64 → IO Bool)
+    : IO Nat := do
+  let mut cycle := 0
+  while cycle < cycles do
+    JIT.eval handle
+    let vals ← wireIndices.mapM fun idx => JIT.getWire handle idx
+    let continue_ ← callback cycle vals
+    if !continue_ then return cycle
+    match ← oracle cycle vals with
+    | none =>
+      -- Normal cycle: tick
+      JIT.tick handle
+    | some updates =>
+      -- Cycle-skip: apply register state directly, skip tick
+      for (regIdx, val) in updates do
+        JIT.setReg handle regIdx val
+    cycle := cycle + 1
+  return cycle
+
 end Sparkle.Core.JITLoop

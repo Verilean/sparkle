@@ -280,13 +280,35 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 
 ### Simulation Performance (10M cycles, Apple Silicon)
 
-| Backend | Speed | vs Lean |
-|---------|-------|---------|
-| **Verilator** | 8.1M cyc/s | ~1600x |
-| **CppSim / JIT** | 12.6M cyc/s | ~2500x |
-| **Lean loopMemo** | ~5K cyc/s | 1x |
+| Backend | Speed | vs Verilator | vs Lean |
+|---------|-------|-------------|---------|
+| **JIT (-O2 dylib)** | **13.3M cyc/s** | **1.27x faster** | ~2660x |
+| Verilator 5.044 | 10.4M cyc/s | 1.00x | ~2080x |
+| CppSim (-O3 AOT) | 6.0M cyc/s | 0.58x | ~1200x |
+| Lean loopMemo | ~5K cyc/s | — | 1x |
 
-CppSim/JIT now **exceeds Verilator speed** (1.6x faster) after observable wire threading (Phase 25), which demoted ~950 `_gen_` class members to `eval()` locals, reducing memory stores per cycle by 76%. Combined with IR-level optimizations (single-use wire inlining, constant folding, local variable promotion) and aggressive mask elimination (Phase 24, 69.5% reduction). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis.
+JIT **exceeds Verilator speed** (1.27x faster) thanks to: (1) no mutex/thread overhead (Verilator 5.x wastes 17.4% on locks even single-threaded), (2) observable wire optimization (33 class members + 321 locals, L1-cache friendly), and (3) fewer CPU instructions per sim-cycle (2,077 vs 2,714). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis and profiling breakdown.
+
+### JIT Cycle-Skipping (Phase 1 Infrastructure)
+
+Register read/write API enables snapshot/restore of simulation state — the foundation for oracle-driven cycle-skipping:
+
+```lean
+-- Snapshot all 130 registers
+for i in [:numRegs.toNat] do
+  regSnapshot := regSnapshot.push (← JIT.getReg handle i.toUInt32)
+
+-- Restore after reset
+for i in [:numRegs.toNat] do
+  JIT.setReg handle i.toUInt32 regSnapshot[i]!
+
+-- Oracle-driven run loop (skip idle cycles)
+JIT.runOptimized handle cycles wireIndices
+  (oracle := fun cycle vals => do
+    if pcUnchanged then return some registerUpdates  -- skip cycle
+    else return none)                                 -- normal tick
+  (callback := fun cycle vals => ...)
+```
 
 ### Verilator Backend (~1000x faster)
 - Auto-generated SystemVerilog via `#writeDesign` — boots Linux (5250 UART bytes at 10M cycles)
@@ -304,6 +326,9 @@ lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 500
 
 # JIT loop test (loopMemoJIT Signal API + Streaming API)
 lake exe rv32-jit-loop-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
+
+# JIT cycle-skip test (register snapshot/restore roundtrip)
+lake exe rv32-jit-cycle-skip-test
 
 # CppSim (standalone C++)
 cd verilator && make build-cppsim && make run-cppsim
@@ -797,7 +822,7 @@ The generated documentation includes:
 ┌─────────────┐ ┌────────────┐  ┌──────────────┐ ┌──────────────────┐
 │ Simulation  │ │ JIT (FFI)  │  │  Verilator   │ │ #synthesizeVerilog│
 │  .atTime t  │ │ C++ dlopen │  │ .sv → C++    │ │  Lean → IR → DRC │
-│  ~5K cyc/s  │ │ ~12.6M c/s │  │ ~8.1M cyc/s  │ │  → SystemVerilog │
+│  ~5K cyc/s  │ │ ~13.3M c/s │  │ ~10.4M c/s   │ │  → SystemVerilog │
 └─────────────┘ └────────────┘  └──────────────┘ └──────────────────┘
 ```
 
@@ -857,6 +882,7 @@ Tests include:
 - **DRC (Design Rule Check)** — registered output check warns on combinational output ports
 - **RV32IMA SoC simulation tests** (firmware + Verilator Linux boot — generated SV verified)
 - **JIT loop tests** — `loopMemoJIT` Signal API + `rv32iSoCJITRun` Streaming API (47 UART words pass)
+- **JIT cycle-skip test** — Register snapshot/restore roundtrip (130 registers + 4 DMEM banks)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - **SyncFIFO (16 tests)** — fill/drain, FIFO ordering, full/empty conditions, simultaneous enq+deq
@@ -940,7 +966,7 @@ sparkle/
 ├── Tests/               # Test suites
 │   ├── TestArray.lean   # Vector/array tests
 │   ├── Sparkle16/       # CPU-specific tests
-│   ├── RV32/            # RV32I simulation tests
+│   ├── RV32/            # RV32I simulation tests + JIT cycle-skip test
 │   ├── BitNet/          # BitNet Signal DSL + golden validation tests
 │   ├── YOLOv8/          # YOLOv8 primitive + golden value tests
 │   ├── Library/         # Verified IP tests
@@ -1011,9 +1037,11 @@ Contributions welcome! Areas of interest:
 - [x] **CppSim Phase 2 — Mask Elimination** - Aggressive `exprIsMasked` analysis (`.ref` invariant, AND/OR/XOR/SHR/ASR rules) → 449→137 mask ops (69.5% reduction) ✓
 - [x] **CppSim Phase 3 — Observable Wire Threading** - Thread `observableWires` through optimizer/backend, demote ~950 `_gen_` to locals → 2.0x speedup (6.3M→12.6M cyc/s), JIT now **1.6x faster** than Verilator ✓
 - [x] **Verified Standard IP — SyncFIFO** - Depth-4 FIFO with Valid/Ready interface: 7 formal proofs (QueueProps), synthesizable hardware (Signal DSL), 16 LSpec tests ✓
+- [x] **JIT Cycle-Skipping Phase 1** - Register read/write API (C++ codegen → C FFI → Lean bindings), `JIT.runOptimized` with oracle callback, snapshot/restore roundtrip test passes. JIT now **1.27x faster** than Verilator (13.3M vs 10.4M cyc/s) ✓
 
 ### Next Phases (TODO)
-- [ ] **CppSim Phase 4 — eval()+tick() Merge** - Eliminate register copy overhead by combining both passes (4.2x tick instruction gap vs Verilator)
+- [ ] **JIT Cycle-Skipping Phase 2** - Implement oracle for self-loop detection, sub-module register exposure, Linux boot idle-loop skipping
+- [ ] **eval()+tick() Fusion** - Eliminate 260 `_next` memory ops/cycle by fusing eval and tick into single function (est. ~1.3x → 17M cyc/s)
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
 - [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients
 - [ ] **Verified Standard IP — AXI4-Lite / TileLink** - Bus protocol interfaces with formal properties
