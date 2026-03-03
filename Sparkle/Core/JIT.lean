@@ -33,6 +33,12 @@ opaque JIT.eval (h : @& JITHandle) : IO Unit
 @[extern "sparkle_jit_tick"]
 opaque JIT.tick (h : @& JITHandle) : IO Unit
 
+/-- Fused eval+tick: evaluate combinational logic and advance clock in one call.
+    Register next-state values are kept as local variables instead of class members,
+    eliminating ~260 intermediate memory operations per cycle. -/
+@[extern "sparkle_jit_eval_tick"]
+opaque JIT.evalTick (h : @& JITHandle) : IO Unit
+
 /-- Reset all registers to initial values -/
 @[extern "sparkle_jit_reset"]
 opaque JIT.reset (h : @& JITHandle) : IO Unit

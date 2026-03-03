@@ -282,13 +282,14 @@ rv32iSoCJITRun (jitCppPath := cppPath) (firmware := fw) (cycles := 10000000)
 
 | Backend | Speed | vs Verilator | vs Lean |
 |---------|-------|-------------|---------|
-| **JIT (-O2 dylib)** | **13.0M cyc/s** | **1.17x faster** | ~2600x |
-| **JIT (+ 6 wires)** | **12.4M cyc/s** | **1.12x faster** | ~2480x |
+| **JIT evalTick (fused)** | **13.0M cyc/s** | **1.17x faster** | ~2600x |
+| **JIT evalTick + 6 wires** | **12.7M cyc/s** | **1.14x faster** | ~2540x |
+| JIT eval+tick (separate) | 12.7M cyc/s | 1.14x faster | ~2540x |
 | Verilator 5.044 | 11.1M cyc/s | 1.00x | ~2220x |
 | CppSim (-O3 AOT) | 6.0M cyc/s | 0.54x | ~1200x |
 | Lean loopMemo | ~5K cyc/s | — | 1x |
 
-JIT **exceeds Verilator speed** (1.17x faster) thanks to: (1) no mutex/thread overhead (Verilator 5.x wastes 17.4% on locks even single-threaded), (2) observable wire optimization (33 class members + 321 locals, L1-cache friendly), and (3) fewer CPU instructions per sim-cycle. Profile breakdown: eval() 72.2%, tick() 23.4%. Bottleneck is tick()'s 130 register `_next` → current copies (260 memory ops/cycle). See [docs/STATUS.md](docs/STATUS.md) for the full performance analysis.
+JIT **exceeds Verilator speed** (1.17x faster) thanks to: (1) no mutex/thread overhead (Verilator 5.x wastes 17.4% on locks even single-threaded), (2) observable wire optimization (33 class members + 321 locals, L1-cache friendly), (3) fewer CPU instructions per sim-cycle, and (4) fused `evalTick()` with stack-local `_next` variables (eliminates ~260 intermediate memory ops/cycle). See [docs/BENCHMARK.md](docs/BENCHMARK.md) for detailed benchmark results, profiling data, and bottleneck analysis.
 
 ### JIT Cycle-Skipping — Dynamic Oracle
 
@@ -1071,7 +1072,7 @@ Contributions welcome! Areas of interest:
 - [x] **Speculative Simulation with Rollback (Phase 29 Step 5)** - Full-state snapshot/restore via C++ copy constructor, guard-and-rollback pattern for interrupt-safe cycle-skipping (3-part test: roundtrip, guard-pass, guard-rollback) ✓
 
 ### Next Phases (TODO)
-- [ ] **eval()+tick() Fusion** - Eliminate 260 `_next` memory ops/cycle by fusing eval and tick into single function (est. ~1.3x → 17M cyc/s)
+- [x] ~~**eval()+tick() Fusion**~~ - Done (Phase 30): fused evalTick() with stack-local `_next` vars, ~13.0M cyc/s
 - [ ] **Linux Boot Idle-Loop Skipping** - Extend dynamic oracle to detect WFI/idle loops during Linux boot
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
 - [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients

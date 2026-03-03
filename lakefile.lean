@@ -87,6 +87,14 @@ lean_exe «rv32-jit-speculative-warp-test» where
   root := `Tests.RV32.JITSpeculativeWarpTest
   supportInterpreter := true
 
+lean_exe «rv32-jit-boot-oracle-test» where
+  root := `Tests.RV32.JITBootOracleTest
+  supportInterpreter := true
+
+lean_exe «rv32-jit-linux-boot-test» where
+  root := `Tests.RV32.JITLinuxBootTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

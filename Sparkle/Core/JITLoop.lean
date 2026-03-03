@@ -63,14 +63,12 @@ private unsafe def loopMemoJITImpl {dom : DomainConfig} {α : Type} [Inhabited �
       return if h : t < arr.size then arr[t] else default
     -- Advance JIT forward to timestep t
     for _ in [sz:t + 1] do
-      JIT.eval handle
-      -- Read named wire values
+      JIT.evalTick handle
       let vals ← wireIndices.mapM fun idx =>
         JIT.getWire handle idx
       let state ← reconstruct handle vals
       let arr ← cacheRef.swap #[]
       cacheRef.set (arr.push state)
-      JIT.tick handle
     cacheSizeRef.set (t + 1)
     let arr ← cacheRef.get
     return if h : t < arr.size then arr[t] else default
@@ -102,12 +100,11 @@ def JIT.run (handle : JITHandle) (cycles : Nat)
     (callback : Nat → Array UInt64 → IO Bool)
     : IO Unit := do
   for cycle in [:cycles] do
-    JIT.eval handle
+    JIT.evalTick handle
     let vals ← wireIndices.mapM fun idx =>
       JIT.getWire handle idx
     let continue_ ← callback cycle vals
     if !continue_ then return
-    JIT.tick handle
 
 /-- Resolve an array of wire names to their JIT indices.
     Throws if any wire name is not found. -/

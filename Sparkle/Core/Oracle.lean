@@ -39,6 +39,15 @@ structure SelfLoopConfig where
   mtimeLoRegIdx : UInt32 := 54
   /-- Register index for CLINT mtimeHi (SoCState field 47, offset by 8 divider regs = 55) -/
   mtimeHiRegIdx : UInt32 := 55
+  /-- Register index for CLINT mtimecmpLo (SoCState field 48 + 8 divider regs = 56) -/
+  mtimecmpLoRegIdx : UInt32 := 56
+  /-- Register index for CLINT mtimecmpHi (SoCState field 49 + 8 divider regs = 57) -/
+  mtimecmpHiRegIdx : UInt32 := 57
+  /-- When true, skip to mtimecmp instead of fixed skipAmount, and reset
+      sameCount after each trigger so timer interrupt can fire -/
+  skipToTimerCompare : Bool := false
+  /-- Maximum cycles to skip per trigger (caps skipToTimerCompare distance) -/
+  maxSkip : Nat := 10_000_000
 
 /-- Mutable state for the self-loop detector -/
 structure SelfLoopState where
@@ -74,25 +83,38 @@ def mkSelfLoopOracle (config : SelfLoopConfig)
       let newCount := st.sameCount + 1
       if newCount >= config.threshold then
         -- Self-loop detected — skip forward
-        let skipN := config.skipAmount
-
         -- Read current CLINT timer values
         let oldLo ← JIT.getReg handle config.mtimeLoRegIdx
         let oldHi ← JIT.getReg handle config.mtimeHiRegIdx
+        let mtime64 := (oldHi.toNat <<< 32) ||| oldLo.toNat
+
+        -- Compute skip amount
+        let skipN ← if config.skipToTimerCompare then do
+            let cmpLo ← JIT.getReg handle config.mtimecmpLoRegIdx
+            let cmpHi ← JIT.getReg handle config.mtimecmpHiRegIdx
+            let mtimecmp64 := (cmpHi.toNat <<< 32) ||| cmpLo.toNat
+            if mtimecmp64 > mtime64 then
+              pure (min (mtimecmp64 - mtime64) config.maxSkip)
+            else
+              pure config.skipAmount  -- timer already past compare, use default
+          else
+            pure config.skipAmount
 
         -- Advance 64-bit timer split across two 32-bit registers
-        let sum := oldLo.toNat + skipN
-        let newLo := (sum % (2 ^ 32)).toUInt64
-        let carry : Nat := if sum >= 2 ^ 32 then 1 else 0
-        let newHi := (oldHi.toNat + carry).toUInt64
+        let newTime := mtime64 + skipN
+        let newLo := (newTime % (2 ^ 32)).toUInt64
+        let newHi := (newTime / (2 ^ 32)).toUInt64
 
         -- Apply timer updates directly
         JIT.setReg handle config.mtimeLoRegIdx newLo
         JIT.setReg handle config.mtimeHiRegIdx newHi
 
+        -- Reset sameCount when skipToTimerCompare so threshold normal
+        -- cycles run after skip, allowing timer interrupt to fire
+        let newSameCount := if config.skipToTimerCompare then 0 else newCount
         stateRef.set {
           anchorPC := st.anchorPC
-          sameCount := newCount
+          sameCount := newSameCount
           totalSkipped := st.totalSkipped + skipN
           triggerCount := st.triggerCount + 1
         }
@@ -106,5 +128,23 @@ def mkSelfLoopOracle (config : SelfLoopConfig)
       return none
 
   return (oracle, stateRef)
+
+/-- Create a boot-optimized oracle for Linux boot idle-loop skipping.
+    Uses timer-compare-aware skipping with wider PC tolerance (32 bytes).
+    Resets sameCount after each trigger so the timer interrupt can fire. -/
+def mkBootOracle (config : SelfLoopConfig := {})
+    : IO ((JITHandle → Nat → Array UInt64 → IO (Option Nat)) × IO.Ref SelfLoopState) :=
+  mkSelfLoopOracle {
+    threshold := config.threshold
+    skipAmount := config.skipAmount
+    pcWireArrayIdx := config.pcWireArrayIdx
+    pcTolerance := if config.pcTolerance == 12 then 32 else config.pcTolerance
+    mtimeLoRegIdx := config.mtimeLoRegIdx
+    mtimeHiRegIdx := config.mtimeHiRegIdx
+    mtimecmpLoRegIdx := config.mtimecmpLoRegIdx
+    mtimecmpHiRegIdx := config.mtimecmpHiRegIdx
+    skipToTimerCompare := true
+    maxSkip := config.maxSkip
+  }
 
 end Sparkle.Core.Oracle

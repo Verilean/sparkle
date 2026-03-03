@@ -6,7 +6,7 @@
  * with automatic cleanup (jit_destroy + dlclose on finalization).
  *
  * The loaded shared library must export extern "C" functions:
- *   jit_create, jit_destroy, jit_reset, jit_eval, jit_tick,
+ *   jit_create, jit_destroy, jit_reset, jit_eval, jit_tick, jit_eval_tick,
  *   jit_set_input, jit_get_output, jit_get_wire,
  *   jit_set_mem, jit_get_mem, jit_memset_word,
  *   jit_set_reg, jit_get_reg, jit_reg_name, jit_num_regs,
@@ -32,6 +32,7 @@ typedef struct {
     void* ctx;              /* jit_create() result */
     void  (*eval)(void*);
     void  (*tick)(void*);
+    void  (*eval_tick)(void*);
     void  (*reset)(void*);
     void  (*set_input)(void*, uint32_t, uint64_t);
     uint64_t (*get_output)(void*, uint32_t);
@@ -114,6 +115,7 @@ LEAN_EXPORT lean_obj_res sparkle_jit_load(b_lean_obj_arg path, lean_obj_arg w) {
     h->destroy    = (void(*)(void*))dlsym(lib, "jit_destroy");
     h->eval       = (void(*)(void*))dlsym(lib, "jit_eval");
     h->tick       = (void(*)(void*))dlsym(lib, "jit_tick");
+    h->eval_tick  = (void(*)(void*))dlsym(lib, "jit_eval_tick");
     h->reset      = (void(*)(void*))dlsym(lib, "jit_reset");
     h->set_input  = (void(*)(void*, uint32_t, uint64_t))dlsym(lib, "jit_set_input");
     h->get_output = (uint64_t(*)(void*, uint32_t))dlsym(lib, "jit_get_output");
@@ -163,6 +165,14 @@ LEAN_EXPORT lean_obj_res sparkle_jit_tick(b_lean_obj_arg handle, lean_obj_arg w)
     (void)w;
     JITHandle* h = get_handle(handle);
     if (h->tick) h->tick(h->ctx);
+    return mk_io_ok(lean_box(0));
+}
+
+/* sparkle_jit_eval_tick : @& JITHandle → IO Unit */
+LEAN_EXPORT lean_obj_res sparkle_jit_eval_tick(b_lean_obj_arg handle, lean_obj_arg w) {
+    (void)w;
+    JITHandle* h = get_handle(handle);
+    if (h->eval_tick) h->eval_tick(h->ctx);
     return mk_io_ok(lean_box(0));
 }
 

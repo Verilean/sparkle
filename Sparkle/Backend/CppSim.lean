@@ -182,14 +182,18 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
 
   | .slice e hi lo =>
     let sliceWidth := hi - lo + 1
-    let mask := emitMask sliceWidth
-    if lo == 0 then
-      if mask.isEmpty then emitExpr typeMap e
-      else s!"({emitExpr typeMap e} & {mask})"
+    -- Always mask slice results for widths < 64.  The inner expression may be
+    -- wider than sliceWidth (e.g., .slice(.op .shr [32-bit, 12]) 7 0 produces
+    -- 20 bits, not 8).  We cannot rely on emitMask/needsMask which skip native
+    -- widths (8,16,32) assuming C++ variable-type truncation — that doesn't
+    -- hold for inline expressions within concats.
+    if sliceWidth >= 64 then
+      if lo == 0 then emitExpr typeMap e
+      else s!"({emitExpr typeMap e} >> {lo})"
+    else if lo == 0 then
+      s!"({emitExpr typeMap e} & ((1ULL << {sliceWidth}) - 1))"
     else
-      let shifted := s!"({emitExpr typeMap e} >> {lo})"
-      if mask.isEmpty then shifted
-      else s!"({shifted} & {mask})"
+      s!"(({emitExpr typeMap e} >> {lo}) & ((1ULL << {sliceWidth}) - 1))"
 
   | .index arr idx =>
     s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
@@ -202,7 +206,10 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
 
   | .op .not args =>
     match args with
-    | [arg] => s!"(~{emitExpr typeMap arg})"
+    -- Use logical NOT (!) instead of bitwise NOT (~) for boolean signals.
+    -- ~(uint8_t)1 = 0xFE (truthy in C++), but !(uint8_t)1 = 0 (correct).
+    -- In the current IR, .not is only used for Bool negation (~~~ doesn't synthesize).
+    | [arg] => s!"(!{emitExpr typeMap arg})"
     | _ => "/* ERROR: not requires 1 argument */"
 
   | .op .neg args =>
@@ -231,20 +238,22 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
 
 /-- Parts of a C++ class generated from a single statement -/
 structure StmtParts where
-  declarations : List String
-  evalBody     : List String
-  tickBody     : List String
-  resetBody    : List String
+  declarations    : List String
+  evalBody        : List String
+  tickBody        : List String
+  resetBody       : List String
+  evalTickLocals  : List String   -- _next local decls for evalTick()
 
 instance : Append StmtParts where
   append a b :=
     { declarations := a.declarations ++ b.declarations
     , evalBody := a.evalBody ++ b.evalBody
     , tickBody := a.tickBody ++ b.tickBody
-    , resetBody := a.resetBody ++ b.resetBody }
+    , resetBody := a.resetBody ++ b.resetBody
+    , evalTickLocals := a.evalTickLocals ++ b.evalTickLocals }
 
 def StmtParts.empty : StmtParts :=
-  { declarations := [], evalBody := [], tickBody := [], resetBody := [] }
+  { declarations := [], evalBody := [], tickBody := [], resetBody := [], evalTickLocals := [] }
 
 /-- Emit a C++ constant expression for an init value with given width -/
 def emitInitValue (initValue : Int) (width : Nat) : String :=
@@ -267,14 +276,16 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       { declarations := []
       , evalBody := [s!"        // skipped: {sanitizeName lhs} ({width}-bit wide assign)"]
       , tickBody := []
-      , resetBody := [] }
+      , resetBody := []
+      , evalTickLocals := [] }
     else
       let expr := emitExpr typeMap rhs
       let masked := if exprIsMasked width rhs then expr else applyMask expr width
       { declarations := []
       , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
       , tickBody := []
-      , resetBody := [] }
+      , resetBody := []
+      , evalTickLocals := [] }
 
   | .register output _clock _reset input initValue =>
     let width := lookupWidth typeMap output
@@ -287,7 +298,8 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
     , evalBody := [s!"        {nextName} = {inputExpr};"]
     , tickBody := [s!"        {outName} = {nextName};"]
-    , resetBody := [s!"        {outName} = {initExpr};"] }
+    , resetBody := [s!"        {outName} = {initExpr};"]
+    , evalTickLocals := [s!"        {cppType} {nextName};"] }
 
   | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable readAddr readData comboRead =>
     let memSize := 2 ^ addrWidth
@@ -299,7 +311,8 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       { declarations := [memDecl]
       , evalBody := [s!"        {rdName} = {memName}[{emitExpr typeMap readAddr}];"]
       , tickBody := [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
-      , resetBody := [s!"        {memName}.fill(0);"] }
+      , resetBody := [s!"        {memName}.fill(0);"]
+      , evalTickLocals := [] }
     else
       let addrLatch := s!"{memName}_raddr"
       let addrType := emitCppType (.bitVector addrWidth)
@@ -308,7 +321,8 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       , tickBody :=
           [ s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"
           , s!"        {rdName} = {memName}[{addrLatch}];" ]
-      , resetBody := [s!"        {memName}.fill(0);"] }
+      , resetBody := [s!"        {memName}.fill(0);"]
+      , evalTickLocals := [] }
 
   | .inst moduleName instName connections =>
     let className := sanitizeName moduleName
@@ -331,7 +345,8 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     { declarations := [s!"    {className} {iName};"]
     , evalBody := inputConns ++ [s!"        {iName}.eval();"] ++ outputConns
     , tickBody := [s!"        {iName}.tick();"]
-    , resetBody := [s!"        {iName}.reset();"] }
+    , resetBody := [s!"        {iName}.reset();"]
+    , evalTickLocals := [] }
 
 /-- Collect all wire name references from an IR expression -/
 partial def collectExprRefs : Expr → List String
@@ -413,6 +428,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let evalBody := allParts.foldl (fun acc p => acc ++ p.evalBody) []
     let tickBody := allParts.foldl (fun acc p => acc ++ p.tickBody) []
     let resetBody := allParts.foldl (fun acc p => acc ++ p.resetBody) []
+    let evalTickLocals := allParts.foldl (fun acc p => acc ++ p.evalTickLocals) []
 
     -- Assemble the class
     let header := s!"// Generated by Sparkle HDL - C++ Simulation Model\n// Module: {m.name}\n\n"
@@ -446,12 +462,23 @@ def emitModule (m : Module) (design : Option Design := none)
     let tickMethod :=
       "    void tick() {\n" ++
       (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
+      "    }\n\n"
+
+    let evalTickMethod :=
+      "    void evalTick() {\n" ++
+      (if evalTickLocals.isEmpty then "" else
+        "        // Register next-state (local for register promotion)\n" ++
+        String.intercalate "\n" evalTickLocals ++ "\n") ++
+      (if localDecls.isEmpty then "" else String.intercalate "\n" localDecls ++ "\n") ++
+      (if evalBody.isEmpty then "" else String.intercalate "\n" evalBody ++ "\n") ++
+      (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
       "    }\n"
 
     let classClose := "};\n"
 
     header ++ classOpen ++ inputSection ++ outputSection ++ wireSection ++
-    stmtDeclSection ++ constructor ++ resetMethod ++ evalMethod ++ tickMethod ++ classClose
+    stmtDeclSection ++ constructor ++ resetMethod ++ evalMethod ++ tickMethod ++
+    evalTickMethod ++ classClose
 
 /-- Convert a single module to C++ simulation code with includes -/
 def toCppSim (m : Module) : String :=
@@ -640,7 +667,8 @@ def toCppSimJIT (d : Design)
     s!"void  jit_destroy(void* ctx) {ob} delete static_cast<{className}*>(ctx); {cb}\n" ++
     s!"void  jit_reset(void* ctx) {ob} static_cast<{className}*>(ctx)->reset(); {cb}\n" ++
     s!"void  jit_eval(void* ctx)  {ob} static_cast<{className}*>(ctx)->eval(); {cb}\n" ++
-    s!"void  jit_tick(void* ctx)  {ob} static_cast<{className}*>(ctx)->tick(); {cb}\n\n" ++
+    s!"void  jit_tick(void* ctx)  {ob} static_cast<{className}*>(ctx)->tick(); {cb}\n" ++
+    s!"void  jit_eval_tick(void* ctx) {ob} static_cast<{className}*>(ctx)->evalTick(); {cb}\n\n" ++
     s!"void jit_set_input(void* ctx, uint32_t idx, uint64_t val) {ob}\n" ++
     s!"    auto* s = static_cast<{className}*>(ctx);\n" ++
     s!"    switch (idx) {ob}\n" ++

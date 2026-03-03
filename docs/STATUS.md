@@ -9,17 +9,53 @@
 
 | Priority | Phase | Description | Status |
 |----------|-------|-------------|--------|
-| 1 | **eval()+tick() Fusion** | Eliminate 260 `_next` memory ops/cycle by fusing eval and tick into single function (est. ~1.3x → 17M cyc/s) | Not started |
-| 2 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
-| 3 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
-| 4 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
-| 5 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
-| 6 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
-| 7 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
+| 1 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
+| 2 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
+| 3 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
+| 4 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
+| 5 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
+| 6 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
 
 ---
 
 ## Completed Phases
+
+### eval()+tick() Fusion (Phase 30) — DONE
+
+Fused `eval()` and `tick()` into a single `evalTick()` method where register `_next` variables are stack-local instead of class members. This eliminates ~260 intermediate memory operations per cycle (130 stores from eval + 130 loads from tick). Existing `eval()` and `tick()` methods preserved for backward compatibility (`runOptimized` oracle path needs separate eval/tick because the skip branch does not call tick).
+
+#### What Was Built
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **C++ codegen** | `Sparkle/Backend/CppSim.lean` | `evalTickLocals` in `StmtParts`, `evalTick()` method, `jit_eval_tick` wrapper |
+| **C FFI** | `c_src/sparkle_jit.c` | `eval_tick` function pointer, dlsym, `sparkle_jit_eval_tick` LEAN_EXPORT |
+| **Lean binding** | `Sparkle/Core/JIT.lean` | `JIT.evalTick` opaque extern |
+| **Hot path update** | `Sparkle/Core/JITLoop.lean` | `JIT.run` and `loopMemoJITImpl` use `evalTick` |
+
+#### Benchmark Results (10M cycles, firmware.hex, Apple Silicon)
+
+| Benchmark | eval+tick | evalTick | Speedup |
+|-----------|-----------|----------|---------|
+| Pure (no wire reads) | 12.7M cyc/s | 13.0M cyc/s | 1.02x |
+| With 6 wire reads | 12.4M cyc/s | 12.7M cyc/s | 1.03x |
+
+Measured speedup is modest (~2-3%). Clang -O2 was already promoting `_next` class members to registers for this workload (tight self-loop). Complex workloads (Linux boot with higher register pressure) may show larger gains.
+
+#### Wire Reads After evalTick()
+
+Observable wires (e.g., `_gen_pcReg`) are class members assigned during the eval phase. The tick phase only copies `_next → current` for registers and performs memory writes/reads — it does NOT modify wires. So `JIT.getWire` after `evalTick()` returns the current cycle's values.
+
+#### Verification
+
+```
+lake exe rv32-jit-test                    # ✓ ALL 47 UART words, PASS at cycle 2904
+lake exe rv32-jit-oracle-test             # ✓ PASS, eval+tick path unchanged
+lake exe rv32-jit-dynamic-warp-test       # ✓ PASS, memsetWord + BSS-clear
+lake exe rv32-jit-speculative-warp-test   # ✓ ALL 3 PARTS PASSED
+```
+
+---
 
 ### Speculative Simulation with Snapshot/Restore (Phase 29 Step 5) — DONE
 
@@ -1660,6 +1696,20 @@ cd verilator && ./obj_dir/Vrv32i_soc ../firmware/firmware.hex 500000
 
 # JIT shared library build (manual)
 cd verilator && make build-jit
+
+# JIT bench (eval+tick vs evalTick comparison)
+cd verilator && make build-jit && \
+  clang++ -O2 -std=c++17 -o jit_bench tb_jit_bench.cpp -ldl && \
+  ./jit_bench ../firmware/firmware.hex 10000000 generated_soc_jit.dylib
+
+# Oracle test (cycle-skipping)
+lake exe rv32-jit-oracle-test
+
+# Dynamic warp test (memsetWord + BSS-clear)
+lake exe rv32-jit-dynamic-warp-test
+
+# Speculative warp test (snapshot/restore + rollback)
+lake exe rv32-jit-speculative-warp-test
 
 # Linux boot test
 cd verilator && ./obj_dir/Vrv32i_soc ../firmware/opensbi/boot.hex 10000000 \

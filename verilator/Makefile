@@ -39,7 +39,7 @@ CPPSIM_BIN = cppsim_soc
 
 .PHONY: all build generate run clean wave build-handwritten \
         generate-cppsim build-cppsim run-cppsim benchmark \
-        build-jit run-jit
+        build-jit run-jit bench
 
 all: build
 
@@ -82,5 +82,22 @@ build-jit: generate
 run-jit: build-jit
 	cd .. && lake exe rv32-jit-test verilator/generated_soc_jit.cpp $(HEX) 5000
 
+# Unified benchmark: Verilator vs JIT side-by-side
+bench: verilator_bench jit_bench build-jit
+	./bench.sh $(CYCLES) $(HEX)
+
+verilator_bench: $(SIM_BIN) tb_verilator_bench.cpp
+	$(CPPSIM_CXX) -O2 -std=c++17 -o verilator_bench tb_verilator_bench.cpp \
+		$$(find obj_dir -name '*.o' ! -name 'tb_soc*') \
+		-I$(OBJ_DIR) \
+		-I$$($(VERILATOR) --getenv VERILATOR_ROOT)/include \
+		-I$$($(VERILATOR) --getenv VERILATOR_ROOT)/include/vltstd \
+		$$($(VERILATOR) --getenv VERILATOR_ROOT)/include/verilated.cpp \
+		$$($(VERILATOR) --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
+		$$($(VERILATOR) --getenv VERILATOR_ROOT)/include/verilated_threads.cpp
+
+jit_bench: tb_jit_bench.cpp
+	$(CPPSIM_CXX) -O2 -std=c++17 -o jit_bench tb_jit_bench.cpp -ldl
+
 clean:
-	rm -rf $(OBJ_DIR) sim_trace.vcd $(CPPSIM_BIN) *.dylib
+	rm -rf $(OBJ_DIR) sim_trace.vcd $(CPPSIM_BIN) *.dylib verilator_bench jit_bench
