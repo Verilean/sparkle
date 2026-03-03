@@ -317,6 +317,8 @@ JIT.memsetWord handle memIdx addr 0 count
 | Wall-clock time (10M cycles) | ~5,500 ms | **9 ms** |
 | Effective cyc/s | 1.8M | **1.1 billion** |
 
+**BSS-Clear Speculative Warp**: A custom inline firmware (7-instruction BSS-clear loop) demonstrates the full pattern — the oracle detects the memory-clearing loop, bulk-zeros all 4 DMEM byte banks via `memsetWord`, and skips ~100K cycles in <1 ms (389 triggers, 99,584 cycles skipped). See `Tests/RV32/JITDynamicWarpTest.lean`.
+
 Also includes register snapshot/restore API (130 registers) and bulk memory API for state introspection:
 
 ### Verilator Backend (~1000x faster)

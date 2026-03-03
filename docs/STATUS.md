@@ -1,6 +1,6 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-04
+**Date**: 2026-03-03
 **Branch**: main
 
 ---
@@ -23,7 +23,7 @@
 
 ### Linux Boot Time-Warping — Dynamic Oracle + Bulk Memory API (Phase 29) — DONE
 
-Direct JITHandle access for oracles and bulk memory API, enabling dynamic register introspection and fast BSS zeroing for Linux boot acceleration.
+Direct JITHandle access for oracles and bulk memory API, enabling dynamic register introspection and fast BSS zeroing for Linux boot acceleration. Step 4 adds a BSS-clear speculative warp test demonstrating the full pattern: inline firmware, loop detection, bulk memory zeroing, and cycle-skipping.
 
 ### What Was Built
 
@@ -34,7 +34,7 @@ Direct JITHandle access for oracles and bulk memory API, enabling dynamic regist
 | **memsetWord binding** | `Sparkle/Core/JIT.lean` | `JIT.memsetWord` opaque extern |
 | **Refactored oracle** | `Sparkle/Core/JITLoop.lean` | Oracle signature: `JITHandle → Nat → Array UInt64 → IO (Option Nat)` |
 | **Self-contained oracle** | `Sparkle/Core/Oracle.lean` | `mkSelfLoopOracle` no longer takes `handle` — oracle receives it per-call, handles setReg internally |
-| **Dynamic warp test** | `Tests/RV32/JITDynamicWarpTest.lean` | memsetWord roundtrip + hand-written dynamic oracle — PASS |
+| **Dynamic warp test** | `Tests/RV32/JITDynamicWarpTest.lean` | Part 1: memsetWord roundtrip. Part 2: BSS-clear speculative warp — inline firmware, byte-bank pre-fill/verify, oracle loop detection, bulk DMEM zeroing, cycle-skipping — PASS |
 
 ### Key Design Changes
 
@@ -42,14 +42,42 @@ Direct JITHandle access for oracles and bulk memory API, enabling dynamic regist
 - **Simplified return type**: `IO (Option Nat)` instead of `IO (Option (Nat × Array (UInt32 × UInt64)))` — oracle handles all mutations internally
 - **memsetWord**: fills memory range with bounds checking, generated per-memory bank (same pattern as `emitMemoryAccessSwitches`)
 
-### Performance Results (firmware.hex, 10M cycles)
+### BSS-Clear Speculative Warp Test (Step 4)
 
-| Metric | Value |
-|--------|-------|
-| memsetWord roundtrip | PASS (10 words verified) |
-| Dynamic oracle triggers | 9,998 |
-| Effective cyc/s | ~500M–1.4B |
-| UART words | 48 (0xCAFE0000 marker seen) |
+The test demonstrates the complete speculative warp pattern end-to-end:
+
+1. **Inline RISC-V firmware** (7 instructions): LUI/ADDI setup, SW/ADDI/ADDI/BNE BSS-clear loop, JAL halt — loaded directly via `JIT.setMem` (no hex file)
+2. **DMEM byte-bank pre-fill**: All 4 DMEM byte banks (memIdx 1-4) pre-filled with 0xDEADBEEF at word addresses 0-63, verified before simulation
+3. **BSS-clear oracle**: Detects the 4-instruction loop (PC 0x08-0x14) via tolerance-based anchor (pcTolerance=12), bulk-zeros all 4 DMEM byte banks via `JIT.memsetWord`, advances CLINT timer, skips 256 cycles per trigger
+4. **Post-simulation verification**: All 256 DMEM entries (4 banks × 64 words) confirmed zero, oracle triggers > 0
+
+### DMEM Memory Layout
+
+The SoC uses 4 byte-wide `Signal.memory` banks for DMEM (byte-banked architecture):
+
+| memIdx | Bank | Data | Address Width |
+|--------|------|------|---------------|
+| 0 | IMEM | 32-bit instructions | 12-bit (4096 entries) |
+| 1 | byte0_rdata | bits [7:0] | 23-bit (8M entries) |
+| 2 | byte1_rdata | bits [15:8] | 23-bit (8M entries) |
+| 3 | byte2_rdata | bits [23:16] | 23-bit (8M entries) |
+| 4 | byte3_rdata | bits [31:24] | 23-bit (8M entries) |
+| 5-6 | rf_rs1/rs2 | Register file | 5-bit (32 entries) |
+| 7-10 | dram_ifetch | DRAM instruction fetch | 23-bit (8M entries) |
+
+### Performance Results
+
+| Test | Metric | Value |
+|------|--------|-------|
+| **Part 1 (memsetWord roundtrip)** | 10 words on DMEM bank 1 | PASS |
+| **Part 2 (BSS-clear warp)** | DMEM zeroed (4 banks × 64 words) | PASS |
+| | Oracle triggers | 389 |
+| | Total cycles skipped | 99,584 |
+| | Effective cycle count | 100,041 |
+| | Wall-clock time | <1 ms |
+| **Oracle test (firmware.hex)** | Effective cyc/s | ~1.4B |
+| | Oracle triggers | 9,998 |
+| | UART words | 48 (0xCAFE0000 marker seen) |
 
 ---
 
@@ -271,6 +299,7 @@ SyncFIFO:
 | **Sub-module registers** | DONE (Phase 27) | All 130 registers (8 divider + 122 SoCState) flattened and accessible |
 | **Bulk memory API** | DONE (Phase 29) | `JIT.memsetWord` for fast memory fills with bounds checking |
 | **Dynamic oracle API** | DONE (Phase 29) | Oracle receives `JITHandle` directly for dynamic register/memory access |
+| **BSS-clear speculative warp** | DONE (Phase 29 Step 4) | Inline firmware + 4-bank DMEM pre-fill/verify + loop-detection oracle + bulk zero — 389 triggers, 99K cycles skipped in <1 ms |
 | **Linux boot cycle-skip** | TODO | Oracle for OpenSBI/Linux idle loops (WFI, busy-wait, larger tolerance) |
 
 ### Performance Optimization
@@ -279,7 +308,7 @@ SyncFIFO:
 |-------|--------|-------------|-------------|
 | **eval()+tick() fusion** | TODO | ~1.3x → 17M cyc/s | Eliminate 260 `_next` memory ops/cycle (130 stores in eval + 130 load/store in tick). Requires topological ordering for circular register dependencies |
 | **Multi-cycle batching** | TODO | ~1.1-1.2x | Unroll 2-4 sim-cycles, keep registers in CPU registers across cycles |
-| **Cycle-skipping** | DONE | unbounded | Self-loop oracle: 10M cycles in 9ms (706x). Dynamic oracle API with direct JITHandle access (Phase 29) |
+| **Cycle-skipping** | DONE | unbounded | Self-loop oracle: 10M cycles in 9ms (706x). Dynamic oracle API with direct JITHandle access (Phase 29). BSS-clear speculative warp: 100K cycles in <1 ms with 4-bank DMEM zeroing |
 
 ### Verified Standard IP Library — Remaining Components
 
