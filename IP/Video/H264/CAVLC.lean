@@ -76,7 +76,7 @@ private def zigzagLookup (idx : BitVec 5) : BitVec 4 :=
 
 /-- coeff_token VLC for 0 ≤ nC < 2 (H.264 Table 9-5a)
     Returns (code, length) -/
-private def coeffTokenLookup (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
+def coeffTokenLookup (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
   match tc, t1 with
   | 0, 0 => (1, 1)
   | 1, 0 => (5, 6)   | 1, 1 => (1, 2)
@@ -98,7 +98,7 @@ private def coeffTokenLookup (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
   | _, _ => (0, 0)
 
 /-- total_zeros VLC (H.264 Table 9-7), returns (code, length) -/
-private def totalZerosLookup (tc : Nat) (tz : Nat) : BitVec 16 × BitVec 5 :=
+def totalZerosLookup (tc : Nat) (tz : Nat) : BitVec 16 × BitVec 5 :=
   match tc, tz with
   -- TC=1
   | 1, 0 => (1, 1) | 1, 1 => (3, 3) | 1, 2 => (2, 3) | 1, 3 => (3, 4)
@@ -131,7 +131,7 @@ private def totalZerosLookup (tc : Nat) (tz : Nat) : BitVec 16 × BitVec 5 :=
   | _, _ => (0, 0)
 
 /-- run_before VLC (H.264 Table 9-10), returns (code, length) -/
-private def runBeforeLookup (zerosLeft : Nat) (runBefore : Nat) : BitVec 16 × BitVec 5 :=
+def runBeforeLookup (zerosLeft : Nat) (runBefore : Nat) : BitVec 16 × BitVec 5 :=
   match zerosLeft, runBefore with
   | 1, 0 => (1, 1) | 1, 1 => (0, 1)
   | 2, 0 => (1, 1) | 2, 1 => (1, 2) | 2, 2 => (0, 2)

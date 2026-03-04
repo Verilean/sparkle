@@ -195,9 +195,10 @@ def computeFrameMSE (a b : Array Nat) : Nat := Id.run do
 -- Tests
 -- ============================================================================
 
--- Note: CAVLC decoder currently drops non-trivial residuals (returns zeros),
--- so decoded pixels ≈ prediction only. MSE thresholds reflect this limitation.
--- When the CAVLC decoder is improved, tighten these bounds.
+-- CAVLC decoder fixed: complete VLC tables + inverse zig-zag applied.
+-- QP=30 threshold tightened (3071→284) — decoder correctly handles low-TC blocks.
+-- QP=0/10 thresholds remain permissive: encoder's 32-bit buffer overflows with
+-- large DCT coefficients at low QP. Needs encoder buffer enlargement to fix.
 
 def testQP0Bitstream : IO LSpec.TestSeq := do
   let width := 16
@@ -249,7 +250,7 @@ def testQP30 : IO LSpec.TestSeq := do
   let mse := computeFrameMSE pixels decoded
   IO.println s!"  QP=30: MSE={mse}"
   pure $ LSpec.group "QP=30 Quality" (
-    LSpec.test s!"MSE ≤ 4000 (actual={mse})" (mse ≤ 4000)
+    LSpec.test s!"MSE ≤ 500 (actual={mse})" (mse ≤ 500)
   )
 
 def testAllPredModes : IO LSpec.TestSeq := do

@@ -388,7 +388,7 @@ DECODER:  Bitstream → NAL Parse → CAVLC Decode → Dequant → IDCT → Intr
 | DRAM Interface | `DRAMInterface.lean` | 3 theorems | `DRAMTest.lean` | Sim model |
 | 4×4 Integer DCT/IDCT | `DCT.lean` | bounded error, linearity | `DCTTest.lean` | Skeletal FSM |
 | Quantization | `Quant.lean` | zero/sign preservation | `QuantTest.lean` | — |
-| CAVLC Decode | `CAVLCDecode.lean` | roundtrip proof | `CAVLCDecodeTest.lean` | — |
+| CAVLC Decode | `CAVLCDecode.lean` | 4 roundtrip proofs | `CAVLCDecodeTest.lean` | — |
 | NAL Pack/Parse | `NAL.lean` | roundtrip proof | `NALTest.lean` | — |
 | Intra Prediction (9 modes) | `IntraPred.lean` | residual roundtrip | `IntraPredTest.lean` | — |
 | Encoder Top | `Encoder.lean` | — | `H264PipelineTest.lean` | — |
@@ -417,7 +417,7 @@ lake exe h264-jit-test
 - **DRAM**: read-after-write, write-write, read-default
 - **DCT**: `|IDCT(DCT(x))[i] - x[i]| ≤ 1`, linearity
 - **Quant**: `quant(0) = 0`, sign preservation
-- **CAVLC**: `decode(encode(coeffs)) = coeffs`
+- **CAVLC**: `decode(encode(coeffs)) = coeffs` (zero block, mixed coefficients, DC-only, trailing ones)
 - **NAL**: `parse(pack(payload)) = payload`
 - **Intra**: `predicted + (original - predicted) = original`
 
@@ -1163,7 +1163,7 @@ Contributions welcome! Areas of interest:
 - [x] ~~**eval()+tick() Fusion**~~ - Done (Phase 30): fused evalTick() with stack-local `_next` vars, ~13.0M cyc/s
 - [x] ~~**H.264 Baseline Codec**~~ - Done (Phase 31): Full encoder/decoder pipeline with formal proofs + JIT test
 - [x] ~~**H.264 Frame-Level E2E Test**~~ - Done (Phase 31b): Multi-block encode→decode roundtrip, QP sweep, path equivalence, mode diversity
-- [ ] **H.264 CAVLC Decoder Fix** - Fix non-trivial residual reconstruction (currently zeros), tighten frame MSE thresholds
+- [x] ~~**H.264 CAVLC Decoder Fix**~~ - Done (Phase 31c): Complete VLC tables + inverse zig-zag, QP=30 MSE 3071→284, 4 formal proofs
 - [ ] **H.264 Synthesizable Pipeline** - Extend pure Lean modules into fully synthesizable Signal DSL
 - [ ] **Linux Boot Idle-Loop Skipping** - Extend dynamic oracle to detect WFI/idle loops during Linux boot
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth

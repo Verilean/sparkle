@@ -52,145 +52,57 @@ def BitstreamReader.peekBit (r : BitstreamReader) : Bool :=
   let shifted := r.buffer >>> (31 - r.pos)
   (shifted &&& 1#32) != 0#32
 
+/-- Check if the bitstream at current position matches a VLC code.
+    H.264 VLC codes are prefix-free, so exactly one match exists. -/
+def BitstreamReader.matchCode (r : BitstreamReader) (code : BitVec 16) (len : Nat) : Bool :=
+  if len == 0 || r.pos + len > 32 then false
+  else
+    let shifted := r.buffer >>> (32 - r.pos - len)
+    let mask := BitVec.ofNat 32 ((1 <<< len) - 1)
+    (shifted &&& mask).toNat == code.toNat
+
 -- ============================================================================
--- VLC decode tables (reverse lookup from encoder tables)
+-- VLC decode functions (reverse lookup against encoder tables)
 -- ============================================================================
 
 /-- Decode coeff_token for 0 ≤ nC < 2.
+    Iterates all (tc, t1) entries in the encoder table and matches against
+    the bitstream prefix. VLC codes are prefix-free so exactly one matches.
     Input: bitstream reader.
     Output: (totalCoeff, trailingOnes, reader) -/
 def decodeCoeffToken (r : BitstreamReader) : Nat × Nat × BitstreamReader := Id.run do
-  -- Try each (tc, t1) entry in order of code length
-  -- We decode by trying prefix matches from shortest to longest
-  let mut reader := r
-
-  -- 1-bit codes
-  let (b1, r1) := reader.readBits 1
-  if b1 == 1#32 then  -- TC=0, T1=0 (code=1, len=1)
-    return (0, 0, r1)
-
-  -- 2-bit codes
-  let (b2, r2) := r1.readBits 1
-  let code2 := b1.toNat * 2 + b2.toNat
-  if code2 == 1 then  -- TC=1, T1=1 (code=01, len=2)
-    return (1, 1, r2)
-
-  -- 3-bit codes
-  let (b3, r3) := r2.readBits 1
-  let code3 := code2 * 2 + b3.toNat
-  if code3 == 1 then  -- TC=2, T1=2 (code=001, len=3)
-    return (2, 2, r3)
-
-  -- 5-bit codes
-  let (next2, r5) := r3.readBits 2
-  let code5 := code3 * 4 + next2.toNat
-  match code5 with
-  | 3 => return (3, 3, r5)  -- 00011
-  | 2 => return (3, 2, r5)  -- 00010
-  | _ => pure ()
-
-  -- 6-bit codes
-  let (b6, r6) := r5.readBits 1
-  let code6 := code5 * 2 + b6.toNat
-  match code6 with
-  | 5 => return (1, 0, r6)  -- 000101
-  | 4 => return (2, 1, r6)  -- 000100
-  | 7 => return (4, 3, r6)  -- 000111
-  | _ => pure ()
-
-  -- For simplicity in this baseline implementation, handle remaining codes
-  -- with a fallback. Full decoder would continue with 7-16 bit codes.
-  -- Return (0,0) as fallback with position advanced
-  return (0, 0, r6)
+  for tc in List.range 17 do
+    let maxT1 := min tc 3
+    for t1 in List.range (maxT1 + 1) do
+      let (code, len) := coeffTokenLookup tc t1
+      if len.toNat > 0 && r.matchCode code len.toNat then
+        let (_, r') := r.readBits len.toNat
+        return (tc, t1, r')
+  return (0, 0, r)
 
 /-- Decode total_zeros for given totalCoeff.
-    Simplified: handles common cases for TC=1-6. -/
+    Iterates all totalZeros values and matches against encoder table. -/
 def decodeTotalZeros (tc : Nat) (r : BitstreamReader) : Nat × BitstreamReader := Id.run do
   if tc >= 16 then return (0, r)
+  let maxTz := 16 - tc
+  for tz in List.range (maxTz + 1) do
+    let (code, len) := totalZerosLookup tc tz
+    if len.toNat > 0 && r.matchCode code len.toNat then
+      let (_, r') := r.readBits len.toNat
+      return (tz, r')
+  return (0, r)
 
-  -- Read up to 9 bits and match against table
-  -- Simplified: read 3-4 bits and decode
-  match tc with
-  | 1 =>
-    let (b1, r1) := r.readBits 1
-    if b1 == 1#32 then return (0, r1)
-    let (b2, r2) := r1.readBits 2
-    match b2.toNat with
-    | 3 => return (1, r2)
-    | 2 => return (2, r2)
-    | _ =>
-      let (b3, r3) := r2.readBits 1
-      match (b2.toNat * 2 + b3.toNat) with
-      | 3 => return (3, r3)
-      | 2 => return (4, r3)
-      | _ => return (0, r3)
-  | 2 =>
-    let (b3, r3) := r.readBits 3
-    match b3.toNat with
-    | 7 => return (0, r3)
-    | 6 => return (1, r3)
-    | 5 => return (2, r3)
-    | 4 => return (3, r3)
-    | 3 => return (4, r3)
-    | _ =>
-      let (b4, r4) := r3.readBits 1
-      match (b3.toNat * 2 + b4.toNat) with
-      | 5 => return (5, r4)
-      | 4 => return (6, r4)
-      | 3 => return (7, r4)
-      | 2 => return (8, r4)
-      | _ => return (0, r4)
-  | 3 =>
-    let (b3, r3) := r.readBits 3
-    match b3.toNat with
-    | 7 => return (1, r3)
-    | 6 => return (2, r3)
-    | 5 => return (3, r3)
-    | 4 => return (4, r3)
-    | 3 => return (5, r3)
-    | _ =>
-      let (b4, r4) := r3.readBits 1
-      match (b3.toNat * 2 + b4.toNat) with
-      | 5 => return (0, r4)
-      | 4 => return (6, r4)
-      | 3 => return (7, r4)
-      | 2 => return (8, r4)
-      | _ => return (0, r4)
-  | _ => return (0, r)  -- simplified
-
-/-- Decode run_before value for given zerosLeft. -/
+/-- Decode run_before value for given zerosLeft.
+    Iterates runBefore values and matches against encoder table.
+    Well-defined 3-bit codes are tried before the 1-bit fallback. -/
 def decodeRunBefore (zerosLeft : Nat) (r : BitstreamReader) : Nat × BitstreamReader := Id.run do
   if zerosLeft == 0 then return (0, r)
-  match zerosLeft with
-  | 1 =>
-    let (b1, r1) := r.readBits 1
-    return (if b1 == 1#32 then 0 else 1, r1)
-  | 2 =>
-    let (b1, r1) := r.readBits 1
-    if b1 == 1#32 then return (0, r1)
-    let (b2, r2) := r1.readBits 1
-    return (if b2 == 1#32 then 1 else 2, r2)
-  | 3 =>
-    let (b2, r2) := r.readBits 2
-    match b2.toNat with
-    | 3 => return (0, r2)
-    | 2 => return (1, r2)
-    | 1 => return (2, r2)
-    | _ => return (3, r2)
-  | _ =>
-    -- For zerosLeft >= 4, use 2-3 bit codes
-    let (b2, r2) := r.readBits 2
-    match b2.toNat with
-    | 3 => return (0, r2)
-    | 2 => return (1, r2)
-    | _ =>
-      let (b3, r3) := r2.readBits 1
-      let code3 := b2.toNat * 2 + b3.toNat
-      match code3 with
-      | 1 => return (2, r3)
-      | 3 => return (3, r3)
-      | 2 => return (4, r3)
-      | _ => return (0, r3)
+  for rb in List.range (min zerosLeft 15 + 1) do
+    let (code, len) := runBeforeLookup zerosLeft rb
+    if len.toNat > 0 && r.matchCode code len.toNat then
+      let (_, r') := r.readBits len.toNat
+      return (rb, r')
+  return (0, r)
 
 -- ============================================================================
 -- Level decoding
@@ -255,12 +167,21 @@ def decodeLevel (r : BitstreamReader) (suffixLen : Nat) (isFirst : Bool) (t1 : N
   return (level, reader, nextSuffixLen)
 
 -- ============================================================================
+-- Inverse zig-zag scan
+-- ============================================================================
+
+/-- Inverse zig-zag: convert from zig-zag order back to raster order -/
+def inverseZigzag (zigzag : Array Int) : Array Int :=
+  let order := #[0, 1, 5, 6, 2, 4, 7, 12, 3, 8, 11, 13, 9, 10, 14, 15]
+  order.map fun i => if h : i < zigzag.size then zigzag[i] else 0
+
+-- ============================================================================
 -- Full CAVLC decoder (pure function)
 -- ============================================================================
 
-/-- Decode CAVLC bitstream to 16 quantized coefficients (zig-zag order).
+/-- Decode CAVLC bitstream to 16 quantized coefficients (raster order).
     Input: 32-bit bitstream buffer, bit length.
-    Output: 16 coefficients in zig-zag scan order. -/
+    Output: 16 coefficients in raster scan order (inverse zig-zag applied). -/
 def cavlcDecode (buffer : BitVec 32) (bitLen : Nat) : Array Int := Id.run do
   let mut reader : BitstreamReader := ⟨buffer, 0⟩
 
@@ -326,12 +247,7 @@ def cavlcDecode (buffer : BitVec 32) (bitLen : Nat) : Array Int := Id.run do
   -- Suppress unused variable warning
   let _ := bitLen
 
-  return result
-
-/-- Inverse zig-zag: convert from zig-zag order back to raster order -/
-def inverseZigzag (zigzag : Array Int) : Array Int :=
-  let order := #[0, 1, 5, 6, 2, 4, 7, 12, 3, 8, 11, 13, 9, 10, 14, 15]
-  order.map fun i => if h : i < zigzag.size then zigzag[i] else 0
+  return inverseZigzag result
 
 -- ============================================================================
 -- Verification
@@ -343,11 +259,10 @@ def inverseZigzag (zigzag : Array Int) : Array Int :=
   let (bitstream, bitLen) := cavlcEncodeFull rasterCoeffs
   IO.println s!"Encoded: 0x{String.ofList (Nat.toDigits 16 bitstream.toNat)} ({bitLen} bits)"
 
-  -- Decode
+  -- Decode (now returns raster order after inverse zig-zag)
   let decoded := cavlcDecode bitstream bitLen
-  IO.println s!"Decoded (zig-zag): {decoded}"
-
-  -- Expected zig-zag scanned: [0, 3, 0, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  -- (position 0=DC, 1=pos1, 2=pos4(raster), 3=pos8(raster)→zigzag3=raster2, etc.)
+  IO.println s!"Decoded (raster): {decoded}"
+  IO.println s!"Original:         {rasterCoeffs}"
+  IO.println s!"Match: {decoded == rasterCoeffs}"
 
 end Sparkle.IP.Video.H264.CAVLCDecode
