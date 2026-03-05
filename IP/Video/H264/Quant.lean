@@ -63,14 +63,14 @@ def posClass (pos : Nat) : Nat :=
   else 1
 
 /-- Lookup MF value -/
-private def getMF (qpMod6 : Nat) (posClass : Nat) : Nat :=
+def getMF (qpMod6 : Nat) (posClass : Nat) : Nat :=
   if h1 : qpMod6 < mfTable.size then
     let row := mfTable[qpMod6]
     if h2 : posClass < row.size then row[posClass] else 0
   else 0
 
 /-- Lookup V value -/
-private def getV (qpMod6 : Nat) (posClass : Nat) : Nat :=
+def getV (qpMod6 : Nat) (posClass : Nat) : Nat :=
   if h1 : qpMod6 < vTable.size then
     let row := vTable[qpMod6]
     if h2 : posClass < row.size then row[posClass] else 0
@@ -111,6 +111,28 @@ def quantizeBlock (coeffs : Array Int) (qp : Nat) : Array Int :=
 def dequantizeBlock (levels : Array Int) (qp : Nat) : Array Int :=
   (List.range 16).toArray.map fun i =>
     if h : i < levels.size then dequantize levels[i] qp i else 0
+
+-- ============================================================================
+-- QP parameter computation (for parameterized hardware modules)
+-- ============================================================================
+
+/-- Compute dequantization V*scale values for a given QP.
+    Returns (vscale0, vscale1, vscale2) for position classes (corner, other-even, mixed). -/
+def dequantScales (qp : Nat) : Nat × Nat × Nat :=
+  let qpMod6 := qp % 6
+  let qpDiv6 := qp / 6
+  let scale := 1 <<< qpDiv6
+  (getV qpMod6 0 * scale, getV qpMod6 1 * scale, getV qpMod6 2 * scale)
+
+/-- Compute forward quantization parameters for a given QP.
+    Returns (mf0, mf1, mf2, f, qbits) where mfN are MF per position class,
+    f is the rounding offset, and qbits is the shift amount. -/
+def quantParams (qp : Nat) : Nat × Nat × Nat × Nat × Nat :=
+  let qpMod6 := qp % 6
+  let qpDiv6 := qp / 6
+  let qbits := 15 + qpDiv6
+  let f := (1 <<< qbits) / 3
+  (getMF qpMod6 0, getMF qpMod6 1, getMF qpMod6 2, f, qbits)
 
 -- ============================================================================
 -- Golden value verification

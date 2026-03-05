@@ -41,6 +41,8 @@ import Tests.Video.NALTest
 import Tests.Video.IntraPredTest
 import Tests.Video.H264PipelineTest
 import Tests.Video.H264FrameTest
+import Tests.Video.H264DecoderSynthTest
+import Tests.Video.H264EncoderSynthTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -437,6 +439,8 @@ def main : IO UInt32 := do
   let intraPredTests ← Sparkle.Tests.Video.IntraPredTest.allTests
   let h264PipelineTests ← Sparkle.Tests.Video.H264PipelineTest.allTests
   let h264FrameTests ← Sparkle.Tests.Video.H264FrameTest.allTests
-  let allTests := allTests ++ dramTests ++ dctTests ++ quantTests ++ cavlcDecTests ++ nalTests ++ intraPredTests ++ h264PipelineTests ++ h264FrameTests
+  let h264DecoderSynthTests ← Sparkle.Tests.Video.H264DecoderSynthTest.allTests
+  let h264EncoderSynthTests ← Sparkle.Tests.Video.H264EncoderSynthTest.allTests
+  let allTests := allTests ++ dramTests ++ dctTests ++ quantTests ++ cavlcDecTests ++ nalTests ++ intraPredTests ++ h264PipelineTests ++ h264FrameTests ++ h264DecoderSynthTests ++ h264EncoderSynthTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []

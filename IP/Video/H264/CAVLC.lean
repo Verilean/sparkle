@@ -74,28 +74,96 @@ private def zigzagLookup (idx : BitVec 5) : BitVec 4 :=
 -- CAVLC VLC Tables (pure Lean functions for simulation)
 -- ============================================================================
 
-/-- coeff_token VLC for 0 ≤ nC < 2 (H.264 Table 9-5a)
-    Returns (code, length) -/
+/-- coeff_token VLC for 0 ≤ nC < 2 (H.264 Table 9-5a, Num-VLC0)
+    Returns (code, length). Source: openh264 g_kuiVlcCoeffToken[0] -/
 def coeffTokenLookup (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
   match tc, t1 with
   | 0, 0 => (1, 1)
-  | 1, 0 => (5, 6)   | 1, 1 => (1, 2)
-  | 2, 0 => (7, 8)   | 2, 1 => (4, 6)   | 2, 2 => (1, 3)
-  | 3, 0 => (7, 9)   | 3, 1 => (3, 7)   | 3, 2 => (3, 5)   | 3, 3 => (2, 5)
-  | 4, 0 => (7, 10)  | 4, 1 => (6, 8)   | 4, 2 => (2, 7)   | 4, 3 => (3, 6)
-  | 5, 0 => (7, 11)  | 5, 1 => (6, 9)   | 5, 2 => (5, 8)   | 5, 3 => (4, 7)
-  | 6, 0 => (15, 13) | 6, 1 => (5, 9)   | 6, 2 => (4, 9)   | 6, 3 => (4, 8)
-  | 7, 0 => (11, 13) | 7, 1 => (7, 11)  | 7, 2 => (6, 9)   | 7, 3 => (5, 8)
-  | 8, 0 => (8, 13)  | 8, 1 => (9, 11)  | 8, 2 => (8, 9)   | 8, 3 => (6, 8)
-  | 9, 0 => (15, 14) | 9, 1 => (11, 11) | 9, 2 => (10, 9)  | 9, 3 => (9, 9)
-  | 10, 0 => (11, 14) | 10, 1 => (8, 11) | 10, 2 => (12, 10) | 10, 3 => (8, 9)
-  | 11, 0 => (15, 15) | 11, 1 => (13, 12) | 11, 2 => (12, 10) | 11, 3 => (10, 9)
-  | 12, 0 => (11, 15) | 12, 1 => (10, 12) | 12, 2 => (14, 10) | 12, 3 => (12, 9)
-  | 13, 0 => (15, 16) | 13, 1 => (14, 13) | 13, 2 => (13, 10) | 13, 3 => (14, 9)
-  | 14, 0 => (11, 16) | 14, 1 => (10, 13) | 14, 2 => (9, 10)  | 14, 3 => (11, 9)
-  | 15, 0 => (7, 16)  | 15, 1 => (6, 13)  | 15, 2 => (5, 10)  | 15, 3 => (13, 9)
-  | 16, 0 => (3, 16)  | 16, 1 => (2, 13)  | 16, 2 => (1, 10)  | 16, 3 => (1, 9)
+  | 1, 0 => (5, 6)    | 1, 1 => (1, 2)
+  | 2, 0 => (7, 8)    | 2, 1 => (4, 6)    | 2, 2 => (1, 3)
+  | 3, 0 => (7, 9)    | 3, 1 => (6, 8)    | 3, 2 => (5, 7)    | 3, 3 => (3, 5)
+  | 4, 0 => (7, 10)   | 4, 1 => (6, 9)    | 4, 2 => (5, 8)    | 4, 3 => (3, 6)
+  | 5, 0 => (7, 11)   | 5, 1 => (6, 10)   | 5, 2 => (5, 9)    | 5, 3 => (4, 7)
+  | 6, 0 => (15, 13)  | 6, 1 => (6, 11)   | 6, 2 => (5, 10)   | 6, 3 => (4, 8)
+  | 7, 0 => (11, 13)  | 7, 1 => (14, 13)  | 7, 2 => (5, 11)   | 7, 3 => (4, 9)
+  | 8, 0 => (8, 13)   | 8, 1 => (10, 13)  | 8, 2 => (13, 13)  | 8, 3 => (4, 10)
+  | 9, 0 => (15, 14)  | 9, 1 => (14, 14)  | 9, 2 => (9, 13)   | 9, 3 => (4, 11)
+  | 10, 0 => (11, 14) | 10, 1 => (10, 14) | 10, 2 => (13, 14) | 10, 3 => (12, 13)
+  | 11, 0 => (15, 15) | 11, 1 => (14, 15) | 11, 2 => (9, 14)  | 11, 3 => (12, 14)
+  | 12, 0 => (11, 15) | 12, 1 => (10, 15) | 12, 2 => (13, 15) | 12, 3 => (8, 14)
+  | 13, 0 => (15, 16) | 13, 1 => (1, 15)  | 13, 2 => (9, 15)  | 13, 3 => (12, 15)
+  | 14, 0 => (11, 16) | 14, 1 => (14, 16) | 14, 2 => (13, 16) | 14, 3 => (8, 15)
+  | 15, 0 => (7, 16)  | 15, 1 => (10, 16) | 15, 2 => (9, 16)  | 15, 3 => (12, 16)
+  | 16, 0 => (4, 16)  | 16, 1 => (6, 16)  | 16, 2 => (5, 16)  | 16, 3 => (8, 16)
   | _, _ => (0, 0)
+
+/-- coeff_token VLC for 2 ≤ nC < 4 (H.264 Table 9-5b, Num-VLC1)
+    Returns (code, length). Source: openh264 g_kuiVlcCoeffToken[1] -/
+def coeffTokenLookupNC2 (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
+  match tc, t1 with
+  | 0, 0 => (3, 2)
+  | 1, 0 => (11, 6)   | 1, 1 => (2, 2)
+  | 2, 0 => (7, 6)    | 2, 1 => (7, 5)    | 2, 2 => (3, 3)
+  | 3, 0 => (7, 7)    | 3, 1 => (10, 6)   | 3, 2 => (9, 6)    | 3, 3 => (5, 4)
+  | 4, 0 => (7, 8)    | 4, 1 => (6, 6)    | 4, 2 => (5, 6)    | 4, 3 => (4, 4)
+  | 5, 0 => (4, 8)    | 5, 1 => (6, 7)    | 5, 2 => (5, 7)    | 5, 3 => (6, 5)
+  | 6, 0 => (7, 9)    | 6, 1 => (6, 8)    | 6, 2 => (5, 8)    | 6, 3 => (8, 6)
+  | 7, 0 => (15, 11)  | 7, 1 => (6, 9)    | 7, 2 => (5, 9)    | 7, 3 => (4, 6)
+  | 8, 0 => (11, 11)  | 8, 1 => (14, 11)  | 8, 2 => (13, 11)  | 8, 3 => (4, 7)
+  | 9, 0 => (15, 12)  | 9, 1 => (10, 11)  | 9, 2 => (9, 11)   | 9, 3 => (4, 9)
+  | 10, 0 => (11, 12) | 10, 1 => (14, 12) | 10, 2 => (13, 12) | 10, 3 => (12, 11)
+  | 11, 0 => (8, 12)  | 11, 1 => (10, 12) | 11, 2 => (9, 12)  | 11, 3 => (8, 11)
+  | 12, 0 => (15, 13) | 12, 1 => (14, 13) | 12, 2 => (13, 13) | 12, 3 => (12, 12)
+  | 13, 0 => (11, 13) | 13, 1 => (10, 13) | 13, 2 => (9, 13)  | 13, 3 => (12, 13)
+  | 14, 0 => (7, 13)  | 14, 1 => (11, 14) | 14, 2 => (6, 13)  | 14, 3 => (8, 13)
+  | 15, 0 => (9, 14)  | 15, 1 => (8, 14)  | 15, 2 => (10, 14) | 15, 3 => (1, 13)
+  | 16, 0 => (7, 14)  | 16, 1 => (6, 14)  | 16, 2 => (5, 14)  | 16, 3 => (4, 14)
+  | _, _ => (0, 0)
+
+/-- coeff_token VLC for 4 ≤ nC < 8 (H.264 Table 9-5c, Num-VLC2)
+    Returns (code, length). Source: openh264 g_kuiVlcCoeffToken[2] -/
+def coeffTokenLookupNC4 (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
+  match tc, t1 with
+  | 0, 0 => (15, 4)
+  | 1, 0 => (15, 6)   | 1, 1 => (14, 4)
+  | 2, 0 => (11, 6)   | 2, 1 => (15, 5)   | 2, 2 => (13, 4)
+  | 3, 0 => (8, 6)    | 3, 1 => (12, 5)   | 3, 2 => (14, 5)   | 3, 3 => (12, 4)
+  | 4, 0 => (15, 7)   | 4, 1 => (10, 5)   | 4, 2 => (11, 5)   | 4, 3 => (11, 4)
+  | 5, 0 => (11, 7)   | 5, 1 => (8, 5)    | 5, 2 => (9, 5)    | 5, 3 => (10, 4)
+  | 6, 0 => (9, 7)    | 6, 1 => (14, 6)   | 6, 2 => (13, 6)   | 6, 3 => (9, 4)
+  | 7, 0 => (8, 7)    | 7, 1 => (10, 6)   | 7, 2 => (9, 6)    | 7, 3 => (8, 4)
+  | 8, 0 => (15, 8)   | 8, 1 => (14, 7)   | 8, 2 => (13, 7)   | 8, 3 => (13, 5)
+  | 9, 0 => (11, 8)   | 9, 1 => (14, 8)   | 9, 2 => (10, 7)   | 9, 3 => (12, 6)
+  | 10, 0 => (15, 9)  | 10, 1 => (10, 8)  | 10, 2 => (13, 8)  | 10, 3 => (12, 7)
+  | 11, 0 => (11, 9)  | 11, 1 => (14, 9)  | 11, 2 => (9, 8)   | 11, 3 => (12, 8)
+  | 12, 0 => (8, 9)   | 12, 1 => (10, 9)  | 12, 2 => (13, 9)  | 12, 3 => (8, 8)
+  | 13, 0 => (13, 10) | 13, 1 => (7, 9)   | 13, 2 => (9, 9)   | 13, 3 => (12, 9)
+  | 14, 0 => (9, 10)  | 14, 1 => (12, 10) | 14, 2 => (11, 10) | 14, 3 => (10, 10)
+  | 15, 0 => (5, 10)  | 15, 1 => (8, 10)  | 15, 2 => (7, 10)  | 15, 3 => (6, 10)
+  | 16, 0 => (1, 10)  | 16, 1 => (4, 10)  | 16, 2 => (3, 10)  | 16, 3 => (2, 10)
+  | _, _ => (0, 0)
+
+/-- coeff_token VLC for nC ≥ 8 (H.264 Table 9-5d, Num-FLC)
+    Fixed 6-bit codes. Source: openh264 g_kuiVlcCoeffToken[3] -/
+def coeffTokenLookupNC8 (tc : Nat) (t1 : Nat) : BitVec 16 × BitVec 5 :=
+  if tc == 0 then (3, 6)
+  else if tc == 1 && t1 == 0 then (0, 6)
+  else if tc == 1 && t1 == 1 then (1, 6)
+  else if tc == 2 && t1 == 0 then (4, 6)
+  else if tc == 2 && t1 == 1 then (5, 6)
+  else if tc == 2 && t1 == 2 then (6, 6)
+  else if tc <= 16 && t1 <= 3 then
+    -- Linear mapping: code = (tc - 3) * 4 + t1 + 8
+    let code := (tc - 3) * 4 + t1 + 8
+    (BitVec.ofNat 16 code, 6)
+  else (0, 0)
+
+/-- Dispatch to the correct coeff_token table based on nC value -/
+def coeffTokenLookupNC (nC tc t1 : Nat) : BitVec 16 × BitVec 5 :=
+  if nC < 2 then coeffTokenLookup tc t1
+  else if nC < 4 then coeffTokenLookupNC2 tc t1
+  else if nC < 8 then coeffTokenLookupNC4 tc t1
+  else coeffTokenLookupNC8 tc t1
 
 /-- total_zeros VLC (H.264 Table 9-7), returns (code, length) -/
 def totalZerosLookup (tc : Nat) (tz : Nat) : BitVec 16 × BitVec 5 :=
@@ -149,18 +217,18 @@ def runBeforeLookup (zerosLeft : Nat) (runBefore : Nat) : BitVec 16 × BitVec 5 
 -- Pure CAVLC encoding function (for simulation via Signal.map)
 -- ============================================================================
 
-/-- Pack bits into a 32-bit buffer (MSB-first) -/
-private def packBits (buffer : BitVec 32) (pos : Nat) (code : BitVec 16) (len : Nat)
-    : BitVec 32 × Nat :=
+/-- Pack bits into a 64-bit buffer (MSB-first) -/
+private def packBits (buffer : BitVec 64) (pos : Nat) (code : BitVec 16) (len : Nat)
+    : BitVec 64 × Nat :=
   if len == 0 then (buffer, pos)
   else
-    let code32 := (BitVec.zeroExtend 32 code) <<< (32 - pos - len)
-    (buffer ||| code32, pos + len)
+    let code64 := (BitVec.zeroExtend 64 code) <<< (64 - pos - len)
+    (buffer ||| code64, pos + len)
 
 /-- Encode a single level value, returns (buffer, pos, nextSuffixLen) -/
-private def encodeLevelPure (buffer : BitVec 32) (pos : Nat) (level : Int)
+private def encodeLevelPure (buffer : BitVec 64) (pos : Nat) (level : Int)
     (suffixLen : Nat) (isFirst : Bool) (t1 : Nat)
-    : BitVec 32 × Nat × Nat :=
+    : BitVec 64 × Nat × Nat :=
   let levelCode0 : Int :=
     if level > 0 then 2 * level - 2 else -2 * level - 1
   let levelCode : Int :=
@@ -261,16 +329,17 @@ private def computeRunBefores (nzPositions : Array Nat) : Array Nat := Id.run do
 /-- Encode the CAVLC bitstream from analysis results -/
 private def encodeBitstream (totalCoeff trailingOnes totalZeros : Nat)
     (t1Signs : Array Nat) (levels : Array Int) (runBefores : Array Nat)
-    : BitVec 32 × Nat := Id.run do
-  let mut buf : BitVec 32 := 0#32
+    (nC : Nat := 0)
+    : BitVec 64 × Nat := Id.run do
+  let mut buf : BitVec 64 := 0#64
   let mut pos := 0
   if totalCoeff == 0 then
-    let (c, l) := coeffTokenLookup 0 0
+    let (c, l) := coeffTokenLookupNC nC 0 0
     let r := packBits buf pos c l.toNat
     buf := r.1; pos := r.2
   else
     -- coeff_token
-    let (c, l) := coeffTokenLookup totalCoeff trailingOnes
+    let (c, l) := coeffTokenLookupNC nC totalCoeff trailingOnes
     let r := packBits buf pos c l.toNat
     buf := r.1; pos := r.2
     -- trailing_ones_sign_flag
@@ -302,8 +371,8 @@ private def encodeBitstream (totalCoeff trailingOnes totalZeros : Nat)
 
 /-- Full CAVLC encoding of 16 zig-zag-scanned coefficients.
     Input: 16 coefficients in RASTER order.
-    Returns: (bitstream : BitVec 32, bitLen : Nat) -/
-def cavlcEncodeFull (rasterCoeffs : Array Int) : BitVec 32 × Nat :=
+    Returns: (bitstream : BitVec 64, bitLen : Nat) -/
+def cavlcEncodeFull (rasterCoeffs : Array Int) (nC : Nat := 0) : BitVec 64 × Nat :=
   let zigzag := #[0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15]
   let scanned := zigzag.map fun i =>
     if h : i < rasterCoeffs.size then rasterCoeffs[i] else 0
@@ -311,7 +380,7 @@ def cavlcEncodeFull (rasterCoeffs : Array Int) : BitVec 32 × Nat :=
     analyzeCoeffs scanned
   let totalZeros := if totalCoeff > 0 then lastNzPos + 1 - totalCoeff else 0
   let runBefores := computeRunBefores nzPositions
-  encodeBitstream totalCoeff trailingOnes totalZeros t1Signs levels runBefores
+  encodeBitstream totalCoeff trailingOnes totalZeros t1Signs levels runBefores (nC := nC)
 
 -- ============================================================================
 -- FSM Loop Body
@@ -478,8 +547,10 @@ private def cavlcBody {dom : DomainConfig}
                  else if tcN >= 1 then #[p0N]
                  else #[]
     let runBefores := computeRunBefores nzPos
-    let (buf, pos) := encodeBitstream tcN t1N tzN t1SignsArr levels runBefores
-    (buf, BitVec.ofNat 6 pos)
+    let (buf64, pos) := encodeBitstream tcN t1N tzN t1SignsArr levels runBefores
+    -- Truncate to 32-bit for FSM state (only top 32 bits matter for ≤32 bit outputs)
+    let buf32 : BitVec 32 := BitVec.ofNat 32 (buf64.toNat >>> 32)
+    (buf32, BitVec.ofNat 6 pos)
   ) <$> totalCoeff <*> Signal.map (BitVec.zeroExtend 5) trailingOnes
     <*> totalZeros <*> t1Signs
     <*> nzPos0 <*> nzPos1 <*> nzPos2
@@ -599,10 +670,11 @@ def cavlcEncoderSimulate
 
   pure (bundle2 validOut (bundle2 bitBuffer (bundle2 bitPos done)))
 
--- Verify: cavlcEncode for the test block should produce 0x1E6E8000, 17 bits
+-- Verify CAVLC encoding with standard-compliant tables (openh264-sourced)
 #eval do
   let result := cavlcEncodeFull #[0, 3, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  IO.println s!"Bitstream: 0x{String.ofList (Nat.toDigits 16 result.1.toNat)} ({result.2} bits)"
-  IO.println s!"Expected:  0x1e6e8000 (17 bits)"
+  IO.println s!"nC=0 Bitstream: 0x{String.ofList (Nat.toDigits 16 result.1.toNat)} ({result.2} bits)"
+  let result2 := cavlcEncodeFull #[0, 3, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] (nC := 3)
+  IO.println s!"nC=3 Bitstream: 0x{String.ofList (Nat.toDigits 16 result2.1.toNat)} ({result2.2} bits)"
 
 end Sparkle.IP.Video.H264.CAVLC

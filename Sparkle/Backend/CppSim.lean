@@ -307,8 +307,12 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     let memName := sanitizeName name
     let rdName := sanitizeName readData
     let memDecl := "    std::array<" ++ elemType ++ ", " ++ toString memSize ++ "> " ++ memName ++ ";"
+    -- Declare rdName if not already in typeMap (e.g. unused memory read port)
+    let rdType := emitCppType (.bitVector dataWidth)
+    let rdInTypeMap := typeMap.any fun (n, _) => sanitizeName n == rdName
+    let rdDecl := if rdInTypeMap then [] else [s!"    {rdType} {rdName};"]
     if comboRead then
-      { declarations := [memDecl]
+      { declarations := [memDecl] ++ rdDecl
       , evalBody := [s!"        {rdName} = {memName}[{emitExpr typeMap readAddr}];"]
       , tickBody := [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
       , resetBody := [s!"        {memName}.fill(0);"]
@@ -316,7 +320,7 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     else
       let addrLatch := s!"{memName}_raddr"
       let addrType := emitCppType (.bitVector addrWidth)
-      { declarations := [memDecl, s!"    {addrType} {addrLatch};"]
+      { declarations := [memDecl, s!"    {addrType} {addrLatch};"] ++ rdDecl
       , evalBody := [s!"        {addrLatch} = {emitExpr typeMap readAddr};"]
       , tickBody :=
           [ s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"

@@ -372,22 +372,67 @@ cd verilator && make build
 
 ## H.264 Baseline Profile Video Codec
 
-A **complete H.264 Baseline Profile encoder and decoder** pipeline — pure Lean reference functions with formal proofs, C++ golden value generators, and a synthesizable quant/dequant roundtrip module verified via JIT.
+A **complete H.264 Baseline Profile encoder and decoder** pipeline — pure Lean reference functions with formal proofs, and **fully synthesizable hardware codec** producing playable MP4 files directly from hardware. 16×16 frame → H.264 encode → MP4 mux, all in Signal DSL.
 
 ### Pipeline Architecture
 
 ```
-ENCODER:  Pixels → Intra Pred → DCT → Quant → Zigzag → CAVLC → NAL → Bitstream
+ENCODER:  Pixels → Intra Pred → DCT → Quant → CAVLC → NAL → H.264 Bitstream → MP4 Container
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+          Fully synthesizable Signal DSL — h264MP4Encoder module (Phase 40)
+
 DECODER:  Bitstream → NAL Parse → CAVLC Decode → Dequant → IDCT → Intra Recon → Pixels
+          Synthesizable decoder pipeline (Phase 32)
 ```
 
-### Modules (9 phases)
+### Hardware MP4 Encoder (Phase 40)
+
+A single hardware module that takes a 16×16 frame and produces a **complete playable MP4 file** — no software post-processing needed.
+
+```
+h264MP4Encoder (Signal.loop, 12 registers, ~6100 cycles)
+├── h264FrameEncoder (nested sub-module — SPS + PPS + IDR slice)
+├── IDR buffer memory (1024×8-bit)
+├── MP4 ROM memory (1024×8-bit, host-loaded ftyp+moov template)
+└── FSM: buffer encoder output → emit ROM (with runtime patching) → emit mdat
+```
+
+| Component | File | Description |
+|-----------|------|-------------|
+| **MP4 Encoder** | `MP4Encoder.lean` | 12-register FSM, 7 phases, ROM patching at 16 offsets |
+| **Frame Encoder** | `FrameEncoder.lean` | 21-register FSM, 20 phases, 3 nested sub-modules |
+| **MP4 Muxer** | `MP4Mux.lean` | Software MP4 box builder + ROM template generator |
+| **Synth** | `MP4EncoderSynth.lean` | `#writeDesign` → SV + CppSim + JIT |
+
+```bash
+lake build h264-mp4-encoder-test && lake exe h264-mp4-encoder-test
+# Output: 709 bytes, byte-identical to software muxer
+# ffprobe: valid 16×16 H.264 Baseline MP4, 1 frame
+```
+
+### Synthesizable Decoder Pipeline (Phase 32)
+
+```
+Quantized Levels (16×16-bit) → [Dequant FSM] → [IDCT FSM] → [Reconstruct FSM] → Pixels [0,255]
+                                 16 cycles       64 cycles      16 cycles
+```
+
+| Module | File | Cycles | Description |
+|--------|------|--------|-------------|
+| **Dequant** | `DequantSynth.lean` | 16 | level × V[posClass] × 2^(qp/6), fixed QP=20 |
+| **Inverse DCT** | `IDCTSynth.lean` | 64 | Butterfly row+col transforms, +32>>6 rounding |
+| **Reconstruct** | `ReconstructSynth.lean` | 16 | predicted + residual, clamp [0,255] |
+| **Pipeline** | `DecoderSynth.lean` | ~96 | Monolithic FSM: IDLE→DEQUANT→IDCT→RECON→DONE |
+
+Each module generates SystemVerilog + CppSim header + JIT wrapper via `#writeDesign`.
+
+### Modules (14 phases)
 
 | Module | Pure Lean | Proofs | Tests | Synth |
 |--------|:---------:|:------:|:-----:|:-----:|
 | DRAM Interface | `DRAMInterface.lean` | 3 theorems | `DRAMTest.lean` | Sim model |
-| 4×4 Integer DCT/IDCT | `DCT.lean` | bounded error, linearity | `DCTTest.lean` | Skeletal FSM |
-| Quantization | `Quant.lean` | zero/sign preservation | `QuantTest.lean` | — |
+| 4×4 Integer DCT/IDCT | `DCT.lean` | bounded error, linearity | `DCTTest.lean` | **IDCTSynth** |
+| Quantization | `Quant.lean` | zero/sign preservation | `QuantTest.lean` | **DequantSynth** |
 | CAVLC Decode | `CAVLCDecode.lean` | 4 roundtrip proofs | `CAVLCDecodeTest.lean` | — |
 | NAL Pack/Parse | `NAL.lean` | roundtrip proof | `NALTest.lean` | — |
 | Intra Prediction (9 modes) | `IntraPred.lean` | residual roundtrip | `IntraPredTest.lean` | — |
@@ -395,6 +440,12 @@ DECODER:  Bitstream → NAL Parse → CAVLC Decode → Dequant → IDCT → Intr
 | Decoder Top | `Decoder.lean` | — | `H264PipelineTest.lean` | — |
 | Frame-Level E2E | — | — | `H264FrameTest.lean` | — |
 | Quant/Dequant Roundtrip | `QuantRoundtripSynth.lean` | — | `H264JITTest.lean` | **Full** |
+| Reconstruction | `ReconstructSynth.lean` | — | `H264DecoderSynthTest.lean` | **Full** |
+| Decoder Pipeline | `DecoderSynth.lean` | — | `H264DecoderSynthTest.lean` | **Full** |
+| CAVLC Encoder | `CAVLCSynth.lean` | — | `H264BitstreamTest.lean` | **Full** |
+| Frame Encoder | `FrameEncoder.lean` | — | `H264FrameEncoderTest.lean` | **Full** |
+| MP4 Encoder | `MP4Encoder.lean` | — | `H264MP4EncoderTest.lean` | **Full** |
+| MP4 Muxer | `MP4Mux.lean` | — | `H264PlayableTest.lean` | Software |
 
 ### JIT End-to-End Test
 
@@ -410,6 +461,19 @@ lake exe h264-jit-test
 #   Test 3: Single large coeff... PASS
 #   Test 4: Negative coeffs...   PASS
 # *** ALL H.264 JIT TESTS PASSED ***
+```
+
+### Hardware MP4 Encoder Test
+
+```bash
+lake exe h264-mp4-encoder-test
+# === H.264 MP4 Encoder JIT Test ===
+#   ROM loaded (629 bytes)
+#   Frame encoder completed in 5437 cycles
+#   Output: 709 bytes — byte-identical to software muxer
+#   ftyp: OK, moov: OK, mdat: OK, IDR NAL (0x65): OK
+#   ROM vs reference: MATCH, IDR NAL (68 bytes): MATCH
+# TEST PASSED
 ```
 
 ### Formal Proofs (all without `sorry`)
@@ -825,11 +889,17 @@ INT4/INT8 quantized inference accelerator with CLIP text embeddings for open-voc
 
 ### H.264 Video Codec
 ```bash
-# Run H.264 pipeline + frame-level tests (DRAM, DCT, Quant, CAVLC, NAL, IntraPred, full pipeline, frame E2E)
+# Run H.264 pipeline + frame-level + decoder synth tests
 lake test
 
 # JIT end-to-end test (compile quant/dequant FSM, run 4 tests)
 lake exe h264-jit-test
+
+# Generate decoder pipeline Verilog + CppSim + JIT
+lake build IP.Video.H264.DecoderSynth
+# → IP/Video/H264/gen/decoder_pipeline.sv (29KB)
+# → IP/Video/H264/gen/decoder_pipeline_cppsim.h
+# → IP/Video/H264/gen/decoder_pipeline_jit.cpp
 ```
 
 ### All Examples
@@ -976,6 +1046,7 @@ Tests include:
 - **H.264 pipeline tests** — DRAM interface, DCT/IDCT, quant/dequant, CAVLC decode, NAL pack/parse, intra prediction, full encode→decode roundtrip
 - **H.264 frame-level tests** — Multi-block (16×16) encode→decode roundtrip at QP 0/10/20/30, bitstream vs NAL path equivalence, prediction mode diversity
 - **H.264 JIT test** — Quant/dequant synthesizable FSM: zero block, DCT coefficients, single large coefficient, negative coefficients (all 4 pass)
+- **H.264 decoder synth tests** — Dequant reference (QP=20 V×scale), IDCT reference (butterfly), reconstruct reference (clamp), full pipeline consistency, edge cases (clamp to 0/255, zero block)
 - **YOLOv8 primitive tests** — dequant, requantize, activation, max pooling
 - **YOLOv8 golden value validation (9 tests)** — validated against real ultralytics model data
 - **SyncFIFO (16 tests)** — fill/drain, FIFO ordering, full/empty conditions, simultaneous enq+deq
@@ -1068,8 +1139,12 @@ sparkle/
 │           ├── IntraPred.lean      # Intra_4×4 prediction (9 modes)
 │           ├── DRAMInterface.lean  # DRAM simulation model
 │           ├── Encoder.lean        # Top-level encoder pipeline
-│           ├── Decoder.lean        # Top-level decoder pipeline
+│           ├── Decoder.lean        # Top-level decoder pipeline (pure)
 │           ├── QuantRoundtripSynth.lean # Synthesizable quant/dequant FSM
+│           ├── DequantSynth.lean   # Synthesizable dequant FSM (QP=20)
+│           ├── IDCTSynth.lean      # Synthesizable inverse DCT FSM (butterfly)
+│           ├── ReconstructSynth.lean # Synthesizable reconstruction FSM (add+clamp)
+│           ├── DecoderSynth.lean   # Synthesizable decoder pipeline (monolithic FSM)
 │           ├── *Props.lean         # Formal proofs for each module
 │           └── gen/                # Generated SV + CppSim + JIT
 ├── Tests/               # Test suites
@@ -1083,7 +1158,8 @@ sparkle/
 │   │   ├── CAVLCDecodeTest.lean, NALTest.lean, IntraPredTest.lean
 │   │   ├── H264PipelineTest.lean  # Full encode→decode roundtrip
 │   │   ├── H264FrameTest.lean     # Frame-level E2E (multi-block, QP sweep, path equivalence)
-│   │   └── H264JITTest.lean       # JIT end-to-end (4 tests)
+│   │   ├── H264JITTest.lean       # JIT end-to-end (4 tests)
+│   │   └── H264DecoderSynthTest.lean # Decoder synth reference tests (dequant, IDCT, recon, pipeline)
 │   ├── Library/         # Verified IP tests
 │   │   └── TestSyncFIFO.lean # SyncFIFO: 16 tests (fill, drain, FIFO order, full/empty)
 │   ├── golden-values/   # Real model data from bitnet.cpp
@@ -1164,7 +1240,8 @@ Contributions welcome! Areas of interest:
 - [x] ~~**H.264 Baseline Codec**~~ - Done (Phase 31): Full encoder/decoder pipeline with formal proofs + JIT test
 - [x] ~~**H.264 Frame-Level E2E Test**~~ - Done (Phase 31b): Multi-block encode→decode roundtrip, QP sweep, path equivalence, mode diversity
 - [x] ~~**H.264 CAVLC Decoder Fix**~~ - Done (Phase 31c): Complete VLC tables + inverse zig-zag, QP=30 MSE 3071→284, 4 formal proofs
-- [ ] **H.264 Synthesizable Pipeline** - Extend pure Lean modules into fully synthesizable Signal DSL
+- [x] ~~**H.264 Synthesizable Decoder Pipeline**~~ - Done (Phase 32): Dequant + IDCT + Reconstruct FSMs, monolithic pipeline, pure reference tests
+- [ ] **H.264 Synthesizable Encoder Pipeline** - Extend encoder modules (forward DCT, forward quant, CAVLC encoder) into synthesizable Signal DSL
 - [ ] **Linux Boot Idle-Loop Skipping** - Extend dynamic oracle to detect WFI/idle loops during Linux boot
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
 - [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients

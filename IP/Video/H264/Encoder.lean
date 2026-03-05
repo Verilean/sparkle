@@ -49,7 +49,7 @@ def EncoderConfig.default : EncoderConfig :=
 -- ============================================================================
 
 structure EncoderResult where
-  bitstream : BitVec 32       -- CAVLC encoded bitstream
+  bitstream : BitVec 64       -- CAVLC encoded bitstream (64-bit MSB-aligned)
   bitLen : Nat                -- Number of valid bits
   nalUnit : List (BitVec 8)   -- NAL-packed bitstream
   reconstructed : IntraPred.Block4x4    -- Reconstructed pixels (for reference)
@@ -90,8 +90,8 @@ def encodeBlock (original : IntraPred.Block4x4) (neighbors : Neighbors) (cfg : E
     let mut bytes : List (BitVec 8) := []
     let numBytes := (bitLen + 7) / 8
     for i in [:numBytes] do
-      let shift := 24 - i * 8
-      let byte := (bitstream >>> shift) &&& 0xFF#32
+      let shift := 56 - i * 8
+      let byte := (bitstream >>> shift) &&& 0xFF#64
       bytes := bytes ++ [BitVec.extractLsb' 0 8 byte]
     bytes
   let nalUnit := nalPack bitstreamBytes cfg.nalType cfg.nalRefIdc
@@ -180,6 +180,30 @@ def encodeFrame (pixels : Array Nat) (width height : Nat) (cfg : EncoderConfig)
             reconFrame := reconFrame.set! idx (result.reconstructed[blockIdx]!)
 
   results
+
+-- ============================================================================
+-- H.264 block scan order and nC computation helpers
+-- ============================================================================
+
+/-- H.264 block scan order for 4×4 luma blocks within a 16×16 macroblock.
+    Maps block index (0-15) to (bx, by_) in 4×4-block coordinates.
+    This follows the raster scan order used for CAVLC encoding. -/
+def h264BlockScan : Array (Nat × Nat) :=
+  #[(0,0), (1,0), (0,1), (1,1), (2,0), (3,0), (2,1), (3,1),
+    (0,2), (1,2), (0,3), (1,3), (2,2), (3,2), (2,3), (3,3)]
+
+/-- Compute nC (number of coefficients context) from left and top block's totalCoeff.
+    Used to select the coeff_token VLC table for CAVLC encoding. -/
+def computeNC (leftTC topTC : Option Nat) : Nat :=
+  match leftTC, topTC with
+  | some a, some b => (a + b + 1) / 2
+  | some a, none   => a
+  | none,   some b => b
+  | none,   none   => 0
+
+/-- Map nC value to table select index (0-3) for hardware. -/
+def nCToTableSelect (nC : Nat) : Nat :=
+  if nC < 2 then 0 else if nC < 4 then 1 else if nC < 8 then 2 else 3
 
 -- ============================================================================
 -- Verification

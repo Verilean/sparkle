@@ -1,6 +1,6 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-04
+**Date**: 2026-03-05
 **Branch**: main
 
 ---
@@ -9,17 +9,343 @@
 
 | Priority | Phase | Description | Status |
 |----------|-------|-------------|--------|
-| 1 | **H.264 Synthesizable Pipeline** | Extend pure Lean encoder/decoder modules into fully synthesizable Signal DSL (DCT FSM, Quant FSM, CAVLC encoder/decoder FSM) with JIT end-to-end verification | Not started |
-| 2 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
-| 3 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
-| 4 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
-| 5 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
-| 6 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
-| 7 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
+| 3 | **H.264 Hardware MP4 Encoder** | Frame encoder + MP4 ROM muxer → playable .mp4 from hardware | **Done** |
+| 4 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
+| 5 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
+| 6 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
+| 7 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
+| 8 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
+| 9 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
 
 ---
 
 ## Completed Phases
+
+### Hardware MP4 Encoder (Phase 40) — DONE
+
+Hardware module that wraps the frame encoder and emits a complete playable MP4 file. Two-pass architecture: buffer encoder output, then emit ROM template (patched at runtime) + mdat + IDR NAL.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `IP/Video/H264/MP4Encoder.lean` | Hardware MP4 muxer FSM (12 registers, 7 phases, 2 memories, nested frame encoder sub-module) |
+| `IP/Video/H264/MP4EncoderSynth.lean` | Synthesis wrapper: `#writeDesign` → SV + CppSim + JIT |
+| `Tests/Video/H264MP4EncoderTest.lean` | JIT end-to-end test: ROM loading, table loading, encode, collect MP4 bytes |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `IP/Video/H264/MP4Mux.lean` | Added `buildMP4ROMTemplate` (629-byte ftyp+moov ROM template) |
+| `IP/Video/H264.lean` | Added imports for MP4Encoder and MP4EncoderSynth |
+| `lakefile.lean` | Added `h264-mp4-encoder-test` executable |
+
+#### Architecture
+
+```
+h264MP4Encoder (Signal.loop, 12 registers)
+├── h264FrameEncoder (nested sub-module)
+├── IDR buffer memory (1024×8-bit, memoryComboRead)
+├── MP4 ROM memory (1024×8-bit, memoryComboRead, host-loaded)
+└── FSM: IDLE → RUN_ENCODER → EMIT_ROM → EMIT_MDAT_HDR → EMIT_IDR_LEN → EMIT_IDR_DATA → DONE
+```
+
+**Pass 1**: Run frame encoder, skip first 27 bytes (SPS+PPS+start code), buffer IDR NAL bytes.
+**Pass 2**: Emit ftyp+moov from ROM (patching width/height/stsz at 16 byte offsets), then mdat header + buffered IDR bytes.
+
+#### ROM Patching (16 byte offsets)
+
+| Offset | Field | Value |
+|--------|-------|-------|
+| 232–235 | tkhd width | `width << 16` as BE32 |
+| 236–239 | tkhd height | `height << 16` as BE32 |
+| 445–446 | avc1 width | `width` as BE16 |
+| 447–448 | avc1 height | `height` as BE16 |
+| 605–608 | stsz entry | `4 + idrNalSize` as BE32 |
+
+#### Test Results
+
+- **709 bytes** output — byte-identical to software muxer reference
+- **6149 cycles** (5437 encode + 629 ROM + 83 mdat/IDR)
+- ffprobe validates as playable 16×16 H.264 Baseline MP4
+- ROM vs reference (629 bytes): exact match
+- IDR NAL (68 bytes): exact match
+
+### Autonomous Frame Encoder (Phase 39) — DONE
+
+Single hardware module (`h264FrameEncoder`) that takes a 16×16 frame and produces a complete H.264 Annex-B byte stream (SPS + PPS + IDR slice). 20-phase block sequencer FSM with MSB-aligned 64-bit bit buffer, 3 nested sub-modules (encoder, decoder, CAVLC), and multiple internal memories.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `IP/Video/H264/FrameEncoder.lean` | Autonomous frame encoder (21 registers, 20 phases, 3 sub-modules) |
+| `IP/Video/H264/FrameEncoderSynth.lean` | Synthesis wrapper |
+| `Tests/Video/H264FrameEncoderTest.lean` | JIT test: per-block CAVLC comparison + MP4 wrapping |
+
+#### Test Results
+
+- All 16 CAVLC blocks match pure Lean reference
+- Output: 95 bytes H.264 Annex-B (SPS + PPS + IDR slice)
+- Wrapped in MP4: 709 bytes, playable with ffplay
+
+### Software MP4 Muxer (Phase 38) — DONE
+
+Pure Lean ISO BMFF container builder for wrapping H.264 NAL units in playable .mp4 files.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `IP/Video/H264/MP4Mux.lean` | MP4 box builders (ftyp, moov, trak, stbl, mdat) + `muxSingleFrame` |
+
+### Playable H.264 Output (Phase 37) — DONE
+
+End-to-end test producing a playable .h264 and .mp4 file from the synthesizable pipeline.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `Tests/Video/H264PlayableTest.lean` | Playable H.264 test: encode frame → Annex-B → MP4 |
+
+### H.264 Synthesizable Annex-B Encoder (Phase 36) — DONE
+
+Fully synthesizable CAVLC entropy encoder + NAL byte stream packer, producing valid H.264 Annex-B bitstreams from quantized coefficients. End-to-end: pixels → encoder pipeline → CAVLC synth → NAL packing → .h264 file.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `IP/Video/H264/CAVLCSynth.lean` | Synthesizable CAVLC encoder FSM (~726 lines, 23 registers, 7 memories) |
+| `IP/Video/H264/VLCTables.lean` | Host-side VLC table builders for coeff_token, total_zeros, run_before |
+| `IP/Video/H264/NALSynth.lean` | Synthesizable NAL byte stream packer (start code + header + emulation prevention) |
+| `IP/Video/H264/SPSPPSData.lean` | Pre-computed SPS/PPS/slice header bytes for 16x16 Baseline |
+| `Tests/Video/H264BitstreamTest.lean` | End-to-end Annex-B test: 16x16 gradient → 4 blocks → .h264 file |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `Tests/Video/H264JITPipelineTest.lean` | Added Test 5: CAVLC synth JIT (VLC table loading, FSM, reference comparison) |
+| `IP/Video/H264.lean` | Added imports for new modules |
+| `lakefile.lean` | Added `h264-bitstream-test` executable |
+
+#### Tests
+
+- Test 5: CAVLC synth JIT — matches pure Lean `cavlcEncodeFull` for test coefficients (17 bits)
+- Bitstream test: 4 blocks of real encoder output all match pure reference (25-32 bits each)
+- Output: `IP/Video/H264/gen/test_output.h264` (42 bytes)
+
+### H.264 Parameterized QP (Phase 35) — DONE
+
+Replaced hardcoded QP=20 constants with input ports carrying pre-computed QP-dependent values. Host software computes dequant V*scale and quant MF/f/qbits from QP using lookup tables, avoiding large hardware LUTs.
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `IP/Video/H264/Quant.lean` | Added `dequantScales`, `quantParams` helpers; made `getV`/`getMF` public |
+| `IP/Video/H264/DequantSynth.lean` | Added `vscale0/1/2` input ports; parameterized `dequantRef`/`dequantBlockRef` with `qp` |
+| `IP/Video/H264/QuantSynth.lean` | Added `quantMF0/1/2`, `quantF`, `quantShift` input ports; variable shift; parameterized `quantRef`/`quantBlockRef` with `qp` |
+| `IP/Video/H264/DecoderSynth.lean` | Added `vscale0/1/2` input ports to pipeline; parameterized `decoderPipelineRef` with `qp` |
+| `IP/Video/H264/EncoderSynth.lean` | Added `quantMF0/1/2`, `quantF`, `quantShift` input ports to pipeline; parameterized `encoderPipelineRef` with `qp` |
+| `Tests/Video/H264JITPipelineTest.lean` | Added `setDecoderQP`/`setEncoderQP` helpers; added Test 4 (QP=10 roundtrip cross-validation) |
+| `docs/STATUS.md` | Added Phase 35 section |
+
+#### Tests
+
+- Test 1: Decoder QP=20 — JIT matches pure Lean reference
+- Test 2: Encoder QP=20 — JIT matches pure Lean reference
+- Test 3: Roundtrip QP=20 — all pixels in [0, 255]
+- Test 4 (NEW): Roundtrip QP=10 — encoder/decoder JIT match parameterized reference, perfect reconstruction
+
+### H.264 JIT Pipeline Tests (Phase 34) — DONE
+
+End-to-end JIT tests for both decoder and encoder pipelines, plus encoder→decoder roundtrip.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `Tests/Video/H264JITPipelineTest.lean` | JIT end-to-end tests: decoder, encoder, roundtrip |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `lakefile.lean` | Added `h264-jit-pipeline-test` executable |
+| `Sparkle/Backend/CppSim.lean` | Fixed missing `_rdata` member declaration for `Signal.memory` and unused `Signal.memoryComboRead` |
+| `IP/Video/H264/DecoderSynth.lean` | Fixed `grpIdxNext` hw_cond default (was `0#3`, should be `grpIdx`) |
+| `IP/Video/H264/EncoderSynth.lean` | Fixed `grpIdxNext` hw_cond default (same bug as decoder) |
+| `docs/STATUS.md` | Added Phase 34 section |
+
+#### Bug Fixes
+
+- **CppSim `_rdata` declaration bug**: `emitStmt` for `Signal.memory` (non-combo) never declared the read data variable (`_rdata`) as a class member, causing C++ compilation errors. For `Signal.memoryComboRead` with unused results (name starts with `_`), the read data wire was also missing from declarations. Fixed by checking `typeMap` and adding declaration when the wire isn't already known.
+- **FSM `grpIdxNext` hold bug**: Both decoder and encoder pipelines used `hw_cond (0#3) | groupDone => grpInc` which defaults `grpIdxNext` to 0 when `groupDone` is false. This reset `grpIdx` every non-boundary cycle, preventing the IDCT/DCT from progressing past group 1. Fixed by using `hw_cond grpIdx` (hold current value as default).
+
+#### Tests
+
+- **Decoder JIT**: Loads quantized levels + prediction into memories, runs FSM (~98 cycles), compares output vs `decoderPipelineRef`
+- **Encoder JIT**: Loads original pixels + prediction into memories, runs FSM (~98 cycles), compares output vs `encoderPipelineRef`
+- **Roundtrip**: Encodes original pixels, feeds quantized levels into decoder, verifies all decoded pixels in [0, 255]
+
+### H.264 Synthesizable Encoder Pipeline (Phase 33) — DONE
+
+Synthesizable encoder pipeline: residual → forward DCT → forward quantization, all as Signal DSL FSMs.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `IP/Video/H264/ForwardDCTSynth.lean` | Synthesizable forward DCT FSM (butterfly, 64 cycles) |
+| `IP/Video/H264/QuantSynth.lean` | Synthesizable forward quantization FSM (fixed QP=20, 16 cycles) |
+| `IP/Video/H264/EncoderSynth.lean` | Top-level encoder pipeline orchestrator (monolithic FSM, ~96 cycles) |
+| `Tests/Video/H264EncoderSynthTest.lean` | Pure Lean reference tests for all encoder sub-modules |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `IP/Video/H264.lean` | Added imports for 3 new synth modules |
+| `Tests/AllTests.lean` | Wired in `H264EncoderSynthTest` |
+| `docs/STATUS.md` | Added Phase 33 section |
+
+#### Architecture
+
+```
+Original Pixels (16×16-bit) + Predicted Pixels (16×16-bit)
+  → [Residual, 16 cycles] subtract original - predicted
+  → [Forward DCT, 64 cycles] row + col butterfly transform
+  → [Forward Quant, 16 cycles] (abs × MF + f) >> qbits, QP=20
+  → Quantized Levels (16×16-bit)
+```
+
+#### Sub-Module Design
+
+**ForwardDCTSynth** (64 cycles):
+- Two-phase butterfly: row transform (32 cycles) + col transform (32 cycles)
+- Each phase: 4 groups × 8 sub-steps (4 read + 4 write)
+- s0=v0+v3, s1=v1+v2, d0=v0-v3, d1=v1-v2
+- Y0=s0+s1, Y1=2*d0+d1, Y2=s0-s1, Y3=d0-2*d1 (no rounding)
+- `FwdDCTState`: 8 registers (fsm, grpIdx, substep, done, val0-val3)
+
+**QuantSynth** (16 cycles):
+- Fixed QP=20: qbits=18, f=87381, MF=[10082, 4194, 6554]
+- Position class computed from idx bits: bothEven→10082, bothOdd→4194, mixed→6554
+- Sign extraction, abs, multiply+f, shift right 18, sign restore
+- `QuantState`: 4 registers (fsm, idx, done, last)
+
+**EncoderSynth** (monolithic, ~96 cycles):
+- Phases: IDLE→RESIDUAL→DCT_ROW→DCT_COL→QUANT→DONE
+- All three stages in a single `Signal.loop` with shared memories
+- 6 memories for data passing between stages
+- `EncoderPipeState`: 12 registers
+
+### H.264 Synthesizable Decoder Pipeline (Phase 32) — DONE
+
+Synthesizable decoder pipeline: dequant → IDCT → reconstruct, all as Signal DSL FSMs.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `IP/Video/H264/DequantSynth.lean` | Synthesizable dequantization FSM (fixed QP=20, 16 cycles) |
+| `IP/Video/H264/IDCTSynth.lean` | Synthesizable inverse DCT FSM (butterfly, 64 cycles) |
+| `IP/Video/H264/ReconstructSynth.lean` | Synthesizable reconstruction FSM (add+clamp, 16 cycles) |
+| `IP/Video/H264/DecoderSynth.lean` | Top-level pipeline orchestrator (monolithic FSM, ~96 cycles) |
+| `Tests/Video/H264DecoderSynthTest.lean` | Pure Lean reference tests for all sub-modules |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `IP/Video/H264.lean` | Added imports for 4 new synth modules |
+| `Tests/AllTests.lean` | Wired in `H264DecoderSynthTest` |
+| `docs/STATUS.md` | Added Phase 32 section |
+| `README.md` | Updated H.264 section + roadmap |
+
+#### Generated Verilog (12 files in `IP/Video/H264/gen/`)
+
+| Module | SV Size | CppSim | JIT |
+|--------|---------|--------|-----|
+| `dequant` | 8 KB | `dequant_cppsim.h` | `dequant_jit.cpp` |
+| `idct` | 20 KB | `idct_cppsim.h` | `idct_jit.cpp` |
+| `reconstruct` | 7 KB | `reconstruct_cppsim.h` | `reconstruct_jit.cpp` |
+| `decoder_pipeline` | 29 KB | `decoder_pipeline_cppsim.h` | `decoder_pipeline_jit.cpp` |
+
+#### Architecture
+
+```
+Quantized Levels (16×16-bit) → [Dequant FSM] → Dequantized Coefficients
+  → [IDCT FSM] → Decoded Residual → [Reconstruct FSM] → Clamped Pixels [0,255]
+```
+
+#### Sub-Module Design
+
+**DequantSynth** (16 cycles):
+- Fixed QP=20: qp%6=2, qp/6=3 → V=[13,20,16], scale=2^3=8
+- Position class computed from idx bits: bothEven→104, bothOdd→160, mixed→128
+- Sign extraction, abs, multiply, sign restore
+- `DequantState`: 4 registers (fsm, idx, done, last)
+
+**IDCTSynth** (64 cycles):
+- Two-phase butterfly: row transform (32 cycles) + col transform (32 cycles)
+- Each phase: 4 groups × 8 sub-steps (4 read + 4 write)
+- s0=v0+v2, s1=v0-v2, d0=v1/2-v3, d1=v1+v3/2
+- Row results: no rounding. Col results: (+32)>>6 via sarBy6
+- `IDCTState`: 8 registers (fsm, grpIdx, substep, done, val0-val3)
+
+**ReconstructSynth** (16 cycles):
+- predicted (unsigned) + residual (signed) → clamp [0,255]
+- Sign bit check for negative, upper byte check for >255
+- Dual combo-read memories (prediction + residual)
+- `ReconState`: 4 registers (fsm, idx, done, last)
+
+**DecoderSynth** (monolithic, ~96 cycles):
+- Phases: IDLE→DEQUANT→IDCT_ROW→IDCT_COL→RECON→DONE
+- All three stages in a single `Signal.loop` with shared memories
+- 6 combo-read/regular memories for coefficient passing
+- `DecoderPipeState`: 12 registers
+
+#### Synthesis Patterns Used
+- `declare_signal_state` for state definition
+- `Signal.loop fun state =>` for FSM
+- `Signal.memoryComboRead` for same-cycle reads
+- `Signal.memory` for registered writes
+- `bundleAll!` for state bundling
+- `hw_cond` for FSM transitions
+- `===` for state comparison, `&&&`/`|||` for boolean logic
+- `(· * ·) <$> a <*> b` for arithmetic
+- `.map (BitVec.extractLsb' start len ·)` for bit extraction/shifts
+- `sarBy1`/`sarBy6` helpers for signed arithmetic right shift
+
+#### Tests (all pass)
+
+| Test | Description |
+|------|-------------|
+| `dequant pos0 = 10*104 = 1040` | V×scale for corner position |
+| `dequant pos1 = -2*128 = -256` | V×scale for mixed position |
+| `dequant pos4 = -8*128 = -1024` | V×scale for mixed position |
+| `dequant pos12 = -1*128 = -128` | V×scale for mixed position |
+| `idct has non-zero values` | IDCT produces meaningful output |
+| `reconstruct all in [0,255]` | Clamping works |
+| `reconstruct not uniform` | Non-trivial output |
+| `pipeline matches step-by-step` | Full pipeline = dequant→IDCT→recon |
+| `large negative clamps to 0` | Edge case |
+| `large positive clamps to 255` | Edge case |
+| `zero levels → pure prediction` | Zero input passthrough |
+
+#### Known Limitations
+
+- **Fixed QP=20 only** — parameterized QP requires runtime LUT selection (deferred to Phase 33)
+- **CAVLC decoder not included** — pipeline accepts pre-decoded quantized levels
+- **Single 4×4 block only** — no frame-level integration
+- **DRC warnings** — outputs not registered (combinational output from `bundleAll!` to `out`)
+
+---
 
 ### H.264 CAVLC Decoder Fix (Phase 31c) — DONE
 

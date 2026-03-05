@@ -102,6 +102,26 @@ lean_exe «h264-jit-test» where
   root := `Tests.Video.H264JITTest
   supportInterpreter := true
 
+lean_exe «h264-jit-pipeline-test» where
+  root := `Tests.Video.H264JITPipelineTest
+  supportInterpreter := true
+
+lean_exe «h264-bitstream-test» where
+  root := `Tests.Video.H264BitstreamTest
+  supportInterpreter := true
+
+lean_exe «h264-playable-test» where
+  root := `Tests.Video.H264PlayableTest
+  supportInterpreter := true
+
+lean_exe «h264-frame-encoder-test» where
+  root := `Tests.Video.H264FrameEncoderTest
+  supportInterpreter := true
+
+lean_exe «h264-mp4-encoder-test» where
+  root := `Tests.Video.H264MP4EncoderTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

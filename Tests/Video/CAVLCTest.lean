@@ -16,7 +16,8 @@ open Sparkle.IP.Video.H264.CAVLC
 namespace Sparkle.Tests.Video.CAVLCTest
 
 -- Golden reference values from C++ generate_cavlc_golden
-private def goldenBitstream : BitVec 32 := 0x1E6E8000#32
+private def goldenBitstream64 : BitVec 64 := 0x1E6E800000000000#64
+private def goldenBitstream32 : BitVec 32 := 0x1E6E8000#32
 private def goldenBitLen    : Nat := 17
 
 /-- Test the pure CAVLC encoding function against golden reference -/
@@ -24,9 +25,9 @@ def testPureEncoding : IO LSpec.TestSeq := do
   let coeffs : Array Int := #[0, 3, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   let (bitstream, bitLen) := cavlcEncodeFull coeffs
   IO.println s!"  Pure encoding: 0x{String.ofList (Nat.toDigits 16 bitstream.toNat)} ({bitLen} bits)"
-  IO.println s!"  Golden:        0x{String.ofList (Nat.toDigits 16 goldenBitstream.toNat)} ({goldenBitLen} bits)"
+  IO.println s!"  Golden:        0x{String.ofList (Nat.toDigits 16 goldenBitstream64.toNat)} ({goldenBitLen} bits)"
   pure $ LSpec.group "Pure CAVLC Encoding" (
-    LSpec.test "bitstream matches golden" (bitstream == goldenBitstream) ++
+    LSpec.test "bitstream matches golden" (bitstream == goldenBitstream64) ++
     LSpec.test "bit length matches golden" (bitLen == goldenBitLen)
   )
 
@@ -94,7 +95,7 @@ def testFSMEncoding : IO LSpec.TestSeq := do
 
   pure $ LSpec.group "FSM CAVLC Encoding" (
     LSpec.test "validOut asserts" (outputCycle > 0) ++
-    LSpec.test "bitstream matches golden" (bsAtOutput == goldenBitstream) ++
+    LSpec.test "bitstream matches golden" (bsAtOutput == goldenBitstream32) ++
     LSpec.test "bit length matches golden" (blAtOutput == BitVec.ofNat 6 goldenBitLen)
   )
 

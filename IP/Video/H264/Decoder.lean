@@ -54,7 +54,7 @@ structure DecoderResult where
 /-- Decode a single 4×4 block from CAVLC bitstream.
     Input: bitstream data, prediction mode + neighbors, QP.
     Output: DecoderResult with decoded pixels. -/
-def decodeBlock (bitstream : BitVec 32) (bitLen : Nat)
+def decodeBlock (bitstream : BitVec 64) (bitLen : Nat)
     (predMode : Nat) (neighbors : Neighbors) (cfg : DecoderConfig)
     : DecoderResult :=
   -- 1. CAVLC decode: bitstream → quantized levels

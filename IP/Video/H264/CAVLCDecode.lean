@@ -34,31 +34,31 @@ open Sparkle.IP.Video.H264.CAVLC
 
 /-- Bitstream state: buffer and current bit position -/
 structure BitstreamReader where
-  buffer : BitVec 32
+  buffer : BitVec 64
   pos    : Nat
   deriving Repr
 
 /-- Read n bits from the bitstream (MSB-first), advance position -/
-def BitstreamReader.readBits (r : BitstreamReader) (n : Nat) : BitVec 32 × BitstreamReader :=
-  if n == 0 then (0#32, r)
+def BitstreamReader.readBits (r : BitstreamReader) (n : Nat) : BitVec 64 × BitstreamReader :=
+  if n == 0 then (0#64, r)
   else
-    let shifted := r.buffer >>> (32 - r.pos - n)
+    let shifted := r.buffer >>> (64 - r.pos - n)
     let mask := (1 <<< n) - 1
-    let bits := shifted &&& BitVec.ofNat 32 mask
+    let bits := shifted &&& BitVec.ofNat 64 mask
     (bits, { r with pos := r.pos + n })
 
 /-- Peek at the next bit without advancing -/
 def BitstreamReader.peekBit (r : BitstreamReader) : Bool :=
-  let shifted := r.buffer >>> (31 - r.pos)
-  (shifted &&& 1#32) != 0#32
+  let shifted := r.buffer >>> (63 - r.pos)
+  (shifted &&& 1#64) != 0#64
 
 /-- Check if the bitstream at current position matches a VLC code.
     H.264 VLC codes are prefix-free, so exactly one match exists. -/
 def BitstreamReader.matchCode (r : BitstreamReader) (code : BitVec 16) (len : Nat) : Bool :=
-  if len == 0 || r.pos + len > 32 then false
+  if len == 0 || r.pos + len > 64 then false
   else
-    let shifted := r.buffer >>> (32 - r.pos - len)
-    let mask := BitVec.ofNat 32 ((1 <<< len) - 1)
+    let shifted := r.buffer >>> (64 - r.pos - len)
+    let mask := BitVec.ofNat 64 ((1 <<< len) - 1)
     (shifted &&& mask).toNat == code.toNat
 
 -- ============================================================================
@@ -180,9 +180,9 @@ def inverseZigzag (zigzag : Array Int) : Array Int :=
 -- ============================================================================
 
 /-- Decode CAVLC bitstream to 16 quantized coefficients (raster order).
-    Input: 32-bit bitstream buffer, bit length.
+    Input: 64-bit bitstream buffer, bit length.
     Output: 16 coefficients in raster scan order (inverse zig-zag applied). -/
-def cavlcDecode (buffer : BitVec 32) (bitLen : Nat) : Array Int := Id.run do
+def cavlcDecode (buffer : BitVec 64) (bitLen : Nat) : Array Int := Id.run do
   let mut reader : BitstreamReader := ⟨buffer, 0⟩
 
   -- 1. Decode coeff_token
@@ -197,7 +197,7 @@ def cavlcDecode (buffer : BitVec 32) (bitLen : Nat) : Array Int := Id.run do
   for _ in [:trailingOnes] do
     let (signBit, r') := reader.readBits 1
     reader := r'
-    coeffs := coeffs.push (if signBit == 1#32 then -1 else 1)
+    coeffs := coeffs.push (if signBit == 1#64 then -1 else 1)
 
   -- 3. Decode remaining levels
   let numLevels := totalCoeff - trailingOnes
