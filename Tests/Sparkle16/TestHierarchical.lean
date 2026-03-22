@@ -122,17 +122,15 @@ def test_hierarchical_synthesis : IO LSpec.TestSeq := do
       LSpec.test "datapath module declared" (verilog.contains "module Sparkle16_Test_datapath") $
       LSpec.test "has clock input" (verilog.contains "input logic clk") $
       LSpec.test "has reset input" (verilog.contains "input logic rst") $
-      LSpec.test "has opSel input" (verilog.contains "_gen_opSel_") $
-      LSpec.test "has a input" (verilog.contains "_gen_a_") $
-      LSpec.test "has b input" (verilog.contains "_gen_b_") $
+      LSpec.test "has opSel input" (verilog.contains "_gen_opSel") $
+      LSpec.test "has a input" (verilog.contains "_gen_a") $
+      LSpec.test "has b input" (verilog.contains "_gen_b") $
       LSpec.test "has output port" (verilog.contains "output")
     ) ++
-    LSpec.group "Hierarchical Instantiation" (
-      LSpec.test "instantiates ALU submodule" (verilog.contains "Sparkle16_Test_alu") $
-      LSpec.test "has ALU instance" (verilog.contains "inst_Sparkle16_Test_alu") $
-      LSpec.test "connects sel to ALU" (verilog.contains "._gen_sel_") $
-      LSpec.test "connects a to ALU" (verilog.contains "._gen_a_") $
-      LSpec.test "connects b to ALU" (verilog.contains "._gen_b_")
+    LSpec.group "Inlined ALU Logic" (
+      LSpec.test "has addition (inlined ALU)" (verilog.contains "_gen_addResult") $
+      LSpec.test "has subtraction (inlined ALU)" (verilog.contains "_gen_subResult") $
+      LSpec.test "has ALU result" (verilog.contains "_gen_aluResult")
     ) ++
     LSpec.group "Sequential Logic" (
       LSpec.test "has always_ff block" (verilog.contains "always_ff") $

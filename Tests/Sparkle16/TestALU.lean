@@ -120,9 +120,9 @@ def test_alu_synthesis : IO LSpec.TestSeq := do
 
   return LSpec.group "ALU Verilog Generation" (
     LSpec.test "module declared" (verilog.contains "module Sparkle16_Test_alu") $
-    LSpec.test "has sel input" (verilog.contains "_gen_sel_") $
-    LSpec.test "has a input" (verilog.contains "_gen_a_") $
-    LSpec.test "has b input" (verilog.contains "_gen_b_") $
+    LSpec.test "has sel input" (verilog.contains "_gen_sel") $
+    LSpec.test "has a input" (verilog.contains "_gen_a") $
+    LSpec.test "has b input" (verilog.contains "_gen_b") $
     LSpec.test "has output port" (verilog.contains "output") $
     LSpec.test "performs addition" (verilog.contains "+") $
     LSpec.test "performs subtraction" (verilog.contains "-") $

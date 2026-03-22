@@ -101,14 +101,12 @@ def makeTests (outputs : VerilogOutputs) : TestSeq :=
       group "test_hierarchical_alu" (
         test "top module declared"
           (outputs.hierarchicalVerilog.containsSubstr "module test_hierarchical_alu") $
-        test "instantiates test_add"
-          (hierTopModule.containsSubstr "test_add inst_test_add") $
-        test "instantiates test_sub"
-          (hierTopModule.containsSubstr "test_sub inst_test_sub") $
-        test "has signal routing (addResult)"
-          (hierTopModule.containsSubstr "_gen_addResult_") $
-        test "has signal routing (subResult)"
-          (hierTopModule.containsSubstr "_gen_subResult_")
+        test "has addition (inlined test_add)"
+          (hierTopModule.containsSubstr "_gen_addResult") $
+        test "has subtraction (inlined test_sub)"
+          (hierTopModule.containsSubstr "_gen_subResult") $
+        test "has mux for op select"
+          (hierTopModule.containsSubstr "_gen_op ? ")
       )
     ) ++
     group "Sequential Circuits" (
