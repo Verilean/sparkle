@@ -47,7 +47,9 @@ jobs:
       run: lake build Examples.RV32
 
     - name: Build CDC Multi-Clock example
-      run: lake build Examples.CDC
+      run: |
+        mkdir -p Examples/CDC/gen
+        lake build Examples.CDC
 
     # ---- Formal Proofs ----
 
