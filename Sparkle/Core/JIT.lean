@@ -124,6 +124,21 @@ def JIT.findReg (h : JITHandle) (name : String) : IO (Option UInt32) := do
     if rn == name then return some i.toUInt32
   return none
 
+/--
+  Run two JIT domains connected via a lock-free SPSC queue (CDC).
+
+  Domain A (producer) runs `cyclesA` eval_tick cycles, sending output port
+  values to Domain B via the queue. Domain B (consumer) runs `cyclesB`
+  eval_tick cycles, receiving values and applying them to its input port.
+  Timestamp inversions trigger automatic rollback via snapshot/restore.
+
+  Returns `(messagesSent, messagesReceived, rollbackCount)`.
+-/
+@[extern "sparkle_jit_run_cdc"]
+opaque JIT.runCDC (handleA : @& JITHandle) (handleB : @& JITHandle)
+    (cyclesA : UInt64) (cyclesB : UInt64)
+    (outPortA : UInt32) (inPortB : UInt32) : IO (UInt64 × UInt64 × UInt64)
+
 /-- Compile a JIT .cpp file to a shared library, with hash-based caching -/
 def JIT.compile (cppPath : String) (cacheDir : String := ".lake/build/jit_cache") : IO String := do
   -- Read source, compute hash for caching

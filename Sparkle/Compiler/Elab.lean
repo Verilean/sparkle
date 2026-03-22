@@ -692,16 +692,80 @@ mutual
                      CompilerM.emitAssign resWire (.slice (.ref wireA) (start + len - 1) start)
                      return resWire
 
+                 -- Simple unary map: NOT, NEG (may have extra typeclass/type args)
                  if let some op := getOperator opName then
-                   -- For now, only handle the simple case: unary map (no constants in lambda)
-                   -- The more complex case with constants needs better handling
-                   let wireA ← translateExprToWire a "a" (isTopLevel := false)
-                   -- Infer result type from the expression type
-                   let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-                   let hwType ← inferHWTypeFromSignal exprType
-                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-                   CompilerM.emitAssign resWire (.op op [.ref wireA])
-                   return resWire
+                   if op == .not || op == .neg then
+                     let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let hwType ← inferHWTypeFromSignal exprType
+                     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                     CompilerM.emitAssign resWire (.op op [.ref wireA])
+                     return resWire
+
+                 -- Binary operation in lambda with one constant and one bvar:
+                 -- e.g., (fun d => (0#24 ++ d)) <$> sig  or  (fun x => x + 1#8) <$> sig
+                 let bodyArgs := bodyApp.getAppArgs
+                 if bodyArgs.size >= 2 then
+                   let arg1 := bodyArgs[bodyArgs.size - 2]!
+                   let arg2 := bodyArgs[bodyArgs.size - 1]!
+                   let arg1HasBVar := arg1.hasLooseBVars
+                   let arg2HasBVar := arg2.hasLooseBVars
+                   -- Exactly one argument should reference the lambda parameter
+                   if arg1HasBVar != arg2HasBVar then
+                     let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                     -- Check for concat (HAppend.hAppend / BitVec.append)
+                     if opName == ``HAppend.hAppend || opName == ``BitVec.append then
+                       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                       let hwType ← inferHWTypeFromSignal exprType
+                       if arg1HasBVar then
+                         -- (fun d => d ++ const) — signal is high bits
+                         let (cVal, cWidth) ← extractBitVecLiteral arg2
+                         let constWire ← CompilerM.makeWire "lambda_const" (.bitVector cWidth)
+                         CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+                         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                         CompilerM.emitAssign resWire (.concat [.ref wireA, .ref constWire])
+                         return resWire
+                       else
+                         -- (fun d => const ++ d) — signal is low bits
+                         let (cVal, cWidth) ← extractBitVecLiteral arg1
+                         let constWire ← CompilerM.makeWire "lambda_const" (.bitVector cWidth)
+                         CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+                         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                         CompilerM.emitAssign resWire (.concat [.ref constWire, .ref wireA])
+                         return resWire
+                     -- Other binary primitives (add, sub, and, or, xor, etc.)
+                     if let some op := getOperator opName then
+                       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                       let hwType ← inferHWTypeFromSignal exprType
+                       if arg1HasBVar then
+                         -- (fun x => x + const)
+                         let (cVal, cWidth) ← extractBitVecLiteral arg2
+                         let constWire ← CompilerM.makeWire "lambda_const" (.bitVector cWidth)
+                         CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+                         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                         CompilerM.emitAssign resWire (.op op [.ref wireA, .ref constWire])
+                         return resWire
+                       else
+                         -- (fun x => const + x)
+                         let (cVal, cWidth) ← extractBitVecLiteral arg1
+                         let constWire ← CompilerM.makeWire "lambda_const" (.bitVector cWidth)
+                         CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+                         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                         CompilerM.emitAssign resWire (.op op [.ref constWire, .ref wireA])
+                         return resWire
+
+                 -- Remaining unary primitives (non-NOT/NEG) handled here
+                 if let some op := getOperator opName then
+                   let bodyArgs := bodyApp.getAppArgs
+                   -- Only if the body has exactly 1 loose-bvar arg (the lambda param)
+                   let numBVarArgs := bodyArgs.toList.filter (·.hasLooseBVars) |>.length
+                   if numBVarArgs ≤ 1 then
+                     let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let hwType ← inferHWTypeFromSignal exprType
+                     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                     CompilerM.emitAssign resWire (.op op [.ref wireA])
+                     return resWire
              | _ => pure ()
 
 
@@ -994,7 +1058,17 @@ mutual
       trace[sparkle.compiler] "→ primitive {name}"
       match getOperator name with
       | some op =>
-        if args.size >= 2 then
+        -- Unary operators: NOT, NEG, Complement.complement
+        -- These may have extra typeclass/type args before the actual signal arg
+        let isUnary := op == .not || op == .neg
+        if isUnary && args.size >= 1 then
+           let wire1 ← translateExprToWire args[args.size-1]! "arg1"
+           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+           let hwType ← inferHWTypeFromSignal exprType
+           let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
+           CompilerM.emitAssign resultWire (.op op [.ref wire1])
+           return some resultWire
+        else if args.size >= 2 then
           let wire1 ← translateExprToWire args[args.size-2]! "arg1"
           let wire2 ← translateExprToWire args[args.size-1]! "arg2"
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
@@ -1002,13 +1076,6 @@ mutual
           let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
           CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
           return some resultWire
-        else if args.size == 1 then
-           let wire1 ← translateExprToWire args[0]! "arg1"
-           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-           let hwType ← inferHWTypeFromSignal exprType
-           let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
-           CompilerM.emitAssign resultWire (.op op [.ref wire1])
-           return some resultWire
       | none =>
         CompilerM.liftMetaM $ throwError s!"Internal error: {name} is marked as primitive but has no operator"
 
@@ -1406,6 +1473,8 @@ elab "#writeVerilogDesign" id:ident str:str : command => do
     runDesignDRC design
     let verilog := toVerilogDesign design
     let path := str.getString
+    if let some dir := (System.FilePath.mk path).parent then
+      IO.FS.createDirAll dir
     IO.FS.writeFile path verilog
     IO.println s!"Written {design.modules.length} modules to {path}"
 
@@ -1417,6 +1486,8 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
     let path := str.getString
+    if let some dir := (System.FilePath.mk path).parent then
+      IO.FS.createDirAll dir
     IO.FS.writeFile path cpp
     IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {path}"
 
@@ -1434,6 +1505,11 @@ private def writeDesignCore (declName : Name) (svPath cppPath : String)
     (observableWires : Option (List String)) : TermElabM Unit := do
   let design ← synthesizeHierarchical declName
   runDesignDRC design
+  -- Ensure output directories exist
+  if let some svDir := (System.FilePath.mk svPath).parent then
+    IO.FS.createDirAll svDir
+  if let some cppDir := (System.FilePath.mk cppPath).parent then
+    IO.FS.createDirAll cppDir
   -- Verilog (unoptimized)
   let verilog := toVerilogDesign design
   IO.FS.writeFile svPath verilog

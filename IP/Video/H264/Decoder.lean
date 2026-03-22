@@ -83,14 +83,14 @@ def decodeFromNAL (nalUnit : List (BitVec 8))
   -- 1. NAL parse: remove start code + emulation prevention
   let payload := nalParsePayload nalUnit
 
-  -- 2. Reconstruct bitstream from payload bytes
+  -- 2. Reconstruct bitstream from payload bytes (64-bit buffer to match decodeBlock)
   let (bitstream, bitLen) := Id.run do
-    let mut buf : BitVec 32 := 0#32
+    let mut buf : BitVec 64 := 0#64
     let mut pos := 0
     for byte in payload do
-      let byte32 := BitVec.zeroExtend 32 byte
-      if pos + 8 <= 32 then
-        buf := buf ||| (byte32 <<< (24 - pos))
+      let byte64 := BitVec.zeroExtend 64 byte
+      if pos + 8 <= 64 then
+        buf := buf ||| (byte64 <<< (56 - pos))
         pos := pos + 8
     (buf, pos)
 

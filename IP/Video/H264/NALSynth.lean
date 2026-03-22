@@ -184,6 +184,6 @@ def nalStreamModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign nalStreamModule "IP/Video/H264/gen/nal_stream.sv" "IP/Video/H264/gen/nal_stream_cppsim.h"
+#writeDesign nalStreamModule ".lake/build/gen/h264/nal_stream.sv" ".lake/build/gen/h264/nal_stream_cppsim.h"
 
 end Sparkle.IP.Video.H264.NALSynth

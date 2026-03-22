@@ -74,7 +74,7 @@ def testFrameEncoder : IO Bool := do
 
   -- Compile JIT
   IO.println "  Compiling frame_encoder_jit.cpp..."
-  let handle ← JIT.compileAndLoad "IP/Video/H264/gen/frame_encoder_jit.cpp"
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/frame_encoder_jit.cpp"
   IO.println "  Loaded frame encoder JIT module"
 
   -- Load VLC tables
@@ -298,7 +298,7 @@ def testFrameEncoder : IO Bool := do
       pass := false
 
   -- Write .h264 file
-  let h264Path := "IP/Video/H264/gen/test_frame_encoder.h264"
+  let h264Path := ".lake/build/gen/h264/test_frame_encoder.h264"
   IO.FS.writeBinFile h264Path (ByteArray.mk outputBytes)
   IO.println s!"  Written to {h264Path}"
 
@@ -323,7 +323,7 @@ def testFrameEncoder : IO Bool := do
           ba := ba.push outputBytes[i]
       ba
     let mp4 := muxSingleFrame spsBytes ppsBytes idrBytes 16 16
-    let mp4Path := "IP/Video/H264/gen/test_frame_encoder.mp4"
+    let mp4Path := ".lake/build/gen/h264/test_frame_encoder.mp4"
     IO.FS.writeBinFile mp4Path mp4
     IO.println s!"  MP4 written: {mp4.size} bytes → {mp4Path}"
 

@@ -331,3 +331,147 @@ LEAN_EXPORT lean_obj_res sparkle_jit_free_snapshot(
     if (h->free_snapshot && snap) h->free_snapshot((void*)snap);
     return mk_io_ok(lean_box(0));
 }
+
+/* ========================================================================
+ * CDC Multi-Domain Runner (Phase 4)
+ *
+ * Loads cdc_runner.so/.dylib via dlopen and calls cdc_run() to execute
+ * two JIT domains on separate threads with a lock-free SPSC queue.
+ *
+ * The CDC runner is a separate C++20 shared library because sparkle_jit.c
+ * is compiled under Lean's -nostdinc (no <atomic>, <thread>, etc.).
+ * ======================================================================== */
+
+/* CDCJITVtable — must match cdc_runner.hpp */
+typedef struct {
+    void* ctx;
+    void  (*eval_tick)(void*);
+    void  (*set_input)(void*, uint32_t, uint64_t);
+    uint64_t (*get_output)(void*, uint32_t);
+    void* (*snapshot)(void*);
+    void  (*restore)(void*, void*);
+    void  (*free_snapshot)(void*);
+} CDCJITVtable;
+
+/* CDCRunResult — must match cdc_runner.hpp */
+typedef struct {
+    uint64_t messages_sent;
+    uint64_t messages_received;
+    uint64_t rollback_count;
+    double   elapsed_ms;
+    int      success;
+} CDCRunResult;
+
+/* Function pointer type for cdc_run */
+typedef CDCRunResult (*cdc_run_fn)(
+    CDCJITVtable*, CDCJITVtable*,
+    uint64_t, uint64_t,
+    uint32_t, uint32_t,
+    uint32_t, uint32_t);
+
+/* Cached dlopen handle for cdc_runner shared library */
+static void* g_cdc_runner_lib = NULL;
+static cdc_run_fn g_cdc_run = NULL;
+
+static int ensure_cdc_runner(void) {
+    if (g_cdc_run) return 1;
+
+    /* Try platform-specific names */
+    const char* names[] = {
+        "./cdc_runner.so",
+        "./c_src/cdc/cdc_runner.so",
+        "cdc_runner.so",
+        "./cdc_runner.dylib",
+        "./c_src/cdc/cdc_runner.dylib",
+        "cdc_runner.dylib",
+        NULL
+    };
+    for (int i = 0; names[i]; i++) {
+        g_cdc_runner_lib = dlopen(names[i], RTLD_NOW);
+        if (g_cdc_runner_lib) break;
+    }
+    if (!g_cdc_runner_lib) return 0;
+
+    g_cdc_run = (cdc_run_fn)dlsym(g_cdc_runner_lib, "cdc_run");
+    if (!g_cdc_run) {
+        dlclose(g_cdc_runner_lib);
+        g_cdc_runner_lib = NULL;
+        return 0;
+    }
+    return 1;
+}
+
+/* Fill CDCJITVtable from JITHandle */
+static void fill_vtable(CDCJITVtable* vt, JITHandle* h) {
+    vt->ctx           = h->ctx;
+    vt->eval_tick     = h->eval_tick;
+    vt->set_input     = h->set_input;
+    vt->get_output    = h->get_output;
+    vt->snapshot      = h->snapshot;
+    vt->restore       = h->restore;
+    vt->free_snapshot = h->free_snapshot;
+}
+
+/*
+ * sparkle_jit_run_cdc :
+ *   @& JITHandle → @& JITHandle →
+ *   UInt64 → UInt64 → UInt32 → UInt32 →
+ *   IO (UInt64 × UInt64 × UInt64)
+ *
+ * Returns (messages_sent, messages_received, rollback_count).
+ *
+ * Parameters:
+ *   handle_a  — JIT handle for domain A (producer / fast clock)
+ *   handle_b  — JIT handle for domain B (consumer / slow clock)
+ *   cycles_a  — number of eval_tick cycles for domain A
+ *   cycles_b  — number of eval_tick cycles for domain B
+ *   out_port_a — output port index to read from domain A
+ *   in_port_b  — input port index to write to domain B
+ */
+LEAN_EXPORT lean_obj_res sparkle_jit_run_cdc(
+    b_lean_obj_arg handle_a, b_lean_obj_arg handle_b,
+    uint64_t cycles_a, uint64_t cycles_b,
+    uint32_t out_port_a, uint32_t in_port_b,
+    lean_obj_arg w)
+{
+    (void)w;
+
+    if (!ensure_cdc_runner()) {
+        return mk_io_error("CDC: failed to load cdc_runner shared library. "
+                           "Build it with: make -C c_src/cdc cdc_runner.so");
+    }
+
+    JITHandle* ha = get_handle(handle_a);
+    JITHandle* hb = get_handle(handle_b);
+
+    CDCJITVtable vt_a, vt_b;
+    fill_vtable(&vt_a, ha);
+    fill_vtable(&vt_b, hb);
+
+    /* send_interval=2 (every other A-cycle), snapshot_interval=1000 */
+    CDCRunResult res = g_cdc_run(&vt_a, &vt_b,
+                                  cycles_a, cycles_b,
+                                  out_port_a, in_port_b,
+                                  2, 1000);
+
+    if (!res.success) {
+        return mk_io_error("CDC: cdc_run failed");
+    }
+
+    /* Return (sent, received, rollbacks) as a Lean tuple (Prod) */
+    lean_obj_res v_sent = lean_box_uint64(res.messages_sent);
+    lean_obj_res v_recv = lean_box_uint64(res.messages_received);
+    lean_obj_res v_rb   = lean_box_uint64(res.rollback_count);
+
+    /* Build (received, rollbacks) */
+    lean_obj_res inner = lean_alloc_ctor(0, 2, 0);
+    lean_ctor_set(inner, 0, v_recv);
+    lean_ctor_set(inner, 1, v_rb);
+
+    /* Build (sent, (received, rollbacks)) */
+    lean_obj_res outer = lean_alloc_ctor(0, 2, 0);
+    lean_ctor_set(outer, 0, v_sent);
+    lean_ctor_set(outer, 1, inner);
+
+    return mk_io_ok(outer);
+}

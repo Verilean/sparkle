@@ -15,14 +15,14 @@
      c. Run CAVLC JIT → bitstream
      d. Verify against cavlcEncodeFull(levels, nC)
   4. Assemble Annex-B: SPS + PPS + IDR slice header + MB header + 16 CAVLC blocks
-  5. Write to IP/Video/H264/gen/test_playable.h264
+  5. Write to .lake/build/gen/h264/test_playable.h264
 
   Usage:
     lake build h264-playable-test && lake exe h264-playable-test
 
   Verify:
-    ffprobe -v error -show_streams IP/Video/H264/gen/test_playable.h264
-    ffplay -vf "scale=256:256:flags=neighbor" IP/Video/H264/gen/test_playable.h264
+    ffprobe -v error -show_streams .lake/build/gen/h264/test_playable.h264
+    ffplay -vf "scale=256:256:flags=neighbor" .lake/build/gen/h264/test_playable.h264
 -/
 
 import Sparkle.Core.JIT
@@ -113,15 +113,15 @@ def testPlayableStream : IO Bool := do
 
   -- Compile JIT modules
   IO.println "  Compiling encoder pipeline..."
-  let encHandle ← JIT.compileAndLoad "IP/Video/H264/gen/encoder_pipeline_jit.cpp"
+  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
   let encDoneIdx ← resolveWire encHandle "_gen_done"
 
   IO.println "  Compiling decoder pipeline..."
-  let decHandle ← JIT.compileAndLoad "IP/Video/H264/gen/decoder_pipeline_jit.cpp"
+  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.cpp"
   let decDoneIdx ← resolveWire decHandle "_gen_done"
 
   IO.println "  Compiling CAVLC synth..."
-  let cavlcHandle ← JIT.compileAndLoad "IP/Video/H264/gen/cavlc_synth_jit.cpp"
+  let cavlcHandle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.cpp"
   let cavlcDoneIdx ← resolveWire cavlcHandle "_gen_done"
 
   -- Set QP parameters
@@ -455,7 +455,7 @@ def testPlayableStream : IO Bool := do
   IO.println s!"  Header bits: {headerBitLen}, CAVLC bits: {cavlcTotalBits}, align: {alignZeros}+1 (rbsp trailing)"
 
   -- Write .h264 file
-  let outputPath := "IP/Video/H264/gen/test_playable.h264"
+  let outputPath := ".lake/build/gen/h264/test_playable.h264"
   let byteArray := ByteArray.mk outputBytes
   IO.FS.writeBinFile outputPath byteArray
   IO.println s!"  Written to {outputPath}"
@@ -496,7 +496,7 @@ def testPlayableStream : IO Bool := do
     ba
 
   let mp4 := muxSingleFrame spsBytes ppsBytes idrBytes 16 16
-  let mp4Path := "IP/Video/H264/gen/test_playable.mp4"
+  let mp4Path := ".lake/build/gen/h264/test_playable.mp4"
   IO.FS.writeBinFile mp4Path mp4
   IO.println s!"  MP4 written: {mp4.size} bytes → {mp4Path}"
   IO.println s!"    SPS: {spsBytes.size} bytes, PPS: {ppsBytes.size} bytes, IDR: {idrBytes.size} bytes"
@@ -545,8 +545,8 @@ def main : IO UInt32 := do
   IO.println "\n=========================="
   if r1 then
     IO.println "TEST PASSED — playable .h264 and .mp4 generated"
-    IO.println "  ffplay -vf \"scale=256:256:flags=neighbor\" IP/Video/H264/gen/test_playable.h264"
-    IO.println "  ffplay -vf \"scale=256:256:flags=neighbor\" IP/Video/H264/gen/test_playable.mp4"
+    IO.println "  ffplay -vf \"scale=256:256:flags=neighbor\" .lake/build/gen/h264/test_playable.h264"
+    IO.println "  ffplay -vf \"scale=256:256:flags=neighbor\" .lake/build/gen/h264/test_playable.mp4"
     return 0
   else
     IO.eprintln "TEST FAILED"

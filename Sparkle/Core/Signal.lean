@@ -214,6 +214,9 @@ instance : HXor (Signal dom Bool) (Signal dom Bool) (Signal dom Bool) where
 instance : Complement (Signal dom Bool) where
   complement a := (fun x => !x) <$> a
 
+instance : Complement (Signal dom (BitVec n)) where
+  complement a := (fun x => ~~~x) <$> a
+
 -- Hardware equality operator
 -- Expands to (· == ·) <$> a <*> b, which the synthesis compiler recognizes
 
@@ -845,5 +848,32 @@ macro_rules
   | `(bundleAll! [$a]) => `($a)
   | `(bundleAll! [$a, $b]) => `(bundle2 $a $b)
   | `(bundleAll! [$a, $bs,*]) => `(bundle2 $a (bundleAll! [$bs,*]))
+
+-- ============================================================================
+-- hw_let: Tuple Destructuring for Signal Pipeline Pattern
+-- ============================================================================
+
+/-- Destructure a 2-element right-nested pair signal into named bindings.
+    `hw_let (a, b) := sig; body` expands to:
+    `let a := Signal.fst sig; let b := Signal.snd sig; body` -/
+macro "hw_let" "(" a:ident "," b:ident ")" " := " e:term ";" body:term : term =>
+  `(let _hw_tmp := $e; let $a := Signal.fst _hw_tmp; let $b := Signal.snd _hw_tmp; $body)
+
+/-- Destructure a 3-element right-nested pair signal `(A × (B × C))`. -/
+macro "hw_let" "(" a:ident "," b:ident "," c:ident ")" " := " e:term ";" body:term : term =>
+  `(let _hw_tmp := $e;
+    let $a := Signal.fst _hw_tmp;
+    let $b := Signal.fst (Signal.snd _hw_tmp);
+    let $c := Signal.snd (Signal.snd _hw_tmp);
+    $body)
+
+/-- Destructure a 4-element right-nested pair signal `(A × (B × (C × D)))`. -/
+macro "hw_let" "(" a:ident "," b:ident "," c:ident "," d:ident ")" " := " e:term ";" body:term : term =>
+  `(let _hw_tmp := $e;
+    let $a := Signal.fst _hw_tmp;
+    let $b := Signal.fst (Signal.snd _hw_tmp);
+    let $c := Signal.fst (Signal.snd (Signal.snd _hw_tmp));
+    let $d := Signal.snd (Signal.snd (Signal.snd _hw_tmp));
+    $body)
 
 end Sparkle.Core.Signal

@@ -359,7 +359,7 @@ def decoderPipeline {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign decoderPipeline "IP/Video/H264/gen/decoder_pipeline.sv" "IP/Video/H264/gen/decoder_pipeline_cppsim.h"
+#writeDesign decoderPipeline ".lake/build/gen/h264/decoder_pipeline.sv" ".lake/build/gen/h264/decoder_pipeline_cppsim.h"
 
 -- ============================================================================
 -- V2: Decoder pipeline with external read port for reconstructed pixels

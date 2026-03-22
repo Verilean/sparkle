@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, feature/* ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -25,13 +25,17 @@ jobs:
 
     - name: Install Lean toolchain
       run: |
-        elan default leanprover/lean4:v4.27.0-rc1
+        elan default $(cat lean-toolchain)
 
     - name: Lake update
       run: lake update
 
+    # ---- Core Build ----
+
     - name: Build project
       run: lake build
+
+    # ---- Examples ----
 
     - name: Run Counter example
       run: lake env lean --run Examples/Counter.lean
@@ -39,13 +43,51 @@ jobs:
     - name: Run Sparkle-16 CPU Core
       run: lake env lean --run Examples/Sparkle16/Core.lean
 
-    - name: Run ISA Proof Tests
-      run: |
-        lake build Sparkle.Verification.ISAProps
-        lake env lean --run Examples/Sparkle16/ISAProofTests.lean
-
     - name: Build RV32 Signal DSL
       run: lake build Examples.RV32
+
+    - name: Build CDC Multi-Clock example
+      run: lake build Examples.CDC
+
+    # ---- Formal Proofs ----
+
+    - name: Build ISA Proofs
+      run: lake build Sparkle.Verification.ISAProps
+
+    - name: Run ISA Proof Tests
+      run: lake env lean --run Examples/Sparkle16/ISAProofTests.lean
+
+    - name: Build CDC Formal Proofs (12 theorems, no sorry)
+      run: lake build Sparkle.Verification.CDCProps
+
+    # ---- Synthesis Tests ----
+
+    - name: Build SoC Verilog (generates verilator/ files)
+      run: lake build Examples.RV32.SoCVerilog
+
+    - name: Run Verilog generation tests
+      run: lake exe verilog-tests
+
+    - name: Run Compiler improvement tests (complement, lambda, hw_let)
+      run: lake env lean Tests/CompilerTests.lean
+
+    # ---- Unit Tests ----
+
+    - name: Run full test suite (464 tests)
+      run: lake exe test
+
+    # ---- CDC Lock-Free Queue ----
+
+    - name: Build CDC C++ (SPSC queue + rollback + runner)
+      run: make -C c_src/cdc all
+
+    - name: Run CDC correctness tests (10M messages) + benchmark
+      run: make -C c_src/cdc test
+
+    - name: Run CDC multi-clock JIT simulation
+      run: lake exe cdc-multi-clock-test
+
+    # ---- Optional: iverilog ----
 
     - name: Verify with iverilog (optional)
       continue-on-error: true

@@ -108,7 +108,7 @@ def testMP4Encoder : IO Bool := do
 
   -- Compile JIT
   IO.println "  Compiling mp4_encoder_jit.cpp..."
-  let handle ← JIT.compileAndLoad "IP/Video/H264/gen/mp4_encoder_jit.cpp"
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/mp4_encoder_jit.cpp"
   IO.println "  Loaded MP4 encoder JIT module"
 
   -- Set width/height
@@ -252,7 +252,7 @@ def testMP4Encoder : IO Bool := do
   IO.println s!"  Output: {outputBytes.size} bytes"
 
   -- Write .mp4 file
-  let mp4Path := "IP/Video/H264/gen/test_mp4_encoder.mp4"
+  let mp4Path := ".lake/build/gen/h264/test_mp4_encoder.mp4"
   IO.FS.writeBinFile mp4Path (ByteArray.mk outputBytes)
   IO.println s!"  Written to {mp4Path}"
 
@@ -304,7 +304,7 @@ def testMP4Encoder : IO Bool := do
 
   -- Compare ROM portion (first 629 bytes) with software reference
   -- The ROM should match except at patch points (which should have width=16, height=16 values)
-  let refMp4Path := "IP/Video/H264/gen/test_frame_encoder.mp4"
+  let refMp4Path := ".lake/build/gen/h264/test_frame_encoder.mp4"
   let refExists ← try
     let _ ← IO.FS.readBinFile refMp4Path
     pure true

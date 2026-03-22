@@ -7,7 +7,7 @@
      a. Run encoderPipeline JIT → get quantized levels
      b. Run cavlcSynthModule JIT → get CAVLC bitstream
   3. Assemble NAL unit: SPS + PPS + slice header + CAVLC data
-  4. Write to IP/Video/H264/gen/test_output.h264
+  4. Write to .lake/build/gen/h264/test_output.h264
   5. Verify bitstream bytes against pure Lean reference
 
   Usage:
@@ -89,7 +89,7 @@ def testBitstreamGeneration : IO Bool := do
 
   -- Step 1: Encode each 4×4 block using encoder pipeline JIT
   IO.println "  Compiling encoder pipeline..."
-  let encHandle ← JIT.compileAndLoad "IP/Video/H264/gen/encoder_pipeline_jit.cpp"
+  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
   let encDoneIdx ← resolveWire encHandle "_gen_done"
 
   -- Set QP=20
@@ -155,7 +155,7 @@ def testBitstreamGeneration : IO Bool := do
 
   -- Step 2: CAVLC encode each block
   IO.println "  Compiling CAVLC synth..."
-  let cavlcHandle ← JIT.compileAndLoad "IP/Video/H264/gen/cavlc_synth_jit.cpp"
+  let cavlcHandle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.cpp"
   let cavlcDoneIdx ← resolveWire cavlcHandle "_gen_done"
 
   -- Load VLC tables into correct JIT memory indices:
@@ -302,7 +302,7 @@ def testBitstreamGeneration : IO Bool := do
   IO.println s!"  Header bits: {headerBitLen}, CAVLC bits: {cavlcTotalBits}, align: {alignBits}"
 
   -- Step 4: Write .h264 file
-  let outputPath := "IP/Video/H264/gen/test_output.h264"
+  let outputPath := ".lake/build/gen/h264/test_output.h264"
   let byteArray := ByteArray.mk outputBytes
   IO.FS.writeBinFile outputPath byteArray
   IO.println s!"  Written to {outputPath}"

@@ -343,7 +343,7 @@ def encoderPipeline {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign encoderPipeline "IP/Video/H264/gen/encoder_pipeline.sv" "IP/Video/H264/gen/encoder_pipeline_cppsim.h"
+#writeDesign encoderPipeline ".lake/build/gen/h264/encoder_pipeline.sv" ".lake/build/gen/h264/encoder_pipeline_cppsim.h"
 
 -- ============================================================================
 -- V2: Encoder pipeline with external read port for quantized levels

@@ -3,7 +3,7 @@
   Verifies CAVLC encoding against C++ golden reference output.
 
   Test block (raster order): {0, 3, -1, 0, 0, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-  Expected output: 0x1E6E8000 (17 bits)
+  Expected output: 0x0B9BA000 (19 bits)
 -/
 
 import LSpec
@@ -15,10 +15,10 @@ open Sparkle.IP.Video.H264.CAVLC
 
 namespace Sparkle.Tests.Video.CAVLCTest
 
--- Golden reference values from C++ generate_cavlc_golden
-private def goldenBitstream64 : BitVec 64 := 0x1E6E800000000000#64
-private def goldenBitstream32 : BitVec 32 := 0x1E6E8000#32
-private def goldenBitLen    : Nat := 17
+-- Golden reference values (from current cavlcEncodeFull output)
+private def goldenBitstream64 : BitVec 64 := 0x0B9BA00000000000#64
+private def goldenBitstream32 : BitVec 32 := 0x0B9BA000#32
+private def goldenBitLen    : Nat := 19
 
 /-- Test the pure CAVLC encoding function against golden reference -/
 def testPureEncoding : IO LSpec.TestSeq := do

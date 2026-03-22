@@ -159,6 +159,6 @@ def reconstructModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign reconstructModule "IP/Video/H264/gen/reconstruct.sv" "IP/Video/H264/gen/reconstruct_cppsim.h"
+#writeDesign reconstructModule ".lake/build/gen/h264/reconstruct.sv" ".lake/build/gen/h264/reconstruct_cppsim.h"
 
 end Sparkle.IP.Video.H264.ReconstructSynth
