@@ -692,6 +692,16 @@ mutual
                      CompilerM.emitAssign resWire (.slice (.ref wireA) (start + len - 1) start)
                      return resWire
 
+                 -- Simple unary map: NOT, NEG (may have extra typeclass/type args)
+                 if let some op := getOperator opName then
+                   if op == .not || op == .neg then
+                     let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let hwType ← inferHWTypeFromSignal exprType
+                     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                     CompilerM.emitAssign resWire (.op op [.ref wireA])
+                     return resWire
+
                  -- Binary operation in lambda with one constant and one bvar:
                  -- e.g., (fun d => (0#24 ++ d)) <$> sig  or  (fun x => x + 1#8) <$> sig
                  let bodyArgs := bodyApp.getAppArgs
@@ -744,15 +754,18 @@ mutual
                          CompilerM.emitAssign resWire (.op op [.ref constWire, .ref wireA])
                          return resWire
 
+                 -- Remaining unary primitives (non-NOT/NEG) handled here
                  if let some op := getOperator opName then
-                   -- Simple unary map (no constants in lambda)
-                   let wireA ← translateExprToWire a "a" (isTopLevel := false)
-                   -- Infer result type from the expression type
-                   let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-                   let hwType ← inferHWTypeFromSignal exprType
-                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-                   CompilerM.emitAssign resWire (.op op [.ref wireA])
-                   return resWire
+                   let bodyArgs := bodyApp.getAppArgs
+                   -- Only if the body has exactly 1 loose-bvar arg (the lambda param)
+                   let numBVarArgs := bodyArgs.toList.filter (·.hasLooseBVars) |>.length
+                   if numBVarArgs ≤ 1 then
+                     let wireA ← translateExprToWire a "a" (isTopLevel := false)
+                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let hwType ← inferHWTypeFromSignal exprType
+                     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                     CompilerM.emitAssign resWire (.op op [.ref wireA])
+                     return resWire
              | _ => pure ()
 
 
