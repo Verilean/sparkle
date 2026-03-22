@@ -1,7 +1,7 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-05
-**Branch**: main
+**Date**: 2026-03-23
+**Branch**: feature/cdc
 
 ---
 
@@ -10,6 +10,8 @@
 | Priority | Phase | Description | Status |
 |----------|-------|-------------|--------|
 | 3 | **H.264 Hardware MP4 Encoder** | Frame encoder + MP4 ROM muxer → playable .mp4 from hardware | **Done** |
+| 3.1 | **Lock-Free CDC Infrastructure** | SPSC queue, rollback mechanism, formal proofs, JIT multi-domain runner, E2E test | **Done** |
+| 3.2 | **Compiler Improvements** | `~~~` complement for BitVec, complex lambda synthesis, `hw_let` tuple destructuring | **Done** |
 | 4 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
 | 5 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
 | 6 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
@@ -20,6 +22,106 @@
 ---
 
 ## Completed Phases
+
+### Compiler Improvements (Phase 42) — DONE
+
+Three ergonomic improvements to the synthesis compiler, reducing boilerplate in Signal DSL code.
+
+#### Changes
+
+| File | Change |
+|------|--------|
+| `Sparkle/Core/Signal.lean` | Added `Complement` instance for `Signal dom (BitVec n)`, `hw_let` macro for 2/3/4-tuple destructuring |
+| `Sparkle/Compiler/Elab.lean` | Fixed unary primitive dispatch for NOT/NEG with typeclass args; added binary-op-with-constant handling in `Functor.map` lambda bodies |
+| `Tests/CompilerTests.lean` | 6 synthesis tests: complement8, complement32, lambdaConcat, lambdaAddConst, hwLet2, hwLet3 |
+
+#### Details
+
+**① `~~~` Complement for BitVec Signals:**
+```lean
+-- Before (workaround):
+(fun x => !x) <$> sig
+-- After:
+~~~sig
+```
+Generates: `assign out = ~_gen_a;`
+
+**② Complex Lambda with Constants:**
+```lean
+-- Before (2-step):
+(· ++ ·) <$> Signal.pure 0#24 <*> sig
+-- After (single lambda):
+(fun d => (0#24 ++ d : BitVec 32)) <$> sig
+```
+Generates: `assign out = {24'd0, _gen_sig};`
+
+**③ `hw_let` Tuple Destructuring:**
+```lean
+-- Before:
+let a := Signal.fst sig; let b := Signal.snd sig
+-- After:
+hw_let (a, b) := sig;
+```
+
+### Lock-Free CDC Infrastructure (Phase 41) — DONE
+
+Lock-free Clock Domain Crossing for Time-Warping simulation across multiple clock domains. Four sub-phases: SPSC queue, rollback mechanism, formal proofs, JIT integration with multi-clock E2E test.
+
+#### New Files
+
+| File | Description |
+|------|-------------|
+| `c_src/cdc/spsc_queue.hpp` | Header-only SPSC lock-free queue, ARM64-optimized (release/acquire/relaxed ordering, alignas(64) false-sharing prevention, power-of-2 ring buffer). 210M ops/sec |
+| `c_src/cdc/cdc_rollback.hpp` | CDCConsumer: timestamp inversion detection + snapshot-based state restoration. Queue indices architecturally isolated from simulation state |
+| `c_src/cdc/cdc_runner.hpp` | C-compatible header defining CDCJITVtable and cdc_run() entry point |
+| `c_src/cdc/cdc_runner.cpp` | Multi-threaded CDC runner: two JIT domains on separate threads connected by SPSC queue, with consumer_done flag to prevent producer deadlock |
+| `c_src/cdc/cdc_test.cpp` | Correctness tests (10M messages, 0 loss, 0 inversion) + benchmark + rollback tests |
+| `c_src/cdc/cdc_example.cpp` | Complete multi-clock simulation demo (100MHz + 50MHz domains) |
+| `c_src/cdc/Makefile` | Standalone C++20 build for tests, example, and cdc_runner.so |
+| `Sparkle/Verification/CDCProps.lean` | 12 formal theorems (all proven, no sorry): SPSC safety, rollback guarantee, queue index isolation |
+| `Examples/CDC/MultiClockSim.lean` | Signal DSL counter + accumulator modules with `#writeDesign` synthesis |
+| `Tests/CDC/MultiClockTest.lean` | E2E: JIT-compile both domains, run via `JIT.runCDC`, verify message transfer |
+
+#### Modified Files
+
+| File | Change |
+|------|--------|
+| `c_src/sparkle_jit.c` | Added `sparkle_jit_run_cdc`: dlopen bridge to cdc_runner.so, CDCJITVtable packing, Lean FFI tuple return |
+| `Sparkle/Core/JIT.lean` | Added `JIT.runCDC` FFI binding |
+| `lakefile.lean` | Added `Examples.CDC` lean_lib and `cdc-multi-clock-test` lean_exe |
+
+#### Architecture
+
+```
+Lean (JIT.lean)
+  │  JIT.runCDC handleA handleB cyclesA cyclesB outPortA inPortB
+  │  @[extern "sparkle_jit_run_cdc"]
+  ▼
+sparkle_jit.c  (compiled with -nostdinc via buildLeanO)
+  │  Packs JITHandle → CDCJITVtable (function pointer table)
+  │  dlopen("cdc_runner.so") → cdc_run()
+  ▼
+cdc_runner.so  (compiled with -std=c++20, system headers)
+  │
+  ├── Thread A (Producer)              ├── Thread B (Consumer)
+  │   eval_tick(ctx_a) loop            │   pop from SPSC queue
+  │   get_output → SPSC push           │   set_input(ctx_b) + eval_tick
+  │                                    │   CDCConsumer rollback detection
+  │                                    │   snapshot/restore via vtable
+  └────── SPSC Lock-Free Queue ────────┘
+```
+
+#### Formal Proofs (12 theorems, all proven)
+
+- **SPSC Safety**: no_overflow, no_underflow, push_preserves_nonempty, pop_frees_space
+- **Rollback**: rollback_guarantee (inversion → flag + restore), rollback_advances_read_idx, consume_preserves_write_idx
+- **Monotonicity**: normal_consume_no_rollback, normal_consume_time_advances, consume_always_advances_read_idx, consume_preserves_snapshot, rollback_rewinds_time
+
+#### Test Results
+
+- **SPSC Queue**: 10M messages, 0 data loss, 0 ordering inversions, 210M ops/sec
+- **Rollback**: Single-threaded + multi-threaded rollback detection verified
+- **E2E CDC**: DomainA 200K cycles (100MHz), DomainB 100K cycles (50MHz), ~75K messages transferred, 2.34ms wall time
 
 ### Hardware MP4 Encoder (Phase 40) — DONE
 
@@ -2243,6 +2345,13 @@ lake exe rv32-jit-dynamic-warp-test
 
 # Speculative warp test (snapshot/restore + rollback)
 lake exe rv32-jit-speculative-warp-test
+
+# CDC lock-free queue tests + benchmark
+make -C c_src/cdc test
+
+# CDC multi-clock JIT simulation
+make -C c_src/cdc cdc_runner.so
+lake exe cdc-multi-clock-test
 
 # Linux boot test
 cd verilator && ./obj_dir/Vrv32i_soc ../firmware/opensbi/boot.hex 10000000 \

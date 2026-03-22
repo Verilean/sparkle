@@ -2,6 +2,45 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 42: Compiler Improvements (Complete)
+
+**Date**: 2026-03-23
+
+**Goal**: Improve Signal DSL ergonomics — `~~~` complement for BitVec, complex lambda synthesis, `hw_let` tuple destructuring.
+
+**Result**: Three improvements to the synthesis compiler. `~~~sig` now works for `Signal dom (BitVec n)` (was Bool-only). Lambdas with constants synthesize directly: `(fun d => (0#24 ++ d)) <$> sig`. `hw_let (a, b) := sig;` macro replaces verbose `.fst`/`.snd` chains. 6 synthesis tests pass.
+
+**Files Added**:
+- `Tests/CompilerTests.lean` — 6 synthesis tests for all three improvements
+
+**Files Modified**:
+- `Sparkle/Core/Signal.lean` — Complement instance for BitVec, hw_let macro (2/3/4-tuple)
+- `Sparkle/Compiler/Elab.lean` — Fixed unary primitive dispatch, added binary-op-with-constant lambda handling
+
+## Phase 41: Lock-Free CDC Infrastructure (Complete)
+
+**Date**: 2026-03-23
+
+**Goal**: Enable multi-clock-domain Time-Warping simulation via lock-free SPSC queue, rollback mechanism, formal proofs, and JIT integration.
+
+**Result**: Full CDC pipeline delivered across 4 sub-phases. SPSC queue achieves 210M ops/sec with ARM64-optimized memory ordering. CDCConsumer detects timestamp inversions and restores snapshots (queue indices never rolled back). 12 formal theorems proven in Lean 4 (no sorry). JIT integration via dlopen bridge (sparkle_jit.c → cdc_runner.so) enables `JIT.runCDC` from Lean. E2E test: two Signal DSL modules (counter + accumulator) synthesized, JIT-compiled, and run on separate threads — 75K messages transferred in 2.34ms.
+
+**Files Added**:
+- `c_src/cdc/spsc_queue.hpp` — Header-only SPSC lock-free queue (210M ops/sec)
+- `c_src/cdc/cdc_rollback.hpp` — CDCConsumer with rollback detection
+- `c_src/cdc/cdc_runner.hpp` / `cdc_runner.cpp` — Multi-threaded JIT runner (shared library)
+- `c_src/cdc/cdc_test.cpp` — 10M-message correctness + benchmark + rollback tests
+- `c_src/cdc/cdc_example.cpp` — Multi-clock simulation demo
+- `c_src/cdc/Makefile` — Standalone C++20 build
+- `Sparkle/Verification/CDCProps.lean` — 12 formal proofs (SPSC safety + rollback guarantee)
+- `Examples/CDC/MultiClockSim.lean` — Signal DSL counter + accumulator with #writeDesign
+- `Tests/CDC/MultiClockTest.lean` — E2E JIT.runCDC test
+
+**Files Modified**:
+- `c_src/sparkle_jit.c` — Added sparkle_jit_run_cdc (dlopen bridge)
+- `Sparkle/Core/JIT.lean` — Added JIT.runCDC FFI binding
+- `lakefile.lean` — Added Examples.CDC lib and cdc-multi-clock-test exe
+
 ## Phase 31b: H.264 Frame-Level End-to-End Test (Complete)
 
 **Date**: 2026-03-04
