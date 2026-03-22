@@ -767,6 +767,6 @@ def cavlcSynthModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign cavlcSynthModule "IP/Video/H264/gen/cavlc_synth.sv" "IP/Video/H264/gen/cavlc_synth_cppsim.h"
+#writeDesign cavlcSynthModule ".lake/build/gen/h264/cavlc_synth.sv" ".lake/build/gen/h264/cavlc_synth_cppsim.h"
 
 end Sparkle.IP.Video.H264.CAVLCSynth

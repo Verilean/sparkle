@@ -269,6 +269,6 @@ def idctModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign idctModule "IP/Video/H264/gen/idct.sv" "IP/Video/H264/gen/idct_cppsim.h"
+#writeDesign idctModule ".lake/build/gen/h264/idct.sv" ".lake/build/gen/h264/idct_cppsim.h"
 
 end Sparkle.IP.Video.H264.IDCTSynth

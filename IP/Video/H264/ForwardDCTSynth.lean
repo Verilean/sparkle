@@ -238,6 +238,6 @@ def fwdDCTModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign fwdDCTModule "IP/Video/H264/gen/fwd_dct.sv" "IP/Video/H264/gen/fwd_dct_cppsim.h"
+#writeDesign fwdDCTModule ".lake/build/gen/h264/fwd_dct.sv" ".lake/build/gen/h264/fwd_dct_cppsim.h"
 
 end Sparkle.IP.Video.H264.ForwardDCTSynth

@@ -213,6 +213,6 @@ def dequantModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign dequantModule "IP/Video/H264/gen/dequant.sv" "IP/Video/H264/gen/dequant_cppsim.h"
+#writeDesign dequantModule ".lake/build/gen/h264/dequant.sv" ".lake/build/gen/h264/dequant_cppsim.h"
 
 end Sparkle.IP.Video.H264.DequantSynth

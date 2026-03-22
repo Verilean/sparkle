@@ -60,8 +60,8 @@ def domainACounter {dom : DomainConfig}
 
 -- Synthesize DomainA
 #writeDesign domainACounter
-  "Examples/CDC/gen/domain_a.sv"
-  "Examples/CDC/gen/domain_a_cppsim.h"
+  ".lake/build/gen/cdc/domain_a.sv"
+  ".lake/build/gen/cdc/domain_a_cppsim.h"
 
 -- ============================================================================
 -- DomainB: Accumulator (Slow Consumer)
@@ -92,7 +92,7 @@ def domainBAccumulator {dom : DomainConfig}
 
 -- Synthesize DomainB
 #writeDesign domainBAccumulator
-  "Examples/CDC/gen/domain_b.sv"
-  "Examples/CDC/gen/domain_b_cppsim.h"
+  ".lake/build/gen/cdc/domain_b.sv"
+  ".lake/build/gen/cdc/domain_b_cppsim.h"
 
 end Examples.CDC.MultiClockSim

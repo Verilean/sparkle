@@ -24,6 +24,6 @@ open Sparkle.IP.Video.H264.MP4Encoder
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign h264MP4Encoder "IP/Video/H264/gen/mp4_encoder.sv" "IP/Video/H264/gen/mp4_encoder_cppsim.h"
+#writeDesign h264MP4Encoder ".lake/build/gen/h264/mp4_encoder.sv" ".lake/build/gen/h264/mp4_encoder_cppsim.h"
 
 end Sparkle.IP.Video.H264.MP4EncoderSynth

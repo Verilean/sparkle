@@ -206,6 +206,6 @@ def quantModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign quantModule "IP/Video/H264/gen/fwd_quant.sv" "IP/Video/H264/gen/fwd_quant_cppsim.h"
+#writeDesign quantModule ".lake/build/gen/h264/fwd_quant.sv" ".lake/build/gen/h264/fwd_quant_cppsim.h"
 
 end Sparkle.IP.Video.H264.QuantSynth

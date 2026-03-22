@@ -149,6 +149,6 @@ def quantDequantSynth {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign quantDequantSynth "IP/Video/H264/gen/quant_roundtrip.sv" "IP/Video/H264/gen/quant_roundtrip_cppsim.h"
+#writeDesign quantDequantSynth ".lake/build/gen/h264/quant_roundtrip.sv" ".lake/build/gen/h264/quant_roundtrip_cppsim.h"
 
 end Sparkle.IP.Video.H264.QuantRoundtripSynth
