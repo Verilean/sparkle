@@ -32,9 +32,6 @@ jobs:
 
     # ---- Core Build ----
 
-    - name: Create gen directories for synthesized output
-      run: mkdir -p .lake/build/gen/h264 .lake/build/gen/cdc
-
     - name: Build project
       run: lake build
 

@@ -1473,6 +1473,8 @@ elab "#writeVerilogDesign" id:ident str:str : command => do
     runDesignDRC design
     let verilog := toVerilogDesign design
     let path := str.getString
+    if let some dir := (System.FilePath.mk path).parent then
+      IO.FS.createDirAll dir
     IO.FS.writeFile path verilog
     IO.println s!"Written {design.modules.length} modules to {path}"
 
@@ -1484,6 +1486,8 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
     let path := str.getString
+    if let some dir := (System.FilePath.mk path).parent then
+      IO.FS.createDirAll dir
     IO.FS.writeFile path cpp
     IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {path}"
 
@@ -1501,6 +1505,11 @@ private def writeDesignCore (declName : Name) (svPath cppPath : String)
     (observableWires : Option (List String)) : TermElabM Unit := do
   let design ← synthesizeHierarchical declName
   runDesignDRC design
+  -- Ensure output directories exist
+  if let some svDir := (System.FilePath.mk svPath).parent then
+    IO.FS.createDirAll svDir
+  if let some cppDir := (System.FilePath.mk cppPath).parent then
+    IO.FS.createDirAll cppDir
   -- Verilog (unoptimized)
   let verilog := toVerilogDesign design
   IO.FS.writeFile svPath verilog
