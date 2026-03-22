@@ -39,6 +39,9 @@ lean_lib «Examples.YOLOv8» where
 lean_lib «Examples.Arbiter» where
   roots := #[`Examples.Arbiter]
 
+lean_lib «Examples.CDC» where
+  roots := #[`Examples.CDC]
+
 lean_lib «IP.Video» where
   roots := #[`IP.Video]
 
@@ -120,6 +123,10 @@ lean_exe «h264-frame-encoder-test» where
 
 lean_exe «h264-mp4-encoder-test» where
   root := `Tests.Video.H264MP4EncoderTest
+  supportInterpreter := true
+
+lean_exe «cdc-multi-clock-test» where
+  root := `Tests.CDC.MultiClockTest
   supportInterpreter := true
 
 @[test_driver]
