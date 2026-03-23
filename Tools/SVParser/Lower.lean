@@ -274,11 +274,22 @@ partial def collectBlockAssignsDeep (stmts : List SVStmt) : List (String × Expr
       armAssigns ++ defAssigns
     | _ => []
 
-/-- For combinational always, convert to mux expressions per signal -/
+/-- For combinational/blocking assigns, convert to mux expressions per signal.
+    The default is the first assignment value (not hold-value), since blocking
+    assigns in always blocks typically start with `sig = 0;` as default. -/
 partial def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
-  stmts.foldl (fun current s => stmtToMuxBlocking sigName s current) (.ref sigName)
+  let initDefault := stmts.findSome? fun s => match s with
+    | .blockAssign lhs rhs =>
+      match exprToName lhs with
+      | some n => if n == sigName then some (lowerExpr rhs) else none
+      | none => none
+    | _ => none
+  let base := initDefault.getD (.ref sigName)
+  stmtsToMuxWithBase sigName stmts base
 where
-  stmtToMuxBlocking (sigName : String) (s : SVStmt) (current : Expr) : Expr :=
+  stmtsToMuxWithBase (sigName : String) (stmts : List SVStmt) (base : Expr) : Expr :=
+    stmts.foldl (fun current s => stmtToMuxBlocking sigName s current base) base
+  stmtToMuxBlocking (sigName : String) (s : SVStmt) (current base : Expr) : Expr :=
     match s with
     | .blockAssign lhs rhs =>
       match exprToName lhs with
@@ -288,8 +299,8 @@ where
       let thenNames := collectBlockNames thenB
       let elseNames := collectBlockNames elseB
       if thenNames.any (· == sigName) || elseNames.any (· == sigName) then
-        let thenVal := if thenNames.any (· == sigName) then stmtsToMuxExprBlocking sigName thenB else current
-        let elseVal := if elseNames.any (· == sigName) then stmtsToMuxExprBlocking sigName elseB else current
+        let thenVal := if thenNames.any (· == sigName) then stmtsToMuxWithBase sigName thenB base else base
+        let elseVal := if elseNames.any (· == sigName) then stmtsToMuxWithBase sigName elseB base else base
         .op .mux [lowerExpr cond, thenVal, elseVal]
       else current
     | .caseStmt sel arms default_ =>
@@ -297,11 +308,11 @@ where
       let defHasReg := match default_ with | some d => (collectBlockNames d).any (· == sigName) | none => false
       if anyArm || defHasReg then
         let defResult := match default_ with
-          | some d => if defHasReg then stmtsToMuxExprBlocking sigName d else current
-          | none => current
+          | some d => if defHasReg then stmtsToMuxWithBase sigName d base else base
+          | none => base
         arms.reverse.foldl (fun acc (labels, body) =>
           if (collectBlockNames body).any (· == sigName) then
-            let bodyExpr := stmtsToMuxExprBlocking sigName body
+            let bodyExpr := stmtsToMuxWithBase sigName body base
             let selExpr := lowerExpr sel
             let cond := labels.foldl (fun acc' label =>
               let eq := Expr.op .eq [selExpr, lowerExpr label]
