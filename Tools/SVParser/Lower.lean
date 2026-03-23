@@ -441,7 +441,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     | .wireDecl name width _ => wires := wires ++ [{ name, ty := widthToHWType width }]
     | .regDecl name width arraySize =>
       match arraySize with
-      | some size => wires := wires ++ [{ name, ty := .array size (widthToHWType width) }]
+      | some _ => pure ()  -- Array regs handled by Stmt.memory (not wires)
       | none => wires := wires ++ [{ name, ty := widthToHWType width }]
     | .integerDecl name => wires := wires ++ [{ name, ty := .bitVector 32 }]
     | _ => pure ()
@@ -478,7 +478,12 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     match item with
     | .contAssign lhs rhs =>
       match exprToName lhs with
-      | some name => body := body ++ [.assign name (lowerExpr rhs)]
+      | some name =>
+        -- Prefix wire names with _gen_ to ensure CppSim keeps them as class members
+        let wireName := if name.startsWith "_gen_" then name else s!"_gen_{name}"
+        body := body ++ [.assign wireName (lowerExpr rhs)]
+        if !(wireExists wires wireName) then
+          wires := wires ++ [{ name := wireName, ty := .bitVector 32 }]
       | none => throw "continuous assign LHS must be an identifier"
     | .alwaysBlock (.posedge clock) stmts =>
       -- Sequential: extract all register names, then build mux expression per register
@@ -536,12 +541,13 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       body := body ++ [.assign name (lowerExpr initExpr)]
     | .regDecl name width (some arraySize) =>
       -- Array reg → Stmt.memory for JIT memory access
+      -- Do NOT add to wires list — Stmt.memory creates the class member.
+      -- Adding to wires would cause CppSim to create a shadowing local variable.
       let dataWidth := widthToBits width
       let addrWidth := Nat.log2 arraySize + (if Nat.isPowerOfTwo arraySize then 0 else 1)
       body := body ++ [.memory name addrWidth dataWidth "clk"
         (.const 0 addrWidth) (.const 0 dataWidth) (.const 0 1)  -- dummy write
-        (.const 0 addrWidth) s!"{name}_rdata" true]              -- combo read (no register)
-      -- Add read data wire
+        (.const 0 addrWidth) s!"{name}_rdata" true]               -- combo read
       wires := wires ++ [{ name := s!"{name}_rdata", ty := widthToHWType width }]
     | .instantiation modName instName conns =>
       -- Module instantiation → Stmt.inst

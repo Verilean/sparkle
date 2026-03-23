@@ -620,16 +620,24 @@ partial def parseModuleItems : P (List SVModuleItem) := do
         let w ← parseOptWidth; let n ← identifier
         match ← attempt lbracket with
         | some _ =>
-          -- Array dimension: [lo:hi] — may have parameterized expressions
-          -- Skip until ] by counting bracket depth
-          let mut depth : Nat := 1
-          let mut arrSize : Nat := 32  -- default
-          while depth > 0 do
-            match ← attempt rbracket with
-            | some _ => depth := depth - 1
-            | none => match ← attempt lbracket with
-              | some _ => depth := depth + 1
-              | none => let _ ← nextChar; pure ()
+          -- Array dimension: try [lo:hi] with numeric values
+          let arrSize ← match ← attempt (do
+            let lo ← token digits
+            colon
+            let hi ← token digits
+            rbracket
+            pure (hi.toNat! - lo.toNat! + 1)) with
+          | some size => pure size
+          | none =>
+            -- Parameterized — skip until ]
+            let mut depth : Nat := 1
+            while depth > 0 do
+              match ← attempt rbracket with
+              | some _ => depth := depth - 1
+              | none => match ← attempt lbracket with
+                | some _ => depth := depth + 1
+                | none => let _ ← nextChar; pure ()
+            pure 32  -- default
           semi
           pure [SVModuleItem.regDecl n w (some arrSize)]
         | none =>
