@@ -107,6 +107,7 @@ inductive SVModuleItem where
   | instantiation (moduleName instName : String)
                   (connections : List (String × SVExpr))
   | taskDecl      (name : String) (body : List SVStmt)    -- task ... endtask
+  | readmemh      (filename : String) (memName : String)  -- $readmemh("file", mem)
   deriving Repr, BEq
 
 /-- A parsed Verilog module -/

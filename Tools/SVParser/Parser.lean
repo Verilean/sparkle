@@ -616,17 +616,37 @@ partial def parseModuleItems : P (List SVModuleItem) := do
               | some _ => let item ← skipGenerateBlock; pure [item]
               | none => match ← attempt (keyword "initial") with
                 | some _ =>
-                  -- Skip initial block (not synthesizable)
+                  -- Parse initial block — extract $readmemh if present
                   keyword "begin"
+                  let mut items : List SVModuleItem := []
                   let mut d : Nat := 1
                   while d > 0 do
-                    let hitBegin ← attempt (keyword "begin")
-                    if hitBegin.isSome then d := d + 1
-                    else
-                      let hitEnd ← attempt (keyword "end")
-                      if hitEnd.isSome then d := d - 1
-                      else let _ ← nextChar; pure ()
-                  pure []
+                    -- Check for $readmemh("file", mem);
+                    match ← attempt (do
+                      let _ ← token (matchStr "$readmemh")
+                      lparen
+                      -- Parse filename string: "filename"
+                      let _ ← token (matchStr "\"")
+                      let mut filename : List Char := []
+                      let mut readingName := true
+                      while readingName do
+                        let c ← nextChar
+                        if c == '"' then readingName := false
+                        else filename := filename ++ [c]
+                      ws; comma
+                      let memName ← identifier
+                      rparen; semi
+                      pure (String.ofList filename, memName)) with
+                    | some (filename, memName) =>
+                      items := items ++ [SVModuleItem.readmemh filename memName]
+                    | none =>
+                      let hitBegin ← attempt (keyword "begin")
+                      if hitBegin.isSome then d := d + 1
+                      else
+                        let hitEnd ← attempt (keyword "end")
+                        if hitEnd.isSome then d := d - 1
+                        else let _ ← nextChar; pure ()
+                  pure items
                 | none => match ← attempt (keyword "task") with
                 | some _ =>
                   let n ← identifier; semi

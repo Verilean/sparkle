@@ -205,5 +205,30 @@ def main : IO UInt32 := do
   else
     IO.println "SKIP (picorv32.v not found)"
 
+  -- Test 9: SoC with $readmemh — parse, lower, detect memory init
+  IO.print "  Test 9: $readmemh support... "
+  let socPath := "/tmp/picorv32_soc.v"
+  let socExists ← System.FilePath.pathExists socPath
+  if socExists && picoExists then
+    let soc ← IO.FS.readFile socPath
+    let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+    let combined := soc ++ "\n" ++ cpu
+    match Tools.SVParser.Parser.parse combined with
+    | .ok design =>
+      let memInits := Tools.SVParser.Lower.extractReadMemH design
+      if memInits.length == 1 &&
+         (memInits.head?.map (·.filename) == some "firmware.hex") &&
+         (memInits.head?.map (·.memName) == some "memory") then
+        IO.println s!"PASS ($readmemh detected: firmware.hex → memory)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: expected 1 readmemh, got {memInits.length}"
+        failed := failed + 1
+    | .error e =>
+      IO.println s!"FAIL: {e}"
+      failed := failed + 1
+  else
+    IO.println "SKIP (files not found)"
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

@@ -386,8 +386,28 @@ def lowerDesign (svDesign : SVDesign) : Except String Design := do
 -- Public API: parse + lower
 -- ============================================================================
 
+/-- Memory initialization info from $readmemh -/
+structure ReadMemHInfo where
+  filename : String
+  memName  : String
+  deriving Repr
+
+/-- Extract $readmemh info from a parsed SV design -/
+def extractReadMemH (svDesign : SVDesign) : List ReadMemHInfo :=
+  svDesign.modules.flatMap fun m =>
+    m.items.filterMap fun item =>
+      match item with
+      | .readmemh filename memName => some { filename, memName }
+      | _ => none
+
 def parseAndLower (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   lowerDesign svDesign
+
+def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
+  let svDesign ← Tools.SVParser.Parser.parse input
+  let design ← lowerDesign svDesign
+  let memInits := extractReadMemH svDesign
+  pure (design, memInits)
 
 end Tools.SVParser.Lower
