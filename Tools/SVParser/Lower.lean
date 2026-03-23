@@ -358,6 +358,23 @@ where
         (match d with | some b => collectBlockNames b | none => [])
       | _ => []
 
+/-- Collect array element writes: arr[idx] <= data, with optional condition -/
+partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
+    : List (SVExpr × SVExpr × Option SVExpr) :=
+  stmts.flatMap fun s => match s with
+    | .nonblockAssign (.index (.ident name) idx) rhs =>
+      if name == arrName then [(idx, rhs, none)] else []
+    | .ifElse cond thenB elseB =>
+      let thenWrites := (collectArrayWrites arrName thenB).map
+        fun (i, d, _) => (i, d, some cond)
+      let elseWrites := collectArrayWrites arrName elseB
+      thenWrites ++ elseWrites
+    | .caseStmt _ arms default_ =>
+      let armWrites := arms.flatMap fun (_, body) => collectArrayWrites arrName body
+      let defWrites := match default_ with | some body => collectArrayWrites arrName body | none => []
+      armWrites ++ defWrites
+    | _ => []
+
 /-- Collect all blocking-assigned signal names recursively -/
 partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
   stmts.flatMap fun s => match s with
@@ -551,12 +568,28 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     | .regDecl name width (some arraySize) =>
       -- Array reg → Stmt.memory for JIT memory access
       -- Do NOT add to wires list — Stmt.memory creates the class member.
-      -- Adding to wires would cause CppSim to create a shadowing local variable.
       let dataWidth := widthToBits width
       let addrWidth := Nat.log2 arraySize + (if Nat.isPowerOfTwo arraySize then 0 else 1)
+      -- Extract array writes from always blocks: arr[idx] <= expr
+      -- Build write enable, address, and data mux expressions
+      let mut writeAddr : Expr := .const 0 addrWidth
+      let mut writeData : Expr := .const 0 dataWidth
+      let mut writeEnable : Expr := .const 0 1
+      for prevItem in svMod.items do
+        match prevItem with
+        | .alwaysBlock (.posedge _) stmts =>
+          -- Find non-blocking assigns to this array: arr[idx] <= data
+          let arrayWrites := collectArrayWrites name stmts
+          for (idx, data, cond) in arrayWrites do
+            writeAddr := lowerExpr idx
+            writeData := lowerExpr data
+            writeEnable := match cond with
+              | some c => lowerExpr c
+              | none => .const 1 1
+        | _ => pure ()
       body := body ++ [.memory name addrWidth dataWidth "clk"
-        (.const 0 addrWidth) (.const 0 dataWidth) (.const 0 1)  -- dummy write
-        (.const 0 addrWidth) s!"{name}_rdata" true]               -- combo read
+        writeAddr writeData writeEnable
+        (.const 0 addrWidth) s!"{name}_rdata" true]
       wires := wires ++ [{ name := s!"{name}_rdata", ty := widthToHWType width }]
     | .instantiation modName instName conns =>
       -- Module instantiation → Stmt.inst
@@ -629,10 +662,13 @@ def flattenDesign (design : Design) : Design := Id.run do
         match moduleMap.find? fun (m : Module) => m.name == modName with
         | none => flatBody := flatBody ++ [stmt]  -- keep as-is if not found
         | some subMod =>
-          -- Collect all internal names in sub-module
+          -- Collect all internal names in sub-module (including memory names)
+          let memNames := subMod.body.filterMap fun s => match s with
+            | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
           let subNames := subMod.wires.map (·.name) ++
                           subMod.inputs.map (·.name) ++
-                          subMod.outputs.map (·.name)
+                          subMod.outputs.map (·.name) ++
+                          memNames
 
           -- Add prefixed wires from sub-module
           for w in subMod.wires do
@@ -668,10 +704,15 @@ def flattenDesign (design : Design) : Design := Id.run do
                 .register s!"{instName}_{name}" s!"{instName}_{clk}" s!"{instName}_{rst}"
                   (prefixExprNames instName subNames input) init
               | .inst subModName subInstName subConns =>
-                -- Nested instantiation: prefix and keep
                 .inst subModName s!"{instName}_{subInstName}"
                   (subConns.map fun (pn, e) => (pn, prefixExprNames instName subNames e))
-              | other => other
+              | .memory name aw dw clk wa wd we ra rd combo =>
+                .memory s!"{instName}_{name}" aw dw s!"{instName}_{clk}"
+                  (prefixExprNames instName subNames wa)
+                  (prefixExprNames instName subNames wd)
+                  (prefixExprNames instName subNames we)
+                  (prefixExprNames instName subNames ra)
+                  s!"{instName}_{rd}" combo
             flatBody := flatBody ++ [prefixed]
       | other => flatBody := flatBody ++ [other]
 
@@ -694,7 +735,8 @@ def flattenDesign (design : Design) : Design := Id.run do
       | .assign n rhs => .assign (addGen n) (genExpr rhs)
       | .register n clk rst input init => .register n clk rst (genExpr input) init
       | .inst mn in_ conns => .inst mn in_ (conns.map fun (p, e) => (p, genExpr e))
-      | s => s
+      | .memory n aw dw clk wa wd we ra rd combo =>
+        .memory n aw dw clk (genExpr wa) (genExpr wd) (genExpr we) (genExpr ra) rd combo
 
     let flatModule : Module := {
       name := top.name
