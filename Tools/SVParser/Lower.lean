@@ -224,7 +224,14 @@ where
     match s with
     | .nonblockAssign lhs rhs =>
       match exprToName lhs with
-      | some n => if n == regName then lowerExpr rhs else current
+      | some n =>
+        if n == regName then
+          -- Skip don't-care ('bx) cleanup assigns
+          match rhs with
+          | .lit (.binary none 0) => current
+          | .lit (.hex none 0) => current
+          | _ => lowerExpr rhs
+        else current
       | none => current
     | .ifElse cond thenB elseB =>
       let thenExpr := stmtsToMuxExpr regName thenB current
@@ -610,7 +617,32 @@ def lowerModule (svMod : SVModule) : Except String Module := do
   let mut dedupBody : List Stmt := []
   let mut seenRegNames : List String := []
   let outputNames := outputs.map (·.name)
-  for stmt in body.reverse do
+  let exprDepthSimple := fun (e : Expr) =>
+    let rec go : Expr → Nat
+      | .op _ args => 1 + (args.map go).foldl max 0
+      | .slice e _ _ => 1 + go e
+      | .index a i => 1 + max (go a) (go i)
+      | _ => 0
+    go e
+
+  -- For registers assigned in multiple always blocks, keep the one
+  -- with deeper mux expression (more logic). This handles the PicoRV32
+  -- pattern where the decode block sets a flag and the execution block clears it.
+  let mut regDepthMap : List (String × Nat) := []
+  for stmt in body do
+    match stmt with
+    | .register name _ _ input _ =>
+      let depth := exprDepthSimple input
+      regDepthMap := regDepthMap ++ [(name, depth)]
+    | _ => pure ()
+  let bestDepth (name : String) : Nat :=
+    (regDepthMap.filter (·.1 == name)).foldl (fun acc (_, d) => max acc d) 0
+
+  -- Process in FORWARD order — first occurrence wins.
+  -- For PicoRV32, the decode block (always[9]) comes before the execution
+  -- block (always[17]). The decode block sets flags; the execution block clears them.
+  -- We keep the decode block's version which has the meaningful logic.
+  for stmt in body do
     match stmt with
     | .register name clk rst input init =>
       if !(seenRegNames.any (· == name)) then
