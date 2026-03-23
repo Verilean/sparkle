@@ -306,7 +306,14 @@ where
     match s with
     | .blockAssign lhs rhs =>
       match exprToName lhs with
-      | some n => if n == sigName then lowerExpr rhs else current
+      | some n =>
+        if n == sigName then
+          -- Skip don't-care ('bx) assignments — they're cleanup, not logic
+          match rhs with
+          | .lit (.binary none 0) => current  -- 'bx → keep current value
+          | .lit (.hex none 0) => current     -- 'hx → keep current value
+          | _ => lowerExpr rhs
+        else current
       | none => current
     | .ifElse cond thenB elseB =>
       let thenNames := collectBlockNames thenB
@@ -320,9 +327,10 @@ where
       let anyArm := arms.any fun (_, body) => (collectBlockNames body).any (· == sigName)
       let defHasReg := match default_ with | some d => (collectBlockNames d).any (· == sigName) | none => false
       if anyArm || defHasReg then
+        -- Use current (accumulated from prior statements) as default, not base
         let defResult := match default_ with
-          | some d => if defHasReg then stmtsToMuxWithBase sigName d base else base
-          | none => base
+          | some d => if defHasReg then stmtsToMuxWithBase sigName d base else current
+          | none => current
         arms.reverse.foldl (fun acc (labels, body) =>
           if (collectBlockNames body).any (· == sigName) then
             let bodyExpr := stmtsToMuxWithBase sigName body base
@@ -509,9 +517,10 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       | _ => pure ()
 
       -- Extract blocking assigns as combinational intermediates
-      let blockingNames := (collectBlockNamesTop dataStmts).eraseDups
+      -- Use full stmts (includes flat assigns before if/else reset check)
+      let blockingNames := (collectBlockNamesTop stmts).eraseDups
       for sigName in blockingNames do
-        let expr := stmtsToMuxExprBlocking sigName dataStmts
+        let expr := stmtsToMuxExprBlocking sigName stmts
         body := body ++ [.assign sigName expr]
         if !(wireExists wires sigName) then
           wires := wires ++ [{ name := sigName, ty := .bitVector 32 }]  -- default 32-bit
