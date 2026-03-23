@@ -95,11 +95,18 @@ def literalToConst : SVLiteral → Expr
   | .binary (some w) v  => .const (Int.ofNat v) w
   | .binary none v      => .const (Int.ofNat v) 32
 
+/-- Set of array-typed register names for distinguishing bit-select vs array access -/
+private def arrayNames : List String := []  -- populated per-module during lowering
+
 private def indexToConst : SVExpr → Option Nat
   | .lit (.decimal _ n) => some n
   | .lit (.hex _ n) => some n
   | .lit (.binary _ n) => some n
   | _ => none
+
+private def isArrayName (name : String) : Bool :=
+  -- Heuristic: names ending in common array patterns or known PicoRV32 arrays
+  name == "cpuregs" || name == "memory" || name.endsWith "_mem" || name.endsWith "_ram"
 
 partial def lowerExpr (e : SVExpr) : Expr :=
   match e with
@@ -114,7 +121,17 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   | .index arr idx =>
     match indexToConst idx with
     | some n => .slice (lowerExpr arr) n n  -- constant bit select
-    | none => .index (lowerExpr arr) (lowerExpr idx)  -- dynamic
+    | none =>
+      -- Check if base is an array-typed register (real array access)
+      -- vs scalar bit-select
+      match arr with
+      | .ident name =>
+        if isArrayName name then
+          .index (lowerExpr arr) (lowerExpr idx)  -- array access
+        else
+          .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- bit select
+      | _ =>
+        .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
   | .concat args => .concat (args.map lowerExpr)
   | .repeat_ _count value => lowerExpr value
@@ -172,32 +189,75 @@ def detectReset (cond : SVExpr) (thenBranch elseBranch : List SVStmt)
   | _ => none
 
 -- ============================================================================
--- Deep statement collection helpers
+-- Imperative → Dataflow conversion (if/else/case → mux chains)
 -- ============================================================================
 
-/-- Collect all non-blocking assigns from a flat statement list -/
-def collectNonblockAssigns (stmts : List SVStmt) : List (String × Expr) :=
-  stmts.filterMap fun s => match s with
-    | .nonblockAssign lhs rhs => (exprToName lhs).map (·, lowerExpr rhs)
-    | _ => none
-
-/-- Recursively collect all non-blocking assigns (through if/else/case) -/
-partial def collectNonblockAssignsDeep (stmts : List SVStmt) : List (String × Expr) :=
+/-- Collect all register names assigned (non-blocking) anywhere in statements -/
+partial def collectAllRegNames (stmts : List SVStmt) : List String :=
   stmts.flatMap fun s => match s with
-    | .nonblockAssign lhs rhs =>
-      match exprToName lhs with
-      | some name => [(name, lowerExpr rhs)]
-      | none => []
+    | .nonblockAssign lhs _ =>
+      match exprToName lhs with | some n => [n] | none => []
     | .ifElse _ thenB elseB =>
-      collectNonblockAssignsDeep thenB ++ collectNonblockAssignsDeep elseB
+      collectAllRegNames thenB ++ collectAllRegNames elseB
     | .caseStmt _ arms default_ =>
-      let armAssigns := arms.flatMap fun (_, body) => collectNonblockAssignsDeep body
-      let defAssigns := match default_ with | some body => collectNonblockAssignsDeep body | none => []
-      armAssigns ++ defAssigns
-    | .forLoop _ _ _ body => collectNonblockAssignsDeep body
+      let armNames := arms.flatMap fun (_, body) => collectAllRegNames body
+      let defNames := match default_ with | some d => collectAllRegNames d | none => []
+      armNames ++ defNames
+    | .forLoop _ _ _ body => collectAllRegNames body
     | _ => []
 
-/-- Recursively collect all blocking assigns as name→expr pairs -/
+/-- For a given register name, compute its next-value expression from
+    imperative if/else/case statements by building mux chains.
+
+    If reg is not assigned in a branch, the default is `Expr.ref reg` (hold value). -/
+partial def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
+  stmts.foldl (fun current s => stmtToMuxExpr regName s current) (.ref regName)
+where
+  stmtToMuxExpr (regName : String) (s : SVStmt) (current : Expr) : Expr :=
+    match s with
+    | .nonblockAssign lhs rhs =>
+      match exprToName lhs with
+      | some n => if n == regName then lowerExpr rhs else current
+      | none => current
+    | .ifElse cond thenB elseB =>
+      let thenExpr := stmtsToMuxExpr regName thenB
+      let elseExpr := stmtsToMuxExpr regName elseB
+      -- Only emit mux if this register is assigned in either branch
+      let thenHasReg := (collectAllRegNames thenB).any (· == regName)
+      let elseHasReg := (collectAllRegNames elseB).any (· == regName)
+      if thenHasReg || elseHasReg then
+        let thenVal := if thenHasReg then thenExpr else current
+        let elseVal := if elseHasReg then elseExpr else current
+        .op .mux [lowerExpr cond, thenVal, elseVal]
+      else current
+    | .caseStmt sel arms default_ =>
+      -- Build nested mux chain: case arm1 => val1, case arm2 => val2, ...
+      let anyArm := arms.any fun (_, body) =>
+        (collectAllRegNames body).any (· == regName)
+      let defHasReg := match default_ with
+        | some d => (collectAllRegNames d).any (· == regName) | none => false
+      if anyArm || defHasReg then
+        let defResult := match default_ with
+          | some d => if defHasReg then stmtsToMuxExpr regName d else current
+          | none => current
+        -- Build mux chain from last arm to first using foldl
+        arms.reverse.foldl (fun acc (labels, body) =>
+          let bodyHasReg := (collectAllRegNames body).any (· == regName)
+          if bodyHasReg then
+            let bodyExpr := stmtsToMuxExpr regName body
+            let selExpr := lowerExpr sel
+            let cond := labels.foldl (fun acc label =>
+              let eq := Expr.op .eq [selExpr, lowerExpr label]
+              if acc == Expr.const 0 1 then eq
+              else Expr.op .or [acc, eq]
+            ) (Expr.const 0 1)
+            .op .mux [cond, bodyExpr, acc]
+          else acc
+        ) defResult
+      else current
+    | _ => current
+
+/-- Collect all blocking assigns as name→expr pairs (for combinational always) -/
 partial def collectBlockAssignsDeep (stmts : List SVStmt) : List (String × Expr) :=
   stmts.flatMap fun s => match s with
     | .blockAssign lhs rhs =>
@@ -210,6 +270,63 @@ partial def collectBlockAssignsDeep (stmts : List SVStmt) : List (String × Expr
       let armAssigns := arms.flatMap fun (_, body) => collectBlockAssignsDeep body
       let defAssigns := match default_ with | some body => collectBlockAssignsDeep body | none => []
       armAssigns ++ defAssigns
+    | _ => []
+
+/-- For combinational always, convert to mux expressions per signal -/
+partial def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
+  stmts.foldl (fun current s => stmtToMuxBlocking sigName s current) (.ref sigName)
+where
+  stmtToMuxBlocking (sigName : String) (s : SVStmt) (current : Expr) : Expr :=
+    match s with
+    | .blockAssign lhs rhs =>
+      match exprToName lhs with
+      | some n => if n == sigName then lowerExpr rhs else current
+      | none => current
+    | .ifElse cond thenB elseB =>
+      let thenNames := collectBlockNames thenB
+      let elseNames := collectBlockNames elseB
+      if thenNames.any (· == sigName) || elseNames.any (· == sigName) then
+        let thenVal := if thenNames.any (· == sigName) then stmtsToMuxExprBlocking sigName thenB else current
+        let elseVal := if elseNames.any (· == sigName) then stmtsToMuxExprBlocking sigName elseB else current
+        .op .mux [lowerExpr cond, thenVal, elseVal]
+      else current
+    | .caseStmt sel arms default_ =>
+      let anyArm := arms.any fun (_, body) => (collectBlockNames body).any (· == sigName)
+      let defHasReg := match default_ with | some d => (collectBlockNames d).any (· == sigName) | none => false
+      if anyArm || defHasReg then
+        let defResult := match default_ with
+          | some d => if defHasReg then stmtsToMuxExprBlocking sigName d else current
+          | none => current
+        arms.reverse.foldl (fun acc (labels, body) =>
+          if (collectBlockNames body).any (· == sigName) then
+            let bodyExpr := stmtsToMuxExprBlocking sigName body
+            let selExpr := lowerExpr sel
+            let cond := labels.foldl (fun acc' label =>
+              let eq := Expr.op .eq [selExpr, lowerExpr label]
+              if acc' == Expr.const 0 1 then eq else Expr.op .or [acc', eq]
+            ) (Expr.const 0 1)
+            .op .mux [cond, bodyExpr, acc]
+          else acc
+        ) defResult
+      else current
+    | _ => current
+  collectBlockNames (stmts : List SVStmt) : List String :=
+    stmts.flatMap fun s => match s with
+      | .blockAssign lhs _ => match exprToName lhs with | some n => [n] | none => []
+      | .ifElse _ t e => collectBlockNames t ++ collectBlockNames e
+      | .caseStmt _ arms d =>
+        (arms.flatMap fun (_, b) => collectBlockNames b) ++
+        (match d with | some b => collectBlockNames b | none => [])
+      | _ => []
+
+/-- Collect all blocking-assigned signal names recursively -/
+partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
+  stmts.flatMap fun s => match s with
+    | .blockAssign lhs _ => match exprToName lhs with | some n => [n] | none => []
+    | .ifElse _ t e => collectBlockNamesTop t ++ collectBlockNamesTop e
+    | .caseStmt _ arms d =>
+      (arms.flatMap fun (_, b) => collectBlockNamesTop b) ++
+      (match d with | some b => collectBlockNamesTop b | none => [])
     | _ => []
 
 -- ============================================================================
@@ -288,44 +405,48 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       | some name => body := body ++ [.assign name (lowerExpr rhs)]
       | none => throw "continuous assign LHS must be an identifier"
     | .alwaysBlock (.posedge clock) stmts =>
-      -- Sequential: try if/else reset pattern first
+      -- Sequential: extract all register names, then build mux expression per register
+      -- Detect reset pattern and extract init values
+      let mut resetName := "rst"
+      let mut initMap : List (String × Nat) := []
+      let mut dataStmts := stmts
       match stmts with
       | [.ifElse cond thenB elseB] =>
         match detectReset cond thenB elseB with
         | some (resetSig, isActiveHigh, initBranch, dataBranch) =>
-          let regs := extractRegisters initBranch dataBranch
-          let resetName := if isActiveHigh then resetSig
-                           else s!"_rst_{resetSig}_inv"
+          resetName := if isActiveHigh then resetSig else s!"_rst_{resetSig}_inv"
           if !isActiveHigh then
             wires := wires ++ [{ name := resetName, ty := .bit }]
             body := body ++ [.assign resetName (.op .not [.ref resetSig])]
-          for reg in regs do
-            let hwTy := env.getHWType reg.name
-            body := body ++ [.register reg.name clock resetName
-                              reg.dataExpr reg.initValue]
-            if !(wireExists wires reg.name) then
-              wires := wires ++ [{ name := reg.name, ty := hwTy }]
-        | none =>
-          -- No reset pattern: extract all non-blocking assigns as registers with init=0
-          let dataMap := collectNonblockAssigns thenB ++ collectNonblockAssigns elseB
-          for (name, dataExpr) in dataMap do
-            let hwTy := env.getHWType name
-            body := body ++ [.register name clock "rst" dataExpr 0]
-            if !(wireExists wires name) then
-              wires := wires ++ [{ name, ty := hwTy }]
-      | _ =>
-        -- No if/else wrapper: all non-blocking assigns become registers
-        let assigns := collectNonblockAssignsDeep stmts
-        for (name, dataExpr) in assigns do
-          let hwTy := env.getHWType name
-          body := body ++ [.register name clock "rst" dataExpr 0]
-          if !(wireExists wires name) then
-            wires := wires ++ [{ name, ty := hwTy }]
+          initMap := initBranch.filterMap fun s => match s with
+            | .nonblockAssign lhs (.lit (.decimal _ v)) => (exprToName lhs).map (·, v)
+            | .nonblockAssign lhs (.lit (.hex _ v)) => (exprToName lhs).map (·, v)
+            | .nonblockAssign lhs (.lit (.binary _ v)) => (exprToName lhs).map (·, v)
+            | _ => none
+          dataStmts := dataBranch
+        | none => pure ()
+      | _ => pure ()
+
+      -- Collect all register names assigned in the data branch
+      let regNames := (collectAllRegNames dataStmts).eraseDups
+
+      -- For each register, build mux expression from the data branch
+      for regName in regNames do
+        let hwTy := env.getHWType regName
+        let initVal := match initMap.find? (·.1 == regName) with
+          | some (_, v) => v
+          | none => 0
+        let dataExpr := stmtsToMuxExpr regName dataStmts
+        body := body ++ [.register regName clock resetName dataExpr initVal]
+        if !(wireExists wires regName) then
+          wires := wires ++ [{ name := regName, ty := hwTy }]
+
     | .alwaysBlock .star stmts =>
-      -- Combinational: lower blocking assignments
-      let assigns := collectBlockAssignsDeep stmts
-      for (name, rhs) in assigns do
-        body := body ++ [.assign name rhs]
+      -- Combinational: build mux expressions per signal
+      let sigNames := collectBlockNamesTop stmts |>.eraseDups
+      for sigName in sigNames do
+        let expr := stmtsToMuxExprBlocking sigName stmts
+        body := body ++ [.assign sigName expr]
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]

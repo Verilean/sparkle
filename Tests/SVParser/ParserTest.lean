@@ -279,9 +279,9 @@ def main : IO UInt32 := do
       -- De-assert reset (set resetn = 1) — PicoRV32 uses active-low reset
       JIT.setInput handle 1 1  -- resetn = 1
 
-      -- Run for 1000 cycles, check for UART output
+      -- Run for 10000 cycles, check for UART output
       let mut uartOutput : List UInt64 := []
-      for _ in [:1000] do
+      for _ in [:10000] do
         JIT.evalTick handle
         let uartValid ← JIT.getOutput handle 1  -- uart_valid
         if uartValid != 0 then
