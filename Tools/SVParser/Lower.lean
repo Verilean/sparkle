@@ -112,8 +112,13 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   match e with
   | .lit l => literalToConst l
   | .ident name => .ref name
-  | .unary .reductAnd arg => .op .not [.op .not [lowerExpr arg]]
-  | .unary .reductOr arg => .op .not [.op .not [lowerExpr arg]]
+  | .unary .reductAnd arg =>
+    -- Reduction AND: &x → all bits set → (x XOR 0xFF...FF) == 0
+    -- Use XOR with -1 (all ones) for bitwise inversion, then compare with 0
+    .op .eq [.op .xor [lowerExpr arg, .const (-1) 32], .const 0 32]
+  | .unary .reductOr arg =>
+    -- Reduction OR: |x → any bit set → x != 0
+    .op .not [.op .eq [lowerExpr arg, .const 0 32]]
   | .unary op arg => .op (lowerUnaryOp op) [lowerExpr arg]
   | .binary .neq lhs rhs => .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
   | .binary op lhs rhs => .op (lowerBinOp op) [lowerExpr lhs, lowerExpr rhs]
