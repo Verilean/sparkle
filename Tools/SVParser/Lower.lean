@@ -212,8 +212,8 @@ partial def collectAllRegNames (stmts : List SVStmt) : List String :=
     imperative if/else/case statements by building mux chains.
 
     If reg is not assigned in a branch, the default is `Expr.ref reg` (hold value). -/
-partial def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
-  stmts.foldl (fun current s => stmtToMuxExpr regName s current) (.ref regName)
+partial def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) (base : Expr := .ref regName) : Expr :=
+  stmts.foldl (fun current s => stmtToMuxExpr regName s current) base
 where
   stmtToMuxExpr (regName : String) (s : SVStmt) (current : Expr) : Expr :=
     match s with
@@ -222,8 +222,8 @@ where
       | some n => if n == regName then lowerExpr rhs else current
       | none => current
     | .ifElse cond thenB elseB =>
-      let thenExpr := stmtsToMuxExpr regName thenB
-      let elseExpr := stmtsToMuxExpr regName elseB
+      let thenExpr := stmtsToMuxExpr regName thenB current
+      let elseExpr := stmtsToMuxExpr regName elseB current
       -- Only emit mux if this register is assigned in either branch
       let thenHasReg := (collectAllRegNames thenB).any (· == regName)
       let elseHasReg := (collectAllRegNames elseB).any (· == regName)
@@ -240,18 +240,26 @@ where
         | some d => (collectAllRegNames d).any (· == regName) | none => false
       if anyArm || defHasReg then
         let defResult := match default_ with
-          | some d => if defHasReg then stmtsToMuxExpr regName d else current
+          | some d => if defHasReg then stmtsToMuxExpr regName d current else current
           | none => current
         -- Build mux chain from last arm to first using foldl
         arms.reverse.foldl (fun acc (labels, body) =>
           let bodyHasReg := (collectAllRegNames body).any (· == regName)
           if bodyHasReg then
-            let bodyExpr := stmtsToMuxExpr regName body
+            let bodyExpr := stmtsToMuxExpr regName body acc
             let selExpr := lowerExpr sel
+            -- For case (1'b1), labels are conditions themselves (priority encoding)
+            -- For normal case, labels are values to compare against sel
+            let isCase1b1 := match sel with
+              | .lit (.binary (some 1) 1) => true
+              | .lit (.decimal (some 1) 1) => true
+              | _ => false
             let cond := labels.foldl (fun acc label =>
-              let eq := Expr.op .eq [selExpr, lowerExpr label]
-              if acc == Expr.const 0 1 then eq
-              else Expr.op .or [acc, eq]
+              let c := if isCase1b1
+                then lowerExpr label  -- label IS the condition
+                else Expr.op .eq [selExpr, lowerExpr label]  -- sel == label
+              if acc == Expr.const 0 1 then c
+              else Expr.op .or [acc, c]
             ) (Expr.const 0 1)
             .op .mux [cond, bodyExpr, acc]
           else acc
@@ -314,9 +322,14 @@ where
           if (collectBlockNames body).any (· == sigName) then
             let bodyExpr := stmtsToMuxWithBase sigName body base
             let selExpr := lowerExpr sel
+            let isCase1b1 := match sel with
+              | .lit (.binary (some 1) 1) => true
+              | .lit (.decimal (some 1) 1) => true
+              | _ => false
             let cond := labels.foldl (fun acc' label =>
-              let eq := Expr.op .eq [selExpr, lowerExpr label]
-              if acc' == Expr.const 0 1 then eq else Expr.op .or [acc', eq]
+              let c := if isCase1b1 then lowerExpr label
+                       else Expr.op .eq [selExpr, lowerExpr label]
+              if acc' == Expr.const 0 1 then c else Expr.op .or [acc', c]
             ) (Expr.const 0 1)
             .op .mux [cond, bodyExpr, acc]
           else acc
