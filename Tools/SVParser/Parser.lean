@@ -298,10 +298,30 @@ partial def parsePrimary : P SVExpr := do
     ws
     pure (SVExpr.lit (.decimal none 0))
   | some '$' =>
-    -- System functions like $signed — parse as ident
-    let name ← identifier; lparen; let arg ← parseExpr; rparen
-    -- Treat $signed(x) as just x for now
+    -- System functions like $signed, $unsigned
+    let _ ← nextChar  -- consume $
+    let name ← identifier
+    lparen; let arg ← parseExpr; rparen
+    -- Treat $signed(x) / $unsigned(x) as just x for now
     pure arg
+  | some '\'' =>
+    -- Unsized literal: 'b0, 'bx, 'h0, etc.
+    let _ ← token (matchStr "'")
+    let base ← nextChar
+    match base with
+    | 'b' | 'B' =>
+      skipUnderscoresAndSpaces
+      let bd ← binDigitsStr
+      pure (SVExpr.lit (.binary none (binToNat bd)))
+    | 'h' | 'H' =>
+      skipUnderscoresAndSpaces
+      let hd ← hexDigitsWithUnderscore
+      pure (SVExpr.lit (.hex none (hexToNat hd)))
+    | 'd' | 'D' =>
+      skipUnderscoresAndSpaces
+      let dd ← digits
+      pure (SVExpr.lit (.decimal none dd.toNat!))
+    | _ => fail s!"unexpected base '{base}' in unsized literal"
   | some c' =>
     if isDigit c' then let lit ← numericLiteral; pure (SVExpr.lit lit)
     else if isAlpha c' then let name ← identifier; pure (SVExpr.ident name)

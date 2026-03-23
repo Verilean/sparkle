@@ -141,7 +141,9 @@ partial def lowerExpr (e : SVExpr) : Expr :=
 -- ============================================================================
 
 def exprToName : SVExpr → Option String
-  | .ident name => some name
+  | .ident name => if isArrayName name then none else some name
+  | .index (.ident name) _ => if isArrayName name then none else some name
+  | .slice (.ident name) _ _ => some name
   | _ => none
 
 -- ============================================================================
@@ -485,7 +487,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
         -- For output reg: rename the register to _reg_name, add assign output = _reg_name
         if outputNames.any (· == name) then
           let regName := s!"_reg_{name}"
-          dedupBody := [.register regName clk rst input init, .assign name (.ref regName)] ++ dedupBody
+          dedupBody := [.assign name (.ref regName), .register regName clk rst input init] ++ dedupBody
           seenRegNames := seenRegNames ++ [name]
           -- Add the internal register wire
           if !(dedupWires.any (·.name == regName)) then
