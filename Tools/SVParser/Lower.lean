@@ -450,6 +450,15 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
+    | .regDecl name width (some arraySize) =>
+      -- Array reg → Stmt.memory for JIT memory access
+      let dataWidth := widthToBits width
+      let addrWidth := Nat.log2 arraySize + (if Nat.isPowerOfTwo arraySize then 0 else 1)
+      body := body ++ [.memory name addrWidth dataWidth "clk"
+        (.const 0 addrWidth) (.const 0 dataWidth) (.const 0 1)  -- dummy write
+        (.const 0 addrWidth) s!"{name}_rdata" true]              -- combo read (no register)
+      -- Add read data wire
+      wires := wires ++ [{ name := s!"{name}_rdata", ty := widthToHWType width }]
     | .instantiation modName instName conns =>
       -- Module instantiation → Stmt.inst
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
