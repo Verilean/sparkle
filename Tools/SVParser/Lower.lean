@@ -95,19 +95,29 @@ def literalToConst : SVLiteral → Expr
   | .binary (some w) v  => .const (Int.ofNat v) w
   | .binary none v      => .const (Int.ofNat v) 32
 
-def lowerExpr : SVExpr → Expr
+private def indexToConst : SVExpr → Option Nat
+  | .lit (.decimal _ n) => some n
+  | .lit (.hex _ n) => some n
+  | .lit (.binary _ n) => some n
+  | _ => none
+
+partial def lowerExpr (e : SVExpr) : Expr :=
+  match e with
   | .lit l => literalToConst l
   | .ident name => .ref name
+  | .unary .reductAnd arg => .op .not [.op .not [lowerExpr arg]]
+  | .unary .reductOr arg => .op .not [.op .not [lowerExpr arg]]
   | .unary op arg => .op (lowerUnaryOp op) [lowerExpr arg]
-  | .binary .neq lhs rhs =>
-    -- != needs NOT(EQ(a, b))
-    .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
+  | .binary .neq lhs rhs => .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
   | .binary op lhs rhs => .op (lowerBinOp op) [lowerExpr lhs, lowerExpr rhs]
-  | .ternary cond t e => .op .mux [lowerExpr cond, lowerExpr t, lowerExpr e]
-  | .index arr idx => .index (lowerExpr arr) (lowerExpr idx)
+  | .ternary cond t el => .op .mux [lowerExpr cond, lowerExpr t, lowerExpr el]
+  | .index arr idx =>
+    match indexToConst idx with
+    | some n => .slice (lowerExpr arr) n n  -- constant bit select
+    | none => .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
   | .concat args => .concat (args.map lowerExpr)
-  | .repeat_ _count value => lowerExpr value  -- simplified: treat {n{x}} as x
+  | .repeat_ _count value => lowerExpr value
 
 -- ============================================================================
 -- Extract target name from LHS expression
@@ -225,18 +235,52 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     { name := p.name, ty := widthToHWType p.width : Port }
   let outputs := svMod.ports.filter (·.dir == .output) |>.map fun p =>
     { name := p.name, ty := widthToHWType p.width : Port }
+  let allPortNames := inputs.map (·.name) ++ outputs.map (·.name)
+
+  -- Helper: check if a wire name is already declared
+  let wireExists := fun (wires : List Port) (name : String) =>
+    wires.any (·.name == name) || allPortNames.any (· == name)
 
   -- Build wires list (from wire and reg declarations)
   let mut wires : List Port := []
   for item in svMod.items do
     match item with
     | .wireDecl name width _ => wires := wires ++ [{ name, ty := widthToHWType width }]
-    | .regDecl name width _ => wires := wires ++ [{ name, ty := widthToHWType width }]
+    | .regDecl name width arraySize =>
+      match arraySize with
+      | some size => wires := wires ++ [{ name, ty := .array size (widthToHWType width) }]
+      | none => wires := wires ++ [{ name, ty := widthToHWType width }]
     | .integerDecl name => wires := wires ++ [{ name, ty := .bitVector 32 }]
+    | _ => pure ()
+
+  -- Add parameters as constant wires (track names to avoid duplicates)
+  let mut paramNames : List String := []
+  for p in svMod.params do
+    let ty := widthToHWType p.width
+    if !(paramNames.any (· == p.name)) then
+      wires := wires ++ [{ name := p.name, ty }]
+      paramNames := paramNames ++ [p.name]
+  for item in svMod.items do
+    match item with
+    | .paramDecl param =>
+      let ty := widthToHWType param.width
+      if !(paramNames.any (· == param.name)) then
+        wires := wires ++ [{ name := param.name, ty }]
+        paramNames := paramNames ++ [param.name]
     | _ => pure ()
 
   -- Build body statements
   let mut body : List Stmt := []
+
+  -- Emit parameter default values as constant assigns
+  for p in svMod.params do
+    body := body ++ [.assign p.name (lowerExpr p.value)]
+  for item in svMod.items do
+    match item with
+    | .paramDecl param =>
+      body := body ++ [.assign param.name (lowerExpr param.value)]
+    | _ => pure ()
+
   for item in svMod.items do
     match item with
     | .contAssign lhs rhs =>
@@ -259,7 +303,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
             let hwTy := env.getHWType reg.name
             body := body ++ [.register reg.name clock resetName
                               reg.dataExpr reg.initValue]
-            if !(wires.any (·.name == reg.name)) then
+            if !(wireExists wires reg.name) then
               wires := wires ++ [{ name := reg.name, ty := hwTy }]
         | none =>
           -- No reset pattern: extract all non-blocking assigns as registers with init=0
@@ -267,7 +311,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
           for (name, dataExpr) in dataMap do
             let hwTy := env.getHWType name
             body := body ++ [.register name clock "rst" dataExpr 0]
-            if !(wires.any (·.name == name)) then
+            if !(wireExists wires name) then
               wires := wires ++ [{ name, ty := hwTy }]
       | _ =>
         -- No if/else wrapper: all non-blocking assigns become registers
@@ -275,7 +319,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
         for (name, dataExpr) in assigns do
           let hwTy := env.getHWType name
           body := body ++ [.register name clock "rst" dataExpr 0]
-          if !(wires.any (·.name == name)) then
+          if !(wireExists wires name) then
             wires := wires ++ [{ name, ty := hwTy }]
     | .alwaysBlock .star stmts =>
       -- Combinational: lower blocking assignments
@@ -287,12 +331,43 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       body := body ++ [.assign name (lowerExpr initExpr)]
     | _ => pure ()
 
+  -- Deduplicate wires
+  let mut dedupWires : List Port := []
+  let mut seenWireNames : List String := []
+  let portNames := inputs.map (·.name) ++ outputs.map (·.name)
+  for w in wires do
+    if !(seenWireNames.any (· == w.name)) && !(portNames.any (· == w.name)) then
+      dedupWires := dedupWires ++ [w]
+      seenWireNames := seenWireNames ++ [w.name]
+
+  -- Deduplicate registers and handle output reg ports
+  let mut dedupBody : List Stmt := []
+  let mut seenRegNames : List String := []
+  let outputNames := outputs.map (·.name)
+  for stmt in body.reverse do
+    match stmt with
+    | .register name clk rst input init =>
+      if !(seenRegNames.any (· == name)) then
+        -- For output reg: rename the register to _reg_name, add assign output = _reg_name
+        if outputNames.any (· == name) then
+          let regName := s!"_reg_{name}"
+          dedupBody := [.register regName clk rst input init, .assign name (.ref regName)] ++ dedupBody
+          seenRegNames := seenRegNames ++ [name]
+          -- Add the internal register wire
+          if !(dedupWires.any (·.name == regName)) then
+            let hwTy := env.getHWType name
+            dedupWires := dedupWires ++ [{ name := regName, ty := hwTy }]
+        else
+          dedupBody := [stmt] ++ dedupBody
+          seenRegNames := seenRegNames ++ [name]
+    | _ => dedupBody := [stmt] ++ dedupBody
+
   pure {
     name := svMod.name
     inputs := inputs
     outputs := outputs
-    wires := wires
-    body := body
+    wires := dedupWires
+    body := dedupBody
     isPrimitive := false
   }
 

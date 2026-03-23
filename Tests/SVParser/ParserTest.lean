@@ -175,5 +175,35 @@ def main : IO UInt32 := do
   else
     IO.println "SKIP (picorv32.v not found)"
 
+  -- Test 8: PicoRV32 core JIT compile + run
+  IO.print "  Test 8: PicoRV32 JIT compile + simulate... "
+  if picoExists then
+    match parseAndLower (← IO.FS.readFile "/tmp/picorv32.v") with
+    | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+    | .ok design =>
+      match design.modules.head? with
+      | none => IO.println "FAIL: no modules"; failed := failed + 1
+      | some core =>
+        let coreDesign : Design := { topModule := core.name, modules := [core] }
+        let jitCpp := toCppSimJIT coreDesign
+        let cppPath := "/tmp/picorv32_core_jit.cpp"
+        IO.FS.writeFile cppPath jitCpp
+        try
+          let handle ← JIT.compileAndLoad cppPath
+          JIT.reset handle
+          -- Run 100 cycles
+          for _ in [:100] do
+            JIT.evalTick handle
+          let numWires ← JIT.numWires handle
+          let numRegs ← JIT.numRegs handle
+          JIT.destroy handle
+          IO.println s!"PASS ({numWires} wires, {numRegs} regs, 100 cycles)"
+          passed := passed + 1
+        catch e =>
+          IO.println s!"FAIL (JIT): {toString e}"
+          failed := failed + 1
+  else
+    IO.println "SKIP (picorv32.v not found)"
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

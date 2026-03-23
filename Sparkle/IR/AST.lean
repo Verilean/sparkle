@@ -92,7 +92,7 @@ inductive Expr where
   | concat (args : List Expr) : Expr
   | slice (expr : Expr) (hi lo : Nat) : Expr
   | index (array : Expr) (idx : Expr) : Expr
-  deriving Repr, BEq
+  deriving Repr, BEq, Inhabited
 
 namespace Expr
 
