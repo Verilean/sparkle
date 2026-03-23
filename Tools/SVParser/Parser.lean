@@ -57,9 +57,11 @@ def preprocess (input : String) : String := Id.run do
       pure ()  -- skip this line
     else if trimmed.startsWith "`timescale" || trimmed.startsWith "`define" ||
             trimmed.startsWith "`default_nettype" ||
-            trimmed.startsWith "`assert" || trimmed.startsWith "`debug" ||
             trimmed.startsWith "`PICORV32" then
       pure ()  -- skip directive
+    else if trimmed.startsWith "`assert" || trimmed.startsWith "`debug" then
+      -- Replace assert/debug macro with empty statement (semicolon)
+      result := result ++ [";"]
     else
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
@@ -286,6 +288,15 @@ partial def parsePrimary : P SVExpr := do
         | none => cont := false
       rbrace; pure (SVExpr.concat args)
   | some '(' => lparen; let e ← parseExpr; rparen; pure e
+  | some '"' =>
+    -- String literal: "text" → treat as constant 0 (debug strings not synthesizable)
+    let _ ← nextChar  -- consume opening "
+    let mut running := true
+    while running do
+      let ch ← nextChar
+      if ch == '"' then running := false
+    ws
+    pure (SVExpr.lit (.decimal none 0))
   | some '$' =>
     -- System functions like $signed — parse as ident
     let name ← identifier; lparen; let arg ← parseExpr; rparen
@@ -301,13 +312,20 @@ partial def parsePrimary : P SVExpr := do
 partial def parseStmtList : P (List SVStmt) := do
   match ← attempt (keyword "begin") with
   | some _ =>
-    -- Optional block label: begin : label_name
     let _ ← attempt (do colon; let _ ← identifier; pure ())
     let stmts ← many parseStmt
     keyword "end"; pure stmts.toList
-  | none => let s ← parseStmt; pure [s]
+  | none =>
+    -- Single statement or empty (;)
+    match ← attempt semi with
+    | some _ => pure []  -- empty statement
+    | none => let s ← parseStmt; pure [s]
 
 partial def parseStmt : P SVStmt := do
+  -- Empty statement (standalone ;)
+  match ← attempt semi with
+  | some _ => return SVStmt.blockAssign (.lit (.decimal none 0)) (.lit (.decimal none 0))
+  | none => pure ()
   match ← attempt (keyword "if") with
   | some _ =>
     lparen; let cond ← parseExpr; rparen
