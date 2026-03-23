@@ -114,7 +114,7 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   | .index arr idx =>
     match indexToConst idx with
     | some n => .slice (lowerExpr arr) n n  -- constant bit select
-    | none => .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
+    | none => .index (lowerExpr arr) (lowerExpr idx)  -- dynamic
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
   | .concat args => .concat (args.map lowerExpr)
   | .repeat_ _count value => lowerExpr value

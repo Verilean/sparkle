@@ -505,8 +505,28 @@ where
     match ← attempt (keyword "begin") with
     | some _ =>
       let _ ← attempt (do colon; let _ ← identifier; pure ())
-      let stmts ← many parseStmt
-      keyword "end"; pure stmts.toList
+      -- Parse statements, tracking begin/end depth
+      let mut stmts : List SVStmt := []
+      let mut depth : Nat := 1  -- we already consumed one "begin"
+      while depth > 0 do
+        -- Try to parse a statement
+        match ← attempt parseStmt with
+        | some s =>
+          stmts := stmts ++ [s]
+          -- Count begin/end depth changes from the statement
+          -- (parseStmt already consumed matching begin/end internally)
+        | none =>
+          -- Check for end keyword
+          match ← attempt (keyword "end") with
+          | some _ => depth := depth - 1
+          | none =>
+            -- Check for begin keyword (nested block we couldn't parse)
+            match ← attempt (keyword "begin") with
+            | some _ => depth := depth + 1
+            | none =>
+              -- Skip one token (error recovery)
+              let _ ← nextChar
+      pure stmts
     | none =>
       let s ← parseStmt; pure [s]
 

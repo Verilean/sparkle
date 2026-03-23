@@ -77,6 +77,18 @@ partial def skipBlockComment : P Unit := do
     else skipBlockComment
   else skipBlockComment
 
+partial def skipAttribute : P Unit := do
+  -- Skip (* ... *) attributes
+  let c ← nextChar  -- consume '*'
+  if c != '*' then return  -- shouldn't happen
+  let mut running := true
+  while running do
+    let ch ← nextChar
+    if ch == '*' then
+      let next ← peekChar
+      if next == some ')' then
+        let _ ← nextChar; running := false
+
 partial def ws : P Unit := do
   let c ← peekChar
   match c with
@@ -88,7 +100,14 @@ partial def ws : P Unit := do
     let c2 ← peekChar
     if c2 == some '/' then let _ ← nextChar; skipLineComment; ws
     else if c2 == some '*' then let _ ← nextChar; skipBlockComment; ws
-    else setPos savedPos  -- not a comment, restore
+    else setPos savedPos
+  | some '(' =>
+    -- Check for (* attribute *)
+    let savedPos ← getPos
+    let _ ← nextChar
+    let c2 ← peekChar
+    if c2 == some '*' then skipAttribute; ws
+    else setPos savedPos
   | _ => pure ()
 
 -- ============================================================================
