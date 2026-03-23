@@ -628,7 +628,6 @@ def flattenDesign (design : Design) : Design := Id.run do
           -- Add prefixed wires from sub-module
           for w in subMod.wires do
             flatWires := flatWires ++ [{ name := s!"{instName}_{w.name}", ty := w.ty }]
-          -- Add prefixed wires for sub-module's input/output ports (as internal wires)
           for p in subMod.inputs do
             flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
           for p in subMod.outputs do
@@ -667,15 +666,42 @@ def flattenDesign (design : Design) : Design := Id.run do
             flatBody := flatBody ++ [prefixed]
       | other => flatBody := flatBody ++ [other]
 
+    -- Collect register names (these should NOT be prefixed)
+    let regNames := flatBody.filterMap fun s => match s with
+      | .register n _ _ _ _ => some n | _ => none
+    -- Only prefix wire names that are NOT register names
+    let wireOnlyNames := flatWires.map (·.name) |>.filter fun n =>
+      !(regNames.any (· == n))
+    let addGen (n : String) : String :=
+      if n.startsWith "_gen_" then n
+      else if wireOnlyNames.any (· == n) then s!"_gen_{n}"
+      else n
+    let genWires := flatWires.map fun w => { w with name := addGen w.name }
+    let genExpr := genExprRefs wireOnlyNames
+    let genBody := flatBody.map fun s => match s with
+      | .assign n rhs => .assign (addGen n) (genExpr rhs)
+      | .register n clk rst input init => .register n clk rst (genExpr input) init
+      | .inst mn in_ conns => .inst mn in_ (conns.map fun (p, e) => (p, genExpr e))
+      | s => s
+
     let flatModule : Module := {
       name := top.name
       inputs := top.inputs
       outputs := top.outputs
-      wires := flatWires
-      body := topoSortBody flatBody
+      wires := genWires
+      body := topoSortBody genBody
       isPrimitive := false
     }
     return { topModule := design.topModule, modules := [flatModule] }
+  where
+    genExprRefs (wireNames : List String) : Expr → Expr
+      | .ref n => if wireNames.any (· == n) && !n.startsWith "_gen_"
+                  then .ref s!"_gen_{n}" else .ref n
+      | .op o args => .op o (args.map (genExprRefs wireNames))
+      | .concat args => .concat (args.map (genExprRefs wireNames))
+      | .slice e hi lo => .slice (genExprRefs wireNames e) hi lo
+      | .index a i => .index (genExprRefs wireNames a) (genExprRefs wireNames i)
+      | e => e
 
 /-- Lower a full SV design to Sparkle IR -/
 def lowerDesign (svDesign : SVDesign) : Except String Design := do
