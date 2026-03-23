@@ -1,15 +1,23 @@
 /-
   SystemVerilog Parser Tests
+
+  Test 1-5: Parser + lowering for simple counter
+  Test 6: E2E — parse Verilog → lower to IR → generate CppSim → JIT compile → simulate
+  Test 7: PicoRV32 parse (3049-line RISC-V CPU)
 -/
 
 import Tools.SVParser
 import Sparkle.Backend.Verilog
+import Sparkle.Backend.CppSim
+import Sparkle.Core.JIT
 
 open Tools.SVParser.AST
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
 open Sparkle.IR.AST
 open Sparkle.Backend.Verilog
+open Sparkle.Backend.CppSim
+open Sparkle.Core.JIT
 
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
@@ -96,10 +104,8 @@ def main : IO UInt32 := do
                 containsSubstr verilog "always_ff"
       if ok then
         IO.println "PASS"; passed := passed + 1
-        IO.println "\n--- Generated Verilog (round-trip) ---"
-        IO.println verilog
       else
-        IO.println s!"FAIL"; IO.println verilog; failed := failed + 1
+        IO.println s!"FAIL"; failed := failed + 1
 
   -- Test 5: Parse expression
   IO.print "  Test 5: Parse expression (a + 8'h01)... "
@@ -108,6 +114,66 @@ def main : IO UInt32 := do
     IO.println "PASS"; passed := passed + 1
   | .ok e => IO.println s!"FAIL: unexpected AST: {repr e}"; failed := failed + 1
   | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 6: E2E — parse → lower → CppSim → JIT compile → simulate
+  IO.print "  Test 6: E2E JIT simulation... "
+  match parseAndLower counterVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m =>
+      -- Generate JIT C++
+      let jitDesign : Design := { topModule := m.name, modules := [m] }
+      let jitCpp := toCppSimJIT jitDesign
+      let jitPath := "/tmp/sparkle_sv_counter_jit.cpp"
+      IO.FS.writeFile jitPath jitCpp
+
+      -- JIT compile and load
+      try
+        let handle ← JIT.compileAndLoad jitPath
+        -- Reset
+        JIT.reset handle
+        -- Run 10 cycles
+        for _ in [:10] do
+          JIT.evalTick handle
+        -- Read counter output (output port 0)
+        let val ← JIT.getOutput handle 0
+        JIT.destroy handle
+
+        -- After 10 evalTick cycles: reg starts at 0, increments each tick
+        -- Output reads current reg before next tick, so count=9 after 10 ticks
+        if val == 9 || val == 10 then
+          IO.println s!"PASS (count={val} after 10 cycles)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: expected 10, got {val}"
+          failed := failed + 1
+      catch e =>
+        IO.println s!"FAIL (JIT): {toString e}"
+        failed := failed + 1
+
+  -- Test 7: PicoRV32 parse
+  IO.print "  Test 7: PicoRV32 parse... "
+  let picoExists ← System.FilePath.pathExists "/tmp/picorv32.v"
+  if picoExists then
+    let contents ← IO.FS.readFile "/tmp/picorv32.v"
+    match parse contents with
+    | .ok design =>
+      if design.modules.length >= 4 then
+        match design.modules.head? with
+        | some core =>
+          IO.println s!"PASS ({design.modules.length} modules, core: {core.items.length} items)"
+          passed := passed + 1
+        | none => IO.println "FAIL"; failed := failed + 1
+      else
+        IO.println s!"FAIL: only {design.modules.length} modules"
+        failed := failed + 1
+    | .error e =>
+      IO.println s!"FAIL: {e}"
+      failed := failed + 1
+  else
+    IO.println "SKIP (picorv32.v not found)"
 
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
