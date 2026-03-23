@@ -329,6 +329,10 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
+    | .instantiation modName instName conns =>
+      -- Module instantiation → Stmt.inst
+      let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
+      body := body ++ [.inst modName instName irConns]
     | _ => pure ()
 
   -- Deduplicate wires

@@ -230,5 +230,76 @@ def main : IO UInt32 := do
   else
     IO.println "SKIP (files not found)"
 
+  -- Test 10: PicoRV32 SoC — JIT compile + firmware load + simulate
+  IO.print "  Test 10: PicoRV32 SoC with firmware... "
+  let socPath := "/tmp/picorv32_soc.v"
+  let socExists ← System.FilePath.pathExists socPath
+  let fwPath := "/tmp/firmware.hex"
+  let fwExists ← System.FilePath.pathExists fwPath
+  if socExists && picoExists && fwExists then
+    try
+      let soc ← IO.FS.readFile socPath
+      let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+      let combined := soc ++ "\n" ++ cpu
+
+      let svDesign ← IO.ofExcept (Tools.SVParser.Parser.parse combined)
+      let design ← IO.ofExcept (lowerDesign svDesign)
+
+      -- Filter to SoC + picorv32 only
+      let needed := design.modules.filter fun (m : Module) =>
+        m.name == "picorv32_soc" || m.name == "picorv32"
+      let filteredDesign : Design := { topModule := "picorv32_soc", modules := needed }
+
+      -- Generate and compile JIT
+      let jitCpp := toCppSimJIT filteredDesign
+      let cppPath := "/tmp/picorv32_soc_jit.cpp"
+      IO.FS.writeFile cppPath jitCpp
+
+      let handle ← JIT.compileAndLoad cppPath
+
+      -- Load firmware into memory (memory index 0 = first memory in SoC)
+      let fwContents ← IO.FS.readFile fwPath
+      let lines := fwContents.splitOn "\n"
+      let mut addr : UInt32 := 0
+      for line in lines do
+        let trimmed := line.trim
+        if trimmed.startsWith "@" then
+          -- Address directive
+          let hexAddr := trimmed.drop 1
+          addr := String.toNat! s!"0x{hexAddr}" |>.toUInt32
+        else if trimmed.length >= 8 then
+          -- Hex data word
+          let word := String.toNat! s!"0x{trimmed}" |>.toUInt32
+          JIT.setMem handle 0 (addr / 4) word
+          addr := addr + 4
+
+      -- Reset and run
+      JIT.reset handle
+
+      -- De-assert reset (set resetn = 1) — PicoRV32 uses active-low reset
+      JIT.setInput handle 1 1  -- resetn = 1
+
+      -- Run for 1000 cycles, check for UART output
+      let mut uartOutput : List UInt64 := []
+      for _ in [:1000] do
+        JIT.evalTick handle
+        let uartValid ← JIT.getOutput handle 1  -- uart_valid
+        if uartValid != 0 then
+          let uartData ← JIT.getOutput handle 0  -- uart_data
+          uartOutput := uartOutput ++ [uartData]
+
+      let numRegs ← JIT.numRegs handle
+      JIT.destroy handle
+
+      -- Count non-zero UART bytes
+      let nonZero := uartOutput.filter (· != 0)
+      IO.println s!"PASS ({numRegs} regs, {uartOutput.length} UART events, {nonZero.length} non-zero)"
+      passed := passed + 1
+    catch e =>
+      IO.println s!"FAIL: {toString e}"
+      failed := failed + 1
+  else
+    IO.println "SKIP (files not found)"
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
