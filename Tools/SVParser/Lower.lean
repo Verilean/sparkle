@@ -332,6 +332,56 @@ partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
     | _ => []
 
 -- ============================================================================
+-- Topological sort of IR statements
+-- ============================================================================
+
+/-- Collect all Expr.ref names used in an expression -/
+partial def collectRefs : Expr → List String
+  | .ref name => [name]
+  | .op _ args => args.flatMap collectRefs
+  | .concat args => args.flatMap collectRefs
+  | .slice e _ _ => collectRefs e
+  | .index a i => collectRefs a ++ collectRefs i
+  | _ => []
+
+/-- Topologically sort assign statements so each wire is computed after its dependencies.
+    Registers are placed after all assigns (they read current register values). -/
+def topoSortBody (body : List Stmt) : List Stmt := Id.run do
+  let mut assigns : List (String × Expr) := []
+  let mut registers : List Stmt := []
+  let mut memories : List Stmt := []
+  let mut others : List Stmt := []
+  for s in body do
+    match s with
+    | .assign name rhs => assigns := assigns ++ [(name, rhs)]
+    | .register _ _ _ _ _ => registers := registers ++ [s]
+    | .memory _ _ _ _ _ _ _ _ _ _ => memories := memories ++ [s]
+    | _ => others := others ++ [s]
+  let assignNames := assigns.map (·.1)
+  let mut sorted : List Stmt := []
+  let mut emitted : List String := []
+  let mut remaining := assigns
+  -- Kahn's algorithm
+  let mut changed := true
+  while changed do
+    changed := false
+    let mut nextRemaining : List (String × Expr) := []
+    for (name, rhs) in remaining do
+      let deps := collectRefs rhs
+      let depsReady := deps.all fun dep =>
+        !(assignNames.any (· == dep)) || emitted.any (· == dep)
+      if depsReady then
+        sorted := sorted ++ [.assign name rhs]
+        emitted := emitted ++ [name]
+        changed := true
+      else
+        nextRemaining := nextRemaining ++ [(name, rhs)]
+    remaining := nextRemaining
+  for (name, rhs) in remaining do
+    sorted := sorted ++ [.assign name rhs]
+  return memories ++ sorted ++ registers ++ others
+
+-- ============================================================================
 -- Module lowering
 -- ============================================================================
 
@@ -429,6 +479,14 @@ def lowerModule (svMod : SVModule) : Except String Module := do
         | none => pure ()
       | _ => pure ()
 
+      -- Extract blocking assigns as combinational intermediates
+      let blockingNames := (collectBlockNamesTop dataStmts).eraseDups
+      for sigName in blockingNames do
+        let expr := stmtsToMuxExprBlocking sigName dataStmts
+        body := body ++ [.assign sigName expr]
+        if !(wireExists wires sigName) then
+          wires := wires ++ [{ name := sigName, ty := .bitVector 32 }]  -- default 32-bit
+
       -- Collect all register names assigned in the data branch
       let regNames := (collectAllRegNames dataStmts).eraseDups
 
@@ -503,7 +561,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     inputs := inputs
     outputs := outputs
     wires := dedupWires
-    body := dedupBody
+    body := topoSortBody dedupBody
     isPrimitive := false
   }
 
@@ -584,7 +642,7 @@ def flattenDesign (design : Design) : Design := Id.run do
       inputs := top.inputs
       outputs := top.outputs
       wires := flatWires
-      body := flatBody
+      body := topoSortBody flatBody
       isPrimitive := false
     }
     return { topModule := design.topModule, modules := [flatModule] }
