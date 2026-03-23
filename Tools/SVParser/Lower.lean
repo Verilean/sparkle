@@ -478,12 +478,7 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     match item with
     | .contAssign lhs rhs =>
       match exprToName lhs with
-      | some name =>
-        -- Prefix wire names with _gen_ to ensure CppSim keeps them as class members
-        let wireName := if name.startsWith "_gen_" then name else s!"_gen_{name}"
-        body := body ++ [.assign wireName (lowerExpr rhs)]
-        if !(wireExists wires wireName) then
-          wires := wires ++ [{ name := wireName, ty := .bitVector 32 }]
+      | some name => body := body ++ [.assign name (lowerExpr rhs)]
       | none => throw "continuous assign LHS must be an identifier"
     | .alwaysBlock (.posedge clock) stmts =>
       -- Sequential: extract all register names, then build mux expression per register
@@ -666,18 +661,21 @@ def flattenDesign (design : Design) : Design := Id.run do
             flatBody := flatBody ++ [prefixed]
       | other => flatBody := flatBody ++ [other]
 
-    -- Collect register names (these should NOT be prefixed)
+    -- Prefix internal wire names with _gen_ to prevent CppSim local shadowing.
+    -- Exclude: input/output port names, register names, memory names.
+    let portNames := top.inputs.map (·.name) ++ top.outputs.map (·.name)
     let regNames := flatBody.filterMap fun s => match s with
       | .register n _ _ _ _ => some n | _ => none
-    -- Only prefix wire names that are NOT register names
-    let wireOnlyNames := flatWires.map (·.name) |>.filter fun n =>
-      !(regNames.any (· == n))
+    let memNames := flatBody.filterMap fun s => match s with
+      | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
+    let internalWireNames := flatWires.map (·.name) |>.filter fun n =>
+      !(portNames.any (· == n)) && !(regNames.any (· == n)) && !(memNames.any (· == n))
     let addGen (n : String) : String :=
       if n.startsWith "_gen_" then n
-      else if wireOnlyNames.any (· == n) then s!"_gen_{n}"
+      else if internalWireNames.any (· == n) then s!"_gen_{n}"
       else n
     let genWires := flatWires.map fun w => { w with name := addGen w.name }
-    let genExpr := genExprRefs wireOnlyNames
+    let genExpr := genExprRefs internalWireNames
     let genBody := flatBody.map fun s => match s with
       | .assign n rhs => .assign (addGen n) (genExpr rhs)
       | .register n clk rst input init => .register n clk rst (genExpr input) init
