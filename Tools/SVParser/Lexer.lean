@@ -186,6 +186,29 @@ def hexToNat (s : String) : Nat :=
 def binToNat (s : String) : Nat :=
   s.foldl (fun acc c => acc * 2 + if c == '1' then 1 else 0) 0
 
+def skipUnderscoresAndSpaces : P Unit := do
+  let mut cont := true
+  while cont do
+    let c ← peekChar
+    if c == some '_' || c == some ' ' then let _ ← nextChar
+    else cont := false
+
+def hexDigitsWithUnderscore : P String := do
+  skipUnderscoresAndSpaces
+  let first ← nextChar
+  if !isHexDigit first then fail s!"expected hex digit, got '{first}'"
+  let mut result : List Char := [first]
+  let mut cont := true
+  while cont do
+    let c ← peekChar
+    match c with
+    | some c' =>
+      if isHexDigit c' then let _ ← nextChar; result := result ++ [c']
+      else if c' == '_' then let _ ← nextChar  -- skip underscores
+      else cont := false
+    | none => cont := false
+  pure (String.ofList result)
+
 def numericLiteral : P SVLiteral := token do
   let d ← digits
   let next ← peekChar
@@ -194,12 +217,14 @@ def numericLiteral : P SVLiteral := token do
     let base ← nextChar
     match base with
     | 'h' | 'H' =>
-      let hd ← hexDigitsStr
+      let hd ← hexDigitsWithUnderscore
       pure (SVLiteral.hex (some d.toNat!) (hexToNat hd))
     | 'd' | 'D' =>
+      skipUnderscoresAndSpaces
       let dd ← digits
       pure (SVLiteral.decimal (some d.toNat!) dd.toNat!)
     | 'b' | 'B' =>
+      skipUnderscoresAndSpaces
       let bd ← binDigitsStr
       pure (SVLiteral.binary (some d.toNat!) (binToNat bd))
     | _ => fail s!"unknown base '{base}'"

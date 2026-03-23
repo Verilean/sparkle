@@ -62,9 +62,11 @@ def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
 -- ============================================================================
 
 def lowerUnaryOp : SVUnaryOp → Operator
-  | .logNot  => .not
-  | .bitNot  => .not
-  | .neg     => .neg
+  | .logNot    => .not
+  | .bitNot    => .not
+  | .neg       => .neg
+  | .reductAnd => .and  -- reduction ops treated as bitwise for now
+  | .reductOr  => .or
 
 def lowerBinOp : SVBinOp → Operator
   | .add    => .add
@@ -105,6 +107,7 @@ def lowerExpr : SVExpr → Expr
   | .index arr idx => .index (lowerExpr arr) (lowerExpr idx)
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
   | .concat args => .concat (args.map lowerExpr)
+  | .repeat_ _count value => lowerExpr value  -- simplified: treat {n{x}} as x
 
 -- ============================================================================
 -- Extract target name from LHS expression
@@ -159,6 +162,47 @@ def detectReset (cond : SVExpr) (thenBranch elseBranch : List SVStmt)
   | _ => none
 
 -- ============================================================================
+-- Deep statement collection helpers
+-- ============================================================================
+
+/-- Collect all non-blocking assigns from a flat statement list -/
+def collectNonblockAssigns (stmts : List SVStmt) : List (String × Expr) :=
+  stmts.filterMap fun s => match s with
+    | .nonblockAssign lhs rhs => (exprToName lhs).map (·, lowerExpr rhs)
+    | _ => none
+
+/-- Recursively collect all non-blocking assigns (through if/else/case) -/
+partial def collectNonblockAssignsDeep (stmts : List SVStmt) : List (String × Expr) :=
+  stmts.flatMap fun s => match s with
+    | .nonblockAssign lhs rhs =>
+      match exprToName lhs with
+      | some name => [(name, lowerExpr rhs)]
+      | none => []
+    | .ifElse _ thenB elseB =>
+      collectNonblockAssignsDeep thenB ++ collectNonblockAssignsDeep elseB
+    | .caseStmt _ arms default_ =>
+      let armAssigns := arms.flatMap fun (_, body) => collectNonblockAssignsDeep body
+      let defAssigns := match default_ with | some body => collectNonblockAssignsDeep body | none => []
+      armAssigns ++ defAssigns
+    | .forLoop _ _ _ body => collectNonblockAssignsDeep body
+    | _ => []
+
+/-- Recursively collect all blocking assigns as name→expr pairs -/
+partial def collectBlockAssignsDeep (stmts : List SVStmt) : List (String × Expr) :=
+  stmts.flatMap fun s => match s with
+    | .blockAssign lhs rhs =>
+      match exprToName lhs with
+      | some name => [(name, lowerExpr rhs)]
+      | none => []
+    | .ifElse _ thenB elseB =>
+      collectBlockAssignsDeep thenB ++ collectBlockAssignsDeep elseB
+    | .caseStmt _ arms default_ =>
+      let armAssigns := arms.flatMap fun (_, body) => collectBlockAssignsDeep body
+      let defAssigns := match default_ with | some body => collectBlockAssignsDeep body | none => []
+      armAssigns ++ defAssigns
+    | _ => []
+
+-- ============================================================================
 -- Module lowering
 -- ============================================================================
 
@@ -170,8 +214,8 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     env := { env with portWidths := env.portWidths ++ [(p.name, p.width)] }
   for item in svMod.items do
     match item with
-    | .wireDecl name width => env := { env with wireWidths := env.wireWidths ++ [(name, width)] }
-    | .regDecl name width =>
+    | .wireDecl name width _ => env := { env with wireWidths := env.wireWidths ++ [(name, width)] }
+    | .regDecl name width _ =>
       env := { env with wireWidths := env.wireWidths ++ [(name, width)],
                          regNames := env.regNames ++ [name] }
     | _ => pure ()
@@ -186,8 +230,9 @@ def lowerModule (svMod : SVModule) : Except String Module := do
   let mut wires : List Port := []
   for item in svMod.items do
     match item with
-    | .wireDecl name width => wires := wires ++ [{ name, ty := widthToHWType width }]
-    | .regDecl name width => wires := wires ++ [{ name, ty := widthToHWType width }]
+    | .wireDecl name width _ => wires := wires ++ [{ name, ty := widthToHWType width }]
+    | .regDecl name width _ => wires := wires ++ [{ name, ty := widthToHWType width }]
+    | .integerDecl name => wires := wires ++ [{ name, ty := .bitVector 32 }]
     | _ => pure ()
 
   -- Build body statements
@@ -199,13 +244,12 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       | some name => body := body ++ [.assign name (lowerExpr rhs)]
       | none => throw "continuous assign LHS must be an identifier"
     | .alwaysBlock (.posedge clock) stmts =>
-      -- Sequential: extract registers from if/else reset pattern
+      -- Sequential: try if/else reset pattern first
       match stmts with
       | [.ifElse cond thenB elseB] =>
         match detectReset cond thenB elseB with
         | some (resetSig, isActiveHigh, initBranch, dataBranch) =>
           let regs := extractRegisters initBranch dataBranch
-          -- For active-low reset, add an inverter wire
           let resetName := if isActiveHigh then resetSig
                            else s!"_rst_{resetSig}_inv"
           if !isActiveHigh then
@@ -215,20 +259,32 @@ def lowerModule (svMod : SVModule) : Except String Module := do
             let hwTy := env.getHWType reg.name
             body := body ++ [.register reg.name clock resetName
                               reg.dataExpr reg.initValue]
-            -- Add register wire if not already declared
             if !(wires.any (·.name == reg.name)) then
               wires := wires ++ [{ name := reg.name, ty := hwTy }]
-        | none => throw s!"always @(posedge {clock}): unsupported reset pattern"
-      | _ => throw "always @(posedge): expected single if/else for reset pattern"
+        | none =>
+          -- No reset pattern: extract all non-blocking assigns as registers with init=0
+          let dataMap := collectNonblockAssigns thenB ++ collectNonblockAssigns elseB
+          for (name, dataExpr) in dataMap do
+            let hwTy := env.getHWType name
+            body := body ++ [.register name clock "rst" dataExpr 0]
+            if !(wires.any (·.name == name)) then
+              wires := wires ++ [{ name, ty := hwTy }]
+      | _ =>
+        -- No if/else wrapper: all non-blocking assigns become registers
+        let assigns := collectNonblockAssignsDeep stmts
+        for (name, dataExpr) in assigns do
+          let hwTy := env.getHWType name
+          body := body ++ [.register name clock "rst" dataExpr 0]
+          if !(wires.any (·.name == name)) then
+            wires := wires ++ [{ name, ty := hwTy }]
     | .alwaysBlock .star stmts =>
-      -- Combinational: lower if/else to mux chains
-      for s in stmts do
-        match s with
-        | .blockAssign lhs rhs =>
-          match exprToName lhs with
-          | some name => body := body ++ [.assign name (lowerExpr rhs)]
-          | none => throw "blocking assign LHS must be an identifier"
-        | _ => throw "always @(*): only blocking assignments supported"
+      -- Combinational: lower blocking assignments
+      let assigns := collectBlockAssignsDeep stmts
+      for (name, rhs) in assigns do
+        body := body ++ [.assign name rhs]
+    | .wireDecl name _ (some initExpr) =>
+      -- wire x = expr; → assign
+      body := body ++ [.assign name (lowerExpr initExpr)]
     | _ => pure ()
 
   pure {
