@@ -496,6 +496,88 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     isPrimitive := false
   }
 
+/-- Prefix all wire/register names in an expression -/
+partial def prefixExprNames (pfx : String) (nameSet : List String) : Expr → Expr
+  | .ref name => if nameSet.any (· == name) then .ref s!"{pfx}_{name}" else .ref name
+  | .op o args => .op o (args.map (prefixExprNames pfx nameSet))
+  | .concat args => .concat (args.map (prefixExprNames pfx nameSet))
+  | .slice e hi lo => .slice (prefixExprNames pfx nameSet e) hi lo
+  | .index arr idx => .index (prefixExprNames pfx nameSet arr) (prefixExprNames pfx nameSet idx)
+  | e => e
+
+/-- Flatten a design: inline all sub-module instantiations into a single module -/
+def flattenDesign (design : Design) : Design := Id.run do
+  let moduleMap := design.modules
+  match design.modules.find? fun (m : Module) => m.name == design.topModule with
+  | none => return design
+  | some top =>
+    let mut flatWires := top.wires
+    let mut flatBody : List Stmt := []
+
+    for stmt in top.body do
+      match stmt with
+      | .inst modName instName conns =>
+        -- Find the sub-module
+        match moduleMap.find? fun (m : Module) => m.name == modName with
+        | none => flatBody := flatBody ++ [stmt]  -- keep as-is if not found
+        | some subMod =>
+          -- Collect all internal names in sub-module
+          let subNames := subMod.wires.map (·.name) ++
+                          subMod.inputs.map (·.name) ++
+                          subMod.outputs.map (·.name)
+
+          -- Add prefixed wires from sub-module
+          for w in subMod.wires do
+            flatWires := flatWires ++ [{ name := s!"{instName}_{w.name}", ty := w.ty }]
+          -- Add prefixed wires for sub-module's input/output ports (as internal wires)
+          for p in subMod.inputs do
+            flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
+          for p in subMod.outputs do
+            flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
+
+          -- Wire port connections:
+          -- Input ports: assign instName_portName = parentExpr
+          -- Output ports: assign parentWire = instName_portName
+          let inputNames := subMod.inputs.map (·.name)
+          let outputNames := subMod.outputs.map (·.name)
+          for (portName, expr) in conns do
+            if inputNames.any (· == portName) then
+              -- Input: parent drives sub-module's port
+              flatBody := flatBody ++ [.assign s!"{instName}_{portName}" expr]
+            else if outputNames.any (· == portName) then
+              -- Output: sub-module drives parent's wire
+              -- expr is typically .ref "parentWire"
+              match expr with
+              | .ref parentWire =>
+                flatBody := flatBody ++ [.assign parentWire (.ref s!"{instName}_{portName}")]
+              | _ => pure ()  -- complex expression, skip
+
+          -- Add prefixed body statements from sub-module
+          for s in subMod.body do
+            let prefixed := match s with
+              | .assign name rhs =>
+                .assign s!"{instName}_{name}" (prefixExprNames instName subNames rhs)
+              | .register name clk rst input init =>
+                .register s!"{instName}_{name}" s!"{instName}_{clk}" s!"{instName}_{rst}"
+                  (prefixExprNames instName subNames input) init
+              | .inst subModName subInstName subConns =>
+                -- Nested instantiation: prefix and keep
+                .inst subModName s!"{instName}_{subInstName}"
+                  (subConns.map fun (pn, e) => (pn, prefixExprNames instName subNames e))
+              | other => other
+            flatBody := flatBody ++ [prefixed]
+      | other => flatBody := flatBody ++ [other]
+
+    let flatModule : Module := {
+      name := top.name
+      inputs := top.inputs
+      outputs := top.outputs
+      wires := flatWires
+      body := flatBody
+      isPrimitive := false
+    }
+    return { topModule := design.topModule, modules := [flatModule] }
+
 /-- Lower a full SV design to Sparkle IR -/
 def lowerDesign (svDesign : SVDesign) : Except String Design := do
   let mut modules : List Module := []
@@ -528,6 +610,11 @@ def extractReadMemH (svDesign : SVDesign) : List ReadMemHInfo :=
 def parseAndLower (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   lowerDesign svDesign
+
+def parseAndLowerFlat (input : String) : Except String Design := do
+  let svDesign ← Tools.SVParser.Parser.parse input
+  let design ← lowerDesign svDesign
+  pure (flattenDesign design)
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input

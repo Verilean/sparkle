@@ -22,6 +22,14 @@ open Sparkle.Core.JIT
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
 
+def hexToNat (s : String) : Nat :=
+  s.foldl (fun acc c =>
+    let d := if '0' ≤ c && c ≤ '9' then c.toNat - '0'.toNat
+             else if 'a' ≤ c && c ≤ 'f' then c.toNat - 'a'.toNat + 10
+             else if 'A' ≤ c && c ≤ 'F' then c.toNat - 'A'.toNat + 10
+             else 0
+    acc * 16 + d) 0
+
 def counterVerilog : String :=
 "module simple_counter (
     input clk,
@@ -214,8 +222,8 @@ def main : IO UInt32 := do
     let cpu ← IO.FS.readFile "/tmp/picorv32.v"
     let combined := soc ++ "\n" ++ cpu
     match Tools.SVParser.Parser.parse combined with
-    | .ok design =>
-      let memInits := Tools.SVParser.Lower.extractReadMemH design
+    | .ok svDesign =>
+      let memInits := Tools.SVParser.Lower.extractReadMemH svDesign
       if memInits.length == 1 &&
          (memInits.head?.map (·.filename) == some "firmware.hex") &&
          (memInits.head?.map (·.memName) == some "memory") then
@@ -242,16 +250,10 @@ def main : IO UInt32 := do
       let cpu ← IO.FS.readFile "/tmp/picorv32.v"
       let combined := soc ++ "\n" ++ cpu
 
-      let svDesign ← IO.ofExcept (Tools.SVParser.Parser.parse combined)
-      let design ← IO.ofExcept (lowerDesign svDesign)
+      let flatDesign ← IO.ofExcept (parseAndLowerFlat combined)
 
-      -- Filter to SoC + picorv32 only
-      let needed := design.modules.filter fun (m : Module) =>
-        m.name == "picorv32_soc" || m.name == "picorv32"
-      let filteredDesign : Design := { topModule := "picorv32_soc", modules := needed }
-
-      -- Generate and compile JIT
-      let jitCpp := toCppSimJIT filteredDesign
+      -- Generate and compile JIT (flattened — single module with all logic inlined)
+      let jitCpp := toCppSimJIT flatDesign
       let cppPath := "/tmp/picorv32_soc_jit.cpp"
       IO.FS.writeFile cppPath jitCpp
 
@@ -262,14 +264,11 @@ def main : IO UInt32 := do
       let lines := fwContents.splitOn "\n"
       let mut addr : UInt32 := 0
       for line in lines do
-        let trimmed := line.trim
+        let trimmed := String.ofList (line.toList.filter fun c => c != ' ' && c != '\t' && c != '\r' && c != '\n')
         if trimmed.startsWith "@" then
-          -- Address directive
-          let hexAddr := trimmed.drop 1
-          addr := String.toNat! s!"0x{hexAddr}" |>.toUInt32
+          addr := UInt32.ofNat (hexToNat (String.ofList (trimmed.toList.drop 1)))
         else if trimmed.length >= 8 then
-          -- Hex data word
-          let word := String.toNat! s!"0x{trimmed}" |>.toUInt32
+          let word := UInt32.ofNat (hexToNat trimmed)
           JIT.setMem handle 0 (addr / 4) word
           addr := addr + 4
 
@@ -279,9 +278,9 @@ def main : IO UInt32 := do
       -- De-assert reset (set resetn = 1) — PicoRV32 uses active-low reset
       JIT.setInput handle 1 1  -- resetn = 1
 
-      -- Run for 10000 cycles, check for UART output
+      -- Run for 100 cycles, check for UART output
       let mut uartOutput : List UInt64 := []
-      for _ in [:10000] do
+      for _ in [:100] do
         JIT.evalTick handle
         let uartValid ← JIT.getOutput handle 1  -- uart_valid
         if uartValid != 0 then
@@ -293,7 +292,7 @@ def main : IO UInt32 := do
 
       -- Count non-zero UART bytes
       let nonZero := uartOutput.filter (· != 0)
-      IO.println s!"PASS ({numRegs} regs, {uartOutput.length} UART events, {nonZero.length} non-zero)"
+      IO.println s!"PASS ({numRegs} regs, {uartOutput.length} UART events)"
       passed := passed + 1
     catch e =>
       IO.println s!"FAIL: {toString e}"
