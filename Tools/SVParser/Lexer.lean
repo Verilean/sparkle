@@ -55,8 +55,8 @@ def isAlpha (c : Char) : Bool := c.isAlpha || c == '_'
 def isAlphaNum (c : Char) : Bool := c.isAlphanum || c == '_' || c == '$'
 def isDigit (c : Char) : Bool := c.isDigit
 def isHexDigit (c : Char) : Bool :=
-  c.isDigit || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F')
-def isBinDigit (c : Char) : Bool := c == '0' || c == '1'
+  c.isDigit || ('a' ≤ c && c ≤ 'f') || ('A' ≤ c && c ≤ 'F') || c == 'x' || c == 'X' || c == 'z' || c == 'Z'
+def isBinDigit (c : Char) : Bool := c == '0' || c == '1' || c == 'x' || c == 'X' || c == 'z' || c == 'Z'
 
 -- ============================================================================
 -- Whitespace and comments
@@ -115,7 +115,15 @@ def keyword (kw : String) : P Unit := token do
   | some c' => if isAlphaNum c' then fail s!"expected word boundary after '{kw}'"
   | none => pure ()
 
+private def reservedKeywords : List String :=
+  ["begin", "end", "endcase", "endmodule", "endgenerate", "endtask",
+   "if", "else", "case", "casez", "default", "for",
+   "module", "input", "output", "inout", "wire", "reg", "integer",
+   "assign", "always", "generate", "task", "parameter", "localparam",
+   "posedge", "negedge", "or"]
+
 def identifier : P String := token do
+  let savedPos ← getPos
   let first ← nextChar
   if !isAlpha first then fail s!"expected identifier, got '{first}'"
   let mut result : List Char := [first]
@@ -127,7 +135,11 @@ def identifier : P String := token do
       if isAlphaNum c' then let _ ← nextChar; result := result ++ [c']
       else cont := false
     | none => cont := false
-  pure (String.ofList result)
+  let name := String.ofList result
+  if reservedKeywords.any (· == name) then
+    setPos savedPos
+    fail s!"'{name}' is a reserved keyword, expected identifier"
+  pure name
 
 -- ============================================================================
 -- Numeric literals
@@ -184,7 +196,7 @@ def hexToNat (s : String) : Nat :=
     acc * 16 + d) 0
 
 def binToNat (s : String) : Nat :=
-  s.foldl (fun acc c => acc * 2 + if c == '1' then 1 else 0) 0
+  s.foldl (fun acc c => acc * 2 + if c == '1' then 1 else 0) 0  -- x/z → 0
 
 def skipUnderscoresAndSpaces : P Unit := do
   let mut cont := true
@@ -250,9 +262,45 @@ def eqSign   : P Unit := token (matchStr "=")
 def qmark    : P Unit := token (matchStr "?")
 def op2 (s : String) : P Unit := token (matchStr s)
 
+/-- Parse a bit range [hi:lo]. For parameterized widths like [N-1:0],
+    skip over identifiers and treat as [31:0] (default 32-bit). -/
 def bitRange : P (Nat × Nat) := do
-  lbracket; let hi ← token digits; colon; let lo ← token digits; rbracket
-  pure (hi.toNat!, lo.toNat!)
+  lbracket
+  let hi ← parseBitRangeVal
+  colon
+  let lo ← parseBitRangeVal
+  rbracket
+  pure (hi, lo)
+where
+  parseBitRangeVal : P Nat := do
+    let c ← peekChar
+    if c.map isDigit == some true then
+      let d ← token digits
+      -- Check for ±offset
+      match ← attempt (token (matchStr "-")) with
+      | some _ =>
+        let sub ← token digits
+        pure (d.toNat! - sub.toNat!)
+      | none =>
+        match ← attempt (token (matchStr "+")) with
+        | some _ => let add ← token digits; pure (d.toNat! + add.toNat!)
+        | none => pure d.toNat!
+    else
+      -- Identifier-based expression (e.g., regindex_bits-1)
+      -- Skip until : or ]
+      let mut depth : Nat := 0
+      let mut result : Nat := 31  -- default
+      let mut running := true
+      while running do
+        let ch ← peekChar
+        match ch with
+        | some ':' => if depth == 0 then running := false else let _ ← nextChar
+        | some ']' => if depth == 0 then running := false else let _ ← nextChar
+        | some '[' => let _ ← nextChar; depth := depth + 1
+        | some _ => let _ ← nextChar
+        | none => running := false
+      ws
+      pure result
 
 -- ============================================================================
 -- Repetition helpers

@@ -26,25 +26,39 @@ def preprocess (input : String) : String := Id.run do
   let lines := input.splitOn "\n"
   let mut result : List String := []
   let mut ifdefDepth : Nat := 0
-  let mut skipUntilElseOrEndif : Nat := 0  -- depth at which we started skipping
+  let mut skipDepth : Nat := 0  -- depth at which we started skipping (0 = not skipping)
   for line in lines do
     let trimmed := line.trimLeft
-    if trimmed.startsWith "`ifdef" || trimmed.startsWith "`ifndef" then
+    if trimmed.startsWith "`ifdef" then
       ifdefDepth := ifdefDepth + 1
-      if skipUntilElseOrEndif == 0 then
-        -- Skip the ifdef branch (we don't have defines)
-        skipUntilElseOrEndif := ifdefDepth
+      if skipDepth == 0 then
+        -- `ifdef X: macros are not defined, skip this branch
+        skipDepth := ifdefDepth
+    else if trimmed.startsWith "`ifndef" then
+      ifdefDepth := ifdefDepth + 1
+      -- `ifndef X: macros are not defined, KEEP this branch (don't skip)
+    else if trimmed.startsWith "`elsif" then
+      if skipDepth == ifdefDepth then
+        -- Was skipping this level: check elsif (treat as still skipping for simplicity)
+        pure ()
+      else if skipDepth == 0 then
+        -- Was not skipping: now start skipping (elsif branch of a kept ifndef)
+        skipDepth := ifdefDepth
     else if trimmed.startsWith "`else" then
-      if skipUntilElseOrEndif == ifdefDepth then
-        skipUntilElseOrEndif := 0  -- take the else branch
+      if skipDepth == ifdefDepth then
+        skipDepth := 0  -- Was skipping: take the else branch
+      else if skipDepth == 0 then
+        skipDepth := ifdefDepth  -- Was keeping: skip the else branch
     else if trimmed.startsWith "`endif" then
-      if skipUntilElseOrEndif == ifdefDepth then
-        skipUntilElseOrEndif := 0
+      if skipDepth == ifdefDepth then
+        skipDepth := 0
       if ifdefDepth > 0 then ifdefDepth := ifdefDepth - 1
-    else if skipUntilElseOrEndif > 0 then
+    else if skipDepth > 0 then
       pure ()  -- skip this line
     else if trimmed.startsWith "`timescale" || trimmed.startsWith "`define" ||
-            trimmed.startsWith "`default_nettype" then
+            trimmed.startsWith "`default_nettype" ||
+            trimmed.startsWith "`assert" || trimmed.startsWith "`debug" ||
+            trimmed.startsWith "`PICORV32" then
       pure ()  -- skip directive
     else
       -- Remove (* ... *) attributes
@@ -54,16 +68,20 @@ def preprocess (input : String) : String := Id.run do
 where
   removeAttributes (s : String) : String := Id.run do
     let mut result := s
+    -- Remove (* ... *) attributes
     let mut cont := true
     while cont do
       match result.splitOn "(*" with
-      | [_] => cont := false  -- no more
+      | [_] => cont := false
       | before :: rest =>
-        let afterStar := "*".intercalate rest  -- rejoin in case of multiple
+        let afterStar := "*".intercalate rest
         match afterStar.splitOn "*)" with
         | _ :: after => result := before ++ " ".intercalate after
         | [] => cont := false
       | [] => cont := false
+    -- Remove inline `MACRONAME (backtick macros used as modifiers)
+    result := result.replace "`FORMAL_KEEP " ""
+    result := result.replace "`FORMAL_KEEP" ""
     result
 
 -- ============================================================================
@@ -544,8 +562,18 @@ partial def parseModuleItems : P (List SVModuleItem) := do
         let w ← parseOptWidth; let n ← identifier
         match ← attempt lbracket with
         | some _ =>
-          let lo ← token digits; colon; let hi ← token digits; rbracket; semi
-          pure [SVModuleItem.regDecl n w (some (hi.toNat! - lo.toNat! + 1))]
+          -- Array dimension: [lo:hi] — may have parameterized expressions
+          -- Skip until ] by counting bracket depth
+          let mut depth : Nat := 1
+          let mut arrSize : Nat := 32  -- default
+          while depth > 0 do
+            match ← attempt rbracket with
+            | some _ => depth := depth - 1
+            | none => match ← attempt lbracket with
+              | some _ => depth := depth + 1
+              | none => let _ ← nextChar; pure ()
+          semi
+          pure [SVModuleItem.regDecl n w (some arrSize)]
         | none =>
           let mut items := [SVModuleItem.regDecl n w none]
           let mut cont := true
@@ -566,7 +594,20 @@ partial def parseModuleItems : P (List SVModuleItem) := do
               let p ← parseParamDecl false; semi; pure [SVModuleItem.paramDecl p]
             | none => match ← attempt (keyword "generate") with
               | some _ => let item ← skipGenerateBlock; pure [item]
-              | none => match ← attempt (keyword "task") with
+              | none => match ← attempt (keyword "initial") with
+                | some _ =>
+                  -- Skip initial block (not synthesizable)
+                  keyword "begin"
+                  let mut d : Nat := 1
+                  while d > 0 do
+                    let hitBegin ← attempt (keyword "begin")
+                    if hitBegin.isSome then d := d + 1
+                    else
+                      let hitEnd ← attempt (keyword "end")
+                      if hitEnd.isSome then d := d - 1
+                      else let _ ← nextChar; pure ()
+                  pure []
+                | none => match ← attempt (keyword "task") with
                 | some _ =>
                   let n ← identifier; semi
                   -- Skip task body until endtask (tasks are not synthesizable)
@@ -577,7 +618,66 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                     | none => let _ ← nextChar; pure ()
                   pure [SVModuleItem.taskDecl n []]
                 | none =>
-                  let item ← parseAlwaysBlock; pure [item]
+                  -- Try module instantiation: moduleName instName ( .port(expr), ... );
+                  match ← attempt (do
+                    let modName ← identifier
+                    -- Skip optional #(.param(val)) parameter override
+                    match ← attempt (token (matchStr "#")) with
+                    | some _ =>
+                      lparen
+                      let mut pd : Nat := 1
+                      while pd > 0 do
+                        match ← attempt rparen with
+                        | some _ => pd := pd - 1
+                        | none => match ← attempt lparen with
+                          | some _ => pd := pd + 1
+                          | none => let _ ← nextChar; pure ()
+                    | none => pure ()
+                    let instName ← identifier
+                    lparen
+                    let mut conns : List (String × SVExpr) := []
+                    let mut cont := true
+                    while cont do
+                      dot; let pName ← identifier; lparen; let pExpr ← parseExpr; rparen
+                      conns := conns ++ [(pName, pExpr)]
+                      match ← attempt comma with | some _ => pure () | none => cont := false
+                    rparen; semi
+                    pure (modName, instName, conns)
+                  ) with
+                  | some (modName, instName, conns) =>
+                    pure [SVModuleItem.instantiation modName instName conns]
+                  | none =>
+                  -- Try always block; on failure, skip balanced begin/end
+                  match ← attempt parseAlwaysBlock with
+                  | some item => pure [item]
+                  | none =>
+                    -- Skip past the always block by matching begin/end balance
+                    keyword "always"
+                    let _ ← attempt (matchStr "_ff")
+                    let _ ← attempt (matchStr "_comb")
+                    ws
+                    let _ ← attempt at_
+                    -- Skip sensitivity list
+                    match ← attempt lparen with
+                    | some _ =>
+                      let mut parenDepth : Nat := 1
+                      while parenDepth > 0 do
+                        match ← attempt rparen with
+                        | some _ => parenDepth := parenDepth - 1
+                        | none => let _ ← nextChar; pure ()
+                    | none =>
+                      let _ ← attempt (token (matchStr "*"))
+                    -- Skip body by matching begin/end
+                    keyword "begin"
+                    let mut depth : Nat := 1
+                    while depth > 0 do
+                      match ← attempt (keyword "begin") with
+                      | some _ => depth := depth + 1
+                      | none =>
+                        match ← attempt (keyword "end") with
+                        | some _ => depth := depth - 1
+                        | none => let _ ← nextChar; pure ()
+                    pure []
 
 -- ============================================================================
 -- Top-level module parsing
