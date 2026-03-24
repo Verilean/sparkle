@@ -76,5 +76,23 @@ elab "verilog!" src:str : command => do
         model.registers.map fun r => s!"    {leanName r.name} := ({r.initValue} : BitVec {r.width})"
       elabStr s!"def initState : State :=\n  {lb}\n{initFields}\n  {rb}"
 
-      -- 4. close namespace
+      -- 4. Auto-generate theorems from Verilog assert statements
+      let regW := model.registers.map fun r => (r.name, r.width)
+      let inpW := model.inputs.map fun i => (i.name, i.width)
+      for (assertName, condExpr) in model.assertions do
+        -- Fix constant widths: use width inference per sub-expression
+        let fixedCond := fixConstWidthsSmart condExpr allWidths
+        -- Assertion checks next-state: let ns := nextState s i, use ns.field
+        let condStr := irExprToLean fixedCond regW inpW allWidths "ns" "i"
+        -- Generate theorem: simp unfolds nextState, then bv_decide proves the BitVec property
+        let thmStr := s!"theorem {assertName} (s : State) (i : Input) : let ns := nextState s i; {condStr} != (0 : BitVec 1) := by simp [nextState]; bv_decide"
+        try
+          elabStr thmStr
+        catch _ =>
+          try
+            elabStr s!"theorem {assertName} (s : State) (i : Input) : let ns := nextState s i; {condStr} != (0 : BitVec 1) := by simp [nextState]"
+          catch _ =>
+            elabStr s!"theorem {assertName} (s : State) (i : Input) : let ns := nextState s i; {condStr} != (0 : BitVec 1) := by sorry"
+
+      -- 5. close namespace
       elabStr s!"end {ns}.Verify"

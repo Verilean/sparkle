@@ -59,8 +59,8 @@ def preprocess (input : String) : String := Id.run do
             trimmed.startsWith "`default_nettype" ||
             trimmed.startsWith "`PICORV32" then
       pure ()  -- skip directive
-    else if trimmed.startsWith "`assert" || trimmed.startsWith "`debug" then
-      -- Replace assert/debug macro with empty statement (semicolon)
+    else if trimmed.startsWith "`debug" then
+      -- Replace debug macro with empty statement (semicolon)
       result := result ++ [";"]
     else
       -- Remove (* ... *) attributes
@@ -377,7 +377,12 @@ partial def parseStmt : P SVStmt := do
           rparen
           let body ← parseStmtList
           pure (SVStmt.forLoop init cond step body)
-        | none => parseAssignStmt
+        | none =>
+          match ← attempt (keyword "assert") with
+          | some _ =>
+            lparen; let cond ← parseExpr; rparen; semi
+            pure (SVStmt.assertStmt cond)
+          | none => parseAssignStmt
 
 partial def parseCaseBody : P SVStmt := do
   lparen; let expr ← parseExpr; rparen
