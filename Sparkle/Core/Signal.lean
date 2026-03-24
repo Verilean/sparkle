@@ -331,6 +331,11 @@ def Signal.beq [BEq α] (a b : Signal dom α) : Signal dom Bool :=
 
 scoped infix:50 " === " => Signal.beq
 
+/-- Constant signal with explicit domain binding.
+    Use instead of `Signal.pure` when the domain can't be inferred:
+    `let rnd := Signal.lit dom 32#16` instead of `let rnd := Signal.pure 32#16` -/
+abbrev Signal.lit (dom : DomainConfig) (x : α) : Signal dom α := Signal.pure x
+
 -- Implicit constant lifting (scoped to avoid global instance pollution)
 
 scoped instance {n : Nat} : Coe (BitVec n) (Signal dom (BitVec n)) where

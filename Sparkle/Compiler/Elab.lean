@@ -491,8 +491,8 @@ mutual
             let payload := if name == ``Fin.mk && args.size >= 2 then args[args.size-2]! else args.back!
             return ← translateExprToWire payload hint (isNamed := isNamed)
 
-        -- Signal.pure (constant signals)
-        if name == ``Sparkle.Core.Signal.Signal.pure && args.size >= 1 then
+        -- Signal.pure / Signal.lit (constant signals)
+        if (name == ``Sparkle.Core.Signal.Signal.pure || name == ``Sparkle.Core.Signal.Signal.lit) && args.size >= 1 then
            let constValue := args[args.size-1]!
            -- Check for Bool constants first
            let constReduced ← CompilerM.liftMetaM (whnf constValue)
