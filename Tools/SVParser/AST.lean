@@ -63,6 +63,7 @@ inductive SVStmt where
   | caseStmt (expr : SVExpr) (arms : List (List SVExpr × List SVStmt))
       (default_ : Option (List SVStmt))
   | forLoop (init : SVStmt) (cond : SVExpr) (step : SVStmt) (body : List SVStmt)
+  | assertStmt (cond : SVExpr)                          -- assert(cond);
   deriving Repr, BEq
 
 /-- Sensitivity list for always blocks -/

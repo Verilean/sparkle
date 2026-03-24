@@ -29,6 +29,10 @@ module counter8_en (
             count_reg <= 0;
         else if (en)
             count_reg <= count_reg + 1;
+
+        // Verilog assertion: reset implies counter is zero
+        // This theorem is AUTO-GENERATED and AUTO-PROVED by bv_decide!
+        assert(rst ? (count_reg == 0) : 1);
     end
 endmodule
 "

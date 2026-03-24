@@ -366,6 +366,29 @@ partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
     | .forLoop _ _ _ body => collectGuardedNB body guard
     | _ => []
 
+/-- Collect guarded assertions from statements.
+    Each assertion becomes (guard, condition_expr). -/
+partial def collectGuardedAsserts (stmts : List SVStmt) (guard : Expr := .const 1 1)
+    : List (Expr × Expr) :=
+  stmts.flatMap fun s => match s with
+    | .assertStmt cond => [(guard, lowerExpr cond)]
+    | .ifElse cond thenB elseB =>
+      let c := lowerExpr cond
+      collectGuardedAsserts thenB (mkAnd guard c) ++
+      collectGuardedAsserts elseB (mkAnd guard (.op .not [c]))
+    | .caseStmt sel arms default_ =>
+      let (armAsserts, covered) := arms.foldl (fun (result, cov) (labels, body) =>
+        let armCond := mkCaseCond sel labels
+        let asserts := collectGuardedAsserts body (mkAnd guard armCond)
+        let newCov := if cov == .const 0 1 then armCond else .op .or [cov, armCond]
+        (result ++ asserts, newCov)
+      ) ([], Expr.const 0 1)
+      let defAsserts := match default_ with
+        | some d => collectGuardedAsserts d (mkAnd guard (.op .not [covered]))
+        | none => []
+      armAsserts ++ defAsserts
+    | _ => []
+
 /-- Collect all guarded blocking assignments from statements. -/
 partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 1)
     : List GuardedAssign :=
@@ -858,12 +881,36 @@ def lowerModule (svMod : SVModule) : Except String Module := do
           seenRegNames := seenRegNames ++ [name]
     | _ => dedupBody := [stmt] ++ dedupBody
 
+  -- Collect assertions from all always blocks
+  -- Helper: collect blocking assigns from SV stmts for inlining
+  let collectAssignsFromStmts := fun (stmts : List SVStmt) =>
+    stmts.filterMap fun s => match s with
+      | .blockAssign lhs rhs =>
+        match exprToName lhs with
+        | some n => some (n, lowerExpr rhs)
+        | none => none
+      | _ => none
+  let mut assertions : List (String × Expr) := []
+  let mut assertIdx : Nat := 0
+  for item in svMod.items do
+    match item with
+    | .alwaysBlock _ stmts =>
+      let guarded := collectGuardedAsserts stmts
+      for (guard, cond) in guarded do
+        let inlined := cond  -- assertions reference registers/inputs directly
+        let guardedCond := if guard == .const 1 1 then inlined
+          else .op .mux [guard, inlined, .const 1 1]
+        assertions := assertions ++ [(s!"auto_assert_{assertIdx}", guardedCond)]
+        assertIdx := assertIdx + 1
+    | _ => pure ()
+
   pure {
     name := svMod.name
     inputs := inputs
     outputs := outputs
     wires := dedupWires
     body := topoSortBody dedupBody
+    assertions := assertions
     isPrimitive := false
   }
 

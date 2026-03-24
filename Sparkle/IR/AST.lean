@@ -202,6 +202,7 @@ structure Module where
   outputs     : List Port
   wires       : List Port    -- Internal wires (ignored for primitives)
   body        : List Stmt    -- Logic (ignored for primitives)
+  assertions  : List (String × Expr) := []  -- Formal assertions (name, condition)
   isPrimitive : Bool := false  -- True for vendor-provided blackbox modules
   deriving Repr, BEq
 

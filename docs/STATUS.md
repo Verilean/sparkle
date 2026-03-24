@@ -13,6 +13,7 @@
 | 3.1 | **Lock-Free CDC Infrastructure** | SPSC queue, rollback mechanism, formal proofs, JIT multi-domain runner, E2E test | **Done** |
 | 3.2 | **Compiler Improvements** | `~~~` complement for BitVec, complex lambda synthesis, `hw_let` tuple destructuring | **Done** |
 | 3.3 | **SV→Sparkle RTL Transpiler** | Parse PicoRV32 Verilog → Sparkle IR → JIT. C firmware (Fib, Sort, GCD) passes | **Done** |
+| 3.4 | **Inline Verilog Formal Verification** | `verilog!` macro, auto-assert theorems via `bv_decide`, 6 proofs zero sorry | **Done** |
 | 4 | **SV Transpiler: Extended ISA** | Support M-extension (MUL/DIV), CSR, trap handling for full PicoRV32 firmware | Not started |
 | 5 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot | Not started |
 | 6 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
@@ -24,6 +25,31 @@
 ---
 
 ## Completed Phases
+
+### Inline Verilog Formal Verification (Phase 44) — DONE
+
+`verilog!` macro + auto-assert: write Verilog with `assert(cond)`, get auto-proved theorems.
+
+```lean
+verilog! "
+module counter8_en (...);
+    always @(posedge clk) begin
+        if (rst) count_reg <= 0;
+        else if (en) count_reg <= count_reg + 1;
+        assert(rst ? (count_reg == 0) : 1);  // ← auto-proved!
+    end
+endmodule
+"
+
+open counter8_en.Verify
+-- auto_assert_0 is generated and proved by bv_decide
+-- 6 manual theorems also proved against auto-generated nextState
+```
+
+- `verilog!` parses Verilog at elaboration time → generates State/Input/nextState
+- `assert(cond)` → auto-generates `theorem auto_assert_N` proved via `simp [nextState]; bv_decide`
+- Wrong assertion → instant red squiggly in editor (no simulation needed)
+- 6 manual theorems + auto-assert, zero `sorry`
 
 ### SystemVerilog RTL Transpiler (Phase 43) — DONE
 

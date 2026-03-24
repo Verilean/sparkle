@@ -40,6 +40,7 @@ structure SemanticModel where
   moduleName : String
   registers : List RegField
   inputs : List InputField
+  assertions : List (String × Expr) := []
   deriving Repr
 
 -- ============================================================================
@@ -60,7 +61,8 @@ def extractModel (m : Module) : SemanticModel :=
   -- Include rst as an input (it's used in mux conditions); only skip clk
   let inputs := m.inputs.filter (fun p => p.name != "clk")
     |>.map fun p => { name := p.name, width := p.ty.bitWidth : InputField }
-  { moduleName := m.name, registers := regs, inputs := inputs }
+  { moduleName := m.name, registers := regs, inputs := inputs
+    assertions := m.assertions }
 
 -- ============================================================================
 -- Wire inlining (substitute assign references)
@@ -137,6 +139,40 @@ partial def fixConstWidths (expr : Expr) (targetWidth : Nat)
   | .op op args => .op op (args.map (fixConstWidths · targetWidth widthEnv))
   | .concat args => .concat (args.map (fixConstWidths · targetWidth widthEnv))
   | .slice e hi lo => .slice (fixConstWidths e (hi - lo + 1) widthEnv) hi lo
+  | _ => expr
+
+/-- Fix constant widths by inferring the correct width from context.
+    For binary ops, constants adopt the width of the other operand.
+    For mux, constants adopt the width of the then-branch. -/
+partial def fixConstWidthsSmart (expr : Expr) (widthEnv : List (String × Nat)) : Expr :=
+  match expr with
+  | .op .mux [c, t, e] =>
+    let tc := fixConstWidthsSmart c widthEnv
+    let tt := fixConstWidthsSmart t widthEnv
+    let te := fixConstWidthsSmart e widthEnv
+    let tw := inferWidth widthEnv widthEnv tt
+    -- Fix else-branch constants to match then-branch width
+    let te := match te with
+      | .const v 32 => if tw != 32 then .const v tw else te
+      | _ => te
+    .op .mux [tc, tt, te]
+  | .op .eq [a, b] =>
+    let a := fixConstWidthsSmart a widthEnv
+    let b := fixConstWidthsSmart b widthEnv
+    let wa := inferWidth widthEnv widthEnv a
+    let wb := inferWidth widthEnv widthEnv b
+    let a := if wa == 32 && wb != 32 then match a with | .const v _ => .const v wb | _ => a else a
+    let b := if wb == 32 && wa != 32 then match b with | .const v _ => .const v wa | _ => b else b
+    .op .eq [a, b]
+  | .op op [a, b] =>
+    let a := fixConstWidthsSmart a widthEnv
+    let b := fixConstWidthsSmart b widthEnv
+    let wa := inferWidth widthEnv widthEnv a
+    let wb := inferWidth widthEnv widthEnv b
+    let a := if wa == 32 && wb != 32 then match a with | .const v _ => .const v wb | _ => a else a
+    let b := if wb == 32 && wa != 32 then match b with | .const v _ => .const v wa | _ => b else b
+    .op op [a, b]
+  | .op op args => .op op (args.map (fixConstWidthsSmart · widthEnv))
   | _ => expr
 
 /-- Convert IR Expr to a Lean BitVec expression string.
