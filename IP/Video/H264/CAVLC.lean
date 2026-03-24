@@ -432,14 +432,14 @@ private def cavlcBody {dom : DomainConfig}
 
   -- During SCAN: process memReadData (arrives 1 cycle after address issued)
   -- Valid data when scanIdx >= 1 (first data arrives at scanIdx=1)
-  let scanDataValid := isScan &&& ((fun x => !x) <$> (scanIdx === (0#5 : Signal dom _)))
+  let scanDataValid := isScan &&& ~~~(scanIdx === (0#5 : Signal dom _))
 
   -- Check if current memory data is non-zero
-  let dataIsNonZero := (fun d => d != 0#16) <$> memReadData
-  let dataIsOne := (fun d => d == 1#16) <$> memReadData
-  let dataIsNegOne := (fun d => d == 0xFFFF#16) <$> memReadData
+  let dataIsNonZero := ~~~(memReadData === 0#16)
+  let dataIsOne := memReadData === 1#16
+  let dataIsNegOne := memReadData === 0xFFFF#16
   let dataIsT1 := dataIsOne ||| dataIsNegOne
-  let dataSign := (fun (d : BitVec 16) => BitVec.extractLsb' 15 1 d != 0#1) <$> memReadData
+  let dataSign := ~~~(memReadData.map (BitVec.extractLsb' 15 1 ·) === 0#1)
 
   -- Scan position being processed = scanIdx - 1
   let processingPos := scanIdx - 1#5
@@ -468,7 +468,7 @@ private def cavlcBody {dom : DomainConfig}
     | isScan       => totalCoeff
 
   -- trailingOnes: reset on non-T1 non-zero, increment on T1
-  let isNonT1NonZero := scanDataValid &&& dataIsNonZero &&& ((fun x => !x) <$> dataIsT1)
+  let isNonT1NonZero := scanDataValid &&& dataIsNonZero &&& ~~~dataIsT1
   let isT1 := scanDataValid &&& dataIsNonZero &&& dataIsT1
   let t1Inc := Signal.mux (t1Count === 3#2)
     t1Count
@@ -504,7 +504,7 @@ private def cavlcBody {dom : DomainConfig}
   -- We'll compute it at the end of scan
   let totalZerosNext := hw_cond (0#5 : Signal dom _)
     | startAndIdle => (0#5 : Signal dom _)
-    | scanDone     => (· - ·) <$> (lastNzPos + 1#5) <*> totalCoeff
+    | scanDone     => (lastNzPos + 1#5) - totalCoeff
     | isScan       => totalZeros
 
   -- coeffPacked: store non-zero positions packed (for run_before computation)
@@ -622,8 +622,8 @@ def cavlcEncoder {dom : DomainConfig}
   let loopState := Signal.loop fun state =>
     let scanIdx := CAVLCState.scanIdx state
     let fsmState := CAVLCState.fsmState state
-    let isScan := (· == ·) <$> fsmState <*> Signal.pure FSM_SCAN
-    let isIdle := (· == ·) <$> fsmState <*> Signal.pure FSM_IDLE
+    let isScan := fsmState === FSM_SCAN
+    let isIdle := fsmState === FSM_IDLE
 
     -- Memory read address: zig-zag lookup of scanIdx (combinational)
     let readAddr := (fun idx => zigzagLookup idx) <$> scanIdx
@@ -654,8 +654,8 @@ def cavlcEncoderSimulate
   let loopState ← Signal.loopMemo fun state =>
     let scanIdx := CAVLCState.scanIdx state
     let fsmState := CAVLCState.fsmState state
-    let isScan := (· == ·) <$> fsmState <*> Signal.pure FSM_SCAN
-    let isIdle := (· == ·) <$> fsmState <*> Signal.pure FSM_IDLE
+    let isScan := fsmState === FSM_SCAN
+    let isIdle := fsmState === FSM_IDLE
 
     let readAddr := (fun idx => zigzagLookup idx) <$> scanIdx
     let memAddr := Signal.mux (isScan ||| (isIdle &&& start)) readAddr (Signal.pure 0#4)
