@@ -385,11 +385,32 @@ def main : IO UInt32 := do
           afterGcd := false
       let gcdOk := gcdValues == gcdExpected
 
-      if hasStart && fibOk && gcdOk then
-        IO.println s!"PASS ({uartOutput.length} words, fib=OK gcd=OK)"
+      -- Verify array sum (after 0xAAAA0002): expected 360 = 0x168
+      let mut sumVal : UInt64 := 0
+      let mut afterSum := false
+      for v in uartOutput do
+        if v == 0xAAAA0002 then afterSum := true
+        else if afterSum then
+          sumVal := v; afterSum := false
+      let sumOk := sumVal == 360
+
+      -- Verify sort (after 0xAAAA0003): expected 3,8,17,42,55,99
+      let sortExpected : List UInt64 := [3, 8, 17, 42, 55, 99]
+      let mut afterSort := false
+      let mut sortValues : List UInt64 := []
+      for v in uartOutput do
+        if v == 0xAAAA0003 then afterSort := true
+        else if afterSort && sortValues.length < 6 then
+          sortValues := sortValues ++ [v]
+        else if afterSort && sortValues.length >= 6 then
+          afterSort := false
+      let sortOk := sortValues == sortExpected
+
+      if hasStart && hasPass && fibOk && gcdOk && sumOk && sortOk then
+        IO.println s!"PASS ({uartOutput.length} words, ALL C TESTS OK)"
         passed := passed + 1
       else
-        IO.println s!"FAIL (start={hasStart} fib={fibOk} gcd={gcdOk}, {uartOutput.length} words)"
+        IO.println s!"FAIL (fib={fibOk} sum={sumOk} sort={sortOk} gcd={gcdOk} pass={hasPass}, {uartOutput.length} words)"
         failed := failed + 1
     catch e =>
       IO.println s!"FAIL: {toString e}"

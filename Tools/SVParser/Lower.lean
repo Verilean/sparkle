@@ -428,7 +428,16 @@ partial def collectAllRegNames (stmts : List SVStmt) : List String :=
     | .forLoop _ _ _ body => collectAllRegNames body
     | _ => []
 
-/-- Collect array element writes: arr[idx] <= data, with optional condition -/
+/-- A byte-lane write: under `cond`, write `data[hi:lo]` to `arr[addr][hi:lo]` -/
+structure ByteLaneWrite where
+  addr : SVExpr
+  data : SVExpr
+  cond : SVExpr
+  hi   : Nat
+  lo   : Nat
+
+/-- Collect array element writes: arr[idx] <= data, with optional condition.
+    Also detects byte-strobe patterns: if (wstrb[n]) arr[idx][hi:lo] <= data[hi:lo] -/
 partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
     : List (SVExpr × SVExpr × Option SVExpr) :=
   stmts.flatMap fun s => match s with
@@ -444,6 +453,47 @@ partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
       let defWrites := match default_ with | some body => collectArrayWrites arrName body | none => []
       armWrites ++ defWrites
     | _ => []
+
+/-- Collect byte-lane writes: if (cond) arr[addr][hi:lo] <= data[hi:lo] -/
+partial def collectByteLaneWrites (arrName : String) (stmts : List SVStmt)
+    : List ByteLaneWrite :=
+  stmts.flatMap fun s => match s with
+    | .nonblockAssign (.slice (.index (.ident name) addr) hi lo) rhs =>
+      if name == arrName then [{ addr, data := rhs, cond := .lit (.decimal none 1), hi, lo }] else []
+    | .ifElse cond thenB elseB =>
+      -- Recurse into both branches, propagating condition for then-branch
+      let thenWrites := (collectByteLaneWrites arrName thenB).map
+        fun w => { w with cond := if w.cond == .lit (.decimal none 1) then cond else w.cond }
+      let elseWrites := collectByteLaneWrites arrName elseB
+      thenWrites ++ elseWrites
+    | .caseStmt _ arms default_ =>
+      let armWrites := arms.flatMap fun (_, body) => collectByteLaneWrites arrName body
+      let defWrites := match default_ with | some body => collectByteLaneWrites arrName body | none => []
+      armWrites ++ defWrites
+    | _ => []
+
+/-- Build a read-modify-write expression for byte-lane writes.
+    Combines multiple byte-strobe writes into: for each lane,
+    if (cond) use new_byte else use old_byte. -/
+def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List ByteLaneWrite) : Expr :=
+  -- Start with the old value: arr[addr]
+  let oldVal := Expr.index (.ref arrName) addrExpr
+  -- For each lane, apply a mux: cond ? (old & ~mask) | (new & mask) : old
+  lanes.foldl (fun acc lane =>
+    let condExpr := lowerExpr lane.cond
+    let dataExpr := lowerExpr lane.data
+    let width := lane.hi - lane.lo + 1
+    let mask : Nat := ((1 <<< width) - 1) <<< lane.lo  -- e.g., 0xFF for [7:0], 0xFF00 for [15:8]
+    let notMask : Nat := 0xFFFFFFFF ^^^ mask
+    let maskConst := Expr.const (Int.ofNat mask) 32
+    let notMaskConst := Expr.const (Int.ofNat notMask) 32
+    -- new_val = (old & ~mask) | (data & mask)
+    let newVal := Expr.op .or [
+      Expr.op .and [acc, notMaskConst],
+      Expr.op .and [dataExpr, maskConst]
+    ]
+    Expr.op .mux [condExpr, newVal, acc]
+  ) oldVal
 
 /-- Collect all blocking-assigned signal names recursively -/
 partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
@@ -703,22 +753,37 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       -- Do NOT add to wires list — Stmt.memory creates the class member.
       let dataWidth := widthToBits width
       let addrWidth := Nat.log2 arraySize + (if Nat.isPowerOfTwo arraySize then 0 else 1)
-      -- Extract array writes from always blocks: arr[idx] <= expr
-      -- Build write enable, address, and data mux expressions
+      -- Extract array writes from always blocks
       let mut writeAddr : Expr := .const 0 addrWidth
       let mut writeData : Expr := .const 0 dataWidth
       let mut writeEnable : Expr := .const 0 1
       for prevItem in svMod.items do
         match prevItem with
         | .alwaysBlock (.posedge _) stmts =>
-          -- Find non-blocking assigns to this array: arr[idx] <= data
+          -- Try full-word writes first: arr[idx] <= data
           let arrayWrites := collectArrayWrites name stmts
-          for (idx, data, cond) in arrayWrites do
-            writeAddr := lowerExpr idx
-            writeData := lowerExpr data
-            writeEnable := match cond with
-              | some c => lowerExpr c
-              | none => .const 1 1
+          if !arrayWrites.isEmpty then
+            for (idx, data, cond) in arrayWrites do
+              writeAddr := lowerExpr idx
+              writeData := lowerExpr data
+              writeEnable := match cond with
+                | some c => lowerExpr c
+                | none => .const 1 1
+          else
+            -- Try byte-lane writes: if (wstrb[n]) arr[addr][hi:lo] <= data[hi:lo]
+            let byteLanes := collectByteLaneWrites name stmts
+            match byteLanes with
+            | lane0 :: _ =>
+              let addr := lowerExpr lane0.addr
+              writeAddr := addr
+              writeData := buildByteStrobeWrite name addr byteLanes
+              -- Enable if any strobe bit is set
+              let enableExpr := byteLanes.foldl (fun acc lane =>
+                let c := lowerExpr lane.cond
+                if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
+              ) (Expr.const 0 1)
+              writeEnable := enableExpr
+            | [] => pure ()
         | _ => pure ()
       body := body ++ [.memory name addrWidth dataWidth "clk"
         writeAddr writeData writeEnable
