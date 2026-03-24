@@ -27,8 +27,8 @@ def mulAccScale (acc : Signal dom (BitVec 32)) (scale : Signal dom (BitVec 16))
   -- Sign-extend scale to 32 bits
   let sMsb := scale.map (BitVec.extractLsb' 15 1 ·)
   let sIsNeg := sMsb === 1#1
-  let sPadOnes := (· ++ ·) <$> Signal.pure (BitVec.ofNat 16 0xFFFF) <*> scale
-  let sPadZeros := (· ++ ·) <$> Signal.pure 0#16 <*> scale
+  let sPadOnes := BitVec.ofNat 16 0xFFFF ++ scale
+  let sPadZeros := 0#16 ++ scale
   let scaleExt := Signal.mux sIsNeg sPadOnes sPadZeros
   acc * scaleExt
 
@@ -37,7 +37,7 @@ def mulAccScale (acc : Signal dom (BitVec 32)) (scale : Signal dom (BitVec 16))
 def shiftRight32 (val : Signal dom (BitVec 32)) (shift : Signal dom (BitVec 5))
     : Signal dom (BitVec 32) :=
   -- Zero-extend shift amount to 32 bits (shift is unsigned)
-  let shiftExt := (· ++ ·) <$> Signal.pure 0#27 <*> shift
+  let shiftExt := 0#27 ++ shift
   Signal.ashr val shiftExt
 
 /-- Clamp a 32-bit signed value to INT8 range [-128, 127].

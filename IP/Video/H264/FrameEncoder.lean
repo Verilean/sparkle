@@ -157,8 +157,8 @@ def h264FrameEncoder {dom : DomainConfig}
     -- ================================================================
     let bx2 := blockIdx.map (BitVec.extractLsb' 0 2 ·)   -- bits [1:0] = blockIdx & 3
     let by2 := blockIdx.map (BitVec.extractLsb' 2 2 ·)   -- bits [3:2] = (blockIdx >> 2) & 3
-    let bx8 := (· ++ ·) <$> Signal.pure 0#6 <*> bx2      -- 8-bit bx
-    let by8 := (· ++ ·) <$> Signal.pure 0#6 <*> by2      -- 8-bit by
+    let bx8 := 0#6 ++ bx2      -- 8-bit bx
+    let by8 := 0#6 ++ by2      -- 8-bit by
 
     -- Scan order: H.264 4×4 block scan = bit interleave
     -- scanBx = {scanIdx[2], scanIdx[0]}, scanBy = {scanIdx[1], scanIdx[3]}
@@ -168,10 +168,10 @@ def h264FrameEncoder {dom : DomainConfig}
     let scanBy_b0 := scanIdx.map (BitVec.extractLsb' 1 1 ·)
     let scanBy_b1 := scanIdx.map (BitVec.extractLsb' 3 1 ·)
     let scanBy2 := (· ++ ·) <$> scanBy_b1 <*> scanBy_b0  -- 2-bit
-    let scanBx4 := (· ++ ·) <$> Signal.pure 0#2 <*> scanBx2  -- 4-bit
-    let scanBy4 := (· ++ ·) <$> Signal.pure 0#2 <*> scanBy2  -- 4-bit
-    let scanBx8 := (· ++ ·) <$> Signal.pure 0#6 <*> scanBx2  -- 8-bit
-    let scanBy8 := (· ++ ·) <$> Signal.pure 0#6 <*> scanBy2  -- 8-bit
+    let scanBx4 := 0#2 ++ scanBx2  -- 4-bit
+    let scanBy4 := 0#2 ++ scanBy2  -- 4-bit
+    let scanBx8 := 0#6 ++ scanBx2  -- 8-bit
+    let scanBy8 := 0#6 ++ scanBy2  -- 8-bit
 
     -- ================================================================
     -- Frame buffer addressing (8-bit addr, 16×16 pixels)
@@ -179,8 +179,8 @@ def h264FrameEncoder {dom : DomainConfig}
     -- ================================================================
     let pixRow := pixIdx.map (BitVec.extractLsb' 2 2 ·)
     let pixCol := pixIdx.map (BitVec.extractLsb' 0 2 ·)
-    let pixRow8 := (· ++ ·) <$> Signal.pure 0#6 <*> pixRow
-    let pixCol8 := (· ++ ·) <$> Signal.pure 0#6 <*> pixCol
+    let pixRow8 := 0#6 ++ pixRow
+    let pixCol8 := 0#6 ++ pixCol
     -- by*4: zero-extend by to 8 bits, multiply
     let by4_8 := (· * ·) <$> by8 <*> Signal.pure 4#8
     let bx4_8 := (· * ·) <$> bx8 <*> Signal.pure 4#8
@@ -198,8 +198,8 @@ def h264FrameEncoder {dom : DomainConfig}
 
     -- Quantized levels storage (256×16-bit: 16 blocks × 16 coefficients)
     -- raster write addr: blockIdx*16 + pixIdx (in 8-bit)
-    let blockIdx8 := (· ++ ·) <$> Signal.pure 0#3 <*> blockIdx
-    let pixIdx8 := (· ++ ·) <$> Signal.pure 0#3 <*> pixIdx
+    let blockIdx8 := 0#3 ++ blockIdx
+    let pixIdx8 := 0#3 ++ pixIdx
     let quantStoreWriteAddr := (· + ·) <$>
       ((· * ·) <$> blockIdx8 <*> Signal.pure 16#8) <*> pixIdx8
     -- scan read addr: scanBlockIdx*16 + pixIdx
@@ -209,8 +209,8 @@ def h264FrameEncoder {dom : DomainConfig}
       ((· * ·) <$> scanBlockIdx8 <*> Signal.pure 16#8) <*> pixIdx8
 
     -- totalCoeff map (16×16-bit memory, 4-bit addr)
-    let bx4 := (· ++ ·) <$> Signal.pure 0#2 <*> bx2      -- 4-bit bx
-    let by4 := (· ++ ·) <$> Signal.pure 0#2 <*> by2      -- 4-bit by
+    let bx4 := 0#2 ++ bx2      -- 4-bit bx
+    let by4 := 0#2 ++ by2      -- 4-bit by
     let tcMapAddr := (· + ·) <$> ((· * ·) <$> by4 <*> Signal.pure 4#4) <*> bx4
 
     -- Scan-order tcMap read addr for nC computation
@@ -306,12 +306,12 @@ def h264FrameEncoder {dom : DomainConfig}
 
     -- totalCoeff map memory
     let tcMapWrEn := isCountTC &&& (pixIdx === (16#5 : Signal dom _))
-    let tcMapWrData := (· ++ ·) <$> Signal.pure 0#11 <*> curTC
+    let tcMapWrData := 0#11 ++ curTC
     -- nC: read left in subPhase 0, top in subPhase 1, then average per H.264 spec
     let hasLeft := (fun x => !x) <$> (scanBx2 === (0#2 : Signal dom _))
     let hasTop  := (fun x => !x) <$> (scanBy2 === (0#2 : Signal dom _))
-    let leftNcAddr := (· - ·) <$> tcMapScanAddr <*> Signal.pure 1#4
-    let topNcAddr  := (· - ·) <$> tcMapScanAddr <*> Signal.pure 4#4
+    let leftNcAddr := tcMapScanAddr - 1#4
+    let topNcAddr  := tcMapScanAddr - 4#4
     let isCompNCSub0 := isCompNC &&& (subPhase === (0#3 : Signal dom _))
     -- subPhase 0: read left neighbor; subPhase 1: read top neighbor
     let ncReadAddr := Signal.mux isCompNCSub0 leftNcAddr topNcAddr
@@ -328,18 +328,18 @@ def h264FrameEncoder {dom : DomainConfig}
     let topByte := outBitBuf.map (BitVec.extractLsb' 56 8 ·)
     -- After emitting: shift left 8, pos -= 8
     let newBufAfterByte := (· <<< ·) <$> outBitBuf <*> Signal.pure 8#64
-    let newPosAfterByte := (· - ·) <$> outBitPos <*> Signal.pure 8#7
+    let newPosAfterByte := outBitPos - 8#7
 
     -- pos64: zero-extended for shift operations
-    let pos64 := (· ++ ·) <$> Signal.pure 0#57 <*> outBitPos
+    let pos64 := 0#57 ++ outBitPos
 
     -- nC computation: average left and top totalCoeff per H.264 Section 9.2.1
     -- leftTC register holds left neighbor TC from subPhase 0 read
     -- tcMapData in subPhase 1 holds top neighbor TC
     let topTC := tcMapData.map (BitVec.extractLsb' 0 5 ·)
     -- Average: (leftTC + topTC + 1) >> 1
-    let leftTC6 := (· ++ ·) <$> Signal.pure 0#1 <*> leftTC
-    let topTC6 := (· ++ ·) <$> Signal.pure 0#1 <*> topTC
+    let leftTC6 := 0#1 ++ leftTC
+    let topTC6 := 0#1 ++ topTC
     let sumP1_6 := (· + ·) <$> ((· + ·) <$> leftTC6 <*> topTC6) <*> Signal.pure 1#6
     let avg5 := sumP1_6.map (BitVec.extractLsb' 1 5 ·)
     let nCVal := Signal.mux (hasLeft &&& hasTop) avg5
@@ -453,9 +453,9 @@ def h264FrameEncoder {dom : DomainConfig}
     -- Stop bit at position (63 - pos): shift 0x8000000000000000 right by pos
     let stopBit := (· >>> ·) <$> Signal.pure 0x8000000000000000#64 <*> pos64
     let trailBuf := (· ||| ·) <$> outBitBuf <*> stopBit
-    let trailPos := (· + ·) <$> outBitPos <*> Signal.pure 1#7
+    let trailPos := outBitPos + 1#7
     -- Align to byte boundary: (pos+1+7) & ~7 = (pos+1+7) & 0x78
-    let trailAlignPos := (· &&& ·) <$> ((· + ·) <$> trailPos <*> Signal.pure 7#7) <*> Signal.pure 120#7
+    let trailAlignPos := (· &&& ·) <$> (trailPos + 7#7) <*> Signal.pure 120#7
 
     -- Drain: emit bytes when pos >= 8 (in emission phases)
     let isDraining := bpGe8 &&& (isEmitSlMb ||| isEmitCBits ||| isEmitTrail)
@@ -490,14 +490,14 @@ def h264FrameEncoder {dom : DomainConfig}
     let blockIdxNext := hw_cond blockIdx
       | startAndIdle => (0#5 : Signal dom _)
       | (isNextRaster &&& ((fun x => !x) <$> lastRasterBlock)) =>
-          (· + ·) <$> blockIdx <*> Signal.pure 1#5
+          blockIdx + 1#5
 
     let scanIdxNext := hw_cond scanIdx
       | startAndIdle => (0#5 : Signal dom _)
       | (isNextScan &&& ((fun x => !x) <$> lastScanBlock)) =>
-          (· + ·) <$> scanIdx <*> Signal.pure 1#5
+          scanIdx + 1#5
 
-    let pixIdxInc := (· + ·) <$> pixIdx <*> Signal.pure 1#5
+    let pixIdxInc := pixIdx + 1#5
     let pixIdxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle => (0#5 : Signal dom _)
       | (isCompDC &&& (subPhase === (1#3 : Signal dom _))) => (0#5 : Signal dom _)
@@ -518,20 +518,20 @@ def h264FrameEncoder {dom : DomainConfig}
       | isCompDC     => Signal.mux (subPhase === (1#3 : Signal dom _)) (Signal.pure 0#3) (Signal.pure 1#3)
       | isRunEnc     => Signal.mux (subPhase === (2#3 : Signal dom _))
           (Signal.mux encDoneFlag (Signal.pure 0#3) (Signal.pure 2#3))
-          ((· + ·) <$> subPhase <*> Signal.pure 1#3)
+          (subPhase + 1#3)
       | isRunDec     => Signal.mux (subPhase === (2#3 : Signal dom _))
           (Signal.mux decDoneFlag (Signal.pure 0#3) (Signal.pure 2#3))
-          ((· + ·) <$> subPhase <*> Signal.pure 1#3)
+          (subPhase + 1#3)
       | isRunCAVLC   => Signal.mux (subPhase === (2#3 : Signal dom _))
           (Signal.mux cavlcDoneFlag (Signal.pure 0#3) (Signal.pure 2#3))
-          ((· + ·) <$> subPhase <*> Signal.pure 1#3)
+          (subPhase + 1#3)
       | isCompNC     => Signal.mux (subPhase === (1#3 : Signal dom _)) (Signal.pure 0#3) (Signal.pure 1#3)
       | isEmitCBits  => Signal.mux (subPhase === (0#3 : Signal dom _))
           (Signal.mux notBpGe8 (Signal.pure 1#3) (Signal.pure 0#3))
           (Signal.pure 1#3)
       | isEmitTrail  => Signal.mux trailingBit (Signal.pure 1#3) subPhase
 
-    let headerIdxInc := (· + ·) <$> headerIdx <*> Signal.pure 1#7
+    let headerIdxInc := headerIdx + 1#7
     let headerIdxNext := hw_cond headerIdx
       | startAndIdle => (0#7 : Signal dom _)
       | hdrDone      => (0#7 : Signal dom _)
@@ -543,7 +543,7 @@ def h264FrameEncoder {dom : DomainConfig}
       | startAndIdle => (128#16 : Signal dom _)
       | isCompDC     => Signal.pure 128#16
 
-    let tcInc := (· + ·) <$> curTC <*> Signal.pure 1#5
+    let tcInc := curTC + 1#5
     let quantNonZero := (fun x => !x) <$> (quantStoreMem === (0#16 : Signal dom _))
     let curTCNext := hw_cond curTC
       | startAndIdle => (0#5 : Signal dom _)

@@ -382,6 +382,40 @@ mutual
     let args := e.getAppArgs
 
 
+    -- 0. Early interception for mixed Signal/BitVec operators
+    -- When a HAdd/HSub/HMul/HAnd/HOr/HXor/HAppend instance is used with one
+    -- BitVec constant and one Signal, the WHNF expansion produces OfNat.ofNat
+    -- errors. Intercept BEFORE WHNF and translate directly to IR.
+    if let .const instName _ := fn then
+      -- Check for HAppend.hAppend with mixed types (BitVec ++ Signal or Signal ++ BitVec)
+      if instName == ``HAppend.hAppend && args.size >= 2 then
+        let arg1 := args[args.size - 2]!
+        let arg2 := args[args.size - 1]!
+        let type1 ← CompilerM.liftMetaM (Lean.Meta.inferType arg1)
+        let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
+        let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
+        let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
+        -- Mixed case: one is Signal, one is BitVec constant
+        if isSignal1 != isSignal2 then
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+          if isSignal1 then
+            -- Signal ++ BitVec: arg1 is signal, arg2 is constant
+            let wireA ← translateExprToWire arg1 "concat_hi" (isTopLevel := false)
+            let (cVal, cWidth) ← extractBitVecLiteral arg2
+            let constWire ← CompilerM.makeWire "concat_const" (.bitVector cWidth)
+            CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+            CompilerM.emitAssign resWire (.concat [.ref wireA, .ref constWire])
+          else
+            -- BitVec ++ Signal: arg1 is constant, arg2 is signal
+            let (cVal, cWidth) ← extractBitVecLiteral arg1
+            let constWire ← CompilerM.makeWire "concat_const" (.bitVector cWidth)
+            CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+            let wireB ← translateExprToWire arg2 "concat_lo" (isTopLevel := false)
+            CompilerM.emitAssign resWire (.concat [.ref constWire, .ref wireB])
+          return resWire
+
     -- 1. High-priority Signal Recognition (Avoid premature unfolding)
     if let .const name _ := fn then
         -- OfNat.ofNat: numeric literal (e.g., 0#4, 0xFFFFF#20, 35)

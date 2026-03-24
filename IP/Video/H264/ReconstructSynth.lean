@@ -107,11 +107,11 @@ def reconstructModule {dom : DomainConfig}
     -- Otherwise use sum
 
     let signBit := sumVal.map (BitVec.extractLsb' 15 1 ·)
-    let isNegative := (· == ·) <$> signBit <*> Signal.pure 1#1
+    let isNegative := signBit === 1#1
 
     -- Check if > 255: if not negative and upper byte (bits 15:8) is non-zero
     let upperByte := sumVal.map (BitVec.extractLsb' 8 8 ·)
-    let upperNonZero := (fun x => !x) <$> ((· == ·) <$> upperByte <*> Signal.pure 0#8)
+    let upperNonZero := (fun x => !x) <$> (upperByte === 0#8)
     let isOver255 := ((fun x => !x) <$> isNegative) &&& upperNonZero
 
     -- Clamped result
@@ -130,7 +130,7 @@ def reconstructModule {dom : DomainConfig}
       | processDone  => (2#2 : Signal dom _)
       | startAndDone => (1#2 : Signal dom _)
 
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle  => (0#5 : Signal dom _)
       | startAndDone  => (0#5 : Signal dom _)
@@ -149,9 +149,9 @@ def reconstructModule {dom : DomainConfig}
   let done := ReconState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let idx := ReconState.idx state
-  let idxU32 := (· ++ ·) <$> Signal.pure 0#27 <*> idx
+  let idxU32 := 0#27 ++ idx
   let lastOut := ReconState.last state
-  let lastOut32 := (· ++ ·) <$> Signal.pure 0#16 <*> lastOut
+  let lastOut32 := 0#16 ++ lastOut
 
   bundleAll! [doneU32, idxU32, lastOut32]
 

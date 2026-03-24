@@ -215,13 +215,13 @@ private def dctBody {dom : DomainConfig}
     | isDone       => (FSM_IDLE : Signal dom _)
 
   -- Load index
-  let loadIdxInc := (· + ·) <$> loadIdx <*> Signal.pure 1#5
+  let loadIdxInc := loadIdx + 1#5
   let loadIdxNext := hw_cond (0#5 : Signal dom _)
     | startAndIdle => (0#5 : Signal dom _)
     | isLoad       => loadIdxInc
 
   -- Row/col index for transforms
-  let rowIdxInc := (· + ·) <$> rowIdx <*> Signal.pure 1#3
+  let rowIdxInc := rowIdx + 1#3
   let rowIdxNext := hw_cond (0#3 : Signal dom _)
     | startAndIdle => (0#3 : Signal dom _)
     | (isRowT ||| isColT) => rowIdxInc
@@ -229,7 +229,7 @@ private def dctBody {dom : DomainConfig}
   let colIdxNext := Signal.pure 0#3  -- simplified
 
   -- Output index
-  let outIdxInc := (· + ·) <$> outIdx <*> Signal.pure 1#5
+  let outIdxInc := outIdx + 1#5
   let outIdxNext := hw_cond (0#5 : Signal dom _)
     | startAndIdle => (0#5 : Signal dom _)
     | isOutput     => outIdxInc

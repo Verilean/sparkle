@@ -76,11 +76,11 @@ def siluLut {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom (BitVe
   -- Sign-extend x to 16 bits (synthesizable MSB check)
   let xMsb := x.map (BitVec.extractLsb' 7 1 ·)
   let xIsNeg := xMsb === 1#1
-  let xPadOnes := (· ++ ·) <$> Signal.pure 255#8 <*> x
-  let xPadZeros := (· ++ ·) <$> Signal.pure 0#8 <*> x
+  let xPadOnes := 255#8 ++ x
+  let xPadZeros := 0#8 ++ x
   let xExt := Signal.mux xIsNeg xPadOnes xPadZeros
   -- Zero-extend sigmoid to 16 bits
-  let sigExt := (· ++ ·) <$> Signal.pure 0#8 <*> sigVal
+  let sigExt := 0#8 ++ sigVal
   -- Multiply (16-bit signed × 16-bit unsigned = 16-bit result sufficient for INT8)
   let product := xExt * sigExt
   -- Arithmetic shift right by 7 (Q0.7 scaling), then truncate to 8 bits

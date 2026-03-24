@@ -206,10 +206,10 @@ instance : HAppend (Signal dom (BitVec m)) (Signal dom (BitVec n)) (Signal dom (
   hAppend a b := (· ++ ·) <$> a <*> b
 
 instance : HAppend (Signal dom (BitVec m)) (BitVec n) (Signal dom (BitVec (m + n))) where
-  hAppend a b := (· ++ b) <$> a
+  hAppend a b := (· ++ ·) <$> a <*> Signal.pure b
 
 instance : HAppend (BitVec m) (Signal dom (BitVec n)) (Signal dom (BitVec (m + n))) where
-  hAppend a b := (a ++ ·) <$> b
+  hAppend a b := (· ++ ·) <$> Signal.pure a <*> b
 
 -- Mixed Signal/constant operator overloading
 -- Enables: `count + 1#8`, `val &&& 0xFF#8` without explicit Signal.pure

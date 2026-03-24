@@ -122,14 +122,14 @@ def quantModule {dom : DomainConfig}
 
     -- 1. Sign bit extraction (bit 15 of 16-bit 2's complement)
     let signBit := inputCoeff.map (BitVec.extractLsb' 15 1 ·)
-    let isNeg := (· == ·) <$> signBit <*> Signal.pure 1#1
+    let isNeg := signBit === 1#1
 
     -- 2. Absolute value via 2's complement negation
     let negCoeff := (· - ·) <$> Signal.pure 0#16 <*> inputCoeff
     let absCoeff := Signal.mux isNeg negCoeff inputCoeff
 
     -- 3. Widen to 32 bits for multiplication
-    let absCoeff32 := (· ++ ·) <$> Signal.pure 0#16 <*> absCoeff
+    let absCoeff32 := 0#16 ++ absCoeff
 
     -- 4. Determine MF based on position class
     -- idx bits: [3:2] = row, [1:0] = col
@@ -138,9 +138,9 @@ def quantModule {dom : DomainConfig}
     let idxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)  -- row bit 0
 
     -- row_even: row%2==0 means row bit 0 == 0
-    let rowOdd := (· == ·) <$> idxBit2 <*> Signal.pure 1#1
+    let rowOdd := idxBit2 === 1#1
     -- col_even: col%2==0 means col bit 0 == 0
-    let colOdd := (· == ·) <$> idxBit0 <*> Signal.pure 1#1
+    let colOdd := idxBit0 === 1#1
 
     -- posClass: 0 = both even, 1 = both odd, 2 = mixed
     let bothEven := ((fun x => !x) <$> rowOdd) &&& ((fun x => !x) <$> colOdd)
@@ -158,7 +158,7 @@ def quantModule {dom : DomainConfig}
     let withF := (· + ·) <$> product <*> quantF
 
     -- 7. Variable shift right by qbits from input port
-    let quantShift32 := (· ++ ·) <$> Signal.pure 0#27 <*> quantShift
+    let quantShift32 := 0#27 ++ quantShift
     let shifted := (· >>> ·) <$> withF <*> quantShift32
     let level16 := shifted.map (BitVec.extractLsb' 0 16 ·)
 
@@ -177,7 +177,7 @@ def quantModule {dom : DomainConfig}
       | processDone  => (2#2 : Signal dom _)
       | startAndDone => (1#2 : Signal dom _)
 
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle  => (0#5 : Signal dom _)
       | startAndDone  => (0#5 : Signal dom _)
@@ -196,9 +196,9 @@ def quantModule {dom : DomainConfig}
   let done := QuantState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let idx := QuantState.idx state
-  let idxU32 := (· ++ ·) <$> Signal.pure 0#27 <*> idx
+  let idxU32 := 0#27 ++ idx
   let lastOut := QuantState.last state
-  let lastOut32 := (· ++ ·) <$> Signal.pure 0#16 <*> lastOut
+  let lastOut32 := 0#16 ++ lastOut
 
   bundleAll! [doneU32, idxU32, lastOut32]
 

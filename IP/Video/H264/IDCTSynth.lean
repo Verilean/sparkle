@@ -143,8 +143,8 @@ def idctModule {dom : DomainConfig}
     let isWriting := isSub4 ||| isSub5 ||| isSub6 ||| isSub7
 
     -- Zero-extend grpIdx[1:0] and substep[1:0] to 4 bits for address math
-    let grp4' := (· ++ ·) <$> Signal.pure 0#2 <*> (grpIdx.map (BitVec.extractLsb' 0 2 ·))
-    let subLo4 := (· ++ ·) <$> Signal.pure 0#2 <*> (substep.map (BitVec.extractLsb' 0 2 ·))
+    let grp4' := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
+    let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
     -- Read address computation (all 4-bit arithmetic)
     -- Row read: addr = grp*4 + subLo (row-major: row*4+col)
@@ -217,14 +217,14 @@ def idctModule {dom : DomainConfig}
     let v3Next := Signal.mux (active &&& isSub3) memSrcData v3
 
     -- Substep counter: 0→1→...→7→0
-    let substepInc := (· + ·) <$> substep <*> Signal.pure 1#3
+    let substepInc := substep + 1#3
     let groupDone := active &&& isSub7
     let substepNext := hw_cond (0#3 : Signal dom _)
       | startAndIdle => (0#3 : Signal dom _)
       | active       => substepInc
 
     -- Group index: advance after substep 7
-    let grpInc := (· + ·) <$> grpIdx <*> Signal.pure 1#3
+    let grpInc := grpIdx + 1#3
     let lastGroup := grpIdx === (3#3 : Signal dom _)
     let rowPhaseDone := isRow &&& groupDone &&& lastGroup
     let colPhaseDone := isCol &&& groupDone &&& lastGroup
@@ -259,9 +259,9 @@ def idctModule {dom : DomainConfig}
   let done := IDCTState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let grpVal := IDCTState.grpIdx state
-  let grpU32 := (· ++ ·) <$> Signal.pure 0#29 <*> grpVal
+  let grpU32 := 0#29 ++ grpVal
   let subVal := IDCTState.substep state
-  let subU32 := (· ++ ·) <$> Signal.pure 0#29 <*> subVal
+  let subU32 := 0#29 ++ subVal
 
   bundleAll! [doneU32, grpU32, subU32]
 

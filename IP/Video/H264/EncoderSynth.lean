@@ -166,8 +166,8 @@ def encoderPipeline {dom : DomainConfig}
     let isDctWriting := isSub4 ||| isSub5 ||| isSub6 ||| isSub7
 
     -- Zero-extend grpIdx[1:0] and substep[1:0] to 4 bits
-    let grp4 := (· ++ ·) <$> Signal.pure 0#2 <*> (grpIdx.map (BitVec.extractLsb' 0 2 ·))
-    let subLo4 := (· ++ ·) <$> Signal.pure 0#2 <*> (substep.map (BitVec.extractLsb' 0 2 ·))
+    let grp4 := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
+    let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
     -- Row read: addr = grp*4 + subLo
     let dctRowAddr := (· + ·) <$> ((· * ·) <$> grp4 <*> Signal.pure 4#4) <*> subLo4
@@ -232,16 +232,16 @@ def encoderPipeline {dom : DomainConfig}
 
     -- Sign handling
     let qSignBit := quantInput.map (BitVec.extractLsb' 15 1 ·)
-    let qIsNeg := (· == ·) <$> qSignBit <*> Signal.pure 1#1
+    let qIsNeg := qSignBit === 1#1
     let qNegCoeff := (· - ·) <$> Signal.pure 0#16 <*> quantInput
     let qAbsCoeff := Signal.mux qIsNeg qNegCoeff quantInput
-    let qAbsCoeff32 := (· ++ ·) <$> Signal.pure 0#16 <*> qAbsCoeff
+    let qAbsCoeff32 := 0#16 ++ qAbsCoeff
 
     -- Position class for QP=20: MF values
     let qIdxBit0 := idx.map (BitVec.extractLsb' 0 1 ·)
     let qIdxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)
-    let qRowOdd := (· == ·) <$> qIdxBit2 <*> Signal.pure 1#1
-    let qColOdd := (· == ·) <$> qIdxBit0 <*> Signal.pure 1#1
+    let qRowOdd := qIdxBit2 === 1#1
+    let qColOdd := qIdxBit0 === 1#1
     let qBothEven := ((fun x => !x) <$> qRowOdd) &&& ((fun x => !x) <$> qColOdd)
     let qBothOdd := qRowOdd &&& qColOdd
 
@@ -255,7 +255,7 @@ def encoderPipeline {dom : DomainConfig}
     let qWithF := (· + ·) <$> qProduct <*> quantF
 
     -- Variable shift right by qbits from input port
-    let quantShift32 := (· ++ ·) <$> Signal.pure 0#27 <*> quantShift
+    let quantShift32 := 0#27 ++ quantShift
     let qShifted := (· >>> ·) <$> qWithF <*> quantShift32
     let qLevel16 := qShifted.map (BitVec.extractLsb' 0 16 ·)
 
@@ -275,13 +275,13 @@ def encoderPipeline {dom : DomainConfig}
     let residDone := isResid &&& (idx === (15#5 : Signal dom _))
 
     -- DCT group/substep control
-    let substepInc := (· + ·) <$> substep <*> Signal.pure 1#3
+    let substepInc := substep + 1#3
     let groupDone := isDct &&& isSub7
     let lastGroup := grpIdx === (3#3 : Signal dom _)
     let dctRowDone := isDctRow &&& groupDone &&& lastGroup
     let dctColDone := isDctCol &&& groupDone &&& lastGroup
 
-    let grpInc := (· + ·) <$> grpIdx <*> Signal.pure 1#3
+    let grpInc := grpIdx + 1#3
     let grpIdxNext := hw_cond grpIdx
       | startAndIdle => (0#3 : Signal dom _)
       | dctRowDone   => (0#3 : Signal dom _)
@@ -296,7 +296,7 @@ def encoderPipeline {dom : DomainConfig}
     let quantDone := isQuant &&& (idx === (15#5 : Signal dom _))
 
     -- Index control
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle => (0#5 : Signal dom _)
       | residDone    => (0#5 : Signal dom _)
@@ -335,7 +335,7 @@ def encoderPipeline {dom : DomainConfig}
   let done := EncoderPipeState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let phaseVal := EncoderPipeState.phase state
-  let phaseU32 := (· ++ ·) <$> Signal.pure 0#29 <*> phaseVal
+  let phaseU32 := 0#29 ++ phaseVal
 
   bundleAll! [doneU32, phaseU32]
 
@@ -418,8 +418,8 @@ def encoderPipelineV2 {dom : DomainConfig}
     let isDctReading := isSub0 ||| isSub1 ||| isSub2 ||| isSub3
     let isDctWriting := isSub4 ||| isSub5 ||| isSub6 ||| isSub7
 
-    let grp4 := (· ++ ·) <$> Signal.pure 0#2 <*> (grpIdx.map (BitVec.extractLsb' 0 2 ·))
-    let subLo4 := (· ++ ·) <$> Signal.pure 0#2 <*> (substep.map (BitVec.extractLsb' 0 2 ·))
+    let grp4 := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
+    let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
     let dctRowAddr := (· + ·) <$> ((· * ·) <$> grp4 <*> Signal.pure 4#4) <*> subLo4
     let dctColAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4) <*> grp4
@@ -466,15 +466,15 @@ def encoderPipelineV2 {dom : DomainConfig}
     let quantInput := dctCoeffMem
 
     let qSignBit := quantInput.map (BitVec.extractLsb' 15 1 ·)
-    let qIsNeg := (· == ·) <$> qSignBit <*> Signal.pure 1#1
+    let qIsNeg := qSignBit === 1#1
     let qNegCoeff := (· - ·) <$> Signal.pure 0#16 <*> quantInput
     let qAbsCoeff := Signal.mux qIsNeg qNegCoeff quantInput
-    let qAbsCoeff32 := (· ++ ·) <$> Signal.pure 0#16 <*> qAbsCoeff
+    let qAbsCoeff32 := 0#16 ++ qAbsCoeff
 
     let qIdxBit0 := idx.map (BitVec.extractLsb' 0 1 ·)
     let qIdxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)
-    let qRowOdd := (· == ·) <$> qIdxBit2 <*> Signal.pure 1#1
-    let qColOdd := (· == ·) <$> qIdxBit0 <*> Signal.pure 1#1
+    let qRowOdd := qIdxBit2 === 1#1
+    let qColOdd := qIdxBit0 === 1#1
     let qBothEven := ((fun x => !x) <$> qRowOdd) &&& ((fun x => !x) <$> qColOdd)
     let qBothOdd := qRowOdd &&& qColOdd
 
@@ -485,7 +485,7 @@ def encoderPipelineV2 {dom : DomainConfig}
     let qProduct := (· * ·) <$> qAbsCoeff32 <*> mfVal
     let qWithF := (· + ·) <$> qProduct <*> quantF
 
-    let quantShift32 := (· ++ ·) <$> Signal.pure 0#27 <*> quantShift
+    let quantShift32 := 0#27 ++ quantShift
     let qShifted := (· >>> ·) <$> qWithF <*> quantShift32
     let qLevel16 := qShifted.map (BitVec.extractLsb' 0 16 ·)
 
@@ -499,13 +499,13 @@ def encoderPipelineV2 {dom : DomainConfig}
     -- FSM Control
     let residDone := isResid &&& (idx === (15#5 : Signal dom _))
 
-    let substepInc := (· + ·) <$> substep <*> Signal.pure 1#3
+    let substepInc := substep + 1#3
     let groupDone := isDct &&& isSub7
     let lastGroup := grpIdx === (3#3 : Signal dom _)
     let dctRowDone := isDctRow &&& groupDone &&& lastGroup
     let dctColDone := isDctCol &&& groupDone &&& lastGroup
 
-    let grpInc := (· + ·) <$> grpIdx <*> Signal.pure 1#3
+    let grpInc := grpIdx + 1#3
     let startAndDone := start &&& isDone
 
     let grpIdxNext := hw_cond grpIdx
@@ -521,7 +521,7 @@ def encoderPipelineV2 {dom : DomainConfig}
 
     let quantDone := isQuant &&& (idx === (15#5 : Signal dom _))
 
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle => (0#5 : Signal dom _)
       | residDone    => (0#5 : Signal dom _)
@@ -557,7 +557,7 @@ def encoderPipelineV2 {dom : DomainConfig}
   let done := EncoderPipeState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let phaseVal := EncoderPipeState.phase state
-  let phaseU32 := (· ++ ·) <$> Signal.pure 0#29 <*> phaseVal
+  let phaseU32 := 0#29 ++ phaseVal
   -- V2: registered combo-read data (1-cycle read latency from quantReadAddr)
   let quantReadData := EncoderPipeState.dummy state
 

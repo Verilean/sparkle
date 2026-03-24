@@ -442,7 +442,7 @@ private def cavlcBody {dom : DomainConfig}
   let dataSign := (fun (d : BitVec 16) => BitVec.extractLsb' 15 1 d != 0#1) <$> memReadData
 
   -- Scan position being processed = scanIdx - 1
-  let processingPos := (· - ·) <$> scanIdx <*> Signal.pure 1#5
+  let processingPos := scanIdx - 1#5
 
   -- === FSM Next State ===
   let fsmNext := hw_cond fsmState
@@ -453,14 +453,14 @@ private def cavlcBody {dom : DomainConfig}
     | isDone       => (FSM_IDLE : Signal dom _)
 
   -- === Scan Index ===
-  let scanIdxInc := (· + ·) <$> scanIdx <*> Signal.pure 1#5
+  let scanIdxInc := scanIdx + 1#5
   let scanIdxNext := hw_cond (0#5 : Signal dom _)
     | startAndIdle => (0#5 : Signal dom _)
     | isScan       => scanIdxInc
 
   -- === Coefficient accumulation during SCAN ===
   -- totalCoeff: increment when non-zero data arrives
-  let tcInc := (· + ·) <$> totalCoeff <*> Signal.pure 1#5
+  let tcInc := totalCoeff + 1#5
   let incTC := scanDataValid &&& dataIsNonZero
   let totalCoeffNext := hw_cond (0#5 : Signal dom _)
     | startAndIdle => (0#5 : Signal dom _)
@@ -470,9 +470,9 @@ private def cavlcBody {dom : DomainConfig}
   -- trailingOnes: reset on non-T1 non-zero, increment on T1
   let isNonT1NonZero := scanDataValid &&& dataIsNonZero &&& ((fun x => !x) <$> dataIsT1)
   let isT1 := scanDataValid &&& dataIsNonZero &&& dataIsT1
-  let t1Inc := Signal.mux ((· == ·) <$> t1Count <*> Signal.pure 3#2)
+  let t1Inc := Signal.mux (t1Count === 3#2)
     t1Count
-    ((· + ·) <$> t1Count <*> Signal.pure 1#2)
+    (t1Count + 1#2)
   let t1CountNext := hw_cond (0#2 : Signal dom _)
     | startAndIdle  => (0#2 : Signal dom _)
     | isNonT1NonZero => (0#2 : Signal dom _)
@@ -504,7 +504,7 @@ private def cavlcBody {dom : DomainConfig}
   -- We'll compute it at the end of scan
   let totalZerosNext := hw_cond (0#5 : Signal dom _)
     | startAndIdle => (0#5 : Signal dom _)
-    | scanDone     => (· - ·) <$> ((· + ·) <$> lastNzPos <*> Signal.pure 1#5) <*> totalCoeff
+    | scanDone     => (· - ·) <$> (lastNzPos + 1#5) <*> totalCoeff
     | isScan       => totalZeros
 
   -- coeffPacked: store non-zero positions packed (for run_before computation)
