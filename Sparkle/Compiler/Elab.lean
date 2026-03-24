@@ -382,12 +382,40 @@ mutual
     let args := e.getAppArgs
 
 
-    -- 0. Early interception for mixed Signal/BitVec operators
-    -- When a HAdd/HSub/HMul/HAnd/HOr/HXor/HAppend instance is used with one
-    -- BitVec constant and one Signal, the WHNF expansion produces OfNat.ofNat
-    -- errors. Intercept BEFORE WHNF and translate directly to IR.
+    -- 0. Early interception for Signal operators (before WHNF)
+    -- When HAdd/HSub/HMul/HAnd/HOr/HXor/HShiftLeft/HShiftRight/HAppend instances
+    -- are applied to Signals (or mixed Signal/BitVec), intercept before WHNF
+    -- to avoid OfNat.ofNat expansion failures and domain metavariable stalls.
     if let .const instName _ := fn then
-      -- Check for HAppend.hAppend with mixed types (BitVec ++ Signal or Signal ++ BitVec)
+      -- General binary operator interception
+      let binOp? : Option Operator := match instName with
+        | ``HAdd.hAdd => some .add
+        | ``HSub.hSub => some .sub
+        | ``HMul.hMul => some .mul
+        | ``HAnd.hAnd => some .and
+        | ``HOr.hOr   => some .or
+        | ``HXor.hXor => some .xor
+        | ``HShiftLeft.hShiftLeft => some .shl
+        | ``HShiftRight.hShiftRight => some .shr
+        | _ => none
+      if let some op := binOp? then
+        if args.size >= 2 then
+          let arg1 := args[args.size - 2]!
+          let arg2 := args[args.size - 1]!
+          let type1 ← CompilerM.liftMetaM (Lean.Meta.inferType arg1)
+          let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
+          let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
+          let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
+          if isSignal1 || isSignal2 then
+            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let hwType ← inferHWTypeFromSignal exprType
+            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+            let wireA ← translateExprToWire arg1 "op_a" (isTopLevel := false)
+            let wireB ← translateExprToWire arg2 "op_b" (isTopLevel := false)
+            CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+            return resWire
+
+      -- HAppend (concat) — separate because it uses .concat not .op
       if instName == ``HAppend.hAppend && args.size >= 2 then
         let arg1 := args[args.size - 2]!
         let arg2 := args[args.size - 1]!
