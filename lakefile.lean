@@ -140,6 +140,10 @@ lean_exe «verilog-sim-example» where
   root := `Examples.SVParser.VerilogSim
   supportInterpreter := true
 
+lean_exe «generate-verify» where
+  root := `Tools.SVParser.GenerateVerify
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
