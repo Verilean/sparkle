@@ -84,28 +84,28 @@ def quantDequantSynth {dom : DomainConfig}
 
     -- 1. Sign bit extraction (bit 15 of 16-bit 2's complement)
     let signBit := inputCoeff.map (BitVec.extractLsb' 15 1 ·)
-    let isNeg := (· == ·) <$> signBit <*> Signal.pure 1#1
+    let isNeg := signBit === 1#1
 
     -- 2. Absolute value via 2's complement negation
-    let negCoeff := (· - ·) <$> Signal.pure 0#16 <*> inputCoeff
+    let negCoeff := 0#16 - inputCoeff
     let absCoeff := Signal.mux isNeg negCoeff inputCoeff
 
     -- 3. Widen to 32 bits for multiplication
-    let absCoeff32 := (· ++ ·) <$> Signal.pure 0#16 <*> absCoeff
+    let absCoeff32 := 0#16 ++ absCoeff
 
     -- 4. Forward quantization: level = (absCoeff * 13107 + 5461) >> 15
-    let product := (· * ·) <$> absCoeff32 <*> Signal.pure 13107#32
-    let rounded := (· + ·) <$> product <*> Signal.pure 5461#32
+    let product := absCoeff32 * 13107#32
+    let rounded := product + 5461#32
     let level16 := rounded.map (BitVec.extractLsb' 15 16 ·)
 
     -- 5. Inverse dequantization: dequant = (level * 10 + 2) >> 2
-    let level32 := (· ++ ·) <$> Signal.pure 0#16 <*> level16
-    let dequantRaw := (· * ·) <$> level32 <*> Signal.pure 10#32
-    let dequantRounded := (· + ·) <$> dequantRaw <*> Signal.pure 2#32
+    let level32 := 0#16 ++ level16
+    let dequantRaw := level32 * 10#32
+    let dequantRounded := dequantRaw + 2#32
     let dequant16 := dequantRounded.map (BitVec.extractLsb' 2 16 ·)
 
     -- 6. Restore sign
-    let negDequant := (· - ·) <$> Signal.pure 0#16 <*> dequant16
+    let negDequant := 0#16 - dequant16
     let result := Signal.mux isNeg negDequant dequant16
 
     -- Write result to output memory (write during PROCESS, read addr 0 for state capture)
@@ -120,7 +120,7 @@ def quantDequantSynth {dom : DomainConfig}
       | processDone  => (2#2 : Signal dom _)
       | startAndDone => (1#2 : Signal dom _)
 
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle  => (0#5 : Signal dom _)
       | startAndDone  => (0#5 : Signal dom _)
@@ -139,9 +139,9 @@ def quantDequantSynth {dom : DomainConfig}
   let done := QDState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let idx := QDState.idx state
-  let idxU32 := (· ++ ·) <$> Signal.pure 0#27 <*> idx
+  let idxU32 := 0#27 ++ idx
   let lastOut := QDState.lastOut state
-  let lastOut32 := (· ++ ·) <$> Signal.pure 0#16 <*> lastOut
+  let lastOut32 := 0#16 ++ lastOut
 
   bundleAll! [doneU32, idxU32, lastOut32]
 

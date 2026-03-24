@@ -16,8 +16,8 @@ open Sparkle.Core.Signal
 def testCombinational : IO Unit := do
   let a : Signal defaultDomain (BitVec 8) := Signal.pure 5#8
   let b : Signal defaultDomain (BitVec 8) := Signal.pure 3#8
-  let sum := (· + ·) <$> a <*> b
-  let product := (· * ·) <$> a <*> b
+  let sum := a + b
+  let product := a * b
 
   IO.println "Combinational logic:"
   IO.println s!"  a = {a.atTime 0}"

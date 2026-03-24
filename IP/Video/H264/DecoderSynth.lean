@@ -83,16 +83,16 @@ def decoderPipelineRef (quantLevels : Array Int) (predicted : Array Nat) (qp : N
 private def sarBy1 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
   let signBit := x.map (BitVec.extractLsb' 15 1 ·)
   let upper15 := x.map (BitVec.extractLsb' 1 15 ·)
-  (· ++ ·) <$> signBit <*> upper15
+  signBit ++ upper15
 
 /-- Signed arithmetic right shift by 6 -/
 private def sarBy6 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
   let signBit := x.map (BitVec.extractLsb' 15 1 ·)
   let upper10 := x.map (BitVec.extractLsb' 6 10 ·)
-  let sign2 := (· ++ ·) <$> signBit <*> signBit
-  let sign4 := (· ++ ·) <$> sign2 <*> sign2
-  let sign6 := (· ++ ·) <$> sign2 <*> sign4
-  (· ++ ·) <$> sign6 <*> upper10
+  let sign2 := signBit ++ signBit
+  let sign4 := sign2 ++ sign2
+  let sign6 := sign2 ++ sign4
+  sign6 ++ upper10
 
 -- ============================================================================
 -- Synthesizable module
@@ -151,24 +151,24 @@ def decoderPipeline {dom : DomainConfig}
 
     -- Sign handling
     let dqSignBit := inputLevel.map (BitVec.extractLsb' 15 1 ·)
-    let dqIsNeg := (· == ·) <$> dqSignBit <*> Signal.pure 1#1
-    let dqNegLevel := (· - ·) <$> Signal.pure 0#16 <*> inputLevel
+    let dqIsNeg := dqSignBit === 1#1
+    let dqNegLevel := 0#16 - inputLevel
     let dqAbsLevel := Signal.mux dqIsNeg dqNegLevel inputLevel
-    let dqAbsLevel32 := (· ++ ·) <$> Signal.pure 0#16 <*> dqAbsLevel
+    let dqAbsLevel32 := 0#16 ++ dqAbsLevel
 
     -- Position class for QP=20: V*8 values
     let idxBit0 := idx.map (BitVec.extractLsb' 0 1 ·)
     let idxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)
-    let rowOdd := (· == ·) <$> idxBit2 <*> Signal.pure 1#1
-    let colOdd := (· == ·) <$> idxBit0 <*> Signal.pure 1#1
-    let bothEven := ((fun x => !x) <$> rowOdd) &&& ((fun x => !x) <$> colOdd)
+    let rowOdd := idxBit2 === 1#1
+    let colOdd := idxBit0 === 1#1
+    let bothEven := (~~~rowOdd) &&& (~~~colOdd)
     let bothOdd := rowOdd &&& colOdd
     let vscale := Signal.mux bothEven vscale0
                     (Signal.mux bothOdd vscale1 vscale2)
 
-    let dqProduct := (· * ·) <$> dqAbsLevel32 <*> vscale
+    let dqProduct := dqAbsLevel32 * vscale
     let dqResult16 := dqProduct.map (BitVec.extractLsb' 0 16 ·)
-    let dqNegResult := (· - ·) <$> Signal.pure 0#16 <*> dqResult16
+    let dqNegResult := 0#16 - dqResult16
     let dqResult := Signal.mux dqIsNeg dqNegResult dqResult16
 
     -- Dequantized memory (written in dequant phase, combo-read in IDCT phase)
@@ -192,13 +192,13 @@ def decoderPipeline {dom : DomainConfig}
     let isIdctWriting := isSub4 ||| isSub5 ||| isSub6 ||| isSub7
 
     -- Zero-extend grpIdx[1:0] and substep[1:0] to 4 bits
-    let grp4 := (· ++ ·) <$> Signal.pure 0#2 <*> (grpIdx.map (BitVec.extractLsb' 0 2 ·))
-    let subLo4 := (· ++ ·) <$> Signal.pure 0#2 <*> (substep.map (BitVec.extractLsb' 0 2 ·))
+    let grp4 := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
+    let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
     -- Row read: addr = grp*4 + subLo
-    let idctRowAddr := (· + ·) <$> ((· * ·) <$> grp4 <*> Signal.pure 4#4) <*> subLo4
+    let idctRowAddr := (grp4 * 4#4) + subLo4
     -- Col read: addr = subLo*4 + grp
-    let idctColAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4) <*> grp4
+    let idctColAddr := (subLo4 * 4#4) + grp4
     let idctAddr := Signal.mux isIdctRow idctRowAddr idctColAddr
 
     -- Dequant memory read for IDCT row phase (combo-read at idctAddr)
@@ -211,23 +211,22 @@ def decoderPipeline {dom : DomainConfig}
     let idctOutWrEn := isIdctCol &&& isIdctWriting
 
     -- Butterfly computation
-    let s0 := (· + ·) <$> v0 <*> v2
-    let s1 := (· - ·) <$> v0 <*> v2
-    let d0 := (· - ·) <$> (sarBy1 v1) <*> v3
-    let d1 := (· + ·) <$> v1 <*> (sarBy1 v3)
+    let s0 := v0 + v2
+    let s1 := v0 - v2
+    let d0 := (sarBy1 v1) - v3
+    let d1 := v1 + (sarBy1 v3)
 
     -- Row results (no rounding)
-    let rowR0 := (· + ·) <$> s0 <*> d1
-    let rowR1 := (· + ·) <$> s1 <*> d0
-    let rowR2 := (· - ·) <$> s1 <*> d0
-    let rowR3 := (· - ·) <$> s0 <*> d1
+    let rowR0 := s0 + d1
+    let rowR1 := s1 + d0
+    let rowR2 := s1 - d0
+    let rowR3 := s0 - d1
 
     -- Col results (with +32 >>6)
-    let rnd := Signal.pure 32#16
-    let colR0 := sarBy6 ((· + ·) <$> ((· + ·) <$> s0 <*> d1) <*> rnd)
-    let colR1 := sarBy6 ((· + ·) <$> ((· + ·) <$> s1 <*> d0) <*> rnd)
-    let colR2 := sarBy6 ((· + ·) <$> ((· - ·) <$> s1 <*> d0) <*> rnd)
-    let colR3 := sarBy6 ((· + ·) <$> ((· - ·) <$> s0 <*> d1) <*> rnd)
+    let colR0 := sarBy6 ((s0 + d1) + 32#16)
+    let colR1 := sarBy6 ((s1 + d0) + 32#16)
+    let colR2 := sarBy6 ((s1 - d0) + 32#16)
+    let colR3 := sarBy6 ((s0 - d1) + 32#16)
 
     -- Select output based on substep
     let rowOut := hw_cond rowR0
@@ -270,12 +269,12 @@ def decoderPipeline {dom : DomainConfig}
     let resVal := residualMem
 
     -- Add and clamp
-    let sumVal := (· + ·) <$> predVal <*> resVal
+    let sumVal := predVal + resVal
     let rcSignBit := sumVal.map (BitVec.extractLsb' 15 1 ·)
-    let rcIsNeg := (· == ·) <$> rcSignBit <*> Signal.pure 1#1
+    let rcIsNeg := rcSignBit === 1#1
     let upperByte := sumVal.map (BitVec.extractLsb' 8 8 ·)
-    let upperNonZero := (fun x => !x) <$> ((· == ·) <$> upperByte <*> Signal.pure 0#8)
-    let isOver255 := ((fun x => !x) <$> rcIsNeg) &&& upperNonZero
+    let upperNonZero := ~~~(upperByte === 0#8)
+    let isOver255 := (~~~rcIsNeg) &&& upperNonZero
     let clampedVal := Signal.mux rcIsNeg (Signal.pure 0#16)
                         (Signal.mux isOver255 (Signal.pure 255#16) sumVal)
 
@@ -291,13 +290,13 @@ def decoderPipeline {dom : DomainConfig}
     let dequantDone := isDequant &&& (idx === (15#5 : Signal dom _))
 
     -- IDCT group/substep control
-    let substepInc := (· + ·) <$> substep <*> Signal.pure 1#3
+    let substepInc := substep + 1#3
     let groupDone := isIdct &&& isSub7
     let lastGroup := grpIdx === (3#3 : Signal dom _)
     let idctRowDone := isIdctRow &&& groupDone &&& lastGroup
     let idctColDone := isIdctCol &&& groupDone &&& lastGroup
 
-    let grpInc := (· + ·) <$> grpIdx <*> Signal.pure 1#3
+    let grpInc := grpIdx + 1#3
     let grpIdxNext := hw_cond grpIdx
       | startAndIdle => (0#3 : Signal dom _)
       | idctRowDone  => (0#3 : Signal dom _)
@@ -312,7 +311,7 @@ def decoderPipeline {dom : DomainConfig}
     let reconDone := isRecon &&& (idx === (15#5 : Signal dom _))
 
     -- Index control
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle => (0#5 : Signal dom _)
       | dequantDone  => (0#5 : Signal dom _)
@@ -351,7 +350,7 @@ def decoderPipeline {dom : DomainConfig}
   let done := DecoderPipeState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let phaseVal := DecoderPipeState.phase state
-  let phaseU32 := (· ++ ·) <$> Signal.pure 0#29 <*> phaseVal
+  let phaseU32 := 0#29 ++ phaseVal
 
   bundleAll! [doneU32, phaseU32]
 
@@ -411,23 +410,23 @@ def decoderPipelineV2 {dom : DomainConfig}
     let inputLevel := Signal.memoryComboRead coeffWriteAddr coeffWriteData coeffWriteEn readAddr4
 
     let dqSignBit := inputLevel.map (BitVec.extractLsb' 15 1 ·)
-    let dqIsNeg := (· == ·) <$> dqSignBit <*> Signal.pure 1#1
-    let dqNegLevel := (· - ·) <$> Signal.pure 0#16 <*> inputLevel
+    let dqIsNeg := dqSignBit === 1#1
+    let dqNegLevel := 0#16 - inputLevel
     let dqAbsLevel := Signal.mux dqIsNeg dqNegLevel inputLevel
-    let dqAbsLevel32 := (· ++ ·) <$> Signal.pure 0#16 <*> dqAbsLevel
+    let dqAbsLevel32 := 0#16 ++ dqAbsLevel
 
     let idxBit0 := idx.map (BitVec.extractLsb' 0 1 ·)
     let idxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)
-    let rowOdd := (· == ·) <$> idxBit2 <*> Signal.pure 1#1
-    let colOdd := (· == ·) <$> idxBit0 <*> Signal.pure 1#1
-    let bothEven := ((fun x => !x) <$> rowOdd) &&& ((fun x => !x) <$> colOdd)
+    let rowOdd := idxBit2 === 1#1
+    let colOdd := idxBit0 === 1#1
+    let bothEven := (~~~rowOdd) &&& (~~~colOdd)
     let bothOdd := rowOdd &&& colOdd
     let vscale := Signal.mux bothEven vscale0
                     (Signal.mux bothOdd vscale1 vscale2)
 
-    let dqProduct := (· * ·) <$> dqAbsLevel32 <*> vscale
+    let dqProduct := dqAbsLevel32 * vscale
     let dqResult16 := dqProduct.map (BitVec.extractLsb' 0 16 ·)
-    let dqNegResult := (· - ·) <$> Signal.pure 0#16 <*> dqResult16
+    let dqNegResult := 0#16 - dqResult16
     let dqResult := Signal.mux dqIsNeg dqNegResult dqResult16
 
     let dequantWrEn := isDequant
@@ -445,11 +444,11 @@ def decoderPipelineV2 {dom : DomainConfig}
     let isIdctReading := isSub0 ||| isSub1 ||| isSub2 ||| isSub3
     let isIdctWriting := isSub4 ||| isSub5 ||| isSub6 ||| isSub7
 
-    let grp4 := (· ++ ·) <$> Signal.pure 0#2 <*> (grpIdx.map (BitVec.extractLsb' 0 2 ·))
-    let subLo4 := (· ++ ·) <$> Signal.pure 0#2 <*> (substep.map (BitVec.extractLsb' 0 2 ·))
+    let grp4 := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
+    let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
-    let idctRowAddr := (· + ·) <$> ((· * ·) <$> grp4 <*> Signal.pure 4#4) <*> subLo4
-    let idctColAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4) <*> grp4
+    let idctRowAddr := (grp4 * 4#4) + subLo4
+    let idctColAddr := (subLo4 * 4#4) + grp4
     let idctAddr := Signal.mux isIdctRow idctRowAddr idctColAddr
 
     let dequantReadAddr := Signal.mux (isIdctRow &&& isIdctReading) idctAddr (Signal.pure 0#4)
@@ -458,21 +457,20 @@ def decoderPipelineV2 {dom : DomainConfig}
     let idctInterWrEn := isIdctRow &&& isIdctWriting
     let idctOutWrEn := isIdctCol &&& isIdctWriting
 
-    let s0 := (· + ·) <$> v0 <*> v2
-    let s1 := (· - ·) <$> v0 <*> v2
-    let d0 := (· - ·) <$> (sarBy1 v1) <*> v3
-    let d1 := (· + ·) <$> v1 <*> (sarBy1 v3)
+    let s0 := v0 + v2
+    let s1 := v0 - v2
+    let d0 := (sarBy1 v1) - v3
+    let d1 := v1 + (sarBy1 v3)
 
-    let rowR0 := (· + ·) <$> s0 <*> d1
-    let rowR1 := (· + ·) <$> s1 <*> d0
-    let rowR2 := (· - ·) <$> s1 <*> d0
-    let rowR3 := (· - ·) <$> s0 <*> d1
+    let rowR0 := s0 + d1
+    let rowR1 := s1 + d0
+    let rowR2 := s1 - d0
+    let rowR3 := s0 - d1
 
-    let rnd := Signal.pure 32#16
-    let colR0 := sarBy6 ((· + ·) <$> ((· + ·) <$> s0 <*> d1) <*> rnd)
-    let colR1 := sarBy6 ((· + ·) <$> ((· + ·) <$> s1 <*> d0) <*> rnd)
-    let colR2 := sarBy6 ((· + ·) <$> ((· - ·) <$> s1 <*> d0) <*> rnd)
-    let colR3 := sarBy6 ((· + ·) <$> ((· - ·) <$> s0 <*> d1) <*> rnd)
+    let colR0 := sarBy6 ((s0 + d1) + 32#16)
+    let colR1 := sarBy6 ((s1 + d0) + 32#16)
+    let colR2 := sarBy6 ((s1 - d0) + 32#16)
+    let colR3 := sarBy6 ((s0 - d1) + 32#16)
 
     let rowOut := hw_cond rowR0
       | isSub4 => rowR0
@@ -502,12 +500,12 @@ def decoderPipelineV2 {dom : DomainConfig}
     -- RECONSTRUCT PHASE
     let predVal := Signal.memoryComboRead predWriteAddr predWriteData predWriteEn readAddr4
     let resVal := residualMem
-    let sumVal := (· + ·) <$> predVal <*> resVal
+    let sumVal := predVal + resVal
     let rcSignBit := sumVal.map (BitVec.extractLsb' 15 1 ·)
-    let rcIsNeg := (· == ·) <$> rcSignBit <*> Signal.pure 1#1
+    let rcIsNeg := rcSignBit === 1#1
     let upperByte := sumVal.map (BitVec.extractLsb' 8 8 ·)
-    let upperNonZero := (fun x => !x) <$> ((· == ·) <$> upperByte <*> Signal.pure 0#8)
-    let isOver255 := ((fun x => !x) <$> rcIsNeg) &&& upperNonZero
+    let upperNonZero := ~~~(upperByte === 0#8)
+    let isOver255 := (~~~rcIsNeg) &&& upperNonZero
     let clampedVal := Signal.mux rcIsNeg (Signal.pure 0#16)
                         (Signal.mux isOver255 (Signal.pure 255#16) sumVal)
 
@@ -518,13 +516,13 @@ def decoderPipelineV2 {dom : DomainConfig}
     -- FSM Control
     let dequantDone := isDequant &&& (idx === (15#5 : Signal dom _))
 
-    let substepInc := (· + ·) <$> substep <*> Signal.pure 1#3
+    let substepInc := substep + 1#3
     let groupDone := isIdct &&& isSub7
     let lastGroup := grpIdx === (3#3 : Signal dom _)
     let idctRowDone := isIdctRow &&& groupDone &&& lastGroup
     let idctColDone := isIdctCol &&& groupDone &&& lastGroup
 
-    let grpInc := (· + ·) <$> grpIdx <*> Signal.pure 1#3
+    let grpInc := grpIdx + 1#3
     let startAndDone := start &&& isDone
 
     let grpIdxNext := hw_cond grpIdx
@@ -540,7 +538,7 @@ def decoderPipelineV2 {dom : DomainConfig}
 
     let reconDone := isRecon &&& (idx === (15#5 : Signal dom _))
 
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle => (0#5 : Signal dom _)
       | dequantDone  => (0#5 : Signal dom _)
@@ -576,7 +574,7 @@ def decoderPipelineV2 {dom : DomainConfig}
   let done := DecoderPipeState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let phaseVal := DecoderPipeState.phase state
-  let phaseU32 := (· ++ ·) <$> Signal.pure 0#29 <*> phaseVal
+  let phaseU32 := 0#29 ++ phaseVal
   -- V2: registered combo-read data (1-cycle read latency from reconReadAddr)
   let reconReadData := DecoderPipeState.dummy state
 

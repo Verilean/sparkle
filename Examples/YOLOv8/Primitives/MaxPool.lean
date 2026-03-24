@@ -25,7 +25,7 @@ variable {dom : DomainConfig}
     Uses Signal.mux with signed less-than (BitVec.slt). -/
 def maxInt8Signal (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
   -- a > b ⟺ b < a (signed)
-  let bLtA := (BitVec.slt · ·) <$> b <*> a
+  let bLtA := Signal.slt b a
   Signal.mux bLtA a b
 
 /-- Signed max of four INT8 signals (2x2 window).

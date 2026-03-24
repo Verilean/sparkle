@@ -73,59 +73,55 @@ def dividerSignal {dom : DomainConfig}
     let doneReg       := projN! state 8 7  -- Bool
 
     -- Is the divider idle?
-    let isIdle := (· == ·) <$> counterReg <*> Signal.pure 0#6
+    let isIdle := counterReg === 0#6
 
     -- Is counter = 1? (finishing step)
-    let isFinishing := (· == ·) <$> counterReg <*> Signal.pure 1#6
+    let isFinishing := counterReg === 1#6
 
     -- Is counter > 1? (working step)
-    let isWorking := (· && ·) <$>
-      ((fun x => !x) <$> isIdle) <*>
-      ((fun x => !x) <$> isFinishing)
+    let isWorking := (~~~isIdle) &&& (~~~isFinishing)
 
     -- ====================================================================
     -- START: Latch inputs, compute absolute values, set counter
     -- ====================================================================
 
     -- Sign of dividend (bit 31)
-    let dividendSign := (· == ·) <$>
-      (dividend.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let dividendSign := (dividend.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     -- Sign of divisor (bit 31)
-    let divisorSign := (· == ·) <$>
-      (divisor.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let divisorSign := (divisor.map (BitVec.extractLsb' 31 1 ·)) === 1#1
 
     -- Negate dividend if signed and negative
-    let dividendNeg := (· - ·) <$> Signal.pure 0#32 <*> dividend
-    let dividendNeedNeg := (· && ·) <$> is_signed <*> dividendSign
+    let dividendNeg := 0#32 - dividend
+    let dividendNeedNeg := is_signed &&& dividendSign
     let absDividend := Signal.mux dividendNeedNeg dividendNeg dividend
 
     -- Negate divisor if signed and negative
-    let divisorNeg := (· - ·) <$> Signal.pure 0#32 <*> divisor
-    let divisorNeedNeg := (· && ·) <$> is_signed <*> divisorSign
+    let divisorNeg := 0#32 - divisor
+    let divisorNeedNeg := is_signed &&& divisorSign
     let absDivisor := Signal.mux divisorNeedNeg divisorNeg divisor
 
     -- For quotient: negate if signs differ (signed mode only)
     -- XOR on Bool = (a && !b) || (!a && b)
-    let signsDiffer_a := (· && ·) <$> dividendSign <*> ((fun x => !x) <$> divisorSign)
-    let signsDiffer_b := (· && ·) <$> ((fun x => !x) <$> dividendSign) <*> divisorSign
-    let signsDiffer := (· || ·) <$> signsDiffer_a <*> signsDiffer_b
-    let negateQuot := (· && ·) <$> is_signed <*> signsDiffer
+    let signsDiffer_a := dividendSign &&& (~~~divisorSign)
+    let signsDiffer_b := (~~~dividendSign) &&& divisorSign
+    let signsDiffer := signsDiffer_a ||| signsDiffer_b
+    let negateQuot := is_signed &&& signsDiffer
 
     -- For remainder: negate if dividend is negative (signed mode only)
-    let negateRem := (· && ·) <$> is_signed <*> dividendSign
+    let negateRem := is_signed &&& dividendSign
 
     -- Negate result flag: depends on is_rem
     let negateFlag := Signal.mux is_rem negateRem negateQuot
 
     -- Divisor == 0 check
-    let divisorIsZero := (· == ·) <$> divisor <*> Signal.pure 0#32
+    let divisorIsZero := divisor === 0#32
 
     -- Start condition: start pulse AND idle
-    let startAndIdle := (· && ·) <$> start <*> isIdle
+    let startAndIdle := start &&& isIdle
 
     -- Zero-extend absolute dividend and divisor to 33 bits
-    let absDividend33 := (· ++ ·) <$> Signal.pure 0#1 <*> absDividend
-    let absDivisor33 := (· ++ ·) <$> Signal.pure 0#1 <*> absDivisor
+    let absDividend33 := 0#1 ++ absDividend
+    let absDivisor33 := 0#1 ++ absDivisor
 
     -- ====================================================================
     -- WORKING: Restoring division step
@@ -137,31 +133,30 @@ def dividerSignal {dom : DomainConfig}
     -- dividend bits, shifted left each cycle).
     -- Top bit of quotientReg is the next bit to bring into remainder.
     let quotientTopBit := quotientReg.map (BitVec.extractLsb' 31 1 ·)
-    let quotientTopBit33 := (· ++ ·) <$> Signal.pure 0#32 <*> quotientTopBit
+    let quotientTopBit33 := 0#32 ++ quotientTopBit
 
     -- Shift remainder left by 1
-    let remShifted := (· <<< ·) <$> remainderReg <*> Signal.pure 1#33
+    let remShifted := remainderReg <<< 1#33
     -- OR in the top bit of the quotient (next dividend bit)
-    let remWithBit := (· ||| ·) <$> remShifted <*> quotientTopBit33
+    let remWithBit := remShifted ||| quotientTopBit33
 
     -- Trial subtraction: remainder - divisor
-    let trialSub := (· - ·) <$> remWithBit <*> divisorReg
+    let trialSub := remWithBit - divisorReg
 
     -- Check if subtraction result is non-negative (bit 32 = 0 means positive)
     let trialBit32 := trialSub.map (BitVec.extractLsb' 32 1 ·)
-    let trialNonNeg := (· == ·) <$> trialBit32 <*> Signal.pure 0#1
+    let trialNonNeg := trialBit32 === 0#1
 
     -- If non-negative: remainder = trialSub, quotient bit = 1
     -- If negative: remainder unchanged (restore), quotient bit = 0
     let newRemainder := Signal.mux trialNonNeg trialSub remWithBit
 
     -- Shift quotient left and OR in the new bit
-    let quotShifted := (· <<< ·) <$> quotientReg <*> Signal.pure 1#32
-    let quotWithBit := (· ||| ·) <$> quotShifted <*>
-      (Signal.mux trialNonNeg (Signal.pure 1#32) (Signal.pure 0#32))
+    let quotShifted := quotientReg <<< 1#32
+    let quotWithBit := quotShifted ||| (Signal.mux trialNonNeg (Signal.pure 1#32) (Signal.pure 0#32))
 
     -- Decrement counter
-    let counterDec := (· - ·) <$> counterReg <*> Signal.pure 1#6
+    let counterDec := counterReg - 1#6
 
     -- ====================================================================
     -- FINISHING: Apply negation, output result
@@ -176,14 +171,14 @@ def dividerSignal {dom : DomainConfig}
     let rawResult := Signal.mux isRemReg finalRem finalQuot
 
     -- Negate if needed
-    let negResult := (· - ·) <$> Signal.pure 0#32 <*> rawResult
+    let negResult := 0#32 - rawResult
     let finalResult := Signal.mux negateReg negResult rawResult
 
     -- ====================================================================
     -- Div-by-zero override: when divisor was zero at start
     -- We handle this by checking divisorReg == 0 at finish time
     -- ====================================================================
-    let divisorRegIsZero := (· == ·) <$> divisorReg <*> Signal.pure 0#33
+    let divisorRegIsZero := divisorReg === 0#33
 
     -- DIV/0 -> 0xFFFFFFFF, REM/0 -> dividend
     let divByZeroResult := Signal.mux isRemReg dividendReg (Signal.pure 0xFFFFFFFF#32)
@@ -239,7 +234,7 @@ def dividerSignal {dom : DomainConfig}
 
     -- Done flag: true for exactly 1 cycle when counter transitions 1->0
     -- Suppress on abort to avoid stale done pulses
-    let doneNext := (· && ·) <$> isFinishing <*> ((fun x => !x) <$> abort)
+    let doneNext := isFinishing &&& (~~~abort)
 
     bundleAll! [
       Signal.register 0#6 counterNext,
@@ -263,17 +258,17 @@ def dividerSignal {dom : DomainConfig}
   let dividendRegOut := projN! loopState 8 4
 
   -- Recompute final result outside loop for output
-  let isFinishingOut := (· == ·) <$> counterOut <*> Signal.pure 1#6
+  let isFinishingOut := counterOut === 1#6
 
   -- The done register holds the finishing flag from last cycle
   -- When done=true, the registers hold the final values
   let finalRem := remainderOut.map (BitVec.extractLsb' 0 32 ·)
   let rawResult := Signal.mux isRemOut finalRem quotientOut
-  let negResult := (· - ·) <$> Signal.pure 0#32 <*> rawResult
+  let negResult := 0#32 - rawResult
   let result := Signal.mux negateOut negResult rawResult
 
   -- Div-by-zero override
-  let divisorRegIsZero := (· == ·) <$> divisorRegOut <*> Signal.pure 0#33
+  let divisorRegIsZero := divisorRegOut === 0#33
   let divByZeroResult := Signal.mux isRemOut dividendRegOut (Signal.pure 0xFFFFFFFF#32)
   let finalOutput := Signal.mux divisorRegIsZero divByZeroResult result
 

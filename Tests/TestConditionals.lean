@@ -29,8 +29,8 @@ def test_mux_RIGHT (cond : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) 
 
 -- Example: Using mux in a practical circuit - select between add or subtract
 def add_or_sub (sel : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
-  let sum := (· + ·) <$> a <*> b
-  let diff := (· - ·) <$> a <*> b
+  let sum := a + b
+  let diff := a - b
   Signal.mux sel sum diff
 
 -- ============================================================================

@@ -43,11 +43,11 @@ Simple combinational adder to test overflow behavior.
 
 def adder4 (a b : Signal defaultDomain (BitVec 4))
     : Signal defaultDomain (BitVec 4) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 def subtractor4 (a b : Signal defaultDomain (BitVec 4))
     : Signal defaultDomain (BitVec 4) :=
-  (· - ·) <$> a <*> b
+  a - b
 
 /-!
 ## Test Cases for Overflow/Underflow

@@ -87,35 +87,34 @@ def yolov8nTop {dom : DomainConfig}
     let outReadyReg  := projN! state 10 8   -- Bool
     let errorReg     := projN! state 10 9   -- Bool
 
-    let isIdle      := (· == ·) <$> fsmReg <*> Signal.pure 0#4
-    let isLoadInput := (· == ·) <$> fsmReg <*> Signal.pure 1#4
-    let isBackbone  := (· == ·) <$> fsmReg <*> Signal.pure 2#4
-    let isNeck      := (· == ·) <$> fsmReg <*> Signal.pure 3#4
-    let isHead      := (· == ·) <$> fsmReg <*> Signal.pure 4#4
-    let isOutput    := (· == ·) <$> fsmReg <*> Signal.pure 5#4
-    let isDone      := (· == ·) <$> fsmReg <*> Signal.pure 6#4
+    let isIdle      := fsmReg === 0#4
+    let isLoadInput := fsmReg === 1#4
+    let isBackbone  := fsmReg === 2#4
+    let isNeck      := fsmReg === 3#4
+    let isHead      := fsmReg === 4#4
+    let isOutput    := fsmReg === 5#4
+    let isDone      := fsmReg === 6#4
 
-    let startAndIdle := (· && ·) <$> startInfer <*> isIdle
+    let startAndIdle := startInfer &&& isIdle
 
     -- Total pixels: 160 * 160 * 3 = 76800
     let totalPixels := Signal.pure 76800#16
-    let allPixelsLoaded := (· && ·) <$> isLoadInput <*>
-      ((· == ·) <$> pixelCntReg <*> totalPixels)
+    let allPixelsLoaded := isLoadInput &&& (pixelCntReg === totalPixels)
 
     -- Pixel counter
-    let pixelInc := (· + ·) <$> pixelCntReg <*> Signal.pure 1#16
-    let pixelCounting := (· && ·) <$> isLoadInput <*> pixelValid
+    let pixelInc := pixelCntReg + 1#16
+    let pixelCounting := isLoadInput &&& pixelValid
 
     -- Cycle counter (always incrementing when not idle)
-    let cycleInc := (· + ·) <$> cycleReg <*> Signal.pure 1#32
+    let cycleInc := cycleReg + 1#32
 
     -- FSM transitions
     let fsmNext :=
       Signal.mux startAndIdle (Signal.pure 1#4)           -- IDLE → LOAD_INPUT
         (Signal.mux allPixelsLoaded (Signal.pure 2#4)      -- LOAD → BACKBONE
-          (Signal.mux ((· && ·) <$> isBackbone <*> bbDoneReg) (Signal.pure 3#4)  -- BB → NECK
-            (Signal.mux ((· && ·) <$> isNeck <*> nkDoneReg) (Signal.pure 4#4)    -- NECK → HEAD
-              (Signal.mux ((· && ·) <$> isHead <*> hdDoneReg) (Signal.pure 5#4)  -- HEAD → OUTPUT
+          (Signal.mux (isBackbone &&& bbDoneReg) (Signal.pure 3#4)  -- BB → NECK
+            (Signal.mux (isNeck &&& nkDoneReg) (Signal.pure 4#4)    -- NECK → HEAD
+              (Signal.mux (isHead &&& hdDoneReg) (Signal.pure 5#4)  -- HEAD → OUTPUT
                 (Signal.mux isOutput (Signal.pure 6#4)     -- OUTPUT → DONE
                   (Signal.mux isDone (Signal.pure 0#4)     -- DONE → IDLE
                     fsmReg))))))
@@ -165,7 +164,7 @@ def yolov8nTop {dom : DomainConfig}
   let phaseOut     := projN! loopState 10 0
   let cycleOut     := projN! loopState 10 1
   let outReadyOut  := projN! loopState 10 8
-  let doneOut      := (· == ·) <$> (projN! loopState 10 0) <*> Signal.pure 6#4
+  let doneOut      := (projN! loopState 10 0) === 6#4
 
   bundle2 phaseOut (bundle2 cycleOut (bundle2 doneOut outReadyOut))
 

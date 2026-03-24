@@ -46,9 +46,74 @@ def registerChain (input : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16
 - Signals are **wire streams**, not variables you assign to
 - Use `Signal.register init input` with both arguments
 - Coefficients/constants must be Signal inputs, not runtime values
-- Operations use applicative style: `(· + ·) <$> sig1 <*> sig2`
+- Operations use operator syntax: `sig1 + sig2`, `sig1 &&& sig2`
+- Mix signals and constants freely: `count + 1#8`, `255#8 ++ data`
 
 See `test.lean` for a working FIR filter example.
+
+---
+
+## Signal Constants and Domain Inference
+
+**`Signal.pure` in `let` bindings causes domain metavariable errors:**
+
+```lean
+-- ❌ WRONG: domain ?m is unresolved
+def example_WRONG {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let rnd := Signal.pure 32#16     -- ❌ Signal ?m (BitVec 16) — domain unknown
+  x + rnd                           -- typeclass instance problem is stuck
+
+-- ✓ RIGHT: Use Signal.lit with explicit domain
+def example_RIGHT {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let rnd := Signal.lit dom 32#16  -- ✓ Signal dom (BitVec 16)
+  x + rnd
+
+-- ✓ BEST: Use mixed operator directly (no let binding needed)
+def example_BEST {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  x + 32#16                        -- ✓ Mixed HAdd instance lifts 32#16 automatically
+```
+
+**Why this happens:**
+- `Signal.pure 32#16` creates `Signal ?m (BitVec 16)` where `?m` is an unresolved domain
+- When used in `let`, Lean can't infer `?m` from context before resolving `HAdd`
+- The typeclass resolver gets stuck on `HAdd (Signal dom _) (Signal ?m _) _`
+
+**Solutions (in order of preference):**
+1. **Use mixed operators directly**: `x + 32#16`, `255#8 ++ data`, `mask &&& 0xFF#8`
+2. **Use `Signal.lit dom`**: `let c := Signal.lit dom 32#16` — domain is explicit
+3. **Add type annotation**: `let c : Signal dom (BitVec 16) := Signal.pure 32#16`
+
+---
+
+## Signal Operator Quick Reference
+
+All operators work between `Signal ↔ Signal`, `Signal ↔ BitVec`, and `BitVec ↔ Signal` (both directions):
+
+| Operation | Signal ↔ Signal | Signal ↔ Constant | Constant ↔ Signal | Example |
+|-----------|:-:|:-:|:-:|---------|
+| Add | `a + b` | `a + 1#8` | `1#8 + a` | `count + 1#8` |
+| Sub | `a - b` | `a - 1#8` | `64#7 - a` | `timer - 1#32` |
+| Mul | `a * b` | `a * 4#8` | `3#32 * a` | `idx * 4#4` |
+| AND | `a &&& b` | `a &&& 0xFF#8` | `0xFF#8 &&& a` | `data &&& mask` |
+| OR | `a \|\|\| b` | `a \|\|\| 0x80#8` | `0x80#8 \|\|\| a` | `flags \|\|\| bit` |
+| XOR | `a ^^^ b` | `a ^^^ 0xFF#8` | `0xFF#8 ^^^ a` | `data ^^^ key` |
+| NOT | `~~~a` | — | — | `~~~enable` |
+| Shift L | `a <<< b` | `a <<< 2#8` | `1#64 <<< a` | `data <<< shift` |
+| Shift R | `a >>> b` | `a >>> 2#8` | `0xFF#8 >>> a` | `data >>> shift` |
+| Concat | `a ++ b` | `a ++ 0#2` | `0#24 ++ a` | `sign ++ data` |
+| Equal | `a === b` | `a === 0#8` | — | `state === IDLE` |
+| Neg | `-a` | — | — | `-signed_val` |
+| Signed < | `Signal.slt a b` | — | — | `Signal.slt x y` |
+| Unsigned < | `Signal.ult a b` | — | — | `Signal.ult x y` |
+| Arith shift | `Signal.ashr a b` | — | — | `Signal.ashr x shift` |
+
+**Old style (still works but verbose):**
+```lean
+(· + ·) <$> a <*> b       -- → a + b
+(· + ·) <$> a <*> Signal.pure 1#8  -- → a + 1#8
+```
+
+---
 
 ---
 

@@ -15,7 +15,7 @@ open Sparkle.Core.Signal.Signal  -- Open Signal namespace for loop, register, mu
 -- The 'loop' primitive gives us access to the 'cnt' wire before it's defined.
 def counter {dom} : Signal dom (BitVec 8) :=
   Signal.loop fun cnt =>
-    let next := (· + ·) <$> cnt <*> Signal.pure 1#8
+    let next := cnt + 1#8
     -- Register breaks the combinational loop
     register 0#8 next
 

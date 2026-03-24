@@ -30,7 +30,7 @@ private def upsample2xBody {dom : DomainConfig}
 
     -- When valid and phase=false: latch input, output it, go to phase=true
     -- When phase=true: output held pixel, go to phase=false
-    let validAndNotPhase := (· && ·) <$> valid <*> ((fun x => !x) <$> phaseReg)
+    let validAndNotPhase := valid &&& (~~~phaseReg)
 
     -- Next held pixel: latch on valid & !phase
     let heldNext := Signal.mux validAndNotPhase pixelIn heldReg
@@ -45,7 +45,7 @@ private def upsample2xBody {dom : DomainConfig}
       (Signal.mux phaseReg (Signal.pure false) phaseReg)
 
     -- Output valid: true when we have data to output
-    let outValidNext := (· || ·) <$> validAndNotPhase <*> phaseReg
+    let outValidNext := validAndNotPhase ||| phaseReg
 
     bundleAll! [
       Signal.register false phaseNext,

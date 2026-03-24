@@ -16,9 +16,9 @@ def testCombinational : IO Unit := do
   let a : Signal defaultDomain (BitVec 8) := Signal.pure 5#8
   let b : Signal defaultDomain (BitVec 8) := Signal.pure 3#8
 
-  let sum := (· + ·) <$> a <*> b
-  let diff := (· - ·) <$> a <*> b
-  let prod := (· * ·) <$> a <*> b
+  let sum := a + b
+  let diff := a - b
+  let prod := a * b
 
   assert! sum.atTime 0 == 8#8
   assert! diff.atTime 0 == 2#8

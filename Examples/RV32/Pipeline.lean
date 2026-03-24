@@ -115,26 +115,26 @@ def rv32iCore {dom : DomainConfig}
     -- Store-to-load forwarding (split compound lambda)
     let storeAddrHi := prevStoreAddr.map (BitVec.extractLsb' 2 30 ·)
     let loadAddrHi := exwb_alu.map (BitVec.extractLsb' 2 30 ·)
-    let addrMatch := (· == ·) <$> storeAddrHi <*> loadAddrHi
-    let storeLoadMatch := (· && ·) <$> prevStoreEn <*> addrMatch
+    let addrMatch := storeAddrHi === loadAddrHi
+    let storeLoadMatch := prevStoreEn &&& addrMatch
     let dmemRdataFwd := Signal.mux storeLoadMatch prevStoreData dmem_rdata
 
     let wb_result := Signal.mux exwb_isCsr exwb_csrRdata
                        (Signal.mux exwb_jump exwb_pc4
                        (Signal.mux exwb_m2r dmemRdataFwd
                          exwb_alu))
-    let wbRdNz_check := (· == ·) <$> exwb_rd <*> Signal.pure 0#5
-    let wbRdNz := (fun x => !x) <$> wbRdNz_check
+    let wbRdNz_check := exwb_rd === 0#5
+    let wbRdNz := ~~~wbRdNz_check
     let wb_addr := exwb_rd
     let wb_data := wb_result
-    let wb_en   := (· && ·) <$> exwb_regW <*> wbRdNz
+    let wb_en   := exwb_regW &&& wbRdNz
 
     -- =================================================================
     -- EX Stage
     -- =================================================================
     -- WB→EX forwarding
-    let fwd_rs1_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs1Idx)
-    let fwd_rs2_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs2Idx)
+    let fwd_rs1_match := wb_en &&& (wb_addr === idex_rs1Idx)
+    let fwd_rs2_match := wb_en &&& (wb_addr === idex_rs2Idx)
     let ex_rs1 := Signal.mux fwd_rs1_match wb_data idex_rs1Val
     let ex_rs2 := Signal.mux fwd_rs2_match wb_data idex_rs2Val
     -- ALU
@@ -143,16 +143,15 @@ def rv32iCore {dom : DomainConfig}
     let alu_result := aluSignal idex_aluOp alu_a alu_b
     -- Branch
     let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
-    let branchTaken := (· && ·) <$> idex_branch <*> branchCond
+    let branchTaken := idex_branch &&& branchCond
     -- Branch/jump target
-    let brTarget := (· + ·) <$> idex_pc <*> idex_imm
-    let jalrSum  := (· + ·) <$> ex_rs1 <*> idex_imm
-    let jalrTarget := (· &&& ·) <$> jalrSum <*> Signal.pure 0xFFFFFFFE#32
+    let brTarget := idex_pc + idex_imm
+    let jalrSum  := ex_rs1 + idex_imm
+    let jalrTarget := jalrSum &&& 0xFFFFFFFE#32
     let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
     -- Flush
-    let flush := (· || ·) <$> ((· || ·) <$> branchTaken <*> idex_jump) <*>
-                 ((· || ·) <$> trap_taken <*> idex_isMret)
-    let flushOrDelay := (· || ·) <$> flush <*> flushDelay
+    let flush := (branchTaken ||| idex_jump) ||| (trap_taken ||| idex_isMret)
+    let flushOrDelay := flush ||| flushDelay
 
     -- =================================================================
     -- Hazard / Stall (depends on idex outputs and ID decode)
@@ -167,36 +166,34 @@ def rv32iCore {dom : DomainConfig}
     let id_imm := immGenSignal ifid_inst id_opcode
     let id_aluOp := aluControlSignal id_opcode id_funct3 id_funct7
     -- Control signals
-    let id_isALUrr  := (· == ·) <$> id_opcode <*> Signal.pure 0b0110011#7
-    let id_isALUimm := (· == ·) <$> id_opcode <*> Signal.pure 0b0010011#7
-    let id_isLoad   := (· == ·) <$> id_opcode <*> Signal.pure 0b0000011#7
-    let id_isStore  := (· == ·) <$> id_opcode <*> Signal.pure 0b0100011#7
-    let id_isBranch := (· == ·) <$> id_opcode <*> Signal.pure 0b1100011#7
-    let id_isLUI    := (· == ·) <$> id_opcode <*> Signal.pure 0b0110111#7
-    let id_isAUIPC  := (· == ·) <$> id_opcode <*> Signal.pure 0b0010111#7
-    let id_isJAL    := (· == ·) <$> id_opcode <*> Signal.pure 0b1101111#7
-    let id_isJALR   := (· == ·) <$> id_opcode <*> Signal.pure 0b1100111#7
-    let id_isSystem := (· == ·) <$> id_opcode <*> Signal.pure 0b1110011#7
+    let id_isALUrr  := id_opcode === 0b0110011#7
+    let id_isALUimm := id_opcode === 0b0010011#7
+    let id_isLoad   := id_opcode === 0b0000011#7
+    let id_isStore  := id_opcode === 0b0100011#7
+    let id_isBranch := id_opcode === 0b1100011#7
+    let id_isLUI    := id_opcode === 0b0110111#7
+    let id_isAUIPC  := id_opcode === 0b0010111#7
+    let id_isJAL    := id_opcode === 0b1101111#7
+    let id_isJALR   := id_opcode === 0b1100111#7
+    let id_isSystem := id_opcode === 0b1110011#7
     -- Derived
-    let id_aluSrcB := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUimm <*> id_isLoad) <*>
-                      ((· || ·) <$> id_isStore <*> id_isLUI)) <*>
-                      ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
-    let id_regWrite := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUrr <*> id_isALUimm) <*>
-                       ((· || ·) <$> id_isLoad <*> id_isLUI)) <*>
-                       ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
+    let id_aluSrcB := ((id_isALUimm ||| id_isLoad) ||| (id_isStore ||| id_isLUI)) |||
+                      ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
+    let id_regWrite := ((id_isALUrr ||| id_isALUimm) ||| (id_isLoad ||| id_isLUI)) |||
+                       ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
     let id_memRead  := id_isLoad
     let id_memWrite := id_isStore
     let id_memToReg := id_isLoad
-    let id_jump     := (· || ·) <$> id_isJAL <*> id_isJALR
-    let id_auipc    := (· || ·) <$> id_isAUIPC <*> id_isJAL
-    let f3isZero := (· == ·) <$> id_funct3 <*> Signal.pure 0#3
-    let f3notZero := (fun x => !x) <$> f3isZero
-    let id_isCsr := (· && ·) <$> id_isSystem <*> f3notZero
-    let id_isEcall := (· && ·) <$> id_isSystem <*> f3isZero
+    let id_jump     := id_isJAL ||| id_isJALR
+    let id_auipc    := id_isAUIPC ||| id_isJAL
+    let f3isZero := id_funct3 === 0#3
+    let f3notZero := ~~~f3isZero
+    let id_isCsr := id_isSystem &&& f3notZero
+    let id_isEcall := id_isSystem &&& f3isZero
     let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
-    let isMretField := (· == ·) <$> mretField <*> Signal.pure 0x302#12
-    let id_isMret := (· && ·) <$> id_isSystem <*> isMretField
+    let isMretField := mretField === 0x302#12
+    let id_isMret := id_isSystem &&& isMretField
 
     -- Stall
     let stall := hazardSignal idex_memRead idex_rd id_rs1 id_rs2
@@ -211,27 +208,27 @@ def rv32iCore {dom : DomainConfig}
     let rf_rs1_raw := Signal.memory wb_addr wb_data wb_en rf_rs1_addr
     let rf_rs2_raw := Signal.memory wb_addr wb_data wb_en rf_rs2_addr
     -- WB→ID bypass
-    let wb_fwd_rs1 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs1)
-    let wb_fwd_rs2 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs2)
+    let wb_fwd_rs1 := wb_en &&& (wb_addr === id_rs1)
+    let wb_fwd_rs2 := wb_en &&& (wb_addr === id_rs2)
     -- Previous-cycle WB bypass
-    let prev_fwd_rs1 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs1)
-    let prev_fwd_rs2 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs2)
+    let prev_fwd_rs1 := prev_wb_en &&& (prev_wb_addr === id_rs1)
+    let prev_fwd_rs2 := prev_wb_en &&& (prev_wb_addr === id_rs2)
     let rf_rs1_bypassed := Signal.mux wb_fwd_rs1 wb_data
                              (Signal.mux prev_fwd_rs1 prev_wb_data rf_rs1_raw)
     let rf_rs2_bypassed := Signal.mux wb_fwd_rs2 wb_data
                              (Signal.mux prev_fwd_rs2 prev_wb_data rf_rs2_raw)
     -- x0 hardwiring
-    let id_rs1Val := Signal.mux ((· == ·) <$> id_rs1 <*> Signal.pure 0#5)
+    let id_rs1Val := Signal.mux (id_rs1 === 0#5)
                        (Signal.pure 0#32) rf_rs1_bypassed
-    let id_rs2Val := Signal.mux ((· == ·) <$> id_rs2 <*> Signal.pure 0#5)
+    let id_rs2Val := Signal.mux (id_rs2 === 0#5)
                        (Signal.pure 0#32) rf_rs2_bypassed
 
     -- =================================================================
     -- IF Stage: PC + fetch
     -- =================================================================
-    let pcPlus4 := (· + ·) <$> pcReg <*> Signal.pure 4#32
+    let pcPlus4 := pcReg + 4#32
     let fetchPCIn := Signal.mux stall fetchPC pcReg
-    let fetchPCPlus4 := (· + ·) <$> fetchPC <*> Signal.pure 4#32
+    let fetchPCPlus4 := fetchPC + 4#32
 
     -- =================================================================
     -- IF/ID register inputs
@@ -244,11 +241,11 @@ def rv32iCore {dom : DomainConfig}
     -- =================================================================
     -- ID/EX register inputs (squash on stall or flush)
     -- =================================================================
-    let squash := (· || ·) <$> stall <*> flushOrDelay
+    let squash := stall ||| flushOrDelay
     -- CSR interface
     let csrIsImm_bit := idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)
-    let csrIsImm := (· == ·) <$> csrIsImm_bit <*> Signal.pure 1#1
-    let csrZimm  := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
+    let csrIsImm := csrIsImm_bit === 1#1
+    let csrZimm  := 0#27 ++ idex_rs1Idx
 
     -- =================================================================
     -- PC Next

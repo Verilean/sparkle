@@ -382,6 +382,90 @@ mutual
     let args := e.getAppArgs
 
 
+    -- 0. Early interception for Signal operators (before WHNF)
+    -- When HAdd/HSub/HMul/HAnd/HOr/HXor/HShiftLeft/HShiftRight/HAppend instances
+    -- are applied to Signals (or mixed Signal/BitVec), intercept before WHNF
+    -- to avoid OfNat.ofNat expansion failures and domain metavariable stalls.
+    if let .const instName _ := fn then
+      -- General binary operator interception
+      let binOp? : Option Operator := match instName with
+        | ``HAdd.hAdd => some .add
+        | ``HSub.hSub => some .sub
+        | ``HMul.hMul => some .mul
+        | ``HAnd.hAnd => some .and
+        | ``HOr.hOr   => some .or
+        | ``HXor.hXor => some .xor
+        | ``HShiftLeft.hShiftLeft => some .shl
+        | ``HShiftRight.hShiftRight => some .shr
+        | _ => none
+      if let some op := binOp? then
+        if args.size >= 2 then
+          let arg1 := args[args.size - 2]!
+          let arg2 := args[args.size - 1]!
+          let type1 ← CompilerM.liftMetaM (Lean.Meta.inferType arg1)
+          let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
+          let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
+          let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
+          if isSignal1 || isSignal2 then
+            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let hwType ← inferHWTypeFromSignal exprType
+            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+            -- For mixed Signal/BitVec: use extractBitVecLiteral for the constant arg
+            let wireA ← if isSignal1 then
+              translateExprToWire arg1 "op_a" (isTopLevel := false)
+            else
+              let (cVal, cWidth) ← extractBitVecLiteral arg1
+              let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
+              CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+              pure constWire
+            let wireB ← if isSignal2 then
+              translateExprToWire arg2 "op_b" (isTopLevel := false)
+            else
+              let (cVal, cWidth) ← extractBitVecLiteral arg2
+              let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
+              CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+              pure constWire
+            CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+            return resWire
+
+      -- HAppend (concat) — separate because it uses .concat not .op
+      if instName == ``HAppend.hAppend && args.size >= 2 then
+        let arg1 := args[args.size - 2]!
+        let arg2 := args[args.size - 1]!
+        let type1 ← CompilerM.liftMetaM (Lean.Meta.inferType arg1)
+        let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
+        let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
+        let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
+        -- Both Signal case: translate directly to concat
+        if isSignal1 && isSignal2 then
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+          let wireA ← translateExprToWire arg1 "concat_hi" (isTopLevel := false)
+          let wireB ← translateExprToWire arg2 "concat_lo" (isTopLevel := false)
+          CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+          return resWire
+        -- Mixed case: one is Signal, one is BitVec constant
+        if isSignal1 != isSignal2 then
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+          if isSignal1 then
+            -- Signal ++ BitVec: arg1 is signal, arg2 is constant
+            let wireA ← translateExprToWire arg1 "concat_hi" (isTopLevel := false)
+            let (cVal, cWidth) ← extractBitVecLiteral arg2
+            let constWire ← CompilerM.makeWire "concat_const" (.bitVector cWidth)
+            CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+            CompilerM.emitAssign resWire (.concat [.ref wireA, .ref constWire])
+          else
+            -- BitVec ++ Signal: arg1 is constant, arg2 is signal
+            let (cVal, cWidth) ← extractBitVecLiteral arg1
+            let constWire ← CompilerM.makeWire "concat_const" (.bitVector cWidth)
+            CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+            let wireB ← translateExprToWire arg2 "concat_lo" (isTopLevel := false)
+            CompilerM.emitAssign resWire (.concat [.ref constWire, .ref wireB])
+          return resWire
+
     -- 1. High-priority Signal Recognition (Avoid premature unfolding)
     if let .const name _ := fn then
         -- OfNat.ofNat: numeric literal (e.g., 0#4, 0xFFFFF#20, 35)
@@ -420,8 +504,8 @@ mutual
             let payload := if name == ``Fin.mk && args.size >= 2 then args[args.size-2]! else args.back!
             return ← translateExprToWire payload hint (isNamed := isNamed)
 
-        -- Signal.pure (constant signals)
-        if name == ``Sparkle.Core.Signal.Signal.pure && args.size >= 1 then
+        -- Signal.pure / Signal.lit (constant signals)
+        if (name == ``Sparkle.Core.Signal.Signal.pure || name == ``Sparkle.Core.Signal.Signal.lit) && args.size >= 1 then
            let constValue := args[args.size-1]!
            -- Check for Bool constants first
            let constReduced ← CompilerM.liftMetaM (whnf constValue)
@@ -811,8 +895,9 @@ mutual
          match zetaE with
          | some e' => translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
          | none =>
-            -- Fallback to general reduction
-            let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.all $ whnf e)
+            -- Fallback to general reduction (use default transparency to preserve
+            -- Signal.pure and mixed operator instance structure)
+            let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.default $ whnf e)
             if e' != e then translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
             else translateExprToWireApp e hint isNamed
 
@@ -1251,17 +1336,31 @@ mutual
     trace[sparkle.compiler] "→ definition unfold {name}"
 
     -- First try to reduce the function call and translate inline.
+    -- Use reducible transparency to avoid expanding HAdd/HAppend mixed instances
     let eReduced ← CompilerM.liftMetaM do
       match ← Lean.Meta.unfoldDefinition? e with
-      | some e' => return e'
-      | none => return e
+        | some e' => return e'
+        | none => return e
     if eReduced != e then
       try
         let w ← translateExprToWire eReduced hint (isNamed := isNamed)
         return some w
-      catch ex =>
-        let msg := ex.toMessageData
-        CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
+      catch _ex1 =>
+        -- Inline expansion failed (often due to mixed Signal/BitVec operators
+        -- inside the expanded body). Retry with reducible transparency to
+        -- prevent over-expansion of Signal.pure and OfNat instances.
+        try
+          let eReduced2 ← CompilerM.liftMetaM do
+            Lean.Meta.withTransparency .reducible do
+              match ← Lean.Meta.unfoldDefinition? e with
+              | some e' => return e'
+              | none => return e
+          if eReduced2 != e then
+            let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
+            return some w
+        catch ex2 =>
+          let msg := ex2.toMessageData
+          CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
 
     -- Fallback: sub-module synthesis
     trace[sparkle.compiler] "→ sub-module synthesis {name}"

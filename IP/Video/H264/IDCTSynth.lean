@@ -88,7 +88,7 @@ def idctRef (input : Array Int) : Array Int :=
 private def sarBy1 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
   let signBit := x.map (BitVec.extractLsb' 15 1 ·)
   let upper15 := x.map (BitVec.extractLsb' 1 15 ·)
-  (· ++ ·) <$> signBit <*> upper15
+  signBit ++ upper15
 
 /-- Signed arithmetic right shift by 6 for 16-bit 2's complement.
     Replicate sign bit 6 times, then take upper 10 bits. -/
@@ -96,10 +96,10 @@ private def sarBy6 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal do
   let signBit := x.map (BitVec.extractLsb' 15 1 ·)
   let upper10 := x.map (BitVec.extractLsb' 6 10 ·)
   -- sign-extend: 6 copies of sign bit ++ 10 data bits
-  let sign6 := (· ++ ·) <$> signBit <*> signBit  -- 2 bits
-  let sign4 := (· ++ ·) <$> sign6 <*> sign6      -- 4 bits
-  let sign6' := (· ++ ·) <$> sign6 <*> sign4     -- 6 bits
-  (· ++ ·) <$> sign6' <*> upper10
+  let sign6 := signBit ++ signBit  -- 2 bits
+  let sign4 := sign6 ++ sign6      -- 4 bits
+  let sign6' := sign6 ++ sign4     -- 6 bits
+  sign6' ++ upper10
 
 /-- Inverse DCT synthesis module.
     Inputs: start, writeEn/writeAddr/writeData for loading coefficients.
@@ -143,16 +143,14 @@ def idctModule {dom : DomainConfig}
     let isWriting := isSub4 ||| isSub5 ||| isSub6 ||| isSub7
 
     -- Zero-extend grpIdx[1:0] and substep[1:0] to 4 bits for address math
-    let grp4' := (· ++ ·) <$> Signal.pure 0#2 <*> (grpIdx.map (BitVec.extractLsb' 0 2 ·))
-    let subLo4 := (· ++ ·) <$> Signal.pure 0#2 <*> (substep.map (BitVec.extractLsb' 0 2 ·))
+    let grp4' := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
+    let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
     -- Read address computation (all 4-bit arithmetic)
     -- Row read: addr = grp*4 + subLo (row-major: row*4+col)
-    let rowReadAddr := (· + ·) <$> ((· * ·) <$> grp4' <*> Signal.pure 4#4)
-                                <*> subLo4
+    let rowReadAddr := (grp4' * 4#4) + subLo4
     -- Col read: addr = subLo*4 + grp (column access: row*4+col, row=subLo, col=grp)
-    let colReadAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4)
-                                <*> grp4'
+    let colReadAddr := (subLo4 * 4#4) + grp4'
 
     let readAddr4 := Signal.mux isRow rowReadAddr colReadAddr
 
@@ -166,23 +164,22 @@ def idctModule {dom : DomainConfig}
     -- (We use a separate memory for this.)
 
     -- Butterfly computation from stored val registers
-    let s0 := (· + ·) <$> v0 <*> v2
-    let s1 := (· - ·) <$> v0 <*> v2
-    let d0 := (· - ·) <$> (sarBy1 v1) <*> v3
-    let d1 := (· + ·) <$> v1 <*> (sarBy1 v3)
+    let s0 := v0 + v2
+    let s1 := v0 - v2
+    let d0 := (sarBy1 v1) - v3
+    let d1 := v1 + (sarBy1 v3)
 
     -- Row-phase results (no rounding)
-    let rowR0 := (· + ·) <$> s0 <*> d1
-    let rowR1 := (· + ·) <$> s1 <*> d0
-    let rowR2 := (· - ·) <$> s1 <*> d0
-    let rowR3 := (· - ·) <$> s0 <*> d1
+    let rowR0 := s0 + d1
+    let rowR1 := s1 + d0
+    let rowR2 := s1 - d0
+    let rowR3 := s0 - d1
 
     -- Col-phase results (with +32 >>6 rounding)
-    let rnd := Signal.pure 32#16
-    let colR0 := sarBy6 ((· + ·) <$> ((· + ·) <$> s0 <*> d1) <*> rnd)
-    let colR1 := sarBy6 ((· + ·) <$> ((· + ·) <$> s1 <*> d0) <*> rnd)
-    let colR2 := sarBy6 ((· + ·) <$> ((· - ·) <$> s1 <*> d0) <*> rnd)
-    let colR3 := sarBy6 ((· + ·) <$> ((· - ·) <$> s0 <*> d1) <*> rnd)
+    let colR0 := sarBy6 ((s0 + d1) + 32#16)
+    let colR1 := sarBy6 ((s1 + d0) + 32#16)
+    let colR2 := sarBy6 ((s1 - d0) + 32#16)
+    let colR3 := sarBy6 ((s0 - d1) + 32#16)
 
     -- Select butterfly output based on substep (4→out0, 5→out1, 6→out2, 7→out3)
     let rowOut := hw_cond rowR0
@@ -217,14 +214,14 @@ def idctModule {dom : DomainConfig}
     let v3Next := Signal.mux (active &&& isSub3) memSrcData v3
 
     -- Substep counter: 0→1→...→7→0
-    let substepInc := (· + ·) <$> substep <*> Signal.pure 1#3
+    let substepInc := substep + 1#3
     let groupDone := active &&& isSub7
     let substepNext := hw_cond (0#3 : Signal dom _)
       | startAndIdle => (0#3 : Signal dom _)
       | active       => substepInc
 
     -- Group index: advance after substep 7
-    let grpInc := (· + ·) <$> grpIdx <*> Signal.pure 1#3
+    let grpInc := grpIdx + 1#3
     let lastGroup := grpIdx === (3#3 : Signal dom _)
     let rowPhaseDone := isRow &&& groupDone &&& lastGroup
     let colPhaseDone := isCol &&& groupDone &&& lastGroup
@@ -259,9 +256,9 @@ def idctModule {dom : DomainConfig}
   let done := IDCTState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let grpVal := IDCTState.grpIdx state
-  let grpU32 := (· ++ ·) <$> Signal.pure 0#29 <*> grpVal
+  let grpU32 := 0#29 ++ grpVal
   let subVal := IDCTState.substep state
-  let subU32 := (· ++ ·) <$> Signal.pure 0#29 <*> subVal
+  let subU32 := 0#29 ++ subVal
 
   bundleAll! [doneU32, grpU32, subU32]
 

@@ -36,8 +36,8 @@ This definition is pure functional and can be used in proofs!
 def alu (sel : Signal defaultDomain Bool)
         (a b : Signal defaultDomain (BitVec 16))
         : Signal defaultDomain (BitVec 16) :=
-  let addResult := (· + ·) <$> a <*> b
-  let subResult := (· - ·) <$> a <*> b
+  let addResult := a + b
+  let subResult := a - b
   Signal.mux sel subResult addResult
 
 /-!

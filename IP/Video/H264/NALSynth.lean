@@ -97,20 +97,20 @@ def nalStreamModule {dom : DomainConfig}
     let scDone := isSC &&& (scIdx === (2#2 : Signal dom _))
 
     -- NAL header byte: (ref_idc << 5) | type
-    let headerByte := (· ||| ·) <$> ((· <<< ·) <$> nalRefIdc <*> Signal.pure 5#8) <*> nalType
+    let headerByte := (nalRefIdc <<< 5#8) ||| nalType
 
     -- Emulation prevention detection:
     -- After two consecutive 0x00 bytes, if next byte <= 0x03, insert 0x03
     -- inputByte <= 3 means bits [7:2] are all zero
     let highBits := inputByte.map (BitVec.extractLsb' 2 6 ·)
     let inputIsLowByte := highBits === (0#6 : Signal dom _)
-    let needEPB := isPay &&& inputValid &&& ((· == ·) <$> zeroCount <*> Signal.pure 2#2) &&& inputIsLowByte
+    let needEPB := isPay &&& inputValid &&& (zeroCount === 2#2) &&& inputIsLowByte
 
     -- Zero count tracking
-    let inputIsZero := (· == ·) <$> inputByte <*> Signal.pure 0x00#8
-    let zcInc := Signal.mux ((· == ·) <$> zeroCount <*> Signal.pure 2#2)
+    let inputIsZero := inputByte === 0x00#8
+    let zcInc := Signal.mux (zeroCount === 2#2)
       zeroCount
-      ((· + ·) <$> zeroCount <*> Signal.pure 1#2)
+      (zeroCount + 1#2)
 
     -- FSM transitions
     let fsmNext := hw_cond fsmState
@@ -126,7 +126,7 @@ def nalStreamModule {dom : DomainConfig}
     -- scIdx
     let scIdxNext := hw_cond (0#2 : Signal dom _)
       | startAndIdle => (0#2 : Signal dom _)
-      | isSC         => (· + ·) <$> scIdx <*> Signal.pure 1#2
+      | isSC         => scIdx + 1#2
 
     -- nalHeader (latch on start)
     let nalHeaderNext := hw_cond nalHeader
@@ -175,7 +175,7 @@ def nalStreamModule {dom : DomainConfig}
   let done := NALSynthState.done state
 
   let validU32 := Signal.mux outputValid (Signal.pure 1#32) (Signal.pure 0#32)
-  let byteU32 := (· ++ ·) <$> Signal.pure 0#24 <*> outputByte
+  let byteU32 := 0#24 ++ outputByte
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
 
   bundleAll! [validU32, byteU32, doneU32]

@@ -112,10 +112,10 @@ private def backboneControllerBody {dom : DomainConfig}
     -- s >= 2 ⟺ ¬(s == 0 || s == 1)
     let sIs0 := stageReg === (0#3)
     let sIs1 := stageReg === (1#3)
-    let needsSave := (fun x => !x) <$> (sIs0 ||| sIs1)
+    let needsSave := ~~~(sIs0 ||| sIs1)
 
     -- Check if all stages complete (stage >= 5 means done)
-    let stageInc := (· + ·) <$> stageReg <*> Signal.pure 1#3
+    let stageInc := stageReg + 1#3
     let allStagesDone := stageReg === (4#3)
 
     -- FSM transitions (C2F next state depends on stage)
@@ -151,7 +151,7 @@ private def backboneControllerBody {dom : DomainConfig}
 
     -- Buffer select: toggle after each layer
     let shouldToggle := stemDone ||| stageConvDone
-    let bufSelNext := Signal.mux shouldToggle ((fun b => !b) <$> bufSelReg) bufSelReg
+    let bufSelNext := Signal.mux shouldToggle (~~~bufSelReg) bufSelReg
 
     -- Feature map save flags
     let isStage2 := stageReg === (2#3)

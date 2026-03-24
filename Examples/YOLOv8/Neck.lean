@@ -73,36 +73,36 @@ private def neckControllerBody {dom : DomainConfig}
     let n4Reg     := projN! state 6 4  -- Bool
     let doneReg   := projN! state 6 5  -- Bool
 
-    let isIdle       := (· == ·) <$> fsmReg <*> Signal.pure 0#4
-    let isFpnUp      := (· == ·) <$> fsmReg <*> Signal.pure 1#4
-    let isFpnConcat  := (· == ·) <$> fsmReg <*> Signal.pure 2#4
-    let isFpnC2f     := (· == ·) <$> fsmReg <*> Signal.pure 3#4
-    let isPanConv    := (· == ·) <$> fsmReg <*> Signal.pure 4#4
-    let isPanConcat  := (· == ·) <$> fsmReg <*> Signal.pure 5#4
-    let isPanC2f     := (· == ·) <$> fsmReg <*> Signal.pure 6#4
-    let isDone       := (· == ·) <$> fsmReg <*> Signal.pure 7#4
+    let isIdle       := fsmReg === 0#4
+    let isFpnUp      := fsmReg === 1#4
+    let isFpnConcat  := fsmReg === 2#4
+    let isFpnC2f     := fsmReg === 3#4
+    let isPanConv    := fsmReg === 4#4
+    let isPanConcat  := fsmReg === 5#4
+    let isPanC2f     := fsmReg === 6#4
+    let isDone       := fsmReg === 7#4
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
-    let fpnUpDone    := (· && ·) <$> subOpDone <*> isFpnUp
-    let fpnConcDone  := (· && ·) <$> subOpDone <*> isFpnConcat
-    let fpnC2fDone   := (· && ·) <$> subOpDone <*> isFpnC2f
-    let panConvDone  := (· && ·) <$> subOpDone <*> isPanConv
-    let panConcDone  := (· && ·) <$> subOpDone <*> isPanConcat
-    let panC2fDone   := (· && ·) <$> subOpDone <*> isPanC2f
+    let startAndIdle := start &&& isIdle
+    let fpnUpDone    := subOpDone &&& isFpnUp
+    let fpnConcDone  := subOpDone &&& isFpnConcat
+    let fpnC2fDone   := subOpDone &&& isFpnC2f
+    let panConvDone  := subOpDone &&& isPanConv
+    let panConcDone  := subOpDone &&& isPanConcat
+    let panC2fDone   := subOpDone &&& isPanC2f
 
     -- Path tracking: FPN has 2 steps (P5→N4, N4→N3), PAN has 2 steps (N3→N4', N4'→N5')
-    let pathInc := (· + ·) <$> pathReg <*> Signal.pure 1#3
-    let fpnComplete := (· == ·) <$> pathReg <*> Signal.pure 1#3  -- 2 FPN steps: 0,1
-    let panComplete := (· == ·) <$> pathReg <*> Signal.pure 3#3  -- 2 PAN steps: 2,3
+    let pathInc := pathReg + 1#3
+    let fpnComplete := pathReg === 1#3  -- 2 FPN steps: 0,1
+    let panComplete := pathReg === 3#3  -- 2 PAN steps: 2,3
 
     -- After FPN C2f: if FPN not done, loop back for next FPN step
     -- If FPN done, transition to PAN
-    let fpnNotDone := (· && ·) <$> fpnC2fDone <*> ((fun x => !x) <$> fpnComplete)
-    let fpnAllDone := (· && ·) <$> fpnC2fDone <*> fpnComplete
+    let fpnNotDone := fpnC2fDone &&& (~~~fpnComplete)
+    let fpnAllDone := fpnC2fDone &&& fpnComplete
 
     -- After PAN C2f: if PAN not done, loop back for next PAN step
-    let panNotDone := (· && ·) <$> panC2fDone <*> ((fun x => !x) <$> panComplete)
-    let panAllDone := (· && ·) <$> panC2fDone <*> panComplete
+    let panNotDone := panC2fDone &&& (~~~panComplete)
+    let panAllDone := panC2fDone &&& panComplete
 
     -- FSM transitions
     let fsmNext :=
@@ -129,8 +129,8 @@ private def neckControllerBody {dom : DomainConfig}
     let bufSelNext := bufSelReg
 
     -- Feature readiness
-    let n3Next := Signal.mux ((· && ·) <$> fpnC2fDone <*> fpnComplete) (Signal.pure true) n3Reg
-    let n4Next := Signal.mux ((· && ·) <$> panC2fDone <*> ((· == ·) <$> pathReg <*> Signal.pure 2#3)) (Signal.pure true) n4Reg
+    let n3Next := Signal.mux (fpnC2fDone &&& fpnComplete) (Signal.pure true) n3Reg
+    let n4Next := Signal.mux (panC2fDone &&& (pathReg === 2#3)) (Signal.pure true) n4Reg
 
     let doneNext := isDone
 

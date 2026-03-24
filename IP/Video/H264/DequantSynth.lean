@@ -130,14 +130,14 @@ def dequantModule {dom : DomainConfig}
 
     -- 1. Sign bit extraction (bit 15 of 16-bit 2's complement)
     let signBit := inputLevel.map (BitVec.extractLsb' 15 1 ·)
-    let isNeg := (· == ·) <$> signBit <*> Signal.pure 1#1
+    let isNeg := signBit === 1#1
 
     -- 2. Absolute value via 2's complement negation
-    let negLevel := (· - ·) <$> Signal.pure 0#16 <*> inputLevel
+    let negLevel := 0#16 - inputLevel
     let absLevel := Signal.mux isNeg negLevel inputLevel
 
     -- 3. Widen to 32 bits for multiplication
-    let absLevel32 := (· ++ ·) <$> Signal.pure 0#16 <*> absLevel
+    let absLevel32 := 0#16 ++ absLevel
 
     -- 4. Determine V*scale based on position class
     -- idx bits: [3:2] = row, [1:0] = col
@@ -148,16 +148,16 @@ def dequantModule {dom : DomainConfig}
     let idxBit3 := idx.map (BitVec.extractLsb' 3 1 ·)  -- row bit 1
 
     -- row_even: row%2==0 means row bit 0 == 0
-    let rowOdd := (· == ·) <$> idxBit2 <*> Signal.pure 1#1
+    let rowOdd := idxBit2 === 1#1
     -- col_even: col%2==0 means col bit 0 == 0
-    let colOdd := (· == ·) <$> idxBit0 <*> Signal.pure 1#1
+    let colOdd := idxBit0 === 1#1
 
     -- Suppress unused warnings
     let _ := idxBit1
     let _ := idxBit3
 
     -- posClass: 0 = both even, 1 = both odd, 2 = mixed
-    let bothEven := ((fun x => !x) <$> rowOdd) &&& ((fun x => !x) <$> colOdd)
+    let bothEven := (~~~rowOdd) &&& (~~~colOdd)
     let bothOdd := rowOdd &&& colOdd
 
     -- V*scale: selected from input ports by position class
@@ -166,11 +166,11 @@ def dequantModule {dom : DomainConfig}
                       vscale2)
 
     -- 5. Multiply: dequant = absLevel * vscale
-    let product := (· * ·) <$> absLevel32 <*> vscale
+    let product := absLevel32 * vscale
     let dequant16 := product.map (BitVec.extractLsb' 0 16 ·)
 
     -- 6. Restore sign
-    let negDequant := (· - ·) <$> Signal.pure 0#16 <*> dequant16
+    let negDequant := 0#16 - dequant16
     let result := Signal.mux isNeg negDequant dequant16
 
     -- Write result to output memory
@@ -184,7 +184,7 @@ def dequantModule {dom : DomainConfig}
       | processDone  => (2#2 : Signal dom _)
       | startAndDone => (1#2 : Signal dom _)
 
-    let idxInc := (· + ·) <$> idx <*> Signal.pure 1#5
+    let idxInc := idx + 1#5
     let idxNext := hw_cond (0#5 : Signal dom _)
       | startAndIdle  => (0#5 : Signal dom _)
       | startAndDone  => (0#5 : Signal dom _)
@@ -203,9 +203,9 @@ def dequantModule {dom : DomainConfig}
   let done := DequantState.done state
   let doneU32 := Signal.mux done (Signal.pure 1#32) (Signal.pure 0#32)
   let idx := DequantState.idx state
-  let idxU32 := (· ++ ·) <$> Signal.pure 0#27 <*> idx
+  let idxU32 := 0#27 ++ idx
   let lastOut := DequantState.last state
-  let lastOut32 := (· ++ ·) <$> Signal.pure 0#16 <*> lastOut
+  let lastOut32 := 0#16 ++ lastOut
 
   bundleAll! [doneU32, idxU32, lastOut32]
 

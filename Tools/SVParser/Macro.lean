@@ -11,6 +11,7 @@
 import Lean
 import Tools.SVParser
 import Tools.SVParser.Verify
+import Sparkle.Core.JIT
 
 open Lean Elab Command Term Meta
 open Tools.SVParser.Parser
@@ -94,5 +95,43 @@ elab "verilog!" src:str : command => do
           catch _ =>
             elabStr s!"theorem {assertName} (s : State) (i : Input) : let ns := nextState s i; {condStr} != (0 : BitVec 1) := by sorry"
 
-      -- 5. close namespace
+      -- 5. Type-safe JIT simulation wrappers
+
+      elabStr "open Sparkle.Core.JIT"
+
+      -- SimInput (same fields as Input — both from non-clk input ports)
+      let simInputFields := String.intercalate "\n" <|
+        model.inputs.map fun i => s!"  {leanName i.name} : BitVec {i.width}"
+      elabStr s!"structure SimInput where\n{simInputFields}\n  deriving DecidableEq, Repr, BEq, Inhabited"
+
+      -- SimOutput (from module output ports)
+      let outputPorts := m.outputs
+      let simOutputFields := String.intercalate "\n" <|
+        outputPorts.map fun p => s!"  {leanName p.name} : BitVec {p.ty.bitWidth}"
+      elabStr s!"structure SimOutput where\n{simOutputFields}\n  deriving DecidableEq, Repr, BEq, Inhabited"
+
+      -- Simulator structure
+      elabStr "structure Simulator where\n  handle : JITHandle"
+
+      -- step: set all inputs by index, then evalTick
+      let inputsIndexed := (List.range model.inputs.length).zip model.inputs
+      let setInputCalls := inputsIndexed.map fun (idx, inp) =>
+        s!"  JIT.setInput sim.handle {idx} i.{leanName inp.name}.toNat.toUInt64"
+      let stepBody := String.intercalate "\n" setInputCalls
+      elabStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
+
+      -- read: get all outputs by index, convert to BitVec
+      let outputsIndexed := (List.range outputPorts.length).zip outputPorts
+      let readFields := outputsIndexed.map fun (idx, p) =>
+        let w := p.ty.bitWidth
+        s!"  let v{idx} ← JIT.getOutput sim.handle {idx}\n  let {leanName p.name} := BitVec.ofNat {w} v{idx}.toNat"
+      let readBody := String.intercalate "\n" readFields
+      let readReturn := String.intercalate ", " <|
+        outputPorts.map fun p => s!"{leanName p.name}"
+      elabStr s!"def Simulator.read (sim : Simulator) : IO SimOutput := do\n{readBody}\n  pure {lb} {readReturn} {rb}"
+
+      -- reset
+      elabStr "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
+
+      -- 6. close namespace
       elabStr s!"end {ns}.Verify"

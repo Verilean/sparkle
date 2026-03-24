@@ -11,13 +11,13 @@ Hardware circuit definitions used for Verilog generation testing.
 
 -- Combinational circuits (no registers, no state)
 def test_add (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 def test_sub (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· - ·) <$> a <*> b
+  a - b
 
 def test_and (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· &&& ·) <$> a <*> b
+  a &&& b
 
 def test_mux (sel : Signal Domain Bool) (a b : Signal Domain (BitVec 16))
     : Signal Domain (BitVec 16) :=

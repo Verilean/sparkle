@@ -31,7 +31,7 @@ To test, uncomment one at a time and verify the error message.
 -- Uncomment to test error message:
 -- def test_unbundle2_error (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
 --   let (a, b) := unbundle2 input  -- Should error: "Use .fst and .snd instead"
---   (· + ·) <$> a <*> b
+--   a + b
 --
 -- #synthesizeVerilog test_unbundle2_error
 
@@ -56,13 +56,13 @@ def test_mux_works (cond : Signal Domain Bool) (a b : Signal Domain (BitVec 8)) 
 def test_fst_snd_works (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
   let a := input.fst  -- ✓ Works!
   let b := input.snd  -- ✓ Works!
-  (· + ·) <$> a <*> b
+  a + b
 
 def test_proj3_works (input : Signal Domain (BitVec 8 × BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
   let a := input.proj3_1  -- ✓ Works!
   let b := input.proj3_2  -- ✓ Works!
   let c := input.proj3_3  -- ✓ Works!
-  ((· + ·) <$> ((· + ·) <$> a <*> b) <*> c)
+  ((a + b) + c)
 
 -- Synthesize the working examples to verify they compile
 #synthesizeVerilog test_mux_works

@@ -199,6 +199,64 @@ instance : HOr (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitV
 instance : HXor (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
   hXor a b := (· ^^^ ·) <$> a <*> b
 
+-- Bit concatenation for Signal (BitVec)
+-- Enables: a ++ b instead of (· ++ ·) <$> a <*> b
+
+instance : HAppend (Signal dom (BitVec m)) (Signal dom (BitVec n)) (Signal dom (BitVec (m + n))) where
+  hAppend a b := (· ++ ·) <$> a <*> b
+
+instance : HAppend (Signal dom (BitVec m)) (BitVec n) (Signal dom (BitVec (m + n))) where
+  hAppend a b := (· ++ ·) <$> a <*> Signal.pure b
+
+instance : HAppend (BitVec m) (Signal dom (BitVec n)) (Signal dom (BitVec (m + n))) where
+  hAppend a b := (· ++ ·) <$> Signal.pure a <*> b
+
+-- Mixed Signal/constant operator overloading
+-- Enables: `count + 1#8`, `val &&& 0xFF#8` without explicit Signal.pure
+
+-- Implementation uses (· op ·) <$> a <*> Signal.pure b form so that the
+-- synthesis compiler's Seq.seq + Functor.map pattern recognizes the operation
+-- even inside inlined private function bodies.
+
+instance : HAdd (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hAdd a b := (· + ·) <$> a <*> Signal.pure b
+instance : HAdd (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := (· + ·) <$> Signal.pure a <*> b
+
+instance : HSub (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hSub a b := (· - ·) <$> a <*> Signal.pure b
+instance : HSub (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hSub a b := (· - ·) <$> Signal.pure a <*> b
+
+instance : HMul (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hMul a b := (· * ·) <$> a <*> Signal.pure b
+instance : HMul (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hMul a b := (· * ·) <$> Signal.pure a <*> b
+
+instance : HAnd (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hAnd a b := (· &&& ·) <$> a <*> Signal.pure b
+instance : HAnd (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hAnd a b := (· &&& ·) <$> Signal.pure a <*> b
+
+instance : HOr (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hOr a b := (· ||| ·) <$> a <*> Signal.pure b
+instance : HOr (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hOr a b := (· ||| ·) <$> Signal.pure a <*> b
+
+instance : HXor (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hXor a b := (· ^^^ ·) <$> a <*> Signal.pure b
+instance : HXor (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hXor a b := (· ^^^ ·) <$> Signal.pure a <*> b
+
+instance : HShiftLeft (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hShiftLeft a b := (· <<< ·) <$> a <*> Signal.pure b
+instance : HShiftLeft (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hShiftLeft a b := (· <<< ·) <$> Signal.pure a <*> b
+instance : HShiftRight (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hShiftRight a b := (· >>> ·) <$> a <*> Signal.pure b
+instance : HShiftRight (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hShiftRight a b := (· >>> ·) <$> Signal.pure a <*> b
+
 -- Boolean operator overloading for Signal Bool
 -- Enables: a &&& b, a ||| b, a ^^^ b, ~~~a
 
@@ -217,6 +275,61 @@ instance : Complement (Signal dom Bool) where
 instance : Complement (Signal dom (BitVec n)) where
   complement a := (fun x => ~~~x) <$> a
 
+-- Shift operators for Signal (BitVec n)
+-- Enables: a <<< b, a >>> b
+
+instance : HShiftLeft (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hShiftLeft a b := (· <<< ·) <$> a <*> b
+
+instance : HShiftRight (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hShiftRight a b := (· >>> ·) <$> a <*> b
+
+-- Comparison operators for Signal (BitVec n)
+-- Return Signal dom Bool
+
+/-- Unsigned less-than: `a <ₛ b` on signals. -/
+def Signal.lt [LT α] [DecidableRel (α := α) (· < ·)] (a b : Signal dom α) : Signal dom Bool :=
+  (fun x y => decide (x < y)) <$> a <*> b
+
+/-- Unsigned less-or-equal: `a ≤ₛ b` on signals. -/
+def Signal.le [LE α] [DecidableRel (α := α) (· ≤ ·)] (a b : Signal dom α) : Signal dom Bool :=
+  (fun x y => decide (x ≤ y)) <$> a <*> b
+
+-- Signed/unsigned comparison for Signal (BitVec n)
+
+/-- Signed less-than on BitVec signals. -/
+def Signal.slt (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.slt · ·) <$> a <*> b
+
+/-- Unsigned less-than on BitVec signals. -/
+def Signal.ult (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.ult · ·) <$> a <*> b
+
+/-- Signed less-or-equal on BitVec signals. -/
+def Signal.sle (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.sle · ·) <$> a <*> b
+
+/-- Unsigned less-or-equal on BitVec signals. -/
+def Signal.ule (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.ule · ·) <$> a <*> b
+
+/-- Arithmetic shift right on BitVec signals. -/
+def Signal.ashr (a b : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  (fun x y => BitVec.sshiftRight x y.toNat) <$> a <*> b
+
+-- Mixed constant variants for slt/ult/ashr
+def Signal.sltC (a : Signal dom (BitVec n)) (b : BitVec n) : Signal dom Bool :=
+  (fun x => BitVec.slt x b) <$> a
+def Signal.ultC (a : Signal dom (BitVec n)) (b : BitVec n) : Signal dom Bool :=
+  (fun x => BitVec.ult x b) <$> a
+def Signal.ashrC (a : Signal dom (BitVec n)) (b : BitVec n) : Signal dom (BitVec n) :=
+  (fun x => BitVec.sshiftRight x b.toNat) <$> a
+
+-- Negation for Signal (BitVec n)
+
+instance : Neg (Signal dom (BitVec n)) where
+  neg a := (fun x => -x) <$> a
+
 -- Hardware equality operator
 -- Expands to (· == ·) <$> a <*> b, which the synthesis compiler recognizes
 
@@ -225,6 +338,11 @@ def Signal.beq [BEq α] (a b : Signal dom α) : Signal dom Bool :=
   (· == ·) <$> a <*> b
 
 scoped infix:50 " === " => Signal.beq
+
+/-- Constant signal with explicit domain binding.
+    Use instead of `Signal.pure` when the domain can't be inferred:
+    `let rnd := Signal.lit dom 32#16` instead of `let rnd := Signal.pure 32#16` -/
+abbrev Signal.lit (dom : DomainConfig) (x : α) : Signal dom α := Signal.pure x
 
 -- Implicit constant lifting (scoped to avoid global instance pollution)
 

@@ -25,8 +25,8 @@ def mkCsrNewVal {dom : DomainConfig}
     (csrIsRW csrIsRS csrIsRC : Signal dom Bool)
     (csrWdata oldVal : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
-  let rsVal := (· ||| ·) <$> oldVal <*> csrWdata
-  let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
+  let rsVal := oldVal ||| csrWdata
+  let rcVal := oldVal &&& (~~~csrWdata)
   Signal.mux csrIsRW csrWdata
     (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
 
@@ -64,27 +64,27 @@ def csrFileSignal {dom : DomainConfig}
        (Bool × (Bool × (Bool × (Bool × Bool))))))) :=
   -- CSR write type decode
   let csrF3Low := csrFunct3.map (BitVec.extractLsb' 0 2 ·)
-  let csrIsRW := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
-  let csrIsRS := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
-  let csrIsRC := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
-  let csrDoWrite := (· && ·) <$> csrWE <*> ((· || ·) <$> csrIsRW <*> ((· || ·) <$> csrIsRS <*> csrIsRC))
+  let csrIsRW := csrF3Low === 0b01#2
+  let csrIsRS := csrF3Low === 0b10#2
+  let csrIsRC := csrF3Low === 0b11#2
+  let csrDoWrite := csrWE &&& (csrIsRW ||| (csrIsRS ||| csrIsRC))
 
   -- CSR address matching
-  let isMstatus  := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMSTATUS)
-  let isMie      := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMIE)
-  let isMtvec    := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMTVEC)
-  let isMscratch := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMSCRATCH)
-  let isMepc     := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMEPC)
-  let isMcause   := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMCAUSE)
-  let isMtval    := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMTVAL)
-  let isMip      := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMIP)
-  let isMisa     := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMISA)
-  let isMhartid  := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMHARTID)
+  let isMstatus  := csrAddr === (BitVec.ofNat 12 csrMSTATUS)
+  let isMie      := csrAddr === (BitVec.ofNat 12 csrMIE)
+  let isMtvec    := csrAddr === (BitVec.ofNat 12 csrMTVEC)
+  let isMscratch := csrAddr === (BitVec.ofNat 12 csrMSCRATCH)
+  let isMepc     := csrAddr === (BitVec.ofNat 12 csrMEPC)
+  let isMcause   := csrAddr === (BitVec.ofNat 12 csrMCAUSE)
+  let isMtval    := csrAddr === (BitVec.ofNat 12 csrMTVAL)
+  let isMip      := csrAddr === (BitVec.ofNat 12 csrMIP)
+  let isMisa     := csrAddr === (BitVec.ofNat 12 csrMISA)
+  let isMhartid  := csrAddr === (BitVec.ofNat 12 csrMHARTID)
 
   -- MIP value (read-only, driven by external interrupts)
   let mipTimerBit := Signal.mux extTimerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
   let mipSwBit := Signal.mux extSwIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
-  let mipValue := (· ||| ·) <$> mipTimerBit <*> mipSwBit
+  let mipValue := mipTimerBit ||| mipSwBit
 
   let csrFile := Signal.loop fun state =>
     let mstatusReg  := projN! state 7 0  -- BitVec 32
@@ -105,37 +105,37 @@ def csrFileSignal {dom : DomainConfig}
     let mtvalNewCSR    := mkCsrNewVal csrIsRW csrIsRS csrIsRC csrWdata mtvalReg
 
     -- Current MIE and MPIE bits for MSTATUS
-    let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mstatusMIE_flag := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let mstatusMPIE_flag := (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
 
     -- MSTATUS on trap: MPIE←MIE, MIE←0, MPP←11 (M-mode)
-    let msClearMIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFF7#32
+    let msClearMIE := mstatusReg &&& 0xFFFFFFF7#32
     let msSetMPIE := Signal.mux mstatusMIE_flag
-      ((· ||| ·) <$> msClearMIE <*> Signal.pure 0x00000080#32)
-      ((· &&& ·) <$> msClearMIE <*> Signal.pure 0xFFFFFF7F#32)
-    let mstatusTrapVal := (· ||| ·) <$> msSetMPIE <*> Signal.pure 0x00001800#32
+      (msClearMIE ||| 0x00000080#32)
+      (msClearMIE &&& 0xFFFFFF7F#32)
+    let mstatusTrapVal := msSetMPIE ||| 0x00001800#32
 
     -- MSTATUS on MRET: MIE←MPIE, MPIE←1, MPP←00
-    let msClearMPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFE7FF#32
+    let msClearMPP := mstatusReg &&& 0xFFFFE7FF#32
     let msRestoreMIE := Signal.mux mstatusMPIE_flag
-      ((· ||| ·) <$> msClearMPP <*> Signal.pure 0x00000008#32)
-      ((· &&& ·) <$> msClearMPP <*> Signal.pure 0xFFFFFFF7#32)
-    let mstatusMretVal := (· ||| ·) <$> msRestoreMIE <*> Signal.pure 0x00000080#32
+      (msClearMPP ||| 0x00000008#32)
+      (msClearMPP &&& 0xFFFFFFF7#32)
+    let mstatusMretVal := msRestoreMIE ||| 0x00000080#32
 
     -- MSTATUS: trap > MRET > CSR write > hold
     let mstatusNext := Signal.mux trapTaken mstatusTrapVal
       (Signal.mux mretTaken mstatusMretVal
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isMstatus) mstatusNewCSR
+      (Signal.mux (csrDoWrite &&& isMstatus) mstatusNewCSR
         mstatusReg))
-    let mieNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isMie) mieNewCSR mieReg
-    let mtvecNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isMtvec) mtvecNewCSR mtvecReg
-    let mscratchNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isMscratch) mscratchNewCSR mscratchReg
+    let mieNext := Signal.mux (csrDoWrite &&& isMie) mieNewCSR mieReg
+    let mtvecNext := Signal.mux (csrDoWrite &&& isMtvec) mtvecNewCSR mtvecReg
+    let mscratchNext := Signal.mux (csrDoWrite &&& isMscratch) mscratchNewCSR mscratchReg
     let mepcNext := Signal.mux trapTaken trapPC
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isMepc) mepcNewCSR mepcReg)
+      (Signal.mux (csrDoWrite &&& isMepc) mepcNewCSR mepcReg)
     let mcauseNext := Signal.mux trapTaken trapCause
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isMcause) mcauseNewCSR mcauseReg)
+      (Signal.mux (csrDoWrite &&& isMcause) mcauseNewCSR mcauseReg)
     let mtvalNext := Signal.mux trapTaken trapVal
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isMtval) mtvalNewCSR mtvalReg)
+      (Signal.mux (csrDoWrite &&& isMtval) mtvalNewCSR mtvalReg)
 
     bundleAll! [
       Signal.register 0#32 mstatusNext,
@@ -168,11 +168,11 @@ def csrFileSignal {dom : DomainConfig}
       (Signal.pure 0#32))))))))))
 
   -- Output signals
-  let mstatusMIE := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-  let mieMTIE := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-  let mieMSIE := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-  let mipMTIP := (· == ·) <$> (mipValue.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-  let mipMSIP := (· == ·) <$> (mipValue.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+  let mstatusMIE := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+  let mieMTIE := (mieReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+  let mieMSIE := (mieReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+  let mipMTIP := (mipValue.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+  let mipMSIP := (mipValue.map (BitVec.extractLsb' 3 1 ·)) === 1#1
 
   bundleAll! [csrRdata, mtvecReg, mepcReg, mstatusMIE, mieMTIE, mieMSIE, mipMTIP, mipMSIP]
 

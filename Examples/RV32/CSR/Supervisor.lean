@@ -25,8 +25,8 @@ def mkCsrNewVal {dom : DomainConfig}
     (csrIsRW csrIsRS csrIsRC : Signal dom Bool)
     (csrWdata oldVal : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
-  let rsVal := (· ||| ·) <$> oldVal <*> csrWdata
-  let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
+  let rsVal := oldVal ||| csrWdata
+  let rcVal := oldVal &&& (~~~csrWdata)
   Signal.mux csrIsRW csrWdata
     (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
 
@@ -66,36 +66,35 @@ def supervisorCsrSignal {dom : DomainConfig}
        (BitVec 32 × (BitVec 2 × (Bool × BitVec 32))))))) :=
   -- CSR write type decode
   let csrF3Low := csrFunct3.map (BitVec.extractLsb' 0 2 ·)
-  let csrIsRW := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
-  let csrIsRS := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
-  let csrIsRC := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
-  let csrDoWrite := (· && ·) <$> csrWE <*> ((· || ·) <$> csrIsRW <*> ((· || ·) <$> csrIsRS <*> csrIsRC))
+  let csrIsRW := csrF3Low === 0b01#2
+  let csrIsRS := csrF3Low === 0b10#2
+  let csrIsRC := csrF3Low === 0b11#2
+  let csrDoWrite := csrWE &&& (csrIsRW ||| (csrIsRS ||| csrIsRC))
 
   -- CSR address matching
-  let isSstatus  := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSSTATUS)
-  let isSie      := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSIE)
-  let isStvec    := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSTVEC)
-  let isSscratch := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSSCRATCH)
-  let isSepc     := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSEPC)
-  let isScause   := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSCAUSE)
-  let isStval    := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSTVAL)
-  let isSip      := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSIP)
-  let isSatp     := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrSATP)
+  let isSstatus  := csrAddr === (BitVec.ofNat 12 csrSSTATUS)
+  let isSie      := csrAddr === (BitVec.ofNat 12 csrSIE)
+  let isStvec    := csrAddr === (BitVec.ofNat 12 csrSTVEC)
+  let isSscratch := csrAddr === (BitVec.ofNat 12 csrSSCRATCH)
+  let isSepc     := csrAddr === (BitVec.ofNat 12 csrSEPC)
+  let isScause   := csrAddr === (BitVec.ofNat 12 csrSCAUSE)
+  let isStval    := csrAddr === (BitVec.ofNat 12 csrSTVAL)
+  let isSip      := csrAddr === (BitVec.ofNat 12 csrSIP)
+  let isSatp     := csrAddr === (BitVec.ofNat 12 csrSATP)
 
   -- Combined hit signal
-  let csrHit := (· || ·) <$>
-    ((· || ·) <$> ((· || ·) <$> isSstatus <*> isSie) <*> ((· || ·) <$> isStvec <*> isSscratch)) <*>
-    ((· || ·) <$> ((· || ·) <$> isSepc <*> isScause) <*> ((· || ·) <$> isStval <*> ((· || ·) <$> isSip <*> isSatp)))
+  let csrHit := ((isSstatus ||| isSie) ||| (isStvec ||| isSscratch)) |||
+    ((isSepc ||| isScause) ||| (isStval ||| (isSip ||| isSatp)))
 
   -- SSTATUS: restricted view of mstatus
   -- sstatus exposes: SIE(1), SPIE(5), SPP(8), MXR(19), SUM(18)
-  let sstatusMask := Signal.pure 0x000C0122#32  -- bits 1,5,8,18,19
-  let sstatusView := (· &&& ·) <$> mstatusIn <*> sstatusMask
+  let sstatusMask : Signal dom (BitVec 32) := Signal.pure 0x000C0122#32  -- bits 1,5,8,18,19
+  let sstatusView := mstatusIn &&& sstatusMask
 
   -- MPP and SPP for privilege mode transitions
   let mpp := mstatusIn.map (BitVec.extractLsb' 11 2 ·)
   let sppBit := mstatusIn.map (BitVec.extractLsb' 8 1 ·)
-  let spp := (· ++ ·) <$> Signal.pure 0#1 <*> sppBit
+  let spp := 0#1 ++ sppBit
 
   let regs := Signal.loop fun state =>
     let privReg    := projN! state 8 0  -- BitVec 2
@@ -124,16 +123,16 @@ def supervisorCsrSignal {dom : DomainConfig}
     let satpNewCSR    := mkCsrNewVal csrIsRW csrIsRS csrIsRC csrWdata satpReg
 
     -- Register updates
-    let sieNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isSie) sieNewCSR sieReg
-    let stvecNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isStvec) stvecNewCSR stvecReg
-    let sscratchNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isSscratch) sscratchNewCSR sscratchReg
+    let sieNext := Signal.mux (csrDoWrite &&& isSie) sieNewCSR sieReg
+    let stvecNext := Signal.mux (csrDoWrite &&& isStvec) stvecNewCSR stvecReg
+    let sscratchNext := Signal.mux (csrDoWrite &&& isSscratch) sscratchNewCSR sscratchReg
     let sepcNext := Signal.mux trapToS trapPC
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isSepc) sepcNewCSR sepcReg)
+      (Signal.mux (csrDoWrite &&& isSepc) sepcNewCSR sepcReg)
     let scauseNext := Signal.mux trapToS trapCause
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isScause) scauseNewCSR scauseReg)
+      (Signal.mux (csrDoWrite &&& isScause) scauseNewCSR scauseReg)
     let stvalNext := Signal.mux trapToS trapVal
-      (Signal.mux ((· && ·) <$> csrDoWrite <*> isStval) stvalNewCSR stvalReg)
-    let satpNext := Signal.mux ((· && ·) <$> csrDoWrite <*> isSatp) satpNewCSR satpReg
+      (Signal.mux (csrDoWrite &&& isStval) stvalNewCSR stvalReg)
+    let satpNext := Signal.mux (csrDoWrite &&& isSatp) satpNewCSR satpReg
 
     bundleAll! [
       Signal.register (BitVec.ofNat 2 privM) privNext,
@@ -170,11 +169,11 @@ def supervisorCsrSignal {dom : DomainConfig}
       (Signal.pure 0#32)))))))))
 
   -- SSTATUS write-back: merge S-mode bits into mstatus
-  let sstatusWr := (· && ·) <$> csrDoWrite <*> isSstatus
+  let sstatusWr := csrDoWrite &&& isSstatus
   let sstatusNewVal := mkCsrNewVal csrIsRW csrIsRS csrIsRC csrWdata sstatusView
-  let mstatusNonS := (· &&& ·) <$> mstatusIn <*> ((fun x => ~~~ x) <$> sstatusMask)
-  let sstatusMasked := (· &&& ·) <$> sstatusNewVal <*> sstatusMask
-  let sstatusWdataOut := (· ||| ·) <$> mstatusNonS <*> sstatusMasked
+  let mstatusNonS := mstatusIn &&& (~~~sstatusMask)
+  let sstatusMasked := sstatusNewVal &&& sstatusMask
+  let sstatusWdataOut := mstatusNonS ||| sstatusMasked
 
   bundleAll! [csrRdata, csrHit, stvecReg, sepcReg, satpReg, privReg, sstatusWr, sstatusWdataOut]
 

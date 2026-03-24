@@ -351,13 +351,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let dMissIsStore     := SoCState.dMissIsStore state
 
     -- Phase 1-5: identical to rv32iSoC except IMEM uses memoryWithInit
-    let wbRdNz := (fun x => !x) <$> ((· == ·) <$> exwb_rd <*> Signal.pure 0#5)
+    let wbRdNz := ~~~(exwb_rd === 0#5)
     let wb_addr := exwb_rd
-    let wb_en   := (· && ·) <$> exwb_regW <*> wbRdNz
+    let wb_en   := exwb_regW &&& wbRdNz
     let wb_data_non_mem := Signal.mux exwb_isCsr exwb_csrRdata
                              (Signal.mux exwb_jump exwb_pc4 exwb_alu)
-    let fwd_rs1_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs1Idx)
-    let fwd_rs2_match := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> idex_rs2Idx)
+    let fwd_rs1_match := wb_en &&& (wb_addr === idex_rs1Idx)
+    let fwd_rs2_match := wb_en &&& (wb_addr === idex_rs2Idx)
 
     let fwd_val_approx := Signal.mux exwb_m2r idex_rs1Val wb_data_non_mem
     let ex_rs1_approx := Signal.mux fwd_rs1_match fwd_val_approx idex_rs1Val
@@ -374,46 +374,46 @@ def rv32iSoCBody {dom : DomainConfig}
     -- =========================================================================
     -- MMU/PTW state decode and address computation (early, for DMEM addr mux)
     -- =========================================================================
-    let satpMode := (· == ·) <$> (satpReg.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
-    let isMmode := (· == ·) <$> privMode <*> Signal.pure 3#2
-    let bypassMMU := (· || ·) <$> isMmode <*> ((fun x => !x) <$> satpMode)
+    let satpMode := (satpReg.map (BitVec.extractLsb' 31 1 ·)) === 1#1
+    let isMmode := privMode === 3#2
+    let bypassMMU := isMmode ||| (~~~satpMode)
     -- MMU FSM: IDLE=0, TLB_LOOKUP=1, PTW_WALK=2, DONE=3, FAULT=4
-    let isMMUIdle   := (· == ·) <$> mmuStateReg <*> Signal.pure 0#3
-    let isPTWWalk   := (· == ·) <$> mmuStateReg <*> Signal.pure 2#3
-    let isMMUDone   := (· == ·) <$> mmuStateReg <*> Signal.pure 3#3
-    let isMMUFault  := (· == ·) <$> mmuStateReg <*> Signal.pure 4#3
+    let isMMUIdle   := mmuStateReg === 0#3
+    let isPTWWalk   := mmuStateReg === 2#3
+    let isMMUDone   := mmuStateReg === 3#3
+    let isMMUFault  := mmuStateReg === 4#3
     -- D-side MMU redirect: after PTW completes, re-execute the faulting instruction
-    let dMMURedirect := (· && ·) <$> isMMUDone <*> ((fun x => !x) <$> bypassMMU)
+    let dMMURedirect := isMMUDone &&& (~~~bypassMMU)
     -- PTW FSM: IDLE=0, L1_REQ=1, L1_WAIT=2, L0_REQ=3, L0_WAIT=4, DONE=5, FAULT=6
-    let ptwIsIdle   := (· == ·) <$> ptwStateReg <*> Signal.pure 0#3
-    let ptwIsL1Req  := (· == ·) <$> ptwStateReg <*> Signal.pure 1#3
-    let ptwIsL1Wait := (· == ·) <$> ptwStateReg <*> Signal.pure 2#3
-    let ptwIsL0Req  := (· == ·) <$> ptwStateReg <*> Signal.pure 3#3
-    let ptwIsL0Wait := (· == ·) <$> ptwStateReg <*> Signal.pure 4#3
-    let ptwIsDone   := (· == ·) <$> ptwStateReg <*> Signal.pure 5#3
-    let ptwIsFault  := (· == ·) <$> ptwStateReg <*> Signal.pure 6#3
+    let ptwIsIdle   := ptwStateReg === 0#3
+    let ptwIsL1Req  := ptwStateReg === 1#3
+    let ptwIsL1Wait := ptwStateReg === 2#3
+    let ptwIsL0Req  := ptwStateReg === 3#3
+    let ptwIsL0Wait := ptwStateReg === 4#3
+    let ptwIsDone   := ptwStateReg === 5#3
+    let ptwIsFault  := ptwStateReg === 6#3
     -- PTW memory address generation
     -- Sv32: L1 addr = {satpPPN[19:0], 12'd0} + {VPN1, 2'd0}
     --        L0 addr = {ptePPN[19:0], 12'd0} + {VPN0, 2'd0}
     let satpPPN20 := satpReg.map (BitVec.extractLsb' 0 20 ·)
-    let satpPPNShifted := (· ++ ·) <$> satpPPN20 <*> Signal.pure 0#12
+    let satpPPNShifted := satpPPN20 ++ 0#12
     let ptwVPN1 := ptwVaddrReg.map (BitVec.extractLsb' 22 10 ·)
     let ptwVPN0 := ptwVaddrReg.map (BitVec.extractLsb' 12 10 ·)
-    let ptwVPN1x4 := (· ++ ·) <$> ptwVPN1 <*> Signal.pure 0#2
-    let ptwVPN1Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4
-    let l1Addr := (· + ·) <$> satpPPNShifted <*> ptwVPN1Ext
+    let ptwVPN1x4 := ptwVPN1 ++ 0#2
+    let ptwVPN1Ext := 0#20 ++ ptwVPN1x4
+    let l1Addr := satpPPNShifted + ptwVPN1Ext
     let ptePPNFull := ptwPteReg.map (BitVec.extractLsb' 10 22 ·)
     let ptePPN20 := ptePPNFull.map (BitVec.extractLsb' 0 20 ·)
-    let ptePPNShifted := (· ++ ·) <$> ptePPN20 <*> Signal.pure 0#12
-    let ptwVPN0x4 := (· ++ ·) <$> ptwVPN0 <*> Signal.pure 0#2
-    let ptwVPN0Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4
-    let l0Addr := (· + ·) <$> ptePPNShifted <*> ptwVPN0Ext
+    let ptePPNShifted := ptePPN20 ++ 0#12
+    let ptwVPN0x4 := ptwVPN0 ++ 0#2
+    let ptwVPN0Ext := 0#20 ++ ptwVPN0x4
+    let l0Addr := ptePPNShifted + ptwVPN0Ext
     let ptwMemAddr := Signal.mux ptwIsL1Req l1Addr l0Addr
-    let ptwMemActive := (· || ·) <$> ptwIsL1Req <*> ptwIsL0Req
+    let ptwMemActive := ptwIsL1Req ||| ptwIsL0Req
     let ptwMemWordAddr := ptwMemAddr.map (BitVec.extractLsb' 2 23 ·)
     -- MMU stall: busy (not IDLE/DONE/FAULT) and not bypassed
-    let mmuBusy := (fun x => !x) <$> ((· || ·) <$> ((· || ·) <$> isMMUIdle <*> isMMUDone) <*> isMMUFault)
-    let mmuStall := (· && ·) <$> mmuBusy <*> ((fun x => !x) <$> bypassMMU)
+    let mmuBusy := ~~~((isMMUIdle ||| isMMUDone) ||| isMMUFault)
+    let mmuStall := mmuBusy &&& (~~~bypassMMU)
 
     -- =========================================================================
     -- D-side TLB lookup (early, needed for effectiveAddr used by bus decode)
@@ -421,27 +421,27 @@ def rv32iSoCBody {dom : DomainConfig}
     let dVPN := alu_result_approx.map (BitVec.extractLsb' 12 20 ·)
     let dPageOffset := alu_result_approx.map (BitVec.extractLsb' 0 12 ·)
 
-    let tlb0FullMatch := (· == ·) <$> tlb0VPN <*> dVPN
-    let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb0FullMatch := tlb0VPN === dVPN
+    let tlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
-    let tlb0Hit := (· && ·) <$> tlb0Valid <*> tlb0VPNMatch
+    let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 
-    let tlb1FullMatch := (· == ·) <$> tlb1VPN <*> dVPN
-    let tlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb1FullMatch := tlb1VPN === dVPN
+    let tlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb1VPNMatch := Signal.mux tlb1Mega tlb1MegaMatch tlb1FullMatch
-    let tlb1Hit := (· && ·) <$> tlb1Valid <*> tlb1VPNMatch
+    let tlb1Hit := tlb1Valid &&& tlb1VPNMatch
 
-    let tlb2FullMatch := (· == ·) <$> tlb2VPN <*> dVPN
-    let tlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb2FullMatch := tlb2VPN === dVPN
+    let tlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb2VPNMatch := Signal.mux tlb2Mega tlb2MegaMatch tlb2FullMatch
-    let tlb2Hit := (· && ·) <$> tlb2Valid <*> tlb2VPNMatch
+    let tlb2Hit := tlb2Valid &&& tlb2VPNMatch
 
-    let tlb3FullMatch := (· == ·) <$> tlb3VPN <*> dVPN
-    let tlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb3FullMatch := tlb3VPN === dVPN
+    let tlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb3VPNMatch := Signal.mux tlb3Mega tlb3MegaMatch tlb3FullMatch
-    let tlb3Hit := (· && ·) <$> tlb3Valid <*> tlb3VPNMatch
+    let tlb3Hit := tlb3Valid &&& tlb3VPNMatch
 
-    let anyTLBHit := (· || ·) <$> ((· || ·) <$> tlb0Hit <*> tlb1Hit) <*> ((· || ·) <$> tlb2Hit <*> tlb3Hit)
+    let anyTLBHit := (tlb0Hit ||| tlb1Hit) ||| (tlb2Hit ||| tlb3Hit)
 
     let tlbPPN := Signal.mux tlb0Hit tlb0PPN
       (Signal.mux tlb1Hit tlb1PPN
@@ -459,62 +459,59 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Megapage: PA = PPN << 12 + VA[21:0]
     -- Regular:  PA = {PPN[19:0], vaddr[11:0]}
     let dtlbPPN_20 := tlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let dtlbPPNShifted := (· ++ ·) <$> dtlbPPN_20 <*> Signal.pure 0#12
+    let dtlbPPNShifted := dtlbPPN_20 ++ 0#12
     let vaLow22 := alu_result_approx.map (BitVec.extractLsb' 0 22 ·)
-    let vaLow22Ext := (· ++ ·) <$> Signal.pure 0#10 <*> vaLow22
-    let dPhysAddrMega := (· + ·) <$> dtlbPPNShifted <*> vaLow22Ext
-    let dPhysAddrReg := (· ++ ·) <$> dtlbPPN_20 <*> dPageOffset
+    let vaLow22Ext := 0#10 ++ vaLow22
+    let dPhysAddrMega := dtlbPPNShifted + vaLow22Ext
+    let dPhysAddrReg := dtlbPPN_20 ++ dPageOffset
     let dPhysAddr := Signal.mux tlbMega dPhysAddrMega dPhysAddrReg
     -- Effective address: use translated physical when MMU active and TLB hit
-    let useTranslatedAddr := (· && ·) <$> ((fun x => !x) <$> bypassMMU) <*> anyTLBHit
+    let useTranslatedAddr := (~~~bypassMMU) &&& anyTLBHit
     let effectiveAddr := Signal.mux useTranslatedAddr dPhysAddr alu_result_approx
 
     -- D-side TLB miss: need translation but no TLB hit (first cycle only, while MMU+PTW idle)
-    let dMemAccess := (· || ·) <$> idex_memRead <*> idex_memWrite
-    let needTranslateD := (· && ·) <$> dMemAccess <*> ((fun x => !x) <$> bypassMMU)
-    let dTLBMiss := (· && ·) <$> needTranslateD <*>
-      ((· && ·) <$> ((fun x => !x) <$> anyTLBHit) <*>
-        ((· && ·) <$> isMMUIdle <*> ptwIsIdle))
+    let dMemAccess := idex_memRead ||| idex_memWrite
+    let needTranslateD := dMemAccess &&& (~~~bypassMMU)
+    let dTLBMiss := needTranslateD &&& ((~~~anyTLBHit) &&& (isMMUIdle &&& ptwIsIdle))
 
     -- Bus address decode uses effectiveAddr (physical after MMU translation)
     let busAddrHi_ex := effectiveAddr.map (BitVec.extractLsb' 16 16 ·)
-    let isCLINT_ex := (· == ·) <$> busAddrHi_ex <*> Signal.pure 0x0200#16
+    let isCLINT_ex := busAddrHi_ex === 0x0200#16
     let mmioAddrBit30_ex := effectiveAddr.map (BitVec.extractLsb' 30 1 ·)
-    let is_mmio_ex := (· == ·) <$> mmioAddrBit30_ex <*> Signal.pure 1#1
+    let is_mmio_ex := mmioAddrBit30_ex === 1#1
     let busAddrByte24_ex := effectiveAddr.map (BitVec.extractLsb' 24 8 ·)
-    let isUART_ex := (· == ·) <$> busAddrByte24_ex <*> Signal.pure 0x10#8
-    let isDMEM_ex := (· && ·) <$> ((fun x => !x) <$> isCLINT_ex) <*>
-      ((· && ·) <$> ((fun x => !x) <$> is_mmio_ex) <*> ((fun x => !x) <$> isUART_ex))
+    let isUART_ex := busAddrByte24_ex === 0x10#8
+    let isDMEM_ex := (~~~isCLINT_ex) &&& ((~~~is_mmio_ex) &&& (~~~isUART_ex))
 
     let dmem_write_addr := effectiveAddr.map (BitVec.extractLsb' 2 23 ·)
     let pendWriteWordAddr := pendingWriteAddr.map (BitVec.extractLsb' 2 23 ·)
     let dmem_read_addr  := Signal.mux ptwMemActive ptwMemWordAddr
       (Signal.mux pendingWriteEn pendWriteWordAddr
         (effectiveAddr.map (BitVec.extractLsb' 2 23 ·)))
-    let dmem_we := (· && ·) <$> idex_memWrite <*> ((· && ·) <$> isDMEM_ex <*> ((fun x => !x) <$> dTLBMiss))
+    let dmem_we := idex_memWrite &&& (isDMEM_ex &&& (~~~dTLBMiss))
 
     -- Sub-word store: byte-enable logic based on funct3 and addr[1:0]
     let storeByteOff := alu_result_approx.map (BitVec.extractLsb' 0 2 ·)
-    let storeByteOff0 := (· == ·) <$> storeByteOff <*> Signal.pure 0#2
-    let storeByteOff1 := (· == ·) <$> storeByteOff <*> Signal.pure 1#2
-    let storeByteOff2 := (· == ·) <$> storeByteOff <*> Signal.pure 2#2
-    let storeByteOff3 := (· == ·) <$> storeByteOff <*> Signal.pure 3#2
+    let storeByteOff0 := storeByteOff === 0#2
+    let storeByteOff1 := storeByteOff === 1#2
+    let storeByteOff2 := storeByteOff === 2#2
+    let storeByteOff3 := storeByteOff === 3#2
     let storeAddrBit1 := alu_result_approx.map (BitVec.extractLsb' 1 1 ·)
-    let storeHalfLow := (· == ·) <$> storeAddrBit1 <*> Signal.pure 0#1
-    let storeHalfHigh := (fun x => !x) <$> storeHalfLow
+    let storeHalfLow := storeAddrBit1 === 0#1
+    let storeHalfHigh := ~~~storeHalfLow
     let storeFunct3Low := idex_funct3.map (BitVec.extractLsb' 0 2 ·)
-    let isSB := (· == ·) <$> storeFunct3Low <*> Signal.pure 0#2
-    let isSH := (· == ·) <$> storeFunct3Low <*> Signal.pure 1#2
-    let isSW := (· == ·) <$> storeFunct3Low <*> Signal.pure 2#2
+    let isSB := storeFunct3Low === 0#2
+    let isSH := storeFunct3Low === 1#2
+    let isSW := storeFunct3Low === 2#2
     -- Byte 0 WE: SW || (SH && addr[1]==0) || (SB && addr[1:0]==0)
-    let b0we := (· || ·) <$> isSW <*> ((· || ·) <$> ((· && ·) <$> isSH <*> storeHalfLow) <*> ((· && ·) <$> isSB <*> storeByteOff0))
-    let b1we := (· || ·) <$> isSW <*> ((· || ·) <$> ((· && ·) <$> isSH <*> storeHalfLow) <*> ((· && ·) <$> isSB <*> storeByteOff1))
-    let b2we := (· || ·) <$> isSW <*> ((· || ·) <$> ((· && ·) <$> isSH <*> storeHalfHigh) <*> ((· && ·) <$> isSB <*> storeByteOff2))
-    let b3we := (· || ·) <$> isSW <*> ((· || ·) <$> ((· && ·) <$> isSH <*> storeHalfHigh) <*> ((· && ·) <$> isSB <*> storeByteOff3))
-    let byte0_we := (· && ·) <$> dmem_we <*> b0we
-    let byte1_we := (· && ·) <$> dmem_we <*> b1we
-    let byte2_we := (· && ·) <$> dmem_we <*> b2we
-    let byte3_we := (· && ·) <$> dmem_we <*> b3we
+    let b0we := isSW ||| ((isSH &&& storeHalfLow) ||| (isSB &&& storeByteOff0))
+    let b1we := isSW ||| ((isSH &&& storeHalfLow) ||| (isSB &&& storeByteOff1))
+    let b2we := isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff2))
+    let b3we := isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff3))
+    let byte0_we := dmem_we &&& b0we
+    let byte1_we := dmem_we &&& b1we
+    let byte2_we := dmem_we &&& b2we
+    let byte3_we := dmem_we &&& b3we
 
     -- Byte write data: position rs2 bytes for each byte lane
     let rs2_byte0 := ex_rs2_approx.map (BitVec.extractLsb' 0 8 ·)
@@ -541,10 +538,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let final_byte1_wdata := Signal.mux pendingWriteEn pendByte1 byte1_wdata
     let final_byte2_wdata := Signal.mux pendingWriteEn pendByte2 byte2_wdata
     let final_byte3_wdata := Signal.mux pendingWriteEn pendByte3 byte3_wdata
-    let final_byte0_we := (· || ·) <$> byte0_we <*> pendingWriteEn
-    let final_byte1_we := (· || ·) <$> byte1_we <*> pendingWriteEn
-    let final_byte2_we := (· || ·) <$> byte2_we <*> pendingWriteEn
-    let final_byte3_we := (· || ·) <$> byte3_we <*> pendingWriteEn
+    let final_byte0_we := byte0_we ||| pendingWriteEn
+    let final_byte1_we := byte1_we ||| pendingWriteEn
+    let final_byte2_we := byte2_we ||| pendingWriteEn
+    let final_byte3_we := byte3_we ||| pendingWriteEn
 
     -- External DMEM write port muxing (for firmware/data loading during reset)
     -- External writes take priority over pipeline writes when dmemExtWriteEn=true
@@ -557,10 +554,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let actual_byte1_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte1 final_byte1_wdata
     let actual_byte2_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte2 final_byte2_wdata
     let actual_byte3_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte3 final_byte3_wdata
-    let actual_byte0_we := (· || ·) <$> final_byte0_we <*> dmemExtWriteEn
-    let actual_byte1_we := (· || ·) <$> final_byte1_we <*> dmemExtWriteEn
-    let actual_byte2_we := (· || ·) <$> final_byte2_we <*> dmemExtWriteEn
-    let actual_byte3_we := (· || ·) <$> final_byte3_we <*> dmemExtWriteEn
+    let actual_byte0_we := final_byte0_we ||| dmemExtWriteEn
+    let actual_byte1_we := final_byte1_we ||| dmemExtWriteEn
+    let actual_byte2_we := final_byte2_we ||| dmemExtWriteEn
+    let actual_byte3_we := final_byte3_we ||| dmemExtWriteEn
 
     -- 4 byte-wide memories (each 23-bit addr × 8-bit data)
     let byte0_rdata := Signal.memory actual_dmem_write_addr actual_byte0_wdata actual_byte0_we dmem_read_addr
@@ -569,21 +566,21 @@ def rv32iSoCBody {dom : DomainConfig}
     let byte3_rdata := Signal.memory actual_dmem_write_addr actual_byte3_wdata actual_byte3_we dmem_read_addr
 
     -- Reconstruct full word from 4 bytes: {byte3, byte2, byte1, byte0}
-    let dmem_word_lo := (· ++ ·) <$> byte1_rdata <*> byte0_rdata
-    let dmem_word_hi := (· ++ ·) <$> byte3_rdata <*> byte2_rdata
-    let dmem_rdata := (· ++ ·) <$> dmem_word_hi <*> dmem_word_lo
+    let dmem_word_lo := byte1_rdata ++ byte0_rdata
+    let dmem_word_hi := byte3_rdata ++ byte2_rdata
+    let dmem_rdata := dmem_word_hi ++ dmem_word_lo
 
     let storeAddrHi := prevStoreAddr.map (BitVec.extractLsb' 2 30 ·)
     let loadAddrHi := exwb_physAddr.map (BitVec.extractLsb' 2 30 ·)
-    let addrMatch := (· == ·) <$> storeAddrHi <*> loadAddrHi
-    let storeLoadMatch := (· && ·) <$> prevStoreEn <*> addrMatch
+    let addrMatch := storeAddrHi === loadAddrHi
+    let storeLoadMatch := prevStoreEn &&& addrMatch
     let dmemRdataFwd := Signal.mux storeLoadMatch prevStoreData dmem_rdata
     let clintOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 16 ·)
-    let msipMatch_wb     := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x0000#16
-    let mtimeLoMatch_wb  := (· == ·) <$> clintOffset_wb <*> Signal.pure 0xBFF8#16
-    let mtimeHiMatch_wb  := (· == ·) <$> clintOffset_wb <*> Signal.pure 0xBFFC#16
-    let mtimecmpLoMatch_wb := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x4000#16
-    let mtimecmpHiMatch_wb := (· == ·) <$> clintOffset_wb <*> Signal.pure 0x4004#16
+    let msipMatch_wb     := clintOffset_wb === 0x0000#16
+    let mtimeLoMatch_wb  := clintOffset_wb === 0xBFF8#16
+    let mtimeHiMatch_wb  := clintOffset_wb === 0xBFFC#16
+    let mtimecmpLoMatch_wb := clintOffset_wb === 0x4000#16
+    let mtimecmpHiMatch_wb := clintOffset_wb === 0x4004#16
     let clintRdata :=
       Signal.mux msipMatch_wb msipReg
       (Signal.mux mtimecmpLoMatch_wb mtimecmpLoReg
@@ -592,39 +589,39 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux mtimeHiMatch_wb mtimeHiReg
         (Signal.pure 0#32)))))
     let busAddrHi_wb := exwb_physAddr.map (BitVec.extractLsb' 16 16 ·)
-    let isCLINT_wb := (· == ·) <$> busAddrHi_wb <*> Signal.pure 0x0200#16
+    let isCLINT_wb := busAddrHi_wb === 0x0200#16
     let mmioAddrBit30_wb := exwb_physAddr.map (BitVec.extractLsb' 30 1 ·)
-    let is_mmio_wb := (· == ·) <$> mmioAddrBit30_wb <*> Signal.pure 1#1
+    let is_mmio_wb := mmioAddrBit30_wb === 1#1
     let mmioOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 4 ·)
-    let mmioIsStatus_wb := (· == ·) <$> mmioOffset_wb <*> Signal.pure 0x0#4
-    let mmioIsOutput_wb := (· == ·) <$> mmioOffset_wb <*> Signal.pure 0x8#4
+    let mmioIsStatus_wb := mmioOffset_wb === 0x0#4
+    let mmioIsOutput_wb := mmioOffset_wb === 0x8#4
     let mmioRdata := Signal.mux mmioIsStatus_wb aiStatusReg
                        (Signal.mux mmioIsOutput_wb (Signal.pure 0xDEADBEEF#32)
                          (Signal.pure 0#32))
     -- UART 8250 read logic (WB stage)
-    let isUART_wb := (· == ·) <$> (exwb_physAddr.map (BitVec.extractLsb' 24 8 ·)) <*> Signal.pure 0x10#8
+    let isUART_wb := (exwb_physAddr.map (BitVec.extractLsb' 24 8 ·)) === 0x10#8
     let uartOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 3 ·)
-    let uartDLAB_wb := (· == ·) <$> (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let uartDLAB_wb := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     -- Read data per offset (zero-extended to 32 bits)
     let uartRd0 := Signal.mux uartDLAB_wb
-      ((· ++ ·) <$> Signal.pure 0#24 <*> uartDLLReg)
+      (0#24 ++ uartDLLReg)
       (Signal.pure 0#32)  -- RBR = 0 (no RX in Lean sim)
     let uartRd1 := Signal.mux uartDLAB_wb
-      ((· ++ ·) <$> Signal.pure 0#24 <*> uartDLMReg)
-      ((· ++ ·) <$> Signal.pure 0#24 <*> uartIERReg)
+      (0#24 ++ uartDLMReg)
+      (0#24 ++ uartIERReg)
     let uartRd2 := Signal.pure 0x00000001#32  -- IIR: no interrupt pending
-    let uartRd3 := (· ++ ·) <$> Signal.pure 0#24 <*> uartLCRReg
-    let uartRd4 := (· ++ ·) <$> Signal.pure 0#24 <*> uartMCRReg
+    let uartRd3 := 0#24 ++ uartLCRReg
+    let uartRd4 := 0#24 ++ uartMCRReg
     let uartRd5 := Signal.pure 0x00000060#32  -- LSR: THRE + TEMT (TX always ready)
-    let uartRd7 := (· ++ ·) <$> Signal.pure 0#24 <*> uartSCRReg
+    let uartRd7 := 0#24 ++ uartSCRReg
     -- Mux by offset
-    let wbOff0 := (· == ·) <$> uartOffset_wb <*> Signal.pure 0#3
-    let wbOff1 := (· == ·) <$> uartOffset_wb <*> Signal.pure 1#3
-    let wbOff2 := (· == ·) <$> uartOffset_wb <*> Signal.pure 2#3
-    let wbOff3 := (· == ·) <$> uartOffset_wb <*> Signal.pure 3#3
-    let wbOff4 := (· == ·) <$> uartOffset_wb <*> Signal.pure 4#3
-    let wbOff5 := (· == ·) <$> uartOffset_wb <*> Signal.pure 5#3
-    let wbOff7 := (· == ·) <$> uartOffset_wb <*> Signal.pure 7#3
+    let wbOff0 := uartOffset_wb === 0#3
+    let wbOff1 := uartOffset_wb === 1#3
+    let wbOff2 := uartOffset_wb === 2#3
+    let wbOff3 := uartOffset_wb === 3#3
+    let wbOff4 := uartOffset_wb === 4#3
+    let wbOff5 := uartOffset_wb === 5#3
+    let wbOff7 := uartOffset_wb === 7#3
     let uartRdata := Signal.mux wbOff0 uartRd0
       (Signal.mux wbOff1 uartRd1
       (Signal.mux wbOff2 uartRd2
@@ -640,9 +637,9 @@ def rv32iSoCBody {dom : DomainConfig}
                          (Signal.mux is_mmio_wb mmioRdata dmemRdataFwd))
     -- Byte select based on addr[1:0]
     let loadByteOff := exwb_physAddr.map (BitVec.extractLsb' 0 2 ·)
-    let loadByteOff0 := (· == ·) <$> loadByteOff <*> Signal.pure 0#2
-    let loadByteOff1 := (· == ·) <$> loadByteOff <*> Signal.pure 1#2
-    let loadByteOff2 := (· == ·) <$> loadByteOff <*> Signal.pure 2#2
+    let loadByteOff0 := loadByteOff === 0#2
+    let loadByteOff1 := loadByteOff === 1#2
+    let loadByteOff2 := loadByteOff === 2#2
     let loadByte0 := busRdataRaw.map (BitVec.extractLsb' 0 8 ·)
     let loadByte1 := busRdataRaw.map (BitVec.extractLsb' 8 8 ·)
     let loadByte2 := busRdataRaw.map (BitVec.extractLsb' 16 8 ·)
@@ -655,41 +652,40 @@ def rv32iSoCBody {dom : DomainConfig}
     let loadHalfLow := busRdataRaw.map (BitVec.extractLsb' 0 16 ·)
     let loadHalfHigh := busRdataRaw.map (BitVec.extractLsb' 16 16 ·)
     let loadAddrBit1 := exwb_physAddr.map (BitVec.extractLsb' 1 1 ·)
-    let isHalfLow := (· == ·) <$> loadAddrBit1 <*> Signal.pure 0#1
+    let isHalfLow := loadAddrBit1 === 0#1
     let selHalf := Signal.mux isHalfLow loadHalfLow loadHalfHigh
     -- Sign/zero extend byte
     let byteSgnBit := selByte.map (BitVec.extractLsb' 7 1 ·)
-    let byteIsSgn := (· == ·) <$> byteSgnBit <*> Signal.pure 1#1
+    let byteIsSgn := byteSgnBit === 1#1
     let byteSignExt := Signal.mux byteIsSgn (Signal.pure 0xFFFFFF#24) (Signal.pure 0#24)
-    let byteSext := (· ++ ·) <$> byteSignExt <*> selByte
-    let byteZext := (· ++ ·) <$> Signal.pure 0#24 <*> selByte
+    let byteSext := byteSignExt ++ selByte
+    let byteZext := 0#24 ++ selByte
     -- Sign/zero extend halfword
     let halfSgnBit := selHalf.map (BitVec.extractLsb' 15 1 ·)
-    let halfIsSgn := (· == ·) <$> halfSgnBit <*> Signal.pure 1#1
+    let halfIsSgn := halfSgnBit === 1#1
     let halfSignExt := Signal.mux halfIsSgn (Signal.pure 0xFFFF#16) (Signal.pure 0#16)
-    let halfSext := (· ++ ·) <$> halfSignExt <*> selHalf
-    let halfZext := (· ++ ·) <$> Signal.pure 0#16 <*> selHalf
+    let halfSext := halfSignExt ++ selHalf
+    let halfZext := 0#16 ++ selHalf
     -- Select based on exwb_funct3: 000=LB, 001=LH, 010=LW, 100=LBU, 101=LHU
     -- Only apply sub-word extraction for actual loads (exwb_m2r = true)
-    let f3isLB  := (· == ·) <$> exwb_funct3 <*> Signal.pure 0#3
-    let f3isLH  := (· == ·) <$> exwb_funct3 <*> Signal.pure 1#3
-    let f3isLBU := (· == ·) <$> exwb_funct3 <*> Signal.pure 4#3
-    let f3isLHU := (· == ·) <$> exwb_funct3 <*> Signal.pure 5#3
+    let f3isLB  := exwb_funct3 === 0#3
+    let f3isLH  := exwb_funct3 === 1#3
+    let f3isLBU := exwb_funct3 === 4#3
+    let f3isLHU := exwb_funct3 === 5#3
     let loadExtracted := Signal.mux f3isLB byteSext
                            (Signal.mux f3isLH halfSext
                            (Signal.mux f3isLBU byteZext
                            (Signal.mux f3isLHU halfZext
                              busRdataRaw)))
     -- Gate: only use extracted value for DMEM loads; peripheral reads bypass sub-word extraction
-    let isDMEM_wb := (· && ·) <$> ((fun x => !x) <$> isCLINT_wb) <*>
-      ((· && ·) <$> ((fun x => !x) <$> isUART_wb) <*> ((fun x => !x) <$> is_mmio_wb))
+    let isDMEM_wb := (~~~isCLINT_wb) &&& ((~~~isUART_wb) &&& (~~~is_mmio_wb))
     let busRdata := Signal.mux exwb_m2r
       (Signal.mux isDMEM_wb loadExtracted busRdataRaw) busRdataRaw
 
     -- A-ext WB stage: classify AMO type in WB
-    let exwb_isLR := (· && ·) <$> exwb_isAMO <*> ((· == ·) <$> exwb_amoOp <*> Signal.pure 0b00010#5)
-    let exwb_isSC := (· && ·) <$> exwb_isAMO <*> ((· == ·) <$> exwb_amoOp <*> Signal.pure 0b00011#5)
-    let exwb_isAMOrw := (· && ·) <$> exwb_isAMO <*> ((fun x => !x) <$> ((· || ·) <$> exwb_isLR <*> exwb_isSC))
+    let exwb_isLR := exwb_isAMO &&& (exwb_amoOp === 0b00010#5)
+    let exwb_isSC := exwb_isAMO &&& (exwb_amoOp === 0b00011#5)
+    let exwb_isAMOrw := exwb_isAMO &&& (~~~(exwb_isLR ||| exwb_isSC))
 
     -- AMO new value computation (Signal-level mux chain, synthesizable)
     -- busRdataRaw = old value at AMO's address (read 1 cycle ago)
@@ -716,65 +712,62 @@ def rv32iSoCBody {dom : DomainConfig}
     let alu_result_raw := aluSignal idex_aluOp alu_a alu_b
     -- M-extension: MUL (1-cycle) uses synthesizable 64-bit multiply
     let mulResult := mulComputeSignal idex_funct3 ex_rs1 ex_rs2
-    let isDivOp := (· == ·) <$> (idex_funct3.map (BitVec.extractLsb' 2 1 ·)) <*> Signal.pure 1#1
+    let isDivOp := (idex_funct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
     let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
-    let branchTaken := (· && ·) <$> idex_branch <*> branchCond
-    let brTarget := (· + ·) <$> idex_pc <*> idex_imm
-    let jalrSum  := (· + ·) <$> ex_rs1 <*> idex_imm
-    let jalrTarget := (· &&& ·) <$> jalrSum <*> Signal.pure 0xFFFFFFFE#32
+    let branchTaken := idex_branch &&& branchCond
+    let brTarget := idex_pc + idex_imm
+    let jalrSum  := ex_rs1 + idex_imm
+    let jalrTarget := jalrSum &&& 0xFFFFFFFE#32
     let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
 
-    let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
-    let hiEq := (· == ·) <$> mtimeHiReg <*> mtimecmpHiReg
-    let loGe := (fun x => !x) <$> ((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
-    let timerIrq := (· || ·) <$> hiGt <*> ((· && ·) <$> hiEq <*> loGe)
-    let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
+    let hiEq := mtimeHiReg === mtimecmpHiReg
+    let loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
+    let timerIrq := hiGt ||| (hiEq &&& loGe)
+    let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
     let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
-    let mipValue := (· ||| ·) <$> mipTimerBit <*> mipSwBit
+    let mipValue := mipTimerBit ||| mipSwBit
     -- CSR address matching (M-mode)
-    let csrIsMstatus  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x300#12
-    let csrIsMie      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x304#12
-    let csrIsMtvec    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x305#12
-    let csrIsMscratch := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x340#12
-    let csrIsMepc     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x341#12
-    let csrIsMcause   := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x342#12
-    let csrIsMtval    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x343#12
-    let csrIsMip      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x344#12
-    let csrIsMisa     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x301#12
-    let csrIsMhartid  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0xF14#12
+    let csrIsMstatus  := idex_csrAddr === 0x300#12
+    let csrIsMie      := idex_csrAddr === 0x304#12
+    let csrIsMtvec    := idex_csrAddr === 0x305#12
+    let csrIsMscratch := idex_csrAddr === 0x340#12
+    let csrIsMepc     := idex_csrAddr === 0x341#12
+    let csrIsMcause   := idex_csrAddr === 0x342#12
+    let csrIsMtval    := idex_csrAddr === 0x343#12
+    let csrIsMip      := idex_csrAddr === 0x344#12
+    let csrIsMisa     := idex_csrAddr === 0x301#12
+    let csrIsMhartid  := idex_csrAddr === 0xF14#12
     -- CSR address matching (S-mode)
-    let csrIsSstatus  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x100#12
-    let csrIsSie      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x104#12
-    let csrIsStvec    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x105#12
-    let csrIsSscratch := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x140#12
-    let csrIsSepc     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x141#12
-    let csrIsScause   := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x142#12
-    let csrIsStval    := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x143#12
-    let csrIsSip      := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x144#12
-    let csrIsSatp     := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x180#12
+    let csrIsSstatus  := idex_csrAddr === 0x100#12
+    let csrIsSie      := idex_csrAddr === 0x104#12
+    let csrIsStvec    := idex_csrAddr === 0x105#12
+    let csrIsSscratch := idex_csrAddr === 0x140#12
+    let csrIsSepc     := idex_csrAddr === 0x141#12
+    let csrIsScause   := idex_csrAddr === 0x142#12
+    let csrIsStval    := idex_csrAddr === 0x143#12
+    let csrIsSip      := idex_csrAddr === 0x144#12
+    let csrIsSatp     := idex_csrAddr === 0x180#12
     -- CSR address matching (delegation)
-    let csrIsMedeleg  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x302#12
-    let csrIsMideleg  := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x303#12
+    let csrIsMedeleg  := idex_csrAddr === 0x302#12
+    let csrIsMideleg  := idex_csrAddr === 0x303#12
     -- CSR address matching (counter enable)
-    let csrIsMcounteren := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x306#12
-    let csrIsScounteren := (· == ·) <$> idex_csrAddr <*> Signal.pure 0x106#12
+    let csrIsMcounteren := idex_csrAddr === 0x306#12
+    let csrIsScounteren := idex_csrAddr === 0x106#12
 
     -- PMP CSR range detection (0x3A0-0x3EF): return 0, silently ignore writes
     let csrAddrHi := idex_csrAddr.map (BitVec.extractLsb' 4 8 ·)  -- bits [11:4]
-    let csrIsPmp := (· || ·) <$>
-      ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3A#8) <*>
-      ((· || ·) <$>
-        ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3B#8) <*>
-        ((· || ·) <$>
-          ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3C#8) <*>
-          ((· || ·) <$>
-            ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3D#8) <*>
-            ((· == ·) <$> csrAddrHi <*> Signal.pure 0x3E#8))))
+    let csrIsPmp :=
+      (csrAddrHi === 0x3A#8) |||
+      (csrAddrHi === 0x3B#8) |||
+      (csrAddrHi === 0x3C#8) |||
+      (csrAddrHi === 0x3D#8) |||
+      (csrAddrHi === 0x3E#8)
 
     -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
-    let sstatusMask := Signal.pure 0x000C0122#32
-    let sstatusView := (· &&& ·) <$> mstatusReg <*> sstatusMask
+    let sstatusMask : Signal dom (BitVec 32) := Signal.pure 0x000C0122#32
+    let sstatusView := mstatusReg &&& sstatusMask
 
     -- CSR read mux (expanded with S-mode CSRs)
     let csr_rdata :=
@@ -805,31 +798,30 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.pure 0#32))))))))))))))))))))))))
 
     -- Interrupt enable flags
-    let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-    let mstatusSIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
-    let mstatusSPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 5 1 ·)) <*> Signal.pure 1#1
-    let mieMTIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-    let mieMSIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let timerIntEnabled := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMTIE_flag <*> timerIrq)
-    let swIntEnabled    := (· && ·) <$> mstatusMIE_flag <*> ((· && ·) <$> mieMSIE_flag <*> swIrq)
+    let mstatusMIE_flag := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let mstatusMPIE_flag := (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+    let mstatusSIE_flag := (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let mstatusSPIE_flag := (mstatusReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
+    let mieMTIE_flag := (mieReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+    let mieMSIE_flag := (mieReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let timerIntEnabled := mstatusMIE_flag &&& (mieMTIE_flag &&& timerIrq)
+    let swIntEnabled    := mstatusMIE_flag &&& (mieMSIE_flag &&& swIrq)
 
     -- ECALL cause depends on privilege level
-    let privIsU := (· == ·) <$> privMode <*> Signal.pure 0#2
-    let privIsS := (· == ·) <$> privMode <*> Signal.pure 1#2
+    let privIsU := privMode === 0#2
+    let privIsS := privMode === 1#2
     let ecallCause := Signal.mux privIsU (Signal.pure 0x00000008#32)
       (Signal.mux privIsS (Signal.pure 0x00000009#32) (Signal.pure 0x0000000B#32))
 
     -- Page fault from MMU FAULT state (D-side: load=13, store=15)
-    let pageFault := (· && ·) <$> isMMUFault <*> ((fun x => !x) <$> bypassMMU)
-    let isStoreFault := (· && ·) <$> pageFault <*> dMissIsStore
+    let pageFault := isMMUFault &&& (~~~bypassMMU)
+    let isStoreFault := pageFault &&& dMissIsStore
     let pageFaultCause := Signal.mux isStoreFault (Signal.pure 0x0000000F#32) (Signal.pure 0x0000000D#32)
 
     -- I-side page fault: PTW completed with fault for instruction fetch
-    let ifetchPageFault := (· && ·) <$> ifetchFaultPending <*> ((fun x => !x) <$> bypassMMU)
+    let ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
 
-    let trap_taken := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> idex_isEcall <*> pageFault) <*>
-                        ((· || ·) <$> timerIntEnabled <*> swIntEnabled)) <*> ifetchPageFault
+    let trap_taken := ((idex_isEcall ||| pageFault) ||| (timerIntEnabled ||| swIntEnabled)) ||| ifetchPageFault
     let trapCause :=
       Signal.mux ifetchPageFault (Signal.pure 0x0000000C#32)  -- cause 12: instruction page fault
       (Signal.mux idex_isEcall ecallCause
@@ -839,23 +831,23 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.pure 0#32)))))
 
     -- Trap delegation: check medeleg/mideleg bits
-    let isInterrupt := (· == ·) <$> (trapCause.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
-    let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
-    let medelegShifted := (· >>> ·) <$> medelegReg <*> causeIdxExt
-    let medelegBit := (· == ·) <$> (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
-    let midelegShifted := (· >>> ·) <$> midelegReg <*> causeIdxExt
-    let midelegBit := (· == ·) <$> (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let causeIdxExt := 0#27 ++ causeIdx
+    let medelegShifted := medelegReg >>> causeIdxExt
+    let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
+    let midelegShifted := midelegReg >>> causeIdxExt
+    let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let delegated := Signal.mux isInterrupt midelegBit medelegBit
     -- Trap goes to S if delegated AND priv ≤ S
-    let privGtS := (BitVec.ult · ·) <$> Signal.pure 1#2 <*> privMode
-    let privLeS := (fun x => !x) <$> privGtS
-    let trapToS := (· && ·) <$> trap_taken <*> ((· && ·) <$> delegated <*> privLeS)
-    let trapToM := (· && ·) <$> trap_taken <*> ((fun x => !x) <$> trapToS)
+    let privGtS := Signal.ult (Signal.pure 1#2) privMode
+    let privLeS := ~~~privGtS
+    let trapToS := trap_taken &&& (delegated &&& privLeS)
+    let trapToM := trap_taken &&& (~~~trapToS)
 
     -- Trap target: S-mode or M-mode tvec
-    let mtvecBase := (· &&& ·) <$> mtvecReg <*> Signal.pure 0xFFFFFFFC#32
-    let stvecBase := (· &&& ·) <$> stvecReg <*> Signal.pure 0xFFFFFFFC#32
+    let mtvecBase := mtvecReg &&& 0xFFFFFFFC#32
+    let stvecBase := stvecReg &&& 0xFFFFFFFC#32
     let trap_target := Signal.mux trapToS stvecBase mtvecBase
     let mret_target := mepcReg
     let sret_target := sepcReg
@@ -863,24 +855,24 @@ def rv32iSoCBody {dom : DomainConfig}
     -- MPP and SPP for privilege mode transitions
     let mpp := mstatusReg.map (BitVec.extractLsb' 11 2 ·)
     let sppBit := mstatusReg.map (BitVec.extractLsb' 8 1 ·)
-    let sretPriv := (· ++ ·) <$> Signal.pure 0#1 <*> sppBit
+    let sretPriv := 0#1 ++ sppBit
 
     let flush := branchTaken ||| idex_jump ||| trap_taken ||| idex_isMret |||
                  idex_isSret ||| idex_isSFenceVMA ||| dMMURedirect
     let flushOrDelay := flush ||| flushDelay
 
     -- M-extension: DIV/REM (multi-cycle) uses restoring divider circuit
-    let divWanted := (· && ·) <$> idex_isMext <*> isDivOp
-    let divIsSigned := (fun x => !x) <$> ((· == ·) <$> (idex_funct3.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1)
-    let divIsRem := (· == ·) <$> (idex_funct3.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
+    let divWanted := idex_isMext &&& isDivOp
+    let divIsSigned := ~~~((idex_funct3.map (BitVec.extractLsb' 0 1 ·)) === 1#1)
+    let divIsRem := (idex_funct3.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let divAbort := flushOrDelay
-    let divStart := (· && ·) <$> divWanted <*> ((fun x => !x) <$> divPending)
+    let divStart := divWanted &&& (~~~divPending)
     let divResultDone := Divider.dividerSignal ex_rs1 ex_rs2 divStart divIsSigned divIsRem divAbort
     let divResult := projN! divResultDone 2 0
     let divDone := projN! divResultDone 2 1
     -- Stall when DIV/REM wanted and result not yet valid
     -- (divPending && divDone) = true only on the done cycle → un-stall
-    let divStall := (· && ·) <$> divWanted <*> ((fun x => !x) <$> ((· && ·) <$> divPending <*> divDone))
+    let divStall := divWanted &&& (~~~(divPending &&& divDone))
     -- M-extension result: MUL (immediate) or DIV/REM (multi-cycle)
     let mextResult := Signal.mux isDivOp divResult mulResult
     let alu_result := Signal.mux idex_isMext mextResult alu_result_raw
@@ -893,65 +885,61 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_funct7 := ifid_inst.map (BitVec.extractLsb' 25 7 ·)
     let id_imm := immGenSignal ifid_inst id_opcode
     let id_aluOp := aluControlSignal id_opcode id_funct3 id_funct7
-    let id_isALUrr  := (· == ·) <$> id_opcode <*> Signal.pure 0b0110011#7
-    let id_isALUimm := (· == ·) <$> id_opcode <*> Signal.pure 0b0010011#7
-    let id_isLoad   := (· == ·) <$> id_opcode <*> Signal.pure 0b0000011#7
-    let id_isStore  := (· == ·) <$> id_opcode <*> Signal.pure 0b0100011#7
-    let id_isBranch := (· == ·) <$> id_opcode <*> Signal.pure 0b1100011#7
-    let id_isLUI    := (· == ·) <$> id_opcode <*> Signal.pure 0b0110111#7
-    let id_isAUIPC  := (· == ·) <$> id_opcode <*> Signal.pure 0b0010111#7
-    let id_isJAL    := (· == ·) <$> id_opcode <*> Signal.pure 0b1101111#7
-    let id_isJALR   := (· == ·) <$> id_opcode <*> Signal.pure 0b1100111#7
-    let id_isSystem := (· == ·) <$> id_opcode <*> Signal.pure 0b1110011#7
-    let id_aluSrcB := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUimm <*> id_isLoad) <*>
-                      ((· || ·) <$> id_isStore <*> id_isLUI)) <*>
-                      ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*> id_isJALR)
-    let f3isZero := (· == ·) <$> id_funct3 <*> Signal.pure 0#3
-    let f3notZero := (fun x => !x) <$> f3isZero
-    let id_isCsr := (· && ·) <$> id_isSystem <*> f3notZero
-    let id_regWrite := (· || ·) <$> ((· || ·) <$> ((· || ·) <$> id_isALUrr <*> id_isALUimm) <*>
-                       ((· || ·) <$> id_isLoad <*> id_isLUI)) <*>
-                       ((· || ·) <$> ((· || ·) <$> id_isAUIPC <*> id_isJAL) <*>
-                         ((· || ·) <$> id_isJALR <*> id_isCsr))
+    let id_isALUrr  := id_opcode === 0b0110011#7
+    let id_isALUimm := id_opcode === 0b0010011#7
+    let id_isLoad   := id_opcode === 0b0000011#7
+    let id_isStore  := id_opcode === 0b0100011#7
+    let id_isBranch := id_opcode === 0b1100011#7
+    let id_isLUI    := id_opcode === 0b0110111#7
+    let id_isAUIPC  := id_opcode === 0b0010111#7
+    let id_isJAL    := id_opcode === 0b1101111#7
+    let id_isJALR   := id_opcode === 0b1100111#7
+    let id_isSystem := id_opcode === 0b1110011#7
+    let id_aluSrcB := ((id_isALUimm ||| id_isLoad) ||| (id_isStore ||| id_isLUI)) |||
+                      ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
+    let f3isZero := id_funct3 === 0#3
+    let f3notZero := ~~~f3isZero
+    let id_isCsr := id_isSystem &&& f3notZero
+    let id_regWrite := ((id_isALUrr ||| id_isALUimm) ||| (id_isLoad ||| id_isLUI)) |||
+                       ((id_isAUIPC ||| id_isJAL) ||| (id_isJALR ||| id_isCsr))
     let id_memRead  := id_isLoad
     let id_memWrite := id_isStore
     let id_memToReg := id_isLoad
-    let id_jump     := (· || ·) <$> id_isJAL <*> id_isJALR
-    let id_auipc    := (· || ·) <$> id_isAUIPC <*> id_isJAL
+    let id_jump     := id_isJAL ||| id_isJALR
+    let id_auipc    := id_isAUIPC ||| id_isJAL
     let ecallField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
-    let isEcallField := (· == ·) <$> ecallField <*> Signal.pure 0x000#12
-    let id_isEcall := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*> isEcallField
+    let isEcallField := ecallField === 0x000#12
+    let id_isEcall := (id_isSystem &&& f3isZero) &&& isEcallField
     let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
-    let isMretField := (· == ·) <$> mretField <*> Signal.pure 0x302#12
-    let id_isMret := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*> isMretField
+    let isMretField := mretField === 0x302#12
+    let id_isMret := (id_isSystem &&& f3isZero) &&& isMretField
     -- SRET: funct12 = 0x102 (SYSTEM opcode, funct3 = 0)
-    let isSretField := (· == ·) <$> (ifid_inst.map (BitVec.extractLsb' 20 12 ·)) <*> Signal.pure 0x102#12
-    let id_isSret := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*> isSretField
+    let isSretField := (ifid_inst.map (BitVec.extractLsb' 20 12 ·)) === 0x102#12
+    let id_isSret := (id_isSystem &&& f3isZero) &&& isSretField
     -- SFENCE.VMA: funct7 = 0b0001001, funct3 = 0, SYSTEM opcode
-    let id_isSFenceVMA := (· && ·) <$> ((· && ·) <$> id_isSystem <*> f3isZero) <*>
-      ((· == ·) <$> id_funct7 <*> Signal.pure 0b0001001#7)
+    let id_isSFenceVMA := (id_isSystem &&& f3isZero) &&& (id_funct7 === 0b0001001#7)
     -- M-extension: R-type with funct7 = 0000001
-    let id_isMext := (· && ·) <$> id_isALUrr <*> ((· == ·) <$> id_funct7 <*> Signal.pure 0b0000001#7)
+    let id_isMext := id_isALUrr &&& (id_funct7 === 0b0000001#7)
     -- A-extension: opcode = 0101111
-    let id_isAMO := (· == ·) <$> id_opcode <*> Signal.pure 0b0101111#7
+    let id_isAMO := id_opcode === 0b0101111#7
     let id_amoOp := ifid_inst.map (BitVec.extractLsb' 27 5 ·)  -- funct7[6:2]
-    let id_isLR := (· && ·) <$> id_isAMO <*> ((· == ·) <$> id_amoOp <*> Signal.pure 0b00010#5)
-    let id_isSC := (· && ·) <$> id_isAMO <*> ((· == ·) <$> id_amoOp <*> Signal.pure 0b00011#5)
-    let id_isAMOrw := (· && ·) <$> id_isAMO <*> ((fun x => !x) <$> ((· || ·) <$> id_isLR <*> id_isSC))
+    let id_isLR := id_isAMO &&& (id_amoOp === 0b00010#5)
+    let id_isSC := id_isAMO &&& (id_amoOp === 0b00011#5)
+    let id_isAMOrw := id_isAMO &&& (~~~(id_isLR ||| id_isSC))
     -- AMO control: LR=load, SC=store+regwrite, AMOrw=load+regwrite (delayed write)
-    let id_regWrite := (· || ·) <$> id_regWrite <*> id_isAMO
-    let id_memRead  := (· || ·) <$> id_memRead <*> ((· || ·) <$> id_isLR <*> id_isAMOrw)
-    let id_memToReg := (· || ·) <$> id_memToReg <*> ((· || ·) <$> id_isLR <*> id_isAMOrw)
-    let id_memWrite := (· || ·) <$> id_memWrite <*> id_isSC
-    let id_aluSrcB  := (· || ·) <$> id_aluSrcB <*> id_isAMO  -- use imm=0 for address
+    let id_regWrite := id_regWrite ||| id_isAMO
+    let id_memRead  := id_memRead ||| (id_isLR ||| id_isAMOrw)
+    let id_memToReg := id_memToReg ||| (id_isLR ||| id_isAMOrw)
+    let id_memWrite := id_memWrite ||| id_isSC
+    let id_aluSrcB  := id_aluSrcB ||| id_isAMO  -- use imm=0 for address
     -- Force immediate to 0 for AMO (R-type has no immediate field)
     let id_imm := Signal.mux id_isAMO (Signal.pure 0#32) id_imm
 
     -- AMO stall: non-LR/SC AMOs need a bubble for delayed write
-    let idex_isLR := (· && ·) <$> idex_isAMO <*> ((· == ·) <$> idex_amoOp <*> Signal.pure 0b00010#5)
-    let idex_isSC := (· && ·) <$> idex_isAMO <*> ((· == ·) <$> idex_amoOp <*> Signal.pure 0b00011#5)
-    let idex_isAMOrw := (· && ·) <$> idex_isAMO <*> ((fun x => !x) <$> ((· || ·) <$> idex_isLR <*> idex_isSC))
+    let idex_isLR := idex_isAMO &&& (idex_amoOp === 0b00010#5)
+    let idex_isSC := idex_isAMO &&& (idex_amoOp === 0b00011#5)
+    let idex_isAMOrw := idex_isAMO &&& (~~~(idex_isLR ||| idex_isSC))
 
     -- =========================================================================
     -- I-side TLB lookup (shared TLB entries, for instruction fetch translation)
@@ -959,27 +947,27 @@ def rv32iSoCBody {dom : DomainConfig}
     let iVPN := fetchPC.map (BitVec.extractLsb' 12 20 ·)
 
     -- iTLB hit logic: reuse same TLB entries as D-side
-    let itlb0FullMatch := (· == ·) <$> tlb0VPN <*> iVPN
-    let itlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb0FullMatch := tlb0VPN === iVPN
+    let itlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb0VPNMatch := Signal.mux tlb0Mega itlb0MegaMatch itlb0FullMatch
-    let itlb0Hit := (· && ·) <$> tlb0Valid <*> itlb0VPNMatch
+    let itlb0Hit := tlb0Valid &&& itlb0VPNMatch
 
-    let itlb1FullMatch := (· == ·) <$> tlb1VPN <*> iVPN
-    let itlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb1FullMatch := tlb1VPN === iVPN
+    let itlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb1VPNMatch := Signal.mux tlb1Mega itlb1MegaMatch itlb1FullMatch
-    let itlb1Hit := (· && ·) <$> tlb1Valid <*> itlb1VPNMatch
+    let itlb1Hit := tlb1Valid &&& itlb1VPNMatch
 
-    let itlb2FullMatch := (· == ·) <$> tlb2VPN <*> iVPN
-    let itlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb2FullMatch := tlb2VPN === iVPN
+    let itlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb2VPNMatch := Signal.mux tlb2Mega itlb2MegaMatch itlb2FullMatch
-    let itlb2Hit := (· && ·) <$> tlb2Valid <*> itlb2VPNMatch
+    let itlb2Hit := tlb2Valid &&& itlb2VPNMatch
 
-    let itlb3FullMatch := (· == ·) <$> tlb3VPN <*> iVPN
-    let itlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb3FullMatch := tlb3VPN === iVPN
+    let itlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb3VPNMatch := Signal.mux tlb3Mega itlb3MegaMatch itlb3FullMatch
-    let itlb3Hit := (· && ·) <$> tlb3Valid <*> itlb3VPNMatch
+    let itlb3Hit := tlb3Valid &&& itlb3VPNMatch
 
-    let anyITLBHit := (· || ·) <$> ((· || ·) <$> itlb0Hit <*> itlb1Hit) <*> ((· || ·) <$> itlb2Hit <*> itlb3Hit)
+    let anyITLBHit := (itlb0Hit ||| itlb1Hit) ||| (itlb2Hit ||| itlb3Hit)
 
     -- iTLB output PPN (priority mux)
     let itlbPPN := Signal.mux itlb0Hit tlb0PPN
@@ -999,27 +987,24 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Megapage: PA = PPN << 12 + VA[21:0]
     -- Regular:  PA = {PPN[19:0], vaddr[11:0]}
     let itlbPPN_20 := itlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let itlbPPNShifted := (· ++ ·) <$> itlbPPN_20 <*> Signal.pure 0#12
+    let itlbPPNShifted := itlbPPN_20 ++ 0#12
     let fetchPCLow22 := fetchPC.map (BitVec.extractLsb' 0 22 ·)
-    let fetchPCLow22Ext := (· ++ ·) <$> Signal.pure 0#10 <*> fetchPCLow22
-    let ifetchPhysAddrMega := (· + ·) <$> itlbPPNShifted <*> fetchPCLow22Ext
+    let fetchPCLow22Ext := 0#10 ++ fetchPCLow22
+    let ifetchPhysAddrMega := itlbPPNShifted + fetchPCLow22Ext
     let fetchPCLow12 := fetchPC.map (BitVec.extractLsb' 0 12 ·)
-    let ifetchPhysAddrReg := (· ++ ·) <$> itlbPPN_20 <*> fetchPCLow12
+    let ifetchPhysAddrReg := itlbPPN_20 ++ fetchPCLow12
     let ifetchPhysAddr := Signal.mux itlbMega ifetchPhysAddrMega ifetchPhysAddrReg
 
     -- Need to translate instruction fetch? (S/U-mode with MMU enabled, DRAM region)
-    let needTranslateI := (· && ·) <$> satpMode <*>
-      ((· && ·) <$> ((fun x => !x) <$> isMmode) <*>
-        ((· == ·) <$> (fetchPC.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1))
-    let ifetchTranslated := (· && ·) <$> needTranslateI <*> anyITLBHit
-    let ifetchTLBMiss := (· && ·) <$> needTranslateI <*> ((fun x => !x) <$> anyITLBHit)
+    let needTranslateI := satpMode &&& ((~~~isMmode) &&& ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1))
+    let ifetchTranslated := needTranslateI &&& anyITLBHit
+    let ifetchTLBMiss := needTranslateI &&& (~~~anyITLBHit)
 
     -- I-side stall on TLB miss (until PTW fills the entry)
-    let ifetchStall := (· && ·) <$> ifetchTLBMiss <*> ((fun x => !x) <$> ifetchFaultPending)
+    let ifetchStall := ifetchTLBMiss &&& (~~~ifetchFaultPending)
 
-    let stall := (· || ·) <$> ((· || ·) <$> (hazardSignal idex_memRead idex_rd id_rs1 id_rs2) <*> mmuStall)
-                   <*> ((· || ·) <$> ((· || ·) <$> idex_isAMOrw <*> pendingWriteEn) <*>
-                     ((· || ·) <$> divStall <*> ifetchStall))
+    let stall := ((hazardSignal idex_memRead idex_rd id_rs1 id_rs2) ||| mmuStall) |||
+                   ((idex_isAMOrw ||| pendingWriteEn) ||| (divStall ||| ifetchStall))
 
     let rf_rs1_addr := Signal.mux stall id_rs1
                          (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
@@ -1030,21 +1015,21 @@ def rv32iSoCBody {dom : DomainConfig}
     -- not rf_rs1_addr.val (t-1) as Signal.memory would.
     let rf_rs1_raw := Signal.memoryComboRead wb_addr wb_data wb_en rf_rs1_addr
     let rf_rs2_raw := Signal.memoryComboRead wb_addr wb_data wb_en rf_rs2_addr
-    let wb_fwd_rs1 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs1)
-    let wb_fwd_rs2 := (· && ·) <$> wb_en <*> ((· == ·) <$> wb_addr <*> id_rs2)
-    let prev_fwd_rs1 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs1)
-    let prev_fwd_rs2 := (· && ·) <$> prev_wb_en <*> ((· == ·) <$> prev_wb_addr <*> id_rs2)
+    let wb_fwd_rs1 := wb_en &&& (wb_addr === id_rs1)
+    let wb_fwd_rs2 := wb_en &&& (wb_addr === id_rs2)
+    let prev_fwd_rs1 := prev_wb_en &&& (prev_wb_addr === id_rs1)
+    let prev_fwd_rs2 := prev_wb_en &&& (prev_wb_addr === id_rs2)
     let rf_rs1_bypassed := Signal.mux wb_fwd_rs1 wb_data
                              (Signal.mux prev_fwd_rs1 prev_wb_data rf_rs1_raw)
     let rf_rs2_bypassed := Signal.mux wb_fwd_rs2 wb_data
                              (Signal.mux prev_fwd_rs2 prev_wb_data rf_rs2_raw)
-    let id_rs1Val := Signal.mux ((· == ·) <$> id_rs1 <*> Signal.pure 0#5)
+    let id_rs1Val := Signal.mux (id_rs1 === 0#5)
                        (Signal.pure 0#32) rf_rs1_bypassed
-    let id_rs2Val := Signal.mux ((· == ·) <$> id_rs2 <*> Signal.pure 0#5)
+    let id_rs2Val := Signal.mux (id_rs2 === 0#5)
                        (Signal.pure 0#32) rf_rs2_bypassed
 
-    let pcPlus4 := (· + ·) <$> pcReg <*> Signal.pure 4#32
-    let fetchPCPlus4 := (· + ·) <$> fetchPC <*> Signal.pure 4#32
+    let pcPlus4 := pcReg + 4#32
+    let fetchPCPlus4 := fetchPC + 4#32
     -- DRAM instruction fetch: 4 combo-read instances sharing DMEM write signals
     -- Use translated physical address when iTLB hit, else raw fetchPC
     let ifetch_word_addr := Signal.mux ifetchTranslated
@@ -1054,14 +1039,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let dram_ifetch_b1 := Signal.memoryComboRead actual_dmem_write_addr actual_byte1_wdata actual_byte1_we ifetch_word_addr
     let dram_ifetch_b2 := Signal.memoryComboRead actual_dmem_write_addr actual_byte2_wdata actual_byte2_we ifetch_word_addr
     let dram_ifetch_b3 := Signal.memoryComboRead actual_dmem_write_addr actual_byte3_wdata actual_byte3_we ifetch_word_addr
-    let dram_ifetch_lo := (· ++ ·) <$> dram_ifetch_b1 <*> dram_ifetch_b0
-    let dram_ifetch_hi := (· ++ ·) <$> dram_ifetch_b3 <*> dram_ifetch_b2
-    let dram_ifetch_word := (· ++ ·) <$> dram_ifetch_hi <*> dram_ifetch_lo
+    let dram_ifetch_lo := dram_ifetch_b1 ++ dram_ifetch_b0
+    let dram_ifetch_hi := dram_ifetch_b3 ++ dram_ifetch_b2
+    let dram_ifetch_word := dram_ifetch_hi ++ dram_ifetch_lo
     -- Instruction source mux: DRAM if fetch address is in DRAM range, else firmware IMEM
     -- DRAM range: addresses >= 0x80000000 (bit 31 = 1)
     let fetchInDRAM := Signal.mux ifetchTranslated
-      ((· == ·) <$> (ifetchPhysAddr.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1)
-      ((· == ·) <$> (fetchPC.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1)
+      ((ifetchPhysAddr.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
+      ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
     let final_imem_rdata := Signal.mux fetchInDRAM dram_ifetch_word imem_rdata
 
     let ifid_inst_in := Signal.mux flushOrDelay (Signal.pure nopInst)
@@ -1071,83 +1056,79 @@ def rv32iSoCBody {dom : DomainConfig}
     -- holdEX: freeze EX stage when DMEM port is hijacked by pending write
     let holdEX := pendingWriteEn
     -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
-    let freezeIDEX := (· || ·) <$> holdEX <*>
-      ((· && ·) <$> divStall <*> ((fun x => !x) <$> flushOrDelay))
+    let freezeIDEX := holdEX ||| (divStall &&& (~~~flushOrDelay))
     -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, or holdEX
     -- trap_taken must suppress EX stage side effects (register write, CSR write, pending store)
     -- to prevent corrupting state when the instruction will be re-executed after mret/sret
-    let suppressEXWB := (· || ·) <$> trap_taken <*> ((· || ·) <$> dTLBMiss <*> holdEX)
-    let validEX := (fun x => !x) <$> suppressEXWB
-    let idex_isCsr_valid := (· && ·) <$> idex_isCsr <*> validEX
-    let squash := (· || ·) <$> ((· && ·) <$> stall <*> ((fun x => !x) <$> freezeIDEX)) <*> flushOrDelay
+    let suppressEXWB := trap_taken ||| (dTLBMiss ||| holdEX)
+    let validEX := ~~~suppressEXWB
+    let idex_isCsr_valid := idex_isCsr &&& validEX
+    let squash := (stall &&& (~~~freezeIDEX)) ||| flushOrDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
-    let clintWE := (· && ·) <$> idex_memWrite <*> ((· && ·) <$> isCLINT_ex <*> validEX)
-    let msipMatch     := (· == ·) <$> clintOffset <*> Signal.pure 0x0000#16
-    let mtimeLoMatch  := (· == ·) <$> clintOffset <*> Signal.pure 0xBFF8#16
-    let mtimeHiMatch  := (· == ·) <$> clintOffset <*> Signal.pure 0xBFFC#16
-    let mtimecmpLoMatch := (· == ·) <$> clintOffset <*> Signal.pure 0x4000#16
-    let mtimecmpHiMatch := (· == ·) <$> clintOffset <*> Signal.pure 0x4004#16
-    let mtimeLoInc := (· + ·) <$> mtimeLoReg <*> Signal.pure 1#32
-    let mtimeCarry := (· == ·) <$> mtimeLoInc <*> Signal.pure 0#32
+    let clintWE := idex_memWrite &&& (isCLINT_ex &&& validEX)
+    let msipMatch     := clintOffset === 0x0000#16
+    let mtimeLoMatch  := clintOffset === 0xBFF8#16
+    let mtimeHiMatch  := clintOffset === 0xBFFC#16
+    let mtimecmpLoMatch := clintOffset === 0x4000#16
+    let mtimecmpHiMatch := clintOffset === 0x4004#16
+    let mtimeLoInc := mtimeLoReg + 1#32
+    let mtimeCarry := mtimeLoInc === 0#32
     let mtimeHiInc := Signal.mux mtimeCarry
-                        ((· + ·) <$> mtimeHiReg <*> Signal.pure 1#32) mtimeHiReg
-    let msipNext := Signal.mux ((· && ·) <$> clintWE <*> msipMatch)
+                        (mtimeHiReg + 1#32) mtimeHiReg
+    let msipNext := Signal.mux (clintWE &&& msipMatch)
                       ex_rs2_approx msipReg
-    let mtimeLoNext := Signal.mux ((· && ·) <$> clintWE <*> mtimeLoMatch)
+    let mtimeLoNext := Signal.mux (clintWE &&& mtimeLoMatch)
                          ex_rs2_approx mtimeLoInc
-    let mtimeHiNext := Signal.mux ((· && ·) <$> clintWE <*> mtimeHiMatch)
+    let mtimeHiNext := Signal.mux (clintWE &&& mtimeHiMatch)
                          ex_rs2_approx mtimeHiInc
-    let mtimecmpLoNext := Signal.mux ((· && ·) <$> clintWE <*> mtimecmpLoMatch)
+    let mtimecmpLoNext := Signal.mux (clintWE &&& mtimecmpLoMatch)
                             ex_rs2_approx mtimecmpLoReg
-    let mtimecmpHiNext := Signal.mux ((· && ·) <$> clintWE <*> mtimecmpHiMatch)
+    let mtimecmpHiNext := Signal.mux (clintWE &&& mtimecmpHiMatch)
                             ex_rs2_approx mtimecmpHiReg
 
-    let mmioWE := (· && ·) <$> idex_memWrite <*> ((· && ·) <$> is_mmio_ex <*> validEX)
+    let mmioWE := idex_memWrite &&& (is_mmio_ex &&& validEX)
     let mmioOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 4 ·)
-    let mmioIsStatus_ex := (· == ·) <$> mmioOffset_ex <*> Signal.pure 0x0#4
-    let mmioIsInput_ex  := (· == ·) <$> mmioOffset_ex <*> Signal.pure 0x4#4
-    let aiStatusNext := Signal.mux ((· && ·) <$> mmioWE <*> mmioIsStatus_ex) ex_rs2_approx aiStatusReg
-    let aiInputNext  := Signal.mux ((· && ·) <$> mmioWE <*> mmioIsInput_ex)  ex_rs2_approx aiInputReg
+    let mmioIsStatus_ex := mmioOffset_ex === 0x0#4
+    let mmioIsInput_ex  := mmioOffset_ex === 0x4#4
+    let aiStatusNext := Signal.mux (mmioWE &&& mmioIsStatus_ex) ex_rs2_approx aiStatusReg
+    let aiInputNext  := Signal.mux (mmioWE &&& mmioIsInput_ex)  ex_rs2_approx aiInputReg
 
     -- UART 8250 write logic (EX stage)
-    let uartWE := (· && ·) <$> idex_memWrite <*> ((· && ·) <$> isUART_ex <*> validEX)
+    let uartWE := idex_memWrite &&& (isUART_ex &&& validEX)
     let uartOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 3 ·)
-    let uartDLAB := (· == ·) <$> (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let uartDLAB := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     let uartWdata8 := ex_rs2_approx.map (BitVec.extractLsb' 0 8 ·)
     -- Offset matches
-    let uartOff0 := (· == ·) <$> uartOffset_ex <*> Signal.pure 0#3
-    let uartOff1 := (· == ·) <$> uartOffset_ex <*> Signal.pure 1#3
-    let uartOff3 := (· == ·) <$> uartOffset_ex <*> Signal.pure 3#3
-    let uartOff4 := (· == ·) <$> uartOffset_ex <*> Signal.pure 4#3
-    let uartOff7 := (· == ·) <$> uartOffset_ex <*> Signal.pure 7#3
+    let uartOff0 := uartOffset_ex === 0#3
+    let uartOff1 := uartOffset_ex === 1#3
+    let uartOff3 := uartOffset_ex === 3#3
+    let uartOff4 := uartOffset_ex === 4#3
+    let uartOff7 := uartOffset_ex === 7#3
     -- Register updates (DLAB-aware for offsets 0 and 1)
-    let uartLCRNext := Signal.mux ((· && ·) <$> uartWE <*> uartOff3)
+    let uartLCRNext := Signal.mux (uartWE &&& uartOff3)
       uartWdata8 uartLCRReg
-    let uartIERNext := Signal.mux ((· && ·) <$> uartWE <*>
-        ((· && ·) <$> uartOff1 <*> ((fun x => !x) <$> uartDLAB)))
+    let uartIERNext := Signal.mux (uartWE &&& (uartOff1 &&& (~~~uartDLAB)))
       uartWdata8 uartIERReg
-    let uartMCRNext := Signal.mux ((· && ·) <$> uartWE <*> uartOff4)
+    let uartMCRNext := Signal.mux (uartWE &&& uartOff4)
       uartWdata8 uartMCRReg
-    let uartSCRNext := Signal.mux ((· && ·) <$> uartWE <*> uartOff7)
+    let uartSCRNext := Signal.mux (uartWE &&& uartOff7)
       uartWdata8 uartSCRReg
-    let uartDLLNext := Signal.mux ((· && ·) <$> uartWE <*>
-        ((· && ·) <$> uartOff0 <*> uartDLAB))
+    let uartDLLNext := Signal.mux (uartWE &&& (uartOff0 &&& uartDLAB))
       uartWdata8 uartDLLReg
-    let uartDLMNext := Signal.mux ((· && ·) <$> uartWE <*>
-        ((· && ·) <$> uartOff1 <*> uartDLAB))
+    let uartDLMNext := Signal.mux (uartWE &&& (uartOff1 &&& uartDLAB))
       uartWdata8 uartDLMReg
 
-    let csrIsImm := (· == ·) <$> (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) <*> Signal.pure 1#1
-    let csrZimm := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
+    let csrIsImm := (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
+    let csrZimm := 0#27 ++ idex_rs1Idx
     let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
     let csrF3Low := idex_csrFunct3.map (BitVec.extractLsb' 0 2 ·)
-    let csrIsRW := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
-    let csrIsRS := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
-    let csrIsRC := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
+    let csrIsRW := csrF3Low === 0b01#2
+    let csrIsRS := csrF3Low === 0b10#2
+    let csrIsRC := csrF3Low === 0b11#2
     let mkCsrNewVal (oldVal : Signal dom (BitVec 32)) :=
-      let rsVal := (· ||| ·) <$> oldVal <*> csrWdata
-      let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
+      let rsVal := oldVal ||| csrWdata
+      let rcVal := oldVal &&& (~~~csrWdata)
       Signal.mux csrIsRW csrWdata
         (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
     -- CSR new values (M-mode)
@@ -1175,91 +1156,91 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- SSTATUS write: merge S-mode bits back into mstatus
     let sstatusNewVal  := mkCsrNewVal sstatusView
-    let mstatusNonS := (· &&& ·) <$> mstatusReg <*> ((fun x => ~~~ x) <$> sstatusMask)
-    let sstatusMasked := (· &&& ·) <$> sstatusNewVal <*> sstatusMask
-    let sstatusWdataOut := (· ||| ·) <$> mstatusNonS <*> sstatusMasked
-    let sstatusWriteActive := (· && ·) <$> idex_isCsr_valid <*> csrIsSstatus
+    let mstatusNonS := mstatusReg &&& (~~~sstatusMask)
+    let sstatusMasked := sstatusNewVal &&& sstatusMask
+    let sstatusWdataOut := mstatusNonS ||| sstatusMasked
+    let sstatusWriteActive := idex_isCsr_valid &&& csrIsSstatus
 
     -- M-mode trap: MIE→MPIE, clear MIE, MPP←privMode
-    let msClearMIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFF7#32
+    let msClearMIE := mstatusReg &&& 0xFFFFFFF7#32
     let msSetMPIE := Signal.mux mstatusMIE_flag
-      ((· ||| ·) <$> msClearMIE <*> Signal.pure 0x00000080#32)
-      ((· &&& ·) <$> msClearMIE <*> Signal.pure 0xFFFFFF7F#32)
+      (msClearMIE ||| 0x00000080#32)
+      (msClearMIE &&& 0xFFFFFF7F#32)
     -- Set MPP to current privilege: clear MPP bits, then OR in privMode<<11
-    let msSetMPIE_clearMPP := (· &&& ·) <$> msSetMPIE <*> Signal.pure 0xFFFFE7FF#32
-    let privModeExt := (· ++ ·) <$> Signal.pure 0#21 <*> ((· ++ ·) <$> privMode <*> Signal.pure 0#9)
-    let privShifted := (· <<< ·) <$> privModeExt <*> Signal.pure 2#32
-    let mstatusTrapMVal := (· ||| ·) <$> msSetMPIE_clearMPP <*> privShifted
+    let msSetMPIE_clearMPP := msSetMPIE &&& 0xFFFFE7FF#32
+    let privModeExt := 0#21 ++ (privMode ++ 0#9)
+    let privShifted := privModeExt <<< 2#32
+    let mstatusTrapMVal := msSetMPIE_clearMPP ||| privShifted
 
     -- S-mode trap: SIE→SPIE, clear SIE, SPP←privMode[0]
-    let msClearSIE := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFFFD#32
+    let msClearSIE := mstatusReg &&& 0xFFFFFFFD#32
     let msSetSPIE := Signal.mux mstatusSIE_flag
-      ((· ||| ·) <$> msClearSIE <*> Signal.pure 0x00000020#32)
-      ((· &&& ·) <$> msClearSIE <*> Signal.pure 0xFFFFFFDF#32)
+      (msClearSIE ||| 0x00000020#32)
+      (msClearSIE &&& 0xFFFFFFDF#32)
     -- SPP = privMode[0] (1 bit at position 8)
     let privBit0 := privMode.map (BitVec.extractLsb' 0 1 ·)
-    let privBit0IsOne := (· == ·) <$> privBit0 <*> Signal.pure 1#1
+    let privBit0IsOne := privBit0 === 1#1
     let msSetSPP := Signal.mux privBit0IsOne
-      ((· ||| ·) <$> msSetSPIE <*> Signal.pure 0x00000100#32)
-      ((· &&& ·) <$> msSetSPIE <*> Signal.pure 0xFFFFFEFF#32)
+      (msSetSPIE ||| 0x00000100#32)
+      (msSetSPIE &&& 0xFFFFFEFF#32)
     let mstatusTrapSVal := msSetSPP
 
     let mstatusTrapVal := Signal.mux trapToS mstatusTrapSVal mstatusTrapMVal
 
     -- MRET: MIE←MPIE, MPIE←1, MPP←0
-    let msClearMPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFE7FF#32
+    let msClearMPP := mstatusReg &&& 0xFFFFE7FF#32
     let msRestoreMIE := Signal.mux mstatusMPIE_flag
-      ((· ||| ·) <$> msClearMPP <*> Signal.pure 0x00000008#32)
-      ((· &&& ·) <$> msClearMPP <*> Signal.pure 0xFFFFFFF7#32)
-    let mstatusMretVal := (· ||| ·) <$> msRestoreMIE <*> Signal.pure 0x00000080#32
+      (msClearMPP ||| 0x00000008#32)
+      (msClearMPP &&& 0xFFFFFFF7#32)
+    let mstatusMretVal := msRestoreMIE ||| 0x00000080#32
 
     -- SRET: SIE←SPIE, SPIE←1, SPP←0
-    let msClearSPP := (· &&& ·) <$> mstatusReg <*> Signal.pure 0xFFFFFEFF#32
+    let msClearSPP := mstatusReg &&& 0xFFFFFEFF#32
     let msRestoreSIE := Signal.mux mstatusSPIE_flag
-      ((· ||| ·) <$> msClearSPP <*> Signal.pure 0x00000002#32)
-      ((· &&& ·) <$> msClearSPP <*> Signal.pure 0xFFFFFFFD#32)
-    let mstatusSretVal := (· ||| ·) <$> msRestoreSIE <*> Signal.pure 0x00000020#32
+      (msClearSPP ||| 0x00000002#32)
+      (msClearSPP &&& 0xFFFFFFFD#32)
+    let mstatusSretVal := msRestoreSIE ||| 0x00000020#32
 
     let mstatusNext := Signal.mux trap_taken mstatusTrapVal
       (Signal.mux idex_isMret mstatusMretVal
       (Signal.mux idex_isSret mstatusSretVal
       (Signal.mux sstatusWriteActive sstatusWdataOut
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMstatus) mstatusNewCSR
+      (Signal.mux (idex_isCsr_valid &&& csrIsMstatus) mstatusNewCSR
         mstatusReg))))
-    let mieNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMie) mieNewCSR mieReg
-    let mtvecNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMtvec) mtvecNewCSR mtvecReg
-    let mscratchNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMscratch) mscratchNewCSR mscratchReg
+    let mieNext := Signal.mux (idex_isCsr_valid &&& csrIsMie) mieNewCSR mieReg
+    let mtvecNext := Signal.mux (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
+    let mscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
     -- mepc: use fetchPC for instruction page fault, dMissPC for d-side page fault, else idex_pc
     let trapPC := Signal.mux ifetchPageFault fetchPC
       (Signal.mux pageFault dMissPC idex_pc)
     let mepcNext := Signal.mux trapToM trapPC
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMepc) mepcNewCSR mepcReg)
+      (Signal.mux (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg)
     let mcauseNext := Signal.mux trapToM trapCause
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMcause) mcauseNewCSR mcauseReg)
+      (Signal.mux (idex_isCsr_valid &&& csrIsMcause) mcauseNewCSR mcauseReg)
     -- trapVal: fetchPC for ifetchPageFault, dMissVaddr for d-side pageFault, else 0
     let trapVal := Signal.mux ifetchPageFault fetchPC
       (Signal.mux pageFault dMissVaddr (Signal.pure 0#32))
     let mtvalNext := Signal.mux trapToM trapVal
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMtval) mtvalNewCSR mtvalReg)
+      (Signal.mux (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg)
 
     -- S-mode CSR next-state
-    let sieNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsSie) sieNewCSR sieReg
-    let stvecNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsStvec) stvecNewCSR stvecReg
-    let sscratchNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsSscratch) sscratchNewCSR sscratchReg
+    let sieNext := Signal.mux (idex_isCsr_valid &&& csrIsSie) sieNewCSR sieReg
+    let stvecNext := Signal.mux (idex_isCsr_valid &&& csrIsStvec) stvecNewCSR stvecReg
+    let sscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsSscratch) sscratchNewCSR sscratchReg
     let sepcNext := Signal.mux trapToS trapPC
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsSepc) sepcNewCSR sepcReg)
+      (Signal.mux (idex_isCsr_valid &&& csrIsSepc) sepcNewCSR sepcReg)
     let scauseNext := Signal.mux trapToS trapCause
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsScause) scauseNewCSR scauseReg)
+      (Signal.mux (idex_isCsr_valid &&& csrIsScause) scauseNewCSR scauseReg)
     let stvalNext := Signal.mux trapToS trapVal
-      (Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsStval) stvalNewCSR stvalReg)
-    let satpNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsSatp) satpNewCSR satpReg
+      (Signal.mux (idex_isCsr_valid &&& csrIsStval) stvalNewCSR stvalReg)
+    let satpNext := Signal.mux (idex_isCsr_valid &&& csrIsSatp) satpNewCSR satpReg
 
     -- Delegation register next-state
-    let medelegNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMedeleg) medelegNewCSR medelegReg
-    let midelegNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMideleg) midelegNewCSR midelegReg
+    let medelegNext := Signal.mux (idex_isCsr_valid &&& csrIsMedeleg) medelegNewCSR medelegReg
+    let midelegNext := Signal.mux (idex_isCsr_valid &&& csrIsMideleg) midelegNewCSR midelegReg
     -- Counter enable next-state
-    let mcounterenNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsMcounteren) mcounterenNewCSR mcounterenReg
-    let scounterenNext := Signal.mux ((· && ·) <$> idex_isCsr_valid <*> csrIsScounteren) scounterenNewCSR scounterenReg
+    let mcounterenNext := Signal.mux (idex_isCsr_valid &&& csrIsMcounteren) mcounterenNewCSR mcounterenReg
+    let scounterenNext := Signal.mux (idex_isCsr_valid &&& csrIsScounteren) scounterenNewCSR scounterenReg
 
     -- Privilege mode next-state
     let privModeNext := Signal.mux trapToM (Signal.pure 3#2)
@@ -1274,28 +1255,26 @@ def rv32iSoCBody {dom : DomainConfig}
     let resAddrNext := Signal.mux exwb_isLR exwb_alu reservationAddr
 
     -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority
-    let ifetchPTWReq := (· && ·) <$> ifetchTLBMiss <*>
-      ((· && ·) <$> ptwIsIdle <*>
-        ((· && ·) <$> ((fun x => !x) <$> dTLBMiss) <*> isMMUIdle))
+    let ifetchPTWReq := ifetchTLBMiss &&& (ptwIsIdle &&& ((~~~dTLBMiss) &&& isMMUIdle))
 
     -- PTW request: D-side TLB miss OR I-side PTW request
-    let ptwReq := (· || ·) <$> dTLBMiss <*> ifetchPTWReq
+    let ptwReq := dTLBMiss ||| ifetchPTWReq
 
     -- PTW latch vaddr on start: D-side has priority
     let ptwVaddrOnStart := Signal.mux dTLBMiss alu_result_approx fetchPC
-    let ptwVaddrNext := Signal.mux ((· && ·) <$> ptwIsIdle <*> ptwReq)
+    let ptwVaddrNext := Signal.mux (ptwIsIdle &&& ptwReq)
       ptwVaddrOnStart ptwVaddrReg
 
     -- PTE fields decoded from dmem_rdata (valid in L1_WAIT/L0_WAIT states)
-    let dmemPteValid := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
-    let dmemPteRBit := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
-    let dmemPteXBit := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let dmemPteIsLeaf := (· || ·) <$> dmemPteRBit <*> dmemPteXBit
-    let dmemPteInvalid := (fun x => !x) <$> dmemPteValid
+    let dmemPteValid := (dmem_rdata.map (BitVec.extractLsb' 0 1 ·)) === 1#1
+    let dmemPteRBit := (dmem_rdata.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let dmemPteXBit := (dmem_rdata.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let dmemPteIsLeaf := dmemPteRBit ||| dmemPteXBit
+    let dmemPteInvalid := ~~~dmemPteValid
     let pteFlags := ptwPteReg.map (BitVec.extractLsb' 0 8 ·)
 
     -- PTE latching: in WAIT states, latch dmem_rdata (has PTE from prior REQ addr)
-    let isDataReady := (· || ·) <$> ptwIsL1Wait <*> ptwIsL0Wait
+    let isDataReady := ptwIsL1Wait ||| ptwIsL0Wait
     let ptwPteNext := Signal.mux isDataReady dmem_rdata ptwPteReg
 
     -- PTW state transitions (7-state FSM with DMEM read latency handling)
@@ -1317,8 +1296,7 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.pure 0#3)))))
 
     -- Megapage tracking: leaf found at L1 level
-    let ptwMegaNext := Signal.mux ((· && ·) <$> ptwIsL1Wait <*>
-        ((· && ·) <$> dmemPteIsLeaf <*> ((fun x => !x) <$> dmemPteInvalid)))
+    let ptwMegaNext := Signal.mux (ptwIsL1Wait &&& (dmemPteIsLeaf &&& (~~~dmemPteInvalid)))
       (Signal.pure true)
       (Signal.mux ptwIsIdle (Signal.pure false) ptwMegaReg)
 
@@ -1327,14 +1305,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let fillVPN := ptwVaddrReg.map (BitVec.extractLsb' 12 20 ·)
 
     -- Replacement pointer: which entry to fill
-    let replIs0 := (· == ·) <$> replPtrReg <*> Signal.pure 0#2
-    let replIs1 := (· == ·) <$> replPtrReg <*> Signal.pure 1#2
-    let replIs2 := (· == ·) <$> replPtrReg <*> Signal.pure 2#2
-    let replIs3 := (· == ·) <$> replPtrReg <*> Signal.pure 3#2
-    let doFill0 := (· && ·) <$> tlbFill <*> replIs0
-    let doFill1 := (· && ·) <$> tlbFill <*> replIs1
-    let doFill2 := (· && ·) <$> tlbFill <*> replIs2
-    let doFill3 := (· && ·) <$> tlbFill <*> replIs3
+    let replIs0 := replPtrReg === 0#2
+    let replIs1 := replPtrReg === 1#2
+    let replIs2 := replPtrReg === 2#2
+    let replIs3 := replPtrReg === 3#2
+    let doFill0 := tlbFill &&& replIs0
+    let doFill1 := tlbFill &&& replIs1
+    let doFill2 := tlbFill &&& replIs2
+    let doFill3 := tlbFill &&& replIs3
 
     -- SFENCE.VMA clears all TLB entries
     let sfenceVMA := idex_isSFenceVMA
@@ -1366,7 +1344,7 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- Replacement pointer: increment on fill
     let replPtrNext := Signal.mux tlbFill
-      ((· + ·) <$> replPtrReg <*> Signal.pure 1#2) replPtrReg
+      (replPtrReg + 1#2) replPtrReg
 
     -- MMU state transitions (D-side only)
     -- On dTLBMiss: skip TLB_LOOKUP, go directly to PTW_WALK (state 2)
@@ -1379,14 +1357,14 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- Track whether PTW is serving an I-side miss
     let ptwIsIfetchNext := Signal.mux ptwIsIdle
-      (Signal.mux ((· && ·) <$> ifetchPTWReq <*> ((fun x => !x) <$> dTLBMiss))
+      (Signal.mux (ifetchPTWReq &&& (~~~dTLBMiss))
         (Signal.pure true) (Signal.pure false))
       ptwIsIfetch
 
     -- I-side page fault pending: set when PTW faults for ifetch, clear on trap or M-mode
     let ifetchFaultPendingNext := Signal.mux ifetchPageFault (Signal.pure false)
       (Signal.mux bypassMMU (Signal.pure false)
-        (Signal.mux ((· && ·) <$> ptwIsFault <*> ptwIsIfetch) (Signal.pure true)
+        (Signal.mux (ptwIsFault &&& ptwIsIfetch) (Signal.pure true)
           ifetchFaultPending))
 
     let pcNext := Signal.mux trap_taken trap_target

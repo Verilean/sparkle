@@ -2,6 +2,42 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 46: Signal Operator Refactoring & Compiler Fix (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Eliminate the need for verbose applicative syntax (`(· + ·) <$> a <*> b`) in Signal DSL code. Enable natural operator syntax (`a + b`, `a + 1#8`, `1#8 <<< a`) that works correctly in all synthesis contexts, including inside inlined private functions called multiple times.
+
+**Result**: All binary operators now work with natural syntax between Signal/Signal and mixed Signal/BitVec operands. The synthesis compiler correctly handles these in all contexts, including multiple calls to inlined private defs. The workaround documentation for "Mixed Operators Inside Inlined Private Functions" has been removed — the limitation no longer exists.
+
+**Root Cause Fixed**: The early interception for binary operators was calling `translateExprToWire` on raw BitVec constants (`@OfNat.ofNat (BitVec 16) 32 inst`), which corrupted metavariable state on the first call, causing the second identical call to fail with "Unbound variable: self". Fixed by using `extractBitVecLiteral` for constant operands in mixed Signal/BitVec expressions.
+
+**Changes**:
+
+| File | Change |
+|------|--------|
+| `Sparkle/Core/Signal.lean` | Added `HShiftLeft/HShiftRight (BitVec n) (Signal dom (BitVec n))` reverse instances |
+| `Sparkle/Compiler/Elab.lean` | Fixed binary operator early interception: use `extractBitVecLiteral` for constant args in mixed expressions |
+| `IP/Video/H264/IDCTSynth.lean` | 4 lines: `sarBy6 ((· + ·) <$> ... <*> Signal.pure 32#16)` → `sarBy6 (... + 32#16)` |
+| `IP/Video/H264/DecoderSynth.lean` | 8 lines: same sarBy6 pattern replacement |
+| `IP/Video/H264/FrameEncoder.lean` | 5 lines: `(· + ·) <$> x <*> y` → `x + y` and `(· + ·) <$> x <*> Signal.pure 1#4` → `x + 1#4` |
+| `IP/Video/H264/CAVLCSynth.lean` | Fixed 2 paren errors (`~~~a) &&& (~~~b` → `(~~~a) &&& (~~~b)`), replaced 4 `Signal.pure` arithmetic with mixed operators |
+| `docs/Troubleshooting_Synthesis.md` | Removed "Mixed Operators Inside Inlined Private Functions" workaround section |
+
+## Phase 45: Type-Safe JIT Simulation Wrappers (Complete)
+
+**Date**: 2026-03-24
+
+**Goal**: Generate typed `SimInput`/`SimOutput`/`Simulator` wrappers from the `verilog!` macro and a generic `SimTyped` module, so JIT simulation uses `BitVec`-typed fields instead of raw `UInt64` port indices.
+
+**Result**: The `verilog!` macro now generates `SimInput`, `SimOutput`, `Simulator` structures with typed `step`/`read`/`reset` methods. Port name typos and width mismatches are caught at compile time. Generic `SimTyped.lean` provides reusable infrastructure.
+
+**Files Added**:
+- `Sparkle/Core/SimTyped.lean` — Generic `SimSpec`, `PortSpec`, `generateSimWrappers`
+
+**Files Modified**:
+- `Tools/SVParser/Macro.lean` — Generate SimInput/SimOutput/Simulator/step/read/reset in `verilog!`
+
 ## Phase 44: Inline Verilog Formal Verification — `verilog!` Macro & Auto-Assert (Complete)
 
 **Date**: 2026-03-24

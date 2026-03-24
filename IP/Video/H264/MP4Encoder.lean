@@ -139,7 +139,7 @@ def h264MP4Encoder {dom : DomainConfig}
     -- ================================================================
     -- Frame encoder sub-module
     -- ================================================================
-    let feStart := isRunEnc &&& ((fun x => !x) <$> feStarted)
+    let feStart := isRunEnc &&& (~~~feStarted)
     let feOutput := h264FrameEncoder feStart
       frameWriteEn frameWriteAddr frameWriteData
       quantMF0 quantMF1 quantMF2 quantF quantShift
@@ -176,7 +176,7 @@ def h264MP4Encoder {dom : DomainConfig}
     let heightLo := heightIn.map (BitVec.extractLsb' 0 8 ·)
 
     -- stsz value: 4 + idrNalSize (as 16-bit, fits in 10 bits + 4)
-    let stszVal16 := (· + ·) <$> ((· ++ ·) <$> Signal.pure 0#6 <*> idrNalSize) <*> Signal.pure 4#16
+    let stszVal16 := (0#6 ++ idrNalSize) + 4#16
     let stszHi := stszVal16.map (BitVec.extractLsb' 8 8 ·)
     let stszLo := stszVal16.map (BitVec.extractLsb' 0 8 ·)
 
@@ -211,7 +211,7 @@ def h264MP4Encoder {dom : DomainConfig}
     -- mdat header: BE32(8 + 4 + idrNalSize) ++ "mdat"
     -- mdat box size = 8 (box header) + 4 (IDR length prefix) + idrNalSize
     -- ================================================================
-    let mdatSize16 := (· + ·) <$> ((· ++ ·) <$> Signal.pure 0#6 <*> idrNalSize) <*> Signal.pure 12#16
+    let mdatSize16 := (0#6 ++ idrNalSize) + 12#16
     let mdatSizeHi := mdatSize16.map (BitVec.extractLsb' 8 8 ·)
     let mdatSizeLo := mdatSize16.map (BitVec.extractLsb' 0 8 ·)
 
@@ -226,7 +226,7 @@ def h264MP4Encoder {dom : DomainConfig}
       (Signal.pure 0x74#8)))))))                                             -- 't'
 
     -- IDR length prefix: BE32(idrNalSize)
-    let idrSize16 := (· ++ ·) <$> Signal.pure 0#6 <*> idrNalSize
+    let idrSize16 := 0#6 ++ idrNalSize
     let idrSizeHi := idrSize16.map (BitVec.extractLsb' 8 8 ·)
     let idrSizeLo := idrSize16.map (BitVec.extractLsb' 0 8 ·)
     let idrLenByte := Signal.mux (emitCtr === (0#3 : Signal dom _)) (Signal.pure 0#8)
@@ -258,23 +258,23 @@ def h264MP4Encoder {dom : DomainConfig}
     -- romIdx: increment during EMIT_ROM
     let romIdxNext := hw_cond romIdx
       | startAndIdle => (0#10 : Signal dom _)
-      | (isEmitROM &&& ((fun x => !x) <$> romDone)) => (· + ·) <$> romIdx <*> Signal.pure 1#10
+      | (isEmitROM &&& (~~~romDone)) => romIdx + 1#10
 
     -- bufWrPtr: increment when buffering IDR bytes
     let bufWrPtrNext := hw_cond bufWrPtr
       | startAndIdle => (0#10 : Signal dom _)
-      | bufWriteEn   => (· + ·) <$> bufWrPtr <*> Signal.pure 1#10
+      | bufWriteEn   => bufWrPtr + 1#10
 
     -- bufRdPtr: increment during EMIT_IDR_DATA
     let bufRdPtrNext := hw_cond bufRdPtr
       | startAndIdle => (0#10 : Signal dom _)
-      | (isEmitIDRDat &&& ((fun x => !x) <$> idrDataDone)) =>
-          (· + ·) <$> bufRdPtr <*> Signal.pure 1#10
+      | (isEmitIDRDat &&& (~~~idrDataDone)) =>
+          bufRdPtr + 1#10
 
     -- totalH264: count all bytes from frame encoder
     let totalH264Next := hw_cond totalH264
       | startAndIdle        => (0#10 : Signal dom _)
-      | (isRunEnc &&& feValid) => (· + ·) <$> totalH264 <*> Signal.pure 1#10
+      | (isRunEnc &&& feValid) => totalH264 + 1#10
 
     -- idrNalSize: capture at end of encoder run
     let idrNalSizeNext := hw_cond idrNalSize
@@ -286,8 +286,8 @@ def h264MP4Encoder {dom : DomainConfig}
       | startAndIdle => (0#3 : Signal dom _)
       | romDone      => (0#3 : Signal dom _)   -- reset for mdat header
       | mdatHdrDone  => (0#3 : Signal dom _)   -- reset for IDR length
-      | isEmitMdatH  => (· + ·) <$> emitCtr <*> Signal.pure 1#3
-      | isEmitIDRLen => (· + ·) <$> emitCtr <*> Signal.pure 1#3
+      | isEmitMdatH  => emitCtr + 1#3
+      | isEmitIDRLen => emitCtr + 1#3
 
     -- feStarted: latch so we only send one start pulse
     let feStartedNext := hw_cond feStarted
@@ -310,7 +310,7 @@ def h264MP4Encoder {dom : DomainConfig}
       (Signal.pure 0#8))))
 
     let outValidNext := isEmitROM ||| isEmitMdatH ||| isEmitIDRLen |||
-      (isEmitIDRDat &&& ((fun x => !x) <$> idrDataDone))
+      (isEmitIDRDat &&& (~~~idrDataDone))
 
     let doneNext := isDone
 
