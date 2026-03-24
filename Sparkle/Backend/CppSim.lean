@@ -206,9 +206,8 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
 
   | .op .not args =>
     match args with
-    -- Use logical NOT (!) instead of bitwise NOT (~) for boolean signals.
-    -- ~(uint8_t)1 = 0xFE (truthy in C++), but !(uint8_t)1 = 0 (correct).
-    -- In the current IR, .not is only used for Bool negation (~~~ doesn't synthesize).
+    -- .not in IR is always boolean negation (logical NOT).
+    -- Verilog bitwise NOT (~) is lowered as XOR with -1 in Lower.lean.
     | [arg] => s!"(!{emitExpr typeMap arg})"
     | _ => "/* ERROR: not requires 1 argument */"
 

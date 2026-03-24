@@ -122,6 +122,9 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   | .unary .logNot arg =>
     -- Logical NOT: !x → (x == 0) — reduces multi-bit to bool
     .op .eq [lowerExpr arg, .const 0 32]
+  | .unary .bitNot arg =>
+    -- Bitwise NOT: ~x → XOR with all-ones (avoids confusion with logical NOT in IR)
+    .op .xor [lowerExpr arg, .const (-1) 32]
   | .unary op arg => .op (lowerUnaryOp op) [lowerExpr arg]
   | .binary .neq lhs rhs => .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
   | .binary .logAnd lhs rhs =>
@@ -216,8 +219,127 @@ def detectReset (cond : SVExpr) (thenBranch elseBranch : List SVStmt)
   | _ => none
 
 -- ============================================================================
--- Imperative → Dataflow conversion (if/else/case → mux chains)
+-- Imperative → Dataflow conversion (If-Conversion / Guarded Assignments)
+--
+-- Walk the statement tree tracking the current guard condition. Each
+-- assignment produces (guard, target, value). Then chain them as a flat
+-- priority mux: last-write-wins, matching Verilog semantics.
 -- ============================================================================
+
+/-- A guarded assignment: under `guard`, signal `target` gets `value`. -/
+structure GuardedAssign where
+  guard  : Expr
+  target : String
+  value  : Expr
+
+/-- Conjunction helper: true & x = x, else AND -/
+private def mkAnd (a b : Expr) : Expr :=
+  match a with
+  | .const 1 _ => b
+  | _ => match b with
+    | .const 1 _ => a
+    | _ => .op .and [a, b]
+
+/-- Is this a don't-care literal ('bx / 'hx)? -/
+private def isDontCare : SVExpr → Bool
+  | .lit (.binary none 0) => true
+  | .lit (.hex none 0) => true
+  | _ => false
+
+/-- Build a case arm condition from labels and selector.
+    For case(1'b1), labels are direct conditions (priority encoding).
+    For normal case, labels are compared against sel. -/
+private def mkCaseCond (sel : SVExpr) (labels : List SVExpr) : Expr :=
+  let isCase1b1 := match sel with
+    | .lit (.binary (some 1) 1) => true
+    | .lit (.decimal (some 1) 1) => true
+    | _ => false
+  labels.foldl (fun acc label =>
+    let c := if isCase1b1 then lowerExpr label
+             else Expr.op .eq [lowerExpr sel, lowerExpr label]
+    if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
+  ) (Expr.const 0 1)
+
+/-- Process case arms: collect guarded assigns and track covered conditions -/
+private def processCaseArms (sel : SVExpr) (arms : List (List SVExpr × List SVStmt))
+    (guard : Expr) (collectFn : List SVStmt → Expr → List GuardedAssign)
+    : List GuardedAssign × Expr :=
+  arms.foldl (fun (result, covered) (labels, body) =>
+    let armCond := mkCaseCond sel labels
+    let armAssigns := collectFn body (mkAnd guard armCond)
+    let newCovered := if covered == .const 0 1 then armCond else .op .or [covered, armCond]
+    (result ++ armAssigns, newCovered)
+  ) ([], .const 0 1)
+
+/-- Collect all guarded non-blocking assignments from statements.
+    `guard` is the current path condition (true = Expr.const 1 1). -/
+partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
+    : List GuardedAssign :=
+  stmts.flatMap fun s => match s with
+    | .nonblockAssign lhs rhs =>
+      if isDontCare rhs then []
+      else match exprToName lhs with
+        | some name => [{ guard, target := name, value := lowerExpr rhs }]
+        | none => []
+    | .ifElse cond thenB elseB =>
+      let c := lowerExpr cond
+      collectGuardedNB thenB (mkAnd guard c) ++
+      collectGuardedNB elseB (mkAnd guard (.op .not [c]))
+    | .caseStmt sel arms default_ =>
+      let (armAssigns, covered) := processCaseArms sel arms guard (fun s g => collectGuardedNB s g)
+      let defAssigns := match default_ with
+        | some d => collectGuardedNB d (mkAnd guard (.op .not [covered]))
+        | none => []
+      armAssigns ++ defAssigns
+    | .forLoop _ _ _ body => collectGuardedNB body guard
+    | _ => []
+
+/-- Collect all guarded blocking assignments from statements. -/
+partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 1)
+    : List GuardedAssign :=
+  stmts.flatMap fun s => match s with
+    | .blockAssign lhs rhs =>
+      if isDontCare rhs then []
+      else match exprToName lhs with
+        | some name => [{ guard, target := name, value := lowerExpr rhs }]
+        | none => []
+    | .ifElse cond thenB elseB =>
+      let c := lowerExpr cond
+      collectGuardedBlock thenB (mkAnd guard c) ++
+      collectGuardedBlock elseB (mkAnd guard (.op .not [c]))
+    | .caseStmt sel arms default_ =>
+      let (armAssigns, covered) := processCaseArms sel arms guard (fun s g => collectGuardedBlock s g)
+      let defAssigns := match default_ with
+        | some d => collectGuardedBlock d (mkAnd guard (.op .not [covered]))
+        | none => []
+      armAssigns ++ defAssigns
+    | _ => []
+
+/-- Chain guarded assignments into a flat priority mux (last-write-wins).
+    `base` is the default when no guard is active (hold value for registers,
+    first flat assign for blocking signals). -/
+def guardedToMux (assigns : List GuardedAssign) (base : Expr) : Expr :=
+  assigns.foldl (fun acc ga => .op .mux [ga.guard, ga.value, acc]) base
+
+/-- Build mux expression for a non-blocking register from full always body. -/
+def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
+  let all := collectGuardedNB stmts
+  let filtered := all.filter (·.target == regName)
+  guardedToMux filtered (.ref regName)
+
+/-- Build mux expression for a blocking combinational signal.
+    Base is the first flat assignment (default value). -/
+def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
+  let initDefault := stmts.findSome? fun s => match s with
+    | .blockAssign lhs rhs =>
+      match exprToName lhs with
+      | some n => if n == sigName then some (lowerExpr rhs) else none
+      | none => none
+    | _ => none
+  let base := initDefault.getD (.ref sigName)
+  let all := collectGuardedBlock stmts
+  let filtered := all.filter (·.target == sigName)
+  guardedToMux filtered base
 
 /-- Collect all register names assigned (non-blocking) anywhere in statements -/
 partial def collectAllRegNames (stmts : List SVStmt) : List String :=
@@ -232,158 +354,6 @@ partial def collectAllRegNames (stmts : List SVStmt) : List String :=
       armNames ++ defNames
     | .forLoop _ _ _ body => collectAllRegNames body
     | _ => []
-
-/-- For a given register name, compute its next-value expression from
-    imperative if/else/case statements by building mux chains.
-
-    If reg is not assigned in a branch, the default is `Expr.ref reg` (hold value). -/
-partial def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) (base : Expr := .ref regName) : Expr :=
-  stmts.foldl (fun current s => stmtToMuxExpr regName s current) base
-where
-  stmtToMuxExpr (regName : String) (s : SVStmt) (current : Expr) : Expr :=
-    match s with
-    | .nonblockAssign lhs rhs =>
-      match exprToName lhs with
-      | some n =>
-        if n == regName then
-          -- Skip don't-care ('bx) cleanup assigns
-          match rhs with
-          | .lit (.binary none 0) => current
-          | .lit (.hex none 0) => current
-          | _ => lowerExpr rhs
-        else current
-      | none => current
-    | .ifElse cond thenB elseB =>
-      let thenExpr := stmtsToMuxExpr regName thenB current
-      let elseExpr := stmtsToMuxExpr regName elseB current
-      -- Only emit mux if this register is assigned in either branch
-      let thenHasReg := (collectAllRegNames thenB).any (· == regName)
-      let elseHasReg := (collectAllRegNames elseB).any (· == regName)
-      if thenHasReg || elseHasReg then
-        let thenVal := if thenHasReg then thenExpr else current
-        let elseVal := if elseHasReg then elseExpr else current
-        .op .mux [lowerExpr cond, thenVal, elseVal]
-      else current
-    | .caseStmt sel arms default_ =>
-      -- Build nested mux chain: case arm1 => val1, case arm2 => val2, ...
-      let anyArm := arms.any fun (_, body) =>
-        (collectAllRegNames body).any (· == regName)
-      let defHasReg := match default_ with
-        | some d => (collectAllRegNames d).any (· == regName) | none => false
-      if anyArm || defHasReg then
-        let defResult := match default_ with
-          | some d => if defHasReg then stmtsToMuxExpr regName d current else current
-          | none => current
-        -- Build mux chain from last arm to first using foldl
-        arms.reverse.foldl (fun acc (labels, body) =>
-          let bodyHasReg := (collectAllRegNames body).any (· == regName)
-          if bodyHasReg then
-            let bodyExpr := stmtsToMuxExpr regName body acc
-            let selExpr := lowerExpr sel
-            -- For case (1'b1), labels are conditions themselves (priority encoding)
-            -- For normal case, labels are values to compare against sel
-            let isCase1b1 := match sel with
-              | .lit (.binary (some 1) 1) => true
-              | .lit (.decimal (some 1) 1) => true
-              | _ => false
-            let cond := labels.foldl (fun acc label =>
-              let c := if isCase1b1
-                then lowerExpr label  -- label IS the condition
-                else Expr.op .eq [selExpr, lowerExpr label]  -- sel == label
-              if acc == Expr.const 0 1 then c
-              else Expr.op .or [acc, c]
-            ) (Expr.const 0 1)
-            .op .mux [cond, bodyExpr, acc]
-          else acc
-        ) defResult
-      else current
-    | _ => current
-
-/-- Collect all blocking assigns as name→expr pairs (for combinational always) -/
-partial def collectBlockAssignsDeep (stmts : List SVStmt) : List (String × Expr) :=
-  stmts.flatMap fun s => match s with
-    | .blockAssign lhs rhs =>
-      match exprToName lhs with
-      | some name => [(name, lowerExpr rhs)]
-      | none => []
-    | .ifElse _ thenB elseB =>
-      collectBlockAssignsDeep thenB ++ collectBlockAssignsDeep elseB
-    | .caseStmt _ arms default_ =>
-      let armAssigns := arms.flatMap fun (_, body) => collectBlockAssignsDeep body
-      let defAssigns := match default_ with | some body => collectBlockAssignsDeep body | none => []
-      armAssigns ++ defAssigns
-    | _ => []
-
-/-- For combinational/blocking assigns, convert to mux expressions per signal.
-    The default is the first assignment value (not hold-value), since blocking
-    assigns in always blocks typically start with `sig = 0;` as default. -/
-partial def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
-  let initDefault := stmts.findSome? fun s => match s with
-    | .blockAssign lhs rhs =>
-      match exprToName lhs with
-      | some n => if n == sigName then some (lowerExpr rhs) else none
-      | none => none
-    | _ => none
-  let base := initDefault.getD (.ref sigName)
-  stmtsToMuxWithBase sigName stmts base
-where
-  stmtsToMuxWithBase (sigName : String) (stmts : List SVStmt) (base : Expr) : Expr :=
-    stmts.foldl (fun current s => stmtToMuxBlocking sigName s current base) base
-  stmtToMuxBlocking (sigName : String) (s : SVStmt) (current base : Expr) : Expr :=
-    match s with
-    | .blockAssign lhs rhs =>
-      match exprToName lhs with
-      | some n =>
-        if n == sigName then
-          -- Skip don't-care ('bx) assignments — they're cleanup, not logic
-          match rhs with
-          | .lit (.binary none 0) => current  -- 'bx → keep current value
-          | .lit (.hex none 0) => current     -- 'hx → keep current value
-          | _ => lowerExpr rhs
-        else current
-      | none => current
-    | .ifElse cond thenB elseB =>
-      let thenNames := collectBlockNames thenB
-      let elseNames := collectBlockNames elseB
-      if thenNames.any (· == sigName) || elseNames.any (· == sigName) then
-        let thenVal := if thenNames.any (· == sigName) then stmtsToMuxWithBase sigName thenB base else base
-        let elseVal := if elseNames.any (· == sigName) then stmtsToMuxWithBase sigName elseB base else base
-        .op .mux [lowerExpr cond, thenVal, elseVal]
-      else current
-    | .caseStmt sel arms default_ =>
-      let anyArm := arms.any fun (_, body) => (collectBlockNames body).any (· == sigName)
-      let defHasReg := match default_ with | some d => (collectBlockNames d).any (· == sigName) | none => false
-      if anyArm || defHasReg then
-        -- Use current (accumulated from prior statements) as default, not base
-        let defResult := match default_ with
-          | some d => if defHasReg then stmtsToMuxWithBase sigName d base else current
-          | none => current
-        arms.reverse.foldl (fun acc (labels, body) =>
-          if (collectBlockNames body).any (· == sigName) then
-            let bodyExpr := stmtsToMuxWithBase sigName body base
-            let selExpr := lowerExpr sel
-            let isCase1b1 := match sel with
-              | .lit (.binary (some 1) 1) => true
-              | .lit (.decimal (some 1) 1) => true
-              | _ => false
-            let cond := labels.foldl (fun acc' label =>
-              let c := if isCase1b1 then lowerExpr label
-                       else Expr.op .eq [selExpr, lowerExpr label]
-              if acc' == Expr.const 0 1 then c else Expr.op .or [acc', c]
-            ) (Expr.const 0 1)
-            .op .mux [cond, bodyExpr, acc]
-          else acc
-        ) defResult
-      else current
-    | _ => current
-  collectBlockNames (stmts : List SVStmt) : List String :=
-    stmts.flatMap fun s => match s with
-      | .blockAssign lhs _ => match exprToName lhs with | some n => [n] | none => []
-      | .ifElse _ t e => collectBlockNames t ++ collectBlockNames e
-      | .caseStmt _ arms d =>
-        (arms.flatMap fun (_, b) => collectBlockNames b) ++
-        (match d with | some b => collectBlockNames b | none => [])
-      | _ => []
 
 /-- Collect array element writes: arr[idx] <= data, with optional condition -/
 partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
