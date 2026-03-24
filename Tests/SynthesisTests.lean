@@ -16,10 +16,10 @@ Run with: lake env lean Tests/SynthesisTests.lean
 -- ============================================================================
 
 def test_add (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 def test_sub (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· - ·) <$> a <*> b
+  a - b
 
 -- ============================================================================
 -- Test 2: Hierarchical Module Instantiation

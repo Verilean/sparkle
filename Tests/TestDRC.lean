@@ -12,7 +12,7 @@ and passes for registered outputs.
 
 -- Test 1: Combinational output (SHOULD produce DRC warning)
 def drc_combo_output (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 #synthesizeVerilog drc_combo_output
 

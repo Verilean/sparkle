@@ -77,7 +77,7 @@ def test_slice_upper (a : Signal Domain (BitVec 16)) : Signal Domain (BitVec 8) 
 -- ============================================================================
 
 def test_concat (hi lo : Signal Domain (BitVec 8)) : Signal Domain (BitVec 16) :=
-  (· ++ ·) <$> hi <*> lo
+  hi ++ lo
 
 #synthesizeVerilog test_concat
 

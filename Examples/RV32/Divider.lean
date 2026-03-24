@@ -91,12 +91,12 @@ def dividerSignal {dom : DomainConfig}
     let divisorSign := (divisor.map (BitVec.extractLsb' 31 1 ·)) === 1#1
 
     -- Negate dividend if signed and negative
-    let dividendNeg := Signal.pure 0#32 - dividend
+    let dividendNeg := 0#32 - dividend
     let dividendNeedNeg := is_signed &&& dividendSign
     let absDividend := Signal.mux dividendNeedNeg dividendNeg dividend
 
     -- Negate divisor if signed and negative
-    let divisorNeg := Signal.pure 0#32 - divisor
+    let divisorNeg := 0#32 - divisor
     let divisorNeedNeg := is_signed &&& divisorSign
     let absDivisor := Signal.mux divisorNeedNeg divisorNeg divisor
 
@@ -171,7 +171,7 @@ def dividerSignal {dom : DomainConfig}
     let rawResult := Signal.mux isRemReg finalRem finalQuot
 
     -- Negate if needed
-    let negResult := Signal.pure 0#32 - rawResult
+    let negResult := 0#32 - rawResult
     let finalResult := Signal.mux negateReg negResult rawResult
 
     -- ====================================================================
@@ -264,7 +264,7 @@ def dividerSignal {dom : DomainConfig}
   -- When done=true, the registers hold the final values
   let finalRem := remainderOut.map (BitVec.extractLsb' 0 32 ·)
   let rawResult := Signal.mux isRemOut finalRem quotientOut
-  let negResult := Signal.pure 0#32 - rawResult
+  let negResult := 0#32 - rawResult
   let result := Signal.mux negateOut negResult rawResult
 
   -- Div-by-zero override

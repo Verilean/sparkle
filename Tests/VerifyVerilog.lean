@@ -17,10 +17,10 @@ Run tests: `lake env lean Tests/VerifyVerilog.lean 2>&1 | grep "✓"`
 
 -- Combinational circuits (no registers, no state)
 def test_add (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 def test_sub (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· - ·) <$> a <*> b
+  a - b
 
 def test_and (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
   (· &&& ·) <$> a <*> b

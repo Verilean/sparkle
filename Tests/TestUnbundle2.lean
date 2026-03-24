@@ -35,7 +35,7 @@ Use .fst and .snd methods which operate on Signal-level tuples:
 -- Uncomment to see the error:
 -- def test_unbundle2_WRONG (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
 --   let (a, b) := unbundle2 input  -- ❌ FAILS: Unbound variable
---   (· + ·) <$> a <*> b
+--   a + b
 
 -- ============================================================================
 -- RIGHT: Use .fst and .snd methods
@@ -44,7 +44,7 @@ Use .fst and .snd methods which operate on Signal-level tuples:
 def test_projection_RIGHT (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain (BitVec 8) :=
   let a := input.fst  -- ✓ Works!
   let b := input.snd  -- ✓ Works!
-  (· + ·) <$> a <*> b
+  a + b
 
 -- ============================================================================
 -- Practical Example: Half Adder
