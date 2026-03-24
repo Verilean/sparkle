@@ -766,7 +766,7 @@ def rv32iSoCBody {dom : DomainConfig}
       (csrAddrHi === 0x3E#8)
 
     -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
-    let sstatusMask := Signal.pure 0x000C0122#32
+    let sstatusMask : Signal dom (BitVec 32) := Signal.pure 0x000C0122#32
     let sstatusView := mstatusReg &&& sstatusMask
 
     -- CSR read mux (expanded with S-mode CSRs)
