@@ -545,10 +545,10 @@ private def emitRegNameSwitch (regs : List (String × Nat)) : String :=
     s!"            case {i}: return \"{sName}\";"
   String.intercalate "\n" cases
 
-/-- Generate set_input switch cases from Module.inputs (skip clk/rst) -/
+/-- Generate set_input switch cases from Module.inputs (skip clk only) -/
 private def emitSetInputSwitch (inputs : List Port) : String :=
   let userInputs := inputs.filter fun (p : Port) =>
-    p.name != "clk" && p.name != "rst"
+    p.name != "clk"
   let indexed := (List.range userInputs.length).zip userInputs
   let cases := indexed.map fun (i, p) =>
     let sName := sanitizeName p.name
@@ -648,7 +648,7 @@ def toCppSimJIT (d : Design)
   | some m =>
     let className := sanitizeName m.name
     let userInputs := m.inputs.filter fun (p : Port) =>
-      p.name != "clk" && p.name != "rst"
+      p.name != "clk"
     let numInputs := userInputs.length
     let numOutputs := countOutputSlots m.outputs
     let setInputCases := emitSetInputSwitch m.inputs

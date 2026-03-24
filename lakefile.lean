@@ -136,6 +136,10 @@ lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
 
+lean_exe «verilog-sim-example» where
+  root := `Examples.SVParser.VerilogSim
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests

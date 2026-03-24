@@ -43,6 +43,7 @@ import Tests.Video.H264PipelineTest
 import Tests.Video.H264FrameTest
 import Tests.Video.H264DecoderSynthTest
 import Tests.Video.H264EncoderSynthTest
+import Tests.SVParser.TestVerilogCoSim
 import LSpec
 
 open Sparkle.Core.Domain
@@ -440,5 +441,9 @@ def main : IO UInt32 := do
   let h264DecoderSynthTests ← Sparkle.Tests.Video.H264DecoderSynthTest.allTests
   let h264EncoderSynthTests ← Sparkle.Tests.Video.H264EncoderSynthTest.allTests
   let allTests := allTests ++ dramTests ++ dctTests ++ quantTests ++ cavlcDecTests ++ nalTests ++ intraPredTests ++ h264PipelineTests ++ h264FrameTests ++ h264DecoderSynthTests ++ h264EncoderSynthTests
+
+  -- Verilog co-simulation tests (parse Verilog → JIT → simulate)
+  let verilogCoSimTests ← Sparkle.Tests.SVParser.TestVerilogCoSim.verilogCoSimTests
+  let allTests := allTests ++ verilogCoSimTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []

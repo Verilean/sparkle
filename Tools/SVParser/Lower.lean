@@ -106,8 +106,9 @@ private def indexToConst : SVExpr → Option Nat
   | _ => none
 
 private def isArrayName (name : String) : Bool :=
-  -- Heuristic: names ending in common array patterns or known PicoRV32 arrays
-  name == "cpuregs" || name == "memory" || name.endsWith "_mem" || name.endsWith "_ram"
+  -- Heuristic: names ending in common array patterns or known arrays
+  name == "cpuregs" || name == "memory" || name == "mem" ||
+  name.endsWith "_mem" || name.endsWith "_ram"
 
 /-- Estimate the bit-width of an SVExpr (for $signed sign-extension). -/
 private def concatWidth : SVExpr → Nat
@@ -644,6 +645,11 @@ def lowerModule (svMod : SVModule) : Except String Module := do
     { name := p.name, ty := widthToHWType p.width : Port }
   let allPortNames := inputs.map (·.name) ++ outputs.map (·.name)
 
+  -- Collect array register names (memory arrays, not scalar registers)
+  let arrayRegNames := svMod.items.filterMap fun item => match item with
+    | .regDecl name _ (some _) => some name
+    | _ => none
+
   -- Helper: check if a wire name is already declared
   let wireExists := fun (wires : List Port) (name : String) =>
     wires.any (·.name == name) || allPortNames.any (· == name)
@@ -727,8 +733,9 @@ def lowerModule (svMod : SVModule) : Except String Module := do
         if !(wireExists wires sigName) then
           wires := wires ++ [{ name := sigName, ty := .bitVector 32 }]  -- default 32-bit
 
-      -- Collect all register names and build mux from full always body
-      let regNames := (collectAllRegNames stmts).eraseDups
+      -- Collect all register names (exclude array regs handled by Stmt.memory)
+      let regNames := (collectAllRegNames stmts).eraseDups.filter
+        fun n => !arrayRegNames.any (· == n)
       for regName in regNames do
         let hwTy := env.getHWType regName
         let initVal := match initMap.find? (·.1 == regName) with
