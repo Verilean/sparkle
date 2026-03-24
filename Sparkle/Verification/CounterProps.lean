@@ -10,6 +10,7 @@
 -/
 
 import Tools.SVParser.Macro
+import Sparkle.Core.JIT
 
 -- ============================================================================
 -- Verilog source → compiled into Lean definitions at elaboration time
