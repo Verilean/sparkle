@@ -129,7 +129,7 @@ def macStage (weights : Array Int) (activations : Array (Signal dom (BitVec n)))
       if w == 1 then
         results := results.push activations[i]!
       else if w == -1 then
-        let neg := (fun x => 0 - x) <$> activations[i]!
+        let neg := -activations[i]!
         results := results.push neg
   return results
 
@@ -157,7 +157,7 @@ def dynamicMACStage (weightCodes : Array (Signal dom (BitVec 2)))
     if i < activations.size then
       let wCode := weightCodes[i]!
       let act := activations[i]!
-      let neg := (fun x => 0 - x) <$> act
+      let neg := -act
       let isPosOne := wCode === 0b10#2
       let isNegOne := wCode === 0b00#2
       -- If +1: act, if -1: neg, else: 0

@@ -46,13 +46,13 @@ def aluSignal {dom : DomainConfig}
   let xorR := a ^^^ b
   -- RV32I spec: shift amount uses only the lower 5 bits of b
   let shamt := b &&& 0x1F#32
-  let sllR := (· <<< ·) <$> a <*> shamt
-  let srlR := (· >>> ·) <$> a <*> shamt
-  let sraR := (ashr · ·) <$> a <*> shamt
+  let sllR := a <<< shamt
+  let srlR := a >>> shamt
+  let sraR := Signal.ashr a shamt
   -- SLT/SLTU: compare and produce 0 or 1
-  let sltCond  := (BitVec.slt · ·) <$> a <*> b
+  let sltCond  := Signal.slt a b
   let sltR     := Signal.mux sltCond (Signal.pure 1#32) (Signal.pure 0#32)
-  let sltuCond := (BitVec.ult · ·) <$> a <*> b
+  let sltuCond := Signal.ult a b
   let sltuR    := Signal.mux sltuCond (Signal.pure 1#32) (Signal.pure 0#32)
   -- Mux tree: select result based on op code
   let isOp0 := op === 0#4   -- ADD
@@ -96,11 +96,11 @@ def branchCompSignal {dom : DomainConfig}
     : Signal dom Bool :=
   -- Compute all comparison results
   let beq  := a === b
-  let bne  := (fun eq => !eq) <$> beq
-  let blt  := (BitVec.slt · ·) <$> a <*> b
-  let bge  := (fun lt => !lt) <$> blt
-  let bltu := (BitVec.ult · ·) <$> a <*> b
-  let bgeu := (fun lt => !lt) <$> bltu
+  let bne  := ~~~beq
+  let blt  := Signal.slt a b
+  let bge  := ~~~blt
+  let bltu := Signal.ult a b
+  let bgeu := ~~~bltu
   -- Mux tree: select condition based on funct3
   let f3is0 := funct3 === 0#3  -- BEQ
   let f3is1 := funct3 === 1#3  -- BNE

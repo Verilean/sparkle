@@ -720,9 +720,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let jalrTarget := jalrSum &&& 0xFFFFFFFE#32
     let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
 
-    let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
+    let hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
     let hiEq := mtimeHiReg === mtimecmpHiReg
-    let loGe := ~~~((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
+    let loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
     let timerIrq := hiGt ||| (hiEq &&& loGe)
     let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
@@ -834,13 +834,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
     let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
-    let medelegShifted := (· >>> ·) <$> medelegReg <*> causeIdxExt
+    let medelegShifted := medelegReg >>> causeIdxExt
     let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-    let midelegShifted := (· >>> ·) <$> midelegReg <*> causeIdxExt
+    let midelegShifted := midelegReg >>> causeIdxExt
     let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let delegated := Signal.mux isInterrupt midelegBit medelegBit
     -- Trap goes to S if delegated AND priv ≤ S
-    let privGtS := (BitVec.ult · ·) <$> Signal.pure 1#2 <*> privMode
+    let privGtS := Signal.ult (Signal.pure 1#2) privMode
     let privLeS := ~~~privGtS
     let trapToS := trap_taken &&& (delegated &&& privLeS)
     let trapToM := trap_taken &&& (~~~trapToS)
@@ -1128,7 +1128,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let csrIsRC := csrF3Low === 0b11#2
     let mkCsrNewVal (oldVal : Signal dom (BitVec 32)) :=
       let rsVal := oldVal ||| csrWdata
-      let rcVal := oldVal &&& ((fun x => ~~~ x) <$> csrWdata)
+      let rcVal := oldVal &&& (~~~csrWdata)
       Signal.mux csrIsRW csrWdata
         (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
     -- CSR new values (M-mode)
@@ -1156,7 +1156,7 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- SSTATUS write: merge S-mode bits back into mstatus
     let sstatusNewVal  := mkCsrNewVal sstatusView
-    let mstatusNonS := mstatusReg &&& ((fun x => ~~~ x) <$> sstatusMask)
+    let mstatusNonS := mstatusReg &&& (~~~sstatusMask)
     let sstatusMasked := sstatusNewVal &&& sstatusMask
     let sstatusWdataOut := mstatusNonS ||| sstatusMasked
     let sstatusWriteActive := idex_isCsr_valid &&& csrIsSstatus
@@ -1169,7 +1169,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Set MPP to current privilege: clear MPP bits, then OR in privMode<<11
     let msSetMPIE_clearMPP := msSetMPIE &&& 0xFFFFE7FF#32
     let privModeExt := (· ++ ·) <$> Signal.pure 0#21 <*> ((· ++ ·) <$> privMode <*> Signal.pure 0#9)
-    let privShifted := (· <<< ·) <$> privModeExt <*> Signal.pure 2#32
+    let privShifted := privModeExt <<< 2#32
     let mstatusTrapMVal := msSetMPIE_clearMPP ||| privShifted
 
     -- S-mode trap: SIE→SPIE, clear SIE, SPP←privMode[0]

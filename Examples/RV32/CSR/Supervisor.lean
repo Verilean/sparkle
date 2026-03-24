@@ -26,7 +26,7 @@ def mkCsrNewVal {dom : DomainConfig}
     (csrWdata oldVal : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
   let rsVal := oldVal ||| csrWdata
-  let rcVal := oldVal &&& ((fun x => ~~~ x) <$> csrWdata)
+  let rcVal := oldVal &&& (~~~csrWdata)
   Signal.mux csrIsRW csrWdata
     (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
 
@@ -171,7 +171,7 @@ def supervisorCsrSignal {dom : DomainConfig}
   -- SSTATUS write-back: merge S-mode bits into mstatus
   let sstatusWr := csrDoWrite &&& isSstatus
   let sstatusNewVal := mkCsrNewVal csrIsRW csrIsRS csrIsRC csrWdata sstatusView
-  let mstatusNonS := mstatusIn &&& ((fun x => ~~~ x) <$> sstatusMask)
+  let mstatusNonS := mstatusIn &&& (~~~sstatusMask)
   let sstatusMasked := sstatusNewVal &&& sstatusMask
   let sstatusWdataOut := mstatusNonS ||| sstatusMasked
 

@@ -74,7 +74,7 @@ def softmaxSignal (scores : Array (Signal dom (BitVec 32)))
     let mut expVals : Array (Signal dom (BitVec 32)) := #[]
     for diff in diffs do
       -- Negate diff to get positive index (diff ≤ 0)
-      let absDiff := (fun x => 0 - x) <$> diff
+      let absDiff := -diff
       -- Lower 8 bits as index
       let idx := absDiff.map (BitVec.extractLsb' 0 8 ·)
       -- Check upper bits for saturation (if |diff| ≥ 256, exp ≈ 0)

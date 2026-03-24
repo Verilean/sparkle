@@ -27,7 +27,7 @@ def mkCsrNewVal {dom : DomainConfig}
     (csrWdata oldVal : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
   let rsVal := oldVal ||| csrWdata
-  let rcVal := oldVal &&& ((fun x => ~~~ x) <$> csrWdata)
+  let rcVal := oldVal &&& (~~~csrWdata)
   Signal.mux csrIsRW csrWdata
     (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
 
@@ -106,15 +106,15 @@ def trapDelegSignal {dom : DomainConfig}
   let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
 
   -- Check delegation bit: (deleg_reg >>> cause_idx)[0]
-  let medelegShifted := (· >>> ·) <$> medelegReg <*> causeIdxExt
+  let medelegShifted := medelegReg >>> causeIdxExt
   let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-  let midelegShifted := (· >>> ·) <$> midelegReg <*> causeIdxExt
+  let midelegShifted := midelegReg >>> causeIdxExt
   let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
 
   let delegated := Signal.mux isInterrupt midelegBit medelegBit
 
   -- Trap goes to S-mode if: delegated AND current_priv ≤ S
-  let privGtS := (BitVec.ult · ·) <$> Signal.pure (BitVec.ofNat 2 privS) <*> privMode
+  let privGtS := Signal.ult (Signal.pure (BitVec.ofNat 2 privS)) privMode
   let privLeS := ~~~privGtS
   let toSmode := trapValid &&& (delegated &&& privLeS)
   let toMmode := trapValid &&& ((fun s => !s) <$> toSmode)

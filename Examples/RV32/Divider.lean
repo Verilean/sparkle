@@ -136,7 +136,7 @@ def dividerSignal {dom : DomainConfig}
     let quotientTopBit33 := (· ++ ·) <$> Signal.pure 0#32 <*> quotientTopBit
 
     -- Shift remainder left by 1
-    let remShifted := (· <<< ·) <$> remainderReg <*> Signal.pure 1#33
+    let remShifted := remainderReg <<< 1#33
     -- OR in the top bit of the quotient (next dividend bit)
     let remWithBit := remShifted ||| quotientTopBit33
 
@@ -152,7 +152,7 @@ def dividerSignal {dom : DomainConfig}
     let newRemainder := Signal.mux trialNonNeg trialSub remWithBit
 
     -- Shift quotient left and OR in the new bit
-    let quotShifted := (· <<< ·) <$> quotientReg <*> Signal.pure 1#32
+    let quotShifted := quotientReg <<< 1#32
     let quotWithBit := quotShifted ||| (Signal.mux trialNonNeg (Signal.pure 1#32) (Signal.pure 0#32))
 
     -- Decrement counter

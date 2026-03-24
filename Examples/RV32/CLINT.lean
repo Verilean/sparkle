@@ -98,9 +98,9 @@ def clintSignal {dom : DomainConfig}
       (Signal.pure 0#32)))))
 
   -- Timer interrupt: mtime >= mtimecmp (unsigned 64-bit comparison)
-  let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
+  let hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
   let hiEq := mtimeHiReg === mtimecmpHiReg
-  let loGe := ~~~((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
+  let loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
   let timerIrq := hiGt ||| (hiEq &&& loGe)
 
   -- Software interrupt: msip[0]

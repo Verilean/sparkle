@@ -37,7 +37,7 @@ def dotProductSignal (qs ks : Array (Signal dom (BitVec 8))) (dkShift : Nat)
   let sum := adderTree products
   -- Scale by 1/sqrt(d_k) via arithmetic shift right
   if dkShift > 0 then
-    (ashr · ·) <$> sum <*> Signal.pure (BitVec.ofNat 32 dkShift)
+    Signal.ashrC sum (BitVec.ofNat 32 dkShift)
   else sum
 
 end Sparkle.Examples.BitNet.Attention

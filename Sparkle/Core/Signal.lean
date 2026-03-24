@@ -275,6 +275,28 @@ def Signal.lt [LT α] [DecidableRel (α := α) (· < ·)] (a b : Signal dom α) 
 def Signal.le [LE α] [DecidableRel (α := α) (· ≤ ·)] (a b : Signal dom α) : Signal dom Bool :=
   (fun x y => decide (x ≤ y)) <$> a <*> b
 
+-- Signed comparison for Signal (BitVec n)
+
+/-- Signed less-than on BitVec signals. -/
+def Signal.slt (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.slt · ·) <$> a <*> b
+
+/-- Unsigned less-than on BitVec signals. -/
+def Signal.ult (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.ult · ·) <$> a <*> b
+
+/-- Arithmetic shift right on BitVec signals. -/
+def Signal.ashr (a b : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  (fun x y => BitVec.sshiftRight x y.toNat) <$> a <*> b
+
+-- Mixed constant variants for slt/ult/ashr
+def Signal.sltC (a : Signal dom (BitVec n)) (b : BitVec n) : Signal dom Bool :=
+  (fun x => BitVec.slt x b) <$> a
+def Signal.ultC (a : Signal dom (BitVec n)) (b : BitVec n) : Signal dom Bool :=
+  (fun x => BitVec.ult x b) <$> a
+def Signal.ashrC (a : Signal dom (BitVec n)) (b : BitVec n) : Signal dom (BitVec n) :=
+  (fun x => BitVec.sshiftRight x b.toNat) <$> a
+
 -- Negation for Signal (BitVec n)
 
 instance : Neg (Signal dom (BitVec n)) where

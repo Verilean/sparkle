@@ -26,7 +26,7 @@ def mkCsrNewVal {dom : DomainConfig}
     (csrWdata oldVal : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
   let rsVal := oldVal ||| csrWdata
-  let rcVal := oldVal &&& ((fun x => ~~~ x) <$> csrWdata)
+  let rcVal := oldVal &&& (~~~csrWdata)
   Signal.mux csrIsRW csrWdata
     (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
 

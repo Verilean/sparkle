@@ -26,7 +26,7 @@ variable {dom : DomainConfig}
 def quantizeInt8Signal (quantShift : Nat) (x : Signal dom (BitVec 32))
     : Signal dom (BitVec 8) :=
   -- Arithmetic shift right by quantShift
-  let shifted := (ashr · ·) <$> x <*> Signal.pure (BitVec.ofNat 32 quantShift)
+  let shifted := Signal.ashrC x (BitVec.ofNat 32 quantShift)
   -- Overall sign bit (bit 31) for saturation direction
   let overallSign := shifted.map (BitVec.extractLsb' 31 1 ·)
   -- Upper 24 bits [31:8]
