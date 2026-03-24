@@ -139,7 +139,7 @@ def h264MP4Encoder {dom : DomainConfig}
     -- ================================================================
     -- Frame encoder sub-module
     -- ================================================================
-    let feStart := isRunEnc &&& ((fun x => !x) <$> feStarted)
+    let feStart := isRunEnc &&& (~~~feStarted)
     let feOutput := h264FrameEncoder feStart
       frameWriteEn frameWriteAddr frameWriteData
       quantMF0 quantMF1 quantMF2 quantF quantShift
@@ -176,7 +176,7 @@ def h264MP4Encoder {dom : DomainConfig}
     let heightLo := heightIn.map (BitVec.extractLsb' 0 8 ·)
 
     -- stsz value: 4 + idrNalSize (as 16-bit, fits in 10 bits + 4)
-    let stszVal16 := (· + ·) <$> (0#6 ++ idrNalSize) <*> Signal.pure 4#16
+    let stszVal16 := (0#6 ++ idrNalSize) + 4#16
     let stszHi := stszVal16.map (BitVec.extractLsb' 8 8 ·)
     let stszLo := stszVal16.map (BitVec.extractLsb' 0 8 ·)
 
@@ -211,7 +211,7 @@ def h264MP4Encoder {dom : DomainConfig}
     -- mdat header: BE32(8 + 4 + idrNalSize) ++ "mdat"
     -- mdat box size = 8 (box header) + 4 (IDR length prefix) + idrNalSize
     -- ================================================================
-    let mdatSize16 := (· + ·) <$> (0#6 ++ idrNalSize) <*> Signal.pure 12#16
+    let mdatSize16 := (0#6 ++ idrNalSize) + 12#16
     let mdatSizeHi := mdatSize16.map (BitVec.extractLsb' 8 8 ·)
     let mdatSizeLo := mdatSize16.map (BitVec.extractLsb' 0 8 ·)
 
@@ -258,7 +258,7 @@ def h264MP4Encoder {dom : DomainConfig}
     -- romIdx: increment during EMIT_ROM
     let romIdxNext := hw_cond romIdx
       | startAndIdle => (0#10 : Signal dom _)
-      | (isEmitROM &&& ((fun x => !x) <$> romDone)) => romIdx + 1#10
+      | (isEmitROM &&& (~~~romDone)) => romIdx + 1#10
 
     -- bufWrPtr: increment when buffering IDR bytes
     let bufWrPtrNext := hw_cond bufWrPtr
@@ -268,7 +268,7 @@ def h264MP4Encoder {dom : DomainConfig}
     -- bufRdPtr: increment during EMIT_IDR_DATA
     let bufRdPtrNext := hw_cond bufRdPtr
       | startAndIdle => (0#10 : Signal dom _)
-      | (isEmitIDRDat &&& ((fun x => !x) <$> idrDataDone)) =>
+      | (isEmitIDRDat &&& (~~~idrDataDone)) =>
           bufRdPtr + 1#10
 
     -- totalH264: count all bytes from frame encoder
@@ -310,7 +310,7 @@ def h264MP4Encoder {dom : DomainConfig}
       (Signal.pure 0#8))))
 
     let outValidNext := isEmitROM ||| isEmitMdatH ||| isEmitIDRLen |||
-      (isEmitIDRDat &&& ((fun x => !x) <$> idrDataDone))
+      (isEmitIDRDat &&& (~~~idrDataDone))
 
     let doneNext := isDone
 

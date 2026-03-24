@@ -143,7 +143,7 @@ def encoderPipeline {dom : DomainConfig}
     let predVal := Signal.memoryComboRead predWriteAddr predWriteData predWriteEn readAddr4
 
     -- Residual = original - predicted (signed 16-bit)
-    let residVal := (· - ·) <$> origVal <*> predVal
+    let residVal := origVal - predVal
 
     -- Residual memory (written in residual phase, combo-read in DCT row phase)
     let residWrEn := isResid
@@ -170,9 +170,9 @@ def encoderPipeline {dom : DomainConfig}
     let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
     -- Row read: addr = grp*4 + subLo
-    let dctRowAddr := (· + ·) <$> ((· * ·) <$> grp4 <*> Signal.pure 4#4) <*> subLo4
+    let dctRowAddr := (grp4 * 4#4) + subLo4
     -- Col read: addr = subLo*4 + grp
-    let dctColAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4) <*> grp4
+    let dctColAddr := (subLo4 * 4#4) + grp4
     let dctAddr := Signal.mux isDctRow dctRowAddr dctColAddr
 
     -- Residual memory read for DCT row phase (combo-read at dctAddr)
@@ -186,19 +186,19 @@ def encoderPipeline {dom : DomainConfig}
 
     -- Forward DCT butterfly computation
     -- s0 = v0+v3, s1 = v1+v2, d0 = v0-v3, d1 = v1-v2
-    let s0 := (· + ·) <$> v0 <*> v3
-    let s1 := (· + ·) <$> v1 <*> v2
-    let d0 := (· - ·) <$> v0 <*> v3
-    let d1 := (· - ·) <$> v1 <*> v2
+    let s0 := v0 + v3
+    let s1 := v1 + v2
+    let d0 := v0 - v3
+    let d1 := v1 - v2
 
     -- Y0 = s0+s1, Y1 = 2*d0+d1, Y2 = s0-s1, Y3 = d0-2*d1
-    let d0x2 := (· + ·) <$> d0 <*> d0
-    let d1x2 := (· + ·) <$> d1 <*> d1
+    let d0x2 := d0 + d0
+    let d1x2 := d1 + d1
 
-    let y0 := (· + ·) <$> s0 <*> s1
-    let y1 := (· + ·) <$> d0x2 <*> d1
-    let y2 := (· - ·) <$> s0 <*> s1
-    let y3 := (· - ·) <$> d0 <*> d1x2
+    let y0 := s0 + s1
+    let y1 := d0x2 + d1
+    let y2 := s0 - s1
+    let y3 := d0 - d1x2
 
     -- Select output based on substep (same butterfly for both row and col)
     let butterflyOut := hw_cond y0
@@ -233,7 +233,7 @@ def encoderPipeline {dom : DomainConfig}
     -- Sign handling
     let qSignBit := quantInput.map (BitVec.extractLsb' 15 1 ·)
     let qIsNeg := qSignBit === 1#1
-    let qNegCoeff := (· - ·) <$> Signal.pure 0#16 <*> quantInput
+    let qNegCoeff := 0#16 - quantInput
     let qAbsCoeff := Signal.mux qIsNeg qNegCoeff quantInput
     let qAbsCoeff32 := 0#16 ++ qAbsCoeff
 
@@ -242,7 +242,7 @@ def encoderPipeline {dom : DomainConfig}
     let qIdxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)
     let qRowOdd := qIdxBit2 === 1#1
     let qColOdd := qIdxBit0 === 1#1
-    let qBothEven := ((fun x => !x) <$> qRowOdd) &&& ((fun x => !x) <$> qColOdd)
+    let qBothEven := (~~~qRowOdd) &&& (~~~qColOdd)
     let qBothOdd := qRowOdd &&& qColOdd
 
     -- MF values: selected from input ports by position class
@@ -251,16 +251,16 @@ def encoderPipeline {dom : DomainConfig}
                      quantMF2)
 
     -- product = absCoeff * MF + f (from input port)
-    let qProduct := (· * ·) <$> qAbsCoeff32 <*> mfVal
-    let qWithF := (· + ·) <$> qProduct <*> quantF
+    let qProduct := qAbsCoeff32 * mfVal
+    let qWithF := qProduct + quantF
 
     -- Variable shift right by qbits from input port
     let quantShift32 := 0#27 ++ quantShift
-    let qShifted := (· >>> ·) <$> qWithF <*> quantShift32
+    let qShifted := qWithF >>> quantShift32
     let qLevel16 := qShifted.map (BitVec.extractLsb' 0 16 ·)
 
     -- Restore sign
-    let qNegLevel := (· - ·) <$> Signal.pure 0#16 <*> qLevel16
+    let qNegLevel := 0#16 - qLevel16
     let qResult := Signal.mux qIsNeg qNegLevel qLevel16
 
     -- Output quantized levels memory (written in quant phase)
@@ -400,7 +400,7 @@ def encoderPipelineV2 {dom : DomainConfig}
     let predVal := Signal.memoryComboRead predWriteAddr predWriteData predWriteEn readAddr4
 
     -- Residual = original - predicted (signed 16-bit)
-    let residVal := (· - ·) <$> origVal <*> predVal
+    let residVal := origVal - predVal
 
     -- Residual memory (written in residual phase, combo-read in DCT row phase)
     let residWrEn := isResid
@@ -421,8 +421,8 @@ def encoderPipelineV2 {dom : DomainConfig}
     let grp4 := 0#2 ++ (grpIdx.map (BitVec.extractLsb' 0 2 ·))
     let subLo4 := 0#2 ++ (substep.map (BitVec.extractLsb' 0 2 ·))
 
-    let dctRowAddr := (· + ·) <$> ((· * ·) <$> grp4 <*> Signal.pure 4#4) <*> subLo4
-    let dctColAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4) <*> grp4
+    let dctRowAddr := (grp4 * 4#4) + subLo4
+    let dctColAddr := (subLo4 * 4#4) + grp4
     let dctAddr := Signal.mux isDctRow dctRowAddr dctColAddr
 
     let residReadAddr := Signal.mux (isDctRow &&& isDctReading) dctAddr (Signal.pure 0#4)
@@ -431,18 +431,18 @@ def encoderPipelineV2 {dom : DomainConfig}
     let dctInterWrEn := isDctRow &&& isDctWriting
     let dctOutWrEn := isDctCol &&& isDctWriting
 
-    let s0 := (· + ·) <$> v0 <*> v3
-    let s1 := (· + ·) <$> v1 <*> v2
-    let d0 := (· - ·) <$> v0 <*> v3
-    let d1 := (· - ·) <$> v1 <*> v2
+    let s0 := v0 + v3
+    let s1 := v1 + v2
+    let d0 := v0 - v3
+    let d1 := v1 - v2
 
-    let d0x2 := (· + ·) <$> d0 <*> d0
-    let d1x2 := (· + ·) <$> d1 <*> d1
+    let d0x2 := d0 + d0
+    let d1x2 := d1 + d1
 
-    let y0 := (· + ·) <$> s0 <*> s1
-    let y1 := (· + ·) <$> d0x2 <*> d1
-    let y2 := (· - ·) <$> s0 <*> s1
-    let y3 := (· - ·) <$> d0 <*> d1x2
+    let y0 := s0 + s1
+    let y1 := d0x2 + d1
+    let y2 := s0 - s1
+    let y3 := d0 - d1x2
 
     let butterflyOut := hw_cond y0
       | isSub4 => y0
@@ -467,7 +467,7 @@ def encoderPipelineV2 {dom : DomainConfig}
 
     let qSignBit := quantInput.map (BitVec.extractLsb' 15 1 ·)
     let qIsNeg := qSignBit === 1#1
-    let qNegCoeff := (· - ·) <$> Signal.pure 0#16 <*> quantInput
+    let qNegCoeff := 0#16 - quantInput
     let qAbsCoeff := Signal.mux qIsNeg qNegCoeff quantInput
     let qAbsCoeff32 := 0#16 ++ qAbsCoeff
 
@@ -475,21 +475,21 @@ def encoderPipelineV2 {dom : DomainConfig}
     let qIdxBit2 := idx.map (BitVec.extractLsb' 2 1 ·)
     let qRowOdd := qIdxBit2 === 1#1
     let qColOdd := qIdxBit0 === 1#1
-    let qBothEven := ((fun x => !x) <$> qRowOdd) &&& ((fun x => !x) <$> qColOdd)
+    let qBothEven := (~~~qRowOdd) &&& (~~~qColOdd)
     let qBothOdd := qRowOdd &&& qColOdd
 
     let mfVal := Signal.mux qBothEven quantMF0
                    (Signal.mux qBothOdd quantMF1
                      quantMF2)
 
-    let qProduct := (· * ·) <$> qAbsCoeff32 <*> mfVal
-    let qWithF := (· + ·) <$> qProduct <*> quantF
+    let qProduct := qAbsCoeff32 * mfVal
+    let qWithF := qProduct + quantF
 
     let quantShift32 := 0#27 ++ quantShift
-    let qShifted := (· >>> ·) <$> qWithF <*> quantShift32
+    let qShifted := qWithF >>> quantShift32
     let qLevel16 := qShifted.map (BitVec.extractLsb' 0 16 ·)
 
-    let qNegLevel := (· - ·) <$> Signal.pure 0#16 <*> qLevel16
+    let qNegLevel := 0#16 - qLevel16
     let qResult := Signal.mux qIsNeg qNegLevel qLevel16
 
     -- V2 change: use memoryComboRead with quantReadAddr, pipe through state register

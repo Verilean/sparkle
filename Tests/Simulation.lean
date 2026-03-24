@@ -18,7 +18,7 @@ def testCombinational : IO Unit := do
 
   let sum := a + b
   let diff := a - b
-  let prod := (· * ·) <$> a <*> b
+  let prod := a * b
 
   assert! sum.atTime 0 == 8#8
   assert! diff.atTime 0 == 2#8

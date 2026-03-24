@@ -133,7 +133,7 @@ def dequantModule {dom : DomainConfig}
     let isNeg := signBit === 1#1
 
     -- 2. Absolute value via 2's complement negation
-    let negLevel := (· - ·) <$> Signal.pure 0#16 <*> inputLevel
+    let negLevel := 0#16 - inputLevel
     let absLevel := Signal.mux isNeg negLevel inputLevel
 
     -- 3. Widen to 32 bits for multiplication
@@ -157,7 +157,7 @@ def dequantModule {dom : DomainConfig}
     let _ := idxBit3
 
     -- posClass: 0 = both even, 1 = both odd, 2 = mixed
-    let bothEven := ((fun x => !x) <$> rowOdd) &&& ((fun x => !x) <$> colOdd)
+    let bothEven := (~~~rowOdd) &&& (~~~colOdd)
     let bothOdd := rowOdd &&& colOdd
 
     -- V*scale: selected from input ports by position class
@@ -166,11 +166,11 @@ def dequantModule {dom : DomainConfig}
                       vscale2)
 
     -- 5. Multiply: dequant = absLevel * vscale
-    let product := (· * ·) <$> absLevel32 <*> vscale
+    let product := absLevel32 * vscale
     let dequant16 := product.map (BitVec.extractLsb' 0 16 ·)
 
     -- 6. Restore sign
-    let negDequant := (· - ·) <$> Signal.pure 0#16 <*> dequant16
+    let negDequant := 0#16 - dequant16
     let result := Signal.mux isNeg negDequant dequant16
 
     -- Write result to output memory

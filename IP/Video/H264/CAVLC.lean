@@ -551,9 +551,7 @@ private def cavlcBody {dom : DomainConfig}
     -- Truncate to 32-bit for FSM state (only top 32 bits matter for ≤32 bit outputs)
     let buf32 : BitVec 32 := BitVec.ofNat 32 (buf64.toNat >>> 32)
     (buf32, BitVec.ofNat 6 pos)
-  ) <$> totalCoeff <*> Signal.map (BitVec.zeroExtend 5) trailingOnes
-    <*> totalZeros <*> t1Signs
-    <*> nzPos0 <*> nzPos1 <*> nzPos2
+  ) <$> totalCoeff <*> Signal.map (BitVec.zeroExtend 5) trailingOnes <*> totalZeros <*> t1Signs <*> nzPos0 <*> nzPos1 <*> nzPos2
 
   let encodedBuf := Signal.fst encodedResult
   let encodedLen := Signal.snd encodedResult

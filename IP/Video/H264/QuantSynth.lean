@@ -125,7 +125,7 @@ def quantModule {dom : DomainConfig}
     let isNeg := signBit === 1#1
 
     -- 2. Absolute value via 2's complement negation
-    let negCoeff := (· - ·) <$> Signal.pure 0#16 <*> inputCoeff
+    let negCoeff := 0#16 - inputCoeff
     let absCoeff := Signal.mux isNeg negCoeff inputCoeff
 
     -- 3. Widen to 32 bits for multiplication
@@ -143,7 +143,7 @@ def quantModule {dom : DomainConfig}
     let colOdd := idxBit0 === 1#1
 
     -- posClass: 0 = both even, 1 = both odd, 2 = mixed
-    let bothEven := ((fun x => !x) <$> rowOdd) &&& ((fun x => !x) <$> colOdd)
+    let bothEven := (~~~rowOdd) &&& (~~~colOdd)
     let bothOdd := rowOdd &&& colOdd
 
     -- MF values: selected from input ports by position class
@@ -152,18 +152,18 @@ def quantModule {dom : DomainConfig}
                      quantMF2)
 
     -- 5. Multiply: product = absCoeff * MF
-    let product := (· * ·) <$> absCoeff32 <*> mfVal
+    let product := absCoeff32 * mfVal
 
     -- 6. Add rounding offset from input port
-    let withF := (· + ·) <$> product <*> quantF
+    let withF := product + quantF
 
     -- 7. Variable shift right by qbits from input port
     let quantShift32 := 0#27 ++ quantShift
-    let shifted := (· >>> ·) <$> withF <*> quantShift32
+    let shifted := withF >>> quantShift32
     let level16 := shifted.map (BitVec.extractLsb' 0 16 ·)
 
     -- 8. Restore sign
-    let negLevel := (· - ·) <$> Signal.pure 0#16 <*> level16
+    let negLevel := 0#16 - level16
     let result := Signal.mux isNeg negLevel level16
 
     -- Write result to output memory

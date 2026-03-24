@@ -21,7 +21,7 @@ open Sparkle.Core.Signal
 -- ============================================================================
 
 def test_shl (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· <<< ·) <$> a <*> b
+  a <<< b
 
 #synthesizeVerilog test_shl
 
@@ -30,7 +30,7 @@ def test_shl (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
 -- ============================================================================
 
 def test_shr (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· >>> ·) <$> a <*> b
+  a >>> b
 
 #synthesizeVerilog test_shr
 

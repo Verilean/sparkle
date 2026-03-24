@@ -87,25 +87,25 @@ def quantDequantSynth {dom : DomainConfig}
     let isNeg := signBit === 1#1
 
     -- 2. Absolute value via 2's complement negation
-    let negCoeff := (· - ·) <$> Signal.pure 0#16 <*> inputCoeff
+    let negCoeff := 0#16 - inputCoeff
     let absCoeff := Signal.mux isNeg negCoeff inputCoeff
 
     -- 3. Widen to 32 bits for multiplication
     let absCoeff32 := 0#16 ++ absCoeff
 
     -- 4. Forward quantization: level = (absCoeff * 13107 + 5461) >> 15
-    let product := (· * ·) <$> absCoeff32 <*> Signal.pure 13107#32
+    let product := absCoeff32 * 13107#32
     let rounded := product + 5461#32
     let level16 := rounded.map (BitVec.extractLsb' 15 16 ·)
 
     -- 5. Inverse dequantization: dequant = (level * 10 + 2) >> 2
     let level32 := 0#16 ++ level16
-    let dequantRaw := (· * ·) <$> level32 <*> Signal.pure 10#32
+    let dequantRaw := level32 * 10#32
     let dequantRounded := dequantRaw + 2#32
     let dequant16 := dequantRounded.map (BitVec.extractLsb' 2 16 ·)
 
     -- 6. Restore sign
-    let negDequant := (· - ·) <$> Signal.pure 0#16 <*> dequant16
+    let negDequant := 0#16 - dequant16
     let result := Signal.mux isNeg negDequant dequant16
 
     -- Write result to output memory (write during PROCESS, read addr 0 for state capture)

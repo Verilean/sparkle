@@ -99,7 +99,7 @@ def reconstructModule {dom : DomainConfig}
 
     -- Add predicted (unsigned, zero-extended) + residual (signed)
     -- Both are 16-bit; the sum may overflow, so we need signed comparison
-    let sumVal := (· + ·) <$> predVal <*> resVal
+    let sumVal := predVal + resVal
 
     -- Clamp to [0, 255]:
     -- Check if negative (sign bit = 1) → clamp to 0
@@ -111,8 +111,8 @@ def reconstructModule {dom : DomainConfig}
 
     -- Check if > 255: if not negative and upper byte (bits 15:8) is non-zero
     let upperByte := sumVal.map (BitVec.extractLsb' 8 8 ·)
-    let upperNonZero := (fun x => !x) <$> (upperByte === 0#8)
-    let isOver255 := ((fun x => !x) <$> isNegative) &&& upperNonZero
+    let upperNonZero := ~~~(upperByte === 0#8)
+    let isOver255 := (~~~isNegative) &&& upperNonZero
 
     -- Clamped result
     let clampedVal := Signal.mux isNegative (Signal.pure 0#16)

@@ -97,7 +97,7 @@ def nalStreamModule {dom : DomainConfig}
     let scDone := isSC &&& (scIdx === (2#2 : Signal dom _))
 
     -- NAL header byte: (ref_idc << 5) | type
-    let headerByte := (· ||| ·) <$> ((· <<< ·) <$> nalRefIdc <*> Signal.pure 5#8) <*> nalType
+    let headerByte := (nalRefIdc <<< 5#8) ||| nalType
 
     -- Emulation prevention detection:
     -- After two consecutive 0x00 bytes, if next byte <= 0x03, insert 0x03
@@ -107,7 +107,7 @@ def nalStreamModule {dom : DomainConfig}
     let needEPB := isPay &&& inputValid &&& (zeroCount === 2#2) &&& inputIsLowByte
 
     -- Zero count tracking
-    let inputIsZero := (· == ·) <$> inputByte <*> Signal.pure 0x00#8
+    let inputIsZero := inputByte === 0x00#8
     let zcInc := Signal.mux (zeroCount === 2#2)
       zeroCount
       (zeroCount + 1#2)

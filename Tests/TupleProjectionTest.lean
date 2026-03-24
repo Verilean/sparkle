@@ -54,8 +54,8 @@ def example_4tuple_third (abcd : Signal Domain (BitVec 8 × BitVec 8 × BitVec 8
 -- ============================================================================
 
 def halfAdder (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8 × BitVec 8) :=
-  let sum := (· ^^^ ·) <$> a <*> b
-  let carry := (· &&& ·) <$> a <*> b
+  let sum := a ^^^ b
+  let carry := a &&& b
   bundle2 sum carry
 
 def addThreeNumbers (a b c : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=

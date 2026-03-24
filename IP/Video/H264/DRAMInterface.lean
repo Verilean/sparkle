@@ -127,7 +127,7 @@ def dramController {dom : DomainConfig}
   -- Write enable: valid AND write
   let writeEn := reqValid &&& reqWrite
   -- Read: valid AND NOT write
-  let readValid := reqValid &&& ((fun x => !x) <$> reqWrite)
+  let readValid := reqValid &&& (~~~reqWrite)
   -- Memory with 1-cycle read latency
   let memData := Signal.memory memAddr reqWData writeEn memAddr
   -- Response: register the read valid and data

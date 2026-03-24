@@ -194,7 +194,7 @@ private def cavlcSynthBody {dom : DomainConfig}
   let t1SignBit0 := t1ShiftedSigns.map (BitVec.extractLsb' 0 1 ·)
   let t1SignBit := ~~~(t1SignBit0 === (0#1 : Signal dom _))
   let t1Code64 := Signal.mux t1SignBit (Signal.pure 1#64) (Signal.pure 0#64)
-  let t1Shift  := (64#7 - bitPos) - Signal.pure 1#7
+  let t1Shift  := (64#7 - bitPos) - 1#7
   let t1Shift64 := 0#57 ++ t1Shift
   let t1Shifted := t1Code64 <<< t1Shift64
   let t1NewBuf := bitBuffer ||| t1Shifted
@@ -218,13 +218,13 @@ private def cavlcSynthBody {dom : DomainConfig}
   let levelSignBit := levelSigned.map (BitVec.extractLsb' 15 1 ·)
   let levelIsNeg := levelSignBit === (1#1 : Signal dom _)
   let levelAbs := Signal.mux levelIsNeg
-    (Signal.pure 0#16 - levelSigned)
+    (0#16 - levelSigned)
     levelSigned
   let levelAbs32 := 0#16 ++ levelAbs
 
   -- levelCode computation
-  let lcPos := (levelAbs32 + levelAbs32) - Signal.pure 2#32
-  let lcNeg := (levelAbs32 + levelAbs32) - Signal.pure 1#32
+  let lcPos := (levelAbs32 + levelAbs32) - 2#32
+  let lcNeg := (levelAbs32 + levelAbs32) - 1#32
   let levelCode0 := Signal.mux levelIsNeg lcNeg lcPos
 
   -- Adjust for first emitted level when T1 < 3
@@ -277,7 +277,7 @@ private def cavlcSynthBody {dom : DomainConfig}
   let prefixBits7 := 0#1 ++ prefixBits6
 
   -- Normal suffix: levelCode & ((1 << suffixLen) - 1)
-  let slMask := (Signal.pure 1#32 - slExt) <<< Signal.pure 1#32
+  let slMask := (Signal.pure 1#32 - slExt) <<< 1#32
   let normalSuffix := levelCode &&& slMask
   -- Escape suffix: levelCode - 15*(1 << suffixLen)  (works for suffixLen=0 too: lc-15)
   let shifted15 := Signal.pure 15#32 <<< slExt
@@ -303,7 +303,7 @@ private def cavlcSynthBody {dom : DomainConfig}
 
   -- Emit suffix (if any)
   let suffix64 := 0#32 ++ correctedSuffix
-  let sfxShift := ((· - ·) <$> Signal.pure 64#7 - lvlPos1) <*> correctedSuffBits7
+  let sfxShift := (Signal.pure 64#7 - lvlPos1) - correctedSuffBits7
   let sfxShift64 := 0#57 ++ sfxShift
   let sfxCode := suffix64 <<< sfxShift64
   let lvlBuf2 := lvlBuf1 ||| sfxCode
@@ -365,7 +365,7 @@ private def cavlcSynthBody {dom : DomainConfig}
   -- prevPos starts as the "higher" position from RB_INIT
   -- ================================================================
   -- run_before = prevPos - curPos - 1 (prevPos is the later/higher position)
-  let runBefore := (prevPos - curPos) - Signal.pure 1#5
+  let runBefore := (prevPos - curPos) - 1#5
   -- Table address = (zerosLeft - 1) * 7 + runBefore
   -- rbTableData already has the result at this address
   let rbCode := rbTableData.map (BitVec.extractLsb' 0 16 ·)
@@ -472,9 +472,9 @@ private def cavlcSynthBody {dom : DomainConfig}
     | isScan       => trailingOnes
 
   -- t1Signs (shift register for trailing one signs, hold after scan)
-  let shiftedSigns := t1Signs <<< Signal.pure 1#3
+  let shiftedSigns := t1Signs <<< 1#3
   let newSignBit := Signal.mux dataSign
-    (shiftedSigns ||| Signal.pure 1#3)
+    (shiftedSigns ||| 1#3)
     shiftedSigns
   let t1SignsNext := hw_cond t1Signs
     | startAndIdle => (0#3 : Signal dom _)
@@ -692,10 +692,10 @@ def cavlcSynthModule {dom : DomainConfig}
     -- Read address = nCBase + totalCoeff * 4 + trailingOnes (9-bit)
     -- nCBase = nCTableSelect * 68
     let nCSel9 := 0#7 ++ nCTableSelect
-    let nCBase9 := (· * ·) <$> nCSel9 <*> Signal.pure 68#9
+    let nCBase9 := nCSel9 * 68#9
     let tc9 := 0#4 ++ totalCoeff
     let t1_9 := 0#6 ++ trailingOnes
-    let ctAddr := nCBase9 + (((· * ·) <$> tc9 + Signal.pure 4#9) <*> t1_9)
+    let ctAddr := nCBase9 + ((tc9 + 4#9) * t1_9)
     let ctReadAddr := Signal.mux isEmitCT ctAddr (Signal.pure 0#9)
     let ctTableData := Signal.memoryComboRead ctTableWriteAddr ctTableWriteData ctTableWriteEn ctReadAddr
 
@@ -704,7 +704,7 @@ def cavlcSynthModule {dom : DomainConfig}
     let tcMinus1 := totalCoeff - 1#5
     let tcm7 := 0#2 ++ tcMinus1
     let tz7 := 0#2 ++ totalZeros
-    let tzAddr := ((· * ·) <$> tcm7 + Signal.pure 16#7) <*> tz7
+    let tzAddr := (tcm7 + 16#7) * tz7
     let tzReadAddr := Signal.mux isEmitTZ tzAddr (Signal.pure 0#7)
     let tzTableData := Signal.memoryComboRead tzTableWriteAddr tzTableWriteData tzTableWriteEn tzReadAddr
 
@@ -715,9 +715,9 @@ def cavlcSynthModule {dom : DomainConfig}
     let zlm6 := zlMinus1.map (BitVec.extractLsb' 0 6 ·)
     let curPos := CAVLCSynthState.curPos state
     let prevPos := CAVLCSynthState.prevPos state
-    let runBefore := (prevPos - curPos) - Signal.pure 1#5
+    let runBefore := (prevPos - curPos) - 1#5
     let rb6 := runBefore.map (BitVec.extractLsb' 0 6 ·)
-    let rbAddr := ((· * ·) <$> zlm6 + Signal.pure 7#6) <*> rb6
+    let rbAddr := (zlm6 + 7#6) * rb6
     let rbReadAddr := Signal.mux isEmitRB rbAddr (Signal.pure 0#6)
     let rbTableData := Signal.memoryComboRead rbTableWriteAddr rbTableWriteData rbTableWriteEn rbReadAddr
 

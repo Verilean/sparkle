@@ -80,7 +80,7 @@ def simulationTests : TestSeq :=
       let b : Signal defaultDomain (BitVec 8) := Signal.pure 3#8
       let sum := a + b
       let diff := a - b
-      let prod := (· * ·) <$> a <*> b
+      let prod := a * b
 
       test "addition works" (sum.atTime 0 == 8#8) $
       test "subtraction works" (diff.atTime 0 == 2#8) $

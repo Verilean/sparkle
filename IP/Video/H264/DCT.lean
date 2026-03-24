@@ -246,7 +246,7 @@ private def dctBody {dom : DomainConfig}
     | rowDone      => Signal.pure true
 
   -- Output signals
-  let validOutNext := isOutput &&& ((fun x => !x) <$> outputDone)
+  let validOutNext := isOutput &&& (~~~outputDone)
   let doneNext := isDone
 
   -- Suppress unused variable warning
@@ -278,7 +278,7 @@ def forwardDCTModule {dom : DomainConfig}
     : Signal dom (Bool × BitVec 16 × Bool) :=
   let loopState := Signal.loop fun state =>
     let fsmState := DCTState.fsmState state
-    let isLoad := (· == ·) <$> fsmState <*> Signal.pure FSM_LOAD
+    let isLoad := fsmState === FSM_LOAD
     let loadIdx := DCTState.loadIdx state
     let memAddr := Signal.mux isLoad
       (.map (BitVec.extractLsb' 0 4) loadIdx) (Signal.pure 0#4)

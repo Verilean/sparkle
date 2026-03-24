@@ -395,6 +395,15 @@ mutual
         let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
         let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
         let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
+        -- Both Signal case: translate directly to concat
+        if isSignal1 && isSignal2 then
+          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let hwType ← inferHWTypeFromSignal exprType
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+          let wireA ← translateExprToWire arg1 "concat_hi" (isTopLevel := false)
+          let wireB ← translateExprToWire arg2 "concat_lo" (isTopLevel := false)
+          CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+          return resWire
         -- Mixed case: one is Signal, one is BitVec constant
         if isSignal1 != isSignal2 then
           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
