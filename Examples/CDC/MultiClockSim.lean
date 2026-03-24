@@ -44,7 +44,7 @@ private def counterBody {dom : DomainConfig}
     (enable : Signal dom Bool) (state : Signal dom CounterState)
     : Signal dom CounterState :=
   let count := CounterState.count state
-  let incCount := (· + ·) <$> count <*> Signal.pure 1#8
+  let incCount := count + 1#8
   let nextCount := Signal.mux enable incCount count
   bundleAll! [
     Signal.register 0#8 nextCount
@@ -78,7 +78,7 @@ private def accBody {dom : DomainConfig}
     (input : Signal dom (BitVec 32)) (state : Signal dom AccState)
     : Signal dom AccState :=
   let acc := AccState.acc state
-  let nextAcc := (· + ·) <$> acc <*> input
+  let nextAcc := acc + input
   bundleAll! [
     Signal.register 0#32 nextAcc
   ]
