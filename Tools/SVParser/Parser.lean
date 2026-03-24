@@ -302,8 +302,12 @@ partial def parsePrimary : P SVExpr := do
     let _ ← nextChar  -- consume $
     let name ← identifier
     lparen; let arg ← parseExpr; rparen
-    -- Treat $signed(x) / $unsigned(x) as just x for now
-    pure arg
+    if name == "signed" then
+      match arg with
+      | .concat _ => pure (SVExpr.unary .signed arg)  -- sign-extend concat immediates
+      | _ => pure arg  -- identity for single wires (already 32-bit)
+    else
+      pure arg
   | some '\'' =>
     -- Unsized literal: 'b0, 'bx, 'h0, etc.
     let _ ← token (matchStr "'")

@@ -25,6 +25,7 @@ inductive SVUnaryOp where
   | neg       -- - (unary minus)
   | reductAnd -- &x (reduction AND)
   | reductOr  -- |x (reduction OR)
+  | signed    -- $signed(x)
   deriving Repr, BEq
 
 /-- Binary operators -/

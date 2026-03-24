@@ -67,6 +67,7 @@ def lowerUnaryOp : SVUnaryOp → Operator
   | .neg       => .neg
   | .reductAnd => .and  -- reduction ops treated as bitwise for now
   | .reductOr  => .or
+  | .signed    => .not  -- unreachable: handled in lowerExpr
 
 def lowerBinOp : SVBinOp → Operator
   | .add    => .add
@@ -108,6 +109,19 @@ private def isArrayName (name : String) : Bool :=
   -- Heuristic: names ending in common array patterns or known PicoRV32 arrays
   name == "cpuregs" || name == "memory" || name.endsWith "_mem" || name.endsWith "_ram"
 
+/-- Estimate the bit-width of an SVExpr (for $signed sign-extension). -/
+private def concatWidth : SVExpr → Nat
+  | .concat args => args.foldl (fun acc a => acc + concatWidth a) 0
+  | .slice _ hi lo => hi - lo + 1
+  | .index _ _ => 1  -- single bit select
+  | .lit (.decimal (some w) _) => w
+  | .lit (.hex (some w) _) => w
+  | .lit (.binary (some w) _) => w
+  | .lit (.decimal none _) => 32
+  | .lit (.hex none _) => 32
+  | .lit (.binary none _) => 1
+  | _ => 32  -- default: assume 32-bit
+
 partial def lowerExpr (e : SVExpr) : Expr :=
   match e with
   | .lit l => literalToConst l
@@ -125,6 +139,16 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   | .unary .bitNot arg =>
     -- Bitwise NOT: ~x → XOR with all-ones (avoids confusion with logical NOT in IR)
     .op .xor [lowerExpr arg, .const (-1) 32]
+  | .unary .signed arg =>
+    -- $signed(x): sign-extend concat immediates from their natural width to 32.
+    -- For single wire refs (already 32-bit), pass through unchanged.
+    let innerWidth := concatWidth arg
+    let lowered := lowerExpr arg
+    if innerWidth >= 32 || innerWidth == 0 then lowered
+    else
+      -- Sign extend: shift left then arithmetic shift right
+      let shiftAmt := 32 - innerWidth
+      .op .asr [.op .shl [lowered, .const (Int.ofNat shiftAmt) 32], .const (Int.ofNat shiftAmt) 32]
   | .unary op arg => .op (lowerUnaryOp op) [lowerExpr arg]
   | .binary .neq lhs rhs => .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
   | .binary .logAnd lhs rhs =>
@@ -165,6 +189,20 @@ def exprToName : SVExpr → Option String
   | .ident name => if isArrayName name then none else some name
   | .index (.ident name) _ => if isArrayName name then none else some name
   | .slice (.ident name) _ _ => some name
+  -- Concat LHS handled separately by lowerConcatLhsAssign (needs bit scatter)
+  | _ => none
+
+/-- Extract target name from concat LHS (all elements must reference same register) -/
+def concatLhsName : SVExpr → Option String
+  | .concat elems =>
+    let names := elems.filterMap fun e => match e with
+      | .ident name => some name
+      | .index (.ident name) _ => some name
+      | .slice (.ident name) _ _ => some name
+      | _ => none
+    match names with
+    | name :: rest => if rest.all (· == name) then some name else none
+    | [] => none
   | _ => none
 
 -- ============================================================================
@@ -246,6 +284,35 @@ private def isDontCare : SVExpr → Bool
   | .lit (.hex none 0) => true
   | _ => false
 
+/-- For a concat-LHS assignment like {a[31:20], a[10:1], a[11], a[19:12], a[0]} <= rhs,
+    build the value expression that scatters RHS bits to the correct positions.
+    Returns (targetName, scatteredExpr) or none if not applicable. -/
+private def lowerConcatLhsAssign (lhs : SVExpr) (rhs : SVExpr) : Option (String × Expr) :=
+  match lhs, concatLhsName lhs with
+  | .concat elems, some name =>
+    let fields := elems.filterMap fun e => match e with
+      | .slice (.ident _) hi lo => some (hi, lo)
+      | .index (.ident _) (.lit (.decimal _ idx)) => some (idx, idx)
+      | .ident _ => some (31, 0)
+      | _ => none
+    if fields.length != elems.length then none
+    else
+      let rhsExpr := lowerExpr rhs
+      let totalWidth := fields.foldl (fun acc (hi, lo) => acc + (hi - lo + 1)) 0
+      let (terms, _) := fields.foldl (fun (acc, rhsOff) (hi, lo) =>
+        let w := hi - lo + 1
+        let rhsBit := totalWidth - rhsOff - w
+        let extracted := Expr.slice rhsExpr (rhsBit + w - 1) rhsBit
+        let shifted := if lo == 0 then extracted
+                       else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) 32]
+        (acc ++ [shifted], rhsOff + w)
+      ) ([], 0)
+      let result := terms.foldl (fun acc t =>
+        if acc == Expr.const 0 32 then t else Expr.op .or [acc, t]
+      ) (Expr.const 0 32)
+      some (name, result)
+  | _, _ => none
+
 /-- Build a case arm condition from labels and selector.
     For case(1'b1), labels are direct conditions (priority encoding).
     For normal case, labels are compared against sel. -/
@@ -280,7 +347,11 @@ partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
       if isDontCare rhs then []
       else match exprToName lhs with
         | some name => [{ guard, target := name, value := lowerExpr rhs }]
-        | none => []
+        | none =>
+          -- Try concat-LHS (bit-scatter) assignment
+          match lowerConcatLhsAssign lhs rhs with
+          | some (name, value) => [{ guard, target := name, value }]
+          | none => []
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
       collectGuardedNB thenB (mkAnd guard c) ++
@@ -345,7 +416,9 @@ def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
 partial def collectAllRegNames (stmts : List SVStmt) : List String :=
   stmts.flatMap fun s => match s with
     | .nonblockAssign lhs _ =>
-      match exprToName lhs with | some n => [n] | none => []
+      match exprToName lhs with
+      | some n => [n]
+      | none => match concatLhsName lhs with | some n => [n] | none => []
     | .ifElse _ thenB elseB =>
       collectAllRegNames thenB ++ collectAllRegNames elseB
     | .caseStmt _ arms default_ =>
