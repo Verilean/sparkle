@@ -446,7 +446,7 @@ def h264FrameEncoder {dom : DomainConfig}
     -- RBSP trailing: stop bit + byte alignment
     let trailingBit := isEmitTrail &&& (subPhase === (0#3 : Signal dom _)) &&& notBpGe8
     -- Stop bit at position (63 - pos): shift 0x8000000000000000 right by pos
-    let stopBit := Signal.pure 0x8000000000000000#64 >>> pos64
+    let stopBit := 0x8000000000000000#64 >>> pos64
     let trailBuf := outBitBuf ||| stopBit
     let trailPos := outBitPos + 1#7
     -- Align to byte boundary: (pos+1+7) & ~7 = (pos+1+7) & 0x78
