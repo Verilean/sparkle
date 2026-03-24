@@ -84,8 +84,8 @@ def lowerBinOp : SVBinOp → Operator
   | .le     => .le_u
   | .gt     => .gt_u
   | .ge     => .ge_u
-  | .logAnd => .and
-  | .logOr  => .or
+  | .logAnd => .and  -- unreachable: handled in lowerExpr as (a!=0) & (b!=0)
+  | .logOr  => .or   -- unreachable: handled in lowerExpr as (a!=0) | (b!=0)
 
 def literalToConst : SVLiteral → Expr
   | .decimal (some w) v => .const (Int.ofNat v) w
@@ -119,8 +119,21 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   | .unary .reductOr arg =>
     -- Reduction OR: |x → any bit set → x != 0
     .op .not [.op .eq [lowerExpr arg, .const 0 32]]
+  | .unary .logNot arg =>
+    -- Logical NOT: !x → (x == 0) — reduces multi-bit to bool
+    .op .eq [lowerExpr arg, .const 0 32]
   | .unary op arg => .op (lowerUnaryOp op) [lowerExpr arg]
   | .binary .neq lhs rhs => .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
+  | .binary .logAnd lhs rhs =>
+    -- Logical AND: a && b → (a != 0) & (b != 0) — must reduce multi-bit operands to bool
+    let la := .op .not [.op .eq [lowerExpr lhs, .const 0 32]]
+    let lb := .op .not [.op .eq [lowerExpr rhs, .const 0 32]]
+    .op .and [la, lb]
+  | .binary .logOr lhs rhs =>
+    -- Logical OR: a || b → (a != 0) | (b != 0)
+    let la := .op .not [.op .eq [lowerExpr lhs, .const 0 32]]
+    let lb := .op .not [.op .eq [lowerExpr rhs, .const 0 32]]
+    .op .or [la, lb]
   | .binary op lhs rhs => .op (lowerBinOp op) [lowerExpr lhs, lowerExpr rhs]
   | .ternary cond t el => .op .mux [lowerExpr cond, lowerExpr t, lowerExpr el]
   | .index arr idx =>
@@ -182,17 +195,24 @@ def extractRegisters (resetBranch dataBranch : List SVStmt) : List RegInfo :=
 /-- Detect reset pattern in if/else:
     if (!rst_n) → active-low reset, returns (resetSignal, initBranch, dataBranch)
     if (rst)    → active-high reset -/
+private def hasSubstr (s sub : String) : Bool := (s.splitOn sub).length > 1
+
+def isResetName (name : String) : Bool :=
+  name == "rst" || name == "reset" || name == "resetn" || name == "rst_n" ||
+  name == "arst" || name == "arst_n" ||
+  hasSubstr name "reset" || hasSubstr name "rst"
+
 def detectReset (cond : SVExpr) (thenBranch elseBranch : List SVStmt)
     : Option (String × Bool × List SVStmt × List SVStmt) :=
   match cond with
   | .unary .logNot (.ident rst) =>
     -- if (!rst_n): active-low, then=init, else=data
-    some (rst, false, thenBranch, elseBranch)
+    if isResetName rst then some (rst, false, thenBranch, elseBranch) else none
   | .unary .bitNot (.ident rst) =>
-    some (rst, false, thenBranch, elseBranch)
+    if isResetName rst then some (rst, false, thenBranch, elseBranch) else none
   | .ident rst =>
     -- if (rst): active-high, then=init, else=data
-    some (rst, true, thenBranch, elseBranch)
+    if isResetName rst then some (rst, true, thenBranch, elseBranch) else none
   | _ => none
 
 -- ============================================================================
@@ -443,11 +463,75 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
   return memories ++ sorted ++ registers ++ others
 
 -- ============================================================================
+-- Generate block evaluation
+-- ============================================================================
+
+/-- Try to evaluate an SVExpr to a constant Nat using parameter values.
+    Returns `none` if the expression is too complex to evaluate statically. -/
+partial def evalConstExpr (paramVals : List (String × Nat)) : SVExpr → Option Nat
+  | .lit (.decimal _ v) => some v
+  | .lit (.hex _ v) => some v
+  | .lit (.binary _ v) => some v
+  | .ident name => paramVals.find? (·.1 == name) |>.map (·.2)
+  | .binary .logOr a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (if va != 0 || vb != 0 then 1 else 0)
+  | .binary .logAnd a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (if va != 0 && vb != 0 then 1 else 0)
+  | .binary .bitOr a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (va ||| vb)
+  | .unary .logNot a => do
+    let va ← evalConstExpr paramVals a
+    some (if va == 0 then 1 else 0)
+  | _ => none
+
+/-- Extract parameter default values as (name, value) pairs -/
+def extractParamDefaults (svMod : SVModule) : List (String × Nat) :=
+  let fromParams := svMod.params.filterMap fun p =>
+    match p.value with
+    | .lit (.decimal _ v) => some (p.name, v)
+    | .lit (.hex _ v) => some (p.name, v)
+    | .lit (.binary _ v) => some (p.name, v)
+    | _ => none
+  let fromItems := svMod.items.filterMap fun item =>
+    match item with
+    | .paramDecl p => match p.value with
+      | .lit (.decimal _ v) => some (p.name, v)
+      | .lit (.hex _ v) => some (p.name, v)
+      | .lit (.binary _ v) => some (p.name, v)
+      | _ => none
+    | _ => none
+  fromParams ++ fromItems
+
+/-- Expand generate blocks by evaluating conditions against parameter defaults.
+    Returns the items from the selected branch (recursively for nested generates). -/
+partial def expandGenerateBlocks (paramVals : List (String × Nat))
+    (items : List SVModuleItem) : List SVModuleItem :=
+  items.flatMap fun item =>
+    match item with
+    | .generateBlock cond ifItems elseItems =>
+      let condVal := evalConstExpr paramVals cond |>.getD 0
+      let selectedItems := if condVal != 0 then ifItems else elseItems
+      -- Recursively expand in case of nested generate blocks
+      expandGenerateBlocks paramVals selectedItems
+    | other => [other]
+
+-- ============================================================================
 -- Module lowering
 -- ============================================================================
 
 /-- Lower a single SVModule to Sparkle IR Module -/
 def lowerModule (svMod : SVModule) : Except String Module := do
+  -- Expand generate blocks using parameter defaults
+  let paramVals := extractParamDefaults svMod
+  let expandedItems := expandGenerateBlocks paramVals svMod.items
+  let svMod := { svMod with items := expandedItems }
+
   -- Build environment
   let mut env := LowerEnv.empty
   for p in svMod.ports do
@@ -519,29 +603,30 @@ def lowerModule (svMod : SVModule) : Except String Module := do
       | none => throw "continuous assign LHS must be an identifier"
     | .alwaysBlock (.posedge clock) stmts =>
       -- Sequential: extract all register names, then build mux expression per register
-      -- Detect reset pattern and extract init values
+      -- Detect reset pattern: find first if/else that looks like a reset check
+      -- PicoRV32 has flat assigns before the reset check, so we scan for it
       let mut resetName := "rst"
       let mut initMap : List (String × Nat) := []
-      let mut dataStmts := stmts
-      match stmts with
-      | [.ifElse cond thenB elseB] =>
-        match detectReset cond thenB elseB with
-        | some (resetSig, isActiveHigh, initBranch, dataBranch) =>
-          resetName := if isActiveHigh then resetSig else s!"_rst_{resetSig}_inv"
-          if !isActiveHigh then
-            wires := wires ++ [{ name := resetName, ty := .bit }]
-            body := body ++ [.assign resetName (.op .not [.ref resetSig])]
-          initMap := initBranch.filterMap fun s => match s with
-            | .nonblockAssign lhs (.lit (.decimal _ v)) => (exprToName lhs).map (·, v)
-            | .nonblockAssign lhs (.lit (.hex _ v)) => (exprToName lhs).map (·, v)
-            | .nonblockAssign lhs (.lit (.binary _ v)) => (exprToName lhs).map (·, v)
-            | _ => none
-          dataStmts := dataBranch
-        | none => pure ()
-      | _ => pure ()
+      let resetCheck := stmts.findSome? fun s => match s with
+        | .ifElse cond thenB elseB => detectReset cond thenB elseB
+        | _ => none
+      match resetCheck with
+      | some (resetSig, isActiveHigh, initBranch, _dataBranch) =>
+        resetName := if isActiveHigh then resetSig else s!"_rst_{resetSig}_inv"
+        if !isActiveHigh then
+          wires := wires ++ [{ name := resetName, ty := .bit }]
+          body := body ++ [.assign resetName (.op .not [.ref resetSig])]
+        initMap := initBranch.filterMap fun s => match s with
+          | .nonblockAssign lhs rhs =>
+            match exprToName lhs with
+            | some n => match evalConstExpr paramVals rhs with
+              | some v => some (n, v)
+              | none => none
+            | none => none
+          | _ => none
+      | none => pure ()
 
-      -- Extract blocking assigns as combinational intermediates
-      -- Use full stmts (includes flat assigns before if/else reset check)
+      -- Extract blocking assigns as combinational intermediates (from full always body)
       let blockingNames := (collectBlockNamesTop stmts).eraseDups
       for sigName in blockingNames do
         let expr := stmtsToMuxExprBlocking sigName stmts
@@ -549,16 +634,14 @@ def lowerModule (svMod : SVModule) : Except String Module := do
         if !(wireExists wires sigName) then
           wires := wires ++ [{ name := sigName, ty := .bitVector 32 }]  -- default 32-bit
 
-      -- Collect all register names assigned in the data branch
-      let regNames := (collectAllRegNames dataStmts).eraseDups
-
-      -- For each register, build mux expression from the data branch
+      -- Collect all register names and build mux from full always body
+      let regNames := (collectAllRegNames stmts).eraseDups
       for regName in regNames do
         let hwTy := env.getHWType regName
         let initVal := match initMap.find? (·.1 == regName) with
           | some (_, v) => v
           | none => 0
-        let dataExpr := stmtsToMuxExpr regName dataStmts
+        let dataExpr := stmtsToMuxExpr regName stmts
         body := body ++ [.register regName clock resetName dataExpr initVal]
         if !(wireExists wires regName) then
           wires := wires ++ [{ name := regName, ty := hwTy }]

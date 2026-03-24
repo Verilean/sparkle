@@ -404,19 +404,21 @@ def emitModule (m : Module) (design : Option Design := none)
 
     -- Partition into member wires (observable/JIT) and local wires
     -- Wires referenced in tick() bodies must always be class members
-    let tickRefs := match observableWires with
-      | some _ => collectTickRefWires m.body
-      | none => []
+    let tickRefs := collectTickRefWires m.body
     let memberWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
           ws.contains sn || tickRefs.contains sn
-      | none => internalWires.filter fun (w : Port) => (sanitizeName w.name).startsWith "_gen_"
+      | none => internalWires.filter fun (w : Port) =>
+          let sn := sanitizeName w.name
+          sn.startsWith "_gen_" || tickRefs.contains sn
     let localWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
           !ws.contains sn && !tickRefs.contains sn
-      | none => internalWires.filter fun (w : Port) => !(sanitizeName w.name).startsWith "_gen_"
+      | none => internalWires.filter fun (w : Port) =>
+          let sn := sanitizeName w.name
+          !sn.startsWith "_gen_" && !tickRefs.contains sn
 
     let wireDecls := memberWires.map fun (p : Port) =>
       s!"    {emitCppType p.ty} {sanitizeName p.name};"

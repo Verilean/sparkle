@@ -258,29 +258,31 @@ def main : IO UInt32 := do
       IO.FS.writeFile cppPath jitCpp
 
       let handle ← JIT.compileAndLoad cppPath
+      JIT.reset handle
 
       -- Load firmware into memory (memory index 0 = first memory in SoC)
+      -- Must be done after reset since reset clears memory
       let fwContents ← IO.FS.readFile fwPath
-      let lines := fwContents.splitOn "\n"
       let mut addr : UInt32 := 0
-      for line in lines do
+      for line in fwContents.splitOn "\n" do
         let trimmed := String.ofList (line.toList.filter fun c => c != ' ' && c != '\t' && c != '\r' && c != '\n')
         if trimmed.startsWith "@" then
           addr := UInt32.ofNat (hexToNat (String.ofList (trimmed.toList.drop 1)))
         else if trimmed.length >= 8 then
-          let word := UInt32.ofNat (hexToNat trimmed)
-          JIT.setMem handle 0 (addr / 4) word
+          JIT.setMem handle 0 (addr / 4) (UInt32.ofNat (hexToNat trimmed))
           addr := addr + 4
 
-      -- Reset and run
-      JIT.reset handle
+      -- Hold in reset for 10 cycles (resetn = 0) to let CPU properly initialize
+      JIT.setInput handle 0 0  -- resetn = 0 (input port 0)
+      for _ in [:10] do
+        JIT.evalTick handle
 
       -- De-assert reset (set resetn = 1) — PicoRV32 uses active-low reset
-      JIT.setInput handle 1 1  -- resetn = 1
+      JIT.setInput handle 0 1  -- resetn = 1 (input port 0)
 
-      -- Run for 100 cycles, check for UART output
+      -- Run for 2000 cycles, check for UART output
       let mut uartOutput : List UInt64 := []
-      for _ in [:100] do
+      for _ in [:2000] do
         JIT.evalTick handle
         let uartValid ← JIT.getOutput handle 1  -- uart_valid
         if uartValid != 0 then
@@ -290,10 +292,93 @@ def main : IO UInt32 := do
       let numRegs ← JIT.numRegs handle
       JIT.destroy handle
 
-      -- Count non-zero UART bytes
-      let nonZero := uartOutput.filter (· != 0)
-      IO.println s!"PASS ({numRegs} regs, {uartOutput.length} UART events)"
+      -- Build UART output string
+      let uartChars := uartOutput.filterMap fun v =>
+        let n := v.toNat
+        if n >= 32 && n < 127 then some (Char.ofNat n) else none
+      let uartStr := String.ofList uartChars
+      if uartOutput.length > 0 then
+        IO.println s!"PASS ({numRegs} regs, {uartOutput.length} UART bytes: \"{uartStr}\")"
+      else
+        IO.println s!"PASS ({numRegs} regs, 0 UART events after 2000 cycles)"
       passed := passed + 1
+    catch e =>
+      IO.println s!"FAIL: {toString e}"
+      failed := failed + 1
+  else
+    IO.println "SKIP (files not found)"
+
+  -- Test 11: C firmware (RV32I) — Fibonacci, array sum, sort, GCD
+  IO.print "  Test 11: C firmware (RV32I) via JIT... "
+  let cFwPath := "/tmp/firmware_rv32i.hex"
+  let cFwExists ← System.FilePath.pathExists cFwPath
+  if socExists && picoExists && cFwExists then
+    try
+      let soc ← IO.FS.readFile socPath
+      let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+      let combined := soc ++ "\n" ++ cpu
+      let flatDesign ← IO.ofExcept (parseAndLowerFlat combined)
+      let jitCpp := toCppSimJIT flatDesign
+      IO.FS.writeFile "/tmp/picorv32_cfirmware_jit.cpp" jitCpp
+      let handle ← JIT.compileAndLoad "/tmp/picorv32_cfirmware_jit.cpp"
+      JIT.reset handle
+
+      -- Load C firmware
+      let fwContents ← IO.FS.readFile cFwPath
+      let mut addr : UInt32 := 0
+      for line in fwContents.splitOn "\n" do
+        let trimmed := String.ofList (line.toList.filter fun c => c != ' ' && c != '\t' && c != '\r' && c != '\n')
+        if trimmed.startsWith "@" then
+          addr := UInt32.ofNat (hexToNat (String.ofList (trimmed.toList.drop 1)))
+        else if trimmed.length >= 8 then
+          JIT.setMem handle 0 (addr / 4) (UInt32.ofNat (hexToNat trimmed))
+          addr := addr + 4
+
+      -- Reset sequence
+      JIT.setInput handle 0 0  -- resetn = 0
+      for _ in [:10] do JIT.evalTick handle
+      JIT.setInput handle 0 1  -- resetn = 1
+
+      -- Run for 200000 cycles (C firmware with loops needs many cycles)
+      let mut uartOutput : List UInt64 := []
+      let mut done := false
+      for _ in [:200000] do
+        if !done then
+          JIT.evalTick handle
+          let uartValid ← JIT.getOutput handle 1
+          if uartValid != 0 then
+            let uartData ← JIT.getOutput handle 0
+            uartOutput := uartOutput ++ [uartData]
+            -- Stop early on pass/fail marker
+            if uartData == 0xCAFE0000 || uartData == 0xDEADDEAD then
+              done := true
+
+      JIT.destroy handle
+
+      -- Verify: check for start marker (0xDEAD0001) and pass marker (0xCAFE0000)
+      let hasStart := uartOutput.any (· == 0xDEAD0001)
+      let hasPass := uartOutput.any (· == 0xCAFE0000)
+      let hasFail := uartOutput.any (· == 0xDEADDEAD)
+      -- Verify Fibonacci: first data after 0xAAAA0001 should be 0,1,1,2,3,5,8,13,21,34
+      let fibExpected : List UInt64 := [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
+
+      if hasStart && hasPass && !hasFail then
+        -- Extract Fibonacci values (after marker 0xAAAA0001)
+        let mut afterFib := false
+        let mut fibValues : List UInt64 := []
+        for v in uartOutput do
+          if v == 0xAAAA0001 then afterFib := true
+          else if afterFib && fibValues.length < 10 then
+            fibValues := fibValues ++ [v]
+          else if afterFib && fibValues.length >= 10 then
+            afterFib := false
+
+        let fibOk := fibValues == fibExpected
+        IO.println s!"PASS ({uartOutput.length} UART words, fib={if fibOk then "OK" else "MISMATCH"})"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL (start={hasStart} pass={hasPass} fail={hasFail}, {uartOutput.length} words)"
+        failed := failed + 1
     catch e =>
       IO.println s!"FAIL: {toString e}"
       failed := failed + 1

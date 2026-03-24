@@ -568,20 +568,6 @@ where
     | none =>
       let s ← parseStmt; pure [s]
 
-/-- Skip a generate block — consume tokens until endgenerate.
-    PicoRV32's generate blocks contain optional MUL/DIV extensions. -/
-partial def skipGenerateBlock : P SVModuleItem := do
-  -- Already consumed "generate" keyword
-  let mut depth : Nat := 1
-  while depth > 0 do
-    match ← attempt (keyword "generate") with
-    | some _ => depth := depth + 1
-    | none =>
-      match ← attempt (keyword "endgenerate") with
-      | some _ => depth := depth - 1
-      | none => let _ ← nextChar; pure ()
-  pure (SVModuleItem.generateBlock (SVExpr.lit (.decimal none 0)) [] [])
-
 /-- Parse multiple comma-separated names: `reg [w] a, b, c;` → 3 items -/
 def parseMultiNames (mkItem : String → SVModuleItem) : P (List SVModuleItem) := do
   let first ← identifier
@@ -592,6 +578,53 @@ def parseMultiNames (mkItem : String → SVModuleItem) : P (List SVModuleItem) :
     | some _ => let n ← identifier; items := items ++ [mkItem n]
     | none => cont := false
   semi; pure items
+
+mutual
+
+/-- Parse the items inside one branch of a generate if/else block.
+    Collects items until we see `end` at depth 0. -/
+partial def parseGenerateBranchItems : P (List SVModuleItem) := do
+  keyword "begin"
+  let mut items : List SVModuleItem := []
+  let mut done := false
+  while !done do
+    match ← attempt (keyword "end") with
+    | some _ => done := true
+    | none =>
+      match ← attempt parseModuleItems with
+      | some itemGroup => items := items ++ itemGroup
+      | none =>
+        -- Skip unrecognized token
+        let _ ← nextChar; pure ()
+  pure items
+
+/-- Parse a generate if/else if/else/endgenerate block.
+    Returns generateBlock with condition, if-body, and else-body.
+    Chained `else if` is represented by nesting: else-body contains another generateBlock. -/
+partial def parseGenerateBlock : P (List SVModuleItem) := do
+  -- Already consumed "generate" keyword
+  -- Expect: if (COND) begin ... end [else [if (COND) begin ... end]* [begin ... end]] endgenerate
+  keyword "if"
+  lparen; let cond ← parseExpr; rparen
+  let ifItems ← parseGenerateBranchItems
+  -- Check for else / else if
+  let elseItems ← match ← attempt (keyword "else") with
+    | some _ =>
+      match ← attempt (keyword "if") with
+      | some _ =>
+        -- else if: parse condition and branches, wrap as nested generateBlock
+        lparen; let cond2 ← parseExpr; rparen
+        let ifItems2 ← parseGenerateBranchItems
+        let elseItems2 ← match ← attempt (keyword "else") with
+          | some _ => parseGenerateBranchItems
+          | none => pure []
+        pure [SVModuleItem.generateBlock cond2 ifItems2 elseItems2]
+      | none =>
+        -- plain else
+        parseGenerateBranchItems
+    | none => pure []
+  keyword "endgenerate"
+  pure [SVModuleItem.generateBlock cond ifItems elseItems]
 
 partial def parseModuleItems : P (List SVModuleItem) := do
   match ← attempt (keyword "assign") with
@@ -659,7 +692,7 @@ partial def parseModuleItems : P (List SVModuleItem) := do
             | some _ =>
               let p ← parseParamDecl false; semi; pure [SVModuleItem.paramDecl p]
             | none => match ← attempt (keyword "generate") with
-              | some _ => let item ← skipGenerateBlock; pure [item]
+              | some _ => parseGenerateBlock
               | none => match ← attempt (keyword "initial") with
                 | some _ =>
                   -- Parse initial block — extract $readmemh if present
@@ -764,6 +797,8 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                         | some _ => depth := depth - 1
                         | none => let _ ← nextChar; pure ()
                     pure []
+
+end  -- mutual
 
 -- ============================================================================
 -- Top-level module parsing
