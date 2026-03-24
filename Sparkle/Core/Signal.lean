@@ -214,40 +214,48 @@ instance : HAppend (BitVec m) (Signal dom (BitVec n)) (Signal dom (BitVec (m + n
 -- Mixed Signal/constant operator overloading
 -- Enables: `count + 1#8`, `val &&& 0xFF#8` without explicit Signal.pure
 
+-- Implementation uses (· op ·) <$> a <*> Signal.pure b form so that the
+-- synthesis compiler's Seq.seq + Functor.map pattern recognizes the operation
+-- even inside inlined private function bodies.
+
 instance : HAdd (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hAdd a b := (· + b) <$> a
+  hAdd a b := (· + ·) <$> a <*> Signal.pure b
 instance : HAdd (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
-  hAdd a b := (a + ·) <$> b
+  hAdd a b := (· + ·) <$> Signal.pure a <*> b
 
 instance : HSub (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hSub a b := (· - b) <$> a
+  hSub a b := (· - ·) <$> a <*> Signal.pure b
 instance : HSub (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
-  hSub a b := (a - ·) <$> b
+  hSub a b := (· - ·) <$> Signal.pure a <*> b
 
 instance : HMul (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hMul a b := (· * b) <$> a
+  hMul a b := (· * ·) <$> a <*> Signal.pure b
 instance : HMul (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
-  hMul a b := (a * ·) <$> b
+  hMul a b := (· * ·) <$> Signal.pure a <*> b
 
 instance : HAnd (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hAnd a b := (· &&& b) <$> a
+  hAnd a b := (· &&& ·) <$> a <*> Signal.pure b
 instance : HAnd (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
-  hAnd a b := (a &&& ·) <$> b
+  hAnd a b := (· &&& ·) <$> Signal.pure a <*> b
 
 instance : HOr (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hOr a b := (· ||| b) <$> a
+  hOr a b := (· ||| ·) <$> a <*> Signal.pure b
 instance : HOr (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
-  hOr a b := (a ||| ·) <$> b
+  hOr a b := (· ||| ·) <$> Signal.pure a <*> b
 
 instance : HXor (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hXor a b := (· ^^^ b) <$> a
+  hXor a b := (· ^^^ ·) <$> a <*> Signal.pure b
 instance : HXor (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
-  hXor a b := (a ^^^ ·) <$> b
+  hXor a b := (· ^^^ ·) <$> Signal.pure a <*> b
 
 instance : HShiftLeft (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hShiftLeft a b := (· <<< b) <$> a
+  hShiftLeft a b := (· <<< ·) <$> a <*> Signal.pure b
+instance : HShiftLeft (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hShiftLeft a b := (· <<< ·) <$> Signal.pure a <*> b
 instance : HShiftRight (Signal dom (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
-  hShiftRight a b := (· >>> b) <$> a
+  hShiftRight a b := (· >>> ·) <$> a <*> Signal.pure b
+instance : HShiftRight (BitVec n) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hShiftRight a b := (· >>> ·) <$> Signal.pure a <*> b
 
 -- Boolean operator overloading for Signal Bool
 -- Enables: a &&& b, a ||| b, a ^^^ b, ~~~a

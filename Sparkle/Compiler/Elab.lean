@@ -410,8 +410,21 @@ mutual
             let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
             let hwType ← inferHWTypeFromSignal exprType
             let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-            let wireA ← translateExprToWire arg1 "op_a" (isTopLevel := false)
-            let wireB ← translateExprToWire arg2 "op_b" (isTopLevel := false)
+            -- For mixed Signal/BitVec: use extractBitVecLiteral for the constant arg
+            let wireA ← if isSignal1 then
+              translateExprToWire arg1 "op_a" (isTopLevel := false)
+            else
+              let (cVal, cWidth) ← extractBitVecLiteral arg1
+              let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
+              CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+              pure constWire
+            let wireB ← if isSignal2 then
+              translateExprToWire arg2 "op_b" (isTopLevel := false)
+            else
+              let (cVal, cWidth) ← extractBitVecLiteral arg2
+              let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
+              CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+              pure constWire
             CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
             return resWire
 
@@ -882,8 +895,9 @@ mutual
          match zetaE with
          | some e' => translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
          | none =>
-            -- Fallback to general reduction
-            let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.all $ whnf e)
+            -- Fallback to general reduction (use default transparency to preserve
+            -- Signal.pure and mixed operator instance structure)
+            let e' ← CompilerM.liftMetaM (withTransparency TransparencyMode.default $ whnf e)
             if e' != e then translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
             else translateExprToWireApp e hint isNamed
 
@@ -1322,17 +1336,31 @@ mutual
     trace[sparkle.compiler] "→ definition unfold {name}"
 
     -- First try to reduce the function call and translate inline.
+    -- Use reducible transparency to avoid expanding HAdd/HAppend mixed instances
     let eReduced ← CompilerM.liftMetaM do
       match ← Lean.Meta.unfoldDefinition? e with
-      | some e' => return e'
-      | none => return e
+        | some e' => return e'
+        | none => return e
     if eReduced != e then
       try
         let w ← translateExprToWire eReduced hint (isNamed := isNamed)
         return some w
-      catch ex =>
-        let msg := ex.toMessageData
-        CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
+      catch _ex1 =>
+        -- Inline expansion failed (often due to mixed Signal/BitVec operators
+        -- inside the expanded body). Retry with reducible transparency to
+        -- prevent over-expansion of Signal.pure and OfNat instances.
+        try
+          let eReduced2 ← CompilerM.liftMetaM do
+            Lean.Meta.withTransparency .reducible do
+              match ← Lean.Meta.unfoldDefinition? e with
+              | some e' => return e'
+              | none => return e
+          if eReduced2 != e then
+            let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
+            return some w
+        catch ex2 =>
+          let msg := ex2.toMessageData
+          CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
 
     -- Fallback: sub-module synthesis
     trace[sparkle.compiler] "→ sub-module synthesis {name}"

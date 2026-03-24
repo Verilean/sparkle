@@ -87,25 +87,25 @@ def example_BEST {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom 
 
 ## Signal Operator Quick Reference
 
-All operators work between `Signal ↔ Signal` and `Signal ↔ BitVec` (mixed):
+All operators work between `Signal ↔ Signal`, `Signal ↔ BitVec`, and `BitVec ↔ Signal` (both directions):
 
-| Operation | Signal ↔ Signal | Signal ↔ Constant | Example |
-|-----------|:-:|:-:|---------|
-| Add | `a + b` | `a + 1#8` | `count + 1#8` |
-| Sub | `a - b` | `a - 1#8` | `timer - 1#32` |
-| Mul | `a * b` | `a * 4#8` | `idx * 4#4` |
-| AND | `a &&& b` | `a &&& 0xFF#8` | `data &&& mask` |
-| OR | `a \|\|\| b` | `a \|\|\| 0x80#8` | `flags \|\|\| bit` |
-| XOR | `a ^^^ b` | `a ^^^ 0xFF#8` | `data ^^^ key` |
-| NOT | `~~~a` | — | `~~~enable` |
-| Shift L | `a <<< b` | `a <<< 2#8` | `data <<< shift` |
-| Shift R | `a >>> b` | `a >>> 2#8` | `data >>> shift` |
-| Concat | `a ++ b` | `0#24 ++ a` | `sign ++ data` |
-| Equal | `a === b` | `a === 0#8` | `state === IDLE` |
-| Neg | `-a` | — | `-signed_val` |
-| Signed < | `Signal.slt a b` | — | `Signal.slt x y` |
-| Unsigned < | `Signal.ult a b` | — | `Signal.ult x y` |
-| Arith shift | `Signal.ashr a b` | — | `Signal.ashr x shift` |
+| Operation | Signal ↔ Signal | Signal ↔ Constant | Constant ↔ Signal | Example |
+|-----------|:-:|:-:|:-:|---------|
+| Add | `a + b` | `a + 1#8` | `1#8 + a` | `count + 1#8` |
+| Sub | `a - b` | `a - 1#8` | `64#7 - a` | `timer - 1#32` |
+| Mul | `a * b` | `a * 4#8` | `3#32 * a` | `idx * 4#4` |
+| AND | `a &&& b` | `a &&& 0xFF#8` | `0xFF#8 &&& a` | `data &&& mask` |
+| OR | `a \|\|\| b` | `a \|\|\| 0x80#8` | `0x80#8 \|\|\| a` | `flags \|\|\| bit` |
+| XOR | `a ^^^ b` | `a ^^^ 0xFF#8` | `0xFF#8 ^^^ a` | `data ^^^ key` |
+| NOT | `~~~a` | — | — | `~~~enable` |
+| Shift L | `a <<< b` | `a <<< 2#8` | `1#64 <<< a` | `data <<< shift` |
+| Shift R | `a >>> b` | `a >>> 2#8` | `0xFF#8 >>> a` | `data >>> shift` |
+| Concat | `a ++ b` | `a ++ 0#2` | `0#24 ++ a` | `sign ++ data` |
+| Equal | `a === b` | `a === 0#8` | — | `state === IDLE` |
+| Neg | `-a` | — | — | `-signed_val` |
+| Signed < | `Signal.slt a b` | — | — | `Signal.slt x y` |
+| Unsigned < | `Signal.ult a b` | — | — | `Signal.ult x y` |
+| Arith shift | `Signal.ashr a b` | — | — | `Signal.ashr x shift` |
 
 **Old style (still works but verbose):**
 ```lean
@@ -114,29 +114,6 @@ All operators work between `Signal ↔ Signal` and `Signal ↔ BitVec` (mixed):
 ```
 
 ---
-
-## Mixed Operators Inside Inlined Private Functions
-
-**Mixed `Signal + BitVec` inside a `private def` that gets inlined may fail:**
-
-```lean
--- ❌ FAILS when sarBy6 is inlined and its argument uses mixed add
-private def sarBy6 ... := ...  -- private → compiler inlines it
-let result := sarBy6 ((x + y) + 32#16)  -- ❌ Inline expansion failed for OfNat.ofNat
-
--- ✓ WORKAROUND: Use applicative form for the mixed add argument
-let result := sarBy6 ((· + ·) <$> (x + y) <*> Signal.pure 32#16)  -- ✓ Works
-```
-
-**Why this happens:**
-- The compiler inlines `private def`s by unfolding their definitions
-- After unfolding, the mixed `HAdd (Signal) (BitVec)` instance expands via WHNF
-- The WHNF expansion encounters `OfNat.ofNat` for the BitVec literal and can't resolve the hardware type
-- The early interception for mixed operators only works at the top level, not inside inlined bodies
-
-**Workaround:** When passing a mixed `Signal + constant` expression as an argument to an inlined private function, use the applicative form: `(· + ·) <$> expr <*> Signal.pure constant`
-
-This limitation affects a small number of cases (e.g., IDCT rounding with `+ 32#16` passed to `sarBy6`).
 
 ---
 

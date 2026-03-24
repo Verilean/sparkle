@@ -176,10 +176,10 @@ def idctModule {dom : DomainConfig}
     let rowR3 := s0 - d1
 
     -- Col-phase results (with +32 >>6 rounding)
-    let colR0 := sarBy6 ((· + ·) <$> (s0 + d1) <*> Signal.pure 32#16)
-    let colR1 := sarBy6 ((· + ·) <$> (s1 + d0) <*> Signal.pure 32#16)
-    let colR2 := sarBy6 ((· + ·) <$> (s1 - d0) <*> Signal.pure 32#16)
-    let colR3 := sarBy6 ((· + ·) <$> (s0 - d1) <*> Signal.pure 32#16)
+    let colR0 := sarBy6 ((s0 + d1) + 32#16)
+    let colR1 := sarBy6 ((s1 + d0) + 32#16)
+    let colR2 := sarBy6 ((s1 - d0) + 32#16)
+    let colR3 := sarBy6 ((s0 - d1) + 32#16)
 
     -- Select butterfly output based on substep (4→out0, 5→out1, 6→out2, 7→out3)
     let rowOut := hw_cond rowR0

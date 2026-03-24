@@ -200,13 +200,10 @@ def h264FrameEncoder {dom : DomainConfig}
     -- raster write addr: blockIdx*16 + pixIdx (in 8-bit)
     let blockIdx8 := 0#3 ++ blockIdx
     let pixIdx8 := 0#3 ++ pixIdx
-    let quantStoreWriteAddr := (· + ·) <$>
-      (blockIdx8 * 16#8) <*> pixIdx8
+    let quantStoreWriteAddr := (blockIdx8 * 16#8) + pixIdx8
     -- scan read addr: scanBlockIdx*16 + pixIdx
-    let scanBlockIdx8 := (· + ·) <$>
-      (scanBy8 * 4#8) <*> scanBx8
-    let quantStoreReadAddr := (· + ·) <$>
-      (scanBlockIdx8 * 16#8) <*> pixIdx8
+    let scanBlockIdx8 := (scanBy8 * 4#8) + scanBx8
+    let quantStoreReadAddr := (scanBlockIdx8 * 16#8) + pixIdx8
 
     -- totalCoeff map (16×16-bit memory, 4-bit addr)
     let bx4 := 0#2 ++ bx2      -- 4-bit bx
@@ -233,8 +230,7 @@ def h264FrameEncoder {dom : DomainConfig}
     let encPredWrData := dcPred
     -- Pre-fetch: encoder V2 output has 1-cycle register latency, so read addr+1
     -- During RUN_ENCODER default addr=0 pre-fetches mem[0], so READ_QUANT starts correct
-    let encQuantReadAddrP1 := (· + ·) <$>
-      (pixIdx.map (BitVec.extractLsb' 0 4 ·)) <*> Signal.pure 1#4
+    let encQuantReadAddrP1 := (pixIdx.map (BitVec.extractLsb' 0 4 ·)) + 1#4
     let encQuantReadAddr := Signal.mux isReadQuant
       encQuantReadAddrP1 (Signal.pure 0#4)
 
@@ -263,8 +259,7 @@ def h264FrameEncoder {dom : DomainConfig}
     let decPredWrAddr := pixIdx.map (BitVec.extractLsb' 0 4 ·)
     let decPredWrData := dcPred
     -- Pre-fetch: decoder V2 output has 1-cycle register latency, so read addr+1
-    let decReconReadAddrP1 := (· + ·) <$>
-      (pixIdx.map (BitVec.extractLsb' 0 4 ·)) <*> Signal.pure 1#4
+    let decReconReadAddrP1 := (pixIdx.map (BitVec.extractLsb' 0 4 ·)) + 1#4
     let decReconReadAddr := Signal.mux isReadRecon
       decReconReadAddrP1 (Signal.pure 0#4)
 

@@ -277,10 +277,10 @@ private def cavlcSynthBody {dom : DomainConfig}
   let prefixBits7 := 0#1 ++ prefixBits6
 
   -- Normal suffix: levelCode & ((1 << suffixLen) - 1)
-  let slMask := (Signal.pure 1#32 - slExt) <<< 1#32
+  let slMask := (1#32 - slExt) <<< 1#32
   let normalSuffix := levelCode &&& slMask
   -- Escape suffix: levelCode - 15*(1 << suffixLen)  (works for suffixLen=0 too: lc-15)
-  let shifted15 := Signal.pure 15#32 <<< slExt
+  let shifted15 := 15#32 <<< slExt
   let escapeSuffix := levelCode - shifted15
   -- Mid-escape suffix: levelCode - 14
   let midEscapeSuffix := lcMinus14
@@ -297,13 +297,13 @@ private def cavlcSynthBody {dom : DomainConfig}
   -- Emit prefix: a 1 bit at position (prefix zeros already counted by shift)
   let pfxShift := (64#7 - bitPos) - prefixBits7
   let pfxShift64 := 0#57 ++ pfxShift
-  let pfxCode := Signal.pure 1#64 <<< pfxShift64
+  let pfxCode := 1#64 <<< pfxShift64
   let lvlBuf1 := bitBuffer ||| pfxCode
   let lvlPos1 := bitPos + prefixBits7
 
   -- Emit suffix (if any)
   let suffix64 := 0#32 ++ correctedSuffix
-  let sfxShift := (Signal.pure 64#7 - lvlPos1) - correctedSuffBits7
+  let sfxShift := (64#7 - lvlPos1) - correctedSuffBits7
   let sfxShift64 := 0#57 ++ sfxShift
   let sfxCode := suffix64 <<< sfxShift64
   let lvlBuf2 := lvlBuf1 ||| sfxCode
@@ -319,11 +319,11 @@ private def cavlcSynthBody {dom : DomainConfig}
   -- suffixLen < 6 for 3-bit value: anything except 6 or 7
   let slIs6 := suffixLen === (6#3 : Signal dom _)
   let slIs7 := suffixLen === (7#3 : Signal dom _)
-  let slLt6 := ~~~slIs6) &&& (~~~slIs7
+  let slLt6 := (~~~slIs6) &&& (~~~slIs7)
   -- Threshold = 3 * (1 << (suffixLen - 1)) = 3, 6, 12, 24, 48
   let slDec := suffixLen - 1#3
   let slDecExt := 0#29 ++ slDec
-  let threshold := 3#32 * (Signal.pure 1#32 <<< slDecExt)
+  let threshold := 3#32 * (1#32 <<< slDecExt)
   -- exceedsThreshold: levelAbs > threshold
   -- Use subtraction: if levelAbs - threshold - 1 has no borrow (i.e., result < 2^32 and high bit clear)
   -- Simpler: check if (levelAbs - threshold) != 0 and sign bit of (threshold - levelAbs) is set
@@ -399,7 +399,7 @@ private def cavlcSynthBody {dom : DomainConfig}
   let hasT1 := ~~~(trailingOnes === (0#3 : Signal dom _))
   let tcIs0 := totalCoeff === (0#5 : Signal dom _)
   let tcIs1 := totalCoeff === (1#5 : Signal dom _)
-  let hasRB := ~~~tcIs0) &&& (~~~tcIs1
+  let hasRB := (~~~tcIs0) &&& (~~~tcIs1)
   let hasTZ := ~~~(totalZeros === (0#5 : Signal dom _))
 
   -- Level read done

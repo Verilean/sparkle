@@ -223,10 +223,10 @@ def decoderPipeline {dom : DomainConfig}
     let rowR3 := s0 - d1
 
     -- Col results (with +32 >>6)
-    let colR0 := sarBy6 ((· + ·) <$> (s0 + d1) <*> Signal.pure 32#16)
-    let colR1 := sarBy6 ((· + ·) <$> (s1 + d0) <*> Signal.pure 32#16)
-    let colR2 := sarBy6 ((· + ·) <$> (s1 - d0) <*> Signal.pure 32#16)
-    let colR3 := sarBy6 ((· + ·) <$> (s0 - d1) <*> Signal.pure 32#16)
+    let colR0 := sarBy6 ((s0 + d1) + 32#16)
+    let colR1 := sarBy6 ((s1 + d0) + 32#16)
+    let colR2 := sarBy6 ((s1 - d0) + 32#16)
+    let colR3 := sarBy6 ((s0 - d1) + 32#16)
 
     -- Select output based on substep
     let rowOut := hw_cond rowR0
@@ -467,10 +467,10 @@ def decoderPipelineV2 {dom : DomainConfig}
     let rowR2 := s1 - d0
     let rowR3 := s0 - d1
 
-    let colR0 := sarBy6 ((· + ·) <$> (s0 + d1) <*> Signal.pure 32#16)
-    let colR1 := sarBy6 ((· + ·) <$> (s1 + d0) <*> Signal.pure 32#16)
-    let colR2 := sarBy6 ((· + ·) <$> (s1 - d0) <*> Signal.pure 32#16)
-    let colR3 := sarBy6 ((· + ·) <$> (s0 - d1) <*> Signal.pure 32#16)
+    let colR0 := sarBy6 ((s0 + d1) + 32#16)
+    let colR1 := sarBy6 ((s1 + d0) + 32#16)
+    let colR2 := sarBy6 ((s1 - d0) + 32#16)
+    let colR3 := sarBy6 ((s0 - d1) + 32#16)
 
     let rowOut := hw_cond rowR0
       | isSub4 => rowR0
