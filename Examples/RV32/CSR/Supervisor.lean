@@ -94,7 +94,7 @@ def supervisorCsrSignal {dom : DomainConfig}
   -- MPP and SPP for privilege mode transitions
   let mpp := mstatusIn.map (BitVec.extractLsb' 11 2 ·)
   let sppBit := mstatusIn.map (BitVec.extractLsb' 8 1 ·)
-  let spp := (· ++ ·) <$> Signal.pure 0#1 <*> sppBit
+  let spp := 0#1 ++ sppBit
 
   let regs := Signal.loop fun state =>
     let privReg    := projN! state 8 0  -- BitVec 2

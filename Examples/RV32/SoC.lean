@@ -396,17 +396,17 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Sv32: L1 addr = {satpPPN[19:0], 12'd0} + {VPN1, 2'd0}
     --        L0 addr = {ptePPN[19:0], 12'd0} + {VPN0, 2'd0}
     let satpPPN20 := satpReg.map (BitVec.extractLsb' 0 20 ·)
-    let satpPPNShifted := (· ++ ·) <$> satpPPN20 <*> Signal.pure 0#12
+    let satpPPNShifted := satpPPN20 ++ 0#12
     let ptwVPN1 := ptwVaddrReg.map (BitVec.extractLsb' 22 10 ·)
     let ptwVPN0 := ptwVaddrReg.map (BitVec.extractLsb' 12 10 ·)
-    let ptwVPN1x4 := (· ++ ·) <$> ptwVPN1 <*> Signal.pure 0#2
-    let ptwVPN1Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4
+    let ptwVPN1x4 := ptwVPN1 ++ 0#2
+    let ptwVPN1Ext := 0#20 ++ ptwVPN1x4
     let l1Addr := satpPPNShifted + ptwVPN1Ext
     let ptePPNFull := ptwPteReg.map (BitVec.extractLsb' 10 22 ·)
     let ptePPN20 := ptePPNFull.map (BitVec.extractLsb' 0 20 ·)
-    let ptePPNShifted := (· ++ ·) <$> ptePPN20 <*> Signal.pure 0#12
-    let ptwVPN0x4 := (· ++ ·) <$> ptwVPN0 <*> Signal.pure 0#2
-    let ptwVPN0Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4
+    let ptePPNShifted := ptePPN20 ++ 0#12
+    let ptwVPN0x4 := ptwVPN0 ++ 0#2
+    let ptwVPN0Ext := 0#20 ++ ptwVPN0x4
     let l0Addr := ptePPNShifted + ptwVPN0Ext
     let ptwMemAddr := Signal.mux ptwIsL1Req l1Addr l0Addr
     let ptwMemActive := ptwIsL1Req ||| ptwIsL0Req
@@ -459,11 +459,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Megapage: PA = PPN << 12 + VA[21:0]
     -- Regular:  PA = {PPN[19:0], vaddr[11:0]}
     let dtlbPPN_20 := tlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let dtlbPPNShifted := (· ++ ·) <$> dtlbPPN_20 <*> Signal.pure 0#12
+    let dtlbPPNShifted := dtlbPPN_20 ++ 0#12
     let vaLow22 := alu_result_approx.map (BitVec.extractLsb' 0 22 ·)
-    let vaLow22Ext := (· ++ ·) <$> Signal.pure 0#10 <*> vaLow22
+    let vaLow22Ext := 0#10 ++ vaLow22
     let dPhysAddrMega := dtlbPPNShifted + vaLow22Ext
-    let dPhysAddrReg := (· ++ ·) <$> dtlbPPN_20 <*> dPageOffset
+    let dPhysAddrReg := dtlbPPN_20 ++ dPageOffset
     let dPhysAddr := Signal.mux tlbMega dPhysAddrMega dPhysAddrReg
     -- Effective address: use translated physical when MMU active and TLB hit
     let useTranslatedAddr := (~~~bypassMMU) &&& anyTLBHit
@@ -566,9 +566,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let byte3_rdata := Signal.memory actual_dmem_write_addr actual_byte3_wdata actual_byte3_we dmem_read_addr
 
     -- Reconstruct full word from 4 bytes: {byte3, byte2, byte1, byte0}
-    let dmem_word_lo := (· ++ ·) <$> byte1_rdata <*> byte0_rdata
-    let dmem_word_hi := (· ++ ·) <$> byte3_rdata <*> byte2_rdata
-    let dmem_rdata := (· ++ ·) <$> dmem_word_hi <*> dmem_word_lo
+    let dmem_word_lo := byte1_rdata ++ byte0_rdata
+    let dmem_word_hi := byte3_rdata ++ byte2_rdata
+    let dmem_rdata := dmem_word_hi ++ dmem_word_lo
 
     let storeAddrHi := prevStoreAddr.map (BitVec.extractLsb' 2 30 ·)
     let loadAddrHi := exwb_physAddr.map (BitVec.extractLsb' 2 30 ·)
@@ -604,16 +604,16 @@ def rv32iSoCBody {dom : DomainConfig}
     let uartDLAB_wb := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     -- Read data per offset (zero-extended to 32 bits)
     let uartRd0 := Signal.mux uartDLAB_wb
-      ((· ++ ·) <$> Signal.pure 0#24 <*> uartDLLReg)
+      (0#24 ++ uartDLLReg)
       (Signal.pure 0#32)  -- RBR = 0 (no RX in Lean sim)
     let uartRd1 := Signal.mux uartDLAB_wb
-      ((· ++ ·) <$> Signal.pure 0#24 <*> uartDLMReg)
-      ((· ++ ·) <$> Signal.pure 0#24 <*> uartIERReg)
+      (0#24 ++ uartDLMReg)
+      (0#24 ++ uartIERReg)
     let uartRd2 := Signal.pure 0x00000001#32  -- IIR: no interrupt pending
-    let uartRd3 := (· ++ ·) <$> Signal.pure 0#24 <*> uartLCRReg
-    let uartRd4 := (· ++ ·) <$> Signal.pure 0#24 <*> uartMCRReg
+    let uartRd3 := 0#24 ++ uartLCRReg
+    let uartRd4 := 0#24 ++ uartMCRReg
     let uartRd5 := Signal.pure 0x00000060#32  -- LSR: THRE + TEMT (TX always ready)
-    let uartRd7 := (· ++ ·) <$> Signal.pure 0#24 <*> uartSCRReg
+    let uartRd7 := 0#24 ++ uartSCRReg
     -- Mux by offset
     let wbOff0 := uartOffset_wb === 0#3
     let wbOff1 := uartOffset_wb === 1#3
@@ -658,14 +658,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let byteSgnBit := selByte.map (BitVec.extractLsb' 7 1 ·)
     let byteIsSgn := byteSgnBit === 1#1
     let byteSignExt := Signal.mux byteIsSgn (Signal.pure 0xFFFFFF#24) (Signal.pure 0#24)
-    let byteSext := (· ++ ·) <$> byteSignExt <*> selByte
-    let byteZext := (· ++ ·) <$> Signal.pure 0#24 <*> selByte
+    let byteSext := byteSignExt ++ selByte
+    let byteZext := 0#24 ++ selByte
     -- Sign/zero extend halfword
     let halfSgnBit := selHalf.map (BitVec.extractLsb' 15 1 ·)
     let halfIsSgn := halfSgnBit === 1#1
     let halfSignExt := Signal.mux halfIsSgn (Signal.pure 0xFFFF#16) (Signal.pure 0#16)
-    let halfSext := (· ++ ·) <$> halfSignExt <*> selHalf
-    let halfZext := (· ++ ·) <$> Signal.pure 0#16 <*> selHalf
+    let halfSext := halfSignExt ++ selHalf
+    let halfZext := 0#16 ++ selHalf
     -- Select based on exwb_funct3: 000=LB, 001=LH, 010=LW, 100=LBU, 101=LHU
     -- Only apply sub-word extraction for actual loads (exwb_m2r = true)
     let f3isLB  := exwb_funct3 === 0#3
@@ -833,7 +833,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Trap delegation: check medeleg/mideleg bits
     let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
-    let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
+    let causeIdxExt := 0#27 ++ causeIdx
     let medelegShifted := medelegReg >>> causeIdxExt
     let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let midelegShifted := midelegReg >>> causeIdxExt
@@ -855,7 +855,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- MPP and SPP for privilege mode transitions
     let mpp := mstatusReg.map (BitVec.extractLsb' 11 2 ·)
     let sppBit := mstatusReg.map (BitVec.extractLsb' 8 1 ·)
-    let sretPriv := (· ++ ·) <$> Signal.pure 0#1 <*> sppBit
+    let sretPriv := 0#1 ++ sppBit
 
     let flush := branchTaken ||| idex_jump ||| trap_taken ||| idex_isMret |||
                  idex_isSret ||| idex_isSFenceVMA ||| dMMURedirect
@@ -987,12 +987,12 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Megapage: PA = PPN << 12 + VA[21:0]
     -- Regular:  PA = {PPN[19:0], vaddr[11:0]}
     let itlbPPN_20 := itlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let itlbPPNShifted := (· ++ ·) <$> itlbPPN_20 <*> Signal.pure 0#12
+    let itlbPPNShifted := itlbPPN_20 ++ 0#12
     let fetchPCLow22 := fetchPC.map (BitVec.extractLsb' 0 22 ·)
-    let fetchPCLow22Ext := (· ++ ·) <$> Signal.pure 0#10 <*> fetchPCLow22
+    let fetchPCLow22Ext := 0#10 ++ fetchPCLow22
     let ifetchPhysAddrMega := itlbPPNShifted + fetchPCLow22Ext
     let fetchPCLow12 := fetchPC.map (BitVec.extractLsb' 0 12 ·)
-    let ifetchPhysAddrReg := (· ++ ·) <$> itlbPPN_20 <*> fetchPCLow12
+    let ifetchPhysAddrReg := itlbPPN_20 ++ fetchPCLow12
     let ifetchPhysAddr := Signal.mux itlbMega ifetchPhysAddrMega ifetchPhysAddrReg
 
     -- Need to translate instruction fetch? (S/U-mode with MMU enabled, DRAM region)
@@ -1039,9 +1039,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let dram_ifetch_b1 := Signal.memoryComboRead actual_dmem_write_addr actual_byte1_wdata actual_byte1_we ifetch_word_addr
     let dram_ifetch_b2 := Signal.memoryComboRead actual_dmem_write_addr actual_byte2_wdata actual_byte2_we ifetch_word_addr
     let dram_ifetch_b3 := Signal.memoryComboRead actual_dmem_write_addr actual_byte3_wdata actual_byte3_we ifetch_word_addr
-    let dram_ifetch_lo := (· ++ ·) <$> dram_ifetch_b1 <*> dram_ifetch_b0
-    let dram_ifetch_hi := (· ++ ·) <$> dram_ifetch_b3 <*> dram_ifetch_b2
-    let dram_ifetch_word := (· ++ ·) <$> dram_ifetch_hi <*> dram_ifetch_lo
+    let dram_ifetch_lo := dram_ifetch_b1 ++ dram_ifetch_b0
+    let dram_ifetch_hi := dram_ifetch_b3 ++ dram_ifetch_b2
+    let dram_ifetch_word := dram_ifetch_hi ++ dram_ifetch_lo
     -- Instruction source mux: DRAM if fetch address is in DRAM range, else firmware IMEM
     -- DRAM range: addresses >= 0x80000000 (bit 31 = 1)
     let fetchInDRAM := Signal.mux ifetchTranslated
@@ -1120,7 +1120,7 @@ def rv32iSoCBody {dom : DomainConfig}
       uartWdata8 uartDLMReg
 
     let csrIsImm := (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
-    let csrZimm := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
+    let csrZimm := 0#27 ++ idex_rs1Idx
     let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
     let csrF3Low := idex_csrFunct3.map (BitVec.extractLsb' 0 2 ·)
     let csrIsRW := csrF3Low === 0b01#2
@@ -1168,7 +1168,7 @@ def rv32iSoCBody {dom : DomainConfig}
       (msClearMIE &&& 0xFFFFFF7F#32)
     -- Set MPP to current privilege: clear MPP bits, then OR in privMode<<11
     let msSetMPIE_clearMPP := msSetMPIE &&& 0xFFFFE7FF#32
-    let privModeExt := (· ++ ·) <$> Signal.pure 0#21 <*> ((· ++ ·) <$> privMode <*> Signal.pure 0#9)
+    let privModeExt := 0#21 ++ (privMode ++ 0#9)
     let privShifted := privModeExt <<< 2#32
     let mstatusTrapMVal := msSetMPIE_clearMPP ||| privShifted
 

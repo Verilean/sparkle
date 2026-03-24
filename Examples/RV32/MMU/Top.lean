@@ -188,14 +188,14 @@ def mmuTopSignal {dom : DomainConfig}
 
     -- Memory address generation
     -- Level 1: satp.PPN * 4096 + VPN[1] * 4
-    let satpPPNShifted := (· ++ ·) <$> satpPPN <*> Signal.pure 0#10
-    let ptwVPN1x4 := (· ++ ·) <$> ptwVPN1 <*> Signal.pure 0#2
-    let ptwVPN1Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4
+    let satpPPNShifted := satpPPN ++ 0#10
+    let ptwVPN1x4 := ptwVPN1 ++ 0#2
+    let ptwVPN1Ext := 0#20 ++ ptwVPN1x4
     let l1Addr := satpPPNShifted + ptwVPN1Ext
     -- Level 0: PTE.PPN * 4096 + VPN[0] * 4
-    let ptePPNShifted := (· ++ ·) <$> ptePPNFull <*> Signal.pure 0#10
-    let ptwVPN0x4 := (· ++ ·) <$> ptwVPN0 <*> Signal.pure 0#2
-    let ptwVPN0Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4
+    let ptePPNShifted := ptePPNFull ++ 0#10
+    let ptwVPN0x4 := ptwVPN0 ++ 0#2
+    let ptwVPN0Ext := 0#20 ++ ptwVPN0x4
     let l0Addr := ptePPNShifted + ptwVPN0Ext
 
     let ptwMemAddr := Signal.mux ptwIsL1 l1Addr
@@ -344,9 +344,9 @@ def mmuTopSignal {dom : DomainConfig}
   -- Physical address output
   -- For 4KB pages: {ppn[19:0], offset[11:0]}
   let tlb0PPNLow := tlb0PPN.map (BitVec.extractLsb' 0 20 ·)
-  let tlbPAddr := (· ++ ·) <$> tlb0PPNLow <*> pageOffset
+  let tlbPAddr := tlb0PPNLow ++ pageOffset
   let ptePPNLow := ptePPNFull.map (BitVec.extractLsb' 0 20 ·)
-  let ptwPAddr := (· ++ ·) <$> ptePPNLow <*> pageOffset
+  let ptwPAddr := ptePPNLow ++ pageOffset
   let translatedAddr := Signal.mux tlb0Hit tlbPAddr ptwPAddr
   let paddr := Signal.mux bypassMMU vaddr translatedAddr
 
@@ -359,13 +359,13 @@ def mmuTopSignal {dom : DomainConfig}
   let satpPPN_out := satp.map (BitVec.extractLsb' 0 22 ·)
   let ptwVPN1_out := ptwVaddrReg.map (BitVec.extractLsb' 22 10 ·)
   let ptwVPN0_out := ptwVaddrReg.map (BitVec.extractLsb' 12 10 ·)
-  let satpPPNShifted_out := (· ++ ·) <$> satpPPN_out <*> Signal.pure 0#10
-  let ptwVPN1x4_out := (· ++ ·) <$> ptwVPN1_out <*> Signal.pure 0#2
-  let ptwVPN1Ext_out := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4_out
+  let satpPPNShifted_out := satpPPN_out ++ 0#10
+  let ptwVPN1x4_out := ptwVPN1_out ++ 0#2
+  let ptwVPN1Ext_out := 0#20 ++ ptwVPN1x4_out
   let l1Addr := satpPPNShifted_out + ptwVPN1Ext_out
-  let ptePPNShifted_out := (· ++ ·) <$> ptePPNFull <*> Signal.pure 0#10
-  let ptwVPN0x4_out := (· ++ ·) <$> ptwVPN0_out <*> Signal.pure 0#2
-  let ptwVPN0Ext_out := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4_out
+  let ptePPNShifted_out := ptePPNFull ++ 0#10
+  let ptwVPN0x4_out := ptwVPN0_out ++ 0#2
+  let ptwVPN0Ext_out := 0#20 ++ ptwVPN0x4_out
   let l0Addr := ptePPNShifted_out + ptwVPN0Ext_out
   let memAddr := Signal.mux ptwIsL1 l1Addr
     (Signal.mux ptwIsL0 l0Addr (Signal.pure 0#32))

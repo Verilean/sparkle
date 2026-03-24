@@ -120,8 +120,8 @@ def dividerSignal {dom : DomainConfig}
     let startAndIdle := start &&& isIdle
 
     -- Zero-extend absolute dividend and divisor to 33 bits
-    let absDividend33 := (· ++ ·) <$> Signal.pure 0#1 <*> absDividend
-    let absDivisor33 := (· ++ ·) <$> Signal.pure 0#1 <*> absDivisor
+    let absDividend33 := 0#1 ++ absDividend
+    let absDivisor33 := 0#1 ++ absDivisor
 
     -- ====================================================================
     -- WORKING: Restoring division step
@@ -133,7 +133,7 @@ def dividerSignal {dom : DomainConfig}
     -- dividend bits, shifted left each cycle).
     -- Top bit of quotientReg is the next bit to bring into remainder.
     let quotientTopBit := quotientReg.map (BitVec.extractLsb' 31 1 ·)
-    let quotientTopBit33 := (· ++ ·) <$> Signal.pure 0#32 <*> quotientTopBit
+    let quotientTopBit33 := 0#32 ++ quotientTopBit
 
     -- Shift remainder left by 1
     let remShifted := remainderReg <<< 1#33

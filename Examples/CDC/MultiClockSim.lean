@@ -55,7 +55,7 @@ def domainACounter {dom : DomainConfig}
     : Signal dom (BitVec 32 × BitVec 32) :=
   let state := Signal.loop (counterBody enable)
   let count := CounterState.count state
-  let countU32 := (· ++ ·) <$> Signal.pure 0#24 <*> count
+  let countU32 := 0#24 ++ count
   bundleAll! [countU32, countU32]
 
 -- Synthesize DomainA

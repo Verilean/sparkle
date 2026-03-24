@@ -103,7 +103,7 @@ def trapDelegSignal {dom : DomainConfig}
   -- Delegation decision
   let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
   let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
-  let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
+  let causeIdxExt := 0#27 ++ causeIdx
 
   -- Check delegation bit: (deleg_reg >>> cause_idx)[0]
   let medelegShifted := medelegReg >>> causeIdxExt

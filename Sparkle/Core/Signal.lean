@@ -199,6 +199,18 @@ instance : HOr (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitV
 instance : HXor (Signal dom (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
   hXor a b := (· ^^^ ·) <$> a <*> b
 
+-- Bit concatenation for Signal (BitVec)
+-- Enables: a ++ b instead of (· ++ ·) <$> a <*> b
+
+instance : HAppend (Signal dom (BitVec m)) (Signal dom (BitVec n)) (Signal dom (BitVec (m + n))) where
+  hAppend a b := (· ++ ·) <$> a <*> b
+
+instance : HAppend (Signal dom (BitVec m)) (BitVec n) (Signal dom (BitVec (m + n))) where
+  hAppend a b := (· ++ b) <$> a
+
+instance : HAppend (BitVec m) (Signal dom (BitVec n)) (Signal dom (BitVec (m + n))) where
+  hAppend a b := (a ++ ·) <$> b
+
 -- Mixed Signal/constant operator overloading
 -- Enables: `count + 1#8`, `val &&& 0xFF#8` without explicit Signal.pure
 

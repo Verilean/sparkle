@@ -245,7 +245,7 @@ def rv32iCore {dom : DomainConfig}
     -- CSR interface
     let csrIsImm_bit := idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)
     let csrIsImm := csrIsImm_bit === 1#1
-    let csrZimm  := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
+    let csrZimm  := 0#27 ++ idex_rs1Idx
 
     -- =================================================================
     -- PC Next

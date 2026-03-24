@@ -188,7 +188,7 @@ def immGenSignal {dom : DomainConfig}
     (inst31 === 1#1)
     (Signal.pure 0xFFFFF#20) (Signal.pure 0#20)
   let immI_lo := inst.map (BitVec.extractLsb' 20 12 ·)
-  let immI := (· ++ ·) <$> immI_hi <*> immI_lo
+  let immI := immI_hi ++ immI_lo
 
   -- S-type: {sign_ext, inst[31:25], inst[11:7]}
   let immS_hi := Signal.mux
@@ -196,8 +196,8 @@ def immGenSignal {dom : DomainConfig}
     (Signal.pure 0xFFFFF#20) (Signal.pure 0#20)
   let immS_mid := inst.map (BitVec.extractLsb' 25 7 ·)
   let immS_lo  := inst.map (BitVec.extractLsb' 7 5 ·)
-  let immS_a := (· ++ ·) <$> immS_hi <*> immS_mid
-  let immS := (· ++ ·) <$> immS_a <*> immS_lo
+  let immS_a := immS_hi ++ immS_mid
+  let immS := immS_a ++ immS_lo
 
   -- B-type: {sign_ext[31:13], inst[31], inst[7], inst[30:25], inst[11:8], 0}
   let immB_hi := Signal.mux
@@ -207,15 +207,15 @@ def immGenSignal {dom : DomainConfig}
   let immB_b7  := inst.map (BitVec.extractLsb' 7 1 ·)
   let immB_mid := inst.map (BitVec.extractLsb' 25 6 ·)
   let immB_lo  := inst.map (BitVec.extractLsb' 8 4 ·)
-  let immB_a := (· ++ ·) <$> immB_hi <*> immB_b31
-  let immB_b := (· ++ ·) <$> immB_b7 <*> immB_mid
-  let immB_c := (· ++ ·) <$> immB_lo <*> Signal.pure 0#1
-  let immB_ab := (· ++ ·) <$> immB_a <*> immB_b
-  let immB := (· ++ ·) <$> immB_ab <*> immB_c
+  let immB_a := immB_hi ++ immB_b31
+  let immB_b := immB_b7 ++ immB_mid
+  let immB_c := immB_lo ++ 0#1
+  let immB_ab := immB_a ++ immB_b
+  let immB := immB_ab ++ immB_c
 
   -- U-type: {inst[31:12], 12'b0}
   let immU_hi := inst.map (BitVec.extractLsb' 12 20 ·)
-  let immU := (· ++ ·) <$> immU_hi <*> Signal.pure 0#12
+  let immU := immU_hi ++ 0#12
 
   -- J-type: {sign_ext[31:21], inst[31], inst[19:12], inst[20], inst[30:21], 0}
   let immJ_hi  := Signal.mux
@@ -225,11 +225,11 @@ def immGenSignal {dom : DomainConfig}
   let immJ_19_12 := inst.map (BitVec.extractLsb' 12 8 ·)
   let immJ_b20   := inst.map (BitVec.extractLsb' 20 1 ·)
   let immJ_30_21 := inst.map (BitVec.extractLsb' 21 10 ·)
-  let immJ_a := (· ++ ·) <$> immJ_hi <*> immJ_b31
-  let immJ_b := (· ++ ·) <$> immJ_19_12 <*> immJ_b20
-  let immJ_c := (· ++ ·) <$> immJ_30_21 <*> Signal.pure 0#1
-  let immJ_ab := (· ++ ·) <$> immJ_a <*> immJ_b
-  let immJ := (· ++ ·) <$> immJ_ab <*> immJ_c
+  let immJ_a := immJ_hi ++ immJ_b31
+  let immJ_b := immJ_19_12 ++ immJ_b20
+  let immJ_c := immJ_30_21 ++ 0#1
+  let immJ_ab := immJ_a ++ immJ_b
+  let immJ := immJ_ab ++ immJ_c
 
   -- Opcode comparisons (inline literals to avoid let-binding issues in synthesis)
   let isStore  := opcode === 0b0100011#7   -- STORE
@@ -480,13 +480,13 @@ def mulComputeSignal {dom : DomainConfig}
   let rs1Sign := rs1.map (BitVec.extractLsb' 31 1 ·)
   let rs1IsNeg := rs1Sign === 1#1
   let rs1HiSigned := Signal.mux rs1IsNeg (Signal.pure 0xFFFFFFFF#32) (Signal.pure 0#32)
-  let rs1_64_signed := (· ++ ·) <$> rs1HiSigned <*> rs1
-  let rs1_64_unsigned := (· ++ ·) <$> Signal.pure 0#32 <*> rs1
+  let rs1_64_signed := rs1HiSigned ++ rs1
+  let rs1_64_unsigned := 0#32 ++ rs1
   let rs2Sign := rs2.map (BitVec.extractLsb' 31 1 ·)
   let rs2IsNeg := rs2Sign === 1#1
   let rs2HiSigned := Signal.mux rs2IsNeg (Signal.pure 0xFFFFFFFF#32) (Signal.pure 0#32)
-  let rs2_64_signed := (· ++ ·) <$> rs2HiSigned <*> rs2
-  let rs2_64_unsigned := (· ++ ·) <$> Signal.pure 0#32 <*> rs2
+  let rs2_64_signed := rs2HiSigned ++ rs2
+  let rs2_64_unsigned := 0#32 ++ rs2
   -- 64-bit products (ss=signed×signed, su=signed×unsigned, uu=unsigned×unsigned)
   let prod_ss := rs1_64_signed * rs2_64_signed
   let prod_su := rs1_64_signed * rs2_64_unsigned

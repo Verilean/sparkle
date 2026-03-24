@@ -66,7 +66,7 @@ def uartSignal {dom : DomainConfig}
 
     -- Bus read data mux
     let statusWord := Signal.mux txReady (Signal.pure 1#32) (Signal.pure 0#32)
-    let txDataWord := (· ++ ·) <$> Signal.pure 0#24 <*> txDataReg
+    let txDataWord := 0#24 ++ txDataReg
     let rdata := Signal.mux isTxData txDataWord
       (Signal.mux isTxStatus statusWord (Signal.pure 0#32))
 
@@ -93,7 +93,7 @@ def uartSignal {dom : DomainConfig}
   let txDataWE := we &&& isTxData
   let txValid := txDataWE &&& txReady
   let statusWord := Signal.mux txReady (Signal.pure 1#32) (Signal.pure 0#32)
-  let txDataWord := (· ++ ·) <$> Signal.pure 0#24 <*> txDataOut
+  let txDataWord := 0#24 ++ txDataOut
   let rdata := Signal.mux isTxData txDataWord
     (Signal.mux isTxStatus statusWord (Signal.pure 0#32))
   bundleAll! [rdata, txDataOut, txValid, txReady]
