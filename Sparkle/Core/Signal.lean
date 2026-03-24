@@ -275,7 +275,7 @@ def Signal.lt [LT α] [DecidableRel (α := α) (· < ·)] (a b : Signal dom α) 
 def Signal.le [LE α] [DecidableRel (α := α) (· ≤ ·)] (a b : Signal dom α) : Signal dom Bool :=
   (fun x y => decide (x ≤ y)) <$> a <*> b
 
--- Signed comparison for Signal (BitVec n)
+-- Signed/unsigned comparison for Signal (BitVec n)
 
 /-- Signed less-than on BitVec signals. -/
 def Signal.slt (a b : Signal dom (BitVec n)) : Signal dom Bool :=
@@ -284,6 +284,14 @@ def Signal.slt (a b : Signal dom (BitVec n)) : Signal dom Bool :=
 /-- Unsigned less-than on BitVec signals. -/
 def Signal.ult (a b : Signal dom (BitVec n)) : Signal dom Bool :=
   (BitVec.ult · ·) <$> a <*> b
+
+/-- Signed less-or-equal on BitVec signals. -/
+def Signal.sle (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.sle · ·) <$> a <*> b
+
+/-- Unsigned less-or-equal on BitVec signals. -/
+def Signal.ule (a b : Signal dom (BitVec n)) : Signal dom Bool :=
+  (BitVec.ule · ·) <$> a <*> b
 
 /-- Arithmetic shift right on BitVec signals. -/
 def Signal.ashr (a b : Signal dom (BitVec n)) : Signal dom (BitVec n) :=

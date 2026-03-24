@@ -39,7 +39,7 @@ def activationDoubleBuffer {dom : DomainConfig}
     (writeEn bufferSel : Signal dom Bool)
     : Signal dom (BitVec 8) :=
   -- Write enables: only write to selected bank
-  let writeEn0 := writeEn &&& ((fun b => !b) <$> bufferSel)
+  let writeEn0 := writeEn &&& (~~~bufferSel)
   let writeEn1 := writeEn &&& bufferSel
 
   -- Two memory banks

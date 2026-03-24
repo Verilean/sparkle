@@ -526,10 +526,10 @@ def amoComputeSignal {dom : DomainConfig}
   let andResult := memVal &&& rs2Val
   let orResult  := memVal ||| rs2Val
   -- Signed ≤ (BitVec.sle) and unsigned ≤ (BitVec.ule)
-  let signedLe   := (BitVec.sle · ·) <$> memVal <*> rs2Val
-  let signedGe   := (BitVec.sle · ·) <$> rs2Val <*> memVal
-  let unsignedLe := (BitVec.ule · ·) <$> memVal <*> rs2Val
-  let unsignedGe := (BitVec.ule · ·) <$> rs2Val <*> memVal
+  let signedLe   := Signal.sle memVal rs2Val
+  let signedGe   := Signal.sle rs2Val memVal
+  let unsignedLe := Signal.ule memVal rs2Val
+  let unsignedGe := Signal.ule rs2Val memVal
   -- Min/max results
   let minResult  := Signal.mux signedLe memVal rs2Val
   let maxResult  := Signal.mux signedGe memVal rs2Val

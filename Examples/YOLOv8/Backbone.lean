@@ -151,7 +151,7 @@ private def backboneControllerBody {dom : DomainConfig}
 
     -- Buffer select: toggle after each layer
     let shouldToggle := stemDone ||| stageConvDone
-    let bufSelNext := Signal.mux shouldToggle ((fun b => !b) <$> bufSelReg) bufSelReg
+    let bufSelNext := Signal.mux shouldToggle (~~~bufSelReg) bufSelReg
 
     -- Feature map save flags
     let isStage2 := stageReg === (2#3)

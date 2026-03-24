@@ -117,7 +117,7 @@ def trapDelegSignal {dom : DomainConfig}
   let privGtS := Signal.ult (Signal.pure (BitVec.ofNat 2 privS)) privMode
   let privLeS := ~~~privGtS
   let toSmode := trapValid &&& (delegated &&& privLeS)
-  let toMmode := trapValid &&& ((fun s => !s) <$> toSmode)
+  let toMmode := trapValid &&& (~~~toSmode)
 
   -- Trap target: clear bottom 2 bits of tvec
   let mtvecBase := mtvec &&& 0xFFFFFFFC#32
