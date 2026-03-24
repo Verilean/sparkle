@@ -2,6 +2,41 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 44: Inline Verilog Formal Verification — `verilog!` Macro & Auto-Assert (Complete)
+
+**Date**: 2026-03-24
+
+**Goal**: Enable formal verification of Verilog circuits directly in Lean 4 — no external tools, no Lean knowledge required. Write `assert(cond)` in Verilog and get a mathematically proven theorem.
+
+**Result**: Three capabilities delivered:
+
+1. **`verilog!` macro**: Parses Verilog at compile time, generates `State`/`Input`/`nextState` definitions in the current Lean environment. Edit Verilog → proofs re-check instantly.
+
+2. **Formal proofs on auto-generated code**: 6 theorems (zero `sorry`) proved against the `verilog!`-generated state machine — counter hold, reset, increment, wrap, multi-step correctness, reset reachability.
+
+3. **Verilog `assert` → auto-proved theorems**: Write `assert(rst ? (count_reg == 0) : 1)` in Verilog. The macro generates `theorem auto_assert_0` and proves it via `simp [nextState]; bv_decide`. Change the assertion to be wrong → instant red squiggly in editor.
+
+**Pipeline**:
+```
+verilog! "module counter8_en (...) assert(cond); endmodule"
+  → [SVParser] parse assert(cond)
+  → [Lower] extract guarded assertion
+  → [Verify] fix widths, convert to Lean BitVec expr
+  → [Macro] generate theorem, auto-prove via bv_decide
+  → Q.E.D. (or red squiggly if wrong)
+```
+
+**Files Added**:
+- `Tools/SVParser/Macro.lean` — `verilog!` elab command + theorem generation
+- `Tools/SVParser/Verify.lean` — IR→Lean semantic model extraction + `irExprToLean`
+- `Sparkle/Verification/CounterProps.lean` — inline Verilog + 6 proofs + auto-assert demo
+
+**Files Modified**:
+- `Tools/SVParser/AST.lean` — `SVStmt.assertStmt`
+- `Tools/SVParser/Parser.lean` — parse `assert(expr);`, preserve bare assert
+- `Sparkle/IR/AST.lean` — `Module.assertions` field
+- `Tools/SVParser/Lower.lean` — `collectGuardedAsserts`, assertion extraction in `lowerModule`
+
 ## Phase 43: SystemVerilog RTL Parser & PicoRV32 JIT Transpiler (Complete)
 
 **Date**: 2026-03-24
