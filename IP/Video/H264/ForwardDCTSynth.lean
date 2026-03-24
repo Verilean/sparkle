@@ -128,11 +128,9 @@ def fwdDCTModule {dom : DomainConfig}
 
     -- Read address computation (all 4-bit arithmetic)
     -- Row read: addr = grp*4 + subLo (row-major: row*4+col)
-    let rowReadAddr := (· + ·) <$> ((· * ·) <$> grp4' <*> Signal.pure 4#4)
-                                <*> subLo4
+    let rowReadAddr := (grp4' * 4#4) + subLo4
     -- Col read: addr = subLo*4 + grp (column access: row*4+col, row=subLo, col=grp)
-    let colReadAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4)
-                                <*> grp4'
+    let colReadAddr := (subLo4 * 4#4) + grp4'
 
     let readAddr4 := Signal.mux isRow rowReadAddr colReadAddr
 
@@ -144,20 +142,20 @@ def fwdDCTModule {dom : DomainConfig}
 
     -- Forward DCT butterfly computation from stored val registers
     -- s0 = v0+v3, s1 = v1+v2, d0 = v0-v3, d1 = v1-v2
-    let s0 := (· + ·) <$> v0 <*> v3
-    let s1 := (· + ·) <$> v1 <*> v2
-    let d0 := (· - ·) <$> v0 <*> v3
-    let d1 := (· - ·) <$> v1 <*> v2
+    let s0 := v0 + v3
+    let s1 := v1 + v2
+    let d0 := v0 - v3
+    let d1 := v1 - v2
 
     -- Y0 = s0+s1, Y1 = 2*d0+d1, Y2 = s0-s1, Y3 = d0-2*d1
     -- 2*d0 via add-to-self, 2*d1 via add-to-self
-    let d0x2 := (· + ·) <$> d0 <*> d0
-    let d1x2 := (· + ·) <$> d1 <*> d1
+    let d0x2 := d0 + d0
+    let d1x2 := d1 + d1
 
-    let y0 := (· + ·) <$> s0 <*> s1
-    let y1 := (· + ·) <$> d0x2 <*> d1
-    let y2 := (· - ·) <$> s0 <*> s1
-    let y3 := (· - ·) <$> d0 <*> d1x2
+    let y0 := s0 + s1
+    let y1 := d0x2 + d1
+    let y2 := s0 - s1
+    let y3 := d0 - d1x2
 
     -- Select butterfly output based on substep (4→Y0, 5→Y1, 6→Y2, 7→Y3)
     -- Same butterfly for both row and col phases (no rounding in forward DCT)

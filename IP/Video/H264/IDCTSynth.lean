@@ -88,7 +88,7 @@ def idctRef (input : Array Int) : Array Int :=
 private def sarBy1 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
   let signBit := x.map (BitVec.extractLsb' 15 1 ·)
   let upper15 := x.map (BitVec.extractLsb' 1 15 ·)
-  (· ++ ·) <$> signBit <*> upper15
+  signBit ++ upper15
 
 /-- Signed arithmetic right shift by 6 for 16-bit 2's complement.
     Replicate sign bit 6 times, then take upper 10 bits. -/
@@ -96,10 +96,10 @@ private def sarBy6 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal do
   let signBit := x.map (BitVec.extractLsb' 15 1 ·)
   let upper10 := x.map (BitVec.extractLsb' 6 10 ·)
   -- sign-extend: 6 copies of sign bit ++ 10 data bits
-  let sign6 := (· ++ ·) <$> signBit <*> signBit  -- 2 bits
-  let sign4 := (· ++ ·) <$> sign6 <*> sign6      -- 4 bits
-  let sign6' := (· ++ ·) <$> sign6 <*> sign4     -- 6 bits
-  (· ++ ·) <$> sign6' <*> upper10
+  let sign6 := signBit ++ signBit  -- 2 bits
+  let sign4 := sign6 ++ sign6      -- 4 bits
+  let sign6' := sign6 ++ sign4     -- 6 bits
+  sign6' ++ upper10
 
 /-- Inverse DCT synthesis module.
     Inputs: start, writeEn/writeAddr/writeData for loading coefficients.
@@ -148,11 +148,9 @@ def idctModule {dom : DomainConfig}
 
     -- Read address computation (all 4-bit arithmetic)
     -- Row read: addr = grp*4 + subLo (row-major: row*4+col)
-    let rowReadAddr := (· + ·) <$> ((· * ·) <$> grp4' <*> Signal.pure 4#4)
-                                <*> subLo4
+    let rowReadAddr := (grp4' * 4#4) + subLo4
     -- Col read: addr = subLo*4 + grp (column access: row*4+col, row=subLo, col=grp)
-    let colReadAddr := (· + ·) <$> ((· * ·) <$> subLo4 <*> Signal.pure 4#4)
-                                <*> grp4'
+    let colReadAddr := (subLo4 * 4#4) + grp4'
 
     let readAddr4 := Signal.mux isRow rowReadAddr colReadAddr
 
@@ -166,23 +164,22 @@ def idctModule {dom : DomainConfig}
     -- (We use a separate memory for this.)
 
     -- Butterfly computation from stored val registers
-    let s0 := (· + ·) <$> v0 <*> v2
-    let s1 := (· - ·) <$> v0 <*> v2
-    let d0 := (· - ·) <$> (sarBy1 v1) <*> v3
-    let d1 := (· + ·) <$> v1 <*> (sarBy1 v3)
+    let s0 := v0 + v2
+    let s1 := v0 - v2
+    let d0 := (sarBy1 v1) - v3
+    let d1 := v1 + (sarBy1 v3)
 
     -- Row-phase results (no rounding)
-    let rowR0 := (· + ·) <$> s0 <*> d1
-    let rowR1 := (· + ·) <$> s1 <*> d0
-    let rowR2 := (· - ·) <$> s1 <*> d0
-    let rowR3 := (· - ·) <$> s0 <*> d1
+    let rowR0 := s0 + d1
+    let rowR1 := s1 + d0
+    let rowR2 := s1 - d0
+    let rowR3 := s0 - d1
 
     -- Col-phase results (with +32 >>6 rounding)
-    let rnd := Signal.pure 32#16
-    let colR0 := sarBy6 ((· + ·) <$> ((· + ·) <$> s0 <*> d1) <*> rnd)
-    let colR1 := sarBy6 ((· + ·) <$> ((· + ·) <$> s1 <*> d0) <*> rnd)
-    let colR2 := sarBy6 ((· + ·) <$> ((· - ·) <$> s1 <*> d0) <*> rnd)
-    let colR3 := sarBy6 ((· + ·) <$> ((· - ·) <$> s0 <*> d1) <*> rnd)
+    let colR0 := sarBy6 ((· + ·) <$> (s0 + d1) <*> Signal.pure 32#16)
+    let colR1 := sarBy6 ((· + ·) <$> (s1 + d0) <*> Signal.pure 32#16)
+    let colR2 := sarBy6 ((· + ·) <$> (s1 - d0) <*> Signal.pure 32#16)
+    let colR3 := sarBy6 ((· + ·) <$> (s0 - d1) <*> Signal.pure 32#16)
 
     -- Select butterfly output based on substep (4→out0, 5→out1, 6→out2, 7→out3)
     let rowOut := hw_cond rowR0
