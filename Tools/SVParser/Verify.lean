@@ -57,7 +57,8 @@ def extractModel (m : Module) : SemanticModel :=
           | none => 32
       some { name, width, initValue := initVal, nextExpr := input }
     | _ => none
-  let inputs := m.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+  -- Include rst as an input (it's used in mux conditions); only skip clk
+  let inputs := m.inputs.filter (fun p => p.name != "clk")
     |>.map fun p => { name := p.name, width := p.ty.bitWidth : InputField }
   { moduleName := m.name, registers := regs, inputs := inputs }
 
@@ -123,21 +124,38 @@ partial def inferWidth (regWidths inputWidths : List (String × Nat)) : Expr →
 private def leanName (s : String) : String :=
   s.map fun c => if c == '$' || c == '.' then '_' else c
 
-/-- Convert IR Expr to a Lean BitVec expression string -/
-partial def irExprToLean (expr : Expr) (regWidths inputWidths : List (String × Nat))
-    (stateVar inputVar : String) : String :=
-  let go (e : Expr) := irExprToLean e regWidths inputWidths stateVar inputVar
-  let width := inferWidth regWidths inputWidths expr
+/-- Fix constant widths to match the target register width.
+    Verilog unsized constants default to 32-bit in the IR, but the register
+    may be 8-bit. Replace `Expr.const v 32` with `Expr.const v targetWidth`
+    when the constant is used in a context where targetWidth is known. -/
+partial def fixConstWidths (expr : Expr) (targetWidth : Nat)
+    (widthEnv : List (String × Nat)) : Expr :=
+  match expr with
+  | .const v w => if w == 32 && targetWidth != 32 then .const v targetWidth else expr
+  | .op .mux [c, t, e] =>
+    .op .mux [c, fixConstWidths t targetWidth widthEnv, fixConstWidths e targetWidth widthEnv]
+  | .op op args => .op op (args.map (fixConstWidths · targetWidth widthEnv))
+  | .concat args => .concat (args.map (fixConstWidths · targetWidth widthEnv))
+  | .slice e hi lo => .slice (fixConstWidths e (hi - lo + 1) widthEnv) hi lo
+  | _ => expr
+
+/-- Convert IR Expr to a Lean BitVec expression string.
+    `regNames`/`inputNames` control `s.` vs `i.` prefix.
+    `widthEnv` is used for width inference (may include extra wires). -/
+partial def irExprToLean (expr : Expr) (regNames inputNames : List (String × Nat))
+    (widthEnv : List (String × Nat)) (stateVar inputVar : String) : String :=
+  let go (e : Expr) := irExprToLean e regNames inputNames widthEnv stateVar inputVar
+  let width := inferWidth widthEnv widthEnv expr
   match expr with
   | .const v w =>
     if v < 0 then s!"(BitVec.ofInt {w} ({v}))"
     else s!"({v}#{ w})"
   | .ref name =>
-    if regWidths.any (·.1 == name) then s!"{stateVar}.{leanName name}"
-    else if inputWidths.any (·.1 == name) then s!"{inputVar}.{leanName name}"
+    if regNames.any (·.1 == name) then s!"{stateVar}.{leanName name}"
+    else if inputNames.any (·.1 == name) then s!"{inputVar}.{leanName name}"
     else s!"{leanName name}"
   | .op .mux [cond, thenVal, elseVal] =>
-    let condW := inferWidth regWidths inputWidths cond
+    let condW := inferWidth widthEnv widthEnv cond
     s!"(if {go cond} != (0 : BitVec {condW}) then {go thenVal} else {go elseVal})"
   | .op .add [a, b] => s!"({go a} + {go b})"
   | .op .sub [a, b] => s!"({go a} - {go b})"
@@ -172,10 +190,12 @@ partial def irExprToLean (expr : Expr) (regWidths inputWidths : List (String × 
 -- ============================================================================
 
 /-- Generate complete Lean source file from a semantic model -/
-def generateLean (model : SemanticModel) : String :=
+def generateLean (model : SemanticModel) (extraWidths : List (String × Nat) := []) : String :=
   let ns := leanName model.moduleName
   let regWidths := model.registers.map fun r => (r.name, r.width)
   let inputWidths := model.inputs.map fun i => (i.name, i.width)
+  -- Extra widths only for width inference, not for name resolution
+  let allWidths := regWidths ++ inputWidths ++ extraWidths
 
   -- State structure
   let stateFields := model.registers.map fun r =>
@@ -191,9 +211,10 @@ def generateLean (model : SemanticModel) : String :=
     String.intercalate "\n" inputFields ++
     "\n  deriving DecidableEq, Repr, BEq, Inhabited\n"
 
-  -- nextState function
+  -- nextState function — use register width to fix constant widths
   let regAssigns := model.registers.map fun r =>
-    s!"    {leanName r.name} := {irExprToLean r.nextExpr regWidths inputWidths "s" "i"}"
+    let fixedExpr := fixConstWidths r.nextExpr r.width allWidths
+    s!"    {leanName r.name} := {irExprToLean fixedExpr regWidths inputWidths allWidths "s" "i"}"
   let nextStateFn := "def nextState (s : State) (i : Input) : State :=\n  {\n" ++
     String.intercalate "\n" regAssigns ++
     "\n  }\n"
@@ -227,6 +248,10 @@ def moduleToLean (m : Module) : String :=
     registers := model.registers.map fun r =>
       { r with nextExpr := inlineAssigns assigns r.nextExpr }
   }
-  generateLean model
+  -- Collect all wire widths for accurate width inference
+  let wireWidths := m.wires.map fun w => (w.name, w.ty.bitWidth)
+  let portWidths := m.inputs.map fun p => (p.name, p.ty.bitWidth)
+  let allWidths := wireWidths ++ portWidths
+  generateLean model allWidths
 
 end Tools.SVParser.Verify

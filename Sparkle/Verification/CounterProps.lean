@@ -1,8 +1,9 @@
 /-
-  Verilog Counter Formal Verification
+  Formal Verification of Auto-Generated Verilog Counter
 
-  Pure state-machine model of an 8-bit counter with enable,
-  matching the Sparkle IR output from parsing this Verilog:
+  This file proves properties about the **auto-generated** state machine
+  from `Sparkle/Verification/Generated/Counter8.lean`, which is produced
+  by parsing this Verilog via SVParser:
 
     module counter8_en (
         input clk, input rst, input en,
@@ -16,69 +17,41 @@
         end
     endmodule
 
-  The IR produces: register count_reg <= mux(rst, 0, mux(en, count_reg+1, count_reg))
+  Pipeline: Verilog → [SVParser] → IR → [Verify.lean] → Generated/Counter8.lean → [this file] → Q.E.D.
 
-  We prove 4 properties with zero `sorry`, demonstrating that
-  Verilog circuits parsed through SVParser can be formally verified.
+  No hand-written State/Input/nextState — everything comes from the generated import.
 -/
+
+import Sparkle.Verification.Generated.Counter8
+
+open counter8_en.Verify
 
 namespace Sparkle.Verification.CounterProps
 
 -- ============================================================================
--- State and Input types (derived from Verilog ports and registers)
+-- Formal Properties of the Auto-Generated Counter
 -- ============================================================================
 
-/-- State: one 8-bit register (count_reg) -/
-structure Counter8State where
-  count_reg : BitVec 8
-  deriving DecidableEq, Repr, BEq, Inhabited
-
-/-- Input: rst (active-high reset) and en (count enable) -/
-structure Counter8Input where
-  rst : BitVec 1
-  en  : BitVec 1
-  deriving DecidableEq, Repr, BEq, Inhabited
-
--- ============================================================================
--- Next-state function (mirrors IR mux tree)
--- ============================================================================
-
-/-- Next-state transition: mux(rst, 0, mux(en, count+1, count))
-    This is the exact structure the SVParser If-Conversion produces. -/
-def nextState (s : Counter8State) (i : Counter8Input) : Counter8State :=
-  { count_reg :=
-      if i.rst == 1 then 0#8
-      else if i.en == 1 then s.count_reg + 1
-      else s.count_reg }
-
-/-- Output function: count = count_reg (continuous assign in Verilog) -/
-def output (s : Counter8State) : BitVec 8 := s.count_reg
-
--- ============================================================================
--- Formal Properties
--- ============================================================================
-
-/-- Property 1: Counter holds its value when enable is deasserted.
-    Verilog: if rst=0 and en=0, count_reg doesn't change. -/
-theorem counter_holds_when_disabled (s : Counter8State) :
+/-- Property 1: Counter holds its value when enable is deasserted and not in reset.
+    Proves: the auto-generated nextState preserves count when rst=0, en=0. -/
+theorem counter_holds_when_disabled (s : State) :
     nextState s { rst := 0, en := 0 } = s := by
   simp [nextState]
 
 /-- Property 2: Reset always clears the counter to zero.
-    Verilog: if rst=1, count_reg <= 0 regardless of en or current value. -/
-theorem counter_resets_to_zero (s : Counter8State) (i : Counter8Input) :
+    Proves: the auto-generated nextState sets count_reg=0 when rst=1. -/
+theorem counter_resets_to_zero (s : State) (i : Input) :
     i.rst = 1 → (nextState s i).count_reg = 0#8 := by
-  intro h
-  simp [nextState, h]
+  intro h; simp [nextState, h]
 
-/-- Property 3: Counter increments by 1 when enabled (and not in reset).
-    Verilog: if rst=0 and en=1, count_reg <= count_reg + 1. -/
-theorem counter_increments (s : Counter8State) :
+/-- Property 3: Counter increments by 1 when enabled and not in reset.
+    Proves: the auto-generated nextState computes count+1 when rst=0, en=1. -/
+theorem counter_increments (s : State) :
     (nextState s { rst := 0, en := 1 }).count_reg = s.count_reg + 1 := by
   simp [nextState]
 
-/-- Property 4: Counter wraps around from 255 to 0 (BitVec overflow).
-    Demonstrates hardware bit-width semantics: 255 + 1 = 0 in 8-bit. -/
+/-- Property 4: Counter wraps around from 255 to 0 (BitVec 8 overflow).
+    Proves: hardware bit-width semantics in the auto-generated model. -/
 theorem counter_wraps :
     nextState { count_reg := 255#8 } { rst := 0, en := 1 }
     = { count_reg := 0#8 } := by
@@ -88,13 +61,12 @@ theorem counter_wraps :
 -- Multi-step properties
 -- ============================================================================
 
-/-- Helper: apply n steps of the counter with constant input -/
-def nSteps (s : Counter8State) (i : Counter8Input) : Nat → Counter8State
+/-- Apply n steps of the counter with constant input -/
+def nSteps (s : State) (i : Input) : Nat → State
   | 0 => s
   | n + 1 => nextState (nSteps s i n) i
 
-/-- Property 5: After n enabled steps from 0, counter = n mod 256.
-    This is the fundamental correctness property of the counter. -/
+/-- Property 5: After n enabled steps from 0, counter = n mod 256. -/
 theorem counter_counts_correctly (n : Nat) (h : n < 256) :
     (nSteps { count_reg := 0#8 } { rst := 0, en := 1 } n).count_reg
     = BitVec.ofNat 8 n := by
@@ -106,7 +78,7 @@ theorem counter_counts_correctly (n : Nat) (h : n < 256) :
     bv_omega
 
 /-- Property 6: Reset from any state always reaches zero. -/
-theorem reset_reaches_zero (s : Counter8State) :
+theorem reset_reaches_zero (s : State) :
     (nSteps s { rst := 1, en := 0 } 1).count_reg = 0#8 := by
   simp [nSteps, nextState]
 
