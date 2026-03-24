@@ -81,16 +81,12 @@ private def headControllerBody {dom : DomainConfig}
     -- Conv index tracking (3 convs per branch: conv3x3, conv3x3, conv1x1)
     let convIdxInc := convIdxReg + 1#2
     let bboxConvDone := subOpDone &&& isBboxConv
-    let allBboxConvs := (· && ·) <$> bboxConvDone <*>
-      (convIdxReg === 2#2)  -- 3 convs: 0,1,2
-    let moreBboxConv := (· && ·) <$> bboxConvDone <*>
-      (~~~(convIdxReg === 2#2))
+    let allBboxConvs := bboxConvDone &&& (convIdxReg === 2#2)  -- 3 convs: 0,1,2
+    let moreBboxConv := bboxConvDone &&& (~~~(convIdxReg === 2#2))
 
     let clsConvDone := subOpDone &&& isClsConv
-    let allClsConvs := (· && ·) <$> clsConvDone <*>
-      (convIdxReg === 2#2)
-    let moreClsConv := (· && ·) <$> clsConvDone <*>
-      (~~~(convIdxReg === 2#2))
+    let allClsConvs := clsConvDone &&& (convIdxReg === 2#2)
+    let moreClsConv := clsConvDone &&& (~~~(convIdxReg === 2#2))
 
     let textDotDone := subOpDone &&& isTextDot
 

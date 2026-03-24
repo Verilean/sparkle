@@ -105,8 +105,8 @@ def csrFileSignal {dom : DomainConfig}
     let mtvalNewCSR    := mkCsrNewVal csrIsRW csrIsRS csrIsRC csrWdata mtvalReg
 
     -- Current MIE and MPIE bits for MSTATUS
-    let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let mstatusMIE_flag := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let mstatusMPIE_flag := (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
 
     -- MSTATUS on trap: MPIE←MIE, MIE←0, MPP←11 (M-mode)
     let msClearMIE := mstatusReg &&& 0xFFFFFFF7#32
@@ -168,11 +168,11 @@ def csrFileSignal {dom : DomainConfig}
       (Signal.pure 0#32))))))))))
 
   -- Output signals
-  let mstatusMIE := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-  let mieMTIE := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-  let mieMSIE := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-  let mipMTIP := (· == ·) <$> (mipValue.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-  let mipMSIP := (· == ·) <$> (mipValue.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+  let mstatusMIE := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+  let mieMTIE := (mieReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+  let mieMSIE := (mieReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+  let mipMTIP := (mipValue.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+  let mipMSIP := (mipValue.map (BitVec.extractLsb' 3 1 ·)) === 1#1
 
   bundleAll! [csrRdata, mtvecReg, mepcReg, mstatusMIE, mieMTIE, mieMSIE, mipMTIP, mipMSIP]
 

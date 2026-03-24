@@ -75,10 +75,8 @@ private def sppfControllerBody {dom : DomainConfig}
 
     -- Pool stage counter
     let poolStgInc := poolStgReg + 1#2
-    let allPoolsDone := (· && ·) <$> poolDone <*>
-      (poolStgReg === 2#2)  -- 3 stages: 0,1,2
-    let morePool := (· && ·) <$> poolDone <*>
-      (~~~(poolStgReg === 2#2))
+    let allPoolsDone := poolDone &&& (poolStgReg === 2#2)  -- 3 stages: 0,1,2
+    let morePool := poolDone &&& (~~~(poolStgReg === 2#2))
 
     let concatDone   := subOpDone &&& isConcat
     let convPostDone := subOpDone &&& isConvPost

@@ -55,7 +55,7 @@ def arbiterSignal {dom : DomainConfig}
     -- Condition: go to GrantA
     --   (isIdle && reqA) || (isGrantA && reqA && !reqB) || (isGrantB && reqA)
     --   Simplified: reqA && (isIdle || (isGrantA && !reqB) || isGrantB)
-    let notReqB := (fun x => !x) <$> reqB
+    let notReqB := ~~~reqB
     let grantAKeep := isGrantA &&& notReqB   -- GrantA && A only
     let goGrantA := reqA &&& (isIdle ||| grantAKeep ||| isGrantB)
 
@@ -63,7 +63,7 @@ def arbiterSignal {dom : DomainConfig}
     --   (isGrantA && reqB) || (isIdle && !reqA && reqB) || (isGrantB && !reqA && reqB)
     --   Simplified: reqB && (isGrantA || !reqA)
     --   But we need to be careful: from GrantA, both req → GrantB (reqB wins via round-robin)
-    let notReqA := (fun x => !x) <$> reqA
+    let notReqA := ~~~reqA
     let idleAndBonly := isIdle &&& notReqA    -- Idle && B only
     let grantBKeep := isGrantB &&& notReqA    -- GrantB && B only (not needed, isGrantA handles both)
     let goGrantB := reqB &&& (isGrantA ||| idleAndBonly ||| grantBKeep)

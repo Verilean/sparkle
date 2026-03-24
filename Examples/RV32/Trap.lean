@@ -101,15 +101,15 @@ def trapDelegSignal {dom : DomainConfig}
   let midelegReg := projN! deleg 2 1
 
   -- Delegation decision
-  let isInterrupt := (· == ·) <$> (trapCause.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+  let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
   let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
   let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
 
   -- Check delegation bit: (deleg_reg >>> cause_idx)[0]
   let medelegShifted := (· >>> ·) <$> medelegReg <*> causeIdxExt
-  let medelegBit := (· == ·) <$> (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+  let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
   let midelegShifted := (· >>> ·) <$> midelegReg <*> causeIdxExt
-  let midelegBit := (· == ·) <$> (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+  let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
 
   let delegated := Signal.mux isInterrupt midelegBit medelegBit
 

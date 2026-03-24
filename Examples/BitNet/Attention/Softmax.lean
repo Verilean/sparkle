@@ -79,7 +79,7 @@ def softmaxSignal (scores : Array (Signal dom (BitVec 32)))
       let idx := absDiff.map (BitVec.extractLsb' 0 8 ·)
       -- Check upper bits for saturation (if |diff| ≥ 256, exp ≈ 0)
       let upperBits := absDiff.map (BitVec.extractLsb' 8 24 ·)
-      let isZero := upperBits === Signal.pure (0 : BitVec 24)
+      let isZero := upperBits === (0 : BitVec 24)
       let isLarge := ~~~isZero
       let satIdx := Signal.mux isLarge (Signal.pure 255#8) idx
       -- LUT lookup via mux tree

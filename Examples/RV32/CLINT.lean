@@ -104,7 +104,7 @@ def clintSignal {dom : DomainConfig}
   let timerIrq := hiGt ||| (hiEq &&& loGe)
 
   -- Software interrupt: msip[0]
-  let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+  let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
 
   bundleAll! [busRdata, timerIrq, swIrq]
 

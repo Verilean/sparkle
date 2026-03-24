@@ -76,7 +76,7 @@ def lutMuxTree (table : Array (BitVec n)) (index : Signal dom (BitVec k))
   else Id.run do
     let mut result : Signal dom (BitVec n) := Signal.pure table[0]!
     for i in [:table.size] do
-      let isMatch := index === Signal.pure (BitVec.ofNat k i)
+      let isMatch := index === (BitVec.ofNat k i)
       result := Signal.mux isMatch (Signal.pure table[i]!) result
     return result
 
@@ -158,8 +158,8 @@ def dynamicMACStage (weightCodes : Array (Signal dom (BitVec 2)))
       let wCode := weightCodes[i]!
       let act := activations[i]!
       let neg := (fun x => 0 - x) <$> act
-      let isPosOne := wCode === Signal.pure 0b10#2
-      let isNegOne := wCode === Signal.pure 0b00#2
+      let isPosOne := wCode === 0b10#2
+      let isNegOne := wCode === 0b00#2
       -- If +1: act, if -1: neg, else: 0
       let decoded := Signal.mux isPosOne act (Signal.mux isNegOne neg (Signal.pure 0))
       results := results.push decoded

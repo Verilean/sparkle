@@ -32,9 +32,9 @@ def residualAddSignal (a b : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   -- Extract lower 32 bits
   let low32 := sum.map (BitVec.extractLsb' 0 32 ·)
   -- Positive overflow: top2 == 0b01
-  let posOvf := top2 === Signal.pure 0b01#2
+  let posOvf := top2 === 0b01#2
   -- Negative overflow: top2 == 0b10
-  let negOvf := top2 === Signal.pure 0b10#2
+  let negOvf := top2 === 0b10#2
   -- Saturation constants
   let maxPos : BitVec 32 := BitVec.ofInt 32 (2 ^ 31 - 1)
   let maxNeg : BitVec 32 := BitVec.ofInt 32 (-(2 ^ 31 : Int))

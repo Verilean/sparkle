@@ -150,8 +150,7 @@ def rv32iCore {dom : DomainConfig}
     let jalrTarget := jalrSum &&& 0xFFFFFFFE#32
     let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
     -- Flush
-    let flush := (· || ·) <$> (branchTaken ||| idex_jump) <*>
-                 (trap_taken ||| idex_isMret)
+    let flush := (branchTaken ||| idex_jump) ||| (trap_taken ||| idex_isMret)
     let flushOrDelay := flush ||| flushDelay
 
     -- =================================================================
@@ -178,12 +177,10 @@ def rv32iCore {dom : DomainConfig}
     let id_isJALR   := id_opcode === 0b1100111#7
     let id_isSystem := id_opcode === 0b1110011#7
     -- Derived
-    let id_aluSrcB := (· || ·) <$> ((· || ·) <$> (id_isALUimm ||| id_isLoad) <*>
-                      (id_isStore ||| id_isLUI)) <*>
-                      ((· || ·) <$> (id_isAUIPC ||| id_isJAL) <*> id_isJALR)
-    let id_regWrite := (· || ·) <$> ((· || ·) <$> (id_isALUrr ||| id_isALUimm) <*>
-                       (id_isLoad ||| id_isLUI)) <*>
-                       ((· || ·) <$> (id_isAUIPC ||| id_isJAL) <*> id_isJALR)
+    let id_aluSrcB := ((id_isALUimm ||| id_isLoad) ||| (id_isStore ||| id_isLUI)) |||
+                      ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
+    let id_regWrite := ((id_isALUrr ||| id_isALUimm) ||| (id_isLoad ||| id_isLUI)) |||
+                       ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
     let id_memRead  := id_isLoad
     let id_memWrite := id_isStore
     let id_memToReg := id_isLoad

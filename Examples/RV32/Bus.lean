@@ -51,11 +51,11 @@ def busDecoderSignal {dom : DomainConfig}
        (BitVec 32 × (Bool × (Bool × BitVec 32))))))))))) :=
   -- Address decode
   -- CLINT: 0x02000000 - 0x0200FFFF (addr[31:16] == 0x0200)
-  let isCLINT := (· == ·) <$> (addr.map (BitVec.extractLsb' 16 16 ·)) <*> Signal.pure 0x0200#16
+  let isCLINT := (addr.map (BitVec.extractLsb' 16 16 ·)) === 0x0200#16
   -- UART: 0x10000000 - 0x100000FF (addr[31:8] == 0x100000)
-  let isUART := (· == ·) <$> (addr.map (BitVec.extractLsb' 8 24 ·)) <*> Signal.pure 0x100000#24
+  let isUART := (addr.map (BitVec.extractLsb' 8 24 ·)) === 0x100000#24
   -- Boot DRAM: 0x80000000 - 0x8001FFFF (addr[31:17] == 0x4000)
-  let isBoot := (· == ·) <$> (addr.map (BitVec.extractLsb' 17 15 ·)) <*> Signal.pure 0x4000#15
+  let isBoot := (addr.map (BitVec.extractLsb' 17 15 ·)) === 0x4000#15
   -- DRAM: default (not CLINT, not UART, not Boot)
   let notClint := ~~~isCLINT
   let notUart := ~~~isUART
@@ -69,7 +69,7 @@ def busDecoderSignal {dom : DomainConfig}
   let bootAddr := addr
 
   -- Control signal qualification
-  let anyDev := (· || ·) <$> (isDRAM ||| isCLINT) <*> (isUART ||| isBoot)
+  let anyDev := (isDRAM ||| isCLINT) ||| (isUART ||| isBoot)
   let devWE := we &&& anyDev
   let devRE := re &&& anyDev
 

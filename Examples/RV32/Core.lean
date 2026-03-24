@@ -291,9 +291,9 @@ def aluControlSignal {dom : DomainConfig}
       (Signal.pure 0x0#4)))))))               -- ADD
 
   -- SUB: R-type with funct7[5]=1 and funct3=000
-  let isSub := (· && ·) <$> (isALUrr &&& f7bit5) <*> f3is0
+  let isSub := (isALUrr &&& f7bit5) &&& f3is0
   -- SRA: ALU with funct7[5]=1 and funct3=101
-  let isSRA := (· && ·) <$> (isALUany &&& f7bit5) <*> f3is5
+  let isSRA := (isALUany &&& f7bit5) &&& f3is5
 
   let aluOpAdj :=
     Signal.mux isSub (Signal.pure 0x1#4)      -- SUB

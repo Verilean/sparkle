@@ -83,9 +83,8 @@ def supervisorCsrSignal {dom : DomainConfig}
   let isSatp     := csrAddr === (BitVec.ofNat 12 csrSATP)
 
   -- Combined hit signal
-  let csrHit := (· || ·) <$>
-    ((· || ·) <$> (isSstatus ||| isSie) <*> (isStvec ||| isSscratch)) <*>
-    ((· || ·) <$> (isSepc ||| isScause) <*> (isStval ||| (isSip ||| isSatp)))
+  let csrHit := ((isSstatus ||| isSie) ||| (isStvec ||| isSscratch)) |||
+    ((isSepc ||| isScause) ||| (isStval ||| (isSip ||| isSatp)))
 
   -- SSTATUS: restricted view of mstatus
   -- sstatus exposes: SIE(1), SPIE(5), SPP(8), MXR(19), SUM(18)

@@ -6,8 +6,8 @@ open Sparkle.Core.Signal
 
 -- Sub-module: Half adder
 def halfAdder (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8 × BitVec 8) :=
-  let sum := (· ^^^ ·) <$> a <*> b
-  let carry := (· &&& ·) <$> a <*> b
+  let sum := a ^^^ b
+  let carry := a &&& b
   bundle2 sum carry
 
 -- Top-level module that instantiates halfAdder twice
@@ -35,16 +35,16 @@ def fullAdder (a b cin : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8 × 
   let res2 := halfAdder sum1 cin
   let sum2 := res2.fst
   let carry2 := res2.snd
-  let carryOut := (· ||| ·) <$> carry1 <*> carry2
+  let carryOut := carry1 ||| carry2
   bundle2 sum2 carryOut
 
 -- Sub-module: 8-bit XOR gate
 def xor8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
-  (· ^^^ ·) <$> a <*> b
+  a ^^^ b
 
 -- Sub-module: 8-bit AND gate
 def and8 (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
-  (· &&& ·) <$> a <*> b
+  a &&& b
 
 -- Top-level: XOR then AND
 def xorThenAnd (a b c : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=

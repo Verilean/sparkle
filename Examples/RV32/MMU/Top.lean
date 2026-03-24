@@ -55,7 +55,7 @@ def mmuTopSignal {dom : DomainConfig}
     : Signal dom (BitVec 32 × (Bool × (Bool × (BitVec 32 × (Bool × Bool))))) :=
 
   -- SATP decode
-  let satpMode := (· == ·) <$> (satp.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+  let satpMode := (satp.map (BitVec.extractLsb' 31 1 ·)) === 1#1
   let satpPPN := satp.map (BitVec.extractLsb' 0 22 ·)
 
   -- Bypass mode: no translation when satp.MODE=0 or M-mode
@@ -126,26 +126,26 @@ def mmuTopSignal {dom : DomainConfig}
     -- TLB hit for each entry: valid AND vpn match
     -- For megapages, only compare top 10 bits of VPN
     let tlb0FullMatch := tlb0VPN === vpn
-    let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
+    let tlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
     let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 
     let tlb1FullMatch := tlb1VPN === vpn
-    let tlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
+    let tlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb1VPNMatch := Signal.mux tlb1Mega tlb1MegaMatch tlb1FullMatch
     let tlb1Hit := tlb1Valid &&& tlb1VPNMatch
 
     let tlb2FullMatch := tlb2VPN === vpn
-    let tlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
+    let tlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb2VPNMatch := Signal.mux tlb2Mega tlb2MegaMatch tlb2FullMatch
     let tlb2Hit := tlb2Valid &&& tlb2VPNMatch
 
     let tlb3FullMatch := tlb3VPN === vpn
-    let tlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
+    let tlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb3VPNMatch := Signal.mux tlb3Mega tlb3MegaMatch tlb3FullMatch
     let tlb3Hit := tlb3Valid &&& tlb3VPNMatch
 
-    let anyTLBHit := (· || ·) <$> (tlb0Hit ||| tlb1Hit) <*> (tlb2Hit ||| tlb3Hit)
+    let anyTLBHit := (tlb0Hit ||| tlb1Hit) ||| (tlb2Hit ||| tlb3Hit)
 
     -- Priority mux for TLB output (entry 0 has highest priority)
     let tlbPPN := Signal.mux tlb0Hit tlb0PPN
@@ -178,9 +178,9 @@ def mmuTopSignal {dom : DomainConfig}
     let ptwPteNext := Signal.mux memReady memRdata ptwPteReg
 
     -- PTE field decode
-    let pteValid := (· == ·) <$> (ptwPteReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
-    let pteRBit := (· == ·) <$> (ptwPteReg.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
-    let pteXBit := (· == ·) <$> (ptwPteReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let pteValid := (ptwPteReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
+    let pteRBit := (ptwPteReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let pteXBit := (ptwPteReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
     let pteIsLeaf := pteRBit ||| pteXBit
     let pteInvalid := ~~~pteValid
     let ptePPNFull := ptwPteReg.map (BitVec.extractLsb' 10 22 ·)
@@ -337,7 +337,7 @@ def mmuTopSignal {dom : DomainConfig}
   let tlb0PPN := projN! mmu 26 8
   let tlb0Mega := projN! mmu 26 10
   let tlb0FullMatch := tlb0VPN === vpn
-  let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
+  let tlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (vpn.map (BitVec.extractLsb' 10 10 ·))
   let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
   let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 

@@ -79,35 +79,31 @@ def dividerSignal {dom : DomainConfig}
     let isFinishing := counterReg === 1#6
 
     -- Is counter > 1? (working step)
-    let isWorking := (· && ·) <$>
-      (~~~isIdle) <*>
-      (~~~isFinishing)
+    let isWorking := (~~~isIdle) &&& (~~~isFinishing)
 
     -- ====================================================================
     -- START: Latch inputs, compute absolute values, set counter
     -- ====================================================================
 
     -- Sign of dividend (bit 31)
-    let dividendSign := (· == ·) <$>
-      (dividend.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let dividendSign := (dividend.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     -- Sign of divisor (bit 31)
-    let divisorSign := (· == ·) <$>
-      (divisor.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let divisorSign := (divisor.map (BitVec.extractLsb' 31 1 ·)) === 1#1
 
     -- Negate dividend if signed and negative
-    let dividendNeg := (· - ·) <$> Signal.pure 0#32 <*> dividend
+    let dividendNeg := Signal.pure 0#32 - dividend
     let dividendNeedNeg := is_signed &&& dividendSign
     let absDividend := Signal.mux dividendNeedNeg dividendNeg dividend
 
     -- Negate divisor if signed and negative
-    let divisorNeg := (· - ·) <$> Signal.pure 0#32 <*> divisor
+    let divisorNeg := Signal.pure 0#32 - divisor
     let divisorNeedNeg := is_signed &&& divisorSign
     let absDivisor := Signal.mux divisorNeedNeg divisorNeg divisor
 
     -- For quotient: negate if signs differ (signed mode only)
     -- XOR on Bool = (a && !b) || (!a && b)
     let signsDiffer_a := dividendSign &&& (~~~divisorSign)
-    let signsDiffer_b := (· && ·) <$> (~~~dividendSign) <*> divisorSign
+    let signsDiffer_b := (~~~dividendSign) &&& divisorSign
     let signsDiffer := signsDiffer_a ||| signsDiffer_b
     let negateQuot := is_signed &&& signsDiffer
 
@@ -157,8 +153,7 @@ def dividerSignal {dom : DomainConfig}
 
     -- Shift quotient left and OR in the new bit
     let quotShifted := (· <<< ·) <$> quotientReg <*> Signal.pure 1#32
-    let quotWithBit := (· ||| ·) <$> quotShifted <*>
-      (Signal.mux trialNonNeg (Signal.pure 1#32) (Signal.pure 0#32))
+    let quotWithBit := quotShifted ||| (Signal.mux trialNonNeg (Signal.pure 1#32) (Signal.pure 0#32))
 
     -- Decrement counter
     let counterDec := counterReg - 1#6
@@ -176,7 +171,7 @@ def dividerSignal {dom : DomainConfig}
     let rawResult := Signal.mux isRemReg finalRem finalQuot
 
     -- Negate if needed
-    let negResult := (· - ·) <$> Signal.pure 0#32 <*> rawResult
+    let negResult := Signal.pure 0#32 - rawResult
     let finalResult := Signal.mux negateReg negResult rawResult
 
     -- ====================================================================
@@ -269,7 +264,7 @@ def dividerSignal {dom : DomainConfig}
   -- When done=true, the registers hold the final values
   let finalRem := remainderOut.map (BitVec.extractLsb' 0 32 ·)
   let rawResult := Signal.mux isRemOut finalRem quotientOut
-  let negResult := (· - ·) <$> Signal.pure 0#32 <*> rawResult
+  let negResult := Signal.pure 0#32 - rawResult
   let result := Signal.mux negateOut negResult rawResult
 
   -- Div-by-zero override

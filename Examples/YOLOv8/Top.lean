@@ -99,8 +99,7 @@ def yolov8nTop {dom : DomainConfig}
 
     -- Total pixels: 160 * 160 * 3 = 76800
     let totalPixels := Signal.pure 76800#16
-    let allPixelsLoaded := (· && ·) <$> isLoadInput <*>
-      (pixelCntReg === totalPixels)
+    let allPixelsLoaded := isLoadInput &&& (pixelCntReg === totalPixels)
 
     -- Pixel counter
     let pixelInc := pixelCntReg + 1#16
@@ -165,7 +164,7 @@ def yolov8nTop {dom : DomainConfig}
   let phaseOut     := projN! loopState 10 0
   let cycleOut     := projN! loopState 10 1
   let outReadyOut  := projN! loopState 10 8
-  let doneOut      := (· == ·) <$> (projN! loopState 10 0) <*> Signal.pure 6#4
+  let doneOut      := (projN! loopState 10 0) === 6#4
 
   bundle2 phaseOut (bundle2 cycleOut (bundle2 doneOut outReadyOut))
 

@@ -84,10 +84,8 @@ private def c2fControllerBody {dom : DomainConfig}
     -- Bottleneck iteration
     let bnIdxInc := bnIdxReg + 1#4
     let bnDone := subOpDone &&& isBottleneck
-    let allBnDone := (· && ·) <$> bnDone <*>
-      (bnIdxInc === maxBnReg)
-    let moreBn := (· && ·) <$> bnDone <*>
-      (~~~(bnIdxInc === maxBnReg))
+    let allBnDone := bnDone &&& (bnIdxInc === maxBnReg)
+    let moreBn := bnDone &&& (~~~(bnIdxInc === maxBnReg))
 
     let concatDone := subOpDone &&& isConcat
     let mergeDone := subOpDone &&& isMerge

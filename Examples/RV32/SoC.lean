@@ -374,7 +374,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- =========================================================================
     -- MMU/PTW state decode and address computation (early, for DMEM addr mux)
     -- =========================================================================
-    let satpMode := (· == ·) <$> (satpReg.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let satpMode := (satpReg.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     let isMmode := privMode === 3#2
     let bypassMMU := isMmode ||| (~~~satpMode)
     -- MMU FSM: IDLE=0, TLB_LOOKUP=1, PTW_WALK=2, DONE=3, FAULT=4
@@ -412,7 +412,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let ptwMemActive := ptwIsL1Req ||| ptwIsL0Req
     let ptwMemWordAddr := ptwMemAddr.map (BitVec.extractLsb' 2 23 ·)
     -- MMU stall: busy (not IDLE/DONE/FAULT) and not bypassed
-    let mmuBusy := ~~~((· || ·) <$> (isMMUIdle ||| isMMUDone) <*> isMMUFault)
+    let mmuBusy := ~~~((isMMUIdle ||| isMMUDone) ||| isMMUFault)
     let mmuStall := mmuBusy &&& (~~~bypassMMU)
 
     -- =========================================================================
@@ -422,26 +422,26 @@ def rv32iSoCBody {dom : DomainConfig}
     let dPageOffset := alu_result_approx.map (BitVec.extractLsb' 0 12 ·)
 
     let tlb0FullMatch := tlb0VPN === dVPN
-    let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
     let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 
     let tlb1FullMatch := tlb1VPN === dVPN
-    let tlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb1VPNMatch := Signal.mux tlb1Mega tlb1MegaMatch tlb1FullMatch
     let tlb1Hit := tlb1Valid &&& tlb1VPNMatch
 
     let tlb2FullMatch := tlb2VPN === dVPN
-    let tlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb2VPNMatch := Signal.mux tlb2Mega tlb2MegaMatch tlb2FullMatch
     let tlb2Hit := tlb2Valid &&& tlb2VPNMatch
 
     let tlb3FullMatch := tlb3VPN === dVPN
-    let tlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (dVPN.map (BitVec.extractLsb' 10 10 ·))
+    let tlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
     let tlb3VPNMatch := Signal.mux tlb3Mega tlb3MegaMatch tlb3FullMatch
     let tlb3Hit := tlb3Valid &&& tlb3VPNMatch
 
-    let anyTLBHit := (· || ·) <$> (tlb0Hit ||| tlb1Hit) <*> (tlb2Hit ||| tlb3Hit)
+    let anyTLBHit := (tlb0Hit ||| tlb1Hit) ||| (tlb2Hit ||| tlb3Hit)
 
     let tlbPPN := Signal.mux tlb0Hit tlb0PPN
       (Signal.mux tlb1Hit tlb1PPN
@@ -466,15 +466,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let dPhysAddrReg := (· ++ ·) <$> dtlbPPN_20 <*> dPageOffset
     let dPhysAddr := Signal.mux tlbMega dPhysAddrMega dPhysAddrReg
     -- Effective address: use translated physical when MMU active and TLB hit
-    let useTranslatedAddr := (· && ·) <$> (~~~bypassMMU) <*> anyTLBHit
+    let useTranslatedAddr := (~~~bypassMMU) &&& anyTLBHit
     let effectiveAddr := Signal.mux useTranslatedAddr dPhysAddr alu_result_approx
 
     -- D-side TLB miss: need translation but no TLB hit (first cycle only, while MMU+PTW idle)
     let dMemAccess := idex_memRead ||| idex_memWrite
     let needTranslateD := dMemAccess &&& (~~~bypassMMU)
-    let dTLBMiss := (· && ·) <$> needTranslateD <*>
-      ((· && ·) <$> (~~~anyTLBHit) <*>
-        (isMMUIdle &&& ptwIsIdle))
+    let dTLBMiss := needTranslateD &&& ((~~~anyTLBHit) &&& (isMMUIdle &&& ptwIsIdle))
 
     -- Bus address decode uses effectiveAddr (physical after MMU translation)
     let busAddrHi_ex := effectiveAddr.map (BitVec.extractLsb' 16 16 ·)
@@ -483,8 +481,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let is_mmio_ex := mmioAddrBit30_ex === 1#1
     let busAddrByte24_ex := effectiveAddr.map (BitVec.extractLsb' 24 8 ·)
     let isUART_ex := busAddrByte24_ex === 0x10#8
-    let isDMEM_ex := (· && ·) <$> (~~~isCLINT_ex) <*>
-      ((· && ·) <$> (~~~is_mmio_ex) <*> ((fun x => !x) <$> isUART_ex))
+    let isDMEM_ex := (~~~isCLINT_ex) &&& ((~~~is_mmio_ex) &&& (~~~isUART_ex))
 
     let dmem_write_addr := effectiveAddr.map (BitVec.extractLsb' 2 23 ·)
     let pendWriteWordAddr := pendingWriteAddr.map (BitVec.extractLsb' 2 23 ·)
@@ -507,10 +504,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let isSH := storeFunct3Low === 1#2
     let isSW := storeFunct3Low === 2#2
     -- Byte 0 WE: SW || (SH && addr[1]==0) || (SB && addr[1:0]==0)
-    let b0we := isSW ||| ((· || ·) <$> (isSH &&& storeHalfLow) <*> (isSB &&& storeByteOff0))
-    let b1we := isSW ||| ((· || ·) <$> (isSH &&& storeHalfLow) <*> (isSB &&& storeByteOff1))
-    let b2we := isSW ||| ((· || ·) <$> (isSH &&& storeHalfHigh) <*> (isSB &&& storeByteOff2))
-    let b3we := isSW ||| ((· || ·) <$> (isSH &&& storeHalfHigh) <*> (isSB &&& storeByteOff3))
+    let b0we := isSW ||| ((isSH &&& storeHalfLow) ||| (isSB &&& storeByteOff0))
+    let b1we := isSW ||| ((isSH &&& storeHalfLow) ||| (isSB &&& storeByteOff1))
+    let b2we := isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff2))
+    let b3we := isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff3))
     let byte0_we := dmem_we &&& b0we
     let byte1_we := dmem_we &&& b1we
     let byte2_we := dmem_we &&& b2we
@@ -602,9 +599,9 @@ def rv32iSoCBody {dom : DomainConfig}
                        (Signal.mux mmioIsOutput_wb (Signal.pure 0xDEADBEEF#32)
                          (Signal.pure 0#32))
     -- UART 8250 read logic (WB stage)
-    let isUART_wb := (· == ·) <$> (exwb_physAddr.map (BitVec.extractLsb' 24 8 ·)) <*> Signal.pure 0x10#8
+    let isUART_wb := (exwb_physAddr.map (BitVec.extractLsb' 24 8 ·)) === 0x10#8
     let uartOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 3 ·)
-    let uartDLAB_wb := (· == ·) <$> (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let uartDLAB_wb := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     -- Read data per offset (zero-extended to 32 bits)
     let uartRd0 := Signal.mux uartDLAB_wb
       ((· ++ ·) <$> Signal.pure 0#24 <*> uartDLLReg)
@@ -681,8 +678,7 @@ def rv32iSoCBody {dom : DomainConfig}
                            (Signal.mux f3isLHU halfZext
                              busRdataRaw)))
     -- Gate: only use extracted value for DMEM loads; peripheral reads bypass sub-word extraction
-    let isDMEM_wb := (· && ·) <$> (~~~isCLINT_wb) <*>
-      ((· && ·) <$> (~~~isUART_wb) <*> ((fun x => !x) <$> is_mmio_wb))
+    let isDMEM_wb := (~~~isCLINT_wb) &&& ((~~~isUART_wb) &&& (~~~is_mmio_wb))
     let busRdata := Signal.mux exwb_m2r
       (Signal.mux isDMEM_wb loadExtracted busRdataRaw) busRdataRaw
 
@@ -716,7 +712,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let alu_result_raw := aluSignal idex_aluOp alu_a alu_b
     -- M-extension: MUL (1-cycle) uses synthesizable 64-bit multiply
     let mulResult := mulComputeSignal idex_funct3 ex_rs1 ex_rs2
-    let isDivOp := (· == ·) <$> (idex_funct3.map (BitVec.extractLsb' 2 1 ·)) <*> Signal.pure 1#1
+    let isDivOp := (idex_funct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
     let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
     let branchTaken := idex_branch &&& branchCond
     let brTarget := idex_pc + idex_imm
@@ -728,7 +724,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let hiEq := mtimeHiReg === mtimecmpHiReg
     let loGe := ~~~((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
     let timerIrq := hiGt ||| (hiEq &&& loGe)
-    let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
     let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
     let mipValue := mipTimerBit ||| mipSwBit
@@ -762,15 +758,12 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- PMP CSR range detection (0x3A0-0x3EF): return 0, silently ignore writes
     let csrAddrHi := idex_csrAddr.map (BitVec.extractLsb' 4 8 ·)  -- bits [11:4]
-    let csrIsPmp := (· || ·) <$>
-      (csrAddrHi === 0x3A#8) <*>
-      ((· || ·) <$>
-        (csrAddrHi === 0x3B#8) <*>
-        ((· || ·) <$>
-          (csrAddrHi === 0x3C#8) <*>
-          ((· || ·) <$>
-            (csrAddrHi === 0x3D#8) <*>
-            (csrAddrHi === 0x3E#8))))
+    let csrIsPmp :=
+      (csrAddrHi === 0x3A#8) |||
+      (csrAddrHi === 0x3B#8) |||
+      (csrAddrHi === 0x3C#8) |||
+      (csrAddrHi === 0x3D#8) |||
+      (csrAddrHi === 0x3E#8)
 
     -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
     let sstatusMask := Signal.pure 0x000C0122#32
@@ -805,12 +798,12 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.pure 0#32))))))))))))))))))))))))
 
     -- Interrupt enable flags
-    let mstatusMIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let mstatusMPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-    let mstatusSIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
-    let mstatusSPIE_flag := (· == ·) <$> (mstatusReg.map (BitVec.extractLsb' 5 1 ·)) <*> Signal.pure 1#1
-    let mieMTIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
-    let mieMSIE_flag := (· == ·) <$> (mieReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let mstatusMIE_flag := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let mstatusMPIE_flag := (mstatusReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+    let mstatusSIE_flag := (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let mstatusSPIE_flag := (mstatusReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
+    let mieMTIE_flag := (mieReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+    let mieMSIE_flag := (mieReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
     let timerIntEnabled := mstatusMIE_flag &&& (mieMTIE_flag &&& timerIrq)
     let swIntEnabled    := mstatusMIE_flag &&& (mieMSIE_flag &&& swIrq)
 
@@ -828,8 +821,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- I-side page fault: PTW completed with fault for instruction fetch
     let ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
 
-    let trap_taken := (· || ·) <$> ((· || ·) <$> (idex_isEcall ||| pageFault) <*>
-                        (timerIntEnabled ||| swIntEnabled)) <*> ifetchPageFault
+    let trap_taken := ((idex_isEcall ||| pageFault) ||| (timerIntEnabled ||| swIntEnabled)) ||| ifetchPageFault
     let trapCause :=
       Signal.mux ifetchPageFault (Signal.pure 0x0000000C#32)  -- cause 12: instruction page fault
       (Signal.mux idex_isEcall ecallCause
@@ -839,13 +831,13 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.pure 0#32)))))
 
     -- Trap delegation: check medeleg/mideleg bits
-    let isInterrupt := (· == ·) <$> (trapCause.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1
+    let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
     let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
     let causeIdxExt := (· ++ ·) <$> Signal.pure 0#27 <*> causeIdx
     let medelegShifted := (· >>> ·) <$> medelegReg <*> causeIdxExt
-    let medelegBit := (· == ·) <$> (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let midelegShifted := (· >>> ·) <$> midelegReg <*> causeIdxExt
-    let midelegBit := (· == ·) <$> (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
+    let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let delegated := Signal.mux isInterrupt midelegBit medelegBit
     -- Trap goes to S if delegated AND priv ≤ S
     let privGtS := (BitVec.ult · ·) <$> Signal.pure 1#2 <*> privMode
@@ -871,8 +863,8 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- M-extension: DIV/REM (multi-cycle) uses restoring divider circuit
     let divWanted := idex_isMext &&& isDivOp
-    let divIsSigned := ~~~((· == ·) <$> (idex_funct3.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1)
-    let divIsRem := (· == ·) <$> (idex_funct3.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
+    let divIsSigned := ~~~((idex_funct3.map (BitVec.extractLsb' 0 1 ·)) === 1#1)
+    let divIsRem := (idex_funct3.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let divAbort := flushOrDelay
     let divStart := divWanted &&& (~~~divPending)
     let divResultDone := Divider.dividerSignal ex_rs1 ex_rs2 divStart divIsSigned divIsRem divAbort
@@ -903,16 +895,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_isJAL    := id_opcode === 0b1101111#7
     let id_isJALR   := id_opcode === 0b1100111#7
     let id_isSystem := id_opcode === 0b1110011#7
-    let id_aluSrcB := (· || ·) <$> ((· || ·) <$> (id_isALUimm ||| id_isLoad) <*>
-                      (id_isStore ||| id_isLUI)) <*>
-                      ((· || ·) <$> (id_isAUIPC ||| id_isJAL) <*> id_isJALR)
+    let id_aluSrcB := ((id_isALUimm ||| id_isLoad) ||| (id_isStore ||| id_isLUI)) |||
+                      ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
     let f3isZero := id_funct3 === 0#3
     let f3notZero := ~~~f3isZero
     let id_isCsr := id_isSystem &&& f3notZero
-    let id_regWrite := (· || ·) <$> ((· || ·) <$> (id_isALUrr ||| id_isALUimm) <*>
-                       (id_isLoad ||| id_isLUI)) <*>
-                       ((· || ·) <$> (id_isAUIPC ||| id_isJAL) <*>
-                         (id_isJALR ||| id_isCsr))
+    let id_regWrite := ((id_isALUrr ||| id_isALUimm) ||| (id_isLoad ||| id_isLUI)) |||
+                       ((id_isAUIPC ||| id_isJAL) ||| (id_isJALR ||| id_isCsr))
     let id_memRead  := id_isLoad
     let id_memWrite := id_isStore
     let id_memToReg := id_isLoad
@@ -920,17 +909,16 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_auipc    := id_isAUIPC ||| id_isJAL
     let ecallField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let isEcallField := ecallField === 0x000#12
-    let id_isEcall := (· && ·) <$> (id_isSystem &&& f3isZero) <*> isEcallField
+    let id_isEcall := (id_isSystem &&& f3isZero) &&& isEcallField
     let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
     let isMretField := mretField === 0x302#12
-    let id_isMret := (· && ·) <$> (id_isSystem &&& f3isZero) <*> isMretField
+    let id_isMret := (id_isSystem &&& f3isZero) &&& isMretField
     -- SRET: funct12 = 0x102 (SYSTEM opcode, funct3 = 0)
-    let isSretField := (· == ·) <$> (ifid_inst.map (BitVec.extractLsb' 20 12 ·)) <*> Signal.pure 0x102#12
-    let id_isSret := (· && ·) <$> (id_isSystem &&& f3isZero) <*> isSretField
+    let isSretField := (ifid_inst.map (BitVec.extractLsb' 20 12 ·)) === 0x102#12
+    let id_isSret := (id_isSystem &&& f3isZero) &&& isSretField
     -- SFENCE.VMA: funct7 = 0b0001001, funct3 = 0, SYSTEM opcode
-    let id_isSFenceVMA := (· && ·) <$> (id_isSystem &&& f3isZero) <*>
-      (id_funct7 === 0b0001001#7)
+    let id_isSFenceVMA := (id_isSystem &&& f3isZero) &&& (id_funct7 === 0b0001001#7)
     -- M-extension: R-type with funct7 = 0000001
     let id_isMext := id_isALUrr &&& (id_funct7 === 0b0000001#7)
     -- A-extension: opcode = 0101111
@@ -960,26 +948,26 @@ def rv32iSoCBody {dom : DomainConfig}
 
     -- iTLB hit logic: reuse same TLB entries as D-side
     let itlb0FullMatch := tlb0VPN === iVPN
-    let itlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb0VPNMatch := Signal.mux tlb0Mega itlb0MegaMatch itlb0FullMatch
     let itlb0Hit := tlb0Valid &&& itlb0VPNMatch
 
     let itlb1FullMatch := tlb1VPN === iVPN
-    let itlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb1VPNMatch := Signal.mux tlb1Mega itlb1MegaMatch itlb1FullMatch
     let itlb1Hit := tlb1Valid &&& itlb1VPNMatch
 
     let itlb2FullMatch := tlb2VPN === iVPN
-    let itlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb2VPNMatch := Signal.mux tlb2Mega itlb2MegaMatch itlb2FullMatch
     let itlb2Hit := tlb2Valid &&& itlb2VPNMatch
 
     let itlb3FullMatch := tlb3VPN === iVPN
-    let itlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (iVPN.map (BitVec.extractLsb' 10 10 ·))
+    let itlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
     let itlb3VPNMatch := Signal.mux tlb3Mega itlb3MegaMatch itlb3FullMatch
     let itlb3Hit := tlb3Valid &&& itlb3VPNMatch
 
-    let anyITLBHit := (· || ·) <$> (itlb0Hit ||| itlb1Hit) <*> (itlb2Hit ||| itlb3Hit)
+    let anyITLBHit := (itlb0Hit ||| itlb1Hit) ||| (itlb2Hit ||| itlb3Hit)
 
     -- iTLB output PPN (priority mux)
     let itlbPPN := Signal.mux itlb0Hit tlb0PPN
@@ -1008,18 +996,15 @@ def rv32iSoCBody {dom : DomainConfig}
     let ifetchPhysAddr := Signal.mux itlbMega ifetchPhysAddrMega ifetchPhysAddrReg
 
     -- Need to translate instruction fetch? (S/U-mode with MMU enabled, DRAM region)
-    let needTranslateI := (· && ·) <$> satpMode <*>
-      ((· && ·) <$> (~~~isMmode) <*>
-        ((· == ·) <$> (fetchPC.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1))
+    let needTranslateI := satpMode &&& ((~~~isMmode) &&& ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1))
     let ifetchTranslated := needTranslateI &&& anyITLBHit
     let ifetchTLBMiss := needTranslateI &&& (~~~anyITLBHit)
 
     -- I-side stall on TLB miss (until PTW fills the entry)
     let ifetchStall := ifetchTLBMiss &&& (~~~ifetchFaultPending)
 
-    let stall := (· || ·) <$> ((· || ·) <$> (hazardSignal idex_memRead idex_rd id_rs1 id_rs2) <*> mmuStall)
-                   <*> ((· || ·) <$> (idex_isAMOrw ||| pendingWriteEn) <*>
-                     (divStall ||| ifetchStall))
+    let stall := ((hazardSignal idex_memRead idex_rd id_rs1 id_rs2) ||| mmuStall) |||
+                   ((idex_isAMOrw ||| pendingWriteEn) ||| (divStall ||| ifetchStall))
 
     let rf_rs1_addr := Signal.mux stall id_rs1
                          (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
@@ -1060,8 +1045,8 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Instruction source mux: DRAM if fetch address is in DRAM range, else firmware IMEM
     -- DRAM range: addresses >= 0x80000000 (bit 31 = 1)
     let fetchInDRAM := Signal.mux ifetchTranslated
-      ((· == ·) <$> (ifetchPhysAddr.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1)
-      ((· == ·) <$> (fetchPC.map (BitVec.extractLsb' 31 1 ·)) <*> Signal.pure 1#1)
+      ((ifetchPhysAddr.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
+      ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
     let final_imem_rdata := Signal.mux fetchInDRAM dram_ifetch_word imem_rdata
 
     let ifid_inst_in := Signal.mux flushOrDelay (Signal.pure nopInst)
@@ -1071,15 +1056,14 @@ def rv32iSoCBody {dom : DomainConfig}
     -- holdEX: freeze EX stage when DMEM port is hijacked by pending write
     let holdEX := pendingWriteEn
     -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
-    let freezeIDEX := (· || ·) <$> holdEX <*>
-      (divStall &&& (~~~flushOrDelay))
+    let freezeIDEX := holdEX ||| (divStall &&& (~~~flushOrDelay))
     -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, or holdEX
     -- trap_taken must suppress EX stage side effects (register write, CSR write, pending store)
     -- to prevent corrupting state when the instruction will be re-executed after mret/sret
     let suppressEXWB := trap_taken ||| (dTLBMiss ||| holdEX)
     let validEX := ~~~suppressEXWB
     let idex_isCsr_valid := idex_isCsr &&& validEX
-    let squash := (· || ·) <$> (stall &&& (~~~freezeIDEX)) <*> flushOrDelay
+    let squash := (stall &&& (~~~freezeIDEX)) ||| flushOrDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
     let clintWE := idex_memWrite &&& (isCLINT_ex &&& validEX)
@@ -1113,7 +1097,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- UART 8250 write logic (EX stage)
     let uartWE := idex_memWrite &&& (isUART_ex &&& validEX)
     let uartOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 3 ·)
-    let uartDLAB := (· == ·) <$> (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) <*> Signal.pure 1#1
+    let uartDLAB := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     let uartWdata8 := ex_rs2_approx.map (BitVec.extractLsb' 0 8 ·)
     -- Offset matches
     let uartOff0 := uartOffset_ex === 0#3
@@ -1124,21 +1108,18 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Register updates (DLAB-aware for offsets 0 and 1)
     let uartLCRNext := Signal.mux (uartWE &&& uartOff3)
       uartWdata8 uartLCRReg
-    let uartIERNext := Signal.mux ((· && ·) <$> uartWE <*>
-        (uartOff1 &&& (~~~uartDLAB)))
+    let uartIERNext := Signal.mux (uartWE &&& (uartOff1 &&& (~~~uartDLAB)))
       uartWdata8 uartIERReg
     let uartMCRNext := Signal.mux (uartWE &&& uartOff4)
       uartWdata8 uartMCRReg
     let uartSCRNext := Signal.mux (uartWE &&& uartOff7)
       uartWdata8 uartSCRReg
-    let uartDLLNext := Signal.mux ((· && ·) <$> uartWE <*>
-        (uartOff0 &&& uartDLAB))
+    let uartDLLNext := Signal.mux (uartWE &&& (uartOff0 &&& uartDLAB))
       uartWdata8 uartDLLReg
-    let uartDLMNext := Signal.mux ((· && ·) <$> uartWE <*>
-        (uartOff1 &&& uartDLAB))
+    let uartDLMNext := Signal.mux (uartWE &&& (uartOff1 &&& uartDLAB))
       uartWdata8 uartDLMReg
 
-    let csrIsImm := (· == ·) <$> (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) <*> Signal.pure 1#1
+    let csrIsImm := (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
     let csrZimm := (· ++ ·) <$> Signal.pure 0#27 <*> idex_rs1Idx
     let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
     let csrF3Low := idex_csrFunct3.map (BitVec.extractLsb' 0 2 ·)
@@ -1274,9 +1255,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let resAddrNext := Signal.mux exwb_isLR exwb_alu reservationAddr
 
     -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority
-    let ifetchPTWReq := (· && ·) <$> ifetchTLBMiss <*>
-      ((· && ·) <$> ptwIsIdle <*>
-        ((· && ·) <$> (~~~dTLBMiss) <*> isMMUIdle))
+    let ifetchPTWReq := ifetchTLBMiss &&& (ptwIsIdle &&& ((~~~dTLBMiss) &&& isMMUIdle))
 
     -- PTW request: D-side TLB miss OR I-side PTW request
     let ptwReq := dTLBMiss ||| ifetchPTWReq
@@ -1287,9 +1266,9 @@ def rv32iSoCBody {dom : DomainConfig}
       ptwVaddrOnStart ptwVaddrReg
 
     -- PTE fields decoded from dmem_rdata (valid in L1_WAIT/L0_WAIT states)
-    let dmemPteValid := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
-    let dmemPteRBit := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
-    let dmemPteXBit := (· == ·) <$> (dmem_rdata.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
+    let dmemPteValid := (dmem_rdata.map (BitVec.extractLsb' 0 1 ·)) === 1#1
+    let dmemPteRBit := (dmem_rdata.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let dmemPteXBit := (dmem_rdata.map (BitVec.extractLsb' 3 1 ·)) === 1#1
     let dmemPteIsLeaf := dmemPteRBit ||| dmemPteXBit
     let dmemPteInvalid := ~~~dmemPteValid
     let pteFlags := ptwPteReg.map (BitVec.extractLsb' 0 8 ·)
@@ -1317,8 +1296,7 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.pure 0#3)))))
 
     -- Megapage tracking: leaf found at L1 level
-    let ptwMegaNext := Signal.mux ((· && ·) <$> ptwIsL1Wait <*>
-        (dmemPteIsLeaf &&& (~~~dmemPteInvalid)))
+    let ptwMegaNext := Signal.mux (ptwIsL1Wait &&& (dmemPteIsLeaf &&& (~~~dmemPteInvalid)))
       (Signal.pure true)
       (Signal.mux ptwIsIdle (Signal.pure false) ptwMegaReg)
 
