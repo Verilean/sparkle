@@ -45,6 +45,9 @@ lean_lib «Examples.CDC» where
 lean_lib «IP.Video» where
   roots := #[`IP.Video]
 
+lean_lib «Tools.SVParser» where
+  roots := #[`Tools.SVParser]
+
 lean_lib «Tests» where
   -- Test circuits library
 
@@ -127,6 +130,14 @@ lean_exe «h264-mp4-encoder-test» where
 
 lean_exe «cdc-multi-clock-test» where
   root := `Tests.CDC.MultiClockTest
+  supportInterpreter := true
+
+lean_exe «svparser-test» where
+  root := `Tests.SVParser.ParserTest
+  supportInterpreter := true
+
+lean_exe «verilog-sim-example» where
+  root := `Examples.SVParser.VerilogSim
   supportInterpreter := true
 
 @[test_driver]

@@ -2,6 +2,55 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 43: SystemVerilog RTL Parser & PicoRV32 JIT Transpiler (Complete)
+
+**Date**: 2026-03-24
+
+**Goal**: Parse existing SystemVerilog RTL (PicoRV32 RISC-V CPU), lower to Sparkle IR, JIT-compile, and execute C firmware — all without Verilator.
+
+**Result**: Full E2E pipeline working. PicoRV32 (3049-line Verilog, 8 modules) parsed, lowered to Sparkle IR, flattened, JIT-compiled, and executes GCC-compiled C firmware. UART outputs "Hello" (hand-written firmware) and passes all 4 C test suites (Fibonacci, Array Sum, Bubble Sort, GCD).
+
+**Key Components**:
+
+| Component | File | Description |
+|-----------|------|-------------|
+| SV Lexer | `Tools/SVParser/Lexer.lean` | Custom `P` monad over `Array Char`, whitespace/comment/attribute handling |
+| SV Parser | `Tools/SVParser/Parser.lean` | Recursive descent with 12 precedence levels, generate if/else, `$signed` |
+| SV AST | `Tools/SVParser/AST.lean` | SVExpr, SVStmt, SVModule, SVDesign types |
+| SV→IR Lowering | `Tools/SVParser/Lower.lean` | If-Conversion (guarded assignments), generate block evaluation, byte-strobe memory, concat-LHS bit-scatter |
+| CppSim Backend | `Sparkle/Backend/CppSim.lean` | ASR min-32-bit types, tick-ref wire promotion, bitwise NOT via XOR |
+
+**C Firmware Test Results** (compiled with `riscv32-none-elf-gcc -march=rv32i -O2`):
+
+| Test | Expected | Actual | Status |
+|------|----------|--------|--------|
+| Fibonacci (10 values) | 0,1,1,2,3,5,8,13,21,34 | exact match | PASS |
+| Array Sum (8 elements) | 360 | 360 | PASS |
+| Bubble Sort (6 elements) | 3,8,17,42,55,99 | exact match | PASS |
+| GCD (3 pairs) | 6,25,1 | exact match | PASS |
+| Final marker | 0xCAFE0000 | 0xCAFE0000 | ALL PASSED |
+
+**Major Algorithmic Contributions**:
+- **If-Conversion**: Replaced recursive foldl mux builder with guarded-assignment collection + flat priority mux chaining. Eliminates dead-code paths in nested case statements.
+- **Generate Block Evaluation**: `evalConstExpr` resolves parameter defaults; `expandGenerateBlocks` selects correct if/else branch.
+- **Concat-LHS Bit Scatter**: Handles `{a[31:20], a[10:1], ...} <= rhs` by extracting and placing RHS bits at specified positions.
+- **Byte-Strobe Memory**: Detects `if(wstrb[N]) arr[addr][hi:lo] <= data[hi:lo]` pattern, generates read-modify-write with per-byte mask.
+
+**Files Added**:
+- `Tools/SVParser/Lexer.lean` — Tokenizer and parser monad
+- `Tools/SVParser/AST.lean` — SystemVerilog AST types
+- `Tools/SVParser/Parser.lean` — Recursive descent parser
+- `Tools/SVParser/Lower.lean` — SV AST → Sparkle IR lowering
+- `Tests/SVParser/ParserTest.lean` — 11 E2E tests
+- `firmware/main_rv32i.c` — RV32I C firmware (Fibonacci, Array Sum, Sort, GCD)
+- `firmware/boot_rv32i.S` — Minimal boot code (no CSR/IRQ)
+- `firmware/link_unified.ld` — Unified 64KB memory linker script
+- `firmware/firmware_rv32i.hex` — Compiled firmware hex
+
+**Files Modified**:
+- `Sparkle/Backend/CppSim.lean` — ASR type fix, tick-ref promotion, NOT emission
+- `Sparkle/IR/AST.lean` — `deriving Inhabited` for Expr
+
 ## Phase 42: Compiler Improvements (Complete)
 
 **Date**: 2026-03-23

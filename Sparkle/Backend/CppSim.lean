@@ -206,9 +206,8 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
 
   | .op .not args =>
     match args with
-    -- Use logical NOT (!) instead of bitwise NOT (~) for boolean signals.
-    -- ~(uint8_t)1 = 0xFE (truthy in C++), but !(uint8_t)1 = 0 (correct).
-    -- In the current IR, .not is only used for Bool negation (~~~ doesn't synthesize).
+    -- .not in IR is always boolean negation (logical NOT).
+    -- Verilog bitwise NOT (~) is lowered as XOR with -1 in Lower.lean.
     | [arg] => s!"(!{emitExpr typeMap arg})"
     | _ => "/* ERROR: not requires 1 argument */"
 
@@ -226,7 +225,9 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
         let stype := signedCastType w
         s!"(({stype}){emitExpr typeMap arg1} {emitCppOperator operator} ({stype}){emitExpr typeMap arg2} ? 1 : 0)"
       | .asr =>
-        let w := inferExprWidth typeMap arg1
+        -- Always use at least 32-bit types for ASR to avoid overflow in
+        -- sign-extension patterns like (val << N) >> N where N can be large
+        let w := max (inferExprWidth typeMap arg1) 32
         let stype := signedCastType w
         let utype := emitCppType (.bitVector w)
         s!"(({utype})(({stype}){emitExpr typeMap arg1} >> {emitExpr typeMap arg2}))"
@@ -404,19 +405,21 @@ def emitModule (m : Module) (design : Option Design := none)
 
     -- Partition into member wires (observable/JIT) and local wires
     -- Wires referenced in tick() bodies must always be class members
-    let tickRefs := match observableWires with
-      | some _ => collectTickRefWires m.body
-      | none => []
+    let tickRefs := collectTickRefWires m.body
     let memberWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
           ws.contains sn || tickRefs.contains sn
-      | none => internalWires.filter fun (w : Port) => (sanitizeName w.name).startsWith "_gen_"
+      | none => internalWires.filter fun (w : Port) =>
+          let sn := sanitizeName w.name
+          sn.startsWith "_gen_" || tickRefs.contains sn
     let localWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
           !ws.contains sn && !tickRefs.contains sn
-      | none => internalWires.filter fun (w : Port) => !(sanitizeName w.name).startsWith "_gen_"
+      | none => internalWires.filter fun (w : Port) =>
+          let sn := sanitizeName w.name
+          !sn.startsWith "_gen_" && !tickRefs.contains sn
 
     let wireDecls := memberWires.map fun (p : Port) =>
       s!"    {emitCppType p.ty} {sanitizeName p.name};"
@@ -542,10 +545,10 @@ private def emitRegNameSwitch (regs : List (String × Nat)) : String :=
     s!"            case {i}: return \"{sName}\";"
   String.intercalate "\n" cases
 
-/-- Generate set_input switch cases from Module.inputs (skip clk/rst) -/
+/-- Generate set_input switch cases from Module.inputs (skip clk only) -/
 private def emitSetInputSwitch (inputs : List Port) : String :=
   let userInputs := inputs.filter fun (p : Port) =>
-    p.name != "clk" && p.name != "rst"
+    p.name != "clk"
   let indexed := (List.range userInputs.length).zip userInputs
   let cases := indexed.map fun (i, p) =>
     let sName := sanitizeName p.name
@@ -645,7 +648,7 @@ def toCppSimJIT (d : Design)
   | some m =>
     let className := sanitizeName m.name
     let userInputs := m.inputs.filter fun (p : Port) =>
-      p.name != "clk" && p.name != "rst"
+      p.name != "clk"
     let numInputs := userInputs.length
     let numOutputs := countOutputSlots m.outputs
     let setInputCases := emitSetInputSwitch m.inputs

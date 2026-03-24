@@ -27,6 +27,7 @@ Sparkle ships with production-grade IP cores — each with pure Lean specs, form
 | **[BitNet b1.58](docs/BitNet.md)** | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle) | 60+ theorems | Full | 202K / 99K cells |
 | **[YOLOv8n-WorldV2](docs/YOLOv8.md)** | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
 | **[RV32IMA SoC](docs/RV32.md)** | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 13M cyc/s (1.17x Verilator) | ISA proofs | Full | 122 registers |
+| **[SV→Sparkle Transpiler](docs/RV32.md#sv-transpiler)** | Parse PicoRV32 RTL → Sparkle IR → JIT. C firmware runs: Fibonacci, Array Sum, Bubble Sort, GCD | E2E tests | JIT | 11 parser tests |
 | **[H.264 Codec](docs/H264.md)** | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. 14 modules | 15+ theorems | Full | 709-byte MP4 output |
 | **[CDC Infrastructure](docs/CDC.md)** | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback mechanism, JIT.runCDC | 12 theorems | C++ | 2-thread Time-Warping |
 

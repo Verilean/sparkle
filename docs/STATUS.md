@@ -1,7 +1,7 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-23
-**Branch**: feature/cdc
+**Date**: 2026-03-24
+**Branch**: main
 
 ---
 
@@ -12,16 +12,62 @@
 | 3 | **H.264 Hardware MP4 Encoder** | Frame encoder + MP4 ROM muxer → playable .mp4 from hardware | **Done** |
 | 3.1 | **Lock-Free CDC Infrastructure** | SPSC queue, rollback mechanism, formal proofs, JIT multi-domain runner, E2E test | **Done** |
 | 3.2 | **Compiler Improvements** | `~~~` complement for BitVec, complex lambda synthesis, `hw_let` tuple destructuring | **Done** |
-| 4 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot (larger pcTolerance, interrupt-aware timer advancement) | Not started |
-| 5 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
-| 6 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
-| 7 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
-| 8 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
-| 9 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
+| 3.3 | **SV→Sparkle RTL Transpiler** | Parse PicoRV32 Verilog → Sparkle IR → JIT. C firmware (Fib, Sort, GCD) passes | **Done** |
+| 4 | **SV Transpiler: Extended ISA** | Support M-extension (MUL/DIV), CSR, trap handling for full PicoRV32 firmware | Not started |
+| 5 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot | Not started |
+| 6 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
+| 7 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
+| 8 | **Verified Standard IP — AXI4-Lite / TileLink** | Bus protocol interfaces with formal properties | Not started |
+| 9 | **GPGPU / Vector Core** | Apply VDD framework to highly concurrent, memory-bound accelerator architectures | Not started |
+| 10 | **FPGA Tape-out Flow** | End-to-end examples deploying Sparkle-generated Linux SoCs to physical FPGAs | Not started |
 
 ---
 
 ## Completed Phases
+
+### SystemVerilog RTL Transpiler (Phase 43) — DONE
+
+Parse existing SystemVerilog RTL, lower to Sparkle IR, JIT-compile, and execute C firmware — all without Verilator.
+
+#### Test Results
+
+```
+=== SystemVerilog Parser Tests ===
+  Test 1:  Parse counter module.............. PASS
+  Test 2:  Verify ports...................... PASS
+  Test 3:  Lower to Sparkle IR............... PASS
+  Test 4:  Round-trip to Verilog............. PASS
+  Test 5:  Parse expression (a + 8'h01)...... PASS
+  Test 6:  E2E JIT simulation............... PASS (count=9 after 10 cycles)
+  Test 7:  PicoRV32 parse................... PASS (4 modules, core: 250 items)
+  Test 8:  PicoRV32 JIT compile + simulate.. PASS (148 regs, 100 cycles)
+  Test 9:  $readmemh support................ PASS
+  Test 10: PicoRV32 SoC with firmware....... PASS (5 UART bytes: "Hello")
+  Test 11: C firmware (RV32I) via JIT....... PASS (26 words, ALL C TESTS OK)
+=== Results: 11 passed, 0 failed ===
+```
+
+#### C Firmware Results (riscv32-none-elf-gcc -march=rv32i -O2)
+
+| Test | Result |
+|------|--------|
+| Fibonacci (10 values) | 0,1,1,2,3,5,8,13,21,34 ✓ |
+| Array Sum (8 elements) | 360 ✓ |
+| Bubble Sort (6 elements) | 3,8,17,42,55,99 ✓ |
+| GCD (3 pairs) | 6,25,1 ✓ |
+| Final marker | **0xCAFE0000 — ALL PASSED** |
+
+#### Architecture
+
+```
+Verilog RTL (.v) → [SV Parser] → SV AST → [Lower] → Sparkle IR → [CppSim] → C++ → [GCC] → .so → [JIT] → Simulation
+```
+
+Key algorithms:
+- **If-Conversion**: Guarded assignments eliminate dead-code in nested case/if mux trees
+- **Generate Block Eval**: Parameter-based conditional compilation (TWO_CYCLE_ALU=0 → else branch)
+- **Concat-LHS Bit Scatter**: `{a[31:20], a[10:1], ...} <= rhs` → bit-field extraction and placement
+- **Byte-Strobe Memory**: `if(wstrb[N]) mem[addr][hi:lo] <= data` → read-modify-write
 
 ### Compiler Improvements (Phase 42) — DONE
 
