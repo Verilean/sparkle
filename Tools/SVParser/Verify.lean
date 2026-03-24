@@ -121,7 +121,7 @@ partial def inferWidth (regWidths inputWidths : List (String × Nat)) : Expr →
 -- ============================================================================
 
 /-- Sanitize a name for Lean (replace special chars) -/
-private def leanName (s : String) : String :=
+def leanName (s : String) : String :=
   s.map fun c => if c == '$' || c == '.' then '_' else c
 
 /-- Fix constant widths to match the target register width.

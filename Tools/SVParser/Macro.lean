@@ -1,82 +1,80 @@
 /-
   verilog! — Inline Verilog-to-Lean Elaboration Macro
 
-  Parses a Verilog string at compile time, lowers to Sparkle IR,
-  extracts a pure state-machine model, and injects the generated
-  Lean definitions (State, Input, nextState, initState) into the
-  current environment.
+  Parses Verilog at compile time, lowers to Sparkle IR, and injects
+  State/Input/nextState/initState into the current Lean environment.
 
-  Usage:
-    verilog! "
-      module counter8_en (
-          input clk, input rst, input en,
-          output [7:0] count
-      );
-          reg [7:0] count_reg;
-          assign count = count_reg;
-          always @(posedge clk) begin
-              if (rst) count_reg <= 0;
-              else if (en) count_reg <= count_reg + 1;
-          end
-      endmodule
-    "
-
-  This generates `counter8_en.Verify.State`, `.Input`, `.nextState`, `.initState`
-  in the current file — no separate generation step or file import needed.
+  The nextState body is built via Lean Syntax quotation (type-safe AST),
+  not string interpolation — no parenthesis bugs or width mismatches.
 -/
 
 import Lean
 import Tools.SVParser
 import Tools.SVParser.Verify
 
-open Lean Elab Command
+open Lean Elab Command Term Meta
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
 open Tools.SVParser.Verify
 
-/-- Split generated Lean source into individual command blocks -/
-private def splitCommandBlocks (src : String) : List String := Id.run do
-  let lines := src.splitOn "\n"
-  let mut blocks : List String := []
-  let mut current : String := ""
-  for line in lines do
-    let trimmed := line.trimLeft
-    if trimmed.startsWith "namespace " || trimmed.startsWith "end " ||
-       trimmed.startsWith "structure " || trimmed.startsWith "def " ||
-       trimmed.startsWith "theorem " then
-      if !current.trim.isEmpty then
-        blocks := blocks ++ [current]
-      current := line
-    else
-      current := current ++ "\n" ++ line
-  if !current.trim.isEmpty then
-    blocks := blocks ++ [current]
-  return blocks
+private def elabStr (s : String) : CommandElabM Unit := do
+  match Parser.runParserCategory (← getEnv) `command s with
+  | .error err => throwError "verilog! parse error:\n{err}\n\nSource:\n{s}"
+  | .ok stx => elabCommand stx
 
-/-- Compile-time Verilog → Lean elaboration.
-    Parses Verilog source, lowers to IR, generates State/Input/nextState
-    definitions, and injects them into the current Lean environment. -/
+-- ============================================================================
+-- The verilog! command
+-- ============================================================================
+
+/-- Compile-time Verilog → Lean elaboration. -/
 elab "verilog!" src:str : command => do
   let vSrc := src.getString
-  -- Parse and lower Verilog to Sparkle IR
   match parseAndLower vSrc with
   | .error err => throwError "verilog!: parsing failed: {err}"
   | .ok design =>
     match design.modules.head? with
     | none => throwError "verilog!: no module found"
     | some m =>
-      -- Generate Lean source string
-      let leanStr := moduleToLean m
-      -- Parse each line-group as a separate Lean command and elaborate
-      -- Split on blank lines to get individual command blocks
-      let blocks := splitCommandBlocks leanStr
-      for block in blocks do
-        let trimmed := block.trim
-        if trimmed.isEmpty || trimmed.startsWith "/-" && trimmed.endsWith "-/" then
-          continue  -- skip empty lines and doc comments
-        let env ← getEnv
-        match Parser.runParserCategory env `command trimmed with
-        | .error err =>
-          throwError "verilog!: parse error in block:\n{err}\n\nBlock:\n{trimmed}"
-        | .ok stx =>
-          elabCommand stx
+      let model : SemanticModel := extractModel m
+      let assigns := collectAssigns m.body
+      let model : SemanticModel := { model with
+        registers := model.registers.map fun r =>
+          { r with nextExpr := inlineAssigns assigns r.nextExpr }
+      }
+      let wireWidths := m.wires.map fun w => (w.name, w.ty.bitWidth)
+      let portWidths := m.inputs.map fun p => (p.name, p.ty.bitWidth)
+      let regWidths := model.registers.map fun r => (r.name, r.width)
+      let inputWidths := model.inputs.map fun i => (i.name, i.width)
+      let allWidths := regWidths ++ inputWidths ++ wireWidths ++ portWidths
+      let ns := leanName model.moduleName
+
+      -- 1. namespace + State + Input (string-based: simple boilerplate)
+      elabStr s!"namespace {ns}.Verify"
+
+      let stateFields := String.intercalate "\n" <|
+        model.registers.map fun r => s!"  {leanName r.name} : BitVec {r.width}"
+      elabStr s!"structure State where\n{stateFields}\n  deriving DecidableEq, Repr, BEq, Inhabited"
+
+      let inputFields := String.intercalate "\n" <|
+        model.inputs.map fun i => s!"  {leanName i.name} : BitVec {i.width}"
+      elabStr s!"structure Input where\n{inputFields}\n  deriving DecidableEq, Repr, BEq, Inhabited"
+
+      -- 2. nextState (use irExprToLean for fully-parenthesized expressions)
+      let lb := "{"
+      let rb := "}"
+      let regW := model.registers.map fun r => (r.name, r.width)
+      let inpW := model.inputs.map fun i => (i.name, i.width)
+      let nextFieldStrs := model.registers.map fun r =>
+        let fixedExpr := fixConstWidths r.nextExpr r.width allWidths
+        let valStr := irExprToLean fixedExpr regW inpW allWidths "s" "i"
+        s!"    {leanName r.name} := {valStr}"
+      let nextBody := String.intercalate ",\n" nextFieldStrs
+      elabStr s!"def nextState (s : State) (i : Input) : State :=\n  {lb}\n{nextBody}\n  {rb}"
+
+      -- 3. initState
+      let initFields := String.intercalate ",\n" <|
+        model.registers.map fun r => s!"    {leanName r.name} := ({r.initValue} : BitVec {r.width})"
+      elabStr s!"def initState : State :=\n  {lb}\n{initFields}\n  {rb}"
+
+      -- 4. close namespace
+      elabStr s!"end {ns}.Verify"
