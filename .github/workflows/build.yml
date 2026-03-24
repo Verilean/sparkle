@@ -49,6 +49,30 @@ jobs:
     - name: Build CDC Multi-Clock example
       run: lake build Examples.CDC
 
+    # ---- H.264 Video Codec — Verilog Generation ----
+
+    - name: Build H.264 IP library (all synth modules + Verilog generation)
+      run: lake build IP.Video
+
+    - name: Verify H.264 Verilog files generated
+      run: |
+        echo "=== H.264 Generated Verilog Files ==="
+        ls -la .lake/build/gen/h264/*.sv 2>/dev/null || echo "No .sv files found"
+        ls -la .lake/build/gen/h264/*_cppsim.h 2>/dev/null || echo "No CppSim files found"
+        # Check key modules were generated
+        test -f .lake/build/gen/h264/idct.sv && echo "✓ IDCT module"
+        test -f .lake/build/gen/h264/fwd_dct.sv && echo "✓ Forward DCT module"
+        test -f .lake/build/gen/h264/fwd_quant.sv && echo "✓ Forward Quant module"
+        test -f .lake/build/gen/h264/dequant.sv && echo "✓ Dequant module"
+        test -f .lake/build/gen/h264/reconstruct.sv && echo "✓ Reconstruct module"
+        test -f .lake/build/gen/h264/decoder_pipeline.sv && echo "✓ Decoder Pipeline module"
+        test -f .lake/build/gen/h264/encoder_pipeline.sv && echo "✓ Encoder Pipeline module"
+        test -f .lake/build/gen/h264/cavlc_synth.sv && echo "✓ CAVLC Synth module"
+        test -f .lake/build/gen/h264/nal_stream.sv && echo "✓ NAL Stream module"
+        test -f .lake/build/gen/h264/frame_encoder.sv && echo "✓ Frame Encoder module"
+        test -f .lake/build/gen/h264/mp4_encoder.sv && echo "✓ MP4 Encoder module"
+        test -f .lake/build/gen/h264/quant_roundtrip.sv && echo "✓ Quant Roundtrip module"
+
     # ---- Formal Proofs ----
 
     - name: Build ISA Proofs
@@ -59,6 +83,9 @@ jobs:
 
     - name: Build CDC Formal Proofs (12 theorems, no sorry)
       run: lake build Sparkle.Verification.CDCProps
+
+    - name: Build Counter Formal Proofs (verilog! macro + auto-assert)
+      run: lake build Sparkle.Verification.CounterProps
 
     # ---- Synthesis Tests ----
 
@@ -71,9 +98,14 @@ jobs:
     - name: Run Compiler improvement tests (complement, lambda, hw_let)
       run: lake env lean Tests/CompilerTests.lean
 
+    # ---- SVParser Tests ----
+
+    - name: Run SVParser tests (11 tests: parse, lower, JIT, PicoRV32, C firmware)
+      run: lake exe svparser-test
+
     # ---- Unit Tests ----
 
-    - name: Run full test suite (464 tests)
+    - name: Run full test suite (481 tests)
       run: lake exe test
 
     # ---- CDC Lock-Free Queue ----
