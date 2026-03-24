@@ -65,7 +65,7 @@ def softmaxSignal (scores : Array (Signal dom (BitVec 32)))
     -- Stage 2: Subtract max (diff ≤ 0)
     let mut diffs : Array (Signal dom (BitVec 32)) := #[]
     for score in scores do
-      diffs := diffs.push ((· - ·) <$> score <*> maxVal)
+      diffs := diffs.push (score - maxVal)
 
     -- Stage 3: Exp LUT lookup
     let expLUTData := generateExpLUT
@@ -79,8 +79,8 @@ def softmaxSignal (scores : Array (Signal dom (BitVec 32)))
       let idx := absDiff.map (BitVec.extractLsb' 0 8 ·)
       -- Check upper bits for saturation (if |diff| ≥ 256, exp ≈ 0)
       let upperBits := absDiff.map (BitVec.extractLsb' 8 24 ·)
-      let isZero := (· == ·) <$> upperBits <*> Signal.pure (0 : BitVec 24)
-      let isLarge := (fun x => !x) <$> isZero
+      let isZero := upperBits === Signal.pure (0 : BitVec 24)
+      let isLarge := ~~~isZero
       let satIdx := Signal.mux isLarge (Signal.pure 255#8) idx
       -- LUT lookup via mux tree
       let expVal := lutMuxTree expTable satIdx
@@ -101,7 +101,7 @@ def softmaxSignal (scores : Array (Signal dom (BitVec 32)))
       -- Sign-extend to 64 bits for multiplication
       let expExt := signExtendSignal 32 expVal
       let recipExt := signExtendSignal 32 recipVal
-      let prod := (· * ·) <$> expExt <*> recipExt
+      let prod := expExt * recipExt
       -- Shift right by 24 and truncate to 32 bits
       let weight := prod.map (BitVec.extractLsb' 24 32 ·)
       weights := weights.push weight

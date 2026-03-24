@@ -59,8 +59,8 @@ def mmuTopSignal {dom : DomainConfig}
   let satpPPN := satp.map (BitVec.extractLsb' 0 22 ·)
 
   -- Bypass mode: no translation when satp.MODE=0 or M-mode
-  let isMmode := (· == ·) <$> privMode <*> Signal.pure (BitVec.ofNat 2 privM)
-  let bypassMMU := (· || ·) <$> isMmode <*> ((fun x => !x) <$> satpMode)
+  let isMmode := privMode === (BitVec.ofNat 2 privM)
+  let bypassMMU := isMmode ||| (~~~satpMode)
 
   -- VPN and page offset extraction
   let vpn := vaddr.map (BitVec.extractLsb' 12 20 ·)
@@ -114,38 +114,38 @@ def mmuTopSignal {dom : DomainConfig}
     -- =========================================================================
     -- MMU FSM states: 0=IDLE, 1=TLB_LOOKUP, 2=PTW_WALK, 3=DONE, 4=FAULT
     -- =========================================================================
-    let isMMUIdle  := (· == ·) <$> mmuStateReg <*> Signal.pure 0#3
-    let isTLBLookup := (· == ·) <$> mmuStateReg <*> Signal.pure 1#3
-    let isPTWWalk  := (· == ·) <$> mmuStateReg <*> Signal.pure 2#3
-    let isMMUDone  := (· == ·) <$> mmuStateReg <*> Signal.pure 3#3
-    let isMMUFault := (· == ·) <$> mmuStateReg <*> Signal.pure 4#3
+    let isMMUIdle  := mmuStateReg === 0#3
+    let isTLBLookup := mmuStateReg === 1#3
+    let isPTWWalk  := mmuStateReg === 2#3
+    let isMMUDone  := mmuStateReg === 3#3
+    let isMMUFault := mmuStateReg === 4#3
 
     -- =========================================================================
     -- TLB Lookup (4-entry fully-associative)
     -- =========================================================================
     -- TLB hit for each entry: valid AND vpn match
     -- For megapages, only compare top 10 bits of VPN
-    let tlb0FullMatch := (· == ·) <$> tlb0VPN <*> vpn
+    let tlb0FullMatch := tlb0VPN === vpn
     let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
-    let tlb0Hit := (· && ·) <$> tlb0Valid <*> tlb0VPNMatch
+    let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 
-    let tlb1FullMatch := (· == ·) <$> tlb1VPN <*> vpn
+    let tlb1FullMatch := tlb1VPN === vpn
     let tlb1MegaMatch := (· == ·) <$> (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb1VPNMatch := Signal.mux tlb1Mega tlb1MegaMatch tlb1FullMatch
-    let tlb1Hit := (· && ·) <$> tlb1Valid <*> tlb1VPNMatch
+    let tlb1Hit := tlb1Valid &&& tlb1VPNMatch
 
-    let tlb2FullMatch := (· == ·) <$> tlb2VPN <*> vpn
+    let tlb2FullMatch := tlb2VPN === vpn
     let tlb2MegaMatch := (· == ·) <$> (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb2VPNMatch := Signal.mux tlb2Mega tlb2MegaMatch tlb2FullMatch
-    let tlb2Hit := (· && ·) <$> tlb2Valid <*> tlb2VPNMatch
+    let tlb2Hit := tlb2Valid &&& tlb2VPNMatch
 
-    let tlb3FullMatch := (· == ·) <$> tlb3VPN <*> vpn
+    let tlb3FullMatch := tlb3VPN === vpn
     let tlb3MegaMatch := (· == ·) <$> (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
     let tlb3VPNMatch := Signal.mux tlb3Mega tlb3MegaMatch tlb3FullMatch
-    let tlb3Hit := (· && ·) <$> tlb3Valid <*> tlb3VPNMatch
+    let tlb3Hit := tlb3Valid &&& tlb3VPNMatch
 
-    let anyTLBHit := (· || ·) <$> ((· || ·) <$> tlb0Hit <*> tlb1Hit) <*> ((· || ·) <$> tlb2Hit <*> tlb3Hit)
+    let anyTLBHit := (· || ·) <$> (tlb0Hit ||| tlb1Hit) <*> (tlb2Hit ||| tlb3Hit)
 
     -- Priority mux for TLB output (entry 0 has highest priority)
     let tlbPPN := Signal.mux tlb0Hit tlb0PPN
@@ -157,17 +157,17 @@ def mmuTopSignal {dom : DomainConfig}
     -- =========================================================================
     -- PTW FSM (inline): 0=IDLE, 1=LEVEL1, 2=LEVEL0, 3=DONE, 4=FAULT
     -- =========================================================================
-    let ptwIsIdle := (· == ·) <$> ptwStateReg <*> Signal.pure 0#3
-    let ptwIsL1   := (· == ·) <$> ptwStateReg <*> Signal.pure 1#3
-    let ptwIsL0   := (· == ·) <$> ptwStateReg <*> Signal.pure 2#3
-    let ptwIsDone := (· == ·) <$> ptwStateReg <*> Signal.pure 3#3
-    let ptwIsFault := (· == ·) <$> ptwStateReg <*> Signal.pure 4#3
+    let ptwIsIdle := ptwStateReg === 0#3
+    let ptwIsL1   := ptwStateReg === 1#3
+    let ptwIsL0   := ptwStateReg === 2#3
+    let ptwIsDone := ptwStateReg === 3#3
+    let ptwIsFault := ptwStateReg === 4#3
 
     -- PTW request: on TLB miss during TLB_LOOKUP state
-    let ptwReq := (· && ·) <$> isTLBLookup <*> ((fun x => !x) <$> anyTLBHit)
+    let ptwReq := isTLBLookup &&& (~~~anyTLBHit)
 
     -- Latch vaddr on PTW start
-    let ptwVaddrNext := Signal.mux ((· && ·) <$> ptwIsIdle <*> ptwReq)
+    let ptwVaddrNext := Signal.mux (ptwIsIdle &&& ptwReq)
       vaddr ptwVaddrReg
 
     -- VPN extraction from latched vaddr
@@ -181,8 +181,8 @@ def mmuTopSignal {dom : DomainConfig}
     let pteValid := (· == ·) <$> (ptwPteReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1
     let pteRBit := (· == ·) <$> (ptwPteReg.map (BitVec.extractLsb' 1 1 ·)) <*> Signal.pure 1#1
     let pteXBit := (· == ·) <$> (ptwPteReg.map (BitVec.extractLsb' 3 1 ·)) <*> Signal.pure 1#1
-    let pteIsLeaf := (· || ·) <$> pteRBit <*> pteXBit
-    let pteInvalid := (fun x => !x) <$> pteValid
+    let pteIsLeaf := pteRBit ||| pteXBit
+    let pteInvalid := ~~~pteValid
     let ptePPNFull := ptwPteReg.map (BitVec.extractLsb' 10 22 ·)
     let pteFlags := ptwPteReg.map (BitVec.extractLsb' 0 8 ·)
 
@@ -191,16 +191,16 @@ def mmuTopSignal {dom : DomainConfig}
     let satpPPNShifted := (· ++ ·) <$> satpPPN <*> Signal.pure 0#10
     let ptwVPN1x4 := (· ++ ·) <$> ptwVPN1 <*> Signal.pure 0#2
     let ptwVPN1Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4
-    let l1Addr := (· + ·) <$> satpPPNShifted <*> ptwVPN1Ext
+    let l1Addr := satpPPNShifted + ptwVPN1Ext
     -- Level 0: PTE.PPN * 4096 + VPN[0] * 4
     let ptePPNShifted := (· ++ ·) <$> ptePPNFull <*> Signal.pure 0#10
     let ptwVPN0x4 := (· ++ ·) <$> ptwVPN0 <*> Signal.pure 0#2
     let ptwVPN0Ext := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4
-    let l0Addr := (· + ·) <$> ptePPNShifted <*> ptwVPN0Ext
+    let l0Addr := ptePPNShifted + ptwVPN0Ext
 
     let ptwMemAddr := Signal.mux ptwIsL1 l1Addr
       (Signal.mux ptwIsL0 l0Addr (Signal.pure 0#32))
-    let ptwMemReq := (· || ·) <$> ptwIsL1 <*> ptwIsL0
+    let ptwMemReq := ptwIsL1 ||| ptwIsL0
 
     -- PTW state transitions
     let nextFromPtwIdle := Signal.mux ptwReq (Signal.pure 1#3) (Signal.pure 0#3)
@@ -218,7 +218,7 @@ def mmuTopSignal {dom : DomainConfig}
         (Signal.pure 0#3)))
 
     -- Megapage tracking
-    let ptwMegaNext := Signal.mux ((· && ·) <$> ptwIsL1 <*> memReady)
+    let ptwMegaNext := Signal.mux (ptwIsL1 &&& memReady)
       pteIsLeaf
       (Signal.mux ptwIsIdle (Signal.pure false) ptwMegaReg)
 
@@ -229,14 +229,14 @@ def mmuTopSignal {dom : DomainConfig}
     let fillVPN := ptwVaddrReg.map (BitVec.extractLsb' 12 20 ·)
 
     -- Replacement pointer: which entry to fill
-    let replIs0 := (· == ·) <$> replPtrReg <*> Signal.pure 0#2
-    let replIs1 := (· == ·) <$> replPtrReg <*> Signal.pure 1#2
-    let replIs2 := (· == ·) <$> replPtrReg <*> Signal.pure 2#2
-    let replIs3 := (· == ·) <$> replPtrReg <*> Signal.pure 3#2
-    let doFill0 := (· && ·) <$> tlbFill <*> replIs0
-    let doFill1 := (· && ·) <$> tlbFill <*> replIs1
-    let doFill2 := (· && ·) <$> tlbFill <*> replIs2
-    let doFill3 := (· && ·) <$> tlbFill <*> replIs3
+    let replIs0 := replPtrReg === 0#2
+    let replIs1 := replPtrReg === 1#2
+    let replIs2 := replPtrReg === 2#2
+    let replIs3 := replPtrReg === 3#2
+    let doFill0 := tlbFill &&& replIs0
+    let doFill1 := tlbFill &&& replIs1
+    let doFill2 := tlbFill &&& replIs2
+    let doFill3 := tlbFill &&& replIs3
 
     -- TLB entry updates: sfence clears, fill sets, else hold
     let tlb0ValidNext := Signal.mux sfence (Signal.pure false)
@@ -269,12 +269,12 @@ def mmuTopSignal {dom : DomainConfig}
 
     -- Replacement pointer: increment on fill
     let replPtrNext := Signal.mux tlbFill
-      ((· + ·) <$> replPtrReg <*> Signal.pure 1#2) replPtrReg
+      (replPtrReg + 1#2) replPtrReg
 
     -- =========================================================================
     -- MMU State Transitions
     -- =========================================================================
-    let needTranslate := (· && ·) <$> reqValid <*> ((fun x => !x) <$> bypassMMU)
+    let needTranslate := reqValid &&& (~~~bypassMMU)
     let nextFromMMUIdle := Signal.mux needTranslate (Signal.pure 1#3) (Signal.pure 0#3)
     let nextFromTLBLookup := Signal.mux anyTLBHit (Signal.pure 3#3) (Signal.pure 2#3)
     let nextFromPTWWalk := Signal.mux ptwIsDone (Signal.pure 3#3)
@@ -320,13 +320,13 @@ def mmuTopSignal {dom : DomainConfig}
 
   -- Extract outputs from registered state
   let mmuStateReg := projN! mmu 26 0
-  let isMMUIdle := (· == ·) <$> mmuStateReg <*> Signal.pure 0#3
-  let isMMUDone := (· == ·) <$> mmuStateReg <*> Signal.pure 3#3
-  let isMMUFault := (· == ·) <$> mmuStateReg <*> Signal.pure 4#3
+  let isMMUIdle := mmuStateReg === 0#3
+  let isMMUDone := mmuStateReg === 3#3
+  let isMMUFault := mmuStateReg === 4#3
 
   let ptwStateReg := projN! mmu 26 1
-  let ptwIsL1 := (· == ·) <$> ptwStateReg <*> Signal.pure 1#3
-  let ptwIsL0 := (· == ·) <$> ptwStateReg <*> Signal.pure 2#3
+  let ptwIsL1 := ptwStateReg === 1#3
+  let ptwIsL0 := ptwStateReg === 2#3
   let ptwVaddrReg := projN! mmu 26 2
   let ptwPteReg := projN! mmu 26 3
   let ptePPNFull := ptwPteReg.map (BitVec.extractLsb' 10 22 ·)
@@ -336,10 +336,10 @@ def mmuTopSignal {dom : DomainConfig}
   let tlb0VPN := projN! mmu 26 7
   let tlb0PPN := projN! mmu 26 8
   let tlb0Mega := projN! mmu 26 10
-  let tlb0FullMatch := (· == ·) <$> tlb0VPN <*> vpn
+  let tlb0FullMatch := tlb0VPN === vpn
   let tlb0MegaMatch := (· == ·) <$> (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) <*> (vpn.map (BitVec.extractLsb' 10 10 ·))
   let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
-  let tlb0Hit := (· && ·) <$> tlb0Valid <*> tlb0VPNMatch
+  let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 
   -- Physical address output
   -- For 4KB pages: {ppn[19:0], offset[11:0]}
@@ -351,8 +351,8 @@ def mmuTopSignal {dom : DomainConfig}
   let paddr := Signal.mux bypassMMU vaddr translatedAddr
 
   -- Output signals
-  let bypassReady := (· && ·) <$> reqValid <*> bypassMMU
-  let ready := (· || ·) <$> bypassReady <*> isMMUDone
+  let bypassReady := reqValid &&& bypassMMU
+  let ready := bypassReady ||| isMMUDone
   let fault := isMMUFault
 
   -- Memory interface
@@ -362,18 +362,18 @@ def mmuTopSignal {dom : DomainConfig}
   let satpPPNShifted_out := (· ++ ·) <$> satpPPN_out <*> Signal.pure 0#10
   let ptwVPN1x4_out := (· ++ ·) <$> ptwVPN1_out <*> Signal.pure 0#2
   let ptwVPN1Ext_out := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN1x4_out
-  let l1Addr := (· + ·) <$> satpPPNShifted_out <*> ptwVPN1Ext_out
+  let l1Addr := satpPPNShifted_out + ptwVPN1Ext_out
   let ptePPNShifted_out := (· ++ ·) <$> ptePPNFull <*> Signal.pure 0#10
   let ptwVPN0x4_out := (· ++ ·) <$> ptwVPN0_out <*> Signal.pure 0#2
   let ptwVPN0Ext_out := (· ++ ·) <$> Signal.pure 0#20 <*> ptwVPN0x4_out
-  let l0Addr := (· + ·) <$> ptePPNShifted_out <*> ptwVPN0Ext_out
+  let l0Addr := ptePPNShifted_out + ptwVPN0Ext_out
   let memAddr := Signal.mux ptwIsL1 l1Addr
     (Signal.mux ptwIsL0 l0Addr (Signal.pure 0#32))
-  let memReq := (· || ·) <$> ptwIsL1 <*> ptwIsL0
+  let memReq := ptwIsL1 ||| ptwIsL0
 
   -- Stall: MMU busy and not bypass
-  let mmuBusy := (fun x => !x) <$> isMMUIdle
-  let stall := (· && ·) <$> mmuBusy <*> ((fun x => !x) <$> bypassMMU)
+  let mmuBusy := ~~~isMMUIdle
+  let stall := mmuBusy &&& (~~~bypassMMU)
 
   bundleAll! [paddr, ready, fault, memAddr, memReq, stall]
 

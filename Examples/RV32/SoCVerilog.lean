@@ -68,10 +68,10 @@ def rv32iSoCSynth {dom : DomainConfig}
   let ptwVaddrReg   := projN! state 122 82
   -- UART TX detection: store to 0x10xxxxxx (UART base), offset 0 (THR register)
   let addrHi := prevStoreAddr.map (BitVec.extractLsb' 24 8 ·)
-  let isUartAddr := (· == ·) <$> addrHi <*> Signal.pure 0x10#8
+  let isUartAddr := addrHi === 0x10#8
   let addrLo3 := prevStoreAddr.map (BitVec.extractLsb' 0 3 ·)
-  let isOffset0 := (· == ·) <$> addrLo3 <*> Signal.pure 0#3
-  let uartTxValid := (· && ·) <$> prevStoreEn <*> ((· && ·) <$> isUartAddr <*> isOffset0)
+  let isOffset0 := addrLo3 === 0#3
+  let uartTxValid := prevStoreEn &&& (isUartAddr &&& isOffset0)
   -- Encode Bool as 32-bit for uniform output packing
   let uartValidBV := Signal.mux uartTxValid (Signal.pure 1#32) (Signal.pure 0#32)
   -- Pack output: (pc, uart_valid, uart_data, satp, ptwPte, ptwVaddr)

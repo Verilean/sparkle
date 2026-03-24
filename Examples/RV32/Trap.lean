@@ -26,8 +26,8 @@ def mkCsrNewVal {dom : DomainConfig}
     (csrIsRW csrIsRS csrIsRC : Signal dom Bool)
     (csrWdata oldVal : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
-  let rsVal := (· ||| ·) <$> oldVal <*> csrWdata
-  let rcVal := (· &&& ·) <$> oldVal <*> ((fun x => ~~~ x) <$> csrWdata)
+  let rsVal := oldVal ||| csrWdata
+  let rcVal := oldVal &&& ((fun x => ~~~ x) <$> csrWdata)
   Signal.mux csrIsRW csrWdata
     (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
 
@@ -62,22 +62,22 @@ def trapDelegSignal {dom : DomainConfig}
        (BitVec 32 × Bool)))))) :=
   -- CSR write type decode
   let csrF3Low := csrFunct3.map (BitVec.extractLsb' 0 2 ·)
-  let csrIsRW := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
-  let csrIsRS := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
-  let csrIsRC := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
+  let csrIsRW := csrF3Low === 0b01#2
+  let csrIsRS := csrF3Low === 0b10#2
+  let csrIsRC := csrF3Low === 0b11#2
   -- Also handle CSRRWI/CSRRSI/CSRRCI (funct3[2]=1, same low 2 bits)
   let csrF3Hi := csrFunct3.map (BitVec.extractLsb' 2 1 ·)
-  let csrIsRW_i := (· == ·) <$> csrF3Low <*> Signal.pure 0b01#2
-  let csrIsRS_i := (· == ·) <$> csrF3Low <*> Signal.pure 0b10#2
-  let csrIsRC_i := (· == ·) <$> csrF3Low <*> Signal.pure 0b11#2
-  let isRW := (· || ·) <$> csrIsRW <*> csrIsRW_i
-  let isRS := (· || ·) <$> csrIsRS <*> csrIsRS_i
-  let isRC := (· || ·) <$> csrIsRC <*> csrIsRC_i
-  let doWrite := (· && ·) <$> csrWE <*> ((· || ·) <$> isRW <*> ((· || ·) <$> isRS <*> isRC))
+  let csrIsRW_i := csrF3Low === 0b01#2
+  let csrIsRS_i := csrF3Low === 0b10#2
+  let csrIsRC_i := csrF3Low === 0b11#2
+  let isRW := csrIsRW ||| csrIsRW_i
+  let isRS := csrIsRS ||| csrIsRS_i
+  let isRC := csrIsRC ||| csrIsRC_i
+  let doWrite := csrWE &&& (isRW ||| (isRS ||| isRC))
 
   -- Address matching
-  let isMedeleg := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMEDELEG)
-  let isMideleg := (· == ·) <$> csrAddr <*> Signal.pure (BitVec.ofNat 12 csrMIDELEG)
+  let isMedeleg := csrAddr === (BitVec.ofNat 12 csrMEDELEG)
+  let isMideleg := csrAddr === (BitVec.ofNat 12 csrMIDELEG)
 
   let deleg := Signal.loop fun state =>
     let medelegReg := projN! state 2 0  -- BitVec 32
@@ -86,8 +86,8 @@ def trapDelegSignal {dom : DomainConfig}
     let medelegNewVal := mkCsrNewVal isRW isRS isRC csrWdata medelegReg
     let midelegNewVal := mkCsrNewVal isRW isRS isRC csrWdata midelegReg
 
-    let medelegWr := (· && ·) <$> doWrite <*> isMedeleg
-    let midelegWr := (· && ·) <$> doWrite <*> isMideleg
+    let medelegWr := doWrite &&& isMedeleg
+    let midelegWr := doWrite &&& isMideleg
 
     let medelegNext := Signal.mux medelegWr medelegNewVal medelegReg
     let midelegNext := Signal.mux midelegWr midelegNewVal midelegReg
@@ -115,17 +115,17 @@ def trapDelegSignal {dom : DomainConfig}
 
   -- Trap goes to S-mode if: delegated AND current_priv ≤ S
   let privGtS := (BitVec.ult · ·) <$> Signal.pure (BitVec.ofNat 2 privS) <*> privMode
-  let privLeS := (fun x => !x) <$> privGtS
-  let toSmode := (· && ·) <$> trapValid <*> ((· && ·) <$> delegated <*> privLeS)
-  let toMmode := (· && ·) <$> trapValid <*> ((fun s => !s) <$> toSmode)
+  let privLeS := ~~~privGtS
+  let toSmode := trapValid &&& (delegated &&& privLeS)
+  let toMmode := trapValid &&& ((fun s => !s) <$> toSmode)
 
   -- Trap target: clear bottom 2 bits of tvec
-  let mtvecBase := (· &&& ·) <$> mtvec <*> Signal.pure 0xFFFFFFFC#32
-  let stvecBase := (· &&& ·) <$> stvec <*> Signal.pure 0xFFFFFFFC#32
+  let mtvecBase := mtvec &&& 0xFFFFFFFC#32
+  let stvecBase := stvec &&& 0xFFFFFFFC#32
   let trapTarget := Signal.mux toSmode stvecBase mtvecBase
 
   -- CSR read
-  let delegHit := (· || ·) <$> isMedeleg <*> isMideleg
+  let delegHit := isMedeleg ||| isMideleg
   let delegRdata := Signal.mux isMedeleg medelegReg
     (Signal.mux isMideleg midelegReg (Signal.pure 0#32))
 

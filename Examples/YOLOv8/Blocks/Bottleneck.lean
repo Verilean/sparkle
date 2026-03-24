@@ -80,7 +80,7 @@ private def bottleneckControllerBody {dom : DomainConfig}
     let conv2Done := convDone &&& isConv2
 
     -- Residual addition: saturating signed add
-    let sumRaw := (· + ·) <$> convResult <*> residualReg
+    let sumRaw := convResult + residualReg
     let withResidual := Signal.mux addResidual sumRaw convResult
 
     -- FSM transitions

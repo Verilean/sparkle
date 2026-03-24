@@ -90,24 +90,24 @@ def lineBuffer3x3 {dom : DomainConfig}
     let w8Next := Signal.mux valid pixelIn w8       -- bot-right is current input
 
     -- Column counter
-    let colInc := (· + ·) <$> colPos <*> Signal.pure 1#8
+    let colInc := colPos + 1#8
     let colNext := Signal.mux valid colInc colPos
 
     -- Row counter: increment when column wraps (simplified: assume width < 256)
-    let rowInc := (· + ·) <$> rowPos <*> Signal.pure 1#8
+    let rowInc := rowPos + 1#8
     let rowNext := rowPos  -- Row tracking managed by external controller
 
     -- Window valid: true after first 2 rows + 2 columns
     -- r >= 2 ⟺ ¬(r < 2) ⟺ ¬(r == 0 || r == 1)
-    let rowIs0 := (· == ·) <$> rowPos <*> Signal.pure 0#8
-    let rowIs1 := (· == ·) <$> rowPos <*> Signal.pure 1#8
-    let rowLt2 := (· || ·) <$> rowIs0 <*> rowIs1
-    let hasEnoughRows := (fun x => !x) <$> rowLt2
-    let colIs0 := (· == ·) <$> colPos <*> Signal.pure 0#8
-    let colIs1 := (· == ·) <$> colPos <*> Signal.pure 1#8
-    let colLt2 := (· || ·) <$> colIs0 <*> colIs1
-    let hasEnoughCols := (fun x => !x) <$> colLt2
-    let validNext := (· && ·) <$> hasEnoughRows <*> hasEnoughCols
+    let rowIs0 := rowPos === 0#8
+    let rowIs1 := rowPos === 1#8
+    let rowLt2 := rowIs0 ||| rowIs1
+    let hasEnoughRows := ~~~rowLt2
+    let colIs0 := colPos === 0#8
+    let colIs1 := colPos === 1#8
+    let colLt2 := colIs0 ||| colIs1
+    let hasEnoughCols := ~~~colLt2
+    let validNext := hasEnoughRows &&& hasEnoughCols
 
     -- Write address for line buffers
     let wrAddrNext := Signal.mux valid colInc wrAddr

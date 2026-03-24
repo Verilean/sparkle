@@ -37,7 +37,7 @@ def weightedVElementSignal
         -- Sign-extend weight (32 → 64) and V (8 → 64)
         let wExt := signExtendSignal 32 weights[i]!
         let vExt := signExtendSignal 56 vColumn[i]!   -- 56 + 8 = 64
-        prods := prods.push ((· * ·) <$> wExt <*> vExt)
+        prods := prods.push (wExt * vExt)
     return prods
   -- Sum via adder tree
   let sum := adderTree products

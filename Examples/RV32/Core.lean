@@ -39,13 +39,13 @@ def aluSignal {dom : DomainConfig}
     (a b : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
   -- Compute all possible ALU results
-  let addR := (· + ·) <$> a <*> b
-  let subR := (· - ·) <$> a <*> b
-  let andR := (· &&& ·) <$> a <*> b
-  let orR  := (· ||| ·) <$> a <*> b
-  let xorR := (· ^^^ ·) <$> a <*> b
+  let addR := a + b
+  let subR := a - b
+  let andR := a &&& b
+  let orR  := a ||| b
+  let xorR := a ^^^ b
   -- RV32I spec: shift amount uses only the lower 5 bits of b
-  let shamt := (· &&& ·) <$> b <*> Signal.pure 0x1F#32
+  let shamt := b &&& 0x1F#32
   let sllR := (· <<< ·) <$> a <*> shamt
   let srlR := (· >>> ·) <$> a <*> shamt
   let sraR := (ashr · ·) <$> a <*> shamt
@@ -55,16 +55,16 @@ def aluSignal {dom : DomainConfig}
   let sltuCond := (BitVec.ult · ·) <$> a <*> b
   let sltuR    := Signal.mux sltuCond (Signal.pure 1#32) (Signal.pure 0#32)
   -- Mux tree: select result based on op code
-  let isOp0 := (· == ·) <$> op <*> Signal.pure 0#4   -- ADD
-  let isOp1 := (· == ·) <$> op <*> Signal.pure 1#4   -- SUB
-  let isOp2 := (· == ·) <$> op <*> Signal.pure 2#4   -- AND
-  let isOp3 := (· == ·) <$> op <*> Signal.pure 3#4   -- OR
-  let isOp4 := (· == ·) <$> op <*> Signal.pure 4#4   -- XOR
-  let isOp5 := (· == ·) <$> op <*> Signal.pure 5#4   -- SLL
-  let isOp6 := (· == ·) <$> op <*> Signal.pure 6#4   -- SRL
-  let isOp7 := (· == ·) <$> op <*> Signal.pure 7#4   -- SRA
-  let isOp8 := (· == ·) <$> op <*> Signal.pure 8#4   -- SLT
-  let isOp9 := (· == ·) <$> op <*> Signal.pure 9#4   -- SLTU
+  let isOp0 := op === 0#4   -- ADD
+  let isOp1 := op === 1#4   -- SUB
+  let isOp2 := op === 2#4   -- AND
+  let isOp3 := op === 3#4   -- OR
+  let isOp4 := op === 4#4   -- XOR
+  let isOp5 := op === 5#4   -- SLL
+  let isOp6 := op === 6#4   -- SRL
+  let isOp7 := op === 7#4   -- SRA
+  let isOp8 := op === 8#4   -- SLT
+  let isOp9 := op === 9#4   -- SLTU
   -- Default: PASS (op=0xA) — pass through B operand
   Signal.mux isOp9 sltuR
     (Signal.mux isOp8 sltR
@@ -95,19 +95,19 @@ def branchCompSignal {dom : DomainConfig}
     (a b : Signal dom (BitVec 32))
     : Signal dom Bool :=
   -- Compute all comparison results
-  let beq  := (· == ·) <$> a <*> b
+  let beq  := a === b
   let bne  := (fun eq => !eq) <$> beq
   let blt  := (BitVec.slt · ·) <$> a <*> b
   let bge  := (fun lt => !lt) <$> blt
   let bltu := (BitVec.ult · ·) <$> a <*> b
   let bgeu := (fun lt => !lt) <$> bltu
   -- Mux tree: select condition based on funct3
-  let f3is0 := (· == ·) <$> funct3 <*> Signal.pure 0#3  -- BEQ
-  let f3is1 := (· == ·) <$> funct3 <*> Signal.pure 1#3  -- BNE
-  let f3is4 := (· == ·) <$> funct3 <*> Signal.pure 4#3  -- BLT
-  let f3is5 := (· == ·) <$> funct3 <*> Signal.pure 5#3  -- BGE
-  let f3is6 := (· == ·) <$> funct3 <*> Signal.pure 6#3  -- BLTU
-  let f3is7 := (· == ·) <$> funct3 <*> Signal.pure 7#3  -- BGEU
+  let f3is0 := funct3 === 0#3  -- BEQ
+  let f3is1 := funct3 === 1#3  -- BNE
+  let f3is4 := funct3 === 4#3  -- BLT
+  let f3is5 := funct3 === 5#3  -- BGE
+  let f3is6 := funct3 === 6#3  -- BLTU
+  let f3is7 := funct3 === 7#3  -- BGEU
   Signal.mux f3is7 bgeu
     (Signal.mux f3is6 bltu
     (Signal.mux f3is5 bge
@@ -132,13 +132,13 @@ def hazardSignal {dom : DomainConfig}
     (exRd : Signal dom (BitVec 5))
     (idRs1 idRs2 : Signal dom (BitVec 5))
     : Signal dom Bool :=
-  let rdIsZero  := (· == ·) <$> exRd <*> Signal.pure 0#5
-  let rdNonZero := (fun x => !x) <$> rdIsZero
-  let rs1Match  := (· == ·) <$> exRd <*> idRs1
-  let rs2Match  := (· == ·) <$> exRd <*> idRs2
-  let anyMatch  := (· || ·) <$> rs1Match <*> rs2Match
-  let hazard    := (· && ·) <$> rdNonZero <*> anyMatch
-  (· && ·) <$> exMemRead <*> hazard
+  let rdIsZero  := exRd === 0#5
+  let rdNonZero := ~~~rdIsZero
+  let rs1Match  := exRd === idRs1
+  let rs2Match  := exRd === idRs2
+  let anyMatch  := rs1Match ||| rs2Match
+  let hazard    := rdNonZero &&& anyMatch
+  exMemRead &&& hazard
 
 #synthesizeVerilog hazardSignal
 
@@ -185,14 +185,14 @@ def immGenSignal {dom : DomainConfig}
 
   -- I-type: {sign_ext[31:20], inst[31:20]}
   let immI_hi := Signal.mux
-    ((· == ·) <$> inst31 <*> Signal.pure 1#1)
+    (inst31 === 1#1)
     (Signal.pure 0xFFFFF#20) (Signal.pure 0#20)
   let immI_lo := inst.map (BitVec.extractLsb' 20 12 ·)
   let immI := (· ++ ·) <$> immI_hi <*> immI_lo
 
   -- S-type: {sign_ext, inst[31:25], inst[11:7]}
   let immS_hi := Signal.mux
-    ((· == ·) <$> inst31 <*> Signal.pure 1#1)
+    (inst31 === 1#1)
     (Signal.pure 0xFFFFF#20) (Signal.pure 0#20)
   let immS_mid := inst.map (BitVec.extractLsb' 25 7 ·)
   let immS_lo  := inst.map (BitVec.extractLsb' 7 5 ·)
@@ -201,7 +201,7 @@ def immGenSignal {dom : DomainConfig}
 
   -- B-type: {sign_ext[31:13], inst[31], inst[7], inst[30:25], inst[11:8], 0}
   let immB_hi := Signal.mux
-    ((· == ·) <$> inst31 <*> Signal.pure 1#1)
+    (inst31 === 1#1)
     (Signal.pure 0x7FFFF#19) (Signal.pure 0#19)
   let immB_b31 := inst.map (BitVec.extractLsb' 31 1 ·)
   let immB_b7  := inst.map (BitVec.extractLsb' 7 1 ·)
@@ -219,7 +219,7 @@ def immGenSignal {dom : DomainConfig}
 
   -- J-type: {sign_ext[31:21], inst[31], inst[19:12], inst[20], inst[30:21], 0}
   let immJ_hi  := Signal.mux
-    ((· == ·) <$> inst31 <*> Signal.pure 1#1)
+    (inst31 === 1#1)
     (Signal.pure 0x7FF#11) (Signal.pure 0#11)
   let immJ_b31   := inst.map (BitVec.extractLsb' 31 1 ·)
   let immJ_19_12 := inst.map (BitVec.extractLsb' 12 8 ·)
@@ -232,12 +232,12 @@ def immGenSignal {dom : DomainConfig}
   let immJ := (· ++ ·) <$> immJ_ab <*> immJ_c
 
   -- Opcode comparisons (inline literals to avoid let-binding issues in synthesis)
-  let isStore  := (· == ·) <$> opcode <*> Signal.pure 0b0100011#7   -- STORE
-  let isBranch := (· == ·) <$> opcode <*> Signal.pure 0b1100011#7   -- BRANCH
-  let isLUI    := (· == ·) <$> opcode <*> Signal.pure 0b0110111#7   -- LUI
-  let isAUIPC  := (· == ·) <$> opcode <*> Signal.pure 0b0010111#7   -- AUIPC
-  let isUType  := (· || ·) <$> isLUI <*> isAUIPC
-  let isJAL    := (· == ·) <$> opcode <*> Signal.pure 0b1101111#7   -- JAL
+  let isStore  := opcode === 0b0100011#7   -- STORE
+  let isBranch := opcode === 0b1100011#7   -- BRANCH
+  let isLUI    := opcode === 0b0110111#7   -- LUI
+  let isAUIPC  := opcode === 0b0010111#7   -- AUIPC
+  let isUType  := isLUI ||| isAUIPC
+  let isJAL    := opcode === 0b1101111#7   -- JAL
 
   -- Mux cascade: JAL > U-type > Branch > Store > I-type
   Signal.mux isJAL immJ
@@ -261,23 +261,23 @@ def aluControlSignal {dom : DomainConfig}
     (funct7 : Signal dom (BitVec 7))
     : Signal dom (BitVec 4) :=
   -- Opcode comparisons (inline literals)
-  let isALUrr  := (· == ·) <$> opcode <*> Signal.pure 0b0110011#7   -- ALU
-  let isALUimm := (· == ·) <$> opcode <*> Signal.pure 0b0010011#7   -- ALUI
-  let isALUany := (· || ·) <$> isALUrr <*> isALUimm
+  let isALUrr  := opcode === 0b0110011#7   -- ALU
+  let isALUimm := opcode === 0b0010011#7   -- ALUI
+  let isALUany := isALUrr ||| isALUimm
 
   -- funct7 bit 5 (distinguishes ADD/SUB, SRL/SRA)
   let f7bit5_raw := funct7.map (BitVec.extractLsb' 5 1 ·)
-  let f7bit5 := (· == ·) <$> f7bit5_raw <*> Signal.pure 1#1
+  let f7bit5 := f7bit5_raw === 1#1
 
   -- funct3 comparisons
-  let f3is0 := (· == ·) <$> funct3 <*> Signal.pure 0#3
-  let f3is1 := (· == ·) <$> funct3 <*> Signal.pure 1#3
-  let f3is2 := (· == ·) <$> funct3 <*> Signal.pure 2#3
-  let f3is3 := (· == ·) <$> funct3 <*> Signal.pure 3#3
-  let f3is4 := (· == ·) <$> funct3 <*> Signal.pure 4#3
-  let f3is5 := (· == ·) <$> funct3 <*> Signal.pure 5#3
-  let f3is6 := (· == ·) <$> funct3 <*> Signal.pure 6#3
-  let f3is7 := (· == ·) <$> funct3 <*> Signal.pure 7#3
+  let f3is0 := funct3 === 0#3
+  let f3is1 := funct3 === 1#3
+  let f3is2 := funct3 === 2#3
+  let f3is3 := funct3 === 3#3
+  let f3is4 := funct3 === 4#3
+  let f3is5 := funct3 === 5#3
+  let f3is6 := funct3 === 6#3
+  let f3is7 := funct3 === 7#3
 
   -- ALU op mux tree (inline BitVec 4 literals)
   let baseOp :=
@@ -291,9 +291,9 @@ def aluControlSignal {dom : DomainConfig}
       (Signal.pure 0x0#4)))))))               -- ADD
 
   -- SUB: R-type with funct7[5]=1 and funct3=000
-  let isSub := (· && ·) <$> ((· && ·) <$> isALUrr <*> f7bit5) <*> f3is0
+  let isSub := (· && ·) <$> (isALUrr &&& f7bit5) <*> f3is0
   -- SRA: ALU with funct7[5]=1 and funct3=101
-  let isSRA := (· && ·) <$> ((· && ·) <$> isALUany <*> f7bit5) <*> f3is5
+  let isSRA := (· && ·) <$> (isALUany &&& f7bit5) <*> f3is5
 
   let aluOpAdj :=
     Signal.mux isSub (Signal.pure 0x1#4)      -- SUB
@@ -301,8 +301,8 @@ def aluControlSignal {dom : DomainConfig}
       baseOp)
 
   -- Non-ALU ops: LUI=PASS, BRANCH=SUB, others=ADD
-  let isLUI    := (· == ·) <$> opcode <*> Signal.pure 0b0110111#7   -- LUI
-  let isBranch := (· == ·) <$> opcode <*> Signal.pure 0b1100011#7   -- BRANCH
+  let isLUI    := opcode === 0b0110111#7   -- LUI
+  let isBranch := opcode === 0b1100011#7   -- BRANCH
 
   let nonAluOp :=
     Signal.mux isLUI (Signal.pure 0xA#4)      -- PASS
@@ -326,31 +326,31 @@ def controlSignalsSignal {dom : DomainConfig}
     (opcode : Signal dom (BitVec 7))
     : Signal dom ((Bool × (Bool × Bool)) × ((Bool × (Bool × Bool)) × (Bool × (Bool × Bool)))) :=
   -- Opcode comparisons (inline literals)
-  let isALUrr  := (· == ·) <$> opcode <*> Signal.pure 0b0110011#7   -- ALU
-  let isALUimm := (· == ·) <$> opcode <*> Signal.pure 0b0010011#7   -- ALUI
-  let isLoad   := (· == ·) <$> opcode <*> Signal.pure 0b0000011#7   -- LOAD
-  let isStore  := (· == ·) <$> opcode <*> Signal.pure 0b0100011#7   -- STORE
-  let isBranch := (· == ·) <$> opcode <*> Signal.pure 0b1100011#7   -- BRANCH
-  let isLUI    := (· == ·) <$> opcode <*> Signal.pure 0b0110111#7   -- LUI
-  let isAUIPC  := (· == ·) <$> opcode <*> Signal.pure 0b0010111#7   -- AUIPC
-  let isJAL    := (· == ·) <$> opcode <*> Signal.pure 0b1101111#7   -- JAL
-  let isJALR   := (· == ·) <$> opcode <*> Signal.pure 0b1100111#7   -- JALR
+  let isALUrr  := opcode === 0b0110011#7   -- ALU
+  let isALUimm := opcode === 0b0010011#7   -- ALUI
+  let isLoad   := opcode === 0b0000011#7   -- LOAD
+  let isStore  := opcode === 0b0100011#7   -- STORE
+  let isBranch := opcode === 0b1100011#7   -- BRANCH
+  let isLUI    := opcode === 0b0110111#7   -- LUI
+  let isAUIPC  := opcode === 0b0010111#7   -- AUIPC
+  let isJAL    := opcode === 0b1101111#7   -- JAL
+  let isJALR   := opcode === 0b1100111#7   -- JALR
 
   -- alu_src_b: true for ALU-imm, LOAD, STORE, LUI, AUIPC, JAL, JALR
-  let aluSrcB_a := (· || ·) <$> isALUimm <*> isLoad
-  let aluSrcB_b := (· || ·) <$> isStore <*> isLUI
-  let aluSrcB_c := (· || ·) <$> isAUIPC <*> isJAL
-  let aluSrcB_ab := (· || ·) <$> aluSrcB_a <*> aluSrcB_b
-  let aluSrcB_abc := (· || ·) <$> aluSrcB_ab <*> aluSrcB_c
-  let aluSrcB := (· || ·) <$> aluSrcB_abc <*> isJALR
+  let aluSrcB_a := isALUimm ||| isLoad
+  let aluSrcB_b := isStore ||| isLUI
+  let aluSrcB_c := isAUIPC ||| isJAL
+  let aluSrcB_ab := aluSrcB_a ||| aluSrcB_b
+  let aluSrcB_abc := aluSrcB_ab ||| aluSrcB_c
+  let aluSrcB := aluSrcB_abc ||| isJALR
 
   -- reg_write: true for ALU-rr, ALU-imm, LOAD, LUI, AUIPC, JAL, JALR
-  let regWrite_a := (· || ·) <$> isALUrr <*> isALUimm
-  let regWrite_b := (· || ·) <$> isLoad <*> isLUI
-  let regWrite_c := (· || ·) <$> isAUIPC <*> isJAL
-  let regWrite_ab := (· || ·) <$> regWrite_a <*> regWrite_b
-  let regWrite_abc := (· || ·) <$> regWrite_ab <*> regWrite_c
-  let regWrite := (· || ·) <$> regWrite_abc <*> isJALR
+  let regWrite_a := isALUrr ||| isALUimm
+  let regWrite_b := isLoad ||| isLUI
+  let regWrite_c := isAUIPC ||| isJAL
+  let regWrite_ab := regWrite_a ||| regWrite_b
+  let regWrite_abc := regWrite_ab ||| regWrite_c
+  let regWrite := regWrite_abc ||| isJALR
 
   -- mem_read: LOAD only
   let memRead := isLoad
@@ -361,9 +361,9 @@ def controlSignalsSignal {dom : DomainConfig}
   -- is_branch
   let isBranchOut := isBranch
   -- is_jump: JAL or JALR
-  let isJump := (· || ·) <$> isJAL <*> isJALR
+  let isJump := isJAL ||| isJALR
   -- auipc: AUIPC or JAL (ALU src A = PC)
-  let auipc := (· || ·) <$> isAUIPC <*> isJAL
+  let auipc := isAUIPC ||| isJAL
   -- is_jalr
   let isJalrOut := isJALR
 
@@ -478,28 +478,28 @@ def mulComputeSignal {dom : DomainConfig}
     (rs1 rs2 : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   -- Sign extension to 64 bits
   let rs1Sign := rs1.map (BitVec.extractLsb' 31 1 ·)
-  let rs1IsNeg := (· == ·) <$> rs1Sign <*> Signal.pure 1#1
+  let rs1IsNeg := rs1Sign === 1#1
   let rs1HiSigned := Signal.mux rs1IsNeg (Signal.pure 0xFFFFFFFF#32) (Signal.pure 0#32)
   let rs1_64_signed := (· ++ ·) <$> rs1HiSigned <*> rs1
   let rs1_64_unsigned := (· ++ ·) <$> Signal.pure 0#32 <*> rs1
   let rs2Sign := rs2.map (BitVec.extractLsb' 31 1 ·)
-  let rs2IsNeg := (· == ·) <$> rs2Sign <*> Signal.pure 1#1
+  let rs2IsNeg := rs2Sign === 1#1
   let rs2HiSigned := Signal.mux rs2IsNeg (Signal.pure 0xFFFFFFFF#32) (Signal.pure 0#32)
   let rs2_64_signed := (· ++ ·) <$> rs2HiSigned <*> rs2
   let rs2_64_unsigned := (· ++ ·) <$> Signal.pure 0#32 <*> rs2
   -- 64-bit products (ss=signed×signed, su=signed×unsigned, uu=unsigned×unsigned)
-  let prod_ss := (· * ·) <$> rs1_64_signed <*> rs2_64_signed
-  let prod_su := (· * ·) <$> rs1_64_signed <*> rs2_64_unsigned
-  let prod_uu := (· * ·) <$> rs1_64_unsigned <*> rs2_64_unsigned
+  let prod_ss := rs1_64_signed * rs2_64_signed
+  let prod_su := rs1_64_signed * rs2_64_unsigned
+  let prod_uu := rs1_64_unsigned * rs2_64_unsigned
   -- Extract results
   let mulResult := prod_uu.map (BitVec.extractLsb' 0 32 ·)       -- MUL: lower 32
   let mulhResult := prod_ss.map (BitVec.extractLsb' 32 32 ·)     -- MULH: upper 32 signed×signed
   let mulhsuResult := prod_su.map (BitVec.extractLsb' 32 32 ·)   -- MULHSU: upper 32 signed×unsigned
   let mulhuResult := prod_uu.map (BitVec.extractLsb' 32 32 ·)    -- MULHU: upper 32 unsigned×unsigned
   -- Mux by funct3
-  let isMul := (· == ·) <$> funct3 <*> Signal.pure 0#3
-  let isMulh := (· == ·) <$> funct3 <*> Signal.pure 1#3
-  let isMulhsu := (· == ·) <$> funct3 <*> Signal.pure 2#3
+  let isMul := funct3 === 0#3
+  let isMulh := funct3 === 1#3
+  let isMulhsu := funct3 === 2#3
   Signal.mux isMul mulResult
     (Signal.mux isMulh mulhResult
     (Signal.mux isMulhsu mulhsuResult
@@ -511,20 +511,20 @@ def amoComputeSignal {dom : DomainConfig}
     (amoOp : Signal dom (BitVec 5))
     (memVal rs2Val : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   -- Comparison signals
-  let isSwap := (· == ·) <$> amoOp <*> Signal.pure 0b00001#5
-  let isAdd  := (· == ·) <$> amoOp <*> Signal.pure 0b00000#5
-  let isXor  := (· == ·) <$> amoOp <*> Signal.pure 0b00100#5
-  let isAnd  := (· == ·) <$> amoOp <*> Signal.pure 0b01100#5
-  let isOr   := (· == ·) <$> amoOp <*> Signal.pure 0b01000#5
-  let isMin  := (· == ·) <$> amoOp <*> Signal.pure 0b10000#5
-  let isMax  := (· == ·) <$> amoOp <*> Signal.pure 0b10100#5
-  let isMinu := (· == ·) <$> amoOp <*> Signal.pure 0b11000#5
-  let isMaxu := (· == ·) <$> amoOp <*> Signal.pure 0b11100#5
+  let isSwap := amoOp === 0b00001#5
+  let isAdd  := amoOp === 0b00000#5
+  let isXor  := amoOp === 0b00100#5
+  let isAnd  := amoOp === 0b01100#5
+  let isOr   := amoOp === 0b01000#5
+  let isMin  := amoOp === 0b10000#5
+  let isMax  := amoOp === 0b10100#5
+  let isMinu := amoOp === 0b11000#5
+  let isMaxu := amoOp === 0b11100#5
   -- Arithmetic results
-  let addResult := (· + ·) <$> memVal <*> rs2Val
-  let xorResult := (· ^^^ ·) <$> memVal <*> rs2Val
-  let andResult := (· &&& ·) <$> memVal <*> rs2Val
-  let orResult  := (· ||| ·) <$> memVal <*> rs2Val
+  let addResult := memVal + rs2Val
+  let xorResult := memVal ^^^ rs2Val
+  let andResult := memVal &&& rs2Val
+  let orResult  := memVal ||| rs2Val
   -- Signed ≤ (BitVec.sle) and unsigned ≤ (BitVec.ule)
   let signedLe   := (BitVec.sle · ·) <$> memVal <*> rs2Val
   let signedGe   := (BitVec.sle · ·) <$> rs2Val <*> memVal

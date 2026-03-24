@@ -41,26 +41,26 @@ def uartSignal {dom : DomainConfig}
     let busyCntReg := projN! state 2 1 -- BitVec 5
 
     -- Address decode
-    let isTxData := (· == ·) <$> addr <*> Signal.pure 0x00#8
-    let isTxStatus := (· == ·) <$> addr <*> Signal.pure 0x04#8
+    let isTxData := addr === 0x00#8
+    let isTxStatus := addr === 0x04#8
 
     -- TX ready = busy counter is zero
-    let isZero := (· == ·) <$> busyCntReg <*> Signal.pure 0#5
-    let isBusy := (fun x => !x) <$> isZero
-    let txReady := (fun x => !x) <$> isBusy
+    let isZero := busyCntReg === 0#5
+    let isBusy := ~~~isZero
+    let txReady := ~~~isBusy
 
     -- TX data write enable
-    let txDataWE := (· && ·) <$> we <*> isTxData
+    let txDataWE := we &&& isTxData
 
     -- TX valid pulse: write accepted when ready
-    let txValid := (· && ·) <$> txDataWE <*> txReady
+    let txValid := txDataWE &&& txReady
 
     -- TX data register: latch write data on write
     let txDataNext := Signal.mux txDataWE
       (wdata.map (BitVec.extractLsb' 0 8 ·)) txDataReg
 
     -- Busy counter: load on tx_valid, decrement while busy, else 0
-    let busyCntDec := (· - ·) <$> busyCntReg <*> Signal.pure 1#5
+    let busyCntDec := busyCntReg - 1#5
     let busyCntNext := Signal.mux txValid (Signal.pure uartTxCycles)
       (Signal.mux isBusy busyCntDec (Signal.pure 0#5))
 
@@ -85,13 +85,13 @@ def uartSignal {dom : DomainConfig}
   -- Re-derive outputs from the registered state
   let txDataOut := projN! uart 2 0
   let busyCntOut := projN! uart 2 1
-  let isZero := (· == ·) <$> busyCntOut <*> Signal.pure 0#5
-  let isBusy := (fun x => !x) <$> isZero
-  let txReady := (fun x => !x) <$> isBusy
-  let isTxData := (· == ·) <$> addr <*> Signal.pure 0x00#8
-  let isTxStatus := (· == ·) <$> addr <*> Signal.pure 0x04#8
-  let txDataWE := (· && ·) <$> we <*> isTxData
-  let txValid := (· && ·) <$> txDataWE <*> txReady
+  let isZero := busyCntOut === 0#5
+  let isBusy := ~~~isZero
+  let txReady := ~~~isBusy
+  let isTxData := addr === 0x00#8
+  let isTxStatus := addr === 0x04#8
+  let txDataWE := we &&& isTxData
+  let txValid := txDataWE &&& txReady
   let statusWord := Signal.mux txReady (Signal.pure 1#32) (Signal.pure 0#32)
   let txDataWord := (· ++ ·) <$> Signal.pure 0#24 <*> txDataOut
   let rdata := Signal.mux isTxData txDataWord

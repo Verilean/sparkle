@@ -62,26 +62,26 @@ private def sppfControllerBody {dom : DomainConfig}
     let readyReg   := projN! state 4 2  -- Bool
     let doneReg    := projN! state 4 3  -- Bool
 
-    let isIdle     := (· == ·) <$> fsmReg <*> Signal.pure 0#3
-    let isConvPre  := (· == ·) <$> fsmReg <*> Signal.pure 1#3
-    let isPool     := (· == ·) <$> fsmReg <*> Signal.pure 2#3
-    let isConcat   := (· == ·) <$> fsmReg <*> Signal.pure 3#3
-    let isConvPost := (· == ·) <$> fsmReg <*> Signal.pure 4#3
-    let isDone     := (· == ·) <$> fsmReg <*> Signal.pure 5#3
+    let isIdle     := fsmReg === 0#3
+    let isConvPre  := fsmReg === 1#3
+    let isPool     := fsmReg === 2#3
+    let isConcat   := fsmReg === 3#3
+    let isConvPost := fsmReg === 4#3
+    let isDone     := fsmReg === 5#3
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
-    let convPreDone  := (· && ·) <$> subOpDone <*> isConvPre
-    let poolDone     := (· && ·) <$> subOpDone <*> isPool
+    let startAndIdle := start &&& isIdle
+    let convPreDone  := subOpDone &&& isConvPre
+    let poolDone     := subOpDone &&& isPool
 
     -- Pool stage counter
-    let poolStgInc := (· + ·) <$> poolStgReg <*> Signal.pure 1#2
+    let poolStgInc := poolStgReg + 1#2
     let allPoolsDone := (· && ·) <$> poolDone <*>
-      ((· == ·) <$> poolStgReg <*> Signal.pure 2#2)  -- 3 stages: 0,1,2
+      (poolStgReg === 2#2)  -- 3 stages: 0,1,2
     let morePool := (· && ·) <$> poolDone <*>
-      ((fun x => !x) <$> ((· == ·) <$> poolStgReg <*> Signal.pure 2#2))
+      (~~~(poolStgReg === 2#2))
 
-    let concatDone   := (· && ·) <$> subOpDone <*> isConcat
-    let convPostDone := (· && ·) <$> subOpDone <*> isConvPost
+    let concatDone   := subOpDone &&& isConcat
+    let convPostDone := subOpDone &&& isConvPost
 
     -- FSM transitions
     let fsmNext :=

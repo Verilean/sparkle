@@ -15,10 +15,10 @@ Start with basic components that work, then build up complexity.
 -- ============================================================================
 
 def add16 (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 def sub16 (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· - ·) <$> a <*> b
+  a - b
 
 -- ============================================================================
 -- LEVEL 2: Simple 2-Way ALU

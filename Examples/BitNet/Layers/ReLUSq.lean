@@ -24,11 +24,11 @@ variable {dom : DomainConfig}
 def reluSqSignal (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   -- Extract sign bit (bit 31)
   let signBit := x.map (BitVec.extractLsb' 31 1 ·)
-  let isNeg := (· == ·) <$> signBit <*> Signal.pure 1#1
+  let isNeg := signBit === 1#1
   -- Sign-extend input to 64 bits
   let xExt := signExtendSignal 32 x
   -- Square (64-bit × 64-bit → 64-bit, no overflow for 32-bit inputs)
-  let squared := (· * ·) <$> xExt <*> xExt
+  let squared := xExt * xExt
   -- Extract bits [47:16] = ASR 16 then truncate to 32 bits
   let shifted := squared.map (BitVec.extractLsb' 16 32 ·)
   -- If negative → 0, else → shifted result

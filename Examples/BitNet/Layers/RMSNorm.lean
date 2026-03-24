@@ -56,7 +56,7 @@ def rmsNormSignal (xs : Array (Signal dom (BitVec 32)))
   -- Build sum-of-squares using adder tree
   let squaredSignals : Array (Signal dom (BitVec 64)) := xs.map (fun x =>
     let xExt := signExtendSignal 32 x
-    (· * ·) <$> xExt <*> xExt)
+    xExt * xExt)
   let sumSq := adderTree squaredSignals
 
   -- Multiply by 1/N and extract mean (approximate via extracting representative bits)
@@ -82,12 +82,12 @@ def rmsNormSignal (xs : Array (Signal dom (BitVec 32)))
         -- x × rsqrt (64-bit intermediate)
         let xExt := signExtendSignal 32 xs[i]!
         let rsqrtExt := signExtendSignal 32 rsqrtVal
-        let normProd := (· * ·) <$> xExt <*> rsqrtExt
+        let normProd := xExt * rsqrtExt
         let normShifted := normProd.map (BitVec.extractLsb' 24 32 ·)
         -- Apply scale: normalized × scale >> 24
         let normExt := signExtendSignal 32 normShifted
         let scaleExt := signExtendSignal 32 scales[i]!
-        let scaledProd := (· * ·) <$> normExt <*> scaleExt
+        let scaledProd := normExt * scaleExt
         let result := scaledProd.map (BitVec.extractLsb' 24 32 ·)
         outputs := outputs.push result
     return outputs

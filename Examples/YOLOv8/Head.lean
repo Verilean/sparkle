@@ -69,34 +69,34 @@ private def headControllerBody {dom : DomainConfig}
     let dotDoneReg  := projN! state 6 4  -- Bool
     let doneReg     := projN! state 6 5  -- Bool
 
-    let isIdle      := (· == ·) <$> fsmReg <*> Signal.pure 0#4
-    let isBboxConv  := (· == ·) <$> fsmReg <*> Signal.pure 1#4
-    let isClsConv   := (· == ·) <$> fsmReg <*> Signal.pure 2#4
-    let isTextDot   := (· == ·) <$> fsmReg <*> Signal.pure 3#4
-    let isNextScale := (· == ·) <$> fsmReg <*> Signal.pure 4#4
-    let isDone      := (· == ·) <$> fsmReg <*> Signal.pure 5#4
+    let isIdle      := fsmReg === 0#4
+    let isBboxConv  := fsmReg === 1#4
+    let isClsConv   := fsmReg === 2#4
+    let isTextDot   := fsmReg === 3#4
+    let isNextScale := fsmReg === 4#4
+    let isDone      := fsmReg === 5#4
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
+    let startAndIdle := start &&& isIdle
 
     -- Conv index tracking (3 convs per branch: conv3x3, conv3x3, conv1x1)
-    let convIdxInc := (· + ·) <$> convIdxReg <*> Signal.pure 1#2
-    let bboxConvDone := (· && ·) <$> subOpDone <*> isBboxConv
+    let convIdxInc := convIdxReg + 1#2
+    let bboxConvDone := subOpDone &&& isBboxConv
     let allBboxConvs := (· && ·) <$> bboxConvDone <*>
-      ((· == ·) <$> convIdxReg <*> Signal.pure 2#2)  -- 3 convs: 0,1,2
+      (convIdxReg === 2#2)  -- 3 convs: 0,1,2
     let moreBboxConv := (· && ·) <$> bboxConvDone <*>
-      ((fun x => !x) <$> ((· == ·) <$> convIdxReg <*> Signal.pure 2#2))
+      (~~~(convIdxReg === 2#2))
 
-    let clsConvDone := (· && ·) <$> subOpDone <*> isClsConv
+    let clsConvDone := subOpDone &&& isClsConv
     let allClsConvs := (· && ·) <$> clsConvDone <*>
-      ((· == ·) <$> convIdxReg <*> Signal.pure 2#2)
+      (convIdxReg === 2#2)
     let moreClsConv := (· && ·) <$> clsConvDone <*>
-      ((fun x => !x) <$> ((· == ·) <$> convIdxReg <*> Signal.pure 2#2))
+      (~~~(convIdxReg === 2#2))
 
-    let textDotDone := (· && ·) <$> subOpDone <*> isTextDot
+    let textDotDone := subOpDone &&& isTextDot
 
     -- Scale tracking
-    let scaleInc := (· + ·) <$> scaleReg <*> Signal.pure 1#2
-    let allScales := (· == ·) <$> scaleReg <*> Signal.pure 2#2  -- 3 scales: 0,1,2
+    let scaleInc := scaleReg + 1#2
+    let allScales := scaleReg === 2#2  -- 3 scales: 0,1,2
 
     -- FSM transitions
     let fsmNext :=

@@ -71,26 +71,26 @@ private def c2fControllerBody {dom : DomainConfig}
     let readyReg  := projN! state 5 3  -- Bool
     let doneReg   := projN! state 5 4  -- Bool
 
-    let isIdle       := (· == ·) <$> fsmReg <*> Signal.pure 0#3
-    let isSplit      := (· == ·) <$> fsmReg <*> Signal.pure 1#3
-    let isBottleneck := (· == ·) <$> fsmReg <*> Signal.pure 2#3
-    let isConcat     := (· == ·) <$> fsmReg <*> Signal.pure 3#3
-    let isMerge      := (· == ·) <$> fsmReg <*> Signal.pure 4#3
-    let isDone       := (· == ·) <$> fsmReg <*> Signal.pure 5#3
+    let isIdle       := fsmReg === 0#3
+    let isSplit      := fsmReg === 1#3
+    let isBottleneck := fsmReg === 2#3
+    let isConcat     := fsmReg === 3#3
+    let isMerge      := fsmReg === 4#3
+    let isDone       := fsmReg === 5#3
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
-    let splitDone := (· && ·) <$> subOpDone <*> isSplit
+    let startAndIdle := start &&& isIdle
+    let splitDone := subOpDone &&& isSplit
 
     -- Bottleneck iteration
-    let bnIdxInc := (· + ·) <$> bnIdxReg <*> Signal.pure 1#4
-    let bnDone := (· && ·) <$> subOpDone <*> isBottleneck
+    let bnIdxInc := bnIdxReg + 1#4
+    let bnDone := subOpDone &&& isBottleneck
     let allBnDone := (· && ·) <$> bnDone <*>
-      ((· == ·) <$> bnIdxInc <*> maxBnReg)
+      (bnIdxInc === maxBnReg)
     let moreBn := (· && ·) <$> bnDone <*>
-      ((fun x => !x) <$> ((· == ·) <$> bnIdxInc <*> maxBnReg))
+      (~~~(bnIdxInc === maxBnReg))
 
-    let concatDone := (· && ·) <$> subOpDone <*> isConcat
-    let mergeDone := (· && ·) <$> subOpDone <*> isMerge
+    let concatDone := subOpDone &&& isConcat
+    let mergeDone := subOpDone &&& isMerge
 
     -- FSM transitions
     let fsmNext :=

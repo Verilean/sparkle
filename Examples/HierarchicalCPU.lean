@@ -10,7 +10,7 @@ open Sparkle.Core.Signal
 
 -- 16-bit Adder Module
 def adder16 (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
-  (· + ·) <$> a <*> b
+  a + b
 
 -- 16-bit Logic Unit (AND, OR, XOR)
 def logicUnit16 (op : Signal Domain (BitVec 2)) (a b : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=

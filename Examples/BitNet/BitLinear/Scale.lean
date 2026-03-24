@@ -28,7 +28,7 @@ def scaleMultiplySignal (acc : Signal dom (BitVec 48)) (scale : Signal dom (BitV
   -- Sign-extend scale to 80 bits (add 48 bits)
   let scaleExt := signExtendSignal 48 scale
   -- Multiply in 80-bit domain
-  let prod := (· * ·) <$> accExt <*> scaleExt
+  let prod := accExt * scaleExt
   -- Extract bits [55:24] = ASR 24 + truncate to 32 bits
   prod.map (BitVec.extractLsb' 24 32 ·)
 

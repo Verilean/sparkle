@@ -44,28 +44,28 @@ def clintSignal {dom : DomainConfig}
     let mtimecmpHiReg := projN! state 5 4  -- BitVec 32
 
     -- Address matching
-    let msipMatch     := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMSIP)
-    let mtimeLoMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_LO)
-    let mtimeHiMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_HI)
-    let mtimecmpLoMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_LO)
-    let mtimecmpHiMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_HI)
+    let msipMatch     := busAddr === (BitVec.ofNat 16 clintMSIP)
+    let mtimeLoMatch  := busAddr === (BitVec.ofNat 16 clintMTIME_LO)
+    let mtimeHiMatch  := busAddr === (BitVec.ofNat 16 clintMTIME_HI)
+    let mtimecmpLoMatch := busAddr === (BitVec.ofNat 16 clintMTIMECMP_LO)
+    let mtimecmpHiMatch := busAddr === (BitVec.ofNat 16 clintMTIMECMP_HI)
 
     -- MTIME auto-increment
-    let mtimeLoInc := (· + ·) <$> mtimeLoReg <*> Signal.pure 1#32
-    let mtimeCarry := (· == ·) <$> mtimeLoInc <*> Signal.pure 0#32
+    let mtimeLoInc := mtimeLoReg + 1#32
+    let mtimeCarry := mtimeLoInc === 0#32
     let mtimeHiInc := Signal.mux mtimeCarry
-      ((· + ·) <$> mtimeHiReg <*> Signal.pure 1#32) mtimeHiReg
+      (mtimeHiReg + 1#32) mtimeHiReg
 
     -- Write logic: bus write takes priority over increment
-    let msipNext := Signal.mux ((· && ·) <$> busWE <*> msipMatch)
+    let msipNext := Signal.mux (busWE &&& msipMatch)
       busWdata msipReg
-    let mtimeLoNext := Signal.mux ((· && ·) <$> busWE <*> mtimeLoMatch)
+    let mtimeLoNext := Signal.mux (busWE &&& mtimeLoMatch)
       busWdata mtimeLoInc
-    let mtimeHiNext := Signal.mux ((· && ·) <$> busWE <*> mtimeHiMatch)
+    let mtimeHiNext := Signal.mux (busWE &&& mtimeHiMatch)
       busWdata mtimeHiInc
-    let mtimecmpLoNext := Signal.mux ((· && ·) <$> busWE <*> mtimecmpLoMatch)
+    let mtimecmpLoNext := Signal.mux (busWE &&& mtimecmpLoMatch)
       busWdata mtimecmpLoReg
-    let mtimecmpHiNext := Signal.mux ((· && ·) <$> busWE <*> mtimecmpHiMatch)
+    let mtimecmpHiNext := Signal.mux (busWE &&& mtimecmpHiMatch)
       busWdata mtimecmpHiReg
 
     bundleAll! [
@@ -84,11 +84,11 @@ def clintSignal {dom : DomainConfig}
   let mtimecmpHiReg := projN! clint 5 4
 
   -- Bus read mux
-  let msipMatch     := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMSIP)
-  let mtimeLoMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_LO)
-  let mtimeHiMatch  := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIME_HI)
-  let mtimecmpLoMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_LO)
-  let mtimecmpHiMatch := (· == ·) <$> busAddr <*> Signal.pure (BitVec.ofNat 16 clintMTIMECMP_HI)
+  let msipMatch     := busAddr === (BitVec.ofNat 16 clintMSIP)
+  let mtimeLoMatch  := busAddr === (BitVec.ofNat 16 clintMTIME_LO)
+  let mtimeHiMatch  := busAddr === (BitVec.ofNat 16 clintMTIME_HI)
+  let mtimecmpLoMatch := busAddr === (BitVec.ofNat 16 clintMTIMECMP_LO)
+  let mtimecmpHiMatch := busAddr === (BitVec.ofNat 16 clintMTIMECMP_HI)
   let busRdata :=
     Signal.mux msipMatch msipReg
     (Signal.mux mtimecmpLoMatch mtimecmpLoReg
@@ -99,9 +99,9 @@ def clintSignal {dom : DomainConfig}
 
   -- Timer interrupt: mtime >= mtimecmp (unsigned 64-bit comparison)
   let hiGt := (BitVec.ult · ·) <$> mtimecmpHiReg <*> mtimeHiReg
-  let hiEq := (· == ·) <$> mtimeHiReg <*> mtimecmpHiReg
-  let loGe := (fun x => !x) <$> ((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
-  let timerIrq := (· || ·) <$> hiGt <*> ((· && ·) <$> hiEq <*> loGe)
+  let hiEq := mtimeHiReg === mtimecmpHiReg
+  let loGe := ~~~((BitVec.ult · ·) <$> mtimeLoReg <*> mtimecmpLoReg)
+  let timerIrq := hiGt ||| (hiEq &&& loGe)
 
   -- Software interrupt: msip[0]
   let swIrq := (· == ·) <$> (msipReg.map (BitVec.extractLsb' 0 1 ·)) <*> Signal.pure 1#1

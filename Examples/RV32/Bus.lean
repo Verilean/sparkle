@@ -57,10 +57,10 @@ def busDecoderSignal {dom : DomainConfig}
   -- Boot DRAM: 0x80000000 - 0x8001FFFF (addr[31:17] == 0x4000)
   let isBoot := (· == ·) <$> (addr.map (BitVec.extractLsb' 17 15 ·)) <*> Signal.pure 0x4000#15
   -- DRAM: default (not CLINT, not UART, not Boot)
-  let notClint := (fun x => !x) <$> isCLINT
-  let notUart := (fun x => !x) <$> isUART
-  let notBoot := (fun x => !x) <$> isBoot
-  let isDRAM := (· && ·) <$> notClint <*> ((· && ·) <$> notUart <*> notBoot)
+  let notClint := ~~~isCLINT
+  let notUart := ~~~isUART
+  let notBoot := ~~~isBoot
+  let isDRAM := notClint &&& (notUart &&& notBoot)
 
   -- Address extraction per device
   let dramAddr := addr
@@ -69,9 +69,9 @@ def busDecoderSignal {dom : DomainConfig}
   let bootAddr := addr
 
   -- Control signal qualification
-  let anyDev := (· || ·) <$> ((· || ·) <$> isDRAM <*> isCLINT) <*> ((· || ·) <$> isUART <*> isBoot)
-  let devWE := (· && ·) <$> we <*> anyDev
-  let devRE := (· && ·) <$> re <*> anyDev
+  let anyDev := (· || ·) <$> (isDRAM ||| isCLINT) <*> (isUART ||| isBoot)
+  let devWE := we &&& anyDev
+  let devRE := re &&& anyDev
 
   -- Read data mux: CLINT > UART > Boot > DRAM (default)
   let rdata := Signal.mux isCLINT clint_rdata

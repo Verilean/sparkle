@@ -32,7 +32,7 @@ def dotProductSignal (qs ks : Array (Signal dom (BitVec 8))) (dkShift : Nat)
         -- Sign-extend INT8 to 32 bits (24 + 8 = 32)
         let qExt := signExtendSignal 24 qs[i]!
         let kExt := signExtendSignal 24 ks[i]!
-        prods := prods.push ((· * ·) <$> qExt <*> kExt)
+        prods := prods.push (qExt * kExt)
     return prods
   let sum := adderTree products
   -- Scale by 1/sqrt(d_k) via arithmetic shift right

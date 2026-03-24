@@ -26,11 +26,11 @@ def mulAccScale (acc : Signal dom (BitVec 32)) (scale : Signal dom (BitVec 16))
     : Signal dom (BitVec 32) :=
   -- Sign-extend scale to 32 bits
   let sMsb := scale.map (BitVec.extractLsb' 15 1 ·)
-  let sIsNeg := (· == ·) <$> sMsb <*> Signal.pure 1#1
+  let sIsNeg := sMsb === 1#1
   let sPadOnes := (· ++ ·) <$> Signal.pure (BitVec.ofNat 16 0xFFFF) <*> scale
   let sPadZeros := (· ++ ·) <$> Signal.pure 0#16 <*> scale
   let scaleExt := Signal.mux sIsNeg sPadOnes sPadZeros
-  (· * ·) <$> acc <*> scaleExt
+  acc * scaleExt
 
 /-- Arithmetic shift right by a 5-bit shift amount.
     Synthesizable: zero-extends shift to 32-bit, uses ashr. -/

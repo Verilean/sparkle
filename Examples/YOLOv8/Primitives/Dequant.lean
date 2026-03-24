@@ -24,7 +24,7 @@ variable {dom : DomainConfig}
     Synthesizable: extracts MSB, muxes between 1-padded and 0-padded concat. -/
 def dequantInt4ToInt8 (w4 : Signal dom (BitVec 4)) : Signal dom (BitVec 8) :=
   let msb := w4.map (BitVec.extractLsb' 3 1 ·)
-  let isNeg := (· == ·) <$> msb <*> Signal.pure 1#1
+  let isNeg := msb === 1#1
   let padOnes := (· ++ ·) <$> Signal.pure 15#4 <*> w4   -- 1111 ++ w4
   let padZeros := (· ++ ·) <$> Signal.pure 0#4 <*> w4   -- 0000 ++ w4
   Signal.mux isNeg padOnes padZeros
@@ -49,7 +49,7 @@ def dequantUpperToInt8 (packed : Signal dom (BitVec 8)) : Signal dom (BitVec 8) 
     Synthesizable: MSB check + mux between 1-padded and 0-padded. -/
 def extendInt8ToInt32 (a : Signal dom (BitVec 8)) : Signal dom (BitVec 32) :=
   let msb := a.map (BitVec.extractLsb' 7 1 ·)
-  let isNeg := (· == ·) <$> msb <*> Signal.pure 1#1
+  let isNeg := msb === 1#1
   let padOnes := (· ++ ·) <$> Signal.pure (BitVec.ofNat 24 0xFFFFFF) <*> a
   let padZeros := (· ++ ·) <$> Signal.pure 0#24 <*> a
   Signal.mux isNeg padOnes padZeros

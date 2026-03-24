@@ -57,22 +57,22 @@ def dotProductEngine {dom : DomainConfig}
     let fsmReg     := projN! state 4 2  -- BitVec 2
     let doneReg    := projN! state 4 3  -- Bool
 
-    let isIdle := (· == ·) <$> fsmReg <*> Signal.pure 0#2
-    let isAcc  := (· == ·) <$> fsmReg <*> Signal.pure 1#2
-    let isOut  := (· == ·) <$> fsmReg <*> Signal.pure 2#2
+    let isIdle := fsmReg === 0#2
+    let isAcc  := fsmReg === 1#2
+    let isOut  := fsmReg === 2#2
 
-    let startAndIdle := (· && ·) <$> start <*> isIdle
+    let startAndIdle := start &&& isIdle
 
     -- MAC: sign-extend both to 32 bits, multiply, accumulate
     let aExt := extendInt8ToInt32 vecA
     let bExt := extendInt8ToInt32 vecB
-    let product := (· * ·) <$> aExt <*> bExt
-    let accPlus := (· + ·) <$> accReg <*> product
+    let product := aExt * bExt
+    let accPlus := accReg + product
 
     -- Counter
-    let counterDec := (· - ·) <$> counterReg <*> Signal.pure 1#16
-    let counterIsOne := (· == ·) <$> counterReg <*> Signal.pure 1#16
-    let accDone := (· && ·) <$> isAcc <*> counterIsOne
+    let counterDec := counterReg - 1#16
+    let counterIsOne := counterReg === 1#16
+    let accDone := isAcc &&& counterIsOne
 
     -- FSM
     let fsmNext :=

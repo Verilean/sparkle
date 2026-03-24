@@ -57,27 +57,27 @@ private def conv2DEngineBody {dom : DomainConfig}
     let doneReg    := projN! state 5 4  -- Bool
 
     -- FSM state decode
-    let isIdle        := (· == ·) <$> fsmReg <*> Signal.pure 0#2
-    let isAccumulate  := (· == ·) <$> fsmReg <*> Signal.pure 1#2
-    let isRequantize  := (· == ·) <$> fsmReg <*> Signal.pure 2#2
-    let isOutput      := (· == ·) <$> fsmReg <*> Signal.pure 3#2
+    let isIdle        := fsmReg === 0#2
+    let isAccumulate  := fsmReg === 1#2
+    let isRequantize  := fsmReg === 2#2
+    let isOutput      := fsmReg === 3#2
 
     -- Start condition
-    let startAndIdle := (· && ·) <$> start <*> isIdle
+    let startAndIdle := start &&& isIdle
 
     -- MAC: sign-extend weight4 to 8-bit, then both to 32-bit, multiply and accumulate
     let w8 := dequantInt4ToInt8 weight4
     let w32 := extendInt8ToInt32 w8
     let a32 := extendInt8ToInt32 activation8
-    let product := (· * ·) <$> w32 <*> a32
-    let accPlusProduct := (· + ·) <$> accReg <*> product
+    let product := w32 * a32
+    let accPlusProduct := accReg + product
 
     -- Counter decrement
-    let counterDec := (· - ·) <$> counterReg <*> Signal.pure 1#16
-    let counterIsOne := (· == ·) <$> counterReg <*> Signal.pure 1#16
+    let counterDec := counterReg - 1#16
+    let counterIsOne := counterReg === 1#16
 
     -- Accumulate done: transition to REQUANTIZE when counter reaches 1
-    let accDone := (· && ·) <$> isAccumulate <*> counterIsOne
+    let accDone := isAccumulate &&& counterIsOne
 
     -- Requantize: acc * scale >> shift, clamped to INT8
     let requantResult := requantize accReg scale shift

@@ -24,7 +24,7 @@ def elemMulSignal (a b : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   let aExt := signExtendSignal 32 a
   let bExt := signExtendSignal 32 b
   -- Multiply (64-bit, no overflow for 32-bit signed inputs)
-  let prod := (· * ·) <$> aExt <*> bExt
+  let prod := aExt * bExt
   -- Extract bits [47:16] = ASR 16 + truncate to 32 bits
   prod.map (BitVec.extractLsb' 16 32 ·)
 
