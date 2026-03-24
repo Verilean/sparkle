@@ -100,7 +100,7 @@ jobs:
 
     # ---- SVParser Tests ----
 
-    - name: Run SVParser tests (11 tests: parse, lower, JIT, PicoRV32, C firmware)
+    - name: "Run SVParser tests (11 tests: parse, lower, JIT, PicoRV32, C firmware)"
       run: lake exe svparser-test
 
     # ---- Unit Tests ----
