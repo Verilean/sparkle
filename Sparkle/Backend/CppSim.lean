@@ -225,7 +225,9 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
         let stype := signedCastType w
         s!"(({stype}){emitExpr typeMap arg1} {emitCppOperator operator} ({stype}){emitExpr typeMap arg2} ? 1 : 0)"
       | .asr =>
-        let w := inferExprWidth typeMap arg1
+        -- Always use at least 32-bit types for ASR to avoid overflow in
+        -- sign-extension patterns like (val << N) >> N where N can be large
+        let w := max (inferExprWidth typeMap arg1) 32
         let stype := signedCastType w
         let utype := emitCppType (.bitVector w)
         s!"(({utype})(({stype}){emitExpr typeMap arg1} >> {emitExpr typeMap arg2}))"

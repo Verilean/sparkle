@@ -302,9 +302,16 @@ partial def parsePrimary : P SVExpr := do
     let _ ← nextChar  -- consume $
     let name ← identifier
     lparen; let arg ← parseExpr; rparen
-    -- $signed: stripped for now. Concat immediates use unsigned representation.
-    -- TODO: sign-extend B/S/J-type immediates for negative branch offsets
-    pure arg
+    if name == "signed" then
+      -- Apply $signed to concat and slice expressions (known sub-32-bit width)
+      -- Identity for full-width wire references (already 32-bit)
+      match arg with
+      | .concat _ => pure (SVExpr.unary .signed arg)
+      | .slice _ _ _ => pure (SVExpr.unary .signed arg)
+      | .index _ _ => pure (SVExpr.unary .signed arg)
+      | _ => pure arg
+    else
+      pure arg
   | some '\'' =>
     -- Unsized literal: 'b0, 'bx, 'h0, etc.
     let _ ← token (matchStr "'")

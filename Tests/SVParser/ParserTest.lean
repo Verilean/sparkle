@@ -362,22 +362,34 @@ def main : IO UInt32 := do
       -- Verify Fibonacci: first data after 0xAAAA0001 should be 0,1,1,2,3,5,8,13,21,34
       let fibExpected : List UInt64 := [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
 
-      if hasStart && hasPass && !hasFail then
-        -- Extract Fibonacci values (after marker 0xAAAA0001)
-        let mut afterFib := false
-        let mut fibValues : List UInt64 := []
-        for v in uartOutput do
-          if v == 0xAAAA0001 then afterFib := true
-          else if afterFib && fibValues.length < 10 then
-            fibValues := fibValues ++ [v]
-          else if afterFib && fibValues.length >= 10 then
-            afterFib := false
+      -- Extract Fibonacci values (after marker 0xAAAA0001)
+      let mut afterFib := false
+      let mut fibValues : List UInt64 := []
+      for v in uartOutput do
+        if v == 0xAAAA0001 then afterFib := true
+        else if afterFib && fibValues.length < 10 then
+          fibValues := fibValues ++ [v]
+        else if afterFib && fibValues.length >= 10 then
+          afterFib := false
+      let fibOk := fibValues == fibExpected
 
-        let fibOk := fibValues == fibExpected
-        IO.println s!"PASS ({uartOutput.length} UART words, fib={if fibOk then "OK" else "MISMATCH"})"
+      -- Extract GCD values (after marker 0xAAAA0004)
+      let gcdExpected : List UInt64 := [6, 25, 1]
+      let mut afterGcd := false
+      let mut gcdValues : List UInt64 := []
+      for v in uartOutput do
+        if v == 0xAAAA0004 then afterGcd := true
+        else if afterGcd && gcdValues.length < 3 then
+          gcdValues := gcdValues ++ [v]
+        else if afterGcd && gcdValues.length >= 3 then
+          afterGcd := false
+      let gcdOk := gcdValues == gcdExpected
+
+      if hasStart && fibOk && gcdOk then
+        IO.println s!"PASS ({uartOutput.length} words, fib=OK gcd=OK)"
         passed := passed + 1
       else
-        IO.println s!"FAIL (start={hasStart} pass={hasPass} fail={hasFail}, {uartOutput.length} words)"
+        IO.println s!"FAIL (start={hasStart} fib={fibOk} gcd={gcdOk}, {uartOutput.length} words)"
         failed := failed + 1
     catch e =>
       IO.println s!"FAIL: {toString e}"
