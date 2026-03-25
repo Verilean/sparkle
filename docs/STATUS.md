@@ -20,7 +20,7 @@
 | 3.8 | **AXI4-Lite Bus Protocol** | Verified slave/master IP, 14 proofs (deadlock-free, valid persistence), synthesizable | **Done** |
 | 3.9 | **RV32I Formal Verification** | 102 theorems, MSTATUS WPRI bug found, Signal DSL ↔ spec equivalence proofs | **Done** |
 | 3.10 | **Linux Boot Idle-Loop Skipping** | MIE/MTIE guard, WFI fast-path, 4 CI-ready oracle accuracy tests | **Done** |
-| 4 | **SV Transpiler: Extended ISA** | M-ext: parser/flattener fixed (183 regs), root cause found — if-conversion priority bug in `collectGuardedNB` misorders `if(!resetn) mem_state<=0` vs `case(0) mem_state<=1`. CSR/IRQ not yet tested | Root cause found |
+| 4 | **SV Transpiler: Extended ISA** | M-ext: RV32I firmware runs on M-ext SoC (183 regs). MUL/DIV instructions execute but return wrong results (PCPI sub-module computation bug). CSR/IRQ not yet tested | In progress |
 | 6 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
 | 7 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
 | 8 | **Verified Standard IP — AXI4-Lite / TileLink** | AXI4-Lite done (Phase 48). TileLink and AXI4 interconnect remaining | Partial |
