@@ -2,6 +2,39 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 47: Imperative `<~` Register Assignment — `Signal.circuit` Macro (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Provide imperative-style hardware description with `<~` register assignment. One macro for both synthesis and simulation — no UX split.
+
+**Result**: `Signal.circuit do` block with `let x ← Signal.reg init;` register declarations and `x <~ expr;` assignments. Desugars to `Signal.loop` + `Signal.register` + `bundleAll!` at compile time. Works for both `#synthesizeVerilog` and `.sample` simulation without stack overflow.
+
+**Key insight**: `Signal.loop` was unified with the memoized C FFI evaluation previously only available in `Signal.loopMemo`. By fixing `α` to `Type` (hardware types are always `Type 0`), `loopImpl` can use `cacheGet`/`evalSignalAt` C FFI barriers that prevent Lean's LICM optimizer from hoisting cache reads. This eliminated the stack overflow in simulation, removing the need for a separate `Signal.circuitIO`.
+
+**Example**:
+```lean
+-- One macro for synthesis AND simulation
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  Signal.circuit do
+    let count ← Signal.reg 0#8;
+    count <~ count + 1#8;
+    return count
+
+#synthesizeVerilog counter    -- → Verilog with always_ff register
+counter.sample 10             -- → [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+```
+
+**Changes**:
+
+| File | Change |
+|------|--------|
+| `Sparkle/Core/Signal.lean` | `Signal.circuit` macro (syntax + macro_rules), unified `loopImpl` with C FFI memoization, `loop` signature `{α : Type}`, `loopMemo` delegates to `loopImpl` |
+| `Tests/Circuit/SimTest.lean` | Simulation tests: counter [0..9], 2-register pipeline with 1-cycle delay |
+| `lakefile.lean` | Added `circuit-sim-test` exe target |
+| `docs/Troubleshooting_Synthesis.md` | Replaced "Imperative Syntax NOT Supported" with `Signal.circuit` usage guide |
+| `README.md` | Counter example updated to use `Signal.circuit` |
+
 ## Phase 46: Signal Operator Refactoring & Compiler Fix (Complete)
 
 **Date**: 2026-03-25
