@@ -713,13 +713,21 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   -- Build body statements
   let mut body : List Stmt := []
 
-  -- Emit parameter default values as constant assigns
+  -- Emit parameter values as constant assigns (with overrides applied)
+  let paramWidth (w : Option (Nat × Nat)) : Nat :=
+    match w with | some (hi, lo) => hi - lo + 1 | none => 32
   for p in svMod.params do
-    body := body ++ [.assign p.name (lowerExpr p.value)]
+    let val := match paramVals.find? fun (n, _) => n == p.name with
+      | some (_, v) => .const (Int.ofNat v) (paramWidth p.width)
+      | none => lowerExpr p.value
+    body := body ++ [.assign p.name val]
   for item in svMod.items do
     match item with
     | .paramDecl param =>
-      body := body ++ [.assign param.name (lowerExpr param.value)]
+      let val := match paramVals.find? fun (n, _) => n == param.name with
+        | some (_, v) => .const (Int.ofNat v) (paramWidth param.width)
+        | none => lowerExpr param.value
+      body := body ++ [.assign param.name val]
     | _ => pure ()
 
   for item in svMod.items do
@@ -824,8 +832,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         writeAddr writeData writeEnable
         (.const 0 addrWidth) s!"{name}_rdata" true]
       wires := wires ++ [{ name := s!"{name}_rdata", ty := widthToHWType width }]
-    | .instantiation modName instName conns =>
-      -- Module instantiation → Stmt.inst
+    | .instantiation modName instName conns _paramOvr =>
+      -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
       body := body ++ [.inst modName instName irConns]
     | _ => pure ()
@@ -946,24 +954,39 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
         match moduleMap.find? fun (m : Module) => m.name == modName with
         | none =>
           -- Sub-module not found: emit warning wire and skip
-          -- (Previously kept .inst as-is, which would break CppSim)
           flatBody := flatBody ++ [.assign s!"_warn_missing_{modName}_{instName}" (.const 0 1)]
         | some subMod =>
-          -- Extract parameter overrides from instantiation connections
-          -- (PicoRV32 uses #(.PARAM(val)) syntax, parsed as connections)
-          let paramOverrides := conns.filterMap fun (name, expr) =>
-            match expr with
-            | .const v _ => some (name, v.toNat)
-            | _ => none
+          -- Find the SV AST for this instantiation to get parameter overrides
+          -- Walk the SV top module items to find the matching instantiation
+          let svTopMod? := svDesign.modules.find? fun m => m.name == design.topModule
+          let paramOvr : List (String × Nat) := match svTopMod? with
+            | some svTop =>
+              let expanded := expandGenerateBlocks (extractParamDefaults svTop) svTop.items
+              match expanded.findSome? fun item =>
+                match item with
+                | .instantiation mn _ _ pOvr =>
+                  if mn == modName then
+                    some (pOvr.filterMap fun (name, expr) =>
+                      match expr with
+                      | .lit (.decimal _ v) => some (name, v)
+                      | .lit (.hex _ v) => some (name, v)
+                      | .lit (.binary _ v) => some (name, v)
+                      | _ => none)
+                  else none
+                | _ => none
+              with
+              | some ovr => ovr
+              | none => []
+            | none => []
 
           -- Re-lower the sub-module with parameter overrides applied
           -- This ensures generate-if blocks are expanded with the correct values
           let svSubMod? := svDesign.modules.find? fun m => m.name == modName
           let effectiveSubMod ← match svSubMod? with
             | some svSub =>
-              match lowerModule svSub paramOverrides with
+              match lowerModule svSub paramOvr with
               | .ok m => pure m
-              | .error _ => pure subMod  -- fallback to default-lowered version
+              | .error _ => pure subMod
             | none => pure subMod
 
           -- Collect all internal names in sub-module (including memory names)
@@ -1013,6 +1036,7 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
                 .register s!"{instName}_{name}" s!"{instName}_{clk}" s!"{instName}_{rst}"
                   (prefixExprNames instName subNames input) init
               | .inst subModName subInstName subConns =>
+                -- Keep nested .inst with prefixed names — will be flattened in next iteration
                 .inst subModName s!"{instName}_{subInstName}"
                   (subConns.map fun (pn, e) => (pn, prefixExprNames instName subNames e))
               | .memory name aw dw clk wa wd we ra rd combo =>
@@ -1102,7 +1126,20 @@ def parseAndLower (input : String) : Except String Design := do
 def parseAndLowerFlat (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   let design ← lowerDesign svDesign
-  pure (flattenDesign design svDesign)
+  -- Iteratively flatten until no .inst remains (handles nested sub-modules)
+  let hasInst (d : Design) : Bool :=
+    match d.modules.head? with
+    | some m => m.body.any fun s => match s with | .inst .. => true | _ => false
+    | none => false
+  let mut result := flattenDesign design svDesign
+  -- For nested hierarchies: re-flatten with all original modules available
+  for _ in [:5] do
+    if hasInst result then
+      -- Re-add all original sub-modules so the flattener can find them
+      let enriched := { result with modules := result.modules ++ design.modules }
+      result := flattenDesign enriched svDesign
+    else break
+  pure result
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input

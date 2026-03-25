@@ -753,17 +753,19 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                   -- Try module instantiation: moduleName instName ( .port(expr), ... );
                   match ← attempt (do
                     let modName ← identifier
-                    -- Skip optional #(.param(val)) parameter override
+                    -- Parse optional #(.param(val), ...) parameter overrides
+                    let mut paramOvr : List (String × SVExpr) := []
                     match ← attempt (token (matchStr "#")) with
                     | some _ =>
                       lparen
-                      let mut pd : Nat := 1
-                      while pd > 0 do
-                        match ← attempt rparen with
-                        | some _ => pd := pd - 1
-                        | none => match ← attempt lparen with
-                          | some _ => pd := pd + 1
-                          | none => let _ ← nextChar; pure ()
+                      let mut pcont := true
+                      while pcont do
+                        match ← attempt (do dot; let pn ← identifier; lparen; let pe ← parseExpr; rparen; pure (pn, pe)) with
+                        | some (pn, pe) =>
+                          paramOvr := paramOvr ++ [(pn, pe)]
+                          match ← attempt comma with | some _ => pure () | none => pcont := false
+                        | none => pcont := false
+                      rparen
                     | none => pure ()
                     let instName ← identifier
                     lparen
@@ -774,10 +776,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                       conns := conns ++ [(pName, pExpr)]
                       match ← attempt comma with | some _ => pure () | none => cont := false
                     rparen; semi
-                    pure (modName, instName, conns)
+                    pure (modName, instName, conns, paramOvr)
                   ) with
-                  | some (modName, instName, conns) =>
-                    pure [SVModuleItem.instantiation modName instName conns]
+                  | some (modName, instName, conns, paramOvr) =>
+                    pure [SVModuleItem.instantiation modName instName conns paramOvr]
                   | none =>
                   -- Try always block; on failure, skip balanced begin/end
                   match ← attempt parseAlwaysBlock with

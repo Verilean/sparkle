@@ -108,6 +108,7 @@ inductive SVModuleItem where
                   (elseBody : List SVModuleItem)          -- generate if (...) ... endgenerate
   | instantiation (moduleName instName : String)
                   (connections : List (String × SVExpr))
+                  (paramOverrides : List (String × SVExpr) := [])
   | taskDecl      (name : String) (body : List SVStmt)    -- task ... endtask
   | readmemh      (filename : String) (memName : String)  -- $readmemh("file", mem)
   deriving Repr, BEq
