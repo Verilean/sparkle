@@ -697,14 +697,26 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
   let mut emitted : List String := []
   let mut remaining := assigns
   -- Kahn's algorithm
+  -- SSA prologues (name_ssa0_0 = original) should not depend on the
+  -- epilogue assignment of 'original' — they read the initial value.
+  let ssaPrologueOriginals := assigns.filterMap fun (name, _rhs) =>
+    if (name.splitOn "_ssa").length > 1 && name.endsWith "_0" then
+      -- Extract the original variable name: "foo_ssa0_0" → "foo"
+      let parts := name.splitOn "_ssa"
+      if parts.length >= 1 then some parts[0]! else none
+    else none
   let mut changed := true
   while changed do
     changed := false
     let mut nextRemaining : List (String × Expr) := []
     for (name, rhs) in remaining do
       let deps := collectRefs rhs
+      -- For SSA prologues, their reference to the original variable is NOT a dependency
+      -- (they read the initial value, not the epilogue-updated value)
+      let isSsaPrologue := (name.splitOn "_ssa").length > 1 && name.endsWith "_0"
       let depsReady := deps.all fun dep =>
-        !(assignNames.any (· == dep)) || emitted.any (· == dep)
+        !(assignNames.any (· == dep)) || emitted.any (· == dep) ||
+        (isSsaPrologue && ssaPrologueOriginals.any fun _ => dep == (name.splitOn "_ssa")[0]!)
       if depsReady then
         sorted := sorted ++ [.assign name rhs]
         emitted := emitted ++ [name]
