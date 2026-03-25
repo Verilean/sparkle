@@ -45,6 +45,9 @@ lean_lib «Examples.CDC» where
 lean_lib «IP.Video» where
   roots := #[`IP.Video]
 
+lean_lib «IP.Bus» where
+  roots := #[`IP.Bus]
+
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
