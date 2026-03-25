@@ -1192,15 +1192,33 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           wires := wires ++ [{ name := regName, ty := hwTy }]
 
     | .alwaysBlock .star stmts =>
-      -- Sequential emit: convert blocking assignments to IR assigns in order.
-      -- These are stored in seqBody (not body) to avoid topoSort reordering.
+      -- Combinational: use sequential emit for order-dependent blocks
+      -- (carry-save accumulators), mux for simple blocks
       let allNames := (collectBlockNamesTop stmts ++ collectReadNamesStmt stmts) |>.eraseDups
       for n in allNames do
         if !wireExists wires n then
           wires := wires ++ [{ name := n, ty := .bitVector 64 }]
-      match emitBlockingStmtsSequential stmts with
-      | .ok stmtAssigns => seqBody := seqBody ++ stmtAssigns
-      | .error _ => pure ()
+      -- Check if this block needs sequential emit (has concat-LHS from forLoop unroll)
+      let rec hasConcatLhs : List SVStmt → Bool
+        | [] => false
+        | .blockAssign (.concat _) _ :: _ => true
+        | .ifElse _ t e :: rest => hasConcatLhs t || hasConcatLhs e || hasConcatLhs rest
+        | .forLoop _ _ _ body :: rest => hasConcatLhs body || hasConcatLhs rest
+        | _ :: rest => hasConcatLhs rest
+      let needsSequential := hasConcatLhs stmts
+      if needsSequential then
+        match emitBlockingStmtsSequential stmts with
+        | .ok stmtAssigns => seqBody := seqBody ++ stmtAssigns
+        | .error _ => pure ()
+      else
+        -- Simple mux mode (no concat-LHS, no order dependency)
+        let sigNames := allNames.filter fun n =>
+          stmts.any fun s => match s with
+            | .blockAssign lhs _ => match exprToName lhs with | some nm => nm == n | _ => false
+            | _ => false
+        for sigName in sigNames do
+          let expr := stmtsToMuxExprBlocking sigName stmts
+          body := body ++ [.assign sigName expr]
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
@@ -1335,7 +1353,9 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     inputs := inputs
     outputs := outputs
     wires := dedupWires
-    body := seqBody ++ topoSortBody dedupBody
+    -- seqBody (sequential always @* assigns) placed AFTER topoSorted body
+    -- so they can read wire values computed by cont assigns and posedge intermediates
+    body := topoSortBody dedupBody ++ seqBody
     assertions := assertions
     isPrimitive := false
   }
