@@ -146,6 +146,42 @@ theorem s_type_imm_roundtrip (imm12 : BitVec 12) (rs2 rs1 : BitVec 5)
   simp [encodeS, extractImmS]
   bv_decide
 
+/-- B-type immediate encode helper.
+    Layout: imm[12] | imm[10:5] | rs2 | rs1 | funct3 | imm[4:1] | imm[11] | opcode -/
+def encodeB (imm13 : BitVec 13) (rs2 rs1 : BitVec 5)
+    (funct3 : BitVec 3) (opcode : BitVec 7) : BitVec 32 :=
+  let bit12  := (imm13 >>> 12).truncate 1   -- imm[12]
+  let hi6    := (imm13 >>> 5).truncate 6    -- imm[10:5]
+  let lo4    := (imm13 >>> 1).truncate 4    -- imm[4:1]
+  let bit11  := (imm13 >>> 11).truncate 1   -- imm[11]
+  (bit12 ++ hi6 ++ rs2 ++ rs1 ++ funct3 ++ lo4 ++ bit11 ++ opcode : BitVec 32)
+
+/-- J-type immediate encode helper.
+    Layout: imm[20] | imm[10:1] | imm[11] | imm[19:12] | rd | opcode -/
+def encodeJ (imm21 : BitVec 21) (rd : BitVec 5) (opcode : BitVec 7) : BitVec 32 :=
+  let bit20    := (imm21 >>> 20).truncate 1   -- imm[20]
+  let bits10_1 := (imm21 >>> 1).truncate 10   -- imm[10:1]
+  let bit11    := (imm21 >>> 11).truncate 1   -- imm[11]
+  let bits19_12:= (imm21 >>> 12).truncate 8   -- imm[19:12]
+  (bit20 ++ bits10_1 ++ bit11 ++ bits19_12 ++ rd ++ opcode : BitVec 32)
+
+/-- B-type immediate roundtrip: encode then extract recovers sign-extended value.
+    B-type immediates have the trickiest bit layout in RISC-V:
+    {inst[31], inst[7], inst[30:25], inst[11:8], 0} -/
+theorem b_type_imm_roundtrip (imm13 : BitVec 13) (rs2 rs1 : BitVec 5)
+    (f3 : BitVec 3) (opc : BitVec 7) (h : imm13 &&& 1#13 = 0#13) :
+    extractImmB (encodeB imm13 rs2 rs1 f3 opc) = imm13.signExtend 32 := by
+  simp [encodeB, extractImmB]
+  bv_decide
+
+/-- J-type immediate roundtrip: encode then extract recovers sign-extended value.
+    J-type immediates have scattered bits: {inst[31], inst[19:12], inst[20], inst[30:21], 0} -/
+theorem j_type_imm_roundtrip (imm21 : BitVec 21) (rd : BitVec 5) (opc : BitVec 7)
+    (h : imm21 &&& 1#21 = 0#21) :
+    extractImmJ (encodeJ imm21 rd opc) = imm21.signExtend 32 := by
+  simp [encodeJ, extractImmJ]
+  bv_decide
+
 -- ============================================================================
 -- 5. ALU Algebraic Properties
 -- ============================================================================
