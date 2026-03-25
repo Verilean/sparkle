@@ -418,5 +418,406 @@ def main : IO UInt32 := do
   else
     IO.println "SKIP (files not found)"
 
+  -- ===================================================================
+  -- IR-level unit tests (no JIT, just parse+lower and inspect IR)
+  -- ===================================================================
+
+  -- Test 12: Nested blocking assign in if/else inside always @*
+  -- Bug: sigNames filter only checked top-level blockAssign, missing
+  -- assignments inside if/else. cpuregs_rs1 was silently dropped.
+  IO.print "  Test 12: Nested always @* assign in if/else... "
+  let nestedIfVerilog := "
+module nested_if_test (input clk, input [1:0] sel, output [7:0] out);
+  reg [7:0] result;
+  assign out = result;
+  always @* begin
+    if (sel == 2'b01) begin
+      result = 8'hAA;
+    end else begin
+      result = 8'h55;
+    end
+  end
+endmodule
+"
+  match parseAndLower nestedIfVerilog with
+  | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m =>
+      let hasResultAssign := m.body.any fun s => match s with
+        | .assign "result" _ => true | _ => false
+      if hasResultAssign then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: 'result' assign not found in IR body"
+        for s in m.body do IO.println s!"  {s}"
+        failed := failed + 1
+
+  -- Test 13: case(1'b1) first-match-wins priority (processCaseArms)
+  -- Bug: later case arms could override earlier matches without !covered guard.
+  -- PicoRV32's decoder uses case(1'b1) with multiple arms that can match simultaneously.
+  IO.print "  Test 13: case(1'b1) first-match-wins... "
+  let casePriorityVerilog := "
+module case_priority (input clk, input rst_n, input a, input b, output reg [7:0] out);
+  always @(posedge clk) begin
+    if (!rst_n) out <= 0;
+    else begin
+      out <= 8'hFF;
+      case (1'b1)
+        a: out <= 8'h01;
+        b: out <= 8'h02;
+      endcase
+    end
+  end
+endmodule
+"
+  match parseAndLower casePriorityVerilog with
+  | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m =>
+      -- The register for 'out' should exist and its mux expression should
+      -- reference both 'a' and 'b' (not just the last arm)
+      -- Register may be named _reg_out (lowering convention)
+      let regEntry := m.body.findSome? fun s => match s with
+        | .register name _ _ expr _ =>
+          if name == "out" || name == "_reg_out" then some (toString expr) else none
+        | _ => none
+      match regEntry with
+      | some exprStr =>
+        let hasA := containsSubstr exprStr "a"
+        let hasB := containsSubstr exprStr "b"
+        if hasA && hasB then
+          IO.println "PASS"; passed := passed + 1
+        else
+          IO.println s!"FAIL: hasA={hasA} hasB={hasB} expr={exprStr}"
+          failed := failed + 1
+      | none =>
+        IO.println "FAIL: no register for 'out' found"
+        for s in m.body do IO.println s!"  {s}"
+        failed := failed + 1
+
+  -- Test 14: Part-select concat-LHS decomposition in always @*
+  -- Bug: {a[3:0], b[3:0]} = expr was decomposed but produced self-referencing
+  -- read-modify-write that broke SSA chains. Now uses __RMW_BASE__ placeholder.
+  IO.print "  Test 14: Concat-LHS with part-select (always @*)... "
+  let concatLhsVerilog := "
+module concat_lhs_test (input [7:0] a, input [7:0] b, output [7:0] lo, output [7:0] hi);
+  reg [7:0] lo_r, hi_r;
+  assign lo = lo_r;
+  assign hi = hi_r;
+  always @* begin
+    {hi_r[3:0], lo_r[3:0]} = a + b;
+  end
+endmodule
+"
+  match parseAndLower concatLhsVerilog with
+  | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m =>
+      -- Both 'lo_r' and 'hi_r' should have assign statements
+      let hasLoR := m.body.any fun s => match s with
+        | .assign "lo_r" _ => true | _ => false
+      let hasHiR := m.body.any fun s => match s with
+        | .assign "hi_r" _ => true | _ => false
+      -- __RMW_BASE__ should be resolved (not appear in body)
+      let bodyStr := String.intercalate "\n" (m.body.map toString)
+      let noRmw := !containsSubstr bodyStr "__RMW_BASE__"
+      if hasLoR && hasHiR && noRmw then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: lo_r={hasLoR} hi_r={hasHiR} noRmw={noRmw}"
+        for s in m.body do IO.println s!"  {s}"
+        failed := failed + 1
+
+  -- Test 15: For-loop unroll with SSA renaming
+  -- Bug: unrolled inner loop result was discarded (result ++ renamed instead of ++ unrolled)
+  IO.print "  Test 15: For-loop unroll with SSA... "
+  let forLoopVerilog := "
+module for_loop_test (input clk, input rst_n, input [7:0] a, input [7:0] b, output reg [7:0] sum);
+  reg [7:0] acc;
+  integer i;
+  always @* begin
+    acc = 0;
+    for (i = 0; i < 4; i = i + 1) begin
+      acc = acc + a;
+    end
+    sum = acc + b;
+  end
+endmodule
+"
+  match parseAndLower forLoopVerilog with
+  | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m =>
+      -- 'sum' and 'acc' should have assign statements
+      -- 'acc' should have SSA chain (acc_ssa0_0 through acc_ssa0_4)
+      let hasSum := m.body.any fun s => match s with
+        | .assign "sum" _ => true | _ => false
+      let ssaCount := m.wires.filter (fun w => containsSubstr w.name "acc_ssa") |>.length
+      if hasSum && ssaCount >= 4 then
+        IO.println s!"PASS (SSA wires={ssaCount})"; passed := passed + 1
+      else
+        IO.println s!"FAIL: sum={hasSum} ssaWires={ssaCount}"
+        for s in m.body do IO.println s!"  {s}"
+        failed := failed + 1
+
+  -- Test 16: Array read in always @* (register file dual-port read)
+  -- Bug: cpuregs[decoded_rs1] in always @* was not emitted because
+  -- exprToName didn't handle array index, and the always @* filter
+  -- only looked at top-level statements.
+  IO.print "  Test 16: Array read in always @*... "
+  let arrayReadVerilog := "
+module array_read_test (input clk, input [4:0] addr, output [31:0] dout);
+  reg [31:0] mem [0:31];
+  reg [31:0] read_val;
+  assign dout = read_val;
+  always @* begin
+    read_val = mem[addr];
+  end
+  always @(posedge clk) begin
+    mem[addr] <= 32'hDEAD;
+  end
+endmodule
+"
+  match parseAndLower arrayReadVerilog with
+  | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m =>
+      -- 'read_val' should have an assign statement referencing mem[addr]
+      let hasReadVal := m.body.any fun s => match s with
+        | .assign "read_val" _ => true | _ => false
+      let readValExpr := m.body.findSome? fun s => match s with
+        | .assign "read_val" e => some (toString e)
+        | _ => none
+      let exprStr := readValExpr.getD ""
+      -- Should reference 'mem' (array access)
+      let hasMem := containsSubstr exprStr "mem"
+      if hasReadVal && hasMem then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: hasReadVal={hasReadVal} hasMem={hasMem} expr={exprStr}"
+        for s in m.body do IO.println s!"  {s}"
+        failed := failed + 1
+
+  -- Test 17: pcpi_mul standalone parse+lower (carry-save accumulator)
+  -- Verifies: parameter substitution, for-loop unroll, concat-LHS decompose,
+  -- nested SSA, __RMW_BASE__ placeholder, 64-bit promotion
+  IO.print "  Test 17: pcpi_mul standalone IR... "
+  let picoExists' ← System.FilePath.pathExists "/tmp/picorv32.v"
+  if picoExists' then
+    try
+      let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+      -- Extract just picorv32_pcpi_mul module with default params
+      match Tools.SVParser.Parser.parse cpu with
+      | .error e => IO.println s!"FAIL (parse): {e}"; failed := failed + 1
+      | .ok svDesign =>
+        let mulMod? := svDesign.modules.find? fun m => m.name == "picorv32_pcpi_mul"
+        match mulMod? with
+        | none => IO.println "FAIL: pcpi_mul module not found"; failed := failed + 1
+        | some svMul =>
+          match lowerModule svMul with
+          | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+          | .ok m =>
+            -- Check: has registers for rd, rdx, rs1, rs2, mul_counter, mul_waiting
+            let regNames := m.body.filterMap fun s => match s with
+              | .register name _ _ _ _ => some name | _ => none
+            let hasRd := regNames.any (· == "rd")
+            let hasRdx := regNames.any (· == "rdx")
+            let hasRs1 := regNames.any (· == "rs1")
+            let hasMulCounter := regNames.any (· == "mul_counter")
+            -- Check: has SSA wires for carry-save (next_rd_ssa, next_rdt_ssa)
+            let ssaWires := m.wires.filter (fun w => containsSubstr w.name "_ssa")
+            let hasInnerSsa := ssaWires.any (fun w => containsSubstr w.name "_ssa1_")
+            -- Check: has assigns for next_rd, next_rdx, next_rs1, next_rs2
+            let assignNames := m.body.filterMap fun s => match s with
+              | .assign name _ => some name | _ => none
+            let hasNextRd := assignNames.any (· == "next_rd")
+            let hasNextRdx := assignNames.any (· == "next_rdx")
+            -- Check: __RMW_BASE__ should NOT appear in any expression (all resolved)
+            let bodyStr := String.intercalate "\n" (m.body.map toString)
+            let hasRmwPlaceholder := containsSubstr bodyStr "__RMW_BASE__"
+            if hasRd && hasRdx && hasRs1 && hasMulCounter &&
+               hasInnerSsa && hasNextRd && hasNextRdx && !hasRmwPlaceholder then
+              IO.println s!"PASS (regs={regNames.length}, SSA wires={ssaWires.length}, assigns={assignNames.length})"
+              passed := passed + 1
+            else
+              IO.println s!"FAIL: rd={hasRd} rdx={hasRdx} rs1={hasRs1} counter={hasMulCounter} innerSSA={hasInnerSsa} nextRd={hasNextRd} nextRdx={hasNextRdx} rmwClean={!hasRmwPlaceholder}"
+              IO.println s!"  regNames={regNames}"
+              IO.println s!"  ssaWireCount={ssaWires.length}"
+              if hasRmwPlaceholder then
+                IO.println "  ERROR: __RMW_BASE__ placeholder not resolved!"
+              failed := failed + 1
+    catch e =>
+      IO.println s!"FAIL: {toString e}"; failed := failed + 1
+  else
+    IO.println "SKIP (picorv32.v not found)"
+
+  -- Test 18: Carry-save for-loop SSA chain correctness
+  -- The inner j-loop (16 iterations, CARRY_CHAIN=4) must produce:
+  --   next_rd_ssa1_0 = next_rd (prologue)
+  --   next_rd_ssa1_1 = f(next_rd_ssa1_0, ...)  (j=0, bits 0-3)
+  --   next_rd_ssa1_2 = f(next_rd_ssa1_1, ...)  (j=4, bits 4-7)
+  --   ...
+  --   next_rd_ssa1_16 = f(next_rd_ssa1_15, ...) (j=60, bits 60-63)
+  --   next_rd = next_rd_ssa1_16 (epilogue)
+  -- Each step must reference the PREVIOUS step (not ssa1_0 or self).
+  IO.print "  Test 18: Carry-save SSA chain references... "
+  if picoExists' then
+    try
+      let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+      match Tools.SVParser.Parser.parse cpu with
+      | .error e => IO.println s!"FAIL (parse): {e}"; failed := failed + 1
+      | .ok svDesign =>
+        let mulMod? := svDesign.modules.find? fun m => m.name == "picorv32_pcpi_mul"
+        match mulMod? with
+        | none => IO.println "FAIL: pcpi_mul not found"; failed := failed + 1
+        | some svMul =>
+          match lowerModule svMul with
+          | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+          | .ok m =>
+            -- Collect all assigns for next_rd SSA chain
+            let rdSsaAssigns := m.body.filterMap fun s => match s with
+              | .assign name expr => if containsSubstr name "next_rd_ssa1_" then some (name, toString expr) else none
+              | _ => none
+            -- Check chain: each ssa1_N (N>=1) must reference ssa1_{N-1}
+            let mut chainOk := true
+            let mut chainErrors : List String := []
+            for (name, exprStr) in rdSsaAssigns do
+              -- Extract N from "next_rd_ssa1_N" or "next_rd_ssa0_1_ssa1_N"
+              let parts := name.splitOn "_ssa1_"
+              if parts.length >= 2 then
+                let idxStr := parts[parts.length - 1]!
+                match idxStr.toNat? with
+                | some n =>
+                  if n >= 1 then
+                    let prevName := s!"{parts[0]!}_ssa1_{n - 1}"
+                    if !containsSubstr exprStr prevName then
+                      chainOk := false
+                      chainErrors := chainErrors ++ [s!"{name} does NOT reference {prevName}"]
+                  -- ssa1_0 (prologue) should reference "next_rd" (original)
+                  if n == 0 then
+                    if !containsSubstr exprStr "next_rd" then
+                      chainOk := false
+                      chainErrors := chainErrors ++ [s!"{name} does NOT reference next_rd"]
+                | none => pure ()
+            -- Check epilogue: next_rd = next_rd_ssa1_16
+            let epilogue := m.body.findSome? fun s => match s with
+              | .assign "next_rd" expr => some (toString expr)
+              | _ => none
+            let epilogueOk := match epilogue with
+              | some e => containsSubstr e "next_rd_ssa1_16"
+              | none => false
+            -- Check count: should have 17 SSA wires (ssa1_0 through ssa1_16)
+            let ssaCount := rdSsaAssigns.length
+            if chainOk && epilogueOk && ssaCount >= 16 then
+              IO.println s!"PASS ({ssaCount} SSA steps, chain OK)"
+              passed := passed + 1
+            else
+              IO.println s!"FAIL: chainOk={chainOk} epilogueOk={epilogueOk} ssaCount={ssaCount}"
+              for e in chainErrors do IO.println s!"  {e}"
+              if !epilogueOk then
+                IO.println s!"  epilogue: {epilogue.getD "NOT FOUND"}"
+              failed := failed + 1
+    catch e =>
+      IO.println s!"FAIL: {toString e}"; failed := failed + 1
+  else
+    IO.println "SKIP (picorv32.v not found)"
+
+  -- Test 19: Carry-save for-loop: next_rdt SSA chain (carry bits)
+  -- Each j-iteration writes a carry bit to next_rdt[j+3].
+  -- next_rdt_ssa1_N must reference next_rdt_ssa1_{N-1}.
+  IO.print "  Test 19: Carry-save next_rdt SSA chain... "
+  if picoExists' then
+    try
+      let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+      match Tools.SVParser.Parser.parse cpu with
+      | .error _ => IO.println "FAIL (parse)"; failed := failed + 1
+      | .ok svDesign =>
+        match svDesign.modules.find? (fun m => m.name == "picorv32_pcpi_mul") with
+        | none => IO.println "FAIL: not found"; failed := failed + 1
+        | some svMul =>
+          match lowerModule svMul with
+          | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+          | .ok m =>
+            let rdtSsaAssigns := m.body.filterMap fun s => match s with
+              | .assign name expr => if containsSubstr name "next_rdt_ssa1_" then some (name, toString expr) else none
+              | _ => none
+            let mut chainOk := true
+            let mut chainErrors : List String := []
+            for (name, exprStr) in rdtSsaAssigns do
+              let parts := name.splitOn "_ssa1_"
+              if parts.length >= 2 then
+                let idxStr := parts[parts.length - 1]!
+                match idxStr.toNat? with
+                | some n =>
+                  if n >= 1 then
+                    let prevName := s!"{parts[0]!}_ssa1_{n - 1}"
+                    if !containsSubstr exprStr prevName then
+                      chainOk := false
+                      chainErrors := chainErrors ++ [s!"{name} does NOT ref {prevName}"]
+                | none => pure ()
+            if chainOk && rdtSsaAssigns.length >= 16 then
+              IO.println s!"PASS ({rdtSsaAssigns.length} SSA steps)"
+              passed := passed + 1
+            else
+              IO.println s!"FAIL: chainOk={chainOk} count={rdtSsaAssigns.length}"
+              for e in chainErrors do IO.println s!"  {e}"
+              failed := failed + 1
+    catch e =>
+      IO.println s!"FAIL: {toString e}"; failed := failed + 1
+  else
+    IO.println "SKIP (picorv32.v not found)"
+
+  -- Test 20: Carry-save: next_rdx reads from FINAL next_rdt (after j-loop)
+  -- Bug: outer SSA renamed next_rdt to _ssa0_0 (pre-j-loop value) instead of
+  -- _ssa0_1 (post-j-loop). With numIters<=1 skip, should read final next_rdt.
+  IO.print "  Test 20: next_rdx reads post-loop next_rdt... "
+  if picoExists' then
+    try
+      let cpu ← IO.FS.readFile "/tmp/picorv32.v"
+      match Tools.SVParser.Parser.parse cpu with
+      | .error _ => IO.println "FAIL (parse)"; failed := failed + 1
+      | .ok svDesign =>
+        match svDesign.modules.find? (fun m => m.name == "picorv32_pcpi_mul") with
+        | none => IO.println "FAIL: not found"; failed := failed + 1
+        | some svMul =>
+          match lowerModule svMul with
+          | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+          | .ok m =>
+            let rdxExpr := m.body.findSome? fun s => match s with
+              | .assign "next_rdx" expr => some (toString expr)
+              | _ => none
+            match rdxExpr with
+            | none =>
+              IO.println "FAIL: next_rdx assign not found"
+              failed := failed + 1
+            | some exprStr =>
+              -- next_rdx should reference next_rdt (the final value after j-loop)
+              -- or next_rdt_ssa1_16 (the epilogue result)
+              let refsRdt := containsSubstr exprStr "next_rdt"
+              -- It should NOT reference the pre-loop value via _ssa0_0
+              -- (which would mean it's reading stale data)
+              let refsStaleSSA := containsSubstr exprStr "next_rdt_ssa0_0"
+              if refsRdt && !refsStaleSSA then
+                IO.println s!"PASS"
+                passed := passed + 1
+              else
+                IO.println s!"FAIL: refsRdt={refsRdt} refsStaleSSA={refsStaleSSA}"
+                IO.println s!"  expr={exprStr.take 200}"
+                failed := failed + 1
+    catch e =>
+      IO.println s!"FAIL: {toString e}"; failed := failed + 1
+  else
+    IO.println "SKIP (picorv32.v not found)"
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
