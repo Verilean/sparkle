@@ -339,6 +339,15 @@ private def processCaseArms (sel : SVExpr) (arms : List (List SVExpr × List SVS
     (result ++ armAssigns, newCovered)
   ) ([], .const 0 1)
 
+/-- Try to evaluate an IR expression as a compile-time constant.
+    Returns some value if the expression is a constant (including
+    constant comparisons like `eq(0, 0)` → 1). -/
+private def tryEvalConst : Expr → Option Nat
+  | .const v _ => some v.toNat
+  | .op .eq [.const a _, .const b _] => some (if a == b then 1 else 0)
+  | .op .not [e] => do let v ← tryEvalConst e; some (if v == 0 then 1 else 0)
+  | _ => none
+
 /-- Collect all guarded non-blocking assignments from statements.
     `guard` is the current path condition (true = Expr.const 1 1). -/
 partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
@@ -355,8 +364,13 @@ partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
           | none => []
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
-      collectGuardedNB thenB (mkAnd guard c) ++
-      collectGuardedNB elseB (mkAnd guard (.op .not [c]))
+      -- Constant-fold: if condition is statically true/false, take only one branch
+      match tryEvalConst c with
+      | some 1 => collectGuardedNB thenB guard
+      | some 0 => collectGuardedNB elseB guard
+      | _ =>
+        collectGuardedNB thenB (mkAnd guard c) ++
+        collectGuardedNB elseB (mkAnd guard (.op .not [c]))
     | .caseStmt sel arms default_ =>
       let (armAssigns, covered) := processCaseArms sel arms guard (fun s g => collectGuardedNB s g)
       let defAssigns := match default_ with
@@ -400,14 +414,20 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
         | none => []
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
-      collectGuardedBlock thenB (mkAnd guard c) ++
-      collectGuardedBlock elseB (mkAnd guard (.op .not [c]))
+      -- Constant-fold: if condition is statically true/false, take only one branch
+      match tryEvalConst c with
+      | some 1 => collectGuardedBlock thenB guard  -- condition is true
+      | some 0 => collectGuardedBlock elseB guard  -- condition is false
+      | _ =>
+        collectGuardedBlock thenB (mkAnd guard c) ++
+        collectGuardedBlock elseB (mkAnd guard (.op .not [c]))
     | .caseStmt sel arms default_ =>
       let (armAssigns, covered) := processCaseArms sel arms guard (fun s g => collectGuardedBlock s g)
       let defAssigns := match default_ with
         | some d => collectGuardedBlock d (mkAnd guard (.op .not [covered]))
         | none => []
       armAssigns ++ defAssigns
+    | .forLoop _ _ _ body => collectGuardedBlock body guard
     | _ => []
 
 /-- Chain guarded assignments into a flat priority mux (last-write-wins).
@@ -625,6 +645,38 @@ def extractParamDefaults (svMod : SVModule) : List (String × Nat) :=
     | _ => none
   fromParams ++ fromItems
 
+/-- Substitute parameter references with constant values in SV expressions -/
+partial def substParamExpr (params : List (String × SVExpr)) : SVExpr → SVExpr
+  | .ident name => match params.find? fun (n, _) => n == name with
+    | some (_, v) => v | none => .ident name
+  | .unary op e => .unary op (substParamExpr params e)
+  | .binary op a b => .binary op (substParamExpr params a) (substParamExpr params b)
+  | .ternary c t e => .ternary (substParamExpr params c) (substParamExpr params t) (substParamExpr params e)
+  | .index a i => .index (substParamExpr params a) (substParamExpr params i)
+  | .slice e hi lo => .slice (substParamExpr params e) hi lo
+  | .concat es => .concat (es.map (substParamExpr params))
+  | e => e
+
+partial def substParamStmt (params : List (String × SVExpr)) : SVStmt → SVStmt
+  | .blockAssign lhs rhs => .blockAssign (substParamExpr params lhs) (substParamExpr params rhs)
+  | .nonblockAssign lhs rhs => .nonblockAssign (substParamExpr params lhs) (substParamExpr params rhs)
+  | .ifElse cond thenB elseB =>
+    .ifElse (substParamExpr params cond)
+      (thenB.map (substParamStmt params)) (elseB.map (substParamStmt params))
+  | .caseStmt sel arms dflt =>
+    .caseStmt (substParamExpr params sel)
+      (arms.map fun (labels, body) => (labels.map (substParamExpr params), body.map (substParamStmt params)))
+      (dflt.map fun d => d.map (substParamStmt params))
+  | .forLoop init cond step body =>
+    .forLoop (substParamStmt params init) (substParamExpr params cond) (substParamStmt params step)
+      (body.map (substParamStmt params))
+  | .assertStmt cond => .assertStmt (substParamExpr params cond)
+
+def substituteParamsInItem (params : List (String × SVExpr)) : SVModuleItem → SVModuleItem
+  | .alwaysBlock sens stmts => .alwaysBlock sens (stmts.map (substParamStmt params))
+  | .contAssign lhs rhs => .contAssign (substParamExpr params lhs) (substParamExpr params rhs)
+  | item => item
+
 /-- Expand generate blocks by evaluating conditions against parameter defaults.
     Returns the items from the selected branch (recursively for nested generates). -/
 partial def expandGenerateBlocks (paramVals : List (String × Nat))
@@ -652,7 +704,16 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     | some (_, ov) => (n, ov)
     | none => (n, v)
   let expandedItems := expandGenerateBlocks paramVals svMod.items
-  let svMod := { svMod with items := expandedItems }
+  -- Replace parameter references with constants in all SV expressions
+  let paramLits : List (String × SVExpr) := paramVals.map fun (n, v) =>
+    (n, .lit (.decimal (some 32) v))
+  let expandedItems := expandedItems.map (substituteParamsInItem paramLits)
+  -- Also substitute in module-level params
+  let svParams := svMod.params.map fun p =>
+    match paramVals.find? fun (n, _) => n == p.name with
+    | some (_, v) => { p with value := .lit (.decimal (some 32) v) }
+    | none => p
+  let svMod := { svMod with items := expandedItems, params := svParams }
 
   -- Build environment
   let mut env := LowerEnv.empty
