@@ -689,72 +689,62 @@ opaque memoryWithInit {addrWidth dataWidth : Nat}
     (readAddr : Signal dom (BitVec addrWidth))
     : Signal dom (BitVec dataWidth)
 
-/--
-  Fixed-point combinator for feedback loops.
-
-  Allows defining circuits where the output feeds back into the input,
-  such as counters or state machines.
-
-  Usage:
-    Signal.loop fun feedback =>
-      let next := ... use feedback ...
-      register 0 next
-
-  Note: The simulation semantics are defined as a fixed point.
-  For synthesis, this is recognized by the compiler.
--/
-private unsafe def loopImpl [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α :=
-  let rec result := f result
-  result
+-- Fixed-point combinator for feedback loops.
+-- Uses memoized evaluation via C FFI barriers (cacheGet/evalSignalAt)
+-- to prevent stack overflow during simulation. The pure `Signal dom α`
+-- signature is preserved via `unsafeIO` in the returned signal.
+private unsafe def loopImpl {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) : Signal dom α :=
+  match unsafeIO (loopMemoCore f) with
+  | .ok sig => sig
+  | .error _ => default
+where
+  loopMemoCore (f : Signal dom α → Signal dom α) : IO (Signal dom α) := do
+    let cacheRef ← IO.mkRef (#[] : Array α)
+    let cacheSizeRef ← IO.mkRef (0 : Nat)
+    -- cacheGet is an @[extern] C function: reads cacheRef[t] entirely in C.
+    -- The Lean compiler cannot hoist this because cacheGet is opaque and
+    -- genuinely depends on t. Without this, LICM hoists unsafeIO cacheRef.get
+    -- out of the lambda, caching a stale empty array forever.
+    let result : Signal dom α := ⟨fun t => cacheGet cacheRef t default⟩
+    let inner := f result
+    -- evalAt: populate cache sequentially up to t, return value at t.
+    -- Each inner.val i reads result.val (i-1) which is a cache hit (already pushed).
+    let evalAt (t : Nat) : IO α := do
+      let sz ← cacheSizeRef.get
+      if t < sz then
+        let arr ← cacheRef.get
+        return if h : t < arr.size then arr[t] else default
+      else
+        for i in [sz:t + 1] do
+          -- evalSignalAt forces evaluation BEFORE the swap.
+          -- Without it, the compiler reorders `inner.val i` (pure) after
+          -- `cacheRef.swap #[]` (IO), emptying the cache during evaluation.
+          let v ← evalSignalAt inner.val i
+          -- swap out (rc=1), push in-place, set back
+          let arr ← cacheRef.swap #[]
+          cacheRef.set (arr.push v)
+        cacheSizeRef.set (t + 1)
+        let arr ← cacheRef.get
+        return if h : t < arr.size then arr[t] else default
+    return ⟨fun t =>
+      match unsafeIO (evalAt t) with
+      | .ok v => v
+      | .error _ => default⟩
 
 @[implemented_by loopImpl]
-opaque loop [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
+opaque loop {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
 
 /--
-  Memoized fixed-point combinator for feedback loops.
+  Memoized fixed-point combinator for feedback loops (IO variant).
 
-  Like `loop`, but caches the loop output per timestep in an array.
-  When evaluating sequentially (t=0,1,2,...), prior timesteps are O(1) lookups
-  instead of rebuilding the entire temporal chain.
-
-  This eliminates stack overflow for large loop bodies (e.g., 56-register SoC)
-  by turning O(t) stack depth per evaluation into O(1) with cached results.
-
-  Returns IO because it allocates a mutable cache internally.
+  Identical semantics to `loop`, but returns `IO` explicitly.
+  Kept for backward compatibility with existing simulation code.
+  New code should prefer `Signal.loop` directly (or `Signal.circuit`).
 -/
 private unsafe def loopMemoImpl {dom : DomainConfig} {α : Type} [Inhabited α]
-    (f : Signal dom α → Signal dom α) : IO (Signal dom α) := do
-  let cacheRef ← IO.mkRef (#[] : Array α)
-  let cacheSizeRef ← IO.mkRef (0 : Nat)
-  -- cacheGet is an @[extern] C function: reads cacheRef[t] entirely in C.
-  -- The Lean compiler cannot hoist this because cacheGet is opaque and
-  -- genuinely depends on t. Without this, LICM hoists unsafeIO cacheRef.get
-  -- out of the lambda, caching a stale empty array forever.
-  let result : Signal dom α := ⟨fun t => cacheGet cacheRef t default⟩
-  let inner := f result
-  -- evalAt: populate cache sequentially up to t, return value at t.
-  -- Each inner.val i reads result.val (i-1) which is a cache hit (already pushed).
-  let evalAt (t : Nat) : IO α := do
-    let sz ← cacheSizeRef.get
-    if t < sz then
-      let arr ← cacheRef.get
-      return if h : t < arr.size then arr[t] else default
-    else
-      for i in [sz:t + 1] do
-        -- evalSignalAt forces evaluation BEFORE the swap.
-        -- Without it, the compiler reorders `inner.val i` (pure) after
-        -- `cacheRef.swap #[]` (IO), emptying the cache during evaluation.
-        let v ← evalSignalAt inner.val i
-        -- swap out (rc=1), push in-place, set back
-        let arr ← cacheRef.swap #[]
-        cacheRef.set (arr.push v)
-      cacheSizeRef.set (t + 1)
-      let arr ← cacheRef.get
-      return if h : t < arr.size then arr[t] else default
-  return ⟨fun t =>
-    match unsafeIO (evalAt t) with
-    | .ok v => v
-    | .error _ => default⟩
+    (f : Signal dom α → Signal dom α) : IO (Signal dom α) :=
+  return loopImpl f
 
 @[implemented_by loopMemoImpl]
 opaque loopMemo {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : IO (Signal dom α)
@@ -1134,97 +1124,5 @@ macro_rules
       result ← `(let $regName := projN! _circuit_result $total $idx; $result)
 
     `(let _circuit_result := $loopExpr; $result)
-
-/--
-  `Signal.circuitIO` is the simulation-friendly variant of `Signal.circuit`.
-  Uses `Signal.loopMemo` (memoized, no stack overflow) instead of `Signal.loop`.
-  Returns `IO (Signal dom α)`.
-
-  ```lean
-  def main : IO Unit := do
-    let count ← Signal.circuitIO do
-      let count ← Signal.reg 0#8;
-      count <~ count + 1#8;
-      return count
-    IO.println s!"{count.sample 10}"
-  ```
--/
-syntax "Signal.circuitIO" "do" ppLine circuitStmt* : term
-
-open Lean in
-open Lean.Macro in
-macro_rules
-  | `(Signal.circuitIO do $stmts*) => do
-    let mut regs : Array (TSyntax `ident × TSyntax `term) := #[]
-    let mut assigns : Array (TSyntax `ident × TSyntax `term) := #[]
-    let mut lets : Array (TSyntax `ident × TSyntax `term) := #[]
-    let mut retExpr : Option (TSyntax `term) := none
-
-    for stmt in stmts do
-      match stmt with
-      | `(circuitStmt| let $name ← Signal.reg $init ;) =>
-        regs := regs.push (name, init)
-      | `(circuitStmt| $name:ident <~ $rhs ;) =>
-        assigns := assigns.push (name, rhs)
-      | `(circuitStmt| let $name := $rhs ;) =>
-        lets := lets.push (name, rhs)
-      | `(circuitStmt| return $e) =>
-        retExpr := some e
-      | _ => Macro.throwUnsupported
-
-    if regs.isEmpty then
-      Macro.throwError "Signal.circuitIO: no registers declared"
-
-    let ret ← match retExpr with
-      | some e => pure e
-      | none => Macro.throwError "Signal.circuitIO: missing `return` expression"
-
-    let n := regs.size
-
-    let mut regTerms : Array (TSyntax `term) := #[]
-    for (regName, init) in regs do
-      let mut found := false
-      for (aName, aRhs) in assigns do
-        if aName.getId == regName.getId then
-          regTerms := regTerms.push (← `(Signal.register $init $aRhs))
-          found := true
-          break
-      if !found then
-        regTerms := regTerms.push (← `(Signal.register $init $regName))
-    let bundled ←
-      if regTerms.size == 1 then
-        pure regTerms[0]!
-      else if regTerms.size == 2 then
-        `(bundle2 $(regTerms[0]!) $(regTerms[1]!))
-      else
-        `(bundleAll! [$regTerms,*])
-    let mut body := bundled
-
-    for i in [:lets.size] do
-      let (name, rhs) := lets[lets.size - 1 - i]!
-      body ← `(let $name := $rhs; $body)
-
-    for i in [:n] do
-      let (regName, _) := regs[n - 1 - i]!
-      let idx := Syntax.mkNumLit (toString (n - 1 - i))
-      let total := Syntax.mkNumLit (toString n)
-      body ← `(let $regName := projN! _circuit_state $total $idx; $body)
-
-    -- Use loopMemo instead of loop
-    let loopExpr ← `(Signal.loopMemo fun _circuit_state => $body)
-
-    let mut result ← pure ret
-
-    for i in [:lets.size] do
-      let (name, rhs) := lets[lets.size - 1 - i]!
-      result ← `(let $name := $rhs; $result)
-
-    for i in [:n] do
-      let (regName, _) := regs[n - 1 - i]!
-      let idx := Syntax.mkNumLit (toString (n - 1 - i))
-      let total := Syntax.mkNumLit (toString n)
-      result ← `(let $regName := projN! _circuit_result $total $idx; $result)
-
-    `($loopExpr >>= fun _circuit_result => pure ($result))
 
 end Sparkle.Core.Signal

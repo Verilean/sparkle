@@ -70,7 +70,7 @@ def registerChain (input : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16
 - Signals are **wire streams** — `<~` is syntactic sugar, not mutable assignment
 - Operations use operator syntax: `a + b`, `a &&& 0xFF#8`, `1#64 <<< shift`
 - Use `Signal.mux` for conditionals, `hw_cond` for priority muxes
-- `Signal.circuit` works with synthesis (`#synthesizeVerilog`)
+- `Signal.circuit` works with both synthesis (`#synthesizeVerilog`) and simulation
 
 ---
 
