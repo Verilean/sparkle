@@ -384,8 +384,11 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
           if acc == Expr.const 0 64 then masked
           else Expr.op .or [acc, masked]
         ) (Expr.const 0 64)
-        -- RMW: (placeholder & ~mask) | newBits
-        let cleared := Expr.op .and [Expr.ref "__RMW_BASE__", Expr.const (Int.ofNat invMask) 64]
+        -- RMW: (varName & ~mask) | newBits
+        -- Uses Expr.ref varName directly. For SSA variables, stmtsToMuxExprBlocking
+        -- replaces self-references with the ssaBase (previous SSA iteration).
+        -- This ensures topoSortBody's collectRefs sees the correct dependency.
+        let cleared := Expr.op .and [Expr.ref varName, Expr.const (Int.ofNat invMask) 64]
         [(varName, Expr.op .or [cleared, newBits])]
   | _ => []
 
@@ -575,19 +578,20 @@ def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
   let base := initDefault.getD (ssaBase.getD (.ref sigName))
   let all := collectGuardedBlock stmts
   let filtered := all.filter (·.target == sigName)
-  -- Replace __RMW_BASE__ placeholder in concat-LHS decomposed assigns with the actual base.
-  -- This resolves the read-modify-write to use the correct SSA base (previous iteration).
-  let rec substRmwBase (e : Expr) : Expr := match e with
-    | .ref "__RMW_BASE__" => base
-    | .op o args => .op o (args.map substRmwBase)
-    | .concat args => .concat (args.map substRmwBase)
-    | .slice inner hi lo => .slice (substRmwBase inner) hi lo
-    | .index arr idx => .index (substRmwBase arr) (substRmwBase idx)
-    | other => other
-  let resolved := filtered.map fun ga =>
-    if (collectRefs ga.value).any (· == "__RMW_BASE__") then
-      { ga with value := substRmwBase ga.value }
-    else ga
+  -- For SSA variables, replace self-references (Expr.ref sigName) in guarded assign
+  -- values with the actual base (ssaBase = previous SSA iteration's output).
+  -- This is needed for concat-LHS read-modify-write: (self & ~mask) | newBits
+  -- where "self" should actually read from the previous SSA step.
+  let resolved := if ssaBase.isSome then
+      let rec substSelf (e : Expr) : Expr := match e with
+        | .ref n => if n == sigName then base else .ref n
+        | .op o args => .op o (args.map substSelf)
+        | .concat args => .concat (args.map substSelf)
+        | .slice inner hi lo => .slice (substSelf inner) hi lo
+        | .index arr idx => .index (substSelf arr) (substSelf idx)
+        | other => other
+      filtered.map fun ga => { ga with value := substSelf ga.value }
+    else filtered
   guardedToMux resolved base
 
 /-- Collect all register names assigned (non-blocking) anywhere in statements -/
@@ -697,6 +701,128 @@ partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
     | _ => []
 
 -- ============================================================================
+-- Sequential SSA emitter for always @* blocks (MemorySSA approach)
+-- ============================================================================
+
+/-- Environment mapping variable names to their latest SSA wire name.
+    Used by emitSequentialSSA to track the "current value" of each variable
+    as statements are processed top-to-bottom. -/
+abbrev SeqSSAEnv := List (String × String)
+
+private def seqEnvLookup (env : SeqSSAEnv) (name : String) : String :=
+  match env.find? (·.1 == name) with
+  | some (_, latest) => latest
+  | none => name
+
+private def seqEnvUpdate (env : SeqSSAEnv) (name latest : String) : SeqSSAEnv :=
+  if env.any (·.1 == name) then
+    env.map fun (k, v) => if k == name then (k, latest) else (k, v)
+  else
+    env ++ [(name, latest)]
+
+/-- Replace all Expr.ref names using the current SSA environment.
+    Looks up each ref in env and substitutes with the latest SSA name. -/
+private partial def substExprEnv (env : SeqSSAEnv) : Expr → Expr
+  | .ref name => .ref (seqEnvLookup env name)
+  | .op o args => .op o (args.map (substExprEnv env))
+  | .concat args => .concat (args.map (substExprEnv env))
+  | .slice e hi lo => .slice (substExprEnv env e) hi lo
+  | .index arr idx => .index (substExprEnv env arr) (substExprEnv env idx)
+  | other => other
+
+/-- Emit IR assigns for an always @* block by processing statements sequentially.
+    Each variable write creates a new SSA wire; reads use the latest SSA name.
+    This correctly handles "read-then-overwrite" patterns like:
+      next_rdx = rdx;            // read initial
+      for (...) use(next_rdx);   // reads initial value
+      next_rdx = next_rdt << 1;  // overwrite with loop result
+    which cannot be expressed as a single MUX without cyclic dependency.
+    Returns (assigns, new_wires, final_env, step_counter). -/
+partial def emitSequentialSSA (stmts : List SVStmt)
+    (env : SeqSSAEnv) (stepCounter : Nat)
+    : List Stmt × List Port × SeqSSAEnv × Nat :=
+  stmts.foldl (fun (result, wires, curEnv, step) s =>
+    match s with
+    | .blockAssign lhs rhs =>
+      if isDontCare rhs then (result, wires, curEnv, step)
+      else
+        match exprToName lhs with
+        | some name =>
+          let rhsExpr := substExprEnv curEnv (lowerExpr rhs)
+          let wireName := s!"{name}_seq{step}"
+          ( result ++ [.assign wireName rhsExpr]
+          , wires ++ [{ name := wireName, ty := .bitVector 64 }]
+          , seqEnvUpdate curEnv name wireName
+          , step + 1 )
+        | none =>
+          -- Concat-LHS: decompose and create SSA wires for each target
+          let assigns := decomposeMultiConcatLhs lhs rhs
+          assigns.foldl (fun (r, w, e, st) (name, value) =>
+            let substValue := substExprEnv e value
+            let wireName := s!"{name}_seq{st}"
+            ( r ++ [.assign wireName substValue]
+            , w ++ [{ name := wireName, ty := .bitVector 64 }]
+            , seqEnvUpdate e name wireName
+            , st + 1 )
+          ) (result, wires, curEnv, step)
+    | .ifElse cond thenB elseB =>
+      let condExpr := substExprEnv curEnv (lowerExpr cond)
+      let (thenStmts, thenWires, thenEnv, thenStep) := emitSequentialSSA thenB curEnv step
+      let (elseStmts, elseWires, elseEnv, elseStep) := emitSequentialSSA elseB curEnv thenStep
+      -- Merge: MUX for each variable changed in either branch
+      let allChanged := ((thenEnv ++ elseEnv).filter fun (k, v) =>
+        seqEnvLookup curEnv k != v).map (·.1) |>.eraseDups
+      let (muxStmts, muxWires, mergedEnv, muxStep) := allChanged.foldl
+        (fun (r, w, e, st) name =>
+          let thenVal := Expr.ref (seqEnvLookup thenEnv name)
+          let elseVal := Expr.ref (seqEnvLookup elseEnv name)
+          let muxName := s!"{name}_seq{st}"
+          ( r ++ [.assign muxName (.op .mux [condExpr, thenVal, elseVal])]
+          , w ++ [{ name := muxName, ty := .bitVector 64 }]
+          , seqEnvUpdate e name muxName
+          , st + 1 )
+        ) ([], [], curEnv, elseStep)
+      ( result ++ thenStmts ++ elseStmts ++ muxStmts
+      , wires ++ thenWires ++ elseWires ++ muxWires
+      , mergedEnv, muxStep )
+    | .caseStmt sel arms default_ =>
+      let selExpr := substExprEnv curEnv (lowerExpr sel)
+      -- Process default first for base values
+      let (defStmts, defWires, defEnv, defStep) := match default_ with
+        | some d => emitSequentialSSA d curEnv step
+        | none => ([], [], curEnv, step)
+      -- Process arms
+      let (armStmts, armWires, armEnvs, armStep) := arms.foldl
+        (fun (r, w, envs, st) (labels, body) =>
+          let (aStmts, aWires, aEnv, aStep) := emitSequentialSSA body curEnv st
+          (r ++ aStmts, w ++ aWires, envs ++ [(labels, aEnv)], aStep)
+        ) (defStmts, defWires, [], defStep)
+      -- Merge with priority MUX
+      let allChangedNames := (armEnvs.flatMap fun (_, aEnv) =>
+        aEnv.filter (fun (k, v) => seqEnvLookup curEnv k != v) |>.map (·.1)
+      ).eraseDups
+      let (muxStmts, muxWires, mergedEnv, muxStep) := allChangedNames.foldl
+        (fun (r, w, e, st) name =>
+          let defVal := Expr.ref (seqEnvLookup defEnv name)
+          let muxExpr := armEnvs.foldr (fun (labels, aEnv) acc =>
+            let armVal := Expr.ref (seqEnvLookup aEnv name)
+            let cond := mkCaseCond sel labels
+            .op .mux [cond, armVal, acc]
+          ) defVal
+          let muxName := s!"{name}_seq{st}"
+          ( r ++ [.assign muxName muxExpr]
+          , w ++ [{ name := muxName, ty := .bitVector 64 }]
+          , seqEnvUpdate e name muxName
+          , st + 1 )
+        ) ([], [], curEnv, armStep)
+      (result ++ armStmts ++ muxStmts, wires ++ armWires ++ muxWires, mergedEnv, muxStep)
+    | .forLoop _ _ _ body =>
+      let (innerStmts, innerWires, innerEnv, innerStep) := emitSequentialSSA body curEnv step
+      (result ++ innerStmts, wires ++ innerWires, innerEnv, innerStep)
+    | _ => (result, wires, curEnv, step)
+  ) ([], [], env, stepCounter)
+
+-- ============================================================================
 -- Topological sort of IR statements
 -- ============================================================================
 
@@ -718,12 +844,26 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
   -- Kahn's algorithm
   -- SSA prologues (name_ssa0_0 = original) should not depend on the
   -- epilogue assignment of 'original' — they read the initial value.
+  -- Detect SSA prologues: "foo_ssaD_0" where the LAST segment after _ssa is "D_0"
+  -- (not "D_10", "D_20", etc.)
+  let isSsaPrologueName (name : String) : Bool :=
+    let parts := name.splitOn "_ssa"
+    if parts.length < 2 then false
+    else
+      let lastSeg := parts[parts.length - 1]!  -- e.g., "1_0" or "1_10"
+      let segParts := lastSeg.splitOn "_"
+      segParts.length >= 2 && segParts[segParts.length - 1]! == "0"
+  let ssaPrologueBase (name : String) : Option String :=
+    let parts := name.splitOn "_ssa"
+    if parts.length < 2 then none
+    else
+      let lastSeg := parts[parts.length - 1]!
+      let segParts := lastSeg.splitOn "_"
+      if segParts.length >= 2 && segParts[segParts.length - 1]! == "0" then
+        some (String.intercalate "_ssa" (parts.take (parts.length - 1)))
+      else none
   let ssaPrologueOriginals := assigns.filterMap fun (name, _rhs) =>
-    if (name.splitOn "_ssa").length > 1 && name.endsWith "_0" then
-      -- Extract the original variable name: "foo_ssa0_0" → "foo"
-      let parts := name.splitOn "_ssa"
-      if parts.length >= 1 then some parts[0]! else none
-    else none
+    if isSsaPrologueName name then ssaPrologueBase name else none
   let mut changed := true
   while changed do
     changed := false
@@ -732,10 +872,13 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
       let deps := collectRefs rhs
       -- For SSA prologues, their reference to the original variable is NOT a dependency
       -- (they read the initial value, not the epilogue-updated value)
-      let isSsaPrologue := (name.splitOn "_ssa").length > 1 && name.endsWith "_0"
+      let isSsaPrologue := isSsaPrologueName name
+      let prologueBase := if isSsaPrologue then ssaPrologueBase name else none
       let depsReady := deps.all fun dep =>
+        dep == name ||  -- Self-reference is not a dependency (resolved by stmtsToMuxExprBlocking)
         !(assignNames.any (· == dep)) || emitted.any (· == dep) ||
-        (isSsaPrologue && ssaPrologueOriginals.any fun _ => dep == (name.splitOn "_ssa")[0]!)
+        (isSsaPrologue && prologueBase.any (· == dep))
+      -- (trace removed)
       if depsReady then
         sorted := sorted ++ [.assign name rhs]
         emitted := emitted ++ [name]
@@ -935,8 +1078,9 @@ partial def unrollForLoops (paramVals : List (String × Nat)) (depth : Nat := 0)
           let selfRefNames := collectWriteNames unifiedBody |>.eraseDups
           let numIters := (b - initVal + inc - 1) / inc
 
-          if selfRefNames.isEmpty || numIters <= 1 then
-            -- No SSA needed: either no self-ref vars, or single iteration (no loop-carry)
+          -- SSA in unrollForLoops is disabled: emitSequentialSSA handles ordering.
+          if true then
+            -- Simple unroll without SSA (sequential emitter handles variable tracking)
             let mut result : List SVStmt := []
             let mut j := initVal
             while j < b do
@@ -1161,17 +1305,19 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           wires := wires ++ [{ name := regName, ty := hwTy }]
 
     | .alwaysBlock .star stmts =>
-      -- Combinational: use mux for all blocks. SSA handles sequential dependencies in loops.
-      let allNames := (collectBlockNamesTop stmts ++ collectReadNamesStmt stmts) |>.eraseDups
-      for n in allNames do
-        if !wireExists wires n then
-          wires := wires ++ [{ name := n, ty := .bitVector 64 }]
-      -- Use collectBlockNamesTop (which recurses into ifElse/case/forLoop)
-      -- to find ALL blocking assignment targets, not just top-level ones
+      -- Sequential SSA: process statements top-to-bottom, creating SSA wires
+      -- for each variable write. This correctly handles read-then-overwrite patterns.
+      let (seqStmts, seqWires, finalEnv, _) := emitSequentialSSA stmts [] 0
+      body := body ++ seqStmts
+      wires := wires ++ seqWires
+      -- Create final assigns: map original variable names to their latest SSA wire
       let sigNames := collectBlockNamesTop stmts |>.eraseDups
       for sigName in sigNames do
-        let expr := stmtsToMuxExprBlocking sigName stmts
-        body := body ++ [.assign sigName expr]
+        let latestWire := seqEnvLookup finalEnv sigName
+        if latestWire != sigName then
+          body := body ++ [.assign sigName (.ref latestWire)]
+          if !wireExists wires sigName then
+            wires := wires ++ [{ name := sigName, ty := .bitVector 64 }]
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
