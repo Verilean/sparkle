@@ -1,55 +1,76 @@
 # Known Limitations and Troubleshooting — Sparkle Synthesis
 
-## Imperative Syntax NOT Supported
+## Imperative Syntax with `Signal.circuit`
 
-**The `<~` feedback operator and imperative do-notation shown in some older documentation DO NOT WORK:**
+**`Signal.circuit` provides imperative-style hardware description with `<~` register assignment.**
+It desugars to `Signal.loop` + `Signal.register` + `bundleAll!` at compile time.
 
 ```lean
--- ❌ WRONG: This syntax doesn't exist yet!
-def counter : Signal Domain (BitVec 8) := do
-  let count ← Signal.register 0
-  count <~ count + 1  -- ❌ The <~ operator is not implemented!
-  return count
+-- ✓ Simple counter with <~
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  Signal.circuit do
+    let count ← Signal.reg 0#8;
+    count <~ count + 1#8;
+    return count
 
--- ❌ WRONG: This won't work either
-def fir4 (coeffs : Array (BitVec 16)) (input : BitVec 16) := do
-  let d1 ← Signal.register 0  -- ❌ Missing input signal argument!
-  d1 <~ input                 -- ❌ <~ doesn't exist!
-  ...
+-- ✓ Counter with enable
+def counterEn {dom : DomainConfig} (en : Signal dom Bool) : Signal dom (BitVec 8) :=
+  Signal.circuit do
+    let count ← Signal.reg 0#8;
+    let next := count + 1#8;
+    count <~ Signal.mux en next count;
+    return count
+
+-- ✓ FSM with multiple registers
+def fsm {dom : DomainConfig} (start : Signal dom Bool) : Signal dom (BitVec 2) :=
+  Signal.circuit do
+    let state ← Signal.reg 0#2;
+    let count ← Signal.reg 0#8;
+    let isIdle := state === (0#2 : Signal dom _);
+    let isRunning := state === (1#2 : Signal dom _);
+    state <~ hw_cond state
+      | (start &&& isIdle) => (1#2 : Signal dom _)
+      | (isRunning &&& (count === 255#8)) => (0#2 : Signal dom _);
+    count <~ Signal.mux isRunning (count + 1#8) 0#8;
+    return state
 ```
 
-**Why these don't work:**
-1. **`<~` operator**: Not defined in the codebase - this is aspirational future syntax
-2. **`do`-notation for feedback**: Signal Monad doesn't support imperative assignment
-3. **Runtime values**: `Array`, single `BitVec` values can't be synthesized to hardware
-4. **Wrong mental model**: Signals are dataflow, not imperative assignments
+**Syntax rules:**
+- `let x ← Signal.reg init;` — declare a register with initial value (semicolon required)
+- `x <~ expr;` — assign the register's next-state input (semicolon required)
+- `let x := expr;` — local combinational binding (semicolon required)
+- `return expr` — the output signal (no semicolon, must be last)
 
-**Correct approaches:**
+**What it generates:** `Signal.circuit do ...` is a macro that rewrites to:
+```lean
+let _circuit_result := Signal.loop fun _circuit_state =>
+  let count := projN! _circuit_state N 0   -- unpack register outputs
+  ...
+  bundleAll! [Signal.register 0#8 (count + 1#8), ...]  -- pack register inputs
+let count := projN! _circuit_result N 0    -- project for return expression
+count
+```
+
+**Alternative approaches (still work):**
 
 ```lean
--- For simple feedback: use let rec
+-- Dataflow style with Signal.loop (more explicit, no macro)
 def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  let rec count := Signal.register 0#8 (count.map (· + 1))
-  count
+  Signal.loop fun cnt =>
+    Signal.register 0#8 (cnt + 1#8)
 
--- For feed-forward: direct dataflow
+-- Feed-forward: direct dataflow (no feedback needed)
 def registerChain (input : Signal Domain (BitVec 16)) : Signal Domain (BitVec 16) :=
   let d1 := Signal.register 0#16 input
   let d2 := Signal.register 0#16 d1
   d2
-
--- For complex feedback: manual IR construction
--- See Examples/LoopSynthesis.lean and Examples/Sparkle16/
 ```
 
-**Key differences:**
-- Signals are **wire streams**, not variables you assign to
-- Use `Signal.register init input` with both arguments
-- Coefficients/constants must be Signal inputs, not runtime values
-- Operations use operator syntax: `sig1 + sig2`, `sig1 &&& sig2`
-- Mix signals and constants freely: `count + 1#8`, `255#8 ++ data`
-
-See `test.lean` for a working FIR filter example.
+**Key points:**
+- Signals are **wire streams** — `<~` is syntactic sugar, not mutable assignment
+- Operations use operator syntax: `a + b`, `a &&& 0xFF#8`, `1#64 <<< shift`
+- Use `Signal.mux` for conditionals, `hw_cond` for priority muxes
+- `Signal.circuit` works with synthesis (`#synthesizeVerilog`)
 
 ---
 

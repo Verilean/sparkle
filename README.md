@@ -38,8 +38,10 @@ Sparkle ships with production-grade IP cores — each with pure Lean specs, form
 ```lean
 -- Write this in Lean...
 def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  let rec count := Signal.register 0#8 (count.map (· + 1))
-  count
+  Signal.circuit do
+    let count ← Signal.reg 0#8;
+    count <~ count + 1#8;
+    return count
 
 #synthesizeVerilog counter
 ```

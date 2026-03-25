@@ -994,4 +994,145 @@ macro "hw_let" "(" a:ident "," b:ident "," c:ident "," d:ident ")" " := " e:term
     let $d := Signal.snd (Signal.snd (Signal.snd _hw_tmp));
     $body)
 
+-- ============================================================================
+-- Signal.circuit: Imperative Register Assignment DSL
+-- ============================================================================
+
+/--
+  Imperative-style hardware description with `<~` register assignment.
+
+  `Signal.circuit` desugars to `Signal.loop` + `Signal.register` + `bundleAll!`.
+  Registers are declared with `Signal.reg`, assigned with `<~`, and the
+  block returns a Signal expression.
+
+  **Simple counter:**
+  ```lean
+  def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+    Signal.circuit (dom := dom) do
+      let count ← Signal.reg 0#8
+      count <~ count + 1#8
+      return count
+  ```
+
+  **State machine with multiple registers:**
+  ```lean
+  def upDown {dom : DomainConfig} (up : Signal dom Bool) : Signal dom (BitVec 8) :=
+    Signal.circuit (dom := dom) do
+      let count ← Signal.reg 0#8
+      count <~ Signal.mux up (count + 1#8) (count - 1#8)
+      return count
+  ```
+
+  **Desugaring:** The macro collects all `let x ← Signal.reg init` declarations
+  and `x <~ expr` assignments, then rewrites into:
+  ```lean
+  Signal.loop fun _state =>
+    let x := projN! _state N 0    -- unpack register outputs
+    let y := projN! _state N 1
+    ...
+    let xNext := <rhs of x <~>   -- compute next values
+    let yNext := <rhs of y <~>
+    ...
+    -- remaining let bindings and body
+    let _ := <return expr>        -- body is for type, output taken from loop
+    bundleAll! [Signal.register init0 xNext, Signal.register init1 yNext, ...]
+  ```
+-/
+
+-- Syntax for the circuit block
+declare_syntax_cat circuitStmt
+syntax "let " ident " ← " "Signal.reg " term ";" : circuitStmt    -- register declaration
+syntax ident " <~ " term ";" : circuitStmt                          -- register assignment
+syntax "let " ident " := " term ";" : circuitStmt                   -- local let binding
+syntax "return " term : circuitStmt                                  -- return expression (last, no semicolon)
+
+syntax "Signal.circuit" "do" ppLine circuitStmt* : term
+
+open Lean in
+open Lean.Macro in
+macro_rules
+  | `(Signal.circuit do $stmts*) => do
+    -- Phase 1: Collect register declarations (name, init)
+    let mut regs : Array (TSyntax `ident × TSyntax `term) := #[]
+    -- Phase 2: Collect assignments (name, rhs)
+    let mut assigns : Array (TSyntax `ident × TSyntax `term) := #[]
+    -- Phase 3: Collect let bindings (name, rhs)
+    let mut lets : Array (TSyntax `ident × TSyntax `term) := #[]
+    -- Phase 4: Return expression
+    let mut retExpr : Option (TSyntax `term) := none
+
+    for stmt in stmts do
+      match stmt with
+      | `(circuitStmt| let $name ← Signal.reg $init ;) =>
+        regs := regs.push (name, init)
+      | `(circuitStmt| $name:ident <~ $rhs ;) =>
+        assigns := assigns.push (name, rhs)
+      | `(circuitStmt| let $name := $rhs ;) =>
+        lets := lets.push (name, rhs)
+      | `(circuitStmt| return $e) =>
+        retExpr := some e
+      | _ => Macro.throwUnsupported
+
+    if regs.isEmpty then
+      Macro.throwError "Signal.circuit: no registers declared (use `let x ← Signal.reg init`)"
+
+    let ret ← match retExpr with
+      | some e => pure e
+      | none => Macro.throwError "Signal.circuit: missing `return` expression"
+
+    let n := regs.size
+
+    -- Build the loop body tail: bundleAll! [Signal.register init0 next0, ...]
+    let mut regTerms : Array (TSyntax `term) := #[]
+    for (regName, init) in regs do
+      let mut found := false
+      for (aName, aRhs) in assigns do
+        if aName.getId == regName.getId then
+          regTerms := regTerms.push (← `(Signal.register $init $aRhs))
+          found := true
+          break
+      if !found then
+        -- No assignment: register holds its value (feedback to self)
+        regTerms := regTerms.push (← `(Signal.register $init $regName))
+    let bundled ←
+      if regTerms.size == 1 then
+        pure regTerms[0]!
+      else if regTerms.size == 2 then
+        `(bundle2 $(regTerms[0]!) $(regTerms[1]!))
+      else
+        `(bundleAll! [$regTerms,*])
+    let mut body := bundled
+
+    -- Prepend let bindings (in reverse order to nest)
+    for i in [:lets.size] do
+      let (name, rhs) := lets[lets.size - 1 - i]!
+      body ← `(let $name := $rhs; $body)
+
+    -- Prepend register projections from state tuple
+    for i in [:n] do
+      let (regName, _) := regs[n - 1 - i]!
+      let idx := Syntax.mkNumLit (toString (n - 1 - i))
+      let total := Syntax.mkNumLit (toString n)
+      body ← `(let $regName := projN! _circuit_state $total $idx; $body)
+
+    -- Wrap in Signal.loop
+    let loopExpr ← `(Signal.loop fun _circuit_state => $body)
+
+    -- After the loop, project registers and evaluate the return expression
+    let mut result ← pure ret
+
+    -- Prepend let bindings for the return context
+    for i in [:lets.size] do
+      let (name, rhs) := lets[lets.size - 1 - i]!
+      result ← `(let $name := $rhs; $result)
+
+    -- Project registers from loop output
+    for i in [:n] do
+      let (regName, _) := regs[n - 1 - i]!
+      let idx := Syntax.mkNumLit (toString (n - 1 - i))
+      let total := Syntax.mkNumLit (toString n)
+      result ← `(let $regName := projN! _circuit_result $total $idx; $result)
+
+    `(let _circuit_result := $loopExpr; $result)
+
 end Sparkle.Core.Signal
