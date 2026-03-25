@@ -774,13 +774,45 @@ partial def emitSequentialSSA (stmts : List SVStmt)
         seqEnvLookup curEnv k != v).map (·.1) |>.eraseDups
       let (muxStmts, muxWires, mergedEnv, muxStep) := allChanged.foldl
         (fun (r, w, e, st) name =>
-          let thenVal := Expr.ref (seqEnvLookup thenEnv name)
-          let elseVal := Expr.ref (seqEnvLookup elseEnv name)
-          let muxName := s!"{name}_seq{st}"
-          ( r ++ [.assign muxName (.op .mux [condExpr, thenVal, elseVal])]
-          , w ++ [{ name := muxName, ty := .bitVector 64 }]
-          , seqEnvUpdate e name muxName
-          , st + 1 )
+          let preIfVal := seqEnvLookup curEnv name
+          let thenLookup := seqEnvLookup thenEnv name
+          let elseLookup := seqEnvLookup elseEnv name
+          let thenChanged := thenLookup != preIfVal
+          let elseChanged := elseLookup != preIfVal
+          if thenChanged && elseChanged then
+            -- Both branches modified: MUX between branch results
+            let muxName := s!"{name}_seq{st}"
+            ( r ++ [.assign muxName (.op .mux [condExpr, .ref thenLookup, .ref elseLookup])]
+            , w ++ [{ name := muxName, ty := .bitVector 64 }]
+            , seqEnvUpdate e name muxName
+            , st + 1 )
+          else if thenChanged then
+            -- Only then-branch modified: MUX with pre-if value
+            -- If preIfVal is the raw variable name (no _seq wire), it means the variable
+            -- was never assigned before this if-else. Use the then-branch result directly
+            -- guarded by condition, to avoid self-referencing the final output.
+            let hasSeqWire := (preIfVal.splitOn "_seq").length > 1
+            if hasSeqWire then
+              let muxName := s!"{name}_seq{st}"
+              ( r ++ [.assign muxName (.op .mux [condExpr, .ref thenLookup, .ref preIfVal])]
+              , w ++ [{ name := muxName, ty := .bitVector 64 }]
+              , seqEnvUpdate e name muxName
+              , st + 1 )
+            else
+              -- No prior seq wire: just use the then-branch value (condition always true
+              -- for constant-folded parameters, or the variable is don't-care otherwise)
+              (r, w, seqEnvUpdate e name thenLookup, st)
+          else
+            -- Only else-branch modified
+            let hasSeqWire := (preIfVal.splitOn "_seq").length > 1
+            if hasSeqWire then
+              let muxName := s!"{name}_seq{st}"
+              ( r ++ [.assign muxName (.op .mux [condExpr, .ref preIfVal, .ref elseLookup])]
+              , w ++ [{ name := muxName, ty := .bitVector 64 }]
+              , seqEnvUpdate e name muxName
+              , st + 1 )
+            else
+              (r, w, seqEnvUpdate e name elseLookup, st)
         ) ([], [], curEnv, elseStep)
       ( result ++ thenStmts ++ elseStmts ++ muxStmts
       , wires ++ thenWires ++ elseWires ++ muxWires
