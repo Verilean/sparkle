@@ -456,6 +456,7 @@ def main : IO UInt32 := do
   IO.println ""
   IO.println "--- AXI4-Lite Bus Protocol Tests ---"
   let axi4Tests ← Sparkle.Tests.Bus.AXI4Lite.allTests
-  let allTests := allTests ++ axi4Tests
+  let axi4FullTests ← Sparkle.Tests.Bus.AXI4Lite.fullModuleTests
+  let allTests := allTests ++ axi4Tests ++ axi4FullTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []
