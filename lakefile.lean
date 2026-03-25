@@ -155,6 +155,10 @@ lean_exe «circuit-sim-test» where
   root := `Tests.Circuit.SimTest
   supportInterpreter := true
 
+lean_exe «mext-rv32i-test» where
+  root := `Tests.SVParser.MExtRv32iTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
