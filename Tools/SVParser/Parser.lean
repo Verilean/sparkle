@@ -226,6 +226,11 @@ partial def parseUnary : P SVExpr := do
   match c with
   | some '!' => let _ ← token (matchStr "!"); let e ← parseUnary; pure (SVExpr.unary .logNot e)
   | some '~' => let _ ← token (matchStr "~"); let e ← parseUnary; pure (SVExpr.unary .bitNot e)
+  | some '-' =>
+    -- Unary minus: -expr (two's complement negation)
+    match ← attempt (do let _ ← token (matchStr "-"); let e ← parseUnary; pure e) with
+    | some e => pure (SVExpr.unary .neg e)
+    | none => parsePrimary
   | some '&' =>
     -- Check for reduction AND (unary &) vs binary &
     match ← attempt (do
