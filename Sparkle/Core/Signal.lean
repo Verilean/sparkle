@@ -1135,4 +1135,96 @@ macro_rules
 
     `(let _circuit_result := $loopExpr; $result)
 
+/--
+  `Signal.circuitIO` is the simulation-friendly variant of `Signal.circuit`.
+  Uses `Signal.loopMemo` (memoized, no stack overflow) instead of `Signal.loop`.
+  Returns `IO (Signal dom α)`.
+
+  ```lean
+  def main : IO Unit := do
+    let count ← Signal.circuitIO do
+      let count ← Signal.reg 0#8;
+      count <~ count + 1#8;
+      return count
+    IO.println s!"{count.sample 10}"
+  ```
+-/
+syntax "Signal.circuitIO" "do" ppLine circuitStmt* : term
+
+open Lean in
+open Lean.Macro in
+macro_rules
+  | `(Signal.circuitIO do $stmts*) => do
+    let mut regs : Array (TSyntax `ident × TSyntax `term) := #[]
+    let mut assigns : Array (TSyntax `ident × TSyntax `term) := #[]
+    let mut lets : Array (TSyntax `ident × TSyntax `term) := #[]
+    let mut retExpr : Option (TSyntax `term) := none
+
+    for stmt in stmts do
+      match stmt with
+      | `(circuitStmt| let $name ← Signal.reg $init ;) =>
+        regs := regs.push (name, init)
+      | `(circuitStmt| $name:ident <~ $rhs ;) =>
+        assigns := assigns.push (name, rhs)
+      | `(circuitStmt| let $name := $rhs ;) =>
+        lets := lets.push (name, rhs)
+      | `(circuitStmt| return $e) =>
+        retExpr := some e
+      | _ => Macro.throwUnsupported
+
+    if regs.isEmpty then
+      Macro.throwError "Signal.circuitIO: no registers declared"
+
+    let ret ← match retExpr with
+      | some e => pure e
+      | none => Macro.throwError "Signal.circuitIO: missing `return` expression"
+
+    let n := regs.size
+
+    let mut regTerms : Array (TSyntax `term) := #[]
+    for (regName, init) in regs do
+      let mut found := false
+      for (aName, aRhs) in assigns do
+        if aName.getId == regName.getId then
+          regTerms := regTerms.push (← `(Signal.register $init $aRhs))
+          found := true
+          break
+      if !found then
+        regTerms := regTerms.push (← `(Signal.register $init $regName))
+    let bundled ←
+      if regTerms.size == 1 then
+        pure regTerms[0]!
+      else if regTerms.size == 2 then
+        `(bundle2 $(regTerms[0]!) $(regTerms[1]!))
+      else
+        `(bundleAll! [$regTerms,*])
+    let mut body := bundled
+
+    for i in [:lets.size] do
+      let (name, rhs) := lets[lets.size - 1 - i]!
+      body ← `(let $name := $rhs; $body)
+
+    for i in [:n] do
+      let (regName, _) := regs[n - 1 - i]!
+      let idx := Syntax.mkNumLit (toString (n - 1 - i))
+      let total := Syntax.mkNumLit (toString n)
+      body ← `(let $regName := projN! _circuit_state $total $idx; $body)
+
+    -- Use loopMemo instead of loop
+    let loopExpr ← `(Signal.loopMemo fun _circuit_state => $body)
+
+    let mut result ← pure ret
+
+    for i in [:lets.size] do
+      let (name, rhs) := lets[lets.size - 1 - i]!
+      result ← `(let $name := $rhs; $result)
+
+    for i in [:n] do
+      let (regName, _) := regs[n - 1 - i]!
+      let idx := Syntax.mkNumLit (toString (n - 1 - i))
+      let total := Syntax.mkNumLit (toString n)
+      result ← `(let $regName := projN! _circuit_result $total $idx; $result)
+
+    `($loopExpr >>= fun _circuit_result => pure ($result))
+
 end Sparkle.Core.Signal

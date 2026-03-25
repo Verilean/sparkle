@@ -144,6 +144,10 @@ lean_exe «generate-verify» where
   root := `Tools.SVParser.GenerateVerify
   supportInterpreter := true
 
+lean_exe «circuit-sim-test» where
+  root := `Tests.Circuit.SimTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
