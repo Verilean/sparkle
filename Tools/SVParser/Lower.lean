@@ -363,14 +363,10 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
         -- Read-modify-write: (old & ~mask) | ((extracted << lo) & mask)
         let shifted := if lo == 0 then extracted
                        else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) 64]
-        -- Read-modify-write: (old & ~mask) | (shifted & mask)
-        -- This preserves other bit fields when multiple iterations update different fields
-        let maskVal := ((1 <<< width) - 1) <<< lo
-        let invMaskVal := 0xFFFFFFFFFFFFFFFF - maskVal
-        let value := Expr.op .or [
-          Expr.op .and [.ref name, .const (Int.ofNat invMaskVal) 64],
-          Expr.op .and [shifted, .const (Int.ofNat maskVal) 64]
-        ]
+        -- Simple shift: each field writes its bits at the correct position.
+        -- Multiple writes to the same variable from different concat-LHS iterations
+        -- are combined by the mux chain (last writer wins per guardedToMux).
+        let value := shifted
         (acc ++ [(name, value)], rhsOff + width)
       ) ([], 0)
       assigns
@@ -478,9 +474,18 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
           match lowerConcatLhsAssign lhs rhs with
           | some (name, value) => [{ guard, target := name, value }]
           | none =>
-            -- Try multi-variable concat-LHS decomposition
+            -- Multi-variable concat-LHS decomposition
+            -- Group by variable name and OR-combine the shifted bit fields
             let assigns := decomposeMultiConcatLhs lhs rhs
-            assigns.map fun (name, value) => { guard, target := name, value }
+            let names := assigns.map (·.1) |>.eraseDups
+            names.flatMap fun name =>
+              let fields := assigns.filter (·.1 == name) |>.map (·.2)
+              match fields with
+              | [] => []
+              | [single] => [{ guard, target := name, value := single }]
+              | first :: rest =>
+                let combined := rest.foldl (fun acc f => Expr.op .or [acc, f]) first
+                [{ guard, target := name, value := combined }]
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
       -- Constant-fold: if condition is statically true/false, take only one branch
@@ -520,10 +525,40 @@ def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
       | some n => if n == sigName then some (lowerExpr rhs) else none
       | none => none
     | _ => none
-  let base := initDefault.getD (.ref sigName)
+  -- For SSA variables (e.g., next_rd_ssa0_1), use the previous SSA version as base
+  -- This avoids self-reference when no initDefault exists
+  let ssaBase : Option Expr := do
+    -- Extract ssa tag and index: "name_ssaD_N" → base = "name_ssaD_{N-1}" or "name" for N=0
+    let parts := sigName.splitOn "_ssa"
+    if parts.length < 2 then none
+    else
+      let baseName := parts[0]!
+      let suffix := parts[1]!  -- e.g., "0_5"
+      let suffParts := suffix.splitOn "_"
+      if suffParts.length < 2 then none
+      else
+        let depth := suffParts[0]!
+        let idxStr := suffParts[1]!
+        match idxStr.toNat? with
+        | some 0 => some (.ref baseName)  -- ssa_0 reads from original
+        | some n => some (.ref s!"{baseName}_ssa{depth}_{n - 1}")
+        | none => none
+  let base := initDefault.getD (ssaBase.getD (.ref sigName))
   let all := collectGuardedBlock stmts
   let filtered := all.filter (·.target == sigName)
-  guardedToMux filtered base
+  -- Merge assignments with identical guards: OR-combine their values
+  -- This handles concat-LHS decomposition where each bit-field writes to
+  -- the same variable with the same guard (e.g., 16 iterations of carry-save)
+  -- Merge same-guard assignments by OR-combining values
+  let merged := filtered.foldl (fun (acc : List GuardedAssign) ga =>
+    let existing := acc.find? fun prev => prev.guard == ga.guard
+    match existing with
+    | some prev =>
+      acc.map fun a => if a.guard == ga.guard then
+        { a with value := .op .or [a.value, ga.value] } else a
+    | none => acc ++ [ga]
+  ) []
+  guardedToMux merged base
 
 /-- Collect all register names assigned (non-blocking) anywhere in statements -/
 partial def collectAllRegNames (stmts : List SVStmt) : List String :=
@@ -755,6 +790,25 @@ partial def substParamStmt (params : List (String × SVExpr)) : SVStmt → SVStm
       (body.map (substParamStmt params))
   | .assertStmt cond => .assertStmt (substParamExpr params cond)
 
+/-- Collect all variable names read in expressions. -/
+private partial def collectReadNamesExpr : SVExpr → List String
+  | .ident n => [n]
+  | .unary _ e => collectReadNamesExpr e
+  | .binary _ a b => collectReadNamesExpr a ++ collectReadNamesExpr b
+  | .ternary c t e => collectReadNamesExpr c ++ collectReadNamesExpr t ++ collectReadNamesExpr e
+  | .index a i => collectReadNamesExpr a ++ collectReadNamesExpr i
+  | .slice e _ _ => collectReadNamesExpr e
+  | .partSelectPlus e base _ => collectReadNamesExpr e ++ collectReadNamesExpr base
+  | .concat es => es.flatMap collectReadNamesExpr
+  | _ => []
+
+private partial def collectReadNamesStmt : List SVStmt → List String
+  | stmts => stmts.flatMap fun s => match s with
+    | .blockAssign _ rhs => collectReadNamesExpr rhs
+    | .ifElse c t e => collectReadNamesExpr c ++ collectReadNamesStmt t ++ collectReadNamesStmt e
+    | .forLoop _ _ _ body => collectReadNamesStmt body
+    | _ => []
+
 /-- Collect all variable names written in blocking assignments (including concat-LHS). -/
 private partial def collectWriteNames : List SVStmt → List String
   | stmts => stmts.flatMap fun s => match s with
@@ -796,6 +850,16 @@ private partial def renameStmt (oldName newName : String) : SVStmt → SVStmt
   | .forLoop i c s b => .forLoop (renameStmt oldName newName i) (renameExpr oldName newName c) (renameStmt oldName newName s) (b.map (renameStmt oldName newName))
   | .assertStmt c => .assertStmt (renameExpr oldName newName c)
 
+/-- Rename in LHS of blockAssign only, recursing into ifElse/forLoop/case. -/
+private partial def renameLhsOnly (oldName newName : String) : SVStmt → SVStmt
+  | .blockAssign lhs rhs => .blockAssign (renameExpr oldName newName lhs) rhs
+  | .ifElse c t e => .ifElse c (t.map (renameLhsOnly oldName newName)) (e.map (renameLhsOnly oldName newName))
+  | .forLoop i c s body => .forLoop i c s (body.map (renameLhsOnly oldName newName))
+  | .caseStmt sel arms d =>
+    .caseStmt sel (arms.map fun (ls, b) => (ls, b.map (renameLhsOnly oldName newName)))
+      (d.map fun ds => ds.map (renameLhsOnly oldName newName))
+  | other => other
+
 /-- Unroll for loops with constant bounds in SV statements.
     Uses SSA-style renaming: variables written in the loop body get
     iteration-specific names (e.g., next_rd → next_rd_ssa0_0, next_rd_ssa0_1, ...)
@@ -820,40 +884,52 @@ partial def unrollForLoops (paramVals : List (String × Nat)) (depth : Nat := 0)
         if inc == 0 || b <= initVal then [s]
         else Id.run do
           let ssaTag := s!"_ssa{depth}_"
-          -- Collect variables written in the loop body for SSA renaming
+          -- Only SSA-rename self-referential variables (appear in BOTH LHS and RHS of loop body)
           let writeNames := collectWriteNames body |>.eraseDups
+          let readNames := collectReadNamesStmt body |>.eraseDups
+          let selfRefNames := writeNames.filter fun n => readNames.any (· == n)
           let numIters := (b - initVal + inc - 1) / inc
 
-          -- Prologue: capture initial values
-          let mut result : List SVStmt := []
-          for name in writeNames do
-            result := result ++ [.blockAssign (.ident s!"{name}{ssaTag}0") (.ident name)]
+          if selfRefNames.isEmpty then
+            -- No self-referential variables: simple unroll without SSA
+            let mut result : List SVStmt := []
+            let mut j := initVal
+            while j < b do
+              let substituted := body.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
+              let unrolled := unrollForLoops ((var, j) :: paramVals) (depth + 1) substituted
+              result := result ++ unrolled
+              j := j + inc
+            result
+          else
+            -- SSA rename only self-referential variables
+            let mut result : List SVStmt := []
+            -- Prologue: capture initial values
+            for name in selfRefNames do
+              result := result ++ [.blockAssign (.ident s!"{name}{ssaTag}0") (.ident name)]
 
-          -- Unroll iterations with SSA renaming
-          let mut j := initVal
-          let mut iterIdx : Nat := 0
-          while j < b do
-            let substituted := body.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
-            -- Recursively unroll nested loops (increment depth)
-            let unrolled := unrollForLoops ((var, j) :: paramVals) (depth + 1) substituted
-            -- SSA rename: reads → ssa{depth}_{iterIdx}, writes → ssa{depth}_{iterIdx+1}
-            let mut renamed := unrolled
-            for name in writeNames do
-              renamed := renamed.map (renameStmt name s!"{name}{ssaTag}{iterIdx}")
-            for name in writeNames do
-              renamed := renamed.map fun stmt =>
-                match stmt with
-                | .blockAssign lhs rhs =>
-                  .blockAssign (renameExpr s!"{name}{ssaTag}{iterIdx}" s!"{name}{ssaTag}{iterIdx + 1}" lhs) rhs
-                | other => other
-            result := result ++ renamed
-            j := j + inc
-            iterIdx := iterIdx + 1
+            let mut j := initVal
+            let mut iterIdx : Nat := 0
+            while j < b do
+              let substituted := body.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
+              -- SSA rename FIRST (before recursive unroll)
+              let mut renamed := substituted
+              for name in selfRefNames do
+                renamed := renamed.map (renameStmt name s!"{name}{ssaTag}{iterIdx}")
+              for name in selfRefNames do
+                -- Rename LHS of ALL blockAssigns (including nested in ifElse/forLoop)
+                let readName := s!"{name}{ssaTag}{iterIdx}"
+                let writeName := s!"{name}{ssaTag}{iterIdx + 1}"
+                renamed := renamed.map (renameLhsOnly readName writeName)
+              -- THEN recursively unroll nested loops (they see renamed SSA names)
+              let unrolled := unrollForLoops ((var, j) :: paramVals) (depth + 1) renamed
+              result := result ++ renamed
+              j := j + inc
+              iterIdx := iterIdx + 1
 
-          -- Epilogue
-          for name in writeNames do
-            result := result ++ [.blockAssign (.ident name) (.ident s!"{name}{ssaTag}{numIters}")]
-          result
+            -- Epilogue: write final SSA value back
+            for name in selfRefNames do
+              result := result ++ [.blockAssign (.ident name) (.ident s!"{name}{ssaTag}{numIters}")]
+            result
       | _, _ => [s]
   | .ifElse cond thenB elseB =>
     [.ifElse cond (unrollForLoops paramVals depth thenB) (unrollForLoops paramVals depth elseB)]
@@ -1041,10 +1117,15 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     | .alwaysBlock .star stmts =>
       -- Combinational: build mux expressions per signal
       let sigNames := collectBlockNamesTop stmts |>.eraseDups
+      -- Auto-declare SSA wires (all names containing _ssa from LHS and RHS)
+      let readNames := collectReadNamesStmt stmts |>.eraseDups
+      let allSsaNames := (sigNames ++ readNames).eraseDups.filter fun n =>
+        (n.splitOn "_ssa").length > 1
+      for ssaName in allSsaNames do
+        if !wireExists wires ssaName then
+          wires := wires ++ [{ name := ssaName, ty := .bitVector 64 }]
+      -- Build mux expressions for ALL signals (SSA renaming eliminates self-reference)
       for sigName in sigNames do
-        -- Auto-declare SSA wires (generated by forLoop unroll, e.g. _ssa0_, _ssa1_)
-        if (sigName.splitOn "_ssa").length > 1 && !wireExists wires sigName then
-          wires := wires ++ [{ name := sigName, ty := .bitVector 64 }]
         let expr := stmtsToMuxExprBlocking sigName stmts
         body := body ++ [.assign sigName expr]
     | .wireDecl name _ (some initExpr) =>
