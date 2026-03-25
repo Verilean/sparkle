@@ -110,11 +110,21 @@ private def isArrayName (name : String) : Bool :=
   name == "cpuregs" || name == "memory" || name == "mem" ||
   name.endsWith "_mem" || name.endsWith "_ram"
 
-/-- Estimate the bit-width of an SVExpr (for $signed sign-extension). -/
+/-- Evaluate a simple SVExpr to a Nat constant (handles literals, add, sub). -/
+private partial def svExprToNat : SVExpr → Option Nat
+  | .lit (.decimal _ v) => some v
+  | .lit (.hex _ v) => some v
+  | .lit (.binary _ v) => some v
+  | .binary .add a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va + vb)
+  | .binary .sub a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va - vb)
+  | .binary .mul a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va * vb)
+  | .unary .neg a => do let va ← svExprToNat a; some (0 - va)
+  | _ => none
+
 private def concatWidth : SVExpr → Nat
   | .concat args => args.foldl (fun acc a => acc + concatWidth a) 0
   | .slice _ hi lo => hi - lo + 1
-  | .partSelectPlus _ _ width => width
+  | .partSelectPlus _ _ widthExpr => svExprToNat widthExpr |>.getD 1
   | .index _ _ => 1  -- single bit select
   | .lit (.decimal (some w) _) => w
   | .lit (.hex (some w) _) => w
@@ -180,8 +190,9 @@ partial def lowerExpr (e : SVExpr) : Expr :=
       | _ =>
         .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
-  | .partSelectPlus expr base width =>
+  | .partSelectPlus expr base widthExpr =>
     -- [base +: width] = (expr >> base) & ((1 << width) - 1)
+    let width := svExprToNat widthExpr |>.getD 1
     let mask := (1 <<< width) - 1
     .op .and [.op .shr [lowerExpr expr, lowerExpr base], .const (Int.ofNat mask) width]
   | .concat args => .concat (args.map lowerExpr)
@@ -319,17 +330,6 @@ private def lowerConcatLhsAssign (lhs : SVExpr) (rhs : SVExpr) : Option (String 
       some (name, result)
   | _, _ => none
 
-/-- Evaluate a simple SVExpr to a Nat constant (handles literals, add, sub). -/
-private partial def svExprToNat : SVExpr → Option Nat
-  | .lit (.decimal _ v) => some v
-  | .lit (.hex _ v) => some v
-  | .lit (.binary _ v) => some v
-  | .binary .add a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va + vb)
-  | .binary .sub a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va - vb)
-  | .binary .mul a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va * vb)
-  | .unary .neg a => do let va ← svExprToNat a; some (0 - va)  -- will underflow to large Nat
-  | _ => none
-
 /-- Decompose a multi-variable concat-LHS blocking assignment into per-variable assignments.
     `{a[hi1:lo1], b[base +: width], ...} = rhs` →
     [(a, rhs_slice_for_a), (b, rhs_slice_for_b), ...]
@@ -345,9 +345,10 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
         match svExprToNat idxExpr with
         | some idx => some (name, 1, idx)
         | none => none
-      | .partSelectPlus (.ident name) baseExpr width =>
+      | .partSelectPlus (.ident name) baseExpr widthExpr =>
         let base := match svExprToNat baseExpr with
           | some v => v | none => 0
+        let width := svExprToNat widthExpr |>.getD 1
         some (name, width, base)
       | .ident name => some (name, 32, 0)
       | _ => none
@@ -363,9 +364,6 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
         -- Read-modify-write: (old & ~mask) | ((extracted << lo) & mask)
         let shifted := if lo == 0 then extracted
                        else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) 64]
-        -- Simple shift: each field writes its bits at the correct position.
-        -- Multiple writes to the same variable from different concat-LHS iterations
-        -- are combined by the mux chain (last writer wins per guardedToMux).
         let value := shifted
         (acc ++ [(name, value)], rhsOff + width)
       ) ([], 0)
@@ -679,8 +677,67 @@ partial def collectRefs : Expr → List String
   | .index a i => collectRefs a ++ collectRefs i
   | _ => []
 
-/-- Topologically sort assign statements so each wire is computed after its dependencies.
-    Registers are placed after all assigns (they read current register values). -/
+/-- Convert blocking assignment statements to IR assigns sequentially.
+    Preserves evaluation order. ifElse becomes mux, concat-LHS is decomposed.
+    This is used for always @* blocks where statement order matters. -/
+partial def emitBlockingStmtsSequential (stmts : List SVStmt) (guard : Expr := .const 1 1)
+    : Except String (List Stmt) := do
+  let mut result : List Stmt := []
+  for s in stmts do
+    match s with
+    | .blockAssign lhs rhs =>
+      if isDontCare rhs then pure ()
+      else
+        match exprToName lhs with
+        | some name => result := result ++ [.assign name (lowerExpr rhs)]
+        | none =>
+          -- Try single-variable concat-LHS
+          match lowerConcatLhsAssign lhs rhs with
+          | some (name, value) => result := result ++ [.assign name value]
+          | none =>
+            -- Multi-variable concat-LHS: for each variable, OR the shifted bits
+            -- with the previous value (accumulate across loop iterations)
+            let assigns := decomposeMultiConcatLhs lhs rhs
+            let names := assigns.map (·.1) |>.eraseDups
+            for name in names do
+              let fields := assigns.filter (·.1 == name) |>.map (·.2)
+              let newBits := match fields with
+                | [] => Expr.const 0 64
+                | [single] => single
+                | first :: rest => rest.foldl (fun acc f => Expr.op .or [acc, f]) first
+              -- OR with previous value of the same variable (accumulate bit fields)
+              let prev := result.findSome? fun s => match s with
+                | .assign n _ => if n == name then some s else none
+                | _ => none
+              -- Always append as new assign (preserves sequential order)
+              -- The CppSim will evaluate in order: rd=0, ..., rd=rd|bits[3:0], rd=rd|bits[7:4]
+              result := result ++ [.assign name (.op .or [.ref name, newBits])]
+    | .ifElse cond thenB elseB =>
+      let c := lowerExpr cond
+      -- Constant fold
+      match tryEvalConst c with
+      | some 1 =>
+        let inner ← emitBlockingStmtsSequential thenB guard
+        result := result ++ inner
+      | some 0 =>
+        let inner ← emitBlockingStmtsSequential elseB guard
+        result := result ++ inner
+      | _ =>
+        -- Emit mux for each variable assigned in then/else branches
+        let thenNames := collectBlockNamesTop thenB |>.eraseDups
+        let elseNames := collectBlockNamesTop elseB |>.eraseDups
+        let allNames := (thenNames ++ elseNames).eraseDups
+        for name in allNames do
+          let thenExpr := stmtsToMuxExprBlocking name thenB
+          let elseExpr := stmtsToMuxExprBlocking name elseB
+          result := result ++ [.assign name (.op .mux [c, thenExpr, elseExpr])]
+    | .forLoop _ _ _ bodyStmts =>
+      -- forLoop should be already unrolled at this point
+      let inner ← emitBlockingStmtsSequential bodyStmts guard
+      result := result ++ inner
+    | _ => pure ()
+  return result
+
 def topoSortBody (body : List Stmt) : List Stmt := Id.run do
   let mut assigns : List (String × Expr) := []
   let mut registers : List Stmt := []
@@ -783,7 +840,7 @@ partial def substParamExpr (params : List (String × SVExpr)) : SVExpr → SVExp
   | .ternary c t e => .ternary (substParamExpr params c) (substParamExpr params t) (substParamExpr params e)
   | .index a i => .index (substParamExpr params a) (substParamExpr params i)
   | .slice e hi lo => .slice (substParamExpr params e) hi lo
-  | .partSelectPlus e base w => .partSelectPlus (substParamExpr params e) (substParamExpr params base) w
+  | .partSelectPlus e base w => .partSelectPlus (substParamExpr params e) (substParamExpr params base) (substParamExpr params w)
   | .concat es => .concat (es.map (substParamExpr params))
   | e => e
 
@@ -846,7 +903,7 @@ private partial def renameExpr (oldName newName : String) : SVExpr → SVExpr
   | .ternary c t e => .ternary (renameExpr oldName newName c) (renameExpr oldName newName t) (renameExpr oldName newName e)
   | .index a i => .index (renameExpr oldName newName a) (renameExpr oldName newName i)
   | .slice e hi lo => .slice (renameExpr oldName newName e) hi lo
-  | .partSelectPlus e base w => .partSelectPlus (renameExpr oldName newName e) (renameExpr oldName newName base) w
+  | .partSelectPlus e base w => .partSelectPlus (renameExpr oldName newName e) (renameExpr oldName newName base) (renameExpr oldName newName w)
   | .concat es => .concat (es.map (renameExpr oldName newName))
   | e => e
 
@@ -899,7 +956,14 @@ partial def unrollForLoops (paramVals : List (String × Nat)) (depth : Nat := 0)
           -- Only SSA-rename self-referential variables (appear in BOTH LHS and RHS of loop body)
           let writeNames := collectWriteNames body |>.eraseDups
           let readNames := collectReadNamesStmt body |>.eraseDups
-          let selfRefNames := writeNames.filter fun n => readNames.any (· == n)
+          -- Only SSA-rename variables that are self-referential AND NOT accessed
+          -- via part-select (bit-field access is non-overlapping across iterations)
+          let partSelectNames := body.flatMap fun s => match s with
+            | .blockAssign (.concat elems) _ => elems.filterMap fun e => match e with
+              | .partSelectPlus (.ident n) _ _ => some n | _ => none
+            | _ => []
+          let selfRefNames := writeNames.filter fun n =>
+            readNames.any (· == n) && !partSelectNames.any (· == n)
           let numIters := (b - initVal + inc - 1) / inc
 
           if selfRefNames.isEmpty then
@@ -1056,6 +1120,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
 
   -- Build body statements
   let mut body : List Stmt := []
+  let mut seqBody : List Stmt := []  -- sequential (always @*) assigns, not topoSorted
 
   -- Emit parameter values as constant assigns (with overrides applied)
   let paramWidth (w : Option (Nat × Nat)) : Nat :=
@@ -1127,19 +1192,15 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           wires := wires ++ [{ name := regName, ty := hwTy }]
 
     | .alwaysBlock .star stmts =>
-      -- Combinational: build mux expressions per signal
-      let sigNames := collectBlockNamesTop stmts |>.eraseDups
-      -- Auto-declare SSA wires (all names containing _ssa from LHS and RHS)
-      let readNames := collectReadNamesStmt stmts |>.eraseDups
-      let allSsaNames := (sigNames ++ readNames).eraseDups.filter fun n =>
-        (n.splitOn "_ssa").length > 1
-      for ssaName in allSsaNames do
-        if !wireExists wires ssaName then
-          wires := wires ++ [{ name := ssaName, ty := .bitVector 64 }]
-      -- Build mux expressions for ALL signals (SSA renaming eliminates self-reference)
-      for sigName in sigNames do
-        let expr := stmtsToMuxExprBlocking sigName stmts
-        body := body ++ [.assign sigName expr]
+      -- Sequential emit: convert blocking assignments to IR assigns in order.
+      -- These are stored in seqBody (not body) to avoid topoSort reordering.
+      let allNames := (collectBlockNamesTop stmts ++ collectReadNamesStmt stmts) |>.eraseDups
+      for n in allNames do
+        if !wireExists wires n then
+          wires := wires ++ [{ name := n, ty := .bitVector 64 }]
+      match emitBlockingStmtsSequential stmts with
+      | .ok stmtAssigns => seqBody := seqBody ++ stmtAssigns
+      | .error _ => pure ()
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
@@ -1274,7 +1335,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     inputs := inputs
     outputs := outputs
     wires := dedupWires
-    body := topoSortBody dedupBody
+    body := seqBody ++ topoSortBody dedupBody
     assertions := assertions
     isPrimitive := false
   }

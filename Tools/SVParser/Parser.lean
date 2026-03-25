@@ -265,11 +265,9 @@ partial def parsePostfix (e : SVExpr) : P SVExpr := do
       let _ ← token (matchStr "+:")
       let widthExpr ← parsePrimary
       rbracket
-      let width := match widthExpr with
-        | .lit (.decimal _ w) => w | .lit (.hex _ w) => w | _ => 1
-      pure (base, width)
+      pure (base, widthExpr)
     ) with
-    | some (base, width) => parsePostfix (SVExpr.partSelectPlus e base width)
+    | some (base, widthExpr) => parsePostfix (SVExpr.partSelectPlus e base widthExpr)
     | none =>
     -- Normal: [idx], [hi:lo]
     let idx ← parseExpr
