@@ -98,6 +98,11 @@ jobs:
     - name: Run Compiler improvement tests (complement, lambda, hw_let)
       run: lake env lean Tests/CompilerTests.lean
 
+    # ---- Oracle Accuracy Tests ----
+
+    - name: Run oracle accuracy tests (halt loop detection, timer skip, MIE/MTIE guard)
+      run: lake exe oracle-accuracy-test
+
     # ---- SVParser Tests ----
 
     - name: "Run SVParser tests (11 tests: parse, lower, JIT, PicoRV32, C firmware)"
