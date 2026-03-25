@@ -642,10 +642,15 @@ partial def expandGenerateBlocks (paramVals : List (String × Nat))
 -- Module lowering
 -- ============================================================================
 
-/-- Lower a single SVModule to Sparkle IR Module -/
-def lowerModule (svMod : SVModule) : Except String Module := do
-  -- Expand generate blocks using parameter defaults
-  let paramVals := extractParamDefaults svMod
+/-- Lower a single SVModule to Sparkle IR Module, optionally overriding parameters. -/
+def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := []) : Except String Module := do
+  -- Expand generate blocks using parameter defaults + overrides
+  let paramDefaults := extractParamDefaults svMod
+  -- Overrides take priority: replace defaults with overridden values
+  let paramVals := paramDefaults.map fun (n, v) =>
+    match paramOverrides.find? fun (on, _) => on == n with
+    | some (_, ov) => (n, ov)
+    | none => (n, v)
   let expandedItems := expandGenerateBlocks paramVals svMod.items
   let svMod := { svMod with items := expandedItems }
 
@@ -923,8 +928,10 @@ partial def prefixExprNames (pfx : String) (nameSet : List String) : Expr → Ex
   | .index arr idx => .index (prefixExprNames pfx nameSet arr) (prefixExprNames pfx nameSet idx)
   | e => e
 
-/-- Flatten a design: inline all sub-module instantiations into a single module -/
-def flattenDesign (design : Design) : Design := Id.run do
+/-- Flatten a design: inline all sub-module instantiations into a single module.
+    The optional `svDesign` parameter provides access to the original SV AST
+    for re-lowering sub-modules with parameter overrides (e.g., ENABLE_MUL=1). -/
+def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) : Design := Id.run do
   let moduleMap := design.modules
   match design.modules.find? fun (m : Module) => m.name == design.topModule with
   | none => return design
@@ -937,43 +944,68 @@ def flattenDesign (design : Design) : Design := Id.run do
       | .inst modName instName conns =>
         -- Find the sub-module
         match moduleMap.find? fun (m : Module) => m.name == modName with
-        | none => flatBody := flatBody ++ [stmt]  -- keep as-is if not found
+        | none =>
+          -- Sub-module not found: emit warning wire and skip
+          -- (Previously kept .inst as-is, which would break CppSim)
+          flatBody := flatBody ++ [.assign s!"_warn_missing_{modName}_{instName}" (.const 0 1)]
         | some subMod =>
+          -- Extract parameter overrides from instantiation connections
+          -- (PicoRV32 uses #(.PARAM(val)) syntax, parsed as connections)
+          let paramOverrides := conns.filterMap fun (name, expr) =>
+            match expr with
+            | .const v _ => some (name, v.toNat)
+            | _ => none
+
+          -- Re-lower the sub-module with parameter overrides applied
+          -- This ensures generate-if blocks are expanded with the correct values
+          let svSubMod? := svDesign.modules.find? fun m => m.name == modName
+          let effectiveSubMod ← match svSubMod? with
+            | some svSub =>
+              match lowerModule svSub paramOverrides with
+              | .ok m => pure m
+              | .error _ => pure subMod  -- fallback to default-lowered version
+            | none => pure subMod
+
           -- Collect all internal names in sub-module (including memory names)
-          let memNames := subMod.body.filterMap fun s => match s with
+          let memNames := effectiveSubMod.body.filterMap fun s => match s with
             | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
-          let subNames := subMod.wires.map (·.name) ++
-                          subMod.inputs.map (·.name) ++
-                          subMod.outputs.map (·.name) ++
+          let subNames := effectiveSubMod.wires.map (·.name) ++
+                          effectiveSubMod.inputs.map (·.name) ++
+                          effectiveSubMod.outputs.map (·.name) ++
                           memNames
 
           -- Add prefixed wires from sub-module
-          for w in subMod.wires do
+          for w in effectiveSubMod.wires do
             flatWires := flatWires ++ [{ name := s!"{instName}_{w.name}", ty := w.ty }]
-          for p in subMod.inputs do
+          for p in effectiveSubMod.inputs do
             flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
-          for p in subMod.outputs do
+          for p in effectiveSubMod.outputs do
             flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
 
           -- Wire port connections:
           -- Input ports: assign instName_portName = parentExpr
-          -- Output ports: assign parentWire = instName_portName
-          let inputNames := subMod.inputs.map (·.name)
-          let outputNames := subMod.outputs.map (·.name)
+          -- Output ports: assign parentWire/expr = instName_portName
+          let inputNames := effectiveSubMod.inputs.map (·.name)
+          let outputNames := effectiveSubMod.outputs.map (·.name)
           for (portName, expr) in conns do
             if inputNames.any (· == portName) then
               -- Input: parent drives sub-module's port
               flatBody := flatBody ++ [.assign s!"{instName}_{portName}" expr]
             else if outputNames.any (· == portName) then
               -- Output: sub-module drives parent's wire
-              -- expr is typically .ref "parentWire"
               match expr with
               | .ref parentWire =>
                 flatBody := flatBody ++ [.assign parentWire (.ref s!"{instName}_{portName}")]
-              | _ => pure ()  -- complex expression, skip
+              | _ =>
+                -- Complex output expression (array index, bit slice, concat, etc.)
+                -- Create a temporary wire and assign the sub-module output to it.
+                -- The parent can read from this wire.
+                let tmpWire := s!"{instName}_{portName}_out"
+                flatWires := flatWires ++ [{ name := tmpWire, ty := .bitVector 32 }]
+                flatBody := flatBody ++ [.assign tmpWire (.ref s!"{instName}_{portName}")]
 
           -- Add prefixed body statements from sub-module
-          for s in subMod.body do
+          for s in effectiveSubMod.body do
             let prefixed := match s with
               | .assign name rhs =>
                 .assign s!"{instName}_{name}" (prefixExprNames instName subNames rhs)
@@ -1070,7 +1102,7 @@ def parseAndLower (input : String) : Except String Design := do
 def parseAndLowerFlat (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   let design ← lowerDesign svDesign
-  pure (flattenDesign design)
+  pure (flattenDesign design svDesign)
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input
