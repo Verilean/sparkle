@@ -45,6 +45,7 @@ import Tests.Video.H264DecoderSynthTest
 import Tests.Video.H264EncoderSynthTest
 import Tests.SVParser.TestVerilogCoSim
 import Tests.SVParser.TestVerify
+import Tests.Bus.TestAXI4Lite
 import LSpec
 
 open Sparkle.Core.Domain
@@ -450,5 +451,12 @@ def main : IO UInt32 := do
   -- Verilog verification extraction tests
   let verifyTests ← Sparkle.Tests.SVParser.TestVerify.verifyTests
   let allTests := allTests ++ verifyTests
+
+  -- AXI4-Lite bus protocol tests
+  IO.println ""
+  IO.println "--- AXI4-Lite Bus Protocol Tests ---"
+  let axi4Tests ← Sparkle.Tests.Bus.AXI4Lite.allTests
+  let axi4FullTests ← Sparkle.Tests.Bus.AXI4Lite.fullModuleTests
+  let allTests := allTests ++ axi4Tests ++ axi4FullTests
 
   lspecIO (Std.HashMap.ofList [("all", [allTests])]) []
