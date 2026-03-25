@@ -51,6 +51,7 @@ inductive SVExpr where
   | ternary (cond then_ else_ : SVExpr)
   | index   (arr : SVExpr) (idx : SVExpr)
   | slice   (expr : SVExpr) (hi lo : Nat)
+  | partSelectPlus (expr : SVExpr) (base : SVExpr) (width : Nat)  -- [base +: width]
   | concat  (args : List SVExpr)
   | repeat_ (count : SVExpr) (value : SVExpr)  -- {n{expr}}
   deriving Repr, BEq

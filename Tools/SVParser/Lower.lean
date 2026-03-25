@@ -114,6 +114,7 @@ private def isArrayName (name : String) : Bool :=
 private def concatWidth : SVExpr → Nat
   | .concat args => args.foldl (fun acc a => acc + concatWidth a) 0
   | .slice _ hi lo => hi - lo + 1
+  | .partSelectPlus _ _ width => width
   | .index _ _ => 1  -- single bit select
   | .lit (.decimal (some w) _) => w
   | .lit (.hex (some w) _) => w
@@ -179,6 +180,10 @@ partial def lowerExpr (e : SVExpr) : Expr :=
       | _ =>
         .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
+  | .partSelectPlus expr base width =>
+    -- [base +: width] = (expr >> base) & ((1 << width) - 1)
+    let mask := (1 <<< width) - 1
+    .op .and [.op .shr [lowerExpr expr, lowerExpr base], .const (Int.ofNat mask) width]
   | .concat args => .concat (args.map lowerExpr)
   | .repeat_ _count value => lowerExpr value
 
@@ -654,6 +659,7 @@ partial def substParamExpr (params : List (String × SVExpr)) : SVExpr → SVExp
   | .ternary c t e => .ternary (substParamExpr params c) (substParamExpr params t) (substParamExpr params e)
   | .index a i => .index (substParamExpr params a) (substParamExpr params i)
   | .slice e hi lo => .slice (substParamExpr params e) hi lo
+  | .partSelectPlus e base w => .partSelectPlus (substParamExpr params e) (substParamExpr params base) w
   | .concat es => .concat (es.map (substParamExpr params))
   | e => e
 
@@ -672,8 +678,49 @@ partial def substParamStmt (params : List (String × SVExpr)) : SVStmt → SVStm
       (body.map (substParamStmt params))
   | .assertStmt cond => .assertStmt (substParamExpr params cond)
 
-def substituteParamsInItem (params : List (String × SVExpr)) : SVModuleItem → SVModuleItem
-  | .alwaysBlock sens stmts => .alwaysBlock sens (stmts.map (substParamStmt params))
+/-- Unroll for loops with constant bounds in SV statements.
+    `for (init; cond; step) body` → replicated body with loop var substituted. -/
+partial def unrollForLoops (paramVals : List (String × Nat)) : List SVStmt → List SVStmt :=
+  fun stmts => stmts.flatMap fun s => match s with
+  | .forLoop (.blockAssign (.ident var) initExpr) condExpr (.blockAssign (.ident stepVar) stepExpr) body =>
+    if var != stepVar then [s]
+    else
+      let initVal := evalConstExpr paramVals initExpr |>.getD 0
+      let bound := match condExpr with
+        | .binary .lt (.ident v) limitExpr =>
+          if v == var then evalConstExpr paramVals limitExpr else none
+        | _ => none
+      let stepVal := match stepExpr with
+        | .binary .add (.ident v) incExpr =>
+          if v == var then evalConstExpr paramVals incExpr else none
+        | _ => none
+      match bound, stepVal with
+      | some b, some inc =>
+        if inc == 0 || b <= initVal then [s]
+        else Id.run do
+          let mut result : List SVStmt := []
+          let mut j := initVal
+          while j < b do
+            let substituted := body.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
+            let unrolled := unrollForLoops ((var, j) :: paramVals) substituted
+            result := result ++ unrolled
+            j := j + inc
+          result
+      | _, _ => [s]
+  | .ifElse cond thenB elseB =>
+    [.ifElse cond (unrollForLoops paramVals thenB) (unrollForLoops paramVals elseB)]
+  | .caseStmt sel arms dflt =>
+    [.caseStmt sel
+      (arms.map fun (labels, body) => (labels, unrollForLoops paramVals body))
+      (dflt.map (unrollForLoops paramVals))]
+  | other => [other]
+
+def substituteParamsInItem (params : List (String × SVExpr)) (paramVals : List (String × Nat))
+    : SVModuleItem → SVModuleItem
+  | .alwaysBlock sens stmts =>
+    let substituted := stmts.map (substParamStmt params)
+    let unrolled := unrollForLoops paramVals substituted
+    .alwaysBlock sens unrolled
   | .contAssign lhs rhs => .contAssign (substParamExpr params lhs) (substParamExpr params rhs)
   | item => item
 
@@ -707,7 +754,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   -- Replace parameter references with constants in all SV expressions
   let paramLits : List (String × SVExpr) := paramVals.map fun (n, v) =>
     (n, .lit (.decimal (some 32) v))
-  let expandedItems := expandedItems.map (substituteParamsInItem paramLits)
+  let expandedItems := expandedItems.map (substituteParamsInItem paramLits paramVals)
   -- Also substitute in module-level params
   let svParams := svMod.params.map fun p =>
     match paramVals.find? fun (n, _) => n == p.name with
