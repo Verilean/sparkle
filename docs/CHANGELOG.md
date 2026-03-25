@@ -2,6 +2,47 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 49: RV32I Formal Verification — 102 Theorems, MSTATUS WPRI Bug Found (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Formally verify the RV32I ISA implementation and find real bugs through proofs.
+
+**Result**: 102 theorems across 4 files, zero `sorry`. **Found MSTATUS WPRI bug** — CSR write operations can set reserved bits that should be read-only per RISC-V spec.
+
+**Bug Found** (proved in `CSRProps.lean`):
+- `mkCsrNewVal` in `CSR/File.lean:28` performs `oldVal ||| csrWdata` without masking WPRI fields
+- CSRRS can set any of 32 bits, but only MIE(3), MPIE(7), MPP(11:12) should be writable
+- `csrDoWrite` is active even when rs1=x0 (CSRRS/CSRRC should be read-only per spec A3.3.1)
+
+**Files Added**:
+
+| File | Theorems | Content |
+|------|----------|---------|
+| `Sparkle/Verification/RV32Props.lean` | 38 | ISA encode/decode roundtrip, field extraction, immediate roundtrip (all 5 formats), ALU algebra |
+| `Sparkle/Verification/PipelineProps.lean` | 26 | Forwarding, hazard detection, flush/NOP, x0 invariance, store-to-load forwarding |
+| `Sparkle/Verification/CSRProps.lean` | 21 | **MSTATUS WPRI bug**, trap/MRET transitions, M-ext edge cases (INT_MIN/−1, div-by-zero) |
+| `Sparkle/Verification/SignalDSLProps.lean` | 17 | Signal DSL ↔ pure spec equivalence (ALU, branch, hazard, register semantics) |
+
+**Key Innovation**: Signal DSL `.val` reduction lemmas enable proving properties directly on the synthesizable hardware implementation, not just the pure spec. `@[simp]` lemmas for all Signal combinators (mux, beq, +, -, &, |, ^, <<<, >>>, slt, ult, ashr, register) reduce Signal expressions to pure BitVec computations via `rfl`.
+
+## Phase 48: AXI4-Lite Bus Protocol IP (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Formally verified AXI4-Lite slave and master interfaces with protocol compliance proofs.
+
+**Result**: 14 formal proofs (safety, protocol compliance, liveness, fairness), synthesizable slave + master, 23 simulation tests.
+
+**Files Added**:
+
+| File | Content |
+|------|---------|
+| `IP/Bus/AXI4Lite/Props.lean` | Pure FSM spec + 14 proofs (mutual exclusion, valid persistence, deadlock-freedom, write priority) |
+| `IP/Bus/AXI4Lite/Slave.lean` | Synthesizable slave (4 registers: fsm, addr, wdata, wstrb) |
+| `IP/Bus/AXI4Lite/Master.lean` | Synthesizable master (5 registers: fsm, addr, wdata, wstrb, rdata) |
+| `Tests/Bus/TestAXI4Lite.lean` | 23 LSpec tests (handshake + full-module FSM transitions) |
+
 ## Phase 47: Imperative `<~` Register Assignment — `Signal.circuit` Macro (Complete)
 
 **Date**: 2026-03-25
