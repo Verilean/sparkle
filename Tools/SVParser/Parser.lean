@@ -57,8 +57,9 @@ def preprocess (input : String) : String := Id.run do
       pure ()  -- skip this line
     else if trimmed.startsWith "`timescale" || trimmed.startsWith "`define" ||
             trimmed.startsWith "`default_nettype" ||
-            trimmed.startsWith "`PICORV32" then
-      pure ()  -- skip directive
+            trimmed.startsWith "`PICORV32" ||
+            trimmed.startsWith "`assert" then
+      pure ()  -- skip directive / macro invocation
     else if trimmed.startsWith "`debug" then
       -- Replace debug macro with empty statement (semicolon)
       result := result ++ [";"]
