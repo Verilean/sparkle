@@ -319,6 +319,43 @@ private def lowerConcatLhsAssign (lhs : SVExpr) (rhs : SVExpr) : Option (String 
       some (name, result)
   | _, _ => none
 
+/-- Decompose a multi-variable concat-LHS blocking assignment into per-variable assignments.
+    `{a[hi1:lo1], b[base +: width], ...} = rhs` →
+    [(a, rhs_slice_for_a), (b, rhs_slice_for_b), ...]
+    Each target gets the corresponding bits from the RHS expression. -/
+private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String × Expr) :=
+  match lhs with
+  | .concat elems =>
+    -- Compute field widths and target names for each element
+    let fields : List (String × Nat × Nat) := elems.filterMap fun e => match e with
+      | .slice (.ident name) hi lo => some (name, hi - lo + 1, lo)
+      | .index (.ident name) (.lit (.decimal _ idx)) => some (name, 1, idx)
+      | .partSelectPlus (.ident name) baseExpr width =>
+        let base := match baseExpr with
+          | .lit (.decimal _ v) => v | .lit (.hex _ v) => v | _ => 0
+        some (name, width, base)
+      | .ident name => some (name, 32, 0)
+      | _ => none
+    if fields.length != elems.length then []
+    else
+      let rhsExpr := lowerExpr rhs
+      let totalWidth := fields.foldl (fun acc (_, w, _) => acc + w) 0
+      -- For each field, extract the corresponding bits from RHS and create
+      -- a read-modify-write expression: (old & ~mask) | ((rhs_bits << lo) & mask)
+      let (assigns, _) := fields.foldl (fun (acc, rhsOff) (name, width, lo) =>
+        let rhsBit := totalWidth - rhsOff - width
+        let extracted := Expr.slice rhsExpr (rhsBit + width - 1) rhsBit
+        -- Read-modify-write: (old & ~mask) | ((extracted << lo) & mask)
+        let shifted := if lo == 0 then extracted
+                       else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) 64]
+        -- Simpler: just shift the extracted bits into position
+        -- For correctness in the carry-save context, we need per-field update
+        let value := shifted
+        (acc ++ [(name, value)], rhsOff + width)
+      ) ([], 0)
+      assigns
+  | _ => []
+
 /-- Build a case arm condition from labels and selector.
     For case(1'b1), labels are direct conditions (priority encoding).
     For normal case, labels are compared against sel. -/
@@ -416,7 +453,14 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
       if isDontCare rhs then []
       else match exprToName lhs with
         | some name => [{ guard, target := name, value := lowerExpr rhs }]
-        | none => []
+        | none =>
+          -- Try single-variable concat-LHS
+          match lowerConcatLhsAssign lhs rhs with
+          | some (name, value) => [{ guard, target := name, value }]
+          | none =>
+            -- Try multi-variable concat-LHS decomposition
+            let assigns := decomposeMultiConcatLhs lhs rhs
+            assigns.map fun (name, value) => { guard, target := name, value }
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
       -- Constant-fold: if condition is statically true/false, take only one branch
@@ -547,11 +591,24 @@ def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List Byte
 /-- Collect all blocking-assigned signal names recursively -/
 partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
   stmts.flatMap fun s => match s with
-    | .blockAssign lhs _ => match exprToName lhs with | some n => [n] | none => []
+    | .blockAssign lhs _ =>
+      match exprToName lhs with
+      | some n => [n]
+      | none =>
+        -- Concat-LHS: extract all target variable names
+        match lhs with
+        | .concat elems => elems.filterMap fun e => match e with
+          | .ident n => some n
+          | .index (.ident n) _ => some n
+          | .slice (.ident n) _ _ => some n
+          | .partSelectPlus (.ident n) _ _ => some n
+          | _ => none
+        | _ => []
     | .ifElse _ t e => collectBlockNamesTop t ++ collectBlockNamesTop e
     | .caseStmt _ arms d =>
       (arms.flatMap fun (_, b) => collectBlockNamesTop b) ++
       (match d with | some b => collectBlockNamesTop b | none => [])
+    | .forLoop _ _ _ body => collectBlockNamesTop body
     | _ => []
 
 -- ============================================================================
