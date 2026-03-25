@@ -319,6 +319,17 @@ private def lowerConcatLhsAssign (lhs : SVExpr) (rhs : SVExpr) : Option (String 
       some (name, result)
   | _, _ => none
 
+/-- Evaluate a simple SVExpr to a Nat constant (handles literals, add, sub). -/
+private partial def svExprToNat : SVExpr → Option Nat
+  | .lit (.decimal _ v) => some v
+  | .lit (.hex _ v) => some v
+  | .lit (.binary _ v) => some v
+  | .binary .add a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va + vb)
+  | .binary .sub a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va - vb)
+  | .binary .mul a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va * vb)
+  | .unary .neg a => do let va ← svExprToNat a; some (0 - va)  -- will underflow to large Nat
+  | _ => none
+
 /-- Decompose a multi-variable concat-LHS blocking assignment into per-variable assignments.
     `{a[hi1:lo1], b[base +: width], ...} = rhs` →
     [(a, rhs_slice_for_a), (b, rhs_slice_for_b), ...]
@@ -329,10 +340,14 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
     -- Compute field widths and target names for each element
     let fields : List (String × Nat × Nat) := elems.filterMap fun e => match e with
       | .slice (.ident name) hi lo => some (name, hi - lo + 1, lo)
-      | .index (.ident name) (.lit (.decimal _ idx)) => some (name, 1, idx)
+      | .index (.ident name) idxExpr =>
+        -- Evaluate index expression (may be constant expr like 0+4-1=3)
+        match svExprToNat idxExpr with
+        | some idx => some (name, 1, idx)
+        | none => none
       | .partSelectPlus (.ident name) baseExpr width =>
-        let base := match baseExpr with
-          | .lit (.decimal _ v) => v | .lit (.hex _ v) => v | _ => 0
+        let base := match svExprToNat baseExpr with
+          | some v => v | none => 0
         some (name, width, base)
       | .ident name => some (name, 32, 0)
       | _ => none
@@ -348,9 +363,14 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
         -- Read-modify-write: (old & ~mask) | ((extracted << lo) & mask)
         let shifted := if lo == 0 then extracted
                        else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) 64]
-        -- Simpler: just shift the extracted bits into position
-        -- For correctness in the carry-save context, we need per-field update
-        let value := shifted
+        -- Read-modify-write: (old & ~mask) | (shifted & mask)
+        -- This preserves other bit fields when multiple iterations update different fields
+        let maskVal := ((1 <<< width) - 1) <<< lo
+        let invMaskVal := 0xFFFFFFFFFFFFFFFF - maskVal
+        let value := Expr.op .or [
+          Expr.op .and [.ref name, .const (Int.ofNat invMaskVal) 64],
+          Expr.op .and [shifted, .const (Int.ofNat maskVal) 64]
+        ]
         (acc ++ [(name, value)], rhsOff + width)
       ) ([], 0)
       assigns

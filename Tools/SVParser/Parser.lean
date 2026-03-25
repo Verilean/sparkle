@@ -258,29 +258,29 @@ partial def parsePrimaryPost : P SVExpr := do
 partial def parsePostfix (e : SVExpr) : P SVExpr := do
   match ← attempt lbracket with
   | some _ =>
-    let idx ← parseExpr  -- Allow full expressions as index
-    -- Check for +: (variable part-select) [base +: width]
-    match ← attempt (token (matchStr "+:")) with
-    | some _ =>
-      let widthExpr ← parseExpr
+    -- Try [base +: width] part-select first
+    -- Use parsePrimary (not parseExpr) for base to avoid consuming + as addition
+    match ← attempt (do
+      let base ← parsePrimary
+      let _ ← token (matchStr "+:")
+      let widthExpr ← parsePrimary
       rbracket
-      -- Extract constant width
       let width := match widthExpr with
-        | .lit (.decimal _ w) => w
-        | .lit (.hex _ w) => w
-        | _ => 1  -- fallback (width must be constant per Verilog spec)
-      parsePostfix (SVExpr.partSelectPlus e idx width)
+        | .lit (.decimal _ w) => w | .lit (.hex _ w) => w | _ => 1
+      pure (base, width)
+    ) with
+    | some (base, width) => parsePostfix (SVExpr.partSelectPlus e base width)
     | none =>
+    -- Normal: [idx], [hi:lo]
+    let idx ← parseExpr
     match ← attempt colon with
     | some _ =>
-      -- Bit slice [hi:lo] — need constant values
       let lo ← parseExpr
       rbracket
-      -- Extract constants for slice
       match idx, lo with
       | .lit (.decimal _ hi), .lit (.decimal _ lo') => parsePostfix (SVExpr.slice e hi lo')
       | .lit (.hex _ hi), .lit (.decimal _ lo') => parsePostfix (SVExpr.slice e hi lo')
-      | _, _ => parsePostfix (SVExpr.slice e 0 0)  -- fallback
+      | _, _ => parsePostfix (SVExpr.slice e 0 0)
     | none =>
       rbracket
       parsePostfix (SVExpr.index e idx)
