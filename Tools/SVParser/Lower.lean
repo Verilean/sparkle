@@ -420,13 +420,11 @@ partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
           | none => []
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
-      -- Constant-fold: if condition is statically true/false, take only one branch
-      match tryEvalConst c with
-      | some 1 => collectGuardedNB thenB guard
-      | some 0 => collectGuardedNB elseB guard
-      | _ =>
-        collectGuardedNB thenB (mkAnd guard c) ++
-        collectGuardedNB elseB (mkAnd guard (.op .not [c]))
+      -- No constant folding for non-blocking assigns (posedge always blocks):
+      -- tryEvalConst can change guard priority in the decoder's case statements,
+      -- causing incorrect instruction decode when WITH_PCPI=1.
+      collectGuardedNB thenB (mkAnd guard c) ++
+      collectGuardedNB elseB (mkAnd guard (.op .not [c]))
     | .caseStmt sel arms default_ =>
       let (armAssigns, covered) := processCaseArms sel arms guard (fun s g => collectGuardedNB s g)
       let defAssigns := match default_ with
@@ -486,13 +484,10 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
                 [{ guard, target := name, value := combined }]
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
-      -- Constant-fold: if condition is statically true/false, take only one branch
-      match tryEvalConst c with
-      | some 1 => collectGuardedBlock thenB guard  -- condition is true
-      | some 0 => collectGuardedBlock elseB guard  -- condition is false
-      | _ =>
-        collectGuardedBlock thenB (mkAnd guard c) ++
-        collectGuardedBlock elseB (mkAnd guard (.op .not [c]))
+      -- No constant folding here — it corrupts decoder case priority in posedge blocks.
+      -- Constant folding is only safe in emitBlockingStmtsSequential (always @*).
+      collectGuardedBlock thenB (mkAnd guard c) ++
+      collectGuardedBlock elseB (mkAnd guard (.op .not [c]))
     | .caseStmt sel arms default_ =>
       let (armAssigns, covered) := processCaseArms sel arms guard (fun s g => collectGuardedBlock s g)
       let defAssigns := match default_ with
