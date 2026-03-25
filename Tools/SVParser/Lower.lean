@@ -755,9 +755,53 @@ partial def substParamStmt (params : List (String × SVExpr)) : SVStmt → SVStm
       (body.map (substParamStmt params))
   | .assertStmt cond => .assertStmt (substParamExpr params cond)
 
+/-- Collect all variable names written in blocking assignments (including concat-LHS). -/
+private partial def collectWriteNames : List SVStmt → List String
+  | stmts => stmts.flatMap fun s => match s with
+    | .blockAssign lhs _ => match lhs with
+      | .ident name => [name]
+      | .index (.ident name) _ => [name]
+      | .slice (.ident name) _ _ => [name]
+      | .partSelectPlus (.ident name) _ _ => [name]
+      | .concat elems => elems.filterMap fun e => match e with
+        | .ident n => some n | .index (.ident n) _ => some n
+        | .slice (.ident n) _ _ => some n | .partSelectPlus (.ident n) _ _ => some n
+        | _ => none
+      | _ => []
+    | .ifElse _ t e => collectWriteNames t ++ collectWriteNames e
+    | .forLoop _ _ _ body => collectWriteNames body
+    | _ => []
+
+/-- Rename all occurrences of `oldName` to `newName` in an SVExpr. -/
+private partial def renameExpr (oldName newName : String) : SVExpr → SVExpr
+  | .ident n => if n == oldName then .ident newName else .ident n
+  | .unary op e => .unary op (renameExpr oldName newName e)
+  | .binary op a b => .binary op (renameExpr oldName newName a) (renameExpr oldName newName b)
+  | .ternary c t e => .ternary (renameExpr oldName newName c) (renameExpr oldName newName t) (renameExpr oldName newName e)
+  | .index a i => .index (renameExpr oldName newName a) (renameExpr oldName newName i)
+  | .slice e hi lo => .slice (renameExpr oldName newName e) hi lo
+  | .partSelectPlus e base w => .partSelectPlus (renameExpr oldName newName e) (renameExpr oldName newName base) w
+  | .concat es => .concat (es.map (renameExpr oldName newName))
+  | e => e
+
+/-- Rename all occurrences of `oldName` to `newName` in an SVStmt. -/
+private partial def renameStmt (oldName newName : String) : SVStmt → SVStmt
+  | .blockAssign lhs rhs => .blockAssign (renameExpr oldName newName lhs) (renameExpr oldName newName rhs)
+  | .nonblockAssign lhs rhs => .nonblockAssign (renameExpr oldName newName lhs) (renameExpr oldName newName rhs)
+  | .ifElse c t e => .ifElse (renameExpr oldName newName c) (t.map (renameStmt oldName newName)) (e.map (renameStmt oldName newName))
+  | .caseStmt sel arms d =>
+    .caseStmt (renameExpr oldName newName sel)
+      (arms.map fun (ls, b) => (ls.map (renameExpr oldName newName), b.map (renameStmt oldName newName)))
+      (d.map fun ds => ds.map (renameStmt oldName newName))
+  | .forLoop i c s b => .forLoop (renameStmt oldName newName i) (renameExpr oldName newName c) (renameStmt oldName newName s) (b.map (renameStmt oldName newName))
+  | .assertStmt c => .assertStmt (renameExpr oldName newName c)
+
 /-- Unroll for loops with constant bounds in SV statements.
-    `for (init; cond; step) body` → replicated body with loop var substituted. -/
-partial def unrollForLoops (paramVals : List (String × Nat)) : List SVStmt → List SVStmt :=
+    Uses SSA-style renaming: variables written in the loop body get
+    iteration-specific names (e.g., next_rd → next_rd_ssa0_0, next_rd_ssa0_1, ...)
+    to correctly handle sequential blocking assignment dependencies.
+    `depth` distinguishes nested loops (ssa0_, ssa1_, ...). -/
+partial def unrollForLoops (paramVals : List (String × Nat)) (depth : Nat := 0) : List SVStmt → List SVStmt :=
   fun stmts => stmts.flatMap fun s => match s with
   | .forLoop (.blockAssign (.ident var) initExpr) condExpr (.blockAssign (.ident stepVar) stepExpr) body =>
     if var != stepVar then [s]
@@ -775,28 +819,55 @@ partial def unrollForLoops (paramVals : List (String × Nat)) : List SVStmt → 
       | some b, some inc =>
         if inc == 0 || b <= initVal then [s]
         else Id.run do
+          let ssaTag := s!"_ssa{depth}_"
+          -- Collect variables written in the loop body for SSA renaming
+          let writeNames := collectWriteNames body |>.eraseDups
+          let numIters := (b - initVal + inc - 1) / inc
+
+          -- Prologue: capture initial values
           let mut result : List SVStmt := []
+          for name in writeNames do
+            result := result ++ [.blockAssign (.ident s!"{name}{ssaTag}0") (.ident name)]
+
+          -- Unroll iterations with SSA renaming
           let mut j := initVal
+          let mut iterIdx : Nat := 0
           while j < b do
             let substituted := body.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
-            let unrolled := unrollForLoops ((var, j) :: paramVals) substituted
-            result := result ++ unrolled
+            -- Recursively unroll nested loops (increment depth)
+            let unrolled := unrollForLoops ((var, j) :: paramVals) (depth + 1) substituted
+            -- SSA rename: reads → ssa{depth}_{iterIdx}, writes → ssa{depth}_{iterIdx+1}
+            let mut renamed := unrolled
+            for name in writeNames do
+              renamed := renamed.map (renameStmt name s!"{name}{ssaTag}{iterIdx}")
+            for name in writeNames do
+              renamed := renamed.map fun stmt =>
+                match stmt with
+                | .blockAssign lhs rhs =>
+                  .blockAssign (renameExpr s!"{name}{ssaTag}{iterIdx}" s!"{name}{ssaTag}{iterIdx + 1}" lhs) rhs
+                | other => other
+            result := result ++ renamed
             j := j + inc
+            iterIdx := iterIdx + 1
+
+          -- Epilogue
+          for name in writeNames do
+            result := result ++ [.blockAssign (.ident name) (.ident s!"{name}{ssaTag}{numIters}")]
           result
       | _, _ => [s]
   | .ifElse cond thenB elseB =>
-    [.ifElse cond (unrollForLoops paramVals thenB) (unrollForLoops paramVals elseB)]
+    [.ifElse cond (unrollForLoops paramVals depth thenB) (unrollForLoops paramVals depth elseB)]
   | .caseStmt sel arms dflt =>
     [.caseStmt sel
-      (arms.map fun (labels, body) => (labels, unrollForLoops paramVals body))
-      (dflt.map (unrollForLoops paramVals))]
+      (arms.map fun (labels, body) => (labels, unrollForLoops paramVals depth body))
+      (dflt.map (unrollForLoops paramVals depth))]
   | other => [other]
 
 def substituteParamsInItem (params : List (String × SVExpr)) (paramVals : List (String × Nat))
     : SVModuleItem → SVModuleItem
   | .alwaysBlock sens stmts =>
     let substituted := stmts.map (substParamStmt params)
-    let unrolled := unrollForLoops paramVals substituted
+    let unrolled := unrollForLoops paramVals 0 substituted
     .alwaysBlock sens unrolled
   | .contAssign lhs rhs => .contAssign (substParamExpr params lhs) (substParamExpr params rhs)
   | item => item
@@ -971,6 +1042,9 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       -- Combinational: build mux expressions per signal
       let sigNames := collectBlockNamesTop stmts |>.eraseDups
       for sigName in sigNames do
+        -- Auto-declare SSA wires (generated by forLoop unroll, e.g. _ssa0_, _ssa1_)
+        if (sigName.splitOn "_ssa").length > 1 && !wireExists wires sigName then
+          wires := wires ++ [{ name := sigName, ty := .bitVector 64 }]
         let expr := stmtsToMuxExprBlocking sigName stmts
         body := body ++ [.assign sigName expr]
     | .wireDecl name _ (some initExpr) =>
