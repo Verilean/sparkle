@@ -2,6 +2,26 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 50: Linux Boot Idle-Loop Skipping (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Production-quality idle-loop skipping for Linux boot — MIE/MTIE interrupt guard, WFI fast-path, and CI-ready oracle accuracy tests.
+
+**Result**: Oracle now checks interrupt enable state before timer-compare skip, supports WFI fast-path detection, and has 4 self-contained CI tests that verify accuracy without external firmware.
+
+**Oracle Improvements** (`Sparkle/Core/Oracle.lean`):
+- **MIE/MTIE guard**: Before timer-compare skip, verifies `MSTATUS.MIE` (bit 3) and `MIE.MTIE` (bit 7) are both set. If either is 0, skip is suppressed — the timer interrupt wouldn't fire anyway.
+- **WFI fast-path**: Optional `wfiWireArrayIdx` triggers immediate skip when WFI instruction is detected (threshold=1 instead of default 50 cycles).
+- **`mkBootOracle`** now enables `checkInterruptEnable := true` by default.
+- New config fields: `checkInterruptEnable`, `mstatusRegIdx`, `mieRegIdx`, `wfiWireArrayIdx`.
+
+**CI Test** (`Tests/RV32/OracleAccuracyTest.lean`):
+1. **Halt loop detection**: Oracle triggers on firmware halt loop (98 triggers, 98K cycles skipped)
+2. **Timer advance accuracy**: Set mtimecmp = mtime + 5000, verify skip delta ≥ 5000
+3. **MIE guard**: Disable interrupts (MIE=0), verify oracle does NOT trigger
+4. **MTIE guard**: Disable timer interrupt (MTIE=0), verify oracle does NOT trigger
+
 ## Phase 49: RV32I Formal Verification — 102 Theorems, MSTATUS WPRI Bug Found (Complete)
 
 **Date**: 2026-03-25

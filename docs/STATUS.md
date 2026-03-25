@@ -19,8 +19,8 @@
 | 3.7 | **Imperative `<~` Assignment** | `Signal.circuit` macro with `<~` register assignment, unified loop memoization | **Done** |
 | 3.8 | **AXI4-Lite Bus Protocol** | Verified slave/master IP, 14 proofs (deadlock-free, valid persistence), synthesizable | **Done** |
 | 3.9 | **RV32I Formal Verification** | 102 theorems, MSTATUS WPRI bug found, Signal DSL ↔ spec equivalence proofs | **Done** |
+| 3.10 | **Linux Boot Idle-Loop Skipping** | MIE/MTIE guard, WFI fast-path, 4 CI-ready oracle accuracy tests | **Done** |
 | 4 | **SV Transpiler: Extended ISA** | Support M-extension (MUL/DIV), CSR, trap handling for full PicoRV32 firmware | Not started |
-| 5 | **Linux Boot Idle-Loop Skipping** | Extend self-loop oracle to detect WFI/idle loops during Linux boot | Not started |
 | 6 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
 | 7 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
 | 8 | **Verified Standard IP — AXI4-Lite / TileLink** | AXI4-Lite done (Phase 48). TileLink and AXI4 interconnect remaining | Partial |
@@ -30,6 +30,14 @@
 ---
 
 ## Completed Phases
+
+### Linux Boot Idle-Loop Skipping (Phase 50) — DONE
+
+Oracle improvements for production-quality Linux boot idle-loop skipping:
+
+- **MIE/MTIE guard**: Checks interrupt enable before timer-compare skip. If `MSTATUS.MIE=0` or `MIE.MTIE=0`, skip is suppressed (interrupt wouldn't fire).
+- **WFI fast-path**: Detects WFI instruction via wire, triggers skip immediately (threshold=1).
+- **4 CI tests**: Halt loop detection, timer accuracy, MIE guard, MTIE guard — all self-contained with firmware.hex.
 
 ### RV32I Formal Verification (Phase 49) — DONE
 

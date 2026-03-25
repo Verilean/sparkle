@@ -802,7 +802,7 @@ Contributions welcome! Areas of interest:
 - [x] ~~**Imperative `<~` Assignment**~~ - Done (Phase 47): `Signal.circuit` macro with `<~` register assignment, unified `Signal.loop` memoization
 - [x] ~~**AXI4-Lite Bus Protocol**~~ - Done (Phase 48): Verified slave/master, 14 proofs, 23 sim tests, synthesizable
 - [x] ~~**RV32I Formal Verification**~~ - Done (Phase 49): 102 theorems, **MSTATUS WPRI bug found**, Signal DSL ↔ spec equivalence
-- [ ] **Linux Boot Idle-Loop Skipping** - Extend dynamic oracle to detect WFI/idle loops during Linux boot
+- [x] ~~**Linux Boot Idle-Loop Skipping**~~ - Done (Phase 50): MIE/MTIE interrupt guard, WFI fast-path, 4 CI oracle accuracy tests
 - [ ] **Verified Standard IP — Parameterized FIFO** - Generic depth/width FIFO with power-of-2 depth
 - [ ] **Verified Standard IP — N-way Arbiter** - Generalize 2-client round-robin arbiter to N clients
 - [ ] **Verified Standard IP — TileLink / AXI4 Interconnect** - Full AXI4 (bursts, IDs) and TileLink
