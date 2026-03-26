@@ -149,12 +149,14 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
   match e with
   | .const value width =>
     let cppType := emitCppType (.bitVector width)
+    -- Use appropriate literal suffix: U for ≤32bit, ULL for >32bit
+    let suffix := if width > 32 then "ULL" else "U"
     if value < 0 then
       let modulus : Int := (2 : Int) ^ width
       let unsigned := ((value % modulus) + modulus) % modulus
-      s!"({cppType})0x{Nat.toDigits 16 unsigned.toNat |> String.ofList}ULL"
+      s!"({cppType})0x{Nat.toDigits 16 unsigned.toNat |> String.ofList}{suffix}"
     else
-      s!"({cppType}){value}ULL"
+      s!"({cppType}){value}{suffix}"
 
   | .ref name =>
     sanitizeName name
