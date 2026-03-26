@@ -41,43 +41,116 @@ def toCppSimThreaded (m : Module) : String :=
       s!"    {emitCppType p.ty} {sanitizeName p.name};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
     "};\n\n"
 
-  -- Barrier sync runner
+  -- 2-thread worker runner with spinlock barrier
   let runner :=
-    "// Barrier-sync 2-thread runner\n" ++
+    "// 2-thread simulation with worker thread and spinlock barrier\n" ++
     "struct ThreadedSim {\n" ++
-    s!"    {cpuName} cpu;\n" ++
-    s!"    {periName} peri;\n" ++
-    "    std::atomic<int> barrier{0};\n" ++
+    s!"    alignas(64) {cpuName} cpu;   // separate cache lines\n" ++
+    s!"    alignas(64) {periName} peri;\n" ++
     "\n" ++
-    "    void reset() { cpu.reset(); peri.reset(); }\n" ++
+    "    // Spinlock barrier: main thread (CPU) and worker thread (Peri)\n" ++
+    "    alignas(64) std::atomic<uint64_t> peri_go{0};     // main signals worker to start\n" ++
+    "    alignas(64) std::atomic<uint64_t> peri_done{0};   // worker signals completion\n" ++
+    "    alignas(64) std::atomic<bool> shutdown{false};     // signal worker to exit\n" ++
+    "    std::thread worker;\n" ++
+    "\n" ++
+    "    ThreadedSim() { reset(); start_worker(); }\n" ++
+    "    ~ThreadedSim() { stop_worker(); }\n" ++
+    "\n" ++
+    "    void start_worker() {\n" ++
+    "        worker = std::thread([this]() {\n" ++
+    "            uint64_t cycle = 0;\n" ++
+    "            while (!shutdown.load(std::memory_order_relaxed)) {\n" ++
+    "                // Spin-wait for main thread to signal new work\n" ++
+    "                uint64_t target = peri_go.load(std::memory_order_acquire);\n" ++
+    "                while (target <= cycle) {\n" ++
+    "                    if (shutdown.load(std::memory_order_relaxed)) return;\n" ++
+    "                    __builtin_ia32_pause();\n" ++
+    "                    target = peri_go.load(std::memory_order_acquire);\n" ++
+    "                }\n" ++
+    "                // Run all pending cycles in batch\n" ++
+    "                while (cycle < target) {\n" ++
+    "                    cycle++;\n" ++
+    "                    peri.eval();\n" ++
+    "                    peri.tick();\n" ++
+    "                }\n" ++
+    "                // Signal completion\n" ++
+    "                peri_done.store(cycle, std::memory_order_release);\n" ++
+    "            }\n" ++
+    "        });\n" ++
+    "    }\n" ++
+    "\n" ++
+    "    void stop_worker() {\n" ++
+    "        shutdown.store(true, std::memory_order_release);\n" ++
+    "        peri_go.store(UINT64_MAX, std::memory_order_release);\n" ++
+    "        if (worker.joinable()) worker.join();\n" ++
+    "    }\n" ++
+    "\n" ++
+    "    void reset() {\n" ++
+    "        cpu.reset(); peri.reset();\n" ++
+    "        peri_go.store(0, std::memory_order_relaxed);\n" ++
+    "        peri_done.store(0, std::memory_order_relaxed);\n" ++
+    "    }\n" ++
+    "\n" ++
+    "    uint64_t cycle_count{0};\n" ++
     "\n" ++
     "    void evalTick() {\n" ++
-    "        // Phase 1: Both partitions evaluate\n" ++
-    "        cpu.eval();\n" ++
-    "        peri.eval();\n" ++
+    "        cycle_count++;\n" ++
     "\n" ++
-    "        // Phase 2: Exchange boundary signals\n" ++
-    "        // CPU → Peripheral\n" ++
+    "        // Exchange boundary signals (from previous cycle)\n" ++
     (part.cpuToPeri.map fun p =>
       let sn := sanitizeName p.name
       s!"        peri.{sn} = cpu.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
-    "        // Peripheral → CPU\n" ++
     (part.periToCpu.map fun p =>
       let sn := sanitizeName p.name
       s!"        cpu.{sn} = peri.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
     "\n" ++
-    "        // Phase 3: Both partitions tick\n" ++
+    "        // Signal worker to evaluate peripheral\n" ++
+    "        peri_go.store(cycle_count, std::memory_order_release);\n" ++
+    "\n" ++
+    "        // CPU eval+tick (in parallel with worker)\n" ++
+    "        cpu.eval();\n" ++
     "        cpu.tick();\n" ++
-    "        peri.tick();\n" ++
+    "\n" ++
+    "        // Wait for worker to finish\n" ++
+    "        while (peri_done.load(std::memory_order_acquire) < cycle_count) {\n" ++
+    "            __builtin_ia32_pause();\n" ++
+    "        }\n" ++
+    "    }\n" ++
+    "\n" ++
+    "    // Sequential fallback (no threading)\n" ++
+    "    void evalTickSeq() {\n" ++
+    "        cpu.eval(); peri.eval();\n" ++
+    (part.cpuToPeri.map fun p =>
+      let sn := sanitizeName p.name
+      s!"        peri.{sn} = cpu.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
+    (part.periToCpu.map fun p =>
+      let sn := sanitizeName p.name
+      s!"        cpu.{sn} = peri.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
+    "        cpu.tick(); peri.tick();\n" ++
     "    }\n" ++
     "};\n\n"
 
   -- JIT FFI exports (single-threaded interface wrapping the 2-partition sim)
   let ffi :=
     "extern \"C\" {\n" ++
-    "void* jit_create() { return new ThreadedSim(); }\n" ++
-    "void  jit_destroy(void* ctx) { delete static_cast<ThreadedSim*>(ctx); }\n" ++
-    "void  jit_reset(void* ctx) { static_cast<ThreadedSim*>(ctx)->reset(); }\n" ++
+    "void* jit_create() {\n" ++
+    "    auto* s = new ThreadedSim();\n" ++
+    "    return s;\n" ++
+    "}\n" ++
+    "void  jit_destroy(void* ctx) {\n" ++
+    "    auto* s = static_cast<ThreadedSim*>(ctx);\n" ++
+    "    s->stop_worker();\n" ++
+    "    delete s;\n" ++
+    "}\n" ++
+    "void  jit_reset(void* ctx) {\n" ++
+    "    auto* s = static_cast<ThreadedSim*>(ctx);\n" ++
+    "    s->stop_worker();\n" ++
+    "    s->reset();\n" ++
+    "    s->cycle_count = 0;\n" ++
+    "    s->shutdown.store(false, std::memory_order_relaxed);\n" ++
+    "    s->start_worker();\n" ++
+    "}\n" ++
     "void  jit_eval(void* ctx) {\n" ++
     "    auto* s = static_cast<ThreadedSim*>(ctx);\n" ++
     "    s->cpu.eval(); s->peri.eval();\n" ++
