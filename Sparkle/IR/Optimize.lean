@@ -334,6 +334,8 @@ def optimizeModule (m : Module)
 
     let m2 := { m with body := prunedBody, wires := prunedWires }
 
+    let m2 := { m with body := prunedBody, wires := prunedWires }
+
     -- Phase 3: Single-use wire inlining
     let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body observableWires
 
