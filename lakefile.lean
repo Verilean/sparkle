@@ -103,6 +103,10 @@ lean_exe «rv32-jit-boot-oracle-test» where
   root := `Tests.RV32.JITBootOracleTest
   supportInterpreter := true
 
+lean_exe «oracle-accuracy-test» where
+  root := `Tests.RV32.OracleAccuracyTest
+  supportInterpreter := true
+
 lean_exe «rv32-jit-linux-boot-test» where
   root := `Tests.RV32.JITLinuxBootTest
   supportInterpreter := true
@@ -149,6 +153,10 @@ lean_exe «generate-verify» where
 
 lean_exe «circuit-sim-test» where
   root := `Tests.Circuit.SimTest
+  supportInterpreter := true
+
+lean_exe «mext-rv32i-test» where
+  root := `Tests.SVParser.MExtRv32iTest
   supportInterpreter := true
 
 @[test_driver]

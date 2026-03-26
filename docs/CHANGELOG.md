@@ -2,6 +2,112 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 51: SV Transpiler M-Extension — MUL/DIV/REM on PicoRV32 SoC (Complete)
+
+**Date**: 2026-03-26
+
+**Goal**: Enable PicoRV32's M-extension (hardware MUL/DIV/REM) in the SVParser→JIT pipeline, including the carry-save shift-and-add multiplier (`pcpi_mul`).
+
+**Result**: Full M-extension operational. RV32I and RV32IM firmware execute correctly on M-ext SoC. 34 CI-safe JIT pair tests. 12 compiler bugs found and fixed.
+
+**Major Architecture Change — MemorySSA Sequential Emitter**:
+- Replaced pure MUX approach for `always @*` blocks with a sequential SSA emitter (`emitSequentialSSA`) that processes statements top-to-bottom, creating new SSA wires for each variable write
+- This correctly handles "read-then-overwrite" patterns (e.g., `next_rdx = rdx; ... loop uses next_rdx ...; next_rdx = next_rdt << 1`) that create cyclic dependencies under pure MUX
+- if/else and case statement branches are merged via MUX with proper handling of uninitialized (don't-care) variables
+
+**Carry-Save Accumulator (`pcpi_mul`)**:
+- Nested for-loop unrolling with full SSA renaming
+- Concat-LHS part-select decomposition (`{next_rdt[j+3], next_rd[j+:4]} = ...`) with read-modify-write using `__RMW_BASE__` placeholder resolved by `stmtsToMuxExprBlocking`
+- 64-bit promotion to avoid C++ undefined behavior on shifts >= 32
+
+**Other Fixes**:
+- `{N{expr}}` Verilog replication: count was ignored, ident width defaulted to 1-bit
+- `buildByteStrobeWrite`: data slice not shifted to target bit position (byte 0 only written)
+- `processCaseArms`: missing `!covered` guard for first-match-wins in `case(1'b1)`
+- `sigNames` filter: only checked top-level `blockAssign`, missing nested assignments in `if/else`
+- Topo sort: `endsWith "_0"` misidentified `_ssa1_10` as prologue; self-references not excluded
+
+**Test Results**:
+
+| Test | Result |
+|------|--------|
+| 34 standalone tests | **34/34 PASS** |
+| RV32I SoC "Hello" | PASS (5 UART bytes) |
+| RV32I firmware (Fib/Sum/Sort/GCD) | PASS (26 words) |
+| M-ext SoC: RV32IM (MUL/DIV/REM) | PASS (18 words, factorial=3628800) |
+| M-ext SoC: Simple MUL (12345*6789) | PASS (83810205) |
+| M-ext SoC: Store/Load (0x12345678) | PASS |
+| pcpi_mul standalone (7*6, 100*100, 12345*6789) | PASS |
+| pcpi_mul consecutive MUL | PASS |
+| pcpi_mul SoC-like wrapper | PASS |
+
+**Files Changed**:
+- `Tools/SVParser/Lower.lean` — MemorySSA emitter, replication fix, byte-lane fix, case priority fix
+- `Tests/SVParser/ParserTest.lean` — 34 tests (12→34), embedded pcpi_mul Verilog
+- `Tests/SVParser/MExtRv32iTest.lean` — M-ext SoC integration tests
+- `firmware/main_rv32im.c`, `firmware/main_multest.c`, `firmware/main_storeload.c` — Test firmware
+
+## Phase 50: Linux Boot Idle-Loop Skipping (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Production-quality idle-loop skipping for Linux boot — MIE/MTIE interrupt guard, WFI fast-path, and CI-ready oracle accuracy tests.
+
+**Result**: Oracle now checks interrupt enable state before timer-compare skip, supports WFI fast-path detection, and has 4 self-contained CI tests that verify accuracy without external firmware.
+
+**Oracle Improvements** (`Sparkle/Core/Oracle.lean`):
+- **MIE/MTIE guard**: Before timer-compare skip, verifies `MSTATUS.MIE` (bit 3) and `MIE.MTIE` (bit 7) are both set. If either is 0, skip is suppressed — the timer interrupt wouldn't fire anyway.
+- **WFI fast-path**: Optional `wfiWireArrayIdx` triggers immediate skip when WFI instruction is detected (threshold=1 instead of default 50 cycles).
+- **`mkBootOracle`** now enables `checkInterruptEnable := true` by default.
+- New config fields: `checkInterruptEnable`, `mstatusRegIdx`, `mieRegIdx`, `wfiWireArrayIdx`.
+
+**CI Test** (`Tests/RV32/OracleAccuracyTest.lean`):
+1. **Halt loop detection**: Oracle triggers on firmware halt loop (98 triggers, 98K cycles skipped)
+2. **Timer advance accuracy**: Set mtimecmp = mtime + 5000, verify skip delta ≥ 5000
+3. **MIE guard**: Disable interrupts (MIE=0), verify oracle does NOT trigger
+4. **MTIE guard**: Disable timer interrupt (MTIE=0), verify oracle does NOT trigger
+
+## Phase 49: RV32I Formal Verification — 102 Theorems, MSTATUS WPRI Bug Found (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Formally verify the RV32I ISA implementation and find real bugs through proofs.
+
+**Result**: 102 theorems across 4 files, zero `sorry`. **Found MSTATUS WPRI bug** — CSR write operations can set reserved bits that should be read-only per RISC-V spec.
+
+**Bug Found** (proved in `CSRProps.lean`):
+- `mkCsrNewVal` in `CSR/File.lean:28` performs `oldVal ||| csrWdata` without masking WPRI fields
+- CSRRS can set any of 32 bits, but only MIE(3), MPIE(7), MPP(11:12) should be writable
+- `csrDoWrite` is active even when rs1=x0 (CSRRS/CSRRC should be read-only per spec A3.3.1)
+
+**Files Added**:
+
+| File | Theorems | Content |
+|------|----------|---------|
+| `Sparkle/Verification/RV32Props.lean` | 38 | ISA encode/decode roundtrip, field extraction, immediate roundtrip (all 5 formats), ALU algebra |
+| `Sparkle/Verification/PipelineProps.lean` | 26 | Forwarding, hazard detection, flush/NOP, x0 invariance, store-to-load forwarding |
+| `Sparkle/Verification/CSRProps.lean` | 21 | **MSTATUS WPRI bug**, trap/MRET transitions, M-ext edge cases (INT_MIN/−1, div-by-zero) |
+| `Sparkle/Verification/SignalDSLProps.lean` | 17 | Signal DSL ↔ pure spec equivalence (ALU, branch, hazard, register semantics) |
+
+**Key Innovation**: Signal DSL `.val` reduction lemmas enable proving properties directly on the synthesizable hardware implementation, not just the pure spec. `@[simp]` lemmas for all Signal combinators (mux, beq, +, -, &, |, ^, <<<, >>>, slt, ult, ashr, register) reduce Signal expressions to pure BitVec computations via `rfl`.
+
+## Phase 48: AXI4-Lite Bus Protocol IP (Complete)
+
+**Date**: 2026-03-25
+
+**Goal**: Formally verified AXI4-Lite slave and master interfaces with protocol compliance proofs.
+
+**Result**: 14 formal proofs (safety, protocol compliance, liveness, fairness), synthesizable slave + master, 23 simulation tests.
+
+**Files Added**:
+
+| File | Content |
+|------|---------|
+| `IP/Bus/AXI4Lite/Props.lean` | Pure FSM spec + 14 proofs (mutual exclusion, valid persistence, deadlock-freedom, write priority) |
+| `IP/Bus/AXI4Lite/Slave.lean` | Synthesizable slave (4 registers: fsm, addr, wdata, wstrb) |
+| `IP/Bus/AXI4Lite/Master.lean` | Synthesizable master (5 registers: fsm, addr, wdata, wstrb, rdata) |
+| `Tests/Bus/TestAXI4Lite.lean` | 23 LSpec tests (handshake + full-module FSM transitions) |
+
 ## Phase 47: Imperative `<~` Register Assignment — `Signal.circuit` Macro (Complete)
 
 **Date**: 2026-03-25

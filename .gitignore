@@ -45,3 +45,4 @@ Thumbs.db
 plans/
 Sparkle/Verification/Generated/
 Examples/CDC/gen/
+verilator/generated_soc_jit.cpp

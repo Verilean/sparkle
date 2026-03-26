@@ -51,6 +51,7 @@ inductive SVExpr where
   | ternary (cond then_ else_ : SVExpr)
   | index   (arr : SVExpr) (idx : SVExpr)
   | slice   (expr : SVExpr) (hi lo : Nat)
+  | partSelectPlus (expr : SVExpr) (base : SVExpr) (width : SVExpr)  -- [base +: width]
   | concat  (args : List SVExpr)
   | repeat_ (count : SVExpr) (value : SVExpr)  -- {n{expr}}
   deriving Repr, BEq
@@ -108,6 +109,7 @@ inductive SVModuleItem where
                   (elseBody : List SVModuleItem)          -- generate if (...) ... endgenerate
   | instantiation (moduleName instName : String)
                   (connections : List (String × SVExpr))
+                  (paramOverrides : List (String × SVExpr) := [])
   | taskDecl      (name : String) (body : List SVStmt)    -- task ... endtask
   | readmemh      (filename : String) (memName : String)  -- $readmemh("file", mem)
   deriving Repr, BEq

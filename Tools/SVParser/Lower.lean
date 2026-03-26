@@ -110,10 +110,21 @@ private def isArrayName (name : String) : Bool :=
   name == "cpuregs" || name == "memory" || name == "mem" ||
   name.endsWith "_mem" || name.endsWith "_ram"
 
-/-- Estimate the bit-width of an SVExpr (for $signed sign-extension). -/
+/-- Evaluate a simple SVExpr to a Nat constant (handles literals, add, sub). -/
+private partial def svExprToNat : SVExpr → Option Nat
+  | .lit (.decimal _ v) => some v
+  | .lit (.hex _ v) => some v
+  | .lit (.binary _ v) => some v
+  | .binary .add a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va + vb)
+  | .binary .sub a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va - vb)
+  | .binary .mul a b => do let va ← svExprToNat a; let vb ← svExprToNat b; some (va * vb)
+  | .unary .neg a => do let va ← svExprToNat a; some (0 - va)
+  | _ => none
+
 private def concatWidth : SVExpr → Nat
   | .concat args => args.foldl (fun acc a => acc + concatWidth a) 0
   | .slice _ hi lo => hi - lo + 1
+  | .partSelectPlus _ _ widthExpr => svExprToNat widthExpr |>.getD 1
   | .index _ _ => 1  -- single bit select
   | .lit (.decimal (some w) _) => w
   | .lit (.hex (some w) _) => w
@@ -179,8 +190,35 @@ partial def lowerExpr (e : SVExpr) : Expr :=
       | _ =>
         .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
+  | .partSelectPlus expr base widthExpr =>
+    -- [base +: width] = (expr >> base) & ((1 << width) - 1)
+    let width := svExprToNat widthExpr |>.getD 1
+    let mask := (1 <<< width) - 1
+    .op .and [.op .shr [lowerExpr expr, lowerExpr base], .const (Int.ofNat mask) width]
   | .concat args => .concat (args.map lowerExpr)
-  | .repeat_ _count value => lowerExpr value
+  | .repeat_ count value =>
+    -- {N{expr}}: replicate expr N times (bit replication)
+    -- For 1-bit expr repeated N times: result = (0 - expr) & ((1 << N) - 1)
+    -- For multi-bit expr: concatenate N copies via shift-and-OR.
+    let n := match svExprToNat count with | some v => v | none => 1
+    let valExpr := lowerExpr value
+    if n <= 1 then valExpr
+    else
+      let elemWidth := match value with
+        | .lit (.decimal (some w) _) => w
+        | .lit (.hex (some w) _) => w
+        | .lit (.binary (some w) _) => w
+        | .slice _ hi lo => hi - lo + 1
+        | .ident _ => 0  -- unknown width: use concat path
+        | _ => 1  -- default: assume 1-bit
+      if elemWidth == 1 then
+        -- Special case: 1-bit replication → (0 - val) & mask
+        let totalBits := n * 1
+        let mask := (1 <<< totalBits) - 1
+        .op .and [.op .sub [.const 0 totalBits, valExpr], .const (Int.ofNat mask) totalBits]
+      else
+        -- Multi-bit or unknown width: build concat of N copies
+        .concat (List.replicate n valExpr)
 
 -- ============================================================================
 -- Extract target name from LHS expression
@@ -314,6 +352,68 @@ private def lowerConcatLhsAssign (lhs : SVExpr) (rhs : SVExpr) : Option (String 
       some (name, result)
   | _, _ => none
 
+/-- Decompose a multi-variable concat-LHS blocking assignment into per-variable assignments.
+    `{a[hi1:lo1], b[base +: width], ...} = rhs` →
+    [(a, rhs_slice_for_a), (b, rhs_slice_for_b), ...]
+    Each target gets the corresponding bits from the RHS expression. -/
+private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String × Expr) :=
+  match lhs with
+  | .concat elems =>
+    -- Compute field widths and target names for each element
+    let fields : List (String × Nat × Nat) := elems.filterMap fun e => match e with
+      | .slice (.ident name) hi lo => some (name, hi - lo + 1, lo)
+      | .index (.ident name) idxExpr =>
+        -- Evaluate index expression (may be constant expr like 0+4-1=3)
+        match svExprToNat idxExpr with
+        | some idx => some (name, 1, idx)
+        | none => none
+      | .partSelectPlus (.ident name) baseExpr widthExpr =>
+        let base := match svExprToNat baseExpr with
+          | some v => v | none => 0
+        let width := svExprToNat widthExpr |>.getD 1
+        some (name, width, base)
+      | .ident name => some (name, 32, 0)
+      | _ => none
+    if fields.length != elems.length then []
+    else
+      let rhsExpr := lowerExpr rhs
+      let totalWidth := fields.foldl (fun acc (_, w, _) => acc + w) 0
+      -- Collect all (name, width, lo, rhsBit) with shifted RHS bits
+      let (rawFields, _) := fields.foldl (fun (acc, rhsOff) (name, width, lo) =>
+        let rhsBit := totalWidth - rhsOff - width
+        (acc ++ [(name, width, lo, rhsBit)], rhsOff + width)
+      ) ([], 0)
+      -- Group by variable name: for each variable, produce a read-modify-write expression.
+      -- Uses "__RMW_BASE__" as a placeholder for the old value, which is replaced by
+      -- stmtsToMuxExprBlocking with the actual SSA base (previous iteration's output).
+      let varNames := rawFields.map (·.1) |>.eraseDups
+      varNames.flatMap fun varName =>
+        let myFields := rawFields.filter (·.1 == varName)
+        -- Compute combined mask for all fields
+        let combinedMask := myFields.foldl (fun acc (_, width, lo, _) =>
+          acc ||| (((1 <<< width) - 1) <<< lo)
+        ) 0
+        let invMask := combinedMask ^^^ 0xFFFFFFFFFFFFFFFF
+        -- Build new bits: OR all shifted+masked fields
+        let newBits := myFields.foldl (fun acc (_, width, lo, rhsBit) =>
+          let extracted := Expr.slice rhsExpr (rhsBit + width - 1) rhsBit
+          -- Force 64-bit promotion to avoid C++ UB on shifts >= 32
+          let extracted64 := Expr.op .or [extracted, Expr.const 0 64]
+          let shifted := if lo == 0 then extracted64
+                         else Expr.op .shl [extracted64, Expr.const (Int.ofNat lo) 64]
+          let maskVal := ((1 <<< width) - 1) <<< lo
+          let masked := Expr.op .and [shifted, Expr.const (Int.ofNat maskVal) 64]
+          if acc == Expr.const 0 64 then masked
+          else Expr.op .or [acc, masked]
+        ) (Expr.const 0 64)
+        -- RMW: (varName & ~mask) | newBits
+        -- Uses Expr.ref varName directly. For SSA variables, stmtsToMuxExprBlocking
+        -- replaces self-references with the ssaBase (previous SSA iteration).
+        -- This ensures topoSortBody's collectRefs sees the correct dependency.
+        let cleared := Expr.op .and [Expr.ref varName, Expr.const (Int.ofNat invMask) 64]
+        [(varName, Expr.op .or [cleared, newBits])]
+  | _ => []
+
 /-- Build a case arm condition from labels and selector.
     For case(1'b1), labels are direct conditions (priority encoding).
     For normal case, labels are compared against sel. -/
@@ -328,16 +428,30 @@ private def mkCaseCond (sel : SVExpr) (labels : List SVExpr) : Expr :=
     if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
   ) (Expr.const 0 1)
 
-/-- Process case arms: collect guarded assigns and track covered conditions -/
+/-- Process case arms: collect guarded assigns and track covered conditions.
+    Verilog case semantics: first matching arm wins (no fall-through).
+    Each arm's guard is AND-ed with !covered to exclude prior matches. -/
 private def processCaseArms (sel : SVExpr) (arms : List (List SVExpr × List SVStmt))
     (guard : Expr) (collectFn : List SVStmt → Expr → List GuardedAssign)
     : List GuardedAssign × Expr :=
   arms.foldl (fun (result, covered) (labels, body) =>
     let armCond := mkCaseCond sel labels
-    let armAssigns := collectFn body (mkAnd guard armCond)
+    -- Guard this arm with !covered to enforce first-match-wins priority
+    let activeGuard := if covered == .const 0 1 then mkAnd guard armCond
+                       else mkAnd guard (mkAnd (.op .not [covered]) armCond)
+    let armAssigns := collectFn body activeGuard
     let newCovered := if covered == .const 0 1 then armCond else .op .or [covered, armCond]
     (result ++ armAssigns, newCovered)
   ) ([], .const 0 1)
+
+/-- Try to evaluate an IR expression as a compile-time constant.
+    Returns some value if the expression is a constant (including
+    constant comparisons like `eq(0, 0)` → 1). -/
+private def tryEvalConst : Expr → Option Nat
+  | .const v _ => some v.toNat
+  | .op .eq [.const a _, .const b _] => some (if a == b then 1 else 0)
+  | .op .not [e] => do let v ← tryEvalConst e; some (if v == 0 then 1 else 0)
+  | _ => none
 
 /-- Collect all guarded non-blocking assignments from statements.
     `guard` is the current path condition (true = Expr.const 1 1). -/
@@ -355,6 +469,9 @@ partial def collectGuardedNB (stmts : List SVStmt) (guard : Expr := .const 1 1)
           | none => []
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
+      -- No constant folding for non-blocking assigns (posedge always blocks):
+      -- tryEvalConst can change guard priority in the decoder's case statements,
+      -- causing incorrect instruction decode when WITH_PCPI=1.
       collectGuardedNB thenB (mkAnd guard c) ++
       collectGuardedNB elseB (mkAnd guard (.op .not [c]))
     | .caseStmt sel arms default_ =>
@@ -397,9 +514,27 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
       if isDontCare rhs then []
       else match exprToName lhs with
         | some name => [{ guard, target := name, value := lowerExpr rhs }]
-        | none => []
+        | none =>
+          -- Try single-variable concat-LHS
+          match lowerConcatLhsAssign lhs rhs with
+          | some (name, value) => [{ guard, target := name, value }]
+          | none =>
+            -- Multi-variable concat-LHS decomposition
+            -- Group by variable name and OR-combine the shifted bit fields
+            let assigns := decomposeMultiConcatLhs lhs rhs
+            let names := assigns.map (·.1) |>.eraseDups
+            names.flatMap fun name =>
+              let fields := assigns.filter (·.1 == name) |>.map (·.2)
+              match fields with
+              | [] => []
+              | [single] => [{ guard, target := name, value := single }]
+              | first :: rest =>
+                let combined := rest.foldl (fun acc f => Expr.op .or [acc, f]) first
+                [{ guard, target := name, value := combined }]
     | .ifElse cond thenB elseB =>
       let c := lowerExpr cond
+      -- No constant folding here — it corrupts decoder case priority in posedge blocks.
+      -- Constant folding is only safe in emitBlockingStmtsSequential (always @*).
       collectGuardedBlock thenB (mkAnd guard c) ++
       collectGuardedBlock elseB (mkAnd guard (.op .not [c]))
     | .caseStmt sel arms default_ =>
@@ -408,7 +543,17 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
         | some d => collectGuardedBlock d (mkAnd guard (.op .not [covered]))
         | none => []
       armAssigns ++ defAssigns
+    | .forLoop _ _ _ body => collectGuardedBlock body guard
     | _ => []
+
+/-- Collect all Expr.ref names used in an expression -/
+partial def collectRefs : Expr → List String
+  | .ref name => [name]
+  | .op _ args => args.flatMap collectRefs
+  | .concat args => args.flatMap collectRefs
+  | .slice e _ _ => collectRefs e
+  | .index a i => collectRefs a ++ collectRefs i
+  | _ => []
 
 /-- Chain guarded assignments into a flat priority mux (last-write-wins).
     `base` is the default when no guard is active (hold value for registers,
@@ -431,10 +576,45 @@ def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
       | some n => if n == sigName then some (lowerExpr rhs) else none
       | none => none
     | _ => none
-  let base := initDefault.getD (.ref sigName)
+  -- For SSA variables (e.g., next_rd_ssa0_1), use the previous SSA version as base
+  -- This avoids self-reference when no initDefault exists
+  let ssaBase : Option Expr := do
+    -- Extract the LAST _ssaD_N segment to handle nested SSA.
+    -- "foo_ssa0_1_ssa1_2" → prefix="foo_ssa0_1", depth="1", idx=2 → base="foo_ssa0_1_ssa1_1"
+    -- "foo_ssa0_0" → prefix="foo", depth="0", idx=0 → base="foo"
+    let parts := sigName.splitOn "_ssa"
+    if parts.length < 2 then none
+    else
+      -- Reconstruct: prefix = all parts except last, joined by "_ssa"
+      let lastSuffix := parts[parts.length - 1]!  -- e.g., "1_2"
+      let ssaPrefix := String.intercalate "_ssa" (parts.take (parts.length - 1))
+      let suffParts := lastSuffix.splitOn "_"
+      if suffParts.length < 2 then none
+      else
+        let depth := suffParts[0]!
+        let idxStr := suffParts[1]!
+        match idxStr.toNat? with
+        | some 0 => some (.ref ssaPrefix)  -- ssa_0 reads from the prefix (original or outer SSA)
+        | some n => some (.ref s!"{ssaPrefix}_ssa{depth}_{n - 1}")
+        | none => none
+  let base := initDefault.getD (ssaBase.getD (.ref sigName))
   let all := collectGuardedBlock stmts
   let filtered := all.filter (·.target == sigName)
-  guardedToMux filtered base
+  -- For SSA variables, replace self-references (Expr.ref sigName) in guarded assign
+  -- values with the actual base (ssaBase = previous SSA iteration's output).
+  -- This is needed for concat-LHS read-modify-write: (self & ~mask) | newBits
+  -- where "self" should actually read from the previous SSA step.
+  let resolved := if ssaBase.isSome then
+      let rec substSelf (e : Expr) : Expr := match e with
+        | .ref n => if n == sigName then base else .ref n
+        | .op o args => .op o (args.map substSelf)
+        | .concat args => .concat (args.map substSelf)
+        | .slice inner hi lo => .slice (substSelf inner) hi lo
+        | .index arr idx => .index (substSelf arr) (substSelf idx)
+        | other => other
+      filtered.map fun ga => { ga with value := substSelf ga.value }
+    else filtered
+  guardedToMux resolved base
 
 /-- Collect all register names assigned (non-blocking) anywhere in statements -/
 partial def collectAllRegNames (stmts : List SVStmt) : List String :=
@@ -511,10 +691,15 @@ def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List Byte
     let notMask : Nat := 0xFFFFFFFF ^^^ mask
     let maskConst := Expr.const (Int.ofNat mask) 32
     let notMaskConst := Expr.const (Int.ofNat notMask) 32
-    -- new_val = (old & ~mask) | (data & mask)
+    -- Shift data to the correct bit position before masking
+    -- dataExpr is already sliced (e.g., mem_wdata[15:8] → 8-bit value at bit 0)
+    -- Need to shift it to lane.lo position before ANDing with mask
+    let shiftedData := if lane.lo == 0 then dataExpr
+      else Expr.op .shl [dataExpr, Expr.const (Int.ofNat lane.lo) 32]
+    -- new_val = (old & ~mask) | (shifted_data & mask)
     let newVal := Expr.op .or [
       Expr.op .and [acc, notMaskConst],
-      Expr.op .and [dataExpr, maskConst]
+      Expr.op .and [shiftedData, maskConst]
     ]
     Expr.op .mux [condExpr, newVal, acc]
   ) oldVal
@@ -522,28 +707,216 @@ def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List Byte
 /-- Collect all blocking-assigned signal names recursively -/
 partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
   stmts.flatMap fun s => match s with
-    | .blockAssign lhs _ => match exprToName lhs with | some n => [n] | none => []
+    | .blockAssign lhs _ =>
+      match exprToName lhs with
+      | some n => [n]
+      | none =>
+        -- Concat-LHS: extract all target variable names
+        match lhs with
+        | .concat elems => elems.filterMap fun e => match e with
+          | .ident n => some n
+          | .index (.ident n) _ => some n
+          | .slice (.ident n) _ _ => some n
+          | .partSelectPlus (.ident n) _ _ => some n
+          | _ => none
+        | _ => []
     | .ifElse _ t e => collectBlockNamesTop t ++ collectBlockNamesTop e
     | .caseStmt _ arms d =>
       (arms.flatMap fun (_, b) => collectBlockNamesTop b) ++
       (match d with | some b => collectBlockNamesTop b | none => [])
+    | .forLoop _ _ _ body => collectBlockNamesTop body
     | _ => []
+
+-- ============================================================================
+-- Sequential SSA emitter for always @* blocks (MemorySSA approach)
+-- ============================================================================
+
+/-- Environment mapping variable names to their latest SSA wire name.
+    Used by emitSequentialSSA to track the "current value" of each variable
+    as statements are processed top-to-bottom. -/
+abbrev SeqSSAEnv := List (String × String)
+
+private def seqEnvLookup (env : SeqSSAEnv) (name : String) : String :=
+  match env.find? (·.1 == name) with
+  | some (_, latest) => latest
+  | none => name
+
+private def seqEnvUpdate (env : SeqSSAEnv) (name latest : String) : SeqSSAEnv :=
+  if env.any (·.1 == name) then
+    env.map fun (k, v) => if k == name then (k, latest) else (k, v)
+  else
+    env ++ [(name, latest)]
+
+/-- Replace all Expr.ref names using the current SSA environment.
+    Looks up each ref in env and substitutes with the latest SSA name. -/
+private partial def substExprEnv (env : SeqSSAEnv) : Expr → Expr
+  | .ref name => .ref (seqEnvLookup env name)
+  | .op o args => .op o (args.map (substExprEnv env))
+  | .concat args => .concat (args.map (substExprEnv env))
+  | .slice e hi lo => .slice (substExprEnv env e) hi lo
+  | .index arr idx => .index (substExprEnv env arr) (substExprEnv env idx)
+  | other => other
+
+/-- Emit IR assigns for an always @* block by processing statements sequentially.
+    Each variable write creates a new SSA wire; reads use the latest SSA name.
+    This correctly handles "read-then-overwrite" patterns like:
+      next_rdx = rdx;            // read initial
+      for (...) use(next_rdx);   // reads initial value
+      next_rdx = next_rdt << 1;  // overwrite with loop result
+    which cannot be expressed as a single MUX without cyclic dependency.
+    Returns (assigns, new_wires, final_env, step_counter). -/
+partial def emitSequentialSSA (stmts : List SVStmt)
+    (env : SeqSSAEnv) (stepCounter : Nat)
+    : List Stmt × List Port × SeqSSAEnv × Nat :=
+  stmts.foldl (fun (result, wires, curEnv, step) s =>
+    match s with
+    | .blockAssign lhs rhs =>
+      if isDontCare rhs then (result, wires, curEnv, step)
+      else
+        match exprToName lhs with
+        | some name =>
+          let rhsExpr := substExprEnv curEnv (lowerExpr rhs)
+          let wireName := s!"{name}_seq{step}"
+          ( result ++ [.assign wireName rhsExpr]
+          , wires ++ [{ name := wireName, ty := .bitVector 64 }]
+          , seqEnvUpdate curEnv name wireName
+          , step + 1 )
+        | none =>
+          -- Concat-LHS: decompose and create SSA wires for each target
+          let assigns := decomposeMultiConcatLhs lhs rhs
+          assigns.foldl (fun (r, w, e, st) (name, value) =>
+            let substValue := substExprEnv e value
+            let wireName := s!"{name}_seq{st}"
+            ( r ++ [.assign wireName substValue]
+            , w ++ [{ name := wireName, ty := .bitVector 64 }]
+            , seqEnvUpdate e name wireName
+            , st + 1 )
+          ) (result, wires, curEnv, step)
+    | .ifElse cond thenB elseB =>
+      let condExpr := substExprEnv curEnv (lowerExpr cond)
+      let (thenStmts, thenWires, thenEnv, thenStep) := emitSequentialSSA thenB curEnv step
+      let (elseStmts, elseWires, elseEnv, elseStep) := emitSequentialSSA elseB curEnv thenStep
+      -- Merge: MUX for each variable changed in either branch
+      let allChanged := ((thenEnv ++ elseEnv).filter fun (k, v) =>
+        seqEnvLookup curEnv k != v).map (·.1) |>.eraseDups
+      let (muxStmts, muxWires, mergedEnv, muxStep) := allChanged.foldl
+        (fun (r, w, e, st) name =>
+          let preIfVal := seqEnvLookup curEnv name
+          let thenLookup := seqEnvLookup thenEnv name
+          let elseLookup := seqEnvLookup elseEnv name
+          let thenChanged := thenLookup != preIfVal
+          let elseChanged := elseLookup != preIfVal
+          if thenChanged && elseChanged then
+            -- Both branches modified: MUX between branch results
+            let muxName := s!"{name}_seq{st}"
+            ( r ++ [.assign muxName (.op .mux [condExpr, .ref thenLookup, .ref elseLookup])]
+            , w ++ [{ name := muxName, ty := .bitVector 64 }]
+            , seqEnvUpdate e name muxName
+            , st + 1 )
+          else if thenChanged then
+            -- Only then-branch modified: MUX with pre-if value
+            -- If preIfVal is the raw variable name (no _seq wire), it means the variable
+            -- was never assigned before this if-else. Use the then-branch result directly
+            -- guarded by condition, to avoid self-referencing the final output.
+            let hasSeqWire := (preIfVal.splitOn "_seq").length > 1
+            if hasSeqWire then
+              let muxName := s!"{name}_seq{st}"
+              ( r ++ [.assign muxName (.op .mux [condExpr, .ref thenLookup, .ref preIfVal])]
+              , w ++ [{ name := muxName, ty := .bitVector 64 }]
+              , seqEnvUpdate e name muxName
+              , st + 1 )
+            else
+              -- No prior seq wire: just use the then-branch value (condition always true
+              -- for constant-folded parameters, or the variable is don't-care otherwise)
+              (r, w, seqEnvUpdate e name thenLookup, st)
+          else
+            -- Only else-branch modified
+            let hasSeqWire := (preIfVal.splitOn "_seq").length > 1
+            if hasSeqWire then
+              let muxName := s!"{name}_seq{st}"
+              ( r ++ [.assign muxName (.op .mux [condExpr, .ref preIfVal, .ref elseLookup])]
+              , w ++ [{ name := muxName, ty := .bitVector 64 }]
+              , seqEnvUpdate e name muxName
+              , st + 1 )
+            else
+              (r, w, seqEnvUpdate e name elseLookup, st)
+        ) ([], [], curEnv, elseStep)
+      ( result ++ thenStmts ++ elseStmts ++ muxStmts
+      , wires ++ thenWires ++ elseWires ++ muxWires
+      , mergedEnv, muxStep )
+    | .caseStmt sel arms default_ =>
+      let selExpr := substExprEnv curEnv (lowerExpr sel)
+      -- Process default first for base values
+      let (defStmts, defWires, defEnv, defStep) := match default_ with
+        | some d => emitSequentialSSA d curEnv step
+        | none => ([], [], curEnv, step)
+      -- Process arms
+      let (armStmts, armWires, armEnvs, armStep) := arms.foldl
+        (fun (r, w, envs, st) (labels, body) =>
+          let (aStmts, aWires, aEnv, aStep) := emitSequentialSSA body curEnv st
+          (r ++ aStmts, w ++ aWires, envs ++ [(labels, aEnv)], aStep)
+        ) (defStmts, defWires, [], defStep)
+      -- Merge with priority MUX
+      let allChangedNames := (armEnvs.flatMap fun (_, aEnv) =>
+        aEnv.filter (fun (k, v) => seqEnvLookup curEnv k != v) |>.map (·.1)
+      ).eraseDups
+      let (muxStmts, muxWires, mergedEnv, muxStep) := allChangedNames.foldl
+        (fun (r, w, e, st) name =>
+          let preVal := seqEnvLookup curEnv name
+          let defLookup := seqEnvLookup defEnv name
+          let hasSeqWire := (preVal.splitOn "_seq").length > 1
+          -- If variable had no _seq wire before (e.g., initialized with 'bx / don't-care),
+          -- and only some arms assign it, use the arm values directly without a default
+          -- that would self-reference the final output.
+          if !hasSeqWire && defLookup == preVal then
+            -- No prior seq wire and default didn't change it: build MUX without default ref
+            -- If only one arm changed it, just use that arm's value directly
+            let armsThatChanged := armEnvs.filter fun (_, aEnv) =>
+              seqEnvLookup aEnv name != preVal
+            match armsThatChanged with
+            | [(_, aEnv)] =>
+              -- Single arm: just use its value
+              let armVal := seqEnvLookup aEnv name
+              (r, w, seqEnvUpdate e name armVal, st)
+            | _ =>
+              -- Multiple arms: build MUX chain, use const 0 as base (don't-care variable)
+              let muxExpr := armEnvs.foldr (fun (labels, aEnv) acc =>
+                let armLookup := seqEnvLookup aEnv name
+                if armLookup == preVal then acc  -- arm didn't change: skip
+                else
+                  let cond := mkCaseCond sel labels
+                  .op .mux [cond, .ref armLookup, acc]
+              ) (.const 0 64)  -- don't-care base
+              let muxName := s!"{name}_seq{st}"
+              ( r ++ [.assign muxName muxExpr]
+              , w ++ [{ name := muxName, ty := .bitVector 64 }]
+              , seqEnvUpdate e name muxName
+              , st + 1 )
+          else
+            -- Normal case: variable has a prior value
+            let defVal := Expr.ref defLookup
+            let muxExpr := armEnvs.foldr (fun (labels, aEnv) acc =>
+              let armVal := Expr.ref (seqEnvLookup aEnv name)
+              let cond := mkCaseCond sel labels
+              .op .mux [cond, armVal, acc]
+            ) defVal
+            let muxName := s!"{name}_seq{st}"
+            ( r ++ [.assign muxName muxExpr]
+            , w ++ [{ name := muxName, ty := .bitVector 64 }]
+            , seqEnvUpdate e name muxName
+            , st + 1 )
+        ) ([], [], curEnv, armStep)
+      (result ++ armStmts ++ muxStmts, wires ++ armWires ++ muxWires, mergedEnv, muxStep)
+    | .forLoop _ _ _ body =>
+      let (innerStmts, innerWires, innerEnv, innerStep) := emitSequentialSSA body curEnv step
+      (result ++ innerStmts, wires ++ innerWires, innerEnv, innerStep)
+    | _ => (result, wires, curEnv, step)
+  ) ([], [], env, stepCounter)
 
 -- ============================================================================
 -- Topological sort of IR statements
 -- ============================================================================
 
-/-- Collect all Expr.ref names used in an expression -/
-partial def collectRefs : Expr → List String
-  | .ref name => [name]
-  | .op _ args => args.flatMap collectRefs
-  | .concat args => args.flatMap collectRefs
-  | .slice e _ _ => collectRefs e
-  | .index a i => collectRefs a ++ collectRefs i
-  | _ => []
-
-/-- Topologically sort assign statements so each wire is computed after its dependencies.
-    Registers are placed after all assigns (they read current register values). -/
 def topoSortBody (body : List Stmt) : List Stmt := Id.run do
   let mut assigns : List (String × Expr) := []
   let mut registers : List Stmt := []
@@ -560,14 +933,43 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
   let mut emitted : List String := []
   let mut remaining := assigns
   -- Kahn's algorithm
+  -- SSA prologues (name_ssa0_0 = original) should not depend on the
+  -- epilogue assignment of 'original' — they read the initial value.
+  -- Detect SSA prologues: "foo_ssaD_0" where the LAST segment after _ssa is "D_0"
+  -- (not "D_10", "D_20", etc.)
+  let isSsaPrologueName (name : String) : Bool :=
+    let parts := name.splitOn "_ssa"
+    if parts.length < 2 then false
+    else
+      let lastSeg := parts[parts.length - 1]!  -- e.g., "1_0" or "1_10"
+      let segParts := lastSeg.splitOn "_"
+      segParts.length >= 2 && segParts[segParts.length - 1]! == "0"
+  let ssaPrologueBase (name : String) : Option String :=
+    let parts := name.splitOn "_ssa"
+    if parts.length < 2 then none
+    else
+      let lastSeg := parts[parts.length - 1]!
+      let segParts := lastSeg.splitOn "_"
+      if segParts.length >= 2 && segParts[segParts.length - 1]! == "0" then
+        some (String.intercalate "_ssa" (parts.take (parts.length - 1)))
+      else none
+  let ssaPrologueOriginals := assigns.filterMap fun (name, _rhs) =>
+    if isSsaPrologueName name then ssaPrologueBase name else none
   let mut changed := true
   while changed do
     changed := false
     let mut nextRemaining : List (String × Expr) := []
     for (name, rhs) in remaining do
       let deps := collectRefs rhs
+      -- For SSA prologues, their reference to the original variable is NOT a dependency
+      -- (they read the initial value, not the epilogue-updated value)
+      let isSsaPrologue := isSsaPrologueName name
+      let prologueBase := if isSsaPrologue then ssaPrologueBase name else none
       let depsReady := deps.all fun dep =>
-        !(assignNames.any (· == dep)) || emitted.any (· == dep)
+        dep == name ||  -- Self-reference is not a dependency (resolved by stmtsToMuxExprBlocking)
+        !(assignNames.any (· == dep)) || emitted.any (· == dep) ||
+        (isSsaPrologue && prologueBase.any (· == dep))
+      -- (trace removed)
       if depsReady then
         sorted := sorted ++ [.assign name rhs]
         emitted := emitted ++ [name]
@@ -575,6 +977,8 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
       else
         nextRemaining := nextRemaining ++ [(name, rhs)]
     remaining := nextRemaining
+  if !remaining.isEmpty then
+    dbg_trace s!"[TOPO WARNING] {remaining.length} assigns have cyclic deps (of {assigns.length} total). Names: {remaining.map (·.1) |>.take 20}"
   for (name, rhs) in remaining do
     sorted := sorted ++ [.assign name rhs]
   return memories ++ sorted ++ registers ++ others
@@ -625,6 +1029,207 @@ def extractParamDefaults (svMod : SVModule) : List (String × Nat) :=
     | _ => none
   fromParams ++ fromItems
 
+/-- Substitute parameter references with constant values in SV expressions -/
+partial def substParamExpr (params : List (String × SVExpr)) : SVExpr → SVExpr
+  | .ident name => match params.find? fun (n, _) => n == name with
+    | some (_, v) => v | none => .ident name
+  | .unary op e => .unary op (substParamExpr params e)
+  | .binary op a b => .binary op (substParamExpr params a) (substParamExpr params b)
+  | .ternary c t e => .ternary (substParamExpr params c) (substParamExpr params t) (substParamExpr params e)
+  | .index a i => .index (substParamExpr params a) (substParamExpr params i)
+  | .slice e hi lo => .slice (substParamExpr params e) hi lo
+  | .partSelectPlus e base w => .partSelectPlus (substParamExpr params e) (substParamExpr params base) (substParamExpr params w)
+  | .concat es => .concat (es.map (substParamExpr params))
+  | e => e
+
+partial def substParamStmt (params : List (String × SVExpr)) : SVStmt → SVStmt
+  | .blockAssign lhs rhs => .blockAssign (substParamExpr params lhs) (substParamExpr params rhs)
+  | .nonblockAssign lhs rhs => .nonblockAssign (substParamExpr params lhs) (substParamExpr params rhs)
+  | .ifElse cond thenB elseB =>
+    .ifElse (substParamExpr params cond)
+      (thenB.map (substParamStmt params)) (elseB.map (substParamStmt params))
+  | .caseStmt sel arms dflt =>
+    .caseStmt (substParamExpr params sel)
+      (arms.map fun (labels, body) => (labels.map (substParamExpr params), body.map (substParamStmt params)))
+      (dflt.map fun d => d.map (substParamStmt params))
+  | .forLoop init cond step body =>
+    .forLoop (substParamStmt params init) (substParamExpr params cond) (substParamStmt params step)
+      (body.map (substParamStmt params))
+  | .assertStmt cond => .assertStmt (substParamExpr params cond)
+
+/-- Collect all variable names read in expressions. -/
+private partial def collectReadNamesExpr : SVExpr → List String
+  | .ident n => [n]
+  | .unary _ e => collectReadNamesExpr e
+  | .binary _ a b => collectReadNamesExpr a ++ collectReadNamesExpr b
+  | .ternary c t e => collectReadNamesExpr c ++ collectReadNamesExpr t ++ collectReadNamesExpr e
+  | .index a i => collectReadNamesExpr a ++ collectReadNamesExpr i
+  | .slice e _ _ => collectReadNamesExpr e
+  | .partSelectPlus e base _ => collectReadNamesExpr e ++ collectReadNamesExpr base
+  | .concat es => es.flatMap collectReadNamesExpr
+  | _ => []
+
+private partial def collectReadNamesStmt : List SVStmt → List String
+  | stmts => stmts.flatMap fun s => match s with
+    | .blockAssign _ rhs => collectReadNamesExpr rhs
+    | .ifElse c t e => collectReadNamesExpr c ++ collectReadNamesStmt t ++ collectReadNamesStmt e
+    | .forLoop _ _ _ body => collectReadNamesStmt body
+    | _ => []
+
+/-- Collect all variable names written in blocking assignments (including concat-LHS). -/
+private partial def collectWriteNames : List SVStmt → List String
+  | stmts => stmts.flatMap fun s => match s with
+    | .blockAssign lhs _ => match lhs with
+      | .ident name => [name]
+      | .index (.ident name) _ => [name]
+      | .slice (.ident name) _ _ => [name]
+      | .partSelectPlus (.ident name) _ _ => [name]
+      | .concat elems => elems.filterMap fun e => match e with
+        | .ident n => some n | .index (.ident n) _ => some n
+        | .slice (.ident n) _ _ => some n | .partSelectPlus (.ident n) _ _ => some n
+        | _ => none
+      | _ => []
+    | .ifElse _ t e => collectWriteNames t ++ collectWriteNames e
+    | .forLoop _ _ _ body => collectWriteNames body
+    | _ => []
+
+/-- Rename all occurrences of `oldName` to `newName` in an SVExpr. -/
+private partial def renameExpr (oldName newName : String) : SVExpr → SVExpr
+  | .ident n => if n == oldName then .ident newName else .ident n
+  | .unary op e => .unary op (renameExpr oldName newName e)
+  | .binary op a b => .binary op (renameExpr oldName newName a) (renameExpr oldName newName b)
+  | .ternary c t e => .ternary (renameExpr oldName newName c) (renameExpr oldName newName t) (renameExpr oldName newName e)
+  | .index a i => .index (renameExpr oldName newName a) (renameExpr oldName newName i)
+  | .slice e hi lo => .slice (renameExpr oldName newName e) hi lo
+  | .partSelectPlus e base w => .partSelectPlus (renameExpr oldName newName e) (renameExpr oldName newName base) (renameExpr oldName newName w)
+  | .concat es => .concat (es.map (renameExpr oldName newName))
+  | e => e
+
+/-- Rename all occurrences of `oldName` to `newName` in an SVStmt. -/
+private partial def renameStmt (oldName newName : String) : SVStmt → SVStmt
+  | .blockAssign lhs rhs => .blockAssign (renameExpr oldName newName lhs) (renameExpr oldName newName rhs)
+  | .nonblockAssign lhs rhs => .nonblockAssign (renameExpr oldName newName lhs) (renameExpr oldName newName rhs)
+  | .ifElse c t e => .ifElse (renameExpr oldName newName c) (t.map (renameStmt oldName newName)) (e.map (renameStmt oldName newName))
+  | .caseStmt sel arms d =>
+    .caseStmt (renameExpr oldName newName sel)
+      (arms.map fun (ls, b) => (ls.map (renameExpr oldName newName), b.map (renameStmt oldName newName)))
+      (d.map fun ds => ds.map (renameStmt oldName newName))
+  | .forLoop i c s b => .forLoop (renameStmt oldName newName i) (renameExpr oldName newName c) (renameStmt oldName newName s) (b.map (renameStmt oldName newName))
+  | .assertStmt c => .assertStmt (renameExpr oldName newName c)
+
+/-- Rename in LHS of blockAssign only, recursing into ifElse/forLoop/case. -/
+private partial def renameLhsOnly (oldName newName : String) : SVStmt → SVStmt
+  | .blockAssign lhs rhs => .blockAssign (renameExpr oldName newName lhs) rhs
+  | .ifElse c t e => .ifElse c (t.map (renameLhsOnly oldName newName)) (e.map (renameLhsOnly oldName newName))
+  | .forLoop i c s body => .forLoop i c s (body.map (renameLhsOnly oldName newName))
+  | .caseStmt sel arms d =>
+    .caseStmt sel (arms.map fun (ls, b) => (ls, b.map (renameLhsOnly oldName newName)))
+      (d.map fun ds => ds.map (renameLhsOnly oldName newName))
+  | other => other
+
+/-- Unroll for loops with constant bounds in SV statements.
+    Uses SSA-style renaming: variables written in the loop body get
+    iteration-specific names (e.g., next_rd → next_rd_ssa0_0, next_rd_ssa0_1, ...)
+    to correctly handle sequential blocking assignment dependencies.
+    `depth` distinguishes nested loops (ssa0_, ssa1_, ...). -/
+partial def unrollForLoops (paramVals : List (String × Nat)) (depth : Nat := 0) : List SVStmt → List SVStmt :=
+  fun stmts => stmts.flatMap fun s => match s with
+  | .forLoop (.blockAssign (.ident var) initExpr) condExpr (.blockAssign (.ident stepVar) stepExpr) body =>
+    if var != stepVar then [s]
+    else
+      let initVal := evalConstExpr paramVals initExpr |>.getD 0
+      let bound := match condExpr with
+        | .binary .lt (.ident v) limitExpr =>
+          if v == var then evalConstExpr paramVals limitExpr else none
+        | _ => none
+      let stepVal := match stepExpr with
+        | .binary .add (.ident v) incExpr =>
+          if v == var then evalConstExpr paramVals incExpr else none
+        | _ => none
+      match bound, stepVal with
+      | some b, some inc =>
+        if inc == 0 || b <= initVal then [s]
+        else Id.run do
+          let ssaTag := s!"_ssa{depth}_"
+          -- SSA-rename ALL variables written in the loop.
+          -- Even non-self-referential variables need SSA when updated via non-overlapping
+          -- part-selects across iterations (e.g., next_rdt[j+3] = ...). Without SSA,
+          -- MUX last-write-wins would discard previous iterations' bit fields.
+          let writeNames := collectWriteNames body |>.eraseDups
+          let readNames := collectReadNamesStmt body |>.eraseDups
+          -- For nested SSA, unify read/write names that share the same base
+          -- (e.g., write=foo_ssa0_1, read=foo_ssa0_0 → rename reads to write name)
+          let stripSsa (n : String) : String :=
+            let parts := n.splitOn "_ssa"
+            if parts.length >= 2 then parts[0]! else n
+          let mut unifiedBody := body
+          for wn in writeNames do
+            if stripSsa wn != wn then
+              for rn in readNames do
+                if rn != wn && stripSsa rn == stripSsa wn then
+                  unifiedBody := unifiedBody.map (renameStmt rn wn)
+          let selfRefNames := collectWriteNames unifiedBody |>.eraseDups
+          let numIters := (b - initVal + inc - 1) / inc
+
+          -- SSA in unrollForLoops is disabled: emitSequentialSSA handles ordering.
+          if true then
+            -- Simple unroll without SSA (sequential emitter handles variable tracking)
+            let mut result : List SVStmt := []
+            let mut j := initVal
+            while j < b do
+              let substituted := unifiedBody.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
+              let unrolled := unrollForLoops ((var, j) :: paramVals) (depth + 1) substituted
+              result := result ++ unrolled
+              j := j + inc
+            result
+          else
+            -- SSA rename only self-referential variables
+            let mut result : List SVStmt := []
+            -- Prologue: capture initial values
+            for name in selfRefNames do
+              result := result ++ [.blockAssign (.ident s!"{name}{ssaTag}0") (.ident name)]
+
+            let mut j := initVal
+            let mut iterIdx : Nat := 0
+            while j < b do
+              let substituted := unifiedBody.map (substParamStmt [(var, .lit (.decimal (some 32) j))])
+              -- SSA rename FIRST (before recursive unroll)
+              let mut renamed := substituted
+              for name in selfRefNames do
+                renamed := renamed.map (renameStmt name s!"{name}{ssaTag}{iterIdx}")
+              for name in selfRefNames do
+                -- Rename LHS of ALL blockAssigns (including nested in ifElse/forLoop)
+                let readName := s!"{name}{ssaTag}{iterIdx}"
+                let writeName := s!"{name}{ssaTag}{iterIdx + 1}"
+                renamed := renamed.map (renameLhsOnly readName writeName)
+              -- THEN recursively unroll nested loops (they see renamed SSA names)
+              let unrolled := unrollForLoops ((var, j) :: paramVals) (depth + 1) renamed
+              result := result ++ unrolled
+              j := j + inc
+              iterIdx := iterIdx + 1
+
+            -- Epilogue: write final SSA value back
+            for name in selfRefNames do
+              result := result ++ [.blockAssign (.ident name) (.ident s!"{name}{ssaTag}{numIters}")]
+            result
+      | _, _ => [s]
+  | .ifElse cond thenB elseB =>
+    [.ifElse cond (unrollForLoops paramVals depth thenB) (unrollForLoops paramVals depth elseB)]
+  | .caseStmt sel arms dflt =>
+    [.caseStmt sel
+      (arms.map fun (labels, body) => (labels, unrollForLoops paramVals depth body))
+      (dflt.map (unrollForLoops paramVals depth))]
+  | other => [other]
+
+def substituteParamsInItem (params : List (String × SVExpr)) (paramVals : List (String × Nat))
+    : SVModuleItem → SVModuleItem
+  | .alwaysBlock sens stmts =>
+    let substituted := stmts.map (substParamStmt params)
+    let unrolled := unrollForLoops paramVals 0 substituted
+    .alwaysBlock sens unrolled
+  | .contAssign lhs rhs => .contAssign (substParamExpr params lhs) (substParamExpr params rhs)
+  | item => item
+
 /-- Expand generate blocks by evaluating conditions against parameter defaults.
     Returns the items from the selected branch (recursively for nested generates). -/
 partial def expandGenerateBlocks (paramVals : List (String × Nat))
@@ -642,12 +1247,26 @@ partial def expandGenerateBlocks (paramVals : List (String × Nat))
 -- Module lowering
 -- ============================================================================
 
-/-- Lower a single SVModule to Sparkle IR Module -/
-def lowerModule (svMod : SVModule) : Except String Module := do
-  -- Expand generate blocks using parameter defaults
-  let paramVals := extractParamDefaults svMod
+/-- Lower a single SVModule to Sparkle IR Module, optionally overriding parameters. -/
+def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := []) : Except String Module := do
+  -- Expand generate blocks using parameter defaults + overrides
+  let paramDefaults := extractParamDefaults svMod
+  -- Overrides take priority: replace defaults with overridden values
+  let paramVals := paramDefaults.map fun (n, v) =>
+    match paramOverrides.find? fun (on, _) => on == n with
+    | some (_, ov) => (n, ov)
+    | none => (n, v)
   let expandedItems := expandGenerateBlocks paramVals svMod.items
-  let svMod := { svMod with items := expandedItems }
+  -- Replace parameter references with constants in all SV expressions
+  let paramLits : List (String × SVExpr) := paramVals.map fun (n, v) =>
+    (n, .lit (.decimal (some 32) v))
+  let expandedItems := expandedItems.map (substituteParamsInItem paramLits paramVals)
+  -- Also substitute in module-level params
+  let svParams := svMod.params.map fun p =>
+    match paramVals.find? fun (n, _) => n == p.name with
+    | some (_, v) => { p with value := .lit (.decimal (some 32) v) }
+    | none => p
+  let svMod := { svMod with items := expandedItems, params := svParams }
 
   -- Build environment
   let mut env := LowerEnv.empty
@@ -707,14 +1326,23 @@ def lowerModule (svMod : SVModule) : Except String Module := do
 
   -- Build body statements
   let mut body : List Stmt := []
+  -- All always @* blocks now use MUX mode (SSA handles loop dependencies)
 
-  -- Emit parameter default values as constant assigns
+  -- Emit parameter values as constant assigns (with overrides applied)
+  let paramWidth (w : Option (Nat × Nat)) : Nat :=
+    match w with | some (hi, lo) => hi - lo + 1 | none => 32
   for p in svMod.params do
-    body := body ++ [.assign p.name (lowerExpr p.value)]
+    let val := match paramVals.find? fun (n, _) => n == p.name with
+      | some (_, v) => .const (Int.ofNat v) (paramWidth p.width)
+      | none => lowerExpr p.value
+    body := body ++ [.assign p.name val]
   for item in svMod.items do
     match item with
     | .paramDecl param =>
-      body := body ++ [.assign param.name (lowerExpr param.value)]
+      let val := match paramVals.find? fun (n, _) => n == param.name with
+        | some (_, v) => .const (Int.ofNat v) (paramWidth param.width)
+        | none => lowerExpr param.value
+      body := body ++ [.assign param.name val]
     | _ => pure ()
 
   for item in svMod.items do
@@ -770,11 +1398,19 @@ def lowerModule (svMod : SVModule) : Except String Module := do
           wires := wires ++ [{ name := regName, ty := hwTy }]
 
     | .alwaysBlock .star stmts =>
-      -- Combinational: build mux expressions per signal
+      -- Sequential SSA: process statements top-to-bottom, creating SSA wires
+      -- for each variable write. This correctly handles read-then-overwrite patterns.
+      let (seqStmts, seqWires, finalEnv, _) := emitSequentialSSA stmts [] 0
+      body := body ++ seqStmts
+      wires := wires ++ seqWires
+      -- Create final assigns: map original variable names to their latest SSA wire
       let sigNames := collectBlockNamesTop stmts |>.eraseDups
       for sigName in sigNames do
-        let expr := stmtsToMuxExprBlocking sigName stmts
-        body := body ++ [.assign sigName expr]
+        let latestWire := seqEnvLookup finalEnv sigName
+        if latestWire != sigName then
+          body := body ++ [.assign sigName (.ref latestWire)]
+          if !wireExists wires sigName then
+            wires := wires ++ [{ name := sigName, ty := .bitVector 64 }]
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
@@ -819,8 +1455,8 @@ def lowerModule (svMod : SVModule) : Except String Module := do
         writeAddr writeData writeEnable
         (.const 0 addrWidth) s!"{name}_rdata" true]
       wires := wires ++ [{ name := s!"{name}_rdata", ty := widthToHWType width }]
-    | .instantiation modName instName conns =>
-      -- Module instantiation → Stmt.inst
+    | .instantiation modName instName conns _paramOvr =>
+      -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
       body := body ++ [.inst modName instName irConns]
     | _ => pure ()
@@ -923,8 +1559,10 @@ partial def prefixExprNames (pfx : String) (nameSet : List String) : Expr → Ex
   | .index arr idx => .index (prefixExprNames pfx nameSet arr) (prefixExprNames pfx nameSet idx)
   | e => e
 
-/-- Flatten a design: inline all sub-module instantiations into a single module -/
-def flattenDesign (design : Design) : Design := Id.run do
+/-- Flatten a design: inline all sub-module instantiations into a single module.
+    The optional `svDesign` parameter provides access to the original SV AST
+    for re-lowering sub-modules with parameter overrides (e.g., ENABLE_MUL=1). -/
+def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) : Design := Id.run do
   let moduleMap := design.modules
   match design.modules.find? fun (m : Module) => m.name == design.topModule with
   | none => return design
@@ -937,43 +1575,83 @@ def flattenDesign (design : Design) : Design := Id.run do
       | .inst modName instName conns =>
         -- Find the sub-module
         match moduleMap.find? fun (m : Module) => m.name == modName with
-        | none => flatBody := flatBody ++ [stmt]  -- keep as-is if not found
+        | none =>
+          -- Sub-module not found: emit warning wire and skip
+          flatBody := flatBody ++ [.assign s!"_warn_missing_{modName}_{instName}" (.const 0 1)]
         | some subMod =>
+          -- Find the SV AST for this instantiation to get parameter overrides
+          -- Walk the SV top module items to find the matching instantiation
+          let svTopMod? := svDesign.modules.find? fun m => m.name == design.topModule
+          let paramOvr : List (String × Nat) := match svTopMod? with
+            | some svTop =>
+              let expanded := expandGenerateBlocks (extractParamDefaults svTop) svTop.items
+              match expanded.findSome? fun item =>
+                match item with
+                | .instantiation mn _ _ pOvr =>
+                  if mn == modName then
+                    some (pOvr.filterMap fun (name, expr) =>
+                      match expr with
+                      | .lit (.decimal _ v) => some (name, v)
+                      | .lit (.hex _ v) => some (name, v)
+                      | .lit (.binary _ v) => some (name, v)
+                      | _ => none)
+                  else none
+                | _ => none
+              with
+              | some ovr => ovr
+              | none => []
+            | none => []
+
+          -- Re-lower the sub-module with parameter overrides applied
+          -- This ensures generate-if blocks are expanded with the correct values
+          let svSubMod? := svDesign.modules.find? fun m => m.name == modName
+          let effectiveSubMod ← match svSubMod? with
+            | some svSub =>
+              match lowerModule svSub paramOvr with
+              | .ok m => pure m
+              | .error _ => pure subMod
+            | none => pure subMod
+
           -- Collect all internal names in sub-module (including memory names)
-          let memNames := subMod.body.filterMap fun s => match s with
+          let memNames := effectiveSubMod.body.filterMap fun s => match s with
             | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
-          let subNames := subMod.wires.map (·.name) ++
-                          subMod.inputs.map (·.name) ++
-                          subMod.outputs.map (·.name) ++
+          let subNames := effectiveSubMod.wires.map (·.name) ++
+                          effectiveSubMod.inputs.map (·.name) ++
+                          effectiveSubMod.outputs.map (·.name) ++
                           memNames
 
           -- Add prefixed wires from sub-module
-          for w in subMod.wires do
+          for w in effectiveSubMod.wires do
             flatWires := flatWires ++ [{ name := s!"{instName}_{w.name}", ty := w.ty }]
-          for p in subMod.inputs do
+          for p in effectiveSubMod.inputs do
             flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
-          for p in subMod.outputs do
+          for p in effectiveSubMod.outputs do
             flatWires := flatWires ++ [{ name := s!"{instName}_{p.name}", ty := p.ty }]
 
           -- Wire port connections:
           -- Input ports: assign instName_portName = parentExpr
-          -- Output ports: assign parentWire = instName_portName
-          let inputNames := subMod.inputs.map (·.name)
-          let outputNames := subMod.outputs.map (·.name)
+          -- Output ports: assign parentWire/expr = instName_portName
+          let inputNames := effectiveSubMod.inputs.map (·.name)
+          let outputNames := effectiveSubMod.outputs.map (·.name)
           for (portName, expr) in conns do
             if inputNames.any (· == portName) then
               -- Input: parent drives sub-module's port
               flatBody := flatBody ++ [.assign s!"{instName}_{portName}" expr]
             else if outputNames.any (· == portName) then
               -- Output: sub-module drives parent's wire
-              -- expr is typically .ref "parentWire"
               match expr with
               | .ref parentWire =>
                 flatBody := flatBody ++ [.assign parentWire (.ref s!"{instName}_{portName}")]
-              | _ => pure ()  -- complex expression, skip
+              | _ =>
+                -- Complex output expression (array index, bit slice, concat, etc.)
+                -- Create a temporary wire and assign the sub-module output to it.
+                -- The parent can read from this wire.
+                let tmpWire := s!"{instName}_{portName}_out"
+                flatWires := flatWires ++ [{ name := tmpWire, ty := .bitVector 32 }]
+                flatBody := flatBody ++ [.assign tmpWire (.ref s!"{instName}_{portName}")]
 
           -- Add prefixed body statements from sub-module
-          for s in subMod.body do
+          for s in effectiveSubMod.body do
             let prefixed := match s with
               | .assign name rhs =>
                 .assign s!"{instName}_{name}" (prefixExprNames instName subNames rhs)
@@ -981,6 +1659,7 @@ def flattenDesign (design : Design) : Design := Id.run do
                 .register s!"{instName}_{name}" s!"{instName}_{clk}" s!"{instName}_{rst}"
                   (prefixExprNames instName subNames input) init
               | .inst subModName subInstName subConns =>
+                -- Keep nested .inst with prefixed names — will be flattened in next iteration
                 .inst subModName s!"{instName}_{subInstName}"
                   (subConns.map fun (pn, e) => (pn, prefixExprNames instName subNames e))
               | .memory name aw dw clk wa wd we ra rd combo =>
@@ -1070,7 +1749,20 @@ def parseAndLower (input : String) : Except String Design := do
 def parseAndLowerFlat (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   let design ← lowerDesign svDesign
-  pure (flattenDesign design)
+  -- Iteratively flatten until no .inst remains (handles nested sub-modules)
+  let hasInst (d : Design) : Bool :=
+    match d.modules.head? with
+    | some m => m.body.any fun s => match s with | .inst .. => true | _ => false
+    | none => false
+  let mut result := flattenDesign design svDesign
+  -- For nested hierarchies: re-flatten with all original modules available
+  for _ in [:5] do
+    if hasInst result then
+      -- Re-add all original sub-modules so the flattener can find them
+      let enriched := { result with modules := result.modules ++ design.modules }
+      result := flattenDesign enriched svDesign
+    else break
+  pure result
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input

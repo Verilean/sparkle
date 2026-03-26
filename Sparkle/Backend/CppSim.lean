@@ -413,13 +413,16 @@ def emitModule (m : Module) (design : Option Design := none)
       | none => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
           sn.startsWith "_gen_" || tickRefs.contains sn
+    -- Collect memory names to avoid declaring them as local scalars
+    let memoryNames := m.body.filterMap fun s => match s with
+      | .memory name _ _ _ _ _ _ _ _ _ => some (sanitizeName name) | _ => none
     let localWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
-          !ws.contains sn && !tickRefs.contains sn
+          !ws.contains sn && !tickRefs.contains sn && !memoryNames.contains sn
       | none => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
-          !sn.startsWith "_gen_" && !tickRefs.contains sn
+          !sn.startsWith "_gen_" && !tickRefs.contains sn && !memoryNames.contains sn
 
     let wireDecls := memberWires.map fun (p : Port) =>
       s!"    {emitCppType p.ty} {sanitizeName p.name};"

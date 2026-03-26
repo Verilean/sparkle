@@ -57,8 +57,9 @@ def preprocess (input : String) : String := Id.run do
       pure ()  -- skip this line
     else if trimmed.startsWith "`timescale" || trimmed.startsWith "`define" ||
             trimmed.startsWith "`default_nettype" ||
-            trimmed.startsWith "`PICORV32" then
-      pure ()  -- skip directive
+            trimmed.startsWith "`PICORV32" ||
+            trimmed.startsWith "`assert" then
+      pure ()  -- skip directive / macro invocation
     else if trimmed.startsWith "`debug" then
       -- Replace debug macro with empty statement (semicolon)
       result := result ++ [";"]
@@ -226,6 +227,11 @@ partial def parseUnary : P SVExpr := do
   match c with
   | some '!' => let _ ← token (matchStr "!"); let e ← parseUnary; pure (SVExpr.unary .logNot e)
   | some '~' => let _ ← token (matchStr "~"); let e ← parseUnary; pure (SVExpr.unary .bitNot e)
+  | some '-' =>
+    -- Unary minus: -expr (two's complement negation)
+    match ← attempt (do let _ ← token (matchStr "-"); let e ← parseUnary; pure e) with
+    | some e => pure (SVExpr.unary .neg e)
+    | none => parsePrimary
   | some '&' =>
     -- Check for reduction AND (unary &) vs binary &
     match ← attempt (do
@@ -252,17 +258,27 @@ partial def parsePrimaryPost : P SVExpr := do
 partial def parsePostfix (e : SVExpr) : P SVExpr := do
   match ← attempt lbracket with
   | some _ =>
-    let idx ← parseExpr  -- Allow full expressions as index
+    -- Try [base +: width] part-select first
+    -- Use parsePrimary (not parseExpr) for base to avoid consuming + as addition
+    match ← attempt (do
+      let base ← parsePrimary
+      let _ ← token (matchStr "+:")
+      let widthExpr ← parsePrimary
+      rbracket
+      pure (base, widthExpr)
+    ) with
+    | some (base, widthExpr) => parsePostfix (SVExpr.partSelectPlus e base widthExpr)
+    | none =>
+    -- Normal: [idx], [hi:lo]
+    let idx ← parseExpr
     match ← attempt colon with
     | some _ =>
-      -- Bit slice [hi:lo] — need constant values
       let lo ← parseExpr
       rbracket
-      -- Extract constants for slice
       match idx, lo with
       | .lit (.decimal _ hi), .lit (.decimal _ lo') => parsePostfix (SVExpr.slice e hi lo')
       | .lit (.hex _ hi), .lit (.decimal _ lo') => parsePostfix (SVExpr.slice e hi lo')
-      | _, _ => parsePostfix (SVExpr.slice e 0 0)  -- fallback
+      | _, _ => parsePostfix (SVExpr.slice e 0 0)
     | none =>
       rbracket
       parsePostfix (SVExpr.index e idx)
@@ -753,17 +769,19 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                   -- Try module instantiation: moduleName instName ( .port(expr), ... );
                   match ← attempt (do
                     let modName ← identifier
-                    -- Skip optional #(.param(val)) parameter override
+                    -- Parse optional #(.param(val), ...) parameter overrides
+                    let mut paramOvr : List (String × SVExpr) := []
                     match ← attempt (token (matchStr "#")) with
                     | some _ =>
                       lparen
-                      let mut pd : Nat := 1
-                      while pd > 0 do
-                        match ← attempt rparen with
-                        | some _ => pd := pd - 1
-                        | none => match ← attempt lparen with
-                          | some _ => pd := pd + 1
-                          | none => let _ ← nextChar; pure ()
+                      let mut pcont := true
+                      while pcont do
+                        match ← attempt (do dot; let pn ← identifier; lparen; let pe ← parseExpr; rparen; pure (pn, pe)) with
+                        | some (pn, pe) =>
+                          paramOvr := paramOvr ++ [(pn, pe)]
+                          match ← attempt comma with | some _ => pure () | none => pcont := false
+                        | none => pcont := false
+                      rparen
                     | none => pure ()
                     let instName ← identifier
                     lparen
@@ -774,10 +792,10 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                       conns := conns ++ [(pName, pExpr)]
                       match ← attempt comma with | some _ => pure () | none => cont := false
                     rparen; semi
-                    pure (modName, instName, conns)
+                    pure (modName, instName, conns, paramOvr)
                   ) with
-                  | some (modName, instName, conns) =>
-                    pure [SVModuleItem.instantiation modName instName conns]
+                  | some (modName, instName, conns, paramOvr) =>
+                    pure [SVModuleItem.instantiation modName instName conns paramOvr]
                   | none =>
                   -- Try always block; on failure, skip balanced begin/end
                   match ← attempt parseAlwaysBlock with

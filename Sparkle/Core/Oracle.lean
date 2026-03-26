@@ -48,6 +48,17 @@ structure SelfLoopConfig where
   skipToTimerCompare : Bool := false
   /-- Maximum cycles to skip per trigger (caps skipToTimerCompare distance) -/
   maxSkip : Nat := 10_000_000
+  /-- Guard: check MIE (global interrupt enable) and MTIE (timer interrupt enable)
+      before performing timer-compare skip. Prevents skipping when interrupts
+      are disabled (the timer interrupt wouldn't fire anyway). -/
+  checkInterruptEnable : Bool := false
+  /-- Register index for MSTATUS CSR (contains MIE at bit 3) -/
+  mstatusRegIdx : UInt32 := 58
+  /-- Register index for MIE CSR (contains MTIE at bit 7) -/
+  mieRegIdx : UInt32 := 59
+  /-- WFI fast-path: when set, the oracle checks if the instruction at this
+      wire index is WFI (0x10500073) and triggers immediately (threshold=1). -/
+  wfiWireArrayIdx : Option Nat := none
 
 /-- Mutable state for the self-loop detector -/
 structure SelfLoopState where
@@ -75,14 +86,34 @@ def mkSelfLoopOracle (config : SelfLoopConfig)
     let pc := vals[config.pcWireArrayIdx]?.getD 0
     let st ← stateRef.get
 
+    -- WFI fast-path: if WFI wire is provided and active, trigger immediately
+    let isWFI := match config.wfiWireArrayIdx with
+      | some idx => (vals[idx]?.getD 0) != 0
+      | none => false
+
     -- Check if PC is within tolerance of anchor (handles multi-instruction loops)
     let pcDiff := if pc >= st.anchorPC then pc - st.anchorPC else st.anchorPC - pc
     let isNearAnchor := pcDiff <= config.pcTolerance
 
-    if isNearAnchor then
+    -- WFI overrides the threshold: trigger after just 1 cycle of WFI
+    let effectiveThreshold := if isWFI then 1 else config.threshold
+
+    if isNearAnchor || isWFI then
       let newCount := st.sameCount + 1
-      if newCount >= config.threshold then
-        -- Self-loop detected — skip forward
+      if newCount >= effectiveThreshold then
+        -- Self-loop detected — attempt skip
+
+        -- Guard: check interrupt enable before timer-compare skip
+        if config.checkInterruptEnable then do
+          let mstatus ← JIT.getReg handle config.mstatusRegIdx
+          let mieReg ← JIT.getReg handle config.mieRegIdx
+          let globalIE := (mstatus.toNat >>> 3) &&& 1    -- MSTATUS.MIE (bit 3)
+          let timerIE := (mieReg.toNat >>> 7) &&& 1      -- MIE.MTIE (bit 7)
+          if globalIE == 0 || timerIE == 0 then
+            -- Interrupts disabled — timer skip would be futile
+            stateRef.set { st with sameCount := newCount }
+            return none
+
         -- Read current CLINT timer values
         let oldLo ← JIT.getReg handle config.mtimeLoRegIdx
         let oldHi ← JIT.getReg handle config.mtimeHiRegIdx
@@ -131,6 +162,7 @@ def mkSelfLoopOracle (config : SelfLoopConfig)
 
 /-- Create a boot-optimized oracle for Linux boot idle-loop skipping.
     Uses timer-compare-aware skipping with wider PC tolerance (32 bytes).
+    Enables MIE/MTIE guard to avoid skipping when interrupts are disabled.
     Resets sameCount after each trigger so the timer interrupt can fire. -/
 def mkBootOracle (config : SelfLoopConfig := {})
     : IO ((JITHandle → Nat → Array UInt64 → IO (Option Nat)) × IO.Ref SelfLoopState) :=
@@ -145,6 +177,10 @@ def mkBootOracle (config : SelfLoopConfig := {})
     mtimecmpHiRegIdx := config.mtimecmpHiRegIdx
     skipToTimerCompare := true
     maxSkip := config.maxSkip
+    checkInterruptEnable := true
+    mstatusRegIdx := config.mstatusRegIdx
+    mieRegIdx := config.mieRegIdx
+    wfiWireArrayIdx := config.wfiWireArrayIdx
   }
 
 end Sparkle.Core.Oracle
