@@ -132,10 +132,10 @@ jobs:
         cd verilator
         # JIT bench
         g++ -O2 -std=c++17 -o jit_bench tb_jit_bench.cpp -ldl
-        # Verilator bench — obj_dir/*.o already contains verilated*.o, don't link them twice
+        # Verilator bench — link model objects but exclude tb_soc.o (has its own main)
         VERILATOR_ROOT=$(verilator --getenv VERILATOR_ROOT)
         g++ -O2 -std=c++17 -o verilator_bench tb_verilator_bench.cpp \
-            obj_dir/*.o \
+            $(ls obj_dir/*.o | grep -v tb_soc) \
             -Iobj_dir -I${VERILATOR_ROOT}/include -I${VERILATOR_ROOT}/include/vltstd \
             -lpthread
 
