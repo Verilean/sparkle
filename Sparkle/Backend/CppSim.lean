@@ -400,8 +400,15 @@ def emitModule (m : Module) (design : Option Design := none)
     let registerNames := m.body.filterMap fun s => match s with
       | .register output .. => some output
       | _ => none
-    let internalWires := m.wires.filter fun (w : Port) =>
-      !portNames.contains w.name && !registerNames.contains w.name
+    let internalWires := Id.run do
+      let mut seen : List String := []
+      let mut result : List Port := []
+      for w in m.wires do
+        if !portNames.contains w.name && !registerNames.contains w.name &&
+           !seen.contains w.name then
+          result := result ++ [w]
+          seen := seen ++ [w.name]
+      result
 
     -- Partition into member wires (observable/JIT) and local wires
     -- Wires referenced in tick() bodies must always be class members

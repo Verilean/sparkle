@@ -21,8 +21,13 @@ def main : IO Unit := do
     IO.println s!"SKIP: {path} not found"
     pure ()
 
-  let src ← IO.FS.readFile path
-  IO.println s!"LiteX SoC: Read {src.length} chars from {path}"
+  let litexSrc ← IO.FS.readFile path
+  -- Also load PicoRV32 CPU (LiteX references it as a sub-module)
+  let picoPath := "/tmp/picorv32.v"
+  let picoExists ← System.FilePath.pathExists picoPath
+  let picoSrc ← if picoExists then IO.FS.readFile picoPath else pure ""
+  let src := litexSrc ++ "\n" ++ picoSrc
+  IO.println s!"LiteX SoC: Read {litexSrc.length} + {picoSrc.length} chars"
 
   -- Phase 1: Parse
   -- Preprocess: replace @(*) with @* (LiteX/Migen convention)
@@ -61,7 +66,7 @@ def main : IO Unit := do
 
   -- Phase 3: Generate JIT C++
   IO.print "  Phase 3: JIT C++ generation... "
-  let design ← IO.ofExcept (parseAndLower src)
+  let design ← IO.ofExcept (parseAndLowerFlat src)
   let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
   IO.FS.writeFile "/tmp/sparkle_litex_jit.cpp" jitCpp
   IO.println s!"PASS ({jitCpp.length} chars)"

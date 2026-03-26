@@ -106,9 +106,14 @@ private def indexToConst : SVExpr → Option Nat
   | _ => none
 
 private def isArrayName (name : String) : Bool :=
-  -- Heuristic: names ending in common array patterns or known arrays
+  -- Heuristic: names matching common array patterns
+  -- Extended for LiteX (regs, sram, rom, storage) + PicoRV32 (cpuregs, memory)
   name == "cpuregs" || name == "memory" || name == "mem" ||
-  name.endsWith "_mem" || name.endsWith "_ram"
+  name == "regs" || name == "sram" || name == "rom" ||
+  name.endsWith "_mem" || name.endsWith "_ram" ||
+  name.endsWith "_storage" || name == "storage" ||
+  -- LiteX FIFO storage: storage, storage_1, storage_2, ...
+  (name.startsWith "storage" && name.length <= 12)
 
 /-- Evaluate a simple SVExpr to a Nat constant (handles literals, add, sub). -/
 private partial def svExprToNat : SVExpr → Option Nat
