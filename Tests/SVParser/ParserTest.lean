@@ -421,7 +421,7 @@ def main : IO UInt32 := do
 
       -- Build UART output string
       let uartChars := uartOutput.filterMap fun v =>
-        let n := v.toNat
+        let n := v.toNat &&& 0xFF  -- UART byte is in the low 8 bits
         if n >= 32 && n < 127 then some (Char.ofNat n) else none
       let uartStr := String.ofList uartChars
       if uartOutput.length > 0 then
