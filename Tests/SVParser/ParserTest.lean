@@ -986,6 +986,50 @@ endmodule
         failed := failed + 1
     catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 21d: pcpi_mul consecutive multiplies (7*6 then 12345*6789)
+  IO.print "  Test 21d: pcpi_mul consecutive MUL... "
+  match pcpiMulIR with
+  | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+  | .ok design =>
+    let jitCpp := toCppSimJIT design
+    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.cpp" jitCpp
+    try
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.cpp"
+      JIT.reset h
+      JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
+      JIT.setInput h 0 1
+      -- First multiply: 7*6=42
+      JIT.setInput h 1 1; JIT.setInput h 2 0x02000033
+      JIT.setInput h 3 7; JIT.setInput h 4 6
+      let mut result1 : UInt64 := 0
+      for _ in [:100] do
+        JIT.evalTick h
+        let rdy ← JIT.getOutput h 3
+        if rdy != 0 then
+          result1 ← JIT.getOutput h 1
+      -- Deassert pcpi_valid briefly to allow FSM to re-trigger
+      JIT.setInput h 1 0  -- pcpi_valid=0
+      for _ in [:3] do JIT.evalTick h
+      -- Second multiply: 12345*6789=83810205
+      JIT.setInput h 1 1  -- pcpi_valid=1
+      JIT.setInput h 3 12345; JIT.setInput h 4 6789
+      let mut result2 : UInt64 := 0
+      let mut ready2 := false
+      for _ in [:100] do
+        if !ready2 then
+          JIT.evalTick h
+          let rdy ← JIT.getOutput h 3
+          if rdy != 0 then
+            result2 ← JIT.getOutput h 1
+            ready2 := true
+      JIT.destroy h
+      if result1 == 42 && result2 == 83810205 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: first=0x{String.ofList (Nat.toDigits 16 result1.toNat)} second=0x{String.ofList (Nat.toDigits 16 result2.toNat)}"
+        failed := failed + 1
+    catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   -- ===================================================================
   -- JIT pair tests: Verilog pattern → parse → JIT → value verification
   -- Each tests a specific pattern that caused bugs during development.
