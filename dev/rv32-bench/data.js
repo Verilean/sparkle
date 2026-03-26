@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774495790025,
+  "lastUpdate": 1774495850362,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -43,6 +43,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4968426,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e1c53641a220e3c602c86ab73517f8ed8ea92f93",
+          "message": "Merge pull request #14 from Verilean/feature/rv32\n\nci: preserve benchmark JSON across git stash",
+          "timestamp": "2026-03-26T12:25:40+09:00",
+          "tree_id": "2c4e9dd57e4df348ac816af39b6d0bb5e2192a7f",
+          "url": "https://github.com/Verilean/sparkle/commit/e1c53641a220e3c602c86ab73517f8ed8ea92f93"
+        },
+        "date": 1774495849619,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3280838,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4946544,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 5469307,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4978734,
             "unit": "cycles/sec"
           }
         ]
