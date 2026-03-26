@@ -112,44 +112,85 @@ jobs:
     - name: "Run SVParser tests (34 tests: parse, lower, JIT, pcpi_mul, byte-lane, replication)"
       run: lake exe svparser-test
 
-    # ---- RV32 JIT Benchmark ----
+    # ---- RV32 JIT vs Verilator Benchmark ----
     # Signal DSL RV32 SoC (122 registers, 4-stage pipeline)
-    # Reference: JIT ~13M cyc/s vs Verilator 11.1M cyc/s on Apple Silicon
+    # Runs 10M cycles with both backends, compares cyc/s
 
-    - name: "RV32 JIT benchmark (5000 cycles)"
+    - name: Install Verilator
+      run: sudo apt-get install -y verilator
+
+    - name: Build Verilator simulation
+      run: cd verilator && make build
+
+    - name: "Build JIT shared library (.so)"
       run: |
-        echo "=== RV32 JIT Benchmark ==="
-        START_NS=$(date +%s%N)
-        lake exe rv32-jit-test verilator/generated_soc_jit.cpp firmware/firmware.hex 5000
-        END_NS=$(date +%s%N)
-        ELAPSED_MS=$(( (END_NS - START_NS) / 1000000 ))
-        # Exclude compilation time: JIT compiles C++ on first run (~2-3s)
-        # Simulation of 5000 cycles should be <1ms at 13M cyc/s
-        echo "Wall-clock time (compile+sim): ${ELAPSED_MS} ms"
-        echo "Note: Includes one-time GCC compilation (~2s). Pure sim is <1ms."
-        # Output benchmark JSON
-        cat <<BENCH_EOF > rv32-jit-bench.json
-        [
-          {
-            "name": "RV32 JIT SoC (5000 cycles, compile+sim)",
-            "unit": "ms",
-            "value": ${ELAPSED_MS}
-          }
-        ]
-        BENCH_EOF
-        cat rv32-jit-bench.json
+        cd verilator
+        g++ -O2 -std=c++17 -shared -fPIC -o generated_soc_jit.so generated_soc_jit.cpp
 
-    - name: Store RV32 JIT benchmark result
+    - name: "Build benchmark binaries"
+      run: |
+        cd verilator
+        # JIT bench
+        g++ -O2 -std=c++17 -o jit_bench tb_jit_bench.cpp -ldl
+        # Verilator bench
+        g++ -O2 -std=c++17 -o verilator_bench tb_verilator_bench.cpp \
+            obj_dir/*.o \
+            -Iobj_dir \
+            $(pkg-config --cflags --libs verilator 2>/dev/null || echo "-I$(verilator --getenv VERILATOR_ROOT)/include -I$(verilator --getenv VERILATOR_ROOT)/include/vltstd") \
+            $(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
+            $(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
+            $(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp
+
+    - name: "Run RV32 benchmark (10M cycles, Verilator vs JIT)"
+      run: |
+        cd verilator
+        CYCLES=10000000
+
+        echo "=== Verilator Benchmark ==="
+        ./verilator_bench ../firmware/firmware.hex $CYCLES 2>&1 | tee verilator_output.txt
+
+        echo ""
+        echo "=== JIT Benchmark ==="
+        ./jit_bench ../firmware/firmware.hex $CYCLES generated_soc_jit.so 2>&1 | tee jit_output.txt
+
+    - name: Parse benchmark results
+      run: |
+        cd verilator
+        # Extract cycles/sec from Verilator output
+        VERILATOR_CPS=$(grep -oE '[0-9]+ cycles/sec' verilator_output.txt | head -1 | awk '{print $1}')
+        # Extract cycles/sec from JIT output (Benchmark 1: pure eval+tick)
+        JIT_PURE_CPS=$(grep 'cycles/sec' jit_output.txt | head -1 | grep -oE '[0-9]+ cycles/sec' | awk '{print $1}')
+        # Benchmark 4: evalTick (fused)
+        JIT_FUSED_CPS=$(grep 'cycles/sec' jit_output.txt | grep -A0 'evalTick' | grep -oE '[0-9]+ cycles/sec' | head -1 | awk '{print $1}')
+        # Benchmark 5: evalTick + 6 wires
+        JIT_6WIRE_CPS=$(grep 'cycles/sec' jit_output.txt | tail -1 | grep -oE '[0-9]+ cycles/sec' | awk '{print $1}')
+
+        echo "Verilator:        ${VERILATOR_CPS:-0} cyc/s"
+        echo "JIT eval+tick:    ${JIT_PURE_CPS:-0} cyc/s"
+        echo "JIT evalTick:     ${JIT_FUSED_CPS:-0} cyc/s"
+        echo "JIT evalTick+6w:  ${JIT_6WIRE_CPS:-0} cyc/s"
+
+        cat <<EOF > ../rv32-bench-results.json
+        [
+          { "name": "Verilator (10M cycles)", "unit": "cycles/sec", "value": ${VERILATOR_CPS:-0} },
+          { "name": "JIT eval+tick (10M cycles)", "unit": "cycles/sec", "value": ${JIT_PURE_CPS:-0} },
+          { "name": "JIT evalTick fused (10M cycles)", "unit": "cycles/sec", "value": ${JIT_FUSED_CPS:-0} },
+          { "name": "JIT evalTick+6wires (10M cycles)", "unit": "cycles/sec", "value": ${JIT_6WIRE_CPS:-0} }
+        ]
+        EOF
+        cat ../rv32-bench-results.json
+
+    - name: Store RV32 benchmark result
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
-        name: RV32 JIT Simulation Benchmark
-        tool: customSmallerIsBetter
-        output-file-path: rv32-jit-bench.json
-        benchmark-data-dir-path: dev/rv32-jit-bench
+        name: RV32 SoC Simulation Benchmark (Verilator vs JIT)
+        tool: customBiggerIsBetter
+        output-file-path: rv32-bench-results.json
+        benchmark-data-dir-path: dev/rv32-bench
         github-token: ${{ secrets.GITHUB_TOKEN }}
         auto-push: true
-        alert-threshold: "150%"
+        alert-threshold: "80%"
         comment-on-alert: true
         fail-on-alert: false
 
