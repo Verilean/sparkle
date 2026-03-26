@@ -9,10 +9,13 @@
 
 import Tools.SVParser
 import Sparkle.Backend.CppSim
+import Sparkle.Backend.CppSimThreaded
+import Sparkle.Backend.Partition
 import Sparkle.Core.JIT
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
 open Sparkle.Core.JIT
+open Sparkle.Backend.Partition
 
 def main : IO Unit := do
   let path := "Tests/SVParser/fixtures/litex_sim_minimal.v"
@@ -85,5 +88,32 @@ def main : IO Unit := do
   catch e =>
     IO.println s!"FAIL: {e}"
     pure ()
+
+  -- Phase 5: Partitioned (2-thread) C++ generation
+  IO.print "  Phase 5: Partitioned JIT C++ generation... "
+  let design2 ← IO.ofExcept (parseAndLowerFlat src)
+  match design2.modules.head? with
+  | none => IO.println "FAIL: no modules"; pure ()
+  | some mod =>
+    let part := partitionModule mod
+    IO.println s!"PASS (CPU: {part.cpuModule.body.length} stmts, Peri: {part.periModule.body.length} stmts, Boundary: {part.cpuToPeri.length}+{part.periToCpu.length} signals)"
+    let threadedCpp := Sparkle.Backend.CppSimThreaded.toCppSimThreaded mod
+    IO.FS.writeFile "/tmp/sparkle_litex_threaded.cpp" threadedCpp
+    IO.println s!"    Generated {threadedCpp.length} chars to /tmp/sparkle_litex_threaded.cpp"
+
+    -- Phase 6: Compile and run partitioned simulation
+    IO.print "  Phase 6: Partitioned JIT compile + simulate... "
+    try
+      let h ← JIT.compileAndLoad "/tmp/sparkle_litex_threaded.cpp"
+      JIT.reset h
+      let mut cycles : Nat := 0
+      while cycles < 100 do
+        JIT.evalTick h
+        cycles := cycles + 1
+      JIT.destroy h
+      IO.println s!"PASS (100 cycles OK)"
+    catch e =>
+      IO.println s!"FAIL: {e}"
+      pure ()
 
   IO.println "\nLiteX SoC: ALL PHASES PASSED"
