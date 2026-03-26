@@ -159,6 +159,10 @@ lean_exe «mext-rv32i-test» where
   root := `Tests.SVParser.MExtRv32iTest
   supportInterpreter := true
 
+lean_exe «litex-test» where
+  root := `Tests.SVParser.LiteXTest
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
