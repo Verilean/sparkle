@@ -209,14 +209,15 @@ partial def lowerExpr (e : SVExpr) : Expr :=
         | .lit (.hex (some w) _) => w
         | .lit (.binary (some w) _) => w
         | .slice _ hi lo => hi - lo + 1
-        | _ => 1  -- default: assume 1-bit (most common for replication)
-      let totalBits := n * elemWidth
+        | .ident _ => 0  -- unknown width: use concat path
+        | _ => 1  -- default: assume 1-bit
       if elemWidth == 1 then
         -- Special case: 1-bit replication → (0 - val) & mask
+        let totalBits := n * 1
         let mask := (1 <<< totalBits) - 1
         .op .and [.op .sub [.const 0 totalBits, valExpr], .const (Int.ofNat mask) totalBits]
       else
-        -- Multi-bit: build concat of N copies
+        -- Multi-bit or unknown width: build concat of N copies
         .concat (List.replicate n valExpr)
 
 -- ============================================================================
