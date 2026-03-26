@@ -15,6 +15,7 @@ import Tools.SVParser.AST
 import Tools.SVParser.Parser
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.Optimize
 
 open Tools.SVParser.AST
 open Sparkle.IR.AST
@@ -1780,7 +1781,9 @@ def parseAndLowerFlat (input : String) : Except String Design := do
       let enriched := { result with modules := result.modules ++ design.modules }
       result := flattenDesign enriched svDesign
     else break
-  pure result
+  -- Optimize: constant folding, DCE, single-use wire inlining
+  let optimized := Sparkle.IR.Optimize.optimizeDesign result
+  pure optimized
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input
