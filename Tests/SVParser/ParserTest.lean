@@ -1030,6 +1030,92 @@ endmodule
         failed := failed + 1
     catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 21e: pcpi_mul with SoC-like wrapper (memory + CPU-like sequencer)
+  -- Tests the full multiply protocol as used in PicoRV32 SoC integration.
+  -- A minimal sequencer drives pcpi_valid/insn/rs1/rs2 and captures pcpi_rd.
+  IO.print "  Test 21e: pcpi_mul SoC-like wrapper... "
+  let mulWrapperVerilog := "
+module mul_wrapper (input clk, input resetn, input start,
+    input [31:0] rs1, input [31:0] rs2, output [31:0] result, output done);
+  reg pcpi_valid_r;
+  wire pcpi_wr, pcpi_wait, pcpi_ready;
+  wire [31:0] pcpi_rd;
+  reg [31:0] result_r;
+  reg done_r;
+  // MUL insn encoding: funct7=0000001, funct3=000, opcode=0110011
+  wire [31:0] pcpi_insn = 32'h02000033;
+  assign result = result_r;
+  assign done = done_r;
+  always @(posedge clk) begin
+    if (!resetn) begin
+      pcpi_valid_r <= 0;
+      result_r <= 0;
+      done_r <= 0;
+    end else begin
+      done_r <= 0;
+      if (start && !pcpi_valid_r && !pcpi_wait) begin
+        pcpi_valid_r <= 1;
+      end
+      if (pcpi_valid_r && pcpi_ready) begin
+        pcpi_valid_r <= 0;
+        result_r <= pcpi_rd;
+        done_r <= 1;
+      end
+    end
+  end
+  picorv32_pcpi_mul mul0 (
+    .clk(clk), .resetn(resetn),
+    .pcpi_valid(pcpi_valid_r), .pcpi_insn(pcpi_insn),
+    .pcpi_rs1(rs1), .pcpi_rs2(rs2),
+    .pcpi_wr(pcpi_wr), .pcpi_rd(pcpi_rd),
+    .pcpi_wait(pcpi_wait), .pcpi_ready(pcpi_ready)
+  );
+endmodule
+" ++ pcpiMulVerilog
+  match parseAndLowerFlat mulWrapperVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    let jitCpp := toCppSimJIT design
+    IO.FS.writeFile "/tmp/sparkle_mul_wrapper_jit.cpp" jitCpp
+    try
+      let h ← JIT.compileAndLoad "/tmp/sparkle_mul_wrapper_jit.cpp"
+      JIT.reset h
+      -- Inputs: 0=resetn, 1=start, 2=rs1, 3=rs2. Outputs: 0=result, 1=done
+      JIT.setInput h 0 0; for _ in [:3] do JIT.evalTick h
+      JIT.setInput h 0 1  -- resetn=1
+
+      -- First multiply: 7*6
+      JIT.setInput h 1 1; JIT.setInput h 2 7; JIT.setInput h 3 6
+      let mut r1 : UInt64 := 0
+      let mut d1 := false
+      for _ in [:100] do
+        if !d1 then
+          JIT.evalTick h
+          let d ← JIT.getOutput h 1
+          if d != 0 then
+            r1 ← JIT.getOutput h 0; d1 := true
+      JIT.setInput h 1 0  -- deassert start
+      for _ in [:3] do JIT.evalTick h
+
+      -- Second multiply: 12345*6789
+      JIT.setInput h 1 1; JIT.setInput h 2 12345; JIT.setInput h 3 6789
+      let mut r2 : UInt64 := 0
+      let mut d2 := false
+      for _ in [:100] do
+        if !d2 then
+          JIT.evalTick h
+          let d ← JIT.getOutput h 1
+          if d != 0 then
+            r2 ← JIT.getOutput h 0; d2 := true
+
+      JIT.destroy h
+      if r1 == 42 && r2 == 83810205 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: first=0x{String.ofList (Nat.toDigits 16 r1.toNat)} second=0x{String.ofList (Nat.toDigits 16 r2.toNat)}"
+        failed := failed + 1
+    catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   -- ===================================================================
   -- JIT pair tests: Verilog pattern → parse → JIT → value verification
   -- Each tests a specific pattern that caused bugs during development.
