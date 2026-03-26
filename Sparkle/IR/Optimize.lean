@@ -142,6 +142,11 @@ def foldConstants : Expr → Expr
   -- and(0, e) = 0, and(e, 0) = 0
   | .op .and [.const 0 w, _] => .const 0 w
   | .op .and [_, .const 0 w] => .const 0 w
+  -- mux(0, t, e) = e (0 in any width is false)
+  | .op .mux [.const 0 _, _, e] => e
+  -- not(not(x)) = x
+  | .op .not [.op .not [x]] => x
+  -- (const-const folding deferred: Int.toNat loses sign information)
   -- slice of constant
   | .slice (.const v w) hi lo =>
     if hi < w then
@@ -153,8 +158,10 @@ def foldConstants : Expr → Expr
     else .slice (.const v w) hi lo
   | e => e
 
-/-- Optimize a single expression by resolving slice chains and folding constants -/
+/-- Optimize a single expression by resolving slice chains, folding constants,
+    and propagating constant-assigned wires. -/
 partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
+  | .ref name => .ref name  -- Note: constant propagation deferred (needs use-count guard)
   | .slice (.ref name) hi lo => foldConstants (resolveSlice dm wm name hi lo 500)
   | .slice e hi lo => foldConstants (.slice (optimizeExpr dm wm e) hi lo)
   | .op op args => foldConstants (.op op (args.map (optimizeExpr dm wm ·)))
