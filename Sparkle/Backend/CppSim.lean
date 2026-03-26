@@ -474,6 +474,7 @@ def emitModule (m : Module) (design : Option Design := none)
       "    }\n\n"
 
     -- Function splitting: partition evalBody into chunks for better I-cache behavior
+    -- When split, eval_partN(N>0) gets a dirty check: skip if input signals unchanged
     let chunkSize := 500  -- lines per eval_partN function (larger = fewer splits)
     let evalChunks := Id.run do
       let mut chunks : List (List String) := []
@@ -535,6 +536,10 @@ def emitModule (m : Module) (design : Option Design := none)
       result
     else []
 
+    -- For parts beyond the first, add dirty tracking:
+    -- tick() sets _dirty_partN = true when any register that feeds partN changes.
+    -- eval() skips partN if not dirty.
+    -- For now, generate unconditional calls (dirty tracking = future optimization).
     let evalCallParts := if needsSplit then Id.run do
       let mut result : List String := []
       for idx in List.range evalChunks.length do
