@@ -76,4 +76,46 @@ def main : IO Unit := do
   else
     IO.println "  Simple MUL test: SKIP"
 
+  -- Test 4: Store/Load test with wstrb tracing
+  let slTestExists ← System.FilePath.pathExists "/tmp/firmware_storeload.hex"
+  if slTestExists then
+    IO.print "  Store/Load test... "
+    JIT.reset h
+    let fwContents ← IO.FS.readFile "/tmp/firmware_storeload.hex"
+    let mut addr : UInt32 := 0
+    for line in fwContents.splitOn "\n" do
+      let trimmed := String.ofList (line.toList.filter fun c =>
+        c != ' ' && c != '\t' && c != '\r' && c != '\n')
+      if trimmed.startsWith "@" then
+        addr := UInt32.ofNat (hexToNat (String.ofList (trimmed.toList.drop 1)))
+      else if trimmed.length >= 8 then
+        JIT.setMem h 0 (addr / 4) (UInt32.ofNat (hexToNat trimmed))
+        addr := addr + 4
+    JIT.setInput h 0 0
+    for _ in [:10] do JIT.evalTick h
+    JIT.setInput h 0 1
+    let mut uartOutput : List UInt64 := []
+    let mut done := false
+    for i in [:10000] do
+      if !done then
+        JIT.evalTick h
+        let uartValid ← JIT.getOutput h 1
+        if uartValid != 0 then
+          let uartData ← JIT.getOutput h 0
+          uartOutput := uartOutput ++ [uartData]
+          if uartData == 0xCAFE0000 || uartData == 0xDEADDEAD then done := true
+        -- Trace wstrb for first few SW instructions
+        if i > 30 && i < 300 then
+          let wstrb ← JIT.getWire h 4  -- _gen_mem_wstrb
+          let wdata ← JIT.getWire h 3  -- _gen_mem_wdata
+          let maddr ← JIT.getWire h 2   -- _gen_mem_addr
+          if wstrb != 0 then
+            IO.println s!"    cycle {i}: wstrb=0x{String.ofList (Nat.toDigits 16 wstrb.toNat)} wdata=0x{String.ofList (Nat.toDigits 16 wdata.toNat)} addr=0x{String.ofList (Nat.toDigits 16 maddr.toNat)}"
+    let slPass := uartOutput.any (· == 0xCAFE0000)
+    IO.println s!"{if slPass then "PASS" else "FAIL"} ({uartOutput.length} words)"
+    for v in uartOutput do
+      IO.println s!"    0x{String.ofList (Nat.toDigits 16 v.toNat)}"
+  else
+    IO.println "  Store/Load test: SKIP"
+
   JIT.destroy h

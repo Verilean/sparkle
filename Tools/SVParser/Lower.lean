@@ -196,7 +196,28 @@ partial def lowerExpr (e : SVExpr) : Expr :=
     let mask := (1 <<< width) - 1
     .op .and [.op .shr [lowerExpr expr, lowerExpr base], .const (Int.ofNat mask) width]
   | .concat args => .concat (args.map lowerExpr)
-  | .repeat_ _count value => lowerExpr value
+  | .repeat_ count value =>
+    -- {N{expr}}: replicate expr N times (bit replication)
+    -- For 1-bit expr repeated N times: result = (0 - expr) & ((1 << N) - 1)
+    -- For multi-bit expr: concatenate N copies via shift-and-OR.
+    let n := match svExprToNat count with | some v => v | none => 1
+    let valExpr := lowerExpr value
+    if n <= 1 then valExpr
+    else
+      let elemWidth := match value with
+        | .lit (.decimal (some w) _) => w
+        | .lit (.hex (some w) _) => w
+        | .lit (.binary (some w) _) => w
+        | .slice _ hi lo => hi - lo + 1
+        | _ => 1  -- default: assume 1-bit (most common for replication)
+      let totalBits := n * elemWidth
+      if elemWidth == 1 then
+        -- Special case: 1-bit replication → (0 - val) & mask
+        let mask := (1 <<< totalBits) - 1
+        .op .and [.op .sub [.const 0 totalBits, valExpr], .const (Int.ofNat mask) totalBits]
+      else
+        -- Multi-bit: build concat of N copies
+        .concat (List.replicate n valExpr)
 
 -- ============================================================================
 -- Extract target name from LHS expression

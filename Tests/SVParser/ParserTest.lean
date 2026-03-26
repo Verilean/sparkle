@@ -1135,6 +1135,63 @@ endmodule
     JIT.destroy h
     return results
 
+  -- Test 27: Verilog replication {N{expr}} — bit replication
+  -- Bug: {4{mem_la_write}} was lowered as just mem_la_write (1-bit),
+  -- causing mem_wstrb = wstrb & 1 instead of wstrb & 4'b1111.
+  -- This made sw (store word) write only 1 byte instead of 4.
+  IO.print "  Test 27: Bit replication {N{expr}} via JIT... "
+  try
+    let v := "
+module repl_test (input clk, input resetn, input en, input [3:0] mask, output [3:0] out);
+  reg [3:0] result;
+  assign out = result;
+  always @(posedge clk) begin
+    if (!resetn) result <= 0;
+    else result <= mask & {4{en}};
+  end
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
+                   JIT.setInput h 0 1; JIT.setInput h 1 1; JIT.setInput h 2 0xF)  -- en=1, mask=0xF
+      3
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- mask=4'b1111 & {4{1}} = 4'b1111 & 4'b1111 = 4'b1111 = 15
+    -- Bug would give: 4'b1111 & 1'b1 = 4'b0001 = 1
+    if results == [15] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [15], got {results} (if 1, replication is broken)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 28: Multi-bit replication {2{val[7:0]}} (byte replication)
+  -- Tests multi-bit replication used by PicoRV32: {2{reg_op2[15:0]}}
+  IO.print "  Test 28: Multi-bit replication {2{expr}} via JIT... "
+  try
+    let v := "
+module repl2_test (input clk, input resetn, input [15:0] din, output [31:0] out);
+  reg [31:0] result;
+  assign out = result;
+  always @(posedge clk) begin
+    if (!resetn) result <= 0;
+    else result <= {2{din}};
+  end
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
+                   JIT.setInput h 0 1; JIT.setInput h 1 0xABCD)
+      3
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- {2{16'hABCD}} = 32'hABCDABCD
+    if results == [0xABCDABCD] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [0xABCDABCD], got {results}"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   -- Test 22: if/else with one-sided assign + posedge register reads result
   -- Pattern: always @* computes a value conditionally, posedge register captures it.
   -- Bug: if-else MUX merge created self-referencing cycle for uninitialized variables.
