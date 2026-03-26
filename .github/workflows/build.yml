@@ -149,7 +149,7 @@ jobs:
 
         echo ""
         echo "=== JIT Benchmark ==="
-        ./jit_bench ../firmware/firmware.hex $CYCLES generated_soc_jit.so 2>&1 | tee jit_output.txt
+        ./jit_bench ../firmware/firmware.hex $CYCLES ./generated_soc_jit.so 2>&1 | tee jit_output.txt
 
     - name: Parse benchmark results
       run: |
