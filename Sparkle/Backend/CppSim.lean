@@ -52,7 +52,8 @@ def emitCppType : HWType → String
   | .array size elemType =>
     "std::array<" ++ emitCppType elemType ++ ", " ++ toString size ++ ">"
 
-/-- Check if a width needs masking (not a native C++ integer width) -/
+/-- Check if a width needs masking (not a native C++ integer width).
+    1-bit values are stored in uint8_t and comparisons return 0/1, so no mask needed. -/
 def needsMask (w : Nat) : Bool :=
   w != 8 && w != 16 && w != 32 && w != 64
 
