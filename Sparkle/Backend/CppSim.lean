@@ -470,9 +470,53 @@ def emitModule (m : Module) (design : Option Design := none)
       (if resetBody.isEmpty then "" else String.intercalate "\n" resetBody ++ "\n") ++
       "    }\n\n"
 
-    let evalMethod :=
+    -- Function splitting: partition evalBody into chunks for better I-cache behavior
+    let chunkSize := 500  -- lines per eval_partN function (larger = fewer splits)
+    let evalChunks := Id.run do
+      let mut chunks : List (List String) := []
+      let mut current : List String := []
+      for line in evalBody do
+        current := current ++ [line]
+        if current.length >= chunkSize then
+          chunks := chunks ++ [current]
+          current := []
+      if !current.isEmpty then chunks := chunks ++ [current]
+      chunks
+
+    let needsSplit := evalChunks.length > 1
+
+    -- If splitting, promote local wires to class members (they're shared across parts)
+    let (evalLocalDecls, extraMemberDecls) := if needsSplit then
+      ([], localDecls)  -- no locals in eval, all promoted to members
+    else
+      (localDecls, [])  -- original: locals in eval
+
+    let evalPartMethods := if needsSplit then Id.run do
+      let mut result : List String := []
+      let mut idx : Nat := 0
+      for chunk in evalChunks do
+        result := result ++ [
+          s!"    void eval_part{idx}() \{\n" ++
+          String.intercalate "\n" chunk ++ "\n" ++
+          "    }\n"]
+        idx := idx + 1
+      result
+    else []
+
+    let evalCallParts := if needsSplit then Id.run do
+      let mut result : List String := []
+      for idx in List.range evalChunks.length do
+        result := result ++ [s!"        eval_part{idx}();"]
+      result
+    else []
+
+    let evalMethod := if needsSplit then
       "    void eval() {\n" ++
-      (if localDecls.isEmpty then "" else String.intercalate "\n" localDecls ++ "\n") ++
+      String.intercalate "\n" evalCallParts ++ "\n" ++
+      "    }\n\n"
+    else
+      "    void eval() {\n" ++
+      (if evalLocalDecls.isEmpty then "" else String.intercalate "\n" evalLocalDecls ++ "\n") ++
       (if evalBody.isEmpty then "" else String.intercalate "\n" evalBody ++ "\n") ++
       "    }\n\n"
 
@@ -481,7 +525,15 @@ def emitModule (m : Module) (design : Option Design := none)
       (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
       "    }\n\n"
 
-    let evalTickMethod :=
+    let evalTickMethod := if needsSplit then
+      "    void evalTick() {\n" ++
+      (if evalTickLocals.isEmpty then "" else
+        "        // Register next-state (local for register promotion)\n" ++
+        String.intercalate "\n" evalTickLocals ++ "\n") ++
+      String.intercalate "\n" evalCallParts ++ "\n" ++
+      (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
+      "    }\n"
+    else
       "    void evalTick() {\n" ++
       (if evalTickLocals.isEmpty then "" else
         "        // Register next-state (local for register promotion)\n" ++
@@ -491,11 +543,21 @@ def emitModule (m : Module) (design : Option Design := none)
       (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
       "    }\n"
 
+    -- Promoted local wires (when function splitting is active)
+    let promotedSection := if extraMemberDecls.isEmpty then "" else
+      "    // Promoted local wires (for function splitting)\n" ++
+      String.intercalate "\n" extraMemberDecls ++ "\n\n"
+
+    -- Eval part methods (only when splitting)
+    let evalPartSection := if evalPartMethods.isEmpty then "" else
+      "    // Split eval() into parts for I-cache optimization\n" ++
+      String.intercalate "\n" evalPartMethods ++ "\n"
+
     let classClose := "};\n"
 
     header ++ classOpen ++ inputSection ++ outputSection ++ wireSection ++
-    stmtDeclSection ++ constructor ++ resetMethod ++ evalMethod ++ tickMethod ++
-    evalTickMethod ++ classClose
+    promotedSection ++ stmtDeclSection ++ constructor ++ resetMethod ++
+    evalPartSection ++ evalMethod ++ tickMethod ++ evalTickMethod ++ classClose
 
 /-- Convert a single module to C++ simulation code with includes -/
 def toCppSim (m : Module) : String :=
