@@ -835,17 +835,49 @@ partial def emitSequentialSSA (stmts : List SVStmt)
       ).eraseDups
       let (muxStmts, muxWires, mergedEnv, muxStep) := allChangedNames.foldl
         (fun (r, w, e, st) name =>
-          let defVal := Expr.ref (seqEnvLookup defEnv name)
-          let muxExpr := armEnvs.foldr (fun (labels, aEnv) acc =>
-            let armVal := Expr.ref (seqEnvLookup aEnv name)
-            let cond := mkCaseCond sel labels
-            .op .mux [cond, armVal, acc]
-          ) defVal
-          let muxName := s!"{name}_seq{st}"
-          ( r ++ [.assign muxName muxExpr]
-          , w ++ [{ name := muxName, ty := .bitVector 64 }]
-          , seqEnvUpdate e name muxName
-          , st + 1 )
+          let preVal := seqEnvLookup curEnv name
+          let defLookup := seqEnvLookup defEnv name
+          let hasSeqWire := (preVal.splitOn "_seq").length > 1
+          -- If variable had no _seq wire before (e.g., initialized with 'bx / don't-care),
+          -- and only some arms assign it, use the arm values directly without a default
+          -- that would self-reference the final output.
+          if !hasSeqWire && defLookup == preVal then
+            -- No prior seq wire and default didn't change it: build MUX without default ref
+            -- If only one arm changed it, just use that arm's value directly
+            let armsThatChanged := armEnvs.filter fun (_, aEnv) =>
+              seqEnvLookup aEnv name != preVal
+            match armsThatChanged with
+            | [(_, aEnv)] =>
+              -- Single arm: just use its value
+              let armVal := seqEnvLookup aEnv name
+              (r, w, seqEnvUpdate e name armVal, st)
+            | _ =>
+              -- Multiple arms: build MUX chain, use const 0 as base (don't-care variable)
+              let muxExpr := armEnvs.foldr (fun (labels, aEnv) acc =>
+                let armLookup := seqEnvLookup aEnv name
+                if armLookup == preVal then acc  -- arm didn't change: skip
+                else
+                  let cond := mkCaseCond sel labels
+                  .op .mux [cond, .ref armLookup, acc]
+              ) (.const 0 64)  -- don't-care base
+              let muxName := s!"{name}_seq{st}"
+              ( r ++ [.assign muxName muxExpr]
+              , w ++ [{ name := muxName, ty := .bitVector 64 }]
+              , seqEnvUpdate e name muxName
+              , st + 1 )
+          else
+            -- Normal case: variable has a prior value
+            let defVal := Expr.ref defLookup
+            let muxExpr := armEnvs.foldr (fun (labels, aEnv) acc =>
+              let armVal := Expr.ref (seqEnvLookup aEnv name)
+              let cond := mkCaseCond sel labels
+              .op .mux [cond, armVal, acc]
+            ) defVal
+            let muxName := s!"{name}_seq{st}"
+            ( r ++ [.assign muxName muxExpr]
+            , w ++ [{ name := muxName, ty := .bitVector 64 }]
+            , seqEnvUpdate e name muxName
+            , st + 1 )
         ) ([], [], curEnv, armStep)
       (result ++ armStmts ++ muxStmts, wires ++ armWires ++ muxWires, mergedEnv, muxStep)
     | .forLoop _ _ _ body =>
@@ -918,6 +950,8 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
       else
         nextRemaining := nextRemaining ++ [(name, rhs)]
     remaining := nextRemaining
+  if !remaining.isEmpty then
+    dbg_trace s!"[TOPO WARNING] {remaining.length} assigns have cyclic deps (of {assigns.length} total). Names: {remaining.map (·.1) |>.take 20}"
   for (name, rhs) in remaining do
     sorted := sorted ++ [.assign name rhs]
   return memories ++ sorted ++ registers ++ others
