@@ -170,7 +170,9 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
     | _ =>
       let widths := args.map (inferExprWidth typeMap ·)
       let totalWidth := widths.foldl (· + ·) 0
-      let resultType := emitCppType (.bitVector totalWidth)
+      -- Cap at 64-bit to avoid std::array cast issues in C++
+      let effectiveWidth := min totalWidth 64
+      let resultType := emitCppType (.bitVector effectiveWidth)
       let pairs := args.zip widths
       -- foldr: process right-to-left, accumulating shift from LSB
       let (terms, _) := pairs.foldr (fun (arg, w) (acc, shift) =>
@@ -390,19 +392,22 @@ def emitModule (m : Module) (design : Option Design := none)
     -- Collect all StmtParts
     let allParts := m.body.map (emitStmt · typeMap design)
 
+    -- Collect register output names (used for dedup below)
+    let registerNames := m.body.filterMap fun s => match s with
+      | .register output .. => some output
+      | _ => none
+
     -- Input port declarations
     let inputDecls := m.inputs.map fun (p : Port) =>
       s!"    {emitCppType p.ty} {sanitizeName p.name};"
 
-    -- Output port declarations
-    let outputDecls := m.outputs.map fun (p : Port) =>
-      s!"    {emitCppType p.ty} {sanitizeName p.name};"
+    -- Output port declarations (skip if also a register output — register emits its own decl)
+    let outputDecls := m.outputs.filterMap fun (p : Port) =>
+      if registerNames.contains p.name then none
+      else some s!"    {emitCppType p.ty} {sanitizeName p.name};"
 
     -- Internal wire declarations (excluding ports and register outputs)
     let portNames := (m.inputs ++ m.outputs).map fun (p : Port) => p.name
-    let registerNames := m.body.filterMap fun s => match s with
-      | .register output .. => some output
-      | _ => none
     let internalWires := Id.run do
       let mut seen : List String := []
       let mut result : List Port := []
