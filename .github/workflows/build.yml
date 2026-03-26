@@ -178,6 +178,10 @@ jobs:
         EOF
         cat ../rv32-bench-results.json
 
+    - name: Stash local changes before benchmark push
+      if: github.event_name == 'push'
+      run: git stash --include-untracked || true
+
     - name: Store RV32 benchmark result
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
