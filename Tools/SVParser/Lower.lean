@@ -690,10 +690,15 @@ def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List Byte
     let notMask : Nat := 0xFFFFFFFF ^^^ mask
     let maskConst := Expr.const (Int.ofNat mask) 32
     let notMaskConst := Expr.const (Int.ofNat notMask) 32
-    -- new_val = (old & ~mask) | (data & mask)
+    -- Shift data to the correct bit position before masking
+    -- dataExpr is already sliced (e.g., mem_wdata[15:8] → 8-bit value at bit 0)
+    -- Need to shift it to lane.lo position before ANDing with mask
+    let shiftedData := if lane.lo == 0 then dataExpr
+      else Expr.op .shl [dataExpr, Expr.const (Int.ofNat lane.lo) 32]
+    -- new_val = (old & ~mask) | (shifted_data & mask)
     let newVal := Expr.op .or [
       Expr.op .and [acc, notMaskConst],
-      Expr.op .and [dataExpr, maskConst]
+      Expr.op .and [shiftedData, maskConst]
     ]
     Expr.op .mux [condExpr, newVal, acc]
   ) oldVal

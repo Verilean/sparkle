@@ -1165,9 +1165,68 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
-  -- Test 28: Multi-bit replication {2{val[7:0]}} (byte replication)
+  -- Test 28: Byte-lane memory write + read (SoC memory pattern)
+  -- Bug: store word wrote 4 bytes but load only returned byte 0.
+  IO.print "  Test 28: Byte-lane memory write/read via JIT... "
+  try
+    let v := "
+module bytelane_test (input clk, input resetn,
+    input mem_valid, input [13:0] mem_addr, input [31:0] mem_wdata,
+    input [3:0] mem_wstrb, output reg mem_ready, output reg [31:0] mem_rdata);
+  reg [31:0] memory [0:255];
+  always @(posedge clk) begin
+    mem_ready <= 0;
+    if (resetn && mem_valid && !mem_ready) begin
+      mem_ready <= 1;
+      mem_rdata <= memory[mem_addr[7:0]];
+      if (mem_wstrb[0]) memory[mem_addr[7:0]][ 7: 0] <= mem_wdata[ 7: 0];
+      if (mem_wstrb[1]) memory[mem_addr[7:0]][15: 8] <= mem_wdata[15: 8];
+      if (mem_wstrb[2]) memory[mem_addr[7:0]][23:16] <= mem_wdata[23:16];
+      if (mem_wstrb[3]) memory[mem_addr[7:0]][31:24] <= mem_wdata[31:24];
+    end
+  end
+endmodule
+"
+    let design ← IO.ofExcept (parseAndLowerFlat v)
+    let cpp := toCppSimJIT design
+    IO.FS.writeFile "/tmp/sparkle_bytelane_test.cpp" cpp
+    let h ← JIT.compileAndLoad "/tmp/sparkle_bytelane_test.cpp"
+    JIT.reset h
+    -- Inputs: 0=resetn, 1=mem_valid, 2=mem_addr, 3=mem_wdata, 4=mem_wstrb
+    -- Outputs: 0=mem_ready, 1=mem_rdata
+    JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
+    JIT.setInput h 0 1
+    -- Write 0x12345678 to addr 5 with wstrb=0xF
+    JIT.setInput h 1 1; JIT.setInput h 2 5; JIT.setInput h 3 0x12345678; JIT.setInput h 4 0xF
+    -- Wait for mem_ready
+    for _ in [:10] do
+      JIT.evalTick h
+      let rdy ← JIT.getOutput h 0
+      if rdy != 0 then
+        -- Write accepted, deassert
+        JIT.setInput h 1 0; JIT.setInput h 4 0
+    -- Wait a few cycles for memory to settle
+    for _ in [:5] do JIT.evalTick h
+    -- Read back from addr 5 (wstrb=0 = read only)
+    JIT.setInput h 1 1; JIT.setInput h 2 5; JIT.setInput h 3 0; JIT.setInput h 4 0
+    let mut rdata : UInt64 := 0
+    for _ in [:10] do
+      JIT.evalTick h
+      let rdy ← JIT.getOutput h 0
+      if rdy != 0 then rdata ← JIT.getOutput h 1
+    JIT.destroy h
+    if rdata == 0x12345678 then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected 0x12345678, got 0x{String.ofList (Nat.toDigits 16 rdata.toNat)}"
+      -- Dump generated C++ snippet for debugging
+      let lines := cpp.splitOn "\n"
+      let memLines := lines.filter fun l => (l.splitOn "memory[").length > 1
+      for l in memLines.take 5 do IO.println s!"  {l.trim}"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
   -- Tests multi-bit replication used by PicoRV32: {2{reg_op2[15:0]}}
-  IO.print "  Test 28: Multi-bit replication {2{expr}} via JIT... "
+  IO.print "  Test 29: Multi-bit replication {2{expr}} via JIT... "
   try
     let v := "
 module repl2_test (input clk, input resetn, input [15:0] din, output [31:0] out);
