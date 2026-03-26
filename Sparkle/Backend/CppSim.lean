@@ -485,18 +485,47 @@ def emitModule (m : Module) (design : Option Design := none)
 
     let needsSplit := evalChunks.length > 1
 
-    -- If splitting, promote local wires to class members (they're shared across parts)
-    let (evalLocalDecls, extraMemberDecls) := if needsSplit then
-      ([], localDecls)  -- no locals in eval, all promoted to members
+    -- Determine which local wires can stay local to each part vs need member promotion.
+    -- A wire that is only referenced within a single chunk can be a local of that chunk.
+    let (evalLocalDecls, extraMemberDecls, chunkLocalDecls) := if needsSplit then Id.run do
+      -- For each local wire, find which chunks reference it (by name in the string)
+      let mut crossChunk : List String := []  -- wires used across multiple chunks → member
+      let mut perChunk : List (List String) := evalChunks.map (fun _ => [])
+      for decl in localDecls do
+        -- Extract wire name from declaration: "        uint32_t foo_bar;"
+        let parts := decl.trim.splitOn " "
+        let wireName := if parts.length >= 2 then (parts[parts.length - 1]!).dropRight 1 else ""
+        if wireName.isEmpty then
+          crossChunk := crossChunk ++ [decl]
+        else
+          let mut usedIn : List Nat := []
+          let mut cidx : Nat := 0
+          for chunk in evalChunks do
+            let chunkStr := String.intercalate "\n" chunk
+            if (chunkStr.splitOn wireName).length > 1 then
+              usedIn := usedIn ++ [cidx]
+            cidx := cidx + 1
+          if usedIn.length == 1 then
+            -- Wire used in only one chunk → local of that chunk
+            let ci := usedIn.head!
+            perChunk := perChunk.set ci ((perChunk[ci]!) ++ [decl])
+          else
+            -- Wire used across chunks → promote to member
+            crossChunk := crossChunk ++ [decl]
+      ([], crossChunk, perChunk)
     else
-      (localDecls, [])  -- original: locals in eval
+      (localDecls, [], evalChunks.map (fun _ => []))
 
     let evalPartMethods := if needsSplit then Id.run do
       let mut result : List String := []
       let mut idx : Nat := 0
       for chunk in evalChunks do
+        let locals := chunkLocalDecls[idx]!
+        let localSection := if locals.isEmpty then "" else
+          String.intercalate "\n" locals ++ "\n"
         result := result ++ [
           s!"    void eval_part{idx}() \{\n" ++
+          localSection ++
           String.intercalate "\n" chunk ++ "\n" ++
           "    }\n"]
         idx := idx + 1
