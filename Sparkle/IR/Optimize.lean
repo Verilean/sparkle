@@ -125,6 +125,12 @@ partial def resolveSlice (dm : DefMap) (wm : WidthMap)
         | none => .slice (.ref name) hi lo
     | _ => .slice (.ref name) hi lo
 
+/-- Convert Int constant to unsigned Nat using two's complement with given bit width.
+    e.g., toUnsigned (-1) 32 = 0xFFFFFFFF, toUnsigned (-1) 8 = 0xFF -/
+private def toUnsigned (v : Int) (w : Nat) : Nat :=
+  let modulus := (2 : Nat) ^ w
+  ((v % modulus + modulus) % modulus).toNat
+
 /-- Fold constant expressions -/
 def foldConstants : Expr → Expr
   -- mux(true, t, e) = t
@@ -146,7 +152,27 @@ def foldConstants : Expr → Expr
   | .op .mux [.const 0 _, _, e] => e
   -- not(not(x)) = x
   | .op .not [.op .not [x]] => x
-  -- (const-const folding deferred: Int.toNat loses sign information)
+  -- Fully constant binary operations (use toUnsigned for correct two's complement)
+  | .op .add [.const a w, .const b _] =>
+    let r := toUnsigned a w + toUnsigned b w
+    .const (Int.ofNat (r % (2 ^ w))) w
+  | .op .sub [.const a w, .const b _] =>
+    let r := toUnsigned a w + (2 ^ w) - toUnsigned b w
+    .const (Int.ofNat (r % (2 ^ w))) w
+  | .op .or [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w ||| toUnsigned b w)) w
+  | .op .and [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w &&& toUnsigned b w)) w
+  | .op .xor [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w ^^^ toUnsigned b w)) w
+  | .op .not [.const v w] =>
+    .const (Int.ofNat (toUnsigned v w ^^^ ((1 <<< w) - 1))) w
+  | .op .shl [.const a w, .const b _] =>
+    .const (Int.ofNat ((toUnsigned a w <<< toUnsigned b w) % (2 ^ w))) w
+  | .op .shr [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w >>> toUnsigned b w)) w
+  | .op .lt_u [.const a aw, .const b bw] =>
+    .const (if toUnsigned a aw < toUnsigned b bw then 1 else 0) 1
   -- slice of constant
   | .slice (.const v w) hi lo =>
     if hi < w then
