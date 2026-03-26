@@ -420,6 +420,9 @@ def main : IO UInt32 := do
       JIT.destroy handle
 
       -- Build UART output string
+      -- Note: sb (store byte) produces {4{byte}} in mem_wdata (e.g., 0x48484848 for 'H')
+      -- This is normal PicoRV32 behavior; UART stores the full word.
+      -- Mask to low 8 bits to extract the actual byte value.
       let uartChars := uartOutput.filterMap fun v =>
         let n := v.toNat &&& 0xFF  -- UART byte is in the low 8 bits
         if n >= 32 && n < 127 then some (Char.ofNat n) else none
