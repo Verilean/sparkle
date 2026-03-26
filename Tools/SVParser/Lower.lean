@@ -1369,7 +1369,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           for (name, value) in assigns do
             body := body ++ [.assign name value]
             if !(wireExists wires name) then
-              wires := wires ++ [{ name, ty := .bitVector 64 }]
+              wires := wires ++ [{ name, ty := env.getHWType name }]
     | .alwaysBlock (.posedge clock) stmts =>
       -- Sequential: extract all register names, then build mux expression per register
       -- Detect reset pattern: find first if/else that looks like a reset check
@@ -1421,7 +1421,19 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       -- for each variable write. This correctly handles read-then-overwrite patterns.
       let (seqStmts, seqWires, finalEnv, _) := emitSequentialSSA stmts [] 0
       body := body ++ seqStmts
-      wires := wires ++ seqWires
+      -- Fix wire types: _seqN wires inherit type from their base variable
+      let typedSeqWires := seqWires.map fun w =>
+        -- Extract base name: "foo_seq3" → "foo"
+        let parts := w.name.splitOn "_seq"
+        let baseName := if parts.length >= 2 then parts[0]! else w.name
+        -- Look up base wire type from existing wires or env
+        let baseType := match wires.find? (fun p => p.name == baseName) with
+          | some p => p.ty
+          | none => match env.getHWType baseName with
+            | .bitVector n => if n > 0 then .bitVector n else w.ty
+            | other => other
+        { w with ty := baseType }
+      wires := wires ++ typedSeqWires
       -- Create final assigns: map original variable names to their latest SSA wire
       let sigNames := collectBlockNamesTop stmts |>.eraseDups
       for sigName in sigNames do
@@ -1429,7 +1441,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         if latestWire != sigName then
           body := body ++ [.assign sigName (.ref latestWire)]
           if !wireExists wires sigName then
-            wires := wires ++ [{ name := sigName, ty := .bitVector 64 }]
+            let sigTy := env.getHWType sigName
+            wires := wires ++ [{ name := sigName, ty := sigTy }]
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
       body := body ++ [.assign name (lowerExpr initExpr)]
