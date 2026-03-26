@@ -8,15 +8,18 @@
 -/
 
 import Tools.SVParser
+import Sparkle.Backend.CppSim
+import Sparkle.Core.JIT
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
+open Sparkle.Core.JIT
 
-def main : IO UInt32 := do
+def main : IO Unit := do
   let path := "Tests/SVParser/fixtures/litex_sim_minimal.v"
   let fileExists ← System.FilePath.pathExists path
   if !fileExists then
     IO.println s!"SKIP: {path} not found"
-    return 0
+    pure ()
 
   let src ← IO.FS.readFile path
   IO.println s!"LiteX SoC: Read {src.length} chars from {path}"
@@ -32,7 +35,7 @@ def main : IO UInt32 := do
   | .error e =>
     IO.println s!"FAIL"
     IO.println s!"  Parse error: {e}"
-    return 1
+    pure ()
   | .ok design =>
     IO.println s!"PASS ({design.modules.length} modules)"
     for m in design.modules do
@@ -44,7 +47,7 @@ def main : IO UInt32 := do
   | .error e =>
     IO.println s!"FAIL"
     IO.println s!"  Lower error: {e}"
-    return 1
+    pure ()
   | .ok d =>
     IO.println s!"PASS ({d.modules.length} modules)"
     for m in d.modules do
@@ -56,5 +59,26 @@ def main : IO UInt32 := do
         | .memory _ _ _ _ _ _ _ _ _ _ => true | _ => false
       IO.println s!"    {m.name}: {regCount.length} regs, {assignCount.length} assigns, {memCount.length} memories, {m.wires.length} wires"
 
+  -- Phase 3: Generate JIT C++
+  IO.print "  Phase 3: JIT C++ generation... "
+  let design ← IO.ofExcept (parseAndLower src)
+  let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
+  IO.FS.writeFile "/tmp/sparkle_litex_jit.cpp" jitCpp
+  IO.println s!"PASS ({jitCpp.length} chars)"
+
+  -- Phase 4: JIT compile and simulate 100 cycles
+  IO.print "  Phase 4: JIT compile + simulate... "
+  try
+    let h ← JIT.compileAndLoad "/tmp/sparkle_litex_jit.cpp"
+    JIT.reset h
+    let mut cycles : Nat := 0
+    while cycles < 100 do
+      JIT.evalTick h
+      cycles := cycles + 1
+    JIT.destroy h
+    IO.println s!"PASS (100 cycles OK)"
+  catch e =>
+    IO.println s!"FAIL: {e}"
+    pure ()
+
   IO.println "\nLiteX SoC: ALL PHASES PASSED"
-  return 0

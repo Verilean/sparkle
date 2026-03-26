@@ -1350,7 +1350,20 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     | .contAssign lhs rhs =>
       match exprToName lhs with
       | some name => body := body ++ [.assign name (lowerExpr rhs)]
-      | none => throw "continuous assign LHS must be an identifier"
+      | none =>
+        -- Concat-LHS continuous assign: assign {a, b, c} = expr;
+        -- Decompose into individual assigns for each target variable
+        let assigns := decomposeMultiConcatLhs lhs rhs
+        if assigns.isEmpty then
+          -- Try single-variable concat (all elements same variable)
+          match lowerConcatLhsAssign lhs rhs with
+          | some (name, value) => body := body ++ [.assign name value]
+          | none => throw s!"continuous assign LHS not supported: {repr lhs}"
+        else
+          for (name, value) in assigns do
+            body := body ++ [.assign name value]
+            if !(wireExists wires name) then
+              wires := wires ++ [{ name, ty := .bitVector 64 }]
     | .alwaysBlock (.posedge clock) stmts =>
       -- Sequential: extract all register names, then build mux expression per register
       -- Detect reset pattern: find first if/else that looks like a reset check
