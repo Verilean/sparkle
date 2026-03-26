@@ -28,7 +28,7 @@ Sparkle ships with production-grade IP cores — each with pure Lean specs, form
 | **[YOLOv8n-WorldV2](docs/YOLOv8.md)** | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
 | **[RV32IMA SoC](docs/RV32.md)** | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 13M cyc/s (1.17x Verilator). 102 formal proofs including Signal DSL ↔ spec equivalence | 102 theorems | Full | 122 registers |
 | **[AXI4-Lite Bus](docs/RV32.md)** | Verified AXI4-Lite slave/master. Protocol compliance (valid persistence, deadlock-free), synthesizable | 14 theorems | Full | 23 sim tests |
-| **[SV→Sparkle Transpiler](docs/RV32.md#sv-transpiler)** | Parse Verilog → JIT + formal verification. `verilog!` macro, `assert` auto-proof via `bv_decide`, type-safe JIT wrappers. C firmware: Fib, Sort, GCD | 6+ theorems | JIT | 11 parser tests |
+| **[SV→Sparkle Transpiler](docs/RV32.md#sv-transpiler)** | Parse Verilog → JIT + formal verification. `verilog!` macro, `assert` auto-proof via `bv_decide`. PicoRV32 M-ext (MUL/DIV/REM) operational. 34 CI-safe tests | 6+ theorems | JIT | 34 tests |
 | **[H.264 Codec](docs/H264.md)** | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. 14 modules | 15+ theorems | Full | 709-byte MP4 output |
 | **[CDC Infrastructure](docs/CDC.md)** | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback mechanism, JIT.runCDC | 12 theorems | C++ | 2-thread Time-Warping |
 

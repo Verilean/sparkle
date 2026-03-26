@@ -2,6 +2,51 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 51: SV Transpiler M-Extension — MUL/DIV/REM on PicoRV32 SoC (Complete)
+
+**Date**: 2026-03-26
+
+**Goal**: Enable PicoRV32's M-extension (hardware MUL/DIV/REM) in the SVParser→JIT pipeline, including the carry-save shift-and-add multiplier (`pcpi_mul`).
+
+**Result**: Full M-extension operational. RV32I and RV32IM firmware execute correctly on M-ext SoC. 34 CI-safe JIT pair tests. 12 compiler bugs found and fixed.
+
+**Major Architecture Change — MemorySSA Sequential Emitter**:
+- Replaced pure MUX approach for `always @*` blocks with a sequential SSA emitter (`emitSequentialSSA`) that processes statements top-to-bottom, creating new SSA wires for each variable write
+- This correctly handles "read-then-overwrite" patterns (e.g., `next_rdx = rdx; ... loop uses next_rdx ...; next_rdx = next_rdt << 1`) that create cyclic dependencies under pure MUX
+- if/else and case statement branches are merged via MUX with proper handling of uninitialized (don't-care) variables
+
+**Carry-Save Accumulator (`pcpi_mul`)**:
+- Nested for-loop unrolling with full SSA renaming
+- Concat-LHS part-select decomposition (`{next_rdt[j+3], next_rd[j+:4]} = ...`) with read-modify-write using `__RMW_BASE__` placeholder resolved by `stmtsToMuxExprBlocking`
+- 64-bit promotion to avoid C++ undefined behavior on shifts >= 32
+
+**Other Fixes**:
+- `{N{expr}}` Verilog replication: count was ignored, ident width defaulted to 1-bit
+- `buildByteStrobeWrite`: data slice not shifted to target bit position (byte 0 only written)
+- `processCaseArms`: missing `!covered` guard for first-match-wins in `case(1'b1)`
+- `sigNames` filter: only checked top-level `blockAssign`, missing nested assignments in `if/else`
+- Topo sort: `endsWith "_0"` misidentified `_ssa1_10` as prologue; self-references not excluded
+
+**Test Results**:
+
+| Test | Result |
+|------|--------|
+| 34 standalone tests | **34/34 PASS** |
+| RV32I SoC "Hello" | PASS (5 UART bytes) |
+| RV32I firmware (Fib/Sum/Sort/GCD) | PASS (26 words) |
+| M-ext SoC: RV32IM (MUL/DIV/REM) | PASS (18 words, factorial=3628800) |
+| M-ext SoC: Simple MUL (12345*6789) | PASS (83810205) |
+| M-ext SoC: Store/Load (0x12345678) | PASS |
+| pcpi_mul standalone (7*6, 100*100, 12345*6789) | PASS |
+| pcpi_mul consecutive MUL | PASS |
+| pcpi_mul SoC-like wrapper | PASS |
+
+**Files Changed**:
+- `Tools/SVParser/Lower.lean` — MemorySSA emitter, replication fix, byte-lane fix, case priority fix
+- `Tests/SVParser/ParserTest.lean` — 34 tests (12→34), embedded pcpi_mul Verilog
+- `Tests/SVParser/MExtRv32iTest.lean` — M-ext SoC integration tests
+- `firmware/main_rv32im.c`, `firmware/main_multest.c`, `firmware/main_storeload.c` — Test firmware
+
 ## Phase 50: Linux Boot Idle-Loop Skipping (Complete)
 
 **Date**: 2026-03-25

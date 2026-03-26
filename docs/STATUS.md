@@ -1,7 +1,7 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-25
-**Branch**: main
+**Date**: 2026-03-26
+**Branch**: feature/rv32
 
 ---
 
@@ -20,7 +20,7 @@
 | 3.8 | **AXI4-Lite Bus Protocol** | Verified slave/master IP, 14 proofs (deadlock-free, valid persistence), synthesizable | **Done** |
 | 3.9 | **RV32I Formal Verification** | 102 theorems, MSTATUS WPRI bug found, Signal DSL ↔ spec equivalence proofs | **Done** |
 | 3.10 | **Linux Boot Idle-Loop Skipping** | MIE/MTIE guard, WFI fast-path, 4 CI-ready oracle accuracy tests | **Done** |
-| 4 | **SV Transpiler: Extended ISA** | M-ext: 8-bit MUL standalone PASS. Full SoC: decoder bug — `instr_addi=0` for ADDI after SW (instr_trap=1→PCPI trap). Constant folding in if-conversion changes decoder case priority | In progress |
+| 4 | **SV Transpiler: M-Extension** | PicoRV32 M-ext (MUL/DIV/REM) on SoC. MemorySSA emitter, carry-save accumulator, 34 tests | **Done** |
 | 6 | **Verified Standard IP — Parameterized FIFO** | Generic depth/width FIFO with power-of-2 depth, extending SyncFIFO pattern | Not started |
 | 7 | **Verified Standard IP — N-way Arbiter** | Generalize 2-client round-robin arbiter to N clients | Not started |
 | 8 | **Verified Standard IP — AXI4-Lite / TileLink** | AXI4-Lite done (Phase 48). TileLink and AXI4 interconnect remaining | Partial |
@@ -30,6 +30,43 @@
 ---
 
 ## Completed Phases
+
+### SV Transpiler: M-Extension (Phase 51) — DONE
+
+PicoRV32 M-extension (MUL/DIV/REM) fully operational on M-ext SoC via SVParser→JIT pipeline. Major compiler architecture overhaul with 12 bugs found and fixed, 34 CI-safe JIT tests.
+
+**Key Results**:
+- RV32I firmware: 26 UART words, ALL C TESTS OK (Fibonacci, Array Sum, Bubble Sort, GCD)
+- RV32IM firmware: 18 UART words, MUL/DIV/REM + factorial `10! = 3628800` correct
+- Simple MUL: `12345 * 6789 = 83810205` correct (runtime hardware multiply)
+- Store/Load: `0x12345678` round-trip through memory correct
+- pcpi_mul standalone: `7*6`, `100*100`, `12345*6789`, consecutive multiply all correct
+
+**Architecture Changes**:
+- **MemorySSA Sequential Emitter**: Replaced MUX-only approach for `always @*`. Processes statements top-to-bottom with dynamic SSA wire generation. Correctly handles read-then-overwrite patterns (carry-save accumulator) that cause cyclic dependencies under pure MUX.
+- **Carry-Save Accumulator Support**: PicoRV32's `pcpi_mul` with nested for-loops, concat-LHS part-select writes, and `__RMW_BASE__` read-modify-write decomposition.
+- **`{N{expr}}` Bit Replication**: Proper 1-bit (negate-and-mask) and multi-bit (concat) replication.
+- **Byte-Lane Memory Write Fix**: `buildByteStrobeWrite` now shifts data to target bit position before masking.
+
+**Bugs Found (12 total)**:
+1. `{N{expr}}` replication count ignored → `mem_wstrb = 1` instead of `15` for `sw`
+2. `{N{expr}}` ident width assumed 1-bit → wrong for multi-bit replication
+3. `buildByteStrobeWrite` missing shift → only byte 0 written
+4. `sigNames` filter flat-only → assignments inside `if/else` silently dropped
+5. `processCaseArms` no `!covered` guard → later case arms override earlier matches
+6. `emitSequentialSSA` case merge self-reference → cyclic dependency for don't-care variables
+7. `emitSequentialSSA` if/else merge self-reference → same issue
+8. Topo sort `endsWith "_0"` → `_ssa1_10` misidentified as prologue
+9. `decomposeMultiConcatLhs` self-reference → `__RMW_BASE__` vs `varName`
+10. `unrollForLoops` inner loop result discarded → `renamed` vs `unrolled`
+11. 64-bit promotion missing → C++ UB on shifts >= 32
+12. Topo sort self-reference not excluded → circular dependency
+
+**Tests (34 CI-safe)**:
+- Tests 1-11: Parser, lowering, JIT, PicoRV32 SoC, C firmware
+- Tests 12-16: IR-level regression (nested if/else, case priority, concat-LHS, for-loop SSA, array read)
+- Tests 17-21: pcpi_mul IR structure + JIT (7*6, 100*100, 12345*6789, consecutive, SoC wrapper)
+- Tests 22-29: JIT pair tests (if/else, array, case, read-overwrite, for-loop, replication, byte-lane, multi-bit repl)
 
 ### Linux Boot Idle-Loop Skipping (Phase 50) — DONE
 
