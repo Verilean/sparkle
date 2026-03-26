@@ -132,14 +132,12 @@ jobs:
         cd verilator
         # JIT bench
         g++ -O2 -std=c++17 -o jit_bench tb_jit_bench.cpp -ldl
-        # Verilator bench
+        # Verilator bench — obj_dir/*.o already contains verilated*.o, don't link them twice
+        VERILATOR_ROOT=$(verilator --getenv VERILATOR_ROOT)
         g++ -O2 -std=c++17 -o verilator_bench tb_verilator_bench.cpp \
             obj_dir/*.o \
-            -Iobj_dir \
-            $(pkg-config --cflags --libs verilator 2>/dev/null || echo "-I$(verilator --getenv VERILATOR_ROOT)/include -I$(verilator --getenv VERILATOR_ROOT)/include/vltstd") \
-            $(verilator --getenv VERILATOR_ROOT)/include/verilated.cpp \
-            $(verilator --getenv VERILATOR_ROOT)/include/verilated_vcd_c.cpp \
-            $(verilator --getenv VERILATOR_ROOT)/include/verilated_threads.cpp
+            -Iobj_dir -I${VERILATOR_ROOT}/include -I${VERILATOR_ROOT}/include/vltstd \
+            -lpthread
 
     - name: "Run RV32 benchmark (10M cycles, Verilator vs JIT)"
       run: |
