@@ -180,7 +180,11 @@ jobs:
 
     - name: Stash local changes before benchmark push
       if: github.event_name == 'push'
-      run: git stash --include-untracked || true
+      run: |
+        # Save benchmark JSON outside the repo before stashing
+        cp rv32-bench-results.json /tmp/rv32-bench-results.json
+        git stash || true
+        cp /tmp/rv32-bench-results.json rv32-bench-results.json
 
     - name: Store RV32 benchmark result
       uses: benchmark-action/github-action-benchmark@v1
