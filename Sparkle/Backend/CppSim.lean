@@ -271,6 +271,34 @@ def emitInitValue (initValue : Int) (width : Nat) : String :=
   else
     s!"({cppType}){initValue}ULL"
 
+/-- Flatten a MUX chain into (condition, value) pairs + default.
+    mux(c1, v1, mux(c2, v2, default)) → [(c1, v1), (c2, v2)], default -/
+private partial def flattenMuxChain (e : Expr) : List (Expr × Expr) × Expr :=
+  match e with
+  | .op .mux [cond, thenVal, elseVal] =>
+    let (rest, default_) := flattenMuxChain elseVal
+    ((cond, thenVal) :: rest, default_)
+  | _ => ([], e)
+
+/-- Emit a MUX chain as if-else block for better branch prediction.
+    Returns empty list if the expression is not a suitable MUX chain (< 2 arms). -/
+def emitMuxAsIfElse (typeMap : List (String × HWType))
+    (lhsName : String) (width : Nat) (rhs : Expr) : List String :=
+  let (arms, default_) := flattenMuxChain rhs
+  if arms.length < 2 then []  -- too small to benefit from if-else
+  else
+    let maskFn := fun (e : Expr) =>
+      let s := emitExpr typeMap e
+      if exprIsMasked width e then s else applyMask s width
+    -- Emit: lhs = default; if (c1) lhs = v1; else if (c2) lhs = v2; ...
+    let defaultLine := s!"        {lhsName} = {maskFn default_};"
+    let ifLines := (arms.zip (List.range arms.length)).map fun ((cond, val), idx) =>
+      let condStr := emitExpr typeMap cond
+      let valStr := maskFn val
+      if idx == 0 then s!"        if ({condStr}) {lhsName} = {valStr};"
+      else s!"        else if ({condStr}) {lhsName} = {valStr};"
+    [defaultLine] ++ ifLines
+
 /-- Split a statement into declaration/eval/tick/reset parts -/
 def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     (design : Option Design := none) : StmtParts :=
