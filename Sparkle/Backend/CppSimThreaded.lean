@@ -54,7 +54,7 @@ def toCppSimThreaded (m : Module) : String :=
     "    alignas(64) std::atomic<bool> shutdown{false};     // signal worker to exit\n" ++
     "    std::thread worker;\n" ++
     "\n" ++
-    "    ThreadedSim() { reset(); start_worker(); }\n" ++
+    "    ThreadedSim() { reset(); }\n" ++
     "    ~ThreadedSim() { stop_worker(); }\n" ++
     "\n" ++
     "    void start_worker() {\n" ++
@@ -118,16 +118,43 @@ def toCppSimThreaded (m : Module) : String :=
     "        }\n" ++
     "    }\n" ++
     "\n" ++
-    "    // Sequential fallback (no threading)\n" ++
+    "    // Peripheral-skip trigger-based eval (single-thread, coarse-grained)\n" ++
+    "    // Only re-evaluates peripheral when CPU→Peri boundary signals change.\n" ++
+    "    // Previous boundary signal values for dirty detection\n" ++
+    (part.cpuToPeri.map fun p =>
+      let sn := sanitizeName p.name
+      "    " ++ emitCppType p.ty ++ " _prev_" ++ sn ++ " = 0;").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
+    "\n" ++
     "    void evalTickSeq() {\n" ++
-    "        cpu.eval(); peri.eval();\n" ++
+    "        // Always evaluate CPU (changes every cycle)\n" ++
+    "        cpu.eval();\n" ++
+    "\n" ++
+    "        // Check if CPU→Peri boundary signals changed (trigger)\n" ++
+    "        bool peri_dirty = false;\n" ++
+    (part.cpuToPeri.map fun p =>
+      let sn := sanitizeName p.name
+      s!"        if (cpu.{sn} != _prev_{sn}) peri_dirty = true;").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
+    "\n" ++
+    "        // Exchange boundary signals\n" ++
     (part.cpuToPeri.map fun p =>
       let sn := sanitizeName p.name
       s!"        peri.{sn} = cpu.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
     (part.periToCpu.map fun p =>
       let sn := sanitizeName p.name
       s!"        cpu.{sn} = peri.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
-    "        cpu.tick(); peri.tick();\n" ++
+    "\n" ++
+    "        // Only evaluate peripheral if boundary changed\n" ++
+    "        if (peri_dirty) {\n" ++
+    "            peri.eval();\n" ++
+    "            // Save boundary for next dirty check\n" ++
+    (part.cpuToPeri.map fun p =>
+      let sn := sanitizeName p.name
+      s!"            _prev_{sn} = cpu.{sn};").foldl (· ++ "\n" ++ ·) "" ++ "\n" ++
+    "        }\n" ++
+    "\n" ++
+    "        // Tick both (registers always update)\n" ++
+    "        cpu.tick();\n" ++
+    "        peri.tick();\n" ++
     "    }\n" ++
     "};\n\n"
 
@@ -149,7 +176,7 @@ def toCppSimThreaded (m : Module) : String :=
     "    s->reset();\n" ++
     "    s->cycle_count = 0;\n" ++
     "    s->shutdown.store(false, std::memory_order_relaxed);\n" ++
-    "    s->start_worker();\n" ++
+    "    // Worker not started: using evalTickSeq (peripheral-skip) mode\n" ++
     "}\n" ++
     "void  jit_eval(void* ctx) {\n" ++
     "    auto* s = static_cast<ThreadedSim*>(ctx);\n" ++
@@ -165,7 +192,7 @@ def toCppSimThreaded (m : Module) : String :=
     "    auto* s = static_cast<ThreadedSim*>(ctx);\n" ++
     "    s->cpu.tick(); s->peri.tick();\n" ++
     "}\n" ++
-    "void  jit_eval_tick(void* ctx) { static_cast<ThreadedSim*>(ctx)->evalTick(); }\n" ++
+    "void  jit_eval_tick(void* ctx) { static_cast<ThreadedSim*>(ctx)->evalTickSeq(); }\n" ++
     "\n" ++
     "// Input/output forwarding to appropriate partition\n" ++
     "void jit_set_input(void* ctx, uint32_t idx, uint64_t val) {\n" ++
