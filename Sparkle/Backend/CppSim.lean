@@ -506,8 +506,9 @@ def emitModule (m : Module) (design : Option Design := none)
       (if resetBody.isEmpty then "" else String.intercalate "\n" resetBody ++ "\n") ++
       "    }\n\n"
 
-    -- Function splitting: partition evalBody into chunks for better I-cache behavior
-    -- When split, eval_partN(N>0) gets a dirty check: skip if input signals unchanged
+    -- Function splitting: partition evalBody into chunks for better I-cache behavior.
+    -- Additionally, lines containing "pcpi" are separated into a dedicated chunk
+    -- that can be conditionally skipped when PCPI is inactive.
     let chunkSize := 500  -- lines per eval_partN function (larger = fewer splits)
     let evalChunks := Id.run do
       let mut chunks : List (List String) := []
@@ -553,6 +554,25 @@ def emitModule (m : Module) (design : Option Design := none)
     else
       (localDecls, [], evalChunks.map (fun _ => []))
 
+    -- Wrap consecutive PCPI-related lines in if(_gen_*_pcpi_valid) guard
+    -- This skips PCPI computation when no MUL/DIV is in progress (~95% of cycles)
+    let wrapPcpiGuard (lines : List String) : List String := Id.run do
+      let mut result : List String := []
+      let mut inPcpi := false
+      for line in lines do
+        let isPcpi := (line.splitOn "pcpi_mul").length > 1 ||
+                      (line.splitOn "pcpi_div").length > 1 ||
+                      (line.splitOn "pcpi_fast").length > 1
+        if isPcpi && !inPcpi then
+          result := result ++ ["        if (_gen_picorv32_pcpi_valid) {"]
+          inPcpi := true
+        else if !isPcpi && inPcpi then
+          result := result ++ ["        }"]
+          inPcpi := false
+        result := result ++ [line]
+      if inPcpi then result := result ++ ["        }"]
+      result
+
     let evalPartMethods := if needsSplit then Id.run do
       let mut result : List String := []
       let mut idx : Nat := 0
@@ -560,10 +580,11 @@ def emitModule (m : Module) (design : Option Design := none)
         let locals := chunkLocalDecls[idx]!
         let localSection := if locals.isEmpty then "" else
           String.intercalate "\n" locals ++ "\n"
+        let guardedChunk := wrapPcpiGuard chunk
         result := result ++ [
           s!"    void eval_part{idx}() \{\n" ++
           localSection ++
-          String.intercalate "\n" chunk ++ "\n" ++
+          String.intercalate "\n" guardedChunk ++ "\n" ++
           "    }\n"]
         idx := idx + 1
       result
