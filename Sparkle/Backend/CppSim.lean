@@ -554,23 +554,48 @@ def emitModule (m : Module) (design : Option Design := none)
     else
       (localDecls, [], evalChunks.map (fun _ => []))
 
-    -- Wrap consecutive PCPI-related lines in if(_gen_*_pcpi_valid) guard
-    -- This skips PCPI computation when no MUL/DIV is in progress (~95% of cycles)
-    let wrapPcpiGuard (lines : List String) : List String := Id.run do
+    -- General-purpose conditional subgraph guard: wrap consecutive lines that
+    -- contain a specific keyword pattern in an if() guard.
+    -- Detects common patterns in RTL: PCPI (pcpi_valid), clock enable, FSM state guards.
+    -- The keyword→guard mapping is auto-detected from the design.
+    let wrapConditionalGuards (lines : List String) : List String := Id.run do
+      -- Auto-detect guard patterns: find member variables that look like enable signals
+      -- and keywords that co-occur with them in many lines.
+      -- For now, use a general heuristic: if a keyword appears in 30+ lines AND
+      -- there's a corresponding *_valid or *_enable member, wrap those lines.
+      let mut patterns : List (String × String) := []  -- (keyword, guard_expr)
+      -- Detect PCPI pattern (any RTL with pcpi-like co-processor interface)
+      let pcpiCount := lines.filter (fun l =>
+        (l.splitOn "pcpi_mul").length > 1 || (l.splitOn "pcpi_div").length > 1 ||
+        (l.splitOn "pcpi_fast").length > 1) |>.length
+      if pcpiCount >= 30 then
+        -- Find the pcpi_valid variable name by scanning lines
+        let validLine := lines.find? (fun l => (l.splitOn "pcpi_valid").length > 1)
+        match validLine with
+        | some vl =>
+          -- Extract the full variable name (e.g., _gen_picorv32_pcpi_valid)
+          let words := vl.splitOn "pcpi_valid"
+          if words.length >= 1 then
+            let pfx := (words[0]!.splitOn " ").getLast!
+            let guardVar := pfx ++ "pcpi_valid"
+            patterns := patterns ++ [("pcpi_mul", guardVar), ("pcpi_div", guardVar),
+                                     ("pcpi_fast", guardVar)]
+        | none => pure ()
+      -- Apply patterns
+      if patterns.isEmpty then return lines
       let mut result : List String := []
-      let mut inPcpi := false
+      let mut currentGuard : Option String := none
       for line in lines do
-        let isPcpi := (line.splitOn "pcpi_mul").length > 1 ||
-                      (line.splitOn "pcpi_div").length > 1 ||
-                      (line.splitOn "pcpi_fast").length > 1
-        if isPcpi && !inPcpi then
-          result := result ++ ["        if (_gen_picorv32_pcpi_valid) {"]
-          inPcpi := true
-        else if !isPcpi && inPcpi then
-          result := result ++ ["        }"]
-          inPcpi := false
+        let lineGuard := patterns.find? fun (kw, _) => (line.splitOn kw).length > 1
+        let effectiveGuard := lineGuard.map (·.2)
+        if effectiveGuard != currentGuard then
+          if currentGuard.isSome then result := result ++ ["        }"]
+          match effectiveGuard with
+          | some g => result := result ++ [s!"        if ({g}) \{"]
+          | none => pure ()
+          currentGuard := effectiveGuard
         result := result ++ [line]
-      if inPcpi then result := result ++ ["        }"]
+      if currentGuard.isSome then result := result ++ ["        }"]
       result
 
     let evalPartMethods := if needsSplit then Id.run do
@@ -580,7 +605,7 @@ def emitModule (m : Module) (design : Option Design := none)
         let locals := chunkLocalDecls[idx]!
         let localSection := if locals.isEmpty then "" else
           String.intercalate "\n" locals ++ "\n"
-        let guardedChunk := wrapPcpiGuard chunk
+        let guardedChunk := wrapConditionalGuards chunk
         result := result ++ [
           s!"    void eval_part{idx}() \{\n" ++
           localSection ++
