@@ -61,7 +61,10 @@ def needsMask (w : Nat) : Bool :=
 def emitMask (w : Nat) : String :=
   if !needsMask w then ""
   else if w == 1 then "1"
-  else s!"((1ULL << {w}) - 1)"
+  else
+    -- Use hex constant for readability and to help compiler optimization
+    let mask := (2 ^ w - 1 : Nat)
+    s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
 
 /-- Wrap an expression with a mask if the width requires it -/
 def applyMask (expr : String) (w : Nat) : String :=
@@ -195,10 +198,13 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
     if sliceWidth >= 64 then
       if lo == 0 then emitExpr typeMap e
       else s!"({emitExpr typeMap e} >> {lo})"
-    else if lo == 0 then
-      s!"({emitExpr typeMap e} & ((1ULL << {sliceWidth}) - 1))"
     else
-      s!"(({emitExpr typeMap e} >> {lo}) & ((1ULL << {sliceWidth}) - 1))"
+      let mask := (2 ^ sliceWidth - 1 : Nat)
+      let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
+      if lo == 0 then
+        s!"({emitExpr typeMap e} & {maskStr})"
+      else
+        s!"(({emitExpr typeMap e} >> {lo}) & {maskStr})"
 
   | .index arr idx =>
     s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
@@ -236,7 +242,13 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
         let stype := signedCastType w
         let utype := emitCppType (.bitVector w)
         s!"(({utype})(({stype}){emitExpr typeMap arg1} >> {emitExpr typeMap arg2}))"
-      | .eq | .lt_u | .le_u | .gt_u | .ge_u =>
+      | .eq =>
+        -- eq(x, 0) → !x, eq(0, x) → !x (common boolean idiom)
+        match arg1, arg2 with
+        | _, .const 0 _ => s!"(!({emitExpr typeMap arg1}) ? 1 : 0)"
+        | .const 0 _, _ => s!"(!({emitExpr typeMap arg2}) ? 1 : 0)"
+        | _, _ => s!"({emitExpr typeMap arg1} == {emitExpr typeMap arg2} ? 1 : 0)"
+      | .lt_u | .le_u | .gt_u | .ge_u =>
         s!"({emitExpr typeMap arg1} {emitCppOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
       | _ =>
         s!"({emitExpr typeMap arg1} {emitCppOperator operator} {emitExpr typeMap arg2})"
@@ -280,12 +292,18 @@ private partial def flattenMuxChain (e : Expr) : List (Expr × Expr) × Expr :=
     ((cond, thenVal) :: rest, default_)
   | _ => ([], e)
 
+/-- Count the depth of a MUX chain (number of nested ternary operators) -/
+private partial def muxChainDepth : Expr → Nat
+  | .op .mux [_, _, elseVal] => 1 + muxChainDepth elseVal
+  | _ => 0
+
 /-- Emit a MUX chain as if-else block for better branch prediction.
-    Returns empty list if the expression is not a suitable MUX chain (< 2 arms). -/
+    Returns empty list if the expression is not a suitable MUX chain (< minArms). -/
 def emitMuxAsIfElse (typeMap : List (String × HWType))
-    (lhsName : String) (width : Nat) (rhs : Expr) : List String :=
+    (lhsName : String) (width : Nat) (rhs : Expr)
+    (minArms : Nat := 4) : List String :=
   let (arms, default_) := flattenMuxChain rhs
-  if arms.length < 2 then []  -- too small to benefit from if-else
+  if arms.length < minArms then []  -- too shallow to benefit from if-else
   else
     let maskFn := fun (e : Expr) =>
       let s := emitExpr typeMap e
@@ -299,41 +317,83 @@ def emitMuxAsIfElse (typeMap : List (String × HWType))
       else s!"        else if ({condStr}) {lhsName} = {valStr};"
     [defaultLine] ++ ifLines
 
+/-- Check if a signal name is a debug/trace signal that can be skipped -/
+private def isDebugSignal (name : String) : Bool :=
+  (name.splitOn "dbg_ascii").length > 1 ||
+  (name.splitOn "dbg_insn").length > 1 ||
+  (name.splitOn "new_ascii_instr").length > 1 ||
+  (name.splitOn "trace_data").length > 1 ||
+  (name.splitOn "trace_valid").length > 1 ||
+  (name.splitOn "dbg_next").length > 1 ||
+  (name.splitOn "q_insn_").length > 1 ||
+  (name.splitOn "cached_insn_").length > 1 ||
+  (name.splitOn "dbg_insn_opcode").length > 1
+
 /-- Split a statement into declaration/eval/tick/reset parts -/
 def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     (design : Option Design := none) : StmtParts :=
   match stmt with
   | .assign lhs rhs =>
     let width := lookupWidth typeMap lhs
-    if width > 64 then
-      -- Skip wide assigns (dead after IR optimization, e.g. tuple packing)
-      { declarations := []
-      , evalBody := [s!"        // skipped: {sanitizeName lhs} ({width}-bit wide assign)"]
-      , tickBody := []
-      , resetBody := []
-      , evalTickLocals := [] }
+    if width > 64 || isDebugSignal lhs then
+      -- Skip wide assigns and debug wires
+      StmtParts.empty
     else
-      let expr := emitExpr typeMap rhs
-      let masked := if exprIsMasked width rhs then expr else applyMask expr width
-      { declarations := []
-      , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
-      , tickBody := []
-      , resetBody := []
-      , evalTickLocals := [] }
+      -- For deep MUX chains (≥16 arms), emit if-else for branch prediction
+      let sn := sanitizeName lhs
+      let ifElseLines := if muxChainDepth rhs >= 16 then
+          emitMuxAsIfElse typeMap sn width rhs 16
+        else []
+      if !ifElseLines.isEmpty then
+        { declarations := []
+        , evalBody := ifElseLines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      else
+        let expr := emitExpr typeMap rhs
+        let masked := if exprIsMasked width rhs then expr else applyMask expr width
+        { declarations := []
+        , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
 
   | .register output _clock _reset input initValue =>
     let width := lookupWidth typeMap output
+    if isDebugSignal output then StmtParts.empty
+    else
     let cppType := emitCppType (.bitVector width)
     let outName := sanitizeName output
     let nextName := s!"{outName}_next"
     let rawExpr := emitExpr typeMap input
     let inputExpr := if exprIsMasked width input then rawExpr else applyMask rawExpr width
     let initExpr := emitInitValue initValue width
-    { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
-    , evalBody := [s!"        {nextName} = {inputExpr};"]
-    , tickBody := [s!"        {outName} = {nextName};"]
-    , resetBody := [s!"        {outName} = {initExpr};"]
-    , evalTickLocals := [s!"        {cppType} {nextName};"] }
+    -- Detect self-referencing MUX pattern for conditional register update.
+    -- If the register's default (deepest else) case is itself, we can use
+    -- if-else to skip expensive computation when the register won't change.
+    let rec findDeepestElse : Expr → Option String
+      | .op .mux [_, _, elseVal] => findDeepestElse elseVal
+      | .ref name => some name
+      | _ => none
+    let isSelfRef := findDeepestElse input == some output
+    -- Use if-else for: deep MUX chains (≥16 arms), or self-ref registers (≥2 arms)
+    let minArms := if isSelfRef then 2 else 16
+    let ifElseLines := if muxChainDepth input >= minArms then
+        emitMuxAsIfElse typeMap nextName width input minArms
+      else []
+    if !ifElseLines.isEmpty then
+      { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
+      , evalBody := ifElseLines
+      , tickBody := [s!"        {outName} = {nextName};"]
+      , resetBody := [s!"        {outName} = {initExpr};"]
+      , evalTickLocals := [s!"        {cppType} {nextName};"] }
+    else
+      { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
+      , evalBody := [s!"        {nextName} = {inputExpr};"]
+      , tickBody := [s!"        {outName} = {nextName};"]
+      , resetBody := [s!"        {outName} = {initExpr};"]
+      , evalTickLocals := [s!"        {cppType} {nextName};"] }
 
   | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable readAddr readData comboRead =>
     let memSize := 2 ^ addrWidth
@@ -345,10 +405,15 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     let rdType := emitCppType (.bitVector dataWidth)
     let rdInTypeMap := typeMap.any fun (n, _) => sanitizeName n == rdName
     let rdDecl := if rdInTypeMap then [] else [s!"    {rdType} {rdName};"]
+    -- Skip dead memory writes when writeEnable is constant 0
+    let isDeadWrite := match writeEnable with
+      | .const 0 _ => true | _ => false
+    let writeTickLine := if isDeadWrite then []
+      else [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
     if comboRead then
       { declarations := [memDecl] ++ rdDecl
       , evalBody := [s!"        {rdName} = {memName}[{emitExpr typeMap readAddr}];"]
-      , tickBody := [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
+      , tickBody := writeTickLine
       , resetBody := [s!"        {memName}.fill(0);"]
       , evalTickLocals := [] }
     else
@@ -357,8 +422,8 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       { declarations := [memDecl, s!"    {addrType} {addrLatch};"] ++ rdDecl
       , evalBody := [s!"        {addrLatch} = {emitExpr typeMap readAddr};"]
       , tickBody :=
-          [ s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"
-          , s!"        {rdName} = {memName}[{addrLatch}];" ]
+          writeTickLine ++
+          [ s!"        {rdName} = {memName}[{addrLatch}];" ]
       , resetBody := [s!"        {memName}.fill(0);"]
       , evalTickLocals := [] }
 
@@ -513,9 +578,18 @@ def emitModule (m : Module) (design : Option Design := none)
     let evalChunks := Id.run do
       let mut chunks : List (List String) := []
       let mut current : List String := []
+      let mut inIfBlock : Bool := false  -- track if we're inside an if-else chain
       for line in evalBody do
+        let trimmed := line.trimLeft
+        -- Track if-else block state
+        if trimmed.startsWith "if (" || trimmed.startsWith "if(" then
+          inIfBlock := true
+        -- End of if-else block: a line that doesn't start with else/}
+        if inIfBlock && !trimmed.startsWith "else " && !trimmed.startsWith "}" &&
+           !trimmed.startsWith "if (" && !trimmed.startsWith "if(" then
+          inIfBlock := false
         current := current ++ [line]
-        if current.length >= chunkSize then
+        if current.length >= chunkSize && !inIfBlock then
           chunks := chunks ++ [current]
           current := []
       if !current.isEmpty then chunks := chunks ++ [current]
@@ -569,35 +643,92 @@ def emitModule (m : Module) (design : Option Design := none)
         (l.splitOn "pcpi_mul").length > 1 || (l.splitOn "pcpi_div").length > 1 ||
         (l.splitOn "pcpi_fast").length > 1) |>.length
       if pcpiCount >= 30 then
-        -- Find the pcpi_valid variable name by scanning lines
         let validLine := lines.find? (fun l => (l.splitOn "pcpi_valid").length > 1)
         match validLine with
         | some vl =>
-          -- Extract the full variable name (e.g., _gen_picorv32_pcpi_valid)
           let words := vl.splitOn "pcpi_valid"
           if words.length >= 1 then
-            let pfx := (words[0]!.splitOn " ").getLast!
+            let rawPfx := (words[0]!.splitOn " ").getLast!
+            let pfx := (rawPfx.dropWhile fun c => !c.isAlphanum && c != '_').toString
             let guardVar := pfx ++ "pcpi_valid"
             patterns := patterns ++ [("pcpi_mul", guardVar), ("pcpi_div", guardVar),
                                      ("pcpi_fast", guardVar)]
         | none => pure ()
-      -- Apply patterns
+      -- Detect instruction decoder pattern: lines with "decoded_" can be guarded
+      -- by decoder_trigger (only active during FETCH state)
+      -- Detect instruction decoder pattern (for evalTick only — see below)
+      let decodedCount := lines.filter (fun l =>
+        (l.splitOn "decoded_").length > 1 || (l.splitOn "_is_lui").length > 1 ||
+        (l.splitOn "_is_auipc").length > 1 || (l.splitOn "_is_jal").length > 1 ||
+        (l.splitOn "_is_beq").length > 1 || (l.splitOn "_is_lb").length > 1 ||
+        (l.splitOn "_is_sb").length > 1 || (l.splitOn "_is_add").length > 1 ||
+        (l.splitOn "new_ascii_instr").length > 1) |>.length
+      if decodedCount >= 20 then
+        let triggerLine := lines.find? (fun l => (l.splitOn "decoder_trigger").length > 1)
+        match triggerLine with
+        | some tl =>
+          let words := tl.splitOn "decoder_trigger"
+          if words.length >= 1 then
+            let rawPfx := (words[0]!.splitOn " ").getLast!
+            let pfx := (rawPfx.dropWhile fun c => !c.isAlphanum && c != '_').toString
+            let guardVar := pfx ++ "decoder_trigger"
+            patterns := patterns ++ [("decoded_", guardVar), ("_is_lui", guardVar),
+                                     ("_is_auipc", guardVar), ("_is_jal", guardVar),
+                                     ("_is_beq", guardVar), ("_is_lb", guardVar),
+                                     ("_is_sb", guardVar), ("_is_add", guardVar),
+                                     ("new_ascii_instr", guardVar),
+                                     -- Extended: instr_ keywords (safe in evalTick with 0-init locals)
+                                     ("instr_", guardVar),
+                                     ("is_compare", guardVar),
+                                     ("alu_out_", guardVar),
+                                     ("alu_add_sub", guardVar),
+                                     ("alu_eq", guardVar),
+                                     ("alu_lt", guardVar)]
+        | none => pure ()
+      -- Apply patterns with lookahead: don't close a guard block if the same
+      -- guard will be needed within the next few lines (avoid open/close churn).
       if patterns.isEmpty then return lines
+      let lineList := lines.toArray
       let mut result : List String := []
       let mut currentGuard : Option String := none
-      for line in lines do
-        let lineGuard := patterns.find? fun (kw, _) => (line.splitOn kw).length > 1
+      let mut i : Nat := 0
+      while i < lineList.size do
+        let line := lineList[i]!
+        let trimmed := line.trimLeft
+        -- Never wrap lines that are part of an if-else chain (would break braces)
+        let isControlFlow := trimmed.startsWith "if (" || trimmed.startsWith "else " ||
+                             trimmed.startsWith "}" || trimmed.startsWith "if("
+        let lineGuard := if isControlFlow then none
+          else patterns.find? fun (kw, _) => (line.splitOn kw).length > 1
         let effectiveGuard := lineGuard.map (·.2)
         if effectiveGuard != currentGuard then
+          -- Before closing current guard, look ahead: if the same guard appears
+          -- within the next 3 lines, keep the block open (include gap lines inside).
+          if currentGuard.isSome && effectiveGuard.isNone && !isControlFlow then
+            let mut foundSameGuard := false
+            for j in [1, 2, 3] do
+              if i + j < lineList.size then
+                let futLine := lineList[i + j]!
+                let futGuard := (patterns.find? fun (kw, _) =>
+                  (futLine.splitOn kw).length > 1).map (·.2)
+                if futGuard == currentGuard then foundSameGuard := true
+            if foundSameGuard then
+              -- Keep current guard open, include this non-matching line inside
+              result := result ++ [line]
+              i := i + 1
+              continue
           if currentGuard.isSome then result := result ++ ["        }"]
           match effectiveGuard with
           | some g => result := result ++ [s!"        if ({g}) \{"]
           | none => pure ()
           currentGuard := effectiveGuard
         result := result ++ [line]
+        i := i + 1
       if currentGuard.isSome then result := result ++ ["        }"]
       result
 
+    -- eval_part: no conditional guards (correctness-critical for wire observation)
+    -- Guards are only applied in evalTick (performance path)
     let evalPartMethods := if needsSplit then Id.run do
       let mut result : List String := []
       let mut idx : Nat := 0
@@ -605,11 +736,10 @@ def emitModule (m : Module) (design : Option Design := none)
         let locals := chunkLocalDecls[idx]!
         let localSection := if locals.isEmpty then "" else
           String.intercalate "\n" locals ++ "\n"
-        let guardedChunk := wrapConditionalGuards chunk
         result := result ++ [
           s!"    void eval_part{idx}() \{\n" ++
           localSection ++
-          String.intercalate "\n" guardedChunk ++ "\n" ++
+          String.intercalate "\n" chunk ++ "\n" ++
           "    }\n"]
         idx := idx + 1
       result
@@ -641,22 +771,53 @@ def emitModule (m : Module) (design : Option Design := none)
       (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
       "    }\n\n"
 
-    let evalTickMethod := if needsSplit then
+    -- evalTick: inline all eval code + tick, with ALL non-tick wires as locals.
+    -- This avoids member access overhead and improves cache locality.
+    -- Wires that are NOT referenced in tick() can be local to evalTick.
+    let evalTickWireLocals := internalWires.filterMap fun (w : Port) =>
+      let sn := sanitizeName w.name
+      -- Only localize scalar wires (not arrays), and not tick-referenced or memory
+      let isScalar := w.ty.bitWidth ≤ 64
+      if isScalar && !tickRefs.contains sn && !memoryNames.contains sn then
+        some s!"        {emitCppType w.ty} {sn} = 0;"
+      else none
+    let allWireLocalDecls := evalTickWireLocals
+    -- Apply conditional guards to the full eval body (not per-chunk)
+    let guardedEvalBody := wrapConditionalGuards evalBody
+    -- Self-ref register optimization: in evalTick, replace _next with direct
+    -- register update for self-ref registers (eliminates tick copy).
+    -- Self-ref registers: default case is the register itself, so skipping
+    -- the _next variable and writing directly is safe (value doesn't change
+    -- when no condition matches).
+    let selfRefRegs := m.body.filterMap fun s => match s with
+      | .register output _ _ input _ =>
+        let rec deepestElse : Expr → Option String
+          | .op .mux [_, _, elseVal] => deepestElse elseVal
+          | .ref name => some name
+          | _ => none
+        if deepestElse input == some output then some (sanitizeName output) else none
+      | _ => none
+    -- Remove _next declarations for self-ref registers
+    let evalTickLocalsFiltered := evalTickLocals.filter fun decl =>
+      !selfRefRegs.any fun reg => (decl.splitOn (reg ++ "_next")).length > 1
+    -- In eval body, replace _next with register name for self-ref registers
+    let evalTickEvalBody := guardedEvalBody.map fun line =>
+      selfRefRegs.foldl (fun l reg =>
+        l.replace (reg ++ "_next") reg
+      ) line
+    -- Remove tick copies for self-ref registers
+    let evalTickTickBody := tickBody.filter fun line =>
+      !selfRefRegs.any fun reg => (line.splitOn (reg ++ "_next")).length > 1
+    let evalTickMethod :=
       "    void evalTick() {\n" ++
-      (if evalTickLocals.isEmpty then "" else
+      (if evalTickLocalsFiltered.isEmpty then "" else
         "        // Register next-state (local for register promotion)\n" ++
-        String.intercalate "\n" evalTickLocals ++ "\n") ++
-      String.intercalate "\n" evalCallParts ++ "\n" ++
-      (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
-      "    }\n"
-    else
-      "    void evalTick() {\n" ++
-      (if evalTickLocals.isEmpty then "" else
-        "        // Register next-state (local for register promotion)\n" ++
-        String.intercalate "\n" evalTickLocals ++ "\n") ++
-      (if localDecls.isEmpty then "" else String.intercalate "\n" localDecls ++ "\n") ++
-      (if evalBody.isEmpty then "" else String.intercalate "\n" evalBody ++ "\n") ++
-      (if tickBody.isEmpty then "" else String.intercalate "\n" tickBody ++ "\n") ++
+        String.intercalate "\n" evalTickLocalsFiltered ++ "\n") ++
+      (if allWireLocalDecls.isEmpty then "" else
+        "        // Wire locals (stack-allocated for cache locality)\n" ++
+        String.intercalate "\n" allWireLocalDecls ++ "\n") ++
+      (if evalTickEvalBody.isEmpty then "" else String.intercalate "\n" evalTickEvalBody ++ "\n") ++
+      (if evalTickTickBody.isEmpty then "" else String.intercalate "\n" evalTickTickBody ++ "\n") ++
       "    }\n"
 
     -- Promoted local wires (when function splitting is active)
@@ -707,8 +868,10 @@ private def collectRegisters (body : List Stmt) (typeMap : List (String × HWTyp
   body.filterMap fun stmt =>
     match stmt with
     | .register output .. =>
-      let width := lookupWidth typeMap output
-      if width ≤ 64 then some (sanitizeName output, width) else none
+      if isDebugSignal output then none
+      else
+        let width := lookupWidth typeMap output
+        if width ≤ 64 then some (sanitizeName output, width) else none
     | _ => none
 
 /-- Generate jit_set_reg switch cases -/

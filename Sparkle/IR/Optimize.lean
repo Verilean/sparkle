@@ -150,8 +150,24 @@ def foldConstants : Expr → Expr
   | .op .and [_, .const 0 w] => .const 0 w
   -- mux(0, t, e) = e (0 in any width is false)
   | .op .mux [.const 0 _, _, e] => e
+  -- mux(cond, 1, 0) = cond (boolean identity)
+  | .op .mux [cond, .const 1 1, .const 0 1] => cond
+  -- mux(cond, 0, 1) = not(cond)
+  | .op .mux [cond, .const 0 1, .const 1 1] => .op .not [cond]
+  -- eq(x, 0) used as boolean → not(x) (only for 1-bit result context)
+  -- This is handled in emitExpr instead since foldConstants lacks width context
   -- not(not(x)) = x
   | .op .not [.op .not [x]] => x
+  -- and(x, all-ones) = x (identity mask removal)
+  | .op .and [x, .const v w] =>
+    if v != 0 && v == (2 ^ w - 1 : Int) then x
+    else .op .and [x, .const v w]
+  | .op .and [.const v w, x] =>
+    -- Check const-const case first
+    match x with
+    | .const b _ => .const (Int.ofNat (toUnsigned v w &&& toUnsigned b w)) w
+    | _ => if v != 0 && v == (2 ^ w - 1 : Int) then x
+           else .op .and [.const v w, x]
   -- Fully constant binary operations (use toUnsigned for correct two's complement)
   | .op .add [.const a w, .const b _] =>
     let r := toUnsigned a w + toUnsigned b w
@@ -161,8 +177,6 @@ def foldConstants : Expr → Expr
     .const (Int.ofNat (r % (2 ^ w))) w
   | .op .or [.const a w, .const b _] =>
     .const (Int.ofNat (toUnsigned a w ||| toUnsigned b w)) w
-  | .op .and [.const a w, .const b _] =>
-    .const (Int.ofNat (toUnsigned a w &&& toUnsigned b w)) w
   | .op .xor [.const a w, .const b _] =>
     .const (Int.ofNat (toUnsigned a w ^^^ toUnsigned b w)) w
   | .op .not [.const v w] =>
@@ -308,6 +322,51 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
 
   (filteredBody, filteredWires)
 
+/-- Propagate constant and simple-ref assignments into all uses.
+    x = const → replace all refs to x with const
+    x = y     → replace all refs to x with y (alias elimination)
+    This runs even for _gen_ (JIT-observable) wires since they're just aliases. -/
+def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
+  -- Find wires assigned to a constant or simple ref
+  let constMap := body.foldl (fun (acc : HashMap String Expr) stmt =>
+    match stmt with
+    | .assign lhs rhs =>
+      match rhs with
+      | .const _ _ => acc.insert lhs rhs
+      | .ref name =>
+        -- Follow chains: if name is also a const/ref, resolve
+        match acc.get? name with
+        | some resolved => acc.insert lhs resolved
+        | none => acc.insert lhs rhs
+      | _ => acc
+    | _ => acc
+  ) {}
+  -- Substitute all references
+  let subst (e : Expr) : Expr :=
+    match e with
+    | .ref name => match constMap.get? name with
+      | some replacement => replacement
+      | none => e
+    | _ => e
+  let rec substExpr : Expr → Expr
+    | .ref name => match constMap.get? name with
+      | some replacement => replacement
+      | none => .ref name
+    | .const v w => .const v w
+    | .slice e hi lo => .slice (substExpr e) hi lo
+    | .concat args => .concat (args.map substExpr)
+    | .op op args => .op op (args.map substExpr)
+    | .index arr idx => .index (substExpr arr) (substExpr idx)
+  let substStmt : Stmt → Stmt
+    | .assign lhs rhs => .assign lhs (substExpr rhs)
+    | .register o c r input iv => .register o c r (substExpr input) iv
+    | .memory n aw dw clk wa wd we ra rd cr =>
+      .memory n aw dw clk (substExpr wa) (substExpr wd) (substExpr we) (substExpr ra) rd cr
+    | .inst mn ins conns => .inst mn ins (conns.map fun (p, e) => (p, substExpr e))
+  let newBody := body.map substStmt
+  let newDm := buildDefMap newBody
+  (newBody, newDm)
+
 /-- Optimize a module: eliminate concat/slice chains, then remove dead code -/
 def optimizeModule (m : Module)
     (observableWires : Option (List String) := none) : Module :=
@@ -316,8 +375,50 @@ def optimizeModule (m : Module)
     let wm := buildWidthMap m
     let dm := buildDefMap m.body
 
+    -- Phase 0: Constant and alias propagation
+    -- Only propagate constants and aliases to wires that are NOT register outputs.
+    -- Register outputs change every cycle and must not be treated as constants.
+    let registerOutputs := m.body.foldl (fun (s : HashMap String Bool) stmt =>
+      match stmt with
+      | .register output .. => s.insert output true
+      | _ => s
+    ) {}
+    let (constPropBody, dm) := propagateConstants m.body dm
+      |> fun (body, dm) =>
+        -- Verify: don't propagate refs that resolve to register outputs
+        -- The propagateConstants already only handles assigns, not registers,
+        -- so register outputs themselves are never in constMap.
+        -- However, aliases like `x = regOutput` can propagate `regOutput` as a ref.
+        -- This is correct: x becomes a ref to regOutput (which is a register member).
+        (body, dm)
+
+    -- Phase 0.5: Remove duplicate assigns (keep first, drop later identical copies).
+    -- SSA lowering can produce identical assigns from case/if branches.
+    let dedupBody := Id.run do
+      let mut seen : HashMap String (Expr × Nat) := {}  -- lhs → (rhs, position)
+      let mut drops : HashMap Nat Bool := {}  -- positions to drop
+      let mut pos : Nat := 0
+      for s in constPropBody do
+        match s with
+        | .assign lhs rhs =>
+          match seen.get? lhs with
+          | some (prevRhs, _) =>
+            if prevRhs == rhs then
+              drops := drops.insert pos true  -- identical → drop this copy
+            else
+              seen := seen.insert lhs (rhs, pos)  -- different RHS → update
+          | none => seen := seen.insert lhs (rhs, pos)
+        | _ => pure ()
+        pos := pos + 1
+      let mut result : List Stmt := []
+      pos := 0
+      for s in constPropBody do
+        if !drops.contains pos then result := result ++ [s]
+        pos := pos + 1
+      result
+
     -- Phase 1: Replace slice-of-concat with direct references
-    let optimizedBody := m.body.map (optimizeStmt dm wm)
+    let optimizedBody := dedupBody.map (optimizeStmt dm wm)
 
     -- Phase 2: Dead code elimination
     let useCounts := countAllUses optimizedBody

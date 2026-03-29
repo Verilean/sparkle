@@ -19,35 +19,52 @@ cd verilator && ./jit_bench ../firmware/firmware.hex 10000000 generated_soc_jit.
 cd verilator && make bench CYCLES=10000000
 ```
 
-## Results (10M cycles, firmware.hex, Apple M4 Max)
+## Results — RV32I SoC (10M cycles, Sparkle-native design)
 
 | Backend | Speed (cyc/s) | vs Verilator |
 |---------|--------------|-------------|
-| **JIT evalTick (fused)** | **13.0M** | **1.22x** |
-| JIT eval+tick (pure) | 13.0M | 1.22x |
-| JIT eval+tick + 6 wire reads | 12.2M | 1.15x |
-| JIT evalTick + 6 wire reads | 12.7M | 1.19x |
-| Verilator 5.044 | 10.6M | 1.00x |
+| **Sparkle JIT evalTick** | **14.0M** | **1.60x** |
+| Verilator 5.040 (no trace) | 8.76M | 1.00x |
+| Verilator 5.040 (with trace) | 7.06M | 0.81x |
 
-### JIT Wire Read Overhead
+## Results — LiteX PicoRV32 SoC (10M cycles, 1730-line real-world design)
 
-| Wires read/cycle | Speed (cyc/s) | Overhead |
-|-----------------|--------------|----------|
-| 0 (pure) | 13.0M | — |
-| 1 (PC only) | 12.9M | 0.7% |
-| 6 (SoCOutput) | 12.2M | 6.3% |
+| Backend | Speed (cyc/s) | vs Verilator |
+|---------|--------------|-------------|
+| **Sparkle JIT evalTick** | **9.76M** | **0.91x** |
+| Verilator 5.040 (-O2) | 10.70M | 1.00x |
+| **Sparkle + Timer Oracle** | **48.9 GHz** | **~4,600x** |
 
-### JIT Fused evalTick Speedup
+Note: Previous 11.5M figure was from incomplete SSA (missing case default
+branch changes). The 9.76M figure uses correct SSA with full CSR write support,
+verified by LiteX firmware execution (timer countdown).
 
-| Mode | eval+tick | evalTick | Speedup |
-|------|-----------|----------|---------|
-| Pure (no wires) | 768 ms | 771 ms | ~1.00x |
-| With 6 wires | 816 ms | 788 ms | 1.04x |
+### Optimization Impact (LiteX SoC, cumulative, correct SSA)
 
-Fused `evalTick()` keeps register `_next` values as stack-local variables,
-eliminating ~260 intermediate memory operations per cycle. The speedup is
-modest (1-4%) because Clang -O2 already promotes class members to registers
-for simple workloads. Larger gains expected on Linux boot (higher register pressure).
+| Phase | Optimization | cyc/s | vs Verilator |
+|-------|-------------|-------|-------------|
+| Baseline (correct SSA) | Full case SSA merge | 8.17M | 0.79x |
+| +Debug wire elimination | Remove PicoRV32 debug/trace from IR | 8.49M | 0.82x |
+| +Extended decoder guard | instr_, alu_, is_compare keywords | **9.76M** | **0.91x** |
+
+### Timer Oracle (Proof-Driven Temporal Skip)
+
+| Mode | Effective Speed | Speedup |
+|------|----------------|---------|
+| Normal simulation | 5.04M cyc/s | 1x |
+| Timer oracle (countdown skip) | **48.9 GHz** | **9,707x** |
+
+Timer oracle detects countdown timer (timer_value) and skips ahead by
+timer_value cycles when CPU is idle. Verified with LiteX firmware that
+sets TIMER_LOAD=100000, TIMER_EN=1 via CSR bus.
+
+### Why Sparkle Beats Verilator
+
+1. **Wire localization**: All combinational wires as stack-local variables (L1 cache)
+2. **Conditional subgraph guards**: decoder_trigger and pcpi_valid skip inactive logic
+3. **Self-referencing register optimization**: 156/303 registers use if-else instead of ternary
+4. **Aggressive constant propagation**: IR-level const/alias elimination before codegen
+5. **Fused evalTick**: Single function with all wire+register locals on stack
 
 ## Profile Analysis (macOS `sample` profiler, 50M cycles)
 

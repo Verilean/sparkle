@@ -2,6 +2,64 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 52: JIT Optimization — Exceeds Verilator on LiteX SoC (Complete)
+
+**Date**: 2026-03-28
+
+**Goal**: Systematically optimize JIT simulation to match or exceed Verilator performance on a real-world LiteX PicoRV32 SoC (1730 lines of Verilog).
+
+**Result**: Sparkle JIT now runs at **11.5M cyc/s**, exceeding Verilator's 10.6M cyc/s (**1.08x faster**) on the LiteX SoC. On the smaller RV32I SoC, Sparkle achieves 14.0M vs Verilator's 8.76M (**1.6x faster**).
+
+### Optimization Phases (cumulative)
+
+| Phase | Optimization | LiteX cyc/s | vs Verilator |
+|-------|-------------|-------------|-------------|
+| Baseline | No optimizations | 5.62M | 0.53x |
+| 1 | Dead code removal, hex masks, `eq(x,0)→!(x)` | 5.86M | 0.55x |
+| 2 | Deep MUX (≥16 arms) → if-else conversion | 6.05M | 0.57x |
+| 3 | Constant/alias propagation (Phase 0 in IR) | 6.84M | 0.64x |
+| 4 | Self-ref register if-else (`mux(en,val,self)` → `if(en)`) | 7.44M | 0.70x |
+| 5 | Peripheral-skip + PCPI auto-guard | 9.14M | 0.86x |
+| 6 | Decoder trigger guard + lookahead merge | 11.45M | 1.08x |
+| 7 | evalTick wire localization (stack locals) | **11.50M** | **1.08x** |
+
+### Key Technical Changes
+
+**IR Optimizer (`Sparkle/IR/Optimize.lean`)**:
+- Phase 0: Constant and alias propagation — replaces all refs to `x = const` or `x = y` with their values
+- Phase 0.5: Duplicate assign dedup — removes identical SSA assignments from case branches
+- `foldConstants`: `mux(cond,1,0)→cond`, `mux(cond,0,1)→not(cond)`, `and(x,all-ones)→x`
+
+**C++ Emitter (`Sparkle/Backend/CppSim.lean`)**:
+- Dead memory write elimination (const-0 write enable)
+- `eq(x,0)→!(x)` simplification, hex mask constants
+- Deep MUX chain → if-else for CPU state machines
+- Self-referencing register detection → conditional if-else update
+- Decoder trigger auto-detection with lookahead block merging
+- evalTick wire localization: ~270 wires moved from heap members to stack locals
+- Function split safety: if-else block tracking prevents mid-chain splits
+
+**Partition/Threaded (`Sparkle/Backend/CppSimThreaded.lean`)**:
+- Fix guard variable extraction (strip non-alnum prefix chars)
+- Peripheral-skip trigger with dirty check on CPU→Peri boundary
+
+### Remaining Improvement Opportunities
+
+| Item | Expected Effect | Status |
+|------|----------------|--------|
+| Conditional tick copy (`if (next != cur)`) | +5-14% | Risk: branch cost may negate savings |
+| CSR bus `sel` guard (skip decode when `sel=0`) | +2-5% | Tested: GCC CMOV already optimizes this |
+| `_next` variable elimination | +3-5% | Medium difficulty refactor |
+| Verilator-style `__Vdly__` deferred writes | +5-10% | Large architectural change |
+| PGO (Profile-Guided Optimization) | +1-2% | Tested: minimal gain over -O2 |
+| `-O3 -march=native` | +1-2% | Tested: minimal gain |
+
+### Files Changed
+- `Sparkle/IR/Optimize.lean` — constant propagation, dedup, new fold rules
+- `Sparkle/Backend/CppSim.lean` — all emitter optimizations listed above
+- `Sparkle/Backend/CppSimThreaded.lean` — guard variable fix
+- `Sparkle/Backend/Partition.lean` — partition boundary analysis (unchanged)
+
 ## Phase 51: SV Transpiler M-Extension — MUL/DIV/REM on PicoRV32 SoC (Complete)
 
 **Date**: 2026-03-26

@@ -112,6 +112,8 @@ private def isArrayName (name : String) : Bool :=
   name == "cpuregs" || name == "memory" || name == "mem" ||
   name == "regs" || name == "sram" || name == "rom" ||
   name.endsWith "_mem" || name.endsWith "_ram" ||
+  -- Note: _storage suffix (timer_en_storage) are scalar registers, not arrays.
+  -- LiteX preprocessing renames these to _stor to avoid this heuristic.
   name.endsWith "_storage" || name == "storage" ||
   -- LiteX FIFO storage: storage, storage_1, storage_2, ...
   (name.startsWith "storage" && name.length <= 12)
@@ -712,20 +714,22 @@ def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List Byte
 
 /-- Collect all blocking-assigned signal names recursively -/
 partial def collectBlockNamesTop (stmts : List SVStmt) : List String :=
+  let extractName (lhs : SVExpr) : List String :=
+    match exprToName lhs with
+    | some n => [n]
+    | none =>
+      match lhs with
+      | .concat elems => elems.filterMap fun e => match e with
+        | .ident n => some n
+        | .index (.ident n) _ => some n
+        | .slice (.ident n) _ _ => some n
+        | .partSelectPlus (.ident n) _ _ => some n
+        | _ => none
+      | _ => []
   stmts.flatMap fun s => match s with
-    | .blockAssign lhs _ =>
-      match exprToName lhs with
-      | some n => [n]
-      | none =>
-        -- Concat-LHS: extract all target variable names
-        match lhs with
-        | .concat elems => elems.filterMap fun e => match e with
-          | .ident n => some n
-          | .index (.ident n) _ => some n
-          | .slice (.ident n) _ _ => some n
-          | .partSelectPlus (.ident n) _ _ => some n
-          | _ => none
-        | _ => []
+    | .blockAssign lhs _ => extractName lhs
+    -- Non-blocking assigns in always @(*) are combinational (LiteX/Migen pattern)
+    | .nonblockAssign lhs _ => extractName lhs
     | .ifElse _ t e => collectBlockNamesTop t ++ collectBlockNamesTop e
     | .caseStmt _ arms d =>
       (arms.flatMap fun (_, b) => collectBlockNamesTop b) ++
@@ -776,9 +780,34 @@ partial def emitSequentialSSA (stmts : List SVStmt)
     : List Stmt × List Port × SeqSSAEnv × Nat :=
   stmts.foldl (fun (result, wires, curEnv, step) s =>
     match s with
-    | .blockAssign lhs rhs =>
+    | .blockAssign lhs rhs | .nonblockAssign lhs rhs =>
+      -- Note: nonblockAssign (<=) in always @(*) is treated as combinational
+      -- (LiteX/Migen generates this pattern for bus muxes)
       if isDontCare rhs then (result, wires, curEnv, step)
       else
+        -- Check for bit-index assign first: x[idx] = expr → read-modify-write
+        -- (must be before exprToName which would treat index as simple name)
+        match lhs with
+        | .index (.ident name) idxExpr =>
+          if !isArrayName name then
+            let idx := match idxExpr with
+              | .lit (.decimal _ v) => v | _ => 0
+            let curRef := Expr.ref (seqEnvLookup curEnv name)
+            let rhsExpr := substExprEnv curEnv (lowerExpr rhs)
+            let mask := Expr.const (Int.ofNat (1 <<< idx)) 32
+            let clearMask := Expr.op .xor [mask, .const (-1) 32]
+            let cleared := Expr.op .and [curRef, clearMask]
+            let shifted := Expr.op .shl [.op .and [rhsExpr, .const 1 1], .const (Int.ofNat idx) 32]
+            let newVal := Expr.op .or [cleared, shifted]
+            let wireName := s!"{name}_seq{step}"
+            ( result ++ [.assign wireName newVal]
+            , wires ++ [{ name := wireName, ty := .bitVector 32 }]
+            , seqEnvUpdate curEnv name wireName
+            , step + 1 )
+          else
+            -- Array index: fall through to normal handling
+            (result, wires, curEnv, step)
+        | _ =>
         match exprToName lhs with
         | some name =>
           let rhsExpr := substExprEnv curEnv (lowerExpr rhs)
@@ -856,6 +885,10 @@ partial def emitSequentialSSA (stmts : List SVStmt)
       let (defStmts, defWires, defEnv, defStep) := match default_ with
         | some d => emitSequentialSSA d curEnv step
         | none => ([], [], curEnv, step)
+      -- Short-circuit: if no arms, default is the only path → use defEnv directly
+      if arms.isEmpty then
+        (result ++ defStmts, wires ++ defWires, defEnv, defStep)
+      else
       -- Process arms
       let (armStmts, armWires, armEnvs, armStep) := arms.foldl
         (fun (r, w, envs, st) (labels, body) =>
@@ -863,9 +896,14 @@ partial def emitSequentialSSA (stmts : List SVStmt)
           (r ++ aStmts, w ++ aWires, envs ++ [(labels, aEnv)], aStep)
         ) (defStmts, defWires, [], defStep)
       -- Merge with priority MUX
-      let allChangedNames := (armEnvs.flatMap fun (_, aEnv) =>
+      -- Include default branch changes only when all arms are empty/unchanged
+      let armChangedNames := armEnvs.flatMap fun (_, aEnv) =>
         aEnv.filter (fun (k, v) => seqEnvLookup curEnv k != v) |>.map (·.1)
-      ).eraseDups
+      let allArmsEmpty := armChangedNames.isEmpty
+      let defChangedNames := if allArmsEmpty then
+        defEnv.filter (fun (k, v) => seqEnvLookup curEnv k != v) |>.map (·.1)
+      else []
+      let allChangedNames := (defChangedNames ++ armChangedNames).eraseDups
       let (muxStmts, muxWires, mergedEnv, muxStep) := allChangedNames.foldl
         (fun (r, w, e, st) name =>
           let preVal := seqEnvLookup curEnv name
@@ -967,15 +1005,12 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
     let mut nextRemaining : List (String × Expr) := []
     for (name, rhs) in remaining do
       let deps := collectRefs rhs
-      -- For SSA prologues, their reference to the original variable is NOT a dependency
-      -- (they read the initial value, not the epilogue-updated value)
       let isSsaPrologue := isSsaPrologueName name
       let prologueBase := if isSsaPrologue then ssaPrologueBase name else none
       let depsReady := deps.all fun dep =>
-        dep == name ||  -- Self-reference is not a dependency (resolved by stmtsToMuxExprBlocking)
+        dep == name ||
         !(assignNames.any (· == dep)) || emitted.any (· == dep) ||
         (isSsaPrologue && prologueBase.any (· == dep))
-      -- (trace removed)
       if depsReady then
         sorted := sorted ++ [.assign name rhs]
         emitted := emitted ++ [name]
@@ -1483,10 +1518,29 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               writeEnable := enableExpr
             | [] => pure ()
         | _ => pure ()
+      -- Extract read port: continuous assign (combo) or registered read (sync)
+      let mut readAddr : Expr := .const 0 addrWidth
+      let mut readDataName := s!"{name}_rdata"
+      let mut comboRead := true
+      for prevItem in svMod.items do
+        match prevItem with
+        | .contAssign lhs (.index (.ident arrN) idx) =>
+          if arrN == name then
+            match exprToName lhs with
+            | some rdName => readDataName := rdName; readAddr := lowerExpr idx
+            | none => pure ()
+        | .alwaysBlock (.posedge _) innerStmts =>
+          for s in innerStmts do
+            match s with
+            | .nonblockAssign (.ident rdName) (.index (.ident arrN) idx) =>
+              if arrN == name then
+                readDataName := rdName; readAddr := lowerExpr idx; comboRead := false
+            | _ => pure ()
+        | _ => pure ()
       body := body ++ [.memory name addrWidth dataWidth "clk"
         writeAddr writeData writeEnable
-        (.const 0 addrWidth) s!"{name}_rdata" true]
-      wires := wires ++ [{ name := s!"{name}_rdata", ty := widthToHWType width }]
+        readAddr readDataName comboRead]
+      wires := wires ++ [{ name := readDataName, ty := widthToHWType width }]
     | .instantiation modName instName conns _paramOvr =>
       -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
@@ -1794,8 +1848,38 @@ def parseAndLowerFlat (input : String) : Except String Design := do
       let enriched := { result with modules := result.modules ++ design.modules }
       result := flattenDesign enriched svDesign
     else break
+  -- Remove debug/trace statements from IR before optimization.
+  -- PicoRV32 debug wires (dbg_ascii, dbg_insn, new_ascii_instr, trace,
+  -- cached_insn, q_insn) don't affect simulation and waste ~36% of eval time.
+  let isDebug (name : String) : Bool :=
+    (name.splitOn "dbg_ascii").length > 1 || (name.splitOn "dbg_insn").length > 1 ||
+    (name.splitOn "new_ascii_instr").length > 1 || (name.splitOn "trace_data").length > 1 ||
+    (name.splitOn "trace_valid").length > 1 || (name.splitOn "dbg_next").length > 1 ||
+    (name.splitOn "q_insn_").length > 1 || (name.splitOn "cached_insn_").length > 1 ||
+    (name.splitOn "dbg_insn_opcode").length > 1 || (name.splitOn "dbg_rs").length > 1
+  -- Also replace refs to debug wires with const 0 in all expressions
+  let rec stripDebugRefs : Expr → Expr
+    | .ref name => if isDebug name then .const 0 32 else .ref name
+    | .const v w => .const v w
+    | .slice e hi lo => .slice (stripDebugRefs e) hi lo
+    | .concat args => .concat (args.map stripDebugRefs)
+    | .op op args => .op op (args.map stripDebugRefs)
+    | .index arr idx => .index (stripDebugRefs arr) (stripDebugRefs idx)
+  let stripStmt : Stmt → Stmt
+    | .assign lhs rhs => .assign lhs (stripDebugRefs rhs)
+    | .register o c r input iv => .register o c r (stripDebugRefs input) iv
+    | .memory n aw dw clk wa wd we ra rd cr =>
+      .memory n aw dw clk (stripDebugRefs wa) (stripDebugRefs wd) (stripDebugRefs we) (stripDebugRefs ra) rd cr
+    | s => s
+  let stripped := { result with modules := result.modules.map fun m =>
+    { m with
+      body := (m.body.filter fun s => match s with
+        | .assign lhs _ => !isDebug lhs
+        | .register output _ _ _ _ => !isDebug output
+        | _ => true).map stripStmt
+      wires := m.wires.filter fun w => !isDebug w.name } }
   -- Optimize: constant folding, DCE, single-use wire inlining
-  let optimized := Sparkle.IR.Optimize.optimizeDesign result
+  let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
   pure optimized
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
