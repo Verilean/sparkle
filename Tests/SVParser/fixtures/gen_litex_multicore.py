@@ -18,15 +18,27 @@ def gen_verilator(n_cores, input_v, output_v):
     single_renamed = single_renamed.replace("module sim(", "module sim_core(")
 
     wrapper = f"`timescale 1ns / 1ps\n{single_renamed}\n"
-    wrapper += f"module sim_{n_cores}core(\n    input sys_clk\n);\n"
+    # All UART ports are real I/O — prevents dead code elimination
+    ports = ["input sys_clk"]
+    for i in range(n_cores):
+        ports += [f"input [7:0] serial_sink_data_{i}",
+                  f"output serial_sink_ready_{i}",
+                  f"input serial_sink_valid_{i}",
+                  f"output [7:0] serial_source_data_{i}",
+                  f"input serial_source_ready_{i}",
+                  f"output serial_source_valid_{i}"]
+    wrapper += f"module sim_{n_cores}core(\n    " + ",\n    ".join(ports) + "\n);\n"
     for i in range(n_cores):
         wrapper += f"""
-    wire [7:0] sd{i}; wire sr{i}; wire sv{i};
-    wire [7:0] sod{i}; wire sor{i} = 1'b1; wire sov{i};
-    sim_core core{i}(.serial_sink_data(sd{i}), .serial_sink_ready(sr{i}),
-        .serial_sink_valid(sv{i}), .serial_source_data(sod{i}),
-        .serial_source_ready(sor{i}), .serial_source_valid(sov{i}),
-        .sys_clk(sys_clk));
+    sim_core core{i}(
+        .serial_sink_data(serial_sink_data_{i}),
+        .serial_sink_ready(serial_sink_ready_{i}),
+        .serial_sink_valid(serial_sink_valid_{i}),
+        .serial_source_data(serial_source_data_{i}),
+        .serial_source_ready(serial_source_ready_{i}),
+        .serial_source_valid(serial_source_valid_{i}),
+        .sys_clk(sys_clk)
+    );
 """
     wrapper += "endmodule\n"
     with open(output_v, 'w') as f:
