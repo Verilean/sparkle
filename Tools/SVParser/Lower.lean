@@ -1805,6 +1805,7 @@ def lowerDesign (svDesign : SVDesign) : Except String Design := do
   for m in svDesign.modules do
     let lowered ← lowerModule m
     modules := modules ++ [lowered]
+  -- Use first module as top (flat wrapper is first, sub-modules follow)
   let topName := match svDesign.modules.head? with
     | some m => m.name
     | none => "top"
