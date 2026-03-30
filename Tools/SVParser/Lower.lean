@@ -1883,6 +1883,69 @@ def parseAndLowerFlat (input : String) : Except String Design := do
   let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
   pure optimized
 
+/-- Parse Verilog and lower to IR, preserving module hierarchy (no flattening).
+    Each module is optimized independently. Sub-module instances remain as Stmt.inst.
+    This produces C++ classes per module with function-call-based instantiation,
+    giving I-cache locality identical to Verilator. -/
+def parseAndLowerHierarchical (input : String) : Except String Design := do
+  -- Light preprocessing: @(*) and named blocks only.
+  -- NO for-loop unroll (PicoRV32 has for loops with different patterns).
+  -- For-loop containing modules will be flattened by flattenDesign within
+  -- the top module only — sub-modules that use for loops are handled by
+  -- the existing unrollForLoops in lowerModule.
+  let preprocessed := input
+    |> fun s => s.replace "@(*)" "@*"
+    |> fun s =>
+      let lines := s.splitOn "\n"
+      (lines.map fun l =>
+        let trimmed := String.trimLeft l
+        if trimmed.startsWith "integer " then ""
+        else
+          let parts := l.splitOn "begin : "
+          if parts.length >= 2 then parts[0]! ++ "begin"
+          else l
+      ) |> ("\n".intercalate ·)
+  let svDesign ← Tools.SVParser.Parser.parse preprocessed
+  let design ← lowerDesign svDesign
+  -- For hierarchical: top module is the one NOT instantiated by any other module.
+  let instantiatedModules := design.modules.flatMap fun m =>
+    m.body.filterMap fun s => match s with | .inst modName _ _ => some modName | _ => none
+  let topCandidates := design.modules.filter fun m =>
+    !instantiatedModules.any (· == m.name)
+  let design := match topCandidates.head? with
+    | some top => { design with topModule := top.name }
+    | none => design
+  -- Debug wire stripping (per module)
+  let isDebug (name : String) : Bool :=
+    (name.splitOn "dbg_ascii").length > 1 || (name.splitOn "dbg_insn").length > 1 ||
+    (name.splitOn "new_ascii_instr").length > 1 || (name.splitOn "trace_data").length > 1 ||
+    (name.splitOn "trace_valid").length > 1 || (name.splitOn "dbg_next").length > 1 ||
+    (name.splitOn "q_insn_").length > 1 || (name.splitOn "cached_insn_").length > 1 ||
+    (name.splitOn "dbg_insn_opcode").length > 1 || (name.splitOn "dbg_rs").length > 1
+  let rec stripDebugRefs : Expr → Expr
+    | .ref name => if isDebug name then .const 0 32 else .ref name
+    | .const v w => .const v w
+    | .slice e hi lo => .slice (stripDebugRefs e) hi lo
+    | .concat args => .concat (args.map stripDebugRefs)
+    | .op op args => .op op (args.map stripDebugRefs)
+    | .index arr idx => .index (stripDebugRefs arr) (stripDebugRefs idx)
+  let stripStmt : Stmt → Stmt
+    | .assign lhs rhs => .assign lhs (stripDebugRefs rhs)
+    | .register o c r input iv => .register o c r (stripDebugRefs input) iv
+    | .memory n aw dw clk wa wd we ra rd cr =>
+      .memory n aw dw clk (stripDebugRefs wa) (stripDebugRefs wd) (stripDebugRefs we) (stripDebugRefs ra) rd cr
+    | s => s
+  let stripped := { design with modules := design.modules.map fun m =>
+    { m with
+      body := (m.body.filter fun s => match s with
+        | .assign lhs _ => !isDebug lhs
+        | .register output _ _ _ _ => !isDebug output
+        | _ => true).map stripStmt
+      wires := m.wires.filter fun w => !isDebug w.name } }
+  -- Optimize each module independently
+  let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
+  pure optimized
+
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input
   let design ← lowerDesign svDesign

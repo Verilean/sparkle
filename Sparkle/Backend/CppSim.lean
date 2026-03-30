@@ -429,7 +429,9 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
 
   | .inst moduleName instName connections =>
     let className := sanitizeName moduleName
-    let iName := sanitizeName instName
+    let rawIName := sanitizeName instName
+    -- Avoid name collision when module name == instance name (e.g., picorv32)
+    let iName := if rawIName == className then rawIName ++ "_inst" else rawIName
     -- Look up sub-module in design to determine input/output ports
     let subModule := design.bind fun (d : Design) => d.findModule moduleName
     let outputPortNames : List String := match subModule with
@@ -805,9 +807,19 @@ def emitModule (m : Module) (design : Option Design := none)
       selfRefRegs.foldl (fun l reg =>
         l.replace (reg ++ "_next") reg
       ) line
-    -- Remove tick copies for self-ref registers
+    -- In eval body, replace sub.eval() with sub.evalTick() for hierarchical instances
+    -- and remove the corresponding sub.tick() from tick body
+    let instNames := m.body.filterMap fun s => match s with
+      | .inst _ instName _ => some (sanitizeName instName)
+      | _ => none
+    let evalTickEvalBody := evalTickEvalBody.map fun line =>
+      instNames.foldl (fun l inst =>
+        l.replace s!"{inst}.eval();" s!"{inst}.evalTick();"
+      ) line
+    -- Remove tick copies for self-ref registers AND sub-module tick calls
     let evalTickTickBody := tickBody.filter fun line =>
-      !selfRefRegs.any fun reg => (line.splitOn (reg ++ "_next")).length > 1
+      !selfRefRegs.any (fun reg => (line.splitOn (reg ++ "_next")).length > 1) &&
+      !instNames.any (fun inst => (line.splitOn s!"{inst}.tick()").length > 1)
     let evalTickMethod :=
       "    void evalTick() {\n" ++
       (if evalTickLocalsFiltered.isEmpty then "" else
@@ -845,15 +857,33 @@ def toCppSim (m : Module) : String :=
 def toCppSimDesign (d : Design)
     (observableWires : Option (List String) := none) : String :=
   let header := "#include <cstdint>\n#include <array>\n#include <cstring>\n\n"
-  -- Emit sub-modules before top module (dependency order)
+  -- Emit modules in dependency order (bottom-up: leaf modules first, top last)
   let topName := d.topModule
-  let subModules := d.modules.filter fun (m : Module) => m.name != topName
-  let topModule := d.modules.find? fun (m : Module) => m.name == topName
-  let subCode := subModules.map (emitModule · (some d))
-  let topCode := match topModule with
-    | some m => [emitModule m (some d) observableWires]
-    | none => []
-  header ++ String.intercalate "\n" (subCode ++ topCode)
+  -- Topological sort: modules that don't instantiate others go first
+  let getInstModules (m : Module) : List String :=
+    m.body.filterMap fun s => match s with | .inst modName _ _ => some modName | _ => none
+  let sorted := Id.run do
+    let mut emitted : List String := []
+    let mut result : List Module := []
+    let mut remaining := d.modules
+    let mut changed := true
+    while changed && !remaining.isEmpty do
+      changed := false
+      let mut next : List Module := []
+      for m in remaining do
+        let deps := getInstModules m
+        if deps.all (fun dep => emitted.any (· == dep)) then
+          result := result ++ [m]
+          emitted := emitted ++ [m.name]
+          changed := true
+        else
+          next := next ++ [m]
+      remaining := next
+    result ++ remaining  -- append any remaining (circular deps)
+  let code := sorted.map fun m =>
+    if m.name == topName then emitModule m (some d) observableWires
+    else emitModule m (some d)
+  header ++ String.intercalate "\n" code
 
 /-- Collect memory entries from a module's body (name, addrWidth, dataWidth) -/
 private def collectMemories (body : List Stmt) : List (String × Nat × Nat) :=
