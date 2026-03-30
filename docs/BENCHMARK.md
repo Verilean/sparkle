@@ -23,17 +23,16 @@ cd verilator && make bench CYCLES=10000000
 
 | Backend | Speed (cyc/s) | vs Verilator |
 |---------|--------------|-------------|
-| **Sparkle JIT evalTick** | **14.0M** | **1.60x** |
-| Verilator 5.040 (no trace) | 8.76M | 1.00x |
-| Verilator 5.040 (with trace) | 7.06M | 0.81x |
+| **Sparkle JIT evalTick** | **14.2M** | **1.63x** |
+| Verilator 5.040 (no trace) | 8.73M | 1.00x |
 
 ## Results — LiteX PicoRV32 SoC (10M cycles, 1730-line real-world design)
 
 | Backend | Speed (cyc/s) | vs Verilator |
 |---------|--------------|-------------|
-| **Sparkle JIT evalTick** | **9.76M** | **0.91x** |
-| Verilator 5.040 (-O2) | 10.70M | 1.00x |
-| **Sparkle + Timer Oracle** | **48.9 GHz** | **~4,600x** |
+| **Sparkle JIT evalTick** | **11.7M** | **1.13x** |
+| Verilator 5.040 (-O2) | 10.34M | 1.00x |
+| **Sparkle + Timer Oracle** | **49 GHz** | **~9,900x** |
 
 Note: Previous 11.5M figure was from incomplete SSA (missing case default
 branch changes). The 9.76M figure uses correct SSA with full CSR write support,

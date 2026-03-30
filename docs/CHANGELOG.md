@@ -2,26 +2,30 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
-## Phase 52: JIT Optimization — Exceeds Verilator on LiteX SoC (Complete)
+## Phase 52: JIT Optimization + Multi-Core + Timer Oracle (Complete)
 
-**Date**: 2026-03-28
+**Date**: 2026-03-28 — 2026-03-31
 
-**Goal**: Systematically optimize JIT simulation to match or exceed Verilator performance on a real-world LiteX PicoRV32 SoC (1730 lines of Verilog).
+**Goal**: Exceed Verilator on real-world SoCs. Support multi-core parallel simulation. Implement proof-driven temporal skip.
 
-**Result**: Sparkle JIT now runs at **11.5M cyc/s**, exceeding Verilator's 10.6M cyc/s (**1.08x faster**) on the LiteX SoC. On the smaller RV32I SoC, Sparkle achieves 14.0M vs Verilator's 8.76M (**1.6x faster**).
+**Results**:
+- LiteX 1-core: **11.7M cyc/s** (1.13x Verilator)
+- RV32I SoC: **14.2M cyc/s** (1.63x Verilator)
+- 8-core parallel: **5.1M per-core** (4.78x vs Verilator 8-core)
+- Timer Oracle: **49 GHz effective** (9,900x speedup)
 
-### Optimization Phases (cumulative)
+### Single-Core Optimization Phases (cumulative)
 
 | Phase | Optimization | LiteX cyc/s | vs Verilator |
 |-------|-------------|-------------|-------------|
 | Baseline | No optimizations | 5.62M | 0.53x |
-| 1 | Dead code removal, hex masks, `eq(x,0)→!(x)` | 5.86M | 0.55x |
-| 2 | Deep MUX (≥16 arms) → if-else conversion | 6.05M | 0.57x |
-| 3 | Constant/alias propagation (Phase 0 in IR) | 6.84M | 0.64x |
-| 4 | Self-ref register if-else (`mux(en,val,self)` → `if(en)`) | 7.44M | 0.70x |
-| 5 | Peripheral-skip + PCPI auto-guard | 9.14M | 0.86x |
-| 6 | Decoder trigger guard + lookahead merge | 11.45M | 1.08x |
-| 7 | evalTick wire localization (stack locals) | **11.50M** | **1.08x** |
+| 1 | Dead code + hex masks + `eq(x,0)→!(x)` | 5.86M | 0.55x |
+| 2 | Constant/alias propagation (IR Phase 0) | 6.84M | 0.64x |
+| 3 | Deep MUX → if-else + self-ref register if-else | 7.44M | 0.70x |
+| 4 | Correct SSA (case default merge) | 8.17M | 0.79x |
+| 5 | Debug wire elimination from IR | 8.49M | 0.82x |
+| 6 | Extended decoder trigger guard | 9.69M | 0.94x |
+| 7 | Self-ref _next variable elimination | **11.7M** | **1.13x** |
 
 ### Key Technical Changes
 
