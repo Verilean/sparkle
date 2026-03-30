@@ -329,6 +329,177 @@ jobs:
         comment-on-alert: true
         fail-on-alert: false
 
+    # ---- Multi-Core Parallel Benchmark ----
+
+    - name: "Build multi-core JIT (hierarchical)"
+      run: |
+        # Generate 8-core wrapper (Verilator-style hierarchy)
+        for n in 1 8; do
+          python3 Tests/SVParser/fixtures/gen_litex_multicore.py $n
+        done
+        # Generate hierarchical JIT
+        cat > /tmp/gen_hier_jit.lean << 'GENEOF'
+        import Tools.SVParser
+        import Sparkle.Backend.CppSim
+        open Tools.SVParser.Lower
+        def main : IO Unit := do
+          let src ← IO.FS.readFile "Tests/SVParser/fixtures/litex_1core.v"
+          let pico ← IO.FS.readFile "/tmp/picorv32.v"
+          let design ← IO.ofExcept (parseAndLowerHierarchical (src ++ "\n" ++ pico))
+          let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
+          IO.FS.writeFile "/tmp/sparkle_hier.cpp" jitCpp
+          IO.println s!"JIT: {jitCpp.length} chars, {design.modules.length} modules"
+        GENEOF
+        lake env lean --run /tmp/gen_hier_jit.lean
+        g++ -O2 -std=c++17 -shared -fPIC -o /tmp/sparkle_hier.so /tmp/sparkle_hier.cpp
+
+    - name: "Build multi-core runner"
+      run: g++ -O2 -std=c++20 -shared -fPIC -o /tmp/multicore_runner.so c_src/cdc/multicore_runner.cpp -lpthread
+
+    - name: "Build Verilator 8-core"
+      run: |
+        cat Tests/SVParser/fixtures/litex_8core.v /tmp/picorv32.v > /tmp/litex_8core.v
+        cat > /tmp/tb_8core.cpp << 'TBEOF'
+        #include <cstdio>
+        #include <cstdint>
+        #include <chrono>
+        #include "Vsim_8core.h"
+        int main() {
+            auto* top = new Vsim_8core;
+            top->sys_clk = 0;
+            top->serial_sink_data_0 = 0; top->serial_sink_valid_0 = 0; top->serial_source_ready_0 = 1;
+            top->serial_sink_data_1 = 0; top->serial_sink_valid_1 = 0; top->serial_source_ready_1 = 1;
+            top->serial_sink_data_2 = 0; top->serial_sink_valid_2 = 0; top->serial_source_ready_2 = 1;
+            top->serial_sink_data_3 = 0; top->serial_sink_valid_3 = 0; top->serial_source_ready_3 = 1;
+            top->serial_sink_data_4 = 0; top->serial_sink_valid_4 = 0; top->serial_source_ready_4 = 1;
+            top->serial_sink_data_5 = 0; top->serial_sink_valid_5 = 0; top->serial_source_ready_5 = 1;
+            top->serial_sink_data_6 = 0; top->serial_sink_valid_6 = 0; top->serial_source_ready_6 = 1;
+            top->serial_sink_data_7 = 0; top->serial_sink_valid_7 = 0; top->serial_source_ready_7 = 1;
+            top->eval();
+            auto t0 = std::chrono::high_resolution_clock::now();
+            for (uint64_t c = 0; c < 10000000; c++) {
+                top->sys_clk = 1; top->eval();
+                top->sys_clk = 0; top->eval();
+            }
+            auto t1 = std::chrono::high_resolution_clock::now();
+            double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
+            printf("%d\n", (int)(10000000.0/ms*1000.0));
+            delete top; return 0;
+        }
+        TBEOF
+        verilator --cc --exe --build -j 0 \
+          -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-UNUSEDSIGNAL \
+          -Wno-CASEINCOMPLETE -Wno-UNOPTFLAT -Wno-LATCH -Wno-MULTIDRIVEN \
+          -Wno-COMBDLY -Wno-PINMISSING -Wno-UNDRIVEN \
+          --top-module sim_8core -CFLAGS "-O2" \
+          /tmp/litex_8core.v /tmp/tb_8core.cpp --Mdir /tmp/litex_8core_obj
+
+    - name: "Run multi-core benchmark"
+      run: |
+        # 1-core single-thread baseline
+        cat > /tmp/bench_1core.cpp << 'BEOF'
+        #include <cstdio>
+        #include <cstdint>
+        #include <chrono>
+        #include <dlfcn.h>
+        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        int main() {
+            void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
+            auto create = (fn0)dlsym(lib,"jit_create");
+            auto destroy = (fn1)dlsym(lib,"jit_destroy");
+            auto reset = (fn1)dlsym(lib,"jit_reset");
+            auto et = (fn1)dlsym(lib,"jit_eval_tick");
+            void* ctx = create(); reset(ctx);
+            auto t0 = std::chrono::high_resolution_clock::now();
+            for (uint64_t c = 0; c < 10000000; c++) et(ctx);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
+            printf("%d\n", (int)(10000000.0/ms*1000.0));
+            destroy(ctx); dlclose(lib); return 0;
+        }
+        BEOF
+        g++ -O2 -std=c++17 -o /tmp/bench_1core /tmp/bench_1core.cpp -ldl
+        JIT_1CORE=$(/tmp/bench_1core)
+        echo "JIT 1-core: ${JIT_1CORE} cyc/s"
+
+        # 8-core sequential
+        cat > /tmp/bench_8seq.cpp << 'BEOF'
+        #include <cstdio>
+        #include <cstdint>
+        #include <chrono>
+        #include <dlfcn.h>
+        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        int main() {
+            void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
+            auto create = (fn0)dlsym(lib,"jit_create");
+            auto destroy = (fn1)dlsym(lib,"jit_destroy");
+            auto reset = (fn1)dlsym(lib,"jit_reset");
+            auto et = (fn1)dlsym(lib,"jit_eval_tick");
+            void* cores[8];
+            for (int i = 0; i < 8; i++) { cores[i] = create(); reset(cores[i]); }
+            auto t0 = std::chrono::high_resolution_clock::now();
+            for (uint64_t c = 0; c < 10000000; c++)
+                for (int i = 0; i < 8; i++) et(cores[i]);
+            auto t1 = std::chrono::high_resolution_clock::now();
+            double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
+            printf("%d\n", (int)(10000000.0/ms*1000.0));
+            for (int i = 0; i < 8; i++) destroy(cores[i]);
+            dlclose(lib); return 0;
+        }
+        BEOF
+        g++ -O2 -std=c++17 -o /tmp/bench_8seq /tmp/bench_8seq.cpp -ldl
+        JIT_8SEQ=$(/tmp/bench_8seq)
+        echo "JIT 8-core sequential: ${JIT_8SEQ} per-core cyc/s"
+
+        # 8-core parallel (batch=10000)
+        cat > /tmp/bench_8par.cpp << 'BEOF'
+        #include <cstdio>
+        #include <cstdint>
+        #include <dlfcn.h>
+        struct MulticoreResult { uint64_t total_cycles; double elapsed_ms; double mcycles_per_sec; int success; };
+        typedef MulticoreResult (*mc_fn)(void*, int, uint64_t, int);
+        int main() {
+            void* jit = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
+            void* runner = dlopen("/tmp/multicore_runner.so", RTLD_LAZY);
+            auto mc_run = (mc_fn)dlsym(runner, "multicore_run");
+            auto r = mc_run(jit, 8, 10000000, 10000);
+            printf("%d\n", (int)(r.mcycles_per_sec * 1000000.0));
+            dlclose(runner); dlclose(jit); return 0;
+        }
+        BEOF
+        g++ -O2 -std=c++17 -o /tmp/bench_8par /tmp/bench_8par.cpp -ldl
+        JIT_8PAR=$(/tmp/bench_8par)
+        echo "JIT 8-core parallel: ${JIT_8PAR} per-core cyc/s"
+
+        # Verilator 8-core
+        VLTR_8CORE=$(/tmp/litex_8core_obj/Vsim_8core 2>/dev/null)
+        echo "Verilator 8-core: ${VLTR_8CORE} cyc/s"
+
+        # Write results
+        cat <<EOF > multicore-bench-results.json
+        [
+          { "name": "JIT 1-core single-thread", "unit": "cycles/sec", "value": ${JIT_1CORE:-0} },
+          { "name": "JIT 8-core sequential", "unit": "cycles/sec", "value": ${JIT_8SEQ:-0} },
+          { "name": "JIT 8-core parallel (batch=10K)", "unit": "cycles/sec", "value": ${JIT_8PAR:-0} },
+          { "name": "Verilator 8-core", "unit": "cycles/sec", "value": ${VLTR_8CORE:-0} }
+        ]
+        EOF
+        cat multicore-bench-results.json
+
+    - name: Store multi-core benchmark result
+      uses: benchmark-action/github-action-benchmark@v1
+      if: github.event_name == 'push'
+      with:
+        name: Multi-Core Benchmark (8-core LiteX PicoRV32)
+        tool: customBiggerIsBetter
+        output-file-path: multicore-bench-results.json
+        benchmark-data-dir-path: dev/multicore-bench
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        auto-push: true
+        alert-threshold: "80%"
+        comment-on-alert: true
+        fail-on-alert: false
+
     # ---- Unit Tests ----
 
     - name: Run full test suite (481 tests)
