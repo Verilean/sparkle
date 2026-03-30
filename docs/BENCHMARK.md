@@ -58,6 +58,22 @@ Timer oracle detects countdown timer (timer_value) and skips ahead by
 timer_value cycles when CPU is idle. Verified with LiteX firmware that
 sets TIMER_LOAD=100000, TIMER_EN=1 via CSR bus.
 
+### Multi-Core Scaling (LiteX N-core, hierarchical instantiation)
+
+| Cores | Sparkle Hierarchical | Sparkle Flat | Verilator (wrapper) |
+|-------|---------------------|-------------|---------------------|
+| 1 | 11.6M | 10.8M | 32.9M |
+| 2 | 11.9M | 10.7M | 35.3M |
+| 4 | 12.0M | 10.7M | 35.2M |
+| 8 | 11.8M | 10.8M | 35.3M |
+
+Note: Verilator's 32.9M is NOT a fair comparison — Verilator inlines all
+sub-modules into root and eliminates dead code from unconnected ports
+(UART sink not driven → all UART RX logic removed). The wrapper module's
+eval() is completely empty.
+
+Fair single-module comparison: Sparkle **11.7M** vs Verilator **10.7M** = **1.09x Sparkle**.
+
 ### Why Sparkle Beats Verilator
 
 1. **Wire localization**: All combinational wires as stack-local variables (L1 cache)
