@@ -67,12 +67,18 @@ sets TIMER_LOAD=100000, TIMER_EN=1 via CSR bus.
 | 4 | 12.0M | 10.7M | 35.2M |
 | 8 | 11.8M | 10.8M | 35.3M |
 
-Note: Verilator's 32.9M is NOT a fair comparison — Verilator inlines all
-sub-modules into root and eliminates dead code from unconnected ports
-(UART sink not driven → all UART RX logic removed). The wrapper module's
-eval() is completely empty.
+With proper module hierarchy (10 C++ classes) and shared bus
+(all cores active, no dead code elimination possible):
 
-Fair single-module comparison: Sparkle **11.7M** vs Verilator **10.7M** = **1.09x Sparkle**.
+| Cores | Verilator | Sparkle | Ratio |
+|-------|-----------|---------|-------|
+| 1 | 10.34M | **11.65M** | **1.13x** |
+| 2 | 6.05M | 5.66M | 0.94x |
+| 4 | 2.74M | **2.85M** | **1.04x** |
+| 8 | 1.06M | **1.45M** | **1.37x** |
+
+Both simulators degrade with core count (D-cache pressure from instance data).
+Sparkle degrades more slowly due to instruction sharing via function calls.
 
 ### Why Sparkle Beats Verilator
 
