@@ -16,12 +16,12 @@
   Pattern follows ArbiterProps.lean: self-contained, no Signal dependency.
 -/
 
-import Examples.RV32.Types
+import IP.RV32.Types
 import Std.Tactic.BVDecide
 
 namespace Sparkle.Verification.RV32Props
 
-open Sparkle.Examples.RV32
+open Sparkle.IP.RV32
 
 -- ============================================================================
 -- Instruction Encoding Helpers (self-contained, duplicated from IsaTests)

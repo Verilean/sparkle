@@ -4,13 +4,13 @@
 -/
 
 import LSpec
-import Examples.YOLOv8.Head
+import IP.YOLOv8.Head
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.YOLOv8.Head
+open Sparkle.IP.YOLOv8.Head
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestHead
+namespace Sparkle.IP.YOLOv8.Tests.TestHead
 
 /-- Test initial start: IDLE → BBOX_CONV. -/
 def testStartTransition : IO LSpec.TestSeq := do
@@ -45,4 +45,4 @@ def allTests : IO LSpec.TestSeq := do
   let t2 ← testBboxConvs
   return LSpec.group "Head Controller" (t1 ++ t2)
 
-end Sparkle.Examples.YOLOv8.Tests.TestHead
+end Sparkle.IP.YOLOv8.Tests.TestHead

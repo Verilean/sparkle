@@ -7,12 +7,12 @@
   Q16.16 ↔ Float conversion utilities and tolerance-based comparison.
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
+import IP.BitNet.Config
+import IP.BitNet.Types
 
-namespace Sparkle.Examples.BitNet.Tests.Comparison
+namespace Sparkle.IP.BitNet.Tests.Comparison
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 
 -- ============================================================================
 -- Q16.16 ↔ Float Conversion Utilities
@@ -184,4 +184,4 @@ def runAll : IO Unit := do
   IO.println ""
   IO.println "=== Comparison tests complete ==="
 
-end Sparkle.Examples.BitNet.Tests.Comparison
+end Sparkle.IP.BitNet.Tests.Comparison

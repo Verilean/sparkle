@@ -11,29 +11,29 @@
   - Multi-head attention (Signal DSL)
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
+import IP.BitNet.Config
+import IP.BitNet.Types
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import Examples.BitNet.SignalHelpers
-import Examples.BitNet.BitLinear.Core
-import Examples.BitNet.BitLinear.Scale
-import Examples.BitNet.Attention.Quantize
-import Examples.BitNet.Attention.DotProduct
-import Examples.BitNet.Attention.QKVProjection
-import Examples.BitNet.Attention.Softmax
-import Examples.BitNet.Attention.ScoreVMul
-import Examples.BitNet.Attention.MultiHead
-import Examples.BitNet.Attention.Top
+import IP.BitNet.SignalHelpers
+import IP.BitNet.BitLinear.Core
+import IP.BitNet.BitLinear.Scale
+import IP.BitNet.Attention.Quantize
+import IP.BitNet.Attention.DotProduct
+import IP.BitNet.Attention.QKVProjection
+import IP.BitNet.Attention.Softmax
+import IP.BitNet.Attention.ScoreVMul
+import IP.BitNet.Attention.MultiHead
+import IP.BitNet.Attention.Top
 
-namespace Sparkle.Examples.BitNet.Tests.Attention
+namespace Sparkle.IP.BitNet.Tests.Attention
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
-open Sparkle.Examples.BitNet.SignalHelpers
-open Sparkle.Examples.BitNet.BitLinear
-open Sparkle.Examples.BitNet.Attention
+open Sparkle.IP.BitNet.SignalHelpers
+open Sparkle.IP.BitNet.BitLinear
+open Sparkle.IP.BitNet.Attention
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -417,4 +417,4 @@ def runAll : IO Unit := do
   IO.println ""
   IO.println "=== All attention tests complete ==="
 
-end Sparkle.Examples.BitNet.Tests.Attention
+end Sparkle.IP.BitNet.Tests.Attention

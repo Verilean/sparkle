@@ -3,13 +3,13 @@
 -/
 
 import LSpec
-import Examples.YOLOv8.Primitives.Activation
+import IP.YOLOv8.Primitives.Activation
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.YOLOv8.Primitives.Activation
+open Sparkle.IP.YOLOv8.Primitives.Activation
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestActivation
+namespace Sparkle.IP.YOLOv8.Tests.TestActivation
 
 /-- Test ReLU: positive values pass through. -/
 def testReluPositive : LSpec.TestSeq :=
@@ -52,4 +52,4 @@ def allTests : LSpec.TestSeq :=
     )
   )
 
-end Sparkle.Examples.YOLOv8.Tests.TestActivation
+end Sparkle.IP.YOLOv8.Tests.TestActivation

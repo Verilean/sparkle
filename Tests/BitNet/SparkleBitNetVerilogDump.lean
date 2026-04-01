@@ -6,10 +6,10 @@
   This file only dumps spec reference values.
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
+import IP.BitNet.Config
+import IP.BitNet.Types
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 
 def main : IO Unit := do
   let outDir := "/tmp/bitnet_cross_validation/sparkle"
