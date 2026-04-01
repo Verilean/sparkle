@@ -317,17 +317,10 @@ def emitMuxAsIfElse (typeMap : List (String × HWType))
       else s!"        else if ({condStr}) {lhsName} = {valStr};"
     [defaultLine] ++ ifLines
 
-/-- Check if a signal name is a debug/trace signal that can be skipped -/
-private def isDebugSignal (name : String) : Bool :=
-  (name.splitOn "dbg_ascii").length > 1 ||
-  (name.splitOn "dbg_insn").length > 1 ||
-  (name.splitOn "new_ascii_instr").length > 1 ||
-  (name.splitOn "trace_data").length > 1 ||
-  (name.splitOn "trace_valid").length > 1 ||
-  (name.splitOn "dbg_next").length > 1 ||
-  (name.splitOn "q_insn_").length > 1 ||
-  (name.splitOn "cached_insn_").length > 1 ||
-  (name.splitOn "dbg_insn_opcode").length > 1
+/-- Check if a signal name is a debug/trace signal that can be skipped.
+    No longer needed: reachability DCE in Lower.lean automatically removes
+    unreachable debug/trace wires. Kept as a no-op for backward compatibility. -/
+private def isDebugSignal (_name : String) : Bool := false
 
 /-- Split a statement into declaration/eval/tick/reset parts -/
 def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
@@ -632,61 +625,45 @@ def emitModule (m : Module) (design : Option Design := none)
 
     -- General-purpose conditional subgraph guard: wrap consecutive lines that
     -- contain a specific keyword pattern in an if() guard.
-    -- Detects common patterns in RTL: PCPI (pcpi_valid), clock enable, FSM state guards.
-    -- The keyword→guard mapping is auto-detected from the design.
+    -- Generic conditional guard detection: finds enable/valid/trigger signals
+    -- that gate large groups of combinational logic. No hardcoded signal names.
+    -- Scans eval lines for variables ending in _valid/_trigger/_enable, then
+    -- checks if their prefix appears in 20+ lines — if so, wraps those lines.
     let wrapConditionalGuards (lines : List String) : List String := Id.run do
-      -- Auto-detect guard patterns: find member variables that look like enable signals
-      -- and keywords that co-occur with them in many lines.
-      -- For now, use a general heuristic: if a keyword appears in 30+ lines AND
-      -- there's a corresponding *_valid or *_enable member, wrap those lines.
       let mut patterns : List (String × String) := []  -- (keyword, guard_expr)
-      -- Detect PCPI pattern (any RTL with pcpi-like co-processor interface)
-      let pcpiCount := lines.filter (fun l =>
-        (l.splitOn "pcpi_mul").length > 1 || (l.splitOn "pcpi_div").length > 1 ||
-        (l.splitOn "pcpi_fast").length > 1) |>.length
-      if pcpiCount >= 30 then
-        let validLine := lines.find? (fun l => (l.splitOn "pcpi_valid").length > 1)
-        match validLine with
-        | some vl =>
-          let words := vl.splitOn "pcpi_valid"
-          if words.length >= 1 then
-            let rawPfx := (words[0]!.splitOn " ").getLast!
-            let pfx := (rawPfx.dropWhile fun c => !c.isAlphanum && c != '_').toString
-            let guardVar := pfx ++ "pcpi_valid"
-            patterns := patterns ++ [("pcpi_mul", guardVar), ("pcpi_div", guardVar),
-                                     ("pcpi_fast", guardVar)]
-        | none => pure ()
-      -- Detect instruction decoder pattern: lines with "decoded_" can be guarded
-      -- by decoder_trigger (only active during FETCH state)
-      -- Detect instruction decoder pattern (for evalTick only — see below)
-      let decodedCount := lines.filter (fun l =>
-        (l.splitOn "decoded_").length > 1 || (l.splitOn "_is_lui").length > 1 ||
-        (l.splitOn "_is_auipc").length > 1 || (l.splitOn "_is_jal").length > 1 ||
-        (l.splitOn "_is_beq").length > 1 || (l.splitOn "_is_lb").length > 1 ||
-        (l.splitOn "_is_sb").length > 1 || (l.splitOn "_is_add").length > 1 ||
-        (l.splitOn "new_ascii_instr").length > 1) |>.length
-      if decodedCount >= 20 then
-        let triggerLine := lines.find? (fun l => (l.splitOn "decoder_trigger").length > 1)
-        match triggerLine with
-        | some tl =>
-          let words := tl.splitOn "decoder_trigger"
-          if words.length >= 1 then
-            let rawPfx := (words[0]!.splitOn " ").getLast!
-            let pfx := (rawPfx.dropWhile fun c => !c.isAlphanum && c != '_').toString
-            let guardVar := pfx ++ "decoder_trigger"
-            patterns := patterns ++ [("decoded_", guardVar), ("_is_lui", guardVar),
-                                     ("_is_auipc", guardVar), ("_is_jal", guardVar),
-                                     ("_is_beq", guardVar), ("_is_lb", guardVar),
-                                     ("_is_sb", guardVar), ("_is_add", guardVar),
-                                     ("new_ascii_instr", guardVar),
-                                     -- Extended: instr_ keywords (safe in evalTick with 0-init locals)
-                                     ("instr_", guardVar),
-                                     ("is_compare", guardVar),
-                                     ("alu_out_", guardVar),
-                                     ("alu_add_sub", guardVar),
-                                     ("alu_eq", guardVar),
-                                     ("alu_lt", guardVar)]
-        | none => pure ()
+      -- Step 1: Collect all unique variable-like tokens from lines
+      let mut allTokens : List String := []
+      for line in lines do
+        let words := line.splitOn " "
+        for w in words do
+          let cleaned := (w.dropWhile fun c => !c.isAlphanum && c != '_').toString
+          let token := (cleaned.takeWhile fun c => c.isAlphanum || c == '_').toString
+          if token.length >= 4 then
+            allTokens := allTokens ++ [token]
+      -- Deduplicate tokens
+      let uniqueTokens := allTokens.eraseDups
+      -- Step 2: Find enable signals — variables containing _valid, _trigger, or _enable
+      -- (not just ending with, since module prefixes may add suffixes like __reg_pcpi_valid)
+      let enablePatterns := ["_valid", "_trigger", "_enable", "_waiting"]
+      let enableVars := uniqueTokens.filter fun t =>
+        enablePatterns.any (fun pat => (t.splitOn pat).length > 1)
+      -- Step 3: For each enable variable, try all possible prefixes and find
+      -- the one that appears in the most lines (≥20) — indicating a large subsystem.
+      for enableVar in enableVars do
+        let parts := enableVar.splitOn "_"
+        let mut bestPrefix := ""
+        let mut bestCount : Nat := 0
+        -- Try all prefix lengths from 1 to parts.length-1
+        for len in List.range (parts.length - 1) do
+          let len := len + 1  -- 1 to parts.length-1
+          let pfx := String.intercalate "_" (parts.take len) ++ "_"
+          if pfx.length >= 3 then
+            let count := lines.filter (fun l => (l.splitOn pfx).length > 1) |>.length
+            if count > bestCount then
+              bestCount := count
+              bestPrefix := pfx
+        if bestCount >= 20 then
+          patterns := patterns ++ [(bestPrefix, enableVar)]
       -- Apply patterns with lookahead: don't close a guard block if the same
       -- guard will be needed within the next few lines (avoid open/close churn).
       if patterns.isEmpty then return lines

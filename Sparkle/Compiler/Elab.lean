@@ -1642,4 +1642,83 @@ elab "#writeDesign" id:ident svPath:str cppPath:str wiresId:ident : command => d
     let wiresArr ← evalStringArray wiresName
     writeDesignCore declName svPath.getString cppPath.getString (some wiresArr.toList)
 
+/-- Helper: elaborate a string as a Lean command -/
+private def elabSimStr (s : String) : CommandElabM Unit := do
+  match Parser.runParserCategory (← getEnv) `command s with
+  | .error err => throwError "#sim parse error:\n{err}\n\nSource:\n{s}"
+  | .ok stx => elabCommand stx
+
+/-- Names treated as clock/reset (excluded from SimInput) -/
+private def isSimClkRst (name : String) : Bool :=
+  ["clk", "clock", "CLK", "rst", "reset", "RST", "rst_n", "resetn", "RESETN"].any (· == name)
+  || name.endsWith "_clk" || name.endsWith "_rst"
+
+/-- Sanitize a name to valid Lean identifier -/
+private def simLeanIdent (s : String) : String :=
+  s.map fun c => if c.isAlphanum || c == '_' then c else '_'
+
+/-- #sim — Generate typed JIT simulator from a Signal DSL definition.
+
+    Usage:
+      def counter : Signal Domain (BitVec 8) := ...
+      #sim counter
+
+    Generates:
+      counter.Sim.SimInput, SimOutput, Simulator, load, jitCppPath
+-/
+elab "#sim" id:ident : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  -- Phase 1: Synthesize + generate JIT C++ (in TermElabM)
+  let (ns, jitPath, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
+    let ns := simLeanIdent (toString declName.components.getLast!)
+    let jitPath := s!".lake/build/gen/sim/{ns}_jit.cpp"
+    try
+      IO.FS.createDirAll ".lake/build/gen/sim"
+      IO.FS.writeFile jitPath jitCpp
+    catch _ => pure ()
+    let m ← match optimized.modules.head? with
+      | some m => pure m
+      | none => throwError "#sim: no module in design"
+    let userInputs := m.inputs.filter fun p => !isSimClkRst p.name
+    let outputs := m.outputs
+    pure (ns, jitPath, userInputs, outputs)
+  -- Phase 2: Generate typed wrappers (in CommandElabM)
+  let lb := "{"
+  let rb := "}"
+  elabSimStr s!"namespace {ns}.Sim"
+  elabSimStr "open Sparkle.Core.JIT"
+  elabSimStr s!"def jitCppPath : String := \"{jitPath}\""
+  if userInputs.isEmpty then
+    elabSimStr "structure SimInput where\n  deriving Repr, BEq, Inhabited"
+  else
+    let fields := String.intercalate "\n" <|
+      userInputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
+    elabSimStr s!"structure SimInput where\n{fields}\n  deriving Repr, BEq, Inhabited"
+  if outputs.isEmpty then
+    elabSimStr "structure SimOutput where\n  deriving Repr, BEq, Inhabited"
+  else
+    let fields := String.intercalate "\n" <|
+      outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
+    elabSimStr s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
+  elabSimStr "structure Simulator where\n  handle : JITHandle"
+  let inputsIdx := (List.range userInputs.length).zip userInputs
+  let setCalls := inputsIdx.map fun (idx, p) =>
+    s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
+  let stepBody := String.intercalate "\n" setCalls
+  elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
+  let outputsIdx := (List.range outputs.length).zip outputs
+  let readLines := outputsIdx.map fun (idx, p) =>
+    s!"  let v{idx} ← JIT.getOutput sim.handle {idx}\n  let {simLeanIdent p.name} := BitVec.ofNat {p.ty.bitWidth} v{idx}.toNat"
+  let readBody := String.intercalate "\n" readLines
+  let readReturn := String.intercalate ", " <| outputs.map fun p => simLeanIdent p.name
+  elabSimStr s!"def Simulator.read (sim : Simulator) : IO SimOutput := do\n{readBody}\n  pure {lb} {readReturn} {rb}"
+  elabSimStr "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
+  elabSimStr "def Simulator.destroy (sim : Simulator) : IO Unit :=\n  JIT.destroy sim.handle"
+  elabSimStr s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
+  elabSimStr s!"end {ns}.Sim"
+
 end Sparkle.Compiler.Elab

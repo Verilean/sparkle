@@ -209,7 +209,15 @@ partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
   | .index arr idx => .index (optimizeExpr dm wm arr) (optimizeExpr dm wm idx)
   | e => e
 
-/-- Count uses of each wire name in an expression -/
+/-- Collect all reference names from an expression. -/
+partial def collectExprRefs : Expr → List String
+  | .ref name => [name]
+  | .op _ args => args.flatMap collectExprRefs
+  | .concat args => args.flatMap collectExprRefs
+  | .slice e _ _ => collectExprRefs e
+  | .index a i => collectExprRefs a ++ collectExprRefs i
+  | .const _ _ => []
+
 partial def countExprUses (e : Expr) (counts : HashMap String Nat)
     : HashMap String Nat :=
   match e with

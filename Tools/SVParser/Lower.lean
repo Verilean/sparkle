@@ -1833,6 +1833,76 @@ def parseAndLower (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   lowerDesign svDesign
 
+/-- Generic reachability DCE: remove wires/registers NOT reachable from
+    output ports. BFS through assign and register dependencies to find all
+    reachable signals. Eliminates debug/trace signals automatically without
+    hardcoding any signal names. -/
+def reachabilityDCE (design : Design) : Design :=
+  { design with modules := design.modules.map fun m =>
+    if m.body.isEmpty then m else Id.run do
+      let assignMap := m.body.foldl (fun (acc : Std.HashMap String (List Expr)) s =>
+        match s with
+        | .assign lhs rhs => acc.insert lhs ((acc.getD lhs []) ++ [rhs])
+        | _ => acc) {}
+      let regMap := m.body.foldl (fun (acc : Std.HashMap String Expr) s =>
+        match s with | .register output _ _ input _ => acc.insert output input | _ => acc) {}
+      let memMap := m.body.foldl (fun (acc : Std.HashMap String (List Expr)) s =>
+        match s with
+        | .memory _ _ _ _ wa wd we ra rd _ => acc.insert rd [wa, wd, we, ra]
+        | _ => acc) {}
+      let instExprs := m.body.foldl (fun (acc : List Expr) s =>
+        match s with
+        | .inst _ _ conns => acc ++ conns.map (·.2)
+        | _ => acc) []
+      let mut reached : Std.HashMap String Bool := {}
+      let mut frontier : List String := m.outputs.map (·.name)
+      for s in m.body do
+        match s with
+        | .memory _ _ _ _ wa wd we ra rd _ =>
+          frontier := frontier ++ [rd]
+          for e in [wa, wd, we, ra] do
+            frontier := frontier ++ (Sparkle.IR.Optimize.countExprUses e {} |>.toList.map (·.1))
+        | _ => pure ()
+      for expr in instExprs do
+        frontier := frontier ++ (Sparkle.IR.Optimize.countExprUses expr {} |>.toList.map (·.1))
+      for r in frontier do reached := reached.insert r true
+      let mut iters : Nat := 0
+      while !frontier.isEmpty && iters < 1000 do
+        let mut next : List String := []
+        for name in frontier do
+          match assignMap.get? name with
+          | some exprs =>
+            for expr in exprs do
+              for r in (Sparkle.IR.Optimize.countExprUses expr {} |>.toList.map (·.1)) do
+                if !reached.contains r then
+                  reached := reached.insert r true
+                  next := next ++ [r]
+          | none => pure ()
+          match regMap.get? name with
+          | some input =>
+            for r in (Sparkle.IR.Optimize.countExprUses input {} |>.toList.map (·.1)) do
+              if !reached.contains r then
+                reached := reached.insert r true
+                next := next ++ [r]
+          | none => pure ()
+          match memMap.get? name with
+          | some exprs =>
+            for expr in exprs do
+              for r in (Sparkle.IR.Optimize.countExprUses expr {} |>.toList.map (·.1)) do
+                if !reached.contains r then
+                  reached := reached.insert r true
+                  next := next ++ [r]
+          | none => pure ()
+        frontier := next
+        iters := iters + 1
+      let reachSet := reached
+      { m with
+        body := m.body.filter fun s => match s with
+          | .assign lhs _ => reachSet.contains lhs
+          | .register output _ _ _ _ => reachSet.contains output
+          | _ => true
+        wires := m.wires.filter fun w => reachSet.contains w.name } }
+
 def parseAndLowerFlat (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   let design ← lowerDesign svDesign
@@ -1849,36 +1919,8 @@ def parseAndLowerFlat (input : String) : Except String Design := do
       let enriched := { result with modules := result.modules ++ design.modules }
       result := flattenDesign enriched svDesign
     else break
-  -- Remove debug/trace statements from IR before optimization.
-  -- PicoRV32 debug wires (dbg_ascii, dbg_insn, new_ascii_instr, trace,
-  -- cached_insn, q_insn) don't affect simulation and waste ~36% of eval time.
-  let isDebug (name : String) : Bool :=
-    (name.splitOn "dbg_ascii").length > 1 || (name.splitOn "dbg_insn").length > 1 ||
-    (name.splitOn "new_ascii_instr").length > 1 || (name.splitOn "trace_data").length > 1 ||
-    (name.splitOn "trace_valid").length > 1 || (name.splitOn "dbg_next").length > 1 ||
-    (name.splitOn "q_insn_").length > 1 || (name.splitOn "cached_insn_").length > 1 ||
-    (name.splitOn "dbg_insn_opcode").length > 1 || (name.splitOn "dbg_rs").length > 1
-  -- Also replace refs to debug wires with const 0 in all expressions
-  let rec stripDebugRefs : Expr → Expr
-    | .ref name => if isDebug name then .const 0 32 else .ref name
-    | .const v w => .const v w
-    | .slice e hi lo => .slice (stripDebugRefs e) hi lo
-    | .concat args => .concat (args.map stripDebugRefs)
-    | .op op args => .op op (args.map stripDebugRefs)
-    | .index arr idx => .index (stripDebugRefs arr) (stripDebugRefs idx)
-  let stripStmt : Stmt → Stmt
-    | .assign lhs rhs => .assign lhs (stripDebugRefs rhs)
-    | .register o c r input iv => .register o c r (stripDebugRefs input) iv
-    | .memory n aw dw clk wa wd we ra rd cr =>
-      .memory n aw dw clk (stripDebugRefs wa) (stripDebugRefs wd) (stripDebugRefs we) (stripDebugRefs ra) rd cr
-    | s => s
-  let stripped := { result with modules := result.modules.map fun m =>
-    { m with
-      body := (m.body.filter fun s => match s with
-        | .assign lhs _ => !isDebug lhs
-        | .register output _ _ _ _ => !isDebug output
-        | _ => true).map stripStmt
-      wires := m.wires.filter fun w => !isDebug w.name } }
+  -- Generic reachability DCE: remove unreachable wires/registers
+  let stripped := reachabilityDCE result
   -- Optimize: constant folding, DCE, single-use wire inlining
   let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
   pure optimized
@@ -1915,33 +1957,8 @@ def parseAndLowerHierarchical (input : String) : Except String Design := do
   let design := match topCandidates.head? with
     | some top => { design with topModule := top.name }
     | none => design
-  -- Debug wire stripping (per module)
-  let isDebug (name : String) : Bool :=
-    (name.splitOn "dbg_ascii").length > 1 || (name.splitOn "dbg_insn").length > 1 ||
-    (name.splitOn "new_ascii_instr").length > 1 || (name.splitOn "trace_data").length > 1 ||
-    (name.splitOn "trace_valid").length > 1 || (name.splitOn "dbg_next").length > 1 ||
-    (name.splitOn "q_insn_").length > 1 || (name.splitOn "cached_insn_").length > 1 ||
-    (name.splitOn "dbg_insn_opcode").length > 1 || (name.splitOn "dbg_rs").length > 1
-  let rec stripDebugRefs : Expr → Expr
-    | .ref name => if isDebug name then .const 0 32 else .ref name
-    | .const v w => .const v w
-    | .slice e hi lo => .slice (stripDebugRefs e) hi lo
-    | .concat args => .concat (args.map stripDebugRefs)
-    | .op op args => .op op (args.map stripDebugRefs)
-    | .index arr idx => .index (stripDebugRefs arr) (stripDebugRefs idx)
-  let stripStmt : Stmt → Stmt
-    | .assign lhs rhs => .assign lhs (stripDebugRefs rhs)
-    | .register o c r input iv => .register o c r (stripDebugRefs input) iv
-    | .memory n aw dw clk wa wd we ra rd cr =>
-      .memory n aw dw clk (stripDebugRefs wa) (stripDebugRefs wd) (stripDebugRefs we) (stripDebugRefs ra) rd cr
-    | s => s
-  let stripped := { design with modules := design.modules.map fun m =>
-    { m with
-      body := (m.body.filter fun s => match s with
-        | .assign lhs _ => !isDebug lhs
-        | .register output _ _ _ _ => !isDebug output
-        | _ => true).map stripStmt
-      wires := m.wires.filter fun w => !isDebug w.name } }
+  -- Generic reachability DCE: remove unreachable wires/registers
+  let stripped := reachabilityDCE design
   -- Optimize each module independently
   let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
   pure optimized

@@ -1,6 +1,6 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-03-31
+**Date**: 2026-04-01
 **Branch**: feature/rv32
 
 ---
@@ -12,8 +12,9 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 | Config | Sparkle JIT | Verilator | Ratio |
 |--------|------------|-----------|-------|
 | **RV32I SoC** (native) | **14.2M cyc/s** | 8.7M | **1.63x** |
-| **LiteX 1-core** (1730 lines) | **11.7M cyc/s** | 10.3M | **1.13x** |
-| **LiteX 8-core parallel** | **5.1M per-core** | 1.1M | **4.78x** |
+| **LiteX 1-core** (1730 lines) | **17.9M cyc/s** | 10.5M | **1.70x** |
+| **LiteX + Reverse Synthesis** | **18.1M cyc/s** | 8.4M baseline | **2.14x** |
+| **LiteX 8-core parallel** | **12.7M per-core** | 1.1M | **11.9x** |
 | **Timer Oracle** (proof skip) | **49 GHz** | — | **9,900x** |
 
 ---
@@ -38,8 +39,10 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 | 5.1 | **Multi-Core Parallel** | 8-core CDC multi-thread, sub-module instantiation, 3.87x speedup | **Done** |
 | 5.2 | **RTL Pattern Detection** | Auto-detect countdown timers (7 found), idle registers (150 found) | **Done** |
 | 5.3 | **Proof-Driven Time Skip** | Timer oracle PoC: 49 GHz effective (9,900x), LiteX firmware verified | **Done** |
+| 5.4 | **Generic Auto-Detection** | Reachability DCE + frequency-based guard detection, no hardcoded signal names | **Done** |
+| 5.5 | **Verified Reverse Synthesis** | OracleReduction type class (proof-required), carry-save=mul proof (zero sorry), 2.14x speedup | **Done** |
 | 6 | **Cross-Module Optimization** | Propagate wrapper const inputs into sub-modules for dead code elimination | Next |
-| 7 | **RTL Reverse Synthesis** | Auto-extract Lean specs from Verilog; shift-and-add → multiply replacement | Next |
+| 7 | **RTL Reverse Synthesis (Extended)** | Iterative divider, CRC, FIR filter — additional OracleReduction instances | Next |
 | 8 | **Verified Standard IP — FIFO, Arbiter** | Parameterized FIFO, N-way arbiter, TileLink | Not started |
 | 9 | **GPGPU / Vector Core** | VDD framework for concurrent, memory-bound architectures | Not started |
 | 10 | **FPGA Tape-out Flow** | End-to-end Sparkle-generated Linux SoCs on physical FPGAs | Not started |
@@ -48,9 +51,31 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 
 ## Completed Phases
 
+### Verified Reverse Synthesis (Phase 54) — DONE
+
+Proof-driven IR reduction: removes multi-cycle FSM logic verified equivalent to a direct computation.
+
+**Framework**: `OracleReduction` type class with mandatory equivalence proof (`equiv` field).
+Users declare instances to add new reductions (e.g., iterative divider, CRC).
+
+**PicoRV32 pcpi_mul** (carry-save shift-and-add multiplier):
+- 38 carry-save chain assigns removed from IR (573 → 535 stmts)
+- Lean proof: `carrySave_add_eq_64` (bv_decide) + induction → `rd + rdx = a * b` (zero sorry)
+- 20+ supporting theorems in `MulProps.lean`, all zero sorry/axiom
+- No Mathlib dependency
+
+**Benchmark**: 8.4M → **18.1M cyc/s** (2.14x speedup, 1.72x vs Verilator)
+
+**Files**:
+- `Sparkle/Core/OracleSpec.lean` — `OracleReduction` type class, `resolve`, `mkOracle`, `reduceIR`
+- `Sparkle/Core/MulOracle.lean` — `instance : OracleReduction "pcpi_mul"` (reference implementation)
+- `Sparkle/Core/MulOracleProof.lean` — Full inductive proof chain (zero sorry)
+- `Sparkle/Verification/MulProps.lean` — 20 theorems: CSA identity, concrete tests, bit-level proofs
+- `Sparkle/IR/PatternDetect.lean` — `MulFSM` detection
+
 ### JIT Optimization Phase 52 + Multi-Core Parallel — DONE
 
-**Single-core optimizations** (5.62M → 11.7M, +108%):
+**Single-core optimizations** (5.62M → 17.9M, +218%):
 
 | Phase | Optimization | Effect |
 |-------|-------------|--------|
@@ -58,10 +83,12 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 | Constant/alias propagation | IR Phase 0, eliminates 140+ wire assigns | +17% |
 | Deep MUX → if-else | ≥16-arm MUX → if-else for CPU FSM | +3% |
 | Self-ref register if-else | `mux(en,val,self)` → `if(en) next=val;` | +9% |
-| Decoder trigger guard | Auto-detect, skip ~174 lines in non-FETCH | +14% |
+| Reachability DCE | BFS from output ports, eliminates unreachable signals | +4% |
+| Generic guard detection | Auto-detect `_valid`/`_trigger`/`_enable` guards | +14% |
 | evalTick wire localization | ~270 wires → stack locals | +39% |
-| Debug wire elimination | Remove PicoRV32 debug/trace from IR | +4% |
 | Self-ref _next elimination | Direct register update, no _next variable | +22% |
+
+All optimizations are fully generic — no hardcoded signal names.
 
 **SVParser LiteX/Migen compatibility** (10 bug fixes):
 - `always @(*)` nonblocking assigns, bit-index RMW, case SSA merge
@@ -70,7 +97,7 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 **Multi-core parallel simulation**:
 - Sub-module instantiation: per-module C++ classes, function-call eval
 - CDC multi-thread runner: N threads with batched barrier sync (std::barrier)
-- 8-core parallel: 3.87x speedup vs sequential, 4.78x vs Verilator 8-core
+- 8-core parallel: 12.7M per-core (1.8x vs sequential, 11.9x vs Verilator 8-core)
 
 **RTL Pattern Detection + Timer Oracle**:
 - Auto-detect countdown timers (7 found in LiteX), idle registers (150 found)

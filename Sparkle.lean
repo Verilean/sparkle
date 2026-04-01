@@ -24,4 +24,7 @@ import Sparkle.Verification.Temporal
 import Sparkle.Core.JIT
 import Sparkle.Core.JITLoop
 import Sparkle.Core.Oracle
+import Sparkle.Core.OracleSpec
+import Sparkle.Core.MulOracle
+import Sparkle.Verification.MulProps
 import Sparkle.Utils.HexLoader

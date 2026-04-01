@@ -2,6 +2,68 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 54: Verified Reverse Synthesis — Proof-Driven IR Reduction (Complete)
+
+**Date**: 2026-04-01
+
+**Goal**: Replace multi-cycle FSM sub-circuits with oracle-computed results, verified by Lean proofs. Remove carry-save shift-and-add chain from pcpi_mul, improving simulation speed.
+
+**Results**:
+- **2.14x speedup**: 8.4M → 18.1M cyc/s on LiteX PicoRV32 SoC
+- **Zero sorry, zero axiom**: Full inductive proof that carry-save = multiplication
+- **No Mathlib dependency**: All proofs use only Lean4 stdlib + bv_decide
+- **Reusable framework**: `OracleReduction` type class — users add instances for new FSM patterns
+
+**Proof chain** (all zero sorry):
+1. `carrySave_add_eq_64` — CSA identity for 64-bit (bv_decide)
+2. `sm_cons` — Schoolbook multiplication decomposition (induction + BitVec.add_assoc)
+3. `csa_sum` — N iterations preserve rd+rdx = partial sum (induction)
+4. `mod_double` — Modular arithmetic identity (Nat.add_mul_mod_self_left)
+5. `sm_eq_mul` — Schoolbook multiplication = BitVec.mul (induction + Nat arithmetic)
+6. `csa64_main` — 64 carry-save steps from (0,0,a,b) give rd+rdx = a*b
+
+**IR reduction**: 38 carry-save chain assigns removed (573 → 535 stmts), C++ size 571KB → 546KB, binary 127KB → 123KB.
+
+**New files**:
+- `Sparkle/Core/OracleSpec.lean` — `OracleReduction` type class with mandatory `equiv` proof
+- `Sparkle/Core/MulOracle.lean` — pcpi_mul instance (reference implementation)
+- `Sparkle/Core/MulOracleProof.lean` — Full inductive proof chain
+- `Sparkle/Verification/MulProps.lean` — 20 supporting theorems
+- `Sparkle/IR/PatternDetect.lean` — `MulFSM` detection added
+- `Tests/RV32/MulOracleTest.lean` — 5-phase oracle test
+
+## Phase 53: Generic Auto-Detection — Remove Hardcoded Optimizations (Complete)
+
+**Date**: 2026-03-31
+
+**Goal**: Replace all PicoRV32-specific hardcoded signal names in optimizations with generic auto-detection, making the JIT optimizer work on any RTL design.
+
+**Results**:
+- LiteX 1-core: **17.9M cyc/s** (1.70x Verilator) — up from 11.7M (+54%)
+- 8-core parallel: **12.7M per-core** (11.9x vs Verilator 8-core)
+- All optimizations are now fully generic — zero hardcoded signal names
+
+**Changes**:
+
+1. **Reachability DCE** (`Tools/SVParser/Lower.lean`):
+   - Replaced hardcoded `isDebug` function (checked `dbg_ascii`, `dbg_insn`, `trace_data`, etc.)
+   - New `reachabilityDCE`: BFS from output ports, memory ports, and instance connections
+   - Follows assign, register, and memory dependencies transitively
+   - Eliminates unreachable wires AND registers automatically
+   - Used by both `parseAndLowerFlat` and `parseAndLowerHierarchical`
+
+2. **Generic conditional guard detection** (`Sparkle/Backend/CppSim.lean`):
+   - Replaced hardcoded keyword matching (`pcpi_mul`, `decoded_`, `instr_`, `alu_out_`, etc.)
+   - Scans generated C++ for variables containing `_valid`, `_trigger`, or `_enable`
+   - For each, finds the prefix appearing in 20+ lines (indicating a subsystem)
+   - Wraps those lines in `if(guard) {}` blocks with lookahead merging
+   - Auto-detected 131 guard blocks on LiteX PicoRV32 (vs 85 with hardcoded patterns)
+
+3. **`isDebugSignal` removed** (`Sparkle/Backend/CppSim.lean`):
+   - No longer needed — reachability DCE handles removal before codegen
+
+**Why it's faster**: The generic reachability DCE eliminates more dead signals than the old hardcoded list, and the expanded guard detection wraps more inactive subsystem logic.
+
 ## Phase 52: JIT Optimization + Multi-Core + Timer Oracle (Complete)
 
 **Date**: 2026-03-28 — 2026-03-31

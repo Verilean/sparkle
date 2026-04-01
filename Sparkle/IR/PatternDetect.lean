@@ -133,16 +133,90 @@ def detectIdleRegisters (m : Module) : List IdleState :=
       | none => none
     | _ => none
 
+/-- A detected shift-and-add multiplier FSM (e.g., PicoRV32 pcpi_mul).
+    Contains register names that the MulOracle needs to read/write. -/
+structure MulFSM where
+  /-- Common prefix for all registers in this multiplier -/
+  modulePfx : String
+  /-- Operand registers (64-bit, sign-extended by hardware) -/
+  rs1Reg : String
+  rs2Reg : String
+  /-- Carry-save accumulator registers -/
+  rdReg : String
+  rdxReg : String
+  /-- FSM control registers -/
+  counterReg : String
+  waitingReg : String
+  /-- MUL variant instruction flags -/
+  instrMulReg : Option String := none
+  instrMulhReg : Option String := none
+  instrMulhsuReg : Option String := none
+  instrMulhuReg : Option String := none
+  deriving Repr
+
+/-- Detect shift-and-add multiplier FSM by scanning register names.
+    Looks for PicoRV32 pcpi_mul naming convention:
+    - *_rs1, *_rs2 (operands)
+    - *_rd, *_rdx (carry-save accumulators)
+    - *mul_counter* or *mul_waiting* (FSM control) -/
+def detectMulFSM (m : Module) : List MulFSM :=
+  -- Collect all register names
+  let regNames := m.body.filterMap fun s =>
+    match s with | .register name _ _ _ _ => some name | _ => none
+  -- Find registers matching pcpi_mul pattern
+  -- Group by module prefix (everything before _rs1/_rs2/_rd/_rdx)
+  let findReg (suffix : String) : Option String :=
+    regNames.find? fun n => n.endsWith suffix
+  -- Try to find a complete multiplier set
+  let tryPrefix (pfx : String) : Option MulFSM := do
+    let rs1 ← regNames.find? fun n => n.startsWith pfx && n.endsWith "_rs1"
+    let rs2 ← regNames.find? fun n => n.startsWith pfx && n.endsWith "_rs2"
+    let rd ← regNames.find? fun n => n.startsWith pfx && n.endsWith "_rd" &&
+      !(n.endsWith "_rdx")
+    let rdx ← regNames.find? fun n => n.startsWith pfx && n.endsWith "_rdx"
+    let counter ← regNames.find? fun n => n.startsWith pfx &&
+      ((n.splitOn "mul_counter").length > 1 || (n.splitOn "_counter").length > 1)
+    let waiting ← regNames.find? fun n => n.startsWith pfx &&
+      (n.splitOn "mul_waiting").length > 1
+    let instrMul := regNames.find? fun n => n.startsWith pfx && n.endsWith "_instr_mul"
+    let instrMulh := regNames.find? fun n => n.startsWith pfx && n.endsWith "_instr_mulh"
+    let instrMulhsu := regNames.find? fun n => n.startsWith pfx && n.endsWith "_instr_mulhsu"
+    let instrMulhu := regNames.find? fun n => n.startsWith pfx && n.endsWith "_instr_mulhu"
+    some {
+      modulePfx := pfx
+      rs1Reg := rs1, rs2Reg := rs2
+      rdReg := rd, rdxReg := rdx
+      counterReg := counter, waitingReg := waiting
+      instrMulReg := instrMul, instrMulhReg := instrMulh
+      instrMulhsuReg := instrMulhsu, instrMulhuReg := instrMulhu
+    }
+  -- Auto-detect prefixes: find all registers with _rs1 suffix,
+  -- extract prefix, try to find complete set
+  let rs1Regs := regNames.filter fun n => n.endsWith "_rs1"
+  let prefixes := rs1Regs.map fun n => (n.dropEnd 4).toString  -- drop "_rs1"
+  let results := prefixes.filterMap tryPrefix
+  -- Also try finding by _rd/_rdx without prefix
+  let fallback := match findReg "_rdx" with
+    | some rdxName =>
+      let pfx := (rdxName.dropEnd 4).toString  -- drop "_rdx"
+      match tryPrefix pfx with
+      | some r => [r]
+      | none => []
+    | none => []
+  if results.isEmpty then fallback else results
+
 /-- Summary of all detected patterns in a module -/
 structure PatternReport where
   countdownTimers : List CountdownTimer
   idleRegisters : List IdleState
+  mulFSMs : List MulFSM
   deriving Repr
 
 /-- Run all pattern detectors on a module -/
 def analyzeModule (m : Module) : PatternReport :=
   { countdownTimers := detectCountdownTimers m
-  , idleRegisters := detectIdleRegisters m }
+  , idleRegisters := detectIdleRegisters m
+  , mulFSMs := detectMulFSM m }
 
 /-- Pretty-print a pattern report -/
 def PatternReport.toString (r : PatternReport) : String :=
@@ -152,6 +226,10 @@ def PatternReport.toString (r : PatternReport) : String :=
     ) |>.foldl (· ++ ·) ""
   let idles := if r.idleRegisters.isEmpty then "  (none)\n"
     else s!"  {r.idleRegisters.length} registers with idle (self-ref) pattern\n"
-  s!"Countdown Timers:\n{timers}Idle Registers:\n{idles}"
+  let muls := if r.mulFSMs.isEmpty then "  (none)\n"
+    else r.mulFSMs.map (fun m =>
+      s!"  - {m.modulePfx}: rs1={m.rs1Reg}, rs2={m.rs2Reg}, rd={m.rdReg}, rdx={m.rdxReg}\n"
+    ) |>.foldl (· ++ ·) ""
+  s!"Countdown Timers:\n{timers}Idle Registers:\n{idles}Multiplier FSMs:\n{muls}"
 
 end Sparkle.IR.PatternDetect
