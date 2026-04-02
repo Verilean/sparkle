@@ -59,3 +59,19 @@ venv/
 plans/
 Sparkle/Verification/Generated/
 Examples/CDC/gen/
+
+# Generated firmware (rebuild from source)
+firmware/*.bin
+firmware/*.elf
+firmware/*.map
+firmware/firmware_litex_*.hex
+firmware/firmware_multest.hex
+firmware/firmware_rv32i.hex
+firmware/firmware_rv32im.hex
+firmware/firmware_storeload.hex
+
+# Generated Verilog fixtures (regenerate with gen_litex_multicore.py)
+Tests/SVParser/fixtures/*_flat.v
+
+# Nix shell artifacts
+result
