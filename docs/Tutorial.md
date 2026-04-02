@@ -271,7 +271,48 @@ theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
 
 ---
 
-## Step 6: What's Next
+## Step 6: Multi-Domain Parallel Simulation (Preview)
+
+Sparkle supports multi-clock-domain simulation with lock-free CDC queues.
+Currently available as a low-level API; a `sim_parallel!` macro is planned.
+
+### Current API (low-level)
+
+```lean
+import Sparkle.Core.JIT
+
+-- Load two JIT-compiled domains
+let prodHandle ← JIT.compileAndLoad "producer_jit.cpp"
+let consHandle ← JIT.compileAndLoad "consumer_jit.cpp"
+
+-- Run in parallel: producer's output port 0 → consumer's input port 0
+-- Returns (messagesSent, messagesReceived, rollbackCount)
+let (sent, recv, rollbacks) ←
+  JIT.runCDC prodHandle consHandle 1000000 0 0
+```
+
+This achieves **11.9x vs Verilator** on 8-core LiteX SoC benchmarks.
+
+### Planned: `sim_parallel!` (TODO)
+
+```lean
+-- Goal: type-safe parallel simulation from sim! definitions
+sim! "module producer (...) ..."
+sim! "module consumer (...) ..."
+
+-- Connect output → input by name, run in parallel
+let result ← simParallel
+  (producer := producer.Sim)
+  (consumer := consumer.Sim)
+  (connections := [("data_out", "data_in")])
+  (cycles := 1000000)
+```
+
+See `Examples/CDC/MultiClockSim.lean` for a working multi-domain example.
+
+---
+
+## Step 7: What's Next
 
 | Topic | Where |
 |-------|-------|
@@ -279,7 +320,6 @@ theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
 | **Verification patterns** | `docs/Verification_Framework.md` |
 | **IP catalog** (RV32I CPU, AXI4-Lite, H.264, BitNet) | `README.md` |
 | **Benchmark** (Sparkle JIT vs Verilator) | `docs/BENCHMARK.md` |
-| **Multi-core simulation** | `c_src/cdc/multicore_runner.cpp` |
 | **Reverse synthesis** (proof-driven FSM optimization) | `Sparkle/Core/OracleSpec.lean` |
 
 ---
@@ -296,7 +336,9 @@ theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
   Verilog output     Parse → Sparkle IR
       │                    │
       ├── VCD waveform     ├── JIT C++ → .so → fast simulation
-      │                    │
-      └── Formal proofs    └── OracleReduction (proof-driven optimization)
-          (bv_decide)
+      │                    │                      │
+      └── Formal proofs    ├── OracleReduction     ├── sim_parallel! (planned)
+          (bv_decide)      │   (proof-driven opt)  │   (multi-domain CDC)
+                           │                      │
+                           └──────────────────────┘
 ```

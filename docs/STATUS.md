@@ -41,6 +41,7 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 | 5.3 | **Proof-Driven Time Skip** | Timer oracle PoC: 49 GHz effective (9,900x), LiteX firmware verified | **Done** |
 | 5.4 | **Generic Auto-Detection** | Reachability DCE + frequency-based guard detection, no hardcoded signal names | **Done** |
 | 5.5 | **Verified Reverse Synthesis** | OracleReduction type class (proof-required), carry-save=mul proof (zero sorry), 2.14x speedup | **Done** |
+| 5.6 | **`sim_parallel!` macro** | Type-safe multi-domain parallel simulation; integrate CDC with `sim!` | Next |
 | 6 | **Cross-Module Optimization** | Propagate wrapper const inputs into sub-modules for dead code elimination | Next |
 | 7 | **RTL Reverse Synthesis (Extended)** | Iterative divider, CRC, FIR filter — additional OracleReduction instances | Next |
 | 8 | **Verified Standard IP — FIFO, Arbiter** | Parameterized FIFO, N-way arbiter, TileLink | Not started |
