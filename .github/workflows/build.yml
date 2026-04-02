@@ -48,7 +48,7 @@ jobs:
       run: lake env lean --run Examples/Sparkle16/Core.lean
 
     - name: Build RV32 Signal DSL
-      run: lake build Examples.RV32
+      run: lake build IP.RV32
 
     - name: Build CDC Multi-Clock example
       run: lake build Examples.CDC
@@ -94,7 +94,7 @@ jobs:
     # ---- Synthesis Tests ----
 
     - name: Build SoC Verilog (generates verilator/ files)
-      run: lake build Examples.RV32.SoCVerilog
+      run: lake build IP.RV32.SoCVerilog
 
     - name: Run Verilog generation tests
       run: lake exe verilog-tests
