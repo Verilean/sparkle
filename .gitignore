@@ -41,8 +41,21 @@ Thumbs.db
 *.bak
 *.log
 
+# ELF binaries and compiled objects
+c_src/cdc/cdc_example
+c_src/cdc/cdc_test
+c_src/cdc/*.so
+
+# Verilator build artifacts
+verilator/obj_dir/
+verilator/obj_dir_notrace/
+verilator/generated_soc_jit.cpp
+verilator/verilator_bench
+
+# Python virtual environment
+venv/
+
 # Planning documents
 plans/
 Sparkle/Verification/Generated/
 Examples/CDC/gen/
-verilator/generated_soc_jit.cpp
