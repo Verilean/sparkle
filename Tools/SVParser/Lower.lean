@@ -1856,6 +1856,13 @@ def reachabilityDCE (design : Design) : Design :=
         | _ => acc) []
       let mut reached : Std.HashMap String Bool := {}
       let mut frontier : List String := m.outputs.map (·.name)
+      -- All registers are reachable roots. Registers hold state and may
+      -- indirectly affect outputs through multi-cycle FSM behavior.
+      -- Only combinational wires (assigns) are candidates for DCE.
+      for s in m.body do
+        match s with
+        | .register output _ _ _ _ => frontier := frontier ++ [output]
+        | _ => pure ()
       for s in m.body do
         match s with
         | .memory _ _ _ _ wa wd we ra rd _ =>
