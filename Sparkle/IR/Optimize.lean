@@ -272,7 +272,8 @@ partial def substituteExpr (dm : DefMap) (inlinable : HashMap String Bool)
 /-- Inline single-use wires: replace references with their defining expressions
     and remove the now-dead assign statements. -/
 def inlineSingleUseWires (m : Module) (body : List Stmt)
-    (observableWires : Option (List String) := none) : List Stmt × List Port :=
+    (observableWires : Option (List String) := none)
+    (protectedWires : HashMap String Bool := {}) : List Stmt × List Port :=
   let dm := buildDefMap body
   let useCounts := countAllUses body
 
@@ -297,6 +298,7 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
         && !memoryReadData.contains lhs
+        && !protectedWires.contains lhs
         && (match observableWires with
             | some ws => !ws.contains lhs
             | none => !lhs.startsWith "_gen_")  -- _gen_ wires are JIT-observable
@@ -383,6 +385,16 @@ def optimizeModule (m : Module)
     let wm := buildWidthMap m
     let dm := buildDefMap m.body
 
+    -- Collect wires directly referenced by register inputs (before any optimization).
+    -- These must not be inlined away, because CppSim's evalTick generates
+    -- them as local variables in the combinational section.
+    let registerInputWires := m.body.foldl (fun (s : HashMap String Bool) stmt =>
+      match stmt with
+      | .register _ _ _ input _ =>
+        (collectExprRefs input).foldl (fun acc r => acc.insert r true) s
+      | _ => s
+    ) {}
+
     -- Phase 0: Constant and alias propagation
     -- Only propagate constants and aliases to wires that are NOT register outputs.
     -- Register outputs change every cycle and must not be treated as constants.
@@ -446,7 +458,7 @@ def optimizeModule (m : Module)
     let m2 := { m with body := prunedBody, wires := prunedWires }
 
     -- Phase 3: Single-use wire inlining
-    let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body observableWires
+    let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body observableWires registerInputWires
 
     -- Phase 4: Dead code elimination (again, to catch newly-dead wires)
     let useCounts2 := countAllUses inlinedBody
