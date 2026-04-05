@@ -460,6 +460,10 @@ partial def collectExprRefs : Expr → List String
 def collectTickRefWires (body : List Stmt) : List String :=
   body.foldl (fun acc stmt =>
     match stmt with
+    | .register _ _ _ input _ =>
+      -- Register input expr is evaluated in tick (or evalTick's register section).
+      -- Wires referenced here must NOT be localized away.
+      acc ++ (collectExprRefs input).map sanitizeName
     | .memory _ _ _ _ wa wd we ra rd cr =>
       let refs := collectExprRefs wa ++ collectExprRefs wd ++ collectExprRefs we
       -- Non-combo-read: tick() assigns rd and references readAddr exprs
