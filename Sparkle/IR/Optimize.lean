@@ -412,8 +412,9 @@ def optimizeModule (m : Module)
         -- This is correct: x becomes a ref to regOutput (which is a register member).
         (body, dm)
 
-    -- Phase 0.5: Remove duplicate assigns (keep first, drop later identical copies).
-    -- SSA lowering can produce identical assigns from case/if branches.
+    -- Phase 0.5: Remove duplicate and identity assigns.
+    -- SSA lowering can produce identical assigns from case/if branches,
+    -- and identity assigns (x = x) from output reg declarations.
     let dedupBody := Id.run do
       let mut seen : HashMap String (Expr × Nat) := {}  -- lhs → (rhs, position)
       let mut drops : HashMap Nat Bool := {}  -- positions to drop
@@ -421,7 +422,11 @@ def optimizeModule (m : Module)
       for s in constPropBody do
         match s with
         | .assign lhs rhs =>
-          match seen.get? lhs with
+          -- Drop identity assigns (x = ref x)
+          let isIdentity := match rhs with | .ref name => name == lhs | _ => false
+          if isIdentity then
+            drops := drops.insert pos true
+          else match seen.get? lhs with
           | some (prevRhs, _) =>
             if prevRhs == rhs then
               drops := drops.insert pos true  -- identical → drop this copy
