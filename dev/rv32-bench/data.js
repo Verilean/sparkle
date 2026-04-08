@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775652118228,
+  "lastUpdate": 1775655549446,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -131,6 +131,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4928097,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "cd9d63c2b01a6e7249288598dc50548bbd292ace",
+          "message": "fix(CppSim): dedupe statement declarations by identifier\n\nLiteX-style Verilog patterns like\n\n    reg [9:0] storage_1_dat0;\n    always @(posedge clk)\n        storage_1_dat0 <= storage_1[addr];\n\nsurface in the IR as both a `.memory` read-data port and a standalone\n`.register` statement with the same name. emitModule then emitted two\nclass member declarations for the same identifier (different types,\nbecause the register path falls back to 32-bit when the name is missing\nfrom typeMap), producing invalid C++:\n\n    uint16_t storage_1_dat0;  // from memory\n    uint32_t storage_1_dat0;  // from register ← redeclaration error\n\nFix: after collecting `stmtDecls` from all statement emissions, dedupe\nby extracting the trailing identifier token and keeping the first\noccurrence. Memory read-data ports are emitted before the register\nfallback and already carry the correct dataWidth, so keeping the first\ncopy is the right choice.\n\nThis unblocks the LiteX JIT build in GitHub Actions (the CI step that\ncompiles /tmp/litex_jit.cpp was failing with\n'redeclaration of storage_1_dat0').",
+          "timestamp": "2026-04-08T21:53:38+09:00",
+          "tree_id": "6fec48d398a43ee54d1b8c7082704eb5ecd1b626",
+          "url": "https://github.com/Verilean/sparkle/commit/cd9d63c2b01a6e7249288598dc50548bbd292ace"
+        },
+        "date": 1775655549066,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3301683,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4015768,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4454551,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4165818,
             "unit": "cycles/sec"
           }
         ]
