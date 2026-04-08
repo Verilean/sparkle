@@ -41,8 +41,8 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 | 5.3 | **Proof-Driven Time Skip** | Timer oracle PoC: 49 GHz effective (9,900x), LiteX firmware verified | **Done** |
 | 5.4 | **Generic Auto-Detection** | Reachability DCE + frequency-based guard detection, no hardcoded signal names | **Done** |
 | 5.5 | **Verified Reverse Synthesis** | OracleReduction type class (proof-required), carry-save=mul proof (zero sorry), 2.14x speedup | **Done** |
-| 5.6 | **`sim_parallel!` macro** | Type-safe multi-domain parallel simulation; integrate CDC with `sim!` | Next |
-| 5.7 | **pcpi_mul standalone FSM fix** | Standalone pcpi_mul JIT (non-LiteX) doesn't advance FSM. See `docs/KnownIssues.md` Issue 1 | **Bug** |
+| 5.6 | **`runSim` auto-dispatcher** | Single `runSim` picks runSingleSim / runMultiDomainSim automatically; typed named-port connections via `toEndpoint`; 27 regression tests (equivalence / auto-select / name resolution / index alignment / stress) | **Done** |
+| 5.7 | **pcpi_mul standalone FSM fix** | Standalone pcpi_mul JIT now runs correctly after Issue 1 / 6 / 7 fixes. See `docs/KnownIssues.md` | **Done** |
 | 6 | **Cross-Module Optimization** | Propagate wrapper const inputs into sub-modules for dead code elimination | Next |
 | 7 | **RTL Reverse Synthesis (Extended)** | Iterative divider, CRC, FIR filter — additional OracleReduction instances | Next |
 | 8 | **Verified Standard IP — FIFO, Arbiter** | Parameterized FIFO, N-way arbiter, TileLink | Not started |

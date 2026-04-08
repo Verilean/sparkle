@@ -317,19 +317,14 @@ def emitMuxAsIfElse (typeMap : List (String × HWType))
       else s!"        else if ({condStr}) {lhsName} = {valStr};"
     [defaultLine] ++ ifLines
 
-/-- Check if a signal name is a debug/trace signal that can be skipped.
-    No longer needed: reachability DCE in Lower.lean automatically removes
-    unreachable debug/trace wires. Kept as a no-op for backward compatibility. -/
-private def isDebugSignal (_name : String) : Bool := false
-
 /-- Split a statement into declaration/eval/tick/reset parts -/
 def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     (design : Option Design := none) : StmtParts :=
   match stmt with
   | .assign lhs rhs =>
     let width := lookupWidth typeMap lhs
-    if width > 64 || isDebugSignal lhs then
-      -- Skip wide assigns and debug wires
+    if width > 64 then
+      -- Skip wide assigns (handled via memory/array paths elsewhere)
       StmtParts.empty
     else
       -- For deep MUX chains (≥16 arms), emit if-else for branch prediction
@@ -354,45 +349,34 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
 
   | .register output _clock _reset input initValue =>
     let width := lookupWidth typeMap output
-    if isDebugSignal output then StmtParts.empty
-    else
     let cppType := emitCppType (.bitVector width)
     let outName := sanitizeName output
     let nextName := s!"{outName}_next"
     let rawExpr := emitExpr typeMap input
     let inputExpr := if exprIsMasked width input then rawExpr else applyMask rawExpr width
     let initExpr := emitInitValue initValue width
-    -- Detect self-referencing MUX pattern for conditional register update.
-    -- If the register's default (deepest else) case is itself, we can use
-    -- if-else to skip expensive computation when the register won't change.
-    let rec findDeepestElse : Expr → Option String
-      | .op .mux [_, _, elseVal] => findDeepestElse elseVal
-      | .ref name => some name
-      | _ => none
-    let isSelfRef := findDeepestElse input == some output
-    -- Use if-else for: deep MUX chains (≥16 arms), or self-ref registers (≥2 arms)
-    let minArms := if isSelfRef then 2 else 16
-    let ifElseLines := if muxChainDepth input >= minArms then
-        emitMuxAsIfElse typeMap nextName width input minArms
+    -- Expand deep MUX chains (≥16 arms) into if/else-if cascades for better
+    -- branch prediction and I-cache locality. Shorter chains stay as a single
+    -- ternary expression. We no longer special-case "self-referencing"
+    -- registers (default-else → reg itself) — since every evalTick-local
+    -- `_next` is now initialized to the current register value, Clang -O2
+    -- elides any redundant `reg_next = reg;` store in either code shape.
+    let ifElseLines := if muxChainDepth input >= 16 then
+        emitMuxAsIfElse typeMap nextName width input 16
       else []
     -- Initialize the evalTick-local `_next` to the current register value.
-    -- This keeps Verilog <= (non-blocking) semantics intact for self-ref
-    -- registers, and gives non-self-ref registers a safe default (current
-    -- value) when conditional-assign branches don't cover every case. Clang
-    -- -O2 elides redundant `reg_next = reg;` stores.
+    -- This preserves Verilog `<=` non-blocking semantics: downstream
+    -- conditions in the same evalTick read the OLD value. Clang -O2 elides
+    -- the store when it's immediately overwritten.
     let nextLocalDecl := s!"        {cppType} {nextName} = {outName};"
-    if !ifElseLines.isEmpty then
-      { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
-      , evalBody := ifElseLines
-      , tickBody := [s!"        {outName} = {nextName};"]
-      , resetBody := [s!"        {outName} = {initExpr};"]
-      , evalTickLocals := [nextLocalDecl] }
-    else
-      { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
-      , evalBody := [s!"        {nextName} = {inputExpr};"]
-      , tickBody := [s!"        {outName} = {nextName};"]
-      , resetBody := [s!"        {outName} = {initExpr};"]
-      , evalTickLocals := [nextLocalDecl] }
+    let body : List String :=
+      if ifElseLines.isEmpty then [s!"        {nextName} = {inputExpr};"]
+      else ifElseLines
+    { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
+    , evalBody := body
+    , tickBody := [s!"        {outName} = {nextName};"]
+    , resetBody := [s!"        {outName} = {initExpr};"]
+    , evalTickLocals := [nextLocalDecl] }
 
   | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable readAddr readData comboRead =>
     let memSize := 2 ^ addrWidth
@@ -665,90 +649,14 @@ def emitModule (m : Module) (design : Option Design := none)
     else
       (localDecls, [], evalChunks.map (fun _ => []))
 
-    -- General-purpose conditional subgraph guard: wrap consecutive lines that
-    -- contain a specific keyword pattern in an if() guard.
-    -- Generic conditional guard detection: finds enable/valid/trigger signals
-    -- that gate large groups of combinational logic. No hardcoded signal names.
-    -- Scans eval lines for variables ending in _valid/_trigger/_enable, then
-    -- checks if their prefix appears in 20+ lines — if so, wraps those lines.
-    let wrapConditionalGuards (lines : List String) : List String := Id.run do
-      let mut patterns : List (String × String) := []  -- (keyword, guard_expr)
-      -- Step 1: Collect all unique variable-like tokens from lines
-      let mut allTokens : List String := []
-      for line in lines do
-        let words := line.splitOn " "
-        for w in words do
-          let cleaned := (w.dropWhile fun c => !c.isAlphanum && c != '_').toString
-          let token := (cleaned.takeWhile fun c => c.isAlphanum || c == '_').toString
-          if token.length >= 4 then
-            allTokens := allTokens ++ [token]
-      -- Deduplicate tokens
-      let uniqueTokens := allTokens.eraseDups
-      -- Step 2: Find enable signals — variables containing _valid, _trigger, or _enable
-      -- (not just ending with, since module prefixes may add suffixes like __reg_pcpi_valid)
-      -- NOTE: `_waiting` is intentionally excluded. It's FSM state, not a gate —
-      -- combinational wires like `mul_start = pcpi_wait && !pcpi_wait_q` must run
-      -- every cycle even when `mul_waiting=0`, otherwise the FSM freezes (cf. Issue 1).
-      let enablePatterns := ["_valid", "_trigger", "_enable"]
-      let enableVars := uniqueTokens.filter fun t =>
-        enablePatterns.any (fun pat => (t.splitOn pat).length > 1)
-      -- Step 3: For each enable variable, try all possible prefixes and find
-      -- the one that appears in the most lines (≥20) — indicating a large subsystem.
-      for enableVar in enableVars do
-        let parts := enableVar.splitOn "_"
-        let mut bestPrefix := ""
-        let mut bestCount : Nat := 0
-        -- Try all prefix lengths from 1 to parts.length-1
-        for len in List.range (parts.length - 1) do
-          let len := len + 1  -- 1 to parts.length-1
-          let pfx := String.intercalate "_" (parts.take len) ++ "_"
-          if pfx.length >= 3 then
-            let count := lines.filter (fun l => (l.splitOn pfx).length > 1) |>.length
-            if count > bestCount then
-              bestCount := count
-              bestPrefix := pfx
-        if bestCount >= 20 then
-          patterns := patterns ++ [(bestPrefix, enableVar)]
-      -- Apply patterns WITHOUT lookahead: only lines literally containing the
-      -- guard keyword are wrapped. The previous "keep block open across gap
-      -- lines" lookahead was unsound — it trapped unrelated output-wire
-      -- assignments (e.g. `uart_valid = uart_valid_reg;`) inside a
-      -- `if (cpu_decoder_trigger)` block, so those outputs stopped updating
-      -- whenever the CPU was mid-instruction. See Issue 6.
-      if patterns.isEmpty then return lines
-      let lineList := lines.toArray
-      let mut result : List String := []
-      let mut currentGuard : Option String := none
-      let mut i : Nat := 0
-      while i < lineList.size do
-        let line := lineList[i]!
-        let trimmed := line.trimLeft
-        let isControlFlow := trimmed.startsWith "if (" || trimmed.startsWith "else " ||
-                             trimmed.startsWith "}" || trimmed.startsWith "if("
-        let lineGuard := if isControlFlow then none
-          else patterns.find? fun (kw, _) => (line.splitOn kw).length > 1
-        let effectiveGuard := lineGuard.map (·.2)
-        if effectiveGuard != currentGuard then
-          if currentGuard.isSome then result := result ++ ["        }"]
-          match effectiveGuard with
-          | some g => result := result ++ [s!"        if ({g}) \{"]
-          | none => pure ()
-          currentGuard := effectiveGuard
-        result := result ++ [line]
-        i := i + 1
-      if currentGuard.isSome then result := result ++ ["        }"]
-      result
-
-    -- DISABLED: `wrapConditionalGuards` is unsound. The heuristic "lines sharing
-    -- the prefix of an enable signal are safe to gate together" is false: the
-    -- prefix `cpu_` matches the memory-interface state machine as well as the
-    -- decoder body, so wrapping them in `if (cpu_decoder_trigger)` freezes the
-    -- memory interface whenever decoder_trigger=0. Issue 6 (UART stuck output)
-    -- was caused by this — `uart_valid = uart_valid_reg;` and `cpu__reg_mem_*`
-    -- assignments got trapped in the same guard. We now leave all eval lines
-    -- unguarded and rely on Clang -O2 dead-store elimination for speed.
-    -- eval_part: no conditional guards (correctness-critical for wire observation)
-    -- Guards are only applied in evalTick (performance path)
+    -- eval_part / evalTick are emitted WITHOUT any conditional guards. An
+    -- earlier `wrapConditionalGuards` heuristic tried to gate large groups of
+    -- lines sharing a prefix (e.g. `cpu_*`) under a detected enable signal
+    -- (`_valid` / `_trigger` / `_enable`) to improve I-cache locality, but it
+    -- was unsound: the prefix inevitably swept up unrelated subsystems (memory
+    -- interface, top-level output wires), which stopped updating when the
+    -- enable was 0 and broke Verilog semantics. See Issue 6. We rely on
+    -- Clang -O2 dead-store elimination for the same speedup.
     let evalPartMethods := if needsSplit then Id.run do
       let mut result : List String := []
       let mut idx : Nat := 0
@@ -802,9 +710,6 @@ def emitModule (m : Module) (design : Option Design := none)
         some s!"        {emitCppType w.ty} {sn} = 0;"
       else none
     let allWireLocalDecls := evalTickWireLocals
-    -- Apply conditional guards to the full eval body (not per-chunk)
-    -- Unsound optimization — bypass entirely. See long comment above.
-    let _ := wrapConditionalGuards
     let guardedEvalBody := evalBody
     -- IMPORTANT: The previous "self-ref register optimization" that collapsed
     -- `reg_next` into in-place `reg` writes has been removed entirely. It broke
@@ -903,10 +808,8 @@ private def collectRegisters (body : List Stmt) (typeMap : List (String × HWTyp
   body.filterMap fun stmt =>
     match stmt with
     | .register output .. =>
-      if isDebugSignal output then none
-      else
-        let width := lookupWidth typeMap output
-        if width ≤ 64 then some (sanitizeName output, width) else none
+      let width := lookupWidth typeMap output
+      if width ≤ 64 then some (sanitizeName output, width) else none
     | _ => none
 
 /-- Generate jit_set_reg switch cases -/

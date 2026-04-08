@@ -120,11 +120,15 @@ For large designs or existing Verilog, use JIT compilation for maximum speed:
 ```lean
 import Tools.SVParser.SimMacro
 
--- sim! parses the Verilog and auto-generates:
---   hello_counter.Sim.SimInput   { rst : BitVec 1 }
---   hello_counter.Sim.SimOutput  { count : BitVec 8 }
---   hello_counter.Sim.Simulator  with step/read/reset/destroy
---   hello_counter.Sim.load       (compile + load in one step)
+-- sim! parses the Verilog and auto-generates the following under
+-- `hello_counter.Sim`:
+--
+--   SimInput        — typed input record (clock and reset are hidden;
+--                     use `sim.reset` to pulse reset instead)
+--   SimOutput       — typed output record
+--   Simulator       — { handle : JITHandle } with step/read/reset/destroy
+--   load            — compile + load in one step
+--   toEndpoint      — wrap for runSim (Step 6)
 sim! "
 module hello_counter (
     input clk,
@@ -143,12 +147,10 @@ endmodule
 open hello_counter.Sim
 
 def main : IO Unit := do
-  let sim ← load           -- compile JIT C++ and load
-  sim.reset
-  for _ in [:3] do
-    sim.step { rst := 1 }  -- hold reset
+  let sim ← load              -- compile JIT C++ and load
+  sim.reset                   -- pulse hardware reset (handled by JIT)
   for i in [:10] do
-    sim.step { rst := 0 }  -- run
+    sim.step {}               -- SimInput is empty (no user-driven inputs)
     let out ← sim.read
     IO.println s!"  cycle {i}: count = {out.count}"
   sim.destroy
@@ -156,6 +158,30 @@ def main : IO Unit := do
 
 No port definitions needed — `sim!` extracts them from the Verilog.
 A typo like `out.cont` is caught at compile time.
+
+**Clock and reset are hidden from `SimInput`.** Drive them with
+`sim.reset` (for the initial reset pulse) rather than passing `rst` as
+a field — this matches how hardware works and keeps the typed surface
+clean. If a module has user inputs beyond clock/reset, those show up as
+required fields in `SimInput`.
+
+### Running many cycles with `runSim`
+
+For larger simulations, prefer `runSim` over hand-rolled loops. It
+automatically picks the fastest backend (Step 6 explains multi-domain):
+
+```lean
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
+
+def main : IO Unit := do
+  let sim ← hello_counter.Sim.load
+  sim.reset
+  let stats ← runSim [sim.toEndpoint] (cycles := 1_000_000)
+  let out ← sim.read
+  IO.println s!"Ran {stats.cyclesRun} cycles, final count = {out.count}"
+  sim.destroy
+```
 
 ### JIT from Signal DSL
 
@@ -271,44 +297,85 @@ theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
 
 ---
 
-## Step 6: Multi-Domain Parallel Simulation (Preview)
+## Step 6: Running Simulations with `runSim`
 
-Sparkle supports multi-clock-domain simulation with lock-free CDC queues.
-Currently available as a low-level API; a `sim_parallel!` macro is planned.
+Sparkle provides a single high-level runner, `runSim`, that automatically
+picks the fastest backend for your simulation. You pass it the endpoints
+you have and it dispatches to:
 
-### Current API (low-level)
+- **Single-threaded `evalTick` loop** — when you have 1 endpoint and no
+  connections. Fastest for single-domain simulations (~18 M cyc/s on LiteX).
+- **Multi-threaded CDC queue** (`JIT.runCDC`) — when you have 2 endpoints
+  joined by 1 connection. Fastest for multi-clock domain simulations
+  (**11.9 × Verilator** on 8-core LiteX benchmarks).
 
-```lean
-import Sparkle.Core.JIT
+You should not need to pick manually: just pass the endpoints and `runSim`
+does the right thing.
 
--- Load two JIT-compiled domains
-let prodHandle ← JIT.compileAndLoad "producer_jit.cpp"
-let consHandle ← JIT.compileAndLoad "consumer_jit.cpp"
-
--- Run in parallel: producer's output port 0 → consumer's input port 0
--- Returns (messagesSent, messagesReceived, rollbackCount)
-let (sent, recv, rollbacks) ←
-  JIT.runCDC prodHandle consHandle 1000000 0 0
-```
-
-This achieves **11.9x vs Verilator** on 8-core LiteX SoC benchmarks.
-
-### Planned: `sim_parallel!` (TODO)
+### Single-domain
 
 ```lean
--- Goal: type-safe parallel simulation from sim! definitions
-sim! "module producer (...) ..."
-sim! "module consumer (...) ..."
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
 
--- Connect output → input by name, run in parallel
-let result ← simParallel
-  (producer := producer.Sim)
-  (consumer := consumer.Sim)
-  (connections := [("data_out", "data_in")])
-  (cycles := 1000000)
+sim! "module counter (input clk, input rst, output [31:0] count); ... endmodule"
+
+def main : IO Unit := do
+  let sim ← counter.Sim.load
+  sim.reset
+  let stats ← runSim [sim.toEndpoint] (cycles := 1_000_000)
+  IO.println s!"Ran {stats.cyclesRun} cycles"
 ```
 
-See `Examples/CDC/MultiClockSim.lean` for a working multi-domain example.
+### Multi-domain (CDC)
+
+```lean
+sim! "module producer (input clk, input rst, output [31:0] data_out); ... endmodule"
+sim! "module consumer (input clk, input rst, input [31:0] data_in); ... endmodule"
+
+def main : IO Unit := do
+  let p ← producer.Sim.load
+  let c ← consumer.Sim.load
+  p.reset; c.reset
+  let stats ← runSim
+    [p.toEndpoint, c.toEndpoint]
+    (connections := [("data_out", "data_in")])
+    (cycles := 1_000_000)
+  IO.println s!"sent={stats.messagesSent} recv={stats.messagesReceived}"
+```
+
+Connections are specified as `(producerOutputName, consumerInputName)`
+string pairs. `runSim` looks up the port indices at runtime via the
+`outputPortIndexByName` / `inputPortIndexByName` tables generated by
+`sim!` / `generateSimWrappers`, so typos and missing names fail with a
+clear error listing the available ports.
+
+### Manual overrides
+
+`runSim` is a thin dispatcher on top of two explicit runners you can call
+directly if you want to force a backend (benchmarking, debugging,
+avoiding thread overhead on a single-domain sim):
+
+| Runner | When to use |
+|---|---|
+| `runSingleSim ep cycles` | Single-threaded, bit-identical to a manual `evalTick` loop. |
+| `runMultiDomainSim prod cons conn prodCycles consCycles` | Multi-threaded CDC with separate per-domain cycle budgets. |
+
+Most users should never need these. If you find `runSim`'s choice
+suboptimal, please file an issue — the dispatcher is only a few lines
+and can be improved.
+
+### Current limitations
+
+- **Single connection per pair**: the underlying `JIT.runCDC` transfers
+  one output→input pair. Multi-connection support is tracked in
+  `docs/KnownIssues.md` Issue 3.1.
+- **Two endpoints max**: three or more domains is not yet supported
+  (Issue 3.2).
+
+See `Examples/CDC/MultiClockSim.lean` for a working end-to-end example
+and `Tests/Sim/SimRunnerTest.lean` for the 27-test regression suite
+(equivalence, auto-select, port-name errors, index alignment, stress).
 
 ---
 
@@ -337,8 +404,9 @@ See `Examples/CDC/MultiClockSim.lean` for a working multi-domain example.
       │                    │
       ├── VCD waveform     ├── JIT C++ → .so → fast simulation
       │                    │                      │
-      └── Formal proofs    ├── OracleReduction     ├── sim_parallel! (planned)
-          (bv_decide)      │   (proof-driven opt)  │   (multi-domain CDC)
-                           │                      │
+      └── Formal proofs    ├── OracleReduction     ├── runSim (auto)
+          (bv_decide)      │   (proof-driven opt)  │   ├─ runSingleSim
+                           │                      │   └─ runMultiDomainSim
+                           │                      │      (CDC queue)
                            └──────────────────────┘
 ```

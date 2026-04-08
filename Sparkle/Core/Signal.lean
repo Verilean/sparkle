@@ -810,14 +810,14 @@ def bundle3 {dom : DomainConfig} {α β γ : Type u}
     (a : Signal dom α) (b : Signal dom β) (c : Signal dom γ) : Signal dom (α × β × γ) :=
   (·, ·, ·) <$> a <*> b <*> c
 
-/-- Unbundle a signal of pairs
-⚠️  WARNING: This function returns a Lean-level tuple and CANNOT be used with
-pattern matching in synthesis context. Use Signal.fst/snd instead:
+/-- Unbundle a signal of pairs.
 
-WRONG:  let (a, b) := unbundle2 signal  -- ❌ Causes "Unbound variable" errors
-RIGHT:  let a := signal.fst            -- ✓ Works in synthesis
-        let b := signal.snd
--/
+⚠️  Returns a Lean-level tuple. Pattern-matching on the result
+(`let (a, b) := unbundle2 signal`) silently breaks in synthesis because the
+tuple is destructured at elaboration time. Use `Signal.fst` / `Signal.snd`
+directly instead. This binding is kept only so legacy test files still
+compile. -/
+@[deprecated "Use `Signal.fst` and `Signal.snd` directly. Pattern-matching on `unbundle2` breaks in synthesis." (since := "2026-04-08")]
 def unbundle2 {dom : DomainConfig} {α β : Type u}
     (s : Signal dom (α × β)) : Signal dom α × Signal dom β :=
   (s.map Prod.fst, s.map Prod.snd)
@@ -844,10 +844,11 @@ private unsafe def sndImpl {dom : DomainConfig} {α β : Type u}
 def Signal.snd {dom : DomainConfig} {α β : Type u} (s : Signal dom (α × β)) : Signal dom β :=
   s.map Prod.snd
 
-/-- Unbundle a 3-tuple signal
-⚠️  WARNING: Returns a Lean-level tuple. Cannot use with pattern matching in synthesis.
-Use Signal.proj3_1/2/3 instead.
--/
+/-- Unbundle a 3-tuple signal.
+
+⚠️  Same caveat as `unbundle2`: the returned Lean tuple cannot be pattern-matched
+in synthesis code. Use `Signal.proj3_1 / proj3_2 / proj3_3` instead. -/
+@[deprecated "Use `Signal.proj3_1`, `Signal.proj3_2`, `Signal.proj3_3` directly." (since := "2026-04-08")]
 def unbundle3 {dom : DomainConfig} {α β γ : Type u}
     (s : Signal dom (α × β × γ)) : Signal dom α × Signal dom β × Signal dom γ :=
   (s.map (·.1), s.map (·.2.1), s.map (·.2.2))
@@ -867,7 +868,10 @@ def Signal.proj3_3 {dom : DomainConfig} {α β γ : Type u}
     (s : Signal dom (α × β × γ)) : Signal dom γ :=
   s.map (·.2.2)
 
-/-- Unbundle a 4-tuple signal -/
+/-- Unbundle a 4-tuple signal.
+
+⚠️  Same caveat as `unbundle2`. Use `Signal.proj4_1..proj4_4` instead. -/
+@[deprecated "Use `Signal.proj4_1..proj4_4` directly." (since := "2026-04-08")]
 def unbundle4 {dom : DomainConfig} {α β γ δ : Type u}
     (s : Signal dom (α × β × γ × δ)) : Signal dom α × Signal dom β × Signal dom γ × Signal dom δ :=
   (s.map (·.1), s.map (·.2.1), s.map (·.2.2.1), s.map (·.2.2.2))

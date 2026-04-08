@@ -32,6 +32,7 @@ import Lean
 import Tools.SVParser
 import Sparkle.Backend.CppSim
 import Sparkle.Core.JIT
+import Sparkle.Core.SimParallel
 
 open Lean Elab Command
 open Tools.SVParser.Parser
@@ -50,9 +51,13 @@ private def elabSimStr (s : String) : CommandElabM Unit := do
 private def leanIdent (s : String) : String :=
   s.map fun c => if c.isAlphanum || c == '_' then c else '_'
 
-/-- Names treated as clock/reset (excluded from SimInput) -/
-private def isClkRst (name : String) : Bool :=
-  ["clk", "clock", "CLK", "rst", "reset", "RST", "rst_n", "resetn", "RESETN"].any (· == name)
+/-- Names treated as hidden from the user-facing SimInput.
+    MUST match CppSim.lean's `emitSetInputSwitch` behaviour for port indexing:
+    CppSim filters `clk` only at the raw JIT level, so user-input raw indices
+    are positional over the clk-filtered list. Reset-like names are still
+    present as raw inputs but hidden from SimInput for ergonomics. -/
+private def isHiddenInput (name : String) : Bool :=
+  ["rst", "reset", "RST", "rst_n", "resetn", "RESETN"].any (· == name)
   || name.endsWith "_clk" || name.endsWith "_rst"
 
 /-- The sim! command: Verilog string → typed simulator -/
@@ -79,9 +84,18 @@ elab "sim!" src:str : command => do
     IO.FS.writeFile jitPath jitCpp
   catch _ => pure ()  -- ignore write errors during elaboration
 
-  -- Extract ports (exclude clk/rst from inputs)
-  let userInputs := m.inputs.filter fun p => !isClkRst p.name
+  -- Raw JIT inputs are positional after filtering `clk` only (matches
+  -- CppSim.emitSetInputSwitch). User-visible inputs additionally hide
+  -- reset-like names; we keep the RAW index for each surviving input so
+  -- `JIT.setInput rawIdx` lands on the correct switch case.
+  let rawInputs := m.inputs.filter (fun p => p.name != "clk")
+  let rawIndexed : List (Nat × Sparkle.IR.AST.Port) :=
+    (List.range rawInputs.length).zip rawInputs
+  let userInputsIndexed : List (Nat × Sparkle.IR.AST.Port) :=
+    rawIndexed.filter (fun (_, p) => !isHiddenInput p.name)
   let outputs := m.outputs
+  let outputsIdx : List (Nat × Sparkle.IR.AST.Port) :=
+    (List.range outputs.length).zip outputs
 
   elabSimStr s!"namespace {ns}.Sim"
   elabSimStr "open Sparkle.Core.JIT"
@@ -90,11 +104,11 @@ elab "sim!" src:str : command => do
   elabSimStr s!"def jitCppPath : String := \"{jitPath}\""
 
   -- SimInput
-  if userInputs.isEmpty then
+  if userInputsIndexed.isEmpty then
     elabSimStr "structure SimInput where\n  deriving Repr, BEq, Inhabited"
   else
     let fields := String.intercalate "\n" <|
-      userInputs.map fun p => s!"  {leanIdent p.name} : BitVec {p.ty.bitWidth}"
+      userInputsIndexed.map fun (_, p) => s!"  {leanIdent p.name} : BitVec {p.ty.bitWidth}"
     elabSimStr s!"structure SimInput where\n{fields}\n  deriving Repr, BEq, Inhabited"
 
   -- SimOutput
@@ -108,15 +122,13 @@ elab "sim!" src:str : command => do
   -- Simulator
   elabSimStr "structure Simulator where\n  handle : JITHandle"
 
-  -- step
-  let inputsIdx := (List.range userInputs.length).zip userInputs
-  let setCalls := inputsIdx.map fun (idx, p) =>
+  -- step: uses raw JIT indices (not positional)
+  let setCalls := userInputsIndexed.map fun (idx, p) =>
     s!"  JIT.setInput sim.handle {idx} i.{leanIdent p.name}.toNat.toUInt64"
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
 
   -- read
-  let outputsIdx := (List.range outputs.length).zip outputs
   let readLines := outputsIdx.map fun (idx, p) =>
     s!"  let v{idx} ← JIT.getOutput sim.handle {idx}\n  let {leanIdent p.name} := BitVec.ofNat {p.ty.bitWidth} v{idx}.toNat"
   let readBody := String.intercalate "\n" readLines
@@ -126,6 +138,43 @@ elab "sim!" src:str : command => do
   -- reset / destroy
   elabSimStr "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
   elabSimStr "def Simulator.destroy (sim : Simulator) : IO Unit :=\n  JIT.destroy sim.handle"
+
+  -- Per-port raw-index constants (backwards compat)
+  for (idx, p) in outputsIdx do
+    elabSimStr s!"def outputPortIndex_{leanIdent p.name} : UInt32 := {idx}"
+  for (idx, p) in userInputsIndexed do
+    elabSimStr s!"def inputPortIndex_{leanIdent p.name} : UInt32 := {idx}"
+
+  -- Name → raw-index lookup tables (used by runSim / runMultiDomainSim)
+  let outLookup := if outputs.isEmpty then
+      "def outputPortIndexByName : String → Option UInt32 := fun _ => none"
+    else
+      let cases := String.intercalate "\n" <|
+        outputsIdx.map (fun (idx, p) => s!"  | \"{p.name}\" => some {idx}")
+      s!"def outputPortIndexByName : String → Option UInt32\n{cases}\n  | _ => none"
+  let inLookup := if userInputsIndexed.isEmpty then
+      "def inputPortIndexByName : String → Option UInt32 := fun _ => none"
+    else
+      let cases := String.intercalate "\n" <|
+        userInputsIndexed.map (fun (idx, p) => s!"  | \"{p.name}\" => some {idx}")
+      s!"def inputPortIndexByName : String → Option UInt32\n{cases}\n  | _ => none"
+  elabSimStr outLookup
+  elabSimStr inLookup
+
+  -- Name lists (for error messages)
+  let outNamesLit := "[" ++ String.intercalate ", " (outputs.map (fun p => s!"\"{p.name}\"")) ++ "]"
+  let inNamesLit := "[" ++ String.intercalate ", " (userInputsIndexed.map (fun (_, p) => s!"\"{p.name}\"")) ++ "]"
+  elabSimStr s!"def outputPortNames : List String := {outNamesLit}"
+  elabSimStr s!"def inputPortNames : List String := {inNamesLit}"
+
+  -- toEndpoint: wraps Simulator for Sparkle.Core.SimParallel.runSim
+  let epBody :=
+    s!"  {lb} handle := sim.handle, moduleName := \"{ns}\"" ++
+    ", lookupOutput := outputPortIndexByName" ++
+    ", lookupInput := inputPortIndexByName" ++
+    ", outputNames := outputPortNames" ++
+    s!", inputNames := inputPortNames {rb}"
+  elabSimStr s!"def Simulator.toEndpoint (sim : Simulator) : Sparkle.Core.SimParallel.SimEndpoint :=\n{epBody}"
 
   -- Convenience: load (compile + create Simulator)
   elabSimStr s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
