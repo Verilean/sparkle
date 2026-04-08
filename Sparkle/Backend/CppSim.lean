@@ -375,18 +375,24 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     let ifElseLines := if muxChainDepth input >= minArms then
         emitMuxAsIfElse typeMap nextName width input minArms
       else []
+    -- Initialize the evalTick-local `_next` to the current register value.
+    -- This keeps Verilog <= (non-blocking) semantics intact for self-ref
+    -- registers, and gives non-self-ref registers a safe default (current
+    -- value) when conditional-assign branches don't cover every case. Clang
+    -- -O2 elides redundant `reg_next = reg;` stores.
+    let nextLocalDecl := s!"        {cppType} {nextName} = {outName};"
     if !ifElseLines.isEmpty then
       { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
       , evalBody := ifElseLines
       , tickBody := [s!"        {outName} = {nextName};"]
       , resetBody := [s!"        {outName} = {initExpr};"]
-      , evalTickLocals := [s!"        {cppType} {nextName};"] }
+      , evalTickLocals := [nextLocalDecl] }
     else
       { declarations := [s!"    {cppType} {outName};", s!"    {cppType} {nextName};"]
       , evalBody := [s!"        {nextName} = {inputExpr};"]
       , tickBody := [s!"        {outName} = {nextName};"]
       , resetBody := [s!"        {outName} = {initExpr};"]
-      , evalTickLocals := [s!"        {cppType} {nextName};"] }
+      , evalTickLocals := [nextLocalDecl] }
 
   | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable readAddr readData comboRead =>
     let memSize := 2 ^ addrWidth
@@ -654,7 +660,10 @@ def emitModule (m : Module) (design : Option Design := none)
       let uniqueTokens := allTokens.eraseDups
       -- Step 2: Find enable signals — variables containing _valid, _trigger, or _enable
       -- (not just ending with, since module prefixes may add suffixes like __reg_pcpi_valid)
-      let enablePatterns := ["_valid", "_trigger", "_enable", "_waiting"]
+      -- NOTE: `_waiting` is intentionally excluded. It's FSM state, not a gate —
+      -- combinational wires like `mul_start = pcpi_wait && !pcpi_wait_q` must run
+      -- every cycle even when `mul_waiting=0`, otherwise the FSM freezes (cf. Issue 1).
+      let enablePatterns := ["_valid", "_trigger", "_enable"]
       let enableVars := uniqueTokens.filter fun t =>
         enablePatterns.any (fun pat => (t.splitOn pat).length > 1)
       -- Step 3: For each enable variable, try all possible prefixes and find
@@ -773,39 +782,24 @@ def emitModule (m : Module) (design : Option Design := none)
     let allWireLocalDecls := evalTickWireLocals
     -- Apply conditional guards to the full eval body (not per-chunk)
     let guardedEvalBody := wrapConditionalGuards evalBody
-    -- Self-ref register optimization: in evalTick, replace _next with direct
-    -- register update for self-ref registers (eliminates tick copy).
-    -- Self-ref registers: default case is the register itself, so skipping
-    -- the _next variable and writing directly is safe (value doesn't change
-    -- when no condition matches).
-    let selfRefRegs := m.body.filterMap fun s => match s with
-      | .register output _ _ input _ =>
-        let rec deepestElse : Expr → Option String
-          | .op .mux [_, _, elseVal] => deepestElse elseVal
-          | .ref name => some name
-          | _ => none
-        if deepestElse input == some output then some (sanitizeName output) else none
-      | _ => none
-    -- Remove _next declarations for self-ref registers
-    let evalTickLocalsFiltered := evalTickLocals.filter fun decl =>
-      !selfRefRegs.any fun reg => (decl.splitOn (reg ++ "_next")).length > 1
-    -- In eval body, replace _next with register name for self-ref registers
-    let evalTickEvalBody := guardedEvalBody.map fun line =>
-      selfRefRegs.foldl (fun l reg =>
-        l.replace (reg ++ "_next") reg
-      ) line
-    -- In eval body, replace sub.eval() with sub.evalTick() for hierarchical instances
-    -- and remove the corresponding sub.tick() from tick body
+    -- IMPORTANT: The previous "self-ref register optimization" that collapsed
+    -- `reg_next` into in-place `reg` writes has been removed entirely. It broke
+    -- Verilog `<=` (non-blocking) semantics whenever one register's condition
+    -- read another self-ref register that had already been in-place written
+    -- earlier in the same evalTick (cf. Issue 1: pcpi_mul, mul_waiting corrupted
+    -- mul_finish's condition). Performance is recovered instead by initializing
+    -- `_next` locals to the current register value so that `else reg_next = reg;`
+    -- becomes a dead store that Clang -O2 elides.
+    let evalTickLocalsFiltered := evalTickLocals
+    -- Sub-module hierarchical call rewrite (eval → evalTick, drop sub.tick())
     let instNames := m.body.filterMap fun s => match s with
       | .inst _ instName _ => some (sanitizeName instName)
       | _ => none
-    let evalTickEvalBody := evalTickEvalBody.map fun line =>
+    let evalTickEvalBody := guardedEvalBody.map fun line =>
       instNames.foldl (fun l inst =>
         l.replace s!"{inst}.eval();" s!"{inst}.evalTick();"
       ) line
-    -- Remove tick copies for self-ref registers AND sub-module tick calls
     let evalTickTickBody := tickBody.filter fun line =>
-      !selfRefRegs.any (fun reg => (line.splitOn (reg ++ "_next")).length > 1) &&
       !instNames.any (fun inst => (line.splitOn s!"{inst}.tick()").length > 1)
     let evalTickMethod :=
       "    void evalTick() {\n" ++

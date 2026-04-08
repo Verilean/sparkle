@@ -1,6 +1,48 @@
 # Known Issues
 
-## Issue 1: pcpi_mul Standalone JIT Tests (Test 21-21e) FAIL
+## Issue 1: pcpi_mul Standalone JIT Tests (Test 21-21e) FAIL — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. Tests 21, 21b, 21c, 21d now PASS. Test 21e (wrapper) tracked as Issue 7.
+
+### Root cause
+
+Two independent bugs in `Sparkle/Backend/CppSim.lean` were both corrupting Verilog
+non-blocking (`<=`) semantics in the generated C++ `evalTick()`:
+
+- **Bug A — `_waiting` false-positive in generic conditional-guard detection.**
+  `wrapConditionalGuards` treated `_waiting` like enable signals (`_valid`/`_trigger`/
+  `_enable`) and wrapped every line containing the prefix `mul_` in `if (mul_waiting) {...}`.
+  That incorrectly gated the combinational wire `mul_start = pcpi_wait && !pcpi_wait_q;`,
+  freezing the FSM once `mul_waiting` went to 0. Fixed by removing `_waiting` from
+  `enablePatterns`: it is FSM state, not an enable gate.
+
+- **Bug B — Self-ref register in-place optimization violated `<=` semantics.**
+  The "self-ref register" optimization rewrote `reg_next` → `reg` via string replacement,
+  turning non-blocking into blocking assignment. When one register's condition read a
+  second self-ref register that had already been in-place written earlier in the same
+  `evalTick()`, the condition saw the NEW value (e.g. `mul_waiting` blocking-assigned
+  before `mul_finish`'s condition read it), so `mul_finish` never pulsed.
+
+### Fix
+
+1. Drop `_waiting` from `enablePatterns` in `wrapConditionalGuards`.
+2. Remove the self-ref `_next` → `reg` string-replacement optimization entirely.
+3. Initialize every evalTick-local `_next` to the current register value:
+   `{cppType} reg_next = reg;`. This preserves `<=` semantics and lets Clang -O2
+   elide redundant default stores, recovering the performance.
+
+### Verification
+
+Before: 28 passed / 6 failed (Tests 21, 21b, 21c, 21d, 21e, plus Test 11 stuck at
+0 UART words because the CPU itself was frozen). After: 32 passed / 2 failed.
+Test 11 now runs the C firmware for the full 200000 cycles (up from 0 words),
+exposing a separate pre-existing UART bug tracked as Issue 6. Test 21e's first
+multiply now succeeds (42 ✓); the wrapper-level 2nd-multiply failure is tracked
+as Issue 7.
+
+---
+
+## Issue 1 (historical): pcpi_mul Standalone JIT Tests (Test 21-21e) FAIL
 
 **Status**: Pre-existing bug, unrelated to recent reachabilityDCE / reverse synthesis changes.
 
@@ -157,12 +199,64 @@ Users should replace these with manual proofs using `simp [nextState]` + `decide
 
 ---
 
-## Test Status Summary (2026-04-08)
+## Issue 6: UART output is a 4-byte replication of a single ASCII byte
+
+**Status**: Investigating. Pre-existing bug, newly exposed after Issue 1 fix.
+
+**Affected tests**:
+- Test 10 (PicoRV32 SoC with Verilog firmware): 2000 UART bytes, all `0x20` (space)
+- Test 11 (C firmware RV32I): 200000 UART words, all `0x20202020`
+
+**Symptom**: Every UART word read via `JIT.getOutput handle 0` is the same value — a
+single ASCII byte replicated across all 4 bytes of the 32-bit word
+(`0x20202020` after fix, `0x3A3A3A3A` before). The firmware completes its full run
+(cycle count reaches the loop limit) and `uart_valid` does pulse, but every sample
+is the same.
+
+**Diagnosis**: The byte value looks like the first byte of the firmware's `.rodata`
+initialization string. Combined with the 4-way byte-replication, this smells like
+the same family of bug as the historical `{4{mem_la_write}}` → 1-bit lowering bug
+documented in Test 27: byte-enable (`wstrb`) not being honored, so 32-bit word
+writes clobber adjacent bytes. The UART memory-mapped write path is the likely
+location.
+
+**Why newly visible**: Before the Issue 1 fix, Test 11 produced 0 UART words because
+the entire CPU was frozen by the `mul_waiting` guard (even without multiplies, the
+false-positive `_waiting` guard poisoned evalTick's wire computation). Now the CPU
+runs the full firmware, exposing this underlying UART bug.
+
+**Next steps**: Inspect SoC Verilog UART mmio write and compare generated C++
+`wstrb` handling against Test 27's known-good fix.
+
+---
+
+## Issue 7: pcpi_mul SoC-like wrapper consecutive MUL (Test 21e) 2nd result wrong
+
+**Status**: Investigating.
+
+**Affected test**: Test 21e (`mul_wrapper` driving `picorv32_pcpi_mul`).
+
+**Symptom**: First multiply `7*6` returns `0x2a = 42` ✓. Second multiply `12345*6789`
+returns `0x82008ad` instead of expected `0x4fe4a1d = 83810205`.
+
+**Diagnosis**: `pcpi_mul` standalone consecutive multiply (Test 21d, 7*6 then
+12345*6789) PASSes, so the core is fine. The bug is wrapper-specific — likely the
+`mul_wrapper` state machine (`pcpi_valid_r` / `done_r` / `result_r`) doesn't fully
+clear between transactions, so the 2nd `start` latches partial state from the
+1st multiply.
+
+**Wrapper Verilog** (`Tests/SVParser/ParserTest.lean` Test 21e): drives `pcpi_valid_r`
+on `start && !pcpi_wait`, deasserts on `pcpi_valid_r && pcpi_ready`. Suspect a
+single-cycle window where the deassert and next assert race.
+
+---
+
+## Test Status Summary (2026-04-08, post Issue 1 fix)
 
 | Test Suite | Pass | Fail | Notes |
 |-----------|------|------|-------|
 | OptimizeTest | 10/10 | 0 | All IR optimizer tests |
-| ParserTest | 28/34 | 6 | Tests 21-21e (pcpi_mul standalone) + Test 11 (firmware not found in CI) |
+| ParserTest | 32/34 | 2 | Test 11 (UART wstrb bug — Issue 6), Test 21e (wrapper 2nd MUL — Issue 7) |
 | LiteXTest (Phase 1-3) | 3/3 | 0 | Phase 4 requires JIT FFI |
 | BitNet tests | ✓ build | - | `#eval`-based, verified at build time |
 | AXI4-Lite tests | ✓ build | - | `#eval`-based |
