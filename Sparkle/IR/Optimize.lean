@@ -422,31 +422,32 @@ def optimizeModule (m : Module)
     -- Phase 0.5: Remove duplicate and identity assigns.
     -- SSA lowering can produce identical assigns from case/if branches,
     -- and identity assigns (x = x) from output reg declarations.
+    -- Single forward pass: for each `.assign lhs rhs`, drop it if it is
+    -- either (a) an identity assign `x = ref x`, or (b) an identical repeat
+    -- of an earlier assign to the same lhs. Non-assign statements and
+    -- assigns with a NEW rhs for an existing lhs are kept verbatim (the
+    -- latter should not arise in well-formed SSA, but we preserve it to
+    -- avoid silently dropping the later write).
     let dedupBody := Id.run do
-      let mut seen : HashMap String (Expr × Nat) := {}  -- lhs → (rhs, position)
-      let mut drops : HashMap Nat Bool := {}  -- positions to drop
-      let mut pos : Nat := 0
+      let mut seen : HashMap String Expr := {}
+      let mut result : List Stmt := []
       for s in constPropBody do
         match s with
         | .assign lhs rhs =>
-          -- Drop identity assigns (x = ref x)
           let isIdentity := match rhs with | .ref name => name == lhs | _ => false
           if isIdentity then
-            drops := drops.insert pos true
+            pure ()  -- drop
           else match seen.get? lhs with
-          | some (prevRhs, _) =>
+          | some prevRhs =>
             if prevRhs == rhs then
-              drops := drops.insert pos true  -- identical → drop this copy
+              pure ()  -- identical duplicate → drop
             else
-              seen := seen.insert lhs (rhs, pos)  -- different RHS → update
-          | none => seen := seen.insert lhs (rhs, pos)
-        | _ => pure ()
-        pos := pos + 1
-      let mut result : List Stmt := []
-      pos := 0
-      for s in constPropBody do
-        if !drops.contains pos then result := result ++ [s]
-        pos := pos + 1
+              seen := seen.insert lhs rhs  -- different rhs: record new, keep stmt
+              result := result ++ [s]
+          | none =>
+            seen := seen.insert lhs rhs
+            result := result ++ [s]
+        | _ => result := result ++ [s]
       result
 
     -- Phase 1: Replace slice-of-concat with direct references
