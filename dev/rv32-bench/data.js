@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775662634214,
+  "lastUpdate": 1775674115543,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -439,6 +439,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 5102906,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "fb6d0f775a24d47031c7f229549005929c985258",
+          "message": "fix(ci): bump Lean to v4.28.0 so LSpec olean matches toolchain\n\nThe push CI was aborting mid-run inside Tests/AllTests with:\n\n    uncaught exception: failed to read file\n    '.lake/packages/LSpec/.lake/build/lib/lean/LSpec.olean.server',\n    incompatible header\n\nRoot cause: LSpec's pinned commit (8e6ddb17, dated pre-bump) shipped a\nlean-toolchain file declaring v4.26.0, while our project was pinned at\nv4.28.0-rc1. When lake recursed into the LSpec package elan switched to\nv4.26.0 to build it — producing oleans tagged with the v4.26.0 header\nformat — and our project then tried to load them under v4.28.0-rc1 at\nruntime, failing the header check the first time lspecIO was invoked\n(right after the BitNet test suite finished).\n\nlake update LSpec bumps the package to dc0904293d and re-aligns its\ntoolchain to v4.28.0 (stable). Our project's lean-toolchain is updated\nto match (v4.28.0-rc1 → v4.28.0) so everything compiles and loads under\none consistent Lean version.\n\nVerified locally:\n  lake build                            clean\n  lake exe test                         exit 0 (full BitNet + YOLOv8 +\n                                                 CAVLC + H.264 + AXI4)\n  lake exe svparser-test                34/34\n  lake exe sim-runner-test              27/27\n  lake exe cdc-multi-clock-test         PASS",
+          "timestamp": "2026-04-09T03:41:08+09:00",
+          "tree_id": "37c5d3da0589b8a891b2eb0f5dffb134831e6c34",
+          "url": "https://github.com/Verilean/sparkle/commit/fb6d0f775a24d47031c7f229549005929c985258"
+        },
+        "date": 1775674114690,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3278358,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4136322,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4535682,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4193191,
             "unit": "cycles/sec"
           }
         ]
