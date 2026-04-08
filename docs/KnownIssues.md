@@ -292,24 +292,74 @@ runs the full firmware, exposing this underlying UART bug.
 
 ---
 
-## Issue 7: pcpi_mul SoC-like wrapper consecutive MUL (Test 21e) 2nd result wrong
+## Issue 7: pcpi_mul SoC-like wrapper consecutive MUL (Test 21e) — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. Test 21e now PASSes; total ParserTest score is 34/34.
+
+### Root cause
+
+NOT a wrapper bug. The bug was in `Sparkle/IR/Optimize.lean`'s constant-folding
+rule for AND with all-ones:
+
+```lean
+| .op .and [x, .const v w] =>
+  if v != 0 && v == (2 ^ w - 1 : Int) then x
+```
+
+This rule rewrites `x & all-ones-of-width-w → x`. The rewrite is sound only when
+`x` itself has width `w`, but the IR Expr type does not carry per-node widths,
+so the optimizer fired the rule whenever the constant happened to look like
+an all-ones mask of *its own* width — regardless of `x`'s width.
+
+In the carry-save adder of `picorv32_pcpi_mul`, the SSA lowering produces
+nibble-wise masks like `(slice(rd) >> 40) & 0xF` where the slice is 64-bit
+and the mask `0xF` is encoded as a 4-bit constant. Because `0xF == 2^4 - 1`,
+the rewrite kicked in and dropped the mask, leaving `slice(rd) >> 40` — a
+full 64-bit value — as one operand of the carry-save 4-bit add. The add then
+included high bits that should have been masked off, corrupting the carry
+chain and producing wrong multiplication results for any non-trivial operand.
+
+### Why standalone (Test 21d) passed but flat-wrapped (Test 21e) failed
+
+`Test 21d` uses `parseAndLower pcpiMulVerilog` (no optimize), so the masks
+were preserved in the generated C++ (visible as `& (uint8_t)15U`).
+
+`Test 21e` uses `parseAndLowerFlat mulWrapperVerilog`, which runs the full
+optimize pipeline including `foldConstants`. Inspecting the generated C++:
+
+- Standalone: `((next_rd_seq28 >> 40) & 0xF) + ((next_rdx_seq1 >> 40) & 0xF) + ...`
+- Flat-wrapped: `(next_rd_seq28 >> 40) + (mul0_rdx >> 40) + ...`  ← masks dropped
+
+The standalone test only happened to pass because the optimizer wasn't run,
+not because pcpi_mul was correct. Test 21e exposed the latent bug because the
+wrapper module forces flat optimization. The "first 7*6 PASS, second 12345*6789
+FAIL" pattern was a red herring: small operands (7, 6, 100) happen to be
+correct anyway because their high bits are zero, so the missing mask doesn't
+matter. Larger operands like 12345 (15 bits set) overflow the unmasked nibble
+add and propagate spurious carries.
+
+### Fix
+
+Tightened the AND-identity rule in `Sparkle/IR/Optimize.lean` to only fire
+when both operands are constants (where the rewrite is unconditionally sound
+because we collapse to a single constant). For the `and(non-const, all-ones)`
+case, we conservatively leave the AND in place rather than risk dropping a
+necessary truncation. The cost is a few extra `& 0xF...F` ops in generated
+C++ that Clang -O2 would constant-fold anyway.
+
+Note: this also explains why Test 21e was misclassified as a "wrapper FSM"
+bug at first — the `0x82008ad` value looked like consecutive-state corruption
+but it was actually the deterministic miscalculation of `12345 * 6789` whenever
+optimization was enabled. The fix is in `Optimize.lean`, not the wrapper.
+
+---
+
+## Issue 7 (historical): pcpi_mul SoC-like wrapper consecutive MUL (Test 21e) 2nd result wrong
 
 **Status**: Investigating.
 
-**Affected test**: Test 21e (`mul_wrapper` driving `picorv32_pcpi_mul`).
-
-**Symptom**: First multiply `7*6` returns `0x2a = 42` ✓. Second multiply `12345*6789`
-returns `0x82008ad` instead of expected `0x4fe4a1d = 83810205`.
-
-**Diagnosis**: `pcpi_mul` standalone consecutive multiply (Test 21d, 7*6 then
-12345*6789) PASSes, so the core is fine. The bug is wrapper-specific — likely the
-`mul_wrapper` state machine (`pcpi_valid_r` / `done_r` / `result_r`) doesn't fully
-clear between transactions, so the 2nd `start` latches partial state from the
-1st multiply.
-
-**Wrapper Verilog** (`Tests/SVParser/ParserTest.lean` Test 21e): drives `pcpi_valid_r`
-on `start && !pcpi_wait`, deasserts on `pcpi_valid_r && pcpi_ready`. Suspect a
-single-cycle window where the deassert and next assert race.
+Initial (incorrect) hypothesis: wrapper FSM hazard. Actual root cause is the
+`Optimize.lean` mask-removal bug above.
 
 ---
 
@@ -318,7 +368,7 @@ single-cycle window where the deassert and next assert race.
 | Test Suite | Pass | Fail | Notes |
 |-----------|------|------|-------|
 | OptimizeTest | 10/10 | 0 | All IR optimizer tests |
-| ParserTest | 33/34 | 1 | Test 21e (wrapper 2nd MUL — Issue 7) |
+| ParserTest | **34/34** | **0** | All tests passing |
 | LiteXTest (Phase 1-3) | 3/3 | 0 | Phase 4 requires JIT FFI |
 | BitNet tests | ✓ build | - | `#eval`-based, verified at build time |
 | AXI4-Lite tests | ✓ build | - | `#eval`-based |

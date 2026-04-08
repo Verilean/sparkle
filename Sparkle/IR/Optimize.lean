@@ -159,15 +159,22 @@ def foldConstants : Expr → Expr
   -- not(not(x)) = x
   | .op .not [.op .not [x]] => x
   -- and(x, all-ones) = x (identity mask removal)
+  -- IMPORTANT: This rewrite is only sound when x's width equals w. The Expr IR
+  -- does not carry per-node widths, so we cannot verify that in general. We
+  -- conservatively only fire when x is itself a `.const` (the const-const fold
+  -- handles that). Previously the unconditional rule miscompiled the picorv32
+  -- pcpi_mul carry-save chain when it was flattened (see Issue 7): 4-bit mask
+  -- constants `0xF` were removed from `(slice >> 40) & 0xF` expressions where
+  -- the slice was 64-bit, dropping the per-nibble masks and corrupting
+  -- multiplication results.
   | .op .and [x, .const v w] =>
-    if v != 0 && v == (2 ^ w - 1 : Int) then x
-    else .op .and [x, .const v w]
+    match x with
+    | .const b _ => .const (Int.ofNat (toUnsigned b w &&& toUnsigned v w)) w
+    | _ => .op .and [x, .const v w]
   | .op .and [.const v w, x] =>
-    -- Check const-const case first
     match x with
     | .const b _ => .const (Int.ofNat (toUnsigned v w &&& toUnsigned b w)) w
-    | _ => if v != 0 && v == (2 ^ w - 1 : Int) then x
-           else .op .and [.const v w, x]
+    | _ => .op .and [.const v w, x]
   -- Fully constant binary operations (use toUnsigned for correct two's complement)
   | .op .add [.const a w, .const b _] =>
     let r := toUnsigned a w + toUnsigned b w
