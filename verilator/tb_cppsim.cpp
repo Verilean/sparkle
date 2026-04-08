@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
     printf("CppSim: Loaded %zu words\n", firmware.size());
 
     // Instantiate SoC on heap (large memory arrays exceed stack size)
-    auto soc_ptr = std::make_unique<Sparkle_Examples_RV32_SoCVerilog_rv32iSoCSynth>();
+    auto soc_ptr = std::make_unique<Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth>();
     auto& soc = *soc_ptr;
 
     // Load firmware directly into IMEM array (no CPU cycles consumed)

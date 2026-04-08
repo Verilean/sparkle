@@ -32,7 +32,7 @@ module rv32i_soc (
 
     logic [191:0] packed_out;
 
-    Sparkle_Examples_RV32_SoCVerilog_rv32iSoCSynth gen_soc (
+    Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth gen_soc (
         .clk(clk),
         .rst(rst),
         ._gen_imem_wr_en(imem_wr_en),

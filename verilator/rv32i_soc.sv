@@ -1,7 +1,7 @@
 // ============================================================================
 // RV32I SoC — SystemVerilog (Verilator simulation target)
 //
-// Direct translation of Examples/RV32/SoC.lean Signal DSL.
+// Direct translation of IP/RV32/SoC.lean Signal DSL.
 // 5-stage pipeline (IF/ID/EX/WB) with CLINT, CSR, UART MMIO,
 // S-mode CSRs, trap delegation, privilege tracking, MMU (Sv32 TLB+PTW).
 // 117 pipeline registers, 4 byte-wide data memories, register file.

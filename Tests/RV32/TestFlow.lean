@@ -49,7 +49,7 @@ def synthTests : IO TestSeq := do
     group "Generated SystemVerilog" (
       test "generated_soc.sv exists" svExists $
       test "file is non-empty" (svContent.length > 0) $
-      test "contains top module" (hasSubstr svContent "module Sparkle_Examples_RV32_SoCVerilog_rv32iSoCSynth") $
+      test "contains top module" (hasSubstr svContent "module Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth") $
       test "contains clock input" (hasSubstr svContent "input logic clk") $
       test "contains always_ff" (hasSubstr svContent "always_ff") $
       test "contains imem write enable" (hasSubstr svContent "_gen_imem_wr_en")
@@ -57,7 +57,7 @@ def synthTests : IO TestSeq := do
     group "Generated CppSim Header" (
       test "generated_soc_cppsim.h exists" cppExists $
       test "file is non-empty" (cppContent.length > 0) $
-      test "contains class declaration" (hasSubstr cppContent "class Sparkle_Examples_RV32_SoCVerilog_rv32iSoCSynth") $
+      test "contains class declaration" (hasSubstr cppContent "class Sparkle_IP_RV32_SoCVerilog_rv32iSoCSynth") $
       test "contains eval method" (hasSubstr cppContent "void eval()") $
       test "contains tick method" (hasSubstr cppContent "void tick()") $
       test "contains reset method" (hasSubstr cppContent "void reset()")
