@@ -143,6 +143,25 @@ elabStr s!"theorem {assertName} ... := by sorry"
 
 **Workaround**: Use `lake env lean` for rapid iteration with auto-proved assertions, or write manual proofs.
 
+### Cross-reference: `#verify_eq`
+
+`Sparkle/Verification/Equivalence.lean` provides a `#verify_eq f g`
+command that generates `theorem {f}_eq_{g} : f = g := by funext ...;
+unfold f g; bv_decide`. The command module itself is a pure elaborator
+(no `bv_decide` call at build time) and is always safe to `lake build`.
+However, any file that **invokes** `#verify_eq` will hit the same
+compilation-mode hang. The demo file `Tests/Verification/EquivDemo.lean`
+is therefore deliberately excluded from every `lean_exe` root and from
+`Sparkle.lean` / `Tests/AllTests.lean`. Run it interactively:
+
+```bash
+lake env lean Tests/Verification/EquivDemo.lean
+```
+
+Expected output: eight lines of `✅ verified: …` for the positive demos.
+Uncomment the commented-out `distrib_rhs_buggy` variant at the top of
+the file to see `bv_decide` emit a concrete counterexample.
+
 ---
 
 ## Issue 3: High-level multi-domain simulation — **RESOLVED (2026-04-08)**

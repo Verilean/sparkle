@@ -295,6 +295,45 @@ theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
   simp [myAnd, Signal.val]
 ```
 
+### 5.4 One-Line Equivalence Checks with `#verify_eq`
+
+For pure `BitVec` functions — the kind you'd write for an ALU slice, a
+carry-save adder, a bit-permutation network — Sparkle ships a single
+command that auto-generates a `funext + unfold + bv_decide` proof:
+
+```lean
+import Sparkle.Verification.Equivalence
+
+-- Textbook specification
+def pure_alu (a b : BitVec 8) : BitVec 8 := a + b
+
+-- Hand-optimised "ripple" implementation using XOR + carry
+def fast_alu (a b : BitVec 8) : BitVec 8 :=
+  (a ^^^ b) + ((a &&& b) <<< 1)
+
+#verify_eq fast_alu pure_alu  -- ✅ verified: fast_alu_eq_pure_alu
+```
+
+The command resolves both identifiers, introspects their arity, and
+emits a theorem `{fast_alu}_eq_{pure_alu} : fast_alu = pure_alu`. If the
+two implementations are not equivalent, `bv_decide` prints a concrete
+counterexample and the command reports ❌.
+
+See `Tests/Verification/EquivDemo.lean` for eight worked examples
+(distributivity, associativity, De Morgan, XOR-swap identity,
+4-bit ripple-carry vs built-in add, 4-bit shift-and-add multiply vs
+built-in multiply, carry-save step identity). Run interactively with:
+
+```bash
+lake env lean Tests/Verification/EquivDemo.lean
+```
+
+**⚠  Interactive-only in v1.** `bv_decide` currently hangs inside
+`lake build` on Lean 4.28.0-rc1 (see `docs/KnownIssues.md` Issue 2).
+The `#verify_eq` command itself is a pure elaborator and is always
+safe to `import` / `lake build`; only files that *call* the command
+should stay out of the default build target.
+
 ---
 
 ## Step 6: Running Simulations with `runSim`
