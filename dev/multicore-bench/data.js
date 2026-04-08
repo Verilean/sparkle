@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775674244714,
+  "lastUpdate": 1775675049501,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -87,6 +87,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 643492,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642e7b54a3659285ae5b037a95f335cc0cb2d38b",
+          "message": "Merge pull request #19 from Verilean/feature/sim-parallel\n\nfeat(sim): add runSim auto-dispatcher for multi-domain simulation",
+          "timestamp": "2026-04-09T03:57:18+09:00",
+          "tree_id": "37c5d3da0589b8a891b2eb0f5dffb134831e6c34",
+          "url": "https://github.com/Verilean/sparkle/commit/642e7b54a3659285ae5b037a95f335cc0cb2d38b"
+        },
+        "date": 1775675048995,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4055955,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 501013,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1012483,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 647875,
             "unit": "cycles/sec"
           }
         ]
