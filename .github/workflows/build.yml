@@ -273,6 +273,11 @@ jobs:
           let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
           IO.FS.writeFile "/tmp/litex_jit.cpp" jitCpp
         GENEOF
+        # Ensure Tools.SVParser / Sparkle.Backend.CppSim oleans match the current
+        # toolchain before `lake env lean --run`, which does NOT rebuild but
+        # reads existing oleans and would otherwise fail with "incompatible
+        # header" if the cache was produced by an older Lean version.
+        lake build Tools.SVParser Sparkle.Backend.CppSim
         lake env lean --run /tmp/gen_litex_jit.lean
         g++ -O2 -std=c++17 -shared -fPIC -o /tmp/litex_jit.so /tmp/litex_jit.cpp
 
