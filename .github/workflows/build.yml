@@ -153,30 +153,50 @@ jobs:
 
     - name: Parse benchmark results
       run: |
+        set -euo pipefail
         cd verilator
+        sanitize_num() {
+          local n="$1"
+          n=$(echo "$n" | tr -cd '0-9')
+          [ -z "$n" ] && n=0
+          echo "$n"
+        }
         # Extract cycles/sec from Verilator output
-        VERILATOR_CPS=$(grep -oE '[0-9]+ cycles/sec' verilator_output.txt | head -1 | awk '{print $1}')
+        VERILATOR_CPS=$(sanitize_num "$(grep -oE '[0-9]+ cycles/sec' verilator_output.txt | head -1 | awk '{print $1}')")
         # Extract cycles/sec from JIT output (Benchmark 1: pure eval+tick)
-        JIT_PURE_CPS=$(grep 'cycles/sec' jit_output.txt | head -1 | grep -oE '[0-9]+ cycles/sec' | awk '{print $1}')
+        JIT_PURE_CPS=$(sanitize_num "$(grep 'cycles/sec' jit_output.txt | head -1 | grep -oE '[0-9]+ cycles/sec' | awk '{print $1}')")
         # Benchmark 4: evalTick (fused)
-        JIT_FUSED_CPS=$(grep 'cycles/sec' jit_output.txt | grep -A0 'evalTick' | grep -oE '[0-9]+ cycles/sec' | head -1 | awk '{print $1}')
+        JIT_FUSED_CPS=$(sanitize_num "$(grep 'cycles/sec' jit_output.txt | grep -A0 'evalTick' | grep -oE '[0-9]+ cycles/sec' | head -1 | awk '{print $1}')")
         # Benchmark 5: evalTick + 6 wires
-        JIT_6WIRE_CPS=$(grep 'cycles/sec' jit_output.txt | tail -1 | grep -oE '[0-9]+ cycles/sec' | awk '{print $1}')
+        JIT_6WIRE_CPS=$(sanitize_num "$(grep 'cycles/sec' jit_output.txt | tail -1 | grep -oE '[0-9]+ cycles/sec' | awk '{print $1}')")
 
-        echo "Verilator:        ${VERILATOR_CPS:-0} cyc/s"
-        echo "JIT eval+tick:    ${JIT_PURE_CPS:-0} cyc/s"
-        echo "JIT evalTick:     ${JIT_FUSED_CPS:-0} cyc/s"
-        echo "JIT evalTick+6w:  ${JIT_6WIRE_CPS:-0} cyc/s"
+        echo "Verilator:        ${VERILATOR_CPS} cyc/s"
+        echo "JIT eval+tick:    ${JIT_PURE_CPS} cyc/s"
+        echo "JIT evalTick:     ${JIT_FUSED_CPS} cyc/s"
+        echo "JIT evalTick+6w:  ${JIT_6WIRE_CPS} cyc/s"
 
-        cat <<EOF > ../rv32-bench-results.json
-        [
-          { "name": "Verilator (10M cycles)", "unit": "cycles/sec", "value": ${VERILATOR_CPS:-0} },
-          { "name": "JIT eval+tick (10M cycles)", "unit": "cycles/sec", "value": ${JIT_PURE_CPS:-0} },
-          { "name": "JIT evalTick fused (10M cycles)", "unit": "cycles/sec", "value": ${JIT_FUSED_CPS:-0} },
-          { "name": "JIT evalTick+6wires (10M cycles)", "unit": "cycles/sec", "value": ${JIT_6WIRE_CPS:-0} }
+        python3 - <<PYEOF > ../rv32-bench-results.json
+        import json
+        data = [
+          {"name": "Verilator (10M cycles)",             "unit": "cycles/sec", "value": int("${VERILATOR_CPS}")},
+          {"name": "JIT eval+tick (10M cycles)",         "unit": "cycles/sec", "value": int("${JIT_PURE_CPS}")},
+          {"name": "JIT evalTick fused (10M cycles)",    "unit": "cycles/sec", "value": int("${JIT_FUSED_CPS}")},
+          {"name": "JIT evalTick+6wires (10M cycles)",   "unit": "cycles/sec", "value": int("${JIT_6WIRE_CPS}")},
         ]
-        EOF
+        print(json.dumps(data, indent=2))
+        PYEOF
+
+        echo "--- rv32-bench-results.json ---"
         cat ../rv32-bench-results.json
+        python3 -c "
+        import json
+        with open('../rv32-bench-results.json') as f: data = json.load(f)
+        assert isinstance(data, list) and len(data) > 0
+        for i, e in enumerate(data):
+            for k in ('name', 'unit', 'value'): assert k in e, f'entry {i} missing {k}'
+            assert isinstance(e['value'], (int, float))
+        print('rv32-bench-results.json validated ok:', len(data), 'entries')
+        "
 
     - name: Stash local changes before benchmark push
       if: github.event_name == 'push'
@@ -435,6 +455,17 @@ jobs:
 
     - name: "Run multi-core benchmark"
       run: |
+        set -euo pipefail
+        # Extract trailing numeric value from a possibly-noisy binary's
+        # combined stdout+stderr. Falls back to 0 on any failure.
+        sanitize_num() {
+          local raw="$1"
+          local n
+          n=$(echo "$raw" | tail -n1 | tr -cd '0-9')
+          [ -z "$n" ] && n=0
+          echo "$n"
+        }
+
         # 1-core single-thread baseline
         cat > /tmp/bench_1core.cpp << 'BEOF'
         #include <cstdio>
@@ -444,10 +475,12 @@ jobs:
         typedef void* (*fn0)(); typedef void (*fn1)(void*);
         int main() {
             void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
+            if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
             auto create = (fn0)dlsym(lib,"jit_create");
             auto destroy = (fn1)dlsym(lib,"jit_destroy");
             auto reset = (fn1)dlsym(lib,"jit_reset");
             auto et = (fn1)dlsym(lib,"jit_eval_tick");
+            if (!create || !destroy || !reset || !et) { fprintf(stderr, "dlsym failed\n"); return 1; }
             void* ctx = create(); reset(ctx);
             auto t0 = std::chrono::high_resolution_clock::now();
             for (uint64_t c = 0; c < 10000000; c++) et(ctx);
@@ -458,7 +491,9 @@ jobs:
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_1core /tmp/bench_1core.cpp -ldl
-        JIT_1CORE=$(/tmp/bench_1core)
+        JIT_1CORE_RAW=$(/tmp/bench_1core 2>&1 || echo 0)
+        echo "--- bench_1core raw ---"; echo "$JIT_1CORE_RAW"
+        JIT_1CORE=$(sanitize_num "$JIT_1CORE_RAW")
         echo "JIT 1-core: ${JIT_1CORE} cyc/s"
 
         # 8-core sequential
@@ -470,10 +505,12 @@ jobs:
         typedef void* (*fn0)(); typedef void (*fn1)(void*);
         int main() {
             void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
+            if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
             auto create = (fn0)dlsym(lib,"jit_create");
             auto destroy = (fn1)dlsym(lib,"jit_destroy");
             auto reset = (fn1)dlsym(lib,"jit_reset");
             auto et = (fn1)dlsym(lib,"jit_eval_tick");
+            if (!create || !destroy || !reset || !et) { fprintf(stderr, "dlsym failed\n"); return 1; }
             void* cores[8];
             for (int i = 0; i < 8; i++) { cores[i] = create(); reset(cores[i]); }
             auto t0 = std::chrono::high_resolution_clock::now();
@@ -487,7 +524,9 @@ jobs:
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_8seq /tmp/bench_8seq.cpp -ldl
-        JIT_8SEQ=$(/tmp/bench_8seq)
+        JIT_8SEQ_RAW=$(/tmp/bench_8seq 2>&1 || echo 0)
+        echo "--- bench_8seq raw ---"; echo "$JIT_8SEQ_RAW"
+        JIT_8SEQ=$(sanitize_num "$JIT_8SEQ_RAW")
         echo "JIT 8-core sequential: ${JIT_8SEQ} per-core cyc/s"
 
         # 8-core parallel (batch=10000)
@@ -500,30 +539,53 @@ jobs:
         int main() {
             void* jit = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
             void* runner = dlopen("/tmp/multicore_runner.so", RTLD_LAZY);
+            if (!jit || !runner) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
             auto mc_run = (mc_fn)dlsym(runner, "multicore_run");
+            if (!mc_run) { fprintf(stderr, "dlsym failed\n"); return 1; }
             auto r = mc_run(jit, 8, 10000000, 10000);
             printf("%d\n", (int)(r.mcycles_per_sec * 1000000.0));
             dlclose(runner); dlclose(jit); return 0;
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_8par /tmp/bench_8par.cpp -ldl
-        JIT_8PAR=$(/tmp/bench_8par)
+        JIT_8PAR_RAW=$(/tmp/bench_8par 2>&1 || echo 0)
+        echo "--- bench_8par raw ---"; echo "$JIT_8PAR_RAW"
+        JIT_8PAR=$(sanitize_num "$JIT_8PAR_RAW")
         echo "JIT 8-core parallel: ${JIT_8PAR} per-core cyc/s"
 
-        # Verilator 8-core
-        VLTR_8CORE=$(/tmp/litex_8core_obj/Vsim_8core 2>/dev/null)
+        # Verilator 8-core. Verilator prints %Warning/%Error diagnostics
+        # on stdout at runtime (e.g. width truncation, undriven signals)
+        # that were poisoning the JSON. We capture stderr too for logs,
+        # then keep only the trailing numeric line for the JSON value.
+        VLTR_8CORE_RAW=$(/tmp/litex_8core_obj/Vsim_8core 2>&1 || echo 0)
+        echo "--- Vsim_8core raw ---"; echo "$VLTR_8CORE_RAW"
+        VLTR_8CORE=$(sanitize_num "$VLTR_8CORE_RAW")
         echo "Verilator 8-core: ${VLTR_8CORE} cyc/s"
 
-        # Write results
-        cat <<EOF > multicore-bench-results.json
-        [
-          { "name": "JIT 1-core single-thread", "unit": "cycles/sec", "value": ${JIT_1CORE:-0} },
-          { "name": "JIT 8-core sequential", "unit": "cycles/sec", "value": ${JIT_8SEQ:-0} },
-          { "name": "JIT 8-core parallel (batch=10K)", "unit": "cycles/sec", "value": ${JIT_8PAR:-0} },
-          { "name": "Verilator 8-core", "unit": "cycles/sec", "value": ${VLTR_8CORE:-0} }
+        # --- Write JSON via Python for bulletproof formatting ---
+        python3 - <<PYEOF > multicore-bench-results.json
+        import json
+        data = [
+          {"name": "JIT 1-core single-thread",        "unit": "cycles/sec", "value": int("${JIT_1CORE}")},
+          {"name": "JIT 8-core sequential",           "unit": "cycles/sec", "value": int("${JIT_8SEQ}")},
+          {"name": "JIT 8-core parallel (batch=10K)", "unit": "cycles/sec", "value": int("${JIT_8PAR}")},
+          {"name": "Verilator 8-core",                "unit": "cycles/sec", "value": int("${VLTR_8CORE}")},
         ]
-        EOF
+        print(json.dumps(data, indent=2))
+        PYEOF
+
+        echo "--- multicore-bench-results.json ---"
         cat multicore-bench-results.json
+        python3 -c "
+        import json
+        with open('multicore-bench-results.json') as f: data = json.load(f)
+        assert isinstance(data, list) and len(data) > 0
+        for i, e in enumerate(data):
+            assert isinstance(e, dict)
+            for k in ('name', 'unit', 'value'): assert k in e, f'entry {i} missing {k}'
+            assert isinstance(e['value'], (int, float)), f'entry {i} value not numeric: {e[\"value\"]!r}'
+        print('multicore-bench-results.json validated ok:', len(data), 'entries')
+        "
 
     - name: Store multi-core benchmark result
       uses: benchmark-action/github-action-benchmark@v1
