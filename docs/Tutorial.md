@@ -329,20 +329,55 @@ def main : IO Unit := do
 
 ### Multi-domain (CDC)
 
+A Clock Domain Crossing (CDC) sim runs each module on its own thread,
+each with its own clock. The two clocks are **not** physically modeled:
+Sparkle gives each endpoint its own Verilog `clk` port that `JIT.evalTick`
+drives independently, and the frequency ratio is expressed by how many
+cycles each thread executes. A lock-free SPSC queue ferries data across
+the boundary, with snapshot/rollback to recover from timestamp inversion.
+
+To model e.g. a 200 MHz producer feeding a 100 MHz consumer, pass
+`endpointCycles` with per-endpoint budgets whose ratio matches the
+frequency ratio:
+
 ```lean
-sim! "module producer (input clk, input rst, output [31:0] data_out); ... endmodule"
-sim! "module consumer (input clk, input rst, input [31:0] data_in); ... endmodule"
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
+
+-- Each module gets its own `clk`. They are independent clock domains at
+-- runtime: Sparkle runs each on its own thread, ticking at its own rate.
+sim! "module producer_mod (input clk, input rst, output [31:0] data_out); ... endmodule"
+sim! "module consumer_mod (input clk, input rst, input  [31:0] data_in); ... endmodule"
 
 def main : IO Unit := do
-  let p ← producer.Sim.load
-  let c ← consumer.Sim.load
+  let p ← producer_mod.Sim.load
+  let c ← consumer_mod.Sim.load
   p.reset; c.reset
+  -- Producer runs at 200 MHz, consumer at 100 MHz → 2:1 cycle ratio.
   let stats ← runSim
     [p.toEndpoint, c.toEndpoint]
     (connections := [("data_out", "data_in")])
-    (cycles := 1_000_000)
-  IO.println s!"sent={stats.messagesSent} recv={stats.messagesReceived}"
+    (endpointCycles := [200_000, 100_000])
+  IO.println s!"sent={stats.messagesSent} recv={stats.messagesReceived} rb={stats.rollbacks}"
 ```
+
+If both domains run at the same frequency, use the simpler uniform
+`cycles` parameter instead:
+
+```lean
+let stats ← runSim
+  [p.toEndpoint, c.toEndpoint]
+  (connections := [("data_out", "data_in")])
+  (cycles := 1_000_000)
+```
+
+**Important**: merely writing `input clk` in two `sim!` modules does
+NOT by itself create two domains — at the Verilog level each module
+just has a clock port. The "two-domain-ness" comes from `runSim`
+running each endpoint on its own thread with its own cycle count,
+plus the SPSC queue that CDC-synchronizes the payload. If you need
+hard guarantees (e.g. a full 2-flop synchronizer inside the consumer),
+add the synchronizer registers to the consumer's Verilog explicitly.
 
 Connections are specified as `(producerOutputName, consumerInputName)`
 string pairs. `runSim` looks up the port indices at runtime via the
@@ -374,8 +409,9 @@ and can be improved.
   (Issue 3.2).
 
 See `Examples/CDC/MultiClockSim.lean` for a working end-to-end example
-and `Tests/Sim/SimRunnerTest.lean` for the 27-test regression suite
-(equivalence, auto-select, port-name errors, index alignment, stress).
+and `Tests/Sim/SimRunnerTest.lean` for the 30-test regression suite
+(equivalence, auto-select, port-name errors, index alignment, stress,
+and asymmetric endpointCycles).
 
 ---
 
@@ -404,8 +440,8 @@ and `Tests/Sim/SimRunnerTest.lean` for the 27-test regression suite
       │                    │
       ├── VCD waveform     ├── JIT C++ → .so → fast simulation
       │                    │                      │
-      └── Formal proofs    ├── OracleReduction     ├── runSim (auto)
-          (bv_decide)      │   (proof-driven opt)  │   ├─ runSingleSim
+      └── Formal proofs    ├── OracleReductin     ├── runSim (auto)
+          (bv_decide)      │   (proof-driven opt) │   ├─ runSingleSim
                            │                      │   └─ runMultiDomainSim
                            │                      │      (CDC queue)
                            └──────────────────────┘
