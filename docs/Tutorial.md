@@ -120,11 +120,15 @@ For large designs or existing Verilog, use JIT compilation for maximum speed:
 ```lean
 import Tools.SVParser.SimMacro
 
--- sim! parses the Verilog and auto-generates:
---   hello_counter.Sim.SimInput   { rst : BitVec 1 }
---   hello_counter.Sim.SimOutput  { count : BitVec 8 }
---   hello_counter.Sim.Simulator  with step/read/reset/destroy
---   hello_counter.Sim.load       (compile + load in one step)
+-- sim! parses the Verilog and auto-generates the following under
+-- `hello_counter.Sim`:
+--
+--   SimInput        — typed input record (clock and reset are hidden;
+--                     use `sim.reset` to pulse reset instead)
+--   SimOutput       — typed output record
+--   Simulator       — { handle : JITHandle } with step/read/reset/destroy
+--   load            — compile + load in one step
+--   toEndpoint      — wrap for runSim (Step 6)
 sim! "
 module hello_counter (
     input clk,
@@ -143,12 +147,10 @@ endmodule
 open hello_counter.Sim
 
 def main : IO Unit := do
-  let sim ← load           -- compile JIT C++ and load
-  sim.reset
-  for _ in [:3] do
-    sim.step { rst := 1 }  -- hold reset
+  let sim ← load              -- compile JIT C++ and load
+  sim.reset                   -- pulse hardware reset (handled by JIT)
   for i in [:10] do
-    sim.step { rst := 0 }  -- run
+    sim.step {}               -- SimInput is empty (no user-driven inputs)
     let out ← sim.read
     IO.println s!"  cycle {i}: count = {out.count}"
   sim.destroy
@@ -156,6 +158,30 @@ def main : IO Unit := do
 
 No port definitions needed — `sim!` extracts them from the Verilog.
 A typo like `out.cont` is caught at compile time.
+
+**Clock and reset are hidden from `SimInput`.** Drive them with
+`sim.reset` (for the initial reset pulse) rather than passing `rst` as
+a field — this matches how hardware works and keeps the typed surface
+clean. If a module has user inputs beyond clock/reset, those show up as
+required fields in `SimInput`.
+
+### Running many cycles with `runSim`
+
+For larger simulations, prefer `runSim` over hand-rolled loops. It
+automatically picks the fastest backend (Step 6 explains multi-domain):
+
+```lean
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
+
+def main : IO Unit := do
+  let sim ← hello_counter.Sim.load
+  sim.reset
+  let stats ← runSim [sim.toEndpoint] (cycles := 1_000_000)
+  let out ← sim.read
+  IO.println s!"Ran {stats.cyclesRun} cycles, final count = {out.count}"
+  sim.destroy
+```
 
 ### JIT from Signal DSL
 
@@ -378,8 +404,9 @@ and `Tests/Sim/SimRunnerTest.lean` for the 27-test regression suite
       │                    │
       ├── VCD waveform     ├── JIT C++ → .so → fast simulation
       │                    │                      │
-      └── Formal proofs    ├── OracleReduction     ├── sim_parallel! (planned)
-          (bv_decide)      │   (proof-driven opt)  │   (multi-domain CDC)
-                           │                      │
+      └── Formal proofs    ├── OracleReduction     ├── runSim (auto)
+          (bv_decide)      │   (proof-driven opt)  │   ├─ runSingleSim
+                           │                      │   └─ runMultiDomainSim
+                           │                      │      (CDC queue)
                            └──────────────────────┘
 ```
