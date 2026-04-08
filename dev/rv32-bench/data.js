@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775656589850,
+  "lastUpdate": 1775657355841,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -219,6 +219,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4933481,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "87821d4b04a99a5699a7d7d8de6dc2499a47831f",
+          "message": "fix(ci): build CppSim/SVParser oleans before LiteX JIT lean --run\n\n`lake env lean --run` reads existing .olean files without rebuilding.\nWhen GitHub Actions' cache predates a toolchain bump the oleans become\nstale and the runner fails with:\n\n    error: failed to read file 'Tools/SVParser.olean', incompatible header\n\nExplicitly `lake build Tools.SVParser Sparkle.Backend.CppSim` before\nthe `lake env lean --run` so the oleans are guaranteed to match the\ncurrent Lean version.",
+          "timestamp": "2026-04-08T23:04:06+09:00",
+          "tree_id": "1db9b60e7e8b468298fe3db6c1092c379f70b8f9",
+          "url": "https://github.com/Verilean/sparkle/commit/87821d4b04a99a5699a7d7d8de6dc2499a47831f"
+        },
+        "date": 1775657354926,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3276518,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4050359,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4510850,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4158783,
             "unit": "cycles/sec"
           }
         ]
