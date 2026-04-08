@@ -23,6 +23,7 @@ import Sparkle.Backend.CppSim
 import Sparkle.Verification.Temporal
 import Sparkle.Core.JIT
 import Sparkle.Core.JITLoop
+import Sparkle.Core.SimParallel
 import Sparkle.Core.Oracle
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle

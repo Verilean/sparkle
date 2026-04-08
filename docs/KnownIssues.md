@@ -145,28 +145,42 @@ elabStr s!"theorem {assertName} ... := by sorry"
 
 ---
 
-## Issue 3: `sim_parallel!` macro not implemented
+## Issue 3: High-level multi-domain simulation — **RESOLVED (2026-04-08)**
 
-**Status**: Planned (TODO in `docs/STATUS.md` Phase 5.6).
+**Status**: Resolved. A typed, auto-dispatching `runSim` function now lives
+in `Sparkle/Core/SimParallel.lean` and wraps both the single-threaded
+`evalTick` loop and `JIT.runCDC`. The `sim!` macro and `generateSimWrappers`
+emit `outputPortIndexByName` / `inputPortIndexByName` / `toEndpoint` so that
+`runSim` can resolve connections by string name.
 
-**Current state**: Multi-domain simulation uses low-level `JIT.runCDC handle1 handle2 cycles outPort inPort`:
-- Ports are indexed (not type-safe)
-- Only 2 domains supported
-- No integration with `sim!` / `#sim` macros
-
-**Desired state**:
+**Usage**:
 ```lean
 sim! "module producer (...) ..."
 sim! "module consumer (...) ..."
 
-let result ← simParallel
-  (producer := producer.Sim)
-  (consumer := consumer.Sim)
+let p ← producer.Sim.load; p.reset
+let c ← consumer.Sim.load; c.reset
+let stats ← runSim
+  [p.toEndpoint, c.toEndpoint]
   (connections := [("data_out", "data_in")])
   (cycles := 1000000)
 ```
 
-See `docs/Tutorial.md` Step 6 for current API documentation.
+See `docs/Tutorial.md` Step 6 for full walkthrough and
+`Tests/Sim/SimRunnerTest.lean` for the 27-test regression suite.
+
+### Residual limitations (separately tracked)
+
+**Issue 3.1 — Multi-connection between the same pair of endpoints.**
+`JIT.runCDC` currently transfers one output→input pair at a time. Passing
+`connections := [("a", "b"), ("c", "d")]` to `runSim` is rejected at the
+Lean layer. Resolving this requires extending the C++ runtime's CDC runner
+to accept arrays of `(outPort, inPort)` pairs and N SPSC queues.
+
+**Issue 3.2 — 3+ endpoints / arbitrary topologies.** Passing more than two
+endpoints to `runSim` is rejected. The current runner assumes exactly two
+domains (one producer, one consumer). A topology-aware scheduler is future
+work.
 
 ---
 
