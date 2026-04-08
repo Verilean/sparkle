@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775674115543,
+  "lastUpdate": 1775674922903,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -483,6 +483,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4193191,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "642e7b54a3659285ae5b037a95f335cc0cb2d38b",
+          "message": "Merge pull request #19 from Verilean/feature/sim-parallel\n\nfeat(sim): add runSim auto-dispatcher for multi-domain simulation",
+          "timestamp": "2026-04-09T03:57:18+09:00",
+          "tree_id": "37c5d3da0589b8a891b2eb0f5dffb134831e6c34",
+          "url": "https://github.com/Verilean/sparkle/commit/642e7b54a3659285ae5b037a95f335cc0cb2d38b"
+        },
+        "date": 1775674922350,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3278497,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4148940,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4531274,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4183672,
             "unit": "cycles/sec"
           }
         ]
