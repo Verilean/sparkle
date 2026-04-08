@@ -50,6 +50,7 @@ c_src/cdc/*.so
 verilator/obj_dir/
 verilator/obj_dir_notrace/
 verilator/generated_soc_jit.cpp
+verilator/generated_soc_cppsim.h
 verilator/verilator_bench
 
 # Python virtual environment
