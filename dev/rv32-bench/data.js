@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775657355841,
+  "lastUpdate": 1775659787861,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -263,6 +263,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4158783,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "34ef705062ce838956a7dd70f2f2315a00567598",
+          "message": "feat(sim): add runSim auto-dispatcher for multi-domain simulation\n\nIntroduces `Sparkle.Core.SimParallel` with a single high-level entry\npoint, `runSim`, that automatically picks the fastest backend based on\nthe number of endpoints and connections passed:\n\n  [ep]                            → runSingleSim (single-threaded evalTick)\n  [prod, cons], [(out, in)]       → runMultiDomainSim (JIT.runCDC, CDC queue)\n\nAll other combinations are rejected with a clear error message pointing\nat KnownIssues 3.1 (multi-connection) or 3.2 (3+ endpoints). The two\nbackends are also exposed as `runSingleSim` / `runMultiDomainSim` for\nusers who want to force a specific strategy.\n\nTyped endpoint creation:\n  - `sim!` and `generateSimWrappers` now emit per-module\n    `outputPortIndexByName`, `inputPortIndexByName`, `outputPortNames`,\n    `inputPortNames`, and `Simulator.toEndpoint`, so connections are\n    resolved by string name at runtime with clear errors for typos or\n    missing ports.\n  - `PortSpec` gains a `rawIndex` field so the typed layer stores the\n    exact raw JIT switch index. Manual `SimSpec` without explicit\n    rawIndex falls back to positional ordering.\n  - `SimMacro.lean` filters reset-like names from the user-facing\n    `SimInput` but keeps the raw-JIT index for surviving ports, fixing\n    a latent bug where `sim.step` would set the wrong port whenever a\n    reset wire was declared in the Verilog.\n\nRegression coverage — Tests/Sim/SimRunnerTest.lean (NEW, 27 tests):\n  A1–A4  Equivalence: runSim / runSingleSim / manual evalTick give\n         identical register snapshots; CDC relay transfers messages.\n  B1–B6  Auto-select: 1-ep → single path; 2-ep+1-conn → CDC path;\n         all illegal shapes are rejected.\n  C1–C5  Port-name resolution: unknown output/input, case sensitivity,\n         empty string, valid lookup round-trip.\n  D1–D4  Typed-vs-raw index alignment on DomainA (enable) and\n         DomainB (value, acc, acc2), including CDC via the non-default\n         port (count2, raw index 1).\n  E1–E5  Stress: 0 / 1 / 100 k cycles, double-run continuity, reset\n         between runs.\n\nEquivalence tests compare *all* registers via a `JIT.getReg` loop, not\njust observable outputs.\n\nTests/CDC/MultiClockTest.lean has been ported to the new API and still\npasses end-to-end (100 k messages transferred via runSim auto-dispatch).\n\nDocs:\n  - Tutorial Step 6 rewritten around runSim with single-domain and\n    multi-domain examples.\n  - KnownIssues Issue 3 marked Resolved; Issue 3.1 (multi-connection)\n    and Issue 3.2 (3+ endpoints) broken out as residual tracked items.\n  - STATUS Phase 5.6 marked Done.\n\nBuild & test:\n  lake build                                 green\n  lake exe svparser-test                     34/34\n  lake exe sim-runner-test                   27/27   (new)\n  lake exe cdc-multi-clock-test              PASS    (ported)",
+          "timestamp": "2026-04-08T23:42:16+09:00",
+          "tree_id": "17933a5a6243333d950fe52756f4d2a8382cf67f",
+          "url": "https://github.com/Verilean/sparkle/commit/34ef705062ce838956a7dd70f2f2315a00567598"
+        },
+        "date": 1775659787546,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3289702,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4155100,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4543626,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4191644,
             "unit": "cycles/sec"
           }
         ]
