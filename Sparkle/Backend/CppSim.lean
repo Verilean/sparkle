@@ -550,8 +550,34 @@ def emitModule (m : Module) (design : Option Design := none)
     let localDecls := localWires.map fun (p : Port) =>
       s!"        {emitCppType p.ty} {sanitizeName p.name};"
 
-    -- Extra declarations from statements (registers, memories, sub-instances)
-    let stmtDecls := allParts.foldl (fun acc p => acc ++ p.declarations) []
+    -- Extra declarations from statements (registers, memories, sub-instances).
+    -- Deduplicate by C++ identifier: some Verilog patterns (e.g. LiteX's
+    -- `reg [N:0] foo; always @(posedge clk) foo <= mem[addr];`) surface in the
+    -- IR as both a `.memory` read-data port and a standalone `.register`
+    -- statement bound to the same name. Without dedup the class would have two
+    -- conflicting declarations of `foo` (different widths) and fail to compile.
+    -- Keep the first declaration — memory read ports are emitted before
+    -- register decls and carry the correct dataWidth from the memory.
+    let extractDeclName (line : String) : Option String := Id.run do
+      -- Match "    <type> <name>;" — take the token before the trailing ';'
+      let trimmed := line.trimLeft
+      if trimmed.isEmpty then return none
+      let withoutSemi := if trimmed.endsWith ";" then trimmed.dropRight 1 else trimmed
+      let toks := (withoutSemi.splitOn " ").filter (· != "")
+      toks.getLast?
+    let rawStmtDecls := allParts.foldl (fun acc p => acc ++ p.declarations) []
+    let stmtDecls := Id.run do
+      let mut seen : List String := []
+      let mut result : List String := []
+      for decl in rawStmtDecls do
+        match extractDeclName decl with
+        | some n =>
+          if seen.contains n then pure ()
+          else
+            seen := seen ++ [n]
+            result := result ++ [decl]
+        | none => result := result ++ [decl]
+      result
 
     -- Eval/tick/reset bodies
     let evalBody := allParts.foldl (fun acc p => acc ++ p.evalBody) []
