@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775674976621,
+  "lastUpdate": 1775676106405,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -135,6 +135,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2166369,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "74b2b8638cbb54e96555e315dd2df6a43138c513",
+          "message": "feat(sim): add endpointCycles for asymmetric CDC + fix Tutorial\n\nThe CDC example in Tutorial.md Step 6 was misleading: both 'producer'\nand 'consumer' modules wrote 'input clk' and the call site passed a\nsingle uniform 'cycles := 1_000_000', making it look like the two\nendpoints shared a clock. They don't — runSim runs each endpoint on\nits own thread with its own independent evalTick loop — but the\nexample provided no way to express a frequency ratio either.\n\nWorse, the runSim refactor that introduced the typed API had silently\nregressed the original JIT.runCDC functionality: runCDC accepted two\ndistinct cycle budgets (cyclesA, cyclesB) which let callers model e.g.\na 2:1 clock ratio, but my runSim wrapper passed the same 'cycles' value\nto both sides, flattening every CDC sim to a 1:1 ratio. Tests/CDC/\nMultiClockTest had quietly inherited this by switching from 200k/100k\nto 200k/200k when I ported it.\n\nChanges:\n\n- Sparkle/Core/SimParallel.lean: runSim gains an optional\n  'endpointCycles : List UInt64 := []' parameter. When non-empty it\n  must have the same length as endpoints, and each entry becomes that\n  endpoint's cycle budget (overriding the uniform 'cycles'). When\n  empty the old behaviour is preserved. runSingleSim and\n  runMultiDomainSim are unchanged.\n\n- Tests/CDC/MultiClockTest.lean: restore the historical 200k / 100k\n  asymmetry with endpointCycles := [200000, 100000]. The CDC queue now\n  genuinely exercises the 2:1 ratio again (81k sent, 80k received vs\n  the symmetric 100k/100k).\n\n- Tests/Sim/SimRunnerTest.lean: three new regression tests (now 30/30):\n  F1 asymmetric endpointCycles [200k,100k] delivers messages\n  F2 length mismatch between endpoints and endpointCycles is rejected\n  F3 endpointCycles overrides 'cycles' when both are given\n\n- docs/Tutorial.md: rewrote the CDC section. Renamed the example\n  modules to producer_mod / consumer_mod, introduced endpointCycles\n  with an explicit 200 MHz / 100 MHz cycle ratio, and added a plain-\n  language warning that writing 'input clk' in two sim! modules does\n  NOT by itself create two domains — the two-domain-ness comes from\n  runSim running each endpoint on its own thread plus the SPSC queue\n  that CDC-synchronizes the payload. Users who need a hard 2-flop\n  synchronizer still have to add it in their Verilog explicitly.\n\nVerified:\n  lake exe svparser-test           34/34\n  lake exe sim-runner-test         30/30  (+3 from F1-F3)\n  lake exe cdc-multi-clock-test    PASS   (now exercising 200k/100k)",
+          "timestamp": "2026-04-09T04:15:45+09:00",
+          "tree_id": "b941864ad03949d373f4a0bb76a9de417d52e765",
+          "url": "https://github.com/Verilean/sparkle/commit/74b2b8638cbb54e96555e315dd2df6a43138c513"
+        },
+        "date": 1775676105958,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4733846,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2166747,
             "unit": "cycles/sec"
           }
         ]
