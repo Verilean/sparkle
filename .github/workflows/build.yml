@@ -283,10 +283,19 @@ jobs:
 
     - name: "Run LiteX benchmark (10M cycles)"
       run: |
-        # Verilator
-        LITEX_VLTR=$(/tmp/litex_obj/Vsim_1core 2>/dev/null)
+        set -euo pipefail
+        # --- Verilator ---
+        # Run twice: first capture stderr for diagnostics, second capture stdout only.
+        echo "--- Vsim_1core raw output ---"
+        /tmp/litex_obj/Vsim_1core || echo "Vsim_1core exited nonzero"
+        LITEX_VLTR_RAW=$(/tmp/litex_obj/Vsim_1core 2>/dev/null || echo 0)
+        # Keep only the LAST line and strip to digits to guard against
+        # stray warnings ending up in command substitution output.
+        LITEX_VLTR=$(echo "$LITEX_VLTR_RAW" | tail -n1 | tr -cd '0-9')
+        [ -z "$LITEX_VLTR" ] && LITEX_VLTR=0
         echo "LiteX Verilator: ${LITEX_VLTR} cyc/s"
-        # JIT
+
+        # --- JIT ---
         cat > /tmp/bench_litex.cpp << 'BEOF'
         #include <cstdio>
         #include <cstdint>
@@ -295,10 +304,14 @@ jobs:
         typedef void* (*fn0)(); typedef void (*fn1)(void*);
         int main() {
             void* lib = dlopen("/tmp/litex_jit.so", RTLD_LAZY);
+            if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
             auto create = (fn0)dlsym(lib,"jit_create");
             auto destroy = (fn1)dlsym(lib,"jit_destroy");
             auto reset = (fn1)dlsym(lib,"jit_reset");
             auto et = (fn1)dlsym(lib,"jit_eval_tick");
+            if (!create || !destroy || !reset || !et) {
+                fprintf(stderr, "dlsym failed\n"); return 1;
+            }
             void* ctx = create(); reset(ctx);
             auto t0 = std::chrono::high_resolution_clock::now();
             for (uint64_t c = 0; c < 10000000; c++) et(ctx);
@@ -309,16 +322,37 @@ jobs:
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_litex /tmp/bench_litex.cpp -ldl
-        LITEX_JIT=$(/tmp/bench_litex)
+        LITEX_JIT_RAW=$(/tmp/bench_litex 2>&1 || echo 0)
+        echo "--- bench_litex raw output ---"
+        echo "$LITEX_JIT_RAW"
+        LITEX_JIT=$(echo "$LITEX_JIT_RAW" | tail -n1 | tr -cd '0-9')
+        [ -z "$LITEX_JIT" ] && LITEX_JIT=0
         echo "LiteX JIT: ${LITEX_JIT} cyc/s"
-        # Write combined results
-        cat <<EOF > litex-bench-results.json
-        [
-          { "name": "LiteX Verilator (10M cycles)", "unit": "cycles/sec", "value": ${LITEX_VLTR:-0} },
-          { "name": "LiteX JIT evalTick (10M cycles)", "unit": "cycles/sec", "value": ${LITEX_JIT:-0} }
+
+        # --- Write benchmark JSON via Python for bulletproof formatting ---
+        python3 - <<PYEOF > litex-bench-results.json
+        import json
+        data = [
+          {"name": "LiteX Verilator (10M cycles)", "unit": "cycles/sec", "value": int("${LITEX_VLTR}")},
+          {"name": "LiteX JIT evalTick (10M cycles)", "unit": "cycles/sec", "value": int("${LITEX_JIT}")},
         ]
-        EOF
+        print(json.dumps(data, indent=2))
+        PYEOF
+
+        echo "--- litex-bench-results.json ---"
         cat litex-bench-results.json
+        # Validate JSON shape before handing it to benchmark-action
+        python3 -c "
+        import json, sys
+        with open('litex-bench-results.json') as f: data = json.load(f)
+        assert isinstance(data, list) and len(data) > 0, 'must be a non-empty list'
+        for i, e in enumerate(data):
+            assert isinstance(e, dict), f'entry {i} must be object'
+            for k in ('name', 'unit', 'value'):
+                assert k in e, f'entry {i} missing key {k}'
+            assert isinstance(e['value'], (int, float)), f'entry {i} value must be number, got {type(e[\"value\"]).__name__}'
+        print('litex-bench-results.json validated ok:', len(data), 'entries')
+        "
 
     - name: Store LiteX benchmark result
       uses: benchmark-action/github-action-benchmark@v1
