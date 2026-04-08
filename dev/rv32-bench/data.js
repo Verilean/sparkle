@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775676052423,
+  "lastUpdate": 1775676136979,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -571,6 +571,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4195036,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96c7ade9e7c9c2db4739e9142459185f92a96a4c",
+          "message": "Merge pull request #20 from Verilean/feature/sim-parallel\n\nfeat(sim): add endpointCycles for asymmetric CDC + fix Tutorial",
+          "timestamp": "2026-04-09T04:17:40+09:00",
+          "tree_id": "b941864ad03949d373f4a0bb76a9de417d52e765",
+          "url": "https://github.com/Verilean/sparkle/commit/96c7ade9e7c9c2db4739e9142459185f92a96a4c"
+        },
+        "date": 1775676136652,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3834830,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4214347,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 5269074,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 5072845,
             "unit": "cycles/sec"
           }
         ]
