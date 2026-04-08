@@ -100,6 +100,12 @@ def runMultiDomainSim
     - `[prod, cons]` with one connection → `runMultiDomainSim` (CDC queue)
     - anything else → `IO.userError` describing the limitation.
 
+    `cycles` sets a uniform cycle budget that applies to every endpoint. To
+    model a CDC with genuinely different clock frequencies (e.g. a 200 MHz
+    producer talking to a 100 MHz consumer) pass `endpointCycles` instead:
+    it gives a per-endpoint cycle count and `cycles` is ignored when it is
+    non-empty. The list must have the same length as `endpoints`.
+
     Limitations:
     - 3+ endpoints are not yet supported (needs multi-queue runCDC).
     - Multi-connection between the same pair of endpoints is not yet
@@ -108,24 +114,35 @@ def runMultiDomainSim
 def runSim
     (endpoints : List SimEndpoint)
     (connections : List Connection := [])
-    (cycles : UInt64)
+    (cycles : UInt64 := 0)
+    (endpointCycles : List UInt64 := [])
     : IO SimStats := do
-  match endpoints, connections with
-  | [ep], [] => runSingleSim ep cycles
-  | [ep], _  :: _ =>
+  -- Resolve the per-endpoint cycle budget. If the caller supplied an
+  -- explicit list, it wins; otherwise fall back to the uniform `cycles`.
+  let cyclesPerEp : List UInt64 ←
+    if endpointCycles.isEmpty then
+      pure (endpoints.map (fun _ => cycles))
+    else if endpointCycles.length != endpoints.length then
+      throw (IO.userError
+        s!"runSim: endpointCycles length ({endpointCycles.length}) must match endpoints length ({endpoints.length}).")
+    else
+      pure endpointCycles
+  match endpoints, connections, cyclesPerEp with
+  | [ep], [], [n] => runSingleSim ep n
+  | [ep], _  :: _, _ =>
     throw (IO.userError
       s!"runSim: single endpoint '{ep.moduleName}' cannot have connections; use runSim [ep] (cycles := ...) instead.")
-  | [prod, cons], [c] =>
-    runMultiDomainSim prod cons c cycles cycles
-  | [prod, cons], [] =>
+  | [prod, cons], [c], [nA, nB] =>
+    runMultiDomainSim prod cons c nA nB
+  | [prod, cons], [], _ =>
     throw (IO.userError
       s!"runSim: two endpoints ('{prod.moduleName}', '{cons.moduleName}') require exactly one connection. \
          If you meant two independent runs, call runSingleSim on each endpoint.")
-  | [_, _], _ :: _ :: _ =>
+  | [_, _], _ :: _ :: _, _ =>
     throw (IO.userError
       s!"runSim: multi-connection CDC is not yet supported (got {connections.length} connections). \
          See KnownIssues Issue 3.1.")
-  | _, _ =>
+  | _, _, _ =>
     throw (IO.userError
       s!"runSim: only 1 or 2 endpoints are supported (got {endpoints.length}). \
          See KnownIssues Issue 3.2.")

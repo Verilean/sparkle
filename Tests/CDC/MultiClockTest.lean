@@ -90,15 +90,17 @@ def main : IO UInt32 := do
 
   IO.println ""
   IO.println "--- CDC Multi-threaded Run via runSim (auto-select) ---"
-  IO.println "  runSim [A, B] connection=(count -> value), cycles=200000"
+  IO.println "  runSim [A, B] connection=(count -> value), endpointCycles=[200k, 100k]"
 
   -- Use the high-level runSim auto-selector. With 2 endpoints + 1 connection
   -- it automatically dispatches to the CDC parallel backend. Named port
   -- connections replace raw port-index constants for better ergonomics.
+  -- endpointCycles models a 2:1 frequency ratio (DomainA runs at 2x the
+  -- rate of DomainB), exercising the CDC queue's rollback path.
   let stats ← runSim
     [simA.toEndpoint, simB.toEndpoint]
     (connections := [("count", "value")])
-    (cycles := 200000)
+    (endpointCycles := [200000, 100000])
 
   IO.println s!"  Messages sent:     {stats.messagesSent}"
   IO.println s!"  Messages received: {stats.messagesReceived}"

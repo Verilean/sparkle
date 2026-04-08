@@ -414,6 +414,46 @@ def main : IO UInt32 := do
     JIT.destroy a.handle; JIT.destroy aFresh.handle
 
   -- --------------------------------------------------------------------------
+  -- F1: endpointCycles asymmetric (200k / 100k) — producer runs twice as fast
+  -- --------------------------------------------------------------------------
+  do
+    let a ← loadA; a.reset; a.step { enable := 1 }
+    let b ← loadB; b.reset
+    let stats ← runSim
+      [a.toEndpoint, b.toEndpoint]
+      (connections := [("count", "value")])
+      (endpointCycles := [200000, 100000])
+    st ← check st "F1 endpointCycles asymmetric: messages > 0"
+      (stats.messagesSent > 0 && stats.messagesReceived > 0)
+    JIT.destroy a.handle; JIT.destroy b.handle
+
+  -- --------------------------------------------------------------------------
+  -- F2: endpointCycles length mismatch rejected
+  -- --------------------------------------------------------------------------
+  do
+    let a ← loadA; let b ← loadB; a.reset; b.reset
+    let err ← expectError (do
+      let _ ← runSim
+        [a.toEndpoint, b.toEndpoint]
+        (connections := [("count", "value")])
+        (endpointCycles := [1000])  -- 1 value for 2 endpoints
+      pure ())
+    st ← check st "F2 endpointCycles length mismatch rejected" err
+    JIT.destroy a.handle; JIT.destroy b.handle
+
+  -- --------------------------------------------------------------------------
+  -- F3: endpointCycles wins over cycles when both are given
+  -- --------------------------------------------------------------------------
+  do
+    let a ← loadA; a.reset; a.step { enable := 1 }
+    let stats ← runSim
+      [a.toEndpoint]
+      (cycles := 1)                    -- tiny, should be ignored
+      (endpointCycles := [5000])       -- this one wins
+    st ← check st "F3 endpointCycles overrides cycles" (stats.cyclesRun == 5000)
+    JIT.destroy a.handle
+
+  -- --------------------------------------------------------------------------
   -- Summary
   -- --------------------------------------------------------------------------
   IO.println ""
