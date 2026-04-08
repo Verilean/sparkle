@@ -199,7 +199,69 @@ Users should replace these with manual proofs using `simp [nextState]` + `decide
 
 ---
 
-## Issue 6: UART output is a 4-byte replication of a single ASCII byte
+## Issue 6: UART output stuck / garbage — **RESOLVED (2026-04-08)**
+
+**Status**: Resolved. Tests 10 and 11 now PASS (Test 10 prints "Hello", Test 11
+runs the full C firmware test suite — fib, sum, sort, gcd — all OK).
+
+### Root cause
+
+`wrapConditionalGuards` in `Sparkle/Backend/CppSim.lean` was applying an unsound
+"subsystem gating" heuristic to eval body lines:
+
+1. Detect enable-like signals (`_valid`, `_trigger`, `_enable`).
+2. Find the longest shared prefix of that enable signal that appears in ≥20 lines.
+3. Wrap those lines in `if (enable) { ... }` to skip computation when the
+   subsystem is idle.
+4. A "lookahead" kept the block open across non-matching gap lines.
+
+The heuristic was wrong on two axes:
+
+- **Overbroad prefix match**: For picorv32, the detected enable was
+  `cpu_decoder_trigger` with prefix `cpu_`. That matched not just the decoder
+  body but also the memory interface state machine
+  (`cpu__reg_mem_valid_next`, `cpu__reg_mem_wstrb_next`, etc.). Those lines
+  MUST run every cycle or the memory interface freezes whenever the decoder is
+  between instructions. Result: the CPU never completed memory transactions,
+  so the UART handler never saw `mem_valid & !mem_ready`.
+- **Lookahead traps unrelated lines**: The gap-filling kept the block open
+  across lines like `uart_valid = uart_valid_reg;` and
+  `uart_data = uart_data_reg;`, which have nothing to do with the decoder.
+  Those output-wire assignments got gated by `cpu_decoder_trigger`, so the
+  UART output wire stopped reflecting the register's value.
+
+When combined, the firmware could neither execute instructions nor observe
+UART output, and the test read stale/garbage values (`0x3A3A3A3A`, `0x20202020`)
+from the output port every cycle.
+
+### Fix
+
+Disabled `wrapConditionalGuards` entirely in `emitModule`. The eval body is
+now emitted without any gating. Performance is recovered by Clang -O2's
+dead-store elimination: assignments whose results are not read before the next
+overwrite are removed automatically.
+
+### Verification
+
+- Test 10: 0 UART events → **5 UART bytes: "Hello"** (firmware is the hex-encoded
+  `sb` loop that writes H, e, l, l, o to 0x10000000).
+- Test 11: 0 words → **26 words, ALL C TESTS OK** (Fibonacci + sum + sort + GCD).
+
+Total: 33 passed / 1 failed (only Test 21e — wrapper consecutive MUL — remains,
+tracked as Issue 7).
+
+### Historical observation
+
+This optimization was originally added for I-cache locality. The intent was
+reasonable but the heuristic was never correctness-safe: any line that sits
+near "enable-like" code got gated by an unrelated signal. If this optimization
+is ever revived, it must work from the IR (analyzing which wires genuinely
+feed an enable-gated cone of logic) rather than by string pattern matching on
+generated C++.
+
+---
+
+## Issue 6 (historical): UART output is a 4-byte replication of a single ASCII byte
 
 **Status**: Investigating. Pre-existing bug, newly exposed after Issue 1 fix.
 
@@ -256,7 +318,7 @@ single-cycle window where the deassert and next assert race.
 | Test Suite | Pass | Fail | Notes |
 |-----------|------|------|-------|
 | OptimizeTest | 10/10 | 0 | All IR optimizer tests |
-| ParserTest | 32/34 | 2 | Test 11 (UART wstrb bug — Issue 6), Test 21e (wrapper 2nd MUL — Issue 7) |
+| ParserTest | 33/34 | 1 | Test 21e (wrapper 2nd MUL — Issue 7) |
 | LiteXTest (Phase 1-3) | 3/3 | 0 | Phase 4 requires JIT FFI |
 | BitNet tests | ✓ build | - | `#eval`-based, verified at build time |
 | AXI4-Lite tests | ✓ build | - | `#eval`-based |

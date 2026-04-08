@@ -683,8 +683,12 @@ def emitModule (m : Module) (design : Option Design := none)
               bestPrefix := pfx
         if bestCount >= 20 then
           patterns := patterns ++ [(bestPrefix, enableVar)]
-      -- Apply patterns with lookahead: don't close a guard block if the same
-      -- guard will be needed within the next few lines (avoid open/close churn).
+      -- Apply patterns WITHOUT lookahead: only lines literally containing the
+      -- guard keyword are wrapped. The previous "keep block open across gap
+      -- lines" lookahead was unsound — it trapped unrelated output-wire
+      -- assignments (e.g. `uart_valid = uart_valid_reg;`) inside a
+      -- `if (cpu_decoder_trigger)` block, so those outputs stopped updating
+      -- whenever the CPU was mid-instruction. See Issue 6.
       if patterns.isEmpty then return lines
       let lineList := lines.toArray
       let mut result : List String := []
@@ -693,28 +697,12 @@ def emitModule (m : Module) (design : Option Design := none)
       while i < lineList.size do
         let line := lineList[i]!
         let trimmed := line.trimLeft
-        -- Never wrap lines that are part of an if-else chain (would break braces)
         let isControlFlow := trimmed.startsWith "if (" || trimmed.startsWith "else " ||
                              trimmed.startsWith "}" || trimmed.startsWith "if("
         let lineGuard := if isControlFlow then none
           else patterns.find? fun (kw, _) => (line.splitOn kw).length > 1
         let effectiveGuard := lineGuard.map (·.2)
         if effectiveGuard != currentGuard then
-          -- Before closing current guard, look ahead: if the same guard appears
-          -- within the next 3 lines, keep the block open (include gap lines inside).
-          if currentGuard.isSome && effectiveGuard.isNone && !isControlFlow then
-            let mut foundSameGuard := false
-            for j in [1, 2, 3] do
-              if i + j < lineList.size then
-                let futLine := lineList[i + j]!
-                let futGuard := (patterns.find? fun (kw, _) =>
-                  (futLine.splitOn kw).length > 1).map (·.2)
-                if futGuard == currentGuard then foundSameGuard := true
-            if foundSameGuard then
-              -- Keep current guard open, include this non-matching line inside
-              result := result ++ [line]
-              i := i + 1
-              continue
           if currentGuard.isSome then result := result ++ ["        }"]
           match effectiveGuard with
           | some g => result := result ++ [s!"        if ({g}) \{"]
@@ -725,6 +713,14 @@ def emitModule (m : Module) (design : Option Design := none)
       if currentGuard.isSome then result := result ++ ["        }"]
       result
 
+    -- DISABLED: `wrapConditionalGuards` is unsound. The heuristic "lines sharing
+    -- the prefix of an enable signal are safe to gate together" is false: the
+    -- prefix `cpu_` matches the memory-interface state machine as well as the
+    -- decoder body, so wrapping them in `if (cpu_decoder_trigger)` freezes the
+    -- memory interface whenever decoder_trigger=0. Issue 6 (UART stuck output)
+    -- was caused by this — `uart_valid = uart_valid_reg;` and `cpu__reg_mem_*`
+    -- assignments got trapped in the same guard. We now leave all eval lines
+    -- unguarded and rely on Clang -O2 dead-store elimination for speed.
     -- eval_part: no conditional guards (correctness-critical for wire observation)
     -- Guards are only applied in evalTick (performance path)
     let evalPartMethods := if needsSplit then Id.run do
@@ -781,7 +777,9 @@ def emitModule (m : Module) (design : Option Design := none)
       else none
     let allWireLocalDecls := evalTickWireLocals
     -- Apply conditional guards to the full eval body (not per-chunk)
-    let guardedEvalBody := wrapConditionalGuards evalBody
+    -- Unsound optimization — bypass entirely. See long comment above.
+    let _ := wrapConditionalGuards
+    let guardedEvalBody := evalBody
     -- IMPORTANT: The previous "self-ref register optimization" that collapsed
     -- `reg_next` into in-place `reg` writes has been removed entirely. It broke
     -- Verilog `<=` (non-blocking) semantics whenever one register's condition
