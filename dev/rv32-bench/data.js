@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775659787861,
+  "lastUpdate": 1775660527961,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -307,6 +307,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4191644,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "fae81e36e24a60c4ac3730849fca861e8439bdfd",
+          "message": "refactor: purge dead optimization scaffolding exposed by Issue 1 / 6\n\nFive small cleanups, net -92 lines, no behavior change.\n\n1. Delete wrapConditionalGuards in Sparkle/Backend/CppSim.lean.\n   The enable-signal / prefix-matching guard heuristic was bypassed\n   entirely in the Issue 6 fix (`let _ := wrapConditionalGuards`).\n   Remove the 70+ line function, its helper tables, and the bypass.\n   Replaced with a short comment explaining why the idea is unsound.\n\n2. Remove isSelfRef detection from the `.register` emitStmt branch.\n   With all evalTick _next locals now initialized to the current\n   register value (Issue 1 fix), the `findDeepestElse` / isSelfRef\n   computation no longer influences correctness, and the minArms=2\n   short-circuit for shallow self-ref mux chains is redundant with\n   Clang -O2's dead-store elimination. Use minArms=16 uniformly.\n   Also merges the two nearly-identical `if ifElseLines then … else …`\n   branches into one record.\n\n3. Delete isDebugSignal (CppSim.lean). It was already a no-op\n   (`_name : String => false`) once reachability DCE took over the\n   job in Lower.lean. Remove the def and its two call sites.\n\n4. Mark Signal.unbundle2 / unbundle3 / unbundle4 @[deprecated] with\n   since:=2026-04-08. They silently break in synthesis when\n   pattern-matched (returning Lean-level tuples); the preferred\n   Signal.fst/snd/proj3_*/proj4_* have long been available.\n\n5. Simplify dedupBody in Sparkle/IR/Optimize.lean to a single forward\n   pass that accumulates the result list directly, instead of a\n   two-pass index-drop scheme with two HashMaps. Semantics unchanged:\n   drop identity assigns and exact-duplicate repeats; keep later\n   assigns with a different rhs (should not arise in valid SSA, but\n   the original code preserved them so we do too).\n\nVerification:\n  lake build                       clean\n  lake exe svparser-test           34/34 (includes Test 21 pcpi_mul)\n  lake exe sim-runner-test         27/27\n  lake exe cdc-multi-clock-test    PASS",
+          "timestamp": "2026-04-08T23:56:20+09:00",
+          "tree_id": "dc45e1cee56cb09b4d8a0f33c5941ac1348f879b",
+          "url": "https://github.com/Verilean/sparkle/commit/fae81e36e24a60c4ac3730849fca861e8439bdfd"
+        },
+        "date": 1775660527483,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3268429,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4150922,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4509076,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4097503,
             "unit": "cycles/sec"
           }
         ]
