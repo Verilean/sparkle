@@ -11,11 +11,11 @@
   7. Formal proofs using native_decide
 -/
 
-import Examples.RV32.Types
+import IP.RV32.Types
 
-namespace Sparkle.Examples.RV32.Tests.IsaTests
+namespace Sparkle.IP.RV32.Tests.IsaTests
 
-open Sparkle.Examples.RV32
+open Sparkle.IP.RV32
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -482,13 +482,13 @@ theorem alu_sll_zero (a : BitVec 32) : aluCompute .SLL a 0#32 = a := by
 
 end FormalProofs
 
-end Sparkle.Examples.RV32.Tests.IsaTests
+end Sparkle.IP.RV32.Tests.IsaTests
 
 -- ============================================================================
 -- Main entry point
 -- ============================================================================
 
-open Sparkle.Examples.RV32.Tests.IsaTests in
+open Sparkle.IP.RV32.Tests.IsaTests in
 def main : IO Unit := do
   IO.println "=== RV32I ISA Verification Tests ==="
   testOpcodeEncoding

@@ -18,11 +18,11 @@
 -/
 
 import Sparkle
-import Examples.RV32.Core
+import IP.RV32.Core
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.RV32
+open Sparkle.IP.RV32
 
 namespace Sparkle.Verification.SignalDSLProps
 

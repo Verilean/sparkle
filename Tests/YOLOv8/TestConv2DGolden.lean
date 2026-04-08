@@ -8,19 +8,19 @@
 -/
 
 import LSpec
-import Examples.YOLOv8.Types
-import Examples.YOLOv8.Primitives.Conv2DEngine
+import IP.YOLOv8.Types
+import IP.YOLOv8.Primitives.Conv2DEngine
 import Tests.YOLOv8.GoldenLoader
 import Tests.YOLOv8.WeightROM
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.YOLOv8
-open Sparkle.Examples.YOLOv8.Primitives.Conv2DEngine
-open Sparkle.Examples.YOLOv8.Tests.GoldenLoader
-open Sparkle.Examples.YOLOv8.Tests.WeightROM
+open Sparkle.IP.YOLOv8
+open Sparkle.IP.YOLOv8.Primitives.Conv2DEngine
+open Sparkle.IP.YOLOv8.Tests.GoldenLoader
+open Sparkle.IP.YOLOv8.Tests.WeightROM
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestConv2DGolden
+namespace Sparkle.IP.YOLOv8.Tests.TestConv2DGolden
 
 def goldenDir : String := "Tests/yolo-golden"
 
@@ -66,4 +66,4 @@ def allTests : IO LSpec.TestSeq := do
   let t2 ← testScaleConversion
   return LSpec.group "Conv2D Golden" (t1 ++ t2)
 
-end Sparkle.Examples.YOLOv8.Tests.TestConv2DGolden
+end Sparkle.IP.YOLOv8.Tests.TestConv2DGolden

@@ -16,11 +16,11 @@
   All theorems proved, zero sorry.
 -/
 
-import Examples.RV32.Types
+import IP.RV32.Types
 
 namespace Sparkle.Verification.PipelineProps
 
-open Sparkle.Examples.RV32
+open Sparkle.IP.RV32
 
 -- ============================================================================
 -- Pure Lean Pipeline Models

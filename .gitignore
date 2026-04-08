@@ -41,8 +41,38 @@ Thumbs.db
 *.bak
 *.log
 
+# ELF binaries and compiled objects
+c_src/cdc/cdc_example
+c_src/cdc/cdc_test
+c_src/cdc/*.so
+
+# Verilator build artifacts
+verilator/obj_dir/
+verilator/obj_dir_notrace/
+verilator/generated_soc_jit.cpp
+verilator/generated_soc_cppsim.h
+verilator/verilator_bench
+
+# Python virtual environment
+venv/
+
 # Planning documents
 plans/
 Sparkle/Verification/Generated/
 Examples/CDC/gen/
-verilator/generated_soc_jit.cpp
+
+# Generated firmware (rebuild from source)
+firmware/*.bin
+firmware/*.elf
+firmware/*.map
+firmware/firmware_litex_*.hex
+firmware/firmware_multest.hex
+firmware/firmware_rv32i.hex
+firmware/firmware_rv32im.hex
+firmware/firmware_storeload.hex
+
+# Generated Verilog fixtures (regenerate with gen_litex_multicore.py)
+Tests/SVParser/fixtures/*_flat.v
+
+# Nix shell artifacts
+result

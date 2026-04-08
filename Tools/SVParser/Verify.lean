@@ -74,7 +74,10 @@ def collectAssigns (body : List Stmt) : List (String × Expr) :=
     | .assign name rhs => some (name, rhs)
     | _ => none
 
-/-- Recursively inline wire references with their definitions -/
+/-- Recursively inline wire references with their definitions.
+    `regNames` lists register output names — these are NOT inlined
+    (they are state variables, not wires). Without this exclusion,
+    self-referencing registers cause infinite inlining loops. -/
 partial def inlineAssigns (assigns : List (String × Expr)) : Expr → Expr
   | .ref name =>
     match assigns.find? (·.1 == name) with
@@ -278,7 +281,9 @@ def generateLean (model : SemanticModel) (extraWidths : List (String × Nat) := 
 /-- Extract model from IR Module and generate Lean verification source -/
 def moduleToLean (m : Module) : String :=
   let model := extractModel m
-  let assigns := collectAssigns m.body
+  let regNames := model.registers.map (·.name)
+  -- Exclude register assigns from wire inlining (registers are state, not wires)
+  let assigns := (collectAssigns m.body).filter fun (n, _) => !regNames.any (· == n)
   -- Inline wire references in all register next-expressions
   let model := { model with
     registers := model.registers.map fun r =>

@@ -44,7 +44,7 @@ CPPSIM_BIN = cppsim_soc
 all: build
 
 generate:
-	cd .. && lake build Examples.RV32.SoCVerilog
+	cd .. && lake build IP.RV32.SoCVerilog
 
 build: generate $(SIM_BIN)
 
@@ -63,7 +63,7 @@ wave: run
 
 # CppSim targets
 generate-cppsim:
-	cd .. && lake build Examples.RV32.SoCVerilog
+	cd .. && lake build IP.RV32.SoCVerilog
 
 build-cppsim: generate-cppsim
 	$(CPPSIM_CXX) $(CPPSIM_FLAGS) -o $(CPPSIM_BIN) tb_cppsim.cpp

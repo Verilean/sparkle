@@ -1,0 +1,119 @@
+/-
+  LiteX SoC Parse & Lower Test
+
+  Stress-tests the SVParser with a LiteX-generated PicoRV32 SoC (1730 lines).
+  Phase 1: Parse only (verify all constructs are recognized)
+  Phase 2: Lower to Sparkle IR
+  Phase 3: Generate JIT C++ and simulate
+-/
+
+import Tools.SVParser
+import Sparkle.Backend.CppSim
+import Sparkle.Backend.CppSimThreaded
+import Sparkle.Backend.Partition
+import Sparkle.Core.JIT
+open Tools.SVParser.Parser
+open Tools.SVParser.Lower
+open Sparkle.Core.JIT
+open Sparkle.Backend.Partition
+
+def main : IO Unit := do
+  let path := "Tests/SVParser/fixtures/litex_sim_minimal.v"
+  let fileExists ← System.FilePath.pathExists path
+  if !fileExists then
+    IO.println s!"SKIP: {path} not found"
+    pure ()
+
+  let litexSrc ← IO.FS.readFile path
+  -- Also load PicoRV32 CPU (LiteX references it as a sub-module)
+  let picoPath := "/tmp/picorv32.v"
+  let picoExists ← System.FilePath.pathExists picoPath
+  let picoSrc ← if picoExists then IO.FS.readFile picoPath else pure ""
+  let src := litexSrc ++ "\n" ++ picoSrc
+  IO.println s!"LiteX SoC: Read {litexSrc.length} + {picoSrc.length} chars"
+
+  -- Phase 1: Parse
+  -- Preprocess: replace @(*) with @* (LiteX/Migen convention)
+  let src := "@*".intercalate (src.splitOn "@(*)")
+  let atStarCount := (src.splitOn "@(*)").length - 1
+  IO.println s!"  @(*) remaining after preprocess: {atStarCount}"
+
+  IO.print "  Phase 1: Parse... "
+  match parse src with
+  | .error e =>
+    IO.println s!"FAIL"
+    IO.println s!"  Parse error: {e}"
+    pure ()
+  | .ok design =>
+    IO.println s!"PASS ({design.modules.length} modules)"
+    for m in design.modules do
+      IO.println s!"    Module: {m.name} ({m.items.length} items, {m.params.length} params)"
+
+  -- Phase 2: Lower to IR
+  IO.print "  Phase 2: Lower to IR... "
+  match parseAndLower src with
+  | .error e =>
+    IO.println s!"FAIL"
+    IO.println s!"  Lower error: {e}"
+    pure ()
+  | .ok d =>
+    IO.println s!"PASS ({d.modules.length} modules)"
+    for m in d.modules do
+      let regCount := m.body.filter fun s => match s with
+        | .register _ _ _ _ _ => true | _ => false
+      let assignCount := m.body.filter fun s => match s with
+        | .assign _ _ => true | _ => false
+      let memCount := m.body.filter fun s => match s with
+        | .memory _ _ _ _ _ _ _ _ _ _ => true | _ => false
+      IO.println s!"    {m.name}: {regCount.length} regs, {assignCount.length} assigns, {memCount.length} memories, {m.wires.length} wires"
+
+  -- Phase 3: Generate JIT C++
+  IO.print "  Phase 3: JIT C++ generation... "
+  let design ← IO.ofExcept (parseAndLowerFlat src)
+  let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
+  IO.FS.writeFile "/tmp/sparkle_litex_jit.cpp" jitCpp
+  IO.println s!"PASS ({jitCpp.length} chars)"
+
+  -- Phase 4: JIT compile and simulate 100 cycles
+  IO.print "  Phase 4: JIT compile + simulate... "
+  try
+    let h ← JIT.compileAndLoad "/tmp/sparkle_litex_jit.cpp"
+    JIT.reset h
+    let mut cycles : Nat := 0
+    while cycles < 100 do
+      JIT.evalTick h
+      cycles := cycles + 1
+    JIT.destroy h
+    IO.println s!"PASS (100 cycles OK)"
+  catch e =>
+    IO.println s!"FAIL: {e}"
+    pure ()
+
+  -- Phase 5: Partitioned (2-thread) C++ generation
+  IO.print "  Phase 5: Partitioned JIT C++ generation... "
+  let design2 ← IO.ofExcept (parseAndLowerFlat src)
+  match design2.modules.head? with
+  | none => IO.println "FAIL: no modules"; pure ()
+  | some mod =>
+    let part := partitionModule mod
+    IO.println s!"PASS (CPU: {part.cpuModule.body.length} stmts, Peri: {part.periModule.body.length} stmts, Boundary: {part.cpuToPeri.length}+{part.periToCpu.length} signals)"
+    let threadedCpp := Sparkle.Backend.CppSimThreaded.toCppSimThreaded mod
+    IO.FS.writeFile "/tmp/sparkle_litex_threaded.cpp" threadedCpp
+    IO.println s!"    Generated {threadedCpp.length} chars to /tmp/sparkle_litex_threaded.cpp"
+
+    -- Phase 6: Compile and run partitioned simulation
+    IO.print "  Phase 6: Partitioned JIT compile + simulate... "
+    try
+      let h ← JIT.compileAndLoad "/tmp/sparkle_litex_threaded.cpp"
+      JIT.reset h
+      let mut cycles : Nat := 0
+      while cycles < 100 do
+        JIT.evalTick h
+        cycles := cycles + 1
+      JIT.destroy h
+      IO.println s!"PASS (100 cycles OK)"
+    catch e =>
+      IO.println s!"FAIL: {e}"
+      pure ()
+
+  IO.println "\nLiteX SoC: ALL PHASES PASSED"

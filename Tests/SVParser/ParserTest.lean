@@ -540,7 +540,7 @@ def main : IO UInt32 := do
         IO.println s!"PASS ({uartOutput.length} words, ALL C TESTS OK)"
         passed := passed + 1
       else
-        IO.println s!"FAIL (fib={fibOk} sum={sumOk} sort={sortOk} gcd={gcdOk} pass={hasPass}, {uartOutput.length} words)"
+        IO.println s!"FAIL (fib={fibOk} sum={sumOk} sort={sortOk} gcd={gcdOk} pass={hasPass}, {uartOutput.length} words. First 8: {uartOutput.take 8})"
         failed := failed + 1
     catch e =>
       IO.println s!"FAIL: {toString e}"

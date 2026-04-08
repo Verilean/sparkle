@@ -10,14 +10,14 @@
 
 import LSpec
 import Tests.YOLOv8.GoldenLoader
-import Examples.YOLOv8.Primitives.Dequant
+import IP.YOLOv8.Primitives.Dequant
 
-open Sparkle.Examples.YOLOv8.Tests.GoldenLoader
-open Sparkle.Examples.YOLOv8.Primitives.Dequant
+open Sparkle.IP.YOLOv8.Tests.GoldenLoader
+open Sparkle.IP.YOLOv8.Primitives.Dequant
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestGoldenValues
+namespace Sparkle.IP.YOLOv8.Tests.TestGoldenValues
 
 def goldenDir : String := "Tests/yolo-golden"
 
@@ -137,4 +137,4 @@ def allTests : IO LSpec.TestSeq := do
     LSpec.group "Metrics" (t6 ++ t7)
   )
 
-end Sparkle.Examples.YOLOv8.Tests.TestGoldenValues
+end Sparkle.IP.YOLOv8.Tests.TestGoldenValues

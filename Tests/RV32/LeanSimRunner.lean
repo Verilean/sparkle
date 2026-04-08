@@ -14,12 +14,12 @@
     lake exe rv32-lean-sim-runner [firmware.hex] [cycles]
 -/
 
-import Examples.RV32.SoC
+import IP.RV32.SoC
 import Sparkle.Utils.HexLoader
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.RV32.SoC
+open Sparkle.IP.RV32.SoC
 open Sparkle.Utils.HexLoader
 
 def main (args : List String) : IO UInt32 := do

@@ -10,26 +10,26 @@
   - FFN block composition (Signal DSL)
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
+import IP.BitNet.Config
+import IP.BitNet.Types
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import Examples.BitNet.SignalHelpers
-import Examples.BitNet.BitLinear.Scale
-import Examples.BitNet.Layers.ReLUSq
-import Examples.BitNet.Layers.ResidualAdd
-import Examples.BitNet.Layers.ElemMul
-import Examples.BitNet.Layers.RMSNorm
-import Examples.BitNet.Layers.FFN
+import IP.BitNet.SignalHelpers
+import IP.BitNet.BitLinear.Scale
+import IP.BitNet.Layers.ReLUSq
+import IP.BitNet.Layers.ResidualAdd
+import IP.BitNet.Layers.ElemMul
+import IP.BitNet.Layers.RMSNorm
+import IP.BitNet.Layers.FFN
 
-namespace Sparkle.Examples.BitNet.Tests.Layers
+namespace Sparkle.IP.BitNet.Tests.Layers
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
-open Sparkle.Examples.BitNet.SignalHelpers
-open Sparkle.Examples.BitNet.BitLinear
-open Sparkle.Examples.BitNet.Layers
+open Sparkle.IP.BitNet.SignalHelpers
+open Sparkle.IP.BitNet.BitLinear
+open Sparkle.IP.BitNet.Layers
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -325,4 +325,4 @@ def runAll : IO Unit := do
   IO.println ""
   IO.println "=== All FFN layer tests complete ==="
 
-end Sparkle.Examples.BitNet.Tests.Layers
+end Sparkle.IP.BitNet.Tests.Layers

@@ -11,12 +11,12 @@
   Self-contained: no FFI dependencies.
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
+import IP.BitNet.Config
+import IP.BitNet.Types
 
-namespace Sparkle.Examples.BitNet.Tests.RTLGoldenValidation
+namespace Sparkle.IP.BitNet.Tests.RTLGoldenValidation
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 
 -- ============================================================================
 -- Float32 binary loading (self-contained, no FFI)
@@ -986,4 +986,4 @@ def runAll : IO Unit := do
   else
     IO.println "SOME TESTS FAILED"
 
-end Sparkle.Examples.BitNet.Tests.RTLGoldenValidation
+end Sparkle.IP.BitNet.Tests.RTLGoldenValidation

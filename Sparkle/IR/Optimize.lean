@@ -125,6 +125,12 @@ partial def resolveSlice (dm : DefMap) (wm : WidthMap)
         | none => .slice (.ref name) hi lo
     | _ => .slice (.ref name) hi lo
 
+/-- Convert Int constant to unsigned Nat using two's complement with given bit width.
+    e.g., toUnsigned (-1) 32 = 0xFFFFFFFF, toUnsigned (-1) 8 = 0xFF -/
+private def toUnsigned (v : Int) (w : Nat) : Nat :=
+  let modulus := (2 : Nat) ^ w
+  ((v % modulus + modulus) % modulus).toNat
+
 /-- Fold constant expressions -/
 def foldConstants : Expr → Expr
   -- mux(true, t, e) = t
@@ -142,6 +148,52 @@ def foldConstants : Expr → Expr
   -- and(0, e) = 0, and(e, 0) = 0
   | .op .and [.const 0 w, _] => .const 0 w
   | .op .and [_, .const 0 w] => .const 0 w
+  -- mux(0, t, e) = e (0 in any width is false)
+  | .op .mux [.const 0 _, _, e] => e
+  -- mux(cond, 1, 0) = cond (boolean identity)
+  | .op .mux [cond, .const 1 1, .const 0 1] => cond
+  -- mux(cond, 0, 1) = not(cond)
+  | .op .mux [cond, .const 0 1, .const 1 1] => .op .not [cond]
+  -- eq(x, 0) used as boolean → not(x) (only for 1-bit result context)
+  -- This is handled in emitExpr instead since foldConstants lacks width context
+  -- not(not(x)) = x
+  | .op .not [.op .not [x]] => x
+  -- and(x, all-ones) = x (identity mask removal)
+  -- IMPORTANT: This rewrite is only sound when x's width equals w. The Expr IR
+  -- does not carry per-node widths, so we cannot verify that in general. We
+  -- conservatively only fire when x is itself a `.const` (the const-const fold
+  -- handles that). Previously the unconditional rule miscompiled the picorv32
+  -- pcpi_mul carry-save chain when it was flattened (see Issue 7): 4-bit mask
+  -- constants `0xF` were removed from `(slice >> 40) & 0xF` expressions where
+  -- the slice was 64-bit, dropping the per-nibble masks and corrupting
+  -- multiplication results.
+  | .op .and [x, .const v w] =>
+    match x with
+    | .const b _ => .const (Int.ofNat (toUnsigned b w &&& toUnsigned v w)) w
+    | _ => .op .and [x, .const v w]
+  | .op .and [.const v w, x] =>
+    match x with
+    | .const b _ => .const (Int.ofNat (toUnsigned v w &&& toUnsigned b w)) w
+    | _ => .op .and [.const v w, x]
+  -- Fully constant binary operations (use toUnsigned for correct two's complement)
+  | .op .add [.const a w, .const b _] =>
+    let r := toUnsigned a w + toUnsigned b w
+    .const (Int.ofNat (r % (2 ^ w))) w
+  | .op .sub [.const a w, .const b _] =>
+    let r := toUnsigned a w + (2 ^ w) - toUnsigned b w
+    .const (Int.ofNat (r % (2 ^ w))) w
+  | .op .or [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w ||| toUnsigned b w)) w
+  | .op .xor [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w ^^^ toUnsigned b w)) w
+  | .op .not [.const v w] =>
+    .const (Int.ofNat (toUnsigned v w ^^^ ((1 <<< w) - 1))) w
+  | .op .shl [.const a w, .const b _] =>
+    .const (Int.ofNat ((toUnsigned a w <<< toUnsigned b w) % (2 ^ w))) w
+  | .op .shr [.const a w, .const b _] =>
+    .const (Int.ofNat (toUnsigned a w >>> toUnsigned b w)) w
+  | .op .lt_u [.const a aw, .const b bw] =>
+    .const (if toUnsigned a aw < toUnsigned b bw then 1 else 0) 1
   -- slice of constant
   | .slice (.const v w) hi lo =>
     if hi < w then
@@ -153,8 +205,10 @@ def foldConstants : Expr → Expr
     else .slice (.const v w) hi lo
   | e => e
 
-/-- Optimize a single expression by resolving slice chains and folding constants -/
+/-- Optimize a single expression by resolving slice chains, folding constants,
+    and propagating constant-assigned wires. -/
 partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
+  | .ref name => .ref name  -- Note: constant propagation deferred (needs use-count guard)
   | .slice (.ref name) hi lo => foldConstants (resolveSlice dm wm name hi lo 500)
   | .slice e hi lo => foldConstants (.slice (optimizeExpr dm wm e) hi lo)
   | .op op args => foldConstants (.op op (args.map (optimizeExpr dm wm ·)))
@@ -162,7 +216,15 @@ partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
   | .index arr idx => .index (optimizeExpr dm wm arr) (optimizeExpr dm wm idx)
   | e => e
 
-/-- Count uses of each wire name in an expression -/
+/-- Collect all reference names from an expression. -/
+partial def collectExprRefs : Expr → List String
+  | .ref name => [name]
+  | .op _ args => args.flatMap collectExprRefs
+  | .concat args => args.flatMap collectExprRefs
+  | .slice e _ _ => collectExprRefs e
+  | .index a i => collectExprRefs a ++ collectExprRefs i
+  | .const _ _ => []
+
 partial def countExprUses (e : Expr) (counts : HashMap String Nat)
     : HashMap String Nat :=
   match e with
@@ -217,7 +279,8 @@ partial def substituteExpr (dm : DefMap) (inlinable : HashMap String Bool)
 /-- Inline single-use wires: replace references with their defining expressions
     and remove the now-dead assign statements. -/
 def inlineSingleUseWires (m : Module) (body : List Stmt)
-    (observableWires : Option (List String) := none) : List Stmt × List Port :=
+    (observableWires : Option (List String) := none)
+    (protectedWires : HashMap String Bool := {}) : List Stmt × List Port :=
   let dm := buildDefMap body
   let useCounts := countAllUses body
 
@@ -242,6 +305,7 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
         && !memoryReadData.contains lhs
+        && !protectedWires.contains lhs
         && (match observableWires with
             | some ws => !ws.contains lhs
             | none => !lhs.startsWith "_gen_")  -- _gen_ wires are JIT-observable
@@ -275,6 +339,51 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
 
   (filteredBody, filteredWires)
 
+/-- Propagate constant and simple-ref assignments into all uses.
+    x = const → replace all refs to x with const
+    x = y     → replace all refs to x with y (alias elimination)
+    This runs even for _gen_ (JIT-observable) wires since they're just aliases. -/
+def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
+  -- Find wires assigned to a constant or simple ref
+  let constMap := body.foldl (fun (acc : HashMap String Expr) stmt =>
+    match stmt with
+    | .assign lhs rhs =>
+      match rhs with
+      | .const _ _ => acc.insert lhs rhs
+      | .ref name =>
+        -- Follow chains: if name is also a const/ref, resolve
+        match acc.get? name with
+        | some resolved => acc.insert lhs resolved
+        | none => acc.insert lhs rhs
+      | _ => acc
+    | _ => acc
+  ) {}
+  -- Substitute all references
+  let subst (e : Expr) : Expr :=
+    match e with
+    | .ref name => match constMap.get? name with
+      | some replacement => replacement
+      | none => e
+    | _ => e
+  let rec substExpr : Expr → Expr
+    | .ref name => match constMap.get? name with
+      | some replacement => replacement
+      | none => .ref name
+    | .const v w => .const v w
+    | .slice e hi lo => .slice (substExpr e) hi lo
+    | .concat args => .concat (args.map substExpr)
+    | .op op args => .op op (args.map substExpr)
+    | .index arr idx => .index (substExpr arr) (substExpr idx)
+  let substStmt : Stmt → Stmt
+    | .assign lhs rhs => .assign lhs (substExpr rhs)
+    | .register o c r input iv => .register o c r (substExpr input) iv
+    | .memory n aw dw clk wa wd we ra rd cr =>
+      .memory n aw dw clk (substExpr wa) (substExpr wd) (substExpr we) (substExpr ra) rd cr
+    | .inst mn ins conns => .inst mn ins (conns.map fun (p, e) => (p, substExpr e))
+  let newBody := body.map substStmt
+  let newDm := buildDefMap newBody
+  (newBody, newDm)
+
 /-- Optimize a module: eliminate concat/slice chains, then remove dead code -/
 def optimizeModule (m : Module)
     (observableWires : Option (List String) := none) : Module :=
@@ -283,8 +392,65 @@ def optimizeModule (m : Module)
     let wm := buildWidthMap m
     let dm := buildDefMap m.body
 
+    -- Collect wires directly referenced by register inputs (before any optimization).
+    -- These must not be inlined away, because CppSim's evalTick generates
+    -- them as local variables in the combinational section.
+    let registerInputWires := m.body.foldl (fun (s : HashMap String Bool) stmt =>
+      match stmt with
+      | .register _ _ _ input _ =>
+        (collectExprRefs input).foldl (fun acc r => acc.insert r true) s
+      | _ => s
+    ) {}
+
+    -- Phase 0: Constant and alias propagation
+    -- Only propagate constants and aliases to wires that are NOT register outputs.
+    -- Register outputs change every cycle and must not be treated as constants.
+    let registerOutputs := m.body.foldl (fun (s : HashMap String Bool) stmt =>
+      match stmt with
+      | .register output .. => s.insert output true
+      | _ => s
+    ) {}
+    let (constPropBody, dm) := propagateConstants m.body dm
+      |> fun (body, dm) =>
+        -- Verify: don't propagate refs that resolve to register outputs
+        -- The propagateConstants already only handles assigns, not registers,
+        -- so register outputs themselves are never in constMap.
+        -- However, aliases like `x = regOutput` can propagate `regOutput` as a ref.
+        -- This is correct: x becomes a ref to regOutput (which is a register member).
+        (body, dm)
+
+    -- Phase 0.5: Remove duplicate and identity assigns.
+    -- SSA lowering can produce identical assigns from case/if branches,
+    -- and identity assigns (x = x) from output reg declarations.
+    let dedupBody := Id.run do
+      let mut seen : HashMap String (Expr × Nat) := {}  -- lhs → (rhs, position)
+      let mut drops : HashMap Nat Bool := {}  -- positions to drop
+      let mut pos : Nat := 0
+      for s in constPropBody do
+        match s with
+        | .assign lhs rhs =>
+          -- Drop identity assigns (x = ref x)
+          let isIdentity := match rhs with | .ref name => name == lhs | _ => false
+          if isIdentity then
+            drops := drops.insert pos true
+          else match seen.get? lhs with
+          | some (prevRhs, _) =>
+            if prevRhs == rhs then
+              drops := drops.insert pos true  -- identical → drop this copy
+            else
+              seen := seen.insert lhs (rhs, pos)  -- different RHS → update
+          | none => seen := seen.insert lhs (rhs, pos)
+        | _ => pure ()
+        pos := pos + 1
+      let mut result : List Stmt := []
+      pos := 0
+      for s in constPropBody do
+        if !drops.contains pos then result := result ++ [s]
+        pos := pos + 1
+      result
+
     -- Phase 1: Replace slice-of-concat with direct references
-    let optimizedBody := m.body.map (optimizeStmt dm wm)
+    let optimizedBody := dedupBody.map (optimizeStmt dm wm)
 
     -- Phase 2: Dead code elimination
     let useCounts := countAllUses optimizedBody
@@ -301,8 +467,10 @@ def optimizeModule (m : Module)
 
     let m2 := { m with body := prunedBody, wires := prunedWires }
 
+    let m2 := { m with body := prunedBody, wires := prunedWires }
+
     -- Phase 3: Single-use wire inlining
-    let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body observableWires
+    let (inlinedBody, inlinedWires) := inlineSingleUseWires m2 m2.body observableWires registerInputWires
 
     -- Phase 4: Dead code elimination (again, to catch newly-dead wires)
     let useCounts2 := countAllUses inlinedBody

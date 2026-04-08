@@ -10,23 +10,23 @@
   - BitLinear Signal DSL functional tests
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
-import Examples.BitNet.MemoryMap
+import IP.BitNet.Config
+import IP.BitNet.Types
+import IP.BitNet.MemoryMap
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import Examples.BitNet.SignalHelpers
-import Examples.BitNet.BitLinear.Core
-import Examples.BitNet.BitLinear.Top
-import Examples.BitNet.BitLinear.Dynamic
+import IP.BitNet.SignalHelpers
+import IP.BitNet.BitLinear.Core
+import IP.BitNet.BitLinear.Top
+import IP.BitNet.BitLinear.Dynamic
 
-namespace Sparkle.Examples.BitNet.Tests.BitLinear
+namespace Sparkle.IP.BitNet.Tests.BitLinear
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
-open Sparkle.Examples.BitNet.SignalHelpers
-open Sparkle.Examples.BitNet.BitLinear
+open Sparkle.IP.BitNet.SignalHelpers
+open Sparkle.IP.BitNet.BitLinear
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -249,4 +249,4 @@ def runAll : IO Unit := do
   testDynamicBitLinearSignal
   IO.println "=== Tests complete ==="
 
-end Sparkle.Examples.BitNet.Tests.BitLinear
+end Sparkle.IP.BitNet.Tests.BitLinear

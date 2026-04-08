@@ -6,9 +6,9 @@
 -/
 
 import Sparkle
-import Examples.YOLOv8.Types
+import IP.YOLOv8.Types
 
-namespace Sparkle.Examples.YOLOv8.Tests.WeightROM
+namespace Sparkle.IP.YOLOv8.Tests.WeightROM
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -52,4 +52,4 @@ def scaleToMultShift (scale : Float) : BitVec 16 × BitVec 5 :=
   let shiftBv := BitVec.ofNat 5 bestShift
   (multBv, shiftBv)
 
-end Sparkle.Examples.YOLOv8.Tests.WeightROM
+end Sparkle.IP.YOLOv8.Tests.WeightROM

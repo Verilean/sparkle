@@ -334,13 +334,13 @@ def main : IO UInt32 := do
   IO.println "║  BitNet Integration Tests             ║"
   IO.println "╚════════════════════════════════════════╝"
   IO.println ""
-  Sparkle.Examples.BitNet.Tests.BitLinear.runAll
-  Sparkle.Examples.BitNet.Tests.Layers.runAll
-  Sparkle.Examples.BitNet.Tests.Attention.runAll
-  Sparkle.Examples.BitNet.Tests.Comparison.runAll
-  Sparkle.Examples.BitNet.Tests.SoC.runAll
+  Sparkle.IP.BitNet.Tests.BitLinear.runAll
+  Sparkle.IP.BitNet.Tests.Layers.runAll
+  Sparkle.IP.BitNet.Tests.Attention.runAll
+  Sparkle.IP.BitNet.Tests.Comparison.runAll
+  Sparkle.IP.BitNet.Tests.SoC.runAll
   IO.println ""
-  Sparkle.Examples.BitNet.Tests.RTLGoldenValidation.runAll
+  Sparkle.IP.BitNet.Tests.RTLGoldenValidation.runAll
   IO.println ""
 
   -- Run Sparkle16 tests
@@ -362,12 +362,12 @@ def main : IO UInt32 := do
   IO.println "║  YOLOv8 Primitive Tests               ║"
   IO.println "╚════════════════════════════════════════╝"
   IO.println ""
-  let yolov8DequantTests := Sparkle.Examples.YOLOv8.Tests.TestDequant.allTests
-  let yolov8RequantTests := Sparkle.Examples.YOLOv8.Tests.TestRequantize.allTests
-  let yolov8ActivationTests := Sparkle.Examples.YOLOv8.Tests.TestActivation.allTests
-  let yolov8MaxPoolTests := Sparkle.Examples.YOLOv8.Tests.TestMaxPool.allTests
-  let yolov8Conv2DTests ← Sparkle.Examples.YOLOv8.Tests.TestConv2D.allTests
-  let yolov8UpsampleTests ← Sparkle.Examples.YOLOv8.Tests.TestUpsample.allTests
+  let yolov8DequantTests := Sparkle.IP.YOLOv8.Tests.TestDequant.allTests
+  let yolov8RequantTests := Sparkle.IP.YOLOv8.Tests.TestRequantize.allTests
+  let yolov8ActivationTests := Sparkle.IP.YOLOv8.Tests.TestActivation.allTests
+  let yolov8MaxPoolTests := Sparkle.IP.YOLOv8.Tests.TestMaxPool.allTests
+  let yolov8Conv2DTests ← Sparkle.IP.YOLOv8.Tests.TestConv2D.allTests
+  let yolov8UpsampleTests ← Sparkle.IP.YOLOv8.Tests.TestUpsample.allTests
 
   -- Combine all test suites
   let allTests :=
@@ -391,24 +391,24 @@ def main : IO UInt32 := do
   -- Golden value tests (IO-based, run separately)
   IO.println ""
   IO.println "--- YOLOv8 Golden Value Validation ---"
-  let yolov8GoldenTests ← Sparkle.Examples.YOLOv8.Tests.TestGoldenValues.allTests
+  let yolov8GoldenTests ← Sparkle.IP.YOLOv8.Tests.TestGoldenValues.allTests
   let allTests := allTests ++ yolov8GoldenTests
 
   -- Conv2D golden + end-to-end tests
   IO.println ""
   IO.println "--- YOLOv8 Conv2D Golden + End-to-End ---"
-  let yolov8Conv2DGoldenTests ← Sparkle.Examples.YOLOv8.Tests.TestConv2DGolden.allTests
-  let yolov8EndToEndTests ← Sparkle.Examples.YOLOv8.Tests.TestEndToEnd.allTests
+  let yolov8Conv2DGoldenTests ← Sparkle.IP.YOLOv8.Tests.TestConv2DGolden.allTests
+  let yolov8EndToEndTests ← Sparkle.IP.YOLOv8.Tests.TestEndToEnd.allTests
   let allTests := allTests ++ yolov8Conv2DGoldenTests ++ yolov8EndToEndTests
 
   -- Controller FSM tests
   IO.println ""
   IO.println "--- YOLOv8 Controller FSM Tests ---"
-  let yolov8HeadTests ← Sparkle.Examples.YOLOv8.Tests.TestHead.allTests
-  let yolov8BottleneckTests ← Sparkle.Examples.YOLOv8.Tests.TestBottleneck.allTests
-  let yolov8C2fTests ← Sparkle.Examples.YOLOv8.Tests.TestC2f.allTests
-  let yolov8BackboneTests ← Sparkle.Examples.YOLOv8.Tests.TestBackbone.allTests
-  let yolov8NeckTests ← Sparkle.Examples.YOLOv8.Tests.TestNeck.allTests
+  let yolov8HeadTests ← Sparkle.IP.YOLOv8.Tests.TestHead.allTests
+  let yolov8BottleneckTests ← Sparkle.IP.YOLOv8.Tests.TestBottleneck.allTests
+  let yolov8C2fTests ← Sparkle.IP.YOLOv8.Tests.TestC2f.allTests
+  let yolov8BackboneTests ← Sparkle.IP.YOLOv8.Tests.TestBackbone.allTests
+  let yolov8NeckTests ← Sparkle.IP.YOLOv8.Tests.TestNeck.allTests
   let allTests := allTests ++ yolov8HeadTests ++ yolov8BottleneckTests ++ yolov8C2fTests ++ yolov8BackboneTests ++ yolov8NeckTests
 
   -- C++ Simulation Backend tests

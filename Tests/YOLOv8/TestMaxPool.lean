@@ -3,13 +3,13 @@
 -/
 
 import LSpec
-import Examples.YOLOv8.Primitives.MaxPool
+import IP.YOLOv8.Primitives.MaxPool
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.YOLOv8.Primitives.MaxPool
+open Sparkle.IP.YOLOv8.Primitives.MaxPool
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestMaxPool
+namespace Sparkle.IP.YOLOv8.Tests.TestMaxPool
 
 /-- Test max pool with all positive values. -/
 def testAllPositive : LSpec.TestSeq :=
@@ -52,4 +52,4 @@ def allTests : LSpec.TestSeq :=
     testIdentical
   )
 
-end Sparkle.Examples.YOLOv8.Tests.TestMaxPool
+end Sparkle.IP.YOLOv8.Tests.TestMaxPool

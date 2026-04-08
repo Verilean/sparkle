@@ -9,23 +9,23 @@
   5. Cross-architecture comparison
 -/
 
-import Examples.BitNet.Config
-import Examples.BitNet.Types
+import IP.BitNet.Config
+import IP.BitNet.Types
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import Examples.BitNet.SignalHelpers
-import Examples.BitNet.BitLinear.Core
-import Examples.BitNet.BitLinear.Dynamic
-import Examples.BitNet.SoC.Top
+import IP.BitNet.SignalHelpers
+import IP.BitNet.BitLinear.Core
+import IP.BitNet.BitLinear.Dynamic
+import IP.BitNet.SoC.Top
 
-namespace Sparkle.Examples.BitNet.Tests.SoC
+namespace Sparkle.IP.BitNet.Tests.SoC
 
-open Sparkle.Examples.BitNet
+open Sparkle.IP.BitNet
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
-open Sparkle.Examples.BitNet.SignalHelpers
-open Sparkle.Examples.BitNet.BitLinear
-open Sparkle.Examples.BitNet.SoC
+open Sparkle.IP.BitNet.SignalHelpers
+open Sparkle.IP.BitNet.BitLinear
+open Sparkle.IP.BitNet.SoC
 
 /-- Simple test harness -/
 def check (name : String) (cond : Bool) : IO Unit := do
@@ -188,4 +188,4 @@ def runAll : IO Unit := do
   IO.println ""
   IO.println "=== All SoC tests complete ==="
 
-end Sparkle.Examples.BitNet.Tests.SoC
+end Sparkle.IP.BitNet.Tests.SoC

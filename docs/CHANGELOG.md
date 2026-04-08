@@ -2,6 +2,130 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 54: Verified Reverse Synthesis — Proof-Driven IR Reduction (Complete)
+
+**Date**: 2026-04-01
+
+**Goal**: Replace multi-cycle FSM sub-circuits with oracle-computed results, verified by Lean proofs. Remove carry-save shift-and-add chain from pcpi_mul, improving simulation speed.
+
+**Results**:
+- **2.14x speedup**: 8.4M → 18.1M cyc/s on LiteX PicoRV32 SoC
+- **Zero sorry, zero axiom**: Full inductive proof that carry-save = multiplication
+- **No Mathlib dependency**: All proofs use only Lean4 stdlib + bv_decide
+- **Reusable framework**: `OracleReduction` type class — users add instances for new FSM patterns
+
+**Proof chain** (all zero sorry):
+1. `carrySave_add_eq_64` — CSA identity for 64-bit (bv_decide)
+2. `sm_cons` — Schoolbook multiplication decomposition (induction + BitVec.add_assoc)
+3. `csa_sum` — N iterations preserve rd+rdx = partial sum (induction)
+4. `mod_double` — Modular arithmetic identity (Nat.add_mul_mod_self_left)
+5. `sm_eq_mul` — Schoolbook multiplication = BitVec.mul (induction + Nat arithmetic)
+6. `csa64_main` — 64 carry-save steps from (0,0,a,b) give rd+rdx = a*b
+
+**IR reduction**: 38 carry-save chain assigns removed (573 → 535 stmts), C++ size 571KB → 546KB, binary 127KB → 123KB.
+
+**New files**:
+- `Sparkle/Core/OracleSpec.lean` — `OracleReduction` type class with mandatory `equiv` proof
+- `Sparkle/Core/MulOracle.lean` — pcpi_mul instance (reference implementation)
+- `Sparkle/Core/MulOracleProof.lean` — Full inductive proof chain
+- `Sparkle/Verification/MulProps.lean` — 20 supporting theorems
+- `Sparkle/IR/PatternDetect.lean` — `MulFSM` detection added
+- `Tests/RV32/MulOracleTest.lean` — 5-phase oracle test
+
+## Phase 53: Generic Auto-Detection — Remove Hardcoded Optimizations (Complete)
+
+**Date**: 2026-03-31
+
+**Goal**: Replace all PicoRV32-specific hardcoded signal names in optimizations with generic auto-detection, making the JIT optimizer work on any RTL design.
+
+**Results**:
+- LiteX 1-core: **17.9M cyc/s** (1.70x Verilator) — up from 11.7M (+54%)
+- 8-core parallel: **12.7M per-core** (11.9x vs Verilator 8-core)
+- All optimizations are now fully generic — zero hardcoded signal names
+
+**Changes**:
+
+1. **Reachability DCE** (`Tools/SVParser/Lower.lean`):
+   - Replaced hardcoded `isDebug` function (checked `dbg_ascii`, `dbg_insn`, `trace_data`, etc.)
+   - New `reachabilityDCE`: BFS from output ports, memory ports, and instance connections
+   - Follows assign, register, and memory dependencies transitively
+   - Eliminates unreachable wires AND registers automatically
+   - Used by both `parseAndLowerFlat` and `parseAndLowerHierarchical`
+
+2. **Generic conditional guard detection** (`Sparkle/Backend/CppSim.lean`):
+   - Replaced hardcoded keyword matching (`pcpi_mul`, `decoded_`, `instr_`, `alu_out_`, etc.)
+   - Scans generated C++ for variables containing `_valid`, `_trigger`, or `_enable`
+   - For each, finds the prefix appearing in 20+ lines (indicating a subsystem)
+   - Wraps those lines in `if(guard) {}` blocks with lookahead merging
+   - Auto-detected 131 guard blocks on LiteX PicoRV32 (vs 85 with hardcoded patterns)
+
+3. **`isDebugSignal` removed** (`Sparkle/Backend/CppSim.lean`):
+   - No longer needed — reachability DCE handles removal before codegen
+
+**Why it's faster**: The generic reachability DCE eliminates more dead signals than the old hardcoded list, and the expanded guard detection wraps more inactive subsystem logic.
+
+## Phase 52: JIT Optimization + Multi-Core + Timer Oracle (Complete)
+
+**Date**: 2026-03-28 — 2026-03-31
+
+**Goal**: Exceed Verilator on real-world SoCs. Support multi-core parallel simulation. Implement proof-driven temporal skip.
+
+**Results**:
+- LiteX 1-core: **11.7M cyc/s** (1.13x Verilator)
+- RV32I SoC: **14.2M cyc/s** (1.63x Verilator)
+- 8-core parallel: **5.1M per-core** (4.78x vs Verilator 8-core)
+- Timer Oracle: **49 GHz effective** (9,900x speedup)
+
+### Single-Core Optimization Phases (cumulative)
+
+| Phase | Optimization | LiteX cyc/s | vs Verilator |
+|-------|-------------|-------------|-------------|
+| Baseline | No optimizations | 5.62M | 0.53x |
+| 1 | Dead code + hex masks + `eq(x,0)→!(x)` | 5.86M | 0.55x |
+| 2 | Constant/alias propagation (IR Phase 0) | 6.84M | 0.64x |
+| 3 | Deep MUX → if-else + self-ref register if-else | 7.44M | 0.70x |
+| 4 | Correct SSA (case default merge) | 8.17M | 0.79x |
+| 5 | Debug wire elimination from IR | 8.49M | 0.82x |
+| 6 | Extended decoder trigger guard | 9.69M | 0.94x |
+| 7 | Self-ref _next variable elimination | **11.7M** | **1.13x** |
+
+### Key Technical Changes
+
+**IR Optimizer (`Sparkle/IR/Optimize.lean`)**:
+- Phase 0: Constant and alias propagation — replaces all refs to `x = const` or `x = y` with their values
+- Phase 0.5: Duplicate assign dedup — removes identical SSA assignments from case branches
+- `foldConstants`: `mux(cond,1,0)→cond`, `mux(cond,0,1)→not(cond)`, `and(x,all-ones)→x`
+
+**C++ Emitter (`Sparkle/Backend/CppSim.lean`)**:
+- Dead memory write elimination (const-0 write enable)
+- `eq(x,0)→!(x)` simplification, hex mask constants
+- Deep MUX chain → if-else for CPU state machines
+- Self-referencing register detection → conditional if-else update
+- Decoder trigger auto-detection with lookahead block merging
+- evalTick wire localization: ~270 wires moved from heap members to stack locals
+- Function split safety: if-else block tracking prevents mid-chain splits
+
+**Partition/Threaded (`Sparkle/Backend/CppSimThreaded.lean`)**:
+- Fix guard variable extraction (strip non-alnum prefix chars)
+- Peripheral-skip trigger with dirty check on CPU→Peri boundary
+
+### Remaining Improvement Opportunities
+
+| Item | Expected Effect | Status |
+|------|----------------|--------|
+| Conditional tick copy (`if (next != cur)`) | +5-14% | Risk: branch cost may negate savings |
+| CSR bus `sel` guard (skip decode when `sel=0`) | +2-5% | Tested: GCC CMOV already optimizes this |
+| `_next` variable elimination | +3-5% | Medium difficulty refactor |
+| Verilator-style `__Vdly__` deferred writes | +5-10% | Large architectural change |
+| PGO (Profile-Guided Optimization) | +1-2% | Tested: minimal gain over -O2 |
+| `-O3 -march=native` | +1-2% | Tested: minimal gain |
+
+### Files Changed
+- `Sparkle/IR/Optimize.lean` — constant propagation, dedup, new fold rules
+- `Sparkle/Backend/CppSim.lean` — all emitter optimizations listed above
+- `Sparkle/Backend/CppSimThreaded.lean` — guard variable fix
+- `Sparkle/Backend/Partition.lean` — partition boundary analysis (unchanged)
+
 ## Phase 51: SV Transpiler M-Extension — MUL/DIV/REM on PicoRV32 SoC (Complete)
 
 **Date**: 2026-03-26

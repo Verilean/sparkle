@@ -13,13 +13,13 @@
   All theorems proved, zero sorry.
 -/
 
-import Examples.RV32.Types
-import Examples.RV32.Core
+import IP.RV32.Types
+import IP.RV32.Core
 import Std.Tactic.BVDecide
 
 namespace Sparkle.Verification.CSRProps
 
-open Sparkle.Examples.RV32
+open Sparkle.IP.RV32
 
 -- ============================================================================
 -- MSTATUS bit layout (RV32)

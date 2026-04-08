@@ -4,15 +4,15 @@
 -/
 
 import LSpec
-import Examples.YOLOv8.Primitives.Dequant
-import Examples.YOLOv8.Types
+import IP.YOLOv8.Primitives.Dequant
+import IP.YOLOv8.Types
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.YOLOv8
-open Sparkle.Examples.YOLOv8.Primitives.Dequant
+open Sparkle.IP.YOLOv8
+open Sparkle.IP.YOLOv8.Primitives.Dequant
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestDequant
+namespace Sparkle.IP.YOLOv8.Tests.TestDequant
 
 /-- Test that dequantInt4ToInt8 correctly sign-extends all 16 INT4 values. -/
 def testSignExtension : LSpec.TestSeq :=
@@ -71,4 +71,4 @@ def runAll : IO Unit := do
   let _results := allTests
   IO.println s!"  Tests defined (run via lake test)"
 
-end Sparkle.Examples.YOLOv8.Tests.TestDequant
+end Sparkle.IP.YOLOv8.Tests.TestDequant

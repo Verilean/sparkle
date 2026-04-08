@@ -7,7 +7,7 @@
 
 A type-safe hardware description language that brings the power of dependent types and theorem proving to hardware design.
 
-**Quick Start:** See the [Signal DSL Syntax Guide](docs/SignalDSL_Syntax.md) for writing hardware in Sparkle.
+**Quick Start:** See the [Tutorial](docs/Tutorial.md) to simulate your first hardware in 5 minutes. For Signal DSL syntax, see the [Syntax Guide](docs/SignalDSL_Syntax.md).
 
 ## The Sparkle Way: Verification-Driven Design
 
@@ -26,11 +26,11 @@ Sparkle ships with production-grade IP cores — each with pure Lean specs, form
 |----|-------------|:------:|:-----:|---------|
 | **[BitNet b1.58](docs/BitNet.md)** | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle) | 60+ theorems | Full | 202K / 99K cells |
 | **[YOLOv8n-WorldV2](docs/YOLOv8.md)** | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
-| **[RV32IMA SoC](docs/RV32.md)** | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 13M cyc/s (1.17x Verilator). 102 formal proofs including Signal DSL ↔ spec equivalence | 102 theorems | Full | 122 registers |
+| **[RV32IMA SoC](docs/RV32.md)** | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 14.2M cyc/s (1.63x Verilator). 102 formal proofs | 102 theorems | Full | 122 registers |
 | **[AXI4-Lite Bus](docs/RV32.md)** | Verified AXI4-Lite slave/master. Protocol compliance (valid persistence, deadlock-free), synthesizable | 14 theorems | Full | 23 sim tests |
-| **[SV→Sparkle Transpiler](docs/RV32.md#sv-transpiler)** | Parse Verilog → JIT + formal verification. `verilog!` macro, `assert` auto-proof via `bv_decide`. PicoRV32 M-ext (MUL/DIV/REM) operational. 34 CI-safe tests | 6+ theorems | JIT | 34 tests |
+| **[SV→Sparkle Transpiler](docs/RV32.md#sv-transpiler)** | Parse Verilog → JIT simulation. LiteX SoC at 18.1M cyc/s (1.72x Verilator). Verified reverse synthesis (2.14x speedup, zero sorry). 8-core parallel 11.9x Verilator. Timer oracle 9,900x. `OracleReduction` type class, 44 tests | 20+ theorems | JIT | 44 tests |
 | **[H.264 Codec](docs/H264.md)** | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. 14 modules | 15+ theorems | Full | 709-byte MP4 output |
-| **[CDC Infrastructure](docs/CDC.md)** | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback mechanism, JIT.runCDC | 12 theorems | C++ | 2-thread Time-Warping |
+| **[CDC Infrastructure](docs/CDC.md)** | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback, 8-core parallel runner (3.87x speedup). JIT.runCDC | 12 theorems | C++ | N-thread parallel |
 
 ---
 

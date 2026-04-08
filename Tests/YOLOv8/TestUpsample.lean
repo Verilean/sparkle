@@ -3,13 +3,13 @@
 -/
 
 import LSpec
-import Examples.YOLOv8.Primitives.Upsample
+import IP.YOLOv8.Primitives.Upsample
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Examples.YOLOv8.Primitives.Upsample
+open Sparkle.IP.YOLOv8.Primitives.Upsample
 
-namespace Sparkle.Examples.YOLOv8.Tests.TestUpsample
+namespace Sparkle.IP.YOLOv8.Tests.TestUpsample
 
 /-- Test horizontal duplication: input pixel A should appear twice. -/
 def testHorizontalDuplication : IO LSpec.TestSeq := do
@@ -26,4 +26,4 @@ def allTests : IO LSpec.TestSeq := do
   let t1 ← testHorizontalDuplication
   return LSpec.group "Upsample 2x" t1
 
-end Sparkle.Examples.YOLOv8.Tests.TestUpsample
+end Sparkle.IP.YOLOv8.Tests.TestUpsample

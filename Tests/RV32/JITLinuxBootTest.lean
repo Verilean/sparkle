@@ -15,13 +15,13 @@ import Sparkle.Core.JIT
 import Sparkle.Core.JITLoop
 import Sparkle.Core.Oracle
 import Sparkle.Utils.HexLoader
-import Examples.RV32.SoC
+import IP.RV32.SoC
 
 open Sparkle.Core.JIT
 open Sparkle.Core.JITLoop
 open Sparkle.Core.Oracle
 open Sparkle.Utils.HexLoader
-open Sparkle.Examples.RV32.SoC
+open Sparkle.IP.RV32.SoC
 
 def toHex32 (v : Nat) : String :=
   let hexStr := String.ofList (Nat.toDigits 16 v)

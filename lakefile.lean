@@ -27,17 +27,17 @@ extern_lib «sparkle_jit» pkg := do
 
 lean_lib «Sparkle» where
 
-lean_lib «Examples.BitNet» where
-  roots := #[`Examples.BitNet]
+lean_lib «IP.BitNet» where
+  roots := #[`IP.BitNet]
 
-lean_lib «Examples.RV32» where
-  roots := #[`Examples.RV32]
+lean_lib «IP.RV32» where
+  roots := #[`IP.RV32]
 
-lean_lib «Examples.YOLOv8» where
-  roots := #[`Examples.YOLOv8]
+lean_lib «IP.YOLOv8» where
+  roots := #[`IP.YOLOv8]
 
-lean_lib «Examples.Arbiter» where
-  roots := #[`Examples.Arbiter]
+lean_lib «IP.Arbiter» where
+  roots := #[`IP.Arbiter]
 
 lean_lib «Examples.CDC» where
   roots := #[`Examples.CDC]
@@ -157,6 +157,14 @@ lean_exe «circuit-sim-test» where
 
 lean_exe «mext-rv32i-test» where
   root := `Tests.SVParser.MExtRv32iTest
+  supportInterpreter := true
+
+lean_exe «mul-oracle-test» where
+  root := `Tests.RV32.MulOracleTest
+  supportInterpreter := true
+
+lean_exe «litex-test» where
+  root := `Tests.SVParser.LiteXTest
   supportInterpreter := true
 
 @[test_driver]

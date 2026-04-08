@@ -25,7 +25,7 @@ echo "=== RV32I Signal DSL Verification ==="
 # 1. Build Lean4 project (always needed)
 echo ""
 echo "--- Step 1: Building Lean4 project ---"
-lake build Examples.RV32
+lake build IP.RV32
 
 if [ "$VERILOG_ONLY" = false ]; then
   # 2. Run Lean4 simulation (fast, using Signal.atTime with firmware)

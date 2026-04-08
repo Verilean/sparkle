@@ -7,11 +7,11 @@
   Reuses patterns from Tests/BitNet/RTLGoldenValidation.lean.
 -/
 
-import Examples.YOLOv8.Types
+import IP.YOLOv8.Types
 
-namespace Sparkle.Examples.YOLOv8.Tests.GoldenLoader
+namespace Sparkle.IP.YOLOv8.Tests.GoldenLoader
 
-open Sparkle.Examples.YOLOv8
+open Sparkle.IP.YOLOv8
 
 -- ============================================================================
 -- Binary File Loading
@@ -163,4 +163,4 @@ def printReport (report : TestReport) : IO Unit := do
   IO.println s!"    Cosine similarity: {report.cosSim}"
   IO.println s!"    Status:            {if report.passed then "PASS" else "FAIL"}"
 
-end Sparkle.Examples.YOLOv8.Tests.GoldenLoader
+end Sparkle.IP.YOLOv8.Tests.GoldenLoader

@@ -67,7 +67,9 @@ def preprocess (input : String) : String := Id.run do
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
       result := result ++ [cleaned]
-  "\n".intercalate result
+  -- Replace @(*) with @* (LiteX/Migen outputs @(*) which is equivalent)
+  let joined := "\n".intercalate result
+  "@*".intercalate (joined.splitOn "@(*)")
 where
   removeAttributes (s : String) : String := Id.run do
     let mut result := s
@@ -552,6 +554,7 @@ partial def parseAlwaysBlock : P SVModuleItem := do
   match ← attempt at_ with
   | some _ =>
     -- Sensitivity list: @(posedge clk or negedge rst) or @*
+    -- Note: @(*) is normalized to @* in preprocessing
     match ← attempt (do let _ ← token (matchStr "*"); pure ()) with
     | some _ =>
       -- always @* — try begin/end or single statement
@@ -703,11 +706,20 @@ partial def parseModuleItems : P (List SVModuleItem) := do
           semi
           pure [SVModuleItem.regDecl n w (some arrSize)]
         | none =>
+          -- Skip optional initializer: reg foo = expr;
+          match ← attempt (token (matchStr "=")) with
+          | some _ => let _ ← parseExpr; pure ()  -- consume init value
+          | none => pure ()
           let mut items := [SVModuleItem.regDecl n w none]
           let mut cont := true
           while cont do
             match ← attempt comma with
-            | some _ => let n2 ← identifier; items := items ++ [SVModuleItem.regDecl n2 w none]
+            | some _ =>
+              let n2 ← identifier
+              match ← attempt (token (matchStr "=")) with
+              | some _ => let _ ← parseExpr; pure ()
+              | none => pure ()
+              items := items ++ [SVModuleItem.regDecl n2 w none]
             | none => cont := false
           semi; pure items
       | none => match ← attempt (keyword "integer") with
