@@ -21,8 +21,10 @@ import Sparkle.Backend.Verilog
 import Sparkle.Backend.VCD
 import Sparkle.Backend.CppSim
 import Sparkle.Verification.Temporal
+import Sparkle.Verification.Equivalence
 import Sparkle.Core.JIT
 import Sparkle.Core.JITLoop
+import Sparkle.Core.SimParallel
 import Sparkle.Core.Oracle
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle

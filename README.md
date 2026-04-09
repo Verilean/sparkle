@@ -207,6 +207,28 @@ theorem alu_add_assoc (a b c : BitVec 16) :
 
 **Real Example:** Our Sparkle-16 CPU includes **9 formally proven theorems** about ALU correctness!
 
+**One-line equivalence checks:** for the common case of "prove these two
+implementations compute the same thing", Sparkle ships three commands
+that auto-generate the theorem and discharge it with `bv_decide`:
+
+```lean
+-- Pure BitVec: prove a bit-twiddle matches the textbook spec
+#verify_eq fast_alu pure_alu
+-- ✅ verified: fast_alu_eq_pure_alu
+
+-- Signal DSL with pipeline latency: prove a 3-stage pipeline is
+-- bit-equivalent to the single-cycle reference, delayed by 2 cycles
+#verify_eq_at (cycles := 4) (latency := 2) macPipe macSingle
+-- ✅ verified: macPipe_eq_macSingle_at_4_lat_2
+
+-- Time travel: prove the current version matches the version on main
+#verify_eq_git main reluInt8
+-- ✅ verified: reluInt8_eq_at_main
+```
+
+See `docs/Tutorial.md` §5.4–5.6 and `Tests/Verification/EquivDemo.lean`
+for the full catalogue of 13 worked demos.
+
 ### ⏱️ Temporal Logic for Hardware Verification
 
 Express and prove properties about hardware behavior over time using Linear Temporal Logic (LTL):

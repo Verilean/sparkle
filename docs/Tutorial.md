@@ -120,11 +120,15 @@ For large designs or existing Verilog, use JIT compilation for maximum speed:
 ```lean
 import Tools.SVParser.SimMacro
 
--- sim! parses the Verilog and auto-generates:
---   hello_counter.Sim.SimInput   { rst : BitVec 1 }
---   hello_counter.Sim.SimOutput  { count : BitVec 8 }
---   hello_counter.Sim.Simulator  with step/read/reset/destroy
---   hello_counter.Sim.load       (compile + load in one step)
+-- sim! parses the Verilog and auto-generates the following under
+-- `hello_counter.Sim`:
+--
+--   SimInput        — typed input record (clock and reset are hidden;
+--                     use `sim.reset` to pulse reset instead)
+--   SimOutput       — typed output record
+--   Simulator       — { handle : JITHandle } with step/read/reset/destroy
+--   load            — compile + load in one step
+--   toEndpoint      — wrap for runSim (Step 6)
 sim! "
 module hello_counter (
     input clk,
@@ -143,12 +147,10 @@ endmodule
 open hello_counter.Sim
 
 def main : IO Unit := do
-  let sim ← load           -- compile JIT C++ and load
-  sim.reset
-  for _ in [:3] do
-    sim.step { rst := 1 }  -- hold reset
+  let sim ← load              -- compile JIT C++ and load
+  sim.reset                   -- pulse hardware reset (handled by JIT)
   for i in [:10] do
-    sim.step { rst := 0 }  -- run
+    sim.step {}               -- SimInput is empty (no user-driven inputs)
     let out ← sim.read
     IO.println s!"  cycle {i}: count = {out.count}"
   sim.destroy
@@ -156,6 +158,30 @@ def main : IO Unit := do
 
 No port definitions needed — `sim!` extracts them from the Verilog.
 A typo like `out.cont` is caught at compile time.
+
+**Clock and reset are hidden from `SimInput`.** Drive them with
+`sim.reset` (for the initial reset pulse) rather than passing `rst` as
+a field — this matches how hardware works and keeps the typed surface
+clean. If a module has user inputs beyond clock/reset, those show up as
+required fields in `SimInput`.
+
+### Running many cycles with `runSim`
+
+For larger simulations, prefer `runSim` over hand-rolled loops. It
+automatically picks the fastest backend (Step 6 explains multi-domain):
+
+```lean
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
+
+def main : IO Unit := do
+  let sim ← hello_counter.Sim.load
+  sim.reset
+  let stats ← runSim [sim.toEndpoint] (cycles := 1_000_000)
+  let out ← sim.read
+  IO.println s!"Ran {stats.cyclesRun} cycles, final count = {out.count}"
+  sim.destroy
+```
 
 ### JIT from Signal DSL
 
@@ -269,46 +295,328 @@ theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
   simp [myAnd, Signal.val]
 ```
 
+### 5.4 One-Line Equivalence Checks with `#verify_eq`
+
+For pure `BitVec` functions — the kind you'd write for an ALU slice, a
+carry-save adder, a bit-permutation network — Sparkle ships a single
+command that auto-generates a `funext + unfold + bv_decide` proof:
+
+```lean
+import Sparkle.Verification.Equivalence
+
+-- Textbook specification
+def pure_alu (a b : BitVec 8) : BitVec 8 := a + b
+
+-- Hand-optimised "ripple" implementation using XOR + carry
+def fast_alu (a b : BitVec 8) : BitVec 8 :=
+  (a ^^^ b) + ((a &&& b) <<< 1)
+
+#verify_eq fast_alu pure_alu  -- ✅ verified: fast_alu_eq_pure_alu
+```
+
+The command resolves both identifiers, introspects their arity, and
+emits a theorem `{fast_alu}_eq_{pure_alu} : fast_alu = pure_alu`. If the
+two implementations are not equivalent, `bv_decide` prints a concrete
+counterexample and the command reports ❌.
+
+See `Tests/Verification/EquivDemo.lean` for the full catalogue: eight
+pure-BitVec demos (distributivity, associativity, De Morgan, XOR-swap
+identity, ripple-carry vs built-in add, shift-and-add multiply vs
+built-in multiply, carry-save step identity) plus the four Signal DSL
+demos covered in §5.5 below.
+
+```bash
+lake env lean Tests/Verification/EquivDemo.lean
+```
+
+**⚠  Interactive-only in v1.** `bv_decide` currently hangs inside
+`lake build` on Lean 4.28.0-rc1 (see `docs/KnownIssues.md` Issue 2).
+The `#verify_eq` / `#verify_eq_at` commands themselves are pure
+elaborators and are always safe to `import` / `lake build`; only files
+that *call* those commands should stay out of the default build target.
+
+### 5.5 Cycle-Accurate Equivalence with `#verify_eq_at`
+
+`#verify_eq` only handles combinational functions. For hardware with
+registers — pipelines, shift registers, FIR filters — Sparkle ships a
+sister command that unrolls the circuit over a finite window of cycles:
+
+```lean
+#verify_eq_at (cycles := N) (latency := L) impl spec
+```
+
+This generates a theorem of the shape
+
+```
+∀ (input-streams), (impl inputs).val (L + t) = (spec inputs).val t
+```
+
+for every `t ∈ [0, N)`, which `bv_decide` discharges one cycle at a
+time. The typical use case is proving that a multi-cycle pipeline is
+*functionally equivalent* to a single-cycle reference, modulo the
+pipeline's own latency — exactly the "register-balance to meet
+frequency" refactor you'd do when the critical path is too long.
+
+```lean
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
+-- Single-cycle reference: out(t) = a(t)*b(t) + c(t)
+def macSingle (a b c : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  a * b + c
+
+-- 3-stage pipeline: latency 2, same function
+def macPipe (a b c : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let ra := Signal.register 0#4 a
+  let rb := Signal.register 0#4 b
+  let rc := Signal.register 0#4 c
+  let prod2 := Signal.register 0#4 (ra * rb)
+  let c2    := Signal.register 0#4 rc
+  prod2 + c2
+
+-- Prove macPipe.val (t + 2) = macSingle.val t for t ∈ [0, 4):
+#verify_eq_at (cycles := 4) (latency := 2) macPipe macSingle
+-- ✅ verified: `macPipe_eq_macSingle_at_4_lat_2`
+```
+
+`latency := 0` is the default and models "this is a pure refactor — no
+new delay". Use it for register-position commutation, re-associated
+adders, or anywhere the output cycle count is identical.
+
+**Supported**: `Signal.register`, `Signal.pure`, the hardware
+arithmetic/bitwise operators (`+`, `-`, `*`, `&&&`, `|||`, `^^^`),
+`Signal.map`-style plain functions. Feed-forward only; register chains
+of any depth are fine.
+
+**Not supported in v1**: `Signal.loop` / feedback circuits (the
+fixed-point combinator is `opaque` and cannot be unfolded by the
+generated tactic), memory primitives, `registerWithEnable`. Use manual
+proofs for those cases.
+
+**Scaling**: each cycle produces a separate SAT goal with
+`cycles × arity × bitwidth` free BitVec bits. 4-bit inputs with 4–8
+cycles is the sweet spot; wider inputs / deeper unrolls hit the SAT
+budget fast. If you see a timeout, shrink the BitVec width first.
+
+See `Tests/Verification/EquivDemo.lean` §9–12 for four worked Signal
+DSL demos: identical 2-cycle delays, register-position commutation,
+the MAC pipeline above, and a 2-tap FIR filter pipelined by one stage.
+§13 demonstrates the next subsection, `#verify_eq_git`.
+
+### 5.6 Time-travel equivalence with `#verify_eq_git`
+
+Refactoring an RTL module and wondering "is this still bit-equivalent
+to the version on main?" `#verify_eq_git` pulls the old version out of
+git and proves it equivalent to the current one in a single command:
+
+```lean
+import Sparkle.Verification.Equivalence
+import IP.YOLOv8.Types
+
+open Sparkle.IP.YOLOv8
+
+-- Compare the HEAD version of reluInt8 against the version on `main`.
+-- Works with any ref git show accepts: branches, HEAD~N, tags, SHAs.
+#verify_eq_git main reluInt8
+-- ✅ verified: reluInt8_eq_at_main — reluInt8 (HEAD) ≡ reluInt8 @ main
+```
+
+Under the hood the command:
+
+1. Resolves `reluInt8` to `Sparkle.IP.YOLOv8.reluInt8`.
+2. Consults `Environment.getModuleIdxFor?` to learn that the definition
+   lives in `IP/YOLOv8/Types.lean` (only works for imported modules —
+   the same-file case is rejected with a clear error).
+3. Runs `git show main:IP/YOLOv8/Types.lean`, strips `import` lines,
+   and elaborates the rest inside a fresh namespace
+   `Sparkle.Verification.EquivGit.main` so it doesn't collide with the
+   current definition.
+4. Generates `theorem reluInt8_eq_at_main : reluInt8 = Sparkle.Verification
+   .EquivGit.main.Sparkle.IP.YOLOv8.reluInt8 := by funext; unfold …;
+   bv_decide` and runs it.
+
+The old and new definitions can have **any** internal structure — one
+can be a handwritten ternary table, the other a bit-twiddle, as long as
+they compute the same function. The SAT solver decides.
+
+**Requirements**:
+
+- The target must live in an **imported** module, not in the current
+  file. Same-file targets cannot be git-shown because there's no
+  committed file to pull.
+- The target must be a pure `BitVec … → BitVec …` function (v1 shares
+  `#verify_eq`'s discharge pipeline). Signal DSL targets, memory
+  functions, and anything that outputs a product type are out of scope
+  for this first version.
+- `git` must be on `PATH`.
+
+**Error paths** are surfaced cleanly:
+
+| Situation | Behavior |
+|---|---|
+| `git show` fails (bad ref, file not in commit) | `#verify_eq_git: git show … failed:` + git stderr |
+| Old file parses but `<ident>` is missing | `#verify_eq_git: could not find … may have been renamed, moved, or deleted` |
+| Old and new signatures differ | Type-mismatch error, commit ref surfaced |
+| `bv_decide` finds a counterexample | `❌` + counterexample (standard `#verify_eq` pipeline) |
+
+**Ideal PR workflow**:
+
+```lean
+-- scratch/verify.lean  (run interactively, not in lake build)
+import IP.RV32.Core
+import Sparkle.Verification.Equivalence
+open Sparkle.IP.RV32
+
+#verify_eq_git main mextCompute
+#verify_eq_git main amoCompute
+-- ...and any other pure function you refactored in this PR
+```
+
+Run this before opening the PR; if every target prints `✅`, the
+refactor is guaranteed bit-equivalent.
+
+#### Got the latency wrong? The hint will tell you.
+
+`#verify_eq_at` is strict: if you write `latency := 1` but the pipeline
+actually takes 2 cycles, it fails. The design philosophy is that the
+pipeline's latency is part of its interface contract — you should know
+it. But typing the wrong number is a common slip, so on failure the
+command silently probes a few neighboring latencies and, if one works,
+prints a 💡 hint with the corrected invocation:
+
+```
+❌ `macPipe` ≡ `macSingle` at cycles 1..4 (latency 1) — see error(s) above
+💡 Hint: the circuit DOES match at latency := 2.
+   Re-run as  #verify_eq_at (cycles := 3) (latency := 2) macPipe macSingle
+   — if that is not the latency you designed for,
+   either the pipeline has too many/few register stages or the spec is wrong.
+```
+
+If no nearby latency helps, the hint instead says "the implementation
+is likely functionally incorrect, not just mis-timed", pointing you at
+the real bug. In both cases the command fails — the hint never silently
+"rescues" a wrong proof, so designer-intent bugs (mistyped latency
+counts, missing pipeline stages) are never masked.
+
 ---
 
-## Step 6: Multi-Domain Parallel Simulation (Preview)
+## Step 6: Running Simulations with `runSim`
 
-Sparkle supports multi-clock-domain simulation with lock-free CDC queues.
-Currently available as a low-level API; a `sim_parallel!` macro is planned.
+Sparkle provides a single high-level runner, `runSim`, that automatically
+picks the fastest backend for your simulation. You pass it the endpoints
+you have and it dispatches to:
 
-### Current API (low-level)
+- **Single-threaded `evalTick` loop** — when you have 1 endpoint and no
+  connections. Fastest for single-domain simulations (~18 M cyc/s on LiteX).
+- **Multi-threaded CDC queue** (`JIT.runCDC`) — when you have 2 endpoints
+  joined by 1 connection. Fastest for multi-clock domain simulations
+  (**11.9 × Verilator** on 8-core LiteX benchmarks).
+
+You should not need to pick manually: just pass the endpoints and `runSim`
+does the right thing.
+
+### Single-domain
 
 ```lean
-import Sparkle.Core.JIT
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
 
--- Load two JIT-compiled domains
-let prodHandle ← JIT.compileAndLoad "producer_jit.cpp"
-let consHandle ← JIT.compileAndLoad "consumer_jit.cpp"
+sim! "module counter (input clk, input rst, output [31:0] count); ... endmodule"
 
--- Run in parallel: producer's output port 0 → consumer's input port 0
--- Returns (messagesSent, messagesReceived, rollbackCount)
-let (sent, recv, rollbacks) ←
-  JIT.runCDC prodHandle consHandle 1000000 0 0
+def main : IO Unit := do
+  let sim ← counter.Sim.load
+  sim.reset
+  let stats ← runSim [sim.toEndpoint] (cycles := 1_000_000)
+  IO.println s!"Ran {stats.cyclesRun} cycles"
 ```
 
-This achieves **11.9x vs Verilator** on 8-core LiteX SoC benchmarks.
+### Multi-domain (CDC)
 
-### Planned: `sim_parallel!` (TODO)
+A Clock Domain Crossing (CDC) sim runs each module on its own thread,
+each with its own clock. The two clocks are **not** physically modeled:
+Sparkle gives each endpoint its own Verilog `clk` port that `JIT.evalTick`
+drives independently, and the frequency ratio is expressed by how many
+cycles each thread executes. A lock-free SPSC queue ferries data across
+the boundary, with snapshot/rollback to recover from timestamp inversion.
+
+To model e.g. a 200 MHz producer feeding a 100 MHz consumer, pass
+`endpointCycles` with per-endpoint budgets whose ratio matches the
+frequency ratio:
 
 ```lean
--- Goal: type-safe parallel simulation from sim! definitions
-sim! "module producer (...) ..."
-sim! "module consumer (...) ..."
+import Sparkle.Core.SimParallel
+open Sparkle.Core.SimParallel
 
--- Connect output → input by name, run in parallel
-let result ← simParallel
-  (producer := producer.Sim)
-  (consumer := consumer.Sim)
+-- Each module gets its own `clk`. They are independent clock domains at
+-- runtime: Sparkle runs each on its own thread, ticking at its own rate.
+sim! "module producer_mod (input clk, input rst, output [31:0] data_out); ... endmodule"
+sim! "module consumer_mod (input clk, input rst, input  [31:0] data_in); ... endmodule"
+
+def main : IO Unit := do
+  let p ← producer_mod.Sim.load
+  let c ← consumer_mod.Sim.load
+  p.reset; c.reset
+  -- Producer runs at 200 MHz, consumer at 100 MHz → 2:1 cycle ratio.
+  let stats ← runSim
+    [p.toEndpoint, c.toEndpoint]
+    (connections := [("data_out", "data_in")])
+    (endpointCycles := [200_000, 100_000])
+  IO.println s!"sent={stats.messagesSent} recv={stats.messagesReceived} rb={stats.rollbacks}"
+```
+
+If both domains run at the same frequency, use the simpler uniform
+`cycles` parameter instead:
+
+```lean
+let stats ← runSim
+  [p.toEndpoint, c.toEndpoint]
   (connections := [("data_out", "data_in")])
-  (cycles := 1000000)
+  (cycles := 1_000_000)
 ```
 
-See `Examples/CDC/MultiClockSim.lean` for a working multi-domain example.
+**Important**: merely writing `input clk` in two `sim!` modules does
+NOT by itself create two domains — at the Verilog level each module
+just has a clock port. The "two-domain-ness" comes from `runSim`
+running each endpoint on its own thread with its own cycle count,
+plus the SPSC queue that CDC-synchronizes the payload. If you need
+hard guarantees (e.g. a full 2-flop synchronizer inside the consumer),
+add the synchronizer registers to the consumer's Verilog explicitly.
+
+Connections are specified as `(producerOutputName, consumerInputName)`
+string pairs. `runSim` looks up the port indices at runtime via the
+`outputPortIndexByName` / `inputPortIndexByName` tables generated by
+`sim!` / `generateSimWrappers`, so typos and missing names fail with a
+clear error listing the available ports.
+
+### Manual overrides
+
+`runSim` is a thin dispatcher on top of two explicit runners you can call
+directly if you want to force a backend (benchmarking, debugging,
+avoiding thread overhead on a single-domain sim):
+
+| Runner | When to use |
+|---|---|
+| `runSingleSim ep cycles` | Single-threaded, bit-identical to a manual `evalTick` loop. |
+| `runMultiDomainSim prod cons conn prodCycles consCycles` | Multi-threaded CDC with separate per-domain cycle budgets. |
+
+Most users should never need these. If you find `runSim`'s choice
+suboptimal, please file an issue — the dispatcher is only a few lines
+and can be improved.
+
+### Current limitations
+
+- **Single connection per pair**: the underlying `JIT.runCDC` transfers
+  one output→input pair. Multi-connection support is tracked in
+  `docs/KnownIssues.md` Issue 3.1.
+- **Two endpoints max**: three or more domains is not yet supported
+  (Issue 3.2).
+
+See `Examples/CDC/MultiClockSim.lean` for a working end-to-end example
+and `Tests/Sim/SimRunnerTest.lean` for the 30-test regression suite
+(equivalence, auto-select, port-name errors, index alignment, stress,
+and asymmetric endpointCycles).
 
 ---
 
@@ -337,8 +645,9 @@ See `Examples/CDC/MultiClockSim.lean` for a working multi-domain example.
       │                    │
       ├── VCD waveform     ├── JIT C++ → .so → fast simulation
       │                    │                      │
-      └── Formal proofs    ├── OracleReduction     ├── sim_parallel! (planned)
-          (bv_decide)      │   (proof-driven opt)  │   (multi-domain CDC)
-                           │                      │
+      └── Formal proofs    ├── OracleReductin     ├── runSim (auto)
+          (bv_decide)      │   (proof-driven opt) │   ├─ runSingleSim
+                           │                      │   └─ runMultiDomainSim
+                           │                      │      (CDC queue)
                            └──────────────────────┘
 ```

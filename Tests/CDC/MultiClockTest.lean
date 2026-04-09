@@ -13,11 +13,13 @@
 
 import Sparkle.Core.JIT
 import Sparkle.Core.SimTyped
+import Sparkle.Core.SimParallel
 
 -- Import the synthesis module to ensure generated files exist
 import Examples.CDC.MultiClockSim
 
 open Sparkle.Core.JIT
+open Sparkle.Core.SimParallel
 
 -- ============================================================================
 -- Type-safe wrappers for DomainA and DomainB
@@ -87,22 +89,26 @@ def main : IO UInt32 := do
   simB.reset
 
   IO.println ""
-  IO.println "--- CDC Multi-threaded Run ---"
-  IO.println "  Starting JIT.runCDC (DomainA: 200K cycles, DomainB: 100K cycles)..."
+  IO.println "--- CDC Multi-threaded Run via runSim (auto-select) ---"
+  IO.println "  runSim [A, B] connection=(count -> value), endpointCycles=[200k, 100k]"
 
-  -- Use typed port index constants instead of hardcoded 0
-  let (sent, received, rollbacks) ← JIT.runCDC
-    handleA handleB 200000 100000
-    DomainA.Sim.outputPortIndex_count    -- typed: UInt32
-    DomainB.Sim.inputPortIndex_value     -- typed: UInt32
+  -- Use the high-level runSim auto-selector. With 2 endpoints + 1 connection
+  -- it automatically dispatches to the CDC parallel backend. Named port
+  -- connections replace raw port-index constants for better ergonomics.
+  -- endpointCycles models a 2:1 frequency ratio (DomainA runs at 2x the
+  -- rate of DomainB), exercising the CDC queue's rollback path.
+  let stats ← runSim
+    [simA.toEndpoint, simB.toEndpoint]
+    (connections := [("count", "value")])
+    (endpointCycles := [200000, 100000])
 
-  IO.println s!"  Messages sent:     {sent}"
-  IO.println s!"  Messages received: {received}"
-  IO.println s!"  Rollbacks:         {rollbacks}"
+  IO.println s!"  Messages sent:     {stats.messagesSent}"
+  IO.println s!"  Messages received: {stats.messagesReceived}"
+  IO.println s!"  Rollbacks:         {stats.rollbacks}"
   IO.println ""
 
   -- Step 4: Verify results
-  let pass := sent > 0 && received > 0
+  let pass := stats.messagesSent > 0 && stats.messagesReceived > 0
   if pass then
     IO.println "*** CDC Multi-Clock Test: PASS ***"
   else
