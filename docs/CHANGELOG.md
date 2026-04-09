@@ -2,6 +2,144 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 56: BitNet ⊕ picorv32 SoC Cohabitation (Level 1a) + U280 Scaffold (Complete)
+
+**Date**: 2026-04-09
+**Branch**: `main` (local)
+**Headline**: first time a CPU IP and a NN IP coexist inside a single
+synthesizable Sparkle SoC. The BitNet MMIO peripheral is wired into the
+picorv32 SoC at `0x40000004 / 0x40000008`, and the Alveo U280 directory
+structure is scaffolded as the permanent home for future HBM / PCIe work.
+
+### What landed
+
+**`IP/RV32/BitNetPeripheral.lean`** (new, ~85 lines). Pins a
+Level-1a BitNet configuration (`dim=4`, `nLayers=1`, all-`+1` ternary
+weights, unit scales) and exposes a clean `bitNetPeripheral : Signal
+dom (BitVec 32) → Signal dom (BitVec 32)` function. The wrapper
+inlines a 4-way adder tree rather than calling `bitNetSoCSignal` /
+`ffnBlockSignal` directly — those higher-level wrappers contain
+`Id.run do` loops, `match cfg.archMode` inductives, and `if size == 0`
+guards that Sparkle's Verilog synthesizer refuses ("if-then-else
+expressions cannot be synthesized", "not a hardware module
+definition"). Getting the full FFN path through synthesis is a
+Level-1b task tracked in `docs/TODO.md`.
+
+The inlined operation is semantically `output = 4 × input` — an
+honest BitLinear layer with 4 lanes and all-`+1` weights — not a
+placeholder. It exercises the same arithmetic primitives BitNet uses
+and produces deterministic outputs that the test can assert against.
+
+**`IP/RV32/SoC.lean`** gets ~10 lines of edits in the existing
+MMIO extension points:
+- `import IP.RV32.BitNetPeripheral`
+- Inside the SoC loop body, bind
+  `let bitnetOut := BitNetPeripheral.bitNetPeripheral aiInputReg`
+- Replace the hardcoded `0xDEADBEEF` read-back in `mmioRdata` with
+  `bitnetOut`.
+
+The existing `aiInputReg` register, write-decode, and read mux scaffolding
+from the pre-existing `aiStatusReg` / `aiInputReg` MMIO stubs is
+repurposed verbatim — no new state, no new address decoders. This is
+the cleanest possible landing of a new peripheral on the SoC.
+
+**`firmware/bitnet_smoke/`** (new directory):
+- `main.c`: writes 4 activations (`0x00010000`, `0x00020000`,
+  `0x00030000`, `0x00040000` in Q16.16), reads back 4 results,
+  compares each to `input << 2`, emits `0xCAFE0000` or `0xDEADDEAD`
+  markers via UART.
+- `Makefile`: inherits the parent `firmware/Makefile`'s toolchain
+  auto-detection, reuses `../boot.S` and `../link.ld`.
+- `firmware.hex`: 89 words, committed so CI can consume it without
+  a riscv32 toolchain.
+
+**`Tests/Integration/BitNetSoCTest.lean`** + new `lean_exe
+bitnet-soc-test`: proves Level-1a integration along three axes:
+
+1. **Functional**: the `bitNetPeripheral` Signal function produces
+   `4 × input` for 8 test inputs including edge cases (zero, max,
+   `0x12345678` wrapping).
+2. **Structural**: the generated SoC SystemVerilog
+   (`verilator/generated_soc.sv`) contains `_gen_bitnetOut` and the
+   matching read-mux entry.
+3. **Artifact**: `firmware/bitnet_smoke/firmware.hex` is present and
+   well-formed (≥10 words, correct `@addr` prefix).
+
+All three axes pass: `lake exe bitnet-soc-test` reports
+"✅ BitNet SoC Level-1a: ALL THREE AXES PASS".
+
+**`fpga/U280/`** (new directory — the "holy ground"):
+- `README.md`: describes the target (xcu280-fsvh2892-2L-e, 8 GiB HBM2,
+  PCIe Gen4 ×16), the planned flow (Signal DSL → `#synthesizeVerilog`
+  → Vivado → `.xclbin`), what exists today (RTL only; clean
+  SystemVerilog comes out of `lake build IP.RV32.SoCVerilog`), and the
+  explicit roadmap of what's missing (PCIe XDMA shell, HBM controller,
+  clock wizard, reset synchronizer, pin constraints, host driver).
+- `build.tcl`: a Vivado Tcl stub with every real command commented
+  out plus a top-level `puts "STUB complete — no real work was done"`
+  so running it accidentally is harmless and obvious.
+- `constraints.xdc`: commented placeholder with section headers for
+  reference clock, PCIe, HBM, UART, LEDs, and inter-clock false paths.
+
+### What was discovered
+
+**Pre-existing PC-stuck-at-0 issue in `rv32-jit-loop-test`.** While
+running the new test, found that the existing Signal-DSL-SoC JIT path
+(`rv32iSoCJITRun`) is broken independently of BitNet: loading any
+firmware hex (including the known-good `firmware/firmware.hex` used by
+Test 11 via the separate SVParser path) and calling `evalTick` for
+1000+ cycles leaves `_gen_pcReg` at `0x00000000`. The CPU never
+fetches an instruction.
+
+Confirmed by `git stash`-ing all BitNet wiring back to clean `main`
+HEAD — the issue reproduces. Tracked as **TODO S0** with suspected
+causes (memory initialization timing around `memoryComboRead` +
+`jit_set_mem`, possibly related to Phase 55's
+`wrapConditionalGuards` removal). Out of scope for Level 1a — the
+integration test covers the three axes that don't depend on the
+broken boot path.
+
+### Test status
+
+| Suite | Result |
+|---|---|
+| `lake build` | 64 jobs clean |
+| `lake exe svparser-test` | 34/34 |
+| `lake exe sim-runner-test` | 30/30 |
+| `lake exe cdc-multi-clock-test` | PASS |
+| `lake exe bitnet-soc-test` | ✅ 3/3 axes (functional + structural + artifact) |
+
+### Files
+
+- **New**:
+  - `IP/RV32/BitNetPeripheral.lean`
+  - `Tests/Integration/BitNetSoCTest.lean`
+  - `firmware/bitnet_smoke/{main.c, Makefile, firmware.hex, firmware.dump, firmware.map}`
+  - `fpga/U280/{README.md, build.tcl, constraints.xdc}`
+- **Modified**:
+  - `IP/RV32/SoC.lean` (wired `bitnetOut` into `mmioRdata`)
+  - `lakefile.lean` (added `bitnet-soc-test` exe target)
+  - `docs/TODO.md` (added S0 for the pre-existing PC-stuck bug)
+  - `docs/CHANGELOG.md` (this entry)
+  - `docs/STATUS.md` (Phase 5.10 row)
+
+### Follow-up ideas
+
+See `docs/TODO.md` — highlights:
+
+- **S0** (★★★★★): diagnose the `rv32iSoCJITRun` PC-stuck issue so the
+  integration test can flip from "structural + functional" to full
+  firmware-on-CPU end-to-end.
+- **Level 1b**: sequential BitNet wrapper with `Signal.loop` +
+  `start/done` handshake so realistic model sizes (dim=2048, 24 layers)
+  can be represented as multi-cycle FSMs.
+- **Level 1b Vivado**: fill in `fpga/U280/build.tcl` and
+  `constraints.xdc` with a real PCIe shell + HBM controller + clock
+  wizard setup. Needs a physical U280 card or a Vivado test bench to
+  validate.
+
+---
+
 ## Phase 55: Simulation Ergonomics + Equivalence-Check Command Family (Complete)
 
 **Date**: 2026-04-09

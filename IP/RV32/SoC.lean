@@ -47,6 +47,10 @@ import Sparkle.Compiler.Elab
 import IP.RV32.Core
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
+-- Level-1a BitNet MMIO peripheral wrapper.
+-- Exposes `bitNetPeripheral : Signal dom (BitVec 32) → Signal dom (BitVec 32)`
+-- which we wire into the AI MMIO region at 0x40000000 below.
+import IP.RV32.BitNetPeripheral
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -595,8 +599,15 @@ def rv32iSoCBody {dom : DomainConfig}
     let mmioOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 4 ·)
     let mmioIsStatus_wb := mmioOffset_wb === 0x0#4
     let mmioIsOutput_wb := mmioOffset_wb === 0x8#4
+    -- Level-1a BitNet peripheral: the AI input register feeds a
+    -- combinational BitNet (dim=4, 1 layer) whose output becomes the
+    -- value read back from offset 0x8. Writes to offset 0x4 latch the
+    -- input; BitNet settles in the same cycle; the following `lw`
+    -- instruction sees the fresh result. See IP/RV32/BitNetPeripheral.lean.
+    let bitnetOut :=
+      Sparkle.IP.RV32.BitNetPeripheral.bitNetPeripheral aiInputReg
     let mmioRdata := Signal.mux mmioIsStatus_wb aiStatusReg
-                       (Signal.mux mmioIsOutput_wb (Signal.pure 0xDEADBEEF#32)
+                       (Signal.mux mmioIsOutput_wb bitnetOut
                          (Signal.pure 0#32))
     -- UART 8250 read logic (WB stage)
     let isUART_wb := (exwb_physAddr.map (BitVec.extractLsb' 24 8 ·)) === 0x10#8

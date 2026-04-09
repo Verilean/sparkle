@@ -159,6 +159,41 @@ contract. Catches mismatched expectations at elab time.
 
 ## Simulation / runtime
 
+### S0. RV32 Signal-DSL SoC JIT boots to PC=0 forever
+
+- Impact ★★★★★ — blocks every end-to-end firmware-on-Signal-DSL-CPU test
+- Effort M
+- Confidence ★★☆☆☆ (need to diagnose)
+- Status: **confirmed**, pre-existing, independent of BitNet
+
+**Symptom**: `lake exe rv32-jit-loop-test` loads `firmware/firmware.hex`
+into memory index 0 (IMEM) via `JIT.setMem`, runs `rv32iSoCJITRun` for
+1000+ cycles, and every sample of `_gen_pcReg` is `0x00000000`. The CPU
+never fetches a single instruction. Confirmed by `git stash`-ing the
+BitNet wiring back to clean `main` HEAD — still stuck at PC=0.
+
+**Why it matters**: `Tests/Integration/BitNetSoCTest.lean` (Level-1a
+BitNet integration) would ideally run `firmware/bitnet_smoke/firmware.hex`
+end-to-end through the SoC to prove the full CPU → MMIO → BitNet → CPU
+loop. That path is blocked by this pre-existing regression; for now the
+test checks the peripheral in isolation and the generated Verilog
+structure separately.
+
+**Suspect areas**:
+- `rv32iSoCSynth`'s IMEM is `Signal.memoryComboRead` with explicit
+  `imem_wr_en` / `imem_wr_addr` / `imem_wr_data` write ports. The JIT
+  generated C++ maps `jit_set_mem mem_idx=0` to the backing array, but
+  the combinational read path may not observe that array the way
+  `setMem` expects.
+- The SoC may need a specific initial reset sequence or `imem_wr_en`
+  strobe that `rv32iSoCJITRun` isn't providing.
+- Recent Phase-55 changes to `Sparkle/Backend/CppSim.lean`
+  (`wrapConditionalGuards` removal, self-ref in-place elimination)
+  might have altered memory initialization timing.
+
+**Next step**: bisect by running `rv32-jit-loop-test` at older commits
+until the failure disappears, then inspect the diff.
+
 ### S1. `runSim` selects 8-core multicore runner automatically
 
 - Impact ★★★☆☆ (the 11.9× 8-core benchmark is already possible but
