@@ -235,6 +235,99 @@ syntax (name := verifyEqAtCmd)
   (" (" &"latency" ":=" num ")")?
   ident ident : command
 
+/-- Build the theorem command for `#verify_eq_at` with a given
+    theorem name, cycle count, latency, and argument arity. Returns a
+    fully-elaborated command syntax that the caller can feed to
+    `elabCommand`. Does NOT touch the environment or message log. -/
+private def buildVerifyEqAtCmd
+    (thmName : Name) (cycles latency arity : Nat)
+    (impl spec : Ident) : CommandElabM (TSyntax `command) := do
+  let thmIdent := mkIdent thmName
+  let binders : Array (TSyntax `ident) :=
+    (Array.range arity).map fun i =>
+      mkIdent (Name.mkSimple s!"_eq_at_arg_{i + 1}")
+  let args : Array (TSyntax `term) := binders.map fun b => ⟨b.raw⟩
+
+  -- One conjunct per cycle t ∈ [0, cycles): (impl args).val (t+L) = (spec args).val t
+  let mkConjunct (t : Nat) : CommandElabM (TSyntax `term) := do
+    let tLit : TSyntax `term := ⟨Syntax.mkNumLit (toString t)⟩
+    let lhsLit : TSyntax `term := ⟨Syntax.mkNumLit (toString (t + latency))⟩
+    `(($impl $args*).val $lhsLit = ($spec $args*).val $tLit)
+  let mut conjuncts : Array (TSyntax `term) := #[]
+  for t in [:cycles] do
+    conjuncts := conjuncts.push (← mkConjunct t)
+  let mut goalBody : TSyntax `term := conjuncts[conjuncts.size - 1]!
+  for i in (List.range (conjuncts.size - 1)).reverse do
+    let head := conjuncts[i]!
+    goalBody ← `($head ∧ $goalBody)
+
+  -- ⟨?_, ?_, …⟩ with `cycles` holes
+  let holeStx : TSyntax `term ← `(?_)
+  let mut holes : Array (TSyntax `term) := #[]
+  for _ in [:cycles] do
+    holes := holes.push holeStx
+  let refineTerm : TSyntax `term ← `(⟨$holes,*⟩)
+
+  -- Fixed Signal.val_* lemma set
+  let lemL1 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_add
+  let lemL2 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_sub
+  let lemL3 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_mul
+  let lemL4 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_and
+  let lemL5 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_or
+  let lemL6 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_xor
+  let lemR0 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_register_zero
+  let lemRS := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_register_succ
+  let lemPu := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_pure
+
+  `(command|
+    set_option linter.unusedSimpArgs false in
+    theorem $thmIdent : ∀ $binders*, $goalBody := by
+      intros
+      refine $refineTerm
+      all_goals
+        (first
+          | (simp only [$impl:ident, $spec:ident,
+                        $lemL1:ident, $lemL2:ident, $lemL3:ident,
+                        $lemL4:ident, $lemL5:ident, $lemL6:ident,
+                        $lemR0:ident, $lemRS:ident, $lemPu:ident];
+             done)
+          | (simp only [$impl:ident, $spec:ident,
+                        $lemL1:ident, $lemL2:ident, $lemL3:ident,
+                        $lemL4:ident, $lemL5:ident, $lemL6:ident,
+                        $lemR0:ident, $lemRS:ident, $lemPu:ident];
+             bv_decide)))
+
+/-- Silent probe: try to prove `impl ≡ spec` at `(cycles, latency)` using
+    a fresh throwaway theorem name. Rolls back both the environment and
+    the message log on exit, so the probe is invisible to the user.
+    Returns `true` iff the probe succeeded. -/
+private def probeLatency
+    (cycles latency arity : Nat) (impl spec : Ident) : CommandElabM Bool := do
+  let savedEnv := (← getEnv)
+  let savedState ← get
+  -- Unique probe theorem name derived from the user idents and the
+  -- latency-under-test. The savedEnv rollback deletes it either way.
+  let probeName := Name.mkSimple
+    s!"_verify_eq_at_probe_{impl.getId}_{spec.getId}_c{cycles}_l{latency}"
+  let ok : Bool ← try
+    let cmd ← buildVerifyEqAtCmd probeName cycles latency arity impl spec
+    let thrown ← try elabCommand cmd; pure false catch _ => pure true
+    let newMsgsHaveError :=
+      ((← get).messages.toList.drop savedState.messages.toList.length).any
+        (·.severity == .error)
+    let tainted :=
+      match (← getEnv).find? probeName with
+      | none => true
+      | some ci => ci.type.hasSorry || (ci.value?.map (·.hasSorry)).getD false
+    pure (!thrown && !newMsgsHaveError && !tainted)
+  catch _ => pure false
+  -- Roll back EVERYTHING the probe touched: environment (removes the
+  -- probe theorem and any downstream elab state), and message log
+  -- (removes probe errors / counterexample spam).
+  setEnv savedEnv
+  modify fun s => { s with messages := savedState.messages }
+  pure ok
+
 @[command_elab verifyEqAtCmd]
 def elabVerifyEqAt : CommandElab := fun stx => do
   match stx with
@@ -263,89 +356,60 @@ where
           m!"#verify_eq_at: type mismatch{indentD m!"{impl} : {iT}"}{indentD m!"{spec} : {sT}"}"
       arityOfType iT
 
-    -- 3. Fresh theorem name.
+    -- 3. Fresh user-visible theorem name.
     let latencyTag := if latency == 0 then "" else s!"_lat_{latency}"
     let thmName := Name.mkSimple
       s!"{implName.toString}_eq_{specName.toString}_at_{cycles}{latencyTag}"
     if (← getEnv).contains thmName then
       throwError m!"#verify_eq_at: theorem `{thmName}` already exists"
-    let thmIdent := mkIdent thmName
 
-    -- 4. Fresh binder idents for the forall-quantified input streams.
-    let binders : Array (TSyntax `ident) :=
-      (Array.range arity).map fun i =>
-        mkIdent (Name.mkSimple s!"_eq_at_arg_{i + 1}")
-    -- Arguments applied to `impl` and `spec` in the goal (as a single
-    -- space-separated token array).
-    let args : Array (TSyntax `term) := binders.map fun b => ⟨b.raw⟩
-
-    -- 5. Build the conjunction body: one conjunct per cycle t ∈ [0, cycles).
-    --    For each t, the conjunct is
-    --      (impl xs).val (t + latency) = (spec xs).val t
-    let mkConjunct (t : Nat) : CommandElabM (TSyntax `term) := do
-      let tLit : TSyntax `term := ⟨Syntax.mkNumLit (toString t)⟩
-      let lhsLit : TSyntax `term := ⟨Syntax.mkNumLit (toString (t + latency))⟩
-      `(($impl $args*).val $lhsLit = ($spec $args*).val $tLit)
-    let mut conjuncts : Array (TSyntax `term) := #[]
-    for t in [:cycles] do
-      conjuncts := conjuncts.push (← mkConjunct t)
-    -- Left-fold conjuncts into a single `∧`-chain (right-associated).
-    let mut goalBody : TSyntax `term := conjuncts[conjuncts.size - 1]!
-    for i in (List.range (conjuncts.size - 1)).reverse do
-      let head := conjuncts[i]!
-      goalBody ← `($head ∧ $goalBody)
-
-    -- 6. Build ⟨?_, ?_, …⟩ with `cycles` holes.
-    let holeStx : TSyntax `term ← `(?_)
-    let mut holes : Array (TSyntax `term) := #[]
-    for _ in [:cycles] do
-      holes := holes.push holeStx
-    let refineTerm : TSyntax `term ← `(⟨$holes,*⟩)
-
-    -- 7. The `simp only` lemma set is fixed — the two user defs plus
-    --    every `Signal.val_*` rewrite. We inline each ident as a
-    --    separate `simpLemma`. `simp only` silently ignores lemmas that
-    --    don't fire, so including all of them is safe.
-    let lemL1 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_add
-    let lemL2 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_sub
-    let lemL3 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_mul
-    let lemL4 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_and
-    let lemL5 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_or
-    let lemL6 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_xor
-    let lemR0 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_register_zero
-    let lemRS := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_register_succ
-    let lemPu := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_pure
-
-    -- 8. Assemble the theorem command. `simp only` alone often closes
-    --    cosmetic register-position refactors; for anything harder we
-    --    fall through to `bv_decide`. Each branch must completely close
-    --    the goal — `simp only; done` is the first attempt, else the
-    --    simp-then-bv_decide chain. Using bare `simp only` would leave
-    --    residuals and mask real bugs.
-    let cmd ← `(command|
-      set_option linter.unusedSimpArgs false in
-      theorem $thmIdent : ∀ $binders*, $goalBody := by
-        intros
-        refine $refineTerm
-        all_goals
-          (first
-            | (simp only [$impl:ident, $spec:ident,
-                          $lemL1:ident, $lemL2:ident, $lemL3:ident,
-                          $lemL4:ident, $lemL5:ident, $lemL6:ident,
-                          $lemR0:ident, $lemRS:ident, $lemPu:ident];
-               done)
-            | (simp only [$impl:ident, $spec:ident,
-                          $lemL1:ident, $lemL2:ident, $lemL3:ident,
-                          $lemL4:ident, $lemL5:ident, $lemL6:ident,
-                          $lemR0:ident, $lemRS:ident, $lemPu:ident];
-               bv_decide)))
-
-    -- 9. Elaborate + report.
+    -- 4. Build the user's theorem command and run it.
+    let cmd ← buildVerifyEqAtCmd thmName cycles latency arity impl spec
     let label :=
       if latency == 0 then
         m!"`{implName}` ≡ `{specName}` at cycles 0..{cycles}"
       else
         m!"`{implName}` ≡ `{specName}` at cycles {latency}..{latency + cycles} (latency {latency})"
-    elabAndReport impl cmd thmName label
+
+    let msgsBefore := (← get).messages
+    let thrown ← try elabCommand cmd; pure false catch _ => pure true
+    let msgsAfter := (← get).messages
+    let newErrors :=
+      (msgsAfter.toList.drop msgsBefore.toList.length).filter (·.severity == .error)
+    let tainted :=
+      match (← getEnv).find? thmName with
+      | none => true
+      | some ci => ci.type.hasSorry || (ci.value?.map (·.hasSorry)).getD false
+
+    if thrown || !newErrors.isEmpty || tainted then
+      -- Failed — run latency probes at a REDUCED cycle count to keep the
+      -- hint fast, then surface the first matching latency. The probes
+      -- are silent: they save/restore the env and message log so the
+      -- user only sees the original failure + the hint line.
+      let probeCycles := min cycles 2   -- 2 is usually enough to distinguish
+      let maxProbe := cycles + 4        -- search 0..cycles+3
+      let mut matchedLat : Option Nat := none
+      for L in [:maxProbe] do
+        if L == latency then continue    -- the user's choice already failed
+        if ← probeLatency probeCycles L arity impl spec then
+          matchedLat := some L
+          break
+      logInfoAt impl m!"❌ {label} — see error(s) above for `{thmName}`"
+      match matchedLat with
+      | some L =>
+        logInfoAt impl
+          m!"💡 Hint: the circuit DOES match at latency := {L}. \
+             Re-run as  #verify_eq_at (cycles := {cycles}) (latency := {L}) \
+             {implName} {specName}  \
+             — if that is not the latency you designed for, \
+             either the pipeline has too many/few register stages \
+             or the spec is wrong."
+      | none =>
+        logInfoAt impl
+          m!"💡 No nearby latency (0..{maxProbe - 1}) makes `{implName}` \
+             match `{specName}`. The implementation is likely functionally \
+             incorrect, not just mis-timed — see the counterexample above."
+    else
+      logInfoAt impl m!"✅ verified: `{thmName}` — {label}"
 
 end Sparkle.Verification.Equivalence

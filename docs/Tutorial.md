@@ -404,6 +404,29 @@ See `Tests/Verification/EquivDemo.lean` §9–12 for four worked Signal
 DSL demos: identical 2-cycle delays, register-position commutation,
 the MAC pipeline above, and a 2-tap FIR filter pipelined by one stage.
 
+#### Got the latency wrong? The hint will tell you.
+
+`#verify_eq_at` is strict: if you write `latency := 1` but the pipeline
+actually takes 2 cycles, it fails. The design philosophy is that the
+pipeline's latency is part of its interface contract — you should know
+it. But typing the wrong number is a common slip, so on failure the
+command silently probes a few neighboring latencies and, if one works,
+prints a 💡 hint with the corrected invocation:
+
+```
+❌ `macPipe` ≡ `macSingle` at cycles 1..4 (latency 1) — see error(s) above
+💡 Hint: the circuit DOES match at latency := 2.
+   Re-run as  #verify_eq_at (cycles := 3) (latency := 2) macPipe macSingle
+   — if that is not the latency you designed for,
+   either the pipeline has too many/few register stages or the spec is wrong.
+```
+
+If no nearby latency helps, the hint instead says "the implementation
+is likely functionally incorrect, not just mis-timed", pointing you at
+the real bug. In both cases the command fails — the hint never silently
+"rescues" a wrong proof, so designer-intent bugs (mistyped latency
+counts, missing pipeline stages) are never masked.
+
 ---
 
 ## Step 6: Running Simulations with `runSim`

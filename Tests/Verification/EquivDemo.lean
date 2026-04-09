@@ -236,8 +236,9 @@ def macPipe (a b c : Signal defaultDomain (BitVec 4))
 
 #verify_eq_at (cycles := 4) (latency := 2) macPipe macSingle
 
--- BUG variant: drop `c` from the pipeline. Uncomment to see bv_decide
--- produce a concrete counterexample (e.g. c=15#4 at some time t).
+-- BUG variant #1: dropped `c` from the pipeline. Uncomment to see
+-- bv_decide's counterexample AND a 💡 hint saying "no nearby latency
+-- makes these match — likely functionally incorrect".
 --
 -- def macPipeBuggy (a b _c : Signal defaultDomain (BitVec 4))
 --     : Signal defaultDomain (BitVec 4) :=
@@ -245,6 +246,14 @@ def macPipe (a b c : Signal defaultDomain (BitVec 4))
 --   let rb := Signal.register 0#4 b
 --   Signal.register 0#4 (ra * rb)
 -- #verify_eq_at (cycles := 3) (latency := 2) macPipeBuggy macSingle
+
+-- BUG variant #2: write the *wrong latency* for the CORRECT pipeline.
+-- Uncomment to see the hint saying "the circuit DOES match at
+-- latency := 2 — re-run as ..." with the exact corrected command.
+-- This is the typical case when a designer misremembers the pipeline
+-- depth of their own module.
+--
+-- #verify_eq_at (cycles := 3) (latency := 1) macPipe macSingle
 
 
 -- ----------------------------------------------------------------------------
