@@ -21,6 +21,7 @@
 
 import Sparkle
 import Sparkle.Verification.Equivalence
+import IP.YOLOv8.Types    -- for the §13 #verify_eq_git demo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -273,3 +274,32 @@ def fir2Pipe (a b : BitVec 4) (x : Signal defaultDomain (BitVec 4))
   Signal.register 0#4 ((a * x) + (b * x1))
 
 #verify_eq_at (cycles := 3) (latency := 1) fir2Pipe fir2Single
+
+
+-- ============================================================================
+-- LAYER 3 DEMO — Time-travel equivalence via `#verify_eq_git`
+-- ============================================================================
+--
+-- `#verify_eq_git <commit-ref> <ident>` pulls the old version of an
+-- imported definition from git and proves the current version equivalent
+-- to it. Use case: PR regression checks, "did my refactor preserve
+-- behavior?", bisecting when a function first broke.
+--
+-- Requirements: the target must be (a) in an IMPORTED module, not the
+-- current file, and (b) a pure `BitVec … → BitVec …` function (same
+-- restriction as `#verify_eq`).
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 13. IP.YOLOv8.Types.reluInt8 at HEAD = current (smoke test).
+--     Proves `reluInt8` is trivially equivalent to itself at HEAD.
+--     Replace `HEAD` with a branch name (`main`) or earlier commit
+--     (`HEAD~5`) to actually time-travel.
+-- ----------------------------------------------------------------------------
+
+section GitDemo
+open Sparkle.IP.YOLOv8
+
+#verify_eq_git HEAD reluInt8
+
+end GitDemo

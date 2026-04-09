@@ -412,4 +412,196 @@ where
     else
       logInfoAt impl m!"✅ verified: `{thmName}` — {label}"
 
+-- ========================================================================
+-- Time-travel equivalence: `#verify_eq_git <commit-ref> <ident>`
+--
+-- Pulls the version of `<ident>` that existed at `<commit-ref>` (anything
+-- `git show` accepts: a branch, `HEAD~N`, a tag, a short SHA), wraps it
+-- in an isolated namespace so it doesn't collide with the current
+-- definition, and proves the current version equivalent to the old one.
+--
+-- Intended use case: "did my refactor preserve behavior?" PR regression
+-- checks, pipeline rebalancing, bisecting when a function first broke.
+--
+-- Requirements:
+--   - `<ident>` must be defined in an IMPORTED module (so we can recover
+--     its source file path via `Environment.getModuleIdxFor?`). Same-file
+--     targets throw a clear error.
+--   - `git` binary on PATH.
+--   - The target must be a pure `BitVec … → BitVec …` function (v1
+--     reuses `#verify_eq`'s discharge tactic). Signal DSL / `bv_decide`-
+--     unfriendly targets are out of scope for v1.
+--
+-- Non-goals (v1):
+--   - Rename tracking (if the function moved files between commits).
+--   - Layer-2 `#verify_eq_at_git` (pipeline equivalence across commits).
+--   - Commit-range equivalence.
+-- ========================================================================
+
+/-- Convert a git ref (`main`, `HEAD~3`, `abc1234`) into a string that
+    is legal as a Lean identifier component. -/
+private def gitRefToIdentTag (ref : String) : String :=
+  let cleaned := ref.toList.map (fun c =>
+    if c.isAlphanum || c == '_' then c else '_') |> String.mk
+  if cleaned.isEmpty then "unknown"
+  else if (cleaned.get 0).isDigit then "g" ++ cleaned
+  else cleaned
+
+/-- Drop `import …` lines from a Lean source string. `elabCommand` cannot
+    elaborate mid-file imports; the current environment already has the
+    imports we need, so stripping them is safe. -/
+private def stripImports (src : String) : String :=
+  let lines := src.splitOn "\n"
+  let kept := lines.filter fun line =>
+    let t := line.trimLeft
+    !t.startsWith "import "
+  String.intercalate "\n" kept
+
+/-- Look up the source file path (relative to the repo root) where the
+    given declaration was defined, by consulting the environment's module
+    table. Returns `none` if the declaration was defined in the current
+    file (not imported) or does not exist. -/
+private def moduleSourcePath? (env : Environment) (declName : Name) : Option String := do
+  let modIdx ← env.getModuleIdxFor? declName
+  let moduleNames := env.allImportedModuleNames
+  if h : modIdx.toNat < moduleNames.size then
+    let modName := moduleNames[modIdx.toNat]
+    some <| (modName.toString.replace "." "/") ++ ".lean"
+  else
+    none
+
+/-- Run `git show <commit>:<path>` and return stdout, or throw on failure. -/
+private def gitShow (commit path : String) : IO String := do
+  let out ← IO.Process.output
+    { cmd := "git", args := #["show", s!"{commit}:{path}"] }
+  if out.exitCode != 0 then
+    throw (IO.userError s!"git show {commit}:{path} failed ({out.exitCode}):\n{out.stderr}")
+  pure out.stdout
+
+/-- `#verify_eq_git <commit-ref> <ident>` — prove the current version of
+    `<ident>` equivalent to the version at `<commit-ref>`. -/
+syntax (name := verifyEqGitCmd)
+  "#verify_eq_git " (ident <|> str) ident : command
+
+@[command_elab verifyEqGitCmd]
+def elabVerifyEqGit : CommandElab := fun stx => do
+  match stx with
+  | `(#verify_eq_git $refTok:ident $target:ident) =>
+      runVerifyEqGit refTok.getId.toString target
+  | `(#verify_eq_git $refLit:str $target:ident) =>
+      runVerifyEqGit refLit.getString target
+  | _ => throwUnsupportedSyntax
+where
+  runVerifyEqGit (commitRef : String) (target : Ident) : CommandElabM Unit := do
+    -- 1. Resolve the target to a fully-qualified name.
+    let targetName ← liftCoreM (Lean.Elab.realizeGlobalConstNoOverloadWithInfo target)
+
+    -- 2. Locate its source file via the module-idx table.
+    let env ← getEnv
+    let path ← match moduleSourcePath? env targetName with
+      | some p => pure p
+      | none =>
+        throwErrorAt target
+          m!"#verify_eq_git: `{targetName}` is not defined in an imported module. \
+             The command works on imported top-level definitions only; \
+             same-file targets cannot be time-traveled because there's no file \
+             to git-show."
+
+    -- 3. Fetch the old source via `git show`. Convert any IO error
+    --    (missing binary, bad ref, file not in that commit) into a
+    --    Lean elab error attached to the target ident.
+    let oldRaw ← liftTermElabM do
+      try pure (← gitShow commitRef path)
+      catch e =>
+        throwErrorAt target m!"#verify_eq_git: {e.toMessageData}"
+    let oldStripped := stripImports oldRaw
+
+    -- 4. Wrap in a fresh namespace so nothing collides with the current def.
+    let tag := gitRefToIdentTag commitRef
+    let nsName := s!"Sparkle.Verification.EquivGit.{tag}"
+    let wrapped :=
+      s!"namespace {nsName}\n{oldStripped}\nend {nsName}\n"
+
+    -- 5. Elaborate the wrapped old source. The file is a module body,
+    --    not a single command, so we parse it command-by-command using
+    --    the incremental `Parser.parseCommand` loop (same shape as
+    --    `Lean.Parser.testParseModuleAux`). `runParserCategory` would
+    --    only accept a single command and fail on the second `def`.
+    let inputCtx := Parser.mkInputContext wrapped s!"<git:{commitRef}:{path}>"
+    let parseCtx : Parser.ParserModuleContext :=
+      { env := (← getEnv), options := {} }
+    let mut parserState : Parser.ModuleParserState := {}
+    let mut parseMessages : MessageLog := {}
+    let mut done := false
+    while !done do
+      let (cmdStx, st', msgs') :=
+        Parser.parseCommand inputCtx parseCtx parserState parseMessages
+      parserState := st'
+      parseMessages := msgs'
+      if Parser.isTerminalCommand cmdStx then
+        done := true
+      else
+        try elabCommand cmdStx
+        catch e =>
+          throwErrorAt target
+            m!"#verify_eq_git: failed to elaborate {commitRef}:{path}:\n{e.toMessageData}"
+    -- If the parser produced its own errors (syntax errors in the old
+    -- file), surface them as a single elab error.
+    if parseMessages.hasUnreported then
+      let combined ← liftTermElabM do
+        parseMessages.toList.foldlM (init := m!"") fun acc msg => do
+          let s ← msg.toString
+          pure (acc ++ m!"\n{s}")
+      throwErrorAt target
+        m!"#verify_eq_git: parser errors in {commitRef}:{path}:{combined}"
+
+    -- 6. Locate the old target inside our isolation namespace.
+    --    `nsName` is a dotted string like "Sparkle.Verification.EquivGit.HEAD";
+    --    build a hierarchical `Name` by folding `.mkStr` over the components.
+    let nsComponents := nsName.splitOn "."
+    let nsAsName : Name := nsComponents.foldl
+      (fun n c => Name.mkStr n c) Name.anonymous
+    let oldFullName := nsAsName ++ targetName
+    if ((← getEnv).find? oldFullName).isNone then
+      throwErrorAt target
+        m!"#verify_eq_git: parsed {commitRef}:{path} but could not find \
+           `{targetName}` in it. The definition may have been renamed, \
+           moved to another file, or deleted between that commit and HEAD."
+    let oldIdent := mkIdent oldFullName
+
+    -- 7. Reuse the #verify_eq machinery: build a theorem
+    --    {target}_eq_at_{tag} : target = oldFullName := by funext …; unfold …; bv_decide.
+    let arity ← liftTermElabM do
+      let tType := (← getConstInfo targetName).type
+      let oType := (← getConstInfo oldFullName).type
+      unless (← isDefEq tType oType) do
+        throwErrorAt target
+          m!"#verify_eq_git: type mismatch between HEAD and {commitRef}:\
+             {indentD m!"HEAD: {tType}"}{indentD m!"{commitRef}: {oType}"}"
+      arityOfType tType
+
+    let thmName := Name.mkSimple
+      s!"{targetName.toString}_eq_at_{tag}"
+    if (← getEnv).contains thmName then
+      throwError m!"#verify_eq_git: theorem `{thmName}` already exists"
+    let thmIdent := mkIdent thmName
+
+    let binders : Array (TSyntax `ident) :=
+      (Array.range arity).map fun i => mkIdent (Name.mkSimple s!"x_{i + 1}")
+
+    let cmd ← if arity == 0 then
+      `(command|
+        theorem $thmIdent : $target = $oldIdent := by
+          unfold $target:ident $oldIdent:ident
+          bv_decide)
+    else
+      `(command|
+        theorem $thmIdent : $target = $oldIdent := by
+          funext $binders*
+          unfold $target:ident $oldIdent:ident
+          bv_decide)
+
+    elabAndReport target cmd thmName
+      m!"`{targetName}` (HEAD) ≡ `{targetName}` @ `{commitRef}`"
+
 end Sparkle.Verification.Equivalence

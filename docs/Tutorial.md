@@ -403,6 +403,79 @@ budget fast. If you see a timeout, shrink the BitVec width first.
 See `Tests/Verification/EquivDemo.lean` §9–12 for four worked Signal
 DSL demos: identical 2-cycle delays, register-position commutation,
 the MAC pipeline above, and a 2-tap FIR filter pipelined by one stage.
+§13 demonstrates the next subsection, `#verify_eq_git`.
+
+### 5.6 Time-travel equivalence with `#verify_eq_git`
+
+Refactoring an RTL module and wondering "is this still bit-equivalent
+to the version on main?" `#verify_eq_git` pulls the old version out of
+git and proves it equivalent to the current one in a single command:
+
+```lean
+import Sparkle.Verification.Equivalence
+import IP.YOLOv8.Types
+
+open Sparkle.IP.YOLOv8
+
+-- Compare the HEAD version of reluInt8 against the version on `main`.
+-- Works with any ref git show accepts: branches, HEAD~N, tags, SHAs.
+#verify_eq_git main reluInt8
+-- ✅ verified: reluInt8_eq_at_main — reluInt8 (HEAD) ≡ reluInt8 @ main
+```
+
+Under the hood the command:
+
+1. Resolves `reluInt8` to `Sparkle.IP.YOLOv8.reluInt8`.
+2. Consults `Environment.getModuleIdxFor?` to learn that the definition
+   lives in `IP/YOLOv8/Types.lean` (only works for imported modules —
+   the same-file case is rejected with a clear error).
+3. Runs `git show main:IP/YOLOv8/Types.lean`, strips `import` lines,
+   and elaborates the rest inside a fresh namespace
+   `Sparkle.Verification.EquivGit.main` so it doesn't collide with the
+   current definition.
+4. Generates `theorem reluInt8_eq_at_main : reluInt8 = Sparkle.Verification
+   .EquivGit.main.Sparkle.IP.YOLOv8.reluInt8 := by funext; unfold …;
+   bv_decide` and runs it.
+
+The old and new definitions can have **any** internal structure — one
+can be a handwritten ternary table, the other a bit-twiddle, as long as
+they compute the same function. The SAT solver decides.
+
+**Requirements**:
+
+- The target must live in an **imported** module, not in the current
+  file. Same-file targets cannot be git-shown because there's no
+  committed file to pull.
+- The target must be a pure `BitVec … → BitVec …` function (v1 shares
+  `#verify_eq`'s discharge pipeline). Signal DSL targets, memory
+  functions, and anything that outputs a product type are out of scope
+  for this first version.
+- `git` must be on `PATH`.
+
+**Error paths** are surfaced cleanly:
+
+| Situation | Behavior |
+|---|---|
+| `git show` fails (bad ref, file not in commit) | `#verify_eq_git: git show … failed:` + git stderr |
+| Old file parses but `<ident>` is missing | `#verify_eq_git: could not find … may have been renamed, moved, or deleted` |
+| Old and new signatures differ | Type-mismatch error, commit ref surfaced |
+| `bv_decide` finds a counterexample | `❌` + counterexample (standard `#verify_eq` pipeline) |
+
+**Ideal PR workflow**:
+
+```lean
+-- scratch/verify.lean  (run interactively, not in lake build)
+import IP.RV32.Core
+import Sparkle.Verification.Equivalence
+open Sparkle.IP.RV32
+
+#verify_eq_git main mextCompute
+#verify_eq_git main amoCompute
+-- ...and any other pure function you refactored in this PR
+```
+
+Run this before opening the PR; if every target prints `✅`, the
+refactor is guaranteed bit-equivalent.
 
 #### Got the latency wrong? The hint will tell you.
 
