@@ -620,6 +620,163 @@ and asymmetric endpointCycles).
 
 ---
 
+## Reference: Writing Synthesizable Signal DSL
+
+Not every Lean 4 expression is synthesizable to hardware. Signal DSL is a
+**subset** of Lean 4 that carefully distinguishes two levels:
+
+- **meta-level** (compile-time): ordinary Lean constructs — `let mut`,
+  `for i in [:n]`, `Array.map`, `if cfg.mode`, `match enum`, `Id.run do`.
+  These are reduced by Lean **before** synthesis; if they reduce
+  successfully, the synthesizer never sees them.
+- **object-level** (runtime hardware): the constructs that become
+  actual logic — `Signal.mux`, `Signal.register`, `Signal.pure`,
+  `Signal.loop`, and arithmetic / bitwise operators on
+  `Signal dom (BitVec n)`.
+
+The Verilog backend (`#synthesizeVerilog` / `#writeDesign`) accepts
+**object-level** code and pre-reduced meta-level code, and rejects
+meta-level code that failed to reduce. When synthesis fails with a
+cryptic error, it's almost always because a meta-level construct
+leaked into the final term.
+
+### Early warning: `#check_synthesizable`
+
+Sparkle ships a lightweight linter that flags the three most common
+leaks. Run it on any definition before sending it through
+`#writeDesign`:
+
+```lean
+import Sparkle.Compiler.SynthesizableLint
+
+def myCircuit (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Id.run do
+    let mut acc := x
+    for i in [:4] do
+      acc := acc + 1
+    return acc
+
+#check_synthesizable myCircuit
+-- ⚠ myCircuit uses `Id.run` — mutable state is meta-level only,
+--   will not synthesize to hardware. Expand the loop, or move the
+--   state into `Signal.register` inside a `Signal.loop`.
+```
+
+The linter never blocks compilation — it only reports hints. It runs
+entirely on the elaborated `Expr` and does not attempt any reduction
+of its own, so it's stable across Lean version bumps.
+
+### The four rules
+
+**Rule 1. Mutable state only via `Signal.register`.**
+Do not write `let mut x := ...` inside a function you plan to
+synthesize. The Lean mutable variable has no hardware equivalent. Use
+`Signal.register init next` (optionally inside `Signal.loop`) instead.
+
+```lean
+-- ❌ not synthesizable
+def counter : Signal dom (BitVec 8) := Id.run do
+  let mut c := 0
+  for _ in [:100] do c := c + 1
+  return (Signal.pure c)
+
+-- ✅ synthesizable
+def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
+  Signal.loop fun self => Signal.register 0 (self + 1)
+```
+
+**Rule 2. Runtime branching only via `Signal.mux`.**
+A Lean `if cond then a else b` where `cond` depends on a signal's
+runtime value is a `decide`/`ite` term, not hardware logic. Use
+`Signal.mux`:
+
+```lean
+-- ❌ not synthesizable: pure `if` looking at Signal content
+def clamp (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  if (x.atTime 0).toNat > 127 then Signal.pure 127#8 else x
+
+-- ✅ synthesizable: every branch lives in Signal land
+def clamp (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  let over := x.map (fun v => v > 127#8)
+  Signal.mux over (Signal.pure 127#8) x
+```
+
+**Rule 3. Compile-time branching is fine — but only when the argument
+is a literal at the call site.**
+Parametric circuits can use `match` / `if` on their configuration
+arguments, as long as the caller passes a concrete constant so Lean
+reduces the branch away before the body is sent to the synthesizer:
+
+```lean
+-- ❌ can fail: `cfg` is an argument, the match survives into the
+--    synthesized term
+def myIP (cfg : SoCConfig) (x : Signal dom (BitVec 32)) :
+    Signal dom (BitVec 32) :=
+  match cfg.archMode with
+  | .HardwiredUnrolled => hardwiredImpl x
+  | .TimeMultiplexed   => timeMuxImpl x
+
+-- ✅ safe: one definition per mode, each is a self-contained
+--    synthesizable top level
+def myIP_hardwired (x : Signal dom (BitVec 32)) := hardwiredImpl x
+def myIP_timemux   (x : Signal dom (BitVec 32)) := timeMuxImpl x
+#writeDesign myIP_hardwired "out/hardwired.sv" ...
+```
+
+This is the pattern the Level-1a `BitNetPeripheral` uses: the wrapper
+inlines the `HardwiredUnrolled` arm directly rather than going through
+the outer `bitNetSoCSignal` dispatcher.
+
+**Rule 4. Keep pure-Lean helpers in the *setup*, not the *body*.**
+`Array.replicate`, `List.foldr`, `Id.run do` are all fine if you use
+them to **prepare** static data (a weight table, a list of shifts, a
+schedule) that is then consumed by object-level code. They break when
+they appear **inside** the Signal-valued body:
+
+```lean
+-- ✅ OK: meta-level prep of a static weight list, then object-level
+--    body that consumes it
+def tapWeights : Array (BitVec 8) := Array.range 16 |>.map (fun i => i.toUInt8 |> BitVec.ofNat 8)
+def fir (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  tapWeights.foldl (init := Signal.pure 0) fun acc w =>
+    acc + (x * Signal.pure w)
+
+-- ❌ NOT OK: the body itself runs inside Id.run do with mutable
+--    state; even though the loop is statically bounded, the
+--    synthesizer cannot see through it.
+def fir_bad (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Id.run do
+    let mut acc : Signal dom (BitVec 8) := Signal.pure 0
+    for w in tapWeights do
+      acc := acc + (x * Signal.pure w)
+    return acc
+```
+
+A fast sanity check: strip away every call to helper functions that
+run at setup time, and look at what remains. If the residual body is
+**only** calls to `Signal.pure`, `Signal.map`, `Signal.register`,
+`Signal.mux`, `Signal.loop`, and arithmetic / bitwise operators on
+`Signal`, you're fine. If you see `Id.run`, `let mut`, `for`, `match
+on non-Signal enum`, or pure-Lean `if` inspecting signal values,
+consult `docs/KnownIssues.md` "Non-synthesizable Signal DSL patterns"
+for the exact symptom and workaround.
+
+### When to worry
+
+You do NOT need to follow these rules for:
+
+- Code that is only simulated (`#eval`, `Signal.atTime`, unit tests).
+- Helper functions that produce static data at compile time
+  (weight arrays, lookup tables, schedules) — they can use any Lean
+  construct.
+- Proofs (`theorem ...`) and formal verification code.
+
+You DO need to follow them for any definition you expect to pass
+through `#writeDesign`, `#synthesizeVerilog`, or `#sim`, and for any
+definition transitively called from one of those.
+
+---
+
 ## Step 7: What's Next
 
 | Topic | Where |
