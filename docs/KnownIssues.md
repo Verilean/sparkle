@@ -143,24 +143,34 @@ elabStr s!"theorem {assertName} ... := by sorry"
 
 **Workaround**: Use `lake env lean` for rapid iteration with auto-proved assertions, or write manual proofs.
 
-### Cross-reference: `#verify_eq`
+### Cross-reference: `#verify_eq` and `#verify_eq_at`
 
-`Sparkle/Verification/Equivalence.lean` provides a `#verify_eq f g`
-command that generates `theorem {f}_eq_{g} : f = g := by funext ...;
-unfold f g; bv_decide`. The command module itself is a pure elaborator
-(no `bv_decide` call at build time) and is always safe to `lake build`.
-However, any file that **invokes** `#verify_eq` will hit the same
-compilation-mode hang. The demo file `Tests/Verification/EquivDemo.lean`
-is therefore deliberately excluded from every `lean_exe` root and from
-`Sparkle.lean` / `Tests/AllTests.lean`. Run it interactively:
+`Sparkle/Verification/Equivalence.lean` provides two equivalence-check
+commands:
+
+- `#verify_eq f g` — pure `BitVec` function equivalence. Generates
+  `theorem {f}_eq_{g} : f = g := by funext ...; unfold f g; bv_decide`.
+- `#verify_eq_at (cycles := N) (latency := L) impl spec` — Signal DSL
+  cycle-accurate equivalence. Generates a conjunction of `(impl
+  inputs).val (t + L) = (spec inputs).val t` for `t ∈ [0, N)` and
+  discharges each conjunct with `simp only [Signal.val_*]; bv_decide`.
+
+Both command modules are pure elaborators (no `bv_decide` call at
+build time) and are always safe to `lake build`. However, any file
+that **invokes** either command hits the compilation-mode hang. The
+demo file `Tests/Verification/EquivDemo.lean` is therefore deliberately
+excluded from every `lean_exe` root and from `Sparkle.lean` /
+`Tests/AllTests.lean`. Run it interactively:
 
 ```bash
 lake env lean Tests/Verification/EquivDemo.lean
 ```
 
-Expected output: eight lines of `✅ verified: …` for the positive demos.
-Uncomment the commented-out `distrib_rhs_buggy` variant at the top of
-the file to see `bv_decide` emit a concrete counterexample.
+Expected output: twelve lines of `✅ verified: …` (eight pure-BitVec
+demos plus four Signal DSL demos including the 2-cycle-latency MAC
+pipeline headline case). Uncomment the commented-out `macPipeBuggy`
+variant in §11 or the `distrib_rhs_buggy` variant in §1 to see
+`bv_decide` emit a concrete counterexample.
 
 ---
 

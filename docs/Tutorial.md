@@ -319,10 +319,11 @@ emits a theorem `{fast_alu}_eq_{pure_alu} : fast_alu = pure_alu`. If the
 two implementations are not equivalent, `bv_decide` prints a concrete
 counterexample and the command reports ❌.
 
-See `Tests/Verification/EquivDemo.lean` for eight worked examples
-(distributivity, associativity, De Morgan, XOR-swap identity,
-4-bit ripple-carry vs built-in add, 4-bit shift-and-add multiply vs
-built-in multiply, carry-save step identity). Run interactively with:
+See `Tests/Verification/EquivDemo.lean` for the full catalogue: eight
+pure-BitVec demos (distributivity, associativity, De Morgan, XOR-swap
+identity, ripple-carry vs built-in add, shift-and-add multiply vs
+built-in multiply, carry-save step identity) plus the four Signal DSL
+demos covered in §5.5 below.
 
 ```bash
 lake env lean Tests/Verification/EquivDemo.lean
@@ -330,9 +331,78 @@ lake env lean Tests/Verification/EquivDemo.lean
 
 **⚠  Interactive-only in v1.** `bv_decide` currently hangs inside
 `lake build` on Lean 4.28.0-rc1 (see `docs/KnownIssues.md` Issue 2).
-The `#verify_eq` command itself is a pure elaborator and is always
-safe to `import` / `lake build`; only files that *call* the command
-should stay out of the default build target.
+The `#verify_eq` / `#verify_eq_at` commands themselves are pure
+elaborators and are always safe to `import` / `lake build`; only files
+that *call* those commands should stay out of the default build target.
+
+### 5.5 Cycle-Accurate Equivalence with `#verify_eq_at`
+
+`#verify_eq` only handles combinational functions. For hardware with
+registers — pipelines, shift registers, FIR filters — Sparkle ships a
+sister command that unrolls the circuit over a finite window of cycles:
+
+```lean
+#verify_eq_at (cycles := N) (latency := L) impl spec
+```
+
+This generates a theorem of the shape
+
+```
+∀ (input-streams), (impl inputs).val (L + t) = (spec inputs).val t
+```
+
+for every `t ∈ [0, N)`, which `bv_decide` discharges one cycle at a
+time. The typical use case is proving that a multi-cycle pipeline is
+*functionally equivalent* to a single-cycle reference, modulo the
+pipeline's own latency — exactly the "register-balance to meet
+frequency" refactor you'd do when the critical path is too long.
+
+```lean
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
+-- Single-cycle reference: out(t) = a(t)*b(t) + c(t)
+def macSingle (a b c : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  a * b + c
+
+-- 3-stage pipeline: latency 2, same function
+def macPipe (a b c : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let ra := Signal.register 0#4 a
+  let rb := Signal.register 0#4 b
+  let rc := Signal.register 0#4 c
+  let prod2 := Signal.register 0#4 (ra * rb)
+  let c2    := Signal.register 0#4 rc
+  prod2 + c2
+
+-- Prove macPipe.val (t + 2) = macSingle.val t for t ∈ [0, 4):
+#verify_eq_at (cycles := 4) (latency := 2) macPipe macSingle
+-- ✅ verified: `macPipe_eq_macSingle_at_4_lat_2`
+```
+
+`latency := 0` is the default and models "this is a pure refactor — no
+new delay". Use it for register-position commutation, re-associated
+adders, or anywhere the output cycle count is identical.
+
+**Supported**: `Signal.register`, `Signal.pure`, the hardware
+arithmetic/bitwise operators (`+`, `-`, `*`, `&&&`, `|||`, `^^^`),
+`Signal.map`-style plain functions. Feed-forward only; register chains
+of any depth are fine.
+
+**Not supported in v1**: `Signal.loop` / feedback circuits (the
+fixed-point combinator is `opaque` and cannot be unfolded by the
+generated tactic), memory primitives, `registerWithEnable`. Use manual
+proofs for those cases.
+
+**Scaling**: each cycle produces a separate SAT goal with
+`cycles × arity × bitwidth` free BitVec bits. 4-bit inputs with 4–8
+cycles is the sweet spot; wider inputs / deeper unrolls hit the SAT
+budget fast. If you see a timeout, shrink the BitVec width first.
+
+See `Tests/Verification/EquivDemo.lean` §9–12 for four worked Signal
+DSL demos: identical 2-cycle delays, register-position commutation,
+the MAC pipeline above, and a 2-tap FIR filter pipelined by one stage.
 
 ---
 

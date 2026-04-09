@@ -19,7 +19,11 @@
   `bv_decide` produce a counterexample.
 -/
 
+import Sparkle
 import Sparkle.Verification.Equivalence
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
 
 -- ============================================================================
 -- 1. Distributivity:  (a+b)(c+d) = ac + ad + bc + bd   on BitVec 4
@@ -147,3 +151,116 @@ def shiftAddMul4 (a b : BitVec 4) : BitVec 4 :=
 def plainMul4 (a b : BitVec 4) : BitVec 4 := a * b
 
 #verify_eq shiftAddMul4 plainMul4
+
+
+-- ============================================================================
+-- LAYER 2 DEMOS — Signal DSL equivalence at N cycles via `#verify_eq_at`
+-- ============================================================================
+--
+-- These demos use `#verify_eq_at (cycles := N) (latency := L) impl spec`
+-- to prove that an implementation matches a specification at every time
+-- `t ∈ [L, L + N)`, where `latency` models how many cycles the
+-- implementation is delayed behind the spec. The typical use case is
+-- proving that a pipelined version of a combinational circuit produces
+-- the same result as the single-cycle spec, delayed by the pipeline's
+-- own latency.
+--
+-- Limitations (v1):
+--   • No `Signal.loop` / feedback circuits (opaque to unfold).
+--   • No memory / register-file primitives.
+--   • BitVec widths above ~8 and cycle counts above ~8 may time out.
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 9. Refactoring with identical latency: two ways to express a 2-cycle delay.
+--    `simp only` alone closes this; bv_decide is not even needed.
+-- ----------------------------------------------------------------------------
+
+def delay2A (x : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  Signal.register 0#4 (Signal.register 0#4 x)
+
+def delay2B (x : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  Signal.register 0#4 (Signal.register 0#4 x)
+
+#verify_eq_at (cycles := 4) delay2A delay2B
+
+
+-- ----------------------------------------------------------------------------
+-- 10. Register-position refactor (latency 0):
+--     Is `register each input then add` the same as `add then register twice`?
+--     Both complete their addition and hold the result with the same delay.
+-- ----------------------------------------------------------------------------
+
+def addPipeInputFirst (a b : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let ra := Signal.register 0#4 a
+  let rb := Signal.register 0#4 b
+  Signal.register 0#4 (ra + rb)
+
+def addPipeOutputFirst (a b : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let s := a + b
+  Signal.register 0#4 (Signal.register 0#4 s)
+
+#verify_eq_at (cycles := 4) addPipeInputFirst addPipeOutputFirst
+
+
+-- ----------------------------------------------------------------------------
+-- 11. ★ HEADLINE USE CASE ★
+--     Single-cycle MAC vs 3-stage pipelined MAC, latency = 2.
+--
+--     macSingle: out(t) = a(t)*b(t) + c(t)                 (1-cycle critical path)
+--     macPipe:   stage1: latch a, b, c
+--                stage2: product register + aligned c register
+--                stage3: sum
+--
+--     Proves that for every t ≥ 2,
+--         macPipe.val t = macSingle.val (t - 2)
+--     i.e. the pipeline reproduces the single-cycle answer exactly,
+--     two clocks late. This is the bread-and-butter "clock-frequency-
+--     optimization preserves functional correctness" proof.
+-- ----------------------------------------------------------------------------
+
+def macSingle (a b c : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  a * b + c
+
+def macPipe (a b c : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let ra := Signal.register 0#4 a
+  let rb := Signal.register 0#4 b
+  let rc := Signal.register 0#4 c
+  let prod2 := Signal.register 0#4 (ra * rb)
+  let c2    := Signal.register 0#4 rc
+  prod2 + c2
+
+#verify_eq_at (cycles := 4) (latency := 2) macPipe macSingle
+
+-- BUG variant: drop `c` from the pipeline. Uncomment to see bv_decide
+-- produce a concrete counterexample (e.g. c=15#4 at some time t).
+--
+-- def macPipeBuggy (a b _c : Signal defaultDomain (BitVec 4))
+--     : Signal defaultDomain (BitVec 4) :=
+--   let ra := Signal.register 0#4 a
+--   let rb := Signal.register 0#4 b
+--   Signal.register 0#4 (ra * rb)
+-- #verify_eq_at (cycles := 3) (latency := 2) macPipeBuggy macSingle
+
+
+-- ----------------------------------------------------------------------------
+-- 12. 2-tap FIR filter, single-cycle vs 1-stage pipeline (latency = 1)
+--     Single: y(t) = a*x(t) + b*x(t-1)
+--     Pipe:   stage1: register the sum, latency increases by 1
+-- ----------------------------------------------------------------------------
+
+def fir2Single (a b : BitVec 4) (x : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let x1 := Signal.register 0#4 x
+  (a * x) + (b * x1)
+
+def fir2Pipe (a b : BitVec 4) (x : Signal defaultDomain (BitVec 4))
+    : Signal defaultDomain (BitVec 4) :=
+  let x1 := Signal.register 0#4 x
+  Signal.register 0#4 ((a * x) + (b * x1))
+
+#verify_eq_at (cycles := 3) (latency := 1) fir2Pipe fir2Single
