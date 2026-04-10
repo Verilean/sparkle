@@ -26,6 +26,7 @@ import Sparkle.Core.Domain
 import IP.BitNet.BitLinear.TimeMux
 import IP.BitNet.BitLinear.ScalePipelined
 import IP.BitNet.Attention.Quantize
+import IP.BitNet.Attention.KVCache
 import IP.BitNet.SignalHelpers
 
 namespace Sparkle.IP.BitNet.Attention
@@ -51,6 +52,8 @@ def attentionHeadFull
     (headDimLimit : BitVec 16) -- headDim - 1
     (go : Signal dom Bool)
     (activation : Signal dom (BitVec 32))
+    -- Current sequence position (for KV cache write)
+    (seqPos : Signal dom (BitVec 16))
     -- Weight base addresses (Q, K, V projection weight rows stored sequentially)
     (qBaseAddr kBaseAddr vBaseAddr : Signal dom (BitVec 32))
     (scaleVal : Signal dom (BitVec 32))
@@ -125,6 +128,18 @@ def attentionHeadFull
                   (Signal.mux isDone
                     (Signal.mux go (Signal.pure 1#4 : Signal dom (BitVec 4)) phase)
                     phase))))))
+
+    -- KV Cache: write K/V after projection, read during dot/scoreV
+    let kWriteEn : Signal dom Bool := kDone
+    let vWriteEn : Signal dom Bool := vDone
+    -- Read address cycles through [0..seqPos] during dot and scoreV phases
+    let cacheReadAddr : Signal dom (BitVec 16) := (Signal.pure 0#16 : Signal dom (BitVec 16))  -- v0: single position
+    let kvOut := kvCachePair seqPos kResult vResult
+      (Signal.mux kWriteEn (Signal.pure true : Signal dom Bool)
+        (Signal.mux vWriteEn (Signal.pure true : Signal dom Bool) (Signal.pure false : Signal dom Bool)))
+      cacheReadAddr
+    let _kCached := Signal.fst kvOut
+    let _vCached := Signal.snd kvOut
 
     -- Latch results at each phase completion
     let nextQ : Signal dom (BitVec 32) := Signal.mux qDone scaled qResult

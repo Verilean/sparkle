@@ -64,6 +64,7 @@ def fullModelForwardPass
     (nLayers nHeads : Nat)
     (go : Signal dom Bool)
     (tokenActivation : Signal dom (BitVec 32))  -- pre-embedded activation
+    (seqPos : Signal dom (BitVec 16))           -- current sequence position
     -- Weight addresses
     (weightBaseAddr : Signal dom (BitVec 32))
     (layerStrideBV : BitVec 32)  -- total weights per layer (attn + ffn)
@@ -113,7 +114,7 @@ def fullModelForwardPass
 
     -- Transformer layer for current layer index
     let layerOut := transformerLayer dimLimit headDimLimit nHeads layerStartPulse currentAct
-      attnBase headStrideBV dimBV ffnGateBase ffnUpBase ffnDownBase
+      seqPos attnBase headStrideBV dimBV ffnGateBase ffnUpBase ffnDownBase
       scaleVal memReadData memReadValid
     let layerResult := Signal.fst layerOut
     let layerDone : Signal dom Bool :=

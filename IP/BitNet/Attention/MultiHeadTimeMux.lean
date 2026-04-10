@@ -36,6 +36,7 @@ def multiHeadAttentionTimeMux
     (nHeads : Nat)
     (go : Signal dom Bool)
     (activation : Signal dom (BitVec 32))
+    (seqPos : Signal dom (BitVec 16))
     -- Base address for all attention weights
     (attnBaseAddr : Signal dom (BitVec 32))
     -- Stride per head in weight memory (= 3 * dim, as BitVec 32)
@@ -75,7 +76,7 @@ def multiHeadAttentionTimeMux
 
     -- Run attention head for current index
     let headOut := attentionHeadFull dimLimit headDimLimit headStartPulse activation
-      qBase kBase vBase scaleVal memReadData memReadValid
+      seqPos qBase kBase vBase scaleVal memReadData memReadValid
     let headResult := Signal.fst headOut
     let headDone : Signal dom Bool :=
       Signal.mux isRunning (Signal.fst (Signal.snd headOut)) (Signal.pure false : Signal dom Bool)

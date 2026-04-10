@@ -47,6 +47,7 @@ def transformerLayer
     (nHeads : Nat)
     (go : Signal dom Bool)
     (input : Signal dom (BitVec 32))
+    (seqPos : Signal dom (BitVec 16))
     -- Attention weight base + stride
     (attnBaseAddr : Signal dom (BitVec 32))
     (headStrideBV dimBV : BitVec 32)
@@ -79,7 +80,7 @@ def transformerLayer
     -- Multi-head attention
     let attnGo : Signal dom Bool := Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
     let attnOut := multiHeadAttentionTimeMux dimLimit headDimLimit nHeads attnGo savedInput
-      attnBaseAddr headStrideBV dimBV scaleVal memReadData memReadValid
+      seqPos attnBaseAddr headStrideBV dimBV scaleVal memReadData memReadValid
     let attnResultNew := Signal.fst attnOut
     let attnDone : Signal dom Bool :=
       Signal.mux isAttn (Signal.fst (Signal.snd attnOut)) (Signal.pure false : Signal dom Bool)
