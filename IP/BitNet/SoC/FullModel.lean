@@ -61,12 +61,13 @@ variable {dom : DomainConfig}
     Returns (result × (done × (layerIdx × phase))). -/
 def fullModelForwardPass
     (dimLimit headDimLimit : BitVec 16)
-    (nLayers : Nat)
+    (nLayers nHeads : Nat)
     (go : Signal dom Bool)
     (tokenActivation : Signal dom (BitVec 32))  -- pre-embedded activation
     -- Weight addresses
     (weightBaseAddr : Signal dom (BitVec 32))
     (layerStrideBV : BitVec 32)  -- total weights per layer (attn + ffn)
+    (headStrideBV dimBV : BitVec 32) -- attention head stride and dim
     (scaleVal : Signal dom (BitVec 32))
     -- Memory interface
     (memReadData : Signal dom (BitVec 2))
@@ -94,28 +95,25 @@ def fullModelForwardPass
       layerIdxExt * (Signal.pure layerStrideBV : Signal dom (BitVec 32))
     let layerBase : Signal dom (BitVec 32) := weightBaseAddr + layerOffset
 
-    -- Address offsets within a layer:
-    -- Attention: Q, K, V at offsets 0, dim*headDim, 2*dim*headDim
-    -- FFN: gate, up, down at offsets after attention
-    -- Simplified: just use sequential offsets
+    -- Address layout within a layer:
+    -- Attention weights: nHeads × 3 × dim words at layerBase
+    -- FFN weights: 3 × dim words after attention
+    let attnBase := layerBase
     let dimBV32 : Signal dom (BitVec 32) :=
-      (Signal.pure (dimLimit ++ 1#16 : BitVec 32) : Signal dom (BitVec 32))
-    let off1 := dimBV32
-    let off2 := dimBV32 + dimBV32
-    let off3 := off2 + dimBV32
-    let off4 := off3 + dimBV32
-    let off5 := off4 + dimBV32
-
-    let attnQBase := layerBase
-    let attnKBase := layerBase + off1
-    let attnVBase := layerBase + off2
-    let ffnGateBase := layerBase + off3
-    let ffnUpBase := layerBase + off4
-    let ffnDownBase := layerBase + off5
+      (Signal.pure dimBV : Signal dom (BitVec 32))
+    -- FFN starts after all attention weights (nHeads * headStride)
+    let nHeadsBV32 : Signal dom (BitVec 32) :=
+      (Signal.pure (BitVec.ofNat 32 nHeads) : Signal dom (BitVec 32))
+    let attnTotalSize : Signal dom (BitVec 32) :=
+      nHeadsBV32 * (Signal.pure headStrideBV : Signal dom (BitVec 32))
+    let ffnBase := layerBase + attnTotalSize
+    let ffnGateBase := ffnBase
+    let ffnUpBase := ffnBase + dimBV32
+    let ffnDownBase := ffnBase + dimBV32 + dimBV32
 
     -- Transformer layer for current layer index
-    let layerOut := transformerLayer dimLimit headDimLimit layerStartPulse currentAct
-      attnQBase attnKBase attnVBase ffnGateBase ffnUpBase ffnDownBase
+    let layerOut := transformerLayer dimLimit headDimLimit nHeads layerStartPulse currentAct
+      attnBase headStrideBV dimBV ffnGateBase ffnUpBase ffnDownBase
       scaleVal memReadData memReadValid
     let layerResult := Signal.fst layerOut
     let layerDone : Signal dom Bool :=

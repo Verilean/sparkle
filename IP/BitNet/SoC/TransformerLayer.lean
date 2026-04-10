@@ -14,7 +14,7 @@
 
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import IP.BitNet.Attention.TimeMux
+import IP.BitNet.Attention.MultiHeadTimeMux
 import IP.BitNet.SoC.FFNLayerPipelined
 import IP.BitNet.Layers.ResidualAdd
 import IP.BitNet.SignalHelpers
@@ -44,10 +44,12 @@ variable {dom : DomainConfig}
     Returns (result × (done × phase)). -/
 def transformerLayer
     (dimLimit headDimLimit : BitVec 16)
+    (nHeads : Nat)
     (go : Signal dom Bool)
     (input : Signal dom (BitVec 32))
-    -- Attention weight addresses
-    (attnQBase attnKBase attnVBase : Signal dom (BitVec 32))
+    -- Attention weight base + stride
+    (attnBaseAddr : Signal dom (BitVec 32))
+    (headStrideBV dimBV : BitVec 32)
     -- FFN weight addresses
     (ffnGateBase ffnUpBase ffnDownBase : Signal dom (BitVec 32))
     -- Scale
@@ -74,10 +76,10 @@ def transformerLayer
     let isFFNResid  : Signal dom Bool := phase === (Signal.pure 4#4 : Signal dom (BitVec 4))
     let isDone      : Signal dom Bool := phase === (Signal.pure 5#4 : Signal dom (BitVec 4))
 
-    -- Attention head
+    -- Multi-head attention
     let attnGo : Signal dom Bool := Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
-    let attnOut := attentionHeadFull dimLimit headDimLimit attnGo savedInput
-      attnQBase attnKBase attnVBase scaleVal memReadData memReadValid
+    let attnOut := multiHeadAttentionTimeMux dimLimit headDimLimit nHeads attnGo savedInput
+      attnBaseAddr headStrideBV dimBV scaleVal memReadData memReadValid
     let attnResultNew := Signal.fst attnOut
     let attnDone : Signal dom Bool :=
       Signal.mux isAttn (Signal.fst (Signal.snd attnOut)) (Signal.pure false : Signal dom Bool)
