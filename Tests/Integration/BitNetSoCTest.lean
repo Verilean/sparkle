@@ -36,27 +36,28 @@ open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 open Sparkle.IP.RV32.BitNetPeripheral
 
-/-- Exercise the BitNet peripheral as a pure Signal function. -/
+/-- Exercise the BitNet peripheral as a pure Signal function.
+    Golden outputs captured from `#eval` of the real FFN pipeline
+    (dim=4, 1 layer, all-+1 ternary weights, unit scales). -/
 def runBitNetUnit : IO (Bool × Array (Nat × Nat)) := do
-  let inputs : Array Nat := #[
-    0x00010000,  -- 1.0 in Q16.16
-    0x00020000,  -- 2.0
-    0x00030000,  -- 3.0
-    0x00040000,  -- 4.0
-    0x00080000,  -- 8.0
-    0x00000100,  -- 256 (small)
-    0x12345678,  -- arbitrary
-    0x00000000   -- zero (sanity)
+  let testCases : Array (Nat × Nat) := #[
+    (0x00010000, 0x00410000),  -- 1.0 in Q16.16
+    (0x00020000, 0x02020000),  -- 2.0
+    (0x00030000, 0x06C30000),  -- 3.0
+    (0x00040000, 0x10040000),  -- 4.0
+    (0x00080000, 0x80080000),  -- 8.0
+    (0x00000100, 0x00000100),  -- small
+    (0x12345678, 0x5AD1BC9A),  -- arbitrary
+    (0x00000000, 0x00000000)   -- zero
   ]
   let mut results : Array (Nat × Nat) := #[]
   let mut allOk := true
-  for x in inputs do
+  for (x, expected) in testCases do
     let inputSig : Signal defaultDomain (BitVec 32) :=
       Signal.pure (BitVec.ofNat 32 x)
     let outSig := bitNetPeripheral inputSig
     let out := outSig.atTime 0
-    let expected := BitVec.ofNat 32 ((x * 4) % (2 ^ 32))
-    if out != expected then allOk := false
+    if out != BitVec.ofNat 32 expected then allOk := false
     results := results.push (x, out.toNat)
   pure (allOk, results)
 
@@ -99,7 +100,7 @@ def main : IO UInt32 := do
   -- Axis 1: functional — peripheral computes the expected mapping
   -- ------------------------------------------------------------------
   IO.println "Axis 1: BitNet peripheral unit behavior"
-  IO.println "  Expected: output = 4 × input  (all-+1 ternary weights, dim=4)"
+  IO.println "  Expected: full FFN pipeline (BitLinear→Scale→ReLU²→ElemMul→BitLinear→Scale→Residual)"
   let (unitOk, unitResults) ← runBitNetUnit
   for (inp, out) in unitResults do
     let inHex := String.mk (Nat.toDigits 16 inp)

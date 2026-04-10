@@ -47,20 +47,15 @@ def hardwiredSoCSignal (cfg : SoCConfig) (layerWeights : Array LayerWeights)
     (layerScales : Array LayerScales)
     (x : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
-  Id.run do
-    let mut current := x
-    for i in [:cfg.nLayers] do
-      if i < layerWeights.size then
-        let lw := layerWeights[i]!
-        let ls := if i < layerScales.size then layerScales[i]!
-          else { gateScale := 0x01000000, upScale := 0x01000000, downScale := 0x01000000 }
-        -- Create activation array (broadcast single value to all dimensions)
-        let activations : Array (Signal dom (BitVec 32)) :=
-          Array.replicate cfg.dim current
-        -- Apply FFN block
-        current := ffnBlockSignal lw.gateWeights lw.upWeights lw.downWeights
-          ls.gateScale ls.upScale ls.downScale activations
-    return current
+  let defaultScale : LayerScales :=
+    { gateScale := 0x01000000, upScale := 0x01000000, downScale := 0x01000000 }
+  -- Chain layers via foldl over the layer indices
+  (List.range cfg.nLayers).toArray.foldl (init := x) fun current i =>
+    let lw := layerWeights.getD i { gateWeights := #[], upWeights := #[], downWeights := #[] }
+    let ls := layerScales.getD i defaultScale
+    let activations := Array.replicate cfg.dim current
+    ffnBlockSignal lw.gateWeights lw.upWeights lw.downWeights
+      ls.gateScale ls.upScale ls.downScale activations
 
 /-- TimeMultiplexed SoC: single FFN core with dynamic weight selection.
     Uses Signal.loop for FSM-based layer sequencing.

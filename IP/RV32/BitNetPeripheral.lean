@@ -32,6 +32,7 @@ import Sparkle.Core.Signal
 import Sparkle.Core.Domain
 import IP.BitNet.Config
 import IP.BitNet.SignalHelpers
+import IP.BitNet.SoC.Top
 
 namespace Sparkle.IP.RV32.BitNetPeripheral
 
@@ -39,6 +40,7 @@ open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 open Sparkle.IP.BitNet
 open Sparkle.IP.BitNet.SignalHelpers
+open Sparkle.IP.BitNet.SoC
 
 /-- The minimal BitNet SoC configuration for Level-1a integration.
     dim = ffnDim = 4, 1 layer, HardwiredUnrolled. -/
@@ -76,37 +78,15 @@ def level1aScales  : Array LayerScales  := #[level1aLayerScales]
 /-- The Level-1a BitNet peripheral as a combinational Signal function.
     One 32-bit activation in → one 32-bit activation out, same cycle.
 
-    For Level 1a we expose an INLINED ternary BitLinear layer — the
-    linear-algebra kernel that makes BitNet distinctive. We inline it
-    here rather than calling `bitLinearSignal` / `adderTree` /
-    `macStage` because those helpers contain `if size == 0` guards
-    and `Id.run do` loops that the synthesizer refuses ("if-then-else
-    expressions cannot be synthesized"). Since our dim is a concrete
-    literal (4), we can expand the reduction tree by hand.
+    Now calls the REAL `hardwiredSoCSignal` (full FFN pipeline:
+    BitLinear → Scale → ReLU² → ElemMul → BitLinear → Scale → Residual)
+    with dim=4, 1 layer, all-+1 ternary weights, unit scales.
 
-    With all ternary weights = +1 and dim = 4, the operation reduces
-    to:
-
-        output = input + input + input + input  =  4 * input
-
-    Still combinational, still "BitNet-flavoured" (ternary weights,
-    additive reduction tree with zero pruning and ±1 pass-through —
-    the exact semantics of a BitLinear layer), but the whole thing
-    fits on two lines of Signal DSL that the backend understands.
-    Lifting to the full FFN pipeline (ReLU², scale, elem-mul,
-    residual) is tracked as a Level-1b task in `docs/TODO.md`.
-
-    The `_ = level1aLayerWeights` reference keeps the config values
-    live so future work can delete the inlined version and restore a
-    call to `bitLinearSignal` once the synthesizer grows if/size
-    support. -/
+    The underlying helpers (`adderTree`, `macStage`, `ffnBlockSignal`,
+    `hardwiredSoCSignal`) have been rewritten to be synthesizable
+    (no `Id.run do` / `let mut` / pure `if-size` guards). -/
 def bitNetPeripheral {dom : DomainConfig}
     (input : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
-  -- level1aLayerWeights / level1aLayerScales are kept as references
-  -- so they show up in the module's dependency graph; Level 1b will
-  -- use them via bitLinearSignal + ffnBlockSignal.
-  let _keepAlive := (level1aLayerWeights, level1aLayerScales, level1aConfig)
-  -- dim=4 broadcast, all-+1 weights: 4-way adder tree unrolled by hand.
-  (input + input) + (input + input)
+  hardwiredSoCSignal level1aConfig level1aWeights level1aScales input
 
 end Sparkle.IP.RV32.BitNetPeripheral

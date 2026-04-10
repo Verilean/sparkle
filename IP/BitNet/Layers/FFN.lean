@@ -78,8 +78,8 @@ def ffnBlockSignal
   let downScaled := scaleMultiplySignal downAcc48 (Signal.pure (BitVec.ofInt 32 downScaleVal))
 
   -- Residual add: input + down
-  -- Use first activation as residual input
-  let residInput := if activations.size > 0 then activations[0]! else Signal.pure 0#32
+  -- Use first activation as residual input (default to 0 if empty)
+  let residInput := activations.getD 0 (Signal.pure 0#32)
   residualAddSignal residInput downScaled
 
 end Sparkle.IP.BitNet.Layers
