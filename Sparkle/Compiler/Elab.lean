@@ -585,6 +585,29 @@ mutual
                    let resWire ← CompilerM.makeWire hint (.bitVector len) (named := isNamed)
                    CompilerM.emitAssign resWire (.slice (.ref wireS) (start + len - 1) start)
                    return resWire
+               -- BitVec.signExtend → sign extension via concat of replicated MSB
+               if opName == ``BitVec.signExtend then
+                 let bodyArgs := body.getAppArgs
+                 -- signExtend w val : args are [w, val] (w is target width)
+                 if bodyArgs.size >= 2 then
+                   let targetWidth ← extractNat bodyArgs[bodyArgs.size - 2]!
+                   let wireS ← translateExprToWire s "s" (isTopLevel := false)
+                   let srcWidth ← CompilerM.getWireWidth wireS
+                   let extBits := targetWidth - srcWidth
+                   let resWire ← CompilerM.makeWire hint (.bitVector targetWidth) (named := isNamed)
+                   if extBits == 0 then
+                     CompilerM.emitAssign resWire (.ref wireS)
+                   else
+                     -- MSB = signal[srcWidth-1 : srcWidth-1]
+                     let msbWire ← CompilerM.makeWire "sext_msb" (.bitVector 1)
+                     CompilerM.emitAssign msbWire (.slice (.ref wireS) (srcWidth - 1) (srcWidth - 1))
+                     -- Replicate MSB extBits times via concat
+                     let msbRefs := List.replicate extBits (.ref msbWire)
+                     let extWire ← CompilerM.makeWire "sext_ext" (.bitVector extBits)
+                     CompilerM.emitAssign extWire (.concat msbRefs)
+                     -- Concat: {ext, original}
+                     CompilerM.emitAssign resWire (.concat [.ref extWire, .ref wireS])
+                   return resWire
                -- Unary primitives (neg, not, etc.)
                if let some op := getOperator opName then
                  let wireS ← translateExprToWire s "s" (isTopLevel := false)

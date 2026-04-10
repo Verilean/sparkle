@@ -761,6 +761,52 @@ on non-Signal enum`, or pure-Lean `if` inspecting signal values,
 consult `docs/KnownIssues.md` "Non-synthesizable Signal DSL patterns"
 for the exact symptom and workaround.
 
+### Confirmed synthesizable constructs
+
+The following table lists every construct confirmed to pass
+`#synthesizeVerilog`. Each entry has a unit test in
+`Tests/Synthesis/SynthCatalog.lean`; if a future Lean upgrade breaks one,
+the test catches it.
+
+#### Primitives
+
+| # | Construct | Example | Notes |
+|---|-----------|---------|-------|
+| 1 | `Signal.pure <literal>` | `Signal.pure 42` | Constant wire |
+| 2 | `a + b`, `a - b`, `a * b` | arithmetic on `Signal dom (BitVec n)` | |
+| 3 | `a &&& b`, `a \|\|\| b`, `a ^^^ b` | bitwise | |
+| 4 | `a <<< b`, `a >>> b` | shift | |
+| 5 | `Signal.mux c a b` | `c : Signal dom Bool` | Runtime branch |
+| 6 | `Signal.register init next` | `Signal.register 0 (self + 1)` | D flip-flop |
+| 7 | `a === b` | → `Signal dom Bool` | Equality compare |
+| 8 | `x.map (BitVec.extractLsb' start len ·)` | `bus.map (BitVec.extractLsb' 8 8 ·)` | Bit slice |
+| 9 | `-a` | unary negation | |
+| 10 | `a ++ b` | `hi ++ lo` | Bit concatenation |
+| 11 | `let x := … in …` | wire sharing | |
+| 12 | `x.map (BitVec.signExtend w ·)` | `x.map (BitVec.signExtend 48 ·)` | Sign extension |
+
+#### Composite patterns
+
+| # | Pattern | What it does |
+|---|---------|-------------|
+| 13 | signext + mul + slice | Fixed-point scale multiply (e.g. Q8.24) |
+| 14 | `@[reducible]` + List structural recursion | Adder tree, MAC tree — fully unrolled at elab time |
+| 15 | `Signal.mux (a === lit) x y` | Address decode |
+
+#### Bus-level abstraction
+
+Bus composition and decomposition are pure combinations of #8 (slice)
+and #10 (concat). Lean types enforce field widths at compile time; no
+extra backend support is needed.
+
+| # | Pattern | Example |
+|---|---------|---------|
+| 16 | Bus decompose | Split 32-bit bus into 4 × 8-bit fields via `extractLsb'` |
+| 17 | Bus compose | Pack 4 × 8-bit fields into 32-bit via `d ++ c ++ b ++ a` |
+| 18 | Struct-like bundle | Pack with `++`, project with `extractLsb'` |
+| 19 | Field overwrite | Read-modify-write: `hi ++ newField ++ lo` |
+| 20 | MMIO dispatcher | Chained `Signal.mux (addr === lit)` for peripheral select |
+
 ### When to worry
 
 You do NOT need to follow these rules for:

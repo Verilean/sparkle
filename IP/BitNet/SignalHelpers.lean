@@ -6,6 +6,11 @@
   - Binary adder tree (recursive pairwise addition)
   - Mux-tree LUT (lookup table via chained Signal.mux)
   - Max-tree (signed comparator tree)
+
+  Design principle: all helpers are `@[reducible]` and use `List`-based
+  structural recursion so they fully reduce at elaboration time. The
+  Verilog backend sees only concrete `Signal` combinators, never Array
+  operations (which internally use `Id.run` and break synthesis).
 -/
 
 import Sparkle.Core.Signal
@@ -23,126 +28,137 @@ variable {dom : DomainConfig}
 -- ============================================================================
 
 /-- Sign-extend a BitVec signal from n bits to (ext + n) bits.
-    Uses BitVec.signExtend internally. -/
+    Uses `BitVec.signExtend` in a `Signal.map` lambda — the Verilog
+    backend translates this to `{{ext{MSB}}, signal}`. -/
 def signExtendSignal (ext : Nat) (x : Signal dom (BitVec n))
     : Signal dom (BitVec (ext + n)) :=
-  x.map (fun v => (v.signExtend (ext + n)).cast (by omega))
+  Signal.map (BitVec.signExtend (ext + n) ·) x
+
+-- ============================================================================
+-- List-based tree reduction (synthesizable)
+-- ============================================================================
+
+/-- Pairwise-reduce a list: pair adjacent elements with `f`, carry the
+    odd tail element unchanged. Structural recursion on the list. -/
+@[reducible] def pairwiseReduceList (f : α → α → α) : List α → List α
+  | [] => []
+  | [x] => [x]
+  | x :: y :: rest => f x y :: pairwiseReduceList f rest
+
+/-- Reduce a list to a single element by repeatedly pairing with `f`.
+    Uses fuel (= input length) for termination. -/
+@[reducible] def treeReduceAux (f : α → α → α) (zero : α) (fuel : Nat) : List α → α
+  | [] => zero
+  | [x] => x
+  | xs => match fuel with
+    | 0 => xs.headD zero
+    | fuel' + 1 => treeReduceAux f zero fuel' (pairwiseReduceList f xs)
+
+@[reducible] def treeReduce (f : α → α → α) (zero : α) (xs : List α) : α :=
+  treeReduceAux f zero xs.length xs
 
 -- ============================================================================
 -- Binary Adder Tree
 -- ============================================================================
 
-/-- Pairwise-reduce an array: pair adjacent elements with `f`, carry the
-    odd tail element unchanged. Pure-functional (no Id.run / let mut). -/
-def pairwiseReduce [Inhabited α] (f : α → α → α) (xs : Array α) : Array α :=
-  let pairs := (List.range (xs.size / 2)).toArray.map fun i =>
-    f xs[2 * i]! xs[2 * i + 1]!
-  if xs.size % 2 == 1 then pairs.push xs[xs.size - 1]!
-  else pairs
-
 /-- Build a binary adder tree over a list of signals.
-    Recursively reduces by pairwise addition until one signal remains.
-    Returns Signal.pure 0 for empty input.
-
-    Note: All inputs must have the same BitVec width. The output width
-    equals the input width (no automatic width growth — caller is responsible
-    for sign-extending inputs to the desired accumulator width first). -/
-partial def adderTree (signals : Array (Signal dom (BitVec n)))
+    Returns Signal.pure 0 for empty input. Fully reduces at elab time. -/
+@[reducible] def adderTree (signals : Array (Signal dom (BitVec n)))
     : Signal dom (BitVec n) :=
-  if signals.size == 0 then Signal.pure 0
-  else if signals.size == 1 then signals[0]!
-  else adderTree (pairwiseReduce (· + ·) signals)
+  treeReduce (· + ·) (Signal.pure 0) signals.toList
 
 -- ============================================================================
 -- Mux-Tree LUT (Lookup Table)
 -- ============================================================================
 
-/-- Build a mux-tree lookup table: for each entry in the table,
-    chain Signal.mux to select the matching entry based on index.
+/-- Build a mux-tree LUT from a list of (index, value) entries. -/
+@[reducible] def lutMuxTreeList (index : Signal dom (BitVec k))
+    (dflt : Signal dom (BitVec n))
+    : List (BitVec n × Nat) → Signal dom (BitVec n)
+  | [] => dflt
+  | (v, i) :: rest =>
+    let isMatch := index === (BitVec.ofNat k i)
+    Signal.mux isMatch (Signal.pure v) (lutMuxTreeList index dflt rest)
 
-    Given table[0..N-1] and index signal, returns:
-      if index == N-1 then table[N-1]
-      else if index == N-2 then table[N-2]
-      ...
-      else table[0]  (default)
-
-    All table entries are constant signals (Signal.pure). -/
+/-- Build a mux-tree lookup table from an array of BitVec constants. -/
 def lutMuxTree (table : Array (BitVec n)) (index : Signal dom (BitVec k))
     : Signal dom (BitVec n) :=
   if table.size == 0 then Signal.pure 0
   else
-    let init := Signal.pure table[0]!
-    (List.range table.size).toArray.foldl (init := init) fun acc i =>
-      let isMatch := index === (BitVec.ofNat k i)
-      Signal.mux isMatch (Signal.pure table[i]!) acc
+    let entries := table.toList.zipIdx
+    let dflt : BitVec n := table.toList.headD 0
+    lutMuxTreeList index (Signal.pure dflt) entries
 
 -- ============================================================================
 -- Max-Tree (Signed Comparator Reduction)
 -- ============================================================================
 
-/-- Build a binary max-reduction tree using signed comparison.
-    Recursively finds the maximum value via pairwise comparison + mux.
-
-    Uses signed greater-than comparison (toInt-based) for correct
-    handling of negative values in two's complement. -/
-partial def maxTree (signals : Array (Signal dom (BitVec n)))
+/-- Build a binary max-reduction tree using signed comparison + mux. -/
+@[reducible] def maxTree (signals : Array (Signal dom (BitVec n)))
     : Signal dom (BitVec n) :=
-  if signals.size == 0 then Signal.pure 0
-  else if signals.size == 1 then signals[0]!
-  else
-    let reduced := pairwiseReduce (fun a b =>
+  treeReduce
+    (fun a b =>
       let aGtB : Signal dom Bool := (fun x y => x.toInt > y.toInt) <$> a <*> b
-      Signal.mux aGtB a b) signals
-    maxTree reduced
+      Signal.mux aGtB a b)
+    (Signal.pure 0)
+    signals.toList
 
 -- ============================================================================
 -- Ternary MAC Stage (Hardwired Weights)
 -- ============================================================================
 
-/-- Build the MAC (Multiply-Accumulate) stage for ternary BitLinear.
-    For each weight:
-    - w = 0: pruned (no hardware)
-    - w = +1: pass-through
-    - w = -1: negate (0 - x)
+/-- Process one weight-activation pair: +1 → pass, -1 → negate, 0 → skip. -/
+@[reducible] def macOneList (w : Int) (act : Signal dom (BitVec n))
+    : List (Signal dom (BitVec n)) :=
+  if w == 1 then [act]
+  else if w == -1 then [-act]
+  else []
 
-    Returns only non-zero contributions as an array of signals.
-    Activations are provided as an array of signals. -/
+/-- Build MAC contributions from weight-activation pairs (List-based). -/
+@[reducible] def macStageList : List (Int × Signal dom (BitVec n))
+    → List (Signal dom (BitVec n))
+  | [] => []
+  | (w, act) :: rest => macOneList w act ++ macStageList rest
+
+/-- Build the MAC stage for ternary BitLinear.
+    Returns only non-zero contributions as a list of signals. -/
 def macStage (weights : Array Int) (activations : Array (Signal dom (BitVec n)))
     : Array (Signal dom (BitVec n)) :=
-  let pairs := (List.range weights.size).toArray.filterMap fun i =>
-    if i < activations.size then
-      let w := weights[i]!
-      if w == 1 then some activations[i]!
-      else if w == -1 then some (-activations[i]!)
-      else none
-    else none
-  pairs
+  let pairs := weights.toList.zip activations.toList
+  (macStageList pairs).toArray
 
 /-- Build a complete ternary BitLinear layer as a Signal function.
     Applies MAC stage (pruning zeros, negating -1s) then adder tree.
     Returns the accumulated result. -/
-def bitLinearSignal (weights : Array Int) (activations : Array (Signal dom (BitVec n)))
+@[reducible] def bitLinearSignal (weights : Array Int) (activations : Array (Signal dom (BitVec n)))
     : Signal dom (BitVec n) :=
-  let macs := macStage weights activations
-  adderTree macs  -- adderTree returns Signal.pure 0 for empty input
+  let pairs := weights.toList.zip activations.toList
+  let macs := macStageList pairs
+  treeReduce (· + ·) (Signal.pure 0) macs
 
 -- ============================================================================
 -- Dynamic MAC Stage (Runtime Weights)
 -- ============================================================================
 
-/-- Build the dynamic MAC stage: weights are 2-bit signals (runtime, from ROM).
-    Decoding: 0b10 → +1 (pass-through), 0b00 → -1 (negate), else → 0.
-    Returns one decoded signal per input element (no pruning). -/
+/-- Build one decoded dynamic MAC element. -/
+@[reducible] def dynamicMACOne (wCode : Signal dom (BitVec 2))
+    (act : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  let neg := -act
+  let isPosOne := wCode === 0b10#2
+  let isNegOne := wCode === 0b00#2
+  Signal.mux isPosOne act (Signal.mux isNegOne neg (Signal.pure 0))
+
+/-- Build the dynamic MAC stage from a list of (weight-code, activation) pairs. -/
+@[reducible] def dynamicMACStageList : List (Signal dom (BitVec 2) × Signal dom (BitVec n))
+    → List (Signal dom (BitVec n))
+  | [] => []
+  | (w, act) :: rest => dynamicMACOne w act :: dynamicMACStageList rest
+
+/-- Build the dynamic MAC stage: weights are 2-bit signals (runtime, from ROM). -/
 def dynamicMACStage (weightCodes : Array (Signal dom (BitVec 2)))
     (activations : Array (Signal dom (BitVec n)))
     : Array (Signal dom (BitVec n)) :=
-  let len := min weightCodes.size activations.size
-  (List.range len).toArray.map fun i =>
-    let wCode := weightCodes[i]!
-    let act := activations[i]!
-    let neg := -act
-    let isPosOne := wCode === 0b10#2
-    let isNegOne := wCode === 0b00#2
-    Signal.mux isPosOne act (Signal.mux isNegOne neg (Signal.pure 0))
+  let pairs := weightCodes.toList.zip activations.toList
+  (dynamicMACStageList pairs).toArray
 
 end Sparkle.IP.BitNet.SignalHelpers
