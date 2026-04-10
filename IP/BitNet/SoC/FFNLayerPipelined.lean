@@ -38,7 +38,7 @@ variable {dom : DomainConfig}
 
     Inputs/outputs same as ffnLayerSeq. -/
 def ffnLayerPipelined
-    (dim : Nat)
+    (dimLimit : BitVec 16)
     (go : Signal dom Bool)
     (input : Signal dom (BitVec 32))
     (gateBaseAddr upBaseAddr downBaseAddr : Signal dom (BitVec 32))
@@ -82,7 +82,7 @@ def ffnLayerPipelined
             (Signal.pure 0#32 : Signal dom (BitVec 32))))
     let stageGo : Signal dom Bool :=
       Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
-    let streamerOut := weightStreamerBitLinear dim stageGo activeBaseAddr memReadData memReadValid input
+    let streamerOut := weightStreamerBitLinear dimLimit stageGo activeBaseAddr memReadData memReadValid input
     let stageResult := wsResult streamerOut
     let stageDone := wsDone streamerOut
 

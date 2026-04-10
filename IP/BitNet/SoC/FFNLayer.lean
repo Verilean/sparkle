@@ -51,7 +51,7 @@ variable {dom : DomainConfig}
 
     Returns (result × (done × (memReadAddr × phase))) -/
 def ffnLayerSeq
-    (dim : Nat)
+    (dimLimit : BitVec 16)
     (go : Signal dom Bool)
     (input : Signal dom (BitVec 32))
     -- Weight base addresses for 3 BitLinear paths
