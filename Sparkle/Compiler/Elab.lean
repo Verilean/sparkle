@@ -608,6 +608,18 @@ mutual
                      -- Concat: {ext, original}
                      CompilerM.emitAssign resWire (.concat [.ref extWire, .ref wireS])
                    return resWire
+               -- BitVec.sshiftRight → arithmetic shift right by constant
+               if opName == ``BitVec.sshiftRight then
+                 let bodyArgs := body.getAppArgs
+                 if bodyArgs.size >= 2 then
+                   let shiftAmt ← extractNat bodyArgs[bodyArgs.size - 1]!
+                   let wireS ← translateExprToWire s "s" (isTopLevel := false)
+                   let srcWidth ← CompilerM.getWireWidth wireS
+                   let resWire ← CompilerM.makeWire hint (.bitVector srcWidth) (named := isNamed)
+                   let shiftWire ← CompilerM.makeWire "ashr_amt" (.bitVector srcWidth)
+                   CompilerM.emitAssign shiftWire (.const shiftAmt srcWidth)
+                   CompilerM.emitAssign resWire (.op .asr [.ref wireS, .ref shiftWire])
+                   return resWire
                -- Unary primitives (neg, not, etc.)
                if let some op := getOperator opName then
                  let wireS ← translateExprToWire s "s" (isTopLevel := false)

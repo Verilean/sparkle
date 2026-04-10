@@ -102,8 +102,7 @@ def attentionHeadTimeMux
     -- Scale: signExtend → multiply → extract (pipelined, 1 cycle)
     let acc48 : Signal dom (BitVec (16 + 32)) := signExtendSignal 16 projResult
     let scaled := scaleMultiplyPipelined acc48 scaleVal
-    -- Note: INT8 quantization omitted (Signal.ashrC not yet in synthesis catalog)
-    -- Full quantize would be: quantizeInt8Signal 10#32 scaled
+    let quantized := quantizeInt8Signal 10 scaled
 
     -- FSM transitions
     let goIdle : Signal dom Bool := Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
@@ -120,9 +119,8 @@ def attentionHeadTimeMux
     let nextProjResult : Signal dom (BitVec 32) :=
       Signal.mux projDone macResult projResult
 
-    -- Truncate scaled to 8 bits (placeholder for full INT8 quantize)
     let nextQuantResult : Signal dom (BitVec 8) :=
-      Signal.mux isScale (Signal.map (BitVec.extractLsb' 0 8 ·) scaled) quantResult
+      Signal.mux isScale quantized quantResult
 
     let nextRowIdx : Signal dom (BitVec 16) :=
       Signal.mux goIdle (Signal.pure 0#16 : Signal dom (BitVec 16)) rowIdx

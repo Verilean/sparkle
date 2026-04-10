@@ -23,10 +23,10 @@ variable {dom : DomainConfig}
     1. Arithmetic shift right by `quantShift`
     2. Check if shifted value fits in INT8 (bits [31:8] all match bit 7)
     3. Saturate to [-128, 127] if overflow -/
-def quantizeInt8Signal (quantShiftBV : BitVec 32) (x : Signal dom (BitVec 32))
+def quantizeInt8Signal (quantShift : Nat) (x : Signal dom (BitVec 32))
     : Signal dom (BitVec 8) :=
-  -- Arithmetic shift right by quantShift
-  let shifted := Signal.ashrC x quantShiftBV
+  -- Arithmetic shift right by constant (quantShift must be a literal Nat)
+  let shifted := Signal.map (fun v => BitVec.sshiftRight v quantShift) x
   -- Overall sign bit (bit 31) for saturation direction
   let overallSign := shifted.map (BitVec.extractLsb' 31 1 ·)
   -- Upper 24 bits [31:8]

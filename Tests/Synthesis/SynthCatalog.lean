@@ -290,3 +290,11 @@ def synth_loop_bram
   Signal.snd state
 
 #synthesizeVerilog synth_loop_bram
+
+-- ============================================================
+-- 24. Signal.ashrC (arithmetic shift right by constant)
+-- ============================================================
+def synth_ashr (a : Signal defaultDomain (BitVec 32)) : Signal defaultDomain (BitVec 32) :=
+  Signal.map (fun x => BitVec.sshiftRight x 10) a
+
+#synthesizeVerilog synth_ashr
