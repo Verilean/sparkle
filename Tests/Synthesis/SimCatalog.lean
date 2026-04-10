@@ -190,3 +190,10 @@ def ev (sig : S n) : BitVec n := sig.atTime 0
     (Signal.mux (addr === s 0x4#4) b
       (Signal.mux (addr === s 0x8#4) c (s 0#32)))
   ev result == 22#32
+
+-- ============================================================
+-- 21-23: Signal.loop simulation requires native FFI (lake exe),
+-- not #eval. Synthesis tests are in SynthCatalog.lean.
+-- Simulation correctness of loop/register is covered by the
+-- existing svparser-test suite (34 JIT-based tests).
+-- ============================================================

@@ -1333,11 +1333,12 @@ mutual
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
         let hwType ← inferHWTypeFromSignal exprType
         let loopWire ← CompilerM.makeWire "loop" hwType
-        let (fvarId, bodyInst) ← CompilerM.liftMetaM do
-          withLocalDeclD binderName binderType fun fvar => do
-            return (fvar.fvarId!, body.instantiate1 fvar)
-        let resultWire ← CompilerM.withVarMapping fvarId loopWire do
-          translateExprToWire bodyInst "loop_body"
+        -- Use CompilerM.withLocalDecl to keep the fvar in scope for both
+        -- MetaM (type checking) and CompilerM (wire mapping).
+        let resultWire ← CompilerM.withLocalDecl binderName binderType fun fvar => do
+          let bodyInst := body.instantiate1 fvar
+          CompilerM.withVarMapping fvar.fvarId! loopWire do
+            translateExprToWire bodyInst "loop_body"
         CompilerM.emitAssign loopWire (.ref resultWire)
         return some resultWire
       | _ => CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda"

@@ -238,3 +238,55 @@ def synth_mmio_mux (addr : Signal defaultDomain (BitVec 4))
         (Signal.pure 0)))
 
 #synthesizeVerilog synth_mmio_mux
+
+-- ============================================================
+-- 21. Signal.loop (scalar feedback — counter)
+-- ============================================================
+def synth_loop_counter : Signal defaultDomain (BitVec 8) :=
+  Signal.loop (dom := defaultDomain) (α := BitVec 8)
+    fun (self : Signal defaultDomain (BitVec 8)) =>
+    Signal.register 0#8 (self + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8)))
+
+#synthesizeVerilog synth_loop_counter
+
+-- ============================================================
+-- 22. Signal.loop with tuple state (FSM pattern)
+-- ============================================================
+def synth_loop_fsm (start : Signal defaultDomain Bool)
+    (act : Signal defaultDomain (BitVec 32))
+    : Signal defaultDomain (BitVec 32 × BitVec 32) :=
+  Signal.loop (dom := defaultDomain)
+    (α := BitVec 32 × BitVec 32)
+    fun (self : Signal defaultDomain (BitVec 32 × BitVec 32)) =>
+    let counter := Signal.fst self
+    let acc := Signal.snd self
+    let nextCounter : Signal defaultDomain (BitVec 32) :=
+      Signal.mux start (Signal.pure 0#32 : Signal defaultDomain (BitVec 32))
+        (counter + (Signal.pure 1#32 : Signal defaultDomain (BitVec 32)))
+    let nextAcc : Signal defaultDomain (BitVec 32) :=
+      Signal.mux start (Signal.pure 0#32 : Signal defaultDomain (BitVec 32))
+        (acc + act)
+    bundle2 (Signal.register 0#32 nextCounter) (Signal.register 0#32 nextAcc)
+
+#synthesizeVerilog synth_loop_fsm
+
+-- ============================================================
+-- 23. Signal.loop + memoryComboRead (BRAM + FSM)
+-- ============================================================
+def synth_loop_bram
+    (wAddr : Signal defaultDomain (BitVec 8))
+    (wData : Signal defaultDomain (BitVec 32))
+    (wEn : Signal defaultDomain Bool)
+    : Signal defaultDomain (BitVec 32) :=
+  let state := Signal.loop (dom := defaultDomain) (α := BitVec 8 × BitVec 32)
+    fun (self : Signal defaultDomain (BitVec 8 × BitVec 32)) =>
+    let addr := Signal.fst self
+    let acc := Signal.snd self
+    let readData := Signal.memoryComboRead wAddr wData wEn addr
+    let nextAddr : Signal defaultDomain (BitVec 8) :=
+      addr + (Signal.pure 1#8 : Signal defaultDomain (BitVec 8))
+    let nextAcc : Signal defaultDomain (BitVec 32) := acc + readData
+    bundle2 (Signal.register 0#8 nextAddr) (Signal.register 0#32 nextAcc)
+  Signal.snd state
+
+#synthesizeVerilog synth_loop_bram
