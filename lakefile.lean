@@ -155,6 +155,10 @@ lean_exe «golden-compare-test» where
   root := `Tests.Synthesis.GoldenCompare
   supportInterpreter := true
 
+lean_exe «ffn-golden-test» where
+  root := `Tests.Synthesis.FFNGolden
+  supportInterpreter := true
+
 lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
