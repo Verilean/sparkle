@@ -24,7 +24,7 @@ variable {dom : DomainConfig}
     Returns bundled (phase × (counter × (acc × resultLatch))) state.
     Use `bitLinearTimeMuxResult/Done/Busy/Counter` projections to extract. -/
 def bitLinearTimeMux
-    (dim : Nat)
+    (dimLimit : BitVec 16)  -- dim - 1, as a literal
     (weightWriteAddr : Signal dom (BitVec 16))
     (weightWriteData : Signal dom (BitVec 2))
     (weightWriteEn : Signal dom Bool)
@@ -53,9 +53,8 @@ def bitLinearTimeMux
       Signal.mux isPlus1 (acc + activation)
         (Signal.mux isMinus1 (acc - activation) acc)
 
-    -- Dimension limit
-    let dimLimit : Signal dom (BitVec 16) := (Signal.pure (BitVec.ofNat 16 (dim - 1)) : Signal dom (BitVec 16))
-    let atEnd : Signal dom Bool := counter === dimLimit
+    -- Dimension limit (passed as literal BitVec)
+    let atEnd : Signal dom Bool := counter === (Signal.pure dimLimit : Signal dom (BitVec 16))
 
     -- FSM decode
     let isIdle  : Signal dom Bool := phase === (Signal.pure 0#2 : Signal dom (BitVec 2))

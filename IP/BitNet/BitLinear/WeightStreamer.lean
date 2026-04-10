@@ -40,7 +40,7 @@ variable {dom : DomainConfig}
     Outputs bundled as (result × (done × (memReadAddr × phase)))
 -/
 def weightStreamerBitLinear
-    (dim : Nat)
+    (dimLimit : BitVec 16)  -- dim - 1, as a literal
     (go : Signal dom Bool)
     (baseAddr : Signal dom (BitVec 32))
     (memReadData : Signal dom (BitVec 2))
@@ -61,7 +61,7 @@ def weightStreamerBitLinear
     let isDone    : Signal dom Bool := phase === (Signal.pure 3#4 : Signal dom (BitVec 4))
 
     let dimLimit : Signal dom (BitVec 16) :=
-      (Signal.pure (BitVec.ofNat 16 (dim - 1)) : Signal dom (BitVec 16))
+      (Signal.pure dimLimit : Signal dom (BitVec 16))
     let loadAtEnd : Signal dom Bool :=
       Signal.mux isLoading
         (Signal.mux memReadValid (loadCounter === dimLimit) (Signal.pure false : Signal dom Bool))
@@ -120,7 +120,7 @@ def weightStreamerBitLinear
       (streamerPhase === (Signal.pure 2#4 : Signal dom (BitVec 4)))
       (Signal.pure false : Signal dom Bool)
 
-  let tmState := bitLinearTimeMux dim loadCounter memReadData loadWriteEn computeStart activation
+  let tmState := bitLinearTimeMux dimLimit loadCounter memReadData loadWriteEn computeStart activation
   let result := bitLinearTimeMuxResult tmState
   let tmDone := bitLinearTimeMuxDone tmState
 

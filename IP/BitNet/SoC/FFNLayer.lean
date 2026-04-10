@@ -97,7 +97,7 @@ def ffnLayerSeq
       Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
 
     -- The shared streamer
-    let streamerOut := weightStreamerBitLinear dim stageGo activeBaseAddr memReadData memReadValid input
+    let streamerOut := weightStreamerBitLinear dimLimit stageGo activeBaseAddr memReadData memReadValid input
     let stageResult := wsResult streamerOut
     let stageDone := wsDone streamerOut
 
@@ -173,7 +173,7 @@ def ffnLayerSeq
   let _savedInput := Signal.snd rest3
 
   let done : Signal dom Bool := masterPhase === (Signal.pure 4#4 : Signal dom (BitVec 4))
-  let memAddr := wsMemReadAddr (weightStreamerBitLinear dim
+  let memAddr := wsMemReadAddr (weightStreamerBitLinear dimLimit
     (Signal.mux (masterPhase === (Signal.pure 0#4 : Signal dom (BitVec 4))) go (Signal.pure false : Signal dom Bool))
     (Signal.mux (masterPhase === (Signal.pure 1#4 : Signal dom (BitVec 4))) gateBaseAddr
       (Signal.mux (masterPhase === (Signal.pure 2#4 : Signal dom (BitVec 4))) upBaseAddr downBaseAddr))
