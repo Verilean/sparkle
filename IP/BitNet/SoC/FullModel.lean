@@ -23,6 +23,7 @@ import Sparkle.Core.Signal
 import Sparkle.Core.Domain
 import IP.BitNet.SoC.TransformerLayer
 import IP.BitNet.BitLinear.TimeMux
+import IP.BitNet.BitLinear.WeightStreamer
 import IP.BitNet.BitLinear.ScalePipelined
 import IP.BitNet.SignalHelpers
 
@@ -63,10 +64,11 @@ def fullModelForwardPass
     (dimLimit headDimLimit : BitVec 16)
     (nLayers nHeads : Nat)
     (go : Signal dom Bool)
-    (tokenActivation : Signal dom (BitVec 32))  -- pre-embedded activation
+    (tokenActivation : Signal dom (BitVec 32))  -- pre-embedded activation (from external embedding lookup)
     (seqPos : Signal dom (BitVec 16))           -- current sequence position
     -- Weight addresses
-    (weightBaseAddr : Signal dom (BitVec 32))
+    (weightBaseAddr : Signal dom (BitVec 32))   -- transformer layer weights
+    (deembedBaseAddr : Signal dom (BitVec 32))  -- de-embedding projection weights
     (layerStrideBV : BitVec 32)  -- total weights per layer (attn + ffn)
     (headStrideBV dimBV : BitVec 32) -- attention head stride and dim
     (scaleVal : Signal dom (BitVec 32))
@@ -87,7 +89,8 @@ def fullModelForwardPass
 
     let isIdle : Signal dom Bool := masterPhase === (Signal.pure 0#4 : Signal dom (BitVec 4))
     let isRunning : Signal dom Bool := masterPhase === (Signal.pure 1#4 : Signal dom (BitVec 4))
-    let isDone : Signal dom Bool := masterPhase === (Signal.pure 2#4 : Signal dom (BitVec 4))
+    let isDeEmbed : Signal dom Bool := masterPhase === (Signal.pure 2#4 : Signal dom (BitVec 4))
+    let isDone : Signal dom Bool := masterPhase === (Signal.pure 3#4 : Signal dom (BitVec 4))
 
     -- Compute weight addresses for current layer
     let layerIdxExt : Signal dom (BitVec 32) :=
@@ -133,12 +136,25 @@ def fullModelForwardPass
 
     let goIdle : Signal dom Bool := Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
 
+    -- De-embedding: TimeMux BitLinear (activation → logit)
+    let deembedGo : Signal dom Bool :=
+      Signal.mux isRunning allDone (Signal.pure false : Signal dom Bool)
+    let deembedState := bitLinearTimeMux dimLimit
+      (Signal.pure 0#16 : Signal dom (BitVec 16))
+      (Signal.pure 0#2 : Signal dom (BitVec 2))
+      (Signal.pure false : Signal dom Bool)
+      deembedGo currentAct
+    let deembedResult := bitLinearTimeMuxResult deembedState
+    let deembedDone : Signal dom Bool :=
+      Signal.mux isDeEmbed (bitLinearTimeMuxDone deembedState) (Signal.pure false : Signal dom Bool)
+
     let nextPhase : Signal dom (BitVec 4) :=
-      Signal.mux goIdle (Signal.pure 1#4 : Signal dom (BitVec 4))
-        (Signal.mux allDone (Signal.pure 2#4 : Signal dom (BitVec 4))
-          (Signal.mux isDone
-            (Signal.mux go (Signal.pure 1#4 : Signal dom (BitVec 4)) masterPhase)
-            masterPhase))
+      Signal.mux goIdle (Signal.pure 1#4 : Signal dom (BitVec 4))         -- → RUN_LAYERS
+        (Signal.mux allDone (Signal.pure 2#4 : Signal dom (BitVec 4))    -- → DE_EMBED
+          (Signal.mux deembedDone (Signal.pure 3#4 : Signal dom (BitVec 4))  -- → DONE
+            (Signal.mux isDone
+              (Signal.mux go (Signal.pure 1#4 : Signal dom (BitVec 4)) masterPhase)
+              masterPhase)))
 
     let nextLayerIdx : Signal dom (BitVec 8) :=
       Signal.mux goIdle (Signal.pure 0#8 : Signal dom (BitVec 8))
@@ -148,7 +164,8 @@ def fullModelForwardPass
 
     let nextAct : Signal dom (BitVec 32) :=
       Signal.mux goIdle tokenActivation
-        (Signal.mux layerDone layerResult currentAct)
+        (Signal.mux layerDone layerResult
+          (Signal.mux deembedDone deembedResult currentAct))
 
     let nextStart : Signal dom Bool :=
       Signal.mux goIdle (Signal.pure true : Signal dom Bool)
@@ -169,7 +186,7 @@ def fullModelForwardPass
   let r2 := Signal.snd r1
   let currentAct := Signal.fst r2
 
-  let done : Signal dom Bool := masterPhase === (Signal.pure 2#4 : Signal dom (BitVec 4))
+  let done : Signal dom Bool := masterPhase === (Signal.pure 3#4 : Signal dom (BitVec 4))
   bundle2 currentAct (bundle2 done (bundle2 layerIdx masterPhase))
 
 end Sparkle.IP.BitNet.SoC
