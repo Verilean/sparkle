@@ -104,6 +104,21 @@ theorem val_pure {dom : DomainConfig} {α : Type}
     (x : α) (t : Nat) :
     (Signal.pure (dom := dom) x).val t = x := rfl
 
+-- Functor map
+theorem val_map {dom : DomainConfig} {α β : Type}
+    (f : α → β) (s : Signal dom α) (t : Nat) :
+    (Signal.map f s).val t = f (s.val t) := rfl
+
+-- Mux
+theorem val_mux {dom : DomainConfig} {α : Type}
+    (c : Signal dom Bool) (a b : Signal dom α) (t : Nat) :
+    (Signal.mux c a b).val t = if c.val t then a.val t else b.val t := rfl
+
+-- BEq (===) for Signal BitVec
+theorem val_beq {dom : DomainConfig} {n : Nat}
+    (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a === b).val t = (a.val t == b.val t) := rfl
+
 end Sparkle.Verification.Equivalence.SignalLemmas
 
 namespace Sparkle.Verification.Equivalence
@@ -278,6 +293,9 @@ private def buildVerifyEqAtCmd
   let lemR0 := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_register_zero
   let lemRS := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_register_succ
   let lemPu := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_pure
+  let lemMa := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_map
+  let lemMx := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_mux
+  let lemBq := mkIdent ``Sparkle.Verification.Equivalence.SignalLemmas.val_beq
 
   `(command|
     set_option linter.unusedSimpArgs false in
@@ -289,12 +307,14 @@ private def buildVerifyEqAtCmd
           | (simp only [$impl:ident, $spec:ident,
                         $lemL1:ident, $lemL2:ident, $lemL3:ident,
                         $lemL4:ident, $lemL5:ident, $lemL6:ident,
-                        $lemR0:ident, $lemRS:ident, $lemPu:ident];
+                        $lemR0:ident, $lemRS:ident, $lemPu:ident,
+                        $lemMa:ident, $lemMx:ident, $lemBq:ident];
              done)
           | (simp only [$impl:ident, $spec:ident,
                         $lemL1:ident, $lemL2:ident, $lemL3:ident,
                         $lemL4:ident, $lemL5:ident, $lemL6:ident,
-                        $lemR0:ident, $lemRS:ident, $lemPu:ident];
+                        $lemR0:ident, $lemRS:ident, $lemPu:ident,
+                        $lemMa:ident, $lemMx:ident, $lemBq:ident];
              bv_decide)))
 
 /-- Silent probe: try to prove `impl ≡ spec` at `(cycles, latency)` using
