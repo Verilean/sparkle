@@ -56,6 +56,7 @@ structure FFNConfig where
 def ffnBlockSignal
     (gateWeights upWeights downWeights : Array Int)
     (gateScaleVal upScaleVal downScaleVal : Int)
+    (residualInput : Signal dom (BitVec 32))
     (activations : Array (Signal dom (BitVec 32)))
     : Signal dom (BitVec 32) :=
   -- Gate path: BitLinear → Scale → ReLU²
@@ -78,8 +79,6 @@ def ffnBlockSignal
   let downScaled := scaleMultiplySignal downAcc48 (Signal.pure (BitVec.ofInt 32 downScaleVal))
 
   -- Residual add: input + down
-  -- Use first activation as residual input (default to 0 if empty)
-  let residInput := activations.getD 0 (Signal.pure 0#32)
-  residualAddSignal residInput downScaled
+  residualAddSignal residualInput downScaled
 
 end Sparkle.IP.BitNet.Layers

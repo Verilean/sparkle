@@ -35,11 +35,8 @@ def residualAddSignal (a b : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   let posOvf := top2 === 0b01#2
   -- Negative overflow: top2 == 0b10
   let negOvf := top2 === 0b10#2
-  -- Saturation constants
-  let maxPos : BitVec 32 := BitVec.ofInt 32 (2 ^ 31 - 1)
-  let maxNeg : BitVec 32 := BitVec.ofInt 32 (-(2 ^ 31 : Int))
-  -- Mux chain: negOvf → maxNeg, posOvf → maxPos, else → low32
-  Signal.mux negOvf (Signal.pure maxNeg)
-    (Signal.mux posOvf (Signal.pure maxPos) low32)
+  -- Mux chain: negOvf → INT32_MIN, posOvf → INT32_MAX, else → low32
+  Signal.mux negOvf (Signal.pure 0x80000000#32)
+    (Signal.mux posOvf (Signal.pure 0x7FFFFFFF#32) low32)
 
 end Sparkle.IP.BitNet.Layers

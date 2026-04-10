@@ -43,19 +43,25 @@ def encodeTernary (w : Int) : Int :=
 /-- HardwiredUnrolled SoC: chain N hardwired FFN layers.
     Each layer uses different hardwired weights and scales.
     Output of layer i feeds into layer i+1. -/
+@[reducible] private def chainLayersAux
+    (dim : Nat)
+    (layerWeights : List LayerWeights)
+    (layerScales : List LayerScales)
+    (current : Signal dom (BitVec 32))
+    : Signal dom (BitVec 32) :=
+  match layerWeights, layerScales with
+  | lw :: lwRest, ls :: lsRest =>
+    let activations := (List.replicate dim current).toArray
+    let next := ffnBlockSignal lw.gateWeights lw.upWeights lw.downWeights
+      ls.gateScale ls.upScale ls.downScale current activations
+    chainLayersAux dim lwRest lsRest next
+  | _, _ => current
+
 def hardwiredSoCSignal (cfg : SoCConfig) (layerWeights : Array LayerWeights)
     (layerScales : Array LayerScales)
     (x : Signal dom (BitVec 32))
     : Signal dom (BitVec 32) :=
-  let defaultScale : LayerScales :=
-    { gateScale := 0x01000000, upScale := 0x01000000, downScale := 0x01000000 }
-  -- Chain layers via foldl over the layer indices
-  (List.range cfg.nLayers).toArray.foldl (init := x) fun current i =>
-    let lw := layerWeights.getD i { gateWeights := #[], upWeights := #[], downWeights := #[] }
-    let ls := layerScales.getD i defaultScale
-    let activations := Array.replicate cfg.dim current
-    ffnBlockSignal lw.gateWeights lw.upWeights lw.downWeights
-      ls.gateScale ls.upScale ls.downScale activations
+  chainLayersAux cfg.dim layerWeights.toList layerScales.toList x
 
 /-- TimeMultiplexed SoC: single FFN core with dynamic weight selection.
     Uses Signal.loop for FSM-based layer sequencing.
