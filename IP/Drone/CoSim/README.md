@@ -186,3 +186,38 @@ the actual sensor drivers in the SoC) but slower and more complex.
 Option A is recommended for initial bring-up and RL training loops.
 Option B becomes valuable once you want to validate the driver
 implementations with Gazebo-provided sensor noise.
+
+### Parallel shim SoC (Option A)
+
+Available as `sprayDroneSoCParallel` in `IP/Drone/SprayDroneSoCParallel.lean`.
+
+Inputs/outputs (pre-decoded, parallel signals):
+
+**Inputs**:
+- 6 × IMU (accelXYZ, gyroXYZ) as `Signal dom (BitVec 32)` — Q16.16
+- 3 × GPS (lat, lon, alt) as `Signal dom (BitVec 32)` — UBX format
+- 5 × status flags (gpsValid, batteryLow, rcFailsafe, obstacleDetect, armSwitch, missionGo)
+
+**Outputs**:
+- 4 × motor throttle as `Signal dom (BitVec 11)` — DShot range 48-2047
+- 4 × pump enable as `Signal dom Bool`
+- `missionDone` + `failsafeCode : BitVec 4`
+
+Synthesis comparison with serial version:
+
+| Metric | Serial (SprayDroneSoC) | Parallel (SprayDroneSoCParallel) |
+|---|---|---|
+| Verilog lines | 5,615 | **1,810** (68% smaller) |
+| Flip-flops | 216 | **33** (85% smaller) |
+| LUT | ~600 | ~600 |
+| DSP48 | 16 | 16 |
+| Longest path | 206 | **111** |
+| Ports | 10 × 1-bit | 18 (307 bits) |
+
+The serial version's FFs were dominated by SPI/UART/SBUS/DShot FSMs.
+The parallel version keeps only compute logic — Neural FC, state
+estimator, path planner, failsafe, arm/obstacle mux.
+
+For co-sim, `verilator_cosim.cpp` should be updated to drive parallel
+signals directly (one shm write per sensor field → one Verilator signal
+update). No bit-banging required.
