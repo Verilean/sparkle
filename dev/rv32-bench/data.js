@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775866143242,
+  "lastUpdate": 1775867269067,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -659,6 +659,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4170346,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "a84111bc5db1b691b16a1a4b0f0fd083c4356211",
+          "message": "fix: update TestLayers for rmsNormSignal and ffnBlockSignal signature changes\n\nrmsNormSignal now takes recipN : BitVec 32 parameter (Nat.pow doesn't\nreduce through synthesis). ffnBlockSignal takes explicit residualInput\nparameter (Array.getD generates unsynthesizable ite).\n\nAll tests pass including lake exe test.",
+          "timestamp": "2026-04-11T09:20:12+09:00",
+          "tree_id": "e8c666154ccd6711e7f4b6c4112c0fb5b471bfc6",
+          "url": "https://github.com/Verilean/sparkle/commit/a84111bc5db1b691b16a1a4b0f0fd083c4356211"
+        },
+        "date": 1775867268773,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3518375,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4775527,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 5134347,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4970219,
             "unit": "cycles/sec"
           }
         ]
