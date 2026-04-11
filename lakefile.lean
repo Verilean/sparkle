@@ -30,6 +30,9 @@ lean_lib «Sparkle» where
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]
 
+lean_lib «IP.Drone» where
+  roots := #[`IP.Drone]
+
 lean_lib «IP.RV32» where
   roots := #[`IP.RV32]
 
