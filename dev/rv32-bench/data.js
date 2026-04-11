@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775878038883,
+  "lastUpdate": 1775908704143,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -835,6 +835,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4136387,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "f3af4e38661e152661c704c4bf9f990a542b8bd3",
+          "message": "test: top-level integration sim — pipeline starts correctly\n\nTopLevelSim.lean drives the full BitNet accelerator through HostIF:\n  cycle 2: write TOKEN_IN = 0x10000\n  cycle 3: write CTRL.go = 1\n  cycle 4+: observe status\n\nResults (50 cycles):\n  ✅ busy=true after go pulse (accelerator started)\n  ✅ perfCycles counting (performance counter active)\n  ✅ STATUS=0x2 (busy bit set)\n  ✅ No crash (all 50 cycles complete)\n  ⚠ done not asserted (expected: zero weights + no HBM response\n     means forward pass cannot complete)\n\nThis proves the top-level wiring is correct: HostIF register writes\npropagate through AutoRegressive → FullModel, and the FSM enters\nthe expected busy state. Full completion requires weight data from\nHBM (or a simulation model providing valid responses).",
+          "timestamp": "2026-04-11T20:36:09+09:00",
+          "tree_id": "2c6c8c58822980c49eb476abb49347b863805f7f",
+          "url": "https://github.com/Verilean/sparkle/commit/f3af4e38661e152661c704c4bf9f990a542b8bd3"
+        },
+        "date": 1775908703595,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3108619,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4116526,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4470530,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4108105,
             "unit": "cycles/sec"
           }
         ]
