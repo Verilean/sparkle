@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775874804061,
+  "lastUpdate": 1775878166264,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -395,6 +395,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 648929,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a6400738936eb1f6f4931958e28f395bc04554a",
+          "message": "Merge pull request #21 from Verilean/feature/fpga\n\nAdd Equivalence Verification Checking and SoC with Bitnet",
+          "timestamp": "2026-04-11T12:22:35+09:00",
+          "tree_id": "2dd432ea40b1de137eea99bb37b4526bf4f3e250",
+          "url": "https://github.com/Verilean/sparkle/commit/0a6400738936eb1f6f4931958e28f395bc04554a"
+        },
+        "date": 1775878165569,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4086212,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 500408,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1008652,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 642797,
             "unit": "cycles/sec"
           }
         ]
