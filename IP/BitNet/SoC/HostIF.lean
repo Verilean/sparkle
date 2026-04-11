@@ -87,7 +87,7 @@ def hostInterface
     let goWrite : Signal dom Bool :=
       Signal.mux ctrlWrite
         -- bit 0 of write data = go
-        (Signal.map (fun d => d.extractLsb' 0 1 == 1#1) regWriteData)
+        (Signal.map (BitVec.extractLsb' 0 1 ·) regWriteData === (Signal.pure 1#1 : Signal dom (BitVec 1)))
         (Signal.pure false : Signal dom Bool)
 
     let nextTokenIn : Signal dom (BitVec 32) :=
