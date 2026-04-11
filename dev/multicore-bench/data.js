@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775908830258,
+  "lastUpdate": 1775915141417,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -483,6 +483,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 646774,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9dc9ba819940dcf58c58be55d103e40b7d8a28c",
+          "message": "Merge pull request #22 from Verilean/feature/fpga\n\nUpdate the FPGA implementation",
+          "timestamp": "2026-04-11T22:39:12+09:00",
+          "tree_id": "2c6c8c58822980c49eb476abb49347b863805f7f",
+          "url": "https://github.com/Verilean/sparkle/commit/f9dc9ba819940dcf58c58be55d103e40b7d8a28c"
+        },
+        "date": 1775915141132,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4522944,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 562645,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1119833,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 687651,
             "unit": "cycles/sec"
           }
         ]
