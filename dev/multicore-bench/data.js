@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775866271794,
+  "lastUpdate": 1775867388433,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -263,6 +263,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 644918,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "a84111bc5db1b691b16a1a4b0f0fd083c4356211",
+          "message": "fix: update TestLayers for rmsNormSignal and ffnBlockSignal signature changes\n\nrmsNormSignal now takes recipN : BitVec 32 parameter (Nat.pow doesn't\nreduce through synthesis). ffnBlockSignal takes explicit residualInput\nparameter (Array.getD generates unsynthesizable ite).\n\nAll tests pass including lake exe test.",
+          "timestamp": "2026-04-11T09:20:12+09:00",
+          "tree_id": "e8c666154ccd6711e7f4b6c4112c0fb5b471bfc6",
+          "url": "https://github.com/Verilean/sparkle/commit/a84111bc5db1b691b16a1a4b0f0fd083c4356211"
+        },
+        "date": 1775867388163,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4534996,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 561042,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1116599,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 690980,
             "unit": "cycles/sec"
           }
         ]
