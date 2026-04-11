@@ -760,12 +760,17 @@ def emitModule (m : Module) (design : Option Design := none)
     -- Wires that are NOT referenced in tick() can be local to evalTick.
     let evalTickWireLocals := internalWires.filterMap fun (w : Port) =>
       let sn := sanitizeName w.name
-      -- Only localize scalar wires (≤ 64 bit) as stack variables.
-      -- Wide integers (> 64 bit) stay as class members to avoid
-      -- per-cycle std::array zero-init overhead (~20% perf hit).
-      let isScalar := w.ty.bitWidth ≤ 64
-      if isScalar && !tickRefs.contains sn && !memoryNames.contains sn then
-        some s!"        {emitCppType w.ty} {sn} = 0;"
+      -- Localize all wires that are not tick-referenced or memory.
+      -- Scalar wires (≤ 64 bit): zero-initialized for safety.
+      -- Wide integers (> 64 bit): declared without initialization to
+      -- avoid per-cycle std::array zero-init overhead. They are always
+      -- written before read in the eval body (same as Verilog wire semantics).
+      if !tickRefs.contains sn && !memoryNames.contains sn then
+        if w.ty.bitWidth ≤ 64 then
+          some s!"        {emitCppType w.ty} {sn} = 0;"
+        else
+          let nWords := (w.ty.bitWidth + 31) / 32
+          some ("        std::array<uint32_t, " ++ toString nWords ++ "> " ++ sn ++ ";")
       else none
     let allWireLocalDecls := evalTickWireLocals
     let guardedEvalBody := evalBody
