@@ -5,3 +5,4 @@ import IP.Humanoid.ZMPBalance
 import IP.Humanoid.InverseKinematics
 import IP.Humanoid.GaitGenerator
 import IP.Humanoid.SafetyController
+import IP.Humanoid.HumanoidSoC
