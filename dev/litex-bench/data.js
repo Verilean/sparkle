@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775908757559,
+  "lastUpdate": 1775915072467,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -407,6 +407,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2161179,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9dc9ba819940dcf58c58be55d103e40b7d8a28c",
+          "message": "Merge pull request #22 from Verilean/feature/fpga\n\nUpdate the FPGA implementation",
+          "timestamp": "2026-04-11T22:39:12+09:00",
+          "tree_id": "2c6c8c58822980c49eb476abb49347b863805f7f",
+          "url": "https://github.com/Verilean/sparkle/commit/f9dc9ba819940dcf58c58be55d103e40b7d8a28c"
+        },
+        "date": 1775915072182,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 5832318,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2509119,
             "unit": "cycles/sec"
           }
         ]
