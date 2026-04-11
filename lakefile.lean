@@ -143,6 +143,22 @@ lean_exe «sim-runner-test» where
   root := `Tests.Sim.SimRunnerTest
   supportInterpreter := true
 
+lean_exe «bitnet-soc-test» where
+  root := `Tests.Integration.BitNetSoCTest
+  supportInterpreter := true
+
+lean_exe «timemux-sim-test» where
+  root := `Tests.Synthesis.TimeMuxSim
+  supportInterpreter := true
+
+lean_exe «golden-compare-test» where
+  root := `Tests.Synthesis.GoldenCompare
+  supportInterpreter := true
+
+lean_exe «ffn-golden-test» where
+  root := `Tests.Synthesis.FFNGolden
+  supportInterpreter := true
+
 lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true

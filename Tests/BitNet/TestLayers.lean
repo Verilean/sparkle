@@ -276,7 +276,8 @@ def testRMSNormSignal : IO Unit := do
     #[Signal.pure (BitVec.ofNat 32 0x10000), Signal.pure (BitVec.ofNat 32 0x10000)]
   let scales : Array (Signal defaultDomain (BitVec 32)) :=
     #[Signal.pure (BitVec.ofNat 32 0x01000000), Signal.pure (BitVec.ofNat 32 0x01000000)]
-  let outputs := rmsNormSignal xs scales
+  -- recipN = 2^24 / 2 = 0x800000 (dim=2)
+  let outputs := rmsNormSignal xs scales 0x800000#32
   check "rmsnorm: produces 2 outputs" (outputs.size == 2)
   -- Both outputs should be equal (symmetric inputs)
   check "rmsnorm: symmetric inputs → equal outputs"
@@ -294,8 +295,9 @@ def testFFNBlockSignal : IO Unit := do
   let activations : Array (Signal defaultDomain (BitVec 32)) :=
     Array.replicate 4 (Signal.pure (BitVec.ofNat 32 0x10000))
 
+  let residInput := Signal.pure (BitVec.ofNat 32 0x10000)
   let result := ffnBlockSignal gateWeights upWeights downWeights
-    0x01000000 0x01000000 0x01000000 activations
+    0x01000000 0x01000000 0x01000000 residInput activations
 
   -- FFN should produce a non-zero output
   let output := result.atTime 0
@@ -304,8 +306,9 @@ def testFFNBlockSignal : IO Unit := do
   -- Test with zero input
   let zeroActs : Array (Signal defaultDomain (BitVec 32)) :=
     Array.replicate 4 (Signal.pure (BitVec.ofNat 32 0))
+  let zeroResid := Signal.pure (BitVec.ofNat 32 0)
   let zeroResult := ffnBlockSignal gateWeights upWeights downWeights
-    0x01000000 0x01000000 0x01000000 zeroActs
+    0x01000000 0x01000000 0x01000000 zeroResid zeroActs
   check "ffn: zero input → zero output" (zeroResult.atTime 0 == BitVec.ofNat 32 0)
 
 def runAll : IO Unit := do

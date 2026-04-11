@@ -173,38 +173,94 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
     | _ =>
       let widths := args.map (inferExprWidth typeMap ·)
       let totalWidth := widths.foldl (· + ·) 0
-      -- Cap at 64-bit to avoid std::array cast issues in C++
-      let effectiveWidth := min totalWidth 64
-      let resultType := emitCppType (.bitVector effectiveWidth)
-      let pairs := args.zip widths
-      -- foldr: process right-to-left, accumulating shift from LSB
-      let (terms, _) := pairs.foldr (fun (arg, w) (acc, shift) =>
-        let expr := emitExpr typeMap arg
-        let term := if shift > 0 then
-          "((" ++ resultType ++ ")" ++ expr ++ " << " ++ toString shift ++ ")"
-        else
-          "(" ++ resultType ++ ")" ++ expr
-        (term :: acc, shift + w)
-      ) ([], 0)
-      "(" ++ String.intercalate " | " terms ++ ")"
+      if totalWidth > 64 then
+        -- Wide concat: build std::array<uint32_t, N> initializer
+        let nWords := (totalWidth + 31) / 32
+        -- For now, if total ≤ 96 bits (3 words), build word-by-word
+        -- Each word = bits [i*32+31 : i*32] of the concatenated result
+        -- Simplified: delegate to narrow concat for the lower 64 bits,
+        -- and handle upper bits separately
+        let lowerArgs := args  -- all args contribute to the result
+        let lowerWidths := widths
+        -- Build as: {word0, word1, word2}
+        -- word0 = lower 32 bits, word1 = bits [63:32], word2 = bits [95:64]
+        -- This is complex in general; for the signExtend pattern specifically
+        -- (concat of sign-extension bits and original value), generate inline
+        let pairs := lowerArgs.zip lowerWidths
+        let (terms, _) := pairs.foldr (fun (arg, w) (acc, shift) =>
+          let expr := emitExpr typeMap arg
+          let term := if shift > 0 then
+            s!"(({emitCppType (.bitVector 64)}){expr} << {shift})"
+          else
+            s!"({emitCppType (.bitVector 64)}){expr}"
+          (term :: acc, shift + w)
+        ) ([], 0)
+        -- Build std::array initializer from terms
+        let combined := "(" ++ String.intercalate " | " terms ++ ")"
+        -- Pack into array: {low32, mid32, high32}
+        let w0 := s!"(uint32_t)({combined} & 0xffffffffULL)"
+        let w1 := s!"(uint32_t)(({combined} >> 32) & 0xffffffffULL)"
+        let w2 := if nWords > 2 then s!"(uint32_t)(({combined} >> 64) & 0xffffffffULL)" else "0U"
+        "std::array<uint32_t, " ++ toString nWords ++ ">{" ++ "{" ++ w0 ++ ", " ++ w1 ++ (if nWords > 2 then ", " ++ w2 else "") ++ "}" ++ "}"
+      else
+        let resultType := emitCppType (.bitVector totalWidth)
+        let pairs := args.zip widths
+        let (terms, _) := pairs.foldr (fun (arg, w) (acc, shift) =>
+          let expr := emitExpr typeMap arg
+          let term := if shift > 0 then
+            "((" ++ resultType ++ ")" ++ expr ++ " << " ++ toString shift ++ ")"
+          else
+            "(" ++ resultType ++ ")" ++ expr
+          (term :: acc, shift + w)
+        ) ([], 0)
+        "(" ++ String.intercalate " | " terms ++ ")"
 
   | .slice e hi lo =>
     let sliceWidth := hi - lo + 1
-    -- Always mask slice results for widths < 64.  The inner expression may be
-    -- wider than sliceWidth (e.g., .slice(.op .shr [32-bit, 12]) 7 0 produces
-    -- 20 bits, not 8).  We cannot rely on emitMask/needsMask which skip native
-    -- widths (8,16,32) assuming C++ variable-type truncation — that doesn't
-    -- hold for inline expressions within concats.
-    if sliceWidth >= 64 then
-      if lo == 0 then emitExpr typeMap e
-      else s!"({emitExpr typeMap e} >> {lo})"
+    -- Check if the source expression is wider than 64 bits (std::array type)
+    let srcWidth := inferExprWidth typeMap e
+    if srcWidth > 64 then
+      -- Wide integer: extract from std::array<uint32_t, N>
+      -- Access the correct word(s) and shift/mask
+      let wordIdx := lo / 32
+      let bitOffset := lo % 32
+      let srcExpr := emitExpr typeMap e
+      if sliceWidth <= 32 then
+        let mask := (2 ^ sliceWidth - 1 : Nat)
+        let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
+        if bitOffset == 0 then
+          s!"((uint64_t){srcExpr}[{wordIdx}] & {maskStr})"
+        else if bitOffset + sliceWidth <= 32 then
+          s!"(((uint64_t){srcExpr}[{wordIdx}] >> {bitOffset}) & {maskStr})"
+        else
+          -- Spans two words
+          let bitsFromLow := 32 - bitOffset
+          let bitsFromHigh := sliceWidth - bitsFromLow
+          let maskHigh := (2 ^ bitsFromHigh - 1 : Nat)
+          s!"((((uint64_t){srcExpr}[{wordIdx}] >> {bitOffset}) | ((uint64_t){srcExpr}[{wordIdx + 1}] << {bitsFromLow})) & {maskStr})"
+      else if sliceWidth <= 64 then
+        -- Result fits in uint64_t, may span multiple words
+        let mask := (2 ^ sliceWidth - 1 : Nat)
+        let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
+        if bitOffset == 0 then
+          s!"(((uint64_t){srcExpr}[{wordIdx + 1}] << 32) | (uint64_t){srcExpr}[{wordIdx}]) & {maskStr})"
+        else
+          s!"((((uint64_t){srcExpr}[{wordIdx + 1}] << {32 - bitOffset}) | ((uint64_t){srcExpr}[{wordIdx}] >> {bitOffset})) & {maskStr})"
+      else
+        -- Result > 64 bits: return as-is (rare case)
+        emitExpr typeMap e
     else
+      -- Normal (≤ 64 bit) path
       let mask := (2 ^ sliceWidth - 1 : Nat)
       let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
-      if lo == 0 then
-        s!"({emitExpr typeMap e} & {maskStr})"
+      if sliceWidth >= 64 then
+        if lo == 0 then emitExpr typeMap e
+        else s!"({emitExpr typeMap e} >> {lo})"
       else
-        s!"(({emitExpr typeMap e} >> {lo}) & {maskStr})"
+        if lo == 0 then
+          s!"({emitExpr typeMap e} & {maskStr})"
+        else
+          s!"(({emitExpr typeMap e} >> {lo}) & {maskStr})"
 
   | .index arr idx =>
     s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
@@ -704,10 +760,17 @@ def emitModule (m : Module) (design : Option Design := none)
     -- Wires that are NOT referenced in tick() can be local to evalTick.
     let evalTickWireLocals := internalWires.filterMap fun (w : Port) =>
       let sn := sanitizeName w.name
-      -- Only localize scalar wires (not arrays), and not tick-referenced or memory
-      let isScalar := w.ty.bitWidth ≤ 64
-      if isScalar && !tickRefs.contains sn && !memoryNames.contains sn then
-        some s!"        {emitCppType w.ty} {sn} = 0;"
+      -- Localize all wires that are not tick-referenced or memory.
+      -- Scalar wires (≤ 64 bit): zero-initialized for safety.
+      -- Wide integers (> 64 bit): declared without initialization to
+      -- avoid per-cycle std::array zero-init overhead. They are always
+      -- written before read in the eval body (same as Verilog wire semantics).
+      if !tickRefs.contains sn && !memoryNames.contains sn then
+        if w.ty.bitWidth ≤ 64 then
+          some s!"        {emitCppType w.ty} {sn} = 0;"
+        else
+          let nWords := (w.ty.bitWidth + 31) / 32
+          some ("        std::array<uint32_t, " ++ toString nWords ++ "> " ++ sn ++ ";")
       else none
     let allWireLocalDecls := evalTickWireLocals
     let guardedEvalBody := evalBody

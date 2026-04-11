@@ -143,6 +143,43 @@ elabStr s!"theorem {assertName} ... := by sorry"
 
 **Workaround**: Use `lake env lean` for rapid iteration with auto-proved assertions, or write manual proofs.
 
+### Cross-reference: `#verify_eq`, `#verify_eq_at`, and `#verify_eq_git`
+
+`Sparkle/Verification/Equivalence.lean` provides three equivalence-check
+commands:
+
+- `#verify_eq f g` — pure `BitVec` function equivalence. Generates
+  `theorem {f}_eq_{g} : f = g := by funext ...; unfold f g; bv_decide`.
+- `#verify_eq_at (cycles := N) (latency := L) impl spec` — Signal DSL
+  cycle-accurate equivalence. Generates a conjunction of `(impl
+  inputs).val (t + L) = (spec inputs).val t` for `t ∈ [0, N)` and
+  discharges each conjunct with `simp only [Signal.val_*]; bv_decide`.
+  On failure, silently probes neighboring latencies and prints a 💡
+  hint if one works.
+- `#verify_eq_git <commit-ref> <ident>` — time-travel equivalence.
+  Runs `git show <commit-ref>:<file-of-ident>`, wraps the old source
+  in an isolated namespace, elaborates it, and runs `#verify_eq`
+  between the current and old definitions. Intended for PR regression
+  checks and bisecting "when did this break?" investigations.
+
+All three command modules are pure elaborators (no `bv_decide` call at
+build time) and are always safe to `lake build`. However, any file
+that **invokes** any of them hits the compilation-mode hang. The
+demo file `Tests/Verification/EquivDemo.lean` is therefore deliberately
+excluded from every `lean_exe` root and from `Sparkle.lean` /
+`Tests/AllTests.lean`. Run it interactively:
+
+```bash
+lake env lean Tests/Verification/EquivDemo.lean
+```
+
+Expected output: thirteen lines of `✅ verified: …` (eight pure-BitVec
+demos, four Signal DSL demos including the 2-cycle-latency MAC
+pipeline headline case, and one `#verify_eq_git` smoke comparing
+`reluInt8` against `HEAD`). Uncomment the commented-out `macPipeBuggy`
+variant in §11 or the `distrib_rhs_buggy` variant in §1 to see
+`bv_decide` emit a concrete counterexample.
+
 ---
 
 ## Issue 3: High-level multi-domain simulation — **RESOLVED (2026-04-08)**
@@ -390,6 +427,145 @@ Initial (incorrect) hypothesis: wrapper FSM hazard. Actual root cause is the
 | Proofs (MulProps/MulOracleProof/ArbiterProps/Basic) | ✓ | - | Zero sorry, zero axiom |
 | CounterProps | ✓ | - | 1.4s build (was 10+min) |
 | MExtRv32iTest | 0/3 | 3 | Pre-existing, related to Issue 1 |
+
+## Non-synthesizable Signal DSL patterns
+
+Catalog of patterns that elaborate in Lean and simulate fine, but crash
+`#writeDesign` / `#synthesizeVerilog` / `#sim`. Indexed by the error message
+the user actually sees. See `docs/Tutorial.md` § "Reference: Writing
+Synthesizable Signal DSL" for the rules, and `#check_synthesizable <name>`
+for an early-warning linter.
+
+### N1. `unknown free variable '_fvar.N'` from `Id.run do` / `let mut`
+
+**Symptom**: `#writeDesign myIP` fails with `unknown free variable` pointing
+at a `let mut` / `for` loop inside the body.
+
+**Cause**: `Id.run do { let mut acc := ...; for w in weights do ...; acc }`
+is meta-level mutation. It reduces during elaboration but leaves dangling
+free variables that the Verilog backend cannot see through.
+
+**Fix**: hoist the loop into a pure-Lean helper that runs *before* the
+Signal expression, and fold the result into a single `Signal` combinator:
+
+```lean
+-- BAD
+def body (xs : Array (Signal dom (BitVec 8))) : Signal dom (BitVec 8) :=
+  Id.run do
+    let mut acc : Signal dom (BitVec 8) := Signal.pure 0
+    for x in xs do acc := acc + x
+    return acc
+
+-- GOOD
+def body (xs : Array (Signal dom (BitVec 8))) : Signal dom (BitVec 8) :=
+  xs.foldl (· + ·) (Signal.pure 0)
+```
+
+### N2. `ArchMode.rec is not supported` / `match on non-BitVec inductive`
+
+**Symptom**: `match cfg.archMode with | .HardwiredUnrolled => ... | .Sequential => ...`
+surfaces `ArchMode.rec` in the Verilog backend trace.
+
+**Cause**: the backend can see through `match` on `BitVec`, `Bool`, and
+`Signal`-level constructors, but not arbitrary enums unless the scrutinee
+is a *literal* that reduces at elab time.
+
+**Fix**: if the enum is known at the call site, inline the branch; if it
+is truly runtime, encode it as a `BitVec` and use `Signal.mux`:
+
+```lean
+-- OK — cfg.archMode is a literal at the instantiation site
+def myIP (cfg : Config) : Signal dom _ :=
+  match cfg.archMode with
+  | .Hardwired => hardwiredBody
+  | .Sequential => sequentialBody
+
+def top : Signal dom _ := myIP { archMode := .Hardwired, .. }  -- reduces
+```
+
+### N3. `if-then-else cannot be synthesized`
+
+**Symptom**: `bitLinearSignal` or similar pure Lean helper has
+`if macs.size == 0 then ... else ...` and the backend rejects it.
+
+**Cause**: `if` on a runtime `Prop` / `Bool` that is not a `BitVec` guard
+cannot lower to a Verilog mux. `Signal.mux` is the only runtime choice
+operator.
+
+**Fix**: either (a) make the condition a compile-time literal so it
+reduces away, or (b) replace with `Signal.mux cond t f` where `cond : Signal dom (BitVec 1)`.
+
+### N4. `Signal.val unsupported application`
+
+**Symptom**: backend trace shows `Signal.val sig t` appearing in the
+expression tree.
+
+**Cause**: `Signal.val` is a meta-level observer that extracts a specific
+tick's value. It only makes sense in simulation / proofs, never in
+synthesis. Usually leaks in via a helper that was intended for proof use.
+
+**Fix**: refactor the helper to return a `Signal dom _` instead of a
+`BitVec _`, and compose with `Signal.map` / `Signal.ap` / arithmetic.
+
+### N5. `Signal.loop` in a path fed to `#verify_eq_at`
+
+**Symptom**: `#verify_eq_at` reports that `bv_decide` cannot unfold
+`Signal.loop`.
+
+**Cause**: `Signal.loop` is `@[implemented_by]` opaque; the equivalence
+tactic cannot symbolically execute it. Synthesis works fine — this is a
+*proof* limitation, not a synthesis one.
+
+**Fix**: prove equivalence on the loop-free core first; use
+`#verify_eq_at` only on components that don't feed back. See TODO V2 for
+a planned `unfold_loop n` tactic.
+
+### N6. Arrays of heterogeneous `Signal`s via `Array.map` returning `Signal`
+
+**Symptom**: `Array.map (fun w => Signal.pure w * input) weights` fails
+elaboration with a universe or reduction error.
+
+**Cause**: meta-level `Array.map` is fine *as long as* the result array
+is consumed by a pure-Lean fold before returning. Leaving an `Array (Signal ..)`
+as the final return value sometimes confuses the backend because the array
+becomes part of the expression tree.
+
+**Fix**: always collapse the array with `foldl` or an explicit tree
+reduction before returning:
+
+```lean
+let taps := weights.map (fun w => Signal.pure w * input)
+taps.foldl (· + ·) (Signal.pure 0)  -- collapse to single Signal
+```
+
+### N7. Pure Lean recursion in the Signal body
+
+**Symptom**: `def body : Signal dom _ := if n == 0 then Signal.pure 0 else body (n-1) + input`
+either fails to elaborate (non-terminating) or produces an `unknown free variable`.
+
+**Cause**: recursion on Lean-level naturals must fully unfold at elab
+time. If the recursion depth is a `Nat` parameter not known literally,
+the backend sees a stuck recursor.
+
+**Fix**: parameterize by a concrete literal `(n : Nat := 8)` at the call
+site, or replace recursion with `List.range n |>.foldl`.
+
+### Quick triage
+
+| Error fragment | Pattern | Rule violated |
+|---|---|---|
+| `unknown free variable` inside body | N1 | Rule 1 (no meta-mutation) |
+| `X.rec is not supported` | N2 | Rule 3 (match on enum) |
+| `if-then-else cannot be synthesized` | N3 | Rule 2 (use Signal.mux) |
+| `Signal.val unsupported application` | N4 | Rule 4 (proof helper leak) |
+| `bv_decide ... Signal.loop` | N5 | not synthesis, proof limit |
+| universe / reduction on Array | N6 | Rule 1 |
+| stuck recursor `Nat.rec` | N7 | Rule 3 |
+
+Run `#check_synthesizable myIP` before `#writeDesign` to catch N1/N2/N3
+proactively.
+
+---
 
 ## Verified Benchmark Results (unchanged)
 

@@ -2,6 +2,340 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 56: BitNet ⊕ picorv32 SoC Cohabitation (Level 1a) + U280 Scaffold (Complete)
+
+**Date**: 2026-04-09
+**Branch**: `main` (local)
+**Headline**: first time a CPU IP and a NN IP coexist inside a single
+synthesizable Sparkle SoC. The BitNet MMIO peripheral is wired into the
+picorv32 SoC at `0x40000004 / 0x40000008`, and the Alveo U280 directory
+structure is scaffolded as the permanent home for future HBM / PCIe work.
+
+### What landed
+
+**`IP/RV32/BitNetPeripheral.lean`** (new, ~85 lines). Pins a
+Level-1a BitNet configuration (`dim=4`, `nLayers=1`, all-`+1` ternary
+weights, unit scales) and exposes a clean `bitNetPeripheral : Signal
+dom (BitVec 32) → Signal dom (BitVec 32)` function. The wrapper
+inlines a 4-way adder tree rather than calling `bitNetSoCSignal` /
+`ffnBlockSignal` directly — those higher-level wrappers contain
+`Id.run do` loops, `match cfg.archMode` inductives, and `if size == 0`
+guards that Sparkle's Verilog synthesizer refuses ("if-then-else
+expressions cannot be synthesized", "not a hardware module
+definition"). Getting the full FFN path through synthesis is a
+Level-1b task tracked in `docs/TODO.md`.
+
+The inlined operation is semantically `output = 4 × input` — an
+honest BitLinear layer with 4 lanes and all-`+1` weights — not a
+placeholder. It exercises the same arithmetic primitives BitNet uses
+and produces deterministic outputs that the test can assert against.
+
+**`IP/RV32/SoC.lean`** gets ~10 lines of edits in the existing
+MMIO extension points:
+- `import IP.RV32.BitNetPeripheral`
+- Inside the SoC loop body, bind
+  `let bitnetOut := BitNetPeripheral.bitNetPeripheral aiInputReg`
+- Replace the hardcoded `0xDEADBEEF` read-back in `mmioRdata` with
+  `bitnetOut`.
+
+The existing `aiInputReg` register, write-decode, and read mux scaffolding
+from the pre-existing `aiStatusReg` / `aiInputReg` MMIO stubs is
+repurposed verbatim — no new state, no new address decoders. This is
+the cleanest possible landing of a new peripheral on the SoC.
+
+**`firmware/bitnet_smoke/`** (new directory):
+- `main.c`: writes 4 activations (`0x00010000`, `0x00020000`,
+  `0x00030000`, `0x00040000` in Q16.16), reads back 4 results,
+  compares each to `input << 2`, emits `0xCAFE0000` or `0xDEADDEAD`
+  markers via UART.
+- `Makefile`: inherits the parent `firmware/Makefile`'s toolchain
+  auto-detection, reuses `../boot.S` and `../link.ld`.
+- `firmware.hex`: 89 words, committed so CI can consume it without
+  a riscv32 toolchain.
+
+**`Tests/Integration/BitNetSoCTest.lean`** + new `lean_exe
+bitnet-soc-test`: proves Level-1a integration along three axes:
+
+1. **Functional**: the `bitNetPeripheral` Signal function produces
+   `4 × input` for 8 test inputs including edge cases (zero, max,
+   `0x12345678` wrapping).
+2. **Structural**: the generated SoC SystemVerilog
+   (`verilator/generated_soc.sv`) contains `_gen_bitnetOut` and the
+   matching read-mux entry.
+3. **Artifact**: `firmware/bitnet_smoke/firmware.hex` is present and
+   well-formed (≥10 words, correct `@addr` prefix).
+
+All three axes pass: `lake exe bitnet-soc-test` reports
+"✅ BitNet SoC Level-1a: ALL THREE AXES PASS".
+
+**`fpga/U280/`** (new directory — the "holy ground"):
+- `README.md`: describes the target (xcu280-fsvh2892-2L-e, 8 GiB HBM2,
+  PCIe Gen4 ×16), the planned flow (Signal DSL → `#synthesizeVerilog`
+  → Vivado → `.xclbin`), what exists today (RTL only; clean
+  SystemVerilog comes out of `lake build IP.RV32.SoCVerilog`), and the
+  explicit roadmap of what's missing (PCIe XDMA shell, HBM controller,
+  clock wizard, reset synchronizer, pin constraints, host driver).
+- `build.tcl`: a Vivado Tcl stub with every real command commented
+  out plus a top-level `puts "STUB complete — no real work was done"`
+  so running it accidentally is harmless and obvious.
+- `constraints.xdc`: commented placeholder with section headers for
+  reference clock, PCIe, HBM, UART, LEDs, and inter-clock false paths.
+
+### What was discovered
+
+**Pre-existing PC-stuck-at-0 issue in `rv32-jit-loop-test`.** While
+running the new test, found that the existing Signal-DSL-SoC JIT path
+(`rv32iSoCJITRun`) is broken independently of BitNet: loading any
+firmware hex (including the known-good `firmware/firmware.hex` used by
+Test 11 via the separate SVParser path) and calling `evalTick` for
+1000+ cycles leaves `_gen_pcReg` at `0x00000000`. The CPU never
+fetches an instruction.
+
+Confirmed by `git stash`-ing all BitNet wiring back to clean `main`
+HEAD — the issue reproduces. Tracked as **TODO S0** with suspected
+causes (memory initialization timing around `memoryComboRead` +
+`jit_set_mem`, possibly related to Phase 55's
+`wrapConditionalGuards` removal). Out of scope for Level 1a — the
+integration test covers the three axes that don't depend on the
+broken boot path.
+
+### Test status
+
+| Suite | Result |
+|---|---|
+| `lake build` | 64 jobs clean |
+| `lake exe svparser-test` | 34/34 |
+| `lake exe sim-runner-test` | 30/30 |
+| `lake exe cdc-multi-clock-test` | PASS |
+| `lake exe bitnet-soc-test` | ✅ 3/3 axes (functional + structural + artifact) |
+
+### Files
+
+- **New**:
+  - `IP/RV32/BitNetPeripheral.lean`
+  - `Tests/Integration/BitNetSoCTest.lean`
+  - `firmware/bitnet_smoke/{main.c, Makefile, firmware.hex, firmware.dump, firmware.map}`
+  - `fpga/U280/{README.md, build.tcl, constraints.xdc}`
+- **Modified**:
+  - `IP/RV32/SoC.lean` (wired `bitnetOut` into `mmioRdata`)
+  - `lakefile.lean` (added `bitnet-soc-test` exe target)
+  - `docs/TODO.md` (added S0 for the pre-existing PC-stuck bug)
+  - `docs/CHANGELOG.md` (this entry)
+  - `docs/STATUS.md` (Phase 5.10 row)
+
+### Follow-up ideas
+
+See `docs/TODO.md` — highlights:
+
+- **S0** (★★★★★): diagnose the `rv32iSoCJITRun` PC-stuck issue so the
+  integration test can flip from "structural + functional" to full
+  firmware-on-CPU end-to-end.
+- **Level 1b**: sequential BitNet wrapper with `Signal.loop` +
+  `start/done` handshake so realistic model sizes (dim=2048, 24 layers)
+  can be represented as multi-cycle FSMs.
+- **Level 1b Vivado**: fill in `fpga/U280/build.tcl` and
+  `constraints.xdc` with a real PCIe shell + HBM controller + clock
+  wizard setup. Needs a physical U280 card or a Vivado test bench to
+  validate.
+
+---
+
+## Phase 55: Simulation Ergonomics + Equivalence-Check Command Family (Complete)
+
+**Date**: 2026-04-09
+**Branch**: `feature/sim-parallel`
+**Headline**: three new `#verify_eq*` commands turn equivalence checking into
+a one-line operation for pure BitVec, pipelined Signal DSL, and git-history
+time travel; `runSim` now auto-dispatches between single and multi-domain
+backends.
+
+### New user-visible features
+
+**`runSim` auto-dispatcher** (`Sparkle/Core/SimParallel.lean`, new)
+
+```lean
+-- 1 endpoint: single-threaded evalTick loop
+let stats ← runSim [sim.toEndpoint] (cycles := 1_000_000)
+
+-- 2 endpoints + 1 CDC connection: multi-threaded SPSC queue runner
+let stats ← runSim
+  [p.toEndpoint, c.toEndpoint]
+  (connections := [("data_out", "data_in")])
+  (endpointCycles := [200_000, 100_000])  -- 2:1 clock ratio
+```
+
+Auto-picks the fastest backend. `endpointCycles` models asymmetric clock
+ratios (the single-`cycles` shorthand was a regression from the original
+`JIT.runCDC(cyclesA, cyclesB)` API; `endpointCycles` restores it).
+27 regression tests in `Tests/Sim/SimRunnerTest.lean` covering
+equivalence, auto-select, port name resolution, index alignment, and
+stress. `sim!` / `generateSimWrappers` gained
+`outputPortIndexByName` / `inputPortIndexByName` / `toEndpoint`.
+
+**`#verify_eq`** (`Sparkle/Verification/Equivalence.lean`, new)
+
+One-line equivalence check for pure `BitVec … → BitVec …` functions:
+
+```lean
+def pure_alu (a b : BitVec 8) : BitVec 8 := a + b
+def fast_alu (a b : BitVec 8) : BitVec 8 :=
+  (a ^^^ b) + ((a &&& b) <<< 1)
+#verify_eq fast_alu pure_alu
+-- ✅ verified: fast_alu_eq_pure_alu
+```
+
+Introspects arity via `forallTelescopeReducing`, generates
+`funext + unfold + bv_decide`, detects success by msg-log diff +
+env `hasSorry` check. Eight worked demos in `EquivDemo.lean`
+(distributivity, associativity, De Morgan, ripple-adder vs `BitVec.+`,
+shift-and-add multiply vs `BitVec.*`, carry-save step, ...).
+
+**`#verify_eq_at`** with latency support and failure hints
+
+Cycle-accurate Signal DSL equivalence for feed-forward pipelines:
+
+```lean
+#verify_eq_at (cycles := 4) (latency := 2) macPipe macSingle
+-- ✅ macPipe (HEAD) ≡ macSingle at cycles 2..6 (latency 2)
+```
+
+Generates a conjunction of `(impl args).val (t + L) = (spec args).val t`
+for `t ∈ [0, N)`, discharged per-cycle by `simp only [Signal.val_*]`
+with optional `bv_decide` fallback. Ships helper `rfl` lemmas
+(`Signal.val_add`, `val_mul`, `val_register_zero`, `val_register_succ`,
+...) so `bv_decide` can see through the `HAdd` / Functor / Applicative
+layers that wrap Signal operators.
+
+On failure, silently probes neighboring latencies and prints a hint:
+
+```
+❌ `macPipe` ≡ `macSingle` at cycles 1..4 (latency 1)
+💡 Hint: the circuit DOES match at latency := 2.
+   Re-run as  #verify_eq_at (cycles := 3) (latency := 2) macPipe macSingle
+```
+
+or, if no nearby latency helps, `💡 No nearby latency makes them match
+— the implementation is likely functionally incorrect, not just
+mis-timed.` The hint **never auto-succeeds** — a wrong latency is
+still a failure. This preserves the "designer knows the pipeline
+depth" responsibility while catching common typos.
+
+Four Signal DSL demos: 2-cycle delay equivalence, register-position
+commutation, the headline MAC pipeline (latency 2), and a 2-tap FIR
+filter pipelined by one stage.
+
+**`#verify_eq_git`** — time-travel equivalence
+
+```lean
+#verify_eq_git main reluInt8
+-- ✅ reluInt8 (HEAD) ≡ reluInt8 @ main
+```
+
+Runs `git show <ref>:<path>` to fetch the old version of an imported
+definition, strips `import` lines, wraps in an isolated namespace
+`Sparkle.Verification.EquivGit.<ref>`, elaborates command-by-command
+via `Parser.parseCommand` loop, and invokes the current-vs-old
+equivalence proof. Source-file lookup uses
+`Environment.getModuleIdxFor?` + `allImportedModuleNames`. Error paths
+(bad ref, same-file target, missing git binary, renamed/deleted def,
+signature mismatch) surface as clean single-line Lean errors.
+
+### Cleanup / compiler debt paid
+
+- **Deleted `wrapConditionalGuards`** (`CppSim.lean`, ~90 lines): an
+  unsound heuristic that gated prefix-matching code blocks behind
+  detected `_valid` / `_trigger` / `_enable` signals. It caused Issue 6
+  by trapping unrelated output-wire assignments inside a
+  `if (cpu_decoder_trigger)` block, stopping the UART output from
+  updating. Replaced with zero gating; Clang -O2 provides the
+  dead-store elimination the heuristic was trying to emulate.
+- **Removed `isSelfRef` / `findDeepestElse`** in the `.register`
+  emitStmt branch: redundant now that every evalTick `_next` local
+  is initialized to the current register value.
+- **Deleted `isDebugSignal`**: an always-false no-op kept for
+  backward compatibility that predated reachability DCE.
+- **Deprecated `Signal.unbundle2 / unbundle3 / unbundle4`**: the
+  pattern-matching `let (a, b) := unbundle2 sig` silently breaks in
+  synthesis because the Lean tuple is destructured at elab time.
+  `Signal.fst` / `Signal.snd` / `Signal.proj3_*` / `Signal.proj4_*`
+  remain the recommended API.
+- **Simplified `dedupBody`** (`Optimize.lean`): two-pass index-drop
+  scheme → one forward pass with a single HashMap. Semantics
+  preserved.
+
+Net: **−92 LOC** across the three files (157 deleted, 65 added).
+
+### CI and toolchain
+
+- **Bumped Lean to `v4.28.0`** (from `v4.28.0-rc1`) to match LSpec's
+  pinned version. Fixes a mid-run `uncaught exception: failed to
+  read file 'LSpec.olean.server', incompatible header` that was
+  blocking `lake exe test` in CI.
+- **Hardened all three benchmark JSON writers** (`rv32`, `litex`,
+  `multicore`) against Verilator's `%Warning-…` runtime output
+  leaking into the `value` field. Bash heredocs that interpolated
+  raw subprocess stdout replaced with `python3 -c "json.dumps(...)"`
+  and a post-write validator. Added `set -euo pipefail` plus
+  `sanitize_num` (`tail -n1 | tr -cd '0-9'`). dlopen/dlsym NULL
+  checks in every bench binary.
+- **Fixed the LiteX JIT CI step**: `lake env lean --run` doesn't
+  rebuild stale `.olean.server` siblings; added an explicit
+  `lake build Tools.SVParser Sparkle.Backend.CppSim` before the
+  `lean --run` invocation.
+- **Renamed the `Examples.RV32` CI/Makefile target to `IP.RV32`**
+  after the Examples → IP reorganization. Five follow-up files updated.
+
+### Bugs fixed
+
+- **Issue 1 (pcpi_mul standalone FSM freeze)**: resolved by two
+  independent evalTick fixes. (a) `_waiting` was treated as an
+  enable-gate signal by the guard heuristic, freezing the FSM when
+  the guard went 0. (b) The self-ref register in-place optimization
+  was blocking-assigning `mul_waiting` before `mul_finish`'s
+  condition read it, so `mul_finish` never pulsed.
+- **Issue 6 (UART stuck output)**: same `wrapConditionalGuards`
+  unsoundness — Test 10/11 output was all 0x20 / 0x3A because the
+  CPU memory interface was frozen inside an unrelated guard.
+- **Issue 7 (consecutive MUL wrapper)**: the `Optimize.lean`
+  AND-with-all-ones rule dropped `& 0xF` nibble masks from the
+  carry-save chain because `0xF == 2^4 - 1` on the 4-bit mask
+  constant, regardless of the operand's actual width. Tightened
+  to only fold when both sides are constants.
+- **`sim!` / `generateSimWrappers` port-index drift**: the
+  typed-SimInput layer filtered more reset-like names than the raw
+  JIT emitter, so any module with an explicit `rst` port had its
+  indices off by one. `PortSpec` now carries a raw-JIT index and
+  `sim.step` uses it verbatim.
+
+### Test status
+
+| Suite | Before Phase 55 | After Phase 55 |
+|---|---|---|
+| `svparser-test` | 28/34 (6 pcpi_mul failures) | **34/34** |
+| `sim-runner-test` | (new) | **30/30** |
+| `cdc-multi-clock-test` | PASS | PASS |
+| `EquivDemo` (interactive) | n/a | **13/13 ✅** |
+| `Tests/AllTests` | full BitNet + YOLOv8 + CAVLC + H.264 + AXI4 | same, with toolchain fix |
+| Full `lake build` | 62 jobs | 64 jobs |
+
+### Follow-up ideas
+
+Parked in `docs/TODO.md`. Highlights:
+
+- **V1**: `lake exe verify-pr` — auto-run `#verify_eq_git` for every
+  function touched by a PR diff. Turns the current ad-hoc workflow
+  into an automated PR gate.
+- **V2**: Layer-3 feedback circuits (`Signal.loop`) via a dedicated
+  `unfold_loop n` tactic → bounded model checking for counters /
+  FSMs / accumulators.
+- **V3**: `#verify_eq_at_git` — trivially combining the last two
+  commands, for pipelined time travel.
+- **C2**: Re-enable wstrb on the SoC mmap write path so Test 10 / 11
+  produce real firmware output instead of the "1 char repeated"
+  smoke signal.
+
+---
+
 ## Phase 54: Verified Reverse Synthesis — Proof-Driven IR Reduction (Complete)
 
 **Date**: 2026-04-01

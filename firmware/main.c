@@ -225,8 +225,8 @@ static unsigned int test_bitnet_mmio(void) {
     if (status != 1) return 0;
 
     unsigned int output = AI_OUTPUT;
-    uart_putword(output);           /* Expected: 0xDEADBEEF */
-    if (output != 0xDEADBEEF) return 0;
+    uart_putword(output);           /* Expected: 0 (bitNetPeripheral(0) = 0) */
+    if (output != 0) return 0;
 
     return 1;
 }
