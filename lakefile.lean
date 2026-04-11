@@ -33,6 +33,9 @@ lean_lib «IP.BitNet» where
 lean_lib «IP.Drone» where
   roots := #[`IP.Drone]
 
+lean_lib «IP.Humanoid» where
+  roots := #[`IP.Humanoid]
+
 lean_lib «IP.RV32» where
   roots := #[`IP.RV32]
 
