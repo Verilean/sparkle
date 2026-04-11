@@ -159,6 +159,10 @@ lean_exe «ffn-golden-test» where
   root := `Tests.Synthesis.FFNGolden
   supportInterpreter := true
 
+lean_exe «toplevel-sim-test» where
+  root := `Tests.Synthesis.TopLevelSim
+  supportInterpreter := true
+
 lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
