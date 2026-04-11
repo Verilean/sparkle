@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775908704143,
+  "lastUpdate": 1775915020140,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -879,6 +879,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4108105,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f9dc9ba819940dcf58c58be55d103e40b7d8a28c",
+          "message": "Merge pull request #22 from Verilean/feature/fpga\n\nUpdate the FPGA implementation",
+          "timestamp": "2026-04-11T22:39:12+09:00",
+          "tree_id": "2c6c8c58822980c49eb476abb49347b863805f7f",
+          "url": "https://github.com/Verilean/sparkle/commit/f9dc9ba819940dcf58c58be55d103e40b7d8a28c"
+        },
+        "date": 1775915019865,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3505824,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4794465,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 5313532,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 5108999,
             "unit": "cycles/sec"
           }
         ]
