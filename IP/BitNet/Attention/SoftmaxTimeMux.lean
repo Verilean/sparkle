@@ -70,7 +70,7 @@ def recipLUT16 : Array (BitVec 32) := #[
     Returns (weightReadData × (done × (readAddr × phase))). -/
 def softmaxTimeMux
     (go : Signal dom Bool)
-    (seqLenLimit : BitVec 16)  -- seqLen - 1
+    (seqLenLimit : Signal dom (BitVec 16))  -- seqLen - 1 (runtime signal)
     -- Score BRAM write port (external: dot product writes scores)
     (scoreWriteAddr : Signal dom (BitVec 16))
     (scoreWriteData : Signal dom (BitVec 32))
@@ -118,7 +118,7 @@ def softmaxTimeMux
     let recipFromLUT := lutMuxTree recipLUT16 recipIdx
 
     -- Counter limit
-    let atEnd : Signal dom Bool := counter === (Signal.pure seqLenLimit : Signal dom (BitVec 16))
+    let atEnd : Signal dom Bool := counter === seqLenLimit
 
     let goIdle : Signal dom Bool := Signal.mux isIdle go (Signal.pure false : Signal dom Bool)
     let maxDone : Signal dom Bool := Signal.mux isFindMax atEnd (Signal.pure false : Signal dom Bool)
