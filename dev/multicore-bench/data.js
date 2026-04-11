@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775867388433,
+  "lastUpdate": 1775870196927,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -307,6 +307,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 690980,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "b1fcbd602aa6dc44ebb64886d3fbce3a056011bf",
+          "message": "fix: CppSim wide integer evalTick locals + structural test update\n\nCppSim: wide integer (>64 bit) wires declared in evalTick without\nzero-initialization (just type declaration). Avoids both the\nundeclared variable error and the per-cycle init performance hit.\nWires are always written before read (Verilog wire semantics).\n\nBitNetSoCTest: structural check updated from _gen_bitnetOut (old\nplaceholder wire name) to _gen_gateAcc + sext_msb (FFN pipeline\nindicators that survive inlining). The real BitNet FFN is now\nfully inlined into the SoC, so the old wrapper wire name is gone.\n\nAll tests pass: oracle-accuracy 4/4, BitNet SoC 3/3, parser 34/34,\nsim-runner 30/30.",
+          "timestamp": "2026-04-11T09:50:30+09:00",
+          "tree_id": "84774db419418400b9f173eaccf0a4062d1a839a",
+          "url": "https://github.com/Verilean/sparkle/commit/b1fcbd602aa6dc44ebb64886d3fbce3a056011bf"
+        },
+        "date": 1775870196210,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4702558,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 581352,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 955960,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 636214,
             "unit": "cycles/sec"
           }
         ]
