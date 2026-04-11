@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775870127867,
+  "lastUpdate": 1775874731172,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -305,6 +305,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2565134,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "ed32cb5ae26562810d4b7ee689c9c002799c6c6b",
+          "message": "fix: update BitNet MMIO test expected value in firmware\n\nTest 9 (BitNet MMIO) expected 0xDEADBEEF from AI_OUTPUT, which was\nthe old placeholder value. Now bitNetPeripheral runs the real FFN\npipeline, so bitNetPeripheral(0) = 0. Updated expected value to 0.\n\nRebuilt firmware.hex with riscv32-none-elf-gcc.\nCppSim: ALL TESTS PASSED (including Test 9 BitNet MMIO).",
+          "timestamp": "2026-04-11T11:25:27+09:00",
+          "tree_id": "2dd432ea40b1de137eea99bb37b4526bf4f3e250",
+          "url": "https://github.com/Verilean/sparkle/commit/ed32cb5ae26562810d4b7ee689c9c002799c6c6b"
+        },
+        "date": 1775874730909,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4707648,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2162696,
             "unit": "cycles/sec"
           }
         ]
