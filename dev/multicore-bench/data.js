@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775676255808,
+  "lastUpdate": 1775866271794,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -219,6 +219,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 689881,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "ac50cf32b82af6fcb7714343de745424f6e92766",
+          "message": "fix: CppSim wide integer (>64bit) support in evalTick and slice/concat\n\nTwo fixes for std::array<uint32_t, N> handling in CppSim:\n\n1. evalTick wire localization: wires >64 bits were excluded from\n   evalTick's local declarations (isScalar check), causing\n   \"undeclared identifier\" errors when evalTick referenced them.\n   Fix: declare wide integer locals with std::array zero-init.\n\n2. slice on wide integers: >> operator doesn't work on std::array.\n   Fix: emit word-level array indexing (array[wordIdx] >> bitOffset)\n   for source widths >64 bits, handling cross-word boundary cases.\n\n3. concat producing >64 bits: shift+OR chain doesn't work for\n   std::array results. Fix: emit std::array initializer with\n   word-level packing.\n\nFixes oracle-accuracy-test which exercises the SoC with BitNet\nperipheral using 80-bit intermediates (48×32 scale multiply via\nsignExtendSignal).\n\nAll tests pass: 34/34 parser, 30/30 sim-runner, 4/4 oracle-accuracy,\n3/3 BitNet SoC, 3/3 TimeMux, 7/7 golden compare, FFN golden.",
+          "timestamp": "2026-04-11T09:03:47+09:00",
+          "tree_id": "9342988b570d851d1e422d8021f4638f7ae1c775",
+          "url": "https://github.com/Verilean/sparkle/commit/ac50cf32b82af6fcb7714343de745424f6e92766"
+        },
+        "date": 1775866271327,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4051718,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 500635,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1009490,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 644918,
             "unit": "cycles/sec"
           }
         ]
