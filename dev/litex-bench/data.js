@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775874731172,
+  "lastUpdate": 1775878093065,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -339,6 +339,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2162696,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0a6400738936eb1f6f4931958e28f395bc04554a",
+          "message": "Merge pull request #21 from Verilean/feature/fpga\n\nAdd Equivalence Verification Checking and SoC with Bitnet",
+          "timestamp": "2026-04-11T12:22:35+09:00",
+          "tree_id": "2dd432ea40b1de137eea99bb37b4526bf4f3e250",
+          "url": "https://github.com/Verilean/sparkle/commit/0a6400738936eb1f6f4931958e28f395bc04554a"
+        },
+        "date": 1775878092379,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4832108,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2160440,
             "unit": "cycles/sec"
           }
         ]
