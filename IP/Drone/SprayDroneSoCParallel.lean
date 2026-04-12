@@ -23,6 +23,7 @@
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
 import IP.Drone.FlightController
+import IP.Drone.ClassicalFC
 import IP.Drone.StateEstimator
 import IP.Drone.PathPlanner
 import IP.Drone.Failsafe
@@ -90,7 +91,11 @@ def sprayDroneSoCParallel
   -- 1. State estimation (attitude + position)
   -- ================================================================
   let dt : Signal dom (BitVec 32) := (Signal.pure 0x00000041#32 : Signal dom (BitVec 32))  -- 1/1000 s
-  let _attitude := attitudeEstimator gyroX gyroY gyroZ accelX accelY accelZ dt
+  let attitude := attitudeEstimator gyroX gyroY gyroZ accelX accelY accelZ dt
+  let rollMeas := Signal.fst attitude
+  let attR1 := Signal.snd attitude
+  let pitchMeas := Signal.fst attR1
+  let yawMeas := Signal.snd attR1
   let _position := positionEstimator accelX accelY accelZ gpsLat gpsLon gpsAlt gpsValid dt
 
   -- ================================================================
@@ -123,9 +128,23 @@ def sprayDroneSoCParallel
   let fsCode := Signal.snd fr3
 
   -- ================================================================
-  -- 4. Neural Flight Controller (15 ns, combinational)
+  -- 4. Classical Cascaded PID Flight Controller
   -- ================================================================
-  let fcOut := droneFC accelX accelY accelZ gyroX gyroY gyroZ
+  -- Inner loop: rate PID on each axis (roll/pitch/yaw)
+  -- Outer loop: attitude P on roll/pitch → rate setpoints
+  -- Setpoints: hover (roll=0, pitch=0, yaw-rate=0) for now.
+  -- Throttle is pinned at the default hover value — the failsafe /
+  -- path planner / pilot can override it later by driving a proper
+  -- `throttleCmd` input into this module.
+  let zero32 : Signal dom (BitVec 32) := (Signal.pure 0#32 : Signal dom (BitVec 32))
+  let rollSet  := zero32
+  let pitchSet := zero32
+  let yawRateSet := zero32
+  -- Hover throttle: 0.5 in Q16.16
+  let throttleCmd : Signal dom (BitVec 32) :=
+    (Signal.pure 0x00008000#32 : Signal dom (BitVec 32))
+  let fcOut := classicalFC rollMeas pitchMeas yawMeas
+    gyroX gyroY gyroZ rollSet pitchSet yawRateSet throttleCmd
   let motor1fc := Signal.fst fcOut
   let mr1 := Signal.snd fcOut
   let motor2fc := Signal.fst mr1
@@ -166,11 +185,15 @@ def sprayDroneSoCParallel
   -- ================================================================
   -- 8. Convert 32-bit motor values to 11-bit DShot throttle
   -- ================================================================
-  -- Take bits [21:11] of the 32-bit motor value
-  let t1 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 21 11 ·) m1armed
-  let t2 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 21 11 ·) m2armed
-  let t3 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 21 11 ·) m3armed
-  let t4 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 21 11 ·) m4armed
+  -- Classical FC emits Q16.16 values in [0, 0x00010000] (clamped).
+  -- We extract bits [15:5]: bit 15 (= 0.5 in Q16.16) becomes bit 10 of
+  -- the output, so 0.5 → ~1024, which sits at the middle of the DShot
+  -- [48, 2047] range. Full throttle (1.0) → bit 16 set, which via the
+  -- mux against the DShot window yields the upper end.
+  let t1 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 5 11 ·) m1armed
+  let t2 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 5 11 ·) m2armed
+  let t3 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 5 11 ·) m3armed
+  let t4 : Signal dom (BitVec 11) := Signal.map (BitVec.extractLsb' 5 11 ·) m4armed
 
   -- ================================================================
   -- 9. Pump outputs (4 nozzles, enable from sprayEnable)

@@ -75,15 +75,19 @@ int main(int argc, char** argv) {
     int hover_count = 0;       // motor_throttle in reasonable range
     int zero_count = 0;        // motor_throttle == 0 (disarmed / failsafe)
     int nonzero_count = 0;     // motor_throttle > 0
+    int differential_count = 0;  // steps where the four motors are NOT all equal
 
     uint64_t min_throttle = 0xFFFF, max_throttle = 0;
 
     for (int step = 0; step < n_steps; step++) {
-        // Publish sensor data (varies slightly to exercise different code paths)
-        shm->accel_x = cosim_f2q((float)step * 0.01f);
+        // Hover sensor baseline + a simulated roll-rate disturbance
+        // during steps [n_steps/3 .. 2*n_steps/3]. The classical PID
+        // should respond differentially (m1/m2 vs m3/m4) to damp it.
+        bool disturb = step >= n_steps / 3 && step < (2 * n_steps) / 3;
+        shm->accel_x = cosim_f2q(0.0f);
         shm->accel_y = cosim_f2q(0.0f);
         shm->accel_z = cosim_f2q(-9.81f);
-        shm->gyro_x  = cosim_f2q(0.0f);
+        shm->gyro_x  = disturb ? cosim_f2q(1.5f) : 0;  // 1.5 rad/s roll
         shm->gyro_y  = cosim_f2q(0.0f);
         shm->gyro_z  = cosim_f2q(0.0f);
         shm->gps_lat = 356895000;
@@ -119,6 +123,10 @@ int main(int argc, char** argv) {
 
         // Collect statistics on motor throttle output
         uint16_t t = shm->motor_throttle[0];
+        uint16_t t2 = shm->motor_throttle[1];
+        uint16_t t3 = shm->motor_throttle[2];
+        uint16_t t4 = shm->motor_throttle[3];
+        if (!(t == t2 && t2 == t3 && t3 == t4)) differential_count++;
         if (t == 0) zero_count++;
         else {
             nonzero_count++;
@@ -138,6 +146,7 @@ int main(int argc, char** argv) {
     printf("  zero count:     %d\n", zero_count);
     printf("  nonzero count:  %d\n", nonzero_count);
     printf("  in DShot range: %d\n", hover_count);
+    printf("  differential:   %d (motors not all equal)\n", differential_count);
     printf("  last failsafe code: %u\n", shm->failsafe_code);
     printf("  last mission done:  %u\n", shm->mission_done);
 
