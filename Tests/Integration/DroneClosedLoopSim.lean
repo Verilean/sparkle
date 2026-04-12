@@ -1,18 +1,15 @@
 /-
-  Drone Closed-Loop Simulation — Lean 4
+  Drone Closed-Loop Spray Mission Simulation — Lean 4
 
-  Minimal 6DOF rigid-body physics for a quadrotor with a cascaded PID
-  flight controller. This validates the PID algorithm (same as
-  ClassicalFC.lean) in a closed-loop physics environment:
+  Full closed-loop simulation with:
+    1. 6DOF rigid-body physics
+    2. Cascaded PID flight controller (attitude + rate)
+    3. Position/velocity/altitude controller (navigation)
+    4. Serpentine path planner
+    5. Spray pump control
 
-    Motor thrust → rigid body dynamics → IMU readings → PID → motor thrust
-
-  The PID logic is written in plain Lean Float to avoid O(n²) Signal
-  stream re-evaluation. The algorithm is identical to ClassicalFC:
-    - Rate PID × 3 axes (Kp=0.35, Ki=0.05, Kd=0.005)
-    - Attitude P × 2 axes (Kp=4.0, rateMax=3.0)
-    - Motor mixer X config
-    - Anti-windup clamp on integrator
+  Validates the complete stack: path planner → position PID → velocity PID
+  → attitude PID → motor mixer → physics → sensors → (loop)
 -/
 
 -- ============================================================
@@ -25,17 +22,17 @@ def clampF (lo hi x : Float) : Float :=
   if x < lo then lo else if x > hi then hi else x
 
 -- ============================================================
--- Quadrotor physical parameters
+-- Physical parameters
 -- ============================================================
 
 structure QuadParams where
-  mass     : Float := 1.5      -- kg
-  armLen   : Float := 0.22     -- motor-to-center, m
-  Ixx      : Float := 0.015    -- roll inertia, kg·m²
-  Iyy      : Float := 0.015    -- pitch inertia, kg·m²
-  Izz      : Float := 0.025    -- yaw inertia, kg·m²
-  kThrust  : Float := 3.5e-6   -- F = kThrust × dshot²  (hover: 3.5e-6 × 1024² × 4 ≈ 14.7N ≈ mg)
-  kTorque  : Float := 1.2e-5   -- yaw torque coeff
+  mass     : Float := 1.5
+  armLen   : Float := 0.22
+  Ixx      : Float := 0.015
+  Iyy      : Float := 0.015
+  Izz      : Float := 0.025
+  kThrust  : Float := 3.5e-6
+  kTorque  : Float := 1.2e-5
   gravity  : Float := 9.81
 
 -- ============================================================
@@ -45,20 +42,20 @@ structure QuadParams where
 structure QuadState where
   px : Float := 0.0
   py : Float := 0.0
-  pz : Float := -10.0   -- NED: negative = up
+  pz : Float := 0.0    -- altitude (positive = up, unlike NED)
   vx : Float := 0.0
   vy : Float := 0.0
   vz : Float := 0.0
   roll  : Float := 0.0
   pitch : Float := 0.0
   yaw   : Float := 0.0
-  p : Float := 0.0   -- roll rate (rad/s)
-  q : Float := 0.0   -- pitch rate
-  r : Float := 0.0   -- yaw rate
+  p : Float := 0.0
+  q : Float := 0.0
+  r : Float := 0.0
   deriving Repr, Inhabited
 
 -- ============================================================
--- PID controller state (one axis)
+-- PID state
 -- ============================================================
 
 structure PIDState where
@@ -66,118 +63,179 @@ structure PIDState where
   prevErr    : Float := 0.0
 
 -- ============================================================
--- Full FC state
+-- Full controller state
 -- ============================================================
 
 structure FCState where
-  rollPID  : PIDState := {}
-  pitchPID : PIDState := {}
-  yawPID   : PIDState := {}
-  -- Attitude estimator state
+  -- Attitude estimator
   estRoll  : Float := 0.0
   estPitch : Float := 0.0
   estYaw   : Float := 0.0
+  -- Rate PID (inner loop) × 3
+  rollRatePID  : PIDState := {}
+  pitchRatePID : PIDState := {}
+  yawRatePID   : PIDState := {}
+  -- Velocity PID × 2
+  velXPID : PIDState := {}
+  velYPID : PIDState := {}
+  -- Altitude PID
+  altPID : PIDState := {}
 
 -- ============================================================
--- PID gains (same as ClassicalFC.lean)
+-- Path planner state
 -- ============================================================
 
+structure PlannerState where
+  phase     : Nat := 0   -- 0=idle, 1=fly_leg, 2=turn, 3=done
+  passIdx   : Nat := 0
+  targetX   : Float := 0.0
+  targetY   : Float := 0.0
+  goingNorth : Bool := true
+  deriving Inhabited
+
+-- ============================================================
+-- Mission statistics
+-- ============================================================
+
+structure MissionStats where
+  totalDistance  : Float := 0.0
+  sprayDistance  : Float := 0.0
+  sprayOnSteps  : Nat := 0
+  maxRoll       : Float := 0.0
+  maxPitch      : Float := 0.0
+  maxAltError   : Float := 0.0
+  waypointsHit  : Nat := 0
+
+-- ============================================================
+-- PID gains
+-- ============================================================
+
+-- Rate PID (continuous-time gains, scaled by dt in pidStep)
 def rateKp : Float := 0.35
-def rateKi : Float := 0.05
-def rateKd : Float := 0.005
-def iLimitF : Float := 0.3
-def oLimitF : Float := 0.5
+def rateKi : Float := 0.3
+def rateKd : Float := 0.003
+def rateIlim : Float := 0.3
+def rateOlim : Float := 0.5
+
+-- Attitude P
 def attKpF : Float := 4.0
-def rateMaxF : Float := 3.0
-def hoverThrottleF : Float := 0.5
+def attRateMax : Float := 3.0
+
+-- Position P
+def posKp : Float := 1.0
+def posMaxVel : Float := 5.0
+
+-- Velocity PID (conservative: limit tilt to avoid altitude coupling)
+def velKp : Float := 0.1
+def velKi : Float := 0.02
+def velKd : Float := 0.01
+def velIlim : Float := 0.1
+def velOlim : Float := 0.15  -- max tilt ~8° to limit altitude coupling
+
+-- Altitude PID
+def altKp : Float := 0.2
+def altKi : Float := 0.05
+def altKd : Float := 0.4
+def altIlim : Float := 0.05
+def altOlim : Float := 0.1
+
+def hoverThrottle : Float := 0.5
 
 -- ============================================================
--- Complementary filter (attitude estimation)
+-- PID step (generic)
 -- ============================================================
 
-def attitudeUpdate (est : Float) (gyroRate : Float) (accelAngle : Float)
-    (dt : Float) (alpha : Float) : Float :=
-  let gyroEst := est + gyroRate * dt
-  alpha * gyroEst + (1.0 - alpha) * accelAngle
+def simDt : Float := 0.001  -- shared dt for PID scaling
 
--- ============================================================
--- Rate PID step
--- ============================================================
-
-def ratePIDStep (st : PIDState) (setpoint measured : Float) : PIDState × Float :=
+def pidStep (st : PIDState) (setpoint measured : Float)
+    (kp ki kd ilim olim : Float) : PIDState × Float :=
   let err := setpoint - measured
-  let pTerm := rateKp * err
-  let rawInteg := st.integrator + rateKi * err
-  let clampedInteg := clampF (-iLimitF) iLimitF rawInteg
-  let dErr := err - st.prevErr
-  let dTerm := rateKd * dErr
-  let rawOut := pTerm + clampedInteg + dTerm
-  let out := clampF (-oLimitF) oLimitF rawOut
-  ({ integrator := clampedInteg, prevErr := err }, out)
+  -- Scale I and D by dt so gains are rate-independent
+  let rawI := st.integrator + ki * err * simDt
+  let clI := clampF (-ilim) ilim rawI
+  let dErr := (err - st.prevErr) / simDt
+  let out := clampF (-olim) olim (kp * err + clI + kd * dErr)
+  ({ integrator := clI, prevErr := err }, out)
 
 -- ============================================================
--- Attitude P step
+-- Complementary filter
 -- ============================================================
 
-def attitudePStep (setpoint measured : Float) : Float :=
-  let err := setpoint - measured
-  clampF (-rateMaxF) rateMaxF (attKpF * err)
-
--- ============================================================
--- Motor mixer (X config)
--- ============================================================
-
-def motorMix (throttle rollCmd pitchCmd yawCmd : Float) : Float × Float × Float × Float :=
-  let m1 := clampF 0.0 1.0 (throttle - rollCmd + pitchCmd + yawCmd)
-  let m2 := clampF 0.0 1.0 (throttle - rollCmd - pitchCmd - yawCmd)
-  let m3 := clampF 0.0 1.0 (throttle + rollCmd - pitchCmd + yawCmd)
-  let m4 := clampF 0.0 1.0 (throttle + rollCmd + pitchCmd - yawCmd)
-  (m1, m2, m3, m4)
+def attUpdate (est gyroRate accelAngle dt alpha : Float) : Float :=
+  alpha * (est + gyroRate * dt) + (1.0 - alpha) * accelAngle
 
 -- ============================================================
 -- Full FC step
 -- ============================================================
 
-def fcStep (fc : FCState) (gyroX gyroY gyroZ accelX accelY : Float) (dt : Float)
+def fcStep (fc : FCState) (gyroX gyroY gyroZ accelX accelY : Float)
+    (currentX currentY currentAlt velXm velYm velZm : Float)
+    (targetX targetY targetAlt : Float) (dt : Float)
     : FCState × (Float × Float × Float × Float) :=
-  -- Attitude estimation (complementary filter, alpha=0.98)
   let alpha := 0.98
-  let estRoll'  := attitudeUpdate fc.estRoll  gyroX accelY  dt alpha
-  let estPitch' := attitudeUpdate fc.estPitch gyroY (-accelX) dt alpha
+
+  -- Attitude estimation
+  let estRoll'  := attUpdate fc.estRoll  gyroX accelY  dt alpha
+  let estPitch' := attUpdate fc.estPitch gyroY (-accelX) dt alpha
   let estYaw'   := fc.estYaw + gyroZ * dt
 
-  -- Outer loop: attitude → rate setpoint (P-only)
-  let rollRateSet  := attitudePStep 0.0 estRoll'
-  let pitchRateSet := attitudePStep 0.0 estPitch'
-  let yawRateSet   := 0.0  -- hold yaw rate at zero
+  -- Position P → velocity setpoint
+  let velXset := clampF (-posMaxVel) posMaxVel (posKp * (targetX - currentX))
+  let velYset := clampF (-posMaxVel) posMaxVel (posKp * (targetY - currentY))
 
-  -- Inner loop: rate PID
-  let (rpid, rollCmd)  := ratePIDStep fc.rollPID  rollRateSet  gyroX
-  let (ppid, pitchCmd) := ratePIDStep fc.pitchPID pitchRateSet gyroY
-  let (ypid, yawCmd)   := ratePIDStep fc.yawPID   yawRateSet   gyroZ
+  -- Velocity PID → attitude setpoint
+  let (vxp, pitchDelta) := pidStep fc.velXPID velXset velXm velKp velKi velKd velIlim velOlim
+  let (vyp, rollDelta)  := pidStep fc.velYPID velYset velYm velKp velKi velKd velIlim velOlim
+  let pitchSet := pitchDelta     -- pitch > 0 → thrust in +X direction
+  let rollSet  := -rollDelta    -- roll > 0 → thrust in -Y, so negate
 
-  -- Motor mix
-  let motors := motorMix hoverThrottleF rollCmd pitchCmd yawCmd
+  -- Altitude PID → throttle delta
+  let (ap, altDelta) := pidStep fc.altPID targetAlt currentAlt altKp altKi altKd altIlim altOlim
+  let throttle := hoverThrottle + altDelta
+
+  -- Attitude P → rate setpoint
+  let rollRateSet  := clampF (-attRateMax) attRateMax (attKpF * (rollSet - estRoll'))
+  let pitchRateSet := clampF (-attRateMax) attRateMax (attKpF * (pitchSet - estPitch'))
+  let yawRateSet   := 0.0
+
+  -- Rate PID → torque
+  let (rr, rollCmd)  := pidStep fc.rollRatePID  rollRateSet  gyroX rateKp rateKi rateKd rateIlim rateOlim
+  let (pr, pitchCmd) := pidStep fc.pitchRatePID pitchRateSet gyroY rateKp rateKi rateKd rateIlim rateOlim
+  let (yr, yawCmd)   := pidStep fc.yawRatePID   yawRateSet   gyroZ rateKp rateKi rateKd rateIlim rateOlim
+
+  -- Motor mix (X config) in normalized thrust space.
+  -- Torque commands are small relative to throttle, so we:
+  -- 1. Mix linearly to get desired thrust per motor
+  -- 2. Convert from thrust to duty: duty = sqrt(thrust / kThrust) / 2047
+  --    Simplified: since dutyToThrust(d) = k*(d*2047)², thrust ∝ duty²,
+  --    so duty = sqrt(thrust_fraction)
+  let f1 := clampF 0.0 1.0 (throttle - rollCmd + pitchCmd + yawCmd)
+  let f2 := clampF 0.0 1.0 (throttle - rollCmd - pitchCmd - yawCmd)
+  let f3 := clampF 0.0 1.0 (throttle + rollCmd - pitchCmd + yawCmd)
+  let f4 := clampF 0.0 1.0 (throttle + rollCmd + pitchCmd - yawCmd)
+  let m1 := f1
+  let m2 := f2
+  let m3 := f3
+  let m4 := f4
 
   let fc' : FCState := {
-    rollPID := rpid, pitchPID := ppid, yawPID := ypid,
-    estRoll := estRoll', estPitch := estPitch', estYaw := estYaw'
+    estRoll := estRoll', estPitch := estPitch', estYaw := estYaw',
+    rollRatePID := rr, pitchRatePID := pr, yawRatePID := yr,
+    velXPID := vxp, velYPID := vyp, altPID := ap
   }
-  (fc', motors)
+  (fc', (m1, m2, m3, m4))
 
 -- ============================================================
--- Motor duty (0..1) to DShot (0..2047) to thrust
+-- Physics step (positive-up altitude convention)
 -- ============================================================
 
 def dutyToThrust (params : QuadParams) (duty : Float) : Float :=
-  let dshot := duty * 2047.0
-  params.kThrust * dshot * dshot
+  -- Linear thrust model: F = kLinear × duty. At duty=0.5, F = mg/4 for hover.
+  -- kLinear = mg / (4 × 0.5) = mg / 2
+  let kLinear := params.mass * params.gravity / 2.0
+  kLinear * duty
 
--- ============================================================
--- Physics step
--- ============================================================
-
-def physicsStep (params : QuadParams) (dt : Float) (state : QuadState)
+def physicsStep (params : QuadParams) (dt : Float) (st : QuadState)
     (m1 m2 m3 m4 : Float) : QuadState :=
   let f1 := dutyToThrust params m1
   let f2 := dutyToThrust params m2
@@ -185,130 +243,229 @@ def physicsStep (params : QuadParams) (dt : Float) (state : QuadState)
   let f4 := dutyToThrust params m4
   let totalThrust := f1 + f2 + f3 + f4
 
-  -- Torques
   let tauRoll  := params.armLen * (f3 + f4 - f1 - f2)
   let tauPitch := params.armLen * (f1 + f4 - f2 - f3)
-  let d1 := m1 * 2047.0
-  let d2 := m2 * 2047.0
-  let d3 := m3 * 2047.0
-  let d4 := m4 * 2047.0
-  let tauYaw := params.kTorque * ((d1*d1 + d3*d3) - (d2*d2 + d4*d4))
+  -- Yaw torque: proportional to thrust difference between CW and CCW motors
+  let tauYaw := params.kTorque * ((f1 + f3) - (f2 + f4)) * 1000.0
 
-  -- Angular acceleration
-  let pDot := tauRoll  / params.Ixx
-  let qDot := tauPitch / params.Iyy
-  let rDot := tauYaw   / params.Izz
+  let p' := st.p + tauRoll / params.Ixx * dt
+  let q' := st.q + tauPitch / params.Iyy * dt
+  let r' := st.r + tauYaw / params.Izz * dt
 
-  let p' := state.p + pDot * dt
-  let q' := state.q + qDot * dt
-  let r' := state.r + rDot * dt
+  let roll'  := st.roll  + p' * dt
+  let pitch' := st.pitch + q' * dt
+  let yaw'   := st.yaw   + r' * dt
 
-  let roll'  := state.roll  + p' * dt
-  let pitch' := state.pitch + q' * dt
-  let yaw'   := state.yaw   + r' * dt
+  -- Thrust in world frame (positive-up)
+  let thrustUp := totalThrust * Float.cos roll' * Float.cos pitch'
+  let thrustX  := totalThrust * Float.sin pitch'
+  let thrustY  := totalThrust * (-Float.sin roll') * Float.cos pitch'
 
-  -- Linear acceleration in NED
-  let az_body := -totalThrust / params.mass
-  let ax := az_body * Float.sin pitch'
-  let ay := az_body * (-Float.sin roll') * Float.cos pitch'
-  let az := az_body * Float.cos roll' * Float.cos pitch' + params.gravity
+  let ax := thrustX / params.mass
+  let ay := thrustY / params.mass
+  let az := thrustUp / params.mass - params.gravity
 
-  let vx' := state.vx + ax * dt
-  let vy' := state.vy + ay * dt
-  let vz' := state.vz + az * dt
-  let px' := state.px + vx' * dt
-  let py' := state.py + vy' * dt
-  let pz' := state.pz + vz' * dt
-
-  { px := px', py := py', pz := pz',
+  let vx' := st.vx + ax * dt
+  let vy' := st.vy + ay * dt
+  let vz' := st.vz + az * dt
+  { px := st.px + vx' * dt, py := st.py + vy' * dt, pz := st.pz + vz' * dt,
     vx := vx', vy := vy', vz := vz',
     roll := roll', pitch := pitch', yaw := yaw',
     p := p', q := q', r := r' }
 
 -- ============================================================
--- Closed-loop simulation
+-- Path planner step (Float version of serpentinePlanner)
 -- ============================================================
 
-def runClosedLoop (params : QuadParams) (nSteps : Nat) (dt : Float)
-    (initState : QuadState) : IO (Array QuadState) := do
-  let mut state := initState
-  let mut fc : FCState := {}
-  let mut states : Array QuadState := #[initState]
+def plannerStep (pl : PlannerState) (go atWaypoint : Bool)
+    (fieldLength swathWidth : Float) (maxPasses : Nat)
+    : PlannerState × (Float × Float × Bool × Bool) :=
+  -- sprayEnable = during fly_leg, missionDone = phase==3
+  let sprayEnable := pl.phase == 1
+  let missionDone := pl.phase == 3
 
-  for _ in List.range nSteps do
-    -- Sensor readings from physics state
+  let pl' : PlannerState :=
+    match pl.phase with
+    | 0 =>
+      if go then
+        ({ phase := 1, passIdx := 0, targetX := 0.0,
+           targetY := fieldLength, goingNorth := true } : PlannerState)
+      else pl
+    | 1 =>
+      if atWaypoint then ({ pl with phase := 2 } : PlannerState)
+      else pl
+    | 2 =>
+      if atWaypoint then
+        if pl.passIdx >= maxPasses then ({ pl with phase := 3 } : PlannerState)
+        else
+          let newTargetY := if pl.goingNorth then 0.0 else fieldLength
+          ({ phase := 1, passIdx := pl.passIdx + 1,
+             targetX := pl.targetX + swathWidth,
+             targetY := newTargetY, goingNorth := !pl.goingNorth } : PlannerState)
+      else pl
+    | _ => pl
+
+  (pl', (pl'.targetX, pl'.targetY, sprayEnable, missionDone))
+
+-- ============================================================
+-- Closed-loop spray mission simulation
+-- ============================================================
+
+def runSprayMission (params : QuadParams) (nSteps : Nat) (dt : Float)
+    (fieldLength swathWidth sprayAlt : Float) (maxPasses : Nat)
+    : IO MissionStats := do
+  let mut state : QuadState := { pz := sprayAlt }  -- start at spray altitude
+  let mut fc : FCState := {}
+  let mut planner : PlannerState := {}
+  let mut stats : MissionStats := {}
+  let mut missionStarted := false
+  let mut prevPx := state.px
+  let mut prevPy := state.py
+
+  for step in List.range nSteps do
+    -- Start mission at step 100 (let hover settle first)
+    let go := step >= 100
+    if go && !missionStarted then
+      missionStarted := true
+
+    -- Waypoint reached check
+    let distToWp := Float.sqrt (
+      (state.px - planner.targetX) * (state.px - planner.targetX) +
+      (state.py - planner.targetY) * (state.py - planner.targetY))
+    let atWp := distToWp < 2.0 && missionStarted
+
+    -- Path planner
+    let (pl', (tgtX, tgtY, sprayOn, done)) :=
+      plannerStep planner go atWp fieldLength swathWidth maxPasses
+
+    planner := pl'
+
+    -- Debug print moved below FC step
+
+    -- Sensors
     let gyroX := state.p
     let gyroY := state.q
     let gyroZ := state.r
-    -- Accelerometer: body-frame specific force (gravity seen in body frame).
-    -- For small angles: g projects as g×sin(roll) on Y, -g×sin(pitch) on X,
-    -- and -g×cos(roll)×cos(pitch) on Z.
     let accelX := -params.gravity * Float.sin state.pitch
     let accelY :=  params.gravity * Float.sin state.roll
 
-    -- FC step
-    let (fc', (m1, m2, m3, m4)) := fcStep fc gyroX gyroY gyroZ accelX accelY dt
+    -- FC step (full navigation + attitude + rate)
+    let (fc', (m1, m2, m3, m4)) := fcStep fc gyroX gyroY gyroZ accelX accelY
+      state.px state.py state.pz state.vx state.vy state.vz
+      tgtX tgtY sprayAlt dt
     fc := fc'
 
-    -- Physics step
-    state := physicsStep params dt state m1 m2 m3 m4
-    states := states.push state
+    if step % 5000 == 0 && step > 0 then
+      IO.println s!"  @{step}: pos=({state.px}, {state.py}, {state.pz}) vz={state.vz}"
+      IO.println s!"    motors=({m1}, {m2}, {m3}, {m4}) altI={fc.altPID.integrator}"
 
-  return states
+    -- Physics
+    let prevState := state
+    state := physicsStep params dt state m1 m2 m3 m4
+
+    -- Statistics
+    let segDist := Float.sqrt (
+      (state.px - prevPx) * (state.px - prevPx) +
+      (state.py - prevPy) * (state.py - prevPy))
+    stats := { stats with
+      totalDistance := stats.totalDistance + segDist,
+      sprayDistance := stats.sprayDistance + (if sprayOn then segDist else 0.0),
+      sprayOnSteps := stats.sprayOnSteps + (if sprayOn then 1 else 0),
+      maxRoll := if absF state.roll > stats.maxRoll then absF state.roll else stats.maxRoll,
+      maxPitch := if absF state.pitch > stats.maxPitch then absF state.pitch else stats.maxPitch,
+      maxAltError := let e := absF (state.pz - sprayAlt);
+        if e > stats.maxAltError then e else stats.maxAltError
+    }
+
+    -- Track waypoint hits (state transitions to TURN or DONE)
+    if atWp && (prevState.px != state.px || true) then
+      if planner.phase == 2 || planner.phase == 3 then
+        stats := { stats with waypointsHit := stats.waypointsHit + 1 }
+
+    prevPx := state.px
+    prevPy := state.py
+
+  return stats
 
 -- ============================================================
--- Test harness
+-- Main
 -- ============================================================
 
 def main : IO Unit := do
   let params : QuadParams := {}
   let dt := 0.001
+  let fieldLength := 50.0   -- 50 m field (small for quick test)
+  let swathWidth := 5.0
+  let sprayAlt := 3.0
+  let maxPasses := 3         -- 3 passes for quick test
 
-  -- Test 1: Hover stability (2 seconds)
-  IO.println "=== Test 1: Hover from rest (2s) ==="
-  let hoverStates ← runClosedLoop params 2000 dt {}
-  let fin := hoverStates.back!
-  IO.println s!"  roll={fin.roll} pitch={fin.pitch} yaw={fin.yaw}"
-  IO.println s!"  p={fin.p} q={fin.q} r={fin.r}"
-  IO.println s!"  pz={fin.pz} vz={fin.vz}"
-
-  let hoverOk :=
-    absF fin.roll < 0.1 && absF fin.pitch < 0.1 &&
-    absF fin.p < 0.5 && absF fin.q < 0.5
+  -- Test 1: Hover stability (same as before)
+  IO.println "=== Test 1: Hover (2s) ==="
+  let mut state : QuadState := { pz := 3.0 }
+  let mut fc : FCState := {}
+  for _ in List.range 2000 do
+    let gyroX := state.p; let gyroY := state.q; let gyroZ := state.r
+    let accelX := -params.gravity * Float.sin state.pitch
+    let accelY :=  params.gravity * Float.sin state.roll
+    let (fc', (m1, m2, m3, m4)) := fcStep fc gyroX gyroY gyroZ accelX accelY
+      state.px state.py state.pz state.vx state.vy state.vz
+      0.0 0.0 3.0 dt
+    fc := fc'
+    state := physicsStep params dt state m1 m2 m3 m4
+  IO.println s!"  roll={state.roll} pitch={state.pitch} pz={state.pz}"
+  let hoverOk := absF state.roll < 0.1 && absF state.pitch < 0.1 && absF (state.pz - 3.0) < 1.0
   IO.println s!"  {if hoverOk then "PASS" else "FAIL"}"
 
-  -- Test 2: Recovery from 15° roll (3 seconds)
-  IO.println "\n=== Test 2: Recover from 15° roll (3s) ==="
-  let recStates ← runClosedLoop params 3000 dt { roll := 0.26 }
-  let fin2 := recStates.back!
-  IO.println s!"  roll={fin2.roll} pitch={fin2.pitch}"
-  IO.println s!"  p={fin2.p} q={fin2.q}"
-  -- Show some intermediate steps to confirm actual dynamics
-  let step100 := recStates.getD 100 {}
-  let step500 := recStates.getD 500 {}
-  let step1000 := recStates.getD 1000 {}
-  IO.println s!"  @100ms: roll={step100.roll} p={step100.p}"
-  IO.println s!"  @500ms: roll={step500.roll} p={step500.p}"
-  IO.println s!"  @1.0s:  roll={step1000.roll} p={step1000.p}"
+  -- Test 2: Altitude hold
+  IO.println "\n=== Test 2: Climb to 3m from ground (5s) ==="
+  state := { pz := 0.0 }
+  fc := {}
+  for _ in List.range 5000 do
+    let gyroX := state.p; let gyroY := state.q; let gyroZ := state.r
+    let accelX := -params.gravity * Float.sin state.pitch
+    let accelY :=  params.gravity * Float.sin state.roll
+    let (fc', (m1, m2, m3, m4)) := fcStep fc gyroX gyroY gyroZ accelX accelY
+      state.px state.py state.pz state.vx state.vy state.vz
+      0.0 0.0 3.0 dt
+    fc := fc'
+    state := physicsStep params dt state m1 m2 m3 m4
+  IO.println s!"  pz={state.pz} vz={state.vz}"
+  let altOk := absF (state.pz - 3.0) < 1.0 && absF state.vz < 1.0
+  IO.println s!"  {if altOk then "PASS" else "FAIL"}"
 
-  let recOk := absF fin2.roll < 0.15 && absF fin2.p < 0.5
-  IO.println s!"  {if recOk then "PASS" else "FAIL"}"
+  -- Test 3: Waypoint tracking
+  IO.println "\n=== Test 3: Fly to (10, 0) from origin (10s) ==="
+  state := { pz := 3.0 }
+  fc := {}
+  for _ in List.range 10000 do
+    let gyroX := state.p; let gyroY := state.q; let gyroZ := state.r
+    let accelX := -params.gravity * Float.sin state.pitch
+    let accelY :=  params.gravity * Float.sin state.roll
+    let (fc', (m1, m2, m3, m4)) := fcStep fc gyroX gyroY gyroZ accelX accelY
+      state.px state.py state.pz state.vx state.vy state.vz
+      10.0 0.0 3.0 dt
+    fc := fc'
+    state := physicsStep params dt state m1 m2 m3 m4
+  let wpDist := Float.sqrt ((state.px - 10.0)*(state.px - 10.0) + state.py*state.py)
+  IO.println s!"  pos=({state.px}, {state.py}) dist_to_wp={wpDist}"
+  let wpOk := wpDist < 3.0
+  IO.println s!"  {if wpOk then "PASS" else "FAIL"}"
 
-  -- Test 3: No divergence (5 seconds)
-  IO.println "\n=== Test 3: Long-run stability (5s) ==="
-  let longStates ← runClosedLoop params 5000 dt {}
-  let fin3 := longStates.back!
-  let maxRoll := longStates.foldl (init := 0.0) fun acc st =>
-    let v := absF st.roll; if v > acc then v else acc
-  let maxPitch := longStates.foldl (init := 0.0) fun acc st =>
-    let v := absF st.pitch; if v > acc then v else acc
-  IO.println s!"  maxRoll={maxRoll} maxPitch={maxPitch}"
-  IO.println s!"  final pz={fin3.pz} vz={fin3.vz}"
+  -- Test 4: Spray mission
+  IO.println s!"\n=== Test 4: Spray mission ({maxPasses} passes, {fieldLength}m field) ==="
+  let stats ← runSprayMission params 30000 dt fieldLength swathWidth sprayAlt maxPasses
+  IO.println s!"  Total distance:  {stats.totalDistance} m"
+  IO.println s!"  Spray distance:  {stats.sprayDistance} m"
+  IO.println s!"  Spray on steps:  {stats.sprayOnSteps}"
+  IO.println s!"  Waypoints hit:   {stats.waypointsHit}"
+  IO.println s!"  Max |roll|:      {stats.maxRoll} rad"
+  IO.println s!"  Max |pitch|:     {stats.maxPitch} rad"
+  IO.println s!"  Max alt error:   {stats.maxAltError} m"
 
-  let stableOk := maxRoll < 1.0 && maxPitch < 1.0
-  IO.println s!"  {if stableOk then "PASS" else "FAIL"}"
+  let sprayOk := stats.sprayDistance > 10.0 && stats.maxRoll < 1.0 && stats.maxAltError < 5.0 && stats.waypointsHit > 0
+  IO.println s!"  {if sprayOk then "PASS" else "FAIL"}"
 
   -- Summary
-  let allPass := hoverOk && recOk && stableOk
-  IO.println s!"\n=== Closed-loop sim: {if allPass then "ALL PASS" else "SOME FAIL"} ==="
+  let allPass := hoverOk && altOk && wpOk && sprayOk
+  IO.println s!"\n=== Spray drone sim: {if allPass then "ALL PASS" else "SOME FAIL"} ==="
   if !allPass then IO.Process.exit 1

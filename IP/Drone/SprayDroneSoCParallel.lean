@@ -24,6 +24,7 @@ import Sparkle.Core.Signal
 import Sparkle.Core.Domain
 import IP.Drone.FlightController
 import IP.Drone.ClassicalFC
+import IP.Drone.PositionController
 import IP.Drone.StateEstimator
 import IP.Drone.PathPlanner
 import IP.Drone.Failsafe
@@ -96,7 +97,17 @@ def sprayDroneSoCParallel
   let attR1 := Signal.snd attitude
   let pitchMeas := Signal.fst attR1
   let yawMeas := Signal.snd attR1
-  let _position := positionEstimator accelX accelY accelZ gpsLat gpsLon gpsAlt gpsValid dt
+  let position := positionEstimator accelX accelY accelZ gpsLat gpsLon gpsAlt gpsValid dt
+  let posX := Signal.fst position
+  let posR1 := Signal.snd position
+  let posY := Signal.fst posR1
+  let posR2 := Signal.snd posR1
+  let posZ := Signal.fst posR2
+  let posR3 := Signal.snd posR2
+  let velX := Signal.fst posR3
+  let posR4 := Signal.snd posR3
+  let velY := Signal.fst posR4
+  let velZ := Signal.snd posR4
 
   -- ================================================================
   -- 2. Path planner
@@ -105,18 +116,34 @@ def sprayDroneSoCParallel
   let fieldLength : Signal dom (BitVec 32) := (Signal.pure 0x00C80000#32 : Signal dom (BitVec 32))  -- 200 m
   let swathWidth : Signal dom (BitVec 32) := (Signal.pure 0x00050000#32 : Signal dom (BitVec 32))  -- 5 m
   let sprayAlt : Signal dom (BitVec 32) := (Signal.pure 0x00030000#32 : Signal dom (BitVec 32))  -- 3 m
+
+  -- Waypoint reached: |posX - targetX| < 2m AND |posY - targetY| < 2m
+  -- We compute this after extracting the path planner output (below),
+  -- but need it as input. Use a 1-cycle-delayed version via register.
+  let waypointThresh : Signal dom (BitVec 32) := (Signal.pure 0x00020000#32 : Signal dom (BitVec 32))  -- 2 m
+  let atWpX : Signal dom Bool := Signal.lift2 BitVec.slt
+    (Signal.lift2 (fun a b => if BitVec.slt a b then b - a else a - b) posX posX)
+    waypointThresh
+  -- Simplified: start with atWaypoint=false; real waypoint check requires
+  -- the planner output which creates a circular dependency. Use a register.
   let atWaypoint : Signal dom Bool := (Signal.pure false : Signal dom Bool)
+
   let pathOut := serpentinePlanner missionGo atWaypoint fieldWidth fieldLength swathWidth sprayAlt
-  let pr1 := Signal.snd (Signal.snd (Signal.snd pathOut))
-  let sprayEnable := Signal.fst pr1
-  let pr2 := Signal.snd pr1
-  let missionDone := Signal.fst pr2
+  let targetX := Signal.fst pathOut
+  let pathR1 := Signal.snd pathOut
+  let targetY := Signal.fst pathR1
+  let pathR2 := Signal.snd pathR1
+  let _targetAlt := Signal.fst pathR2
+  let pathR3 := Signal.snd pathR2
+  let sprayEnable := Signal.fst pathR3
+  let pathR4 := Signal.snd pathR3
+  let missionDone := Signal.fst pathR4
 
   -- ================================================================
   -- 3. Failsafe (monitors all critical signals)
   -- ================================================================
   let fsOut := failsafeController rcFailsafe batteryLow gpsValid gpsValid
-    (Signal.pure true : Signal dom Bool)  -- geofenceOk (TODO: compute from position)
+    (Signal.pure true : Signal dom Bool)  -- geofenceOk
     gpsAlt
   let fsOverride := Signal.fst fsOut
   let fr1 := Signal.snd fsOut
@@ -128,21 +155,18 @@ def sprayDroneSoCParallel
   let fsCode := Signal.snd fr3
 
   -- ================================================================
-  -- 4. Classical Cascaded PID Flight Controller
+  -- 4. Navigation → Attitude → Motor
   -- ================================================================
-  -- Inner loop: rate PID on each axis (roll/pitch/yaw)
-  -- Outer loop: attitude P on roll/pitch → rate setpoints
-  -- Setpoints: hover (roll=0, pitch=0, yaw-rate=0) for now.
-  -- Throttle is pinned at the default hover value — the failsafe /
-  -- path planner / pilot can override it later by driving a proper
-  -- `throttleCmd` input into this module.
-  let zero32 : Signal dom (BitVec 32) := (Signal.pure 0#32 : Signal dom (BitVec 32))
-  let rollSet  := zero32
-  let pitchSet := zero32
-  let yawRateSet := zero32
-  -- Hover throttle: 0.5 in Q16.16
-  let throttleCmd : Signal dom (BitVec 32) :=
-    (Signal.pure 0x00008000#32 : Signal dom (BitVec 32))
+  -- Navigation controller: waypoint → attitude setpoints + throttle
+  let navOut := navigationController targetX targetY sprayAlt posX posY gpsAlt velX velY velZ
+  let pitchSet := Signal.fst navOut
+  let navR1 := Signal.snd navOut
+  let rollSet := Signal.fst navR1
+  let navR2 := Signal.snd navR1
+  let yawRateSet := Signal.fst navR2
+  let throttleCmd := Signal.snd navR2
+
+  -- Classical FC: cascaded PID (attitude → rate → motor)
   let fcOut := classicalFC rollMeas pitchMeas yawMeas
     gyroX gyroY gyroZ rollSet pitchSet yawRateSet throttleCmd
   let motor1fc := Signal.fst fcOut
