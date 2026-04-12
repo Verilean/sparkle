@@ -197,6 +197,10 @@ lean_exe «litex-test» where
   root := `Tests.SVParser.LiteXTest
   supportInterpreter := true
 
+lean_exe «drone-closed-loop-test» where
+  root := `Tests.Integration.DroneClosedLoopSim
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
