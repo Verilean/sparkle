@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776049309117,
+  "lastUpdate": 1776049436367,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -475,6 +475,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2159884,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fb1e464b5381830a7de792f3f9e80613dae8a05f",
+          "message": "Merge pull request #23 from Verilean/feature/fpga\n\nAdd the drone SoC",
+          "timestamp": "2026-04-13T11:58:18+09:00",
+          "tree_id": "607e197de3098b50a8bc9fa7c6c28b745a1fd444",
+          "url": "https://github.com/Verilean/sparkle/commit/fb1e464b5381830a7de792f3f9e80613dae8a05f"
+        },
+        "date": 1776049435540,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4820033,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2144875,
             "unit": "cycles/sec"
           }
         ]
