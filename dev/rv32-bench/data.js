@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775915020140,
+  "lastUpdate": 1776049252413,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -923,6 +923,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 5108999,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "4dd22e917045193905bc1a073ce25f535f09d2f9",
+          "message": "feat: position/velocity/altitude control + spray mission simulation\n\nAdd the missing navigation stack between path planner and attitude PID:\n  - PositionController.lean: position P → velocity PID → attitude setpoint\n  - Altitude PID → throttle command\n  - SprayDroneSoCParallel: full pipeline wired (planner → nav → attitude → motors)\n\nClosed-loop simulation validates 4 capabilities:\n  1. Hover stability: altitude holds at 3.000m (±0.001m)\n  2. Altitude control: climbs from 0→3m, settles within 5s\n  3. Waypoint tracking: reaches 7.5m/10m target in 10s\n  4. Spray mission: 3-pass serpentine over 50m field\n     - 64m total distance, 1 waypoint hit\n     - Max attitude: roll=0.033 rad, pitch=0.034 rad\n     - Altitude error: 0.0006m (sub-millimeter hold)\n     - Spray active during flight legs\n\nRegressions: 34/34 parser, 30/30 sim-runner.",
+          "timestamp": "2026-04-12T18:23:40+09:00",
+          "tree_id": "607e197de3098b50a8bc9fa7c6c28b745a1fd444",
+          "url": "https://github.com/Verilean/sparkle/commit/4dd22e917045193905bc1a073ce25f535f09d2f9"
+        },
+        "date": 1776049251517,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3118750,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4106399,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4514576,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4158595,
             "unit": "cycles/sec"
           }
         ]
