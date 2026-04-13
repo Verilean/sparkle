@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776049252413,
+  "lastUpdate": 1776049381454,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -967,6 +967,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4158595,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fb1e464b5381830a7de792f3f9e80613dae8a05f",
+          "message": "Merge pull request #23 from Verilean/feature/fpga\n\nAdd the drone SoC",
+          "timestamp": "2026-04-13T11:58:18+09:00",
+          "tree_id": "607e197de3098b50a8bc9fa7c6c28b745a1fd444",
+          "url": "https://github.com/Verilean/sparkle/commit/fb1e464b5381830a7de792f3f9e80613dae8a05f"
+        },
+        "date": 1776049380526,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3110755,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 4120527,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4495059,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4120267,
             "unit": "cycles/sec"
           }
         ]
