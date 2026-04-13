@@ -30,6 +30,12 @@ lean_lib «Sparkle» where
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]
 
+lean_lib «IP.Drone» where
+  roots := #[`IP.Drone]
+
+lean_lib «IP.Humanoid» where
+  roots := #[`IP.Humanoid]
+
 lean_lib «IP.RV32» where
   roots := #[`IP.RV32]
 
@@ -189,6 +195,10 @@ lean_exe «mul-oracle-test» where
 
 lean_exe «litex-test» where
   root := `Tests.SVParser.LiteXTest
+  supportInterpreter := true
+
+lean_exe «drone-closed-loop-test» where
+  root := `Tests.Integration.DroneClosedLoopSim
   supportInterpreter := true
 
 @[test_driver]
