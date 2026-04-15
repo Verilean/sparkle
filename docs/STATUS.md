@@ -1,7 +1,13 @@
 # Sparkle SoC — Current Status
 
-**Date**: 2026-04-09
+**Date**: 2026-04-15
 **Branch**: main
+
+> **Note**: This file is an append-only development log. For a concise
+> at-a-glance view of current capability, see the IP Catalog in
+> [README.md](../README.md#ip-catalog). For release history, see
+> [CHANGELOG.md](CHANGELOG.md). For the Signal DSL quick-start, see
+> [Tutorial.md](Tutorial.md) (every code block is syntax-checked by CI).
 
 ---
 

@@ -44,6 +44,12 @@ jobs:
     - name: Run Counter example
       run: lake env lean --run Examples/Counter.lean
 
+    - name: Tutorial syntax check (docs/Tutorial.md)
+      run: bash scripts/check_tutorial.sh
+
+    - name: Tutorial runtime smoke test (executes the Step-1 counter)
+      run: lake exe tutorial-smoke
+
     - name: Run Sparkle-16 CPU Core
       run: lake env lean --run Examples/Sparkle16/Core.lean
 

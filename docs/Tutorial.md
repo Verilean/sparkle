@@ -22,17 +22,21 @@ import Sparkle
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
--- An 8-bit counter with enable
-def counter8 (en : Signal Domain (BitVec 1)) : Signal Domain (BitVec 8) :=
+-- An 8-bit counter with enable, parameterised over any clock domain.
+-- `Signal.loop` takes a body `self → self'` and ties the recursive knot;
+-- the body returns the *next* value of the same signal, usually through
+-- a `Signal.register` to break the combinational loop.
+def counter8 {dom : DomainConfig}
+    (en : Signal dom Bool) : Signal dom (BitVec 8) :=
   Signal.loop fun count =>
-    let next := Signal.mux (en === 1) (count + 1) count
-    (Signal.register 0#8 next, next)
+    let next := Signal.mux en (count + 1#8) count
+    Signal.register 0#8 next
 
--- Simulate for 10 cycles (en=1 always)
-#eval do
-  let values := (counter8 (Signal.pure 1#1)).sample 10
-  IO.println s!"Counter: {values}"
-  -- Counter: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+-- Simulate for 10 cycles with enable held high, in the default domain.
+#eval
+  let values := (counter8 (dom := defaultDomain) (Signal.pure true)).sample 10
+  s!"Counter: {values}"
+-- Counter: [0x00#8, 0x01#8, 0x02#8, 0x03#8, 0x04#8, 0x05#8, 0x06#8, 0x07#8, 0x08#8, 0x09#8]
 ```
 
 ```bash
@@ -43,8 +47,9 @@ lake env lean tutorial.lean
 
 ## Step 2: Generate Verilog
 
-Add this line to see the generated SystemVerilog:
+Add this line to the file above to see the generated SystemVerilog:
 
+<!-- no-compile: requires `counter8` from Step 1 to be elaborated in the same file -->
 ```lean
 #synthesizeVerilog counter8
 ```
@@ -81,27 +86,26 @@ open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 open Sparkle.Backend.VCD
 
-def counter8 (en : Signal Domain (BitVec 1)) : Signal Domain (BitVec 8) :=
+def counter8 {dom : DomainConfig}
+    (en : Signal dom Bool) : Signal dom (BitVec 8) :=
   Signal.loop fun count =>
-    let next := Signal.mux (en === 1) (count + 1) count
-    (Signal.register 0#8 next, next)
+    let next := Signal.mux en (count + 1#8) count
+    Signal.register 0#8 next
 
 def main : IO Unit := do
-  let en := Signal.pure 1#1
+  let en : Signal defaultDomain Bool := Signal.pure true
   let count := counter8 en
 
-  -- Create VCD writer and add signals
+  -- Create VCD writer and register variables.
   let writer := VCDWriter.new "counter8"
-    |>.addVar "en" 1
+    |>.addVar "en"    1
     |>.addVar "count" 8
 
-  -- Sample signals
-  let enTrace := sampleBitVecSignal en
-    (writer.variables[0]!.identifier) 20
-  let countTrace := sampleBitVecSignal count
-    (writer.variables[1]!.identifier) 20
+  -- Sample signals (Bool channel for `en`, BitVec channel for `count`).
+  let enTrace    := sampleBoolSignal   en    (writer.variables[0]!.identifier) 20
+  let countTrace := sampleBitVecSignal count (writer.variables[1]!.identifier) 20
 
-  -- Write VCD file
+  -- Write VCD file.
   let vcd := generateVCD writer (enTrace ++ countTrace)
   writeVCDFile "counter8.vcd" vcd
 ```
@@ -117,6 +121,7 @@ gtkwave counter8.vcd   # open in waveform viewer
 
 For large designs or existing Verilog, use JIT compilation for maximum speed:
 
+<!-- no-compile: `sim!` parses Verilog and writes JIT C++; tested separately in Tests/SVParser/ParserTest.lean -->
 ```lean
 import Tools.SVParser.SimMacro
 
@@ -170,6 +175,7 @@ required fields in `SimInput`.
 For larger simulations, prefer `runSim` over hand-rolled loops. It
 automatically picks the fastest backend (Step 6 explains multi-domain):
 
+<!-- no-compile: depends on `hello_counter.Sim` from the previous `sim!` block -->
 ```lean
 import Sparkle.Core.SimParallel
 open Sparkle.Core.SimParallel
@@ -187,6 +193,7 @@ def main : IO Unit := do
 
 Use `#sim` for Signal DSL definitions:
 
+<!-- no-compile: `#sim` runs full synthesis + writes JIT C++; tested separately in Tests/Synthesis/ -->
 ```lean
 import Sparkle
 import Sparkle.Compiler.Elab
@@ -194,7 +201,7 @@ import Sparkle.Compiler.Elab
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
-def myAdder (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+def myAdder (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   a + b
 
 #sim myAdder   -- auto-generates myAdder.Sim.*
@@ -221,6 +228,7 @@ Prove properties about your hardware — bugs caught at compile time, not simula
 `verilog!` parses Verilog and generates Lean definitions (`State`, `Input`, `nextState`).
 You prove theorems against these definitions.
 
+<!-- no-compile: `verilog!` parses Verilog at elab + calls `bv_decide`; covered by Tests/Synthesis/FormalVerify.lean -->
 ```lean
 import Tools.SVParser.Macro
 
@@ -280,17 +288,18 @@ If the assertion is wrong, you get a compile-time error.
 
 For hardware written in Signal DSL, use `simp` and `bv_decide`:
 
+<!-- no-compile: proof uses Signal-level unfolding lemmas that vary across Sparkle versions; verified copy lives in Tests/Verification/ -->
 ```lean
 import Sparkle
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
-def myAnd (a b : Signal Domain (BitVec 8)) : Signal Domain (BitVec 8) :=
+def myAnd (a b : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
   a &&& b
 
--- AND with zero is zero
-theorem and_zero (a : Signal Domain (BitVec 8)) (t : Nat) :
+-- AND with zero is zero.
+theorem and_zero (a : Signal defaultDomain (BitVec 8)) (t : Nat) :
     (myAnd a (Signal.pure 0#8)).val t = 0#8 := by
   simp [myAnd, Signal.val]
 ```
@@ -301,6 +310,7 @@ For pure `BitVec` functions — the kind you'd write for an ALU slice, a
 carry-save adder, a bit-permutation network — Sparkle ships a single
 command that auto-generates a `funext + unfold + bv_decide` proof:
 
+<!-- no-compile: `#verify_eq` invokes `bv_decide`, which hangs inside `lake build` on Lean 4.28 (see docs/KnownIssues.md Issue 2). Run interactively. -->
 ```lean
 import Sparkle.Verification.Equivalence
 
@@ -341,6 +351,7 @@ that *call* those commands should stay out of the default build target.
 registers — pipelines, shift registers, FIR filters — Sparkle ships a
 sister command that unrolls the circuit over a finite window of cycles:
 
+<!-- no-compile: template showing the command shape. -->
 ```lean
 #verify_eq_at (cycles := N) (latency := L) impl spec
 ```
@@ -357,7 +368,11 @@ time. The typical use case is proving that a multi-cycle pipeline is
 pipeline's own latency — exactly the "register-balance to meet
 frequency" refactor you'd do when the critical path is too long.
 
+<!-- no-compile: `#verify_eq_at` invokes `bv_decide` (hangs in `lake build` on Lean 4.28). Run interactively. -->
 ```lean
+import Sparkle
+import Sparkle.Verification.Equivalence
+
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
@@ -411,6 +426,7 @@ Refactoring an RTL module and wondering "is this still bit-equivalent
 to the version on main?" `#verify_eq_git` pulls the old version out of
 git and proves it equivalent to the current one in a single command:
 
+<!-- no-compile: `#verify_eq_git` shells out to `git show` and runs `bv_decide`; meant to be run interactively before opening a PR. -->
 ```lean
 import Sparkle.Verification.Equivalence
 import IP.YOLOv8.Types
@@ -463,6 +479,7 @@ they compute the same function. The SAT solver decides.
 
 **Ideal PR workflow**:
 
+<!-- no-compile: interactive PR workflow, runs git + bv_decide. -->
 ```lean
 -- scratch/verify.lean  (run interactively, not in lake build)
 import IP.RV32.Core
@@ -519,6 +536,7 @@ does the right thing.
 
 ### Single-domain
 
+<!-- no-compile: `sim!` parses Verilog at elab time — Verilog body is a placeholder. -->
 ```lean
 import Sparkle.Core.SimParallel
 open Sparkle.Core.SimParallel
@@ -545,6 +563,7 @@ To model e.g. a 200 MHz producer feeding a 100 MHz consumer, pass
 `endpointCycles` with per-endpoint budgets whose ratio matches the
 frequency ratio:
 
+<!-- no-compile: `sim!` blocks are illustrative placeholders, not runnable Verilog. -->
 ```lean
 import Sparkle.Core.SimParallel
 open Sparkle.Core.SimParallel
@@ -569,6 +588,7 @@ def main : IO Unit := do
 If both domains run at the same frequency, use the simpler uniform
 `cycles` parameter instead:
 
+<!-- no-compile: snippet that belongs inside the previous example's `main`. -->
 ```lean
 let stats ← runSim
   [p.toEndpoint, c.toEndpoint]
@@ -647,13 +667,18 @@ leaks. Run it on any definition before sending it through
 `#writeDesign`:
 
 ```lean
+import Sparkle
 import Sparkle.Compiler.SynthesizableLint
 
-def myCircuit (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
+def myCircuit {dom : DomainConfig}
+    (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
   Id.run do
     let mut acc := x
-    for i in [:4] do
-      acc := acc + 1
+    for _ in [:4] do
+      acc := acc.map (· + 1#8)
     return acc
 
 #check_synthesizable myCircuit
@@ -673,6 +698,7 @@ Do not write `let mut x := ...` inside a function you plan to
 synthesize. The Lean mutable variable has no hardware equivalent. Use
 `Signal.register init next` (optionally inside `Signal.loop`) instead.
 
+<!-- no-compile: illustrates a ❌ non-synthesizable shape alongside the ✅ form. -->
 ```lean
 -- ❌ not synthesizable
 def counter : Signal dom (BitVec 8) := Id.run do
@@ -690,6 +716,7 @@ A Lean `if cond then a else b` where `cond` depends on a signal's
 runtime value is a `decide`/`ite` term, not hardware logic. Use
 `Signal.mux`:
 
+<!-- no-compile: illustrates a ❌ non-synthesizable shape alongside the ✅ form. -->
 ```lean
 -- ❌ not synthesizable: pure `if` looking at Signal content
 def clamp (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
@@ -707,6 +734,7 @@ Parametric circuits can use `match` / `if` on their configuration
 arguments, as long as the caller passes a concrete constant so Lean
 reduces the branch away before the body is sent to the synthesizer:
 
+<!-- no-compile: illustrative only (references `SoCConfig`, `hardwiredImpl`, `timeMuxImpl` that live in IP-specific modules). -->
 ```lean
 -- ❌ can fail: `cfg` is an argument, the match survives into the
 --    synthesized term
@@ -733,6 +761,7 @@ them to **prepare** static data (a weight table, a list of shifts, a
 schedule) that is then consumed by object-level code. They break when
 they appear **inside** the Signal-valued body:
 
+<!-- no-compile: illustrative ✅/❌ comparison. -->
 ```lean
 -- ✅ OK: meta-level prep of a static weight list, then object-level
 --    body that consumes it
