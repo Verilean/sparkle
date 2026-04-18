@@ -8,10 +8,10 @@ Sparkle ships with a **complete, formally verified BitNet b1.58 accelerator** â€
 Pure Signal DSL functions compose into a **complete BitNet SoC** â€” simulate directly or synthesize to SystemVerilog:
 
 ```lean
-import Examples.BitNet.SoC.Top
+import IP.BitNet.SoC.Top
 
 open Sparkle.Core.Signal
-open Sparkle.Examples.BitNet.SoC
+open Sparkle.IP.BitNet.SoC
 
 -- Build a 2-layer, 4-dimension BitNet SoC as a Signal function
 let cfg : SoCConfig := { archMode := .HardwiredUnrolled, nLayers := 2, dim := 4, ffnDim := 4 }

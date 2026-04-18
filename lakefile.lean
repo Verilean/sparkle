@@ -68,6 +68,12 @@ lean_exe «verilog-tests» where
   root := `Tests.VerilogTests
   supportInterpreter := true
 
+-- Smoke-runs the Signal-DSL counter from docs/Tutorial.md Step 1 so CI
+-- verifies the `#eval` path actually executes (not just type-checks).
+lean_exe «tutorial-smoke» where
+  root := `Tests.Tutorial.SmokeTest
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

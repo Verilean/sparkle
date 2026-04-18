@@ -222,7 +222,7 @@ def stateMachine (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
     -- state is the previous cycle's output (right-nested tuple)
     let next := computeNext state input
     next
--- See Examples/RV32/SoC.lean for a 117-register Signal.loop example
+-- See IP/RV32/SoC.lean for a 117-register Signal.loop example
 ```
 
 **Why this limitation exists:**
@@ -233,7 +233,7 @@ def stateMachine (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
 **Workarounds:**
 - **Simple loops**: Use `let rec` (counters, single-register state)
 - **Complex feedback**: Use `Signal.loop` for multi-register state machines
-- See `Examples/LoopSynthesis.lean` and `Examples/RV32/SoC.lean` for working patterns
+- See `Examples/LoopSynthesis.lean` and `IP/RV32/SoC.lean` for working patterns
 
 ---
 

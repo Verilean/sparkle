@@ -310,3 +310,35 @@ terse "SAT solver timed out" message. Add a table to
 deep MUX chains, too many forall-quantified inputs) and the
 corresponding workarounds (reduce BitVec width, split the
 function, try `native_decide` as a last resort).
+
+---
+
+### D3. Tutorial CI (syntax + runtime) — DONE
+
+- Impact ★★★★☆
+- Effort S
+- Confidence ★★★★★
+- Status: **done**
+
+Two CI passes guard the tutorial against drift:
+
+1. **Syntax check** — every ```lean fenced block in `docs/Tutorial.md`
+   is extracted and type-checked with `lake env lean`
+   (`scripts/extract_tutorial_blocks.py` + `scripts/check_tutorial.sh`).
+   Blocks that are intentionally illustrative (pseudo-code, ❌/✅
+   comparisons, `sim!` / `verilog!` / `bv_decide`-driven commands that
+   don't fit a pure type-check) are skipped via a `<!-- no-compile -->`
+   marker on the line immediately before the fence.
+
+2. **Runtime smoke test** — `lean_exe tutorial-smoke`
+   (`Tests/Tutorial/SmokeTest.lean`) actually **executes** the Step-1
+   `counter8` and asserts the 10-cycle output against the sequence
+   quoted in the tutorial comment. This catches the case where a block
+   type-checks but the `#eval` path breaks at runtime — the failure
+   mode in [GitHub issue #24](https://github.com/Verilean/sparkle/issues/24).
+   Required because `lake env lean` alone can't resolve the C FFI
+   symbols that `Signal.loop` needs; `supportInterpreter := true` on
+   the `lean_exe` links them in.
+
+Both steps live in `.github/workflows/build.yml` immediately after
+`Run Counter example`.
