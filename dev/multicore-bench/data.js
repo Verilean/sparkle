@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776049509787,
+  "lastUpdate": 1776492032101,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -615,6 +615,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 651679,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "599c8125c368bffd3646c516366a9087d0b89519",
+          "message": "Merge pull request #25 from Verilean/fix/tutorial\n\nFix documents to test the codes in Tutorial",
+          "timestamp": "2026-04-18T14:53:18+09:00",
+          "tree_id": "302335bd11e124786db88ee2d4a7442eae56b092",
+          "url": "https://github.com/Verilean/sparkle/commit/599c8125c368bffd3646c516366a9087d0b89519"
+        },
+        "date": 1776492031646,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4080160,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 502654,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1007703,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 661377,
             "unit": "cycles/sec"
           }
         ]
