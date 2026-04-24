@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776491958864,
+  "lastUpdate": 1777058943775,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -543,6 +543,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2157833,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "252341078dba3c2612719746e6a459dada2248ea",
+          "message": "Merge pull request #26 from xiangze/howtouse\n\nadd How to import and use external project",
+          "timestamp": "2026-04-25T04:23:32+09:00",
+          "tree_id": "45b6373675b2204947fb0686cab378fb02540d76",
+          "url": "https://github.com/Verilean/sparkle/commit/252341078dba3c2612719746e6a459dada2248ea"
+        },
+        "date": 1777058943341,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4763538,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2162020,
             "unit": "cycles/sec"
           }
         ]
