@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776492032101,
+  "lastUpdate": 1777059016538,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -659,6 +659,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 661377,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "252341078dba3c2612719746e6a459dada2248ea",
+          "message": "Merge pull request #26 from xiangze/howtouse\n\nadd How to import and use external project",
+          "timestamp": "2026-04-25T04:23:32+09:00",
+          "tree_id": "45b6373675b2204947fb0686cab378fb02540d76",
+          "url": "https://github.com/Verilean/sparkle/commit/252341078dba3c2612719746e6a459dada2248ea"
+        },
+        "date": 1777059016104,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4036054,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 500851,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1007745,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 646925,
             "unit": "cycles/sec"
           }
         ]
