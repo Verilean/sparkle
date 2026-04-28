@@ -2,6 +2,135 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 57: BitNet v1a Linux Driver (`/dev/bitnet0`) — Complete
+
+**Date**: 2026-04-28
+**Branch**: `fix/tutorial`
+**Headline**: first time userspace on Linux (running on the
+synthesizable Sparkle RV32IMA SoC) talks to the BitNet MMIO
+peripheral. A new in-tree `sparkle-bitnet` platform driver exposes a
+`/dev/bitnet0` character device; an initramfs `/init` runs 8 golden
+inference vectors against the device and asserts bit-equality with the
+Lean RTL spec.
+
+### What landed
+
+**`linux-patches/sparkle-bitnet.c` + `.h` + `Kconfig.fragment`** —
+a `drivers/misc/` platform driver bound by
+`compatible = "sparkle,bitnet-v1a"` (~190 lines incl. UAPI). Userspace
+surface:
+
+| op | effect |
+|---|---|
+| `write(fd, &u32, 4)` | latch input @ `0x40000004` |
+| `read(fd, &u32, 4)` | read combinational output @ `0x40000008` |
+| `ioctl(fd, BITNET_IOC_INFER, &u32)` | atomic write+read pair (mutex) |
+| `cat /sys/class/misc/bitnet0/status` | read status register |
+
+The driver is **built-in** (not a `.ko`) because
+`firmware/opensbi/setup.sh` disables `CONFIG_MODULES`. It is
+patched into the Linux source tree by `linux-patches/apply.sh`,
+which is called from `setup.sh` after the kernel checkout.
+
+**`firmware/sparkle-soc.dts` + `firmware/opensbi/sparkle-soc.dts`**
+get a new `bitnet@40000000 { compatible = "sparkle,bitnet-v1a";
+reg = <0x40000000 0x10>; }` node so the driver finds the device.
+The DTB regenerates via the existing `firmware/opensbi/Makefile`.
+
+**`firmware/bitnet_user/`** — a freestanding rv32 userspace test
+binary (no libc; inline `ecall` syscalls) that runs as PID 1
+(`/init`). It opens `/dev/bitnet0`, drives the same 8 golden
+vectors used by `Tests/Integration/BitNetSoCTest.lean:43-51`, and
+prints `BITNET PASS` / `BITNET FAIL: …` to UART before halting via
+`reboot(LINUX_REBOOT_CMD_HALT)`. Wrapped in a reproducible
+`initramfs.cpio.gz` and dropped into the kernel via
+`CONFIG_INITRAMFS_SOURCE`.
+
+**`firmware/opensbi/setup.sh`** updates:
+- New `LINUX_CROSS_COMPILE` autodetect
+  (prefers `riscv64-unknown-linux-gnu-` from the nix shell, falls
+  back to `riscv64-linux-gnu-` on Debian/Ubuntu).
+- After `mrproper && rv32_defconfig`: call
+  `linux-patches/apply.sh`, copy the initramfs cpio into
+  `${LINUX_DIR}/usr/`, then flip `CONFIG_BLK_DEV_INITRD`,
+  `CONFIG_DEVTMPFS{,_MOUNT}`, `CONFIG_SPARKLE_BITNET`, and
+  `CONFIG_INITRAMFS_SOURCE`.
+- Docker fallback path mirrors the same flow with the repo
+  bind-mounted read-only.
+
+**`shell.nix`** — extended with
+`pkgsCross.riscv64.buildPackages.{gcc,binutils}`, `dtc`,
+`bc / flex / bison / openssl / cpio / gzip` so the kernel build
+runs out of the box in nix.
+
+**`Tests/Integration/BitNetLinuxTest.lean`** + `lean_exe
+bitnet-linux-test` — a thin variant of `JITLinuxBootTest` that
+boots the patched kernel image and asserts on two UART markers:
+
+1. `sparkle-bitnet 40000000.bitnet: registered as /dev/bitnet0`
+   — driver bound to its DT node.
+2. `BITNET PASS` — userspace round-trip succeeded.
+
+Returns `0` on both markers, `1` on missing markers, `2` on
+missing artifacts (kernel image / OpenSBI / DTB).
+
+**`.github/workflows/bitnet-linux.yml`** — a path-gated workflow
+that fires only on changes to `linux-patches/**`,
+`firmware/bitnet_user/**`, the DTS files, the BitNet Lean
+peripheral, the SoC, the new test, and the workflow itself. The
+default job builds OpenSBI + the userspace cpio + the Lean
+project. The full kernel build + boot is gated behind
+`workflow_dispatch` because it costs ~30 min on a hosted runner.
+
+### Verification
+
+The driver enables a 3-layer verification of the integration:
+
+1. **RTL** — `lake exe bitnet-soc-test` (existed since Phase 56).
+2. **Bare-metal** — `firmware/bitnet_smoke/firmware.hex` running
+   on the JIT'd SoC (existed since Phase 56; currently blocked
+   on the orthogonal "PC stuck at 0" issue).
+3. **Linux** — `lake exe bitnet-linux-test` (new) — boots Linux
+   on the JIT, the kernel probes the driver, the driver registers
+   `/dev/bitnet0`, and the initramfs `/init` runs the golden
+   vectors via the driver. **This is the first time the
+   peripheral has been driven from a real OS userspace.**
+
+### Out of scope (deferred to Level 1b)
+
+- DMA / scatter-gather buffer transfer. The v1a peripheral is
+  scalar (1 word in / 1 word out), so PIO is sufficient and
+  optimal.
+- IRQ-driven completion. The peripheral is combinational (output
+  settles same cycle), so polling is degenerate-fast.
+- Vector activation buffer. Will be needed for Level 1b
+  (dim=2048, 24 layers, sequential FSM).
+- Multi-instance / multi-domain support.
+
+The driver's `compatible` string is intentionally versioned
+(`sparkle,bitnet-v1a`) so a future Level 1b peripheral gets its
+own `sparkle,bitnet-v1b` driver without breaking the v1a userspace.
+
+### Files changed
+
+- `linux-patches/sparkle-bitnet.{c,h}` (new)
+- `linux-patches/Kconfig.fragment` (new)
+- `linux-patches/apply.sh` (new)
+- `firmware/sparkle-soc.dts` (new node)
+- `firmware/opensbi/sparkle-soc.dts` (new node, mirror)
+- `firmware/opensbi/sparkle-soc.dtb` (regenerated)
+- `firmware/opensbi/setup.sh` (apply path + new CONFIG knobs)
+- `firmware/bitnet_user/main.c` (new, freestanding rv32 init)
+- `firmware/bitnet_user/Makefile` (new, builds cpio + installs)
+- `Tests/Integration/BitNetLinuxTest.lean` (new)
+- `lakefile.lean` (new `bitnet-linux-test` exe)
+- `shell.nix` (Linux cross-toolchain + dtc + cpio)
+- `.github/workflows/bitnet-linux.yml` (new path-gated workflow)
+- `docs/BitNet.md` (new "Linux Driver" section)
+- `docs/CHANGELOG.md` (this entry)
+
+---
+
 ## Phase 56: BitNet ⊕ picorv32 SoC Cohabitation (Level 1a) + U280 Scaffold (Complete)
 
 **Date**: 2026-04-09

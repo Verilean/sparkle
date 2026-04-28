@@ -1,0 +1,76 @@
+name: BitNet Linux Driver
+
+on:
+  push:
+    paths:
+      - 'linux-patches/**'
+      - 'firmware/bitnet_user/**'
+      - 'firmware/opensbi/setup.sh'
+      - 'firmware/sparkle-soc.dts'
+      - 'firmware/opensbi/sparkle-soc.dts'
+      - 'IP/RV32/BitNet*.lean'
+      - 'IP/RV32/SoC.lean'
+      - 'Tests/Integration/BitNetLinuxTest.lean'
+      - '.github/workflows/bitnet-linux.yml'
+  pull_request:
+    paths:
+      - 'linux-patches/**'
+      - 'firmware/bitnet_user/**'
+      - 'firmware/opensbi/setup.sh'
+      - 'firmware/sparkle-soc.dts'
+      - 'firmware/opensbi/sparkle-soc.dts'
+      - 'IP/RV32/BitNet*.lean'
+      - 'IP/RV32/SoC.lean'
+      - 'Tests/Integration/BitNetLinuxTest.lean'
+      - '.github/workflows/bitnet-linux.yml'
+  workflow_dispatch:
+
+jobs:
+  driver-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+              gcc-riscv64-linux-gnu \
+              gcc-riscv64-unknown-elf \
+              device-tree-compiler \
+              make bc flex bison libssl-dev cpio gzip
+
+      - name: Install Elan / Lean toolchain
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Resolve Lean toolchain
+        run: elan default $(cat lean-toolchain)
+
+      - name: lake update + build
+        run: |
+          lake update
+          lake build
+
+      - name: Build BitNet userspace test + initramfs
+        run: make -C firmware/bitnet_user all
+
+      - name: Build SoC Verilog (regenerates JIT cpp)
+        run: lake build IP.RV32.SoCVerilog
+
+      # The full Linux build is gated behind manual workflow_dispatch
+      # because cloning + building Linux 6.6 takes ~20–30 minutes on
+      # GitHub-hosted runners. Routine PR checks only verify that the
+      # driver / userspace / Lean-side artifacts compile.
+      - name: Boot Linux + assert BITNET PASS (manual only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CROSS_COMPILE: riscv64-unknown-elf-
+          LINUX_CROSS_COMPILE: riscv64-linux-gnu-
+        run: |
+          cd firmware/opensbi && bash setup.sh
+          cd ../..
+          lake exe bitnet-linux-test

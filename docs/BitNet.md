@@ -85,3 +85,118 @@ ALL TESTS PASSED
 ```
 
 ---
+
+## Linux Driver (`/dev/bitnet0`) — Level 1a
+
+The Sparkle RV32IMA SoC exposes a Level 1a BitNet MMIO peripheral at
+`0x40000000–0x4000000F`. The Linux kernel can drive it through the
+in-tree `sparkle-bitnet` platform driver (source: `linux-patches/`).
+Userspace gets a `/dev/bitnet0` character device with this surface:
+
+| Operation | Effect |
+|-----------|--------|
+| `write(fd, &u32, 4)` | Latch a Q16.16 activation into `0x40000004` |
+| `read(fd, &u32, 4)`  | Read the combinational result from `0x40000008` |
+| `ioctl(fd, BITNET_IOC_INFER, &u32)` | Atomic write+read pair (mutex-guarded) |
+| `cat /sys/class/misc/bitnet0/status` | Read the v1a status register (always 0 in v1a) |
+
+`BITNET_IOC_INFER` is defined in
+`linux-patches/sparkle-bitnet.h` (UAPI header — copied to
+`include/uapi/linux/sparkle-bitnet.h` by `apply.sh`).
+
+### Why a built-in driver, not `.ko`
+
+`firmware/opensbi/setup.sh` configures the kernel with
+`CONFIG_MODULES=n` to fit the 32 MB DRAM budget. The
+`sparkle-bitnet` driver therefore lives in `drivers/misc/`,
+controlled by `CONFIG_SPARKLE_BITNET=y`. Updating the driver
+requires a kernel rebuild (`rm /tmp/linux/arch/riscv/boot/Image &&
+bash firmware/opensbi/setup.sh`).
+
+### v1a scope (no DMA, no IRQ)
+
+The peripheral is a **scalar** combinational accelerator — one 32-bit
+Q16.16 word in, one 32-bit word out, settled the same cycle. There is
+no internal state, no IRQ line, and no buffer. Multi-token loops are
+driven entirely from userspace by repeating `write` / `read`. DMA and
+IRQ are deliberately out of scope; they will be added when the
+peripheral grows to Level 1b (sequential FSM, weight ROM, dim=2048,
+24 layers). At that point, a `sparkle,bitnet-v1b` driver will sit
+alongside the v1a one.
+
+### Building + running
+
+Prerequisite: enter the nix shell so the cross-toolchain
+(`riscv64-unknown-linux-gnu-gcc`, `riscv32-none-elf-gcc`, `dtc`,
+`cpio`) is on PATH. The repo's `shell.nix` includes everything
+needed.
+
+```bash
+nix-shell
+
+# 1. Build OpenSBI + the userspace test cpio + the Linux 6.6 image
+#    with the sparkle-bitnet driver patched in. ~30 min on first run,
+#    seconds on incremental rebuilds.
+cd firmware/opensbi && bash setup.sh && cd ../..
+
+# 2. Regenerate the JIT C++ for the SoC (only if you changed Lean
+#    sources under IP/RV32 or IP/BitNet).
+lake build IP.RV32.SoCVerilog
+
+# 3. Boot Linux on the JIT runner; asserts on UART markers
+#    "sparkle-bitnet … registered" and "BITNET PASS".
+lake exe bitnet-linux-test
+```
+
+The end-to-end test (Layer 2 in the verification plan) reuses the same
+8 golden vectors as `Tests/Integration/BitNetSoCTest.lean`:
+
+```
+in=0x00010000  out=0x00410000
+in=0x00020000  out=0x02020000
+in=0x00030000  out=0x06C30000
+in=0x00040000  out=0x10040000
+in=0x00080000  out=0x80080000
+in=0x00000100  out=0x00000100
+in=0x12345678  out=0x5AD1BC9A
+in=0x00000000  out=0x00000000
+```
+
+If the Lean RTL spec, the bare-metal `bitnet_smoke/` smoke test, and
+`/dev/bitnet0` ever produce different outputs for the same input, the
+bug is in the integration glue (driver, DTS, MMIO routing) — not in
+the BitNet pipeline itself.
+
+### Userspace usage example
+
+```c
+#include <fcntl.h>
+#include <stdint.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <linux/sparkle-bitnet.h>
+
+int main(void) {
+    int fd = open("/dev/bitnet0", O_RDWR);
+    uint32_t v;
+
+    /* Method 1: write/read pair. */
+    v = 0x00010000u;            /* Q16.16 = 1.0 */
+    write(fd, &v, 4);
+    read(fd, &v, 4);
+    printf("BitNet(1.0) = 0x%08x\n", v);
+
+    /* Method 2: atomic ioctl (mutex-guarded against other openers). */
+    v = 0x00020000u;
+    ioctl(fd, BITNET_IOC_INFER, &v);
+    printf("BitNet(2.0) = 0x%08x\n", v);
+
+    close(fd);
+}
+```
+
+For 1000-token inference loops just call `write`/`read` (or `ioctl
+INFER`) 1000 times — each call moves 4 bytes across the kernel
+boundary, well below the cost of a syscall, and with no IRQ wait.
+
+---

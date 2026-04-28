@@ -55,5 +55,10 @@
 			clock-frequency = <0x2faf080>;
 			current-speed = <0x1c200>;
 		};
+
+		bitnet@40000000 {
+			compatible = "sparkle,bitnet-v1a";
+			reg = <0x40000000 0x10>;
+		};
 	};
 };

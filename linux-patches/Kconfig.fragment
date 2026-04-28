@@ -1,0 +1,12 @@
+# Built into the kernel — CONFIG_MODULES is disabled in setup.sh's
+# kernel config, so the driver cannot be a loadable .ko.
+config SPARKLE_BITNET
+	bool "Sparkle BitNet v1a MMIO accelerator"
+	depends on OF
+	default y
+	help
+	  Driver for the Level 1a BitNet peripheral on the Sparkle
+	  RV32IMA SoC. Exposes a /dev/bitnet0 character device that
+	  takes a 32-bit Q16.16 activation on write() and returns the
+	  combinational output on read(). See firmware/bitnet_user/
+	  for a userspace test that exercises the API.

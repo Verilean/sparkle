@@ -15,6 +15,16 @@ pkgs.mkShell {
     nodejs
     pkgsCross.riscv32-embedded.buildPackages.gcc
     pkgsCross.riscv32-embedded.buildPackages.binutils
+    # Linux kernel cross-toolchain (glibc target). Needed to build the
+    # in-tree sparkle-bitnet driver and the rv32 Linux kernel image.
+    pkgsCross.riscv64.buildPackages.gcc
+    pkgsCross.riscv64.buildPackages.binutils
+    # Device-tree compiler — turns sparkle-soc.dts into the .dtb that
+    # OpenSBI hands to Linux at boot.
+    dtc
+    # Kernel build prerequisites
+    bc flex bison openssl
+    cpio gzip
   ];
 
   # Environment variables
