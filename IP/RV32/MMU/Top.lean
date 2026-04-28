@@ -342,13 +342,29 @@ def mmuTopSignal {dom : DomainConfig}
   let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
 
   -- Physical address output
-  -- For 4KB pages: {ppn[19:0], offset[11:0]}
-  let tlb0PPNLow := tlb0PPN.map (BitVec.extractLsb' 0 20 ·)
-  let tlbPAddr := tlb0PPNLow ++ pageOffset
-  let ptePPNLow := ptePPNFull.map (BitVec.extractLsb' 0 20 ·)
-  let ptwPAddr := ptePPNLow ++ pageOffset
-  let translatedAddr := Signal.mux tlb0Hit tlbPAddr ptwPAddr
-  let paddr := Signal.mux bypassMMU vaddr translatedAddr
+  -- For 4 KB pages : {ppn[19:0], offset[11:0]}             (32 bits total)
+  -- For megapages : {ppn[19:10], vaddr[21:0]}              (a.k.a. 4 MB
+  --                  superpages — Sv32 level-1 leaves)
+  -- Sv32 PPN field is 22 bits; we keep the lower 20 in the per-line PA
+  -- because the Sparkle SoC only addresses 32-bit PA. For a megapage the
+  -- low 10 of PPN must come from the VA (Sv32 spec: PPN[0] of a level-1
+  -- leaf must be zero, and PA[21:12] = vaddr[21:12]).
+  let tlb0PPNLow      := tlb0PPN.map (BitVec.extractLsb' 0 20 ·)
+  let tlb0PPNHi10     := tlb0PPN.map (BitVec.extractLsb' 10 10 ·)
+  let vaddr2112       := vaddr.map (BitVec.extractLsb' 12 10 ·)
+  let tlb0Page4KAddr  := tlb0PPNLow ++ pageOffset                 -- 32-bit
+  let tlb0MegaPALow22 := vaddr2112 ++ pageOffset                  -- 22-bit
+  let tlb0MegaPaddr   := tlb0PPNHi10 ++ tlb0MegaPALow22           -- 32-bit
+  let tlbPAddr        := Signal.mux tlb0Mega tlb0MegaPaddr tlb0Page4KAddr
+  -- Same megapage handling on the cold-PTW path (no TLB hit yet).
+  let ptwMegaReg      := projN! mmu 26 4    -- mega flag latched during PTW
+  let ptePPNLow       := ptePPNFull.map (BitVec.extractLsb' 0 20 ·)
+  let ptePPNHi10      := ptePPNFull.map (BitVec.extractLsb' 10 10 ·)
+  let ptwPage4KAddr   := ptePPNLow ++ pageOffset
+  let ptwMegaPaddr    := ptePPNHi10 ++ tlb0MegaPALow22
+  let ptwPAddr        := Signal.mux ptwMegaReg ptwMegaPaddr ptwPage4KAddr
+  let translatedAddr  := Signal.mux tlb0Hit tlbPAddr ptwPAddr
+  let paddr           := Signal.mux bypassMMU vaddr translatedAddr
 
   -- Output signals
   let bypassReady := reqValid &&& bypassMMU

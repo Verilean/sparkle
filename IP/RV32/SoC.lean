@@ -459,14 +459,13 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux tlb3Hit tlb3Mega
         (Signal.pure false))))
 
-    -- D-side physical address from TLB
-    -- Megapage: PA = PPN << 12 + VA[21:0]
-    -- Regular:  PA = {PPN[19:0], vaddr[11:0]}
+    -- D-side physical address from TLB. See I-side comment above for the
+    -- Sv32 megapage / 4K formulas. Megapage uses PPN[1] (PPN bits [21:10])
+    -- as PA[31:22]; vaddr[21:0] supplies the rest.
     let dtlbPPN_20 := tlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let dtlbPPNShifted := dtlbPPN_20 ++ 0#12
+    let dtlbPPN_hi10 := tlbPPN.map (BitVec.extractLsb' 10 10 ·)
     let vaLow22 := alu_result_approx.map (BitVec.extractLsb' 0 22 ·)
-    let vaLow22Ext := 0#10 ++ vaLow22
-    let dPhysAddrMega := dtlbPPNShifted + vaLow22Ext
+    let dPhysAddrMega := dtlbPPN_hi10 ++ vaLow22
     let dPhysAddrReg := dtlbPPN_20 ++ dPageOffset
     let dPhysAddr := Signal.mux tlbMega dPhysAddrMega dPhysAddrReg
     -- Effective address: use translated physical when MMU active and TLB hit
@@ -994,15 +993,22 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux itlb3Hit tlb3Mega
         (Signal.pure false))))
 
-    -- I-side physical address from iTLB
-    -- Megapage: PA = PPN << 12 + VA[21:0]
-    -- Regular:  PA = {PPN[19:0], vaddr[11:0]}
+    -- I-side physical address from iTLB.
+    -- Sv32 page formats (RISC-V Privileged spec, Sv32 §10.3.2):
+    --   Megapage (4 MB):  PA[31:22] = PTE.PPN[1]   (= PPN bits [21:10])
+    --                     PA[21:0]  = VA[21:0]
+    --                     (PTE.PPN[0] must be zero — superpage alignment)
+    --   4K page:          PA[31:12] = PTE.PPN      (lower 20 bits used in 32-bit PA)
+    --                     PA[11:0]  = VA[11:0]
+    -- Earlier code reused the 4K formula for megapage, which produced
+    -- a misaligned PA and trapped Linux at the very first kernel
+    -- instruction after MMU bring-up. See itlb fault chain in
+    -- IP/RV32/JITDebug-instrumented logs.
     let itlbPPN_20 := itlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let itlbPPNShifted := itlbPPN_20 ++ 0#12
+    let itlbPPN_hi10 := itlbPPN.map (BitVec.extractLsb' 10 10 ·)
     let fetchPCLow22 := fetchPC.map (BitVec.extractLsb' 0 22 ·)
-    let fetchPCLow22Ext := 0#10 ++ fetchPCLow22
-    let ifetchPhysAddrMega := itlbPPNShifted + fetchPCLow22Ext
     let fetchPCLow12 := fetchPC.map (BitVec.extractLsb' 0 12 ·)
+    let ifetchPhysAddrMega := itlbPPN_hi10 ++ fetchPCLow22
     let ifetchPhysAddrReg := itlbPPN_20 ++ fetchPCLow12
     let ifetchPhysAddr := Signal.mux itlbMega ifetchPhysAddrMega ifetchPhysAddrReg
 
