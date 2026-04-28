@@ -89,7 +89,10 @@ def observe (ref : IO.Ref State) (cycle : Nat) (out : SoCOutput) (verbose : Bool
     st := { st with prevSepc := out.sepc, prevScause := out.scause, prevStval := out.stval }
   -- SATP change.
   if out.satp != st.prevSatp then
-    IO.println s!"cycle {cycle}: SATP: 0x{hex32 st.prevSatp.toNat} -> 0x{hex32 out.satp.toNat}"
+    let ppn := out.satp.toNat &&& 0x3FFFFF
+    let ptPA := ppn <<< 12
+    IO.println s!"cycle {cycle}: SATP: 0x{hex32 st.prevSatp.toNat} -> 0x{hex32 out.satp.toNat} \
+                 (PT base PA = 0x{hex32 ptPA})"
     st := { st with prevSatp := out.satp }
   -- Optional PTW trace (high volume; off by default).
   if verbose && (out.ptwVaddr != st.prevPtwVaddr || out.ptwPte != st.prevPtwPte) then
@@ -97,5 +100,46 @@ def observe (ref : IO.Ref State) (cycle : Nat) (out : SoCOutput) (verbose : Bool
                  pte=0x{hex32 out.ptwPte.toNat} satp=0x{hex32 out.satp.toNat}"
     st := { st with prevPtwVaddr := out.ptwVaddr, prevPtwPte := out.ptwPte }
   ref.set st
+
+/-- Read a 32-bit word from DRAM data lanes via the JIT memory API.
+    DRAM is mem-indices 1..4 (byte lanes), word-addressed. -/
+def readDRAM (handle : JITHandle) (wordAddr : Nat) : IO UInt32 := do
+  let a := wordAddr.toUInt32
+  let b0 ← JIT.getMem handle 1 a
+  let b1 ← JIT.getMem handle 2 a
+  let b2 ← JIT.getMem handle 3 a
+  let b3 ← JIT.getMem handle 4 a
+  pure ((b3 <<< 24) ||| (b2 <<< 16) ||| (b1 <<< 8) ||| b0)
+
+/-- Convert a Sv32 PA into the DRAM word index, or `none` if not in DRAM
+    (DRAM is `0x80000000-0x82000000` in this SoC). -/
+def paToWord (pa : Nat) : Option Nat :=
+  if pa >= 0x80000000 && pa < 0x82000000 then
+    some ((pa - 0x80000000) / 4)
+  else
+    none
+
+/-- Dump a 4 KB Sv32 page table page in `(index → PTE)` form, printing
+    only valid entries (`pte & 1`). -/
+def dumpPageTable (handle : JITHandle) (ptPA : Nat) (label : String) : IO Unit := do
+  IO.println s!"\n=== Page Table @ PA 0x{hex32 ptPA} ({label}) ==="
+  match paToWord ptPA with
+  | none =>
+    IO.println s!"  (PT base 0x{hex32 ptPA} is outside DRAM range)"
+  | some baseW =>
+    let mut anyValid := false
+    for i in [:1024] do
+      let pte ← readDRAM handle (baseW + i)
+      if pte.toNat &&& 1 == 1 then
+        anyValid := true
+        let ppn := (pte.toNat >>> 10) &&& 0x3FFFFF
+        let flags := pte.toNat &&& 0x3FF
+        let physPage := ppn <<< 12
+        -- Sv32: each entry covers 4 MB at level 1, 4 KB at level 0
+        let virtBase := i * 0x400000  -- assumes level-1 (megapage) decode
+        IO.println s!"  [{i}] vbase=0x{hex32 virtBase} pte=0x{hex32 pte.toNat} \
+                    pa=0x{hex32 physPage} flags=0x{hex32 flags}"
+    if !anyValid then
+      IO.println "  (no valid entries)"
 
 end Sparkle.IP.RV32.JITDebug

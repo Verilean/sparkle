@@ -282,5 +282,29 @@ def main (args : List String) : IO UInt32 := do
     let effectiveCycPerSec := actualCycles * 1000 / elapsed_ms
     IO.println s!"  Effective cyc/s:   {effectiveCycPerSec}"
 
+  -- Dump active page tables on exit. We dump:
+  --   * the trampoline_pg_dir (first SATP value seen, at PA 0x81ca9000
+  --     in our build) — this is what was active during the very first
+  --     instruction-page-fault, so it's the most diagnostic
+  --   * the swapper_pg_dir (final SATP value) — what's active at exit
+  if traceEnabled then
+    let finalVals ← wireIndices.mapM fun idx => JIT.getWire handle idx
+    let finalOut := SoCOutput.fromWireValues finalVals
+    let satp := finalOut.satp.toNat
+    let mode := (satp >>> 31) &&& 1
+    let ppn  := satp &&& 0x3FFFFF
+    let ptPA := ppn <<< 12
+    IO.println s!"\nFinal SATP = 0x{Sparkle.IP.RV32.JITDebug.hex32 satp} \
+                 (mode={mode} PPN=0x{Sparkle.IP.RV32.JITDebug.hex32 ppn} \
+                 → PT base PA = 0x{Sparkle.IP.RV32.JITDebug.hex32 ptPA})"
+    if mode == 1 then
+      Sparkle.IP.RV32.JITDebug.dumpPageTable handle ptPA "swapper_pg_dir (final)"
+    -- Trampoline PT — typically at 0x81ca9000 for our build, but allow
+    -- override via env var in case the kernel layout shifts.
+    let trampPA := match (← IO.getEnv "SPARKLE_TRAMP_PT").bind String.toNat? with
+      | some n => n
+      | none   => 0x81ca9000
+    Sparkle.IP.RV32.JITDebug.dumpPageTable handle trampPA "trampoline_pg_dir (early boot)"
+
   JIT.destroy handle
   return 0
