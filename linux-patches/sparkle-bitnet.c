@@ -160,11 +160,12 @@ static int bitnet_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static void bitnet_remove(struct platform_device *pdev)
+static int bitnet_remove(struct platform_device *pdev)
 {
 	struct bitnet_dev *bn = platform_get_drvdata(pdev);
 
 	misc_deregister(&bn->misc);
+	return 0;
 }
 
 static const struct of_device_id bitnet_of_match[] = {

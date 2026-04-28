@@ -91,3 +91,5 @@ Tests/SVParser/fixtures/*_flat.v
 
 # Nix shell artifacts
 result
+firmware/opensbi-stub/libgcc_stub.o
+firmware/opensbi-stub/libgcc_stub.a

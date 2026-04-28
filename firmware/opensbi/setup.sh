@@ -81,17 +81,24 @@ else
     fi
     patch_opensbi_for_gcc15
     echo "Building OpenSBI (CROSS_COMPILE=${CROSS_COMPILE})..."
+
+    # Build the libgcc stub (provides __udivdi3 / __umoddi3 in soft-float).
+    # The riscv32-none-elf gcc shipped in nix is built with the default
+    # ilp32d (double-float) multilib; OpenSBI compiles soft-float, so its
+    # libgcc cannot be linked. The stub is two functions and works fine.
+    echo "Building libgcc soft-float stub for OpenSBI..."
+    ${MAKE} -C "${SPARKLE_REPO}/firmware/opensbi-stub" CROSS=${CROSS_COMPILE} all
+    LIBGCC_STUB_DIR="${SPARKLE_REPO}/firmware/opensbi-stub"
+
     cd "${OPENSBI_DIR}"
 
-    # Detect rv32im libgcc path for GCC 15 multilib (no rv32ima variant exists)
-    LIBGCC_DIR="$(dirname "$(${CROSS_COMPILE}gcc -march=rv32im -mabi=ilp32 -print-libgcc-file-name)")"
-
-    # Build with rv32ima (no C extension) + zicsr/zifencei for GCC 15 assembler
-    # Link against rv32im libgcc since no rv32ima multilib exists
+    # Build with rv32ima (no C extension) + zicsr/zifencei for GCC 15 assembler.
+    # Pass our stub via -L / -l:libgcc_stub.a (':' tells the linker to use
+    # the literal filename; without it ld looks for libgcc_stub.{so,a}).
     ${MAKE} CROSS_COMPILE="${CROSS_COMPILE}" PLATFORM=generic \
         PLATFORM_RISCV_XLEN=32 PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei \
         FW_JUMP_ADDR=0x80400000 FW_JUMP_FDT_ADDR=0x80F00000 \
-        ELFFLAGS="-Wl,--build-id=none -N -static-libgcc -L${LIBGCC_DIR} -lgcc" \
+        ELFFLAGS="-Wl,--build-id=none -N -nostdlib -L${LIBGCC_STUB_DIR} -l:libgcc_stub.a" \
         -j"${NPROC}"
     echo "Built: ${OPENSBI_BIN}"
 fi
