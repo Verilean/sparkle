@@ -7,7 +7,7 @@
     model = "Sparkle RV32IMA SoC";
 
     chosen {
-        bootargs = "earlycon=sbi console=ttyS0";
+        bootargs = "earlycon=ns16550a,mmio32,0x10000000 console=ttyS0,115200n8";
         stdout-path = "/soc/serial@10000000";
     };
 

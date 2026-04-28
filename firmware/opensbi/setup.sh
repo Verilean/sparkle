@@ -97,7 +97,7 @@ else
     # the literal filename; without it ld looks for libgcc_stub.{so,a}).
     ${MAKE} CROSS_COMPILE="${CROSS_COMPILE}" PLATFORM=generic \
         PLATFORM_RISCV_XLEN=32 PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei \
-        FW_JUMP_ADDR=0x80400000 FW_JUMP_FDT_ADDR=0x80F00000 \
+        FW_JUMP_ADDR=0x80400000 FW_JUMP_FDT_ADDR=0x81F00000 \
         ELFFLAGS="-Wl,--build-id=none -N -nostdlib -L${LIBGCC_STUB_DIR} -l:libgcc_stub.a" \
         -j"${NPROC}"
     echo "Built: ${OPENSBI_BIN}"
@@ -117,6 +117,7 @@ LINUX_CONFIG_CMDS="
     scripts/config --enable CONFIG_RISCV_SBI_V01
     scripts/config --enable CONFIG_RISCV_TIMER
     scripts/config --disable CONFIG_RISCV_ISA_C
+    scripts/config --disable CONFIG_EFI
     scripts/config --disable CONFIG_NETWORK
     scripts/config --disable CONFIG_NET
     scripts/config --disable CONFIG_SOUND

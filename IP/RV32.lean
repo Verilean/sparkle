@@ -13,6 +13,7 @@ import IP.RV32.CSR.Types
 import IP.RV32.Core
 import IP.RV32.Pipeline
 import IP.RV32.SoC
+import IP.RV32.JITDebug
 import IP.RV32.Bus
 import IP.RV32.UART
 import IP.RV32.CLINT

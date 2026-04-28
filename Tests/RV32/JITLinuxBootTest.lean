@@ -16,6 +16,7 @@ import Sparkle.Core.JITLoop
 import Sparkle.Core.Oracle
 import Sparkle.Utils.HexLoader
 import IP.RV32.SoC
+import IP.RV32.JITDebug
 
 open Sparkle.Core.JIT
 open Sparkle.Core.JITLoop
@@ -94,10 +95,10 @@ def main (args : List String) : IO UInt32 := do
   if kernelWords < kernelTotalWords then
     IO.println s!"  WARNING: Kernel truncated! {kernelTotalWords - kernelWords} words did not fit in DRAM"
 
-  -- Load DTB into DRAM @ 0x80F00000 → word addr 0x3C0000
+  -- Load DTB into DRAM @ 0x81F00000 → word addr 0x7C0000
   -- MUST be loaded AFTER kernel — kernel at 0x100000 extends to 0x800000 and overlaps DTB region
-  IO.println s!"Loading {dtbPath} into DRAM @ 0x3C0000..."
-  let dtbWords ← loadBinaryToDRAM handle dtbPath 0x3C0000
+  IO.println s!"Loading {dtbPath} into DRAM @ 0x7C0000..."
+  let dtbWords ← loadBinaryToDRAM handle dtbPath 0x7C0000
   IO.println s!"  {dtbWords} words loaded"
 
   -- Verify DRAM loading by reading back first 8 words from ifetch byte lanes
@@ -128,11 +129,11 @@ def main (args : List String) : IO UInt32 := do
     let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
     IO.println s!"  word[{i}]: data=0x{toHex32 word}"
 
-  -- Verify DTB at word address 0x3C0000
-  IO.println "\nFirst 4 words from DTB region (DRAM data @ 0x3C0000, should match DTB header):"
+  -- Verify DTB at word address 0x7C0000
+  IO.println "\nFirst 4 words from DTB region (DRAM data @ 0x7C0000, should match DTB header):"
   let dtbBytes ← IO.FS.readBinFile dtbPath
   for i in [:4] do
-    let addr := (0x3C0000 + i).toUInt32
+    let addr := (0x7C0000 + i).toUInt32
     let b0 ← JIT.getMem handle 1 addr
     let b1 ← JIT.getMem handle 2 addr
     let b2 ← JIT.getMem handle 3 addr
@@ -153,6 +154,12 @@ def main (args : List String) : IO UInt32 := do
 
   let uartBytesRef ← IO.mkRef (#[] : Array UInt8)
   let uartLineRef ← IO.mkRef ("" : String)
+  -- Trap / SATP / PTW tracer (matches Verilator tb_soc.cpp visibility).
+  -- Default ON because debugging silent boots is the common case; set
+  -- SPARKLE_TRACE=0 to skip per-cycle observation entirely (~2x faster).
+  let traceRef ← Sparkle.IP.RV32.JITDebug.mkTracer
+  let traceEnabled := (← IO.getEnv "SPARKLE_TRACE").getD "1" != "0"
+  let verbosePTW := (← IO.getEnv "SPARKLE_TRACE_PTW").isSome
 
   -- Create boot oracle with timer-compare skipping
   let config : SelfLoopConfig := {
@@ -195,7 +202,7 @@ def main (args : List String) : IO UInt32 := do
     JIT.setMem handle 0 i.toUInt32 word.toNat.toUInt32
   let _opensbiWords2 ← loadBinaryToDRAM handle opensbiPath 0x000000
   let _kernelWords2 ← loadBinaryToDRAM handle kernelPath 0x100000
-  let _dtbWords2 ← loadBinaryToDRAM handle dtbPath 0x3C0000
+  let _dtbWords2 ← loadBinaryToDRAM handle dtbPath 0x7C0000
 
   -- Run simulation
   IO.println s!"\nRunning JIT Linux boot for {maxCycles} cycles...\n"
@@ -204,6 +211,9 @@ def main (args : List String) : IO UInt32 := do
   let actualCycles ← JIT.runOptimized handle maxCycles wireIndices oracle
     fun cycle vals => do
       let out := SoCOutput.fromWireValues vals
+      -- Verilator-equivalent trap/SATP/(optional)PTW logging.
+      if traceEnabled then
+        Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
       if out.uartValid then
         let byte := (out.uartData.toNat % 256).toUInt8
         let bytes ← uartBytesRef.get

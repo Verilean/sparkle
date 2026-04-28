@@ -1594,14 +1594,31 @@ open Sparkle.Core.JITLoop
 
 /-- Wire names for SoC output observation.
     These correspond to the values computed in rv32iSoCSynth and are stable
-    because they feed the top-level output (immune to DCE). -/
+    because they feed the top-level output (immune to DCE).
+
+    The trap-related wires (`_gen_trap_taken`, `_gen_trapCause`,
+    `_gen_mepcReg` / `_gen_mtvalReg` / `_gen_sepcReg` / `_gen_scauseReg` /
+    `_gen_stvalReg`) give the JIT runner the same observability that
+    Verilator's tb_soc.cpp gets via internal-signal probes. With them, a
+    JIT harness can print "TRAP at cycle N: PC=... cause=... tval=..."
+    just like Verilator does, instead of relying on UART side effects to
+    infer that something went wrong. -/
 def SoCOutput.wireNames : Array String :=
-  #[ "_gen_pcReg"
-   , "_gen_uartValidBV"
-   , "_gen_prevStoreData"
-   , "_gen_satpReg"
-   , "_gen_ptwPteReg"
-   , "_gen_ptwVaddrReg" ]
+  #[ "_gen_pcReg"            -- 0
+   , "_gen_uartValidBV"      -- 1
+   , "_gen_prevStoreData"    -- 2
+   , "_gen_satpReg"          -- 3
+   , "_gen_ptwPteReg"        -- 4
+   , "_gen_ptwVaddrReg"      -- 5
+   , "_gen_trap_taken"       -- 6  combinational: 1 cycle pulse on a trap
+   , "_gen_trapCause"        -- 7  cause value committed on the same cycle
+   , "_gen_mepcReg"          -- 8  M-mode trap context (after commit)
+   , "_gen_mcauseReg"        -- 9
+   , "_gen_mtvalReg"         -- 10
+   , "_gen_sepcReg"          -- 11 S-mode trap context (after commit)
+   , "_gen_scauseReg"        -- 12
+   , "_gen_stvalReg"         -- 13
+   ]
 
 /-- SoC output snapshot — one cycle's worth of observable values -/
 structure SoCOutput where
@@ -1611,6 +1628,15 @@ structure SoCOutput where
   satp      : BitVec 32
   ptwPte    : BitVec 32
   ptwVaddr  : BitVec 32
+  -- Trap observation (matches Verilator tb_soc.cpp's internal-signal probes)
+  trapTaken : Bool
+  trapCause : BitVec 32
+  mepc      : BitVec 32
+  mcause    : BitVec 32
+  mtval     : BitVec 32
+  sepc      : BitVec 32
+  scause    : BitVec 32
+  stval     : BitVec 32
   deriving Inhabited
 
 def SoCOutput.fromWireValues (vals : Array UInt64) : SoCOutput :=
@@ -1619,7 +1645,15 @@ def SoCOutput.fromWireValues (vals : Array UInt64) : SoCOutput :=
     uartData  := BitVec.ofNat 32 (vals[2]?.getD 0).toNat
     satp      := BitVec.ofNat 32 (vals[3]?.getD 0).toNat
     ptwPte    := BitVec.ofNat 32 (vals[4]?.getD 0).toNat
-    ptwVaddr  := BitVec.ofNat 32 (vals[5]?.getD 0).toNat }
+    ptwVaddr  := BitVec.ofNat 32 (vals[5]?.getD 0).toNat
+    trapTaken := (vals[6]?.getD 0) != 0
+    trapCause := BitVec.ofNat 32 (vals[7]?.getD 0).toNat
+    mepc      := BitVec.ofNat 32 (vals[8]?.getD 0).toNat
+    mcause    := BitVec.ofNat 32 (vals[9]?.getD 0).toNat
+    mtval     := BitVec.ofNat 32 (vals[10]?.getD 0).toNat
+    sepc      := BitVec.ofNat 32 (vals[11]?.getD 0).toNat
+    scause    := BitVec.ofNat 32 (vals[12]?.getD 0).toNat
+    stval     := BitVec.ofNat 32 (vals[13]?.getD 0).toNat }
 
 /-- JIT-accelerated SoC simulation returning output wires as a Signal.
     Uses named output wires — immune to DCE and name collisions.

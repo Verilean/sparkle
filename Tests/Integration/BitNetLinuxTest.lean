@@ -31,6 +31,7 @@ import Sparkle.Core.JITLoop
 import Sparkle.Core.Oracle
 import Sparkle.Utils.HexLoader
 import IP.RV32.SoC
+import IP.RV32.JITDebug
 
 open Sparkle.Core.JIT
 open Sparkle.Core.JITLoop
@@ -80,7 +81,7 @@ def main (args : List String) : IO UInt32 := do
   -- Load DRAM
   let _ ← loadBinaryToDRAM handle opensbiPath 0x000000
   let _ ← loadBinaryToDRAM handle kernelPath  0x100000
-  let _ ← loadBinaryToDRAM handle dtbPath     0x3C0000
+  let _ ← loadBinaryToDRAM handle dtbPath     0x7C0000
 
   -- Self-loop oracle (same config as the existing JITLinuxBootTest).
   let config : SelfLoopConfig := {
@@ -102,12 +103,19 @@ def main (args : List String) : IO UInt32 := do
   let registeredRef ← IO.mkRef false
   let passRef ← IO.mkRef false
   let failRef ← IO.mkRef false
+  -- Trap / SATP / PTW tracer (mirrors verilator/tb_soc.cpp visibility).
+  -- Default ON; SPARKLE_TRACE=0 skips per-cycle observation entirely.
+  let traceRef ← Sparkle.IP.RV32.JITDebug.mkTracer
+  let traceEnabled := (← IO.getEnv "SPARKLE_TRACE").getD "1" != "0"
+  let verbosePTW := (← IO.getEnv "SPARKLE_TRACE_PTW").isSome
 
   IO.println s!"\nRunning Linux boot for up to {maxCycles} cycles..."
   let startTime ← IO.monoNanosNow
   let _ ← JIT.runOptimized handle maxCycles wireIndices oracle
     fun cycle vals => do
       let out := SoCOutput.fromWireValues vals
+      if traceEnabled then
+        Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
       if out.uartValid then
         let byte := (out.uartData.toNat % 256).toUInt8
         uartBytesRef.modify (·.push byte)

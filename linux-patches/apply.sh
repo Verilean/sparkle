@@ -64,4 +64,18 @@ if [ -f "${LINUX_DIR}/.config" ]; then
     echo "  + set CONFIG_SPARKLE_BITNET=y in .config"
 fi
 
+# 6. Optional debug-trace patch (apply if present and not already applied).
+DEBUG_PATCH="${PATCH_DIR}/debug-uart-trace.patch"
+if [ -f "${DEBUG_PATCH}" ]; then
+    if ! grep -q 'SPARKLE-DEBUG' "${LINUX_DIR}/init/main.c" 2>/dev/null; then
+        if patch -d "${LINUX_DIR}" -p1 --forward --silent < "${DEBUG_PATCH}"; then
+            echo "  + applied debug-uart-trace.patch"
+        else
+            echo "  ! debug-uart-trace.patch failed (already partially applied?)"
+        fi
+    else
+        echo "  = debug-uart-trace.patch already applied"
+    fi
+fi
+
 echo "Patched."

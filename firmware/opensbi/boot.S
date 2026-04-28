@@ -8,7 +8,7 @@
  */
 
 #ifndef DTB_ADDR
-#define DTB_ADDR 0x80F00000
+#define DTB_ADDR 0x81F00000
 #endif
 
     .section .text.init, "ax"

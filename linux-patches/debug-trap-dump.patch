@@ -1,0 +1,87 @@
+From: Sparkle HDL <noreply@sparkle.local>
+Subject: [PATCH] debug: emergency trap handler that dumps scause/sepc/stval
+
+Replaces handle_exception with a minimal hex-dumping trap handler.
+On the first trap after MMU bringup the handler emits to UART_TX
+(0x10000000):
+
+  T <scause-hex8> | <sepc-hex8> | <stval-hex8> H \n
+
+then halts in WFI loop. This catches the fault that prevents Linux
+from reaching console_init and causes the silent-Linux symptom.
+
+Changes only setup_trap_vector to point at sparkle_dbg_trap; leaves
+the original handle_exception in entry.S untouched (just unused).
+
+---
+ arch/riscv/kernel/head.S | 51 ++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/arch/riscv/kernel/head.S b/arch/riscv/kernel/head.S
+--- a/arch/riscv/kernel/head.S
++++ b/arch/riscv/kernel/head.S
+@@ -174,8 +174,9 @@ secondary_start_common:
+
+ .align 2
+ setup_trap_vector:
+-	/* Set trap vector to exception handler */
+-	la a0, handle_exception
++	/* SPARKLE-DEBUG: install hex-dumping trap handler so faults reach
++	 * UART even before console_init. */
++	la a0, sparkle_dbg_trap
+ 	csrw CSR_TVEC, a0
+
+ 	/*
+@@ -184,6 +185,52 @@ setup_trap_vector:
+ 	 */
+ 	csrw CSR_SCRATCH, zero
+ 	ret
++
++/* SPARKLE-DEBUG hex-dumping trap handler.
++ * Emits "T<scause>|<sepc>|<stval>H\n" to UART then halts in wfi loop. */
++.align 2
++sparkle_dbg_trap:
++	li   t0, 0x10000000
++	li   t1, 0x54           /* 'T' */
++	sw   t1, 0(t0)
++	csrr s0, scause
++	csrr s1, sepc
++	csrr s2, stval
++	mv   t2, s0
++	jal  ra, sparkle_dbg_hex32
++	li   t1, 0x7c           /* '|' */
++	sw   t1, 0(t0)
++	mv   t2, s1
++	jal  ra, sparkle_dbg_hex32
++	li   t1, 0x7c
++	sw   t1, 0(t0)
++	mv   t2, s2
++	jal  ra, sparkle_dbg_hex32
++	li   t1, 0x48           /* 'H' */
++	sw   t1, 0(t0)
++	li   t1, 0x0a           /* '\n' */
++	sw   t1, 0(t0)
++1:
++	wfi
++	j    1b
++
++/* Emit register t2 as 8 lowercase hex digits to UART (t0).
++ * Clobbers t1, t3, t4. Returns via ra (use jal ra, ...). */
++.align 2
++sparkle_dbg_hex32:
++	li   t3, 8
++1:
++	srli t1, t2, 28
++	andi t1, t1, 0xf
++	li   t4, 10
++	blt  t1, t4, 2f
++	addi t1, t1, 0x27       /* 'a' - '0' - 10 = 0x27 */
++2:
++	addi t1, t1, 0x30       /* '0' */
++	sw   t1, 0(t0)
++	slli t2, t2, 4
++	addi t3, t3, -1
++	bnez t3, 1b
++	ret
+
+ END(_start_kernel)

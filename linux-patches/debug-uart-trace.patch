@@ -1,0 +1,103 @@
+From: Sparkle HDL <noreply@sparkle.local>
+Subject: [PATCH] debug: trace early kernel boot via raw UART writes
+
+Adds direct stores to UART_TX (0x10000000) at five well-known points in
+the rv32 boot path so we can see how far Linux progresses on the
+Sparkle SoC before normal printk takes over. Each tracepoint emits a
+single ASCII character; if the UART byte stream contains all five we
+know boot reached the late console-init path and the silence afterwards
+is "printk works but is buffered/missing the right console".
+
+Tracepoints:
+  'A'  reached _start_kernel (head.S, before BSS clear)
+  'B'  after setup_vm + relocate_enable_mmu (MMU is on, virtual addrs)
+  'C'  entered start_kernel() in init/main.c
+  'D'  just before console_init() in init/main.c
+  'E'  after console_init() returns
+
+This is an instrumentation-only patch; remove once the silent-Linux
+issue is resolved.
+---
+ arch/riscv/kernel/head.S | 12 ++++++++++++
+ init/main.c              | 21 +++++++++++++++++++++
+ 2 files changed, 33 insertions(+)
+
+diff --git a/arch/riscv/kernel/head.S b/arch/riscv/kernel/head.S
+--- a/arch/riscv/kernel/head.S
++++ b/arch/riscv/kernel/head.S
+@@ -194,6 +194,12 @@ secondary_start_common:
+ #endif /* CONFIG_MMU */
+
+ ENTRY(_start_kernel)
++	/* SPARKLE-DEBUG: emit 'A' to UART (physical 0x10000000) on entry */
++	li   t0, 0x10000000
++	li   t1, 0x41
++	sw   t1, 0(t0)
++	fence
++
+ 	/* Mask all interrupts */
+ 	csrw CSR_IE, zero
+ 	csrw CSR_IP, zero
+@@ -315,6 +321,12 @@ ENTRY(_start_kernel)
+ 	call setup_trap_vector
+ 	/* Restore C environment */
+ 	la tp, init_task
++
++	/* SPARKLE-DEBUG: emit 'B' to UART after MMU is up */
++	li   t0, 0x10000000
++	li   t1, 0x42
++	sw   t1, 0(t0)
++
+ 	la sp, init_thread_union + THREAD_SIZE
+ 	addi sp, sp, -PT_SIZE_ON_STACK
+
+diff --git a/init/main.c b/init/main.c
+--- a/init/main.c
++++ b/init/main.c
+@@ -1,3 +1,16 @@
++/* SPARKLE-DEBUG: raw UART byte emitter, bypasses all console infrastructure */
++static inline void sparkle_dbg_putc(char c)
++{
++#ifdef CONFIG_RISCV
++	volatile unsigned int *uart_tx = (volatile unsigned int *)0x10000000;
++	*uart_tx = (unsigned int)(unsigned char)c;
++	asm volatile("fence" ::: "memory");
++#else
++	(void)c;
++#endif
++}
++
+ // SPDX-License-Identifier: GPL-2.0-only
+ /*
+  *  linux/init/main.c
+@@ -913,6 +926,8 @@ static void __init print_unknown_bootoptions(void)
+
+ asmlinkage __visible __init __no_sanitize_address __noreturn __no_stack_protector
+ void start_kernel(void)
+ {
++	sparkle_dbg_putc('C');
++
+ 	char *command_line;
+ 	char *after_dashes;
+
+@@ -1015,7 +1030,9 @@ void start_kernel(void)
+ 	rcu_init();
+
+ 	/* Trace events are available after this */
++	sparkle_dbg_putc('D');
+ 	trace_init();
++	sparkle_dbg_putc('E');
+
+ 	if (initcall_debug)
+ 		initcall_command_line = saved_command_line;
+@@ -1101,6 +1118,10 @@ void start_kernel(void)
+ 	 */
+ 	locking_selftest();
+
++	/* SPARKLE-DEBUG: try a real printk now that console is up */
++	pr_emerg("SPARKLE-DEBUG: start_kernel reached printk path\n");
++	sparkle_dbg_putc('F');
++
+ 	/*
+ 	 * This needs to be called before any devices perform DMA
+ 	 * operations that might use the SWIOTLB bounce buffers. It will
