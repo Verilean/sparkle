@@ -46,6 +46,14 @@
     .section .text.init, "ax"
     .global _start
 _start:
+    /* Initialize sp to top of DRAM (32 MB @ 0x80000000-0x82000000).
+     * We pick 0x81EFFF00: well below the DTB at 0x81F00000 and well
+     * above the kernel image at 0x80400000-0x81C00000. Without this,
+     * sp == 0 on reset and stack writes/reads target PA 0xFFFFFFF0,
+     * which the bus drops, causing run_vector's saved ra to read
+     * back as zero and the next ret to jump to PC=0 (= boot.hex
+     * restart, infinite "BITNET v1a SELFTEST" loop). */
+    li   sp, 0x81EFFF00
     li   s8, 0                    /* overall fail flag */
 
     /* "\nBITNET v1a SELFTEST\n" */
@@ -142,9 +150,18 @@ run_vector:
     addi sp, sp, -16
     sw   ra, 12(sp)
 
-    /* Drive peripheral */
+    /* Drive peripheral.  Several nops between sw and lw to give the
+     * 4-stage pipeline time to commit the store before the load issues
+     * its EX-stage address. Without this padding the load can race the
+     * store-update of aiInputReg and read back the previous cycle's
+     * BitNet output (effectively the input we just wrote, since the
+     * register update is one cycle behind). */
     li   t0, BITNET_IN
     sw   s2, 0(t0)
+    nop
+    nop
+    nop
+    nop
     li   t0, BITNET_OUT
     lw   s4, 0(t0)
 
