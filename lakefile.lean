@@ -123,6 +123,10 @@ lean_exe «rv32-jit-linux-boot-test» where
   root := `Tests.RV32.JITLinuxBootTest
   supportInterpreter := true
 
+lean_exe «bitnet-mmio-probe» where
+  root := `Tests.RV32.BitNetMmioProbe
+  supportInterpreter := true
+
 -- End-to-end Linux driver test: boots a kernel image patched with the
 -- in-tree sparkle-bitnet driver and an initramfs /init that exercises
 -- /dev/bitnet0 against 8 golden vectors. Asserts on UART markers

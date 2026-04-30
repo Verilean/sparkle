@@ -1631,6 +1631,14 @@ def SoCOutput.wireNames : Array String :=
    , "_gen_sepcReg"          -- 11 S-mode trap context (after commit)
    , "_gen_scauseReg"        -- 12
    , "_gen_stvalReg"         -- 13
+   , "_gen_aiInputReg"       -- 14 BitNet peripheral pipeline observability
+   , "_gen_gateAcc"          -- 15
+   , "_gen_gateScaled"       -- 16
+   , "_gen_gateActivated"    -- 17
+   , "_gen_upAcc"            -- 18
+   , "_gen_upScaled"         -- 19
+   , "_gen_elemResult"       -- 20
+   , "_gen_downScaled"       -- 21
    ]
 
 /-- SoC output snapshot — one cycle's worth of observable values -/

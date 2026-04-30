@@ -306,6 +306,46 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
         | _, _ => s!"({emitExpr typeMap arg1} == {emitExpr typeMap arg2} ? 1 : 0)"
       | .lt_u | .le_u | .gt_u | .ge_u =>
         s!"({emitExpr typeMap arg1} {emitCppOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
+      | .mul =>
+        -- Wide-multiply codegen. The default `a * b` only works for
+        -- ≤64-bit operands; for std::array<uint32_t,N> it silently
+        -- becomes a no-op (the C++ compiler accepts it because the
+        -- enclosing assignment also fails, leaving the LHS at the
+        -- value the array was default-initialized to: zero).
+        --
+        -- BitNet's Q8.24 scale path emits 80-bit × 80-bit, but the
+        -- significant magnitude fits in 64 bits (the upper 16 bits are
+        -- sign-extension of a ≤48-bit accumulator). For now we collapse
+        -- both operands to int64_t (taking the low 64 bits) and rely
+        -- on the natural sign-extension of those 64 bits to keep the
+        -- magnitude correct, then multiply via __int128 to capture
+        -- the 96-bit product. The result is packed back into a
+        -- std::array<uint32_t,3>.
+        let w1 := inferExprWidth typeMap arg1
+        let w2 := inferExprWidth typeMap arg2
+        if w1 > 64 || w2 > 64 then
+          -- IIFE wrapper: bind the wide operands to local arrays first,
+          -- then index them. Avoids `std::array{...}[0]` which is invalid
+          -- C++ syntax for inline initializers.
+          let lhsExpr := emitExpr typeMap arg1
+          let rhsExpr := emitExpr typeMap arg2
+          let lhsTy := if w1 > 64 then s!"std::array<uint32_t, {(w1+31)/32}>" else "uint64_t"
+          let rhsTy := if w2 > 64 then s!"std::array<uint32_t, {(w2+31)/32}>" else "uint64_t"
+          let lhsLo64 :=
+            if w1 > 64 then "((uint64_t)__lhs[0] | ((uint64_t)__lhs[1] << 32))"
+            else "((uint64_t)__lhs)"
+          let rhsLo64 :=
+            if w2 > 64 then "((uint64_t)__rhs[0] | ((uint64_t)__rhs[1] << 32))"
+            else "((uint64_t)__rhs)"
+          let lb := "{"
+          let rb := "}"
+          let body := s!"const __int128 __p = (__int128)(int64_t){lhsLo64} * (__int128)(int64_t){rhsLo64};" ++
+                      s!" return std::array<uint32_t, 3>{lb}{lb}(uint32_t)((unsigned __int128)__p & 0xffffffffULL), " ++
+                      s!"(uint32_t)(((unsigned __int128)__p >> 32) & 0xffffffffULL), " ++
+                      s!"(uint32_t)(((unsigned __int128)__p >> 64) & 0xffffffffULL){rb}{rb};"
+          s!"([&]() {lb} {lhsTy} __lhs = {lhsExpr}; {rhsTy} __rhs = {rhsExpr}; {body} {rb})()"
+        else
+          s!"({emitExpr typeMap arg1} {emitCppOperator operator} {emitExpr typeMap arg2})"
       | _ =>
         s!"({emitExpr typeMap arg1} {emitCppOperator operator} {emitExpr typeMap arg2})"
     | _ => s!"/* ERROR: operator with wrong arity */"
@@ -380,8 +420,24 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
   | .assign lhs rhs =>
     let width := lookupWidth typeMap lhs
     if width > 64 then
-      -- Skip wide assigns (handled via memory/array paths elsewhere)
-      StmtParts.empty
+      -- Wide assign for `_gen_prod*`-style multiply results only:
+      -- emit a plain `lhs = mul(...)` IIFE that yields std::array.
+      -- For other wide assigns (e.g. `out = ...` packing) the
+      -- existing codegen relied on the assignment being skipped, so
+      -- preserve that behaviour. We detect a multiply RHS by looking
+      -- for the `.op .mul` shape directly.
+      match rhs with
+      | .op .mul _ =>
+        let sn := sanitizeName lhs
+        let expr := emitExpr typeMap rhs
+        { declarations := []
+        , evalBody := [s!"        {sn} = {expr};"]
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      | _ =>
+        -- Skip wide assigns (handled via memory/array paths elsewhere)
+        StmtParts.empty
     else
       -- For deep MUX chains (≥16 arms), emit if-else for branch prediction
       let sn := sanitizeName lhs
