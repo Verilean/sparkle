@@ -1273,19 +1273,28 @@ static void * __init early_init_dt_alloc_memory_arch(u64 size, u64 align)
 /* fwd decl to allow use in verify body */
 static inline void __sparkle_fdt_dbg(char c);
 
+/* SPARKLE: minimal isolation test — replace fdt_check_header with
+ * just N ecalls and nothing else, to see if it's the ecall count or
+ * something deeper in libfdt that triggers the bug */
+/* Variant 1: ecall in caller AFTER nested call returns */
+static noinline int sparkle_fake_check(const void *fdt)
+{
+	(void)fdt;
+	__sparkle_fdt_dbg('a');
+	return 0;
+}
+
 bool __init early_init_dt_verify(void *params)
 {
+	__sparkle_fdt_dbg('w');
 	if (!params)
 		return false;
-
-	/* check device tree validity */
-	if (fdt_check_header(params))
+	if (sparkle_fake_check(params))
 		return false;
-
-	/* Setup flat device-tree pointer */
+	/* No more ecalls between nested-call return and verify's epilogue */
 	initial_boot_params = params;
-	of_fdt_crc32 = crc32_be(~0, initial_boot_params,
-				fdt_totalsize(initial_boot_params));
+	of_fdt_crc32 = 0;
+	__sparkle_fdt_dbg('3');
 	return true;
 }
 
@@ -1323,6 +1332,7 @@ bool __init early_init_dt_scan(void *params)
 
 	__sparkle_fdt_dbg('W');
 	status = early_init_dt_verify(params);
+	__sparkle_fdt_dbg('R');  /* returned from verify */
 	__sparkle_fdt_dbg(status ? 'Y' : 'N');
 	if (!status)
 		return false;
