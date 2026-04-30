@@ -277,6 +277,23 @@ def main (args : List String) : IO UInt32 := do
   IO.println s!"  Oracle triggers:   {oracleState.triggerCount}"
   IO.println s!"  Total skipped:     {oracleState.totalSkipped}"
   IO.println s!"  UART bytes:        {uartBytes.size}"
+  -- Dump full UART byte stream as a single string for non-newline traces.
+  let raw := String.mk (uartBytes.toList.map fun b => Char.ofNat b.toNat)
+  IO.println s!"  UART raw stream: ===8<==="
+  IO.println raw
+  IO.println "  ===8<==="
+  -- Last 32 bytes as hex (so we can see what '?' really is)
+  IO.println "  Last UART bytes (hex):"
+  let n := uartBytes.size
+  let start := if n > 32 then n - 32 else 0
+  for i in [start:n] do
+    let b := uartBytes[i]!.toNat
+    let hi := b >>> 4
+    let lo := b &&& 0xF
+    let hexCh (v : Nat) : Char :=
+      if v < 10 then Char.ofNat (48 + v) else Char.ofNat (97 + v - 10)
+    IO.print s!" {hexCh hi}{hexCh lo}"
+  IO.println ""
   IO.println s!"  Wall-clock time:   {elapsed_ms} ms"
   if elapsed_ms > 0 then
     let effectiveCycPerSec := actualCycles * 1000 / elapsed_ms
@@ -305,6 +322,41 @@ def main (args : List String) : IO UInt32 := do
       | some n => n
       | none   => 0x81ca9000
     Sparkle.IP.RV32.JITDebug.dumpPageTable handle trampPA "trampoline_pg_dir (early boot)"
+
+    -- Dump first 8 words at PA 0x81f00000 (where DTB was loaded) to see
+    -- if it's still intact at exit, vs. having been overwritten.
+    IO.println "\n=== DRAM @ PA 0x81f00000 (DTB region) at exit ==="
+    for i in [:8] do
+      let waddr := (0x7C0000 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word}"
+    -- Dump dtb_early_va variable: VA c0c01008 → PA 0x81001008 → word addr 0x400402
+    IO.println "\n=== DRAM @ PA 0x81001008 (dtb_early_va) at exit ==="
+    for i in [:2] do
+      let waddr := (0x400402 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word}"
+    -- Dump first 8 words at PA 0x81C07580 (init_task — to inspect task->stack
+    -- which is at offset 8). Kernel is loaded at PA 0x80400000 with virt_addr
+    -- 0xc0000000, so VA 0xc1807580 → PA 0x80400000 + (0xc1807580 - 0xc0000000)
+    --                              = 0x81C07580. Word addr = 0x1C07580/4 = 0x701D60.
+    IO.println "\n=== DRAM @ PA 0x81C07580 (init_task) at exit ==="
+    for i in [:8] do
+      let waddr := (0x701D60 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word}"
 
   JIT.destroy handle
   return 0

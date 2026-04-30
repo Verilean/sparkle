@@ -1,0 +1,112 @@
+From: Sparkle HDL <noreply@sparkle.local>
+Subject: [PATCH] debug: trace start_kernel via SBI ecall (M-mode UART)
+
+Adds inline-asm SBI_CONSOLE_PUTCHAR ecalls before each major call in
+start_kernel, so we can see exactly which init function crashes the
+kernel before printk works. Each marker emits a single ASCII letter:
+
+    a  set_task_stack_end_magic
+    b  smp_setup_processor_id
+    c  debug_objects_early_init
+    d  init_vmlinux_build_id
+    e  cgroup_init_early
+    f  boot_cpu_init
+    g  page_address_init
+    h  pr_notice (before this is the first printk)
+    i  early_security_init
+    j  setup_arch
+    k  setup_per_cpu_areas
+    l  mm_core_init
+    m  sched_init
+    n  workqueue_init_early
+    o  rcu_init
+    p  trace_init
+    q  fork_init             <-- creates sighand_cachep
+    r  proc_caches_init      <-- THIS calls kmem_cache_create with sighand_ctor
+    s  rest_init / start_kernel-end
+
+Trap = first letter NOT seen → that init function is the culprit.
+
+The SBI ecall path (a7=1, a0=char) goes through OpenSBI which talks to
+UART in M-mode, so it works regardless of the kernel's MMU state.
+---
+ init/main.c | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/init/main.c b/init/main.c
+--- a/init/main.c
++++ b/init/main.c
+@@ -10,6 +10,18 @@
+  *  Made the SMP-aware init pieces actually SMP-safe in 2.6.0.
+  */
+
++#ifdef CONFIG_RISCV
++/* Sparkle: emit one ASCII char to UART via SBI ecall (M-mode UART).
++ * Works before printk / console_init since OpenSBI handles UART. */
++static inline void __sparkle_dbg(char c)
++{
++	register unsigned long a0 __asm__("a0") = (unsigned long)c;
++	register unsigned long a7 __asm__("a7") = 1; /* SBI_CONSOLE_PUTCHAR */
++	__asm__ volatile ("ecall" : "+r"(a0) : "r"(a7) : "memory");
++}
++#else
++static inline void __sparkle_dbg(char c) { (void)c; }
++#endif
++
+ #define DEBUG		/* Enable initcall_debug */
+
+ #include <linux/types.h>
+@@ -869,28 +881,46 @@ static void __init print_unknown_bootoptions(void)
+ asmlinkage __visible __init __no_sanitize_address __noreturn __no_stack_protector
+ void start_kernel(void)
+ {
++	__sparkle_dbg('a');
+ 	char *command_line;
+ 	char *after_dashes;
+
+ 	set_task_stack_end_magic(&init_task);
++	__sparkle_dbg('b');
+ 	smp_setup_processor_id();
++	__sparkle_dbg('c');
+ 	debug_objects_early_init();
++	__sparkle_dbg('d');
+ 	init_vmlinux_build_id();
+
+ 	cgroup_init_early();
++	__sparkle_dbg('e');
+
+ 	local_irq_disable();
+ 	early_boot_irqs_disabled = true;
+
+ 	/*
+ 	 * Interrupts are still disabled. Do necessary setups, then
+ 	 * enable them.
+ 	 */
+ 	boot_cpu_init();
++	__sparkle_dbg('f');
+ 	page_address_init();
++	__sparkle_dbg('g');
+ 	pr_notice("%s", linux_banner);
++	__sparkle_dbg('h');
+ 	early_security_init();
++	__sparkle_dbg('i');
+ 	setup_arch(&command_line);
++	__sparkle_dbg('j');
+ 	setup_boot_config();
+ 	setup_command_line(command_line);
+ 	setup_nr_cpu_ids();
+ 	setup_per_cpu_areas();
++	__sparkle_dbg('k');
+ 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+ 	boot_cpu_hotplug_init();
+@@ -940,6 +970,7 @@ void start_kernel(void)
+ 	mm_core_init();
++	__sparkle_dbg('l');
+ 	poking_init();
+ 	ftrace_init();
+@@ -956,6 +987,7 @@ void start_kernel(void)
+ 	sched_init();
++	__sparkle_dbg('m');
+
+ 	if (WARN(!irqs_disabled(),
+ 		 "Interrupts were enabled *very* early, fixing it\n"))
