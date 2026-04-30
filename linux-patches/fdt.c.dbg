@@ -1284,7 +1284,7 @@ bool __init early_init_dt_verify(void *params)
 	__sparkle_fdt_dbg('x');
 	/* check device tree validity */
 	if (fdt_check_header(params)) {
-		__sparkle_fdt_dbg('?');
+		__sparkle_fdt_dbg('Q');  /* Q for failure branch */
 		return false;
 	}
 	__sparkle_fdt_dbg('y');
