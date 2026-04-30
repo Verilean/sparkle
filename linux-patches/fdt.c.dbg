@@ -1273,23 +1273,9 @@ static void * __init early_init_dt_alloc_memory_arch(u64 size, u64 align)
 /* fwd decl - we need this here too */
 static inline void __sparkle_fdt_dbg(char c);
 
-/* SPARKLE-DEBUG: print 32-bit value as hex via SBI */
-static inline void __sparkle_fdt_dbg_hex(unsigned long v)
-{
-	int i;
-	for (i = 7; i >= 0; i--) {
-		unsigned int n = (v >> (i * 4)) & 0xF;
-		char c = n < 10 ? ('0' + n) : ('a' + (n - 10));
-		__sparkle_fdt_dbg(c);
-	}
-}
-
 bool __init early_init_dt_verify(void *params)
 {
-	unsigned long sp_now;
-	__asm__ volatile ("mv %0, sp" : "=r"(sp_now));
 	__sparkle_fdt_dbg('w');
-	__sparkle_fdt_dbg_hex(sp_now);
 	if (!params) {
 		__sparkle_fdt_dbg('!');
 		return false;
@@ -1308,9 +1294,8 @@ bool __init early_init_dt_verify(void *params)
 	__sparkle_fdt_dbg('z');
 	of_fdt_crc32 = crc32_be(~0, initial_boot_params,
 				fdt_totalsize(initial_boot_params));
-	__sparkle_fdt_dbg('+');
-	__asm__ volatile ("mv %0, sp" : "=r"(sp_now));
-	__sparkle_fdt_dbg_hex(sp_now);
+	__sparkle_fdt_dbg('A');  /* before sp print */
+	__sparkle_fdt_dbg('B');  /* before return */
 	return true;
 }
 
