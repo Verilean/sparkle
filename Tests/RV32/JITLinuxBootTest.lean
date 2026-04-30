@@ -165,16 +165,25 @@ def main (args : List String) : IO UInt32 := do
   -- PC ring: record last 200 PCs while we're inside early_init_dt_verify
   -- (0xc0823200..0xc0823300). This range covers the 'B' ecall through the
   -- function epilogue and enough slop for the failure-branch PC at 0xc082325c.
-  Sparkle.IP.RV32.JITDebug.setPCWindow traceRef 0xc0823200 0xc0823400 400
+  Sparkle.IP.RV32.JITDebug.setPCWindow traceRef 0xc0002430 0xc0002600 1000
 
   -- Per-cycle wire snapshots while PC is in the danger zone (verify body).
   -- Resolve the new wire indices for direct getWire access.
-  let wireExtraIndices ← JIT.resolveWires handle
-    #["_gen_exwb_physAddr", "_gen_prevStoreAddr", "_gen_prevStoreEn",
-      "_shadow_busRdataRaw", "_shadow_dmem_rdata", "_shadow_dmem_read_addr",
-      "_shadow_effectiveAddr", "_gen_prevStoreData",
-      "_shadow_wb_result", "_shadow_wb_en", "_gen_exwb_rd"]
+  -- Shadow wires only available in patched JIT cpp (see linux-patches/jit-shadow-wires.diff).
+  -- Skip if they aren't there (after JIT regen the shadows get dropped).
+  let wireExtraIndices : Array UInt32 ←
+    try
+      JIT.resolveWires handle
+        #["_gen_exwb_physAddr", "_gen_prevStoreAddr", "_gen_prevStoreEn",
+          "_shadow_busRdataRaw", "_shadow_dmem_rdata", "_shadow_dmem_read_addr",
+          "_shadow_effectiveAddr", "_gen_prevStoreData",
+          "_shadow_wb_result", "_shadow_wb_en", "_gen_exwb_rd"]
+    catch _ => pure (#[] : Array UInt32)
   let snapCounterRef : IO.Ref Nat ← IO.mkRef 0
+  let hasShadows := wireExtraIndices.size > 0
+  -- Monitor sp register across cycles. Print when sp changes.
+  let lastSpRef : IO.Ref UInt32 ← IO.mkRef 0
+  let spChangeCounterRef : IO.Ref Nat ← IO.mkRef 0
 
   -- Create boot oracle with timer-compare skipping
   let config : SelfLoopConfig := {
@@ -229,11 +238,24 @@ def main (args : List String) : IO UInt32 := do
       -- Verilator-equivalent trap/SATP/(optional)PTW logging.
       if traceEnabled then
         Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
-      -- Snapshot wires when PC is in the danger zone (verify body).
+      -- Monitor sp changes in the danger window. Requires shadow wires.
+      if hasShadows then
+        let spNow ← JIT.getMem handle 5 2  -- rf_rs1_raw[2] = sp
+        let lastSp ← lastSpRef.get
+        if cycle > 2_848_800 && cycle < 2_848_950 then
+          let we ← JIT.getWire handle wireExtraIndices[9]!  -- wb_en
+          let rd ← JIT.getWire handle wireExtraIndices[10]! -- exwb_rd
+          let wr ← JIT.getWire handle wireExtraIndices[8]!  -- wb_result
+          IO.println s!"CYC c={cycle} PC=0x{toHex32 out.pc.toNat} sp=0x{toHex32 spNow.toNat} lastSp=0x{toHex32 lastSp.toNat} wbE={we.toNat} rd={rd.toNat} wbR=0x{toHex32 wr.toNat}"
+          lastSpRef.set spNow
+
+      -- Snapshot wires when PC is in the trap handler. Record FIRST 600
+      -- snapshots only — these are the earliest traps which haven't been
+      -- corrupted yet, so we can see where sp first goes wrong.
       let pcN := out.pc.toNat
-      if pcN >= 0xc0823200 && pcN < 0xc0823400 then
+      if hasShadows && ((pcN >= 0xc0002430 && pcN < 0xc0002600) || (pcN >= 0xc0823200 && pcN < 0xc0823350)) then
         let nSoFar ← snapCounterRef.get
-        if nSoFar < 600 then
+        if nSoFar < 2000 then
           let ex ← JIT.getWire handle wireExtraIndices[0]!
           let pa ← JIT.getWire handle wireExtraIndices[1]!
           let en ← JIT.getWire handle wireExtraIndices[2]!
