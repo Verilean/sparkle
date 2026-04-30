@@ -1271,8 +1271,15 @@ def rv32iSoCBody {dom : DomainConfig}
                           (Signal.mux exwb_isSC (Signal.pure false) reservationValid)
     let resAddrNext := Signal.mux exwb_isLR exwb_alu reservationAddr
 
-    -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority
-    let ifetchPTWReq := ifetchTLBMiss &&& (ptwIsIdle &&& ((~~~dTLBMiss) &&& isMMUIdle))
+    -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority.
+    -- Also gate on ~trap_taken: when a trap is firing this cycle, fetchPC still
+    -- holds the OLD value (the trapping VA) while pcReg is being redirected to
+    -- the trap target. Letting PTW start on the old VA would walk a known-bad
+    -- address and immediately re-fault, masquerading as a fault on the trap
+    -- target's PC. The trap-target ifetch will request PTW one cycle later
+    -- after fetchPC catches up.
+    let ifetchPTWReq := ifetchTLBMiss &&&
+      (ptwIsIdle &&& ((~~~dTLBMiss) &&& (isMMUIdle &&& (~~~trap_taken))))
 
     -- PTW request: D-side TLB miss OR I-side PTW request
     let ptwReq := dTLBMiss ||| ifetchPTWReq
