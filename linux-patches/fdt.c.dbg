@@ -1270,32 +1270,22 @@ static void * __init early_init_dt_alloc_memory_arch(u64 size, u64 align)
 	return ptr;
 }
 
-/* fwd decl - we need this here too */
+/* fwd decl to allow use in verify body */
 static inline void __sparkle_fdt_dbg(char c);
 
 bool __init early_init_dt_verify(void *params)
 {
-	__sparkle_fdt_dbg('w');
-	if (!params) {
-		__sparkle_fdt_dbg('!');
+	if (!params)
 		return false;
-	}
 
-	__sparkle_fdt_dbg('x');
 	/* check device tree validity */
-	if (fdt_check_header(params)) {
-		__sparkle_fdt_dbg('Q');  /* Q for failure branch */
+	if (fdt_check_header(params))
 		return false;
-	}
-	__sparkle_fdt_dbg('y');
 
 	/* Setup flat device-tree pointer */
 	initial_boot_params = params;
-	__sparkle_fdt_dbg('z');
 	of_fdt_crc32 = crc32_be(~0, initial_boot_params,
 				fdt_totalsize(initial_boot_params));
-	__sparkle_fdt_dbg('A');  /* before sp print */
-	__sparkle_fdt_dbg('B');  /* before return */
 	return true;
 }
 
@@ -1333,7 +1323,6 @@ bool __init early_init_dt_scan(void *params)
 
 	__sparkle_fdt_dbg('W');
 	status = early_init_dt_verify(params);
-	__sparkle_fdt_dbg('X');
 	__sparkle_fdt_dbg(status ? 'Y' : 'N');
 	if (!status)
 		return false;
