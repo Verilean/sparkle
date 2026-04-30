@@ -1315,18 +1315,20 @@ bool __init early_init_dt_verify(void *params)
 	initial_boot_params = params;
 	of_fdt_crc32 = 0;
 	__sparkle_fdt_dbg('3');
-	/* IMMEDIATELY before the function epilogue, re-read sp+12 (via
-	 * entry_sp pinned in s2) AND via sp itself (a different register)
-	 * — to compare what the JIT returns for each. */
+	/* IMMEDIATELY before the function epilogue, re-read sp+12 via:
+	 *  - entry_sp (s2 pinned): correct so far
+	 *  - sp directly: wrong (returns 0)
+	 *  - a4 = mv from sp: also wrong (returns 0)
+	 *  - what about reading at known PA via inline asm? */
 	{
 		unsigned long via_s2 = *(volatile unsigned long *)(entry_sp + 12);
-		unsigned long sp_now;
-		__asm__ volatile ("mv %0, sp" : "=r"(sp_now));
-		unsigned long via_sp = *(volatile unsigned long *)(sp_now + 12);
+		unsigned long via_sp_inline;
+		/* Direct lw from sp using inline asm */
+		__asm__ volatile ("lw %0, 12(sp)" : "=r"(via_sp_inline) : : "memory");
 		__sparkle_fdt_dbg('Q');
 		__sparkle_fdt_dbg_hex(via_s2);
 		__sparkle_fdt_dbg('=');
-		__sparkle_fdt_dbg_hex(via_sp);
+		__sparkle_fdt_dbg_hex(via_sp_inline);
 		__sparkle_fdt_dbg('|');
 	}
 	return true;
