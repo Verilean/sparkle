@@ -18,6 +18,8 @@ import Sparkle.Utils.HexLoader
 import IP.RV32.SoC
 import IP.RV32.JITDebug
 
+set_option maxRecDepth 4096
+
 open Sparkle.Core.JIT
 open Sparkle.Core.JITLoop
 open Sparkle.Core.Oracle
@@ -165,6 +167,15 @@ def main (args : List String) : IO UInt32 := do
   -- function epilogue and enough slop for the failure-branch PC at 0xc082325c.
   Sparkle.IP.RV32.JITDebug.setPCWindow traceRef 0xc0823200 0xc0823400 400
 
+  -- Per-cycle wire snapshots while PC is in the danger zone (verify body).
+  -- Resolve the new wire indices for direct getWire access.
+  let wireExtraIndices ← JIT.resolveWires handle
+    #["_gen_exwb_physAddr", "_gen_prevStoreAddr", "_gen_prevStoreEn",
+      "_shadow_busRdataRaw", "_shadow_dmem_rdata", "_shadow_dmem_read_addr",
+      "_shadow_effectiveAddr", "_gen_prevStoreData",
+      "_shadow_wb_result", "_shadow_wb_en", "_gen_exwb_rd"]
+  let snapCounterRef : IO.Ref Nat ← IO.mkRef 0
+
   -- Create boot oracle with timer-compare skipping
   let config : SelfLoopConfig := {
     threshold := 200
@@ -218,6 +229,26 @@ def main (args : List String) : IO UInt32 := do
       -- Verilator-equivalent trap/SATP/(optional)PTW logging.
       if traceEnabled then
         Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
+      -- Snapshot wires when PC is in the danger zone (verify body).
+      let pcN := out.pc.toNat
+      if pcN >= 0xc0823200 && pcN < 0xc0823400 then
+        let nSoFar ← snapCounterRef.get
+        if nSoFar < 600 then
+          let ex ← JIT.getWire handle wireExtraIndices[0]!
+          let pa ← JIT.getWire handle wireExtraIndices[1]!
+          let en ← JIT.getWire handle wireExtraIndices[2]!
+          let br ← JIT.getWire handle wireExtraIndices[3]!
+          let dr ← JIT.getWire handle wireExtraIndices[4]!
+          let da ← JIT.getWire handle wireExtraIndices[5]!
+          let ea ← JIT.getWire handle wireExtraIndices[6]!
+          let pd ← JIT.getWire handle wireExtraIndices[7]!
+          let wr ← JIT.getWire handle wireExtraIndices[8]!
+          let we ← JIT.getWire handle wireExtraIndices[9]!
+          let rd ← JIT.getWire handle wireExtraIndices[10]!
+          let sp_rf ← JIT.getMem handle 5 2  -- rf_rs1_raw[x2 = sp]
+          let s2_rf ← JIT.getMem handle 5 18 -- rf_rs1_raw[x18 = s2]
+          IO.println s!"WIRE c={cycle} PC=0x{toHex32 pcN} ex=0x{toHex32 ex.toNat} pE={en.toNat} bR=0x{toHex32 br.toNat} dR=0x{toHex32 dr.toNat} eA=0x{toHex32 ea.toNat} pD=0x{toHex32 pd.toNat} wbR=0x{toHex32 wr.toNat} wbE={we.toNat} rd={rd.toNat} sp=0x{toHex32 sp_rf.toNat} s2=0x{toHex32 s2_rf.toNat}"
+          snapCounterRef.set (nSoFar + 1)
       if out.uartValid then
         let byte := (out.uartData.toNat % 256).toUInt8
         let bytes ← uartBytesRef.get
@@ -329,7 +360,9 @@ def main (args : List String) : IO UInt32 := do
 
     -- Dump the PC ring buffer for early_init_dt_verify.
     Sparkle.IP.RV32.JITDebug.dumpPCRing traceRef
-    -- Dump verify's stack frame at exit.
+    let totalSnaps ← snapCounterRef.get
+    IO.println s!"\n=== Wire snapshots: {totalSnaps} (printed inline above with WIRE prefix) ==="
+    -- Dump verify's stack frame at exit (8 words around sp).
     -- VA c1801eb0 → PA 0x81C01EB0 → word addr (0x1C01EB0 / 4) = 0x7007AC.
     IO.println "\n=== DRAM @ PA 0x81C01EB0 (verify stack frame) at exit ==="
     for i in [:8] do
@@ -340,6 +373,17 @@ def main (args : List String) : IO UInt32 := do
       let b3 ← JIT.getMem handle 4 waddr
       let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
       IO.println s!"  +0x{toHex32 (i*4)} (sp+{i*4}): 0x{toHex32 word}"
+    -- Also check translation by reading several PAs around the suspected sp+12 = 0x81C01EBC
+    IO.println "\n=== DRAM around PA 0x81C01EBC ==="
+    for i in [:4] do
+      let waddr := (0x7007AE + i).toUInt32  -- 0x7007AE * 4 = 0x1C01EB8
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      let pa := 0x81C01EB8 + i*4
+      IO.println s!"  PA 0x{toHex32 pa}: 0x{toHex32 word}"
 
     -- Dump first 8 words at PA 0x81f00000 (where DTB was loaded) to see
     -- if it's still intact at exit, vs. having been overwritten.
