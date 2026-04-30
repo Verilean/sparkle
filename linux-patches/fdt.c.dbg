@@ -1276,6 +1276,16 @@ static inline void __sparkle_fdt_dbg(char c);
 /* SPARKLE: minimal isolation test — replace fdt_check_header with
  * just N ecalls and nothing else, to see if it's the ecall count or
  * something deeper in libfdt that triggers the bug */
+static inline void __sparkle_fdt_dbg_hex(unsigned long v)
+{
+	int i;
+	for (i = 7; i >= 0; i--) {
+		unsigned int n = (v >> (i * 4)) & 0xF;
+		char c = n < 10 ? ('0' + n) : ('a' + (n - 10));
+		__sparkle_fdt_dbg(c);
+	}
+}
+
 /* Variant 1: ecall in caller AFTER nested call returns */
 static noinline int sparkle_fake_check(const void *fdt)
 {
@@ -1286,15 +1296,39 @@ static noinline int sparkle_fake_check(const void *fdt)
 
 bool __init early_init_dt_verify(void *params)
 {
+	register unsigned long entry_sp asm("s2");
+	__asm__ volatile ("mv %0, sp" : "=r"(entry_sp));
 	__sparkle_fdt_dbg('w');
+	__sparkle_fdt_dbg_hex(entry_sp);
 	if (!params)
 		return false;
+	/* Read entry_sp+12 right after the prologue */
+	__sparkle_fdt_dbg('R');
+	__sparkle_fdt_dbg_hex(*(volatile unsigned long *)(entry_sp + 12));
+
 	if (sparkle_fake_check(params))
 		return false;
-	/* No more ecalls between nested-call return and verify's epilogue */
+
+	__sparkle_fdt_dbg('E');
+	__sparkle_fdt_dbg_hex(*(volatile unsigned long *)(entry_sp + 12));
+
 	initial_boot_params = params;
 	of_fdt_crc32 = 0;
 	__sparkle_fdt_dbg('3');
+	/* IMMEDIATELY before the function epilogue, re-read sp+12 (via
+	 * entry_sp pinned in s2) AND via sp itself (a different register)
+	 * — to compare what the JIT returns for each. */
+	{
+		unsigned long via_s2 = *(volatile unsigned long *)(entry_sp + 12);
+		unsigned long sp_now;
+		__asm__ volatile ("mv %0, sp" : "=r"(sp_now));
+		unsigned long via_sp = *(volatile unsigned long *)(sp_now + 12);
+		__sparkle_fdt_dbg('Q');
+		__sparkle_fdt_dbg_hex(via_s2);
+		__sparkle_fdt_dbg('=');
+		__sparkle_fdt_dbg_hex(via_sp);
+		__sparkle_fdt_dbg('|');
+	}
 	return true;
 }
 
