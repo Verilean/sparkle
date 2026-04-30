@@ -329,6 +329,17 @@ def main (args : List String) : IO UInt32 := do
 
     -- Dump the PC ring buffer for early_init_dt_verify.
     Sparkle.IP.RV32.JITDebug.dumpPCRing traceRef
+    -- Dump verify's stack frame at exit.
+    -- VA c1801eb0 → PA 0x81C01EB0 → word addr (0x1C01EB0 / 4) = 0x7007AC.
+    IO.println "\n=== DRAM @ PA 0x81C01EB0 (verify stack frame) at exit ==="
+    for i in [:8] do
+      let waddr := (0x7007AC + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +0x{toHex32 (i*4)} (sp+{i*4}): 0x{toHex32 word}"
 
     -- Dump first 8 words at PA 0x81f00000 (where DTB was loaded) to see
     -- if it's still intact at exit, vs. having been overwritten.
