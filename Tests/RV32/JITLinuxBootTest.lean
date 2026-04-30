@@ -160,6 +160,10 @@ def main (args : List String) : IO UInt32 := do
   let traceRef ← Sparkle.IP.RV32.JITDebug.mkTracer
   let traceEnabled := (← IO.getEnv "SPARKLE_TRACE").getD "1" != "0"
   let verbosePTW := (← IO.getEnv "SPARKLE_TRACE_PTW").isSome
+  -- PC ring: record last 200 PCs while we're inside early_init_dt_verify
+  -- (0xc0823200..0xc0823300). This range covers the 'B' ecall through the
+  -- function epilogue and enough slop for the failure-branch PC at 0xc082325c.
+  Sparkle.IP.RV32.JITDebug.setPCWindow traceRef 0xc0823200 0xc0823400 400
 
   -- Create boot oracle with timer-compare skipping
   let config : SelfLoopConfig := {
@@ -322,6 +326,9 @@ def main (args : List String) : IO UInt32 := do
       | some n => n
       | none   => 0x81ca9000
     Sparkle.IP.RV32.JITDebug.dumpPageTable handle trampPA "trampoline_pg_dir (early boot)"
+
+    -- Dump the PC ring buffer for early_init_dt_verify.
+    Sparkle.IP.RV32.JITDebug.dumpPCRing traceRef
 
     -- Dump first 8 words at PA 0x81f00000 (where DTB was loaded) to see
     -- if it's still intact at exit, vs. having been overwritten.

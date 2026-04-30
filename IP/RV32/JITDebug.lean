@@ -29,6 +29,11 @@ namespace Sparkle.IP.RV32.JITDebug
 open Sparkle.Core.JIT
 open Sparkle.IP.RV32.SoC
 
+/-- Pretty-print a 32-bit value as 8-char lowercase hex. -/
+def hex32 (v : Nat) : String :=
+  let s := String.ofList (Nat.toDigits 16 v)
+  String.ofList (List.replicate (8 - s.length) '0') ++ s
+
 /-- Mutable tracer state. -/
 structure State where
   prevSatp     : BitVec 32 := 0
@@ -37,15 +42,30 @@ structure State where
   prevSepc     : BitVec 32 := 0
   prevScause   : BitVec 32 := 0
   prevStval    : BitVec 32 := 0
+  prevPC       : BitVec 32 := 0
+  /-- Ring buffer of last N (cycle, PC) entries while the PC was in
+      [pcRingLo, pcRingHi). Only populated when the window is set.
+      Used to inspect "what was the last 64 PCs before the crash?". -/
+  pcRing       : Array (Nat × BitVec 32) := #[]
+  pcRingLo     : Nat := 0
+  pcRingHi     : Nat := 0
+  pcRingCap    : Nat := 0
   deriving Inhabited
 
 /-- Create a fresh tracer state behind an `IO.Ref`. -/
 def mkTracer : IO (IO.Ref State) := IO.mkRef {}
 
-/-- Pretty-print a 32-bit value as 8-char lowercase hex. -/
-def hex32 (v : Nat) : String :=
-  let s := String.ofList (Nat.toDigits 16 v)
-  String.ofList (List.replicate (8 - s.length) '0') ++ s
+/-- Configure the PC ring buffer: record (cycle, PC) for cycles where
+    `pcRingLo ≤ PC < pcRingHi`. Only the last `cap` entries are kept. -/
+def setPCWindow (ref : IO.Ref State) (lo hi cap : Nat) : IO Unit := do
+  ref.modify fun st => { st with pcRingLo := lo, pcRingHi := hi, pcRingCap := cap, pcRing := #[] }
+
+/-- Dump the recorded PC ring buffer. -/
+def dumpPCRing (ref : IO.Ref State) : IO Unit := do
+  let st ← ref.get
+  IO.println s!"\n=== PC ring buffer ({st.pcRing.size} entries, window 0x{hex32 st.pcRingLo}..0x{hex32 st.pcRingHi}) ==="
+  for (cyc, pc) in st.pcRing do
+    IO.println s!"  cycle {cyc}: PC=0x{hex32 pc.toNat}"
 
 /-- Decode `scause` / `mcause` / `_gen_trapCause` to a short label.
     Mirrors Verilator's tb_soc.cpp branch table. -/
@@ -76,6 +96,16 @@ def causeLabel (cause : BitVec 32) : String :=
     short-circuits). -/
 def observe (ref : IO.Ref State) (cycle : Nat) (out : SoCOutput) (verbose : Bool := false) : IO Unit := do
   let mut st ← ref.get
+  -- PC ring buffer: record on PC change while in the configured window.
+  if st.pcRingCap > 0 && out.pc != st.prevPC then
+    let pcN := out.pc.toNat
+    if pcN >= st.pcRingLo && pcN < st.pcRingHi then
+      let newRing := st.pcRing.push (cycle, out.pc)
+      let trimmed :=
+        if newRing.size > st.pcRingCap then newRing.extract (newRing.size - st.pcRingCap) newRing.size
+        else newRing
+      st := { st with pcRing := trimmed }
+    st := { st with prevPC := out.pc }
   -- One-cycle trap pulse.
   if out.trapTaken then
     let tcause := out.trapCause
