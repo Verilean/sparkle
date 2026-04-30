@@ -126,6 +126,106 @@ static struct attribute *bitnet_attrs[] = {
 };
 ATTRIBUTE_GROUPS(bitnet);
 
+/*
+ * Probe-time self test: drive the 8 golden Q16.16 vectors through the
+ * peripheral and emit the in/out tokens directly to the Sparkle UART
+ * (raw MMIO at 0x10000000). This bypasses printk / console_init so the
+ * results are visible even on minimal Linux configs that never reach
+ * userspace. The vectors mirror Tests/Integration/BitNetSoCTest.lean
+ * lines 43-51 — bit-equality with the Lean spec is the pass criterion.
+ *
+ * Output format on UART:
+ *
+ *     BITNET v1a SELFTEST
+ *     in=<8hex> out=<8hex> want=<8hex> [PASS|FAIL]
+ *     ...
+ *     BITNET PASS  (or  BITNET FAIL)
+ *
+ * Direct UART writes use a kernel-mapped pointer obtained at probe time
+ * via ioremap; the Sparkle SoC's ns16550a-compatible TX register is at
+ * offset 0 of the same MMIO range we already requested for serial.
+ * That mapping is owned by the 8250 driver, so we cannot ioremap the
+ * same physical range twice. Instead we rely on the fact that the
+ * Linux kernel's identity-mapped region already exposes UART to S-mode
+ * via __va arithmetic on the platform's PA window — the Sparkle SoC
+ * happens to alias 0x10000000 into the kernel virtual address `(void
+ * __iomem *)__va(0x10000000)`. We compute that pointer manually and
+ * write 32-bit words to it.
+ *
+ * If the kernel's mapping doesn't cover 0x10000000 (because no
+ * peripherals_paddr-style region was registered), the writes silently
+ * page-fault and the self test is invisible — the driver still
+ * registers normally for /dev/bitnet0 access from userspace.
+ */
+static const u32 bitnet_golden[][2] = {
+	{0x00010000u, 0x00410000u}, /* 1.0 → 65 (Q16.16) */
+	{0x00020000u, 0x02020000u},
+	{0x00030000u, 0x06C30000u},
+	{0x00040000u, 0x10040000u},
+	{0x00080000u, 0x80080000u},
+	{0x00000100u, 0x00000100u},
+	{0x12345678u, 0x5AD1BC9Au},
+	{0x00000000u, 0x00000000u},
+};
+
+static void bitnet_uart_putc(char c)
+{
+	/* Sparkle SoC UART TX register at PA 0x10000000.  Use phys_to_virt
+	 * because the platform sets up an identity-style linear map for
+	 * the low MMIO region and we cannot ioremap a slot the 8250
+	 * driver already owns. */
+	volatile u32 *uart = (volatile u32 *)phys_to_virt(0x10000000);
+
+	*uart = (u32)(unsigned char)c;
+}
+
+static void bitnet_uart_puts(const char *s)
+{
+	while (*s)
+		bitnet_uart_putc(*s++);
+}
+
+static void bitnet_uart_puthex32(u32 v)
+{
+	static const char d[] = "0123456789abcdef";
+	int i;
+
+	for (i = 7; i >= 0; i--)
+		bitnet_uart_putc(d[(v >> (i * 4)) & 0xF]);
+}
+
+static void bitnet_run_selftest(struct bitnet_dev *bn)
+{
+	bool all_pass = true;
+	size_t i;
+
+	bitnet_uart_puts("\nBITNET v1a SELFTEST\n");
+
+	for (i = 0; i < ARRAY_SIZE(bitnet_golden); i++) {
+		u32 in   = bitnet_golden[i][0];
+		u32 want = bitnet_golden[i][1];
+		u32 got;
+
+		mutex_lock(&bn->lock);
+		iowrite32(in, bn->base + BITNET_REG_INPUT);
+		got = ioread32(bn->base + BITNET_REG_OUTPUT);
+		mutex_unlock(&bn->lock);
+
+		bitnet_uart_puts("  in=0x");
+		bitnet_uart_puthex32(in);
+		bitnet_uart_puts(" out=0x");
+		bitnet_uart_puthex32(got);
+		bitnet_uart_puts(" want=0x");
+		bitnet_uart_puthex32(want);
+		bitnet_uart_puts(got == want ? " PASS\n" : " FAIL\n");
+
+		if (got != want)
+			all_pass = false;
+	}
+
+	bitnet_uart_puts(all_pass ? "BITNET PASS\n" : "BITNET FAIL\n");
+}
+
 static int bitnet_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -157,6 +257,12 @@ static int bitnet_probe(struct platform_device *pdev)
 
 	dev_info(dev, "registered as /dev/%s (regs @ %pR)\n",
 		 bn->misc.name, &pdev->resource[0]);
+
+	/* Probe-time self test against 8 golden vectors. The output goes
+	 * to UART via raw MMIO; on minimal Linux configs that never reach
+	 * userspace this is the only way to see the BitNet token stream. */
+	bitnet_run_selftest(bn);
+
 	return 0;
 }
 
