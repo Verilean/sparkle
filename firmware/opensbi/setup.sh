@@ -131,6 +131,7 @@ LINUX_CONFIG_CMDS="
     scripts/config --disable CONFIG_DEBUG_INFO
     scripts/config --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
     scripts/config --disable CONFIG_MODULES
+    scripts/config --disable CONFIG_STRICT_KERNEL_RWX
     scripts/config --disable CONFIG_BLOCK
     scripts/config --enable CONFIG_BLK_DEV_INITRD
     scripts/config --enable CONFIG_DEVTMPFS

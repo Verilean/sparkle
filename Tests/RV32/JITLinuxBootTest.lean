@@ -178,8 +178,16 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_ifetchStall", "_shadow_alu_result",
           "_shadow_idex_regWrite", "_shadow_idex_rd", "_gen_exwb_rd",
           "_shadow_dmem_we", "_shadow_dmem_write_addr",
-          "_shadow_effectiveAddr_ex"]
-    catch _ => pure (#[] : Array UInt32)
+          "_shadow_effectiveAddr_ex",
+          "_shadow_fetchPC", "_shadow_ifid_pc", "_shadow_ifid_inst",
+          "_shadow_stallDelay", "_shadow_freezeIDEX", "_shadow_pcReg",
+          "_shadow_mmuState", "_shadow_ptwState", "_shadow_dTLBMiss",
+          "_shadow_anyTLBHit", "_shadow_isMMUFault",
+          "_shadow_dMissPC", "_shadow_dMissVaddr", "_shadow_dMissIsStore"]
+    catch e =>
+      IO.println s!"resolveWires extra failed: {e.toString}"
+      pure (#[] : Array UInt32)
+  IO.println s!"Resolved {wireExtraIndices.size} extra wire indices (incl MMU)"
   let snapCounterRef : IO.Ref Nat ← IO.mkRef 0
   let hasShadows := wireExtraIndices.size > 0
   -- Monitor sp register across cycles. Print when sp changes.
@@ -250,6 +258,24 @@ def main (args : List String) : IO UInt32 := do
         if we.toNat == 1 && waddrN >= 0x728800 && waddrN < 0x728c00 && pcN >= 0xc0000000 then
           IO.println s!"PGD-WRITE c={cycle} PC=0x{toHex32 pcN} wordAddr=0x{toHex32 waddrN} (entry [{(waddrN - 0x728800)}])"
 
+      -- MMU diagnostics around paging_init store fault
+      if hasShadows && wireExtraIndices.size >= 25 then
+        let pcN := out.pc.toNat
+        if pcN >= 0xc08049a0 && pcN <= 0xc08049d0 then
+          let mmuSt ← JIT.getWire handle wireExtraIndices[17]!
+          let ptwSt ← JIT.getWire handle wireExtraIndices[18]!
+          let dMiss ← JIT.getWire handle wireExtraIndices[19]!
+          let tHit ← JIT.getWire handle wireExtraIndices[20]!
+          let mmuF ← JIT.getWire handle wireExtraIndices[21]!
+          let dmPC ← JIT.getWire handle wireExtraIndices[22]!
+          let dmVA ← JIT.getWire handle wireExtraIndices[23]!
+          let dmIS ← JIT.getWire handle wireExtraIndices[24]!
+          let alu ← JIT.getWire handle wireExtraIndices[4]!
+          let idexPc ← JIT.getWire handle wireExtraIndices[0]!
+          let stl ← JIT.getWire handle wireExtraIndices[1]!
+          let sq ← JIT.getWire handle wireExtraIndices[2]!
+          IO.println s!"MMU c={cycle} PC=0x{toHex32 pcN} idexPc=0x{toHex32 idexPc.toNat} alu=0x{toHex32 alu.toNat} st={stl.toNat} sq={sq.toNat} mmuSt={mmuSt.toNat} ptwSt={ptwSt.toNat} dMiss={dMiss.toNat} tHit={tHit.toNat} mmuF={mmuF.toNat} dmPC=0x{toHex32 dmPC.toNat} dmVA=0x{toHex32 dmVA.toNat} dmIS={dmIS.toNat}"
+
       if hasShadows then
         let spNow ← JIT.getMem handle 5 2
         -- Look at strcmp body (c04b3c54-c04b3c70) when called from
@@ -264,7 +290,13 @@ def main (args : List String) : IO UInt32 := do
           let idexRegW ← JIT.getWire handle wireExtraIndices[5]!
           let idexRd ← JIT.getWire handle wireExtraIndices[6]!
           let exwbRd ← JIT.getWire handle wireExtraIndices[7]!
-          IO.println s!"CYC c={cycle} PC=0x{toHex32 out.pc.toNat} idexPc=0x{toHex32 idexPc.toNat} st={stall.toNat} sq={squash.toNat} ifs={ifs.toNat} alu=0x{toHex32 alu.toNat} idexRW={idexRegW.toNat} idexRd={idexRd.toNat} exwbRd={exwbRd.toNat} sp=0x{toHex32 spNow.toNat}"
+          let fetchPCv ← JIT.getWire handle wireExtraIndices[11]!
+          let ifidPcV ← JIT.getWire handle wireExtraIndices[12]!
+          let ifidInstV ← JIT.getWire handle wireExtraIndices[13]!
+          let stDly ← JIT.getWire handle wireExtraIndices[14]!
+          let frzIDEX ← JIT.getWire handle wireExtraIndices[15]!
+          let pcRegV ← JIT.getWire handle wireExtraIndices[16]!
+          IO.println s!"CYC c={cycle} PC=0x{toHex32 out.pc.toNat} pcReg=0x{toHex32 pcRegV.toNat} fetchPC=0x{toHex32 fetchPCv.toNat} ifidPc=0x{toHex32 ifidPcV.toNat} ifidInst=0x{toHex32 ifidInstV.toNat} idexPc=0x{toHex32 idexPc.toNat} st={stall.toNat} sd={stDly.toNat} sq={squash.toNat} fz={frzIDEX.toNat} ifs={ifs.toNat} alu=0x{toHex32 alu.toNat} idexRW={idexRegW.toNat} idexRd={idexRd.toNat} exwbRd={exwbRd.toNat} sp=0x{toHex32 spNow.toNat}"
           lastSpRef.set spNow
 
       -- Snapshot wires when PC is in the trap handler. Record FIRST 600
