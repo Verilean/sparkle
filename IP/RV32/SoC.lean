@@ -1071,7 +1071,13 @@ def rv32iSoCBody {dom : DomainConfig}
       ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
     let final_imem_rdata := Signal.mux fetchInDRAM dram_ifetch_word imem_rdata
 
-    let ifid_inst_in := Signal.mux flushOrDelay (Signal.pure nopInst)
+    -- Bug fix (idex-double-latch on ifetchStall release): also NOP IFID
+    -- during stallDelay so the duplicate fetch doesn't propagate. The
+    -- stalled-cycle fetch and the post-stall-cycle fetch both return the
+    -- same IMEM word (because fetchPC lags pcReg by one cycle on release);
+    -- both would otherwise enter IFID and IDEX as separate but identical
+    -- instructions. NOP-ing IFID at stallDelay drops the second copy.
+    let ifid_inst_in := Signal.mux (flushOrDelay ||| stallDelay) (Signal.pure nopInst)
                           (Signal.mux stall ifid_inst final_imem_rdata)
     let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
     let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
