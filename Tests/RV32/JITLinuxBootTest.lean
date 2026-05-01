@@ -186,7 +186,8 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_anyTLBHit", "_shadow_isMMUFault",
           "_shadow_dMissPC", "_shadow_dMissVaddr", "_shadow_dMissIsStore",
           "_shadow_pendingWriteEn", "_shadow_exwb_isAMO",
-          "_shadow_idex_isAMO", "_shadow_exwb_isAMOrw"]
+          "_shadow_idex_isAMO", "_shadow_exwb_isAMOrw",
+          "_shadow_dmem_rdata", "_shadow_dmem_read_addr"]
     catch e =>
       IO.println s!"resolveWires extra failed: {e.toString}"
       pure (#[] : Array UInt32)
@@ -261,8 +262,24 @@ def main (args : List String) : IO UInt32 := do
         if we.toNat == 1 && waddrN >= 0x728800 && waddrN < 0x728c00 && pcN >= 0xc0000000 then
           IO.println s!"PGD-WRITE c={cycle} PC=0x{toHex32 pcN} wordAddr=0x{toHex32 waddrN} (entry [{(waddrN - 0x728800)}])"
 
+      -- Trace __of_device_is_compatible entry: print a1 (compat ptr) at PC=c0471ebc
+      if hasShadows && wireExtraIndices.size >= 31 then
+        let pcN := out.pc.toNat
+        if pcN == 0xc0471ebc then
+          let a1 ← JIT.getMem handle 5 11
+          let s3 ← JIT.getMem handle 5 19
+          let ra ← JIT.getMem handle 5 1
+          IO.println s!"DIC c={cycle} PC=0x{toHex32 pcN} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat}"
+        -- Trace strcasecmp entry to capture s3 of caller
+        if pcN == 0xc04a27ec then
+          let a0 ← JIT.getMem handle 5 10
+          let a1 ← JIT.getMem handle 5 11
+          let s3 ← JIT.getMem handle 5 19
+          let ra ← JIT.getMem handle 5 1
+          IO.println s!"SCC c={cycle} a0=0x{toHex32 a0.toNat} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat}"
+
       -- AMO bug diagnostics around raw_amoadd in __free_pages_core (use idex_pc)
-      if hasShadows && wireExtraIndices.size >= 29 then
+      if false && hasShadows && wireExtraIndices.size >= 29 then
         let idexPcRaw ← JIT.getWire handle wireExtraIndices[0]!
         let idexPcN := idexPcRaw.toNat
         if idexPcN >= 0xc0172500 && idexPcN <= 0xc0172900 then

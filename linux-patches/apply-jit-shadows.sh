@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 JIT=verilator/generated_soc_jit.cpp
 
 # Already applied?
-if grep -q "_shadow_pendingWriteEn = _gen_pendingWriteEn" "$JIT"; then
-  echo "Shadows already applied (full+IFID+MMU+AMO)."
+if grep -q "_shadow_dmem_rdata = _gen_dmem_rdata" "$JIT"; then
+  echo "Shadows already applied (full+IFID+MMU+AMO+rdata)."
   exit 0
 fi
 
@@ -48,6 +48,8 @@ shadow_block = '''
     uint8_t _shadow_exwb_isAMO = 0;
     uint8_t _shadow_idex_isAMO = 0;
     uint8_t _shadow_exwb_isAMOrw = 0;
+    uint32_t _shadow_dmem_rdata = 0;
+    uint32_t _shadow_dmem_read_addr = 0;
     // Internal wires'''
 src = src.replace("\n    // Internal wires", shadow_block, 1)
 
@@ -82,7 +84,9 @@ shadow_block = '''
         _shadow_pendingWriteEn = _gen_pendingWriteEn;
         _shadow_exwb_isAMO = _gen_exwb_isAMO;
         _shadow_idex_isAMO = _gen_idex_isAMO;
-        _shadow_exwb_isAMOrw = _gen_exwb_isAMOrw;'''
+        _shadow_exwb_isAMOrw = _gen_exwb_isAMOrw;
+        _shadow_dmem_rdata = _gen_dmem_rdata;
+        _shadow_dmem_read_addr = _gen_dmem_read_addr;'''
 src = pattern.sub(lambda m: m.group(1) + shadow_block, src)
 
 # 3. jit_get_wire — robust replacement: rewrite the whole switch body
@@ -126,6 +130,8 @@ get_wire_replacement = (
     "            case 48: return (uint64_t)s->_shadow_exwb_isAMO;\n"
     "            case 49: return (uint64_t)s->_shadow_idex_isAMO;\n"
     "            case 50: return (uint64_t)s->_shadow_exwb_isAMOrw;\n"
+    "            case 51: return (uint64_t)s->_shadow_dmem_rdata;\n"
+    "            case 52: return (uint64_t)s->_shadow_dmem_read_addr;\n"
     "    }\n"
     "    return 0;\n"
     "}"
@@ -171,6 +177,8 @@ name_replacement = (
     "            case 48: return \"_shadow_exwb_isAMO\";\n"
     "            case 49: return \"_shadow_idex_isAMO\";\n"
     "            case 50: return \"_shadow_exwb_isAMOrw\";\n"
+    "            case 51: return \"_shadow_dmem_rdata\";\n"
+    "            case 52: return \"_shadow_dmem_read_addr\";\n"
     "    }\n"
     "    return \"\";\n"
     "}"
@@ -179,7 +187,7 @@ src = name_block_pattern.sub(name_replacement, src, count=1)
 
 # 5. jit_num_wires — replace any prior count
 src = re.sub(r"uint32_t jit_num_wires\(\)    \{ return \d+; \}",
-             "uint32_t jit_num_wires()    { return 51; }", src)
+             "uint32_t jit_num_wires()    { return 53; }", src)
 
 with open(path, "w") as f: f.write(src)
 print("Applied shadows (with IFID/fetchPC).")
