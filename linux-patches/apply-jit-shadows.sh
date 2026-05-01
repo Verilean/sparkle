@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 JIT=verilator/generated_soc_jit.cpp
 
 # Already applied?
-if grep -q "_shadow_dmem_rdata = _gen_dmem_rdata" "$JIT"; then
-  echo "Shadows already applied (full+IFID+MMU+AMO+rdata)."
+if grep -q "_shadow_tlb0PPN = _gen_tlb0PPN" "$JIT"; then
+  echo "Shadows already applied (full+IFID+MMU+AMO+rdata+TLB)."
   exit 0
 fi
 
@@ -50,6 +50,22 @@ shadow_block = '''
     uint8_t _shadow_exwb_isAMOrw = 0;
     uint32_t _shadow_dmem_rdata = 0;
     uint32_t _shadow_dmem_read_addr = 0;
+    uint32_t _shadow_tlb0VPN = 0;
+    uint32_t _shadow_tlb0PPN = 0;
+    uint8_t _shadow_tlb0Valid = 0;
+    uint8_t _shadow_tlb0Mega = 0;
+    uint32_t _shadow_tlb1VPN = 0;
+    uint32_t _shadow_tlb1PPN = 0;
+    uint8_t _shadow_tlb1Valid = 0;
+    uint8_t _shadow_tlb1Mega = 0;
+    uint32_t _shadow_tlb2VPN = 0;
+    uint32_t _shadow_tlb2PPN = 0;
+    uint8_t _shadow_tlb2Valid = 0;
+    uint8_t _shadow_tlb2Mega = 0;
+    uint32_t _shadow_tlb3VPN = 0;
+    uint32_t _shadow_tlb3PPN = 0;
+    uint8_t _shadow_tlb3Valid = 0;
+    uint8_t _shadow_tlb3Mega = 0;
     // Internal wires'''
 src = src.replace("\n    // Internal wires", shadow_block, 1)
 
@@ -86,7 +102,23 @@ shadow_block = '''
         _shadow_idex_isAMO = _gen_idex_isAMO;
         _shadow_exwb_isAMOrw = _gen_exwb_isAMOrw;
         _shadow_dmem_rdata = _gen_dmem_rdata;
-        _shadow_dmem_read_addr = _gen_dmem_read_addr;'''
+        _shadow_dmem_read_addr = _gen_dmem_read_addr;
+        _shadow_tlb0VPN = _gen_tlb0VPN;
+        _shadow_tlb0PPN = _gen_tlb0PPN;
+        _shadow_tlb0Valid = _gen_tlb0Valid;
+        _shadow_tlb0Mega = _gen_tlb0Mega;
+        _shadow_tlb1VPN = _gen_tlb1VPN;
+        _shadow_tlb1PPN = _gen_tlb1PPN;
+        _shadow_tlb1Valid = _gen_tlb1Valid;
+        _shadow_tlb1Mega = _gen_tlb1Mega;
+        _shadow_tlb2VPN = _gen_tlb2VPN;
+        _shadow_tlb2PPN = _gen_tlb2PPN;
+        _shadow_tlb2Valid = _gen_tlb2Valid;
+        _shadow_tlb2Mega = _gen_tlb2Mega;
+        _shadow_tlb3VPN = _gen_tlb3VPN;
+        _shadow_tlb3PPN = _gen_tlb3PPN;
+        _shadow_tlb3Valid = _gen_tlb3Valid;
+        _shadow_tlb3Mega = _gen_tlb3Mega;'''
 src = pattern.sub(lambda m: m.group(1) + shadow_block, src)
 
 # 3. jit_get_wire — robust replacement: rewrite the whole switch body
@@ -132,6 +164,22 @@ get_wire_replacement = (
     "            case 50: return (uint64_t)s->_shadow_exwb_isAMOrw;\n"
     "            case 51: return (uint64_t)s->_shadow_dmem_rdata;\n"
     "            case 52: return (uint64_t)s->_shadow_dmem_read_addr;\n"
+    "            case 53: return (uint64_t)s->_shadow_tlb0VPN;\n"
+    "            case 54: return (uint64_t)s->_shadow_tlb0PPN;\n"
+    "            case 55: return (uint64_t)s->_shadow_tlb0Valid;\n"
+    "            case 56: return (uint64_t)s->_shadow_tlb0Mega;\n"
+    "            case 57: return (uint64_t)s->_shadow_tlb1VPN;\n"
+    "            case 58: return (uint64_t)s->_shadow_tlb1PPN;\n"
+    "            case 59: return (uint64_t)s->_shadow_tlb1Valid;\n"
+    "            case 60: return (uint64_t)s->_shadow_tlb1Mega;\n"
+    "            case 61: return (uint64_t)s->_shadow_tlb2VPN;\n"
+    "            case 62: return (uint64_t)s->_shadow_tlb2PPN;\n"
+    "            case 63: return (uint64_t)s->_shadow_tlb2Valid;\n"
+    "            case 64: return (uint64_t)s->_shadow_tlb2Mega;\n"
+    "            case 65: return (uint64_t)s->_shadow_tlb3VPN;\n"
+    "            case 66: return (uint64_t)s->_shadow_tlb3PPN;\n"
+    "            case 67: return (uint64_t)s->_shadow_tlb3Valid;\n"
+    "            case 68: return (uint64_t)s->_shadow_tlb3Mega;\n"
     "    }\n"
     "    return 0;\n"
     "}"
@@ -179,6 +227,22 @@ name_replacement = (
     "            case 50: return \"_shadow_exwb_isAMOrw\";\n"
     "            case 51: return \"_shadow_dmem_rdata\";\n"
     "            case 52: return \"_shadow_dmem_read_addr\";\n"
+    "            case 53: return \"_shadow_tlb0VPN\";\n"
+    "            case 54: return \"_shadow_tlb0PPN\";\n"
+    "            case 55: return \"_shadow_tlb0Valid\";\n"
+    "            case 56: return \"_shadow_tlb0Mega\";\n"
+    "            case 57: return \"_shadow_tlb1VPN\";\n"
+    "            case 58: return \"_shadow_tlb1PPN\";\n"
+    "            case 59: return \"_shadow_tlb1Valid\";\n"
+    "            case 60: return \"_shadow_tlb1Mega\";\n"
+    "            case 61: return \"_shadow_tlb2VPN\";\n"
+    "            case 62: return \"_shadow_tlb2PPN\";\n"
+    "            case 63: return \"_shadow_tlb2Valid\";\n"
+    "            case 64: return \"_shadow_tlb2Mega\";\n"
+    "            case 65: return \"_shadow_tlb3VPN\";\n"
+    "            case 66: return \"_shadow_tlb3PPN\";\n"
+    "            case 67: return \"_shadow_tlb3Valid\";\n"
+    "            case 68: return \"_shadow_tlb3Mega\";\n"
     "    }\n"
     "    return \"\";\n"
     "}"
@@ -187,7 +251,7 @@ src = name_block_pattern.sub(name_replacement, src, count=1)
 
 # 5. jit_num_wires — replace any prior count
 src = re.sub(r"uint32_t jit_num_wires\(\)    \{ return \d+; \}",
-             "uint32_t jit_num_wires()    { return 53; }", src)
+             "uint32_t jit_num_wires()    { return 69; }", src)
 
 with open(path, "w") as f: f.write(src)
 print("Applied shadows (with IFID/fetchPC).")

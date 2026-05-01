@@ -187,7 +187,11 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_dMissPC", "_shadow_dMissVaddr", "_shadow_dMissIsStore",
           "_shadow_pendingWriteEn", "_shadow_exwb_isAMO",
           "_shadow_idex_isAMO", "_shadow_exwb_isAMOrw",
-          "_shadow_dmem_rdata", "_shadow_dmem_read_addr"]
+          "_shadow_dmem_rdata", "_shadow_dmem_read_addr",
+          "_shadow_tlb0VPN", "_shadow_tlb0PPN", "_shadow_tlb0Valid", "_shadow_tlb0Mega",
+          "_shadow_tlb1VPN", "_shadow_tlb1PPN", "_shadow_tlb1Valid", "_shadow_tlb1Mega",
+          "_shadow_tlb2VPN", "_shadow_tlb2PPN", "_shadow_tlb2Valid", "_shadow_tlb2Mega",
+          "_shadow_tlb3VPN", "_shadow_tlb3PPN", "_shadow_tlb3Valid", "_shadow_tlb3Mega"]
     catch e =>
       IO.println s!"resolveWires extra failed: {e.toString}"
       pure (#[] : Array UInt32)
@@ -269,14 +273,52 @@ def main (args : List String) : IO UInt32 := do
           let a1 ← JIT.getMem handle 5 11
           let s3 ← JIT.getMem handle 5 19
           let ra ← JIT.getMem handle 5 1
-          IO.println s!"DIC c={cycle} PC=0x{toHex32 pcN} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat}"
+          let sp ← JIT.getMem handle 5 2
+          IO.println s!"DIC c={cycle} PC=0x{toHex32 pcN} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat} sp=0x{toHex32 sp.toNat}"
         -- Trace strcasecmp entry to capture s3 of caller
         if pcN == 0xc04a27ec then
           let a0 ← JIT.getMem handle 5 10
           let a1 ← JIT.getMem handle 5 11
           let s3 ← JIT.getMem handle 5 19
           let ra ← JIT.getMem handle 5 1
-          IO.println s!"SCC c={cycle} a0=0x{toHex32 a0.toNat} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat}"
+          let sp ← JIT.getMem handle 5 2
+          IO.println s!"SCC c={cycle} a0=0x{toHex32 a0.toNat} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat} sp=0x{toHex32 sp.toNat}"
+        -- Dump TLB state at the faulting cycle (around 9149123)
+        if cycle == 9149123 then
+          let t0V ← JIT.getWire handle wireExtraIndices[31]!
+          let t0P ← JIT.getWire handle wireExtraIndices[32]!
+          let t0Vd ← JIT.getWire handle wireExtraIndices[33]!
+          let t0M ← JIT.getWire handle wireExtraIndices[34]!
+          let t1V ← JIT.getWire handle wireExtraIndices[35]!
+          let t1P ← JIT.getWire handle wireExtraIndices[36]!
+          let t1Vd ← JIT.getWire handle wireExtraIndices[37]!
+          let t1M ← JIT.getWire handle wireExtraIndices[38]!
+          let t2V ← JIT.getWire handle wireExtraIndices[39]!
+          let t2P ← JIT.getWire handle wireExtraIndices[40]!
+          let t2Vd ← JIT.getWire handle wireExtraIndices[41]!
+          let t2M ← JIT.getWire handle wireExtraIndices[42]!
+          let t3V ← JIT.getWire handle wireExtraIndices[43]!
+          let t3P ← JIT.getWire handle wireExtraIndices[44]!
+          let t3Vd ← JIT.getWire handle wireExtraIndices[45]!
+          let t3M ← JIT.getWire handle wireExtraIndices[46]!
+          IO.println s!"TLB c={cycle}"
+          IO.println s!"  T0 V={t0Vd.toNat} M={t0M.toNat} VPN=0x{toHex32 t0V.toNat} PPN=0x{toHex32 t0P.toNat}"
+          IO.println s!"  T1 V={t1Vd.toNat} M={t1M.toNat} VPN=0x{toHex32 t1V.toNat} PPN=0x{toHex32 t1P.toNat}"
+          IO.println s!"  T2 V={t2Vd.toNat} M={t2M.toNat} VPN=0x{toHex32 t2V.toNat} PPN=0x{toHex32 t2P.toNat}"
+          IO.println s!"  T3 V={t3Vd.toNat} M={t3M.toNat} VPN=0x{toHex32 t3V.toNat} PPN=0x{toHex32 t3P.toNat}"
+        -- Trace the cycles right before the fault with everything
+        if cycle >= 9148950 && cycle < 9149150 then
+          let dmemWe ← JIT.getWire handle wireExtraIndices[8]!
+          let pwe ← JIT.getWire handle wireExtraIndices[25]!
+          let dmemAddr ← JIT.getWire handle wireExtraIndices[9]!
+          let waddrN := dmemAddr.toNat
+          let alu ← JIT.getWire handle wireExtraIndices[4]!
+          let idexPc ← JIT.getWire handle wireExtraIndices[0]!
+          let dmemRdata ← JIT.getWire handle wireExtraIndices[29]!
+          let dmemRaddr ← JIT.getWire handle wireExtraIndices[30]!
+          let paN := 0x80000000 + (waddrN <<< 2)
+          let raPaN := 0x80000000 + (dmemRaddr.toNat <<< 2)
+          IO.println s!"X c={cycle} idexPc=0x{toHex32 idexPc.toNat} alu=0x{toHex32 alu.toNat} we={dmemWe.toNat} pwe={pwe.toNat} wAddr=0x{toHex32 paN} rAddr=0x{toHex32 raPaN} rdata=0x{toHex32 dmemRdata.toNat}"
 
       -- AMO bug diagnostics around raw_amoadd in __free_pages_core (use idex_pc)
       if false && hasShadows && wireExtraIndices.size >= 29 then
