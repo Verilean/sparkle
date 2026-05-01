@@ -191,7 +191,8 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_tlb0VPN", "_shadow_tlb0PPN", "_shadow_tlb0Valid", "_shadow_tlb0Mega",
           "_shadow_tlb1VPN", "_shadow_tlb1PPN", "_shadow_tlb1Valid", "_shadow_tlb1Mega",
           "_shadow_tlb2VPN", "_shadow_tlb2PPN", "_shadow_tlb2Valid", "_shadow_tlb2Mega",
-          "_shadow_tlb3VPN", "_shadow_tlb3PPN", "_shadow_tlb3Valid", "_shadow_tlb3Mega"]
+          "_shadow_tlb3VPN", "_shadow_tlb3PPN", "_shadow_tlb3Valid", "_shadow_tlb3Mega",
+          "_shadow_dmem_write_data"]
     catch e =>
       IO.println s!"resolveWires extra failed: {e.toString}"
       pure (#[] : Array UInt32)
@@ -283,6 +284,20 @@ def main (args : List String) : IO UInt32 := do
           let ra ← JIT.getMem handle 5 1
           let sp ← JIT.getMem handle 5 2
           IO.println s!"SCC c={cycle} a0=0x{toHex32 a0.toNat} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat} sp=0x{toHex32 sp.toNat}"
+        -- Watch every store of value 0xfffffdfb anywhere
+        let dmemWeS ← JIT.getWire handle wireExtraIndices[8]!
+        if dmemWeS.toNat == 1 then
+          let aluS ← JIT.getWire handle wireExtraIndices[4]!
+          let dmemAddrS ← JIT.getWire handle wireExtraIndices[9]!
+          let waddrNS := dmemAddrS.toNat
+          -- The store data isn't directly shadow; check via heuristic on rs2 (rs2_byte0..3 not shadow either)
+          -- So we filter on store target PA = 0x809e7e7c (= where 0xfffffdfb appeared)
+          let paS := 0x80000000 + (waddrNS <<< 2)
+          if paS == 0x809e7e7c then
+            let idexPcS ← JIT.getWire handle wireExtraIndices[0]!
+            let wdataS ← JIT.getWire handle wireExtraIndices[47]!
+            IO.println s!"STORE_TARGET c={cycle} idexPc=0x{toHex32 idexPcS.toNat} alu=0x{toHex32 aluS.toNat} PA=0x{toHex32 paS} data=0x{toHex32 wdataS.toNat}"
+
         -- Dump TLB state at the faulting cycle (around 9149123)
         if cycle == 9149123 then
           let t0V ← JIT.getWire handle wireExtraIndices[31]!

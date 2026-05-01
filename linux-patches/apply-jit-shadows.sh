@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 JIT=verilator/generated_soc_jit.cpp
 
 # Already applied?
-if grep -q "_shadow_tlb0PPN = _gen_tlb0PPN" "$JIT"; then
-  echo "Shadows already applied (full+IFID+MMU+AMO+rdata+TLB)."
+if grep -q "_shadow_dmem_write_data = _gen_ex_rs2_approx" "$JIT"; then
+  echo "Shadows already applied (full+IFID+MMU+AMO+rdata+TLB+wdata)."
   exit 0
 fi
 
@@ -82,6 +82,7 @@ shadow_block = '''
         _shadow_idex_rd = _gen_idex_rd;
         _shadow_dmem_we = _gen_dmem_we;
         _shadow_dmem_write_addr = _gen_actual_dmem_write_addr;
+        _shadow_dmem_write_data = _gen_ex_rs2_approx;
         _shadow_effectiveAddr_ex = _gen_effectiveAddr;
         _shadow_fetchPC = _gen_fetchPC_1;
         _shadow_ifid_pc = _gen_ifid_pc;
@@ -180,6 +181,7 @@ get_wire_replacement = (
     "            case 66: return (uint64_t)s->_shadow_tlb3PPN;\n"
     "            case 67: return (uint64_t)s->_shadow_tlb3Valid;\n"
     "            case 68: return (uint64_t)s->_shadow_tlb3Mega;\n"
+    "            case 69: return (uint64_t)s->_shadow_dmem_write_data;\n"
     "    }\n"
     "    return 0;\n"
     "}"
@@ -243,6 +245,7 @@ name_replacement = (
     "            case 66: return \"_shadow_tlb3PPN\";\n"
     "            case 67: return \"_shadow_tlb3Valid\";\n"
     "            case 68: return \"_shadow_tlb3Mega\";\n"
+    "            case 69: return \"_shadow_dmem_write_data\";\n"
     "    }\n"
     "    return \"\";\n"
     "}"
@@ -251,7 +254,7 @@ src = name_block_pattern.sub(name_replacement, src, count=1)
 
 # 5. jit_num_wires — replace any prior count
 src = re.sub(r"uint32_t jit_num_wires\(\)    \{ return \d+; \}",
-             "uint32_t jit_num_wires()    { return 69; }", src)
+             "uint32_t jit_num_wires()    { return 70; }", src)
 
 with open(path, "w") as f: f.write(src)
 print("Applied shadows (with IFID/fetchPC).")
