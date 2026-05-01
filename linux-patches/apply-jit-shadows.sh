@@ -26,6 +26,10 @@ shadow_block = '''
     uint8_t _shadow_idex_regWrite = 0;
     uint8_t _shadow_idex_rd = 0;
     uint32_t _shadow_alu_result = 0;
+    uint8_t _shadow_dmem_we = 0;
+    uint32_t _shadow_dmem_write_addr = 0;
+    uint32_t _shadow_dmem_write_data = 0;
+    uint32_t _shadow_effectiveAddr_ex = 0;
     // Internal wires'''
 src = src.replace("\n    // Internal wires", shadow_block, 1)
 
@@ -39,7 +43,10 @@ shadow_block = '''
         _shadow_ifetchStall = (_gen_ifetchTLBMiss & (!_gen_ifetchFaultPending));
         _shadow_alu_result = _gen_alu_result;
         _shadow_idex_regWrite = _gen_idex_regWrite;
-        _shadow_idex_rd = _gen_idex_rd;'''
+        _shadow_idex_rd = _gen_idex_rd;
+        _shadow_dmem_we = _gen_dmem_we;
+        _shadow_dmem_write_addr = _gen_actual_dmem_write_addr;
+        _shadow_effectiveAddr_ex = _gen_effectiveAddr;'''
 src = pattern.sub(lambda m: m.group(1) + shadow_block, src)
 
 # 3. jit_get_wire — add cases 22-29 before final `}`
@@ -58,6 +65,9 @@ get_wire_new = '''            case 20: return (uint64_t)s->_gen_trapCause;
             case 27: return (uint64_t)s->_shadow_idex_regWrite;
             case 28: return (uint64_t)s->_shadow_idex_rd;
             case 29: return (uint64_t)s->_gen_exwb_rd;
+            case 30: return (uint64_t)s->_shadow_dmem_we;
+            case 31: return (uint64_t)s->_shadow_dmem_write_addr;
+            case 32: return (uint64_t)s->_shadow_effectiveAddr_ex;
     }
     return 0;
 }'''
@@ -79,13 +89,16 @@ name_new = '''            case 20: return "_gen_trapCause";
             case 27: return "_shadow_idex_regWrite";
             case 28: return "_shadow_idex_rd";
             case 29: return "_gen_exwb_rd";
+            case 30: return "_shadow_dmem_we";
+            case 31: return "_shadow_dmem_write_addr";
+            case 32: return "_shadow_effectiveAddr_ex";
     }
     return "";
 }'''
 src = src.replace(name_old, name_new)
 
 # 5. jit_num_wires
-src = src.replace("uint32_t jit_num_wires()    { return 22; }", "uint32_t jit_num_wires()    { return 30; }")
+src = src.replace("uint32_t jit_num_wires()    { return 22; }", "uint32_t jit_num_wires()    { return 33; }")
 
 with open(path, "w") as f: f.write(src)
 print("Applied shadows.")

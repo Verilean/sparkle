@@ -176,7 +176,9 @@ def main (args : List String) : IO UInt32 := do
       JIT.resolveWires handle
         #["_shadow_idex_pc", "_shadow_stall", "_shadow_squash",
           "_shadow_ifetchStall", "_shadow_alu_result",
-          "_shadow_idex_regWrite", "_shadow_idex_rd", "_gen_exwb_rd"]
+          "_shadow_idex_regWrite", "_shadow_idex_rd", "_gen_exwb_rd",
+          "_shadow_dmem_we", "_shadow_dmem_write_addr",
+          "_shadow_effectiveAddr_ex"]
     catch _ => pure (#[] : Array UInt32)
   let snapCounterRef : IO.Ref Nat ← IO.mkRef 0
   let hasShadows := wireExtraIndices.size > 0
@@ -237,10 +239,23 @@ def main (args : List String) : IO UInt32 := do
       -- Verilator-equivalent trap/SATP/(optional)PTW logging.
       if traceEnabled then
         Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
-      -- Monitor pipeline state right before paging_init store fault (~3241791).
+      -- Track every kernel-mode store to swapper_pg_dir entries
+      -- (PA 0x81ca2000 + N*4 = word 0x728800 + N).  PT is 1024 entries
+      -- so word range = 0x728800..0x728c00.
+      if hasShadows then
+        let we ← JIT.getWire handle wireExtraIndices[8]!
+        let waddr ← JIT.getWire handle wireExtraIndices[9]!
+        let waddrN := waddr.toNat
+        let pcN := out.pc.toNat
+        if we.toNat == 1 && waddrN >= 0x728800 && waddrN < 0x728c00 && pcN >= 0xc0000000 then
+          IO.println s!"PGD-WRITE c={cycle} PC=0x{toHex32 pcN} wordAddr=0x{toHex32 waddrN} (entry [{(waddrN - 0x728800)}])"
+
       if hasShadows then
         let spNow ← JIT.getMem handle 5 2
-        if cycle > 3_241_700 && cycle < 3_241_800 then
+        -- Catch the for_each_mem_range loop's create_linear_mapping_range calls
+        -- (jalr at c0804894). Look for cycles around that PC (s-mode kernel) AND
+        -- focus on the address loaded into a1/-72(s0)/-68(s0).
+        if cycle > 3_240_350 && cycle < 3_240_750 then
           let idexPc ← JIT.getWire handle wireExtraIndices[0]!
           let stall ← JIT.getWire handle wireExtraIndices[1]!
           let squash ← JIT.getWire handle wireExtraIndices[2]!
@@ -387,6 +402,19 @@ def main (args : List String) : IO UInt32 := do
     Sparkle.IP.RV32.JITDebug.dumpPCRing traceRef
     let totalSnaps ← snapCounterRef.get
     IO.println s!"\n=== Wire snapshots: {totalSnaps} (printed inline above with WIRE prefix) ==="
+    -- Dump swapper_pg_dir entries [768]-[775] to see the missing [771]
+    IO.println "\n=== swapper_pg_dir [768..775] at exit ==="
+    for i in [:8] do
+      let entry := 768 + i
+      -- PA = 0x81ca2000 + entry*4. Word addr = (0x1ca2000 + entry*4) / 4
+      --     = 0x728800 + entry
+      let waddr := (0x728800 + entry).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  [{entry}]: 0x{toHex32 word}"
     -- Dump verify's stack frame at exit (8 words around sp).
     -- VA c1801eb0 → PA 0x81C01EB0 → word addr (0x1C01EB0 / 4) = 0x7007AC.
     IO.println "\n=== DRAM @ PA 0x81C01EB0 (verify stack frame) at exit ==="
