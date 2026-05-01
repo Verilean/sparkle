@@ -7,8 +7,8 @@ cd "$(dirname "$0")/.."
 JIT=verilator/generated_soc_jit.cpp
 
 # Already applied?
-if grep -q "_shadow_mmuState = _gen_mmuStateReg" "$JIT"; then
-  echo "Shadows already applied (full+IFID+MMU)."
+if grep -q "_shadow_pendingWriteEn = _gen_pendingWriteEn" "$JIT"; then
+  echo "Shadows already applied (full+IFID+MMU+AMO)."
   exit 0
 fi
 
@@ -44,6 +44,10 @@ shadow_block = '''
     uint32_t _shadow_dMissPC = 0;
     uint32_t _shadow_dMissVaddr = 0;
     uint8_t _shadow_dMissIsStore = 0;
+    uint8_t _shadow_pendingWriteEn = 0;
+    uint8_t _shadow_exwb_isAMO = 0;
+    uint8_t _shadow_idex_isAMO = 0;
+    uint8_t _shadow_exwb_isAMOrw = 0;
     // Internal wires'''
 src = src.replace("\n    // Internal wires", shadow_block, 1)
 
@@ -74,7 +78,11 @@ shadow_block = '''
         _shadow_isMMUFault = _gen_isMMUFault;
         _shadow_dMissPC = _gen_dMissPC;
         _shadow_dMissVaddr = _gen_dMissVaddr;
-        _shadow_dMissIsStore = _gen_dMissIsStore;'''
+        _shadow_dMissIsStore = _gen_dMissIsStore;
+        _shadow_pendingWriteEn = _gen_pendingWriteEn;
+        _shadow_exwb_isAMO = _gen_exwb_isAMO;
+        _shadow_idex_isAMO = _gen_idex_isAMO;
+        _shadow_exwb_isAMOrw = _gen_exwb_isAMOrw;'''
 src = pattern.sub(lambda m: m.group(1) + shadow_block, src)
 
 # 3. jit_get_wire — robust replacement: rewrite the whole switch body
@@ -114,6 +122,10 @@ get_wire_replacement = (
     "            case 44: return (uint64_t)s->_shadow_dMissPC;\n"
     "            case 45: return (uint64_t)s->_shadow_dMissVaddr;\n"
     "            case 46: return (uint64_t)s->_shadow_dMissIsStore;\n"
+    "            case 47: return (uint64_t)s->_shadow_pendingWriteEn;\n"
+    "            case 48: return (uint64_t)s->_shadow_exwb_isAMO;\n"
+    "            case 49: return (uint64_t)s->_shadow_idex_isAMO;\n"
+    "            case 50: return (uint64_t)s->_shadow_exwb_isAMOrw;\n"
     "    }\n"
     "    return 0;\n"
     "}"
@@ -155,6 +167,10 @@ name_replacement = (
     "            case 44: return \"_shadow_dMissPC\";\n"
     "            case 45: return \"_shadow_dMissVaddr\";\n"
     "            case 46: return \"_shadow_dMissIsStore\";\n"
+    "            case 47: return \"_shadow_pendingWriteEn\";\n"
+    "            case 48: return \"_shadow_exwb_isAMO\";\n"
+    "            case 49: return \"_shadow_idex_isAMO\";\n"
+    "            case 50: return \"_shadow_exwb_isAMOrw\";\n"
     "    }\n"
     "    return \"\";\n"
     "}"
@@ -163,7 +179,7 @@ src = name_block_pattern.sub(name_replacement, src, count=1)
 
 # 5. jit_num_wires — replace any prior count
 src = re.sub(r"uint32_t jit_num_wires\(\)    \{ return \d+; \}",
-             "uint32_t jit_num_wires()    { return 47; }", src)
+             "uint32_t jit_num_wires()    { return 51; }", src)
 
 with open(path, "w") as f: f.write(src)
 print("Applied shadows (with IFID/fetchPC).")

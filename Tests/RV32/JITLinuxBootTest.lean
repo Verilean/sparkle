@@ -171,6 +171,7 @@ def main (args : List String) : IO UInt32 := do
   -- Resolve the new wire indices for direct getWire access.
   -- Shadow wires only available in patched JIT cpp (see linux-patches/jit-shadow-wires.diff).
   -- Skip if they aren't there (after JIT regen the shadows get dropped).
+  IO.println "About to call resolveWires for extra shadows..."
   let wireExtraIndices : Array UInt32 ←
     try
       JIT.resolveWires handle
@@ -183,7 +184,9 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_stallDelay", "_shadow_freezeIDEX", "_shadow_pcReg",
           "_shadow_mmuState", "_shadow_ptwState", "_shadow_dTLBMiss",
           "_shadow_anyTLBHit", "_shadow_isMMUFault",
-          "_shadow_dMissPC", "_shadow_dMissVaddr", "_shadow_dMissIsStore"]
+          "_shadow_dMissPC", "_shadow_dMissVaddr", "_shadow_dMissIsStore",
+          "_shadow_pendingWriteEn", "_shadow_exwb_isAMO",
+          "_shadow_idex_isAMO", "_shadow_exwb_isAMOrw"]
     catch e =>
       IO.println s!"resolveWires extra failed: {e.toString}"
       pure (#[] : Array UInt32)
@@ -258,8 +261,26 @@ def main (args : List String) : IO UInt32 := do
         if we.toNat == 1 && waddrN >= 0x728800 && waddrN < 0x728c00 && pcN >= 0xc0000000 then
           IO.println s!"PGD-WRITE c={cycle} PC=0x{toHex32 pcN} wordAddr=0x{toHex32 waddrN} (entry [{(waddrN - 0x728800)}])"
 
-      -- MMU diagnostics around paging_init store fault
-      if hasShadows && wireExtraIndices.size >= 25 then
+      -- AMO bug diagnostics around raw_amoadd in __free_pages_core (use idex_pc)
+      if hasShadows && wireExtraIndices.size >= 29 then
+        let idexPcRaw ← JIT.getWire handle wireExtraIndices[0]!
+        let idexPcN := idexPcRaw.toNat
+        if idexPcN >= 0xc0172500 && idexPcN <= 0xc0172900 then
+          let pcN := out.pc.toNat
+          let alu ← JIT.getWire handle wireExtraIndices[4]!
+          let stl ← JIT.getWire handle wireExtraIndices[1]!
+          let sq ← JIT.getWire handle wireExtraIndices[2]!
+          let dmemWe ← JIT.getWire handle wireExtraIndices[8]!
+          let dmemAddr ← JIT.getWire handle wireExtraIndices[9]!
+          let effA ← JIT.getWire handle wireExtraIndices[10]!
+          let pwe ← JIT.getWire handle wireExtraIndices[25]!
+          let exAMO ← JIT.getWire handle wireExtraIndices[26]!
+          let idAMO ← JIT.getWire handle wireExtraIndices[27]!
+          let exAMOrw ← JIT.getWire handle wireExtraIndices[28]!
+          IO.println s!"AMO c={cycle} PC=0x{toHex32 pcN} idexPc=0x{toHex32 idexPcN} alu=0x{toHex32 alu.toNat} st={stl.toNat} sq={sq.toNat} dmemWe={dmemWe.toNat} dmemAddr=0x{toHex32 dmemAddr.toNat} effA=0x{toHex32 effA.toNat} pwe={pwe.toNat} exAMO={exAMO.toNat} idAMO={idAMO.toNat} exAMOrw={exAMOrw.toNat}"
+
+      -- MMU diagnostics around paging_init store fault (legacy)
+      if false && hasShadows && wireExtraIndices.size >= 25 then
         let pcN := out.pc.toNat
         if pcN >= 0xc08049a0 && pcN <= 0xc08049d0 then
           let mmuSt ← JIT.getWire handle wireExtraIndices[17]!
@@ -481,6 +502,41 @@ def main (args : List String) : IO UInt32 := do
       IO.println s!"  [{entry}]: 0x{toHex32 word}"
     -- Dump verify's stack frame at exit (8 words around sp).
     -- VA c1801eb0 → PA 0x81C01EB0 → word addr (0x1C01EB0 / 4) = 0x7007AC.
+    -- Dump __timer_of_table entry 0 (suniv) full struct at PA 0x808f7488
+    IO.println "\n=== entry0 of_device_id at PA 0x808f7488 (49 words = 196 bytes) ==="
+    for i in [:50] do
+      let waddr := (0x023dd22 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      let asAscii := String.mk [Char.ofNat (b0.toNat % 256), Char.ofNat (b1.toNat % 256), Char.ofNat (b2.toNat % 256), Char.ofNat (b3.toNat % 256)]
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word} '{asAscii}'"
+
+    -- Dump __timer_of_table entry 4 compatible field at PA 0x808f77d8 (16 words)
+    IO.println "\n=== entry4_compat at PA 0x808f77d8 (16 words / 64 bytes) ==="
+    for i in [:16] do
+      let waddr := (0x023ddf6 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      let asAscii := String.mk [Char.ofNat (b0.toNat % 256), Char.ofNat (b1.toNat % 256), Char.ofNat (b2.toNat % 256), Char.ofNat (b3.toNat % 256)]
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word} '{asAscii}'"
+
+    -- Dump __timer_of_table sentinel at VA 0xc04f785c → PA 0x808f785c
+    IO.println "\n=== __timer_of_table_sentinel at PA 0x808f785c (16 words) ==="
+    for i in [:16] do
+      let waddr := (0x023de17 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word}"
+
     IO.println "\n=== DRAM @ PA 0x81C01EB0 (verify stack frame) at exit ==="
     for i in [:8] do
       let waddr := (0x7007AC + i).toUInt32
