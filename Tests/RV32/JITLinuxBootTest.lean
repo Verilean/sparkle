@@ -237,10 +237,10 @@ def main (args : List String) : IO UInt32 := do
       -- Verilator-equivalent trap/SATP/(optional)PTW logging.
       if traceEnabled then
         Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
-      -- Monitor pipeline state right before the fdt_ro_probe_ load fault (~2874481).
+      -- Monitor pipeline state right before paging_init store fault (~3241791).
       if hasShadows then
         let spNow ← JIT.getMem handle 5 2
-        if cycle > 2_874_300 && cycle < 2_874_490 then
+        if cycle > 3_241_700 && cycle < 3_241_800 then
           let idexPc ← JIT.getWire handle wireExtraIndices[0]!
           let stall ← JIT.getWire handle wireExtraIndices[1]!
           let squash ← JIT.getWire handle wireExtraIndices[2]!
