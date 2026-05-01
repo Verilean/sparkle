@@ -252,10 +252,10 @@ def main (args : List String) : IO UInt32 := do
 
       if hasShadows then
         let spNow ← JIT.getMem handle 5 2
-        -- Catch the for_each_mem_range loop's create_linear_mapping_range calls
-        -- (jalr at c0804894). Look for cycles around that PC (s-mode kernel) AND
-        -- focus on the address loaded into a1/-72(s0)/-68(s0).
-        if cycle > 3_240_350 && cycle < 3_240_750 then
+        -- Look at strcmp body (c04b3c54-c04b3c70) when called from
+        -- early_init_dt_scan_memory to compare type=="memory".
+        let pcN := out.pc.toNat
+        if pcN >= 0xc04b3c50 && pcN < 0xc04b3c80 then
           let idexPc ← JIT.getWire handle wireExtraIndices[0]!
           let stall ← JIT.getWire handle wireExtraIndices[1]!
           let squash ← JIT.getWire handle wireExtraIndices[2]!
@@ -402,6 +402,38 @@ def main (args : List String) : IO UInt32 := do
     Sparkle.IP.RV32.JITDebug.dumpPCRing traceRef
     let totalSnaps ← snapCounterRef.get
     IO.println s!"\n=== Wire snapshots: {totalSnaps} (printed inline above with WIRE prefix) ==="
+    -- Dump "memory" string at PA 0x814b3974 (word 0x52ce5d)
+    IO.println "\n=== \"memory\" string at PA 0x814b3974 ==="
+    for i in [:3] do
+      let waddr := (0x52ce5d + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +{i*4}: 0x{toHex32 word} '{Char.ofNat b0.toNat}{Char.ofNat b1.toNat}{Char.ofNat b2.toNat}{Char.ofNat b3.toNat}'"
+    -- Dump struct memblock (PA 0x81004980, word 0x401260, ~40 bytes)
+    IO.println "\n=== memblock @ PA 0x81004980 (40 bytes) ==="
+    for i in [:10] do
+      let waddr := (0x401260 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      IO.println s!"  +0x{toHex32 (i*4)}: 0x{toHex32 word}"
+    -- Dump first 4 entries of memblock_memory_init_regions (PA 0x810049c4, word 0x401271, 4*12=48 bytes)
+    IO.println "\n=== memblock_memory_init_regions[0..3] (4 regions × 12 bytes) ==="
+    for i in [:12] do
+      let waddr := (0x401271 + i).toUInt32
+      let b0 ← JIT.getMem handle 1 waddr
+      let b1 ← JIT.getMem handle 2 waddr
+      let b2 ← JIT.getMem handle 3 waddr
+      let b3 ← JIT.getMem handle 4 waddr
+      let word := (b3.toNat <<< 24) ||| (b2.toNat <<< 16) ||| (b1.toNat <<< 8) ||| b0.toNat
+      let region := i / 3
+      let field := match i % 3 with | 0 => "base" | 1 => "size" | _ => "flags"
+      IO.println s!"  region[{region}].{field}: 0x{toHex32 word}"
     -- Dump swapper_pg_dir entries [768]-[775] to see the missing [771]
     IO.println "\n=== swapper_pg_dir [768..775] at exit ==="
     for i in [:8] do
