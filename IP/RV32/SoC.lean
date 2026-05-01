@@ -708,8 +708,12 @@ def rv32iSoCBody {dom : DomainConfig}
     let amoNewVal := amoComputeSignal exwb_amoOp busRdataRaw prevStoreData
 
     -- Pending write next values (set when non-LR/SC AMO is in WB)
+    -- Bug fix: use exwb_physAddr (MMU-translated PA), not exwb_alu (virtual addr).
+    -- AMO writeback was previously writing to the virtual address as if it were
+    -- physical, dropping all atomic stores under Sv32 paging (the kernel's
+    -- atomic_long_add etc. were lost, causing nr_free_pages=0 at boot).
     let pendingWriteEnNext := exwb_isAMOrw
-    let pendingWriteAddrNext := Signal.mux exwb_isAMOrw exwb_alu pendingWriteAddr
+    let pendingWriteAddrNext := Signal.mux exwb_isAMOrw exwb_physAddr pendingWriteAddr
     let pendingWriteDataNext := Signal.mux exwb_isAMOrw amoNewVal pendingWriteData
 
     -- SC.W result: rd = 0 (always succeeds on single-hart)
@@ -1285,9 +1289,10 @@ def rv32iSoCBody {dom : DomainConfig}
         privMode)))
 
     -- A-ext: Reservation management (LR sets, SC clears)
+    -- Use exwb_physAddr (translated PA) for consistency with the AMO writeback path.
     let resValidNext := Signal.mux exwb_isLR (Signal.pure true)
                           (Signal.mux exwb_isSC (Signal.pure false) reservationValid)
-    let resAddrNext := Signal.mux exwb_isLR exwb_alu reservationAddr
+    let resAddrNext := Signal.mux exwb_isLR exwb_physAddr reservationAddr
 
     -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority.
     -- Also gate on ~trap_taken: when a trap is firing this cycle, fetchPC still
