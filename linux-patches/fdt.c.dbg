@@ -1296,41 +1296,17 @@ static noinline int sparkle_fake_check(const void *fdt)
 
 bool __init early_init_dt_verify(void *params)
 {
-	register unsigned long entry_sp asm("s2");
-	__asm__ volatile ("mv %0, sp" : "=r"(entry_sp));
-	__sparkle_fdt_dbg('w');
-	__sparkle_fdt_dbg_hex(entry_sp);
 	if (!params)
 		return false;
-	/* Read entry_sp+12 right after the prologue */
-	__sparkle_fdt_dbg('R');
-	__sparkle_fdt_dbg_hex(*(volatile unsigned long *)(entry_sp + 12));
 
-	if (sparkle_fake_check(params))
+	/* check device tree validity */
+	if (fdt_check_header(params))
 		return false;
 
-	__sparkle_fdt_dbg('E');
-	__sparkle_fdt_dbg_hex(*(volatile unsigned long *)(entry_sp + 12));
-
+	/* Setup flat device-tree pointer */
 	initial_boot_params = params;
-	of_fdt_crc32 = 0;
-	__sparkle_fdt_dbg('3');
-	/* IMMEDIATELY before the function epilogue, re-read sp+12 via:
-	 *  - entry_sp (s2 pinned): correct so far
-	 *  - sp directly: wrong (returns 0)
-	 *  - a4 = mv from sp: also wrong (returns 0)
-	 *  - what about reading at known PA via inline asm? */
-	{
-		unsigned long via_s2 = *(volatile unsigned long *)(entry_sp + 12);
-		unsigned long via_sp_inline;
-		/* Direct lw from sp using inline asm */
-		__asm__ volatile ("lw %0, 12(sp)" : "=r"(via_sp_inline) : : "memory");
-		__sparkle_fdt_dbg('Q');
-		__sparkle_fdt_dbg_hex(via_s2);
-		__sparkle_fdt_dbg('=');
-		__sparkle_fdt_dbg_hex(via_sp_inline);
-		__sparkle_fdt_dbg('|');
-	}
+	of_fdt_crc32 = crc32_be(~0, initial_boot_params,
+				fdt_totalsize(initial_boot_params));
 	return true;
 }
 

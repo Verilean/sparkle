@@ -86,31 +86,16 @@ size_t fdt_header_size(const void *fdt)
 		fdt_header_size_(fdt_version(fdt));
 }
 
-/* SPARKLE-DEBUG */
-#if defined(__riscv) && defined(__KERNEL__)
-static inline void __sparkle_libfdt_dbg(char c)
-{
-	register unsigned long a0 __asm__("a0") = (unsigned long)c;
-	register unsigned long a7 __asm__("a7") = 1;
-	__asm__ volatile ("ecall" : "+r"(a0) : "r"(a7) : "memory");
-}
-#else
-static inline void __sparkle_libfdt_dbg(char c) { (void)c; }
-#endif
-
 int fdt_check_header(const void *fdt)
 {
 	size_t hdrsize;
 
-	__sparkle_libfdt_dbg('a');
 	/* The device tree must be at an 8-byte aligned address */
 	if ((uintptr_t)fdt & 7)
 		return -FDT_ERR_ALIGNMENT;
 
-	__sparkle_libfdt_dbg('b');
 	if (fdt_magic(fdt) != FDT_MAGIC)
 		return -FDT_ERR_BADMAGIC;
-	__sparkle_libfdt_dbg('c');
 	if (!can_assume(LATEST)) {
 		if ((fdt_version(fdt) < FDT_FIRST_SUPPORTED_VERSION)
 		    || (fdt_last_comp_version(fdt) >
@@ -119,20 +104,16 @@ int fdt_check_header(const void *fdt)
 		if (fdt_version(fdt) < fdt_last_comp_version(fdt))
 			return -FDT_ERR_BADVERSION;
 	}
-	__sparkle_libfdt_dbg('d');
 	hdrsize = fdt_header_size(fdt);
-	__sparkle_libfdt_dbg('e');
 	if (!can_assume(VALID_DTB)) {
 		if ((fdt_totalsize(fdt) < hdrsize)
 		    || (fdt_totalsize(fdt) > INT_MAX))
 			return -FDT_ERR_TRUNCATED;
-		__sparkle_libfdt_dbg('f');
 
 		/* Bounds check memrsv block */
 		if (!check_off_(hdrsize, fdt_totalsize(fdt),
 				fdt_off_mem_rsvmap(fdt)))
 			return -FDT_ERR_TRUNCATED;
-		__sparkle_libfdt_dbg('g');
 
 		/* Bounds check structure block */
 		if (!can_assume(LATEST) && fdt_version(fdt) < 17) {
