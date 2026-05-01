@@ -1095,29 +1095,58 @@ u64 __init dt_mem_next_cell(int s, const __be32 **cellp)
 /*
  * early_init_dt_scan_memory - Look for and parse memory nodes
  */
+/* fwd decl for early_init_dt_scan_memory */
+static inline void __sparkle_fdt_dbg(char c);
+
 int __init early_init_dt_scan_memory(void)
 {
 	int node, found_memory = 0;
 	const void *fdt = initial_boot_params;
 
+	__sparkle_fdt_dbg('M');
 	fdt_for_each_subnode(node, fdt, 0) {
 		const char *type = of_get_flat_dt_prop(node, "device_type", NULL);
 		const __be32 *reg, *endp;
 		int l;
 		bool hotpluggable;
 
+		__sparkle_fdt_dbg('n');
 		/* We are scanning "memory" nodes only */
-		if (type == NULL || strcmp(type, "memory") != 0)
+		if (type == NULL) {
+			__sparkle_fdt_dbg('0');
+			continue;
+		}
+		/* Print HEX bytes of `type` and the literal "memory" side-by-side */
+		const char *lit = "memory";
+		__sparkle_fdt_dbg('[');
+		for (int k = 0; k < 8; k++) {
+			unsigned char tc = (unsigned char)type[k];
+			unsigned char lc = (unsigned char)lit[k];
+			__sparkle_fdt_dbg("0123456789abcdef"[(tc >> 4) & 0xF]);
+			__sparkle_fdt_dbg("0123456789abcdef"[tc & 0xF]);
+			__sparkle_fdt_dbg(tc == lc ? '=' : 'X');
+			__sparkle_fdt_dbg("0123456789abcdef"[(lc >> 4) & 0xF]);
+			__sparkle_fdt_dbg("0123456789abcdef"[lc & 0xF]);
+			__sparkle_fdt_dbg(' ');
+			if (tc == 0 && lc == 0) break;
+		}
+		__sparkle_fdt_dbg(']');
+		int cmpRet = strcmp(type, "memory");
+		__sparkle_fdt_dbg(cmpRet == 0 ? '=' : 'X');
+		if (cmpRet != 0)
 			continue;
 
+		__sparkle_fdt_dbg('m');
 		if (!of_fdt_device_is_available(fdt, node))
 			continue;
 
+		__sparkle_fdt_dbg('a');
 		reg = of_get_flat_dt_prop(node, "linux,usable-memory", &l);
 		if (reg == NULL)
 			reg = of_get_flat_dt_prop(node, "reg", &l);
 		if (reg == NULL)
 			continue;
+		__sparkle_fdt_dbg('r');
 
 		endp = reg + (l / sizeof(__be32));
 		hotpluggable = of_get_flat_dt_prop(node, "hotpluggable", NULL);
@@ -1128,6 +1157,7 @@ int __init early_init_dt_scan_memory(void)
 		while ((endp - reg) >= (dt_root_addr_cells + dt_root_size_cells)) {
 			u64 base, size;
 
+			__sparkle_fdt_dbg('+');
 			base = dt_mem_next_cell(dt_root_addr_cells, &reg);
 			size = dt_mem_next_cell(dt_root_size_cells, &reg);
 
@@ -1135,7 +1165,9 @@ int __init early_init_dt_scan_memory(void)
 				continue;
 			pr_debug(" - %llx, %llx\n", base, size);
 
+			__sparkle_fdt_dbg('A');
 			early_init_dt_add_memory_arch(base, size);
+			__sparkle_fdt_dbg('B');
 
 			found_memory = 1;
 
@@ -1286,13 +1318,6 @@ static inline void __sparkle_fdt_dbg_hex(unsigned long v)
 	}
 }
 
-/* Variant 1: ecall in caller AFTER nested call returns */
-static noinline int sparkle_fake_check(const void *fdt)
-{
-	(void)fdt;
-	__sparkle_fdt_dbg('a');
-	return 0;
-}
 
 bool __init early_init_dt_verify(void *params)
 {
