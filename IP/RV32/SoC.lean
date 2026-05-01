@@ -210,6 +210,10 @@ declare_signal_state SoCState
   | dMissPC        : BitVec 32  := 0#32
   | dMissVaddr     : BitVec 32  := 0#32
   | dMissIsStore   : Bool       := false
+  -- Stall-delay register (122). Captures previous-cycle's `stall` so that
+  -- the cycle-after-stall-release squashes its IDEX, preventing the same
+  -- instruction from being latched twice (see squash usage above).
+  | stallDelay     : Bool       := false
 
 /-- Loop body for RV32I SoC (122 registers).
     Parameterized by `imem_rdata` (pre-resolved instruction read data) so the
@@ -227,6 +231,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let pcReg          := SoCState.pcReg state
     let fetchPC        := SoCState.fetchPC state
     let flushDelay     := SoCState.flushDelay state
+    let stallDelay     := SoCState.stallDelay state
     let ifid_inst      := SoCState.ifid_inst state
     let ifid_pc        := SoCState.ifid_pc state
     let ifid_pc4       := SoCState.ifid_pc4 state
@@ -1080,7 +1085,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let suppressEXWB := trap_taken ||| (dTLBMiss ||| holdEX)
     let validEX := ~~~suppressEXWB
     let idex_isCsr_valid := idex_isCsr &&& validEX
-    let squash := (stall &&& (~~~freezeIDEX)) ||| flushOrDelay
+    -- Bug fix (idex-double-latch on ifetchStall release): when ifetchStall
+    -- transitions from 1→0, fetchPC lags pcReg by one extra cycle, causing
+    -- IFID to hold the same instruction for two cycles, propagating into
+    -- IDEX twice. Adding `stallDelay` (= prev-cycle's ifetchStall) to
+    -- squash NOPs out the duplicate. We only gate on ifetchStall (not
+    -- general stall) because load-use data-hazard stalls don't have this
+    -- issue — they don't desync fetchPC from pcReg.
+    let squash := (stall &&& (~~~freezeIDEX)) ||| flushOrDelay ||| stallDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
     let clintWE := idex_memWrite &&& (isCLINT_ex &&& validEX)
@@ -1547,7 +1559,8 @@ def rv32iSoCBody {dom : DomainConfig}
       -- D-side TLB miss registers (119-121)
       Signal.register 0#32 dMissPCNext,
       Signal.register 0#32 dMissVaddrNext,
-      Signal.register false dMissIsStoreNext
+      Signal.register false dMissIsStoreNext,
+      Signal.register false ifetchStall  -- stallDelay (last to keep state-index stability for older registers)
     ]
 
 /-- Backward-compatible wrapper using firmware function for IMEM read. -/

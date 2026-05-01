@@ -174,10 +174,9 @@ def main (args : List String) : IO UInt32 := do
   let wireExtraIndices : Array UInt32 ←
     try
       JIT.resolveWires handle
-        #["_gen_exwb_physAddr", "_gen_prevStoreAddr", "_gen_prevStoreEn",
-          "_shadow_busRdataRaw", "_shadow_dmem_rdata", "_shadow_dmem_read_addr",
-          "_shadow_effectiveAddr", "_gen_prevStoreData",
-          "_shadow_wb_result", "_shadow_wb_en", "_gen_exwb_rd"]
+        #["_shadow_idex_pc", "_shadow_stall", "_shadow_squash",
+          "_shadow_ifetchStall", "_shadow_alu_result",
+          "_shadow_idex_regWrite", "_shadow_idex_rd", "_gen_exwb_rd"]
     catch _ => pure (#[] : Array UInt32)
   let snapCounterRef : IO.Ref Nat ← IO.mkRef 0
   let hasShadows := wireExtraIndices.size > 0
@@ -238,15 +237,19 @@ def main (args : List String) : IO UInt32 := do
       -- Verilator-equivalent trap/SATP/(optional)PTW logging.
       if traceEnabled then
         Sparkle.IP.RV32.JITDebug.observe traceRef cycle out (verbose := verbosePTW)
-      -- Monitor sp changes in the danger window. Requires shadow wires.
+      -- Monitor pipeline state in the danger window.
       if hasShadows then
-        let spNow ← JIT.getMem handle 5 2  -- rf_rs1_raw[2] = sp
-        let lastSp ← lastSpRef.get
-        if cycle > 2_848_800 && cycle < 2_848_950 then
-          let we ← JIT.getWire handle wireExtraIndices[9]!  -- wb_en
-          let rd ← JIT.getWire handle wireExtraIndices[10]! -- exwb_rd
-          let wr ← JIT.getWire handle wireExtraIndices[8]!  -- wb_result
-          IO.println s!"CYC c={cycle} PC=0x{toHex32 out.pc.toNat} sp=0x{toHex32 spNow.toNat} lastSp=0x{toHex32 lastSp.toNat} wbE={we.toNat} rd={rd.toNat} wbR=0x{toHex32 wr.toNat}"
+        let spNow ← JIT.getMem handle 5 2
+        if cycle > 2_848_855 && cycle < 2_848_900 then
+          let idexPc ← JIT.getWire handle wireExtraIndices[0]!
+          let stall ← JIT.getWire handle wireExtraIndices[1]!
+          let squash ← JIT.getWire handle wireExtraIndices[2]!
+          let ifs ← JIT.getWire handle wireExtraIndices[3]!
+          let alu ← JIT.getWire handle wireExtraIndices[4]!
+          let idexRegW ← JIT.getWire handle wireExtraIndices[5]!
+          let idexRd ← JIT.getWire handle wireExtraIndices[6]!
+          let exwbRd ← JIT.getWire handle wireExtraIndices[7]!
+          IO.println s!"CYC c={cycle} PC=0x{toHex32 out.pc.toNat} idexPc=0x{toHex32 idexPc.toNat} st={stall.toNat} sq={squash.toNat} ifs={ifs.toNat} alu=0x{toHex32 alu.toNat} idexRW={idexRegW.toNat} idexRd={idexRd.toNat} exwbRd={exwbRd.toNat} sp=0x{toHex32 spNow.toNat}"
           lastSpRef.set spNow
 
       -- Snapshot wires when PC is in the trap handler. Record FIRST 600
