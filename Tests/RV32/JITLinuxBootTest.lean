@@ -267,9 +267,14 @@ def main (args : List String) : IO UInt32 := do
         if we.toNat == 1 && waddrN >= 0x728800 && waddrN < 0x728c00 && pcN >= 0xc0000000 then
           IO.println s!"PGD-WRITE c={cycle} PC=0x{toHex32 pcN} wordAddr=0x{toHex32 waddrN} (entry [{(waddrN - 0x728800)}])"
 
-      -- Trace __of_device_is_compatible entry: print a1 (compat ptr) at PC=c0471ebc
+      -- Trace __of_device_is_compatible entry: print a1 at idexPc=c0471ebc
       if hasShadows && wireExtraIndices.size >= 31 then
         let pcN := out.pc.toNat
+        let idexPcN ← (do let v ← JIT.getWire handle wireExtraIndices[0]!; pure v.toNat)
+        if idexPcN == 0xc0471ebc then
+          let a1 ← JIT.getMem handle 5 11
+          let s3' ← JIT.getMem handle 5 19
+          IO.println s!"DICX c={cycle} idexPc=0x{toHex32 idexPcN} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3'.toNat}"
         if pcN == 0xc0471ebc then
           let a1 ← JIT.getMem handle 5 11
           let s3 ← JIT.getMem handle 5 19
@@ -284,6 +289,25 @@ def main (args : List String) : IO UInt32 := do
           let ra ← JIT.getMem handle 5 1
           let sp ← JIT.getMem handle 5 2
           IO.println s!"SCC c={cycle} a0=0x{toHex32 a0.toNat} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat} sp=0x{toHex32 sp.toNat}"
+        -- Trace lw ra at riscv_get_intc_hwnode epilogue (PC c00026bc)
+        if cycle >= 9149015 && cycle <= 9149040 then
+          let idexPcA ← JIT.getWire handle wireExtraIndices[0]!
+          let aluA ← JIT.getWire handle wireExtraIndices[4]!
+          let dmemRdataA ← JIT.getWire handle wireExtraIndices[29]!
+          let dmemRaddrA ← JIT.getWire handle wireExtraIndices[30]!
+          let raPaA := 0x80000000 + (dmemRaddrA.toNat <<< 2)
+          let ra' ← JIT.getMem handle 5 1
+          IO.println s!"L c={cycle} PC=0x{toHex32 out.pc.toNat} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} rAddr=0x{toHex32 raPaA} rdata=0x{toHex32 dmemRdataA.toNat} ra=0x{toHex32 ra'.toNat}"
+        if cycle >= 9148960 && cycle <= 9148990 then
+          let s3 ← JIT.getMem handle 5 19
+          let idexPc2 ← JIT.getWire handle wireExtraIndices[0]!
+          let pc2 := out.pc.toNat
+          let alu ← JIT.getWire handle wireExtraIndices[4]!
+          let dmemRdata ← JIT.getWire handle wireExtraIndices[29]!
+          let dmemRaddr ← JIT.getWire handle wireExtraIndices[30]!
+          let raPaN := 0x80000000 + (dmemRaddr.toNat <<< 2)
+          IO.println s!"FULL c={cycle} PC=0x{toHex32 pc2} idexPc=0x{toHex32 idexPc2.toNat} alu=0x{toHex32 alu.toNat} rAddr=0x{toHex32 raPaN} rdata=0x{toHex32 dmemRdata.toNat} s3=0x{toHex32 s3.toNat}"
+
         -- Watch every store of value 0xfffffdfb anywhere
         let dmemWeS ← JIT.getWire handle wireExtraIndices[8]!
         if dmemWeS.toNat == 1 then
