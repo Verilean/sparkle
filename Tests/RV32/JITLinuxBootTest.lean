@@ -195,7 +195,10 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_dmem_write_data",
           "_shadow_idex_imm", "_shadow_alu_a", "_shadow_alu_b",
           "_shadow_idex_aluSrcB", "_shadow_idex_rs1Val", "_shadow_ex_rs1",
-          "_shadow_fwd_rs1_match"]
+          "_shadow_fwd_rs1_match",
+          "_shadow_mipSoftReg", "_shadow_sieReg", "_shadow_mstatusReg",
+          "_shadow_privMode", "_shadow_mipValue", "_shadow_sTimerInt",
+          "_shadow_midelegReg"]
     catch e =>
       IO.println s!"resolveWires extra failed: {e.toString}"
       pure (#[] : Array UInt32)
@@ -270,6 +273,27 @@ def main (args : List String) : IO UInt32 := do
         if we.toNat == 1 && waddrN >= 0x728800 && waddrN < 0x728c00 && pcN >= 0xc0000000 then
           IO.println s!"PGD-WRITE c={cycle} PC=0x{toHex32 pcN} wordAddr=0x{toHex32 waddrN} (entry [{(waddrN - 0x728800)}])"
 
+      -- Trace S-mode interrupt state at sample cycles + on traps near 9.2M.
+      if hasShadows && wireExtraIndices.size >= 62 then
+        let mipSoft ← JIT.getWire handle wireExtraIndices[55]!
+        let priv ← JIT.getWire handle wireExtraIndices[58]!
+        -- Sample snapshot every 1M cycles.
+        if cycle % 1000000 == 0 then
+          let sie ← JIT.getWire handle wireExtraIndices[56]!
+          let mstatus ← JIT.getWire handle wireExtraIndices[57]!
+          let mipV ← JIT.getWire handle wireExtraIndices[59]!
+          let sTI ← JIT.getWire handle wireExtraIndices[60]!
+          let mideleg ← JIT.getWire handle wireExtraIndices[61]!
+          IO.println s!"INT c={cycle} mipSoft=0x{toHex32 mipSoft.toNat} sie=0x{toHex32 sie.toNat} mstatus=0x{toHex32 mstatus.toNat} priv={priv.toNat} mipV=0x{toHex32 mipV.toNat} sTimer={sTI.toNat} mideleg=0x{toHex32 mideleg.toNat}"
+        -- Detailed trace around the 9.2M cycle area where the panic happens.
+        if cycle >= 9247000 && cycle <= 9249500 then
+          let sie ← JIT.getWire handle wireExtraIndices[56]!
+          let mstatus ← JIT.getWire handle wireExtraIndices[57]!
+          let mipV ← JIT.getWire handle wireExtraIndices[59]!
+          let sTI ← JIT.getWire handle wireExtraIndices[60]!
+          let mideleg ← JIT.getWire handle wireExtraIndices[61]!
+          IO.println s!"P c={cycle} PC=0x{toHex32 out.pc.toNat} priv={priv.toNat} mip=0x{toHex32 mipV.toNat} mipSoft=0x{toHex32 mipSoft.toNat} sie=0x{toHex32 sie.toNat} mstat=0x{toHex32 mstatus.toNat} sTI={sTI.toNat} mideleg=0x{toHex32 mideleg.toNat}"
+
       -- Trace __of_device_is_compatible entry: print a1 at idexPc=c0471ebc
       if hasShadows && wireExtraIndices.size >= 31 then
         let pcN := out.pc.toNat
@@ -316,19 +340,16 @@ def main (args : List String) : IO UInt32 := do
           IO.println s!"  T2 V={t2Vd.toNat} M={t2M.toNat} VPN=0x{toHex32 t2V.toNat} PPN=0x{toHex32 t2P.toNat}"
           IO.println s!"  T3 V={t3Vd.toNat} M={t3M.toNat} VPN=0x{toHex32 t3V.toNat} PPN=0x{toHex32 t3P.toNat}"
 
-        -- Trace addi sp/sw sp area: cycle 9148988-9149005 + lw ra area 9149020-9149040
-        if (cycle >= 9148988 && cycle <= 9149005) || (cycle >= 9149005 && cycle <= 9149040) then
+        -- Trace cycle 9149005-9149025 with mmu/dMiss state
+        if cycle >= 9149005 && cycle <= 9149025 then
           let idexPcA ← JIT.getWire handle wireExtraIndices[0]!
           let aluA ← JIT.getWire handle wireExtraIndices[4]!
-          let imm ← JIT.getWire handle wireExtraIndices[48]!
-          let aluA' ← JIT.getWire handle wireExtraIndices[49]!
-          let aluB ← JIT.getWire handle wireExtraIndices[50]!
-          let srcB ← JIT.getWire handle wireExtraIndices[51]!
-          let rs1Val ← JIT.getWire handle wireExtraIndices[52]!
-          let exRs1 ← JIT.getWire handle wireExtraIndices[53]!
-          let fwdM ← JIT.getWire handle wireExtraIndices[54]!
+          let regWb ← JIT.getWire handle wireExtraIndices[5]!
+          let regRd ← JIT.getWire handle wireExtraIndices[6]!
+          let mmuSt ← JIT.getWire handle wireExtraIndices[17]!
+          let dMiss ← JIT.getWire handle wireExtraIndices[19]!
           let sp ← JIT.getMem handle 5 2
-          IO.println s!"F c={cycle} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} imm=0x{toHex32 imm.toNat} a=0x{toHex32 aluA'.toNat} b=0x{toHex32 aluB.toNat} srcB={srcB.toNat} rs1V=0x{toHex32 rs1Val.toNat} exRs1=0x{toHex32 exRs1.toNat} fwd={fwdM.toNat} sp_reg=0x{toHex32 sp.toNat}"
+          IO.println s!"F c={cycle} PC=0x{toHex32 out.pc.toNat} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} regW={regWb.toNat} rd={regRd.toNat} mmu={mmuSt.toNat} dMiss={dMiss.toNat} sp=0x{toHex32 sp.toNat}"
         if cycle >= 9148960 && cycle <= 9148990 then
           let s3 ← JIT.getMem handle 5 19
           let idexPc2 ← JIT.getWire handle wireExtraIndices[0]!
