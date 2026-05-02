@@ -503,7 +503,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let dmem_read_addr  := Signal.mux ptwMemActive ptwMemWordAddr
       (Signal.mux pendingWriteEn pendWriteWordAddr
         (effectiveAddr.map (BitVec.extractLsb' 2 23 ·)))
-    let dmem_we := idex_memWrite &&& (isDMEM_ex &&& (~~~dTLBMiss))
+    -- SC fail at EX: if SC and reservation invalid OR addr mismatch, suppress
+    -- the memory write. The PA at EX time may be raw (if no MMU) or translated
+    -- (effectiveAddr is the chosen one); use that for reservation match.
+    let idexIsSC_ex := idex_isAMO &&& (idex_amoOp === 0b00011#5)
+    let scExAddrMatch := effectiveAddr === reservationAddr
+    let scExFails := idexIsSC_ex &&& (~~~(reservationValid &&& scExAddrMatch))
+    let dmem_we := idex_memWrite &&& (isDMEM_ex &&& (~~~dTLBMiss)) &&& (~~~scExFails)
 
     -- Sub-word store: byte-enable logic based on funct3 and addr[1:0]
     let storeByteOff := alu_result_approx.map (BitVec.extractLsb' 0 2 ·)
@@ -723,8 +729,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let pendingWriteAddrNext := Signal.mux exwb_isAMOrw exwb_physAddr pendingWriteAddr
     let pendingWriteDataNext := Signal.mux exwb_isAMOrw amoNewVal pendingWriteData
 
-    -- SC.W result: rd = 0 (always succeeds on single-hart)
-    let wb_result := Signal.mux exwb_isSC (Signal.pure 0#32)
+    -- SC.W: succeeds iff reservation is valid and matches target PA. Per
+    -- RISC-V spec, traps (and other context switches) must invalidate the
+    -- reservation; this is implemented in resValidNext below.
+    let scAddrMatch := exwb_physAddr === reservationAddr
+    let scSucceeds  := reservationValid &&& scAddrMatch
+    let wb_result := Signal.mux exwb_isSC
+                       (Signal.mux scSucceeds (Signal.pure 0#32) (Signal.pure 1#32))
                        (Signal.mux exwb_isCsr exwb_csrRdata
                        (Signal.mux exwb_jump exwb_pc4
                        (Signal.mux exwb_m2r busRdata
@@ -1371,10 +1382,19 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux idex_isSret sretPriv
         privMode)))
 
-    -- A-ext: Reservation management (LR sets, SC clears)
-    -- Use exwb_physAddr (translated PA) for consistency with the AMO writeback path.
-    let resValidNext := Signal.mux exwb_isLR (Signal.pure true)
-                          (Signal.mux exwb_isSC (Signal.pure false) reservationValid)
+    -- A-ext: Reservation management.
+    -- LR sets the reservation. SC always clears it (whether it succeeded or not,
+    -- per RISC-V spec). Traps and SFENCE.VMA also invalidate the reservation —
+    -- this is critical for correctness of LR/SC across interrupts and
+    -- privilege transitions, since otherwise an LR followed by an interrupt
+    -- followed by an SC would silently succeed despite intervening code that
+    -- may have modified the reservation set.
+    -- Use exwb_physAddr (translated PA) for consistency with the AMO writeback.
+    let trapClearsRes := trap_taken
+    let resValidNext :=
+      Signal.mux trapClearsRes (Signal.pure false)
+        (Signal.mux exwb_isLR (Signal.pure true)
+        (Signal.mux exwb_isSC (Signal.pure false) reservationValid))
     let resAddrNext := Signal.mux exwb_isLR exwb_physAddr reservationAddr
 
     -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority.
