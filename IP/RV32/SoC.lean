@@ -1085,14 +1085,21 @@ def rv32iSoCBody {dom : DomainConfig}
                           (Signal.mux stall ifid_inst final_imem_rdata)
     let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
     let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
-    -- holdEX: freeze EX stage when DMEM port is hijacked by pending write
-    let holdEX := pendingWriteEn
+    -- holdEX: freeze EX stage when DMEM port is hijacked by pending write OR
+    -- when MMU is doing a PTW. During PTW the IDEX→EXWB advance must stall so
+    -- the dMissPC redirect (after MMU-DONE) can re-execute the faulting load
+    -- without having let any subsequent instructions commit side effects.
+    let holdEX := pendingWriteEn ||| mmuBusy
     -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
     let freezeIDEX := holdEX ||| (divStall &&& (~~~flushOrDelay))
-    -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, or holdEX
-    -- trap_taken must suppress EX stage side effects (register write, CSR write, pending store)
-    -- to prevent corrupting state when the instruction will be re-executed after mret/sret
-    let suppressEXWB := trap_taken ||| (dTLBMiss ||| holdEX)
+    -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, holdEX,
+    -- mmuBusy, or dMMURedirect.
+    -- mmuBusy: covers the cycle window during PTW.
+    -- dMMURedirect: at the cycle MMU completes PTW, the IDEX register holds an
+    -- instruction (the post-load) that was previously frozen. After this cycle
+    -- the PC is redirected to dMissPC and the load re-executes, so the
+    -- previously-frozen instruction must NOT advance to EXWB.
+    let suppressEXWB := trap_taken ||| (dTLBMiss ||| holdEX) ||| dMMURedirect
     let validEX := ~~~suppressEXWB
     let idex_isCsr_valid := idex_isCsr &&& validEX
     -- Bug fix (idex-double-latch on ifetchStall release): when ifetchStall
