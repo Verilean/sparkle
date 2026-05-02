@@ -1085,11 +1085,8 @@ def rv32iSoCBody {dom : DomainConfig}
                           (Signal.mux stall ifid_inst final_imem_rdata)
     let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
     let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
-    -- holdEX: freeze EX stage when DMEM port is hijacked by pending write OR
-    -- when MMU is doing a PTW. During PTW the IDEX→EXWB advance must stall so
-    -- the dMissPC redirect (after MMU-DONE) can re-execute the faulting load
-    -- without having let any subsequent instructions commit side effects.
-    let holdEX := pendingWriteEn ||| mmuBusy
+    -- holdEX: freeze EX stage when DMEM port is hijacked by pending write
+    let holdEX := pendingWriteEn
     -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
     let freezeIDEX := holdEX ||| (divStall &&& (~~~flushOrDelay))
     -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, or holdEX
