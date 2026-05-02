@@ -289,6 +289,30 @@ def main (args : List String) : IO UInt32 := do
           let ra ← JIT.getMem handle 5 1
           let sp ← JIT.getMem handle 5 2
           IO.println s!"SCC c={cycle} a0=0x{toHex32 a0.toNat} a1=0x{toHex32 a1.toNat} s3=0x{toHex32 s3.toNat} ra=0x{toHex32 ra.toNat} sp=0x{toHex32 sp.toNat}"
+        -- Dump TLB at the cycle where wrong PA was returned
+        if cycle == 9149025 then
+          let t0V ← JIT.getWire handle wireExtraIndices[31]!
+          let t0P ← JIT.getWire handle wireExtraIndices[32]!
+          let t0Vd ← JIT.getWire handle wireExtraIndices[33]!
+          let t0M ← JIT.getWire handle wireExtraIndices[34]!
+          let t1V ← JIT.getWire handle wireExtraIndices[35]!
+          let t1P ← JIT.getWire handle wireExtraIndices[36]!
+          let t1Vd ← JIT.getWire handle wireExtraIndices[37]!
+          let t1M ← JIT.getWire handle wireExtraIndices[38]!
+          let t2V ← JIT.getWire handle wireExtraIndices[39]!
+          let t2P ← JIT.getWire handle wireExtraIndices[40]!
+          let t2Vd ← JIT.getWire handle wireExtraIndices[41]!
+          let t2M ← JIT.getWire handle wireExtraIndices[42]!
+          let t3V ← JIT.getWire handle wireExtraIndices[43]!
+          let t3P ← JIT.getWire handle wireExtraIndices[44]!
+          let t3Vd ← JIT.getWire handle wireExtraIndices[45]!
+          let t3M ← JIT.getWire handle wireExtraIndices[46]!
+          IO.println s!"TLB c={cycle}"
+          IO.println s!"  T0 V={t0Vd.toNat} M={t0M.toNat} VPN=0x{toHex32 t0V.toNat} PPN=0x{toHex32 t0P.toNat}"
+          IO.println s!"  T1 V={t1Vd.toNat} M={t1M.toNat} VPN=0x{toHex32 t1V.toNat} PPN=0x{toHex32 t1P.toNat}"
+          IO.println s!"  T2 V={t2Vd.toNat} M={t2M.toNat} VPN=0x{toHex32 t2V.toNat} PPN=0x{toHex32 t2P.toNat}"
+          IO.println s!"  T3 V={t3Vd.toNat} M={t3M.toNat} VPN=0x{toHex32 t3V.toNat} PPN=0x{toHex32 t3P.toNat}"
+
         -- Trace lw ra at riscv_get_intc_hwnode epilogue (PC c00026bc)
         if cycle >= 9149015 && cycle <= 9149040 then
           let idexPcA ← JIT.getWire handle wireExtraIndices[0]!
@@ -297,7 +321,11 @@ def main (args : List String) : IO UInt32 := do
           let dmemRaddrA ← JIT.getWire handle wireExtraIndices[30]!
           let raPaA := 0x80000000 + (dmemRaddrA.toNat <<< 2)
           let ra' ← JIT.getMem handle 5 1
-          IO.println s!"L c={cycle} PC=0x{toHex32 out.pc.toNat} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} rAddr=0x{toHex32 raPaA} rdata=0x{toHex32 dmemRdataA.toNat} ra=0x{toHex32 ra'.toNat}"
+          let mmuSt ← JIT.getWire handle wireExtraIndices[17]!
+          let ptwSt ← JIT.getWire handle wireExtraIndices[18]!
+          let dMiss ← JIT.getWire handle wireExtraIndices[19]!
+          let tHit ← JIT.getWire handle wireExtraIndices[20]!
+          IO.println s!"L c={cycle} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} rAddr=0x{toHex32 raPaA} rdata=0x{toHex32 dmemRdataA.toNat} mmu={mmuSt.toNat} ptw={ptwSt.toNat} dMiss={dMiss.toNat} tHit={tHit.toNat}"
         if cycle >= 9148960 && cycle <= 9148990 then
           let s3 ← JIT.getMem handle 5 19
           let idexPc2 ← JIT.getWire handle wireExtraIndices[0]!
@@ -317,7 +345,7 @@ def main (args : List String) : IO UInt32 := do
           -- The store data isn't directly shadow; check via heuristic on rs2 (rs2_byte0..3 not shadow either)
           -- So we filter on store target PA = 0x809e7e7c (= where 0xfffffdfb appeared)
           let paS := 0x80000000 + (waddrNS <<< 2)
-          if paS == 0x809e7e7c then
+          if paS == 0x809e7e7c || paS == 0x809e7e8c || paS == 0x805e7e8c then
             let idexPcS ← JIT.getWire handle wireExtraIndices[0]!
             let wdataS ← JIT.getWire handle wireExtraIndices[47]!
             IO.println s!"STORE_TARGET c={cycle} idexPc=0x{toHex32 idexPcS.toNat} alu=0x{toHex32 aluS.toNat} PA=0x{toHex32 paS} data=0x{toHex32 wdataS.toNat}"
