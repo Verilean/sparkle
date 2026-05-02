@@ -192,7 +192,10 @@ def main (args : List String) : IO UInt32 := do
           "_shadow_tlb1VPN", "_shadow_tlb1PPN", "_shadow_tlb1Valid", "_shadow_tlb1Mega",
           "_shadow_tlb2VPN", "_shadow_tlb2PPN", "_shadow_tlb2Valid", "_shadow_tlb2Mega",
           "_shadow_tlb3VPN", "_shadow_tlb3PPN", "_shadow_tlb3Valid", "_shadow_tlb3Mega",
-          "_shadow_dmem_write_data"]
+          "_shadow_dmem_write_data",
+          "_shadow_idex_imm", "_shadow_alu_a", "_shadow_alu_b",
+          "_shadow_idex_aluSrcB", "_shadow_idex_rs1Val", "_shadow_ex_rs1",
+          "_shadow_fwd_rs1_match"]
     catch e =>
       IO.println s!"resolveWires extra failed: {e.toString}"
       pure (#[] : Array UInt32)
@@ -313,19 +316,19 @@ def main (args : List String) : IO UInt32 := do
           IO.println s!"  T2 V={t2Vd.toNat} M={t2M.toNat} VPN=0x{toHex32 t2V.toNat} PPN=0x{toHex32 t2P.toNat}"
           IO.println s!"  T3 V={t3Vd.toNat} M={t3M.toNat} VPN=0x{toHex32 t3V.toNat} PPN=0x{toHex32 t3P.toNat}"
 
-        -- Trace lw ra at riscv_get_intc_hwnode epilogue (PC c00026bc)
-        if cycle >= 9149015 && cycle <= 9149040 then
+        -- Trace addi sp/sw sp area: cycle 9148988-9149005 + lw ra area 9149020-9149040
+        if (cycle >= 9148988 && cycle <= 9149005) || (cycle >= 9149005 && cycle <= 9149040) then
           let idexPcA ← JIT.getWire handle wireExtraIndices[0]!
           let aluA ← JIT.getWire handle wireExtraIndices[4]!
-          let dmemRdataA ← JIT.getWire handle wireExtraIndices[29]!
-          let dmemRaddrA ← JIT.getWire handle wireExtraIndices[30]!
-          let raPaA := 0x80000000 + (dmemRaddrA.toNat <<< 2)
-          let ra' ← JIT.getMem handle 5 1
-          let mmuSt ← JIT.getWire handle wireExtraIndices[17]!
-          let ptwSt ← JIT.getWire handle wireExtraIndices[18]!
-          let dMiss ← JIT.getWire handle wireExtraIndices[19]!
-          let tHit ← JIT.getWire handle wireExtraIndices[20]!
-          IO.println s!"L c={cycle} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} rAddr=0x{toHex32 raPaA} rdata=0x{toHex32 dmemRdataA.toNat} mmu={mmuSt.toNat} ptw={ptwSt.toNat} dMiss={dMiss.toNat} tHit={tHit.toNat}"
+          let imm ← JIT.getWire handle wireExtraIndices[48]!
+          let aluA' ← JIT.getWire handle wireExtraIndices[49]!
+          let aluB ← JIT.getWire handle wireExtraIndices[50]!
+          let srcB ← JIT.getWire handle wireExtraIndices[51]!
+          let rs1Val ← JIT.getWire handle wireExtraIndices[52]!
+          let exRs1 ← JIT.getWire handle wireExtraIndices[53]!
+          let fwdM ← JIT.getWire handle wireExtraIndices[54]!
+          let sp ← JIT.getMem handle 5 2
+          IO.println s!"F c={cycle} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} imm=0x{toHex32 imm.toNat} a=0x{toHex32 aluA'.toNat} b=0x{toHex32 aluB.toNat} srcB={srcB.toNat} rs1V=0x{toHex32 rs1Val.toNat} exRs1=0x{toHex32 exRs1.toNat} fwd={fwdM.toNat} sp_reg=0x{toHex32 sp.toNat}"
         if cycle >= 9148960 && cycle <= 9148990 then
           let s3 ← JIT.getMem handle 5 19
           let idexPc2 ← JIT.getWire handle wireExtraIndices[0]!
