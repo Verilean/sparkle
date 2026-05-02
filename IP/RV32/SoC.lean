@@ -1323,18 +1323,28 @@ def rv32iSoCBody {dom : DomainConfig}
     let mtvecNext := Signal.mux (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
     let mscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
     -- mepc: use fetchPC for instruction page fault, dMissPC for d-side page fault.
-    -- For asynchronous interrupts (timer/sw/ext, M-mode and S-mode), the trap is
-    -- not associated with any in-flight instruction; mepc must be the PC of the
-    -- *next* instruction that would have run had the interrupt not fired. That's
-    -- the FETCH PC (pcReg), not idex_pc — idex_pc may be a stale instruction left
-    -- in the pipeline (e.g., the mret that just transitioned us to a new priv).
-    -- For synchronous traps tied to an in-flight instruction (ecall, illegal),
-    -- idex_pc remains correct.
+    -- For asynchronous interrupts (timer/sw/ext, M-mode and S-mode), the trap
+    -- is not associated with any in-flight instruction. We need to set mepc
+    -- to the PC of the next instruction the kernel should run after sret.
+    -- Two cases:
+    --  (a) IDEX has a valid in-flight instruction: it was suppressed by
+    --      suppressEXWB and never committed. mepc = idex_pc so it re-runs.
+    --  (b) IDEX has been squashed (e.g., post-mret transition cycle), so
+    --      idex_pc may point into stale (M-mode) territory. In that case,
+    --      use pcReg (the redirected next-fetch PC) as mepc.
+    -- We detect "IDEX has a valid live instruction" by checking the OR of the
+    -- IDEX side-effect-bearing control bits — if none are set, IDEX is a NOP
+    -- (squashed) and pcReg is the right choice.
     let isAsyncInt := timerIntEnabled ||| swIntEnabled ||| sTimerIntEnabled |||
                       sSwIntEnabled ||| sExtIntEnabled
+    let idexLive := idex_regWrite ||| idex_memRead ||| idex_memWrite |||
+                    idex_jump ||| idex_branch ||| idex_isCsr |||
+                    idex_isEcall ||| idex_isMret ||| idex_isSret |||
+                    idex_isAMO ||| idex_isMext ||| idex_isSFenceVMA
+    let asyncTrapPC := Signal.mux idexLive idex_pc pcReg
     let trapPC := Signal.mux ifetchPageFault fetchPC
       (Signal.mux pageFault dMissPC
-      (Signal.mux isAsyncInt pcReg idex_pc))
+      (Signal.mux isAsyncInt asyncTrapPC idex_pc))
     let mepcNext := Signal.mux trapToM trapPC
       (Signal.mux (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg)
     let mcauseNext := Signal.mux trapToM trapCause
