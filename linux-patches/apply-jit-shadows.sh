@@ -73,6 +73,13 @@ shadow_block = '''
     uint32_t _shadow_idex_rs1Val = 0;
     uint32_t _shadow_ex_rs1 = 0;
     uint8_t _shadow_fwd_rs1_match = 0;
+    uint32_t _shadow_mipSoftReg = 0;
+    uint32_t _shadow_sieReg = 0;
+    uint32_t _shadow_mstatusReg = 0;
+    uint8_t _shadow_privMode = 0;
+    uint32_t _shadow_mipValue = 0;
+    uint8_t _shadow_sTimerInt = 0;
+    uint32_t _shadow_midelegReg = 0;
     // Internal wires'''
 src = src.replace("\n    // Internal wires", shadow_block, 1)
 
@@ -93,7 +100,7 @@ shadow_block = '''
         _shadow_effectiveAddr_ex = _gen_effectiveAddr;
         _shadow_fetchPC = _gen_fetchPC_1;
         _shadow_ifid_pc = _gen_ifid_pc;
-        _shadow_ifid_inst = _tmp_a_8513;
+        _shadow_ifid_inst = _gen_ifid_inst_in;
         _shadow_stallDelay = _gen_stallDelay;
         _shadow_freezeIDEX = _gen_freezeIDEX;
         _shadow_pcReg = _gen_pcReg;
@@ -133,7 +140,14 @@ shadow_block = '''
         _shadow_idex_aluSrcB = _gen_idex_aluSrcB;
         _shadow_idex_rs1Val = _gen_idex_rs1Val;
         _shadow_ex_rs1 = _gen_ex_rs1;
-        _shadow_fwd_rs1_match = _gen_fwd_rs1_match;'''
+        _shadow_fwd_rs1_match = _gen_fwd_rs1_match;
+        _shadow_mipSoftReg = _gen_mipSoftReg;
+        _shadow_sieReg = _gen_sieReg;
+        _shadow_mstatusReg = _gen_mstatusReg;
+        _shadow_privMode = _gen_privMode;
+        _shadow_mipValue = _gen_mipValue;
+        _shadow_sTimerInt = _gen_sTimerIntEnabled;
+        _shadow_midelegReg = _gen_midelegReg;'''
 src = pattern.sub(lambda m: m.group(1) + shadow_block, src)
 
 # 3. jit_get_wire — robust replacement: rewrite the whole switch body
@@ -203,6 +217,13 @@ get_wire_replacement = (
     "            case 74: return (uint64_t)s->_shadow_idex_rs1Val;\n"
     "            case 75: return (uint64_t)s->_shadow_ex_rs1;\n"
     "            case 76: return (uint64_t)s->_shadow_fwd_rs1_match;\n"
+    "            case 77: return (uint64_t)s->_shadow_mipSoftReg;\n"
+    "            case 78: return (uint64_t)s->_shadow_sieReg;\n"
+    "            case 79: return (uint64_t)s->_shadow_mstatusReg;\n"
+    "            case 80: return (uint64_t)s->_shadow_privMode;\n"
+    "            case 81: return (uint64_t)s->_shadow_mipValue;\n"
+    "            case 82: return (uint64_t)s->_shadow_sTimerInt;\n"
+    "            case 83: return (uint64_t)s->_shadow_midelegReg;\n"
     "    }\n"
     "    return 0;\n"
     "}"
@@ -274,6 +295,13 @@ name_replacement = (
     "            case 74: return \"_shadow_idex_rs1Val\";\n"
     "            case 75: return \"_shadow_ex_rs1\";\n"
     "            case 76: return \"_shadow_fwd_rs1_match\";\n"
+    "            case 77: return \"_shadow_mipSoftReg\";\n"
+    "            case 78: return \"_shadow_sieReg\";\n"
+    "            case 79: return \"_shadow_mstatusReg\";\n"
+    "            case 80: return \"_shadow_privMode\";\n"
+    "            case 81: return \"_shadow_mipValue\";\n"
+    "            case 82: return \"_shadow_sTimerInt\";\n"
+    "            case 83: return \"_shadow_midelegReg\";\n"
     "    }\n"
     "    return \"\";\n"
     "}"
@@ -282,7 +310,7 @@ src = name_block_pattern.sub(name_replacement, src, count=1)
 
 # 5. jit_num_wires — replace any prior count
 src = re.sub(r"uint32_t jit_num_wires\(\)    \{ return \d+; \}",
-             "uint32_t jit_num_wires()    { return 77; }", src)
+             "uint32_t jit_num_wires()    { return 84; }", src)
 
 with open(path, "w") as f: f.write(src)
 print("Applied shadows (with IFID/fetchPC).")

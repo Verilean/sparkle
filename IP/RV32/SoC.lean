@@ -214,6 +214,12 @@ declare_signal_state SoCState
   -- the cycle-after-stall-release squashes its IDEX, preventing the same
   -- instruction from being latched twice (see squash usage above).
   | stallDelay     : Bool       := false
+  -- mip software-writable bits (123). Only the S-mode pending bits
+  -- (SSIP=1, STIP=5, SEIP=9) are writable; the M-mode pending bits
+  -- (MSIP=3, MTIP=7) are hardware-driven from CLINT and ORed at read time.
+  -- Used by OpenSBI's `csr_set(CSR_MIP, MIP_STIP)` to forward timer
+  -- interrupts to S-mode.
+  | mipSoftReg     : BitVec 32  := 0#32
 
 /-- Loop body for RV32I SoC (122 registers).
     Parameterized by `imem_rdata` (pre-resolved instruction read data) so the
@@ -286,6 +292,7 @@ def rv32iSoCBody {dom : DomainConfig}
     let mepcReg        := SoCState.mepcReg state
     let mcauseReg      := SoCState.mcauseReg state
     let mtvalReg       := SoCState.mtvalReg state
+    let mipSoftReg     := SoCState.mipSoftReg state
     let aiStatusReg    := SoCState.aiStatusReg state
     let aiInputReg     := SoCState.aiInputReg state
     let exwb_funct3    := SoCState.exwb_funct3 state
@@ -746,7 +753,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
     let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
-    let mipValue := mipTimerBit ||| mipSwBit
+    -- mipValue combines hardware bits (MTIP=7, MSIP=3) with software-writable
+    -- S-mode pending bits (SSIP=1, STIP=5, SEIP=9) from `mipSoftReg`.
+    let mipSoftMask : Signal dom (BitVec 32) := Signal.pure 0x00000222#32
+    let mipValue := mipTimerBit ||| mipSwBit ||| (mipSoftReg &&& mipSoftMask)
     -- CSR address matching (M-mode)
     let csrIsMstatus  := idex_csrAddr === 0x300#12
     let csrIsMie      := idex_csrAddr === 0x304#12
@@ -774,6 +784,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- CSR address matching (counter enable)
     let csrIsMcounteren := idex_csrAddr === 0x306#12
     let csrIsScounteren := idex_csrAddr === 0x106#12
+    -- Counter CSRs (read-only by S/U-mode if mcounteren/scounteren permits)
+    let csrIsTime     := idex_csrAddr === 0xC01#12
+    let csrIsTimeh    := idex_csrAddr === 0xC81#12
+    let csrIsCycle    := idex_csrAddr === 0xC00#12
+    let csrIsCycleh   := idex_csrAddr === 0xC80#12
 
     -- PMP CSR range detection (0x3A0-0x3EF): return 0, silently ignore writes
     let csrAddrHi := idex_csrAddr.map (BitVec.extractLsb' 4 8 ·)  -- bits [11:4]
@@ -809,12 +824,16 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux csrIsSepc sepcReg
       (Signal.mux csrIsScause scauseReg
       (Signal.mux csrIsStval stvalReg
-      (Signal.mux csrIsSip (Signal.pure 0#32)
+      (Signal.mux csrIsSip (mipValue &&& mipSoftMask)
       (Signal.mux csrIsSatp satpReg
       (Signal.mux csrIsMcounteren mcounterenReg
       (Signal.mux csrIsScounteren scounterenReg
+      (Signal.mux csrIsTime mtimeLoReg     -- time CSR (0xC01) = mtime[31:0]
+      (Signal.mux csrIsTimeh mtimeHiReg    -- timeh CSR (0xC81) = mtime[63:32]
+      (Signal.mux csrIsCycle mtimeLoReg    -- cycle CSR (0xC00) ≈ mtime
+      (Signal.mux csrIsCycleh mtimeHiReg   -- cycleh CSR (0xC80) ≈ mtime hi
       (Signal.mux csrIsPmp (Signal.pure 0#32)         -- PMP: return 0
-        (Signal.pure 0#32))))))))))))))))))))))))
+        (Signal.pure 0#32))))))))))))))))))))))))))))
 
     -- Interrupt enable flags
     let mstatusMIE_flag := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
@@ -823,8 +842,33 @@ def rv32iSoCBody {dom : DomainConfig}
     let mstatusSPIE_flag := (mstatusReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
     let mieMTIE_flag := (mieReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     let mieMSIE_flag := (mieReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
-    let timerIntEnabled := mstatusMIE_flag &&& (mieMTIE_flag &&& timerIrq)
-    let swIntEnabled    := mstatusMIE_flag &&& (mieMSIE_flag &&& swIrq)
+    -- M-mode interrupt fires when: (priv==M && mstatus.MIE && mie.bit && pending),
+    -- OR when priv<M && mie.bit && pending (regardless of mstatus.MIE), provided
+    -- the interrupt is NOT delegated to S-mode (mideleg bit clear). If delegated,
+    -- it's handled in S-mode by the S-mode interrupt path below.
+    let privIsM_pre := privMode === 3#2
+    let mTimerNotDelegated := ((midelegReg.map (BitVec.extractLsb' 7 1 ·)) === 0#1)
+    let mSwNotDelegated := ((midelegReg.map (BitVec.extractLsb' 3 1 ·)) === 0#1)
+    let mModeIntEnable := (privIsM_pre &&& mstatusMIE_flag) ||| (~~~privIsM_pre)
+    let timerIntEnabled := mModeIntEnable &&& (mieMTIE_flag &&& timerIrq) &&& mTimerNotDelegated
+    let swIntEnabled    := mModeIntEnable &&& (mieMSIE_flag &&& swIrq) &&& mSwNotDelegated
+    -- S-mode interrupt-enable flags + pending bits (read from mipSoftReg).
+    -- Per RISC-V priv spec, an S-mode interrupt is taken when:
+    --   (currentPriv == S && sstatus.SIE && sie.Sxxx && sip.Sxxx), or
+    --   (currentPriv == U) — interrupts to higher-priv are always enabled.
+    -- And the interrupt is delegated via mideleg (handled later in trapToS path).
+    let privIsU0 := privMode === 0#2
+    let privIsS0 := privMode === 1#2
+    let sieEnableMask := (privIsS0 &&& mstatusSIE_flag) ||| privIsU0
+    let stipPending := (mipSoftReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
+    let ssipPending := (mipSoftReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let seipPending := (mipSoftReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
+    let sieSTIE_flag := (sieReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
+    let sieSSIE_flag := (sieReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let sieSEIE_flag := (sieReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
+    let sTimerIntEnabled := sieEnableMask &&& sieSTIE_flag &&& stipPending
+    let sSwIntEnabled    := sieEnableMask &&& sieSSIE_flag &&& ssipPending
+    let sExtIntEnabled   := sieEnableMask &&& sieSEIE_flag &&& seipPending
 
     -- ECALL cause depends on privilege level
     let privIsU := privMode === 0#2
@@ -840,14 +884,20 @@ def rv32iSoCBody {dom : DomainConfig}
     -- I-side page fault: PTW completed with fault for instruction fetch
     let ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
 
-    let trap_taken := ((idex_isEcall ||| pageFault) ||| (timerIntEnabled ||| swIntEnabled)) ||| ifetchPageFault
+    let anyInt := timerIntEnabled ||| swIntEnabled ||| sTimerIntEnabled ||| sSwIntEnabled ||| sExtIntEnabled
+    let trap_taken := ((idex_isEcall ||| pageFault) ||| anyInt) ||| ifetchPageFault
+    -- Cause priority (per priv spec): MEI > MSI > MTI > SEI > SSI > STI for interrupts.
+    -- We don't model external M-mode here, so order is: MTI, MSI, SEI, SSI, STI.
     let trapCause :=
       Signal.mux ifetchPageFault (Signal.pure 0x0000000C#32)  -- cause 12: instruction page fault
       (Signal.mux idex_isEcall ecallCause
       (Signal.mux pageFault pageFaultCause
       (Signal.mux timerIntEnabled (Signal.pure 0x80000007#32)
       (Signal.mux swIntEnabled (Signal.pure 0x80000003#32)
-        (Signal.pure 0#32)))))
+      (Signal.mux sExtIntEnabled (Signal.pure 0x80000009#32)
+      (Signal.mux sSwIntEnabled (Signal.pure 0x80000001#32)
+      (Signal.mux sTimerIntEnabled (Signal.pure 0x80000005#32)
+        (Signal.pure 0#32))))))))
 
     -- Trap delegation: check medeleg/mideleg bits
     let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
@@ -1185,6 +1235,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let mepcNewCSR     := mkCsrNewVal mepcReg
     let mcauseNewCSR   := mkCsrNewVal mcauseReg
     let mtvalNewCSR    := mkCsrNewVal mtvalReg
+    -- mip new value: for CSRRW/CSRRS/CSRRC the operand acts on the *current
+    -- mipValue* (combined HW + soft bits), but only the soft-writable bits
+    -- (SSIP=1, STIP=5, SEIP=9) actually update mipSoftReg.
+    let mipNewCSR      := mkCsrNewVal mipValue
+    let sipNewCSR      := mkCsrNewVal mipValue
     -- CSR new values (S-mode)
     let sieNewCSR      := mkCsrNewVal sieReg
     let stvecNewCSR    := mkCsrNewVal stvecReg
@@ -1256,9 +1311,19 @@ def rv32iSoCBody {dom : DomainConfig}
     let mieNext := Signal.mux (idex_isCsr_valid &&& csrIsMie) mieNewCSR mieReg
     let mtvecNext := Signal.mux (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
     let mscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
-    -- mepc: use fetchPC for instruction page fault, dMissPC for d-side page fault, else idex_pc
+    -- mepc: use fetchPC for instruction page fault, dMissPC for d-side page fault.
+    -- For asynchronous interrupts (timer/sw/ext, M-mode and S-mode), the trap is
+    -- not associated with any in-flight instruction; mepc must be the PC of the
+    -- *next* instruction that would have run had the interrupt not fired. That's
+    -- the FETCH PC (pcReg), not idex_pc — idex_pc may be a stale instruction left
+    -- in the pipeline (e.g., the mret that just transitioned us to a new priv).
+    -- For synchronous traps tied to an in-flight instruction (ecall, illegal),
+    -- idex_pc remains correct.
+    let isAsyncInt := timerIntEnabled ||| swIntEnabled ||| sTimerIntEnabled |||
+                      sSwIntEnabled ||| sExtIntEnabled
     let trapPC := Signal.mux ifetchPageFault fetchPC
-      (Signal.mux pageFault dMissPC idex_pc)
+      (Signal.mux pageFault dMissPC
+      (Signal.mux isAsyncInt pcReg idex_pc))
     let mepcNext := Signal.mux trapToM trapPC
       (Signal.mux (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg)
     let mcauseNext := Signal.mux trapToM trapCause
@@ -1268,6 +1333,17 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux pageFault dMissVaddr (Signal.pure 0#32))
     let mtvalNext := Signal.mux trapToM trapVal
       (Signal.mux (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg)
+    -- mipSoftReg next-state: only SSIP/STIP/SEIP bits update from CSR writes
+    -- (mip CSR or sip CSR). All other bits keep their prior soft value.
+    let mipSoftWriteMask : Signal dom (BitVec 32) := Signal.pure 0x00000222#32
+    let mipWriteEn := idex_isCsr_valid &&& csrIsMip
+    let sipWriteEn := idex_isCsr_valid &&& csrIsSip
+    let mipMaskedNew := mipNewCSR &&& mipSoftWriteMask
+    let sipMaskedNew := sipNewCSR &&& mipSoftWriteMask
+    let mipSoftKept  := mipSoftReg &&& (~~~mipSoftWriteMask)
+    let mipSoftNext :=
+      Signal.mux mipWriteEn (mipSoftKept ||| mipMaskedNew)
+      (Signal.mux sipWriteEn (mipSoftKept ||| sipMaskedNew) mipSoftReg)
 
     -- S-mode CSR next-state
     let sieNext := Signal.mux (idex_isCsr_valid &&& csrIsSie) sieNewCSR sieReg
@@ -1578,7 +1654,8 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register 0#32 dMissPCNext,
       Signal.register 0#32 dMissVaddrNext,
       Signal.register false dMissIsStoreNext,
-      Signal.register false ifetchStall  -- stallDelay (last to keep state-index stability for older registers)
+      Signal.register false ifetchStall,  -- stallDelay (kept stable; new state below)
+      Signal.register 0#32 mipSoftNext     -- mipSoftReg (123): SW-writable mip bits
     ]
 
 /-- Backward-compatible wrapper using firmware function for IMEM read. -/
