@@ -317,18 +317,19 @@ def main (args : List String) : IO UInt32 := do
           IO.println s!"  T3 V={t3Vd.toNat} M={t3M.toNat} VPN=0x{toHex32 t3V.toNat} PPN=0x{toHex32 t3P.toNat}"
 
         -- Trace addi sp/sw sp area: cycle 9148988-9149005 + lw ra area 9149020-9149040
-        if (cycle >= 9148988 && cycle <= 9149005) || (cycle >= 9149005 && cycle <= 9149040) then
+        if cycle >= 9149005 && cycle <= 9149030 then
           let idexPcA ← JIT.getWire handle wireExtraIndices[0]!
           let aluA ← JIT.getWire handle wireExtraIndices[4]!
           let imm ← JIT.getWire handle wireExtraIndices[48]!
           let aluA' ← JIT.getWire handle wireExtraIndices[49]!
           let aluB ← JIT.getWire handle wireExtraIndices[50]!
-          let srcB ← JIT.getWire handle wireExtraIndices[51]!
-          let rs1Val ← JIT.getWire handle wireExtraIndices[52]!
           let exRs1 ← JIT.getWire handle wireExtraIndices[53]!
           let fwdM ← JIT.getWire handle wireExtraIndices[54]!
           let sp ← JIT.getMem handle 5 2
-          IO.println s!"F c={cycle} idexPc=0x{toHex32 idexPcA.toNat} alu=0x{toHex32 aluA.toNat} imm=0x{toHex32 imm.toNat} a=0x{toHex32 aluA'.toNat} b=0x{toHex32 aluB.toNat} srcB={srcB.toNat} rs1V=0x{toHex32 rs1Val.toNat} exRs1=0x{toHex32 exRs1.toNat} fwd={fwdM.toNat} sp_reg=0x{toHex32 sp.toNat}"
+          let ra ← JIT.getMem handle 5 1
+          let regWb ← JIT.getWire handle wireExtraIndices[5]!
+          let regRd ← JIT.getWire handle wireExtraIndices[6]!
+          IO.println s!"F c={cycle} PC=0x{toHex32 out.pc.toNat} idexPc=0x{toHex32 idexPcA.toNat} a=0x{toHex32 aluA'.toNat} b=0x{toHex32 aluB.toNat} alu=0x{toHex32 aluA.toNat} exRs1=0x{toHex32 exRs1.toNat} fwd={fwdM.toNat} regW={regWb.toNat} rd={regRd.toNat} sp=0x{toHex32 sp.toNat} ra=0x{toHex32 ra.toNat}"
         if cycle >= 9148960 && cycle <= 9148990 then
           let s3 ← JIT.getMem handle 5 19
           let idexPc2 ← JIT.getWire handle wireExtraIndices[0]!
