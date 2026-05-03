@@ -56,6 +56,7 @@ import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.CSR.MStatus
+import IP.RV32.Pipeline.SuppressEXWB
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -1158,22 +1159,23 @@ def rv32iSoCBody {dom : DomainConfig}
                           (Signal.mux stall ifid_inst final_imem_rdata)
     let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
     let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
-    -- holdEX: freeze EX stage when DMEM port is hijacked by pending write OR
-    -- when MMU is doing a PTW. During PTW the IDEX→EXWB advance must stall so
-    -- the dMissPC redirect (after MMU-DONE) can re-execute the faulting load
-    -- without having let any subsequent instructions commit side effects.
-    let holdEX := pendingWriteEn ||| mmuBusy
+    -- Pipeline EX/WB suppression: see `IP.RV32.Pipeline.SuppressEXWB`.
+    -- Pure versions `holdEXPure`, `suppressEXWBPure`, `validEXPure`
+    -- are equivalent to the Signal-level versions (theorems
+    -- `*Signal_eq_pure`); proven invariants:
+    --   * each of trap_taken, dTLBMiss, pendingWriteEn, mmuBusy,
+    --     dMMURedirect individually suppresses EX/WB.
+    --   * validEX = ¬suppressEXWB; true iff all five are clear.
+    let holdEX :=
+      Sparkle.IP.RV32.Pipeline.holdEXSignal pendingWriteEn mmuBusy
     -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
     let freezeIDEX := holdEX ||| (divStall &&& (~~~flushOrDelay))
-    -- suppressEXWB: gate EX/WB control signals on trap_taken, dTLBMiss, holdEX,
-    -- mmuBusy, or dMMURedirect.
-    -- mmuBusy: covers the cycle window during PTW.
-    -- dMMURedirect: at the cycle MMU completes PTW, the IDEX register holds an
-    -- instruction (the post-load) that was previously frozen. After this cycle
-    -- the PC is redirected to dMissPC and the load re-executes, so the
-    -- previously-frozen instruction must NOT advance to EXWB.
-    let suppressEXWB := trap_taken ||| (dTLBMiss ||| holdEX) ||| dMMURedirect
-    let validEX := ~~~suppressEXWB
+    let suppressEXWB :=
+      Sparkle.IP.RV32.Pipeline.suppressEXWBSignal
+        trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    let validEX :=
+      Sparkle.IP.RV32.Pipeline.validEXSignal
+        trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
     let idex_isCsr_valid := idex_isCsr &&& validEX
     -- Bug fix (idex-double-latch on ifetchStall release): when ifetchStall
     -- transitions from 1→0, fetchPC lags pcReg by one extra cycle, causing

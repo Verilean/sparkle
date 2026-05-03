@@ -26,3 +26,4 @@ import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.CSR.MStatus
+import IP.RV32.Pipeline.SuppressEXWB
