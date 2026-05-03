@@ -55,6 +55,7 @@ import IP.RV32.AMO.Reservation
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
+import IP.RV32.CSR.MStatus
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -1310,19 +1311,15 @@ def rv32iSoCBody {dom : DomainConfig}
 
     let mstatusTrapVal := Signal.mux trapToS mstatusTrapSVal mstatusTrapMVal
 
-    -- MRET: MIE←MPIE, MPIE←1, MPP←0
-    let msClearMPP := mstatusReg &&& 0xFFFFE7FF#32
-    let msRestoreMIE := Signal.mux mstatusMPIE_flag
-      (msClearMPP ||| 0x00000008#32)
-      (msClearMPP &&& 0xFFFFFFF7#32)
-    let mstatusMretVal := msRestoreMIE ||| 0x00000080#32
-
-    -- SRET: SIE←SPIE, SPIE←1, SPP←0
-    let msClearSPP := mstatusReg &&& 0xFFFFFEFF#32
-    let msRestoreSIE := Signal.mux mstatusSPIE_flag
-      (msClearSPP ||| 0x00000002#32)
-      (msClearSPP &&& 0xFFFFFFFD#32)
-    let mstatusSretVal := msRestoreSIE ||| 0x00000020#32
+    -- MRET / SRET mstatus transformers: see `IP.RV32.CSR.MStatus`.
+    -- Pure versions `mstatusMretVal_pure` / `mstatusSretVal_pure` are
+    -- proven (via `bv_decide`) to satisfy the bit-level priv-spec
+    -- (MIE←MPIE, MPIE←1, MPP←0 for MRET; symmetric for SRET) and to
+    -- equal the impl-style mask-and-or expressions below.
+    let mstatusMretVal :=
+      Sparkle.IP.RV32.CSR.mstatusMretValSignal mstatusReg mstatusMPIE_flag
+    let mstatusSretVal :=
+      Sparkle.IP.RV32.CSR.mstatusSretValSignal mstatusReg mstatusSPIE_flag
 
     let mstatusNext := Signal.mux trap_taken mstatusTrapVal
       (Signal.mux idex_isMret mstatusMretVal
