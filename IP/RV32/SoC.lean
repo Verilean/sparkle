@@ -1285,29 +1285,16 @@ def rv32iSoCBody {dom : DomainConfig}
     let sstatusWdataOut := mstatusNonS ||| sstatusMasked
     let sstatusWriteActive := idex_isCsr_valid &&& csrIsSstatus
 
-    -- M-mode trap: MIE→MPIE, clear MIE, MPP←privMode
-    let msClearMIE := mstatusReg &&& 0xFFFFFFF7#32
-    let msSetMPIE := Signal.mux mstatusMIE_flag
-      (msClearMIE ||| 0x00000080#32)
-      (msClearMIE &&& 0xFFFFFF7F#32)
-    -- Set MPP to current privilege: clear MPP bits, then OR in privMode<<11
-    let msSetMPIE_clearMPP := msSetMPIE &&& 0xFFFFE7FF#32
-    let privModeExt := 0#21 ++ (privMode ++ 0#9)
-    let privShifted := privModeExt <<< 2#32
-    let mstatusTrapMVal := msSetMPIE_clearMPP ||| privShifted
-
-    -- S-mode trap: SIE→SPIE, clear SIE, SPP←privMode[0]
-    let msClearSIE := mstatusReg &&& 0xFFFFFFFD#32
-    let msSetSPIE := Signal.mux mstatusSIE_flag
-      (msClearSIE ||| 0x00000020#32)
-      (msClearSIE &&& 0xFFFFFFDF#32)
-    -- SPP = privMode[0] (1 bit at position 8)
-    let privBit0 := privMode.map (BitVec.extractLsb' 0 1 ·)
-    let privBit0IsOne := privBit0 === 1#1
-    let msSetSPP := Signal.mux privBit0IsOne
-      (msSetSPIE ||| 0x00000100#32)
-      (msSetSPIE &&& 0xFFFFFEFF#32)
-    let mstatusTrapSVal := msSetSPP
+    -- Trap-entry mstatus transformers: see `IP.RV32.CSR.MStatus`.
+    -- Pure versions `mstatusTrapMVal_pure` / `mstatusTrapSVal_pure`
+    -- are bv_decide-proven to satisfy the priv-spec bit-level rules
+    -- (MIE←0/SIE←0; MPIE←old MIE / SPIE←old SIE; MPP←priv / SPP←priv[0]).
+    let mstatusTrapMVal :=
+      Sparkle.IP.RV32.CSR.mstatusTrapMValSignal
+        mstatusReg mstatusMIE_flag privMode
+    let mstatusTrapSVal :=
+      Sparkle.IP.RV32.CSR.mstatusTrapSValSignal
+        mstatusReg mstatusSIE_flag privMode
 
     let mstatusTrapVal := Signal.mux trapToS mstatusTrapSVal mstatusTrapMVal
 

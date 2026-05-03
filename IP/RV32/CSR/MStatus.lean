@@ -192,6 +192,140 @@ theorem mstatusSretVal_pure_eq_impl (mstatus : BitVec 32) (spie : Bool) :
   revert spie
   bv_decide
 
+/-! ## M-mode trap entry transformation
+
+  Spec: M-mode trap sets `MPIE := MIE`, `MIE := 0`, `MPP := privMode`.
+  Other bits unchanged.
+-/
+
+/-- Pure M-trap entry transformation. -/
+def mstatusTrapMVal_pure
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) : BitVec 32 :=
+  let s1 := setBit32 mstatus mstatusBit_MIE         false  -- MIE := 0
+  let s2 := setBit32 s1     mstatusBit_MPIE         mie   -- MPIE := old MIE
+  -- MPP[12:11] := priv: clear both bits, then OR in priv shifted to bit 11
+  let s3 := setBit32 s2     mstatusBit_MPP_lo       false
+  let s4 := setBit32 s3     (mstatusBit_MPP_lo + 1) false
+  let s5 := setBit32 s4     mstatusBit_MPP_lo       (priv.extractLsb' 0 1 == 1#1)
+  let s6 := setBit32 s5     (mstatusBit_MPP_lo + 1) (priv.extractLsb' 1 1 == 1#1)
+  s6
+
+/-- M-trap impl-style expression in `SoC.lean`. -/
+def mstatusTrapMVal_impl
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) : BitVec 32 :=
+  let msClearMIE := mstatus &&& 0xFFFFFFF7#32
+  let msSetMPIE := if mie then msClearMIE ||| 0x00000080#32
+                   else msClearMIE &&& 0xFFFFFF7F#32
+  let msSetMPIE_clearMPP := msSetMPIE &&& 0xFFFFE7FF#32
+  let privModeExt : BitVec 32 := 0#21 ++ (priv ++ 0#9)
+  let privShifted : BitVec 32 := privModeExt <<< (2#32)
+  msSetMPIE_clearMPP ||| privShifted
+
+/-- Equivalence pure ↔ impl. -/
+theorem mstatusTrapMVal_pure_eq_impl
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) :
+    mstatusTrapMVal_pure mstatus mie priv =
+      mstatusTrapMVal_impl mstatus mie priv := by
+  unfold mstatusTrapMVal_pure mstatusTrapMVal_impl setBit32
+    mstatusBit_MIE mstatusBit_MPIE mstatusBit_MPP_lo
+  bv_decide
+
+/-- M-trap clears MIE. -/
+@[simp] theorem mstatus_trapM_MIE_zero
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapMVal_pure mstatus mie priv) mstatusBit_MIE = false := by
+  unfold getBit32 mstatusTrapMVal_pure setBit32
+    mstatusBit_MIE mstatusBit_MPIE mstatusBit_MPP_lo
+  revert mie
+  bv_decide
+
+/-- M-trap sets MPIE to old MIE. -/
+@[simp] theorem mstatus_trapM_MPIE_eq_input_MIE
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapMVal_pure mstatus mie priv) mstatusBit_MPIE = mie := by
+  unfold getBit32 mstatusTrapMVal_pure setBit32
+    mstatusBit_MIE mstatusBit_MPIE mstatusBit_MPP_lo
+  revert mie
+  bv_decide
+
+/-- M-trap sets MPP[11] to priv[0]. -/
+@[simp] theorem mstatus_trapM_MPP_low_eq_priv0
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapMVal_pure mstatus mie priv) mstatusBit_MPP_lo
+      = (priv.extractLsb' 0 1 == 1#1) := by
+  unfold getBit32 mstatusTrapMVal_pure setBit32
+    mstatusBit_MIE mstatusBit_MPIE mstatusBit_MPP_lo
+  revert mie
+  bv_decide
+
+/-- M-trap sets MPP[12] to priv[1]. -/
+@[simp] theorem mstatus_trapM_MPP_high_eq_priv1
+    (mstatus : BitVec 32) (mie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapMVal_pure mstatus mie priv) (mstatusBit_MPP_lo + 1)
+      = (priv.extractLsb' 1 1 == 1#1) := by
+  unfold getBit32 mstatusTrapMVal_pure setBit32
+    mstatusBit_MIE mstatusBit_MPIE mstatusBit_MPP_lo
+  revert mie
+  bv_decide
+
+/-! ## S-mode trap entry transformation
+
+  Spec: S-mode trap sets `SPIE := SIE`, `SIE := 0`, `SPP := privMode[0]`.
+  Other bits unchanged.
+-/
+
+/-- Pure S-trap entry transformation. -/
+def mstatusTrapSVal_pure
+    (mstatus : BitVec 32) (sie : Bool) (priv : BitVec 2) : BitVec 32 :=
+  let s1 := setBit32 mstatus mstatusBit_SIE   false
+  let s2 := setBit32 s1     mstatusBit_SPIE  sie
+  let s3 := setBit32 s2     mstatusBit_SPP   (priv.extractLsb' 0 1 == 1#1)
+  s3
+
+/-- S-trap impl-style expression. -/
+def mstatusTrapSVal_impl
+    (mstatus : BitVec 32) (sie : Bool) (priv : BitVec 2) : BitVec 32 :=
+  let msClearSIE := mstatus &&& 0xFFFFFFFD#32
+  let msSetSPIE  := if sie then msClearSIE ||| 0x00000020#32
+                    else msClearSIE &&& 0xFFFFFFDF#32
+  let priv0_is_one := priv.extractLsb' 0 1 == 1#1
+  if priv0_is_one then msSetSPIE ||| 0x00000100#32
+  else msSetSPIE &&& 0xFFFFFEFF#32
+
+/-- Equivalence pure ↔ impl. -/
+theorem mstatusTrapSVal_pure_eq_impl
+    (mstatus : BitVec 32) (sie : Bool) (priv : BitVec 2) :
+    mstatusTrapSVal_pure mstatus sie priv =
+      mstatusTrapSVal_impl mstatus sie priv := by
+  unfold mstatusTrapSVal_pure mstatusTrapSVal_impl setBit32
+    mstatusBit_SIE mstatusBit_SPIE mstatusBit_SPP
+  bv_decide
+
+@[simp] theorem mstatus_trapS_SIE_zero
+    (mstatus : BitVec 32) (sie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapSVal_pure mstatus sie priv) mstatusBit_SIE = false := by
+  unfold getBit32 mstatusTrapSVal_pure setBit32
+    mstatusBit_SIE mstatusBit_SPIE mstatusBit_SPP
+  revert sie
+  bv_decide
+
+@[simp] theorem mstatus_trapS_SPIE_eq_input_SIE
+    (mstatus : BitVec 32) (sie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapSVal_pure mstatus sie priv) mstatusBit_SPIE = sie := by
+  unfold getBit32 mstatusTrapSVal_pure setBit32
+    mstatusBit_SIE mstatusBit_SPIE mstatusBit_SPP
+  revert sie
+  bv_decide
+
+@[simp] theorem mstatus_trapS_SPP_eq_priv0
+    (mstatus : BitVec 32) (sie : Bool) (priv : BitVec 2) :
+    getBit32 (mstatusTrapSVal_pure mstatus sie priv) mstatusBit_SPP
+      = (priv.extractLsb' 0 1 == 1#1) := by
+  unfold getBit32 mstatusTrapSVal_pure setBit32
+    mstatusBit_SIE mstatusBit_SPIE mstatusBit_SPP
+  revert sie
+  bv_decide
+
 /-! ## Signal-level wrappers
 
 These re-encode the existing `SoC.lean` mux chains as named functions
@@ -219,6 +353,38 @@ def mstatusSretValSignal {dom : DomainConfig}
     Signal.mux spie (msClearSPP ||| 0x00000002#32)
                     (msClearSPP &&& 0xFFFFFFFD#32)
   msRestoreSIE ||| 0x00000020#32
+
+/-- Signal-level M-mode trap entry (cycle-wise). -/
+def mstatusTrapMValSignal {dom : DomainConfig}
+    (mstatus : Signal dom (BitVec 32))
+    (mie : Signal dom Bool)
+    (priv : Signal dom (BitVec 2)) : Signal dom (BitVec 32) :=
+  let msClearMIE := mstatus &&& 0xFFFFFFF7#32
+  let msSetMPIE :=
+    Signal.mux mie (msClearMIE ||| 0x00000080#32)
+                   (msClearMIE &&& 0xFFFFFF7F#32)
+  let msSetMPIE_clearMPP := msSetMPIE &&& 0xFFFFE7FF#32
+  -- Build privMode shifted into bits [12:11]: priv ++ 0#9 = bits [10:0]
+  -- with priv at [10:9], then prepend 21 zeros and shift left 2.
+  let privPad : Signal dom (BitVec 11) := priv ++ (0#9 : BitVec 9)
+  let privModeExt : Signal dom (BitVec 32) := (0#21 : BitVec 21) ++ privPad
+  let privShifted := privModeExt <<< (2#32 : BitVec 32)
+  msSetMPIE_clearMPP ||| privShifted
+
+/-- Signal-level S-mode trap entry (cycle-wise). -/
+def mstatusTrapSValSignal {dom : DomainConfig}
+    (mstatus : Signal dom (BitVec 32))
+    (sie : Signal dom Bool)
+    (priv : Signal dom (BitVec 2)) : Signal dom (BitVec 32) :=
+  let msClearSIE := mstatus &&& 0xFFFFFFFD#32
+  let msSetSPIE :=
+    Signal.mux sie (msClearSIE ||| 0x00000020#32)
+                   (msClearSIE &&& 0xFFFFFFDF#32)
+  let privBit0 := priv.map (BitVec.extractLsb' 0 1 ·)
+  let privBit0IsOne := privBit0 === 1#1
+  Signal.mux privBit0IsOne
+    (msSetSPIE ||| 0x00000100#32)
+    (msSetSPIE &&& 0xFFFFFEFF#32)
 
 end Sparkle.IP.RV32.CSR
 
