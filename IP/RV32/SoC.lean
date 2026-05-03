@@ -52,6 +52,7 @@ import IP.RV32.CSR.Types
 -- which we wire into the AI MMIO region at 0x40000000 below.
 import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
+import IP.RV32.Privilege.PrivMode
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -1386,12 +1387,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let mcounterenNext := Signal.mux (idex_isCsr_valid &&& csrIsMcounteren) mcounterenNewCSR mcounterenReg
     let scounterenNext := Signal.mux (idex_isCsr_valid &&& csrIsScounteren) scounterenNewCSR scounterenReg
 
-    -- Privilege mode next-state
-    let privModeNext := Signal.mux trapToM (Signal.pure 3#2)
-      (Signal.mux trapToS (Signal.pure 1#2)
-      (Signal.mux idex_isMret mpp
-      (Signal.mux idex_isSret sretPriv
-        privMode)))
+    -- Privilege mode next-state: see `IP.RV32.Privilege.PrivMode`.
+    -- Pure version `privModeNextPure` and Signal-level
+    -- `privModeNextSignal` are equivalent (theorem
+    -- `privModeNextSignal_eq_pure`); this call inherits the proven
+    -- spec (trap→M/S, mret→mpp, sret→spp, hold otherwise).
+    let privModeNext :=
+      Sparkle.IP.RV32.Privilege.privModeNextSignal
+        trapToM trapToS idex_isMret idex_isSret mpp sretPriv privMode
 
     -- A-ext: Reservation management.
     -- LR sets the reservation. SC always clears it (whether it succeeded or not,
