@@ -51,6 +51,7 @@ import IP.RV32.CSR.Types
 -- Exposes `bitNetPeripheral : Signal dom (BitVec 32) → Signal dom (BitVec 32)`
 -- which we wire into the AI MMIO region at 0x40000000 below.
 import IP.RV32.BitNetPeripheral
+import IP.RV32.AMO.Reservation
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -1400,11 +1401,14 @@ def rv32iSoCBody {dom : DomainConfig}
     -- followed by an SC would silently succeed despite intervening code that
     -- may have modified the reservation set.
     -- Use exwb_physAddr (translated PA) for consistency with the AMO writeback.
-    let trapClearsRes := trap_taken
+    -- Reservation next-state: see `IP.RV32.AMO.Reservation`.
+    -- The pure version `resValidNextPure` and the Signal-level
+    -- `resValidNextSignal` are equivalent (theorem
+    -- `resValidNextSignal_eq_pure`); this call inherits the proven
+    -- invariants (trap → invalid, LR → valid, SC → invalid, hold).
     let resValidNext :=
-      Signal.mux trapClearsRes (Signal.pure false)
-        (Signal.mux exwb_isLR (Signal.pure true)
-        (Signal.mux exwb_isSC (Signal.pure false) reservationValid))
+      Sparkle.IP.RV32.AMO.resValidNextSignal
+        trap_taken exwb_isLR exwb_isSC reservationValid
     let resAddrNext := Signal.mux exwb_isLR exwb_physAddr reservationAddr
 
     -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority.
