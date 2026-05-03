@@ -53,6 +53,7 @@ import IP.RV32.CSR.Types
 import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
 import IP.RV32.Privilege.PrivMode
+import IP.RV32.Trap.TrapPC
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -1343,10 +1344,15 @@ def rv32iSoCBody {dom : DomainConfig}
                     idex_jump ||| idex_branch ||| idex_isCsr |||
                     idex_isEcall ||| idex_isMret ||| idex_isSret |||
                     idex_isAMO ||| idex_isMext ||| idex_isSFenceVMA
-    let asyncTrapPC := Signal.mux idexLive idex_pc pcReg
-    let trapPC := Signal.mux ifetchPageFault fetchPC
-      (Signal.mux pageFault dMissPC
-      (Signal.mux isAsyncInt asyncTrapPC idex_pc))
+    -- Trap-PC selector: see `IP.RV32.Trap.TrapPC`. The pure version
+    -- `trapPCPure` and the Signal-level `trapPCSignal` are equivalent
+    -- (theorem `trapPCSignal_eq_pure`); this call inherits the proven
+    -- spec (ifetchPF→fetchPC, dPF→dMissPC, async+live→idex_pc,
+    -- async+dead→pcReg, sync→idex_pc).
+    let trapPC :=
+      Sparkle.IP.RV32.Trap.trapPCSignal
+        ifetchPageFault pageFault isAsyncInt idexLive
+        fetchPC dMissPC idex_pc pcReg
     let mepcNext := Signal.mux trapToM trapPC
       (Signal.mux (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg)
     let mcauseNext := Signal.mux trapToM trapCause
