@@ -54,6 +54,7 @@ import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
+import IP.RV32.Trap.Delegation
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -922,11 +923,18 @@ def rv32iSoCBody {dom : DomainConfig}
     let midelegShifted := midelegReg >>> causeIdxExt
     let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let delegated := Signal.mux isInterrupt midelegBit medelegBit
-    -- Trap goes to S if delegated AND priv ≤ S
+    -- Trap destination decoder: see `IP.RV32.Trap.Delegation`.
+    -- Pure versions `trapToSPure`/`trapToMPure` and Signal-level
+    -- versions are equivalent (theorems `trapToSSignal_eq_pure`,
+    -- `trapToMSignal_eq_pure`). The Signal API is split into two
+    -- functions because the synthesis backend does not handle Prod
+    -- return types.
     let privGtS := Signal.ult (Signal.pure 1#2) privMode
     let privLeS := ~~~privGtS
-    let trapToS := trap_taken &&& (delegated &&& privLeS)
-    let trapToM := trap_taken &&& (~~~trapToS)
+    let trapToS :=
+      Sparkle.IP.RV32.Trap.trapToSSignal trap_taken delegated privLeS
+    let trapToM :=
+      Sparkle.IP.RV32.Trap.trapToMSignal trap_taken delegated privLeS
 
     -- Trap target: S-mode or M-mode tvec
     let mtvecBase := mtvecReg &&& 0xFFFFFFFC#32

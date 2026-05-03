@@ -24,3 +24,4 @@ import IP.RV32.MMU.Top
 import IP.RV32.AMO.Reservation
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
+import IP.RV32.Trap.Delegation
