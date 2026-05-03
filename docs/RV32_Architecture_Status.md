@@ -172,6 +172,40 @@ Concretely: if/when invariant E (store-during-async-trap) is proven,
 we can drop ad-hoc store-replay test cases. Until then, we keep a
 hand-written test that exercises the suspected timing.
 
+## 4.5 Synth-backend constraints discovered while extracting
+
+Decomposition tooling notes (relevant when writing new helpers):
+
+- **No `Prod` return types**: `#synthesizeVerilog` cannot handle a
+  function returning `(Signal dom α × Signal dom β)`. Returning two
+  values requires two separate Signal-level functions, both calling a
+  shared pure decoder. See `IP/RV32/Trap/Delegation.lean`
+  (`trapToSSignal` / `trapToMSignal`) for the pattern.
+
+- **Tuple destructuring is not allowed in synthesizable code paths**:
+  `let (a, b) := f ...` triggers an `Unbound variable` error in synth
+  even if `f` is purely combinational. Use explicit `.1`/`.2` access,
+  or split `f` into two functions.
+
+- **`decide` cannot close goals with free variables of large domain**
+  (e.g. `BitVec 32` arguments). Either `revert` Bool/small-BitVec
+  variables and `decide`, or destructure on the relevant Bool inputs
+  with `cases` and close each leaf with `rfl` (since the BitVec values
+  pass through opaquely).
+
+- **Signal Bool operators (`&&&`, `|||`, `~~~`) decode as
+  Functor/Applicative compositions** (`(· && ·) <$> a <*> b` etc.).
+  `simp` may need helper lemmas like
+
+  ```
+  theorem signal_and_val (a b : Signal dom Bool) (t : Nat) :
+    (a &&& b).val t = (a.val t && b.val t) := by
+    show (Signal.ap (Signal.map (· && ·) a) b).val t = _
+    rfl
+  ```
+
+  See `IP/RV32/Trap/Delegation.lean` for examples.
+
 ## 5. First target
 
 `resValidNext` — the LR/SC reservation register's next-state — is the
