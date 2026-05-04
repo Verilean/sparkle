@@ -118,4 +118,96 @@ def ptwMegaNextSignal {dom : DomainConfig}
   Signal.mux megaSet (Signal.pure true)
     (Signal.mux ptwIsIdle (Signal.pure false) ptwMega)
 
+/-! ## Sequential ptwPteReg
+
+  ptwPteReg latches `dmem_rdata` whenever `isDataReady` (= L1_WAIT
+  ∨ L0_WAIT) fires; otherwise holds. -/
+
+/-- ptwPteReg signal wrapper. -/
+def ptwPteRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (isDataReady : Signal dom Bool)
+    (dmem_rdata ptwPte : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init (ptwPteNextSignal isDataReady dmem_rdata ptwPte)
+
+/-- **isDataReady at t → ptwPteReg at t+1 = dmem_rdata.val t.** -/
+theorem ptwPteReg_latch_when_ready {dom : DomainConfig}
+    (init : BitVec 32) (isDataReady : Signal dom Bool)
+    (dmem_rdata ptwPte : Signal dom (BitVec 32)) (t : Nat)
+    (h_ready : isDataReady.val t = true) :
+    (ptwPteRegSignal init isDataReady dmem_rdata ptwPte).val (t + 1) = dmem_rdata.val t := by
+  unfold ptwPteRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (ptwPteNextSignal isDataReady dmem_rdata ptwPte).val t = _
+  unfold ptwPteNextSignal Signal.mux
+  show (if isDataReady.val t then _ else _) = _
+  rw [h_ready]
+  rfl
+
+/-- **¬isDataReady at t → ptwPteReg at t+1 = ptwPte.val t.** -/
+theorem ptwPteReg_hold_when_not_ready {dom : DomainConfig}
+    (init : BitVec 32) (isDataReady : Signal dom Bool)
+    (dmem_rdata ptwPte : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_ready : isDataReady.val t = false) :
+    (ptwPteRegSignal init isDataReady dmem_rdata ptwPte).val (t + 1) = ptwPte.val t := by
+  unfold ptwPteRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (ptwPteNextSignal isDataReady dmem_rdata ptwPte).val t = _
+  unfold ptwPteNextSignal Signal.mux
+  show (if isDataReady.val t then _ else _) = _
+  rw [h_no_ready]
+  rfl
+
+/-! ## Sequential ptwMegaReg
+
+  ptwMegaReg is a sticky flag: set on (L1_WAIT ∧ leaf ∧ valid),
+  cleared on Idle (PTW restart), held otherwise. -/
+
+/-- ptwMegaReg signal wrapper. -/
+def ptwMegaRegSignal {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) : Signal dom Bool :=
+  Signal.register init (ptwMegaNextSignal megaSet ptwIsIdle ptwMega)
+
+/-- **megaSet at t → ptwMegaReg at t+1 = true.** -/
+theorem ptwMegaReg_set_on_megaSet {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) (t : Nat)
+    (h_set : megaSet.val t = true) :
+    (ptwMegaRegSignal init megaSet ptwIsIdle ptwMega).val (t + 1) = true := by
+  unfold ptwMegaRegSignal
+  show (Signal.register init _).val (t + 1) = true
+  show (ptwMegaNextSignal megaSet ptwIsIdle ptwMega).val t = true
+  unfold ptwMegaNextSignal Signal.mux
+  show (if megaSet.val t then _ else _) = true
+  rw [h_set]
+  rfl
+
+/-- **¬megaSet ∧ ptwIsIdle at t → ptwMegaReg at t+1 = false.** -/
+theorem ptwMegaReg_clears_on_idle {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) (t : Nat)
+    (h_no_set : megaSet.val t = false)
+    (h_idle : ptwIsIdle.val t = true) :
+    (ptwMegaRegSignal init megaSet ptwIsIdle ptwMega).val (t + 1) = false := by
+  unfold ptwMegaRegSignal
+  show (Signal.register init _).val (t + 1) = false
+  show (ptwMegaNextSignal megaSet ptwIsIdle ptwMega).val t = false
+  unfold ptwMegaNextSignal Signal.mux
+  show (if megaSet.val t then _ else
+    (if ptwIsIdle.val t then _ else _)) = false
+  rw [h_no_set, h_idle]
+  rfl
+
+/-- **¬megaSet ∧ ¬ptwIsIdle at t → ptwMegaReg at t+1 = ptwMega.val t.** -/
+theorem ptwMegaReg_hold_otherwise {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) (t : Nat)
+    (h_no_set : megaSet.val t = false)
+    (h_no_idle : ptwIsIdle.val t = false) :
+    (ptwMegaRegSignal init megaSet ptwIsIdle ptwMega).val (t + 1) = ptwMega.val t := by
+  unfold ptwMegaRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (ptwMegaNextSignal megaSet ptwIsIdle ptwMega).val t = _
+  unfold ptwMegaNextSignal Signal.mux
+  show (if megaSet.val t then _ else
+    (if ptwIsIdle.val t then _ else _)) = _
+  rw [h_no_set, h_no_idle]
+  rfl
+
 end Sparkle.IP.RV32.MMU
