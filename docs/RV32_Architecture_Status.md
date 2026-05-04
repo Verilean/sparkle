@@ -171,6 +171,33 @@ CSR new-values, peripheral writes (CLINT/MMIO/UART), jump
 PC-redirect, AMO writeback, prevStoreEn (one-cycle store-load
 forwarding capture).
 
+#### Multi-cycle trap-suppression composites (2026-05-05)
+
+In addition to the per-channel single-cycle suppression lemmas
+above, the following multi-cycle composite theorems package
+"trap at cycle t → register unchanged at t+1" (or "latched to
+trap payload at t+1") for every register-write path in
+SoC.lean's synthesized loop:
+
+| Module | Composites | Pattern |
+|--------|------------|---------|
+| `CSR/CommitTrapInv.lean` | 21 | 16 plain (mie/mtvec/mscratch/satp/...) + 5 trap-override (mepc/mcause/mtval/sepc/scause/stval) |
+| `CLINT/CommitTrapInv.lean` | 5 | msip/mtimecmpLo/Hi/mtimeLo/Hi |
+| `UART/CommitTrapInv.lean` | 6 | LCR/IER/MCR/SCR/DLL/DLM (8-bit) |
+| `CSR/MStatusNext.lean` | 1 | mstatus 5-way priority register |
+| `Pipeline/MMURedirectInv.lean` | 1 | pcReg cycle-N+1 redirect to dMissPC |
+| `AMO/LRSCAcrossTrap.lean` | 1 | trap → pendingWriteEn=false at t+2 |
+
+Total: **34 multi-cycle composites**. Together they certify that
+a trap-aborted in-flight instruction cannot:
+
+  * Modify any architectural register state (regfile, all CSRs,
+    CLINT/UART peripherals).
+  * Commit a DRAM write (invariant E suppression).
+  * Trigger an AMO writeback (cycle t+2 chain).
+  * Succeed a SC.W operation (invariant D, via reservation).
+  * Continue executing past the trap (cycle N+1 IDEX squashed).
+
 ### 2.3 IO / memory boundary
 
 Things that touch DRAM/MMIO can't be proven about the host platform
