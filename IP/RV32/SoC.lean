@@ -50,6 +50,7 @@ import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.MMU.IfetchFault
 import IP.RV32.MMU.DMiss
+import IP.RV32.MMU.PA
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -517,15 +518,14 @@ def rv32iSoCBody {dom : DomainConfig}
     -- D-side physical address from TLB. See I-side comment above for the
     -- Sv32 megapage / 4K formulas. Megapage uses PPN[1] (PPN bits [21:10])
     -- as PA[31:22]; vaddr[21:0] supplies the rest.
-    let dtlbPPN_20 := tlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let dtlbPPN_hi10 := tlbPPN.map (BitVec.extractLsb' 10 10 ·)
-    let vaLow22 := alu_result_approx.map (BitVec.extractLsb' 0 22 ·)
-    let dPhysAddrMega := dtlbPPN_hi10 ++ vaLow22
-    let dPhysAddrReg := dtlbPPN_20 ++ dPageOffset
-    let dPhysAddr := Signal.mux tlbMega dPhysAddrMega dPhysAddrReg
-    -- Effective address: use translated physical when MMU active and TLB hit
+    -- D-side Sv32 PA formation (proven in MMU/PA.lean):
+    -- megapage: ppn[19:10] ++ va[21:0]; regular: ppn[19:0] ++ va[11:0].
+    let dPhysAddr :=
+      Sparkle.IP.RV32.MMU.dPhysAddrSignal tlbMega tlbPPN alu_result_approx
+    -- Effective addr: translated PA on TLB hit + MMU active, else VA.
     let useTranslatedAddr := (~~~bypassMMU) &&& anyTLBHit
-    let effectiveAddr := Signal.mux useTranslatedAddr dPhysAddr alu_result_approx
+    let effectiveAddr :=
+      Sparkle.IP.RV32.MMU.effectiveAddrSignal bypassMMU anyTLBHit dPhysAddr alu_result_approx
 
     -- D-side TLB miss: need translation but no TLB hit (first cycle only, while MMU+PTW idle)
     let dMemAccess := idex_memRead ||| idex_memWrite
