@@ -221,4 +221,39 @@ theorem divPendingReg_hold_when_no_event {dom : DomainConfig}
   rw [h_no_flush, h_no_start, h_no_done]
   rfl
 
+/-! ## Cycle-N+2 divPending stays false across trap
+
+  After a trap at N (or any flushOrDelay event), divPending=false
+  at N+1 (via `divPendingReg_clears_on_flush`). At cycle N+1
+  with no flush/start/done events, the hold-arm preserves false.
+
+  This certifies that a trap-aborted divide doesn't leave a
+  stale "pending" flag through cycle N+2 either. -/
+
+/-- **flushOrDelay at N + no events at N+1 → divPending at N+2 = false.** -/
+theorem divPendingReg_stays_false_at_N_plus_2 {dom : DomainConfig}
+    (flushOrDelay divStart divDone : Signal dom Bool) (t : Nat)
+    (h_flush_n : flushOrDelay.val t = true)
+    (h_no_flush_n1 : flushOrDelay.val (t + 1) = false)
+    (h_no_start_n1 : divStart.val (t + 1) = false)
+    (h_no_done_n1 : divDone.val (t + 1) = false) :
+    -- Build the recursive register signal, mirroring the SoC's
+    -- divPending = register false (divPendingNextSignal flushOrDelay
+    -- divStart divDone divPending).
+    (divPendingRegSignal flushOrDelay divStart divDone
+      (divPendingRegSignal flushOrDelay divStart divDone (Signal.pure false))).val
+        (t + 2) = false := by
+  -- Step 1: At cycle N, flush fires → inner reg at N+1 = false.
+  have h_inner_n1 :
+    (divPendingRegSignal flushOrDelay divStart divDone (Signal.pure false)).val (t + 1) =
+      false :=
+    divPendingReg_clears_on_flush flushOrDelay divStart divDone _ t h_flush_n
+  -- Step 2: At cycle N+1, no events → outer reg at N+2 = inner reg at N+1.
+  have h_outer := divPendingReg_hold_when_no_event flushOrDelay divStart divDone
+    (divPendingRegSignal flushOrDelay divStart divDone (Signal.pure false))
+    (t + 1) h_no_flush_n1 h_no_start_n1 h_no_done_n1
+  show (divPendingRegSignal _ _ _ _).val (t + 2) = _
+  rw [h_outer]
+  exact h_inner_n1
+
 end Sparkle.IP.RV32.Mext
