@@ -94,4 +94,5 @@ import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Pipeline.MMURedirectInv
 import IP.RV32.Pipeline.StoreDuringTrap
 import IP.RV32.Pipeline.RegfileTrapInv
+import IP.RV32.Pipeline.SideEffectsTrapInv
 import IP.RV32.Pipeline.StoreLoadFwd
