@@ -263,4 +263,42 @@ theorem dMMURedirect_cycle_N1_redirect {dom : DomainConfig}
     trapTarget mretTarget sretTarget dMissPC dMMURedirect isSFenceVMA pc4
     flush jumpTarget stall pcRegSig pcPlus4 t h_dmmu h_no_trap h_no_mret h_no_sret
 
+/-! ## flushDelay tracking after dMMURedirect
+
+  Recall `flushDelay = Signal.register false flush`, so
+  `flushDelay.val (t+1) = flush.val t`. When `dMMURedirect.val t
+  = true`, `flush.val t = true` (via `flush_contains_dMMURedirect`),
+  so `flushDelay.val (t+1) = true`. This is the cycle-wise lift
+  showing the squash-or-flush is held into cycle t+1.
+-/
+
+/-- **dMMURedirect at t → flushDelay at t+1 = true.**
+
+    Combines the structural fact "flushSignal includes
+    dMMURedirect" with the `Signal.register` 1-cycle delay. -/
+theorem flushDelayReg_set_after_dMMURedirect {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool) (t : Nat)
+    (h_dmmu : dMMURedirect.val t = true) :
+    (Signal.register false
+      (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+        idex_isSFenceVMA dMMURedirect)).val (t + 1) = true := by
+  show (Signal.register false _).val (t + 1) = true
+  show (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+    idex_isSFenceVMA dMMURedirect).val t = true
+  -- flushSignal definition: 7-way disjunction.
+  unfold flushSignal
+  -- (a ||| b ||| ... ||| dMMURedirect).val t reduces to disjunction of .val t's.
+  show ((((((branchTaken ||| idex_jump) ||| trap_taken) ||| idex_isMret)
+    ||| idex_isSret) ||| idex_isSFenceVMA) ||| dMMURedirect).val t = true
+  -- Reduce repeated .val t through Signal.ap/map definitionally.
+  show (((((((branchTaken.val t || idex_jump.val t) || trap_taken.val t)
+    || idex_isMret.val t) || idex_isSret.val t) || idex_isSFenceVMA.val t)
+    || dMMURedirect.val t)) = true
+  rw [h_dmmu]
+  -- Goal: _ || true = true; close with Bool.or_true.
+  cases branchTaken.val t <;> cases idex_jump.val t <;>
+    cases trap_taken.val t <;> cases idex_isMret.val t <;>
+    cases idex_isSret.val t <;> cases idex_isSFenceVMA.val t <;> rfl
+
 end Sparkle.IP.RV32.Pipeline
