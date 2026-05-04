@@ -129,6 +129,31 @@ theorem actualByteWePure_spec
       (proto_byte_we &&
        ((!(trap_taken || mmuBusy || dMMURedirect)) || dmemExtWriteEn)) := by rfl
 
+/-! ## Signal-level wrappers -/
+
+/-- Signal-level early dram-suppress: trap | mmuBusy | dMMURedirect. -/
+def earlyDramSuppressSignal {dom : DomainConfig}
+    (trap_taken mmuBusy dMMURedirect : Signal dom Bool) : Signal dom Bool :=
+  trap_taken ||| mmuBusy ||| dMMURedirect
+
+/-- Signal-level early dram-valid: ¬suppress. -/
+def earlyDramValidSignal {dom : DomainConfig}
+    (trap_taken mmuBusy dMMURedirect : Signal dom Bool) : Signal dom Bool :=
+  ~~~(earlyDramSuppressSignal trap_taken mmuBusy dMMURedirect)
+
+/-- Signal-level dram write-gate: early_dramValid | dmemExtWriteEn. -/
+def dramWriteGateSignal {dom : DomainConfig}
+    (trap_taken mmuBusy dMMURedirect dmemExtWriteEn : Signal dom Bool)
+    : Signal dom Bool :=
+  earlyDramValidSignal trap_taken mmuBusy dMMURedirect ||| dmemExtWriteEn
+
+/-- Signal-level actual byte-WE: proto_byte_we ∧ dramWriteGate. -/
+def actualByteWeSignal {dom : DomainConfig}
+    (proto_byte_we trap_taken mmuBusy dMMURedirect dmemExtWriteEn : Signal dom Bool)
+    : Signal dom Bool :=
+  proto_byte_we &&&
+    dramWriteGateSignal trap_taken mmuBusy dMMURedirect dmemExtWriteEn
+
 /-! ## Connection to invariant E
 
   The full invariant E ("exactly one DRAM commit per logical

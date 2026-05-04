@@ -112,6 +112,7 @@ import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
 import IP.RV32.Pipeline.IFetchSrc
 import IP.RV32.Pipeline.IDEXRegInput
+import IP.RV32.Pipeline.StoreDuringTrap
 import IP.RV32.Pipeline.RegfileTrapInv
 import IP.RV32.Pipeline.BranchComp
 import IP.RV32.Pipeline.AluSrc
@@ -768,18 +769,20 @@ def rv32iSoCBody {dom : DomainConfig}
     --   * mmuBusy       — PTW in flight; redirect will re-execute
     --   * dMMURedirect  — MMU FSM completed; instruction re-fetches
     -- `dTLBMiss` is already in `dmem_we`'s own gate (line 518).
-    let early_dramSuppress := early_trap_taken ||| mmuBusy ||| dMMURedirect
-    let early_dramValid := ~~~early_dramSuppress
-
-    -- 4 byte-wide memories (each 23-bit addr × 8-bit data).
-    -- DRAM byte_we gated on `early_dramValid`. External firmware-loading
-    -- writes (`dmemExtWriteEn`) bypass the gate because they happen
-    -- before the pipeline starts.
-    let dramWriteGate := early_dramValid ||| dmemExtWriteEn
-    let actual_byte0_we := proto_byte0_we &&& dramWriteGate
-    let actual_byte1_we := proto_byte1_we &&& dramWriteGate
-    let actual_byte2_we := proto_byte2_we &&& dramWriteGate
-    let actual_byte3_we := proto_byte3_we &&& dramWriteGate
+    -- DRAM write-gate: trap-aware suppression (proven in Pipeline/StoreDuringTrap.lean).
+    -- External firmware-loading writes (dmemExtWriteEn) bypass the gate.
+    let actual_byte0_we :=
+      Sparkle.IP.RV32.Pipeline.actualByteWeSignal proto_byte0_we
+        early_trap_taken mmuBusy dMMURedirect dmemExtWriteEn
+    let actual_byte1_we :=
+      Sparkle.IP.RV32.Pipeline.actualByteWeSignal proto_byte1_we
+        early_trap_taken mmuBusy dMMURedirect dmemExtWriteEn
+    let actual_byte2_we :=
+      Sparkle.IP.RV32.Pipeline.actualByteWeSignal proto_byte2_we
+        early_trap_taken mmuBusy dMMURedirect dmemExtWriteEn
+    let actual_byte3_we :=
+      Sparkle.IP.RV32.Pipeline.actualByteWeSignal proto_byte3_we
+        early_trap_taken mmuBusy dMMURedirect dmemExtWriteEn
     let byte0_rdata := Signal.memory actual_dmem_write_addr actual_byte0_wdata actual_byte0_we dmem_read_addr
     let byte1_rdata := Signal.memory actual_dmem_write_addr actual_byte1_wdata actual_byte1_we dmem_read_addr
     let byte2_rdata := Signal.memory actual_dmem_write_addr actual_byte2_wdata actual_byte2_we dmem_read_addr
