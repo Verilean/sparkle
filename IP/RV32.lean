@@ -32,6 +32,7 @@ import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Compute
 import IP.RV32.ALU.Compute
 import IP.RV32.Decoder.ImmGen
+import IP.RV32.Decoder.AluControl
 import IP.RV32.Mext.Mul
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
