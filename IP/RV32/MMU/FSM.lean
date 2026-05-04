@@ -158,4 +158,112 @@ def mmuStateNextSignal {dom : DomainConfig}
     (Signal.mux isPTWWalk (mmuNextFromWalkSignal ptwIsDone ptwIsFault)
       (Signal.pure 0#3))
 
+/-! ## Sequential mmuStateReg
+
+  Cycle-wise register lemmas for the MMU FSM state. The register
+  next-state is the priority dispatch above; this section proves
+  the per-arm sequential statements. -/
+
+/-- mmuStateReg signal wrapper. -/
+def mmuStateRegSignal {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) : Signal dom (BitVec 3) :=
+  Signal.register init
+    (mmuStateNextSignal isMMUIdle isPTWWalk dTLBMiss ptwIsDone ptwIsFault)
+
+/-- **IDLE + dTLBMiss at t → state at t+1 = WALK (= 2#3).** -/
+theorem mmuStateReg_idle_to_walk_on_miss {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) (t : Nat)
+    (h_idle : isMMUIdle.val t = true)
+    (h_miss : dTLBMiss.val t = true) :
+    (mmuStateRegSignal init isMMUIdle isPTWWalk
+      dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 2#3 := by
+  unfold mmuStateRegSignal mmuStateNextSignal mmuNextFromIdleSignal
+  show (Signal.register init _).val (t + 1) = _
+  -- (register init next).val (t+1) = next.val t.
+  unfold Signal.mux
+  show (if isMMUIdle.val t then _ else _) = _
+  rw [h_idle]
+  show (if dTLBMiss.val t then _ else _) = _
+  rw [h_miss]
+  rfl
+
+/-- **IDLE + no miss at t → state at t+1 = IDLE (= 0#3).** -/
+theorem mmuStateReg_idle_holds_no_miss {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) (t : Nat)
+    (h_idle : isMMUIdle.val t = true)
+    (h_no_miss : dTLBMiss.val t = false) :
+    (mmuStateRegSignal init isMMUIdle isPTWWalk
+      dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 0#3 := by
+  unfold mmuStateRegSignal mmuStateNextSignal mmuNextFromIdleSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if isMMUIdle.val t then _ else _) = _
+  rw [h_idle]
+  show (if dTLBMiss.val t then _ else _) = _
+  rw [h_no_miss]
+  rfl
+
+/-- **WALK + ptwIsDone at t (no idle) → state at t+1 = DONE (= 3#3).** -/
+theorem mmuStateReg_walk_to_done {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) (t : Nat)
+    (h_no_idle : isMMUIdle.val t = false)
+    (h_walk : isPTWWalk.val t = true)
+    (h_done : ptwIsDone.val t = true) :
+    (mmuStateRegSignal init isMMUIdle isPTWWalk
+      dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 3#3 := by
+  unfold mmuStateRegSignal mmuStateNextSignal mmuNextFromWalkSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if isMMUIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if isPTWWalk.val t then _ else _) = _
+  rw [h_walk]
+  show (if ptwIsDone.val t then _ else _) = _
+  rw [h_done]
+  rfl
+
+/-- **WALK + ptwIsFault at t (no idle, no done) → state at t+1 = FAULT (= 4#3).** -/
+theorem mmuStateReg_walk_to_fault {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) (t : Nat)
+    (h_no_idle : isMMUIdle.val t = false)
+    (h_walk : isPTWWalk.val t = true)
+    (h_no_done : ptwIsDone.val t = false)
+    (h_fault : ptwIsFault.val t = true) :
+    (mmuStateRegSignal init isMMUIdle isPTWWalk
+      dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 4#3 := by
+  unfold mmuStateRegSignal mmuStateNextSignal mmuNextFromWalkSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if isMMUIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if isPTWWalk.val t then _ else _) = _
+  rw [h_walk]
+  show (if ptwIsDone.val t then _ else _) = _
+  rw [h_no_done]
+  show (if ptwIsFault.val t then _ else _) = _
+  rw [h_fault]
+  rfl
+
+/-- **DONE/FAULT (¬idle, ¬walk) at t → state at t+1 = IDLE.** -/
+theorem mmuStateReg_done_or_fault_to_idle {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) (t : Nat)
+    (h_no_idle : isMMUIdle.val t = false)
+    (h_no_walk : isPTWWalk.val t = false) :
+    (mmuStateRegSignal init isMMUIdle isPTWWalk
+      dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 0#3 := by
+  unfold mmuStateRegSignal mmuStateNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if isMMUIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if isPTWWalk.val t then _ else _) = _
+  rw [h_no_walk]
+  rfl
+
 end Sparkle.IP.RV32.MMU
