@@ -74,6 +74,7 @@ import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
 import IP.RV32.CSR.Commit
+import IP.RV32.CSR.CommitTrapInv
 import IP.RV32.CSR.MIP
 import IP.RV32.CSR.MipSoft
 import IP.RV32.CSR.Sstatus
