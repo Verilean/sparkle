@@ -248,4 +248,35 @@ theorem exwbSuppressBVReg_advance {dom : DomainConfig} {n : Nat}
   rw [h_no_suppress]
   rfl
 
+/-- ExwbSuppress Bool register. -/
+def exwbSuppressBoolRegSignal {dom : DomainConfig}
+    (init : Bool) (suppressEXWB new : Signal dom Bool) : Signal dom Bool :=
+  Signal.register init (exwbSuppressBoolSignal suppressEXWB new)
+
+/-- **suppress at t → exwbSuppressBoolReg at t+1 = false.** -/
+theorem exwbSuppressBoolReg_suppress {dom : DomainConfig}
+    (init : Bool) (suppressEXWB new : Signal dom Bool) (t : Nat)
+    (h_suppress : suppressEXWB.val t = true) :
+    (exwbSuppressBoolRegSignal init suppressEXWB new).val (t + 1) = false := by
+  unfold exwbSuppressBoolRegSignal exwbSuppressBoolSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux suppressEXWB (Signal.pure false) new).val t = _
+  unfold Signal.mux
+  show (if suppressEXWB.val t then _ else _) = _
+  rw [h_suppress]
+  rfl
+
+/-- **¬suppress at t → exwbSuppressBoolReg at t+1 = new.val t.** -/
+theorem exwbSuppressBoolReg_advance {dom : DomainConfig}
+    (init : Bool) (suppressEXWB new : Signal dom Bool) (t : Nat)
+    (h_no_suppress : suppressEXWB.val t = false) :
+    (exwbSuppressBoolRegSignal init suppressEXWB new).val (t + 1) = new.val t := by
+  unfold exwbSuppressBoolRegSignal exwbSuppressBoolSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux suppressEXWB (Signal.pure false) new).val t = _
+  unfold Signal.mux
+  show (if suppressEXWB.val t then _ else _) = _
+  rw [h_no_suppress]
+  rfl
+
 end Sparkle.IP.RV32.Pipeline
