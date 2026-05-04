@@ -246,6 +246,46 @@ def tlbMegaNextSignal {dom : DomainConfig}
     (fillMega holdMega : Signal dom Bool) : Signal dom Bool :=
   Signal.mux doFillN fillMega holdMega
 
+/-! ## Sequential: replPtr advances on fill, holds otherwise
+
+  The replacement pointer (BitVec 2, mod-4 round-robin) advances
+  by 1 each TLB-fill cycle. Otherwise, it holds. -/
+
+/-- replPtr-register wrapper. -/
+def replPtrRegSignal {dom : DomainConfig}
+    (init : BitVec 2) (tlbFill : Signal dom Bool)
+    (replPtr : Signal dom (BitVec 2)) : Signal dom (BitVec 2) :=
+  Signal.register init (replPtrNextSignal tlbFill replPtr)
+
+/-- **No fill at t → replPtr at t+1 = replPtr.val t.** -/
+theorem replPtrReg_hold_when_no_fill {dom : DomainConfig}
+    (init : BitVec 2) (tlbFill : Signal dom Bool)
+    (replPtr : Signal dom (BitVec 2)) (t : Nat)
+    (h_no_fill : tlbFill.val t = false) :
+    (replPtrRegSignal init tlbFill replPtr).val (t + 1) = replPtr.val t := by
+  unfold replPtrRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (replPtrNextSignal tlbFill replPtr).val t = _
+  unfold replPtrNextSignal Signal.mux
+  show (if tlbFill.val t then _ else _) = _
+  rw [h_no_fill]
+  rfl
+
+/-- **Fill at t → replPtr at t+1 = replPtr.val t + 1.** -/
+theorem replPtrReg_advance_on_fill {dom : DomainConfig}
+    (init : BitVec 2) (tlbFill : Signal dom Bool)
+    (replPtr : Signal dom (BitVec 2)) (t : Nat)
+    (h_fill : tlbFill.val t = true) :
+    (replPtrRegSignal init tlbFill replPtr).val (t + 1) = replPtr.val t + 1#2 := by
+  unfold replPtrRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (replPtrNextSignal tlbFill replPtr).val t = _
+  unfold replPtrNextSignal Signal.mux
+  show (if tlbFill.val t then _ else _) = _
+  rw [h_fill]
+  -- Goal now: (replPtr + Signal.pure 1#2).val t = replPtr.val t + 1#2
+  rfl
+
 /-! ## Sequential: TLB fill at cycle N → entry valid + VPN matches at cycle N+1
 
   This is the cornerstone of the multi-cycle invariant C
