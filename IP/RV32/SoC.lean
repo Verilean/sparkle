@@ -58,6 +58,7 @@ import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
 import IP.RV32.MMU.NeedTranslate
 import IP.RV32.MMU.PTWReq
+import IP.RV32.MMU.PTWAddr
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
@@ -511,8 +512,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let ptwVPN0x4 := ptwVPN0 ++ 0#2
     let ptwVPN0Ext := 0#20 ++ ptwVPN0x4
     let l0Addr := ptePPNShifted + ptwVPN0Ext
-    let ptwMemAddr := Signal.mux ptwIsL1Req l1Addr l0Addr
-    let ptwMemActive := ptwIsL1Req ||| ptwIsL0Req
+    -- PTW mem-addr select + active flag (proven in MMU/PTWAddr.lean).
+    let ptwMemAddr := Sparkle.IP.RV32.MMU.ptwMemAddrSignal ptwIsL1Req l1Addr l0Addr
+    let ptwMemActive := Sparkle.IP.RV32.MMU.ptwMemActiveSignal ptwIsL1Req ptwIsL0Req
     let ptwMemWordAddr := ptwMemAddr.map (BitVec.extractLsb' 2 23 ·)
     -- MMU stall: busy (not IDLE/DONE/FAULT) and not bypassed
     let mmuBusy := ~~~((isMMUIdle ||| isMMUDone) ||| isMMUFault)
