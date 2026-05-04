@@ -559,4 +559,26 @@ theorem squashSig_contains_idex_isSret_atTime {dom : DomainConfig}
     (dMMURedirect.val t) (flushDelay.val t)
     (stallAndNotFreeze.val t) (stallDelay.val t)
 
+/-! ## Canonical "squashSig" wrapper
+
+  When the pipeline's `squash` Signal is constructed in the
+  canonical way (= `Signal.mux ... ||| ...` mirroring
+  `flushOrDelayPure ∘ flushPure`), we can recognize it as
+  "the canonical squashPure-of-flushOrDelayPure construction"
+  and apply the cycle-wise lifts. This wrapper is for documentation
+  / alias purposes; the actual signal in SoC.lean is computed by
+  the loop body and equals this expression cycle-wise.
+-/
+
+/-- Cycle-wise definition of the canonical squashSig. -/
+@[inline] def canonicalSquashAtTime {dom : DomainConfig}
+    (stallAndNotFreeze branchTaken idex_jump trap_taken
+     idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
+     flushDelay stallDelay : Signal dom Bool) (t : Nat) : Bool :=
+  squashPure (stallAndNotFreeze.val t)
+    (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+      (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+      (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+    (stallDelay.val t)
+
 end Sparkle.IP.RV32.Pipeline
