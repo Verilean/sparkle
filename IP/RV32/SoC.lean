@@ -55,6 +55,7 @@ import IP.RV32.MMU.Satp
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
+import IP.RV32.MMU.PTE
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -1637,12 +1638,13 @@ def rv32iSoCBody {dom : DomainConfig}
       ptwVaddrOnStart ptwVaddrReg
 
     -- PTE fields decoded from dmem_rdata (valid in L1_WAIT/L0_WAIT states)
-    let dmemPteValid := (dmem_rdata.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-    let dmemPteRBit := (dmem_rdata.map (BitVec.extractLsb' 1 1 ·)) === 1#1
-    let dmemPteXBit := (dmem_rdata.map (BitVec.extractLsb' 3 1 ·)) === 1#1
-    let dmemPteIsLeaf := dmemPteRBit ||| dmemPteXBit
-    let dmemPteInvalid := ~~~dmemPteValid
-    let pteFlags := ptwPteReg.map (BitVec.extractLsb' 0 8 ·)
+    -- PTE flag decoding (proven in MMU/PTE.lean): bit 0=V, 1=R, 3=X.
+    let dmemPteValid := Sparkle.IP.RV32.MMU.pteValidSignal dmem_rdata
+    let dmemPteRBit := Sparkle.IP.RV32.MMU.pteRBitSignal dmem_rdata
+    let dmemPteXBit := Sparkle.IP.RV32.MMU.pteXBitSignal dmem_rdata
+    let dmemPteIsLeaf := Sparkle.IP.RV32.MMU.pteIsLeafSignal dmem_rdata
+    let dmemPteInvalid := Sparkle.IP.RV32.MMU.pteInvalidSignal dmem_rdata
+    let pteFlags := Sparkle.IP.RV32.MMU.pteFlagsSignal ptwPteReg
 
     -- PTE latching: in WAIT states, latch dmem_rdata (has PTE from prior REQ addr)
     let isDataReady := ptwIsL1Wait ||| ptwIsL0Wait
