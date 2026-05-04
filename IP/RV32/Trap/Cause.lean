@@ -291,4 +291,33 @@ theorem trapCauseSignal_eq_pure {dom : DomainConfig}
   cases h_st : sTimerIntEn.val t <;>
     simp [h_if, h_ec, h_pf, h_mt, h_ms, h_se, h_ss, h_st, signal_pure_val]
 
+/-! ## isStoreFault: pageFault gated by dMissIsStore
+
+  When a D-side page fault fires, the cause distinguishes between
+  load (13) and store (15). The selector is `pageFault ∧
+  dMissIsStore` — only when both fire is the cause "store-page-
+  fault". This wraps the simple Boolean-and as a named primitive
+  feeding `pageFaultCausePure`.
+-/
+
+@[inline] def isStoreFaultPure (pageFault dMissIsStore : Bool) : Bool :=
+  pageFault && dMissIsStore
+
+@[simp] theorem isStoreFault_no_pageFault (dMissIsStore : Bool) :
+    isStoreFaultPure false dMissIsStore = false := rfl
+
+@[simp] theorem isStoreFault_load (pageFault : Bool) :
+    isStoreFaultPure pageFault false = false := by
+  unfold isStoreFaultPure; cases pageFault <;> rfl
+
+@[simp] theorem isStoreFault_active : isStoreFaultPure true true = true := rfl
+
+theorem isStoreFaultPure_spec
+    (pageFault dMissIsStore : Bool) :
+    isStoreFaultPure pageFault dMissIsStore = (pageFault && dMissIsStore) := rfl
+
+def isStoreFaultSignal {dom : DomainConfig}
+    (pageFault dMissIsStore : Signal dom Bool) : Signal dom Bool :=
+  pageFault &&& dMissIsStore
+
 end Sparkle.IP.RV32.Trap

@@ -1071,7 +1071,7 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Page fault from MMU FAULT state (D-side: load=13, store=15)
     -- (proven in MMU/State.lean.)
     let pageFault := Sparkle.IP.RV32.MMU.pageFaultGateSignal isMMUFault bypassMMU
-    let isStoreFault := pageFault &&& dMissIsStore
+    let isStoreFault := Sparkle.IP.RV32.Trap.isStoreFaultSignal pageFault dMissIsStore
     let pageFaultCause := Sparkle.IP.RV32.Trap.pageFaultCauseSignal isStoreFault
 
     -- I-side page fault: PTW completed with fault for instruction fetch
