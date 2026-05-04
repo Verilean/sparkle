@@ -77,6 +77,47 @@ theorem trap_invalidates_reservation_next_cycle {dom : DomainConfig}
   -- Now goal: resValidNextPure true _ _ _ = false
   rfl
 
+/-- **LR at cycle t (no trap) → reservation valid at cycle t+1.** -/
+theorem LR_sets_reservation_next_cycle {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) (t : Nat)
+    (h_no_trap : trap.val t = false)
+    (h_LR : isLR.val t = true) :
+    (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = true := by
+  unfold reservationValidSignal
+  show (Signal.register false _).val (t + 1) = true
+  show (resValidNextSignal trap isLR isSC prevValid).val t = true
+  rw [resValidNextSignal_eq_pure]
+  rw [h_no_trap, h_LR]
+  rfl
+
+/-- **SC at cycle t (no trap, no LR) → reservation invalid at cycle t+1.** -/
+theorem SC_clears_reservation_next_cycle {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) (t : Nat)
+    (h_no_trap : trap.val t = false)
+    (h_no_LR : isLR.val t = false)
+    (h_SC : isSC.val t = true) :
+    (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = false := by
+  unfold reservationValidSignal
+  show (Signal.register false _).val (t + 1) = false
+  show (resValidNextSignal trap isLR isSC prevValid).val t = false
+  rw [resValidNextSignal_eq_pure]
+  rw [h_no_trap, h_no_LR, h_SC]
+  rfl
+
+/-- **No event at cycle t → reservation at cycle t+1 = prevValid.val t.** -/
+theorem reservation_holds_when_no_event {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) (t : Nat)
+    (h_no_trap : trap.val t = false)
+    (h_no_LR : isLR.val t = false)
+    (h_no_SC : isSC.val t = false) :
+    (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = prevValid.val t := by
+  unfold reservationValidSignal
+  show (Signal.register false _).val (t + 1) = _
+  show (resValidNextSignal trap isLR isSC prevValid).val t = _
+  rw [resValidNextSignal_eq_pure]
+  rw [h_no_trap, h_no_LR, h_no_SC]
+  rfl
+
 /-! ## Sequential: SC after trap → SC fails
 
   Combine the trap-invalidation theorem with `scExFailsPure` to

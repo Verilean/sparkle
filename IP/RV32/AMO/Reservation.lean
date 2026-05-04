@@ -166,4 +166,46 @@ def resAddrNextSignal {dom : DomainConfig}
     : Signal dom (BitVec 32) :=
   Signal.mux isLR exwb_physAddr reservationAddr
 
+/-! ## Sequential resAddrReg: capture-or-hold
+
+  When LR fires at cycle t, resAddrReg at t+1 latches the LR's
+  target PA. Otherwise, it holds. -/
+
+/-- resAddrReg signal wrapper. -/
+def resAddrRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (isLR : Signal dom Bool)
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32))
+    : Signal dom (BitVec 32) :=
+  Signal.register init (resAddrNextSignal isLR exwb_physAddr reservationAddr)
+
+/-- **LR at t → resAddrReg at t+1 = exwb_physAddr.val t.** -/
+theorem resAddrReg_latch_on_LR {dom : DomainConfig}
+    (init : BitVec 32) (isLR : Signal dom Bool)
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32)) (t : Nat)
+    (h_LR : isLR.val t = true) :
+    (resAddrRegSignal init isLR exwb_physAddr reservationAddr).val (t + 1) =
+      exwb_physAddr.val t := by
+  unfold resAddrRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (resAddrNextSignal isLR exwb_physAddr reservationAddr).val t = _
+  unfold resAddrNextSignal Signal.mux
+  show (if isLR.val t then _ else _) = _
+  rw [h_LR]
+  rfl
+
+/-- **¬LR at t → resAddrReg at t+1 = reservationAddr.val t.** -/
+theorem resAddrReg_hold_when_no_LR {dom : DomainConfig}
+    (init : BitVec 32) (isLR : Signal dom Bool)
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_LR : isLR.val t = false) :
+    (resAddrRegSignal init isLR exwb_physAddr reservationAddr).val (t + 1) =
+      reservationAddr.val t := by
+  unfold resAddrRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (resAddrNextSignal isLR exwb_physAddr reservationAddr).val t = _
+  unfold resAddrNextSignal Signal.mux
+  show (if isLR.val t then _ else _) = _
+  rw [h_no_LR]
+  rfl
+
 end Sparkle.IP.RV32.AMO
