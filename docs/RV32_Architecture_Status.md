@@ -313,6 +313,7 @@ expected value at cycle t":
 | `Pipeline/IFID.lean` | `fetchPCReg` | flush→pcNext (others delegated to mux) |
 | `Pipeline/MMURedirectInv.lean` | `pcReg` | dMMURedirect→dMissPC at t+1 |
 | `Pipeline/DelayReg.lean` | `flushDelay`, `stallDelay`, `prev_wb_*`, `prevStoreData` | step (.val (t+1) = x.val t); init (.val 0 = init) |
+| `CLINT/Timer.lean` | `mtimeLoReg`, `mtimeHiReg` | tick-when-no-write (advances by 1 + carry) |
 
 This gives every register in the production path a named
 sequential lemma per arm — the foundation for full multi-cycle
