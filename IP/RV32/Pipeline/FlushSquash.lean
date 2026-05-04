@@ -302,6 +302,78 @@ theorem squash_contains_dMMURedirect
   exact flush_contains_dMMURedirect branchTaken idex_jump trap_taken
     idex_isMret idex_isSret idex_isSFenceVMA
 
+/-- **Direct bridge: `trap_taken → squash`.** Used by invariant B
+    (mret idempotency) and invariants A/E (regfile + store
+    suppression on trap entry). -/
+theorem squash_contains_trap_taken
+    (branchTaken idex_jump idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay
+     stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken idex_jump true idex_isMret
+        idex_isSret idex_isSFenceVMA dMMURedirect flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_trap_taken branchTaken idex_jump idex_isMret
+    idex_isSret idex_isSFenceVMA dMMURedirect
+
+/-- **Direct bridge: `branchTaken → squash`.** -/
+theorem squash_contains_branchTaken
+    (idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay
+     stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure true idex_jump trap_taken idex_isMret
+        idex_isSret idex_isSFenceVMA dMMURedirect flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_branchTaken idex_jump trap_taken idex_isMret
+    idex_isSret idex_isSFenceVMA dMMURedirect
+
+/-- **Direct bridge: `idex_jump → squash`.** -/
+theorem squash_contains_idex_jump
+    (branchTaken trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay
+     stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken true trap_taken idex_isMret
+        idex_isSret idex_isSFenceVMA dMMURedirect flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_idex_jump branchTaken trap_taken idex_isMret
+    idex_isSret idex_isSFenceVMA dMMURedirect
+
+/-- **Direct bridge: `idex_isSret → squash`.** -/
+theorem squash_contains_idex_isSret
+    (branchTaken idex_jump trap_taken idex_isMret
+     idex_isSFenceVMA dMMURedirect flushDelay
+     stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken idex_jump trap_taken idex_isMret
+        true idex_isSFenceVMA dMMURedirect flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_idex_isSret branchTaken idex_jump trap_taken
+    idex_isMret idex_isSFenceVMA dMMURedirect
+
+/-- **Direct bridge: `idex_isSFenceVMA → squash`.** -/
+theorem squash_contains_idex_isSFenceVMA
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     dMMURedirect flushDelay
+     stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken idex_jump trap_taken idex_isMret
+        idex_isSret true dMMURedirect flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_idex_isSFenceVMA branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret dMMURedirect
+
 /-! ## Composite specs -/
 
 theorem flushPure_spec :
