@@ -70,6 +70,7 @@ import IP.RV32.CSR.NewValue
 import IP.RV32.CSR.Commit
 import IP.RV32.CSR.MIP
 import IP.RV32.CSR.MipSoft
+import IP.RV32.CSR.Sstatus
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
@@ -946,8 +947,9 @@ def rv32iSoCBody {dom : DomainConfig}
       (csrAddrHi === 0x3E#8)
 
     -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
-    let sstatusMask : Signal dom (BitVec 32) := Signal.pure 0x000C0122#32
-    let sstatusView := mstatusReg &&& sstatusMask
+    -- sstatus alias (proven in CSR/Sstatus.lean): exposes only
+    -- {SIE, SPIE, SPP, SUM, MXR}, hides {MIE, MPIE, MPP, ...}.
+    let sstatusView := Sparkle.IP.RV32.CSR.sstatusViewSignal mstatusReg
 
     -- CSR read mux (expanded with S-mode CSRs)
     let csr_rdata :=
@@ -1414,11 +1416,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let mcounterenNewCSR := mkCsrNewVal mcounterenReg
     let scounterenNewCSR := mkCsrNewVal scounterenReg
 
-    -- SSTATUS write: merge S-mode bits back into mstatus
+    -- SSTATUS write merge (proven in CSR/Sstatus.lean): preserve M-bits,
+    -- update S-bits from new value. Bit-level invariants closed by bv_decide.
     let sstatusNewVal  := mkCsrNewVal sstatusView
-    let mstatusNonS := mstatusReg &&& (~~~sstatusMask)
-    let sstatusMasked := sstatusNewVal &&& sstatusMask
-    let sstatusWdataOut := mstatusNonS ||| sstatusMasked
+    let sstatusWdataOut :=
+      Sparkle.IP.RV32.CSR.sstatusMergeSignal mstatusReg sstatusNewVal
     let sstatusWriteActive := idex_isCsr_valid &&& csrIsSstatus
 
     -- Trap-entry mstatus transformers: see `IP.RV32.CSR.MStatus`.
