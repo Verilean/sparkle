@@ -154,6 +154,31 @@ def actualByteWeSignal {dom : DomainConfig}
   proto_byte_we &&&
     dramWriteGateSignal trap_taken mmuBusy dMMURedirect dmemExtWriteEn
 
+/-! ## Downstream: proto_byte_we=false → actualByteWe=false
+
+  When the upstream proto write-enable is false, the DRAM
+  byte-WE is false regardless of the trap-aware gate. This is
+  the cycle-N+2 building block: after a trap at N, the IDEX
+  squash at N+1 forces idex_memWrite=false, which (with
+  pendingWriteEn=false from the AMO chain) forces proto_byte_we
+  =false — so DRAM byte_we is false at N+1, hence safely
+  unwritable at N+2 too via the standard proto_byte_we=false
+  → actualByteWe=false reduction.
+-/
+
+/-- **proto_byte_we=false at t → actualByteWeSignal=false at t.** -/
+theorem actualByteWe_false_when_proto_false {dom : DomainConfig}
+    (proto_byte_we trap_taken mmuBusy dMMURedirect dmemExtWriteEn : Signal dom Bool)
+    (t : Nat)
+    (h_no_proto : proto_byte_we.val t = false) :
+    (actualByteWeSignal proto_byte_we trap_taken mmuBusy dMMURedirect dmemExtWriteEn).val t
+      = false := by
+  unfold actualByteWeSignal
+  show (Signal.ap (Signal.map (· && ·) proto_byte_we) _).val t = false
+  show (proto_byte_we.val t && _) = false
+  rw [h_no_proto]
+  rfl
+
 /-! ## Connection to invariant E
 
   The full invariant E ("exactly one DRAM commit per logical
