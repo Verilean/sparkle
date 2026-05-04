@@ -48,6 +48,7 @@ import IP.RV32.Core
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
+import IP.RV32.Bus.PeripheralWE
 import IP.RV32.MMU.IfetchFault
 import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
@@ -1329,7 +1330,8 @@ def rv32iSoCBody {dom : DomainConfig}
         (stall &&& (~~~freezeIDEX)) flushOrDelay stallDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
-    let clintWE := idex_memWrite &&& (isCLINT_ex &&& validEX)
+    let clintWE :=
+      Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite isCLINT_ex validEX
     let msipMatch     := clintOffset === 0x0000#16
     let mtimeLoMatch  := clintOffset === 0xBFF8#16
     let mtimeHiMatch  := clintOffset === 0xBFFC#16
@@ -1358,7 +1360,8 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
         (clintWE &&& mtimecmpHiMatch) ex_rs2_approx mtimecmpHiReg
 
-    let mmioWE := idex_memWrite &&& (is_mmio_ex &&& validEX)
+    let mmioWE :=
+      Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite is_mmio_ex validEX
     let mmioOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 4 ·)
     let mmioIsStatus_ex := mmioOffset_ex === 0x0#4
     let mmioIsInput_ex  := mmioOffset_ex === 0x4#4
@@ -1366,7 +1369,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let aiInputNext  := Signal.mux (mmioWE &&& mmioIsInput_ex)  ex_rs2_approx aiInputReg
 
     -- UART 8250 write logic (EX stage)
-    let uartWE := idex_memWrite &&& (isUART_ex &&& validEX)
+    let uartWE :=
+      Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite isUART_ex validEX
     let uartOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 3 ·)
     let uartDLAB := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     let uartWdata8 := ex_rs2_approx.map (BitVec.extractLsb' 0 8 ·)
