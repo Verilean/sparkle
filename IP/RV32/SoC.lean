@@ -86,6 +86,7 @@ import IP.RV32.CSR.MipSoft
 import IP.RV32.CSR.Sstatus
 import IP.RV32.CSR.PMPRange
 import IP.RV32.CSR.ReadMux
+import IP.RV32.CSR.MStatusBits
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.IdexLive
@@ -1081,10 +1082,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let mret_target := mepcReg
     let sret_target := sepcReg
 
-    -- MPP and SPP for privilege mode transitions
-    let mpp := mstatusReg.map (BitVec.extractLsb' 11 2 ·)
-    let sppBit := mstatusReg.map (BitVec.extractLsb' 8 1 ·)
-    let sretPriv := 0#1 ++ sppBit
+    -- MPP and SPP for privilege mode transitions (proven in CSR/MStatusBits.lean):
+    -- mpp = mstatus[12:11], sppBit = mstatus[8], sretPriv = 0##sppBit.
+    let mpp := Sparkle.IP.RV32.CSR.mppSignal mstatusReg
+    let sppBit := Sparkle.IP.RV32.CSR.sppBitSignal mstatusReg
+    let sretPriv := Sparkle.IP.RV32.CSR.sretPrivSignal mstatusReg
 
     -- 7-way flush + flushOrDelay (proven in Pipeline/FlushSquash.lean):
     -- per-source inclusion lemmas + exhaustive truth tables.
