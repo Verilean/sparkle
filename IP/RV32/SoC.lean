@@ -100,6 +100,7 @@ import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
 import IP.RV32.Pipeline.AluSrc
+import IP.RV32.Pipeline.AluResult
 import IP.RV32.Mext.DivPending
 import IP.RV32.Pipeline.StoreLoadFwd
 
@@ -906,7 +907,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let alu_result_raw := aluSignal idex_aluOp alu_a alu_b
     -- M-extension: MUL (1-cycle) uses synthesizable 64-bit multiply
     let mulResult := mulComputeSignal idex_funct3 ex_rs1 ex_rs2
-    let isDivOp := (idex_funct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
+    -- isDivOp / mextResult / alu_result composition (proven in
+    -- Pipeline/AluResult.lean).
+    let isDivOp := Sparkle.IP.RV32.Pipeline.isDivOpSignal idex_funct3
     let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
     let branchTaken := idex_branch &&& branchCond
     -- jumpTarget (proven in Pipeline/PCNext.lean): JALR clears bit 0.
@@ -1114,8 +1117,10 @@ def rv32iSoCBody {dom : DomainConfig}
     -- (divPending && divDone) = true only on the done cycle → un-stall
     let divStall := Sparkle.IP.RV32.Mext.divStallSignal divWanted divPending divDone
     -- M-extension result: MUL (immediate) or DIV/REM (multi-cycle)
-    let mextResult := Signal.mux isDivOp divResult mulResult
-    let alu_result := Signal.mux idex_isMext mextResult alu_result_raw
+    let mextResult :=
+      Sparkle.IP.RV32.Pipeline.mextResultSignal isDivOp divResult mulResult
+    let alu_result :=
+      Sparkle.IP.RV32.Pipeline.aluResultSignal idex_isMext mextResult alu_result_raw
 
     let id_opcode := ifid_inst.map (BitVec.extractLsb' 0 7 ·)
     let id_rd     := ifid_inst.map (BitVec.extractLsb' 7 5 ·)

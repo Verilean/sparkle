@@ -92,6 +92,7 @@ import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
 import IP.RV32.Pipeline.AluSrc
+import IP.RV32.Pipeline.AluResult
 import IP.RV32.Pipeline.MMURedirectInv
 import IP.RV32.Pipeline.StoreDuringTrap
 import IP.RV32.Pipeline.RegfileTrapInv
