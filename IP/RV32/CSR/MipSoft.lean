@@ -139,4 +139,35 @@ def mipSoftNextSignal {dom : DomainConfig}
   Signal.mux mipWriteEn (kept ||| mipMaskedNew)
     (Signal.mux sipWriteEn (kept ||| sipMaskedNew) mipSoft)
 
+/-! ## sip read value
+
+  When the kernel reads `sip`, it sees only the soft-writable
+  bits (SSIP, STIP, SEIP) of mip — the hardware-only bits
+  (MTIP, MSIP, MEIP) are masked out. This is `mipValue ∧
+  mipSoftMaskValue` per RISC-V priv spec, Vol II §4.1.5.
+-/
+
+@[inline] def sipReadValuePure (mipValue : BitVec 32) : BitVec 32 :=
+  mipValue &&& mipSoftMaskValuePure
+
+/-- sip-read masks out the high 20 bits (none are soft-writable). -/
+theorem sipReadValue_high_zero (mipValue : BitVec 32) :
+    (sipReadValuePure mipValue).extractLsb' 12 20 = 0#20 := by
+  unfold sipReadValuePure mipSoftMaskValuePure
+  bv_decide
+
+/-- sip-read on a pure-MSIP value masks it out (MSIP is not soft-writable). -/
+theorem sipReadValue_msip_masked :
+    sipReadValuePure 0x00000008#32 = 0#32 := by
+  unfold sipReadValuePure mipSoftMaskValuePure
+  bv_decide
+
+theorem sipReadValuePure_spec (mipValue : BitVec 32) :
+    sipReadValuePure mipValue = (mipValue &&& mipSoftMaskValuePure) := rfl
+
+def sipReadValueSignal {dom : DomainConfig}
+    (mipValue : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let mask : Signal dom (BitVec 32) := Signal.pure mipSoftMaskValuePure
+  mipValue &&& mask
+
 end Sparkle.IP.RV32.CSR

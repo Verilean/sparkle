@@ -956,7 +956,8 @@ def rv32iSoCBody {dom : DomainConfig}
     -- combines MTIP=bit7 (from timerIrq), MSIP=bit3 (from swIrq), and the
     -- software-writable S-bits {SSIP=1, STIP=5, SEIP=9} from mipSoftReg.
     let mipValue := Sparkle.IP.RV32.CSR.mipValueSignal timerIrq swIrq mipSoftReg
-    let mipSoftMask : Signal dom (BitVec 32) := Signal.pure 0x00000222#32
+    -- sipValue: soft-writable bits of mip (proven in CSR/MipSoft.lean).
+    let sipValue := Sparkle.IP.RV32.CSR.sipReadValueSignal mipValue
     -- CSR address matching (M-mode)
     let csrIsMstatus  := idex_csrAddr === 0x300#12
     let csrIsMie      := idex_csrAddr === 0x304#12
@@ -1014,7 +1015,7 @@ def rv32iSoCBody {dom : DomainConfig}
         mepcReg mcauseReg mtvalReg mipValue
         medelegReg midelegReg
         sstatusView sieReg stvecReg sscratchReg
-        sepcReg scauseReg stvalReg (mipValue &&& mipSoftMask)
+        sepcReg scauseReg stvalReg sipValue
         satpReg mcounterenReg scounterenReg
         mtimeLoReg mtimeHiReg
 
