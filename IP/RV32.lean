@@ -73,4 +73,5 @@ import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.Regfile
+import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.StoreLoadFwd

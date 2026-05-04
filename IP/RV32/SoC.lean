@@ -88,6 +88,7 @@ import IP.RV32.Pipeline.FlushSquash
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.Regfile
+import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.StoreLoadFwd
 
 set_option maxRecDepth 65536
@@ -483,7 +484,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let ptwMemWordAddr := ptwMemAddr.map (BitVec.extractLsb' 2 23 ·)
     -- MMU stall: busy (not IDLE/DONE/FAULT) and not bypassed
     let mmuBusy := ~~~((isMMUIdle ||| isMMUDone) ||| isMMUFault)
-    let mmuStall := mmuBusy &&& (~~~bypassMMU)
+    -- mmuStall (proven in Pipeline/Stall.lean): MMU PTW busy and not bypassed.
+    let mmuStall := Sparkle.IP.RV32.Pipeline.mmuStallSignal mmuBusy bypassMMU
 
     -- =========================================================================
     -- D-side TLB lookup (early, needed for effectiveAddr used by bus decode)
@@ -1219,11 +1221,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let ifetchTLBMiss :=
       Sparkle.IP.RV32.MMU.ifetchTLBMissSignal needTranslateI anyITLBHit
 
-    -- I-side stall on TLB miss (until PTW fills the entry)
-    let ifetchStall := ifetchTLBMiss &&& (~~~ifetchFaultPending)
-
-    let stall := ((hazardSignal idex_memRead idex_rd id_rs1 id_rs2) ||| mmuStall) |||
-                   ((idex_isAMOrw ||| pendingWriteEn) ||| (divStall ||| ifetchStall))
+    -- I-side stall + 6-way stall composition (proven in Pipeline/Stall.lean).
+    let ifetchStall :=
+      Sparkle.IP.RV32.Pipeline.ifetchStallSignal ifetchTLBMiss ifetchFaultPending
+    let stall :=
+      Sparkle.IP.RV32.Pipeline.stallSignal
+        (hazardSignal idex_memRead idex_rd id_rs1 id_rs2)
+        mmuStall idex_isAMOrw pendingWriteEn divStall ifetchStall
 
     let rf_rs1_addr := Signal.mux stall id_rs1
                          (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
