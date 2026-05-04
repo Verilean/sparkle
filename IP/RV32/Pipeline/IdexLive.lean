@@ -194,4 +194,34 @@ theorem idexLive_false_of_all_clear
   rw [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11]
   rfl
 
+/-! ## Cycle-wise Signal-level lift
+
+  Same statement but at Signal-cycle level: when each IDEX
+  control bit is false at cycle t, idexLiveSignal is also
+  false at t. -/
+
+theorem idexLiveSignal_false_when_all_clear {dom : DomainConfig}
+    (idex_regWrite idex_memRead idex_memWrite : Signal dom Bool)
+    (idex_jump idex_branch idex_isCsr : Signal dom Bool)
+    (idex_isEcall idex_isMret idex_isSret : Signal dom Bool)
+    (idex_isAMO idex_isMext idex_isSFenceVMA : Signal dom Bool) (t : Nat)
+    (h0 : idex_regWrite.val t = false) (h1 : idex_memRead.val t = false)
+    (h2 : idex_memWrite.val t = false) (h3 : idex_jump.val t = false)
+    (h4 : idex_branch.val t = false) (h5 : idex_isCsr.val t = false)
+    (h6 : idex_isEcall.val t = false) (h7 : idex_isMret.val t = false)
+    (h8 : idex_isSret.val t = false) (h9 : idex_isAMO.val t = false)
+    (h10 : idex_isMext.val t = false) (h11 : idex_isSFenceVMA.val t = false) :
+    (idexLiveSignal idex_regWrite idex_memRead idex_memWrite
+      idex_jump idex_branch idex_isCsr
+      idex_isEcall idex_isMret idex_isSret
+      idex_isAMO idex_isMext idex_isSFenceVMA).val t = false := by
+  unfold idexLiveSignal
+  -- Reduce a chain of |||'s at cycle t.
+  show ((((((((((((idex_regWrite.val t || idex_memRead.val t) || idex_memWrite.val t)
+    || idex_jump.val t) || idex_branch.val t) || idex_isCsr.val t)
+    || idex_isEcall.val t) || idex_isMret.val t) || idex_isSret.val t)
+    || idex_isAMO.val t) || idex_isMext.val t) || idex_isSFenceVMA.val t)) = false
+  rw [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11]
+  rfl
+
 end Sparkle.IP.RV32.Pipeline
