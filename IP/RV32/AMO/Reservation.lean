@@ -135,4 +135,35 @@ theorem resValidNextSignal_eq_pure {dom : DomainConfig}
   unfold resValidNextSignal resValidNextPure
   simp [Signal.mux, Signal.pure]
 
+/-! ## Reservation address next-state
+
+  When LR fires, latch the LR's target physical address into
+  `reservationAddr`. Otherwise hold (the address only matters
+  while the reservation is valid; once invalid, the value
+  becomes don't-care).
+-/
+
+@[inline] def resAddrNextPure
+    (isLR : Bool) (exwb_physAddr reservationAddr : BitVec 32) : BitVec 32 :=
+  if isLR then exwb_physAddr else reservationAddr
+
+@[simp] theorem resAddrNext_LR
+    (exwb_physAddr reservationAddr : BitVec 32) :
+    resAddrNextPure true exwb_physAddr reservationAddr = exwb_physAddr := rfl
+
+@[simp] theorem resAddrNext_hold
+    (exwb_physAddr reservationAddr : BitVec 32) :
+    resAddrNextPure false exwb_physAddr reservationAddr = reservationAddr := rfl
+
+theorem resAddrNextPure_spec
+    (isLR : Bool) (exwb_physAddr reservationAddr : BitVec 32) :
+    resAddrNextPure isLR exwb_physAddr reservationAddr =
+      (if isLR then exwb_physAddr else reservationAddr) := rfl
+
+def resAddrNextSignal {dom : DomainConfig}
+    (isLR : Signal dom Bool)
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32))
+    : Signal dom (BitVec 32) :=
+  Signal.mux isLR exwb_physAddr reservationAddr
+
 end Sparkle.IP.RV32.AMO

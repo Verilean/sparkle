@@ -1636,7 +1636,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let resValidNext :=
       Sparkle.IP.RV32.AMO.resValidNextSignal
         trap_taken exwb_isLR exwb_isSC reservationValid
-    let resAddrNext := Signal.mux exwb_isLR exwb_physAddr reservationAddr
+    let resAddrNext :=
+      Sparkle.IP.RV32.AMO.resAddrNextSignal exwb_isLR exwb_physAddr reservationAddr
 
     -- I-side PTW request: ifetch miss when PTW is idle and no D-side miss taking priority.
     -- Also gate on ~trap_taken: when a trap is firing this cycle, fetchPC still
