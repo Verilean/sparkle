@@ -144,6 +144,34 @@ theorem sret_squashes_idex_next_cycle {dom : DomainConfig} {α : Type}
   exact idex_squash_clears_next_cycle freeze squash old new init t
     h_freeze (h_squash_includes_sret h_sret)
 
+/-- Symmetric for trap_taken (cornerstone of invariants A and E). -/
+theorem trap_squashes_idex_next_cycle {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze squash trap_taken : Signal dom Bool)
+    (old new : Signal dom α) (init : α) (t : Nat)
+    (h_squash_includes_trap :
+      trap_taken.atTime t = true → squash.atTime t = true) :
+    trap_taken.atTime t = true →
+    freeze.atTime t = false →
+    (idexLatchSignal freeze squash old new init).atTime (t + 1) = init := by
+  intro h_trap h_freeze
+  exact idex_squash_clears_next_cycle freeze squash old new init t
+    h_freeze (h_squash_includes_trap h_trap)
+
+/-- Symmetric for dMMURedirect (cornerstone of invariant C). -/
+theorem dMMURedirect_squashes_idex_next_cycle {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze squash dMMURedirect : Signal dom Bool)
+    (old new : Signal dom α) (init : α) (t : Nat)
+    (h_squash_includes_dMMU :
+      dMMURedirect.atTime t = true → squash.atTime t = true) :
+    dMMURedirect.atTime t = true →
+    freeze.atTime t = false →
+    (idexLatchSignal freeze squash old new init).atTime (t + 1) = init := by
+  intro h_dmmu h_freeze
+  exact idex_squash_clears_next_cycle freeze squash old new init t
+    h_freeze (h_squash_includes_dMMU h_dmmu)
+
 /-! ## Pure-side spec for the squash inclusion
 
   The structural fact `idex_isMret.val t = true → squash.val t = true`
