@@ -1465,7 +1465,8 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.CSR.mstatusTrapSValSignal
         mstatusReg mstatusSIE_flag privMode
 
-    let mstatusTrapVal := Signal.mux trapToS mstatusTrapSVal mstatusTrapMVal
+    let mstatusTrapVal :=
+      Sparkle.IP.RV32.CSR.mstatusTrapValSignal trapToS mstatusTrapSVal mstatusTrapMVal
 
     -- MRET / SRET mstatus transformers: see `IP.RV32.CSR.MStatus`.
     -- Pure versions `mstatusMretVal_pure` / `mstatusSretVal_pure` are

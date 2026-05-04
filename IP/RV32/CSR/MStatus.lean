@@ -386,5 +386,35 @@ def mstatusTrapSValSignal {dom : DomainConfig}
     (msSetSPIE ||| 0x00000100#32)
     (msSetSPIE &&& 0xFFFFFEFF#32)
 
+/-! ## Trap-destination select
+
+  Once both candidate trap-entry mstatus values are computed
+  (S-mode and M-mode forms), the actual entry value is picked
+  by the trap destination: `trapToS` → S; else → M.
+-/
+
+@[inline] def mstatusTrapValPure
+    (trapToS : Bool) (mstatusTrapSVal mstatusTrapMVal : BitVec 32) : BitVec 32 :=
+  if trapToS then mstatusTrapSVal else mstatusTrapMVal
+
+@[simp] theorem mstatusTrapVal_to_S
+    (mstatusTrapSVal mstatusTrapMVal : BitVec 32) :
+    mstatusTrapValPure true mstatusTrapSVal mstatusTrapMVal = mstatusTrapSVal := rfl
+
+@[simp] theorem mstatusTrapVal_to_M
+    (mstatusTrapSVal mstatusTrapMVal : BitVec 32) :
+    mstatusTrapValPure false mstatusTrapSVal mstatusTrapMVal = mstatusTrapMVal := rfl
+
+theorem mstatusTrapValPure_spec
+    (trapToS : Bool) (mstatusTrapSVal mstatusTrapMVal : BitVec 32) :
+    mstatusTrapValPure trapToS mstatusTrapSVal mstatusTrapMVal =
+      (if trapToS then mstatusTrapSVal else mstatusTrapMVal) := rfl
+
+def mstatusTrapValSignal {dom : DomainConfig}
+    (trapToS : Signal dom Bool)
+    (mstatusTrapSVal mstatusTrapMVal : Signal dom (BitVec 32))
+    : Signal dom (BitVec 32) :=
+  Signal.mux trapToS mstatusTrapSVal mstatusTrapMVal
+
 end Sparkle.IP.RV32.CSR
 
