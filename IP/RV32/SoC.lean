@@ -47,6 +47,7 @@ import Sparkle.Compiler.Elab
 import IP.RV32.Core
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
+import IP.RV32.Bus.StoreData
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.Bus.PeripheralWE
 import IP.RV32.Bus.RdataMux
@@ -602,10 +603,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let rs2_byte2 := ex_rs2_approx.map (BitVec.extractLsb' 16 8 ·)
     let rs2_byte3 := ex_rs2_approx.map (BitVec.extractLsb' 24 8 ·)
     -- SB: all lanes get rs2[7:0]; SH: low/high half; SW: each lane gets its byte
-    let byte0_wdata := rs2_byte0
-    let byte1_wdata := Signal.mux isSB rs2_byte0 rs2_byte1
-    let byte2_wdata := Signal.mux isSW rs2_byte2 rs2_byte0
-    let byte3_wdata := Signal.mux isSW rs2_byte3 (Signal.mux isSB rs2_byte0 rs2_byte1)
+    -- Routed through Bus.byte{0,1,2,3}WdataSignal (proofs in Bus/StoreData.lean).
+    let byte0_wdata := Sparkle.IP.RV32.Bus.byte0WdataSignal rs2_byte0
+    let byte1_wdata := Sparkle.IP.RV32.Bus.byte1WdataSignal isSB rs2_byte0 rs2_byte1
+    let byte2_wdata := Sparkle.IP.RV32.Bus.byte2WdataSignal isSW rs2_byte0 rs2_byte2
+    let byte3_wdata := Sparkle.IP.RV32.Bus.byte3WdataSignal isSB isSW rs2_byte0 rs2_byte1 rs2_byte3
 
     -- Pending AMO write: registered data from previous WB stage AMO computation
     -- pendingWriteEn/Addr/Data are registers set when non-LR/SC AMO was in WB
