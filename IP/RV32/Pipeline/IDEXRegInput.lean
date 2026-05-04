@@ -174,4 +174,78 @@ def exwbSuppressBoolSignal {dom : DomainConfig}
     (suppressEXWB new : Signal dom Bool) : Signal dom Bool :=
   Signal.mux suppressEXWB (Signal.pure false) new
 
+/-! ## Sequential register lemmas for idexHoldable / exwbSuppress
+
+  These are register-level wrappers + cycle-wise sequential
+  lemmas, mirroring the FlushSquash idex-squashable register
+  semantics for the simpler "holdable" and "suppress" patterns. -/
+
+/-- Holdable BV register: register init (idexHoldableBVSignal). -/
+def idexHoldableBVRegSignal {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX : Signal dom Bool)
+    (held new : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  Signal.register init (idexHoldableBVSignal freezeIDEX held new)
+
+/-- **freeze at t → idexHoldableBVReg at t+1 = held.val t.** -/
+theorem idexHoldableBVReg_freeze {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX : Signal dom Bool)
+    (held new : Signal dom (BitVec n)) (t : Nat)
+    (h_freeze : freezeIDEX.val t = true) :
+    (idexHoldableBVRegSignal init freezeIDEX held new).val (t + 1) = held.val t := by
+  unfold idexHoldableBVRegSignal idexHoldableBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held new).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else _) = _
+  rw [h_freeze]
+  rfl
+
+/-- **¬freeze at t → idexHoldableBVReg at t+1 = new.val t.** -/
+theorem idexHoldableBVReg_advance {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX : Signal dom Bool)
+    (held new : Signal dom (BitVec n)) (t : Nat)
+    (h_no_freeze : freezeIDEX.val t = false) :
+    (idexHoldableBVRegSignal init freezeIDEX held new).val (t + 1) = new.val t := by
+  unfold idexHoldableBVRegSignal idexHoldableBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held new).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else _) = _
+  rw [h_no_freeze]
+  rfl
+
+/-- ExwbSuppress BV register. -/
+def exwbSuppressBVRegSignal {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (suppressEXWB : Signal dom Bool) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  Signal.register init (exwbSuppressBVSignal suppressEXWB zero new)
+
+/-- **suppress at t → exwbSuppressBVReg at t+1 = zero.** -/
+theorem exwbSuppressBVReg_suppress {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (suppressEXWB : Signal dom Bool) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) (t : Nat)
+    (h_suppress : suppressEXWB.val t = true) :
+    (exwbSuppressBVRegSignal init suppressEXWB zero new).val (t + 1) = zero := by
+  unfold exwbSuppressBVRegSignal exwbSuppressBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux suppressEXWB (Signal.pure zero) new).val t = _
+  unfold Signal.mux
+  show (if suppressEXWB.val t then _ else _) = _
+  rw [h_suppress]
+  rfl
+
+/-- **¬suppress at t → exwbSuppressBVReg at t+1 = new.val t.** -/
+theorem exwbSuppressBVReg_advance {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (suppressEXWB : Signal dom Bool) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) (t : Nat)
+    (h_no_suppress : suppressEXWB.val t = false) :
+    (exwbSuppressBVRegSignal init suppressEXWB zero new).val (t + 1) = new.val t := by
+  unfold exwbSuppressBVRegSignal exwbSuppressBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux suppressEXWB (Signal.pure zero) new).val t = _
+  unfold Signal.mux
+  show (if suppressEXWB.val t then _ else _) = _
+  rw [h_no_suppress]
+  rfl
+
 end Sparkle.IP.RV32.Pipeline
