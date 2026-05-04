@@ -777,4 +777,54 @@ theorem idex_squash_persists_via_flushDelay {dom : DomainConfig} {α : Type}
       (idex_isSFenceVMA.val (n + 1)) (dMMURedirect.val (n + 1))
       (stallAndNotFreeze.val (n + 1)) (stallDelay.val (n + 1))
 
+/-! ## Multi-cycle composite: trap at N → IDEX at N+2 = init
+
+  Chains `flushDelayReg_set_after_trap` (cycle N → N+1) with
+  `idex_squash_persists_via_flushDelay` (cycle N+1 → N+2).
+
+  Statement: a trap at cycle N forces the IDEX latch at cycle
+  N+2 to be the squashed-init value, provided the freeze
+  signal is clear at cycle N+1.
+
+  This complements the single-cycle `mret_squashes_idex_next_cycle`
+  variants (commit 4e155d3 et al.) which handle the immediate
+  N+1 squash; this lemma extends the squash to N+2 — required
+  for proving that a trap doesn't merely abort the in-flight
+  EXWB instruction but also keeps IDEX cleared across the cycle
+  after the trap, while the kernel handler is starting to
+  fetch.
+-/
+
+theorem idex_squash_at_N_plus_2_after_trap {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze : Signal dom Bool)
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool)
+    (flushDelay stallAndNotFreeze stallDelay : Signal dom Bool)
+    (old new : Signal dom α) (init : α) (n : Nat)
+    (h_trap_n : trap_taken.val n = true)
+    (h_no_freeze_n1 : freeze.atTime (n + 1) = false)
+    -- Wire flushDelay := register false (flushSignal ...).
+    (h_flushDelay_def :
+      ∀ t, flushDelay.val t = (Signal.register false
+        (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+          idex_isSFenceVMA dMMURedirect)).val t) :
+    let squashSig :=
+      ⟨fun t => squashPure (stallAndNotFreeze.val t)
+        (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+          (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+          (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+        (stallDelay.val t)⟩
+    (idexLatchSignal freeze squashSig old new init).atTime (n + 2) = init := by
+  -- Step 1: trap at n → flushDelay at n+1 = true (via wire-def + flushDelayReg_set_after_trap).
+  have h_flushDelay_n1 : flushDelay.atTime (n + 1) = true := by
+    unfold Signal.atTime
+    rw [h_flushDelay_def (n + 1)]
+    exact flushDelayReg_set_after_trap branchTaken idex_jump trap_taken idex_isMret
+      idex_isSret idex_isSFenceVMA dMMURedirect n h_trap_n
+  -- Step 2: apply idex_squash_persists_via_flushDelay.
+  exact idex_squash_persists_via_flushDelay freeze branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect flushDelay
+    stallAndNotFreeze stallDelay old new init n h_flushDelay_n1 h_no_freeze_n1
+
 end Sparkle.IP.RV32.Pipeline
