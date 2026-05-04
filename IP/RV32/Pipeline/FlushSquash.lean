@@ -649,4 +649,58 @@ theorem flushDelayReg_set_after_mret {dom : DomainConfig}
     cases trap_taken.val t <;> cases idex_isSret.val t <;>
     cases idex_isSFenceVMA.val t <;> cases dMMURedirect.val t <;> rfl
 
+/-- **idex_jump at t → flushDelay at t+1 = true.** -/
+theorem flushDelayReg_set_after_jump {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool) (t : Nat)
+    (h_jump : idex_jump.val t = true) :
+    (Signal.register false
+      (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+        idex_isSFenceVMA dMMURedirect)).val (t + 1) = true := by
+  apply flushDelayReg_set_helper
+  unfold flushSignal
+  show (((((((branchTaken.val t || idex_jump.val t) || trap_taken.val t)
+    || idex_isMret.val t) || idex_isSret.val t) || idex_isSFenceVMA.val t)
+    || dMMURedirect.val t)) = true
+  rw [h_jump]
+  cases branchTaken.val t <;> cases trap_taken.val t <;>
+    cases idex_isMret.val t <;> cases idex_isSret.val t <;>
+    cases idex_isSFenceVMA.val t <;> cases dMMURedirect.val t <;> rfl
+
+/-- **idex_isSret at t → flushDelay at t+1 = true.** -/
+theorem flushDelayReg_set_after_sret {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool) (t : Nat)
+    (h_sret : idex_isSret.val t = true) :
+    (Signal.register false
+      (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+        idex_isSFenceVMA dMMURedirect)).val (t + 1) = true := by
+  apply flushDelayReg_set_helper
+  unfold flushSignal
+  show (((((((branchTaken.val t || idex_jump.val t) || trap_taken.val t)
+    || idex_isMret.val t) || idex_isSret.val t) || idex_isSFenceVMA.val t)
+    || dMMURedirect.val t)) = true
+  rw [h_sret]
+  cases branchTaken.val t <;> cases idex_jump.val t <;>
+    cases trap_taken.val t <;> cases idex_isMret.val t <;>
+    cases idex_isSFenceVMA.val t <;> cases dMMURedirect.val t <;> rfl
+
+/-- **idex_isSFenceVMA at t → flushDelay at t+1 = true.** -/
+theorem flushDelayReg_set_after_sfence {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool) (t : Nat)
+    (h_sfence : idex_isSFenceVMA.val t = true) :
+    (Signal.register false
+      (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+        idex_isSFenceVMA dMMURedirect)).val (t + 1) = true := by
+  apply flushDelayReg_set_helper
+  unfold flushSignal
+  show (((((((branchTaken.val t || idex_jump.val t) || trap_taken.val t)
+    || idex_isMret.val t) || idex_isSret.val t) || idex_isSFenceVMA.val t)
+    || dMMURedirect.val t)) = true
+  rw [h_sfence]
+  cases branchTaken.val t <;> cases idex_jump.val t <;>
+    cases trap_taken.val t <;> cases idex_isMret.val t <;>
+    cases idex_isSret.val t <;> cases dMMURedirect.val t <;> rfl
+
 end Sparkle.IP.RV32.Pipeline
