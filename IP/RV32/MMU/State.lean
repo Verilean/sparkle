@@ -204,4 +204,44 @@ def dMMURedirectSignal {dom : DomainConfig}
     : Signal dom Bool :=
   isMMUDoneSignal mmuState &&& (~~~bypassMMU)
 
+/-! ## Page-fault gate
+
+  D-side and I-side page faults share the same gate shape:
+
+    pageFault         = isMMUFault          ∧ ¬bypassMMU
+    ifetchPageFault   = ifetchFaultPending  ∧ ¬bypassMMU
+
+  Both gate the upstream fault signal by the bypassMMU flag (when
+  paging is off in M-mode, no page fault is reported even if the
+  upstream FSM happens to be in FAULT state — though that
+  shouldn't happen in correct hardware).
+
+  We capture this as a single helper since both sites use the
+  same shape.
+-/
+
+@[inline] def pageFaultGatePure
+    (rawFault bypassMMU : Bool) : Bool :=
+  rawFault && !bypassMMU
+
+@[simp] theorem pageFaultGate_no_fault (bypassMMU : Bool) :
+    pageFaultGatePure false bypassMMU = false := by
+  unfold pageFaultGatePure; rfl
+
+@[simp] theorem pageFaultGate_bypass (rawFault : Bool) :
+    pageFaultGatePure rawFault true = false := by
+  unfold pageFaultGatePure; cases rawFault <;> rfl
+
+@[simp] theorem pageFaultGate_active :
+    pageFaultGatePure true false = true := rfl
+
+theorem pageFaultGatePure_spec
+    (rawFault bypassMMU : Bool) :
+    pageFaultGatePure rawFault bypassMMU =
+      (rawFault && !bypassMMU) := rfl
+
+def pageFaultGateSignal {dom : DomainConfig}
+    (rawFault bypassMMU : Signal dom Bool) : Signal dom Bool :=
+  rawFault &&& (~~~bypassMMU)
+
 end Sparkle.IP.RV32.MMU

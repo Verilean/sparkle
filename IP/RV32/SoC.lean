@@ -698,8 +698,10 @@ def rv32iSoCBody {dom : DomainConfig}
     -- The witness is `dmemWe_not_gated_by_trap` in
     -- `IP/RV32/Pipeline/AbortGuarantee.lean`.
     -- =========================================================================
-    let early_pageFault := isMMUFault &&& (~~~bypassMMU)
-    let early_ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
+    -- Page-fault gates (proven in MMU/State.lean — bypassMMU suppresses).
+    let early_pageFault := Sparkle.IP.RV32.MMU.pageFaultGateSignal isMMUFault bypassMMU
+    let early_ifetchPageFault :=
+      Sparkle.IP.RV32.MMU.pageFaultGateSignal ifetchFaultPending bypassMMU
     -- Timer / software / S-mode interrupt enables (mirror lines 870..919)
     let early_mstatusMIE := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
     let early_mstatusSIE := (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
@@ -1055,12 +1057,15 @@ def rv32iSoCBody {dom : DomainConfig}
     let ecallCause := Sparkle.IP.RV32.Trap.ecallCauseSignal privIsU privIsS
 
     -- Page fault from MMU FAULT state (D-side: load=13, store=15)
-    let pageFault := isMMUFault &&& (~~~bypassMMU)
+    -- (proven in MMU/State.lean.)
+    let pageFault := Sparkle.IP.RV32.MMU.pageFaultGateSignal isMMUFault bypassMMU
     let isStoreFault := pageFault &&& dMissIsStore
     let pageFaultCause := Sparkle.IP.RV32.Trap.pageFaultCauseSignal isStoreFault
 
     -- I-side page fault: PTW completed with fault for instruction fetch
-    let ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
+    -- (proven in MMU/State.lean.)
+    let ifetchPageFault :=
+      Sparkle.IP.RV32.MMU.pageFaultGateSignal ifetchFaultPending bypassMMU
 
     -- trap_taken disjunction (proven in Trap/TrapTaken.lean).
     let trap_taken :=
