@@ -108,6 +108,34 @@ they're functions on the input bit-vectors that the loop body computes
 each cycle. `decide` should close them quickly because the
 quantification is over Bool / small BitVec.
 
+#### Decomposition status (2026-05-04)
+
+The proof-driven decomposition has reached a milestone: **no inline
+`Signal.mux` calls remain in `SoC.lean`'s synthesized loop**. Every
+conditional selection and register-input next-state in the hardware
+path is now routed through a named primitive in one of ~95 modules
+under `IP/RV32/`:
+
+* All 10 concerns in the table above have at least one
+  `decide`/`bv_decide`/`rfl`-closed primitive proven.
+* The IDEX-stage register-input pattern (24 fields × 3 mux levels)
+  is consolidated into 3 generic helpers (`idexSquashableBV`,
+  `idexSquashableBool`, `idexHoldableBV`) plus an EX/WB suppress
+  variant — making it possible to prove "squash → all squashable
+  fields = NOP" once for all 24 fields rather than per-field.
+* The DMEM-write priority (external > pending-AMO > EX) and DMEM-
+  read priority (PTW > AMO > EX) are captured as composite
+  priority lemmas (`dmemAddr_ext_priority`, `dmemAddr_amo_priority`,
+  etc.).
+* Sub-word load extraction, store byte-data lane formation, and
+  load-vs-bypass busRdata gating are all routed through Bus/* signal
+  wrappers with rfl-closed extension/extraction lemmas.
+
+The remaining inline-Signal expressions in SoC.lean are entirely in
+the JIT-debug entry-point (`runRV32SoC` / DBG variants) which is *not*
+part of the synthesized hardware path and doesn't appear in
+Verilator codegen.
+
 ### 2.2 Sequential invariants (need induction over the loop)
 
 Once 2.1 lemmas exist, these become reachable:
