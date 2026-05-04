@@ -76,6 +76,7 @@ import IP.RV32.CSR.Types
 import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Decode
+import IP.RV32.AMO.PendingWrite
 import IP.RV32.Decoder.System
 import IP.RV32.Decoder.Opcode
 import IP.RV32.Privilege.PrivMode
@@ -856,9 +857,14 @@ def rv32iSoCBody {dom : DomainConfig}
     -- AMO writeback was previously writing to the virtual address as if it were
     -- physical, dropping all atomic stores under Sv32 paging (the kernel's
     -- atomic_long_add etc. were lost, causing nr_free_pages=0 at boot).
-    let pendingWriteEnNext := exwb_isAMOrw
-    let pendingWriteAddrNext := Signal.mux exwb_isAMOrw exwb_physAddr pendingWriteAddr
-    let pendingWriteDataNext := Signal.mux exwb_isAMOrw amoNewVal pendingWriteData
+    -- Pending-write next-state (proven in AMO/PendingWrite.lean): three
+    -- registers all latched/held by `exwb_isAMOrw`.
+    let pendingWriteEnNext :=
+      Sparkle.IP.RV32.AMO.pendingWriteEnNextSignal exwb_isAMOrw
+    let pendingWriteAddrNext :=
+      Sparkle.IP.RV32.AMO.pendingWriteAddrNextSignal exwb_isAMOrw exwb_physAddr pendingWriteAddr
+    let pendingWriteDataNext :=
+      Sparkle.IP.RV32.AMO.pendingWriteDataNextSignal exwb_isAMOrw amoNewVal pendingWriteData
 
     -- SC.W: succeeds iff reservation is valid and matches target PA. Per
     -- RISC-V spec, traps (and other context switches) must invalidate the
