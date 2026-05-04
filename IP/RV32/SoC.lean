@@ -54,6 +54,7 @@ import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
+import IP.RV32.MMU.PTWFSM
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -1647,23 +1648,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let isDataReady := ptwIsL1Wait ||| ptwIsL0Wait
     let ptwPteNext := Signal.mux isDataReady dmem_rdata ptwPteReg
 
-    -- PTW state transitions (7-state FSM with DMEM read latency handling)
-    -- IDLE(0) → L1_REQ(1) on TLB miss
-    let nextFromPtwIdle := Signal.mux ptwReq (Signal.pure 1#3) (Signal.pure 0#3)
-    -- L1_REQ(1) → L1_WAIT(2): always wait 1 cycle for DMEM read
-    -- L1_WAIT(2): dmem_rdata has L1 PTE → DONE(5)/L0_REQ(3)/FAULT(6)
-    let nextFromL1Wait := Signal.mux dmemPteInvalid (Signal.pure 6#3)
-      (Signal.mux dmemPteIsLeaf (Signal.pure 5#3) (Signal.pure 3#3))
-    -- L0_REQ(3) → L0_WAIT(4): always wait 1 cycle for DMEM read
-    -- L0_WAIT(4): dmem_rdata has L0 PTE → DONE(5)/FAULT(6)
-    let nextFromL0Wait := Signal.mux dmemPteInvalid (Signal.pure 6#3)
-      (Signal.mux dmemPteIsLeaf (Signal.pure 5#3) (Signal.pure 6#3))
-    let ptwStateNext := Signal.mux ptwIsIdle nextFromPtwIdle
-      (Signal.mux ptwIsL1Req (Signal.pure 2#3)
-      (Signal.mux ptwIsL1Wait nextFromL1Wait
-      (Signal.mux ptwIsL0Req (Signal.pure 4#3)
-      (Signal.mux ptwIsL0Wait nextFromL0Wait
-        (Signal.pure 0#3)))))
+    -- PTW FSM transitions (7-state, proven in MMU/PTWFSM.lean):
+    -- IDLE+req → L1_REQ → L1_WAIT → {DONE, L0_REQ, FAULT};
+    -- L0_REQ → L0_WAIT → {DONE, FAULT}; DONE/FAULT → IDLE.
+    let ptwStateNext :=
+      Sparkle.IP.RV32.MMU.ptwStateNextSignal
+        ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+        ptwReq dmemPteInvalid dmemPteIsLeaf
 
     -- Megapage tracking: leaf found at L1 level
     let ptwMegaNext := Signal.mux (ptwIsL1Wait &&& (dmemPteIsLeaf &&& (~~~dmemPteInvalid)))
