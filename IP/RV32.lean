@@ -27,3 +27,4 @@ import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.CSR.MStatus
 import IP.RV32.Pipeline.SuppressEXWB
+import IP.RV32.Pipeline.AbortGuarantee
