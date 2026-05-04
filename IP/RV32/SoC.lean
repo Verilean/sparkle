@@ -86,6 +86,7 @@ import IP.RV32.Pipeline.IdexLive
 import IP.RV32.Pipeline.FlushSquash
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
+import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.StoreLoadFwd
 
 set_option maxRecDepth 65536
@@ -1254,18 +1255,26 @@ def rv32iSoCBody {dom : DomainConfig}
     -- not rf_rs1_addr.val (t-1) as Signal.memory would.
     let rf_rs1_raw := Signal.memoryComboRead wb_addr wb_data wb_en rf_rs1_addr
     let rf_rs2_raw := Signal.memoryComboRead wb_addr wb_data wb_en rf_rs2_addr
-    let wb_fwd_rs1 := wb_en &&& (wb_addr === id_rs1)
-    let wb_fwd_rs2 := wb_en &&& (wb_addr === id_rs2)
-    let prev_fwd_rs1 := prev_wb_en &&& (prev_wb_addr === id_rs1)
-    let prev_fwd_rs2 := prev_wb_en &&& (prev_wb_addr === id_rs2)
-    let rf_rs1_bypassed := Signal.mux wb_fwd_rs1 wb_data
-                             (Signal.mux prev_fwd_rs1 prev_wb_data rf_rs1_raw)
-    let rf_rs2_bypassed := Signal.mux wb_fwd_rs2 wb_data
-                             (Signal.mux prev_fwd_rs2 prev_wb_data rf_rs2_raw)
-    let id_rs1Val := Signal.mux (id_rs1 === 0#5)
-                       (Signal.pure 0#32) rf_rs1_bypassed
-    let id_rs2Val := Signal.mux (id_rs2 === 0#5)
-                       (Signal.pure 0#32) rf_rs2_bypassed
+    -- WB-stage bypass + x0 carve-out (proven in Pipeline/Regfile.lean):
+    -- wb-fwd > prev-wb-fwd > regfile, then x0 carve-out forces 0 for rs=0.
+    let wb_fwd_rs1 :=
+      Sparkle.IP.RV32.Pipeline.wbFwdMatchSignal wb_en wb_addr id_rs1
+    let wb_fwd_rs2 :=
+      Sparkle.IP.RV32.Pipeline.wbFwdMatchSignal wb_en wb_addr id_rs2
+    let prev_fwd_rs1 :=
+      Sparkle.IP.RV32.Pipeline.wbFwdMatchSignal prev_wb_en prev_wb_addr id_rs1
+    let prev_fwd_rs2 :=
+      Sparkle.IP.RV32.Pipeline.wbFwdMatchSignal prev_wb_en prev_wb_addr id_rs2
+    let rf_rs1_bypassed :=
+      Sparkle.IP.RV32.Pipeline.wbBypassSignal
+        wb_fwd_rs1 wb_data prev_fwd_rs1 prev_wb_data rf_rs1_raw
+    let rf_rs2_bypassed :=
+      Sparkle.IP.RV32.Pipeline.wbBypassSignal
+        wb_fwd_rs2 wb_data prev_fwd_rs2 prev_wb_data rf_rs2_raw
+    let id_rs1Val :=
+      Sparkle.IP.RV32.Pipeline.x0CarveOutSignal id_rs1 rf_rs1_bypassed
+    let id_rs2Val :=
+      Sparkle.IP.RV32.Pipeline.x0CarveOutSignal id_rs2 rf_rs2_bypassed
 
     let pcPlus4 := pcReg + 4#32
     let fetchPCPlus4 := fetchPC + 4#32
