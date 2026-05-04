@@ -56,6 +56,7 @@ import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.Trap.IRQEnable
+import IP.RV32.Trap.Cause
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.Pipeline.SuppressEXWB
@@ -996,34 +997,30 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.Trap.sExtIntEnabledSignal
         privIsS0 privIsU0 mstatusSIE_flag sieSEIE_flag seipPending
 
-    -- ECALL cause depends on privilege level
+    -- ECALL cause depends on privilege level (proven in Trap/Cause.lean).
     let privIsU := privMode === 0#2
     let privIsS := privMode === 1#2
-    let ecallCause := Signal.mux privIsU (Signal.pure 0x00000008#32)
-      (Signal.mux privIsS (Signal.pure 0x00000009#32) (Signal.pure 0x0000000B#32))
+    let ecallCause := Sparkle.IP.RV32.Trap.ecallCauseSignal privIsU privIsS
 
     -- Page fault from MMU FAULT state (D-side: load=13, store=15)
     let pageFault := isMMUFault &&& (~~~bypassMMU)
     let isStoreFault := pageFault &&& dMissIsStore
-    let pageFaultCause := Signal.mux isStoreFault (Signal.pure 0x0000000F#32) (Signal.pure 0x0000000D#32)
+    let pageFaultCause := Sparkle.IP.RV32.Trap.pageFaultCauseSignal isStoreFault
 
     -- I-side page fault: PTW completed with fault for instruction fetch
     let ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
 
     let anyInt := timerIntEnabled ||| swIntEnabled ||| sTimerIntEnabled ||| sSwIntEnabled ||| sExtIntEnabled
     let trap_taken := ((idex_isEcall ||| pageFault) ||| anyInt) ||| ifetchPageFault
-    -- Cause priority (per priv spec): MEI > MSI > MTI > SEI > SSI > STI for interrupts.
-    -- We don't model external M-mode here, so order is: MTI, MSI, SEI, SSI, STI.
+    -- Cause priority (per priv spec, proven in Trap/Cause.lean):
+    -- ifetchPF > ecall > pageFault > MTI > MSI > SEI > SSI > STI.
+    -- (MEI omitted: our SoC has no external M-mode IRQ.)
     let trapCause :=
-      Signal.mux ifetchPageFault (Signal.pure 0x0000000C#32)  -- cause 12: instruction page fault
-      (Signal.mux idex_isEcall ecallCause
-      (Signal.mux pageFault pageFaultCause
-      (Signal.mux timerIntEnabled (Signal.pure 0x80000007#32)
-      (Signal.mux swIntEnabled (Signal.pure 0x80000003#32)
-      (Signal.mux sExtIntEnabled (Signal.pure 0x80000009#32)
-      (Signal.mux sSwIntEnabled (Signal.pure 0x80000001#32)
-      (Signal.mux sTimerIntEnabled (Signal.pure 0x80000005#32)
-        (Signal.pure 0#32))))))))
+      Sparkle.IP.RV32.Trap.trapCauseSignal
+        ifetchPageFault
+        idex_isEcall ecallCause
+        pageFault pageFaultCause
+        timerIntEnabled swIntEnabled sExtIntEnabled sSwIntEnabled sTimerIntEnabled
 
     -- Trap delegation: check medeleg/mideleg bits
     let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
