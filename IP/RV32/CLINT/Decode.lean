@@ -170,6 +170,26 @@ theorem mtimeLo_mtimeHi_disjoint (offset : BitVec 16) :
 
 /-! ## Signal-level wrappers -/
 
+def msipMatchSignal {dom : DomainConfig}
+    (offset : Signal dom (BitVec 16)) : Signal dom Bool :=
+  offset === 0x0000#16
+
+def mtimecmpLoMatchSignal {dom : DomainConfig}
+    (offset : Signal dom (BitVec 16)) : Signal dom Bool :=
+  offset === 0x4000#16
+
+def mtimecmpHiMatchSignal {dom : DomainConfig}
+    (offset : Signal dom (BitVec 16)) : Signal dom Bool :=
+  offset === 0x4004#16
+
+def mtimeLoMatchSignal {dom : DomainConfig}
+    (offset : Signal dom (BitVec 16)) : Signal dom Bool :=
+  offset === 0xBFF8#16
+
+def mtimeHiMatchSignal {dom : DomainConfig}
+    (offset : Signal dom (BitVec 16)) : Signal dom Bool :=
+  offset === 0xBFFC#16
+
 def clintRdataSignal {dom : DomainConfig}
     (msipMatch mtimecmpLoMatch mtimecmpHiMatch mtimeLoMatch mtimeHiMatch : Signal dom Bool)
     (msipReg mtimecmpLoReg mtimecmpHiReg mtimeLoReg mtimeHiReg : Signal dom (BitVec 32))

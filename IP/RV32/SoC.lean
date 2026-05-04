@@ -755,12 +755,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let dmemRdataFwd :=
       Sparkle.IP.RV32.Pipeline.dmemRdataFwdSignal storeLoadMatch prevStoreData dmem_rdata
     -- CLINT register decode (read side, proven in CLINT/Decode.lean).
+    -- CLINT WB-stage offset matchers (proven in CLINT/Decode.lean):
+    -- pairwise disjoint addresses.
     let clintOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 16 ·)
-    let msipMatch_wb       := clintOffset_wb === 0x0000#16
-    let mtimecmpLoMatch_wb := clintOffset_wb === 0x4000#16
-    let mtimecmpHiMatch_wb := clintOffset_wb === 0x4004#16
-    let mtimeLoMatch_wb    := clintOffset_wb === 0xBFF8#16
-    let mtimeHiMatch_wb    := clintOffset_wb === 0xBFFC#16
+    let msipMatch_wb       := Sparkle.IP.RV32.CLINT.msipMatchSignal clintOffset_wb
+    let mtimecmpLoMatch_wb := Sparkle.IP.RV32.CLINT.mtimecmpLoMatchSignal clintOffset_wb
+    let mtimecmpHiMatch_wb := Sparkle.IP.RV32.CLINT.mtimecmpHiMatchSignal clintOffset_wb
+    let mtimeLoMatch_wb    := Sparkle.IP.RV32.CLINT.mtimeLoMatchSignal clintOffset_wb
+    let mtimeHiMatch_wb    := Sparkle.IP.RV32.CLINT.mtimeHiMatchSignal clintOffset_wb
     let clintRdata :=
       Sparkle.IP.RV32.CLINT.clintRdataSignal
         msipMatch_wb mtimecmpLoMatch_wb mtimecmpHiMatch_wb
@@ -1342,11 +1344,12 @@ def rv32iSoCBody {dom : DomainConfig}
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
     let clintWE :=
       Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite isCLINT_ex validEX
-    let msipMatch     := clintOffset === 0x0000#16
-    let mtimeLoMatch  := clintOffset === 0xBFF8#16
-    let mtimeHiMatch  := clintOffset === 0xBFFC#16
-    let mtimecmpLoMatch := clintOffset === 0x4000#16
-    let mtimecmpHiMatch := clintOffset === 0x4004#16
+    -- CLINT EX-stage offset matchers (proven in CLINT/Decode.lean).
+    let msipMatch       := Sparkle.IP.RV32.CLINT.msipMatchSignal clintOffset
+    let mtimeLoMatch    := Sparkle.IP.RV32.CLINT.mtimeLoMatchSignal clintOffset
+    let mtimeHiMatch    := Sparkle.IP.RV32.CLINT.mtimeHiMatchSignal clintOffset
+    let mtimecmpLoMatch := Sparkle.IP.RV32.CLINT.mtimecmpLoMatchSignal clintOffset
+    let mtimecmpHiMatch := Sparkle.IP.RV32.CLINT.mtimecmpHiMatchSignal clintOffset
     -- mtime+1 split-32 increment (proven in CLINT/Timer.lean to match 64-bit add).
     let mtimeLoInc := Sparkle.IP.RV32.CLINT.mtimeIncLoSignal mtimeLoReg
     let mtimeHiInc := Sparkle.IP.RV32.CLINT.mtimeIncHiSignal mtimeLoReg mtimeHiReg
