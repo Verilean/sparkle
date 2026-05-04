@@ -144,4 +144,41 @@ def effectiveAddrSignal {dom : DomainConfig}
   let useTranslated := (~~~bypassMMU) &&& anyTLBHit
   Signal.mux useTranslated dPhysAddr va
 
+/-! ## useTranslatedAddr: shared predicate
+
+  The "use the TLB-translated PA" predicate is `¬bypassMMU ∧
+  anyTLBHit` — paging is on AND the TLB has a valid entry. It's
+  used both inside `effectiveAddrPure` (above) and externally as
+  a register-input predicate (e.g., `prevStoreAddr` in
+  `Pipeline/StoreLoadFwd.lean` selects between PA and VA based
+  on this flag).
+
+  We expose it here so call sites that want the predicate alone
+  (without applying it to addresses) can reuse the proven shape.
+-/
+
+@[inline] def useTranslatedAddrPure
+    (bypassMMU anyTLBHit : Bool) : Bool :=
+  !bypassMMU && anyTLBHit
+
+@[simp] theorem useTranslatedAddr_bypass (anyTLBHit : Bool) :
+    useTranslatedAddrPure true anyTLBHit = false := by
+  unfold useTranslatedAddrPure; cases anyTLBHit <;> rfl
+
+@[simp] theorem useTranslatedAddr_no_hit (bypassMMU : Bool) :
+    useTranslatedAddrPure bypassMMU false = false := by
+  unfold useTranslatedAddrPure; cases bypassMMU <;> rfl
+
+@[simp] theorem useTranslatedAddr_active :
+    useTranslatedAddrPure false true = true := rfl
+
+theorem useTranslatedAddrPure_spec
+    (bypassMMU anyTLBHit : Bool) :
+    useTranslatedAddrPure bypassMMU anyTLBHit =
+      (!bypassMMU && anyTLBHit) := rfl
+
+def useTranslatedAddrSignal {dom : DomainConfig}
+    (bypassMMU anyTLBHit : Signal dom Bool) : Signal dom Bool :=
+  (~~~bypassMMU) &&& anyTLBHit
+
 end Sparkle.IP.RV32.MMU

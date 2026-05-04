@@ -552,7 +552,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let dPhysAddr :=
       Sparkle.IP.RV32.MMU.dPhysAddrSignal tlbMega tlbPPN alu_result_approx
     -- Effective addr: translated PA on TLB hit + MMU active, else VA.
-    let useTranslatedAddr := (~~~bypassMMU) &&& anyTLBHit
+    -- useTranslatedAddr: ¬bypassMMU ∧ anyTLBHit (proven in MMU/PA.lean).
+    let useTranslatedAddr := Sparkle.IP.RV32.MMU.useTranslatedAddrSignal bypassMMU anyTLBHit
     let effectiveAddr :=
       Sparkle.IP.RV32.MMU.effectiveAddrSignal bypassMMU anyTLBHit dPhysAddr alu_result_approx
 
