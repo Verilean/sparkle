@@ -48,6 +48,7 @@ import IP.RV32.Core
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.StoreData
+import IP.RV32.Bus.DMEMWriteMux
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.Bus.PeripheralWE
 import IP.RV32.Bus.RdataMux
@@ -627,35 +628,47 @@ def rv32iSoCBody {dom : DomainConfig}
     let pendByte3 := pendingWriteData.map (BitVec.extractLsb' 24 8 ·)
 
     -- Final DMEM write: mux between normal EX store and pending AMO write
-    let final_dmem_write_addr := Signal.mux pendingWriteEn pendWriteWordAddr dmem_write_addr
-    let final_byte0_wdata := Signal.mux pendingWriteEn pendByte0 byte0_wdata
-    let final_byte1_wdata := Signal.mux pendingWriteEn pendByte1 byte1_wdata
-    let final_byte2_wdata := Signal.mux pendingWriteEn pendByte2 byte2_wdata
-    let final_byte3_wdata := Signal.mux pendingWriteEn pendByte3 byte3_wdata
-    let final_byte0_we := byte0_we ||| pendingWriteEn
-    let final_byte1_we := byte1_we ||| pendingWriteEn
-    let final_byte2_we := byte2_we ||| pendingWriteEn
-    let final_byte3_we := byte3_we ||| pendingWriteEn
+    -- (proven in Bus/DMEMWriteMux.lean — pending-AMO priority).
+    let final_dmem_write_addr :=
+      Sparkle.IP.RV32.Bus.finalDmemAddrSignal pendingWriteEn pendWriteWordAddr dmem_write_addr
+    let final_byte0_wdata :=
+      Sparkle.IP.RV32.Bus.finalDmemByteWdataSignal pendingWriteEn pendByte0 byte0_wdata
+    let final_byte1_wdata :=
+      Sparkle.IP.RV32.Bus.finalDmemByteWdataSignal pendingWriteEn pendByte1 byte1_wdata
+    let final_byte2_wdata :=
+      Sparkle.IP.RV32.Bus.finalDmemByteWdataSignal pendingWriteEn pendByte2 byte2_wdata
+    let final_byte3_wdata :=
+      Sparkle.IP.RV32.Bus.finalDmemByteWdataSignal pendingWriteEn pendByte3 byte3_wdata
+    let final_byte0_we := Sparkle.IP.RV32.Bus.finalDmemByteWeSignal byte0_we pendingWriteEn
+    let final_byte1_we := Sparkle.IP.RV32.Bus.finalDmemByteWeSignal byte1_we pendingWriteEn
+    let final_byte2_we := Sparkle.IP.RV32.Bus.finalDmemByteWeSignal byte2_we pendingWriteEn
+    let final_byte3_we := Sparkle.IP.RV32.Bus.finalDmemByteWeSignal byte3_we pendingWriteEn
 
     -- External DMEM write port muxing (for firmware/data loading during reset)
     -- External writes take priority over pipeline writes when dmemExtWriteEn=true
+    -- (proven in Bus/DMEMWriteMux.lean — external-write priority).
     let dmem_ext_byte0 := dmemExtWriteData.map (BitVec.extractLsb' 0 8 ·)
     let dmem_ext_byte1 := dmemExtWriteData.map (BitVec.extractLsb' 8 8 ·)
     let dmem_ext_byte2 := dmemExtWriteData.map (BitVec.extractLsb' 16 8 ·)
     let dmem_ext_byte3 := dmemExtWriteData.map (BitVec.extractLsb' 24 8 ·)
-    let actual_dmem_write_addr := Signal.mux dmemExtWriteEn dmemExtWriteAddr final_dmem_write_addr
-    let actual_byte0_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte0 final_byte0_wdata
-    let actual_byte1_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte1 final_byte1_wdata
-    let actual_byte2_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte2 final_byte2_wdata
-    let actual_byte3_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte3 final_byte3_wdata
+    let actual_dmem_write_addr :=
+      Sparkle.IP.RV32.Bus.actualDmemAddrSignal dmemExtWriteEn dmemExtWriteAddr final_dmem_write_addr
+    let actual_byte0_wdata :=
+      Sparkle.IP.RV32.Bus.actualDmemByteWdataSignal dmemExtWriteEn dmem_ext_byte0 final_byte0_wdata
+    let actual_byte1_wdata :=
+      Sparkle.IP.RV32.Bus.actualDmemByteWdataSignal dmemExtWriteEn dmem_ext_byte1 final_byte1_wdata
+    let actual_byte2_wdata :=
+      Sparkle.IP.RV32.Bus.actualDmemByteWdataSignal dmemExtWriteEn dmem_ext_byte2 final_byte2_wdata
+    let actual_byte3_wdata :=
+      Sparkle.IP.RV32.Bus.actualDmemByteWdataSignal dmemExtWriteEn dmem_ext_byte3 final_byte3_wdata
     -- "Proto" actual_byte_we: includes the existing gating
     -- (idex_memWrite, isDMEM_ex, ¬dTLBMiss, ¬scExFails) plus
     -- pendingWriteEn (for AMO writeback) and dmemExtWriteEn (for
     -- external firmware loading).
-    let proto_byte0_we := final_byte0_we ||| dmemExtWriteEn
-    let proto_byte1_we := final_byte1_we ||| dmemExtWriteEn
-    let proto_byte2_we := final_byte2_we ||| dmemExtWriteEn
-    let proto_byte3_we := final_byte3_we ||| dmemExtWriteEn
+    let proto_byte0_we := Sparkle.IP.RV32.Bus.protoDmemByteWeSignal final_byte0_we dmemExtWriteEn
+    let proto_byte1_we := Sparkle.IP.RV32.Bus.protoDmemByteWeSignal final_byte1_we dmemExtWriteEn
+    let proto_byte2_we := Sparkle.IP.RV32.Bus.protoDmemByteWeSignal final_byte2_we dmemExtWriteEn
+    let proto_byte3_we := Sparkle.IP.RV32.Bus.protoDmemByteWeSignal final_byte3_we dmemExtWriteEn
 
     -- =========================================================================
     -- Hoisted trap_taken computation, for validEX-gating of DRAM writes.

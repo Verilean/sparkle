@@ -18,6 +18,7 @@ import IP.RV32.Bus
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.StoreData
+import IP.RV32.Bus.DMEMWriteMux
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.Bus.PeripheralWE
 import IP.RV32.Bus.RdataMux
