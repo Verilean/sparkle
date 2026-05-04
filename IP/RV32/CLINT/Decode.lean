@@ -201,4 +201,43 @@ def clintRdataSignal {dom : DomainConfig}
     (Signal.mux mtimeHiMatch mtimeHiReg
       (Signal.pure 0#32)))))
 
+/-! ## Per-register write-enable gates
+
+  Each CLINT register has its own WE gate: `clintWE ∧ <regMatch>`.
+  Pairwise mutual exclusion of the matches (proven above) implies
+  pairwise mutual exclusion of the WEs as well.
+-/
+
+@[inline] def clintRegWePure
+    (clintWE regMatch : Bool) : Bool :=
+  clintWE && regMatch
+
+@[simp] theorem clintRegWe_no_clint (regMatch : Bool) :
+    clintRegWePure false regMatch = false := rfl
+
+@[simp] theorem clintRegWe_no_match (clintWE : Bool) :
+    clintRegWePure clintWE false = false := by
+  unfold clintRegWePure; cases clintWE <;> rfl
+
+@[simp] theorem clintRegWe_active : clintRegWePure true true = true := rfl
+
+theorem clintRegWePure_spec
+    (clintWE regMatch : Bool) :
+    clintRegWePure clintWE regMatch = (clintWE && regMatch) := rfl
+
+/-- Mutex: any two distinct register-WEs cannot both fire. Inherits
+    from the match-pairwise-disjoint lemmas. -/
+theorem clintRegWe_msip_mtimecmpLo_mutex
+    (clintWE : Bool) (offset : BitVec 16) :
+    !(clintRegWePure clintWE (msipMatchPure offset)
+       && clintRegWePure clintWE (mtimecmpLoMatchPure offset)) = true := by
+  unfold clintRegWePure
+  cases clintWE <;>
+    simp [msipMatchPure, mtimecmpLoMatchPure] <;>
+    revert offset <;> bv_decide
+
+def clintRegWeSignal {dom : DomainConfig}
+    (clintWE regMatch : Signal dom Bool) : Signal dom Bool :=
+  clintWE &&& regMatch
+
 end Sparkle.IP.RV32.CLINT

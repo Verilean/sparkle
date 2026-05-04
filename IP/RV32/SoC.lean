@@ -1397,21 +1397,22 @@ def rv32iSoCBody {dom : DomainConfig}
     -- CSR/Commit.lean). msip / mtimecmp{Lo,Hi} hold-on-no-write; mtime
     -- {Lo,Hi}'s "hold" arm is the +1 incremented value (per CLINT spec
     -- mtime advances every cycle absent a CSR write).
+    -- Per-register WE gates (proven in CLINT/Decode.lean): pairwise mutex.
+    let msipWE       := Sparkle.IP.RV32.CLINT.clintRegWeSignal clintWE msipMatch
+    let mtimeLoWE    := Sparkle.IP.RV32.CLINT.clintRegWeSignal clintWE mtimeLoMatch
+    let mtimeHiWE    := Sparkle.IP.RV32.CLINT.clintRegWeSignal clintWE mtimeHiMatch
+    let mtimecmpLoWE := Sparkle.IP.RV32.CLINT.clintRegWeSignal clintWE mtimecmpLoMatch
+    let mtimecmpHiWE := Sparkle.IP.RV32.CLINT.clintRegWeSignal clintWE mtimecmpHiMatch
     let msipNext :=
-      Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (clintWE &&& msipMatch) ex_rs2_approx msipReg
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal msipWE ex_rs2_approx msipReg
     let mtimeLoNext :=
-      Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (clintWE &&& mtimeLoMatch) ex_rs2_approx mtimeLoInc
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeLoWE ex_rs2_approx mtimeLoInc
     let mtimeHiNext :=
-      Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (clintWE &&& mtimeHiMatch) ex_rs2_approx mtimeHiInc
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeHiWE ex_rs2_approx mtimeHiInc
     let mtimecmpLoNext :=
-      Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (clintWE &&& mtimecmpLoMatch) ex_rs2_approx mtimecmpLoReg
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimecmpLoWE ex_rs2_approx mtimecmpLoReg
     let mtimecmpHiNext :=
-      Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (clintWE &&& mtimecmpHiMatch) ex_rs2_approx mtimecmpHiReg
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimecmpHiWE ex_rs2_approx mtimecmpHiReg
 
     let mmioWE :=
       Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite is_mmio_ex validEX
