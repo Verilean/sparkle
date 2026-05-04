@@ -109,6 +109,7 @@ import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
 import IP.RV32.Pipeline.IFetchSrc
+import IP.RV32.Pipeline.IDEXRegInput
 import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Pipeline.AluResult
 import IP.RV32.Mext.DivPending
@@ -1774,30 +1775,56 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register 0#32 ifid_pc_in,                                     -- 4: ifid_pc
       Signal.register 0#32 ifid_pc4_in,                                    -- 5: ifid_pc4
       -- ID/EX (freezeIDEX freeze: hold current when freezeIDEX, else squash or pass)
-      Signal.register 0#4 (Signal.mux freezeIDEX idex_aluOp (Signal.mux squash (Signal.pure 0#4) id_aluOp)),       -- 6
-      Signal.register false (Signal.mux freezeIDEX idex_regWrite (Signal.mux squash (Signal.pure false) id_regWrite)),
-      Signal.register false (Signal.mux freezeIDEX idex_memRead (Signal.mux squash (Signal.pure false) id_memRead)),
-      Signal.register false (Signal.mux freezeIDEX idex_memWrite (Signal.mux squash (Signal.pure false) id_memWrite)),
-      Signal.register false (Signal.mux freezeIDEX idex_memToReg (Signal.mux squash (Signal.pure false) id_memToReg)),
-      Signal.register false (Signal.mux freezeIDEX idex_branch (Signal.mux squash (Signal.pure false) id_isBranch)),
-      Signal.register false (Signal.mux freezeIDEX idex_jump (Signal.mux squash (Signal.pure false) id_jump)),
-      Signal.register false (Signal.mux freezeIDEX idex_auipc (Signal.mux squash (Signal.pure false) id_auipc)),
-      Signal.register false (Signal.mux freezeIDEX idex_aluSrcB (Signal.mux squash (Signal.pure false) id_aluSrcB)),
-      Signal.register false (Signal.mux freezeIDEX idex_isJalr (Signal.mux squash (Signal.pure false) id_isJALR)),
-      Signal.register false (Signal.mux freezeIDEX idex_isCsr (Signal.mux squash (Signal.pure false) id_isCsr)),
-      Signal.register false (Signal.mux freezeIDEX idex_isEcall (Signal.mux squash (Signal.pure false) id_isEcall)),
-      Signal.register false (Signal.mux freezeIDEX idex_isMret (Signal.mux squash (Signal.pure false) id_isMret)),
-      Signal.register 0#32 (Signal.mux freezeIDEX idex_rs1Val id_rs1Val),       -- 19
-      Signal.register 0#32 (Signal.mux freezeIDEX idex_rs2Val id_rs2Val),       -- 20
-      Signal.register 0#32 (Signal.mux freezeIDEX idex_imm id_imm),             -- 21
-      Signal.register 0#5 (Signal.mux freezeIDEX idex_rd (Signal.mux squash (Signal.pure 0#5) id_rd)),
-      Signal.register 0#5 (Signal.mux freezeIDEX idex_rs1Idx id_rs1),
-      Signal.register 0#5 (Signal.mux freezeIDEX idex_rs2Idx id_rs2),
-      Signal.register 0#3 (Signal.mux freezeIDEX idex_funct3 id_funct3),
-      Signal.register 0#32 (Signal.mux freezeIDEX idex_pc ifid_pc),
-      Signal.register 0#32 (Signal.mux freezeIDEX idex_pc4 ifid_pc4),
-      Signal.register 0#12 (Signal.mux freezeIDEX idex_csrAddr id_csrAddr),
-      Signal.register 0#3 (Signal.mux freezeIDEX idex_csrFunct3 id_funct3),
+      -- IDEX-stage register inputs (proven in Pipeline/IDEXRegInput.lean):
+      -- squashable fields: freezeIDEX > squash > new ; holdable: freezeIDEX > new.
+      Signal.register 0#4
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBVSignal freezeIDEX squash idex_aluOp 0#4 id_aluOp),       -- 6
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_regWrite id_regWrite),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_memRead id_memRead),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_memWrite id_memWrite),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_memToReg id_memToReg),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_branch id_isBranch),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_jump id_jump),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_auipc id_auipc),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_aluSrcB id_aluSrcB),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isJalr id_isJALR),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isCsr id_isCsr),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isEcall id_isEcall),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isMret id_isMret),
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_rs1Val id_rs1Val),       -- 19
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_rs2Val id_rs2Val),       -- 20
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_imm id_imm),             -- 21
+      Signal.register 0#5
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBVSignal freezeIDEX squash idex_rd 0#5 id_rd),
+      Signal.register 0#5
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_rs1Idx id_rs1),
+      Signal.register 0#5
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_rs2Idx id_rs2),
+      Signal.register 0#3
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_funct3 id_funct3),
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_pc ifid_pc),
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_pc4 ifid_pc4),
+      Signal.register 0#12
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_csrAddr id_csrAddr),
+      Signal.register 0#3
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_csrFunct3 id_funct3),
       -- EX/WB (suppress side-effects during suppressEXWB = dTLBMiss | holdEX, freeze data during freezeIDEX)
       Signal.register 0#32 (Signal.mux freezeIDEX exwb_alu alu_result),          -- 30: exwb_alu
       Signal.register 0#32 (Signal.mux freezeIDEX exwb_physAddr effectiveAddr),  -- 31: exwb_physAddr
