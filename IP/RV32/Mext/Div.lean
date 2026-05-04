@@ -136,4 +136,59 @@ theorem remuPure_spec (rs1 rs2 : BitVec 32) :
       (if rs2 == 0#32 then rs1
        else BitVec.ofNat 32 (rs1.toNat % rs2.toNat)) := by rfl
 
+/-! ## Divider control bits
+
+  The DIV/REM/DIVU/REMU instructions are distinguished by funct3:
+
+    funct3 | mnemonic | signed? | rem?
+    -------|----------|---------|------
+    100    | DIV      | yes     | no
+    101    | DIVU     | no      | no
+    110    | REM      | yes     | yes
+    111    | REMU     | no      | yes
+
+  So bit 0 = "unsigned" and bit 1 = "remainder":
+
+    divIsSigned = !funct3[0]
+    divIsRem    =  funct3[1]
+-/
+
+@[inline] def divIsSignedPure (funct3 : BitVec 3) : Bool :=
+  !(funct3.extractLsb' 0 1 == 1#1)
+
+@[inline] def divIsRemPure (funct3 : BitVec 3) : Bool :=
+  funct3.extractLsb' 1 1 == 1#1
+
+/-- DIV: signed, no rem. -/
+@[simp] theorem divIsSigned_DIV : divIsSignedPure 0b100#3 = true := by
+  unfold divIsSignedPure; rfl
+@[simp] theorem divIsRem_DIV : divIsRemPure 0b100#3 = false := by
+  unfold divIsRemPure; rfl
+
+/-- DIVU: unsigned, no rem. -/
+@[simp] theorem divIsSigned_DIVU : divIsSignedPure 0b101#3 = false := by
+  unfold divIsSignedPure; rfl
+@[simp] theorem divIsRem_DIVU : divIsRemPure 0b101#3 = false := by
+  unfold divIsRemPure; rfl
+
+/-- REM: signed, rem. -/
+@[simp] theorem divIsSigned_REM : divIsSignedPure 0b110#3 = true := by
+  unfold divIsSignedPure; rfl
+@[simp] theorem divIsRem_REM : divIsRemPure 0b110#3 = true := by
+  unfold divIsRemPure; rfl
+
+/-- REMU: unsigned, rem. -/
+@[simp] theorem divIsSigned_REMU : divIsSignedPure 0b111#3 = false := by
+  unfold divIsSignedPure; rfl
+@[simp] theorem divIsRem_REMU : divIsRemPure 0b111#3 = true := by
+  unfold divIsRemPure; rfl
+
+def divIsSignedSignal {dom : DomainConfig}
+    (funct3 : Signal dom (BitVec 3)) : Signal dom Bool :=
+  ~~~((funct3.map (BitVec.extractLsb' 0 1 ·)) === 1#1)
+
+def divIsRemSignal {dom : DomainConfig}
+    (funct3 : Signal dom (BitVec 3)) : Signal dom Bool :=
+  (funct3.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+
 end Sparkle.IP.RV32.Mext

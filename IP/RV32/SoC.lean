@@ -117,6 +117,7 @@ import IP.RV32.Pipeline.BranchComp
 import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Pipeline.AluResult
 import IP.RV32.Mext.DivPending
+import IP.RV32.Mext.Div
 import IP.RV32.Pipeline.StoreLoadFwd
 
 set_option maxRecDepth 65536
@@ -1139,8 +1140,9 @@ def rv32iSoCBody {dom : DomainConfig}
     -- M-extension: DIV/REM (multi-cycle) uses restoring divider circuit
     -- Divider control predicates (proven in Mext/DivPending.lean).
     let divWanted := Sparkle.IP.RV32.Mext.divWantedSignal idex_isMext isDivOp
-    let divIsSigned := ~~~((idex_funct3.map (BitVec.extractLsb' 0 1 ·)) === 1#1)
-    let divIsRem := (idex_funct3.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    -- Divider operand-class decode (proven in Mext/Div.lean): bit 0 = unsigned, bit 1 = rem.
+    let divIsSigned := Sparkle.IP.RV32.Mext.divIsSignedSignal idex_funct3
+    let divIsRem := Sparkle.IP.RV32.Mext.divIsRemSignal idex_funct3
     let divAbort := flushOrDelay
     let divStart := Sparkle.IP.RV32.Mext.divStartSignal divWanted divPending
     let divResultDone := Divider.dividerSignal ex_rs1 ex_rs2 divStart divIsSigned divIsRem divAbort
