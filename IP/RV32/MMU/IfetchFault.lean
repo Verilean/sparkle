@@ -279,4 +279,59 @@ theorem ifetchFaultPendingReg_clears_on_bypass {dom : DomainConfig}
   rw [h_no_pf, h_bypass]
   rfl
 
+/-! ## Cycle-N+2 ifetchFaultPending stays cleared
+
+  The 4-arm priority next-state for ifetchFaultPending is:
+
+    ifetchPageFault → false  (trap delivery)
+    bypassMMU       → false  (no MMU)
+    ptwFault ∧ ptwIsIfetch → true
+    else            → hold
+
+  At cycle N when trap delivery fires (ifetchPageFault=true),
+  the register is cleared. At cycle N+1, with no PTW-fault-set
+  event, the hold-arm preserves false. -/
+
+/-- **ifetchPageFault at N + no PTW-fault-set event at N+1 →
+    ifetchFaultPending at N+2 = false.**
+
+    The "no event" hypothesis at N+1 here is that
+    `ptwFault ∧ ptwIsIfetch` does NOT fire (which would re-set
+    the pending bit). With ifetchPageFault=false at N+1 and
+    bypassMMU=false at N+1, the hold-arm preserves the
+    previously-cleared value. -/
+theorem ifetchFaultPendingReg_stays_false_at_N_plus_2 {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch : Signal dom Bool) (n : Nat)
+    (h_pf_n : ifetchPageFault.val n = true)
+    (h_no_pf_n1 : ifetchPageFault.val (n + 1) = false)
+    (h_no_bypass_n1 : bypassMMU.val (n + 1) = false)
+    (h_no_set_n1 :
+      (ptwFault.val (n + 1) && ptwIsIfetch.val (n + 1)) = false) :
+    (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+      (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+        (Signal.pure false))).val (n + 2) = false := by
+  -- Step 1: At cycle N, trap delivery → inner reg at N+1 = false.
+  have h_inner_n1 :
+    (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+      (Signal.pure false)).val (n + 1) = false :=
+    ifetchFaultPendingReg_clears_on_trap_delivery ifetchPageFault bypassMMU ptwFault
+      ptwIsIfetch _ n h_pf_n
+  -- Step 2: At cycle N+1, no event → outer reg at N+2 = inner reg at N+1 = false.
+  unfold ifetchFaultPendingRegSignal
+  show (Signal.register false _).val (n + 2) = false
+  show (ifetchFaultPendingNextSignal ifetchPageFault bypassMMU ptwFault ptwIsIfetch _).val
+    (n + 1) = false
+  unfold ifetchFaultPendingNextSignal Signal.mux
+  show (if ifetchPageFault.val (n + 1) then _ else
+    (if bypassMMU.val (n + 1) then _ else
+      (if (ptwFault &&& ptwIsIfetch).val (n + 1) then _ else _))) = false
+  rw [h_no_pf_n1, h_no_bypass_n1]
+  -- Reduce the (ptwFault &&& ptwIsIfetch).val (n+1) to Bool-and.
+  show (if (Signal.ap (Signal.map (· && ·) ptwFault) ptwIsIfetch).val (n + 1) then _
+    else _) = false
+  show (if (ptwFault.val (n + 1) && ptwIsIfetch.val (n + 1)) then _ else _) = false
+  rw [h_no_set_n1]
+  -- Goal: ifetchFaultPending(inner reg).val (n+1) = false.
+  exact h_inner_n1
+
 end Sparkle.IP.RV32.MMU
