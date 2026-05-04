@@ -581,12 +581,100 @@ def rv32iSoCBody {dom : DomainConfig}
     let actual_byte1_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte1 final_byte1_wdata
     let actual_byte2_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte2 final_byte2_wdata
     let actual_byte3_wdata := Signal.mux dmemExtWriteEn dmem_ext_byte3 final_byte3_wdata
-    let actual_byte0_we := final_byte0_we ||| dmemExtWriteEn
-    let actual_byte1_we := final_byte1_we ||| dmemExtWriteEn
-    let actual_byte2_we := final_byte2_we ||| dmemExtWriteEn
-    let actual_byte3_we := final_byte3_we ||| dmemExtWriteEn
+    -- "Proto" actual_byte_we: includes the existing gating
+    -- (idex_memWrite, isDMEM_ex, ¬dTLBMiss, ¬scExFails) plus
+    -- pendingWriteEn (for AMO writeback) and dmemExtWriteEn (for
+    -- external firmware loading).
+    let proto_byte0_we := final_byte0_we ||| dmemExtWriteEn
+    let proto_byte1_we := final_byte1_we ||| dmemExtWriteEn
+    let proto_byte2_we := final_byte2_we ||| dmemExtWriteEn
+    let proto_byte3_we := final_byte3_we ||| dmemExtWriteEn
 
-    -- 4 byte-wide memories (each 23-bit addr × 8-bit data)
+    -- =========================================================================
+    -- Hoisted trap_taken computation, for validEX-gating of DRAM writes.
+    --
+    -- This duplicates the pieces of trap_taken (~line 919) that are needed
+    -- to compute validEX BEFORE the byte_we go into the four byte-wide
+    -- DRAMs. The duplication is by design: trap_taken's full computation
+    -- chain (CSR muxes, mtime comparisons, S-mode int paths) is too tangled
+    -- to move wholesale, but each individual leaf is a simple bit-extract
+    -- from a state register. We recompute exactly those leaves here, gate
+    -- the byte_we, then let the original trap_taken further down stand on
+    -- its own.
+    --
+    -- Why we need this: dmem_we (DRAM byte-enable) is the only side-effect
+    -- bearing pipeline output that was NOT gated on `validEX`. CLINT, MMIO,
+    -- and UART writes all use `&&& validEX`, so when a trap fires while a
+    -- store is in IDEX, peripheral writes are dropped but the DRAM commit
+    -- happens. After sret, mepc=idex_pc (fix 01c7177) re-runs the store,
+    -- causing a double-commit. This block closes that asymmetry.
+    --
+    -- The witness is `dmemWe_not_gated_by_trap` in
+    -- `IP/RV32/Pipeline/AbortGuarantee.lean`.
+    -- =========================================================================
+    let early_pageFault := isMMUFault &&& (~~~bypassMMU)
+    let early_ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
+    -- Timer / software / S-mode interrupt enables (mirror lines 870..919)
+    let early_mstatusMIE := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let early_mstatusSIE := (mstatusReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let early_mieMTIE := (mieReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+    let early_mieMSIE := (mieReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
+    let early_privIsM := privMode === 3#2
+    let early_privIsS := privMode === 1#2
+    let early_privIsU := privMode === 0#2
+    let early_mTimerNotDeleg := ((midelegReg.map (BitVec.extractLsb' 7 1 ·)) === 0#1)
+    let early_mSwNotDeleg := ((midelegReg.map (BitVec.extractLsb' 3 1 ·)) === 0#1)
+    let early_mModeIntEn := (early_privIsM &&& early_mstatusMIE) ||| (~~~early_privIsM)
+    let early_hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
+    let early_hiEq := mtimeHiReg === mtimecmpHiReg
+    let early_loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
+    let early_timerIrq := early_hiGt ||| (early_hiEq &&& early_loGe)
+    let early_swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
+    let early_timerIntEn := early_mModeIntEn &&& (early_mieMTIE &&& early_timerIrq) &&& early_mTimerNotDeleg
+    let early_swIntEn := early_mModeIntEn &&& (early_mieMSIE &&& early_swIrq) &&& early_mSwNotDeleg
+    -- S-mode pieces
+    let early_sieEnableMask := (early_privIsS &&& early_mstatusSIE) ||| early_privIsU
+    let early_stipPending := (mipSoftReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
+    let early_ssipPending := (mipSoftReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let early_seipPending := (mipSoftReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
+    let early_sieSTIE := (sieReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
+    let early_sieSSIE := (sieReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
+    let early_sieSEIE := (sieReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
+    let early_sTimerIntEn := early_sieEnableMask &&& early_sieSTIE &&& early_stipPending
+    let early_sSwIntEn := early_sieEnableMask &&& early_sieSSIE &&& early_ssipPending
+    let early_sExtIntEn := early_sieEnableMask &&& early_sieSEIE &&& early_seipPending
+    let early_anyInt := early_timerIntEn ||| early_swIntEn ||| early_sTimerIntEn
+                          ||| early_sSwIntEn ||| early_sExtIntEn
+    -- Full trap_taken, computed early
+    let early_trap_taken := ((idex_isEcall ||| early_pageFault) ||| early_anyInt)
+                              ||| early_ifetchPageFault
+    -- DRAM-side `validEX` for the byte_we gate.
+    --
+    -- We deliberately EXCLUDE `pendingWriteEn` from this gate even
+    -- though the full `validEX` (computed below at ~line 1254 over
+    -- `suppressEXWBSignal`) does include it. Reason: the AMO
+    -- writeback is implemented by holding the write data/addr in
+    -- `pending*Reg` and re-driving `final_byte_we |= pendingWriteEn`
+    -- (lines 568..571). If we gate on full `validEX`, we'd drop the
+    -- AMO writeback's own commit, which is the very write we want to
+    -- allow when `pendingWriteEn=true`. So this DRAM gate covers the
+    -- *spurious* suppressors only:
+    --   * trap_taken    — async/sync trap fires this cycle
+    --   * mmuBusy       — PTW in flight; redirect will re-execute
+    --   * dMMURedirect  — MMU FSM completed; instruction re-fetches
+    -- `dTLBMiss` is already in `dmem_we`'s own gate (line 518).
+    let early_dramSuppress := early_trap_taken ||| mmuBusy ||| dMMURedirect
+    let early_dramValid := ~~~early_dramSuppress
+
+    -- 4 byte-wide memories (each 23-bit addr × 8-bit data).
+    -- DRAM byte_we gated on `early_dramValid`. External firmware-loading
+    -- writes (`dmemExtWriteEn`) bypass the gate because they happen
+    -- before the pipeline starts.
+    let dramWriteGate := early_dramValid ||| dmemExtWriteEn
+    let actual_byte0_we := proto_byte0_we &&& dramWriteGate
+    let actual_byte1_we := proto_byte1_we &&& dramWriteGate
+    let actual_byte2_we := proto_byte2_we &&& dramWriteGate
+    let actual_byte3_we := proto_byte3_we &&& dramWriteGate
     let byte0_rdata := Signal.memory actual_dmem_write_addr actual_byte0_wdata actual_byte0_we dmem_read_addr
     let byte1_rdata := Signal.memory actual_dmem_write_addr actual_byte1_wdata actual_byte1_we dmem_read_addr
     let byte2_rdata := Signal.memory actual_dmem_write_addr actual_byte2_wdata actual_byte2_we dmem_read_addr
