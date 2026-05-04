@@ -142,4 +142,35 @@ def csrAddrEqSignal {dom : DomainConfig}
     (csrAddr : Signal dom (BitVec 12)) (expected : BitVec 12) : Signal dom Bool :=
   csrAddr === expected
 
+/-! ## Per-CSR write-enable gate
+
+  Each CSR register has its own write-enable: `idex_isCsr_valid ∧
+  <csrIsRegX>` — the in-flight instruction must be a CSR op AND
+  the address must match this register.
+
+  This is the same shape as `clintRegWePure` (CLINT/Decode.lean),
+  generalized over any (idex-CSR-valid, addr-match) pair.
+-/
+
+@[inline] def csrRegWePure
+    (idexIsCsrValid csrIsX : Bool) : Bool :=
+  idexIsCsrValid && csrIsX
+
+@[simp] theorem csrRegWe_no_csr (csrIsX : Bool) :
+    csrRegWePure false csrIsX = false := rfl
+
+@[simp] theorem csrRegWe_no_match (idexIsCsrValid : Bool) :
+    csrRegWePure idexIsCsrValid false = false := by
+  unfold csrRegWePure; cases idexIsCsrValid <;> rfl
+
+@[simp] theorem csrRegWe_active : csrRegWePure true true = true := rfl
+
+theorem csrRegWePure_spec
+    (idexIsCsrValid csrIsX : Bool) :
+    csrRegWePure idexIsCsrValid csrIsX = (idexIsCsrValid && csrIsX) := rfl
+
+def csrRegWeSignal {dom : DomainConfig}
+    (idexIsCsrValid csrIsX : Signal dom Bool) : Signal dom Bool :=
+  idexIsCsrValid &&& csrIsX
+
 end Sparkle.IP.RV32.CSR
