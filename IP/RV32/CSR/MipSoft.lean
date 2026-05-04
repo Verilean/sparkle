@@ -213,4 +213,25 @@ theorem mipSoftReg_hold_when_no_we {dom : DomainConfig}
   rw [h_no_mw, h_no_sw]
   rfl
 
-end Sparkle.IP.RV32.CSR
+/-! ## Cycle-N+2 mipSoftReg stability across trap
+
+  When neither WE fires at cycle N+1 (e.g., post-IDEX-squash),
+  mipSoftReg at N+2 = mipSoft at N+1. This is the cycle-N+2
+  hold form: callers can chain it with the cycle-N+1 hold to
+  show 2-cycle stability when both cycles have no WE event.
+-/
+
+/-- **No-WE at N+1 → mipSoftReg at N+2 = mipSoft at N+1.**
+
+    Same shape as `mipSoftReg_hold_when_no_we` but indexed at
+    cycle N+1 instead of N. Provided as a named lemma for
+    composite-proof readability. -/
+theorem mipSoftReg_hold_when_no_we_at_N_plus_1 {dom : DomainConfig}
+    (init : BitVec 32) (mipWriteEn sipWriteEn : Signal dom Bool)
+    (mipNew sipNew mipSoft : Signal dom (BitVec 32)) (n : Nat)
+    (h_no_mw_n1 : mipWriteEn.val (n + 1) = false)
+    (h_no_sw_n1 : sipWriteEn.val (n + 1) = false) :
+    (mipSoftRegSignal init mipWriteEn sipWriteEn mipNew sipNew mipSoft).val (n + 2) =
+      mipSoft.val (n + 1) :=
+  mipSoftReg_hold_when_no_we init mipWriteEn sipWriteEn mipNew sipNew mipSoft
+    (n + 1) h_no_mw_n1 h_no_sw_n1
