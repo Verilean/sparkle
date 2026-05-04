@@ -253,4 +253,57 @@ theorem mstatusReg_hold_when_no_event {dom : DomainConfig}
   rw [h_no_trap, h_no_mret, h_no_sret, h_no_sw, h_no_mw]
   rfl
 
+/-! ## Cycle-N+2 mstatus stays at trap-latched value
+
+  Combine `mstatusReg_latches_trapVal_on_trap` (cycle N → N+1)
+  with `mstatusReg_hold_when_no_event` (cycle N+1 → N+2): when
+  trap fires at N and no events fire at N+1, mstatus at N+2
+  equals trapVal.val N.
+
+  Note: the "no event at N+1" hypotheses for trapTaken/isMret/
+  isSret are discharged via IDEX-squash reasoning (the IDEX
+  control bits idex_isMret, idex_isSret, idex_isCsr are all
+  cleared after the squash). The sstatusWrite/mstatusWrite
+  hypotheses also follow from idex_isCsr=false at N+1.
+-/
+
+/-- **trap at N + no events at N+1 → mstatusReg at N+2 = trapVal.val N.** -/
+theorem mstatusReg_stays_trapVal_at_N_plus_2 {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32))
+    (n : Nat)
+    (h_trap_n : trapTaken.val n = true)
+    (h_no_trap_n1 : trapTaken.val (n + 1) = false)
+    (h_no_mret_n1 : isMret.val (n + 1) = false)
+    (h_no_sret_n1 : isSret.val (n + 1) = false)
+    (h_no_sw_n1 : sstatusWrite.val (n + 1) = false)
+    (h_no_mw_n1 : mstatusWrite.val (n + 1) = false) :
+    -- The "mstatus" signal here is the register output recursively.
+    -- We use Signal.register init mstatusNextSignal as the target.
+    let regSig :=
+      mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+        sstatusWrite sstatusWdata mstatusWrite mstatusWdata
+        (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+          sstatusWrite sstatusWdata mstatusWrite mstatusWdata (Signal.pure 0#32))
+    regSig.val (n + 2) = trapVal.val n := by
+  -- Step 1: At cycle N, trap fires → inner reg at N+1 = trapVal.val N.
+  have h_inner_n1 :
+    (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+      sstatusWrite sstatusWdata mstatusWrite mstatusWdata (Signal.pure 0#32)).val (n + 1) =
+      trapVal.val n :=
+    mstatusReg_latches_trapVal_on_trap init trapTaken trapVal isMret mretVal isSret
+      sretVal sstatusWrite sstatusWdata mstatusWrite mstatusWdata _ n h_trap_n
+  -- Step 2: At cycle N+1, no events → outer reg at N+2 = inner reg at N+1.
+  have h_outer := mstatusReg_hold_when_no_event init trapTaken trapVal isMret mretVal
+    isSret sretVal sstatusWrite sstatusWdata mstatusWrite mstatusWdata
+    (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+      sstatusWrite sstatusWdata mstatusWrite mstatusWdata (Signal.pure 0#32))
+    (n + 1) h_no_trap_n1 h_no_mret_n1 h_no_sret_n1 h_no_sw_n1 h_no_mw_n1
+  show (mstatusRegSignal _ _ _ _ _ _ _ _ _ _ _ _).val (n + 2) = _
+  rw [h_outer]
+  exact h_inner_n1
+
 end Sparkle.IP.RV32.CSR
