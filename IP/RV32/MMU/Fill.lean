@@ -604,4 +604,28 @@ theorem tlbHit_after_fill_mega {dom : DomainConfig}
                  else _)) = true
   simp
 
+/-! ## LTL forms of fill-then-hit lemmas -/
+
+theorem tlbHit_after_fill_4k_LTL {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) :
+    ∀ t, sfenceVMA.val t = false → doFillN.val t = true →
+         tlbHitPure
+           ((tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1))
+           false
+           ((tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1))
+           (fillVPN.val t) = true :=
+  fun t h1 h2 => tlbHit_after_fill_4k sfenceVMA doFillN tlb_valid fillVPN tlb_vpn t h1 h2
+
+theorem tlbHit_after_fill_mega_LTL {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) :
+    ∀ t, sfenceVMA.val t = false → doFillN.val t = true →
+         tlbHitPure
+           ((tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1))
+           true
+           ((tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1))
+           (fillVPN.val t) = true :=
+  fun t h1 h2 => tlbHit_after_fill_mega sfenceVMA doFillN tlb_valid fillVPN tlb_vpn t h1 h2
+
 end Sparkle.IP.RV32.MMU
