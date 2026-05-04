@@ -48,6 +48,7 @@ import IP.RV32.Core
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
+import IP.RV32.MMU.IfetchFault
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -1709,17 +1710,16 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux isPTWWalk nextFromPTWWalk
         (Signal.pure 0#3))
 
-    -- Track whether PTW is serving an I-side miss
-    let ptwIsIfetchNext := Signal.mux ptwIsIdle
-      (Signal.mux (ifetchPTWReq &&& (~~~dTLBMiss))
-        (Signal.pure true) (Signal.pure false))
-      ptwIsIfetch
-
-    -- I-side page fault pending: set when PTW faults for ifetch, clear on trap or M-mode
-    let ifetchFaultPendingNext := Signal.mux ifetchPageFault (Signal.pure false)
-      (Signal.mux bypassMMU (Signal.pure false)
-        (Signal.mux (ptwIsFault &&& ptwIsIfetch) (Signal.pure true)
-          ifetchFaultPending))
+    -- I-side fault tracking (proven in MMU/IfetchFault.lean):
+    -- ptwIsIfetch starts I-walk on idle iff (ifetchPTWReq ∧ ¬dTLBMiss).
+    let ptwIsIfetchNext :=
+      Sparkle.IP.RV32.MMU.ptwIsIfetchNextSignal
+        ptwIsIdle ifetchPTWReq dTLBMiss ptwIsIfetch
+    -- ifetchFaultPending: set on (ptwFault ∧ ptwIsIfetch), cleared on
+    -- trap delivery (ifetchPageFault) or M-mode bypass.
+    let ifetchFaultPendingNext :=
+      Sparkle.IP.RV32.MMU.ifetchFaultPendingNextSignal
+        ifetchPageFault bypassMMU ptwIsFault ptwIsIfetch ifetchFaultPending
 
     -- 8-way priority redirect mux (proven in Pipeline/PCNext.lean):
     -- trap > mret > sret > dMMURedirect > sfence > flush > stall > pc+4.
