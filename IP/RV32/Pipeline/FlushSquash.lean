@@ -172,6 +172,7 @@ theorem dMMURedirect_squashes_idex_next_cycle {dom : DomainConfig} {α : Type}
   exact idex_squash_clears_next_cycle freeze squash old new init t
     h_freeze (h_squash_includes_dMMU h_dmmu)
 
+
 /-! ## Pure-side spec for the squash inclusion
 
   The structural fact `idex_isMret.val t = true → squash.val t = true`
@@ -469,5 +470,44 @@ theorem stallAndNotFreezePure_spec
 def stallAndNotFreezeSignal {dom : DomainConfig}
     (stall freezeIDEX : Signal dom Bool) : Signal dom Bool :=
   stall &&& (~~~freezeIDEX)
+
+/-! ## Cycle-wise lifts of squash_contains_* bridges
+
+  Lift the per-source `squash_contains_X` Bool-level lemmas to
+  Signal-level cycle-t statements: when X.val t is true, the
+  cycle-t value of the canonical `squashPure ∘ flushOrDelayPure`
+  composition is also true. -/
+
+theorem squashSig_contains_dMMURedirect_atTime {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay stallAndNotFreeze
+     stallDelay : Signal dom Bool) (t : Nat)
+    (h_dmmu : dMMURedirect.val t = true) :
+    squashPure (stallAndNotFreeze.val t)
+      (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+        (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+        (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+      (stallDelay.val t) = true := by
+  rw [h_dmmu]
+  exact squash_contains_dMMURedirect (branchTaken.val t) (idex_jump.val t)
+    (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+    (idex_isSFenceVMA.val t) (flushDelay.val t)
+    (stallAndNotFreeze.val t) (stallDelay.val t)
+
+theorem squashSig_contains_trap_taken_atTime {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay stallAndNotFreeze
+     stallDelay : Signal dom Bool) (t : Nat)
+    (h_trap : trap_taken.val t = true) :
+    squashPure (stallAndNotFreeze.val t)
+      (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+        (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+        (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+      (stallDelay.val t) = true := by
+  rw [h_trap]
+  exact squash_contains_trap_taken (branchTaken.val t) (idex_jump.val t)
+    (idex_isMret.val t) (idex_isSret.val t) (idex_isSFenceVMA.val t)
+    (dMMURedirect.val t) (flushDelay.val t)
+    (stallAndNotFreeze.val t) (stallDelay.val t)
 
 end Sparkle.IP.RV32.Pipeline
