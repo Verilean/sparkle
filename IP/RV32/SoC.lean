@@ -55,6 +55,7 @@ import IP.RV32.AMO.Reservation
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
+import IP.RV32.Trap.IRQEnable
 import IP.RV32.CSR.MStatus
 import IP.RV32.Pipeline.SuppressEXWB
 
@@ -624,25 +625,35 @@ def rv32iSoCBody {dom : DomainConfig}
     let early_privIsU := privMode === 0#2
     let early_mTimerNotDeleg := ((midelegReg.map (BitVec.extractLsb' 7 1 ·)) === 0#1)
     let early_mSwNotDeleg := ((midelegReg.map (BitVec.extractLsb' 3 1 ·)) === 0#1)
-    let early_mModeIntEn := (early_privIsM &&& early_mstatusMIE) ||| (~~~early_privIsM)
     let early_hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
     let early_hiEq := mtimeHiReg === mtimecmpHiReg
     let early_loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
     let early_timerIrq := early_hiGt ||| (early_hiEq &&& early_loGe)
     let early_swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-    let early_timerIntEn := early_mModeIntEn &&& (early_mieMTIE &&& early_timerIrq) &&& early_mTimerNotDeleg
-    let early_swIntEn := early_mModeIntEn &&& (early_mieMSIE &&& early_swIrq) &&& early_mSwNotDeleg
-    -- S-mode pieces
-    let early_sieEnableMask := (early_privIsS &&& early_mstatusSIE) ||| early_privIsU
+    -- M-mode IRQ-enable predicates (proven in Trap/IRQEnable.lean)
+    let early_timerIntEn :=
+      Sparkle.IP.RV32.Trap.mTimerIntEnabledSignal
+        early_privIsM early_mstatusMIE early_mieMTIE early_timerIrq early_mTimerNotDeleg
+    let early_swIntEn :=
+      Sparkle.IP.RV32.Trap.mSwIntEnabledSignal
+        early_privIsM early_mstatusMIE early_mieMSIE early_swIrq early_mSwNotDeleg
+    -- S-mode bit decoding from sip/sie
     let early_stipPending := (mipSoftReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
     let early_ssipPending := (mipSoftReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let early_seipPending := (mipSoftReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
     let early_sieSTIE := (sieReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
     let early_sieSSIE := (sieReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let early_sieSEIE := (sieReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
-    let early_sTimerIntEn := early_sieEnableMask &&& early_sieSTIE &&& early_stipPending
-    let early_sSwIntEn := early_sieEnableMask &&& early_sieSSIE &&& early_ssipPending
-    let early_sExtIntEn := early_sieEnableMask &&& early_sieSEIE &&& early_seipPending
+    -- S-mode IRQ-enable predicates (proven in Trap/IRQEnable.lean)
+    let early_sTimerIntEn :=
+      Sparkle.IP.RV32.Trap.sTimerIntEnabledSignal
+        early_privIsS early_privIsU early_mstatusSIE early_sieSTIE early_stipPending
+    let early_sSwIntEn :=
+      Sparkle.IP.RV32.Trap.sSwIntEnabledSignal
+        early_privIsS early_privIsU early_mstatusSIE early_sieSSIE early_ssipPending
+    let early_sExtIntEn :=
+      Sparkle.IP.RV32.Trap.sExtIntEnabledSignal
+        early_privIsS early_privIsU early_mstatusSIE early_sieSEIE early_seipPending
     let early_anyInt := early_timerIntEn ||| early_swIntEn ||| early_sTimerIntEn
                           ||| early_sSwIntEn ||| early_sExtIntEn
     -- Full trap_taken, computed early
@@ -954,26 +965,35 @@ def rv32iSoCBody {dom : DomainConfig}
     let privIsM_pre := privMode === 3#2
     let mTimerNotDelegated := ((midelegReg.map (BitVec.extractLsb' 7 1 ·)) === 0#1)
     let mSwNotDelegated := ((midelegReg.map (BitVec.extractLsb' 3 1 ·)) === 0#1)
-    let mModeIntEnable := (privIsM_pre &&& mstatusMIE_flag) ||| (~~~privIsM_pre)
-    let timerIntEnabled := mModeIntEnable &&& (mieMTIE_flag &&& timerIrq) &&& mTimerNotDelegated
-    let swIntEnabled    := mModeIntEnable &&& (mieMSIE_flag &&& swIrq) &&& mSwNotDelegated
-    -- S-mode interrupt-enable flags + pending bits (read from mipSoftReg).
-    -- Per RISC-V priv spec, an S-mode interrupt is taken when:
-    --   (currentPriv == S && sstatus.SIE && sie.Sxxx && sip.Sxxx), or
-    --   (currentPriv == U) — interrupts to higher-priv are always enabled.
-    -- And the interrupt is delegated via mideleg (handled later in trapToS path).
+    -- M-mode IRQ-enable predicates (proven in Trap/IRQEnable.lean).
+    -- Spec: fires iff ((priv=M ∧ MIE) ∨ priv<M) ∧ mie.bit ∧ pending ∧ ¬delegated.
+    let timerIntEnabled :=
+      Sparkle.IP.RV32.Trap.mTimerIntEnabledSignal
+        privIsM_pre mstatusMIE_flag mieMTIE_flag timerIrq mTimerNotDelegated
+    let swIntEnabled :=
+      Sparkle.IP.RV32.Trap.mSwIntEnabledSignal
+        privIsM_pre mstatusMIE_flag mieMSIE_flag swIrq mSwNotDelegated
+    -- S-mode bit decoding from sip/sie + privilege flags
     let privIsU0 := privMode === 0#2
     let privIsS0 := privMode === 1#2
-    let sieEnableMask := (privIsS0 &&& mstatusSIE_flag) ||| privIsU0
     let stipPending := (mipSoftReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
     let ssipPending := (mipSoftReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let seipPending := (mipSoftReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
     let sieSTIE_flag := (sieReg.map (BitVec.extractLsb' 5 1 ·)) === 1#1
     let sieSSIE_flag := (sieReg.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let sieSEIE_flag := (sieReg.map (BitVec.extractLsb' 9 1 ·)) === 1#1
-    let sTimerIntEnabled := sieEnableMask &&& sieSTIE_flag &&& stipPending
-    let sSwIntEnabled    := sieEnableMask &&& sieSSIE_flag &&& ssipPending
-    let sExtIntEnabled   := sieEnableMask &&& sieSEIE_flag &&& seipPending
+    -- S-mode IRQ-enable predicates (proven in Trap/IRQEnable.lean).
+    -- Spec: fires iff ((priv=S ∧ SIE) ∨ priv=U) ∧ sie.bit ∧ mip.soft.bit.
+    -- Delegation is enforced separately in Trap/Delegation.lean.
+    let sTimerIntEnabled :=
+      Sparkle.IP.RV32.Trap.sTimerIntEnabledSignal
+        privIsS0 privIsU0 mstatusSIE_flag sieSTIE_flag stipPending
+    let sSwIntEnabled :=
+      Sparkle.IP.RV32.Trap.sSwIntEnabledSignal
+        privIsS0 privIsU0 mstatusSIE_flag sieSSIE_flag ssipPending
+    let sExtIntEnabled :=
+      Sparkle.IP.RV32.Trap.sExtIntEnabledSignal
+        privIsS0 privIsU0 mstatusSIE_flag sieSEIE_flag seipPending
 
     -- ECALL cause depends on privilege level
     let privIsU := privMode === 0#2
