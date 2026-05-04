@@ -47,6 +47,7 @@ import Sparkle.Compiler.Elab
 import IP.RV32.Core
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
+import IP.RV32.Bus.LoadWidth
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -775,25 +776,16 @@ def rv32iSoCBody {dom : DomainConfig}
     let busRdataRaw := Signal.mux isCLINT_wb clintRdata
                          (Signal.mux isUART_wb uartRdata
                          (Signal.mux is_mmio_wb mmioRdata dmemRdataFwd))
-    -- Byte select based on addr[1:0]
+    -- Byte / half select (proven in Bus/LoadWidth.lean).
     let loadByteOff := exwb_physAddr.map (BitVec.extractLsb' 0 2 ·)
     let loadByteOff0 := loadByteOff === 0#2
     let loadByteOff1 := loadByteOff === 1#2
     let loadByteOff2 := loadByteOff === 2#2
-    let loadByte0 := busRdataRaw.map (BitVec.extractLsb' 0 8 ·)
-    let loadByte1 := busRdataRaw.map (BitVec.extractLsb' 8 8 ·)
-    let loadByte2 := busRdataRaw.map (BitVec.extractLsb' 16 8 ·)
-    let loadByte3 := busRdataRaw.map (BitVec.extractLsb' 24 8 ·)
-    let selByte := Signal.mux loadByteOff0 loadByte0
-                     (Signal.mux loadByteOff1 loadByte1
-                     (Signal.mux loadByteOff2 loadByte2
-                       loadByte3))
-    -- Halfword select based on addr[1]
-    let loadHalfLow := busRdataRaw.map (BitVec.extractLsb' 0 16 ·)
-    let loadHalfHigh := busRdataRaw.map (BitVec.extractLsb' 16 16 ·)
+    let selByte :=
+      Sparkle.IP.RV32.Bus.selByteSignal loadByteOff0 loadByteOff1 loadByteOff2 busRdataRaw
     let loadAddrBit1 := exwb_physAddr.map (BitVec.extractLsb' 1 1 ·)
     let isHalfLow := loadAddrBit1 === 0#1
-    let selHalf := Signal.mux isHalfLow loadHalfLow loadHalfHigh
+    let selHalf := Sparkle.IP.RV32.Bus.selHalfSignal isHalfLow busRdataRaw
     -- Sign/zero extend byte
     let byteSgnBit := selByte.map (BitVec.extractLsb' 7 1 ·)
     let byteIsSgn := byteSgnBit === 1#1
@@ -812,11 +804,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let f3isLH  := exwb_funct3 === 1#3
     let f3isLBU := exwb_funct3 === 4#3
     let f3isLHU := exwb_funct3 === 5#3
-    let loadExtracted := Signal.mux f3isLB byteSext
-                           (Signal.mux f3isLH halfSext
-                           (Signal.mux f3isLBU byteZext
-                           (Signal.mux f3isLHU halfZext
-                             busRdataRaw)))
+    -- 5-way load extractor (proven in Bus/LoadWidth.lean).
+    let loadExtracted :=
+      Sparkle.IP.RV32.Bus.loadExtractSignal
+        f3isLB f3isLH f3isLBU f3isLHU
+        byteSext byteZext halfSext halfZext busRdataRaw
     -- Gate: only use extracted value for DMEM loads; peripheral reads bypass sub-word extraction
     let isDMEM_wb := (~~~isCLINT_wb) &&& ((~~~isUART_wb) &&& (~~~is_mmio_wb))
     let busRdata := Signal.mux exwb_m2r
