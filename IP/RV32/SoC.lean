@@ -53,6 +53,7 @@ import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
 import IP.RV32.MMU.State
+import IP.RV32.MMU.FSM
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -1715,14 +1716,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let replPtrNext := Signal.mux tlbFill
       (replPtrReg + 1#2) replPtrReg
 
-    -- MMU state transitions (D-side only)
-    -- On dTLBMiss: skip TLB_LOOKUP, go directly to PTW_WALK (state 2)
-    let nextFromMMUIdle := Signal.mux dTLBMiss (Signal.pure 2#3) (Signal.pure 0#3)
-    let nextFromPTWWalk := Signal.mux ptwIsDone (Signal.pure 3#3)
-      (Signal.mux ptwIsFault (Signal.pure 4#3) (Signal.pure 2#3))
-    let mmuStateNext := Signal.mux isMMUIdle nextFromMMUIdle
-      (Signal.mux isPTWWalk nextFromPTWWalk
-        (Signal.pure 0#3))
+    -- MMU FSM transitions (proven in MMU/FSM.lean):
+    -- IDLE+miss → WALK; WALK+done/fault → DONE/FAULT; DONE/FAULT → IDLE.
+    let mmuStateNext :=
+      Sparkle.IP.RV32.MMU.mmuStateNextSignal
+        isMMUIdle isPTWWalk dTLBMiss ptwIsDone ptwIsFault
 
     -- I-side fault tracking (proven in MMU/IfetchFault.lean):
     -- ptwIsIfetch starts I-walk on idle iff (ifetchPTWReq ∧ ¬dTLBMiss).

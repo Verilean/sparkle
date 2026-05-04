@@ -31,6 +31,7 @@ import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
 import IP.RV32.MMU.State
+import IP.RV32.MMU.FSM
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Compute
 import IP.RV32.ALU.Compute
