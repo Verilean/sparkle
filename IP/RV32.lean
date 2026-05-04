@@ -48,6 +48,7 @@ import IP.RV32.Decoder.Fields
 import IP.RV32.Decoder.System
 import IP.RV32.Mext.Mul
 import IP.RV32.Mext.Div
+import IP.RV32.Mext.DivPending
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation

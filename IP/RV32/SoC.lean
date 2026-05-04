@@ -89,6 +89,7 @@ import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
+import IP.RV32.Mext.DivPending
 import IP.RV32.Pipeline.StoreLoadFwd
 
 set_option maxRecDepth 65536
@@ -1101,17 +1102,18 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.Pipeline.flushOrDelaySignal flush flushDelay
 
     -- M-extension: DIV/REM (multi-cycle) uses restoring divider circuit
-    let divWanted := idex_isMext &&& isDivOp
+    -- Divider control predicates (proven in Mext/DivPending.lean).
+    let divWanted := Sparkle.IP.RV32.Mext.divWantedSignal idex_isMext isDivOp
     let divIsSigned := ~~~((idex_funct3.map (BitVec.extractLsb' 0 1 ·)) === 1#1)
     let divIsRem := (idex_funct3.map (BitVec.extractLsb' 1 1 ·)) === 1#1
     let divAbort := flushOrDelay
-    let divStart := divWanted &&& (~~~divPending)
+    let divStart := Sparkle.IP.RV32.Mext.divStartSignal divWanted divPending
     let divResultDone := Divider.dividerSignal ex_rs1 ex_rs2 divStart divIsSigned divIsRem divAbort
     let divResult := projN! divResultDone 2 0
     let divDone := projN! divResultDone 2 1
     -- Stall when DIV/REM wanted and result not yet valid
     -- (divPending && divDone) = true only on the done cycle → un-stall
-    let divStall := divWanted &&& (~~~(divPending &&& divDone))
+    let divStall := Sparkle.IP.RV32.Mext.divStallSignal divWanted divPending divDone
     -- M-extension result: MUL (immediate) or DIV/REM (multi-cycle)
     let mextResult := Signal.mux isDivOp divResult mulResult
     let alu_result := Signal.mux idex_isMext mextResult alu_result_raw
@@ -1718,11 +1720,10 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Bug fix #3: fetchPC must take pcReg_next (= pcNext) on flush
     let fetchPCIn := Signal.mux flush pcNext (Signal.mux stall fetchPC pcReg)
 
-    -- Divider pending: set on start, cleared on done or flush
-    let divPendingNext := Signal.mux flushOrDelay (Signal.pure false)
-      (Signal.mux divStart (Signal.pure true)
-        (Signal.mux divDone (Signal.pure false)
-          divPending))
+    -- divPending next-state (proven in Mext/DivPending.lean):
+    -- flush > start > done > hold.
+    let divPendingNext :=
+      Sparkle.IP.RV32.Mext.divPendingNextSignal flushOrDelay divStart divDone divPending
 
     -- D-side TLB miss registers: latch on dTLBMiss, hold otherwise
     -- D-side miss tracking (proven in MMU/DMiss.lean): on dTLBMiss, latch
