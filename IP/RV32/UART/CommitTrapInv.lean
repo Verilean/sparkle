@@ -171,4 +171,99 @@ theorem trap_holds_uart_IER_reg {dom : DomainConfig}
     uartWriteIER_false_when_uartWE_false _ offset uartDLAB t h_uartWE
   exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
 
+/-! ## Helper: trap → uartWE = false at t
+
+  Common chain extracted for reuse across the remaining four
+  composites. -/
+
+private theorem trap_clears_uartWE {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite isUART_ex : Signal dom Bool) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    (peripheralWESignal idex_memWrite isUART_ex
+      (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)).val t = false := by
+  apply peripheralWESignal_false_when_validEX_false
+  rw [validEXSignal_eq_pure]
+  rw [show trap_taken.val t = true from h_trap]
+  exact validEX_trap (dTLBMiss.val t) (pendingWriteEn.val t)
+    (mmuBusy.val t) (dMMURedirect.val t)
+
+/-- **trap at cycle t → uartMCRReg at t+1 = old.val t.** -/
+theorem trap_holds_uart_MCR_reg {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite isUART_ex : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    let uartWE :=
+      peripheralWESignal idex_memWrite isUART_ex
+        (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+    let we := uartWriteMCRSignal uartWE offset
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE := trap_clears_uartWE trap_taken dTLBMiss pendingWriteEn
+    mmuBusy dMMURedirect idex_memWrite isUART_ex t h_trap
+  have h_we_false :
+    (uartWriteMCRSignal _ offset).val t = false :=
+    uartWriteMCR_false_when_uartWE_false _ offset t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- **trap at cycle t → uartSCRReg at t+1 = old.val t.** -/
+theorem trap_holds_uart_SCR_reg {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite isUART_ex : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    let uartWE :=
+      peripheralWESignal idex_memWrite isUART_ex
+        (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+    let we := uartWriteSCRSignal uartWE offset
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE := trap_clears_uartWE trap_taken dTLBMiss pendingWriteEn
+    mmuBusy dMMURedirect idex_memWrite isUART_ex t h_trap
+  have h_we_false :
+    (uartWriteSCRSignal _ offset).val t = false :=
+    uartWriteSCR_false_when_uartWE_false _ offset t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- **trap at cycle t → uartDLLReg at t+1 = old.val t.** -/
+theorem trap_holds_uart_DLL_reg {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite isUART_ex : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (uartDLAB : Signal dom Bool)
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    let uartWE :=
+      peripheralWESignal idex_memWrite isUART_ex
+        (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+    let we := uartWriteDLLSignal uartWE offset uartDLAB
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE := trap_clears_uartWE trap_taken dTLBMiss pendingWriteEn
+    mmuBusy dMMURedirect idex_memWrite isUART_ex t h_trap
+  have h_we_false :
+    (uartWriteDLLSignal _ offset uartDLAB).val t = false :=
+    uartWriteDLL_false_when_uartWE_false _ offset uartDLAB t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- **trap at cycle t → uartDLMReg at t+1 = old.val t.** -/
+theorem trap_holds_uart_DLM_reg {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite isUART_ex : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (uartDLAB : Signal dom Bool)
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    let uartWE :=
+      peripheralWESignal idex_memWrite isUART_ex
+        (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+    let we := uartWriteDLMSignal uartWE offset uartDLAB
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE := trap_clears_uartWE trap_taken dTLBMiss pendingWriteEn
+    mmuBusy dMMURedirect idex_memWrite isUART_ex t h_trap
+  have h_we_false :
+    (uartWriteDLMSignal _ offset uartDLAB).val t = false :=
+    uartWriteDLM_false_when_uartWE_false _ offset uartDLAB t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
 end Sparkle.IP.RV32.UART
