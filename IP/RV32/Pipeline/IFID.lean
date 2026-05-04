@@ -133,4 +133,41 @@ def ifidPC4NextSignal {dom : DomainConfig}
     (ifid_pc4 fetchPCPlus4 : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   Signal.mux stall ifid_pc4 fetchPCPlus4
 
+/-! ## fetchPC next-state
+
+  `fetchPC` is the IF-stage instruction-fetch PC, distinct from
+  `pcReg` because IF and IDEX may run on slightly different
+  PCs during stall. The next-state is:
+
+    fetchPC_next = if flush then pcNext         (redirect)
+                   else if stall then fetchPC   (hold)
+                   else                pcReg    (advance to pcReg)
+
+  This is the "Bug fix #3" referenced in SoC.lean: on flush,
+  fetchPC must take pcNext (not pcReg), otherwise the IF stage
+  fetches from the wrong PC. -/
+
+@[inline] def fetchPCNextPure
+    (flush stall : Bool) (pcNext fetchPC pcReg : BitVec 32) : BitVec 32 :=
+  if flush then pcNext
+  else if stall then fetchPC
+  else pcReg
+
+@[simp] theorem fetchPCNext_flush
+    (stall : Bool) (pcNext fetchPC pcReg : BitVec 32) :
+    fetchPCNextPure true stall pcNext fetchPC pcReg = pcNext := by rfl
+
+@[simp] theorem fetchPCNext_stall
+    (pcNext fetchPC pcReg : BitVec 32) :
+    fetchPCNextPure false true pcNext fetchPC pcReg = fetchPC := by rfl
+
+@[simp] theorem fetchPCNext_advance
+    (pcNext fetchPC pcReg : BitVec 32) :
+    fetchPCNextPure false false pcNext fetchPC pcReg = pcReg := by rfl
+
+def fetchPCNextSignal {dom : DomainConfig}
+    (flush stall : Signal dom Bool)
+    (pcNext fetchPC pcReg : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux flush pcNext (Signal.mux stall fetchPC pcReg)
+
 end Sparkle.IP.RV32.Pipeline

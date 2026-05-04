@@ -1726,7 +1726,11 @@ def rv32iSoCBody {dom : DomainConfig}
         pcPlus4
 
     -- Bug fix #3: fetchPC must take pcReg_next (= pcNext) on flush
-    let fetchPCIn := Signal.mux flush pcNext (Signal.mux stall fetchPC pcReg)
+    -- fetchPC next-state (proven in Pipeline/IFID.lean): flush→pcNext,
+    -- stall→hold, else→pcReg. The flush arm is "Bug fix #3" — fetchPC
+    -- must take pcNext (not pcReg) on flush.
+    let fetchPCIn :=
+      Sparkle.IP.RV32.Pipeline.fetchPCNextSignal flush stall pcNext fetchPC pcReg
 
     -- divPending next-state (proven in Mext/DivPending.lean):
     -- flush > start > done > hold.
