@@ -185,4 +185,40 @@ def wbBypassSignal {dom : DomainConfig}
   Signal.mux wb_fwd wb_data
     (Signal.mux prev_fwd prev_data rf_raw)
 
+/-! ## Register-file read-address select
+
+  The rf_rs{1,2}_addr inputs to the regfile mux between two
+  sources:
+
+    stall = true  →  use the latched id_rs{1,2} (the address
+                     used last cycle, since IFID is held).
+    stall = false →  extract bits [19:15] (rs1) or [24:20] (rs2)
+                     from the new ifid_inst.
+
+  This matches IFID's stall-hold semantics: when IFID holds,
+  the regfile must keep reading the same registers to give the
+  ALU stable inputs; when IFID advances, the new instruction's
+  register fields drive the read.
+-/
+
+@[inline] def rfRsAddrPure
+    (stall : Bool) (idRs ifidRsField : BitVec 5) : BitVec 5 :=
+  if stall then idRs else ifidRsField
+
+@[simp] theorem rfRsAddr_stall (idRs ifidRsField : BitVec 5) :
+    rfRsAddrPure true idRs ifidRsField = idRs := rfl
+
+@[simp] theorem rfRsAddr_advance (idRs ifidRsField : BitVec 5) :
+    rfRsAddrPure false idRs ifidRsField = ifidRsField := rfl
+
+theorem rfRsAddrPure_spec
+    (stall : Bool) (idRs ifidRsField : BitVec 5) :
+    rfRsAddrPure stall idRs ifidRsField =
+      (if stall then idRs else ifidRsField) := rfl
+
+def rfRsAddrSignal {dom : DomainConfig}
+    (stall : Signal dom Bool)
+    (idRs ifidRsField : Signal dom (BitVec 5)) : Signal dom (BitVec 5) :=
+  Signal.mux stall idRs ifidRsField
+
 end Sparkle.IP.RV32.Pipeline

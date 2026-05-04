@@ -1260,10 +1260,14 @@ def rv32iSoCBody {dom : DomainConfig}
         (hazardSignal idex_memRead idex_rd id_rs1 id_rs2)
         mmuStall idex_isAMOrw pendingWriteEn divStall ifetchStall
 
-    let rf_rs1_addr := Signal.mux stall id_rs1
-                         (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
-    let rf_rs2_addr := Signal.mux stall id_rs2
-                         (ifid_inst.map (BitVec.extractLsb' 20 5 ·))
+    -- Regfile read-addr select (proven in Pipeline/Regfile.lean):
+    -- stall holds the id_rs latched address; else take from ifid_inst.
+    let rf_rs1_addr :=
+      Sparkle.IP.RV32.Pipeline.rfRsAddrSignal stall id_rs1
+        (ifid_inst.map (BitVec.extractLsb' 15 5 ·))
+    let rf_rs2_addr :=
+      Sparkle.IP.RV32.Pipeline.rfRsAddrSignal stall id_rs2
+        (ifid_inst.map (BitVec.extractLsb' 20 5 ·))
     -- Register file uses combinational reads (same-cycle readAddr)
     -- so that rf_rs1_raw.val t reads the register addressed by rf_rs1_addr.val t,
     -- not rf_rs1_addr.val (t-1) as Signal.memory would.
