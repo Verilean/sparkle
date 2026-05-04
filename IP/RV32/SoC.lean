@@ -1179,42 +1179,18 @@ def rv32iSoCBody {dom : DomainConfig}
     -- =========================================================================
     let iVPN := fetchPC.map (BitVec.extractLsb' 12 20 ·)
 
-    -- iTLB hit logic: reuse same TLB entries as D-side
-    let itlb0FullMatch := tlb0VPN === iVPN
-    let itlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
-    let itlb0VPNMatch := Signal.mux tlb0Mega itlb0MegaMatch itlb0FullMatch
-    let itlb0Hit := tlb0Valid &&& itlb0VPNMatch
-
-    let itlb1FullMatch := tlb1VPN === iVPN
-    let itlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
-    let itlb1VPNMatch := Signal.mux tlb1Mega itlb1MegaMatch itlb1FullMatch
-    let itlb1Hit := tlb1Valid &&& itlb1VPNMatch
-
-    let itlb2FullMatch := tlb2VPN === iVPN
-    let itlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
-    let itlb2VPNMatch := Signal.mux tlb2Mega itlb2MegaMatch itlb2FullMatch
-    let itlb2Hit := tlb2Valid &&& itlb2VPNMatch
-
-    let itlb3FullMatch := tlb3VPN === iVPN
-    let itlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (iVPN.map (BitVec.extractLsb' 10 10 ·))
-    let itlb3VPNMatch := Signal.mux tlb3Mega itlb3MegaMatch itlb3FullMatch
-    let itlb3Hit := tlb3Valid &&& itlb3VPNMatch
-
-    let anyITLBHit := (itlb0Hit ||| itlb1Hit) ||| (itlb2Hit ||| itlb3Hit)
-
-    -- iTLB output PPN (priority mux)
-    let itlbPPN := Signal.mux itlb0Hit tlb0PPN
-      (Signal.mux itlb1Hit tlb1PPN
-      (Signal.mux itlb2Hit tlb2PPN
-      (Signal.mux itlb3Hit tlb3PPN
-        (Signal.pure 0#22))))
-
-    -- iTLB megapage flag (priority mux)
-    let itlbMega := Signal.mux itlb0Hit tlb0Mega
-      (Signal.mux itlb1Hit tlb1Mega
-      (Signal.mux itlb2Hit tlb2Mega
-      (Signal.mux itlb3Hit tlb3Mega
-        (Signal.pure false))))
+    -- iTLB hit logic (reuses MMU/TLB.lean — same shape as D-side).
+    let itlb0Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb0Valid tlb0Mega tlb0VPN iVPN
+    let itlb1Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb1Valid tlb1Mega tlb1VPN iVPN
+    let itlb2Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb2Valid tlb2Mega tlb2VPN iVPN
+    let itlb3Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb3Valid tlb3Mega tlb3VPN iVPN
+    let anyITLBHit := Sparkle.IP.RV32.MMU.anyTLBHitSignal itlb0Hit itlb1Hit itlb2Hit itlb3Hit
+    let itlbPPN :=
+      Sparkle.IP.RV32.MMU.tlbPPNSignal
+        itlb0Hit itlb1Hit itlb2Hit itlb3Hit tlb0PPN tlb1PPN tlb2PPN tlb3PPN
+    let itlbMega :=
+      Sparkle.IP.RV32.MMU.tlbMegaSignal
+        itlb0Hit itlb1Hit itlb2Hit itlb3Hit tlb0Mega tlb1Mega tlb2Mega tlb3Mega
 
     -- I-side physical address from iTLB.
     -- Sv32 page formats (RISC-V Privileged spec, Sv32 §10.3.2):
@@ -1227,13 +1203,9 @@ def rv32iSoCBody {dom : DomainConfig}
     -- a misaligned PA and trapped Linux at the very first kernel
     -- instruction after MMU bring-up. See itlb fault chain in
     -- IP/RV32/JITDebug-instrumented logs.
-    let itlbPPN_20 := itlbPPN.map (BitVec.extractLsb' 0 20 ·)
-    let itlbPPN_hi10 := itlbPPN.map (BitVec.extractLsb' 10 10 ·)
-    let fetchPCLow22 := fetchPC.map (BitVec.extractLsb' 0 22 ·)
-    let fetchPCLow12 := fetchPC.map (BitVec.extractLsb' 0 12 ·)
-    let ifetchPhysAddrMega := itlbPPN_hi10 ++ fetchPCLow22
-    let ifetchPhysAddrReg := itlbPPN_20 ++ fetchPCLow12
-    let ifetchPhysAddr := Signal.mux itlbMega ifetchPhysAddrMega ifetchPhysAddrReg
+    -- I-side PA formation (reuses MMU/PA.lean — same shape as D-side).
+    let ifetchPhysAddr :=
+      Sparkle.IP.RV32.MMU.dPhysAddrSignal itlbMega itlbPPN fetchPC
 
     -- Need to translate instruction fetch? (S/U-mode with MMU enabled, DRAM region)
     let needTranslateI := satpMode &&& ((~~~isMmode) &&& ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1))
