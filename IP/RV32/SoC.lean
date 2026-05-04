@@ -1825,22 +1825,35 @@ def rv32iSoCBody {dom : DomainConfig}
         (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_csrAddr id_csrAddr),
       Signal.register 0#3
         (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX idex_csrFunct3 id_funct3),
-      -- EX/WB (suppress side-effects during suppressEXWB = dTLBMiss | holdEX, freeze data during freezeIDEX)
-      Signal.register 0#32 (Signal.mux freezeIDEX exwb_alu alu_result),          -- 30: exwb_alu
-      Signal.register 0#32 (Signal.mux freezeIDEX exwb_physAddr effectiveAddr),  -- 31: exwb_physAddr
-      Signal.register 0#5 (Signal.mux suppressEXWB (Signal.pure 0#5) idex_rd),    -- 32: exwb_rd
-      Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_regWrite), -- 33: exwb_regW
-      Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_memToReg), -- 34: exwb_m2r
-      Signal.register 0#32 (Signal.mux freezeIDEX exwb_pc4 idex_pc4),           -- 35: exwb_pc4
-      Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_jump),     -- 36: exwb_jump
-      Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_isCsr),    -- 37: exwb_isCsr
-      Signal.register 0#32 (Signal.mux freezeIDEX exwb_csrRdata csr_rdata),     -- 38: exwb_csrRdata
+      -- EX/WB (suppress side-effects during suppressEXWB = dTLBMiss | holdEX,
+      -- freeze data during freezeIDEX) — proven in Pipeline/IDEXRegInput.lean.
+      -- Data fields use idexHoldable (freezeIDEX > new); side-effect bits use
+      -- exwbSuppress (suppress > new).
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX exwb_alu alu_result),          -- 30: exwb_alu
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX exwb_physAddr effectiveAddr),  -- 31: exwb_physAddr
+      Signal.register 0#5
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBVSignal suppressEXWB 0#5 idex_rd),                 -- 32: exwb_rd
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_regWrite),             -- 33: exwb_regW
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_memToReg),             -- 34: exwb_m2r
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX exwb_pc4 idex_pc4),             -- 35: exwb_pc4
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_jump),                 -- 36: exwb_jump
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_isCsr),                -- 37: exwb_isCsr
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX exwb_csrRdata csr_rdata),       -- 38: exwb_csrRdata
       Signal.register 0#5 wb_addr,                                          -- 39: prev_wb_addr
       Signal.register 0#32 wb_data,                                         -- 40: prev_wb_data
       Signal.register false wb_en,                                           -- 41: prev_wb_en
       Signal.register 0#32 (Signal.mux useTranslatedAddr dPhysAddr alu_result),  -- 42: prevStoreAddr (use phys)
       Signal.register 0#32 ex_rs2,                                          -- 43: prevStoreData
-      Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_memWrite), -- 44: prevStoreEn
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_memWrite),             -- 44: prevStoreEn
       Signal.register 0#32 msipNext,                                        -- 45
       Signal.register 0#32 mtimeLoNext,
       Signal.register 0#32 mtimeHiNext,

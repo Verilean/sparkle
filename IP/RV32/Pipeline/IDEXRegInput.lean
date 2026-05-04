@@ -125,4 +125,53 @@ def idexHoldableBVSignal {dom : DomainConfig} {n : Nat}
     (held new : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
   Signal.mux freezeIDEX held new
 
+/-! ## EX/WB-stage suppress pattern
+
+  Several EX/WB control bits use a different pattern from the
+  IDEX freeze+squash logic. They have a single "suppress" gate
+  that forces 0/false during suppression (e.g., on dTLBMiss or
+  during a load-result-not-yet-ready hold), with the new value
+  otherwise:
+
+      next = if suppressEXWB then zero else new
+
+  This is the trap-suppression pattern (see
+  Pipeline/SuppressEXWB.lean for the gate's spec). The new
+  value here is the IDEX-stage value, since the EX/WB register
+  latches it for the WB stage one cycle later.
+
+  Unlike `idexSquashableNextPure`, there's no "held"/freeze
+  arm: when freezeIDEX is true, the upstream IDEX-stage value
+  is held *as the held value*, so the EX/WB just sees a steady
+  IDEX input across the freeze cycles.
+-/
+
+@[inline] def exwbSuppressNextPure {α}
+    (suppressEXWB : Bool) (zero new : α) : α :=
+  if suppressEXWB then zero else new
+
+/-- Suppress → zero. -/
+@[simp] theorem exwbSuppress_suppress {α} (zero new : α) :
+    exwbSuppressNextPure true zero new = zero := by rfl
+
+/-- ¬Suppress → new. -/
+@[simp] theorem exwbSuppress_advance {α} (zero new : α) :
+    exwbSuppressNextPure false zero new = new := by rfl
+
+theorem exwbSuppressNextPure_spec {α}
+    (suppressEXWB : Bool) (zero new : α) :
+    exwbSuppressNextPure suppressEXWB zero new =
+      (if suppressEXWB then zero else new) := by rfl
+
+/-- Suppress-pattern BitVec wrapper. -/
+def exwbSuppressBVSignal {dom : DomainConfig} {n : Nat}
+    (suppressEXWB : Signal dom Bool) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  Signal.mux suppressEXWB (Signal.pure zero) new
+
+/-- Suppress-pattern Bool wrapper. -/
+def exwbSuppressBoolSignal {dom : DomainConfig}
+    (suppressEXWB new : Signal dom Bool) : Signal dom Bool :=
+  Signal.mux suppressEXWB (Signal.pure false) new
+
 end Sparkle.IP.RV32.Pipeline
