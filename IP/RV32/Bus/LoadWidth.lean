@@ -245,4 +245,36 @@ def loadExtractSignal {dom : DomainConfig}
     (Signal.mux isLBU byteZext
     (Signal.mux isLHU halfZext busRdata)))
 
+/-! ## Sign / zero extension — Signal wrappers -/
+
+/-- Signal-level sign-extension of a byte to 32 bits. -/
+def sextByteSignal {dom : DomainConfig}
+    (selByte : Signal dom (BitVec 8)) : Signal dom (BitVec 32) :=
+  let byteSgnBit := selByte.map (BitVec.extractLsb' 7 1 ·)
+  let byteIsSgn := byteSgnBit === 1#1
+  let high24 : Signal dom (BitVec 24) :=
+    Signal.mux byteIsSgn (Signal.pure 0xFFFFFF#24) (Signal.pure 0#24)
+  high24 ++ selByte
+
+/-- Signal-level zero-extension of a byte to 32 bits. -/
+def zextByteSignal {dom : DomainConfig}
+    (selByte : Signal dom (BitVec 8)) : Signal dom (BitVec 32) :=
+  let zero24 : Signal dom (BitVec 24) := Signal.pure 0#24
+  zero24 ++ selByte
+
+/-- Signal-level sign-extension of a halfword to 32 bits. -/
+def sextHalfSignal {dom : DomainConfig}
+    (selHalf : Signal dom (BitVec 16)) : Signal dom (BitVec 32) :=
+  let halfSgnBit := selHalf.map (BitVec.extractLsb' 15 1 ·)
+  let halfIsSgn := halfSgnBit === 1#1
+  let high16 : Signal dom (BitVec 16) :=
+    Signal.mux halfIsSgn (Signal.pure 0xFFFF#16) (Signal.pure 0#16)
+  high16 ++ selHalf
+
+/-- Signal-level zero-extension of a halfword to 32 bits. -/
+def zextHalfSignal {dom : DomainConfig}
+    (selHalf : Signal dom (BitVec 16)) : Signal dom (BitVec 32) :=
+  let zero16 : Signal dom (BitVec 16) := Signal.pure 0#16
+  zero16 ++ selHalf
+
 end Sparkle.IP.RV32.Bus

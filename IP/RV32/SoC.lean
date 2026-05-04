@@ -820,18 +820,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let loadAddrBit1 := exwb_physAddr.map (BitVec.extractLsb' 1 1 ·)
     let isHalfLow := loadAddrBit1 === 0#1
     let selHalf := Sparkle.IP.RV32.Bus.selHalfSignal isHalfLow busRdataRaw
-    -- Sign/zero extend byte
-    let byteSgnBit := selByte.map (BitVec.extractLsb' 7 1 ·)
-    let byteIsSgn := byteSgnBit === 1#1
-    let byteSignExt := Signal.mux byteIsSgn (Signal.pure 0xFFFFFF#24) (Signal.pure 0#24)
-    let byteSext := byteSignExt ++ selByte
-    let byteZext := 0#24 ++ selByte
-    -- Sign/zero extend halfword
-    let halfSgnBit := selHalf.map (BitVec.extractLsb' 15 1 ·)
-    let halfIsSgn := halfSgnBit === 1#1
-    let halfSignExt := Signal.mux halfIsSgn (Signal.pure 0xFFFF#16) (Signal.pure 0#16)
-    let halfSext := halfSignExt ++ selHalf
-    let halfZext := 0#16 ++ selHalf
+    -- Sign/zero extend byte and halfword (proven in Bus/LoadWidth.lean).
+    let byteSext := Sparkle.IP.RV32.Bus.sextByteSignal selByte
+    let byteZext := Sparkle.IP.RV32.Bus.zextByteSignal selByte
+    let halfSext := Sparkle.IP.RV32.Bus.sextHalfSignal selHalf
+    let halfZext := Sparkle.IP.RV32.Bus.zextHalfSignal selHalf
     -- Select based on exwb_funct3: 000=LB, 001=LH, 010=LW, 100=LBU, 101=LHU
     -- Only apply sub-word extraction for actual loads (exwb_m2r = true)
     let f3isLB  := exwb_funct3 === 0#3
