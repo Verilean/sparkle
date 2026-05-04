@@ -159,4 +159,58 @@ def ifetchFaultPendingNextSignal {dom : DomainConfig}
       (Signal.mux (ptwFault &&& ptwIsIfetch) (Signal.pure true)
         ifetchFaultPending))
 
+/-! ## Sequential ifetchFaultPendingReg
+
+  Cycle-wise statements for the I-side fault pending register.
+  Per-arm cases:
+
+    * trap-delivery (`ifetchPageFault`) at t → reg at t+1 = false
+    * bypassMMU at t → reg at t+1 = false
+    * I-walk fault (`ptwFault ∧ ptwIsIfetch`) at t → reg at t+1 = true
+    * else → hold
+
+  Key fact: when the trap is delivered, the ifetchFaultPending
+  flag is cleared — preventing a stale fault from re-firing on
+  a later cycle. -/
+
+/-- ifetchFaultPendingReg signal wrapper. -/
+def ifetchFaultPendingRegSignal {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+     ifetchFaultPending : Signal dom Bool) : Signal dom Bool :=
+  Signal.register false
+    (ifetchFaultPendingNextSignal ifetchPageFault bypassMMU ptwFault
+      ptwIsIfetch ifetchFaultPending)
+
+/-- **Trap-delivery cycle clears ifetchFaultPending.** -/
+theorem ifetchFaultPendingReg_clears_on_trap_delivery {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+     ifetchFaultPending : Signal dom Bool) (t : Nat)
+    (h_pf : ifetchPageFault.val t = true) :
+    (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault
+      ptwIsIfetch ifetchFaultPending).val (t + 1) = false := by
+  unfold ifetchFaultPendingRegSignal
+  show (Signal.register false _).val (t + 1) = false
+  show (ifetchFaultPendingNextSignal _ _ _ _ _).val t = false
+  unfold ifetchFaultPendingNextSignal Signal.mux
+  show (if ifetchPageFault.val t then _ else _) = false
+  rw [h_pf]
+  rfl
+
+/-- **bypassMMU at t clears ifetchFaultPending at t+1.** -/
+theorem ifetchFaultPendingReg_clears_on_bypass {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+     ifetchFaultPending : Signal dom Bool) (t : Nat)
+    (h_no_pf : ifetchPageFault.val t = false)
+    (h_bypass : bypassMMU.val t = true) :
+    (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault
+      ptwIsIfetch ifetchFaultPending).val (t + 1) = false := by
+  unfold ifetchFaultPendingRegSignal
+  show (Signal.register false _).val (t + 1) = false
+  show (ifetchFaultPendingNextSignal _ _ _ _ _).val t = false
+  unfold ifetchFaultPendingNextSignal Signal.mux
+  show (if ifetchPageFault.val t then _ else
+    (if bypassMMU.val t then _ else _)) = false
+  rw [h_no_pf, h_bypass]
+  rfl
+
 end Sparkle.IP.RV32.MMU
