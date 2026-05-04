@@ -46,6 +46,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.RV32.Pipeline.AbortGuarantee
 import IP.RV32.Pipeline.SuppressEXWB
+import IP.RV32.Pipeline.FlushSquash
 
 namespace Sparkle.IP.RV32.Pipeline
 
@@ -190,6 +191,69 @@ theorem wbEn_false_when_idex_regW_false_next_cycle {dom : DomainConfig}
   rw [wb_signal_and_val]
   rw [show (exwbRegWSignal suppressEXWB idex_regWrite).val (t + 1) = false from h_regW]
   rfl
+
+/-! ## Multi-cycle: trap at N → wb_en at N+2 = false
+
+  Chains through three layers:
+
+    1. `idexLatchSignal` (IDEX register-input):
+       trap at N → squash at N → IDEX-Bool latch at N+1 = false.
+       (Discharged via `trap_squashes_idex_next_cycle` from
+       FlushSquash, with init = false.)
+
+    2. `exwbRegWSignal`: idex_regWrite at N+1 = false → exwb_regW
+       at N+2 = false. (`exwbRegW_false_when_idex_regW_false`.)
+
+    3. `wbEnSignal`: exwb_regW at N+2 = false → wb_en at N+2 = false.
+       (`wbEn_off_when_regW_off`.)
+
+  This is the cycle-N+2 complement to `trap_suppresses_wb_en_sig`
+  (cycle N+1). Together they extend regfile-write suppression
+  through 2 cycles.
+-/
+
+/-- **trap at N + freeze=false at N → wb_en at N+2 = false (when wired
+    through idexLatchSignal then exwbRegWSignal then wbEnSignal).**
+
+    Hypotheses on the structural shape:
+    - `h_squash_includes_trap`: trap_taken.atTime N = true →
+      squash.atTime N = true. (Discharged in callers via
+      `squash_contains_trap_taken` from FlushSquash.)
+    - `idex_regWrite_at_N1_is_idex_latch`: at N+1, idex_regWrite
+      equals the idex latch's output. (Wired in callers; here we
+      take it as a hypothesis.) -/
+theorem trap_suppresses_wb_en_at_N_plus_2 {dom : DomainConfig}
+    (trap_taken freeze squash : Signal dom Bool)
+    (suppressEXWB : Signal dom Bool)
+    (idex_regWrite_old idex_regWrite_new : Signal dom Bool)
+    (wbRdNz : Signal dom Bool) (n : Nat)
+    (h_trap_n : trap_taken.atTime n = true)
+    (h_no_freeze_n : freeze.atTime n = false)
+    (h_squash_includes_trap :
+      trap_taken.atTime n = true → squash.atTime n = true)
+    -- Wire idex_regWrite := idexLatchSignal freeze squash old new false.
+    (h_idex_regWrite_at_N1 :
+      idex_regWrite_new.atTime (n + 1) =
+        (idexLatchSignal freeze squash idex_regWrite_old idex_regWrite_new
+          (false : Bool)).atTime (n + 1)) :
+    (wbEnSignal (exwbRegWSignal suppressEXWB idex_regWrite_new) wbRdNz).atTime
+      (n + 2) = false := by
+  -- Step 1: IDEX-Bool latch at N+1 = false (squash with init=false).
+  have h_idex_n1_init :
+    (idexLatchSignal freeze squash idex_regWrite_old idex_regWrite_new
+      (false : Bool)).atTime (n + 1) = false := by
+    apply trap_squashes_idex_next_cycle freeze squash trap_taken
+      idex_regWrite_old idex_regWrite_new false n
+    · exact h_squash_includes_trap
+    · exact h_trap_n
+    · exact h_no_freeze_n
+  -- Step 2: idex_regWrite at N+1 = false (by wire-def).
+  have h_idex_regWrite_n1_false : idex_regWrite_new.atTime (n + 1) = false := by
+    rw [h_idex_regWrite_at_N1]
+    exact h_idex_n1_init
+  -- Step 3: wbEn at N+2 = false (via downstream lemma).
+  exact wbEn_false_when_idex_regW_false_next_cycle suppressEXWB idex_regWrite_new
+    wbRdNz (n + 1) h_idex_regWrite_n1_false
 
 /-! ## Connection to invariant A
 
