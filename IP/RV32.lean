@@ -21,6 +21,7 @@ import IP.RV32.Bus.LoadWidth
 import IP.RV32.UART
 import IP.RV32.CLINT
 import IP.RV32.CLINT.Decode
+import IP.RV32.CLINT.Timer
 import IP.RV32.Trap
 import IP.RV32.CSR.File
 import IP.RV32.CSR.Supervisor

@@ -49,6 +49,7 @@ import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.CLINT.Decode
+import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -652,10 +653,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let early_privIsU := privMode === 0#2
     let early_mTimerNotDeleg := ((midelegReg.map (BitVec.extractLsb' 7 1 ·)) === 0#1)
     let early_mSwNotDeleg := ((midelegReg.map (BitVec.extractLsb' 3 1 ·)) === 0#1)
-    let early_hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
-    let early_hiEq := mtimeHiReg === mtimecmpHiReg
-    let early_loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
-    let early_timerIrq := early_hiGt ||| (early_hiEq &&& early_loGe)
+    -- timerIrq computed early (same proof in CLINT/Timer.lean).
+    let early_timerIrq :=
+      Sparkle.IP.RV32.CLINT.timerIrqSignal
+        mtimeLoReg mtimeHiReg mtimecmpLoReg mtimecmpHiReg
     let early_swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     -- M-mode IRQ-enable predicates (proven in Trap/IRQEnable.lean)
     let early_timerIntEn :=
@@ -889,10 +890,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let jumpTarget :=
       Sparkle.IP.RV32.Pipeline.jumpTargetSignal idex_isJalr idex_pc ex_rs1 idex_imm
 
-    let hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
-    let hiEq := mtimeHiReg === mtimecmpHiReg
-    let loGe := ~~~(Signal.ult mtimeLoReg mtimecmpLoReg)
-    let timerIrq := hiGt ||| (hiEq &&& loGe)
+    -- timerIrq = (mtime ≥ mtimecmp), unsigned 64-bit (proven in CLINT/Timer.lean).
+    let timerIrq :=
+      Sparkle.IP.RV32.CLINT.timerIrqSignal
+        mtimeLoReg mtimeHiReg mtimecmpLoReg mtimecmpHiReg
     let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
     let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
     let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
@@ -1327,10 +1328,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let mtimeHiMatch  := clintOffset === 0xBFFC#16
     let mtimecmpLoMatch := clintOffset === 0x4000#16
     let mtimecmpHiMatch := clintOffset === 0x4004#16
-    let mtimeLoInc := mtimeLoReg + 1#32
-    let mtimeCarry := mtimeLoInc === 0#32
-    let mtimeHiInc := Signal.mux mtimeCarry
-                        (mtimeHiReg + 1#32) mtimeHiReg
+    -- mtime+1 split-32 increment (proven in CLINT/Timer.lean to match 64-bit add).
+    let mtimeLoInc := Sparkle.IP.RV32.CLINT.mtimeIncLoSignal mtimeLoReg
+    let mtimeHiInc := Sparkle.IP.RV32.CLINT.mtimeIncHiSignal mtimeLoReg mtimeHiReg
     let msipNext := Signal.mux (clintWE &&& msipMatch)
                       ex_rs2_approx msipReg
     let mtimeLoNext := Signal.mux (clintWE &&& mtimeLoMatch)
