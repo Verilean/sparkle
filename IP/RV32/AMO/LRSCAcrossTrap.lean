@@ -289,4 +289,18 @@ theorem trap_clears_pendingWriteEn_2_cycles_later {dom : DomainConfig}
   -- Step 2: exwb_isAMO at t+1 = false → pendingWriteEn at t+2 = false.
   exact pendingWriteEn_false_after_isAMO_clear _ exwb_isLR exwb_isSC (t + 1) h_isAMO
 
+/-! ## LTL forms for AMO trap-suppression composites -/
+
+theorem trap_invalidates_reservation_next_cycle_LTL {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) :
+    ∀ t, trap.atTime t = true →
+         (reservationValidSignal trap isLR isSC prevValid).atTime (t + 1) = false :=
+  fun t => trap_invalidates_reservation_next_cycle trap isLR isSC prevValid t
+
+theorem sc_after_trap_suppresses_dmem_we_LTL :
+    ∀ (idex_memWrite isDMEM_ex dTLBMiss : Bool),
+      dmemWePure idex_memWrite isDMEM_ex dTLBMiss true = false :=
+  fun idex_memWrite isDMEM_ex dTLBMiss =>
+    sc_after_trap_suppresses_dmem_we idex_memWrite isDMEM_ex dTLBMiss
+
 end Sparkle.IP.RV32.AMO
