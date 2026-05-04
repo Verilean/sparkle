@@ -730,4 +730,51 @@ theorem squash_contains_flushDelay
   exact flushOrDelay_contains_flushDelay branchTaken idex_jump trap_taken
     idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
 
+/-! ## Cycle-N+2 IDEX squash stability
+
+  When a flush source fires at cycle N, the chain
+    flush(N) → flushDelay(N+1) → squash(N+1) → IDEX-NOP(N+2)
+  ensures the IDEX latch at cycle N+2 is the squashed-init
+  value. This is the cycle-wise lift establishing that an
+  IDEX squash persists through the cycle after a flush event,
+  not just ending at N+1.
+
+  Wraps the hypothesis "flushDelay observed at cycle N+1 = true"
+  rather than re-deriving it; downstream callers can chain in
+  `flushDelayReg_set_after_*` to convert "flush source X at N"
+  into the flushDelay hypothesis. -/
+
+/-- **flushDelay at cycle N+1 + freeze=false at N+1 → IDEX at N+2 = init.**
+
+    Reuses `idex_squash_clears_next_cycle` (passing N+1 as the
+    cycle), with the squash hypothesis discharged via
+    `squash_contains_flushDelay`. -/
+theorem idex_squash_persists_via_flushDelay {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze : Signal dom Bool)
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool)
+    (flushDelay stallAndNotFreeze stallDelay : Signal dom Bool)
+    (old new : Signal dom α) (init : α) (n : Nat)
+    (h_flushDelay : flushDelay.atTime (n + 1) = true)
+    (h_no_freeze : freeze.atTime (n + 1) = false) :
+    -- At cycle (n+1)+1 = n+2, IDEX latch = init.
+    let squashSig :=
+      ⟨fun t => squashPure (stallAndNotFreeze.val t)
+        (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+          (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+          (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+        (stallDelay.val t)⟩
+    (idexLatchSignal freeze squashSig old new init).atTime (n + 2) = init := by
+  apply idex_squash_clears_next_cycle freeze _ old new init (n + 1)
+  · exact h_no_freeze
+  · -- Show squashSig at n+1 = true, using flushDelay = true.
+    unfold Signal.atTime
+    show squashPure _ _ _ = true
+    rw [show flushDelay.val (n + 1) = true from h_flushDelay]
+    exact squash_contains_flushDelay (branchTaken.val (n + 1)) (idex_jump.val (n + 1))
+      (trap_taken.val (n + 1)) (idex_isMret.val (n + 1)) (idex_isSret.val (n + 1))
+      (idex_isSFenceVMA.val (n + 1)) (dMMURedirect.val (n + 1))
+      (stallAndNotFreeze.val (n + 1)) (stallDelay.val (n + 1))
+
 end Sparkle.IP.RV32.Pipeline
