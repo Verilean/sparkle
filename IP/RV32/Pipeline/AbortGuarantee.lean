@@ -126,6 +126,32 @@ theorem suppressEXWB_aborts_generic_bit {dom : DomainConfig}
   rw [show suppressEXWB.val t = true from h_supp]
   rfl
 
+/-- **idex_regWrite at cycle t = false → exwbRegWSignal at t+1 = false.**
+
+    If the IDEX-stage source bit is already false, the next-cycle
+    EXWB latch is false regardless of suppressEXWB. This is the
+    "downstream" half of the cycle-N+2 trap-suppression chain:
+    after trap at N, IDEX is squashed at N+1 (idex_regWrite=false),
+    so by this lemma exwb_regW at N+2 is also false. -/
+theorem exwbRegW_false_when_idex_regW_false {dom : DomainConfig}
+    (suppressEXWB idex_regWrite : Signal dom Bool) (t : Nat)
+    (h_no_regW : idex_regWrite.atTime t = false) :
+    (exwbRegWSignal suppressEXWB idex_regWrite).atTime (t + 1) = false := by
+  unfold Signal.atTime
+  show (exwbRegWSignal suppressEXWB idex_regWrite).val (t + 1) = false
+  unfold exwbRegWSignal exwbRegWNextSignal
+  show (Signal.register false (Signal.mux suppressEXWB
+    (Signal.pure false) idex_regWrite)).val (t + 1) = false
+  show (Signal.mux suppressEXWB (Signal.pure false) idex_regWrite).val t = false
+  unfold Signal.mux
+  show (if suppressEXWB.val t then _ else _) = false
+  cases h : suppressEXWB.val t
+  · -- suppressEXWB false: goal becomes idex_regWrite.val t = false.
+    show idex_regWrite.val t = false
+    exact h_no_regW
+  · -- suppressEXWB true: goal becomes (Signal.pure false).val t = false.
+    rfl
+
 /-!
 ## DRAM-write non-suppression — the open suspect, made formal
 
