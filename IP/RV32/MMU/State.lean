@@ -244,4 +244,41 @@ def pageFaultGateSignal {dom : DomainConfig}
     (rawFault bypassMMU : Signal dom Bool) : Signal dom Bool :=
   rawFault &&& (~~~bypassMMU)
 
+/-! ## mmuBusy: PTW in flight
+
+  The MMU is "busy" when it's NOT in any of {IDLE, DONE, FAULT}
+  — i.e., it's mid-walk in either the WAIT/REQ states. This drives
+  the MMU stall (which holds the IDEX stage while a translation
+  is in flight).
+
+  Spec: `mmuBusy = ¬(isMMUIdle ∨ isMMUDone ∨ isMMUFault)`.
+-/
+
+@[inline] def mmuBusyPure
+    (isMMUIdle isMMUDone isMMUFault : Bool) : Bool :=
+  !(isMMUIdle || isMMUDone || isMMUFault)
+
+@[simp] theorem mmuBusy_idle (isMMUDone isMMUFault : Bool) :
+    mmuBusyPure true isMMUDone isMMUFault = false := by
+  unfold mmuBusyPure; cases isMMUDone <;> cases isMMUFault <;> rfl
+
+@[simp] theorem mmuBusy_done (isMMUFault : Bool) :
+    mmuBusyPure false true isMMUFault = false := by
+  unfold mmuBusyPure; cases isMMUFault <;> rfl
+
+@[simp] theorem mmuBusy_fault :
+    mmuBusyPure false false true = false := rfl
+
+@[simp] theorem mmuBusy_walking :
+    mmuBusyPure false false false = true := rfl
+
+theorem mmuBusyPure_spec
+    (isMMUIdle isMMUDone isMMUFault : Bool) :
+    mmuBusyPure isMMUIdle isMMUDone isMMUFault =
+      !(isMMUIdle || isMMUDone || isMMUFault) := rfl
+
+def mmuBusySignal {dom : DomainConfig}
+    (isMMUIdle isMMUDone isMMUFault : Signal dom Bool) : Signal dom Bool :=
+  ~~~((isMMUIdle ||| isMMUDone) ||| isMMUFault)
+
 end Sparkle.IP.RV32.MMU

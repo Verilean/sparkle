@@ -521,7 +521,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let ptwMemActive := Sparkle.IP.RV32.MMU.ptwMemActiveSignal ptwIsL1Req ptwIsL0Req
     let ptwMemWordAddr := ptwMemAddr.map (BitVec.extractLsb' 2 23 ·)
     -- MMU stall: busy (not IDLE/DONE/FAULT) and not bypassed
-    let mmuBusy := ~~~((isMMUIdle ||| isMMUDone) ||| isMMUFault)
+    -- (proven in MMU/State.lean.)
+    let mmuBusy := Sparkle.IP.RV32.MMU.mmuBusySignal isMMUIdle isMMUDone isMMUFault
     -- mmuStall (proven in Pipeline/Stall.lean): MMU PTW busy and not bypassed.
     let mmuStall := Sparkle.IP.RV32.Pipeline.mmuStallSignal mmuBusy bypassMMU
 
