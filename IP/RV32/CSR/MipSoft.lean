@@ -170,4 +170,47 @@ def sipReadValueSignal {dom : DomainConfig}
   let mask : Signal dom (BitVec 32) := Signal.pure mipSoftMaskValuePure
   mipValue &&& mask
 
+/-! ## Sequential mipSoftReg: hold when both WEs are false
+
+  `mipSoftReg` is a `Signal.register 0#32 (mipSoftNextSignal ...)`.
+  When both `mipWriteEn` and `sipWriteEn` are false at cycle t,
+  the register at cycle t+1 holds its old value `mipSoft.val t`.
+
+  Combined with `trap_clears_idex_isCsr_valid` (Pipeline/SuppressEXWB),
+  a trap at cycle t implies both `mipWriteEn` (= csrRegWeSignal
+  idex_isCsr_valid csrIsMip) and `sipWriteEn` (csrRegWeSignal
+  idex_isCsr_valid csrIsSip) are false at cycle t — so mipSoftReg
+  is held across trap entry.
+-/
+
+/-- mipSoftReg signal wrapper. -/
+def mipSoftRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (mipWriteEn sipWriteEn : Signal dom Bool)
+    (mipNew sipNew mipSoft : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init
+    (mipSoftNextSignal mipWriteEn sipWriteEn mipNew sipNew mipSoft)
+
+/-- **Both WEs false at t → mipSoftReg at t+1 = mipSoft.val t.**
+
+    Direct proof by unfolding the Signal.register and the nested
+    Signal.muxes. -/
+theorem mipSoftReg_hold_when_no_we {dom : DomainConfig}
+    (init : BitVec 32) (mipWriteEn sipWriteEn : Signal dom Bool)
+    (mipNew sipNew mipSoft : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_mw : mipWriteEn.val t = false)
+    (h_no_sw : sipWriteEn.val t = false) :
+    (mipSoftRegSignal init mipWriteEn sipWriteEn mipNew sipNew mipSoft).val (t + 1) =
+      mipSoft.val t := by
+  unfold mipSoftRegSignal mipSoftNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  -- (register init next).val (t+1) = next.val t. The next signal is a
+  -- nested Signal.mux on mipWriteEn then sipWriteEn; both are false at t,
+  -- so it reduces to mipSoft.val t.
+  unfold Signal.mux
+  -- After unfold, the .val t becomes a nested if-then-else.
+  show (if mipWriteEn.val t then _ else
+    (if sipWriteEn.val t then _ else mipSoft.val t)) = mipSoft.val t
+  rw [h_no_mw, h_no_sw]
+  rfl
+
 end Sparkle.IP.RV32.CSR
