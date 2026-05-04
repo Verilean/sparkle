@@ -68,6 +68,7 @@ import IP.RV32.CSR.Commit
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
+import IP.RV32.Pipeline.Forward
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -392,13 +393,24 @@ def rv32iSoCBody {dom : DomainConfig}
     let wb_data_non_mem :=
       Sparkle.IP.RV32.Pipeline.wbResultNonMemSignal
         exwb_isCsr exwb_csrRdata exwb_jump exwb_pc4 exwb_alu
-    let fwd_rs1_match := wb_en &&& (wb_addr === idex_rs1Idx)
-    let fwd_rs2_match := wb_en &&& (wb_addr === idex_rs2Idx)
+    -- Forwarding-match predicates (proven in Pipeline/Forward.lean):
+    -- fires iff wb_en ∧ wb_addr = idex_rs_idx.
+    let fwd_rs1_match :=
+      Sparkle.IP.RV32.Pipeline.fwdMatchSignal wb_en wb_addr idex_rs1Idx
+    let fwd_rs2_match :=
+      Sparkle.IP.RV32.Pipeline.fwdMatchSignal wb_en wb_addr idex_rs2Idx
 
+    -- "Approximate" forwarded values for EX-side combinational paths
+    -- (alu_result_approx, used only for store offset / mtimecmp irq decisions
+    -- where the exact rs1 value doesn't matter). For load instructions in
+    -- EXWB, the load result isn't yet ready, so we conservatively use the
+    -- IDEX-stage value.
     let fwd_val_approx := Signal.mux exwb_m2r idex_rs1Val wb_data_non_mem
-    let ex_rs1_approx := Signal.mux fwd_rs1_match fwd_val_approx idex_rs1Val
+    let ex_rs1_approx :=
+      Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs1_match fwd_val_approx idex_rs1Val
     let fwd_val2_approx := Signal.mux exwb_m2r idex_rs2Val wb_data_non_mem
-    let ex_rs2_approx := Signal.mux fwd_rs2_match fwd_val2_approx idex_rs2Val
+    let ex_rs2_approx :=
+      Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs2_match fwd_val2_approx idex_rs2Val
     let alu_a_approx := Signal.mux idex_auipc idex_pc ex_rs1_approx
     let alu_b_approx := Signal.mux idex_aluSrcB idex_imm ex_rs2_approx
     let alu_result_approx := aluSignal idex_aluOp alu_a_approx alu_b_approx
@@ -855,8 +867,13 @@ def rv32iSoCBody {dom : DomainConfig}
         exwb_alu
     let wb_data := wb_result
 
-    let ex_rs1 := Signal.mux fwd_rs1_match wb_data idex_rs1Val
-    let ex_rs2 := Signal.mux fwd_rs2_match wb_data idex_rs2Val
+    -- Precise forwarded EX values (proven in Pipeline/Forward.lean):
+    -- once wb_data is final (load result resolved), the WB→EX forward path
+    -- delivers it to the EX stage when fwd_rs_match fires.
+    let ex_rs1 :=
+      Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs1_match wb_data idex_rs1Val
+    let ex_rs2 :=
+      Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs2_match wb_data idex_rs2Val
     let alu_a := Signal.mux idex_auipc idex_pc ex_rs1
     let alu_b := Signal.mux idex_aluSrcB idex_imm ex_rs2
     let alu_result_raw := aluSignal idex_aluOp alu_a alu_b
