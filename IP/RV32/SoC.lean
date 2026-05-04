@@ -70,6 +70,7 @@ import IP.RV32.CSR.Types
 -- which we wire into the AI MMIO region at 0x40000000 below.
 import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
+import IP.RV32.AMO.Decode
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
@@ -856,10 +857,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let busRdata := Signal.mux exwb_m2r
       (Signal.mux isDMEM_wb loadExtracted busRdataRaw) busRdataRaw
 
-    -- A-ext WB stage: classify AMO type in WB
-    let exwb_isLR := exwb_isAMO &&& (exwb_amoOp === 0b00010#5)
-    let exwb_isSC := exwb_isAMO &&& (exwb_amoOp === 0b00011#5)
-    let exwb_isAMOrw := exwb_isAMO &&& (~~~(exwb_isLR ||| exwb_isSC))
+    -- A-ext WB stage: classify AMO type (proven in AMO/Decode.lean)
+    let exwb_isLR := Sparkle.IP.RV32.AMO.isLRSignal exwb_isAMO exwb_amoOp
+    let exwb_isSC := Sparkle.IP.RV32.AMO.isSCSignal exwb_isAMO exwb_amoOp
+    let exwb_isAMOrw := Sparkle.IP.RV32.AMO.isAMOrwSignal exwb_isAMO exwb_isLR exwb_isSC
 
     -- AMO new value computation (Signal-level mux chain, synthesizable)
     -- busRdataRaw = old value at AMO's address (read 1 cycle ago)
