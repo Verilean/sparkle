@@ -396,6 +396,110 @@ theorem tlbVPNReg_hold_when_no_fill {dom : DomainConfig}
   rw [h_no_fill]
   rfl
 
+/-! ## Per-arm sequential lemmas for TLB-entry PPN / Flags / Mega registers
+
+  These follow the same shape as the VPN-register lemmas:
+  doFill latches the new value; otherwise hold. -/
+
+/-- TLB-PPN register wrapper. -/
+def tlbPPNRegSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillPPN tlb_ppn : Signal dom (BitVec 22)) : Signal dom (BitVec 22) :=
+  Signal.register 0#22 (tlbPPNNextSignal doFillN fillPPN tlb_ppn)
+
+/-- TLB-Flags register wrapper. -/
+def tlbFlagsRegSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillFlags tlb_flags : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.register 0#8 (tlbFlagsNextSignal doFillN fillFlags tlb_flags)
+
+/-- TLB-Mega register wrapper. -/
+def tlbMegaRegSignal {dom : DomainConfig}
+    (doFillN fillMega tlb_mega : Signal dom Bool) : Signal dom Bool :=
+  Signal.register false (tlbMegaNextSignal doFillN fillMega tlb_mega)
+
+/-- **doFill at t → tlbPPNReg at t+1 = fillPPN.val t.** -/
+theorem tlbPPNReg_set_after_fill {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillPPN tlb_ppn : Signal dom (BitVec 22)) (t : Nat)
+    (h_fill : doFillN.val t = true) :
+    (tlbPPNRegSignal doFillN fillPPN tlb_ppn).val (t + 1) = fillPPN.val t := by
+  unfold tlbPPNRegSignal
+  show (Signal.register 0#22 _).val (t + 1) = _
+  show (tlbPPNNextSignal doFillN fillPPN tlb_ppn).val t = _
+  unfold tlbPPNNextSignal Signal.mux
+  show (if doFillN.val t = true then fillPPN.val t else tlb_ppn.val t) = fillPPN.val t
+  rw [h_fill]
+  rfl
+
+/-- **No fill at t → tlbPPNReg at t+1 = tlb_ppn.val t (hold).** -/
+theorem tlbPPNReg_hold_when_no_fill {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillPPN tlb_ppn : Signal dom (BitVec 22)) (t : Nat)
+    (h_no_fill : doFillN.val t = false) :
+    (tlbPPNRegSignal doFillN fillPPN tlb_ppn).val (t + 1) = tlb_ppn.val t := by
+  unfold tlbPPNRegSignal
+  show (Signal.register 0#22 _).val (t + 1) = _
+  show (tlbPPNNextSignal doFillN fillPPN tlb_ppn).val t = _
+  unfold tlbPPNNextSignal Signal.mux
+  show (if doFillN.val t = true then fillPPN.val t else tlb_ppn.val t) = tlb_ppn.val t
+  rw [h_no_fill]
+  rfl
+
+/-- **doFill at t → tlbFlagsReg at t+1 = fillFlags.val t.** -/
+theorem tlbFlagsReg_set_after_fill {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillFlags tlb_flags : Signal dom (BitVec 8)) (t : Nat)
+    (h_fill : doFillN.val t = true) :
+    (tlbFlagsRegSignal doFillN fillFlags tlb_flags).val (t + 1) = fillFlags.val t := by
+  unfold tlbFlagsRegSignal
+  show (Signal.register 0#8 _).val (t + 1) = _
+  show (tlbFlagsNextSignal doFillN fillFlags tlb_flags).val t = _
+  unfold tlbFlagsNextSignal Signal.mux
+  show (if doFillN.val t = true then fillFlags.val t else tlb_flags.val t) = fillFlags.val t
+  rw [h_fill]
+  rfl
+
+/-- **No fill at t → tlbFlagsReg at t+1 = tlb_flags.val t (hold).** -/
+theorem tlbFlagsReg_hold_when_no_fill {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillFlags tlb_flags : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_fill : doFillN.val t = false) :
+    (tlbFlagsRegSignal doFillN fillFlags tlb_flags).val (t + 1) = tlb_flags.val t := by
+  unfold tlbFlagsRegSignal
+  show (Signal.register 0#8 _).val (t + 1) = _
+  show (tlbFlagsNextSignal doFillN fillFlags tlb_flags).val t = _
+  unfold tlbFlagsNextSignal Signal.mux
+  show (if doFillN.val t = true then fillFlags.val t else tlb_flags.val t) = tlb_flags.val t
+  rw [h_no_fill]
+  rfl
+
+/-- **doFill at t → tlbMegaReg at t+1 = fillMega.val t.** -/
+theorem tlbMegaReg_set_after_fill {dom : DomainConfig}
+    (doFillN fillMega tlb_mega : Signal dom Bool) (t : Nat)
+    (h_fill : doFillN.val t = true) :
+    (tlbMegaRegSignal doFillN fillMega tlb_mega).val (t + 1) = fillMega.val t := by
+  unfold tlbMegaRegSignal
+  show (Signal.register false _).val (t + 1) = _
+  show (tlbMegaNextSignal doFillN fillMega tlb_mega).val t = _
+  unfold tlbMegaNextSignal Signal.mux
+  show (if doFillN.val t = true then fillMega.val t else tlb_mega.val t) = fillMega.val t
+  rw [h_fill]
+  rfl
+
+/-- **No fill at t → tlbMegaReg at t+1 = tlb_mega.val t (hold).** -/
+theorem tlbMegaReg_hold_when_no_fill {dom : DomainConfig}
+    (doFillN fillMega tlb_mega : Signal dom Bool) (t : Nat)
+    (h_no_fill : doFillN.val t = false) :
+    (tlbMegaRegSignal doFillN fillMega tlb_mega).val (t + 1) = tlb_mega.val t := by
+  unfold tlbMegaRegSignal
+  show (Signal.register false _).val (t + 1) = _
+  show (tlbMegaNextSignal doFillN fillMega tlb_mega).val t = _
+  unfold tlbMegaNextSignal Signal.mux
+  show (if doFillN.val t = true then fillMega.val t else tlb_mega.val t) = tlb_mega.val t
+  rw [h_no_fill]
+  rfl
+
 /-! ## Combined: TLB fill at N → tlbHit on same VPN at N+1
 
   This is the "fill-then-hit" guarantee — the cornerstone of the
