@@ -351,4 +351,37 @@ theorem tlbHit_after_fill_4k {dom : DomainConfig}
                  else (fillVPN.val t == fillVPN.val t))) = true
   simp
 
+/-! ## Bridge to anyTLBHit
+
+  The 4-way TLB has `anyTLBHitPure h0 h1 h2 h3 = (h0 || h1) ||
+  (h2 || h3)` (proven in MMU/TLB.lean as `anyTLBHitPure_spec`).
+  When any one entry hits, anyTLBHit fires (`anyTLBHit_h0..h3`
+  in TLB.lean).
+
+  So if `doFill0 t = true` (fill at entry 0 this cycle), and the
+  N+1 lookup uses `dVPN = fillVPN.val t`, then the entry-0 hit
+  fires by `tlbHit_after_fill_4k`, and `anyTLBHitPure` fires by
+  `anyTLBHit_h0`.
+
+  This connects the per-entry fill guarantee to the system-wide
+  "any-hit" predicate that drives `useTranslatedAddr`. -/
+
+/-- **Fill on entry 0 → anyTLBHit at N+1 for the same VPN (4kB).** -/
+theorem anyTLBHit_after_fill0_4k {dom : DomainConfig}
+    (sfenceVMA doFill0 tlb0_valid : Signal dom Bool)
+    (fillVPN tlb0_vpn : Signal dom (BitVec 20)) (t : Nat)
+    (hit1 hit2 hit3 : Bool)
+    (h_no_sfence : sfenceVMA.val t = false)
+    (h_fill : doFill0.val t = true) :
+    anyTLBHitPure
+      (tlbHitPure
+        ((tlbValidRegSignal sfenceVMA doFill0 tlb0_valid).val (t + 1))
+        false
+        ((tlbVPNRegSignal doFill0 fillVPN tlb0_vpn).val (t + 1))
+        (fillVPN.val t))
+      hit1 hit2 hit3 = true := by
+  rw [tlbHit_after_fill_4k sfenceVMA doFill0 tlb0_valid fillVPN tlb0_vpn t
+        h_no_sfence h_fill]
+  exact anyTLBHit_h0 hit1 hit2 hit3
+
 end Sparkle.IP.RV32.MMU
