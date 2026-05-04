@@ -168,4 +168,30 @@ def idexLiveSignal {dom : DomainConfig}
     ||| idex_isEcall ||| idex_isMret ||| idex_isSret
     ||| idex_isAMO ||| idex_isMext ||| idex_isSFenceVMA
 
+/-! ## All-clear → idexLive = false
+
+  When every control bit is `false` (the squashed-NOP state),
+  `idexLive` is also `false`. This is the form needed when
+  combining with `idex_squash_clears_next_cycle` (in
+  Pipeline/FlushSquash.lean) to show "squash at N → idexLive
+  at N+1 = false". -/
+
+theorem idexLive_false_of_all_clear
+    (idex_regWrite idex_memRead idex_memWrite
+     idex_jump idex_branch idex_isCsr
+     idex_isEcall idex_isMret idex_isSret
+     idex_isAMO idex_isMext idex_isSFenceVMA : Bool)
+    (h0 : idex_regWrite = false) (h1 : idex_memRead = false)
+    (h2 : idex_memWrite = false) (h3 : idex_jump = false)
+    (h4 : idex_branch = false) (h5 : idex_isCsr = false)
+    (h6 : idex_isEcall = false) (h7 : idex_isMret = false)
+    (h8 : idex_isSret = false) (h9 : idex_isAMO = false)
+    (h10 : idex_isMext = false) (h11 : idex_isSFenceVMA = false) :
+    idexLivePure idex_regWrite idex_memRead idex_memWrite
+      idex_jump idex_branch idex_isCsr
+      idex_isEcall idex_isMret idex_isSret
+      idex_isAMO idex_isMext idex_isSFenceVMA = false := by
+  rw [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11]
+  rfl
+
 end Sparkle.IP.RV32.Pipeline
