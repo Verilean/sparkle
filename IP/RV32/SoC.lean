@@ -1373,7 +1373,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let validEX :=
       Sparkle.IP.RV32.Pipeline.validEXSignal
         trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
-    let idex_isCsr_valid := idex_isCsr &&& validEX
+    -- CSR-write validation gate (proven in Pipeline/SuppressEXWB.lean).
+    let idex_isCsr_valid :=
+      Sparkle.IP.RV32.Pipeline.idexIsCsrValidSignal idex_isCsr validEX
     -- Bug fix (idex-double-latch on ifetchStall release): when ifetchStall
     -- transitions from 1→0, fetchPC lags pcReg by one extra cycle, causing
     -- IFID to hold the same instruction for two cycles, propagating into

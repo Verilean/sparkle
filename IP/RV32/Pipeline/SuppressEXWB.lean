@@ -217,4 +217,35 @@ theorem validEXSignal_eq_pure {dom : DomainConfig}
   (see `docs/RV32_Architecture_Status.md` §2.2 invariant E).
 -/
 
+/-! ## idex_isCsr_valid: validated CSR-write predicate
+
+  The CSR-write predicate is `idex_isCsr ∧ validEX` — a CSR
+  instruction in IDEX that will actually commit (not be
+  suppressed by trap/dTLBMiss/etc).
+
+  This is the key gate for *all* CSR-write commits and the
+  `sstatus`-write activation, captured here as a single named
+  primitive.
+-/
+
+@[inline] def idexIsCsrValidPure (idex_isCsr validEX : Bool) : Bool :=
+  idex_isCsr && validEX
+
+@[simp] theorem idexIsCsrValid_no_csr (validEX : Bool) :
+    idexIsCsrValidPure false validEX = false := rfl
+
+@[simp] theorem idexIsCsrValid_no_validEX (idex_isCsr : Bool) :
+    idexIsCsrValidPure idex_isCsr false = false := by
+  unfold idexIsCsrValidPure; cases idex_isCsr <;> rfl
+
+@[simp] theorem idexIsCsrValid_active : idexIsCsrValidPure true true = true := rfl
+
+theorem idexIsCsrValidPure_spec
+    (idex_isCsr validEX : Bool) :
+    idexIsCsrValidPure idex_isCsr validEX = (idex_isCsr && validEX) := rfl
+
+def idexIsCsrValidSignal {dom : DomainConfig}
+    (idex_isCsr validEX : Signal dom Bool) : Signal dom Bool :=
+  idex_isCsr &&& validEX
+
 end Sparkle.IP.RV32.Pipeline
