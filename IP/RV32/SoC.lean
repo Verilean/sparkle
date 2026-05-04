@@ -1869,15 +1869,21 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register 0#32 aiStatusNext,
       Signal.register 0#32 aiInputNext,
       -- Sub-word + M-ext (holdEX aware)
-      Signal.register 0#3 (Signal.mux freezeIDEX exwb_funct3 idex_funct3),      -- 59: exwb_funct3
-      Signal.register false (Signal.mux freezeIDEX idex_isMext (Signal.mux squash (Signal.pure false) id_isMext)),  -- 60
+      Signal.register 0#3
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX exwb_funct3 idex_funct3),       -- 59: exwb_funct3
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isMext id_isMext),  -- 60
       -- A-ext registers (61-69)
       Signal.register false resValidNext,
       Signal.register 0#32 resAddrNext,
-      Signal.register false (Signal.mux freezeIDEX idex_isAMO (Signal.mux squash (Signal.pure false) id_isAMO)),
-      Signal.register 0#5 (Signal.mux freezeIDEX idex_amoOp (Signal.mux squash (Signal.pure 0#5) id_amoOp)),
-      Signal.register false (Signal.mux suppressEXWB (Signal.pure false) idex_isAMO),   -- exwb_isAMO
-      Signal.register 0#5 (Signal.mux freezeIDEX exwb_amoOp idex_amoOp),              -- exwb_amoOp
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isAMO id_isAMO),
+      Signal.register 0#5
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBVSignal freezeIDEX squash idex_amoOp 0#5 id_amoOp),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_isAMO),                -- exwb_isAMO
+      Signal.register 0#5
+        (Sparkle.IP.RV32.Pipeline.idexHoldableBVSignal freezeIDEX exwb_amoOp idex_amoOp),         -- exwb_amoOp
       Signal.register false pendingWriteEnNext,
       Signal.register 0#32 pendingWriteAddrNext,
       Signal.register 0#32 pendingWriteDataNext,
@@ -1922,8 +1928,10 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register false ptwIsIfetchNext,
       Signal.register false ifetchFaultPendingNext,
       -- Pipeline additions (108-109)
-      Signal.register false (Signal.mux freezeIDEX idex_isSret (Signal.mux squash (Signal.pure false) id_isSret)),
-      Signal.register false (Signal.mux freezeIDEX idex_isSFenceVMA (Signal.mux squash (Signal.pure false) id_isSFenceVMA)),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isSret id_isSret),
+      Signal.register false
+        (Sparkle.IP.RV32.Pipeline.idexSquashableBoolSignal freezeIDEX squash idex_isSFenceVMA id_isSFenceVMA),
       -- UART 8250 registers (110-115)
       Signal.register 0#8 uartLCRNext,
       Signal.register 0#8 uartIERNext,
