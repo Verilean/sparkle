@@ -140,4 +140,85 @@ def divPendingNextSignal {dom : DomainConfig}
     (Signal.mux divStart (Signal.pure true)
       (Signal.mux divDone (Signal.pure false) divPending))
 
+/-! ## Sequential divPendingReg
+
+  divPendingReg is held in a `Signal.register false
+  divPendingNextSignal`. This module adds the cycle-wise
+  sequential statements.
+
+  Key fact for invariant E: when `flushOrDelay` (which includes
+  trap_taken via flush ⊆ flushOrDelay) fires at cycle t,
+  divPendingReg at t+1 is forced to false — so a trap-aborted
+  divide doesn't leave a stale "pending" flag that would gate
+  the next instruction.
+-/
+
+/-- divPendingReg signal wrapper. -/
+def divPendingRegSignal {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) : Signal dom Bool :=
+  Signal.register false (divPendingNextSignal flushOrDelay divStart divDone divPending)
+
+/-- **flushOrDelay at t → divPendingReg at t+1 = false.** -/
+theorem divPendingReg_clears_on_flush {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) (t : Nat)
+    (h_flush : flushOrDelay.val t = true) :
+    (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) = false := by
+  unfold divPendingRegSignal
+  show (Signal.register false _).val (t + 1) = false
+  show (divPendingNextSignal flushOrDelay divStart divDone divPending).val t = false
+  unfold divPendingNextSignal Signal.mux
+  show (if flushOrDelay.val t then _ else _) = false
+  rw [h_flush]
+  rfl
+
+/-- **divStart at t (no flush) → divPendingReg at t+1 = true.** -/
+theorem divPendingReg_set_on_start {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) (t : Nat)
+    (h_no_flush : flushOrDelay.val t = false)
+    (h_start : divStart.val t = true) :
+    (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) = true := by
+  unfold divPendingRegSignal
+  show (Signal.register false _).val (t + 1) = true
+  show (divPendingNextSignal flushOrDelay divStart divDone divPending).val t = true
+  unfold divPendingNextSignal Signal.mux
+  show (if flushOrDelay.val t then _ else
+    (if divStart.val t then _ else _)) = true
+  rw [h_no_flush, h_start]
+  rfl
+
+/-- **divDone at t (no flush, no start) → divPendingReg at t+1 = false.** -/
+theorem divPendingReg_clears_on_done {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) (t : Nat)
+    (h_no_flush : flushOrDelay.val t = false)
+    (h_no_start : divStart.val t = false)
+    (h_done : divDone.val t = true) :
+    (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) = false := by
+  unfold divPendingRegSignal
+  show (Signal.register false _).val (t + 1) = false
+  show (divPendingNextSignal flushOrDelay divStart divDone divPending).val t = false
+  unfold divPendingNextSignal Signal.mux
+  show (if flushOrDelay.val t then _ else
+    (if divStart.val t then _ else
+      (if divDone.val t then _ else _))) = false
+  rw [h_no_flush, h_no_start, h_done]
+  rfl
+
+/-- **No event at t → divPendingReg at t+1 = divPending.val t.** -/
+theorem divPendingReg_hold_when_no_event {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) (t : Nat)
+    (h_no_flush : flushOrDelay.val t = false)
+    (h_no_start : divStart.val t = false)
+    (h_no_done : divDone.val t = false) :
+    (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) =
+      divPending.val t := by
+  unfold divPendingRegSignal
+  show (Signal.register false _).val (t + 1) = _
+  show (divPendingNextSignal flushOrDelay divStart divDone divPending).val t = _
+  unfold divPendingNextSignal Signal.mux
+  show (if flushOrDelay.val t then _ else
+    (if divStart.val t then _ else
+      (if divDone.val t then _ else divPending.val t))) = divPending.val t
+  rw [h_no_flush, h_no_start, h_no_done]
+  rfl
+
 end Sparkle.IP.RV32.Mext
