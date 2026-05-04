@@ -202,4 +202,28 @@ theorem dMissCaptureBoolReg_latch_on_miss {dom : DomainConfig}
   rw [h_miss]
   rfl
 
+/-! ## Cycle-N+2 hold lemmas
+
+  After a TLB miss at cycle N captures the latch, the register
+  stays at the captured value at cycle N+2 if no further miss
+  fires at N+1.
+
+  Same shape as the cycle-N+1 hold lemmas but indexed at N+1
+  instead of N. -/
+
+/-- **No miss at N+1 → BV32 reg at N+2 = old.val (N+1).** -/
+theorem dMissCaptureBV32Reg_hold_at_N_plus_1 {dom : DomainConfig}
+    (init : BitVec 32) (dTLBMiss : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (n : Nat)
+    (h_no_miss_n1 : dTLBMiss.val (n + 1) = false) :
+    (dMissCaptureBV32RegSignal init dTLBMiss newVal old).val (n + 2) = old.val (n + 1) :=
+  dMissCaptureBV32Reg_hold_when_no_miss init dTLBMiss newVal old (n + 1) h_no_miss_n1
+
+/-- **No miss at N+1 → Bool reg at N+2 = old.val (N+1).** -/
+theorem dMissCaptureBoolReg_hold_at_N_plus_1 {dom : DomainConfig}
+    (init : Bool) (dTLBMiss new old : Signal dom Bool) (n : Nat)
+    (h_no_miss_n1 : dTLBMiss.val (n + 1) = false) :
+    (dMissCaptureBoolRegSignal init dTLBMiss new old).val (n + 2) = old.val (n + 1) :=
+  dMissCaptureBoolReg_hold_when_no_miss init dTLBMiss new old (n + 1) h_no_miss_n1
+
 end Sparkle.IP.RV32.MMU
