@@ -69,6 +69,7 @@ import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
 import IP.RV32.CSR.Commit
 import IP.RV32.CSR.MIP
+import IP.RV32.CSR.MipSoft
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
@@ -1505,17 +1506,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let mtvalNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
         trapToM trapVal (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg
-    -- mipSoftReg next-state: only SSIP/STIP/SEIP bits update from CSR writes
-    -- (mip CSR or sip CSR). All other bits keep their prior soft value.
-    let mipSoftWriteMask : Signal dom (BitVec 32) := Signal.pure 0x00000222#32
+    -- mipSoftReg next-state (proven in CSR/MipSoft.lean): only SSIP/STIP/SEIP
+    -- bits update from CSR writes; non-mask bits preserved across any write.
     let mipWriteEn := idex_isCsr_valid &&& csrIsMip
     let sipWriteEn := idex_isCsr_valid &&& csrIsSip
-    let mipMaskedNew := mipNewCSR &&& mipSoftWriteMask
-    let sipMaskedNew := sipNewCSR &&& mipSoftWriteMask
-    let mipSoftKept  := mipSoftReg &&& (~~~mipSoftWriteMask)
     let mipSoftNext :=
-      Signal.mux mipWriteEn (mipSoftKept ||| mipMaskedNew)
-      (Signal.mux sipWriteEn (mipSoftKept ||| sipMaskedNew) mipSoftReg)
+      Sparkle.IP.RV32.CSR.mipSoftNextSignal
+        mipWriteEn sipWriteEn mipNewCSR sipNewCSR mipSoftReg
 
     -- S-mode CSR next-state (same proven patterns from CSR/Commit.lean).
     let sieNext :=

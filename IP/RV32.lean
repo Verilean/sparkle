@@ -39,6 +39,7 @@ import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
 import IP.RV32.CSR.Commit
 import IP.RV32.CSR.MIP
+import IP.RV32.CSR.MipSoft
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.AbortGuarantee
 import IP.RV32.Pipeline.FlushSquash
