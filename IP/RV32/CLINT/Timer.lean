@@ -157,4 +157,24 @@ theorem mtimeLoReg_advances_when_no_we {dom : DomainConfig}
   unfold mtimeIncLoSignal
   rfl
 
+/-- **No CSR write at t → mtimeHiReg at t+1 = mtimeHi.val t + carry.val t.**
+
+    Where `carry = (mtimeLo + 1 == 0)` (i.e., the low half wraps
+    around). Built on `mtimeIncHiPure` which already proves
+    `mtimeIncHi = mtimeHi + carry`. -/
+theorem mtimeHiReg_advances_when_no_we {dom : DomainConfig}
+    (mtimeHiWE : Signal dom Bool)
+    (newVal mtimeLo mtimeHi : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_we : mtimeHiWE.val t = false) :
+    (Signal.register 0#32
+      (Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeHiWE newVal
+        (mtimeIncHiSignal mtimeLo mtimeHi))).val (t + 1) =
+      (mtimeIncHiSignal mtimeLo mtimeHi).val t := by
+  show (Signal.register 0#32 _).val (t + 1) = _
+  show (Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeHiWE newVal
+    (mtimeIncHiSignal mtimeLo mtimeHi)).val t = _
+  rw [Sparkle.IP.RV32.CSR.csrPlainNextSignal_eq_pure]
+  rw [h_no_we]
+  rfl
+
 end Sparkle.IP.RV32.CLINT
