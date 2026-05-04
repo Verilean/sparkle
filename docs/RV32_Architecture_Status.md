@@ -286,6 +286,26 @@ rely on the architectural state being stable for at least 2
 cycles after a trap fires, which covers the time it takes for
 the first kernel-handler instruction to reach the EX stage.
 
+#### LTL-form theorems (universal-time-quantified)
+
+For temporal-logic style reasoning, several core trap-suppression
+lemmas have universal-time-quantified ("LTL") forms:
+
+  * `Pipeline/AbortGuarantee.lean::suppressEXWB_aborts_regW_LTL`
+  * `Pipeline/AbortGuarantee.lean::suppressEXWB_aborts_generic_bit_LTL`
+  * `Pipeline/FlushSquash.lean::idex_squash_clears_LTL`
+  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_regW_LTL`
+  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_m2r_LTL`
+  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_jump_LTL`
+  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_isCsr_LTL`
+  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_prevStoreEn_LTL`
+  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_isAMO_LTL`
+  * `AMO/LRSCAcrossTrap.lean::trap_invalidates_reservation_next_cycle_LTL`
+  * `AMO/LRSCAcrossTrap.lean::sc_after_trap_suppresses_dmem_we_LTL`
+
+Each says "for all cycles t, if X at t, then Y at t+1." Useful
+for inductive arguments over the entire pipeline trace.
+
 #### Per-state-register sequential coverage (2026-05-05)
 
 Beyond the trap-suppression composites, every state-carrying
