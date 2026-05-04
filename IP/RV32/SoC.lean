@@ -64,6 +64,8 @@ import IP.RV32.MMU.TLB
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.MMIO.BitNet
+import IP.RV32.UART.Decode
+import IP.RV32.UART.ReadMux
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -788,38 +790,15 @@ def rv32iSoCBody {dom : DomainConfig}
     let mmioRdata :=
       Sparkle.IP.RV32.MMIO.mmioRdataSignal
         mmioIsStatus_wb mmioIsOutput_wb aiStatusReg bitnetOut
-    -- UART 8250 read logic (WB stage)
+    -- UART 8250 read logic (proven in UART/ReadMux.lean): 7-way priority
+    -- mux with DLAB-aware offset 0/1, plus IIR/LSR constants.
     let isUART_wb := Sparkle.IP.RV32.Bus.isUARTSignal exwb_physAddr
     let uartOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 3 ·)
-    let uartDLAB_wb := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
-    -- Read data per offset (zero-extended to 32 bits)
-    let uartRd0 := Signal.mux uartDLAB_wb
-      (0#24 ++ uartDLLReg)
-      (Signal.pure 0#32)  -- RBR = 0 (no RX in Lean sim)
-    let uartRd1 := Signal.mux uartDLAB_wb
-      (0#24 ++ uartDLMReg)
-      (0#24 ++ uartIERReg)
-    let uartRd2 := Signal.pure 0x00000001#32  -- IIR: no interrupt pending
-    let uartRd3 := 0#24 ++ uartLCRReg
-    let uartRd4 := 0#24 ++ uartMCRReg
-    let uartRd5 := Signal.pure 0x00000060#32  -- LSR: THRE + TEMT (TX always ready)
-    let uartRd7 := 0#24 ++ uartSCRReg
-    -- Mux by offset
-    let wbOff0 := uartOffset_wb === 0#3
-    let wbOff1 := uartOffset_wb === 1#3
-    let wbOff2 := uartOffset_wb === 2#3
-    let wbOff3 := uartOffset_wb === 3#3
-    let wbOff4 := uartOffset_wb === 4#3
-    let wbOff5 := uartOffset_wb === 5#3
-    let wbOff7 := uartOffset_wb === 7#3
-    let uartRdata := Signal.mux wbOff0 uartRd0
-      (Signal.mux wbOff1 uartRd1
-      (Signal.mux wbOff2 uartRd2
-      (Signal.mux wbOff3 uartRd3
-      (Signal.mux wbOff4 uartRd4
-      (Signal.mux wbOff5 uartRd5
-      (Signal.mux wbOff7 uartRd7
-        (Signal.pure 0#32)))))))
+    let uartDLAB_wb := Sparkle.IP.RV32.UART.uartDLABBitSignal uartLCRReg
+    let uartRdata :=
+      Sparkle.IP.RV32.UART.uartRdataSignal
+        uartOffset_wb uartDLAB_wb
+        uartDLLReg uartDLMReg uartIERReg uartLCRReg uartMCRReg uartSCRReg
 
     -- Bus read-data mux (proven in Bus/RdataMux.lean): 4-way priority
     -- CLINT > UART > MMIO > DMEM (the catch-all per Bus/Decoder.lean).
@@ -1391,27 +1370,24 @@ def rv32iSoCBody {dom : DomainConfig}
     let uartWE :=
       Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite isUART_ex validEX
     let uartOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 3 ·)
-    let uartDLAB := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
+    -- UART DLAB bit + data (proven in UART/Decode.lean).
+    let uartDLAB := Sparkle.IP.RV32.UART.uartDLABBitSignal uartLCRReg
     let uartWdata8 := ex_rs2_approx.map (BitVec.extractLsb' 0 8 ·)
-    -- Offset matches
-    let uartOff0 := uartOffset_ex === 0#3
-    let uartOff1 := uartOffset_ex === 1#3
-    let uartOff3 := uartOffset_ex === 3#3
-    let uartOff4 := uartOffset_ex === 4#3
-    let uartOff7 := uartOffset_ex === 7#3
-    -- Register updates (DLAB-aware for offsets 0 and 1)
-    let uartLCRNext := Signal.mux (uartWE &&& uartOff3)
-      uartWdata8 uartLCRReg
-    let uartIERNext := Signal.mux (uartWE &&& (uartOff1 &&& (~~~uartDLAB)))
-      uartWdata8 uartIERReg
-    let uartMCRNext := Signal.mux (uartWE &&& uartOff4)
-      uartWdata8 uartMCRReg
-    let uartSCRNext := Signal.mux (uartWE &&& uartOff7)
-      uartWdata8 uartSCRReg
-    let uartDLLNext := Signal.mux (uartWE &&& (uartOff0 &&& uartDLAB))
-      uartWdata8 uartDLLReg
-    let uartDLMNext := Signal.mux (uartWE &&& (uartOff1 &&& uartDLAB))
-      uartWdata8 uartDLMReg
+    -- Per-register write predicates (proven in UART/Decode.lean):
+    -- DLAB-aware for offsets 0 (DLL/RBR) and 1 (DLM/IER).
+    let uartLCRWE := Sparkle.IP.RV32.UART.uartWriteLCRSignal uartWE uartOffset_ex
+    let uartIERWE := Sparkle.IP.RV32.UART.uartWriteIERSignal uartWE uartOffset_ex uartDLAB
+    let uartMCRWE := Sparkle.IP.RV32.UART.uartWriteMCRSignal uartWE uartOffset_ex
+    let uartSCRWE := Sparkle.IP.RV32.UART.uartWriteSCRSignal uartWE uartOffset_ex
+    let uartDLLWE := Sparkle.IP.RV32.UART.uartWriteDLLSignal uartWE uartOffset_ex uartDLAB
+    let uartDLMWE := Sparkle.IP.RV32.UART.uartWriteDLMSignal uartWE uartOffset_ex uartDLAB
+    -- Plain CSR-pattern write commits (proven in CSR/Commit.lean).
+    let uartLCRNext := Signal.mux uartLCRWE uartWdata8 uartLCRReg
+    let uartIERNext := Signal.mux uartIERWE uartWdata8 uartIERReg
+    let uartMCRNext := Signal.mux uartMCRWE uartWdata8 uartMCRReg
+    let uartSCRNext := Signal.mux uartSCRWE uartWdata8 uartSCRReg
+    let uartDLLNext := Signal.mux uartDLLWE uartWdata8 uartDLLReg
+    let uartDLMNext := Signal.mux uartDLMWE uartWdata8 uartDLMReg
 
     let csrIsImm := (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
     let csrZimm := 0#27 ++ idex_rs1Idx
