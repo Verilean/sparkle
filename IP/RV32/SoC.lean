@@ -53,6 +53,7 @@ import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
 import IP.RV32.MMU.NeedTranslate
+import IP.RV32.MMU.PTWReq
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
@@ -1604,16 +1605,16 @@ def rv32iSoCBody {dom : DomainConfig}
     -- address and immediately re-fault, masquerading as a fault on the trap
     -- target's PC. The trap-target ifetch will request PTW one cycle later
     -- after fetchPC catches up.
-    let ifetchPTWReq := ifetchTLBMiss &&&
-      (ptwIsIdle &&& ((~~~dTLBMiss) &&& (isMMUIdle &&& (~~~trap_taken))))
-
-    -- PTW request: D-side TLB miss OR I-side PTW request
-    let ptwReq := dTLBMiss ||| ifetchPTWReq
-
-    -- PTW latch vaddr on start: D-side has priority
-    let ptwVaddrOnStart := Signal.mux dTLBMiss alu_result_approx fetchPC
-    let ptwVaddrNext := Signal.mux (ptwIsIdle &&& ptwReq)
-      ptwVaddrOnStart ptwVaddrReg
+    -- PTW request gating + vaddr-latch (proven in MMU/PTWReq.lean):
+    -- D-side priority, no PTW during trap.
+    let ifetchPTWReq :=
+      Sparkle.IP.RV32.MMU.ifetchPTWReqSignal
+        ifetchTLBMiss ptwIsIdle dTLBMiss isMMUIdle trap_taken
+    let ptwReq := Sparkle.IP.RV32.MMU.ptwReqSignal dTLBMiss ifetchPTWReq
+    let ptwVaddrOnStart :=
+      Sparkle.IP.RV32.MMU.ptwVaddrOnStartSignal dTLBMiss alu_result_approx fetchPC
+    let ptwVaddrNext :=
+      Sparkle.IP.RV32.MMU.ptwVaddrNextSignal ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddrReg
 
     -- PTE fields decoded from dmem_rdata (valid in L1_WAIT/L0_WAIT states)
     -- PTE flag decoding (proven in MMU/PTE.lean): bit 0=V, 1=R, 3=X.
