@@ -57,6 +57,7 @@ import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.Trap.IRQEnable
 import IP.RV32.Trap.Cause
+import IP.RV32.Trap.TrapTaken
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.Pipeline.SuppressEXWB
@@ -656,11 +657,12 @@ def rv32iSoCBody {dom : DomainConfig}
     let early_sExtIntEn :=
       Sparkle.IP.RV32.Trap.sExtIntEnabledSignal
         early_privIsS early_privIsU early_mstatusSIE early_sieSEIE early_seipPending
-    let early_anyInt := early_timerIntEn ||| early_swIntEn ||| early_sTimerIntEn
-                          ||| early_sSwIntEn ||| early_sExtIntEn
-    -- Full trap_taken, computed early
-    let early_trap_taken := ((idex_isEcall ||| early_pageFault) ||| early_anyInt)
-                              ||| early_ifetchPageFault
+    -- Full trap_taken, computed early (proven in Trap/TrapTaken.lean).
+    let early_trap_taken :=
+      Sparkle.IP.RV32.Trap.trapTakenSignal
+        early_ifetchPageFault idex_isEcall early_pageFault
+        early_timerIntEn early_swIntEn early_sTimerIntEn
+        early_sSwIntEn early_sExtIntEn
     -- DRAM-side `validEX` for the byte_we gate.
     --
     -- We deliberately EXCLUDE `pendingWriteEn` from this gate even
@@ -1010,8 +1012,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- I-side page fault: PTW completed with fault for instruction fetch
     let ifetchPageFault := ifetchFaultPending &&& (~~~bypassMMU)
 
-    let anyInt := timerIntEnabled ||| swIntEnabled ||| sTimerIntEnabled ||| sSwIntEnabled ||| sExtIntEnabled
-    let trap_taken := ((idex_isEcall ||| pageFault) ||| anyInt) ||| ifetchPageFault
+    -- trap_taken disjunction (proven in Trap/TrapTaken.lean).
+    let trap_taken :=
+      Sparkle.IP.RV32.Trap.trapTakenSignal
+        ifetchPageFault idex_isEcall pageFault
+        timerIntEnabled swIntEnabled sTimerIntEnabled sSwIntEnabled sExtIntEnabled
     -- Cause priority (per priv spec, proven in Trap/Cause.lean):
     -- ifetchPF > ecall > pageFault > MTI > MSI > SEI > SSI > STI.
     -- (MEI omitted: our SoC has no external M-mode IRQ.)

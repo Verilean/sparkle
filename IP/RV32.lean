@@ -27,6 +27,7 @@ import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.Trap.IRQEnable
 import IP.RV32.Trap.Cause
+import IP.RV32.Trap.TrapTaken
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.Pipeline.SuppressEXWB
