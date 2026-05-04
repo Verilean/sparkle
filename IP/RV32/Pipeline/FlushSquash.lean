@@ -305,12 +305,29 @@ theorem squash_contains_flushOrDelay
   rw [h]
   cases stallAndNotFreeze <;> cases stallDelay <;> rfl
 
-/-- Backward-compat alias for the lemma named in commit 8610936. -/
+/-- Backward-compat alias for the lemma named in commit 8610936.
+    Takes the post-flushOrDelay value as input. -/
 theorem squash_contains_mret
     (stallAndNotFreeze flushOrDelay stallDelay : Bool) :
     flushOrDelay = true →
     squashPure stallAndNotFreeze flushOrDelay stallDelay = true :=
   squash_contains_flushOrDelay stallAndNotFreeze flushOrDelay stallDelay
+
+/-- **Direct bridge: `idex_isMret → squash`.** Composes the chain
+    flush ← idex_isMret → flushOrDelay → squash. Symmetric to
+    `squash_contains_dMMURedirect` etc. -/
+theorem squash_contains_idex_isMret
+    (branchTaken idex_jump trap_taken idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay
+     stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken idex_jump trap_taken true
+        idex_isSret idex_isSFenceVMA dMMURedirect flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_idex_isMret branchTaken idex_jump trap_taken
+    idex_isSret idex_isSFenceVMA dMMURedirect
 
 /-- **Direct bridge: `dMMURedirect → squash`.**
 
@@ -507,6 +524,38 @@ theorem squashSig_contains_trap_taken_atTime {dom : DomainConfig}
   rw [h_trap]
   exact squash_contains_trap_taken (branchTaken.val t) (idex_jump.val t)
     (idex_isMret.val t) (idex_isSret.val t) (idex_isSFenceVMA.val t)
+    (dMMURedirect.val t) (flushDelay.val t)
+    (stallAndNotFreeze.val t) (stallDelay.val t)
+
+theorem squashSig_contains_idex_isMret_atTime {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay stallAndNotFreeze
+     stallDelay : Signal dom Bool) (t : Nat)
+    (h_mret : idex_isMret.val t = true) :
+    squashPure (stallAndNotFreeze.val t)
+      (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+        (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+        (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+      (stallDelay.val t) = true := by
+  rw [h_mret]
+  exact squash_contains_idex_isMret (branchTaken.val t) (idex_jump.val t)
+    (trap_taken.val t) (idex_isSret.val t) (idex_isSFenceVMA.val t)
+    (dMMURedirect.val t) (flushDelay.val t)
+    (stallAndNotFreeze.val t) (stallDelay.val t)
+
+theorem squashSig_contains_idex_isSret_atTime {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay stallAndNotFreeze
+     stallDelay : Signal dom Bool) (t : Nat)
+    (h_sret : idex_isSret.val t = true) :
+    squashPure (stallAndNotFreeze.val t)
+      (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+        (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+        (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+      (stallDelay.val t) = true := by
+  rw [h_sret]
+  exact squash_contains_idex_isSret (branchTaken.val t) (idex_jump.val t)
+    (trap_taken.val t) (idex_isMret.val t) (idex_isSFenceVMA.val t)
     (dMMURedirect.val t) (flushDelay.val t)
     (stallAndNotFreeze.val t) (stallDelay.val t)
 
