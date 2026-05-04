@@ -93,6 +93,7 @@ import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
+import IP.RV32.Pipeline.IFID
 import IP.RV32.Mext.DivPending
 import IP.RV32.Pipeline.StoreLoadFwd
 
@@ -1274,10 +1275,15 @@ def rv32iSoCBody {dom : DomainConfig}
     -- same IMEM word (because fetchPC lags pcReg by one cycle on release);
     -- both would otherwise enter IFID and IDEX as separate but identical
     -- instructions. NOP-ing IFID at stallDelay drops the second copy.
-    let ifid_inst_in := Signal.mux (flushOrDelay ||| stallDelay) (Signal.pure nopInst)
-                          (Signal.mux stall ifid_inst final_imem_rdata)
-    let ifid_pc_in := Signal.mux stall ifid_pc fetchPC
-    let ifid_pc4_in := Signal.mux stall ifid_pc4 fetchPCPlus4
+    -- IFID stage register inputs (proven in Pipeline/IFID.lean):
+    -- flush/stallDelay → NOP, stall → hold, else → load.
+    let ifid_inst_in :=
+      Sparkle.IP.RV32.Pipeline.ifidInstNextSignal
+        flushOrDelay stallDelay stall ifid_inst final_imem_rdata
+    let ifid_pc_in :=
+      Sparkle.IP.RV32.Pipeline.ifidPCNextSignal stall ifid_pc fetchPC
+    let ifid_pc4_in :=
+      Sparkle.IP.RV32.Pipeline.ifidPC4NextSignal stall ifid_pc4 fetchPCPlus4
     -- Pipeline EX/WB suppression: see `IP.RV32.Pipeline.SuppressEXWB`.
     -- Pure versions `holdEXPure`, `suppressEXWBPure`, `validEXPure`
     -- are equivalent to the Signal-level versions (theorems
