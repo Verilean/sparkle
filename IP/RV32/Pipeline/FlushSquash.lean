@@ -827,4 +827,72 @@ theorem idex_squash_at_N_plus_2_after_trap {dom : DomainConfig} {α : Type}
     idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect flushDelay
     stallAndNotFreeze stallDelay old new init n h_flushDelay_n1 h_no_freeze_n1
 
+/-- **dMMURedirect at N → IDEX at N+2 = init** (cycle-N+2 composite). -/
+theorem idex_squash_at_N_plus_2_after_dMMURedirect {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze : Signal dom Bool)
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool)
+    (flushDelay stallAndNotFreeze stallDelay : Signal dom Bool)
+    (old new : Signal dom α) (init : α) (n : Nat)
+    (h_dmmu_n : dMMURedirect.val n = true)
+    (h_no_freeze_n1 : freeze.atTime (n + 1) = false)
+    (h_flushDelay_def :
+      ∀ t, flushDelay.val t = (Signal.register false
+        (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+          idex_isSFenceVMA dMMURedirect)).val t) :
+    let squashSig :=
+      ⟨fun t => squashPure (stallAndNotFreeze.val t)
+        (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+          (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+          (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+        (stallDelay.val t)⟩
+    (idexLatchSignal freeze squashSig old new init).atTime (n + 2) = init := by
+  have h_flushDelay_n1 : flushDelay.atTime (n + 1) = true := by
+    unfold Signal.atTime
+    rw [h_flushDelay_def (n + 1)]
+    show (Signal.register false _).val (n + 1) = true
+    show (flushSignal _ _ _ _ _ _ _).val n = true
+    unfold flushSignal
+    show (((((((branchTaken.val n || idex_jump.val n) || trap_taken.val n)
+      || idex_isMret.val n) || idex_isSret.val n) || idex_isSFenceVMA.val n)
+      || dMMURedirect.val n)) = true
+    rw [h_dmmu_n]
+    cases branchTaken.val n <;> cases idex_jump.val n <;>
+      cases trap_taken.val n <;> cases idex_isMret.val n <;>
+      cases idex_isSret.val n <;> cases idex_isSFenceVMA.val n <;> rfl
+  exact idex_squash_persists_via_flushDelay freeze branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect flushDelay
+    stallAndNotFreeze stallDelay old new init n h_flushDelay_n1 h_no_freeze_n1
+
+/-- **idex_isMret at N → IDEX at N+2 = init** (cycle-N+2 composite). -/
+theorem idex_squash_at_N_plus_2_after_mret {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze : Signal dom Bool)
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool)
+    (flushDelay stallAndNotFreeze stallDelay : Signal dom Bool)
+    (old new : Signal dom α) (init : α) (n : Nat)
+    (h_mret_n : idex_isMret.val n = true)
+    (h_no_freeze_n1 : freeze.atTime (n + 1) = false)
+    (h_flushDelay_def :
+      ∀ t, flushDelay.val t = (Signal.register false
+        (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+          idex_isSFenceVMA dMMURedirect)).val t) :
+    let squashSig :=
+      ⟨fun t => squashPure (stallAndNotFreeze.val t)
+        (flushOrDelayPure (branchTaken.val t) (idex_jump.val t)
+          (trap_taken.val t) (idex_isMret.val t) (idex_isSret.val t)
+          (idex_isSFenceVMA.val t) (dMMURedirect.val t) (flushDelay.val t))
+        (stallDelay.val t)⟩
+    (idexLatchSignal freeze squashSig old new init).atTime (n + 2) = init := by
+  have h_flushDelay_n1 : flushDelay.atTime (n + 1) = true := by
+    unfold Signal.atTime
+    rw [h_flushDelay_def (n + 1)]
+    exact flushDelayReg_set_after_mret branchTaken idex_jump trap_taken idex_isMret
+      idex_isSret idex_isSFenceVMA dMMURedirect n h_mret_n
+  exact idex_squash_persists_via_flushDelay freeze branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect flushDelay
+    stallAndNotFreeze stallDelay old new init n h_flushDelay_n1 h_no_freeze_n1
+
 end Sparkle.IP.RV32.Pipeline
