@@ -248,6 +248,65 @@ theorem exwbSuppressBVReg_advance {dom : DomainConfig} {n : Nat}
   rw [h_no_suppress]
   rfl
 
+/-- IDEX-Squashable BV register: register init (squashableBV freeze squash held zero new). -/
+def idexSquashableBVRegSignal {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
+  Signal.register init (idexSquashableBVSignal freezeIDEX squash held zero new)
+
+/-- **freeze at t → idexSquashableBVReg at t+1 = held.val t.** -/
+theorem idexSquashableBVReg_freeze {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) (t : Nat)
+    (h_freeze : freezeIDEX.val t = true) :
+    (idexSquashableBVRegSignal init freezeIDEX squash held zero new).val (t + 1) =
+      held.val t := by
+  unfold idexSquashableBVRegSignal idexSquashableBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held _).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else _) = _
+  rw [h_freeze]
+  rfl
+
+/-- **¬freeze ∧ squash at t → idexSquashableBVReg at t+1 = zero.** -/
+theorem idexSquashableBVReg_squash {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) (t : Nat)
+    (h_no_freeze : freezeIDEX.val t = false)
+    (h_squash : squash.val t = true) :
+    (idexSquashableBVRegSignal init freezeIDEX squash held zero new).val (t + 1) =
+      zero := by
+  unfold idexSquashableBVRegSignal idexSquashableBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held (Signal.mux squash (Signal.pure zero) new)).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else
+    (if squash.val t then _ else _)) = _
+  rw [h_no_freeze, h_squash]
+  rfl
+
+/-- **¬freeze ∧ ¬squash at t → idexSquashableBVReg at t+1 = new.val t.** -/
+theorem idexSquashableBVReg_advance {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) (t : Nat)
+    (h_no_freeze : freezeIDEX.val t = false)
+    (h_no_squash : squash.val t = false) :
+    (idexSquashableBVRegSignal init freezeIDEX squash held zero new).val (t + 1) =
+      new.val t := by
+  unfold idexSquashableBVRegSignal idexSquashableBVSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held (Signal.mux squash (Signal.pure zero) new)).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else
+    (if squash.val t then _ else _)) = _
+  rw [h_no_freeze, h_no_squash]
+  rfl
+
 /-- ExwbSuppress Bool register. -/
 def exwbSuppressBoolRegSignal {dom : DomainConfig}
     (init : Bool) (suppressEXWB new : Signal dom Bool) : Signal dom Bool :=
@@ -277,6 +336,61 @@ theorem exwbSuppressBoolReg_advance {dom : DomainConfig}
   unfold Signal.mux
   show (if suppressEXWB.val t then _ else _) = _
   rw [h_no_suppress]
+  rfl
+
+/-- IDEX-Squashable Bool register. -/
+def idexSquashableBoolRegSignal {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) : Signal dom Bool :=
+  Signal.register init (idexSquashableBoolSignal freezeIDEX squash held new)
+
+/-- **freeze at t → idexSquashableBoolReg at t+1 = held.val t.** -/
+theorem idexSquashableBoolReg_freeze {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) (t : Nat)
+    (h_freeze : freezeIDEX.val t = true) :
+    (idexSquashableBoolRegSignal init freezeIDEX squash held new).val (t + 1) =
+      held.val t := by
+  unfold idexSquashableBoolRegSignal idexSquashableBoolSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held _).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else _) = _
+  rw [h_freeze]
+  rfl
+
+/-- **¬freeze ∧ squash at t → idexSquashableBoolReg at t+1 = false.** -/
+theorem idexSquashableBoolReg_squash {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) (t : Nat)
+    (h_no_freeze : freezeIDEX.val t = false)
+    (h_squash : squash.val t = true) :
+    (idexSquashableBoolRegSignal init freezeIDEX squash held new).val (t + 1) =
+      false := by
+  unfold idexSquashableBoolRegSignal idexSquashableBoolSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held (Signal.mux squash (Signal.pure false) new)).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else
+    (if squash.val t then _ else _)) = _
+  rw [h_no_freeze, h_squash]
+  rfl
+
+/-- **¬freeze ∧ ¬squash at t → idexSquashableBoolReg at t+1 = new.val t.** -/
+theorem idexSquashableBoolReg_advance {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) (t : Nat)
+    (h_no_freeze : freezeIDEX.val t = false)
+    (h_no_squash : squash.val t = false) :
+    (idexSquashableBoolRegSignal init freezeIDEX squash held new).val (t + 1) =
+      new.val t := by
+  unfold idexSquashableBoolRegSignal idexSquashableBoolSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (Signal.mux freezeIDEX held (Signal.mux squash (Signal.pure false) new)).val t = _
+  unfold Signal.mux
+  show (if freezeIDEX.val t then _ else
+    (if squash.val t then _ else _)) = _
+  rw [h_no_freeze, h_no_squash]
   rfl
 
 end Sparkle.IP.RV32.Pipeline
