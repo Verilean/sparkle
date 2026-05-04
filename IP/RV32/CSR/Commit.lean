@@ -187,6 +187,42 @@ theorem csrPlainReg_hold_when_we_false {dom : DomainConfig}
   rw [h_no_we]
   rfl
 
+/-! ## 8-bit version of csrPlainReg
+
+  UART register-file commits use `csrPlainNextSignal8` (BitVec 8
+  variant). The same hold lemma applies, just at byte width.
+-/
+
+/-- 8-bit CSR-register wrapper. -/
+def csrPlainRegSignal8 {dom : DomainConfig}
+    (init : BitVec 8) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.register init (csrPlainNextSignal8 writeActive newVal old)
+
+/-- Cycle-wise eq for 8-bit version (mirrors the 32-bit one). -/
+theorem csrPlainNextSignal8_eq_pure {dom : DomainConfig}
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) (t : Nat) :
+    (csrPlainNextSignal8 writeActive newVal old).val t =
+      (if writeActive.val t then newVal.val t else old.val t) := by
+  unfold csrPlainNextSignal8
+  show (Signal.mux _ _ _).val t = _
+  unfold Signal.mux
+  cases h : writeActive.val t <;> simp [h]
+
+/-- **WE=false at t → 8-bit reg at t+1 = old.val t.** -/
+theorem csrPlainReg8_hold_when_we_false {dom : DomainConfig}
+    (init : BitVec 8) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_we : writeActive.val t = false) :
+    (csrPlainRegSignal8 init writeActive newVal old).val (t + 1) = old.val t := by
+  unfold csrPlainRegSignal8
+  show (Signal.register init _).val (t + 1) = _
+  show (csrPlainNextSignal8 writeActive newVal old).val t = old.val t
+  rw [csrPlainNextSignal8_eq_pure]
+  rw [h_no_we]
+  rfl
+
 /-! ## Trap-override register: trap fires → reg latches trap payload
 
   For trap-overridable CSRs (mepc/mcause/mtval/sepc/scause/stval),
