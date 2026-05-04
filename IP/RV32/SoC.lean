@@ -67,6 +67,7 @@ import IP.RV32.CSR.NewValue
 import IP.RV32.CSR.Commit
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
+import IP.RV32.Pipeline.Writeback
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -386,8 +387,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let wbRdNz := ~~~(exwb_rd === 0#5)
     let wb_addr := exwb_rd
     let wb_en   := exwb_regW &&& wbRdNz
-    let wb_data_non_mem := Signal.mux exwb_isCsr exwb_csrRdata
-                             (Signal.mux exwb_jump exwb_pc4 exwb_alu)
+    -- Forwarding-cycle approximate WB value (proven in Pipeline/Writeback.lean):
+    -- 3-way mux excluding the load case (load result not yet available).
+    let wb_data_non_mem :=
+      Sparkle.IP.RV32.Pipeline.wbResultNonMemSignal
+        exwb_isCsr exwb_csrRdata exwb_jump exwb_pc4 exwb_alu
     let fwd_rs1_match := wb_en &&& (wb_addr === idex_rs1Idx)
     let fwd_rs2_match := wb_en &&& (wb_addr === idex_rs2Idx)
 
@@ -840,12 +844,15 @@ def rv32iSoCBody {dom : DomainConfig}
     -- reservation; this is implemented in resValidNext below.
     let scAddrMatch := exwb_physAddr === reservationAddr
     let scSucceeds  := reservationValid &&& scAddrMatch
-    let wb_result := Signal.mux exwb_isSC
-                       (Signal.mux scSucceeds (Signal.pure 0#32) (Signal.pure 1#32))
-                       (Signal.mux exwb_isCsr exwb_csrRdata
-                       (Signal.mux exwb_jump exwb_pc4
-                       (Signal.mux exwb_m2r busRdata
-                         exwb_alu)))
+    -- Final WB-stage result (proven in Pipeline/Writeback.lean): 5-way priority
+    -- SC > CSR > jump > load > ALU.
+    let wb_result :=
+      Sparkle.IP.RV32.Pipeline.wbResultSignal
+        exwb_isSC scSucceeds
+        exwb_isCsr exwb_csrRdata
+        exwb_jump exwb_pc4
+        exwb_m2r busRdata
+        exwb_alu
     let wb_data := wb_result
 
     let ex_rs1 := Signal.mux fwd_rs1_match wb_data idex_rs1Val
