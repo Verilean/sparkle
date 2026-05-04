@@ -39,3 +39,4 @@ import IP.RV32.Pipeline.AbortGuarantee
 import IP.RV32.Pipeline.FlushSquash
 import IP.RV32.Pipeline.BranchComp
 import IP.RV32.Pipeline.Hazard
+import IP.RV32.Pipeline.PCNext

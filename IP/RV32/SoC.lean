@@ -65,6 +65,7 @@ import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
 import IP.RV32.Pipeline.SuppressEXWB
+import IP.RV32.Pipeline.PCNext
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -856,10 +857,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let isDivOp := (idex_funct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
     let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
     let branchTaken := idex_branch &&& branchCond
-    let brTarget := idex_pc + idex_imm
-    let jalrSum  := ex_rs1 + idex_imm
-    let jalrTarget := jalrSum &&& 0xFFFFFFFE#32
-    let jumpTarget := Signal.mux idex_isJalr jalrTarget brTarget
+    -- jumpTarget (proven in Pipeline/PCNext.lean): JALR clears bit 0.
+    let jumpTarget :=
+      Sparkle.IP.RV32.Pipeline.jumpTargetSignal idex_isJalr idex_pc ex_rs1 idex_imm
 
     let hiGt := Signal.ult mtimecmpHiReg mtimeHiReg
     let hiEq := mtimeHiReg === mtimecmpHiReg
@@ -1642,14 +1642,18 @@ def rv32iSoCBody {dom : DomainConfig}
         (Signal.mux (ptwIsFault &&& ptwIsIfetch) (Signal.pure true)
           ifetchFaultPending))
 
-    let pcNext := Signal.mux trap_taken trap_target
-                    (Signal.mux idex_isMret mret_target
-                    (Signal.mux idex_isSret sret_target
-                    (Signal.mux dMMURedirect dMissPC
-                    (Signal.mux idex_isSFenceVMA idex_pc4
-                    (Signal.mux flush jumpTarget
-                    (Signal.mux stall pcReg
-                      pcPlus4))))))
+    -- 8-way priority redirect mux (proven in Pipeline/PCNext.lean):
+    -- trap > mret > sret > dMMURedirect > sfence > flush > stall > pc+4.
+    let pcNext :=
+      Sparkle.IP.RV32.Pipeline.pcNextSignal
+        trap_taken trap_target
+        idex_isMret mret_target
+        idex_isSret sret_target
+        dMMURedirect dMissPC
+        idex_isSFenceVMA idex_pc4
+        flush jumpTarget
+        stall pcReg
+        pcPlus4
 
     -- Bug fix #3: fetchPC must take pcReg_next (= pcNext) on flush
     let fetchPCIn := Signal.mux flush pcNext (Signal.mux stall fetchPC pcReg)
