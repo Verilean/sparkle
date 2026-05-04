@@ -112,6 +112,14 @@ def csrPlainNextSignal {dom : DomainConfig}
     (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   Signal.mux writeActive newVal old
 
+/-- Signal-level 8-bit "CSR" write commit. Used by UART register files
+    (LCR/IER/MCR/SCR/DLL/DLM) which mirror the CSR pattern but at
+    byte width. -/
+def csrPlainNextSignal8 {dom : DomainConfig}
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.mux writeActive newVal old
+
 /-- Signal-level trap-overridable CSR write commit. -/
 def csrTrapOverrideNextSignal {dom : DomainConfig}
     (trapTo : Signal dom Bool) (trapPayload : Signal dom (BitVec 32))

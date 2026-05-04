@@ -1391,13 +1391,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let uartSCRWE := Sparkle.IP.RV32.UART.uartWriteSCRSignal uartWE uartOffset_ex
     let uartDLLWE := Sparkle.IP.RV32.UART.uartWriteDLLSignal uartWE uartOffset_ex uartDLAB
     let uartDLMWE := Sparkle.IP.RV32.UART.uartWriteDLMSignal uartWE uartOffset_ex uartDLAB
-    -- Plain CSR-pattern write commits (proven in CSR/Commit.lean).
-    let uartLCRNext := Signal.mux uartLCRWE uartWdata8 uartLCRReg
-    let uartIERNext := Signal.mux uartIERWE uartWdata8 uartIERReg
-    let uartMCRNext := Signal.mux uartMCRWE uartWdata8 uartMCRReg
-    let uartSCRNext := Signal.mux uartSCRWE uartWdata8 uartSCRReg
-    let uartDLLNext := Signal.mux uartDLLWE uartWdata8 uartDLLReg
-    let uartDLMNext := Signal.mux uartDLMWE uartWdata8 uartDLMReg
+    -- Plain CSR-pattern write commits (8-bit, proven in CSR/Commit.lean).
+    let uartLCRNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartLCRWE uartWdata8 uartLCRReg
+    let uartIERNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartIERWE uartWdata8 uartIERReg
+    let uartMCRNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartMCRWE uartWdata8 uartMCRReg
+    let uartSCRNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartSCRWE uartWdata8 uartSCRReg
+    let uartDLLNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartDLLWE uartWdata8 uartDLLReg
+    let uartDLMNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartDLMWE uartWdata8 uartDLMReg
 
     -- CSR funct3 decode (proven in CSR/Funct3.lean): RW/RS/RC mutex.
     let csrIsImm := Sparkle.IP.RV32.CSR.csrIsImmSignal idex_csrFunct3
