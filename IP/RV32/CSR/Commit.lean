@@ -187,4 +187,57 @@ theorem csrPlainReg_hold_when_we_false {dom : DomainConfig}
   rw [h_no_we]
   rfl
 
+/-! ## Trap-override register: trap fires → reg latches trap payload
+
+  For trap-overridable CSRs (mepc/mcause/mtval/sepc/scause/stval),
+  the next-state has priority `trapTo > write > hold`. When
+  `trapTo.val t = true`, the register at t+1 holds
+  `trapPayload.val t` regardless of the write-active value.
+-/
+
+/-- Trap-override register wrapper. -/
+def csrTrapOverrideRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init
+    (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old)
+
+/-- **trapTo at t → trap-override reg at t+1 = trapPayload.val t.** -/
+theorem csrTrapOverrideReg_latch_on_trap {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_trapTo : trapTo.val t = true) :
+    (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+      trapPayload.val t := by
+  unfold csrTrapOverrideRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old).val t = _
+  rw [csrTrapOverrideNextSignal_eq_pure]
+  rw [h_trapTo]
+  rfl
+
+/-- **trapTo=false ∧ WE=false at t → trap-override reg at t+1 = old.val t.**
+
+    The "no-event" arm: when neither trap nor CSR write fires,
+    the register holds. Companion to `csrPlainReg_hold_when_we_false`. -/
+theorem csrTrapOverrideReg_hold_when_no_event {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_trap : trapTo.val t = false)
+    (h_no_we : writeActive.val t = false) :
+    (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+      old.val t := by
+  unfold csrTrapOverrideRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old).val t = _
+  rw [csrTrapOverrideNextSignal_eq_pure]
+  rw [h_no_trap, h_no_we]
+  rfl
+
 end Sparkle.IP.RV32.CSR
