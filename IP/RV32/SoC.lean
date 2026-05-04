@@ -94,6 +94,7 @@ import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
+import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Mext.DivPending
 import IP.RV32.Pipeline.StoreLoadFwd
 
@@ -438,8 +439,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let fwd_val2_approx := Signal.mux exwb_m2r idex_rs2Val wb_data_non_mem
     let ex_rs2_approx :=
       Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs2_match fwd_val2_approx idex_rs2Val
-    let alu_a_approx := Signal.mux idex_auipc idex_pc ex_rs1_approx
-    let alu_b_approx := Signal.mux idex_aluSrcB idex_imm ex_rs2_approx
+    -- ALU srcA/B selectors (proven in Pipeline/AluSrc.lean): auipc→PC; srcB→imm.
+    let alu_a_approx :=
+      Sparkle.IP.RV32.Pipeline.aluSrcASignal idex_auipc idex_pc ex_rs1_approx
+    let alu_b_approx :=
+      Sparkle.IP.RV32.Pipeline.aluSrcBSignal idex_aluSrcB idex_imm ex_rs2_approx
     let alu_result_approx := aluSignal idex_aluOp alu_a_approx alu_b_approx
 
     -- IMEM read data is provided by the caller (imem_rdata parameter).
@@ -890,8 +894,8 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs1_match wb_data idex_rs1Val
     let ex_rs2 :=
       Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs2_match wb_data idex_rs2Val
-    let alu_a := Signal.mux idex_auipc idex_pc ex_rs1
-    let alu_b := Signal.mux idex_aluSrcB idex_imm ex_rs2
+    let alu_a := Sparkle.IP.RV32.Pipeline.aluSrcASignal idex_auipc idex_pc ex_rs1
+    let alu_b := Sparkle.IP.RV32.Pipeline.aluSrcBSignal idex_aluSrcB idex_imm ex_rs2
     let alu_result_raw := aluSignal idex_aluOp alu_a alu_b
     -- M-extension: MUL (1-cycle) uses synthesizable 64-bit multiply
     let mulResult := mulComputeSignal idex_funct3 ex_rs1 ex_rs2
