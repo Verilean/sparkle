@@ -126,6 +126,14 @@ theorem suppressEXWB_aborts_generic_bit {dom : DomainConfig}
   rw [show suppressEXWB.val t = true from h_supp]
   rfl
 
+/-- **LTL form of `suppressEXWB_aborts_generic_bit`.** -/
+theorem suppressEXWB_aborts_generic_bit_LTL {dom : DomainConfig}
+    (suppressEXWB ctrl_bit : Signal dom Bool) :
+    ∀ t, suppressEXWB.atTime t = true →
+         (Signal.register false
+           (Signal.mux suppressEXWB (Signal.pure false) ctrl_bit)).atTime (t + 1) = false :=
+  fun t => suppressEXWB_aborts_generic_bit suppressEXWB ctrl_bit t
+
 /-- **idex_regWrite at cycle t = false → exwbRegWSignal at t+1 = false.**
 
     If the IDEX-stage source bit is already false, the next-cycle
