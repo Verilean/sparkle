@@ -95,6 +95,20 @@ theorem trap_suppresses_exwb_regW {dom : DomainConfig}
 @[inline] def wbEnPure (exwb_regW : Bool) (exwb_rd_nonzero : Bool) : Bool :=
   exwb_regW && exwb_rd_nonzero
 
+/-- Pure rd-nonzero predicate. -/
+@[inline] def wbRdNzPure (exwb_rd : BitVec 5) : Bool :=
+  !(exwb_rd == 0#5)
+
+/-- Signal-level rd-nonzero predicate. -/
+def wbRdNzSignal {dom : DomainConfig}
+    (exwb_rd : Signal dom (BitVec 5)) : Signal dom Bool :=
+  ~~~(exwb_rd === 0#5)
+
+/-- Signal-level wb_en. -/
+def wbEnSignal {dom : DomainConfig}
+    (exwb_regW wbRdNz : Signal dom Bool) : Signal dom Bool :=
+  exwb_regW &&& wbRdNz
+
 /-- exwb_regW = false → wb_en = false. -/
 @[simp] theorem wbEn_off_when_regW_off (rd_nz : Bool) :
     wbEnPure false rd_nz = false := by rfl

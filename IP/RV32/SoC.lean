@@ -112,6 +112,7 @@ import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
 import IP.RV32.Pipeline.IFetchSrc
 import IP.RV32.Pipeline.IDEXRegInput
+import IP.RV32.Pipeline.RegfileTrapInv
 import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Pipeline.AluResult
 import IP.RV32.Mext.DivPending
@@ -432,9 +433,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let dMissIsStore     := SoCState.dMissIsStore state
 
     -- Phase 1-5: identical to rv32iSoC except IMEM uses memoryWithInit
-    let wbRdNz := ~~~(exwb_rd === 0#5)
+    -- WB-stage register-write enable (proven in Pipeline/RegfileTrapInv.lean).
+    let wbRdNz := Sparkle.IP.RV32.Pipeline.wbRdNzSignal exwb_rd
     let wb_addr := exwb_rd
-    let wb_en   := exwb_regW &&& wbRdNz
+    let wb_en := Sparkle.IP.RV32.Pipeline.wbEnSignal exwb_regW wbRdNz
     -- Forwarding-cycle approximate WB value (proven in Pipeline/Writeback.lean):
     -- 3-way mux excluding the load case (load result not yet available).
     let wb_data_non_mem :=
