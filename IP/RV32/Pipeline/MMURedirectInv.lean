@@ -301,4 +301,17 @@ theorem flushDelayReg_set_after_dMMURedirect {dom : DomainConfig}
     cases trap_taken.val t <;> cases idex_isMret.val t <;>
     cases idex_isSret.val t <;> cases idex_isSFenceVMA.val t <;> rfl
 
+/-! ## LTL form -/
+
+/-- **LTL form of `flushDelayReg_set_after_dMMURedirect`.** -/
+theorem flushDelayReg_set_after_dMMURedirect_LTL {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool) :
+    ∀ t, dMMURedirect.val t = true →
+         (Signal.register false
+           (flushSignal branchTaken idex_jump trap_taken idex_isMret idex_isSret
+             idex_isSFenceVMA dMMURedirect)).val (t + 1) = true :=
+  fun t => flushDelayReg_set_after_dMMURedirect branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect t
+
 end Sparkle.IP.RV32.Pipeline
