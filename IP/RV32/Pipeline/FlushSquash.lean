@@ -156,33 +156,118 @@ theorem sret_squashes_idex_next_cycle {dom : DomainConfig} {α : Type}
   Since `flush ⊇ idex_isMret`, we have `squash ⊇ idex_isMret`.
   Encoded as a `decide`-closed proposition over Bool^n: -/
 
-/-- `squash` includes `idex_isMret` if it's built as the standard
-    `(stallTerm) ∨ flushOrDelay ∨ stallDelay` disjunction with
-    `flushOrDelay ⊇ idex_isMret`. -/
+/-- 7-way `flush` disjunction (~SoC.lean line 1093):
+
+      flush = branchTaken ∨ idex_jump ∨ trap_taken ∨ idex_isMret
+            ∨ idex_isSret ∨ idex_isSFenceVMA ∨ dMMURedirect -/
+@[inline] def flushPure
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Bool) : Bool :=
+  branchTaken || idex_jump || trap_taken || idex_isMret
+    || idex_isSret || idex_isSFenceVMA || dMMURedirect
+
+/-- `flushOrDelay = flush ∨ flushDelay`. -/
+@[inline] def flushOrDelayPure
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay : Bool) : Bool :=
+  flushPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+    idex_isSFenceVMA dMMURedirect || flushDelay
+
+/-- `freezeIDEX = holdEX ∨ (divStall ∧ ¬flushOrDelay)`.
+
+    Note the "∧ ¬flushOrDelay" on `divStall`: a flush *unfreezes*
+    IDEX (the divider's pending instruction is being squashed
+    anyway, so we don't need to hold it). holdEX (= pendingWriteEn ∨
+    mmuBusy) freezes regardless. -/
+@[inline] def freezeIDEXPure
+    (holdEX divStall flushOrDelay : Bool) : Bool :=
+  holdEX || (divStall && !flushOrDelay)
+
+/-- `squash = (stall ∧ ¬freezeIDEX) ∨ flushOrDelay ∨ stallDelay`. -/
 @[inline] def squashPure
     (stallAndNotFreeze flushOrDelay stallDelay : Bool) : Bool :=
   stallAndNotFreeze || flushOrDelay || stallDelay
 
-@[inline] def flushOrDelayContainsMretPure
-    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
-     idex_isSFenceVMA dMMURedirect flushDelay : Bool) : Bool :=
-  let flush := branchTaken || idex_jump || trap_taken || idex_isMret
-                || idex_isSret || idex_isSFenceVMA || dMMURedirect
-  flush || flushDelay
+/-! ### Per-source flush-inclusion lemmas — closed by `decide` -/
 
-/-- The pure structural inclusion: `idex_isMret → flushOrDelay`. -/
-theorem flushOrDelay_contains_mret
-    (branchTaken idex_jump trap_taken idex_isSret
-     idex_isSFenceVMA dMMURedirect flushDelay : Bool) :
-    flushOrDelayContainsMretPure
-      branchTaken idex_jump trap_taken true idex_isSret
-      idex_isSFenceVMA dMMURedirect flushDelay = true := by
-  revert branchTaken idex_jump trap_taken idex_isSret
-    idex_isSFenceVMA dMMURedirect flushDelay
+/-- `branchTaken → flush`. -/
+theorem flush_contains_branchTaken
+    (idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Bool) :
+    flushPure true idex_jump trap_taken idex_isMret idex_isSret
+      idex_isSFenceVMA dMMURedirect = true := by
+  revert idex_jump trap_taken idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
   decide
 
-/-- `idex_isMret → squash` (combinational, pure). -/
-theorem squash_contains_mret
+/-- `idex_jump → flush`. -/
+theorem flush_contains_idex_jump
+    (branchTaken trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Bool) :
+    flushPure branchTaken true trap_taken idex_isMret idex_isSret
+      idex_isSFenceVMA dMMURedirect = true := by
+  revert branchTaken trap_taken idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
+  decide
+
+/-- `trap_taken → flush`. -/
+theorem flush_contains_trap_taken
+    (branchTaken idex_jump idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Bool) :
+    flushPure branchTaken idex_jump true idex_isMret idex_isSret
+      idex_isSFenceVMA dMMURedirect = true := by
+  revert branchTaken idex_jump idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
+  decide
+
+/-- `idex_isMret → flush`. -/
+theorem flush_contains_idex_isMret
+    (branchTaken idex_jump trap_taken idex_isSret
+     idex_isSFenceVMA dMMURedirect : Bool) :
+    flushPure branchTaken idex_jump trap_taken true idex_isSret
+      idex_isSFenceVMA dMMURedirect = true := by
+  revert branchTaken idex_jump trap_taken idex_isSret idex_isSFenceVMA dMMURedirect
+  decide
+
+/-- `idex_isSret → flush`. -/
+theorem flush_contains_idex_isSret
+    (branchTaken idex_jump trap_taken idex_isMret
+     idex_isSFenceVMA dMMURedirect : Bool) :
+    flushPure branchTaken idex_jump trap_taken idex_isMret true
+      idex_isSFenceVMA dMMURedirect = true := by
+  revert branchTaken idex_jump trap_taken idex_isMret idex_isSFenceVMA dMMURedirect
+  decide
+
+/-- `idex_isSFenceVMA → flush`. -/
+theorem flush_contains_idex_isSFenceVMA
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     dMMURedirect : Bool) :
+    flushPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+      true dMMURedirect = true := by
+  revert branchTaken idex_jump trap_taken idex_isMret idex_isSret dMMURedirect
+  decide
+
+/-- `dMMURedirect → flush`. -/
+theorem flush_contains_dMMURedirect
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA : Bool) :
+    flushPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+      idex_isSFenceVMA true = true := by
+  revert branchTaken idex_jump trap_taken idex_isMret idex_isSret idex_isSFenceVMA
+  decide
+
+/-- `flush → flushOrDelay`. -/
+theorem flushOrDelay_contains_flush
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect flushDelay : Bool) :
+    flushPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+      idex_isSFenceVMA dMMURedirect = true →
+    flushOrDelayPure branchTaken idex_jump trap_taken idex_isMret
+      idex_isSret idex_isSFenceVMA dMMURedirect flushDelay = true := by
+  intro h
+  unfold flushOrDelayPure
+  rw [h]
+  cases flushDelay <;> rfl
+
+/-- `flushOrDelay → squash`. -/
+theorem squash_contains_flushOrDelay
     (stallAndNotFreeze flushOrDelay stallDelay : Bool) :
     flushOrDelay = true →
     squashPure stallAndNotFreeze flushOrDelay stallDelay = true := by
@@ -190,5 +275,51 @@ theorem squash_contains_mret
   unfold squashPure
   rw [h]
   cases stallAndNotFreeze <;> cases stallDelay <;> rfl
+
+/-- Backward-compat alias for the lemma named in commit 8610936. -/
+theorem squash_contains_mret
+    (stallAndNotFreeze flushOrDelay stallDelay : Bool) :
+    flushOrDelay = true →
+    squashPure stallAndNotFreeze flushOrDelay stallDelay = true :=
+  squash_contains_flushOrDelay stallAndNotFreeze flushOrDelay stallDelay
+
+/-! ## Composite specs -/
+
+theorem flushPure_spec :
+    ∀ (b1 b2 b3 b4 b5 b6 b7 : Bool),
+      flushPure b1 b2 b3 b4 b5 b6 b7 = (b1 || b2 || b3 || b4 || b5 || b6 || b7) := by
+  decide
+
+theorem flushOrDelayPure_spec :
+    ∀ (b1 b2 b3 b4 b5 b6 b7 b8 : Bool),
+      flushOrDelayPure b1 b2 b3 b4 b5 b6 b7 b8 =
+        (b1 || b2 || b3 || b4 || b5 || b6 || b7 || b8) := by
+  decide
+
+theorem freezeIDEXPure_spec :
+    ∀ (holdEX divStall flushOrDelay : Bool),
+      freezeIDEXPure holdEX divStall flushOrDelay =
+        (holdEX || (divStall && !flushOrDelay)) := by
+  decide
+
+/-! ## Signal-level wrappers -/
+
+def flushSignal {dom : DomainConfig}
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Signal dom Bool) : Signal dom Bool :=
+  branchTaken ||| idex_jump ||| trap_taken ||| idex_isMret
+    ||| idex_isSret ||| idex_isSFenceVMA ||| dMMURedirect
+
+def flushOrDelaySignal {dom : DomainConfig}
+    (flush flushDelay : Signal dom Bool) : Signal dom Bool :=
+  flush ||| flushDelay
+
+def freezeIDEXSignal {dom : DomainConfig}
+    (holdEX divStall flushOrDelay : Signal dom Bool) : Signal dom Bool :=
+  holdEX ||| (divStall &&& (~~~flushOrDelay))
+
+def squashSignal {dom : DomainConfig}
+    (stallAndNotFreeze flushOrDelay stallDelay : Signal dom Bool) : Signal dom Bool :=
+  stallAndNotFreeze ||| flushOrDelay ||| stallDelay
 
 end Sparkle.IP.RV32.Pipeline

@@ -74,6 +74,7 @@ import IP.RV32.CSR.Sstatus
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.IdexLive
+import IP.RV32.Pipeline.FlushSquash
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.StoreLoadFwd
@@ -1090,9 +1091,14 @@ def rv32iSoCBody {dom : DomainConfig}
     let sppBit := mstatusReg.map (BitVec.extractLsb' 8 1 ·)
     let sretPriv := 0#1 ++ sppBit
 
-    let flush := branchTaken ||| idex_jump ||| trap_taken ||| idex_isMret |||
-                 idex_isSret ||| idex_isSFenceVMA ||| dMMURedirect
-    let flushOrDelay := flush ||| flushDelay
+    -- 7-way flush + flushOrDelay (proven in Pipeline/FlushSquash.lean):
+    -- per-source inclusion lemmas + exhaustive truth tables.
+    let flush :=
+      Sparkle.IP.RV32.Pipeline.flushSignal
+        branchTaken idex_jump trap_taken
+        idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
+    let flushOrDelay :=
+      Sparkle.IP.RV32.Pipeline.flushOrDelaySignal flush flushDelay
 
     -- M-extension: DIV/REM (multi-cycle) uses restoring divider circuit
     let divWanted := idex_isMext &&& isDivOp
@@ -1309,7 +1315,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let holdEX :=
       Sparkle.IP.RV32.Pipeline.holdEXSignal pendingWriteEn mmuBusy
     -- freezeIDEX: freeze ID/EX and EX/WB pipeline regs during pending write OR division
-    let freezeIDEX := holdEX ||| (divStall &&& (~~~flushOrDelay))
+    -- freezeIDEX (proven in Pipeline/FlushSquash.lean): hold IDEX during
+    -- holdEX (AMO writeback / PTW) or divStall — except when a flush
+    -- fires (then unfreeze so the squash can fire).
+    let freezeIDEX :=
+      Sparkle.IP.RV32.Pipeline.freezeIDEXSignal holdEX divStall flushOrDelay
     let suppressEXWB :=
       Sparkle.IP.RV32.Pipeline.suppressEXWBSignal
         trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
@@ -1324,7 +1334,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- squash NOPs out the duplicate. We only gate on ifetchStall (not
     -- general stall) because load-use data-hazard stalls don't have this
     -- issue — they don't desync fetchPC from pcReg.
-    let squash := (stall &&& (~~~freezeIDEX)) ||| flushOrDelay ||| stallDelay
+    -- squash (proven in Pipeline/FlushSquash.lean): IDEX next-cycle gets
+    -- a NOP if stall (with no freeze), flushOrDelay, or stallDelay fires.
+    let squash :=
+      Sparkle.IP.RV32.Pipeline.squashSignal
+        (stall &&& (~~~freezeIDEX)) flushOrDelay stallDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
     let clintWE := idex_memWrite &&& (isCLINT_ex &&& validEX)
