@@ -67,6 +67,7 @@ import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
 import IP.RV32.CSR.Commit
+import IP.RV32.CSR.MIP
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
@@ -895,12 +896,11 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.CLINT.timerIrqSignal
         mtimeLoReg mtimeHiReg mtimecmpLoReg mtimecmpHiReg
     let swIrq := (msipReg.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-    let mipTimerBit := Signal.mux timerIrq (Signal.pure 0x00000080#32) (Signal.pure 0#32)
-    let mipSwBit := Signal.mux swIrq (Signal.pure 0x00000008#32) (Signal.pure 0#32)
-    -- mipValue combines hardware bits (MTIP=7, MSIP=3) with software-writable
-    -- S-mode pending bits (SSIP=1, STIP=5, SEIP=9) from `mipSoftReg`.
+    -- mip read value (proven in CSR/MIP.lean):
+    -- combines MTIP=bit7 (from timerIrq), MSIP=bit3 (from swIrq), and the
+    -- software-writable S-bits {SSIP=1, STIP=5, SEIP=9} from mipSoftReg.
+    let mipValue := Sparkle.IP.RV32.CSR.mipValueSignal timerIrq swIrq mipSoftReg
     let mipSoftMask : Signal dom (BitVec 32) := Signal.pure 0x00000222#32
-    let mipValue := mipTimerBit ||| mipSwBit ||| (mipSoftReg &&& mipSoftMask)
     -- CSR address matching (M-mode)
     let csrIsMstatus  := idex_csrAddr === 0x300#12
     let csrIsMie      := idex_csrAddr === 0x304#12
