@@ -56,6 +56,7 @@ import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
 import IP.RV32.MMU.PTE
+import IP.RV32.MMU.TLB
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -488,39 +489,22 @@ def rv32iSoCBody {dom : DomainConfig}
     let dVPN := alu_result_approx.map (BitVec.extractLsb' 12 20 ·)
     let dPageOffset := alu_result_approx.map (BitVec.extractLsb' 0 12 ·)
 
-    let tlb0FullMatch := tlb0VPN === dVPN
-    let tlb0MegaMatch := (tlb0VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
-    let tlb0VPNMatch := Signal.mux tlb0Mega tlb0MegaMatch tlb0FullMatch
-    let tlb0Hit := tlb0Valid &&& tlb0VPNMatch
+    -- D-side TLB hit-lookup (proven in MMU/TLB.lean): per-entry match
+    -- iff valid && (mega ? VPN[19:10] match : full VPN match).
+    let tlb0Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb0Valid tlb0Mega tlb0VPN dVPN
+    let tlb1Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb1Valid tlb1Mega tlb1VPN dVPN
+    let tlb2Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb2Valid tlb2Mega tlb2VPN dVPN
+    let tlb3Hit := Sparkle.IP.RV32.MMU.tlbHitSignal tlb3Valid tlb3Mega tlb3VPN dVPN
+    let anyTLBHit := Sparkle.IP.RV32.MMU.anyTLBHitSignal tlb0Hit tlb1Hit tlb2Hit tlb3Hit
 
-    let tlb1FullMatch := tlb1VPN === dVPN
-    let tlb1MegaMatch := (tlb1VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
-    let tlb1VPNMatch := Signal.mux tlb1Mega tlb1MegaMatch tlb1FullMatch
-    let tlb1Hit := tlb1Valid &&& tlb1VPNMatch
-
-    let tlb2FullMatch := tlb2VPN === dVPN
-    let tlb2MegaMatch := (tlb2VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
-    let tlb2VPNMatch := Signal.mux tlb2Mega tlb2MegaMatch tlb2FullMatch
-    let tlb2Hit := tlb2Valid &&& tlb2VPNMatch
-
-    let tlb3FullMatch := tlb3VPN === dVPN
-    let tlb3MegaMatch := (tlb3VPN.map (BitVec.extractLsb' 10 10 ·)) === (dVPN.map (BitVec.extractLsb' 10 10 ·))
-    let tlb3VPNMatch := Signal.mux tlb3Mega tlb3MegaMatch tlb3FullMatch
-    let tlb3Hit := tlb3Valid &&& tlb3VPNMatch
-
-    let anyTLBHit := (tlb0Hit ||| tlb1Hit) ||| (tlb2Hit ||| tlb3Hit)
-
-    let tlbPPN := Signal.mux tlb0Hit tlb0PPN
-      (Signal.mux tlb1Hit tlb1PPN
-      (Signal.mux tlb2Hit tlb2PPN
-      (Signal.mux tlb3Hit tlb3PPN
-        (Signal.pure 0#22))))
-
-    let tlbMega := Signal.mux tlb0Hit tlb0Mega
-      (Signal.mux tlb1Hit tlb1Mega
-      (Signal.mux tlb2Hit tlb2Mega
-      (Signal.mux tlb3Hit tlb3Mega
-        (Signal.pure false))))
+    -- TLB PPN/Mega selectors with priority tlb0 > tlb1 > tlb2 > tlb3
+    -- (proven in MMU/TLB.lean).
+    let tlbPPN :=
+      Sparkle.IP.RV32.MMU.tlbPPNSignal
+        tlb0Hit tlb1Hit tlb2Hit tlb3Hit tlb0PPN tlb1PPN tlb2PPN tlb3PPN
+    let tlbMega :=
+      Sparkle.IP.RV32.MMU.tlbMegaSignal
+        tlb0Hit tlb1Hit tlb2Hit tlb3Hit tlb0Mega tlb1Mega tlb2Mega tlb3Mega
 
     -- D-side physical address from TLB. See I-side comment above for the
     -- Sv32 megapage / 4K formulas. Megapage uses PPN[1] (PPN bits [21:10])
