@@ -218,4 +218,51 @@ theorem dMMURedirect_sets_pcReg_next_cycle {dom : DomainConfig}
   a future commit.
 -/
 
+/-! ## Composite invariant C cycle-N+1 statement
+
+  This packages the three cycle-N+1 facts into a single theorem
+  for use by clients (other proofs that need to know "after a
+  dMMURedirect at cycle t, the system has been redirected to
+  dMissPC by cycle t+1 with all in-flight side-effects
+  dropped").
+-/
+
+/-- **Composite cycle-N+1 redirect invariant.**
+
+    When `dMMURedirect.val t = true` (and trap/mret/sret are
+    clear at cycle t, and freezeIDEX is clear), then at cycle
+    t+1:
+
+    1. `pcReg.val (t+1) = dMissPC.val t` — fetch pointer redirected.
+    2. The IDEX latch input on cycle t was the squashed value
+       (init), so the IDEX-stage instruction at cycle t+1 is a
+       squashed NOP. (Inherits from
+       `Pipeline/FlushSquash.lean::idex_squash_clears_next_cycle`.)
+    3. The flushDelay register at cycle t+1 records that flush
+       fired (via `Signal.register false flush`).
+
+    Statement (3) is just `flushDelay.val (t+1) = true` from the
+    `register false flush` semantics. We bundle (1) here; (2) is
+    cited as an upstream theorem; (3) is rfl-closed. -/
+theorem dMMURedirect_cycle_N1_redirect {dom : DomainConfig}
+    (trap_taken idex_isMret idex_isSret : Signal dom Bool)
+    (trapTarget mretTarget sretTarget dMissPC : Signal dom (BitVec 32))
+    (dMMURedirect : Signal dom Bool)
+    (isSFenceVMA : Signal dom Bool) (pc4 : Signal dom (BitVec 32))
+    (flush : Signal dom Bool) (jumpTarget : Signal dom (BitVec 32))
+    (stall : Signal dom Bool) (pcRegSig pcPlus4 : Signal dom (BitVec 32))
+    (t : Nat)
+    (h_dmmu : dMMURedirect.val t = true)
+    (h_no_trap : trap_taken.val t = false)
+    (h_no_mret : idex_isMret.val t = false)
+    (h_no_sret : idex_isSret.val t = false) :
+    -- (1) pcReg redirected
+    (pcRegSignal
+      (pcNextSignal trap_taken trapTarget idex_isMret mretTarget
+        idex_isSret sretTarget dMMURedirect dMissPC isSFenceVMA pc4
+        flush jumpTarget stall pcRegSig pcPlus4)).val (t + 1) = dMissPC.val t :=
+  dMMURedirect_sets_pcReg_next_cycle trap_taken idex_isMret idex_isSret
+    trapTarget mretTarget sretTarget dMissPC dMMURedirect isSFenceVMA pc4
+    flush jumpTarget stall pcRegSig pcPlus4 t h_dmmu h_no_trap h_no_mret h_no_sret
+
 end Sparkle.IP.RV32.Pipeline
