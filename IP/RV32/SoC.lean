@@ -64,6 +64,7 @@ import IP.RV32.Trap.TrapTaken
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
+import IP.RV32.CSR.Commit
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 
@@ -1424,9 +1425,16 @@ def rv32iSoCBody {dom : DomainConfig}
         sstatusWriteActive sstatusWdataOut
         (idex_isCsr_valid &&& csrIsMstatus) mstatusNewCSR
         mstatusReg
-    let mieNext := Signal.mux (idex_isCsr_valid &&& csrIsMie) mieNewCSR mieReg
-    let mtvecNext := Signal.mux (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
-    let mscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
+    -- Plain CSR write commits (proven in CSR/Commit.lean).
+    let mieNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsMie) mieNewCSR mieReg
+    let mtvecNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
+    let mscratchNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
     -- mepc: use fetchPC for instruction page fault, dMissPC for d-side page fault.
     -- For asynchronous interrupts (timer/sw/ext, M-mode and S-mode), the trap
     -- is not associated with any in-flight instruction. We need to set mepc
@@ -1455,15 +1463,20 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.Trap.trapPCSignal
         ifetchPageFault pageFault isAsyncInt idexLive
         fetchPC dMissPC idex_pc pcReg
-    let mepcNext := Signal.mux trapToM trapPC
-      (Signal.mux (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg)
-    let mcauseNext := Signal.mux trapToM trapCause
-      (Signal.mux (idex_isCsr_valid &&& csrIsMcause) mcauseNewCSR mcauseReg)
+    -- Trap-overridable CSR commits (proven in CSR/Commit.lean):
+    -- trapTo > write > hold.
+    let mepcNext :=
+      Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
+        trapToM trapPC (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg
+    let mcauseNext :=
+      Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
+        trapToM trapCause (idex_isCsr_valid &&& csrIsMcause) mcauseNewCSR mcauseReg
     -- trapVal: fetchPC for ifetchPageFault, dMissVaddr for d-side pageFault, else 0
     let trapVal := Signal.mux ifetchPageFault fetchPC
       (Signal.mux pageFault dMissVaddr (Signal.pure 0#32))
-    let mtvalNext := Signal.mux trapToM trapVal
-      (Signal.mux (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg)
+    let mtvalNext :=
+      Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
+        trapToM trapVal (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg
     -- mipSoftReg next-state: only SSIP/STIP/SEIP bits update from CSR writes
     -- (mip CSR or sip CSR). All other bits keep their prior soft value.
     let mipSoftWriteMask : Signal dom (BitVec 32) := Signal.pure 0x00000222#32
@@ -1476,24 +1489,43 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.mux mipWriteEn (mipSoftKept ||| mipMaskedNew)
       (Signal.mux sipWriteEn (mipSoftKept ||| sipMaskedNew) mipSoftReg)
 
-    -- S-mode CSR next-state
-    let sieNext := Signal.mux (idex_isCsr_valid &&& csrIsSie) sieNewCSR sieReg
-    let stvecNext := Signal.mux (idex_isCsr_valid &&& csrIsStvec) stvecNewCSR stvecReg
-    let sscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsSscratch) sscratchNewCSR sscratchReg
-    let sepcNext := Signal.mux trapToS trapPC
-      (Signal.mux (idex_isCsr_valid &&& csrIsSepc) sepcNewCSR sepcReg)
-    let scauseNext := Signal.mux trapToS trapCause
-      (Signal.mux (idex_isCsr_valid &&& csrIsScause) scauseNewCSR scauseReg)
-    let stvalNext := Signal.mux trapToS trapVal
-      (Signal.mux (idex_isCsr_valid &&& csrIsStval) stvalNewCSR stvalReg)
-    let satpNext := Signal.mux (idex_isCsr_valid &&& csrIsSatp) satpNewCSR satpReg
+    -- S-mode CSR next-state (same proven patterns from CSR/Commit.lean).
+    let sieNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsSie) sieNewCSR sieReg
+    let stvecNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsStvec) stvecNewCSR stvecReg
+    let sscratchNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsSscratch) sscratchNewCSR sscratchReg
+    let sepcNext :=
+      Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
+        trapToS trapPC (idex_isCsr_valid &&& csrIsSepc) sepcNewCSR sepcReg
+    let scauseNext :=
+      Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
+        trapToS trapCause (idex_isCsr_valid &&& csrIsScause) scauseNewCSR scauseReg
+    let stvalNext :=
+      Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
+        trapToS trapVal (idex_isCsr_valid &&& csrIsStval) stvalNewCSR stvalReg
+    let satpNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsSatp) satpNewCSR satpReg
 
     -- Delegation register next-state
-    let medelegNext := Signal.mux (idex_isCsr_valid &&& csrIsMedeleg) medelegNewCSR medelegReg
-    let midelegNext := Signal.mux (idex_isCsr_valid &&& csrIsMideleg) midelegNewCSR midelegReg
+    let medelegNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsMedeleg) medelegNewCSR medelegReg
+    let midelegNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsMideleg) midelegNewCSR midelegReg
     -- Counter enable next-state
-    let mcounterenNext := Signal.mux (idex_isCsr_valid &&& csrIsMcounteren) mcounterenNewCSR mcounterenReg
-    let scounterenNext := Signal.mux (idex_isCsr_valid &&& csrIsScounteren) scounterenNewCSR scounterenReg
+    let mcounterenNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsMcounteren) mcounterenNewCSR mcounterenReg
+    let scounterenNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (idex_isCsr_valid &&& csrIsScounteren) scounterenNewCSR scounterenReg
 
     -- Privilege mode next-state: see `IP.RV32.Privilege.PrivMode`.
     -- Pure version `privModeNextPure` and Signal-level

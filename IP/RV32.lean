@@ -34,6 +34,7 @@ import IP.RV32.Trap.TrapTaken
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
+import IP.RV32.CSR.Commit
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.AbortGuarantee
 import IP.RV32.Pipeline.FlushSquash
