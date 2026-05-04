@@ -227,6 +227,29 @@ proving that a trap doesn't merely abort the in-flight
 EXWB instruction but also keeps IDEX cleared while the kernel
 handler starts fetching from mtvec.
 
+#### Cycle-N+2 side-effect-channel composites (2026-05-05)
+
+In addition to the cycle-N+2 IDEX-NOP-stability composites,
+several side-effect channels now have full cycle-N+2
+multi-cycle composites combining IDEX-squash with the
+downstream propagation lemma:
+
+| Channel | Cycle-N+2 composite |
+|---------|---------------------|
+| Regfile (wb_en) | `Pipeline/RegfileTrapInv.lean::trap_suppresses_wb_en_at_N_plus_2` |
+| AMO writeback (pendingWriteEn) | `AMO/LRSCAcrossTrap.lean::trap_clears_pendingWriteEn_2_cycles_later` |
+
+The wb_en case chains through 3 layers: trap → IDEX squash at
+N+1 (idex_regWrite=false) → exwb_regW=false at N+2 → wb_en=false
+at N+2. The pendingWriteEn case follows a similar 3-layer
+chain but through the AMO-specific `exwb_isAMO`/`exwb_isAMOrw`
+state.
+
+These prove that the side-effect suppression isn't merely a
+single-cycle phenomenon at the trap-entry moment but extends
+through cycle N+2 — the cycle when the kernel handler is
+fetching the first ISR instruction.
+
 #### Per-state-register sequential coverage (2026-05-05)
 
 Beyond the trap-suppression composites, every state-carrying
