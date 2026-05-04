@@ -71,6 +71,7 @@ import IP.RV32.CSR.Types
 import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Decode
+import IP.RV32.Decoder.System
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
@@ -1137,7 +1138,8 @@ def rv32iSoCBody {dom : DomainConfig}
                       ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
     let f3isZero := id_funct3 === 0#3
     let f3notZero := ~~~f3isZero
-    let id_isCsr := id_isSystem &&& f3notZero
+    -- id_isCsr (proven in Decoder/System.lean)
+    let id_isCsr := Sparkle.IP.RV32.Decoder.isCsrSignal id_isSystem id_funct3
     let id_regWrite := ((id_isALUrr ||| id_isALUimm) ||| (id_isLoad ||| id_isLUI)) |||
                        ((id_isAUIPC ||| id_isJAL) ||| (id_isJALR ||| id_isCsr))
     let id_memRead  := id_isLoad
@@ -1145,20 +1147,20 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_memToReg := id_isLoad
     let id_jump     := id_isJAL ||| id_isJALR
     let id_auipc    := id_isAUIPC ||| id_isJAL
-    let ecallField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
-    let isEcallField := ecallField === 0x000#12
-    let id_isEcall := (id_isSystem &&& f3isZero) &&& isEcallField
+    -- SYSTEM-opcode decoders (proven in Decoder/System.lean):
+    -- ECALL=0x000, MRET=0x302, SRET=0x102 in funct12; SFENCE.VMA via funct7=0x09;
+    -- M-extension via R-type + funct7=0x01.
     let id_csrAddr := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
-    let mretField := ifid_inst.map (BitVec.extractLsb' 20 12 ·)
-    let isMretField := mretField === 0x302#12
-    let id_isMret := (id_isSystem &&& f3isZero) &&& isMretField
-    -- SRET: funct12 = 0x102 (SYSTEM opcode, funct3 = 0)
-    let isSretField := (ifid_inst.map (BitVec.extractLsb' 20 12 ·)) === 0x102#12
-    let id_isSret := (id_isSystem &&& f3isZero) &&& isSretField
-    -- SFENCE.VMA: funct7 = 0b0001001, funct3 = 0, SYSTEM opcode
-    let id_isSFenceVMA := (id_isSystem &&& f3isZero) &&& (id_funct7 === 0b0001001#7)
-    -- M-extension: R-type with funct7 = 0000001
-    let id_isMext := id_isALUrr &&& (id_funct7 === 0b0000001#7)
+    let id_isEcall :=
+      Sparkle.IP.RV32.Decoder.isEcallSignal id_isSystem f3isZero id_csrAddr
+    let id_isMret :=
+      Sparkle.IP.RV32.Decoder.isMretSignal id_isSystem f3isZero id_csrAddr
+    let id_isSret :=
+      Sparkle.IP.RV32.Decoder.isSretSignal id_isSystem f3isZero id_csrAddr
+    let id_isSFenceVMA :=
+      Sparkle.IP.RV32.Decoder.isSFenceVMASignal id_isSystem f3isZero id_funct7
+    let id_isMext :=
+      Sparkle.IP.RV32.Decoder.isMextSignal id_isALUrr id_funct7
     -- A-extension: opcode = 0101111
     let id_isAMO := id_opcode === 0b0101111#7
     let id_amoOp := ifid_inst.map (BitVec.extractLsb' 27 5 ·)  -- funct7[6:2]
