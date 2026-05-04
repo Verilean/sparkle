@@ -24,6 +24,7 @@ import IP.RV32.CSR.Commit
 import IP.RV32.UART.Decode
 import IP.RV32.Bus.PeripheralWE
 import IP.RV32.Pipeline.SuppressEXWB
+import IP.RV32.Pipeline.FlushSquash
 
 namespace Sparkle.IP.RV32.UART
 
@@ -265,5 +266,81 @@ theorem trap_holds_uart_DLM_reg {dom : DomainConfig}
     (uartWriteDLMSignal _ offset uartDLAB).val t = false :=
     uartWriteDLM_false_when_uartWE_false _ offset uartDLAB t h_uartWE
   exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-! ## Cycle-N+2 UART hold composite
+
+  When idex_memWrite is false at cycle t (e.g., from an IDEX
+  squash), uartWE is false at t (regardless of validEX), so any
+  per-register UART WE is false, so the UART register at t+1 holds.
+  Combined with `trap_squashes_idex_next_cycle`, this gives
+  cycle-N+2 hold for all 6 UART registers.
+
+  We provide the LCR variant fully and leave the others to
+  follow the same template via `trap_clears_uartWE_via_idex_squash`
+  (a private helper). -/
+
+/-- **idex_memWrite at t = false → uartWE at t = false.** (Helper.) -/
+private theorem uartWE_false_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    (peripheralWESignal idex_memWrite isUART_ex validEX).val t = false := by
+  unfold peripheralWESignal
+  show (Signal.ap (Signal.map (· && ·) idex_memWrite)
+    (isUART_ex &&& validEX)).val t = false
+  show (idex_memWrite.val t && _) = false
+  rw [h_no_memWrite]
+  rfl
+
+/-- **idex_memWrite at t = false → uartLCRReg at t+1 = old at t.** -/
+theorem uart_LCR_hold_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    let uartWE := peripheralWESignal idex_memWrite isUART_ex validEX
+    let we := uartWriteLCRSignal uartWE offset
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE :=
+    uartWE_false_when_idex_memWrite_false idex_memWrite isUART_ex validEX t h_no_memWrite
+  have h_we_false :
+    (uartWriteLCRSignal _ offset).val t = false :=
+    uartWriteLCR_false_when_uartWE_false _ offset t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- **trap at N + ¬freeze at N → uartLCRReg at N+2 = old at N+1
+    (when wired through idexLatchSignal).** -/
+theorem trap_holds_uart_LCR_reg_at_N_plus_2 {dom : DomainConfig}
+    (trap_taken freeze squash : Signal dom Bool)
+    (idex_memWrite_old idex_memWrite_new : Signal dom Bool)
+    (isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (n : Nat)
+    (h_trap_n : trap_taken.atTime n = true)
+    (h_no_freeze_n : freeze.atTime n = false)
+    (h_squash_includes_trap :
+      trap_taken.atTime n = true → squash.atTime n = true)
+    (h_idex_memWrite_at_N1 :
+      idex_memWrite_new.atTime (n + 1) =
+        (Sparkle.IP.RV32.Pipeline.idexLatchSignal freeze squash idex_memWrite_old
+          idex_memWrite_new (false : Bool)).atTime (n + 1)) :
+    let uartWE := peripheralWESignal idex_memWrite_new isUART_ex validEX
+    let we := uartWriteLCRSignal uartWE offset
+    (csrPlainRegSignal8 init we newVal old).val (n + 2) = old.val (n + 1) := by
+  -- Step 1: IDEX latch at N+1 = false.
+  have h_idex_n1_init :
+    (Sparkle.IP.RV32.Pipeline.idexLatchSignal freeze squash idex_memWrite_old
+      idex_memWrite_new (false : Bool)).atTime (n + 1) = false := by
+    apply Sparkle.IP.RV32.Pipeline.trap_squashes_idex_next_cycle freeze squash trap_taken
+      idex_memWrite_old idex_memWrite_new false n
+    · exact h_squash_includes_trap
+    · exact h_trap_n
+    · exact h_no_freeze_n
+  -- Step 2: idex_memWrite at N+1 = false (by wire-def).
+  have h_no_memWrite_n1 : idex_memWrite_new.atTime (n + 1) = false := by
+    rw [h_idex_memWrite_at_N1]
+    exact h_idex_n1_init
+  -- Step 3: UART-LCR holds (downstream).
+  exact uart_LCR_hold_when_idex_memWrite_false idex_memWrite_new isUART_ex validEX
+    offset init newVal old (n + 1) h_no_memWrite_n1
 
 end Sparkle.IP.RV32.UART
