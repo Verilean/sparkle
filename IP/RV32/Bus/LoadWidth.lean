@@ -277,4 +277,58 @@ def zextHalfSignal {dom : DomainConfig}
   let zero16 : Signal dom (BitVec 16) := Signal.pure 0#16
   zero16 ++ selHalf
 
+/-! ## Load-vs-bypass gate
+
+  After the load extractor produces `loadExtracted`, we still need
+  to gate it for two cases:
+
+    1. Non-load (`exwb_m2r = false`): pass through `busRdataRaw`
+       — the WB stage isn't loading, so the read data isn't a
+       load result.
+    2. Load on a peripheral (`isDMEM_wb = false` while
+       exwb_m2r=true): pass through `busRdataRaw` — peripheral
+       reads (CLINT/UART/MMIO) are word-only, no sub-word
+       extraction.
+
+    3. Load on DMEM (both true): use `loadExtracted` (sub-word
+       extraction applied).
+
+  Spec: `busRdata = if exwb_m2r then (if isDMEM_wb then loadExtracted else raw) else raw`.
+-/
+
+@[inline] def busRdataGatePure
+    (exwb_m2r isDMEM_wb : Bool) (loadExtracted busRdataRaw : BitVec 32) : BitVec 32 :=
+  if exwb_m2r then (if isDMEM_wb then loadExtracted else busRdataRaw)
+  else busRdataRaw
+
+/-- Non-load: passes through busRdataRaw. -/
+@[simp] theorem busRdataGate_non_load
+    (isDMEM_wb : Bool) (loadExtracted busRdataRaw : BitVec 32) :
+    busRdataGatePure false isDMEM_wb loadExtracted busRdataRaw = busRdataRaw := rfl
+
+/-- Load on DMEM: uses loadExtracted. -/
+@[simp] theorem busRdataGate_load_dmem
+    (loadExtracted busRdataRaw : BitVec 32) :
+    busRdataGatePure true true loadExtracted busRdataRaw = loadExtracted := rfl
+
+/-- Load on peripheral: bypasses extraction (busRdataRaw). -/
+@[simp] theorem busRdataGate_load_peripheral
+    (loadExtracted busRdataRaw : BitVec 32) :
+    busRdataGatePure true false loadExtracted busRdataRaw = busRdataRaw := rfl
+
+theorem busRdataGatePure_spec :
+    ∀ (exwb_m2r isDMEM_wb : Bool) (loadExtracted busRdataRaw : BitVec 32),
+      busRdataGatePure exwb_m2r isDMEM_wb loadExtracted busRdataRaw =
+        (if exwb_m2r then (if isDMEM_wb then loadExtracted else busRdataRaw)
+         else busRdataRaw) := by
+  intros; rfl
+
+/-- Signal-level busRdata gate. -/
+def busRdataGateSignal {dom : DomainConfig}
+    (exwb_m2r isDMEM_wb : Signal dom Bool)
+    (loadExtracted busRdataRaw : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux exwb_m2r
+    (Signal.mux isDMEM_wb loadExtracted busRdataRaw)
+    busRdataRaw
+
 end Sparkle.IP.RV32.Bus

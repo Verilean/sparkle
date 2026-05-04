@@ -844,9 +844,10 @@ def rv32iSoCBody {dom : DomainConfig}
         f3isLB f3isLH f3isLBU f3isLHU
         byteSext byteZext halfSext halfZext busRdataRaw
     -- Gate: only use extracted value for DMEM loads; peripheral reads bypass sub-word extraction
+    -- (proven in Bus/LoadWidth.lean).
     let isDMEM_wb := Sparkle.IP.RV32.Bus.isDMEMSignal isCLINT_wb is_mmio_wb isUART_wb
-    let busRdata := Signal.mux exwb_m2r
-      (Signal.mux isDMEM_wb loadExtracted busRdataRaw) busRdataRaw
+    let busRdata :=
+      Sparkle.IP.RV32.Bus.busRdataGateSignal exwb_m2r isDMEM_wb loadExtracted busRdataRaw
 
     -- A-ext WB stage: classify AMO type (proven in AMO/Decode.lean)
     let exwb_isLR := Sparkle.IP.RV32.AMO.isLRSignal exwb_isAMO exwb_amoOp
