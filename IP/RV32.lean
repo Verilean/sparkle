@@ -27,6 +27,7 @@ import IP.RV32.UART.Decode
 import IP.RV32.UART.ReadMux
 import IP.RV32.UART.CommitTrapInv
 import IP.RV32.MMIO.BitNet
+import IP.RV32.MMIO.CommitTrapInv
 import IP.RV32.CLINT
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.CommitTrapInv
