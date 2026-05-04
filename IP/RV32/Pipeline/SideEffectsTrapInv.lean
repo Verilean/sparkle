@@ -158,4 +158,53 @@ theorem trap_clears_exwb_isAMO {dom : DomainConfig}
   `CSR/Commit.lean`).
 -/
 
+/-! ## LTL forms
+
+  Universal-time-quantified versions of each trap-clears-X
+  lemma. -/
+
+theorem trap_clears_exwb_regW_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_regWrite : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (Signal.register false
+           (Signal.mux
+             (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+             (Signal.pure false) idex_regWrite)).atTime (t + 1) = false :=
+  fun t => trap_clears_exwb_regW trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_regWrite t
+
+theorem trap_clears_exwb_m2r_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memToReg : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (Signal.register false
+           (Signal.mux
+             (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+             (Signal.pure false) idex_memToReg)).atTime (t + 1) = false :=
+  fun t => trap_clears_exwb_m2r trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_memToReg t
+
+theorem trap_clears_exwb_jump_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_jump : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (Signal.register false
+           (Signal.mux
+             (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+             (Signal.pure false) idex_jump)).atTime (t + 1) = false :=
+  fun t => trap_clears_exwb_jump trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_jump t
+
+theorem trap_clears_exwb_isCsr_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isCsr : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (Signal.register false
+           (Signal.mux
+             (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+             (Signal.pure false) idex_isCsr)).atTime (t + 1) = false :=
+  fun t => trap_clears_exwb_isCsr trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_isCsr t
+
 end Sparkle.IP.RV32.Pipeline
