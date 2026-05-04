@@ -23,6 +23,7 @@ import IP.RV32.Bus.RdataMux
 import IP.RV32.UART
 import IP.RV32.UART.Decode
 import IP.RV32.UART.ReadMux
+import IP.RV32.MMIO.BitNet
 import IP.RV32.CLINT
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
