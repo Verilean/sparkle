@@ -108,6 +108,46 @@ theorem fwdMatch_implies_addr_beq
     fwdValuePure true wb_data idex_rsVal = wb_data := by
   rfl
 
+/-! ## Approximate forwarded value (load-aware)
+
+  For combinational EX paths (e.g., store address, mtimecmp IRQ
+  decision) where the exact rs1 value matters but the WB-stage
+  load result isn't ready (loads only resolve in the second WB
+  cycle), conservatively pick:
+
+    fwdValApprox = if exwb_m2r then idex_rsVal       -- load not ready
+                   else                wb_data_non_mem
+
+  When `exwb_m2r` (memory-to-register, i.e., a load) is in WB,
+  the WB result is the load datum which the EX-stage path can't
+  see this cycle — so we use idex_rsVal (a stale-but-safe value).
+
+  Then the standard `fwdMatchPure`/`fwdValuePure` is applied on
+  top to choose between this approx and idex_rsVal.
+
+  This matches SoC.lean's `fwd_val_approx`/`fwd_val2_approx`
+  inline mux at lines 451 / 454. -/
+
+@[inline] def fwdValApproxPure
+    (exwb_m2r : Bool) (idex_rsVal wb_data_non_mem : BitVec 32) : BitVec 32 :=
+  if exwb_m2r then idex_rsVal else wb_data_non_mem
+
+/-- Load in WB: approx-fwd takes the IDEX value (load result not ready). -/
+@[simp] theorem fwdValApprox_load
+    (idex_rsVal wb_data_non_mem : BitVec 32) :
+    fwdValApproxPure true idex_rsVal wb_data_non_mem = idex_rsVal := rfl
+
+/-- Non-load in WB: approx-fwd takes the WB-stage non-mem result. -/
+@[simp] theorem fwdValApprox_non_load
+    (idex_rsVal wb_data_non_mem : BitVec 32) :
+    fwdValApproxPure false idex_rsVal wb_data_non_mem = wb_data_non_mem := rfl
+
+theorem fwdValApproxPure_spec :
+    ∀ (exwb_m2r : Bool) (idex_rsVal wb_data_non_mem : BitVec 32),
+      fwdValApproxPure exwb_m2r idex_rsVal wb_data_non_mem =
+        (if exwb_m2r then idex_rsVal else wb_data_non_mem) := by
+  intros; rfl
+
 /-! ## Composite specs -/
 
 theorem fwdMatchPure_spec :
@@ -133,6 +173,13 @@ def fwdValueSignal {dom : DomainConfig}
     (fwd_match : Signal dom Bool)
     (wb_data idex_rsVal : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   Signal.mux fwd_match wb_data idex_rsVal
+
+/-- Approx forwarded value (load-aware) Signal wrapper. -/
+def fwdValApproxSignal {dom : DomainConfig}
+    (exwb_m2r : Signal dom Bool)
+    (idex_rsVal wb_data_non_mem : Signal dom (BitVec 32))
+    : Signal dom (BitVec 32) :=
+  Signal.mux exwb_m2r idex_rsVal wb_data_non_mem
 
 /-! ## Cycle-wise equivalences -/
 

@@ -448,10 +448,14 @@ def rv32iSoCBody {dom : DomainConfig}
     -- where the exact rs1 value doesn't matter). For load instructions in
     -- EXWB, the load result isn't yet ready, so we conservatively use the
     -- IDEX-stage value.
-    let fwd_val_approx := Signal.mux exwb_m2r idex_rs1Val wb_data_non_mem
+    -- Approx fwd value (load-aware, proven in Pipeline/Forward.lean):
+    -- if exwb_m2r (load) then idex_rsVal (stale-but-safe), else wb_data_non_mem.
+    let fwd_val_approx :=
+      Sparkle.IP.RV32.Pipeline.fwdValApproxSignal exwb_m2r idex_rs1Val wb_data_non_mem
     let ex_rs1_approx :=
       Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs1_match fwd_val_approx idex_rs1Val
-    let fwd_val2_approx := Signal.mux exwb_m2r idex_rs2Val wb_data_non_mem
+    let fwd_val2_approx :=
+      Sparkle.IP.RV32.Pipeline.fwdValApproxSignal exwb_m2r idex_rs2Val wb_data_non_mem
     let ex_rs2_approx :=
       Sparkle.IP.RV32.Pipeline.fwdValueSignal fwd_rs2_match fwd_val2_approx idex_rs2Val
     -- ALU srcA/B selectors (proven in Pipeline/AluSrc.lean): auipc→PC; srcB→imm.
