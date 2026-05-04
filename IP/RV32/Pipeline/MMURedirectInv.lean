@@ -133,6 +133,63 @@ theorem dMMURedirect_combinational_invariants
     rw [h_no_trap, h_no_mret, h_no_sret]
     rfl
 
+/-! ## Cycle-N+1 sequential statement (Signal-level)
+
+  Combine the cycle-N combinational results above with
+  `Signal.register` semantics to get the Signal-level
+  cycle-N+1 statement:
+
+    pcReg.val (t+1) = dMissPC.val t
+
+  whenever `dMMURedirect.val t = true` (and trap/mret/sret are
+  clear at cycle t). This is the proof anchor for the
+  multi-cycle "re-execution" claim — the kernel resumes
+  fetching from dMissPC at cycle N+1.
+-/
+
+/-- pcReg signal: register'd input from `pcNextSignal`. -/
+def pcRegSignal {dom : DomainConfig}
+    (pcNext : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register 0#32 pcNext
+
+/-- **dMMURedirect at cycle t → pcReg.val (t+1) = dMissPC.val t.**
+
+    Sequential anchor for the cycle-N+1 PC-redirect claim. -/
+theorem dMMURedirect_sets_pcReg_next_cycle {dom : DomainConfig}
+    (trap_taken idex_isMret idex_isSret : Signal dom Bool)
+    (trapTarget mretTarget sretTarget dMissPC : Signal dom (BitVec 32))
+    (dMMURedirect : Signal dom Bool)
+    (isSFenceVMA : Signal dom Bool) (pc4 : Signal dom (BitVec 32))
+    (flush : Signal dom Bool) (jumpTarget : Signal dom (BitVec 32))
+    (stall : Signal dom Bool) (pcRegSig pcPlus4 : Signal dom (BitVec 32))
+    (t : Nat)
+    (h_dmmu : dMMURedirect.val t = true)
+    (h_no_trap : trap_taken.val t = false)
+    (h_no_mret : idex_isMret.val t = false)
+    (h_no_sret : idex_isSret.val t = false) :
+    (pcRegSignal
+      (pcNextSignal trap_taken trapTarget idex_isMret mretTarget
+        idex_isSret sretTarget dMMURedirect dMissPC isSFenceVMA pc4
+        flush jumpTarget stall pcRegSig pcPlus4)).val (t + 1) = dMissPC.val t := by
+  -- Step 1: peel pcRegSignal/Signal.register down to next.val t.
+  show (Signal.register 0#32
+    (pcNextSignal trap_taken trapTarget idex_isMret mretTarget
+       idex_isSret sretTarget dMMURedirect dMissPC isSFenceVMA pc4
+       flush jumpTarget stall pcRegSig pcPlus4)).val (t + 1) =
+    dMissPC.val t
+  show (pcNextSignal trap_taken trapTarget idex_isMret mretTarget
+       idex_isSret sretTarget dMMURedirect dMissPC isSFenceVMA pc4
+       flush jumpTarget stall pcRegSig pcPlus4).val t = dMissPC.val t
+  -- Step 2: unfold pcNextSignal at cycle t, drive each mux by its hypothesis.
+  unfold pcNextSignal Signal.mux
+  show (if trap_taken.val t = true then trapTarget.val t
+        else if idex_isMret.val t = true then mretTarget.val t
+        else if idex_isSret.val t = true then sretTarget.val t
+        else if dMMURedirect.val t = true then dMissPC.val t
+        else _) = dMissPC.val t
+  rw [h_no_trap, h_no_mret, h_no_sret, h_dmmu]
+  rfl
+
 /-! ## Connection to invariant C
 
   Invariant C ("the post-fault load re-executes exactly once
@@ -142,7 +199,8 @@ theorem dMMURedirect_combinational_invariants
     * Cycle N: dMMURedirect fires → squash (proved above) →
                cycle N+1 IDEX has NOP-init values.
                pcNext = dMissPC (proved above) →
-               cycle N+1 pcReg = dMissPC.
+               cycle N+1 pcReg = dMissPC (proved sequentially
+               via `dMMURedirect_sets_pcReg_next_cycle`).
 
     * Cycle N+1: ifetch is from dMissPC; the IFID register
                  will hold the faulting instruction. The new
@@ -154,11 +212,10 @@ theorem dMMURedirect_combinational_invariants
                  load reads from DMEM successfully and
                  commits.
 
-  The full multi-cycle proof requires reasoning over 3 cycles
-  and the state of {dTLBMiss, anyTLBHit, IDEX-NOP, fetchPC}.
-  This file provides the foundational cycle-N+1 invariants;
-  the cycle-N+2 / dTLB-hit guarantees require additional
-  modules (TLB fill state, IFID stall behavior).
+  This file now provides cycles-N and N+1 in full. The cycle-N+2
+  reasoning (TLB-hit-after-fill) requires additional state-
+  carrying lemmas in MMU/Fill.lean and IFID.lean and is left for
+  a future commit.
 -/
 
 end Sparkle.IP.RV32.Pipeline
