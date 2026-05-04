@@ -51,6 +51,7 @@ import IP.RV32.Bus.LoadWidth
 import IP.RV32.MMU.IfetchFault
 import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
+import IP.RV32.MMU.Satp
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -434,9 +435,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- =========================================================================
     -- MMU/PTW state decode and address computation (early, for DMEM addr mux)
     -- =========================================================================
-    let satpMode := (satpReg.map (BitVec.extractLsb' 31 1 ·)) === 1#1
-    let isMmode := privMode === 3#2
-    let bypassMMU := isMmode ||| (~~~satpMode)
+    -- satp decode + bypassMMU (proven in MMU/Satp.lean):
+    -- bypass iff M-mode or no-translation mode (satp.MODE=0).
+    let satpMode := Sparkle.IP.RV32.MMU.satpModeSignal satpReg
+    let isMmode := Sparkle.IP.RV32.MMU.isMmodeSignal privMode
+    let bypassMMU := Sparkle.IP.RV32.MMU.bypassMMUSignal privMode satpReg
     -- MMU FSM: IDLE=0, TLB_LOOKUP=1, PTW_WALK=2, DONE=3, FAULT=4
     let isMMUIdle   := mmuStateReg === 0#3
     let isPTWWalk   := mmuStateReg === 2#3
