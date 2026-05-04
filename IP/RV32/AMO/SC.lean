@@ -169,4 +169,63 @@ def dmemWeSignal {dom : DomainConfig}
     : Signal dom Bool :=
   idex_memWrite &&& (isDMEM_ex &&& (~~~dTLBMiss)) &&& (~~~scExFails)
 
+/-! ## WB-stage SC.W success check
+
+  The WB stage re-evaluates SC success using the (possibly
+  trap-cleared) reservation state, after the EX-stage check
+  may have already gated the DRAM write. This drives the
+  writeback-data path (wb_result = if isSC then (if scSucceeds
+  then 0 else 1) else ...).
+
+  Spec:
+    scWBAddrMatch  = (exwb_physAddr = reservationAddr)
+    scWBSucceeds   = reservationValid ∧ scWBAddrMatch
+
+  Note: this is the "succeeds" form (negation of scExFails for
+  the WB stage), reflecting that wb_result returns 0 (success)
+  when both conditions hold.
+-/
+
+@[inline] def scWBAddrMatchPure (exwb_physAddr reservationAddr : BitVec 32) : Bool :=
+  exwb_physAddr == reservationAddr
+
+@[inline] def scWBSucceedsPure
+    (reservationValid scWBAddrMatch : Bool) : Bool :=
+  reservationValid && scWBAddrMatch
+
+/-- Reservation invalid → SC fails (returns false). -/
+@[simp] theorem scWBSucceeds_invalid (scWBAddrMatch : Bool) :
+    scWBSucceedsPure false scWBAddrMatch = false := rfl
+
+/-- Address mismatch → SC fails. -/
+@[simp] theorem scWBSucceeds_no_match (reservationValid : Bool) :
+    scWBSucceedsPure reservationValid false = false := by
+  unfold scWBSucceedsPure; cases reservationValid <;> rfl
+
+/-- Both true → SC succeeds. -/
+@[simp] theorem scWBSucceeds_both : scWBSucceedsPure true true = true := rfl
+
+theorem scWBSucceedsPure_spec
+    (reservationValid scWBAddrMatch : Bool) :
+    scWBSucceedsPure reservationValid scWBAddrMatch =
+      (reservationValid && scWBAddrMatch) := rfl
+
+/-- Bridge: scExFails ↔ ¬scWBSucceeds when same inputs.
+    Exposes the dual relationship between the EX-stage gate
+    (suppress write on fail) and the WB-stage result form
+    (return 0 on succeed, 1 on fail). -/
+theorem scWBSucceeds_dual
+    (idexIsSC_ex reservationValid scAddrMatch : Bool) :
+    scExFailsPure idexIsSC_ex reservationValid scAddrMatch =
+      (idexIsSC_ex && !scWBSucceedsPure reservationValid scAddrMatch) := by
+  unfold scExFailsPure scWBSucceedsPure; rfl
+
+def scWBAddrMatchSignal {dom : DomainConfig}
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32)) : Signal dom Bool :=
+  exwb_physAddr === reservationAddr
+
+def scWBSucceedsSignal {dom : DomainConfig}
+    (reservationValid scWBAddrMatch : Signal dom Bool) : Signal dom Bool :=
+  reservationValid &&& scWBAddrMatch
+
 end Sparkle.IP.RV32.AMO

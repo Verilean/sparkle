@@ -78,6 +78,7 @@ import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Decode
 import IP.RV32.AMO.PendingWrite
+import IP.RV32.AMO.SC
 import IP.RV32.Decoder.System
 import IP.RV32.Decoder.Opcode
 import IP.RV32.Privilege.PrivMode
@@ -876,8 +877,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- SC.W: succeeds iff reservation is valid and matches target PA. Per
     -- RISC-V spec, traps (and other context switches) must invalidate the
     -- reservation; this is implemented in resValidNext below.
-    let scAddrMatch := exwb_physAddr === reservationAddr
-    let scSucceeds  := reservationValid &&& scAddrMatch
+    -- (proven in AMO/SC.lean — scWBSucceeds is the dual of scExFails.)
+    let scAddrMatch :=
+      Sparkle.IP.RV32.AMO.scWBAddrMatchSignal exwb_physAddr reservationAddr
+    let scSucceeds :=
+      Sparkle.IP.RV32.AMO.scWBSucceedsSignal reservationValid scAddrMatch
     -- Final WB-stage result (proven in Pipeline/Writeback.lean): 5-way priority
     -- SC > CSR > jump > load > ALU.
     let wb_result :=
