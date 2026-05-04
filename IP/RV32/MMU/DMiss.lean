@@ -125,4 +125,81 @@ def dMissCaptureBoolSignal {dom : DomainConfig}
     (dTLBMiss new old : Signal dom Bool) : Signal dom Bool :=
   Signal.mux dTLBMiss new old
 
+/-! ## Sequential capture-register lemmas
+
+  The d-side TLB miss latches (dMissPC, dMissVaddr, dMissIsStore)
+  capture on dTLBMiss, hold otherwise. These sequential lemmas
+  make the capture/hold semantics directly available for callers.
+
+  When dTLBMiss is false at cycle t, the register at t+1 holds
+  its old value at t. This is the "no miss → no change" invariant
+  needed for trap-PC reasoning: if no TLB miss this cycle, the
+  dMissPC/Vaddr/IsStore from a prior miss survive unchanged.
+-/
+
+/-- BV32 capture-register wrapper. -/
+def dMissCaptureBV32RegSignal {dom : DomainConfig}
+    (init : BitVec 32) (dTLBMiss : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init (dMissCaptureBV32Signal dTLBMiss newVal old)
+
+/-- Bool capture-register wrapper. -/
+def dMissCaptureBoolRegSignal {dom : DomainConfig}
+    (init : Bool) (dTLBMiss new old : Signal dom Bool) : Signal dom Bool :=
+  Signal.register init (dMissCaptureBoolSignal dTLBMiss new old)
+
+/-- **No miss at t → BV32 reg at t+1 = old.val t.** -/
+theorem dMissCaptureBV32Reg_hold_when_no_miss {dom : DomainConfig}
+    (init : BitVec 32) (dTLBMiss : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_miss : dTLBMiss.val t = false) :
+    (dMissCaptureBV32RegSignal init dTLBMiss newVal old).val (t + 1) = old.val t := by
+  unfold dMissCaptureBV32RegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (dMissCaptureBV32Signal dTLBMiss newVal old).val t = _
+  unfold dMissCaptureBV32Signal Signal.mux
+  show (if dTLBMiss.val t then _ else _) = _
+  rw [h_no_miss]
+  rfl
+
+/-- **Miss at t → BV32 reg at t+1 = newVal.val t.** -/
+theorem dMissCaptureBV32Reg_latch_on_miss {dom : DomainConfig}
+    (init : BitVec 32) (dTLBMiss : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_miss : dTLBMiss.val t = true) :
+    (dMissCaptureBV32RegSignal init dTLBMiss newVal old).val (t + 1) = newVal.val t := by
+  unfold dMissCaptureBV32RegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (dMissCaptureBV32Signal dTLBMiss newVal old).val t = _
+  unfold dMissCaptureBV32Signal Signal.mux
+  show (if dTLBMiss.val t then _ else _) = _
+  rw [h_miss]
+  rfl
+
+/-- **No miss at t → Bool reg at t+1 = old.val t.** -/
+theorem dMissCaptureBoolReg_hold_when_no_miss {dom : DomainConfig}
+    (init : Bool) (dTLBMiss new old : Signal dom Bool) (t : Nat)
+    (h_no_miss : dTLBMiss.val t = false) :
+    (dMissCaptureBoolRegSignal init dTLBMiss new old).val (t + 1) = old.val t := by
+  unfold dMissCaptureBoolRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (dMissCaptureBoolSignal dTLBMiss new old).val t = _
+  unfold dMissCaptureBoolSignal Signal.mux
+  show (if dTLBMiss.val t then _ else _) = _
+  rw [h_no_miss]
+  rfl
+
+/-- **Miss at t → Bool reg at t+1 = new.val t.** -/
+theorem dMissCaptureBoolReg_latch_on_miss {dom : DomainConfig}
+    (init : Bool) (dTLBMiss new old : Signal dom Bool) (t : Nat)
+    (h_miss : dTLBMiss.val t = true) :
+    (dMissCaptureBoolRegSignal init dTLBMiss new old).val (t + 1) = new.val t := by
+  unfold dMissCaptureBoolRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (dMissCaptureBoolSignal dTLBMiss new old).val t = _
+  unfold dMissCaptureBoolSignal Signal.mux
+  show (if dTLBMiss.val t then _ else _) = _
+  rw [h_miss]
+  rfl
+
 end Sparkle.IP.RV32.MMU
