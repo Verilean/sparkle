@@ -122,6 +122,21 @@ theorem trap_clears_prevStoreEn {dom : DomainConfig}
         (Signal.pure false) idex_memWrite)).atTime (t + 1) = false :=
   trap_clears_suppressEXWB_gated_bit _ _ _ _ _ idex_memWrite t h_trap
 
+/-- exwb_isAMO (AMO opcode latched into WB stage) is suppressed at
+    t+1 on trap. This is what prevents an in-flight AMOrw from
+    triggering its writeback in the cycle after a trap-induced
+    abort: when exwb_isAMO is false, exwb_isAMOrw is false, and
+    the pending-write registers don't latch (cf. AMO/PendingWrite). -/
+theorem trap_clears_exwb_isAMO {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isAMO : Signal dom Bool) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    (Signal.register false
+      (Signal.mux
+        (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+        (Signal.pure false) idex_isAMO)).atTime (t + 1) = false :=
+  trap_clears_suppressEXWB_gated_bit _ _ _ _ _ idex_isAMO t h_trap
+
 /-! ## Summary
 
   These per-bit theorems certify that on a trap-taken cycle, *every*
