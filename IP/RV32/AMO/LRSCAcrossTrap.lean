@@ -118,6 +118,54 @@ theorem reservation_holds_when_no_event {dom : DomainConfig}
   rw [h_no_trap, h_no_LR, h_no_SC]
   rfl
 
+/-! ## Cycle-N+2 reservation invalidation across trap
+
+  The cycle-N+1 lemma `trap_invalidates_reservation_next_cycle`
+  proves resValid=false at N+1 after trap at N. At cycle N+1,
+  the resValidNext computation is:
+
+      resValid(N+2) = if trap(N+1) then false
+                      else if isLR(N+1) then true
+                      else if isSC(N+1) then false
+                      else resValid(N+1)
+
+  After a trap at N, IDEX is squashed at N+1, so isLR(N+1) =
+  false and isSC(N+1) = false (both AMO control bits are
+  squashed-init = false). Thus the resValid stays false unless
+  trap fires again at N+1.
+
+  We provide the form that takes all three "no event at N+1"
+  hypotheses; the IDEX-squash discharge is left to callers.
+-/
+
+/-- **Trap at N + no event at N+1 → reservation invalid at N+2.** -/
+theorem reservation_stays_invalid_at_N_plus_2 {dom : DomainConfig}
+    (trap isLR isSC : Signal dom Bool) (t : Nat)
+    (h_trap_n : trap.val t = true)
+    (h_no_trap_n1 : trap.val (t + 1) = false)
+    (h_no_LR_n1 : isLR.val (t + 1) = false)
+    (h_no_SC_n1 : isSC.val (t + 1) = false) :
+    -- prevValid at N+1 is the previous-cycle's reservationValid.
+    (reservationValidSignal trap isLR isSC
+      (reservationValidSignal trap isLR isSC (Signal.pure false))).val (t + 2) = false := by
+  -- Step 1: At N+1, prevValid (= cycle-N+1 reservationValidSignal) is false (by trap-invalidate).
+  have h_inner_n1 :
+    (reservationValidSignal trap isLR isSC (Signal.pure false)).val (t + 1) = false := by
+    have := trap_invalidates_reservation_next_cycle trap isLR isSC
+      (Signal.pure false) t h_trap_n
+    unfold Signal.atTime at this
+    exact this
+  -- Step 2: At N+2, resValid uses (isSC, isLR, trap, prevValid) at N+1; all "no event"
+  -- hypotheses fire and prevValid at N+1 = false.
+  -- Apply the no-event hold lemma at cycle N+1.
+  have := reservation_holds_when_no_event trap isLR isSC
+    (reservationValidSignal trap isLR isSC (Signal.pure false))
+    (t + 1) h_no_trap_n1 h_no_LR_n1 h_no_SC_n1
+  -- this : reservationValidSignal trap isLR isSC ... .val (t+1+1) = (...).val (t+1)
+  show (reservationValidSignal trap isLR isSC _).val (t + 2) = false
+  rw [this]
+  exact h_inner_n1
+
 /-! ## Sequential: SC after trap → SC fails
 
   Combine the trap-invalidation theorem with `scExFailsPure` to
