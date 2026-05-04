@@ -69,6 +69,7 @@ import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
+import IP.RV32.Pipeline.StoreLoadFwd
 
 set_option maxRecDepth 65536
 set_option maxHeartbeats 16000000
@@ -722,11 +723,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let dmem_word_hi := byte3_rdata ++ byte2_rdata
     let dmem_rdata := dmem_word_hi ++ dmem_word_lo
 
-    let storeAddrHi := prevStoreAddr.map (BitVec.extractLsb' 2 30 ·)
-    let loadAddrHi := exwb_physAddr.map (BitVec.extractLsb' 2 30 ·)
-    let addrMatch := storeAddrHi === loadAddrHi
-    let storeLoadMatch := prevStoreEn &&& addrMatch
-    let dmemRdataFwd := Signal.mux storeLoadMatch prevStoreData dmem_rdata
+    -- Store-load forwarding (proven in Pipeline/StoreLoadFwd.lean):
+    -- if previous store committed to the same word, forward prevStoreData
+    -- to this cycle's load instead of reading stale DRAM.
+    let storeLoadMatch :=
+      Sparkle.IP.RV32.Pipeline.storeLoadMatchSignal prevStoreEn prevStoreAddr exwb_physAddr
+    let dmemRdataFwd :=
+      Sparkle.IP.RV32.Pipeline.dmemRdataFwdSignal storeLoadMatch prevStoreData dmem_rdata
     let clintOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 16 ·)
     let msipMatch_wb     := clintOffset_wb === 0x0000#16
     let mtimeLoMatch_wb  := clintOffset_wb === 0xBFF8#16
