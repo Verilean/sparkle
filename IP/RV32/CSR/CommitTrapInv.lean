@@ -124,4 +124,57 @@ theorem trapTo_latches_csrTrapOverride_reg {dom : DomainConfig}
       trapPayload.val t :=
   csrTrapOverrideReg_latch_on_trap init trapTo trapPayload _ newVal old t h_trapTo
 
+/-! ## Cycle-N+2 plain-CSR hold composite
+
+  Same chain as the regfile cycle-N+2 composite
+  (`trap_suppresses_wb_en_at_N_plus_2`), but for plain-commit
+  CSR registers:
+
+    trap at N → IDEX squash at N+1 (idex_isCsr at N+1 = false)
+              → idex_isCsr_valid at N+1 = false
+              → csrRegWe at N+1 = false
+              → csrPlainReg at N+2 = old at N+1.
+
+  The cycle-N+1 composite `trap_holds_csrPlain_reg` already
+  proves "CSR at N+1 = old at N". Combined with this lemma,
+  we get "CSR at N+2 = old at N+1" which by transitivity
+  may equal old at N (when nothing else writes between).
+  But the cleanest statement is just the cycle-by-cycle
+  hold across N+1 → N+2.
+-/
+
+/-- **idex_isCsr at N+1 = false → csrPlainReg at N+2 = old at N+1.**
+
+    Downstream half of the cycle-N+2 CSR-suppression chain.
+    Combines `csrPlainReg_hold_when_we_false` with the
+    `csrRegWeSignal` definition (= idex_isCsr_valid &&& csrIsX,
+    which is false when idex_isCsr is false). -/
+theorem csrPlainReg_hold_when_idex_isCsr_false {dom : DomainConfig}
+    (init : BitVec 32) (idex_isCsr csrIsX : Signal dom Bool)
+    (validEX : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_isCsr : idex_isCsr.val t = false) :
+    let we := csrRegWeSignal (idexIsCsrValidSignal idex_isCsr validEX) csrIsX
+    (csrPlainRegSignal init we newVal old).val (t + 1) = old.val t := by
+  -- Step 1: idex_isCsr_valid = idex_isCsr ∧ validEX, so when idex_isCsr is false,
+  -- the result is false.
+  have h_no_isCsrValid :
+    (idexIsCsrValidSignal idex_isCsr validEX).val t = false := by
+    unfold idexIsCsrValidSignal
+    show (Signal.ap (Signal.map (· && ·) idex_isCsr) validEX).val t = false
+    show (idex_isCsr.val t && validEX.val t) = false
+    rw [h_no_isCsr]
+    rfl
+  -- Step 2: csrRegWeSignal = idex_isCsr_valid ∧ csrIsX, false when isCsrValid is false.
+  have h_no_we :
+    (csrRegWeSignal (idexIsCsrValidSignal idex_isCsr validEX) csrIsX).val t = false := by
+    show ((idexIsCsrValidSignal idex_isCsr validEX) &&& csrIsX).val t = false
+    show (Signal.ap (Signal.map (· && ·)
+      (idexIsCsrValidSignal idex_isCsr validEX)) csrIsX).val t = false
+    show ((idexIsCsrValidSignal idex_isCsr validEX).val t && csrIsX.val t) = false
+    rw [h_no_isCsrValid]
+    rfl
+  -- Step 3: register holds when WE is false.
+  exact csrPlainReg_hold_when_we_false init _ newVal old t h_no_we
+
 end Sparkle.IP.RV32.CSR
