@@ -73,6 +73,7 @@ import IP.RV32.CSR.MipSoft
 import IP.RV32.CSR.Sstatus
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
+import IP.RV32.Pipeline.IdexLive
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.StoreLoadFwd
@@ -1477,14 +1478,19 @@ def rv32iSoCBody {dom : DomainConfig}
     --      idex_pc may point into stale (M-mode) territory. In that case,
     --      use pcReg (the redirected next-fetch PC) as mepc.
     -- We detect "IDEX has a valid live instruction" by checking the OR of the
-    -- IDEX side-effect-bearing control bits — if none are set, IDEX is a NOP
-    -- (squashed) and pcReg is the right choice.
-    let isAsyncInt := timerIntEnabled ||| swIntEnabled ||| sTimerIntEnabled |||
-                      sSwIntEnabled ||| sExtIntEnabled
-    let idexLive := idex_regWrite ||| idex_memRead ||| idex_memWrite |||
-                    idex_jump ||| idex_branch ||| idex_isCsr |||
-                    idex_isEcall ||| idex_isMret ||| idex_isSret |||
-                    idex_isAMO ||| idex_isMext ||| idex_isSFenceVMA
+    -- isAsyncInt: any of the 5 interrupts fires (proven in Trap/TrapTaken.lean).
+    let isAsyncInt :=
+      Sparkle.IP.RV32.Trap.anyIntSignal
+        timerIntEnabled swIntEnabled sTimerIntEnabled sSwIntEnabled sExtIntEnabled
+    -- idexLive: any IDEX side-effect-bearing control bit fires (proven in
+    -- Pipeline/IdexLive.lean). When false, IDEX holds a squashed NOP and
+    -- the trap should save `pcReg` (not `idex_pc`) into mepc.
+    let idexLive :=
+      Sparkle.IP.RV32.Pipeline.idexLiveSignal
+        idex_regWrite idex_memRead idex_memWrite
+        idex_jump idex_branch idex_isCsr
+        idex_isEcall idex_isMret idex_isSret
+        idex_isAMO idex_isMext idex_isSFenceVMA
     -- Trap-PC selector: see `IP.RV32.Trap.TrapPC`. The pure version
     -- `trapPCPure` and the Signal-level `trapPCSignal` are equivalent
     -- (theorem `trapPCSignal_eq_pure`); this call inherits the proven

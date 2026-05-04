@@ -46,6 +46,7 @@ import IP.RV32.Pipeline.AbortGuarantee
 import IP.RV32.Pipeline.FlushSquash
 import IP.RV32.Pipeline.BranchComp
 import IP.RV32.Pipeline.Hazard
+import IP.RV32.Pipeline.IdexLive
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.Writeback
 import IP.RV32.Pipeline.Forward
