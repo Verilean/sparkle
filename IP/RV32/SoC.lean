@@ -46,6 +46,7 @@ import Sparkle.Core.JITLoop
 import Sparkle.Compiler.Elab
 import IP.RV32.Core
 import IP.RV32.Bus.Decoder
+import IP.RV32.Bus.StoreWidth
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -535,11 +536,12 @@ def rv32iSoCBody {dom : DomainConfig}
     let isSB := storeFunct3Low === 0#2
     let isSH := storeFunct3Low === 1#2
     let isSW := storeFunct3Low === 2#2
-    -- Byte 0 WE: SW || (SH && addr[1]==0) || (SB && addr[1:0]==0)
-    let b0we := isSW ||| ((isSH &&& storeHalfLow) ||| (isSB &&& storeByteOff0))
-    let b1we := isSW ||| ((isSH &&& storeHalfLow) ||| (isSB &&& storeByteOff1))
-    let b2we := isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff2))
-    let b3we := isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff3))
+    -- Byte WE: SW => all bytes; SH lo/hi => 2 bytes; SB => 1 byte (per addr[1:0]).
+    -- Spec proven in Bus/StoreWidth.lean.
+    let b0we := Sparkle.IP.RV32.Bus.b0weSignal isSB isSH isSW storeHalfLow storeByteOff0
+    let b1we := Sparkle.IP.RV32.Bus.b1weSignal isSB isSH isSW storeHalfLow storeByteOff1
+    let b2we := Sparkle.IP.RV32.Bus.b2weSignal isSB isSH isSW storeHalfHigh storeByteOff2
+    let b3we := Sparkle.IP.RV32.Bus.b3weSignal isSB isSH isSW storeHalfHigh storeByteOff3
     let byte0_we := dmem_we &&& b0we
     let byte1_we := dmem_we &&& b1we
     let byte2_we := dmem_we &&& b2we

@@ -16,6 +16,7 @@ import IP.RV32.SoC
 import IP.RV32.JITDebug
 import IP.RV32.Bus
 import IP.RV32.Bus.Decoder
+import IP.RV32.Bus.StoreWidth
 import IP.RV32.UART
 import IP.RV32.CLINT
 import IP.RV32.Trap
