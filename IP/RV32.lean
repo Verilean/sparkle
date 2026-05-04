@@ -19,6 +19,7 @@ import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.Bus.PeripheralWE
+import IP.RV32.Bus.RdataMux
 import IP.RV32.UART
 import IP.RV32.UART.Decode
 import IP.RV32.UART.ReadMux

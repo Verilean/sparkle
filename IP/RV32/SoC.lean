@@ -49,6 +49,7 @@ import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.Bus.PeripheralWE
+import IP.RV32.Bus.RdataMux
 import IP.RV32.MMU.IfetchFault
 import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
@@ -810,10 +811,12 @@ def rv32iSoCBody {dom : DomainConfig}
       (Signal.mux wbOff7 uartRd7
         (Signal.pure 0#32)))))))
 
-    -- Sub-word load extraction: select byte/halfword from bus read data
-    let busRdataRaw := Signal.mux isCLINT_wb clintRdata
-                         (Signal.mux isUART_wb uartRdata
-                         (Signal.mux is_mmio_wb mmioRdata dmemRdataFwd))
+    -- Bus read-data mux (proven in Bus/RdataMux.lean): 4-way priority
+    -- CLINT > UART > MMIO > DMEM (the catch-all per Bus/Decoder.lean).
+    let busRdataRaw :=
+      Sparkle.IP.RV32.Bus.busRdataRawSignal
+        isCLINT_wb clintRdata isUART_wb uartRdata
+        is_mmio_wb mmioRdata dmemRdataFwd
     -- Byte / half select (proven in Bus/LoadWidth.lean).
     let loadByteOff := exwb_physAddr.map (BitVec.extractLsb' 0 2 ·)
     let loadByteOff0 := loadByteOff === 0#2
