@@ -284,4 +284,73 @@ theorem privModeReg_hold_when_no_event {dom : DomainConfig}
   rw [h_no_trapM, h_no_trapS, h_no_mret, h_no_sret]
   rfl
 
+/-! ## Cycle-N+2 privMode stability across trap entry
+
+  Combine `privModeReg_to_M_on_trapToM` (cycle N → N+1) with
+  `privModeReg_hold_when_no_event` (cycle N+1 → N+2): when
+  trapToM fires at N and no events fire at N+1, privMode at
+  N+2 stays at privM (= 3#2).
+
+  The "no event at N+1" hypotheses are typically discharged by
+  IDEX-squash reasoning (idex_isMret/Sret are cleared after
+  squash) plus the trap not retriggering at N+1 (which holds
+  since the IDEX-squashed cycle has no traps). -/
+
+/-- **trapToM at N + no events at N+1 → privMode at N+2 = privM.** -/
+theorem privModeReg_stays_M_at_N_plus_2 {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv : Signal dom (BitVec 2)) (n : Nat)
+    (h_trapM_n : trapToM.val n = true)
+    (h_no_trapM_n1 : trapToM.val (n + 1) = false)
+    (h_no_trapS_n1 : trapToS.val (n + 1) = false)
+    (h_no_mret_n1 : isMret.val (n + 1) = false)
+    (h_no_sret_n1 : isSret.val (n + 1) = false) :
+    let regSig :=
+      privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+        (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+          (Signal.pure 3#2))
+    regSig.val (n + 2) = privM := by
+  -- Step 1: Inner reg at N+1 = privM (latched from trapToM).
+  have h_inner_n1 :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+      (Signal.pure 3#2)).val (n + 1) = privM :=
+    privModeReg_to_M_on_trapToM init trapToM trapToS isMret isSret mpp sretPriv _
+      n h_trapM_n
+  -- Step 2: Outer reg at N+2 = inner reg at N+1 (no event at N+1).
+  have h_outer := privModeReg_hold_when_no_event init trapToM trapToS isMret isSret
+    mpp sretPriv
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv (Signal.pure 3#2))
+    (n + 1) h_no_trapM_n1 h_no_trapS_n1 h_no_mret_n1 h_no_sret_n1
+  show (privModeRegSignal _ _ _ _ _ _ _ _).val (n + 2) = _
+  rw [h_outer]
+  exact h_inner_n1
+
+/-- **trapToS at N (no trapToM) + no events at N+1 → privMode at N+2 = privS.** -/
+theorem privModeReg_stays_S_at_N_plus_2 {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv : Signal dom (BitVec 2)) (n : Nat)
+    (h_no_trapM_n : trapToM.val n = false)
+    (h_trapS_n : trapToS.val n = true)
+    (h_no_trapM_n1 : trapToM.val (n + 1) = false)
+    (h_no_trapS_n1 : trapToS.val (n + 1) = false)
+    (h_no_mret_n1 : isMret.val (n + 1) = false)
+    (h_no_sret_n1 : isSret.val (n + 1) = false) :
+    let regSig :=
+      privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+        (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+          (Signal.pure 3#2))
+    regSig.val (n + 2) = privS := by
+  have h_inner_n1 :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+      (Signal.pure 3#2)).val (n + 1) = privS :=
+    privModeReg_to_S_on_trapToS init trapToM trapToS isMret isSret mpp sretPriv _
+      n h_no_trapM_n h_trapS_n
+  have h_outer := privModeReg_hold_when_no_event init trapToM trapToS isMret isSret
+    mpp sretPriv
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv (Signal.pure 3#2))
+    (n + 1) h_no_trapM_n1 h_no_trapS_n1 h_no_mret_n1 h_no_sret_n1
+  show (privModeRegSignal _ _ _ _ _ _ _ _).val (n + 2) = _
+  rw [h_outer]
+  exact h_inner_n1
+
 end Sparkle.IP.RV32.Privilege
