@@ -29,6 +29,7 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
+import IP.RV32.MMU.TLB
 
 namespace Sparkle.IP.RV32.MMU
 
@@ -244,5 +245,110 @@ def tlbMegaNextSignal {dom : DomainConfig}
     (doFillN : Signal dom Bool)
     (fillMega holdMega : Signal dom Bool) : Signal dom Bool :=
   Signal.mux doFillN fillMega holdMega
+
+/-! ## Sequential: TLB fill at cycle N → entry valid + VPN matches at cycle N+1
+
+  This is the cornerstone of the multi-cycle invariant C
+  (post-fault load re-execution): if the PTW completed at
+  cycle N and `doFillN.val N = true` (with no SFENCE.VMA
+  competing), then at cycle N+1 the TLB entry holds the new
+  fill data and is marked valid.
+
+  Concretely:
+    `Signal.register false (tlbValidNextSignal sfenceVMA doFillN tlb_valid)`
+    .val (t+1) = true
+  whenever `doFillN.val t = true` and `sfenceVMA.val t = false`.
+
+  And:
+    `Signal.register init (tlbVPNNextSignal doFillN fillVPN tlb_vpn)`
+    .val (t+1) = fillVPN.val t
+  whenever `doFillN.val t = true`.
+
+  Together, the entry at cycle N+1 satisfies:
+    valid = true ∧ entryVPN = fillVPN
+  so a lookup with dVPN = fillVPN at cycle N+1 returns true via
+  `tlbHit_valid_match` (in MMU/TLB.lean).
+-/
+
+/-- Wrapper: TLB-valid bit register (the persistent entry-valid). -/
+def tlbValidRegSignal {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) : Signal dom Bool :=
+  Signal.register false (tlbValidNextSignal sfenceVMA doFillN tlb_valid)
+
+/-- Wrapper: TLB-VPN field register. -/
+def tlbVPNRegSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) : Signal dom (BitVec 20) :=
+  Signal.register 0#20 (tlbVPNNextSignal doFillN fillVPN tlb_vpn)
+
+/-- **TLB-fill propagates valid=true to N+1.** -/
+theorem tlbValidReg_set_after_fill {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) (t : Nat)
+    (h_no_sfence : sfenceVMA.val t = false)
+    (h_fill : doFillN.val t = true) :
+    (tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1) = true := by
+  unfold tlbValidRegSignal
+  show (Signal.register false _).val (t + 1) = true
+  -- (register init next).val (t+1) = next.val t
+  show (tlbValidNextSignal sfenceVMA doFillN tlb_valid).val t = true
+  unfold tlbValidNextSignal Signal.mux
+  show (if sfenceVMA.val t = true then _
+        else if doFillN.val t = true then (Signal.pure true).val t
+        else tlb_valid.val t) = true
+  rw [h_no_sfence, h_fill]
+  rfl
+
+/-- **TLB-fill propagates fillVPN to entry's VPN at N+1.** -/
+theorem tlbVPNReg_set_after_fill {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) (t : Nat)
+    (h_fill : doFillN.val t = true) :
+    (tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1) = fillVPN.val t := by
+  unfold tlbVPNRegSignal
+  show (Signal.register 0#20 _).val (t + 1) = _
+  show (tlbVPNNextSignal doFillN fillVPN tlb_vpn).val t = _
+  unfold tlbVPNNextSignal Signal.mux
+  show (if doFillN.val t = true then fillVPN.val t else tlb_vpn.val t) = fillVPN.val t
+  rw [h_fill]
+  rfl
+
+/-! ## Combined: TLB fill at N → tlbHit on same VPN at N+1
+
+  This is the "fill-then-hit" guarantee — the cornerstone of the
+  multi-cycle invariant C reasoning. Combines the two register
+  propagation lemmas (`tlbValidReg_set_after_fill`,
+  `tlbVPNReg_set_after_fill`) with the per-entry hit predicate
+  `tlbHitPure` (proven in MMU/TLB.lean as `tlbHit_valid_match`).
+
+  Statement: when `doFillN.val t = true` (no SFENCE), the entry's
+  hit-predicate evaluated on `fillVPN.val t` at cycle t+1 returns
+  `true`, regardless of mega state (because in the non-mega case,
+  entryVPN at t+1 = fillVPN at t, so `entryVPN == dVPN`; in the
+  mega case, the high 10 bits also match by construction).
+-/
+
+/-- **Combined fill-then-hit (4kB-page case).**
+
+    Stronger statement: if the fill happened at cycle t with mega=false,
+    then at cycle t+1, `tlbHitPure` on the entry's stored VPN
+    against `fillVPN.val t` returns true. -/
+theorem tlbHit_after_fill_4k {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) (t : Nat)
+    (h_no_sfence : sfenceVMA.val t = false)
+    (h_fill : doFillN.val t = true) :
+    tlbHitPure
+      ((tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1))
+      false
+      ((tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1))
+      (fillVPN.val t) = true := by
+  rw [tlbValidReg_set_after_fill sfenceVMA doFillN tlb_valid t h_no_sfence h_fill]
+  rw [tlbVPNReg_set_after_fill doFillN fillVPN tlb_vpn t h_fill]
+  -- Goal: tlbHitPure true false (fillVPN.val t) (fillVPN.val t) = true
+  unfold tlbHitPure tlbVPNMatchPure
+  -- tlbVPNMatchPure false (fillVPN.val t) (fillVPN.val t) = (fillVPN.val t == fillVPN.val t)
+  show (true && (if false = true then _
+                 else (fillVPN.val t == fillVPN.val t))) = true
+  simp
 
 end Sparkle.IP.RV32.MMU
