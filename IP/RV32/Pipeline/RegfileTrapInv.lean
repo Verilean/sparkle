@@ -129,6 +129,36 @@ theorem trap_suppresses_wb_en {dom : DomainConfig}
   rw [h_regW]
   rfl
 
+/-! ## Signal-level wb_en form
+
+  Restated using `wbEnSignal` (matches SoC.lean's call site):
+  trap at cycle t → wbEnSignal at cycle t+1 = false. -/
+
+/-- `(a &&& b).val t = a.val t && b.val t` for Signal Bool. -/
+private theorem wb_signal_and_val {dom : DomainConfig}
+    (a b : Signal dom Bool) (t : Nat) :
+    (a &&& b).val t = (a.val t && b.val t) := by
+  show (Signal.ap (Signal.map (· && ·) a) b).val t = _
+  rfl
+
+theorem trap_suppresses_wb_en_sig {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_regWrite : Signal dom Bool) (wbRdNz : Signal dom Bool) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    (wbEnSignal
+      (exwbRegWSignal
+        (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+        idex_regWrite)
+      wbRdNz).atTime (t + 1) = false := by
+  have h_regW := trap_suppresses_exwb_regW trap_taken dTLBMiss pendingWriteEn
+    mmuBusy dMMURedirect idex_regWrite t h_trap
+  unfold wbEnSignal Signal.atTime
+  rw [wb_signal_and_val]
+  rw [show (exwbRegWSignal
+    (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+    idex_regWrite).val (t + 1) = false from h_regW]
+  rfl
+
 /-! ## Connection to invariant A
 
   Invariant A requires "regfile preservation across trap":
