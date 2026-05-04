@@ -203,4 +203,33 @@ def b3weSignal {dom : DomainConfig}
     : Signal dom Bool :=
   isSW ||| ((isSH &&& storeHalfHigh) ||| (isSB &&& storeByteOff3))
 
+/-! ## Per-lane DRAM-write enable
+
+  Each of the 4 byte lanes' actual WE is `dmem_we ∧ bNwe`:
+    - `dmem_we` is the gating term (= memWrite + DMEM + ¬TLBmiss + ¬scExFails).
+    - `bNwe` is the funct3+addr-derived per-lane enable from the
+      width predicates above.
+
+  Both are required for the byte to commit.
+-/
+
+@[inline] def byteWePure (dmem_we bNwe : Bool) : Bool :=
+  dmem_we && bNwe
+
+@[simp] theorem byteWe_no_dmem (bNwe : Bool) :
+    byteWePure false bNwe = false := rfl
+
+@[simp] theorem byteWe_no_lane (dmem_we : Bool) :
+    byteWePure dmem_we false = false := by
+  unfold byteWePure; cases dmem_we <;> rfl
+
+@[simp] theorem byteWe_active : byteWePure true true = true := rfl
+
+theorem byteWePure_spec (dmem_we bNwe : Bool) :
+    byteWePure dmem_we bNwe = (dmem_we && bNwe) := rfl
+
+def byteWeSignal {dom : DomainConfig}
+    (dmem_we bNwe : Signal dom Bool) : Signal dom Bool :=
+  dmem_we &&& bNwe
+
 end Sparkle.IP.RV32.Bus

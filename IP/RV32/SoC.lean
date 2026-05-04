@@ -616,10 +616,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let b1we := Sparkle.IP.RV32.Bus.b1weSignal isSB isSH isSW storeHalfLow storeByteOff1
     let b2we := Sparkle.IP.RV32.Bus.b2weSignal isSB isSH isSW storeHalfHigh storeByteOff2
     let b3we := Sparkle.IP.RV32.Bus.b3weSignal isSB isSH isSW storeHalfHigh storeByteOff3
-    let byte0_we := dmem_we &&& b0we
-    let byte1_we := dmem_we &&& b1we
-    let byte2_we := dmem_we &&& b2we
-    let byte3_we := dmem_we &&& b3we
+    -- Per-lane DRAM-write enables: dmem_we ∧ b{0,1,2,3}we (proven in Bus/StoreWidth.lean).
+    let byte0_we := Sparkle.IP.RV32.Bus.byteWeSignal dmem_we b0we
+    let byte1_we := Sparkle.IP.RV32.Bus.byteWeSignal dmem_we b1we
+    let byte2_we := Sparkle.IP.RV32.Bus.byteWeSignal dmem_we b2we
+    let byte3_we := Sparkle.IP.RV32.Bus.byteWeSignal dmem_we b3we
 
     -- Byte write data: position rs2 bytes for each byte lane
     let rs2_byte0 := ex_rs2_approx.map (BitVec.extractLsb' 0 8 ·)
