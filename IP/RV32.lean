@@ -69,6 +69,7 @@ import IP.RV32.CSR.MIP
 import IP.RV32.CSR.MipSoft
 import IP.RV32.CSR.Sstatus
 import IP.RV32.CSR.Funct3
+import IP.RV32.CSR.PMPRange
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.AbortGuarantee
 import IP.RV32.Pipeline.FlushSquash

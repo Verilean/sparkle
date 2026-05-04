@@ -83,6 +83,7 @@ import IP.RV32.CSR.Commit
 import IP.RV32.CSR.MIP
 import IP.RV32.CSR.MipSoft
 import IP.RV32.CSR.Sstatus
+import IP.RV32.CSR.PMPRange
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.IdexLive
@@ -942,14 +943,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let csrIsCycle    := idex_csrAddr === 0xC00#12
     let csrIsCycleh   := idex_csrAddr === 0xC80#12
 
-    -- PMP CSR range detection (0x3A0-0x3EF): return 0, silently ignore writes
-    let csrAddrHi := idex_csrAddr.map (BitVec.extractLsb' 4 8 ·)  -- bits [11:4]
-    let csrIsPmp :=
-      (csrAddrHi === 0x3A#8) |||
-      (csrAddrHi === 0x3B#8) |||
-      (csrAddrHi === 0x3C#8) |||
-      (csrAddrHi === 0x3D#8) |||
-      (csrAddrHi === 0x3E#8)
+    -- PMP CSR range check (proven in CSR/PMPRange.lean): csrAddr ∈
+    -- [0x3A0, 0x3EF]. Sparkle returns 0 on read, silently ignores writes.
+    let csrIsPmp := Sparkle.IP.RV32.CSR.csrIsPmpSignal idex_csrAddr
 
     -- SSTATUS: masked view of mstatus (bits SIE/SPIE/SPP/SUM/MXR)
     -- sstatus alias (proven in CSR/Sstatus.lean): exposes only
