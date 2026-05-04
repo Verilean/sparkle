@@ -138,4 +138,58 @@ theorem privModeNextSignal_eq_pure {dom : DomainConfig}
   unfold privModeNextSignal privModeNextPure
   simp [Signal.mux, Signal.pure]
 
+/-! ## Privilege-level comparators
+
+  Trap delegation in `Trap/Delegation.lean` checks whether the
+  current privilege is ≤ S — i.e., the trap can be delegated to
+  S-mode if `priv ∈ {U, S}` (M cannot delegate to S, because
+  M-mode traps stay in M).
+
+  We use the encoding:
+    U = 0
+    S = 1
+    Reserved = 2 (unused)
+    M = 3
+
+  So:
+    privGtS = priv > 1#2 = priv ∈ {2, 3}
+    privLeS = ¬privGtS  = priv ∈ {0, 1}
+
+  Note that priv = 2 (Reserved) is a hardware-impossible value;
+  the loop's `privModeNextPure` only assigns U/S/M, so under
+  reachable states `privGtS = (priv = M)`. We don't depend on
+  that here — the spec is the literal Bool comparator.
+-/
+
+/-- privGtS: current priv is greater than S (= M, since 2 is reserved). -/
+@[inline] def privGtSPure (priv : BitVec 2) : Bool := 1#2 < priv
+
+/-- privLeS: current priv is ≤ S (= U or S). -/
+@[inline] def privLeSPure (priv : BitVec 2) : Bool := !(privGtSPure priv)
+
+/-- privGtS at U: false (0 < 1 is true… wait, this is "greater than", so 0 > 1 = false). -/
+@[simp] theorem privGtS_U : privGtSPure 0#2 = false := by decide
+@[simp] theorem privGtS_S : privGtSPure 1#2 = false := by decide
+@[simp] theorem privGtS_M : privGtSPure 3#2 = true := by decide
+
+@[simp] theorem privLeS_U : privLeSPure 0#2 = true := by decide
+@[simp] theorem privLeS_S : privLeSPure 1#2 = true := by decide
+@[simp] theorem privLeS_M : privLeSPure 3#2 = false := by decide
+
+/-- Mutual exclusion: privGtS xor privLeS = always true. -/
+theorem privGtS_xor_privLeS (priv : BitVec 2) :
+    privGtSPure priv ≠ privLeSPure priv := by
+  unfold privLeSPure
+  cases privGtSPure priv <;> simp
+
+/-! ### Signal-level wrappers -/
+
+def privGtSSignal {dom : DomainConfig}
+    (priv : Signal dom (BitVec 2)) : Signal dom Bool :=
+  Signal.ult (Signal.pure 1#2) priv
+
+def privLeSSignal {dom : DomainConfig}
+    (priv : Signal dom (BitVec 2)) : Signal dom Bool :=
+  ~~~(privGtSSignal priv)
+
 end Sparkle.IP.RV32.Privilege

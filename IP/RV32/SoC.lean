@@ -1076,8 +1076,9 @@ def rv32iSoCBody {dom : DomainConfig}
     -- `trapToMSignal_eq_pure`). The Signal API is split into two
     -- functions because the synthesis backend does not handle Prod
     -- return types.
-    let privGtS := Signal.ult (Signal.pure 1#2) privMode
-    let privLeS := ~~~privGtS
+    -- Privilege-level comparators (proven in Privilege/PrivMode.lean).
+    let privGtS := Sparkle.IP.RV32.Privilege.privGtSSignal privMode
+    let privLeS := Sparkle.IP.RV32.Privilege.privLeSSignal privMode
     let trapToS :=
       Sparkle.IP.RV32.Trap.trapToSSignal trap_taken delegated privLeS
     let trapToM :=
