@@ -56,6 +56,7 @@ import IP.RV32.Decoder.AluControl
 import IP.RV32.Decoder.Control
 import IP.RV32.Decoder.Fields
 import IP.RV32.Decoder.System
+import IP.RV32.Decoder.Opcode
 import IP.RV32.Mext.Mul
 import IP.RV32.Mext.Div
 import IP.RV32.Mext.DivPending

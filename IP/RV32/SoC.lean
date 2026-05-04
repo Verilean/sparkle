@@ -72,6 +72,7 @@ import IP.RV32.BitNetPeripheral
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Decode
 import IP.RV32.Decoder.System
+import IP.RV32.Decoder.Opcode
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
@@ -1124,15 +1125,16 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_funct7 := ifid_inst.map (BitVec.extractLsb' 25 7 ·)
     let id_imm := immGenSignal ifid_inst id_opcode
     let id_aluOp := aluControlSignal id_opcode id_funct3 id_funct7
-    let id_isALUrr  := id_opcode === 0b0110011#7
-    let id_isALUimm := id_opcode === 0b0010011#7
-    let id_isLoad   := id_opcode === 0b0000011#7
-    let id_isStore  := id_opcode === 0b0100011#7
-    let id_isBranch := id_opcode === 0b1100011#7
-    let id_isLUI    := id_opcode === 0b0110111#7
-    let id_isAUIPC  := id_opcode === 0b0010111#7
-    let id_isJAL    := id_opcode === 0b1101111#7
-    let id_isJALR   := id_opcode === 0b1100111#7
+    -- Opcode predicates (proven in Decoder/Opcode.lean): pairwise mutex.
+    let id_isALUrr  := Sparkle.IP.RV32.Decoder.isALUrrSignal id_opcode
+    let id_isALUimm := Sparkle.IP.RV32.Decoder.isALUimmSignal id_opcode
+    let id_isLoad   := Sparkle.IP.RV32.Decoder.isLoadSignal id_opcode
+    let id_isStore  := Sparkle.IP.RV32.Decoder.isStoreSignal id_opcode
+    let id_isBranch := Sparkle.IP.RV32.Decoder.isBranchSignal id_opcode
+    let id_isLUI    := Sparkle.IP.RV32.Decoder.isLUISignal id_opcode
+    let id_isAUIPC  := Sparkle.IP.RV32.Decoder.isAUIPCSignal id_opcode
+    let id_isJAL    := Sparkle.IP.RV32.Decoder.isJALSignal id_opcode
+    let id_isJALR   := Sparkle.IP.RV32.Decoder.isJALRSignal id_opcode
     let id_isSystem := id_opcode === 0b1110011#7
     let id_aluSrcB := ((id_isALUimm ||| id_isLoad) ||| (id_isStore ||| id_isLUI)) |||
                       ((id_isAUIPC ||| id_isJAL) ||| id_isJALR)
