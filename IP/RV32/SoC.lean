@@ -106,6 +106,7 @@ import IP.RV32.Pipeline.Forward
 import IP.RV32.Pipeline.Regfile
 import IP.RV32.Pipeline.Stall
 import IP.RV32.Pipeline.IFID
+import IP.RV32.Pipeline.IFetchSrc
 import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Pipeline.AluResult
 import IP.RV32.Mext.DivPending
@@ -1263,9 +1264,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let fetchPCPlus4 := fetchPC + 4#32
     -- DRAM instruction fetch: 4 combo-read instances sharing DMEM write signals
     -- Use translated physical address when iTLB hit, else raw fetchPC
-    let ifetch_word_addr := Signal.mux ifetchTranslated
-      (ifetchPhysAddr.map (BitVec.extractLsb' 2 23 ·))
-      (fetchPC.map (BitVec.extractLsb' 2 23 ·))
+    -- (proven in Pipeline/IFetchSrc.lean).
+    let ifetch_word_addr :=
+      Sparkle.IP.RV32.Pipeline.ifetchWordAddrSignal ifetchTranslated ifetchPhysAddr fetchPC
     let dram_ifetch_b0 := Signal.memoryComboRead actual_dmem_write_addr actual_byte0_wdata actual_byte0_we ifetch_word_addr
     let dram_ifetch_b1 := Signal.memoryComboRead actual_dmem_write_addr actual_byte1_wdata actual_byte1_we ifetch_word_addr
     let dram_ifetch_b2 := Signal.memoryComboRead actual_dmem_write_addr actual_byte2_wdata actual_byte2_we ifetch_word_addr
@@ -1275,10 +1276,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let dram_ifetch_word := dram_ifetch_hi ++ dram_ifetch_lo
     -- Instruction source mux: DRAM if fetch address is in DRAM range, else firmware IMEM
     -- DRAM range: addresses >= 0x80000000 (bit 31 = 1)
-    let fetchInDRAM := Signal.mux ifetchTranslated
-      ((ifetchPhysAddr.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
-      ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1)
-    let final_imem_rdata := Signal.mux fetchInDRAM dram_ifetch_word imem_rdata
+    -- (proven in Pipeline/IFetchSrc.lean).
+    let fetchInDRAM :=
+      Sparkle.IP.RV32.Pipeline.fetchInDRAMSignal ifetchTranslated ifetchPhysAddr fetchPC
+    let final_imem_rdata :=
+      Sparkle.IP.RV32.Pipeline.finalImemRdataSignal fetchInDRAM dram_ifetch_word imem_rdata
 
     -- Bug fix (idex-double-latch on ifetchStall release): also NOP IFID
     -- during stallDelay so the duplicate fetch doesn't propagate. The
