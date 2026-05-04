@@ -57,6 +57,7 @@ import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
 import IP.RV32.Trap.IRQEnable
 import IP.RV32.CSR.MStatus
+import IP.RV32.CSR.MStatusNext
 import IP.RV32.Pipeline.SuppressEXWB
 
 set_option maxRecDepth 65536
@@ -1418,12 +1419,16 @@ def rv32iSoCBody {dom : DomainConfig}
     let mstatusSretVal :=
       Sparkle.IP.RV32.CSR.mstatusSretValSignal mstatusReg mstatusSPIE_flag
 
-    let mstatusNext := Signal.mux trap_taken mstatusTrapVal
-      (Signal.mux idex_isMret mstatusMretVal
-      (Signal.mux idex_isSret mstatusSretVal
-      (Signal.mux sstatusWriteActive sstatusWdataOut
-      (Signal.mux (idex_isCsr_valid &&& csrIsMstatus) mstatusNewCSR
-        mstatusReg))))
+    -- Five-way priority mux: trap > mret > sret > sstatus-write > mstatus-write > hold.
+    -- Proven in `IP/RV32/CSR/MStatusNext.lean` (priority + invariance).
+    let mstatusNext :=
+      Sparkle.IP.RV32.CSR.mstatusNextSignal
+        trap_taken mstatusTrapVal
+        idex_isMret mstatusMretVal
+        idex_isSret mstatusSretVal
+        sstatusWriteActive sstatusWdataOut
+        (idex_isCsr_valid &&& csrIsMstatus) mstatusNewCSR
+        mstatusReg
     let mieNext := Signal.mux (idex_isCsr_valid &&& csrIsMie) mieNewCSR mieReg
     let mtvecNext := Signal.mux (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
     let mscratchNext := Signal.mux (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
