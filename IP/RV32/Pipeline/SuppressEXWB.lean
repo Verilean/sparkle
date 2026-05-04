@@ -89,6 +89,12 @@ open Sparkle.Core.Signal
     suppressEXWBPure trap_taken dTLBMiss pendingWriteEn mmuBusy true = true := by
   revert trap_taken dTLBMiss pendingWriteEn mmuBusy; decide
 
+/-- A trap clears `validEX`. -/
+@[simp] theorem validEX_trap
+    (dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Bool) :
+    validEXPure true dTLBMiss pendingWriteEn mmuBusy dMMURedirect = false := by
+  revert dTLBMiss pendingWriteEn mmuBusy dMMURedirect; decide
+
 /-- When all five suppressors are clear, `validEX` is `true`. -/
 @[simp] theorem validEX_normal_cycle :
     validEXPure false false false false false = true := by
@@ -247,5 +253,40 @@ theorem idexIsCsrValidPure_spec
 def idexIsCsrValidSignal {dom : DomainConfig}
     (idex_isCsr validEX : Signal dom Bool) : Signal dom Bool :=
   idex_isCsr &&& validEX
+
+/-! ## Trap-suppression for idex_isCsr_valid
+
+  When `trap_taken` fires at cycle t, `validEX` at cycle t is
+  false (combinational, no register delay). So
+  `idex_isCsr_valid = idex_isCsr && validEX = false` regardless
+  of `idex_isCsr`. This is the same-cycle gate that prevents the
+  CSR-write commit from firing during a trap entry.
+-/
+
+/-- **trap at cycle t → idex_isCsr_valid at cycle t = false.**
+
+    Same-cycle (combinational) statement. -/
+theorem trap_clears_idex_isCsr_valid {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isCsr : Signal dom Bool) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    (idexIsCsrValidSignal idex_isCsr
+      (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)).val t
+      = false := by
+  unfold idexIsCsrValidSignal
+  -- (idex_isCsr &&& validEX).val t = idex_isCsr.val t && validEX.val t
+  show (Signal.ap (Signal.map (· && ·) idex_isCsr)
+    (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)).val t = false
+  show (idex_isCsr.val t
+    && (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect).val t) = false
+  -- Show validEX.val t = false
+  have h_validEX :
+    (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect).val t = false := by
+    rw [validEXSignal_eq_pure]
+    rw [show trap_taken.val t = true from h_trap]
+    exact validEX_trap (dTLBMiss.val t) (pendingWriteEn.val t)
+      (mmuBusy.val t) (dMMURedirect.val t)
+  rw [h_validEX]
+  cases idex_isCsr.val t <;> rfl
 
 end Sparkle.IP.RV32.Pipeline
