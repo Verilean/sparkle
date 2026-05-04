@@ -314,4 +314,25 @@ theorem flushDelayReg_set_after_dMMURedirect_LTL {dom : DomainConfig}
   fun t => flushDelayReg_set_after_dMMURedirect branchTaken idex_jump trap_taken
     idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect t
 
+/-- **LTL form of `dMMURedirect_sets_pcReg_next_cycle`.** -/
+theorem dMMURedirect_sets_pcReg_next_cycle_LTL {dom : DomainConfig}
+    (trap_taken idex_isMret idex_isSret : Signal dom Bool)
+    (trapTarget mretTarget sretTarget dMissPC : Signal dom (BitVec 32))
+    (dMMURedirect : Signal dom Bool)
+    (isSFenceVMA : Signal dom Bool) (pc4 : Signal dom (BitVec 32))
+    (flush : Signal dom Bool) (jumpTarget : Signal dom (BitVec 32))
+    (stall : Signal dom Bool) (pcRegSig pcPlus4 : Signal dom (BitVec 32)) :
+    ∀ t, dMMURedirect.val t = true →
+         trap_taken.val t = false →
+         idex_isMret.val t = false →
+         idex_isSret.val t = false →
+         (pcRegSignal
+           (pcNextSignal trap_taken trapTarget idex_isMret mretTarget
+             idex_isSret sretTarget dMMURedirect dMissPC isSFenceVMA pc4
+             flush jumpTarget stall pcRegSig pcPlus4)).val (t + 1) = dMissPC.val t :=
+  fun t h_dmmu h_no_trap h_no_mret h_no_sret =>
+    dMMURedirect_sets_pcReg_next_cycle trap_taken idex_isMret idex_isSret trapTarget
+      mretTarget sretTarget dMissPC dMMURedirect isSFenceVMA pc4 flush jumpTarget
+      stall pcRegSig pcPlus4 t h_dmmu h_no_trap h_no_mret h_no_sret
+
 end Sparkle.IP.RV32.Pipeline
