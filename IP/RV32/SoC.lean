@@ -63,6 +63,7 @@ import IP.RV32.Trap.Delegation
 import IP.RV32.Trap.IRQEnable
 import IP.RV32.Trap.Cause
 import IP.RV32.Trap.TrapTaken
+import IP.RV32.Trap.Entry
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
 import IP.RV32.CSR.NewValue
@@ -1073,10 +1074,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let trapToM :=
       Sparkle.IP.RV32.Trap.trapToMSignal trap_taken delegated privLeS
 
-    -- Trap target: S-mode or M-mode tvec
-    let mtvecBase := mtvecReg &&& 0xFFFFFFFC#32
-    let stvecBase := stvecReg &&& 0xFFFFFFFC#32
-    let trap_target := Signal.mux trapToS stvecBase mtvecBase
+    -- Trap target (proven in Trap/Entry.lean): mtvec/stvec base, low 2 bits
+    -- masked to 0 (direct mode per priv spec §3.1.7).
+    let trap_target :=
+      Sparkle.IP.RV32.Trap.trapTargetSignal trapToS mtvecReg stvecReg
     let mret_target := mepcReg
     let sret_target := sepcReg
 
@@ -1498,9 +1499,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let mcauseNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
         trapToM trapCause (idex_isCsr_valid &&& csrIsMcause) mcauseNewCSR mcauseReg
-    -- trapVal: fetchPC for ifetchPageFault, dMissVaddr for d-side pageFault, else 0
-    let trapVal := Signal.mux ifetchPageFault fetchPC
-      (Signal.mux pageFault dMissVaddr (Signal.pure 0#32))
+    -- trapVal (proven in Trap/Entry.lean): fetchPC | dMissVaddr | 0.
+    let trapVal :=
+      Sparkle.IP.RV32.Trap.trapValSignal ifetchPageFault pageFault fetchPC dMissVaddr
     let mtvalNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
         trapToM trapVal (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg
