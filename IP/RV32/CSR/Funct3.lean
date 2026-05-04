@@ -163,4 +163,57 @@ def csrIsRCSignal {dom : DomainConfig}
     (funct3 : Signal dom (BitVec 3)) : Signal dom Bool :=
   csrF3LowSignal funct3 === 0b11#2
 
+/-! ## CSR write-data formation
+
+  CSR writes can come from one of two sources, distinguished by
+  csrIsImm:
+
+    csrIsImm = funct3[2] = 1  →  CSRRWI/CSRRSI/CSRRCI: 5-bit zimm,
+                                  zero-extended to 32 bits
+              ¬csrIsImm       →  CSRRW/CSRRS/CSRRC: rs1 register value
+
+  The zimm reuses the rs1Idx field of the instruction as a 5-bit
+  immediate.
+-/
+
+@[inline] def csrZimmPure (rs1Idx : BitVec 5) : BitVec 32 :=
+  (0#27 : BitVec 27) ++ rs1Idx
+
+@[inline] def csrWdataPure
+    (csrIsImm : Bool) (csrZimm ex_rs1 : BitVec 32) : BitVec 32 :=
+  if csrIsImm then csrZimm else ex_rs1
+
+@[simp] theorem csrWdata_imm (csrZimm ex_rs1 : BitVec 32) :
+    csrWdataPure true csrZimm ex_rs1 = csrZimm := rfl
+
+@[simp] theorem csrWdata_reg (csrZimm ex_rs1 : BitVec 32) :
+    csrWdataPure false csrZimm ex_rs1 = ex_rs1 := rfl
+
+theorem csrWdataPure_spec
+    (csrIsImm : Bool) (csrZimm ex_rs1 : BitVec 32) :
+    csrWdataPure csrIsImm csrZimm ex_rs1 =
+      (if csrIsImm then csrZimm else ex_rs1) := rfl
+
+/-- csrZimm has zero bits in [31:5]. -/
+theorem csrZimm_high_zero (rs1Idx : BitVec 5) :
+    (csrZimmPure rs1Idx).extractLsb' 5 27 = 0#27 := by
+  unfold csrZimmPure
+  bv_decide
+
+/-- csrZimm preserves rs1Idx in low 5 bits. -/
+theorem csrZimm_low_eq (rs1Idx : BitVec 5) :
+    (csrZimmPure rs1Idx).extractLsb' 0 5 = rs1Idx := by
+  unfold csrZimmPure
+  bv_decide
+
+def csrZimmSignal {dom : DomainConfig}
+    (rs1Idx : Signal dom (BitVec 5)) : Signal dom (BitVec 32) :=
+  let zero27 : Signal dom (BitVec 27) := Signal.pure 0#27
+  zero27 ++ rs1Idx
+
+def csrWdataSignal {dom : DomainConfig}
+    (csrIsImm : Signal dom Bool)
+    (csrZimm ex_rs1 : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux csrIsImm csrZimm ex_rs1
+
 end Sparkle.IP.RV32.CSR

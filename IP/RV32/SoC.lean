@@ -1428,10 +1428,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let uartDLLNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartDLLWE uartWdata8 uartDLLReg
     let uartDLMNext := Sparkle.IP.RV32.CSR.csrPlainNextSignal8 uartDLMWE uartWdata8 uartDLMReg
 
-    -- CSR funct3 decode (proven in CSR/Funct3.lean): RW/RS/RC mutex.
+    -- CSR funct3 decode (proven in CSR/Funct3.lean): RW/RS/RC mutex,
+    -- csrZimm 27-bit zero-extension, csrWdata imm/reg select.
     let csrIsImm := Sparkle.IP.RV32.CSR.csrIsImmSignal idex_csrFunct3
-    let csrZimm := (0#27 : BitVec 27) ++ idex_rs1Idx
-    let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
+    let csrZimm := Sparkle.IP.RV32.CSR.csrZimmSignal idex_rs1Idx
+    let csrWdata := Sparkle.IP.RV32.CSR.csrWdataSignal csrIsImm csrZimm ex_rs1
     let csrIsRW := Sparkle.IP.RV32.CSR.csrIsRWSignal idex_csrFunct3
     let csrIsRS := Sparkle.IP.RV32.CSR.csrIsRSSignal idex_csrFunct3
     let csrIsRC := Sparkle.IP.RV32.CSR.csrIsRCSignal idex_csrFunct3
