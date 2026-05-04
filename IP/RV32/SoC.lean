@@ -61,6 +61,7 @@ import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
 import IP.RV32.MMU.PTE
 import IP.RV32.MMU.TLB
+import IP.RV32.MMU.Fill
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.MMIO.BitNet
@@ -1647,46 +1648,48 @@ def rv32iSoCBody {dom : DomainConfig}
     let fillVPN := ptwVaddrReg.map (BitVec.extractLsb' 12 20 ·)
 
     -- Replacement pointer: which entry to fill
-    let replIs0 := replPtrReg === 0#2
-    let replIs1 := replPtrReg === 1#2
-    let replIs2 := replPtrReg === 2#2
-    let replIs3 := replPtrReg === 3#2
-    let doFill0 := tlbFill &&& replIs0
-    let doFill1 := tlbFill &&& replIs1
-    let doFill2 := tlbFill &&& replIs2
-    let doFill3 := tlbFill &&& replIs3
+    -- TLB fill predicates (proven in MMU/Fill.lean): pairwise mutex
+    -- (exactly one TLB entry is filled per cycle).
+    let replIs0 := Sparkle.IP.RV32.MMU.replIs0Signal replPtrReg
+    let replIs1 := Sparkle.IP.RV32.MMU.replIs1Signal replPtrReg
+    let replIs2 := Sparkle.IP.RV32.MMU.replIs2Signal replPtrReg
+    let replIs3 := Sparkle.IP.RV32.MMU.replIs3Signal replPtrReg
+    let doFill0 := Sparkle.IP.RV32.MMU.doFillNSignal tlbFill replIs0
+    let doFill1 := Sparkle.IP.RV32.MMU.doFillNSignal tlbFill replIs1
+    let doFill2 := Sparkle.IP.RV32.MMU.doFillNSignal tlbFill replIs2
+    let doFill3 := Sparkle.IP.RV32.MMU.doFillNSignal tlbFill replIs3
 
     -- SFENCE.VMA clears all TLB entries
     let sfenceVMA := idex_isSFenceVMA
 
-    -- TLB entry next-state
-    let tlb0ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill0 (Signal.pure true) tlb0Valid)
+    -- TLB entry next-state (proven in MMU/Fill.lean):
+    -- valid: sfence > fill > hold; data: fill ? new : hold.
+    let tlb0ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill0 tlb0Valid
     let tlb0VPNNext := Signal.mux doFill0 fillVPN tlb0VPN
     let tlb0PPNNext := Signal.mux doFill0 ptePPNFull tlb0PPN
     let tlb0FlagsNext := Signal.mux doFill0 pteFlags tlb0Flags
     let tlb0MegaNext := Signal.mux doFill0 ptwMegaReg tlb0Mega
 
-    let tlb1ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill1 (Signal.pure true) tlb1Valid)
+    let tlb1ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill1 tlb1Valid
     let tlb1VPNNext := Signal.mux doFill1 fillVPN tlb1VPN
     let tlb1PPNNext := Signal.mux doFill1 ptePPNFull tlb1PPN
     let tlb1FlagsNext := Signal.mux doFill1 pteFlags tlb1Flags
     let tlb1MegaNext := Signal.mux doFill1 ptwMegaReg tlb1Mega
 
-    let tlb2ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill2 (Signal.pure true) tlb2Valid)
+    let tlb2ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill2 tlb2Valid
     let tlb2VPNNext := Signal.mux doFill2 fillVPN tlb2VPN
     let tlb2PPNNext := Signal.mux doFill2 ptePPNFull tlb2PPN
     let tlb2FlagsNext := Signal.mux doFill2 pteFlags tlb2Flags
     let tlb2MegaNext := Signal.mux doFill2 ptwMegaReg tlb2Mega
 
-    let tlb3ValidNext := Signal.mux sfenceVMA (Signal.pure false) (Signal.mux doFill3 (Signal.pure true) tlb3Valid)
+    let tlb3ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill3 tlb3Valid
     let tlb3VPNNext := Signal.mux doFill3 fillVPN tlb3VPN
     let tlb3PPNNext := Signal.mux doFill3 ptePPNFull tlb3PPN
     let tlb3FlagsNext := Signal.mux doFill3 pteFlags tlb3Flags
     let tlb3MegaNext := Signal.mux doFill3 ptwMegaReg tlb3Mega
 
-    -- Replacement pointer: increment on fill
-    let replPtrNext := Signal.mux tlbFill
-      (replPtrReg + 1#2) replPtrReg
+    -- Replacement pointer: increment on fill (proven in MMU/Fill.lean).
+    let replPtrNext := Sparkle.IP.RV32.MMU.replPtrNextSignal tlbFill replPtrReg
 
     -- MMU FSM transitions (proven in MMU/FSM.lean):
     -- IDLE+miss → WALK; WALK+done/fault → DONE/FAULT; DONE/FAULT → IDLE.
