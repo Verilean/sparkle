@@ -153,6 +153,24 @@ Even before proving it as a theorem, we can write the *spec* and check
 which of the two disjuncts our hardware satisfies — that's already
 informative.
 
+#### Sequential-invariant status (2026-05-05)
+
+The five invariants in §2.2 are now scaffolded to varying depth:
+
+| # | Status | Notes |
+|---|--------|-------|
+| A | partial (HW-side) | `Pipeline/RegfileTrapInv.lean::trap_suppresses_wb_en` proves `wb_en=false at t+1` whenever `trap_taken at t`. Kernel-ABI half is software contract. |
+| B | **fully proven** | `Pipeline/FlushSquash.lean::mret_squashes_idex_next_cycle` (and `sret_*` variant) — IDEX latches NOP-init at t+1 on mret. |
+| C | scaffolded end-to-end | Cycle-N: `MMURedirectInv.lean::dMMURedirect_implies_squash` + `pcNext_eq_dMissPC_on_dMMURedirect`. Cycle-N+1: `MMURedirectInv.lean::dMMURedirect_sets_pcReg_next_cycle` + `Pipeline/IFID.lean::fetchPCReg_flush_sets_pcNext_next_cycle` + `MMU/Fill.lean::tlbHit_after_fill_4k`/`_mega` + `anyTLBHit_after_fill0_4k`. The "IFID register propagates IMEM-read to next IDEX" final step uses `Signal.register` semantics already exercised, but isn't packaged as a single composite theorem yet. |
+| D | **fully proven** | `AMO/LRSCAcrossTrap.lean::sc_after_trap_fails` (combined with `dmemWe_sc_fail`). |
+| E | partial (HW-side) | `Pipeline/StoreDuringTrap.lean::trap_suppresses_dram_write` proves the post-fix gate suppresses DRAM `dmem_we` during trap. Idempotency half (the kernel's restored sp matches pre-trap sp) is software contract. The "before/after fix" pair (`AbortGuarantee.lean::dmemWe_not_gated_by_trap` witness + this proof) gives a complete spec of the bug-fix's effect. |
+
+Six side-effect channels proven suppressed on trap entry (see
+`Pipeline/SideEffectsTrapInv.lean`): DRAM byte_we, regfile wb_en,
+CSR new-values, peripheral writes (CLINT/MMIO/UART), jump
+PC-redirect, AMO writeback, prevStoreEn (one-cycle store-load
+forwarding capture).
+
 ### 2.3 IO / memory boundary
 
 Things that touch DRAM/MMIO can't be proven about the host platform
