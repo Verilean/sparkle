@@ -96,4 +96,26 @@ def peripheralWESignal {dom : DomainConfig}
     (idex_memWrite targetMatch validEX : Signal dom Bool) : Signal dom Bool :=
   idex_memWrite &&& (targetMatch &&& validEX)
 
+/-! ## Trap-suppression of peripheralWE
+
+  When `validEX.val t = false` (e.g., trap fires), the
+  `peripheralWESignal` is false at cycle t regardless of
+  memWrite or target match. This is the combinational form
+  needed for "trap → no peripheral write in same cycle".
+-/
+
+theorem peripheralWESignal_false_when_validEX_false {dom : DomainConfig}
+    (idex_memWrite targetMatch validEX : Signal dom Bool) (t : Nat)
+    (h_no_validEX : validEX.val t = false) :
+    (peripheralWESignal idex_memWrite targetMatch validEX).val t = false := by
+  unfold peripheralWESignal
+  show (Signal.ap (Signal.map (· && ·) idex_memWrite)
+    (targetMatch &&& validEX)).val t = false
+  show (idex_memWrite.val t && (targetMatch &&& validEX).val t) = false
+  show (idex_memWrite.val t
+    && (Signal.ap (Signal.map (· && ·) targetMatch) validEX).val t) = false
+  show (idex_memWrite.val t && (targetMatch.val t && validEX.val t)) = false
+  rw [h_no_validEX]
+  cases idex_memWrite.val t <;> cases targetMatch.val t <;> rfl
+
 end Sparkle.IP.RV32.Bus
