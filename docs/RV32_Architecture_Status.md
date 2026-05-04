@@ -184,11 +184,12 @@ SoC.lean's synthesized loop:
 | `CSR/CommitTrapInv.lean` | 21 | 16 plain (mie/mtvec/mscratch/satp/...) + 5 trap-override (mepc/mcause/mtval/sepc/scause/stval) |
 | `CLINT/CommitTrapInv.lean` | 5 | msip/mtimecmpLo/Hi/mtimeLo/Hi |
 | `UART/CommitTrapInv.lean` | 6 | LCR/IER/MCR/SCR/DLL/DLM (8-bit) |
+| `MMIO/CommitTrapInv.lean` | 2 | aiStatusReg/aiInputReg (BitNet MMIO) |
 | `CSR/MStatusNext.lean` | 1 | mstatus 5-way priority register |
 | `Pipeline/MMURedirectInv.lean` | 1 | pcReg cycle-N+1 redirect to dMissPC |
 | `AMO/LRSCAcrossTrap.lean` | 1 | trap → pendingWriteEn=false at t+2 |
 
-Total: **34 multi-cycle composites**. Together they certify that
+Total: **37 multi-cycle composites**. Together they certify that
 a trap-aborted in-flight instruction cannot:
 
   * Modify any architectural register state (regfile, all CSRs,
