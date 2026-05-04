@@ -152,6 +152,30 @@ def isAMOrwSignal {dom : DomainConfig}
     (isAMO isLR isSC : Signal dom Bool) : Signal dom Bool :=
   isAMO &&& (~~~(isLR ||| isSC))
 
+/-! ## isAMO-clears-AMOrw cycle-wise lemma
+
+  When `isAMO.val t = false`, the 3-arg `isAMOrwSignal` value at
+  cycle t is also false (regardless of LR/SC). This is the key
+  intermediate step for the trap-suppression chain:
+
+    trap at cycle t-1 → exwb_isAMO at t = false
+    exwb_isAMO = false at t → exwb_isAMOrw = false at t (this lemma)
+    exwb_isAMOrw = false at t → pendingWriteEn-next at t = false
+                              → pendingWriteEn at t+1 = false
+-/
+
+theorem isAMOrwSignal_false_when_isAMO_false {dom : DomainConfig}
+    (isAMO isLR isSC : Signal dom Bool) (t : Nat)
+    (h : isAMO.val t = false) :
+    (isAMOrwSignal isAMO isLR isSC).val t = false := by
+  unfold isAMOrwSignal
+  -- (isAMO &&& (~~~(isLR ||| isSC))).val t = isAMO.val t && _
+  show (isAMO &&& (~~~(isLR ||| isSC))).val t = false
+  show (Signal.ap (Signal.map (· && ·) isAMO) (~~~(isLR ||| isSC))).val t = false
+  show (isAMO.val t && _) = false
+  rw [h]
+  rfl
+
 /-! ## AMO immediate-zero override
 
   AMO instructions are R-type encoding-wise (no immediate field

@@ -144,4 +144,41 @@ def pendingWriteDataNextSignal {dom : DomainConfig}
     : Signal dom (BitVec 32) :=
   Signal.mux exwb_isAMOrw amoNewVal pendingWriteData
 
+/-! ## Sequential: exwb_isAMOrw = false at t → pendingWriteEn = false at t+1
+
+  The pendingWriteEn register is a `Signal.register false
+  (pendingWriteEnNextSignal exwb_isAMOrw)`. Its next-state IS
+  exwb_isAMOrw (`pendingWriteEnNextPure exwb_isAMOrw =
+  exwb_isAMOrw`), so when exwb_isAMOrw is false at cycle t, the
+  register at cycle t+1 holds false.
+
+  Combined with `isAMOrwSignal_false_when_isAMO_false` and
+  `trap_clears_exwb_isAMO`, this gives:
+
+    trap at cycle t → exwb_isAMO at t+1 = false
+                    → exwb_isAMOrw at t+1 = false
+                    → pendingWriteEn at t+2 = false
+
+  i.e., a trap-aborted AMO does NOT trigger its DRAM writeback
+  in cycle t+2 (one cycle after the suppressed exwb_isAMO).
+-/
+
+/-- pendingWriteEn-register wrapper. -/
+def pendingWriteEnRegSignal {dom : DomainConfig}
+    (exwb_isAMOrw : Signal dom Bool) : Signal dom Bool :=
+  Signal.register false (pendingWriteEnNextSignal exwb_isAMOrw)
+
+/-- **exwb_isAMOrw = false at cycle t → pendingWriteEn at t+1 = false.** -/
+theorem pendingWriteEn_false_after_amo_clear {dom : DomainConfig}
+    (exwb_isAMOrw : Signal dom Bool) (t : Nat)
+    (h : exwb_isAMOrw.val t = false) :
+    (pendingWriteEnRegSignal exwb_isAMOrw).val (t + 1) = false := by
+  unfold pendingWriteEnRegSignal
+  show (Signal.register false _).val (t + 1) = false
+  -- (register false next).val (t+1) = next.val t
+  show (pendingWriteEnNextSignal exwb_isAMOrw).val t = false
+  -- pendingWriteEnNextSignal is just the identity on its argument.
+  unfold pendingWriteEnNextSignal
+  exact h
+
 end Sparkle.IP.RV32.AMO
