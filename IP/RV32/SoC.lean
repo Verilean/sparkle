@@ -93,6 +93,7 @@ import IP.RV32.CSR.Sstatus
 import IP.RV32.CSR.PMPRange
 import IP.RV32.CSR.ReadMux
 import IP.RV32.CSR.MStatusBits
+import IP.RV32.CSR.Funct3
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.IdexLive
@@ -1389,13 +1390,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let uartDLLNext := Signal.mux uartDLLWE uartWdata8 uartDLLReg
     let uartDLMNext := Signal.mux uartDLMWE uartWdata8 uartDLMReg
 
-    let csrIsImm := (idex_csrFunct3.map (BitVec.extractLsb' 2 1 ·)) === 1#1
-    let csrZimm := 0#27 ++ idex_rs1Idx
+    -- CSR funct3 decode (proven in CSR/Funct3.lean): RW/RS/RC mutex.
+    let csrIsImm := Sparkle.IP.RV32.CSR.csrIsImmSignal idex_csrFunct3
+    let csrZimm := (0#27 : BitVec 27) ++ idex_rs1Idx
     let csrWdata := Signal.mux csrIsImm csrZimm ex_rs1
-    let csrF3Low := idex_csrFunct3.map (BitVec.extractLsb' 0 2 ·)
-    let csrIsRW := csrF3Low === 0b01#2
-    let csrIsRS := csrF3Low === 0b10#2
-    let csrIsRC := csrF3Low === 0b11#2
+    let csrIsRW := Sparkle.IP.RV32.CSR.csrIsRWSignal idex_csrFunct3
+    let csrIsRS := Sparkle.IP.RV32.CSR.csrIsRSSignal idex_csrFunct3
+    let csrIsRC := Sparkle.IP.RV32.CSR.csrIsRCSignal idex_csrFunct3
     -- Three-way RW/RS/RC selector (proven in CSR/NewValue.lean).
     let mkCsrNewVal (oldVal : Signal dom (BitVec 32)) :=
       Sparkle.IP.RV32.CSR.csrNewValSignal oldVal csrWdata csrIsRW csrIsRS csrIsRC
