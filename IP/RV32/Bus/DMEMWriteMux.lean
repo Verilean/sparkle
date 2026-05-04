@@ -180,4 +180,59 @@ def protoDmemByteWeSignal {dom : DomainConfig}
     (finalWe extWE : Signal dom Bool) : Signal dom Bool :=
   finalWe ||| extWE
 
+/-! ## DMEM read address — 3-way priority
+
+  The DRAM read port serves three competing clients:
+
+    1. **PTW (page-table walker)** — when traversing a page
+       table, the PTW issues word reads from the L1 / L0 PTE
+       address. `ptwMemActive = ptwIsL1Req ∨ ptwIsL0Req`.
+    2. **Pending-AMO read** — when committing the AMO writeback
+       (`pendingWriteEn`), the read-channel sees the same word
+       address (write-during-read coherence).
+    3. **EX-stage load** — the default: the address from the
+       current load's effective-address slice.
+
+  Priority: PTW > pending-AMO > EX-stage. PTW must win because
+  page-walks can't be deferred without livelock; pending-AMO
+  beats EX because the AMO is mid-protocol.
+-/
+
+@[inline] def dmemReadAddrPure
+    (ptwMemActive pendingWE : Bool)
+    (ptwMemWordAddr pendWordAddr exEffAddr : BitVec 23) : BitVec 23 :=
+  if ptwMemActive then ptwMemWordAddr
+  else if pendingWE then pendWordAddr
+  else exEffAddr
+
+@[simp] theorem dmemReadAddr_ptw
+    (pendingWE : Bool) (ptwMemWordAddr pendWordAddr exEffAddr : BitVec 23) :
+    dmemReadAddrPure true pendingWE ptwMemWordAddr pendWordAddr exEffAddr =
+      ptwMemWordAddr := rfl
+
+@[simp] theorem dmemReadAddr_amo
+    (ptwMemWordAddr pendWordAddr exEffAddr : BitVec 23) :
+    dmemReadAddrPure false true ptwMemWordAddr pendWordAddr exEffAddr =
+      pendWordAddr := rfl
+
+@[simp] theorem dmemReadAddr_normal
+    (ptwMemWordAddr pendWordAddr exEffAddr : BitVec 23) :
+    dmemReadAddrPure false false ptwMemWordAddr pendWordAddr exEffAddr =
+      exEffAddr := rfl
+
+theorem dmemReadAddrPure_spec
+    (ptwMemActive pendingWE : Bool)
+    (ptwMemWordAddr pendWordAddr exEffAddr : BitVec 23) :
+    dmemReadAddrPure ptwMemActive pendingWE ptwMemWordAddr pendWordAddr exEffAddr =
+      (if ptwMemActive then ptwMemWordAddr
+       else if pendingWE then pendWordAddr
+       else exEffAddr) := rfl
+
+def dmemReadAddrSignal {dom : DomainConfig}
+    (ptwMemActive pendingWE : Signal dom Bool)
+    (ptwMemWordAddr pendWordAddr exEffAddr : Signal dom (BitVec 23))
+    : Signal dom (BitVec 23) :=
+  Signal.mux ptwMemActive ptwMemWordAddr
+    (Signal.mux pendingWE pendWordAddr exEffAddr)
+
 end Sparkle.IP.RV32.Bus

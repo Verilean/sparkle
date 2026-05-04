@@ -572,9 +572,12 @@ def rv32iSoCBody {dom : DomainConfig}
 
     let dmem_write_addr := effectiveAddr.map (BitVec.extractLsb' 2 23 ·)
     let pendWriteWordAddr := pendingWriteAddr.map (BitVec.extractLsb' 2 23 ·)
-    let dmem_read_addr  := Signal.mux ptwMemActive ptwMemWordAddr
-      (Signal.mux pendingWriteEn pendWriteWordAddr
-        (effectiveAddr.map (BitVec.extractLsb' 2 23 ·)))
+    -- DMEM read address: 3-way priority PTW > AMO > EX
+    -- (proven in Bus/DMEMWriteMux.lean).
+    let dmem_read_addr :=
+      Sparkle.IP.RV32.Bus.dmemReadAddrSignal ptwMemActive pendingWriteEn
+        ptwMemWordAddr pendWriteWordAddr
+        (effectiveAddr.map (BitVec.extractLsb' 2 23 ·))
     -- SC fail at EX: if SC and reservation invalid OR addr mismatch, suppress
     -- the memory write. The PA at EX time may be raw (if no MMU) or translated
     -- (effectiveAddr is the chosen one); use that for reservation match.
