@@ -52,6 +52,7 @@ import IP.RV32.MMU.IfetchFault
 import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
+import IP.RV32.MMU.State
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -440,21 +441,21 @@ def rv32iSoCBody {dom : DomainConfig}
     let satpMode := Sparkle.IP.RV32.MMU.satpModeSignal satpReg
     let isMmode := Sparkle.IP.RV32.MMU.isMmodeSignal privMode
     let bypassMMU := Sparkle.IP.RV32.MMU.bypassMMUSignal privMode satpReg
-    -- MMU FSM: IDLE=0, TLB_LOOKUP=1, PTW_WALK=2, DONE=3, FAULT=4
-    let isMMUIdle   := mmuStateReg === 0#3
-    let isPTWWalk   := mmuStateReg === 2#3
-    let isMMUDone   := mmuStateReg === 3#3
-    let isMMUFault  := mmuStateReg === 4#3
-    -- D-side MMU redirect: after PTW completes, re-execute the faulting instruction
-    let dMMURedirect := isMMUDone &&& (~~~bypassMMU)
-    -- PTW FSM: IDLE=0, L1_REQ=1, L1_WAIT=2, L0_REQ=3, L0_WAIT=4, DONE=5, FAULT=6
-    let ptwIsIdle   := ptwStateReg === 0#3
-    let ptwIsL1Req  := ptwStateReg === 1#3
-    let ptwIsL1Wait := ptwStateReg === 2#3
-    let ptwIsL0Req  := ptwStateReg === 3#3
-    let ptwIsL0Wait := ptwStateReg === 4#3
-    let ptwIsDone   := ptwStateReg === 5#3
-    let ptwIsFault  := ptwStateReg === 6#3
+    -- MMU/PTW state decoders (proven in MMU/State.lean): per-state
+    -- characteristic functions + pairwise mutex.
+    let isMMUIdle   := Sparkle.IP.RV32.MMU.isMMUIdleSignal mmuStateReg
+    let isPTWWalk   := Sparkle.IP.RV32.MMU.isPTWWalkSignal mmuStateReg
+    let isMMUDone   := Sparkle.IP.RV32.MMU.isMMUDoneSignal mmuStateReg
+    let isMMUFault  := Sparkle.IP.RV32.MMU.isMMUFaultSignal mmuStateReg
+    let dMMURedirect :=
+      Sparkle.IP.RV32.MMU.dMMURedirectSignal mmuStateReg bypassMMU
+    let ptwIsIdle   := Sparkle.IP.RV32.MMU.ptwIsIdleSignal ptwStateReg
+    let ptwIsL1Req  := Sparkle.IP.RV32.MMU.ptwIsL1ReqSignal ptwStateReg
+    let ptwIsL1Wait := Sparkle.IP.RV32.MMU.ptwIsL1WaitSignal ptwStateReg
+    let ptwIsL0Req  := Sparkle.IP.RV32.MMU.ptwIsL0ReqSignal ptwStateReg
+    let ptwIsL0Wait := Sparkle.IP.RV32.MMU.ptwIsL0WaitSignal ptwStateReg
+    let ptwIsDone   := Sparkle.IP.RV32.MMU.ptwIsDoneSignal ptwStateReg
+    let ptwIsFault  := Sparkle.IP.RV32.MMU.ptwIsFaultSignal ptwStateReg
     -- PTW memory address generation
     -- Sv32: L1 addr = {satpPPN[19:0], 12'd0} + {VPN1, 2'd0}
     --        L0 addr = {ptePPN[19:0], 12'd0} + {VPN0, 2'd0}
