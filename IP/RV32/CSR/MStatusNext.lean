@@ -185,4 +185,72 @@ theorem mstatusNextSignal_eq_pure {dom : DomainConfig}
   cases h_mw : mstatusWrite.val t <;>
   simp [h_trap, h_mret, h_sret, h_sw, h_mw]
 
+/-! ## Sequential mstatus register
+
+  `mstatus` is held in a `Signal.register init mstatusNextSignal` —
+  next-state via the 5-way priority mux above. This file packages
+  the cycle-wise sequential statements:
+    * trap fires at t → mstatus at t+1 = trapVal.val t
+    * (no event)      → mstatus at t+1 = mstatus.val t
+-/
+
+/-- mstatus register wrapper. -/
+def mstatusRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32))
+    (mstatus : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init
+    (mstatusNextSignal trapTaken trapVal isMret mretVal isSret sretVal
+      sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus)
+
+/-- **trap at cycle t → mstatus at t+1 = trapVal.val t.**
+
+    The trap-entry path takes priority over every other arm of
+    the 5-way mux. -/
+theorem mstatusReg_latches_trapVal_on_trap {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32))
+    (mstatus : Signal dom (BitVec 32)) (t : Nat)
+    (h_trap : trapTaken.val t = true) :
+    (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+      sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus).val (t + 1) =
+      trapVal.val t := by
+  unfold mstatusRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (mstatusNextSignal trapTaken trapVal isMret mretVal isSret sretVal
+    sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus).val t = _
+  rw [mstatusNextSignal_eq_pure]
+  rw [h_trap]
+  rfl
+
+/-- **No event at cycle t → mstatus at t+1 = mstatus.val t.** -/
+theorem mstatusReg_hold_when_no_event {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32))
+    (mstatus : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_trap : trapTaken.val t = false)
+    (h_no_mret : isMret.val t = false)
+    (h_no_sret : isSret.val t = false)
+    (h_no_sw : sstatusWrite.val t = false)
+    (h_no_mw : mstatusWrite.val t = false) :
+    (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+      sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus).val (t + 1) =
+      mstatus.val t := by
+  unfold mstatusRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (mstatusNextSignal trapTaken trapVal isMret mretVal isSret sretVal
+    sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus).val t = _
+  rw [mstatusNextSignal_eq_pure]
+  rw [h_no_trap, h_no_mret, h_no_sret, h_no_sw, h_no_mw]
+  rfl
+
 end Sparkle.IP.RV32.CSR
