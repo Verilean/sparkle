@@ -65,11 +65,10 @@ theorem dMMURedirect_implies_squash
   · -- flush fires when dMMURedirect = true
     exact flush_contains_dMMURedirect branchTaken idex_jump trap_taken
       idex_isMret idex_isSret idex_isSFenceVMA
-  · -- flushOrDelay fires (since flush fires), squash fires (since flushOrDelay)
-    apply squash_contains_flushOrDelay
-    apply flushOrDelay_contains_flush
-    exact flush_contains_dMMURedirect branchTaken idex_jump trap_taken
-      idex_isMret idex_isSret idex_isSFenceVMA
+  · -- Use the direct bridge introduced in commit 2d5cbd3.
+    exact squash_contains_dMMURedirect branchTaken idex_jump trap_taken
+      idex_isMret idex_isSret idex_isSFenceVMA flushDelay
+      stallAndNotFreeze stallDelay
 
 /-! ## Cycle-N+1 pcReg = dMissPC on dMMURedirect
 
@@ -124,11 +123,10 @@ theorem dMMURedirect_combinational_invariants
       true dMissPC idex_isSFenceVMA pc4
       true jumpTarget false pcReg pcPlus4 = dMissPC := by
   refine ⟨?_, ?_⟩
-  · -- Squash from dMMURedirect
-    apply squash_contains_flushOrDelay
-    apply flushOrDelay_contains_flush
-    exact flush_contains_dMMURedirect branchTaken idex_jump trap_taken
-      idex_isMret idex_isSret idex_isSFenceVMA
+  · -- Squash from dMMURedirect via the direct bridge.
+    exact squash_contains_dMMURedirect branchTaken idex_jump trap_taken
+      idex_isMret idex_isSret idex_isSFenceVMA flushDelay
+      stallAndNotFreeze stallDelay
   · -- pcNext = dMissPC (with trap/mret/sret false)
     rw [h_no_trap, h_no_mret, h_no_sret]
     rfl
