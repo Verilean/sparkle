@@ -283,6 +283,25 @@ theorem squash_contains_mret
     squashPure stallAndNotFreeze flushOrDelay stallDelay = true :=
   squash_contains_flushOrDelay stallAndNotFreeze flushOrDelay stallDelay
 
+/-- **Direct bridge: `dMMURedirect → squash`.**
+
+    Composes the three step-lemmas above (flush ← dMMURedirect,
+    flushOrDelay ← flush, squash ← flushOrDelay) into a single
+    one-shot statement. This is what the cycle-N+1 invariant C
+    composite uses when claiming "dMMURedirect at N → IDEX
+    squashed at N+1". -/
+theorem squash_contains_dMMURedirect
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA flushDelay stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken idex_jump trap_taken idex_isMret
+        idex_isSret idex_isSFenceVMA true flushDelay)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  apply flushOrDelay_contains_flush
+  exact flush_contains_dMMURedirect branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret idex_isSFenceVMA
+
 /-! ## Composite specs -/
 
 theorem flushPure_spec :
