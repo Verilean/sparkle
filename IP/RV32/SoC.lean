@@ -1352,16 +1352,25 @@ def rv32iSoCBody {dom : DomainConfig}
     -- mtime+1 split-32 increment (proven in CLINT/Timer.lean to match 64-bit add).
     let mtimeLoInc := Sparkle.IP.RV32.CLINT.mtimeIncLoSignal mtimeLoReg
     let mtimeHiInc := Sparkle.IP.RV32.CLINT.mtimeIncHiSignal mtimeLoReg mtimeHiReg
-    let msipNext := Signal.mux (clintWE &&& msipMatch)
-                      ex_rs2_approx msipReg
-    let mtimeLoNext := Signal.mux (clintWE &&& mtimeLoMatch)
-                         ex_rs2_approx mtimeLoInc
-    let mtimeHiNext := Signal.mux (clintWE &&& mtimeHiMatch)
-                         ex_rs2_approx mtimeHiInc
-    let mtimecmpLoNext := Signal.mux (clintWE &&& mtimecmpLoMatch)
-                            ex_rs2_approx mtimecmpLoReg
-    let mtimecmpHiNext := Signal.mux (clintWE &&& mtimecmpHiMatch)
-                            ex_rs2_approx mtimecmpHiReg
+    -- CLINT register write commits (proven via csrPlainNextSignal in
+    -- CSR/Commit.lean). msip / mtimecmp{Lo,Hi} hold-on-no-write; mtime
+    -- {Lo,Hi}'s "hold" arm is the +1 incremented value (per CLINT spec
+    -- mtime advances every cycle absent a CSR write).
+    let msipNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (clintWE &&& msipMatch) ex_rs2_approx msipReg
+    let mtimeLoNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (clintWE &&& mtimeLoMatch) ex_rs2_approx mtimeLoInc
+    let mtimeHiNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (clintWE &&& mtimeHiMatch) ex_rs2_approx mtimeHiInc
+    let mtimecmpLoNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (clintWE &&& mtimecmpLoMatch) ex_rs2_approx mtimecmpLoReg
+    let mtimecmpHiNext :=
+      Sparkle.IP.RV32.CSR.csrPlainNextSignal
+        (clintWE &&& mtimecmpHiMatch) ex_rs2_approx mtimecmpHiReg
 
     let mmioWE := idex_memWrite &&& (is_mmio_ex &&& validEX)
     let mmioOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 4 ·)
