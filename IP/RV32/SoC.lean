@@ -101,6 +101,7 @@ import IP.RV32.CSR.PMPRange
 import IP.RV32.CSR.ReadMux
 import IP.RV32.CSR.MStatusBits
 import IP.RV32.CSR.Funct3
+import IP.RV32.CSR.AddrDecoder
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.IdexLive
@@ -1496,7 +1497,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let sstatusNewVal  := mkCsrNewVal sstatusView
     let sstatusWdataOut :=
       Sparkle.IP.RV32.CSR.sstatusMergeSignal mstatusReg sstatusNewVal
-    let sstatusWriteActive := idex_isCsr_valid &&& csrIsSstatus
+    let sstatusWriteActive :=
+      Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsSstatus
 
     -- Trap-entry mstatus transformers: see `IP.RV32.CSR.MStatus`.
     -- Pure versions `mstatusTrapMVal_pure` / `mstatusTrapSVal_pure`
@@ -1530,18 +1532,18 @@ def rv32iSoCBody {dom : DomainConfig}
         idex_isMret mstatusMretVal
         idex_isSret mstatusSretVal
         sstatusWriteActive sstatusWdataOut
-        (idex_isCsr_valid &&& csrIsMstatus) mstatusNewCSR
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMstatus) mstatusNewCSR
         mstatusReg
     -- Plain CSR write commits (proven in CSR/Commit.lean).
     let mieNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsMie) mieNewCSR mieReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMie) mieNewCSR mieReg
     let mtvecNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsMtvec) mtvecNewCSR mtvecReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMtvec) mtvecNewCSR mtvecReg
     let mscratchNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsMscratch) mscratchNewCSR mscratchReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMscratch) mscratchNewCSR mscratchReg
     -- mepc: use fetchPC for instruction page fault, dMissPC for d-side page fault.
     -- For asynchronous interrupts (timer/sw/ext, M-mode and S-mode), the trap
     -- is not associated with any in-flight instruction. We need to set mepc
@@ -1579,20 +1581,20 @@ def rv32iSoCBody {dom : DomainConfig}
     -- trapTo > write > hold.
     let mepcNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
-        trapToM trapPC (idex_isCsr_valid &&& csrIsMepc) mepcNewCSR mepcReg
+        trapToM trapPC (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMepc) mepcNewCSR mepcReg
     let mcauseNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
-        trapToM trapCause (idex_isCsr_valid &&& csrIsMcause) mcauseNewCSR mcauseReg
+        trapToM trapCause (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMcause) mcauseNewCSR mcauseReg
     -- trapVal (proven in Trap/Entry.lean): fetchPC | dMissVaddr | 0.
     let trapVal :=
       Sparkle.IP.RV32.Trap.trapValSignal ifetchPageFault pageFault fetchPC dMissVaddr
     let mtvalNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
-        trapToM trapVal (idex_isCsr_valid &&& csrIsMtval) mtvalNewCSR mtvalReg
+        trapToM trapVal (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMtval) mtvalNewCSR mtvalReg
     -- mipSoftReg next-state (proven in CSR/MipSoft.lean): only SSIP/STIP/SEIP
     -- bits update from CSR writes; non-mask bits preserved across any write.
-    let mipWriteEn := idex_isCsr_valid &&& csrIsMip
-    let sipWriteEn := idex_isCsr_valid &&& csrIsSip
+    let mipWriteEn := Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMip
+    let sipWriteEn := Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsSip
     let mipSoftNext :=
       Sparkle.IP.RV32.CSR.mipSoftNextSignal
         mipWriteEn sipWriteEn mipNewCSR sipNewCSR mipSoftReg
@@ -1600,40 +1602,40 @@ def rv32iSoCBody {dom : DomainConfig}
     -- S-mode CSR next-state (same proven patterns from CSR/Commit.lean).
     let sieNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsSie) sieNewCSR sieReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsSie) sieNewCSR sieReg
     let stvecNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsStvec) stvecNewCSR stvecReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsStvec) stvecNewCSR stvecReg
     let sscratchNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsSscratch) sscratchNewCSR sscratchReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsSscratch) sscratchNewCSR sscratchReg
     let sepcNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
-        trapToS trapPC (idex_isCsr_valid &&& csrIsSepc) sepcNewCSR sepcReg
+        trapToS trapPC (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsSepc) sepcNewCSR sepcReg
     let scauseNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
-        trapToS trapCause (idex_isCsr_valid &&& csrIsScause) scauseNewCSR scauseReg
+        trapToS trapCause (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsScause) scauseNewCSR scauseReg
     let stvalNext :=
       Sparkle.IP.RV32.CSR.csrTrapOverrideNextSignal
-        trapToS trapVal (idex_isCsr_valid &&& csrIsStval) stvalNewCSR stvalReg
+        trapToS trapVal (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsStval) stvalNewCSR stvalReg
     let satpNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsSatp) satpNewCSR satpReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsSatp) satpNewCSR satpReg
 
     -- Delegation register next-state
     let medelegNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsMedeleg) medelegNewCSR medelegReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMedeleg) medelegNewCSR medelegReg
     let midelegNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsMideleg) midelegNewCSR midelegReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMideleg) midelegNewCSR midelegReg
     -- Counter enable next-state
     let mcounterenNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsMcounteren) mcounterenNewCSR mcounterenReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsMcounteren) mcounterenNewCSR mcounterenReg
     let scounterenNext :=
       Sparkle.IP.RV32.CSR.csrPlainNextSignal
-        (idex_isCsr_valid &&& csrIsScounteren) scounterenNewCSR scounterenReg
+        (Sparkle.IP.RV32.CSR.csrRegWeSignal idex_isCsr_valid csrIsScounteren) scounterenNewCSR scounterenReg
 
     -- Privilege mode next-state: see `IP.RV32.Privilege.PrivMode`.
     -- Pure version `privModeNextPure` and Signal-level
