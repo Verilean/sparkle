@@ -212,4 +212,13 @@ theorem fetchPCReg_flush_sets_pcNext_next_cycle {dom : DomainConfig}
   rw [h_flush]
   rfl
 
+/-- **LTL form of `fetchPCReg_flush_sets_pcNext_next_cycle`.** -/
+theorem fetchPCReg_flush_sets_pcNext_next_cycle_LTL {dom : DomainConfig}
+    (flush stall : Signal dom Bool)
+    (pcNext fetchPC pcReg : Signal dom (BitVec 32)) :
+    ∀ t, flush.val t = true →
+         (fetchPCRegSignal flush stall pcNext fetchPC pcReg).val (t + 1) =
+           pcNext.val t :=
+  fun t => fetchPCReg_flush_sets_pcNext_next_cycle flush stall pcNext fetchPC pcReg t
+
 end Sparkle.IP.RV32.Pipeline
