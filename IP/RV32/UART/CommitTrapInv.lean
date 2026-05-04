@@ -343,4 +343,90 @@ theorem trap_holds_uart_LCR_reg_at_N_plus_2 {dom : DomainConfig}
   exact uart_LCR_hold_when_idex_memWrite_false idex_memWrite_new isUART_ex validEX
     offset init newVal old (n + 1) h_no_memWrite_n1
 
+/-! ## Remaining UART register cycle-N+2 hold composites
+
+  Each follows the same template: idex_memWrite=false at t →
+  uartWE=false at t → register-WE=false at t → reg holds at t+1.
+-/
+
+/-- IER: idex_memWrite=false → reg holds. -/
+theorem uart_IER_hold_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3)) (uartDLAB : Signal dom Bool)
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    let uartWE := peripheralWESignal idex_memWrite isUART_ex validEX
+    let we := uartWriteIERSignal uartWE offset uartDLAB
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE :=
+    uartWE_false_when_idex_memWrite_false idex_memWrite isUART_ex validEX t h_no_memWrite
+  have h_we_false :
+    (uartWriteIERSignal _ offset uartDLAB).val t = false :=
+    uartWriteIER_false_when_uartWE_false _ offset uartDLAB t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- MCR: idex_memWrite=false → reg holds. -/
+theorem uart_MCR_hold_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    let uartWE := peripheralWESignal idex_memWrite isUART_ex validEX
+    let we := uartWriteMCRSignal uartWE offset
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE :=
+    uartWE_false_when_idex_memWrite_false idex_memWrite isUART_ex validEX t h_no_memWrite
+  have h_we_false :
+    (uartWriteMCRSignal _ offset).val t = false :=
+    uartWriteMCR_false_when_uartWE_false _ offset t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- SCR: idex_memWrite=false → reg holds. -/
+theorem uart_SCR_hold_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3))
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    let uartWE := peripheralWESignal idex_memWrite isUART_ex validEX
+    let we := uartWriteSCRSignal uartWE offset
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE :=
+    uartWE_false_when_idex_memWrite_false idex_memWrite isUART_ex validEX t h_no_memWrite
+  have h_we_false :
+    (uartWriteSCRSignal _ offset).val t = false :=
+    uartWriteSCR_false_when_uartWE_false _ offset t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- DLL: idex_memWrite=false → reg holds. -/
+theorem uart_DLL_hold_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3)) (uartDLAB : Signal dom Bool)
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    let uartWE := peripheralWESignal idex_memWrite isUART_ex validEX
+    let we := uartWriteDLLSignal uartWE offset uartDLAB
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE :=
+    uartWE_false_when_idex_memWrite_false idex_memWrite isUART_ex validEX t h_no_memWrite
+  have h_we_false :
+    (uartWriteDLLSignal _ offset uartDLAB).val t = false :=
+    uartWriteDLL_false_when_uartWE_false _ offset uartDLAB t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
+/-- DLM: idex_memWrite=false → reg holds. -/
+theorem uart_DLM_hold_when_idex_memWrite_false {dom : DomainConfig}
+    (idex_memWrite isUART_ex validEX : Signal dom Bool)
+    (offset : Signal dom (BitVec 3)) (uartDLAB : Signal dom Bool)
+    (init : BitVec 8) (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_memWrite : idex_memWrite.val t = false) :
+    let uartWE := peripheralWESignal idex_memWrite isUART_ex validEX
+    let we := uartWriteDLMSignal uartWE offset uartDLAB
+    (csrPlainRegSignal8 init we newVal old).val (t + 1) = old.val t := by
+  have h_uartWE :=
+    uartWE_false_when_idex_memWrite_false idex_memWrite isUART_ex validEX t h_no_memWrite
+  have h_we_false :
+    (uartWriteDLMSignal _ offset uartDLAB).val t = false :=
+    uartWriteDLM_false_when_uartWE_false _ offset uartDLAB t h_uartWE
+  exact csrPlainReg8_hold_when_we_false init _ newVal old t h_we_false
+
 end Sparkle.IP.RV32.UART
