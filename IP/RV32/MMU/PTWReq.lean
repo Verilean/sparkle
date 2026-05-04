@@ -166,4 +166,49 @@ def ptwVaddrNextSignal {dom : DomainConfig}
     (ptwVaddrOnStart ptwVaddr : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   Signal.mux (ptwIsIdle &&& ptwReq) ptwVaddrOnStart ptwVaddr
 
+/-! ## Sequential ptwVaddrReg
+
+  ptwVaddrReg captures the faulting VA at the start of a PTW
+  (`ptwIsIdle ∧ ptwReq` at cycle t), and holds during the walk.
+  After PTW completes (DONE state), the captured VA is used to
+  form the TLB-fill VPN.
+-/
+
+/-- ptwVaddrReg signal wrapper. -/
+def ptwVaddrRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (ptwIsIdle ptwReq : Signal dom Bool)
+    (ptwVaddrOnStart ptwVaddr : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init
+    (ptwVaddrNextSignal ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddr)
+
+/-- **ptwIsIdle ∧ ptwReq at t → ptwVaddrReg at t+1 = ptwVaddrOnStart.val t.** -/
+theorem ptwVaddrReg_capture_on_start {dom : DomainConfig}
+    (init : BitVec 32) (ptwIsIdle ptwReq : Signal dom Bool)
+    (ptwVaddrOnStart ptwVaddr : Signal dom (BitVec 32)) (t : Nat)
+    (h_idle : ptwIsIdle.val t = true)
+    (h_req : ptwReq.val t = true) :
+    (ptwVaddrRegSignal init ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddr).val (t + 1) =
+      ptwVaddrOnStart.val t := by
+  unfold ptwVaddrRegSignal ptwVaddrNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if (ptwIsIdle &&& ptwReq).val t then _ else _) = _
+  show (if (ptwIsIdle.val t && ptwReq.val t) then _ else _) = _
+  rw [h_idle, h_req]
+  rfl
+
+/-- **¬(ptwIsIdle ∧ ptwReq) at t → ptwVaddrReg at t+1 = ptwVaddr.val t (hold).** -/
+theorem ptwVaddrReg_hold_when_not_starting_walk {dom : DomainConfig}
+    (init : BitVec 32) (ptwIsIdle ptwReq : Signal dom Bool)
+    (ptwVaddrOnStart ptwVaddr : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_start : (ptwIsIdle.val t && ptwReq.val t) = false) :
+    (ptwVaddrRegSignal init ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddr).val (t + 1) =
+      ptwVaddr.val t := by
+  unfold ptwVaddrRegSignal ptwVaddrNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if (ptwIsIdle.val t && ptwReq.val t) then _ else _) = _
+  rw [h_no_start]
+  rfl
+
 end Sparkle.IP.RV32.MMU
