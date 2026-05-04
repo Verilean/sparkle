@@ -34,6 +34,7 @@ import Sparkle.Compiler.Elab
 import IP.RV32.CSR.Commit
 import IP.RV32.CSR.AddrDecoder
 import IP.RV32.Pipeline.SuppressEXWB
+import IP.RV32.Pipeline.FlushSquash
 
 namespace Sparkle.IP.RV32.CSR
 
@@ -176,5 +177,57 @@ theorem csrPlainReg_hold_when_idex_isCsr_false {dom : DomainConfig}
     rfl
   -- Step 3: register holds when WE is false.
   exact csrPlainReg_hold_when_we_false init _ newVal old t h_no_we
+
+/-! ## Multi-cycle: trap at N → plain CSR-reg at N+2 = old at N+1
+
+  Chains:
+    1. IDEX squash at N+1 (idex_isCsr at N+1 = false), via
+       `trap_squashes_idex_next_cycle` from FlushSquash (Bool init = false).
+    2. csrPlainReg hold (cycle N+1 → N+2), via
+       `csrPlainReg_hold_when_idex_isCsr_false`.
+
+  Combined with the cycle-N+1 lemma `trap_holds_csrPlain_reg`,
+  this gives a 2-cycle hold guarantee for plain-commit CSRs
+  after a trap. -/
+
+/-- **trap at N + freeze=false at N → plain CSR-reg at N+2 = old at N+1
+    (when wired through idexLatchSignal).**
+
+    Hypotheses on the structural shape:
+    - `h_squash_includes_trap`: trap at N → squash at N (caller
+      discharges via `squash_contains_trap_taken`).
+    - `idex_isCsr_at_N1_is_idex_latch`: at N+1, idex_isCsr equals
+      the IDEX latch's output. -/
+theorem trap_holds_csrPlain_reg_at_N_plus_2 {dom : DomainConfig}
+    (trap_taken freeze squash : Signal dom Bool)
+    (idex_isCsr_old idex_isCsr_new : Signal dom Bool)
+    (validEX : Signal dom Bool) (csrIsX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32)) (n : Nat)
+    (h_trap_n : trap_taken.atTime n = true)
+    (h_no_freeze_n : freeze.atTime n = false)
+    (h_squash_includes_trap :
+      trap_taken.atTime n = true → squash.atTime n = true)
+    (h_idex_isCsr_at_N1 :
+      idex_isCsr_new.atTime (n + 1) =
+        (Sparkle.IP.RV32.Pipeline.idexLatchSignal freeze squash idex_isCsr_old idex_isCsr_new
+          (false : Bool)).atTime (n + 1)) :
+    let we := csrRegWeSignal (idexIsCsrValidSignal idex_isCsr_new validEX) csrIsX
+    (csrPlainRegSignal init we newVal old).val (n + 2) = old.val (n + 1) := by
+  -- Step 1: IDEX-Bool latch at N+1 = false (init=false on squash).
+  have h_idex_n1_init :
+    (Sparkle.IP.RV32.Pipeline.idexLatchSignal freeze squash idex_isCsr_old idex_isCsr_new
+      (false : Bool)).atTime (n + 1) = false := by
+    apply Sparkle.IP.RV32.Pipeline.trap_squashes_idex_next_cycle freeze squash trap_taken
+      idex_isCsr_old idex_isCsr_new false n
+    · exact h_squash_includes_trap
+    · exact h_trap_n
+    · exact h_no_freeze_n
+  -- Step 2: idex_isCsr at N+1 = false (by wire-def).
+  have h_idex_isCsr_n1_false : idex_isCsr_new.atTime (n + 1) = false := by
+    rw [h_idex_isCsr_at_N1]
+    exact h_idex_n1_init
+  -- Step 3: csrPlainReg holds (downstream).
+  exact csrPlainReg_hold_when_idex_isCsr_false init idex_isCsr_new csrIsX validEX
+    newVal old (n + 1) h_idex_isCsr_n1_false
 
 end Sparkle.IP.RV32.CSR
