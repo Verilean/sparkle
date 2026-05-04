@@ -141,4 +141,39 @@ def dmemRdataFwdSignal {dom : DomainConfig}
     (prevStoreData dmem_rdata : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   Signal.mux storeLoadMatch prevStoreData dmem_rdata
 
+/-! ## prevStoreAddr next-state
+
+  The `prevStoreAddr` register latches the EX-stage store's
+  effective address for one-cycle store-load forwarding. The
+  source depends on whether MMU translation was used:
+
+    useTranslatedAddr → dPhysAddr (PA from D-side TLB)
+    else              → alu_result (raw VA = rs1 + imm)
+
+  When MMU is off (satp.MODE = 0) the raw alu_result is the PA;
+  when MMU is on, the TLB has produced a translated PA.
+-/
+
+@[inline] def prevStoreAddrPure
+    (useTranslatedAddr : Bool) (dPhysAddr alu_result : BitVec 32) : BitVec 32 :=
+  if useTranslatedAddr then dPhysAddr else alu_result
+
+@[simp] theorem prevStoreAddr_translated
+    (dPhysAddr alu_result : BitVec 32) :
+    prevStoreAddrPure true dPhysAddr alu_result = dPhysAddr := rfl
+
+@[simp] theorem prevStoreAddr_raw
+    (dPhysAddr alu_result : BitVec 32) :
+    prevStoreAddrPure false dPhysAddr alu_result = alu_result := rfl
+
+theorem prevStoreAddrPure_spec
+    (useTranslatedAddr : Bool) (dPhysAddr alu_result : BitVec 32) :
+    prevStoreAddrPure useTranslatedAddr dPhysAddr alu_result =
+      (if useTranslatedAddr then dPhysAddr else alu_result) := rfl
+
+def prevStoreAddrSignal {dom : DomainConfig}
+    (useTranslatedAddr : Signal dom Bool)
+    (dPhysAddr alu_result : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux useTranslatedAddr dPhysAddr alu_result
+
 end Sparkle.IP.RV32.Pipeline

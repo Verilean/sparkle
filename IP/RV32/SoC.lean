@@ -1875,7 +1875,8 @@ def rv32iSoCBody {dom : DomainConfig}
       Signal.register 0#5 wb_addr,                                          -- 39: prev_wb_addr
       Signal.register 0#32 wb_data,                                         -- 40: prev_wb_data
       Signal.register false wb_en,                                           -- 41: prev_wb_en
-      Signal.register 0#32 (Signal.mux useTranslatedAddr dPhysAddr alu_result),  -- 42: prevStoreAddr (use phys)
+      Signal.register 0#32
+        (Sparkle.IP.RV32.Pipeline.prevStoreAddrSignal useTranslatedAddr dPhysAddr alu_result),    -- 42: prevStoreAddr (use phys)
       Signal.register 0#32 ex_rs2,                                          -- 43: prevStoreData
       Signal.register false
         (Sparkle.IP.RV32.Pipeline.exwbSuppressBoolSignal suppressEXWB idex_memWrite),             -- 44: prevStoreEn
