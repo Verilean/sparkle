@@ -1162,11 +1162,12 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_isMext :=
       Sparkle.IP.RV32.Decoder.isMextSignal id_isALUrr id_funct7
     -- A-extension: opcode = 0101111
-    let id_isAMO := id_opcode === 0b0101111#7
-    let id_amoOp := ifid_inst.map (BitVec.extractLsb' 27 5 ·)  -- funct7[6:2]
-    let id_isLR := id_isAMO &&& (id_amoOp === 0b00010#5)
-    let id_isSC := id_isAMO &&& (id_amoOp === 0b00011#5)
-    let id_isAMOrw := id_isAMO &&& (~~~(id_isLR ||| id_isSC))
+    -- IDEX-stage AMO classification (proven in AMO/Decode.lean).
+    let id_isAMO := Sparkle.IP.RV32.AMO.isAMOSignal id_opcode
+    let id_amoOp := Sparkle.IP.RV32.AMO.amoOpSignal ifid_inst
+    let id_isLR := Sparkle.IP.RV32.AMO.isLRSignal id_isAMO id_amoOp
+    let id_isSC := Sparkle.IP.RV32.AMO.isSCSignal id_isAMO id_amoOp
+    let id_isAMOrw := Sparkle.IP.RV32.AMO.isAMOrwSignal id_isAMO id_isLR id_isSC
     -- AMO control: LR=load, SC=store+regwrite, AMOrw=load+regwrite (delayed write)
     let id_regWrite := id_regWrite ||| id_isAMO
     let id_memRead  := id_memRead ||| (id_isLR ||| id_isAMOrw)
