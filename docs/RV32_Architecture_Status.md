@@ -278,6 +278,8 @@ coverage:
 | AMO pendingWriteEn | (covered via cycle-N+2 directly) | `trap_clears_pendingWriteEn_2_cycles_later` |
 | DRAM byte_we | `trap_suppresses_dram_write` (combinational) | (downstream `actualByteWe_false_when_proto_false` + IDEX-squash chain) |
 | IDEX latch | `idex_squash_clears_next_cycle` (and per-source variants) | `idex_squash_at_N_plus_2_after_*` (7 sources) |
+| divPending | `divPendingReg_clears_on_flush` | `divPendingReg_stays_false_at_N_plus_2` |
+| ifetchFaultPending | `ifetchFaultPendingReg_clears_on_trap_delivery` | `ifetchFaultPendingReg_stays_false_at_N_plus_2` |
 
 This is a strong invariant: the kernel's trap handler can
 rely on the architectural state being stable for at least 2
