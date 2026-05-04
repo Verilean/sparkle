@@ -48,6 +48,7 @@ import IP.RV32.Core
 import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
+import IP.RV32.CLINT.Decode
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -730,19 +731,18 @@ def rv32iSoCBody {dom : DomainConfig}
       Sparkle.IP.RV32.Pipeline.storeLoadMatchSignal prevStoreEn prevStoreAddr exwb_physAddr
     let dmemRdataFwd :=
       Sparkle.IP.RV32.Pipeline.dmemRdataFwdSignal storeLoadMatch prevStoreData dmem_rdata
+    -- CLINT register decode (read side, proven in CLINT/Decode.lean).
     let clintOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 16 ·)
-    let msipMatch_wb     := clintOffset_wb === 0x0000#16
-    let mtimeLoMatch_wb  := clintOffset_wb === 0xBFF8#16
-    let mtimeHiMatch_wb  := clintOffset_wb === 0xBFFC#16
+    let msipMatch_wb       := clintOffset_wb === 0x0000#16
     let mtimecmpLoMatch_wb := clintOffset_wb === 0x4000#16
     let mtimecmpHiMatch_wb := clintOffset_wb === 0x4004#16
+    let mtimeLoMatch_wb    := clintOffset_wb === 0xBFF8#16
+    let mtimeHiMatch_wb    := clintOffset_wb === 0xBFFC#16
     let clintRdata :=
-      Signal.mux msipMatch_wb msipReg
-      (Signal.mux mtimecmpLoMatch_wb mtimecmpLoReg
-      (Signal.mux mtimecmpHiMatch_wb mtimecmpHiReg
-      (Signal.mux mtimeLoMatch_wb mtimeLoReg
-      (Signal.mux mtimeHiMatch_wb mtimeHiReg
-        (Signal.pure 0#32)))))
+      Sparkle.IP.RV32.CLINT.clintRdataSignal
+        msipMatch_wb mtimecmpLoMatch_wb mtimecmpHiMatch_wb
+        mtimeLoMatch_wb mtimeHiMatch_wb
+        msipReg mtimecmpLoReg mtimecmpHiReg mtimeLoReg mtimeHiReg
     let busAddrHi_wb := exwb_physAddr.map (BitVec.extractLsb' 16 16 ·)
     let isCLINT_wb := busAddrHi_wb === 0x0200#16
     let mmioAddrBit30_wb := exwb_physAddr.map (BitVec.extractLsb' 30 1 ·)
