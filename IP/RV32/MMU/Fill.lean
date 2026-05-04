@@ -384,4 +384,36 @@ theorem anyTLBHit_after_fill0_4k {dom : DomainConfig}
         h_no_sfence h_fill]
   exact anyTLBHit_h0 hit1 hit2 hit3
 
+/-! ## Megapage variant (4 MB pages)
+
+  When `tlbMega = true` (the entry holds a megapage), the hit
+  predicate compares only the high 10 bits of VPN
+  (`entryVPN[19:10] == dVPN[19:10]`). The fill propagates
+  `entryVPN = fillVPN`, so `entryVPN[19:10] = fillVPN[19:10]`,
+  and the hit fires whenever dVPN[19:10] = fillVPN[19:10] —
+  in particular when dVPN = fillVPN.
+-/
+
+/-- **Combined fill-then-hit (megapage case).** -/
+theorem tlbHit_after_fill_mega {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) (t : Nat)
+    (h_no_sfence : sfenceVMA.val t = false)
+    (h_fill : doFillN.val t = true) :
+    tlbHitPure
+      ((tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1))
+      true
+      ((tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1))
+      (fillVPN.val t) = true := by
+  rw [tlbValidReg_set_after_fill sfenceVMA doFillN tlb_valid t h_no_sfence h_fill]
+  rw [tlbVPNReg_set_after_fill doFillN fillVPN tlb_vpn t h_fill]
+  -- Goal: tlbHitPure true true (fillVPN.val t) (fillVPN.val t) = true
+  unfold tlbHitPure tlbVPNMatchPure
+  -- mega=true case: (fillVPN.val t).extractLsb' 10 10 == (fillVPN.val t).extractLsb' 10 10
+  show (true && (if true = true
+                 then (fillVPN.val t).extractLsb' 10 10
+                       == (fillVPN.val t).extractLsb' 10 10
+                 else _)) = true
+  simp
+
 end Sparkle.IP.RV32.MMU
