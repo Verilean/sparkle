@@ -192,4 +192,96 @@ def privLeSSignal {dom : DomainConfig}
     (priv : Signal dom (BitVec 2)) : Signal dom Bool :=
   ~~~(privGtSSignal priv)
 
+/-! ## Sequential privModeReg
+
+  privMode is held in `Signal.register 3#2 privModeNextSignal`.
+  This module adds the cycle-wise sequential statements covering
+  each arm of the 5-way priority. -/
+
+/-- privModeReg signal wrapper. -/
+def privModeRegSignal {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) : Signal dom (BitVec 2) :=
+  Signal.register init
+    (privModeNextSignal trapToM trapToS isMret isSret mpp sretPriv priv)
+
+/-- **trapToM at t → privMode at t+1 = privM (= 3#2).** -/
+theorem privModeReg_to_M_on_trapToM {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) (t : Nat)
+    (h_trapM : trapToM.val t = true) :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+      privM := by
+  unfold privModeRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (privModeNextSignal _ _ _ _ _ _ _).val t = _
+  rw [privModeNextSignal_eq_pure]
+  rw [h_trapM]
+  rfl
+
+/-- **trapToS at t (¬trapToM) → privMode at t+1 = privS (= 1#2).** -/
+theorem privModeReg_to_S_on_trapToS {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) (t : Nat)
+    (h_no_trapM : trapToM.val t = false)
+    (h_trapS : trapToS.val t = true) :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+      privS := by
+  unfold privModeRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (privModeNextSignal _ _ _ _ _ _ _).val t = _
+  rw [privModeNextSignal_eq_pure]
+  rw [h_no_trapM, h_trapS]
+  rfl
+
+/-- **MRET at t (no trap) → privMode at t+1 = mpp.val t.** -/
+theorem privModeReg_mret_restores_mpp {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) (t : Nat)
+    (h_no_trapM : trapToM.val t = false)
+    (h_no_trapS : trapToS.val t = false)
+    (h_mret : isMret.val t = true) :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+      mpp.val t := by
+  unfold privModeRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (privModeNextSignal _ _ _ _ _ _ _).val t = _
+  rw [privModeNextSignal_eq_pure]
+  rw [h_no_trapM, h_no_trapS, h_mret]
+  rfl
+
+/-- **SRET at t (no trap, no mret) → privMode at t+1 = sretPriv.val t.** -/
+theorem privModeReg_sret_restores_sppExt {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) (t : Nat)
+    (h_no_trapM : trapToM.val t = false)
+    (h_no_trapS : trapToS.val t = false)
+    (h_no_mret : isMret.val t = false)
+    (h_sret : isSret.val t = true) :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+      sretPriv.val t := by
+  unfold privModeRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (privModeNextSignal _ _ _ _ _ _ _).val t = _
+  rw [privModeNextSignal_eq_pure]
+  rw [h_no_trapM, h_no_trapS, h_no_mret, h_sret]
+  rfl
+
+/-- **No event at t → privMode at t+1 = priv.val t.** -/
+theorem privModeReg_hold_when_no_event {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) (t : Nat)
+    (h_no_trapM : trapToM.val t = false)
+    (h_no_trapS : trapToS.val t = false)
+    (h_no_mret : isMret.val t = false)
+    (h_no_sret : isSret.val t = false) :
+    (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+      priv.val t := by
+  unfold privModeRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (privModeNextSignal _ _ _ _ _ _ _).val t = _
+  rw [privModeNextSignal_eq_pure]
+  rw [h_no_trapM, h_no_trapS, h_no_mret, h_no_sret]
+  rfl
+
 end Sparkle.IP.RV32.Privilege
