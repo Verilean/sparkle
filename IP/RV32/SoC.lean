@@ -583,10 +583,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- SC fail at EX: if SC and reservation invalid OR addr mismatch, suppress
     -- the memory write. The PA at EX time may be raw (if no MMU) or translated
     -- (effectiveAddr is the chosen one); use that for reservation match.
-    let idexIsSC_ex := idex_isAMO &&& (idex_amoOp === 0b00011#5)
-    let scExAddrMatch := effectiveAddr === reservationAddr
-    let scExFails := idexIsSC_ex &&& (~~~(reservationValid &&& scExAddrMatch))
-    let dmem_we := idex_memWrite &&& (isDMEM_ex &&& (~~~dTLBMiss)) &&& (~~~scExFails)
+    -- (proven in AMO/SC.lean.)
+    let idexIsSC_ex := Sparkle.IP.RV32.AMO.idexIsSCExSignal idex_isAMO idex_amoOp
+    let scExAddrMatch := Sparkle.IP.RV32.AMO.scExAddrMatchSignal effectiveAddr reservationAddr
+    let scExFails := Sparkle.IP.RV32.AMO.scExFailsSignal idexIsSC_ex reservationValid scExAddrMatch
+    let dmem_we := Sparkle.IP.RV32.AMO.dmemWeSignal idex_memWrite isDMEM_ex dTLBMiss scExFails
 
     -- Sub-word store: byte-enable logic based on funct3 and addr[1:0]
     let storeByteOff := alu_result_approx.map (BitVec.extractLsb' 0 2 ·)
@@ -1208,9 +1209,10 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_imm := Sparkle.IP.RV32.AMO.amoImmOverrideSignal id_isAMO id_imm
 
     -- AMO stall: non-LR/SC AMOs need a bubble for delayed write
-    let idex_isLR := idex_isAMO &&& (idex_amoOp === 0b00010#5)
-    let idex_isSC := idex_isAMO &&& (idex_amoOp === 0b00011#5)
-    let idex_isAMOrw := idex_isAMO &&& (~~~(idex_isLR ||| idex_isSC))
+    -- (proven in AMO/Decode.lean — same opcode classification as the WB stage).
+    let idex_isLR := Sparkle.IP.RV32.AMO.isLRSignal idex_isAMO idex_amoOp
+    let idex_isSC := Sparkle.IP.RV32.AMO.isSCSignal idex_isAMO idex_amoOp
+    let idex_isAMOrw := Sparkle.IP.RV32.AMO.isAMOrwSignal idex_isAMO idex_isLR idex_isSC
 
     -- =========================================================================
     -- I-side TLB lookup (shared TLB entries, for instruction fetch translation)
