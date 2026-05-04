@@ -60,6 +60,7 @@ import IP.RV32.MMU.PTWReq
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
+import IP.RV32.MMU.PTWLatch
 import IP.RV32.MMU.PTE
 import IP.RV32.MMU.TLB
 import IP.RV32.MMU.Fill
@@ -1633,9 +1634,11 @@ def rv32iSoCBody {dom : DomainConfig}
     let dmemPteInvalid := Sparkle.IP.RV32.MMU.pteInvalidSignal dmem_rdata
     let pteFlags := Sparkle.IP.RV32.MMU.pteFlagsSignal ptwPteReg
 
-    -- PTE latching: in WAIT states, latch dmem_rdata (has PTE from prior REQ addr)
-    let isDataReady := ptwIsL1Wait ||| ptwIsL0Wait
-    let ptwPteNext := Signal.mux isDataReady dmem_rdata ptwPteReg
+    -- PTE latching: in WAIT states, latch dmem_rdata (proven in MMU/PTWLatch.lean).
+    let isDataReady :=
+      Sparkle.IP.RV32.MMU.isDataReadySignal ptwIsL1Wait ptwIsL0Wait
+    let ptwPteNext :=
+      Sparkle.IP.RV32.MMU.ptwPteNextSignal isDataReady dmem_rdata ptwPteReg
 
     -- PTW FSM transitions (7-state, proven in MMU/PTWFSM.lean):
     -- IDLE+req → L1_REQ → L1_WAIT → {DONE, L0_REQ, FAULT};
@@ -1645,10 +1648,11 @@ def rv32iSoCBody {dom : DomainConfig}
         ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
         ptwReq dmemPteInvalid dmemPteIsLeaf
 
-    -- Megapage tracking: leaf found at L1 level
-    let ptwMegaNext := Signal.mux (ptwIsL1Wait &&& (dmemPteIsLeaf &&& (~~~dmemPteInvalid)))
-      (Signal.pure true)
-      (Signal.mux ptwIsIdle (Signal.pure false) ptwMegaReg)
+    -- Megapage tracking: leaf found at L1 level (proven in MMU/PTWLatch.lean).
+    let megaSet :=
+      Sparkle.IP.RV32.MMU.megaSetSignal ptwIsL1Wait dmemPteIsLeaf dmemPteInvalid
+    let ptwMegaNext :=
+      Sparkle.IP.RV32.MMU.ptwMegaNextSignal megaSet ptwIsIdle ptwMegaReg
 
     -- TLB fill on PTW completion
     let tlbFill := ptwIsDone

@@ -39,6 +39,7 @@ import IP.RV32.MMU.Satp
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
+import IP.RV32.MMU.PTWLatch
 import IP.RV32.MMU.PTE
 import IP.RV32.MMU.TLB
 import IP.RV32.MMU.Fill
