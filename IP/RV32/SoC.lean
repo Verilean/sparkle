@@ -63,6 +63,7 @@ import IP.RV32.MMU.PTE
 import IP.RV32.MMU.TLB
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
+import IP.RV32.MMIO.BitNet
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -773,8 +774,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let isCLINT_wb := Sparkle.IP.RV32.Bus.isCLINTSignal exwb_physAddr
     let is_mmio_wb := Sparkle.IP.RV32.Bus.isMmioSignal exwb_physAddr
     let mmioOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 4 ·)
-    let mmioIsStatus_wb := mmioOffset_wb === 0x0#4
-    let mmioIsOutput_wb := mmioOffset_wb === 0x8#4
+    -- BitNet MMIO offset matchers (proven in MMIO/BitNet.lean).
+    let mmioIsStatus_wb := Sparkle.IP.RV32.MMIO.mmioIsStatusSignal mmioOffset_wb
+    let mmioIsOutput_wb := Sparkle.IP.RV32.MMIO.mmioIsOutputSignal mmioOffset_wb
     -- Level-1a BitNet peripheral: the AI input register feeds a
     -- combinational BitNet (dim=4, 1 layer) whose output becomes the
     -- value read back from offset 0x8. Writes to offset 0x4 latch the
@@ -782,9 +784,10 @@ def rv32iSoCBody {dom : DomainConfig}
     -- instruction sees the fresh result. See IP/RV32/BitNetPeripheral.lean.
     let bitnetOut :=
       Sparkle.IP.RV32.BitNetPeripheral.bitNetPeripheral aiInputReg
-    let mmioRdata := Signal.mux mmioIsStatus_wb aiStatusReg
-                       (Signal.mux mmioIsOutput_wb bitnetOut
-                         (Signal.pure 0#32))
+    -- BitNet MMIO read mux (proven in MMIO/BitNet.lean).
+    let mmioRdata :=
+      Sparkle.IP.RV32.MMIO.mmioRdataSignal
+        mmioIsStatus_wb mmioIsOutput_wb aiStatusReg bitnetOut
     -- UART 8250 read logic (WB stage)
     let isUART_wb := Sparkle.IP.RV32.Bus.isUARTSignal exwb_physAddr
     let uartOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 3 ·)
@@ -1376,10 +1379,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let mmioWE :=
       Sparkle.IP.RV32.Bus.peripheralWESignal idex_memWrite is_mmio_ex validEX
     let mmioOffset_ex := alu_result_approx.map (BitVec.extractLsb' 0 4 ·)
-    let mmioIsStatus_ex := mmioOffset_ex === 0x0#4
-    let mmioIsInput_ex  := mmioOffset_ex === 0x4#4
-    let aiStatusNext := Signal.mux (mmioWE &&& mmioIsStatus_ex) ex_rs2_approx aiStatusReg
-    let aiInputNext  := Signal.mux (mmioWE &&& mmioIsInput_ex)  ex_rs2_approx aiInputReg
+    let mmioIsStatus_ex := Sparkle.IP.RV32.MMIO.mmioIsStatusSignal mmioOffset_ex
+    let mmioIsInput_ex  := Sparkle.IP.RV32.MMIO.mmioIsInputSignal mmioOffset_ex
+    -- BitNet MMIO write commits (proven in MMIO/BitNet.lean).
+    let aiStatusNext :=
+      Sparkle.IP.RV32.MMIO.aiStatusNextSignal mmioWE mmioIsStatus_ex ex_rs2_approx aiStatusReg
+    let aiInputNext :=
+      Sparkle.IP.RV32.MMIO.aiInputNextSignal mmioWE mmioIsInput_ex ex_rs2_approx aiInputReg
 
     -- UART 8250 write logic (EX stage)
     let uartWE :=
