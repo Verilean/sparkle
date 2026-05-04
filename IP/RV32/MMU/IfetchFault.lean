@@ -159,6 +159,72 @@ def ifetchFaultPendingNextSignal {dom : DomainConfig}
       (Signal.mux (ptwFault &&& ptwIsIfetch) (Signal.pure true)
         ifetchFaultPending))
 
+/-! ## Sequential ptwIsIfetchReg
+
+  ptwIsIfetchReg tracks whether the in-flight PTW is for an
+  I-side fetch (vs D-side). It's only updated when the PTW is
+  IDLE: starts an I-walk iff `ifetchPTWReq ∧ ¬dTLBMiss`
+  (D-side has priority).
+-/
+
+/-- ptwIsIfetchReg signal wrapper. -/
+def ptwIsIfetchRegSignal {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool)
+    : Signal dom Bool :=
+  Signal.register init
+    (ptwIsIfetchNextSignal ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch)
+
+/-- **PTW Idle + ifetchPTWReq + ¬dTLBMiss at t →
+    ptwIsIfetchReg at t+1 = true.** -/
+theorem ptwIsIfetchReg_set_on_iwalk {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool) (t : Nat)
+    (h_idle : ptwIdle.val t = true)
+    (h_ireq : ifetchPTWReq.val t = true)
+    (h_no_miss : dTLBMiss.val t = false) :
+    (ptwIsIfetchRegSignal init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch).val (t + 1) =
+      true := by
+  unfold ptwIsIfetchRegSignal ptwIsIfetchNextSignal
+  show (Signal.register init _).val (t + 1) = true
+  unfold Signal.mux
+  show (if ptwIdle.val t then _ else _) = true
+  rw [h_idle]
+  -- Reduce to the inner conditional on (ifetchPTWReq &&& ¬dTLBMiss).
+  show (if (ifetchPTWReq &&& (~~~dTLBMiss)).val t then _ else _) = true
+  show (if (ifetchPTWReq.val t && (!dTLBMiss.val t)) then _ else _) = true
+  rw [h_ireq, h_no_miss]
+  rfl
+
+/-- **PTW Idle + dTLBMiss at t (D-side priority) →
+    ptwIsIfetchReg at t+1 = false.** -/
+theorem ptwIsIfetchReg_clear_on_dwalk {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool) (t : Nat)
+    (h_idle : ptwIdle.val t = true)
+    (h_miss : dTLBMiss.val t = true) :
+    (ptwIsIfetchRegSignal init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch).val (t + 1) =
+      false := by
+  unfold ptwIsIfetchRegSignal ptwIsIfetchNextSignal
+  show (Signal.register init _).val (t + 1) = false
+  unfold Signal.mux
+  show (if ptwIdle.val t then _ else _) = false
+  rw [h_idle]
+  show (if (ifetchPTWReq.val t && (!dTLBMiss.val t)) then _ else _) = false
+  rw [h_miss]
+  -- Goal: (if ifetchPTWReq.val t && false then ... else (Signal.pure false).val t) = false
+  cases ifetchPTWReq.val t <;> rfl
+
+/-- **PTW ¬Idle at t (mid-walk) → ptwIsIfetchReg at t+1 = ptwIsIfetch.val t.** -/
+theorem ptwIsIfetchReg_hold_when_not_idle {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool) (t : Nat)
+    (h_no_idle : ptwIdle.val t = false) :
+    (ptwIsIfetchRegSignal init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch).val (t + 1) =
+      ptwIsIfetch.val t := by
+  unfold ptwIsIfetchRegSignal ptwIsIfetchNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if ptwIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  rfl
+
 /-! ## Sequential ifetchFaultPendingReg
 
   Cycle-wise statements for the I-side fault pending register.
