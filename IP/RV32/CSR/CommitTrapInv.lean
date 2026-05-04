@@ -89,4 +89,39 @@ theorem trap_holds_csrPlain_reg {dom : DomainConfig}
   -- Step 3: register holds when WE is false.
   exact csrPlainReg_hold_when_we_false init _ newVal old t h_we_false
 
+/-! ## Trap-override register on trap entry
+
+  For trap-overridable CSRs (mepc/mcause/mtval), the trap-firing
+  path latches `trapPayload` regardless of the CSR write. The
+  pure version `csrTrapOverrideNext_trap_priority` already proves
+  this combinationally; the sequential
+  `csrTrapOverrideReg_latch_on_trap` lifts it across the
+  Signal.register delay.
+
+  Composite: when trap_taken (which implies trapTo for either
+  M-mode or S-mode, depending on delegation) fires at cycle t,
+  the trap-override register at cycle t+1 latches the payload.
+  The composite below provides a clean entry point for invariant
+  E reasoning: even if the CSR write would have fired, the trap
+  takes priority.
+-/
+
+/-- **trapTo at t → trap-override CSR-reg at t+1 = trapPayload.val t.**
+
+    This is essentially a re-export of
+    `csrTrapOverrideReg_latch_on_trap` packaged with the
+    same shape as `trap_holds_csrPlain_reg`. Provided for
+    symmetry; downstream proofs may use either form. -/
+theorem trapTo_latches_csrTrapOverride_reg {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (idex_isCsr csrIsX : Signal dom Bool)
+    (validEX : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_trapTo : trapTo.val t = true) :
+    let we := csrRegWeSignal (idexIsCsrValidSignal idex_isCsr validEX) csrIsX
+    (csrTrapOverrideRegSignal init trapTo trapPayload we newVal old).val (t + 1) =
+      trapPayload.val t :=
+  csrTrapOverrideReg_latch_on_trap init trapTo trapPayload _ newVal old t h_trapTo
+
 end Sparkle.IP.RV32.CSR
