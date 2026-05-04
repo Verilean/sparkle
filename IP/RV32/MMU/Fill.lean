@@ -352,6 +352,50 @@ theorem tlbVPNReg_set_after_fill {dom : DomainConfig}
   rw [h_fill]
   rfl
 
+/-- **SFENCE.VMA at t → tlbValidReg at t+1 = false.**
+    (Full TLB invalidate.) -/
+theorem tlbValidReg_clears_after_sfence {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) (t : Nat)
+    (h_sfence : sfenceVMA.val t = true) :
+    (tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1) = false := by
+  unfold tlbValidRegSignal
+  show (Signal.register false _).val (t + 1) = false
+  show (tlbValidNextSignal sfenceVMA doFillN tlb_valid).val t = false
+  unfold tlbValidNextSignal Signal.mux
+  show (if sfenceVMA.val t = true then _
+        else (if doFillN.val t = true then _ else tlb_valid.val t)) = false
+  rw [h_sfence]
+  rfl
+
+/-- **No SFENCE, no fill at t → tlbValidReg at t+1 = tlb_valid.val t.** -/
+theorem tlbValidReg_hold {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) (t : Nat)
+    (h_no_sfence : sfenceVMA.val t = false)
+    (h_no_fill : doFillN.val t = false) :
+    (tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1) = tlb_valid.val t := by
+  unfold tlbValidRegSignal
+  show (Signal.register false _).val (t + 1) = _
+  show (tlbValidNextSignal sfenceVMA doFillN tlb_valid).val t = _
+  unfold tlbValidNextSignal Signal.mux
+  show (if sfenceVMA.val t = true then _
+        else (if doFillN.val t = true then _ else tlb_valid.val t)) = _
+  rw [h_no_sfence, h_no_fill]
+  rfl
+
+/-- **No fill at t → tlbVPNReg at t+1 = tlb_vpn.val t (hold).** -/
+theorem tlbVPNReg_hold_when_no_fill {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) (t : Nat)
+    (h_no_fill : doFillN.val t = false) :
+    (tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1) = tlb_vpn.val t := by
+  unfold tlbVPNRegSignal
+  show (Signal.register 0#20 _).val (t + 1) = _
+  show (tlbVPNNextSignal doFillN fillVPN tlb_vpn).val t = _
+  unfold tlbVPNNextSignal Signal.mux
+  show (if doFillN.val t = true then fillVPN.val t else tlb_vpn.val t) = tlb_vpn.val t
+  rw [h_no_fill]
+  rfl
+
 /-! ## Combined: TLB fill at N → tlbHit on same VPN at N+1
 
   This is the "fill-then-hit" guarantee — the cornerstone of the
