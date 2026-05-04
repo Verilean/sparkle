@@ -193,4 +193,56 @@ def tlbValidNextSignal {dom : DomainConfig}
   Signal.mux sfenceVMA (Signal.pure false)
     (Signal.mux doFillN (Signal.pure true) oldValid)
 
+/-! ## Per-entry data-field next-state
+
+  For each TLB entry's data fields (VPN, PPN, Flags, Mega), the
+  next-state is a uniform 2-way mux:
+
+    fieldNext = if doFillN then fillVal else hold
+
+  This is the same shape as `csrPlainNextPure` but parameterized
+  over the field's bit-width or Bool type.
+
+  We provide a generic pure helper plus four type-specialized
+  Signal wrappers (BitVec 20 for VPN, BitVec 22 for PPN, BitVec 8
+  for flags, Bool for the megapage flag) — these are the four
+  shapes used in SoC.lean's TLB-entry next-state block.
+-/
+
+/-- Generic per-field next-state: latch on doFill, hold otherwise. -/
+@[inline] def tlbFieldNextPure {α} (doFillN : Bool) (fillVal hold : α) : α :=
+  if doFillN then fillVal else hold
+
+/-- doFill → latch. -/
+@[simp] theorem tlbFieldNext_latch {α} (fillVal hold : α) :
+    tlbFieldNextPure true fillVal hold = fillVal := rfl
+
+/-- ¬doFill → hold. -/
+@[simp] theorem tlbFieldNext_hold {α} (fillVal hold : α) :
+    tlbFieldNextPure false fillVal hold = hold := rfl
+
+/-- VPN-field next-state Signal wrapper. -/
+def tlbVPNNextSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillVPN holdVPN : Signal dom (BitVec 20)) : Signal dom (BitVec 20) :=
+  Signal.mux doFillN fillVPN holdVPN
+
+/-- PPN-field next-state Signal wrapper. -/
+def tlbPPNNextSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillPPN holdPPN : Signal dom (BitVec 22)) : Signal dom (BitVec 22) :=
+  Signal.mux doFillN fillPPN holdPPN
+
+/-- Flags-field next-state Signal wrapper. -/
+def tlbFlagsNextSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillFlags holdFlags : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.mux doFillN fillFlags holdFlags
+
+/-- Mega-flag next-state Signal wrapper. -/
+def tlbMegaNextSignal {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillMega holdMega : Signal dom Bool) : Signal dom Bool :=
+  Signal.mux doFillN fillMega holdMega
+
 end Sparkle.IP.RV32.MMU

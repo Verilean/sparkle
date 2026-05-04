@@ -1676,28 +1676,28 @@ def rv32iSoCBody {dom : DomainConfig}
     -- TLB entry next-state (proven in MMU/Fill.lean):
     -- valid: sfence > fill > hold; data: fill ? new : hold.
     let tlb0ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill0 tlb0Valid
-    let tlb0VPNNext := Signal.mux doFill0 fillVPN tlb0VPN
-    let tlb0PPNNext := Signal.mux doFill0 ptePPNFull tlb0PPN
-    let tlb0FlagsNext := Signal.mux doFill0 pteFlags tlb0Flags
-    let tlb0MegaNext := Signal.mux doFill0 ptwMegaReg tlb0Mega
+    let tlb0VPNNext := Sparkle.IP.RV32.MMU.tlbVPNNextSignal doFill0 fillVPN tlb0VPN
+    let tlb0PPNNext := Sparkle.IP.RV32.MMU.tlbPPNNextSignal doFill0 ptePPNFull tlb0PPN
+    let tlb0FlagsNext := Sparkle.IP.RV32.MMU.tlbFlagsNextSignal doFill0 pteFlags tlb0Flags
+    let tlb0MegaNext := Sparkle.IP.RV32.MMU.tlbMegaNextSignal doFill0 ptwMegaReg tlb0Mega
 
     let tlb1ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill1 tlb1Valid
-    let tlb1VPNNext := Signal.mux doFill1 fillVPN tlb1VPN
-    let tlb1PPNNext := Signal.mux doFill1 ptePPNFull tlb1PPN
-    let tlb1FlagsNext := Signal.mux doFill1 pteFlags tlb1Flags
-    let tlb1MegaNext := Signal.mux doFill1 ptwMegaReg tlb1Mega
+    let tlb1VPNNext := Sparkle.IP.RV32.MMU.tlbVPNNextSignal doFill1 fillVPN tlb1VPN
+    let tlb1PPNNext := Sparkle.IP.RV32.MMU.tlbPPNNextSignal doFill1 ptePPNFull tlb1PPN
+    let tlb1FlagsNext := Sparkle.IP.RV32.MMU.tlbFlagsNextSignal doFill1 pteFlags tlb1Flags
+    let tlb1MegaNext := Sparkle.IP.RV32.MMU.tlbMegaNextSignal doFill1 ptwMegaReg tlb1Mega
 
     let tlb2ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill2 tlb2Valid
-    let tlb2VPNNext := Signal.mux doFill2 fillVPN tlb2VPN
-    let tlb2PPNNext := Signal.mux doFill2 ptePPNFull tlb2PPN
-    let tlb2FlagsNext := Signal.mux doFill2 pteFlags tlb2Flags
-    let tlb2MegaNext := Signal.mux doFill2 ptwMegaReg tlb2Mega
+    let tlb2VPNNext := Sparkle.IP.RV32.MMU.tlbVPNNextSignal doFill2 fillVPN tlb2VPN
+    let tlb2PPNNext := Sparkle.IP.RV32.MMU.tlbPPNNextSignal doFill2 ptePPNFull tlb2PPN
+    let tlb2FlagsNext := Sparkle.IP.RV32.MMU.tlbFlagsNextSignal doFill2 pteFlags tlb2Flags
+    let tlb2MegaNext := Sparkle.IP.RV32.MMU.tlbMegaNextSignal doFill2 ptwMegaReg tlb2Mega
 
     let tlb3ValidNext := Sparkle.IP.RV32.MMU.tlbValidNextSignal sfenceVMA doFill3 tlb3Valid
-    let tlb3VPNNext := Signal.mux doFill3 fillVPN tlb3VPN
-    let tlb3PPNNext := Signal.mux doFill3 ptePPNFull tlb3PPN
-    let tlb3FlagsNext := Signal.mux doFill3 pteFlags tlb3Flags
-    let tlb3MegaNext := Signal.mux doFill3 ptwMegaReg tlb3Mega
+    let tlb3VPNNext := Sparkle.IP.RV32.MMU.tlbVPNNextSignal doFill3 fillVPN tlb3VPN
+    let tlb3PPNNext := Sparkle.IP.RV32.MMU.tlbPPNNextSignal doFill3 ptePPNFull tlb3PPN
+    let tlb3FlagsNext := Sparkle.IP.RV32.MMU.tlbFlagsNextSignal doFill3 pteFlags tlb3Flags
+    let tlb3MegaNext := Sparkle.IP.RV32.MMU.tlbMegaNextSignal doFill3 ptwMegaReg tlb3Mega
 
     -- Replacement pointer: increment on fill (proven in MMU/Fill.lean).
     let replPtrNext := Sparkle.IP.RV32.MMU.replPtrNextSignal tlbFill replPtrReg
