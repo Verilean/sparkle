@@ -170,4 +170,46 @@ def fetchPCNextSignal {dom : DomainConfig}
     (pcNext fetchPC pcReg : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   Signal.mux flush pcNext (Signal.mux stall fetchPC pcReg)
 
+/-! ## Sequential: flush at cycle t → fetchPC.val (t+1) = pcNext.val t
+
+  This is the IFID-side counterpart of `pcReg`'s redirect. When
+  `flush.val t = true` (any of branchTaken / idex_jump /
+  trap_taken / mret / sret / sfence / dMMURedirect), the
+  `fetchPC` register's input at cycle t is `pcNext.val t`, so
+  the fetch PC is updated to `pcNext` at cycle t+1.
+
+  This is the cycle-N+1 handoff for invariant C: when
+  `dMMURedirect` fires at N, `flush = true` at N (since
+  flush ⊇ dMMURedirect), `pcNext = dMissPC` at N, so
+  fetchPC at N+1 = dMissPC.val N — the IF stage starts
+  re-fetching the faulting load.
+-/
+
+/-- `fetchPC` register: input runs through `fetchPCNextSignal`. -/
+def fetchPCRegSignal {dom : DomainConfig}
+    (flush stall : Signal dom Bool)
+    (pcNext fetchPC pcReg : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register 0#32 (fetchPCNextSignal flush stall pcNext fetchPC pcReg)
+
+/-- **flush at cycle t → fetchPC.val (t+1) = pcNext.val t.**
+
+    This is the sequential handoff: a flush this cycle redirects
+    fetch to `pcNext` next cycle. -/
+theorem fetchPCReg_flush_sets_pcNext_next_cycle {dom : DomainConfig}
+    (flush stall : Signal dom Bool)
+    (pcNext fetchPC pcReg : Signal dom (BitVec 32)) (t : Nat)
+    (h_flush : flush.val t = true) :
+    (fetchPCRegSignal flush stall pcNext fetchPC pcReg).val (t + 1) =
+      pcNext.val t := by
+  unfold fetchPCRegSignal
+  show (Signal.register 0#32 _).val (t + 1) = _
+  -- (register 0 next).val (t+1) = next.val t
+  show (fetchPCNextSignal flush stall pcNext fetchPC pcReg).val t = _
+  unfold fetchPCNextSignal Signal.mux
+  show (if flush.val t = true then pcNext.val t
+        else if stall.val t = true then fetchPC.val t
+        else pcReg.val t) = pcNext.val t
+  rw [h_flush]
+  rfl
+
 end Sparkle.IP.RV32.Pipeline
