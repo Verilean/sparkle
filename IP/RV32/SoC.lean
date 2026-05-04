@@ -49,6 +49,7 @@ import IP.RV32.Bus.Decoder
 import IP.RV32.Bus.StoreWidth
 import IP.RV32.Bus.LoadWidth
 import IP.RV32.MMU.IfetchFault
+import IP.RV32.MMU.DMiss
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
 import IP.RV32.Divider
@@ -1744,9 +1745,15 @@ def rv32iSoCBody {dom : DomainConfig}
           divPending))
 
     -- D-side TLB miss registers: latch on dTLBMiss, hold otherwise
-    let dMissPCNext := Signal.mux dTLBMiss idex_pc dMissPC
-    let dMissVaddrNext := Signal.mux dTLBMiss alu_result_approx dMissVaddr
-    let dMissIsStoreNext := Signal.mux dTLBMiss idex_memWrite dMissIsStore
+    -- D-side miss tracking (proven in MMU/DMiss.lean): on dTLBMiss, latch
+    -- the faulting PC, vaddr, and store-flag together — these feed mepc /
+    -- mtval / cause-13-or-15 selection on trap entry.
+    let dMissPCNext :=
+      Sparkle.IP.RV32.MMU.dMissCaptureBV32Signal dTLBMiss idex_pc dMissPC
+    let dMissVaddrNext :=
+      Sparkle.IP.RV32.MMU.dMissCaptureBV32Signal dTLBMiss alu_result_approx dMissVaddr
+    let dMissIsStoreNext :=
+      Sparkle.IP.RV32.MMU.dMissCaptureBoolSignal dTLBMiss idex_memWrite dMissIsStore
 
     bundleAll! [
       Signal.register 0#32 pcNext,                                          -- 0: pcReg

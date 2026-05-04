@@ -27,6 +27,7 @@ import IP.RV32.CSR.File
 import IP.RV32.CSR.Supervisor
 import IP.RV32.MMU.Top
 import IP.RV32.MMU.IfetchFault
+import IP.RV32.MMU.DMiss
 import IP.RV32.AMO.Reservation
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
