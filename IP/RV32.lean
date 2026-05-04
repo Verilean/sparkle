@@ -49,6 +49,7 @@ import IP.RV32.AMO.Compute
 import IP.RV32.AMO.Decode
 import IP.RV32.AMO.SC
 import IP.RV32.AMO.PendingWrite
+import IP.RV32.AMO.LRSCAcrossTrap
 import IP.RV32.ALU.Compute
 import IP.RV32.Decoder.ImmGen
 import IP.RV32.Decoder.AluControl
