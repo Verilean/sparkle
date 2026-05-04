@@ -153,4 +153,75 @@ theorem trapToMSignal_eq_pure {dom : DomainConfig}
   unfold trapToMSignal trapToSSignal trapToMPure trapDestPure
   simp [signal_and_val, signal_not_val, Bool.and_assoc]
 
+/-! ## Cause-bit decoders (used as inputs to the delegation lookup) -/
+
+/-- isInterrupt: bit 31 of trap cause. -/
+@[inline] def isInterruptPure (trapCause : BitVec 32) : Bool :=
+  trapCause.extractLsb' 31 1 == 1#1
+
+/-- causeIdx: low 5 bits of trap cause (the cause index for medeleg/mideleg). -/
+@[inline] def causeIdxPure (trapCause : BitVec 32) : BitVec 5 :=
+  trapCause.extractLsb' 0 5
+
+/-- causeIdxExt: cause-idx zero-extended to 32 bits (for use as a shift amount). -/
+@[inline] def causeIdxExtPure (trapCause : BitVec 32) : BitVec 32 :=
+  (0#27 : BitVec 27) ++ causeIdxPure trapCause
+
+/-! ## Delegation-bit lookup -/
+
+/-- Test whether bit `idx` of `delegReg` is set.
+    `delegReg >>> idxExt` shifts the relevant bit to position 0,
+    where we extract it. -/
+@[inline] def delegBitPure (delegReg : BitVec 32) (idxExt : BitVec 32) : Bool :=
+  ((delegReg >>> idxExt).extractLsb' 0 1) == 1#1
+
+/-- Combined delegation: pick mideleg if interrupt, medeleg otherwise. -/
+@[inline] def delegatedPure
+    (isInterrupt : Bool) (medelegReg midelegReg : BitVec 32)
+    (idxExt : BitVec 32) : Bool :=
+  if isInterrupt then delegBitPure midelegReg idxExt
+  else delegBitPure medelegReg idxExt
+
+/-! ## Spec invariants — closed by `bv_decide` -/
+
+/-- isInterrupt is set iff cause's MSB is 1. -/
+theorem isInterrupt_msb (trapCause : BitVec 32) :
+    isInterruptPure trapCause = (trapCause.extractLsb' 31 1 == 1#1) := by rfl
+
+/-- causeIdxExt has zero high bits. -/
+theorem causeIdxExt_high_zero (trapCause : BitVec 32) :
+    (causeIdxExtPure trapCause).extractLsb' 5 27 = 0#27 := by
+  unfold causeIdxExtPure causeIdxPure
+  bv_decide
+
+/-- causeIdxExt's low 5 bits = causeIdx. -/
+theorem causeIdxExt_low_eq (trapCause : BitVec 32) :
+    (causeIdxExtPure trapCause).extractLsb' 0 5 = causeIdxPure trapCause := by
+  unfold causeIdxExtPure
+  bv_decide
+
+/-! ## Signal-level wrappers -/
+
+def isInterruptSignal {dom : DomainConfig}
+    (trapCause : Signal dom (BitVec 32)) : Signal dom Bool :=
+  (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
+
+def causeIdxSignal {dom : DomainConfig}
+    (trapCause : Signal dom (BitVec 32)) : Signal dom (BitVec 5) :=
+  trapCause.map (BitVec.extractLsb' 0 5 ·)
+
+def causeIdxExtSignal {dom : DomainConfig}
+    (trapCause : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let zero27 : Signal dom (BitVec 27) := Signal.pure 0#27
+  zero27 ++ causeIdxSignal trapCause
+
+def delegBitSignal {dom : DomainConfig}
+    (delegReg idxExt : Signal dom (BitVec 32)) : Signal dom Bool :=
+  ((delegReg >>> idxExt).map (BitVec.extractLsb' 0 1 ·)) === 1#1
+
+def delegatedSignal {dom : DomainConfig}
+    (isInterrupt : Signal dom Bool)
+    (medelegReg midelegReg idxExt : Signal dom (BitVec 32)) : Signal dom Bool :=
+  Signal.mux isInterrupt (delegBitSignal midelegReg idxExt) (delegBitSignal medelegReg idxExt)
+
 end Sparkle.IP.RV32.Trap

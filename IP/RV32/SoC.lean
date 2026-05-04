@@ -1045,15 +1045,19 @@ def rv32iSoCBody {dom : DomainConfig}
         pageFault pageFaultCause
         timerIntEnabled swIntEnabled sExtIntEnabled sSwIntEnabled sTimerIntEnabled
 
-    -- Trap delegation: check medeleg/mideleg bits
-    let isInterrupt := (trapCause.map (BitVec.extractLsb' 31 1 ·)) === 1#1
-    let causeIdx := trapCause.map (BitVec.extractLsb' 0 5 ·)
-    let causeIdxExt := 0#27 ++ causeIdx
-    let medelegShifted := medelegReg >>> causeIdxExt
-    let medelegBit := (medelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-    let midelegShifted := midelegReg >>> causeIdxExt
-    let midelegBit := (midelegShifted.map (BitVec.extractLsb' 0 1 ·)) === 1#1
-    let delegated := Signal.mux isInterrupt midelegBit medelegBit
+    -- Trap delegation lookup (proven in Trap/Delegation.lean):
+    -- isInterrupt = cause[31]; causeIdx = cause[4:0]; delegated bit
+    -- comes from mideleg (interrupt) or medeleg (sync) shifted by causeIdx.
+    let isInterrupt := Sparkle.IP.RV32.Trap.isInterruptSignal trapCause
+    let causeIdx := Sparkle.IP.RV32.Trap.causeIdxSignal trapCause
+    let causeIdxExt := Sparkle.IP.RV32.Trap.causeIdxExtSignal trapCause
+    let medelegBit := Sparkle.IP.RV32.Trap.delegBitSignal medelegReg causeIdxExt
+    let midelegBit := Sparkle.IP.RV32.Trap.delegBitSignal midelegReg causeIdxExt
+    let delegated := Sparkle.IP.RV32.Trap.delegatedSignal isInterrupt medelegReg midelegReg causeIdxExt
+    -- Suppress the now-unused intermediate names (kept above for clarity).
+    let _ := medelegBit
+    let _ := midelegBit
+    let _ := causeIdx
     -- Trap destination decoder: see `IP.RV32.Trap.Delegation`.
     -- Pure versions `trapToSPure`/`trapToMPure` and Signal-level
     -- versions are equivalent (theorems `trapToSSignal_eq_pure`,
