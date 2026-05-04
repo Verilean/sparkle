@@ -26,6 +26,7 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
+import IP.RV32.CSR.Commit
 
 namespace Sparkle.IP.RV32.CLINT
 
@@ -130,5 +131,30 @@ def timerIrqSignal {dom : DomainConfig}
   let hiEq := mtimeHi === mtimecmpHi
   let loGe := ~~~(Signal.ult mtimeLo mtimecmpLo)
   hiGt ||| (hiEq &&& loGe)
+
+/-! ## Sequential mtime ticking
+
+  When no CSR write fires (trap, idle, normal cycle without
+  mtimecmp update), the mtime register advances by 1 (mtimeLo)
+  plus carry (mtimeHi). Built on top of `csrPlainReg_hold_when_we_false`
+  but with the "old" arm being the incremented value
+  `mtimeIncLo = mtimeLo + 1`. -/
+
+/-- **No CSR write at t → mtimeLoReg at t+1 = mtimeLo.val t + 1.** -/
+theorem mtimeLoReg_advances_when_no_we {dom : DomainConfig}
+    (mtimeLoWE : Signal dom Bool)
+    (newVal mtimeLo : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_we : mtimeLoWE.val t = false) :
+    (Signal.register 0#32
+      (Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeLoWE newVal
+        (mtimeIncLoSignal mtimeLo))).val (t + 1) = mtimeLo.val t + 1#32 := by
+  show (Signal.register 0#32 _).val (t + 1) = _
+  show (Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeLoWE newVal
+    (mtimeIncLoSignal mtimeLo)).val t = mtimeLo.val t + 1#32
+  rw [Sparkle.IP.RV32.CSR.csrPlainNextSignal_eq_pure]
+  rw [h_no_we]
+  show (mtimeIncLoSignal mtimeLo).val t = mtimeLo.val t + 1#32
+  unfold mtimeIncLoSignal
+  rfl
 
 end Sparkle.IP.RV32.CLINT
