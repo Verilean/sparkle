@@ -207,4 +207,26 @@ theorem trap_clears_exwb_isCsr_LTL {dom : DomainConfig}
   fun t => trap_clears_exwb_isCsr trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
     idex_isCsr t
 
+theorem trap_clears_prevStoreEn_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (Signal.register false
+           (Signal.mux
+             (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+             (Signal.pure false) idex_memWrite)).atTime (t + 1) = false :=
+  fun t => trap_clears_prevStoreEn trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_memWrite t
+
+theorem trap_clears_exwb_isAMO_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isAMO : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (Signal.register false
+           (Signal.mux
+             (suppressEXWBSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+             (Signal.pure false) idex_isAMO)).atTime (t + 1) = false :=
+  fun t => trap_clears_exwb_isAMO trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_isAMO t
+
 end Sparkle.IP.RV32.Pipeline
