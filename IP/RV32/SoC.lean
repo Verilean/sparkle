@@ -766,10 +766,10 @@ def rv32iSoCBody {dom : DomainConfig}
         msipMatch_wb mtimecmpLoMatch_wb mtimecmpHiMatch_wb
         mtimeLoMatch_wb mtimeHiMatch_wb
         msipReg mtimecmpLoReg mtimecmpHiReg mtimeLoReg mtimeHiReg
-    let busAddrHi_wb := exwb_physAddr.map (BitVec.extractLsb' 16 16 ·)
-    let isCLINT_wb := busAddrHi_wb === 0x0200#16
-    let mmioAddrBit30_wb := exwb_physAddr.map (BitVec.extractLsb' 30 1 ·)
-    let is_mmio_wb := mmioAddrBit30_wb === 1#1
+    -- WB-stage bus decoders (proven in Bus/Decoder.lean): same shape as
+    -- the EX-stage decoders (mutex + exhaustive).
+    let isCLINT_wb := Sparkle.IP.RV32.Bus.isCLINTSignal exwb_physAddr
+    let is_mmio_wb := Sparkle.IP.RV32.Bus.isMmioSignal exwb_physAddr
     let mmioOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 4 ·)
     let mmioIsStatus_wb := mmioOffset_wb === 0x0#4
     let mmioIsOutput_wb := mmioOffset_wb === 0x8#4
@@ -784,7 +784,7 @@ def rv32iSoCBody {dom : DomainConfig}
                        (Signal.mux mmioIsOutput_wb bitnetOut
                          (Signal.pure 0#32))
     -- UART 8250 read logic (WB stage)
-    let isUART_wb := (exwb_physAddr.map (BitVec.extractLsb' 24 8 ·)) === 0x10#8
+    let isUART_wb := Sparkle.IP.RV32.Bus.isUARTSignal exwb_physAddr
     let uartOffset_wb := exwb_physAddr.map (BitVec.extractLsb' 0 3 ·)
     let uartDLAB_wb := (uartLCRReg.map (BitVec.extractLsb' 7 1 ·)) === 1#1
     -- Read data per offset (zero-extended to 32 bits)
@@ -856,7 +856,7 @@ def rv32iSoCBody {dom : DomainConfig}
         f3isLB f3isLH f3isLBU f3isLHU
         byteSext byteZext halfSext halfZext busRdataRaw
     -- Gate: only use extracted value for DMEM loads; peripheral reads bypass sub-word extraction
-    let isDMEM_wb := (~~~isCLINT_wb) &&& ((~~~isUART_wb) &&& (~~~is_mmio_wb))
+    let isDMEM_wb := Sparkle.IP.RV32.Bus.isDMEMSignal isCLINT_wb is_mmio_wb isUART_wb
     let busRdata := Signal.mux exwb_m2r
       (Signal.mux isDMEM_wb loadExtracted busRdataRaw) busRdataRaw
 
