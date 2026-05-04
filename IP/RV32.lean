@@ -43,6 +43,7 @@ import IP.RV32.Decoder.ImmGen
 import IP.RV32.Decoder.AluControl
 import IP.RV32.Decoder.Control
 import IP.RV32.Mext.Mul
+import IP.RV32.Mext.Div
 import IP.RV32.Privilege.PrivMode
 import IP.RV32.Trap.TrapPC
 import IP.RV32.Trap.Delegation
