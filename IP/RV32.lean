@@ -21,6 +21,7 @@ import IP.RV32.Bus.LoadWidth
 import IP.RV32.Bus.PeripheralWE
 import IP.RV32.UART
 import IP.RV32.UART.Decode
+import IP.RV32.UART.ReadMux
 import IP.RV32.CLINT
 import IP.RV32.CLINT.Decode
 import IP.RV32.CLINT.Timer
