@@ -52,6 +52,7 @@ import IP.RV32.MMU.IfetchFault
 import IP.RV32.MMU.DMiss
 import IP.RV32.MMU.PA
 import IP.RV32.MMU.Satp
+import IP.RV32.MMU.NeedTranslate
 import IP.RV32.MMU.State
 import IP.RV32.MMU.FSM
 import IP.RV32.MMU.PTWFSM
@@ -519,10 +520,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let effectiveAddr :=
       Sparkle.IP.RV32.MMU.effectiveAddrSignal bypassMMU anyTLBHit dPhysAddr alu_result_approx
 
-    -- D-side TLB miss: need translation but no TLB hit (first cycle only, while MMU+PTW idle)
-    let dMemAccess := idex_memRead ||| idex_memWrite
-    let needTranslateD := dMemAccess &&& (~~~bypassMMU)
-    let dTLBMiss := needTranslateD &&& ((~~~anyTLBHit) &&& (isMMUIdle &&& ptwIsIdle))
+    -- D-side translation predicates (proven in MMU/NeedTranslate.lean).
+    let dMemAccess :=
+      Sparkle.IP.RV32.MMU.dMemAccessSignal idex_memRead idex_memWrite
+    let needTranslateD :=
+      Sparkle.IP.RV32.MMU.needTranslateDSignal idex_memRead idex_memWrite bypassMMU
+    let dTLBMiss :=
+      Sparkle.IP.RV32.MMU.dTLBMissSignal needTranslateD anyTLBHit isMMUIdle ptwIsIdle
 
     -- Bus address decode uses effectiveAddr (physical after MMU translation).
     -- Spec proven in Bus/Decoder.lean: every address routes to exactly one
@@ -1207,10 +1211,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let ifetchPhysAddr :=
       Sparkle.IP.RV32.MMU.dPhysAddrSignal itlbMega itlbPPN fetchPC
 
-    -- Need to translate instruction fetch? (S/U-mode with MMU enabled, DRAM region)
-    let needTranslateI := satpMode &&& ((~~~isMmode) &&& ((fetchPC.map (BitVec.extractLsb' 31 1 ·)) === 1#1))
-    let ifetchTranslated := needTranslateI &&& anyITLBHit
-    let ifetchTLBMiss := needTranslateI &&& (~~~anyITLBHit)
+    -- I-side translation predicates (proven in MMU/NeedTranslate.lean).
+    let needTranslateI :=
+      Sparkle.IP.RV32.MMU.needTranslateISignal satpMode isMmode fetchPC
+    let ifetchTranslated :=
+      Sparkle.IP.RV32.MMU.ifetchTranslatedSignal needTranslateI anyITLBHit
+    let ifetchTLBMiss :=
+      Sparkle.IP.RV32.MMU.ifetchTLBMissSignal needTranslateI anyITLBHit
 
     -- I-side stall on TLB miss (until PTW fills the entry)
     let ifetchStall := ifetchTLBMiss &&& (~~~ifetchFaultPending)

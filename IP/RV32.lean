@@ -36,6 +36,7 @@ import IP.RV32.MMU.PTWFSM
 import IP.RV32.MMU.PTE
 import IP.RV32.MMU.TLB
 import IP.RV32.MMU.Fill
+import IP.RV32.MMU.NeedTranslate
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.Compute
 import IP.RV32.AMO.Decode
