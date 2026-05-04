@@ -1204,7 +1204,8 @@ def rv32iSoCBody {dom : DomainConfig}
     let id_memWrite := id_memWrite ||| id_isSC
     let id_aluSrcB  := id_aluSrcB ||| id_isAMO  -- use imm=0 for address
     -- Force immediate to 0 for AMO (R-type has no immediate field)
-    let id_imm := Signal.mux id_isAMO (Signal.pure 0#32) id_imm
+    -- (proven in AMO/Decode.lean).
+    let id_imm := Sparkle.IP.RV32.AMO.amoImmOverrideSignal id_isAMO id_imm
 
     -- AMO stall: non-LR/SC AMOs need a bubble for delayed write
     let idex_isLR := idex_isAMO &&& (idex_amoOp === 0b00010#5)

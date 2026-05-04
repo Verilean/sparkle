@@ -152,4 +152,33 @@ def isAMOrwSignal {dom : DomainConfig}
     (isAMO isLR isSC : Signal dom Bool) : Signal dom Bool :=
   isAMO &&& (~~~(isLR ||| isSC))
 
+/-! ## AMO immediate-zero override
+
+  AMO instructions are R-type encoding-wise (no immediate field
+  in the instruction word) but the EX-stage reuses the I-immediate
+  decoded path for store offset. The decoder produces a stale
+  imm value for AMOs that we must override to 0 so that
+  effectiveAddr = rs1 + 0 = rs1.
+-/
+
+@[inline] def amoImmOverridePure
+    (isAMO : Bool) (id_imm : BitVec 32) : BitVec 32 :=
+  if isAMO then 0#32 else id_imm
+
+@[simp] theorem amoImmOverride_AMO (id_imm : BitVec 32) :
+    amoImmOverridePure true id_imm = 0#32 := rfl
+
+@[simp] theorem amoImmOverride_non_AMO (id_imm : BitVec 32) :
+    amoImmOverridePure false id_imm = id_imm := rfl
+
+theorem amoImmOverridePure_spec
+    (isAMO : Bool) (id_imm : BitVec 32) :
+    amoImmOverridePure isAMO id_imm =
+      (if isAMO then 0#32 else id_imm) := rfl
+
+def amoImmOverrideSignal {dom : DomainConfig}
+    (isAMO : Signal dom Bool)
+    (id_imm : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux isAMO (Signal.pure 0#32) id_imm
+
 end Sparkle.IP.RV32.AMO
