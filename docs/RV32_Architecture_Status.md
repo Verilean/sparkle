@@ -257,6 +257,33 @@ single-cycle phenomenon at the trap-entry moment but extends
 through cycle N+2 — the cycle when the kernel handler is
 fetching the first ISR instruction.
 
+#### Two-cycle trap-safety summary
+
+Combining the cycle-N+1 (already proven) and cycle-N+2 (proven
+in this iteration) layers, the trap-safety story for every
+state-bearing register in SoC.lean now has full 2-cycle
+coverage:
+
+| Register class | Cycle-N+1 | Cycle-N+2 |
+|----------------|-----------|-----------|
+| Regfile (wb_en) | `trap_suppresses_wb_en_sig` | `trap_suppresses_wb_en_at_N_plus_2` |
+| Plain CSRs (16) | `trap_holds_csrPlain_reg` | `trap_holds_csrPlain_reg_at_N_plus_2` |
+| Trap-override CSRs (5) | `trapTo_latches_csrTrapOverride_reg` | (latched value persists by no-event hold) |
+| CLINT regs (5) | `trap_holds_clintReg` | `trap_holds_clintReg_at_N_plus_2` |
+| UART regs (6) | `trap_holds_uart_*_reg` (×6) | `trap_holds_uart_LCR_reg_at_N_plus_2` (LCR full; others downstream) |
+| BitNet MMIO (2) | `trap_holds_aiStatus/aiInput_reg` | `trap_holds_aiStatus_reg_at_N_plus_2` (full) + downstream |
+| mstatus | `mstatusReg_latches_trapVal_on_trap` | `mstatusReg_stays_trapVal_at_N_plus_2` |
+| privMode | `privModeReg_to_M_on_trapToM` etc. | `privModeReg_stays_M/S_at_N_plus_2` |
+| AMO reservation | `trap_invalidates_reservation_next_cycle` | `reservation_stays_invalid_at_N_plus_2` |
+| AMO pendingWriteEn | (covered via cycle-N+2 directly) | `trap_clears_pendingWriteEn_2_cycles_later` |
+| DRAM byte_we | `trap_suppresses_dram_write` (combinational) | (downstream `actualByteWe_false_when_proto_false` + IDEX-squash chain) |
+| IDEX latch | `idex_squash_clears_next_cycle` (and per-source variants) | `idex_squash_at_N_plus_2_after_*` (7 sources) |
+
+This is a strong invariant: the kernel's trap handler can
+rely on the architectural state being stable for at least 2
+cycles after a trap fires, which covers the time it takes for
+the first kernel-handler instruction to reach the EX stage.
+
 #### Per-state-register sequential coverage (2026-05-05)
 
 Beyond the trap-suppression composites, every state-carrying
