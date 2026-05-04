@@ -154,4 +154,37 @@ theorem csrTrapOverrideNextSignal_eq_pure {dom : DomainConfig}
   cases h_w : writeActive.val t <;>
     simp [h_trap, h_w]
 
+/-! ## CSR-register hold: WE=false at t → reg at t+1 = old.val t
+
+  When the WE for a plain CSR commit is false at cycle t, the
+  register's next-cycle value equals its current value. This is
+  the sequential form needed for "trap → CSR unchanged" proofs.
+
+  The composite `Signal.register init (csrPlainNextSignal WE
+  newVal old)` gives:
+    .val (t+1) = csrPlainNextSignal WE newVal old .val t
+               = csrPlainNextPure WE.val t newVal.val t old.val t
+               = old.val t      (when WE.val t = false)
+-/
+
+/-- CSR-register wrapper using the plain-commit pattern. -/
+def csrPlainRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init (csrPlainNextSignal writeActive newVal old)
+
+/-- **WE=false at t → reg at t+1 = old.val t.** -/
+theorem csrPlainReg_hold_when_we_false {dom : DomainConfig}
+    (init : BitVec 32) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_we : writeActive.val t = false) :
+    (csrPlainRegSignal init writeActive newVal old).val (t + 1) = old.val t := by
+  unfold csrPlainRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  -- (register init next).val (t+1) = next.val t
+  show (csrPlainNextSignal writeActive newVal old).val t = old.val t
+  rw [csrPlainNextSignal_eq_pure]
+  rw [h_no_we]
+  rfl
+
 end Sparkle.IP.RV32.CSR
