@@ -84,6 +84,7 @@ import IP.RV32.CSR.MIP
 import IP.RV32.CSR.MipSoft
 import IP.RV32.CSR.Sstatus
 import IP.RV32.CSR.PMPRange
+import IP.RV32.CSR.ReadMux
 import IP.RV32.Pipeline.SuppressEXWB
 import IP.RV32.Pipeline.PCNext
 import IP.RV32.Pipeline.IdexLive
@@ -952,37 +953,24 @@ def rv32iSoCBody {dom : DomainConfig}
     -- {SIE, SPIE, SPP, SUM, MXR}, hides {MIE, MPIE, MPP, ...}.
     let sstatusView := Sparkle.IP.RV32.CSR.sstatusViewSignal mstatusReg
 
-    -- CSR read mux (expanded with S-mode CSRs)
+    -- 28-way CSR read mux (proven in CSR/ReadMux.lean):
+    -- priority: mstatus > mie > mtvec > ... > pmp > 0.
     let csr_rdata :=
-      Signal.mux csrIsMstatus mstatusReg
-      (Signal.mux csrIsMie mieReg
-      (Signal.mux csrIsMtvec mtvecReg
-      (Signal.mux csrIsMscratch mscratchReg
-      (Signal.mux csrIsMepc mepcReg
-      (Signal.mux csrIsMcause mcauseReg
-      (Signal.mux csrIsMtval mtvalReg
-      (Signal.mux csrIsMip mipValue
-      (Signal.mux csrIsMisa (Signal.pure 0x40141101#32)
-      (Signal.mux csrIsMhartid (Signal.pure 0#32)
-      (Signal.mux csrIsMedeleg medelegReg
-      (Signal.mux csrIsMideleg midelegReg
-      (Signal.mux csrIsSstatus sstatusView
-      (Signal.mux csrIsSie sieReg
-      (Signal.mux csrIsStvec stvecReg
-      (Signal.mux csrIsSscratch sscratchReg
-      (Signal.mux csrIsSepc sepcReg
-      (Signal.mux csrIsScause scauseReg
-      (Signal.mux csrIsStval stvalReg
-      (Signal.mux csrIsSip (mipValue &&& mipSoftMask)
-      (Signal.mux csrIsSatp satpReg
-      (Signal.mux csrIsMcounteren mcounterenReg
-      (Signal.mux csrIsScounteren scounterenReg
-      (Signal.mux csrIsTime mtimeLoReg     -- time CSR (0xC01) = mtime[31:0]
-      (Signal.mux csrIsTimeh mtimeHiReg    -- timeh CSR (0xC81) = mtime[63:32]
-      (Signal.mux csrIsCycle mtimeLoReg    -- cycle CSR (0xC00) ≈ mtime
-      (Signal.mux csrIsCycleh mtimeHiReg   -- cycleh CSR (0xC80) ≈ mtime hi
-      (Signal.mux csrIsPmp (Signal.pure 0#32)         -- PMP: return 0
-        (Signal.pure 0#32))))))))))))))))))))))))))))
+      Sparkle.IP.RV32.CSR.csrReadMuxSignal
+        csrIsMstatus csrIsMie csrIsMtvec csrIsMscratch
+        csrIsMepc csrIsMcause csrIsMtval csrIsMip
+        csrIsMisa csrIsMhartid csrIsMedeleg csrIsMideleg
+        csrIsSstatus csrIsSie csrIsStvec csrIsSscratch
+        csrIsSepc csrIsScause csrIsStval csrIsSip
+        csrIsSatp csrIsMcounteren csrIsScounteren
+        csrIsTime csrIsTimeh csrIsCycle csrIsCycleh csrIsPmp
+        mstatusReg mieReg mtvecReg mscratchReg
+        mepcReg mcauseReg mtvalReg mipValue
+        medelegReg midelegReg
+        sstatusView sieReg stvecReg sscratchReg
+        sepcReg scauseReg stvalReg (mipValue &&& mipSoftMask)
+        satpReg mcounterenReg scounterenReg
+        mtimeLoReg mtimeHiReg
 
     -- Interrupt enable flags
     let mstatusMIE_flag := (mstatusReg.map (BitVec.extractLsb' 3 1 ·)) === 1#1
