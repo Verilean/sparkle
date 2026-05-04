@@ -159,6 +159,38 @@ theorem trap_suppresses_wb_en_sig {dom : DomainConfig}
     idex_regWrite).val (t + 1) = false from h_regW]
   rfl
 
+/-! ## Cycle-N+2 wb_en suppression after trap
+
+  Combines the downstream lemma `exwbRegW_false_when_idex_regW_false`
+  (which only needs idex_regWrite at N+1 to be false) with the
+  hypothesis that IDEX has been squashed at N+1, to conclude that
+  wb_en is false at N+2.
+
+  The hypothesis "idex_regWrite at N+1 = false" can be discharged
+  by `trap_squashes_idex_next_cycle` plus the structural
+  `squash_contains_trap_taken` bridge — but both live in
+  Pipeline/FlushSquash.lean and would need importing here. We
+  expose this lemma in the form that lets callers thread the
+  IDEX-squash hypothesis directly. -/
+
+/-- **idex_regWrite at N+1 = false → wb_en at N+2 = false.**
+
+    Downstream half of the cycle-N+2 regfile-suppression chain.
+    Combines `exwbRegW_false_when_idex_regW_false` with
+    `wbEn_off_when_regW_off`. -/
+theorem wbEn_false_when_idex_regW_false_next_cycle {dom : DomainConfig}
+    (suppressEXWB idex_regWrite : Signal dom Bool)
+    (wbRdNz : Signal dom Bool) (t : Nat)
+    (h_no_idex_regW : idex_regWrite.atTime t = false) :
+    (wbEnSignal (exwbRegWSignal suppressEXWB idex_regWrite) wbRdNz).atTime (t + 1) =
+      false := by
+  have h_regW := exwbRegW_false_when_idex_regW_false suppressEXWB idex_regWrite t
+    h_no_idex_regW
+  unfold wbEnSignal Signal.atTime
+  rw [wb_signal_and_val]
+  rw [show (exwbRegWSignal suppressEXWB idex_regWrite).val (t + 1) = false from h_regW]
+  rfl
+
 /-! ## Connection to invariant A
 
   Invariant A requires "regfile preservation across trap":
