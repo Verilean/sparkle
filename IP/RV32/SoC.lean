@@ -1382,9 +1382,11 @@ def rv32iSoCBody {dom : DomainConfig}
     -- issue — they don't desync fetchPC from pcReg.
     -- squash (proven in Pipeline/FlushSquash.lean): IDEX next-cycle gets
     -- a NOP if stall (with no freeze), flushOrDelay, or stallDelay fires.
+    let stallAndNotFreeze :=
+      Sparkle.IP.RV32.Pipeline.stallAndNotFreezeSignal stall freezeIDEX
     let squash :=
       Sparkle.IP.RV32.Pipeline.squashSignal
-        (stall &&& (~~~freezeIDEX)) flushOrDelay stallDelay
+        stallAndNotFreeze flushOrDelay stallDelay
 
     let clintOffset := alu_result_approx.map (BitVec.extractLsb' 0 16 ·)
     let clintWE :=

@@ -322,4 +322,33 @@ def squashSignal {dom : DomainConfig}
     (stallAndNotFreeze flushOrDelay stallDelay : Signal dom Bool) : Signal dom Bool :=
   stallAndNotFreeze ||| flushOrDelay ||| stallDelay
 
+/-! ## stallAndNotFreeze helper
+
+  The `stallAndNotFreeze` argument to `squashSignal` is itself a
+  composite predicate: stall fires AND freezeIDEX does not. We
+  expose it as a small named primitive so call sites don't need
+  the inline `(stall &&& (~~~freezeIDEX))` shape. -/
+
+@[inline] def stallAndNotFreezePure
+    (stall freezeIDEX : Bool) : Bool :=
+  stall && !freezeIDEX
+
+@[simp] theorem stallAndNotFreeze_no_stall (freezeIDEX : Bool) :
+    stallAndNotFreezePure false freezeIDEX = false := rfl
+
+@[simp] theorem stallAndNotFreeze_with_freeze (stall : Bool) :
+    stallAndNotFreezePure stall true = false := by
+  unfold stallAndNotFreezePure; cases stall <;> rfl
+
+@[simp] theorem stallAndNotFreeze_active :
+    stallAndNotFreezePure true false = true := rfl
+
+theorem stallAndNotFreezePure_spec
+    (stall freezeIDEX : Bool) :
+    stallAndNotFreezePure stall freezeIDEX = (stall && !freezeIDEX) := rfl
+
+def stallAndNotFreezeSignal {dom : DomainConfig}
+    (stall freezeIDEX : Signal dom Bool) : Signal dom Bool :=
+  stall &&& (~~~freezeIDEX)
+
 end Sparkle.IP.RV32.Pipeline
