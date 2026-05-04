@@ -60,6 +60,7 @@ import IP.RV32.Trap.Cause
 import IP.RV32.Trap.TrapTaken
 import IP.RV32.CSR.MStatus
 import IP.RV32.CSR.MStatusNext
+import IP.RV32.CSR.NewValue
 import IP.RV32.Pipeline.SuppressEXWB
 
 set_option maxRecDepth 65536
@@ -1358,11 +1359,9 @@ def rv32iSoCBody {dom : DomainConfig}
     let csrIsRW := csrF3Low === 0b01#2
     let csrIsRS := csrF3Low === 0b10#2
     let csrIsRC := csrF3Low === 0b11#2
+    -- Three-way RW/RS/RC selector (proven in CSR/NewValue.lean).
     let mkCsrNewVal (oldVal : Signal dom (BitVec 32)) :=
-      let rsVal := oldVal ||| csrWdata
-      let rcVal := oldVal &&& (~~~csrWdata)
-      Signal.mux csrIsRW csrWdata
-        (Signal.mux csrIsRS rsVal (Signal.mux csrIsRC rcVal oldVal))
+      Sparkle.IP.RV32.CSR.csrNewValSignal oldVal csrWdata csrIsRW csrIsRS csrIsRC
     -- CSR new values (M-mode)
     let mstatusNewCSR  := mkCsrNewVal mstatusReg
     let mieNewCSR      := mkCsrNewVal mieReg
