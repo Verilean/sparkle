@@ -45,6 +45,7 @@ import Sparkle
 import Sparkle.Core.JITLoop
 import Sparkle.Compiler.Elab
 import IP.RV32.Core
+import IP.RV32.Bus.Decoder
 import IP.RV32.Divider
 import IP.RV32.CSR.Types
 -- Level-1a BitNet MMIO peripheral wrapper.
@@ -500,14 +501,13 @@ def rv32iSoCBody {dom : DomainConfig}
     let needTranslateD := dMemAccess &&& (~~~bypassMMU)
     let dTLBMiss := needTranslateD &&& ((~~~anyTLBHit) &&& (isMMUIdle &&& ptwIsIdle))
 
-    -- Bus address decode uses effectiveAddr (physical after MMU translation)
-    let busAddrHi_ex := effectiveAddr.map (BitVec.extractLsb' 16 16 ·)
-    let isCLINT_ex := busAddrHi_ex === 0x0200#16
-    let mmioAddrBit30_ex := effectiveAddr.map (BitVec.extractLsb' 30 1 ·)
-    let is_mmio_ex := mmioAddrBit30_ex === 1#1
-    let busAddrByte24_ex := effectiveAddr.map (BitVec.extractLsb' 24 8 ·)
-    let isUART_ex := busAddrByte24_ex === 0x10#8
-    let isDMEM_ex := (~~~isCLINT_ex) &&& ((~~~is_mmio_ex) &&& (~~~isUART_ex))
+    -- Bus address decode uses effectiveAddr (physical after MMU translation).
+    -- Spec proven in Bus/Decoder.lean: every address routes to exactly one
+    -- of {CLINT, MMIO, UART, DMEM} (mutex + exhaustive).
+    let isCLINT_ex := Sparkle.IP.RV32.Bus.isCLINTSignal effectiveAddr
+    let is_mmio_ex := Sparkle.IP.RV32.Bus.isMmioSignal effectiveAddr
+    let isUART_ex := Sparkle.IP.RV32.Bus.isUARTSignal effectiveAddr
+    let isDMEM_ex := Sparkle.IP.RV32.Bus.isDMEMSignal isCLINT_ex is_mmio_ex isUART_ex
 
     let dmem_write_addr := effectiveAddr.map (BitVec.extractLsb' 2 23 ·)
     let pendWriteWordAddr := pendingWriteAddr.map (BitVec.extractLsb' 2 23 ·)
