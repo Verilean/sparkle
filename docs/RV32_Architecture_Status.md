@@ -288,7 +288,7 @@ the first kernel-handler instruction to reach the EX stage.
 
 #### LTL-form theorems (universal-time-quantified)
 
-For temporal-logic style reasoning, several core trap-suppression
+For temporal-logic style reasoning, 18 core trap-suppression
 lemmas have universal-time-quantified ("LTL") forms:
 
   * `Pipeline/AbortGuarantee.lean::suppressEXWB_aborts_regW_LTL`
@@ -302,6 +302,13 @@ lemmas have universal-time-quantified ("LTL") forms:
   * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_isAMO_LTL`
   * `AMO/LRSCAcrossTrap.lean::trap_invalidates_reservation_next_cycle_LTL`
   * `AMO/LRSCAcrossTrap.lean::sc_after_trap_suppresses_dmem_we_LTL`
+  * `Pipeline/MMURedirectInv.lean::flushDelayReg_set_after_dMMURedirect_LTL`
+  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_trap_LTL`
+  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_branchTaken_LTL`
+  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_mret_LTL`
+  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_jump_LTL`
+  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_sret_LTL`
+  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_sfence_LTL`
 
 Each says "for all cycles t, if X at t, then Y at t+1." Useful
 for inductive arguments over the entire pipeline trace.
