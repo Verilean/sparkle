@@ -199,6 +199,37 @@ a trap-aborted in-flight instruction cannot:
   * Succeed a SC.W operation (invariant D, via reservation).
   * Continue executing past the trap (cycle N+1 IDEX squashed).
 
+#### Per-state-register sequential coverage (2026-05-05)
+
+Beyond the trap-suppression composites, every state-carrying
+register in the synthesized SoC loop now has cycle-wise
+sequential lemmas covering each arm of its next-state mux. The
+lemmas take the form "predicate at cycle t → reg.val (t+1) =
+expected value at cycle t":
+
+| Module | Register | Arms |
+|--------|----------|------|
+| `MMU/Fill.lean` | `tlb*ValidReg`, `tlb*VPNReg`, `replPtrReg` | latch-on-fill / hold; advance-on-fill / hold |
+| `MMU/PTWLatch.lean` | `ptwPteReg`, `ptwMegaReg` | latch-on-ready / hold; set-on-megaSet / clear-on-idle / hold |
+| `MMU/PTWFSM.lean` | `ptwStateReg` | 8 transitions (idle→L1_REQ, L1_REQ→L1_WAIT, L1_WAIT→done/fault/L0_REQ, L0_REQ→L0_WAIT, L0_WAIT→done, done/fault→idle) |
+| `MMU/FSM.lean` | `mmuStateReg` | 5 transitions (idle→walk/idle, walk→done/fault, done/fault→idle) |
+| `MMU/IfetchFault.lean` | `ptwIsIfetchReg`, `ifetchFaultPendingReg` | set-on-iwalk / clear-on-dwalk-priority / hold; clear-on-trap-delivery / clear-on-bypass |
+| `MMU/PTWReq.lean` | `ptwVaddrReg` | capture-on-start / hold |
+| `MMU/DMiss.lean` | `dMissPCReg`, `dMissVaddrReg`, `dMissIsStoreReg` | capture-on-miss / hold |
+| `Privilege/PrivMode.lean` | `privModeReg` | 5 arms (trapToM→M, trapToS→S, mret→mpp, sret→sppExt, hold) |
+| `CSR/MStatusNext.lean` | `mstatusReg` | trap→trapVal, no-event→hold |
+| `CSR/MipSoft.lean` | `mipSoftReg` | hold-when-no-WE |
+| `CSR/Commit.lean` | plain & trap-override CSR regs | hold / latch-on-trap / latch-on-write |
+| `Mext/DivPending.lean` | `divPendingReg` | clear-on-flush / set-on-start / clear-on-done / hold |
+| `AMO/Reservation.lean` + `LRSCAcrossTrap.lean` | `resValidReg`, `resAddrReg` | trap-clear / LR-set / SC-clear / hold; LR-latch / hold |
+| `AMO/PendingWrite.lean` | `pendingWriteEnReg` | clear-after-amo-clear |
+| `Pipeline/IFID.lean` | `fetchPCReg` | flush→pcNext (others delegated to mux) |
+| `Pipeline/MMURedirectInv.lean` | `pcReg` | dMMURedirect→dMissPC at t+1 |
+
+This gives every register in the production path a named
+sequential lemma per arm — the foundation for full multi-cycle
+invariant proofs.
+
 ### 2.3 IO / memory boundary
 
 Things that touch DRAM/MMIO can't be proven about the host platform
