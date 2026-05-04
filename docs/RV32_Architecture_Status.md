@@ -199,6 +199,34 @@ a trap-aborted in-flight instruction cannot:
   * Succeed a SC.W operation (invariant D, via reservation).
   * Continue executing past the trap (cycle N+1 IDEX squashed).
 
+#### Cycle-N+2 IDEX-NOP-stability composites (2026-05-05)
+
+In addition to the cycle-N+1 squash (covered by
+`idex_squash_clears_next_cycle` and friends in
+`Pipeline/FlushSquash.lean`), every flush source now has a
+cycle-N+2 squash-stability composite proving that the IDEX
+latch is *still* the squashed-init value at cycle N+2:
+
+| Flush source X | Lemma |
+|----------------|-------|
+| trap_taken | `idex_squash_at_N_plus_2_after_trap` |
+| dMMURedirect | `idex_squash_at_N_plus_2_after_dMMURedirect` |
+| idex_isMret | `idex_squash_at_N_plus_2_after_mret` |
+| branchTaken | `idex_squash_at_N_plus_2_after_branchTaken` |
+| idex_jump | `idex_squash_at_N_plus_2_after_jump` |
+| idex_isSret | `idex_squash_at_N_plus_2_after_sret` |
+| idex_isSFenceVMA | `idex_squash_at_N_plus_2_after_sfence` |
+
+Each says: `X.val n = true → IDEX-latch.atTime (n+2) = init`,
+chaining through `flushDelayReg_set_after_X` (N → N+1) and
+`idex_squash_persists_via_flushDelay` (N+1 → N+2).
+
+Combined with the cycle-N+1 lemmas, the IDEX-NOP guarantee
+extends through 2 cycles after any flush event — important for
+proving that a trap doesn't merely abort the in-flight
+EXWB instruction but also keeps IDEX cleared while the kernel
+handler starts fetching from mtvec.
+
 #### Per-state-register sequential coverage (2026-05-05)
 
 Beyond the trap-suppression composites, every state-carrying
