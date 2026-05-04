@@ -703,4 +703,31 @@ theorem flushDelayReg_set_after_sfence {dom : DomainConfig}
     cases trap_taken.val t <;> cases idex_isMret.val t <;>
     cases idex_isSret.val t <;> cases dMMURedirect.val t <;> rfl
 
+/-! ## flushOrDelay ⊇ flushDelay
+
+  Direct Bool-level inclusion: when flushDelay is true,
+  flushOrDelay is true regardless of the 7 flush sources. -/
+
+theorem flushOrDelay_contains_flushDelay
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect : Bool) :
+    flushOrDelayPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+      idex_isSFenceVMA dMMURedirect true = true := by
+  unfold flushOrDelayPure
+  cases flushPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+    idex_isSFenceVMA dMMURedirect <;> rfl
+
+/-- **squash ⊇ flushDelay** via the chain
+    flushDelay → flushOrDelay → squash. -/
+theorem squash_contains_flushDelay
+    (branchTaken idex_jump trap_taken idex_isMret idex_isSret
+     idex_isSFenceVMA dMMURedirect stallAndNotFreeze stallDelay : Bool) :
+    squashPure stallAndNotFreeze
+      (flushOrDelayPure branchTaken idex_jump trap_taken idex_isMret idex_isSret
+        idex_isSFenceVMA dMMURedirect true)
+      stallDelay = true := by
+  apply squash_contains_flushOrDelay
+  exact flushOrDelay_contains_flushDelay branchTaken idex_jump trap_taken
+    idex_isMret idex_isSret idex_isSFenceVMA dMMURedirect
+
 end Sparkle.IP.RV32.Pipeline
