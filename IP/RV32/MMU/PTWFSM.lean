@@ -305,4 +305,117 @@ theorem ptwStateReg_L1Wait_to_fault_on_invalid {dom : DomainConfig}
   rw [h_invalid]
   rfl
 
+/-- **L1_WAIT + ¬invalid + ¬leaf at t → state at t+1 = L0_REQ (= 3#3).**
+    (Continue walking down to the leaf level.) -/
+theorem ptwStateReg_L1Wait_to_L0Req {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) (t : Nat)
+    (h_no_idle : ptwIsIdle.val t = false)
+    (h_no_l1req : ptwIsL1Req.val t = false)
+    (h_l1wait : ptwIsL1Wait.val t = true)
+    (h_no_invalid : dmemPteInvalid.val t = false)
+    (h_no_leaf : dmemPteIsLeaf.val t = false) :
+    (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+      ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 3#3 := by
+  unfold ptwStateRegSignal ptwStateNextSignal ptwNextFromL1WaitSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if ptwIsIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if ptwIsL1Req.val t then _ else _) = _
+  rw [h_no_l1req]
+  show (if ptwIsL1Wait.val t then _ else _) = _
+  rw [h_l1wait]
+  show (if dmemPteInvalid.val t then _ else _) = _
+  rw [h_no_invalid]
+  show (if dmemPteIsLeaf.val t then _ else _) = _
+  rw [h_no_leaf]
+  rfl
+
+/-- **L0_REQ at t → state at t+1 = L0_WAIT (= 4#3).** -/
+theorem ptwStateReg_L0Req_to_L0Wait {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) (t : Nat)
+    (h_no_idle : ptwIsIdle.val t = false)
+    (h_no_l1req : ptwIsL1Req.val t = false)
+    (h_no_l1wait : ptwIsL1Wait.val t = false)
+    (h_l0req : ptwIsL0Req.val t = true) :
+    (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+      ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 4#3 := by
+  unfold ptwStateRegSignal ptwStateNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if ptwIsIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if ptwIsL1Req.val t then _ else _) = _
+  rw [h_no_l1req]
+  show (if ptwIsL1Wait.val t then _ else _) = _
+  rw [h_no_l1wait]
+  show (if ptwIsL0Req.val t then _ else _) = _
+  rw [h_l0req]
+  rfl
+
+/-- **L0_WAIT + ¬invalid + leaf at t → state at t+1 = DONE (= 5#3).** -/
+theorem ptwStateReg_L0Wait_to_done_on_leaf {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) (t : Nat)
+    (h_no_idle : ptwIsIdle.val t = false)
+    (h_no_l1req : ptwIsL1Req.val t = false)
+    (h_no_l1wait : ptwIsL1Wait.val t = false)
+    (h_no_l0req : ptwIsL0Req.val t = false)
+    (h_l0wait : ptwIsL0Wait.val t = true)
+    (h_no_invalid : dmemPteInvalid.val t = false)
+    (h_leaf : dmemPteIsLeaf.val t = true) :
+    (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+      ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 5#3 := by
+  unfold ptwStateRegSignal ptwStateNextSignal ptwNextFromL0WaitSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if ptwIsIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if ptwIsL1Req.val t then _ else _) = _
+  rw [h_no_l1req]
+  show (if ptwIsL1Wait.val t then _ else _) = _
+  rw [h_no_l1wait]
+  show (if ptwIsL0Req.val t then _ else _) = _
+  rw [h_no_l0req]
+  show (if ptwIsL0Wait.val t then _ else _) = _
+  rw [h_l0wait]
+  show (if dmemPteInvalid.val t then _ else _) = _
+  rw [h_no_invalid]
+  show (if dmemPteIsLeaf.val t then _ else _) = _
+  rw [h_leaf]
+  rfl
+
+/-- **DONE/FAULT/other (¬idle/L1_REQ/L1_WAIT/L0_REQ/L0_WAIT) at t →
+    state at t+1 = IDLE (= 0#3).** Auto-clear back to IDLE one cycle later. -/
+theorem ptwStateReg_done_or_fault_to_idle {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) (t : Nat)
+    (h_no_idle : ptwIsIdle.val t = false)
+    (h_no_l1req : ptwIsL1Req.val t = false)
+    (h_no_l1wait : ptwIsL1Wait.val t = false)
+    (h_no_l0req : ptwIsL0Req.val t = false)
+    (h_no_l0wait : ptwIsL0Wait.val t = false) :
+    (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+      ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 0#3 := by
+  unfold ptwStateRegSignal ptwStateNextSignal
+  show (Signal.register init _).val (t + 1) = _
+  unfold Signal.mux
+  show (if ptwIsIdle.val t then _ else _) = _
+  rw [h_no_idle]
+  show (if ptwIsL1Req.val t then _ else _) = _
+  rw [h_no_l1req]
+  show (if ptwIsL1Wait.val t then _ else _) = _
+  rw [h_no_l1wait]
+  show (if ptwIsL0Req.val t then _ else _) = _
+  rw [h_no_l0req]
+  show (if ptwIsL0Wait.val t then _ else _) = _
+  rw [h_no_l0wait]
+  rfl
+
 end Sparkle.IP.RV32.MMU
