@@ -159,4 +159,33 @@ private theorem branch_signal_concrete {dom : DomainConfig}
   | 6#3 => simp [Signal.pure]
   | 7#3 => simp [Signal.pure]
 
+/-! ## branchTaken: gated by `idex_branch`
+
+  At the EX stage, the branch-taken signal is `idex_branch ∧
+  branchCond`: only fire if the in-flight instruction is a
+  branch AND the condition holds.
+-/
+
+@[inline] def branchTakenPure
+    (idex_branch branchCond : Bool) : Bool :=
+  idex_branch && branchCond
+
+@[simp] theorem branchTaken_no_branch (branchCond : Bool) :
+    branchTakenPure false branchCond = false := rfl
+
+@[simp] theorem branchTaken_no_cond (idex_branch : Bool) :
+    branchTakenPure idex_branch false = false := by
+  unfold branchTakenPure; cases idex_branch <;> rfl
+
+@[simp] theorem branchTaken_both : branchTakenPure true true = true := rfl
+
+theorem branchTakenPure_spec
+    (idex_branch branchCond : Bool) :
+    branchTakenPure idex_branch branchCond =
+      (idex_branch && branchCond) := rfl
+
+def branchTakenSignal {dom : DomainConfig}
+    (idex_branch branchCond : Signal dom Bool) : Signal dom Bool :=
+  idex_branch &&& branchCond
+
 end Sparkle.IP.RV32.Pipeline

@@ -113,6 +113,7 @@ import IP.RV32.Pipeline.IFID
 import IP.RV32.Pipeline.IFetchSrc
 import IP.RV32.Pipeline.IDEXRegInput
 import IP.RV32.Pipeline.RegfileTrapInv
+import IP.RV32.Pipeline.BranchComp
 import IP.RV32.Pipeline.AluSrc
 import IP.RV32.Pipeline.AluResult
 import IP.RV32.Mext.DivPending
@@ -934,7 +935,8 @@ def rv32iSoCBody {dom : DomainConfig}
     -- Pipeline/AluResult.lean).
     let isDivOp := Sparkle.IP.RV32.Pipeline.isDivOpSignal idex_funct3
     let branchCond := branchCompSignal idex_funct3 ex_rs1 ex_rs2
-    let branchTaken := idex_branch &&& branchCond
+    let branchTaken :=
+      Sparkle.IP.RV32.Pipeline.branchTakenSignal idex_branch branchCond
     -- jumpTarget (proven in Pipeline/PCNext.lean): JALR clears bit 0.
     let jumpTarget :=
       Sparkle.IP.RV32.Pipeline.jumpTargetSignal idex_isJalr idex_pc ex_rs1 idex_imm
