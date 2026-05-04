@@ -238,12 +238,19 @@ downstream propagation lemma:
 |---------|---------------------|
 | Regfile (wb_en) | `Pipeline/RegfileTrapInv.lean::trap_suppresses_wb_en_at_N_plus_2` |
 | AMO writeback (pendingWriteEn) | `AMO/LRSCAcrossTrap.lean::trap_clears_pendingWriteEn_2_cycles_later` |
+| Plain CSRs (16 regs) | `CSR/CommitTrapInv.lean::trap_holds_csrPlain_reg_at_N_plus_2` |
+| CLINT (5 regs) | `CLINT/CommitTrapInv.lean::trap_holds_clintReg_at_N_plus_2` |
+| UART LCR | `UART/CommitTrapInv.lean::trap_holds_uart_LCR_reg_at_N_plus_2` |
+| UART IER/MCR/SCR/DLL/DLM | `UART/CommitTrapInv.lean::uart_*_hold_when_idex_memWrite_false` (downstream half; full composite mechanical) |
+| BitNet aiStatusReg | `MMIO/CommitTrapInv.lean::trap_holds_aiStatus_reg_at_N_plus_2` |
+| BitNet aiInputReg | `MMIO/CommitTrapInv.lean::aiInput_hold_when_idex_memWrite_false` (downstream half) |
+| AMO reservation | `AMO/LRSCAcrossTrap.lean::reservation_stays_invalid_at_N_plus_2` |
 
-The wb_en case chains through 3 layers: trap → IDEX squash at
-N+1 (idex_regWrite=false) → exwb_regW=false at N+2 → wb_en=false
-at N+2. The pendingWriteEn case follows a similar 3-layer
-chain but through the AMO-specific `exwb_isAMO`/`exwb_isAMOrw`
-state.
+All composites use the same 3-layer chain:
+
+  trap at N → IDEX squash at N+1 (idex_*=false)
+            → register-WE at N+1 = false
+            → register at N+2 = old at N+1.
 
 These prove that the side-effect suppression isn't merely a
 single-cycle phenomenon at the trap-entry moment but extends
