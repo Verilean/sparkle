@@ -44,6 +44,8 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.RV32.AMO.Reservation
 import IP.RV32.AMO.SC
+import IP.RV32.AMO.PendingWrite
+import IP.RV32.Pipeline.SideEffectsTrapInv
 
 namespace Sparkle.IP.RV32.AMO
 
@@ -144,5 +146,58 @@ theorem sc_after_trap_suppresses_dmem_we
   Together these show: an LR-trap-SC sequence cannot leak a
   successful SC update to DRAM.
 -/
+
+/-! ## Multi-cycle: trap at t → pendingWriteEn at t+2 = false
+
+  This packages the AMO-side trap-suppression chain that spans
+  two cycles. The chain is:
+
+    trap_taken at cycle t        (input)
+    → exwb_isAMO at t+1 = false   (trap_clears_exwb_isAMO)
+    → exwb_isAMOrw at t+1 = false (isAMOrwSignal_false_when_isAMO_false)
+    → pendingWriteEn at t+2 = false (pendingWriteEn_false_after_amo_clear)
+
+  This complements the cycle-N+1 reservation-invalidation
+  (`trap_invalidates_reservation_next_cycle`) — the reservation
+  side handles SC.W at t+1; this cycle-N+2 piece handles the AMO
+  writeback that would otherwise commit at t+2.
+
+  Together, an in-flight AMO that's interrupted by a trap at
+  cycle t cannot:
+    * have its SC.W path succeed (cycle t+1, via reservation)
+    * commit its read-modify-write writeback (cycle t+2, this lemma).
+-/
+
+/-- **Composite cycle-N+2 invariant: trap at t → pendingWriteEn at t+2 = false.**
+
+    This is the multi-cycle composition. Type variables for
+    `exwb_isLR`/`exwb_isSC` are quantified over since they don't
+    matter — `exwb_isAMOrw = false` whenever `exwb_isAMO = false`. -/
+theorem trap_clears_pendingWriteEn_2_cycles_later {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isAMO exwb_isLR exwb_isSC : Signal dom Bool) (t : Nat)
+    (h_trap : trap_taken.atTime t = true) :
+    -- Define exwb_isAMO as the suppressEXWB-gated next-cycle latch.
+    let exwb_isAMO :=
+      Signal.register false
+        (Signal.mux
+          (Sparkle.IP.RV32.Pipeline.suppressEXWBSignal trap_taken dTLBMiss
+            pendingWriteEn mmuBusy dMMURedirect)
+          (Signal.pure false) idex_isAMO)
+    (pendingWriteEnRegSignal
+      (isAMOrwSignal exwb_isAMO exwb_isLR exwb_isSC)).val (t + 2) = false := by
+  -- Step 1: trap at t → exwb_isAMO at t+1 = false.
+  have h_isAMO :
+    (Signal.register false
+        (Signal.mux
+          (Sparkle.IP.RV32.Pipeline.suppressEXWBSignal trap_taken dTLBMiss
+            pendingWriteEn mmuBusy dMMURedirect)
+          (Signal.pure false) idex_isAMO)).val (t + 1) = false := by
+    have h := Sparkle.IP.RV32.Pipeline.trap_clears_exwb_isAMO trap_taken dTLBMiss pendingWriteEn
+      mmuBusy dMMURedirect idex_isAMO t h_trap
+    unfold Signal.atTime at h
+    exact h
+  -- Step 2: exwb_isAMO at t+1 = false → pendingWriteEn at t+2 = false.
+  exact pendingWriteEn_false_after_isAMO_clear _ exwb_isLR exwb_isSC (t + 1) h_isAMO
 
 end Sparkle.IP.RV32.AMO
