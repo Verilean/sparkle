@@ -41,6 +41,7 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
+import IP.RV32.AMO.Decode
 
 namespace Sparkle.IP.RV32.AMO
 
@@ -180,5 +181,20 @@ theorem pendingWriteEn_false_after_amo_clear {dom : DomainConfig}
   -- pendingWriteEnNextSignal is just the identity on its argument.
   unfold pendingWriteEnNextSignal
   exact h
+
+/-- **Composite: exwb_isAMO = false at cycle t → pendingWriteEn at t+1 = false.**
+
+    Combines `isAMOrwSignal_false_when_isAMO_false` with
+    `pendingWriteEn_false_after_amo_clear` into a single statement.
+    Skips the explicit `exwb_isAMOrw` mention by quantifying over
+    isLR/isSC.
+-/
+theorem pendingWriteEn_false_after_isAMO_clear {dom : DomainConfig}
+    (exwb_isAMO exwb_isLR exwb_isSC : Signal dom Bool) (t : Nat)
+    (h_isAMO : exwb_isAMO.val t = false) :
+    (pendingWriteEnRegSignal
+      (isAMOrwSignal exwb_isAMO exwb_isLR exwb_isSC)).val (t + 1) = false := by
+  apply pendingWriteEn_false_after_amo_clear
+  exact isAMOrwSignal_false_when_isAMO_false exwb_isAMO exwb_isLR exwb_isSC t h_isAMO
 
 end Sparkle.IP.RV32.AMO
