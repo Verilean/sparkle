@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777969403218,
+  "lastUpdate": 1777970131774,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -791,6 +791,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 629902,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "32f41e332ed170e21247ce1f6f8241aabad9e285",
+          "message": "Tutorial.md: introduce declare_signal_state and Name.mk in Step 1\n\nAdd a \"Multi-output modules and declare_signal_state\" subsection\nright after the single-counter example, demonstrating:\n\n  - declare_signal_state field-list syntax\n  - read-by-name (CounterParityOut.count self)\n  - write-by-name (CounterParityOut.mk (count := ...) (parity := ...))\n  - the auto-generated default / wireNames / fromWires helpers\n\nA concrete `counterAndParity` example mirrors the anonymous-tuple\npattern but uses the record + Name.mk variant directly. Caller\nside also uses field-name accessors.\n\nForward-links to docs/Tutorial_Extended.md for the full\nwalkthrough (anonymous tuple → let-named → record + bundleAll!\n→ record + Name.mk) with trade-offs of each.\n\nBridges the gap between Tutorial.md's single-counter intro and\nTutorial_Extended.md's deeper module-composition material:\nreaders learn the named-record I/O pattern as soon as they need\nmore than one output, without having to hunt for the right\nchapter.",
+          "timestamp": "2026-05-05T17:20:36+09:00",
+          "tree_id": "6d05573aace61658debcc604969319048e3ff2e9",
+          "url": "https://github.com/Verilean/sparkle/commit/32f41e332ed170e21247ce1f6f8241aabad9e285"
+        },
+        "date": 1777970131104,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4076682,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 496764,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1005872,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 640930,
             "unit": "cycles/sec"
           }
         ]
