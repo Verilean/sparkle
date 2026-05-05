@@ -418,4 +418,93 @@ theorem ptwStateReg_done_or_fault_to_idle {dom : DomainConfig}
   rw [h_no_l0wait]
   rfl
 
+/-! ## LTL forms for ptwStateReg transitions -/
+
+theorem ptwStateReg_idle_to_L1Req_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = true → ptwReq.val t = true →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 1#3 :=
+  fun t => ptwStateReg_idle_to_L1Req init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_L1Req_to_L1Wait_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = true →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 2#3 :=
+  fun t => ptwStateReg_L1Req_to_L1Wait init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_L1Wait_to_done_on_leaf_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = false → ptwIsL1Wait.val t = true →
+         dmemPteInvalid.val t = false → dmemPteIsLeaf.val t = true →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 5#3 :=
+  fun t => ptwStateReg_L1Wait_to_done_on_leaf init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_L1Wait_to_fault_on_invalid_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = false → ptwIsL1Wait.val t = true →
+         dmemPteInvalid.val t = true →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 6#3 :=
+  fun t => ptwStateReg_L1Wait_to_fault_on_invalid init ptwIsIdle ptwIsL1Req ptwIsL1Wait
+    ptwIsL0Req ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_L1Wait_to_L0Req_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = false → ptwIsL1Wait.val t = true →
+         dmemPteInvalid.val t = false → dmemPteIsLeaf.val t = false →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 3#3 :=
+  fun t => ptwStateReg_L1Wait_to_L0Req init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_L0Req_to_L0Wait_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = false → ptwIsL1Wait.val t = false →
+         ptwIsL0Req.val t = true →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 4#3 :=
+  fun t => ptwStateReg_L0Req_to_L0Wait init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_L0Wait_to_done_on_leaf_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = false → ptwIsL1Wait.val t = false →
+         ptwIsL0Req.val t = false → ptwIsL0Wait.val t = true →
+         dmemPteInvalid.val t = false → dmemPteIsLeaf.val t = true →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 5#3 :=
+  fun t => ptwStateReg_L0Wait_to_done_on_leaf init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
+theorem ptwStateReg_done_or_fault_to_idle_LTL {dom : DomainConfig}
+    (init : BitVec 3)
+    (ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait : Signal dom Bool)
+    (ptwReq dmemPteInvalid dmemPteIsLeaf : Signal dom Bool) :
+    ∀ t, ptwIsIdle.val t = false → ptwIsL1Req.val t = false → ptwIsL1Wait.val t = false →
+         ptwIsL0Req.val t = false → ptwIsL0Wait.val t = false →
+         (ptwStateRegSignal init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req ptwIsL0Wait
+           ptwReq dmemPteInvalid dmemPteIsLeaf).val (t + 1) = 0#3 :=
+  fun t => ptwStateReg_done_or_fault_to_idle init ptwIsIdle ptwIsL1Req ptwIsL1Wait ptwIsL0Req
+    ptwIsL0Wait ptwReq dmemPteInvalid dmemPteIsLeaf t
+
 end Sparkle.IP.RV32.MMU

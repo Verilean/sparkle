@@ -704,4 +704,18 @@ theorem tlbMegaReg_hold_when_no_fill_LTL {dom : DomainConfig}
          (tlbMegaRegSignal doFillN fillMega tlb_mega).val (t + 1) = tlb_mega.val t :=
   fun t => tlbMegaReg_hold_when_no_fill doFillN fillMega tlb_mega t
 
+theorem replPtrReg_hold_when_no_fill_LTL {dom : DomainConfig}
+    (init : BitVec 2) (tlbFill : Signal dom Bool)
+    (replPtr : Signal dom (BitVec 2)) :
+    ∀ t, tlbFill.val t = false →
+         (replPtrRegSignal init tlbFill replPtr).val (t + 1) = replPtr.val t :=
+  fun t => replPtrReg_hold_when_no_fill init tlbFill replPtr t
+
+theorem replPtrReg_advance_on_fill_LTL {dom : DomainConfig}
+    (init : BitVec 2) (tlbFill : Signal dom Bool)
+    (replPtr : Signal dom (BitVec 2)) :
+    ∀ t, tlbFill.val t = true →
+         (replPtrRegSignal init tlbFill replPtr).val (t + 1) = replPtr.val t + 1#2 :=
+  fun t => replPtrReg_advance_on_fill init tlbFill replPtr t
+
 end Sparkle.IP.RV32.MMU

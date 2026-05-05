@@ -266,4 +266,52 @@ theorem mmuStateReg_done_or_fault_to_idle {dom : DomainConfig}
   rw [h_no_walk]
   rfl
 
+/-! ## LTL forms for mmuStateReg transitions -/
+
+theorem mmuStateReg_idle_to_walk_on_miss_LTL {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) :
+    ∀ t, isMMUIdle.val t = true → dTLBMiss.val t = true →
+         (mmuStateRegSignal init isMMUIdle isPTWWalk
+           dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 2#3 :=
+  fun t => mmuStateReg_idle_to_walk_on_miss init isMMUIdle isPTWWalk
+    dTLBMiss ptwIsDone ptwIsFault t
+
+theorem mmuStateReg_idle_holds_no_miss_LTL {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) :
+    ∀ t, isMMUIdle.val t = true → dTLBMiss.val t = false →
+         (mmuStateRegSignal init isMMUIdle isPTWWalk
+           dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 0#3 :=
+  fun t => mmuStateReg_idle_holds_no_miss init isMMUIdle isPTWWalk
+    dTLBMiss ptwIsDone ptwIsFault t
+
+theorem mmuStateReg_walk_to_done_LTL {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) :
+    ∀ t, isMMUIdle.val t = false → isPTWWalk.val t = true → ptwIsDone.val t = true →
+         (mmuStateRegSignal init isMMUIdle isPTWWalk
+           dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 3#3 :=
+  fun t => mmuStateReg_walk_to_done init isMMUIdle isPTWWalk
+    dTLBMiss ptwIsDone ptwIsFault t
+
+theorem mmuStateReg_walk_to_fault_LTL {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) :
+    ∀ t, isMMUIdle.val t = false → isPTWWalk.val t = true →
+         ptwIsDone.val t = false → ptwIsFault.val t = true →
+         (mmuStateRegSignal init isMMUIdle isPTWWalk
+           dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 4#3 :=
+  fun t => mmuStateReg_walk_to_fault init isMMUIdle isPTWWalk
+    dTLBMiss ptwIsDone ptwIsFault t
+
+theorem mmuStateReg_done_or_fault_to_idle_LTL {dom : DomainConfig}
+    (init : BitVec 3) (isMMUIdle isPTWWalk : Signal dom Bool)
+    (dTLBMiss ptwIsDone ptwIsFault : Signal dom Bool) :
+    ∀ t, isMMUIdle.val t = false → isPTWWalk.val t = false →
+         (mmuStateRegSignal init isMMUIdle isPTWWalk
+           dTLBMiss ptwIsDone ptwIsFault).val (t + 1) = 0#3 :=
+  fun t => mmuStateReg_done_or_fault_to_idle init isMMUIdle isPTWWalk
+    dTLBMiss ptwIsDone ptwIsFault t
+
 end Sparkle.IP.RV32.MMU

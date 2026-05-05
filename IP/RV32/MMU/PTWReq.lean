@@ -211,4 +211,23 @@ theorem ptwVaddrReg_hold_when_not_starting_walk {dom : DomainConfig}
   rw [h_no_start]
   rfl
 
+/-! ## LTL forms -/
+
+theorem ptwVaddrReg_capture_on_start_LTL {dom : DomainConfig}
+    (init : BitVec 32) (ptwIsIdle ptwReq : Signal dom Bool)
+    (ptwVaddrOnStart ptwVaddr : Signal dom (BitVec 32)) :
+    ∀ t, ptwIsIdle.val t = true → ptwReq.val t = true →
+         (ptwVaddrRegSignal init ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddr).val (t + 1) =
+           ptwVaddrOnStart.val t :=
+  fun t => ptwVaddrReg_capture_on_start init ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddr t
+
+theorem ptwVaddrReg_hold_when_not_starting_walk_LTL {dom : DomainConfig}
+    (init : BitVec 32) (ptwIsIdle ptwReq : Signal dom Bool)
+    (ptwVaddrOnStart ptwVaddr : Signal dom (BitVec 32)) :
+    ∀ t, (ptwIsIdle.val t && ptwReq.val t) = false →
+         (ptwVaddrRegSignal init ptwIsIdle ptwReq ptwVaddrOnStart ptwVaddr).val (t + 1) =
+           ptwVaddr.val t :=
+  fun t => ptwVaddrReg_hold_when_not_starting_walk init ptwIsIdle ptwReq
+    ptwVaddrOnStart ptwVaddr t
+
 end Sparkle.IP.RV32.MMU
