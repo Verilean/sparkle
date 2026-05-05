@@ -325,6 +325,16 @@ internally by `IP/RV32/SoC.lean`'s `declare_signal_state SoCState`.
 
 ---
 
+## Where to go next
+
+  - **`docs/Tutorial_LTL.md`** — Steps 5-7 of this tutorial cover
+    LTL temporal-logic verification: ∀N-quantified Lean theorems,
+    K-cycle preservation by induction, multi-premise bug-localization
+    framework with the contrapositive pattern, and pointers to the
+    production RV32 LTL catalog.
+  - `docs/Verification_Framework.md` — broader proof-engineering
+    techniques (oracle reduction, simp normalization, bv_decide).
+
 ## Cross-references
 
   - `tutorial-extended/TutorialExtended/Step1_SimpleCounter.lean` —

@@ -857,6 +857,7 @@ definition transitively called from one of those.
 | Topic | Where |
 |-------|-------|
 | **Module composition + named record I/O** | `docs/Tutorial_Extended.md` |
+| **LTL temporal-logic verification** | `docs/Tutorial_LTL.md` |
 | **Signal DSL syntax** | `docs/SignalDSL_Syntax.md` |
 | **Verification patterns** | `docs/Verification_Framework.md` |
 | **IP catalog** (RV32I CPU, AXI4-Lite, H.264, BitNet) | `README.md` |
