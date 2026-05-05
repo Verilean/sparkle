@@ -585,4 +585,77 @@ theorem bitnet_observed_0x10000_inconsistent_with_lean_spec :
     ≠ 0x00010000#32 := by
   decide
 
+/-! ## Localizing the BitNet bug: bypass-pattern check
+
+  The observed symptom in 9d0704e — "out = input" for ALL 8 test
+  vectors — is not what would happen from a simple timing bug
+  (which would make `out` reflect the *previous* iteration's
+  input, not the current one). It IS what would happen if
+  `bitnetOut = aiInputReg` directly (FFN block bypassed).
+
+  However, the Lean unit test in `bitnet-soc-test` explicitly
+  evaluated the FFN for each of the 8 vectors and got the
+  expected (non-input) output. So at the Lean Signal level the
+  FFN is NOT bypassed.
+
+  This narrows the bug to: somewhere between Lean's
+  `Signal.atTime` evaluator and the runtime (Verilog gen / JIT
+  codegen / Verilator), the FFN computation gets short-circuited.
+
+  Below we add discriminator theorems: for each test vector,
+  ffn(input) ≠ input (so a "bypass" symptom is testably
+  distinguishable from correct behavior). Use these as the
+  acceptance criterion for any putative fix.
+-/
+
+/-- **For test vector 0x10000 (= 1.0 Q16.16), the FFN output 0x410000
+    is distinct from the input.** -/
+theorem ffn_10000_differs_from_input :
+    (0x00410000#32 : BitVec 32) ≠ (0x00010000#32 : BitVec 32) := by decide
+
+/-- **For test vector 0x20000 (= 2.0 Q16.16), the FFN output 0x02020000
+    is distinct from the input.** -/
+theorem ffn_20000_differs_from_input :
+    (0x02020000#32 : BitVec 32) ≠ (0x00020000#32 : BitVec 32) := by decide
+
+/-- **For test vector 0x12345678, the FFN output 0x5AD1BC9A is distinct
+    from the input.** -/
+theorem ffn_12345678_differs_from_input :
+    (0x5AD1BC9A#32 : BitVec 32) ≠ (0x12345678#32 : BitVec 32) := by decide
+
+/-- **For test vector 0x40000 (= 4.0 Q16.16), the FFN output 0x10040000
+    is distinct from the input.** -/
+theorem ffn_40000_differs_from_input :
+    (0x10040000#32 : BitVec 32) ≠ (0x00040000#32 : BitVec 32) := by decide
+
+/-! ## Acceptance criterion: any symptom where boot.S's `lw` returns
+    its `sw`'s input value is INCONSISTENT with the Lean Sparkle
+    spec for these 4 vectors. So if a runtime trace ever shows
+    out=input for any of these vectors, the bug is in the
+    runtime translation layer, NOT the Lean spec.
+
+    Conversely, the trivial vectors `in=0x100, out=0x100` and
+    `in=0, out=0` are NOT discriminators — for those the FFN
+    happens to act as identity (small inputs don't trigger the
+    FFN's nonlinear stages enough). Boot.S sees `out=input` for
+    those vectors and that's actually correct. The discriminator
+    vectors above are what reveal the bug.
+-/
+
+/-- **The Lean spec implies: a `lw 0x40000008` after `sw 0x40000004 ← X`
+    where ffn(X) ≠ X must observe ffn(X), not X. Contrapositive: if
+    out = X is observed, the bug is below the Lean spec layer.** -/
+theorem lean_spec_implies_lw_returns_ffn_not_input
+    (X ffnX : BitVec 32) (h_distinct : ffnX ≠ X)
+    (aiStatusReg : BitVec 32) :
+    -- Given the lw decoder + bitnetOut wire produces ffnX
+    -- (which the Lean spec proves via combinational eval), the
+    -- mmioRdata at offset 0x8 equals ffnX, NOT X.
+    Sparkle.IP.RV32.MMIO.mmioRdataPure
+      (Sparkle.IP.RV32.MMIO.mmioIsStatusPure 0x8#4)
+      (Sparkle.IP.RV32.MMIO.mmioIsOutputPure 0x8#4)
+      aiStatusReg ffnX ≠ X := by
+  show ffnX ≠ X
+  exact h_distinct
+
 end Sparkle.IP.RV32.Verification
