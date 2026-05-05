@@ -221,4 +221,65 @@ theorem fetchPCReg_flush_sets_pcNext_next_cycle_LTL {dom : DomainConfig}
            pcNext.val t :=
   fun t => fetchPCReg_flush_sets_pcNext_next_cycle flush stall pcNext fetchPC pcReg t
 
+/-! ## ifid_pc register wrapper + sequential advance lemma
+
+  `ifid_pc` is `Signal.register 0 (ifidPCNextSignal stall ifid_pc fetchPC)`.
+  When `stall.val t = false`, the register at t+1 holds `fetchPC.val t`.
+  This is the IFID-side counterpart of `fetchPCRegSignal` and is needed
+  to chain the cycle-N+2 IDEX-PC handoff for invariant C
+  (post-fault load re-execution): if dMMURedirect fires at cycle N
+  and the IF stage isn't stalled at N+1, then `ifid_pc.val (N+2) =
+  fetchPC.val (N+1) = dMissPC.val N`.
+-/
+
+/-- `ifid_pc` register: input runs through `ifidPCNextSignal`. -/
+def ifidPCRegSignal {dom : DomainConfig}
+    (stall : Signal dom Bool)
+    (ifid_pc fetchPC : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register 0#32 (ifidPCNextSignal stall ifid_pc fetchPC)
+
+/-- **¬stall at t → ifid_pc.val (t+1) = fetchPC.val t.** -/
+theorem ifidPCReg_advance_when_no_stall {dom : DomainConfig}
+    (stall : Signal dom Bool)
+    (ifid_pc fetchPC : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_stall : stall.val t = false) :
+    (ifidPCRegSignal stall ifid_pc fetchPC).val (t + 1) = fetchPC.val t := by
+  unfold ifidPCRegSignal
+  show (Signal.register 0#32 _).val (t + 1) = _
+  show (ifidPCNextSignal stall ifid_pc fetchPC).val t = _
+  unfold ifidPCNextSignal Signal.mux
+  show (if stall.val t = true then ifid_pc.val t else fetchPC.val t) = _
+  rw [h_no_stall]
+  rfl
+
+/-- **stall at t → ifid_pc.val (t+1) = ifid_pc.val t (hold).** -/
+theorem ifidPCReg_hold_when_stall {dom : DomainConfig}
+    (stall : Signal dom Bool)
+    (ifid_pc fetchPC : Signal dom (BitVec 32)) (t : Nat)
+    (h_stall : stall.val t = true) :
+    (ifidPCRegSignal stall ifid_pc fetchPC).val (t + 1) = ifid_pc.val t := by
+  unfold ifidPCRegSignal
+  show (Signal.register 0#32 _).val (t + 1) = _
+  show (ifidPCNextSignal stall ifid_pc fetchPC).val t = _
+  unfold ifidPCNextSignal Signal.mux
+  show (if stall.val t = true then ifid_pc.val t else fetchPC.val t) = _
+  rw [h_stall]
+  rfl
+
+/-! ## LTL forms -/
+
+theorem ifidPCReg_advance_when_no_stall_LTL {dom : DomainConfig}
+    (stall : Signal dom Bool)
+    (ifid_pc fetchPC : Signal dom (BitVec 32)) :
+    ∀ t, stall.val t = false →
+         (ifidPCRegSignal stall ifid_pc fetchPC).val (t + 1) = fetchPC.val t :=
+  fun t => ifidPCReg_advance_when_no_stall stall ifid_pc fetchPC t
+
+theorem ifidPCReg_hold_when_stall_LTL {dom : DomainConfig}
+    (stall : Signal dom Bool)
+    (ifid_pc fetchPC : Signal dom (BitVec 32)) :
+    ∀ t, stall.val t = true →
+         (ifidPCRegSignal stall ifid_pc fetchPC).val (t + 1) = ifid_pc.val t :=
+  fun t => ifidPCReg_hold_when_stall stall ifid_pc fetchPC t
+
 end Sparkle.IP.RV32.Pipeline
