@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777970442843,
+  "lastUpdate": 1777970455415,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1275,6 +1275,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 5459887,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "a34600b42b0ee4288268a956e9245ecac6c305ce",
+          "message": "Tutorial.md: introduce Signal.circuit do imperative HW DSL\n\nAdd a \"Imperative-style hardware: Signal.circuit do\" subsection\nright after the named-record I/O introduction in Step 1, with:\n\n  - Syntax overview (let x ← Signal.reg init, x <~ rhs, let y :=\n    rhs, return expr)\n  - Counter rewrite — same circuit as the canonical Step 1 example\n  - 3-stage shift pipeline as a multi-register example\n  - Note on when NOT to use it (need multiple named outputs →\n    Name.mk + Signal.loop is more flexible; Signal.circuit do\n    returns a single Signal)\n  - Forward link to the runnable example file\n\nNew runnable example:\n\n  - tutorial-extended/TutorialExtended/Step8_CircuitDoNotation.lean —\n    four worked examples (counter / up-down / 3-stage shift /\n    enabled counter) demonstrating both registered-state assignment\n    (`<~`) and combinational `let` bindings in the same do block.\n  - tutorial-extended/TutorialExtended/Run.lean — extended to\n    invoke Step 8's runDemo, which prints the four traces and\n    confirms (a) the counter increments, (b) up/down respects en,\n    (c) 3-stage shift introduces 3-cycle latency (input 0xAA at\n    cycle 1 emerges at cycle 4), (d) enabled counter only ticks\n    on the cycles when en is true.\n\nThe macro desugars to Signal.loop + Signal.register + bundleAll!\nover the next-state expressions, so synthesis output, JIT codegen,\nand Signal.atTime evaluation are identical to the hand-written\nversion. Verified by `lake build` (64 jobs clean) and\n`lake exe tutorial-extended-run` (Step 8 traces match expected\noutput).",
+          "timestamp": "2026-05-05T17:33:02+09:00",
+          "tree_id": "79db2a2a501c5a31266cfea81b5d641c4ccec2c5",
+          "url": "https://github.com/Verilean/sparkle/commit/a34600b42b0ee4288268a956e9245ecac6c305ce"
+        },
+        "date": 1777970455094,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3662057,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3683953,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4436700,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4314410,
             "unit": "cycles/sec"
           }
         ]
