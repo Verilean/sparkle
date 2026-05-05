@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777970131774,
+  "lastUpdate": 1777970538441,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -835,6 +835,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 640930,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e46ab57c8e2b76a40020de57074666e1c58bb3f7",
+          "message": "Merge pull request #30 from Verilean/feature/named-outputs\n\ndeclare_signal_state: generate Name.mk named-field constructor",
+          "timestamp": "2026-05-05T17:35:27+09:00",
+          "tree_id": "79db2a2a501c5a31266cfea81b5d641c4ccec2c5",
+          "url": "https://github.com/Verilean/sparkle/commit/e46ab57c8e2b76a40020de57074666e1c58bb3f7"
+        },
+        "date": 1777970537589,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 5841080,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 726893,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1477780,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 893884,
             "unit": "cycles/sec"
           }
         ]
