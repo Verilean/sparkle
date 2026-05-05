@@ -110,3 +110,4 @@ import IP.RV32.Pipeline.SideEffectsTrapInv
 import IP.RV32.Pipeline.StoreLoadFwd
 import IP.RV32.Verification.InductionScaffold
 import IP.RV32.Verification.LinuxBootRegression
+import IP.RV32.Verification.BitNetTimingLTL
