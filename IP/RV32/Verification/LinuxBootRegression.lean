@@ -37,6 +37,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.RV32.MMU.IfetchFault
 import IP.RV32.Bus.Decoder
+import IP.RV32.MMIO.BitNet
 
 namespace Sparkle.IP.RV32.Verification
 
@@ -359,5 +360,80 @@ theorem uart_not_DMEM :
 /-- **Kernel image base does NOT route to UART** (sanity). -/
 theorem kernel_image_not_UART :
     Sparkle.IP.RV32.Bus.isUARTPure 0x80200000#32 = false := by decide
+
+/-! ## BitNet MMIO observation: alias hypothesis refuted
+
+  Commit `9d0704e` reported a symptom: when boot.S writes `0x12345678`
+  to `0x40000004` (input) and reads `0x40000008` (output), it sees
+  back the input value `0x12345678` instead of the expected FFN
+  output `0x5AD1BC9A`. The commit speculates two possible causes:
+
+    (a) "offset 0x8 may alias 0x4" — the read decoder mistreats
+        offset 0x8 as offset 0x4 and returns aiInputReg.
+
+    (b) "missing pipeline cycle between sw and lw on this 4-stage SoC"
+        — aiInputReg hasn't been latched by the time `lw 0x8` reads.
+
+  **Hypothesis (a) is REFUTED machine-checked.** The pure decoder
+  proves `mmioIsInputPure 0x4 = true ∧ mmioIsInputPure 0x8 = false`
+  and `mmioIsOutputPure 0x4 = false ∧ mmioIsOutputPure 0x8 = true`,
+  so offset 0x8 cannot route to the input register. We pin those
+  concrete-vector facts here so any future read-decoder refactor
+  that introduces an alias gets caught.
+
+  Hypothesis (b) is harder to refute statically — it is a
+  cycle-counting question about the 4-stage pipeline.
+-/
+
+/-- **Offset 0x4 selects ONLY the input register (status/output false).** -/
+theorem mmio_offset_0x4_is_input_only :
+    Sparkle.IP.RV32.MMIO.mmioIsStatusPure 0x4#4 = false ∧
+    Sparkle.IP.RV32.MMIO.mmioIsInputPure  0x4#4 = true ∧
+    Sparkle.IP.RV32.MMIO.mmioIsOutputPure 0x4#4 = false := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide
+
+/-- **Offset 0x8 selects ONLY the output register (status/input false).**
+
+    REFUTES the "offset 0x8 may alias 0x4" hypothesis from `9d0704e`.
+    The read mux in mmioRdataPure CANNOT return aiInputReg for
+    offset 0x8 — it returns bitnetOut. Therefore the observed
+    `out=input` symptom is NOT caused by an offset-decoding alias. -/
+theorem mmio_offset_0x8_is_output_only :
+    Sparkle.IP.RV32.MMIO.mmioIsStatusPure 0x8#4 = false ∧
+    Sparkle.IP.RV32.MMIO.mmioIsInputPure  0x8#4 = false ∧
+    Sparkle.IP.RV32.MMIO.mmioIsOutputPure 0x8#4 = true := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide
+
+/-- **Read of offset 0x8 returns bitnetOut, not aiInputReg.**
+
+    Concretely: assuming `bitnetOut ≠ aiInputReg` (which is the
+    case for any non-trivial input — see `bitnet-soc-test`), the
+    rdata mux at offset 0x8 returns the FFN output, not the input.
+
+    The Lean unit test verified `ffn(0x10000) = 0x410000 ≠ 0x10000`,
+    so for the boot.S test vector, mmioRdataPure (when called with
+    the correct offset signals) returns 0x410000, not 0x10000. -/
+theorem mmio_offset_0x8_returns_bitnetOut_not_aiInputReg
+    (aiStatusReg bitnetOut : BitVec 32) :
+    Sparkle.IP.RV32.MMIO.mmioRdataPure
+      (Sparkle.IP.RV32.MMIO.mmioIsStatusPure 0x8#4)
+      (Sparkle.IP.RV32.MMIO.mmioIsOutputPure 0x8#4)
+      aiStatusReg bitnetOut = bitnetOut := by
+  rfl
+
+/-- **Read of offset 0x4 returns 0 (NOT a valid read target).**
+
+    Per spec, offset 0x4 is write-only (input latch). A `lw` of
+    offset 0x4 returns 0 — neither aiStatusReg nor bitnetOut. So
+    even if there were a hypothetical "bug" routing 0x8 → 0x4,
+    the resulting symptom would be `out = 0`, not `out = input`.
+    This further refutes the alias hypothesis. -/
+theorem mmio_offset_0x4_read_returns_zero
+    (aiStatusReg bitnetOut : BitVec 32) :
+    Sparkle.IP.RV32.MMIO.mmioRdataPure
+      (Sparkle.IP.RV32.MMIO.mmioIsStatusPure 0x4#4)
+      (Sparkle.IP.RV32.MMIO.mmioIsOutputPure 0x4#4)
+      aiStatusReg bitnetOut = 0#32 := by
+  rfl
 
 end Sparkle.IP.RV32.Verification
