@@ -288,30 +288,63 @@ the first kernel-handler instruction to reach the EX stage.
 
 #### LTL-form theorems (universal-time-quantified)
 
-For temporal-logic style reasoning, 18 core trap-suppression
-lemmas have universal-time-quantified ("LTL") forms:
+For temporal-logic style reasoning, every cycle-wise sequential
+lemma in the codebase now has a universal-time-quantified ("LTL")
+form `∀ t, X.val t = ... → Y.val (t+1) = ...`. Coverage organized
+by module:
 
-  * `Pipeline/AbortGuarantee.lean::suppressEXWB_aborts_regW_LTL`
-  * `Pipeline/AbortGuarantee.lean::suppressEXWB_aborts_generic_bit_LTL`
-  * `Pipeline/FlushSquash.lean::idex_squash_clears_LTL`
-  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_regW_LTL`
-  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_m2r_LTL`
-  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_jump_LTL`
-  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_isCsr_LTL`
-  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_prevStoreEn_LTL`
-  * `Pipeline/SideEffectsTrapInv.lean::trap_clears_exwb_isAMO_LTL`
-  * `AMO/LRSCAcrossTrap.lean::trap_invalidates_reservation_next_cycle_LTL`
-  * `AMO/LRSCAcrossTrap.lean::sc_after_trap_suppresses_dmem_we_LTL`
-  * `Pipeline/MMURedirectInv.lean::flushDelayReg_set_after_dMMURedirect_LTL`
-  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_trap_LTL`
-  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_branchTaken_LTL`
-  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_mret_LTL`
-  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_jump_LTL`
-  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_sret_LTL`
-  * `Pipeline/FlushSquash.lean::flushDelayReg_set_after_sfence_LTL`
+**Pipeline / trap suppression**
+  * `Pipeline/AbortGuarantee.lean` — suppressEXWB_aborts_{regW,generic_bit}
+  * `Pipeline/FlushSquash.lean` — idex_squash_clears + 4 *_squashes_idex
+    + 6 flushDelayReg_set_after_{trap,branchTaken,mret,jump,sret,sfence}
+  * `Pipeline/SideEffectsTrapInv.lean` — 6 trap_clears_exwb_* +
+    trap_clears_prevStoreEn
+  * `Pipeline/SuppressEXWB.lean` — trap_clears_idex_isCsr_valid
+  * `Pipeline/IFID.lean` — fetchPCReg_flush_sets_pcNext_next_cycle
+  * `Pipeline/MMURedirectInv.lean` — flushDelayReg_set_after_dMMURedirect
+    + dMMURedirect_sets_pcReg_next_cycle
+  * `Pipeline/RegfileTrapInv.lean` — wbEn_false_when_idex_regW_false_next_cycle
+
+**AMO**
+  * `AMO/LRSCAcrossTrap.lean` — trap_invalidates_reservation,
+    sc_after_trap_suppresses_dmem_we, LR_sets_reservation,
+    SC_clears_reservation, reservation_holds_when_no_event
+  * `AMO/PendingWrite.lean` — pendingWriteEn_false_after_{amo,isAMO}_clear
+  * `AMO/Reservation.lean` — resAddrReg latch_on_LR / hold_when_no_LR
+
+**MMU**
+  * `MMU/Fill.lean` — tlb{Valid,VPN,PPN,Flags,Mega}Reg set_after_fill +
+    hold_when_no_fill + tlbValidReg_clears_after_sfence + 2 tlbHit_after_fill
+  * `MMU/IfetchFault.lean` — ifetchFaultPendingReg clears_on_{trap_delivery,bypass}
+    + ptwIsIfetchReg set_on_iwalk / clear_on_dwalk / hold_when_not_idle
+  * `MMU/DMiss.lean` — dMissCapture{BV32,Bool}Reg {hold_when_no_miss, latch_on_miss}
+  * `MMU/PTWLatch.lean` — ptwPteReg latch_when_ready / hold_when_not_ready
+    + ptwMegaReg set_on_megaSet / clears_on_idle / hold_otherwise
+
+**CSR**
+  * `CSR/Commit.lean` — csrPlainReg{,8} hold_when_we_false +
+    csrTrapOverrideReg latch_on_trap / hold_when_no_event
+  * `CSR/CommitTrapInv.lean` — trap_holds_csrPlain_reg +
+    csrPlainReg_hold_when_idex_isCsr_false
+  * `CSR/MipSoft.lean` — mipSoftReg_hold_when_no_we
+  * `CSR/MStatusNext.lean` — mstatusReg latches_trapVal_on_trap / hold_when_no_event
+
+**Privilege / CLINT / MMIO / UART**
+  * `Privilege/PrivMode.lean` — privModeReg to_{M,S}_on_trapTo* +
+    {mret_restores_mpp, sret_restores_sppExt, hold_when_no_event}
+  * `CLINT/Timer.lean` — mtime{Lo,Hi}Reg_advances_when_no_we
+  * `CLINT/CommitTrapInv.lean` — trap_holds_clintReg + hold_when_idex_memWrite_false
+  * `MMIO/CommitTrapInv.lean` — ai{Status,Input}_hold_when_idex_memWrite_false
+  * `UART/CommitTrapInv.lean` — 6 trap_holds_uart_*_reg +
+    6 uart_*_hold_when_idex_memWrite_false
+
+**M-extension**
+  * `Mext/DivPending.lean` — divPendingReg clears_on_{flush,done},
+    set_on_start, hold_when_no_event
 
 Each says "for all cycles t, if X at t, then Y at t+1." Useful
-for inductive arguments over the entire pipeline trace.
+for inductive arguments over the entire pipeline trace and
+2-cycle composite proofs.
 
 #### Per-state-register sequential coverage (2026-05-05)
 
