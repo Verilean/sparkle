@@ -356,4 +356,28 @@ theorem ifetchFaultPendingReg_clears_on_bypass_LTL {dom : DomainConfig}
   fun t => ifetchFaultPendingReg_clears_on_bypass ifetchPageFault bypassMMU
     ptwFault ptwIsIfetch ifetchFaultPending t
 
+/-- **LTL form of `ptwIsIfetchReg_set_on_iwalk`.** -/
+theorem ptwIsIfetchReg_set_on_iwalk_LTL {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool) :
+    ∀ t, ptwIdle.val t = true → ifetchPTWReq.val t = true → dTLBMiss.val t = false →
+         (ptwIsIfetchRegSignal init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch).val (t + 1) =
+           true :=
+  fun t => ptwIsIfetchReg_set_on_iwalk init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch t
+
+/-- **LTL form of `ptwIsIfetchReg_clear_on_dwalk`.** -/
+theorem ptwIsIfetchReg_clear_on_dwalk_LTL {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool) :
+    ∀ t, ptwIdle.val t = true → dTLBMiss.val t = true →
+         (ptwIsIfetchRegSignal init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch).val (t + 1) =
+           false :=
+  fun t => ptwIsIfetchReg_clear_on_dwalk init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch t
+
+/-- **LTL form of `ptwIsIfetchReg_hold_when_not_idle`.** -/
+theorem ptwIsIfetchReg_hold_when_not_idle_LTL {dom : DomainConfig}
+    (init : Bool) (ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch : Signal dom Bool) :
+    ∀ t, ptwIdle.val t = false →
+         (ptwIsIfetchRegSignal init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch).val (t + 1) =
+           ptwIsIfetch.val t :=
+  fun t => ptwIsIfetchReg_hold_when_not_idle init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch t
+
 end Sparkle.IP.RV32.MMU

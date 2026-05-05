@@ -306,4 +306,35 @@ theorem mstatusReg_stays_trapVal_at_N_plus_2 {dom : DomainConfig}
   rw [h_outer]
   exact h_inner_n1
 
+/-! ## LTL forms for MStatusNext cycle-N+1 lemmas -/
+
+theorem mstatusReg_latches_trapVal_on_trap_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32))
+    (mstatus : Signal dom (BitVec 32)) :
+    ∀ t, trapTaken.val t = true →
+         (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+           sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus).val (t + 1) =
+           trapVal.val t :=
+  fun t => mstatusReg_latches_trapVal_on_trap init trapTaken trapVal isMret mretVal
+    isSret sretVal sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus t
+
+theorem mstatusReg_hold_when_no_event_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32))
+    (mstatus : Signal dom (BitVec 32)) :
+    ∀ t, trapTaken.val t = false → isMret.val t = false → isSret.val t = false →
+         sstatusWrite.val t = false → mstatusWrite.val t = false →
+         (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+           sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus).val (t + 1) =
+           mstatus.val t :=
+  fun t => mstatusReg_hold_when_no_event init trapTaken trapVal isMret mretVal
+    isSret sretVal sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus t
+
 end Sparkle.IP.RV32.CSR

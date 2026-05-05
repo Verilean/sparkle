@@ -353,4 +353,48 @@ theorem privModeReg_stays_S_at_N_plus_2 {dom : DomainConfig}
   rw [h_outer]
   exact h_inner_n1
 
+/-! ## LTL forms for privModeReg cycle-N+1 lemmas -/
+
+theorem privModeReg_to_M_on_trapToM_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) :
+    ∀ t, trapToM.val t = true →
+         (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+           privM :=
+  fun t => privModeReg_to_M_on_trapToM init trapToM trapToS isMret isSret mpp sretPriv priv t
+
+theorem privModeReg_to_S_on_trapToS_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) :
+    ∀ t, trapToM.val t = false → trapToS.val t = true →
+         (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+           privS :=
+  fun t => privModeReg_to_S_on_trapToS init trapToM trapToS isMret isSret mpp sretPriv priv t
+
+theorem privModeReg_mret_restores_mpp_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) :
+    ∀ t, trapToM.val t = false → trapToS.val t = false → isMret.val t = true →
+         (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+           mpp.val t :=
+  fun t => privModeReg_mret_restores_mpp init trapToM trapToS isMret isSret mpp sretPriv priv t
+
+theorem privModeReg_sret_restores_sppExt_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) :
+    ∀ t, trapToM.val t = false → trapToS.val t = false →
+         isMret.val t = false → isSret.val t = true →
+         (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+           sretPriv.val t :=
+  fun t => privModeReg_sret_restores_sppExt init trapToM trapToS isMret isSret mpp sretPriv priv t
+
+theorem privModeReg_hold_when_no_event_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv priv : Signal dom (BitVec 2)) :
+    ∀ t, trapToM.val t = false → trapToS.val t = false →
+         isMret.val t = false → isSret.val t = false →
+         (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv priv).val (t + 1) =
+           priv.val t :=
+  fun t => privModeReg_hold_when_no_event init trapToM trapToS isMret isSret mpp sretPriv priv t
+
 end Sparkle.IP.RV32.Privilege

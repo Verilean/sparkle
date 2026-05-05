@@ -276,4 +276,40 @@ theorem csrTrapOverrideReg_hold_when_no_event {dom : DomainConfig}
   rw [h_no_trap, h_no_we]
   rfl
 
+/-! ## LTL forms for CSR commit cycle-N+1 lemmas -/
+
+theorem csrPlainReg_hold_when_we_false_LTL {dom : DomainConfig}
+    (init : BitVec 32) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, writeActive.val t = false →
+         (csrPlainRegSignal init writeActive newVal old).val (t + 1) = old.val t :=
+  fun t => csrPlainReg_hold_when_we_false init writeActive newVal old t
+
+theorem csrPlainReg8_hold_when_we_false_LTL {dom : DomainConfig}
+    (init : BitVec 8) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) :
+    ∀ t, writeActive.val t = false →
+         (csrPlainRegSignal8 init writeActive newVal old).val (t + 1) = old.val t :=
+  fun t => csrPlainReg8_hold_when_we_false init writeActive newVal old t
+
+theorem csrTrapOverrideReg_latch_on_trap_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, trapTo.val t = true →
+         (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+           trapPayload.val t :=
+  fun t => csrTrapOverrideReg_latch_on_trap init trapTo trapPayload writeActive newVal old t
+
+theorem csrTrapOverrideReg_hold_when_no_event_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, trapTo.val t = false → writeActive.val t = false →
+         (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+           old.val t :=
+  fun t => csrTrapOverrideReg_hold_when_no_event init trapTo trapPayload writeActive newVal old t
+
 end Sparkle.IP.RV32.CSR

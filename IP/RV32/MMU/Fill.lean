@@ -669,4 +669,39 @@ theorem tlbMegaReg_set_after_fill_LTL {dom : DomainConfig}
          (tlbMegaRegSignal doFillN fillMega tlb_mega).val (t + 1) = fillMega.val t :=
   fun t => tlbMegaReg_set_after_fill doFillN fillMega tlb_mega t
 
+/-! ## LTL forms of TLB-register hold/clear lemmas -/
+
+theorem tlbValidReg_hold_LTL {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) :
+    ∀ t, sfenceVMA.val t = false → doFillN.val t = false →
+         (tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1) = tlb_valid.val t :=
+  fun t => tlbValidReg_hold sfenceVMA doFillN tlb_valid t
+
+theorem tlbVPNReg_hold_when_no_fill_LTL {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) :
+    ∀ t, doFillN.val t = false →
+         (tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1) = tlb_vpn.val t :=
+  fun t => tlbVPNReg_hold_when_no_fill doFillN fillVPN tlb_vpn t
+
+theorem tlbPPNReg_hold_when_no_fill_LTL {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillPPN tlb_ppn : Signal dom (BitVec 22)) :
+    ∀ t, doFillN.val t = false →
+         (tlbPPNRegSignal doFillN fillPPN tlb_ppn).val (t + 1) = tlb_ppn.val t :=
+  fun t => tlbPPNReg_hold_when_no_fill doFillN fillPPN tlb_ppn t
+
+theorem tlbFlagsReg_hold_when_no_fill_LTL {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillFlags tlb_flags : Signal dom (BitVec 8)) :
+    ∀ t, doFillN.val t = false →
+         (tlbFlagsRegSignal doFillN fillFlags tlb_flags).val (t + 1) = tlb_flags.val t :=
+  fun t => tlbFlagsReg_hold_when_no_fill doFillN fillFlags tlb_flags t
+
+theorem tlbMegaReg_hold_when_no_fill_LTL {dom : DomainConfig}
+    (doFillN fillMega tlb_mega : Signal dom Bool) :
+    ∀ t, doFillN.val t = false →
+         (tlbMegaRegSignal doFillN fillMega tlb_mega).val (t + 1) = tlb_mega.val t :=
+  fun t => tlbMegaReg_hold_when_no_fill doFillN fillMega tlb_mega t
+
 end Sparkle.IP.RV32.MMU

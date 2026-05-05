@@ -208,4 +208,22 @@ theorem resAddrReg_hold_when_no_LR {dom : DomainConfig}
   rw [h_no_LR]
   rfl
 
+/-! ## LTL forms -/
+
+theorem resAddrReg_latch_on_LR_LTL {dom : DomainConfig}
+    (init : BitVec 32) (isLR : Signal dom Bool)
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32)) :
+    ∀ t, isLR.val t = true →
+         (resAddrRegSignal init isLR exwb_physAddr reservationAddr).val (t + 1) =
+           exwb_physAddr.val t :=
+  fun t => resAddrReg_latch_on_LR init isLR exwb_physAddr reservationAddr t
+
+theorem resAddrReg_hold_when_no_LR_LTL {dom : DomainConfig}
+    (init : BitVec 32) (isLR : Signal dom Bool)
+    (exwb_physAddr reservationAddr : Signal dom (BitVec 32)) :
+    ∀ t, isLR.val t = false →
+         (resAddrRegSignal init isLR exwb_physAddr reservationAddr).val (t + 1) =
+           reservationAddr.val t :=
+  fun t => resAddrReg_hold_when_no_LR init isLR exwb_physAddr reservationAddr t
+
 end Sparkle.IP.RV32.AMO

@@ -210,4 +210,38 @@ theorem ptwMegaReg_hold_otherwise {dom : DomainConfig}
   rw [h_no_set, h_no_idle]
   rfl
 
+/-! ## LTL forms for PTWLatch cycle-N+1 lemmas -/
+
+theorem ptwPteReg_latch_when_ready_LTL {dom : DomainConfig}
+    (init : BitVec 32) (isDataReady : Signal dom Bool)
+    (dmem_rdata ptwPte : Signal dom (BitVec 32)) :
+    ∀ t, isDataReady.val t = true →
+         (ptwPteRegSignal init isDataReady dmem_rdata ptwPte).val (t + 1) = dmem_rdata.val t :=
+  fun t => ptwPteReg_latch_when_ready init isDataReady dmem_rdata ptwPte t
+
+theorem ptwPteReg_hold_when_not_ready_LTL {dom : DomainConfig}
+    (init : BitVec 32) (isDataReady : Signal dom Bool)
+    (dmem_rdata ptwPte : Signal dom (BitVec 32)) :
+    ∀ t, isDataReady.val t = false →
+         (ptwPteRegSignal init isDataReady dmem_rdata ptwPte).val (t + 1) = ptwPte.val t :=
+  fun t => ptwPteReg_hold_when_not_ready init isDataReady dmem_rdata ptwPte t
+
+theorem ptwMegaReg_set_on_megaSet_LTL {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) :
+    ∀ t, megaSet.val t = true →
+         (ptwMegaRegSignal init megaSet ptwIsIdle ptwMega).val (t + 1) = true :=
+  fun t => ptwMegaReg_set_on_megaSet init megaSet ptwIsIdle ptwMega t
+
+theorem ptwMegaReg_clears_on_idle_LTL {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) :
+    ∀ t, megaSet.val t = false → ptwIsIdle.val t = true →
+         (ptwMegaRegSignal init megaSet ptwIsIdle ptwMega).val (t + 1) = false :=
+  fun t => ptwMegaReg_clears_on_idle init megaSet ptwIsIdle ptwMega t
+
+theorem ptwMegaReg_hold_otherwise_LTL {dom : DomainConfig}
+    (init : Bool) (megaSet ptwIsIdle ptwMega : Signal dom Bool) :
+    ∀ t, megaSet.val t = false → ptwIsIdle.val t = false →
+         (ptwMegaRegSignal init megaSet ptwIsIdle ptwMega).val (t + 1) = ptwMega.val t :=
+  fun t => ptwMegaReg_hold_otherwise init megaSet ptwIsIdle ptwMega t
+
 end Sparkle.IP.RV32.MMU

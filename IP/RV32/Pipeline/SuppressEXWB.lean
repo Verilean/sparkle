@@ -289,4 +289,15 @@ theorem trap_clears_idex_isCsr_valid {dom : DomainConfig}
   rw [h_validEX]
   cases idex_isCsr.val t <;> rfl
 
+/-- **LTL form of `trap_clears_idex_isCsr_valid`.** -/
+theorem trap_clears_idex_isCsr_valid_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isCsr : Signal dom Bool) :
+    ∀ t, trap_taken.atTime t = true →
+         (idexIsCsrValidSignal idex_isCsr
+           (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)).val t
+           = false :=
+  fun t => trap_clears_idex_isCsr_valid trap_taken dTLBMiss pendingWriteEn mmuBusy
+    dMMURedirect idex_isCsr t
+
 end Sparkle.IP.RV32.Pipeline
