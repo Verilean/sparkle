@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777969274130,
+  "lastUpdate": 1777970002247,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1187,6 +1187,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 3423017,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "32f41e332ed170e21247ce1f6f8241aabad9e285",
+          "message": "Tutorial.md: introduce declare_signal_state and Name.mk in Step 1\n\nAdd a \"Multi-output modules and declare_signal_state\" subsection\nright after the single-counter example, demonstrating:\n\n  - declare_signal_state field-list syntax\n  - read-by-name (CounterParityOut.count self)\n  - write-by-name (CounterParityOut.mk (count := ...) (parity := ...))\n  - the auto-generated default / wireNames / fromWires helpers\n\nA concrete `counterAndParity` example mirrors the anonymous-tuple\npattern but uses the record + Name.mk variant directly. Caller\nside also uses field-name accessors.\n\nForward-links to docs/Tutorial_Extended.md for the full\nwalkthrough (anonymous tuple → let-named → record + bundleAll!\n→ record + Name.mk) with trade-offs of each.\n\nBridges the gap between Tutorial.md's single-counter intro and\nTutorial_Extended.md's deeper module-composition material:\nreaders learn the named-record I/O pattern as soon as they need\nmore than one output, without having to hunt for the right\nchapter.",
+          "timestamp": "2026-05-05T17:20:36+09:00",
+          "tree_id": "6d05573aace61658debcc604969319048e3ff2e9",
+          "url": "https://github.com/Verilean/sparkle/commit/32f41e332ed170e21247ce1f6f8241aabad9e285"
+        },
+        "date": 1777970001434,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3129351,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3317552,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 3646136,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 3405210,
             "unit": "cycles/sec"
           }
         ]
