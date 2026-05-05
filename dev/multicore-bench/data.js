@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777059016538,
+  "lastUpdate": 1777967496491,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -703,6 +703,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 646925,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aea0922ae984f1b16af2e9a17ef7d97b9a79c62",
+          "message": "Merge pull request #29 from Verilean/fix/tutorial\n\nAdd proofs for RV32",
+          "timestamp": "2026-05-05T16:44:11+09:00",
+          "tree_id": "d9c500480127c25a7f1ea554471eccddbb8116dd",
+          "url": "https://github.com/Verilean/sparkle/commit/2aea0922ae984f1b16af2e9a17ef7d97b9a79c62"
+        },
+        "date": 1777967496177,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4526461,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 564968,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1116335,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 694472,
             "unit": "cycles/sec"
           }
         ]
