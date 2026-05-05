@@ -393,4 +393,97 @@ theorem idexSquashableBoolReg_advance {dom : DomainConfig}
   rw [h_no_freeze, h_no_squash]
   rfl
 
+/-! ## LTL forms -/
+
+theorem idexHoldableBVReg_freeze_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX : Signal dom Bool)
+    (held new : Signal dom (BitVec n)) :
+    ∀ t, freezeIDEX.val t = true →
+         (idexHoldableBVRegSignal init freezeIDEX held new).val (t + 1) = held.val t :=
+  fun t => idexHoldableBVReg_freeze init freezeIDEX held new t
+
+theorem idexHoldableBVReg_advance_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX : Signal dom Bool)
+    (held new : Signal dom (BitVec n)) :
+    ∀ t, freezeIDEX.val t = false →
+         (idexHoldableBVRegSignal init freezeIDEX held new).val (t + 1) = new.val t :=
+  fun t => idexHoldableBVReg_advance init freezeIDEX held new t
+
+theorem exwbSuppressBVReg_suppress_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (suppressEXWB : Signal dom Bool) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) :
+    ∀ t, suppressEXWB.val t = true →
+         (exwbSuppressBVRegSignal init suppressEXWB zero new).val (t + 1) = zero :=
+  fun t => exwbSuppressBVReg_suppress init suppressEXWB zero new t
+
+theorem exwbSuppressBVReg_advance_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (suppressEXWB : Signal dom Bool) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) :
+    ∀ t, suppressEXWB.val t = false →
+         (exwbSuppressBVRegSignal init suppressEXWB zero new).val (t + 1) = new.val t :=
+  fun t => exwbSuppressBVReg_advance init suppressEXWB zero new t
+
+theorem idexSquashableBVReg_freeze_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) :
+    ∀ t, freezeIDEX.val t = true →
+         (idexSquashableBVRegSignal init freezeIDEX squash held zero new).val (t + 1) =
+           held.val t :=
+  fun t => idexSquashableBVReg_freeze init freezeIDEX squash held zero new t
+
+theorem idexSquashableBVReg_squash_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) :
+    ∀ t, freezeIDEX.val t = false → squash.val t = true →
+         (idexSquashableBVRegSignal init freezeIDEX squash held zero new).val (t + 1) =
+           zero :=
+  fun t => idexSquashableBVReg_squash init freezeIDEX squash held zero new t
+
+theorem idexSquashableBVReg_advance_LTL {dom : DomainConfig} {n : Nat}
+    (init : BitVec n) (freezeIDEX squash : Signal dom Bool)
+    (held : Signal dom (BitVec n)) (zero : BitVec n)
+    (new : Signal dom (BitVec n)) :
+    ∀ t, freezeIDEX.val t = false → squash.val t = false →
+         (idexSquashableBVRegSignal init freezeIDEX squash held zero new).val (t + 1) =
+           new.val t :=
+  fun t => idexSquashableBVReg_advance init freezeIDEX squash held zero new t
+
+theorem exwbSuppressBoolReg_suppress_LTL {dom : DomainConfig}
+    (init : Bool) (suppressEXWB new : Signal dom Bool) :
+    ∀ t, suppressEXWB.val t = true →
+         (exwbSuppressBoolRegSignal init suppressEXWB new).val (t + 1) = false :=
+  fun t => exwbSuppressBoolReg_suppress init suppressEXWB new t
+
+theorem exwbSuppressBoolReg_advance_LTL {dom : DomainConfig}
+    (init : Bool) (suppressEXWB new : Signal dom Bool) :
+    ∀ t, suppressEXWB.val t = false →
+         (exwbSuppressBoolRegSignal init suppressEXWB new).val (t + 1) = new.val t :=
+  fun t => exwbSuppressBoolReg_advance init suppressEXWB new t
+
+theorem idexSquashableBoolReg_freeze_LTL {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) :
+    ∀ t, freezeIDEX.val t = true →
+         (idexSquashableBoolRegSignal init freezeIDEX squash held new).val (t + 1) =
+           held.val t :=
+  fun t => idexSquashableBoolReg_freeze init freezeIDEX squash held new t
+
+theorem idexSquashableBoolReg_squash_LTL {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) :
+    ∀ t, freezeIDEX.val t = false → squash.val t = true →
+         (idexSquashableBoolRegSignal init freezeIDEX squash held new).val (t + 1) =
+           false :=
+  fun t => idexSquashableBoolReg_squash init freezeIDEX squash held new t
+
+theorem idexSquashableBoolReg_advance_LTL {dom : DomainConfig}
+    (init : Bool) (freezeIDEX squash : Signal dom Bool)
+    (held new : Signal dom Bool) :
+    ∀ t, freezeIDEX.val t = false → squash.val t = false →
+         (idexSquashableBoolRegSignal init freezeIDEX squash held new).val (t + 1) =
+           new.val t :=
+  fun t => idexSquashableBoolReg_advance init freezeIDEX squash held new t
+
 end Sparkle.IP.RV32.Pipeline
