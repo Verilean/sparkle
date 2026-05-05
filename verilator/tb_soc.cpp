@@ -331,7 +331,17 @@ int main(int argc, char** argv) {
         prev_pc_log = pc;
 
         // === Trap debug logging ===
-#ifdef TRACE_INTERNAL_SIGNALS
+        // NOTE: previously traced via dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_trap_taken,
+        // but that combinational wire is inlined by Verilator (it has no
+        // module-output port and only feeds local consumers like trapToS/trapToM),
+        // so the C++ struct member doesn't exist and the access fails to compile
+        // on stricter Verilator versions. The same trap context is available
+        // via the JIT path (Tests/RV32/JITLinuxBootTest.lean uses the
+        // SoCOutput.wireNames-based JIT export, which DOES expose
+        // _gen_trap_taken / _gen_trapCause), so this Verilator-side hook is
+        // disabled rather than re-plumbed. To re-enable, expose the wires
+        // through the synth bundle in IP/RV32/SoCVerilog.lean and the wrapper.
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_TRAP)
         {
             uint8_t trap_taken_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_trap_taken;
             if (trap_taken_sig) {
