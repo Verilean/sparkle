@@ -303,4 +303,94 @@ theorem csrPlainReg_post_trap_K_cycles_no_write {dom : DomainConfig}
     rfl
   · exact h_at_N1
 
+/-! ## K-cycle preservation for multi-event registers
+
+  Some registers (`mstatus`, `privMode`, AMO `reservationValid`)
+  have multiple update paths — they update if ANY of N events
+  fires. The K-cycle preservation lemma generalizes naturally:
+  the "no event" hypothesis becomes "all N event signals are
+  false," and the proof of the abstract induction lemma applies
+  unchanged to a Bool-valued "any event fires" composite.
+
+  The cleanest formulation: bundle the events into a single Bool
+  predicate `eventFires : Nat → Bool` (the disjunction of the
+  individual event signals), prove the recurrence
+  `r (s+1) = if eventFires s then update s else r s`, and apply
+  `nstep_preserve_when_no_event` directly. The caller then
+  discharges "eventFires false in K-cycle window" by case-splitting
+  on each event.
+
+  We provide a small helper: from "all N events false at s,"
+  derive "their disjunction false at s." -/
+
+/-- **Disjunction of two Bool signals is false iff both are false.** -/
+theorem or2_false_iff {dom : DomainConfig}
+    (a b : Signal dom Bool) (s : Nat) :
+    (a ||| b).val s = false ↔ a.val s = false ∧ b.val s = false := by
+  show (a.val s || b.val s) = false ↔ a.val s = false ∧ b.val s = false
+  cases ha : a.val s <;> cases hb : b.val s <;> simp [ha, hb]
+
+/-- **Disjunction of three Bool signals is false iff all three are false.** -/
+theorem or3_false_iff {dom : DomainConfig}
+    (a b c : Signal dom Bool) (s : Nat) :
+    (a ||| b ||| c).val s = false ↔
+      a.val s = false ∧ b.val s = false ∧ c.val s = false := by
+  show ((a.val s || b.val s) || c.val s) = false ↔
+    a.val s = false ∧ b.val s = false ∧ c.val s = false
+  cases ha : a.val s <;> cases hb : b.val s <;> cases hc : c.val s <;>
+    simp [ha, hb, hc]
+
+/-- **Disjunction of five Bool signals is false iff all five are false.**
+
+    Useful for `mstatus`'s 5-way next-state (trap/mret/sret/sw/mw). -/
+theorem or5_false_iff {dom : DomainConfig}
+    (a b c d e : Signal dom Bool) (s : Nat) :
+    (a ||| b ||| c ||| d ||| e).val s = false ↔
+      a.val s = false ∧ b.val s = false ∧ c.val s = false ∧
+      d.val s = false ∧ e.val s = false := by
+  show ((((a.val s || b.val s) || c.val s) || d.val s) || e.val s) = false ↔
+    a.val s = false ∧ b.val s = false ∧ c.val s = false ∧
+    d.val s = false ∧ e.val s = false
+  cases ha : a.val s <;> cases hb : b.val s <;> cases hc : c.val s <;>
+    cases hd : d.val s <;> cases _he : e.val s <;>
+    simp [ha, hb, hc, hd]
+
+/-! ## Multi-event K-cycle preservation specialized for `mstatus`
+
+  `mstatus` updates on 5 events: trap_taken, isMret, isSret,
+  sstatusWrite, mstatusWrite. The K-cycle preservation says: if
+  none of these fire in [t, t+k), `mstatus` is unchanged.
+
+  The recurrence is supplied by the caller (typically discharged
+  via `mstatusReg_hold_when_no_event_LTL`).
+-/
+
+/-- **K-cycle mstatus preservation under no events.**
+
+    The caller provides:
+      * The recurrence (typically `mstatusReg_hold_when_no_event_LTL`).
+      * "No 5-way event in [t, t+k)" — discharged by `or5_false_iff`. -/
+theorem mstatusReg_preserve_K_cycles {dom : DomainConfig}
+    (regSig : Signal dom (BitVec 32))
+    (trapTaken isMret isSret sstatusWrite mstatusWrite : Signal dom Bool)
+    (update : Nat → BitVec 32)
+    (h_recurrence :
+      ∀ s, regSig.val (s + 1) =
+        if (trapTaken ||| isMret ||| isSret ||| sstatusWrite ||| mstatusWrite).val s
+        then update s else regSig.val s) :
+    ∀ (t k : Nat),
+      (∀ i, i < k → trapTaken.val (t + i) = false) →
+      (∀ i, i < k → isMret.val (t + i) = false) →
+      (∀ i, i < k → isSret.val (t + i) = false) →
+      (∀ i, i < k → sstatusWrite.val (t + i) = false) →
+      (∀ i, i < k → mstatusWrite.val (t + i) = false) →
+      regSig.val (t + k) = regSig.val t := by
+  intro t k h_trap h_mret h_sret h_sw h_mw
+  apply nstep_preserve_when_no_event regSig.val
+    (trapTaken ||| isMret ||| isSret ||| sstatusWrite ||| mstatusWrite).val
+    update h_recurrence
+  intro i hi
+  rw [or5_false_iff]
+  exact ⟨h_trap i hi, h_mret i hi, h_sret i hi, h_sw i hi, h_mw i hi⟩
+
 end Sparkle.IP.RV32.Verification
