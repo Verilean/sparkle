@@ -108,3 +108,4 @@ import IP.RV32.Pipeline.StoreDuringTrap
 import IP.RV32.Pipeline.RegfileTrapInv
 import IP.RV32.Pipeline.SideEffectsTrapInv
 import IP.RV32.Pipeline.StoreLoadFwd
+import IP.RV32.Verification.InductionScaffold
