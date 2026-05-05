@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777970058104,
+  "lastUpdate": 1777970484374,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -679,6 +679,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2159183,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e46ab57c8e2b76a40020de57074666e1c58bb3f7",
+          "message": "Merge pull request #30 from Verilean/feature/named-outputs\n\ndeclare_signal_state: generate Name.mk named-field constructor",
+          "timestamp": "2026-05-05T17:35:27+09:00",
+          "tree_id": "79db2a2a501c5a31266cfea81b5d641c4ccec2c5",
+          "url": "https://github.com/Verilean/sparkle/commit/e46ab57c8e2b76a40020de57074666e1c58bb3f7"
+        },
+        "date": 1777970483641,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 7497591,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 3248227,
             "unit": "cycles/sec"
           }
         ]
