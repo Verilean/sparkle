@@ -303,4 +303,25 @@ theorem sc_after_trap_suppresses_dmem_we_LTL :
   fun idex_memWrite isDMEM_ex dTLBMiss =>
     sc_after_trap_suppresses_dmem_we idex_memWrite isDMEM_ex dTLBMiss
 
+/-- **LTL form of `LR_sets_reservation_next_cycle`.** -/
+theorem LR_sets_reservation_next_cycle_LTL {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) :
+    ∀ t, trap.val t = false → isLR.val t = true →
+         (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = true :=
+  fun t => LR_sets_reservation_next_cycle trap isLR isSC prevValid t
+
+/-- **LTL form of `SC_clears_reservation_next_cycle`.** -/
+theorem SC_clears_reservation_next_cycle_LTL {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) :
+    ∀ t, trap.val t = false → isLR.val t = false → isSC.val t = true →
+         (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = false :=
+  fun t => SC_clears_reservation_next_cycle trap isLR isSC prevValid t
+
+/-- **LTL form of `reservation_holds_when_no_event`.** -/
+theorem reservation_holds_when_no_event_LTL {dom : DomainConfig}
+    (trap isLR isSC prevValid : Signal dom Bool) :
+    ∀ t, trap.val t = false → isLR.val t = false → isSC.val t = false →
+         (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = prevValid.val t :=
+  fun t => reservation_holds_when_no_event trap isLR isSC prevValid t
+
 end Sparkle.IP.RV32.AMO

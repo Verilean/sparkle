@@ -177,4 +177,27 @@ theorem mtimeHiReg_advances_when_no_we {dom : DomainConfig}
   rw [h_no_we]
   rfl
 
+/-! ## LTL forms -/
+
+/-- **LTL form of `mtimeLoReg_advances_when_no_we`.** -/
+theorem mtimeLoReg_advances_when_no_we_LTL {dom : DomainConfig}
+    (mtimeLoWE : Signal dom Bool)
+    (newVal mtimeLo : Signal dom (BitVec 32)) :
+    ∀ t, mtimeLoWE.val t = false →
+         (Signal.register 0#32
+           (Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeLoWE newVal
+             (mtimeIncLoSignal mtimeLo))).val (t + 1) = mtimeLo.val t + 1#32 :=
+  fun t => mtimeLoReg_advances_when_no_we mtimeLoWE newVal mtimeLo t
+
+/-- **LTL form of `mtimeHiReg_advances_when_no_we`.** -/
+theorem mtimeHiReg_advances_when_no_we_LTL {dom : DomainConfig}
+    (mtimeHiWE : Signal dom Bool)
+    (newVal mtimeLo mtimeHi : Signal dom (BitVec 32)) :
+    ∀ t, mtimeHiWE.val t = false →
+         (Signal.register 0#32
+           (Sparkle.IP.RV32.CSR.csrPlainNextSignal mtimeHiWE newVal
+             (mtimeIncHiSignal mtimeLo mtimeHi))).val (t + 1) =
+           (mtimeIncHiSignal mtimeLo mtimeHi).val t :=
+  fun t => mtimeHiReg_advances_when_no_we mtimeHiWE newVal mtimeLo mtimeHi t
+
 end Sparkle.IP.RV32.CLINT

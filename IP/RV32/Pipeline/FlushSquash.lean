@@ -1077,4 +1077,50 @@ theorem flushDelayReg_set_after_sfence_LTL {dom : DomainConfig}
   fun t => flushDelayReg_set_after_sfence branchTaken idex_jump trap_taken idex_isMret
     idex_isSret idex_isSFenceVMA dMMURedirect t
 
+/-! ## LTL forms of `*_squashes_idex_next_cycle` lemmas -/
+
+theorem mret_squashes_idex_next_cycle_LTL {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze squash idex_isMret : Signal dom Bool)
+    (old new : Signal dom α) (init : α)
+    (h_squash_includes_mret :
+      ∀ t, idex_isMret.atTime t = true → squash.atTime t = true) :
+    ∀ t, idex_isMret.atTime t = true → freeze.atTime t = false →
+         (idexLatchSignal freeze squash old new init).atTime (t + 1) = init :=
+  fun t => mret_squashes_idex_next_cycle freeze squash idex_isMret old new init t
+    (h_squash_includes_mret t)
+
+theorem sret_squashes_idex_next_cycle_LTL {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze squash idex_isSret : Signal dom Bool)
+    (old new : Signal dom α) (init : α)
+    (h_squash_includes_sret :
+      ∀ t, idex_isSret.atTime t = true → squash.atTime t = true) :
+    ∀ t, idex_isSret.atTime t = true → freeze.atTime t = false →
+         (idexLatchSignal freeze squash old new init).atTime (t + 1) = init :=
+  fun t => sret_squashes_idex_next_cycle freeze squash idex_isSret old new init t
+    (h_squash_includes_sret t)
+
+theorem trap_squashes_idex_next_cycle_LTL {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze squash trap_taken : Signal dom Bool)
+    (old new : Signal dom α) (init : α)
+    (h_squash_includes_trap :
+      ∀ t, trap_taken.atTime t = true → squash.atTime t = true) :
+    ∀ t, trap_taken.atTime t = true → freeze.atTime t = false →
+         (idexLatchSignal freeze squash old new init).atTime (t + 1) = init :=
+  fun t => trap_squashes_idex_next_cycle freeze squash trap_taken old new init t
+    (h_squash_includes_trap t)
+
+theorem dMMURedirect_squashes_idex_next_cycle_LTL {dom : DomainConfig} {α : Type}
+    [DecidableEq α] [Inhabited α]
+    (freeze squash dMMURedirect : Signal dom Bool)
+    (old new : Signal dom α) (init : α)
+    (h_squash_includes_dMMU :
+      ∀ t, dMMURedirect.atTime t = true → squash.atTime t = true) :
+    ∀ t, dMMURedirect.atTime t = true → freeze.atTime t = false →
+         (idexLatchSignal freeze squash old new init).atTime (t + 1) = init :=
+  fun t => dMMURedirect_squashes_idex_next_cycle freeze squash dMMURedirect old new init t
+    (h_squash_includes_dMMU t)
+
 end Sparkle.IP.RV32.Pipeline

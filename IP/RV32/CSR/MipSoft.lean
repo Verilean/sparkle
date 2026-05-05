@@ -235,3 +235,14 @@ theorem mipSoftReg_hold_when_no_we_at_N_plus_1 {dom : DomainConfig}
       mipSoft.val (n + 1) :=
   mipSoftReg_hold_when_no_we init mipWriteEn sipWriteEn mipNew sipNew mipSoft
     (n + 1) h_no_mw_n1 h_no_sw_n1
+
+/-! ## LTL form -/
+
+/-- **LTL form of `mipSoftReg_hold_when_no_we`.** -/
+theorem mipSoftReg_hold_when_no_we_LTL {dom : DomainConfig}
+    (init : BitVec 32) (mipWriteEn sipWriteEn : Signal dom Bool)
+    (mipNew sipNew mipSoft : Signal dom (BitVec 32)) :
+    ∀ t, mipWriteEn.val t = false → sipWriteEn.val t = false →
+         (mipSoftRegSignal init mipWriteEn sipWriteEn mipNew sipNew mipSoft).val (t + 1) =
+           mipSoft.val t :=
+  fun t => mipSoftReg_hold_when_no_we init mipWriteEn sipWriteEn mipNew sipNew mipSoft t

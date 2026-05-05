@@ -628,4 +628,45 @@ theorem tlbHit_after_fill_mega_LTL {dom : DomainConfig}
            (fillVPN.val t) = true :=
   fun t h1 h2 => tlbHit_after_fill_mega sfenceVMA doFillN tlb_valid fillVPN tlb_vpn t h1 h2
 
+/-! ## LTL forms of TLB-register update lemmas -/
+
+theorem tlbValidReg_set_after_fill_LTL {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) :
+    ∀ t, sfenceVMA.val t = false → doFillN.val t = true →
+         (tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1) = true :=
+  fun t => tlbValidReg_set_after_fill sfenceVMA doFillN tlb_valid t
+
+theorem tlbValidReg_clears_after_sfence_LTL {dom : DomainConfig}
+    (sfenceVMA doFillN tlb_valid : Signal dom Bool) :
+    ∀ t, sfenceVMA.val t = true →
+         (tlbValidRegSignal sfenceVMA doFillN tlb_valid).val (t + 1) = false :=
+  fun t => tlbValidReg_clears_after_sfence sfenceVMA doFillN tlb_valid t
+
+theorem tlbVPNReg_set_after_fill_LTL {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillVPN tlb_vpn : Signal dom (BitVec 20)) :
+    ∀ t, doFillN.val t = true →
+         (tlbVPNRegSignal doFillN fillVPN tlb_vpn).val (t + 1) = fillVPN.val t :=
+  fun t => tlbVPNReg_set_after_fill doFillN fillVPN tlb_vpn t
+
+theorem tlbPPNReg_set_after_fill_LTL {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillPPN tlb_ppn : Signal dom (BitVec 22)) :
+    ∀ t, doFillN.val t = true →
+         (tlbPPNRegSignal doFillN fillPPN tlb_ppn).val (t + 1) = fillPPN.val t :=
+  fun t => tlbPPNReg_set_after_fill doFillN fillPPN tlb_ppn t
+
+theorem tlbFlagsReg_set_after_fill_LTL {dom : DomainConfig}
+    (doFillN : Signal dom Bool)
+    (fillFlags tlb_flags : Signal dom (BitVec 8)) :
+    ∀ t, doFillN.val t = true →
+         (tlbFlagsRegSignal doFillN fillFlags tlb_flags).val (t + 1) = fillFlags.val t :=
+  fun t => tlbFlagsReg_set_after_fill doFillN fillFlags tlb_flags t
+
+theorem tlbMegaReg_set_after_fill_LTL {dom : DomainConfig}
+    (doFillN fillMega tlb_mega : Signal dom Bool) :
+    ∀ t, doFillN.val t = true →
+         (tlbMegaRegSignal doFillN fillMega tlb_mega).val (t + 1) = fillMega.val t :=
+  fun t => tlbMegaReg_set_after_fill doFillN fillMega tlb_mega t
+
 end Sparkle.IP.RV32.MMU

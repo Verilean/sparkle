@@ -334,4 +334,26 @@ theorem ifetchFaultPendingReg_stays_false_at_N_plus_2 {dom : DomainConfig}
   -- Goal: ifetchFaultPending(inner reg).val (n+1) = false.
   exact h_inner_n1
 
+/-! ## LTL forms for IfetchFault cycle-N+1 lemmas -/
+
+/-- **LTL form of `ifetchFaultPendingReg_clears_on_trap_delivery`.** -/
+theorem ifetchFaultPendingReg_clears_on_trap_delivery_LTL {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+     ifetchFaultPending : Signal dom Bool) :
+    ∀ t, ifetchPageFault.val t = true →
+         (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault
+           ptwIsIfetch ifetchFaultPending).val (t + 1) = false :=
+  fun t => ifetchFaultPendingReg_clears_on_trap_delivery ifetchPageFault bypassMMU
+    ptwFault ptwIsIfetch ifetchFaultPending t
+
+/-- **LTL form of `ifetchFaultPendingReg_clears_on_bypass`.** -/
+theorem ifetchFaultPendingReg_clears_on_bypass_LTL {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+     ifetchFaultPending : Signal dom Bool) :
+    ∀ t, ifetchPageFault.val t = false → bypassMMU.val t = true →
+         (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault
+           ptwIsIfetch ifetchFaultPending).val (t + 1) = false :=
+  fun t => ifetchFaultPendingReg_clears_on_bypass ifetchPageFault bypassMMU
+    ptwFault ptwIsIfetch ifetchFaultPending t
+
 end Sparkle.IP.RV32.MMU

@@ -226,4 +226,32 @@ theorem dMissCaptureBoolReg_hold_at_N_plus_1 {dom : DomainConfig}
     (dMissCaptureBoolRegSignal init dTLBMiss new old).val (n + 2) = old.val (n + 1) :=
   dMissCaptureBoolReg_hold_when_no_miss init dTLBMiss new old (n + 1) h_no_miss_n1
 
+/-! ## LTL forms for DMiss capture-register cycle-N+1 lemmas -/
+
+theorem dMissCaptureBV32Reg_hold_when_no_miss_LTL {dom : DomainConfig}
+    (init : BitVec 32) (dTLBMiss : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, dTLBMiss.val t = false →
+         (dMissCaptureBV32RegSignal init dTLBMiss newVal old).val (t + 1) = old.val t :=
+  fun t => dMissCaptureBV32Reg_hold_when_no_miss init dTLBMiss newVal old t
+
+theorem dMissCaptureBV32Reg_latch_on_miss_LTL {dom : DomainConfig}
+    (init : BitVec 32) (dTLBMiss : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, dTLBMiss.val t = true →
+         (dMissCaptureBV32RegSignal init dTLBMiss newVal old).val (t + 1) = newVal.val t :=
+  fun t => dMissCaptureBV32Reg_latch_on_miss init dTLBMiss newVal old t
+
+theorem dMissCaptureBoolReg_hold_when_no_miss_LTL {dom : DomainConfig}
+    (init : Bool) (dTLBMiss new old : Signal dom Bool) :
+    ∀ t, dTLBMiss.val t = false →
+         (dMissCaptureBoolRegSignal init dTLBMiss new old).val (t + 1) = old.val t :=
+  fun t => dMissCaptureBoolReg_hold_when_no_miss init dTLBMiss new old t
+
+theorem dMissCaptureBoolReg_latch_on_miss_LTL {dom : DomainConfig}
+    (init : Bool) (dTLBMiss new old : Signal dom Bool) :
+    ∀ t, dTLBMiss.val t = true →
+         (dMissCaptureBoolRegSignal init dTLBMiss new old).val (t + 1) = new.val t :=
+  fun t => dMissCaptureBoolReg_latch_on_miss init dTLBMiss new old t
+
 end Sparkle.IP.RV32.MMU

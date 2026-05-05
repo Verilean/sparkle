@@ -256,4 +256,35 @@ theorem divPendingReg_stays_false_at_N_plus_2 {dom : DomainConfig}
   rw [h_outer]
   exact h_inner_n1
 
+/-! ## LTL forms for divPendingReg cycle-N+1 lemmas -/
+
+/-- **LTL form of `divPendingReg_clears_on_flush`.** -/
+theorem divPendingReg_clears_on_flush_LTL {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) :
+    ∀ t, flushOrDelay.val t = true →
+         (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) = false :=
+  fun t => divPendingReg_clears_on_flush flushOrDelay divStart divDone divPending t
+
+/-- **LTL form of `divPendingReg_set_on_start`.** -/
+theorem divPendingReg_set_on_start_LTL {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) :
+    ∀ t, flushOrDelay.val t = false → divStart.val t = true →
+         (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) = true :=
+  fun t => divPendingReg_set_on_start flushOrDelay divStart divDone divPending t
+
+/-- **LTL form of `divPendingReg_clears_on_done`.** -/
+theorem divPendingReg_clears_on_done_LTL {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) :
+    ∀ t, flushOrDelay.val t = false → divStart.val t = false → divDone.val t = true →
+         (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) = false :=
+  fun t => divPendingReg_clears_on_done flushOrDelay divStart divDone divPending t
+
+/-- **LTL form of `divPendingReg_hold_when_no_event`.** -/
+theorem divPendingReg_hold_when_no_event_LTL {dom : DomainConfig}
+    (flushOrDelay divStart divDone divPending : Signal dom Bool) :
+    ∀ t, flushOrDelay.val t = false → divStart.val t = false → divDone.val t = false →
+         (divPendingRegSignal flushOrDelay divStart divDone divPending).val (t + 1) =
+           divPending.val t :=
+  fun t => divPendingReg_hold_when_no_event flushOrDelay divStart divDone divPending t
+
 end Sparkle.IP.RV32.Mext

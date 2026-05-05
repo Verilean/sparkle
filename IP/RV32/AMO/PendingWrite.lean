@@ -197,4 +197,21 @@ theorem pendingWriteEn_false_after_isAMO_clear {dom : DomainConfig}
   apply pendingWriteEn_false_after_amo_clear
   exact isAMOrwSignal_false_when_isAMO_false exwb_isAMO exwb_isLR exwb_isSC t h_isAMO
 
+/-! ## LTL forms (universal-time-quantified) -/
+
+/-- **LTL form of `pendingWriteEn_false_after_amo_clear`.** -/
+theorem pendingWriteEn_false_after_amo_clear_LTL {dom : DomainConfig}
+    (exwb_isAMOrw : Signal dom Bool) :
+    ∀ t, exwb_isAMOrw.val t = false →
+         (pendingWriteEnRegSignal exwb_isAMOrw).val (t + 1) = false :=
+  fun t => pendingWriteEn_false_after_amo_clear exwb_isAMOrw t
+
+/-- **LTL form of `pendingWriteEn_false_after_isAMO_clear`.** -/
+theorem pendingWriteEn_false_after_isAMO_clear_LTL {dom : DomainConfig}
+    (exwb_isAMO exwb_isLR exwb_isSC : Signal dom Bool) :
+    ∀ t, exwb_isAMO.val t = false →
+         (pendingWriteEnRegSignal
+           (isAMOrwSignal exwb_isAMO exwb_isLR exwb_isSC)).val (t + 1) = false :=
+  fun t => pendingWriteEn_false_after_isAMO_clear exwb_isAMO exwb_isLR exwb_isSC t
+
 end Sparkle.IP.RV32.AMO

@@ -255,6 +255,17 @@ theorem trap_suppresses_wb_en_at_N_plus_2 {dom : DomainConfig}
   exact wbEn_false_when_idex_regW_false_next_cycle suppressEXWB idex_regWrite_new
     wbRdNz (n + 1) h_idex_regWrite_n1_false
 
+/-! ## LTL form -/
+
+/-- **LTL form of `wbEn_false_when_idex_regW_false_next_cycle`.** -/
+theorem wbEn_false_when_idex_regW_false_next_cycle_LTL {dom : DomainConfig}
+    (suppressEXWB idex_regWrite : Signal dom Bool)
+    (wbRdNz : Signal dom Bool) :
+    ∀ t, idex_regWrite.atTime t = false →
+         (wbEnSignal (exwbRegWSignal suppressEXWB idex_regWrite) wbRdNz).atTime (t + 1) =
+           false :=
+  fun t => wbEn_false_when_idex_regW_false_next_cycle suppressEXWB idex_regWrite wbRdNz t
+
 /-! ## Connection to invariant A
 
   Invariant A requires "regfile preservation across trap":
