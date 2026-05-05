@@ -230,4 +230,32 @@ theorem trap_holds_csrPlain_reg_at_N_plus_2 {dom : DomainConfig}
   exact csrPlainReg_hold_when_idex_isCsr_false init idex_isCsr_new csrIsX validEX
     newVal old (n + 1) h_idex_isCsr_n1_false
 
+/-! ## LTL forms -/
+
+/-- **LTL form of `trap_holds_csrPlain_reg`.** -/
+theorem trap_holds_csrPlain_reg_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isCsr csrIsX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, trap_taken.atTime t = true →
+         let we :=
+           csrRegWeSignal
+             (idexIsCsrValidSignal idex_isCsr
+               (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect))
+             csrIsX
+         (csrPlainRegSignal init we newVal old).val (t + 1) = old.val t :=
+  fun t => trap_holds_csrPlain_reg trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_isCsr csrIsX init newVal old t
+
+/-- **LTL form of `csrPlainReg_hold_when_idex_isCsr_false`.** -/
+theorem csrPlainReg_hold_when_idex_isCsr_false_LTL {dom : DomainConfig}
+    (init : BitVec 32) (idex_isCsr csrIsX : Signal dom Bool)
+    (validEX : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, idex_isCsr.val t = false →
+         let we := csrRegWeSignal (idexIsCsrValidSignal idex_isCsr validEX) csrIsX
+         (csrPlainRegSignal init we newVal old).val (t + 1) = old.val t :=
+  fun t => csrPlainReg_hold_when_idex_isCsr_false init idex_isCsr csrIsX validEX
+    newVal old t
+
 end Sparkle.IP.RV32.CSR

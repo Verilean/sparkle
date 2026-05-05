@@ -176,4 +176,30 @@ theorem trap_holds_clintReg_at_N_plus_2 {dom : DomainConfig}
   exact clintReg_hold_when_idex_memWrite_false idex_memWrite_new isCLINT_ex
     regMatch validEX init newVal old (n + 1) h_no_memWrite_n1
 
+/-! ## LTL forms -/
+
+/-- **LTL form of `trap_holds_clintReg`.** -/
+theorem trap_holds_clintReg_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_memWrite isCLINT_ex regMatch : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, trap_taken.atTime t = true →
+         let clintWE := peripheralWESignal idex_memWrite isCLINT_ex
+           (validEXSignal trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect)
+         let regWE := clintRegWeSignal clintWE regMatch
+         (csrPlainRegSignal init regWE newVal old).val (t + 1) = old.val t :=
+  fun t => trap_holds_clintReg trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect
+    idex_memWrite isCLINT_ex regMatch init newVal old t
+
+/-- **LTL form of `clintReg_hold_when_idex_memWrite_false`.** -/
+theorem clintReg_hold_when_idex_memWrite_false_LTL {dom : DomainConfig}
+    (idex_memWrite isCLINT_ex regMatch validEX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, idex_memWrite.val t = false →
+         let clintWE := peripheralWESignal idex_memWrite isCLINT_ex validEX
+         let regWE := clintRegWeSignal clintWE regMatch
+         (csrPlainRegSignal init regWE newVal old).val (t + 1) = old.val t :=
+  fun t => clintReg_hold_when_idex_memWrite_false idex_memWrite isCLINT_ex regMatch
+    validEX init newVal old t
+
 end Sparkle.IP.RV32.CLINT

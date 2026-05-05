@@ -221,4 +221,26 @@ theorem trap_holds_aiStatus_reg_at_N_plus_2 {dom : DomainConfig}
   exact aiStatus_hold_when_idex_memWrite_false idex_memWrite_new is_mmio_ex
     mmioIsStatus validEX init newVal old (n + 1) h_no_memWrite_n1
 
+/-! ## LTL forms -/
+
+theorem aiStatus_hold_when_idex_memWrite_false_LTL {dom : DomainConfig}
+    (idex_memWrite is_mmio_ex mmioIsStatus validEX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, idex_memWrite.val t = false →
+         let mmioWE := peripheralWESignal idex_memWrite is_mmio_ex validEX
+         (Signal.register init (aiStatusNextSignal mmioWE mmioIsStatus newVal old)).val (t + 1)
+           = old.val t :=
+  fun t => aiStatus_hold_when_idex_memWrite_false idex_memWrite is_mmio_ex mmioIsStatus
+    validEX init newVal old t
+
+theorem aiInput_hold_when_idex_memWrite_false_LTL {dom : DomainConfig}
+    (idex_memWrite is_mmio_ex mmioIsInput validEX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, idex_memWrite.val t = false →
+         let mmioWE := peripheralWESignal idex_memWrite is_mmio_ex validEX
+         (Signal.register init (aiInputNextSignal mmioWE mmioIsInput newVal old)).val (t + 1)
+           = old.val t :=
+  fun t => aiInput_hold_when_idex_memWrite_false idex_memWrite is_mmio_ex mmioIsInput
+    validEX init newVal old t
+
 end Sparkle.IP.RV32.MMIO
