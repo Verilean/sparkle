@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777967496491,
+  "lastUpdate": 1777969403218,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -747,6 +747,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 694472,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "634d55b13042e15f2b296031bfb9156c17d47e74",
+          "message": "declare_signal_state: generate Name.mk named-field constructor\n\nAdds a record-style constructor `Name.mk` to the\n`declare_signal_state` macro. For an n-field state declared as\n\n    declare_signal_state CounterParityOut\n      | count  : BitVec 8 := 0#8\n      | parity : Bool     := false\n\nthe macro now also emits\n\n    def CounterParityOut.mk {dom : DomainConfig}\n      : (count : Signal dom (BitVec 8)) →\n        (parity : Signal dom Bool) →\n        Signal dom CounterParityOut :=\n      fun count parity => bundle2 count parity\n\nso callers can build the output side by field name, mirroring how\nthey read it:\n\n    -- read by field name\n    let count := CounterParityOut.count self\n\n    -- write by field name (NEW)\n    CounterParityOut.mk (count := countOut) (parity := parityOut)\n\nBundle order comes from the macro, not from the call site, so a\nfield reorder in `declare_signal_state` cannot silently swap the\noutput data — Lean's named-argument resolution catches it.\n\nUpdates:\n\n  - `Sparkle/Core/StateMacro.lean`: append step 7 to the\n    macro's elaboration that emits `Name.mk` via a typed\n    function abstraction (no bracketedBinder syntax tricks).\n  - `tutorial-extended/TutorialExtended/Step2_MultipleOutputs.lean`:\n    add a 4th variant `counterAndParity_record_mk` demonstrating\n    the new pattern. The runDemo prints all 4 traces; they match.\n  - `tutorial-extended/TutorialExtended/Step2_VerilogDump.lean`:\n    `#synthesizeVerilog` the new variant; confirms the same\n    `_gen_countOut`/`_gen_parityOut` wires are produced.\n  - `docs/Tutorial_Extended.md`: new \"(d)\" section, updated\n    summary table.\n\nVerified:\n  - Full project build clean (64 jobs)\n  - All existing `declare_signal_state` invocations across\n    IP/RV32, IP/Bus, IP/Video, IP/YOLOv8, etc. continue to compile\n  - tutorial-extended-run prints identical traces for variants\n    (a), (b), (c), (d)\n  - Verilog output for (c) and (d) is structurally identical\n    (same wire names, same always_ff blocks, same bundle assign)",
+          "timestamp": "2026-05-05T17:11:56+09:00",
+          "tree_id": "f3320b83c4838e6ed3f5412134a5d242f492384d",
+          "url": "https://github.com/Verilean/sparkle/commit/634d55b13042e15f2b296031bfb9156c17d47e74"
+        },
+        "date": 1777969402804,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4067741,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 499496,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1008283,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 629902,
             "unit": "cycles/sec"
           }
         ]
