@@ -1819,13 +1819,26 @@ def rv32iSoCBody {dom : DomainConfig}
     let dMissIsStoreNext :=
       Sparkle.IP.RV32.MMU.dMissCaptureBoolSignal dTLBMiss idex_memWrite dMissIsStore
 
+    -- Demonstrate named-register-output: instead of inlining the
+    -- Signal.register call inside bundleAll!, bind it to a let so
+    -- the elab attaches the binding's name as a wire-name hint. The
+    -- generated Verilog/JIT then has `_gen_<bindingName>` as a
+    -- struct field instead of an anonymous `_tmp_a_NNNN`. This
+    -- makes downstream probes/observability much easier (no
+    -- SoCOutput.wireNames hand-listing required).
+    let pcRegOut       := Signal.register 0#32 pcNext
+    let fetchPCOut     := Signal.register 0#32 fetchPCIn
+    let flushDelayOut  := Signal.register false flush
+    let ifid_instOut   := Signal.register 0x00000013#32 ifid_inst_in
+    let ifid_pcOut     := Signal.register 0#32 ifid_pc_in
+    let ifid_pc4Out    := Signal.register 0#32 ifid_pc4_in
     bundleAll! [
-      Signal.register 0#32 pcNext,                                          -- 0: pcReg
-      Signal.register 0#32 fetchPCIn,                                       -- 1: fetchPC
-      Signal.register false flush,                                          -- 2: flushDelay
-      Signal.register 0x00000013#32 ifid_inst_in,                           -- 3: ifid_inst
-      Signal.register 0#32 ifid_pc_in,                                     -- 4: ifid_pc
-      Signal.register 0#32 ifid_pc4_in,                                    -- 5: ifid_pc4
+      pcRegOut,                                                              -- 0: pcReg
+      fetchPCOut,                                                            -- 1: fetchPC
+      flushDelayOut,                                                         -- 2: flushDelay
+      ifid_instOut,                                                          -- 3: ifid_inst
+      ifid_pcOut,                                                            -- 4: ifid_pc
+      ifid_pc4Out,                                                           -- 5: ifid_pc4
       -- ID/EX (freezeIDEX freeze: hold current when freezeIDEX, else squash or pass)
       -- IDEX-stage register inputs (proven in Pipeline/IDEXRegInput.lean):
       -- squashable fields: freezeIDEX > squash > new ; holdable: freezeIDEX > new.
