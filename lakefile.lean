@@ -66,6 +66,11 @@ lean_exe «tutorial-extended-run» where
   srcDir := "tutorial-extended"
   supportInterpreter := true
 
+lean_exe «tutorial-mermaid-test» where
+  root := `TutorialExtended.MermaidHelperTest
+  srcDir := "tutorial-extended"
+  supportInterpreter := true
+
 lean_lib «Tests» where
   -- Test circuits library
 

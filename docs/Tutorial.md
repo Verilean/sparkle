@@ -880,6 +880,11 @@ GitHub, is text-diffable, and is the most ergonomic for the kind
 of "module → module → output" structure that dominates
 synthesizable HDL designs.
 
+The same Mermaid diagrams render inside [xeus-lean](https://github.com/Verilean/xeus-lean)
+Jupyter notebooks. See `tutorial-extended/notebooks/README.md`
+for the helper module (`#mermaid "..."` command) and an example
+notebook `sparkle_diagrams.ipynb`.
+
 For other diagram needs:
 
 | What you want | Tool | Notes |
