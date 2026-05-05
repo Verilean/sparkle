@@ -402,6 +402,32 @@ This gives every register in the production path a named
 sequential lemma per arm — the foundation for full multi-cycle
 invariant proofs.
 
+#### N-step (K-cycle) induction scaffold (2026-05-05)
+
+`IP/RV32/Verification/InductionScaffold.lean` lifts the cycle-N+1
+register-update lemmas to **arbitrary-K-cycle** trace invariants:
+
+  * `nstep_preserve_when_no_event` — abstract α-generic
+    induction-on-K. Given a recurrence
+    `r (s+1) = if we s then update s else r s` and the hypothesis
+    "no event in [t, t+K)", concludes `r (t+K) = r t`.
+  * `csrPlainReg_preserve_K_cycles` / `csrPlainReg8_preserve_K_cycles`
+    / `boolReg_preserve_K_cycles` — specialized at the SoC's
+    register widths.
+  * `boolReg_stays_false_K_cycles` — Bool flag init=false +
+    K-cycle event-free window → still false at t+K.
+  * `csrPlainReg_K_cycles_no_write` — end-to-end demo: combines
+    `csrPlainNextSignal_eq_pure` (the cycle-wise recurrence) with
+    the abstract induction to give the trace-level CSR invariant.
+  * `post_trap_preserve_K_cycles` — chains a cycle-N+1 anchor with
+    K-cycle preservation: "trap at N + WE false in [N+1, N+1+K) →
+    register at N+1+K equals register at N+1." The temporal
+    pattern that arises in Linux ISR reasoning.
+
+These lemmas are the building blocks for whole-Linux-boot trace
+properties. They reduce "for any K cycles" reasoning to a single
+`apply` at use sites that already have the cycle-N+1 LTL forms.
+
 ### 2.3 IO / memory boundary
 
 Things that touch DRAM/MMIO can't be proven about the host platform
