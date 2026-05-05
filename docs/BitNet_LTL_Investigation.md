@@ -102,9 +102,13 @@ Conclusion at the time: **P3 violated** (`bitnetOut.val 80 = 0` but `ffn(0x10000
 
 This was committed as `eba4c8b` ("Bug found: BitNet runtime violates LTL premise P3").
 
-### Step 2 — user pushback: "elab がわるい？"
+### Step 2 — re-examining the elab/codegen layer
 
-The user pointed out that `Signal.atTime` (Lean evaluator) and `bitnet-soc-test` already showed the FFN computing correctly, so suspecting the **elab/codegen layer** (specifically `CppSim`) was the natural next step.
+The Lean unit test (`bitnet-soc-test`) and `Signal.atTime`
+evaluation already showed the FFN computing correctly, so the
+spec layer was suspect-free. That made the **elab / codegen
+layer** (specifically `Sparkle.Backend.CppSim`) the natural
+next thing to investigate.
 
 ### Step 3 — root-cause: `CppSim` wire-inlining
 
@@ -204,7 +208,9 @@ The fix: explicitly list the wire in `SoCOutput.wireNames`. The framework should
 
 ### C. ∀N temporal reasoning is the right framing
 
-The user's insight — "1 cycle 早いか遅いか、そもそもでないとか" — maps directly onto the LTL premises:
+The intuitive bug categories — "value arrives one cycle late",
+"value arrives one cycle early", "value never appears at all" —
+map directly onto the LTL premises:
 
   - "1 cycle late" → P1 false (cycle-N+1 update missed)
   - "1 cycle early" → P1 false (different shape, register update happens combinationally instead of via Signal.register)

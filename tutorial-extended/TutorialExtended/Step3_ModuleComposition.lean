@@ -16,7 +16,7 @@
   because every signal — input AND output, top-level AND nested —
   has a name.
 
-  This is the design pattern the user asked about: hierarchical
+  This is the design pattern Tutorial_Extended.md explains: hierarchical
   modules where output unpacking by `.fst`/`.snd` would become
   unreadable, but `.field_name` stays clear.
 -/

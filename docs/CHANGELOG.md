@@ -58,7 +58,9 @@ vectors) was tracked as the test case for the LTL framework. The
 chain went:
 
   1. Initial probe → `bitnetOut = 0` observed → diagnosed P3 violation.
-  2. User pushback ("elab がわるい？") prompted re-investigation.
+  2. Re-examination of the elab/codegen layer prompted by the
+     contradiction: the Lean unit test computed the FFN correctly,
+     so the spec layer wasn't where the value got lost.
   3. Discovered: `Sparkle.Backend.CppSim` inlines wires aggressively;
      `_gen_next` (FFN's saturating-add output) is not emitted as a
      JIT struct field, so the probe's `findWire` lookup returned a
@@ -84,9 +86,10 @@ Full postmortem in
 - `CppSim` wire-inlining preserves correctness but breaks
   observability; LTL premises must have their constituent signals
   exposed via `SoCOutput.wireNames` for falsifiability.
-- ∀N temporal reasoning (LTL) maps directly to "1 cycle 早い/遅い/
-  でない" bug classes — the 4-premise decomposition is comprehensive
-  for sw→lw datapath bugs.
+- ∀N temporal reasoning (LTL) maps directly to the intuitive
+  "value arrives one cycle late / one cycle early / never" bug
+  classes — the 4-premise decomposition is comprehensive for
+  sw→lw datapath bugs.
 
 ### Files
 

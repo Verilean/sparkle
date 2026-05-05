@@ -1,17 +1,14 @@
 # Sparkle Tutorial — Extended (module structure & named record I/O)
 
 A follow-up to `docs/Tutorial.md` that fills the gap between
-"single counter" and "verify a SoC". The user feedback was:
+"single counter" and "verify a SoC".
 
-> "回路 == 関数というメタファーではいいけど、出力の unbind が
-> ユーザーで必要になるよね。あまり視認性というかわかりにくいよね。
-> その名前付き record でうまく扱えるかな？"
-
-i.e. once a module produces more than one signal, the caller
-has to unpack a tuple by position (`.fst`, `.snd`, `.snd.fst`...),
-which kills readability. This tutorial walks through the patterns
-that solve it: `let`-named outputs, `declare_signal_state` for
-named records, and module composition.
+The "circuit-as-function" metaphor in `Tutorial.md` works for
+single-output modules. But once a module produces more than one
+signal, the caller has to unpack a tuple by position (`.fst`,
+`.snd`, `.snd.fst`...), which kills readability. This tutorial
+walks through the patterns that solve it: `let`-named outputs,
+`declare_signal_state` for named records, and module composition.
 
 All code in this tutorial **builds and runs**:
 
