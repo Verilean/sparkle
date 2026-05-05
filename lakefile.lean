@@ -57,6 +57,15 @@ lean_lib «IP.Bus» where
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
+lean_lib «TutorialExtended» where
+  roots := #[`TutorialExtended]
+  srcDir := "tutorial-extended"
+
+lean_exe «tutorial-extended-run» where
+  root := `TutorialExtended.Run
+  srcDir := "tutorial-extended"
+  supportInterpreter := true
+
 lean_lib «Tests» where
   -- Test circuits library
 

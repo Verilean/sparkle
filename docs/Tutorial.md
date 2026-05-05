@@ -856,11 +856,18 @@ definition transitively called from one of those.
 
 | Topic | Where |
 |-------|-------|
+| **Module composition + named record I/O** | `docs/Tutorial_Extended.md` |
 | **Signal DSL syntax** | `docs/SignalDSL_Syntax.md` |
 | **Verification patterns** | `docs/Verification_Framework.md` |
 | **IP catalog** (RV32I CPU, AXI4-Lite, H.264, BitNet) | `README.md` |
 | **Benchmark** (Sparkle JIT vs Verilator) | `docs/BENCHMARK.md` |
 | **Reverse synthesis** (proof-driven FSM optimization) | `Sparkle/Core/OracleSpec.lean` |
+
+The Extended Tutorial is the recommended next read. It picks up
+where this single-counter walkthrough leaves off and shows how
+to scale to multi-output modules, hierarchical compositions, and
+debug-friendly named-wire observability — patterns you'll need
+once the design grows past one register.
 
 ---
 
