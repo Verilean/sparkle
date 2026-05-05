@@ -43,6 +43,49 @@ def counter8 {dom : DomainConfig}
 lake env lean tutorial.lean
 ```
 
+### Multi-output modules and `declare_signal_state`
+
+Once a module produces more than one signal, returning an
+anonymous tuple forces the caller to project by position
+(`.fst`, `.snd`, `.snd.fst`...), which scales badly. Sparkle
+ships a macro `declare_signal_state` that turns a list of named
+fields into a tuple-backed record with field accessors AND a
+named-field constructor `Name.mk`:
+
+```lean
+declare_signal_state CounterParityOut
+  | count  : BitVec 8 := 0#8
+  | parity : Bool     := false
+
+def counterAndParity {dom : DomainConfig}
+    (en : Signal dom Bool) : Signal dom CounterParityOut :=
+  Signal.loop fun self =>
+    let count      := CounterParityOut.count self        -- read by name
+    let countNext  := Signal.mux en (count + 1#8) count
+    let parityBV   := countNext.map (BitVec.extractLsb' 0 1 ·)
+    let parityNext := parityBV === Signal.pure 1#1
+    let countOut   := Signal.register 0#8 countNext
+    let parityOut  := Signal.register false parityNext
+    -- Build the output by name (output side mirrors input side):
+    CounterParityOut.mk (count := countOut) (parity := parityOut)
+
+-- Caller reads each field by name too:
+#eval
+  let out := counterAndParity (dom := defaultDomain) (Signal.pure true)
+  let cs  := (CounterParityOut.count out).sample 4
+  let ps  := (CounterParityOut.parity out).sample 4
+  s!"counts={cs}  parity={ps}"
+```
+
+`declare_signal_state` also generates `Name.default`,
+`Name.wireNames`, and `Name.fromWires` — the latter two are
+consumed by the JIT probe layer to expose the same field names
+in generated Verilog (`_gen_count`, `_gen_parity`) and JIT C++.
+
+For the full walkthrough (anonymous tuple → let-named tuple →
+record + bundleAll! → record + `Name.mk`, with the trade-offs
+of each pattern), see [`docs/Tutorial_Extended.md`](Tutorial_Extended.md).
+
 ---
 
 ## Step 2: Generate Verilog
