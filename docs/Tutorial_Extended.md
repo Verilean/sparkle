@@ -149,14 +149,25 @@ For modules with ≥ 3 outputs or any nesting, **always go with (c)**.
 
 Build a small monitor pipeline:
 
+```mermaid
+flowchart LR
+  en([en : Bool]) --> Counter[Counter<br/>returns CounterParityOut]
+  Counter -- count : BitVec 8 --> Monitor[Monitor<br/>threshold = 100]
+  Counter -- parity : Bool --> ParityCheck[ParityCheck<br/>4-bit shift reg]
+  Counter -- count --> R_count
+  Monitor -- thresholdHit --> R_hit
+  ParityCheck -- parityAlert --> R_alert
+  subgraph MonitorReport
+    direction TB
+    R_count[currentCount : BitVec 8]
+    R_hit[thresholdHit : Bool]
+    R_alert[parityAlert : Bool]
+  end
 ```
-en ─→ Counter ─→ (count, parity)
-                    ├─→ Monitor ─→ thresholdHit
-                    └─→ ParityCheck ─→ parityAlert
-                                  ↓
-                  ┌───────────────┴────────────────┐
-                  └→ MonitorReport { count, hit, alert }
-```
+
+Three modules feeding three named fields. The record output
+`MonitorReport` keeps each output addressable by name (no
+`.snd.snd.fst` chains).
 
 ```lean
 declare_signal_state MonitorReport

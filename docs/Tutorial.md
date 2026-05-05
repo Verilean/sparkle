@@ -872,22 +872,42 @@ once the design grows past one register.
 
 ---
 
+## Diagram conventions
+
+Sparkle docs use **Mermaid `flowchart LR`** (left-to-right
+dataflow) for circuit block diagrams. This renders directly on
+GitHub, is text-diffable, and is the most ergonomic for the kind
+of "module → module → output" structure that dominates
+synthesizable HDL designs.
+
+For other diagram needs:
+
+| What you want | Tool | Notes |
+|---------------|------|-------|
+| Circuit block diagram | Mermaid `flowchart LR` | GitHub-renders, text-diff |
+| State machine | Mermaid `stateDiagram-v2` | GitHub-renders |
+| Cycle waveforms | (future) WaveDrom | Sparkle's `Signal` is cycle-by-cycle, natural fit |
+| Hierarchical IP tree | Mermaid `flowchart TD` (top-down) | for module instantiation hierarchies |
+
+Existing examples:
+  - `docs/Tutorial.md` — Sparkle pipeline overview (below)
+  - `docs/Tutorial_Extended.md` Step 3 — module composition
+  - `docs/Tutorial_LTL.md` Step 6, 7.3, 7.5 — premise / contract / verification stack diagrams
+
+---
+
 ## Summary: The Sparkle Pipeline
 
-```
-  Signal DSL          Verilog (.v)
-      │                    │
-      ▼                    ▼
-  #synthesizeVerilog    sim! / verilog!
-      │                    │
-      ▼                    ▼
-  Verilog output     Parse → Sparkle IR
-      │                    │
-      ├── VCD waveform     ├── JIT C++ → .so → fast simulation
-      │                    │                      │
-      └── Formal proofs    ├── OracleReductin     ├── runSim (auto)
-          (bv_decide)      │   (proof-driven opt) │   ├─ runSingleSim
-                           │                      │   └─ runMultiDomainSim
-                           │                      │      (CDC queue)
-                           └──────────────────────┘
+```mermaid
+flowchart LR
+  SignalDSL[Signal DSL] --> Synth[#synthesizeVerilog]
+  Synth --> SV[Verilog output]
+  SV --> VCD[VCD waveform]
+  SV --> FP[Formal proofs<br/>bv_decide]
+  Verilog[Verilog .v] --> Parse[sim! / verilog!<br/>Parse → Sparkle IR]
+  Parse --> JIT[JIT C++ → .so<br/>fast simulation]
+  Parse --> Oracle[OracleReduction<br/>proof-driven opt]
+  JIT --> RunSim[runSim<br/>auto-dispatch]
+  RunSim --> Single[runSingleSim]
+  RunSim --> Multi[runMultiDomainSim<br/>CDC queue]
 ```

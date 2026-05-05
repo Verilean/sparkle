@@ -126,6 +126,25 @@ ready to apply to any single-event register.
 
 File: `tutorial-extended/TutorialExtended/Step6_LTL_BugLocalization.lean`.
 
+The dataflow we're verifying:
+
+```mermaid
+flowchart LR
+  writeEn([writeEn]) --> P1
+  data([data]) --> P1
+  P1[P1: write commits<br/>cycle-N+1 update] --> reg[(reg)]
+  reg --> P2[P2: no-write<br/>preserves]
+  P2 --> reg
+  reg --> P3[P3: read observes<br/>current reg]
+  readReady([readReady]) --> P3
+  P3 --> observed([observed])
+```
+
+Three premises, three layers. If `observed ≠ data` at the lw cycle,
+the contrapositive theorem says at least one premise is false in
+the runtime. To localize *which* one, observe `reg` at the trace
+cycles where each premise's antecedent fires.
+
 ### 6.1 The 3-layer write→hold→read contract
 
 For a memory-like register, define one premise per layer:
@@ -252,6 +271,19 @@ registers (mstatus 5-way, AMO reservation 3-way, etc.):
 `IP/RV32/Verification/BitNetTimingLTL.lean` is the production
 analog of Step 6, scaled to 4 premises:
 
+```mermaid
+flowchart LR
+  sw([sw 0x40000004 ← X]) --> P1
+  P1[P1: aiInputReg<br/>cycle-N+1 update] --> regIn[(aiInputReg)]
+  regIn --> P2[P2: K-cycle<br/>preservation]
+  P2 --> regIn
+  regIn --> P3[P3: combinational<br/>FFN]
+  P3 --> bitnetOut[(bitnetOut)]
+  bitnetOut --> P4[P4: lw decode<br/>at offset 0x8]
+  P4 --> mmioRdata([mmioRdata])
+  lw([lw 0x40000008]) --> P4
+```
+
 ```lean
 #check @Sparkle.IP.RV32.Verification.sw_then_lw_observes_ffn_input
 -- 4-premise composite: P1 (cycle-N+1 update) ∧ P2 (K-cycle preservation)
@@ -287,16 +319,13 @@ Linux-critical PAs).
 
 ### 7.5 Layered architecture
 
-```
-   concrete-vector regression theorems      (decide-closed)
-                  ↓
-       cycle-N+1 LTL forms (~100)            (unfold + cases + rfl)
-                  ↓
-      N-step preservation scaffold           (induction on K)
-                  ↓
-   composite contracts (e.g., 4-premise)     (compose smaller LTLs)
-                  ↓
-   contrapositive bug localization           (apply contrapositive)
+```mermaid
+flowchart LR
+  L1[concrete-vector<br/>regression theorems<br/><i>decide-closed</i>] --> L2
+  L2[cycle-N+1 LTL forms<br/>~100 theorems<br/><i>unfold + cases + rfl</i>] --> L3
+  L3[N-step preservation<br/>scaffold<br/><i>induction on K</i>] --> L4
+  L4[composite contracts<br/>e.g., 4-premise<br/><i>compose smaller LTLs</i>] --> L5
+  L5[contrapositive<br/>bug localization<br/><i>apply contrapositive</i>]
 ```
 
 Each layer takes the layer below as discharged premises. The user
