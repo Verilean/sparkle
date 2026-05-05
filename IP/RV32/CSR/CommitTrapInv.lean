@@ -258,4 +258,39 @@ theorem csrPlainReg_hold_when_idex_isCsr_false_LTL {dom : DomainConfig}
   fun t => csrPlainReg_hold_when_idex_isCsr_false init idex_isCsr csrIsX validEX
     newVal old t
 
+/-! ## ∀N (LTL) forms of cycle-N+2 composites
+
+  These are universal-time-quantified versions of the cycle-N+2 hold
+  composites. Whereas the underlying lemmas pin a specific cycle `n`,
+  the LTL forms quantify "for any N where trap fires, the register is
+  preserved at N+2." The structural hypotheses (`h_squash_includes_trap`,
+  `h_idex_isCsr_at_N1`) get lifted from per-N to per-T quantified
+  premises.
+
+  These are the building blocks for "Linux boot trace preservation":
+  for an arbitrary trap cycle during a long boot, no architectural
+  state is corrupted at N+2.
+-/
+
+/-- **∀N form of `trap_holds_csrPlain_reg_at_N_plus_2`.** -/
+theorem trap_holds_csrPlain_reg_at_N_plus_2_LTL {dom : DomainConfig}
+    (trap_taken freeze squash : Signal dom Bool)
+    (idex_isCsr_old idex_isCsr_new : Signal dom Bool)
+    (validEX : Signal dom Bool) (csrIsX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32))
+    (h_squash_includes_trap :
+      ∀ n, trap_taken.atTime n = true → squash.atTime n = true)
+    (h_idex_isCsr_at_N1 :
+      ∀ n, idex_isCsr_new.atTime (n + 1) =
+        (Sparkle.IP.RV32.Pipeline.idexLatchSignal freeze squash idex_isCsr_old idex_isCsr_new
+          (false : Bool)).atTime (n + 1)) :
+    ∀ n, trap_taken.atTime n = true →
+         freeze.atTime n = false →
+         let we := csrRegWeSignal (idexIsCsrValidSignal idex_isCsr_new validEX) csrIsX
+         (csrPlainRegSignal init we newVal old).val (n + 2) = old.val (n + 1) :=
+  fun n h_trap_n h_no_freeze_n =>
+    trap_holds_csrPlain_reg_at_N_plus_2 trap_taken freeze squash idex_isCsr_old
+      idex_isCsr_new validEX csrIsX init newVal old n h_trap_n h_no_freeze_n
+      (h_squash_includes_trap n) (h_idex_isCsr_at_N1 n)
+
 end Sparkle.IP.RV32.CSR

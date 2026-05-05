@@ -337,4 +337,24 @@ theorem mstatusReg_hold_when_no_event_LTL {dom : DomainConfig}
   fun t => mstatusReg_hold_when_no_event init trapTaken trapVal isMret mretVal
     isSret sretVal sstatusWrite sstatusWdata mstatusWrite mstatusWdata mstatus t
 
+/-- **∀N form of `mstatusReg_stays_trapVal_at_N_plus_2`.** -/
+theorem mstatusReg_stays_trapVal_at_N_plus_2_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTaken : Signal dom Bool) (trapVal : Signal dom (BitVec 32))
+    (isMret : Signal dom Bool) (mretVal : Signal dom (BitVec 32))
+    (isSret : Signal dom Bool) (sretVal : Signal dom (BitVec 32))
+    (sstatusWrite : Signal dom Bool) (sstatusWdata : Signal dom (BitVec 32))
+    (mstatusWrite : Signal dom Bool) (mstatusWdata : Signal dom (BitVec 32)) :
+    ∀ n, trapTaken.val n = true →
+         trapTaken.val (n + 1) = false → isMret.val (n + 1) = false →
+         isSret.val (n + 1) = false → sstatusWrite.val (n + 1) = false →
+         mstatusWrite.val (n + 1) = false →
+         let regSig :=
+           mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+             sstatusWrite sstatusWdata mstatusWrite mstatusWdata
+             (mstatusRegSignal init trapTaken trapVal isMret mretVal isSret sretVal
+               sstatusWrite sstatusWdata mstatusWrite mstatusWdata (Signal.pure 0#32))
+         regSig.val (n + 2) = trapVal.val n :=
+  fun n => mstatusReg_stays_trapVal_at_N_plus_2 init trapTaken trapVal isMret mretVal
+    isSret sretVal sstatusWrite sstatusWdata mstatusWrite mstatusWdata n
+
 end Sparkle.IP.RV32.CSR

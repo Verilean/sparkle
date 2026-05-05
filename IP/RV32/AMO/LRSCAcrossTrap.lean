@@ -324,4 +324,31 @@ theorem reservation_holds_when_no_event_LTL {dom : DomainConfig}
          (reservationValidSignal trap isLR isSC prevValid).val (t + 1) = prevValid.val t :=
   fun t => reservation_holds_when_no_event trap isLR isSC prevValid t
 
+/-- **∀N form of `reservation_stays_invalid_at_N_plus_2`.** -/
+theorem reservation_stays_invalid_at_N_plus_2_LTL {dom : DomainConfig}
+    (trap isLR isSC : Signal dom Bool) :
+    ∀ n, trap.val n = true →
+         trap.val (n + 1) = false →
+         isLR.val (n + 1) = false →
+         isSC.val (n + 1) = false →
+         (reservationValidSignal trap isLR isSC
+           (reservationValidSignal trap isLR isSC (Signal.pure false))).val (n + 2) = false :=
+  fun n => reservation_stays_invalid_at_N_plus_2 trap isLR isSC n
+
+/-- **∀N form of `trap_clears_pendingWriteEn_2_cycles_later`.** -/
+theorem trap_clears_pendingWriteEn_2_cycles_later_LTL {dom : DomainConfig}
+    (trap_taken dTLBMiss pendingWriteEn mmuBusy dMMURedirect : Signal dom Bool)
+    (idex_isAMO exwb_isLR exwb_isSC : Signal dom Bool) :
+    ∀ n, trap_taken.atTime n = true →
+         let exwb_isAMO :=
+           Signal.register false
+             (Signal.mux
+               (Sparkle.IP.RV32.Pipeline.suppressEXWBSignal trap_taken dTLBMiss
+                 pendingWriteEn mmuBusy dMMURedirect)
+               (Signal.pure false) idex_isAMO)
+         (pendingWriteEnRegSignal
+           (isAMOrwSignal exwb_isAMO exwb_isLR exwb_isSC)).val (n + 2) = false :=
+  fun n => trap_clears_pendingWriteEn_2_cycles_later trap_taken dTLBMiss pendingWriteEn
+    mmuBusy dMMURedirect idex_isAMO exwb_isLR exwb_isSC n
+
 end Sparkle.IP.RV32.AMO

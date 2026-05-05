@@ -266,6 +266,26 @@ theorem wbEn_false_when_idex_regW_false_next_cycle_LTL {dom : DomainConfig}
            false :=
   fun t => wbEn_false_when_idex_regW_false_next_cycle suppressEXWB idex_regWrite wbRdNz t
 
+/-- **∀N form of `trap_suppresses_wb_en_at_N_plus_2`.** -/
+theorem trap_suppresses_wb_en_at_N_plus_2_LTL {dom : DomainConfig}
+    (trap_taken freeze squash : Signal dom Bool)
+    (suppressEXWB : Signal dom Bool)
+    (idex_regWrite_old idex_regWrite_new : Signal dom Bool)
+    (wbRdNz : Signal dom Bool)
+    (h_squash_includes_trap :
+      ∀ n, trap_taken.atTime n = true → squash.atTime n = true)
+    (h_idex_regWrite_at_N1 :
+      ∀ n, idex_regWrite_new.atTime (n + 1) =
+        (idexLatchSignal freeze squash idex_regWrite_old idex_regWrite_new
+          (false : Bool)).atTime (n + 1)) :
+    ∀ n, trap_taken.atTime n = true → freeze.atTime n = false →
+         (wbEnSignal (exwbRegWSignal suppressEXWB idex_regWrite_new) wbRdNz).atTime
+           (n + 2) = false :=
+  fun n h_trap_n h_no_freeze_n =>
+    trap_suppresses_wb_en_at_N_plus_2 trap_taken freeze squash suppressEXWB
+      idex_regWrite_old idex_regWrite_new wbRdNz n h_trap_n h_no_freeze_n
+      (h_squash_includes_trap n) (h_idex_regWrite_at_N1 n)
+
 /-! ## Connection to invariant A
 
   Invariant A requires "regfile preservation across trap":

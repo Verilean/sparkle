@@ -287,4 +287,16 @@ theorem divPendingReg_hold_when_no_event_LTL {dom : DomainConfig}
            divPending.val t :=
   fun t => divPendingReg_hold_when_no_event flushOrDelay divStart divDone divPending t
 
+/-- **∀N form of `divPendingReg_stays_false_at_N_plus_2`.** -/
+theorem divPendingReg_stays_false_at_N_plus_2_LTL {dom : DomainConfig}
+    (flushOrDelay divStart divDone : Signal dom Bool) :
+    ∀ n, flushOrDelay.val n = true →
+         flushOrDelay.val (n + 1) = false →
+         divStart.val (n + 1) = false →
+         divDone.val (n + 1) = false →
+         (divPendingRegSignal flushOrDelay divStart divDone
+           (divPendingRegSignal flushOrDelay divStart divDone (Signal.pure false))).val
+             (n + 2) = false :=
+  fun n => divPendingReg_stays_false_at_N_plus_2 flushOrDelay divStart divDone n
+
 end Sparkle.IP.RV32.Mext

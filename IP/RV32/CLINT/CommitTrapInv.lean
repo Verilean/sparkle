@@ -202,4 +202,25 @@ theorem clintReg_hold_when_idex_memWrite_false_LTL {dom : DomainConfig}
   fun t => clintReg_hold_when_idex_memWrite_false idex_memWrite isCLINT_ex regMatch
     validEX init newVal old t
 
+/-- **∀N form of `trap_holds_clintReg_at_N_plus_2`.** -/
+theorem trap_holds_clintReg_at_N_plus_2_LTL {dom : DomainConfig}
+    (trap_taken freeze squash : Signal dom Bool)
+    (idex_memWrite_old idex_memWrite_new : Signal dom Bool)
+    (isCLINT_ex regMatch validEX : Signal dom Bool)
+    (init : BitVec 32) (newVal old : Signal dom (BitVec 32))
+    (h_squash_includes_trap :
+      ∀ n, trap_taken.atTime n = true → squash.atTime n = true)
+    (h_idex_memWrite_at_N1 :
+      ∀ n, idex_memWrite_new.atTime (n + 1) =
+        (Sparkle.IP.RV32.Pipeline.idexLatchSignal freeze squash idex_memWrite_old
+          idex_memWrite_new (false : Bool)).atTime (n + 1)) :
+    ∀ n, trap_taken.atTime n = true → freeze.atTime n = false →
+         let clintWE := peripheralWESignal idex_memWrite_new isCLINT_ex validEX
+         let regWE := clintRegWeSignal clintWE regMatch
+         (csrPlainRegSignal init regWE newVal old).val (n + 2) = old.val (n + 1) :=
+  fun n h_trap_n h_no_freeze_n =>
+    trap_holds_clintReg_at_N_plus_2 trap_taken freeze squash idex_memWrite_old
+      idex_memWrite_new isCLINT_ex regMatch validEX init newVal old n h_trap_n
+      h_no_freeze_n (h_squash_includes_trap n) (h_idex_memWrite_at_N1 n)
+
 end Sparkle.IP.RV32.CLINT

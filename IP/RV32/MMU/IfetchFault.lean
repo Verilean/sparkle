@@ -380,4 +380,17 @@ theorem ptwIsIfetchReg_hold_when_not_idle_LTL {dom : DomainConfig}
            ptwIsIfetch.val t :=
   fun t => ptwIsIfetchReg_hold_when_not_idle init ptwIdle ifetchPTWReq dTLBMiss ptwIsIfetch t
 
+/-- **∀N form of `ifetchFaultPendingReg_stays_false_at_N_plus_2`.** -/
+theorem ifetchFaultPendingReg_stays_false_at_N_plus_2_LTL {dom : DomainConfig}
+    (ifetchPageFault bypassMMU ptwFault ptwIsIfetch : Signal dom Bool) :
+    ∀ n, ifetchPageFault.val n = true →
+         ifetchPageFault.val (n + 1) = false →
+         bypassMMU.val (n + 1) = false →
+         (ptwFault.val (n + 1) && ptwIsIfetch.val (n + 1)) = false →
+         (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+           (ifetchFaultPendingRegSignal ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+             (Signal.pure false))).val (n + 2) = false :=
+  fun n => ifetchFaultPendingReg_stays_false_at_N_plus_2 ifetchPageFault bypassMMU
+    ptwFault ptwIsIfetch n
+
 end Sparkle.IP.RV32.MMU

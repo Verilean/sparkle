@@ -397,4 +397,32 @@ theorem privModeReg_hold_when_no_event_LTL {dom : DomainConfig}
            priv.val t :=
   fun t => privModeReg_hold_when_no_event init trapToM trapToS isMret isSret mpp sretPriv priv t
 
+/-- **∀N form of `privModeReg_stays_M_at_N_plus_2`.** -/
+theorem privModeReg_stays_M_at_N_plus_2_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv : Signal dom (BitVec 2)) :
+    ∀ n, trapToM.val n = true →
+         trapToM.val (n + 1) = false → trapToS.val (n + 1) = false →
+         isMret.val (n + 1) = false → isSret.val (n + 1) = false →
+         let regSig :=
+           privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+             (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+               (Signal.pure 3#2))
+         regSig.val (n + 2) = privM :=
+  fun n => privModeReg_stays_M_at_N_plus_2 init trapToM trapToS isMret isSret mpp sretPriv n
+
+/-- **∀N form of `privModeReg_stays_S_at_N_plus_2`.** -/
+theorem privModeReg_stays_S_at_N_plus_2_LTL {dom : DomainConfig}
+    (init : BitVec 2) (trapToM trapToS isMret isSret : Signal dom Bool)
+    (mpp sretPriv : Signal dom (BitVec 2)) :
+    ∀ n, trapToM.val n = false → trapToS.val n = true →
+         trapToM.val (n + 1) = false → trapToS.val (n + 1) = false →
+         isMret.val (n + 1) = false → isSret.val (n + 1) = false →
+         let regSig :=
+           privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+             (privModeRegSignal init trapToM trapToS isMret isSret mpp sretPriv
+               (Signal.pure 3#2))
+         regSig.val (n + 2) = privS :=
+  fun n => privModeReg_stays_S_at_N_plus_2 init trapToM trapToS isMret isSret mpp sretPriv n
+
 end Sparkle.IP.RV32.Privilege
