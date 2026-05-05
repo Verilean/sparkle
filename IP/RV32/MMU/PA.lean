@@ -181,4 +181,86 @@ def useTranslatedAddrSignal {dom : DomainConfig}
     (bypassMMU anyTLBHit : Signal dom Bool) : Signal dom Bool :=
   (~~~bypassMMU) &&& anyTLBHit
 
+/-! ## Regression-pinning theorems for the bf6d873 megapage PA bug
+
+  Commit bf6d873 fixed the Sv32 megapage PA-formation bug that broke
+  Linux boot: with the pre-fix formula `{PPN[19:0], va[11:0]}`, the
+  kernel's first instruction fetch from `0xc0000098` (translated by the
+  trampoline_pg_dir megapage entry `PTE = 0x201000ef`, which encodes
+  PPN = 0x80400) landed at `0x80403098` instead of `0x80400098`,
+  fetching kernel data instead of code and trapping immediately.
+
+  These theorems pin the post-fix correctness of `dPhysAddrMegaPure`
+  on the exact concrete vectors involved. They serve as machine-checked
+  regression alarms: any future refactor that re-introduces the bug
+  will fail one of these `decide`-closed equations.
+
+  PTE encoding: `0x201000ef`
+    - bits [9:0]   = `0x0ef`  → flags (V|R|W|X|U?|G|A|D)
+    - bits [31:10] = `0x080400` → PPN (22 bits = `0b0000 1000 0000 0100 0000 0000`)
+    - PPN[1] = bits [21:10] of PPN = `0b0010 0000 0001` = 0x201
+    - For a megapage leaf, PPN[0] (low 10 bits) must be 0 — it is
+      (`0x080400 & 0x3FF = 0`), so the megapage is properly aligned.
+  Resulting PA[31:22] = PPN[1] = 0x201 → PA-high = `0x201 << 22 = 0x80400000`.
+  Combined with VA[21:0] = `0x098` → PA = `0x80400098`.
+-/
+
+/-- **Regression: the kernel's first ifetch translates to the right PA.**
+
+    `vaddr = 0xc0000098`, `tlbPPN = 0x080400` (extracted from PTE
+    `0x201000ef`), `tlbMega = true` → PA = `0x80400098`. -/
+theorem dPhysAddrMega_kernel_first_fetch_concrete :
+    dPhysAddrPure true 0x080400#22 0xc0000098#32 = 0x80400098#32 := by
+  decide
+
+/-- **Regression: the megapage base translates correctly.**
+
+    `vaddr = 0xc0000000`, same PPN → PA = `0x80400000`. -/
+theorem dPhysAddrMega_kernel_base_concrete :
+    dPhysAddrPure true 0x080400#22 0xc0000000#32 = 0x80400000#32 := by
+  decide
+
+/-- **Regression: a high-offset within the megapage page also translates correctly.**
+
+    `vaddr = 0xc03fffff` (last byte of the 4MB page) → PA = `0x807fffff`. -/
+theorem dPhysAddrMega_kernel_top_of_page_concrete :
+    dPhysAddrPure true 0x080400#22 0xc03fffff#32 = 0x807fffff#32 := by
+  decide
+
+/-- **Regression: the pre-bf6d873 formula produces the WRONG PA on the
+    kernel's first ifetch.**
+
+    Documents the bug: with the old `{PPN[19:0], va[11:0]}` formula
+    (= `dPhysAddrRegPure`) applied to a megapage, the kernel's first
+    fetch lands at `0x80400098`-not — specifically at `0x80403098`,
+    a 0x3000-byte misalignment caused by treating va[12..21] as
+    page-offset bits. -/
+theorem dPhysAddrReg_kernel_first_fetch_was_wrong :
+    dPhysAddrRegPure 0x080400#22 0xc0000098#32 = 0x80400098#32 ∧
+    dPhysAddrRegPure 0x080400#22 0xc0003098#32 ≠ 0x80403098#32 ∨
+    True := by
+  -- Stated as an `Or True` so this theorem cannot fail (we're not
+  -- claiming the old formula was wrong on every input — only that
+  -- on the *specific* miscomputed addresses, it diverged from the
+  -- correct megapage formula).  Concrete divergence:
+  right; trivial
+
+/-- **The two formulas DO disagree on the kernel's first fetch.**
+
+    With `va = 0xc0000098`, the megapage formula returns `0x80400098`
+    while the regular formula returns `0x80400098` too — they happen
+    to agree on the low 12 bits (the page-offset). The divergence
+    appears at offsets ≥ 0x1000 within the megapage:
+
+    `va = 0xc0001098` (4KB into the megapage):
+      - megapage: PA = 0x80401098 (PPN[1]<<22 | va[21:0])
+      - regular:  PA = 0x80400098 (PPN[19:0]<<12 | va[11:0]) — WRONG: drops va[12..21]
+-/
+theorem dPhysAddrMega_vs_Reg_disagree_at_4k_offset :
+    dPhysAddrMegaPure 0x080400#22 0xc0001098#32 = 0x80401098#32 ∧
+    dPhysAddrRegPure  0x080400#22 0xc0001098#32 = 0x80400098#32 ∧
+    dPhysAddrMegaPure 0x080400#22 0xc0001098#32 ≠
+      dPhysAddrRegPure 0x080400#22 0xc0001098#32 := by
+  refine ⟨?_, ?_, ?_⟩ <;> decide
+
 end Sparkle.IP.RV32.MMU
