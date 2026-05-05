@@ -41,6 +41,20 @@ jobs:
               gcc-riscv64-unknown-elf \
               device-tree-compiler \
               make bc flex bison libssl-dev cpio gzip
+          # Sanity-check that at least one rv32-capable toolchain is on PATH.
+          # The bitnet_user Makefile auto-detects in this priority order:
+          #   riscv32-none-elf-gcc → riscv64-unknown-elf-gcc → riscv64-linux-gnu-gcc
+          # We verify the chosen toolchain can target rv32ima.
+          for cc in riscv32-none-elf-gcc riscv64-unknown-elf-gcc riscv64-linux-gnu-gcc; do
+              if command -v "$cc" >/dev/null 2>&1; then
+                  echo "Trying $cc -march=rv32ima -mabi=ilp32 ..."
+                  echo 'int main(void){return 0;}' \
+                      | "$cc" -x c -march=rv32ima -mabi=ilp32 -nostdlib \
+                              -ffreestanding -static -Wl,-e,main -o /tmp/rv32-probe - \
+                      && echo "  OK: $cc supports rv32ima" \
+                      && break
+              fi
+          done
 
       - name: Install Elan / Lean toolchain
         run: |

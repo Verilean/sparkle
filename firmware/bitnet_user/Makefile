@@ -8,11 +8,30 @@
 #   initramfs.cpio   — uncompressed cpio archive containing /init + /dev
 #   initramfs.cpio.gz (gzipped — what the kernel ultimately consumes)
 #
-# We use the bare-metal riscv32 cross compiler that already ships in
-# shell.nix (pkgsCross.riscv32-embedded). The binary is freestanding —
-# all syscalls are issued via inline `ecall`, so there is no libc.
+# Toolchain detection (in priority order, all multilib-capable for rv32ima):
+#   1. $CROSS override — caller can force a specific prefix.
+#   2. riscv32-none-elf-gcc      (shell.nix: pkgsCross.riscv32-embedded)
+#   3. riscv64-unknown-elf-gcc   (Ubuntu: gcc-riscv64-unknown-elf)
+#   4. riscv64-linux-gnu-gcc     (Ubuntu: gcc-riscv64-linux-gnu)
+#
+# The binary is freestanding — all syscalls are issued via inline
+# `ecall`, so there is no libc dependency on the cross-compiler's
+# multilib variant.
 
-CROSS  ?= riscv32-none-elf-
+ifeq ($(origin CROSS), undefined)
+  ifneq ($(shell command -v riscv32-none-elf-gcc 2>/dev/null),)
+    CROSS := riscv32-none-elf-
+  else ifneq ($(shell command -v riscv64-unknown-elf-gcc 2>/dev/null),)
+    CROSS := riscv64-unknown-elf-
+  else ifneq ($(shell command -v riscv64-linux-gnu-gcc 2>/dev/null),)
+    CROSS := riscv64-linux-gnu-
+  else
+    # Fall back to the original prefix; if it isn't on PATH the build
+    # will fail with a clear "No such file or directory" error.
+    CROSS := riscv32-none-elf-
+  endif
+endif
+
 CC      = $(CROSS)gcc
 OBJCOPY = $(CROSS)objcopy
 LINUX_DIR ?= /tmp/linux
