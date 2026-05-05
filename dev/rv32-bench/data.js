@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777058890421,
+  "lastUpdate": 1777967377164,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1099,6 +1099,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4114682,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2aea0922ae984f1b16af2e9a17ef7d97b9a79c62",
+          "message": "Merge pull request #29 from Verilean/fix/tutorial\n\nAdd proofs for RV32",
+          "timestamp": "2026-05-05T16:44:11+09:00",
+          "tree_id": "d9c500480127c25a7f1ea554471eccddbb8116dd",
+          "url": "https://github.com/Verilean/sparkle/commit/2aea0922ae984f1b16af2e9a17ef7d97b9a79c62"
+        },
+        "date": 1777967376849,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3656415,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3652085,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4322575,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4187965,
             "unit": "cycles/sec"
           }
         ]
