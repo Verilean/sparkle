@@ -342,9 +342,26 @@ by module:
   * `Mext/DivPending.lean` — divPendingReg clears_on_{flush,done},
     set_on_start, hold_when_no_event
 
+**Pipeline / IDEX register-input building blocks**
+  * `Pipeline/IDEXRegInput.lean` — idexHoldableBVReg {freeze, advance};
+    idexSquashableBVReg {freeze, squash, advance};
+    idexSquashableBoolReg {freeze, squash, advance};
+    exwbSuppressBVReg {suppress, advance};
+    exwbSuppressBoolReg {suppress, advance}
+
+**MMU FSMs**
+  * `MMU/FSM.lean` — mmuStateReg 5 transitions (idle→walk_on_miss,
+    idle_holds_no_miss, walk→done, walk→fault, done/fault→idle)
+  * `MMU/PTWFSM.lean` — ptwStateReg 8 transitions (idle→L1Req,
+    L1Req→L1Wait, L1Wait→done_on_leaf / fault_on_invalid / L0Req,
+    L0Req→L0Wait, L0Wait→done_on_leaf, done/fault→idle)
+
 Each says "for all cycles t, if X at t, then Y at t+1." Useful
 for inductive arguments over the entire pipeline trace and
-2-cycle composite proofs.
+2-cycle composite proofs. As of 2026-05-05, every cycle-N+1
+sequential lemma in `IP/RV32/**` has an `_LTL` companion, and
+`SoC.lean` contains zero inline `Signal.mux` calls — the
+synthesized loop composes only proven primitives.
 
 #### Per-state-register sequential coverage (2026-05-05)
 
