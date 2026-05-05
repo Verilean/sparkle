@@ -438,6 +438,30 @@ These lemmas are the building blocks for whole-Linux-boot trace
 properties. They reduce "for any K cycles" reasoning to a single
 `apply` at use sites that already have the cycle-N+1 LTL forms.
 
+#### LTL bug-localization framework — BitNet sw→lw case study (2026-05-05)
+
+`IP/RV32/Verification/BitNetTimingLTL.lean` formalizes the
+4-premise LTL contract for the boot.S sw→lw sequence on the
+BitNet MMIO peripheral:
+
+  * **P1**: aiInputReg cycle-N+1 update from MMIO write event.
+  * **P2**: aiInputReg K-cycle preservation under no-event window.
+  * **P3**: bitnetOut combinational equality with `ffn(aiInputReg)`.
+  * **P4**: lw at offset 0x40000008 routes mmioRdata = bitnetOut.
+
+The composite `sw_then_lw_observes_ffn_input` derives "lw observes
+ffn(X)" from P1 ∧ P2 ∧ P3 ∧ P4. The contrapositive
+`bug_localization_via_LTL` says: if a runtime trace observes
+Y ≠ ffn(X), then at least one Pi is FALSE — and the failing Pi
+points to a specific layer of the SoC.
+
+Used as a postmortem framework for the 9d0704e "out = input"
+symptom: investigation showed all 4 premises HOLD in the runtime
+(after exposing `_gen_busRdataRaw` etc. as JIT-probable wires by
+adding them to `SoCOutput.wireNames`). Conclusion: the SoC is
+correct; the symptom was a probe / firmware-side artifact. Full
+postmortem in [`docs/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+
 ### 2.3 IO / memory boundary
 
 Things that touch DRAM/MMIO can't be proven about the host platform

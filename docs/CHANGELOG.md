@@ -2,6 +2,112 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 58: LTL bug-localization framework + BitNet investigation closed
+
+**Date**: 2026-05-05
+**Branch**: `fix/tutorial`
+**Headline**: built a 4-premise LTL temporal-logic framework that
+captures sw→lw timing contracts as ∀N-quantified Lean theorems,
+applied it to the open BitNet "out = input" symptom from `9d0704e`,
+and concluded that the Sparkle SoC is **correct** — the original
+report was a probe artifact, not a hardware bug.
+
+### What landed
+
+**`IP/RV32/Verification/BitNetTimingLTL.lean`** — the 4-premise LTL
+framework. P1 (cycle-N+1 update), P2 (K-cycle preservation), P3
+(combinational FFN), P4 (lw decode). Each premise is `_holds`-discharged
+for the Sparkle Lean spec via `Signal.register`/`Signal.mux` semantics.
+The composite theorem `sw_then_lw_observes_ffn_input` derives the
+expected lw observation; the contrapositive `bug_localization_via_LTL`
+turns "observed Y ≠ ffn(X)" into "at least one Pi false" with each Pi
+pointing to a specific SoC layer.
+
+**`IP/RV32/Verification/LinuxBootRegression.lean`** — adjacent
+regression-pinning theorems (28 of them, all `decide`-closed) covering:
+the `bf6d873` Sv32 megapage PA fix, the `5a3fdfb` C-extension and
+DTB-overlap fixes, the trampoline_pg_dir PTE decoding, the
+`ifetchFaultPending` priority truth-table, and the bus-decoder
+routing for all Linux-critical PAs. Plus the `mmio_offset_0x8`-
+alias-refutation block: 4 theorems machine-checking that "offset 0x8
+may alias 0x4" is impossible at the Lean spec level.
+
+**`IP/RV32/Verification/InductionScaffold.lean`** — N-step register
+preservation primitives. The abstract `nstep_preserve_when_no_event`
+lifts a per-cycle if-then-else recurrence to "no event in [t, t+k) →
+r unchanged." Specialized for CSR (32b), CSR8 (UART), Bool, and
+multi-event registers (mstatus 5-way, etc.). End-to-end demos
+include `csrPlainReg_trap_then_K_cycles_preserved` (the temporal
+pattern that arises in Linux ISR reasoning).
+
+**Cycle-N+2 ∀N (LTL) form coverage** — every existing cycle-N+2
+trap-suppression composite (CSR/CLINT/UART/MMIO/AMO/MStatus/PrivMode/
+IfetchFault/DivPending/Regfile, ~11 in total) now has a universal-
+time-quantified `_at_N_plus_2_LTL` companion that hoists the per-N
+structural hypotheses to ∀N premises.
+
+**Invariant C cycle-N+2 closure** — the post-fault-load re-execution
+invariant from `RV32_Architecture_Status.md` §2.2 now has
+`dMMURedirect_sets_ifid_pc_at_N_plus_2`, completing the cycle-N+2
+chain (dMMURedirect at N → ifid_pc at N+2 = dMissPC at N).
+
+### Investigation highlights
+
+The BitNet `9d0704e` symptom ("out = input" on all 8 self-test
+vectors) was tracked as the test case for the LTL framework. The
+chain went:
+
+  1. Initial probe → `bitnetOut = 0` observed → diagnosed P3 violation.
+  2. User pushback ("elab がわるい？") prompted re-investigation.
+  3. Discovered: `Sparkle.Backend.CppSim` inlines wires aggressively;
+     `_gen_next` (FFN's saturating-add output) is not emitted as a
+     JIT struct field, so the probe's `findWire` lookup returned a
+     sentinel and the value defaulted to 0.
+  4. Added `_gen_sum`, `_gen_busRdataRaw`, `_gen_mmioRdata` to
+     `SoCOutput.wireNames`; regenerated JIT.
+  5. Re-ran probe — confirmed all 4 LTL premises hold:
+     - `aiInputReg.val 80 = 0x00010000`
+     - `bitnetOut.val 80 = 0x00410000` (= ffn(0x00010000))
+     - `busRdataRaw.val 86 = 0x00410000` (= what lw observes)
+
+**Conclusion**: Sparkle SoC is correct on all 8 vectors. The original
+"out = input" came from boot.S firmware-side observation path
+(`puthex32` register corruption or UART byte framing).
+
+Full postmortem in
+[`BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+
+### Lessons
+
+- Formal proof of the spec is necessary but not sufficient; runtime
+  observability of the implementation matters too.
+- `CppSim` wire-inlining preserves correctness but breaks
+  observability; LTL premises must have their constituent signals
+  exposed via `SoCOutput.wireNames` for falsifiability.
+- ∀N temporal reasoning (LTL) maps directly to "1 cycle 早い/遅い/
+  でない" bug classes — the 4-premise decomposition is comprehensive
+  for sw→lw datapath bugs.
+
+### Files
+
+  - `IP/RV32/Verification/BitNetTimingLTL.lean` (new, ~390 lines)
+  - `IP/RV32/Verification/LinuxBootRegression.lean` (new, ~470 lines)
+  - `IP/RV32/Verification/InductionScaffold.lean` (new, ~400 lines)
+  - `IP/RV32/SoC.lean` (extended `SoCOutput.wireNames`)
+  - `Tests/RV32/BitNetMmioProbe.lean` (rewritten as 4-premise probe)
+  - `docs/BitNet_LTL_Investigation.md` (new, postmortem)
+  - `docs/KnownIssues.md` (new Issue 2.5 entry)
+  - `docs/RV32_Architecture_Status.md` (§2.2 LTL framework section)
+  - `docs/BitNet.md` (added bug-investigation cross-reference)
+
+### Verification
+
+  - Full project build clean (`lake build`, 64 jobs)
+  - JIT Linux boot regression passes (`lake exe rv32-jit-linux-boot-test`)
+  - BitNet MMIO probe shows correct `ffn(input)` for all 8 vectors
+
+---
+
 ## Phase 57: BitNet v1a Linux Driver (`/dev/bitnet0`) — Complete
 
 **Date**: 2026-04-28

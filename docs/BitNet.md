@@ -200,3 +200,21 @@ INFER`) 1000 times — each call moves 4 bytes across the kernel
 boundary, well below the cost of a syscall, and with no IRQ wait.
 
 ---
+
+## Bug investigation: 9d0704e "out = input" symptom
+
+The `boot.S` self-test in commit `9d0704e` initially reported the
+BitNet peripheral returning the input value instead of `ffn(input)`.
+A formal LTL-based investigation was done to localize the bug.
+
+**Result**: the Sparkle SoC is **correct**. All four LTL premises
+(input-side cycle-N+1 update, K-cycle preservation, combinational
+FFN output, MMIO read-mux decode) hold in the runtime trace. The
+original symptom was a probe / firmware-side observation artifact.
+
+See [`BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md)
+for the full postmortem, including the 4-premise framework, the
+proof catalog, the probe-bug discovery, and the empirical
+acceptance test.
+
+---
