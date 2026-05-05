@@ -35,6 +35,7 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
+import IP.RV32.MMU.IfetchFault
 
 namespace Sparkle.IP.RV32.Verification
 
@@ -215,5 +216,81 @@ theorem trampolinePTE_executable :
 theorem trampolinePTE_megapage_aligned :
     (kernelTrampolinePTE.extractLsb' 10 22).extractLsb' 0 10 = 0#10 := by
   unfold kernelTrampolinePTE; decide
+
+/-! ## Open issue: PTW back-to-back ifetch fault
+
+  Commit `bf6d873`'s message says: "the PTW seems to mis-walk on
+  back-to-back ifetch faults" — a follow-up issue still pending
+  at the time of writing.
+
+  The hardware contract for `ifetchFaultPendingNextPure` is the
+  4-way priority:
+    ifetchPageFault → false   (trap delivery wins)
+    bypassMMU       → false   (no MMU)
+    ptwFault ∧ ptwIsIfetch → true   (set on fresh fault)
+    else            → hold
+
+  The "back-to-back" scenario is: the previous ifetch-PTW fault has
+  set the pending bit, the trap delivers, and a NEW ifetch-PTW
+  fault fires in the SAME cycle as the trap-delivery. Per the
+  4-way priority, the trap-clear wins — the new fault's set is
+  dropped.
+
+  Whether this is a *bug* depends on whether the hardware ever
+  produces simultaneous trap-delivery + new-PTW-fault. We pin the
+  CURRENT contract here so any change to the priority gets caught
+  by `lake build`, and the discussion of "is this priority
+  correct?" can be tracked separately.
+-/
+
+/-- **Documented contract: trap delivery has top priority in
+    ifetchFaultPending's next-state.**
+
+    Even if a fresh PTW fault for an ifetch fires in the same cycle
+    as the trap-delivery, the pending bit is cleared. This is the
+    *current design* — the open question is whether the trapped
+    instruction's fault info has already been latched into mtval/sepc
+    so dropping the next-set is safe. -/
+theorem ifetchFault_trap_overrides_simultaneous_ptw_fault
+    (ifetchFaultPending : Bool) :
+    Sparkle.IP.RV32.MMU.ifetchFaultPendingNextPure
+      (ifetchPageFault := true)
+      (bypassMMU := false)
+      (ptwFault := true)
+      (ptwIsIfetch := true)
+      ifetchFaultPending = false := by
+  rfl
+
+/-- **Documented contract: bypassMMU has priority over PTW-fault-sets.**
+
+    If the MMU is bypassed (M-mode or satp.MODE=Bare), no fault
+    can be pending. -/
+theorem ifetchFault_bypass_overrides_simultaneous_ptw_fault
+    (ifetchFaultPending : Bool) :
+    Sparkle.IP.RV32.MMU.ifetchFaultPendingNextPure
+      (ifetchPageFault := false)
+      (bypassMMU := true)
+      (ptwFault := true)
+      (ptwIsIfetch := true)
+      ifetchFaultPending = false := by
+  rfl
+
+/-- **The complete 4-way priority truth table.**
+
+    Enumerates all 16 input combinations of (ifetchPageFault,
+    bypassMMU, ptwFault, ptwIsIfetch) and verifies the next-state
+    matches the stated 4-way priority (with `ifetchFaultPending`
+    quantified). This is the strongest possible contract: any
+    deviation from the priority will fail this `decide`. -/
+theorem ifetchFault_priority_complete :
+    ∀ (ifetchPageFault bypassMMU ptwFault ptwIsIfetch
+       ifetchFaultPending : Bool),
+      Sparkle.IP.RV32.MMU.ifetchFaultPendingNextPure
+        ifetchPageFault bypassMMU ptwFault ptwIsIfetch ifetchFaultPending =
+        (if ifetchPageFault then false
+         else if bypassMMU then false
+         else if ptwFault && ptwIsIfetch then true
+         else ifetchFaultPending) := by
+  decide
 
 end Sparkle.IP.RV32.Verification
