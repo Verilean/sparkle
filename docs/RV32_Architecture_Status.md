@@ -189,8 +189,14 @@ SoC.lean's synthesized loop:
 | `Pipeline/MMURedirectInv.lean` | 1 | pcReg cycle-N+1 redirect to dMissPC |
 | `AMO/LRSCAcrossTrap.lean` | 1 | trap → pendingWriteEn=false at t+2 |
 
-Total: **37 multi-cycle composites**. Together they certify that
-a trap-aborted in-flight instruction cannot:
+Total: **37 multi-cycle composites** plus **11 ∀N-quantified LTL
+forms** of the cycle-N+2 composites (across CSR/CLINT/MMIO/UART/AMO/
+MStatus/PrivMode/IfetchFault/DivPending/Regfile). The LTL forms
+hoist the per-N structural hypotheses (`h_squash_includes_trap`,
+`h_idex_X_at_N1`) to ∀N premises, making "for any cycle during a
+Linux boot trace" reasoning available without per-cycle instantiation.
+
+Together they certify that a trap-aborted in-flight instruction cannot:
 
   * Modify any architectural register state (regfile, all CSRs,
     CLINT/UART peripherals).
