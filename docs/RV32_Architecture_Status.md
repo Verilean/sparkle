@@ -423,6 +423,16 @@ register-update lemmas to **arbitrary-K-cycle** trace invariants:
     K-cycle preservation: "trap at N + WE false in [N+1, N+1+K) →
     register at N+1+K equals register at N+1." The temporal
     pattern that arises in Linux ISR reasoning.
+  * `or2_false_iff` / `or3_false_iff` / `or5_false_iff` — Bool
+    disjunction case-split helpers used to discharge "no event in
+    K-cycle window" for multi-event registers.
+  * `mstatusReg_preserve_K_cycles` — multi-event variant for the
+    5-way `mstatus` next-state (trap/mret/sret/sw/mw). Same
+    K-cycle preservation, with the no-event hypothesis split into
+    five per-event hypotheses.
+  * `csrPlainReg_trap_then_K_cycles_preserved` — end-to-end
+    Linux-ISR pattern: trap at N + WE false in [N+1, N+1+K) →
+    CSR at N+1+K equals `old.val n` (the pre-trap value).
 
 These lemmas are the building blocks for whole-Linux-boot trace
 properties. They reduce "for any K cycles" reasoning to a single
