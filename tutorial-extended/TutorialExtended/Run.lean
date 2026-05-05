@@ -1,13 +1,14 @@
 /-
   Tutorial Extended runner.
 
-  Runs all 7 steps' demos and prints their outputs.
+  Runs all 8 steps' demos and prints their outputs.
 
   Steps 1-4 cover module structure and named record I/O.
   Steps 5-7 cover LTL temporal-logic verification:
     Step 5: LTL basics — invariants, K-cycle preservation, induction.
     Step 6: bug-localization framework (multi-premise + contrapositive).
     Step 7: pointer to the production RV32 LTL proof catalog.
+  Step 8: imperative-style hardware via `Signal.circuit do`.
 -/
 
 import TutorialExtended.Step1_SimpleCounter
@@ -17,6 +18,7 @@ import TutorialExtended.Step4_NamedObservability
 import TutorialExtended.Step5_LTL_Basics
 import TutorialExtended.Step6_LTL_BugLocalization
 import TutorialExtended.Step7_LTL_RV32_Pointers
+import TutorialExtended.Step8_CircuitDoNotation
 
 def main : IO UInt32 := do
   IO.println "═══════════════════════════════════════════════════════"
@@ -43,6 +45,9 @@ def main : IO UInt32 := do
 
   IO.println "\n── Step 7: RV32 LTL theorem catalog (pointers) ──"
   TutorialExtended.Step7.runDemo
+
+  IO.println "\n── Step 8: Signal.circuit do — imperative HW DSL ──"
+  TutorialExtended.Step8.runDemo
 
   IO.println "\n═══════════════════════════════════════════════════════"
   IO.println "  All steps ran. See docs/Tutorial_Extended.md and"

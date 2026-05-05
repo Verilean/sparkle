@@ -28,3 +28,9 @@ open TutorialExtended.Step2
 -- type. The difference is at the *Lean type* level: callers see
 -- a named record instead of an anonymous tuple.
 #synthesizeVerilog counterAndParity_record
+
+-- Variant (d) — named-field constructor `Name.mk`.
+-- Same wire names as (c); only the Lean source changes from a
+-- positional `bundleAll! [...]` to a record-style
+-- `Name.mk (field := ...)` call.
+#synthesizeVerilog counterAndParity_record_mk

@@ -126,17 +126,42 @@ Now:
   - **Verilog side**: still `_gen_countOut`, `_gen_parityOut` —
     same observability as (b).
   - **Free utilities**: `declare_signal_state` also generates
-    `CounterParityOut.default`, `CounterParityOut.wireNames`, and
-    `CounterParityOut.fromWires`, which the JIT probe layer can
-    consume directly.
+    `CounterParityOut.default`, `CounterParityOut.wireNames`,
+    `CounterParityOut.fromWires`, AND `CounterParityOut.mk`
+    (next variant), which the JIT probe layer can consume
+    directly.
+
+### (d) Named record + named-field constructor `CounterParityOut.mk`
+
+`declare_signal_state` also generates a `Name.mk` constructor
+that takes one Signal per field, in field-declaration order, so
+the output side reads as a record-style call:
+
+```lean
+def counterAndParity_record_mk {dom : DomainConfig}
+    (en : Signal dom Bool) : Signal dom CounterParityOut :=
+  Signal.loop fun self =>
+    let count      := CounterParityOut.count self
+    ...
+    let countOut   := Signal.register 0#8 countNext
+    let parityOut  := Signal.register false parityNext
+    CounterParityOut.mk (count := countOut) (parity := parityOut)
+```
+
+Now **both read and write are by field name**. Bundle order comes
+from the macro, not the call site, so swapping two fields in
+`declare_signal_state` no longer silently swaps their data on the
+output side. The generated Verilog is identical to (c) — same
+`_gen_countOut` / `_gen_parityOut` wires.
 
 ### Summary table
 
-| Pattern | Caller projection | Wire name in Verilog | Lines added |
-|---------|-------------------|----------------------|-------------|
-| (a) anonymous | `.fst` / `.snd` | `_tmp_a_NNNN` | 0 |
-| (b) `let`-named | `.fst` / `.snd` | `_gen_<bindingName>` | 2 |
-| (c) record | `.fieldName` | `_gen_<bindingName>` | 4 (declaration) |
+| Pattern | Caller projection | Output construction | Wire name in Verilog | Lines added |
+|---------|-------------------|---------------------|----------------------|-------------|
+| (a) anonymous | `.fst` / `.snd` | `bundle2 …` (positional) | `_tmp_a_NNNN` | 0 |
+| (b) `let`-named | `.fst` / `.snd` | `bundle2 letName …` (positional) | `_gen_<letName>` | 2 |
+| (c) record + bundleAll! | `.fieldName` | `bundleAll! […]` (positional) | `_gen_<letName>` | 4 (declaration) |
+| (d) record + `Name.mk` | `.fieldName` | `Name.mk (field := …)` (named) | `_gen_<letName>` | 4 (declaration) |
 
 For modules with ≥ 3 outputs or any nesting, **always go with (c)**.
 

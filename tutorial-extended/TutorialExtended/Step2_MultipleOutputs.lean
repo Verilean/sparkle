@@ -61,12 +61,13 @@ def counterAndParity_letNamed {dom : DomainConfig}
     let parityOut := Signal.register false parityNext
     bundle2 countOut parityOut
 
-/-! ## (c) Named record output via `declare_signal_state`
+/-! ## (c) Named record output via `declare_signal_state` (positional bundle)
 
   `declare_signal_state` turns a list of named fields into a
   Sparkle-compatible tuple type with accessor defs. The caller
   uses `.count` / `.parity` instead of `.fst` / `.snd`, and the
-  Verilog/JIT wire names match the field names automatically. -/
+  Verilog/JIT wire names match the field names automatically.
+  But the OUTPUT side still uses positional `bundleAll!`. -/
 
 declare_signal_state CounterParityOut
   | count  : BitVec 8 := 0#8
@@ -84,6 +85,30 @@ def counterAndParity_record {dom : DomainConfig}
     let countOut   := Signal.register 0#8 countNext
     let parityOut  := Signal.register false parityNext
     bundleAll! [countOut, parityOut]
+
+/-! ## (d) Named record output with named-field constructor `Name.mk`
+
+  `declare_signal_state` ALSO generates a `Name.mk` constructor
+  that takes one Signal per field, in field-declaration order, so
+  callers can write the OUTPUT side by name as well:
+
+      CounterParityOut.mk (count := countOut) (parity := parityOut)
+
+  Now both read AND write are by field name. The bundle order
+  comes from the macro, not the call site, so swapping two fields
+  in `declare_signal_state` doesn't silently swap their data. -/
+
+def counterAndParity_record_mk {dom : DomainConfig}
+    (en : Signal dom Bool) : Signal dom CounterParityOut :=
+  Signal.loop fun self =>
+    let count      := CounterParityOut.count self
+    let _parity    := CounterParityOut.parity self
+    let countNext  := Signal.mux en (count + 1#8) count
+    let parityBV   := countNext.map (BitVec.extractLsb' 0 1 ·)
+    let parityNext := parityBV === Signal.pure 1#1
+    let countOut   := Signal.register 0#8 countNext
+    let parityOut  := Signal.register false parityNext
+    CounterParityOut.mk (count := countOut) (parity := parityOut)
 
 /-! ## Demo: same outputs from all three
 
@@ -109,5 +134,12 @@ def runDemo : IO Unit := do
   let countsC := (CounterParityOut.count outC).sample 8
   let parC    := (CounterParityOut.parity outC).sample 8
   IO.println s!"(c) counts={countsC}  parity={parC}"
+
+  -- (d) record + named-field constructor: same output, both
+  --     read AND write by field name
+  let outD   := counterAndParity_record_mk (dom := defaultDomain) (Signal.pure true)
+  let countsD := (CounterParityOut.count outD).sample 8
+  let parD    := (CounterParityOut.parity outD).sample 8
+  IO.println s!"(d) counts={countsD}  parity={parD}"
 
 end TutorialExtended.Step2

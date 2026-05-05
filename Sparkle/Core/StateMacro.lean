@@ -103,4 +103,47 @@ elab "declare_signal_state " name:ident fields:signalStateField* : command => do
   let fromWiresName := mkIdent (name.getId ++ `fromWires)
   elabCommand (← `(def $fromWiresName ($wsIdent : Array UInt32) : $name := $fromWiresBody))
 
+  -- 7. Generate Name.mk: a named-field constructor that takes one
+  --    Signal per field and packages them via bundle2 in the right
+  --    order. This makes the OUTPUT side of a Sparkle module
+  --    symmetric to the INPUT side (`Name.field state` for read,
+  --    `Name.mk (field := sig) ...` for write).
+  --
+  --    Generated signature:
+  --      def Name.mk {dom : DomainConfig}
+  --        (field0 : Signal dom T0) ... (fieldN-1 : Signal dom Tn-1)
+  --        : Signal dom Name :=
+  --        bundleAll! [field0, ..., fieldN-1]
+  --
+  --    Callers can use named arguments:
+  --      Name.mk (count := countOut) (parity := parityOut)
+  --
+  -- Implemented via a `fun`-binding form so we don't need raw
+  -- bracketedBinder Syntax: the macro emits
+  --   def Name.mk : ... := fun field0 ... fieldN-1 => bundleBody
+  -- with explicit type annotations on each binder.
+  let bundleArgs : Array (TSyntax `term) := fieldData.map fun (fieldName, _, _) =>
+    ⟨fieldName.raw⟩
+  let bundleBody : TSyntax `term ←
+    if n == 1 then
+      pure bundleArgs[0]!
+    else
+      let mut acc : TSyntax `term := bundleArgs[n-1]!
+      for i in (List.range (n - 1)).reverse do
+        acc ← `(Sparkle.Core.Signal.bundle2 $(bundleArgs[i]!) $acc)
+      pure acc
+  -- Build the full type of `mk`: (f0 : Signal dom T0) → ... → Signal dom Name.
+  let mut mkType : TSyntax `term ← `(Sparkle.Core.Signal.Signal dom $name)
+  for i in (List.range n).reverse do
+    let (fieldName, fieldType, _) := fieldData[i]!
+    mkType ← `(($fieldName : Sparkle.Core.Signal.Signal dom $fieldType) → $mkType)
+  -- Build the body lambda: fun f0 ... fN-1 => bundle.
+  let mut mkBody : TSyntax `term := bundleBody
+  for i in (List.range n).reverse do
+    let (fieldName, _, _) := fieldData[i]!
+    mkBody ← `(fun $fieldName => $mkBody)
+  let mkName := mkIdent (name.getId ++ `mk)
+  elabCommand (← `(
+    def $mkName {dom : Sparkle.Core.Domain.DomainConfig} : $mkType := $mkBody))
+
 end Sparkle.Core.StateMacro
