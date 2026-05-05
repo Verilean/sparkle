@@ -2,6 +2,164 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 59: Tutorials, named record I/O, Mermaid diagrams + history cleanup
+
+**Date**: 2026-05-05
+**Branch**: `fix/tutorial`
+**Headline**: filled the gap between the single-counter tutorial
+and the SoC verification stack with a 7-step extended tutorial
+(module composition, named record I/O, observability, LTL basics,
+LTL bug-localization, RV32 catalog pointers); converted the docs'
+ASCII diagrams to Mermaid `flowchart LR` for GitHub-rendered
+left-to-right dataflow; added a Mermaid helper that works inside
+xeus-lean Jupyter notebooks.
+
+### Tutorial sequence
+
+A 3-document path now goes from "single counter" to
+"production-scale LTL bug localization":
+
+  1. `docs/Tutorial.md` — single counter, Verilog generation, JIT,
+     formal verification (the original; minor "What's Next" link
+     additions).
+  2. `docs/Tutorial_Extended.md` — module composition + named
+     record I/O + observability.
+  3. `docs/Tutorial_LTL.md` — temporal-logic verification: ∀N
+     properties, K-cycle preservation by induction, multi-premise
+     bug-localization framework with the contrapositive pattern,
+     pointers to the production RV32 LTL catalog.
+
+Each tutorial cross-links forward; each step has runnable Lean
+code under `tutorial-extended/TutorialExtended/`.
+
+### Tutorial Extended (Steps 1-4)
+
+Demonstrates progressively more demanding I/O patterns:
+
+  - Step 1: single-output baseline (8-bit counter).
+  - Step 2: TWO outputs three ways — anonymous tuple,
+    let-named outputs (Verilog wires named, caller still
+    positional), `declare_signal_state` named record (caller
+    uses field names).
+  - Step 3: composing 3 modules (Counter + Monitor + ParityCheck)
+    into a top-level pipeline whose output is a named record
+    `MonitorReport` with three fields.
+  - Step 4: observability — `let`-binding or `declare_signal_state`
+    fields prevent CppSim wire-inlining, keeping wires probable
+    via `JIT.findWire`.
+
+### LTL tutorial (Steps 5-7)
+
+  - Step 5: saturating up-counter as a vehicle for cycle-N+1
+    invariants, K-cycle preservation by induction.
+  - Step 6: write→hold→read 3-premise bug-localization framework
+    (P1 cycle-N+1 commit, P2 K-cycle preservation, P3 read
+    observation), composite + contrapositive + per-premise
+    violation witnesses.
+  - Step 7: type-checks 5 representative theorems from the
+    production RV32 LTL catalog (`trap_clears_exwb_regW_LTL`,
+    `nstep_preserve_when_no_event`, `sw_then_lw_observes_ffn_input`,
+    `bug_localization_via_LTL`, `dPhysAddrMega_kernel_first_fetch_concrete`).
+
+### Mermaid block diagrams
+
+  - Replaced ASCII art in `docs/Tutorial.md`, `Tutorial_Extended.md`
+    Step 3, and `Tutorial_LTL.md` Step 6 / §7.3 / §7.5 with Mermaid
+    `flowchart LR` (GitHub-rendered).
+  - New "Diagram conventions" section in `Tutorial.md` listing
+    rendering choices (Mermaid for blocks, future WaveDrom for
+    waveforms, stateDiagram-v2 for FSMs).
+
+### xeus-lean notebook integration
+
+  - `tutorial-extended/TutorialExtended/MermaidHelper.lean` —
+    standalone Sparkle helper that emits xeus-lean's MIME wire
+    format (`\x1bMIME:text/html\x1e<html>\x1b/MIME\x1e`) so a
+    Mermaid diagram authored in a Lean cell renders inline in
+    Jupyter Lab / Notebook 7+ / JupyterLite WASM.
+  - `#mermaid "..."` sugar command for one-liner notebook cells.
+  - `tutorial-extended/notebooks/sparkle_diagrams.ipynb` —
+    runnable example covering Markdown-cell Mermaid (Path 1),
+    `#mermaid` command (Path 2), an 8-bit counter with `#eval`
+    + structural diagram, the LTL 3-premise contract diagram,
+    and runtime-generated Mermaid via a `fanoutDiagram` helper.
+  - `tutorial-extended/notebooks/README.md` — explains both paths,
+    the FFI mechanism (ESC-byte preservation in
+    `xeus-lean/src/REPL/JSON.lean`, MIME forwarding in
+    `xeus_ffi.cpp`), and how to run the notebooks under native
+    or WASM xeus-lean.
+
+### Named-register-output pattern in SoC.lean
+
+A small structural improvement to `IP/RV32/SoC.lean`'s
+`bundleAll!` block: by binding each `Signal.register init next`
+expression to a `let` before placing it in the bundle, the
+Sparkle elab uses the binding name as a wire-name hint, and
+the generated Verilog gets `_gen_pcRegOut` etc. instead of
+anonymous `_tmp_a_NNNN`. Demonstrated for the first 6 elements
+(`pcReg`, `fetchPC`, `flushDelay`, `ifid_inst`, `ifid_pc`,
+`ifid_pc4`); the remaining 116 can be migrated incrementally.
+
+This pattern means JIT probes can resolve register-output wires
+by source-level name without hand-listing them in
+`SoCOutput.wireNames`.
+
+### Documentation hygiene
+
+Sweep across `docs/` and `tutorial-extended/` to:
+
+  - Remove raw user-quote / conversational records from
+    prose. Technical motivation is now stated directly without
+    referencing how it was raised.
+  - Translate three Japanese fragments to English in
+    `Tutorial_Extended.md`, `BitNet_LTL_Investigation.md`, and
+    `CHANGELOG.md`.
+  - New `docs/CommitStyle.md` establishing the convention going
+    forward: English commit messages, no `User feedback:` lines,
+    direct technical statements, `Co-authored-by:` trailer for
+    attribution.
+
+A follow-up rebase rewrote 9 historical commit messages on this
+branch to remove the same patterns from the commit log itself.
+The diffs are unchanged; the messages are now self-contained.
+
+### Files
+
+New:
+  - `tutorial-extended/TutorialExtended/Step{1,2,3,4,5,6,7}_*.lean`
+  - `tutorial-extended/TutorialExtended/Run.lean`
+  - `tutorial-extended/TutorialExtended/MermaidHelper.lean`
+  - `tutorial-extended/TutorialExtended/MermaidHelperTest.lean`
+  - `tutorial-extended/notebooks/sparkle_diagrams.ipynb`
+  - `tutorial-extended/notebooks/README.md`
+  - `docs/Tutorial_Extended.md`
+  - `docs/Tutorial_LTL.md`
+  - `docs/CommitStyle.md`
+
+Modified:
+  - `docs/Tutorial.md` — Mermaid pipeline diagram, Diagram
+    conventions, link to Tutorial_Extended / Tutorial_LTL.
+  - `docs/BitNet_LTL_Investigation.md`,
+    `docs/RV32_Architecture_Status.md` — Mermaid diagrams and
+    cleanup.
+  - `IP/RV32/SoC.lean` — named-register-output demo for the
+    first 6 bundleAll! elements.
+  - `lakefile.lean` — `TutorialExtended` lib,
+    `tutorial-extended-run` exe, `tutorial-mermaid-test` exe.
+
+### Verification
+
+  - `lake build` clean (64 jobs).
+  - `lake exe tutorial-extended-run` produces expected output
+    for all 7 steps.
+  - `lake exe tutorial-mermaid-test` confirms the MIME marker
+    and Mermaid HTML wrapper are well-formed.
+  - JIT Linux boot regression passes throughout
+    (`lake exe rv32-jit-linux-boot-test`).
+  - Notebook is valid JSON.
+
+---
+
 ## Phase 58: LTL bug-localization framework + BitNet investigation closed
 
 **Date**: 2026-05-05
