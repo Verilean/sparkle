@@ -233,4 +233,74 @@ theorem csrPlainReg_K_cycles_no_write {dom : DomainConfig}
   unfold Sparkle.IP.RV32.CSR.csrPlainNextPure
   rfl
 
+/-! ## K-cycle post-trap preservation composite
+
+  Combines a cycle-N+1 register-update lemma (caller-supplied,
+  typically the cycle-N+1 LTL form of a trap-suppression theorem)
+  with the N-step preservation lemma to give:
+
+    "If trap fires at cycle N and the WE stays false in
+     [N+1, N+1+K), then the register at N+1+K equals the register
+     at N+1."
+
+  This is the temporal pattern that arises in Linux-boot reasoning:
+  a trap fires once (e.g., timer interrupt), and the kernel's
+  ISR runs for many cycles without touching CSR mscratch — we need
+  to know mscratch is unchanged through the entire ISR window.
+
+  The "register at N+1" anchor is whatever value the cycle-N+1
+  lemma produces (typically `old.val N` for the trap-hold case, or
+  the trap-payload for the trap-override case). This composite lets
+  the caller chain that anchor with the K-cycle preservation. -/
+
+/-- **Generic K-cycle post-trap preservation.**
+
+    If at cycle N+1 the register holds value `v` (caller-supplied
+    via `h_at_N1`), and the WE is false for the K cycles
+    [N+1, N+1+K), then at cycle N+1+K the register still holds `v`.
+
+    Caller discharges:
+      * `h_recurrence` — the canonical register recurrence.
+      * `h_at_N1` — the cycle-N+1 anchor (e.g., from a trap-hold lemma).
+      * `h_no_event` — no WE fires in the K-cycle window after N+1.
+-/
+theorem post_trap_preserve_K_cycles {α : Type}
+    (r : Nat → α) (we : Nat → Bool) (update : Nat → α)
+    (h_recurrence : ∀ s, r (s + 1) = if we s then update s else r s)
+    (n : Nat) (v : α)
+    (h_at_N1 : r (n + 1) = v) :
+    ∀ (k : Nat),
+      (∀ i, i < k → we (n + 1 + i) = false) →
+      r (n + 1 + k) = v := by
+  intro k h_no_event
+  have h_preserve :=
+    nstep_preserve_when_no_event r we update h_recurrence (n + 1) k h_no_event
+  rw [h_preserve]
+  exact h_at_N1
+
+/-- **CSR-specialized post-trap preservation.**
+
+    The α-generic version above instantiated for `BitVec 32` CSR
+    registers, with the recurrence reduced to the `if-then-else`
+    shape consumed by `post_trap_preserve_K_cycles`. -/
+theorem csrPlainReg_post_trap_K_cycles_no_write {dom : DomainConfig}
+    (regSig : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal : Signal dom (BitVec 32))
+    (h_recurrence :
+      ∀ s, regSig.val (s + 1) =
+        Sparkle.IP.RV32.CSR.csrPlainNextPure
+          (writeActive.val s) (newVal.val s) (regSig.val s))
+    (n : Nat) (v : BitVec 32)
+    (h_at_N1 : regSig.val (n + 1) = v) :
+    ∀ (k : Nat),
+      (∀ i, i < k → writeActive.val (n + 1 + i) = false) →
+      regSig.val (n + 1 + k) = v := by
+  apply post_trap_preserve_K_cycles regSig.val writeActive.val newVal.val
+  · intro s
+    rw [h_recurrence]
+    unfold Sparkle.IP.RV32.CSR.csrPlainNextPure
+    rfl
+  · exact h_at_N1
+
 end Sparkle.IP.RV32.Verification
