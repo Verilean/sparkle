@@ -355,6 +355,45 @@ theorem or5_false_iff {dom : DomainConfig}
     cases hd : d.val s <;> cases _he : e.val s <;>
     simp [ha, hb, hc, hd]
 
+/-! ## Worked example: trap-then-K-cycle CSR preservation
+
+  Demonstrates the full chain by combining the cycle-N+1
+  `trap_holds_csrPlain_reg`-style anchor with the K-cycle
+  `csrPlainReg_post_trap_K_cycles_no_write` preservation.
+
+  Statement: given
+    * `trap_taken.val n = true`
+    * a recurrence on the CSR register (in the SoC, this is
+      definitionally true via `csrPlainNextSignal_eq_pure`)
+    * `regSig.val (n + 1) = old.val n` (the cycle-N+1 anchor —
+      typically the conclusion of `trap_holds_csrPlain_reg_LTL`)
+    * `writeActive.val (n + 1 + i) = false` for all i < k
+
+  conclude: `regSig.val (n + 1 + k) = old.val n`.
+
+  This is the *Linux-boot temporal pattern*: a trap fires once,
+  the kernel handler runs many cycles without re-touching the CSR,
+  the CSR provably retains the pre-trap value (so the kernel can
+  safely save/restore it).
+-/
+
+/-- **Trap-then-K-cycle CSR preservation.** -/
+theorem csrPlainReg_trap_then_K_cycles_preserved {dom : DomainConfig}
+    (regSig : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32))
+    (h_recurrence :
+      ∀ s, regSig.val (s + 1) =
+        Sparkle.IP.RV32.CSR.csrPlainNextPure
+          (writeActive.val s) (newVal.val s) (regSig.val s))
+    (n : Nat)
+    (h_at_N1 : regSig.val (n + 1) = old.val n) :
+    ∀ (k : Nat),
+      (∀ i, i < k → writeActive.val (n + 1 + i) = false) →
+      regSig.val (n + 1 + k) = old.val n :=
+  csrPlainReg_post_trap_K_cycles_no_write regSig writeActive newVal h_recurrence
+    n (old.val n) h_at_N1
+
 /-! ## Multi-event K-cycle preservation specialized for `mstatus`
 
   `mstatus` updates on 5 events: trap_taken, isMret, isSret,
