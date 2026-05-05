@@ -36,6 +36,7 @@
 import Sparkle
 import Sparkle.Compiler.Elab
 import IP.RV32.MMU.IfetchFault
+import IP.RV32.Bus.Decoder
 
 namespace Sparkle.IP.RV32.Verification
 
@@ -292,5 +293,71 @@ theorem ifetchFault_priority_complete :
          else if ptwFault && ptwIsIfetch then true
          else ifetchFaultPending) := by
   decide
+
+/-! ## Bus-decoder routing for Linux-boot critical addresses
+
+  The bus decoder routes each PA to exactly one of {CLINT, MMIO,
+  UART, DMEM}. For Linux to boot correctly, certain addresses MUST
+  route to specific targets:
+
+    * `0x10000000` (UART register base) → UART
+    * `0x40000000` (BitNet MMIO base)   → MMIO
+    * `0x80200000` (kernel image base)  → DMEM
+    * `0x80400000` (kernel megapage base after Sv32 translation) → DMEM
+    * `0x81F00000` (post-fix DTB address)                         → DMEM
+    * `0x81FFFFFF` (last DRAM byte)                               → DMEM
+
+  Any future change to the bus decoder that re-routes any of these
+  will fail the corresponding `decide`-closed theorem. -/
+
+/-- **UART register base (0x10000000) routes to UART.** -/
+theorem uart_routes_to_UART :
+    Sparkle.IP.RV32.Bus.isUARTPure 0x10000000#32 = true := by decide
+
+/-- **BitNet MMIO base (0x40000000) routes to MMIO.** -/
+theorem bitnet_routes_to_MMIO :
+    Sparkle.IP.RV32.Bus.isMmioPure 0x40000000#32 = true := by decide
+
+/-- **Kernel image base (0x80200000) routes to DMEM.** -/
+theorem kernel_image_routes_to_DMEM :
+    Sparkle.IP.RV32.Bus.isDMEMPure 0x80200000#32 = true := by decide
+
+/-- **Kernel megapage post-translation base (0x80400000) routes to DMEM.** -/
+theorem kernel_megapage_routes_to_DMEM :
+    Sparkle.IP.RV32.Bus.isDMEMPure 0x80400000#32 = true := by decide
+
+/-- **Post-fix DTB address (0x81F00000) routes to DMEM.**
+
+    This is the regression alarm for the DTB-overlap fix:
+    OpenSBI hands the kernel a DTB pointer at 0x81F00000, and that
+    address MUST route to DMEM (not UART/MMIO/CLINT) so the kernel
+    can read the DTB blob via normal load instructions. -/
+theorem dtb_post_fix_routes_to_DMEM :
+    Sparkle.IP.RV32.Bus.isDMEMPure dtbAddrPostFix = true := by
+  unfold dtbAddrPostFix; decide
+
+/-- **Last DRAM byte (0x81FFFFFF) routes to DMEM.**
+
+    Confirms the DRAM region extends through 0x81FFFFFF. -/
+theorem dram_last_byte_routes_to_DMEM :
+    Sparkle.IP.RV32.Bus.isDMEMPure 0x81FFFFFF#32 = true := by decide
+
+/-- **Pre-fix DTB address (0x80F00000) ALSO routes to DMEM.**
+
+    The pre-fix DTB also routed to DMEM — that's not the bug.
+    The bug was that 0x80F00000 sits *inside* the kernel image's
+    DRAM range, not that it was routed to a wrong target. We
+    pin both vectors here to clarify what was/wasn't broken. -/
+theorem dtb_pre_fix_also_routes_to_DMEM :
+    Sparkle.IP.RV32.Bus.isDMEMPure dtbAddrPreFix = true := by
+  unfold dtbAddrPreFix; decide
+
+/-- **UART address does NOT route to DMEM** (sanity: separation holds). -/
+theorem uart_not_DMEM :
+    Sparkle.IP.RV32.Bus.isDMEMPure 0x10000000#32 = false := by decide
+
+/-- **Kernel image base does NOT route to UART** (sanity). -/
+theorem kernel_image_not_UART :
+    Sparkle.IP.RV32.Bus.isUARTPure 0x80200000#32 = false := by decide
 
 end Sparkle.IP.RV32.Verification
