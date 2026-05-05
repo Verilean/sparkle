@@ -7,7 +7,7 @@
     model = "Sparkle RV32IMA SoC";
 
     chosen {
-        bootargs = "earlycon=sbi console=ttyS0";
+        bootargs = "earlycon=ns16550a,mmio,0x10000000 console=ttyS0,115200n8";
         stdout-path = "/soc/serial@10000000";
     };
 
@@ -53,6 +53,11 @@
             reg = <0x10000000 0x100>;
             clock-frequency = <50000000>;
             current-speed = <115200>;
+        };
+
+        bitnet@40000000 {
+            compatible = "sparkle,bitnet-v1a";
+            reg = <0x40000000 0x10>;
         };
     };
 };

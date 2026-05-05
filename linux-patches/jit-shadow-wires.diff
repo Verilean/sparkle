@@ -1,0 +1,41 @@
+# JIT C++ shadow members for observing local wires.
+# Apply manually after `lake build IP.RV32.SoCVerilog` regenerates verilator/generated_soc_jit.cpp.
+
+In class header, near "// Internal wires":
+
+    // SPARKLE-DEBUG: shadow members for local-wire observation
+    uint32_t _shadow_dmem_rdata = 0;
+    uint32_t _shadow_dmem_read_addr = 0;
+    uint32_t _shadow_busRdataRaw = 0;
+    uint32_t _shadow_effectiveAddr = 0;
+    uint32_t _shadow_wb_result = 0;
+    uint8_t _shadow_wb_en = 0;
+
+After every `_gen_busRdataRaw = (...)` and `_gen_wb_result = (...)`, add:
+
+    _shadow_dmem_rdata = _gen_dmem_rdata;
+    _shadow_dmem_read_addr = _gen_dmem_read_addr;
+    _shadow_busRdataRaw = _gen_busRdataRaw;
+    _shadow_effectiveAddr = _gen_effectiveAddr;
+    _shadow_wb_result = _gen_wb_result;
+    _shadow_wb_en = _gen_wb_en;
+
+In jit_get_wire and jit_wire_name, add cases 22-31:
+
+    case 22: return (uint64_t)s->_tmp_a_8471;     // exwb_physAddr (register)
+    case 23: return (uint64_t)s->_tmp_a_8495;     // prevStoreAddr (register)
+    case 24: return (uint64_t)s->_tmp_a_8499;     // prevStoreEn (register)
+    case 25: return (uint64_t)s->_shadow_dmem_rdata;
+    case 26: return (uint64_t)s->_shadow_dmem_read_addr;
+    case 27: return (uint64_t)s->_shadow_busRdataRaw;
+    case 28: return (uint64_t)s->_shadow_effectiveAddr;
+    case 29: return (uint64_t)s->_shadow_wb_result;
+    case 30: return (uint64_t)s->_shadow_wb_en;
+    case 31: return (uint64_t)s->_gen_exwb_rd;
+
+And bump jit_num_wires() to return 32.
+
+NOTE: _tmp_a_NNNN indices are auto-generated and may shift between
+codegen runs. Verify them by grepping for _tmp_reg_input_NNNN
+assignments — _tmp_a_8471 = exwb_physAddr next, _tmp_a_8495 =
+prevStoreAddr next, _tmp_a_8499 = prevStoreEn next.

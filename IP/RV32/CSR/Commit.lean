@@ -1,0 +1,315 @@
+/-
+  RV32 CSR write-commit pattern — pure logic + invariants
+
+  Extracted from `IP/RV32/SoC.lean`. Two recurring shapes:
+
+    1. **Plain CSR write** (~14 sites in SoC.lean):
+       `next = if writeActive then newVal else oldVal`
+       Used by mie, mtvec, mscratch, satp, medeleg, mideleg,
+       sie, stvec, sscratch, mcounteren, scounteren, ...
+
+    2. **Trap-overridable CSR** (6 sites: mepc, mcause, mtval,
+       sepc, scause, stval):
+       `next = if trapTo then trapPayload
+               else if writeActive then newVal else oldVal`
+       The trap-entry value (mtvec target / cause / tval) takes
+       priority over a software CSR write that fires the same
+       cycle.
+
+  This file captures both patterns as pure functions and proves
+  the priority + invariance invariants. The downstream `*Next`
+  definitions in `SoC.lean` then become single calls.
+
+  Reference: RISC-V priv spec, Vol II §3.1.18 / §4.1.7 (mcause/scause
+  spec on trap entry).
+-/
+
+import Sparkle
+import Sparkle.Compiler.Elab
+
+namespace Sparkle.IP.RV32.CSR
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
+/-! ## Pure CSR write-commit functions -/
+
+/-- Plain 2-way CSR write commit: write `newVal` if active, else hold `old`. -/
+@[inline] def csrPlainNextPure
+    (writeActive : Bool) (newVal old : BitVec 32) : BitVec 32 :=
+  if writeActive then newVal else old
+
+/-- Trap-overridable 3-way CSR write commit:
+    trap-entry payload > CSR write > hold. -/
+@[inline] def csrTrapOverrideNextPure
+    (trapTo : Bool) (trapPayload : BitVec 32)
+    (writeActive : Bool) (newVal old : BitVec 32) : BitVec 32 :=
+  if trapTo then trapPayload
+  else if writeActive then newVal
+  else old
+
+/-! ## Spec invariants — closed by `decide` / `rfl` -/
+
+/-- Plain commit: no write → hold. -/
+@[simp] theorem csrPlainNext_hold (newVal old : BitVec 32) :
+    csrPlainNextPure false newVal old = old := by
+  rfl
+
+/-- Plain commit: write fires → newVal. -/
+@[simp] theorem csrPlainNext_write (newVal old : BitVec 32) :
+    csrPlainNextPure true newVal old = newVal := by
+  rfl
+
+/-- Trap-override: trap fires → trap payload (regardless of write). -/
+@[simp] theorem csrTrapOverrideNext_trap_priority
+    (trapPayload : BitVec 32) (writeActive : Bool) (newVal old : BitVec 32) :
+    csrTrapOverrideNextPure true trapPayload writeActive newVal old = trapPayload := by
+  rfl
+
+/-- Trap-override: no trap, write fires → newVal. -/
+@[simp] theorem csrTrapOverrideNext_write
+    (trapPayload newVal old : BitVec 32) :
+    csrTrapOverrideNextPure false trapPayload true newVal old = newVal := by
+  rfl
+
+/-- Trap-override: no trap, no write → hold. -/
+@[simp] theorem csrTrapOverrideNext_hold
+    (trapPayload newVal old : BitVec 32) :
+    csrTrapOverrideNextPure false trapPayload false newVal old = old := by
+  rfl
+
+/-! ## Composite specs -/
+
+/-- Plain commit's truth table. -/
+theorem csrPlainNextPure_spec :
+    ∀ (writeActive : Bool) (newVal old : BitVec 32),
+      csrPlainNextPure writeActive newVal old =
+        (if writeActive then newVal else old) := by
+  intros; rfl
+
+/-- Trap-override's truth table over Bool^2. -/
+theorem csrTrapOverrideNextPure_spec :
+    ∀ (trapTo : Bool) (trapPayload : BitVec 32)
+      (writeActive : Bool) (newVal old : BitVec 32),
+      csrTrapOverrideNextPure trapTo trapPayload writeActive newVal old =
+        (if trapTo then trapPayload
+         else if writeActive then newVal else old) := by
+  intros; rfl
+
+/-- Trap-override agrees with plain commit when no trap fires. -/
+theorem csrTrapOverride_no_trap_eq_plain
+    (trapPayload : BitVec 32) (writeActive : Bool) (newVal old : BitVec 32) :
+    csrTrapOverrideNextPure false trapPayload writeActive newVal old =
+      csrPlainNextPure writeActive newVal old := by
+  unfold csrTrapOverrideNextPure csrPlainNextPure
+  rfl
+
+/-! ## Signal-level wrappers -/
+
+/-- Signal-level plain CSR write commit. -/
+def csrPlainNextSignal {dom : DomainConfig}
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux writeActive newVal old
+
+/-- Signal-level 8-bit "CSR" write commit. Used by UART register files
+    (LCR/IER/MCR/SCR/DLL/DLM) which mirror the CSR pattern but at
+    byte width. -/
+def csrPlainNextSignal8 {dom : DomainConfig}
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.mux writeActive newVal old
+
+/-- Signal-level trap-overridable CSR write commit. -/
+def csrTrapOverrideNextSignal {dom : DomainConfig}
+    (trapTo : Signal dom Bool) (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.mux trapTo trapPayload
+    (Signal.mux writeActive newVal old)
+
+/-! ## Cycle-wise equivalences -/
+
+theorem csrPlainNextSignal_eq_pure {dom : DomainConfig}
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat) :
+    (csrPlainNextSignal writeActive newVal old).val t =
+      csrPlainNextPure (writeActive.val t) (newVal.val t) (old.val t) := by
+  unfold csrPlainNextSignal csrPlainNextPure
+  show (Signal.mux _ _ _).val t = _
+  unfold Signal.mux
+  cases h : writeActive.val t <;> simp [h]
+
+theorem csrTrapOverrideNextSignal_eq_pure {dom : DomainConfig}
+    (trapTo : Signal dom Bool) (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat) :
+    (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old).val t =
+      csrTrapOverrideNextPure (trapTo.val t) (trapPayload.val t)
+        (writeActive.val t) (newVal.val t) (old.val t) := by
+  unfold csrTrapOverrideNextSignal csrTrapOverrideNextPure
+  show (Signal.mux _ _ _).val t = _
+  unfold Signal.mux
+  cases h_trap : trapTo.val t <;>
+  cases h_w : writeActive.val t <;>
+    simp [h_trap, h_w]
+
+/-! ## CSR-register hold: WE=false at t → reg at t+1 = old.val t
+
+  When the WE for a plain CSR commit is false at cycle t, the
+  register's next-cycle value equals its current value. This is
+  the sequential form needed for "trap → CSR unchanged" proofs.
+
+  The composite `Signal.register init (csrPlainNextSignal WE
+  newVal old)` gives:
+    .val (t+1) = csrPlainNextSignal WE newVal old .val t
+               = csrPlainNextPure WE.val t newVal.val t old.val t
+               = old.val t      (when WE.val t = false)
+-/
+
+/-- CSR-register wrapper using the plain-commit pattern. -/
+def csrPlainRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init (csrPlainNextSignal writeActive newVal old)
+
+/-- **WE=false at t → reg at t+1 = old.val t.** -/
+theorem csrPlainReg_hold_when_we_false {dom : DomainConfig}
+    (init : BitVec 32) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_we : writeActive.val t = false) :
+    (csrPlainRegSignal init writeActive newVal old).val (t + 1) = old.val t := by
+  unfold csrPlainRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  -- (register init next).val (t+1) = next.val t
+  show (csrPlainNextSignal writeActive newVal old).val t = old.val t
+  rw [csrPlainNextSignal_eq_pure]
+  rw [h_no_we]
+  rfl
+
+/-! ## 8-bit version of csrPlainReg
+
+  UART register-file commits use `csrPlainNextSignal8` (BitVec 8
+  variant). The same hold lemma applies, just at byte width.
+-/
+
+/-- 8-bit CSR-register wrapper. -/
+def csrPlainRegSignal8 {dom : DomainConfig}
+    (init : BitVec 8) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.register init (csrPlainNextSignal8 writeActive newVal old)
+
+/-- Cycle-wise eq for 8-bit version (mirrors the 32-bit one). -/
+theorem csrPlainNextSignal8_eq_pure {dom : DomainConfig}
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) (t : Nat) :
+    (csrPlainNextSignal8 writeActive newVal old).val t =
+      (if writeActive.val t then newVal.val t else old.val t) := by
+  unfold csrPlainNextSignal8
+  show (Signal.mux _ _ _).val t = _
+  unfold Signal.mux
+  cases h : writeActive.val t <;> simp [h]
+
+/-- **WE=false at t → 8-bit reg at t+1 = old.val t.** -/
+theorem csrPlainReg8_hold_when_we_false {dom : DomainConfig}
+    (init : BitVec 8) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) (t : Nat)
+    (h_no_we : writeActive.val t = false) :
+    (csrPlainRegSignal8 init writeActive newVal old).val (t + 1) = old.val t := by
+  unfold csrPlainRegSignal8
+  show (Signal.register init _).val (t + 1) = _
+  show (csrPlainNextSignal8 writeActive newVal old).val t = old.val t
+  rw [csrPlainNextSignal8_eq_pure]
+  rw [h_no_we]
+  rfl
+
+/-! ## Trap-override register: trap fires → reg latches trap payload
+
+  For trap-overridable CSRs (mepc/mcause/mtval/sepc/scause/stval),
+  the next-state has priority `trapTo > write > hold`. When
+  `trapTo.val t = true`, the register at t+1 holds
+  `trapPayload.val t` regardless of the write-active value.
+-/
+
+/-- Trap-override register wrapper. -/
+def csrTrapOverrideRegSignal {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  Signal.register init
+    (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old)
+
+/-- **trapTo at t → trap-override reg at t+1 = trapPayload.val t.** -/
+theorem csrTrapOverrideReg_latch_on_trap {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_trapTo : trapTo.val t = true) :
+    (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+      trapPayload.val t := by
+  unfold csrTrapOverrideRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old).val t = _
+  rw [csrTrapOverrideNextSignal_eq_pure]
+  rw [h_trapTo]
+  rfl
+
+/-- **trapTo=false ∧ WE=false at t → trap-override reg at t+1 = old.val t.**
+
+    The "no-event" arm: when neither trap nor CSR write fires,
+    the register holds. Companion to `csrPlainReg_hold_when_we_false`. -/
+theorem csrTrapOverrideReg_hold_when_no_event {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) (t : Nat)
+    (h_no_trap : trapTo.val t = false)
+    (h_no_we : writeActive.val t = false) :
+    (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+      old.val t := by
+  unfold csrTrapOverrideRegSignal
+  show (Signal.register init _).val (t + 1) = _
+  show (csrTrapOverrideNextSignal trapTo trapPayload writeActive newVal old).val t = _
+  rw [csrTrapOverrideNextSignal_eq_pure]
+  rw [h_no_trap, h_no_we]
+  rfl
+
+/-! ## LTL forms for CSR commit cycle-N+1 lemmas -/
+
+theorem csrPlainReg_hold_when_we_false_LTL {dom : DomainConfig}
+    (init : BitVec 32) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, writeActive.val t = false →
+         (csrPlainRegSignal init writeActive newVal old).val (t + 1) = old.val t :=
+  fun t => csrPlainReg_hold_when_we_false init writeActive newVal old t
+
+theorem csrPlainReg8_hold_when_we_false_LTL {dom : DomainConfig}
+    (init : BitVec 8) (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 8)) :
+    ∀ t, writeActive.val t = false →
+         (csrPlainRegSignal8 init writeActive newVal old).val (t + 1) = old.val t :=
+  fun t => csrPlainReg8_hold_when_we_false init writeActive newVal old t
+
+theorem csrTrapOverrideReg_latch_on_trap_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, trapTo.val t = true →
+         (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+           trapPayload.val t :=
+  fun t => csrTrapOverrideReg_latch_on_trap init trapTo trapPayload writeActive newVal old t
+
+theorem csrTrapOverrideReg_hold_when_no_event_LTL {dom : DomainConfig}
+    (init : BitVec 32) (trapTo : Signal dom Bool)
+    (trapPayload : Signal dom (BitVec 32))
+    (writeActive : Signal dom Bool)
+    (newVal old : Signal dom (BitVec 32)) :
+    ∀ t, trapTo.val t = false → writeActive.val t = false →
+         (csrTrapOverrideRegSignal init trapTo trapPayload writeActive newVal old).val (t + 1) =
+           old.val t :=
+  fun t => csrTrapOverrideReg_hold_when_no_event init trapTo trapPayload writeActive newVal old t
+
+end Sparkle.IP.RV32.CSR

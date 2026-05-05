@@ -1,5 +1,5 @@
 CROSS    ?= riscv64-elf-
-DTB_ADDR  = 0x80F00000
+DTB_ADDR  = 0x81F00000
 
 all: boot.hex sparkle-soc.dtb
 

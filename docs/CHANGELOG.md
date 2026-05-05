@@ -2,6 +2,402 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 59: Tutorials, named record I/O, Mermaid diagrams + history cleanup
+
+**Date**: 2026-05-05
+**Branch**: `fix/tutorial`
+**Headline**: filled the gap between the single-counter tutorial
+and the SoC verification stack with a 7-step extended tutorial
+(module composition, named record I/O, observability, LTL basics,
+LTL bug-localization, RV32 catalog pointers); converted the docs'
+ASCII diagrams to Mermaid `flowchart LR` for GitHub-rendered
+left-to-right dataflow; added a Mermaid helper that works inside
+xeus-lean Jupyter notebooks.
+
+### Tutorial sequence
+
+A 3-document path now goes from "single counter" to
+"production-scale LTL bug localization":
+
+  1. `docs/Tutorial.md` — single counter, Verilog generation, JIT,
+     formal verification (the original; minor "What's Next" link
+     additions).
+  2. `docs/Tutorial_Extended.md` — module composition + named
+     record I/O + observability.
+  3. `docs/Tutorial_LTL.md` — temporal-logic verification: ∀N
+     properties, K-cycle preservation by induction, multi-premise
+     bug-localization framework with the contrapositive pattern,
+     pointers to the production RV32 LTL catalog.
+
+Each tutorial cross-links forward; each step has runnable Lean
+code under `tutorial-extended/TutorialExtended/`.
+
+### Tutorial Extended (Steps 1-4)
+
+Demonstrates progressively more demanding I/O patterns:
+
+  - Step 1: single-output baseline (8-bit counter).
+  - Step 2: TWO outputs three ways — anonymous tuple,
+    let-named outputs (Verilog wires named, caller still
+    positional), `declare_signal_state` named record (caller
+    uses field names).
+  - Step 3: composing 3 modules (Counter + Monitor + ParityCheck)
+    into a top-level pipeline whose output is a named record
+    `MonitorReport` with three fields.
+  - Step 4: observability — `let`-binding or `declare_signal_state`
+    fields prevent CppSim wire-inlining, keeping wires probable
+    via `JIT.findWire`.
+
+### LTL tutorial (Steps 5-7)
+
+  - Step 5: saturating up-counter as a vehicle for cycle-N+1
+    invariants, K-cycle preservation by induction.
+  - Step 6: write→hold→read 3-premise bug-localization framework
+    (P1 cycle-N+1 commit, P2 K-cycle preservation, P3 read
+    observation), composite + contrapositive + per-premise
+    violation witnesses.
+  - Step 7: type-checks 5 representative theorems from the
+    production RV32 LTL catalog (`trap_clears_exwb_regW_LTL`,
+    `nstep_preserve_when_no_event`, `sw_then_lw_observes_ffn_input`,
+    `bug_localization_via_LTL`, `dPhysAddrMega_kernel_first_fetch_concrete`).
+
+### Mermaid block diagrams
+
+  - Replaced ASCII art in `docs/Tutorial.md`, `Tutorial_Extended.md`
+    Step 3, and `Tutorial_LTL.md` Step 6 / §7.3 / §7.5 with Mermaid
+    `flowchart LR` (GitHub-rendered).
+  - New "Diagram conventions" section in `Tutorial.md` listing
+    rendering choices (Mermaid for blocks, future WaveDrom for
+    waveforms, stateDiagram-v2 for FSMs).
+
+### xeus-lean notebook integration
+
+  - `tutorial-extended/TutorialExtended/MermaidHelper.lean` —
+    standalone Sparkle helper that emits xeus-lean's MIME wire
+    format (`\x1bMIME:text/html\x1e<html>\x1b/MIME\x1e`) so a
+    Mermaid diagram authored in a Lean cell renders inline in
+    Jupyter Lab / Notebook 7+ / JupyterLite WASM.
+  - `#mermaid "..."` sugar command for one-liner notebook cells.
+  - `tutorial-extended/notebooks/sparkle_diagrams.ipynb` —
+    runnable example covering Markdown-cell Mermaid (Path 1),
+    `#mermaid` command (Path 2), an 8-bit counter with `#eval`
+    + structural diagram, the LTL 3-premise contract diagram,
+    and runtime-generated Mermaid via a `fanoutDiagram` helper.
+  - `tutorial-extended/notebooks/README.md` — explains both paths,
+    the FFI mechanism (ESC-byte preservation in
+    `xeus-lean/src/REPL/JSON.lean`, MIME forwarding in
+    `xeus_ffi.cpp`), and how to run the notebooks under native
+    or WASM xeus-lean.
+
+### Named-register-output pattern in SoC.lean
+
+A small structural improvement to `IP/RV32/SoC.lean`'s
+`bundleAll!` block: by binding each `Signal.register init next`
+expression to a `let` before placing it in the bundle, the
+Sparkle elab uses the binding name as a wire-name hint, and
+the generated Verilog gets `_gen_pcRegOut` etc. instead of
+anonymous `_tmp_a_NNNN`. Demonstrated for the first 6 elements
+(`pcReg`, `fetchPC`, `flushDelay`, `ifid_inst`, `ifid_pc`,
+`ifid_pc4`); the remaining 116 can be migrated incrementally.
+
+This pattern means JIT probes can resolve register-output wires
+by source-level name without hand-listing them in
+`SoCOutput.wireNames`.
+
+### Documentation hygiene
+
+Sweep across `docs/` and `tutorial-extended/` to:
+
+  - Remove raw user-quote / conversational records from
+    prose. Technical motivation is now stated directly without
+    referencing how it was raised.
+  - Translate three Japanese fragments to English in
+    `Tutorial_Extended.md`, `BitNet_LTL_Investigation.md`, and
+    `CHANGELOG.md`.
+  - New `docs/CommitStyle.md` establishing the convention going
+    forward: English commit messages, no `User feedback:` lines,
+    direct technical statements, `Co-authored-by:` trailer for
+    attribution.
+
+A follow-up rebase rewrote 9 historical commit messages on this
+branch to remove the same patterns from the commit log itself.
+The diffs are unchanged; the messages are now self-contained.
+
+### Files
+
+New:
+  - `tutorial-extended/TutorialExtended/Step{1,2,3,4,5,6,7}_*.lean`
+  - `tutorial-extended/TutorialExtended/Run.lean`
+  - `tutorial-extended/TutorialExtended/MermaidHelper.lean`
+  - `tutorial-extended/TutorialExtended/MermaidHelperTest.lean`
+  - `tutorial-extended/notebooks/sparkle_diagrams.ipynb`
+  - `tutorial-extended/notebooks/README.md`
+  - `docs/Tutorial_Extended.md`
+  - `docs/Tutorial_LTL.md`
+  - `docs/CommitStyle.md`
+
+Modified:
+  - `docs/Tutorial.md` — Mermaid pipeline diagram, Diagram
+    conventions, link to Tutorial_Extended / Tutorial_LTL.
+  - `docs/BitNet_LTL_Investigation.md`,
+    `docs/RV32_Architecture_Status.md` — Mermaid diagrams and
+    cleanup.
+  - `IP/RV32/SoC.lean` — named-register-output demo for the
+    first 6 bundleAll! elements.
+  - `lakefile.lean` — `TutorialExtended` lib,
+    `tutorial-extended-run` exe, `tutorial-mermaid-test` exe.
+
+### Verification
+
+  - `lake build` clean (64 jobs).
+  - `lake exe tutorial-extended-run` produces expected output
+    for all 7 steps.
+  - `lake exe tutorial-mermaid-test` confirms the MIME marker
+    and Mermaid HTML wrapper are well-formed.
+  - JIT Linux boot regression passes throughout
+    (`lake exe rv32-jit-linux-boot-test`).
+  - Notebook is valid JSON.
+
+---
+
+## Phase 58: LTL bug-localization framework + BitNet investigation closed
+
+**Date**: 2026-05-05
+**Branch**: `fix/tutorial`
+**Headline**: built a 4-premise LTL temporal-logic framework that
+captures sw→lw timing contracts as ∀N-quantified Lean theorems,
+applied it to the open BitNet "out = input" symptom from `9d0704e`,
+and concluded that the Sparkle SoC is **correct** — the original
+report was a probe artifact, not a hardware bug.
+
+### What landed
+
+**`IP/RV32/Verification/BitNetTimingLTL.lean`** — the 4-premise LTL
+framework. P1 (cycle-N+1 update), P2 (K-cycle preservation), P3
+(combinational FFN), P4 (lw decode). Each premise is `_holds`-discharged
+for the Sparkle Lean spec via `Signal.register`/`Signal.mux` semantics.
+The composite theorem `sw_then_lw_observes_ffn_input` derives the
+expected lw observation; the contrapositive `bug_localization_via_LTL`
+turns "observed Y ≠ ffn(X)" into "at least one Pi false" with each Pi
+pointing to a specific SoC layer.
+
+**`IP/RV32/Verification/LinuxBootRegression.lean`** — adjacent
+regression-pinning theorems (28 of them, all `decide`-closed) covering:
+the `bf6d873` Sv32 megapage PA fix, the `5a3fdfb` C-extension and
+DTB-overlap fixes, the trampoline_pg_dir PTE decoding, the
+`ifetchFaultPending` priority truth-table, and the bus-decoder
+routing for all Linux-critical PAs. Plus the `mmio_offset_0x8`-
+alias-refutation block: 4 theorems machine-checking that "offset 0x8
+may alias 0x4" is impossible at the Lean spec level.
+
+**`IP/RV32/Verification/InductionScaffold.lean`** — N-step register
+preservation primitives. The abstract `nstep_preserve_when_no_event`
+lifts a per-cycle if-then-else recurrence to "no event in [t, t+k) →
+r unchanged." Specialized for CSR (32b), CSR8 (UART), Bool, and
+multi-event registers (mstatus 5-way, etc.). End-to-end demos
+include `csrPlainReg_trap_then_K_cycles_preserved` (the temporal
+pattern that arises in Linux ISR reasoning).
+
+**Cycle-N+2 ∀N (LTL) form coverage** — every existing cycle-N+2
+trap-suppression composite (CSR/CLINT/UART/MMIO/AMO/MStatus/PrivMode/
+IfetchFault/DivPending/Regfile, ~11 in total) now has a universal-
+time-quantified `_at_N_plus_2_LTL` companion that hoists the per-N
+structural hypotheses to ∀N premises.
+
+**Invariant C cycle-N+2 closure** — the post-fault-load re-execution
+invariant from `RV32_Architecture_Status.md` §2.2 now has
+`dMMURedirect_sets_ifid_pc_at_N_plus_2`, completing the cycle-N+2
+chain (dMMURedirect at N → ifid_pc at N+2 = dMissPC at N).
+
+### Investigation highlights
+
+The BitNet `9d0704e` symptom ("out = input" on all 8 self-test
+vectors) was tracked as the test case for the LTL framework. The
+chain went:
+
+  1. Initial probe → `bitnetOut = 0` observed → diagnosed P3 violation.
+  2. Re-examination of the elab/codegen layer prompted by the
+     contradiction: the Lean unit test computed the FFN correctly,
+     so the spec layer wasn't where the value got lost.
+  3. Discovered: `Sparkle.Backend.CppSim` inlines wires aggressively;
+     `_gen_next` (FFN's saturating-add output) is not emitted as a
+     JIT struct field, so the probe's `findWire` lookup returned a
+     sentinel and the value defaulted to 0.
+  4. Added `_gen_sum`, `_gen_busRdataRaw`, `_gen_mmioRdata` to
+     `SoCOutput.wireNames`; regenerated JIT.
+  5. Re-ran probe — confirmed all 4 LTL premises hold:
+     - `aiInputReg.val 80 = 0x00010000`
+     - `bitnetOut.val 80 = 0x00410000` (= ffn(0x00010000))
+     - `busRdataRaw.val 86 = 0x00410000` (= what lw observes)
+
+**Conclusion**: Sparkle SoC is correct on all 8 vectors. The original
+"out = input" came from boot.S firmware-side observation path
+(`puthex32` register corruption or UART byte framing).
+
+Full postmortem in
+[`BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+
+### Lessons
+
+- Formal proof of the spec is necessary but not sufficient; runtime
+  observability of the implementation matters too.
+- `CppSim` wire-inlining preserves correctness but breaks
+  observability; LTL premises must have their constituent signals
+  exposed via `SoCOutput.wireNames` for falsifiability.
+- ∀N temporal reasoning (LTL) maps directly to the intuitive
+  "value arrives one cycle late / one cycle early / never" bug
+  classes — the 4-premise decomposition is comprehensive for
+  sw→lw datapath bugs.
+
+### Files
+
+  - `IP/RV32/Verification/BitNetTimingLTL.lean` (new, ~390 lines)
+  - `IP/RV32/Verification/LinuxBootRegression.lean` (new, ~470 lines)
+  - `IP/RV32/Verification/InductionScaffold.lean` (new, ~400 lines)
+  - `IP/RV32/SoC.lean` (extended `SoCOutput.wireNames`)
+  - `Tests/RV32/BitNetMmioProbe.lean` (rewritten as 4-premise probe)
+  - `docs/BitNet_LTL_Investigation.md` (new, postmortem)
+  - `docs/KnownIssues.md` (new Issue 2.5 entry)
+  - `docs/RV32_Architecture_Status.md` (§2.2 LTL framework section)
+  - `docs/BitNet.md` (added bug-investigation cross-reference)
+
+### Verification
+
+  - Full project build clean (`lake build`, 64 jobs)
+  - JIT Linux boot regression passes (`lake exe rv32-jit-linux-boot-test`)
+  - BitNet MMIO probe shows correct `ffn(input)` for all 8 vectors
+
+---
+
+## Phase 57: BitNet v1a Linux Driver (`/dev/bitnet0`) — Complete
+
+**Date**: 2026-04-28
+**Branch**: `fix/tutorial`
+**Headline**: first time userspace on Linux (running on the
+synthesizable Sparkle RV32IMA SoC) talks to the BitNet MMIO
+peripheral. A new in-tree `sparkle-bitnet` platform driver exposes a
+`/dev/bitnet0` character device; an initramfs `/init` runs 8 golden
+inference vectors against the device and asserts bit-equality with the
+Lean RTL spec.
+
+### What landed
+
+**`linux-patches/sparkle-bitnet.c` + `.h` + `Kconfig.fragment`** —
+a `drivers/misc/` platform driver bound by
+`compatible = "sparkle,bitnet-v1a"` (~190 lines incl. UAPI). Userspace
+surface:
+
+| op | effect |
+|---|---|
+| `write(fd, &u32, 4)` | latch input @ `0x40000004` |
+| `read(fd, &u32, 4)` | read combinational output @ `0x40000008` |
+| `ioctl(fd, BITNET_IOC_INFER, &u32)` | atomic write+read pair (mutex) |
+| `cat /sys/class/misc/bitnet0/status` | read status register |
+
+The driver is **built-in** (not a `.ko`) because
+`firmware/opensbi/setup.sh` disables `CONFIG_MODULES`. It is
+patched into the Linux source tree by `linux-patches/apply.sh`,
+which is called from `setup.sh` after the kernel checkout.
+
+**`firmware/sparkle-soc.dts` + `firmware/opensbi/sparkle-soc.dts`**
+get a new `bitnet@40000000 { compatible = "sparkle,bitnet-v1a";
+reg = <0x40000000 0x10>; }` node so the driver finds the device.
+The DTB regenerates via the existing `firmware/opensbi/Makefile`.
+
+**`firmware/bitnet_user/`** — a freestanding rv32 userspace test
+binary (no libc; inline `ecall` syscalls) that runs as PID 1
+(`/init`). It opens `/dev/bitnet0`, drives the same 8 golden
+vectors used by `Tests/Integration/BitNetSoCTest.lean:43-51`, and
+prints `BITNET PASS` / `BITNET FAIL: …` to UART before halting via
+`reboot(LINUX_REBOOT_CMD_HALT)`. Wrapped in a reproducible
+`initramfs.cpio.gz` and dropped into the kernel via
+`CONFIG_INITRAMFS_SOURCE`.
+
+**`firmware/opensbi/setup.sh`** updates:
+- New `LINUX_CROSS_COMPILE` autodetect
+  (prefers `riscv64-unknown-linux-gnu-` from the nix shell, falls
+  back to `riscv64-linux-gnu-` on Debian/Ubuntu).
+- After `mrproper && rv32_defconfig`: call
+  `linux-patches/apply.sh`, copy the initramfs cpio into
+  `${LINUX_DIR}/usr/`, then flip `CONFIG_BLK_DEV_INITRD`,
+  `CONFIG_DEVTMPFS{,_MOUNT}`, `CONFIG_SPARKLE_BITNET`, and
+  `CONFIG_INITRAMFS_SOURCE`.
+- Docker fallback path mirrors the same flow with the repo
+  bind-mounted read-only.
+
+**`shell.nix`** — extended with
+`pkgsCross.riscv64.buildPackages.{gcc,binutils}`, `dtc`,
+`bc / flex / bison / openssl / cpio / gzip` so the kernel build
+runs out of the box in nix.
+
+**`Tests/Integration/BitNetLinuxTest.lean`** + `lean_exe
+bitnet-linux-test` — a thin variant of `JITLinuxBootTest` that
+boots the patched kernel image and asserts on two UART markers:
+
+1. `sparkle-bitnet 40000000.bitnet: registered as /dev/bitnet0`
+   — driver bound to its DT node.
+2. `BITNET PASS` — userspace round-trip succeeded.
+
+Returns `0` on both markers, `1` on missing markers, `2` on
+missing artifacts (kernel image / OpenSBI / DTB).
+
+**`.github/workflows/bitnet-linux.yml`** — a path-gated workflow
+that fires only on changes to `linux-patches/**`,
+`firmware/bitnet_user/**`, the DTS files, the BitNet Lean
+peripheral, the SoC, the new test, and the workflow itself. The
+default job builds OpenSBI + the userspace cpio + the Lean
+project. The full kernel build + boot is gated behind
+`workflow_dispatch` because it costs ~30 min on a hosted runner.
+
+### Verification
+
+The driver enables a 3-layer verification of the integration:
+
+1. **RTL** — `lake exe bitnet-soc-test` (existed since Phase 56).
+2. **Bare-metal** — `firmware/bitnet_smoke/firmware.hex` running
+   on the JIT'd SoC (existed since Phase 56; currently blocked
+   on the orthogonal "PC stuck at 0" issue).
+3. **Linux** — `lake exe bitnet-linux-test` (new) — boots Linux
+   on the JIT, the kernel probes the driver, the driver registers
+   `/dev/bitnet0`, and the initramfs `/init` runs the golden
+   vectors via the driver. **This is the first time the
+   peripheral has been driven from a real OS userspace.**
+
+### Out of scope (deferred to Level 1b)
+
+- DMA / scatter-gather buffer transfer. The v1a peripheral is
+  scalar (1 word in / 1 word out), so PIO is sufficient and
+  optimal.
+- IRQ-driven completion. The peripheral is combinational (output
+  settles same cycle), so polling is degenerate-fast.
+- Vector activation buffer. Will be needed for Level 1b
+  (dim=2048, 24 layers, sequential FSM).
+- Multi-instance / multi-domain support.
+
+The driver's `compatible` string is intentionally versioned
+(`sparkle,bitnet-v1a`) so a future Level 1b peripheral gets its
+own `sparkle,bitnet-v1b` driver without breaking the v1a userspace.
+
+### Files changed
+
+- `linux-patches/sparkle-bitnet.{c,h}` (new)
+- `linux-patches/Kconfig.fragment` (new)
+- `linux-patches/apply.sh` (new)
+- `firmware/sparkle-soc.dts` (new node)
+- `firmware/opensbi/sparkle-soc.dts` (new node, mirror)
+- `firmware/opensbi/sparkle-soc.dtb` (regenerated)
+- `firmware/opensbi/setup.sh` (apply path + new CONFIG knobs)
+- `firmware/bitnet_user/main.c` (new, freestanding rv32 init)
+- `firmware/bitnet_user/Makefile` (new, builds cpio + installs)
+- `Tests/Integration/BitNetLinuxTest.lean` (new)
+- `lakefile.lean` (new `bitnet-linux-test` exe)
+- `shell.nix` (Linux cross-toolchain + dtc + cpio)
+- `.github/workflows/bitnet-linux.yml` (new path-gated workflow)
+- `docs/BitNet.md` (new "Linux Driver" section)
+- `docs/CHANGELOG.md` (this entry)
+
+---
+
 ## Phase 56: BitNet ⊕ picorv32 SoC Cohabitation (Level 1a) + U280 Scaffold (Complete)
 
 **Date**: 2026-04-09

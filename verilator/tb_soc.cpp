@@ -158,12 +158,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Load DTB at 0x80F00000
+    // Load DTB at 0x81F00000
     if (!dtb_path.empty()) {
         auto dtb_data = load_binary(dtb_path);
         if (!dtb_data.empty()) {
             load_dram(dut, vcd, dtb_data.data(), dtb_data.size(),
-                      0x80F00000, time_ps);
+                      0x81F00000, time_ps);
         }
     }
 
@@ -203,10 +203,10 @@ int main(int argc, char** argv) {
         auto& b2 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte2_rdata;
         auto& b3 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte3_rdata;
         printf("=== DTB verification after loading ===\n");
-        printf("DTB loaded at word addr 0x3C0000 (PA 0x80F00000)\n");
+        printf("DTB loaded at word addr 0x7C0000 (PA 0x81F00000)\n");
         // Dump first 16 words of the DTB from DMEM byte lanes
         for (int w = 0; w < 16; w++) {
-            uint32_t a = 0x3C0000 + w;
+            uint32_t a = 0x7C0000 + w;
             uint8_t byte0 = b0[a], byte1 = b1[a], byte2 = b2[a], byte3 = b3[a];
             uint32_t word_le = byte0 | (byte1 << 8) | (byte2 << 16) | (byte3 << 24);
             uint32_t word_be = byte3 | (byte2 << 8) | (byte1 << 16) | (byte0 << 24);
@@ -214,7 +214,7 @@ int main(int argc, char** argv) {
                    w, a, byte0, byte1, byte2, byte3, word_le, word_be);
         }
         // Also verify FDT magic: first 4 bytes should be D0 0D FE ED
-        uint8_t m0 = b0[0x3C0000], m1 = b1[0x3C0000], m2 = b2[0x3C0000], m3 = b3[0x3C0000];
+        uint8_t m0 = b0[0x7C0000], m1 = b1[0x7C0000], m2 = b2[0x7C0000], m3 = b3[0x7C0000];
         uint32_t magic_be = (m0 << 24) | (m1 << 16) | (m2 << 8) | m3;
         printf("FDT magic (big-endian reconstruct): 0x%08x %s\n",
                magic_be, magic_be == 0xD00DFEED ? "CORRECT" : "*** WRONG ***");
@@ -223,7 +223,7 @@ int main(int argc, char** argv) {
         auto dtb_verify2 = load_binary(dtb_path);
         int mismatches = 0;
         for (size_t i = 0; i < dtb_verify2.size() && i < 1108; i += 4) {
-            uint32_t w = 0x3C0000 + i / 4;
+            uint32_t w = 0x7C0000 + i / 4;
             uint32_t expected = 0;
             for (int b = 0; b < 4 && (i+b) < dtb_verify2.size(); b++)
                 expected |= ((uint32_t)dtb_verify2[i+b]) << (b * 8);
@@ -250,7 +250,7 @@ int main(int argc, char** argv) {
             // Compare first 64 bytes of DTB file vs DMEM content
             bool mismatch = false;
             for (size_t i = 0; i < std::min(dtb_verify.size(), (size_t)64); i++) {
-                uint32_t word_idx = 0x3C0000 + i / 4;
+                uint32_t word_idx = 0x7C0000 + i / 4;
                 uint8_t dmem_byte;
                 switch (i % 4) {
                     case 0: dmem_byte = b0[word_idx]; break;
@@ -294,7 +294,7 @@ int main(int argc, char** argv) {
                           (mon_wr_addr >= 0x17D000 && mon_wr_addr <= 0x17E000) ||
                           (mon_wr_addr >= 0x155C00 && mon_wr_addr <= 0x156000) ||
                           (mon_wr_addr >= 0x15F946 && mon_wr_addr <= 0x15F94C) ||  // kernel_map struct
-                          (mon_wr_addr >= 0x3C0000 && mon_wr_addr <= 0x3C0120));  // DTB area (entire struct block)
+                          (mon_wr_addr >= 0x7C0000 && mon_wr_addr <= 0x3C0120));  // DTB area (entire struct block)
         if (mon_match) {
             auto& b0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte0_rdata;
             auto& b1 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte1_rdata;
@@ -331,7 +331,17 @@ int main(int argc, char** argv) {
         prev_pc_log = pc;
 
         // === Trap debug logging ===
-#ifdef TRACE_INTERNAL_SIGNALS
+        // NOTE: previously traced via dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_trap_taken,
+        // but that combinational wire is inlined by Verilator (it has no
+        // module-output port and only feeds local consumers like trapToS/trapToM),
+        // so the C++ struct member doesn't exist and the access fails to compile
+        // on stricter Verilator versions. The same trap context is available
+        // via the JIT path (Tests/RV32/JITLinuxBootTest.lean uses the
+        // SoCOutput.wireNames-based JIT export, which DOES expose
+        // _gen_trap_taken / _gen_trapCause), so this Verilator-side hook is
+        // disabled rather than re-plumbed. To re-enable, expose the wires
+        // through the synth bundle in IP/RV32/SoCVerilog.lean and the wrapper.
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_TRAP)
         {
             uint8_t trap_taken_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_trap_taken;
             if (trap_taken_sig) {
@@ -533,7 +543,7 @@ int main(int argc, char** argv) {
                     if (df) {
                         size_t nwords = (totalsize + 3) / 4;
                         for (size_t w = 0; w < nwords; w++) {
-                            uint32_t a = 0x3C0000 + w;
+                            uint32_t a = 0x7C0000 + w;
                             uint8_t bytes[4] = {
                                 (uint8_t)b0[a], (uint8_t)b1[a],
                                 (uint8_t)b2[a], (uint8_t)b3[a]
@@ -555,8 +565,8 @@ int main(int argc, char** argv) {
             }
             // Trace DMEM read address to see if DTB area is being accessed
             uint32_t dmem_rd_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
-            // DTB range: word addr 0x3C0000 - 0x3C1000 (16KB)
-            if (dmem_rd_addr >= 0x3C0000 && dmem_rd_addr < 0x3C1000) {
+            // DTB range: word addr 0x7C0000 - 0x3C1000 (16KB)
+            if (dmem_rd_addr >= 0x7C0000 && dmem_rd_addr < 0x3C1000) {
                 // Read the actual byte values from the memory arrays
                 auto& b0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte0_rdata;
                 auto& b1 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte1_rdata;
@@ -704,7 +714,7 @@ int main(int argc, char** argv) {
                 && reg_trace_count < 2000) {
                 uint32_t dmem_rd = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
                 // Only log reads that touch the DTB area or look like stack/data accesses near kernel
-                if (dmem_rd >= 0x3C0000 && dmem_rd < 0x3C1000) {
+                if (dmem_rd >= 0x7C0000 && dmem_rd < 0x3C1000) {
                     reg_trace_count++;
                     auto& b0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte0_rdata;
                     auto& b1 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte1_rdata;
@@ -712,7 +722,7 @@ int main(int argc, char** argv) {
                     auto& b3 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_byte3_rdata;
                     uint32_t word = b0[dmem_rd] | (b1[dmem_rd] << 8) |
                                     (b2[dmem_rd] << 16) | (b3[dmem_rd] << 24);
-                    uint32_t dtb_byte_off = (dmem_rd - 0x3C0000) * 4;
+                    uint32_t dtb_byte_off = (dmem_rd - 0x7C0000) * 4;
                     printf("  [REG-DTB #%d] cycle %llu: rd_addr=0x%06x dtb_byte=0x%03x word=0x%08x PC=0x%08x\n",
                            reg_trace_count, (unsigned long long)cycle, dmem_rd, dtb_byte_off, word, pc);
                 }
@@ -992,7 +1002,7 @@ int main(int argc, char** argv) {
                 FILE* f = fopen("/tmp/modified_dtb.bin", "wb");
                 if (f) {
                     for (uint32_t i = 0; i < (dtb_total_size + 3) / 4; i++) {
-                        uint32_t addr = 0x3C0000 + i;
+                        uint32_t addr = 0x7C0000 + i;
                         uint8_t bytes[4] = { (uint8_t)b0[addr], (uint8_t)b1[addr], (uint8_t)b2[addr], (uint8_t)b3[addr] };
                         size_t to_write = (i * 4 + 4 <= dtb_total_size) ? 4 : dtb_total_size - i * 4;
                         fwrite(bytes, 1, to_write, f);
@@ -1067,15 +1077,15 @@ int main(int argc, char** argv) {
             uint32_t ibp = b0[0x15F99E] | (b1[0x15F99E] << 8) |
                            (b2[0x15F99E] << 16) | (b3[0x15F99E] << 24);
             printf("  initial_boot_params=0x%08x\n", ibp);
-            // Verify DTB content at PA 0x80F00000 (word addr 0x3C0000)
+            // Verify DTB content at PA 0x81F00000 (word addr 0x7C0000)
             // FDT magic = 0xD00DFEED (big-endian) → little-endian word = 0xEDFE0DD0
-            printf("  DTB @ word 0x3C0000 (PA 0x80F00000): magic=0x%02x%02x%02x%02x",
-                   b3[0x3C0000], b2[0x3C0000], b1[0x3C0000], b0[0x3C0000]);
-            uint32_t dtb_w0 = b0[0x3C0000] | (b1[0x3C0000] << 8) | (b2[0x3C0000] << 16) | (b3[0x3C0000] << 24);
+            printf("  DTB @ word 0x7C0000 (PA 0x81F00000): magic=0x%02x%02x%02x%02x",
+                   b3[0x7C0000], b2[0x7C0000], b1[0x7C0000], b0[0x7C0000]);
+            uint32_t dtb_w0 = b0[0x7C0000] | (b1[0x7C0000] << 8) | (b2[0x7C0000] << 16) | (b3[0x7C0000] << 24);
             printf(" (word=0x%08x)\n", dtb_w0);
             // Dump first 4 DTB words
             for (int w = 0; w < 8; w++) {
-                uint32_t a = 0x3C0000 + w;
+                uint32_t a = 0x7C0000 + w;
                 uint32_t val = b0[a] | (b1[a] << 8) | (b2[a] << 16) | (b3[a] << 24);
                 printf("    DTB[%d] @ 0x%06x = 0x%08x\n", w, a, val);
             }

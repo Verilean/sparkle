@@ -18,7 +18,22 @@
 set -euo pipefail
 
 CROSS_COMPILE="${CROSS_COMPILE:-riscv64-elf-}"
+# Linux kernel build needs a glibc-targeting cross-compiler; the
+# bare-metal CROSS_COMPILE above is fine for OpenSBI, but Linux config
+# needs its own. Falls back to riscv64-linux-gnu- (Debian/Ubuntu) but
+# the nix shell ships riscv64-unknown-linux-gnu-.
+LINUX_CROSS_COMPILE="${LINUX_CROSS_COMPILE:-}"
+if [ -z "$LINUX_CROSS_COMPILE" ]; then
+    if command -v riscv64-unknown-linux-gnu-gcc &>/dev/null; then
+        LINUX_CROSS_COMPILE="riscv64-unknown-linux-gnu-"
+    elif command -v riscv64-linux-gnu-gcc &>/dev/null; then
+        LINUX_CROSS_COMPILE="riscv64-linux-gnu-"
+    else
+        LINUX_CROSS_COMPILE="${CROSS_COMPILE}"
+    fi
+fi
 NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+SPARKLE_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Use gmake if available (macOS ships GNU Make 3.81, Linux 6.x needs >= 3.82)
 if command -v gmake &>/dev/null; then
@@ -66,17 +81,24 @@ else
     fi
     patch_opensbi_for_gcc15
     echo "Building OpenSBI (CROSS_COMPILE=${CROSS_COMPILE})..."
+
+    # Build the libgcc stub (provides __udivdi3 / __umoddi3 in soft-float).
+    # The riscv32-none-elf gcc shipped in nix is built with the default
+    # ilp32d (double-float) multilib; OpenSBI compiles soft-float, so its
+    # libgcc cannot be linked. The stub is two functions and works fine.
+    echo "Building libgcc soft-float stub for OpenSBI..."
+    ${MAKE} -C "${SPARKLE_REPO}/firmware/opensbi-stub" CROSS=${CROSS_COMPILE} all
+    LIBGCC_STUB_DIR="${SPARKLE_REPO}/firmware/opensbi-stub"
+
     cd "${OPENSBI_DIR}"
 
-    # Detect rv32im libgcc path for GCC 15 multilib (no rv32ima variant exists)
-    LIBGCC_DIR="$(dirname "$(${CROSS_COMPILE}gcc -march=rv32im -mabi=ilp32 -print-libgcc-file-name)")"
-
-    # Build with rv32ima (no C extension) + zicsr/zifencei for GCC 15 assembler
-    # Link against rv32im libgcc since no rv32ima multilib exists
+    # Build with rv32ima (no C extension) + zicsr/zifencei for GCC 15 assembler.
+    # Pass our stub via -L / -l:libgcc_stub.a (':' tells the linker to use
+    # the literal filename; without it ld looks for libgcc_stub.{so,a}).
     ${MAKE} CROSS_COMPILE="${CROSS_COMPILE}" PLATFORM=generic \
         PLATFORM_RISCV_XLEN=32 PLATFORM_RISCV_ISA=rv32ima_zicsr_zifencei \
-        FW_JUMP_ADDR=0x80400000 FW_JUMP_FDT_ADDR=0x80F00000 \
-        ELFFLAGS="-Wl,--build-id=none -N -static-libgcc -L${LIBGCC_DIR} -lgcc" \
+        FW_JUMP_ADDR=0x80400000 FW_JUMP_FDT_ADDR=0x81F00000 \
+        ELFFLAGS="-Wl,--build-id=none -N -nostdlib -L${LIBGCC_STUB_DIR} -l:libgcc_stub.a" \
         -j"${NPROC}"
     echo "Built: ${OPENSBI_BIN}"
 fi
@@ -95,6 +117,7 @@ LINUX_CONFIG_CMDS="
     scripts/config --enable CONFIG_RISCV_SBI_V01
     scripts/config --enable CONFIG_RISCV_TIMER
     scripts/config --disable CONFIG_RISCV_ISA_C
+    scripts/config --disable CONFIG_EFI
     scripts/config --disable CONFIG_NETWORK
     scripts/config --disable CONFIG_NET
     scripts/config --disable CONFIG_SOUND
@@ -108,13 +131,21 @@ LINUX_CONFIG_CMDS="
     scripts/config --disable CONFIG_DEBUG_INFO
     scripts/config --disable CONFIG_DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT
     scripts/config --disable CONFIG_MODULES
+    scripts/config --disable CONFIG_STRICT_KERNEL_RWX
     scripts/config --disable CONFIG_BLOCK
+    scripts/config --enable CONFIG_BLK_DEV_INITRD
+    scripts/config --enable CONFIG_DEVTMPFS
+    scripts/config --enable CONFIG_DEVTMPFS_MOUNT
+    scripts/config --enable CONFIG_SPARKLE_BITNET
+    scripts/config --set-str CONFIG_INITRAMFS_SOURCE 'usr/initramfs.cpio.gz'
 "
 
 echo ""
 echo "=== Linux v6.6 (rv32ima, no C extension, minimal config) ==="
 if [ -f "${LINUX_IMAGE}" ]; then
     echo "Already built: ${LINUX_IMAGE}"
+    echo "  (rm ${LINUX_IMAGE} to force a rebuild — needed if you change"
+    echo "   the BitNet driver or the userspace test in firmware/bitnet_user/)"
 else
     if [ ! -f "${LINUX_DIR}/Makefile" ]; then
         echo "Cloning Linux v6.6 (depth=1, may take a few minutes)..."
@@ -123,6 +154,10 @@ else
             https://github.com/torvalds/linux.git "${LINUX_DIR}"
     fi
 
+    # ── Build the userspace BitNet test + initramfs cpio ──────────
+    echo "Building BitNet userspace test + initramfs..."
+    ${MAKE} -C "${SPARKLE_REPO}/firmware/bitnet_user" all
+
     if [[ "$(uname)" == "Darwin" ]]; then
         echo "Building Linux in Docker (macOS detected)..."
         if ! command -v docker &>/dev/null; then
@@ -130,23 +165,46 @@ else
             echo "Install Docker Desktop: https://www.docker.com/products/docker-desktop/"
             exit 1
         fi
-        docker run --rm -v "${LINUX_DIR}:${LINUX_DIR}" -w "${LINUX_DIR}" debian:bookworm bash -c "
-            apt-get update -qq && apt-get install -y -qq gcc-riscv64-linux-gnu make bc flex bison libssl-dev >/dev/null 2>&1
+        # Patch + stage initramfs INSIDE the linux tree so the Docker
+        # mount (which only sees ${LINUX_DIR}) picks them up. mrproper
+        # is run inside the container — apply patches before the
+        # container starts so they survive into post-mrproper olddefconfig.
+        # Order: stage → mrproper-defconfig → re-apply (mrproper wipes
+        # added files) → set config knobs → olddefconfig → make Image.
+        bash "${SPARKLE_REPO}/linux-patches/apply.sh" "${LINUX_DIR}"
+        mkdir -p "${LINUX_DIR}/usr"
+        cp "${SPARKLE_REPO}/firmware/bitnet_user/initramfs.cpio.gz" \
+           "${LINUX_DIR}/usr/initramfs.cpio.gz"
+        docker run --rm \
+            -v "${LINUX_DIR}:${LINUX_DIR}" \
+            -v "${SPARKLE_REPO}:${SPARKLE_REPO}:ro" \
+            -w "${LINUX_DIR}" debian:bookworm bash -c "
+            apt-get update -qq && apt-get install -y -qq gcc-riscv64-linux-gnu make bc flex bison libssl-dev cpio >/dev/null 2>&1
             make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- mrproper
             make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- rv32_defconfig
+            bash ${SPARKLE_REPO}/linux-patches/apply.sh ${LINUX_DIR}
+            mkdir -p ${LINUX_DIR}/usr
+            cp ${SPARKLE_REPO}/firmware/bitnet_user/initramfs.cpio.gz ${LINUX_DIR}/usr/initramfs.cpio.gz
             ${LINUX_CONFIG_CMDS}
             make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- olddefconfig
             make ARCH=riscv CROSS_COMPILE=riscv64-linux-gnu- -j\$(nproc) Image
         "
     else
-        echo "Configuring Linux (rv32_defconfig)..."
+        echo "Configuring Linux (rv32_defconfig, CROSS=${LINUX_CROSS_COMPILE})..."
         cd "${LINUX_DIR}"
-        ${MAKE} ARCH=riscv CROSS_COMPILE="${CROSS_COMPILE}" mrproper
-        ${MAKE} ARCH=riscv CROSS_COMPILE="${CROSS_COMPILE}" rv32_defconfig
+        ${MAKE} ARCH=riscv CROSS_COMPILE="${LINUX_CROSS_COMPILE}" mrproper
+        ${MAKE} ARCH=riscv CROSS_COMPILE="${LINUX_CROSS_COMPILE}" rv32_defconfig
+        # Patch driver + initramfs AFTER mrproper/defconfig (mrproper
+        # would otherwise wipe what we add). The apply script writes
+        # files; the cpio install copies the initramfs into usr/.
+        bash "${SPARKLE_REPO}/linux-patches/apply.sh" "${LINUX_DIR}"
+        mkdir -p "${LINUX_DIR}/usr"
+        cp "${SPARKLE_REPO}/firmware/bitnet_user/initramfs.cpio.gz" \
+           "${LINUX_DIR}/usr/initramfs.cpio.gz"
         eval "${LINUX_CONFIG_CMDS}"
-        ${MAKE} ARCH=riscv CROSS_COMPILE="${CROSS_COMPILE}" olddefconfig
+        ${MAKE} ARCH=riscv CROSS_COMPILE="${LINUX_CROSS_COMPILE}" olddefconfig
         echo "Building Linux Image..."
-        ${MAKE} ARCH=riscv CROSS_COMPILE="${CROSS_COMPILE}" -j"${NPROC}" Image
+        ${MAKE} ARCH=riscv CROSS_COMPILE="${LINUX_CROSS_COMPILE}" -j"${NPROC}" Image
     fi
     echo "Built: ${LINUX_IMAGE}"
 fi
