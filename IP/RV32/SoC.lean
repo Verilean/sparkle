@@ -2094,6 +2094,14 @@ def SoCOutput.wireNames : Array String :=
    , "_gen_upScaled"         -- 19
    , "_gen_elemResult"       -- 20
    , "_gen_downScaled"       -- 21
+   -- Bus rdata / saturating sum exposure (P3 LTL-bug investigation):
+   -- the residual sum and the bus rdata mux output need to be visible
+   -- to the JIT probe to localize the BitNet runtime symptom from
+   -- 9d0704e. CppSim normally inlines these wires; explicitly listing
+   -- them here forces the JIT codegen to emit them as struct fields.
+   , "_gen_sum"              -- 22 33-bit residual sum (pre-saturate)
+   , "_gen_busRdataRaw"      -- 23 bus read-data mux output (lw return)
+   , "_gen_mmioRdata"        -- 24 MMIO read mux output (BitNet)
    ]
 
 /-- SoC output snapshot — one cycle's worth of observable values -/

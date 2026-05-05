@@ -38,19 +38,22 @@ def main (args : List String) : IO UInt32 := do
   IO.println s!"Loading {cppPath}..."
   let h ← JIT.compileAndLoad cppPath
 
-  -- Probe wires for ALL 4 LTL premises.
+  -- Probe wires for FFN datapath internals.
+  -- NOTE: `_gen_next` (residual sum) is INLINED by Sparkle.Backend.CppSim
+  -- in the JIT C++ output, so it cannot be probed directly.
+  -- Instead we probe `_gen_sum` (the 33-bit pre-saturate addition)
+  -- and reconstruct the saturating result here.
   let wireNames := #[
     "_gen_pcReg",                  -- 0
     "_gen_aiInputReg",             -- 1
-    "_gen_aiStatusReg",            -- 2
-    "_gen_idex_memWrite",          -- 3 (sw EX-stage flag)
-    "_gen_alu_result_approx",      -- 4 (sw EX-stage address)
-    "_gen_ex_rs2_approx",          -- 5 (sw EX-stage data)
-    "_gen_exwb_physAddr",          -- 6 (lw EXWB-stage address)
-    "_gen_exwb_alu",               -- 7 (lw EXWB-stage alu result)
-    "_gen_idex_memRead",           -- 8 (lw EX-stage flag)
-    "_gen_uartValid",              -- 9 (UART tx detect for context)
-    "_gen_uartData"                -- 10 (UART data)
+    "_gen_gateAcc",                -- 2 ← FFN: gate BitLinear accumulator
+    "_gen_gateActivated",          -- 3 ← FFN: gate × ReLU²
+    "_gen_upAcc",                  -- 4 ← FFN: up BitLinear accumulator
+    "_gen_elemResult",             -- 5 ← FFN: gate * up element-wise
+    "_gen_downScaled",             -- 6 ← FFN: down BitLinear + scale
+    "_gen_sum",                    -- 7 ← FFN: 33-bit residual sum (pre-saturate)
+    "_gen_busRdataRaw",            -- 8 ← Bus rdata mux output (= what lw observes)
+    "_gen_mmioRdata"               -- 9 ← MMIO rdata mux output
   ]
   let widx ← wireNames.mapM fun n => do
     match (← JIT.findWire h n) with
@@ -89,41 +92,45 @@ def main (args : List String) : IO UInt32 := do
     JIT.tick h
     let pc            ← JIT.getWire h widx[0]!
     let aiInputReg    ← JIT.getWire h widx[1]!
-    let _aiStatusReg  ← JIT.getWire h widx[2]!
-    let idex_memW     ← JIT.getWire h widx[3]!
-    let alu_result    ← JIT.getWire h widx[4]!
-    let ex_rs2        ← JIT.getWire h widx[5]!
-    let exwb_physAddr ← JIT.getWire h widx[6]!
-    let _exwb_alu     ← JIT.getWire h widx[7]!
-    let _idex_memR    ← JIT.getWire h widx[8]!
-    let uartValid     ← JIT.getWire h widx[9]!
-    let uartData      ← JIT.getWire h widx[10]!
-    let bitnetOut     ← JIT.getWire h bitnetOutIdx
-    -- Detect events of interest:
-    -- (a) sw to 0x40000004 (mmioWE_ex true; idex_memWrite=true ∧ alu_result low4 = 0x4)
-    let isMmio := alu_result.toNat &&& 0x40000000 != 0
-    let lowOff := alu_result.toNat &&& 0xF
-    let isInputOff := lowOff == 0x4
-    let swToInput := idex_memW.toNat == 1 && isMmio && isInputOff
-    -- (b) lw at offset 0x40000008
-    let lwAddr := exwb_physAddr.toNat == 0x40000008
-    -- (c) aiInputReg changed
+    let gateAcc       ← JIT.getWire h widx[2]!
+    let gateActivated ← JIT.getWire h widx[3]!
+    let upAcc         ← JIT.getWire h widx[4]!
+    let elemResult    ← JIT.getWire h widx[5]!
+    let downScaled    ← JIT.getWire h widx[6]!
+    let gen_sum       ← JIT.getWire h widx[7]!
+    let busRdataRaw   ← JIT.getWire h widx[8]!
+    let mmioRdata     ← JIT.getWire h widx[9]!
+    -- Reconstruct bitnetOut from _gen_sum's saturation logic.
+    let top2 := (gen_sum.toNat >>> 31) &&& 0x3
+    let bitnetOut : UInt64 :=
+      if top2 == 2 then 0x80000000
+      else if top2 == 1 then 0x7FFFFFFF
+      else (gen_sum.toNat &&& 0xFFFFFFFF).toUInt64
+    -- Detect aiInputReg changes (= sw event committed).
     let prevInp ← prevInputRef.get
     let inputChanged := aiInputReg != prevInp
-    -- (d) UART tx
-    let uartTx := uartValid.toNat == 1
-    if uartTx then
-      let byte := (uartData.toNat % 256).toUInt8
-      uartBytesRef.modify (·.push byte)
-    if swToInput then
-      swEventCountRef.modify (· + 1)
-      IO.println s!"cycle {cycle} [SW→aiInput]: pc=0x{hex32 pc.toNat} ex_rs2=0x{hex32 ex_rs2.toNat} alu_result=0x{hex32 alu_result.toNat} → expect aiInputReg(t+1) = ex_rs2"
-    if lwAddr then
-      lwEventCountRef.modify (· + 1)
-      IO.println s!"cycle {cycle} [LW@0x40000008]: pc=0x{hex32 pc.toNat} aiInputReg=0x{hex32 aiInputReg.toNat} bitnetOut=0x{hex32 bitnetOut.toNat}"
     if inputChanged then
-      IO.println s!"cycle {cycle} [aiInputReg-CHANGE]: pc=0x{hex32 pc.toNat} aiInputReg=0x{hex32 aiInputReg.toNat} bitnetOut=0x{hex32 bitnetOut.toNat} (was 0x{hex32 prevInp.toNat})"
+      IO.println s!"cycle {cycle} [aiInputReg-CHANGE]: pc=0x{hex32 pc.toNat} aiInputReg=0x{hex32 aiInputReg.toNat} → bitnetOut=0x{hex32 bitnetOut.toNat}"
+      IO.println s!"  FFN trace:"
+      IO.println s!"    gateAcc       = 0x{hex32 gateAcc.toNat}        (expect 4 * input)"
+      IO.println s!"    gateActivated = 0x{hex32 gateActivated.toNat}  (after ReLU²)"
+      IO.println s!"    upAcc         = 0x{hex32 upAcc.toNat}          (expect 4 * input)"
+      IO.println s!"    elemResult    = 0x{hex32 elemResult.toNat}     (gateActivated * upScaled)"
+      IO.println s!"    downScaled    = 0x{hex32 downScaled.toNat}     (down BitLinear + scale)"
+      IO.println s!"    _gen_sum (33b)= 0x{hex32 gen_sum.toNat} top2={top2}"
+      IO.println s!"    bitnetOut     = 0x{hex32 bitnetOut.toNat}      (saturated 33→32)"
+      IO.println s!"    busRdataRaw   = 0x{hex32 busRdataRaw.toNat}    (lw return value at THIS cycle)"
+      IO.println s!"    mmioRdata     = 0x{hex32 mmioRdata.toNat}      (MMIO mux output)"
+      swEventCountRef.modify (· + 1)
       prevInputRef.set aiInputReg
+    -- Also dump on busRdataRaw matching bitnetOut (= lw observation cycle).
+    if mmioRdata.toNat != 0 || (busRdataRaw.toNat != 0 && busRdataRaw.toNat == bitnetOut.toNat) then
+      let lwc ← lwEventCountRef.get
+      if lwc < 16 then
+        IO.println s!"cycle {cycle} [LW-OBSERVATION]: pc=0x{hex32 pc.toNat} busRdataRaw=0x{hex32 busRdataRaw.toNat} mmioRdata=0x{hex32 mmioRdata.toNat} (aiInputReg=0x{hex32 aiInputReg.toNat}, bitnetOut=0x{hex32 bitnetOut.toNat})"
+      lwEventCountRef.modify (· + 1)
+    let _ := lwEventCountRef
+    let _ := uartBytesRef
 
   let bytes ← uartBytesRef.get
   let swEvents ← swEventCountRef.get
