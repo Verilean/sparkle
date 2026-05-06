@@ -157,25 +157,20 @@ def fpMul (a b : BitVec 32) : BitVec 32 :=
 /-- NaN is absorbing for addition: NaN + x = NaN -/
 theorem nan_add_left (x : BitVec 32) :
     isNaN (fpAdd qNaN x) = true := by
-  -- decide
-  --unfold fpAdd isNaN qNaN
---  simp [fpAdd, isNaN, qNaN]
-  native_decide
+  have hq : isNaN qNaN = true := by native_decide
+  simp [fpAdd, hq]
 
 /-- NaN is absorbing for addition: x + NaN = NaN -/
 theorem nan_add_right (x : BitVec 32) :
     isNaN qNaN = true → isNaN (fpAdd x qNaN) = true := by
-  intro _
-  simp [fpAdd]
-  split
-  · simp [isNaN, qNaN]; decide
-  · simp [isNaN, qNaN]; decide
+  intro hq
+  simp [fpAdd, hq]
 
 /-- NaN is absorbing for multiplication: NaN * x = NaN -/
 theorem nan_mul_left (x : BitVec 32) :
     isNaN (fpMul qNaN x) = true := by
-  simp [fpMul, isNaN, qNaN]
-  native_decide
+  have hq : isNaN qNaN = true := by native_decide
+  simp [fpMul, hq]
 
 -- -------------------------------------------------------------------------
 -- 2. Identity Elements
@@ -185,18 +180,19 @@ theorem nan_mul_left (x : BitVec 32) :
 theorem add_zero_right (x : BitVec 32) (hx : isNaN x = false)
     (hx_inf : isInf x = false) (hx_nz : isZero x = false) :
     fpAdd x posZero = x := by
-  simp [fpAdd, posZero]
-  simp [isNaN, isInf, isZero] at *
-  simp [hx, hx_inf, hx_nz]
-  sorry  -- Requires full implementation of general case
+  have h0_nan : isNaN posZero = false := by native_decide
+  have h0_inf : isInf posZero = false := by native_decide
+  have h0_zero : isZero posZero = true := by native_decide
+  simp [fpAdd, hx, hx_inf, hx_nz, h0_nan, h0_inf, h0_zero]
 
 /-- Zero is the identity for addition (left): 0 + x = x when x is normal -/
 theorem add_zero_left (x : BitVec 32) (hx : isNaN x = false)
     (hx_inf : isInf x = false) (hx_nz : isZero x = false) :
     fpAdd posZero x = x := by
-  simp [fpAdd, posZero, isZero, isNaN, isInf] at *
-  simp [hx, hx_inf, hx_nz]
-  sorry  -- Requires full implementation
+  have h0_nan : isNaN posZero = false := by native_decide
+  have h0_inf : isInf posZero = false := by native_decide
+  have h0_zero : isZero posZero = true := by native_decide
+  simp [fpAdd, hx, hx_inf, hx_nz, h0_nan, h0_inf, h0_zero]
 
 -- -------------------------------------------------------------------------
 -- 3. Infinity Arithmetic
@@ -204,28 +200,46 @@ theorem add_zero_left (x : BitVec 32) (hx : isNaN x = false)
 
 /-- Inf + Inf = Inf -/
 theorem inf_add_inf : fpAdd posInf posInf = posInf := by
-  simp [fpAdd, posInf, isNaN, isInf, sign]
-  native_decide
+  have hnan : isNaN posInf = false := by native_decide
+  have hinf : isInf posInf = true := by native_decide
+  simp [fpAdd, hnan, hinf]
 
 /-- Inf + (-Inf) = NaN -/
 theorem inf_add_neg_inf : isNaN (fpAdd posInf negInf) = true := by
-  simp [fpAdd, posInf, negInf, isNaN, isInf, sign]
-  native_decide
+  have hp_nan : isNaN posInf = false := by native_decide
+  have hn_nan : isNaN negInf = false := by native_decide
+  have hp_inf : isInf posInf = true := by native_decide
+  have hn_inf : isInf negInf = true := by native_decide
+  have hsign : (sign posInf == sign negInf) = false := by native_decide
+  have hq : isNaN qNaN = true := by native_decide
+  simp [fpAdd, hp_nan, hn_nan, hp_inf, hn_inf, hsign, hq]
 
 /-- Inf * 0 = NaN -/
 theorem inf_mul_zero : isNaN (fpMul posInf posZero) = true := by
-  simp [fpMul, posInf, posZero, isNaN, isInf, isZero, sign]
-  native_decide
+  have hi_nan : isNaN posInf = false := by native_decide
+  have h0_nan : isNaN posZero = false := by native_decide
+  have hi_inf : isInf posInf = true := by native_decide
+  have h0_zero : isZero posZero = true := by native_decide
+  have hq : isNaN qNaN = true := by native_decide
+  simp [fpMul, hi_nan, h0_nan, hi_inf, h0_zero, hq]
 
 /-- Inf * Inf = Inf -/
 theorem inf_mul_inf : fpMul posInf posInf = posInf := by
-  simp [fpMul, posInf, isNaN, isInf, isZero, sign]
-  native_decide
+  have hnan : isNaN posInf = false := by native_decide
+  have hinf : isInf posInf = true := by native_decide
+  have hzero : isZero posInf = false := by native_decide
+  simp [fpMul, hnan, hinf, hzero]
 
 /-- (-Inf) * Inf = -Inf  (sign rule) -/
 theorem neg_inf_mul_inf : fpMul negInf posInf = negInf := by
-  simp [fpMul, negInf, posInf, isNaN, isInf, isZero, sign]
-  native_decide
+  have hn_nan : isNaN negInf = false := by native_decide
+  have hp_nan : isNaN posInf = false := by native_decide
+  have hn_inf : isInf negInf = true := by native_decide
+  have hp_inf : isInf posInf = true := by native_decide
+  have hn_zero : isZero negInf = false := by native_decide
+  have hp_zero : isZero posInf = false := by native_decide
+  have hsign : (sign negInf ^^^ sign posInf == 1#1) = true := by native_decide
+  simp [fpMul, hn_nan, hp_nan, hn_inf, hp_inf, hn_zero, hp_zero, hsign]
 
 -- -------------------------------------------------------------------------
 -- 4. Zero Arithmetic
@@ -235,18 +249,29 @@ theorem neg_inf_mul_inf : fpMul negInf posInf = negInf := by
 theorem zero_mul_normal (x : BitVec 32)
     (hx : isNaN x = false) (hx_inf : isInf x = false) (hx_nz : isZero x = false) :
     isZero (fpMul posZero x) = true := by
-  simp [fpMul, posZero, isNaN, isInf, isZero, sign] at *
-  simp [hx, hx_inf]
+  have h0_nan : isNaN posZero = false := by native_decide
+  have h0_inf : isInf posZero = false := by native_decide
+  have h0_zero : isZero posZero = true := by native_decide
+  have hn_zero : isZero negZero = true := by native_decide
+  by_cases hsign : (sign posZero ^^^ sign x == 1#1)
+  · simp [fpMul, hx, hx_inf, hx_nz, h0_nan, h0_inf, h0_zero, hn_zero, hsign]
+  · simp [fpMul, hx, hx_inf, hx_nz, h0_nan, h0_inf, h0_zero, hsign]
 
 /-- 0 + 0 = 0 -/
 theorem zero_add_zero : fpAdd posZero posZero = posZero := by
-  simp [fpAdd, posZero, isNaN, isInf, isZero, sign]
-  native_decide
+  have hnan : isNaN posZero = false := by native_decide
+  have hinf : isInf posZero = false := by native_decide
+  have hzero : isZero posZero = true := by native_decide
+  have hsign : (sign posZero == 1#1) = false := by native_decide
+  simp [fpAdd, hnan, hinf, hzero, hsign]
 
 /-- (-0) + (-0) = -0 -/
 theorem neg_zero_add_neg_zero : fpAdd negZero negZero = negZero := by
-  simp [fpAdd, negZero, isNaN, isInf, isZero, sign]
-  native_decide
+  have hnan : isNaN negZero = false := by native_decide
+  have hinf : isInf negZero = false := by native_decide
+  have hzero : isZero negZero = true := by native_decide
+  have hsign : (sign negZero == 1#1) = true := by native_decide
+  simp [fpAdd, hnan, hinf, hzero, hsign]
 
 -- -------------------------------------------------------------------------
 -- 5. NaN Predicate Consistency
