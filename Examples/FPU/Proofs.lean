@@ -2,12 +2,11 @@
 -- Formal Verification Theorems for FPU Hardware
 -- Proofs that the combinational FP cores satisfy IEEE 754 constraints
 -- =============================================================================
-
 import Sparkle
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import FPU.Spec
-import FPU.Hardware
+import Examples.FPU.Spec
+import Examples.FPU.Hardware
 
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
@@ -55,6 +54,20 @@ theorem hw_mul_nan_propagates_right (x : BitVec 32) :
 theorem hw_inf_add_inf :
     fpAddSubComb 0x7F800000#32 0x7F800000#32 false = 0x7F800000#32 := by
   native_decide
+def gen_and_eval_heavy(num,max_depth,seed=42, want_kind="arith",n_free_vars=4,debug=False):
+    def gen_and_select_high_steps_default(max_depth, want_kind, seed, n_free_vars,):
+        return  gen_and_select_high_steps(num_pairs=num,
+                                max_depth=max_depth,
+                                eval_fn=totaleval,
+                                sexpr_to_str_fn=sexpr_to_str,
+                                gen_fn=gen_meta_heavy,
+                                candidates_per_pick=8,
+                                seed=seed,
+                                gen_kwargs= None,
+                                verbose=True),None
+
+    return gen_and_eval(num, max_depth, want_kind,n_free_vars, gen_and_select_high_steps_default,  seed,debug)
+
 
 /-- (-Inf) + (-Inf) = -Inf -/
 theorem hw_neg_inf_add_neg_inf :

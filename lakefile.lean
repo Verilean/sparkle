@@ -48,6 +48,9 @@ lean_lib «IP.Arbiter» where
 lean_lib «Examples.CDC» where
   roots := #[`Examples.CDC]
 
+lean_lib «Examples.FPU» where
+  roots := #[`Examples.FPU]
+
 lean_lib «IP.Video» where
   roots := #[`IP.Video]
 
@@ -179,7 +182,7 @@ lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
 
-lean_exe «verilog-sim-example» where
+lean_exe «verilog-sim-le» where
   root := `Examples.SVParser.VerilogSim
   supportInterpreter := true
 

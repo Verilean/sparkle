@@ -6,11 +6,11 @@
 import Sparkle
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
-import FPU.Hardware
+import Examples.FPU.Hardware
 
 open Sparkle.Core.Signal
 open Sparkle.Core.Domain
-open FPU.Hardware
+open Hardware
 
 /-- Helper: convert a Nat (representing IEEE 754 bits) to hex string -/
 def toHex (n : Nat) : String :=

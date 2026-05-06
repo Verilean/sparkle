@@ -3,7 +3,7 @@
 -- Pure Lean 4 Specification (for formal verification)
 -- =============================================================================
 
--- import Sparkle
+import Sparkle
 import Sparkle.Core.Signal
 import Sparkle.Core.Domain
 
@@ -146,15 +146,20 @@ def fpMul (a b : BitVec 32) : BitVec 32 :=
 -- =========================================================================
 -- FORMAL THEOREMS: Properties that IEEE 754 floating point must satisfy
 -- =========================================================================
-
 -- -------------------------------------------------------------------------
 -- 1. NaN Propagation
 -- -------------------------------------------------------------------------
+--
+-- Problem
+-- fpAdd, isNaN, or qNaN are opaque (not @[reducible] or @[inline]), so simp can't unfold them before native_decide takes over.
+---
 
 /-- NaN is absorbing for addition: NaN + x = NaN -/
 theorem nan_add_left (x : BitVec 32) :
     isNaN (fpAdd qNaN x) = true := by
-  simp [fpAdd, isNaN, qNaN]
+  -- decide
+  --unfold fpAdd isNaN qNaN
+--  simp [fpAdd, isNaN, qNaN]
   native_decide
 
 /-- NaN is absorbing for addition: x + NaN = NaN -/
@@ -163,8 +168,8 @@ theorem nan_add_right (x : BitVec 32) :
   intro _
   simp [fpAdd]
   split
-  · simp [isNaN, qNaN]; native_decide
-  · simp [isNaN, qNaN]; native_decide
+  · simp [isNaN, qNaN]; decide
+  · simp [isNaN, qNaN]; decide
 
 /-- NaN is absorbing for multiplication: NaN * x = NaN -/
 theorem nan_mul_left (x : BitVec 32) :
@@ -232,7 +237,6 @@ theorem zero_mul_normal (x : BitVec 32)
     isZero (fpMul posZero x) = true := by
   simp [fpMul, posZero, isNaN, isInf, isZero, sign] at *
   simp [hx, hx_inf]
-  sorry  -- Depends on sign computation
 
 /-- 0 + 0 = 0 -/
 theorem zero_add_zero : fpAdd posZero posZero = posZero := by

@@ -298,9 +298,9 @@ def fpMulPipelined {dom : DomainConfig}
 def fpu {dom : DomainConfig}
     (a b : Signal dom (BitVec 32))
     (op  : Signal dom (BitVec 2)) : Signal dom (BitVec 32) :=
-  let isSub := (· == 1#2) <$> op
-  let isAdd := (· == 0#2) <$> op
-  let isMul := (· == 2#2) <$> op
+  let isSub := op === 1#2
+  --let isAdd := op === 0#2
+  --let isMul := op === 2#2
 
   let addSubResult := fpAddSubPipelined a b isSub
   let mulResult    := fpMulPipelined a b
@@ -308,7 +308,7 @@ def fpu {dom : DomainConfig}
   -- Output mux: select result based on registered op code
   let opDelayed := Signal.register 0#2 (Signal.register 0#2 (Signal.register 0#2 op))
 
-  let selectMul := (· == 2#2) <$> opDelayed
+  let selectMul := opDelayed === 2#2
 
   Signal.mux selectMul mulResult addSubResult
 
