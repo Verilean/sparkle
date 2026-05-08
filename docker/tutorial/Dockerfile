@@ -150,17 +150,23 @@ p.write_text(json.dumps(spec,indent=2))"
 RUN jupyter kernelspec list | grep -q '^\s*xlean\s' \
       || { echo 'ERROR: xlean kernel did not register with Jupyter.' >&2; exit 1; }
 
-# `xlean-convert` writes notebooks whose `metadata.kernelspec.name`
-# is `xeus-lean`, but the kernel itself registers under the short
-# name `xlean`.  Re-export the same kernelspec under the longer
-# name as well so JupyterLab finds it without prompting the user
-# to "Select Kernel" each time they open a chapter.
+# `xlean-convert` writes notebooks whose `metadata.kernelspec` is
+# `{name: "xeus-lean", language: "lean4", display_name: "Lean 4"}`.
+# The kernelspec the upstream `install-kernelspec.sh` lays down is
+# named `xlean` and uses `language: "lean"`, which makes JupyterLab
+# pop a "Select Kernel" dialog every time the user runs a cell —
+# the metadata fields don't match up exactly.
+#
+# Fix: clone the working `xlean` kernelspec to `xeus-lean` and
+# rewrite `language` so all three identifying fields (name,
+# language, display_name) match what xlean-convert wrote.
 RUN cp -r /root/.local/share/jupyter/kernels/xlean \
           /root/.local/share/jupyter/kernels/xeus-lean && \
     python3 -c "import json,pathlib; \
 p=pathlib.Path('/root/.local/share/jupyter/kernels/xeus-lean/kernel.json'); \
 spec=json.loads(p.read_text()); \
-spec['display_name']='Lean 4 (xeus-lean)'; \
+spec['display_name']='Lean 4'; \
+spec['language']='lean4'; \
 p.write_text(json.dumps(spec,indent=2))"
 
 # Smoke-test the kernel inside the image so a broken build fails the
@@ -214,17 +220,32 @@ sparkle_lean_path = next(
     if line.startswith('LEAN_PATH=')
 )
 
-p = pathlib.Path('/root/.local/share/jupyter/kernels/xlean/kernel.json')
-spec = json.loads(p.read_text())
-env = spec.setdefault('env', {})
-existing = env.get('LEAN_PATH', '')
-# Prepend xeus-lean's own oleans (Display, CommBus) so the kernel's
-# `import Display` continues to work; append Sparkle + deps after.
-env['LEAN_PATH'] = (
-    '/opt/xeus-lean/.lake/build/lib/lean:' + sparkle_lean_path
+# Patch BOTH kernelspec copies — `xlean` AND `xeus-lean`. The latter is
+# what tutorial notebook metadata.kernelspec.name points at, and it was
+# copied in stage 4c BEFORE this stage's Sparkle paths were available,
+# so it ships with only `/opt/xeus-lean/.lake/build/lib/lean` and any
+# `import Sparkle.*` from a notebook cell fails with
+# "unknown namespace `Sparkle.Core.Domain`".
+#
+# IMPORTANT: Lean searches LEAN_PATH in REVERSE order — later entries win.
+# Sparkle's own build cache contains a `Display.olean` (the offline shim
+# from `docs/tutorial/Display.lean`) that shadows xeus-lean's full
+# `Display.Diagram.{Node,Edge}` API.  Put xeus-lean LAST so its Display
+# wins lookup; chapter notebooks need the real one.
+full_lean_path = (
+    sparkle_lean_path + ':/opt/xeus-lean/.lake/build/lib/lean'
 )
-p.write_text(json.dumps(spec, indent=2))
-print('Patched kernel.json LEAN_PATH:', env['LEAN_PATH'])
+for spec_path in [
+    '/root/.local/share/jupyter/kernels/xlean/kernel.json',
+    '/root/.local/share/jupyter/kernels/xeus-lean/kernel.json',
+]:
+    p = pathlib.Path(spec_path)
+    spec = json.loads(p.read_text())
+    env = spec.setdefault('env', {})
+    env['LEAN_PATH'] = full_lean_path
+    p.write_text(json.dumps(spec, indent=2))
+    print('Patched', spec_path)
+print('LEAN_PATH:', full_lean_path)
 PY
 
 # -----------------------------------------------------------------
@@ -237,6 +258,8 @@ CMD ["jupyter", "lab", \
      "--port=8888", \
      "--no-browser", \
      "--allow-root", \
-     "--NotebookApp.token=", \
-     "--NotebookApp.password=", \
+     "--ServerApp.token=", \
+     "--ServerApp.password=", \
+     "--MultiKernelManager.default_kernel_name=xeus-lean", \
+     "--MappingKernelManager.default_kernel_name=xeus-lean", \
      "--notebook-dir=/workspace/sparkle/docs/tutorial/Notebooks/Gen/notebooks"]
