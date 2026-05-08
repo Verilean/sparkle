@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777970508241,
+  "lastUpdate": 1778216462710,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -747,6 +747,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2515727,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "ee8a7e9081c12eac0653578ca4ea30d40cd70e0c",
+          "message": "Add .claude/ to .gitignore (Claude Code working dir)\n\nRemoves the accidentally-committed `.claude/scheduled_tasks.lock`\nand prevents future commits from picking up Claude Code's\nlocal working state.",
+          "timestamp": "2026-05-08T13:43:54+09:00",
+          "tree_id": "a6ae3cae493812d83f165c9bd90b970a376a48bd",
+          "url": "https://github.com/Verilean/sparkle/commit/ee8a7e9081c12eac0653578ca4ea30d40cd70e0c"
+        },
+        "date": 1778216462366,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 5810053,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2512520,
             "unit": "cycles/sec"
           }
         ]
