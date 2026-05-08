@@ -109,9 +109,14 @@ def getWireWidth (wireName : String) : CompilerM Nat := do
   | some p => return match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
   | none => return 8
 
-def emitRegister (hint : String) (clk : String) (rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType) (named : Bool := false) : CompilerM String := do
+def emitRegister (hint : String) (clk : String) (rst : String)
+    (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType)
+    (named : Bool := false)
+    (resetKind : Sparkle.IR.Type.ResetKind := .asynchronous)
+    : CompilerM String := do
   let cs ← get
-  let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty named cs
+  let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty
+                       (named := named) (resetKind := resetKind) cs
   set cs'
   return name
 
@@ -239,6 +244,43 @@ where
         return 8
     | _ => return 8
 
+
+/-- Extract `ResetKind` from a `Signal dom α` expression.
+
+    We `whnf`-reduce the `dom` argument and then use Lean's
+    `evalExpr` to evaluate it as a `DomainConfig`, reading the
+    `resetKind` field directly.  Falls back to `.asynchronous`
+    (the historical default) if the expression doesn't reduce
+    to a literal `DomainConfig`. -/
+def inferResetKindFromSignal (signalType : Lean.Expr) :
+    CompilerM Sparkle.IR.Type.ResetKind := do
+  let signalType ← CompilerM.liftMetaM (whnf signalType)
+  match signalType with
+  | .app (.app _signalConstr dom) _innerType =>
+    -- Try to evaluate `(dom : DomainConfig).resetKind`.  If anything
+    -- about the expression resists reduction (e.g. a metavariable
+    -- in scope), fall back to async — it's what the codegen used
+    -- before this field existed, so the default is conservative.
+    try
+      let domType :=
+        Lean.Expr.const ``Sparkle.Core.Domain.DomainConfig []
+      let dom' ← CompilerM.liftMetaM (whnf dom)
+      let _ : Lean.Expr := domType        -- force domType into scope
+      let kindExpr := Lean.mkApp
+        (Lean.Expr.const ``Sparkle.Core.Domain.DomainConfig.resetKind [])
+        dom'
+      let kindReduced ← CompilerM.liftMetaM (whnf kindExpr)
+      match kindReduced with
+      | .const ``Sparkle.IR.Type.ResetKind.synchronous _ =>
+        return .synchronous
+      | .const ``Sparkle.IR.Type.ResetKind.asynchronous _ =>
+        return .asynchronous
+      | _ =>
+        return .asynchronous
+    catch _ =>
+      return .asynchronous
+  | _ =>
+    return .asynchronous
 
 def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
   let signalType ← CompilerM.liftMetaM (whnf signalType)
@@ -1211,7 +1253,9 @@ mutual
       let inputWire ← translateExprToWire input "reg_input"
       let exprType ← CompilerM.liftMetaM (inferType e)
       let hwType ← inferHWTypeFromSignal exprType
-      let w ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType (named := isNamed)
+      let resetKind ← inferResetKindFromSignal exprType
+      let w ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+                (named := isNamed) (resetKind := resetKind)
       return some w
 
     -- Signal.registerWithEnable: register with conditional update
@@ -1225,8 +1269,10 @@ mutual
       let inputWire ← translateExprToWire input "reg_input"
       let exprType ← CompilerM.liftMetaM (inferType e)
       let hwType ← inferHWTypeFromSignal exprType
+      let resetKind ← inferResetKindFromSignal exprType
       let muxWire ← CompilerM.makeWire (hint ++ "_mux") hwType
-      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType (named := isNamed)
+      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType
+                     (named := isNamed) (resetKind := resetKind)
       CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
       return some regWire
 
@@ -1705,23 +1751,26 @@ private def simLeanIdent (s : String) : String :=
 elab "#sim" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
-  -- Phase 1: Synthesize + generate JIT C++ (in TermElabM)
-  let (ns, jitPath, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
+  -- Phase 1: Synthesize + generate JIT C++ AND Verilog .sv (in TermElabM)
+  let (ns, jitPath, svPath, topName, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
+    let verilog := Sparkle.Backend.Verilog.toVerilogDesign optimized
     let ns := simLeanIdent (toString declName.components.getLast!)
     let jitPath := s!".lake/build/gen/sim/{ns}_jit.cpp"
+    let svPath  := s!".lake/build/gen/sim/{ns}.sv"
     try
       IO.FS.createDirAll ".lake/build/gen/sim"
       IO.FS.writeFile jitPath jitCpp
+      IO.FS.writeFile svPath  verilog
     catch _ => pure ()
     let m ← match optimized.modules.head? with
       | some m => pure m
       | none => throwError "#sim: no module in design"
     let userInputs := m.inputs.filter fun p => !isSimClkRst p.name
     let outputs := m.outputs
-    pure (ns, jitPath, userInputs, outputs)
+    pure (ns, jitPath, svPath, m.name, userInputs, outputs)
   -- Phase 2: Generate typed wrappers (in CommandElabM)
   let lb := "{"
   let rb := "}"
@@ -1755,6 +1804,31 @@ elab "#sim" id:ident : command => do
   elabSimStr "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
   elabSimStr "def Simulator.destroy (sim : Simulator) : IO Unit :=\n  JIT.destroy sim.handle"
   elabSimStr s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
+  -- Opt the generated wrapper into the unified `Sparkle.Core.Sim.Sim`
+  -- typeclass so call-sites can write `sim.step inp` / `sim.read`
+  -- against any backend (pure-Lean / JIT / Verilator) without
+  -- knowing which one produced `sim`.
+  elabSimStr <|
+    "instance : Sparkle.Core.Sim.Sim Simulator SimInput SimOutput where\n" ++
+    "  reset   := Simulator.reset\n" ++
+    "  step    := Simulator.step\n" ++
+    "  read    := Simulator.read\n" ++
+    "  destroy := Simulator.destroy"
+  -- Verilator backend.  Reuses the same `Simulator` shape because
+  -- the Verilator wrapper exposes the JIT C ABI; only `load`
+  -- differs (it builds a `.so` from the `.sv` instead of from
+  -- the JIT `.cpp`).
+  elabSimStr s!"def svPath : String := \"{svPath}\""
+  elabSimStr s!"def topModuleName : String := \"{topName}\""
+  let portSpec (p : Sparkle.IR.AST.Port) : String :=
+    "{ name := \"" ++ p.name ++ "\", width := " ++ toString p.ty.bitWidth ++ " : Sparkle.Core.Sim.Verilator.PortSpec }"
+  let inputPortSpecs := String.intercalate ", " (userInputs.map portSpec)
+  let outputPortSpecs := String.intercalate ", " (outputs.map portSpec)
+  elabSimStr <|
+    "def loadVerilator : IO Sparkle.Core.Sim.Verilator.Simulator :=\n" ++
+    "  Sparkle.Core.Sim.Verilator.of svPath topModuleName\n" ++
+    "    [" ++ inputPortSpecs ++ "]\n" ++
+    "    [" ++ outputPortSpecs ++ "]"
   elabSimStr s!"end {ns}.Sim"
 
 end Sparkle.Compiler.Elab

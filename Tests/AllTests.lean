@@ -15,6 +15,17 @@ import Tests.BitNet.TestAttention
 import Tests.BitNet.TestComparison
 import Tests.BitNet.TestSoC
 import Tests.BitNet.RTLGoldenValidation
+import Tests.Hesper.MatmulSpec
+import Tests.Hesper.BitLinearEquivalence
+import Tests.Hesper.Layer2GoldenVectors
+import Tests.Hesper.AttentionEquivalence
+import Tests.Hesper.SoftmaxWeightedV
+import Tests.Hesper.EndToEndAttention
+import Tests.Hesper.Vendored.CircuitInterp
+import Tests.Hesper.Vendored.WGSLInterp
+import Tests.Hesper.HesperDSLEquivalence
+import Tests.Hesper.HesperSoftmaxWeightedV
+import Tests.Hesper.HesperEndToEnd
 import Tests.YOLOv8.TestDequant
 import Tests.YOLOv8.TestRequantize
 import Tests.YOLOv8.TestActivation

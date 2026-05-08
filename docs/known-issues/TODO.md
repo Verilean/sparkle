@@ -1,7 +1,7 @@
 # Sparkle TODO
 
 Collected post-merge ideas, ordered roughly by (impact × confidence) / effort.
-This is a **wish list**, not a commitment. `docs/STATUS.md` tracks the active
+This is a **wish list**, not a commitment. `docs/architecture/STATUS.md` tracks the active
 phase plan; this file captures the "next up" ideas as they come up in
 design discussions so they are not lost.
 
@@ -130,7 +130,7 @@ Today `runSim` caps at 2 endpoints + 1 connection. The C++ CDC runner
 scheduler. Once that lands, `runSim` can dispatch to it for
 arbitrary DAG topologies.
 
-Tracked in `docs/KnownIssues.md` Issue 3.2. No user has asked for it
+Tracked in `docs/known-issues/KnownIssues.md` Issue 3.2. No user has asked for it
 yet, so it's parked.
 
 ---

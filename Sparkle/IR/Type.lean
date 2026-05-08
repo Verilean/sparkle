@@ -86,4 +86,15 @@ def word64 : HWType := .bitVector 64
 /-- Boolean hardware type -/
 def hwBool : HWType := .bit
 
+/-- Reset kind: synchronous or asynchronous.
+
+    Lives here (not in `Sparkle.Core.Domain`) so the IR layer can
+    reference it without importing `Core/Domain.lean` (which would
+    create a layering inversion).  `Sparkle.Core.Domain` re-exports
+    this so user code keeps seeing `Sparkle.Core.Domain.ResetKind`. -/
+inductive ResetKind where
+  | synchronous  : ResetKind  -- Reset is sampled on the clock edge.
+  | asynchronous : ResetKind  -- Reset takes effect the moment it asserts.
+  deriving Repr, BEq, DecidableEq, Inhabited
+
 end Sparkle.IR.Type

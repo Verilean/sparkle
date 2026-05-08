@@ -638,3 +638,76 @@ jobs:
         else
           echo "iverilog not installed, skipping"
         fi
+
+  # ---- Tutorial chapters (Markdown master + xlean-convert) ----
+  tutorial-notebooks:
+    runs-on: ubuntu-latest
+    needs: build  # reuses Lake's package cache via the previous job's setup
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: elan default $(cat lean-toolchain)
+
+    - name: Build xlean-convert from upstream xeus-lean
+      run: |
+        git clone --depth 1 https://github.com/Verilean/xeus-lean.git /tmp/xeus-lean
+        cd /tmp/xeus-lean
+        lake build xlean-convert
+        echo "/tmp/xeus-lean/.lake/build/bin" >> $GITHUB_PATH
+
+    - name: Generate .lean and .ipynb from Markdown
+      run: bash docs/tutorial/build-from-md.sh
+
+    - name: Lake update
+      run: lake update
+
+    # Mode 1 — headless `lake build` (Display *shim* path).
+    # No xeus-lean kernel: chapter cells use the in-repo
+    # `docs/tutorial/Display.lean` shim that emits MIME markers.
+    # Catches drift in the offline build path.
+    - name: "Mode 1 — Build tutorial chapters with Display shim"
+      run: lake build TutorialNotebooks
+
+    # Mode 2 — execute the generated notebooks under the real
+    # xeus-lean kernel so we catch drift in the kernel path too
+    # (real Display.* implementations, real `#mermaid` /
+    # `#help_x` / `#bash`).  We try to build the kernel; if the
+    # CMake build fails (xeus / xtl / xwidgets headers missing
+    # on the runner), we report it but don't fail the job — the
+    # shim mode above is the bedrock.
+    - name: "Mode 2 — Build xeus-lean kernel"
+      id: kernel
+      continue-on-error: true
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libzmq3-dev libssl-dev nlohmann-json3-dev \
+          uuid-dev cmake ninja-build
+        python3 -m pip install --user jupyterlab nbconvert
+        cd /tmp/xeus-lean
+        bash build.sh
+        # Register the kernel so nbconvert can find it.
+        if [ -f /tmp/xeus-lean/share/jupyter/kernels/xlean/kernel.json ]; then
+          mkdir -p ~/.local/share/jupyter/kernels/xlean
+          cp -r /tmp/xeus-lean/share/jupyter/kernels/xlean/* \
+                ~/.local/share/jupyter/kernels/xlean/
+        fi
+
+    - name: "Mode 2 — Execute tutorial notebooks under xeus-lean"
+      if: steps.kernel.outcome == 'success'
+      run: |
+        export PATH="$HOME/.local/bin:$PATH"
+        for nb in docs/tutorial/Notebooks/Gen/notebooks/*.ipynb; do
+          echo "=== executing $nb ==="
+          jupyter nbconvert --to notebook --execute --inplace \
+            --ExecutePreprocessor.kernel_name=xlean \
+            --ExecutePreprocessor.timeout=120 \
+            "$nb"
+        done

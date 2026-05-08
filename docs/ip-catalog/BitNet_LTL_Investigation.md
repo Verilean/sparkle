@@ -263,4 +263,4 @@ These are tracked separately and do NOT block the BitNet acceptance test, which 
   - `Tests/RV32/BitNetMmioProbe.lean` — the runtime probe harness
   - `Tests/Integration/BitNetSoCTest.lean` — Lean-side golden vectors for the FFN
   - `firmware/opensbi/boot.S` — the original 9d0704e self-test
-  - `docs/RV32_Architecture_Status.md` §2.2 — broader sequential-invariant context
+  - `docs/architecture/RV32_Architecture_Status.md` §2.2 — broader sequential-invariant context

@@ -11,7 +11,7 @@ pkgs.mkShell {
     pkg-config
     cmake
     elan
-    (python311.withPackages (ps: with ps; [numpy matplotlib pyyaml pandas pip]))
+    (python3.withPackages (ps: with ps; [numpy matplotlib pyyaml pandas pip jupytext nbconvert jupyterlab]))
     nodejs
     pkgsCross.riscv32-embedded.buildPackages.gcc
     pkgsCross.riscv32-embedded.buildPackages.binutils
@@ -25,6 +25,9 @@ pkgs.mkShell {
     # Kernel build prerequisites
     bc flex bison openssl
     cpio gzip
+    nlohmann_json
+    libuuid
+    zstd.dev
   ];
 
   # Environment variables

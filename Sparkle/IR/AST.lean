@@ -143,11 +143,12 @@ end Expr
 inductive Stmt where
   | assign (lhs : String) (rhs : Expr) : Stmt
   | register
-      (output : String)      -- Output wire name
-      (clock : String)       -- Clock signal name
-      (reset : String)       -- Reset signal name
-      (input : Expr)         -- Input expression
-      (initValue : Int)      -- Reset/initial value
+      (output : String)                  -- Output wire name
+      (clock : String)                   -- Clock signal name
+      (reset : String × Sparkle.IR.Type.ResetKind)
+                                         -- (reset wire name, sync/async)
+      (input : Expr)                     -- Input expression
+      (initValue : Int)                  -- Reset/initial value
       : Stmt
   | memory
       (name : String)         -- Memory instance name
@@ -174,7 +175,11 @@ namespace Stmt
 def toString : Stmt → String
   | assign lhs rhs => s!"{lhs} := {rhs}"
   | register output clock reset input initValue =>
-      s!"reg {output} @(posedge {clock}, {reset}) <= {input} (init: {initValue})"
+      let (rstName, rstKind) := reset
+      let edge := match rstKind with
+        | .synchronous => "sync"
+        | .asynchronous => "async"
+      s!"reg {output} @(posedge {clock}, {edge} {rstName}) <= {input} (init: {initValue})"
   | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
       let readKind := if comboRead then "combo_read" else "read"
       s!"memory {name}[2^{addrWidth}][{dataWidth}] @(posedge {clock}) " ++

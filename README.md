@@ -8,9 +8,11 @@
 A type-safe hardware description language that brings dependent types and
 theorem proving to hardware design.
 
-**Quick Start:** [Tutorial](docs/Tutorial.md) walks from "hello counter" to
-formal verification in about 5 minutes. For the full Signal DSL syntax, see
-[docs/SignalDSL_Syntax.md](docs/SignalDSL_Syntax.md).
+**Quick Start:** the multi-chapter [tutorial](docs/tutorial/) walks
+from "hello counter" through Verilog generation, proofs, and FPGA
+bring-up.  Run it in Docker, or read the rendered notebooks
+directly on GitHub.  For the full Signal DSL syntax, see
+[docs/reference/SignalDSL_Syntax.md](docs/reference/SignalDSL_Syntax.md).
 
 ## The Sparkle Way: Verification-Driven Design
 
@@ -21,7 +23,7 @@ formal verification in about 5 minutes. For the full Signal DSL syntax, see
 4. **Generate Verilog** — `#synthesizeVerilog` / `#writeVerilogDesign` emit
    SystemVerilog.
 
-See [docs/Verification_Framework.md](docs/Verification_Framework.md) for
+See [docs/reference/Verification_Framework.md](docs/reference/Verification_Framework.md) for
 patterns and a worked Round-Robin Arbiter example (10 formal proofs).
 
 ## IP Catalog
@@ -31,13 +33,13 @@ formal proofs, and synthesizable Signal DSL implementations.
 
 | IP | Description | Proofs | Synth | Details |
 |----|-------------|:------:|:-----:|---------|
-| [**BitNet b1.58**](docs/BitNet.md) | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle) | 60+ theorems | Full | 202K / 99K cells |
-| [**YOLOv8n-WorldV2**](docs/YOLOv8.md) | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
-| [**RV32IMA SoC**](docs/RV32.md) | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 14.2M cyc/s (1.63x Verilator). 102 formal proofs | 102 theorems | Full | 122 registers |
-| [**AXI4-Lite Bus**](docs/RV32.md) | Verified AXI4-Lite slave/master. Protocol compliance (valid persistence, deadlock-free), synthesizable | 14 theorems | Full | 23 sim tests |
-| [**SV→Sparkle Transpiler**](docs/RV32.md#sv-transpiler) | Parse Verilog → JIT simulation. LiteX SoC at 18.1M cyc/s (1.72x Verilator). Verified reverse synthesis (2.14x speedup, zero sorry). 8-core parallel 11.9x Verilator. Timer oracle 9,900x. `OracleReduction` type class, 44 tests | 20+ theorems | JIT | 44 tests |
-| [**H.264 Codec**](docs/H264.md) | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. 14 modules | 15+ theorems | Full | 709-byte MP4 output |
-| [**CDC Infrastructure**](docs/CDC.md) | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback, 8-core parallel runner (3.87x speedup). JIT.runCDC | 12 theorems | C++ | N-thread parallel |
+| [**BitNet b1.58**](docs/ip-catalog/BitNet.md) | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle) | 60+ theorems | Full | 202K / 99K cells |
+| [**YOLOv8n-WorldV2**](docs/ip-catalog/YOLOv8.md) | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
+| [**RV32IMA SoC**](docs/ip-catalog/RV32.md) | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 14.2M cyc/s (1.63x Verilator). 102 formal proofs | 102 theorems | Full | 122 registers |
+| [**AXI4-Lite Bus**](docs/ip-catalog/RV32.md) | Verified AXI4-Lite slave/master. Protocol compliance (valid persistence, deadlock-free), synthesizable | 14 theorems | Full | 23 sim tests |
+| [**SV→Sparkle Transpiler**](docs/ip-catalog/RV32.md#sv-transpiler) | Parse Verilog → JIT simulation. LiteX SoC at 18.1M cyc/s (1.72x Verilator). Verified reverse synthesis (2.14x speedup, zero sorry). 8-core parallel 11.9x Verilator. Timer oracle 9,900x. `OracleReduction` type class, 44 tests | 20+ theorems | JIT | 44 tests |
+| [**H.264 Codec**](docs/ip-catalog/H264.md) | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. 14 modules | 15+ theorems | Full | 709-byte MP4 output |
+| [**CDC Infrastructure**](docs/architecture/CDC.md) | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback, 8-core parallel runner (3.87x speedup). JIT.runCDC | 12 theorems | C++ | N-thread parallel |
 
 ---
 
@@ -125,7 +127,7 @@ def registerChain {dom : DomainConfig}
 
 For the full tour — VCD waveforms, JIT simulation, formal equivalence
 commands, clock-domain crossings, and the synthesizable subset of Lean —
-see [`docs/Tutorial.md`](docs/Tutorial.md).
+work through [`docs/tutorial/`](docs/tutorial/).
 
 ## Key Features
 
@@ -138,7 +140,7 @@ see [`docs/Tutorial.md`](docs/Tutorial.md).
   (LTL) for safety/liveness/fairness proofs directly against Signal code.
 - **One-line equivalence checks** — `#verify_eq`, `#verify_eq_at`,
   `#verify_eq_git` auto-generate theorems and discharge them with
-  `bv_decide`. See `docs/Tutorial.md` §5.4–5.6.
+  `bv_decide`. See `docs/tutorial/notebooks/ch07-equivalence.ipynb`.
 - **Signal DSL with imperative feel** — `Signal.circuit` macro gives you
   `<~` register assignment without losing the functional semantics.
 - **Vector / array types** — `HWVector α n` with compile-time-checked
@@ -180,8 +182,8 @@ cd verilator && make build && ./obj_dir/Vrv32i_soc ../firmware/firmware.hex 5000
 ```
 
 Each IP has a dedicated getting-started recipe in its own doc
-([BitNet](docs/BitNet.md), [RV32](docs/RV32.md), [H264](docs/H264.md),
-[YOLOv8](docs/YOLOv8.md), [CDC](docs/CDC.md)).
+([BitNet](docs/ip-catalog/BitNet.md), [RV32](docs/ip-catalog/RV32.md), [H264](docs/ip-catalog/H264.md),
+[YOLOv8](docs/ip-catalog/YOLOv8.md), [CDC](docs/architecture/CDC.md)).
 
 ## Documentation
 
@@ -195,21 +197,21 @@ open .lake/build/doc/index.html
 Pointers to the hand-written docs:
 
 - **Getting started / writing synthesizable code**
-  - [docs/Tutorial.md](docs/Tutorial.md) — 5-minute walkthrough + synthesis rules
-  - [docs/SignalDSL_Syntax.md](docs/SignalDSL_Syntax.md) — full DSL reference
-  - [docs/Troubleshooting_Synthesis.md](docs/Troubleshooting_Synthesis.md)
+  - [docs/tutorial/](docs/tutorial/) — multi-chapter beginner course
+  - [docs/reference/SignalDSL_Syntax.md](docs/reference/SignalDSL_Syntax.md) — full DSL reference
+  - [docs/reference/Troubleshooting_Synthesis.md](docs/reference/Troubleshooting_Synthesis.md)
 - **Verification**
-  - [docs/Verification_Framework.md](docs/Verification_Framework.md) — VDD patterns
+  - [docs/reference/Verification_Framework.md](docs/reference/Verification_Framework.md) — VDD patterns
   - [Examples/TemporalLogicExample.md](Examples/TemporalLogicExample.md) — LTL usage
 - **IP-specific docs**
-  - [docs/BitNet.md](docs/BitNet.md) · [docs/YOLOv8.md](docs/YOLOv8.md)
-  - [docs/RV32.md](docs/RV32.md) · [docs/H264.md](docs/H264.md)
-  - [docs/CDC.md](docs/CDC.md)
+  - [docs/ip-catalog/BitNet.md](docs/ip-catalog/BitNet.md) · [docs/ip-catalog/YOLOv8.md](docs/ip-catalog/YOLOv8.md)
+  - [docs/ip-catalog/RV32.md](docs/ip-catalog/RV32.md) · [docs/ip-catalog/H264.md](docs/ip-catalog/H264.md)
+  - [docs/architecture/CDC.md](docs/architecture/CDC.md)
 - **Project meta**
   - [docs/CHANGELOG.md](docs/CHANGELOG.md) — release history
-  - [docs/STATUS.md](docs/STATUS.md) — current capability matrix
-  - [docs/KnownIssues.md](docs/KnownIssues.md)
-  - [docs/BENCHMARK.md](docs/BENCHMARK.md)
+  - [docs/architecture/STATUS.md](docs/architecture/STATUS.md) — current capability matrix
+  - [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md)
+  - [docs/known-issues/BENCHMARK.md](docs/known-issues/BENCHMARK.md)
 
 ## How It Works
 
@@ -250,8 +252,8 @@ def fixed {dom : DomainConfig} : Signal dom (BitVec 8) :=
 
 ## Known Limitations
 
-See [docs/Troubleshooting_Synthesis.md](docs/Troubleshooting_Synthesis.md)
-and [docs/KnownIssues.md](docs/KnownIssues.md) for the current list of:
+See [docs/reference/Troubleshooting_Synthesis.md](docs/reference/Troubleshooting_Synthesis.md)
+and [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md) for the current list of:
 
 - Imperative syntax limitations (`<~` inside conditionals).
 - Pattern matching on tuples in synthesizable contexts.

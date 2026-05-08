@@ -115,13 +115,16 @@ def emitAssign (lhs : String) (rhs : Expr) : CircuitM Unit := do
   Returns the name of the output wire.
 -/
 def emitRegister (hint : String) (clock : String) (reset : String)
-    (input : Expr) (initValue : Int) (ty : HWType) (named : Bool := false) : CircuitM String := do
+    (input : Expr) (initValue : Int) (ty : HWType)
+    (named : Bool := false)
+    (resetKind : Sparkle.IR.Type.ResetKind := .asynchronous)
+    : CircuitM String := do
   let outputName ← freshName (sanitizeName hint) named
   let m ← getModule
   -- Add the output wire
   let m := m.addWire { name := outputName, ty := ty }
   -- Add the register statement
-  let m := m.addStmt (.register outputName clock reset input initValue)
+  let m := m.addStmt (.register outputName clock (reset, resetKind) input initValue)
   setModule m
   return outputName
 
