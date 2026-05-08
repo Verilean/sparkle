@@ -150,6 +150,19 @@ p.write_text(json.dumps(spec,indent=2))"
 RUN jupyter kernelspec list | grep -q '^\s*xlean\s' \
       || { echo 'ERROR: xlean kernel did not register with Jupyter.' >&2; exit 1; }
 
+# `xlean-convert` writes notebooks whose `metadata.kernelspec.name`
+# is `xeus-lean`, but the kernel itself registers under the short
+# name `xlean`.  Re-export the same kernelspec under the longer
+# name as well so JupyterLab finds it without prompting the user
+# to "Select Kernel" each time they open a chapter.
+RUN cp -r /root/.local/share/jupyter/kernels/xlean \
+          /root/.local/share/jupyter/kernels/xeus-lean && \
+    python3 -c "import json,pathlib; \
+p=pathlib.Path('/root/.local/share/jupyter/kernels/xeus-lean/kernel.json'); \
+spec=json.loads(p.read_text()); \
+spec['display_name']='Lean 4 (xeus-lean)'; \
+p.write_text(json.dumps(spec,indent=2))"
+
 # Smoke-test the kernel inside the image so a broken build fails the
 # `docker build` rather than silently shipping.
 RUN python3 scripts/smoke-test-native.py
