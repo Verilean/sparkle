@@ -243,6 +243,104 @@ Watch the wire names in the synthesised module — `result` and
 #synthesizeVerilog alu4
 
 ```
+## 4.6b Module hierarchy — the default is to *keep* it
+
+A subtle but important property of the Sparkle compiler: when one
+`def` calls another, the generated Verilog gets a real **module
+instance**, not inlined logic.  This matters for the back end:
+
+- **Place-and-route** (`nextpnr-ice40`, `nextpnr-ecp5`, Vivado)
+  uses module boundaries for floorplan / region constraints.
+- **Hierarchical synthesis** lets a tool synthesise a re-used
+  block once and instantiate it many times — important for QoR
+  on big designs.
+- **Out-of-context (OOC) flows** synthesise a sub-module against
+  its own constraints, then drop it into the parent.
+
+If everything were inlined the back end would lose those hooks.
+
+### What you get by default
+
+A small re-usable sub-module — a one-cycle latch — and a
+parent that chains two of them in series.  The point isn't
+the function (it's just a delay line); it's the emitted
+Verilog hierarchy.
+
+```lean
+def latch8 (x : Signal defaultDomain (BitVec 8))
+    : Signal defaultDomain (BitVec 8) :=
+  Signal.circuit do
+    let r ← Signal.reg 0#8
+    r <~ x
+    return r
+
+def latch8x2 (x : Signal defaultDomain (BitVec 8))
+    : Signal defaultDomain (BitVec 8) :=
+  latch8 (latch8 x)
+
+#synthesizeVerilogDesign latch8x2
+```
+
+Note the command is `#synthesizeVerilogDesign` (Design = parent
++ all transitive children), not the `#synthesizeVerilog`
+single-module form we've been using up to here.
+
+The generated Verilog now has **two modules**:
+
+```text
+module latch8 ( ... );          // child: defined once
+  ...
+endmodule
+
+module latch8x2 (               // parent: instantiates latch8 twice
+    input  logic [7:0] _gen_x,
+    input  logic       clk,
+    input  logic       rst,
+    output logic [7:0] out);
+  latch8 _tmp_inst_latch8_1 (.clk(clk), .rst(rst), ._gen_x(_gen_x),       .out(_tmp_arg0_0));
+  latch8 _tmp_inst_latch8_3 (.clk(clk), .rst(rst), ._gen_x(_tmp_arg0_0),  .out(_tmp_result_2));
+  assign out = _tmp_result_2;
+endmodule
+```
+
+The two `_tmp_inst_latch8_*` instance names are auto-generated
+and unique — same module, two physical copies on the chip.
+Sparkle also auto-routes the parent's `clk` / `rst` ports into
+each child's clock / reset port (you don't write the wiring
+yourself), and auto-adds those ports to the parent if its
+children need them.
+
+### Opting *out* — `@[inline_hardware]`
+
+For tiny helper functions where a separate module would just
+bloat the netlist, tag the helper with `@[inline_hardware]`:
+
+```lean
+@[inline_hardware]
+def addOne {dom : DomainConfig}
+    (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  x + 1#8
+
+-- Now `addOne x` doesn't produce an `addOne` module — its body
+-- expands directly into the caller.
+```
+
+The Sparkle primitive combinators (`Signal.map`, `Signal.mux`,
+`Signal.fst`, BitVec arithmetic instances, …) are tagged this
+way internally, which is why their use in earlier chapters has
+been silently inlined.
+
+### When the hierarchy default *can't* be honoured
+
+A handful of cases still inline automatically — typeclass
+dictionary helpers, polymorphic combinators that return through
+dictionary dispatch, and Lean's own `OfNat` / `HAdd` machinery.
+Those don't have a meaningful "module identity" to preserve, so
+the compiler falls back to inlining when sub-module synthesis
+fails on them.  You'll see this in practice as: the parent
+module just contains `_tmp_*` wires and `assign`s for those
+operators, never a sub-instance.
+
 ## 4.7 Theorem — ALU matches a behavioural spec
 
 Over `BitVec 4` (16 inputs each side) and 4 ops, the input

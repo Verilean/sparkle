@@ -14,6 +14,7 @@ import Sparkle.Backend.Verilog
 import Sparkle.Backend.CppSim
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.DRC
+import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 
@@ -82,6 +83,12 @@ def liftMetaM {α : Type} (m : MetaM α) : CompilerM α :=
 def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CompilerM String := do
   let cs ← get
   let (name, cs') := CircuitM.makeWire hint ty named cs
+  set cs'
+  return name
+
+def freshName (hint : String) (named : Bool := false) : CompilerM String := do
+  let cs ← get
+  let (name, cs') := CircuitM.freshName hint named cs
   set cs'
   return name
 
@@ -1403,7 +1410,31 @@ mutual
 
     return none
 
-  /-- Handle definition unfolding (inline) or sub-module synthesis (fallback) -/
+  /-- Handle a Lean function call by either inlining the body
+      (if the declaration is tagged `@[inline_hardware]`) or
+      emitting a sub-module instance (the default).
+
+      The default of "preserve hierarchy" matches what downstream
+      tools expect: synthesisers / place-and-route / OOC flows /
+      floorplanners all consume a Verilog hierarchy that mirrors
+      the user's source.  `@[inline_hardware]` is for primitive
+      combinators that have no hardware identity of their own
+      (`Signal.map`, `Signal.mux`, `Signal.fst`, BitVec operators,
+      …) and for user helpers small enough that a sub-module
+      boundary would just bloat the netlist.
+
+      Implementation note: existing Sparkle code was written
+      against the old "inline by default" behaviour, so the
+      sub-module path here also catches `Lean.Meta.unfoldDefinition?`
+      cases that *can* be inlined safely (operator instances,
+      type-class dictionaries, dependent reducibility chains).
+      Concretely: we *first* attempt sub-module synthesis, and
+      fall back to inlining only when sub-module synthesis fails
+      because the declaration isn't a synthesisable circuit on
+      its own (e.g. it returns through type-class dispatch).
+      The end result is that hand-written Sparkle modules become
+      Verilog instances by default, while operator-instance
+      machinery still desugars away. -/
   partial def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     let isValidDef ← CompilerM.liftMetaM do
       try
@@ -1415,42 +1446,90 @@ mutual
 
     if !isValidDef then return none
 
-    trace[sparkle.compiler] "→ definition unfold {name}"
+    let env ← CompilerM.liftMetaM getEnv
+    let optedInToInline := Sparkle.Compiler.isInlineHardware env name
 
-    -- First try to reduce the function call and translate inline.
-    -- Use reducible transparency to avoid expanding HAdd/HAppend mixed instances
-    let eReduced ← CompilerM.liftMetaM do
-      match ← Lean.Meta.unfoldDefinition? e with
-        | some e' => return e'
-        | none => return e
-    if eReduced != e then
-      try
-        let w ← translateExprToWire eReduced hint (isNamed := isNamed)
-        return some w
-      catch _ex1 =>
-        -- Inline expansion failed (often due to mixed Signal/BitVec operators
-        -- inside the expanded body). Retry with reducible transparency to
-        -- prevent over-expansion of Signal.pure and OfNat instances.
+    -- Helper: try the historical "unfold and translate inline" path.
+    let tryInline : CompilerM (Option String) := do
+      let eReduced ← CompilerM.liftMetaM do
+        match ← Lean.Meta.unfoldDefinition? e with
+          | some e' => return e'
+          | none => return e
+      if eReduced != e then
         try
-          let eReduced2 ← CompilerM.liftMetaM do
-            Lean.Meta.withTransparency .reducible do
-              match ← Lean.Meta.unfoldDefinition? e with
-              | some e' => return e'
-              | none => return e
-          if eReduced2 != e then
-            let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
-            return some w
-        catch ex2 =>
-          let msg := ex2.toMessageData
-          CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
+          let w ← translateExprToWire eReduced hint (isNamed := isNamed)
+          return some w
+        catch _ex1 =>
+          -- Inline expansion failed (often due to mixed Signal/BitVec operators
+          -- inside the expanded body). Retry with reducible transparency to
+          -- prevent over-expansion of Signal.pure and OfNat instances.
+          try
+            let eReduced2 ← CompilerM.liftMetaM do
+              Lean.Meta.withTransparency .reducible do
+                match ← Lean.Meta.unfoldDefinition? e with
+                | some e' => return e'
+                | none => return e
+            if eReduced2 != e then
+              let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
+              return some w
+            else
+              return none
+          catch _ex2 =>
+            return none
+      else
+        return none
 
-    -- Fallback: sub-module synthesis
+    if optedInToInline then
+      trace[sparkle.compiler] "→ definition unfold {name} (inline_hardware)"
+      match ← tryInline with
+      | some w => return some w
+      | none =>
+        CompilerM.liftMetaM $ throwError
+          s!"Inline expansion failed for {name} (tagged @[inline_hardware])"
+    -- Otherwise: try sub-module synthesis first, fall back to inline only
+    -- when the declaration isn't a synthesisable circuit (e.g. a typeclass
+    -- helper that returns through dictionary dispatch).
+    let subResult? : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ←
+      try
+        some <$> CompilerM.liftMetaM (synthesizeCombinational name)
+      catch _ => pure none
+    match subResult? with
+    | none =>
+      trace[sparkle.compiler] "→ sub-module synthesis failed for {name}; falling back to inline"
+      match ← tryInline with
+      | some w => return some w
+      | none =>
+        CompilerM.liftMetaM $ throwError
+          s!"Cannot synthesise {name}: not a hardware module and not inlinable"
+    | some (subModule, subDesign) =>
+
     trace[sparkle.compiler] "→ sub-module synthesis {name}"
-    let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
-    for m in subDesign.modules do CompilerM.addModuleToDesign m
-    CompilerM.addModuleToDesign subModule
+    -- Add the child's transitive modules and the child itself to the
+    -- design, but only if not already present.  Two calls to the same
+    -- sub-module must produce *one* module definition + two
+    -- instantiations, not two duplicate definitions.
+    let existing := (← get).design.modules.map (·.name)
+    for m in subDesign.modules do
+      if !existing.contains m.name then
+        CompilerM.addModuleToDesign m
+    if !existing.contains subModule.name &&
+       !((← get).design.modules.any (·.name == subModule.name)) then
+      CompilerM.addModuleToDesign subModule
 
     let mut connections := []
+    -- Wire the child's clk / rst to the parent's clk / rst port (if
+    -- the child has them).  If the parent doesn't already declare
+    -- the matching input port, add it: a sequential sub-module
+    -- requires its parent to expose clk/rst at its own boundary.
+    -- Otherwise nextpnr / Verilator will complain about an
+    -- undriven clock.
+    for p in subModule.inputs do
+      if p.name == "clk" || p.name == "rst" then
+        let parent := (← get).module
+        if !parent.inputs.any (·.name == p.name) then
+          CompilerM.addInput p.name p.ty
+        connections := (p.name, Sparkle.IR.AST.Expr.ref p.name) :: connections
+
     let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
     if args.size < inputPorts.length then
        CompilerM.liftMetaM $ throwError s!"Sub-module {name} requires {inputPorts.length} args, but got {args.size}"
@@ -1465,7 +1544,12 @@ mutual
     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
     connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
 
-    CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
+    -- Generate a fresh, unique instance name.  Two calls to the same
+    -- sub-module within a single parent must produce two distinct
+    -- `inst_*` names — otherwise the emitted Verilog has a duplicate
+    -- identifier.
+    let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    CompilerM.emitInstance subModule.name instName connections.reverse
     return some resWire
 
   -- ===========================================================================

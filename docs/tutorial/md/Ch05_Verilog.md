@@ -122,14 +122,20 @@ Look at the wire names in the two outputs.  When you start
 debugging on a waveform, the named version saves time — you
 can scope-search for `_gen_sum` directly.
 
-## 5.5 Module composition becomes Verilog instantiation
+## 5.5 Module composition and the hierarchy default
 
 When one Sparkle `def` calls another, the generated Verilog
-emits a module instance — not inlined logic.  This keeps the
-Verilog hierarchy aligned with the Lean code, which is huge
-for tool-chain diff readability.
+emits a **module instance** by default — not inlined logic —
+so the user-authored hierarchy survives into place-and-route.
+Ch 4 §4.6b explains *why* and shows the multi-module output.
+Two notes for this chapter:
 
-(Compose two passthroughs as a sanity demo.)
+1. The single-module command `#synthesizeVerilog` only prints
+   the *top* module.  To see the children, use
+   `#synthesizeVerilogDesign`.
+2. Tiny helpers can opt out with `@[inline_hardware]` — useful
+   for things like a one-line wrapper that would just bloat
+   the netlist as its own module.
 
 ```lean
 def doubleThrough {dom : DomainConfig}
@@ -138,6 +144,10 @@ def doubleThrough {dom : DomainConfig}
 
 ```
 ```lean
+-- This single-module form prints `doubleThrough` only — the
+-- two `passthrough` instances live in separate child modules
+-- in the design.  Use `#synthesizeVerilogDesign doubleThrough`
+-- to see all three side-by-side.
 #synthesizeVerilog doubleThrough
 
 ```

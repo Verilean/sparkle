@@ -102,6 +102,10 @@ lean_exe «tutorial-smoke» where
   root := `Tests.Tutorial.SmokeTest
   supportInterpreter := true
 
+lean_exe «tutorial-hierarchy» where
+  root := `Tests.Tutorial.HierarchyTest
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
