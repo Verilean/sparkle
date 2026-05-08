@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777970455415,
+  "lastUpdate": 1778216410408,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1319,6 +1319,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4314410,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "ee8a7e9081c12eac0653578ca4ea30d40cd70e0c",
+          "message": "Add .claude/ to .gitignore (Claude Code working dir)\n\nRemoves the accidentally-committed `.claude/scheduled_tasks.lock`\nand prevents future commits from picking up Claude Code's\nlocal working state.",
+          "timestamp": "2026-05-08T13:43:54+09:00",
+          "tree_id": "a6ae3cae493812d83f165c9bd90b970a376a48bd",
+          "url": "https://github.com/Verilean/sparkle/commit/ee8a7e9081c12eac0653578ca4ea30d40cd70e0c"
+        },
+        "date": 1778216410038,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 2332684,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3655438,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4287887,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4227296,
             "unit": "cycles/sec"
           }
         ]
