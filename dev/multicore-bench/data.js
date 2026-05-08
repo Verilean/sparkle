@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1777970577896,
+  "lastUpdate": 1778216531735,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -923,6 +923,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 696212,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "ee8a7e9081c12eac0653578ca4ea30d40cd70e0c",
+          "message": "Add .claude/ to .gitignore (Claude Code working dir)\n\nRemoves the accidentally-committed `.claude/scheduled_tasks.lock`\nand prevents future commits from picking up Claude Code's\nlocal working state.",
+          "timestamp": "2026-05-08T13:43:54+09:00",
+          "tree_id": "a6ae3cae493812d83f165c9bd90b970a376a48bd",
+          "url": "https://github.com/Verilean/sparkle/commit/ee8a7e9081c12eac0653578ca4ea30d40cd70e0c"
+        },
+        "date": 1778216531366,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4536119,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 565145,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1115018,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 690427,
             "unit": "cycles/sec"
           }
         ]
