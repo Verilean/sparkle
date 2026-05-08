@@ -93,46 +93,66 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # Sparkle source code reuse this layer.
 FROM jupyter AS xeus-lean
 
-# Native dependencies xeus-lean's CMake build needs.  Without these
-# `bash build.sh` produces an obscure "could not find xeus" or
-# "could not find nlohmann_json" error; pre-installing them moves
-# the failure (if any) earlier in the build log.
+# Native dependencies for xeus-lean's CMake build.  This is the
+# upstream-blessed recipe — see `Dockerfile.native` in the
+# Verilean/xeus-lean repo.  CMake fetches xeus / xeus-zmq / xtl /
+# cppzmq / libzmq itself via FetchContent, so we don't apt-install
+# them.  We *do* need libc++ because xeus-lean's C++ FFI is built
+# with clang+libc++ to match the binary it links against.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libzmq3-dev \
-        libssl-dev \
+        clang \
+        libc++-dev \
+        libc++abi-dev \
         nlohmann-json3-dev \
         uuid-dev \
-        libxeus-dev \
-        libxeus-zmq-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    || true   # not all of these are guaranteed to exist on every Ubuntu mirror; build.sh will tell us
+        libssl-dev \
+        zstd \
+    && rm -rf /var/lib/apt/lists/*
 
-ARG BUILD_XEUS_LEAN=1
 WORKDIR /opt
-RUN git clone --depth 1 https://github.com/Verilean/xeus-lean.git && \
-    cd xeus-lean && \
-    lake build xlean-convert && \
+RUN git clone --depth 1 https://github.com/Verilean/xeus-lean.git
+
+# Stage 4a — build the C++ FFI library that xlean links against.
+WORKDIR /opt/xeus-lean
+RUN cmake -S . -B build-cmake \
+      -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ \
+      -DCMAKE_CXX_FLAGS="-stdlib=libc++" && \
+    cmake --build build-cmake -j
+
+# Linux glibc C23 shim (clang -> __isoc23_strtoull -> Lean's older glibc).
+RUN leanc -c src/glibc_isoc23_compat.c -o build-cmake/glibc_isoc23_compat.o
+
+# Stage 4b — build the Lean side: xlean kernel binary, xlean-convert
+# CLI, and the Display library oleans.
+RUN lake build xlean Display CommBus xlean-convert
+
+# Install both binaries onto PATH so kernel.json and tutorial scripts
+# can find them by name.
+RUN install -m 0755 .lake/build/bin/xlean         /usr/local/bin/xlean && \
     install -m 0755 .lake/build/bin/xlean-convert /usr/local/bin/xlean-convert
 
-# Build the xeus-lean kernel.  HARD-FAIL if it doesn't produce a
-# kernel.json that `jupyter kernelspec list` can pick up — a
-# silent fallback would yield a JupyterLab where every cell hits
-# "Kernel xlean not found".
-RUN if [ "${BUILD_XEUS_LEAN}" = "1" ]; then \
-      cd /opt/xeus-lean && bash build.sh; \
-      # Register the kernelspec system-wide so `jupyter kernelspec list`
-      # (run as any user) sees it.
-      KSPEC=$(find /opt/xeus-lean -name kernel.json -path '*kernels/xlean*' | head -n1); \
-      if [ -z "$KSPEC" ]; then \
-        echo "ERROR: xeus-lean built but no kernels/xlean/kernel.json was produced." >&2; \
-        exit 1; \
-      fi; \
-      KDIR=$(dirname "$KSPEC"); \
-      install -d /usr/local/share/jupyter/kernels/xlean; \
-      cp -r "$KDIR"/. /usr/local/share/jupyter/kernels/xlean/; \
-      jupyter kernelspec list | grep -q '^\s*xlean\s' || \
-        { echo "ERROR: xlean kernel did not register with Jupyter." >&2; exit 1; }; \
-    fi
+# Stage 4c — register the xlean kernelspec under /root/.local so
+# JupyterLab finds it, then patch `LEAN_PATH` + `PATH` into the spec
+# so notebook cells can `import Display` and so `bv_decide` can spawn
+# the cadical bundled with elan.
+RUN bash scripts/install-kernelspec.sh --user
+RUN python3 -c "import json,pathlib; \
+p=pathlib.Path('/root/.local/share/jupyter/kernels/xlean/kernel.json'); \
+spec=json.loads(p.read_text()); \
+env=spec.get('env',{}); \
+env['LEAN_PATH']='/opt/xeus-lean/.lake/build/lib/lean'; \
+env['PATH']='/root/.elan/bin:/root/.elan/toolchains/leanprover--lean4---v4.28.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'; \
+spec['env']=env; \
+p.write_text(json.dumps(spec,indent=2))"
+
+# Hard-fail if the kernel didn't register.
+RUN jupyter kernelspec list | grep -q '^\s*xlean\s' \
+      || { echo 'ERROR: xlean kernel did not register with Jupyter.' >&2; exit 1; }
+
+# Smoke-test the kernel inside the image so a broken build fails the
+# `docker build` rather than silently shipping.
+RUN python3 scripts/smoke-test-native.py
 
 # -----------------------------------------------------------------
 # Stage 5 — Sparkle source + warmed Lake build cache.
@@ -147,10 +167,52 @@ COPY . /workspace/sparkle
 # the running container is a no-op.  This makes `docker run` →
 # JupyterLab → first cell ≪ 10 seconds.
 WORKDIR /workspace/sparkle
+# `lake update` re-resolves dependency manifests and, as a side
+# effect, rewrites `lean-toolchain` to the highest version any
+# dependency requires.  Sparkle pins itself to `v4.28.0` and
+# xlean was built against the same; if `lean-toolchain` flips to
+# something newer (e.g. v4.30.0-rc2), elan auto-installs that
+# toolchain and xlean later sees a sysroot whose `Init.olean` it
+# cannot read ("incompatible header").  We snapshot the file
+# before `lake update` and restore it afterwards.
 RUN set -eux; \
+    cp lean-toolchain /tmp/lean-toolchain.pinned; \
     lake update; \
+    cp /tmp/lean-toolchain.pinned lean-toolchain; \
     bash docs/tutorial/build-from-md.sh; \
     lake build TutorialNotebooks Display
+
+# Inject the Sparkle build cache (and every dep package's cache) into
+# the xlean kernel's `LEAN_PATH`.  Without this, `import Sparkle` from
+# a notebook cell fails with "unknown module prefix 'Sparkle'", because
+# the kernel.json that scripts/install-kernelspec.sh wrote only points
+# at xeus-lean's own oleans.
+RUN python3 - <<'PY'
+import json, os, subprocess, pathlib
+
+# Ask `lake env` what the full LEAN_PATH should be; this picks up
+# every transitive package (MD4Lean, BibtexQuery, UnicodeBasic, Cli,
+# leansqlite, doc-gen4, LSpec, plus Sparkle itself).
+out = subprocess.check_output(
+    ['lake', 'env', 'env'], cwd='/workspace/sparkle'
+).decode()
+sparkle_lean_path = next(
+    line.split('=', 1)[1] for line in out.splitlines()
+    if line.startswith('LEAN_PATH=')
+)
+
+p = pathlib.Path('/root/.local/share/jupyter/kernels/xlean/kernel.json')
+spec = json.loads(p.read_text())
+env = spec.setdefault('env', {})
+existing = env.get('LEAN_PATH', '')
+# Prepend xeus-lean's own oleans (Display, CommBus) so the kernel's
+# `import Display` continues to work; append Sparkle + deps after.
+env['LEAN_PATH'] = (
+    '/opt/xeus-lean/.lake/build/lib/lean:' + sparkle_lean_path
+)
+p.write_text(json.dumps(spec, indent=2))
+print('Patched kernel.json LEAN_PATH:', env['LEAN_PATH'])
+PY
 
 # -----------------------------------------------------------------
 # Default command — JupyterLab on port 8888, no token, rooted at
