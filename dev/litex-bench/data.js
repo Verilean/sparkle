@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778216462710,
+  "lastUpdate": 1778302488283,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -781,6 +781,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2512520,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e9fd99fd9261e19fd53ddabdd6bb87710a78f79",
+          "message": "Merge pull request #31 from xiangze/FPU\n\nFPU with proofs",
+          "timestamp": "2026-05-09T13:47:58+09:00",
+          "tree_id": "31fb81df206f8438dc1464858a7508d1ea73ad23",
+          "url": "https://github.com/Verilean/sparkle/commit/6e9fd99fd9261e19fd53ddabdd6bb87710a78f79"
+        },
+        "date": 1778302487666,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4574623,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2155500,
             "unit": "cycles/sec"
           }
         ]
