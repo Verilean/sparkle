@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778216531735,
+  "lastUpdate": 1778302561955,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -967,6 +967,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 690427,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e9fd99fd9261e19fd53ddabdd6bb87710a78f79",
+          "message": "Merge pull request #31 from xiangze/FPU\n\nFPU with proofs",
+          "timestamp": "2026-05-09T13:47:58+09:00",
+          "tree_id": "31fb81df206f8438dc1464858a7508d1ea73ad23",
+          "url": "https://github.com/Verilean/sparkle/commit/6e9fd99fd9261e19fd53ddabdd6bb87710a78f79"
+        },
+        "date": 1778302561308,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4064276,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 502831,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1006507,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 645080,
             "unit": "cycles/sec"
           }
         ]
