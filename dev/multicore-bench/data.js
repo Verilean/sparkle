@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778302561955,
+  "lastUpdate": 1778302704638,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1011,6 +1011,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 645080,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41333d2b8fc6d756fcaffd1b939f7b30c8ea4a5c",
+          "message": "Merge pull request #27 from xiangze/slice_operator_comma\n\ndefine and prove bit slice operatror v[hi,lo]",
+          "timestamp": "2026-05-09T13:50:20+09:00",
+          "tree_id": "07dc69b7ca76c85c3666b2b168667f186b756c19",
+          "url": "https://github.com/Verilean/sparkle/commit/41333d2b8fc6d756fcaffd1b939f7b30c8ea4a5c"
+        },
+        "date": 1778302703970,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4047770,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 499113,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1015386,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 660510,
             "unit": "cycles/sec"
           }
         ]
