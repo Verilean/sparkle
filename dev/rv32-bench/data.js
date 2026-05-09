@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778302431566,
+  "lastUpdate": 1778302574835,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1407,6 +1407,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 3429029,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41333d2b8fc6d756fcaffd1b939f7b30c8ea4a5c",
+          "message": "Merge pull request #27 from xiangze/slice_operator_comma\n\ndefine and prove bit slice operatror v[hi,lo]",
+          "timestamp": "2026-05-09T13:50:20+09:00",
+          "tree_id": "07dc69b7ca76c85c3666b2b168667f186b756c19",
+          "url": "https://github.com/Verilean/sparkle/commit/41333d2b8fc6d756fcaffd1b939f7b30c8ea4a5c"
+        },
+        "date": 1778302573994,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3122855,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3267562,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 3672698,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 3448137,
             "unit": "cycles/sec"
           }
         ]
