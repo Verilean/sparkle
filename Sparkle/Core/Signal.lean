@@ -1129,4 +1129,32 @@ macro_rules
 
     `(let _circuit_result := $loopExpr; $result)
 
+
+-- namespace BitVec
+
+/-- Verilog-style slice: `bitsHL inst hi lo` ≡ `inst[hi,lo]`. -/
+@[inline]
+def bitsHL {w : Nat} (x : BitVec w) (hi lo : Nat) : BitVec (hi - lo + 1) :=
+  x.extractLsb' lo (hi - lo + 1)
+
+--syntax:max term noWs "[" term ":" term "]" : term
+syntax:max term noWs "[" term "," term "]" : term
+
+class HasBitSlice (α : Type) (β : outParam (Nat → Type)) where
+  slice : α → (hi lo : Nat) → β (hi - lo + 1)
+
+instance : HasBitSlice (BitVec w) BitVec where
+  slice x hi lo := x.extractLsb' lo (hi - lo + 1)
+
+instance {dom : DomainConfig} {w : Nat} :
+    HasBitSlice (Signal dom (BitVec w)) (fun n => Signal dom (BitVec n)) where
+  slice s hi lo := s.map (·.extractLsb' lo (hi - lo + 1))
+
+macro_rules | `($s[$hi , $lo]) => `(HasBitSlice.slice $s $hi $lo)
+
+-- equivalence between v[hi,lo] and extractLsb' lo (hi - lo + 1)
+example {dom : DomainConfig} {w : Nat} (v : Signal dom (BitVec w)) (hi lo : Nat) :
+    v[hi, lo] = v.map (BitVec.extractLsb' lo (hi - lo + 1) ·) := rfl
+
+
 end Sparkle.Core.Signal
