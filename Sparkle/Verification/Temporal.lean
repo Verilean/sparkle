@@ -188,7 +188,15 @@ theorem stableFor_induction {d : DomainConfig} {α : Type} [BEq α]
   s.atTime 0 == v →
   (∀ (t : Nat), t < n → s.atTime t == v → s.atTime (t + 1) == v) →
   stableFor s v (n + 1) := by
-  sorry
+  intro h_base h_step
+  unfold stableFor
+  intro t ht
+  induction t with
+  | zero => exact h_base
+  | succ t ih =>
+    -- ih : t < n + 1 → s.atTime t == v
+    -- ht : t + 1 < n + 1
+    exact h_step t (by omega) (ih (by omega))
 
 /--
   Composition lemma: If P always holds and P implies Q, then Q always holds.
