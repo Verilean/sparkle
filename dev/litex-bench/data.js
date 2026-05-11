@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778536997566,
+  "lastUpdate": 1778542871200,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -883,6 +883,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2168118,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "670c8de6e3ba3759f8d42e2d3746a46eeca4a302",
+          "message": ".dockerignore: refresh comments to match the current Dockerfile\n\nThe header explained the file as protection against a blanket\n`COPY . /workspace/sparkle` that the tutorial Dockerfile used\nto do.  That `COPY .` was replaced months ago with a hand-picked\nlist of directories (`Sparkle/`, `c_src/`, `lakefile.toml`,\ndocs/tutorial/, tutorial-extended/, …), so the entries below\nare now defence-in-depth rather than load-bearing.\n\nJust rewrite the comment block to say so; no entries\nadded/removed.",
+          "timestamp": "2026-05-12T08:34:00+09:00",
+          "tree_id": "82445a88dadf1b6ddac84c68315596821b552612",
+          "url": "https://github.com/Verilean/sparkle/commit/670c8de6e3ba3759f8d42e2d3746a46eeca4a302"
+        },
+        "date": 1778542870899,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 5748588,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2513272,
             "unit": "cycles/sec"
           }
         ]
