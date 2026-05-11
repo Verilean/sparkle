@@ -27,13 +27,19 @@ complex composition.
 The original ask was "prove the Sparkle BitNet kernel and the Hesper
 BitNet kernel are equivalent." The current state is **partially that**:
 
-| Stage              | "Sparkle ≡ Hesper on a fixture" claim       | Status                    |
-| ------------------ | ------------------------------------------- | ------------------------- |
-| BitLinear (matmul) | YES — `hesper_eq_sparkle_v1a` (vendored CPU spec) | **proved**          |
-| Q·K^T dot product  | YES — `sparkle_eq_hesper_circuit` + `_wgsl` (DSL interp) | **proved**     |
-| Softmax            | YES — `softmax_circuit_matches_sparkle` + `_wgsl` (DSL interp, ULP-tolerant) | **proved** |
-| Weighted-V (attn@V)| YES — `weightedV_circuit_matches_sparkle` + `_wgsl` (DSL interp, truncation-aware) | **proved** |
-| End-to-end attn    | YES — `circuit_{saturated,soft}_matches_sparkle` + `wgsl_*` (DSL interp, full pipeline) | **proved** |
+| Stage              | Strategy                                    | "Sparkle ≡ Hesper on a fixture" claim       | Status                    |
+| ------------------ | ------------------------------------------- | ------------------------------------------- | ------------------------- |
+| BitLinear (matmul) | (4) fixture (v1a, integer inputs)           | YES — `hesper_eq_sparkle_v1a` (vendored CPU spec) | **proved**          |
+| Q·K^T dot product  | (4) fixture (length-8 INT8)                 | YES — `sparkle_eq_hesper_circuit` + `_wgsl` (DSL interp) | **proved**     |
+| Softmax            | (3) ε-bound, ULP-tolerant                   | YES — `softmax_circuit_matches_sparkle` + `_wgsl` | **proved**           |
+| Weighted-V (attn@V)| (3) ε-bound, truncation-aware              | YES — `weightedV_circuit_matches_sparkle` + `_wgsl` | **proved**         |
+| End-to-end attn    | (3) ε-bound, full pipeline                  | YES — `circuit_{saturated,soft}_matches_sparkle` + `wgsl_*` | **proved** |
+
+The **Strategy** column refers to the four-way classification of FP /
+quantisation equivalence proofs documented in
+[*Equivalence proof strategies*](#equivalence-proof-strategies-fp--quantisation)
+below — read that section first if it's the first time you see the
+notation `(1)` / `(2)` / `(3)` / `(4)`.
 
 **The honest summary**:
 
@@ -88,6 +94,119 @@ Until step 17 lands (a fixture-level cross-check using these
 interpreters), the "Hesper" side of the attention claim remains
 **aspirational, not proved** — but the *machinery* for proving it
 inside Lean is now in place.
+
+---
+
+## Equivalence proof strategies (FP / quantisation)
+
+Comparing two implementations of the same kernel at *different
+numerical types* (Sparkle's `BitVec` Q-format vs. Hesper's `Float` /
+`f32` / FP16) cannot in general be a single literal-equality
+theorem.  There are four standard tactics; each Sparkle ↔ Hesper
+theorem in this repo picks one (see the **Strategy** column above).
+
+### (1) Shared denotational spec
+
+Lift both implementations into the *same* mathematical object —
+typically `ℝ` plus a quantisation function — and prove each refines
+that spec.  Equivalence is a corollary of "both refine the same
+abstract semantics".
+
+```
+              shared spec : ℝ ←————————————————————————┐
+                                                       │
+Sparkle (Q16.16)  ───quantise→  ℝ  ────────────refines─┘
+Hesper  (Float)   ───identity→  ℝ  ────────────refines─┤
+                                                       │
+                                  ⇒ Sparkle ≡ Hesper at the spec level
+```
+
+Strongest form when it works.  Used in `Tests/Hesper/MatmulSpec.lean`
+to factor BitLinear through a single algebraic
+`scale * Σ ι(code) * x[j]` definition.
+
+### (2) Domain restriction (exactly-representable subset)
+
+Restrict the input domain so both representations round-trip
+exactly:
+
+```
+def OnQ4Grid (x : Float) : Prop :=
+  ∃ k : Int, x = (k : Float) * scale ∧ -8 ≤ k ∧ k < 8
+```
+
+Then prove unconditional equality on inputs satisfying the
+predicate.  Useful as the kernel of a larger proof: outside the
+predicate's domain you fall back to (3).
+
+### (3) Bounded error (ε-equivalence)
+
+Drop literal equality and prove a tolerance bound:
+
+```
+∀ inputs, |sparkle(inputs) - hesper(inputs)| ≤ ε(InDim, scale)
+```
+
+The bound `ε` is derived from per-operation ULPs and accumulation
+depth:
+
+  - FP16 accumulation: `inDim * 2^-10 * max|partial sum|`
+  - Q4 round: `scale / 2`
+
+This is what TorchLean (arXiv:2602.22631) does for FP32 — wrap an
+executable IEEE-754 binary32 kernel in Lean and use IBP / CROWN
+bound propagation to discharge the resulting inequality.  Sparkle
+does the same shape of proof at smaller scale: see the softmax /
+weighted-V theorems above which carry an ULP-tolerant or
+truncation-aware ε.
+
+### (4) Fixture / property-based testing
+
+Pick a finite set of representative inputs (golden vectors,
+random seeds, edge cases — `0`, `±1`, `max`, `min`,
+`subnormal`, single-hot, all-`1`s, BitNet-shaped ternary
+weights) and discharge the equality on each via `decide` /
+`native_decide`.  Not a "for-all" proof, but extremely effective
+as a regression check and very cheap to write — Lean's
+`native_decide` runs the comparison concretely.
+
+This is what `Tests/Hesper/BitLinearEquivalence.lean` and
+`Tests/Hesper/HesperDSLEquivalence.lean` actually use today: a
+hand-picked fixture (the v1a layer shape and the length-8 INT8
+attention shape) plus `native_decide`.  A literal `∀ inputs`
+generalisation is left to a future strategy-(1) lift.
+
+### Picking a strategy
+
+| Layer of the kernel    | Best fit | Why                                         |
+| ---------------------- | -------- | ------------------------------------------- |
+| Pure integer kernels (BitLinear with `Int` inputs) | (4)      | Inputs are small; `native_decide` closes the proof literally on the fixture. |
+| Float-domain kernels with quantisation grid that both sides land on | (1) + (2) | Lift both into ℝ, restrict to grid points, prove unconditional equality on the restricted domain. |
+| Float-domain kernels off-grid (softmax, exp, division) | (3)      | An exact-equality theorem is unprovable; the right object is the ε.  Pair with a Lean-level `ulp` / `relError` lemma library. |
+| Regression coverage / acceptance gates | (4)      | Even when (1) / (3) hold, a fixture suite catches infrastructure-level breakage faster than re-running the formal proof. |
+
+In practice every Sparkle ↔ Hesper theorem is written in **one of
+the four**.  The **Strategy** column in the status table makes that
+choice explicit so a reader knows what kind of guarantee they're
+getting.
+
+### Relationship to TorchLean
+
+[TorchLean](https://arxiv.org/abs/2602.22631) treats *floating-point
+neural-network execution and verification* as a single Lean object:
+an executable IEEE-754 binary32 kernel plus a proof-relevant rounding
+model, with IBP / CROWN / LiRPA bound propagation as the verification
+layer.  In the four-strategy taxonomy above this is **(1) + (3)** —
+shared denotational spec providing a common type for both sides, and
+ε-bound propagation for the actual safety / equivalence claim.
+
+The Sparkle side aims at the same shape of proof but with a wider
+type spread on the implementation side: `BitVec` Q-format on the HDL
+side, `Float` (Lean's binary64) on the Hesper CPU spec side, plus
+GPU-targeted `f32` and FP16 in the WGSL DSL.  Lifting all of those
+into one `ℝ`-valued spec is the long-term plan; the per-layer
+strategy column tracks how far each kernel has gotten along that
+path.
 
 ---
 
