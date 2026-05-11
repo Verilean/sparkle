@@ -7,6 +7,7 @@ import Notebooks.Gen.Ch04_Modules
 import Notebooks.Gen.Ch05_Verilog
 import Notebooks.Gen.Ch06_LTL
 import Notebooks.Gen.Ch07_Equivalence
+import Notebooks.Gen.Ch07b_FpQuantEquivalence
 import Notebooks.Gen.Ch08_Yosys
 import Notebooks.Gen.Ch08b_Simulation
 import Notebooks.Gen.Ch09_FPGA
