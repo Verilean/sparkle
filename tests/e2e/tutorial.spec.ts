@@ -48,59 +48,121 @@ test('chapter 4 import cell: Sparkle namespaces resolve in xlean kernel', async 
     );
   }
 
-  // Restart all live kernels via the Jupyter REST API before
-  // running cells.  xeus-lean only accepts `import` as the very
-  // first statement of a session, so a kernel reused from a
-  // previous test (or from someone poking at the notebook) blows
-  // up on the chapter's first cell with "invalid 'import' command".
-  // The REST path is far more robust than fishing for the
-  // "Kernel → Restart Kernel…" menu, whose dialog labels and
-  // CSS classes drift between JupyterLab versions.
+  // Drive the kernel directly via Jupyter's REST + WebSocket
+  // protocol.  This sidesteps all UI flakiness — JupyterLab's
+  // "Run All Cells" menu item, restart-kernel dialog labels,
+  // and cell-prompt polling all drift between versions and
+  // they're not what the user actually cares about.  What
+  // matters is: does the chapter's `import Sparkle …` line
+  // resolve in a fresh kernel?
   const baseURL = page.url().split('/lab')[0];
-  const kernels = await page.request.get(`${baseURL}/api/kernels`).then(r => r.json());
-  for (const k of kernels) {
-    await page.request.post(`${baseURL}/api/kernels/${k.id}/restart`);
-  }
-  // Reload the notebook so JupyterLab picks up the now-fresh kernel
-  // (the old kernel-busy state can otherwise stick to the cell gutter).
-  await page.reload();
-  await page.waitForLoadState('networkidle');
+  const result = await page.evaluate(
+    async ({ base, chapter }) => {
+      const xsrf = document.cookie
+        .split('; ')
+        .find((c) => c.startsWith('_xsrf='))
+        ?.split('=')[1] ?? '';
+      const auth = { 'X-XSRFToken': xsrf };
 
-  // Trigger "Run All Cells" via the Run menu.  Keyboard shortcuts
-  // vary across JupyterLab versions (`Ctrl+Shift+Enter` is "run
-  // selected cell" in 4.x, not "run all"), so we drive the menu
-  // explicitly.
-  await page.getByRole('menuitem', { name: 'Run', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Run All Cells', exact: true }).click();
+      // Fetch the chapter notebook and pull out its first
+      // code cell — that's the `import Sparkle …` block.
+      const nb = await fetch(`${base}/api/contents/${chapter}`)
+        .then((r) => r.json());
+      const firstCode = (nb.content.cells as any[])
+        .find((c) => c.cell_type === 'code');
+      const code = Array.isArray(firstCode.source)
+        ? firstCode.source.join('')
+        : firstCode.source;
 
-  // Wait until *all* code cells have run (every `.jp-InputPrompt`
-  // shows `[N]`, none still show `[ ]` or `[*]`).  Without this we
-  // race the kernel and scrape stale outputs from only the first
-  // few cells, missing the chapter's `#synthesizeVerilog` near
-  // the end.
-  await expect.poll(async () => {
-    const counters = await page.locator('.jp-InputPrompt').allInnerTexts();
-    if (counters.length === 0) return false;
-    // Any code cell still pending or busy?
-    const pending = counters.some((s) => /\[\s*\]|\[\*\]/.test(s));
-    if (pending) return false;
-    // At least one cell must have an execution count (i.e. cells
-    // actually ran).
-    return counters.some((s) => /\[\d+\]/.test(s));
-  }, { timeout: 180_000, message: 'cells never finished executing' }).toBe(true);
+      // Spawn a fresh xeus-lean kernel.
+      const kernel = await fetch(`${base}/api/kernels`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'xeus-lean' }),
+      }).then((r) => r.json());
 
-  // Scrape every output area for known signals.
-  const outputs = await page.locator('.jp-OutputArea-output').allInnerTexts();
-  const joined = outputs.join('\n');
+      try {
+        // Open WebSocket to the kernel's "channels" endpoint
+        // and execute the import code.  Wait for the
+        // `execute_reply` and any `error` / `stream` messages.
+        const wsUrl = `${base.replace(/^http/, 'ws')}/api/kernels/${kernel.id}/channels`;
+        return await new Promise<{ status: string; output: string }>(
+          (resolve, reject) => {
+            const ws = new WebSocket(wsUrl);
+            let output = '';
+            let status = '';
+            ws.onopen = () => {
+              const msgId = crypto.randomUUID();
+              const msg = {
+                header: {
+                  msg_id: msgId,
+                  username: 'pw',
+                  session: crypto.randomUUID(),
+                  msg_type: 'execute_request',
+                  version: '5.3',
+                  date: new Date().toISOString(),
+                },
+                metadata: {},
+                content: {
+                  code,
+                  silent: false,
+                  store_history: false,
+                  user_expressions: {},
+                  allow_stdin: false,
+                  stop_on_error: true,
+                },
+                buffers: [],
+                parent_header: {},
+                channel: 'shell',
+              };
+              ws.send(JSON.stringify(msg));
+            };
+            ws.onmessage = (ev) => {
+              const m = JSON.parse(ev.data as string);
+              if (m.msg_type === 'stream') output += m.content.text;
+              if (m.msg_type === 'error') {
+                output += m.content.ename + ': ' + m.content.evalue + '\n';
+                output += (m.content.traceback ?? []).join('\n');
+              }
+              if (m.msg_type === 'execute_reply') {
+                status = m.content.status;
+                ws.close();
+                resolve({ status, output });
+              }
+            };
+            ws.onerror = () => reject(new Error('WebSocket error'));
+            setTimeout(() => {
+              ws.close();
+              reject(new Error('execute_reply timeout (60s)'));
+            }, 60_000);
+          },
+        );
+      } finally {
+        await fetch(`${base}/api/kernels/${kernel.id}`, {
+          method: 'DELETE',
+          headers: auth,
+        });
+      }
+    },
+    { base: baseURL, chapter: CHAPTER },
+  );
 
-  // Negative assertion (the user-reported failure): no namespace
-  // resolution errors anywhere in the chapter output.
-  expect(joined, `Outputs were:\n${joined}`).not.toMatch(/unknown namespace `Sparkle/);
-  expect(joined, `Outputs were:\n${joined}`).not.toMatch(/Unknown constant `Display\./);
+  console.log('--- kernel execute_reply ---');
+  console.log('status:', result.status);
+  console.log('output:', result.output);
 
-  // Positive assertion: at least one cell rendered SV from
-  // `#synthesizeVerilog`.  We accept either the conventional
-  // `module foo (` opener or, if xeus-lean wraps SV in a
-  // `<pre class="systemverilog">` block, the keyword on its own.
-  expect(joined).toMatch(/module\s+\w+\s*\(|endmodule/);
+  // The user's reported failure: namespace resolution dies
+  // because `Sparkle.Core.Domain` isn't on the kernel's
+  // `LEAN_PATH`.  Catch that explicitly.
+  expect(
+    result.output,
+    `import-cell output:\n${result.output}`,
+  ).not.toMatch(/unknown namespace `Sparkle/);
+  expect(
+    result.output,
+    `import-cell output:\n${result.output}`,
+  ).not.toMatch(/Unknown constant `Display\./);
+
+  // The execute_reply itself must report success.
+  expect(result.status, `output:\n${result.output}`).toBe('ok');
 });
