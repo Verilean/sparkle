@@ -1411,30 +1411,26 @@ mutual
     return none
 
   /-- Handle a Lean function call by either inlining the body
-      (if the declaration is tagged `@[inline_hardware]`) or
-      emitting a sub-module instance (the default).
+      (the **default**) or emitting a sub-module instance (only
+      when the declaration is tagged `@[hardware_module]`).
 
-      The default of "preserve hierarchy" matches what downstream
-      tools expect: synthesisers / place-and-route / OOC flows /
-      floorplanners all consume a Verilog hierarchy that mirrors
-      the user's source.  `@[inline_hardware]` is for primitive
-      combinators that have no hardware identity of their own
-      (`Signal.map`, `Signal.mux`, `Signal.fst`, BitVec operators,
-      …) and for user helpers small enough that a sub-module
-      boundary would just bloat the netlist.
+      Default = inline keeps the generated Verilog flat, which is
+      what most users want for alias-style helpers and small
+      combinational functions: writing
+      `def passthrough x := x` shouldn't multiply the module
+      count of every caller.
 
-      Implementation note: existing Sparkle code was written
-      against the old "inline by default" behaviour, so the
-      sub-module path here also catches `Lean.Meta.unfoldDefinition?`
-      cases that *can* be inlined safely (operator instances,
-      type-class dictionaries, dependent reducibility chains).
-      Concretely: we *first* attempt sub-module synthesis, and
-      fall back to inlining only when sub-module synthesis fails
-      because the declaration isn't a synthesisable circuit on
-      its own (e.g. it returns through type-class dispatch).
-      The end result is that hand-written Sparkle modules become
-      Verilog instances by default, while operator-instance
-      machinery still desugars away. -/
+      Opt INTO sub-module emission with `@[hardware_module]` for
+      designs you want to see as their own Verilog `module foo`
+      block — a CPU, an ALU you intend to re-use, an arbiter,
+      etc.  Downstream tools (P&R, OOC synth, hierarchical
+      timing) can then treat the boundary as a real compile
+      unit.
+
+      `@[inline_hardware]` is accepted as a self-documenting
+      synonym for "always inline".  Today it has no effect over
+      the default, but it stays binding if a future heuristic
+      ever auto-promotes a definition to a module. -/
   partial def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     let isValidDef ← CompilerM.liftMetaM do
       try
@@ -1447,9 +1443,9 @@ mutual
     if !isValidDef then return none
 
     let env ← CompilerM.liftMetaM getEnv
-    let optedInToInline := Sparkle.Compiler.isInlineHardware env name
+    let optedIntoModule := Sparkle.Compiler.isHardwareModule env name
 
-    -- Helper: try the historical "unfold and translate inline" path.
+    -- Helper: try the "unfold and translate inline" path — the default.
     let tryInline : CompilerM (Option String) := do
       let eReduced ← CompilerM.liftMetaM do
         match ← Lean.Meta.unfoldDefinition? e with
@@ -1479,28 +1475,33 @@ mutual
       else
         return none
 
-    if optedInToInline then
-      trace[sparkle.compiler] "→ definition unfold {name} (inline_hardware)"
-      match ← tryInline with
-      | some w => return some w
-      | none =>
-        CompilerM.liftMetaM $ throwError
-          s!"Inline expansion failed for {name} (tagged @[inline_hardware])"
-    -- Otherwise: try sub-module synthesis first, fall back to inline only
-    -- when the declaration isn't a synthesisable circuit (e.g. a typeclass
-    -- helper that returns through dictionary dispatch).
+    -- Default: inline the body into the caller.  Only opt INTO a
+    -- sub-module instance when the user tagged the definition
+    -- `@[hardware_module]`, OR when inlining genuinely fails
+    -- (typeclass dispatch, opaque dictionaries, …) and a fresh
+    -- module synthesis can rescue the call.
     let subResult? : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ←
-      try
-        some <$> CompilerM.liftMetaM (synthesizeCombinational name)
-      catch _ => pure none
+      if optedIntoModule then
+        trace[sparkle.compiler] "→ sub-module instance {name} (hardware_module)"
+        try
+          some <$> CompilerM.liftMetaM (synthesizeCombinational name)
+        catch _ =>
+          CompilerM.liftMetaM $ throwError
+            s!"Sub-module synthesis failed for {name} (tagged @[hardware_module])"
+      else
+        -- Try inlining first.  If it succeeds we return immediately;
+        -- if not, fall through to a sub-module synthesis attempt.
+        trace[sparkle.compiler] "→ definition unfold {name} (inline by default)"
+        match ← tryInline with
+        | some w => return some w
+        | none =>
+          try
+            some <$> CompilerM.liftMetaM (synthesizeCombinational name)
+          catch _ => pure none
     match subResult? with
     | none =>
-      trace[sparkle.compiler] "→ sub-module synthesis failed for {name}; falling back to inline"
-      match ← tryInline with
-      | some w => return some w
-      | none =>
-        CompilerM.liftMetaM $ throwError
-          s!"Cannot synthesise {name}: not a hardware module and not inlinable"
+      CompilerM.liftMetaM $ throwError
+        s!"Cannot synthesise {name}: not inlinable and not a hardware module"
     | some (subModule, subDesign) =>
 
     trace[sparkle.compiler] "→ sub-module synthesis {name}"
@@ -1694,6 +1695,15 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
     for w in warnings do
       Lean.logWarning m!"{w}"
 
+/-- Plain-text Verilog elaborator.
+
+    `#synthesizeVerilog id` synthesises `id` and prints the resulting
+    SystemVerilog to stdout.  Output is **plain text** — no MIME wrapper,
+    no highlighting — so it works identically under `lake build`,
+    `lake env lean`, CI, and any Jupyter kernel.
+
+    For a syntax-highlighted view inside JupyterLab use `#showVerilog`
+    instead; for writing to a file use `#writeVerilogDesign id "path"`. -/
 elab "#synthesizeVerilog" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
@@ -1705,6 +1715,56 @@ elab "#synthesizeVerilog" id:ident : command => do
     let verilog := toVerilog module
     IO.println verilog
     IO.println "\n-- Verilog successfully generated!"
+
+/-- Highlighted Verilog viewer for JupyterLab.
+
+    `#showVerilog id` synthesises `id` and renders the SystemVerilog
+    output inside an HTML `<pre><code class="language-verilog">` block,
+    routed through xeus-lean's `text/html` MIME channel so JupyterLab's
+    bundled highlight.js paints the source.
+
+    Outside Jupyter (plain `lake env lean`, CI) the MIME marker bytes
+    are still emitted but ESC / RS aren't visible, so the listing reads
+    as the raw HTML.  In that case prefer `#synthesizeVerilog` for a
+    clean text dump or `#writeVerilogDesign` to land the SV on disk. -/
+elab "#showVerilog" id:ident : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let (module, _) ← synthesizeCombinational declName
+    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
+    for w in warnings do
+      Lean.logWarning m!"{w}"
+    let src := toVerilog module
+    let escSrc := src
+      |>.replace "&" "&amp;"
+      |>.replace "<" "&lt;"
+      |>.replace ">" "&gt;"
+    let elemId := s!"sv-{(hash src).toUSize.toNat}"
+    let html := String.intercalate "" [
+      "<div class='xlean-verilog' style='margin:0'>",
+      "<pre id='", elemId, "' style=\"background:#f6f8fa;padding:8px 12px;border-radius:4px;border:1px solid #e1e4e8;font-size:12px;line-height:1.4;overflow:auto;margin:0\">",
+      "<code class='language-verilog'>", escSrc, "</code></pre></div>",
+      "<script>(function(){",
+      "var el=document.querySelector('#", elemId, " code');",
+      "if(!el||el.dataset.hlPainted)return;",
+      "function paint(){if(window.hljs){window.hljs.highlightElement(el);el.dataset.hlPainted='1';}}",
+      "if(window.hljs){paint();return;}",
+      "var s=document.createElement('script');",
+      "s.src='https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js';",
+      "s.onload=function(){var v=document.createElement('script');",
+      "v.src='https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/verilog.min.js';",
+      "v.onload=function(){window.hljs.registerLanguage('verilog', window.hljsVerilog||(()=>({})));paint();};",
+      "document.head.appendChild(v);};document.head.appendChild(s);})();</script>"
+    ]
+    -- xeus-lean's `extract_mime_payloads` (PR #7) scans both the
+    -- captured stdout pipe and the result message log for MIME
+    -- markers, so a plain `IO.println` of the marker is enough.
+    -- Outside JupyterLab the ESC / RS bytes are invisible in a
+    -- terminal and the surrounding HTML reads as raw text.
+    let esc := Char.ofNat 0x1B
+    let rs  := Char.ofNat 0x1E
+    IO.println s!"{esc}MIME:text/html{rs}{html}{esc}/MIME{rs}"
 
 def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
   let (module, design) ← synthesizeCombinational declName

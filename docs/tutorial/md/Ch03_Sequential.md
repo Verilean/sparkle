@@ -110,28 +110,65 @@ Ch 10 §10.3 covers the trade-off.
 
 ### View 3 — Block diagram (clock + data)
 
-```lean
-def dffDiagram : Display.Diagram :=
-  let nodes : List Display.Diagram.Node := [
-    { id := "clk", label := "clk", kind := Display.Diagram.NodeKind.clk,  col := 0, row := 1 },
-    { id := "d",   label := "d",   kind := Display.Diagram.NodeKind.port, col := 0, row := 0 },
-    { id := "ff",  label := "DFF", kind := Display.Diagram.NodeKind.reg,  col := 1, row := 0 },
-    { id := "q",   label := "q",   kind := Display.Diagram.NodeKind.port, col := 2, row := 0 } ]
-  let edges : List Display.Diagram.Edge := [
-    { src := "d",   dst := "ff" },
-    { src := "clk", dst := "ff", kind := Display.Diagram.EdgeKind.clock },
-    { src := "ff",  dst := "q"  } ]
-  { nodes := nodes, edges := edges }
+For a one-off teaching figure you can hand-build the diagram
+node by node — pick a `NodeKind` per box, lay out the columns
+yourself, draw the edges:
 
-#eval Display.blockDiagram dffDiagram
+```lean
+def dffDiagram : Sparkle.Display.Diagram.Diagram := {
+  nodes := [
+    { id := "clk", label := "clk", kind := .clk,  col := 0, row := 1 },
+    { id := "d",   label := "d",   kind := .port, col := 0, row := 0 },
+    { id := "ff",  label := "DFF", kind := .reg,  col := 1, row := 0 },
+    { id := "q",   label := "q",   kind := .port, col := 2, row := 0 } ],
+  edges := [
+    { src := "d",   dst := "ff" },
+    { src := "clk", dst := "ff", kind := .clock },
+    { src := "ff",  dst := "q"  } ]
+}
+
+#eval Sparkle.Display.Diagram.blockDiagram dffDiagram
 
 ```
 
-Two kinds of edge: a *data* edge (`d → DFF`, solid) and a
-*clock* edge (`clk → DFF`, dashed pink).  Beginners often miss
-this distinction in textbooks — the clock is itself just
-another wire, but it triggers state changes rather than
-carrying values.
+Two kinds of edge: a *data* edge (`d → DFF`, solid arrow) and a
+*clock* edge (`clk → DFF`, dashed orange with a triangle pin at
+the destination).  Beginners often miss this distinction in
+textbooks — the clock is itself just another wire, but it
+triggers state changes rather than carrying values.
+
+#### Auto-generated from the design
+
+Hand-built diagrams are useful for textbook figures, but for an
+actual Sparkle design we don't want to maintain a parallel
+description by hand: the diagram should *follow* the source.
+
+`#showDiagram <ident>` does that in one line — it runs the same
+synthesiser as `#synthesizeVerilog`, lifts the resulting
+`IR.AST.Module` into a `Diagram` (every `Stmt.register` becomes
+a `reg` box, every `Stmt.assign` whose RHS is a primitive
+becomes the matching gate, clock / reset wires get the `clock`
+edge style), and emits the inline SVG.
+
+```lean
+-- `dff` is the same definition we introduced at the top of the
+-- chapter; `#showDiagram` runs the synthesiser and renders the
+-- resulting `IR.AST.Module` as SVG in one step.
+#showDiagram dff
+
+```
+
+The auto-generated picture has the same shape as the hand-built
+one — `d` and `clk` on the left, `q` on the right — but it's
+regenerated every time the design changes.  Edit the body of
+`dff` (e.g. add an enable, change the reset value), re-run the
+cell, and the new nodes and edges show up without any extra
+work.
+
+For hierarchical designs (multiple `@[hardware_module]`
+children) use `#showDesign <ident>` instead — it draws the
+parent and every transitive child stacked vertically in the
+cell.  A pure `#showDiagram` only shows the top module.
 
 ### View 4 — Waveform
 
@@ -166,7 +203,7 @@ def dLane   : List Bool := (List.range 32).map dSample
 def qLane   : List Bool := (List.range 32).map qSample
 
 #eval Display.boolWave
-  [("clk", clkLane), ("d", dLane), ("q", qLane)] 28 5
+  [("clk", clkLane), ("d", dLane), ("q", qLane)] 28 30
 
 ```
 
@@ -382,8 +419,75 @@ def sdaSamples : List Bool := (List.range 88).map sdaSample
 ```
 
 ```lean
-#eval Display.boolWave [("SCL", sclSamples), ("SDA", sdaSamples)] 28 5
+#eval Display.boolWave [("SCL", sclSamples), ("SDA", sdaSamples)] 28 30
 ```
+
+## 3.5d Persisting a trace — `wdb` waveform database
+
+`Display.waveform` and `Display.boolWave` render an *inline* SVG
+into the cell — convenient for short traces, but at a few
+thousand transitions per signal the SVG payload starts to bloat
+the notebook file (each notebook cell is checked into git, so
+its size matters).  For longer simulations, write the trace to a
+**`.wdb` file** (Sparkle's compact waveform database) and let
+the kernel render it interactively.
+
+```text
+                         in-memory             on disk
+   List Bool ──Display.writeWdb──▶  signal.wdb (zstd-compressed
+                                                 transition lists)
+
+   signal.wdb ──Display.waveformFromWdb──▶  interactive viewer
+                                            (zoom / pan / lane toggle)
+```
+
+The `wdb` format stores per-signal transition lists (timestamp +
+new value) instead of one sample per tick, then zstd-compresses
+the whole thing.  A 1 G-tick trace with O(M) transitions
+typically lands at a few MB on disk — far below the ~MB raw
+sample budget.
+
+Run the next cell *inside JupyterLab* — it shells out to the
+kernel's real `writeWdb` which zstd-compresses the trace and
+drops it on disk.  Plain `lake build` only runs the offline
+shim (no-op); the saved file would be empty.  The lane data is
+the same shape as `boolWave`'s, so the I²C trace from §3.5c
+can be re-used directly.
+
+```lean
+#eval Display.writeWdb "/tmp/i2c.wdb"
+        [{ name := "SCL", sample := fun t => sclSample t },
+         { name := "SDA", sample := fun t => sdaSample t }]
+        /- totalTicks -/ 88
+```
+
+Open the saved `.wdb` in a fresh interactive viewer:
+
+```lean
+#eval Display.waveformFromWdb "i2c-session" "/tmp/i2c.wdb"
+```
+
+The viewer JS opens a Jupyter `comm` channel back to the kernel
+(target name `xlean`, session id from the `#eval` argument).
+Scroll-wheel zooms; horizontal-drag pans; the level-of-detail
+adapts so the displayed bit count never exceeds the canvas pixel
+width.  The lane list can be edited at runtime via
+`Display.WaveformSession.{addLane, removeLane}` — useful when a
+debugging session reveals you want to look at one more signal
+without re-running the whole simulation.
+
+> **Note.** Today `Display.writeWdb` and `waveformFromWdb` live
+> in xeus-lean; the `wdb` codec is being migrated to
+> `Sparkle.Display.Wdb` (see `docs/Display_Migration_Plan.md`)
+> so a Sparkle-only `lake build` will eventually be able to
+> produce / consume the same files without the kernel.
+>
+> **Build note.** These cells print a `(shim — open in xeus-lean
+> for the full viewer)` line when run via plain `lake build` /
+> `lake env lean` — that's the offline fallback in
+> `docs/tutorial/Display.lean`.  Inside the tutorial Docker
+> image the kernel resolves `Display` to xeus-lean's real
+> implementation and the cells render properly.
 
 ## 3.6 Theorem — the counter wraps at 256
 

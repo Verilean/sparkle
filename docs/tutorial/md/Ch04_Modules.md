@@ -193,29 +193,31 @@ inline.
   Z --> ZF[flagsZero]"
 ```
 
-## 4.5c A block-accurate diagram with `Display.blockDiagram`
+## 4.5c A block-accurate diagram with `Sparkle.Display.Diagram`
 
-`Display.blockDiagram` renders a `Diagram` value (nodes + edges,
-each with column / row coordinates) as inline SVG.  Unlike
-`#mermaid` it stays inside Lean — useful when the picture is
-*derived* from a real datapath value rather than authored as a
-side artefact.
+`Sparkle.Display.Diagram.blockDiagram` renders a `Diagram` value
+(nodes + edges, each with column / row coordinates) as inline
+SVG.  Unlike `#mermaid` it stays inside Lean — useful when the
+picture is *derived* from a real datapath value rather than
+authored as a side artefact.  Ch 3 §3.4 introduced the
+structures; this is the same library, used here for a richer
+ALU schematic.
 
 ```lean
-def aluDiagram : Display.Diagram :=
-  let nodes : List Display.Diagram.Node := [
-    { id := "a",   label := "a",         kind := Display.Diagram.NodeKind.port,  col := 0, row := 0 },
-    { id := "b",   label := "b",         kind := Display.Diagram.NodeKind.port,  col := 0, row := 1 },
-    { id := "op",  label := "op",        kind := Display.Diagram.NodeKind.port,  col := 0, row := 4 },
-    { id := "add", label := "+",         kind := Display.Diagram.NodeKind.adder, col := 1, row := 0 },
-    { id := "sub", label := "-",         kind := Display.Diagram.NodeKind.adder, col := 1, row := 1 },
-    { id := "and", label := "&&&",       kind := Display.Diagram.NodeKind.andG,  col := 1, row := 2 },
-    { id := "or",  label := "|||",       kind := Display.Diagram.NodeKind.orG,   col := 1, row := 3 },
-    { id := "mux", label := "mux op",    kind := Display.Diagram.NodeKind.mux,   col := 2, row := 1, inputs := 4 },
-    { id := "z",   label := "== 0",      kind := Display.Diagram.NodeKind.const, col := 3, row := 2 },
-    { id := "y",   label := "result",    kind := Display.Diagram.NodeKind.port,  col := 3, row := 1 },
-    { id := "zf",  label := "flagsZero", kind := Display.Diagram.NodeKind.port,  col := 4, row := 2 } ]
-  let edges : List Display.Diagram.Edge := [
+def aluDiagram : Sparkle.Display.Diagram.Diagram := {
+  nodes := [
+    { id := "a",   label := "a",         kind := .port,  col := 0, row := 0 },
+    { id := "b",   label := "b",         kind := .port,  col := 0, row := 1 },
+    { id := "op",  label := "op",        kind := .port,  col := 0, row := 4 },
+    { id := "add", label := "+",         kind := .adder, col := 1, row := 0 },
+    { id := "sub", label := "-",         kind := .adder, col := 1, row := 1 },
+    { id := "and", label := "&&&",       kind := .andG,  col := 1, row := 2 },
+    { id := "or",  label := "|||",       kind := .orG,   col := 1, row := 3 },
+    { id := "mux", label := "mux op",    kind := .mux,   col := 2, row := 1, inputs := 4 },
+    { id := "z",   label := "== 0",      kind := .const, col := 3, row := 2 },
+    { id := "y",   label := "result",    kind := .port,  col := 3, row := 1 },
+    { id := "zf",  label := "flagsZero", kind := .port,  col := 4, row := 2 } ],
+  edges := [
     { src := "a",   dst := "add" }, { src := "b",   dst := "add" },
     { src := "a",   dst := "sub" }, { src := "b",   dst := "sub" },
     { src := "a",   dst := "and" }, { src := "b",   dst := "and" },
@@ -225,14 +227,17 @@ def aluDiagram : Display.Diagram :=
     { src := "op",  dst := "mux" },
     { src := "mux", dst := "y"   }, { src := "mux", dst := "z"   },
     { src := "z",   dst := "zf"  } ]
-  { nodes := nodes, edges := edges }
+}
 
-#eval Display.blockDiagram aluDiagram
+#eval Sparkle.Display.Diagram.blockDiagram aluDiagram
 ```
 
-In the kernel the boxes get gate-shape art (trapezoid MUX, OR
-shield, etc.); in `lake build` the shim emits a coarser SVG
-(coloured rectangles + arrows) but the structure is the same.
+For *this* particular module — the ALU we wrote at the top of
+the chapter — `#showDiagram alu4` would produce an equivalent
+auto-generated picture in one line, no hand-built node list
+needed.  The hand-built version stays useful for one-off
+teaching figures (different layout, custom labels) where you
+want full control over the picture.
 
 ## 4.6 Verilog generation
 
@@ -243,28 +248,27 @@ Watch the wire names in the synthesised module — `result` and
 #synthesizeVerilog alu4
 
 ```
-## 4.6b Module hierarchy — the default is to *keep* it
+## 4.6b Module hierarchy — the default is to *flatten* it
 
-A subtle but important property of the Sparkle compiler: when one
-`def` calls another, the generated Verilog gets a real **module
-instance**, not inlined logic.  This matters for the back end:
+When one `def` calls another, the generated Verilog **inlines**
+the callee's body into the caller — the call site looks like
+direct `assign` / `always_ff` statements, not a `module foo
+(...)` instance.  This is what most users want when sketching
+combinational logic: alias-style helpers, one-line wrappers, and
+typeclass / `OfNat` machinery shouldn't multiply the module
+count of every caller.
 
-- **Place-and-route** (`nextpnr-ice40`, `nextpnr-ecp5`, Vivado)
-  uses module boundaries for floorplan / region constraints.
-- **Hierarchical synthesis** lets a tool synthesise a re-used
-  block once and instantiate it many times — important for QoR
-  on big designs.
-- **Out-of-context (OOC) flows** synthesise a sub-module against
-  its own constraints, then drop it into the parent.
+To **opt in** to a real Verilog module boundary — when you want
+a re-usable component to survive into place-and-route as its own
+compile unit — tag the definition with `@[hardware_module]`.
 
-If everything were inlined the back end would lose those hooks.
+### What you get by default (no attribute)
 
-### What you get by default
-
-A small re-usable sub-module — a one-cycle latch — and a
-parent that chains two of them in series.  The point isn't
-the function (it's just a delay line); it's the emitted
-Verilog hierarchy.
+The same one-cycle latch we'll use as a running example, with
+**no** attribute on it, and a parent that chains two copies in
+series.  Because the default is inline, `latch8` never appears
+as its own Verilog module — its body is expanded twice into
+`latch8x2`.
 
 ```lean
 def latch8 (x : Signal defaultDomain (BitVec 8))
@@ -281,65 +285,94 @@ def latch8x2 (x : Signal defaultDomain (BitVec 8))
 #synthesizeVerilogDesign latch8x2
 ```
 
-Note the command is `#synthesizeVerilogDesign` (Design = parent
-+ all transitive children), not the `#synthesizeVerilog`
-single-module form we've been using up to here.
+The generated Verilog has **one** module (`latch8x2`), with two
+copies of the latch's `always_ff` body sitting next to each
+other inside it.  No `inst_latch8_*` instance, no separate
+`module latch8 (...)`.
 
-The generated Verilog now has **two modules**:
+### Opting *in* — `@[hardware_module]`
+
+Tag the helper to promote it to its own Verilog module:
+
+```lean
+@[hardware_module]
+def latch8mod (x : Signal defaultDomain (BitVec 8))
+    : Signal defaultDomain (BitVec 8) :=
+  Signal.circuit do
+    let r ← Signal.reg 0#8
+    r <~ x
+    return r
+
+def latch8modx2 (x : Signal defaultDomain (BitVec 8))
+    : Signal defaultDomain (BitVec 8) :=
+  latch8mod (latch8mod x)
+
+#synthesizeVerilogDesign latch8modx2
+```
+
+Now the generated Verilog has **two modules**:
 
 ```text
-module latch8 ( ... );          // child: defined once
+module latch8mod ( ... );          // child: defined once
   ...
 endmodule
 
-module latch8x2 (               // parent: instantiates latch8 twice
+module latch8modx2 (               // parent: instantiates latch8mod twice
     input  logic [7:0] _gen_x,
     input  logic       clk,
     input  logic       rst,
     output logic [7:0] out);
-  latch8 _tmp_inst_latch8_1 (.clk(clk), .rst(rst), ._gen_x(_gen_x),       .out(_tmp_arg0_0));
-  latch8 _tmp_inst_latch8_3 (.clk(clk), .rst(rst), ._gen_x(_tmp_arg0_0),  .out(_tmp_result_2));
+  latch8mod _tmp_inst_latch8mod_1 (.clk(clk), .rst(rst), ._gen_x(_gen_x),       .out(_tmp_arg0_0));
+  latch8mod _tmp_inst_latch8mod_3 (.clk(clk), .rst(rst), ._gen_x(_tmp_arg0_0),  .out(_tmp_result_2));
   assign out = _tmp_result_2;
 endmodule
 ```
 
-The two `_tmp_inst_latch8_*` instance names are auto-generated
-and unique — same module, two physical copies on the chip.
-Sparkle also auto-routes the parent's `clk` / `rst` ports into
-each child's clock / reset port (you don't write the wiring
-yourself), and auto-adds those ports to the parent if its
-children need them.
+The two `_tmp_inst_latch8mod_*` instance names are
+auto-generated and unique — same module, two physical copies on
+the chip.  Sparkle also auto-routes the parent's `clk` / `rst`
+ports into each child's clock / reset port (you don't write the
+wiring yourself), and auto-adds those ports to the parent if
+its children need them.
 
-### Opting *out* — `@[inline_hardware]`
+### When to use `@[hardware_module]`
 
-For tiny helper functions where a separate module would just
-bloat the netlist, tag the helper with `@[inline_hardware]`:
+The hierarchy boundary is a real signal to the back end, not
+just cosmetic:
 
-```lean
-@[inline_hardware]
-def addOne {dom : DomainConfig}
-    (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  x + 1#8
+- **Place-and-route** (`nextpnr-ice40`, `nextpnr-ecp5`, Vivado)
+  uses module boundaries for floorplan / region constraints.
+- **Hierarchical synthesis** lets a tool synthesise a re-used
+  block once and instantiate it many times — important for QoR
+  on big designs.
+- **Out-of-context (OOC) flows** synthesise a sub-module
+  against its own constraints, then drop it into the parent.
 
--- Now `addOne x` doesn't produce an `addOne` module — its body
--- expands directly into the caller.
-```
+Use `@[hardware_module]` on:
 
-The Sparkle primitive combinators (`Signal.map`, `Signal.mux`,
-`Signal.fst`, BitVec arithmetic instances, …) are tagged this
-way internally, which is why their use in earlier chapters has
-been silently inlined.
+- A self-contained component you'll re-use across designs (a
+  CPU, an ALU you'll port to other projects, an arbiter, a
+  FIFO).
+- Anything you want to floorplan, time-budget, or
+  out-of-context synthesise as its own block.
 
-### When the hierarchy default *can't* be honoured
+Skip the attribute (= inline) for:
 
-A handful of cases still inline automatically — typeclass
-dictionary helpers, polymorphic combinators that return through
-dictionary dispatch, and Lean's own `OfNat` / `HAdd` machinery.
-Those don't have a meaningful "module identity" to preserve, so
-the compiler falls back to inlining when sub-module synthesis
-fails on them.  You'll see this in practice as: the parent
-module just contains `_tmp_*` wires and `assign`s for those
-operators, never a sub-instance.
+- One-line helpers like `def passthrough x := x`.
+- Type-class instances and polymorphic combinators that have
+  no hardware identity of their own.
+- Anything you'd be annoyed to see as a separate `module foo`
+  in the generated SV.
+
+### Self-documenting inline: `@[inline_hardware]`
+
+`@[inline_hardware]` is accepted as a no-op marker for "always
+inline".  Today it has no effect over the default, but it's a
+clear signal to a future reader that you've thought about the
+boundary and decided NOT to promote it to a module.  Sparkle's
+own primitive combinators (`Signal.map`, `Signal.mux`,
+`Signal.fst`, BitVec arithmetic instances, …) carry this tag
+internally as documentation.
 
 ## 4.7 Theorem — ALU matches a behavioural spec
 
