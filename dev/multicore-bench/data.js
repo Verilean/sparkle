@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778302704638,
+  "lastUpdate": 1778537072216,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1055,6 +1055,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 660510,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "9d1cb48c28dc2d658f05017c02290165daf85702",
+          "message": ".dockerignore: refresh comments to match the current Dockerfile\n\nThe header explained the file as protection against a blanket\n`COPY . /workspace/sparkle` that the tutorial Dockerfile used\nto do.  That `COPY .` was replaced months ago with a hand-picked\nlist of directories (`Sparkle/`, `c_src/`, `lakefile.toml`,\ndocs/tutorial/, tutorial-extended/, …), so the entries below\nare now defence-in-depth rather than load-bearing.\n\nJust rewrite the comment block to say so; no entries\nadded/removed.",
+          "timestamp": "2026-05-12T06:33:50+09:00",
+          "tree_id": "ae97298253e9c8e925c12f31c04fd632972bbcef",
+          "url": "https://github.com/Verilean/sparkle/commit/9d1cb48c28dc2d658f05017c02290165daf85702"
+        },
+        "date": 1778537071461,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4050233,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 498126,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1007941,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 646846,
             "unit": "cycles/sec"
           }
         ]
