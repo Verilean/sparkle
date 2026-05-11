@@ -143,6 +143,7 @@ compiles and simulates the way Step 4 expects.
 
 ```lean
 import Sparkle
+import Display
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -185,6 +186,33 @@ def blinkyTrace : List (BitVec 4) :=
 end Notebooks.Ch01b
 
 ```
+
+### Try the shell commands inline
+
+These cells use the `#bash` magic the xeus-lean kernel exposes
+(it runs the argument under `bash -c` and dumps the output back
+to the cell).  Outside the kernel they fall through to a Sparkle
+shim that just prints what *would* run, so `lake build` stays
+green either way.
+
+```lean
+#bash "lake --version"
+```
+
+```lean
+#bash "curl -s https://raw.githubusercontent.com/Verilean/sparkle/main/lean-toolchain"
+```
+
+In a real project directory, the full Step 4 build cycle would
+be a one-liner:
+
+```lean
+#bash "cd /path/to/my-blinky && lake update && lake build && lake exe blinky"
+```
+
+(Replace `/path/to/my-blinky` with your project root before
+running.)
+
 ## Pinning Sparkle to a fixed commit
 
 Production projects pin Sparkle to a specific commit so the
