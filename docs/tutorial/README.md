@@ -60,6 +60,15 @@ docker run --rm -p 8888:8888 ghcr.io/verilean/sparkle-tutorial:latest
 Open `http://localhost:8888` in your browser.  See
 [`docker/tutorial/README.md`](../../docker/tutorial/README.md).
 
+> **Switching chapters.**  Close each chapter's tab (`File → Close
+> and Shut Down Notebook…` or the `×` on the tab) before opening
+> the next one.  Each open notebook holds a Lean kernel; starting
+> a second kernel while the first is alive can deadlock the new
+> one at startup.  The image overrides JupyterLab's default so
+> closing the tab also shuts the kernel down — but you have to do
+> the closing.  In-place "Restart Kernel and Run All" within a
+> chapter is unaffected.
+
 ### Local
 
 ```bash

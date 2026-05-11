@@ -37,6 +37,24 @@ example : 1 + 1 = 2 := rfl
 
 ```
 
+## Switching between chapters
+
+Each open notebook tab holds a live Lean kernel process —
+roughly 200 MB of resident memory once a chapter has run.
+When you're done with a chapter and want to move on, close the
+current tab (`File → Close and Shut Down Notebook…` or the `×`
+on the tab) before opening the next; the Docker image's
+JupyterLab override means closing the tab also shuts down its
+kernel.
+
+Historically this was load-bearing: starting a second kernel
+while the first was still alive used to expose a binary-frame
+deserializer race in jupyter_server (~80% reproduction during
+"Restart Kernel and Run All" on the second tab).  The image
+ships with a patch — see `docker/tutorial/patches/` — so the
+race no longer crashes the WebSocket connection.  Closing tabs
+between chapters is now just resource hygiene.
+
 ## What's next
 
 - **Ch 1 — Lean 4 for HDL Authors**: the slice of Lean syntax

@@ -75,6 +75,28 @@ RUN python3 -m venv /opt/venv \
 
 ENV PATH="/opt/venv/bin:${PATH}"
 
+# Patch jupyter_server's WebSocket binary-frame deserializer so
+# malformed frames are dropped instead of tearing the connection
+# down.  Without this, when the user opens a second notebook tab
+# while the first kernel is still alive, an off-spec frame
+# arrives at `deserialize_binary_message` (cause: a v1-protocol
+# frame mis-routed to the v0 decoder during the kernel-restart
+# race), `struct.unpack` blows up trying to allocate ~400 MB,
+# the WebSocket stream dies, and the new tab's kernel sits at
+# `kernelPoll` forever waiting for an `execute_request` that
+# never arrives.  Verified to take `tests/e2e/wdb-hang.spec.ts`
+# from ~80% failure to 10/10 pass.
+#
+# This patch is meant to ship upstream as a PR to
+# github.com/jupyter-server/jupyter_server; until that lands we
+# keep our own copy under docker/tutorial/patches/.
+COPY docker/tutorial/patches/jupyter-server-deserialize-fix.patch /tmp/
+RUN cd /opt/venv/lib/python*/site-packages \
+    && patch -p1 < /tmp/jupyter-server-deserialize-fix.patch \
+    && python3 -c "import inspect, jupyter_server.services.kernels.connection.base as b; \
+        assert 'max_nbufs' in inspect.getsource(b.deserialize_binary_message), \
+        'jupyter_server patch did not apply cleanly'"
+
 # -----------------------------------------------------------------
 # Stage 4 — xeus-lean kernel + xlean-convert CLI.
 # -----------------------------------------------------------------
@@ -110,14 +132,70 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
-RUN git clone --depth 1 https://github.com/Verilean/xeus-lean.git
+# `XEUS_LEAN_REV` defaults to `main` but accepts any git ref the
+# upstream remote knows (a tag, a commit sha, …).  The `ADD` of
+# the GitHub `info/refs` URL invalidates the Docker layer cache
+# whenever that ref's sha changes — without it `docker build`
+# silently reuses an older clone and you get yesterday's
+# xeus-lean even after upstream merges new PRs.  Pin the build
+# by passing `--build-arg XEUS_LEAN_REV=<sha>`; leave it on
+# `main` for development.
+ARG XEUS_LEAN_REV=main
+ADD https://api.github.com/repos/Verilean/xeus-lean/commits/${XEUS_LEAN_REV} \
+    /tmp/xeus-lean-rev.json
+RUN git clone https://github.com/Verilean/xeus-lean.git \
+    && cd xeus-lean \
+    && git checkout ${XEUS_LEAN_REV}
+
+# Apply Sparkle-side mitigation to xeus-lean's wdb viewer JS:
+# gate the waveform widget's RAF render loop on the widget
+# actually being visible in JupyterLab's in-page tab tree
+# (`root.offsetParent !== null`).  Without this, switching
+# tabs while a wdb waveform is open leaves the previous tab's
+# canvas redrawing at 60 Hz in the background, which eats the
+# browser main thread and makes newly-opened tabs feel "frozen"
+# until the wdb tab is closed.  This is the user-visible "ch04
+# opens but never finishes loading after ch03 wdb" hang.
+#
+# Meant to ship upstream once we've verified it in the tutorial
+# Docker image; until then we keep the diff under
+# `docker/tutorial/patches/` and apply it during build.
+COPY docker/tutorial/patches/xeus-lean-hang-mitigations.patch /tmp/
+RUN cd /opt/xeus-lean \
+    && patch -p1 < /tmp/xeus-lean-hang-mitigations.patch \
+    && grep -q 'root.offsetParent' src/Display.lean
 
 # Stage 4a — build the C++ FFI library that xlean links against.
 WORKDIR /opt/xeus-lean
+# Run cmake configure so the xeus dependency is fetched into
+# build-cmake/_deps/xeus-src, then patch
+# `XEUS_KERNEL_PROTOCOL_VERSION_MINOR` from 3 to 4 *before*
+# compiling the C++ library that bakes in that header.
+#
+# Why: the bundled xeus reports protocol_version "5.3" by
+# default.  Jupyter messaging protocol 5.4 is the current spec
+# (added since xeus's last release) and on the wire is
+# identical to 5.3 for the message types xlean emits, so
+# claiming 5.4 is a safe no-op.  Reporting 5.4 also stops
+# `jupyter_server` from running its 5.3→5.4 adapter, which
+# slightly reduces the surface for a separate
+# `deserialize_binary_message` race on kernel restart (see
+# `tests/e2e/wdb-hang.spec.ts` and the docs/tutorial Ch00
+# "Switching between chapters" note).
+#
+# This patch alone does NOT eliminate the wdb-hang race — that
+# bug is inside jupyter_server's WS message deserializer and
+# the user-facing mitigation is to close a chapter's notebook
+# tab before opening the next one (which the
+# kernelShutdown=true override below makes automatic).
 RUN cmake -S . -B build-cmake \
       -DCMAKE_C_COMPILER=clang \
       -DCMAKE_CXX_COMPILER=clang++ \
       -DCMAKE_CXX_FLAGS="-stdlib=libc++" && \
+    sed -i 's/#define XEUS_KERNEL_PROTOCOL_VERSION_MINOR 3/#define XEUS_KERNEL_PROTOCOL_VERSION_MINOR 4/' \
+        build-cmake/_deps/xeus-src/include/xeus/xeus.hpp && \
+    grep -q 'XEUS_KERNEL_PROTOCOL_VERSION_MINOR 4' \
+        build-cmake/_deps/xeus-src/include/xeus/xeus.hpp && \
     cmake --build build-cmake -j
 
 # Linux glibc C23 shim (clang -> __isoc23_strtoull -> Lean's older glibc).
@@ -169,6 +247,31 @@ spec['display_name']='Lean 4'; \
 spec['language']='lean4'; \
 p.write_text(json.dumps(spec,indent=2))"
 
+# Bundle a JupyterLab settings override that flips the default
+# behaviour of "close notebook tab" from "leave kernel running" to
+# "close and shut down kernel".  This is a workaround for a
+# reproducible deadlock: when JupyterLab spawns a second xlean
+# process for a different connection file while the first is still
+# alive, the new process's main thread blocks at
+# `futex_wait_queue` (Lean runtime mutex) and never reaches
+# kernelLoop.  Reproduces ~80% of the time via Playwright
+# (tests/e2e/wdb-hang.spec.ts), in BOTH wdb (ch03→ch01) and
+# non-wdb (ch02→ch01) navigation paths — i.e. the wdb session is
+# incidental, the trigger is "two xlean processes coexist
+# briefly."
+#
+# Setting `kernelShutdown=true` makes JupyterLab call the kernel's
+# shutdown_request when its only viewing tab closes, so the
+# previous chapter's kernel is gone before the next chapter's
+# spawn.  Tutorial readers still need to actively close the tab
+# (we document this in docs/tutorial/README.md), but at least the
+# default "closed tabs orphan their kernels" behaviour is fixed.
+RUN mkdir -p /opt/venv/share/jupyter/lab/settings && \
+    python3 -c "import json,pathlib; \
+p=pathlib.Path('/opt/venv/share/jupyter/lab/settings/overrides.json'); \
+overrides={'@jupyterlab/notebook-extension:tracker': {'kernelShutdown': True}}; \
+p.write_text(json.dumps(overrides,indent=2))"
+
 # Smoke-test the kernel inside the image so a broken build fails the
 # `docker build` rather than silently shipping.
 RUN python3 scripts/smoke-test-native.py
@@ -178,26 +281,71 @@ RUN python3 scripts/smoke-test-native.py
 # -----------------------------------------------------------------
 FROM xeus-lean AS sparkle
 
-WORKDIR /workspace
-COPY . /workspace/sparkle
-
-# Generate the tutorial chapters from Markdown source, then
-# pre-build the tutorial library so the first `lake build` inside
-# the running container is a no-op.  This makes `docker run` →
-# JupyterLab → first cell ≪ 10 seconds.
 WORKDIR /workspace/sparkle
-# `lake update` re-resolves dependency manifests and, as a side
-# effect, rewrites `lean-toolchain` to the highest version any
-# dependency requires.  Sparkle pins itself to `v4.28.0` and
-# xlean was built against the same; if `lean-toolchain` flips to
-# something newer (e.g. v4.30.0-rc2), elan auto-installs that
-# toolchain and xlean later sees a sysroot whose `Init.olean` it
-# cannot read ("incompatible header").  We snapshot the file
-# before `lake update` and restore it afterwards.
+
+# Copy ONLY what the tutorial image actually needs, in two layers:
+#
+#   (a) Lake metadata + extern-lib C sources — small, slow-changing.
+#       This layer is cached aggressively across rebuilds: changes
+#       to Sparkle source code don't invalidate it.
+#   (b) Lean source code (Sparkle library + tutorial chapter material).
+#       Larger, faster-changing.
+#
+# What we DON'T copy (vs. the previous `COPY . …`):
+#   - .lake/                         (rebuilt by `lake build` here)
+#   - .git/                          (not needed at runtime)
+#   - venv/, hw/, fpga/, bench/      (host-only artefacts)
+#   - verilator/, firmware/, linux-patches/
+#                                    (RTL/firmware build, not used by tutorial)
+#   - Tests/                         (not in the tutorial build graph)
+#   - Examples/, IP/, Tools/         (other lean_libs the lakefile
+#                                    declares but `lake build
+#                                    TutorialNotebooks Display` does
+#                                    not descend into)
+#
+# Together these prune the build context from ~9 GB down to a few
+# MB and make the COPY layers stable across most edits.
+
+# (a) Lake configuration + extern-lib C sources.
+COPY lakefile.lean lake-manifest.json lean-toolchain Main.lean ./
+COPY c_src ./c_src
+
+# (a-deps) Pre-fetch every Lake dependency listed in the manifest
+# (LSpec, doc-gen4, MD4Lean, BibtexQuery, UnicodeBasic, Cli,
+# leansqlite, …) BEFORE copying any Sparkle source.  This isolates
+# the slow git-clone phase into its own cache layer that's only
+# invalidated when `lakefile.lean` or `lake-manifest.json`
+# themselves change — editing Sparkle.lean or a chapter
+# Markdown file no longer redownloads ~50 MB of dep sources.
+#
+# `lake update` is the lake-blessed way to do this; it reads the
+# manifest, clones missing packages into `.lake/packages/`, and
+# rewrites `lean-toolchain` if any dep requires a newer toolchain.
+# We snapshot the toolchain pin before update and restore it
+# after, for the same reason as the main build step below
+# (xlean must keep matching the v4.28.0 sysroot it was built
+# against; an automatic bump to v4.30.0-rc2 breaks the kernel).
 RUN set -eux; \
     cp lean-toolchain /tmp/lean-toolchain.pinned; \
     lake update; \
-    cp /tmp/lean-toolchain.pinned lean-toolchain; \
+    cp /tmp/lean-toolchain.pinned lean-toolchain
+
+# (b) Lean source — Sparkle library + tutorial material.
+#     `Tools/` carries the SystemVerilog frontend (verilog! / sim!
+#     / Tools.SVParser.parse) that Ch 5's "Reading existing
+#     Verilog" sections rely on.
+COPY Sparkle ./Sparkle
+COPY Sparkle.lean ./Sparkle.lean
+COPY Tools ./Tools
+COPY docs/tutorial ./docs/tutorial
+COPY tutorial-extended ./tutorial-extended
+
+# (c) Generate the tutorial chapters from Markdown source, then
+# pre-build the tutorial library so the first `lake build` inside
+# the running container is a no-op.  This makes `docker run` →
+# JupyterLab → first cell ≪ 10 seconds.  `lake update` is NOT
+# rerun here — deps are already on disk from layer (a-deps).
+RUN set -eux; \
     bash docs/tutorial/build-from-md.sh; \
     lake build TutorialNotebooks Display
 
@@ -220,20 +368,29 @@ sparkle_lean_path = next(
     if line.startswith('LEAN_PATH=')
 )
 
-# Patch BOTH kernelspec copies — `xlean` AND `xeus-lean`. The latter is
-# what tutorial notebook metadata.kernelspec.name points at, and it was
-# copied in stage 4c BEFORE this stage's Sparkle paths were available,
-# so it ships with only `/opt/xeus-lean/.lake/build/lib/lean` and any
-# `import Sparkle.*` from a notebook cell fails with
+# Patch BOTH kernelspec copies — `xlean` AND `xeus-lean`. The latter
+# is what tutorial notebook metadata.kernelspec.name points at, and
+# it was copied in stage 4c BEFORE this stage's Sparkle paths were
+# available, so it ships with only `/opt/xeus-lean/.lake/build/lib/lean`
+# and any `import Sparkle.*` from a notebook cell fails with
 # "unknown namespace `Sparkle.Core.Domain`".
 #
-# IMPORTANT: Lean searches LEAN_PATH in REVERSE order — later entries win.
-# Sparkle's own build cache contains a `Display.olean` (the offline shim
-# from `docs/tutorial/Display.lean`) that shadows xeus-lean's full
-# `Display.Diagram.{Node,Edge}` API.  Put xeus-lean LAST so its Display
-# wins lookup; chapter notebooks need the real one.
+# Both Sparkle and xeus-lean build a `Display.olean`: Sparkle's
+# `docs/tutorial/Display.lean` is a small offline shim that
+# stubs out `Display.{verilog, blockDiagram, writeWdb,
+# waveformFromWdb, …}` so plain `lake build` outside JupyterLab
+# typechecks; xeus-lean's is the real implementation that
+# actually renders SVG, writes the wdb file, etc.
+#
+# Lean searches LEAN_PATH in forward order (first match wins),
+# so we put xeus-lean's path FIRST.  Inside the running kernel
+# `import Display` then resolves to the real one — `writeWdb`
+# actually writes a file, `blockDiagram` actually emits SVG —
+# instead of hitting the shim's no-ops.  Sparkle's own
+# `Sparkle.Display.*` modules live under a different namespace
+# and are unaffected.
 full_lean_path = (
-    sparkle_lean_path + ':/opt/xeus-lean/.lake/build/lib/lean'
+    '/opt/xeus-lean/.lake/build/lib/lean:' + sparkle_lean_path
 )
 for spec_path in [
     '/root/.local/share/jupyter/kernels/xlean/kernel.json',

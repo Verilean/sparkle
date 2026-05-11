@@ -1,0 +1,110 @@
+diff --git a/jupyter_server/services/kernels/connection/base.py b/jupyter_server/services/kernels/connection/base.py
+index 6af1044..3f604ca 100644
+--- a/jupyter_server/services/kernels/connection/base.py
++++ b/jupyter_server/services/kernels/connection/base.py
+@@ -63,8 +63,43 @@ def deserialize_binary_message(bmsg):
+     Returns
+     -------
+     message dictionary
++
++    Raises
++    ------
++    ValueError
++        If the buffer header is inconsistent with its size — for
++        example because the frame is in the v1 wire format (which
++        has a different header layout) and was misrouted here.
++        Callers should treat this as a "drop the frame, keep the
++        socket alive" condition rather than letting it propagate
++        and tear the WebSocket down.
+     """
++    if len(bmsg) < 4:
++        msg = "binary message shorter than the 4-byte nbufs header"
++        raise ValueError(msg)
+     nbufs = struct.unpack("!i", bmsg[:4])[0]
++    # Sanity-bound `nbufs`.  A legitimate message has very few buffers
++    # (header + parent + metadata + content + a handful of binary
++    # buffers).  An accidentally-routed v1-protocol frame parsed
++    # here can give nbufs in the hundreds of millions, which then
++    # blows up `struct.unpack` with an obscure "buffer of N bytes"
++    # error and tears the WebSocket stream down.  Fail with a clear
++    # ValueError instead so callers can drop the frame.
++    max_nbufs = 1024
++    if nbufs < 0 or nbufs > max_nbufs:
++        msg = (
++            f"binary message header nbufs={nbufs} outside expected range "
++            f"[0, {max_nbufs}] — frame likely uses a different wire "
++            f"format (e.g. the v1 protocol) than this deserializer expects"
++        )
++        raise ValueError(msg)
++    needed = 4 * (nbufs + 1)
++    if len(bmsg) < needed:
++        msg = (
++            f"binary message truncated: nbufs={nbufs} requires "
++            f"{needed} header bytes, only {len(bmsg)} present"
++        )
++        raise ValueError(msg)
+     offsets = list(struct.unpack("!" + "I" * nbufs, bmsg[4 : 4 * (nbufs + 1)]))
+     offsets.append(None)
+     bufs = []
+diff --git a/jupyter_server/services/kernels/connection/channels.py b/jupyter_server/services/kernels/connection/channels.py
+index d58385c..d41c564 100644
+--- a/jupyter_server/services/kernels/connection/channels.py
++++ b/jupyter_server/services/kernels/connection/channels.py
+@@ -4,6 +4,7 @@ from __future__ import annotations
+ 
+ import asyncio
+ import json
++import struct
+ import time
+ import typing as t
+ import weakref
+@@ -522,15 +523,46 @@ class ZMQChannelsWebsocketConnection(BaseKernelWebsocketConnection):
+             return
+ 
+         if self.subprotocol == "v1.kernel.websocket.jupyter.org":
+-            channel, msg_list = deserialize_msg_from_ws_v1(ws_msg)
++            try:
++                channel, msg_list = deserialize_msg_from_ws_v1(ws_msg)
++            except (struct.error, IndexError, UnicodeDecodeError, ValueError) as exc:
++                self.log.warning(
++                    "Dropping malformed v1 WebSocket frame for kernel %s: %s",
++                    self.kernel_id,
++                    exc,
++                )
++                return
+             msg = {
+                 "header": None,
+             }
+         else:
+             if isinstance(ws_msg, bytes):  # type:ignore[unreachable]
+-                msg = deserialize_binary_message(ws_msg)  # type:ignore[unreachable]
++                # `deserialize_binary_message` now raises ValueError for
++                # frames whose header is internally inconsistent — the
++                # symptom of a v1-encoded frame being mis-routed here
++                # during a kernel-restart race.  Drop the frame and keep
++                # the WebSocket alive instead of letting tornado tear
++                # the connection down (which leaves the new kernel
++                # silent and the user's notebook stuck at `[*]`).
++                try:
++                    msg = deserialize_binary_message(ws_msg)  # type:ignore[unreachable]
++                except (struct.error, ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
++                    self.log.warning(
++                        "Dropping malformed v0 WebSocket frame for kernel %s: %s",
++                        self.kernel_id,
++                        exc,
++                    )
++                    return
+             else:
+-                msg = json.loads(ws_msg)
++                try:
++                    msg = json.loads(ws_msg)
++                except json.JSONDecodeError as exc:
++                    self.log.warning(
++                        "Dropping non-JSON WebSocket text frame for kernel %s: %s",
++                        self.kernel_id,
++                        exc,
++                    )
++                    return
+             msg_list = []
+             channel = msg.pop("channel", None)
+ 
