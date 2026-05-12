@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778542940035,
+  "lastUpdate": 1778544594242,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1143,6 +1143,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 692313,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1d51cb0d20de0a7bc8a573f4b30bd975371ede4e",
+          "message": "Merge pull request #32 from Verilean/feature/notebook\n\nFeature/notebook",
+          "timestamp": "2026-05-12T09:02:08+09:00",
+          "tree_id": "4984953fc994bbcd491ac3da12d9dbcc91774301",
+          "url": "https://github.com/Verilean/sparkle/commit/1d51cb0d20de0a7bc8a573f4b30bd975371ede4e"
+        },
+        "date": 1778544593937,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4044109,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 499105,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1007647,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 653333,
             "unit": "cycles/sec"
           }
         ]
