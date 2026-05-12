@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778552926577,
+  "lastUpdate": 1778595653829,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1231,6 +1231,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 638642,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "5eb4cddf4fe062c0794176e2218580a84a616134",
+          "message": ".github/workflows/docker-image.yml: publish multi-arch (amd64 + arm64)\n\nA user reported the freshly-published image hanging on an\nApple Silicon Mac.  Docker Desktop printed the giveaway:\n\n  WARNING: The requested image's platform (linux/amd64) does\n  not match the detected host platform (linux/arm64/v8) and\n  no specific platform was requested\n\ni.e. the pulled image was amd64-only and Docker was running\nit under Rosetta/QEMU emulation.  The Lean kernel happens to\nbe the worst case for that translation layer — every cell's\ncompilation pipeline takes minutes, the tutorial UI looks\nfrozen, and the user can't tell the difference between\n\"emulation tax\" and \"actual hang\".\n\nBuild for both architectures so Apple Silicon hosts pull a\nnative arm64 image.  Requires setting up QEMU + buildx on the\nrunner (amd64 GitHub-hosted runner cross-compiles the arm64\nslice under emulation; the build takes longer but the user\nexperience is much better).\n\nIf/when GitHub's hosted ARM runners become available on this\norg, switching the arm64 leg to a native runner is a small\nfollow-up (split into two jobs that push different tags, then\nmerge into a manifest).",
+          "timestamp": "2026-05-12T12:50:32+09:00",
+          "tree_id": "dcb06c009d34e21e30ce001b8463fd32e5235e29",
+          "url": "https://github.com/Verilean/sparkle/commit/5eb4cddf4fe062c0794176e2218580a84a616134"
+        },
+        "date": 1778595653471,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4042605,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 503649,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1008389,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 642314,
             "unit": "cycles/sec"
           }
         ]
