@@ -19,9 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve image tag
+      - name: Resolve image tag and owner
         id: tag
         run: |
+          # ghcr.io requires repository names to be all-lowercase, but
+          # `github.repository_owner` keeps the org's display case
+          # (e.g. "Verilean").  Lowercase it here so the image tag is
+          # accepted by the registry.
+          owner_lc="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "owner=${owner_lc}" >> "$GITHUB_OUTPUT"
           if [[ "${{ github.event_name }}" == "push" ]]; then
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           else
@@ -42,5 +48,5 @@ jobs:
           file: docker/tutorial/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/sparkle-tutorial:${{ steps.tag.outputs.tag }}
-            ghcr.io/${{ github.repository_owner }}/sparkle-tutorial:latest
+            ghcr.io/${{ steps.tag.outputs.owner }}/sparkle-tutorial:${{ steps.tag.outputs.tag }}
+            ghcr.io/${{ steps.tag.outputs.owner }}/sparkle-tutorial:latest
