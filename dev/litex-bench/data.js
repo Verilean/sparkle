@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778542871200,
+  "lastUpdate": 1778544521798,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -917,6 +917,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2513272,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1d51cb0d20de0a7bc8a573f4b30bd975371ede4e",
+          "message": "Merge pull request #32 from Verilean/feature/notebook\n\nFeature/notebook",
+          "timestamp": "2026-05-12T09:02:08+09:00",
+          "tree_id": "4984953fc994bbcd491ac3da12d9dbcc91774301",
+          "url": "https://github.com/Verilean/sparkle/commit/1d51cb0d20de0a7bc8a573f4b30bd975371ede4e"
+        },
+        "date": 1778544521499,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 4822589,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2160632,
             "unit": "cycles/sec"
           }
         ]
