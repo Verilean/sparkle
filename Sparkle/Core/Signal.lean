@@ -1033,14 +1033,29 @@ macro "hw_let" "(" a:ident "," b:ident "," c:ident "," d:ident ")" " := " e:term
   ```
 -/
 
--- Syntax for the circuit block
+-- Syntax for the circuit block.
+-- The trailing `;` is optional so users can write either
+--   `let count ← Signal.reg 0#8;`     (explicit terminator)
+--   `let count ← Signal.reg 0#8`      (relying on the newline)
+-- which makes `Signal.circuit do` feel like Lean's regular `do`.
 declare_syntax_cat circuitStmt
-syntax "let " ident " ← " "Signal.reg " term ";" : circuitStmt    -- register declaration
-syntax ident " <~ " term ";" : circuitStmt                          -- register assignment
-syntax "let " ident " := " term ";" : circuitStmt                   -- local let binding
-syntax "return " term : circuitStmt                                  -- return expression (last, no semicolon)
+-- Each statement form takes a `colGt term` so the term parser
+-- stops at the start of the next statement (which is at column
+-- ≤ the start of the current `let` / `return` keyword).  The
+-- trailing `;` is then a no-op terminator the user *may* add.
+syntax "let " ident " ← " "Signal.reg " (colGt term) (";")? : circuitStmt
+syntax ident " <~ " (colGt term) (";")? : circuitStmt
+syntax "let " ident " := " (colGt term) (";")? : circuitStmt
+syntax "return " (colGt term) (";")? : circuitStmt
 
-syntax "Signal.circuit" "do" ppLine circuitStmt* : term
+-- Statements are separated by either a literal `;` (set by the
+-- syntax declarations above) or an indentation/newline boundary.
+-- We achieve the latter by wrapping each `circuitStmt` in a
+-- `colGe` block: the parser commits to the next statement only
+-- when the next token starts at the same column as the first
+-- statement (i.e. on a new line at matching indent).
+syntax "Signal.circuit" "do" ppLine
+  withPosition((colGe circuitStmt)*) : term
 
 open Lean in
 open Lean.Macro in
@@ -1057,13 +1072,24 @@ macro_rules
 
     for stmt in stmts do
       match stmt with
+      -- Each pattern accepts the optional trailing `;` from the
+      -- syntax declaration above, so users may write either
+      -- `let q ← Signal.reg false` or `let q ← Signal.reg false;`.
+      | `(circuitStmt| let $name ← Signal.reg $init) =>
+        regs := regs.push (name, init)
       | `(circuitStmt| let $name ← Signal.reg $init ;) =>
         regs := regs.push (name, init)
+      | `(circuitStmt| $name:ident <~ $rhs) =>
+        assigns := assigns.push (name, rhs)
       | `(circuitStmt| $name:ident <~ $rhs ;) =>
         assigns := assigns.push (name, rhs)
+      | `(circuitStmt| let $name := $rhs) =>
+        lets := lets.push (name, rhs)
       | `(circuitStmt| let $name := $rhs ;) =>
         lets := lets.push (name, rhs)
       | `(circuitStmt| return $e) =>
+        retExpr := some e
+      | `(circuitStmt| return $e ;) =>
         retExpr := some e
       | _ => Macro.throwUnsupported
 

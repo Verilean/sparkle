@@ -1447,7 +1447,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           | some (_, v) => v
           | none => 0
         let dataExpr := stmtsToMuxExpr regName stmts
-        body := body ++ [.register regName clock resetName dataExpr initVal]
+        body := body ++ [.register regName clock (resetName, .asynchronous) dataExpr initVal]
         if !(wireExists wires regName) then
           wires := wires ++ [{ name := regName, ty := hwTy }]
 
@@ -1742,7 +1742,9 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
               | .assign name rhs =>
                 .assign s!"{instName}_{name}" (prefixExprNames instName subNames rhs)
               | .register name clk rst input init =>
-                .register s!"{instName}_{name}" s!"{instName}_{clk}" s!"{instName}_{rst}"
+                let (rstName, rstKind) := rst
+                .register s!"{instName}_{name}" s!"{instName}_{clk}"
+                  (s!"{instName}_{rstName}", rstKind)
                   (prefixExprNames instName subNames input) init
               | .inst subModName subInstName subConns =>
                 -- Keep nested .inst with prefixed names — will be flattened in next iteration

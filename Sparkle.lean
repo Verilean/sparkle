@@ -24,9 +24,13 @@ import Sparkle.Verification.Temporal
 import Sparkle.Verification.Equivalence
 import Sparkle.Core.JIT
 import Sparkle.Core.JITLoop
+import Sparkle.Core.Sim
+import Sparkle.Core.SimPureLean
+import Sparkle.Core.SimVerilator
 import Sparkle.Core.SimParallel
 import Sparkle.Core.Oracle
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle
 import Sparkle.Verification.MulProps
 import Sparkle.Utils.HexLoader
+import Sparkle.Display

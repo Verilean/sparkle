@@ -48,8 +48,8 @@ Sparkle JIT exceeds Verilator on single-core and multi-core SoCs:
 | 5.4 | **Generic Auto-Detection** | Reachability DCE + frequency-based guard detection, no hardcoded signal names | **Done** |
 | 5.5 | **Verified Reverse Synthesis** | OracleReduction type class (proof-required), carry-save=mul proof (zero sorry), 2.14x speedup | **Done** |
 | 5.6 | **`runSim` auto-dispatcher** | Single `runSim` picks runSingleSim / runMultiDomainSim automatically; typed named-port connections via `toEndpoint`; 27 regression tests (equivalence / auto-select / name resolution / index alignment / stress) | **Done** |
-| 5.7 | **pcpi_mul standalone FSM fix** | Standalone pcpi_mul JIT now runs correctly after Issue 1 / 6 / 7 fixes. See `docs/KnownIssues.md` | **Done** |
-| 5.8 | **Equivalence-check command family** | `#verify_eq` / `#verify_eq_at` (cycles + latency + ❌→💡 hint) / `#verify_eq_git` for time-travel regression proofs. 13 interactive demos in `Tests/Verification/EquivDemo.lean` (8 layer-1 + 4 layer-2 + 1 layer-3 git). See `docs/Tutorial.md` §5.4–5.6 and `docs/TODO.md` V1–V4 for follow-ups. | **Done** |
+| 5.7 | **pcpi_mul standalone FSM fix** | Standalone pcpi_mul JIT now runs correctly after Issue 1 / 6 / 7 fixes. See `docs/known-issues/KnownIssues.md` | **Done** |
+| 5.8 | **Equivalence-check command family** | `#verify_eq` / `#verify_eq_at` (cycles + latency + ❌→💡 hint) / `#verify_eq_git` for time-travel regression proofs. 13 interactive demos in `Tests/Verification/EquivDemo.lean` (8 layer-1 + 4 layer-2 + 1 layer-3 git). See `docs/Tutorial.md` §5.4–5.6 and `docs/known-issues/TODO.md` V1–V4 for follow-ups. | **Done** |
 | 5.10 | **BitNet ⊕ picorv32 SoC (Level 1a)** | First-ever CPU IP + NN IP cohabitation. BitNet MMIO peripheral at `0x40000004`, dim=4 1-layer BitLinear. `Tests/Integration/BitNetSoCTest.lean` passes 3/3 axes (functional, structural, artifact). `fpga/U280/` scaffold in place. Pre-existing PC-stuck issue in rv32-jit-loop-test tracked as TODO S0. See `docs/CHANGELOG.md` Phase 56. | **Done** |
 | 6 | **Cross-Module Optimization** | Propagate wrapper const inputs into sub-modules for dead code elimination | Next |
 | 7 | **RTL Reverse Synthesis (Extended)** | Iterative divider, CRC, FIR filter — additional OracleReduction instances | Next |
@@ -550,7 +550,7 @@ Replaced hardcoded QP=20 constants with input ports carrying pre-computed QP-dep
 | `IP/Video/H264/DecoderSynth.lean` | Added `vscale0/1/2` input ports to pipeline; parameterized `decoderPipelineRef` with `qp` |
 | `IP/Video/H264/EncoderSynth.lean` | Added `quantMF0/1/2`, `quantF`, `quantShift` input ports to pipeline; parameterized `encoderPipelineRef` with `qp` |
 | `Tests/Video/H264JITPipelineTest.lean` | Added `setDecoderQP`/`setEncoderQP` helpers; added Test 4 (QP=10 roundtrip cross-validation) |
-| `docs/STATUS.md` | Added Phase 35 section |
+| `docs/architecture/STATUS.md` | Added Phase 35 section |
 
 #### Tests
 
@@ -577,7 +577,7 @@ End-to-end JIT tests for both decoder and encoder pipelines, plus encoder→deco
 | `Sparkle/Backend/CppSim.lean` | Fixed missing `_rdata` member declaration for `Signal.memory` and unused `Signal.memoryComboRead` |
 | `IP/Video/H264/DecoderSynth.lean` | Fixed `grpIdxNext` hw_cond default (was `0#3`, should be `grpIdx`) |
 | `IP/Video/H264/EncoderSynth.lean` | Fixed `grpIdxNext` hw_cond default (same bug as decoder) |
-| `docs/STATUS.md` | Added Phase 34 section |
+| `docs/architecture/STATUS.md` | Added Phase 34 section |
 
 #### Bug Fixes
 
@@ -609,7 +609,7 @@ Synthesizable encoder pipeline: residual → forward DCT → forward quantizatio
 |------|--------|
 | `IP/Video/H264.lean` | Added imports for 3 new synth modules |
 | `Tests/AllTests.lean` | Wired in `H264EncoderSynthTest` |
-| `docs/STATUS.md` | Added Phase 33 section |
+| `docs/architecture/STATUS.md` | Added Phase 33 section |
 
 #### Architecture
 
@@ -662,7 +662,7 @@ Synthesizable decoder pipeline: dequant → IDCT → reconstruct, all as Signal 
 |------|--------|
 | `IP/Video/H264.lean` | Added imports for 4 new synth modules |
 | `Tests/AllTests.lean` | Wired in `H264DecoderSynthTest` |
-| `docs/STATUS.md` | Added Phase 32 section |
+| `docs/architecture/STATUS.md` | Added Phase 32 section |
 | `README.md` | Updated H.264 section + roadmap |
 
 #### Generated Verilog (12 files in `IP/Video/H264/gen/`)
@@ -1710,7 +1710,7 @@ $ lake env lean Tests/TestDRC.lean  # Combo warns, registered clean — ✓
 
 Created a formal Verification-Driven Design (VDD) framework document and a worked example demonstrating the full workflow: pure state-machine spec with 10 formal proofs, then synthesizable Signal DSL implementation.
 
-### Framework Document (`docs/Verification_Framework.md`)
+### Framework Document (`docs/reference/Verification_Framework.md`)
 
 Professional ~200-line guide covering:
 1. **Bug Classification**: Safety vs Liveness with hardware examples (bus contention, starvation, deadlock)
@@ -1788,7 +1788,7 @@ Cycle | reqA reqB | state | grantA grantB
 |------|--------|-------------|
 | `Sparkle/Verification/ArbiterProps.lean` | Created | Pure state machine + 10 formal proofs |
 | `Examples/Arbiter/RoundRobin.lean` | Created | Signal DSL implementation + synthesis + sim test |
-| `docs/Verification_Framework.md` | Created | VDD framework document |
+| `docs/reference/Verification_Framework.md` | Created | VDD framework document |
 | `lakefile.lean` | Modified | Added `lean_lib «Examples.Arbiter»` |
 
 ### Verification
@@ -2196,7 +2196,7 @@ Synthesis compatibility confirmed — compiler already has `Bool.and`/`Bool.or`/
 
 ## JIT FFI Design Document (Phase 13) — DONE
 
-Created `docs/JIT_FFI_Plan.md` — design document for native-speed simulation via dynamic compilation. Covers architecture, C++ shared library generation, background compilation with hash-based caching, Lean FFI bindings (`sparkle_jit.c` + `JIT.lean`), and `loopMemoJIT` integration with fallback to interpreted `loopMemo`.
+Created `docs/architecture/JIT_FFI_Plan.md` — design document for native-speed simulation via dynamic compilation. Covers architecture, C++ shared library generation, background compilation with hash-based caching, Lean FFI bindings (`sparkle_jit.c` + `JIT.lean`), and `loopMemoJIT` integration with fallback to interpreted `loopMemo`.
 
 ---
 
@@ -2310,7 +2310,7 @@ cd verilator && make benchmark CYCLES=5000
 - [x] LSpec flow tests for RV32 SoC (Phase 12 — done)
 - [x] Fix holdEX/divStall store bug (Phase 13 — done)
 - [x] Signal Bool operator instances (Phase 13 — done)
-- [x] JIT FFI design document (Phase 13 — done, see `docs/JIT_FFI_Plan.md`)
+- [x] JIT FFI design document (Phase 13 — done, see `docs/architecture/JIT_FFI_Plan.md`)
 - [x] JIT FFI implementation (Phase 14 — done)
 - [x] Signal DSL ergonomics: `===`, `Coe`, `hw_cond` macro (Phase 15 — done)
 - [x] `declare_signal_state` macro — named state accessors, no magic indices (Phase 16 — done)

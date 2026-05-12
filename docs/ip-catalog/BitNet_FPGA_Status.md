@@ -402,7 +402,7 @@ implementation (P&R, timing closure, bitstream generation).
 ## Synthesis Pitfalls and Workarounds
 
 Patterns that elaborate in Lean and simulate correctly, but fail
-`#synthesizeVerilog`. See also `docs/KnownIssues.md` § Non-synthesizable
+`#synthesizeVerilog`. See also `docs/known-issues/KnownIssues.md` § Non-synthesizable
 Signal DSL patterns (N1-N7).
 
 | Pattern | Root Cause | Workaround |

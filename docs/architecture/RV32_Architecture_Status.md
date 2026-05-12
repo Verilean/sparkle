@@ -460,7 +460,7 @@ symptom: investigation showed all 4 premises HOLD in the runtime
 (after exposing `_gen_busRdataRaw` etc. as JIT-probable wires by
 adding them to `SoCOutput.wireNames`). Conclusion: the SoC is
 correct; the symptom was a probe / firmware-side artifact. Full
-postmortem in [`docs/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+postmortem in [`docs/ip-catalog/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
 
 ### 2.3 IO / memory boundary
 

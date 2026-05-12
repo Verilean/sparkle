@@ -119,7 +119,11 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
     s!"{indent}assign {sanitizeName lhs} = {emitExpr rhs};"
 
   | .register output clock reset input initValue =>
-    -- Generate always_ff block for register
+    -- Generate always_ff block for register.  The sensitivity list
+    -- depends on whether the user declared the domain's reset as
+    -- synchronous (clock-edge-only) or asynchronous (clock-edge OR
+    -- reset rising edge).
+    let (rstName, rstKind) := reset
     -- Look up output wire width for correct reset literal width
     let resetWidth := match wires.find? (fun p => p.name == output) with
       | some p => match p.ty with
@@ -127,8 +131,13 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
         | .bit => 1
         | _ => 8
       | none => 8
-    s!"{indent}always_ff @(posedge {sanitizeName clock} or posedge {sanitizeName reset}) begin\n" ++
-    s!"{indent}    if ({sanitizeName reset})\n" ++
+    let sensitivity := match rstKind with
+      | .asynchronous =>
+        s!"@(posedge {sanitizeName clock} or posedge {sanitizeName rstName})"
+      | .synchronous =>
+        s!"@(posedge {sanitizeName clock})"
+    s!"{indent}always_ff {sensitivity} begin\n" ++
+    s!"{indent}    if ({sanitizeName rstName})\n" ++
     s!"{indent}        {sanitizeName output} <= {emitExpr (.const initValue resetWidth)};\n" ++
     s!"{indent}    else\n" ++
     s!"{indent}        {sanitizeName output} <= {emitExpr input};\n" ++

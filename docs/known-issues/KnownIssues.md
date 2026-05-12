@@ -230,7 +230,7 @@ cycle 86   busRdataRaw = 0x00410000  mmioRdata = 0x00410000   ← lw observes!
 For all 8 boot.S test vectors, the SoC produces the correct
 `ffn(input)` value at the lw cycle. Full postmortem with the proof
 catalog and lessons learned is in
-[`docs/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+[`docs/ip-catalog/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
 
 ### Acceptance test
 

@@ -1,0 +1,14 @@
+{
+  "name": "sparkle-tutorial-e2e",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Playwright end-to-end tests for the Sparkle tutorial Docker image.",
+  "scripts": {
+    "test": "playwright test",
+    "test-headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0"
+  }
+}

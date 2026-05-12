@@ -14,6 +14,7 @@ import Sparkle.Backend.Verilog
 import Sparkle.Backend.CppSim
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.DRC
+import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 
@@ -85,6 +86,12 @@ def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CompilerM S
   set cs'
   return name
 
+def freshName (hint : String) (named : Bool := false) : CompilerM String := do
+  let cs ← get
+  let (name, cs') := CircuitM.freshName hint named cs
+  set cs'
+  return name
+
 def emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.emitAssign lhs rhs cs
@@ -109,9 +116,14 @@ def getWireWidth (wireName : String) : CompilerM Nat := do
   | some p => return match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
   | none => return 8
 
-def emitRegister (hint : String) (clk : String) (rst : String) (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType) (named : Bool := false) : CompilerM String := do
+def emitRegister (hint : String) (clk : String) (rst : String)
+    (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType)
+    (named : Bool := false)
+    (resetKind : Sparkle.IR.Type.ResetKind := .asynchronous)
+    : CompilerM String := do
   let cs ← get
-  let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty named cs
+  let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty
+                       (named := named) (resetKind := resetKind) cs
   set cs'
   return name
 
@@ -239,6 +251,43 @@ where
         return 8
     | _ => return 8
 
+
+/-- Extract `ResetKind` from a `Signal dom α` expression.
+
+    We `whnf`-reduce the `dom` argument and then use Lean's
+    `evalExpr` to evaluate it as a `DomainConfig`, reading the
+    `resetKind` field directly.  Falls back to `.asynchronous`
+    (the historical default) if the expression doesn't reduce
+    to a literal `DomainConfig`. -/
+def inferResetKindFromSignal (signalType : Lean.Expr) :
+    CompilerM Sparkle.IR.Type.ResetKind := do
+  let signalType ← CompilerM.liftMetaM (whnf signalType)
+  match signalType with
+  | .app (.app _signalConstr dom) _innerType =>
+    -- Try to evaluate `(dom : DomainConfig).resetKind`.  If anything
+    -- about the expression resists reduction (e.g. a metavariable
+    -- in scope), fall back to async — it's what the codegen used
+    -- before this field existed, so the default is conservative.
+    try
+      let domType :=
+        Lean.Expr.const ``Sparkle.Core.Domain.DomainConfig []
+      let dom' ← CompilerM.liftMetaM (whnf dom)
+      let _ : Lean.Expr := domType        -- force domType into scope
+      let kindExpr := Lean.mkApp
+        (Lean.Expr.const ``Sparkle.Core.Domain.DomainConfig.resetKind [])
+        dom'
+      let kindReduced ← CompilerM.liftMetaM (whnf kindExpr)
+      match kindReduced with
+      | .const ``Sparkle.IR.Type.ResetKind.synchronous _ =>
+        return .synchronous
+      | .const ``Sparkle.IR.Type.ResetKind.asynchronous _ =>
+        return .asynchronous
+      | _ =>
+        return .asynchronous
+    catch _ =>
+      return .asynchronous
+  | _ =>
+    return .asynchronous
 
 def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
   let signalType ← CompilerM.liftMetaM (whnf signalType)
@@ -1211,7 +1260,9 @@ mutual
       let inputWire ← translateExprToWire input "reg_input"
       let exprType ← CompilerM.liftMetaM (inferType e)
       let hwType ← inferHWTypeFromSignal exprType
-      let w ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType (named := isNamed)
+      let resetKind ← inferResetKindFromSignal exprType
+      let w ← CompilerM.emitRegister hint "clk" "rst" (.ref inputWire) initVal hwType
+                (named := isNamed) (resetKind := resetKind)
       return some w
 
     -- Signal.registerWithEnable: register with conditional update
@@ -1225,8 +1276,10 @@ mutual
       let inputWire ← translateExprToWire input "reg_input"
       let exprType ← CompilerM.liftMetaM (inferType e)
       let hwType ← inferHWTypeFromSignal exprType
+      let resetKind ← inferResetKindFromSignal exprType
       let muxWire ← CompilerM.makeWire (hint ++ "_mux") hwType
-      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType (named := isNamed)
+      let regWire ← CompilerM.emitRegister hint "clk" "rst" (.ref muxWire) initVal hwType
+                     (named := isNamed) (resetKind := resetKind)
       CompilerM.emitAssign muxWire (.op .mux [.ref enWire, .ref inputWire, .ref regWire])
       return some regWire
 
@@ -1357,7 +1410,27 @@ mutual
 
     return none
 
-  /-- Handle definition unfolding (inline) or sub-module synthesis (fallback) -/
+  /-- Handle a Lean function call by either inlining the body
+      (the **default**) or emitting a sub-module instance (only
+      when the declaration is tagged `@[hardware_module]`).
+
+      Default = inline keeps the generated Verilog flat, which is
+      what most users want for alias-style helpers and small
+      combinational functions: writing
+      `def passthrough x := x` shouldn't multiply the module
+      count of every caller.
+
+      Opt INTO sub-module emission with `@[hardware_module]` for
+      designs you want to see as their own Verilog `module foo`
+      block — a CPU, an ALU you intend to re-use, an arbiter,
+      etc.  Downstream tools (P&R, OOC synth, hierarchical
+      timing) can then treat the boundary as a real compile
+      unit.
+
+      `@[inline_hardware]` is accepted as a self-documenting
+      synonym for "always inline".  Today it has no effect over
+      the default, but it stays binding if a future heuristic
+      ever auto-promotes a definition to a module. -/
   partial def handleDefinitionUnfold (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     let isValidDef ← CompilerM.liftMetaM do
       try
@@ -1369,42 +1442,95 @@ mutual
 
     if !isValidDef then return none
 
-    trace[sparkle.compiler] "→ definition unfold {name}"
+    let env ← CompilerM.liftMetaM getEnv
+    let optedIntoModule := Sparkle.Compiler.isHardwareModule env name
 
-    -- First try to reduce the function call and translate inline.
-    -- Use reducible transparency to avoid expanding HAdd/HAppend mixed instances
-    let eReduced ← CompilerM.liftMetaM do
-      match ← Lean.Meta.unfoldDefinition? e with
-        | some e' => return e'
-        | none => return e
-    if eReduced != e then
-      try
-        let w ← translateExprToWire eReduced hint (isNamed := isNamed)
-        return some w
-      catch _ex1 =>
-        -- Inline expansion failed (often due to mixed Signal/BitVec operators
-        -- inside the expanded body). Retry with reducible transparency to
-        -- prevent over-expansion of Signal.pure and OfNat instances.
+    -- Helper: try the "unfold and translate inline" path — the default.
+    let tryInline : CompilerM (Option String) := do
+      let eReduced ← CompilerM.liftMetaM do
+        match ← Lean.Meta.unfoldDefinition? e with
+          | some e' => return e'
+          | none => return e
+      if eReduced != e then
         try
-          let eReduced2 ← CompilerM.liftMetaM do
-            Lean.Meta.withTransparency .reducible do
-              match ← Lean.Meta.unfoldDefinition? e with
-              | some e' => return e'
-              | none => return e
-          if eReduced2 != e then
-            let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
-            return some w
-        catch ex2 =>
-          let msg := ex2.toMessageData
-          CompilerM.liftMetaM $ throwError m!"Inline expansion failed for {name}:\n{msg}"
+          let w ← translateExprToWire eReduced hint (isNamed := isNamed)
+          return some w
+        catch _ex1 =>
+          -- Inline expansion failed (often due to mixed Signal/BitVec operators
+          -- inside the expanded body). Retry with reducible transparency to
+          -- prevent over-expansion of Signal.pure and OfNat instances.
+          try
+            let eReduced2 ← CompilerM.liftMetaM do
+              Lean.Meta.withTransparency .reducible do
+                match ← Lean.Meta.unfoldDefinition? e with
+                | some e' => return e'
+                | none => return e
+            if eReduced2 != e then
+              let w ← translateExprToWire eReduced2 hint (isNamed := isNamed)
+              return some w
+            else
+              return none
+          catch _ex2 =>
+            return none
+      else
+        return none
 
-    -- Fallback: sub-module synthesis
+    -- Default: inline the body into the caller.  Only opt INTO a
+    -- sub-module instance when the user tagged the definition
+    -- `@[hardware_module]`, OR when inlining genuinely fails
+    -- (typeclass dispatch, opaque dictionaries, …) and a fresh
+    -- module synthesis can rescue the call.
+    let subResult? : Option (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) ←
+      if optedIntoModule then
+        trace[sparkle.compiler] "→ sub-module instance {name} (hardware_module)"
+        try
+          some <$> CompilerM.liftMetaM (synthesizeCombinational name)
+        catch _ =>
+          CompilerM.liftMetaM $ throwError
+            s!"Sub-module synthesis failed for {name} (tagged @[hardware_module])"
+      else
+        -- Try inlining first.  If it succeeds we return immediately;
+        -- if not, fall through to a sub-module synthesis attempt.
+        trace[sparkle.compiler] "→ definition unfold {name} (inline by default)"
+        match ← tryInline with
+        | some w => return some w
+        | none =>
+          try
+            some <$> CompilerM.liftMetaM (synthesizeCombinational name)
+          catch _ => pure none
+    match subResult? with
+    | none =>
+      CompilerM.liftMetaM $ throwError
+        s!"Cannot synthesise {name}: not inlinable and not a hardware module"
+    | some (subModule, subDesign) =>
+
     trace[sparkle.compiler] "→ sub-module synthesis {name}"
-    let (subModule, subDesign) ← CompilerM.liftMetaM $ synthesizeCombinational name
-    for m in subDesign.modules do CompilerM.addModuleToDesign m
-    CompilerM.addModuleToDesign subModule
+    -- Add the child's transitive modules and the child itself to the
+    -- design, but only if not already present.  Two calls to the same
+    -- sub-module must produce *one* module definition + two
+    -- instantiations, not two duplicate definitions.
+    let existing := (← get).design.modules.map (·.name)
+    for m in subDesign.modules do
+      if !existing.contains m.name then
+        CompilerM.addModuleToDesign m
+    if !existing.contains subModule.name &&
+       !((← get).design.modules.any (·.name == subModule.name)) then
+      CompilerM.addModuleToDesign subModule
 
     let mut connections := []
+    -- Wire the child's clk / rst to the parent's clk / rst port (if
+    -- the child has them).  If the parent doesn't already declare
+    -- the matching input port, add it: a sequential sub-module
+    -- requires its parent to expose clk/rst at its own boundary.
+    -- Otherwise nextpnr / Verilator will complain about an
+    -- undriven clock.
+    for p in subModule.inputs do
+      if p.name == "clk" || p.name == "rst" then
+        let parent := (← get).module
+        if !parent.inputs.any (·.name == p.name) then
+          CompilerM.addInput p.name p.ty
+        connections := (p.name, Sparkle.IR.AST.Expr.ref p.name) :: connections
+
     let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
     if args.size < inputPorts.length then
        CompilerM.liftMetaM $ throwError s!"Sub-module {name} requires {inputPorts.length} args, but got {args.size}"
@@ -1419,7 +1545,12 @@ mutual
     let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
     connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
 
-    CompilerM.emitInstance subModule.name s!"inst_{subModule.name}" connections.reverse
+    -- Generate a fresh, unique instance name.  Two calls to the same
+    -- sub-module within a single parent must produce two distinct
+    -- `inst_*` names — otherwise the emitted Verilog has a duplicate
+    -- identifier.
+    let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+    CompilerM.emitInstance subModule.name instName connections.reverse
     return some resWire
 
   -- ===========================================================================
@@ -1564,6 +1695,15 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
     for w in warnings do
       Lean.logWarning m!"{w}"
 
+/-- Plain-text Verilog elaborator.
+
+    `#synthesizeVerilog id` synthesises `id` and prints the resulting
+    SystemVerilog to stdout.  Output is **plain text** — no MIME wrapper,
+    no highlighting — so it works identically under `lake build`,
+    `lake env lean`, CI, and any Jupyter kernel.
+
+    For a syntax-highlighted view inside JupyterLab use `#showVerilog`
+    instead; for writing to a file use `#writeVerilogDesign id "path"`. -/
 elab "#synthesizeVerilog" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
@@ -1575,6 +1715,56 @@ elab "#synthesizeVerilog" id:ident : command => do
     let verilog := toVerilog module
     IO.println verilog
     IO.println "\n-- Verilog successfully generated!"
+
+/-- Highlighted Verilog viewer for JupyterLab.
+
+    `#showVerilog id` synthesises `id` and renders the SystemVerilog
+    output inside an HTML `<pre><code class="language-verilog">` block,
+    routed through xeus-lean's `text/html` MIME channel so JupyterLab's
+    bundled highlight.js paints the source.
+
+    Outside Jupyter (plain `lake env lean`, CI) the MIME marker bytes
+    are still emitted but ESC / RS aren't visible, so the listing reads
+    as the raw HTML.  In that case prefer `#synthesizeVerilog` for a
+    clean text dump or `#writeVerilogDesign` to land the SV on disk. -/
+elab "#showVerilog" id:ident : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let (module, _) ← synthesizeCombinational declName
+    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
+    for w in warnings do
+      Lean.logWarning m!"{w}"
+    let src := toVerilog module
+    let escSrc := src
+      |>.replace "&" "&amp;"
+      |>.replace "<" "&lt;"
+      |>.replace ">" "&gt;"
+    let elemId := s!"sv-{(hash src).toUSize.toNat}"
+    let html := String.intercalate "" [
+      "<div class='xlean-verilog' style='margin:0'>",
+      "<pre id='", elemId, "' style=\"background:#f6f8fa;padding:8px 12px;border-radius:4px;border:1px solid #e1e4e8;font-size:12px;line-height:1.4;overflow:auto;margin:0\">",
+      "<code class='language-verilog'>", escSrc, "</code></pre></div>",
+      "<script>(function(){",
+      "var el=document.querySelector('#", elemId, " code');",
+      "if(!el||el.dataset.hlPainted)return;",
+      "function paint(){if(window.hljs){window.hljs.highlightElement(el);el.dataset.hlPainted='1';}}",
+      "if(window.hljs){paint();return;}",
+      "var s=document.createElement('script');",
+      "s.src='https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js';",
+      "s.onload=function(){var v=document.createElement('script');",
+      "v.src='https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/verilog.min.js';",
+      "v.onload=function(){window.hljs.registerLanguage('verilog', window.hljsVerilog||(()=>({})));paint();};",
+      "document.head.appendChild(v);};document.head.appendChild(s);})();</script>"
+    ]
+    -- xeus-lean's `extract_mime_payloads` (PR #7) scans both the
+    -- captured stdout pipe and the result message log for MIME
+    -- markers, so a plain `IO.println` of the marker is enough.
+    -- Outside JupyterLab the ESC / RS bytes are invisible in a
+    -- terminal and the surrounding HTML reads as raw text.
+    let esc := Char.ofNat 0x1B
+    let rs  := Char.ofNat 0x1E
+    IO.println s!"{esc}MIME:text/html{rs}{html}{esc}/MIME{rs}"
 
 def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
   let (module, design) ← synthesizeCombinational declName
@@ -1705,23 +1895,26 @@ private def simLeanIdent (s : String) : String :=
 elab "#sim" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
-  -- Phase 1: Synthesize + generate JIT C++ (in TermElabM)
-  let (ns, jitPath, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
+  -- Phase 1: Synthesize + generate JIT C++ AND Verilog .sv (in TermElabM)
+  let (ns, jitPath, svPath, topName, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
+    let verilog := Sparkle.Backend.Verilog.toVerilogDesign optimized
     let ns := simLeanIdent (toString declName.components.getLast!)
     let jitPath := s!".lake/build/gen/sim/{ns}_jit.cpp"
+    let svPath  := s!".lake/build/gen/sim/{ns}.sv"
     try
       IO.FS.createDirAll ".lake/build/gen/sim"
       IO.FS.writeFile jitPath jitCpp
+      IO.FS.writeFile svPath  verilog
     catch _ => pure ()
     let m ← match optimized.modules.head? with
       | some m => pure m
       | none => throwError "#sim: no module in design"
     let userInputs := m.inputs.filter fun p => !isSimClkRst p.name
     let outputs := m.outputs
-    pure (ns, jitPath, userInputs, outputs)
+    pure (ns, jitPath, svPath, m.name, userInputs, outputs)
   -- Phase 2: Generate typed wrappers (in CommandElabM)
   let lb := "{"
   let rb := "}"
@@ -1755,6 +1948,31 @@ elab "#sim" id:ident : command => do
   elabSimStr "def Simulator.reset (sim : Simulator) : IO Unit :=\n  JIT.reset sim.handle"
   elabSimStr "def Simulator.destroy (sim : Simulator) : IO Unit :=\n  JIT.destroy sim.handle"
   elabSimStr s!"def load : IO Simulator := do\n  let h ← JIT.compileAndLoad jitCppPath\n  pure {lb} handle := h {rb}"
+  -- Opt the generated wrapper into the unified `Sparkle.Core.Sim.Sim`
+  -- typeclass so call-sites can write `sim.step inp` / `sim.read`
+  -- against any backend (pure-Lean / JIT / Verilator) without
+  -- knowing which one produced `sim`.
+  elabSimStr <|
+    "instance : Sparkle.Core.Sim.Sim Simulator SimInput SimOutput where\n" ++
+    "  reset   := Simulator.reset\n" ++
+    "  step    := Simulator.step\n" ++
+    "  read    := Simulator.read\n" ++
+    "  destroy := Simulator.destroy"
+  -- Verilator backend.  Reuses the same `Simulator` shape because
+  -- the Verilator wrapper exposes the JIT C ABI; only `load`
+  -- differs (it builds a `.so` from the `.sv` instead of from
+  -- the JIT `.cpp`).
+  elabSimStr s!"def svPath : String := \"{svPath}\""
+  elabSimStr s!"def topModuleName : String := \"{topName}\""
+  let portSpec (p : Sparkle.IR.AST.Port) : String :=
+    "{ name := \"" ++ p.name ++ "\", width := " ++ toString p.ty.bitWidth ++ " : Sparkle.Core.Sim.Verilator.PortSpec }"
+  let inputPortSpecs := String.intercalate ", " (userInputs.map portSpec)
+  let outputPortSpecs := String.intercalate ", " (outputs.map portSpec)
+  elabSimStr <|
+    "def loadVerilator : IO Sparkle.Core.Sim.Verilator.Simulator :=\n" ++
+    "  Sparkle.Core.Sim.Verilator.of svPath topModuleName\n" ++
+    "    [" ++ inputPortSpecs ++ "]\n" ++
+    "    [" ++ outputPortSpecs ++ "]"
   elabSimStr s!"end {ns}.Sim"
 
 end Sparkle.Compiler.Elab

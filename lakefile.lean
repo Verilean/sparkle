@@ -64,6 +64,20 @@ lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
 
+-- Display: a shim for xeus-lean's `Display.*` library so that
+-- chapter cells can `import Display` and call
+-- `Display.waveform`, `Display.boolWave`, `Display.blockDiagram`,
+-- `Display.writeWdb`, etc. from headless `lake build` as well as
+-- from inside xeus-lean.  In the xeus-lean kernel the real Display
+-- library takes precedence; this shim is the offline fallback.
+lean_lib «Display» where
+  roots := #[`Display]
+  srcDir := "docs/tutorial"
+
+lean_lib «TutorialNotebooks» where
+  roots := #[`Notebooks]
+  srcDir := "docs/tutorial"
+
 lean_exe «tutorial-extended-run» where
   root := `TutorialExtended.Run
   srcDir := "tutorial-extended"
@@ -89,6 +103,10 @@ lean_exe «verilog-tests» where
 -- verifies the `#eval` path actually executes (not just type-checks).
 lean_exe «tutorial-smoke» where
   root := `Tests.Tutorial.SmokeTest
+  supportInterpreter := true
+
+lean_exe «tutorial-hierarchy» where
+  root := `Tests.Tutorial.HierarchyTest
   supportInterpreter := true
 
 lean_exe «sparkle-bitnet-verilog-dump» where
