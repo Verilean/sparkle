@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778544467806,
+  "lastUpdate": 1778552800833,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1583,6 +1583,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 3424884,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "d9fb8bcf670839a0206ef7fd6d5d6394fcd133a2",
+          "message": ".github/workflows/docker-image.yml: lowercase the ghcr.io owner\n\n`${{ github.repository_owner }}` returns the org's display\ncase (\"Verilean\"), but ghcr.io rejects tags whose repository\nname has any uppercase characters:\n\n    ERROR: failed to build: invalid tag\n      \"ghcr.io/Verilean/sparkle-tutorial:latest\":\n      repository name must be lowercase\n\nResolve it in the existing \"Resolve image tag\" step via\nbash's `${VAR,,}` lowercasing on `$GITHUB_REPOSITORY_OWNER`,\nexpose as `steps.tag.outputs.owner`, and reference that from\nthe build/push step's tags list.",
+          "timestamp": "2026-05-12T11:20:04+09:00",
+          "tree_id": "a1fc1d5735dc04b7bb8f13fccd04390cab700bea",
+          "url": "https://github.com/Verilean/sparkle/commit/d9fb8bcf670839a0206ef7fd6d5d6394fcd133a2"
+        },
+        "date": 1778552800516,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3114931,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3236030,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 3638722,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 3406157,
             "unit": "cycles/sec"
           }
         ]
