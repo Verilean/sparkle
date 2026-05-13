@@ -83,6 +83,24 @@ def heldRegister (reset : Signal defaultDomain Bool) :
       acc <~ acc + 1#8
     return bundle2 cnt acc
 
+/-! ### Test — branch-local `let` binding -/
+
+/-- A counter whose increment depends on a branch-local helper.
+    The `let step := ...` lives only inside the else branch and
+    is consumed by the `<~` on the very next line — verifies
+    that the macro lifts `let _ := _` into the muxed rhs without
+    leaking the binding to the outer circuit. -/
+def branchLet (reset : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  Signal.circuit do
+    let cnt ← Signal.reg 0#8
+    if reset then
+      cnt <~ 0#8
+    else
+      let step := cnt + 1#8
+      cnt <~ step
+    return cnt
+
 /-! ### Test 4 — nested `if`, priority-mux style -/
 
 /-- Priority-mux: `reset` wins; otherwise `enable` increments,
@@ -169,6 +187,12 @@ def main : IO Unit := do
   ok := (← runTest "heldRegister" r3
           ["(0x00#8,0x00#8)", "(0x01#8,0x01#8)", "(0x02#8,0x02#8)", "(0x03#8,0x03#8)",
            "(0x00#8,0x03#8)", "(0x01#8,0x04#8)", "(0x02#8,0x05#8)"]) && ok
+
+  -- 5. branchLet: same as resetCounter but increments via a
+  -- branch-local `let step := cnt + 1` in the else branch.
+  let r5 := sampleN (branchLet reset) 8 |>.map toString
+  ok := (← runTest "branchLet" r5
+          ["0x00#8", "0x01#8", "0x02#8", "0x03#8", "0x00#8", "0x01#8", "0x02#8", "0x03#8"]) && ok
 
   -- 4. priorityMux: with enable=true except cycle 5, reset at cycle 3.
   --   Same as resetCounter but with the extra enable gate.

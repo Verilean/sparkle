@@ -1107,22 +1107,39 @@ partial def flattenCircuitStmts (stmts : Array (Lean.TSyntax `circuitStmt)) :
       let elseFlat ← flattenCircuitStmts elseStmts
       let collect (flat : Array (Lean.TSyntax `circuitStmt)) :
           Lean.MacroM (Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident)) := do
+        -- Track `let _ := _` bindings encountered in this branch
+        -- *so far*; whenever we hit a `<~`, wrap its rhs in those
+        -- bindings.  This keeps a branch-local let visible only to
+        -- the `<~` statements that follow it inside the same branch,
+        -- matching Verilog `always_ff` `begin/end` scoping rules
+        -- without leaking the binding out to the outer circuit.
         let mut t : Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident) := #[]
+        let mut localLets : Array (Lean.TSyntax `ident × Lean.TSyntax `term) := #[]
         for s in flat do
           match s with
           | `(circuitStmt| $n:ident <~ $rhs)
           | `(circuitStmt| $n:ident <~ $rhs ;) =>
+            -- Inline the wrapping here (a closure over `localLets`
+            -- captures the value at definition time, not the latest
+            -- mutation — Lean's `mut` semantics don't extend through
+            -- captured closures).
+            let mut wrapped : Lean.TSyntax `term := rhs
+            for i in [:localLets.size] do
+              let (lname, le) := localLets[localLets.size - 1 - i]!
+              wrapped ← `(let $lname := $le; $wrapped)
             t := t.filter (fun (k, _, _) => k != n.getId)
-            t := t.push (n.getId, rhs, n)
+            t := t.push (n.getId, wrapped, n)
+          | `(circuitStmt| let $name := $rhs)
+          | `(circuitStmt| let $name := $rhs ;) =>
+            -- Local to this branch.  Append to the visibility
+            -- stack; subsequent `<~` rhs values will see it.
+            localLets := localLets.push (name, rhs)
           | `(circuitStmt| let $_ ← Signal.reg $_)
           | `(circuitStmt| let $_ ← Signal.reg $_ ;) =>
             Lean.Macro.throwError "Signal.circuit: register declarations inside `if` branches are not allowed"
           | `(circuitStmt| return $_)
           | `(circuitStmt| return $_ ;) =>
             Lean.Macro.throwError "Signal.circuit: `return` inside `if` branches is not allowed"
-          | `(circuitStmt| let $_ := $_)
-          | `(circuitStmt| let $_ := $_ ;) =>
-            Lean.Macro.throwError "Signal.circuit: `let` bindings inside `if` branches are not allowed (hoist them out)"
           | _ => Lean.Macro.throwUnsupported
         return t
       let thenAssigns ← collect thenFlat
