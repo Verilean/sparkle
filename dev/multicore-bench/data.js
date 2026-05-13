@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778595653829,
+  "lastUpdate": 1778676094109,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1275,6 +1275,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 642314,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "junji.hashimoto@gree.net",
+            "name": "Junji Hashimoto",
+            "username": "junjihashimoto"
+          },
+          "distinct": true,
+          "id": "53f240ef1cb5171f0e0313029d50d8223895c161",
+          "message": ".github/workflows/docker-image.yml: build per-arch on native runners\n\nSplit the multi-arch build into a matrix that runs linux/amd64 on\nubuntu-latest and linux/arm64 on ubuntu-24.04-arm, each pushing by\ndigest, then stitches the digests into a single manifest list in a\nmerge job.  The previous workflow built arm64 under QEMU on an\namd64 host, which made the arm64 leg (Lean toolchain + xeus-lean\nclang build) the long pole.  Native arm64 brings it back to amd64\nparity, so wall-clock is now max(amd64, arm64).  Adds per-arch GHA\nbuild cache.  Trigger, tags, and lowercase-owner behaviour are\npreserved.",
+          "timestamp": "2026-05-13T21:32:23+09:00",
+          "tree_id": "017c412fbaaa0ee9f7a40aa47c2143ff8c1cc7f0",
+          "url": "https://github.com/Verilean/sparkle/commit/53f240ef1cb5171f0e0313029d50d8223895c161"
+        },
+        "date": 1778676093804,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4047206,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 498242,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1010107,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 652593,
             "unit": "cycles/sec"
           }
         ]
