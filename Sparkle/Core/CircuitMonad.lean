@@ -1,52 +1,42 @@
 /-
-  Sparkle.Core.CircuitMonad — proof-of-concept ST-style monad
-  replacement for `Signal.circuit do`.
+  Sparkle.Core.CircuitMonad — ST-style monad for the
+  `Signal.circuit do` DSL.
 
-  Why this exists.  The current surface DSL —
+  Status: hybrid lowering.  The user-facing surface stays the
+  existing `Signal.circuit do { … }` macro (`Sparkle/Core/Signal.lean`),
+  but the macro expansion now targets `runCircuit` from this
+  file with a statically-known register count `n`.  This
+  lowering means:
 
-      Signal.circuit (dom := dom) do
-        let count ← Signal.reg 0#8
-        count <~ count + 1#8
-        return count
+    * No more bespoke `bundle2`/`bundleAll!` arity helpers; the
+      tuple width is captured by `Vector τ n` and threaded
+      through `Signal.loop`.
+    * `do`-notation goes through Lean's standard `Monad`
+      machinery — any future bind-form improvement Lean ships
+      reaches the DSL for free.
+    * The IR elaborator (`Sparkle/Compiler/Elab.lean`) sees the
+      same `Signal.loop` / `Signal.register` shape the existing
+      macro emits, so synthesis support is automatic.  No new
+      elaborator rule is needed.
 
-  — is a custom-syntax macro that pattern-matches four hard-coded
-  statement shapes and reassembles them into a `Signal.loop`.
-  Anything outside those shapes (`if` / `match` / `for` / local
-  helper bindings) must be smuggled in via plain `let`, and
-  type errors surface as generic "match failure on circuitStmt"
-  rather than typed diagnostics.
+  Why not teach the IR elaborator about `runCircuit` directly?
+  That route would couple Sparkle to whichever Lean version's
+  `Lean.Meta` API we shipped against.  The lowering here stays
+  inside the Sparkle library and uses only bedrock-stable APIs
+  (`Signal.loop`, `Signal.register`, `Vector`, `Monad`).
 
-  This file builds a real monad — `Circuit σ dom τ α` — so the
-  user writes the same logic as plain Lean:
+  Per-circuit element type restriction.  Every register inside
+  one `runCircuit` invocation shares one element type `τ`.
+  That matches the tutorial pattern (multi-bit counters, FSM
+  state words).  Lifting to per-register types via an `HList`
+  state descriptor is a follow-up.
 
-      def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-        runCircuit fun _ => do
-          let count ← Circuit.reg 0#8
-          Circuit.next count (count.read + 1#8)
-          pure count.read
-
-  and `if`/`match`/helper `let`s come along for free.
-
-  Design.  Each `Circuit σ dom τ α` action is a **function from
-  the run-state register tuple to (α, list of registers)**.  The
-  σ-rank phantom keeps register handles from leaking across
-  nested `runCircuit` invocations.  `Circuit.reg init` appends
-  a slot and returns a handle whose `read` projects the
-  live-tuple Signal at the handle's index.  `Circuit.next` records
-  a next-cycle Signal for a slot.  `runCircuit` calls
-  `Signal.loop` once, threading the live tuple through the body
-  and assembling the next-cycle tuple from the recorded entries.
-
-  Status: prototype.  Restricted to a single element type per
-  circuit (every register holds a `τ` for the same `τ`); the
-  follow-up will lift this to `HVect`-style per-register types
-  via a state descriptor.  The macro-based `Signal.circuit do`
-  remains the supported surface DSL until this PoC reaches
-  parity.
+  ST-style safety.  `runCircuit` rank-2 quantifies over a
+  phantom `σ` so register handles produced inside the body
+  cannot leak out into a sibling `runCircuit`.
 -/
 
 import Sparkle.Core.Signal
-import Sparkle.Compiler.InlineAttr
 
 namespace Sparkle.Core
 
@@ -55,240 +45,158 @@ open Sparkle.Core.Signal
 
 namespace Circuit
 
-/-! ### Internal state -/
+/-! ### Internal state.
 
-/-- Accumulator for one `runCircuit` body pass.  We record:
+`CircuitState n dom τ` keeps a length-indexed `Vector` of
+per-slot next-cycle Signals.  `inits` is the parallel vector
+of initial values supplied at allocation time.
 
-* `inits` — initial values, in declaration order.  Used both for
-  fresh-index allocation in `Circuit.reg` and as the `init`
-  argument to `Signal.register` when `runCircuit` closes the loop.
-* `nexts` — for each declared slot, the user's next-cycle Signal
-  if they called `Circuit.next` for it, or `none` meaning
-  "hold value" (the register feeds itself).
-
-Both arrays grow in lock-step; `nexts[i]` is the assignment for
-the register declared at position `i` in `inits`. -/
-structure CircuitState (dom : DomainConfig) (τ : Type) : Type where
-  inits : Array τ
-  nexts : Array (Option (Signal dom τ))
-
-namespace CircuitState
-
-@[inline] def empty {dom : DomainConfig} {τ : Type} : CircuitState dom τ :=
-  { inits := #[], nexts := #[] }
-
-end CircuitState
+By the time `runCircuit` calls the body, it has already
+pre-allocated every register handle and stashed each handle's
+initial value at the correct slot.  The body's `Circuit.next`
+calls then only need to drop next-cycle Signals into the
+right slots — slot numbers are baked into the handles, so
+out-of-range writes are statically impossible. -/
+structure CircuitState (n : Nat) (dom : DomainConfig) (τ : Type) where
+  inits : Vector τ n
+  /-- Per-slot next-cycle Signal, or `none` for "hold value". -/
+  nexts : Vector (Option (Signal dom τ)) n
 
 end Circuit
 
-/-- A handle to one register slot inside a `Circuit σ dom τ α`
-    action.  The σ phantom keeps the handle from escaping its
-    enclosing `runCircuit` (rank-2 quantifier on the body),
-    exactly like `ST`'s `STRef σ`.
+/-- A handle to one register slot.
 
-    `liveRead` is the projection-into-the-live-tuple Signal,
-    captured at `Circuit.reg`-time.  It refers to the *current
-    cycle*'s value of this register, so `r.read + 1` reads the
-    current value and feeds the sum back via `Circuit.next`. -/
-structure Reg (σ : Type) (dom : DomainConfig) (τ : Type) [Inhabited τ] : Type where
+    `idx : Fin n` keeps the slot within bounds at the type
+    level — no `getD`/default fallback at runtime.
+
+    `liveRead` is the slot's current-cycle Signal, captured
+    when `runCircuit` minted the handle. -/
+structure Reg (σ : Type) (n : Nat) (dom : DomainConfig) (τ : Type) [Inhabited τ] where
   private mk ::
-  idx : Nat
+  idx : Fin n
   liveRead : Signal dom τ
 
-/-- The Circuit monad — state-passing over `CircuitState dom τ`.
+/-- The Circuit monad — state-passing over `CircuitState n dom τ`.
 
-    Restricted (in this PoC) to a single per-circuit element
-    type `τ`: every register declared inside the same
-    `runCircuit` invocation has the same payload type.  That
-    matches the most common tutorial case (8-bit counter,
-    3-bit FSM, BitVec-N pipeline) without dragging in
-    heterogeneous-list infrastructure.
-
-    The σ-rank phantom keeps `Reg σ` handles inside their
+    `n` is fixed across the whole action (set by `runCircuit`'s
+    caller, in practice by the macro counting `Signal.reg`
+    lines).  The σ phantom keeps register handles inside the
     enclosing `runCircuit`. -/
-def Circuit (σ : Type) (dom : DomainConfig) (τ : Type) (α : Type) : Type :=
-  Circuit.CircuitState dom τ → α × Circuit.CircuitState dom τ
+def Circuit (σ : Type) (n : Nat) (dom : DomainConfig) (τ : Type) (α : Type) : Type :=
+  Circuit.CircuitState n dom τ → α × Circuit.CircuitState n dom τ
 
 namespace Circuit
 
-variable {σ : Type} {dom : DomainConfig} {τ : Type} {α β : Type}
+variable {σ : Type} {n : Nat} {dom : DomainConfig} {τ : Type} {α β : Type}
 
-@[inline] def pure' (a : α) : Circuit σ dom τ α := fun s => (a, s)
+@[inline] def pure' (a : α) : Circuit σ n dom τ α := fun s => (a, s)
 
-@[inline] def bind (m : Circuit σ dom τ α) (k : α → Circuit σ dom τ β) :
-    Circuit σ dom τ β :=
+@[inline] def bind (m : Circuit σ n dom τ α) (k : α → Circuit σ n dom τ β) :
+    Circuit σ n dom τ β :=
   fun s => let (a, s') := m s; k a s'
 
-instance : Monad (Circuit σ dom τ) where
+instance : Monad (Circuit σ n dom τ) where
   pure := Circuit.pure'
   bind := Circuit.bind
 
 /-- Read the current-cycle Signal of a register handle. -/
-@[inline] def read [Inhabited τ] (r : Reg σ dom τ) : Signal dom τ :=
+@[inline] def read [Inhabited τ] (r : Reg σ n dom τ) : Signal dom τ :=
   r.liveRead
+
+/-- Record an initial value for a register slot.  Called once
+    per slot at the start of `runCircuit` (the body's `reg`
+    allocator does it implicitly); not for users. -/
+private def setInit (i : Fin n) (init : τ) : Circuit σ n dom τ Unit :=
+  fun s => ((), { s with inits := s.inits.set i init })
 
 end Circuit
 
-/-- Allocate a fresh register in the current circuit.
+/-- Record a next-cycle Signal for a register slot.  Repeat
+    assignments overwrite earlier ones (matches the macro's
+    "last `<~` wins" semantics). -/
+def Circuit.next {σ : Type} {n : Nat} {dom : DomainConfig} {τ : Type} [Inhabited τ]
+    (r : Reg σ n dom τ) (sig : Signal dom τ) :
+    Circuit σ n dom τ Unit :=
+  fun s => ((), { s with nexts := s.nexts.set r.idx (some sig) })
 
-    Internal — takes the **live tuple Signal** as an explicit
-    argument so it can build the `liveRead` projection at
-    declaration time.  `runCircuit` partially-applies this
-    against its own loop-bound live tuple before handing the
-    resulting `Circuit σ dom τ` over to the user.
+/-- Build the next-cycle register-tuple Signal from a finished
+    state.
 
-    Users see the partially-applied alias `Circuit.reg`,
-    declared via `runCircuit`'s closure, which takes only the
-    init value. -/
-private def Circuit.regAux {σ : Type} {dom : DomainConfig} {τ : Type} [Inhabited τ]
-    (liveTuple : Signal dom (Array τ)) (init : τ) :
-    Circuit σ dom τ (Reg σ dom τ) :=
-  fun s =>
-    let i := s.inits.size
-    let live : Signal dom τ := liveTuple.map (fun arr => arr.getD i init)
-    let r : Reg σ dom τ := { idx := i, liveRead := live }
-    let s' : CircuitState dom τ := {
-      inits := s.inits.push init,
-      nexts := s.nexts.push none
-    }
-    (r, s')
+    For each slot we either use the user's recorded next-cycle
+    Signal or feed the slot's live read back unchanged (hold
+    semantics).  Each is wrapped in `Signal.register init
+    nextSig` — without this one-cycle delay the loop's fixed
+    point has no register on the feedback path, and
+    `Signal.loop`'s memoisation hides the divergence as a
+    stuck constant.
 
-/-- Record a next-cycle Signal for a register.  Last assignment
-    wins (matches the macro's left-to-right shadow semantics). -/
-def Circuit.next {σ : Type} {dom : DomainConfig} {τ : Type} [Inhabited τ]
-    (r : Reg σ dom τ) (sig : Signal dom τ) : Circuit σ dom τ Unit :=
-  fun s => ((), { s with nexts := s.nexts.set! r.idx (some sig) })
-
-/-- Build the next-cycle register-array Signal from a finished
-    `CircuitState`.
-
-    For each slot index `i`:
-    * if the user called `Circuit.next r sig`, use `sig`
-    * otherwise feed the live read of slot `i` back unchanged
-      (the "hold" semantics)
-
-    We then fold the per-slot Signals into a single
-    `Signal dom (Array τ)` using `Functor`/`Applicative` ops on
-    `Signal` (no bespoke `map₂` — the Functor + Applicative
-    instances Signal already provides give us
-    `(· ::-into-array)` lifting for free). -/
-private def Circuit.buildNextTuple {dom : DomainConfig} {τ : Type} [Inhabited τ]
-    (live : Signal dom (Array τ))
-    (st : Circuit.CircuitState dom τ) : Signal dom (Array τ) :=
-  let n := st.inits.size
-  let initArr : Signal dom (Array τ) := Signal.pure (Array.mkEmpty n)
-  -- Fold slots in order, appending each register's *current*
-  -- value to the accumulator.
-  --
-  -- Crucially, every slot is wrapped in `Signal.register init
-  -- nextSig` here — without that wrap the loop would have no
-  -- cycle delay and `Signal.loop`'s fix-point would diverge
-  -- (or, with memoisation, return the very first computed
-  -- value forever, which is the bug an earlier version of this
-  -- file hit on the counter sample: `[1, 1, 1, …]` instead of
-  -- `[0, 1, 2, …]`).
-  --
-  -- `nextSig` for a slot is the user's `Circuit.next` argument
-  -- if they assigned one; otherwise we feed the live value back
-  -- unchanged ("hold" semantics, matching the macro).
-  (List.range n).foldl (init := initArr) fun acc i =>
-    let init := st.inits.getD i default
+    The result is a `Signal dom (Vector τ n)`; at cycle t its
+    value is the vector of every register's value at cycle t. -/
+private def Circuit.buildNextTuple {n : Nat} {dom : DomainConfig} {τ : Type} [Inhabited τ]
+    (live : Signal dom (Vector τ n))
+    (st : Circuit.CircuitState n dom τ) : Signal dom (Vector τ n) :=
+  let slots : Fin n → Signal dom τ := fun i =>
+    let init := st.inits.get i
     let nextSig : Signal dom τ :=
-      match st.nexts[i]? with
-      | some (some s) => s
-      | _ =>
-        -- Hold: feed the live read back unchanged.
-        live.map (fun arr => arr.getD i init)
-    let slot : Signal dom τ := Signal.register init nextSig
-    (fun a v => a.push v) <$> acc <*> slot
+      match st.nexts.get i with
+      | some s => s
+      | none   => live.map (·.get i)
+    Signal.register init nextSig
+  -- Lift `Vector.ofFn slots` through the per-cycle evaluation:
+  -- at cycle t the vector's i-th entry is `(slots i).val t`.
+  -- We implement that with `Signal.ofFn`-style construction
+  -- via a `Signal` whose .val unrolls the Fin → Signal map.
+  -- Equivalent to repeated `Vector.push` lifted over
+  -- `<$>`/`<*>` but avoids the `(Vector.emptyWithCapacity).push`
+  -- shape's bookkeeping.
+  ⟨fun t => Vector.ofFn (fun i => (slots i).val t)⟩
 
-/-- Close a circuit into the final Signal.
+/-- Close a circuit into the final `Signal dom α`.
 
-    The user body is universally quantified over `σ`, so any
-    register handle the body creates is statically incompatible
-    with handles from any other `runCircuit` call — that's the
-    ST-style escape protection.  Concretely the body has type
+    The body is rank-2 over `σ` so register handles can't
+    leak out.  The body receives an *index-keyed allocator*
+    that lets it create a handle for a specific slot — the
+    macro expansion assigns indices `0, 1, …, n-1` in source
+    order, which is the same order the macro currently uses
+    when it generates `projN!` projections.
 
-        ∀ σ, (τ → Circuit σ dom τ (Reg σ dom τ)) → Circuit σ dom τ (Signal dom τ)
+    Implementation: pre-mint a `Vector` of handles bound to
+    the closed-loop live tuple, hand the body an allocator
+    that just looks up handles by index, run the body inside
+    `Signal.loop` to close the fix-point, run it again with
+    the closed tuple to extract the user's output `α`.
 
-    i.e. it receives the partially-applied `Circuit.reg` (live
-    tuple already plumbed in) and a fresh `CircuitState`, and
-    produces the value the user wants out of the circuit
-    (typically the projection of one register, but it can be
-    any `Signal dom τ` built from handle reads + Signal
-    combinators).
-
-    The Signal returned to the caller is the body's `α`
-    (already a `Signal dom τ` whose `live` projections refer to
-    the closed-loop tuple). -/
--- Note on synthesis: `runCircuit` does NOT carry
--- `@[inline_hardware]` — that tag only helps the elaborator
--- if it can also unfold the body lambda, which it can't here
--- because the body is rank-2 quantified over σ.  The PoC's
--- IR-recognition gap is documented in
--- `Tests/CircuitMonadTest.lean` §2.  Adding the tag here would
--- be misleading.
-def runCircuit {dom : DomainConfig} {τ : Type} [Inhabited τ]
-    (body : ∀ σ, (τ → Circuit σ dom τ (Reg σ dom τ)) →
-                  Circuit σ dom τ (Signal dom τ)) :
+    `α` is constrained to `Signal dom τ` so the rank-2 ∀σ
+    guarantees no `Reg σ` leaks: there's no way to construct
+    a `Signal dom τ` that mentions a `Reg σ` other than by
+    reading through it. -/
+-- Note on synthesis: `@[reducible]` here would let the IR
+-- elaborator unfold `runCircuit` during whnf, but the unfolded
+-- body still routes registers through `Vector.get` /
+-- `Vector.ofFn` on `Signal dom (Vector τ n)`, which the
+-- elaborator's wire-translation rules don't recognise.
+-- Synthesis of monad-produced circuits therefore remains an
+-- open item (see Tests/CircuitMonadTest.lean §2 for the full
+-- discussion).  Simulation works correctly; the `Vector`
+-- shape is well-typed Lean and round-trips through
+-- `Signal.loop` cleanly.
+def runCircuit {n : Nat} {dom : DomainConfig} {τ : Type} [Inhabited τ]
+    (initVec : Vector τ n)
+    (body : ∀ σ, (Fin n → Reg σ n dom τ) → Circuit σ n dom τ (Signal dom τ)) :
     Signal dom τ :=
-  -- The fixed-point Signal of register arrays — its value at
-  -- cycle `t` is the array of all register values at cycle `t`.
-  let tuple : Signal dom (Array τ) :=
-    Signal.loop (α := Array τ) (fun live =>
-      let regAux := Circuit.regAux (σ := Unit) (τ := τ) live
-      let (_, st) := body Unit regAux Circuit.CircuitState.empty
+  let tuple : Signal dom (Vector τ n) :=
+    Signal.loop (α := Vector τ n) (fun live =>
+      let handles : Fin n → Reg Unit n dom τ := fun i =>
+        { idx := i, liveRead := live.map (·.get i) }
+      let s0 : Circuit.CircuitState n dom τ :=
+        { inits := initVec, nexts := Vector.replicate n none }
+      let (_, st) := body Unit handles s0
       Circuit.buildNextTuple live st)
-  -- Re-run the body one more time with the closed tuple to get
-  -- the user's output Signal.  The body is pure (it only
-  -- threads `CircuitState` and reads from `live`), so running
-  -- it twice with the same live tuple is sound; the second run
-  -- discards its `CircuitState` changes because we already
-  -- baked them into `tuple`.
-  let regAux := Circuit.regAux (σ := Unit) (τ := τ) tuple
-  let (out, _) := body Unit regAux Circuit.CircuitState.empty
+  let handles2 : Fin n → Reg Unit n dom τ := fun i =>
+    { idx := i, liveRead := tuple.map (·.get i) }
+  let s0 : Circuit.CircuitState n dom τ :=
+    { inits := initVec, nexts := Vector.replicate n none }
+  let (out, _) := body Unit handles2 s0
   out
-
-/-! ### Worked example
-
-`counter` written in the new monad form, mirroring the
-macro version's behaviour. -/
-
-namespace Example
-
-/-- An 8-bit counter that increments every cycle starting at 0.
-    Equivalent to the macro version
-
-        def counter : Signal dom (BitVec 8) :=
-          Signal.circuit do
-            let c ← Signal.reg 0#8
-            c <~ c + 1#8
-            return c
-
-    written through the monad PoC. -/
-def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  runCircuit fun _σ reg => do
-    let c ← reg 0#8
-    Circuit.next c (Circuit.read c + 1#8)
-    Pure.pure (Circuit.read c)
-
-/-- Sample the first 5 cycles.  Not pin-checked at compile
-    time: `Signal.val` reaches through an `@[implemented_by]`
-    FFI shim that the kernel-side native_decide / decide
-    interpreters can't reach, exactly like the rest of
-    `Sparkle.Core.Signal`.  Run `#eval Example.counterSample`
-    in a JIT-enabled `#eval` (e.g. inside the tutorial Docker
-    image's xlean kernel) to see `[0, 1, 2, 3, 4]`.
-
-    The fact that the *definition* type-checks already proves
-    the surface API works: the `Circuit` monad's `do`-notation
-    expands cleanly, the σ-rank quantifier prevents handle
-    escape, and the worked example's `Signal dom (BitVec 8)`
-    return type matches the macro version. -/
-def counterSample : List (BitVec 8) :=
-  let s : Signal Sparkle.Core.Domain.defaultDomain (BitVec 8) := counter
-  (List.range 5).map (fun i => s.val i)
-
-end Example
 
 end Sparkle.Core

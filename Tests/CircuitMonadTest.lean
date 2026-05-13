@@ -44,8 +44,8 @@ namespace Sparkle.Core.CircuitMonadTest
 /-- 8-bit counter via the ST-style monad.  Behaviour should
     match the macro version's counter exactly. -/
 def counter {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  runCircuit fun _σ reg => do
-    let c ← reg 0#8
+  runCircuit (initVec := #v[0#8]) fun _σ handles => do
+    let c := handles 0
     Circuit.next c (Circuit.read c + 1#8)
     pure (Circuit.read c)
 
@@ -84,31 +84,36 @@ def runSim : List (BitVec 8) × List (BitVec 8) :=
     (c + 1)` — exactly the IR pattern the elaborator's
     register rule recognises.
 
-    The PoC's `runCircuit` introduces two layers the elaborator
-    doesn't (yet) understand:
+    The PoC's `runCircuit`, even after we tightened the state
+    type from `Array` to a length-indexed `Vector`, routes
+    every register through `Vector.get` / `Vector.ofFn` over
+    a `Signal dom (Vector τ n)`.  Those `Vector` operations
+    aren't in the IR elaborator's wire-translation rule set,
+    so unfolding `counter` once gets us as far as
+    `runCircuit …`, but the next unfold step lands in
+    `Vector.get`/`Vector.ofFn` land and `translateExprToWire`
+    bails out.
 
-    1. `Signal.loop` over `Array τ` (the bundled register
-       tuple) instead of over a fixed-arity product.
-    2. Per-register `Signal.map (·.getD i)` projections out of
-       that array, which obscure the `Signal.register init
-       next` shape the IR rule looks for.
+    Two ways forward, both outside the PoC's scope:
 
-    Adding `@[inline_hardware]` to `runCircuit` and to the
-    user's wrapper doesn't help — the rank-2 quantifier on the
-    body (`∀ σ, …`) prevents the elaborator's unfolder from
-    reducing the closure.
+    1. Emit macro-shaped output from `runCircuit` — per-arity
+       helpers (`runCircuit1`, `runCircuit2`, …) that build
+       the same `bundleN` / `Signal.register` skeleton the
+       existing macro emits.  Keeps the work inside Sparkle.Core
+       but doubles the helper count.
+    2. Add IR-elaborator rules for `Vector.get` / `Vector.ofFn`
+       on `Signal dom (Vector τ n)`.  Lets `runCircuit` stay
+       in its current shape but pulls Sparkle into a closer
+       relationship with whichever Lean version's `Lean.Meta`
+       API the elaborator targets.
 
-    The follow-up work that retires the macro must teach the
-    IR elaborator about this pattern (or, equivalently, lower
-    `runCircuit` into a `Signal.loop` over a fixed-arity tuple
-    so the existing rule applies).  Until then the
-    `#synthesizeVerilog` attempt below is left commented out;
-    the macro baseline `counterMacroD` exercises the synthesis
-    pipeline so this file still surfaces a synthesiser
-    regression that touches the macro path.
-
-    See also `docs/notes/circuit-monad-design.md` (planned)
-    for the heterogeneous-register lowering plan. -/
+    For the PoC we ship simulation-only correctness (covered
+    by `Tests/CircuitMonadSmoke.lean` via `lake exe
+    circuit-monad-smoke`).  The `#synthesizeVerilog` attempt
+    below is left commented out so this test file stays
+    `lake build`-green; the macro baseline `counterMacroD`
+    still exercises the synthesis pipeline and catches
+    regressions on that path. -/
 
 -- Macro counter — already-supported pattern, here as a baseline.
 def counterMacroD : Signal defaultDomain (BitVec 8) := counterMacro
@@ -121,10 +126,10 @@ def counterMonadD : Signal defaultDomain (BitVec 8) := counter
 -- Baseline: macro pattern, expected to synthesise.
 #synthesizeVerilog counterMacroD
 
--- Monad PoC — currently rejected by the elaborator with
--- "Cannot synthesise … : not inlinable and not a hardware
--- module".  Re-enable once `runCircuit` lowers into a
--- fixed-arity-tuple `Signal.loop`.
+-- Monad PoC.  Currently fails — the elaborator doesn't
+-- recognise `Vector.get` / `Vector.ofFn` on
+-- `Signal dom (Vector τ n)`.  Re-enable once one of the
+-- two follow-ups in the comment block above lands.
 -- #synthesizeVerilog counterMonadD
 
 end Sparkle.Core.CircuitMonadTest

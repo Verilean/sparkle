@@ -22,10 +22,17 @@ open Sparkle.Core
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
-/-- 8-bit counter through the ST-style monad PoC. -/
+/-- 8-bit counter through the ST-style monad PoC.
+
+    With the new index-keyed allocator: the caller provides a
+    `Vector` of initial values whose length is the register
+    count, and the body receives an allocator `Fin n → Reg`
+    keyed on slot index.  The macro expansion (when we wire
+    it in) will count `Signal.reg` lines at compile time and
+    generate the `Vector.mk` + indexed `handles _` calls. -/
 def counterMonad : Signal defaultDomain (BitVec 8) :=
-  runCircuit fun _σ reg => do
-    let c ← reg 0#8
+  runCircuit (initVec := #v[0#8]) fun _σ handles => do
+    let c := handles 0
     Circuit.next c (Circuit.read c + 1#8)
     pure (Circuit.read c)
 
