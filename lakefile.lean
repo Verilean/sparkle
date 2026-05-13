@@ -109,6 +109,14 @@ lean_exe «tutorial-hierarchy» where
   root := `Tests.Tutorial.HierarchyTest
   supportInterpreter := true
 
+-- Runtime check for the ST-style CircuitMonad PoC: actually
+-- evaluates the counter via Signal.loop's native FFI and
+-- compares to the macro-based reference.  `lake build` only
+-- type-checks the module; this exe exercises the runtime path.
+lean_exe «circuit-monad-smoke» where
+  root := `Tests.CircuitMonadSmoke
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

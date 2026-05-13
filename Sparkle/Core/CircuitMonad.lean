@@ -46,6 +46,7 @@
 -/
 
 import Sparkle.Core.Signal
+import Sparkle.Compiler.InlineAttr
 
 namespace Sparkle.Core
 
@@ -176,18 +177,29 @@ private def Circuit.buildNextTuple {dom : DomainConfig} {τ : Type} [Inhabited �
     (st : Circuit.CircuitState dom τ) : Signal dom (Array τ) :=
   let n := st.inits.size
   let initArr : Signal dom (Array τ) := Signal.pure (Array.mkEmpty n)
-  -- Fold slots in order, appending each to the accumulator.
+  -- Fold slots in order, appending each register's *current*
+  -- value to the accumulator.
+  --
+  -- Crucially, every slot is wrapped in `Signal.register init
+  -- nextSig` here — without that wrap the loop would have no
+  -- cycle delay and `Signal.loop`'s fix-point would diverge
+  -- (or, with memoisation, return the very first computed
+  -- value forever, which is the bug an earlier version of this
+  -- file hit on the counter sample: `[1, 1, 1, …]` instead of
+  -- `[0, 1, 2, …]`).
+  --
+  -- `nextSig` for a slot is the user's `Circuit.next` argument
+  -- if they assigned one; otherwise we feed the live value back
+  -- unchanged ("hold" semantics, matching the macro).
   (List.range n).foldl (init := initArr) fun acc i =>
-    let slot : Signal dom τ :=
+    let init := st.inits.getD i default
+    let nextSig : Signal dom τ :=
       match st.nexts[i]? with
       | some (some s) => s
       | _ =>
-        -- Hold: read this slot's current value and feed it
-        -- straight back.  The `getD` default cannot fire at
-        -- runtime — the live tuple always has at least `n`
-        -- elements by construction — but stays here to keep
-        -- the array index lookup total.
-        live.map (fun arr => arr.getD i (st.inits.getD i default))
+        -- Hold: feed the live read back unchanged.
+        live.map (fun arr => arr.getD i init)
+    let slot : Signal dom τ := Signal.register init nextSig
     (fun a v => a.push v) <$> acc <*> slot
 
 /-- Close a circuit into the final Signal.
@@ -209,6 +221,13 @@ private def Circuit.buildNextTuple {dom : DomainConfig} {τ : Type} [Inhabited �
     The Signal returned to the caller is the body's `α`
     (already a `Signal dom τ` whose `live` projections refer to
     the closed-loop tuple). -/
+-- Note on synthesis: `runCircuit` does NOT carry
+-- `@[inline_hardware]` — that tag only helps the elaborator
+-- if it can also unfold the body lambda, which it can't here
+-- because the body is rank-2 quantified over σ.  The PoC's
+-- IR-recognition gap is documented in
+-- `Tests/CircuitMonadTest.lean` §2.  Adding the tag here would
+-- be misleading.
 def runCircuit {dom : DomainConfig} {τ : Type} [Inhabited τ]
     (body : ∀ σ, (τ → Circuit σ dom τ (Reg σ dom τ)) →
                   Circuit σ dom τ (Signal dom τ)) :
