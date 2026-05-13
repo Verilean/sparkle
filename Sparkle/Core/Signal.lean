@@ -1048,6 +1048,34 @@ syntax ident " <~ " (colGt term) (";")? : circuitStmt
 syntax "let " ident " := " (colGt term) (";")? : circuitStmt
 syntax "return " (colGt term) (";")? : circuitStmt
 
+-- Statement-level `if/else` for the Verilog-style branching
+-- pattern.  This lets users write
+--
+--     if reset then
+--       cnt <~ 0#8
+--       dir <~ false
+--     else
+--       cnt <~ cnt + 1#8
+--       dir <~ !dir
+--
+-- which is the syntactic shape Verilog/SystemVerilog users
+-- reach for in `always_ff` blocks.  The macro flattens these
+-- into one `<~` per register with a `Signal.mux cond thenRhs
+-- elseRhs` right-hand side; a register assigned in only one
+-- branch keeps its current value on the other side (hold
+-- semantics), matching what the equivalent SV code would do.
+--
+-- Nested `if`s are supported because the inner statements are
+-- themselves `circuitStmt`s, so the flattener recurses.
+-- Restriction: register declarations (`let x ← Signal.reg …`)
+-- are not allowed inside if-branches — the register set has
+-- to be statically known across branches so the next-cycle
+-- mux can wire it up.  Plain `let x := …` bindings are
+-- allowed; they're scoped to the surrounding circuit by
+-- being lifted to the top.
+syntax "if " (colGt term) " then" withPosition((colGe circuitStmt)*)
+       "else" withPosition((colGe circuitStmt)*) : circuitStmt
+
 -- Statements are separated by either a literal `;` (set by the
 -- syntax declarations above) or an indentation/newline boundary.
 -- We achieve the latter by wrapping each `circuitStmt` in a
@@ -1057,10 +1085,79 @@ syntax "return " (colGt term) (";")? : circuitStmt
 syntax "Signal.circuit" "do" ppLine
   withPosition((colGe circuitStmt)*) : term
 
+/-- Walk a list of `circuitStmt`s, lowering any statement-level
+    `if cond then … else …` into a flat list of `<~`
+    assignments with `Signal.mux`-merged right-hand sides.
+
+    Plain assignments / register decls / `let` bindings / `return`
+    pass through unchanged.  Nested `if`s recurse (bottom-up:
+    the inner if is collapsed first, then the outer if sees one
+    muxed `<~` per register and re-muxes).  A register assigned
+    in only one branch keeps its current value on the other
+    side (hold semantics: the missing rhs is the register
+    identifier itself, which inside the surrounding
+    `Signal.loop` body reads the current cycle's value). -/
+partial def flattenCircuitStmts (stmts : Array (Lean.TSyntax `circuitStmt)) :
+    Lean.MacroM (Array (Lean.TSyntax `circuitStmt)) := do
+  let mut out : Array (Lean.TSyntax `circuitStmt) := #[]
+  for stmt in stmts do
+    match stmt with
+    | `(circuitStmt| if $cond then $thenStmts:circuitStmt* else $elseStmts:circuitStmt*) => do
+      let thenFlat ← flattenCircuitStmts thenStmts
+      let elseFlat ← flattenCircuitStmts elseStmts
+      let collect (flat : Array (Lean.TSyntax `circuitStmt)) :
+          Lean.MacroM (Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident)) := do
+        let mut t : Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident) := #[]
+        for s in flat do
+          match s with
+          | `(circuitStmt| $n:ident <~ $rhs)
+          | `(circuitStmt| $n:ident <~ $rhs ;) =>
+            t := t.filter (fun (k, _, _) => k != n.getId)
+            t := t.push (n.getId, rhs, n)
+          | `(circuitStmt| let $_ ← Signal.reg $_)
+          | `(circuitStmt| let $_ ← Signal.reg $_ ;) =>
+            Lean.Macro.throwError "Signal.circuit: register declarations inside `if` branches are not allowed"
+          | `(circuitStmt| return $_)
+          | `(circuitStmt| return $_ ;) =>
+            Lean.Macro.throwError "Signal.circuit: `return` inside `if` branches is not allowed"
+          | `(circuitStmt| let $_ := $_)
+          | `(circuitStmt| let $_ := $_ ;) =>
+            Lean.Macro.throwError "Signal.circuit: `let` bindings inside `if` branches are not allowed (hoist them out)"
+          | _ => Lean.Macro.throwUnsupported
+        return t
+      let thenAssigns ← collect thenFlat
+      let elseAssigns ← collect elseFlat
+      let mut emitted : Array Lean.Name := #[]
+      for (n, thenRhs, nameStx) in thenAssigns do
+        let elseRhsOpt : Option (Lean.TSyntax `term) :=
+          elseAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none)
+        let elseRhs : Lean.TSyntax `term ← match elseRhsOpt with
+          | some r => pure r
+          | none   => `($nameStx)
+        let muxed ← `(Signal.mux $cond $thenRhs $elseRhs)
+        out := out.push (← `(circuitStmt| $nameStx:ident <~ $muxed))
+        emitted := emitted.push n
+      for (n, elseRhs, nameStx) in elseAssigns do
+        if emitted.contains n then continue
+        let thenRhs ← `($nameStx)
+        let muxed ← `(Signal.mux $cond $thenRhs $elseRhs)
+        out := out.push (← `(circuitStmt| $nameStx:ident <~ $muxed))
+    | _ =>
+      out := out.push stmt
+  return out
+
 open Lean in
 open Lean.Macro in
 macro_rules
   | `(Signal.circuit do $stmts*) => do
+    -- Phase 0: Flatten any statement-level `if/else` into plain
+    -- `<~` assignments with `Signal.mux`-merged right-hand sides.
+    -- This is the only desugaring step that touches statement
+    -- structure; the original phases below run on the flattened
+    -- statement list as if the user had written it that way to
+    -- begin with.
+    let stmts ← flattenCircuitStmts stmts
+
     -- Phase 1: Collect register declarations (name, init)
     let mut regs : Array (TSyntax `ident × TSyntax `term) := #[]
     -- Phase 2: Collect assignments (name, rhs)

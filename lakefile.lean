@@ -117,6 +117,15 @@ lean_exe «circuit-monad-smoke» where
   root := `Tests.CircuitMonadSmoke
   supportInterpreter := true
 
+-- Runtime check for the statement-level `if/else` extension to
+-- `Signal.circuit do`.  Drives a few reset-counter / priority-
+-- mux / hold-semantics designs through `Signal.loop`'s native
+-- FFI and asserts the cycle-by-cycle output matches what a
+-- hand-rolled `Signal.mux` lowering would produce.
+lean_exe «circuit-if-test» where
+  root := `Tests.CircuitIfTest
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
