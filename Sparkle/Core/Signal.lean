@@ -1216,11 +1216,38 @@ macro_rules
 
     let n := regs.size
 
+    -- Surface a macro-level warning when the user has written
+    -- the same register's `<~` more than once.  Matches the
+    -- way Verilog non-blocking assignments behave (last write
+    -- in source order wins) but isn't always what the user
+    -- intended — without this warning the earlier writes
+    -- vanish silently into the loop body.
+    --
+    -- We only flag explicit user-written duplicates here, not
+    -- the muxed `<~`s emitted by the if-statement flattener
+    -- (those are an intentional last-write-wins single
+    -- emission per register and don't represent a duplicate
+    -- in the source).  The flattener emits at most one entry
+    -- per register, so any duplicate in the post-flatten
+    -- `assigns` array came from the user writing the same
+    -- register twice at the same level.
+    let mut seenNames : Array Lean.Name := #[]
+    for (aName, _) in assigns do
+      if seenNames.contains aName.getId then
+        Macro.throwError s!"Signal.circuit: register `{aName.getId}` is assigned with `<~` more than once at the same statement level — last write wins (matches Verilog `always_ff` semantics); merge the assignments into a single `<~` to silence this error.  See `docs/tutorial/md/Ch03_Sequential.md` §`<~` for the rewrite recipe."
+      seenNames := seenNames.push aName.getId
+
     -- Build the loop body tail: bundleAll! [Signal.register init0 next0, ...]
+    -- Last-write-wins semantics: when a register has multiple
+    -- assigns (only possible via the if-statement flattener
+    -- now that the duplicate check above throws on user-level
+    -- duplicates), iterate in reverse and take the first match
+    -- — i.e. the *last* user-written `<~`.
     let mut regTerms : Array (TSyntax `term) := #[]
     for (regName, init) in regs do
       let mut found := false
-      for (aName, aRhs) in assigns do
+      for i in [:assigns.size] do
+        let (aName, aRhs) := assigns[assigns.size - 1 - i]!
         if aName.getId == regName.getId then
           regTerms := regTerms.push (← `(Signal.register $init $aRhs))
           found := true

@@ -126,6 +126,15 @@ lean_exe «circuit-if-test» where
   root := `Tests.CircuitIfTest
   supportInterpreter := true
 
+-- Runtime check for the raw `Signal.loop` / `Signal.register`
+-- form (no macro DSL).  Pairs each loop-direct circuit with
+-- its `Signal.circuit do` equivalent and asserts the
+-- cycle-by-cycle outputs agree, so future macro changes can't
+-- silently drift from the loop semantics they desugar to.
+lean_exe «signal-loop-test» where
+  root := `Tests.SignalLoopTest
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
