@@ -28,6 +28,7 @@
 -/
 
 import Sparkle
+import Sparkle.Compiler.Elab
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -123,6 +124,31 @@ def priorityMux (reset enable : Signal defaultDomain Bool) :
       else
         cnt <~ cnt
     return cnt
+
+/-! ### Verilog synthesis smoke
+
+    Run `#synthesizeVerilog` on each circuit so `lake build`
+    catches the lowered macro shape if the IR elaborator
+    regresses on it.  The output Verilog is written to the
+    build log; CI just needs the build to succeed.  Nested
+    `if` (`priorityMux`) is included here so the
+    bottom-up collapse to `Signal.mux a 0 (Signal.mux b … …)`
+    keeps being a recognised wire shape. -/
+end Sparkle.Tests.CircuitIfTest
+
+section SynthesisChecks
+
+open Sparkle.Tests.CircuitIfTest
+
+#synthesizeVerilog resetCounter
+#synthesizeVerilog twoRegsBoth
+#synthesizeVerilog heldRegister
+#synthesizeVerilog branchLet
+#synthesizeVerilog priorityMux
+
+end SynthesisChecks
+
+namespace Sparkle.Tests.CircuitIfTest
 
 /-! ### Drivers -/
 
