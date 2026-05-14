@@ -40,15 +40,30 @@ import Tests.YOLOv8.TestBottleneck
 import Tests.YOLOv8.TestC2f
 import Tests.YOLOv8.TestBackbone
 import Tests.YOLOv8.TestNeck
--- Signal.circuit DSL extension tests.  Each is its own
--- `lean_exe` (`lake exe circuit-if-test` /
--- `lake exe signal-loop-test` / `lake exe circuit-match-test`)
--- so they're not transitively imported here (each file has a
--- top-level `def main` for its exe entry-point; importing them
--- all into a single module would collide).  Release / CI
--- scripts should `lake exe ...` each one in addition to
--- `lake test`.  CLAUDE.md ("Release / CI gate") tracks the
--- explicit list.
+-- Signal.circuit DSL extension tests.
+--
+-- Each file ALSO ships as a standalone `lean_exe` (`lake exe
+-- circuit-if-test`, `lake exe signal-loop-test`, `lake exe
+-- circuit-match-test`, `lake exe circuit-monad-smoke`) for
+-- ad-hoc debugging.  Their per-file top-level `def main`
+-- would collide if imported into one module, so we import
+-- only their *namespaced* entry points via `import` of the
+-- module — the namespaced `Sparkle.Tests.X.main` is what
+-- lives inside.  Each is called explicitly from this file's
+-- `main` below so `lake test` actually exercises the cycle-
+-- by-cycle sim path, not just type-checks the module.
+--
+-- A failing `Sparkle.Tests.X.main` calls `IO.Process.exit 1`,
+-- so `lake test` will exit non-zero if any of them regress.
+--
+-- The `lean_exe` targets are pointed at thin wrapper modules
+-- (`Tests/Drivers/*`) — see `lakefile.lean`.  The actual
+-- test logic lives inside the namespaced
+-- `Sparkle.Tests.X.main` here, which we call directly from
+-- `main` below.
+import Tests.CircuitIfTest
+import Tests.SignalLoopTest
+import Tests.CircuitMatchTest
 import Tests.CircuitMonadTest
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
@@ -362,6 +377,26 @@ def main : IO UInt32 := do
   Sparkle.IP.BitNet.Tests.SoC.runAll
   IO.println ""
   Sparkle.IP.BitNet.Tests.RTLGoldenValidation.runAll
+  IO.println ""
+
+  -- Run per-feature DSL sim mains (CircuitIfTest / SignalLoopTest /
+  -- CircuitMatchTest).  These exercise the `Signal.circuit do` macro's
+  -- if/else, match/case, branch-let, and hold semantics — plus the raw
+  -- `Signal.loop`/`Signal.register` round-trip — by driving each circuit
+  -- through the native FFI cycle-by-cycle.  `lake build` only
+  -- type-checks; this is the runtime gate.  Each `main` exits with
+  -- IO.Process.exit 1 on divergence, so a regression aborts `lake test`
+  -- here (well before lspecIO's report).
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  Signal.circuit DSL Sim Tests         ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.SignalLoopTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitIfTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitMatchTest.main
   IO.println ""
 
   -- Run Sparkle16 tests

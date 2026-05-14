@@ -190,5 +190,3 @@ def main : IO Unit := do
   IO.println "\nALL PASS"
 
 end Sparkle.Tests.SignalLoopTest
-
-def main : IO Unit := Sparkle.Tests.SignalLoopTest.main

@@ -232,5 +232,3 @@ def main : IO Unit := do
     IO.Process.exit 1
   IO.println "\nALL PASS"
 end Sparkle.Tests.CircuitIfTest
-
-def main : IO Unit := Sparkle.Tests.CircuitIfTest.main

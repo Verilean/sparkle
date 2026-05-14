@@ -123,7 +123,7 @@ lean_exe «circuit-monad-smoke» where
 -- FFI and asserts the cycle-by-cycle output matches what a
 -- hand-rolled `Signal.mux` lowering would produce.
 lean_exe «circuit-if-test» where
-  root := `Tests.CircuitIfTest
+  root := `Tests.Drivers.CircuitIfTestMain
   supportInterpreter := true
 
 -- Runtime check for the raw `Signal.loop` / `Signal.register`
@@ -132,7 +132,7 @@ lean_exe «circuit-if-test» where
 -- cycle-by-cycle outputs agree, so future macro changes can't
 -- silently drift from the loop semantics they desugar to.
 lean_exe «signal-loop-test» where
-  root := `Tests.SignalLoopTest
+  root := `Tests.Drivers.SignalLoopTestMain
   supportInterpreter := true
 
 -- Runtime check for the statement-level `match` extension to
@@ -140,7 +140,7 @@ lean_exe «signal-loop-test» where
 -- through `Signal.loop` and asserts the cycle-by-cycle output
 -- matches what a hand-rolled Signal.mux chain would produce.
 lean_exe «circuit-match-test» where
-  root := `Tests.CircuitMatchTest
+  root := `Tests.Drivers.CircuitMatchTestMain
   supportInterpreter := true
 
 lean_exe «sparkle-bitnet-verilog-dump» where

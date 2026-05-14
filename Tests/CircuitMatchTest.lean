@@ -159,5 +159,3 @@ def main : IO Unit := do
   IO.println "\nALL PASS"
 
 end Sparkle.Tests.CircuitMatchTest
-
-def main : IO Unit := Sparkle.Tests.CircuitMatchTest.main
