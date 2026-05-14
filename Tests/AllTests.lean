@@ -40,6 +40,16 @@ import Tests.YOLOv8.TestBottleneck
 import Tests.YOLOv8.TestC2f
 import Tests.YOLOv8.TestBackbone
 import Tests.YOLOv8.TestNeck
+-- Signal.circuit DSL extension tests.  Each is its own
+-- `lean_exe` (`lake exe circuit-if-test` /
+-- `lake exe signal-loop-test` / `lake exe circuit-match-test`)
+-- so they're not transitively imported here (each file has a
+-- top-level `def main` for its exe entry-point; importing them
+-- all into a single module would collide).  Release / CI
+-- scripts should `lake exe ...` each one in addition to
+-- `lake test`.  CLAUDE.md ("Release / CI gate") tracks the
+-- explicit list.
+import Tests.CircuitMonadTest
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO

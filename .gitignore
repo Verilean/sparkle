@@ -99,3 +99,7 @@ firmware/opensbi-stub/libgcc_stub.a
 # `bash docs/tutorial/build-from-md.sh` (uses xlean-convert).
 docs/tutorial/Notebooks/Gen/
 .claude/
+
+# Local agent / pair-programming instructions; per-developer,
+# not shared via the repo.
+CLAUDE.md
