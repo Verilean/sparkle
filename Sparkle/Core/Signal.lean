@@ -1076,6 +1076,29 @@ syntax "return " (colGt term) (";")? : circuitStmt
 syntax "if " (colGt term) " then" withPosition((colGe circuitStmt)*)
        "else" withPosition((colGe circuitStmt)*) : circuitStmt
 
+-- Statement-level `match` for the Verilog `case`-style pattern
+-- that Verilog users reach for in FSM next-state logic.  The
+-- macro accepts a `BitVec`-typed scrutinee and a sequence of
+-- arms whose patterns are either a `BitVec` literal or `_`:
+--
+--     match state with
+--     | 0#2 => state <~ 1#2
+--     | 1#2 => state <~ 2#2
+--     | _   => state <~ 0#2
+--
+-- Lowering is a right-fold of `Signal.mux`: each non-wildcard
+-- arm becomes `Signal.mux (scrutinee === pat) thenRhs <rest>`.
+-- A trailing `_ => …` arm supplies the final fallthrough; an
+-- explicit `_` is required (the macro raises an error otherwise)
+-- so the lowering is total at the wire level.
+--
+-- Same per-arm restrictions as `if`: register declarations and
+-- `return` are forbidden inside arms; plain `let _ := _`
+-- bindings are allowed and visible only within the arm.
+declare_syntax_cat circuitMatchArm
+syntax "|" term " => " withPosition((colGe circuitStmt)*) : circuitMatchArm
+syntax "match " (colGt term) " with" withPosition((colGe circuitMatchArm)+) : circuitStmt
+
 -- Statements are separated by either a literal `;` (set by the
 -- syntax declarations above) or an indentation/newline boundary.
 -- We achieve the latter by wrapping each `circuitStmt` in a
@@ -1085,18 +1108,59 @@ syntax "if " (colGt term) " then" withPosition((colGe circuitStmt)*)
 syntax "Signal.circuit" "do" ppLine
   withPosition((colGe circuitStmt)*) : term
 
+/-- Walk one branch / arm body, collecting its register
+    assignments after lifting any branch-local `let _ := _`
+    bindings into the rhs of every following `<~`.
+
+    Used both by the `if/else` flattener and the `match`
+    flattener — same restrictions apply to either (no inner
+    `Signal.reg`, no inner `return`, branch-local lets allowed
+    but visible only within their own branch).  `kind` is the
+    string ("if" or "match") used in the error message so the
+    user gets the right context. -/
+partial def collectBranchAssigns
+    (kind : String) (flat : Array (Lean.TSyntax `circuitStmt)) :
+    Lean.MacroM (Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident)) := do
+  let mut t : Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident) := #[]
+  let mut localLets : Array (Lean.TSyntax `ident × Lean.TSyntax `term) := #[]
+  for s in flat do
+    match s with
+    | `(circuitStmt| $n:ident <~ $rhs)
+    | `(circuitStmt| $n:ident <~ $rhs ;) =>
+      let mut wrapped : Lean.TSyntax `term := rhs
+      for i in [:localLets.size] do
+        let (lname, le) := localLets[localLets.size - 1 - i]!
+        wrapped ← `(let $lname := $le; $wrapped)
+      t := t.filter (fun (k, _, _) => k != n.getId)
+      t := t.push (n.getId, wrapped, n)
+    | `(circuitStmt| let $name := $rhs)
+    | `(circuitStmt| let $name := $rhs ;) =>
+      localLets := localLets.push (name, rhs)
+    | `(circuitStmt| let $_ ← Signal.reg $_)
+    | `(circuitStmt| let $_ ← Signal.reg $_ ;) =>
+      Lean.Macro.throwError
+        s!"Signal.circuit: register declarations inside `{kind}` arms are not allowed"
+    | `(circuitStmt| return $_)
+    | `(circuitStmt| return $_ ;) =>
+      Lean.Macro.throwError
+        s!"Signal.circuit: `return` inside `{kind}` arms is not allowed"
+    | _ => Lean.Macro.throwUnsupported
+  return t
+
 /-- Walk a list of `circuitStmt`s, lowering any statement-level
-    `if cond then … else …` into a flat list of `<~`
-    assignments with `Signal.mux`-merged right-hand sides.
+    `if cond then … else …` or `match scrut with | pat => …`
+    into a flat list of `<~` assignments with `Signal.mux`-merged
+    right-hand sides.
 
     Plain assignments / register decls / `let` bindings / `return`
-    pass through unchanged.  Nested `if`s recurse (bottom-up:
-    the inner if is collapsed first, then the outer if sees one
-    muxed `<~` per register and re-muxes).  A register assigned
-    in only one branch keeps its current value on the other
-    side (hold semantics: the missing rhs is the register
-    identifier itself, which inside the surrounding
-    `Signal.loop` body reads the current cycle's value). -/
+    pass through unchanged.  Nested control flow recurses
+    bottom-up: each inner block collapses first, then the outer
+    block sees a single muxed `<~` per register and re-muxes.
+    A register assigned in only some arms keeps its current
+    value on the missing arms (hold semantics: the missing rhs
+    is the register identifier itself, which inside the
+    surrounding `Signal.loop` body reads the current cycle's
+    value). -/
 partial def flattenCircuitStmts (stmts : Array (Lean.TSyntax `circuitStmt)) :
     Lean.MacroM (Array (Lean.TSyntax `circuitStmt)) := do
   let mut out : Array (Lean.TSyntax `circuitStmt) := #[]
@@ -1105,45 +1169,8 @@ partial def flattenCircuitStmts (stmts : Array (Lean.TSyntax `circuitStmt)) :
     | `(circuitStmt| if $cond then $thenStmts:circuitStmt* else $elseStmts:circuitStmt*) => do
       let thenFlat ← flattenCircuitStmts thenStmts
       let elseFlat ← flattenCircuitStmts elseStmts
-      let collect (flat : Array (Lean.TSyntax `circuitStmt)) :
-          Lean.MacroM (Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident)) := do
-        -- Track `let _ := _` bindings encountered in this branch
-        -- *so far*; whenever we hit a `<~`, wrap its rhs in those
-        -- bindings.  This keeps a branch-local let visible only to
-        -- the `<~` statements that follow it inside the same branch,
-        -- matching Verilog `always_ff` `begin/end` scoping rules
-        -- without leaking the binding out to the outer circuit.
-        let mut t : Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident) := #[]
-        let mut localLets : Array (Lean.TSyntax `ident × Lean.TSyntax `term) := #[]
-        for s in flat do
-          match s with
-          | `(circuitStmt| $n:ident <~ $rhs)
-          | `(circuitStmt| $n:ident <~ $rhs ;) =>
-            -- Inline the wrapping here (a closure over `localLets`
-            -- captures the value at definition time, not the latest
-            -- mutation — Lean's `mut` semantics don't extend through
-            -- captured closures).
-            let mut wrapped : Lean.TSyntax `term := rhs
-            for i in [:localLets.size] do
-              let (lname, le) := localLets[localLets.size - 1 - i]!
-              wrapped ← `(let $lname := $le; $wrapped)
-            t := t.filter (fun (k, _, _) => k != n.getId)
-            t := t.push (n.getId, wrapped, n)
-          | `(circuitStmt| let $name := $rhs)
-          | `(circuitStmt| let $name := $rhs ;) =>
-            -- Local to this branch.  Append to the visibility
-            -- stack; subsequent `<~` rhs values will see it.
-            localLets := localLets.push (name, rhs)
-          | `(circuitStmt| let $_ ← Signal.reg $_)
-          | `(circuitStmt| let $_ ← Signal.reg $_ ;) =>
-            Lean.Macro.throwError "Signal.circuit: register declarations inside `if` branches are not allowed"
-          | `(circuitStmt| return $_)
-          | `(circuitStmt| return $_ ;) =>
-            Lean.Macro.throwError "Signal.circuit: `return` inside `if` branches is not allowed"
-          | _ => Lean.Macro.throwUnsupported
-        return t
-      let thenAssigns ← collect thenFlat
-      let elseAssigns ← collect elseFlat
+      let thenAssigns ← collectBranchAssigns "if" thenFlat
+      let elseAssigns ← collectBranchAssigns "if" elseFlat
       let mut emitted : Array Lean.Name := #[]
       for (n, thenRhs, nameStx) in thenAssigns do
         let elseRhsOpt : Option (Lean.TSyntax `term) :=
@@ -1159,6 +1186,62 @@ partial def flattenCircuitStmts (stmts : Array (Lean.TSyntax `circuitStmt)) :
         let thenRhs ← `($nameStx)
         let muxed ← `(Signal.mux $cond $thenRhs $elseRhs)
         out := out.push (← `(circuitStmt| $nameStx:ident <~ $muxed))
+    | `(circuitStmt| match $scrut with $arms:circuitMatchArm*) => do
+      -- Per-arm: collect (pattern, branch-assigns).  Track
+      -- whether we've seen a wildcard `_` pattern (any pattern
+      -- after `_` is unreachable but we don't currently flag
+      -- it — Lean's regular `match` is more permissive and we
+      -- follow that convention).
+      let mut wildcardSeen := false
+      let mut wildcardAssigns : Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident) := #[]
+      let mut armPats : Array (Lean.TSyntax `term × Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident)) := #[]
+      for arm in arms do
+        match arm with
+        | `(circuitMatchArm| | $pat => $armStmts:circuitStmt*) =>
+          let armFlat ← flattenCircuitStmts armStmts
+          let armAssigns ← collectBranchAssigns "match" armFlat
+          -- Detect `_` wildcard pattern syntactically by checking
+          -- the term's raw representation.  We can't reliably
+          -- pattern-match a wildcard hole via quotation, so we
+          -- compare against the leading-`_` syntax kind.
+          let isWildcard := pat.raw.isOfKind `Lean.Parser.Term.hole
+          if isWildcard then
+            wildcardSeen := true
+            wildcardAssigns := armAssigns
+          else
+            armPats := armPats.push (pat, armAssigns)
+        | _ => Lean.Macro.throwUnsupported
+      if !wildcardSeen then
+        Lean.Macro.throwError
+          "Signal.circuit: `match` must include a wildcard arm (`| _ => ...`); without it the lowered Signal.mux chain has no defined fallthrough."
+      -- For every register that's assigned in any arm or in the
+      -- wildcard, build a right-folded `Signal.mux` chain over
+      -- the non-wildcard arms with the wildcard's rhs at the
+      -- tail.  Registers not assigned by a given arm fall back
+      -- to the wildcard's rhs (which itself defaults to hold
+      -- semantics if the wildcard doesn't assign that register).
+      let mut allRegs : Array (Lean.Name × Lean.TSyntax `ident) := #[]
+      for (_, armAssigns) in armPats do
+        for (n, _, s) in armAssigns do
+          if !allRegs.any (fun (k, _) => k == n) then
+            allRegs := allRegs.push (n, s)
+      for (n, _, s) in wildcardAssigns do
+        if !allRegs.any (fun (k, _) => k == n) then
+          allRegs := allRegs.push (n, s)
+      for (n, nameStx) in allRegs do
+        let wildcardRhs : Lean.TSyntax `term ← match
+            wildcardAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none) with
+          | some r => pure r
+          | none   => `($nameStx)
+        let mut chained : Lean.TSyntax `term := wildcardRhs
+        for i in [:armPats.size] do
+          let (pat, armAssigns) := armPats[armPats.size - 1 - i]!
+          let armRhs : Lean.TSyntax `term ← match
+              armAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none) with
+            | some r => pure r
+            | none   => `($nameStx)
+          chained ← `(Signal.mux ($scrut === $pat) $armRhs $chained)
+        out := out.push (← `(circuitStmt| $nameStx:ident <~ $chained))
     | _ =>
       out := out.push stmt
   return out

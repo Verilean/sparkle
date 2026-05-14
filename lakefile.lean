@@ -135,6 +135,14 @@ lean_exe «signal-loop-test» where
   root := `Tests.SignalLoopTest
   supportInterpreter := true
 
+-- Runtime check for the statement-level `match` extension to
+-- `Signal.circuit do`.  Drives a 3-state FSM and variations
+-- through `Signal.loop` and asserts the cycle-by-cycle output
+-- matches what a hand-rolled Signal.mux chain would produce.
+lean_exe «circuit-match-test» where
+  root := `Tests.CircuitMatchTest
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
