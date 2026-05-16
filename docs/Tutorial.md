@@ -311,6 +311,13 @@ def main : IO Unit := do
   sim.destroy
 ```
 
+### JIT with CUDA (Optional)
+```lean
+let cuCode := Sparkle.Backend.CudaSim.toCudaSim myModule "mymod_sim.h"
+IO.FS.writeFile "mymod.cu" cuCode
+-- Then: nvcc -O3 -std=c++17 -shared -fPIC -o libmymod.so mymod.cu
+```
+For more information `docs/CudaSim.md`
 ---
 
 ## Step 5: Formal Verification

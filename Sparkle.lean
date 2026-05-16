@@ -20,6 +20,7 @@ import Sparkle.Compiler.DRC
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.VCD
 import Sparkle.Backend.CppSim
+import Sparkle.Backend.CudaSim_addition
 import Sparkle.Verification.Temporal
 import Sparkle.Verification.Equivalence
 import Sparkle.Core.JIT
