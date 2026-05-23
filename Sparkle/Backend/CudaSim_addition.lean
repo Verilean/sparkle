@@ -22,6 +22,9 @@
   • The generated code requires CUDA ≥ 11.0 and a C++17-capable nvcc.
 -/
 
+import Sparkle.IR.AST
+import Sparkle.IR.Type
+import Sparkle.Backend.CppSim
 namespace Sparkle.Backend.CudaSim
 
 open Sparkle.IR.AST

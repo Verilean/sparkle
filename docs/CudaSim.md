@@ -24,7 +24,46 @@ Fused per-design GPU state struct
 ### Basic Usage
 
 1. Write example code
-As an example, define a simple CPU Module
+As an example, define a simple CPU Module. 
+```lean
+import Sparkle
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
+-- ── RegFile ──────────────────────────────────────────────────────────────────
+def regFile {dom : DomainConfig}
+    (raddr1 raddr2 waddr : Signal dom (BitVec 5))
+    (wdata : Signal dom (BitVec 32))
+    (we    : Signal dom Bit)
+    : Signal dom (BitVec 32 × BitVec 32) :=
+  Signal.circuit do
+    let rdata1 ← Signal.memory 5 32 waddr wdata we raddr1 (comboRead := true)
+    let rdata2 ← Signal.memory 5 32 waddr wdata we raddr2 (comboRead := true)
+    return (rdata1, rdata2)
+
+-- ── ALU ──────────────────────────────────────────────────────────────────────
+def alu {dom : DomainConfig}
+    (rs1 rs2 : Signal dom (BitVec 32))
+    (op      : Signal dom (BitVec 4))
+    : Signal dom (BitVec 32) :=
+  Signal.circuit do
+    let sum ← Signal.pure (rs1 + rs2)
+    return hw_cond (op == 0#4) sum (rs1 &&& rs2)
+
+-- ── CPU Top ───────────────────────────────────────────────────────────────────
+def cpu {dom : DomainConfig}
+    (raddr1 raddr2 : Signal dom (BitVec 5))
+    (op            : Signal dom (BitVec 4))
+    (waddr         : Signal dom (BitVec 5))
+    (wdata         : Signal dom (BitVec 32))
+    (we            : Signal dom Bit)
+    : Signal dom (BitVec 32) :=
+  Signal.circuit do
+    let (rs1, rs2) ← regFile raddr1 raddr2 waddr wdata we
+    return ← alu rs1 rs2 op
+```
+
+Corresponding Module id descripted as following.
 
 ```lean
 import Sparkle.IR.AST
@@ -154,7 +193,7 @@ void CPU_design_reset(CPU_design_state_t* s) {
 }
 ```
 
-2. Generate the complete .cu (struct + per-module device fns + kernel + host API)
+3. Generate the complete .cu (struct + per-module device fns + kernel + host API)
 ```lean
 def main : IO Unit := do
   -- Step 1: generate the C++ header (existing backend)
@@ -168,7 +207,21 @@ def main : IO Unit := do
   IO.println "Generated cpu_design_sim.h and cpu_design.cu"
 ```
 
-1. Compile and link:
+Or `#sim` macro
+```lean
+#sim cpu_design
+```
+And retrieve the cached module
+
+```lean
+def ModuleFromCache : Sparkle.IR.AST.Module :=
+  match Sparkle.Sim.JIT.getLastCompiledModule (← getEnv) with
+  | some m => m
+  | none   => panic! "sim! has not been run yet"
+```
+
+
+4. Compile and link:
 ```bash
 # Compile the C++ header into a position-independent object (for the .so)
 clang++ -O3 -std=c++17 -fPIC -c -o cpu_design_sim.o \
@@ -188,7 +241,7 @@ nm -D libcpu.so | grep jit_cuda
 #  T jit_cuda_design_run
 #  T jit_cuda_design_reset
 ```
-3. Lean FFI — driving the compiled .so
+5. Lean FFI — driving the compiled .so
 ```lean
 -- Sparkle/Sim/CudaJIT.lean
 import Sparkle.Backend.CudaSim
@@ -239,7 +292,7 @@ def CudaSimHandle.reset (h : CudaSimHandle) : IO Unit :=
   cudaDesignReset h.raw
 ```
 
-4. running a batch Simulation
+6. running a batch Simulation
 ```lean
 -- Run 1 million independent test vectors for 100 cycles each
 def runBatchFuzz : IO Unit := do
@@ -270,7 +323,7 @@ def runBatchFuzz : IO Unit := do
   h.free
 ```
 
-5. Using wireEdges directly
+7. Using wireEdges directly
 
 The DesignStateResult.wireEdges field is useful beyond code generation — for example, to build a static dependency graph for formal analysis or to verify the generated connections:
 
