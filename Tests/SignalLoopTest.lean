@@ -3,10 +3,9 @@
   directly (no `Signal.circuit do` sugar).
 
   Why this file exists.  The `Signal.circuit do` macro
-  (`Sparkle/Core/Signal.lean`) and the ST-style monad PoC
-  (`Sparkle/Core/CircuitMonad.lean`) are well covered by
-  `Tests/CircuitIfTest.lean` and `Tests/CircuitMonadSmoke.lean`
-  respectively.  But the most primitive form — the user
+  (`Sparkle/Core/Signal.lean`) is well covered by
+  `Tests/CircuitIfTest.lean` and `Tests/CircuitMatchTest.lean`.
+  But the most primitive form — the user
   writing `Signal.loop` and `Signal.register` calls by hand,
   the way most existing IP code (`IP/RV32/SoC.lean` and
   friends) is written — only had ad-hoc coverage scattered
