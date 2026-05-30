@@ -17,6 +17,7 @@ import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
+import Sparkle.Core.CircuitMonad
 
 namespace Sparkle.Compiler.Elab
 
@@ -1410,6 +1411,39 @@ mutual
 
     return none
 
+  /-- Handle `Bind.bind` / `Pure.pure` specialised to the
+      Sparkle Circuit monad.
+
+      Lean's `do`-notation desugars to `Bind.bind m k` /
+      `Pure.pure v` where Bind/Pure are typeclass projections.
+      `unfoldDefinition?` (the default tryInline path) cannot
+      reduce typeclass projections — it stops at the symbol with
+      the instance still opaque, and the elaborator gives up.
+
+      For Sparkle's Circuit monad the bind/pure unfold to pure
+      value-level Prod manipulation that the existing Prod /
+      Signal-map rules already lower.  We force a `.all`
+      transparency `reduce` on the whole expression and recurse,
+      mirroring how `Prod.rec` / `Prod.casesOn` are handled. -/
+  partial def handleCircuitMonad (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- Recognize Bind.bind / Pure.pure when specialised to the
+    -- Sparkle Circuit monad — typeclass projection that the
+    -- default unfoldDefinition? path can't reduce.  We force a
+    -- `.all`-transparency `whnf` to peel the typeclass projection,
+    -- then recurse on the reduced expression.
+    if name == ``Bind.bind || name == ``Pure.pure then
+      if args.size >= 1 then
+        let rec peelLambdas : Lean.Expr → Lean.Expr
+          | .lam _ _ body _ => peelLambdas body
+          | e => e
+        let mHead := peelLambdas args[0]!
+        if mHead.isAppOf ``Sparkle.Core.Circuit then
+          let e' ← CompilerM.liftMetaM
+            (withTransparency TransparencyMode.all $ whnf e)
+          if e' != e then
+            return some (← translateExprToWire e' hint (isNamed := isNamed))
+    return none
+
   /-- Handle a Lean function call by either inlining the body
       (the **default**) or emitting a sub-module instance (only
       when the declaration is tagged `@[hardware_module]`).
@@ -1578,6 +1612,7 @@ mutual
       if let some w ← handleMux e name args hint isNamed then return w
       if let some w ← handleMemory e name args hint isNamed then return w
       if let some w ← handleLoop e name args hint isNamed then return w
+      if let some w ← handleCircuitMonad e name args hint isNamed then return w
       if let some w ← handleDefinitionUnfold e name args hint isNamed then return w
       -- Not a valid module - throw error with debug info
       CompilerM.liftMetaM $ do
