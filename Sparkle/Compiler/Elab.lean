@@ -1442,6 +1442,44 @@ mutual
             (withTransparency TransparencyMode.all $ whnf e)
           if e' != e then
             return some (← translateExprToWire e' hint (isNamed := isNamed))
+    -- Value-level Prod.mk hit directly as the expression head.
+    -- This shows up after `Bind.bind` peels and the user's `do`
+    -- block reduces to `Prod.mk out_signal builder`.  We're
+    -- being asked for the wire of the whole Prod, but the only
+    -- meaningful payload is the first component (the output
+    -- Signal); the builder is a `NextBuilder` function with no
+    -- wire representation.
+    --
+    -- Scope: only fire when args[0] (the α type) is a Signal —
+    -- otherwise this could match user-constructed Prods that
+    -- should be `bundle2`'d.
+    if name == ``Prod.mk && args.size >= 4 then
+      let αType := args[0]!
+      if αType.isAppOf ``Sparkle.Core.Signal.Signal then
+        let outExpr := args[2]!
+        return some (← translateExprToWire outExpr hint (isNamed := isNamed))
+    -- Value-level Prod.fst / Prod.snd hitting a `Prod.mk a b`
+    -- under `.all` transparency — iota-reduce to the chosen
+    -- component.  Lean's default-transparency whnf doesn't
+    -- always strip these (esp. when the Prod.mk has functions
+    -- as components, as `runCircuit`'s `(out, builder)` does).
+    if (name == ``Prod.fst || name == ``Prod.snd) && args.size >= 3 then
+      -- `Prod.fst/snd` takes exactly `[α, β, pair]` as its explicit
+      -- args.  When the result is then applied further (e.g.
+      -- `bResult.snd live` => `(Prod.snd pair) live`), Lean's
+      -- `getAppArgs` still gives us [α, β, pair, extra...].
+      -- So always look at index 2 for the pair.
+      let pair := args[2]!
+      let pairReduced ← CompilerM.liftMetaM
+        (withTransparency TransparencyMode.all $ whnf pair)
+      if pairReduced.isAppOf ``Prod.mk then
+        let mkArgs := pairReduced.getAppArgs
+        if mkArgs.size >= 4 then
+          let chosen := if name == ``Prod.fst then mkArgs[2]! else mkArgs[3]!
+          -- Re-apply any trailing args after the projection
+          let trailing := args.toList.drop 3 |>.toArray
+          let appliedExpr := mkAppN chosen trailing
+          return some (← translateExprToWire appliedExpr hint (isNamed := isNamed))
     return none
 
   /-- Handle a Lean function call by either inlining the body
