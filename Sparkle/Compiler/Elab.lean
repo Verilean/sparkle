@@ -987,6 +987,21 @@ mutual
             else translateExprToWireApp e hint isNamed
 
     | .proj _ idx eStruct => do
+      -- Try iota reduction first: if `eStruct` reduces to a
+      -- `Prod.mk a b`, replace `.proj idx (Prod.mk a b)` with
+      -- the chosen component.  Without this, value-level Prods
+      -- (e.g. `Reg.liveRead r` unfolds to `r.1` = `.proj 0 r`,
+      -- and `r` is constructed via `Reg.mk live slot` which
+      -- reduces to `Prod.mk live slot`) get slice-translated
+      -- as if they were packed Signal-Prods, producing phantom
+      -- bit ranges like `[15:8]` on an 8-bit register.
+      let eReduced ← CompilerM.liftMetaM
+        (withTransparency TransparencyMode.all $ whnf eStruct)
+      if eReduced.isAppOf ``Prod.mk then
+        let mkArgs := eReduced.getAppArgs
+        if mkArgs.size >= 4 then
+          let chosen := if idx == 0 then mkArgs[2]! else mkArgs[3]!
+          return ← translateExprToWire chosen hint (isTopLevel := isTopLevel) (isNamed := isNamed)
       let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
@@ -1473,18 +1488,25 @@ mutual
       let αType := args[0]!
       if αType.isAppOf ``Sparkle.Core.Signal.Signal then
         let outExpr := args[2]!
-        return some (← translateExprToWire outExpr hint (isNamed := isNamed))
+        -- Force-reduce so any `Reg.liveRead r` (which unfolds to
+        -- `r.1` = `Prod.fst (Prod.mk live slot)`) becomes `live`
+        -- before we hand it off to translateExprToWire.  Without
+        -- this the elaborator interprets the surviving `Prod.fst`
+        -- expression as a Signal-Prod slice and emits a phantom
+        -- `[totalWidth-1 : totalWidth - w]` Verilog range.
+        let outReduced ← CompilerM.liftMetaM
+          (withTransparency TransparencyMode.all $ whnf outExpr)
+        return some (← translateExprToWire outReduced hint (isNamed := isNamed))
     -- Value-level Prod.fst / Prod.snd hitting a `Prod.mk a b`
     -- under `.all` transparency — iota-reduce to the chosen
     -- component.  Lean's default-transparency whnf doesn't
     -- always strip these (esp. when the Prod.mk has functions
     -- as components, as `runCircuit`'s `(out, builder)` does).
     if (name == ``Prod.fst || name == ``Prod.snd) && args.size >= 3 then
-      -- `Prod.fst/snd` takes exactly `[α, β, pair]` as its explicit
-      -- args.  When the result is then applied further (e.g.
-      -- `bResult.snd live` => `(Prod.snd pair) live`), Lean's
-      -- `getAppArgs` still gives us [α, β, pair, extra...].
-      -- So always look at index 2 for the pair.
+      -- `Prod.fst/snd` takes `[α, β, pair]` (3 explicit args).
+      -- When the result is then applied further (e.g.
+      -- `bResult.snd live` parses as `(Prod.snd pair) live`),
+      -- `getAppArgs` still gives us `[α, β, pair, extra...]`.
       let pair := args[2]!
       let pairReduced ← CompilerM.liftMetaM
         (withTransparency TransparencyMode.all $ whnf pair)
@@ -1659,6 +1681,12 @@ mutual
       -- 3. We'd only catch non-problematic uses, creating false positives
 
       handleErrorPatterns e name args hint isNamed  -- throws or returns ()
+      -- handleCircuitMonad must run before handleTupleProjections /
+      -- handleDefinitionUnfold so that Bind.bind / Pure.pure get
+      -- peeled, and value-level Prod.fst / Prod.snd / Prod.mk on
+      -- Circuit-produced pairs reach our specialised path before
+      -- the default unfold tries (and fails) to translate them.
+      if let some w ← handleCircuitMonad e name args hint isNamed then return w
       if let some w ← handleTupleProjections e name args hint isNamed then return w
       if let some w ← handleApplicative e name args hint isNamed then return w
       if let some w ← handleBitVecOps e name args hint isNamed then return w
@@ -1666,7 +1694,6 @@ mutual
       if let some w ← handleMux e name args hint isNamed then return w
       if let some w ← handleMemory e name args hint isNamed then return w
       if let some w ← handleLoop e name args hint isNamed then return w
-      if let some w ← handleCircuitMonad e name args hint isNamed then return w
       if let some w ← handleDefinitionUnfold e name args hint isNamed then return w
       -- Not a valid module - throw error with debug info
       CompilerM.liftMetaM $ do

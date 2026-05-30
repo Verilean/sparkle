@@ -163,7 +163,8 @@ end Circuit
       let nextState : Signal dom τ₀ := b' live
       Signal.register init₀ nextState)
   let r : Reg dom τ₀ τ₀ := Reg.mk stateLoop slot
-  (body r id).fst
+  let outResult := body r id
+  outResult.fst
 
 /-- Two-register circuit — state shape `τ₀ × τ₁`. -/
 @[reducible, inline] def runCircuit2 {dom : DomainConfig} {τ₀ τ₁ ρ : Type} [Inhabited τ₀] [Inhabited τ₁]
