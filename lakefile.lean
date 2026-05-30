@@ -135,6 +135,16 @@ lean_exe «circuit-match-test» where
   root := `Tests.Drivers.CircuitMatchTestMain
   supportInterpreter := true
 
+-- PoC v2 (branch poc/circuit-monad-v2) — sim parity check
+-- between the new HList / Prod-chain monad surface
+-- (`runCircuit1` / `runCircuit2`) and the `Signal.circuit do`
+-- macro on the same circuits.  Synthesis isn't end-to-end
+-- green yet (see commit notes); sim is the part we drive
+-- here.  Not wired into `lake test` until synthesis catches up.
+lean_exe «circuit-monad-v2-test» where
+  root := `Tests.Drivers.CircuitMonadV2TestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

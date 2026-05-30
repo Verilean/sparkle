@@ -45,28 +45,44 @@ namespace Circuit
 
 /-- Slot accessor over a state of static shape `S`.
 
-    `read live` is the slot's current-cycle Signal extracted
-    from the closed-loop state.  `update next state` produces
-    a new state with the slot's next-cycle Signal stamped in.
+    Concretely a pair `(read, update)` of lens functions over
+    the Prod-chain state.  Defined as a plain Prod alias rather
+    than a `structure` so the elaborator's existing Prod /
+    Prod.fst / Prod.snd recognition lowers field access without
+    needing a separate struct-projection rule. -/
+@[reducible] def Slot (dom : DomainConfig) (S : Type) (τ : Type) : Type :=
+  (Signal dom S → Signal dom τ) × (Signal dom τ → Signal dom S → Signal dom S)
 
-    Concretely: for a register at HList position 2 inside state
-    of shape `BitVec 2 × BitVec 8 × Bool × Unit`, the read is
-    `Signal.map (·.2.2.1)` (sliced bits 0..0 of the bottom of
-    the Prod chain) and the update overwrites the same slot,
-    leaving the surrounding Prod siblings unchanged. -/
-structure Slot (dom : DomainConfig) (S : Type) (τ : Type) where
-  read : Signal dom S → Signal dom τ
-  update : Signal dom τ → Signal dom S → Signal dom S
+@[reducible] def Slot.read {dom : DomainConfig} {S : Type} {τ : Type}
+    (s : Slot dom S τ) : Signal dom S → Signal dom τ := s.1
+
+@[reducible] def Slot.update {dom : DomainConfig} {S : Type} {τ : Type}
+    (s : Slot dom S τ) : Signal dom τ → Signal dom S → Signal dom S := s.2
+
+@[reducible] def Slot.mk {dom : DomainConfig} {S : Type} {τ : Type}
+    (read : Signal dom S → Signal dom τ)
+    (update : Signal dom τ → Signal dom S → Signal dom S) : Slot dom S τ :=
+  (read, update)
 
 end Circuit
 
-/-- Register handle.  Carries the live read directly (so the
-    user can pass `r` anywhere a `Signal dom τ` is expected)
-    plus the slot lens used to stamp the next-cycle value back
-    into the state. -/
-structure Reg (dom : DomainConfig) (S : Type) (τ : Type) where
-  liveRead : Signal dom τ
-  slot : Circuit.Slot dom S τ
+/-- Register handle = `(liveRead, slot)` Prod.
+
+    Same rationale as `Slot` — a Prod alias rather than a
+    `structure`, so accesses through `.1` / `.2` ride on the
+    existing elaborator rules. -/
+@[reducible] def Reg (dom : DomainConfig) (S : Type) (τ : Type) : Type :=
+  Signal dom τ × Circuit.Slot dom S τ
+
+@[reducible] def Reg.liveRead {dom : DomainConfig} {S : Type} {τ : Type}
+    (r : Reg dom S τ) : Signal dom τ := r.1
+
+@[reducible] def Reg.slot {dom : DomainConfig} {S : Type} {τ : Type}
+    (r : Reg dom S τ) : Circuit.Slot dom S τ := r.2
+
+@[reducible] def Reg.mk {dom : DomainConfig} {S : Type} {τ : Type}
+    (liveRead : Signal dom τ) (slot : Circuit.Slot dom S τ) : Reg dom S τ :=
+  (liveRead, slot)
 
 namespace Circuit
 
@@ -138,15 +154,15 @@ end Circuit
     (init₀ : τ₀)
     (body : Reg dom τ₀ τ₀ → Circuit dom τ₀ (Signal dom ρ)) : Signal dom ρ :=
   let slot : Circuit.Slot dom τ₀ τ₀ :=
-    { read := id, update := fun next _ => next }
+    Circuit.Slot.mk id (fun next _ => next)
   let stateLoop : Signal dom τ₀ :=
     Signal.loop (α := τ₀) (fun live =>
-      let r : Reg dom τ₀ τ₀ := { liveRead := live, slot := slot }
+      let r : Reg dom τ₀ τ₀ := Reg.mk live slot
       let bResult := body r id
       let b' : Circuit.NextBuilder dom τ₀ := bResult.snd
       let nextState : Signal dom τ₀ := b' live
       Signal.register init₀ nextState)
-  let r : Reg dom τ₀ τ₀ := { liveRead := stateLoop, slot := slot }
+  let r : Reg dom τ₀ τ₀ := Reg.mk stateLoop slot
   (body r id).fst
 
 /-- Two-register circuit — state shape `τ₀ × τ₁`. -/
@@ -156,15 +172,15 @@ end Circuit
             Circuit dom (τ₀ × τ₁) (Signal dom ρ)) : Signal dom ρ :=
   let S := τ₀ × τ₁
   let slot0 : Circuit.Slot dom S τ₀ :=
-    { read := Signal.map Prod.fst,
-      update := fun n s => bundle2 n (Signal.map Prod.snd s) }
+    Circuit.Slot.mk (Signal.map Prod.fst)
+                    (fun n s => bundle2 n (Signal.map Prod.snd s))
   let slot1 : Circuit.Slot dom S τ₁ :=
-    { read := Signal.map Prod.snd,
-      update := fun n s => bundle2 (Signal.map Prod.fst s) n }
+    Circuit.Slot.mk (Signal.map Prod.snd)
+                    (fun n s => bundle2 (Signal.map Prod.fst s) n)
   let stateLoop : Signal dom S :=
     Signal.loop (α := S) (fun live =>
-      let r0 : Reg dom S τ₀ := { liveRead := Signal.map Prod.fst live, slot := slot0 }
-      let r1 : Reg dom S τ₁ := { liveRead := Signal.map Prod.snd live, slot := slot1 }
+      let r0 : Reg dom S τ₀ := Reg.mk (Signal.map Prod.fst live) slot0
+      let r1 : Reg dom S τ₁ := Reg.mk (Signal.map Prod.snd live) slot1
       let bResult := body r0 r1 id
       let b' : Circuit.NextBuilder dom S := bResult.snd
       let nextState : Signal dom S := b' live
@@ -172,8 +188,8 @@ end Circuit
         bundle2 (Signal.register init₀ (Signal.map Prod.fst nextState))
                 (Signal.register init₁ (Signal.map Prod.snd nextState))
       nextS)
-  let r0 : Reg dom S τ₀ := { liveRead := Signal.map Prod.fst stateLoop, slot := slot0 }
-  let r1 : Reg dom S τ₁ := { liveRead := Signal.map Prod.snd stateLoop, slot := slot1 }
+  let r0 : Reg dom S τ₀ := Reg.mk (Signal.map Prod.fst stateLoop) slot0
+  let r1 : Reg dom S τ₁ := Reg.mk (Signal.map Prod.snd stateLoop) slot1
   (body r0 r1 id).fst
 
 end Sparkle.Core

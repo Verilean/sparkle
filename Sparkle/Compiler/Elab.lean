@@ -1118,11 +1118,27 @@ mutual
       CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
       return some resWire
 
-    -- Signal.map Prod.fst/snd (legacy syntax)
+    -- Signal.bundle2 — pack two Signals into a Prod Signal.
+    -- (Duplicates the early-interception rule above so paths
+    -- that reach here via Bind/Pure reduction also work.)
+    if name == ``Sparkle.Core.Signal.bundle2 && args.size >= 2 then
+      let wireA ← translateExprToWire args[args.size-2]! "a"
+      let wireB ← translateExprToWire args[args.size-1]! "b"
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+      return some resWire
+
+    -- Signal.map Prod.fst/snd (legacy syntax).
+    -- Accept both bare `Prod.fst` and the partially-applied form
+    -- `@Prod.fst α β` that Lean produces when the universe / type
+    -- arguments are explicit.  We look at the head of `f`.
     if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
       let f := args[args.size-2]!
       let s := args[args.size-1]!
-      if f.isConstOf ``Prod.fst then
+      let fHead := f.getAppFn
+      if fHead.isConstOf ``Prod.fst then
         trace[sparkle.compiler] "→ tuple projection (map fst)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let totalWidth ← CompilerM.getWireWidth wireS
@@ -1132,7 +1148,7 @@ mutual
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
         CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
         return some resWire
-      if f.isConstOf ``Prod.snd then
+      if fHead.isConstOf ``Prod.snd then
         trace[sparkle.compiler] "→ tuple projection (map snd)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
