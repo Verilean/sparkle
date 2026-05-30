@@ -66,7 +66,11 @@ elab "#showDiagram" id:ident : command => do
   let declName ← liftCoreM do Lean.resolveGlobalConstNoOverload id
   liftTermElabM do
     let (module, _) ← synthesizeCombinational declName
-    Sparkle.Display.Mime.svg (toSvg (fromModule module))
+    -- Use `logSvg`, not `svg`, so the MIME marker reaches the cell
+    -- under both the native kernel (which captures stdout) AND the
+    -- WASM kernel (which only sees REPL info messages).  See
+    -- Sparkle/Display/Mime.lean for the rationale.
+    Sparkle.Display.Mime.logSvg (toSvg (fromModule module))
 
 /-- `#showDesign <ident>` — synthesise the named definition and
     render *every* module in the resulting `Design` (parent +
@@ -78,6 +82,6 @@ elab "#showDesign" id:ident : command => do
   liftTermElabM do
     let design ← synthesizeHierarchical declName
     for m in design.modules do
-      Sparkle.Display.Mime.svg (toSvg (fromModule m))
+      Sparkle.Display.Mime.logSvg (toSvg (fromModule m))
 
 end Sparkle.Compiler.Elab
