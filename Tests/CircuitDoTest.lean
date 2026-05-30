@@ -12,7 +12,6 @@ import Sparkle.Compiler.Elab
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Core
 
 namespace Sparkle.Tests.CircuitDoTest
 

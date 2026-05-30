@@ -86,13 +86,56 @@ end Circuit
 
 /-- A `Reg dom S τ` coerces to its live `Signal dom τ` read.
     Lets user code use `cnt` directly anywhere a `Signal dom τ`
-    is expected (e.g. `cnt + 1#8` rather than
-    `Circuit.read cnt + 1#8`), matching the legacy
-    `Signal.circuit do` macro's UX where the register
-    identifier was already a Signal. -/
+    is expected (e.g. as the rhs of `Circuit.next` or
+    `Signal.mux`), matching the legacy `Signal.circuit do`
+    macro's UX where the register identifier was already a
+    Signal. -/
 instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom τ) where
   coe r := r.1
 
+/-! ### Operator instances lifting `Reg` to `Signal`.
+
+    `cnt + 1#8` doesn't trigger the `CoeHead` above because Lean
+    resolves `HAdd cnt 1#8` by looking up `HAdd` with the lhs
+    type `Reg …`, not by coercing first.  We provide the mixed
+    `HAdd (Reg …) (BitVec n) (Signal …)` instances explicitly,
+    mirroring the existing `Signal × BitVec` instances. -/
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAdd (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hAdd a b := a.1 + b
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HSub (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hSub a b := a.1 - b
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HMul (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hMul a b := a.1 * b
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAdd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := a.1 + b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HSub (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hSub a b := a.1 - b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HMul (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hMul a b := a.1 * b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAdd (Reg dom S (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := a.1 + b
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAdd (Signal dom (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := a + b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HXor (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hXor a b := a.1 ^^^ b.1
 namespace Circuit
 
 variable {dom : DomainConfig} {S τ α β : Type}
@@ -140,6 +183,37 @@ variable {dom : DomainConfig} {S α β : Type}
   fun b =>
     let b' : NextBuilder dom S := fun live => r.slot.update sig (b live)
     ((), b')
+
+/-- Type class capturing "things that can be the rhs of a
+    register write" — a `Signal dom τ` directly, or a bare
+    element value (e.g. `BitVec n`, `Bool`) that we wrap in
+    `Signal.pure`.
+
+    Lets `circuit do` lower `state <~ 0#2` (BitVec rhs) and
+    `cnt <~ cnt + 1#8` (Signal rhs) through the same
+    `Circuit.next` shape without per-case syntax tracking. -/
+class AsSignal (dom : DomainConfig) (τ : Type) (α : Type) where
+  toSignal : α → Signal dom τ
+
+@[reducible] instance {dom : DomainConfig} {τ : Type} :
+    AsSignal dom τ (Signal dom τ) where
+  toSignal s := s
+
+@[reducible] instance {dom : DomainConfig} {n : Nat} :
+    AsSignal dom (BitVec n) (BitVec n) where
+  toSignal v := Signal.pure v
+
+@[reducible] instance {dom : DomainConfig} :
+    AsSignal dom Bool Bool where
+  toSignal v := Signal.pure v
+
+/-- Polymorphic register-write: accepts either a `Signal dom τ`
+    or a bare `τ` value (lifted via `AsSignal`).  Replaces
+    `next` at the user-visible API; `next` remains as the raw
+    `Signal`-only form used internally. -/
+@[reducible, inline] def nextAny {α : Type} [AsSignal dom τ α]
+    (r : Reg dom S τ) (val : α) : Circuit dom S Unit :=
+  next r (AsSignal.toSignal val)
 
 /-- Read the live current-cycle Signal of a register handle.
     Just a projection — there for symmetry with `next`. -/

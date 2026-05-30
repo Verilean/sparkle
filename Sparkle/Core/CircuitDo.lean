@@ -64,6 +64,20 @@ syntax "return " (colGt term) (";")? : cdoStmt
 syntax "if " (colGt term) " then" withPosition((colGe cdoStmt)*)
        "else" withPosition((colGe cdoStmt)*) : cdoStmt
 
+/-- Statement-level `match scrut with | pat => stmts*`.
+
+    Lowered to a right-folded `Signal.mux` chain on equality of
+    the scrutinee against each non-wildcard pattern, with the
+    wildcard arm's rhs at the tail.  A wildcard `_ => …` is
+    required — otherwise the lowered chain has no defined
+    fallthrough.  Same per-arm restrictions as `if`:
+    `Signal.reg` and `return` are forbidden inside arms;
+    branch-local `let _ := _` is allowed. -/
+declare_syntax_cat cdoMatchArm
+syntax "|" term " => " withPosition((colGe cdoStmt)*) : cdoMatchArm
+syntax "match " (colGt term) " with"
+       withPosition((colGe cdoMatchArm)+) : cdoStmt
+
 /-- The top-level `circuit do { … }` term.  Wraps a sequence of
     `cdoStmt`s, lowering to the appropriate
     `Sparkle.Core.runCircuit{N}` call based on how many
@@ -144,6 +158,59 @@ partial def flattenCdoStmts (stmts : Array (Lean.TSyntax `cdoStmt)) :
         let muxed ← `(Signal.mux $cond $thenRhs $elseRhs)
         let stmt ← `(cdoStmt| $nIdent:ident <~ $muxed)
         out := out.push stmt
+    | `(cdoStmt| match $scrut with $arms:cdoMatchArm*) => do
+      -- Walk each arm, sorting wildcard from concrete patterns.
+      let mut wildcardSeen := false
+      let mut wildcardAssigns : Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident) := #[]
+      let mut armPats : Array (Lean.TSyntax `term × Array (Lean.Name × Lean.TSyntax `term × Lean.TSyntax `ident)) := #[]
+      for arm in arms do
+        match arm with
+        | `(cdoMatchArm| | $pat => $armStmts:cdoStmt*) =>
+          let armFlat ← flattenCdoStmts armStmts
+          let armAssigns ← collectCdoBranchAssigns "match" armFlat
+          let isWildcard := pat.raw.isOfKind `Lean.Parser.Term.hole
+          if isWildcard then
+            wildcardSeen := true
+            wildcardAssigns := armAssigns
+          else
+            armPats := armPats.push (pat, armAssigns)
+        | _ => Lean.Macro.throwUnsupported
+      unless wildcardSeen do
+        Lean.Macro.throwError
+          "circuit do: `match` must include a wildcard arm (`| _ => ...`); without it the lowered Signal.mux chain has no defined fallthrough."
+      -- Collect every register touched in any arm (concrete or
+      -- wildcard).  For each, build a right-folded Signal.mux
+      -- chain: tail = wildcard rhs, then layered with the
+      -- pattern-eq mux for each concrete arm in reverse order.
+      let mut allRegs : Array (Lean.Name × Lean.TSyntax `ident) := #[]
+      for (_, armAssigns) in armPats do
+        for (n, _, s) in armAssigns do
+          unless allRegs.any (fun (k, _) => k == n) do
+            allRegs := allRegs.push (n, s)
+      for (n, _, s) in wildcardAssigns do
+        unless allRegs.any (fun (k, _) => k == n) do
+          allRegs := allRegs.push (n, s)
+      for (n, nameStx) in allRegs do
+        let wildcardRhs : Lean.TSyntax `term ← match
+            wildcardAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none) with
+          | some r => pure r
+          | none   => `($nameStx)
+        let mut chained : Lean.TSyntax `term := wildcardRhs
+        for i in [:armPats.size] do
+          let (pat, armAssigns) := armPats[armPats.size - 1 - i]!
+          let armRhs : Lean.TSyntax `term ← match
+              armAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none) with
+            | some r => pure r
+            | none   => `($nameStx)
+          -- Use the underlying Signal of the scrutinee (`scrut.1`
+          -- if it's a Reg) so Lean can resolve `Signal.beq`'s
+          -- type argument without bouncing through `CoeHead`
+          -- on a `Reg`.  We probe by writing `(scrut : Signal _ _)`
+          -- — if scrut is already a Signal it's a noop; if it's
+          -- a Reg the `CoeHead` fires.  The explicit ascription
+          -- means Lean has the target type when looking for Coe.
+          chained ← `(Signal.mux (((($scrut : Sparkle.Core.Signal.Signal _ _)) === ($pat : BitVec _))) $armRhs $chained)
+        out := out.push (← `(cdoStmt| $nameStx:ident <~ $chained))
     | _ => out := out.push s
   return out
 
