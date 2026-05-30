@@ -84,6 +84,15 @@ end Circuit
     (liveRead : Signal dom τ) (slot : Circuit.Slot dom S τ) : Reg dom S τ :=
   (liveRead, slot)
 
+/-- A `Reg dom S τ` coerces to its live `Signal dom τ` read.
+    Lets user code use `cnt` directly anywhere a `Signal dom τ`
+    is expected (e.g. `cnt + 1#8` rather than
+    `Circuit.read cnt + 1#8`), matching the legacy
+    `Signal.circuit do` macro's UX where the register
+    identifier was already a Signal. -/
+instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom τ) where
+  coe r := r.1
+
 namespace Circuit
 
 variable {dom : DomainConfig} {S τ α β : Type}

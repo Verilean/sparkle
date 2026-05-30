@@ -145,6 +145,14 @@ lean_exe «circuit-monad-v2-test» where
   root := `Tests.Drivers.CircuitMonadV2TestMain
   supportInterpreter := true
 
+-- Sim parity for the `circuit do` macro (v2 monad surface with
+-- statement-level if/else syntax sugar).  Pairs each cdo
+-- circuit with its `Signal.circuit do` macro reference and
+-- asserts cycle-by-cycle outputs agree.
+lean_exe «circuit-do-test» where
+  root := `Tests.Drivers.CircuitDoTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

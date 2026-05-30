@@ -65,6 +65,7 @@ import Tests.CircuitIfTest
 import Tests.SignalLoopTest
 import Tests.CircuitMatchTest
 import Tests.CircuitMonadV2Test
+import Tests.CircuitDoTest
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
@@ -399,6 +400,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitMatchTest.main
   IO.println ""
   Sparkle.Tests.CircuitMonadV2Test.main
+  IO.println ""
+  Sparkle.Tests.CircuitDoTest.main
   IO.println ""
 
   -- Run Sparkle16 tests
