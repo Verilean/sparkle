@@ -63,6 +63,39 @@ def twoCountMacro : Signal defaultDomain (BitVec 8) :=
     b <~ b - 1#8
     return a + b
 
+/-! ### 3. Heterogeneous-width registers — v2's headline benefit.
+
+    v1's `Vector τ n` state could only hold registers of one
+    element type.  v2's Prod-chain state can mix arbitrary
+    Wireable types — here a `BitVec 4` count + a `BitVec 8`
+    accumulator.  The output is the BitVec-8 accumulator,
+    each cycle += a constant ext of the low-4-bit count.
+
+    The "extension" is expressed as `(0#4 ++ count)`, which
+    appends a 4-bit zero on the high side — the elaborator
+    lowers `Signal ++ BitVec` to wire concat (see
+    `Sparkle/Compiler/Elab.lean` line 481-516 for the rule).
+    Avoids zeroExtend, which doesn't have a wire-translation
+    rule yet. -/
+
+/-- Two registers of *different* widths.  Tests that the v2
+    state Prod packs widths additively (4 + 8 = 12-bit packed
+    state, each slot wired by its own width). -/
+def mixedWidthMonad : Signal defaultDomain (BitVec 8) :=
+  runCircuit2 (0#4) (0#8) (fun cnt acc => do
+    Circuit.next cnt (Circuit.read cnt + 1#4)
+    Circuit.next acc (Circuit.read acc + (0#4 ++ Circuit.read cnt))
+    return Circuit.read acc)
+
+/-- Macro reference. -/
+def mixedWidthMacro : Signal defaultDomain (BitVec 8) :=
+  Signal.circuit do
+    let cnt ← Signal.reg (0#4)
+    let acc ← Signal.reg (0#8)
+    cnt <~ cnt + 1#4
+    acc <~ acc + (0#4 ++ cnt)
+    return acc
+
 end Sparkle.Tests.CircuitMonadV2Test
 
 /-! ### Synthesis smoke checks.
@@ -76,6 +109,8 @@ open Sparkle.Tests.CircuitMonadV2Test
 #synthesizeVerilog counterMacro
 #synthesizeVerilog twoCountMonad
 #synthesizeVerilog twoCountMacro
+#synthesizeVerilog mixedWidthMonad
+#synthesizeVerilog mixedWidthMacro
 
 end SynthesisChecks
 
@@ -109,6 +144,11 @@ def main : IO Unit := do
   let r2m := sampleN twoCountMonad 6 |>.map toString
   let r2M := sampleN twoCountMacro 6 |>.map toString
   ok := (← runTest "twoCountMonad ≡ twoCountMacro" r2m r2M) && ok
+
+  -- 3. mixedWidthMonad (BitVec 4 + BitVec 8) matches mixedWidthMacro.
+  let r3m := sampleN mixedWidthMonad 8 |>.map toString
+  let r3M := sampleN mixedWidthMacro 8 |>.map toString
+  ok := (← runTest "mixedWidthMonad ≡ mixedWidthMacro" r3m r3M) && ok
 
   if !ok then
     IO.println "\nFAIL"
