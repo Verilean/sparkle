@@ -193,4 +193,59 @@ end Circuit
   let r1 : Reg dom S τ₁ := Reg.mk (Signal.map Prod.snd stateLoop) slot1
   (body r0 r1 id).fst
 
+/-- Three-register circuit — state shape `τ₀ × τ₁ × τ₂`.
+
+    State Prod chain: `τ₀ × (τ₁ × τ₂)`.  Slot 0 is `.fst`, slot
+    1 is `.snd.fst`, slot 2 is `.snd.snd`.  The same Prod /
+    Signal.map Prod.fst recognition that powers runCircuit2
+    handles the chain depth-2 lookups for free. -/
+@[reducible, inline] def runCircuit3
+    {dom : DomainConfig} {τ₀ τ₁ τ₂ ρ : Type}
+    [Inhabited τ₀] [Inhabited τ₁] [Inhabited τ₂]
+    (init₀ : τ₀) (init₁ : τ₁) (init₂ : τ₂)
+    (body : Reg dom (τ₀ × τ₁ × τ₂) τ₀ →
+            Reg dom (τ₀ × τ₁ × τ₂) τ₁ →
+            Reg dom (τ₀ × τ₁ × τ₂) τ₂ →
+            Circuit dom (τ₀ × τ₁ × τ₂) (Signal dom ρ)) : Signal dom ρ :=
+  let S := τ₀ × τ₁ × τ₂
+  let slot0 : Circuit.Slot dom S τ₀ :=
+    Circuit.Slot.mk (Signal.map Prod.fst)
+                    (fun n s => bundle2 n (Signal.map Prod.snd s))
+  let slot1 : Circuit.Slot dom S τ₁ :=
+    Circuit.Slot.mk (fun s => Signal.map Prod.fst (Signal.map Prod.snd s))
+                    (fun n s =>
+                      let tail := Signal.map Prod.snd s
+                      bundle2 (Signal.map Prod.fst s)
+                              (bundle2 n (Signal.map Prod.snd tail)))
+  let slot2 : Circuit.Slot dom S τ₂ :=
+    Circuit.Slot.mk (fun s => Signal.map Prod.snd (Signal.map Prod.snd s))
+                    (fun n s =>
+                      let tail := Signal.map Prod.snd s
+                      bundle2 (Signal.map Prod.fst s)
+                              (bundle2 (Signal.map Prod.fst tail) n))
+  let stateLoop : Signal dom S :=
+    Signal.loop (α := S) (fun live =>
+      let r0 : Reg dom S τ₀ :=
+        Reg.mk (Signal.map Prod.fst live) slot0
+      let r1 : Reg dom S τ₁ :=
+        Reg.mk (Signal.map Prod.fst (Signal.map Prod.snd live)) slot1
+      let r2 : Reg dom S τ₂ :=
+        Reg.mk (Signal.map Prod.snd (Signal.map Prod.snd live)) slot2
+      let bResult := body r0 r1 r2 id
+      let b' : Circuit.NextBuilder dom S := bResult.snd
+      let nextState : Signal dom S := b' live
+      let n0 := Signal.map Prod.fst nextState
+      let nTail := Signal.map Prod.snd nextState
+      let n1 := Signal.map Prod.fst nTail
+      let n2 := Signal.map Prod.snd nTail
+      bundle2 (Signal.register init₀ n0)
+              (bundle2 (Signal.register init₁ n1) (Signal.register init₂ n2)))
+  let r0 : Reg dom S τ₀ :=
+    Reg.mk (Signal.map Prod.fst stateLoop) slot0
+  let r1 : Reg dom S τ₁ :=
+    Reg.mk (Signal.map Prod.fst (Signal.map Prod.snd stateLoop)) slot1
+  let r2 : Reg dom S τ₂ :=
+    Reg.mk (Signal.map Prod.snd (Signal.map Prod.snd stateLoop)) slot2
+  (body r0 r1 r2 id).fst
+
 end Sparkle.Core

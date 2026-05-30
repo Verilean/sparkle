@@ -96,6 +96,29 @@ def mixedWidthMacro : Signal defaultDomain (BitVec 8) :=
     acc <~ acc + (0#4 ++ cnt)
     return acc
 
+/-! ### 4. Three registers (arity-3 generalization) -/
+
+/-- Triple counter: a counts up by 1, b by 2, c by 3.  Output
+    is `a ^^^ b ^^^ c` (XOR of all three) so each register
+    contributes observably.  Exercises `runCircuit3`. -/
+def tripleCountMonad : Signal defaultDomain (BitVec 8) :=
+  runCircuit3 (0#8) (0#8) (0#8) (fun a b c => do
+    Circuit.next a (Circuit.read a + 1#8)
+    Circuit.next b (Circuit.read b + 2#8)
+    Circuit.next c (Circuit.read c + 3#8)
+    return Circuit.read a ^^^ Circuit.read b ^^^ Circuit.read c)
+
+/-- Macro reference. -/
+def tripleCountMacro : Signal defaultDomain (BitVec 8) :=
+  Signal.circuit do
+    let a ← Signal.reg (0#8)
+    let b ← Signal.reg (0#8)
+    let c ← Signal.reg (0#8)
+    a <~ a + 1#8
+    b <~ b + 2#8
+    c <~ c + 3#8
+    return a ^^^ b ^^^ c
+
 end Sparkle.Tests.CircuitMonadV2Test
 
 /-! ### Synthesis smoke checks.
@@ -111,6 +134,8 @@ open Sparkle.Tests.CircuitMonadV2Test
 #synthesizeVerilog twoCountMacro
 #synthesizeVerilog mixedWidthMonad
 #synthesizeVerilog mixedWidthMacro
+#synthesizeVerilog tripleCountMonad
+#synthesizeVerilog tripleCountMacro
 
 end SynthesisChecks
 
@@ -149,6 +174,11 @@ def main : IO Unit := do
   let r3m := sampleN mixedWidthMonad 8 |>.map toString
   let r3M := sampleN mixedWidthMacro 8 |>.map toString
   ok := (← runTest "mixedWidthMonad ≡ mixedWidthMacro" r3m r3M) && ok
+
+  -- 4. tripleCountMonad (3 registers) matches tripleCountMacro.
+  let r4m := sampleN tripleCountMonad 6 |>.map toString
+  let r4M := sampleN tripleCountMacro 6 |>.map toString
+  ok := (← runTest "tripleCountMonad ≡ tripleCountMacro" r4m r4M) && ok
 
   if !ok then
     IO.println "\nFAIL"
