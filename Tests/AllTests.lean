@@ -44,14 +44,14 @@ import Tests.YOLOv8.TestNeck
 --
 -- Each file ALSO ships as a standalone `lean_exe` (`lake exe
 -- circuit-if-test`, `lake exe signal-loop-test`, `lake exe
--- circuit-match-test`) for ad-hoc debugging.  Their per-file
--- top-level `def main` would collide if imported into one
--- module, so we import only their *namespaced* entry points
--- via `import` of the module — the namespaced
--- `Sparkle.Tests.X.main` is what lives inside.  Each is
--- called explicitly from this file's `main` below so
--- `lake test` actually exercises the cycle-by-cycle sim
--- path, not just type-checks the module.
+-- circuit-match-test`, `lake exe circuit-monad-v2-test`) for
+-- ad-hoc debugging.  Their per-file top-level `def main` would
+-- collide if imported into one module, so we import only their
+-- *namespaced* entry points via `import` of the module — the
+-- namespaced `Sparkle.Tests.X.main` is what lives inside.
+-- Each is called explicitly from this file's `main` below so
+-- `lake test` actually exercises the cycle-by-cycle sim path,
+-- not just type-checks the module.
 --
 -- A failing `Sparkle.Tests.X.main` calls `IO.Process.exit 1`,
 -- so `lake test` will exit non-zero if any of them regress.
@@ -64,6 +64,7 @@ import Tests.YOLOv8.TestNeck
 import Tests.CircuitIfTest
 import Tests.SignalLoopTest
 import Tests.CircuitMatchTest
+import Tests.CircuitMonadV2Test
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
@@ -396,6 +397,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitIfTest.main
   IO.println ""
   Sparkle.Tests.CircuitMatchTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitMonadV2Test.main
   IO.println ""
 
   -- Run Sparkle16 tests
