@@ -118,13 +118,6 @@ lean_exe «signal-loop-test» where
   root := `Tests.Drivers.SignalLoopTestMain
   supportInterpreter := true
 
--- Sim parity check between the v2 monad surface
--- (`runCircuit{1,2,3}`) and the `circuit do` macro on
--- counter / two-register / mixed-width / three-register tests.
-lean_exe «circuit-monad-v2-test» where
-  root := `Tests.Drivers.CircuitMonadV2TestMain
-  supportInterpreter := true
-
 -- Sim parity for the `circuit do` macro itself: counter, reset
 -- counter (if/else), two-register reset, hold semantics, 3-state
 -- FSM (match), and FSM-hold (match + hold).  Plus a duplicate-
@@ -133,9 +126,10 @@ lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true
 
--- Sim + synth check for the HList-based generic
--- `runCircuitH`, replacing the per-arity `runCircuit{1,2,3,4}`
--- helpers with a single helper that takes a `HList αs`.
+-- Sim + synth check for the HList-based generic `runCircuitH`
+-- — the sole register-DSL helper after the per-arity
+-- `runCircuit{1..4}` were removed.  Covers N=1..4 plus
+-- mixed-width state and `forM` over the register list.
 lean_exe «run-circuit-h-test» where
   root := `Tests.Drivers.RunCircuitHTestMain
   supportInterpreter := true
@@ -290,10 +284,3 @@ lean_exe «test» where
   root := `Tests.AllTests
   supportInterpreter := true
 
--- Demonstrates `forM` over registers in the v2 `Circuit` monad
--- — something the legacy `Signal.circuit do` macro couldn't
--- express because it was a syntax-level macro that didn't
--- pass through Lean's standard do-notation pipeline.
-lean_exe «circuit-monad-forM-test» where
-  root := `Tests.Drivers.CircuitMonadForMTestMain
-  supportInterpreter := true

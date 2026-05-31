@@ -53,6 +53,49 @@ def mixedWidthH : Signal defaultDomain (BitVec 8) :=
       Circuit.next acc (Circuit.read acc + (0#4 ++ Circuit.read cnt))
       return Circuit.read acc)
 
+/-! ### 4. Three registers — exercises N=3 arity. -/
+
+def tripleCountH : Signal defaultDomain (BitVec 8) :=
+  runCircuitH (αs := [BitVec 8, BitVec 8, BitVec 8])
+    (0#8, 0#8, 0#8, ())
+    (fun regs => do
+      let (a, b, c, _) := regs
+      Circuit.next a (Circuit.read a + 1#8)
+      Circuit.next b (Circuit.read b + 2#8)
+      Circuit.next c (Circuit.read c + 3#8)
+      return Circuit.read a ^^^ Circuit.read b ^^^ Circuit.read c)
+
+/-! ### 5. Four registers — exercises N=4 arity (was the old
+       `runCircuit4` ceiling). -/
+
+def fourCountH : Signal defaultDomain (BitVec 8) :=
+  runCircuitH (αs := [BitVec 8, BitVec 8, BitVec 8, BitVec 8])
+    (0#8, 0#8, 0#8, 0#8, ())
+    (fun regs => do
+      let (a, b, c, d, _) := regs
+      Circuit.next a (Circuit.read a + 1#8)
+      Circuit.next b (Circuit.read b + 2#8)
+      Circuit.next c (Circuit.read c + 3#8)
+      Circuit.next d (Circuit.read d + 4#8)
+      return Circuit.read a + Circuit.read b + Circuit.read c + Circuit.read d)
+
+/-! ### 6. `forM` over the RegList.
+
+    `regs` is a `Reg × (Reg × (Reg × Unit))` Prod chain, not a
+    `List`, so we can't write `regs.forM (...)` directly.  But
+    once destructured into named handles `[r0, r1, r2]` is a
+    `List (Reg dom S (BitVec 8))` that supports `forM` and any
+    other `Bind`-based combinator. -/
+
+def threeCountForM : Signal defaultDomain (BitVec 8) :=
+  runCircuitH (αs := [BitVec 8, BitVec 8, BitVec 8])
+    (0#8, 1#8, 2#8, ())
+    (fun regs => do
+      let (r0, r1, r2, _) := regs
+      [r0, r1, r2].forM (fun r =>
+        Circuit.next r (Circuit.read r + 1#8))
+      return Circuit.read r0 + Circuit.read r1 + Circuit.read r2)
+
 end Sparkle.Tests.RunCircuitHTest
 
 section SynthesisChecks
@@ -60,10 +103,10 @@ open Sparkle.Tests.RunCircuitHTest
 
 #synthesizeVerilog counterH
 #synthesizeVerilog twoCountH
--- mixedWidthH synth attempted below; HAppend involves `cnt.1`
--- so may hit the same Prod.mk-on-BitVec elaborator gap that
--- the cdo version did.  Commented if it doesn't compile.
 #synthesizeVerilog mixedWidthH
+#synthesizeVerilog tripleCountH
+#synthesizeVerilog fourCountH
+#synthesizeVerilog threeCountForM
 
 end SynthesisChecks
 
@@ -103,6 +146,27 @@ def main : IO Unit := do
   ok := (← runTest "mixedWidthH"
           r3 ["0x00#8", "0x00#8", "0x01#8", "0x03#8",
               "0x06#8", "0x0a#8", "0x0f#8", "0x15#8"]) && ok
+
+  -- tripleCountH: a/b/c count by 1/2/3, XOR.
+  --   cycle 0: 0^0^0 = 0
+  --   cycle 1: 1^2^3 = 0
+  --   cycle 2: 2^4^6 = 0
+  --   cycle 3: 3^6^9 = 0x0c
+  let r4 := sampleN tripleCountH 6 |>.map toString
+  ok := (← runTest "tripleCountH"
+          r4 ["0x00#8", "0x00#8", "0x00#8", "0x0c#8",
+              "0x00#8", "0x00#8"]) && ok
+
+  -- fourCountH: a/b/c/d count by 1/2/3/4, sum = 10k.
+  let r5 := sampleN fourCountH 5 |>.map toString
+  ok := (← runTest "fourCountH"
+          r5 ["0x00#8", "0x0a#8", "0x14#8", "0x1e#8", "0x28#8"]) && ok
+
+  -- threeCountForM: r0/r1/r2 start at 0/1/2, all incremented
+  -- together each cycle via `forM`.  Sum cycles 3, 6, 9, 12, …
+  let r6 := sampleN threeCountForM 6 |>.map toString
+  ok := (← runTest "threeCountForM"
+          r6 ["0x03#8", "0x06#8", "0x09#8", "0x0c#8", "0x0f#8", "0x12#8"]) && ok
 
   if !ok then
     IO.println "\nFAIL"

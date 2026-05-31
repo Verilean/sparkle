@@ -43,15 +43,15 @@ import Tests.YOLOv8.TestNeck
 -- v2 `circuit do` and raw `Signal.loop` sim tests.
 --
 -- Each file ALSO ships as a standalone `lean_exe` (`lake exe
--- signal-loop-test`, `lake exe circuit-monad-v2-test`,
--- `lake exe circuit-do-test`, `lake exe circuit-monad-forM-test`)
--- for ad-hoc debugging.  Their per-file top-level `def main`
--- would collide if imported into one module, so we import only
--- their *namespaced* entry points via `import` of the module
--- — the namespaced `Sparkle.Tests.X.main` is what lives
--- inside.  Each is called explicitly from this file's `main`
--- below so `lake test` actually exercises the cycle-by-cycle
--- sim path, not just type-checks the module.
+-- signal-loop-test`, `lake exe run-circuit-h-test`, `lake exe
+-- circuit-do-test`) for ad-hoc debugging.  Their per-file
+-- top-level `def main` would collide if imported into one
+-- module, so we import only their *namespaced* entry points
+-- via `import` of the module — the namespaced
+-- `Sparkle.Tests.X.main` is what lives inside.  Each is called
+-- explicitly from this file's `main` below so `lake test`
+-- actually exercises the cycle-by-cycle sim path, not just
+-- type-checks the module.
 --
 -- A failing `Sparkle.Tests.X.main` calls `IO.Process.exit 1`,
 -- so `lake test` will exit non-zero if any of them regress.
@@ -69,9 +69,7 @@ import Tests.YOLOv8.TestNeck
 -- Tests.X` (and hence `lake test`) directly — no separate exe
 -- run is needed for the synth side.
 import Tests.SignalLoopTest
-import Tests.CircuitMonadV2Test
 import Tests.CircuitDoTest
-import Tests.CircuitMonadForMTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
@@ -388,13 +386,13 @@ def main : IO UInt32 := do
   IO.println ""
 
   -- Run per-feature DSL sim mains (SignalLoopTest /
-  -- CircuitMonadV2Test / CircuitDoTest).  These exercise the
-  -- raw `Signal.loop`/`Signal.register` form, the v2 monad
-  -- (`runCircuit{N}`), and the v2 `circuit do` macro's if/else
-  -- + match/case + branch-let + hold semantics.  Each `main`
-  -- exits with IO.Process.exit 1 on divergence, so a
-  -- regression aborts `lake test` here (well before
-  -- lspecIO's report).
+  -- CircuitDoTest / RunCircuitHTest).  These exercise the raw
+  -- `Signal.loop`/`Signal.register` form, the `circuit do`
+  -- macro's if/else + match/case + branch-let + hold + dup-
+  -- detection, and the generic `runCircuitH` (with `forM`
+  -- coverage included).  Each `main` exits with
+  -- IO.Process.exit 1 on divergence, so a regression aborts
+  -- `lake test` here (well before lspecIO's report).
   IO.println ""
   IO.println "╔════════════════════════════════════════╗"
   IO.println "║  Signal DSL Sim Tests                  ║"
@@ -402,11 +400,7 @@ def main : IO UInt32 := do
   IO.println ""
   Sparkle.Tests.SignalLoopTest.main
   IO.println ""
-  Sparkle.Tests.CircuitMonadV2Test.main
-  IO.println ""
   Sparkle.Tests.CircuitDoTest.main
-  IO.println ""
-  Sparkle.Tests.CircuitMonadForMTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
   IO.println ""

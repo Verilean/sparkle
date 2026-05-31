@@ -308,30 +308,47 @@ macro_rules
       let (action, _) := steps[steps.size - 1 - i]!
       body ← `(Sparkle.Core.Circuit.bind $action (fun _ => $body))
     let doBody := body
-    let runCircuit ← match regs.size with
-      | 0 =>
-        Lean.Macro.throwError "circuit do: at least one `let r ← Signal.reg …` is required"
-      | 1 =>
-        let (r0, i0) := regs[0]!
-        `(Sparkle.Core.runCircuit1 $i0 (fun $r0 => $doBody))
-      | 2 =>
-        let (r0, i0) := regs[0]!
-        let (r1, i1) := regs[1]!
-        `(Sparkle.Core.runCircuit2 $i0 $i1 (fun $r0 $r1 => $doBody))
-      | 3 =>
-        let (r0, i0) := regs[0]!
-        let (r1, i1) := regs[1]!
-        let (r2, i2) := regs[2]!
-        `(Sparkle.Core.runCircuit3 $i0 $i1 $i2 (fun $r0 $r1 $r2 => $doBody))
-      | 4 =>
-        let (r0, i0) := regs[0]!
-        let (r1, i1) := regs[1]!
-        let (r2, i2) := regs[2]!
-        let (r3, i3) := regs[3]!
-        `(Sparkle.Core.runCircuit4 $i0 $i1 $i2 $i3
-            (fun $r0 $r1 $r2 $r3 => $doBody))
-      | n =>
-        Lean.Macro.throwError s!"circuit do: only 1..4 registers supported currently (got {n}); extend runCircuit helpers"
-    return runCircuit
+    if regs.size == 0 then
+      Lean.Macro.throwError
+        "circuit do: at least one `let r ← Signal.reg …` is required"
+    -- Build the αs list (`[_, _, …, _]`) and the inits HList
+    -- value `(i0, (i1, …, (iN-1, ())))`.  Passing `αs := [_, _,
+    -- …]` explicitly tells Lean's elaborator to expand the
+    -- HList chain with one element per `_`; Lean then fills
+    -- each `_` from the corresponding `init` expression on the
+    -- value side.
+    let mut αsListItems : Array (Lean.TSyntax `term) := #[]
+    for _ in [:regs.size] do
+      αsListItems := αsListItems.push (← `(_))
+    let αsListExpr ← `([$[$αsListItems],*])
+    let mut initsExpr : Lean.TSyntax `term ← `(())
+    for i in [:regs.size] do
+      let (_, init) := regs[regs.size - 1 - i]!
+      initsExpr ← `(($init, $initsExpr))
+    -- Body lambda takes a single `RegList` argument (a Prod
+    -- chain of `Reg` handles).  We destructure it back into
+    -- individual `r0 r1 …` identifiers so the rest of the body
+    -- — including any `<~` references — still reads register
+    -- handles as plain names.
+    let regsIdent := Lean.mkIdent (Lean.Name.mkSimple "_cdoRegs")
+    -- Build a chain `let (r0, rest1) := _cdoRegs; let (r1, rest2)
+    -- := rest1; …; let (rN-1, _) := restN-1; doBody`, walking
+    -- the regs array from last to first so the outermost binding
+    -- ends up binding `r0`.
+    let prevRest (idx : Nat) : Lean.Ident :=
+      if idx == 0 then regsIdent
+      else Lean.mkIdent (Lean.Name.mkSimple s!"_cdoRest_{idx}")
+    let mut term : Lean.TSyntax `term := doBody
+    for i in [:regs.size] do
+      let idx := regs.size - 1 - i
+      let (rIdent, _) := regs[idx]!
+      let src := prevRest idx
+      if idx == regs.size - 1 then
+        term ← `(let ($rIdent, _) := $src; $term)
+      else
+        let restIdent := Lean.mkIdent (Lean.Name.mkSimple s!"_cdoRest_{idx+1}")
+        term ← `(let ($rIdent, $restIdent) := $src; $term)
+    return ← `(Sparkle.Core.runCircuitH (αs := $αsListExpr) $initsExpr
+                  (fun $regsIdent => $term))
 
 end Sparkle.Core

@@ -20,7 +20,7 @@ import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.Core    -- `runCircuit3`, `Circuit.next`, `Circuit.read`
+open Sparkle.Core    -- `runCircuitH`, `Circuit.next`, `Circuit.read`
 
 namespace TutorialExtended.Step8
 
@@ -106,15 +106,20 @@ def enabledCounter {dom : DomainConfig}
   hand; the synthesis-side check at the bottom proves it. -/
 
 def threeCountersForM : Signal defaultDomain (BitVec 8) :=
-  -- Drop down to the raw `runCircuit3` helper — `circuit do`
+  -- Drop down to the raw `runCircuitH` helper — `circuit do`
   -- intercepts the `do` keyword, so `forM` inside its body
   -- would be parsed by the cdo macro rather than handed to
   -- Lean's monad elaborator.  When you want `forM` (or
-  -- `mapM`/`traverse`/etc.), reach for `runCircuit{N}` directly.
-  runCircuit3 0#8 1#8 2#8 (fun r0 r1 r2 => do
-    [r0, r1, r2].forM (fun r =>
-      Circuit.next r (Circuit.read r + 1#8))
-    return Circuit.read r0 + Circuit.read r1 + Circuit.read r2)
+  -- `mapM`/`traverse`/etc.), reach for `runCircuitH` directly.
+  -- It takes an HList of initial values and hands back a Prod-
+  -- chain of register handles; we destructure that into named
+  -- `r0`, `r1`, `r2` and proceed.
+  runCircuitH (αs := [BitVec 8, BitVec 8, BitVec 8])
+    (0#8, 1#8, 2#8, ()) (fun regs => do
+      let (r0, r1, r2, _) := regs
+      [r0, r1, r2].forM (fun r =>
+        Circuit.next r (Circuit.read r + 1#8))
+      return Circuit.read r0 + Circuit.read r1 + Circuit.read r2)
 
 /-! ## Demo -/
 
