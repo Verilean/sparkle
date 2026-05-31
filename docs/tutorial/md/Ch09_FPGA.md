@@ -46,9 +46,11 @@ def blinky {dom : DomainConfig} : Signal dom Bool :=
   circuit do
     let count ← Signal.reg 0#24
     count <~ count + 1#24
-    -- LED follows the top bit of the counter.  Mask off the top
-    -- bit and compare against 0 to get a Bool signal.
-    let topBit := (count &&& 0x800000#24) === 0x800000#24;
+    -- LED follows the top bit of the counter.  Project the
+    -- register handle to its underlying `Signal` so the
+    -- `&&&` / `===` chain stays in `Signal` land.
+    let countSig := count.1
+    let topBit := (countSig &&& 0x800000#24) === 0x800000#24;
     return topBit
 
 #synthesizeVerilog blinky

@@ -260,7 +260,8 @@ def counterEn {dom : DomainConfig}
     (en : Signal dom Bool) : Signal dom (BitVec 8) :=
   circuit do
     let count ← Signal.reg 0#8
-    let next := Signal.mux en (count + 1#8) count;
+    let countSig := count.1
+    let next := Signal.mux en (countSig + 1#8) countSig;
     count <~ next
     return count
 
@@ -309,19 +310,25 @@ def fsm {dom : DomainConfig}
   circuit do
     let state ← Signal.reg IDLE
     let count ← Signal.reg 0#8
-    let isIdle := state === IDLE;
-    let isRun  := state === RUN;
-    let isDone := state === DONE;
+    -- Project the register handles to their underlying `Signal`
+    -- values so the rest of the body can use them as ordinary
+    -- signals (the `state` / `count` register names still bind
+    -- the `Reg` handles for the `<~` writes below).
+    let stateSig := state.1
+    let countSig := count.1
+    let isIdle := stateSig === IDLE;
+    let isRun  := stateSig === RUN;
+    let isDone := stateSig === DONE;
     -- Next-state logic: idle → run on `start`; run → done when
     -- count saturates; done loops back to idle for the next
     -- launch.
     let nextState :=
-      Signal.mux (isIdle &&& start) RUN
-        (Signal.mux (isRun &&& (count === 255#8)) DONE
-          (Signal.mux isDone IDLE state));
+      Signal.mux (isIdle &&& start) (Signal.lit dom RUN)
+        (Signal.mux (isRun &&& (countSig === 255#8)) (Signal.lit dom DONE)
+          (Signal.mux isDone (Signal.lit dom IDLE) stateSig));
     state <~ nextState
     -- Count up while in `run`, otherwise reset to 0.
-    count <~ Signal.mux isRun (count + 1#8) 0#8
+    count <~ Signal.mux isRun (countSig + 1#8) 0#8
     return state
 
 ```

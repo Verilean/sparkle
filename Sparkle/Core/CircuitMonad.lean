@@ -146,6 +146,27 @@ instance {dom : DomainConfig} {S : Type} {n : Nat} :
 instance {dom : DomainConfig} {S : Type} {n : Nat} :
     HXor (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
   hXor a b := a.1 ^^^ b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAnd (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hAnd a b := a.1 &&& b
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAnd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAnd a b := a.1 &&& b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HOr (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hOr a b := a.1 ||| b
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HOr (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hOr a b := a.1 ||| b.1
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HXor (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+  hXor a b := a.1 ^^^ b
+
 namespace Circuit
 
 variable {dom : DomainConfig} {S τ α β : Type}
