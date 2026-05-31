@@ -93,6 +93,16 @@ end Circuit
 instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom τ) where
   coe r := r.1
 
+/-- `CoeOut`: lets Lean coerce a `Reg` to a `Signal` even when
+    the expected type isn't fully known (e.g. when both
+    arguments to `Signal.mux` need coercion and neither side
+    pins down the `α` first).  `CoeOut` is checked when going
+    *from* a concrete known type, not *to* one, so it triggers
+    on a `Reg` lhs regardless of whether the target Signal's
+    `τ` is yet determined. -/
+instance {dom : DomainConfig} {S τ : Type} : CoeOut (Reg dom S τ) (Signal dom τ) where
+  coe r := r.1
+
 
 /-! ### Operator instances lifting `Reg` to `Signal`.
 

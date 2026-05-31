@@ -277,16 +277,21 @@ macro_rules
     -- `Circuit.bind`.
     let mut returnTerm : Option (Lean.TSyntax `term) := none
     let mut letBindings : Array (Lean.TSyntax `ident × Lean.TSyntax `term) := #[]
+    -- `letBindings` accumulates all top-level `let _ := _`
+    -- bindings up to the current point.  Each `<~` and `return`
+    -- gets the full accumulated chain wrapped around its rhs —
+    -- so later statements still see earlier `let` bindings, the
+    -- same way Lean's own `let` works.  (Branch-local lets
+    -- inside `if/else` / `match` arms are handled separately by
+    -- the flattener; those scope to the branch only.)
     for s in bodyStmts do
       match s with
       | `(cdoStmt| $n:ident <~ $rhs)
       | `(cdoStmt| $n:ident <~ $rhs ;) =>
-        -- Apply pending value-level lets to the rhs.
         let mut wrapped : Lean.TSyntax `term := rhs
         for i in [:letBindings.size] do
           let (lname, le) := letBindings[letBindings.size - 1 - i]!
           wrapped ← `(let $lname := $le; $wrapped)
-        letBindings := #[]
         let action ← `(Sparkle.Core.Circuit.next $n $wrapped)
         steps := steps.push (action, false)
       | `(cdoStmt| let $name := $rhs)
@@ -300,7 +305,6 @@ macro_rules
         for i in [:letBindings.size] do
           let (lname, le) := letBindings[letBindings.size - 1 - i]!
           wrapped ← `(let $lname := $le; $wrapped)
-        letBindings := #[]
         returnTerm := some wrapped
       | _ => Lean.Macro.throwUnsupported
     let some retExpr := returnTerm

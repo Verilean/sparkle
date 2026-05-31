@@ -25,6 +25,7 @@
 import Sparkle
 import Sparkle.Compiler.Elab
 import Sparkle.Backend.Verilog
+import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -35,7 +36,7 @@ open Sparkle.Compiler.Elab
 
 def latch8 (x : Signal defaultDomain (BitVec 8))
     : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let r ← Signal.reg 0#8
     r <~ x
     return r
@@ -49,7 +50,7 @@ def latch8x2 (x : Signal defaultDomain (BitVec 8))
 @[hardware_module]
 def latch8mod (x : Signal defaultDomain (BitVec 8))
     : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let r ← Signal.reg 0#8
     r <~ x
     return r

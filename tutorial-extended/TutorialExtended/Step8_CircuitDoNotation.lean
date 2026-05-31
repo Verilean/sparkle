@@ -1,9 +1,9 @@
 /-
-  Tutorial Step 8: imperative-style hardware with `Signal.circuit do`.
+  Tutorial Step 8: imperative-style hardware with `circuit do`.
 
-  `Signal.circuit do` is a macro that desugars to
-  `Signal.loop` + `Signal.register` + `bundleAll!`. It lets you
-  write registered logic in an imperative style:
+  `circuit do` is a macro that desugars to the v2 `runCircuit{N}`
+  helpers (`Sparkle.Core.CircuitMonad`).  It lets you write
+  registered logic in an imperative style:
 
     - `let x ← Signal.reg init` declares a registered signal `x`
     - `x <~ rhs`                 sets `x`'s next-state value to `rhs`
@@ -15,6 +15,7 @@
 -/
 
 import Sparkle
+import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -31,11 +32,11 @@ namespace TutorialExtended.Step8
     Signal.register 0#8 next
   ```
 
-  The `Signal.circuit do` version drops the explicit `loop` /
+  The `circuit do` version drops the explicit `loop` /
   `register` boilerplate and reads top-down. -/
 
 def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ count + 1#8;
     return count
@@ -45,7 +46,7 @@ def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
   A second counter that increments or decrements based on `up`. -/
 
 def upDown {dom : DomainConfig} (up : Signal dom Bool) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ Signal.mux up (count + 1#8) (count - 1#8);
     return count
@@ -60,7 +61,7 @@ def upDown {dom : DomainConfig} (up : Signal dom Bool) : Signal dom (BitVec 8) :
 
 def shiftPipeline {dom : DomainConfig}
     (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let s0 ← Signal.reg 0#8;
     let s1 ← Signal.reg 0#8;
     let s2 ← Signal.reg 0#8;
@@ -78,7 +79,7 @@ def shiftPipeline {dom : DomainConfig}
 
 def enabledCounter {dom : DomainConfig}
     (en : Signal dom Bool) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     let incremented := count + 1#8;
     count <~ Signal.mux en incremented count;

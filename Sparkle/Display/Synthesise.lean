@@ -46,7 +46,7 @@ open Sparkle.Display.Diagram
     ```
     def dff (d : Signal defaultDomain (BitVec 1))
         : Signal defaultDomain (BitVec 1) :=
-      Signal.circuit do
+      circuit do
         let q ← Signal.reg 0#1
         q <~ d
         return q
