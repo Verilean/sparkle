@@ -72,4 +72,34 @@ instance : Wireable Unit := ⟨0⟩
 instance {α β : Type} [Wα : Wireable α] [Wβ : Wireable β] : Wireable (α × β) :=
   ⟨Wα.width + Wβ.width⟩
 
+/-- `HListWireable αs` asserts that every element type in `αs`
+    has a `Wireable` instance.  Used as a constraint on
+    `runCircuit` so users can't accidentally place non-
+    synthesisable types (e.g. `Option Nat`) into the register
+    state list — the type check fires at the `runCircuit` call
+    site, well before `#synthesizeVerilog` would.
+
+    The class is intentionally empty: its presence is the
+    assertion.  Instances are derived structurally on the list
+    so any `αs` whose elements are individually `Wireable`
+    automatically gets an instance.
+
+    `Wireable (HList αs)` follows by induction over the Prod
+    chain `α × HList αs`, using the existing
+    `Wireable (α × β)` instance above. -/
+class HListWireable (αs : List Type) : Type
+
+instance : HListWireable [] := ⟨⟩
+instance {α : Type} {αs : List Type} [Wireable α] [HListWireable αs] :
+    HListWireable (α :: αs) := ⟨⟩
+
+/-- `HList αs` is `Wireable` whenever every element is.
+    Induction over the list. -/
+instance : Wireable (HList []) := ⟨0⟩
+instance {α : Type} {αs : List Type} [Wireable α] [Wireable (HList αs)] :
+    Wireable (HList (α :: αs)) :=
+  -- HList (α :: αs) reduces to `α × HList αs`, so we go through
+  -- the existing `Wireable (α × β)` instance.
+  inferInstanceAs (Wireable (α × HList αs))
+
 end Sparkle.Core

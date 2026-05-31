@@ -133,6 +133,13 @@ lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true
 
+-- Sim + synth check for the HList-based generic
+-- `runCircuitH`, replacing the per-arity `runCircuit{1,2,3,4}`
+-- helpers with a single helper that takes a `HList αs`.
+lean_exe «run-circuit-h-test» where
+  root := `Tests.Drivers.RunCircuitHTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

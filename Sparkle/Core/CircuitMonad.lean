@@ -419,4 +419,107 @@ end Circuit
     Reg.mk (Signal.map Prod.snd liveT2) slot3
   (body r0 r1 r2 r3 id).fst
 
+/-! ### Arbitrary-arity `runCircuitH` via HList state.
+
+    The generalisation of `runCircuit{1,2,3,4}` to any list of
+    register types.  Constraint `[HListWireable αs]` ensures
+    every slot type is synth-friendly; without it a user could
+    drop e.g. `Option Nat` into the list and hit a synth
+    failure deep inside the elaborator.
+
+    Three pieces:
+
+      1. `RegList dom S αs` — heterogeneous list of register
+         handles, one per slot, sharing one outer state shape S.
+      2. `mkRegList` — builds the `RegList` from a live state
+         Signal by composing `Prod.fst` / `Prod.snd` accessors
+         (the slot lenses are constructed once, recursively).
+      3. `runCircuitH` — closes the body with `Signal.loop` and
+         a chain of `Signal.register`s, one per slot.
+
+    Each piece is `@[reducible, inline]` so the IR elaborator
+    can unfold through them at synth time. -/
+
+/-- `RegList dom S αs` — a tuple of register handles for slots
+    `αs`, all carrying the same outer state shape `S`.  Defined
+    structurally on `αs` so a `RegList dom S (α :: αs')`
+    decomposes into `Reg dom S α × RegList dom S αs'`.  `S` is
+    *fixed* across the whole list — it doesn't shrink as we
+    recurse, which is the key to keeping the slot lenses typed
+    against the original outer state. -/
+@[reducible] def RegList (dom : DomainConfig) (S : Type) : List Type → Type
+  | []      => Unit
+  | α :: αs => Reg dom S α × RegList dom S αs
+
+/-- Build a `RegList dom S αs` by walking down `αs`.
+
+    Constructed slot lenses are pure `Signal`-level chains of
+    `Signal.map Prod.fst / Prod.snd` and `bundle2` — the same
+    primitives Sparkle's IR elaborator already lowers.  No
+    value-level `Signal.map` closures over arbitrary functions.
+
+    The slot read/update lenses are passed in as Signal-level
+    operations (rather than pure-value functions) so the
+    chained `Prod.fst`/`Prod.snd` calls stay visible to the
+    elaborator at every recursion depth. -/
+@[reducible] def mkRegList {dom : DomainConfig} {S : Type}
+    (liveOuter : Signal dom S) :
+    (αs : List Type) →
+    (readSig : Signal dom S → Signal dom (HList αs)) →
+    (writeSig : Signal dom (HList αs) → Signal dom S → Signal dom S) →
+    RegList dom S αs
+  | [],       _,    _      => ()
+  | α :: αs', readSig, writeSig =>
+    let headReadSig : Signal dom S → Signal dom α :=
+      fun s => Signal.map Prod.fst (readSig s)
+    let tailReadSig : Signal dom S → Signal dom (HList αs') :=
+      fun s => Signal.map Prod.snd (readSig s)
+    let headWriteSig : Signal dom α → Signal dom S → Signal dom S :=
+      fun n s => writeSig (bundle2 n (tailReadSig s)) s
+    let tailWriteSig : Signal dom (HList αs') → Signal dom S → Signal dom S :=
+      fun n s => writeSig (bundle2 (headReadSig s) n) s
+    let slot : Circuit.Slot dom S α :=
+      Circuit.Slot.mk headReadSig headWriteSig
+    let head : Reg dom S α :=
+      Reg.mk (headReadSig liveOuter) slot
+    let tail := mkRegList liveOuter αs' tailReadSig tailWriteSig
+    (head, tail)
+
+/-- For each slot of `αs`, take the corresponding `init` and a
+    slice of `nextState`, and emit a `Signal.register`.  Pack
+    the results back into a `Signal dom (HList αs)`.
+
+    Reducible so the synth elaborator unfolds through it to the
+    underlying `Signal.register` / `bundle2` chain. -/
+@[reducible, inline] def packRegister {dom : DomainConfig} :
+    (αs : List Type) → HList αs → Signal dom (HList αs) → Signal dom (HList αs)
+  | [],       _,    _    => Signal.pure ()
+  | _ :: αs', init, next =>
+    bundle2 (Signal.register init.1 (Signal.map Prod.fst next))
+            (packRegister αs' init.2 (Signal.map Prod.snd next))
+
+/-- Generic `runCircuit` taking any HList of initial values.
+    The body receives a matching `RegList` of register handles.
+
+    `[HListWireable αs]` requires every slot type to be
+    `Wireable`, gating non-synthesisable types at the call
+    site instead of the synth elaborator. -/
+@[reducible, inline] def runCircuitH {dom : DomainConfig} {αs : List Type} {ρ : Type}
+    [HListWireable αs] [Inhabited (HList αs)]
+    (inits : HList αs)
+    (body : RegList dom (HList αs) αs →
+            Circuit dom (HList αs) (Signal dom ρ)) : Signal dom ρ :=
+  let idRead  : Signal dom (HList αs) → Signal dom (HList αs) := fun s => s
+  let idWrite : Signal dom (HList αs) → Signal dom (HList αs) → Signal dom (HList αs) :=
+    fun n _ => n
+  let stateLoop : Signal dom (HList αs) :=
+    Signal.loop (α := HList αs) (fun live =>
+      let regs := mkRegList live αs idRead idWrite
+      let bResult := body regs id
+      let b' : Circuit.NextBuilder dom (HList αs) := bResult.snd
+      let nextState : Signal dom (HList αs) := b' live
+      packRegister αs inits nextState)
+  let regs := mkRegList stateLoop αs idRead idWrite
+  (body regs id).fst
+
 end Sparkle.Core

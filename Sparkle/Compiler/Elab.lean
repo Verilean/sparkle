@@ -210,7 +210,10 @@ def getOperator (name : Name) : Option Operator :=
   primitiveRegistry.lookup name
 
 partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
-  let type ← whnf type
+  -- Use `.all` transparency so reducible defs like `HList`
+  -- (which unfolds to a nested `Prod`/`Unit` chain via
+  -- pattern-match) are reduced past their match head.
+  let type ← withTransparency TransparencyMode.all $ whnf type
   match type with
   | .app (.const ``BitVec _) width =>
     -- Width can be direct literal or OfNat wrapper
@@ -218,8 +221,19 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
     return some (if w == 1 then .bit else .bitVector w)
   | .const ``Bool _ =>
     return some .bit
+  | .const ``Unit _ =>
+    -- `Unit` / `PUnit` are the terminator of an `HList` Prod
+    -- chain; they carry no bits.  Returning `.bitVector 0`
+    -- lets `Prod` chains ending in `Unit` keep accumulating
+    -- widths correctly.
+    return some (.bitVector 0)
+  | .const ``PUnit _ =>
+    return some (.bitVector 0)
   | .app (.app (.const ``Prod _) ty1) ty2 =>
-    -- Product type: concatenate the two types
+    -- Product type: concatenate the two types.  Zero-width
+    -- components (from a `Unit`/`PUnit` terminator at the end
+    -- of an `HList` chain) are handled by the bitVector match
+    -- arm — `bitVector 0 + bitVector w = bitVector w`.
     match ← inferHWType ty1, ← inferHWType ty2 with
     | some (.bitVector w1), some (.bitVector w2) => return some (.bitVector (w1 + w2))
     | some .bit, some (.bitVector w2) => return some (.bitVector (1 + w2))
@@ -567,6 +581,14 @@ mutual
              if boolName == ``Bool.false then
                let resWire ← CompilerM.makeWire hint .bit (named := isNamed)
                CompilerM.emitAssign resWire (.const 0 1)
+               return resWire
+             -- `Signal.pure ()` — the `Unit`/`PUnit` terminator
+             -- of an `HList` Prod chain.  Zero-width constant
+             -- (no actual wire emitted).  Used by
+             -- `packRegister []` to close out the chain.
+             if boolName == ``Unit.unit || boolName == ``PUnit.unit then
+               let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+               CompilerM.emitAssign resWire (.const 0 0)
                return resWire
            -- Check if argument is an fvar with wire mapping (let-bound constant)
            if let .fvar fvarId := constValue then
