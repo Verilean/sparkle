@@ -15,7 +15,7 @@ The two big tools:
    `Signal dom AluOut` whose accessors give you `.result` and
    `.flagsZero` by name.  Wire names in the generated Verilog
    follow the field names.
-2. **`Signal.circuit do`** + module composition — you call one
+2. **`circuit do`** + module composition — you call one
    module from inside another's `circuit do` block; the
    synthesiser turns the call into a Verilog `module … (…);`
    instance.
@@ -273,7 +273,7 @@ as its own Verilog module — its body is expanded twice into
 ```lean
 def latch8 (x : Signal defaultDomain (BitVec 8))
     : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let r ← Signal.reg 0#8
     r <~ x
     return r
@@ -298,7 +298,7 @@ Tag the helper to promote it to its own Verilog module:
 @[hardware_module]
 def latch8mod (x : Signal defaultDomain (BitVec 8))
     : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let r ← Signal.reg 0#8
     r <~ x
     return r

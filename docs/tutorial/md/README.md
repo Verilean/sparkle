@@ -54,6 +54,6 @@ Two non-negotiable rules govern every ` ```lean ` cell:
    list (no `if-then-else` over `Signal dom Bool`, no `unbundle2`
    destructuring, no `Signal.loopMemo`).
 2. **Read-friendly.**  Operators (`+`, `-`, `*`, `<<<`, `&&&`,
-   `===`) and `Signal.circuit do` first.  No `<$>` / `<*>` /
+   `===`) and `circuit do` first.  No `<$>` / `<*>` /
    `Signal.pure` in chapter prose; `Signal.loop` shown once for
    comparison only.

@@ -164,7 +164,7 @@ corresponding `Signal dom Bool` operators (Chapter 2) use `&&&`,
 
 `do` blocks let us sequence operations that return values in a
 "context" — most importantly `IO` (for printing), and Sparkle's
-own `Signal.circuit do` (introduced in Chapter 3) for declaring
+own `circuit do` (introduced in Chapter 3) for declaring
 registered logic in an imperative style.
 
 ```lean
@@ -210,11 +210,11 @@ consequences you'll occasionally see in the codebase:
 **You won't use any of those in this course.**  Sparkle defines
 `+`, `-`, `*`, `&&&`, `|||`, `^^^`, `<<<`, `>>>`, `===`, `~~~`
 directly on `Signal dom (BitVec n)` (and on `Signal dom Bool`),
-and `Signal.circuit do` hides register lifting entirely.  A
+and `circuit do` hides register lifting entirely.  A
 counter is just
 
 ```text
-Signal.circuit do
+circuit do
   let count ← Signal.reg 0#8
   count <~ count + 1#8
   return count

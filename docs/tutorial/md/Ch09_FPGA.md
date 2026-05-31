@@ -43,7 +43,7 @@ so half a period ≈ 2²³ / 12 MHz ≈ 0.7 s).
 
 ```lean
 def blinky {dom : DomainConfig} : Signal dom Bool :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#24
     count <~ count + 1#24
     -- LED follows the top bit of the counter.  Mask off the top

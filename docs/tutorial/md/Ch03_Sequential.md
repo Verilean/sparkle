@@ -8,7 +8,7 @@ non-trivial design needs them: counters, FSMs, pipelines, FIFOs.
 
 Sparkle gives you registers two ways:
 
-1. **`Signal.circuit do`** — the imperative-feeling form we
+1. **`circuit do`** — the imperative-feeling form we
    recommend for everyday work.  `let x ← Signal.reg init`
    declares a register; `x <~ rhs` says "the register's
    next-cycle value is `rhs`".  `return x` is the module's
@@ -51,7 +51,7 @@ captured value on `q`.
 ```lean
 def dff {dom : DomainConfig}
     (d : Signal dom Bool) : Signal dom Bool :=
-  Signal.circuit do
+  circuit do
     let q ← Signal.reg false
     q <~ d
     return q
@@ -222,7 +222,7 @@ itself every cycle.  Read it top-down — that's the point.
 
 ```lean
 def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8
     count <~ count + 1#8
     return count
@@ -258,7 +258,7 @@ conditions — see Ch 2 §2.3.
 ```lean
 def counterEn {dom : DomainConfig}
     (en : Signal dom Bool) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8
     let next := Signal.mux en (count + 1#8) count;
     count <~ next
@@ -274,7 +274,7 @@ pipeline" operation.
 ```lean
 def shift3 {dom : DomainConfig}
     (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let s0 ← Signal.reg 0#8
     let s1 ← Signal.reg 0#8
     let s2 ← Signal.reg 0#8
@@ -306,7 +306,7 @@ def DONE : BitVec 2 := 2#2
 
 def fsm {dom : DomainConfig}
     (start : Signal dom Bool) : Signal dom (BitVec 2) :=
-  Signal.circuit do
+  circuit do
     let state ← Signal.reg IDLE
     let count ← Signal.reg 0#8
     let isIdle := state === IDLE;

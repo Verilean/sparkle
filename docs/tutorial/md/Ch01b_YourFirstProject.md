@@ -92,7 +92,7 @@ namespace MyBlinky.Counter
 
 /-- A 4-bit counter that increments every cycle. -/
 def blinky {dom : DomainConfig} : Signal dom (BitVec 4) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#4
     count <~ count + 1#4
     return count
@@ -156,7 +156,7 @@ The library code (would live in `MyBlinky/Counter.lean`):
 ```lean
 /-- A 4-bit counter that increments every cycle. -/
 def blinky {dom : DomainConfig} : Signal dom (BitVec 4) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#4
     count <~ count + 1#4
     return count
