@@ -15,10 +15,12 @@
 -/
 
 import Sparkle
+import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
+open Sparkle.Core    -- `runCircuit3`, `Circuit.next`, `Circuit.read`
 
 namespace TutorialExtended.Step8
 
@@ -85,6 +87,35 @@ def enabledCounter {dom : DomainConfig}
     count <~ Signal.mux en incremented count;
     return count
 
+/-! ## Example E: `forM` over registers — Lean's monad in action
+
+  `circuit do` is a macro layer.  Underneath it is `Sparkle.Core.Circuit`,
+  a *real* `Monad` instance over the v2 monad helpers
+  (`runCircuit{1,2,3}`).  Anything that works on `Bind.bind` /
+  `Pure.pure` — `forM`, `mapM`, `traverse`, …  — composes cleanly
+  with `Circuit.next` / `Circuit.read`.
+
+  This is one of the things the *old* `Signal.circuit do` macro
+  couldn't do: it was syntax-level, only understood the four
+  cdoStmt forms (`let ← Signal.reg`, `<~`, branch-local `let`,
+  `return`), so `forM` was meaningless inside it.  v2 routes
+  through Lean's standard `do`-elaboration, so `forM` Just Works.
+
+  Example: three counters incremented together via `List.forM`.
+  Same Verilog as if we'd written three `Circuit.next` lines by
+  hand; the synthesis-side check at the bottom proves it. -/
+
+def threeCountersForM : Signal defaultDomain (BitVec 8) :=
+  -- Drop down to the raw `runCircuit3` helper — `circuit do`
+  -- intercepts the `do` keyword, so `forM` inside its body
+  -- would be parsed by the cdo macro rather than handed to
+  -- Lean's monad elaborator.  When you want `forM` (or
+  -- `mapM`/`traverse`/etc.), reach for `runCircuit{N}` directly.
+  runCircuit3 0#8 1#8 2#8 (fun r0 r1 r2 => do
+    [r0, r1, r2].forM (fun r =>
+      Circuit.next r (Circuit.read r + 1#8))
+    return Circuit.read r0 + Circuit.read r1 + Circuit.read r2)
+
 /-! ## Demo -/
 
 def runDemo : IO Unit := do
@@ -107,5 +138,10 @@ def runDemo : IO Unit := do
   let trace_d := (enabledCounter (dom := defaultDomain)
     ⟨fun t => t % 2 == 0⟩).sample 8
   IO.println s!"enabled (alt)  : {trace_d}"
+
+  -- Example E: three counters, all incremented in one `forM`.
+  -- Output is r0+r1+r2 each cycle: 3, 6, 9, 12, ...
+  let trace_e := threeCountersForM.sample 6
+  IO.println s!"forM (3 regs)  : {trace_e}"
 
 end TutorialExtended.Step8
