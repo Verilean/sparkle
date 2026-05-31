@@ -190,6 +190,14 @@ partial def flattenCdoStmts (stmts : Array (Lean.TSyntax `cdoStmt)) :
       for (n, _, s) in wildcardAssigns do
         unless allRegs.any (fun (k, _) => k == n) do
           allRegs := allRegs.push (n, s)
+      -- Extract the scrutinee's underlying Signal via `.1`
+      -- (Reg's first projection).  In `circuit do { match … }`
+      -- the scrutinee is essentially always a Reg (created by
+      -- the surrounding `let _ ← Signal.reg _`).  If users want
+      -- to match on a Signal expression directly they can
+      -- precompute it into a Reg or use the macro-free
+      -- `Signal.mux` chain instead.
+      let scrutSig ← `($scrut |>.1)
       for (n, nameStx) in allRegs do
         let wildcardRhs : Lean.TSyntax `term ← match
             wildcardAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none) with
@@ -202,14 +210,14 @@ partial def flattenCdoStmts (stmts : Array (Lean.TSyntax `cdoStmt)) :
               armAssigns.findSome? (fun (k, rhs, _) => if k == n then some rhs else none) with
             | some r => pure r
             | none   => `($nameStx)
-          -- Use the underlying Signal of the scrutinee (`scrut.1`
-          -- if it's a Reg) so Lean can resolve `Signal.beq`'s
-          -- type argument without bouncing through `CoeHead`
-          -- on a `Reg`.  We probe by writing `(scrut : Signal _ _)`
-          -- — if scrut is already a Signal it's a noop; if it's
-          -- a Reg the `CoeHead` fires.  The explicit ascription
-          -- means Lean has the target type when looking for Coe.
-          chained ← `(Signal.mux (((($scrut : Sparkle.Core.Signal.Signal _ _)) === ($pat : BitVec _))) $armRhs $chained)
+          -- Emit `Signal.ap (Signal.map (· == ·) scrut) pat`
+          -- directly instead of `scrut === pat`.  `===` desugars
+          -- to `Signal.beq`, which Sparkle's elaborator can't
+          -- always unfold (no `@[reducible]`).  The Applicative
+          -- form goes through `handleApplicative` with `BEq.beq`
+          -- as the function, which the elaborator's `getOperator`
+          -- map recognises as `.eq`.
+          chained ← `(Signal.mux (Signal.ap (Signal.map (· == ·) $scrutSig) $pat) $armRhs $chained)
         out := out.push (← `(cdoStmt| $nameStx:ident <~ $chained))
     | _ => out := out.push s
   return out

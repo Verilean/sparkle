@@ -93,6 +93,7 @@ end Circuit
 instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom τ) where
   coe r := r.1
 
+
 /-! ### Operator instances lifting `Reg` to `Signal`.
 
     `cnt + 1#8` doesn't trigger the `CoeHead` above because Lean

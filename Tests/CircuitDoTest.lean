@@ -112,6 +112,62 @@ def heldRegMacro (reset : Signal defaultDomain Bool) :
       acc <~ acc + 1#8
     return acc
 
+/-! ### 5. `match` — FSM next-state lowering.
+
+    Same Verilog-`case`-style pattern matching as the legacy
+    macro, lowering to a right-folded `Signal.mux` chain on
+    `scrut === pat` equality.  Scrutinee may be a `Reg` (as in
+    user code) or a `Signal` — the `cdoScrut` typeclass-driven
+    injection in the macro normalises either to a `Signal`
+    before elaborating the patterns. -/
+
+/-- 3-state FSM via `circuit do { match … with … }`. -/
+def fsm3Cdo : Signal defaultDomain (BitVec 2) :=
+  circuit do
+    let state ← Signal.reg 0#2
+    match state with
+    | 0#2 => state <~ 1#2
+    | 1#2 => state <~ 2#2
+    | 2#2 => state <~ 0#2
+    | _   => state <~ 0#2
+    return state
+
+/-- Same FSM via legacy `Signal.circuit do`. -/
+def fsm3Macro : Signal defaultDomain (BitVec 2) :=
+  Signal.circuit do
+    let state ← Signal.reg 0#2
+    match state with
+    | 0#2 => state <~ 1#2
+    | 1#2 => state <~ 2#2
+    | 2#2 => state <~ 0#2
+    | _   => state <~ 0#2
+    return state
+
+/-- Match with hold semantics: `extra` only updates on state=1. -/
+def fsmHoldCdo : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let state ← Signal.reg 0#2
+    let extra ← Signal.reg 0#8
+    match state with
+    | 0#2 => state <~ 1#2
+    | 1#2 =>
+      state <~ 2#2
+      extra <~ extra + 1#8
+    | _ => state <~ 0#2
+    return extra
+
+def fsmHoldMacro : Signal defaultDomain (BitVec 8) :=
+  Signal.circuit do
+    let state ← Signal.reg 0#2
+    let extra ← Signal.reg 0#8
+    match state with
+    | 0#2 => state <~ 1#2
+    | 1#2 =>
+      state <~ 2#2
+      extra <~ extra + 1#8
+    | _ => state <~ 0#2
+    return extra
+
 end Sparkle.Tests.CircuitDoTest
 
 section SynthesisChecks
@@ -125,6 +181,10 @@ open Sparkle.Tests.CircuitDoTest
 #synthesizeVerilog twoRegResetMacro
 #synthesizeVerilog heldRegCdo
 #synthesizeVerilog heldRegMacro
+#synthesizeVerilog fsm3Cdo
+#synthesizeVerilog fsm3Macro
+#synthesizeVerilog fsmHoldCdo
+#synthesizeVerilog fsmHoldMacro
 
 end SynthesisChecks
 
@@ -167,6 +227,16 @@ def main : IO Unit := do
   let r4c := sampleN (heldRegCdo reset) 8 |>.map toString
   let r4M := sampleN (heldRegMacro reset) 8 |>.map toString
   ok := (← runTest "heldRegCdo ≡ heldRegMacro" r4c r4M) && ok
+
+  -- 5. fsm3 via match.
+  let r5c := sampleN fsm3Cdo 6 |>.map toString
+  let r5M := sampleN fsm3Macro 6 |>.map toString
+  ok := (← runTest "fsm3Cdo ≡ fsm3Macro" r5c r5M) && ok
+
+  -- 6. fsmHold — match with hold semantics.
+  let r6c := sampleN fsmHoldCdo 6 |>.map toString
+  let r6M := sampleN fsmHoldMacro 6 |>.map toString
+  ok := (← runTest "fsmHoldCdo ≡ fsmHoldMacro" r6c r6M) && ok
 
   if !ok then
     IO.println "\nFAIL"
