@@ -104,6 +104,21 @@ def fsmHoldCdo : Signal defaultDomain (BitVec 8) :=
     | _ => state <~ 0#2
     return extra
 
+/-! ### 7. Four-register `circuit do` — exercises the
+       `runCircuit4` arity extension. -/
+
+def fourCounterCdo : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let b ← Signal.reg 0#8
+    let c ← Signal.reg 0#8
+    let d ← Signal.reg 0#8
+    a <~ a + 1#8
+    b <~ b + 2#8
+    c <~ c + 3#8
+    d <~ d + 4#8
+    return a + b + c + d
+
 end Sparkle.Tests.CircuitDoTest
 
 section SynthesisChecks
@@ -115,6 +130,7 @@ open Sparkle.Tests.CircuitDoTest
 #synthesizeVerilog heldRegCdo
 #synthesizeVerilog fsm3Cdo
 #synthesizeVerilog fsmHoldCdo
+#synthesizeVerilog fourCounterCdo
 
 end SynthesisChecks
 
@@ -196,6 +212,12 @@ def main : IO Unit := do
   let r6 := sampleN fsmHoldCdo 6 |>.map toString
   ok := (← runTest "fsmHoldCdo"
           r6 ["0x00#8", "0x00#8", "0x01#8", "0x01#8", "0x01#8", "0x02#8"]) && ok
+
+  -- 7. fourCounterCdo: a/b/c/d count by 1/2/3/4.
+  --   cycle k: sum = k*(1+2+3+4) = 10*k
+  let r7 := sampleN fourCounterCdo 5 |>.map toString
+  ok := (← runTest "fourCounterCdo"
+          r7 ["0x00#8", "0x0a#8", "0x14#8", "0x1e#8", "0x28#8"]) && ok
 
   if !ok then
     IO.println "\nFAIL"

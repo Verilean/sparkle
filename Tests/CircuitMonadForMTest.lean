@@ -36,12 +36,29 @@ def threeCountersForM : Signal defaultDomain (BitVec 8) :=
       Circuit.next r (Circuit.read r + 1#8))
     return Circuit.read r0 + Circuit.read r1 + Circuit.read r2)
 
+/-! ### Four-stage shift register via `forM`.
+
+    `runCircuit4` provides four BitVec 8 slots; `forM` over a
+    list of adjacent pairs `[(r1, r0), (r2, r1), (r3, r2)]`
+    schedules each `r_i+1 <~ Circuit.read r_i`.  Output is the
+    last stage; an input arriving at cycle k reaches it at
+    cycle k+4. -/
+
+def shift4ForM (input : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  runCircuit4 0#8 0#8 0#8 0#8 (fun r0 r1 r2 r3 => do
+    Circuit.next r0 input
+    [(r1, r0), (r2, r1), (r3, r2)].forM (fun (dst, src) =>
+      Circuit.next dst (Circuit.read src))
+    return Circuit.read r3)
+
 end Sparkle.Tests.CircuitMonadForMTest
 
 section SynthesisChecks
 open Sparkle.Tests.CircuitMonadForMTest
 
 #synthesizeVerilog threeCountersForM
+#synthesizeVerilog shift4ForM
 
 end SynthesisChecks
 
@@ -51,20 +68,43 @@ def sampleN {α} (s : Signal defaultDomain α) (n : Nat) : List α :=
   (List.range n).map (fun i => s.val i)
 
 def main : IO Unit := do
+  let mut ok := true
+
   -- threeCountersForM samples:
   --   cycle 0: r0=0, r1=1, r2=2 → sum = 3
   --   cycle 1: r0=1, r1=2, r2=3 → sum = 6
-  --   cycle 2: r0=2, r1=3, r2=4 → sum = 9
   --   ...
-  let r := sampleN threeCountersForM 6 |>.map toString
-  let expected := ["0x03#8", "0x06#8", "0x09#8", "0x0c#8", "0x0f#8", "0x12#8"]
+  let r1 := sampleN threeCountersForM 6 |>.map toString
+  let r1Expected := ["0x03#8", "0x06#8", "0x09#8", "0x0c#8", "0x0f#8", "0x12#8"]
   IO.println s!"--- threeCountersForM ---"
-  IO.println s!"  got      = {r}"
-  IO.println s!"  expected = {expected}"
-  if r == expected then
+  IO.println s!"  got      = {r1}"
+  IO.println s!"  expected = {r1Expected}"
+  if r1 == r1Expected then
     IO.println "  PASS"
   else
     IO.println "  FAIL"
+    ok := false
+
+  -- shift4ForM: input is cycle index (0,1,2,3,...).  Last stage
+  -- shows input from 4 cycles ago, so we get 0,0,0,0,0,1,2,3 for
+  -- the first 8 cycles.
+  let input : Signal defaultDomain (BitVec 8) :=
+    ⟨fun t => (t.toUInt8.toBitVec)⟩
+  let r2 := sampleN (shift4ForM input) 8 |>.map toString
+  let r2Expected := ["0x00#8", "0x00#8", "0x00#8", "0x00#8",
+                     "0x00#8", "0x01#8", "0x02#8", "0x03#8"]
+  IO.println s!"--- shift4ForM ---"
+  IO.println s!"  got      = {r2}"
+  IO.println s!"  expected = {r2Expected}"
+  if r2 == r2Expected then
+    IO.println "  PASS"
+  else
+    IO.println "  FAIL"
+    ok := false
+
+  if !ok then
+    IO.println "\nFAIL"
     IO.Process.exit 1
+  IO.println "\nALL PASS"
 
 end Sparkle.Tests.CircuitMonadForMTest

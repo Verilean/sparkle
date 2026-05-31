@@ -323,8 +323,15 @@ macro_rules
         let (r1, i1) := regs[1]!
         let (r2, i2) := regs[2]!
         `(Sparkle.Core.runCircuit3 $i0 $i1 $i2 (fun $r0 $r1 $r2 => $doBody))
+      | 4 =>
+        let (r0, i0) := regs[0]!
+        let (r1, i1) := regs[1]!
+        let (r2, i2) := regs[2]!
+        let (r3, i3) := regs[3]!
+        `(Sparkle.Core.runCircuit4 $i0 $i1 $i2 $i3
+            (fun $r0 $r1 $r2 $r3 => $doBody))
       | n =>
-        Lean.Macro.throwError s!"circuit do: only 1..3 registers supported currently (got {n}); extend runCircuit helpers"
+        Lean.Macro.throwError s!"circuit do: only 1..4 registers supported currently (got {n}); extend runCircuit helpers"
     return runCircuit
 
 end Sparkle.Core
