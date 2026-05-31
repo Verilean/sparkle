@@ -44,14 +44,14 @@ import Tests.YOLOv8.TestNeck
 --
 -- Each file ALSO ships as a standalone `lean_exe` (`lake exe
 -- signal-loop-test`, `lake exe circuit-monad-v2-test`,
--- `lake exe circuit-do-test`) for ad-hoc debugging.  Their
--- per-file top-level `def main` would collide if imported into
--- one module, so we import only their *namespaced* entry
--- points via `import` of the module — the namespaced
--- `Sparkle.Tests.X.main` is what lives inside.  Each is called
--- explicitly from this file's `main` below so `lake test`
--- actually exercises the cycle-by-cycle sim path, not just
--- type-checks the module.
+-- `lake exe circuit-do-test`, `lake exe circuit-monad-forM-test`)
+-- for ad-hoc debugging.  Their per-file top-level `def main`
+-- would collide if imported into one module, so we import only
+-- their *namespaced* entry points via `import` of the module
+-- — the namespaced `Sparkle.Tests.X.main` is what lives
+-- inside.  Each is called explicitly from this file's `main`
+-- below so `lake test` actually exercises the cycle-by-cycle
+-- sim path, not just type-checks the module.
 --
 -- A failing `Sparkle.Tests.X.main` calls `IO.Process.exit 1`,
 -- so `lake test` will exit non-zero if any of them regress.
@@ -61,9 +61,17 @@ import Tests.YOLOv8.TestNeck
 -- test logic lives inside the namespaced
 -- `Sparkle.Tests.X.main` here, which we call directly from
 -- `main` below.
+--
+-- Synthesis coverage: each of these test files contains one or
+-- more `#synthesizeVerilog` invocations.  Those run at `lake
+-- build` time inside the file's own module, so a regression on
+-- the elaborator's wire translation breaks `lake build
+-- Tests.X` (and hence `lake test`) directly — no separate exe
+-- run is needed for the synth side.
 import Tests.SignalLoopTest
 import Tests.CircuitMonadV2Test
 import Tests.CircuitDoTest
+import Tests.CircuitMonadForMTest
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
@@ -396,6 +404,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitMonadV2Test.main
   IO.println ""
   Sparkle.Tests.CircuitDoTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitMonadForMTest.main
   IO.println ""
 
   -- Run Sparkle16 tests

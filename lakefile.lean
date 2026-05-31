@@ -282,3 +282,11 @@ lean_exe «drone-closed-loop-test» where
 lean_exe «test» where
   root := `Tests.AllTests
   supportInterpreter := true
+
+-- Demonstrates `forM` over registers in the v2 `Circuit` monad
+-- — something the legacy `Signal.circuit do` macro couldn't
+-- express because it was a syntax-level macro that didn't
+-- pass through Lean's standard do-notation pipeline.
+lean_exe «circuit-monad-forM-test» where
+  root := `Tests.Drivers.CircuitMonadForMTestMain
+  supportInterpreter := true
