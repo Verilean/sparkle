@@ -243,6 +243,29 @@ macro_rules
       | `(cdoStmt| let $name:ident ← Signal.reg $init ;) =>
         regs := regs.push (name, init)
       | _ => bodyStmts := bodyStmts.push s
+
+    -- Detect duplicate `<~` writes to the same register at the
+    -- same statement level (after if/else and match flattening
+    -- have collapsed branches into a single muxed write per
+    -- register).  A surviving duplicate in `bodyStmts` came
+    -- from the user writing `r <~ …` twice at the top level —
+    -- earlier writes would silently vanish into the loop body
+    -- (last write wins), which is rarely intended.  Reject
+    -- with a macro error rather than picking a winner.
+    --
+    -- Matches the legacy `Signal.circuit do` macro's check
+    -- (see `Sparkle/Core/Signal.lean` around the
+    -- "duplicate check" comment).
+    let mut seenWrites : Array Lean.Name := #[]
+    for s in bodyStmts do
+      match s with
+      | `(cdoStmt| $n:ident <~ $_)
+      | `(cdoStmt| $n:ident <~ $_ ;) =>
+        let regName := n.getId
+        if seenWrites.contains regName then
+          Lean.Macro.throwError s!"circuit do: register `{regName}` is assigned with `<~` more than once at the same statement level — last write wins (matches Verilog `always_ff` semantics); merge the assignments into a single `<~` to silence this error."
+        seenWrites := seenWrites.push regName
+      | _ => pure ()
     -- Build the body as nested `Sparkle.Core.Circuit.bind` chain
     -- ending in `Sparkle.Core.Circuit.pure' retExpr`.  Avoids
     -- having to thread a `doSeqItem` array through quotation —

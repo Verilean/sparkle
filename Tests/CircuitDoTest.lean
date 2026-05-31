@@ -168,6 +168,25 @@ def fsmHoldMacro : Signal defaultDomain (BitVec 8) :=
     | _ => state <~ 0#2
     return extra
 
+/-! ### 6. Duplicate `<~` detection.
+
+    Writing `cnt <~ …` twice at the same statement level should
+    be a macro error, not silent last-write-wins.  Matches the
+    legacy `Signal.circuit do` macro's behaviour.
+
+    Verified via `#guard_msgs`: the second `cnt <~ …` must
+    surface the duplicate-write error. -/
+
+/-- error: circuit do: register `cnt` is assigned with `<~` more than once at the same statement level — last write wins (matches Verilog `always_ff` semantics); merge the assignments into a single `<~` to silence this error.
+-/
+#guard_msgs in
+example : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let cnt ← Signal.reg 0#8
+    cnt <~ 0#8
+    cnt <~ cnt + 1#8
+    return cnt
+
 end Sparkle.Tests.CircuitDoTest
 
 section SynthesisChecks
