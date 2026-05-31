@@ -1,8 +1,8 @@
 /-
   Sim + synth round-trip tests for `Signal.loop` written
-  directly (no `Signal.circuit do` sugar).
+  directly (no `circuit do` sugar).
 
-  Why this file exists.  The `Signal.circuit do` macro
+  Why this file exists.  The `circuit do` macro
   (`Sparkle/Core/Signal.lean`) is well covered by
   `Tests/CircuitIfTest.lean` and `Tests/CircuitMatchTest.lean`.
   But the most primitive form — the user
@@ -18,7 +18,7 @@
        sampling matches the obvious reference output)
     2. Verilog synthesis (the `#synthesizeVerilog` call
        produces a module the IR elaborator accepts)
-    3. equivalence to the `Signal.circuit do` macro form for
+    3. equivalence to the `circuit do` macro form for
        circuits where both forms can express the same logic
 
   Run sim: `lake exe signal-loop-test`
@@ -29,6 +29,7 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
+import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -39,7 +40,7 @@ namespace Sparkle.Tests.SignalLoopTest
 
 /-- `Signal.loop`'s callback gets the previous-cycle output as
     its argument; here we feed `count + 1` into a register
-    initialised at 0.  Equivalent to `Signal.circuit do { let
+    initialised at 0.  Equivalent to `circuit do { let
     c ← Signal.reg 0#8; c <~ c + 1#8; return c }`. -/
 def counterLoop : Signal defaultDomain (BitVec 8) :=
   Signal.loop fun count =>
@@ -48,7 +49,7 @@ def counterLoop : Signal defaultDomain (BitVec 8) :=
 /-- Same circuit through the macro DSL, for the equivalence
     check. -/
 def counterDSL : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let c ← Signal.reg 0#8
     c <~ c + 1#8
     return c
@@ -63,7 +64,7 @@ def counterEnableLoop (en : Signal defaultDomain Bool) :
 
 def counterEnableDSL (en : Signal defaultDomain Bool) :
     Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let c ← Signal.reg 0#8
     c <~ Signal.mux en (c + 1#8) c
     return c
@@ -78,7 +79,7 @@ def counterEnableDSL (en : Signal defaultDomain Bool) :
     `#guard_msgs`; uncommenting the macro invocation should
     surface the duplicate-assignment message.
 
-      Signal.circuit do
+      circuit do
         let c ← Signal.reg 0#8
         c <~ 0#8              -- shadowed by the next line
         c <~ c + 1#8

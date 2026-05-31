@@ -1,30 +1,23 @@
 /-
-  Sparkle.Core.CircuitDo — circuit-flavoured `do` block on top of
-  the v2 Circuit monad.
+  Sparkle.Core.CircuitDo — circuit-flavoured `do` block on top
+  of the v2 Circuit monad.
 
-  Same surface syntax as the `Signal.circuit do` macro
-  (`Sparkle/Core/Signal.lean`): statement-level register
-  declarations, `<~` updates, branch-local `let _ := _`,
-  statement-level `if cond then … else …` over a Signal Bool,
-  and `return`.  The lowering is different:
+  Surface syntax: statement-level register declarations, `<~`
+  updates, branch-local `let _ := _`, statement-level `if cond
+  then … else …` over a Signal Bool, statement-level
+  `match scrut with | pat => …`, and `return`.
 
-    * `Signal.circuit do` flattens everything to a single
-      `Signal.loop fun _ => bundleAll! [...]` and projects
-      registers out by `projN!`.
-    * `circuit do` (this file) compiles each register declaration
-      to the matching `runCircuit{N}` arity and threads register
-      updates through the v2 `Circuit` monad's `Bind.bind` /
-      `Pure.pure`, all of which the elaborator now recognises
-      thanks to `handleCircuitMonad`.
+  Lowering: each register declaration becomes a slot in a
+  `Sparkle.Core.runCircuit{N}` call, and `<~` / `let` /
+  `return` translate into a `Sparkle.Core.Circuit` monad body.
+  The IR elaborator's `handleCircuitMonad` lowers
+  `Bind.bind` / `Pure.pure` on the `Circuit` monad to plain
+  value-level Prod operations, so synthesis goes through.
 
-  The two forms produce semantically-identical Verilog and
-  cycle-by-cycle output.  `circuit do` exists so the v2 monad
-  surface is at usability parity with the legacy macro, so the
-  legacy macro can be retired without UX regressions.
-
-  Migration: replace `Signal.circuit do { … }` with
-  `circuit do { … }`.  Body content is unchanged.  The only
-  visible diff is the leading keyword.
+  This is the sole register-DSL surface in Sparkle (the older
+  `Signal.circuit do` macro was removed; this file's design
+  predecessor referenced it as the legacy form before the
+  removal landed).
 -/
 
 import Sparkle.Core.Signal
@@ -253,9 +246,8 @@ macro_rules
     -- (last write wins), which is rarely intended.  Reject
     -- with a macro error rather than picking a winner.
     --
-    -- Matches the legacy `Signal.circuit do` macro's check
-    -- (see `Sparkle/Core/Signal.lean` around the
-    -- "duplicate check" comment).
+    -- (Same kind of duplicate-write check that the now-removed
+    -- `Signal.circuit do` macro originally introduced.)
     let mut seenWrites : Array Lean.Name := #[]
     for s in bodyStmts do
       match s with

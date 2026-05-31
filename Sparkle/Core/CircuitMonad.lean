@@ -87,9 +87,8 @@ end Circuit
 /-- A `Reg dom S τ` coerces to its live `Signal dom τ` read.
     Lets user code use `cnt` directly anywhere a `Signal dom τ`
     is expected (e.g. as the rhs of `Circuit.next` or
-    `Signal.mux`), matching the legacy `Signal.circuit do`
-    macro's UX where the register identifier was already a
-    Signal. -/
+    `Signal.mux`), without needing an explicit `Circuit.read`
+    or `.1`. -/
 instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom τ) where
   coe r := r.1
 

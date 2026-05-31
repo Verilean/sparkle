@@ -109,46 +109,26 @@ lean_exe «tutorial-hierarchy» where
   root := `Tests.Tutorial.HierarchyTest
   supportInterpreter := true
 
--- Runtime check for the statement-level `if/else` extension to
--- `Signal.circuit do`.  Drives a few reset-counter / priority-
--- mux / hold-semantics designs through `Signal.loop`'s native
--- FFI and asserts the cycle-by-cycle output matches what a
--- hand-rolled `Signal.mux` lowering would produce.
-lean_exe «circuit-if-test» where
-  root := `Tests.Drivers.CircuitIfTestMain
-  supportInterpreter := true
-
 -- Runtime check for the raw `Signal.loop` / `Signal.register`
--- form (no macro DSL).  Pairs each loop-direct circuit with
--- its `Signal.circuit do` equivalent and asserts the
--- cycle-by-cycle outputs agree, so future macro changes can't
--- silently drift from the loop semantics they desugar to.
+-- form (no `circuit do` sugar).  Pairs each loop-direct circuit
+-- with its `circuit do` equivalent and asserts the cycle-by-
+-- cycle outputs agree, so future macro changes can't silently
+-- drift from the loop semantics they desugar to.
 lean_exe «signal-loop-test» where
   root := `Tests.Drivers.SignalLoopTestMain
   supportInterpreter := true
 
--- Runtime check for the statement-level `match` extension to
--- `Signal.circuit do`.  Drives a 3-state FSM and variations
--- through `Signal.loop` and asserts the cycle-by-cycle output
--- matches what a hand-rolled Signal.mux chain would produce.
-lean_exe «circuit-match-test» where
-  root := `Tests.Drivers.CircuitMatchTestMain
-  supportInterpreter := true
-
--- PoC v2 (branch poc/circuit-monad-v2) — sim parity check
--- between the new HList / Prod-chain monad surface
--- (`runCircuit1` / `runCircuit2`) and the `Signal.circuit do`
--- macro on the same circuits.  Synthesis isn't end-to-end
--- green yet (see commit notes); sim is the part we drive
--- here.  Not wired into `lake test` until synthesis catches up.
+-- Sim parity check between the v2 monad surface
+-- (`runCircuit{1,2,3}`) and the `circuit do` macro on
+-- counter / two-register / mixed-width / three-register tests.
 lean_exe «circuit-monad-v2-test» where
   root := `Tests.Drivers.CircuitMonadV2TestMain
   supportInterpreter := true
 
--- Sim parity for the `circuit do` macro (v2 monad surface with
--- statement-level if/else syntax sugar).  Pairs each cdo
--- circuit with its `Signal.circuit do` macro reference and
--- asserts cycle-by-cycle outputs agree.
+-- Sim parity for the `circuit do` macro itself: counter, reset
+-- counter (if/else), two-register reset, hold semantics, 3-state
+-- FSM (match), and FSM-hold (match + hold).  Plus a duplicate-
+-- `<~` detection guard.
 lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true

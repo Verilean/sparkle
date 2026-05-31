@@ -1,8 +1,12 @@
 /-
-  Tests for `circuit do` — the v2-monad-backed alternative to
-  `Signal.circuit do`.  Validates both:
-    1. Sim parity with the legacy macro form.
-    2. Each lowered `runCircuit{N}` synthesises to Verilog.
+  Tests for `circuit do` — the v2-monad-backed register DSL.
+  Validates:
+    1. Cycle-by-cycle simulation against hand-written reference
+       outputs.
+    2. Each lowered `runCircuit{N}` synthesises to Verilog
+       (the `#synthesizeVerilog` invocations error out the
+       build if any module no longer synthesises).
+    3. Duplicate `<~` detection via `#guard_msgs`.
 -/
 
 import Sparkle
@@ -15,8 +19,7 @@ open Sparkle.Core.Signal
 
 namespace Sparkle.Tests.CircuitDoTest
 
-/-! ### 1. Plain counter — sanity check that registers + `<~`
-       + `return` form a working basic. -/
+/-! ### 1. Plain counter — `let r ← Signal.reg` + `<~` + `return`. -/
 
 def counterCdo : Signal defaultDomain (BitVec 8) :=
   circuit do
@@ -24,17 +27,11 @@ def counterCdo : Signal defaultDomain (BitVec 8) :=
     cnt <~ cnt + 1#8
     return cnt
 
-def counterMacro : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
-    let cnt ← Signal.reg 0#8
-    cnt <~ cnt + 1#8
-    return cnt
-
 /-! ### 2. Reset counter — statement-level `if/else`.
 
-    The marquee feature of `circuit do`: same `if reset then a
-    else b` syntax as the macro, lowering to per-register
-    `Signal.mux` automatically. -/
+    `if reset then a else b` over a Signal Bool lowers to per-
+    register `Signal.mux`.  A register assigned in only one
+    branch holds its current value on the other side. -/
 
 def resetCounterCdo (reset : Signal defaultDomain Bool) :
     Signal defaultDomain (BitVec 8) :=
@@ -44,14 +41,6 @@ def resetCounterCdo (reset : Signal defaultDomain Bool) :
       cnt <~ 0#8
     else
       cnt <~ cnt + 1#8
-    return cnt
-
-def resetCounterMacro (reset : Signal defaultDomain Bool) :
-    Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
-    let cnt ← Signal.reg 0#8
-    if reset then cnt <~ 0#8
-    else cnt <~ cnt + 1#8
     return cnt
 
 /-! ### 3. Two-register if/else, both branches assign both regs. -/
@@ -69,23 +58,10 @@ def twoRegResetCdo (reset : Signal defaultDomain Bool) :
       b <~ b + 2#8
     return a + b
 
-def twoRegResetMacro (reset : Signal defaultDomain Bool) :
-    Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
-    let a ← Signal.reg 0#8
-    let b ← Signal.reg 0#8
-    if reset then
-      a <~ 0#8
-      b <~ 0#8
-    else
-      a <~ a + 1#8
-      b <~ b + 2#8
-    return a + b
-
 /-! ### 4. Hold semantics — register assigned in only one branch.
 
-    The other branch must keep the register's current value
-    (cdoStmt's flattener fills in `$nameStx` as the missing rhs). -/
+    `acc` only gets a `<~` in the else branch; on the then
+    branch it must keep its current value. -/
 
 def heldRegCdo (reset : Signal defaultDomain Bool) :
     Signal defaultDomain (BitVec 8) :=
@@ -100,41 +76,13 @@ def heldRegCdo (reset : Signal defaultDomain Bool) :
       acc <~ acc + 1#8
     return acc
 
-def heldRegMacro (reset : Signal defaultDomain Bool) :
-    Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
-    let cnt ← Signal.reg 0#8
-    let acc ← Signal.reg 0#8
-    if reset then
-      cnt <~ 0#8
-    else
-      cnt <~ cnt + 1#8
-      acc <~ acc + 1#8
-    return acc
-
 /-! ### 5. `match` — FSM next-state lowering.
 
-    Same Verilog-`case`-style pattern matching as the legacy
-    macro, lowering to a right-folded `Signal.mux` chain on
-    `scrut === pat` equality.  Scrutinee may be a `Reg` (as in
-    user code) or a `Signal` — the `cdoScrut` typeclass-driven
-    injection in the macro normalises either to a `Signal`
-    before elaborating the patterns. -/
+    Verilog-`case`-style pattern matching, lowered to a right-
+    folded `Signal.mux` chain on `scrut === pat` equality. -/
 
-/-- 3-state FSM via `circuit do { match … with … }`. -/
 def fsm3Cdo : Signal defaultDomain (BitVec 2) :=
   circuit do
-    let state ← Signal.reg 0#2
-    match state with
-    | 0#2 => state <~ 1#2
-    | 1#2 => state <~ 2#2
-    | 2#2 => state <~ 0#2
-    | _   => state <~ 0#2
-    return state
-
-/-- Same FSM via legacy `Signal.circuit do`. -/
-def fsm3Macro : Signal defaultDomain (BitVec 2) :=
-  Signal.circuit do
     let state ← Signal.reg 0#2
     match state with
     | 0#2 => state <~ 1#2
@@ -156,26 +104,26 @@ def fsmHoldCdo : Signal defaultDomain (BitVec 8) :=
     | _ => state <~ 0#2
     return extra
 
-def fsmHoldMacro : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
-    let state ← Signal.reg 0#2
-    let extra ← Signal.reg 0#8
-    match state with
-    | 0#2 => state <~ 1#2
-    | 1#2 =>
-      state <~ 2#2
-      extra <~ extra + 1#8
-    | _ => state <~ 0#2
-    return extra
+end Sparkle.Tests.CircuitDoTest
+
+section SynthesisChecks
+open Sparkle.Tests.CircuitDoTest
+
+#synthesizeVerilog counterCdo
+#synthesizeVerilog resetCounterCdo
+#synthesizeVerilog twoRegResetCdo
+#synthesizeVerilog heldRegCdo
+#synthesizeVerilog fsm3Cdo
+#synthesizeVerilog fsmHoldCdo
+
+end SynthesisChecks
+
+namespace Sparkle.Tests.CircuitDoTest
 
 /-! ### 6. Duplicate `<~` detection.
 
-    Writing `cnt <~ …` twice at the same statement level should
-    be a macro error, not silent last-write-wins.  Matches the
-    legacy `Signal.circuit do` macro's behaviour.
-
-    Verified via `#guard_msgs`: the second `cnt <~ …` must
-    surface the duplicate-write error. -/
+    Writing `cnt <~ …` twice at the same statement level is a
+    macro error.  Verified via `#guard_msgs`. -/
 
 /-- error: circuit do: register `cnt` is assigned with `<~` more than once at the same statement level — last write wins (matches Verilog `always_ff` semantics); merge the assignments into a single `<~` to silence this error.
 -/
@@ -187,27 +135,7 @@ example : Signal defaultDomain (BitVec 8) :=
     cnt <~ cnt + 1#8
     return cnt
 
-end Sparkle.Tests.CircuitDoTest
-
-section SynthesisChecks
-open Sparkle.Tests.CircuitDoTest
-
-#synthesizeVerilog counterCdo
-#synthesizeVerilog counterMacro
-#synthesizeVerilog resetCounterCdo
-#synthesizeVerilog resetCounterMacro
-#synthesizeVerilog twoRegResetCdo
-#synthesizeVerilog twoRegResetMacro
-#synthesizeVerilog heldRegCdo
-#synthesizeVerilog heldRegMacro
-#synthesizeVerilog fsm3Cdo
-#synthesizeVerilog fsm3Macro
-#synthesizeVerilog fsmHoldCdo
-#synthesizeVerilog fsmHoldMacro
-
-end SynthesisChecks
-
-namespace Sparkle.Tests.CircuitDoTest
+/-! ### Simulation driver -/
 
 def sampleN {α} (s : Signal defaultDomain α) (n : Nat) : List α :=
   (List.range n).map (fun i => s.val i)
@@ -226,36 +154,48 @@ def runTest (name : String) (got expected : List String) : IO Bool := do
 def main : IO Unit := do
   let mut ok := true
 
-  -- 1. counterCdo matches counterMacro.
-  let r1c := sampleN counterCdo 6 |>.map toString
-  let r1M := sampleN counterMacro 6 |>.map toString
-  ok := (← runTest "counterCdo ≡ counterMacro" r1c r1M) && ok
+  -- 1. counterCdo: 0, 1, 2, 3, 4, 5.
+  let r1 := sampleN counterCdo 6 |>.map toString
+  ok := (← runTest "counterCdo"
+          r1 ["0x00#8", "0x01#8", "0x02#8", "0x03#8", "0x04#8", "0x05#8"]) && ok
 
-  -- 2. resetCounter — reset at cycle 3.
+  -- 2. resetCounterCdo with reset at cycle 3.
   let reset : Signal defaultDomain Bool := ⟨fun t => t == 3⟩
-  let r2c := sampleN (resetCounterCdo reset) 8 |>.map toString
-  let r2M := sampleN (resetCounterMacro reset) 8 |>.map toString
-  ok := (← runTest "resetCounterCdo ≡ resetCounterMacro" r2c r2M) && ok
+  let r2 := sampleN (resetCounterCdo reset) 8 |>.map toString
+  ok := (← runTest "resetCounterCdo"
+          r2 ["0x00#8", "0x01#8", "0x02#8", "0x03#8",
+              "0x00#8", "0x01#8", "0x02#8", "0x03#8"]) && ok
 
-  -- 3. twoRegReset.
-  let r3c := sampleN (twoRegResetCdo reset) 8 |>.map toString
-  let r3M := sampleN (twoRegResetMacro reset) 8 |>.map toString
-  ok := (← runTest "twoRegResetCdo ≡ twoRegResetMacro" r3c r3M) && ok
+  -- 3. twoRegResetCdo with reset at cycle 3.
+  --   a counts 0,1,2,3 then resets; b counts 0,2,4,6 then resets.
+  --   Sum at each cycle: 0, 3, 6, 9, 0, 3, 6, 9.
+  let r3 := sampleN (twoRegResetCdo reset) 8 |>.map toString
+  ok := (← runTest "twoRegResetCdo"
+          r3 ["0x00#8", "0x03#8", "0x06#8", "0x09#8",
+              "0x00#8", "0x03#8", "0x06#8", "0x09#8"]) && ok
 
-  -- 4. heldReg.
-  let r4c := sampleN (heldRegCdo reset) 8 |>.map toString
-  let r4M := sampleN (heldRegMacro reset) 8 |>.map toString
-  ok := (← runTest "heldRegCdo ≡ heldRegMacro" r4c r4M) && ok
+  -- 4. heldRegCdo: acc holds on reset, increments on else.
+  --   cycle 0-2: cnt counts up, acc = 1,2,3
+  --   cycle 3: reset, cnt=0 next cycle, acc holds (=3)
+  --   cycle 4-7: cnt counts up again, acc = 3,4,5,6 ...
+  let r4 := sampleN (heldRegCdo reset) 8 |>.map toString
+  ok := (← runTest "heldRegCdo"
+          r4 ["0x00#8", "0x01#8", "0x02#8", "0x03#8",
+              "0x03#8", "0x04#8", "0x05#8", "0x06#8"]) && ok
 
-  -- 5. fsm3 via match.
-  let r5c := sampleN fsm3Cdo 6 |>.map toString
-  let r5M := sampleN fsm3Macro 6 |>.map toString
-  ok := (← runTest "fsm3Cdo ≡ fsm3Macro" r5c r5M) && ok
+  -- 5. fsm3Cdo: 0 → 1 → 2 → 0 → ...
+  let r5 := sampleN fsm3Cdo 6 |>.map toString
+  ok := (← runTest "fsm3Cdo"
+          r5 ["0x0#2", "0x1#2", "0x2#2", "0x0#2", "0x1#2", "0x2#2"]) && ok
 
-  -- 6. fsmHold — match with hold semantics.
-  let r6c := sampleN fsmHoldCdo 6 |>.map toString
-  let r6M := sampleN fsmHoldMacro 6 |>.map toString
-  ok := (← runTest "fsmHoldCdo ≡ fsmHoldMacro" r6c r6M) && ok
+  -- 6. fsmHoldCdo: extra increments only on state=1.
+  --   cycle 0: state=0, extra=0 (then state=1, extra holds)
+  --   cycle 1: state=1, extra=0 (then state=2, extra=1)
+  --   cycle 2: state=2, extra=1 (then state=0, extra holds)
+  --   cycle 3: state=0, extra=1 ...
+  let r6 := sampleN fsmHoldCdo 6 |>.map toString
+  ok := (← runTest "fsmHoldCdo"
+          r6 ["0x00#8", "0x00#8", "0x01#8", "0x01#8", "0x01#8", "0x02#8"]) && ok
 
   if !ok then
     IO.println "\nFAIL"
