@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780322436093,
+  "lastUpdate": 1780353524442,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)": [
@@ -1087,6 +1087,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "LiteX JIT evalTick (10M cycles)",
             "value": 2559814,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7fe64a72af225270c8275a3fb6c49d440b931b1",
+          "message": "Merge pull request #36 from Verilean/poc/circuit-monad-v2\n\nFix the build of xeus-lean",
+          "timestamp": "2026-06-02T07:32:13+09:00",
+          "tree_id": "97185fff55c99eb022a365e5c745f0b1623b6935",
+          "url": "https://github.com/Verilean/sparkle/commit/c7fe64a72af225270c8275a3fb6c49d440b931b1"
+        },
+        "date": 1780353524120,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "LiteX Verilator (10M cycles)",
+            "value": 5841920,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "LiteX JIT evalTick (10M cycles)",
+            "value": 2512219,
             "unit": "cycles/sec"
           }
         ]
