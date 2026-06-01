@@ -59,14 +59,24 @@ def addModuleToDesign (m : Module) : CircuitM Unit := do
     accidental name capture is impossible).  These suffixes are
     fine inside Lean but turn into syntax errors in
     Verilog/SystemVerilog because `@` isn't a valid identifier
-    character.  Drop everything from the first `@` onward. -/
+    character.
+
+    Only act when an `@` is present — otherwise return the
+    input unchanged.  When stripping, drop *all* trailing
+    underscores left over from the macro's `_@`/`__@` joiner
+    so we don't leave `x_` or `x__` as the visible identifier
+    (and don't risk colliding with a legitimate name that ends
+    in `_`). -/
 private def stripHygiene (s : String) : String :=
-  let parts := s.splitOn "@"
-  match parts with
-  | []      => s
-  | h :: _  =>
-    -- Trim a trailing `_` left over from `_@` → `_`.
-    if h.endsWith "_" then h.dropRight 1 else h
+  match s.splitOn "@" with
+  | [_]    => s  -- no `@` → not a hygiene name, leave alone
+  | h :: _ =>
+    -- Drop every trailing `_` from `h`.  Iterate over the
+    -- characters from the right; the bound is `h.length`.
+    let chars := h.toList
+    let trimmed := chars.reverse.dropWhile (· == '_') |>.reverse
+    String.mk trimmed
+  | []     => s
 
 /-- Generate a fresh wire name.
     When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
