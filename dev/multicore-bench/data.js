@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780322507217,
+  "lastUpdate": 1780353593166,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1363,6 +1363,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 632288,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7fe64a72af225270c8275a3fb6c49d440b931b1",
+          "message": "Merge pull request #36 from Verilean/poc/circuit-monad-v2\n\nFix the build of xeus-lean",
+          "timestamp": "2026-06-02T07:32:13+09:00",
+          "tree_id": "97185fff55c99eb022a365e5c745f0b1623b6935",
+          "url": "https://github.com/Verilean/sparkle/commit/c7fe64a72af225270c8275a3fb6c49d440b931b1"
+        },
+        "date": 1780353592863,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4472972,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 558692,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1129357,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 676684,
             "unit": "cycles/sec"
           }
         ]
