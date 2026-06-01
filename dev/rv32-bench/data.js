@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780322404436,
+  "lastUpdate": 1780353494453,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1759,6 +1759,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 3949478,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7fe64a72af225270c8275a3fb6c49d440b931b1",
+          "message": "Merge pull request #36 from Verilean/poc/circuit-monad-v2\n\nFix the build of xeus-lean",
+          "timestamp": "2026-06-02T07:32:13+09:00",
+          "tree_id": "97185fff55c99eb022a365e5c745f0b1623b6935",
+          "url": "https://github.com/Verilean/sparkle/commit/c7fe64a72af225270c8275a3fb6c49d440b931b1"
+        },
+        "date": 1780353494124,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 3665935,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3652689,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 4326603,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 4212185,
             "unit": "cycles/sec"
           }
         ]
