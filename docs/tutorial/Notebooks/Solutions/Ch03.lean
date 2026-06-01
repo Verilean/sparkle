@@ -1,4 +1,5 @@
 import Sparkle
+import Sparkle.Core.CircuitDo
 
 /-!
 # Chapter 3 — reference solutions
@@ -24,12 +25,19 @@ def S_RED    : BitVec 2 := 2#2
     The FSM cycles green (8) → yellow (2) → red (6) → green …
     The output is a 3-bit one-hot encoding of the active light. -/
 def trafficLight {dom : DomainConfig} : Signal dom (BitVec 3) :=
-  Signal.circuit do
+  circuit do
     let state ← Signal.reg S_GREEN;
     let timer ← Signal.reg 0#4;
-    let isGreen  := state === S_GREEN;
-    let isYellow := state === S_YELLOW;
-    let isRed    := state === S_RED;
+    -- Project the register handles to their underlying `Signal`
+    -- via `.1`, so the rest of the body can treat them as
+    -- ordinary signals (`state === …`, `Signal.mux … state`).
+    -- The register handles (`state`, `timer`) remain in scope
+    -- for the `<~` writes that come later.
+    let stateSig := state.1;
+    let timerSig := timer.1;
+    let isGreen  := stateSig === S_GREEN;
+    let isYellow := stateSig === S_YELLOW;
+    let isRed    := stateSig === S_RED;
     -- Dwell-time table.  The innermost `Signal.mux` has both
     -- branches as bare BitVec literals — Lean can't infer the
     -- Signal type from the arguments alone, so we lift the
@@ -37,15 +45,15 @@ def trafficLight {dom : DomainConfig} : Signal dom (BitVec 3) :=
     let limit :=
       Signal.mux isGreen 7#4
         (Signal.mux isYellow 1#4 (Signal.lit dom 5#4));
-    let timerExpired := timer === limit;
+    let timerExpired := timerSig === limit;
     -- Next state: advance on expiry, else stay.
     let nextState :=
-      Signal.mux (isGreen  &&& timerExpired) S_YELLOW
-        (Signal.mux (isYellow &&& timerExpired) S_RED
-          (Signal.mux (isRed   &&& timerExpired) S_GREEN state));
+      Signal.mux (isGreen  &&& timerExpired) (Signal.lit dom S_YELLOW)
+        (Signal.mux (isYellow &&& timerExpired) (Signal.lit dom S_RED)
+          (Signal.mux (isRed   &&& timerExpired) (Signal.lit dom S_GREEN) stateSig));
     state <~ nextState;
     -- Timer: reset to 0 on a transition, else +1.
-    timer <~ Signal.mux timerExpired 0#4 (timer + 1#4);
+    timer <~ Signal.mux timerExpired 0#4 (timerSig + 1#4);
     -- Output: one-hot of the current state.  Same situation as
     -- the dwell-time table — innermost branch needs a lift.
     let lights :=

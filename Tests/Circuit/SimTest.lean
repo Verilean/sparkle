@@ -1,17 +1,18 @@
 import Sparkle
+import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
--- Signal.circuit works for both synthesis AND simulation (single macro)
+-- `circuit do` works for both synthesis AND simulation
 def counterCircuit : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ count + 1#8;
     return count
 
 def pipelineCircuit : Signal defaultDomain (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let a ← Signal.reg (0#8 : BitVec 8);
     let b ← Signal.reg (0#8 : BitVec 8);
     a <~ a + 1#8;

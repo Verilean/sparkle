@@ -109,6 +109,31 @@ lean_exe «tutorial-hierarchy» where
   root := `Tests.Tutorial.HierarchyTest
   supportInterpreter := true
 
+-- Runtime check for the raw `Signal.loop` / `Signal.register`
+-- form (no `circuit do` sugar).  Pairs each loop-direct circuit
+-- with its `circuit do` equivalent and asserts the cycle-by-
+-- cycle outputs agree, so future macro changes can't silently
+-- drift from the loop semantics they desugar to.
+lean_exe «signal-loop-test» where
+  root := `Tests.Drivers.SignalLoopTestMain
+  supportInterpreter := true
+
+-- Sim parity for the `circuit do` macro itself: counter, reset
+-- counter (if/else), two-register reset, hold semantics, 3-state
+-- FSM (match), and FSM-hold (match + hold).  Plus a duplicate-
+-- `<~` detection guard.
+lean_exe «circuit-do-test» where
+  root := `Tests.Drivers.CircuitDoTestMain
+  supportInterpreter := true
+
+-- Sim + synth check for the HList-based generic `runCircuitH`
+-- — the sole register-DSL helper after the per-arity
+-- `runCircuit{1..4}` were removed.  Covers N=1..4 plus
+-- mixed-width state and `forM` over the register list.
+lean_exe «run-circuit-h-test» where
+  root := `Tests.Drivers.RunCircuitHTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
@@ -258,3 +283,4 @@ lean_exe «drone-closed-loop-test» where
 lean_exe «test» where
   root := `Tests.AllTests
   supportInterpreter := true
+

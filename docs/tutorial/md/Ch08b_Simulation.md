@@ -32,7 +32,7 @@ open Sparkle.Core.Sim
 namespace Notebooks.Ch08b
 
 def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8
     count <~ count + 1#8
     return count

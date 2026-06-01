@@ -55,7 +55,7 @@ from different clock domains can't be accidentally mixed
 | Cycle-accurate trace + waveforms  | Verilator pipeline  | C-class   | Verilator on PATH   |
 | Real silicon                      | Yosys + nextpnr     | offline   | toolchain (Ch 8/9)  |
 
-Rule of thumb: **author with `Signal.circuit do`, debug with
+Rule of thumb: **author with `circuit do`, debug with
 `.sample`, scale with `loopMemo`, ship with Verilog**.  The
 JIT path is for when you need real-time-ish simulation (RV32
 SoC running Linux runs at ~14M cycles/s on the JIT — fast
@@ -250,7 +250,7 @@ Two practical guidelines fall out of this:
 
 | Form                           | Purpose                                        |
 |--------------------------------|------------------------------------------------|
-| `Signal.circuit do { ... }`    | Imperative-style HDL with `<~` register assignment |
+| `circuit do { ... }`    | Imperative-style HDL with `<~` register assignment |
 | `Signal.loop (fun s => ...)`   | Dataflow-style HDL with explicit recurrence    |
 | `Signal.register init next`    | A single flip-flop                             |
 | `Signal.mux cond a b`          | A multiplexer (use this, never `if-then-else`) |

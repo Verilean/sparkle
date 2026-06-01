@@ -31,8 +31,13 @@ jobs:
       run: |
         elan default $(cat lean-toolchain)
 
-    - name: Lake update
-      run: lake update
+    # NB: no `lake update` here.  The committed
+    # `lake-manifest.json` pins LSpec / doc-gen4 / etc. to
+    # commits that are compatible with the toolchain in
+    # `lean-toolchain`.  Re-running `lake update` would pull
+    # the latest upstream LSpec, which may have moved to a
+    # newer Lean version (e.g. 4.29+) and would force a
+    # toolchain upgrade on us, breaking the build.
 
     # ---- Core Build ----
 
@@ -665,8 +670,8 @@ jobs:
     - name: Generate .lean and .ipynb from Markdown
       run: bash docs/tutorial/build-from-md.sh
 
-    - name: Lake update
-      run: lake update
+    # NB: no `lake update` — same reasoning as the main build
+    # job above.  We rely on the committed `lake-manifest.json`.
 
     # Mode 1 — headless `lake build` (Display *shim* path).
     # No xeus-lean kernel: chapter cells use the in-repo

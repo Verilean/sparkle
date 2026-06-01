@@ -17,6 +17,7 @@ import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
+import Sparkle.Core.CircuitMonad
 
 namespace Sparkle.Compiler.Elab
 
@@ -209,7 +210,10 @@ def getOperator (name : Name) : Option Operator :=
   primitiveRegistry.lookup name
 
 partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
-  let type ← whnf type
+  -- Use `.all` transparency so reducible defs like `HList`
+  -- (which unfolds to a nested `Prod`/`Unit` chain via
+  -- pattern-match) are reduced past their match head.
+  let type ← withTransparency TransparencyMode.all $ whnf type
   match type with
   | .app (.const ``BitVec _) width =>
     -- Width can be direct literal or OfNat wrapper
@@ -217,8 +221,19 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
     return some (if w == 1 then .bit else .bitVector w)
   | .const ``Bool _ =>
     return some .bit
+  | .const ``Unit _ =>
+    -- `Unit` / `PUnit` are the terminator of an `HList` Prod
+    -- chain; they carry no bits.  Returning `.bitVector 0`
+    -- lets `Prod` chains ending in `Unit` keep accumulating
+    -- widths correctly.
+    return some (.bitVector 0)
+  | .const ``PUnit _ =>
+    return some (.bitVector 0)
   | .app (.app (.const ``Prod _) ty1) ty2 =>
-    -- Product type: concatenate the two types
+    -- Product type: concatenate the two types.  Zero-width
+    -- components (from a `Unit`/`PUnit` terminator at the end
+    -- of an `HList` chain) are handled by the bitVector match
+    -- arm — `bitVector 0 + bitVector w = bitVector w`.
     match ← inferHWType ty1, ← inferHWType ty2 with
     | some (.bitVector w1), some (.bitVector w2) => return some (.bitVector (w1 + w2))
     | some .bit, some (.bitVector w2) => return some (.bitVector (1 + w2))
@@ -566,6 +581,14 @@ mutual
              if boolName == ``Bool.false then
                let resWire ← CompilerM.makeWire hint .bit (named := isNamed)
                CompilerM.emitAssign resWire (.const 0 1)
+               return resWire
+             -- `Signal.pure ()` — the `Unit`/`PUnit` terminator
+             -- of an `HList` Prod chain.  Zero-width constant
+             -- (no actual wire emitted).  Used by
+             -- `packRegister []` to close out the chain.
+             if boolName == ``Unit.unit || boolName == ``PUnit.unit then
+               let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+               CompilerM.emitAssign resWire (.const 0 0)
                return resWire
            -- Check if argument is an fvar with wire mapping (let-bound constant)
            if let .fvar fvarId := constValue then
@@ -986,6 +1009,21 @@ mutual
             else translateExprToWireApp e hint isNamed
 
     | .proj _ idx eStruct => do
+      -- Try iota reduction first: if `eStruct` reduces to a
+      -- `Prod.mk a b`, replace `.proj idx (Prod.mk a b)` with
+      -- the chosen component.  Without this, value-level Prods
+      -- (e.g. `Reg.liveRead r` unfolds to `r.1` = `.proj 0 r`,
+      -- and `r` is constructed via `Reg.mk live slot` which
+      -- reduces to `Prod.mk live slot`) get slice-translated
+      -- as if they were packed Signal-Prods, producing phantom
+      -- bit ranges like `[15:8]` on an 8-bit register.
+      let eReduced ← CompilerM.liftMetaM
+        (withTransparency TransparencyMode.all $ whnf eStruct)
+      if eReduced.isAppOf ``Prod.mk then
+        let mkArgs := eReduced.getAppArgs
+        if mkArgs.size >= 4 then
+          let chosen := if idx == 0 then mkArgs[2]! else mkArgs[3]!
+          return ← translateExprToWire chosen hint (isTopLevel := isTopLevel) (isNamed := isNamed)
       let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
@@ -1117,11 +1155,27 @@ mutual
       CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
       return some resWire
 
-    -- Signal.map Prod.fst/snd (legacy syntax)
+    -- Signal.bundle2 — pack two Signals into a Prod Signal.
+    -- (Duplicates the early-interception rule above so paths
+    -- that reach here via Bind/Pure reduction also work.)
+    if name == ``Sparkle.Core.Signal.bundle2 && args.size >= 2 then
+      let wireA ← translateExprToWire args[args.size-2]! "a"
+      let wireB ← translateExprToWire args[args.size-1]! "b"
+      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let hwType ← inferHWTypeFromSignal exprType
+      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+      CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
+      return some resWire
+
+    -- Signal.map Prod.fst/snd (legacy syntax).
+    -- Accept both bare `Prod.fst` and the partially-applied form
+    -- `@Prod.fst α β` that Lean produces when the universe / type
+    -- arguments are explicit.  We look at the head of `f`.
     if name == ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
       let f := args[args.size-2]!
       let s := args[args.size-1]!
-      if f.isConstOf ``Prod.fst then
+      let fHead := f.getAppFn
+      if fHead.isConstOf ``Prod.fst then
         trace[sparkle.compiler] "→ tuple projection (map fst)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let totalWidth ← CompilerM.getWireWidth wireS
@@ -1131,7 +1185,7 @@ mutual
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
         CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
         return some resWire
-      if f.isConstOf ``Prod.snd then
+      if fHead.isConstOf ``Prod.snd then
         trace[sparkle.compiler] "→ tuple projection (map snd)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
         let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
@@ -1410,6 +1464,84 @@ mutual
 
     return none
 
+  /-- Handle `Bind.bind` / `Pure.pure` specialised to the
+      Sparkle Circuit monad.
+
+      Lean's `do`-notation desugars to `Bind.bind m k` /
+      `Pure.pure v` where Bind/Pure are typeclass projections.
+      `unfoldDefinition?` (the default tryInline path) cannot
+      reduce typeclass projections — it stops at the symbol with
+      the instance still opaque, and the elaborator gives up.
+
+      For Sparkle's Circuit monad the bind/pure unfold to pure
+      value-level Prod manipulation that the existing Prod /
+      Signal-map rules already lower.  We force a `.all`
+      transparency `reduce` on the whole expression and recurse,
+      mirroring how `Prod.rec` / `Prod.casesOn` are handled. -/
+  partial def handleCircuitMonad (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- Recognize Bind.bind / Pure.pure when specialised to the
+    -- Sparkle Circuit monad — typeclass projection that the
+    -- default unfoldDefinition? path can't reduce.  We force a
+    -- `.all`-transparency `whnf` to peel the typeclass projection,
+    -- then recurse on the reduced expression.
+    if name == ``Bind.bind || name == ``Pure.pure then
+      if args.size >= 1 then
+        let rec peelLambdas : Lean.Expr → Lean.Expr
+          | .lam _ _ body _ => peelLambdas body
+          | e => e
+        let mHead := peelLambdas args[0]!
+        if mHead.isAppOf ``Sparkle.Core.Circuit then
+          let e' ← CompilerM.liftMetaM
+            (withTransparency TransparencyMode.all $ whnf e)
+          if e' != e then
+            return some (← translateExprToWire e' hint (isNamed := isNamed))
+    -- Value-level Prod.mk hit directly as the expression head.
+    -- This shows up after `Bind.bind` peels and the user's `do`
+    -- block reduces to `Prod.mk out_signal builder`.  We're
+    -- being asked for the wire of the whole Prod, but the only
+    -- meaningful payload is the first component (the output
+    -- Signal); the builder is a `NextBuilder` function with no
+    -- wire representation.
+    --
+    -- Scope: only fire when args[0] (the α type) is a Signal —
+    -- otherwise this could match user-constructed Prods that
+    -- should be `bundle2`'d.
+    if name == ``Prod.mk && args.size >= 4 then
+      let αType := args[0]!
+      if αType.isAppOf ``Sparkle.Core.Signal.Signal then
+        let outExpr := args[2]!
+        -- Force-reduce so any `Reg.liveRead r` (which unfolds to
+        -- `r.1` = `Prod.fst (Prod.mk live slot)`) becomes `live`
+        -- before we hand it off to translateExprToWire.  Without
+        -- this the elaborator interprets the surviving `Prod.fst`
+        -- expression as a Signal-Prod slice and emits a phantom
+        -- `[totalWidth-1 : totalWidth - w]` Verilog range.
+        let outReduced ← CompilerM.liftMetaM
+          (withTransparency TransparencyMode.all $ whnf outExpr)
+        return some (← translateExprToWire outReduced hint (isNamed := isNamed))
+    -- Value-level Prod.fst / Prod.snd hitting a `Prod.mk a b`
+    -- under `.all` transparency — iota-reduce to the chosen
+    -- component.  Lean's default-transparency whnf doesn't
+    -- always strip these (esp. when the Prod.mk has functions
+    -- as components, as `runCircuit`'s `(out, builder)` does).
+    if (name == ``Prod.fst || name == ``Prod.snd) && args.size >= 3 then
+      -- `Prod.fst/snd` takes `[α, β, pair]` (3 explicit args).
+      -- When the result is then applied further (e.g.
+      -- `bResult.snd live` parses as `(Prod.snd pair) live`),
+      -- `getAppArgs` still gives us `[α, β, pair, extra...]`.
+      let pair := args[2]!
+      let pairReduced ← CompilerM.liftMetaM
+        (withTransparency TransparencyMode.all $ whnf pair)
+      if pairReduced.isAppOf ``Prod.mk then
+        let mkArgs := pairReduced.getAppArgs
+        if mkArgs.size >= 4 then
+          let chosen := if name == ``Prod.fst then mkArgs[2]! else mkArgs[3]!
+          -- Re-apply any trailing args after the projection
+          let trailing := args.toList.drop 3 |>.toArray
+          let appliedExpr := mkAppN chosen trailing
+          return some (← translateExprToWire appliedExpr hint (isNamed := isNamed))
+    return none
+
   /-- Handle a Lean function call by either inlining the body
       (the **default**) or emitting a sub-module instance (only
       when the declaration is tagged `@[hardware_module]`).
@@ -1571,6 +1703,12 @@ mutual
       -- 3. We'd only catch non-problematic uses, creating false positives
 
       handleErrorPatterns e name args hint isNamed  -- throws or returns ()
+      -- handleCircuitMonad must run before handleTupleProjections /
+      -- handleDefinitionUnfold so that Bind.bind / Pure.pure get
+      -- peeled, and value-level Prod.fst / Prod.snd / Prod.mk on
+      -- Circuit-produced pairs reach our specialised path before
+      -- the default unfold tries (and fails) to translate them.
+      if let some w ← handleCircuitMonad e name args hint isNamed then return w
       if let some w ← handleTupleProjections e name args hint isNamed then return w
       if let some w ← handleApplicative e name args hint isNamed then return w
       if let some w ← handleBitVecOps e name args hint isNamed then return w

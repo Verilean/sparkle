@@ -40,6 +40,37 @@ import Tests.YOLOv8.TestBottleneck
 import Tests.YOLOv8.TestC2f
 import Tests.YOLOv8.TestBackbone
 import Tests.YOLOv8.TestNeck
+-- v2 `circuit do` and raw `Signal.loop` sim tests.
+--
+-- Each file ALSO ships as a standalone `lean_exe` (`lake exe
+-- signal-loop-test`, `lake exe run-circuit-h-test`, `lake exe
+-- circuit-do-test`) for ad-hoc debugging.  Their per-file
+-- top-level `def main` would collide if imported into one
+-- module, so we import only their *namespaced* entry points
+-- via `import` of the module — the namespaced
+-- `Sparkle.Tests.X.main` is what lives inside.  Each is called
+-- explicitly from this file's `main` below so `lake test`
+-- actually exercises the cycle-by-cycle sim path, not just
+-- type-checks the module.
+--
+-- A failing `Sparkle.Tests.X.main` calls `IO.Process.exit 1`,
+-- so `lake test` will exit non-zero if any of them regress.
+--
+-- The `lean_exe` targets are pointed at thin wrapper modules
+-- (`Tests/Drivers/*`) — see `lakefile.lean`.  The actual
+-- test logic lives inside the namespaced
+-- `Sparkle.Tests.X.main` here, which we call directly from
+-- `main` below.
+--
+-- Synthesis coverage: each of these test files contains one or
+-- more `#synthesizeVerilog` invocations.  Those run at `lake
+-- build` time inside the file's own module, so a regression on
+-- the elaborator's wire translation breaks `lake build
+-- Tests.X` (and hence `lake test`) directly — no separate exe
+-- run is needed for the synth side.
+import Tests.SignalLoopTest
+import Tests.CircuitDoTest
+import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
@@ -352,6 +383,26 @@ def main : IO UInt32 := do
   Sparkle.IP.BitNet.Tests.SoC.runAll
   IO.println ""
   Sparkle.IP.BitNet.Tests.RTLGoldenValidation.runAll
+  IO.println ""
+
+  -- Run per-feature DSL sim mains (SignalLoopTest /
+  -- CircuitDoTest / RunCircuitHTest).  These exercise the raw
+  -- `Signal.loop`/`Signal.register` form, the `circuit do`
+  -- macro's if/else + match/case + branch-let + hold + dup-
+  -- detection, and the generic `runCircuitH` (with `forM`
+  -- coverage included).  Each `main` exits with
+  -- IO.Process.exit 1 on divergence, so a regression aborts
+  -- `lake test` here (well before lspecIO's report).
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  Signal DSL Sim Tests                  ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.SignalLoopTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitDoTest.main
+  IO.println ""
+  Sparkle.Tests.RunCircuitHTest.main
   IO.println ""
 
   -- Run Sparkle16 tests

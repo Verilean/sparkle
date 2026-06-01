@@ -103,12 +103,12 @@ For the full walkthrough (anonymous tuple → let-named tuple →
 record + bundleAll! → record + `Name.mk`, with the trade-offs
 of each pattern), see [`docs/Tutorial_Extended.md`](Tutorial_Extended.md).
 
-### Imperative-style hardware: `Signal.circuit do`
+### Imperative-style hardware: `circuit do`
 
 The `Signal.loop` + `Signal.register` + `bundleAll!` pattern works
 for any module, but for a multi-register pipeline it's verbose.
-Sparkle ships a `Signal.circuit do` macro that lets you write the
-same hardware imperatively:
+Sparkle ships a `circuit do` macro that lets you write the same
+hardware imperatively:
 
   - `let x ← Signal.reg init` — declare a registered signal
   - `x <~ rhs` — set `x`'s next-state value
@@ -119,7 +119,7 @@ The simple counter from Step 1 written this way:
 
 ```lean
 def counter8' {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ count + 1#8;
     return count
@@ -132,7 +132,7 @@ assignments:
 ```lean
 def shiftPipeline {dom : DomainConfig}
     (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let s0 ← Signal.reg 0#8;
     let s1 ← Signal.reg 0#8;
     let s2 ← Signal.reg 0#8;
@@ -142,14 +142,15 @@ def shiftPipeline {dom : DomainConfig}
     return s2
 ```
 
-The macro desugars to `Signal.loop` + `Signal.register` + a
-`bundleAll!` over the next-state expressions. Synthesis output,
-JIT codegen, and `Signal.atTime` evaluation are identical to the
+The macro lowers to `Sparkle.Core.runCircuitH` over an HList of
+initial values and a `Signal.loop`/`Signal.register` body, all
+through the v2 `Circuit` monad.  Synthesis output, JIT codegen,
+and `Signal.atTime` evaluation are identical to the
 hand-written version.
 
 When **NOT** to use it: when you also need to return multiple
 named outputs, `Name.mk` (above) plus `Signal.loop` is more
-flexible. `Signal.circuit do` returns a single Signal.
+flexible. `circuit do` returns a single Signal.
 
 Runnable examples (counter / up-down / shift / enabled): see
 [`tutorial-extended/TutorialExtended/Step8_CircuitDoNotation.lean`](../tutorial-extended/TutorialExtended/Step8_CircuitDoNotation.lean).

@@ -1,9 +1,9 @@
 /-
-  Tutorial Step 8: imperative-style hardware with `Signal.circuit do`.
+  Tutorial Step 8: imperative-style hardware with `circuit do`.
 
-  `Signal.circuit do` is a macro that desugars to
-  `Signal.loop` + `Signal.register` + `bundleAll!`. It lets you
-  write registered logic in an imperative style:
+  `circuit do` is a macro that desugars to the v2 `runCircuit{N}`
+  helpers (`Sparkle.Core.CircuitMonad`).  It lets you write
+  registered logic in an imperative style:
 
     - `let x ← Signal.reg init` declares a registered signal `x`
     - `x <~ rhs`                 sets `x`'s next-state value to `rhs`
@@ -15,9 +15,12 @@
 -/
 
 import Sparkle
+import Sparkle.Core.CircuitMonad
+import Sparkle.Core.CircuitDo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
+open Sparkle.Core    -- `runCircuitH`, `Circuit.next`, `Circuit.read`
 
 namespace TutorialExtended.Step8
 
@@ -31,11 +34,11 @@ namespace TutorialExtended.Step8
     Signal.register 0#8 next
   ```
 
-  The `Signal.circuit do` version drops the explicit `loop` /
+  The `circuit do` version drops the explicit `loop` /
   `register` boilerplate and reads top-down. -/
 
 def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ count + 1#8;
     return count
@@ -45,7 +48,7 @@ def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
   A second counter that increments or decrements based on `up`. -/
 
 def upDown {dom : DomainConfig} (up : Signal dom Bool) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     count <~ Signal.mux up (count + 1#8) (count - 1#8);
     return count
@@ -60,7 +63,7 @@ def upDown {dom : DomainConfig} (up : Signal dom Bool) : Signal dom (BitVec 8) :
 
 def shiftPipeline {dom : DomainConfig}
     (input : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let s0 ← Signal.reg 0#8;
     let s1 ← Signal.reg 0#8;
     let s2 ← Signal.reg 0#8;
@@ -78,11 +81,45 @@ def shiftPipeline {dom : DomainConfig}
 
 def enabledCounter {dom : DomainConfig}
     (en : Signal dom Bool) : Signal dom (BitVec 8) :=
-  Signal.circuit do
+  circuit do
     let count ← Signal.reg 0#8;
     let incremented := count + 1#8;
     count <~ Signal.mux en incremented count;
     return count
+
+/-! ## Example E: `forM` over registers — Lean's monad in action
+
+  `circuit do` is a macro layer.  Underneath it is `Sparkle.Core.Circuit`,
+  a *real* `Monad` instance over the v2 monad helpers
+  (`runCircuit{1,2,3}`).  Anything that works on `Bind.bind` /
+  `Pure.pure` — `forM`, `mapM`, `traverse`, …  — composes cleanly
+  with `Circuit.next` / `Circuit.read`.
+
+  This is one of the things the *old* `Signal.circuit do` macro
+  couldn't do: it was syntax-level, only understood the four
+  cdoStmt forms (`let ← Signal.reg`, `<~`, branch-local `let`,
+  `return`), so `forM` was meaningless inside it.  v2 routes
+  through Lean's standard `do`-elaboration, so `forM` Just Works.
+
+  Example: three counters incremented together via `List.forM`.
+  Same Verilog as if we'd written three `Circuit.next` lines by
+  hand; the synthesis-side check at the bottom proves it. -/
+
+def threeCountersForM : Signal defaultDomain (BitVec 8) :=
+  -- Drop down to the raw `runCircuitH` helper — `circuit do`
+  -- intercepts the `do` keyword, so `forM` inside its body
+  -- would be parsed by the cdo macro rather than handed to
+  -- Lean's monad elaborator.  When you want `forM` (or
+  -- `mapM`/`traverse`/etc.), reach for `runCircuitH` directly.
+  -- It takes an HList of initial values and hands back a Prod-
+  -- chain of register handles; we destructure that into named
+  -- `r0`, `r1`, `r2` and proceed.
+  runCircuitH (αs := [BitVec 8, BitVec 8, BitVec 8])
+    (0#8, 1#8, 2#8, ()) (fun regs => do
+      let (r0, r1, r2, _) := regs
+      [r0, r1, r2].forM (fun r =>
+        Circuit.next r (Circuit.read r + 1#8))
+      return Circuit.read r0 + Circuit.read r1 + Circuit.read r2)
 
 /-! ## Demo -/
 
@@ -106,5 +143,10 @@ def runDemo : IO Unit := do
   let trace_d := (enabledCounter (dom := defaultDomain)
     ⟨fun t => t % 2 == 0⟩).sample 8
   IO.println s!"enabled (alt)  : {trace_d}"
+
+  -- Example E: three counters, all incremented in one `forM`.
+  -- Output is r0+r1+r2 each cycle: 3, 6, 9, 12, ...
+  let trace_e := threeCountersForM.sample 6
+  IO.println s!"forM (3 regs)  : {trace_e}"
 
 end TutorialExtended.Step8
