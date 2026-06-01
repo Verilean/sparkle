@@ -51,11 +51,33 @@ def getDesign : CircuitM Design := do
 def addModuleToDesign (m : Module) : CircuitM Unit := do
   modify fun s => { s with design := s.design.addModule m }
 
+/-- Strip Lean's macro-hygiene suffix from an identifier name.
+
+    Lean macros introduce identifiers like
+    `x__@_Sparkle_Core_Signal_2408276647__hygCtx__hyg_45`
+    (the `@...hygCtx__hyg_N` portion encodes the macro scope so
+    accidental name capture is impossible).  These suffixes are
+    fine inside Lean but turn into syntax errors in
+    Verilog/SystemVerilog because `@` isn't a valid identifier
+    character.  Drop everything from the first `@` onward. -/
+private def stripHygiene (s : String) : String :=
+  let parts := s.splitOn "@"
+  match parts with
+  | []      => s
+  | h :: _  =>
+    -- Trim a trailing `_` left over from `_@` → `_`.
+    if h.endsWith "_" then h.dropRight 1 else h
+
 /-- Generate a fresh wire name.
     When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
-    When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered. -/
+    When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered.
+
+    The hint is stripped of any Lean macro-hygiene suffix
+    (`...__@_...__hygCtx__hyg_N`) so the resulting wire name is
+    a valid Verilog identifier. -/
 def freshName (hint : String) (named : Bool := false) : CircuitM String := do
   let s ← get
+  let hint := stripHygiene hint
   let baseName := if hint.isEmpty then "wire" else hint
   if named then
     -- Stable name: try `_gen_{hint}`, then `_gen_{hint}_1`, `_gen_{hint}_2`, ...
