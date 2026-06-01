@@ -680,39 +680,11 @@ jobs:
     - name: "Mode 1 — Build tutorial chapters with Display shim"
       run: lake build TutorialNotebooks
 
-    # Mode 2 — execute the generated notebooks under the real
-    # xeus-lean kernel so we catch drift in the kernel path too
-    # (real Display.* implementations, real `#mermaid` /
-    # `#help_x` / `#bash`).  We try to build the kernel; if the
-    # CMake build fails (xeus / xtl / xwidgets headers missing
-    # on the runner), we report it but don't fail the job — the
-    # shim mode above is the bedrock.
-    - name: "Mode 2 — Build xeus-lean kernel"
-      id: kernel
-      continue-on-error: true
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
-          libzmq3-dev libssl-dev nlohmann-json3-dev \
-          uuid-dev cmake ninja-build
-        python3 -m pip install --user jupyterlab nbconvert
-        cd /tmp/xeus-lean
-        bash build.sh
-        # Register the kernel so nbconvert can find it.
-        if [ -f /tmp/xeus-lean/share/jupyter/kernels/xlean/kernel.json ]; then
-          mkdir -p ~/.local/share/jupyter/kernels/xlean
-          cp -r /tmp/xeus-lean/share/jupyter/kernels/xlean/* \
-                ~/.local/share/jupyter/kernels/xlean/
-        fi
-
-    - name: "Mode 2 — Execute tutorial notebooks under xeus-lean"
-      if: steps.kernel.outcome == 'success'
-      run: |
-        export PATH="$HOME/.local/bin:$PATH"
-        for nb in docs/tutorial/Notebooks/Gen/notebooks/*.ipynb; do
-          echo "=== executing $nb ==="
-          jupyter nbconvert --to notebook --execute --inplace \
-            --ExecutePreprocessor.kernel_name=xlean \
-            --ExecutePreprocessor.timeout=120 \
-            "$nb"
-        done
+    # Mode 2 (executing generated .ipynb under the real xeus-lean
+    # kernel) is disabled: upstream xeus-lean no longer ships a
+    # `build.sh`, and the kernel build moved to a CMake / Makefile
+    # pipeline that has its own non-trivial native-deps story
+    # (emscripten, xtl, xwidgets, …).  Mode 1 above — `lake build
+    # TutorialNotebooks` against the Display shim — is the
+    # bedrock chapter check; bringing the real kernel into CI is
+    # a separate effort and shouldn't gate every PR.
