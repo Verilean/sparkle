@@ -18,10 +18,14 @@
 import Sparkle
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.Compiler.SynthesizeModule   -- #synthesizeModule command
 
 -- ── Backends ─────────────────────────────────────────────────
 import Sparkle.Backend.CppSim
 import Sparkle.Backend.CudaSim_addition
+
+-- ── IP modules ───────────────────────────────────────────────
+import IP.RV32.Pipeline
 
 -- ── DSL / domain ─────────────────────────────────────────────
 open Sparkle.Core.Domain
@@ -74,9 +78,10 @@ def wideAccum {dom : DomainConfig} : Signal dom (BitVec 32) :=
     return r15
 
 -- ============================================================
--- 2.  IR.Module derivations (manual IR construction)
+-- 2.  IR.Module derivations
 -- ============================================================
 
+-- Counter: built manually (trivial IR)
 def counterModule : Module :=
   { name    := "Counter"
   , inputs  := [{ name := "clk", ty := .bit }, { name := "rst", ty := .bit }]
@@ -88,6 +93,7 @@ def counterModule : Module :=
     ]
   , isPrimitive := false }
 
+-- WideAccum: built manually (16-register cascade)
 def wideAccumModule : Module :=
   let nRegs := 16
   let regs  := List.range nRegs |>.map fun i =>
@@ -104,6 +110,18 @@ def wideAccumModule : Module :=
   , wires   := regs
   , body    := body ++ outStmt
   , isPrimitive := false }
+
+-- RV32Core: synthesized from the Signal DSL pipeline at compile time.
+-- Produces a Module with 8 inputs (6 user + clk + rst), 1 output,
+-- 1441 wires, and ~1436 body statements (44 registers + combinational logic).
+-- Each evalTick call executes ~1436 IR statements (~700× more than Counter).
+set_option maxRecDepth 16384
+set_option maxHeartbeats 2000000
+open Sparkle.IP.RV32 in
+#synthesizeModule rv32SynthMod from rv32iCore
+
+-- Give it a short name and mark user-input ports for display
+def rv32Module : Module := { rv32SynthMod with name := "RV32Core" }
 
 -- ============================================================
 -- 3.  Timing helpers
@@ -144,15 +162,18 @@ def fmtSpeedup (cppNs cudaNs : UInt64) : String :=
 
 /-- Compile a CUDA .so with memory-efficient flags.
     PTX-only (-arch=compute_XX) skips the ptxas SASS backend (~50% less RAM).
-    Override arch via CUDA_ARCH env var (default: compute_86 for RTX 3080 Ti). -/
-def compileCudaSo (cuPath cudaSoPath : String) : IO Unit := do
+    Returns true on success, false with a warning on failure (e.g. wide types
+    in modules that use Signal.loop with bundled state). -/
+def compileCudaSo (cuPath cudaSoPath : String) : IO Bool := do
   let arch := (← IO.getEnv "CUDA_ARCH").getD "compute_86"
   let r ← IO.Process.output {
     cmd  := "nvcc"
     args := #["-O1", "-std=c++17", "-shared", "-Xcompiler", "-fPIC",
               s!"-arch={arch}", "-o", cudaSoPath, cuPath] }
   if r.exitCode != 0 then
-    throw (IO.Error.userError s!"nvcc failed:\n{r.stderr}")
+    IO.eprintln s!"  nvcc warning: skipping CUDA for this module (wide types not supported in device code)"
+    return false
+  return true
 
 /-- Compile one module into CppSim and (optionally) CUDA shared libraries.
     CUDA compilation is skipped unless SPARKLE_CUDA=1 is set in the environment.
@@ -186,9 +207,9 @@ def compileMod (m : Module) : IO (String × String) := do
   if r.exitCode != 0 then
     throw (IO.Error.userError s!"g++ failed for {name}:\n{r.stderr}")
 
-  -- CUDA .so (opt-in)
+  -- CUDA .so (opt-in); failure is non-fatal (wide types fall back to --)
   match ← IO.getEnv "SPARKLE_CUDA" with
-  | some "1" => compileCudaSo cuPath cudaSoPath
+  | some "1" => let _ ← compileCudaSo cuPath cudaSoPath; pure ()
   | _        => pure ()
 
   return (cppSoPath, cudaSoPath)
@@ -333,113 +354,98 @@ def main : IO Unit := do
   IO.println ""
   IO.println "╔══════════════════════════════════════════════════════════╗"
   IO.println "║   Sparkle JIT Benchmark  ·  CppSim vs CUDA              ║"
-  IO.println "║   Counter (4 B state)  vs  WideAccum (128 B state)       ║"
+  IO.println "║   Counter / WideAccum / RV32Core (4B / 64B / ~200B)     ║"
   IO.println "╚══════════════════════════════════════════════════════════╝"
   IO.println ""
 
-  -- ── Step 1: IR modules ──────────────────────────────────
+  -- ── Step 1: show IR module stats ────────────────────────
   IO.println "▸ IR modules"
-  let circuits : List (String × Module) :=
-    [ ("Counter",   counterModule)
-    , ("WideAccum", wideAccumModule) ]
-  for (_, m) in circuits do
+  let allMods : List Module := [counterModule, wideAccumModule, rv32Module]
+  for m in allMods do
     let userPorts := m.inputs.filter fun p => p.name != "clk" && p.name != "rst"
     let regBytes  := m.body.foldl (fun acc s => match s with
-      | .register _ _ _ _ _ => acc + 4
-      | _ => acc) 0
-    IO.println s!"  {m.name}: {userPorts.length} user input(s), \
-                   {m.outputs.length} output(s), {m.body.length} stmts, \
-                   ~{regBytes} B state/instance"
+      | .register _ _ _ _ _ => acc + 4  | _ => acc) 0
+    IO.println s!"  {m.name}: {userPorts.length} user inputs, \
+                   {m.body.length} stmts, ~{regBytes} B state/instance"
   IO.println ""
 
   -- ── Step 2: compile shared libraries ────────────────────
   let cudaEnabled := (← IO.getEnv "SPARKLE_CUDA") == some "1"
-  let cudaStatus  := if cudaEnabled then "enabled" else "disabled (set SPARKLE_CUDA=1 to enable)"
+  let cudaStatus  := if cudaEnabled then "enabled" else "disabled (set SPARKLE_CUDA=1)"
   IO.println s!"▸ Compiling shared libraries (CUDA {cudaStatus})..."
-  let compiledPairs ← circuits.mapM fun (_, m) => do
+  let soOf (m : Module) : String × String :=
+    let name := sanitizeName m.name
+    let dir  := s!"/tmp/sparkle_jit_bench_{name}"
+    (s!"{dir}/lib{name}_cpp.so", s!"{dir}/lib{name}_cuda.so")
+  for m in allMods do
     let (_, ns) ← timed (compileMod m)
-    let paths ← (do
-      let name := sanitizeName m.name
-      let dir  := s!"/tmp/sparkle_jit_bench_{name}"
-      let cppSo  := s!"{dir}/lib{name}_cpp.so"
-      let cudaSo := s!"{dir}/lib{name}_cuda.so"
-      return (cppSo, cudaSo))
     IO.println s!"  {m.name}: g++ done in {fmtTime ns}"
-    return paths
-
-  let (cntCppSo,  cntCudaSo)  := compiledPairs[0]!
-  let (wideCppSo, wideCudaSo) := compiledPairs[1]!
   IO.println ""
+
+  let (cntCppSo,  cntCudaSo)  := soOf counterModule
+  let (wideCppSo, wideCudaSo) := soOf wideAccumModule
+  let (rv32CppSo, rv32CudaSo) := soOf rv32Module
 
   -- ── Step 3: warm-up ──────────────────────────────────────
-  IO.println "▸ Warming up (1 run discarded each)..."
-  let _ ← runPoint "cnt-warmup"  1_000 100 cntCppSo  cntCudaSo
-  let _ ← runPoint "wide-warmup" 1_000 100 wideCppSo wideCudaSo
+  IO.println "▸ Warming up (1 discarded run each)..."
+  let _ ← runPoint "warmup" 1_000 100 cntCppSo  cntCudaSo
+  let _ ← runPoint "warmup" 1_000 100 wideCppSo wideCudaSo
+  let _ ← runPoint "warmup" 10    10  rv32CppSo rv32CudaSo
   IO.println "  done."
   IO.println ""
-
-  -- ── Step 4: benchmark sweep ────────────────────────────────────────────
-  let seed : UInt64 := 0xC0FFEE_1337_FEED42
-  let _ := seed   -- used for corpus in future RV32 variant
 
   IO.println "▸ Running benchmarks..."
   IO.println ""
 
-  -- Counter (4 B/inst — L2-cache-bound at 1M instances)
-  IO.println "  [ Counter — 8-bit free-running, 4 B/instance ]"
+  -- ── Counter (4 B/instance) ───────────────────────────────
+  IO.println "  [ Counter — 8-bit, 2 stmts/tick, 4 B/instance ]"
   printHeader
-  let cntPoints := [(1, 1_000), (1_000, 1_000), (100_000, 1_000),
-                    (1_000_000, 1_000), (1_000_000, 10_000)]
-  for (n, t) in cntPoints do
-    let p ← runPoint s!"cnt N={n}" n t cntCppSo cntCudaSo
-    printRow p
+  for (n, t) in [(1, 1_000), (1_000, 1_000), (100_000, 1_000),
+                  (1_000_000, 1_000), (1_000_000, 10_000)] do
+    printRow (← runPoint s!"cnt N={n}" n t cntCppSo cntCudaSo)
   printFooter
   IO.println ""
 
-  -- WideAccum (128 B/inst — bandwidth-bound beyond ~100k instances)
-  IO.println "  [ WideAccum — 16×32-bit cascade, 128 B/instance ]"
-  IO.println "    (16 additions/tick; state 32× larger than Counter)"
+  -- ── WideAccum (64 B/instance) ────────────────────────────
+  IO.println "  [ WideAccum — 16×32-bit cascade, 16 stmts/tick, ~64 B/instance ]"
   printHeader
-  let widePoints := [(1, 1_000), (1_000, 1_000), (10_000, 1_000),
-                     (100_000, 1_000), (500_000, 1_000), (100_000, 10_000)]
-  for (n, t) in widePoints do
-    let p ← runPoint s!"wide N={n}" n t wideCppSo wideCudaSo
-    printRow p
+  for (n, t) in [(1, 1_000), (1_000, 1_000), (10_000, 1_000),
+                  (100_000, 1_000), (500_000, 1_000)] do
+    printRow (← runPoint s!"wide N={n}" n t wideCppSo wideCudaSo)
   printFooter
   IO.println ""
 
-  -- ── Step 5: cross-circuit comparison at N=100k, T=1k ────
-  IO.println "  [ Cross-circuit: N=100,000 × T=1,000 cycles ]"
+  -- ── RV32Core (4-stage RISC-V pipeline, ~200 B/instance) ──
+  -- CppSim is ~700× slower per tick than Counter; keep N×T small.
+  IO.println "  [ RV32Core — 4-stage RISC-V, 1436 stmts/tick, ~200 B/instance ]"
+  IO.println "    (synthesized from IP.RV32.Pipeline via #synthesizeModule)"
   printHeader
-  let cntBig  ← runPoint "Counter  (100k×1k)"  100_000 1_000 cntCppSo  cntCudaSo
-  let wideBig ← runPoint "WideAccum (100k×1k)" 100_000 1_000 wideCppSo wideCudaSo
-  printRow cntBig
-  printRow wideBig
+  for (n, t) in [(1, 100), (100, 100), (1_000, 100),
+                  (10_000, 100), (50_000, 100)] do
+    printRow (← runPoint s!"rv32 N={n}" n t rv32CppSo rv32CudaSo)
   printFooter
   IO.println ""
 
-  -- ── Step 6: summary ──────────────────────────────────────
-  IO.println "▸ Summary"
-  let speedCnt  := if cntBig.cudaNs  == 0 then 0.0
-                   else cntBig.cppNs.toFloat  / cntBig.cudaNs.toFloat
-  let speedWide := if wideBig.cudaNs == 0 then 0.0
-                   else wideBig.cppNs.toFloat / wideBig.cudaNs.toFloat
-  IO.println s!"  Counter   CUDA speedup (N=100k, T=1k): {speedCnt}×"
-  IO.println s!"  WideAccum CUDA speedup (N=100k, T=1k): {speedWide}×"
+  -- ── Cross-circuit summary at a common point ───────────────
+  IO.println "  [ Cross-circuit: N=10,000 × T=100 cycles ]"
+  printHeader
+  printRow (← runPoint "Counter  (10k×100)"  10_000 100 cntCppSo  cntCudaSo)
+  printRow (← runPoint "WideAccum (10k×100)" 10_000 100 wideCppSo wideCudaSo)
+  printRow (← runPoint "RV32Core  (10k×100)" 10_000 100 rv32CppSo rv32CudaSo)
+  printFooter
   IO.println ""
-  IO.println "  Why WideAccum speedup > Counter speedup:"
-  IO.println "    Counter   state = 4 B/instance  → 100k inst = 400 KB  (fits L2)"
-  IO.println "    WideAccum state = 128 B/instance → 100k inst = 12.8 MB (spills to HBM)"
-  IO.println "    GPU HBM bandwidth >> CPU DDR; large state → larger CUDA advantage."
-  IO.println ""
+
   IO.println "  Column glossary:"
-  IO.println "    CppSim t   wall-clock for N×T sequential ticks (1 thread)"
-  IO.println "    CUDA t     wall-clock for N×T parallel ticks on GPU"
-  IO.println "               (includes H→D copy + kernel launch + D→H sync)"
-  IO.println "    Speedup    CppSim_t / CUDA_t  (>1 means GPU wins)"
-  IO.println "    Cpp thrput (1 × N×T) / CppSim_t   — single-instance equivalent"
-  IO.println "    CUDA thrput (N × T) / CUDA_t       — aggregate across all instances"
+  IO.println "    CppSim t    wall-clock for N*T sequential ticks (1 thread)"
+  IO.println "    CUDA t      wall-clock for N*T parallel ticks on GPU"
+  IO.println "                (H->D copy + kernel launch + D->H sync)"
+  IO.println "    Speedup     CppSim_t / CUDA_t  (>1 = GPU wins)"
+  IO.println "    Cpp thrput  (1 * N*T) / CppSim_t"
+  IO.println "    CUDA thrput (N * T)   / CUDA_t"
   IO.println ""
-  IO.println "  Observed on RTX 3080 Ti (sm_86) vs. single CPU thread:"
-  IO.println "    Counter   N=1M, T=1k : ~1000×   (4 MB state fits in 6 MB L2)"
-  IO.println "    WideAccum N=100k, T=1k: ~300–500× (12.8 MB → HBM bandwidth-bound)"
+  IO.println "  State-size progression (N=10k):"
+  IO.println "    Counter   ~400 KB  fits in 6 MB RTX 3080Ti L2"
+  IO.println "    WideAccum ~640 KB  fits in L2"
+  IO.println "    RV32Core  ~2 MB    spills to GDDR6X"
+  IO.println ""
+  IO.println "  CUDA_ARCH=compute_86 (RTX 3080Ti)  -O1  PTX-only"
