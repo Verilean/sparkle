@@ -688,3 +688,105 @@ jobs:
     # TutorialNotebooks` against the Display shim — is the
     # bedrock chapter check; bringing the real kernel into CI is
     # a separate effort and shouldn't gate every PR.
+
+    # ---- Documentation site (api / tutorial / index) ----
+    #
+    # Build the full doc-gen4 API reference, convert every
+    # generated tutorial notebook to standalone HTML, and
+    # publish everything to gh-pages along with a top-level
+    # landing page.  Only runs on pushes to the default branch
+    # so PRs don't churn the site.
+
+    - name: "Doc: build doc-gen4 API reference"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        # `Sparkle:docs` (target provided by doc-gen4 via the
+        # `require «doc-gen4»` in lakefile.lean) walks every
+        # module reachable from `Sparkle.lean` and renders
+        # Markdown + HTML reference pages into
+        # `.lake/build/doc/`.  Sticking to the `Sparkle` root
+        # keeps the IP libraries (which import `Sparkle`) in
+        # scope without us having to enumerate every lean_lib.
+        lake build Sparkle:docs
+
+    - name: "Doc: convert tutorial notebooks to HTML"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        # `jupyter nbconvert --to html` was already installed
+        # earlier in the tutorial-notebooks job's pip step.
+        export PATH="$HOME/.local/bin:$PATH"
+        mkdir -p site/tutorial
+        for nb in docs/tutorial/Notebooks/Gen/notebooks/*.ipynb; do
+          base=$(basename "$nb" .ipynb)
+          echo "=== rendering $nb → site/tutorial/${base}.html ==="
+          # `--template classic` keeps the output self-contained
+          # (no extra theme bundle needed).
+          jupyter nbconvert --to html --template classic \
+            --output-dir site/tutorial \
+            "$nb"
+        done
+
+    - name: "Doc: assemble site (api + tutorial + landing page)"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        mkdir -p site/api
+        # Copy the doc-gen4 output into site/api/.
+        if [ -d .lake/build/doc ]; then
+          cp -r .lake/build/doc/. site/api/
+        fi
+        # Generate a tutorial index file linking the chapters
+        # in their natural order (Ch00 → Ch10 plus 1b/7b/8b).
+        {
+          echo '<!DOCTYPE html>'
+          echo '<html><head><meta charset="utf-8">'
+          echo '<title>Sparkle Tutorial</title>'
+          echo '<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.5}h1{margin-bottom:.4em}ul{padding-left:1.2em}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}</style>'
+          echo '</head><body>'
+          echo '<h1>Sparkle Tutorial</h1>'
+          echo '<p>HTML renderings of the chapter notebooks generated from <code>docs/tutorial/md/*.md</code> via <code>xlean-convert</code> + <code>jupyter nbconvert</code>. Source markdown is the authoritative form; these HTML pages are convenience.</p>'
+          echo '<ul>'
+          for html in site/tutorial/ch*.html; do
+            [ -e "$html" ] || continue
+            name=$(basename "$html" .html)
+            echo "  <li><a href=\"$(basename "$html")\">${name}</a></li>"
+          done
+          echo '</ul>'
+          echo '<p><a href="../">← back to top</a></p>'
+          echo '</body></html>'
+        } > site/tutorial/index.html
+        # Top-level landing page.
+        {
+          echo '<!DOCTYPE html>'
+          echo '<html><head><meta charset="utf-8">'
+          echo '<title>Sparkle HDL</title>'
+          echo '<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.55}h1{margin-bottom:.2em}h2{margin-top:1.5em}.lead{color:#555;font-size:1.1em;margin-top:0}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}ul{padding-left:1.2em}li{margin:.3em 0}code{background:#f4f4f4;padding:.1em .3em;border-radius:3px}</style>'
+          echo '</head><body>'
+          echo '<h1>Sparkle HDL</h1>'
+          echo '<p class="lead">A type-safe, formally verifiable HDL compiler in Lean 4. Inspired by Clash, built for high-assurance hardware synthesis.</p>'
+          echo '<h2>Documentation</h2>'
+          echo '<ul>'
+          echo '  <li><a href="tutorial/">Tutorial</a> — chapter-by-chapter walk-through of the Signal DSL, register patterns, Verilog synthesis, formal proofs, and FPGA bring-up.</li>'
+          echo '  <li><a href="api/">API reference</a> — generated from source by <code>doc-gen4</code>. Covers <code>Sparkle.Core</code>, every <code>IP.*</code> library, the SVParser toolchain, and the Display helpers.</li>'
+          echo '</ul>'
+          echo '<h2>Benchmarks</h2>'
+          echo '<ul>'
+          echo '  <li><a href="dev/rv32-bench/">RV32 SoC — Verilator vs JIT</a></li>'
+          echo '  <li><a href="dev/litex-bench/">LiteX + PicoRV32 — Verilator vs JIT</a></li>'
+          echo '  <li><a href="dev/multicore-bench/">Multi-core (8-core LiteX PicoRV32)</a></li>'
+          echo '</ul>'
+          echo '<h2>Source</h2>'
+          echo '<p><a href="https://github.com/Verilean/sparkle">github.com/Verilean/sparkle</a></p>'
+          echo '</body></html>'
+        } > site/index.html
+
+    - name: "Doc: publish to gh-pages"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./site
+        # Keep `dev/*` (benchmark dashboards published by
+        # benchmark-action) untouched; this action defaults to
+        # syncing only the files it carries, but
+        # `keep_files: true` makes that explicit.
+        keep_files: true
