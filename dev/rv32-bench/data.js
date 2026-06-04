@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780353494453,
+  "lastUpdate": 1780567788509,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "RV32 SoC Simulation Benchmark (Verilator vs JIT)": [
@@ -1803,6 +1803,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "JIT evalTick+6wires (10M cycles)",
             "value": 4212185,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f236ef65f3991dc392f509621ce08fae65b1a27",
+          "message": "Merge pull request #38 from Verilean/poc/circuit-monad-v2\n\nFix CI to deploy tutorials",
+          "timestamp": "2026-06-04T19:03:13+09:00",
+          "tree_id": "3fb9519a93f5af731935ab0a3174e8ead2a231ff",
+          "url": "https://github.com/Verilean/sparkle/commit/7f236ef65f3991dc392f509621ce08fae65b1a27"
+        },
+        "date": 1780567787604,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Verilator (10M cycles)",
+            "value": 2963693,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT eval+tick (10M cycles)",
+            "value": 3314392,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick fused (10M cycles)",
+            "value": 3631980,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT evalTick+6wires (10M cycles)",
+            "value": 3426443,
             "unit": "cycles/sec"
           }
         ]
