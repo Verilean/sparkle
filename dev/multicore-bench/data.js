@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780353593166,
+  "lastUpdate": 1780567894506,
   "repoUrl": "https://github.com/Verilean/sparkle",
   "entries": {
     "Multi-Core Benchmark (8-core LiteX PicoRV32)": [
@@ -1407,6 +1407,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Verilator 8-core",
             "value": 676684,
+            "unit": "cycles/sec"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "junjihashimoto@users.noreply.github.com",
+            "name": "junji hashimoto",
+            "username": "junjihashimoto"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f236ef65f3991dc392f509621ce08fae65b1a27",
+          "message": "Merge pull request #38 from Verilean/poc/circuit-monad-v2\n\nFix CI to deploy tutorials",
+          "timestamp": "2026-06-04T19:03:13+09:00",
+          "tree_id": "3fb9519a93f5af731935ab0a3174e8ead2a231ff",
+          "url": "https://github.com/Verilean/sparkle/commit/7f236ef65f3991dc392f509621ce08fae65b1a27"
+        },
+        "date": 1780567893759,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "JIT 1-core single-thread",
+            "value": 4087051,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core sequential",
+            "value": 497461,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "JIT 8-core parallel (batch=10K)",
+            "value": 1007656,
+            "unit": "cycles/sec"
+          },
+          {
+            "name": "Verilator 8-core",
+            "value": 655621,
             "unit": "cycles/sec"
           }
         ]
