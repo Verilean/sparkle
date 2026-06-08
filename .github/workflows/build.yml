@@ -645,26 +645,15 @@ jobs:
 
   # ---- Tutorial chapters (Markdown master + xlean-convert) ----
   #
-  # Also assembles and deploys the full Pages site (tutorial HTML +
-  # doc-gen4 API + bench dashboards).  `actions/deploy-pages@v4` is
-  # the modern workflow-based deploy path — no `gh-pages` branch
-  # gets pushed, the artifact goes straight to Pages hosting.
+  # Builds the chapter `.lean` / `.ipynb` outputs, renders them to
+  # HTML, assembles the full site tree (tutorial + doc-gen4 API +
+  # bench dashboards), and *uploads* it as an artifact.  The actual
+  # Pages deploy is split into a separate `pages-deploy` job below
+  # so the `github-pages` environment (which restricts to main) is
+  # only evaluated on push-to-main, not on every PR.
   tutorial-notebooks:
     runs-on: ubuntu-latest
     needs: build  # reuses Lake's package cache via the previous job's setup
-
-    # Required by `actions/deploy-pages@v4`: it uses OIDC to
-    # authenticate the deployment without a long-lived token.
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-
-    # Bind this job to the `github-pages` environment so the
-    # deployment URL shows up in the run summary.
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
     - name: Checkout code
@@ -876,20 +865,38 @@ jobs:
           echo '</body></html>'
         } > site/index.html
 
-    # ---- Pages deploy (workflow mode, no gh-pages branch) ----
-    #
-    # `actions/deploy-pages` is the modern path: it takes an
-    # artifact produced by `actions/upload-pages-artifact` and
-    # publishes it directly to the Pages CDN, bypassing the
-    # `gh-pages` branch entirely.  Requires the Pages source in
-    # repo settings to be set to "GitHub Actions" (not "branch").
+    # Hand the assembled site to `pages-deploy` below (push-to-main
+    # only).  `upload-pages-artifact@v3` produces the exact format
+    # `deploy-pages@v4` expects (a single `artifact.tar` with the
+    # name `github-pages`), so the deploy job can consume it
+    # without re-packaging.
     - name: "Doc: upload Pages artifact"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./site
 
-    - name: "Doc: deploy to GitHub Pages"
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # ---- Pages deploy (workflow mode, no gh-pages branch) ----
+  #
+  # Separate job so the `github-pages` environment (which has
+  # branch-protection restricting it to main) is only evaluated
+  # when we actually intend to deploy.  PRs skip the whole job
+  # via the `if:` guard below, so environment-rule rejection
+  # never happens on PR runs.
+  pages-deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: tutorial-notebooks
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: "Deploy to GitHub Pages"
       id: deployment
       uses: actions/deploy-pages@v4
