@@ -660,6 +660,19 @@ jobs:
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
 
+    - name: "Install jupyter nbconvert (for Mode 1 HTML rendering)"
+      run: |
+        # `nbconvert` is the only Python tool this job needs:
+        # `xlean-convert` produces both `.lean` and `.ipynb`
+        # directly, so we never invoke the xeus-lean kernel here.
+        # The HTML step later in this job consumes the .ipynb's via
+        # `jupyter nbconvert --to html`.
+        python3 -m pip install --user --no-warn-script-location \
+          jupyter-core nbconvert
+        # Expose ~/.local/bin (pip --user install target) on PATH
+        # for subsequent steps in this job.
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
     - name: Build xlean-convert from upstream xeus-lean
       run: |
         git clone --depth 1 https://github.com/Verilean/xeus-lean.git /tmp/xeus-lean
@@ -712,8 +725,10 @@ jobs:
     - name: "Doc: convert tutorial notebooks to HTML"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        # `jupyter nbconvert --to html` was already installed
-        # earlier in the tutorial-notebooks job's pip step.
+        # `jupyter nbconvert` was pip-installed earlier in this
+        # job (see "Install jupyter nbconvert" step).  ~/.local/bin
+        # is already on $GITHUB_PATH; export here too for safety
+        # in case the step runs in a fresh shell.
         export PATH="$HOME/.local/bin:$PATH"
         mkdir -p site/tutorial
         for nb in docs/tutorial/Notebooks/Gen/notebooks/*.ipynb; do
