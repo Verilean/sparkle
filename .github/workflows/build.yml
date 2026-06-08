@@ -209,26 +209,19 @@ jobs:
         print('rv32-bench-results.json validated ok:', len(data), 'entries')
         "
 
-    - name: Stash local changes before benchmark push
-      if: github.event_name == 'push'
-      run: |
-        # Save benchmark JSON outside the repo before stashing
-        cp rv32-bench-results.json /tmp/rv32-bench-results.json
-        git stash || true
-        cp /tmp/rv32-bench-results.json rv32-bench-results.json
-
-    - name: Store RV32 benchmark result
+    - name: Store RV32 benchmark result (local JSON, no gh-pages push)
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
         name: RV32 SoC Simulation Benchmark (Verilator vs JIT)
         tool: customBiggerIsBetter
         output-file-path: rv32-bench-results.json
-        benchmark-data-dir-path: dev/rv32-bench
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+        # external-data-json-path = "use a local file, NOT a git
+        # branch" — the action appends one entry per run to this
+        # JSON.  History persistence is no longer the action's job;
+        # we hand the file off to tutorial-notebooks via artifact.
+        external-data-json-path: bench-data/rv32-bench.json
         alert-threshold: "80%"
-        comment-on-alert: true
         fail-on-alert: false
 
     # ---- LiteX SoC Benchmark ----
@@ -385,18 +378,15 @@ jobs:
         print('litex-bench-results.json validated ok:', len(data), 'entries')
         "
 
-    - name: Store LiteX benchmark result
+    - name: Store LiteX benchmark result (local JSON, no gh-pages push)
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
         name: LiteX PicoRV32 SoC Benchmark (Verilator vs JIT)
         tool: customBiggerIsBetter
         output-file-path: litex-bench-results.json
-        benchmark-data-dir-path: dev/litex-bench
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+        external-data-json-path: bench-data/litex-bench.json
         alert-threshold: "80%"
-        comment-on-alert: true
         fail-on-alert: false
 
     # ---- Multi-Core Parallel Benchmark ----
@@ -598,19 +588,28 @@ jobs:
         print('multicore-bench-results.json validated ok:', len(data), 'entries')
         "
 
-    - name: Store multi-core benchmark result
+    - name: Store multi-core benchmark result (local JSON, no gh-pages push)
       uses: benchmark-action/github-action-benchmark@v1
       if: github.event_name == 'push'
       with:
         name: Multi-Core Benchmark (8-core LiteX PicoRV32)
         tool: customBiggerIsBetter
         output-file-path: multicore-bench-results.json
-        benchmark-data-dir-path: dev/multicore-bench
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
+        external-data-json-path: bench-data/multicore-bench.json
         alert-threshold: "80%"
-        comment-on-alert: true
         fail-on-alert: false
+
+    # Upload all three bench JSONs so the doc-deploy job in the
+    # `tutorial-notebooks` workflow can fold them into the Pages
+    # artifact under `site/dev/`.  No git branch is touched.
+    - name: "Upload bench data as artifact (for Pages deploy)"
+      if: github.event_name == 'push'
+      uses: actions/upload-artifact@v4
+      with:
+        name: bench-data
+        path: bench-data/
+        retention-days: 7
+        if-no-files-found: warn
 
     # ---- Unit Tests ----
 
@@ -645,9 +644,17 @@ jobs:
         fi
 
   # ---- Tutorial chapters (Markdown master + xlean-convert) ----
+  #
+  # Builds the chapter `.lean` / `.ipynb` outputs, renders them to
+  # HTML, assembles the full site tree (tutorial + doc-gen4 API +
+  # bench dashboards), and *uploads* it as an artifact.  The actual
+  # Pages deploy is split into a separate `pages-deploy` job below
+  # so the `github-pages` environment (which restricts to main) is
+  # only evaluated on push-to-main, not on every PR.
   tutorial-notebooks:
     runs-on: ubuntu-latest
     needs: build  # reuses Lake's package cache via the previous job's setup
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -659,6 +666,19 @@ jobs:
 
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
+
+    - name: "Install jupyter nbconvert (for Mode 1 HTML rendering)"
+      run: |
+        # `nbconvert` is the only Python tool this job needs:
+        # `xlean-convert` produces both `.lean` and `.ipynb`
+        # directly, so we never invoke the xeus-lean kernel here.
+        # The HTML step later in this job consumes the .ipynb's via
+        # `jupyter nbconvert --to html`.
+        python3 -m pip install --user --no-warn-script-location \
+          jupyter-core nbconvert
+        # Expose ~/.local/bin (pip --user install target) on PATH
+        # for subsequent steps in this job.
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
 
     - name: Build xlean-convert from upstream xeus-lean
       run: |
@@ -712,8 +732,10 @@ jobs:
     - name: "Doc: convert tutorial notebooks to HTML"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        # `jupyter nbconvert --to html` was already installed
-        # earlier in the tutorial-notebooks job's pip step.
+        # `jupyter nbconvert` was pip-installed earlier in this
+        # job (see "Install jupyter nbconvert" step).  ~/.local/bin
+        # is already on $GITHUB_PATH; export here too for safety
+        # in case the step runs in a fresh shell.
         export PATH="$HOME/.local/bin:$PATH"
         mkdir -p site/tutorial
         for nb in docs/tutorial/Notebooks/Gen/notebooks/*.ipynb; do
@@ -726,7 +748,15 @@ jobs:
             "$nb"
         done
 
-    - name: "Doc: assemble site (api + tutorial + landing page)"
+    - name: "Doc: download bench data artifact (from build job)"
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/download-artifact@v4
+      with:
+        name: bench-data
+        path: bench-data
+      continue-on-error: true  # first run on a fresh repo may have no artifact yet
+
+    - name: "Doc: assemble site (api + tutorial + bench + landing page)"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
         mkdir -p site/api
@@ -734,6 +764,62 @@ jobs:
         if [ -d .lake/build/doc ]; then
           cp -r .lake/build/doc/. site/api/
         fi
+        # Generate per-benchmark dashboard pages from the JSONs the
+        # `build` job uploaded.  benchmark-action's
+        # `external-data-json-path` produces a JS file whose body is
+        # `window.BENCHMARK_DATA = {...};` — we render the *latest*
+        # entry per suite as a simple table (no history charting:
+        # users opted in to "latest-only" instead of branch-stored
+        # history).
+        for bench in rv32-bench litex-bench multicore-bench; do
+          jsfile="bench-data/${bench}.json"
+          outdir="site/dev/${bench}"
+          mkdir -p "${outdir}"
+          if [ -f "${jsfile}" ]; then
+            cp "${jsfile}" "${outdir}/data.js"
+            python3 - "${jsfile}" "${outdir}/index.html" "${bench}" <<'PYEOF'
+        import json, re, sys, html
+        path, out, name = sys.argv[1], sys.argv[2], sys.argv[3]
+        with open(path) as f:
+            src = f.read()
+        # Strip "window.BENCHMARK_DATA = " prefix and trailing semicolon
+        m = re.search(r'=\s*(\{.*\})\s*;?\s*$', src, re.S)
+        data = json.loads(m.group(1) if m else src)
+        # Pull the most recent commit's entries across every suite.
+        entries = data.get('entries', {})
+        rows = []
+        for suite, runs in entries.items():
+            if not runs:
+                continue
+            latest = runs[-1]  # benchmark-action appends in order
+            commit_sha = (latest.get('commit') or {}).get('id', '')[:7]
+            for bm in latest.get('benches', []):
+                rows.append((suite, bm.get('name','?'), bm.get('value','?'), bm.get('unit',''), commit_sha))
+        body = ['<!DOCTYPE html><html><head><meta charset="utf-8">',
+                f'<title>{html.escape(name)}</title>',
+                '<style>body{font-family:system-ui,sans-serif;max-width:880px;margin:40px auto;padding:0 16px;line-height:1.5}',
+                'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:.4em .6em;text-align:left}',
+                'th{background:#f6f8fa}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}',
+                '.muted{color:#666;font-size:.9em}</style></head><body>',
+                f'<h1>{html.escape(name)}</h1>',
+                '<p class="muted">Latest-run snapshot.  Raw history JSON: <a href="data.js">data.js</a>.</p>',
+                '<table><thead><tr><th>Suite</th><th>Benchmark</th><th>Value</th><th>Unit</th><th>Commit</th></tr></thead><tbody>']
+        for s, n, v, u, c in rows:
+            body.append(f'<tr><td>{html.escape(s)}</td><td>{html.escape(n)}</td><td>{v}</td><td>{html.escape(u)}</td><td><code>{html.escape(c)}</code></td></tr>')
+        body += ['</tbody></table>',
+                 '<p><a href="../../">← back to top</a></p></body></html>']
+        with open(out, 'w') as f:
+            f.write('\n'.join(body))
+        PYEOF
+          else
+            # First run, or bench job didn't produce this JSON: emit a placeholder.
+            cat > "${outdir}/index.html" <<EOF
+        <!DOCTYPE html><html><head><meta charset="utf-8"><title>${bench}</title></head>
+        <body><h1>${bench}</h1><p>No benchmark data uploaded yet on this run.</p>
+        <p><a href="../../">← back to top</a></p></body></html>
+        EOF
+          fi
+        done
         # Generate a tutorial index file linking the chapters
         # in their natural order (Ch00 → Ch10 plus 1b/7b/8b).
         {
@@ -779,14 +865,38 @@ jobs:
           echo '</body></html>'
         } > site/index.html
 
-    - name: "Doc: publish to gh-pages"
+    # Hand the assembled site to `pages-deploy` below (push-to-main
+    # only).  `upload-pages-artifact@v3` produces the exact format
+    # `deploy-pages@v4` expects (a single `artifact.tar` with the
+    # name `github-pages`), so the deploy job can consume it
+    # without re-packaging.
+    - name: "Doc: upload Pages artifact"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: peaceiris/actions-gh-pages@v3
+      uses: actions/upload-pages-artifact@v3
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./site
-        # Keep `dev/*` (benchmark dashboards published by
-        # benchmark-action) untouched; this action defaults to
-        # syncing only the files it carries, but
-        # `keep_files: true` makes that explicit.
-        keep_files: true
+        path: ./site
+
+  # ---- Pages deploy (workflow mode, no gh-pages branch) ----
+  #
+  # Separate job so the `github-pages` environment (which has
+  # branch-protection restricting it to main) is only evaluated
+  # when we actually intend to deploy.  PRs skip the whole job
+  # via the `if:` guard below, so environment-rule rejection
+  # never happens on PR runs.
+  pages-deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: tutorial-notebooks
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+    - name: "Deploy to GitHub Pages"
+      id: deployment
+      uses: actions/deploy-pages@v4
