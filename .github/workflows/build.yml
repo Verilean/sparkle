@@ -763,19 +763,24 @@ jobs:
         #   site/lab/                      ← JupyterLite SPA
         #   site/xeus/wasm-host/olean/     ← prepacked Sparkle + Std oleans
         mkdir -p site notebooks/tutorial
-        # Same `--user` rationale as the .lean-generation step above:
-        # the container writes into /work (and pixi writes a cache),
-        # so it must run as the host runner uid to keep `site/` and
-        # `notebooks/` writable for the host steps that follow.
-        # HOME is redirected to a workspace-local dir because the
-        # container's default HOME (/root) is unwritable for the
-        # mapped uid, but `pixi run` writes a cache there.
-        mkdir -p .pixi-home
+        # NOTE on the user-mapping:
+        # This step runs as root inside the container because
+        # `jupyter lite build` (via jupyterlite_xeus) reads
+        # `${PREFIX}/conda-meta/*.json`, and those files were
+        # written root-only when the image was baked.  A non-root
+        # uid can't read them → PermissionError.
+        #
+        # As a side effect, anything the container writes under
+        # /work ends up root-owned, so the final command inside
+        # the container `chown`s site/ + notebooks/ + .jlite-build
+        # back to the runner uid that the host-side steps use.
+        host_uid=$(id -u)
+        host_gid=$(id -g)
         docker run --rm \
-          --user "$(id -u):$(id -g)" \
-          -e HOME=/work/.pixi-home \
           -v "${{ github.workspace }}:/work" \
           -w /work \
+          -e HOST_UID=$host_uid \
+          -e HOST_GID=$host_gid \
           ghcr.io/verilean/xeus-lean-docs-builder:latest \
           bash -eu -c '
             # 1. md → ipynb under notebooks/tutorial/ (matches the
@@ -832,6 +837,14 @@ jobs:
               mkdir -p site/xeus/wasm-host/olean
               cp /opt/xeus-lean/_olean/* site/xeus/wasm-host/olean/
             fi
+
+            # 5. Hand ownership of everything we wrote under /work
+            #    back to the host runner uid so subsequent host-side
+            #    steps (e.g. `cp -r .lake/build/doc/. site/api/`) can
+            #    write into them.  Root inside the container created
+            #    these as root.
+            chown -R "${HOST_UID}:${HOST_GID}" \
+              /work/site /work/notebooks /work/.jlite-build || true
           '
         echo "=== site tree (depth 2) ==="
         find site -maxdepth 2 -type d
