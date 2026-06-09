@@ -667,28 +667,40 @@ jobs:
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
 
-    - name: "Install jupyter nbconvert (for Mode 1 HTML rendering)"
+    # ----------------------------------------------------------------
+    # Pull the xeus-lean docs-builder image.  It ships:
+    #   - xlean-convert (md → ipynb / md → site)
+    #   - the WASM xlean kernel + olean tarballs
+    #   - a `jupyter lite build` toolchain (pixi env wasm-build)
+    #   - a vendored Sparkle olean snapshot embedded into the WASM VFS
+    # so the browser kernel can `import Sparkle` without a network.
+    #
+    # NOTE: the embedded Sparkle is xeus-lean's vendored snapshot, not
+    # Sparkle main HEAD.  Tutorial chapters must stay within the
+    # subset that snapshot supports.  Mode 1 (`lake build
+    # TutorialNotebooks`) below catches the case where the tutorial
+    # *.lean* files no longer compile against Sparkle main, which is
+    # a separate concern from "do they execute in the browser kernel".
+    # ----------------------------------------------------------------
+    - name: "Pull xeus-lean docs-builder image"
       run: |
-        # `nbconvert` is the only Python tool this job needs:
-        # `xlean-convert` produces both `.lean` and `.ipynb`
-        # directly, so we never invoke the xeus-lean kernel here.
-        # The HTML step later in this job consumes the .ipynb's via
-        # `jupyter nbconvert --to html`.
-        python3 -m pip install --user --no-warn-script-location \
-          jupyter-core nbconvert
-        # Expose ~/.local/bin (pip --user install target) on PATH
-        # for subsequent steps in this job.
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+          -u "${{ github.actor }}" --password-stdin
+        docker pull ghcr.io/verilean/xeus-lean-docs-builder:latest
+        docker image ls ghcr.io/verilean/xeus-lean-docs-builder:latest
 
-    - name: Build xlean-convert from upstream xeus-lean
+    - name: "Generate .lean from Markdown (host xlean-convert via container)"
       run: |
-        git clone --depth 1 https://github.com/Verilean/xeus-lean.git /tmp/xeus-lean
-        cd /tmp/xeus-lean
-        lake build xlean-convert
-        echo "/tmp/xeus-lean/.lake/build/bin" >> $GITHUB_PATH
-
-    - name: Generate .lean and .ipynb from Markdown
-      run: bash docs/tutorial/build-from-md.sh
+        # We still want .lean checked into the build for Mode 1
+        # (`lake build TutorialNotebooks` later in this job) — that
+        # step happens on the host runner, not inside the image, so
+        # the .lean files need to exist on disk first.  Run
+        # xlean-convert from the image, mounting the checkout.
+        docker run --rm \
+          -v "${{ github.workspace }}:/work" \
+          -w /work \
+          ghcr.io/verilean/xeus-lean-docs-builder:latest \
+          bash docs/tutorial/build-from-md.sh
 
     # NB: no `lake update` — same reasoning as the main build
     # job above.  We rely on the committed `lake-manifest.json`.
@@ -729,24 +741,66 @@ jobs:
         # scope without us having to enumerate every lean_lib.
         lake build Sparkle:docs
 
-    - name: "Doc: convert tutorial notebooks to HTML"
+    - name: "Doc: build tutorial site + JupyterLite (xeus-lean image)"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        # `jupyter nbconvert` was pip-installed earlier in this
-        # job (see "Install jupyter nbconvert" step).  ~/.local/bin
-        # is already on $GITHUB_PATH; export here too for safety
-        # in case the step runs in a fresh shell.
-        export PATH="$HOME/.local/bin:$PATH"
-        mkdir -p site/tutorial
-        for nb in docs/tutorial/Notebooks/Gen/notebooks/*.ipynb; do
-          base=$(basename "$nb" .ipynb)
-          echo "=== rendering $nb → site/tutorial/${base}.html ==="
-          # `--template classic` keeps the output self-contained
-          # (no extra theme bundle needed).
-          jupyter nbconvert --to html --template classic \
-            --output-dir site/tutorial \
-            "$nb"
-        done
+        # Re-use the same image: it has xlean-convert --site (which
+        # emits the sidebar + jlite-bar HTML xeus-lean uses) AND
+        # `jupyter lite build` (which packages the WASM kernel + the
+        # ipynb tree into a self-contained JupyterLite SPA).
+        #
+        # Inputs:
+        #   docs/tutorial/md/*.md          ← tutorial source
+        # Outputs (under ./site):
+        #   site/tutorial/*.html           ← sidebar-bound chapter pages
+        #   site/lab/                      ← JupyterLite SPA
+        #   site/xeus/wasm-host/olean/     ← prepacked Sparkle + Std oleans
+        mkdir -p site notebooks/tutorial
+        docker run --rm \
+          -v "${{ github.workspace }}:/work" \
+          -w /work \
+          ghcr.io/verilean/xeus-lean-docs-builder:latest \
+          bash -eu -c '
+            # 1. md → ipynb under notebooks/tutorial/ (matches the
+            #    `--jupyterlite-base "../lab/index.html?path=tutorial/"`
+            #    we pass to xlean-convert --site below).
+            for f in docs/tutorial/md/Ch*.md; do
+              [ -e "$f" ] || continue
+              out="notebooks/tutorial/$(basename "$f" .md).ipynb"
+              echo "  $f → $out"
+              xlean-convert --to ipynb "$f" -o "$out"
+            done
+
+            # 2. xlean-convert --site: sidebar HTML pages, one per
+            #    chapter, with a "▶ Open in JupyterLite" button.
+            xlean-convert --site docs/tutorial/md \
+              -o site/tutorial \
+              --title "Sparkle Tutorial" \
+              --jupyterlite-base "../lab/index.html?path=tutorial/"
+
+            # 3. JupyterLite SPA.  PREFIX = built-in xlean kernel
+            #    install root (from the image), --contents = the
+            #    ipynb tree from step 1.
+            PREFIX=$(pixi info -e wasm-host --json \
+              --manifest-path /opt/xeus-lean/pixi.toml \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)[\"environments_info\"][0][\"prefix\"])")
+            pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+              jupyter lite build \
+                --XeusAddon.prefix="$PREFIX" \
+                "--XeusAddon.default_channels=[]" \
+                --contents notebooks \
+                --output-dir site \
+                --force
+
+            # 4. Drop prepacked olean tarballs (Std, Sparkle, …) so
+            #    first browser boot doesnt have to compile them.
+            if [ -d /opt/xeus-lean/_olean ]; then
+              mkdir -p site/xeus/wasm-host/olean
+              cp /opt/xeus-lean/_olean/* site/xeus/wasm-host/olean/
+            fi
+          '
+        echo "=== site tree (depth 2) ==="
+        find site -maxdepth 2 -type d
 
     - name: "Doc: download bench data artifact (from build job)"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -820,26 +874,9 @@ jobs:
         EOF
           fi
         done
-        # Generate a tutorial index file linking the chapters
-        # in their natural order (Ch00 → Ch10 plus 1b/7b/8b).
-        {
-          echo '<!DOCTYPE html>'
-          echo '<html><head><meta charset="utf-8">'
-          echo '<title>Sparkle Tutorial</title>'
-          echo '<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.5}h1{margin-bottom:.4em}ul{padding-left:1.2em}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}</style>'
-          echo '</head><body>'
-          echo '<h1>Sparkle Tutorial</h1>'
-          echo '<p>HTML renderings of the chapter notebooks generated from <code>docs/tutorial/md/*.md</code> via <code>xlean-convert</code> + <code>jupyter nbconvert</code>. Source markdown is the authoritative form; these HTML pages are convenience.</p>'
-          echo '<ul>'
-          for html in site/tutorial/ch*.html; do
-            [ -e "$html" ] || continue
-            name=$(basename "$html" .html)
-            echo "  <li><a href=\"$(basename "$html")\">${name}</a></li>"
-          done
-          echo '</ul>'
-          echo '<p><a href="../">← back to top</a></p>'
-          echo '</body></html>'
-        } > site/tutorial/index.html
+        # Tutorial index.html is produced by `xlean-convert --site`
+        # in the previous step (with sidebar + chapter TOC), so we
+        # don't generate one here.
         # Top-level landing page.
         {
           echo '<!DOCTYPE html>'
@@ -852,6 +889,7 @@ jobs:
           echo '<h2>Documentation</h2>'
           echo '<ul>'
           echo '  <li><a href="tutorial/">Tutorial</a> — chapter-by-chapter walk-through of the Signal DSL, register patterns, Verilog synthesis, formal proofs, and FPGA bring-up.</li>'
+          echo '  <li><a href="lab/">JupyterLite</a> — run the tutorial chapters in your browser (xlean WASM kernel, no install required).</li>'
           echo '  <li><a href="api/">API reference</a> — generated from source by <code>doc-gen4</code>. Covers <code>Sparkle.Core</code>, every <code>IP.*</code> library, the SVParser toolchain, and the Display helpers.</li>'
           echo '</ul>'
           echo '<h2>Benchmarks</h2>'
