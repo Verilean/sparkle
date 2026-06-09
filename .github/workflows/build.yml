@@ -781,16 +781,27 @@ jobs:
             # 3. JupyterLite SPA.  PREFIX = built-in xlean kernel
             #    install root (from the image), --contents = the
             #    ipynb tree from step 1.
-            PREFIX=$(pixi info -e wasm-host --json \
-              --manifest-path /opt/xeus-lean/pixi.toml \
-              | python3 -c "import sys,json; print(json.load(sys.stdin)[\"environments_info\"][0][\"prefix\"])")
-            pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+            #
+            # We use the fixed install path baked into
+            # Dockerfile.docs-builder (the Dockerfile itself also
+            # falls back to this when `pixi info -e wasm-host` is
+            # unhappy under the image-bundled pixi version, so this
+            # is the canonical location).
+            PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
+            ls -d "$PREFIX/bin" >/dev/null || {
+              echo "ERROR: xlean kernel prefix not found at $PREFIX"
+              find /opt/xeus-lean/.pixi/envs -maxdepth 2 -type d 2>/dev/null | head -10
+              exit 1
+            }
+            cd /opt/xeus-lean
+            pixi run -e wasm-build \
               jupyter lite build \
                 --XeusAddon.prefix="$PREFIX" \
                 "--XeusAddon.default_channels=[]" \
-                --contents notebooks \
-                --output-dir site \
+                --contents /work/notebooks \
+                --output-dir /work/site \
                 --force
+            cd /work
 
             # 4. Drop prepacked olean tarballs (Std, Sparkle, …) so
             #    first browser boot doesnt have to compile them.
