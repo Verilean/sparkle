@@ -810,8 +810,14 @@ jobs:
               find /opt/xeus-lean/.pixi/envs -maxdepth 2 -type d 2>/dev/null | head -10
               exit 1
             }
-            cd /opt/xeus-lean
-            pixi run -e wasm-build \
+            # `jupyter lite build` uses doit, which writes a sqlite
+            # deps DB into cwd.  /opt/xeus-lean is image-root-owned
+            # and unwritable for the mapped uid, so we run from a
+            # workspace-owned scratch dir, passing the pixi manifest
+            # explicitly via --manifest-path.
+            mkdir -p /work/.jlite-build
+            cd /work/.jlite-build
+            pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
               jupyter lite build \
                 --XeusAddon.prefix="$PREFIX" \
                 "--XeusAddon.default_channels=[]" \
