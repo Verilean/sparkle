@@ -925,10 +925,22 @@ jobs:
         # in the previous step (with sidebar + chapter TOC), so we
         # don't generate one here.
         # Top-level landing page.
+        #
+        # IMPORTANT: must include `<script id="jupyter-config-data"
+        # type="application/json">{}</script>` somewhere in the
+        # document, otherwise JupyterLite (under /lab/) crashes
+        # with `Cannot read properties of null (reading 'textContent')`.
+        # JupyterLite walks the URL parent chain fetching each
+        # ancestor's index.html and parsing it for that script
+        # element to build a merged config.  An ancestor that is a
+        # plain landing page without the script makes the walk
+        # throw on null.textContent.  Empty `{}` is fine — the
+        # /lab/ folder's own jupyter-lite.json carries the real config.
         {
           echo '<!DOCTYPE html>'
           echo '<html><head><meta charset="utf-8">'
           echo '<title>Sparkle HDL</title>'
+          echo '<script id="jupyter-config-data" type="application/json">{}</script>'
           echo '<style>body{font-family:system-ui,sans-serif;max-width:760px;margin:40px auto;padding:0 16px;line-height:1.55}h1{margin-bottom:.2em}h2{margin-top:1.5em}.lead{color:#555;font-size:1.1em;margin-top:0}a{color:#0366d6;text-decoration:none}a:hover{text-decoration:underline}ul{padding-left:1.2em}li{margin:.3em 0}code{background:#f4f4f4;padding:.1em .3em;border-radius:3px}</style>'
           echo '</head><body>'
           echo '<h1>Sparkle HDL</h1>'
