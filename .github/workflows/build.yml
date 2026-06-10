@@ -793,22 +793,13 @@ jobs:
               xlean-convert --to ipynb "$f" -o "$out"
             done
 
-            # 2. xlean-convert --site: sidebar HTML pages, one per
-            #    chapter, with a "▶ Open in JupyterLite" button.
-            xlean-convert --site docs/tutorial/md \
-              -o site/tutorial \
-              --title "Sparkle Tutorial" \
-              --jupyterlite-base "../lab/index.html?path=tutorial/"
-
-            # 3. JupyterLite SPA.  PREFIX = built-in xlean kernel
-            #    install root (from the image), --contents = the
-            #    ipynb tree from step 1.
-            #
-            # We use the fixed install path baked into
-            # Dockerfile.docs-builder (the Dockerfile itself also
-            # falls back to this when `pixi info -e wasm-host` is
-            # unhappy under the image-bundled pixi version, so this
-            # is the canonical location).
+            # 2. JupyterLite SPA FIRST — `jupyter lite build --force`
+            #    wipes its output dir, so anything we drop into
+            #    site/ before this point is lost.  PREFIX = built-in
+            #    xlean kernel install root (from the image), baked at
+            #    a fixed path because the image-bundled pixi version
+            #    chokes on `pixi info -e wasm-host` (the Dockerfile
+            #    itself falls back to this same path).
             PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
             ls -d "$PREFIX/bin" >/dev/null || {
               echo "ERROR: xlean kernel prefix not found at $PREFIX"
@@ -817,9 +808,9 @@ jobs:
             }
             # `jupyter lite build` uses doit, which writes a sqlite
             # deps DB into cwd.  /opt/xeus-lean is image-root-owned
-            # and unwritable for the mapped uid, so we run from a
-            # workspace-owned scratch dir, passing the pixi manifest
-            # explicitly via --manifest-path.
+            # in some configs, and even when writable as root it is
+            # rude to scribble on, so we run from a workspace scratch
+            # dir, passing the pixi manifest explicitly.
             mkdir -p /work/.jlite-build
             cd /work/.jlite-build
             pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
@@ -830,6 +821,15 @@ jobs:
                 --output-dir /work/site \
                 --force
             cd /work
+
+            # 3. xlean-convert --site: sidebar HTML pages, one per
+            #    chapter, with a "▶ Open in JupyterLite" button.
+            #    Runs *after* `jupyter lite build` because that
+            #    command --force-wipes its output dir.
+            xlean-convert --site docs/tutorial/md \
+              -o site/tutorial \
+              --title "Sparkle Tutorial" \
+              --jupyterlite-base "../lab/index.html?path=tutorial/"
 
             # 4. Drop prepacked olean tarballs (Std, Sparkle, …) so
             #    first browser boot doesnt have to compile them.
