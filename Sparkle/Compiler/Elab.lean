@@ -18,6 +18,7 @@ import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
 import Sparkle.Core.Vector
 import Sparkle.Core.CircuitMonad
+import Sparkle.Display.Mime
 
 namespace Sparkle.Compiler.Elab
 
@@ -1851,6 +1852,12 @@ elab "#synthesizeVerilog" id:ident : command => do
     for w in warnings do
       Lean.logWarning m!"{w}"
     let verilog := toVerilog module
+    -- NB: `IO.println`, not `logInfo`.  This command's primary role
+    -- is CLI / `lake build` smoke-testing — the synthesis check is
+    -- what matters; the printed Verilog is for terminal use only.
+    -- Inside the xeus-lean WASM notebook stdout is swallowed by
+    -- the browser DevTools console — use `#showVerilog` (which
+    -- emits via `logInfo`) for notebook display.
     IO.println verilog
     IO.println "\n-- Verilog successfully generated!"
 
@@ -1895,14 +1902,18 @@ elab "#showVerilog" id:ident : command => do
       "v.onload=function(){window.hljs.registerLanguage('verilog', window.hljsVerilog||(()=>({})));paint();};",
       "document.head.appendChild(v);};document.head.appendChild(s);})();</script>"
     ]
-    -- xeus-lean's `extract_mime_payloads` (PR #7) scans both the
-    -- captured stdout pipe and the result message log for MIME
-    -- markers, so a plain `IO.println` of the marker is enough.
-    -- Outside JupyterLab the ESC / RS bytes are invisible in a
-    -- terminal and the surrounding HTML reads as raw text.
-    let esc := Char.ofNat 0x1B
-    let rs  := Char.ofNat 0x1E
-    IO.println s!"{esc}MIME:text/html{rs}{html}{esc}/MIME{rs}"
+    -- Route through Lean's info-message log (not raw IO.println).
+    -- The xeus-lean WASM kernel does NOT capture stdout (its
+    -- `withIsolatedStreams`-based stdout pipe was disabled when
+    -- the kernel was ported to WASM), so `IO.println` lands in
+    -- the browser DevTools console and never reaches the cell.
+    -- `logInfo`-routed MIME markers go through the
+    -- `messages[severity=info]` channel, which xinterpreter_wasm
+    -- DOES scan with `extract_mime_payloads`, so the HTML payload
+    -- is published as `text/html` rich output.
+    -- Native (`lake env lean` / xeus native) sees the marker
+    -- bytes the same way it did before.
+    Sparkle.Display.Mime.logHtml html
 
 def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
   let (module, design) ← synthesizeCombinational declName
