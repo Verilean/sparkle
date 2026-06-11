@@ -1456,5 +1456,150 @@ endmodule
       IO.println s!"FAIL: expected [28], got {results}"; failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- ===================================================================
+  -- Tests 30-34: regression coverage for open SVParser bugs.
+  -- These reproduce the failures reported in issues #41-#45.  Each is
+  -- expected to FAIL on the affected commit and PASS once the
+  -- corresponding lowering / parser fix lands.
+  -- ===================================================================
+
+  -- Test 30 (issue #41): reduction-AND `&x` on a sub-32-bit operand.
+  -- Bug: lowerExpr uses a hardcoded 32-bit all-ones mask, so
+  -- `&a` for `a = 4'b1111` returns 0 instead of 1.
+  IO.print "  Test 30: reduction-AND on 4-bit operand (issue #41)... "
+  try
+    let v := "
+module bug1_reduction_and (input clk, input [3:0] a, output y);
+  assign y = &a;
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0xF)  -- a = 4'b1111
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [1] for &4'b1111, got {results} (issue #41)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 31 (issue #42): two module instances chained via an internal wire.
+  -- Bug: flattenDesign drops the bridge wire, so `y = ~~a` collapses
+  -- to `y = ~a` (only the first instance survives).
+  IO.print "  Test 31: chained module instances via internal wire (issue #42)... "
+  try
+    let v := "
+module inc (input [7:0] x, output [7:0] o);
+  assign o = ~x;
+endmodule
+
+module bug2_chained_inst (input clk, input [7:0] a, output [7:0] y);
+  wire [7:0] mid;
+  inc u1 (.x(a),   .o(mid));
+  inc u2 (.x(mid), .o(y));
+endmodule
+"
+    -- a = 125 → mid = ~125 = 130 → y = ~130 = 125 (= a)
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 125)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [125] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [125], got {results} (issue #42 — likely 130 = ~125, second instance bypassed)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 32 (issue #43): signed comparison.
+  -- Bug: parser drops `signed`, Lower.lean hardcodes `.lt_u` for <,
+  -- so a signed-negative `a` is compared as a large unsigned value
+  -- and `(-106) < 127` returns 0 instead of 1.
+  IO.print "  Test 32: signed comparison `a < b` (issue #43)... "
+  try
+    let v := "
+module bug3_signed_lt (input clk, input signed [7:0] a, input signed [7:0] b, output lt);
+  assign lt = a < b;
+endmodule
+"
+    -- a = -106 (8'hFFFF...96 -> low 8 bits 0x96), b = 127 (0x7F)
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0x96  -- -106 as 8-bit two's complement
+                   JIT.setInput h 1 0x7F) -- 127
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [1] for (-106) < 127 signed, got {results} (issue #43)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 33 (issue #44): parameter default width hardcoded to 32.
+  -- Bug: in Lower.lean `paramWidth` falls back to 32 for any
+  -- parameter without an explicit range, so an 8-bit-input port
+  -- declared `[W-1:0]` with default `parameter W = 8` resolves to
+  -- 32 bits instead of 8.  We exercise the symptom indirectly: the
+  -- module multiplies `a` (declared `[W-1:0]` with default W = 8)
+  -- by a literal — when the port is correctly 8-bit, `a` gets
+  -- masked to 0xFF before being multiplied; when the bug widens
+  -- the port to 32-bit, the upper 24 bits of whatever the host
+  -- passed in (or undefined garbage) participate in the product.
+  -- We feed a value with set bits above bit 7 (0x1FF = 511) and
+  -- multiply by 1 — a correctly-truncated module returns
+  -- 0x1FF & 0xFF = 0xFF = 255, but with the 32-bit-wide port the
+  -- full 0x1FF passes through.
+  IO.print "  Test 33: parameter default width truncates input (issue #44)... "
+  try
+    let v := "
+module bug4_param_default_width #(parameter W = 8) (input clk, input [W-1:0] a, output [15:0] y);
+  assign y = a;
+endmodule
+"
+    -- We feed 0x1FF.  If the port were correctly 8-bit it should
+    -- mask to 0xFF = 255; if W resolved to 32 (the bug), the input
+    -- propagates as 0x1FF = 511.
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0x1FF)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [0xFF] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [255] (8-bit input mask), got {results} (issue #44 — likely 511, default W resolved to 32)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 34 (issue #45): casez `?` wildcards.
+  -- Bug: casez is routed through the same parseCaseBody as case, so
+  -- `?` in case items is compared as an ordinary bit (= 0) and the
+  -- wildcard arm never matches.
+  IO.print "  Test 34: casez `?` wildcards (issue #45)... "
+  try
+    let v := "
+module bug5_casez_wild (input clk, input [3:0] s, output [1:0] y);
+  reg [1:0] yr;
+  assign y = yr;
+  always @* begin
+    casez (s)
+      4'b1???: yr = 2'd3;
+      default: yr = 2'd0;
+    endcase
+  end
+endmodule
+"
+    -- s = 4'b1010 should match `4'b1???` arm → y = 3
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0b1010)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [3] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [3] for casez 4'b1??? match, got {results} (issue #45 — wildcard arm never fires)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
