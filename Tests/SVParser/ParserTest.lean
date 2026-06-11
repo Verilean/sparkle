@@ -1550,16 +1550,45 @@ endmodule
   -- multiply by 1 — a correctly-truncated module returns
   -- 0x1FF & 0xFF = 0xFF = 255, but with the 32-bit-wide port the
   -- full 0x1FF passes through.
-  IO.print "  Test 33: parameter default width truncates input (issue #44)... "
+  -- Diagnostic A: parameter default width — verbatim from the issue.
+  -- `[W-1:0] a` with default W = 8 should mask 0x1FF down to 0xFF;
+  -- if W resolves to 32 internally, 0x1FF leaks through.
+  IO.print "  Test 33a: parameter default width (issue #44 verbatim)... "
+  try
+    let v := "
+module param_default_width #(parameter W = 8) (input clk, input [W-1:0] a, output [W-1:0] y);
+  assign y = a + 1;
+endmodule
+"
+    -- a = 255 (0xFF).  Correct: 8-bit (a+1) wraps to 0.
+    -- Bug (W=32 internally): result = 256, low 8 bits = 0 — same value but for the wrong reason.
+    -- So feed 0x1FF instead: 8-bit input port should mask to 0xFF, (a+1) = 0; 32-bit port
+    -- leaks 0x1FF, (a+1) = 0x200, low 8 bits at the [W-1:0] output = 0 again.
+    -- The cleanest probe is to read `a` straight through: a 0x1FF input on an 8-bit
+    -- port → 0xFF out; on a 32-bit port → 0x1FF out.  We test that separately as 33.
+    -- Here we exercise the issue's literal repro and report the value either way.
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 255)  -- 0xFF, fits in 8 bits
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- With a = 0xFF and `assign y = a + 1`, an 8-bit lowering wraps to 0.
+    if results == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [0] (8-bit wrap of 255+1), got {results} (issue #44)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 33b: same defect, but exposed via a value that distinguishes
+  -- 8-bit-masked input from 32-bit-passed-through input.  An 8-bit
+  -- port truncates 0x1FF to 0xFF (255); a 32-bit port forwards 0x1FF (511).
+  IO.print "  Test 33b: parameter default width truncates input (issue #44)... "
   try
     let v := "
 module bug4_param_default_width #(parameter W = 8) (input clk, input [W-1:0] a, output [15:0] y);
   assign y = a;
 endmodule
 "
-    -- We feed 0x1FF.  If the port were correctly 8-bit it should
-    -- mask to 0xFF = 255; if W resolved to 32 (the bug), the input
-    -- propagates as 0x1FF = 511.
     let results ← jitRun v
       (fun h => do JIT.setInput h 0 0x1FF)
       1
@@ -1567,7 +1596,29 @@ endmodule
     if results == [0xFF] then
       IO.println "PASS"; passed := passed + 1
     else
-      IO.println s!"FAIL: expected [255] (8-bit input mask), got {results} (issue #44 — likely 511, default W resolved to 32)"
+      IO.println s!"FAIL: expected [255] (8-bit input mask), got {results} (issue #44 — default W resolved to 32)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 33c: issue #44 symptom 2 — localparam constant-expression
+  -- width.  `K = 3 + 4` should resolve to 7; the bug truncates K to
+  -- 1-bit so `y = a + K` returns `a + 1` instead of `a + 7`.
+  IO.print "  Test 33c: localparam K = 3+4 width (issue #44 symptom 2)... "
+  try
+    let v := "
+module localparam_expr (input clk, input [7:0] a, output [7:0] y);
+  localparam K = 3 + 4;
+  assign y = a + K;
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 10)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [17] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [17] (10 + (3+4)), got {results} (issue #44 sympt. 2 — likely 11 = 10+1, K truncated)"
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
