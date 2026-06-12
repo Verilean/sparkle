@@ -52,33 +52,30 @@ def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
 
 The `#synthesizeVerilog` macro prints the SystemVerilog to
 stdout as part of its info diagnostic.  For a real Yosys
-workflow you want it on disk.  Use `Sparkle.Backend.Verilog.synthesizeToString`
-(the same path the macro uses) and write it out:
+workflow you want it on disk.  Use `#writeVerilogDesign` —
+same synthesis pipeline, just lands the result at a path you
+pick:
 
-```text
-#eval do
-  let sv := Sparkle.Backend.Verilog.synthesizeToString
-              (counter8 (dom := defaultDomain))
-  IO.FS.writeFile "/tmp/counter8.sv" sv
+```lean
+#writeVerilogDesign counter8 "/tmp/counter8.sv"
+
 ```
-
-Or simply redirect from your shell — `lake exe sparkle-emit
-counter8 > /tmp/counter8.sv`.  We omit the `#eval` here so
-the chapter builds without write-access to /tmp under CI.
-
 ## 8.3 Yosys script — generic synthesis
 
-Once `counter8.sv` is on disk, run Yosys with a 4-step
-script: read, synth, optimise, write.
+Once `/tmp/counter8.sv` is on disk, run Yosys with a 4-step
+script: read, synth, optimise, write.  In the bundled Docker
+image `yosys` is on `PATH`, so the cell below runs in-place
+via xeus-lean's `#bash` magic — output appears under the cell.
 
-```bash
-yosys -p "
+```lean
+#bash "yosys -p '
   read_verilog -sv /tmp/counter8.sv
   hierarchy -top counter8
   synth_generic -top counter8
   write_json /tmp/counter8.json
   stat
-"
+'"
+
 ```
 
 Each step:

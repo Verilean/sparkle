@@ -108,6 +108,92 @@ and write the dff against it.  The same Sparkle source then
 emits `always_ff @(posedge clk or posedge rst) …` instead.
 Ch 10 §10.3 covers the trade-off.
 
+### Variant — a 4-bit Gray-code counter
+
+A common refinement of "one register that counts" is the
+**Gray-code counter**: a sequence of values where adjacent codes
+differ in exactly one bit.  Useful across clock-domain crossings
+(only one bit toggles per tick → no metastability from
+multi-bit transitions sampling at the wrong instant) and in
+rotary-encoder style position counters.
+
+The standard trick is to keep an ordinary binary counter inside
+and emit `bin XOR (bin >> 1)` as the Gray-coded view — no extra
+state needed, just one combinational XOR on the way out.
+
+```lean
+def grayCtr {dom : DomainConfig} : Signal dom (BitVec 4) :=
+  circuit do
+    let bin ← Signal.reg 0#4
+    let binSig := bin.1
+    -- Right-shift-by-one of the binary count.  The synthesiser
+    -- wants the shift amount as a BitVec literal of matching
+    -- width, hence the explicit `(1 : BitVec 4)`.
+    let shifted := (fun x : BitVec 4 => x >>> (1 : BitVec 4)) <$> binSig
+    bin <~ binSig + 1#4
+    return (binSig ^^^ shifted)
+
+#synthesizeVerilog grayCtr
+
+```
+
+The generated Verilog has the same `always_ff @(posedge clk)`
+register block as `dff` above — the state is just an
+incrementing 4-bit binary counter — followed by a single
+combinational `assign out = (bin ^ (bin >> 1))` line.  The
+sequence on `out` walks `0000 → 0001 → 0011 → 0010 → 0110 → …`
+— consecutive codes differ in exactly one bit.
+
+Two patterns to flag here, both reused later in the chapter:
+
+- `bin.1` projects the `Reg` handle to its underlying `Signal`
+  value so we can read it combinationally (same trick as §3.2's
+  `counterEn`).
+- `(fun x => x >>> _) <$> binSig` is how the synthesiser sees a
+  shift on a `Signal` — the bare `binSig >>> 1` would lack a
+  typeclass instance the back end's pattern-matcher recognises.
+
+### Variant — JIT-simulating the counter
+
+`#writeDesign` emits three files for any design: the
+`.sv` we already saw, a header-only C++ CppSim model, and a
+`*_jit.cpp` wrapper exporting a tiny C ABI (`jit_eval`, `jit_tick`,
+`jit_get_output`, …).  Sparkle's `Sparkle.Core.JIT` library
+compiles that wrapper to a shared object on the fly and lets us
+drive it from a `#eval` cell — the same DSL value, simulated
+~200× faster than the pure-Lean interpreter.
+
+The flow is `compileAndLoad` (clang → `dlopen` → cached) →
+`reset` → loop of `eval` / `getOutput` / `tick` → `destroy`:
+
+```lean
+#writeDesign grayCtr "/tmp/grayCtr.sv" "/tmp/grayCtr_cppsim.h"
+
+#eval (do
+  let h ← Sparkle.Core.JIT.JIT.compileAndLoad "/tmp/grayCtr_jit.cpp"
+  Sparkle.Core.JIT.JIT.reset h
+  let mut acc : List Nat := []
+  for _ in [0:16] do
+    Sparkle.Core.JIT.JIT.eval h
+    let v ← Sparkle.Core.JIT.JIT.getOutput h 0
+    acc := acc.concat v.toNat
+    Sparkle.Core.JIT.JIT.tick h
+  Sparkle.Core.JIT.JIT.destroy h
+  return acc
+  : IO (List Nat))
+
+```
+
+The expected output is the canonical 4-bit Gray sequence
+`[0, 1, 3, 2, 6, 7, 5, 4, 12, 13, 15, 14, 10, 11, 9, 8]` —
+sixteen consecutive codes, each differing from the previous in
+exactly one bit, then wrapping back to `0`.
+
+(Inside JupyterLab the kernel needs Sparkle's
+`precompileModules`-built `.so` on its `LEAN_DYNLIB_PATH` for
+`@[extern "sparkle_jit_load"]` to resolve at `#eval` time; the
+tutorial Docker image wires this up automatically.)
+
 ### View 3 — Block diagram (clock + data)
 
 For a one-off teaching figure you can hand-build the diagram
