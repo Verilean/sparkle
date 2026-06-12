@@ -566,9 +566,16 @@ def parseSensitivity : P SVSensitivity := do
     | none => let _ ← token (matchStr "*"); pure SVSensitivity.star
 
 partial def parseAlwaysBlock : P SVModuleItem := do
-  keyword "always"
-  let _ ← attempt (matchStr "_ff")
-  let _ ← attempt (matchStr "_comb")
+  -- Accept `always`, `always_ff`, or `always_comb`.  We try the
+  -- variants longest-first because `keyword` enforces a word
+  -- boundary — a bare `keyword "always"` would reject `always_ff`
+  -- before we got a chance to look at the suffix.
+  match ← attempt (keyword "always_ff") with
+  | some _ => pure ()
+  | none =>
+    match ← attempt (keyword "always_comb") with
+    | some _ => pure ()
+    | none => keyword "always"
   ws
   match ← attempt at_ with
   | some _ =>
@@ -682,7 +689,14 @@ partial def parseModuleItems : P (List SVModuleItem) := do
   | some _ =>
     let lhs ← parseExpr; eqSign; let rhs ← parseExpr; semi
     pure [SVModuleItem.contAssign lhs rhs]
-  | none => match ← attempt (keyword "wire") with
+  | none =>
+    -- Accept both `wire …;` (Verilog-95 style) and `logic …;`
+    -- (SystemVerilog style, used by Sparkle's own emitter).
+    let wireKw ← do
+      match ← attempt (keyword "wire") with
+      | some _ => pure (some ())
+      | none => attempt (keyword "logic")
+    match wireKw with
     | some _ =>
       let _ ← attempt (keyword "signed")
       let w ← parseOptWidth
