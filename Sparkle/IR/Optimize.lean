@@ -418,14 +418,25 @@ partial def eliminateZeroBitInExpr (wm : WidthMap) : Expr → Expr
     | xs  => .concat xs
   | .slice e hi lo =>
     let e' := eliminateZeroBitInExpr wm e
-    -- Tight peephole: `slice X 0 0` where `X` is itself 1-bit
-    -- collapses to `X`.  This catches the most common shape that
-    -- `runCircuitH` produces (`Signal.map Prod.fst` of a packed
-    -- single-bit register).  Wider full-width slices are left
-    -- alone — folding them away interacts badly with downstream
-    -- passes that index sub-fields by their slice shape.
-    if hi == 0 && lo == 0 && inferWidth wm e' == 1 then e'
-    else .slice e' hi lo
+    -- Two safe slice peepholes:
+    --   (a) `slice X 0 0` where X is 1-bit → X
+    --       (the runCircuitH `Signal.map Prod.fst` shape)
+    --   (b) `slice (.op …) hi 0` where the op's inferred width
+    --       matches `hi+1` → drop the slice.  This avoids
+    --       emitting `(a + 1)[7:0]` to Verilog, which is a
+    --       syntax error (slices may only follow identifiers,
+    --       not parenthesised expressions).
+    -- Wider slices over `.ref` / `.slice` are left alone — they
+    -- still map to legal Verilog `name[hi:lo]` and the
+    -- SoC-Verilog field indexer relies on them.
+    let w := inferWidth wm e'
+    if hi == 0 && lo == 0 && w == 1 then e'
+    else
+      match e' with
+      | .op _ _ =>
+        if lo == 0 && w == hi + 1 then e'
+        else .slice e' hi lo
+      | _ => .slice e' hi lo
   | .index a i => .index (eliminateZeroBitInExpr wm a) (eliminateZeroBitInExpr wm i)
 
 /-- Drop `Stmt.assign` whose LHS has zero width — these only exist as
@@ -560,7 +571,13 @@ def optimizeModule (m : Module)
     let finalWires := inlinedWires.filter fun w =>
       (useCounts2.getD w.name 0) > 0 || outputSet.contains w.name
 
-    { m with body := finalBody, wires := finalWires }
+    -- Phase 5: re-run the 0-bit / slice-of-op peephole.  Phase 3's
+    -- single-use inlining can turn a `slice (.ref X) hi lo` into a
+    -- `slice (.op …) hi lo` if X was an op-defining assign.  Emitting
+    -- that to Verilog produces `(a + 1)[7:0]`, which is a syntax
+    -- error.  Run the peephole again on the post-inline body.
+    let finalM := { m with body := finalBody, wires := finalWires }
+    eliminateZeroBits finalM
 
 /-- Optimize all modules in a design -/
 def optimizeDesign (d : Design)

@@ -123,6 +123,19 @@ jobs:
     - name: "Run SVParser tests (34 tests: parse, lower, JIT, pcpi_mul, byte-lane, replication)"
       run: lake exe svparser-test
 
+    # ---- iverilog round-trip ----
+    # End-to-end: Sparkle → SystemVerilog → iverilog → vvp → value
+    # check.  Catches emitter defects (e.g. `0'd0`, `(a+1)[7:0]`) that
+    # the internal IR→Verilog→IR test in Tests/RoundTrip/IRVerilogIR
+    # can't see because Sparkle's own SVParser may share the same
+    # blind spot as its emitter.
+
+    - name: "Install iverilog"
+      run: sudo apt-get install -y iverilog
+
+    - name: "Run iverilog round-trip tests"
+      run: lake exe iverilog-roundtrip-test
+
     # ---- RV32 JIT vs Verilator Benchmark ----
     # Signal DSL RV32 SoC (122 registers, 4-stage pipeline)
     # Runs 10M cycles with both backends, compares cyc/s
