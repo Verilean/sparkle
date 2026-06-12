@@ -1,4 +1,5 @@
 import Sparkle.Analog.IR.Netlist
+import Sparkle.Analog.Model
 
 /-!
 # Authoring DSL
@@ -107,7 +108,10 @@ def vsourceDC (V : Float) : TwoPin .electrical := twoPin fun v _i => [v ≡ (V :
 /-- Independent current source: `i = I`. -/
 def isourceDC (I : Float) : TwoPin .electrical := twoPin fun _v i => [i ≡ (I : AExpr)]
 
-/-- Shockley diode: `i = Is·(exp(v/Vt) − 1)`. -/
-def diode (Is Vt : Float) : TwoPin .electrical := twoPin fun v i => [i ≡ Is * (exp (v / Vt) - 1)]
+/-- Shockley diode: `i = Is·(exp(v/Vt) − 1)`. The current law is the polymorphic
+`diodeCurrent` (instantiated here at `AExpr`), the same definition the proofs
+library verifies over `ℝ`. -/
+def diode (Is Vt : Float) : TwoPin .electrical :=
+  twoPin fun v i => [i ≡ diodeCurrent (AExpr.lit Is) (AExpr.lit Vt) v]
 
 end Sparkle.Analog
