@@ -65,10 +65,21 @@ RUN curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init
 FROM lean AS jupyter
 
 # Install into a venv so the system python stays clean.
+#
+# `jupyter-collaboration` is the official Jupyter Real-Time
+# Collaboration extension (Y.js / CRDT backend).  Without it,
+# external edits to a `.ipynb` file — e.g. the MCP server's
+# `markdown_to_notebook` regenerating a chapter from its `.md`
+# source — only land in the browser after a manual reload.  With
+# it (combined with `--collaborative` on the CMD line below),
+# Jupyter Server watches the file for disk-side changes and
+# streams the diff to every connected client as a CRDT update,
+# so the browser tab refreshes its cells in place.
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/venv/bin/pip install --no-cache-dir \
         jupyterlab \
+        jupyter-collaboration \
         jupytext \
         nbconvert \
         notebook
@@ -429,4 +440,5 @@ CMD ["jupyter", "lab", \
      "--ServerApp.password=", \
      "--MultiKernelManager.default_kernel_name=xeus-lean", \
      "--MappingKernelManager.default_kernel_name=xeus-lean", \
+     "--collaborative", \
      "--notebook-dir=/workspace/sparkle/docs/tutorial/Notebooks/Gen/notebooks"]
