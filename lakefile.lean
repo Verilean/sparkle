@@ -279,6 +279,10 @@ lean_exe «drone-closed-loop-test» where
   root := `Tests.Integration.DroneClosedLoopSim
   supportInterpreter := true
 
+lean_exe «iverilog-roundtrip-test» where
+  root := `Tests.Drivers.IVerilogSimMain
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
