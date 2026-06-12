@@ -19,6 +19,12 @@ open Sparkle.Backend.Verilog
 open Sparkle.Backend.CppSim
 open Sparkle.Core.JIT
 
+-- The do-block of `main` is large enough that Lean's elaborator hits the
+-- default `maxRecDepth` (512) when it processes the trailing regression
+-- tests.  Bumping the budget keeps the whole file building without
+-- splitting tests into many `lean_exe` drivers.
+set_option maxRecDepth 1024
+
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
 
@@ -1619,6 +1625,109 @@ endmodule
       IO.println "PASS"; passed := passed + 1
     else
       IO.println s!"FAIL: expected [17] (10 + (3+4)), got {results} (issue #44 sympt. 2 — likely 11 = 10+1, K truncated)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- ===================================================================
+  -- Tests 35-38: probe other 32-bit-hardcoded constants in
+  -- `Tools/SVParser/Lower.lean` that look like the issue-#41 family
+  -- (operand-width-blind constants used to build IR for reduction /
+  -- bitwise-NOT / logical-AND/OR / signed-extend lowerings).  If any
+  -- of these PASS today they are passive regression guards; if they
+  -- FAIL they are new bugs that warrant their own issues.
+  -- ===================================================================
+
+  -- Test 35: reduction-OR `|a` on a 4-bit operand.
+  -- Lower.lean line 155 uses a 32-bit `.const 0 32` for the
+  -- `(a != 0)` lowering.  With a 4-bit `a`, the wider zero may
+  -- still compare equal to a (truncated) zero, but the eq result
+  -- semantics aren't guaranteed when operand widths disagree.
+  IO.print "  Test 35: reduction-OR on 4-bit operand (Lower.lean:155)... "
+  try
+    let v := "
+module probe_redor (input clk, input [3:0] a, output y);
+  assign y = |a;
+endmodule
+"
+    -- a = 4'b0001 → expected 1 (any bit set)
+    -- a = 4'b0000 → expected 0
+    let r1 ← jitRun v (fun h => do JIT.setInput h 0 1) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v (fun h => do JIT.setInput h 0 0) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if r1 == [1] && r0 == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: a=1→{r1} a=0→{r0} (expected [1] and [0])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 36: logical-NOT `!a` on a 4-bit operand.
+  -- Lower.lean line 158 uses `.const 0 32` for the `(a == 0)`
+  -- lowering.  Same width-mismatch concern as Test 35.
+  IO.print "  Test 36: logical-NOT on 4-bit operand (Lower.lean:158)... "
+  try
+    let v := "
+module probe_lnot (input clk, input [3:0] a, output y);
+  assign y = !a;
+endmodule
+"
+    let r1 ← jitRun v (fun h => do JIT.setInput h 0 5) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v (fun h => do JIT.setInput h 0 0) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- !5 = 0, !0 = 1
+    if r1 == [0] && r0 == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: !5→{r1} !0→{r0} (expected [0] and [1])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 37: bitwise-NOT `~a` on a 4-bit operand, observed via a
+  -- downstream `+`.  Lower.lean line 161 XORs the operand with a
+  -- 32-bit `-1` constant, so `~a` may carry the upper-28 bits
+  -- (set to 1 by the 32-bit XOR) into adjacent arithmetic.
+  IO.print "  Test 37: bitwise-NOT 4-bit, value-only check (Lower.lean:161)... "
+  try
+    let v := "
+module probe_bnot (input clk, input [3:0] a, output [4:0] y);
+  assign y = ~a + 1;
+endmodule
+"
+    -- a = 4'b0000; ~a = 4'b1111 = 15; 15 + 1 = 16 (5 bits clean)
+    -- bug: ~a as a 32-bit XOR = 0xFFFFFFFF; + 1 = 0x100000000 → low 5 bits = 0
+    let r ← jitRun v (fun h => do JIT.setInput h 0 0) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if r == [16] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: ~0+1 (4-bit) → {r}, expected [16]"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 38: logical-AND `a && b` on 4-bit operands.
+  -- Lower.lean line 176-178 uses `.const 0 32` for both
+  -- `(lhs != 0)` and `(rhs != 0)` lowerings.
+  IO.print "  Test 38: logical-AND 4-bit operands (Lower.lean:176)... "
+  try
+    let v := "
+module probe_land (input clk, input [3:0] a, input [3:0] b, output y);
+  assign y = a && b;
+endmodule
+"
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 3; JIT.setInput h 1 5)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v
+      (fun h => do JIT.setInput h 0 0; JIT.setInput h 1 5)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if r == [1] && r0 == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: 3&&5→{r}, 0&&5→{r0} (expected [1] and [0])"
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
