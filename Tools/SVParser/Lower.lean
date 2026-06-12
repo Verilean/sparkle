@@ -1285,6 +1285,67 @@ partial def expandGenerateBlocks (paramVals : List (String × Nat))
     | other => [other]
 
 -- ============================================================================
+-- Post-pass: narrow the 32-bit all-ones mask that `lowerExpr` emits for
+-- bitwise-NOT (`~x`).  When the operand `x` is a known port/wire/reg, we
+-- can replace the 32-bit constant with one matching the operand's actual
+-- width.  Without this pass, `~a + 1` with `a : [3:0]` (Test 37 of
+-- `Tests/SVParser/ParserTest.lean`) returns 0 instead of 16 because the
+-- upper 28 bits of `~a` are set and the +1 carry propagates through them.
+--
+-- The pass is a *strict refinement*: any expression shape it does not
+-- recognise (or any operand whose width cannot be determined from the
+-- existing `LowerEnv`) falls through unchanged, so the rest of the IR
+-- corpus cannot regress.
+--
+-- We intentionally do NOT also narrow the matching reductAnd / logNot /
+-- logAnd / logOr constants — they share the same 32-bit-constant family
+-- (issue #41) but require narrowing both an XOR mask and a separate
+-- equality comparator together to stay sound.  That is a follow-up PR.
+-- ============================================================================
+
+/-- Best-effort width inference for an IR `Expr` against the lowering
+    environment.  Returns `none` when the operand's width can't be
+    determined locally; the caller treats `none` as "leave the constant
+    alone". -/
+private def exprWidthForNarrow (env : LowerEnv) : Expr → Option Nat
+  | .ref name => (env.getWidth name).map (fun (hi, lo) => hi - lo + 1)
+  | .const _ w => some w
+  | .slice _ hi lo => some (hi - lo + 1)
+  | _ => none
+
+/-- Rewrite the `(x XOR <32-bit -1>)` shape emitted by `lowerExpr` for
+    bitwise-NOT so the all-ones constant matches the inferred width of
+    `x`.  Recurse structurally so the rewrite reaches nested
+    sub-expressions. -/
+private partial def narrowMaskConstants (env : LowerEnv) : Expr → Expr
+  | .op .xor [a, .const (-1) 32] =>
+    let a' := narrowMaskConstants env a
+    match exprWidthForNarrow env a' with
+    | some w => .op .xor [a', .const (-1) w]
+    | none   => .op .xor [a', .const (-1) 32]
+  | .op o args => .op o (args.map (narrowMaskConstants env))
+  | .concat args => .concat (args.map (narrowMaskConstants env))
+  | .slice e hi lo => .slice (narrowMaskConstants env e) hi lo
+  | .index arr idx => .index (narrowMaskConstants env arr) (narrowMaskConstants env idx)
+  | e => e
+
+/-- Apply `narrowMaskConstants` to every `Expr` field stored in a `Stmt`. -/
+private def narrowMaskStmt (env : LowerEnv) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (narrowMaskConstants env rhs)
+  | .register output clk rst input init =>
+    .register output clk rst (narrowMaskConstants env input) init
+  | .memory name aw dw clk wa wd we ra rd cr =>
+    .memory name aw dw clk
+      (narrowMaskConstants env wa)
+      (narrowMaskConstants env wd)
+      (narrowMaskConstants env we)
+      (narrowMaskConstants env ra)
+      rd cr
+  | .inst modName instName conns =>
+    .inst modName instName
+      (conns.map fun (p, e) => (p, narrowMaskConstants env e))
+
+-- ============================================================================
 -- Module lowering
 -- ============================================================================
 
@@ -1626,12 +1687,16 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         assertIdx := assertIdx + 1
     | _ => pure ()
 
+  -- Refinement pass: narrow the 32-bit all-ones mask emitted for
+  -- bitwise-NOT (`~x`) to the operand's actual width when known.
+  -- See the comment above `narrowMaskConstants` for the rationale.
+  let narrowedBody := dedupBody.map (narrowMaskStmt env)
   pure {
     name := svMod.name
     inputs := inputs
     outputs := outputs
     wires := dedupWires
-    body := topoSortBody dedupBody
+    body := topoSortBody narrowedBody
     assertions := assertions
     isPrimitive := false
   }
