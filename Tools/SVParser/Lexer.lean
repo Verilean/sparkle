@@ -315,17 +315,65 @@ def eqSign   : P Unit := token (matchStr "=")
 def qmark    : P Unit := token (matchStr "?")
 def op2 (s : String) : P Unit := token (matchStr s)
 
-/-- Parse a bit range [hi:lo]. For parameterized widths like [N-1:0],
-    skip over identifiers and treat as [31:0] (default 32-bit). -/
-def bitRange : P (Nat × Nat) := do
+/-- Identifier reader used by `bitRange` for parameter references like
+    `W` in `[W-1:0]`.  Reads a single Verilog identifier (letter/underscore
+    followed by letter/digit/underscore), tokenized (skips trailing ws). -/
+def parseIdentSimple : P String := token do
+  let first ← nextChar
+  if !(first.isAlpha || first == '_') then
+    fail s!"expected identifier, got '{first}'"
+  let mut result : List Char := [first]
+  let mut cont := true
+  while cont do
+    let c ← peekChar
+    match c with
+    | some c' =>
+      if c'.isAlphanum || c' == '_' then
+        let _ ← nextChar; result := result ++ [c']
+      else cont := false
+    | none => cont := false
+  pure (String.ofList result)
+
+/-- Parse a bit range `[hi:lo]`.
+
+    Returns the *resolved* `(hi, lo)` pair when both bounds are
+    numeric, plus an optional **symbolic** form when either bound
+    mentions an identifier (parameter reference).  The symbolic form
+    lets the lowering pass evaluate `[W-1:0]` against the actual
+    parameter map instead of falling back to the historic 31:0
+    placeholder.
+
+    Recognised shapes:
+      `[<num>:<num>]`                        — concrete
+      `[<num>±<num>:<num>±<num>]`            — concrete
+      `[<ident>:<num>]`                      — symbolic
+      `[<ident>±<num>:<num>±<num>]`          — symbolic
+      `[<ident>:<ident>]` (etc.)             — symbolic
+
+    The lexer can build the symbolic `SVExpr` directly because the
+    forms it needs (`ident`, `lit decimal`, `binary sub/add`) are all
+    in scope through `import Tools.SVParser.AST` — no recursion into
+    the full Parser is required. -/
+def bitRange : P ((Nat × Nat) × Option (SVExpr × SVExpr)) := do
   lbracket
-  let hi ← parseBitRangeVal
+  let (hiN, hiE) ← parseBitRangeVal
   colon
-  let lo ← parseBitRangeVal
+  let (loN, loE) ← parseBitRangeVal
   rbracket
-  pure (hi, lo)
+  let exprForm := if hiE.isSome || loE.isSome then
+    -- At least one bound mentions an identifier; capture both as
+    -- symbolic expressions so the lowering can substitute params.
+    let toExpr : Option SVExpr → Nat → SVExpr := fun oe n =>
+      oe.getD (.lit (.decimal none n))
+    some (toExpr hiE hiN, toExpr loE loN)
+  else none
+  pure ((hiN, loN), exprForm)
 where
-  parseBitRangeVal : P Nat := do
+  /-- Parse a single bound.  Returns `(fallbackNat, symbolicExpr?)` —
+      the fallback is what the historic parser would have produced
+      (always-31 for any identifier-bearing bound), and the symbolic
+      `SVExpr` is non-`none` when the bound involves an identifier. -/
+  parseBitRangeVal : P (Nat × Option SVExpr) := do
     let c ← peekChar
     if c.map isDigit == some true then
       let d ← token digits
@@ -333,16 +381,35 @@ where
       match ← attempt (token (matchStr "-")) with
       | some _ =>
         let sub ← token digits
-        pure (d.toNat! - sub.toNat!)
+        pure (d.toNat! - sub.toNat!, none)
       | none =>
         match ← attempt (token (matchStr "+")) with
-        | some _ => let add ← token digits; pure (d.toNat! + add.toNat!)
-        | none => pure d.toNat!
-    else
-      -- Identifier-based expression (e.g., regindex_bits-1)
-      -- Skip until : or ]
+        | some _ => let add ← token digits; pure (d.toNat! + add.toNat!, none)
+        | none => pure (d.toNat!, none)
+    else if c.map (fun c => c.isAlpha || c == '_') == some true then
+      -- Identifier-based expression.  Build a real SVExpr for `ident`,
+      -- `ident - n`, `ident + n` (and chains thereof) so the lowering
+      -- can substitute params.  Anything more complex than that falls
+      -- back to skipping (preserves prior behaviour for cases we don't
+      -- explicitly model yet).
+      let name ← parseIdentSimple
+      let mut acc : SVExpr := .ident name
+      let mut cont := true
+      while cont do
+        match ← attempt (token (matchStr "-")) with
+        | some _ =>
+          let d ← token digits
+          acc := .binary .sub acc (.lit (.decimal none d.toNat!))
+        | none =>
+          match ← attempt (token (matchStr "+")) with
+          | some _ =>
+            let d ← token digits
+            acc := .binary .add acc (.lit (.decimal none d.toNat!))
+          | none => cont := false
+      -- After the simple expression, if any unexpected char remains
+      -- before `:` or `]`, skip it (preserving prior behaviour for
+      -- complex identifier-bearing widths we can't yet symbolify).
       let mut depth : Nat := 0
-      let mut result : Nat := 31  -- default
       let mut running := true
       while running do
         let ch ← peekChar
@@ -353,7 +420,22 @@ where
         | some _ => let _ ← nextChar
         | none => running := false
       ws
-      pure result
+      pure (31, some acc)  -- fallback Nat = 31 (historic); symbolic acc available
+    else
+      -- Fallback: skip until : or ] (historic behaviour, fallback 31).
+      let mut depth : Nat := 0
+      let mut result : Nat := 31
+      let mut running := true
+      while running do
+        let ch ← peekChar
+        match ch with
+        | some ':' => if depth == 0 then running := false else let _ ← nextChar
+        | some ']' => if depth == 0 then running := false else let _ ← nextChar
+        | some '[' => let _ ← nextChar; depth := depth + 1
+        | some _ => let _ ← nextChar
+        | none => running := false
+      ws
+      pure (result, none)
 
 -- ============================================================================
 -- Repetition helpers

@@ -464,7 +464,17 @@ def parsePortDir : P SVPortDir := do
 
 def parseOptWidth : P (Option (Nat × Nat)) := do
   match ← attempt bitRange with
-  | some r => pure (some r) | none => pure none
+  | some (r, _) => pure (some r) | none => pure none
+
+/-- Same as `parseOptWidth` but also returns the symbolic
+    `(hiExpr, loExpr)` form when either bound of the range mentioned
+    an identifier (parameter reference).  Used by the port / param /
+    wire / reg declaration parsers so the lowering pass can resolve
+    `[W-1:0]` against the parameter value map. -/
+def parseOptWidthSym : P (Option (Nat × Nat) × Option (SVExpr × SVExpr)) := do
+  match ← attempt bitRange with
+  | some (r, sym) => pure (some r, sym)
+  | none => pure (none, none)
 
 /-- Parse a port: direction [reg] [width] name -/
 def parsePortInList : P SVPort := do
@@ -473,9 +483,9 @@ def parsePortInList : P SVPort := do
   let _ ← attempt (keyword "logic")
   let _ ← attempt (keyword "wire")
   let _ ← attempt (keyword "signed")
-  let width ← parseOptWidth
+  let (width, widthExpr) ← parseOptWidthSym
   let name ← identifier
-  pure { dir, isReg, width, name }
+  pure { dir, isReg, width, name, widthExpr }
 
 /-- Parse port list with direction carry-over.
     In Verilog, `input clk, resetn` means both are inputs.
@@ -487,6 +497,7 @@ def parsePortList : P (List SVPort) := do
   let mut lastDir := first.dir
   let mut lastIsReg := first.isReg
   let mut lastWidth := first.width
+  let mut lastWidthExpr := first.widthExpr
   let mut cont := true
   while cont do
     match ← attempt comma with
@@ -499,18 +510,23 @@ def parsePortList : P (List SVPort) := do
         let _ ← attempt (keyword "logic")
         let _ ← attempt (keyword "wire")
         let _ ← attempt (keyword "signed")
-        lastWidth ← parseOptWidth
+        let (w, we) ← parseOptWidthSym
+        lastWidth := w
+        lastWidthExpr := we
         let name ← identifier
-        let port := { dir := lastDir, isReg := lastIsReg, width := lastWidth, name : SVPort }
+        let port := { dir := lastDir, isReg := lastIsReg, width := lastWidth,
+                      widthExpr := lastWidthExpr, name : SVPort }
         ports := ports ++ [port]
       | none =>
         -- No direction keyword — carry over from previous
         let _ ← attempt (keyword "signed")
         -- Check for new width override
-        let width ← parseOptWidth
+        let (width, widthExpr) ← parseOptWidthSym
         let w := if width.isSome then width else lastWidth
+        let we := if width.isSome then widthExpr else lastWidthExpr
         let name ← identifier
-        let port := { dir := lastDir, isReg := lastIsReg, width := w, name : SVPort }
+        let port := { dir := lastDir, isReg := lastIsReg, width := w,
+                      widthExpr := we, name : SVPort }
         ports := ports ++ [port]
     | none => cont := false
   rparen; pure ports

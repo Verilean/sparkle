@@ -1067,6 +1067,20 @@ partial def evalConstExpr (paramVals : List (String × Nat)) : SVExpr → Option
     let va ← evalConstExpr paramVals a
     let vb ← evalConstExpr paramVals b
     some (va ||| vb)
+  | .binary .add a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (va + vb)
+  | .binary .sub a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    -- Nat subtraction is saturating at 0, which is exactly what we want
+    -- for bit-range bounds (negative widths are nonsensical anyway).
+    some (va - vb)
+  | .binary .mul a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (va * vb)
   | .unary .logNot a => do
     let va ← evalConstExpr paramVals a
     some (if va == 0 then 1 else 0)
@@ -1388,7 +1402,18 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     match paramVals.find? fun (n, _) => n == p.name with
     | some (_, v) => { p with value := .lit (.decimal (some 32) v) }
     | none => p
-  let svMod := { svMod with items := expandedItems, params := svParams }
+  -- Resolve symbolic port widths (e.g. `[W-1:0]`) against the resolved
+  -- parameter values.  Without this, the parser's `bitRange` falls back
+  -- to a 32-bit placeholder for any identifier-bearing bound, which
+  -- breaks parameters that were intended to size ports (issue #44).
+  let resolvedPorts := svMod.ports.map fun p =>
+    match p.widthExpr with
+    | none => p  -- already concrete
+    | some (hiE, loE) =>
+      match evalConstExpr paramVals hiE, evalConstExpr paramVals loE with
+      | some hiV, some loV => { p with width := some (hiV, loV) }
+      | _, _ => p  -- couldn't resolve; keep the parser's fallback
+  let svMod := { svMod with items := expandedItems, params := svParams, ports := resolvedPorts }
 
   -- Build environment
   let mut env := LowerEnv.empty
