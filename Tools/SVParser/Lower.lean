@@ -42,11 +42,13 @@ def widthToBits : Option (Nat × Nat) → Nat
 -- ============================================================================
 
 structure LowerEnv where
-  portWidths : List (String × Option (Nat × Nat))  -- port name → width
-  wireWidths : List (String × Option (Nat × Nat))  -- wire name → width
-  regNames   : List String                          -- names declared as reg
+  portWidths  : List (String × Option (Nat × Nat))  -- port name → width
+  wireWidths  : List (String × Option (Nat × Nat))  -- wire name → width
+  regNames    : List String                          -- names declared as reg
+  signedNames : List String := []                    -- ports declared `signed`
 
-def LowerEnv.empty : LowerEnv := { portWidths := [], wireWidths := [], regNames := [] }
+def LowerEnv.empty : LowerEnv :=
+  { portWidths := [], wireWidths := [], regNames := [], signedNames := [] }
 
 def LowerEnv.getWidth (env : LowerEnv) (name : String) : Option (Nat × Nat) :=
   (env.portWidths.find? (·.1 == name) |>.map (·.2)).join <|>
@@ -57,6 +59,14 @@ def LowerEnv.getHWType (env : LowerEnv) (name : String) : HWType :=
 
 def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
   env.regNames.any (· == name)
+
+/-- Conservative signedness inference for SV expressions: an expression
+    is *signed* iff its top-level operand reaches a declared-`signed`
+    port or wire.  Mirrors Verilog's "context-determined" signedness
+    only in the common operand-ref case; sub-expressions involving
+    arithmetic are treated as unsigned (matches IR `op` semantics). -/
+def LowerEnv.isSignedRef (env : LowerEnv) (name : String) : Bool :=
+  env.signedNames.any (· == name)
 
 -- ============================================================================
 -- Expression lowering
@@ -96,6 +106,9 @@ def literalToConst : SVLiteral → Expr
   | .hex none v         => .const (Int.ofNat v) 32
   | .binary (some w) v  => .const (Int.ofNat v) w
   | .binary none v      => .const (Int.ofNat v) 32
+  -- `binaryWild` outside a `casez` arm: drop the mask (Verilog semantics
+  -- for `?`/`x`/`z` in plain expressions are undefined; treat as 0).
+  | .binaryWild w v _   => .const (Int.ofNat v) w
 
 /-- Set of array-typed register names for distinguishing bit-select vs array access -/
 private def arrayNames : List String := []  -- populated per-module during lowering
@@ -140,6 +153,7 @@ private def concatWidth : SVExpr → Nat
   | .lit (.decimal none _) => 32
   | .lit (.hex none _) => 32
   | .lit (.binary none _) => 1
+  | .lit (.binaryWild w _ _) => w  -- casez wildcard: width is always explicit
   | _ => 32  -- default: assume 32-bit
 
 partial def lowerExpr (e : SVExpr) : Expr :=
@@ -424,15 +438,31 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
 
 /-- Build a case arm condition from labels and selector.
     For case(1'b1), labels are direct conditions (priority encoding).
-    For normal case, labels are compared against sel. -/
+    For normal case, labels are compared against sel.
+    For `casez`-style wildcard literals (`SVLiteral.binaryWild`) the
+    comparison ignores bits marked as don't-care in the mask:
+        ((sel ^ value) & ~mask) == 0 -/
 private def mkCaseCond (sel : SVExpr) (labels : List SVExpr) : Expr :=
   let isCase1b1 := match sel with
     | .lit (.binary (some 1) 1) => true
     | .lit (.decimal (some 1) 1) => true
     | _ => false
+  let selExpr := lowerExpr sel
+  let oneCond : SVExpr → Expr := fun label =>
+    match label with
+    | .lit (.binaryWild w v m) =>
+      -- (sel ^ value) & ~mask == 0
+      let notMask := (2^w - 1).xor m  -- ~mask, sized to w
+      let valExpr := Expr.const (Int.ofNat v) w
+      let maskExpr := Expr.const (Int.ofNat notMask) w
+      Expr.op .eq
+        [Expr.op .and [Expr.op .xor [selExpr, valExpr], maskExpr],
+         Expr.const 0 w]
+    | _ =>
+      if isCase1b1 then lowerExpr label
+      else Expr.op .eq [selExpr, lowerExpr label]
   labels.foldl (fun acc label =>
-    let c := if isCase1b1 then lowerExpr label
-             else Expr.op .eq [lowerExpr sel, lowerExpr label]
+    let c := oneCond label
     if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
   ) (Expr.const 0 1)
 
@@ -1047,6 +1077,20 @@ partial def evalConstExpr (paramVals : List (String × Nat)) : SVExpr → Option
     let va ← evalConstExpr paramVals a
     let vb ← evalConstExpr paramVals b
     some (va ||| vb)
+  | .binary .add a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (va + vb)
+  | .binary .sub a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    -- Nat subtraction is saturating at 0, which is exactly what we want
+    -- for bit-range bounds (negative widths are nonsensical anyway).
+    some (va - vb)
+  | .binary .mul a b => do
+    let va ← evalConstExpr paramVals a
+    let vb ← evalConstExpr paramVals b
+    some (va * vb)
   | .unary .logNot a => do
     let va ← evalConstExpr paramVals a
     some (if va == 0 then 1 else 0)
@@ -1285,6 +1329,137 @@ partial def expandGenerateBlocks (paramVals : List (String × Nat))
     | other => [other]
 
 -- ============================================================================
+-- Post-pass: narrow the 32-bit all-ones mask that `lowerExpr` emits for
+-- bitwise-NOT (`~x`).  When the operand `x` is a known port/wire/reg, we
+-- can replace the 32-bit constant with one matching the operand's actual
+-- width.  Without this pass, `~a + 1` with `a : [3:0]` (Test 37 of
+-- `Tests/SVParser/ParserTest.lean`) returns 0 instead of 16 because the
+-- upper 28 bits of `~a` are set and the +1 carry propagates through them.
+--
+-- The pass is a *strict refinement*: any expression shape it does not
+-- recognise (or any operand whose width cannot be determined from the
+-- existing `LowerEnv`) falls through unchanged, so the rest of the IR
+-- corpus cannot regress.
+--
+-- We intentionally do NOT also narrow the matching reductAnd / logNot /
+-- logAnd / logOr constants — they share the same 32-bit-constant family
+-- (issue #41) but require narrowing both an XOR mask and a separate
+-- equality comparator together to stay sound.  That is a follow-up PR.
+-- ============================================================================
+
+/-- Best-effort width inference for an IR `Expr` against the lowering
+    environment.  Returns `none` when the operand's width can't be
+    determined locally; the caller treats `none` as "leave the constant
+    alone". -/
+private def exprWidthForNarrow (env : LowerEnv) : Expr → Option Nat
+  | .ref name => (env.getWidth name).map (fun (hi, lo) => hi - lo + 1)
+  | .const _ w => some w
+  | .slice _ hi lo => some (hi - lo + 1)
+  | _ => none
+
+/-- Rewrite the `(x XOR <32-bit -1>)` shape emitted by `lowerExpr` for
+    bitwise-NOT so the all-ones constant matches the inferred width of
+    `x`.  Recurse structurally so the rewrite reaches nested
+    sub-expressions. -/
+private partial def narrowMaskConstants (env : LowerEnv) : Expr → Expr
+  | .op .xor [a, .const (-1) 32] =>
+    let a' := narrowMaskConstants env a
+    match exprWidthForNarrow env a' with
+    | some w => .op .xor [a', .const (-1) w]
+    | none   => .op .xor [a', .const (-1) 32]
+  | .op o args => .op o (args.map (narrowMaskConstants env))
+  | .concat args => .concat (args.map (narrowMaskConstants env))
+  | .slice e hi lo => .slice (narrowMaskConstants env e) hi lo
+  | .index arr idx => .index (narrowMaskConstants env arr) (narrowMaskConstants env idx)
+  | e => e
+
+/-- Apply `narrowMaskConstants` to every `Expr` field stored in a `Stmt`. -/
+private def narrowMaskStmt (env : LowerEnv) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (narrowMaskConstants env rhs)
+  | .register output clk rst input init =>
+    .register output clk rst (narrowMaskConstants env input) init
+  | .memory name aw dw clk wa wd we ra rd cr =>
+    .memory name aw dw clk
+      (narrowMaskConstants env wa)
+      (narrowMaskConstants env wd)
+      (narrowMaskConstants env we)
+      (narrowMaskConstants env ra)
+      rd cr
+  | .inst modName instName conns =>
+    .inst modName instName
+      (conns.map fun (p, e) => (p, narrowMaskConstants env e))
+
+-- ============================================================================
+-- Post-pass: promote unsigned relational ops (`<`, `<=`, `>`, `>=`) to
+-- their signed counterparts when at least one operand is a reference to
+-- a port declared with the SystemVerilog `signed` keyword.
+--
+-- `lowerExpr` always emits `.lt_u` / `.le_u` / `.gt_u` / `.ge_u` because
+-- it can't see the surrounding `LowerEnv`.  Without this fix-up, a
+-- comparison of two `signed [7:0]` ports is performed as unsigned and
+-- e.g. `(-106) < 127` returns 0 (issue #43, Test 32).
+-- ============================================================================
+
+/-- Does this IR expression reach a signed port reference at its leaf
+    operand position?  Conservative — only `.ref` chains and trivial
+    slices propagate signedness; arithmetic mixes lose it (which
+    matches the IR's own context-determined arithmetic semantics). -/
+private partial def exprHasSignedLeaf (env : LowerEnv) : Expr → Bool
+  | .ref name => env.isSignedRef name
+  | .slice e _ _ => exprHasSignedLeaf env e
+  | _ => false
+
+/-- Rewrite each `lt_u`/`le_u`/`gt_u`/`ge_u` to the signed counterpart
+    when either argument references a signed port. -/
+private partial def promoteSignedComparisons (env : LowerEnv) : Expr → Expr
+  | .op .lt_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.lt_s else Sparkle.IR.AST.Operator.lt_u
+    .op op [a', b']
+  | .op .le_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.le_s else Sparkle.IR.AST.Operator.le_u
+    .op op [a', b']
+  | .op .gt_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.gt_s else Sparkle.IR.AST.Operator.gt_u
+    .op op [a', b']
+  | .op .ge_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.ge_s else Sparkle.IR.AST.Operator.ge_u
+    .op op [a', b']
+  | .op o args => .op o (args.map (promoteSignedComparisons env))
+  | .concat args => .concat (args.map (promoteSignedComparisons env))
+  | .slice e hi lo => .slice (promoteSignedComparisons env e) hi lo
+  | .index arr idx =>
+    .index (promoteSignedComparisons env arr) (promoteSignedComparisons env idx)
+  | e => e
+
+/-- Apply `promoteSignedComparisons` to every `Expr` stored in a `Stmt`. -/
+private def promoteSignedStmt (env : LowerEnv) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (promoteSignedComparisons env rhs)
+  | .register output clk rst input init =>
+    .register output clk rst (promoteSignedComparisons env input) init
+  | .memory name aw dw clk wa wd we ra rd cr =>
+    .memory name aw dw clk
+      (promoteSignedComparisons env wa)
+      (promoteSignedComparisons env wd)
+      (promoteSignedComparisons env we)
+      (promoteSignedComparisons env ra)
+      rd cr
+  | .inst modName instName conns =>
+    .inst modName instName
+      (conns.map fun (p, e) => (p, promoteSignedComparisons env e))
+
+-- ============================================================================
 -- Module lowering
 -- ============================================================================
 
@@ -1307,12 +1482,25 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     match paramVals.find? fun (n, _) => n == p.name with
     | some (_, v) => { p with value := .lit (.decimal (some 32) v) }
     | none => p
-  let svMod := { svMod with items := expandedItems, params := svParams }
+  -- Resolve symbolic port widths (e.g. `[W-1:0]`) against the resolved
+  -- parameter values.  Without this, the parser's `bitRange` falls back
+  -- to a 32-bit placeholder for any identifier-bearing bound, which
+  -- breaks parameters that were intended to size ports (issue #44).
+  let resolvedPorts := svMod.ports.map fun p =>
+    match p.widthExpr with
+    | none => p  -- already concrete
+    | some (hiE, loE) =>
+      match evalConstExpr paramVals hiE, evalConstExpr paramVals loE with
+      | some hiV, some loV => { p with width := some (hiV, loV) }
+      | _, _ => p  -- couldn't resolve; keep the parser's fallback
+  let svMod := { svMod with items := expandedItems, params := svParams, ports := resolvedPorts }
 
   -- Build environment
   let mut env := LowerEnv.empty
   for p in svMod.ports do
     env := { env with portWidths := env.portWidths ++ [(p.name, p.width)] }
+    if p.isSigned then
+      env := { env with signedNames := env.signedNames ++ [p.name] }
   for item in svMod.items do
     match item with
     | .wireDecl name width _ => env := { env with wireWidths := env.wireWidths ++ [(name, width)] }
@@ -1626,12 +1814,24 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         assertIdx := assertIdx + 1
     | _ => pure ()
 
+  -- Refinement passes (strictly additive — only rewrite shapes we
+  -- explicitly recognise, leave everything else alone):
+  --   1. narrowMaskStmt:        narrow `lowerExpr`'s 32-bit `~x` mask
+  --                             to the operand's actual width (Test 37,
+  --                             plus incidentally fixes issue #41 /
+  --                             Test 30).
+  --   2. promoteSignedStmt:     rewrite `lt_u`/`le_u`/`gt_u`/`ge_u` to
+  --                             their `_s` counterparts when either
+  --                             arg references a `signed` port
+  --                             (issue #43 / Test 32).
+  let narrowedBody := dedupBody.map (narrowMaskStmt env)
+  let promotedBody := narrowedBody.map (promoteSignedStmt env)
   pure {
     name := svMod.name
     inputs := inputs
     outputs := outputs
     wires := dedupWires
-    body := topoSortBody dedupBody
+    body := topoSortBody promotedBody
     assertions := assertions
     isPrimitive := false
   }
@@ -1807,10 +2007,22 @@ def lowerDesign (svDesign : SVDesign) : Except String Design := do
   for m in svDesign.modules do
     let lowered ← lowerModule m
     modules := modules ++ [lowered]
-  -- Use first module as top (flat wrapper is first, sub-modules follow)
-  let topName := match svDesign.modules.head? with
-    | some m => m.name
-    | none => "top"
+  -- Pick the top module: prefer the module that is NOT instantiated by
+  -- any other (so source order doesn't matter — a designer can declare
+  -- sub-modules either before or after the top).  Fall back to the
+  -- first module when every module is instantiated (e.g. mutual
+  -- instantiation, which Sparkle doesn't really support anyway).
+  --
+  -- This also avoids issue #42, where putting `module inc` before
+  -- `module bug2_chained_inst` made the flattener treat `inc` as the
+  -- top and silently drop the chained-instance design.
+  let instantiated : List String := modules.flatMap fun m =>
+    m.body.filterMap fun s => match s with
+      | .inst modName _ _ => some modName
+      | _ => none
+  let topName :=
+    (modules.find? fun m => !instantiated.contains m.name) |>.map (·.name)
+      |>.getD (modules.head?.map (·.name) |>.getD "top")
   pure { topModule := topName, modules }
 
 -- ============================================================================

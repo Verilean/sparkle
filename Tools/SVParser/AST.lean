@@ -16,6 +16,11 @@ inductive SVLiteral where
   | decimal (width : Option Nat) (value : Nat)
   | hex     (width : Option Nat) (value : Nat)
   | binary  (width : Option Nat) (value : Nat)
+  /-- `casez`-style binary literal with `?` wildcards (e.g. `4'b1???`).
+      `value` keeps the non-`?` bits set, `mask` has a 1 in every `?`
+      position (i.e. "bits to ignore when comparing").  Equivalent to
+      a plain `binary` when `mask = 0`. -/
+  | binaryWild (width : Nat) (value : Nat) (mask : Nat)
   deriving Repr, BEq
 
 /-- Unary operators -/
@@ -79,20 +84,36 @@ inductive SVPortDir where
   | input | output | inout
   deriving Repr, BEq
 
-/-- Port declaration -/
+/-- Port declaration.
+
+    `width` is the *resolved* `(hi, lo)` pair (e.g. `(7, 0)` for an
+    8-bit port).  `widthExpr` is the *symbolic* pair captured at parse
+    time when either bound mentions a parameter — e.g. `[W-1:0]`
+    becomes `widthExpr = some (W-1, 0)` while `width` falls back to
+    the parser's `(31, 0)` default.  Lower-time param substitution
+    resolves `widthExpr` against the param value map and overwrites
+    `width`.
+
+    `isSigned` records whether the declaration carried the `signed`
+    keyword (e.g. `input signed [7:0] a`).  Used by the lowering pass
+    to choose between unsigned (`lt_u`) and signed (`lt_s`) IR
+    operators in relational comparisons. -/
 structure SVPort where
-  dir    : SVPortDir
-  isReg  : Bool := false            -- output reg
-  width  : Option (Nat × Nat)       -- [hi:lo] or none for 1-bit
-  name   : String
+  dir       : SVPortDir
+  isReg     : Bool := false            -- output reg
+  width     : Option (Nat × Nat)       -- [hi:lo] or none for 1-bit
+  name      : String
+  widthExpr : Option (SVExpr × SVExpr) := none  -- symbolic [hi:lo] before param subst
+  isSigned  : Bool := false                     -- `signed` keyword present?
   deriving Repr, BEq
 
 /-- Parameter declaration -/
 structure SVParam where
-  name     : String
-  width    : Option (Nat × Nat)     -- optional [hi:lo]
-  value    : SVExpr                 -- default value expression
-  isLocal  : Bool := false          -- localparam vs parameter
+  name      : String
+  width     : Option (Nat × Nat)     -- optional [hi:lo]
+  value     : SVExpr                 -- default value expression
+  isLocal   : Bool := false          -- localparam vs parameter
+  widthExpr : Option (SVExpr × SVExpr) := none  -- symbolic [hi:lo] before param subst
   deriving Repr, BEq
 
 /-- Module-level items -/

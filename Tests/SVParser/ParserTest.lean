@@ -19,6 +19,12 @@ open Sparkle.Backend.Verilog
 open Sparkle.Backend.CppSim
 open Sparkle.Core.JIT
 
+-- The do-block of `main` is large enough that Lean's elaborator hits the
+-- default `maxRecDepth` (512) when it processes the trailing regression
+-- tests.  Bumping the budget keeps the whole file building without
+-- splitting tests into many `lean_exe` drivers.
+set_option maxRecDepth 1024
+
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
 
@@ -1454,6 +1460,315 @@ endmodule
       IO.println "PASS"; passed := passed + 1
     else
       IO.println s!"FAIL: expected [28], got {results}"; failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- ===================================================================
+  -- Tests 30-34: regression coverage for open SVParser bugs.
+  -- These reproduce the failures reported in issues #41-#45.  Each is
+  -- expected to FAIL on the affected commit and PASS once the
+  -- corresponding lowering / parser fix lands.
+  -- ===================================================================
+
+  -- Test 30 (issue #41): reduction-AND `&x` on a sub-32-bit operand.
+  -- Original bug: lowerExpr used a hardcoded 32-bit all-ones mask,
+  -- so `&a` for `a = 4'b1111` returned 0 instead of 1.
+  -- Now fixed indirectly by the `narrowMaskConstants` post-pass in
+  -- `Lower.lean` (the same pass that fixes Test 37).  Kept as a
+  -- regression guard so any future change that re-widens the mask
+  -- will fail here.
+  IO.print "  Test 30: reduction-AND on 4-bit operand (issue #41)... "
+  try
+    let v := "
+module bug1_reduction_and (input clk, input [3:0] a, output y);
+  assign y = &a;
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0xF)  -- a = 4'b1111
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [1] for &4'b1111, got {results} (issue #41)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 31 (issue #42): two module instances chained via an internal wire.
+  -- Original-bug description: "flattenDesign drops the bridge wire,
+  -- so `y = ~~a` collapses to `y = ~a`."  The real root cause is
+  -- subtler — `lowerDesign` used to pick the *first* module in source
+  -- order as the top, so declaring sub-modules before the top (which
+  -- is the natural Verilog order — top last) caused the flattener to
+  -- treat the leaf sub-module as the top.  Fixed by `lowerDesign`
+  -- now picking the module that is not instantiated by any other.
+  IO.print "  Test 31: chained module instances via internal wire (issue #42)... "
+  try
+    let v := "
+module inc (input [7:0] x, output [7:0] o);
+  assign o = ~x;
+endmodule
+
+module bug2_chained_inst (input clk, input [7:0] a, output [7:0] y);
+  wire [7:0] mid;
+  inc u1 (.x(a),   .o(mid));
+  inc u2 (.x(mid), .o(y));
+endmodule
+"
+    -- a = 125 → mid = ~125 = 130 → y = ~130 = 125 (= a)
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 125)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [125] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [125], got {results} (issue #42 — likely 130 = ~125, second instance bypassed)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 32 (issue #43): signed comparison.
+  -- Bug: parser drops `signed`, Lower.lean hardcodes `.lt_u` for <,
+  -- so a signed-negative `a` is compared as a large unsigned value
+  -- and `(-106) < 127` returns 0 instead of 1.
+  IO.print "  Test 32: signed comparison `a < b` (issue #43)... "
+  try
+    let v := "
+module bug3_signed_lt (input clk, input signed [7:0] a, input signed [7:0] b, output lt);
+  assign lt = a < b;
+endmodule
+"
+    -- a = -106 (8'hFFFF...96 -> low 8 bits 0x96), b = 127 (0x7F)
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0x96  -- -106 as 8-bit two's complement
+                   JIT.setInput h 1 0x7F) -- 127
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [1] for (-106) < 127 signed, got {results} (issue #43)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 33 (issue #44): parameter default width hardcoded to 32.
+  -- Bug: in Lower.lean `paramWidth` falls back to 32 for any
+  -- parameter without an explicit range, so an 8-bit-input port
+  -- declared `[W-1:0]` with default `parameter W = 8` resolves to
+  -- 32 bits instead of 8.  We exercise the symptom indirectly: the
+  -- module multiplies `a` (declared `[W-1:0]` with default W = 8)
+  -- by a literal — when the port is correctly 8-bit, `a` gets
+  -- masked to 0xFF before being multiplied; when the bug widens
+  -- the port to 32-bit, the upper 24 bits of whatever the host
+  -- passed in (or undefined garbage) participate in the product.
+  -- We feed a value with set bits above bit 7 (0x1FF = 511) and
+  -- multiply by 1 — a correctly-truncated module returns
+  -- 0x1FF & 0xFF = 0xFF = 255, but with the 32-bit-wide port the
+  -- full 0x1FF passes through.
+  -- Diagnostic A: parameter default width — verbatim from the issue.
+  -- `[W-1:0] a` with default W = 8 should mask 0x1FF down to 0xFF;
+  -- if W resolves to 32 internally, 0x1FF leaks through.
+  IO.print "  Test 33a: parameter default width (issue #44 verbatim)... "
+  try
+    let v := "
+module param_default_width #(parameter W = 8) (input clk, input [W-1:0] a, output [W-1:0] y);
+  assign y = a + 1;
+endmodule
+"
+    -- a = 255 (0xFF).  Correct: 8-bit (a+1) wraps to 0.
+    -- Bug (W=32 internally): result = 256, low 8 bits = 0 — same value but for the wrong reason.
+    -- So feed 0x1FF instead: 8-bit input port should mask to 0xFF, (a+1) = 0; 32-bit port
+    -- leaks 0x1FF, (a+1) = 0x200, low 8 bits at the [W-1:0] output = 0 again.
+    -- The cleanest probe is to read `a` straight through: a 0x1FF input on an 8-bit
+    -- port → 0xFF out; on a 32-bit port → 0x1FF out.  We test that separately as 33.
+    -- Here we exercise the issue's literal repro and report the value either way.
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 255)  -- 0xFF, fits in 8 bits
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- With a = 0xFF and `assign y = a + 1`, an 8-bit lowering wraps to 0.
+    if results == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [0] (8-bit wrap of 255+1), got {results} (issue #44)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 33b: same defect, but exposed via a value that distinguishes
+  -- 8-bit-masked input from 32-bit-passed-through input.  An 8-bit
+  -- port truncates 0x1FF to 0xFF (255); a 32-bit port forwards 0x1FF (511).
+  IO.print "  Test 33b: parameter default width truncates input (issue #44)... "
+  try
+    let v := "
+module bug4_param_default_width #(parameter W = 8) (input clk, input [W-1:0] a, output [15:0] y);
+  assign y = a;
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0x1FF)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [0xFF] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [255] (8-bit input mask), got {results} (issue #44 — default W resolved to 32)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 33c: issue #44 symptom 2 — localparam constant-expression
+  -- width.  `K = 3 + 4` should resolve to 7; the bug truncates K to
+  -- 1-bit so `y = a + K` returns `a + 1` instead of `a + 7`.
+  IO.print "  Test 33c: localparam K = 3+4 width (issue #44 symptom 2)... "
+  try
+    let v := "
+module localparam_expr (input clk, input [7:0] a, output [7:0] y);
+  localparam K = 3 + 4;
+  assign y = a + K;
+endmodule
+"
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 10)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [17] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [17] (10 + (3+4)), got {results} (issue #44 sympt. 2 — likely 11 = 10+1, K truncated)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- ===================================================================
+  -- Tests 35-38: probe other 32-bit-hardcoded constants in
+  -- `Tools/SVParser/Lower.lean` that look like the issue-#41 family
+  -- (operand-width-blind constants used to build IR for reduction /
+  -- bitwise-NOT / logical-AND/OR / signed-extend lowerings).  If any
+  -- of these PASS today they are passive regression guards; if they
+  -- FAIL they are new bugs that warrant their own issues.
+  -- ===================================================================
+
+  -- Test 35: reduction-OR `|a` on a 4-bit operand.
+  -- Lower.lean line 155 uses a 32-bit `.const 0 32` for the
+  -- `(a != 0)` lowering.  With a 4-bit `a`, the wider zero may
+  -- still compare equal to a (truncated) zero, but the eq result
+  -- semantics aren't guaranteed when operand widths disagree.
+  IO.print "  Test 35: reduction-OR on 4-bit operand (Lower.lean:155)... "
+  try
+    let v := "
+module probe_redor (input clk, input [3:0] a, output y);
+  assign y = |a;
+endmodule
+"
+    -- a = 4'b0001 → expected 1 (any bit set)
+    -- a = 4'b0000 → expected 0
+    let r1 ← jitRun v (fun h => do JIT.setInput h 0 1) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v (fun h => do JIT.setInput h 0 0) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if r1 == [1] && r0 == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: a=1→{r1} a=0→{r0} (expected [1] and [0])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 36: logical-NOT `!a` on a 4-bit operand.
+  -- Lower.lean line 158 uses `.const 0 32` for the `(a == 0)`
+  -- lowering.  Same width-mismatch concern as Test 35.
+  IO.print "  Test 36: logical-NOT on 4-bit operand (Lower.lean:158)... "
+  try
+    let v := "
+module probe_lnot (input clk, input [3:0] a, output y);
+  assign y = !a;
+endmodule
+"
+    let r1 ← jitRun v (fun h => do JIT.setInput h 0 5) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v (fun h => do JIT.setInput h 0 0) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- !5 = 0, !0 = 1
+    if r1 == [0] && r0 == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: !5→{r1} !0→{r0} (expected [0] and [1])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 37: bitwise-NOT `~a` on a 4-bit operand, observed via a
+  -- downstream `+`.  Lower.lean line 161 emits `x XOR -1` with a
+  -- 32-bit constant; without the `narrowMaskConstants` post-pass
+  -- the upper-28 XORed bits leak into adjacent arithmetic and
+  -- `~0 + 1` returns 0 instead of 16.  Fixed by that pass.
+  IO.print "  Test 37: bitwise-NOT 4-bit, value-only check (Lower.lean:161)... "
+  try
+    let v := "
+module probe_bnot (input clk, input [3:0] a, output [4:0] y);
+  assign y = ~a + 1;
+endmodule
+"
+    -- a = 4'b0000; ~a = 4'b1111 = 15; 15 + 1 = 16 (5 bits clean)
+    -- bug: ~a as a 32-bit XOR = 0xFFFFFFFF; + 1 = 0x100000000 → low 5 bits = 0
+    let r ← jitRun v (fun h => do JIT.setInput h 0 0) 1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if r == [16] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: ~0+1 (4-bit) → {r}, expected [16]"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 38: logical-AND `a && b` on 4-bit operands.
+  -- Lower.lean line 176-178 uses `.const 0 32` for both
+  -- `(lhs != 0)` and `(rhs != 0)` lowerings.
+  IO.print "  Test 38: logical-AND 4-bit operands (Lower.lean:176)... "
+  try
+    let v := "
+module probe_land (input clk, input [3:0] a, input [3:0] b, output y);
+  assign y = a && b;
+endmodule
+"
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 3; JIT.setInput h 1 5)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v
+      (fun h => do JIT.setInput h 0 0; JIT.setInput h 1 5)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if r == [1] && r0 == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: 3&&5→{r}, 0&&5→{r0} (expected [1] and [0])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 34 (issue #45): casez `?` wildcards.
+  -- Bug: casez is routed through the same parseCaseBody as case, so
+  -- `?` in case items is compared as an ordinary bit (= 0) and the
+  -- wildcard arm never matches.
+  IO.print "  Test 34: casez `?` wildcards (issue #45)... "
+  try
+    let v := "
+module bug5_casez_wild (input clk, input [3:0] s, output [1:0] y);
+  reg [1:0] yr;
+  assign y = yr;
+  always @* begin
+    casez (s)
+      4'b1???: yr = 2'd3;
+      default: yr = 2'd0;
+    endcase
+  end
+endmodule
+"
+    -- s = 4'b1010 should match `4'b1???` arm → y = 3
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0b1010)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [3] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [3] for casez 4'b1??? match, got {results} (issue #45 — wildcard arm never fires)"
+      failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
