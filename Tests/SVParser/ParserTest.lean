@@ -1527,6 +1527,70 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 31b (issue #42 follow-up — comment #4673267681): two PARALLEL
+  -- instances with no shared internal wire.  Originally reported as
+  -- "only the first instance takes effect"; now passes thanks to the
+  -- top-module selection fix in `lowerDesign`.  Kept as a regression
+  -- guard for the broader multi-instance flattening path.
+  IO.print "  Test 31b: parallel module instances (issue #42 follow-up)... "
+  try
+    let v := "
+module add1 (input [7:0] x, output [7:0] o);
+  assign o = x + 8'd1;
+endmodule
+
+module parallel_inst (input clk, input [7:0] a, input [7:0] b, output [7:0] ya, output [7:0] yb);
+  add1 u1 (.x(a), .o(ya));
+  add1 u2 (.x(b), .o(yb));
+endmodule
+"
+    -- a = 10 → ya = 11; b = 200 → yb = 201.
+    -- `JIT.setInput` indexes the user inputs (clk is skipped), so 0 = a,
+    -- 1 = b — see emitSetInputSwitch in Sparkle/Backend/CppSim.lean.
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 10; JIT.setInput h 1 200)
+      1
+      (fun h => do
+        let ya ← JIT.getOutput h 0
+        let yb ← JIT.getOutput h 1
+        return [ya, yb])
+    if results == [11, 201] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [11, 201] (ya=a+1, yb=b+1), got {results} (issue #42 follow-up — second instance bypassed)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 31c (issue #42 follow-up — comment #4673267681): 3-deep chain
+  -- through two internal wires.  ~~~a = ~a for an 8-bit operand, so
+  -- expected y = ~a.
+  IO.print "  Test 31c: 3-deep instance chain (issue #42 follow-up)... "
+  try
+    let v := "
+module inc (input [7:0] x, output [7:0] o);
+  assign o = ~x;
+endmodule
+
+module deep3 (input clk, input [7:0] a, output [7:0] y);
+  wire [7:0] m1;
+  wire [7:0] m2;
+  inc u1 (.x(a),  .o(m1));
+  inc u2 (.x(m1), .o(m2));
+  inc u3 (.x(m2), .o(y));
+endmodule
+"
+    -- a = 0x55 → m1 = 0xAA → m2 = 0x55 → y = 0xAA (= ~0x55 for 8-bit)
+    let results ← jitRun v
+      (fun h => do JIT.setInput h 0 0x55)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if results == [0xAA] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: expected [170] (~0x55 = 0xAA after 3 inversions), got {results} (issue #42 follow-up)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   -- Test 32 (issue #43): signed comparison.
   -- Bug: parser drops `signed`, Lower.lean hardcodes `.lt_u` for <,
   -- so a signed-negative `a` is compared as a large unsigned value
