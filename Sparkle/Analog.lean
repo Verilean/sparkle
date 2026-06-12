@@ -5,6 +5,7 @@ import Sparkle.Analog.DSL.Build
 import Sparkle.Analog.Symbolic.Diff
 import Sparkle.Analog.Solver.LinAlg
 import Sparkle.Analog.Solver.MNA
+import Sparkle.Analog.Solver.Transient
 
 /-!
 # Sparkle.Analog — continuous-time analog modelling

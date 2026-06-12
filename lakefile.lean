@@ -99,6 +99,11 @@ lean_lib «Tools.SVParser» where
 lean_lib «Sparkle.Analog» where
   roots := #[`Sparkle.Analog]
 
+-- Phase-1 exit criterion: RC/RLC transient vs closed-form.
+lean_exe «analog-transient-test» where
+  root := `Tests.Analog.TransientTest
+  supportInterpreter := true
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
