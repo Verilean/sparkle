@@ -1851,7 +1851,12 @@ elab "#synthesizeVerilog" id:ident : command => do
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
       Lean.logWarning m!"{w}"
-    let verilog := toVerilog module
+    -- Run the IR optimizer so 0-bit shapes (from `runCircuitH` /
+    -- `bundle2 _ (Signal.pure ())`) are stripped before emission —
+    -- without this we'd output `assign x = 0'd0;`, an invalid
+    -- 0-width SystemVerilog literal that yosys/iverilog reject.
+    let optimized := Sparkle.IR.Optimize.optimizeModule module
+    let verilog := toVerilog optimized
     -- NB: `IO.println`, not `logInfo`.  This command's primary role
     -- is CLI / `lake build` smoke-testing — the synthesis check is
     -- what matters; the printed Verilog is for terminal use only.
@@ -1880,7 +1885,9 @@ elab "#showVerilog" id:ident : command => do
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
       Lean.logWarning m!"{w}"
-    let src := toVerilog module
+    -- Optimize before emission — same rationale as #synthesizeVerilog.
+    let optimized := Sparkle.IR.Optimize.optimizeModule module
+    let src := toVerilog optimized
     let escSrc := src
       |>.replace "&" "&amp;"
       |>.replace "<" "&lt;"
