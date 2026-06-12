@@ -502,16 +502,27 @@ int main(int argc, char** argv) {
             }
             if (in_trace) {
 #ifdef TRACE_INTERNAL_SIGNALS
-                uint8_t sup_exwb = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_suppressEXWB != 0;
+                // `_gen_suppressEXWB` is a combinational OR of five inputs
+                // (trap_taken, dTLBMiss, pendingWriteEn, mmuBusy, dMMURedirect).
+                // Verilator inlines it because some of its inputs
+                // (`_gen_trap_taken`, `_gen_pendingWriteEn`) are themselves
+                // not exposed as struct members.  Reconstruct from the
+                // subset that IS exposed; the trap_taken/pendingWriteEn
+                // contributions are available on the JIT path
+                // (Tests/RV32/JITLinuxBootTest.lean).
+                uint8_t sup_exwb_approx =
+                    dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss
+                  | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_mmuBusy
+                  | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dMMURedirect;
                 uint8_t div_stall = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_divStall != 0;
-                uint8_t dtlb_miss = 0; // _gen_dTLBMiss optimized away by Verilator
+                uint8_t dtlb_miss = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss != 0;
                 uint8_t stall_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_stall;
                 uint32_t wr_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_dmem_write_addr;
                 uint8_t wr_en0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_byte0_we;
                 uint8_t flush_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_flush;
                 uint32_t rd_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
-                printf("  [MBAR] cy=%llu PC=0x%08x supEXWB=%d divStall=%d dMiss=%d stall=%d flush=%d wrEn=%d wrAddr=0x%06x rdAddr=0x%06x\n",
-                       (unsigned long long)cycle, pc, sup_exwb, div_stall, dtlb_miss, stall_sig, flush_sig, wr_en0, wr_addr, rd_addr);
+                printf("  [MBAR] cy=%llu PC=0x%08x supEXWBapprox=%d divStall=%d dMiss=%d stall=%d flush=%d wrEn=%d wrAddr=0x%06x rdAddr=0x%06x\n",
+                       (unsigned long long)cycle, pc, sup_exwb_approx, div_stall, dtlb_miss, stall_sig, flush_sig, wr_en0, wr_addr, rd_addr);
 #else
                 printf("  [MBAR] cy=%llu PC=0x%08x\n", (unsigned long long)cycle, pc);
 #endif
@@ -733,7 +744,12 @@ int main(int argc, char** argv) {
 #ifdef TRACE_INTERNAL_SIGNALS
             uint32_t alu_result = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_alu_result_approx;
             uint32_t rd_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
-            uint8_t sup_exwb = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_suppressEXWB != 0;
+            // `_gen_suppressEXWB` inlined by Verilator — see the MBAR
+            // block above for the rationale.  Use the same subset OR.
+            uint8_t sup_exwb_approx =
+                dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss
+              | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_mmuBusy
+              | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dMMURedirect;
             uint8_t stall_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_stall;
             uint8_t flush_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_flush;
             uint8_t div_stall = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_divStall != 0;
@@ -745,8 +761,8 @@ int main(int argc, char** argv) {
             // Also read exwb_physAddr (forwarding address)
             uint32_t wr_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_dmem_write_addr;
             uint8_t wr_en0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_byte0_we;
-            printf("  [BGE-TRACE] cy=%llu PC=0x%08x ALU=0x%08x rdAddr=0x%06x dmem=0x%08x sup=%d stall=%d flush=%d divS=%d wrEn=%d wrAddr=0x%06x\n",
-                   (unsigned long long)cycle, pc, alu_result, rd_addr, dmem_val, sup_exwb, stall_sig, flush_sig, div_stall, wr_en0, wr_addr);
+            printf("  [BGE-TRACE] cy=%llu PC=0x%08x ALU=0x%08x rdAddr=0x%06x dmem=0x%08x supApprox=%d stall=%d flush=%d divS=%d wrEn=%d wrAddr=0x%06x\n",
+                   (unsigned long long)cycle, pc, alu_result, rd_addr, dmem_val, sup_exwb_approx, stall_sig, flush_sig, div_stall, wr_en0, wr_addr);
 #endif
         }
         if (pc == 0xC01514F8) { // bge a5,a4 - cells remaining check
@@ -850,9 +866,14 @@ int main(int argc, char** argv) {
 #ifdef TRACE_INTERNAL_SIGNALS
                     uint8_t flush_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_flush;
                     uint8_t stall_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_stall;
-                    uint8_t sup_exwb = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_suppressEXWB != 0;
-                    printf("  [LBT] cy=%llu PC=0x%08x flush=%d stall=%d supEXWB=%d\n",
-                           (unsigned long long)cycle, pc, flush_sig, stall_sig, sup_exwb);
+                    // `_gen_suppressEXWB` inlined by Verilator — same
+                    // reconstruction as the MBAR / BGE-TRACE blocks above.
+                    uint8_t sup_exwb_approx =
+                        dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss
+                      | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_mmuBusy
+                      | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dMMURedirect;
+                    printf("  [LBT] cy=%llu PC=0x%08x flush=%d stall=%d supEXWBapprox=%d\n",
+                           (unsigned long long)cycle, pc, flush_sig, stall_sig, sup_exwb_approx);
 #else
                     printf("  [LBT] cy=%llu PC=0x%08x\n", (unsigned long long)cycle, pc);
 #endif
@@ -884,6 +905,17 @@ int main(int argc, char** argv) {
         // Window 1: cycles 2747495-2747520 (GOOD translation of DTB reg data)
         // Window 2: cycles 2754530-2754560 (BAD translation - DMEM addr 0x7FFFFF)
         // Window 3: PTW activity between (eviction of TLB entry)
+        //
+        // NOTE: `_gen_ptwStateNext` and `_gen_suppressEXWB` are inlined by
+        // Verilator (their inputs `_gen_trap_taken` / `_gen_pendingWriteEn`
+        // are themselves inlined), so the struct doesn't expose these
+        // members and the whole `[MMU]` debug block fails to compile.
+        // The MMU trace is debug-only — gate it behind a second opt-in
+        // so the default `lake test` build path stays green.  To re-enable
+        // locally, compile with `-DSPARKLE_VERILATOR_EXPOSE_MMU` *and*
+        // expose the missing wires (e.g. by adding them to the synth
+        // bundle in IP/RV32/SoCVerilog.lean and the wrapper).
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_MMU)
         if ((cycle >= 2747495 && cycle <= 2747520) ||
             (cycle >= 2754530 && cycle <= 2754560) ||
             // Also trace any cycle where ptwStateNext != 0 in the gap
@@ -891,7 +923,7 @@ int main(int argc, char** argv) {
              dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_ptwStateNext != 0)) {
             uint32_t dmem_rd = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
             uint8_t use_translated = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_useTranslatedAddr;
-            uint8_t dtlb_miss = 0; // _gen_dTLBMiss optimized away by Verilator
+            uint8_t dtlb_miss = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss != 0;
             uint32_t eff_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_effectiveAddr;
             uint32_t dphys = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dPhysAddr;
             uint32_t alu_approx = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_alu_result_approx;
@@ -901,10 +933,11 @@ int main(int argc, char** argv) {
             uint8_t flush = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_flush;
             uint8_t flush_delay = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_flushOrDelay;
             uint8_t suppress = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_suppressEXWB;
-            printf("  [MMU] cy=%llu PC=0x%08x dmem=0x%06x useTr=%d dMiss=%d eff=0x%08x dPhy=0x%08x aluA=0x%08x ptwSN=%d ptwR=%d st=%d fl=%d sup=%d\n",
+            printf("  [MMU] cy=%llu PC=0x%08x dmem=0x%06x useTr=%d dMiss=%d eff=0x%08x dPhy=0x%08x aluA=0x%08x ptwSN=%d ptwR=%d st=%d fl=%d flDly=%d sup=%d\n",
                    (unsigned long long)cycle, pc, dmem_rd, use_translated, dtlb_miss,
-                   eff_addr, dphys, alu_approx, ptw_state_next, ptw_req, stall, flush, suppress);
+                   eff_addr, dphys, alu_approx, ptw_state_next, ptw_req, stall, flush, flush_delay, suppress);
         }
+#endif
         if (pc == 0xC01514C4) {
             printf("cycle %llu: early_init_dt_scan_memory: add s4,s4,a5 [s4=end_ptr] at PC=0x%08x\n",
                    (unsigned long long)cycle, pc);
