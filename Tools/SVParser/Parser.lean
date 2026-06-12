@@ -482,10 +482,10 @@ def parsePortInList : P SVPort := do
   let isReg ← match ← attempt (keyword "reg") with | some _ => pure true | none => pure false
   let _ ← attempt (keyword "logic")
   let _ ← attempt (keyword "wire")
-  let _ ← attempt (keyword "signed")
+  let isSigned := match ← attempt (keyword "signed") with | some _ => true | none => false
   let (width, widthExpr) ← parseOptWidthSym
   let name ← identifier
-  pure { dir, isReg, width, name, widthExpr }
+  pure { dir, isReg, width, name, widthExpr, isSigned }
 
 /-- Parse port list with direction carry-over.
     In Verilog, `input clk, resetn` means both are inputs.
@@ -498,6 +498,7 @@ def parsePortList : P (List SVPort) := do
   let mut lastIsReg := first.isReg
   let mut lastWidth := first.width
   let mut lastWidthExpr := first.widthExpr
+  let mut lastIsSigned := first.isSigned
   let mut cont := true
   while cont do
     match ← attempt comma with
@@ -509,24 +510,26 @@ def parsePortList : P (List SVPort) := do
         lastIsReg := match ← attempt (keyword "reg") with | some _ => true | none => false
         let _ ← attempt (keyword "logic")
         let _ ← attempt (keyword "wire")
-        let _ ← attempt (keyword "signed")
+        lastIsSigned := match ← attempt (keyword "signed") with | some _ => true | none => false
         let (w, we) ← parseOptWidthSym
         lastWidth := w
         lastWidthExpr := we
         let name ← identifier
         let port := { dir := lastDir, isReg := lastIsReg, width := lastWidth,
-                      widthExpr := lastWidthExpr, name : SVPort }
+                      widthExpr := lastWidthExpr, isSigned := lastIsSigned,
+                      name : SVPort }
         ports := ports ++ [port]
       | none =>
         -- No direction keyword — carry over from previous
-        let _ ← attempt (keyword "signed")
+        let newSigned := match ← attempt (keyword "signed") with | some _ => true | none => lastIsSigned
         -- Check for new width override
         let (width, widthExpr) ← parseOptWidthSym
         let w := if width.isSome then width else lastWidth
         let we := if width.isSome then widthExpr else lastWidthExpr
         let name ← identifier
         let port := { dir := lastDir, isReg := lastIsReg, width := w,
-                      widthExpr := we, name : SVPort }
+                      widthExpr := we, isSigned := newSigned,
+                      name : SVPort }
         ports := ports ++ [port]
     | none => cont := false
   rparen; pure ports

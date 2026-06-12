@@ -92,13 +92,19 @@ inductive SVPortDir where
     becomes `widthExpr = some (W-1, 0)` while `width` falls back to
     the parser's `(31, 0)` default.  Lower-time param substitution
     resolves `widthExpr` against the param value map and overwrites
-    `width`. -/
+    `width`.
+
+    `isSigned` records whether the declaration carried the `signed`
+    keyword (e.g. `input signed [7:0] a`).  Used by the lowering pass
+    to choose between unsigned (`lt_u`) and signed (`lt_s`) IR
+    operators in relational comparisons. -/
 structure SVPort where
-  dir    : SVPortDir
-  isReg  : Bool := false            -- output reg
-  width  : Option (Nat × Nat)       -- [hi:lo] or none for 1-bit
-  name   : String
+  dir       : SVPortDir
+  isReg     : Bool := false            -- output reg
+  width     : Option (Nat × Nat)       -- [hi:lo] or none for 1-bit
+  name      : String
   widthExpr : Option (SVExpr × SVExpr) := none  -- symbolic [hi:lo] before param subst
+  isSigned  : Bool := false                     -- `signed` keyword present?
   deriving Repr, BEq
 
 /-- Parameter declaration -/

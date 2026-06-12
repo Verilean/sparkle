@@ -42,11 +42,13 @@ def widthToBits : Option (Nat × Nat) → Nat
 -- ============================================================================
 
 structure LowerEnv where
-  portWidths : List (String × Option (Nat × Nat))  -- port name → width
-  wireWidths : List (String × Option (Nat × Nat))  -- wire name → width
-  regNames   : List String                          -- names declared as reg
+  portWidths  : List (String × Option (Nat × Nat))  -- port name → width
+  wireWidths  : List (String × Option (Nat × Nat))  -- wire name → width
+  regNames    : List String                          -- names declared as reg
+  signedNames : List String := []                    -- ports declared `signed`
 
-def LowerEnv.empty : LowerEnv := { portWidths := [], wireWidths := [], regNames := [] }
+def LowerEnv.empty : LowerEnv :=
+  { portWidths := [], wireWidths := [], regNames := [], signedNames := [] }
 
 def LowerEnv.getWidth (env : LowerEnv) (name : String) : Option (Nat × Nat) :=
   (env.portWidths.find? (·.1 == name) |>.map (·.2)).join <|>
@@ -57,6 +59,14 @@ def LowerEnv.getHWType (env : LowerEnv) (name : String) : HWType :=
 
 def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
   env.regNames.any (· == name)
+
+/-- Conservative signedness inference for SV expressions: an expression
+    is *signed* iff its top-level operand reaches a declared-`signed`
+    port or wire.  Mirrors Verilog's "context-determined" signedness
+    only in the common operand-ref case; sub-expressions involving
+    arithmetic are treated as unsigned (matches IR `op` semantics). -/
+def LowerEnv.isSignedRef (env : LowerEnv) (name : String) : Bool :=
+  env.signedNames.any (· == name)
 
 -- ============================================================================
 -- Expression lowering
@@ -1380,6 +1390,76 @@ private def narrowMaskStmt (env : LowerEnv) : Stmt → Stmt
       (conns.map fun (p, e) => (p, narrowMaskConstants env e))
 
 -- ============================================================================
+-- Post-pass: promote unsigned relational ops (`<`, `<=`, `>`, `>=`) to
+-- their signed counterparts when at least one operand is a reference to
+-- a port declared with the SystemVerilog `signed` keyword.
+--
+-- `lowerExpr` always emits `.lt_u` / `.le_u` / `.gt_u` / `.ge_u` because
+-- it can't see the surrounding `LowerEnv`.  Without this fix-up, a
+-- comparison of two `signed [7:0]` ports is performed as unsigned and
+-- e.g. `(-106) < 127` returns 0 (issue #43, Test 32).
+-- ============================================================================
+
+/-- Does this IR expression reach a signed port reference at its leaf
+    operand position?  Conservative — only `.ref` chains and trivial
+    slices propagate signedness; arithmetic mixes lose it (which
+    matches the IR's own context-determined arithmetic semantics). -/
+private partial def exprHasSignedLeaf (env : LowerEnv) : Expr → Bool
+  | .ref name => env.isSignedRef name
+  | .slice e _ _ => exprHasSignedLeaf env e
+  | _ => false
+
+/-- Rewrite each `lt_u`/`le_u`/`gt_u`/`ge_u` to the signed counterpart
+    when either argument references a signed port. -/
+private partial def promoteSignedComparisons (env : LowerEnv) : Expr → Expr
+  | .op .lt_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.lt_s else Sparkle.IR.AST.Operator.lt_u
+    .op op [a', b']
+  | .op .le_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.le_s else Sparkle.IR.AST.Operator.le_u
+    .op op [a', b']
+  | .op .gt_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.gt_s else Sparkle.IR.AST.Operator.gt_u
+    .op op [a', b']
+  | .op .ge_u [a, b] =>
+    let a' := promoteSignedComparisons env a
+    let b' := promoteSignedComparisons env b
+    let op := if exprHasSignedLeaf env a' || exprHasSignedLeaf env b' then
+              Sparkle.IR.AST.Operator.ge_s else Sparkle.IR.AST.Operator.ge_u
+    .op op [a', b']
+  | .op o args => .op o (args.map (promoteSignedComparisons env))
+  | .concat args => .concat (args.map (promoteSignedComparisons env))
+  | .slice e hi lo => .slice (promoteSignedComparisons env e) hi lo
+  | .index arr idx =>
+    .index (promoteSignedComparisons env arr) (promoteSignedComparisons env idx)
+  | e => e
+
+/-- Apply `promoteSignedComparisons` to every `Expr` stored in a `Stmt`. -/
+private def promoteSignedStmt (env : LowerEnv) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (promoteSignedComparisons env rhs)
+  | .register output clk rst input init =>
+    .register output clk rst (promoteSignedComparisons env input) init
+  | .memory name aw dw clk wa wd we ra rd cr =>
+    .memory name aw dw clk
+      (promoteSignedComparisons env wa)
+      (promoteSignedComparisons env wd)
+      (promoteSignedComparisons env we)
+      (promoteSignedComparisons env ra)
+      rd cr
+  | .inst modName instName conns =>
+    .inst modName instName
+      (conns.map fun (p, e) => (p, promoteSignedComparisons env e))
+
+-- ============================================================================
 -- Module lowering
 -- ============================================================================
 
@@ -1419,6 +1499,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   let mut env := LowerEnv.empty
   for p in svMod.ports do
     env := { env with portWidths := env.portWidths ++ [(p.name, p.width)] }
+    if p.isSigned then
+      env := { env with signedNames := env.signedNames ++ [p.name] }
   for item in svMod.items do
     match item with
     | .wireDecl name width _ => env := { env with wireWidths := env.wireWidths ++ [(name, width)] }
@@ -1732,16 +1814,24 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         assertIdx := assertIdx + 1
     | _ => pure ()
 
-  -- Refinement pass: narrow the 32-bit all-ones mask emitted for
-  -- bitwise-NOT (`~x`) to the operand's actual width when known.
-  -- See the comment above `narrowMaskConstants` for the rationale.
+  -- Refinement passes (strictly additive — only rewrite shapes we
+  -- explicitly recognise, leave everything else alone):
+  --   1. narrowMaskStmt:        narrow `lowerExpr`'s 32-bit `~x` mask
+  --                             to the operand's actual width (Test 37,
+  --                             plus incidentally fixes issue #41 /
+  --                             Test 30).
+  --   2. promoteSignedStmt:     rewrite `lt_u`/`le_u`/`gt_u`/`ge_u` to
+  --                             their `_s` counterparts when either
+  --                             arg references a `signed` port
+  --                             (issue #43 / Test 32).
   let narrowedBody := dedupBody.map (narrowMaskStmt env)
+  let promotedBody := narrowedBody.map (promoteSignedStmt env)
   pure {
     name := svMod.name
     inputs := inputs
     outputs := outputs
     wires := dedupWires
-    body := topoSortBody narrowedBody
+    body := topoSortBody promotedBody
     assertions := assertions
     isPrimitive := false
   }
