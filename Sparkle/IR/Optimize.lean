@@ -384,11 +384,87 @@ def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
   let newDm := buildDefMap newBody
   (newBody, newDm)
 
-/-- Optimize a module: eliminate concat/slice chains, then remove dead code -/
+/-- Filter zero-bit elements out of an Expr tree.
+
+    `lowerExpr` / `runCircuitH`-style elaborators can produce IR
+    nodes that thread a `bitVector 0` "empty payload" through
+    `.concat` and `.slice` chains — for instance `bundle2 X
+    (Signal.pure ())` lowers to `.concat [X, <0-bit ref>]`, and
+    the matching `Signal.map Prod.fst` lowers to a slice that
+    discards the 0-bit tail.
+
+    Emitting these into SystemVerilog produces invalid constructs
+    like `assign x = 0'd0;` (a zero-width literal is not legal SV).
+    This pass rewrites the IR so that:
+      - `.const v 0` is dropped from `.concat` arg lists;
+      - `.concat [x]` (after dropping zero-bit args) collapses to
+        the single remaining arg;
+      - `.concat []` collapses to a 1-bit zero placeholder (should
+        be unreachable in practice — pruned later by DCE);
+      - `.slice e hi lo` where `hi - lo + 1 == 0` is rewritten to
+        a 0-bit constant (later dropped at the use site).
+
+    Sub-expressions are rewritten recursively. -/
+partial def eliminateZeroBitInExpr (wm : WidthMap) : Expr → Expr
+  | .const v w => .const v w
+  | .ref name => .ref name
+  | .op o args => .op o (args.map (eliminateZeroBitInExpr wm))
+  | .concat args =>
+    let cleaned := (args.map (eliminateZeroBitInExpr wm)).filter fun a =>
+      inferWidth wm a > 0
+    match cleaned with
+    | []  => .const 0 0       -- whole concat collapsed away
+    | [x] => x
+    | xs  => .concat xs
+  | .slice e hi lo =>
+    let e' := eliminateZeroBitInExpr wm e
+    -- Tight peephole: `slice X 0 0` where `X` is itself 1-bit
+    -- collapses to `X`.  This catches the most common shape that
+    -- `runCircuitH` produces (`Signal.map Prod.fst` of a packed
+    -- single-bit register).  Wider full-width slices are left
+    -- alone — folding them away interacts badly with downstream
+    -- passes that index sub-fields by their slice shape.
+    if hi == 0 && lo == 0 && inferWidth wm e' == 1 then e'
+    else .slice e' hi lo
+  | .index a i => .index (eliminateZeroBitInExpr wm a) (eliminateZeroBitInExpr wm i)
+
+/-- Drop `Stmt.assign` whose LHS has zero width — these only exist as
+    leftover bookkeeping from 0-bit IR construction (see
+    `eliminateZeroBitInExpr`).  Other Stmt kinds are kept as is. -/
+def eliminateZeroBitStmt (wm : WidthMap) : Stmt → Option Stmt
+  | .assign lhs rhs =>
+    if wm.getD lhs 0 == 0 then none
+    else some (.assign lhs (eliminateZeroBitInExpr wm rhs))
+  | .register output clk rst input init =>
+    some (.register output clk rst (eliminateZeroBitInExpr wm input) init)
+  | .memory name aw dw clk wa wd we ra rd cr =>
+    some (.memory name aw dw clk
+      (eliminateZeroBitInExpr wm wa)
+      (eliminateZeroBitInExpr wm wd)
+      (eliminateZeroBitInExpr wm we)
+      (eliminateZeroBitInExpr wm ra)
+      rd cr)
+  | .inst modName instName conns =>
+    some (.inst modName instName
+      (conns.map fun (p, e) => (p, eliminateZeroBitInExpr wm e)))
+
+/-- Run the 0-bit elimination pass over a module's body and wire list. -/
+def eliminateZeroBits (m : Module) : Module :=
+  let wm := buildWidthMap m
+  let body' := m.body.filterMap (eliminateZeroBitStmt wm)
+  let wires' := m.wires.filter (·.ty.bitWidth > 0)
+  { m with body := body', wires := wires' }
+
+/-- Optimize a module: strip zero-bit shapes, eliminate concat/slice
+    chains, then remove dead code. -/
 def optimizeModule (m : Module)
     (observableWires : Option (List String) := none) : Module :=
   if m.isPrimitive then m
   else
+    -- Phase -1: strip 0-bit wires and the constants/slices/concats that
+    -- only existed to carry them.  Must run before the other passes so
+    -- they don't get a chance to canonicalise the broken shapes.
+    let m := eliminateZeroBits m
     let wm := buildWidthMap m
     let dm := buildDefMap m.body
 
