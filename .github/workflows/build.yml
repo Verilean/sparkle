@@ -695,6 +695,18 @@ jobs:
     # *.lean* files no longer compile against Sparkle main, which is
     # a separate concern from "do they execute in the browser kernel".
     # ----------------------------------------------------------------
+    # The xeus-lean docs-builder image is large (it bundles Mathlib
+    # oleans, the WASM xlean kernel, and a pixi/emscripten toolchain),
+    # so a fresh `docker pull` exhausts the GitHub-hosted runner's
+    # default ~14 GB of free space.  Drop the .NET / Android / GHC
+    # toolchains we never use to recover ~30 GB before the pull.
+    # (Same idiom xeus-lean's own docs CI uses.)
+    - name: "Free disk space for docker pull"
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+          /opt/ghc /opt/hostedtoolcache/CodeQL || true
+        df -h
+
     - name: "Pull xeus-lean docs-builder image"
       run: |
         echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
