@@ -88,6 +88,7 @@ import Tests.Video.H264EncoderSynthTest
 import Tests.SVParser.TestVerilogCoSim
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
+import Tests.RoundTrip.IRVerilogIR
 import LSpec
 
 open Sparkle.Core.Domain
