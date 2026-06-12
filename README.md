@@ -10,9 +10,19 @@ theorem proving to hardware design.
 
 **Quick Start:** the multi-chapter [tutorial](docs/tutorial/) walks
 from "hello counter" through Verilog generation, proofs, and FPGA
-bring-up.  Run it in Docker, or read the rendered notebooks
-directly on GitHub.  For the full Signal DSL syntax, see
+bring-up.  Run it in Docker, in your browser via xeus-lean's
+JupyterLite, or read the rendered notebooks directly on GitHub.
+For the full Signal DSL syntax, see
 [docs/reference/SignalDSL_Syntax.md](docs/reference/SignalDSL_Syntax.md).
+
+**Try it in the browser:** Sparkle plugs into
+[xeus-lean](https://github.com/Verilean/xeus-lean)'s WASM kernel
+via the [`EXTRA_WASM_DIRS`](https://github.com/Verilean/xeus-lean#extending-the-kernel-with-your-own-lean-lib)
+extension point.  See [`tools/wasm/`](tools/wasm/) for the
+staging-builder script.  `#synthesizeVerilog`, `#showVerilog`, and
+pure `Signal.atTime` simulation all work under WASM; the native JIT
+path (`Sparkle.Core.JIT.compileAndLoad`) is stubbed and only
+available from a native `lake exe` build.
 
 ## The Sparkle Way: Verification-Driven Design
 
