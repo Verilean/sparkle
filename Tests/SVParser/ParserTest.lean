@@ -1495,8 +1495,13 @@ endmodule
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
   -- Test 31 (issue #42): two module instances chained via an internal wire.
-  -- Bug: flattenDesign drops the bridge wire, so `y = ~~a` collapses
-  -- to `y = ~a` (only the first instance survives).
+  -- Original-bug description: "flattenDesign drops the bridge wire,
+  -- so `y = ~~a` collapses to `y = ~a`."  The real root cause is
+  -- subtler — `lowerDesign` used to pick the *first* module in source
+  -- order as the top, so declaring sub-modules before the top (which
+  -- is the natural Verilog order — top last) caused the flattener to
+  -- treat the leaf sub-module as the top.  Fixed by `lowerDesign`
+  -- now picking the module that is not instantiated by any other.
   IO.print "  Test 31: chained module instances via internal wire (issue #42)... "
   try
     let v := "

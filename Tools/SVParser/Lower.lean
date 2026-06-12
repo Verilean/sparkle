@@ -2007,10 +2007,22 @@ def lowerDesign (svDesign : SVDesign) : Except String Design := do
   for m in svDesign.modules do
     let lowered ← lowerModule m
     modules := modules ++ [lowered]
-  -- Use first module as top (flat wrapper is first, sub-modules follow)
-  let topName := match svDesign.modules.head? with
-    | some m => m.name
-    | none => "top"
+  -- Pick the top module: prefer the module that is NOT instantiated by
+  -- any other (so source order doesn't matter — a designer can declare
+  -- sub-modules either before or after the top).  Fall back to the
+  -- first module when every module is instantiated (e.g. mutual
+  -- instantiation, which Sparkle doesn't really support anyway).
+  --
+  -- This also avoids issue #42, where putting `module inc` before
+  -- `module bug2_chained_inst` made the flattener treat `inc` as the
+  -- top and silently drop the chained-instance design.
+  let instantiated : List String := modules.flatMap fun m =>
+    m.body.filterMap fun s => match s with
+      | .inst modName _ _ => some modName
+      | _ => none
+  let topName :=
+    (modules.find? fun m => !instantiated.contains m.name) |>.map (·.name)
+      |>.getD (modules.head?.map (·.name) |>.getD "top")
   pure { topModule := topName, modules }
 
 -- ============================================================================
