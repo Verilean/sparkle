@@ -1,5 +1,6 @@
 import Sparkle.Analog.IR.Expr
 import Sparkle.Analog.Num
+import Sparkle.Analog.IR.Netlist
 
 /-!
 # Sparkle.Analog — continuous-time analog modelling
