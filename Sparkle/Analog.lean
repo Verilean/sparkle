@@ -2,6 +2,7 @@ import Sparkle.Analog.IR.Expr
 import Sparkle.Analog.Num
 import Sparkle.Analog.IR.Netlist
 import Sparkle.Analog.DSL.Build
+import Sparkle.Analog.Symbolic.Diff
 
 /-!
 # Sparkle.Analog — continuous-time analog modelling
