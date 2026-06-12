@@ -206,6 +206,36 @@ def binDigitsStr : P String := do
     | none => cont := false
   pure (String.ofList result)
 
+/-- Like `binDigitsStr` but also accepts `?` characters (interpreted as
+    don't-care bits — required for `casez`-style wildcard literals like
+    `4'b1???`).  Underscores between digits are allowed too. -/
+def binDigitsOrWildcardStr : P String := do
+  let first ← nextChar
+  if !(isBinDigit first || first == '?') then
+    fail s!"expected binary digit or '?', got '{first}'"
+  let mut result : List Char := [first]
+  let mut cont := true
+  while cont do
+    let c ← peekChar
+    match c with
+    | some c' =>
+      if isBinDigit c' || c' == '?' then
+        let _ ← nextChar; result := result ++ [c']
+      else if c' == '_' then
+        let _ ← nextChar  -- skip underscores
+      else cont := false
+    | none => cont := false
+  pure (String.ofList result)
+
+/-- Compute `(value, mask)` from a binary digit string that may contain
+    `?` wildcards.  Each `?` contributes a 1 in `mask` and 0 in `value`. -/
+def binWildToValMask (s : String) : Nat × Nat :=
+  s.foldl (fun (v, m) c =>
+    let bit := if c == '1' then 1 else 0
+    let mbit := if c == '?' then 1 else 0
+    (v * 2 + bit, m * 2 + mbit)
+  ) (0, 0)
+
 def hexToNat (s : String) : Nat :=
   s.foldl (fun acc c =>
     let d := if '0' ≤ c && c ≤ '9' then c.toNat - '0'.toNat
@@ -256,8 +286,12 @@ def numericLiteral : P SVLiteral := token do
       pure (SVLiteral.decimal (some d.toNat!) dd.toNat!)
     | 'b' | 'B' =>
       skipUnderscoresAndSpaces
-      let bd ← binDigitsStr
-      pure (SVLiteral.binary (some d.toNat!) (binToNat bd))
+      let bd ← binDigitsOrWildcardStr
+      if bd.any (· == '?') then
+        let (v, m) := binWildToValMask bd
+        pure (SVLiteral.binaryWild d.toNat! v m)
+      else
+        pure (SVLiteral.binary (some d.toNat!) (binToNat bd))
     | _ => fail s!"unknown base '{base}'"
   else
     pure (SVLiteral.decimal none d.toNat!)

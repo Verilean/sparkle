@@ -96,6 +96,9 @@ def literalToConst : SVLiteral → Expr
   | .hex none v         => .const (Int.ofNat v) 32
   | .binary (some w) v  => .const (Int.ofNat v) w
   | .binary none v      => .const (Int.ofNat v) 32
+  -- `binaryWild` outside a `casez` arm: drop the mask (Verilog semantics
+  -- for `?`/`x`/`z` in plain expressions are undefined; treat as 0).
+  | .binaryWild w v _   => .const (Int.ofNat v) w
 
 /-- Set of array-typed register names for distinguishing bit-select vs array access -/
 private def arrayNames : List String := []  -- populated per-module during lowering
@@ -140,6 +143,7 @@ private def concatWidth : SVExpr → Nat
   | .lit (.decimal none _) => 32
   | .lit (.hex none _) => 32
   | .lit (.binary none _) => 1
+  | .lit (.binaryWild w _ _) => w  -- casez wildcard: width is always explicit
   | _ => 32  -- default: assume 32-bit
 
 partial def lowerExpr (e : SVExpr) : Expr :=
@@ -424,15 +428,31 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
 
 /-- Build a case arm condition from labels and selector.
     For case(1'b1), labels are direct conditions (priority encoding).
-    For normal case, labels are compared against sel. -/
+    For normal case, labels are compared against sel.
+    For `casez`-style wildcard literals (`SVLiteral.binaryWild`) the
+    comparison ignores bits marked as don't-care in the mask:
+        ((sel ^ value) & ~mask) == 0 -/
 private def mkCaseCond (sel : SVExpr) (labels : List SVExpr) : Expr :=
   let isCase1b1 := match sel with
     | .lit (.binary (some 1) 1) => true
     | .lit (.decimal (some 1) 1) => true
     | _ => false
+  let selExpr := lowerExpr sel
+  let oneCond : SVExpr → Expr := fun label =>
+    match label with
+    | .lit (.binaryWild w v m) =>
+      -- (sel ^ value) & ~mask == 0
+      let notMask := (2^w - 1).xor m  -- ~mask, sized to w
+      let valExpr := Expr.const (Int.ofNat v) w
+      let maskExpr := Expr.const (Int.ofNat notMask) w
+      Expr.op .eq
+        [Expr.op .and [Expr.op .xor [selExpr, valExpr], maskExpr],
+         Expr.const 0 w]
+    | _ =>
+      if isCase1b1 then lowerExpr label
+      else Expr.op .eq [selExpr, lowerExpr label]
   labels.foldl (fun acc label =>
-    let c := if isCase1b1 then lowerExpr label
-             else Expr.op .eq [lowerExpr sel, lowerExpr label]
+    let c := oneCond label
     if acc == Expr.const 0 1 then c else Expr.op .or [acc, c]
   ) (Expr.const 0 1)
 

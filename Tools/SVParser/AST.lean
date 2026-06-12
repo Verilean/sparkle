@@ -16,6 +16,11 @@ inductive SVLiteral where
   | decimal (width : Option Nat) (value : Nat)
   | hex     (width : Option Nat) (value : Nat)
   | binary  (width : Option Nat) (value : Nat)
+  /-- `casez`-style binary literal with `?` wildcards (e.g. `4'b1???`).
+      `value` keeps the non-`?` bits set, `mask` has a 1 in every `?`
+      position (i.e. "bits to ignore when comparing").  Equivalent to
+      a plain `binary` when `mask = 0`. -/
+  | binaryWild (width : Nat) (value : Nat) (mask : Nat)
   deriving Repr, BEq
 
 /-- Unary operators -/
