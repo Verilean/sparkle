@@ -93,6 +93,12 @@ lean_lib «IP.Bus» where
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
+-- Standalone analog / continuous-time modelling subsystem. Import-isolated from
+-- the digital core; no new external dependency (own `Analog` typeclass + small
+-- Float numerics) so the WASM build stays intact.
+lean_lib «Sparkle.Analog» where
+  roots := #[`Sparkle.Analog]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
