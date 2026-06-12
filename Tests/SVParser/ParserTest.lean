@@ -1470,8 +1470,12 @@ endmodule
   -- ===================================================================
 
   -- Test 30 (issue #41): reduction-AND `&x` on a sub-32-bit operand.
-  -- Bug: lowerExpr uses a hardcoded 32-bit all-ones mask, so
-  -- `&a` for `a = 4'b1111` returns 0 instead of 1.
+  -- Original bug: lowerExpr used a hardcoded 32-bit all-ones mask,
+  -- so `&a` for `a = 4'b1111` returned 0 instead of 1.
+  -- Now fixed indirectly by the `narrowMaskConstants` post-pass in
+  -- `Lower.lean` (the same pass that fixes Test 37).  Kept as a
+  -- regression guard so any future change that re-widens the mask
+  -- will fail here.
   IO.print "  Test 30: reduction-AND on 4-bit operand (issue #41)... "
   try
     let v := "
@@ -1685,9 +1689,10 @@ endmodule
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
   -- Test 37: bitwise-NOT `~a` on a 4-bit operand, observed via a
-  -- downstream `+`.  Lower.lean line 161 XORs the operand with a
-  -- 32-bit `-1` constant, so `~a` may carry the upper-28 bits
-  -- (set to 1 by the 32-bit XOR) into adjacent arithmetic.
+  -- downstream `+`.  Lower.lean line 161 emits `x XOR -1` with a
+  -- 32-bit constant; without the `narrowMaskConstants` post-pass
+  -- the upper-28 XORed bits leak into adjacent arithmetic and
+  -- `~0 + 1` returns 0 instead of 16.  Fixed by that pass.
   IO.print "  Test 37: bitwise-NOT 4-bit, value-only check (Lower.lean:161)... "
   try
     let v := "
