@@ -495,6 +495,21 @@ sparkle_lean_path = next(
 full_lean_path = (
     '/opt/xeus-lean/.lake/build/lib/lean:' + sparkle_lean_path
 )
+
+# `LEAN_DYNLIB_PATH` is a colon-separated list of `.so` files
+# the kernel dlopens on boot (see `XeusKernel.lean` —
+# `IO.getEnv "LEAN_DYNLIB_PATH"` + `Lean.loadDynlib` loop).  We
+# point it at Sparkle's precompiled `Sparkle.Core.JIT` module so
+# `@[extern "sparkle_jit_load"]` callsites inside notebook
+# `#eval`s resolve their Lean-side `lp_*` wrapper.  We
+# deliberately list ONLY `JIT.so` — many of Sparkle's other
+# precompiled modules cross-reference each other and would need
+# a topological dependency order to load successfully; `JIT.so`
+# has no Sparkle-internal `lp_*` deps, only the C-level
+# `sparkle_jit_*` symbols which xlean's static link already
+# satisfies.
+sparkle_jit_dynlib = '/workspace/sparkle/.lake/build/lib/lean/sparkle_Sparkle_Core_JIT.so'
+
 for spec_path in [
     '/root/.local/share/jupyter/kernels/xlean/kernel.json',
     '/root/.local/share/jupyter/kernels/xeus-lean/kernel.json',
@@ -503,9 +518,11 @@ for spec_path in [
     spec = json.loads(p.read_text())
     env = spec.setdefault('env', {})
     env['LEAN_PATH'] = full_lean_path
+    env['LEAN_DYNLIB_PATH'] = sparkle_jit_dynlib
     p.write_text(json.dumps(spec, indent=2))
     print('Patched', spec_path)
 print('LEAN_PATH:', full_lean_path)
+print('LEAN_DYNLIB_PATH:', sparkle_jit_dynlib)
 PY
 
 # -----------------------------------------------------------------
