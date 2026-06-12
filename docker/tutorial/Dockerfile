@@ -65,10 +65,21 @@ RUN curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init
 FROM lean AS jupyter
 
 # Install into a venv so the system python stays clean.
+#
+# `jupyter-collaboration` is the official Jupyter Real-Time
+# Collaboration extension (Y.js / CRDT backend).  Without it,
+# external edits to a `.ipynb` file — e.g. the MCP server's
+# `markdown_to_notebook` regenerating a chapter from its `.md`
+# source — only land in the browser after a manual reload.  With
+# it (combined with `--collaborative` on the CMD line below),
+# Jupyter Server watches the file for disk-side changes and
+# streams the diff to every connected client as a CRDT update,
+# so the browser tab refreshes its cells in place.
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/venv/bin/pip install --no-cache-dir \
         jupyterlab \
+        jupyter-collaboration \
         jupytext \
         nbconvert \
         notebook
@@ -201,14 +212,106 @@ RUN cmake -S . -B build-cmake \
 # Linux glibc C23 shim (clang -> __isoc23_strtoull -> Lean's older glibc).
 RUN leanc -c src/glibc_isoc23_compat.c -o build-cmake/glibc_isoc23_compat.o
 
-# Stage 4b — build the Lean side: xlean kernel binary, xlean-convert
-# CLI, and the Display library oleans.
-RUN lake build xlean Display CommBus xlean-convert
+# Stage 4a' — pre-build Sparkle's C FFI as static archives so the
+# xlean kernel binary can resolve `Sparkle.Core.JIT.*` (`sparkle_jit_*`)
+# and the `loopMemo` LICM barriers (`sparkle_barrier_*`) at link time.
+#
+# Without this, calling `Sparkle.Core.JIT.JIT.load` from a `#eval`
+# cell throws `lean::exception: Could not find native implementation
+# of external declaration 'Sparkle.Core.JIT.JIT.load'` and the kernel
+# terminates immediately — the user just sees an empty cell output
+# because the failure happens inside C++ before xeus can serialise an
+# error reply.
+#
+# The Sparkle `lakefile.lean` builds these the same way (`extern_lib
+# «sparkle_jit»` / `extern_lib «sparkle_barrier»`) via leanc + ar.
+# We invoke leanc directly so we don't have to spin up Lake (and pay
+# its `lake update` clone cost) just to compile two C files.
+COPY c_src /tmp/sparkle_c
+# `-fvisibility=default` overrides leanc's built-in `-fvisibility=hidden`
+# so the `sparkle_jit_*` / `sparkle_barrier_*` symbols land in the
+# linker's dynsym table (uppercase `T` in `nm --dynamic`), not just the
+# static symtab as locals.  Without this override the symbols survive
+# `--whole-archive` + `--undefined=` but get marked local on link, and
+# `dlsym(RTLD_DEFAULT, ...)` — which is what Lean's `#eval`-time
+# `@[extern]` resolution uses — returns NULL because it only scans the
+# dynamic symbol table.
+RUN leanc -c -O2 -fvisibility=default /tmp/sparkle_c/sparkle_jit.c     -o /tmp/sparkle_c/sparkle_jit.o \
+ && leanc -c -O2 -fvisibility=default /tmp/sparkle_c/sparkle_barrier.c -o /tmp/sparkle_c/sparkle_barrier.o \
+ && ar rcs /tmp/sparkle_c/libsparkle_jit.a     /tmp/sparkle_c/sparkle_jit.o \
+ && ar rcs /tmp/sparkle_c/libsparkle_barrier.a /tmp/sparkle_c/sparkle_barrier.o
 
-# Install both binaries onto PATH so kernel.json and tutorial scripts
-# can find them by name.
+# Stage 4b — build the Lean side: xlean kernel binary, xlean-convert
+# CLI, the xlean-mcp Model Context Protocol server, and the Display
+# library oleans.
+#
+# `xlean-mcp` is a stand-alone JSON-RPC 2.0 stdio server (see
+# `docs/tutorials/mcp-server.md` in xeus-lean) that lets an MCP host
+# — Claude Code, Cursor, the MCP inspector, …  — drive Lean
+# programmatically with persistent-env `lean_eval`, file I/O, and
+# notebook editing tools.  Baking the binary into the image means
+# users can hook it up with `docker exec -i <container> xlean-mcp`
+# without rebuilding inside the container.
+#
+# `XEUS_LEAN_EXTRA_LIBS` (read by xeus-lean's lakefile at load time)
+# appends the listed tokens verbatim to xlean's link line.  Wrap the
+# Sparkle archives in `-Wl,--whole-archive` so the linker keeps every
+# symbol in `libsparkle_jit.a` / `libsparkle_barrier.a`, even though
+# nothing inside xeus-lean references them at link time — they're
+# only reached from notebook-cell `#eval`s via Lean's interpreter
+# dlsym lookup, and a regular `.a` whose symbols nobody pulls would
+# be dropped by the linker before the interpreter ever runs.
+#
+# Force-remove the xlean binary first because Lake's build cache
+# doesn't hash `moreLinkArgs` / env vars: without this, a stale
+# `.lake/build/bin/xlean` from cmake's earlier `buildXlean` script
+# is treated as up-to-date and the extra-libs never reach the
+# linker even though the env var is set.
+# `-Wl,--undefined=<sym>` flags force the linker to treat each named
+# symbol as "referenced by main" so `-Wl,--gc-sections` (added by the
+# Lean linker tail) does NOT strip them from the final binary.  Without
+# these, even `-Wl,--whole-archive` only keeps the symbols at *input*
+# time — gc-sections then drops them at *output* time because no live
+# section in xlean references them.  The interpreter looks them up at
+# `#eval` time via dlsym, which can only find symbols that survived
+# section GC.
+RUN rm -f .lake/build/bin/xlean && \
+    XEUS_LEAN_EXTRA_LIBS="\
+-Wl,--undefined=sparkle_jit_load \
+-Wl,--undefined=sparkle_jit_eval \
+-Wl,--undefined=sparkle_jit_eval_tick \
+-Wl,--undefined=sparkle_jit_tick \
+-Wl,--undefined=sparkle_jit_reset \
+-Wl,--undefined=sparkle_jit_destroy \
+-Wl,--undefined=sparkle_jit_set_input \
+-Wl,--undefined=sparkle_jit_get_output \
+-Wl,--undefined=sparkle_jit_get_wire \
+-Wl,--undefined=sparkle_jit_set_mem \
+-Wl,--undefined=sparkle_jit_get_mem \
+-Wl,--undefined=sparkle_jit_memset_word \
+-Wl,--undefined=sparkle_jit_snapshot \
+-Wl,--undefined=sparkle_jit_restore \
+-Wl,--undefined=sparkle_jit_free_snapshot \
+-Wl,--undefined=sparkle_jit_wire_name \
+-Wl,--undefined=sparkle_jit_num_wires \
+-Wl,--undefined=sparkle_jit_set_reg \
+-Wl,--undefined=sparkle_jit_get_reg \
+-Wl,--undefined=sparkle_jit_reg_name \
+-Wl,--undefined=sparkle_jit_num_regs \
+-Wl,--undefined=sparkle_jit_run_cdc \
+-Wl,--undefined=sparkle_cache_get \
+-Wl,--undefined=sparkle_eval_at \
+-Wl,--whole-archive \
+/tmp/sparkle_c/libsparkle_jit.a \
+/tmp/sparkle_c/libsparkle_barrier.a \
+-Wl,--no-whole-archive" \
+    lake build xlean Display CommBus xlean-convert xlean-mcp
+
+# Install the binaries onto PATH so kernel.json, tutorial scripts,
+# and `docker exec` callers can find them by name.
 RUN install -m 0755 .lake/build/bin/xlean         /usr/local/bin/xlean && \
-    install -m 0755 .lake/build/bin/xlean-convert /usr/local/bin/xlean-convert
+    install -m 0755 .lake/build/bin/xlean-convert /usr/local/bin/xlean-convert && \
+    install -m 0755 .lake/build/bin/xlean-mcp     /usr/local/bin/xlean-mcp
 
 # Stage 4c — register the xlean kernelspec under /root/.local so
 # JupyterLab finds it, then patch `LEAN_PATH` + `PATH` into the spec
@@ -392,6 +495,21 @@ sparkle_lean_path = next(
 full_lean_path = (
     '/opt/xeus-lean/.lake/build/lib/lean:' + sparkle_lean_path
 )
+
+# `LEAN_DYNLIB_PATH` is a colon-separated list of `.so` files
+# the kernel dlopens on boot (see `XeusKernel.lean` —
+# `IO.getEnv "LEAN_DYNLIB_PATH"` + `Lean.loadDynlib` loop).  We
+# point it at Sparkle's precompiled `Sparkle.Core.JIT` module so
+# `@[extern "sparkle_jit_load"]` callsites inside notebook
+# `#eval`s resolve their Lean-side `lp_*` wrapper.  We
+# deliberately list ONLY `JIT.so` — many of Sparkle's other
+# precompiled modules cross-reference each other and would need
+# a topological dependency order to load successfully; `JIT.so`
+# has no Sparkle-internal `lp_*` deps, only the C-level
+# `sparkle_jit_*` symbols which xlean's static link already
+# satisfies.
+sparkle_jit_dynlib = '/workspace/sparkle/.lake/build/lib/lean/sparkle_Sparkle_Core_JIT.so'
+
 for spec_path in [
     '/root/.local/share/jupyter/kernels/xlean/kernel.json',
     '/root/.local/share/jupyter/kernels/xeus-lean/kernel.json',
@@ -400,9 +518,11 @@ for spec_path in [
     spec = json.loads(p.read_text())
     env = spec.setdefault('env', {})
     env['LEAN_PATH'] = full_lean_path
+    env['LEAN_DYNLIB_PATH'] = sparkle_jit_dynlib
     p.write_text(json.dumps(spec, indent=2))
     print('Patched', spec_path)
 print('LEAN_PATH:', full_lean_path)
+print('LEAN_DYNLIB_PATH:', sparkle_jit_dynlib)
 PY
 
 # -----------------------------------------------------------------
@@ -419,4 +539,5 @@ CMD ["jupyter", "lab", \
      "--ServerApp.password=", \
      "--MultiKernelManager.default_kernel_name=xeus-lean", \
      "--MappingKernelManager.default_kernel_name=xeus-lean", \
+     "--collaborative", \
      "--notebook-dir=/workspace/sparkle/docs/tutorial/Notebooks/Gen/notebooks"]

@@ -25,7 +25,19 @@ extern_lib «sparkle_jit» pkg := do
   let oJob ← buildLeanO oFile srcJob (weakArgs := #["-O2"])
   buildStaticLib (pkg.buildDir / "c_src" / nameToStaticLib "sparkle_jit") #[oJob]
 
+-- `precompileModules := true` builds a shared library
+-- (`.lake/build/lib/libSparkle-*.so`) alongside the oleans.  The
+-- xeus-lean kernel needs this when it encounters `@[extern]` calls
+-- like `Sparkle.Core.JIT.JIT.load` inside a notebook `#eval`: the
+-- interpreter dlsym-loads the per-module `lp_*` wrapper from the
+-- shared lib instead of expecting it to be statically linked into
+-- the kernel binary.  Without it, the kernel binary only has the
+-- raw C symbols (we wired those through `XEUS_LEAN_EXTRA_LIBS` in
+-- the tutorial Dockerfile) but is missing the Lean-side boxing
+-- wrappers, so every `JIT.load` throws "Could not find native
+-- implementation".
 lean_lib «Sparkle» where
+  precompileModules := true
 
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]

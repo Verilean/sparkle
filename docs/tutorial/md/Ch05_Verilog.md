@@ -323,6 +323,72 @@ Sparkle IR, JIT-compile, run.
   between runs, or you're writing a tool that processes
   user-supplied Verilog.  Source stays on disk.
 
+## 5.5e Worked example — read Verilog, then prove it
+
+`verilog!` doesn't just parse: it materialises a `nextState : State
+→ Input → State` function we can reason about directly with Lean's
+proof tactics.  Below is a one-register synchronous XOR — a single
+flop that captures `a ^ b` every cycle, with a synchronous reset
+that clears it back to zero — followed by three theorems that pin
+down its behaviour for every input.
+
+```lean
+verilog! "
+module sum_reg(input logic clk, input logic rst,
+               input logic a, input logic b,
+               output logic [0:0] result);
+  always @(posedge clk)
+    if (rst) result <= 1'b0;
+    else     result <= a ^ b;
+endmodule
+"
+
+```
+`verilog!` inferred the I/O record from the port list (`clk` is
+recognised as the clock and dropped from `Input`) and turned the
+single `always` block into a `nextState` step function:
+
+```lean
+#check @sum_reg.Verify.Input       -- { rst, a, b : BitVec 1 }
+#check @sum_reg.Verify.State       -- { _reg_result : BitVec 1 }
+#check @sum_reg.Verify.nextState
+-- sum_reg.Verify.State → sum_reg.Verify.Input → sum_reg.Verify.State
+
+```
+Now the three properties.  Each one unfolds `nextState` with `simp`
+and discharges the residual `BitVec`-level goal with `bv_decide`
+(SAT-backed bit-blasting) — no induction, no clock-counting:
+
+```lean
+-- (1) Reset always wins: asserting `rst` clears the register to 0
+--     no matter what `a`, `b`, or the prior state were.
+theorem sum_reg_reset (s : sum_reg.Verify.State) (a b : BitVec 1) :
+    (sum_reg.Verify.nextState s { rst := 1, a := a, b := b })._reg_result
+      = 0#1 := by
+  simp [sum_reg.Verify.nextState]
+
+-- (2) When reset is deasserted, the register captures a XOR b
+--     on the next clock.
+theorem sum_reg_xor (s : sum_reg.Verify.State) (a b : BitVec 1) :
+    (sum_reg.Verify.nextState s { rst := 0, a := a, b := b })._reg_result
+      = a ^^^ b := by
+  simp [sum_reg.Verify.nextState]
+
+-- (3) Both branches at once — a full behavioural spec, ∀-quantified
+--     over every input the parser admitted.
+theorem sum_reg_spec (s : sum_reg.Verify.State) (i : sum_reg.Verify.Input) :
+    (sum_reg.Verify.nextState s i)._reg_result =
+      (if i.rst = 0 then i.a ^^^ i.b else 0) := by
+  simp [sum_reg.Verify.nextState]
+  bv_decide
+
+```
+The same pattern scales: drop in any Verilog module via `verilog!`,
+`simp [<module>.Verify.nextState]` to unfold the step function, and
+let `bv_decide` (or `decide` on small finite types) finish off the
+residual bit-vector goal.  Ch 6 takes this further with
+temporal-logic invariants over multi-cycle behaviour.
+
 ## 5.6 Where to go next
 
 - **Ch 6 — Proofs (LTL)**: prove invariants on the design
