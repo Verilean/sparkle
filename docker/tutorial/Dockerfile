@@ -202,13 +202,23 @@ RUN cmake -S . -B build-cmake \
 RUN leanc -c src/glibc_isoc23_compat.c -o build-cmake/glibc_isoc23_compat.o
 
 # Stage 4b — build the Lean side: xlean kernel binary, xlean-convert
-# CLI, and the Display library oleans.
-RUN lake build xlean Display CommBus xlean-convert
+# CLI, the xlean-mcp Model Context Protocol server, and the Display
+# library oleans.
+#
+# `xlean-mcp` is a stand-alone JSON-RPC 2.0 stdio server (see
+# `docs/tutorials/mcp-server.md` in xeus-lean) that lets an MCP host
+# — Claude Code, Cursor, the MCP inspector, …  — drive Lean
+# programmatically with persistent-env `lean_eval`, file I/O, and
+# notebook editing tools.  Baking the binary into the image means
+# users can hook it up with `docker exec -i <container> xlean-mcp`
+# without rebuilding inside the container.
+RUN lake build xlean Display CommBus xlean-convert xlean-mcp
 
-# Install both binaries onto PATH so kernel.json and tutorial scripts
-# can find them by name.
+# Install the binaries onto PATH so kernel.json, tutorial scripts,
+# and `docker exec` callers can find them by name.
 RUN install -m 0755 .lake/build/bin/xlean         /usr/local/bin/xlean && \
-    install -m 0755 .lake/build/bin/xlean-convert /usr/local/bin/xlean-convert
+    install -m 0755 .lake/build/bin/xlean-convert /usr/local/bin/xlean-convert && \
+    install -m 0755 .lake/build/bin/xlean-mcp     /usr/local/bin/xlean-mcp
 
 # Stage 4c — register the xlean kernelspec under /root/.local so
 # JupyterLab finds it, then patch `LEAN_PATH` + `PATH` into the spec
