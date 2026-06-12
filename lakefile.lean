@@ -104,6 +104,14 @@ lean_exe «analog-transient-test» where
   root := `Tests.Analog.TransientTest
   supportInterpreter := true
 
+-- Runnable analog demos (build + run with `lake exe analog-example`).
+lean_lib «Examples.Analog» where
+  roots := #[`Examples.Analog]
+
+lean_exe «analog-example» where
+  root := `Examples.Analog
+  supportInterpreter := true
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
