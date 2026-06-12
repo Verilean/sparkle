@@ -501,15 +501,15 @@ int main(int argc, char** argv) {
                 }
             }
             if (in_trace) {
-#ifdef TRACE_INTERNAL_SIGNALS
-                // `_gen_suppressEXWB` is a combinational OR of five inputs
-                // (trap_taken, dTLBMiss, pendingWriteEn, mmuBusy, dMMURedirect).
-                // Verilator inlines it because some of its inputs
-                // (`_gen_trap_taken`, `_gen_pendingWriteEn`) are themselves
-                // not exposed as struct members.  Reconstruct from the
-                // subset that IS exposed; the trap_taken/pendingWriteEn
-                // contributions are available on the JIT path
-                // (Tests/RV32/JITLinuxBootTest.lean).
+                // Internal-signal peek requires both TRACE_INTERNAL_SIGNALS
+                // and SPARKLE_VERILATOR_EXPOSE_PIPELINE.  Earlier we tried
+                // to reconstruct sup_exwb from a "more-exposed" subset
+                // (dTLBMiss | mmuBusy | dMMURedirect), but Verilator's
+                // inliner is version-sensitive — older builds drop those
+                // too, so the reconstruction breaks on `apt install
+                // verilator` even when it works on Verilator 5.048.
+                // Treat the whole pipeline-trace family as opt-in.
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_PIPELINE)
                 uint8_t sup_exwb_approx =
                     dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss
                   | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_mmuBusy
@@ -741,11 +741,9 @@ int main(int argc, char** argv) {
         }
         // Trace ALU result, DMEM reads, and forwarding around bge check (C01514E0-C01514FC)
         if (pc >= 0xC01514D0 && pc <= 0xC0151510) {
-#ifdef TRACE_INTERNAL_SIGNALS
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_PIPELINE)
             uint32_t alu_result = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_alu_result_approx;
             uint32_t rd_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dmem_read_addr;
-            // `_gen_suppressEXWB` inlined by Verilator — see the MBAR
-            // block above for the rationale.  Use the same subset OR.
             uint8_t sup_exwb_approx =
                 dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss
               | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_mmuBusy
@@ -784,7 +782,7 @@ int main(int argc, char** argv) {
         // === Monitor DMEM write port during critical window ===
         // Track stores to stack area during of_get_flat_dt_prop and loop setup
         if (cycle >= 2740000 && cycle <= 2755000) {
-#ifdef TRACE_INTERNAL_SIGNALS
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_PIPELINE)
             uint32_t wr_addr = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_dmem_write_addr;
             uint8_t wr_en0 = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_actual_byte0_we;
             // Only log writes to the stack area (DMEM 0x160790-0x1607B0)
@@ -863,11 +861,9 @@ int main(int argc, char** argv) {
             if (loop_body_start > 0 && cycle >= loop_body_start && cycle < loop_body_start + 200) {
                 static uint32_t last_lbt_pc = 0;
                 if (pc != last_lbt_pc) {
-#ifdef TRACE_INTERNAL_SIGNALS
+#if defined(TRACE_INTERNAL_SIGNALS) && defined(SPARKLE_VERILATOR_EXPOSE_PIPELINE)
                     uint8_t flush_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_flush;
                     uint8_t stall_sig = dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_stall;
-                    // `_gen_suppressEXWB` inlined by Verilator — same
-                    // reconstruction as the MBAR / BGE-TRACE blocks above.
                     uint8_t sup_exwb_approx =
                         dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_dTLBMiss
                       | dut->rootp->rv32i_soc__DOT__gen_soc__DOT___gen_mmuBusy
