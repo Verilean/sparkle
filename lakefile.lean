@@ -2,12 +2,23 @@ import Lake
 open Lake DSL
 
 package «sparkle» where
+  -- Heron linter, always on. Load Heron as a `lean --plugin` for EVERY module compiled (so no
+  -- file needs to `import Heron`), and enable its rules. `weak.linter.heron` is a no-op if the
+  -- plugin is absent; `weakLeanArgs` keeps the plugin path out of the build trace so changing it
+  -- never forces a rebuild. The `.so` is emitted by the Heron dependency (its `Heron` lib defaults
+  -- to the `shared` facet); bootstrap or refresh it with `lake build heron/Heron:shared`.
+  leanOptions := #[⟨`weak.linter.heron, true⟩]
+  weakLeanArgs := #["--plugin", ".lake/packages/heron/.lake/build/lib/libheron_Heron.so"]
 
 require «doc-gen4» from git
   "https://github.com/leanprover/doc-gen4" @ "main"
 
 require LSpec from git
   "https://github.com/argumentcomputer/LSpec" @ "main"
+
+require heron from git
+  "https://codeberg.org/wvhulle/heron" @ "main"
+  -- "../heron" @ "main"
 
 -- C FFI library for Signal memoization barriers (defeats Lean 4.28 LICM)
 extern_lib «sparkle_barrier» pkg := do
@@ -309,4 +320,3 @@ lean_exe «iverilog-roundtrip-test» where
 lean_exe «test» where
   root := `Tests.AllTests
   supportInterpreter := true
-

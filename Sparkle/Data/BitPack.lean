@@ -5,6 +5,11 @@
   to and from a fixed-width bit vector.
 -/
 
+-- Brings the Heron linter into the digital core's import closure so that every
+-- module built on top of `Sparkle.Data.BitPack` is linted (enabled repo-wide via
+-- the `weak.linter.heron` option in the lakefile). Imported once at the root.
+import Heron
+
 namespace Sparkle.Data.BitPack
 
 /--
