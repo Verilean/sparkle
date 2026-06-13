@@ -26,18 +26,37 @@ extern_lib «sparkle_jit» pkg := do
   buildStaticLib (pkg.buildDir / "c_src" / nameToStaticLib "sparkle_jit") #[oJob]
 
 -- `precompileModules := true` builds a shared library
--- (`.lake/build/lib/libSparkle-*.so`) alongside the oleans.  The
--- xeus-lean kernel needs this when it encounters `@[extern]` calls
--- like `Sparkle.Core.JIT.JIT.load` inside a notebook `#eval`: the
--- interpreter dlsym-loads the per-module `lp_*` wrapper from the
--- shared lib instead of expecting it to be statically linked into
--- the kernel binary.  Without it, the kernel binary only has the
--- raw C symbols (we wired those through `XEUS_LEAN_EXTRA_LIBS` in
--- the tutorial Dockerfile) but is missing the Lean-side boxing
+-- (`.lake/build/lib/libsparkle_Sparkle.so`) alongside the oleans.
+-- The xeus-lean kernel needs this when it encounters `@[extern]`
+-- calls like `Sparkle.Core.JIT.JIT.load` inside a notebook `#eval`:
+-- the interpreter dlsym-loads the per-module `lp_*` wrapper from
+-- the shared lib instead of expecting it to be statically linked
+-- into the kernel binary.  Without it, the kernel binary only has
+-- the raw C symbols (we wired those through `XEUS_LEAN_EXTRA_LIBS`
+-- in the tutorial Dockerfile) but is missing the Lean-side boxing
 -- wrappers, so every `JIT.load` throws "Could not find native
 -- implementation".
+--
+-- `nativeFacets` then asks the linker to whole-archive our two
+-- `extern_lib`s (`sparkle_barrier`, `sparkle_jit`) into the
+-- precompiled `.so`.  Without this, `libsparkle_Sparkle.so` is
+-- linked against the .a files but the linker discards every
+-- symbol that no Lean wrapper currently calls — including
+-- `sparkle_jit_load`, which the dlsym-loaded `JIT.load` boxing
+-- wrapper looks up.  The result was the CI failure
+--   symbol lookup error: libsparkle_Sparkle.so:
+--   undefined symbol: sparkle_jit_load
+-- The `-Wl,--whole-archive ... -Wl,--no-whole-archive` pair forces
+-- the linker to retain every symbol from the listed archives.
 lean_lib «Sparkle» where
   precompileModules := true
+  moreLinkArgs := #[
+    "-L", "./.lake/build/c_src",
+    "-Wl,--whole-archive",
+    "-l:libsparkle_barrier.a",
+    "-l:libsparkle_jit.a",
+    "-Wl,--no-whole-archive"
+  ]
 
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]
