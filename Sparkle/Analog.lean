@@ -1,5 +1,6 @@
 import Sparkle.Analog.IR.Expr
 import Sparkle.Analog.Num
+import Sparkle.Analog.Complex
 import Sparkle.Analog.Model
 import Sparkle.Analog.IR.Netlist
 import Sparkle.Analog.DSL.Build
@@ -7,6 +8,7 @@ import Sparkle.Analog.Symbolic.Diff
 import Sparkle.Analog.Solver.LinAlg
 import Sparkle.Analog.Solver.MNA
 import Sparkle.Analog.Solver.Transient
+import Sparkle.Analog.Solver.AC
 
 /-!
 # Sparkle.Analog — continuous-time analog modelling

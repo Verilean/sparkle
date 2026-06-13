@@ -28,7 +28,7 @@ def ground {d : Discipline} : Net d := ⟨Circuit.groundId⟩
 
 /-- Build a two-terminal device from its acausal law. The discipline is inferred
 from the result type's ascription (e.g. `: TwoPin .electrical`). -/
-def twoPin {d : Discipline} (law : TwoPinLaw) : TwoPin d := ⟨law⟩
+def twoPin {d : Discipline} (law : TwoPinLaw) : TwoPin d := { law := law }
 
 /-! ## Value-based assembly -/
 

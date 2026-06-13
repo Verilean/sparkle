@@ -16,6 +16,11 @@ require «doc-gen4» from git
 require LSpec from git
   "https://github.com/argumentcomputer/LSpec" @ "main"
 
+-- Mathlib, pinned to the same toolchain (v4.28.0). Used ONLY by the
+-- `Sparkle.Analog.Proofs` library for real-number reasoning about device models;
+-- the simulator and WASM build never import it, keeping their footprint light.
+require mathlib from git
+  "https://github.com/leanprover-community/mathlib4" @ "v4.28.0"
 require heron from git
   "https://codeberg.org/wvhulle/heron" @ "main"
   -- "../heron" @ "main"

@@ -40,12 +40,16 @@ covers resistor (`v ≡ R*i`), capacitor (`i ≡ C*ddt v`), inductor (`v ≡ L*d
 source (`v ≡ e`) and diode (`i ≡ Is*(exp (v/Vt) - 1)`). -/
 abbrev TwoPinLaw := AExpr → AExpr → List Equation
 
-/-- A two-terminal device of a given discipline: just its acausal law. The
-discipline index propagates to the nets it connects (via `between`), which is
-what lets the value-based builder infer net disciplines and rejects
-cross-discipline wiring. -/
+/-- A two-terminal device of a given discipline: its acausal law plus, for an
+independent AC source, the small-signal drive amplitude. The discipline index
+propagates to the nets it connects (via `between`), which is what lets the
+value-based builder infer net disciplines and rejects cross-discipline wiring. -/
 structure TwoPin (d : Discipline) where
   law : TwoPinLaw
+  /-- Small-signal AC drive amplitude (volts), if this device is an independent
+  AC source; `none` for everything else. The transient/DC paths ignore it; AC
+  analysis puts it on the right-hand side of the admittance system. -/
+  acAmp : Option Float := none
 
 /-- A device placed between two nets, with discipline erased to net handles. The
 MNA stamper gives the branch its own current unknown, sets `v := netV pos -
@@ -55,20 +59,57 @@ structure Placement where
   pos : Nat
   neg : Nat
   law : TwoPinLaw
+  acAmp : Option Float := none
   deriving Inhabited
 
 /-- Connect a two-terminal device between two nets of the same discipline. The
 shared discipline index `d` is what rejects cross-discipline wiring at compile
 time. -/
 def TwoPin.between {d : Discipline} (dev : TwoPin d) (p n : Net d) : Placement :=
-  { pos := p.id, neg := n.id, law := dev.law }
+  { pos := p.id, neg := n.id, law := dev.law, acAmp := dev.acAmp }
 
-/-- An assembled circuit: how many nets were allocated and the devices placed
-between them. Net `0` is ground (its potential is pinned to zero), so it is never
-an MNA unknown. -/
+/-- A controlled (dependent) source — the gain element a `TwoPin` law cannot
+express, because it *senses* a quantity at one port and forces a response at
+another. Four linear flavours plus the ideal op-amp (nullor):
+
+* `vcvs` — voltage-controlled voltage source, `V(out) = μ·V(in)`;
+* `vccs` — transconductance, `I(out) = gm·V(in)`;
+* `ccvs` — transresistance, `V(out) = rm·I(ctrl)`;
+* `cccs` — current gain, `I(out) = β·I(ctrl)`;
+* `opamp` — ideal op-amp: the nullor constraint `V(inP) = V(inN)` with a free
+  output current (its input draws none). The finite-gain/dominant-pole op-amp is
+  built from `vccs` + R + C + buffer instead. -/
+inductive CtrlKind
+  | vcvs | vccs | ccvs | cccs | opamp
+  deriving Repr, BEq, DecidableEq, Inhabited
+
+/-- A controlled source over net handles. `outP`/`outN` are the output port;
+`inP`/`inN` the voltage-sense port (for V-controlled kinds and the op-amp);
+`ctrlBranch` the current-sense branch (for I-controlled kinds); `gain` is μ, gm,
+rm or β (unused for `opamp`). -/
+structure CtrlSource where
+  kind : CtrlKind
+  outP : Nat
+  outN : Nat
+  inP : Nat := 0
+  inN : Nat := 0
+  ctrlBranch : Option Nat := none
+  gain : Float := 0.0
+  deriving Repr, Inhabited
+
+/-- Whether this controlled source introduces its own output-branch current
+unknown: the voltage-output kinds (and the op-amp's free output current) do; the
+current-output kinds (`vccs`, `cccs`) inject directly into KCL and do not. -/
+def CtrlSource.needsBranch (cs : CtrlSource) : Bool :=
+  cs.kind == .vcvs || cs.kind == .ccvs || cs.kind == .opamp
+
+/-- An assembled circuit: how many nets were allocated, the two-terminal devices,
+and the controlled sources placed between them. Net `0` is ground (its potential
+is pinned to zero), so it is never an MNA unknown. -/
 structure Circuit where
   netCount : Nat
   placements : List Placement
+  controlledSources : List CtrlSource := []
   deriving Inhabited
 
 namespace Circuit
@@ -76,8 +117,13 @@ namespace Circuit
 /-- The ground net handle. -/
 def groundId : Nat := 0
 
-/-- Branch count = number of placed devices (each contributes one branch). -/
-def branchCount (c : Circuit) : Nat := c.placements.length
+/-- How many controlled sources carry their own branch-current unknown. -/
+def ctrlBranchCount (c : Circuit) : Nat :=
+  c.controlledSources.foldl (fun n cs => if cs.needsBranch then n + 1 else n) 0
+
+/-- Branch count = one per two-terminal device, plus one per controlled source
+that carries an output-branch current. -/
+def branchCount (c : Circuit) : Nat := c.placements.length + c.ctrlBranchCount
 
 end Circuit
 

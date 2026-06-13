@@ -18,6 +18,11 @@ behind its own library.
 
 namespace Sparkle.Analog
 
+/-- π, computed from `acos` rather than written as a digit literal, so the
+constant has a single source of truth across the solver (AC frequencies, phase
+conversion, pole placement). -/
+def pi : Float := Float.acos (-1.0)
+
 /-- Scalar operations an analog expression can be evaluated into. -/
 class Analog (α : Type) where
   ofFloat : Float → α
@@ -73,26 +78,36 @@ instance : Analog Dual where
 end Dual
 
 /-- Interpret an expression into an `Analog` carrier, given a value for each
+unknown, for `time`, and a handler `onDdt` for the differential operator.
+
+`ddt` is not a pointwise scalar function, so its meaning depends on the analysis:
+the transient engine lowers it to companion terms (`onDdt _ = 0` after
+discretization), while AC small-signal analysis maps `ddt a ↦ jω·a`. Factoring it
+into a handler lets one evaluator serve both — see `AExpr.eval` and `evalAC`. -/
+def AExpr.evalWith [Analog α] (env : Unknown → α) (t : α) (onDdt : AExpr → α) : AExpr → α
+  | .lit c => Analog.ofFloat c
+  | .unknown u => env u
+  | .time => t
+  | .add a b => Analog.add (a.evalWith env t onDdt) (b.evalWith env t onDdt)
+  | .sub a b => Analog.sub (a.evalWith env t onDdt) (b.evalWith env t onDdt)
+  | .mul a b => Analog.mul (a.evalWith env t onDdt) (b.evalWith env t onDdt)
+  | .div a b => Analog.div (a.evalWith env t onDdt) (b.evalWith env t onDdt)
+  | .neg a => Analog.neg (a.evalWith env t onDdt)
+  | .exp a => Analog.exp (a.evalWith env t onDdt)
+  | .log a => Analog.log (a.evalWith env t onDdt)
+  | .sin a => Analog.sin (a.evalWith env t onDdt)
+  | .cos a => Analog.cos (a.evalWith env t onDdt)
+  | .ddt a => onDdt a
+
+/-- Interpret an expression into an `Analog` carrier, given a value for each
 unknown and for `time`.
 
 Precondition: `e` is algebraic (`AExpr.isAlgebraic`). `ddt` is not
 pointwise-evaluable; the transient engine lowers it to algebraic companion terms
 first. A raw differential node here evaluates to `0` rather than failing, so
 callers should lower before evaluating. -/
-def AExpr.eval [Analog α] (env : Unknown → α) (t : α) : AExpr → α
-  | .lit c => Analog.ofFloat c
-  | .unknown u => env u
-  | .time => t
-  | .add a b => Analog.add (a.eval env t) (b.eval env t)
-  | .sub a b => Analog.sub (a.eval env t) (b.eval env t)
-  | .mul a b => Analog.mul (a.eval env t) (b.eval env t)
-  | .div a b => Analog.div (a.eval env t) (b.eval env t)
-  | .neg a => Analog.neg (a.eval env t)
-  | .exp a => Analog.exp (a.eval env t)
-  | .log a => Analog.log (a.eval env t)
-  | .sin a => Analog.sin (a.eval env t)
-  | .cos a => Analog.cos (a.eval env t)
-  | .ddt _ => Analog.ofFloat 0.0
+def AExpr.eval [Analog α] (env : Unknown → α) (t : α) (e : AExpr) : α :=
+  e.evalWith env t (fun _ => Analog.ofFloat 0.0)
 
 /-- Numeric value of an algebraic expression at an operating point. -/
 def AExpr.evalFloat (env : Unknown → Float) (t : Float) (e : AExpr) : Float :=

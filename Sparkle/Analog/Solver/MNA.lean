@@ -46,26 +46,67 @@ def Circuit.envOf (c : Circuit) (x : Array Float) : Unknown → Float := fun u =
   | .netPotential net => x[net - 1]!
   | .branchFlow b => x[(c.netCount - 1) + b]!
 
-/-- All equations of the discretized system at a timestep: each branch's law
-(with `ddt` discretized against the previous point) followed by KCL at each
-non-ground net. -/
-def Circuit.equations (c : Circuit) (dt tPrev : Float) (prev : Unknown → Float) :
-    Array Equation := Id.run do
-  let mut eqs := #[]
-  for b in [0:c.placements.length] do
-    let p := c.placements[b]!
-    let v := AExpr.sub (AExpr.netV p.pos) (AExpr.netV p.neg)
-    let i := AExpr.branchI b
-    for eq in p.law v i do
-      eqs := eqs.push (eq.discretizeBE dt tPrev prev)
-  for net in [1:c.netCount] do
-    let mut sum : AExpr := (0 : AExpr)
-    for b in [0:c.placements.length] do
+/-- All equations of the system, *undiscretized*: each branch's acausal law (with
+`v := V(pos) − V(neg)`, `i := I(b)`, `ddt` left intact), then the controlled-source
+constraint rows, then KCL at each non-ground net. The differential operators
+survive here; the transient path lowers them with Backward Euler (`equations`),
+while AC analysis interprets them as `jω`. Row order — device-law rows in branch
+order, then controlled-source constraints, then KCL — is the shared contract both
+paths rely on. -/
+def Circuit.equationsRaw (c : Circuit) : Array Equation :=
+  let vNode (p n : Nat) : AExpr := AExpr.netV p - AExpr.netV n
+  -- Pair each controlled source with its output-branch index (from
+  -- `placements.length` up) where it carries one; `none` for the current-output
+  -- kinds. A prefix scan: the running counter is the only sequential state.
+  let ctrlInfo : Array (CtrlSource × Option Nat) :=
+    (c.controlledSources.foldl
+      (fun (acc, nb) cs =>
+        if cs.needsBranch then (acc.push (cs, some nb), nb + 1)
+        else (acc.push (cs, none), nb))
+      ((#[] : Array (CtrlSource × Option Nat)), c.placements.length)).1
+  -- Device-law rows (one per two-terminal device, branch order).
+  let deviceRows : Array Equation :=
+    (Array.range c.placements.length).flatMap fun b =>
       let p := c.placements[b]!
-      if p.pos == net then sum := sum + AExpr.branchI b
-      if p.neg == net then sum := sum - AExpr.branchI b
-    eqs := eqs.push (sum ≡ (0 : AExpr))
-  return eqs
+      (p.law (vNode p.pos p.neg) (AExpr.branchI b)).toArray
+  -- Controlled-source constraint rows (one per output-branch unknown).
+  let ctrlRows : Array Equation :=
+    ctrlInfo.filterMap fun (cs, _) =>
+      match cs.kind with
+      | .vcvs => some (vNode cs.outP cs.outN ≡ cs.gain * vNode cs.inP cs.inN)
+      | .ccvs => some (vNode cs.outP cs.outN ≡ cs.gain * AExpr.branchI (cs.ctrlBranch.getD 0))
+      | .opamp => some (vNode cs.inP cs.inN ≡ (0 : AExpr))
+      | _ => none  -- vccs/cccs have no constraint row
+  -- The signed contribution of one controlled source to the KCL sum at `net`.
+  let ctrlKCL (net : Nat) (sum : AExpr) : (CtrlSource × Option Nat) → AExpr :=
+    fun (cs, mb) =>
+      let outCurrent : AExpr := match cs.kind, mb with
+        | .vccs, _ => cs.gain * vNode cs.inP cs.inN
+        | .cccs, _ => cs.gain * AExpr.branchI (cs.ctrlBranch.getD 0)
+        | _, some j => AExpr.branchI j          -- vcvs/ccvs/opamp output branch
+        | _, none => (0 : AExpr)
+      let sum := if cs.outP == net then sum + outCurrent else sum
+      if cs.outN == net then sum - outCurrent else sum
+  -- KCL at each non-ground net `k+1`: two-terminal branch currents plus
+  -- controlled-source contributions, summed over the respective lists.
+  let kclRows : Array Equation :=
+    (Array.range (c.netCount - 1)).map fun k =>
+      let net := k + 1
+      let deviceSum := (Array.range c.placements.length).foldl
+        (fun sum b =>
+          let p := c.placements[b]!
+          let sum := if p.pos == net then sum + AExpr.branchI b else sum
+          if p.neg == net then sum - AExpr.branchI b else sum)
+        (0 : AExpr)
+      (ctrlInfo.foldl (ctrlKCL net) deviceSum) ≡ (0 : AExpr)
+  deviceRows ++ ctrlRows ++ kclRows
+
+/-- All equations of the discretized system at a timestep: `equationsRaw` with
+every branch law Backward-Euler–discretized against the previous point (KCL and
+controlled-source rows, having no `ddt`, pass through unchanged). -/
+def Circuit.equations (c : Circuit) (dt tPrev : Float) (prev : Unknown → Float) :
+    Array Equation :=
+  c.equationsRaw.map (·.discretizeBE dt tPrev prev)
 
 /-- Solve one (possibly nonlinear) timestep by Newton's method. `tNow` is the
 current time (the value of `time` nodes); `prev`/`tPrev` are the previous point
