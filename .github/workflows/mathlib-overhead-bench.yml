@@ -138,6 +138,30 @@ jobs:
             echo "build_du_kb=$(du -sk .lake/build | cut -f1)" >> "$GITHUB_ENV"
           fi
 
+      # Digital-only exe size — answers "if I `require mathlib` but
+      # no Sparkle module imports it, does the `sparkle` binary
+      # gain weight?"  Lake links per-olean-closure, so the size
+      # should be byte-identical between variants.  Recorded here
+      # to verify.
+      - name: "Measure sparkle exe size"
+        run: |
+          if [ -x .lake/build/bin/sparkle ]; then
+            echo "sparkle_exe_bytes=$(stat -c %s .lake/build/bin/sparkle)" >> "$GITHUB_ENV"
+            # Stripped size — strips debug + symbol tables; what
+            # would actually ship in a release tarball.
+            cp .lake/build/bin/sparkle /tmp/sparkle.unstripped
+            strip /tmp/sparkle.unstripped
+            echo "sparkle_exe_stripped_bytes=$(stat -c %s /tmp/sparkle.unstripped)" >> "$GITHUB_ENV"
+            rm -f /tmp/sparkle.unstripped
+          fi
+          # Per-lib breakdown for the Sparkle precompiled .so
+          # (precompileModules := true emits one shared lib per
+          # lean_lib).  This lets us see whether the .so file
+          # size moves with mathlib injection.
+          if [ -f .lake/build/lib/libsparkle_Sparkle.so ]; then
+            echo "libsparkle_so_bytes=$(stat -c %s .lake/build/lib/libsparkle_Sparkle.so)" >> "$GITHUB_ENV"
+          fi
+
       # No Sparkle module on main imports mathlib, so the previous
       # `lake build` step did NOT actually compile mathlib's oleans —
       # it only resolved the dependency.  PR #57's analog code DOES
@@ -174,4 +198,7 @@ jobs:
             echo "| .lake/packages        | ${packages_du_kb:-?} KiB |"
             echo "| .lake/build           | ${build_du_kb:-?} KiB |"
             echo "| mathlib .lake/build   | ${mathlib_build_du_kb:-n/a} KiB |"
+            echo "| sparkle exe (raw)     | ${sparkle_exe_bytes:-?} bytes |"
+            echo "| sparkle exe (strip)   | ${sparkle_exe_stripped_bytes:-?} bytes |"
+            echo "| libSparkle.so         | ${libsparkle_so_bytes:-?} bytes |"
           } >> "$GITHUB_STEP_SUMMARY"
