@@ -1,5 +1,12 @@
 #include <lean/lean.h>
 
+/* `leanc` compiles with `-fvisibility=hidden`, and `LEAN_EXPORT` only adds
+   default visibility when building libleanshared (LEAN_EXPORTING is set). For
+   an external FFI lib that `precompileModules` loads as a *shared* library at
+   compile time, these @[extern] symbols must be dynamically exported, so force
+   default visibility — an explicit pragma overrides the leanc flag. */
+#pragma GCC visibility push(default)
+
 /*
  * Cache reader for Signal DSL memoization.
  * Reads arr[t] from an IO.Ref, entirely in C to prevent LICM hoisting.
@@ -80,3 +87,5 @@ LEAN_EXPORT lean_obj_res sparkle_eval_at(
     lean_ctor_set(result, 1, lean_io_mk_world());
     return result;
 }
+
+#pragma GCC visibility pop
