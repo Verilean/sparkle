@@ -37,26 +37,17 @@ extern_lib «sparkle_jit» pkg := do
 -- wrappers, so every `JIT.load` throws "Could not find native
 -- implementation".
 --
--- `nativeFacets` then asks the linker to whole-archive our two
--- `extern_lib`s (`sparkle_barrier`, `sparkle_jit`) into the
--- precompiled `.so`.  Without this, `libsparkle_Sparkle.so` is
--- linked against the .a files but the linker discards every
--- symbol that no Lean wrapper currently calls — including
--- `sparkle_jit_load`, which the dlsym-loaded `JIT.load` boxing
--- wrapper looks up.  The result was the CI failure
---   symbol lookup error: libsparkle_Sparkle.so:
---   undefined symbol: sparkle_jit_load
--- The `-Wl,--whole-archive ... -Wl,--no-whole-archive` pair forces
--- the linker to retain every symbol from the listed archives.
+-- Visibility of the C-side externs is handled in the .c sources
+-- themselves (see `#pragma GCC visibility push(default)` in
+-- `c_src/sparkle_barrier.c` and `c_src/sparkle_jit.c`), which is
+-- portable across Linux / macOS / Windows.  A previous attempt
+-- used `-Wl,--whole-archive` here, but that flag (a) doesn't exist
+-- on Apple ld64 and (b) used a relative `-L ./.lake/build/c_src`
+-- which resolved against the *downstream consumer's* cwd, not
+-- Sparkle's package dir — so downstream `lake build` from a
+-- separate project broke on every OS.
 lean_lib «Sparkle» where
   precompileModules := true
-  moreLinkArgs := #[
-    "-L", "./.lake/build/c_src",
-    "-Wl,--whole-archive",
-    "-l:libsparkle_barrier.a",
-    "-l:libsparkle_jit.a",
-    "-Wl,--no-whole-archive"
-  ]
 
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]
