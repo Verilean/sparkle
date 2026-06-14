@@ -232,32 +232,46 @@ jobs:
           build-essential
           git
 
-    # NOTE on PATH inside WSL.  `Vampire/setup-wsl`'s `wsl-bash` wrapper
-    # runs each step with `set -u`, and the WSL session does *not*
-    # inherit the Windows-side `$GITHUB_PATH` env var — so a bare
-    # `echo "$HOME/.elan/bin" >> "$GITHUB_PATH"` aborts with
-    # "GITHUB_PATH: unbound variable", and even if we worked around
-    # that with `${GITHUB_PATH:-}`, subsequent WSL steps wouldn't
-    # actually pick up the write (the runner does its PATH
-    # accounting on the Windows side).
-    #
-    # The simplest reliable pattern is therefore "each step exports
-    # PATH explicitly at the top".  $HOME inside Ubuntu-22.04 under
-    # WSL is /root for the action's session, so `$HOME/.elan/bin`
-    # resolves consistently across steps.
+    # NOTE on env sharing across WSL steps.  `Vampire/setup-wsl`'s
+    # `wsl-bash` wrapper runs each step with `set -u`, and the WSL
+    # session does not inherit Windows-side env vars like
+    # `$GITHUB_ENV` / `$GITHUB_PATH`.  So both a bare reference
+    # (\"GITHUB_ENV: unbound variable\") and the writes themselves
+    # (the runner's env accounting lives on the Windows side, not
+    # inside WSL) break.  The workaround is to do all the work in
+    # **one** WSL step (so $WORK / $PATH stay in scope), write
+    # timings to a regular file inside WSL ($HOME/wsl-smoke-
+    # timings.txt), and have the final Windows-side step shell
+    # back into WSL via `wsl.exe cat` to retrieve them.
 
-    - name: "Install elan inside WSL"
+    - name: "Bootstrap + build + run blinky inside WSL"
+      id: wsl_smoke
       run: |
-        start=$(date +%s)
+        # Single combined step so $WORK / $PATH stay in one shell.
+        # Timings go to $HOME/wsl-smoke-timings.txt inside WSL; the
+        # Windows-side "Report timings" step shells back into WSL
+        # via `wsl.exe cat` to retrieve them.  This sidesteps both
+        # (a) $GITHUB_ENV being unbound under `set -u` inside the
+        #     Vampire/setup-wsl wrapper, and
+        # (b) the /mnt/<drive>/ → <drive>:\ translation depending on
+        #     which drive the runner uses (C: on some images, D: on
+        #     others).
+        TIMINGS="$HOME/wsl-smoke-timings.txt"
+        : > "$TIMINGS"
+
+        record() {
+          # $1 = label, $2 = start_epoch
+          local secs=$(( $(date +%s) - $2 ))
+          echo "$1=$secs" >> "$TIMINGS"
+        }
+
+        t0=$(date +%s)
         curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
           -sSf | sh -s -- -y --default-toolchain none
-        end=$(date +%s)
-        echo "elan_install_secs=$((end - start))" >> "$GITHUB_ENV"
-
-    - name: "Set up downstream project (lakefile.toml + sources)"
-      run: |
+        record elan_install_secs $t0
         export PATH="$HOME/.elan/bin:$PATH"
-        start=$(date +%s)
+
+        t0=$(date +%s)
         WORK="$HOME/my-blinky"
         mkdir -p "$WORK"
         cd "$WORK"
@@ -305,50 +319,52 @@ jobs:
           let trace := (blinky (dom := defaultDomain)).sample 16
           IO.println s!"blinky 16 cycles: {trace}"
         INNER
-        echo "WORK=$WORK" >> "$GITHUB_ENV"
-        end=$(date +%s)
-        echo "setup_secs=$((end - start))" >> "$GITHUB_ENV"
+        record setup_secs $t0
 
-    - name: "lake update"
-      run: |
-        export PATH="$HOME/.elan/bin:$PATH"
-        start=$(date +%s)
-        cd "$WORK"
+        t0=$(date +%s)
         lake update
-        end=$(date +%s)
-        echo "lake_update_secs=$((end - start))" >> "$GITHUB_ENV"
+        record lake_update_secs $t0
 
-    - name: "lake build"
-      run: |
-        export PATH="$HOME/.elan/bin:$PATH"
-        start=$(date +%s)
-        cd "$WORK"
+        t0=$(date +%s)
         lake build
-        end=$(date +%s)
-        echo "lake_build_secs=$((end - start))" >> "$GITHUB_ENV"
+        record lake_build_secs $t0
 
-    - name: "lake exe blinky"
-      run: |
-        export PATH="$HOME/.elan/bin:$PATH"
-        start=$(date +%s)
-        cd "$WORK"
+        t0=$(date +%s)
         OUT=$(lake exe blinky)
         echo "$OUT"
         echo "$OUT" | grep -q "blinky 16 cycles" || {
           echo "::error::blinky did not print the expected trace marker"
           exit 1
         }
-        end=$(date +%s)
-        echo "lake_exe_secs=$((end - start))" >> "$GITHUB_ENV"
+        record lake_exe_secs $t0
+
+        echo "--- final timings ---"
+        cat "$TIMINGS"
 
     - name: "Report timings"
       if: always()
-      # The summary writer runs in Windows context (no `wsl-bash`) so the
-      # $GITHUB_ENV values populated by the WSL steps above are reachable
-      # the same way as on the matrix job — GitHub Actions exposes them
-      # to subsequent steps regardless of the shell that wrote them.
+      # Runs in Windows context (Git Bash); reads the WSL-written
+      # timings file by shelling back into WSL.  `wsl.exe` is on
+      # PATH by default on windows-latest images.
       shell: bash
       run: |
+        # Pull the timings file out of the WSL session into a
+        # Windows-side temp file we can `source`.  If the WSL step
+        # failed before producing one, fall back to "?" placeholders.
+        TIMINGS_WIN="$RUNNER_TEMP/wsl-smoke-timings.txt"
+        if ! wsl.exe -d Ubuntu-22.04 -- bash -c 'cat "$HOME/wsl-smoke-timings.txt"' > "$TIMINGS_WIN" 2>/dev/null; then
+          : > "$TIMINGS_WIN"
+        fi
+        if [ ! -s "$TIMINGS_WIN" ]; then
+          {
+            echo "## Downstream smoke timings — windows-latest (WSL Ubuntu 22.04)"
+            echo ""
+            echo "(no timings file — the WSL step failed before producing one.)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        # shellcheck disable=SC1090
+        source "$TIMINGS_WIN" 2>/dev/null || true
         {
           echo "## Downstream smoke timings — windows-latest (WSL Ubuntu 22.04)"
           echo ""
