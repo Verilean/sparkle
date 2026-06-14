@@ -32,13 +32,19 @@ jobs:
       # to see which platform breaks.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Native Windows is intentionally absent: Sparkle's JIT
+        # extern uses dlopen/dlsym/dlerror/dlclose, which lld-link
+        # can't resolve on Windows.  Windows users should run
+        # Sparkle under WSL — exercised by the dedicated
+        # `downstream-smoke-wsl` job below — and the native port
+        # is tracked separately as a roadmap item.
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
 
     # The full sequence (toolchain install + lake update + lake build
     # of Sparkle from scratch + run) crosses 5 min on Linux and tends
-    # to climb on macOS / Windows.  Cap at 30 min so a hung downloader
-    # doesn't burn a free runner.
+    # to climb on macOS.  Cap at 30 min so a hung downloader doesn't
+    # burn a free runner.
     timeout-minutes: 30
 
     defaults:
@@ -178,6 +184,156 @@ jobs:
         # the most useful debugging hint.
         {
           echo "## Downstream smoke timings — ${{ matrix.os }}"
+          echo ""
+          echo "| Step | Seconds |"
+          echo "| --- | ---: |"
+          echo "| elan install            | ${elan_install_secs:-?} |"
+          echo "| project setup           | ${setup_secs:-?} |"
+          echo "| lake update             | ${lake_update_secs:-?} |"
+          echo "| lake build              | ${lake_build_secs:-?} |"
+          echo "| lake exe blinky         | ${lake_exe_secs:-?} |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  # ----------------------------------------------------------------------
+  # Windows-via-WSL: native Windows is unsupported (sparkle_jit.c needs
+  # POSIX dlopen), so the documented workflow for Windows users is "run
+  # Sparkle inside WSL".  This job exercises that path on a windows-latest
+  # runner with WSL2 + Ubuntu 22.04 installed via `Vampire/setup-wsl`,
+  # then runs the same heredoc-driven setup script the matrix job above
+  # uses for Linux.  A green check here documents that a Windows-WSL user
+  # can clone and build Sparkle the same way a Linux user can.
+  # ----------------------------------------------------------------------
+  downstream-smoke-wsl:
+    runs-on: windows-latest
+    timeout-minutes: 45  # WSL setup + cold lake build is slower than bare Linux
+
+    defaults:
+      run:
+        shell: wsl-bash {0}
+
+    steps:
+    - name: "Checkout sparkle (for the `rev` pin used below)"
+      uses: actions/checkout@v4
+      # Default shell for this step is the action's own JS runner, so no
+      # `wsl-bash` requirement.  We pull the checkout primarily so the
+      # follow-up steps can read $GITHUB_SHA — they fetch sparkle from
+      # github.com inside WSL, but they need to know what SHA to pin to.
+
+    - name: "Install WSL2 + Ubuntu 22.04"
+      uses: Vampire/setup-wsl@v3
+      with:
+        distribution: Ubuntu-22.04
+        # Pre-install the basic tooling our smoke script needs.  curl is
+        # available out of the box; ca-certificates and build-essential
+        # are needed for elan + clang.
+        additional-packages: |
+          curl
+          ca-certificates
+          build-essential
+          git
+
+    - name: "Install elan inside WSL"
+      run: |
+        start=$(date +%s)
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+          -sSf | sh -s -- -y --default-toolchain none
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+        end=$(date +%s)
+        echo "elan_install_secs=$((end - start))" >> "$GITHUB_ENV"
+
+    - name: "Set up downstream project (lakefile.toml + sources)"
+      run: |
+        start=$(date +%s)
+        WORK="$HOME/my-blinky"
+        mkdir -p "$WORK"
+        cd "$WORK"
+        SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+        curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/$SHA/lean-toolchain" \
+          > lean-toolchain
+        echo "Pinned lean-toolchain to: $(cat lean-toolchain)"
+        cat > lakefile.toml <<EOF
+        name = "my-blinky"
+        defaultTargets = ["MyBlinky"]
+
+        [[require]]
+        name = "sparkle"
+        git = "https://github.com/${{ github.repository }}.git"
+        rev = "$SHA"
+
+        [[lean_lib]]
+        name = "MyBlinky"
+
+        [[lean_exe]]
+        name = "blinky"
+        root = "Main"
+        EOF
+        mkdir -p MyBlinky
+        cat > MyBlinky/Counter.lean <<'INNER'
+        import Sparkle
+        open Sparkle.Core.Domain
+        open Sparkle.Core.Signal
+        namespace MyBlinky.Counter
+        def blinky {dom : DomainConfig} : Signal dom (BitVec 4) :=
+          circuit do
+            let count ← Signal.reg 0#4
+            count <~ count + 1#4
+            return count
+        end MyBlinky.Counter
+        INNER
+        cat > MyBlinky.lean <<'INNER'
+        import MyBlinky.Counter
+        INNER
+        cat > Main.lean <<'INNER'
+        import MyBlinky
+        open Sparkle.Core.Domain Sparkle.Core.Signal
+        open MyBlinky.Counter
+        def main : IO Unit := do
+          let trace := (blinky (dom := defaultDomain)).sample 16
+          IO.println s!"blinky 16 cycles: {trace}"
+        INNER
+        echo "WORK=$WORK" >> "$GITHUB_ENV"
+        end=$(date +%s)
+        echo "setup_secs=$((end - start))" >> "$GITHUB_ENV"
+
+    - name: "lake update"
+      run: |
+        start=$(date +%s)
+        cd "$WORK"
+        lake update
+        end=$(date +%s)
+        echo "lake_update_secs=$((end - start))" >> "$GITHUB_ENV"
+
+    - name: "lake build"
+      run: |
+        start=$(date +%s)
+        cd "$WORK"
+        lake build
+        end=$(date +%s)
+        echo "lake_build_secs=$((end - start))" >> "$GITHUB_ENV"
+
+    - name: "lake exe blinky"
+      run: |
+        start=$(date +%s)
+        cd "$WORK"
+        OUT=$(lake exe blinky)
+        echo "$OUT"
+        echo "$OUT" | grep -q "blinky 16 cycles" || {
+          echo "::error::blinky did not print the expected trace marker"
+          exit 1
+        }
+        end=$(date +%s)
+        echo "lake_exe_secs=$((end - start))" >> "$GITHUB_ENV"
+
+    - name: "Report timings"
+      if: always()
+      # The summary writer runs in Windows context (no `wsl-bash`) so the
+      # $GITHUB_ENV values populated by the WSL steps above are reachable
+      # the same way as on the matrix job — GitHub Actions exposes them
+      # to subsequent steps regardless of the shell that wrote them.
+      shell: bash
+      run: |
+        {
+          echo "## Downstream smoke timings — windows-latest (WSL Ubuntu 22.04)"
           echo ""
           echo "| Step | Seconds |"
           echo "| --- | ---: |"
