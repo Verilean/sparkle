@@ -74,10 +74,46 @@ jobs:
 
       - name: "lake update (timed)"
         run: |
+          # Snapshot lean-toolchain so we can restore it: mathlib's
+          # post-update hook (`cache get`) reads it via elan and a
+          # transitive `lake update` of the main-branch deps
+          # (doc-gen4 / LSpec) can drag the toolchain forward to
+          # whatever Lean those requires currently want.  In the
+          # PR #57 scenario you'd be pinning mathlib at the same
+          # toolchain you already use, so guard against the bench
+          # itself changing toolchains.
+          cp lean-toolchain lean-toolchain.snapshot
+
           start=$(date +%s)
-          lake update
+          if [ "${{ matrix.variant }}" = "with-mathlib" ]; then
+            # Targeted update: only fetch the newly-injected mathlib
+            # require, leaving existing pinned deps (doc-gen4, LSpec,
+            # etc.) at the commits recorded in the committed
+            # lake-manifest.json.  This mirrors the practical
+            # workflow a maintainer would use when adopting PR #57
+            # (`lake update mathlib`), not a full re-resolve.
+            #
+            # The post-update hook may still fail (cache fetch panic
+            # when the toolchain mismatches mathlib's), so allow the
+            # step to proceed — the benchmark cares about wall-clock
+            # and disk, not whether the leantar cache succeeds.
+            lake update mathlib || echo "::warning::lake update mathlib exited non-zero (post-hook), continuing"
+          else
+            # Baseline: no update needed — the committed manifest
+            # already pins all current deps and `lake build` will
+            # respect it.  We still record a zero so the summary
+            # table aligns across variants.
+            echo "baseline: skipping lake update (committed manifest is authoritative)"
+          fi
           end=$(date +%s)
           echo "lake_update_secs=$((end - start))" >> "$GITHUB_ENV"
+
+          # Restore the toolchain in case mathlib (or any transitive
+          # require) bumped it.  We want subsequent steps to use the
+          # toolchain Sparkle pins, not whatever elan picked up.
+          cp lean-toolchain.snapshot lean-toolchain
+          rm -f lean-toolchain.snapshot
+
           # Capture manifest size + package count for the summary.
           if [ -f lake-manifest.json ]; then
             echo "manifest_bytes=$(wc -c < lake-manifest.json)" >> "$GITHUB_ENV"
