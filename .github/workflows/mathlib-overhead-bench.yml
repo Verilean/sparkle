@@ -1,0 +1,138 @@
+name: Mathlib CI Overhead Bench (DO NOT MERGE)
+
+# Benchmarks the CI wall-clock cost of pulling in mathlib at the
+# repo's current toolchain pin.  This workflow is the standalone
+# proxy for "what would PR #57 do to CI time if we accepted the
+# `require mathlib` it adds?".
+#
+# Strategy: run two sequential jobs on the same runner image.
+# 1) `baseline`        — `lake update` + `lake build` on main as-is.
+# 2) `with-mathlib`    — same, after injecting a `require mathlib`
+#                        into lakefile.lean and re-running
+#                        `lake update`.
+#
+# The lakefile injection happens entirely inside the runner — we
+# don't commit any lakefile change, so the default `Build` workflow
+# (which deliberately skips `lake update`) is unaffected.
+#
+# This workflow is gated on `workflow_dispatch` only, plus an
+# explicit push trigger on this branch.  It does not run on PRs
+# into main.
+
+on:
+  push:
+    branches:
+      - ci/mathlib-overhead-bench
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [baseline, with-mathlib]
+    name: bench-${{ matrix.variant }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Install Lean toolchain
+        run: elan default "$(cat lean-toolchain)"
+
+      - name: Inject `require mathlib` (with-mathlib only)
+        if: matrix.variant == 'with-mathlib'
+        run: |
+          # Append a `require mathlib` block immediately after the
+          # existing LSpec require.  Pinned to v4.28.0 to match
+          # `lean-toolchain`.  Same form as PR #57's lakefile diff,
+          # minus heron (out of scope for this benchmark).
+          python3 - <<'PY'
+          import pathlib
+          p = pathlib.Path("lakefile.lean")
+          txt = p.read_text()
+          marker = 'require LSpec from git\n  "https://github.com/argumentcomputer/LSpec" @ "main"'
+          inject = (
+              '\n\n-- BENCHMARK INJECTION — measures mathlib CI overhead, do not merge.\n'
+              'require mathlib from git\n'
+              '  "https://github.com/leanprover-community/mathlib4" @ "v4.28.0"'
+          )
+          assert marker in txt, "LSpec require marker not found in lakefile.lean"
+          p.write_text(txt.replace(marker, marker + inject))
+          print("-- patched lakefile.lean --")
+          print(p.read_text()[:2000])
+          PY
+
+      - name: "lake update (timed)"
+        run: |
+          start=$(date +%s)
+          lake update
+          end=$(date +%s)
+          echo "lake_update_secs=$((end - start))" >> "$GITHUB_ENV"
+          # Capture manifest size + package count for the summary.
+          if [ -f lake-manifest.json ]; then
+            echo "manifest_bytes=$(wc -c < lake-manifest.json)" >> "$GITHUB_ENV"
+            echo "package_count=$(python3 -c 'import json;print(len(json.load(open(\"lake-manifest.json\"))[\"packages\"]))')" >> "$GITHUB_ENV"
+          fi
+          # Capture .lake/packages disk usage too (clones + builds).
+          if [ -d .lake/packages ]; then
+            echo "packages_du_kb=$(du -sk .lake/packages | cut -f1)" >> "$GITHUB_ENV"
+          fi
+
+      - name: "lake build (timed)"
+        run: |
+          start=$(date +%s)
+          lake build
+          end=$(date +%s)
+          echo "lake_build_secs=$((end - start))" >> "$GITHUB_ENV"
+          # Disk footprint of the build dir, for reference.
+          if [ -d .lake/build ]; then
+            echo "build_du_kb=$(du -sk .lake/build | cut -f1)" >> "$GITHUB_ENV"
+          fi
+
+      # No Sparkle module on main imports mathlib, so the previous
+      # `lake build` step did NOT actually compile mathlib's oleans —
+      # it only resolved the dependency.  PR #57's analog code DOES
+      # import mathlib (`Sparkle.Analog.Solver.LinAlg` etc.), which
+      # would force the full olean tree to be built.  To measure that
+      # cost separately, build mathlib explicitly in the with-mathlib
+      # variant.  Skipped on baseline (no mathlib package present).
+      - name: "lake build Mathlib (timed; with-mathlib only)"
+        if: matrix.variant == 'with-mathlib'
+        run: |
+          start=$(date +%s)
+          lake build Mathlib
+          end=$(date +%s)
+          echo "lake_build_mathlib_secs=$((end - start))" >> "$GITHUB_ENV"
+          if [ -d .lake/packages/mathlib/.lake/build ]; then
+            echo "mathlib_build_du_kb=$(du -sk .lake/packages/mathlib/.lake/build | cut -f1)" >> "$GITHUB_ENV"
+          fi
+
+      - name: "Report (per-variant)"
+        if: always()
+        run: |
+          {
+            echo "## Mathlib bench — variant \`${{ matrix.variant }}\`"
+            echo ""
+            echo "| Metric | Value |"
+            echo "| --- | ---: |"
+            echo "| lake update           | ${lake_update_secs:-?} s |"
+            echo "| lake build            | ${lake_build_secs:-?} s |"
+            echo "| lake build Mathlib    | ${lake_build_mathlib_secs:-n/a} s |"
+            total=$(( ${lake_update_secs:-0} + ${lake_build_secs:-0} + ${lake_build_mathlib_secs:-0} ))
+            echo "| total                 | ${total} s |"
+            echo "| lake-manifest size    | ${manifest_bytes:-?} bytes |"
+            echo "| dependency packages   | ${package_count:-?} |"
+            echo "| .lake/packages        | ${packages_du_kb:-?} KiB |"
+            echo "| .lake/build           | ${build_du_kb:-?} KiB |"
+            echo "| mathlib .lake/build   | ${mathlib_build_du_kb:-n/a} KiB |"
+          } >> "$GITHUB_STEP_SUMMARY"
