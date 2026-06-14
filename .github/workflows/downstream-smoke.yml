@@ -232,17 +232,31 @@ jobs:
           build-essential
           git
 
+    # NOTE on PATH inside WSL.  `Vampire/setup-wsl`'s `wsl-bash` wrapper
+    # runs each step with `set -u`, and the WSL session does *not*
+    # inherit the Windows-side `$GITHUB_PATH` env var — so a bare
+    # `echo "$HOME/.elan/bin" >> "$GITHUB_PATH"` aborts with
+    # "GITHUB_PATH: unbound variable", and even if we worked around
+    # that with `${GITHUB_PATH:-}`, subsequent WSL steps wouldn't
+    # actually pick up the write (the runner does its PATH
+    # accounting on the Windows side).
+    #
+    # The simplest reliable pattern is therefore "each step exports
+    # PATH explicitly at the top".  $HOME inside Ubuntu-22.04 under
+    # WSL is /root for the action's session, so `$HOME/.elan/bin`
+    # resolves consistently across steps.
+
     - name: "Install elan inside WSL"
       run: |
         start=$(date +%s)
         curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
           -sSf | sh -s -- -y --default-toolchain none
-        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
         end=$(date +%s)
         echo "elan_install_secs=$((end - start))" >> "$GITHUB_ENV"
 
     - name: "Set up downstream project (lakefile.toml + sources)"
       run: |
+        export PATH="$HOME/.elan/bin:$PATH"
         start=$(date +%s)
         WORK="$HOME/my-blinky"
         mkdir -p "$WORK"
@@ -297,6 +311,7 @@ jobs:
 
     - name: "lake update"
       run: |
+        export PATH="$HOME/.elan/bin:$PATH"
         start=$(date +%s)
         cd "$WORK"
         lake update
@@ -305,6 +320,7 @@ jobs:
 
     - name: "lake build"
       run: |
+        export PATH="$HOME/.elan/bin:$PATH"
         start=$(date +%s)
         cd "$WORK"
         lake build
@@ -313,6 +329,7 @@ jobs:
 
     - name: "lake exe blinky"
       run: |
+        export PATH="$HOME/.elan/bin:$PATH"
         start=$(date +%s)
         cd "$WORK"
         OUT=$(lake exe blinky)
