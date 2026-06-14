@@ -15,6 +15,12 @@
 
 #include <lean/lean.h>
 
+/* `leanc` builds with `-fvisibility=hidden` and `LEAN_EXPORT` is a no-op outside
+   libleanshared, so these @[extern] symbols would be hidden. `precompileModules`
+   loads this as a *shared* library at compile time and must resolve them
+   dynamically — force default visibility (overrides the leanc flag). */
+#pragma GCC visibility push(default)
+
 /* Declare dlopen/dlsym/dlclose/dlerror manually to avoid dlfcn.h
    (Lean's bundled clang uses -nostdinc which excludes system headers) */
 #define RTLD_NOW 2
@@ -475,3 +481,5 @@ LEAN_EXPORT lean_obj_res sparkle_jit_run_cdc(
 
     return mk_io_ok(outer);
 }
+
+#pragma GCC visibility pop
