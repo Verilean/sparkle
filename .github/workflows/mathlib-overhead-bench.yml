@@ -117,7 +117,10 @@ jobs:
           # Capture manifest size + package count for the summary.
           if [ -f lake-manifest.json ]; then
             echo "manifest_bytes=$(wc -c < lake-manifest.json)" >> "$GITHUB_ENV"
-            echo "package_count=$(python3 -c 'import json;print(len(json.load(open(\"lake-manifest.json\"))[\"packages\"]))')" >> "$GITHUB_ENV"
+            # jq instead of python — sidesteps the YAML→bash→python
+            # quoting hell that previously broke `python3 -c '...'`
+            # with a SyntaxError on the escaped string literals.
+            echo "package_count=$(jq '.packages | length' lake-manifest.json)" >> "$GITHUB_ENV"
           fi
           # Capture .lake/packages disk usage too (clones + builds).
           if [ -d .lake/packages ]; then
