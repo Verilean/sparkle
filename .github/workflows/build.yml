@@ -818,19 +818,87 @@ jobs:
               xlean-convert --to ipynb "$f" -o "$out"
             done
 
+            # 1b. Sparkle WASM staging + xlean kernel rebuild.
+            #
+            # Since xeus-lean PR #13 unbundled Sparkle from the
+            # kernel image, /opt/xeus-lean/.pixi/envs/wasm-host
+            # only knows the Lean stdlib.  To make the deployed
+            # lab answer `import Sparkle.Core.Domain` instead of
+            # "unknown namespace", we have to
+            # (a) build a Sparkle staging dir via
+            #     tools/wasm/build-wasm.sh, then
+            # (b) re-configure xlean with
+            #     `-DEXTRA_WASM_DIRS=<staging>` and re-install it
+            #     into a fresh prefix.
+            #
+            # jupyterlite-xeus reads `<prefix>/conda-meta/history`
+            # to enumerate installed kernels.  A pure
+            # `cmake --install` only writes the xlean binary + the
+            # staged oleans; the conda metadata that XeusAddon
+            # expects is absent and `jupyter lite build` then dies
+            # with `FileNotFoundError: ".../conda-meta/history"`.
+            # Seed the install prefix as a copy of the image-baked
+            # wasm-host env (which already has conda-meta) so the
+            # overlay install lands on top of valid metadata.
+            #
+            # Wrap the whole rebuild in a guard: on any failure we
+            # fall back to the stock kernel — the lab still loads,
+            # just without `import Sparkle` (same as the
+            # pre-PR-#13 behaviour).  This was validated end-to-end
+            # by the lab-wasm-staging-probe workflow on this
+            # branch (run 27527531979).
+            SPARKLE_PREFIX=""
+            STOCK_PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
+            if [ -f /work/tools/wasm/build-wasm.sh ] \
+               && [ -f /opt/xeus-lean/CMakeLists.txt ] \
+               && [ -d "$STOCK_PREFIX/conda-meta" ]; then
+              echo "::group::Sparkle WASM staging + xlean rebuild"
+              CAND=/work/.sparkle-kernel-prefix
+              if pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                   bash /work/tools/wasm/build-wasm.sh /work/.sparkle-staging \
+                 && cp -a "$STOCK_PREFIX" "$CAND" \
+                 && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                      emcmake cmake -S /opt/xeus-lean -B /work/.wasm-rebuild \
+                        -DCMAKE_BUILD_TYPE=Release \
+                        -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ON \
+                        -DCMAKE_INSTALL_PREFIX="$CAND" \
+                        -DEXTRA_WASM_DIRS=/work/.sparkle-staging \
+                 && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                      emmake make -C /work/.wasm-rebuild -j"$(nproc)" xlean \
+                 && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                      cmake --install /work/.wasm-rebuild \
+                 && [ -f "$CAND/conda-meta/history" ]
+              then
+                SPARKLE_PREFIX="$CAND"
+                echo "Sparkle-enabled kernel installed at $SPARKLE_PREFIX"
+              else
+                echo "::warning::Sparkle WASM kernel rebuild failed; falling back to stock kernel (lab will not have import Sparkle)"
+              fi
+              echo "::endgroup::"
+            else
+              echo "::warning::Sparkle WASM staging prereqs missing; falling back to stock kernel"
+            fi
+
             # 2. JupyterLite SPA FIRST — `jupyter lite build --force`
             #    wipes its output dir, so anything we drop into
-            #    site/ before this point is lost.  PREFIX = built-in
-            #    xlean kernel install root (from the image), baked at
-            #    a fixed path because the image-bundled pixi version
-            #    chokes on `pixi info -e wasm-host` (the Dockerfile
-            #    itself falls back to this same path).
-            PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
+            #    site/ before this point is lost.  PREFIX = either
+            #    the freshly-built Sparkle-enabled kernel (step 1b)
+            #    or the image-baked stock kernel as fallback.  The
+            #    stock prefix is baked at a fixed path because the
+            #    image-bundled pixi version chokes on
+            #    `pixi info -e wasm-host` (the Dockerfile itself
+            #    falls back to this same path).
+            if [ -n "$SPARKLE_PREFIX" ] && [ -d "$SPARKLE_PREFIX/bin" ]; then
+              PREFIX="$SPARKLE_PREFIX"
+            else
+              PREFIX="$STOCK_PREFIX"
+            fi
             ls -d "$PREFIX/bin" >/dev/null || {
               echo "ERROR: xlean kernel prefix not found at $PREFIX"
               find /opt/xeus-lean/.pixi/envs -maxdepth 2 -type d 2>/dev/null | head -10
               exit 1
             }
+            echo "Using kernel PREFIX=$PREFIX"
             # `jupyter lite build` uses doit, which writes a sqlite
             # deps DB into cwd.  /opt/xeus-lean is image-root-owned
             # in some configs, and even when writable as root it is
@@ -869,7 +937,9 @@ jobs:
             #    write into them.  Root inside the container created
             #    these as root.
             chown -R "${HOST_UID}:${HOST_GID}" \
-              /work/site /work/notebooks /work/.jlite-build || true
+              /work/site /work/notebooks /work/.jlite-build \
+              /work/.sparkle-staging /work/.wasm-rebuild \
+              /work/.sparkle-kernel-prefix 2>/dev/null || true
           '
         echo "=== site tree (depth 2) ==="
         find site -maxdepth 2 -type d
