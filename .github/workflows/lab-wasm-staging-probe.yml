@@ -82,7 +82,27 @@ jobs:
                 bash /work/tools/wasm/build-wasm.sh /work/.sparkle-staging
 
               echo
-              echo "=== 2) emcmake cmake (xlean + EXTRA_WASM_DIRS) ==="
+              echo "=== 2) seed install prefix from image wasm-host (preserves conda-meta) ==="
+              # jupyterlite-xeus reads `<prefix>/conda-meta/history`
+              # (and other conda metadata) to discover which xeus
+              # kernels are installed in the environment.  A fresh
+              # cmake --install prefix only writes the kernel
+              # artifacts, leaving the conda metadata absent and the
+              # subsequent `jupyter lite build` step crashing with
+              #   FileNotFoundError: ".../conda-meta/history"
+              # Workaround: start the install prefix as a copy of the
+              # image-baked wasm-host env (which already has the
+              # conda metadata), then let cmake --install overwrite
+              # the kernel binaries on top.
+              STOCK_PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
+              if [ ! -d "$STOCK_PREFIX/conda-meta" ]; then
+                echo "ERROR: stock prefix lacks conda-meta at $STOCK_PREFIX"
+                exit 1
+              fi
+              cp -a "$STOCK_PREFIX" /work/.sparkle-kernel-prefix
+
+              echo
+              echo "=== 3) emcmake cmake (xlean + EXTRA_WASM_DIRS) ==="
               pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
                 emcmake cmake -S /opt/xeus-lean -B /work/.wasm-rebuild \
                   -DCMAKE_BUILD_TYPE=Release \
@@ -91,22 +111,26 @@ jobs:
                   -DEXTRA_WASM_DIRS=/work/.sparkle-staging
 
               echo
-              echo "=== 3) emmake make xlean ==="
+              echo "=== 4) emmake make xlean ==="
               pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
                 emmake make -C /work/.wasm-rebuild -j"$(nproc)" xlean
 
               echo
-              echo "=== 4) cmake --install (into a fresh prefix) ==="
+              echo "=== 5) cmake --install (overlay onto seeded prefix) ==="
               pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
                 cmake --install /work/.wasm-rebuild
 
               echo
-              echo "=== installed prefix layout ==="
+              echo "=== installed prefix layout (Sparkle-enabled) ==="
               ls /work/.sparkle-kernel-prefix
               ls /work/.sparkle-kernel-prefix/bin 2>/dev/null || true
+              ls /work/.sparkle-kernel-prefix/share/jupyter/kernels/ 2>/dev/null || true
+              [ -f /work/.sparkle-kernel-prefix/conda-meta/history ] \
+                && echo "OK: conda-meta/history present" \
+                || echo "ERROR: conda-meta/history still missing"
 
               echo
-              echo "=== 5) jupyter lite build (Sparkle-enabled prefix) ==="
+              echo "=== 6) jupyter lite build (Sparkle-enabled prefix) ==="
               PREFIX=/work/.sparkle-kernel-prefix
               if [ ! -d "$PREFIX/bin" ]; then
                 echo "::warning::Sparkle-enabled prefix lacks bin/; falling back to stock"
