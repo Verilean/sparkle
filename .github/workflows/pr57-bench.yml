@@ -1,0 +1,165 @@
+name: PR #57 build bench (DO NOT MERGE)
+
+# Full build of PR #57 (feat/analog rebased on main) measuring:
+#   - lake update wall-clock (mathlib + heron fetch + cache prefetch)
+#   - lake build wall-clock (sparkle digital lib + Sparkle.Analog lib +
+#     heron plugin .so + analog/digital exes)
+#   - exe sizes for the digital `sparkle` exe and the analog exes
+#     (analog-example, analog-transient-test), to verify whether
+#     mathlib's presence in `require` inflates ANY produced binary.
+#
+# Triggers: push to this branch + manual dispatch.
+
+on:
+  push:
+    branches:
+      - ci/mathlib-bench-on-pr57
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh \
+            -sSf | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Install Lean toolchain
+        run: elan default "$(cat lean-toolchain)"
+
+      - name: "lake update (timed)"
+        run: |
+          cp lean-toolchain lean-toolchain.snapshot
+          start=$(date +%s)
+          # PR #57 already has `require mathlib` + `require heron` in
+          # lakefile.lean — just run a normal lake update.  Allow
+          # warnings (post-update cache prefetch may panic on
+          # toolchain mismatch but the wall-clock measurement is
+          # still valid).
+          lake update || echo "::warning::lake update exited non-zero, continuing"
+          end=$(date +%s)
+          echo "lake_update_secs=$((end - start))" >> "$GITHUB_ENV"
+
+          # Restore toolchain in case a transitive require bumped it.
+          cp lean-toolchain.snapshot lean-toolchain
+          rm -f lean-toolchain.snapshot
+
+          if [ -f lake-manifest.json ]; then
+            echo "manifest_bytes=$(wc -c < lake-manifest.json)" >> "$GITHUB_ENV"
+            echo "package_count=$(jq '.packages | length' lake-manifest.json)" >> "$GITHUB_ENV"
+          fi
+          if [ -d .lake/packages ]; then
+            echo "packages_du_kb=$(du -sk .lake/packages | cut -f1)" >> "$GITHUB_ENV"
+          fi
+
+      # heron plugin needs to be built before any lake build that
+      # references it via `weakLeanArgs := #["--plugin", ...]`.
+      # PR #57's lakefile comment says: "bootstrap or refresh it
+      # with `lake build heron/Heron:shared`."
+      - name: "lake build heron/Heron:shared (timed)"
+        run: |
+          start=$(date +%s)
+          lake build heron/Heron:shared || echo "::warning::heron plugin build failed, continuing"
+          end=$(date +%s)
+          echo "heron_build_secs=$((end - start))" >> "$GITHUB_ENV"
+
+      - name: "lake build (timed)"
+        run: |
+          start=$(date +%s)
+          # Default target is `sparkle` exe.  Build that + the two
+          # Analog exes so we can size all three artifacts.
+          lake build sparkle analog-example analog-transient-test
+          end=$(date +%s)
+          echo "lake_build_secs=$((end - start))" >> "$GITHUB_ENV"
+          if [ -d .lake/build ]; then
+            echo "build_du_kb=$(du -sk .lake/build | cut -f1)" >> "$GITHUB_ENV"
+          fi
+
+      - name: "Measure exe sizes"
+        run: |
+          # Helper: emit "<name>_bytes=<raw>" and "<name>_stripped_bytes=<strip>"
+          measure() {
+            local name="$1" path="$2"
+            if [ -x "$path" ]; then
+              echo "${name}_bytes=$(stat -c %s "$path")" >> "$GITHUB_ENV"
+              cp "$path" "/tmp/${name}.tmp"
+              strip "/tmp/${name}.tmp"
+              echo "${name}_stripped_bytes=$(stat -c %s "/tmp/${name}.tmp")" >> "$GITHUB_ENV"
+              rm -f "/tmp/${name}.tmp"
+            else
+              echo "::warning::${path} not found or not executable"
+            fi
+          }
+
+          measure sparkle              .lake/build/bin/sparkle
+          measure analog_example       .lake/build/bin/analog-example
+          measure analog_transient     .lake/build/bin/analog-transient-test
+
+          # Per-lib precompiled .so for the digital Sparkle lib.
+          # Sparkle.Analog is NOT precompiled (no `precompileModules`)
+          # so it doesn't get a .so; its oleans are only used at
+          # native link time by the analog exes.
+          if [ -f .lake/build/lib/libsparkle_Sparkle.so ]; then
+            echo "libsparkle_so_bytes=$(stat -c %s .lake/build/lib/libsparkle_Sparkle.so)" >> "$GITHUB_ENV"
+          fi
+
+          # Mathlib package build state: was the cache really hit,
+          # or did we end up building?  If a `Mathlib` umbrella
+          # olean exists under .lake/packages/mathlib/.lake/build,
+          # report its size; nonzero => cache get worked.
+          if [ -d .lake/packages/mathlib/.lake/build ]; then
+            echo "mathlib_build_du_kb=$(du -sk .lake/packages/mathlib/.lake/build | cut -f1)" >> "$GITHUB_ENV"
+          fi
+
+      - name: "Report"
+        if: always()
+        run: |
+          {
+            echo "## PR #57 build bench"
+            echo ""
+            echo "Branch: \`ci/mathlib-bench-on-pr57\` (PR #57 rebased on main)"
+            echo ""
+            echo "### Wall-clock"
+            echo ""
+            echo "| Step | Seconds |"
+            echo "| --- | ---: |"
+            echo "| lake update                 | ${lake_update_secs:-?} |"
+            echo "| lake build heron/Heron:shared | ${heron_build_secs:-?} |"
+            echo "| lake build (sparkle + 2 analog exes) | ${lake_build_secs:-?} |"
+            total=$(( ${lake_update_secs:-0} + ${heron_build_secs:-0} + ${lake_build_secs:-0} ))
+            echo "| **total**                   | **${total}** |"
+            echo ""
+            echo "### Disk"
+            echo ""
+            echo "| Path | KiB |"
+            echo "| --- | ---: |"
+            echo "| lake-manifest.json size (bytes) | ${manifest_bytes:-?} |"
+            echo "| dependency packages             | ${package_count:-?} |"
+            echo "| .lake/packages                  | ${packages_du_kb:-?} |"
+            echo "| .lake/build                     | ${build_du_kb:-?} |"
+            echo "| mathlib .lake/build             | ${mathlib_build_du_kb:-?} |"
+            echo ""
+            echo "### Exe sizes (bytes)"
+            echo ""
+            echo "| Binary | raw | stripped |"
+            echo "| --- | ---: | ---: |"
+            echo "| sparkle              | ${sparkle_bytes:-?}          | ${sparkle_stripped_bytes:-?} |"
+            echo "| analog-example       | ${analog_example_bytes:-?}   | ${analog_example_stripped_bytes:-?} |"
+            echo "| analog-transient-test| ${analog_transient_bytes:-?} | ${analog_transient_stripped_bytes:-?} |"
+            echo "| libsparkle_Sparkle.so| ${libsparkle_so_bytes:-?}    | — |"
+            echo ""
+            echo "### Reference (main without PR #57, from PR #61 run 27495139008)"
+            echo ""
+            echo "| Binary | raw | stripped |"
+            echo "| --- | ---: | ---: |"
+            echo "| sparkle              | 138,379,296 | 108,905,896 |"
+            echo "| libsparkle_Sparkle.so|   5,092,680 | — |"
+          } >> "$GITHUB_STEP_SUMMARY"
