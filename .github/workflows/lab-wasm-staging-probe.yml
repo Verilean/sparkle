@@ -1,0 +1,155 @@
+name: Lab WASM staging probe (DO NOT MERGE / experiment)
+
+# Validates the xeus-lean PR #13 path end-to-end on CI without
+# touching `build.yml`:
+#   1) Build Sparkle olean + WASM static-lib staging via
+#      `tools/wasm/build-wasm.sh`.
+#   2) Re-configure xeus-lean's WASM build under the docs-builder
+#      image's `/opt/xeus-lean` tree, passing
+#      `-DEXTRA_WASM_DIRS=<staging>` so the kernel statically links
+#      the Sparkle externs + bakes Sparkle oleans into the WASM VFS.
+#   3) `cmake --install` into a fresh prefix.
+#   4) `jupyter lite build` against that prefix to produce a real
+#      `site/lab/` SPA.
+#   5) Upload the SPA as an artifact so we can browse it locally
+#      to verify `import Sparkle.Core.Domain` resolves.
+#
+# Triggered only on its own branch + manual dispatch.  Not part of
+# the merge gate.  Once this works end-to-end, the same wiring is
+# folded into `build.yml`'s `tutorial-notebooks` job in a follow-up.
+
+on:
+  push:
+    branches:
+      - ci/wire-sparkle-wasm-staging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: "Free disk space for docker pull"
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
+            /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h
+
+      - name: "Pull xeus-lean docs-builder image"
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
+          docker pull ghcr.io/verilean/xeus-lean-docs-builder:latest
+          docker image ls ghcr.io/verilean/xeus-lean-docs-builder:latest
+
+      - name: "Build Sparkle staging + rebuild xlean + jupyter lite build"
+        run: |
+          mkdir -p site notebooks/tutorial
+          host_uid=$(id -u)
+          host_gid=$(id -g)
+          docker run --rm \
+            -v "${{ github.workspace }}:/work" \
+            -w /work \
+            -e HOST_UID=$host_uid \
+            -e HOST_GID=$host_gid \
+            ghcr.io/verilean/xeus-lean-docs-builder:latest \
+            bash -eu -c '
+              echo "=== sanity: tools inside the image ==="
+              command -v lake || true
+              command -v lean || true
+              command -v pixi || true
+              ls /opt/xeus-lean/CMakeLists.txt
+              echo
+
+              echo "=== md → ipynb (so the lab has notebooks to open) ==="
+              for f in docs/tutorial/md/Ch*.md; do
+                [ -e "$f" ] || continue
+                out="notebooks/tutorial/$(basename "$f" .md).ipynb"
+                xlean-convert --to ipynb "$f" -o "$out"
+              done
+
+              echo
+              echo "=== 1) Sparkle WASM staging (tools/wasm/build-wasm.sh) ==="
+              pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                bash /work/tools/wasm/build-wasm.sh /work/.sparkle-staging
+
+              echo
+              echo "=== 2) emcmake cmake (xlean + EXTRA_WASM_DIRS) ==="
+              pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                emcmake cmake -S /opt/xeus-lean -B /work/.wasm-rebuild \
+                  -DCMAKE_BUILD_TYPE=Release \
+                  -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ON \
+                  -DCMAKE_INSTALL_PREFIX=/work/.sparkle-kernel-prefix \
+                  -DEXTRA_WASM_DIRS=/work/.sparkle-staging
+
+              echo
+              echo "=== 3) emmake make xlean ==="
+              pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                emmake make -C /work/.wasm-rebuild -j"$(nproc)" xlean
+
+              echo
+              echo "=== 4) cmake --install (into a fresh prefix) ==="
+              pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                cmake --install /work/.wasm-rebuild
+
+              echo
+              echo "=== installed prefix layout ==="
+              ls /work/.sparkle-kernel-prefix
+              ls /work/.sparkle-kernel-prefix/bin 2>/dev/null || true
+
+              echo
+              echo "=== 5) jupyter lite build (Sparkle-enabled prefix) ==="
+              PREFIX=/work/.sparkle-kernel-prefix
+              if [ ! -d "$PREFIX/bin" ]; then
+                echo "::warning::Sparkle-enabled prefix lacks bin/; falling back to stock"
+                PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
+              fi
+              mkdir -p /work/.jlite-build
+              cd /work/.jlite-build
+              pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
+                jupyter lite build \
+                  --XeusAddon.prefix="$PREFIX" \
+                  "--XeusAddon.default_channels=[]" \
+                  --contents /work/notebooks \
+                  --output-dir /work/site \
+                  --force
+              cd /work
+
+              # Hand workspace back to the runner user so artifact
+              # upload can read the tree.
+              chown -R "${HOST_UID}:${HOST_GID}" \
+                /work/site /work/notebooks /work/.jlite-build \
+                /work/.sparkle-staging /work/.wasm-rebuild \
+                /work/.sparkle-kernel-prefix 2>/dev/null || true
+            '
+
+      - name: "Inspect produced site tree"
+        if: always()
+        run: |
+          echo "=== site (depth 3) ==="
+          find site -maxdepth 3 -type d | sort
+          echo
+          echo "=== files referencing Sparkle in the lab assets ==="
+          grep -rl "Sparkle" site/lab 2>/dev/null | head -10 || echo "no Sparkle references in site/lab"
+          echo
+          echo "=== .sparkle-staging contents ==="
+          ls -la .sparkle-staging 2>/dev/null || echo "(no staging dir)"
+          [ -f .sparkle-staging/xeus-lean-extra.json ] && cat .sparkle-staging/xeus-lean-extra.json
+          [ -f .sparkle-staging/lib/sparkle_exports.txt ] && wc -l .sparkle-staging/lib/sparkle_exports.txt
+
+      - name: "Upload lab artifact"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparkle-lab-probe
+          path: site
+          retention-days: 14
+          if-no-files-found: warn
