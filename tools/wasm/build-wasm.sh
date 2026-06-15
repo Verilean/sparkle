@@ -103,16 +103,26 @@ cat > "$OVERRIDE_H" <<'EOF'
 EOF
 
 # 2a. sparkle_barrier.c
+# Apply the same LEAN_MIMALLOC override here too: even hand-written
+# C that only `#include <lean/lean.h>` indirectly pulls in the
+# mimalloc inline expansions through `lean/config.h`, leaving the
+# WASM link with unresolved `mi_malloc_small`/`mi_free`/etc.  The
+# override switches the allocator pragma off before lean.h is
+# evaluated, so the file falls through to libc malloc/free.
 OBJ_BARRIER="$STAGING/lib/sparkle_barrier.o"
-emcc -O2 -sMEMORY64 -fPIC \
+emcc -O2 -sMEMORY64 -fPIC -w \
      -I"$LEAN_INCLUDE" \
+     -include lean/config.h \
+     -include "$OVERRIDE_H" \
      -c "$REPO_ROOT/c_src/sparkle_barrier.c" \
      -o "$OBJ_BARRIER"
 
 # 2b. sparkle_jit_wasm_stub.c (replaces sparkle_jit.c for WASM)
 OBJ_JIT_STUB="$STAGING/lib/sparkle_jit_wasm_stub.o"
-emcc -O2 -sMEMORY64 -fPIC \
+emcc -O2 -sMEMORY64 -fPIC -w \
      -I"$LEAN_INCLUDE" \
+     -include lean/config.h \
+     -include "$OVERRIDE_H" \
      -c "$REPO_ROOT/c_src/sparkle_jit_wasm_stub.c" \
      -o "$OBJ_JIT_STUB"
 
