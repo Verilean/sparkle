@@ -355,3 +355,8 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 - Inspired by [Clash HDL](https://clash-lang.org/)
 - Built with [Lean 4](https://lean-lang.org/)
+
+## Community
+
+- **Discord**: [https://discord.gg/94Xueve8WD](https://discord.gg/94Xueve8WD)
+  — design discussion, weekly progress threads, beginner Q&A.
