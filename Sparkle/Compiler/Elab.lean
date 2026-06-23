@@ -1498,18 +1498,38 @@ mutual
             return some (← translateExprToWire e' hint (isNamed := isNamed))
     -- Value-level Prod.mk hit directly as the expression head.
     -- This shows up after `Bind.bind` peels and the user's `do`
-    -- block reduces to `Prod.mk out_signal builder`.  We're
-    -- being asked for the wire of the whole Prod, but the only
-    -- meaningful payload is the first component (the output
-    -- Signal); the builder is a `NextBuilder` function with no
-    -- wire representation.
+    -- block reduces to `Prod.mk out_payload builder` (where
+    -- `builder : Circuit.NextBuilder dom S`).  We're being asked
+    -- for the wire of the whole Prod, but the only meaningful
+    -- payload is the first component (the output: a Signal, a
+    -- tuple of Signals, or a user-defined record packing
+    -- Signals); the builder is a closure with no wire
+    -- representation.
     --
-    -- Scope: only fire when args[0] (the α type) is a Signal —
-    -- otherwise this could match user-constructed Prods that
-    -- should be `bundle2`'d.
+    -- Detection: the second component's type is
+    -- `Circuit.NextBuilder dom S` (= `Signal dom S → Signal
+    -- dom S`).  When that pattern matches we treat the Prod as
+    -- "circuit return + state-update accumulator" and only
+    -- translate the first component.  This covers both the
+    -- single-Signal case the original code handled and the
+    -- ρ-generalised case (multi-output records / tuples).
     if name == ``Prod.mk && args.size >= 4 then
       let αType := args[0]!
-      if αType.isAppOf ``Sparkle.Core.Signal.Signal then
+      let βType := args[1]!
+      -- Detection: either
+      --   (a) α is a Signal (the legacy single-output case), OR
+      --   (b) β is a `Circuit.NextBuilder` (or its η-expanded form
+      --       `Signal _ S → Signal _ S`), meaning the Prod came
+      --       from a `Circuit.pure'` and the second slot is the
+      --       state-update accumulator that has no wire image.
+      -- Either way, only the first component carries the wire(s);
+      -- the second is discarded.
+      let isNextBuilder :=
+        βType.isAppOf ``Sparkle.Core.Circuit.NextBuilder ||
+        (match βType with
+         | .forallE _ _ _ _ => true  -- η-expanded Signal _ S → Signal _ S
+         | _ => false)
+      if αType.isAppOf ``Sparkle.Core.Signal.Signal || isNextBuilder then
         let outExpr := args[2]!
         -- Force-reduce so any `Reg.liveRead r` (which unfolds to
         -- `r.1` = `Prod.fst (Prod.mk live slot)`) becomes `live`

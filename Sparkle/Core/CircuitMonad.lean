@@ -252,6 +252,76 @@ class AsSignal (dom : DomainConfig) (τ : Type) (α : Type) where
 
 end Circuit
 
+/-! ### `HasDomain ρ dom` — outParam-style typeclass that walks
+    a return type ρ and reports the unique `DomainConfig` of
+    every `Signal` leaf it contains.
+
+    `runCircuitH`'s ρ-generalisation (single Signal / tuple of
+    Signals / user record packing several Signals) lets the body
+    return any Lean value, but the surrounding `Signal.loop`
+    needs `dom` to be a specific `DomainConfig` value, not a
+    metavariable.  Without this class, type inference can pull
+    `dom` out of `ρ` only when `ρ` is *literally* `Signal dom τ`
+    — a Prod or record wrapping Signal leaves it inaccessible to
+    the elaborator.
+
+    `dom` is `outParam` so it's inferred from `ρ`; one instance
+    per shape walks the type structurally.  User-defined records
+    can pick up a `HasDomain` instance via a one-line manual
+    `instance : HasDomain MyOut dom := ⟨⟩` (any single-`dom`
+    record qualifies; the instance is empty because the class
+    carries no methods — it's purely an inference hint). -/
+class HasDomain (ρ : Type) (dom : outParam DomainConfig)
+
+/-- Base case: a single `Signal dom τ` carries `dom`. -/
+instance {dom : DomainConfig} {τ : Type} :
+    HasDomain (Signal dom τ) dom where
+
+/-- Recursive case: a `Prod` of two values whose `HasDomain`
+    instances agree on `dom` carries the same `dom`.  If the two
+    sides disagree, instance search fails with a clear error
+    rather than silently picking one. -/
+instance {α β : Type} {dom : DomainConfig}
+    [HasDomain α dom] [HasDomain β dom] :
+    HasDomain (Prod α β) dom where
+
+/-! ### `SignalLeaves` — flatten ρ into a list of its Signal
+    leaves so the wire-translation compiler can emit one output
+    port per leaf.
+
+    Companion of `HasDomain`.  `toLeaves r` walks the value
+    structurally and produces a `(name, Σ τ, Signal dom τ)`
+    triple for every Signal slot in `r`.  The compiler's
+    `synthesizeCombinational` reads the list and registers each
+    leaf as its own Verilog wire, so
+    `circuit do { … return ⟨a, b, c⟩ }` (or its record-literal
+    equivalent) yields three real `output` ports rather than
+    one bundled `bundle2` blob.
+
+    The class is `outParam ρ` — driven by the user value;
+    `dom` is `outParam` so instance search can resolve from
+    `ρ`.  Base instances handle `Signal dom τ`, `Prod α β`,
+    `Unit`, and `PUnit`.  User records pick up a derived
+    instance via `deriving SignalLeaves`. -/
+class SignalLeaves (ρ : Type) (dom : outParam DomainConfig) where
+  /-- Walk `r` and emit one (label, τ, signal) record per
+      `Signal dom τ` leaf.  The label is intended for output-
+      port naming on the Verilog side; for unlabelled leaves
+      (`Signal dom τ` at the top level, `Prod`'s sides) we
+      pass `none` and the compiler invents a positional name. -/
+  toLeaves : ρ → List (Option String × (Σ τ, Signal dom τ))
+
+/-- Base case: a single `Signal dom τ` is one anonymous leaf. -/
+@[reducible] instance {dom : DomainConfig} {τ : Type} :
+    SignalLeaves (Signal dom τ) dom where
+  toLeaves s := [(none, ⟨τ, s⟩)]
+
+/-- Prod: concatenate the two sides' leaves, left first. -/
+@[reducible] instance {dom : DomainConfig} {α β : Type}
+    [SignalLeaves α dom] [SignalLeaves β dom] :
+    SignalLeaves (Prod α β) dom where
+  toLeaves p := SignalLeaves.toLeaves p.fst ++ SignalLeaves.toLeaves p.snd
+
 /-! ### Arbitrary-arity `runCircuitH` via HList state.
 
     The generalisation of `runCircuit{1,2,3,4}` to any list of
@@ -332,16 +402,35 @@ end Circuit
             (packRegister αs' init.2 (Signal.map Prod.snd next))
 
 /-- Generic `runCircuit` taking any HList of initial values.
-    The body receives a matching `RegList` of register handles.
+    The body receives a matching `RegList` of register handles
+    and returns an arbitrary `ρ`.
+
+    `ρ` is *unconstrained*: it can be a single `Signal dom τ`,
+    a tuple `(Signal dom τ₁, Signal dom τ₂)`, a user-defined
+    record packing several Signals (e.g. an Ethernet `RxOut`),
+    or any combination.  The synthesis elaborator
+    (`Sparkle/Compiler/Elab.lean`) walks `ρ` structurally and
+    emits one Verilog wire per Signal leaf, so multi-output
+    blocks come out of `circuit do { … return ⟨a, b, c⟩ }`
+    naturally without a `bundle2`-shaped contortion.
+
+    Historically this signature required `body : … → Circuit …
+    (Signal dom ρ)`, which made multi-output blocks
+    expressible only via tupling at the Signal level.  Dropping
+    that constraint is the monad-friendly story: the user's
+    body builds whatever Lean value they want and `return`s it;
+    the Circuit monad just threads the register-update slot
+    map alongside.
 
     `[HListWireable αs]` requires every slot type to be
     `Wireable`, gating non-synthesisable types at the call
     site instead of the synth elaborator. -/
 @[reducible, inline] def runCircuitH {dom : DomainConfig} {αs : List Type} {ρ : Type}
+    [HasDomain ρ dom]
     [HListWireable αs] [Inhabited (HList αs)]
     (inits : HList αs)
     (body : RegList dom (HList αs) αs →
-            Circuit dom (HList αs) (Signal dom ρ)) : Signal dom ρ :=
+            Circuit dom (HList αs) ρ) : ρ :=
   let idRead  : Signal dom (HList αs) → Signal dom (HList αs) := fun s => s
   let idWrite : Signal dom (HList αs) → Signal dom (HList αs) → Signal dom (HList αs) :=
     fun n _ => n
