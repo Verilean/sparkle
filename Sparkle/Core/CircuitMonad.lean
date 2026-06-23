@@ -102,6 +102,45 @@ instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom
 instance {dom : DomainConfig} {S τ : Type} : CoeOut (Reg dom S τ) (Signal dom τ) where
   coe r := r.1
 
+/-! ### Reg-typed arithmetic / bitwise overloads.
+
+    `return a + b` (where `a b : Reg dom S (BitVec n)`) goes
+    through the `CoeHead Reg → Signal` instance, which then
+    drives Lean's `HAdd` resolution via the Signal overload's
+    `(· + ·) <$> a <*> b` Applicative lift.  Under the
+    ρ-generic `runCircuitH`, the Applicative path leaks the
+    Stream's `t : Nat` binder into wire translation (the same
+    failure mode this whole edge case keeps hitting).
+
+    The fix is to short-circuit the coerce: provide a Reg-Reg
+    overload that lowers straight to the Signal-Signal HAdd
+    instance, skipping the typeclass projection.  Lean prefers
+    the more specific Reg overload, so `a + b` resolves here
+    instead of going through `CoeHead`. -/
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAdd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := (a.1 + b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HSub (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hSub a b := (a.1 - b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HMul (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hMul a b := (a.1 * b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAnd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAnd a b := (a.1 &&& b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HOr  (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hOr  a b := (a.1 ||| b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HXor (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hXor a b := (a.1 ^^^ b.1 : Signal dom (BitVec n))
+
 
 /-! ### Operator instances lifting `Reg` to `Signal`.
 

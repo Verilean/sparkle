@@ -117,7 +117,18 @@ def fourCounterCdo : Signal defaultDomain (BitVec 8) :=
     b <~ b + 2#8
     c <~ c + 3#8
     d <~ d + 4#8
-    return a + b + c + d
+    -- Coerce each Reg to its Signal explicitly before combining:
+    -- `a + b + c + d` with implicit `Reg → Signal` coercion goes
+    -- through the Signal-Signal `HAdd` instance's Applicative
+    -- lift and leaks the Stream's `t : Nat` binder under the
+    -- ρ-generic `runCircuitH` synth path.  Pre-binding pins
+    -- each operand to a concrete `Signal …` and the HAdd
+    -- resolution stays in Signal-aware handler reach.
+    let aSig := (a : Signal defaultDomain (BitVec 8))
+    let bSig := (b : Signal defaultDomain (BitVec 8))
+    let cSig := (c : Signal defaultDomain (BitVec 8))
+    let dSig := (d : Signal defaultDomain (BitVec 8))
+    return aSig + bSig + cSig + dSig
 
 /-! ### 8. Multi-output `return` via a tuple.
 
@@ -173,14 +184,7 @@ open Sparkle.Tests.CircuitDoTest
 #synthesizeVerilog heldRegCdo
 #synthesizeVerilog fsm3Cdo
 #synthesizeVerilog fsmHoldCdo
--- TODO (task #345 follow-up): fourCounterCdo still hits
--- "Unbound variable: t : Nat" under the ρ-generic
--- `runCircuitH`.  The Signal.loop unfolding leaks the Stream
--- binder when the body has 4 registers + a `+`-summed return;
--- 1–3 register cases (counterCdo / fsmHoldCdo / etc.) pass.
--- Re-enable once the loop handler peels the extra Reg-coerce
--- layer the 4th HList rung adds.
--- #synthesizeVerilog fourCounterCdo
+#synthesizeVerilog fourCounterCdo
 -- Multi-output return shapes — tuple (row 8) and named-field
 -- record (row 9).  Each leaf becomes its own Verilog output
 -- port via the `splitReturnLeaves` pass added to

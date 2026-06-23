@@ -346,6 +346,23 @@ The `#synthesizeVerilog` compiler can only handle specific Lean expression patte
   Signal layer using only the overloaded operators (`+ - * &&& ||| ^^^ >>> ++` etc.) so
   every step stays in the Signal-native domain.  See `IP/Net/CRC32.lean:crc32StepSig`
   for a worked example (CRC-32 byte step rewritten without Applicative lifts).
+- **Two-or-more `Reg` operands combined with `+ - * &&& ||| ^^^`**: writing
+  `return a + b` (with `a b : Reg dom S (BitVec n)`) goes through the implicit
+  `Reg → Signal` coerce and then `Signal`'s Applicative `(· + ·) <$> a <*> b`.
+  Under the ρ-generic `runCircuitH`, the same `t : Nat` Stream binder
+  leak fires — `#synthesizeVerilog` reports
+  "Unbound variable: t : Nat".  Fix by binding each Reg to its Signal
+  *before* the combining operator so the `HAdd` etc. resolution sees
+  concrete `Signal _ _` operands instead of recovering them through
+  the coerce:
+  ```lean
+  let aSig := (a : Signal dom (BitVec n))
+  let bSig := (b : Signal dom (BitVec n))
+  return aSig + bSig
+  ```
+  Single-Reg returns (`return a`) are unaffected because no operator
+  resolution runs.  See `Tests/CircuitDoTest.lean:fourCounterCdo`
+  for a worked four-register example.
 
 ### Fix patterns
 
