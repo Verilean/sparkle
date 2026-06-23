@@ -314,6 +314,61 @@ commit for the rewrite that gets past it.
 
 ---
 
+### C5. Make the IR elaborator walk a ρ-generic `runCircuitH` body
+
+- Impact ★★★★★
+- Effort M
+- Confidence ★★★★☆
+- Status: in progress (typeclass layer landed; compiler path
+  pending)
+
+The Circuit monad now lets `circuit do { … return e }` return
+any Lean value — a single `Signal dom τ`, a tuple of Signals,
+or a user record packing several Signals (see
+`Sparkle/Core/CircuitMonad.lean:runCircuitH` and `HasDomain` /
+`SignalLeaves` typeclasses, plus the `deriving SignalLeaves`
+handler in `Sparkle/Core/SignalLeavesDerive.lean`).
+
+Simulation works end-to-end for all three shapes
+(`Tests/CircuitDoTest.lean` rows 8 & 9; `IP/Net/Ethernet.lean`
++ `Tests/IP/Net/EthernetTest.lean`).
+
+What's missing is the **synthesis** path: `synthesizeCombinational`
+in `Sparkle/Compiler/Elab.lean` still hard-codes the assumption
+that `(body regs id).fst : Signal dom τ` (a single Signal at
+the boundary).  Under the ρ-generic sig the result is `ρ` —
+any of the shapes above — and the elaborator's default whnf
+pulls past the Signal struct into the Stream lambda body,
+surfacing as
+
+  Unbound variable: t : Nat
+    type: Nat
+    hint: s
+
+because the `t : Nat` time binder of `(Signal.mk ⟨fun t => …⟩)`
+leaks into the wire context.  Every `#synthesizeVerilog` over a
+`circuit do { … }` block hits this today; the SynthesisChecks
+section of `Tests/CircuitDoTest.lean` is commented out while
+this is fixed.
+
+Plan:
+1. Have `synthesizeCombinational` resolve `[HasDomain ρ dom]`
+   on the body's return type and `[SignalLeaves ρ dom]` to
+   walk the value into a list of Signal leaves.
+2. For each leaf, allocate its own output wire (preserving the
+   existing single-leaf shape for single-Signal returns).
+3. Emit one Verilog `output` port per leaf, with names taken
+   from the user record's field (when available — that's why
+   `SignalLeaves.toLeaves` returns `Option String × …`).
+
+Once landed: re-enable the `#synthesizeVerilog` block in
+`Tests/CircuitDoTest.lean` and uncomment the multi-output
+fixtures (`pairCounterCdo`, `pairRecordCdo`) in the iverilog
+round-trip suite, then fold `crc32EngineTop` follow-ups
+(`IP/Net/Ethernet.lean:rxFramer`) into `iverilog-roundtrip-test`.
+
+---
+
 ## Docs / UX
 
 ### D1. Short "recipe" page for common verification patterns

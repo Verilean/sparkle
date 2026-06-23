@@ -3,7 +3,9 @@
 
   Layering (each layer also lives as a sub-module under IP/Net/):
     CRC32     — Ethernet FCS, reflected CRC-32/IEEE-802.3
-    Ethernet  — TBD: XGMII RX framer + TX framer + FCS
+    Ethernet  — byte-feed RX framer (DMAC/SMAC/EthType parse +
+                payload stream).  Wide-bus + FCS check are
+                follow-up MVPs.
     ARP       — TBD: static table + request/reply
     IPv4      — TBD: header parse/emit + one's-complement checksum
     UDP       — TBD
@@ -13,3 +15,4 @@
   See task #341.
 -/
 import IP.Net.CRC32
+import IP.Net.Ethernet
