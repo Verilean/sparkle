@@ -1783,30 +1783,105 @@ mutual
       | .const name _ => return name
       | _ => CompilerM.liftMetaM $ throwError s!"Could not identify primitive in lambda body: {e}"
 
+  /-- Split a return value of type ρ into a list of
+      `(suggested-port-name, leaf-Lean-expr)` pairs at the
+      Lean-expression level — one entry per `Signal dom τ` leaf
+      under ρ.
+
+      Handled shapes:
+        * `Signal dom τ`     → one anonymous leaf carrying the
+                               original expression.
+        * `Prod α β`         → recursively split `Prod.fst e` /
+                               `Prod.snd e` (positional names
+                               `out_0`, `out_1`, …).
+        * single-constructor inductive (i.e. user record) →
+                               for each field, recurse on
+                               `e.field` and prefix the field
+                               name so each leaf gets a
+                               human-readable port (`dmac`,
+                               `payloadValid`, …).
+
+      Falls back to `[(none, e)]` if the type doesn't match any
+      of the above — that keeps non-Signal payloads round-
+      tripping through the legacy single-wire path. -/
+  partial def splitReturnLeaves
+      (e : Lean.Expr) (prefix? : Option String := none) :
+      MetaM (Array (String × Lean.Expr)) := do
+    let ty ← inferType e
+    let tyN ← whnf ty
+    -- Signal dom τ — base case, one leaf.
+    if tyN.isAppOf ``Sparkle.Core.Signal.Signal then
+      let portName := prefix?.getD "out"
+      return #[(portName, e)]
+    -- Prod α β — recurse on .fst / .snd.
+    if tyN.isAppOf ``Prod && tyN.getAppNumArgs == 2 then
+      let lhsName := (prefix?.getD "out") ++ "_0"
+      let rhsName := (prefix?.getD "out") ++ "_1"
+      let fstExpr ← mkAppM ``Prod.fst #[e]
+      let sndExpr ← mkAppM ``Prod.snd #[e]
+      let lhsLeaves ← splitReturnLeaves fstExpr (some lhsName)
+      let rhsLeaves ← splitReturnLeaves sndExpr (some rhsName)
+      return lhsLeaves ++ rhsLeaves
+    -- Single-ctor inductive (records like `RxOut dom`) —
+    -- recurse on each field, prefixing the field name so the
+    -- emitted Verilog ports are human-readable.
+    if let .const indName _ := tyN.getAppFn then
+      if let some indVal ← (try some <$> getConstInfoInduct indName catch _ => pure none) then
+        if indVal.ctors.length == 1 && !indVal.isRec then
+          let ctorName := indVal.ctors.head!
+          let ctorInfo ← getConstInfoCtor ctorName
+          let nParams := indVal.numParams
+          let mut acc : Array (String × Lean.Expr) := #[]
+          let fieldNames ← forallTelescopeReducing ctorInfo.type fun args _ => do
+            let mut ns : Array Name := #[]
+            for f in args.toList.drop nParams do
+              ns := ns.push (← f.fvarId!.getUserName)
+            return ns
+          for fName in fieldNames do
+            let projName := indName ++ fName
+            let fieldExpr ← try
+              mkAppM projName #[e]
+            catch _ =>
+              -- Fall back to anonymous projection if no
+              -- generated projection exists for `fName`.
+              pure e
+            let combinedPrefix :=
+              match prefix? with
+              | none => fName.toString
+              | some p => p ++ "_" ++ fName.toString
+            let sub ← splitReturnLeaves fieldExpr (some combinedPrefix)
+            acc := acc ++ sub
+          return acc
+    -- Anything else: treat as a single leaf with whatever name.
+    return #[(prefix?.getD "out", e)]
+
   partial def synthesizeCombinational (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
     match constInfo with
     | .defnInfo defnInfo =>
       let body := defnInfo.value
+      -- Split the return value into per-leaf Lean expressions
+      -- BEFORE entering CompilerM.  This lets us reuse the
+      -- existing single-Signal translation path on each leaf,
+      -- yielding one Verilog output port per leaf rather than a
+      -- single packed wire.
+      let leaves ← splitReturnLeaves body
       let compiler : CompilerM String := do
-        let resultWire ← translateExprToWire body "result" (isTopLevel := true)
-        -- Look up the actual wire type that was created
-        let cs ← get
-        let resultWireDecl := cs.module.wires.find? (fun (p : Port) => p.name == resultWire)
-        let outputType := match resultWireDecl with
-          | some decl =>
-            -- DEBUG: Found wire with correct type
-            decl.ty
-          | none =>
-            -- DEBUG: Wire not found, using fallback
-            -- This happens when result is input wire, not internal wire
-            -- Try to infer from inputs
-            match cs.module.inputs.find? (fun p => p.name == resultWire) with
-            | some inputPort => inputPort.ty
-            | none => .bitVector 8  -- True fallback
-        CompilerM.addOutput "out" outputType
-        CompilerM.emitAssign "out" (.ref resultWire)
-        return resultWire
+        let mut firstWire : Option String := none
+        for (portName, leafExpr) in leaves do
+          let leafWire ← translateExprToWire leafExpr portName (isTopLevel := true)
+          if firstWire.isNone then firstWire := some leafWire
+          let cs ← get
+          let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
+          let outputType := match wireDecl with
+            | some decl => decl.ty
+            | none =>
+              match cs.module.inputs.find? (fun p => p.name == leafWire) with
+              | some inputPort => inputPort.ty
+              | none => .bitVector 8
+          CompilerM.addOutput portName outputType
+          CompilerM.emitAssign portName (.ref leafWire)
+        return firstWire.getD "out"
       let circuitState := CircuitM.init declName.toString
       let compilerState : CompilerState := { varMap := [], clockWire := none, resetWire := none }
       let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
