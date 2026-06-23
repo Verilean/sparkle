@@ -275,6 +275,45 @@ Straightforward find-and-replace to `trimAsciiStart`, `dropEnd`,
 
 ---
 
+### C4. Surface the inner `synthesizeCombinational` error in elaborator messages
+
+- Impact ★★★★☆
+- Effort S
+- Confidence ★★★★★
+- Status: idea
+
+`Sparkle/Compiler/Elab.lean:handleDefinitionUnfold` swallows the
+inner `MetaM` exception in two places (lines ~1620 and ~1631), so
+the user only ever sees one of the two generic outer strings:
+
+```
+Cannot synthesise <name>: not inlinable and not a hardware module
+Sub-module synthesis failed for <name> (tagged @[hardware_module])
+```
+
+Today's debugging recipe is "patch `catch _ =>` to
+`catch e => … e.toMessageData.toString`, rebuild, read the real
+error, revert" — see README §Contributing → "Hitting an unhelpful
+`#synthesizeVerilog` error?".  The right fix is to keep the inner
+`MessageData` around (don't stringify; use `m!"… {e.toMessageData}"`)
+so the outer error already names the offending sub-expression /
+typeclass projection.
+
+Bonus polish: when `<name>` is one of the known
+"this-came-from-the-DSL-not-the-user" symbols
+(`Sparkle.Core.runCircuitH`, `Bind.bind`, `Pure.pure`,
+`Sparkle.Core.Signal.bundle*`), prepend a hint that points at
+`docs/reference/Troubleshooting_Synthesis.md` §"Synthesis
+Compiler Patterns" so first-time contributors don't have to
+discover that document by grepping.
+
+Concrete pattern to catch and explain:
+`userFn <$> a <*> b` for a user-defined N-arg function — surfaces
+as `Cannot synthesise … runCircuitH`.  See `IP/Net/CRC32.lean`
+commit for the rewrite that gets past it.
+
+---
+
 ## Docs / UX
 
 ### D1. Short "recipe" page for common verification patterns

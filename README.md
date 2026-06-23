@@ -327,6 +327,64 @@ Contributions welcome — good first areas:
 - Additional IR optimisation passes.
 - More tutorials and worked examples.
 
+### Hitting an unhelpful `#synthesizeVerilog` error?
+
+The IR elaborator's error surface is still rough.  Two messages in
+particular bury the real cause:
+
+```
+Cannot synthesise <name>: not inlinable and not a hardware module
+Sub-module synthesis failed for <name> (tagged @[hardware_module])
+```
+
+Both are emitted from `Sparkle/Compiler/Elab.lean:handleDefinitionUnfold`
+where an inner `MetaM` exception is swallowed by a `catch _`.  When
+this hits you, follow this workflow:
+
+1. **Look at the error in context.**  If `<name>` is one of
+   `Sparkle.Core.runCircuitH`, `Bind.bind`, `Pure.pure`,
+   `Sparkle.Core.Signal.bundle*`, the elaborator's `unfoldDefinition?`
+   peeled the surface `def` but choked on something inside your DSL
+   body (typeclass projection, an Applicative lift, a multi-arg
+   lambda).  See
+   [`docs/reference/Troubleshooting_Synthesis.md`](docs/reference/Troubleshooting_Synthesis.md)
+   §"Synthesis Compiler Patterns" for the patterns the elaborator
+   *does* accept — common rewrites are listed in §"Fix patterns".
+
+2. **Get the real inner error.**  Temporarily change the two
+   `catch _ =>` clauses near `Sparkle/Compiler/Elab.lean:1620` and
+   `:1631` to `catch e => ... e.toMessageData.toString` so the
+   inner `throwError` propagates into the outer message.  Most
+   "not inlinable" failures resolve to something specific like a
+   missing pattern-match arm, an unhandled operator, or a
+   `BitVec.zeroExtend`-style call the IR doesn't speak.  Revert
+   the change before committing — leaving raw `MessageData` in
+   the user-facing error breaks the existing test fixtures.
+
+3. **Found a new pattern that fails?**  Add a one-liner to
+   [`docs/reference/Troubleshooting_Synthesis.md`](docs/reference/Troubleshooting_Synthesis.md)
+   under the appropriate "NOT supported" / "Fix patterns" bullet
+   so the next contributor sees it before they re-derive the
+   problem.  Two recent examples of the kind of entry to add are
+   "multi-arg user-defined function via `f <$> a <*> b`" (rewrite
+   the body to use Signal-native operators directly) and
+   "`(fun v => 0#m ++ v ++ 0#n)`" (split into a chain of `++`).
+
+4. **If the elaborator itself should learn this case**, file a
+   followup under `docs/known-issues/TODO.md` §"Compiler / IR"
+   so the rough surface can be filed down rather than papered
+   over.  The shipped error today is the cap on how fast a new
+   contributor can debug their first synthesisable circuit, so
+   work that reduces it is high-leverage.
+
+The `Sparkle/IP/Net/CRC32.lean` development is a worked example:
+the byte-feed engine first failed with the generic "Sub-module
+synthesis failed" message, the inner error revealed
+`Cannot synthesise runCircuitH`, and the fix turned out to be
+rewriting `crc32Step <$> crc <*> byte` (a user-defined 2-arg
+function lifted through Applicative) as a Signal-native chain
+of `^^^`/`&&&`/`>>>`/`++`/`-`.
+
 ## Roadmap
 
 Completed phases live in [docs/CHANGELOG.md](docs/CHANGELOG.md).

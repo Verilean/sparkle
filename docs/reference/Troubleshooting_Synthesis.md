@@ -338,6 +338,14 @@ The `#synthesizeVerilog` compiler can only handle specific Lean expression patte
 - Complex single-arg lambdas: `(fun x => !(x == 0#5))` — must split into two steps
 - if-then-else in map: `(fun x => if x then a else b)` — use `Signal.mux` instead
 - Multi-step concat in lambda: `(fun v => (0#20 ++ v ++ 0#2))` — break into chained `(· ++ ·)`
+- **User-defined N-arg function via `<$> ... <*>`**: `userFn <$> a <*> b` for any `userFn :
+  BitVec m → BitVec n → BitVec k` defined outside the operator registry.  Surfaces as
+  `Cannot synthesise Sparkle.Core.runCircuitH: not inlinable and not a hardware module`
+  when the lift sits inside a `circuit do` block, because the elaborator can't peel the
+  `Functor.map` / `Seq.seq` typeclass projections.  Rewrite the function body at the
+  Signal layer using only the overloaded operators (`+ - * &&& ||| ^^^ >>> ++` etc.) so
+  every step stays in the Signal-native domain.  See `IP/Net/CRC32.lean:crc32StepSig`
+  for a worked example (CRC-32 byte step rewritten without Applicative lifts).
 
 ### Fix patterns
 
