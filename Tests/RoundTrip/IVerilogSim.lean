@@ -26,6 +26,7 @@
 
 import Sparkle
 import Sparkle.Compiler.Elab
+import IP.Net.CRC32
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -97,6 +98,15 @@ def counter8 {dom : DomainConfig} : Signal dom (BitVec 8) :=
 /-- Pure combinational adder. -/
 def add8 {dom : DomainConfig}
     (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := a + b
+
+/-- IP.Net.CRC32 byte-feed engine wrapped at a fixed domain so
+    `synthesizeCombinational` has a fully-resolved type.  Same body
+    as `Sparkle.IP.Net.CRC32.crc32Engine`. -/
+def crc32EngineTop
+    (byte : Signal defaultDomain (BitVec 8))
+    (feed reset : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 32) :=
+  Sparkle.IP.Net.CRC32.crc32Engine byte feed reset
 
 -- ============================================================================
 -- Testbench construction
@@ -276,11 +286,45 @@ private def add8Stimulus : Stimulus :=
   , expected := [42]
   , isSequential := false }
 
+/-- IP.Net.CRC32.crc32EngineTop: byte-feed CRC engine.
+
+    The Stimulus framework's `resetSeq` already pulses `rst=1` for
+    one clock and drops it before the user's per-cycle bindings
+    run.  The Sparkle-emitted CRC engine treats `rst` as the
+    synchronous "load 0xFFFFFFFF" trigger, so by the time the loop's
+    cycle-0 binding lands we're already past the reset edge — the
+    register reads 0xFFFFFFFF on the first $display.
+
+    Three-cycle stimulus (per-cycle output observed after posedge):
+      cycle 0  reset=1, feed=0, byte=0     → reg = 0xFFFFFFFF
+                                            (overwrites Stimulus-rst
+                                             but holds at the same
+                                             value, so still 0xFFFFFFFF)
+      cycle 1  reset=0, feed=1, byte=0x31  → reg = 0x7C231048
+                                            (one CRC step over '1')
+      cycle 2  reset=0, feed=0, byte=0     → reg = 0x7C231048 (hold)
+
+    These per-cycle values match the Lean-side reference
+    (`crc32Ref [0x31] ^^^ 0xFFFFFFFF` = 0x7C231048).  The
+    Sparkle.Tests.IP.Net.CRC32Test sim test already validates the
+    full IEEE 802.3 golden vectors at the Signal layer; this
+    fixture proves iverilog accepts the emitted Verilog and
+    produces the same per-cycle register trace. -/
+private def crc32EngineTopStimulus : Stimulus :=
+  { cycles := 3
+  , inputs := [ [("_gen_byte", 0),    ("_gen_feed", 0), ("_gen_reset", 1)]
+              , [("_gen_byte", 0x31), ("_gen_feed", 1), ("_gen_reset", 0)]
+              , [("_gen_byte", 0),    ("_gen_feed", 0), ("_gen_reset", 0)] ]
+  , outputName := "out"
+  , expected := [4294967295, 2082672712, 2082672712]
+  , isSequential := true }
+
 def fixtures : List FixtureCase :=
-  [ { declName := ``dff,      label := "dff",      stimulus := dffStimulus }
-  , { declName := ``reg8,     label := "reg8",     stimulus := reg8Stimulus }
-  , { declName := ``counter8, label := "counter8", stimulus := counter8Stimulus }
-  , { declName := ``add8,     label := "add8",     stimulus := add8Stimulus }
+  [ { declName := ``dff,              label := "dff",              stimulus := dffStimulus }
+  , { declName := ``reg8,             label := "reg8",             stimulus := reg8Stimulus }
+  , { declName := ``counter8,         label := "counter8",         stimulus := counter8Stimulus }
+  , { declName := ``add8,             label := "add8",             stimulus := add8Stimulus }
+  , { declName := ``crc32EngineTop,   label := "crc32EngineTop",   stimulus := crc32EngineTopStimulus }
   ]
 
 -- ============================================================================
@@ -292,10 +336,11 @@ def fixtures : List FixtureCase :=
 -- a plain `MetaM.toIO synthesizeCombinational` call.
 -- ============================================================================
 
-def dffVerilog      : String := verilogOf! dff
-def reg8Verilog     : String := verilogOf! reg8
-def counter8Verilog : String := verilogOf! counter8
-def add8Verilog     : String := verilogOf! add8
+def dffVerilog            : String := verilogOf! dff
+def reg8Verilog           : String := verilogOf! reg8
+def counter8Verilog       : String := verilogOf! counter8
+def add8Verilog           : String := verilogOf! add8
+def crc32EngineTopVerilog : String := verilogOf! crc32EngineTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
@@ -316,10 +361,11 @@ def parseModuleName (verilog : String) : String :=
       String.mk (raw.toList.reverse.dropWhile (fun c => c == '(' || c == ' ') |>.reverse)
 
 def fixtureVerilogs : List (FixtureCase × String) :=
-  [ ({ declName := ``dff,      label := "dff",      stimulus := dffStimulus },      dffVerilog)
-  , ({ declName := ``reg8,     label := "reg8",     stimulus := reg8Stimulus },     reg8Verilog)
-  , ({ declName := ``counter8, label := "counter8", stimulus := counter8Stimulus }, counter8Verilog)
-  , ({ declName := ``add8,     label := "add8",     stimulus := add8Stimulus },     add8Verilog) ]
+  [ ({ declName := ``dff,            label := "dff",            stimulus := dffStimulus },            dffVerilog)
+  , ({ declName := ``reg8,           label := "reg8",           stimulus := reg8Stimulus },           reg8Verilog)
+  , ({ declName := ``counter8,       label := "counter8",       stimulus := counter8Stimulus },       counter8Verilog)
+  , ({ declName := ``add8,           label := "add8",           stimulus := add8Stimulus },           add8Verilog)
+  , ({ declName := ``crc32EngineTop, label := "crc32EngineTop", stimulus := crc32EngineTopStimulus }, crc32EngineTopVerilog) ]
 
 -- ============================================================================
 -- Driver
