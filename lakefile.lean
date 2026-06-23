@@ -168,6 +168,16 @@ lean_exe «crc32-test» where
   root := `Tests.Drivers.CRC32TestMain
   supportInterpreter := true
 
+-- IP.Net.Ethernet (byte-feed RX framer).
+-- Sim test: a synthetic 18-byte frame fed cycle-by-cycle, and the
+-- six RX outputs (DMAC / SMAC / EthType / hdrDone / payloadByte /
+-- payloadValid) checked against golden values.  Also exercises
+-- the `circuit do { … return { field := … } }` multi-output
+-- return path that the runCircuitH ρ-generalisation enables.
+lean_exe «ethernet-test» where
+  root := `Tests.Drivers.EthernetTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

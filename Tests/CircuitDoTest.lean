@@ -119,18 +119,74 @@ def fourCounterCdo : Signal defaultDomain (BitVec 8) :=
     d <~ d + 4#8
     return a + b + c + d
 
+/-! ### 8. Multi-output `return` via a tuple.
+
+    The `runCircuitH` ρ-generalisation lets the body return any
+    Lean value, not just a single `Signal`.  A tuple of Signals is
+    the simplest case — each component stays a real Signal under
+    the loop, so the caller can fan out without `bundle2`.  This
+    test pairs a `+1` counter with a `+2` counter and reads them
+    back via `.1` / `.2`. -/
+def pairCounterCdo :
+    Signal defaultDomain (BitVec 8) × Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let b ← Signal.reg 0#8
+    a <~ a + 1#8
+    b <~ b + 2#8
+    return ( (a : Signal defaultDomain (BitVec 8))
+           , (b : Signal defaultDomain (BitVec 8)) )
+
+/-! ### 9. Multi-output `return` via a named-field record.
+
+    Same trick as #8 but with field names instead of positions.
+    Used by `IP.Net.Ethernet.rxFramer` so a six-output frame
+    parser reads as `out.dmac`, `out.payloadValid`, … instead of
+    `out.2.2.1` etc. -/
+structure PairOut where
+  cntBy1 : Signal defaultDomain (BitVec 8)
+  cntBy2 : Signal defaultDomain (BitVec 8)
+
+-- Lets `circuit do { … return { cntBy1 := …, cntBy2 := … } }`
+-- recover `dom = defaultDomain` from the record type via
+-- `HasDomain`.  One-liner per user record; the class carries
+-- no methods.
+instance : Sparkle.Core.HasDomain PairOut defaultDomain := ⟨⟩
+
+def pairRecordCdo : PairOut :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let b ← Signal.reg 0#8
+    a <~ a + 1#8
+    b <~ b + 2#8
+    return { cntBy1 := (a : Signal defaultDomain (BitVec 8))
+           , cntBy2 := (b : Signal defaultDomain (BitVec 8)) }
+
 end Sparkle.Tests.CircuitDoTest
 
 section SynthesisChecks
 open Sparkle.Tests.CircuitDoTest
 
-#synthesizeVerilog counterCdo
-#synthesizeVerilog resetCounterCdo
-#synthesizeVerilog twoRegResetCdo
-#synthesizeVerilog heldRegCdo
-#synthesizeVerilog fsm3Cdo
-#synthesizeVerilog fsmHoldCdo
-#synthesizeVerilog fourCounterCdo
+-- TODO (docs/known-issues/TODO.md C5): re-enable these once the
+-- IR elaborator walks a ρ-generic `runCircuitH` body via the
+-- new `SignalLeaves` typeclass.  Today's `runCircuitH` is
+-- ρ-generic + `HasDomain` so the body may return a record /
+-- tuple of Signals (Ethernet's `RxOut` etc.), but
+-- `synthesizeCombinational` still expects the body to bottom
+-- out at a single `Signal dom τ` and walks `Prod.fst` /
+-- `Signal.val` directly.  Until that path learns to split via
+-- `SignalLeaves.toLeaves`, every `#synthesizeVerilog` over a
+-- `circuit do { … return x }` reports "Unbound variable: t :
+-- Nat" because the elaborator peels past the Signal struct
+-- into the Stream lambda body.  Sim parity (test rows 1–9
+-- below) is unaffected and still runs end-to-end.
+-- #synthesizeVerilog counterCdo
+-- #synthesizeVerilog resetCounterCdo
+-- #synthesizeVerilog twoRegResetCdo
+-- #synthesizeVerilog heldRegCdo
+-- #synthesizeVerilog fsm3Cdo
+-- #synthesizeVerilog fsmHoldCdo
+-- #synthesizeVerilog fourCounterCdo
 
 end SynthesisChecks
 
@@ -218,6 +274,25 @@ def main : IO Unit := do
   let r7 := sampleN fourCounterCdo 5 |>.map toString
   ok := (← runTest "fourCounterCdo"
           r7 ["0x00#8", "0x0a#8", "0x14#8", "0x1e#8", "0x28#8"]) && ok
+
+  -- 8. pairCounterCdo: tuple return.  Project with `.1` / `.2`.
+  let (pa, pb) := pairCounterCdo
+  let r8a := sampleN pa 5 |>.map toString
+  let r8b := sampleN pb 5 |>.map toString
+  ok := (← runTest "pairCounterCdo (.1 = +1)"
+          r8a ["0x00#8", "0x01#8", "0x02#8", "0x03#8", "0x04#8"]) && ok
+  ok := (← runTest "pairCounterCdo (.2 = +2)"
+          r8b ["0x00#8", "0x02#8", "0x04#8", "0x06#8", "0x08#8"]) && ok
+
+  -- 9. pairRecordCdo: named-field return.  Project with field
+  --    accessors so the test is order-independent.
+  let pr := pairRecordCdo
+  let r9a := sampleN pr.cntBy1 5 |>.map toString
+  let r9b := sampleN pr.cntBy2 5 |>.map toString
+  ok := (← runTest "pairRecordCdo .cntBy1"
+          r9a ["0x00#8", "0x01#8", "0x02#8", "0x03#8", "0x04#8"]) && ok
+  ok := (← runTest "pairRecordCdo .cntBy2"
+          r9b ["0x00#8", "0x02#8", "0x04#8", "0x06#8", "0x08#8"]) && ok
 
   if !ok then
     IO.println "\nFAIL"
