@@ -167,26 +167,26 @@ end Sparkle.Tests.CircuitDoTest
 section SynthesisChecks
 open Sparkle.Tests.CircuitDoTest
 
--- TODO (docs/known-issues/TODO.md C5): re-enable these once the
--- IR elaborator walks a ρ-generic `runCircuitH` body via the
--- new `SignalLeaves` typeclass.  Today's `runCircuitH` is
--- ρ-generic + `HasDomain` so the body may return a record /
--- tuple of Signals (Ethernet's `RxOut` etc.), but
--- `synthesizeCombinational` still expects the body to bottom
--- out at a single `Signal dom τ` and walks `Prod.fst` /
--- `Signal.val` directly.  Until that path learns to split via
--- `SignalLeaves.toLeaves`, every `#synthesizeVerilog` over a
--- `circuit do { … return x }` reports "Unbound variable: t :
--- Nat" because the elaborator peels past the Signal struct
--- into the Stream lambda body.  Sim parity (test rows 1–9
--- below) is unaffected and still runs end-to-end.
--- #synthesizeVerilog counterCdo
--- #synthesizeVerilog resetCounterCdo
--- #synthesizeVerilog twoRegResetCdo
--- #synthesizeVerilog heldRegCdo
--- #synthesizeVerilog fsm3Cdo
--- #synthesizeVerilog fsmHoldCdo
+#synthesizeVerilog counterCdo
+#synthesizeVerilog resetCounterCdo
+#synthesizeVerilog twoRegResetCdo
+#synthesizeVerilog heldRegCdo
+#synthesizeVerilog fsm3Cdo
+#synthesizeVerilog fsmHoldCdo
+-- TODO (task #345 follow-up): fourCounterCdo still hits
+-- "Unbound variable: t : Nat" under the ρ-generic
+-- `runCircuitH`.  The Signal.loop unfolding leaks the Stream
+-- binder when the body has 4 registers + a `+`-summed return;
+-- 1–3 register cases (counterCdo / fsmHoldCdo / etc.) pass.
+-- Re-enable once the loop handler peels the extra Reg-coerce
+-- layer the 4th HList rung adds.
 -- #synthesizeVerilog fourCounterCdo
+-- Multi-output return shapes — tuple (row 8) and named-field
+-- record (row 9).  Each leaf becomes its own Verilog output
+-- port via the `splitReturnLeaves` pass added to
+-- `synthesizeCombinational` for task #345.
+#synthesizeVerilog pairCounterCdo
+#synthesizeVerilog pairRecordCdo
 
 end SynthesisChecks
 
