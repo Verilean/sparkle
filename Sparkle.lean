@@ -9,6 +9,7 @@ import Sparkle.Core.Domain
 import Sparkle.Core.Signal
 import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
+import Sparkle.Core.SignalLeavesDerive
 import Sparkle.Core.StateMacro
 import Sparkle.Core.Vector
 import Sparkle.Core.OptimizedSim
