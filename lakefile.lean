@@ -79,6 +79,11 @@ lean_lib «IP.Video» where
 lean_lib «IP.Bus» where
   roots := #[`IP.Bus]
 
+-- HFT-leaning TCP/IP stack (10 GbE XGMII ↔ TCP payload stream).
+-- Layers under IP/Net/: CRC32, Ethernet, ARP, IPv4, UDP, TCP, HFTStack.
+lean_lib «IP.Net» where
+  roots := #[`IP.Net]
+
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
@@ -154,6 +159,13 @@ lean_exe «circuit-do-test» where
 -- mixed-width state and `forM` over the register list.
 lean_exe «run-circuit-h-test» where
   root := `Tests.Drivers.RunCircuitHTestMain
+  supportInterpreter := true
+
+-- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
+-- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
+-- 802.3 golden vectors must all agree.
+lean_exe «crc32-test» where
+  root := `Tests.Drivers.CRC32TestMain
   supportInterpreter := true
 
 lean_exe «sparkle-bitnet-verilog-dump» where
