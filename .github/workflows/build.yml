@@ -853,7 +853,17 @@ jobs:
                && [ -f /opt/xeus-lean/CMakeLists.txt ] \
                && [ -d "$STOCK_PREFIX/conda-meta" ]; then
               echo "::group::Sparkle WASM staging + xlean rebuild"
-              CAND=/work/.sparkle-kernel-prefix
+              # NOTE: NO leading dot.  jupyterlite-xeus uses the basename of
+              # `--XeusAddon.prefix` as the env_name inside the deployed site
+              # (`site/xeus/<env_name>/<kernel>/kernel.json`).  When that
+              # basename starts with `.`, the directory is hidden and the
+              # actions/deploy-pages upload (Jekyll-style filtering of dotfiles)
+              # drops the entire `site/xeus/.sparkle-kernel-prefix/` tree —
+              # leaving `xeus/kernels.json` listing an env whose kernel.json
+              # 404s in the browser.  See run 27898159343 logs:
+              #   jupyterlite-xeus:xeus:.sparkle-kernel-prefix:update_env_file:...
+              # then `https://verilean.github.io/sparkle/xeus/kernels.json` → `[]`.
+              CAND=/work/sparkle-kernel-prefix
               if pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
                    bash /work/tools/wasm/build-wasm.sh /work/.sparkle-staging \
                  && cp -a "$STOCK_PREFIX" "$CAND" \
