@@ -314,58 +314,74 @@ commit for the rewrite that gets past it.
 
 ---
 
-### C5. Make the IR elaborator walk a ρ-generic `runCircuitH` body
+### C5. ρ-generic `runCircuitH` synthesis — basics LANDED
 
 - Impact ★★★★★
 - Effort M
-- Confidence ★★★★☆
-- Status: in progress (typeclass layer landed; compiler path
-  pending)
+- Confidence ★★★★★
+- Status: **landed** — small-N multi-output works end-to-end
 
 The Circuit monad now lets `circuit do { … return e }` return
 any Lean value — a single `Signal dom τ`, a tuple of Signals,
-or a user record packing several Signals (see
-`Sparkle/Core/CircuitMonad.lean:runCircuitH` and `HasDomain` /
-`SignalLeaves` typeclasses, plus the `deriving SignalLeaves`
-handler in `Sparkle/Core/SignalLeavesDerive.lean`).
+or a user record packing several Signals.  Typeclass support
+(`Sparkle/Core/CircuitMonad.lean:HasDomain` / `SignalLeaves`)
+plus a `deriving SignalLeaves` handler
+(`Sparkle/Core/SignalLeavesDerive.lean`).  The compiler walks
+the return value via `splitReturnLeaves` and emits one Verilog
+output port per leaf (`out_0` / `out_1` for tuples, the field
+name for records).  Record-typed parameters are unpacked into
+per-field Signal ports via `openRecordInputs`.
 
-Simulation works end-to-end for all three shapes
-(`Tests/CircuitDoTest.lean` rows 8 & 9; `IP/Net/Ethernet.lean`
-+ `Tests/IP/Net/EthernetTest.lean`).
+Verified shapes:
+  * Single Signal — `counterCdo`, `fsm3Cdo`, … all six legacy
+    rows in `Tests/CircuitDoTest.lean:SynthesisChecks` still
+    synth.
+  * Tuple of Signals — `pairCounterCdo` → `out_0`, `out_1`.
+  * Named-field record — `pairRecordCdo` → `cntBy1`, `cntBy2`.
 
-What's missing is the **synthesis** path: `synthesizeCombinational`
-in `Sparkle/Compiler/Elab.lean` still hard-codes the assumption
-that `(body regs id).fst : Signal dom τ` (a single Signal at
-the boundary).  Under the ρ-generic sig the result is `ρ` —
-any of the shapes above — and the elaborator's default whnf
-pulls past the Signal struct into the Stream lambda body,
-surfacing as
+Open follow-up captured separately as C5.b below.
 
-  Unbound variable: t : Nat
-    type: Nat
-    hint: s
+---
 
-because the `t : Nat` time binder of `(Signal.mk ⟨fun t => …⟩)`
-leaks into the wire context.  Every `#synthesizeVerilog` over a
-`circuit do { … }` block hits this today; the SynthesisChecks
-section of `Tests/CircuitDoTest.lean` is commented out while
-this is fixed.
+### C5.b. Large multi-output (≥6 leaves) synth performance
 
-Plan:
-1. Have `synthesizeCombinational` resolve `[HasDomain ρ dom]`
-   on the body's return type and `[SignalLeaves ρ dom]` to
-   walk the value into a list of Signal leaves.
-2. For each leaf, allocate its own output wire (preserving the
-   existing single-leaf shape for single-Signal returns).
-3. Emit one Verilog `output` port per leaf, with names taken
-   from the user record's field (when available — that's why
-   `SignalLeaves.toLeaves` returns `Option String × …`).
+- Impact ★★★☆☆
+- Effort M
+- Confidence ★★★☆☆
+- Status: investigating
 
-Once landed: re-enable the `#synthesizeVerilog` block in
-`Tests/CircuitDoTest.lean` and uncomment the multi-output
-fixtures (`pairCounterCdo`, `pairRecordCdo`) in the iverilog
-round-trip suite, then fold `crc32EngineTop` follow-ups
-(`IP/Net/Ethernet.lean:rxFramer`) into `iverilog-roundtrip-test`.
+`#synthesizeVerilog rxFramer` (Ethernet RX framer — 6 outputs,
+5 registers, big `circuit do` body) does not complete within
+the 180 s `lake env lean` budget.  The Expr cache landed in
+C5 covers re-walks at the outer `body` key, but per-leaf
+projection wrappers (`RxOut.dmac body`, `RxOut.smac body`, …)
+each get a fresh cache entry — so the body's `runCircuitH`
+sub-tree is walked once per leaf at the wire-translation
+layer, giving O(N × body) compile time.
+
+Single-Signal / 2-leaf cases (`pairCounterCdo` /
+`pairRecordCdo`) are unaffected and synth in ~0.1 s on top of
+the Lean startup cost.
+
+Mitigation today: emit large multi-output blocks via
+`bundleAll!` into a single packed `BitVec` output (the RV32 /
+BitNet idiom — see `IP/RV32/SoCVerilog.lean:rv32iSoCSynth` for
+the pattern, and an external Verilog wrapper that slices the
+packed bus into named ports).
+
+Real fix candidates:
+1. Push the cache lookup into `translateExprToWire`'s
+   recursive arms so a per-field projection still benefits
+   from the body's already-translated wire (Expr cache hits
+   the `runCircuitH …` sub-expression on every leaf).
+2. Translate the body once into a single packed wire whose
+   bit layout follows `SignalLeaves`, then emit the per-field
+   output ports as slices of that wire.  Costs O(body) total
+   instead of O(N × body).
+
+Once landed: add an `#synthesizeVerilog rxFramer` fixture to
+`Tests/IP/Net/EthernetTest.lean:SynthesisChecks` and wire it
+into the iverilog round-trip suite.
 
 ---
 
