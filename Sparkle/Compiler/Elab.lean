@@ -420,9 +420,24 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Expected Array expression, got: {expr}"
 
+/-- Global call counters for `translateExprToWire` profiling.
+    Populated only when `SPARKLE_PROFILE=1`. -/
+private initialize sparkleCallCounter : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
+
 mutual
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     trace[sparkle.compiler] "translateExprToWire hint={hint} isTopLevel={isTopLevel}"
+    let callN ← CompilerM.liftMetaM (sparkleCallCounter.modifyGet fun n => (n + 1, n + 1))
+    if callN % 10000 == 0 then
+      CompilerM.liftMetaM do
+        if (← IO.getEnv "SPARKLE_PROFILE").isSome then
+          let hits ← sparkleCacheHits.get
+          IO.eprintln s!"[profile] tick {callN} (cache hits {hits})"
+          (← IO.getStderr).flush
+          let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+          h.putStrLn s!"[profile] tick {callN} (cache hits {hits})"
+          h.flush
     -- 0a. Expression-level cache: when the ρ-generic synthesis
     -- pass splits a multi-output return into N leaves, the same
     -- sub-expression (e.g. the body's `Signal.loop` chain) is
@@ -437,6 +452,7 @@ mutual
       if let some ref := cacheRef? then
         let cache ← CompilerM.liftMetaM (ref.get : IO _)
         if let some w := cache.get? e then
+          CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
           return w
     -- 0. Handle free variables first (before any whnf)
     if let .fvar fvarId := e then
@@ -2017,46 +2033,48 @@ mutual
       walk 0 #[] #[] false
 
   partial def synthesizeCombinational (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
+    let logProf (msg : String) : IO Unit := do
+      if profile then
+        IO.eprintln msg
+        (← IO.getStderr).flush
+        let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+        h.putStrLn msg
+        h.flush
+    logProf s!"[profile] synthesizeCombinational {declName} entering"
     let constInfo ← getConstInfo declName
+    logProf s!"[profile] getConstInfo done"
     match constInfo with
     | .defnInfo defnInfo =>
-      -- Optional profiling: set SPARKLE_PROFILE=1 in the env
-      -- to get per-handler call counters printed at the end.
-      -- Counters are stored on the read-only ReaderT compiler
-      -- state via IO.Refs so handlers can bump them without
-      -- threading state through.
-      let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
-      if profile then
-        IO.eprintln s!"[profile] synthesizeCombinational {declName} starting"
-        (← IO.getStderr).flush
+      logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
       let t0 ← IO.monoMsNow
+      logProf s!"[profile] calling openRecordInputs"
       let body ← openRecordInputs defnInfo.value
       let t1 ← IO.monoMsNow
-      if profile then
-        IO.eprintln s!"[profile] openRecordInputs done ({t1 - t0} ms)"
-        (← IO.getStderr).flush
+      logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
       -- Split the return value into per-leaf Lean expressions
       -- BEFORE entering CompilerM.  This lets us reuse the
       -- existing single-Signal translation path on each leaf,
       -- yielding one Verilog output port per leaf rather than a
       -- single packed wire.
+      logProf s!"[profile] calling splitReturnLeaves"
       let leaves ← splitReturnLeaves body
       let t2 ← IO.monoMsNow
-      if profile then
-        IO.eprintln s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
-        (← IO.getStderr).flush
+      logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
       let cacheRef ← IO.mkRef ({} : Std.HashMap Lean.Expr String)
       let compiler : CompilerM String := do
         let mut firstWire : Option String := none
         let mut leafIdx := 0
         for (portName, leafExpr) in leaves do
           let tLeaf0 ← CompilerM.liftMetaM IO.monoMsNow
+          let callsBefore ← CompilerM.liftMetaM sparkleCallCounter.get
+          let hitsBefore  ← CompilerM.liftMetaM sparkleCacheHits.get
+          CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate starting (calls={callsBefore} hits={hitsBefore})")
           let leafWire ← translateExprToWire leafExpr portName (isTopLevel := true)
           let tLeaf1 ← CompilerM.liftMetaM IO.monoMsNow
-          if profile then
-            CompilerM.liftMetaM (do
-              IO.eprintln s!"[profile] leaf {leafIdx} ({portName}) translate {tLeaf1 - tLeaf0} ms"
-              (← IO.getStderr).flush)
+          let callsAfter ← CompilerM.liftMetaM sparkleCallCounter.get
+          let hitsAfter  ← CompilerM.liftMetaM sparkleCacheHits.get
+          CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate {tLeaf1 - tLeaf0} ms (calls Δ={callsAfter - callsBefore} hits Δ={hitsAfter - hitsBefore})")
           leafIdx := leafIdx + 1
           if firstWire.isNone then firstWire := some leafWire
           -- Record the leaf-expr → wire mapping so subsequent
@@ -2135,19 +2153,26 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
     For a syntax-highlighted view inside JupyterLab use `#showVerilog`
     instead; for writing to a file use `#writeVerilogDesign id "path"`. -/
 elab "#synthesizeVerilog" id:ident : command => do
+  -- Profile breadcrumbs.  When SPARKLE_PROFILE=1 is set, write
+  -- to *both* stderr and /tmp/sparkle-profile.log so the timing
+  -- survives even when `timeout` SIGKILLs the process before
+  -- stdio buffers flush.  The log is append-mode so consecutive
+  -- runs accumulate (delete it yourself between runs if you
+  -- want a clean slate).
   let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
-  if profile then
-    IO.eprintln s!"[profile] #synthesizeVerilog entry id={id}"
-    (← IO.getStderr).flush
+  let logProf (msg : String) : IO Unit := do
+    if profile then
+      IO.eprintln msg
+      (← IO.getStderr).flush
+      let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+      h.putStrLn msg
+      h.flush
+  logProf s!"[profile] #synthesizeVerilog entry id={id}"
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
-  if profile then
-    IO.eprintln s!"[profile] declName resolved: {declName}"
-    (← IO.getStderr).flush
+  logProf s!"[profile] declName resolved: {declName}"
   Lean.Elab.Command.liftTermElabM do
-    if profile then
-      IO.eprintln s!"[profile] entering liftTermElabM, calling synthesizeCombinational"
-      (← IO.getStderr).flush
+    logProf s!"[profile] entering liftTermElabM, calling synthesizeCombinational"
     let (module, _) ← synthesizeCombinational declName
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
