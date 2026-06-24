@@ -1834,6 +1834,20 @@ mutual
       MetaM (Array (String × Lean.Expr)) := do
     let ty ← inferType e
     let tyN ← whnf ty
+    -- For multi-output (Prod / record) returns, reduce `e`
+    -- once at the top of the recursion so the per-field arms
+    -- below see a concrete `Prod.mk` / ctor application
+    -- instead of paying the body-whnf cost per leaf.  Skip
+    -- the whnf for single-Signal returns to avoid peeling
+    -- past `Signal.mk` and leaking its Stream binder into
+    -- the wire context.
+    let needsReduce :=
+      (tyN.isAppOf ``Prod && tyN.getAppNumArgs == 2) ||
+      (match tyN.getAppFn with
+        | .const indName _ =>
+          indName != ``Sparkle.Core.Signal.Signal
+        | _ => false)
+    let e ← if needsReduce then whnf e else pure e
     -- Signal dom τ — base case, one leaf.
     if tyN.isAppOf ``Sparkle.Core.Signal.Signal then
       let portName := prefix?.getD "out"
@@ -1842,10 +1856,23 @@ mutual
     if tyN.isAppOf ``Prod && tyN.getAppNumArgs == 2 then
       let lhsName := (prefix?.getD "out") ++ "_0"
       let rhsName := (prefix?.getD "out") ++ "_1"
-      let fstExpr ← mkAppM ``Prod.fst #[e]
-      let sndExpr ← mkAppM ``Prod.snd #[e]
-      let lhsLeaves ← splitReturnLeaves fstExpr (some lhsName)
-      let rhsLeaves ← splitReturnLeaves sndExpr (some rhsName)
+      -- Cheap pre-reduce: when `e` is *literally* `Prod.mk a b
+      -- c d` already (no whnf needed), hand `c` / `d` directly
+      -- to the recursion.  Otherwise leave the `Prod.fst` /
+      -- `Prod.snd` wrapper in place — the cost of `whnf` is
+      -- O(body) at every leaf, which scales catastrophically
+      -- for 6+ output records.  The Expr cache in
+      -- translateExprToWire still memoises the body's wire so
+      -- the wrapper case stays correct, just slower than the
+      -- literal case.
+      let lhsExpr ← if e.isAppOfArity ``Prod.mk 4
+                    then pure (e.getArg! 2)
+                    else mkAppM ``Prod.fst #[e]
+      let rhsExpr ← if e.isAppOfArity ``Prod.mk 4
+                    then pure (e.getArg! 3)
+                    else mkAppM ``Prod.snd #[e]
+      let lhsLeaves ← splitReturnLeaves lhsExpr (some lhsName)
+      let rhsLeaves ← splitReturnLeaves rhsExpr (some rhsName)
       return lhsLeaves ++ rhsLeaves
     -- Single-ctor inductive (records like `RxOut dom`) —
     -- recurse on each field, prefixing the field name so the
@@ -1862,14 +1889,26 @@ mutual
             for f in args.toList.drop nParams do
               ns := ns.push (← f.fvarId!.getUserName)
             return ns
-          for fName in fieldNames do
-            let projName := indName ++ fName
-            let fieldExpr ← try
-              mkAppM projName #[e]
-            catch _ =>
-              -- Fall back to anonymous projection if no
-              -- generated projection exists for `fName`.
-              pure e
+          -- `e` is already whnf'd at the top of splitReturnLeaves
+          -- (above), so check the ctor head directly.
+          let ctorArgs? :=
+            if e.isAppOf ctorName then
+              some (e.getAppArgs.toList.drop nParams |>.toArray)
+            else
+              none
+          for (fName, idx) in fieldNames.zipIdx do
+            let fieldExpr ← match ctorArgs? with
+              | some args =>
+                if h : idx < args.size then
+                  pure args[idx]
+                else
+                  pure e   -- shouldn't happen; defensive
+              | none =>
+                let projName := indName ++ fName
+                try
+                  mkAppM projName #[e]
+                catch _ =>
+                  pure e
             let combinedPrefix :=
               match prefix? with
               | none => fName.toString
