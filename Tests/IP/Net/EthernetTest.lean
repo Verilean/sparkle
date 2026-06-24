@@ -56,7 +56,7 @@ private def rxIn : RxIn defaultDomain :=
   , sop := sopStream
   , eop := eopStream }
 
-private def rxOut : RxOut defaultDomain := rxFramer rxIn
+private def rxOut : RxOut defaultDomain := rxFramerOfRxIn rxIn
 
 /-- Walk `Signal dom α` for `cycles` cycles and pull out the `t`-th
     sample.  Tiny inline helper so the test doesn't depend on

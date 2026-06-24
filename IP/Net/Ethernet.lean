@@ -118,16 +118,38 @@ structure RxOut (dom : DomainConfig) where
 instance {dom : DomainConfig} :
     Sparkle.Core.HasDomain (RxOut dom) dom := ⟨⟩
 
-/--
-  RX framer: walks the per-byte state machine described above and
-  shift-registers each header byte into its destination 48-bit /
-  16-bit field.
+/-! ### Synthesis-friendly entry point.
 
-  Sticky behaviour on EOF: `dmac` / `smac` / `ethType` keep their
-  last-frame values until the next SOP arrives, so the consumer
-  has the full cycle window after `hdrDone` to inspect them.
--/
-def rxFramer {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
+    RX framer: walks the per-byte state machine described above
+    and shift-registers each header byte into its destination
+    48-bit / 16-bit field.
+
+    Sticky behaviour on EOF: `dmac` / `smac` / `ethType` keep
+    their last-frame values until the next SOP arrives, so the
+    consumer has the full cycle window after `hdrDone` to
+    inspect them.
+
+    `rxFramer` takes each input Signal as an independent
+    parameter (rather than bundling them in an `RxIn` record).
+    This matches the convention every other Sparkle IP follows
+    (see `IP/Arbiter/RoundRobin.lean:arbiterSignal`,
+    `IP/RV32/SoCVerilog.lean:rv32iSoCSynth`, etc.) and lets
+    `#synthesizeVerilog rxFramer` succeed without the IR
+    elaborator needing to unpack record-typed inputs.
+
+    The record-bundled convenience wrapper is `rxFramerOfRxIn`
+    below — use that from simulation drivers, where the caller
+    already has an `RxIn` record assembled.
+
+    `_eop` is currently unused; it's threaded in so future
+    FCS-check / minimum-length-padding logic can latch on the
+    end-of-frame edge without a signature change. -/
+def rxFramer {dom : DomainConfig}
+    (byte : Signal dom (BitVec 8))
+    (valid : Signal dom Bool)
+    (sop : Signal dom Bool)
+    (_eop : Signal dom Bool) :
+    RxOut dom :=
   circuit do
     -- Byte counter / state.
     let st       ← Signal.reg sIdle
@@ -145,9 +167,9 @@ def rxFramer {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
     -- accept `let x : T := …` with a type annotation, which the
     -- type-class search needs to disambiguate the Reg→Signal
     -- coercion + the HShiftLeft (Signal _, BitVec _) instance.
-    let dmacNext := shiftIn48 dmacAcc i.byte
-    let smacNext := shiftIn48 smacAcc i.byte
-    let etNext   := shiftIn16 etAcc   i.byte
+    let dmacNext := shiftIn48 dmacAcc byte
+    let smacNext := shiftIn48 smacAcc byte
+    let etNext   := shiftIn16 etAcc   byte
 
     -- Drive state.
     -- "Which field am I in?" derived from `st`.  Signal-Bool
@@ -174,7 +196,7 @@ def rxFramer {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
     let isHeaderByte :=
       isDmacByte ||| isSmacByte ||| isEtByte0 ||| isEtByte1
 
-    if i.sop then
+    if sop then
       -- SOP cycle: cycle-0 byte is DMAC[47:40].  Latch it, reset
       -- the other accumulators, and arm for byte 1.
       st       <~ 1#5
@@ -183,7 +205,7 @@ def rxFramer {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
       etAcc    <~ 0#16
       hdrDoneR <~ false
     else
-      if i.valid then
+      if valid then
         -- Advance state: header bytes increment; on byte 13 jump
         -- to PAYLOAD; in PAYLOAD stay sticky.
         let dmacReadSig := (dmacAcc : Signal dom (BitVec 48))
@@ -218,13 +240,9 @@ def rxFramer {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
     -- we're in the sticky payload state AND the upstream marks
     -- the beat valid.  Outside of payload we report 0/0.
     let inPayload := stSig === Signal.pure sPayload
-    -- inPayload &&& i.valid via the HAnd Signal-Bool instance —
-    -- staying Signal-native here for the same reason as in CRC32
-    -- (see README §Contributing → "Hitting an unhelpful
-    -- #synthesizeVerilog error?").
-    let payloadValid := inPayload &&& i.valid
+    let payloadValid := inPayload &&& valid
     let payloadByte  :=
-      Signal.mux inPayload i.byte (Signal.pure (0#8 : BitVec 8))
+      Signal.mux inPayload byte (Signal.pure (0#8 : BitVec 8))
 
     -- Named-field return: each output is keyed by its semantic
     -- name, so downstream consumers read `out.dmac` / `out.smac`
@@ -237,5 +255,12 @@ def rxFramer {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
             , payloadValid := payloadValid
             , hdrDone      := (hdrDoneR : Signal dom Bool)
             } : RxOut dom)
+
+/-- Convenience wrapper for simulation drivers that already
+    hold an `RxIn` record.  Delegates to `rxFramer` field by
+    field.  Not for `#synthesizeVerilog` — use the per-Signal
+    `rxFramer` form for synthesis. -/
+def rxFramerOfRxIn {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
+  rxFramer i.byte i.valid i.sop i.eop
 
 end Sparkle.IP.Net.Ethernet
