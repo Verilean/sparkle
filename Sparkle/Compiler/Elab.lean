@@ -315,7 +315,11 @@ def inferResetKindFromSignal (signalType : Lean.Expr) :
   | _ =>
     return .asynchronous
 
+private initialize sparkleHWInferCalls : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleHWInferMs    : IO.Ref Nat ← IO.mkRef 0
+
 def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
   let signalType ← CompilerM.liftMetaM (whnf signalType)
   match signalType with
   | .app (.app signalConstr _dom) innerType =>
@@ -439,6 +443,36 @@ private initialize sparkleTypeCache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) �
 private initialize sparkleTypeCacheHits : IO.Ref Nat ← IO.mkRef 0
 private initialize sparkleTypeCacheMiss : IO.Ref Nat ← IO.mkRef 0
 
+/-- Counters for the Lean.Meta operations the compiler issues
+    *directly*.  When SPARKLE_PROFILE=1 the tick log reports
+    each total — gives a direct read on which Meta call is
+    the actual hot spot rather than guessing from handler
+    inclusive times. -/
+private initialize sparkleWhnfCalls       : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleInferCalls      : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleUnfoldDefCalls  : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleWhnfMs          : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleInferMs         : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleUnfoldDefMs     : IO.Ref Nat ← IO.mkRef 0
+
+/-- Wrap a MetaM `whnf` with counters. -/
+def countedWhnf (e : Lean.Expr) : CompilerM Lean.Expr := do
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
+  let r ← CompilerM.liftMetaM (Lean.Meta.whnf e)
+  let t1 ← CompilerM.liftMetaM IO.monoMsNow
+  CompilerM.liftMetaM (sparkleWhnfCalls.modify (· + 1))
+  CompilerM.liftMetaM (sparkleWhnfMs.modify (· + (t1 - t0)))
+  return r
+
+/-- Wrap `Lean.Meta.unfoldDefinition?` with counters. -/
+def countedUnfoldDefinition? (e : Lean.Expr) : CompilerM (Option Lean.Expr) := do
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
+  let r ← CompilerM.liftMetaM (Lean.Meta.unfoldDefinition? e)
+  let t1 ← CompilerM.liftMetaM IO.monoMsNow
+  CompilerM.liftMetaM (sparkleUnfoldDefCalls.modify (· + 1))
+  CompilerM.liftMetaM (sparkleUnfoldDefMs.modify (· + (t1 - t0)))
+  return r
+
 def cachedInferType (e : Lean.Expr) : CompilerM Lean.Expr := do
   let cache ← CompilerM.liftMetaM sparkleTypeCache.get
   match cache.get? e with
@@ -447,7 +481,11 @@ def cachedInferType (e : Lean.Expr) : CompilerM Lean.Expr := do
     return ty
   | none =>
     CompilerM.liftMetaM (sparkleTypeCacheMiss.modify (· + 1))
+    let t0 ← CompilerM.liftMetaM IO.monoMsNow
     let ty ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+    let t1 ← CompilerM.liftMetaM IO.monoMsNow
+    CompilerM.liftMetaM (sparkleInferCalls.modify (· + 1))
+    CompilerM.liftMetaM (sparkleInferMs.modify (· + (t1 - t0)))
     CompilerM.liftMetaM (sparkleTypeCache.modify (·.insert e ty))
     return ty
 
@@ -483,7 +521,38 @@ private def profHandler {α} (_idx : Nat) (k : CompilerM α) : CompilerM α := d
   return r
 
 mutual
+  /-- Caching shim around `translateExprToWireImpl`.  All early-
+      intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
+      ...) currently `return` straight from the inner impl, which
+      means they never write back to the cache.  Wrapping here
+      means **every** successful translate caches its result —
+      so subsequent identical sub-trees become a HashMap lookup
+      instead of a full re-walk through ~10 handlers + Meta. -/
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
+    let cacheRef? := (← CompilerM.getCompilerState).exprCache
+    -- Cache only when there's no fresh wire name to emit
+    -- (`isNamed` would force a specific user-facing name) and
+    -- when the expression isn't a free variable (those resolve
+    -- against the lexically-scoped varMap, not by Expr identity).
+    let cacheable := !isNamed && !e.isFVar && !isTopLevel
+    if cacheable then
+      if let some ref := cacheRef? then
+        let cache ← CompilerM.liftMetaM (ref.get : IO _)
+        if let some w := cache.get? e then
+          CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
+          return w
+        let eStripped := e.consumeMData
+        if !(eStripped == e) then
+          if let some w := cache.get? eStripped then
+            CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
+            return w
+    let r ← translateExprToWireImpl e hint isTopLevel isNamed
+    if cacheable then
+      if let some ref := cacheRef? then
+        CompilerM.liftMetaM (ref.modify (·.insert e r))
+    return r
+
+  partial def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     trace[sparkle.compiler] "translateExprToWire hint={hint} isTopLevel={isTopLevel}"
     let callN ← CompilerM.liftMetaM (sparkleCallCounter.modifyGet fun n => (n + 1, n + 1))
     if callN % 10000 == 0 then
@@ -494,8 +563,17 @@ mutual
           let msArr ← sparkleHandlerMs.get
           let typeHits ← sparkleTypeCacheHits.get
           let typeMiss ← sparkleTypeCacheMiss.get
+          let wCalls ← sparkleWhnfCalls.get
+          let wMs    ← sparkleWhnfMs.get
+          let iCalls ← sparkleInferCalls.get
+          let iMs    ← sparkleInferMs.get
+          let uCalls ← sparkleUnfoldDefCalls.get
+          let uMs    ← sparkleUnfoldDefMs.get
           let mut tickLines : Array String :=
-            #[s!"[profile] tick {callN} (cache hits {hits}, typeCache hits={typeHits} miss={typeMiss})"]
+            #[s!"[profile] tick {callN} (cache hits {hits}, typeCache hits={typeHits} miss={typeMiss})",
+              s!"  Meta whnf:       {wCalls} calls / {wMs} ms",
+              s!"  Meta inferType:  {iCalls} calls / {iMs} ms",
+              s!"  Meta unfoldDef?: {uCalls} calls / {uMs} ms"]
           for h in [:sparkleProfHandlerNames.size] do
             let n := calls.getD h 0
             let m := msArr.getD h 0
@@ -507,22 +585,8 @@ mutual
           let fh ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
           fh.putStrLn body
           fh.flush
-    -- 0a. Expression-level cache: when the ρ-generic synthesis
-    -- pass splits a multi-output return into N leaves, the same
-    -- sub-expression (e.g. the body's `Signal.loop` chain) is
-    -- handed to translateExprToWire repeatedly.  Each translate
-    -- call walks the full sub-tree, so without this cache an
-    -- N-output module is O(N × body) instead of O(body).
-    -- Skip caching for fvars (they're resolved against the local
-    -- varMap by the `.fvar` arm just below — caching by Expr
-    -- key would tie a name into the wrong lexical scope).
-    let cacheRef? := (← CompilerM.getCompilerState).exprCache
-    if !e.isFVar then
-      if let some ref := cacheRef? then
-        let cache ← CompilerM.liftMetaM (ref.get : IO _)
-        if let some w := cache.get? e then
-          CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
-          return w
+    -- Cache lookup is now handled by the `translateExprToWire`
+    -- wrapper above; this impl runs only on misses.
     -- 0. Handle free variables first (before any whnf)
     if let .fvar fvarId := e then
       match ← CompilerM.lookupVar fvarId with
@@ -1214,19 +1278,10 @@ mutual
 
 
     | _ =>
-      -- App / Const fall-through.  Wrap the translateExprToWireApp
-      -- call so its result is written into the expression cache —
-      -- this is what lets ρ-generic multi-output (record return)
-      -- reuse work across leaves: every leaf's per-field
-      -- projection shares the body's `runCircuitH …` sub-tree as
-      -- its argument, so caching that sub-tree's wire here means
-      -- the second-through-Nth leaves skip re-walking the body.
-      let resultWire ← translateExprToWireApp e hint isNamed
-      let cacheRef? := (← CompilerM.getCompilerState).exprCache
-      if let some ref := cacheRef? then
-        if !e.isFVar then
-          CompilerM.liftMetaM (ref.modify (·.insert e resultWire))
-      return resultWire
+      -- App / Const fall-through.  Caching is handled by the
+      -- `translateExprToWire` wrapper at the top of this mutual
+      -- block — no need to duplicate the insert here.
+      translateExprToWireApp e hint isNamed
 
   -- ===========================================================================
   -- Handler functions: each handles a category of expressions in translateExprToWireApp.
