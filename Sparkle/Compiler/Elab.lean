@@ -1786,6 +1786,37 @@ mutual
     if !isValidDef then return none
 
     let env ← CompilerM.liftMetaM getEnv
+    -- Structure field accessors (e.g. `RxOut.dmac`) are valid
+    -- `defnInfo`s but they have a different calling convention
+    -- than a hardware function: the value-level arg is the
+    -- record itself, and `synthesizeCombinational` would try to
+    -- open it into N fields (one per `Signal dom α` field).
+    -- Always inline projections through `unfoldDefinition?` and
+    -- never fall back to sub-module synthesis.
+    if let some _ := env.getProjectionStructureName? name then
+      -- Structure projections only "fire" once their record
+      -- argument reduces to a `.mk` constructor.  Pre-reduce the
+      -- record argument (last arg) under reducible transparency
+      -- so opaque `def` calls (e.g. `rxFramer ...`) become
+      -- `RxOut.mk { ... }`, then re-assemble and `whnf` to fire
+      -- the iota rule.  Using reducible transparency here avoids
+      -- the "Signal.mk peels past the time binder" issue that
+      -- full `whnf` triggers on the entire expression.
+      if args.size >= 1 then
+        let recordArg := args.back!
+        let recordReduced ← CompilerM.liftMetaM do
+          Lean.Meta.withTransparency .default do
+            match ← Lean.Meta.unfoldDefinition? recordArg with
+            | some e' => return e'
+            | none => return recordArg
+        if recordReduced != recordArg then
+          let projHead := e.getAppFn
+          let leadingArgs := args.pop
+          let eReassembled := mkAppN (mkAppN projHead leadingArgs) #[recordReduced]
+          let w ← translateExprToWire eReassembled hint (isNamed := isNamed)
+          return some w
+      return none
+
     let optedIntoModule := Sparkle.Compiler.isHardwareModule env name
 
     -- Helper: try the "unfold and translate inline" path — the default.
