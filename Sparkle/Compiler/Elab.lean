@@ -1129,7 +1129,19 @@ mutual
 
 
     | _ =>
-      translateExprToWireApp e hint isNamed
+      -- App / Const fall-through.  Wrap the translateExprToWireApp
+      -- call so its result is written into the expression cache —
+      -- this is what lets ρ-generic multi-output (record return)
+      -- reuse work across leaves: every leaf's per-field
+      -- projection shares the body's `runCircuitH …` sub-tree as
+      -- its argument, so caching that sub-tree's wire here means
+      -- the second-through-Nth leaves skip re-walking the body.
+      let resultWire ← translateExprToWireApp e hint isNamed
+      let cacheRef? := (← CompilerM.getCompilerState).exprCache
+      if let some ref := cacheRef? then
+        if !e.isFVar then
+          CompilerM.liftMetaM (ref.modify (·.insert e resultWire))
+      return resultWire
 
   -- ===========================================================================
   -- Handler functions: each handles a category of expressions in translateExprToWireApp.
@@ -2008,18 +2020,44 @@ mutual
     let constInfo ← getConstInfo declName
     match constInfo with
     | .defnInfo defnInfo =>
+      -- Optional profiling: set SPARKLE_PROFILE=1 in the env
+      -- to get per-handler call counters printed at the end.
+      -- Counters are stored on the read-only ReaderT compiler
+      -- state via IO.Refs so handlers can bump them without
+      -- threading state through.
+      let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
+      if profile then
+        IO.eprintln s!"[profile] synthesizeCombinational {declName} starting"
+        (← IO.getStderr).flush
+      let t0 ← IO.monoMsNow
       let body ← openRecordInputs defnInfo.value
+      let t1 ← IO.monoMsNow
+      if profile then
+        IO.eprintln s!"[profile] openRecordInputs done ({t1 - t0} ms)"
+        (← IO.getStderr).flush
       -- Split the return value into per-leaf Lean expressions
       -- BEFORE entering CompilerM.  This lets us reuse the
       -- existing single-Signal translation path on each leaf,
       -- yielding one Verilog output port per leaf rather than a
       -- single packed wire.
       let leaves ← splitReturnLeaves body
+      let t2 ← IO.monoMsNow
+      if profile then
+        IO.eprintln s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
+        (← IO.getStderr).flush
       let cacheRef ← IO.mkRef ({} : Std.HashMap Lean.Expr String)
       let compiler : CompilerM String := do
         let mut firstWire : Option String := none
+        let mut leafIdx := 0
         for (portName, leafExpr) in leaves do
+          let tLeaf0 ← CompilerM.liftMetaM IO.monoMsNow
           let leafWire ← translateExprToWire leafExpr portName (isTopLevel := true)
+          let tLeaf1 ← CompilerM.liftMetaM IO.monoMsNow
+          if profile then
+            CompilerM.liftMetaM (do
+              IO.eprintln s!"[profile] leaf {leafIdx} ({portName}) translate {tLeaf1 - tLeaf0} ms"
+              (← IO.getStderr).flush)
+          leafIdx := leafIdx + 1
           if firstWire.isNone then firstWire := some leafWire
           -- Record the leaf-expr → wire mapping so subsequent
           -- leaves that share sub-expressions (the common
@@ -2097,9 +2135,19 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
     For a syntax-highlighted view inside JupyterLab use `#showVerilog`
     instead; for writing to a file use `#writeVerilogDesign id "path"`. -/
 elab "#synthesizeVerilog" id:ident : command => do
+  let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
+  if profile then
+    IO.eprintln s!"[profile] #synthesizeVerilog entry id={id}"
+    (← IO.getStderr).flush
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
+  if profile then
+    IO.eprintln s!"[profile] declName resolved: {declName}"
+    (← IO.getStderr).flush
   Lean.Elab.Command.liftTermElabM do
+    if profile then
+      IO.eprintln s!"[profile] entering liftTermElabM, calling synthesizeCombinational"
+      (← IO.getStderr).flush
     let (module, _) ← synthesizeCombinational declName
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
