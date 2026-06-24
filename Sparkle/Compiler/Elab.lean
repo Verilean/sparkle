@@ -38,6 +38,16 @@ structure CompilerState where
   varMap : List (FVarId × String) := []  -- Map Lean variables to wire names
   clockWire : Option String := none       -- Name of clock wire (if any)
   resetWire : Option String := none       -- Name of reset wire (if any)
+  -- Expression-keyed memoization for `translateExprToWire`.
+  -- When the ρ-generic synthesis splits a multi-output return
+  -- into N leaves, each leaf's expression shares the same
+  -- sub-structure (the body's `Signal.loop` chain), so caching
+  -- by Expr key keeps the cost O(body) instead of O(N × body).
+  -- Optional so `CompilerState.default` (used by the test
+  -- harness via `{}` literals) stays trivially constructible;
+  -- `synthesizeCombinational` populates it before the first
+  -- translate call.
+  exprCache : Option (IO.Ref (Std.HashMap Lean.Expr String)) := none
 
 /-- Compiler monad: combines CircuitM builder with MetaM -/
 abbrev CompilerM := ReaderT CompilerState (StateT CircuitState MetaM)
@@ -413,6 +423,21 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
 mutual
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     trace[sparkle.compiler] "translateExprToWire hint={hint} isTopLevel={isTopLevel}"
+    -- 0a. Expression-level cache: when the ρ-generic synthesis
+    -- pass splits a multi-output return into N leaves, the same
+    -- sub-expression (e.g. the body's `Signal.loop` chain) is
+    -- handed to translateExprToWire repeatedly.  Each translate
+    -- call walks the full sub-tree, so without this cache an
+    -- N-output module is O(N × body) instead of O(body).
+    -- Skip caching for fvars (they're resolved against the local
+    -- varMap by the `.fvar` arm just below — caching by Expr
+    -- key would tie a name into the wrong lexical scope).
+    let cacheRef? := (← CompilerM.getCompilerState).exprCache
+    if !e.isFVar then
+      if let some ref := cacheRef? then
+        let cache ← CompilerM.liftMetaM (ref.get : IO _)
+        if let some w := cache.get? e then
+          return w
     -- 0. Handle free variables first (before any whnf)
     if let .fvar fvarId := e then
       match ← CompilerM.lookupVar fvarId with
@@ -1855,22 +1880,114 @@ mutual
     -- Anything else: treat as a single leaf with whatever name.
     return #[(prefix?.getD "out", e)]
 
+  /-- "Open" record-typed parameters at the synth boundary.
+
+      For a function `body = fun (p₁ : T₁) (rec : MyRec) (p₂) => …`
+      where `MyRec` is a single-constructor inductive whose
+      fields are all `Signal …`, rewrite to
+        `fun (p₁) (f₁ : F₁) (f₂ : F₂) … (p₂) =>
+              body p₁ { f₁, f₂, … } p₂`
+      so the IR elaborator sees per-field Signal inputs instead
+      of an unsplittable record argument.
+
+      Records with no Signal fields (or with non-Signal mixed
+      in) are left untouched.  Recursion is one-level — a record
+      whose fields are themselves records is partially opened
+      (the outer record is unwrapped; inner records pass
+      through).  Good enough for the common HFT-NIC case where
+      each layer's `RxIn` is a flat record of Signals.
+
+      Implementation: walk params with a worker that recurses
+      *inside* successive `forallTelescopeReducing` callbacks so
+      every fvar stays in scope when `mkLambdaFVars` runs at
+      the deepest layer.  No IO.Ref shenanigans — the worker
+      threads state purely. -/
+  partial def openRecordInputs (body : Lean.Expr) : MetaM Lean.Expr := do
+    let bodyType ← inferType body
+    forallTelescopeReducing bodyType fun params _ => do
+      let inner := mkAppN body params
+      -- Worker: walk the param list with accumulators for the
+      -- output binders (in source order), substitution pairs
+      -- (orig fvar → rebuilt record value), and an "anything
+      -- opened?" flag.  We need to stay *inside* every
+      -- `forallTelescopeReducing` cb we open so the field
+      -- fvars remain in the local context when we finally call
+      -- `mkLambdaFVars`.
+      let rec walk
+          (idx : Nat)
+          (binders : Array Lean.Expr)
+          (subst   : Array (Lean.FVarId × Lean.Expr))
+          (opened  : Bool) : MetaM Lean.Expr := do
+        if h : idx < params.size then
+          let p := params[idx]
+          let pType ← whnf (← inferType p)
+          match pType.getAppFn with
+          | .const indName _ =>
+            let some indVal ← (try some <$> getConstInfoInduct indName catch _ => pure none)
+              | walk (idx + 1) (binders.push p) subst opened
+            unless indVal.ctors.length == 1 && !indVal.isRec do
+              return ← walk (idx + 1) (binders.push p) subst opened
+            let ctorName := indVal.ctors.head!
+            let ctorInfo ← getConstInfoCtor ctorName
+            let nParams := indVal.numParams
+            let paramArgs := pType.getAppArgs.toList.take nParams |>.toArray
+            let ctorType ← instantiateForall ctorInfo.type paramArgs
+            forallTelescopeReducing ctorType fun fields _ => do
+              -- Guard: only open records whose every field is
+              -- `Signal _ _`.  Reg, Slot, Prod-as-state, etc.
+              -- are technically single-ctor but opening them
+              -- would split a register handle into its internal
+              -- (Signal, Slot) pair and break the rest of the
+              -- elaborator.  HFT-NIC `RxIn` / `RxOut` / similar
+              -- shapes are all "flat Signal record"; that's
+              -- exactly what we want to catch.
+              let allSignalFields ← fields.allM fun f => do
+                let fT ← whnf (← inferType f)
+                return fT.isAppOf ``Sparkle.Core.Signal.Signal
+              if !allSignalFields then
+                walk (idx + 1) (binders.push p) subst opened
+              else
+                let recVal := mkAppN (.const ctorName (ctorInfo.levelParams.map Level.param))
+                                (paramArgs ++ fields)
+                walk (idx + 1)
+                  (binders ++ fields)
+                  (subst.push (p.fvarId!, recVal))
+                  true
+          | _ => walk (idx + 1) (binders.push p) subst opened
+        else
+          -- Reached the end of the param list.  If nothing was
+          -- opened, return the original `body` as-is; otherwise
+          -- apply the accumulated substitution and close.
+          if !opened then return body
+          let mut substituted := inner
+          for (origFvarId, recVal) in subst do
+            substituted := substituted.replaceFVarId origFvarId recVal
+          mkLambdaFVars binders substituted
+      walk 0 #[] #[] false
+
   partial def synthesizeCombinational (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
     match constInfo with
     | .defnInfo defnInfo =>
-      let body := defnInfo.value
+      let body ← openRecordInputs defnInfo.value
       -- Split the return value into per-leaf Lean expressions
       -- BEFORE entering CompilerM.  This lets us reuse the
       -- existing single-Signal translation path on each leaf,
       -- yielding one Verilog output port per leaf rather than a
       -- single packed wire.
       let leaves ← splitReturnLeaves body
+      let cacheRef ← IO.mkRef ({} : Std.HashMap Lean.Expr String)
       let compiler : CompilerM String := do
         let mut firstWire : Option String := none
         for (portName, leafExpr) in leaves do
           let leafWire ← translateExprToWire leafExpr portName (isTopLevel := true)
           if firstWire.isNone then firstWire := some leafWire
+          -- Record the leaf-expr → wire mapping so subsequent
+          -- leaves that share sub-expressions (the common
+          -- `Signal.loop` body in a multi-output return) reuse
+          -- the wire instead of re-walking the whole tree.
+          if !leafExpr.isFVar then
+            CompilerM.liftMetaM (cacheRef.modify (·.insert leafExpr leafWire))
           let cs ← get
           let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
           let outputType := match wireDecl with
@@ -1883,7 +2000,9 @@ mutual
           CompilerM.emitAssign portName (.ref leafWire)
         return firstWire.getD "out"
       let circuitState := CircuitM.init declName.toString
-      let compilerState : CompilerState := { varMap := [], clockWire := none, resetWire := none }
+      let compilerState : CompilerState :=
+        { varMap := [], clockWire := none, resetWire := none
+        , exprCache := some cacheRef }
       let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
       let mut module := finalCircuitState.module
       let hasRegisters := module.body.any (fun stmt =>
