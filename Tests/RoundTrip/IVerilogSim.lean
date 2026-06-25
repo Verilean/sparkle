@@ -32,6 +32,7 @@ import IP.Net.ARP
 import IP.Net.IPv4
 import IP.Net.ICMP
 import IP.Net.TCPState
+import IP.Net.HTTP
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -182,6 +183,13 @@ def tcpServerStateTop
     Signal defaultDomain (BitVec 4) :=
   (Sparkle.IP.Net.TCPState.tcpServerFSM listenStart parserDone
     parsedFlags parsedSeq parsedAck).state
+
+/-- IP.Net.HTTP response emitter byte projection.  Pulses
+    trigger at cycle 0 → emits 34 bytes of
+    "HTTP/1.0 200 OK\r\n\r\nHello, Sparkle!". -/
+def httpRespByteTop (trigger : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  (Sparkle.IP.Net.HTTP.httpRespEmitter trigger).byte
 
 -- ============================================================================
 -- Testbench construction
@@ -438,6 +446,53 @@ private def rxFramerDmacStimulus : Stimulus :=
       , 187723572702975                                  -- sim c6: 0xAABBCCDDEEFF
       , 187723572702975                                  -- sim c7: holds
       , 187723572702975 ]                                -- sim c8: holds
+  , isSequential := true }
+
+/-- IP.Net.HTTP response emitter fixture.
+
+    Drives `trigger=1` on cycle 0 only; the burst counter
+    auto-emits the 34-byte response.  iverilog cycle k = sim
+    cycle k+1, so the visible byte at iverilog cycle 0 is the
+    byte sim emits at cycle 1.  Sim emits at cycles 0..33
+    (after `start` pulse latches the counter to 1, the cycle
+    register's next-cycle value is 1 which selects byte 0
+    'H').  In iverilog, that translates to:
+      cycle 0 = byte 0 'H'  (sim cycle 1 in the emitter's
+                            counter perspective)
+      cycle 1 = byte 1 'T'
+      ...
+      cycle 33 = byte 33 '!'
+      cycle 34 = idle (last byte already emitted) -/
+private def httpRespByteStimulus : Stimulus :=
+  let totalCycles : Nat := 36
+  let row (i : Nat) : List (String × Nat) :=
+    [ ("_gen_trigger", if i = 0 then 1 else 0) ]
+  let inputs := (List.range totalCycles).map row
+  -- The Lean sim emits at sim cycles 0..33 (cycle 0 is the
+  -- trigger row); iverilog's post-posedge sample at row k
+  -- shows the byte from sim cycle k+1.  So iverilog visible
+  -- sequence starts at the SECOND byte 'T' if sim's row-0
+  -- byte was 'H'.  Actually: the trigger row pulses the
+  -- counter from 0→1 at posedge, and the byte mux's `eqK 1`
+  -- selects byte 0='H' the cycle when cnt=1 — that's the
+  -- cycle AFTER trigger.  Iverilog row 0 = post-posedge,
+  -- which is cnt=1 → byte='H'.  Match the expected
+  -- sequence to the actual emit-while-cnt-walks-1..34 path.
+  let respChars : List Nat :=
+    [ 0x48, 0x54, 0x54, 0x50, 0x2F, 0x31, 0x2E, 0x30  -- "HTTP/1.0"
+    , 0x20, 0x32, 0x30, 0x30, 0x20, 0x4F, 0x4B        -- " 200 OK"
+    , 0x0D, 0x0A, 0x0D, 0x0A                           -- "\r\n\r\n"
+    , 0x48, 0x65, 0x6C, 0x6C, 0x6F                     -- "Hello"
+    , 0x2C, 0x20                                       -- ", "
+    , 0x53, 0x70, 0x61, 0x72, 0x6B, 0x6C, 0x65         -- "Sparkle"
+    , 0x21 ]                                           -- "!"
+  -- iverilog cycle 0 shows the byte for cnt=1 (= 'H'); cycle
+  -- 33 shows '!'; cycle 34 shows idle (cnt=0, fallthrough to
+  -- last mux entry b33='!' as don't-care).
+  { cycles := totalCycles
+  , inputs := inputs
+  , outputName := "out"
+  , expected := respChars ++ [0x21, 0x21]  -- cycles 34/35 = idle, mux fallthrough = '!'
   , isSequential := true }
 
 /-- IP.Net.TCPState server FSM fixture.
@@ -715,6 +770,7 @@ def fixtures : List FixtureCase :=
   , { declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus }
   , { declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus }
   , { declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus }
+  , { declName := ``httpRespByteTop,         label := "httpRespByte",         stimulus := httpRespByteStimulus }
   ]
 
 -- ============================================================================
@@ -737,6 +793,7 @@ def txFramerByteVerilog   : String := verilogOf! txFramerByteTop
 def arpResponderByteVerilog : String := verilogOf! arpResponderByteTop
 def icmpResponderByteVerilog : String := verilogOf! icmpResponderByteTop
 def tcpServerStateVerilog : String := verilogOf! tcpServerStateTop
+def httpRespByteVerilog : String := verilogOf! httpRespByteTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
@@ -770,7 +827,8 @@ def fixtureVerilogs : List (FixtureCase × String) :=
   , ({ declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus },         txFramerByteVerilog)
   , ({ declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus },         arpResponderByteVerilog)
   , ({ declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus },         icmpResponderByteVerilog)
-  , ({ declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus },         tcpServerStateVerilog) ]
+  , ({ declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus },         tcpServerStateVerilog)
+  , ({ declName := ``httpRespByteTop,         label := "httpRespByte",         stimulus := httpRespByteStimulus },         httpRespByteVerilog) ]
 
 -- ============================================================================
 -- Driver

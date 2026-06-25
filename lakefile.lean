@@ -218,6 +218,10 @@ lean_exe «tcp-loopback-test» where
   root := `Tests.Drivers.TCPLoopbackTestMain
   supportInterpreter := true
 
+lean_exe «http-test» where
+  root := `Tests.Drivers.HTTPTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
