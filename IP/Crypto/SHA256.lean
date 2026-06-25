@@ -179,4 +179,305 @@ def sha256OfBytes (input : Array UInt8) : Array (BitVec 32) := Id.run do
     blocks := blocks ++ [words]
   return hashBlocks blocks
 
+/-! ### Signal-side helpers — Sparkle-synth-friendly. -/
+
+/-- Signal-side 32-bit rotate-right by a compile-time
+    constant `n`.  Built from `>>>` and `<<<` over 32-bit
+    BitVec constants, both recognised by Sparkle's IR
+    elaborator. -/
+@[inline] def rotr32Sig {dom : DomainConfig}
+    (x : Signal dom (BitVec 32)) (n : Nat) :
+    Signal dom (BitVec 32) :=
+  let nBv  : BitVec 32 := BitVec.ofNat 32 n
+  let nBv' : BitVec 32 := BitVec.ofNat 32 (32 - n)
+  -- (x >>> n) ||| (x <<< (32 - n))
+  let pn  : Signal dom (BitVec 32) := Signal.pure nBv
+  let pn' : Signal dom (BitVec 32) := Signal.pure nBv'
+  let rs : Signal dom (BitVec 32) := (· >>> ·) <$> x <*> pn
+  let ls : Signal dom (BitVec 32) := (· <<< ·) <$> x <*> pn'
+  (· ||| ·) <$> rs <*> ls
+
+@[inline] def shr32Sig {dom : DomainConfig}
+    (x : Signal dom (BitVec 32)) (n : Nat) :
+    Signal dom (BitVec 32) :=
+  let nBv : BitVec 32 := BitVec.ofNat 32 n
+  let pn : Signal dom (BitVec 32) := Signal.pure nBv
+  (· >>> ·) <$> x <*> pn
+
+@[inline] def bigSigma0Sig {dom : DomainConfig}
+    (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let a := rotr32Sig x 2
+  let b := rotr32Sig x 13
+  let c := rotr32Sig x 22
+  let ab := (· ^^^ ·) <$> a <*> b
+  (· ^^^ ·) <$> ab <*> c
+
+@[inline] def bigSigma1Sig {dom : DomainConfig}
+    (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let a := rotr32Sig x 6
+  let b := rotr32Sig x 11
+  let c := rotr32Sig x 25
+  let ab := (· ^^^ ·) <$> a <*> b
+  (· ^^^ ·) <$> ab <*> c
+
+@[inline] def smallSigma0Sig {dom : DomainConfig}
+    (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let a := rotr32Sig x 7
+  let b := rotr32Sig x 18
+  let c := shr32Sig x 3
+  let ab := (· ^^^ ·) <$> a <*> b
+  (· ^^^ ·) <$> ab <*> c
+
+@[inline] def smallSigma1Sig {dom : DomainConfig}
+    (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let a := rotr32Sig x 17
+  let b := rotr32Sig x 19
+  let c := shr32Sig x 10
+  let ab := (· ^^^ ·) <$> a <*> b
+  (· ^^^ ·) <$> ab <*> c
+
+@[inline] def chFnSig {dom : DomainConfig}
+    (x y z : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let xy   : Signal dom (BitVec 32) := (· &&& ·) <$> x <*> y
+  let nx   : Signal dom (BitVec 32) := (~~~ ·) <$> x
+  let nxz  : Signal dom (BitVec 32) := (· &&& ·) <$> nx <*> z
+  (· ^^^ ·) <$> xy <*> nxz
+
+@[inline] def majFnSig {dom : DomainConfig}
+    (x y z : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  let xy  : Signal dom (BitVec 32) := (· &&& ·) <$> x <*> y
+  let xz  : Signal dom (BitVec 32) := (· &&& ·) <$> x <*> z
+  let yz  : Signal dom (BitVec 32) := (· &&& ·) <$> y <*> z
+  let t1  : Signal dom (BitVec 32) := (· ^^^ ·) <$> xy <*> xz
+  (· ^^^ ·) <$> t1 <*> yz
+
+/-! ### K-table mux: pick K[t] from a 7-bit counter. -/
+
+@[hardware_module] def kMux {dom : DomainConfig}
+    (cntSig : Signal dom (BitVec 7)) : Signal dom (BitVec 32) := Id.run do
+  let eqK (k : Nat) : Signal dom Bool :=
+    (· == ·) <$> cntSig <*> (Signal.pure (BitVec.ofNat 7 k) : Signal dom (BitVec 7))
+  let kAt (k : Nat) : Signal dom (BitVec 32) :=
+    Signal.pure (kTable.getD k 0#32)
+  let mut acc : Signal dom (BitVec 32) := kAt 63
+  for k in (List.range 63).reverse do
+    acc := Signal.mux (eqK k) (kAt k) acc
+  return acc
+
+/-! ### SHA-256 HW engine — iterative 64-cycle compressor.
+
+    Pipeline contract:
+      cycle 0     : `start` pulse; `blockIn` carries the
+                    full 512-bit message block (W0 in MSB).
+      cycle 1..64 : compression round t = 0..63, fed by the
+                    rolling 16-word W buffer.
+      cycle 65    : add a..h into H0..H7 and pulse `done`.
+      cycle ≥66   : output `hash` holds the final 256-bit
+                    digest; `done` returns to 0.
+
+    Buffer strategy: keep a single 512-bit register
+    representing W[t-16..t-1] (MSB = oldest = W[t-16],
+    LSB = newest = W[t-1]).  Each cycle:
+      - Read W[t] from the MSB position (or from the new
+        slot for t < 16: directly from `blockIn[t]`).
+      - Compute next W (only used for t < 48 since the
+        last 16 rounds don't generate new W values, but
+        the shift is harmless).
+      - Shift the buffer left by 32 bits, place new W in
+        the low 32 bits. -/
+
+structure SHA256Out (dom : DomainConfig) where
+  /-- 256-bit packed hash output (H0 in MSB). -/
+  hash : Signal dom (BitVec 256)
+  /-- Pulses high for one cycle after the 64-round
+      compression completes. -/
+  done : Signal dom Bool
+
+instance {dom : DomainConfig} :
+    Sparkle.Core.HasDomain (SHA256Out dom) dom := ⟨⟩
+
+def sha256Block {dom : DomainConfig}
+    (start : Signal dom Bool)
+    (blockIn : Signal dom (BitVec 512)) :
+    SHA256Out dom :=
+  circuit do
+    -- 7-bit round counter (0..65, plus idle at 0).
+    let cnt ← Signal.reg (0#7)
+    -- 8 working-state registers — initialised to initH on
+    -- the start pulse.
+    let aR ← Signal.reg (0#32)
+    let bR ← Signal.reg (0#32)
+    let cR ← Signal.reg (0#32)
+    let dR ← Signal.reg (0#32)
+    let eR ← Signal.reg (0#32)
+    let fR ← Signal.reg (0#32)
+    let gR ← Signal.reg (0#32)
+    let hR ← Signal.reg (0#32)
+    -- 8 final-hash registers (carry IV plus accumulated
+    -- block deltas).
+    let h0R ← Signal.reg (0x6a09e667#32)
+    let h1R ← Signal.reg (0xbb67ae85#32)
+    let h2R ← Signal.reg (0x3c6ef372#32)
+    let h3R ← Signal.reg (0xa54ff53a#32)
+    let h4R ← Signal.reg (0x510e527f#32)
+    let h5R ← Signal.reg (0x9b05688c#32)
+    let h6R ← Signal.reg (0x1f83d9ab#32)
+    let h7R ← Signal.reg (0x5be0cd19#32)
+    -- W-buffer: 16 × 32-bit slots, MSB = oldest.
+    let wBuf ← Signal.reg (0#512)
+    -- `done` strobe.
+    let doneR ← Signal.reg false
+
+    let cntSig := (cnt : Signal dom (BitVec 7))
+    let aSig := (aR : Signal dom (BitVec 32))
+    let bSig := (bR : Signal dom (BitVec 32))
+    let cSig := (cR : Signal dom (BitVec 32))
+    let dSig := (dR : Signal dom (BitVec 32))
+    let eSig := (eR : Signal dom (BitVec 32))
+    let fSig := (fR : Signal dom (BitVec 32))
+    let gSig := (gR : Signal dom (BitVec 32))
+    let hSig := (hR : Signal dom (BitVec 32))
+    let h0Sig := (h0R : Signal dom (BitVec 32))
+    let h1Sig := (h1R : Signal dom (BitVec 32))
+    let h2Sig := (h2R : Signal dom (BitVec 32))
+    let h3Sig := (h3R : Signal dom (BitVec 32))
+    let h4Sig := (h4R : Signal dom (BitVec 32))
+    let h5Sig := (h5R : Signal dom (BitVec 32))
+    let h6Sig := (h6R : Signal dom (BitVec 32))
+    let h7Sig := (h7R : Signal dom (BitVec 32))
+    let wBufSig := (wBuf : Signal dom (BitVec 512))
+
+    -- W-buffer layout: 16 slots × 32 bits = 512 bits.
+    -- slot k = bits [ (15-k)*32 .. (16-k)*32 - 1 ] from LSB.
+    -- So slot 0 occupies the TOP 32 bits (high end of the
+    -- 512-bit reg), slot 15 the BOTTOM 32 bits.
+    --
+    -- Convention while running round t (using the original
+    -- FIPS naming where we're computing W[t+16] from W[t]..
+    -- W[t+15] still in the buffer):
+    --   slot 0  = W[t]      ← consumed this round as W input
+    --   slot 1  = W[t+1]    = W[(t+16)-15]   for σ₀
+    --   slot 9  = W[t+9]    = W[(t+16)-7]    direct addend
+    --   slot 14 = W[t+14]   = W[(t+16)-2]    for σ₁
+    --   slot 15 = W[t+15]   = W[(t+16)-1]    (unused)
+    -- Convert "slot k" → `BitVec.extractLsb' ((15-k)*32) 32`.
+    let wt    := wBufSig.map (BitVec.extractLsb' 480 32 ·)  -- slot 0
+    let wTm15 := wBufSig.map (BitVec.extractLsb' 448 32 ·)  -- slot 1
+    let wTm7  := wBufSig.map (BitVec.extractLsb' 192 32 ·)  -- slot 9
+    let wTm2  := wBufSig.map (BitVec.extractLsb'  32 32 ·)  -- slot 14
+    let wTm16 := wt  -- alias for clarity in the recurrence
+
+    -- Round-counter predicates.
+    let p0_7   := (Signal.pure 0#7  : Signal dom (BitVec 7))
+    let p1_7   := (Signal.pure 1#7  : Signal dom (BitVec 7))
+    let p65_7  := (Signal.pure 65#7 : Signal dom (BitVec 7))
+    let isIdle   := (· == ·) <$> cntSig <*> p0_7
+    let isFinish := (· == ·) <$> cntSig <*> p65_7
+
+    -- Compute T1, T2, next-state.
+    let kt    := kMux cntSig
+    let sig1  := bigSigma1Sig eSig
+    let sig0  := bigSigma0Sig aSig
+    let chv   := chFnSig eSig fSig gSig
+    let majv  := majFnSig aSig bSig cSig
+    let t1a := (· + ·) <$> hSig <*> sig1
+    let t1b := (· + ·) <$> t1a <*> chv
+    let t1c := (· + ·) <$> t1b <*> kt
+    let t1  := (· + ·) <$> t1c <*> wt
+    let t2  := (· + ·) <$> sig0 <*> majv
+
+    -- Next-cycle round registers.  When in a compression
+    -- round (cnt 1..64), shift a→b→c→d, e gets d+t1, etc.
+    -- On start, reload a..h from H-state (so a 2nd block
+    -- continues from H0..H7, not from initH — initH is
+    -- pre-loaded into the H regs at reset time).
+    let aLoad := h0Sig
+    let bLoad := h1Sig
+    let cLoad := h2Sig
+    let dLoad := h3Sig
+    let eLoad := h4Sig
+    let fLoad := h5Sig
+    let gLoad := h6Sig
+    let hLoadV := h7Sig
+    let aNext := (· + ·) <$> t1 <*> t2
+    let eNext := (· + ·) <$> dSig <*> t1
+
+    aR <~ Signal.mux start aLoad
+            (Signal.mux isIdle aSig aNext)
+    bR <~ Signal.mux start bLoad
+            (Signal.mux isIdle bSig aSig)
+    cR <~ Signal.mux start cLoad
+            (Signal.mux isIdle cSig bSig)
+    dR <~ Signal.mux start dLoad
+            (Signal.mux isIdle dSig cSig)
+    eR <~ Signal.mux start eLoad
+            (Signal.mux isIdle eSig eNext)
+    fR <~ Signal.mux start fLoad
+            (Signal.mux isIdle fSig eSig)
+    gR <~ Signal.mux start gLoad
+            (Signal.mux isIdle gSig fSig)
+    hR <~ Signal.mux start hLoadV
+            (Signal.mux isIdle hSig gSig)
+
+    -- H0..H7 update: at cycle 65 (isFinish), add a..h into
+    -- H0..H7.  Hold otherwise (initH already loaded on
+    -- reset).
+    let h0Acc := (· + ·) <$> h0Sig <*> aSig
+    let h1Acc := (· + ·) <$> h1Sig <*> bSig
+    let h2Acc := (· + ·) <$> h2Sig <*> cSig
+    let h3Acc := (· + ·) <$> h3Sig <*> dSig
+    let h4Acc := (· + ·) <$> h4Sig <*> eSig
+    let h5Acc := (· + ·) <$> h5Sig <*> fSig
+    let h6Acc := (· + ·) <$> h6Sig <*> gSig
+    let h7Acc := (· + ·) <$> h7Sig <*> hSig
+    h0R <~ Signal.mux isFinish h0Acc h0Sig
+    h1R <~ Signal.mux isFinish h1Acc h1Sig
+    h2R <~ Signal.mux isFinish h2Acc h2Sig
+    h3R <~ Signal.mux isFinish h3Acc h3Sig
+    h4R <~ Signal.mux isFinish h4Acc h4Sig
+    h5R <~ Signal.mux isFinish h5Acc h5Sig
+    h6R <~ Signal.mux isFinish h6Acc h6Sig
+    h7R <~ Signal.mux isFinish h7Acc h7Sig
+
+    -- W-buffer update: on start, load with the first 16
+    -- words from blockIn.  During cnt 1..48, compute
+    -- newW = σ₁(wTm2) + wTm7 + σ₀(wTm15) + wTm16, shift
+    -- the buffer left by 32 bits, place newW in the bottom.
+    -- During cnt 49..64 we still shift; the consumed wt
+    -- is what we use this round.  Stop shifting at finish.
+    let newW1 := smallSigma1Sig wTm2
+    let newW2 := smallSigma0Sig wTm15
+    let n1n2  := (· + ·) <$> newW1 <*> wTm7
+    let n3    := (· + ·) <$> n1n2 <*> newW2
+    let newW  := (· + ·) <$> n3 <*> wTm16
+    -- Shift the buffer left by 32 (drop the top 32 bits),
+    -- then prepend new word into low position.
+    -- Extract bits [479:0] (= old bits [479:0], shifted to
+    -- [511:32]) and append newW [31:0].
+    let bufLow := wBufSig.map (BitVec.extractLsb' 0 480 ·)
+    let shiftedBuf := (· ++ ·) <$> bufLow <*> newW
+    wBuf <~ Signal.mux start blockIn
+              (Signal.mux ((fun b => !b) <$> isIdle) shiftedBuf wBufSig)
+
+    -- Counter: 0 → 1 on start, +1 each cycle while non-zero,
+    -- 0 again after finish (cycle 65).
+    let cntInc := (· + ·) <$> cntSig <*> p1_7
+    cnt <~ Signal.mux start p1_7
+            (Signal.mux isFinish p0_7
+              (Signal.mux isIdle p0_7 cntInc))
+    doneR <~ isFinish
+
+    -- Pack hash output.
+    let h01 := (· ++ ·) <$> h0Sig <*> h1Sig
+    let h23 := (· ++ ·) <$> h2Sig <*> h3Sig
+    let h45 := (· ++ ·) <$> h4Sig <*> h5Sig
+    let h67 := (· ++ ·) <$> h6Sig <*> h7Sig
+    let h0123 := (· ++ ·) <$> h01 <*> h23
+    let h4567 := (· ++ ·) <$> h45 <*> h67
+    let hAll  := (· ++ ·) <$> h0123 <*> h4567
+
+    return ({ hash := hAll
+            , done := (doneR : Signal dom Bool)
+            } : SHA256Out dom)
+
 end Sparkle.IP.Crypto.SHA256

@@ -235,6 +235,10 @@ lean_exe «sha256-test» where
   root := `Tests.Drivers.SHA256TestMain
   supportInterpreter := true
 
+lean_exe «ed25519-field-test» where
+  root := `Tests.Drivers.Ed25519FieldTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
