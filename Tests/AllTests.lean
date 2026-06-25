@@ -110,6 +110,8 @@ import Tests.IP.Crypto.GoldilocksTest
 import Tests.IP.Crypto.MerkleTest
 import Tests.IP.Crypto.PolynomialTest
 import Tests.IP.Crypto.MiniSTARKTest
+import Tests.IP.Bus.PCIeTest
+import Tests.IP.Bus.PCIeHFTTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -475,6 +477,10 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.PolynomialTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.MiniSTARKTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.PCIeTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.PCIeHFTTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through

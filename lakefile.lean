@@ -271,6 +271,14 @@ lean_exe «mini-stark-test» where
   root := `Tests.Drivers.MiniSTARKTestMain
   supportInterpreter := true
 
+lean_exe «pcie-test» where
+  root := `Tests.Drivers.PCIeTestMain
+  supportInterpreter := true
+
+lean_exe «pcie-hft-test» where
+  root := `Tests.Drivers.PCIeHFTTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
