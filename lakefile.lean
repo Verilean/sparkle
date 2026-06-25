@@ -25,6 +25,79 @@ extern_lib «sparkle_jit» pkg := do
   let oJob ← buildLeanO oFile srcJob (weakArgs := #["-O2"])
   buildStaticLib (pkg.buildDir / "c_src" / nameToStaticLib "sparkle_jit") #[oJob]
 
+-- Linker args making an IP lib's monolithic `libsparkle_IP_*.so` depend on
+-- every PER-MODULE Sparkle dynlib (in `.lake/build/lib/lean`).
+--
+-- Why this exists: the interpreter/LSP force-loads an IP lib's monolithic
+-- `.so` (via `--load-dynlib`, see `lake setup-file`) at startup — *before*
+-- Sparkle's per-module dynlibs are loaded by olean imports. The monolithic
+-- references Sparkle closures/initializers (e.g.
+-- `Signal.map___redArg___lam__0`, `initialize_sparkle_Sparkle`) and so failed
+-- to load with a confusing *undefined symbol* even though the `.olean` built
+-- fine. (Triggered once `Signal.map` started routing through the
+-- `@[extern "sparkle_cache_get"]` LICM barrier, which the IP libs reference.)
+--
+-- We depend on the PER-MODULE `.so` — the SAME files olean imports load — so
+-- the dynamic loader dedups them by path and each module initializer runs
+-- exactly once. Depending on the aggregate `libsparkle_Sparkle.so` instead
+-- loads a second full copy and double-registers env extensions
+-- ("'Sparkle.Compiler.hardwareModuleAttr' has already been used"). The
+-- monolithic transitively needs the root `Sparkle` module, so we list them
+-- all. `--no-as-needed` forces every entry to be recorded as NEEDED;
+-- `$ORIGIN/lean` rpath finds them at runtime (monolithic is in `lib`, these
+-- in `lib/lean`).
+--
+-- Regenerate after adding/removing Sparkle modules:
+--   ls .lake/build/lib/lean/sparkle_Sparkle*.so
+-- A missing entry shows up as an undefined-symbol load error naming the module.
+def sparkleModuleDeps : Array String := #[
+    "-l:sparkle_Sparkle_Backend_CppSim.so",
+    "-l:sparkle_Sparkle_Backend_VCD.so",
+    "-l:sparkle_Sparkle_Backend_Verilog.so",
+    "-l:sparkle_Sparkle_Compiler_DRC.so",
+    "-l:sparkle_Sparkle_Compiler_Elab.so",
+    "-l:sparkle_Sparkle_Compiler_InlineAttr.so",
+    "-l:sparkle_Sparkle_Core_CircuitDo.so",
+    "-l:sparkle_Sparkle_Core_CircuitMonad.so",
+    "-l:sparkle_Sparkle_Core_Domain.so",
+    "-l:sparkle_Sparkle_Core_JITLoop.so",
+    "-l:sparkle_Sparkle_Core_JIT.so",
+    "-l:sparkle_Sparkle_Core_MulOracleProof.so",
+    "-l:sparkle_Sparkle_Core_MulOracle.so",
+    "-l:sparkle_Sparkle_Core_OptimizedSim.so",
+    "-l:sparkle_Sparkle_Core_Oracle.so",
+    "-l:sparkle_Sparkle_Core_OracleSpec.so",
+    "-l:sparkle_Sparkle_Core_Signal.so",
+    "-l:sparkle_Sparkle_Core_SimParallel.so",
+    "-l:sparkle_Sparkle_Core_SimPureLean.so",
+    "-l:sparkle_Sparkle_Core_Sim.so",
+    "-l:sparkle_Sparkle_Core_SimVerilator.so",
+    "-l:sparkle_Sparkle_Core_StateMacro.so",
+    "-l:sparkle_Sparkle_Core_Vector.so",
+    "-l:sparkle_Sparkle_Core_Wireable.so",
+    "-l:sparkle_Sparkle_Data_BitPack.so",
+    "-l:sparkle_Sparkle_Display_Diagram.so",
+    "-l:sparkle_Sparkle_Display_Interactive.so",
+    "-l:sparkle_Sparkle_Display_Mime.so",
+    "-l:sparkle_Sparkle_Display.so",
+    "-l:sparkle_Sparkle_Display_Synthesise.so",
+    "-l:sparkle_Sparkle_IR_AST.so",
+    "-l:sparkle_Sparkle_IR_Builder.so",
+    "-l:sparkle_Sparkle_IR_Optimize.so",
+    "-l:sparkle_Sparkle_IR_Type.so",
+    "-l:sparkle_Sparkle.so",
+    "-l:sparkle_Sparkle_Utils_HexLoader.so",
+    "-l:sparkle_Sparkle_Verification_Equivalence.so",
+    "-l:sparkle_Sparkle_Verification_LoopProps.so",
+    "-l:sparkle_Sparkle_Verification_MulProps.so",
+    "-l:sparkle_Sparkle_Verification_Temporal.so"
+  ]
+
+def sparkleDynlibLinkArgs : Array String :=
+  #["-L", "./.lake/build/lib/lean", "-Wl,--no-as-needed"]
+    ++ sparkleModuleDeps
+    ++ #["-Wl,--as-needed", "-Wl,-rpath,$ORIGIN/lean"]
+
 -- `precompileModules := true` builds a shared library
 -- (`.lake/build/lib/libsparkle_Sparkle.so`) alongside the oleans.
 -- The xeus-lean kernel needs this when it encounters `@[extern]`
@@ -40,17 +113,51 @@ extern_lib «sparkle_jit» pkg := do
 -- Visibility of the C-side externs is handled in the .c sources
 -- themselves (see `#pragma GCC visibility push(default)` in
 -- `c_src/sparkle_barrier.c` and `c_src/sparkle_jit.c`), which is
--- portable across Linux / macOS / Windows.  A previous attempt
--- used `-Wl,--whole-archive` here, but that flag (a) doesn't exist
--- on Apple ld64 and (b) used a relative `-L ./.lake/build/c_src`
--- which resolved against the *downstream consumer's* cwd, not
--- Sparkle's package dir — so downstream `lake build` from a
--- separate project broke on every OS.
+-- portable across Linux / macOS / Windows.
+--
+-- Visibility alone, however, is NOT enough for the *precompiled*
+-- `libsparkle_Sparkle.so`: a plain `-l:…a` only pulls the archive
+-- members that resolve a currently-undefined symbol, and Lake links
+-- the extern archives into executables but not into the precompiled
+-- shared lib.  The result is that `libsparkle_Sparkle.so` keeps
+-- `sparkle_cache_get` / `sparkle_jit_load` as *undefined* symbols and
+-- is only loadable when something else has already pulled the C side
+-- into the global symbol scope.  Once `Signal.map` started routing
+-- through the `@[extern "sparkle_cache_get"]` LICM barrier, every
+-- downstream IP lib that references a `Signal` closure (e.g.
+-- `libsparkle_IP_x2eBitNet.so` → `Signal.map___redArg___lam__0`)
+-- began failing to load with a confusing *undefined symbol* on the
+-- Signal closure — the real cause being that `libsparkle_Sparkle.so`
+-- itself can't resolve `sparkle_cache_get`.
+--
+-- So force the two extern archives whole-into the precompiled `.so`
+-- so it is self-contained regardless of load order / dlopen scope.
+-- `--whole-archive` is GNU-ld only; on Apple `ld64` the equivalent is
+-- `-force_load`. Guard per-platform; Windows/MSVC keeps relying on the
+-- visibility pragmas above. The `./.lake/build/c_src` path resolves
+-- against Sparkle's own package dir during `lake build` here; a
+-- separate downstream consumer that precompiles Sparkle may need an
+-- absolute path (see commit 67d2c73 for that history).
 lean_lib «Sparkle» where
   precompileModules := true
+  moreLinkArgs :=
+    if System.Platform.isOSX then
+      #["-Wl,-force_load,.lake/build/c_src/libsparkle_barrier.a",
+        "-Wl,-force_load,.lake/build/c_src/libsparkle_jit.a"]
+    else if System.Platform.isWindows then
+      #[]
+    else
+      #["-L", "./.lake/build/c_src",
+        "-Wl,--whole-archive",
+        "-l:libsparkle_barrier.a",
+        "-l:libsparkle_jit.a",
+        "-Wl,--no-whole-archive"]
 
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]
+  -- See `sparkleDynlibLinkArgs` above: makes the force-loaded monolithic
+  -- resolve Sparkle symbols against the per-module dynlibs (no double-init).
+  moreLinkArgs := sparkleDynlibLinkArgs
 
 lean_lib «IP.Drone» where
   roots := #[`IP.Drone]
@@ -60,6 +167,8 @@ lean_lib «IP.Humanoid» where
 
 lean_lib «IP.RV32» where
   roots := #[`IP.RV32]
+  -- See `sparkleDynlibLinkArgs` above.
+  moreLinkArgs := sparkleDynlibLinkArgs
 
 lean_lib «IP.YOLOv8» where
   roots := #[`IP.YOLOv8]
