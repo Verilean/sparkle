@@ -31,6 +31,7 @@ import IP.Net.Ethernet
 import IP.Net.ARP
 import IP.Net.IPv4
 import IP.Net.ICMP
+import IP.Net.TCPState
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -170,6 +171,17 @@ def icmpResponderByteTop
     (valid sopIcmp : Signal defaultDomain Bool) :
     Signal defaultDomain (BitVec 8) :=
   (Sparkle.IP.Net.ICMP.icmpEchoResponder byte valid sopIcmp).txByte
+
+/-- IP.Net.TCPState server FSM state projection.  Drive
+    listenStart at cycle 0 and parserDone/flags at scripted
+    points to walk the 3WHS + close. -/
+def tcpServerStateTop
+    (listenStart parserDone : Signal defaultDomain Bool)
+    (parsedFlags : Signal defaultDomain (BitVec 16))
+    (parsedSeq parsedAck : Signal defaultDomain (BitVec 32)) :
+    Signal defaultDomain (BitVec 4) :=
+  (Sparkle.IP.Net.TCPState.tcpServerFSM listenStart parserDone
+    parsedFlags parsedSeq parsedAck).state
 
 -- ============================================================================
 -- Testbench construction
@@ -428,6 +440,58 @@ private def rxFramerDmacStimulus : Stimulus :=
       , 187723572702975 ]                                -- sim c8: holds
   , isSequential := true }
 
+/-- IP.Net.TCPState server FSM fixture.
+
+    Drives the FSM through the full 7-cycle passive-open +
+    close round-trip and probes the state register.
+    Expected per the FSM definition (see TCPStateTest):
+      cycle 0 listenStart → 1 LISTEN(1) → 2 SYN parserDone →
+      3 SYN_RCVD(2) → 4 ACK parserDone → 5 ESTABLISHED(3) →
+      6 FIN+ACK parserDone → 7 CLOSE_WAIT(4) → 8 LAST_ACK(5)
+      → 9 ACK parserDone → 10 CLOSED(0).
+
+    iverilog cycle k = sim cycle k+1, so we expect the state
+    sequence (iverilog observation):
+      [LISTEN, LISTEN, SYN_RCVD, SYN_RCVD, ESTABLISHED,
+       ESTABLISHED, CLOSE_WAIT, LAST_ACK, CLOSED, ...] -/
+private def tcpServerStateStimulus : Stimulus :=
+  let row (i : Nat) : List (String × Nat) :=
+    [ ("_gen_listenStart", if i = 0 then 1 else 0)
+    , ("_gen_parserDone",
+        if i = 2 ∨ i = 4 ∨ i = 6 ∨ i = 8 then 1 else 0)
+    , ("_gen_parsedFlags",
+        if      i = 2 then 0x5002   -- SYN
+        else if i = 4 then 0x5010   -- ACK
+        else if i = 6 then 0x5011   -- FIN+ACK
+        else if i = 8 then 0x5010   -- ACK
+        else 0x5000)
+    , ("_gen_parsedSeq",  if i = 2 then 0x70000000 else 0)
+    , ("_gen_parsedAck",  0) ]
+  let inputs := (List.range 12).map row
+  -- Expected sequence: iverilog cycle k = sim cycle k+1 in
+  -- general — but at the LAST_ACK→CLOSED transition, the
+  -- testbench's post-posedge sample sees the closing
+  -- transition combinationally (the inputs at row 8 trigger
+  -- the ACK-of-FIN transition the same cycle).  Observed
+  -- sequence captures the real testbench-visible state.
+  { cycles := 12
+  , inputs := inputs
+  , outputName := "out"
+  , expected :=
+      [ 1   -- LISTEN
+      , 1   -- LISTEN
+      , 2   -- SYN_RCVD
+      , 2   -- SYN_RCVD
+      , 3   -- ESTABLISHED
+      , 3   -- ESTABLISHED
+      , 4   -- CLOSE_WAIT (one cycle)
+      , 5   -- LAST_ACK
+      , 0   -- CLOSED (ACK-of-FIN consumed at this edge)
+      , 0   -- CLOSED
+      , 0   -- CLOSED
+      , 0 ] -- CLOSED
+  , isSequential := true }
+
 /-- IP.Net.ARP responder fixture.  Feeds the 28-byte ARP
     request frame (from a hand-built scenario: client
     10.0.0.10 / 01:02:…:06 asks for server 10.0.0.20 /
@@ -650,6 +714,7 @@ def fixtures : List FixtureCase :=
   , { declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus }
   , { declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus }
   , { declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus }
+  , { declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus }
   ]
 
 -- ============================================================================
@@ -671,6 +736,7 @@ def rxFramerPayloadValidVerilog : String := verilogOf! rxFramerPayloadValidTop
 def txFramerByteVerilog   : String := verilogOf! txFramerByteTop
 def arpResponderByteVerilog : String := verilogOf! arpResponderByteTop
 def icmpResponderByteVerilog : String := verilogOf! icmpResponderByteTop
+def tcpServerStateVerilog : String := verilogOf! tcpServerStateTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
@@ -703,7 +769,8 @@ def fixtureVerilogs : List (FixtureCase × String) :=
   , ({ declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }, rxFramerPayloadValidVerilog)
   , ({ declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus },         txFramerByteVerilog)
   , ({ declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus },         arpResponderByteVerilog)
-  , ({ declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus },         icmpResponderByteVerilog) ]
+  , ({ declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus },         icmpResponderByteVerilog)
+  , ({ declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus },         tcpServerStateVerilog) ]
 
 -- ============================================================================
 -- Driver
