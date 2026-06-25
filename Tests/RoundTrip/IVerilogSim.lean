@@ -29,6 +29,8 @@ import Sparkle.Compiler.Elab
 import IP.Net.CRC32
 import IP.Net.Ethernet
 import IP.Net.ARP
+import IP.Net.IPv4
+import IP.Net.ICMP
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -160,6 +162,14 @@ def arpResponderByteTop
     (ownIp  : Signal defaultDomain (BitVec 32)) :
     Signal defaultDomain (BitVec 8) :=
   (Sparkle.IP.Net.ARP.arpResponder rxByte rxValid sopArp ownMac ownIp).payloadByte
+
+/-- IP.Net.ICMP responder txByte projection — feeds an
+    echo-request byte stream and probes the reply emitter. -/
+def icmpResponderByteTop
+    (byte  : Signal defaultDomain (BitVec 8))
+    (valid sopIcmp : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  (Sparkle.IP.Net.ICMP.icmpEchoResponder byte valid sopIcmp).txByte
 
 -- ============================================================================
 -- Testbench construction
@@ -484,6 +494,52 @@ private def arpResponderStimulus : Stimulus :=
   , expected := pre ++ replyBytes ++ post
   , isSequential := true }
 
+/-- IP.Net.ICMP responder fixture.  Feeds an 8-byte echo
+    request (ident=0x1234, seq=0x5678, checksum=0xEDED) and
+    probes the responder's txByte for the 8 reply bytes:
+      00 00 97 53 12 34 56 78
+    (type=reply, code=0, checksum=0x9753, ident, seq).
+
+    Per Lean trace: reply emits at sim cycles 9..16; iverilog
+    observes those at indices 8..15. -/
+private def icmpResponderStimulus : Stimulus :=
+  let reqIdent : Nat := 0x1234
+  let reqSeq   : Nat := 0x5678
+  -- icmpEchoChecksum for the request (type=0x08):
+  --   0x0800 + 0x1234 = 0x1A34
+  --   0x1A34 + 0x5678 = 0x70AC
+  --   ~0x70AC = 0x8F53
+  let reqChksum : Nat := 0x8F53
+  let request : List Nat :=
+    [ 0x08, 0x00
+    , (reqChksum >>> 8) &&& 0xff, reqChksum &&& 0xff
+    , (reqIdent >>> 8) &&& 0xff, reqIdent &&& 0xff
+    , (reqSeq   >>> 8) &&& 0xff, reqSeq   &&& 0xff ]
+  let nReq : Nat := request.length
+  let totalCycles : Nat := nReq + 20
+  let row (i : Nat) : List (String × Nat) :=
+    [ ("_gen_byte",    if i < nReq then (request[i]?).getD 0 else 0)
+    , ("_gen_valid",   if i < nReq then 1 else 0)
+    , ("_gen_sopIcmp", if i = 0 then 1 else 0) ]
+  let inputs := (List.range totalCycles).map row
+  -- Reply: type=0x00, code=0x00, checksum (recomputed for
+  -- type=reply), ident, seq.
+  -- For reply (type=0): 0x0000 + 0x1234 + 0x5678 = 0x68AC
+  --   ~0x68AC = 0x9753.
+  let replyBytes : List Nat :=
+    [ 0x00, 0x00, 0x97, 0x53
+    , 0x12, 0x34, 0x56, 0x78 ]
+  -- Observed pre/post values are mux fall-through (last byte
+  -- of the mux tree — `b7` = seq lo = 0x78).  Record them
+  -- verbatim so the cycle accounting stays honest.
+  let pre  : List Nat := List.replicate 8 0
+  let post : List Nat := List.replicate 12 0x78
+  { cycles := totalCycles
+  , inputs := inputs
+  , outputName := "out"
+  , expected := pre ++ replyBytes ++ post
+  , isSequential := true }
+
 /-- IP.Net.Ethernet rxFramerPayloadValidTop — Bool output
     covering the BitVec-1 / Bool projection arm.  payloadValid
     latches to 1 on cycle 14 (when the engine first enters the
@@ -593,6 +649,7 @@ def fixtures : List FixtureCase :=
   , { declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }
   , { declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus }
   , { declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus }
+  , { declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus }
   ]
 
 -- ============================================================================
@@ -613,6 +670,7 @@ def rxFramerDmacVerilog   : String := verilogOf! rxFramerDmacTop
 def rxFramerPayloadValidVerilog : String := verilogOf! rxFramerPayloadValidTop
 def txFramerByteVerilog   : String := verilogOf! txFramerByteTop
 def arpResponderByteVerilog : String := verilogOf! arpResponderByteTop
+def icmpResponderByteVerilog : String := verilogOf! icmpResponderByteTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
@@ -644,7 +702,8 @@ def fixtureVerilogs : List (FixtureCase × String) :=
   , ({ declName := ``rxFramerDmacTop,         label := "rxFramerDmac",         stimulus := rxFramerDmacStimulus },         rxFramerDmacVerilog)
   , ({ declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }, rxFramerPayloadValidVerilog)
   , ({ declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus },         txFramerByteVerilog)
-  , ({ declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus },         arpResponderByteVerilog) ]
+  , ({ declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus },         arpResponderByteVerilog)
+  , ({ declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus },         icmpResponderByteVerilog) ]
 
 -- ============================================================================
 -- Driver
