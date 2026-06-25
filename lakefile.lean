@@ -255,6 +255,22 @@ lean_exe «secp256k1-test» where
   root := `Tests.Drivers.Secp256k1TestMain
   supportInterpreter := true
 
+lean_exe «goldilocks-test» where
+  root := `Tests.Drivers.GoldilocksTestMain
+  supportInterpreter := true
+
+lean_exe «merkle-test» where
+  root := `Tests.Drivers.MerkleTestMain
+  supportInterpreter := true
+
+lean_exe «polynomial-test» where
+  root := `Tests.Drivers.PolynomialTestMain
+  supportInterpreter := true
+
+lean_exe «mini-stark-test» where
+  root := `Tests.Drivers.MiniSTARKTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
