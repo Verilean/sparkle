@@ -347,41 +347,97 @@ Open follow-up captured separately as C5.b below.
 
 - Impact ★★★☆☆
 - Effort M
-- Confidence ★★★☆☆
-- Status: investigating
+- Confidence ★★★★☆
+- Status: cache wrapper LANDED, multi-leaf record path still blocked
 
-`#synthesizeVerilog rxFramer` (Ethernet RX framer — 6 outputs,
-5 registers, big `circuit do` body) does not complete within
-the 180 s `lake env lean` budget.  The Expr cache landed in
-C5 covers re-walks at the outer `body` key, but per-leaf
-projection wrappers (`RxOut.dmac body`, `RxOut.smac body`, …)
-each get a fresh cache entry — so the body's `runCircuitH`
-sub-tree is walked once per leaf at the wire-translation
-layer, giving O(N × body) compile time.
+**What landed (commits `119817c` + `7da1e58`):**
 
-Single-Signal / 2-leaf cases (`pairCounterCdo` /
-`pairRecordCdo`) are unaffected and synth in ~0.1 s on top of
-the Lean startup cost.
+1. **Expr cache wrapper around `translateExprToWire`** — the cache
+   was being *read* on entry but *written* only from the App/Const
+   fall-through.  Every early-intercept handler (Signal HAdd /
+   HSub / HMul / HAppend / OfNat literal) returned its wire
+   directly without ever populating the cache, so the cache sat
+   at 0 % hits permanently.  Splitting into a thin caching shim
+   plus an inner impl made every successful translate populate
+   the cache.
 
-Mitigation today: emit large multi-output blocks via
-`bundleAll!` into a single packed `BitVec` output (the RV32 /
-BitNet idiom — see `IP/RV32/SoCVerilog.lean:rv32iSoCSynth` for
-the pattern, and an external Verilog wrapper that slices the
-packed bus into named ports).
+   On the `acc4` probe (4 × repeated `(a+b+c+d)` sub-tree):
 
-Real fix candidates:
-1. Push the cache lookup into `translateExprToWire`'s
-   recursive arms so a per-field projection still benefits
-   from the body's already-translated wire (Expr cache hits
-   the `runCircuitH …` sub-expression on every leaf).
-2. Translate the body once into a single packed wire whose
-   bit layout follows `SignalLeaves`, then emit the per-field
-   output ports as slices of that wire.  Costs O(body) total
-   instead of O(N × body).
+   ```
+   BEFORE: assign out = ((((((a+b)+c)+d) + (((a+b)+c)+d)) + (((a+b)+c)+d)) + (((a+b)+c)+d))
+   AFTER:  assign _tmp_op_a_3 = (((a+b)+c)+d);
+           assign out = ((_tmp_op_a_3 + _tmp_op_a_3 + _tmp_op_a_3 + _tmp_op_a_3))
+   ```
 
-Once landed: add an `#synthesizeVerilog rxFramer` fixture to
+   On the `rxFramer` Ethernet probe: cache hit rate jumped from
+   0 % → 20 % (1 273 hits / 6 358 calls), and what was a >180 s
+   timeout now fast-fails in ~1 s on a separate (downstream)
+   error — see below.
+
+2. **Structure projection routing** — `RxOut.dmac (rxFramer …)`
+   was being treated as a `@[hardware_module]` sub-module
+   candidate, so `synthesizeCombinational RxOut.dmac` ran
+   `openRecordInputs` over the 6 fields and aborted with
+   *"Sub-module Sparkle.IP.Net.Ethernet.RxOut.dmac requires
+   6 args, but got 2"*.  Detect projections via
+   `env.getProjectionStructureName?` and route them through the
+   inline-unfold path instead of sub-module synthesis.
+
+**Surprising profile finding (matters for the next round):**
+
+Hot-path cost is **NOT** `Lean.Meta.inferType` / `whnf` / `unfoldDefinition?`
+themselves.  Direct counters show:
+
+```
+Meta inferType:  1887 calls /     4 ms   (~2 µs / call — trivial)
+Meta whnf:          0 calls /     0 ms   (none called directly)
+Meta unfoldDef?:    0 calls /     0 ms   (none called directly)
+```
+
+But the *handlers* are 4 – 5 orders of magnitude slower:
+
+```
+handleTupleProjections:  2549 calls / 189 532 ms   (~74 ms / call)
+handleDefinitionUnfold:   903 calls /  22 934 ms   (~25 ms / call)
+handleMux:               1285 calls /   3 169 ms   (~2.5 ms / call)
+handleCircuitMonad:      2965 calls /     758 ms   (~256 µs / call)
+```
+
+The cost is the **inclusive** time including child `translateExprToWire`
+recursion — i.e. how many times the same sub-tree is walked.  The
+cache wrapper attacks this directly by short-circuiting repeat walks.
+
+**Open follow-up — the `(rxFramer …).dmac` end-to-end path:**
+
+Even with both fixes, `#synthesizeVerilog rxF` (single-output
+projection of `rxFramer`) still fails — but in 1 s, not 180 s.
+The new error is *"Cannot synthesise Sparkle.IP.Net.Ethernet.rxFramer:
+not inlinable and not a hardware module"*: after the projection
+routes to inline-unfold, the `rxFramer` reference inside the
+unfolded body hits its own `handleDefinitionUnfold` path which
+can't crack open `circuit do`-based record-returning bodies.
+Likely root cause: `unfoldDefinition?` only peels one layer, so
+the body still contains a `RxOut.mk` constructor whose record
+fields haven't been reduced down to `Signal.mk` wires.
+
+Real fix candidates (next round):
+1. After projection unfolds, **recursively** reduce until the
+   record argument becomes `RxOut.mk { … }` so iota fires.
+2. Translate the body once into a single packed wire whose bit
+   layout follows `SignalLeaves`, then emit per-field output
+   ports as slices of that wire.  Costs O(body) total instead
+   of O(N × body).
+3. Always inline `rxFramer`-style record-returning definitions
+   through a `splitReturnLeaves`-style pre-reduction at every
+   call site, not just at top-level synth entry.
+
+Once landed: add a `#synthesizeVerilog rxFramer` fixture to
 `Tests/IP/Net/EthernetTest.lean:SynthesisChecks` and wire it
 into the iverilog round-trip suite.
+
+**Diagnostic tooling shipped:** see
+`docs/reference/Compiler_Performance.md` for the
+`SPARKLE_PROFILE=1` workflow used to produce the numbers above.
 
 ---
 
