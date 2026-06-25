@@ -1258,10 +1258,26 @@ mutual
 
       if isHWArg then
           let hwType ← inferHWTypeFromSignal binderType
-          let paramWire ← CompilerM.makeWire binderName.toString hwType (named := true)
-          -- Only add as input if this is a top-level function parameter
-          if isTopLevel then
-            CompilerM.addInput paramWire hwType
+          -- Reuse an existing input port if one already exists with
+          -- this binder name — this matters for the multi-output
+          -- record-return path where `splitReturnLeaves` emits one
+          -- lambda per leaf sharing the same parameter binders.
+          -- Without dedup, a 6-leaf 4-param function would emit
+          -- 24 input ports instead of 4.
+          let cs ← get
+          let existingInput? :=
+            if isTopLevel then
+              cs.module.inputs.find? (fun p => p.name == "_gen_" ++ binderName.toString)
+            else
+              none
+          let paramWire ←
+            match existingInput? with
+            | some p => pure p.name
+            | none =>
+              let w ← CompilerM.makeWire binderName.toString hwType (named := true)
+              if isTopLevel then
+                CompilerM.addInput w hwType
+              pure w
 
           -- Process the lambda body within a proper local context
           CompilerM.withLocalDecl binderName binderType fun fvar => do
@@ -1793,26 +1809,61 @@ mutual
     -- open it into N fields (one per `Signal dom α` field).
     -- Always inline projections through `unfoldDefinition?` and
     -- never fall back to sub-module synthesis.
-    if let some _ := env.getProjectionStructureName? name then
+    if let some structName := env.getProjectionStructureName? name then
       -- Structure projections only "fire" once their record
-      -- argument reduces to a `.mk` constructor.  Pre-reduce the
-      -- record argument (last arg) under reducible transparency
-      -- so opaque `def` calls (e.g. `rxFramer ...`) become
-      -- `RxOut.mk { ... }`, then re-assemble and `whnf` to fire
-      -- the iota rule.  Using reducible transparency here avoids
-      -- the "Signal.mk peels past the time binder" issue that
-      -- full `whnf` triggers on the entire expression.
+      -- argument reduces to a `.mk` constructor.  The record arg
+      -- is often an opaque `def` call (e.g. `rxFramer …`) whose
+      -- body itself unfolds to `runCircuitH …`, which has to be
+      -- further reduced before iota fires.  Repeatedly unfold +
+      -- whnf the record arg until either (a) its head is the
+      -- structure's `.mk` constructor, (b) we hit a fixed point,
+      -- or (c) a step-budget runs out (guards against divergence
+      -- on pathological terms).
       if args.size >= 1 then
         let recordArg := args.back!
-        let recordReduced ← CompilerM.liftMetaM do
-          Lean.Meta.withTransparency .default do
-            match ← Lean.Meta.unfoldDefinition? recordArg with
+        let mkName := structName ++ `mk
+        let mut cur := recordArg
+        let mut steps := 0
+        while steps < 32 do
+          -- Reduce the head: try unfoldDefinition? first, then
+          -- whnf for the harder cases (typeclass dispatch under
+          -- runCircuitH).  Stop as soon as the head is the
+          -- expected ctor.
+          let headName? := cur.getAppFn.constName?
+          if headName? == some mkName then
+            break
+          let stepped ← CompilerM.liftMetaM do
+            match ← Lean.Meta.unfoldDefinition? cur with
             | some e' => return e'
-            | none => return recordArg
-        if recordReduced != recordArg then
+            | none => Lean.Meta.whnf cur
+          if stepped == cur then break
+          cur := stepped
+          steps := steps + 1
+        if cur != recordArg then
+          -- Got the constructor — directly grab the projected
+          -- field from the ctor's args rather than re-applying
+          -- the projection definition (which would route back to
+          -- this same code path).  The structure projection's
+          -- `structureFieldIdx` field gives the position of the
+          -- field within the constructor's value args.
+          let headName? := cur.getAppFn.constName?
+          let mkName := structName ++ `mk
+          if headName? == some mkName then
+            -- Find which field this projection targets.
+            let some projInfo := env.getProjectionFnInfo? name
+              | return none
+            -- ctor args = [implicit params...] ++ [field values]
+            let ctorArgs := cur.getAppArgs
+            let fieldIdx := projInfo.numParams + projInfo.i
+            if fieldIdx < ctorArgs.size then
+              let fieldExpr := ctorArgs[fieldIdx]!
+              let w ← translateExprToWire fieldExpr hint (isNamed := isNamed)
+              return some w
+          -- Couldn't pull out the field directly; fall back to
+          -- re-assembling and hoping a later pass picks it up.
           let projHead := e.getAppFn
           let leadingArgs := args.pop
-          let eReassembled := mkAppN (mkAppN projHead leadingArgs) #[recordReduced]
+          let eReassembled := mkAppN (mkAppN projHead leadingArgs) #[cur]
           let w ← translateExprToWire eReassembled hint (isNamed := isNamed)
           return some w
       return none
@@ -2028,6 +2079,21 @@ mutual
   partial def splitReturnLeaves
       (e : Lean.Expr) (prefix? : Option String := none) :
       MetaM (Array (String × Lean.Expr)) := do
+    -- If the body is still wrapped in lambdas (e.g. the top-
+    -- level `def f (x : ...) : RxOut dom := …` whose params
+    -- weren't opened by `openRecordInputs` because they were
+    -- already flat Signals), peel through them so the per-leaf
+    -- splitting sees the actual record value.  We re-wrap each
+    -- leaf in the SAME lambda binders (one telescope, shared
+    -- across leaves) so all leaves reference the same parameter
+    -- fvars — otherwise downstream port-collection would see one
+    -- input set per leaf (e.g. 6 leaves × 4 params = 24 ports).
+    if e.isLambda then
+      return ← Lean.Meta.lambdaTelescope e fun xs innerBody => do
+        let innerLeaves ← splitReturnLeaves innerBody prefix?
+        innerLeaves.mapM fun (n, leafE) => do
+          let wrapped ← Lean.Meta.mkLambdaFVars xs leafE
+          return (n, wrapped)
     let ty ← inferType e
     let tyN ← whnf ty
     -- For multi-output (Prod / record) returns, reduce `e`

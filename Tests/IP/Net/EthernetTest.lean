@@ -98,3 +98,43 @@ def main : IO Unit := do
     IO.Process.exit 1
 
 end Sparkle.Tests.IP.Net.EthernetTest
+
+section SynthesisChecks
+-- Build-time check that `#synthesizeVerilog` accepts the
+-- multi-output (record return) shape.  This is the synth
+-- counterpart to the sim test above and gates against
+-- regressions in the splitReturnLeaves / lambda-port-dedup
+-- path that landed in commit 119817c + follow-ups.
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+open Sparkle.IP.Net.Ethernet
+
+-- Single-Signal projection: exercises the `(rxFramer …).dmac`
+-- projection-routed path through handleDefinitionUnfold's
+-- structure-field detection.
+private def synth_dmacOnly
+    (byte : Signal defaultDomain (BitVec 8))
+    (valid : Signal defaultDomain Bool)
+    (sop : Signal defaultDomain Bool)
+    (eop : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 48) :=
+  (rxFramer byte valid sop eop).dmac
+
+#synthesizeVerilog synth_dmacOnly
+
+-- Full 6-output record return: exercises splitReturnLeaves
+-- through all 6 fields and the lambda-handler input-port
+-- dedup so the emitted module has 4 inputs / 6 outputs, not
+-- 24 inputs / 6 outputs.
+private def synth_rxFramerAll
+    (byte : Signal defaultDomain (BitVec 8))
+    (valid : Signal defaultDomain Bool)
+    (sop : Signal defaultDomain Bool)
+    (eop : Signal defaultDomain Bool) :
+    RxOut defaultDomain :=
+  rxFramer byte valid sop eop
+
+#synthesizeVerilog synth_rxFramerAll
+
+end SynthesisChecks
