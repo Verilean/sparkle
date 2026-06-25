@@ -89,6 +89,9 @@ import Tests.SVParser.TestVerilogCoSim
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
 import Tests.RoundTrip.IRVerilogIR
+import Tests.RoundTrip.IVerilogSim
+import Tests.IP.Net.CRC32Test
+import Tests.IP.Net.EthernetTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -404,6 +407,35 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitDoTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+
+  -- IP.Net layer sim tests (CRC32 reference + Ethernet RX framer
+  -- cycle-by-cycle).  Each aborts via IO.Process.exit 1 on
+  -- divergence, same convention as the Signal-DSL sim tests
+  -- above.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  IP.Net Sim Tests                      ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.IP.Net.CRC32Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.EthernetTest.main
+  IO.println ""
+
+  -- iverilog round-trip: drive each fixture through
+  -- Sparkle → SystemVerilog → iverilog → vvp.  Skipped at run
+  -- time if iverilog/vvp aren't on PATH; returns non-zero only
+  -- when a fixture's output diverges from the Lean reference.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  iverilog round-trip                   ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  let rc ← Sparkle.Tests.RoundTrip.IVerilogSim.main
+  if rc != 0 then
+    IO.eprintln s!"iverilog round-trip exited {rc}; aborting release gate."
+    IO.Process.exit 1
   IO.println ""
 
   -- Run Sparkle16 tests

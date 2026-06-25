@@ -27,6 +27,7 @@
 import Sparkle
 import Sparkle.Compiler.Elab
 import IP.Net.CRC32
+import IP.Net.Ethernet
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -107,6 +108,27 @@ def crc32EngineTop
     (feed reset : Signal defaultDomain Bool) :
     Signal defaultDomain (BitVec 32) :=
   Sparkle.IP.Net.CRC32.crc32Engine byte feed reset
+
+/-- IP.Net.Ethernet rxFramer DMAC output — projection-routed
+    single Signal output from a 6-field RxOut record return.
+    Exercises the structure-projection path in
+    `handleDefinitionUnfold` end-to-end (Sparkle → Verilog →
+    iverilog → vvp). -/
+def rxFramerDmacTop
+    (byte : Signal defaultDomain (BitVec 8))
+    (valid sop eop : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 48) :=
+  (Sparkle.IP.Net.Ethernet.rxFramer byte valid sop eop).dmac
+
+/-- IP.Net.Ethernet rxFramer payloadValid — Bool projection
+    from the same record.  Pairs with `rxFramerDmacTop` to
+    cover both wide (BitVec 48) and narrow (Bool) projection
+    arms of the multi-output split. -/
+def rxFramerPayloadValidTop
+    (byte : Signal defaultDomain (BitVec 8))
+    (valid sop eop : Signal defaultDomain Bool) :
+    Signal defaultDomain Bool :=
+  (Sparkle.IP.Net.Ethernet.rxFramer byte valid sop eop).payloadValid
 
 -- ============================================================================
 -- Testbench construction
@@ -319,12 +341,87 @@ private def crc32EngineTopStimulus : Stimulus :=
   , expected := [4294967295, 2082672712, 2082672712]
   , isSequential := true }
 
+/-- IP.Net.Ethernet rxFramerDmacTop fixture.
+
+    Drives the same 18-byte synthetic frame as the Lean sim test
+    (`Tests/IP/Net/EthernetTest.lean:frameBytes`):
+      DMAC : AA BB CC DD EE FF
+      SMAC : 11 22 33 44 55 66
+      EthType : 08 00
+      Payload : DE AD BE EF
+
+    SOP pulses on cycle 0; valid stays high for all 18 bytes.
+    The `dmac` register accumulates via shiftIn48, so each cycle
+    snapshots one more byte; the full DMAC 0xAABBCCDDEEFF is
+    visible on cycle 6 and persists for the rest of the frame.
+    Expected values were captured from the Lean sim — see
+    `Tests/Drivers/EthTraceMain.lean` for the trace utility. -/
+private def rxFramerDmacStimulus : Stimulus :=
+  let frame : List Nat :=
+    [ 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
+    , 0x11, 0x22, 0x33, 0x44, 0x55, 0x66
+    , 0x08, 0x00
+    , 0xDE, 0xAD, 0xBE, 0xEF ]
+  let n : Nat := frame.length
+  let inputs : List (List (String × Nat)) :=
+    frame.zipIdx.map fun (b, i) =>
+      [ ("_gen_byte",  b)
+      , ("_gen_valid", 1)
+      , ("_gen_sop",   if i == 0 then 1 else 0)
+      , ("_gen_eop",   if i == n - 1 then 1 else 0) ]
+  -- Note: the testbench's reset pulse advances the design state
+  -- by one cycle relative to the Lean sim, so iverilog's printed
+  -- "cycle k" corresponds to Lean sim cycle k+1.  See
+  -- Tests/Drivers/EthTraceMain.lean for the per-cycle Lean trace.
+  { cycles := 8
+  , inputs := inputs.take 8
+  , outputName := "out"
+  , expected :=
+      [           170                                    -- sim c1: 0xAA
+      ,         43707                                    -- sim c2: 0xAABB
+      ,      11189196                                    -- sim c3: 0xAABBCC
+      ,    2864434397                                    -- sim c4: 0xAABBCCDD
+      ,  733295205870                                    -- sim c5: 0xAABBCCDDEE
+      , 187723572702975                                  -- sim c6: 0xAABBCCDDEEFF
+      , 187723572702975                                  -- sim c7: holds
+      , 187723572702975 ]                                -- sim c8: holds
+  , isSequential := true }
+
+/-- IP.Net.Ethernet rxFramerPayloadValidTop — Bool output
+    covering the BitVec-1 / Bool projection arm.  payloadValid
+    latches to 1 on cycle 14 (when the engine first enters the
+    sticky PAYLOAD state after consuming all 14 header bytes
+    AND valid is high). -/
+private def rxFramerPayloadValidStimulus : Stimulus :=
+  let frame : List Nat :=
+    [ 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
+    , 0x11, 0x22, 0x33, 0x44, 0x55, 0x66
+    , 0x08, 0x00
+    , 0xDE, 0xAD, 0xBE, 0xEF ]
+  let n : Nat := frame.length
+  let inputs : List (List (String × Nat)) :=
+    frame.zipIdx.map fun (b, i) =>
+      [ ("_gen_byte",  b)
+      , ("_gen_valid", 1)
+      , ("_gen_sop",   if i == 0 then 1 else 0)
+      , ("_gen_eop",   if i == n - 1 then 1 else 0) ]
+  -- iverilog's "cycle k" = Lean sim cycle k+1.  payloadValid
+  -- latches to 1 on sim cycle 14, so iverilog sees the rising
+  -- edge at its index 13.  Sample 16 cycles → 13 zeros + 3 ones.
+  { cycles := 16
+  , inputs := inputs.take 16
+  , outputName := "out"
+  , expected := List.replicate 13 0 ++ [1, 1, 1]
+  , isSequential := true }
+
 def fixtures : List FixtureCase :=
   [ { declName := ``dff,              label := "dff",              stimulus := dffStimulus }
   , { declName := ``reg8,             label := "reg8",             stimulus := reg8Stimulus }
   , { declName := ``counter8,         label := "counter8",         stimulus := counter8Stimulus }
   , { declName := ``add8,             label := "add8",             stimulus := add8Stimulus }
   , { declName := ``crc32EngineTop,   label := "crc32EngineTop",   stimulus := crc32EngineTopStimulus }
+  , { declName := ``rxFramerDmacTop,         label := "rxFramerDmac",         stimulus := rxFramerDmacStimulus }
+  , { declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }
   ]
 
 -- ============================================================================
@@ -341,6 +438,8 @@ def reg8Verilog           : String := verilogOf! reg8
 def counter8Verilog       : String := verilogOf! counter8
 def add8Verilog           : String := verilogOf! add8
 def crc32EngineTopVerilog : String := verilogOf! crc32EngineTop
+def rxFramerDmacVerilog   : String := verilogOf! rxFramerDmacTop
+def rxFramerPayloadValidVerilog : String := verilogOf! rxFramerPayloadValidTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
@@ -365,7 +464,9 @@ def fixtureVerilogs : List (FixtureCase × String) :=
   , ({ declName := ``reg8,           label := "reg8",           stimulus := reg8Stimulus },           reg8Verilog)
   , ({ declName := ``counter8,       label := "counter8",       stimulus := counter8Stimulus },       counter8Verilog)
   , ({ declName := ``add8,           label := "add8",           stimulus := add8Stimulus },           add8Verilog)
-  , ({ declName := ``crc32EngineTop, label := "crc32EngineTop", stimulus := crc32EngineTopStimulus }, crc32EngineTopVerilog) ]
+  , ({ declName := ``crc32EngineTop, label := "crc32EngineTop", stimulus := crc32EngineTopStimulus }, crc32EngineTopVerilog)
+  , ({ declName := ``rxFramerDmacTop,         label := "rxFramerDmac",         stimulus := rxFramerDmacStimulus },         rxFramerDmacVerilog)
+  , ({ declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }, rxFramerPayloadValidVerilog) ]
 
 -- ============================================================================
 -- Driver
