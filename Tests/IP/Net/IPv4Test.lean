@@ -128,17 +128,44 @@ def main : IO Unit := do
 
 end Sparkle.Tests.IP.Net.IPv4Test
 
--- Note: `#synthesizeVerilog` checks for the IPv4 TX builder
--- and RX parser are temporarily omitted.  Both code paths
--- include `ipv4HeaderChecksumSig`, whose body uses a
--- sequence of `onesAdd16 <$> a <*> b` Applicative lifts.
--- The IR elaborator currently fails to inline this even
--- with `@[inline]` — likely because `onesAdd16` itself
--- contains `BitVec` arithmetic the elab doesn't recognise
--- through a Signal-lifted closure.  Tracked as a follow-up:
--- once the elab can handle constant-fold-through-closure
--- patterns, restore the SynthesisChecks block.
---
--- The sim test above provides functional coverage; the
--- checksum byte values are verified byte-by-byte against a
--- hand-built reference.
+section SynthesisChecks
+-- Build-time synth checks for the IPv4 TX builder and RX
+-- parser.  Both depend on `ipv4HeaderChecksumSig` which used
+-- to fail to synthesize through a user-defined-binary-op
+-- Applicative lift.  Re-expressing the checksum compute in
+-- terms of Signal-native primitives (concat, +, slice) and
+-- chaining the per-add steps as plain function calls (no
+-- `<$> <*>` over a non-primitive function head) unblocks the
+-- elaborator — see `onesAdd16Sig`.
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+open Sparkle.IP.Net.IPv4
+
+private def synth_ipv4TxByte
+    (totalLen : Signal defaultDomain (BitVec 16))
+    (proto    : Signal defaultDomain (BitVec 8))
+    (srcIp dstIp : Signal defaultDomain (BitVec 32))
+    (start    : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  (ipv4TxBuilder totalLen proto srcIp dstIp start).headerByte
+
+#synthesizeVerilog synth_ipv4TxByte
+
+private def synth_ipv4RxSrcIp
+    (byte  : Signal defaultDomain (BitVec 8))
+    (valid sopIp : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 32) :=
+  (ipv4RxParser byte valid sopIp).srcIp
+
+#synthesizeVerilog synth_ipv4RxSrcIp
+
+private def synth_ipv4RxHeaderOk
+    (byte  : Signal defaultDomain (BitVec 8))
+    (valid sopIp : Signal defaultDomain Bool) :
+    Signal defaultDomain Bool :=
+  (ipv4RxParser byte valid sopIp).headerOk
+
+#synthesizeVerilog synth_ipv4RxHeaderOk
+
+end SynthesisChecks

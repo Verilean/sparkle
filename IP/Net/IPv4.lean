@@ -84,8 +84,17 @@ abbrev protoUdp    : BitVec 8  := 0x11#8
     result (one's-complement add).  Compute the 17-bit sum
     using a concat-with-zero (rather than `BitVec.zeroExtend`,
     which the IR elaborator doesn't recognise as a hardware
-    op), then fold the carry bit back into the low 16 bits. -/
-@[inline] private def onesAdd16 (a b : BitVec 16) : BitVec 16 :=
+    op), then fold the carry bit back into the low 16 bits.
+
+    Signal-side calls should use `onesAdd16Sig` below — that
+    wrapper is `@[hardware_module]` so the IR elaborator emits
+    one reusable Verilog sub-module and instantiates it per
+    add step, rather than trying to inline this whole
+    `BitVec`-arithmetic body through a Signal Applicative
+    lift (which `handleApplicative` rejects because the
+    lifted lambda contains `let`s rather than a single
+    primitive op). -/
+def onesAdd16 (a b : BitVec 16) : BitVec 16 :=
   let a17 : BitVec 17 := (0#1 : BitVec 1) ++ a
   let b17 : BitVec 17 := (0#1 : BitVec 1) ++ b
   let s17 : BitVec 17 := a17 + b17
@@ -93,6 +102,32 @@ abbrev protoUdp    : BitVec 8  := 0x11#8
   let carBit : BitVec 1 := BitVec.extractLsb' 16 1 s17
   let car16 : BitVec 16 := (0#15 : BitVec 15) ++ carBit
   low + car16
+
+/-- Signal-lifted one's-complement add — built up out of
+    Signal-native primitives (concat, `+`, slice).  Each step
+    is a single op the IR elaborator recognises, so the
+    enclosing checksum module synthesizes cleanly.
+
+    Avoid the temptation of `onesAdd16 <$> a <*> b` — that
+    handing of a user-defined function to `handleApplicative`
+    only works when the function head is a Sparkle-known
+    primitive, and `onesAdd16` isn't. -/
+@[inline] def onesAdd16Sig {dom : DomainConfig}
+    (a b : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  -- 17-bit sum via zero-prepend concat
+  let a17 : Signal dom (BitVec 17) :=
+    (· ++ ·) <$> (Signal.pure (0#1 : BitVec 1) : Signal dom (BitVec 1)) <*> a
+  let b17 : Signal dom (BitVec 17) :=
+    (· ++ ·) <$> (Signal.pure (0#1 : BitVec 1) : Signal dom (BitVec 1)) <*> b
+  let s17 : Signal dom (BitVec 17) := (· + ·) <$> a17 <*> b17
+  -- Low 16 bits and the carry bit (zero-extended back to 16).
+  let low    : Signal dom (BitVec 16) :=
+    s17.map (BitVec.extractLsb' 0 16 ·)
+  let carBit : Signal dom (BitVec 1)  :=
+    s17.map (BitVec.extractLsb' 16 1 ·)
+  let car16  : Signal dom (BitVec 16) :=
+    (· ++ ·) <$> (Signal.pure (0#15 : BitVec 15) : Signal dom (BitVec 15)) <*> carBit
+  (· + ·) <$> low <*> car16
 
 /-- Pure-data IPv4 header checksum (RFC 1071): sum of all
     16-bit header words with end-around carry, then inverted.
@@ -118,14 +153,14 @@ abbrev protoUdp    : BitVec 8  := 0x11#8
   let s := onesAdd16 s dstLo
   ~~~s
 
-/-- Signal-side checksum.  Built pair-wise via 2-arg
-    `<$> <*>` lifts so the IR elaborator's `handleApplicative`
-    (which only recognises the 2-arg shape) can lower each
-    `onesAdd16` step to a single `.op .add`-style block.
-    Higher-arity Applicative chains (3+ `<*>` in a row) fall
-    through to the sub-module path which doesn't work for
-    pure-data closures. -/
-@[inline] def ipv4HeaderChecksumSig {dom : DomainConfig}
+/-- Signal-side checksum.  Built by chaining 8 sub-module
+    calls to `onesAdd16Sig` (one per 16-bit word) and
+    inverting the result.  Tagged `@[hardware_module]` so the
+    whole compute lands as a reusable sub-module — the
+    caller sees a 4-input / 1-output leaf and doesn't pay
+    the inline cost.  See `onesAdd16Sig` for the per-step
+    sub-module breakdown. -/
+@[hardware_module] def ipv4HeaderChecksumSig {dom : DomainConfig}
     (totalLen : Signal dom (BitVec 16))
     (proto    : Signal dom (BitVec 8))
     (srcIp dstIp : Signal dom (BitVec 32)) :
@@ -143,14 +178,14 @@ abbrev protoUdp    : BitVec 8  := 0x11#8
     dstIp.map (BitVec.extractLsb' 16 16 ·)
   let dstLo : Signal dom (BitVec 16) :=
     dstIp.map (BitVec.extractLsb' 0 16 ·)
-  let s1 := onesAdd16 <$> verIhl_dscp <*> totalLen
-  let s2 := onesAdd16 <$> s1 <*> ident
-  let s3 := onesAdd16 <$> s2 <*> flagsFrag
-  let s4 := onesAdd16 <$> s3 <*> ttlProto
-  let s5 := onesAdd16 <$> s4 <*> srcHi
-  let s6 := onesAdd16 <$> s5 <*> srcLo
-  let s7 := onesAdd16 <$> s6 <*> dstHi
-  let s8 := onesAdd16 <$> s7 <*> dstLo
+  let s1 := onesAdd16Sig verIhl_dscp totalLen
+  let s2 := onesAdd16Sig s1 ident
+  let s3 := onesAdd16Sig s2 flagsFrag
+  let s4 := onesAdd16Sig s3 ttlProto
+  let s5 := onesAdd16Sig s4 srcHi
+  let s6 := onesAdd16Sig s5 srcLo
+  let s7 := onesAdd16Sig s6 dstHi
+  let s8 := onesAdd16Sig s7 dstLo
   s8.map (BitVec.not ·)
 
 /-! ### IPv4 TX header builder. -/

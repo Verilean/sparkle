@@ -198,6 +198,14 @@ lean_exe «ipv4-test» where
   root := `Tests.Drivers.IPv4TestMain
   supportInterpreter := true
 
+lean_exe «icmp-test» where
+  root := `Tests.Drivers.ICMPTestMain
+  supportInterpreter := true
+
+lean_exe «icmp-trace» where
+  root := `Tests.Drivers.IcmpTraceMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
