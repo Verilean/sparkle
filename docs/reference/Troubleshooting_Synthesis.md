@@ -381,3 +381,21 @@ The `#synthesizeVerilog` compiler can only handle specific Lean expression patte
 -- GOOD: let step1 := (· ++ ·) <$> sig <*> Signal.pure 0#2
 --       let step2 := (· ++ ·) <$> Signal.pure 0#20 <*> step1
 ```
+
+---
+
+## `#synthesizeVerilog` is unexpectedly slow
+
+If `#synthesizeVerilog mything` takes >10 s or seems to hang
+on a circuit that's syntactically modest, the compiler's
+Expr-translation cache is probably not hitting.  Set
+`SPARKLE_PROFILE=1` and inspect `/tmp/sparkle-profile.log`
+for per-handler call counts and inclusive times.
+
+See `docs/reference/Compiler_Performance.md` for:
+
+- the `SPARKLE_PROFILE` workflow,
+- how to read the tick log,
+- the `acc4` cache-effectiveness probe,
+- a map of which handler in `Sparkle/Compiler/Elab.lean`
+  to investigate when a specific row of the profile is hot.
