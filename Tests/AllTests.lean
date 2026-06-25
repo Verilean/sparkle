@@ -98,6 +98,7 @@ import Tests.IP.Net.IPv4Test
 import Tests.IP.Net.ICMPTest
 import Tests.IP.Net.TCPHeaderTest
 import Tests.IP.Net.TCPStateTest
+import Tests.IP.Net.TCPLoopbackTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -439,6 +440,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Net.TCPHeaderTest.main
   IO.println ""
   Sparkle.Tests.IP.Net.TCPStateTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPLoopbackTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
