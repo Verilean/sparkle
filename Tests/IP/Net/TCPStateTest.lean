@@ -77,6 +77,44 @@ private def parsedAck : Signal defaultDomain (BitVec 32) :=
 private def fsmOut : TcpFsmOut defaultDomain :=
   tcpServerFSM listenStart parserDone parsedFlags parsedSeq parsedAck
 
+/-! ### Client-side scenario.
+
+    Cycle 0  : connectStart → SYN_SENT, txReq=1 (SYN).
+    Cycle 2  : parserDone with SYN+ACK from peer.
+    Cycle 3  : state = ESTABLISHED.
+    Cycle 4  : userClose pulse → FIN_WAIT_1, txReq=1 (FIN+ACK).
+    Cycle 6  : parserDone with ACK (peer acks our FIN).
+    Cycle 7  : state = FIN_WAIT_2.
+    Cycle 8  : parserDone with FIN+ACK from peer (their close).
+    Cycle 9  : state = TIME_WAIT, txReq=1 (final ACK).
+    Cycle 10-12: TIME_WAIT linger (4 cycles).
+    Cycle 13 : state = CLOSED. -/
+
+private def cliConnect : Signal defaultDomain Bool :=
+  ⟨fun t => decide (t = 0)⟩
+private def cliUserClose : Signal defaultDomain Bool :=
+  ⟨fun t => decide (t = 4)⟩
+private def cliParserDone : Signal defaultDomain Bool :=
+  ⟨fun t => decide (t = 2 ∨ t = 6 ∨ t = 8)⟩
+private def cliParsedFlags : Signal defaultDomain (BitVec 16) :=
+  ⟨fun t =>
+    if      t = 2 then mkFlags true  true  false   -- SYN+ACK
+    else if t = 6 then mkFlags false true  false   -- ACK
+    else if t = 8 then mkFlags false true  true    -- FIN+ACK
+    else 0x5000#16⟩
+private def cliParsedSeq : Signal defaultDomain (BitVec 32) :=
+  ⟨fun t =>
+    if      t = 2 then 0x80000000#32
+    else if t = 6 then 0x80000001#32
+    else if t = 8 then 0x80000001#32
+    else 0#32⟩
+private def cliParsedAck : Signal defaultDomain (BitVec 32) :=
+  ⟨fun _ => 0#32⟩
+
+private def cliOut : TcpFsmOut defaultDomain :=
+  tcpClientFSM cliConnect cliUserClose cliParserDone
+               cliParsedFlags cliParsedSeq cliParsedAck
+
 def main : IO Unit := do
   IO.println "=== TCP server FSM (passive open) sim ==="
   let mut allOk := true
@@ -108,6 +146,36 @@ def main : IO Unit := do
     if fsmOut.txReq.val t then txSeen := true
   IO.println s!"  txReq seen during run = {txSeen} (expected true)"
   if !txSeen then allOk := false
+
+  -- Now exercise the client-side active-open FSM.
+  IO.println ""
+  IO.println "=== TCP client FSM (active open + close) sim ==="
+  let cliExpected : List (Nat × BitVec 4) :=
+    [ (0,  sClosed)
+    , (1,  sSynSent)
+    , (2,  sSynSent)
+    , (3,  sEstab)
+    , (4,  sEstab)        -- userClose pulses; transition NEXT cycle
+    , (5,  sFinWait1)
+    , (6,  sFinWait1)
+    , (7,  sFinWait2)
+    , (8,  sFinWait2)
+    , (9,  sTimeWait)
+    , (10, sTimeWait)
+    , (11, sTimeWait)
+    , (12, sTimeWait)
+    , (13, sClosed) ]
+  for (t, exp) in cliExpected do
+    let got := cliOut.state.val t
+    let mark := if got = exp then "✓" else "✗"
+    IO.println s!"  cycle {t}: state = {got.toNat} (expected {exp.toNat}) {mark}"
+    if got ≠ exp then allOk := false
+
+  let mut cliTxSeen := false
+  for t in [:14] do
+    if cliOut.txReq.val t then cliTxSeen := true
+  IO.println s!"  client txReq seen during run = {cliTxSeen} (expected true)"
+  if !cliTxSeen then allOk := false
 
   if allOk then
     IO.println "\nALL PASS"
@@ -149,5 +217,25 @@ private def synth_serverFsmTxReq
   (tcpServerFSM listenStart parserDone parsedFlags parsedSeq parsedAck).txReq
 
 #synthesizeVerilog synth_serverFsmTxReq
+
+private def synth_clientFsmState
+    (connectStart userClose parserDone : Signal defaultDomain Bool)
+    (parsedFlags : Signal defaultDomain (BitVec 16))
+    (parsedSeq parsedAck : Signal defaultDomain (BitVec 32)) :
+    Signal defaultDomain (BitVec 4) :=
+  (tcpClientFSM connectStart userClose parserDone
+    parsedFlags parsedSeq parsedAck).state
+
+#synthesizeVerilog synth_clientFsmState
+
+private def synth_clientFsmEstablished
+    (connectStart userClose parserDone : Signal defaultDomain Bool)
+    (parsedFlags : Signal defaultDomain (BitVec 16))
+    (parsedSeq parsedAck : Signal defaultDomain (BitVec 32)) :
+    Signal defaultDomain Bool :=
+  (tcpClientFSM connectStart userClose parserDone
+    parsedFlags parsedSeq parsedAck).established
+
+#synthesizeVerilog synth_clientFsmEstablished
 
 end SynthesisChecks

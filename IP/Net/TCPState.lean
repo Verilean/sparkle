@@ -228,4 +228,141 @@ def tcpServerFSM {dom : DomainConfig}
             , established := isEstab
             } : TcpFsmOut dom)
 
+/-! ### Client-side active-open FSM.
+
+    State sequence:
+      CLOSED → SYN_SENT → ESTABLISHED → FIN_WAIT_1 →
+      FIN_WAIT_2 → TIME_WAIT → CLOSED.
+
+    Inputs:
+      * `connectStart` : user-side "open the connection"
+                         pulse.  Triggers SYN emit and moves
+                         CLOSED → SYN_SENT.
+      * `parserDone`   : incoming-segment-finished pulse.
+      * `parsedFlags`  : 16-bit dataOff+flags.
+      * `parsedSeq`    : remote SEQ (latched on SYN+ACK).
+      * `parsedAck`    : remote ACK (currently unused; the
+                         demo doesn't validate ACK numbers).
+      * `userClose`    : user-side "close the connection"
+                         pulse (ESTABLISHED → FIN_WAIT_1).
+
+    Outputs (TcpFsmOut, same shape as server):
+      * state         : 4-bit FSM state code.
+      * txReq         : "emit a segment this cycle" pulse.
+      * txDataOffFlags: SYN / ACK / FIN+ACK by transition.
+      * txSeq / txAck : SEQ / ACK numbers.
+      * established   : true while in ESTABLISHED.
+-/
+
+abbrev clientIsn : BitVec 32 := 0x20000000#32
+
+def tcpClientFSM {dom : DomainConfig}
+    (connectStart : Signal dom Bool)
+    (userClose    : Signal dom Bool)
+    (parserDone   : Signal dom Bool)
+    (parsedFlags  : Signal dom (BitVec 16))
+    (parsedSeq    : Signal dom (BitVec 32))
+    (parsedAck    : Signal dom (BitVec 32)) :
+    TcpFsmOut dom :=
+  circuit do
+    let st       ← Signal.reg sClosed
+    let peerSeqR ← Signal.reg (0#32)
+    let ourSeqR  ← Signal.reg (0#32)
+    let txReqR   ← Signal.reg false
+    -- TIME_WAIT linger counter (cheapened — 4 cycles instead
+    -- of 2× MSL).  The demo doesn't actually need to linger,
+    -- but exercising the counter keeps the FSM honest.
+    let twCnt    ← Signal.reg (0#3)
+
+    let stSig := (st : Signal dom (BitVec 4))
+    let peerSeqSig := (peerSeqR : Signal dom (BitVec 32))
+    let ourSeqSig  := (ourSeqR  : Signal dom (BitVec 32))
+    let txReqSig   := (txReqR   : Signal dom Bool)
+    let twCntSig   := (twCnt    : Signal dom (BitVec 3))
+
+    let pClosed   := (Signal.pure sClosed   : Signal dom (BitVec 4))
+    let pSynSent  := (Signal.pure sSynSent  : Signal dom (BitVec 4))
+    let pEstab    := (Signal.pure sEstab    : Signal dom (BitVec 4))
+    let pFinWait1 := (Signal.pure sFinWait1 : Signal dom (BitVec 4))
+    let pFinWait2 := (Signal.pure sFinWait2 : Signal dom (BitVec 4))
+    let pTimeWait := (Signal.pure sTimeWait : Signal dom (BitVec 4))
+    let isClosed   := (· == ·) <$> stSig <*> pClosed
+    let isSynSent  := (· == ·) <$> stSig <*> pSynSent
+    let isEstab    := (· == ·) <$> stSig <*> pEstab
+    let isFinWait1 := (· == ·) <$> stSig <*> pFinWait1
+    let isFinWait2 := (· == ·) <$> stSig <*> pFinWait2
+    let isTimeWait := (· == ·) <$> stSig <*> pTimeWait
+
+    -- Flag extraction (same recipe as server FSM).
+    let flagLo := parsedFlags.map (BitVec.extractLsb' 0 8 ·)
+    let pSyn := (Signal.pure TCP.flagSyn : Signal dom (BitVec 8))
+    let pAck := (Signal.pure TCP.flagAck : Signal dom (BitVec 8))
+    let pFin := (Signal.pure TCP.flagFin : Signal dom (BitVec 8))
+    let pZ8  := (Signal.pure (0#8 : BitVec 8) : Signal dom (BitVec 8))
+    let synBit := (· &&& ·) <$> flagLo <*> pSyn
+    let ackBit := (· &&& ·) <$> flagLo <*> pAck
+    let finBit := (· &&& ·) <$> flagLo <*> pFin
+    let synEqZ := (· == ·) <$> synBit <*> pZ8
+    let ackEqZ := (· == ·) <$> ackBit <*> pZ8
+    let finEqZ := (· == ·) <$> finBit <*> pZ8
+    let synF := (fun b => !b) <$> synEqZ
+    let ackF := (fun b => !b) <$> ackEqZ
+    let finF := (fun b => !b) <$> finEqZ
+
+    -- Transition triggers.
+    let onConnect    := isClosed &&& connectStart                    -- CLOSED → SYN_SENT, emit SYN
+    let onSynAck     := parserDone &&& synF &&& ackF &&& isSynSent   -- SYN_SENT + SYN+ACK → ESTABLISHED, emit ACK
+    let onUserClose  := isEstab &&& userClose                        -- ESTAB + user close → FIN_WAIT_1, emit FIN+ACK
+    let onAckOfFin   := parserDone &&& ackF &&& isFinWait1           -- FIN_WAIT_1 + ACK → FIN_WAIT_2
+    let onPeerFin2   := parserDone &&& finF &&& isFinWait2           -- FIN_WAIT_2 + FIN → TIME_WAIT, emit ACK
+    -- TIME_WAIT counter expiry: linger 4 cycles then close.
+    let pTwMax := (Signal.pure 3#3 : Signal dom (BitVec 3))
+    let twExpired := (· == ·) <$> twCntSig <*> pTwMax
+
+    let stNext :=
+      Signal.mux onConnect   (Signal.pure sSynSent)
+        (Signal.mux onSynAck (Signal.pure sEstab)
+          (Signal.mux onUserClose (Signal.pure sFinWait1)
+            (Signal.mux onAckOfFin (Signal.pure sFinWait2)
+              (Signal.mux onPeerFin2 (Signal.pure sTimeWait)
+                (Signal.mux (isTimeWait &&& twExpired) (Signal.pure sClosed)
+                  stSig)))))
+    st <~ stNext
+
+    -- TIME_WAIT counter: bump while in TIME_WAIT; reset on
+    -- leaving / entering.
+    let p1_3 := (Signal.pure 1#3 : Signal dom (BitVec 3))
+    let pZ3  := (Signal.pure 0#3 : Signal dom (BitVec 3))
+    let twInc := (· + ·) <$> twCntSig <*> p1_3
+    twCnt <~ Signal.mux onPeerFin2 pZ3
+              (Signal.mux isTimeWait twInc pZ3)
+
+    -- Latch peer SEQ on SYN+ACK so our ACK is correct.
+    peerSeqR <~ Signal.mux onSynAck parsedSeq peerSeqSig
+    ourSeqR  <~ Signal.mux onConnect (Signal.pure clientIsn) ourSeqSig
+
+    -- Outbound segment pulses.
+    let needsTx := onConnect ||| onSynAck ||| onUserClose ||| onPeerFin2
+    txReqR <~ needsTx
+
+    -- Flag values for each tx event.
+    let synFlags    := (packDataOffFlags true false false false false : BitVec 16)
+    let ackFlags    := (packDataOffFlags false true false false false : BitVec 16)
+    let finAckFlags := (packDataOffFlags false true true false false : BitVec 16)
+    let txFlagsOut :=
+      Signal.mux onConnect (Signal.pure synFlags)
+        (Signal.mux onUserClose (Signal.pure finAckFlags)
+          (Signal.pure ackFlags))
+
+    let p1_32 := (Signal.pure (1#32 : BitVec 32) : Signal dom (BitVec 32))
+    let txAckOut := (· + ·) <$> peerSeqSig <*> p1_32
+
+    return ({ state := stSig
+            , txReq := txReqSig
+            , txDataOffFlags := txFlagsOut
+            , txSeq := ourSeqSig
+            , txAck := txAckOut
+            , established := isEstab
+            } : TcpFsmOut dom)
+
 end Sparkle.IP.Net.TCPState
