@@ -84,6 +84,11 @@ lean_lib «IP.Bus» where
 lean_lib «IP.Net» where
   roots := #[`IP.Net]
 
+-- Ledger-style crypto (SHA-256, Ed25519, secp256k1) for signed
+-- order packets in the HFT stack and as standalone Sparkle IPs.
+lean_lib «IP.Crypto» where
+  roots := #[`IP.Crypto]
+
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
@@ -224,6 +229,10 @@ lean_exe «http-test» where
 
 lean_exe «hft-strategy-test» where
   root := `Tests.Drivers.HFTStrategyTestMain
+  supportInterpreter := true
+
+lean_exe «sha256-test» where
+  root := `Tests.Drivers.SHA256TestMain
   supportInterpreter := true
 
 lean_exe «sparkle-bitnet-verilog-dump» where
