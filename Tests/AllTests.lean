@@ -94,6 +94,7 @@ import Tests.IP.Net.CRC32Test
 import Tests.IP.Net.EthernetTest
 import Tests.IP.Net.EthernetTxTest
 import Tests.IP.Net.ARPTest
+import Tests.IP.Net.IPv4Test
 import LSpec
 
 open Sparkle.Core.Domain
@@ -427,6 +428,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Net.EthernetTxTest.main
   IO.println ""
   Sparkle.Tests.IP.Net.ARPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.IPv4Test.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
