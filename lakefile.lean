@@ -206,6 +206,10 @@ lean_exe «icmp-trace» where
   root := `Tests.Drivers.IcmpTraceMain
   supportInterpreter := true
 
+lean_exe «tcp-header-test» where
+  root := `Tests.Drivers.TCPHeaderTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
