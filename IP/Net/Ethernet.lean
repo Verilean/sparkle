@@ -263,4 +263,268 @@ def rxFramer {dom : DomainConfig}
 def rxFramerOfRxIn {dom : DomainConfig} (i : RxIn dom) : RxOut dom :=
   rxFramer i.byte i.valid i.sop i.eop
 
+/-! ### TX framer (byte-feed, one cycle per byte).
+
+    Pipeline contract (mirrors the RX side):
+      cycle 0  : `start` pulse arrives; framer latches DMAC/SMAC/
+                 EthType from their input wires and begins emitting
+                 byte 0 of DMAC on `txByte`.  `txSop` strobes this
+                 cycle.
+      cycle 1..5  : remaining DMAC bytes
+      cycle 6..11 : SMAC bytes
+      cycle 12,13 : EthType bytes
+      cycle 14..  : payload pass-through.  The caller drives
+                    `payloadByte` / `payloadValid` / `payloadLast`
+                    per cycle.  `txEop` strobes the cycle that
+                    carries the last payload byte (when
+                    `payloadLast` is high).
+
+    After `payloadLast`, the framer returns to IDLE and waits for
+    the next `start` pulse.  No back-to-back frame support yet —
+    the caller must hold `start` low for at least one cycle
+    between frames.
+
+    Header inputs (`dmacIn`, `smacIn`, `etIn`) are sampled on the
+    `start` cycle and **latched into registers** so the caller is
+    free to change them mid-frame without disturbing the in-flight
+    transmission.
+
+    Inputs:
+      dmacIn       : 48-bit destination MAC (latched on `start`)
+      smacIn       : 48-bit source MAC      (latched on `start`)
+      etIn         : 16-bit EthType         (latched on `start`)
+      payloadByte  : payload byte for the current cycle
+      payloadValid : caller has a valid payload byte this cycle
+      payloadLast  : this is the last payload byte of the frame
+      start        : begin a new frame this cycle
+
+    Outputs:
+      txByte       : serialised byte (header or payload)
+      txValid      : framer is emitting a real byte this cycle
+      txSop        : start-of-frame strobe (one cycle, on byte 0)
+      txEop        : end-of-frame strobe (one cycle, on the last
+                     payload byte) -/
+
+/-! ### TX state encoding.
+
+    Same 0..13 = header byte index convention as the RX side, plus
+    one extra state for "currently passing through payload". -/
+private abbrev txIdle    : BitVec 5 := 0#5     -- waiting for start
+private abbrev txPayload : BitVec 5 := 15#5    -- payload pass-through
+
+/-- Extract byte `k` (0..5, MSB-first) from a 48-bit MAC.
+    Uses the `signal.map (BitVec.extractLsb' lo 8 ·)` idiom that
+    every other Sparkle IP uses for bit slices (see
+    `IP/RV32/Trap.lean`, `IP/RV32/Bus.lean`). -/
+@[inline] private def macByte {dom : DomainConfig}
+    (mac : Signal dom (BitVec 48)) (k : Nat) :
+    Signal dom (BitVec 8) :=
+  let lo := (5 - k) * 8
+  mac.map (BitVec.extractLsb' lo 8 ·)
+
+/-- Extract byte `k` (0..1, MSB-first) from a 16-bit EthType. -/
+@[inline] private def etByte_ {dom : DomainConfig}
+    (et : Signal dom (BitVec 16)) (k : Nat) :
+    Signal dom (BitVec 8) :=
+  let lo := (1 - k) * 8
+  et.map (BitVec.extractLsb' lo 8 ·)
+
+/-- Mux among 6 MAC bytes by the cycle-relative index (0..5).
+    `eqK` is locally written out as the Applicative form because
+    the IR elaborator needs `(· == ·) <$> a <*> b` (not `===`,
+    which desugars to non-`@[reducible]` `Signal.beq`) to lower
+    cleanly to `.op .eq` via `handleApplicative`. -/
+@[inline] private def macByteMux {dom : DomainConfig}
+    (mac : Signal dom (BitVec 48))
+    (idx : Signal dom (BitVec 3)) :
+    Signal dom (BitVec 8) :=
+  let b0 := macByte mac 0
+  let b1 := macByte mac 1
+  let b2 := macByte mac 2
+  let b3 := macByte mac 3
+  let b4 := macByte mac 4
+  let b5 := macByte mac 5
+  let pk0 : Signal dom (BitVec 3) := Signal.pure 0#3
+  let pk1 : Signal dom (BitVec 3) := Signal.pure 1#3
+  let pk2 : Signal dom (BitVec 3) := Signal.pure 2#3
+  let pk3 : Signal dom (BitVec 3) := Signal.pure 3#3
+  let pk4 : Signal dom (BitVec 3) := Signal.pure 4#3
+  Signal.mux ((· == ·) <$> idx <*> pk0) b0
+    (Signal.mux ((· == ·) <$> idx <*> pk1) b1
+      (Signal.mux ((· == ·) <$> idx <*> pk2) b2
+        (Signal.mux ((· == ·) <$> idx <*> pk3) b3
+          (Signal.mux ((· == ·) <$> idx <*> pk4) b4 b5))))
+
+/-- Mux among 2 EthType bytes by index (0..1). -/
+@[inline] private def etByteMux {dom : DomainConfig}
+    (et : Signal dom (BitVec 16))
+    (idx : Signal dom Bool) :
+    Signal dom (BitVec 8) :=
+  let b0 := etByte_ et 0
+  let b1 := etByte_ et 1
+  Signal.mux idx b1 b0
+
+structure TxOut (dom : DomainConfig) where
+  txByte  : Signal dom (BitVec 8)
+  txValid : Signal dom Bool
+  txSop   : Signal dom Bool
+  txEop   : Signal dom Bool
+
+instance {dom : DomainConfig} :
+    Sparkle.Core.HasDomain (TxOut dom) dom := ⟨⟩
+
+def txFramer {dom : DomainConfig}
+    (dmacIn : Signal dom (BitVec 48))
+    (smacIn : Signal dom (BitVec 48))
+    (etIn   : Signal dom (BitVec 16))
+    (payloadByte  : Signal dom (BitVec 8))
+    (payloadValid : Signal dom Bool)
+    (payloadLast  : Signal dom Bool)
+    (start        : Signal dom Bool) :
+    TxOut dom :=
+  circuit do
+    let st       ← Signal.reg txIdle
+    let dmacReg  ← Signal.reg (0#48)
+    let smacReg  ← Signal.reg (0#48)
+    let etReg    ← Signal.reg (0#16)
+
+    -- Coerce Reg → Signal via explicit ascription.  Inside
+    -- `circuit do` Lean's `let x : T := …` is rejected by the
+    -- macro, so use the `(… : T)` form on the rhs instead.
+    let stSig   := (st      : Signal dom (BitVec 5))
+    let dmacSig := (dmacReg : Signal dom (BitVec 48))
+    let smacSig := (smacReg : Signal dom (BitVec 48))
+    let etSig   := (etReg   : Signal dom (BitVec 16))
+
+    -- Region predicates.  Conceptually: when `start` pulses we're
+    -- on stSig=0 emitting byte 0 of DMAC (live from dmacIn); on
+    -- stSig=1..5 we're emitting DMAC bytes 1..5; etc.  When idle
+    -- and `start` is low, no emission.
+    -- Region predicates: use the explicit Applicative form
+    -- `(· == ·) <$> a <*> b` rather than the `===` infix, which
+    -- desugars to `Signal.beq` and isn't `@[reducible]` enough
+    -- for the IR elaborator to unfold reliably.  The Applicative
+    -- form goes through `handleApplicative` and lowers cleanly
+    -- to `.op .eq`.  See `Sparkle/Core/CircuitDo.lean:208`.
+    let pIdle    := (Signal.pure txIdle    : Signal dom (BitVec 5))
+    let pPayload := (Signal.pure txPayload : Signal dom (BitVec 5))
+    let p1       := (Signal.pure 1#5  : Signal dom (BitVec 5))
+    let p2       := (Signal.pure 2#5  : Signal dom (BitVec 5))
+    let p3       := (Signal.pure 3#5  : Signal dom (BitVec 5))
+    let p4       := (Signal.pure 4#5  : Signal dom (BitVec 5))
+    let p5       := (Signal.pure 5#5  : Signal dom (BitVec 5))
+    let p6       := (Signal.pure 6#5  : Signal dom (BitVec 5))
+    let p7       := (Signal.pure 7#5  : Signal dom (BitVec 5))
+    let p8       := (Signal.pure 8#5  : Signal dom (BitVec 5))
+    let p9       := (Signal.pure 9#5  : Signal dom (BitVec 5))
+    let p10      := (Signal.pure 10#5 : Signal dom (BitVec 5))
+    let p11      := (Signal.pure 11#5 : Signal dom (BitVec 5))
+    let p12      := (Signal.pure 12#5 : Signal dom (BitVec 5))
+    let p13      := (Signal.pure 13#5 : Signal dom (BitVec 5))
+    let isIdle    := (· == ·) <$> stSig <*> pIdle
+    let isPayload := (· == ·) <$> stSig <*> pPayload
+    let is1  := (· == ·) <$> stSig <*> p1
+    let is2  := (· == ·) <$> stSig <*> p2
+    let is3  := (· == ·) <$> stSig <*> p3
+    let is4  := (· == ·) <$> stSig <*> p4
+    let is5  := (· == ·) <$> stSig <*> p5
+    let is6  := (· == ·) <$> stSig <*> p6
+    let is7  := (· == ·) <$> stSig <*> p7
+    let is8  := (· == ·) <$> stSig <*> p8
+    let is9  := (· == ·) <$> stSig <*> p9
+    let is10 := (· == ·) <$> stSig <*> p10
+    let is11 := (· == ·) <$> stSig <*> p11
+    let is12 := (· == ·) <$> stSig <*> p12
+    let is13 := (· == ·) <$> stSig <*> p13
+    let inDmacRest := is1 ||| is2 ||| is3 ||| is4 ||| is5
+    let inDmac     := (start &&& isIdle) ||| inDmacRest
+    let inSmac     := is6 ||| is7 ||| is8 ||| is9 ||| is10 ||| is11
+    let inEt       := is12 ||| is13
+    let inHdr      := inDmac ||| inSmac ||| inEt
+
+    -- Pre-compute the 6 DMAC / 6 SMAC bytes and the 2 EthType
+    -- bytes, then pick via the existing per-state predicates
+    -- (no Signal-arithmetic on indices needed — every selector
+    -- is a `BitVec 5` equality that already lowers to `.op .eq`).
+    --
+    -- For byte 0 of DMAC we need to bypass the not-yet-latched
+    -- dmacReg on the `start` cycle.  Express the bypass by
+    -- pre-extracting byte 0 from BOTH sources and muxing the
+    -- byte (not the wide MAC), because emitting
+    -- `(mux start dmacIn dmacReg)[47:40]` produces iverilog-
+    -- unfriendly Verilog (ternary-then-slice without paren).
+    let dB0_live := macByte dmacIn 0
+    let dB0_reg  := macByte dmacSig 0
+    let dB0      := Signal.mux start dB0_live dB0_reg
+    let dB1 := macByte dmacSig 1
+    let dB2 := macByte dmacSig 2
+    let dB3 := macByte dmacSig 3
+    let dB4 := macByte dmacSig 4
+    let dB5 := macByte dmacSig 5
+    let sB0 := macByte smacSig 0
+    let sB1 := macByte smacSig 1
+    let sB2 := macByte smacSig 2
+    let sB3 := macByte smacSig 3
+    let sB4 := macByte smacSig 4
+    let sB5 := macByte smacSig 5
+    let eB0 := etByte_ etSig 0
+    let eB1 := etByte_ etSig 1
+
+    -- Header byte by `stSig` (or by `start` for the byte-0
+    -- bypass).  Long mux chain; lowers to a clean case at synth.
+    let dmacByte :=
+      Signal.mux (start &&& isIdle) dB0
+        (Signal.mux is1 dB1
+          (Signal.mux is2 dB2
+            (Signal.mux is3 dB3
+              (Signal.mux is4 dB4 dB5))))
+    let smacByte :=
+      Signal.mux is6 sB0
+        (Signal.mux is7 sB1
+          (Signal.mux is8 sB2
+            (Signal.mux is9 sB3
+              (Signal.mux is10 sB4 sB5))))
+    let etByte :=
+      Signal.mux is12 eB0 eB1
+
+    let hdrByte :=
+      Signal.mux inDmac dmacByte
+        (Signal.mux inSmac smacByte etByte)
+    let outByte :=
+      Signal.mux isPayload payloadByte hdrByte
+
+    let outValid := inHdr ||| (isPayload &&& payloadValid)
+    let outSop   := start
+    let outEop   := isPayload &&& payloadValid &&& payloadLast
+
+    -- Next-state: on start pulse, latch headers and advance to 1.
+    -- During header walk (1..13), st += 1.  On stSig = 13 → 15
+    -- (payload).  On payload + last → back to idle.
+    let stNext :=
+      Signal.mux start (Signal.pure 1#5)
+        (Signal.mux is13
+          (Signal.pure txPayload)
+          (Signal.mux isPayload
+            (Signal.mux (payloadValid &&& payloadLast)
+              (Signal.pure txIdle)
+              (Signal.pure txPayload))
+            (Signal.mux isIdle
+              (Signal.pure txIdle)
+              -- Use the binary Applicative form so handleApplicative
+              -- catches `BitVec.add` and lowers to `.op .add`.  A
+              -- bare `<$>` (unary `Functor.map`) doesn't match
+              -- handleApplicative and the elaborator falls back to
+              -- treating `Functor.map` as a sub-module call.
+              ((· + ·) <$> stSig <*> (Signal.pure 1#5 : Signal dom (BitVec 5))))))
+    st <~ stNext
+    dmacReg <~ Signal.mux start dmacIn dmacSig
+    smacReg <~ Signal.mux start smacIn smacSig
+    etReg   <~ Signal.mux start etIn   etSig
+
+    return ({ txByte  := outByte
+            , txValid := outValid
+            , txSop   := outSop
+            , txEop   := outEop
+            } : TxOut dom)
+
 end Sparkle.IP.Net.Ethernet
