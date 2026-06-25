@@ -92,6 +92,7 @@ import Tests.RoundTrip.IRVerilogIR
 import Tests.RoundTrip.IVerilogSim
 import Tests.IP.Net.CRC32Test
 import Tests.IP.Net.EthernetTest
+import Tests.IP.Net.EthernetTxTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -421,6 +422,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Net.CRC32Test.main
   IO.println ""
   Sparkle.Tests.IP.Net.EthernetTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.EthernetTxTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
