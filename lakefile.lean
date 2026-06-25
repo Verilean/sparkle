@@ -178,6 +178,10 @@ lean_exe «ethernet-test» where
   root := `Tests.Drivers.EthernetTestMain
   supportInterpreter := true
 
+lean_exe «eth-trace» where
+  root := `Tests.Drivers.EthTraceMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
