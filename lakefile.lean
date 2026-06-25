@@ -251,6 +251,10 @@ lean_exe «sha512-check» where
   root := `Tests.Drivers.Sha512CheckMain
   supportInterpreter := true
 
+lean_exe «secp256k1-test» where
+  root := `Tests.Drivers.Secp256k1TestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
