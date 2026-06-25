@@ -18,6 +18,8 @@
 import IP.Crypto.SHA256
 import Sparkle
 
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
 open Sparkle.IP.Crypto.SHA256
 
 namespace Sparkle.Tests.IP.Crypto.SHA256Test
@@ -79,6 +81,21 @@ def main : IO Unit := do
     IO.println s!"  ✓ 550 'a' bytes: digest = {expectedHex got550} (non-zero; structural-only check)"
   let _ := expected550
 
+  -- The HW engine `sha256Block` exists in IP/Crypto/SHA256.lean
+  -- but is not exercised in this sim because:
+  --   (a) Lean's `Signal.val k` is exponential in k on the
+  --       512-bit-wide W-buffer register, so even t=5 is
+  --       impractical (3+ minutes / cycle in measured
+  --       wall-clock).
+  --   (b) The `kMux` 63-way K-table mux fails
+  --       `@[hardware_module]` sub-module synthesis (same
+  --       deep-mux-inline gap the ARP/ICMP work documented).
+  -- Both gaps are tracked as L.1.c follow-up.  The pure-
+  -- data path above provides the full RFC-vector
+  -- validation; the Signal-side helpers (rotr32Sig,
+  -- bigSigma0/1Sig, smallSigma0/1Sig, chFnSig, majFnSig)
+  -- still compile and remain available for L.2+ consumers.
+
   if allOk then
     IO.println "\nALL PASS"
   else
@@ -86,3 +103,11 @@ def main : IO Unit := do
     IO.Process.exit 1
 
 end Sparkle.Tests.IP.Crypto.SHA256Test
+
+-- `#synthesizeVerilog` checks for the HW engine are
+-- deferred to L.1.c: `kMux` (63-way constant table mux)
+-- currently fails sub-module synthesis with the same
+-- deep-mux inline gap the ARP/ICMP work documented.
+-- The Signal-side combinational helpers (`bigSigma0Sig`,
+-- `chFnSig`, etc.) do synthesize cleanly and are the
+-- pieces L.2+ consumers will wire into HMAC/HKDF code.
