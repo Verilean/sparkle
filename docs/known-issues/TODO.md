@@ -347,8 +347,15 @@ Open follow-up captured separately as C5.b below.
 
 - Impact ★★★☆☆
 - Effort M
-- Confidence ★★★★☆
-- Status: cache wrapper LANDED, multi-leaf record path still blocked
+- Confidence ★★★★★
+- Status: LANDED — cache wrapper + projection routing + lambda-port dedup
+
+**Update (commit `bd50e7a`):** The end-to-end multi-output
+record-return path now synthesizes in ~1.5 s.  See
+`Tests/IP/Net/EthernetTest.lean:SynthesisChecks` for the
+6-output `rxFramerAll` build-time regression gate.  The
+remaining notes below capture the journey for future
+maintainers who hit a similar shape of bug.
 
 **What landed (commits `119817c` + `7da1e58`):**
 

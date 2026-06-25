@@ -214,14 +214,27 @@ Expr cache; bypassing it re-introduces the leak that took
 
 ## What still doesn't work
 
-- **Multi-output record return** (e.g. `rxFramer` returning
-  `RxOut dom`).  The cache wrapper unblocked the
-  single-output projection path in ~1 s wall-clock, but the
-  underlying `(rxFramer …).dmac` end-to-end still fails
-  because `unfoldDefinition?` peels one layer and leaves a
-  `RxOut.mk` constructor whose record fields haven't been
-  reduced to `Signal.mk` wires.  See TODO.md C5.b for the
-  next-round fix candidates.
+- ~~**Multi-output record return**~~ — **fixed in `bd50e7a`.**
+  Single-output projection (`(rxFramer …).dmac`) and full
+  6-output record return both synthesize in ~1.5 s.  See
+  `Tests/IP/Net/EthernetTest.lean:SynthesisChecks` for the
+  regression fixture.
+
+  The fix had three independent pieces and the lesson
+  generalises: when `#synthesizeVerilog` fails on a shape it
+  used to fail on, expect more than one bug.  Build a probe
+  that bisects the call graph and fix layer by layer:
+  1. Does `splitReturnLeaves` see the body inside the lambdas
+     or outside?  Stick a debug `eprintln` at the top with
+     `e.getAppFn` and `ty.getAppFn`.
+  2. Does the projection arm of `handleDefinitionUnfold`
+     reach a `.mk` constructor head, or does it stop at a
+     `runCircuitH` / opaque def call?  Use a `whnf` step
+     budget loop, not a single `unfoldDefinition?` call.
+  3. Is the lambda arm of `translateExprToWire` allocating
+     fresh input ports per leaf, or reusing existing ones?
+     Check `module.inputs.length` vs the function arity in
+     the emitted Verilog.
 
 - **`@[reducible] instance` chains in user code** — when an
   instance head expands at typeclass resolution time, the
