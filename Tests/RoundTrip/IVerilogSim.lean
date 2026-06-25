@@ -28,6 +28,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.Net.CRC32
 import IP.Net.Ethernet
+import IP.Net.ARP
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -52,9 +53,17 @@ def elabVerilogOf : TermElab := fun stx _ => do
   match stx with
   | `(verilogOf! $id:ident) => do
     let declName ← Lean.resolveGlobalConstNoOverload id
-    let (module, _) ← synthesizeCombinational declName
+    let (module, design) ← synthesizeCombinational declName
     let optimized := Sparkle.IR.Optimize.optimizeModule module
-    let verilog := toVerilog optimized
+    -- Emit any sub-modules in the design FIRST (so iverilog
+    -- has their definitions when it elaborates the top-level
+    -- instantiations), then the top module.  Without this,
+    -- `@[hardware_module]` sub-modules show up as
+    -- "Unknown module type" at iverilog parse time even
+    -- though they're correctly registered in the design.
+    let subVerilogs := design.modules.map toVerilog
+    let topVerilog := toVerilog optimized
+    let verilog := String.intercalate "\n" (subVerilogs ++ [topVerilog])
     -- Elaborate the captured string as a Lean string literal.
     Lean.Elab.Term.elabTerm
       (Lean.Syntax.mkStrLit verilog) none
@@ -141,6 +150,16 @@ def txFramerByteTop
     Signal defaultDomain (BitVec 8) :=
   (Sparkle.IP.Net.Ethernet.txFramer
     dmacIn smacIn etIn payloadByte payloadValid payloadLast start).txByte
+
+/-- IP.Net.ARP responder payloadByte projection — exercises the
+    request → reply path end-to-end. -/
+def arpResponderByteTop
+    (rxByte  : Signal defaultDomain (BitVec 8))
+    (rxValid sopArp : Signal defaultDomain Bool)
+    (ownMac : Signal defaultDomain (BitVec 48))
+    (ownIp  : Signal defaultDomain (BitVec 32)) :
+    Signal defaultDomain (BitVec 8) :=
+  (Sparkle.IP.Net.ARP.arpResponder rxByte rxValid sopArp ownMac ownIp).payloadByte
 
 -- ============================================================================
 -- Testbench construction
@@ -399,6 +418,72 @@ private def rxFramerDmacStimulus : Stimulus :=
       , 187723572702975 ]                                -- sim c8: holds
   , isSequential := true }
 
+/-- IP.Net.ARP responder fixture.  Feeds the 28-byte ARP
+    request frame (from a hand-built scenario: client
+    10.0.0.10 / 01:02:…:06 asks for server 10.0.0.20 /
+    AA:BB:CC:DD:EE:FF) and probes the responder's
+    `payloadByte` output for the 28-byte reply that should be
+    emitted starting at iverilog cycle ~28 (= sim cycle 29). -/
+private def arpResponderStimulus : Stimulus :=
+  -- 28-byte request, then 30 zero cycles to give the
+  -- responder time to emit the reply.
+  let request : List Nat :=
+    [ 0x00, 0x01, 0x08, 0x00, 0x06, 0x04   -- HTYPE / PTYPE / HLEN / PLEN
+    , 0x00, 0x01                            -- OPER=request
+    , 0x01, 0x02, 0x03, 0x04, 0x05, 0x06   -- SHA = client MAC
+    , 0x0A, 0x00, 0x00, 0x0A               -- SPA = 10.0.0.10
+    , 0x00, 0x00, 0x00, 0x00, 0x00, 0x00   -- THA = 0 (unknown)
+    , 0x0A, 0x00, 0x00, 0x14 ]             -- TPA = 10.0.0.20
+  let nReq : Nat := request.length         -- 28
+  let totalCycles : Nat := nReq + 32
+  let serverMac : Nat := 0xAABBCCDDEEFF
+  let serverIp  : Nat := 0x0A000014
+  let row (i : Nat) : List (String × Nat) :=
+    [ ("_gen_rxByte",  if i < nReq then (request[i]?).getD 0 else 0)
+    , ("_gen_rxValid", if i < nReq then 1 else 0)
+    , ("_gen_sopArp",  if i = 0 then 1 else 0)
+    , ("_gen_ownMac",  serverMac)
+    , ("_gen_ownIp",   serverIp) ]
+  let inputs := (List.range totalCycles).map row
+  -- Reply emit window: per Lean trace, the responder pulses
+  -- payloadValid sim cycles 29..56 with the 28 reply bytes.
+  -- iverilog observes cycle k = sim cycle k+1, so the visible
+  -- bytes appear at iverilog cycles 28..55.  Before / after
+  -- that window the byte is the mux fall-through (b27 = last
+  -- TPA byte of whatever fields look like at idle).
+  -- Expected sequence: 28 zeros, then 28 reply bytes, then a
+  -- few idle cycles.
+  let replyBytes : List Nat :=
+    [ 0x00, 0x01, 0x08, 0x00, 0x06, 0x04   -- HTYPE / PTYPE / HLEN / PLEN
+    , 0x00, 0x02                            -- OPER=reply
+    , 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF   -- SHA = server MAC
+    , 0x0A, 0x00, 0x00, 0x14               -- SPA = 10.0.0.20
+    , 0x01, 0x02, 0x03, 0x04, 0x05, 0x06   -- THA = client MAC
+    , 0x0A, 0x00, 0x00, 0x0A ]             -- TPA = 10.0.0.10
+  -- We don't care about the pre-emit / post-emit values, so
+  -- only check the 28 emit cycles plus a few sentinels.  The
+  -- testbench framework requires an `expected` per cycle, so
+  -- we accept the falsy-but-self-consistent values for cycles
+  -- before/after the emit window by reading them from the
+  -- trace and recording them verbatim.
+  -- Pre / post are observed mux fall-through values
+  -- (don't-cares before the responder enters the emit window
+  -- and after it returns to idle).  Recorded verbatim from
+  -- the iverilog observation rather than re-derived, since
+  -- they reflect mux-default behaviour we don't care about.
+  let pre : List Nat :=
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    , 0, 0, 0, 0
+    , 10, 0, 0, 10
+    , 10, 10, 10, 10, 10, 10, 10, 10, 10, 10 ]
+  let post : List Nat :=
+    [ 10, 10, 10, 10 ]
+  { cycles := totalCycles
+  , inputs := inputs
+  , outputName := "out"
+  , expected := pre ++ replyBytes ++ post
+  , isSequential := true }
+
 /-- IP.Net.Ethernet rxFramerPayloadValidTop — Bool output
     covering the BitVec-1 / Bool projection arm.  payloadValid
     latches to 1 on cycle 14 (when the engine first enters the
@@ -507,6 +592,7 @@ def fixtures : List FixtureCase :=
   , { declName := ``rxFramerDmacTop,         label := "rxFramerDmac",         stimulus := rxFramerDmacStimulus }
   , { declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }
   , { declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus }
+  , { declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus }
   ]
 
 -- ============================================================================
@@ -526,15 +612,19 @@ def crc32EngineTopVerilog : String := verilogOf! crc32EngineTop
 def rxFramerDmacVerilog   : String := verilogOf! rxFramerDmacTop
 def rxFramerPayloadValidVerilog : String := verilogOf! rxFramerPayloadValidTop
 def txFramerByteVerilog   : String := verilogOf! txFramerByteTop
+def arpResponderByteVerilog : String := verilogOf! arpResponderByteTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
     etc. as the instance type name.  Pull it back out of the
-    generated Verilog by reading the first `module …` token. -/
+    generated Verilog by reading the LAST `module …` token —
+    when sub-modules (`@[hardware_module]`) are present, the
+    top-level module appears last in the emitted source. -/
 def parseModuleName (verilog : String) : String :=
   let lines := verilog.splitOn "\n"
-  let modLine := lines.find? fun l => l.trim.startsWith "module "
-  match modLine with
+  let modLines := lines.filter fun l => l.trim.startsWith "module "
+  let lastMod? := modLines.getLast?
+  match lastMod? with
   | none => "unknown"
   | some l =>
     -- "module foo (" → "foo"
@@ -553,7 +643,8 @@ def fixtureVerilogs : List (FixtureCase × String) :=
   , ({ declName := ``crc32EngineTop, label := "crc32EngineTop", stimulus := crc32EngineTopStimulus }, crc32EngineTopVerilog)
   , ({ declName := ``rxFramerDmacTop,         label := "rxFramerDmac",         stimulus := rxFramerDmacStimulus },         rxFramerDmacVerilog)
   , ({ declName := ``rxFramerPayloadValidTop, label := "rxFramerPayloadValid", stimulus := rxFramerPayloadValidStimulus }, rxFramerPayloadValidVerilog)
-  , ({ declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus },         txFramerByteVerilog) ]
+  , ({ declName := ``txFramerByteTop,         label := "txFramerByte",         stimulus := txFramerByteStimulus },         txFramerByteVerilog)
+  , ({ declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus },         arpResponderByteVerilog) ]
 
 -- ============================================================================
 -- Driver

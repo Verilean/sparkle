@@ -186,6 +186,14 @@ lean_exe «ethernet-tx-test» where
   root := `Tests.Drivers.EthernetTxTestMain
   supportInterpreter := true
 
+lean_exe «arp-test» where
+  root := `Tests.Drivers.ARPTestMain
+  supportInterpreter := true
+
+lean_exe «arp-trace» where
+  root := `Tests.Drivers.ArpTraceMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
