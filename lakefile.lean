@@ -222,6 +222,10 @@ lean_exe «http-test» where
   root := `Tests.Drivers.HTTPTestMain
   supportInterpreter := true
 
+lean_exe «hft-strategy-test» where
+  root := `Tests.Drivers.HFTStrategyTestMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 

@@ -33,6 +33,7 @@ import IP.Net.IPv4
 import IP.Net.ICMP
 import IP.Net.TCPState
 import IP.Net.HTTP
+import IP.Net.HFTStrategy
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -190,6 +191,16 @@ def tcpServerStateTop
 def httpRespByteTop (trigger : Signal defaultDomain Bool) :
     Signal defaultDomain (BitVec 8) :=
   (Sparkle.IP.Net.HTTP.httpRespEmitter trigger).byte
+
+/-- IP.Net.HFTStrategy NIC-side strategy demo.  Inbound
+    byte/valid stream → outbound byte after a 5-cycle
+    reaction.  Probes the outbound byte for the iverilog
+    fixture. -/
+def hftOutByteTop
+    (inByte : Signal defaultDomain (BitVec 8))
+    (inValid : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  (Sparkle.IP.Net.HFTStrategy.hftStrategy inByte inValid).outByte
 
 -- ============================================================================
 -- Testbench construction
@@ -495,6 +506,37 @@ private def httpRespByteStimulus : Stimulus :=
   , expected := respChars ++ [0x21, 0x21]  -- cycles 34/35 = idle, mux fallthrough = '!'
   , isSequential := true }
 
+/-- IP.Net.HFTStrategy fixture: feed an 18-byte inbound
+    `GET / HTTP/1.0\r\n\r\n` request and probe the outbound
+    byte stream.  iverilog observes the outbound first byte
+    appearing at the "5-cycle reaction" timing (sim cycle 5,
+    iverilog cycle 4). -/
+private def hftStrategyStimulus : Stimulus :=
+  let req : List Nat :=
+    [ 0x47, 0x45, 0x54, 0x20
+    , 0x2F, 0x20
+    , 0x48, 0x54, 0x54, 0x50, 0x2F
+    , 0x31, 0x2E, 0x30
+    , 0x0D, 0x0A, 0x0D, 0x0A ]
+  let nReq : Nat := req.length
+  let totalCycles : Nat := nReq + 12
+  let row (i : Nat) : List (String × Nat) :=
+    [ ("_gen_inByte",  if i < nReq then (req[i]?).getD 0 else 0)
+    , ("_gen_inValid", if i < nReq then 1 else 0) ]
+  let inputs := (List.range totalCycles).map row
+  -- Outbound byte trace: idle for cycles 0..3, then the GET
+  -- bytes start at iverilog cycle 4 (= sim cycle 5).
+  -- Pre/post bytes are the mux fall-through (= last entry
+  -- of the byte mux = '\n' = 0x0a).
+  let outChars : List Nat := req  -- 18 bytes, identical to inbound
+  let pre  : List Nat := List.replicate 4 0x0a
+  let post : List Nat := List.replicate (totalCycles - 4 - nReq) 0x0a
+  { cycles := totalCycles
+  , inputs := inputs
+  , outputName := "out"
+  , expected := pre ++ outChars ++ post
+  , isSequential := true }
+
 /-- IP.Net.TCPState server FSM fixture.
 
     Drives the FSM through the full 7-cycle passive-open +
@@ -771,6 +813,7 @@ def fixtures : List FixtureCase :=
   , { declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus }
   , { declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus }
   , { declName := ``httpRespByteTop,         label := "httpRespByte",         stimulus := httpRespByteStimulus }
+  , { declName := ``hftOutByteTop,           label := "hftOutByte",           stimulus := hftStrategyStimulus }
   ]
 
 -- ============================================================================
@@ -794,6 +837,7 @@ def arpResponderByteVerilog : String := verilogOf! arpResponderByteTop
 def icmpResponderByteVerilog : String := verilogOf! icmpResponderByteTop
 def tcpServerStateVerilog : String := verilogOf! tcpServerStateTop
 def httpRespByteVerilog : String := verilogOf! httpRespByteTop
+def hftOutByteVerilog : String := verilogOf! hftOutByteTop
 
 /-- The Sparkle emitter prefixes the module name with the Lean
     namespace, so the testbench needs `Tests_RoundTrip_IVerilogSim_dff`
@@ -828,7 +872,8 @@ def fixtureVerilogs : List (FixtureCase × String) :=
   , ({ declName := ``arpResponderByteTop,     label := "arpResponderByte",     stimulus := arpResponderStimulus },         arpResponderByteVerilog)
   , ({ declName := ``icmpResponderByteTop,    label := "icmpResponderByte",    stimulus := icmpResponderStimulus },         icmpResponderByteVerilog)
   , ({ declName := ``tcpServerStateTop,       label := "tcpServerState",       stimulus := tcpServerStateStimulus },         tcpServerStateVerilog)
-  , ({ declName := ``httpRespByteTop,         label := "httpRespByte",         stimulus := httpRespByteStimulus },         httpRespByteVerilog) ]
+  , ({ declName := ``httpRespByteTop,         label := "httpRespByte",         stimulus := httpRespByteStimulus },         httpRespByteVerilog)
+  , ({ declName := ``hftOutByteTop,           label := "hftOutByte",           stimulus := hftStrategyStimulus },         hftOutByteVerilog) ]
 
 -- ============================================================================
 -- Driver
