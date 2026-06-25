@@ -239,6 +239,18 @@ lean_exe «ed25519-field-test» where
   root := `Tests.Drivers.Ed25519FieldTestMain
   supportInterpreter := true
 
+lean_exe «ed25519-point-test» where
+  root := `Tests.Drivers.Ed25519PointTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-sign-test» where
+  root := `Tests.Drivers.Ed25519SignTestMain
+  supportInterpreter := true
+
+lean_exe «sha512-check» where
+  root := `Tests.Drivers.Sha512CheckMain
+  supportInterpreter := true
+
 lean_exe «sparkle-bitnet-verilog-dump» where
   root := `Tests.BitNet.SparkleBitNetVerilogDump
 
