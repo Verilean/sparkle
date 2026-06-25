@@ -34,6 +34,9 @@
 -/
 
 import Sparkle
+import Sparkle.Core.Lut
+
+open Sparkle.Core (kLutMacro)
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
@@ -254,15 +257,31 @@ def sha256OfBytes (input : Array UInt8) : Array (BitVec 32) := Id.run do
 /-! ### K-table mux: pick K[t] from a 7-bit counter. -/
 
 @[hardware_module] def kMux {dom : DomainConfig}
-    (cntSig : Signal dom (BitVec 7)) : Signal dom (BitVec 32) := Id.run do
-  let eqK (k : Nat) : Signal dom Bool :=
-    (· == ·) <$> cntSig <*> (Signal.pure (BitVec.ofNat 7 k) : Signal dom (BitVec 7))
-  let kAt (k : Nat) : Signal dom (BitVec 32) :=
-    Signal.pure (kTable.getD k 0#32)
-  let mut acc : Signal dom (BitVec 32) := kAt 63
-  for k in (List.range 63).reverse do
-    acc := Signal.mux (eqK k) (kAt k) acc
-  return acc
+    (cntSig : Signal dom (BitVec 7)) : Signal dom (BitVec 32) :=
+  -- Use the `kLut!` macro to expand a 64-way constant-table
+  -- mux into a fully-unrolled `Signal.mux` chain at term-
+  -- elab time.  An `Id.run do`-based loop here would have
+  -- left a `let mut` Lean expression the IR elaborator
+  -- can't unfold ("Cannot synthesise Id.run").  See
+  -- `Sparkle/Core/Lut.lean` for the macro definition.
+  kLut! cntSig [
+    Signal.pure 0x428a2f98#32, Signal.pure 0x71374491#32, Signal.pure 0xb5c0fbcf#32, Signal.pure 0xe9b5dba5#32,
+    Signal.pure 0x3956c25b#32, Signal.pure 0x59f111f1#32, Signal.pure 0x923f82a4#32, Signal.pure 0xab1c5ed5#32,
+    Signal.pure 0xd807aa98#32, Signal.pure 0x12835b01#32, Signal.pure 0x243185be#32, Signal.pure 0x550c7dc3#32,
+    Signal.pure 0x72be5d74#32, Signal.pure 0x80deb1fe#32, Signal.pure 0x9bdc06a7#32, Signal.pure 0xc19bf174#32,
+    Signal.pure 0xe49b69c1#32, Signal.pure 0xefbe4786#32, Signal.pure 0x0fc19dc6#32, Signal.pure 0x240ca1cc#32,
+    Signal.pure 0x2de92c6f#32, Signal.pure 0x4a7484aa#32, Signal.pure 0x5cb0a9dc#32, Signal.pure 0x76f988da#32,
+    Signal.pure 0x983e5152#32, Signal.pure 0xa831c66d#32, Signal.pure 0xb00327c8#32, Signal.pure 0xbf597fc7#32,
+    Signal.pure 0xc6e00bf3#32, Signal.pure 0xd5a79147#32, Signal.pure 0x06ca6351#32, Signal.pure 0x14292967#32,
+    Signal.pure 0x27b70a85#32, Signal.pure 0x2e1b2138#32, Signal.pure 0x4d2c6dfc#32, Signal.pure 0x53380d13#32,
+    Signal.pure 0x650a7354#32, Signal.pure 0x766a0abb#32, Signal.pure 0x81c2c92e#32, Signal.pure 0x92722c85#32,
+    Signal.pure 0xa2bfe8a1#32, Signal.pure 0xa81a664b#32, Signal.pure 0xc24b8b70#32, Signal.pure 0xc76c51a3#32,
+    Signal.pure 0xd192e819#32, Signal.pure 0xd6990624#32, Signal.pure 0xf40e3585#32, Signal.pure 0x106aa070#32,
+    Signal.pure 0x19a4c116#32, Signal.pure 0x1e376c08#32, Signal.pure 0x2748774c#32, Signal.pure 0x34b0bcb5#32,
+    Signal.pure 0x391c0cb3#32, Signal.pure 0x4ed8aa4a#32, Signal.pure 0x5b9cca4f#32, Signal.pure 0x682e6ff3#32,
+    Signal.pure 0x748f82ee#32, Signal.pure 0x78a5636f#32, Signal.pure 0x84c87814#32, Signal.pure 0x8cc70208#32,
+    Signal.pure 0x90befffa#32, Signal.pure 0xa4506ceb#32, Signal.pure 0xbef9a3f7#32, Signal.pure 0xc67178f2#32
+  ]
 
 /-! ### SHA-256 HW engine — iterative 64-cycle compressor.
 
