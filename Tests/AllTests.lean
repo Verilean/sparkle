@@ -105,6 +105,11 @@ import Tests.IP.Crypto.SHA256Test
 import Tests.IP.Crypto.Ed25519FieldTest
 import Tests.IP.Crypto.Ed25519PointTest
 import Tests.IP.Crypto.Ed25519SignTest
+import Tests.IP.Crypto.X25519Test
+import Tests.IP.Crypto.AESTest
+import Tests.IP.Crypto.GHASHTest
+import Tests.IP.Crypto.AESGCMTest
+import Tests.IP.Crypto.HKDFTest
 import Tests.IP.Crypto.Secp256k1Test
 import Tests.IP.Crypto.GoldilocksTest
 import Tests.IP.Crypto.MerkleTest
@@ -368,6 +373,12 @@ def makeVerilogTests (outputs : VerilogOutputs) : TestSeq :=
 -- Main Entry Point
 -- ============================================================================
 
+-- The main function below sequences ~150 test groups via a
+-- long chain of `let allTests := allTests ++ moreTests`
+-- bindings.  Lean's elaborator hits its default 512
+-- recursion-depth limit while expanding the do-notation, so
+-- bump the cap before elaborating.
+set_option maxRecDepth 2048 in
 def main : IO UInt32 := do
   IO.println "╔════════════════════════════════════════╗"
   IO.println "║  Sparkle Comprehensive Test Suite     ║"
@@ -467,6 +478,16 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.Ed25519PointTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Ed25519SignTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.X25519Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GHASHTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESGCMTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HKDFTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Secp256k1Test.main
   IO.println ""
