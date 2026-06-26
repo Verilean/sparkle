@@ -312,6 +312,10 @@ lean_exe «slip-test» where
   root := `Tests.Drivers.SLIPTestMain
   supportInterpreter := true
 
+lean_exe «usb-webserver-sim» where
+  root := `Tests.Drivers.UsbWebServerSimMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true
