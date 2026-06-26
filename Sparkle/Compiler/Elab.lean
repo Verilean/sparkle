@@ -555,6 +555,16 @@ mutual
   partial def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     trace[sparkle.compiler] "translateExprToWire hint={hint} isTopLevel={isTopLevel}"
     let callN ← CompilerM.liftMetaM (sparkleCallCounter.modifyGet fun n => (n + 1, n + 1))
+    -- Infinite-loop / runaway-walk backstop.  If the elaborator
+    -- ever exceeds 500k recursive translate calls on a single
+    -- top-level synth attempt, abort with a diagnostic rather
+    -- than hanging silently.  Tunable via SPARKLE_TRANSLATE_LIMIT.
+    let limit ← CompilerM.liftMetaM do
+      let envS ← IO.getEnv "SPARKLE_TRANSLATE_LIMIT"
+      return envS.bind String.toNat? |>.getD 500000
+    if callN > limit then
+      CompilerM.liftMetaM $ throwError
+        s!"Sparkle synth elaborator exceeded {limit} recursive translateExprToWire calls (likely runaway inline loop on hint={hint}).\n\nSet SPARKLE_TRANSLATE_LIMIT to raise the cap, or set `set_option trace.sparkle.compiler true` and grep for the deepest cycle to find the offending sub-expression."
     if callN % 10000 == 0 then
       CompilerM.liftMetaM do
         if (← IO.getEnv "SPARKLE_PROFILE").isSome then
