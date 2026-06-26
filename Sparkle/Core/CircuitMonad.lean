@@ -249,9 +249,14 @@ variable {dom : DomainConfig} {S α β : Type}
 /-- Record a next-cycle Signal for one register slot.  Repeat
     writes overwrite earlier ones via Slot.update's "stamp into
     the slot" semantics (last write wins, matching the macro). -/
-@[reducible, inline] def next (r : Reg dom S τ) (sig : Signal dom τ) : Circuit dom S Unit :=
+@[reducible, inline] def next [Inhabited S] (r : Reg dom S τ) (sig : Signal dom τ) :
+    Circuit dom S Unit :=
   fun b =>
-    let b' : NextBuilder dom S := fun live => r.slot.update sig (b live)
+    -- Memoize the per-cycle next-state Signal at each write
+    -- layer.  Without this, `b live` is re-evaluated multiple
+    -- times by the outer slot.update's bundle2 chain — the
+    -- exponential cost we fix in Compiler C2.
+    let b' : NextBuilder dom S := fun live => Signal.memoize (r.slot.update sig (b live))
     ((), b')
 
 /-- Type class capturing "things that can be the rhs of a
@@ -281,7 +286,7 @@ class AsSignal (dom : DomainConfig) (τ : Type) (α : Type) where
     or a bare `τ` value (lifted via `AsSignal`).  Replaces
     `next` at the user-visible API; `next` remains as the raw
     `Signal`-only form used internally. -/
-@[reducible, inline] def nextAny {α : Type} [AsSignal dom τ α]
+@[reducible, inline] def nextAny [Inhabited S] {α : Type} [AsSignal dom τ α]
     (r : Reg dom S τ) (val : α) : Circuit dom S Unit :=
   next r (AsSignal.toSignal val)
 
@@ -475,10 +480,17 @@ class SignalLeaves (ρ : Type) (dom : outParam DomainConfig) where
     fun n _ => n
   let stateLoop : Signal dom (HList αs) :=
     Signal.loop (α := HList αs) (fun live =>
-      let regs := mkRegList live αs idRead idWrite
+      -- Wrap `live` in `Signal.memoize` so each .val t is O(1).
+      -- Without this, the nested bundle2 / Signal.map chains
+      -- built by per-slot `update` references reach `live` up
+      -- to O(2^N) times per cycle, blowing simulation cost
+      -- exponentially in the number of `<~` writes
+      -- (Compiler C2 fix).
+      let liveCached := Signal.memoize live
+      let regs := mkRegList liveCached αs idRead idWrite
       let bResult := body regs id
       let b' : Circuit.NextBuilder dom (HList αs) := bResult.snd
-      let nextState : Signal dom (HList αs) := b' live
+      let nextState : Signal dom (HList αs) := Signal.memoize (b' liveCached)
       packRegister αs inits nextState)
   let regs := mkRegList stateLoop αs idRead idWrite
   (body regs id).fst

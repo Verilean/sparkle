@@ -1647,6 +1647,16 @@ mutual
       CompilerM.emitAssign resWire (.index (.ref vecWire) (.ref idxWire))
       return some resWire
 
+    -- Signal.memoize: simulation-only cache wrapper.  It's
+    -- functionally identity (returns its argument Signal
+    -- unchanged) — `runCircuitH` adds it to break the
+    -- Compiler C2 exponential evaluation cost.  Synthesis
+    -- treats it as a pass-through so it never reaches Verilog.
+    if name.toString.endsWith ".memoize" && args.size >= 1 then
+      trace[sparkle.compiler] "→ memoize (transparent for synth)"
+      let inner := args.back!
+      return some (← translateExprToWire inner "memoize_passthrough")
+
     -- Signal.loop
     if name.toString.endsWith ".loop" && args.size >= 1 then
       trace[sparkle.compiler] "→ loop"
