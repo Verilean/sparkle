@@ -29,7 +29,7 @@ namespace Sparkle.IP.Crypto.Ed25519Sign
 
 open Sparkle.IP.Crypto.SHA512 (sha512Bytes)
 open Sparkle.IP.Crypto.Ed25519Field (p)
-open Sparkle.IP.Crypto.Ed25519Point (Point base zero add mulScalar baseX baseY)
+open Sparkle.IP.Crypto.Ed25519Point (Point base zero add mulScalar baseX baseY pointDecode)
 
 /-- The curve order l per RFC 8032 §5.1. -/
 def curveOrderL : Nat :=
@@ -114,5 +114,41 @@ def derivePublicKey (privkey : Array UInt8) : Array UInt8 :=
   let clamped := clampScalar aBytes
   let a := leBytesToNat clamped
   pointEncode (mulScalar a base)
+
+/-- RFC 8032 §5.1.7 — verify(A, M, R || S).
+
+    1. Decode A → point P_A (reject on non-canonical encoding).
+    2. Decode R → point P_R (reject on non-canonical encoding).
+    3. Parse S as little-endian; reject if S ≥ L.
+    4. k = SHA-512(R || A || M) mod L.
+    5. Accept iff S·B = R + k·A.
+
+    Returns `true` on valid sig, `false` otherwise. -/
+def verify (pubkey msg sig : Array UInt8) : Bool := Id.run do
+  if pubkey.size ≠ 32 then return false
+  if sig.size ≠ 64 then return false
+  -- Step 1: decode public key.
+  let pa? := pointDecode pubkey
+  match pa? with
+  | none => return false
+  | some pa =>
+    -- Step 2: split sig into R-enc (32) and S-enc (32).
+    let rEnc := sig.extract 0 32
+    let sEnc := sig.extract 32 64
+    -- Step 3: decode R.
+    let pr? := pointDecode rEnc
+    match pr? with
+    | none => return false
+    | some pr =>
+      -- Parse S; reject if ≥ L.
+      let s := leBytesToNat sEnc
+      if s ≥ curveOrderL then return false
+      -- Step 4: k = SHA-512(R || A || M) mod L.
+      let k := modL (leBytesToNat (sha512Bytes (rEnc ++ pubkey ++ msg)))
+      -- Step 5: check S·B = R + k·A.
+      let lhs := mulScalar s base
+      let kA := mulScalar k pa
+      let rhs := add pr kA
+      return decide (lhs = rhs)
 
 end Sparkle.IP.Crypto.Ed25519Sign
