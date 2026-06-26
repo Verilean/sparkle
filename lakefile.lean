@@ -320,6 +320,10 @@ lean_exe «memcached-oracle-test» where
   root := `Tests.Drivers.MemcachedOracleTestMain
   supportInterpreter := true
 
+lean_exe «memcached-hw-test» where
+  root := `Tests.Drivers.MemcachedHWTestMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true

@@ -46,13 +46,13 @@ namespace Sparkle.IP.Net.Memcached
 
 /-! ### Compile-time limits. -/
 
-/-- Maximum key length in bytes. -/
-def MAX_KEY : Nat := 16
+/-- Maximum key length in bytes (= BitVec 64 in HW). -/
+def MAX_KEY : Nat := 8
 
-/-- Maximum value length in bytes. -/
-def MAX_VALUE : Nat := 64
+/-- Maximum value length in bytes (= BitVec 128 in HW). -/
+def MAX_VALUE : Nat := 16
 
-/-- Number of slots in the KV store. -/
+/-- Number of slots in the KV store (= BRAM addrW 4). -/
 def NUM_SLOTS : Nat := 16
 
 /-! ### Command AST. -/
