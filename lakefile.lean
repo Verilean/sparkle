@@ -428,6 +428,10 @@ lean_exe «iverilog-roundtrip-test» where
   root := `Tests.Drivers.IVerilogSimMain
   supportInterpreter := true
 
+lean_exe «can-hw-test» where
+  root := `Tests.Drivers.CANHWTestMain
+  supportInterpreter := true
+
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
