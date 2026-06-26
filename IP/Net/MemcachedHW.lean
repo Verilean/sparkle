@@ -180,18 +180,15 @@ def kvHw {dom : DomainConfig}
       writeSlot validData validWE readAddr
     -- 64-bit key BRAM (data = opKeyR, write gate = willWrite in EMIT)
     let keyWE := ((· && ·) <$> isEmit <*> willWrite : Signal dom Bool)
-    let keyData := Signal.map (fun (k : BitVec 64) => k) keyR_sig
     let keyRead := Signal.memory (addrWidth := 4) (dataWidth := 64)
-      writeSlot keyData keyWE readAddr
+      writeSlot keyR_sig keyWE readAddr
     -- 128-bit value BRAM
-    let valueData := Signal.map (fun (v : BitVec 128) => v) valueR_sig
     let valueRead := Signal.memory (addrWidth := 4) (dataWidth := 128)
-      writeSlot valueData keyWE readAddr
+      writeSlot valueR_sig keyWE readAddr
     -- For flags we keep one register-array: small enough to use
     -- another BRAM but a 32-bit × 16-entry memory works the same.
-    let flagsData := Signal.map (fun (f : BitVec 32) => f) flagsR_sig
     let flagsRead := Signal.memory (addrWidth := 4) (dataWidth := 32)
-      writeSlot flagsData keyWE readAddr
+      writeSlot flagsR_sig keyWE readAddr
 
     -- Compare current BRAM read against opKeyR.  BRAM has 1-cycle
     -- latency: cycle N sets readAddr=N, cycle N+1 we see slot N.
