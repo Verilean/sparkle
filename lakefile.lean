@@ -89,6 +89,11 @@ lean_lib «IP.Net» where
 lean_lib «IP.Crypto» where
   roots := #[`IP.Crypto]
 
+-- TLS 1.3 stack: record layer, handshake state machine.
+-- Builds on IP.Crypto (AES-GCM, HKDF, X25519, SHA-256).
+lean_lib «IP.TLS» where
+  roots := #[`IP.TLS]
+
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
@@ -247,6 +252,102 @@ lean_exe «ed25519-sign-test» where
   root := `Tests.Drivers.Ed25519SignTestMain
   supportInterpreter := true
 
+lean_exe «ed25519-verify-test» where
+  root := `Tests.Drivers.Ed25519VerifyTestMain
+  supportInterpreter := true
+
+lean_exe «p256-ecdsa-test» where
+  root := `Tests.Drivers.P256ECDSATestMain
+  supportInterpreter := true
+
+lean_exe «rsa-pss-test» where
+  root := `Tests.Drivers.RSAPSSTestMain
+  supportInterpreter := true
+
+lean_exe «x509-parser-test» where
+  root := `Tests.Drivers.X509ParserTestMain
+  supportInterpreter := true
+
+lean_exe «x509-verify-test» where
+  root := `Tests.Drivers.X509VerifyTestMain
+  supportInterpreter := true
+
+lean_exe «tls-client-server-test» where
+  root := `Tests.Drivers.TLSClientServerTestMain
+  supportInterpreter := true
+
+lean_exe «https-demo» where
+  root := `Tests.Drivers.HTTPSDemoMain
+  supportInterpreter := true
+
+lean_exe «can-test» where
+  root := `Tests.Drivers.CANTestMain
+  supportInterpreter := true
+
+lean_exe «canopen-test» where
+  root := `Tests.Drivers.CANopenTestMain
+  supportInterpreter := true
+
+lean_exe «dronecan-test» where
+  root := `Tests.Drivers.DroneCANTestMain
+  supportInterpreter := true
+
+lean_exe «serial-bus-test» where
+  root := `Tests.Drivers.SerialBusTestMain
+  supportInterpreter := true
+
+lean_exe «avionics-bus-test» where
+  root := `Tests.Drivers.AvionicsBusTestMain
+  supportInterpreter := true
+
+lean_exe «can-hw-test» where
+  root := `Tests.Drivers.CANHWTestMain
+  supportInterpreter := true
+
+lean_exe «x25519-test» where
+  root := `Tests.Drivers.X25519TestMain
+  supportInterpreter := true
+
+lean_exe «aes-test» where
+  root := `Tests.Drivers.AESTestMain
+  supportInterpreter := true
+
+lean_exe «ghash-test» where
+  root := `Tests.Drivers.GHASHTestMain
+  supportInterpreter := true
+
+lean_exe «ghash-hw-test» where
+  root := `Tests.Drivers.GHASHHWTestMain
+  supportInterpreter := true
+
+lean_exe «probe-ghash» where
+  root := `Tests.Drivers.ProbeGhashMain
+  supportInterpreter := true
+
+lean_exe «aes-gcm-test» where
+  root := `Tests.Drivers.AESGCMTestMain
+  supportInterpreter := true
+
+lean_exe «hkdf-test» where
+  root := `Tests.Drivers.HKDFTestMain
+  supportInterpreter := true
+
+lean_exe «tls-keysched-test» where
+  root := `Tests.Drivers.TLSKeyScheduleTestMain
+  supportInterpreter := true
+
+lean_exe «tls-client-fsm-test» where
+  root := `Tests.Drivers.TLSClientFsmTestMain
+  supportInterpreter := true
+
+lean_exe «hft-over-tls-test» where
+  root := `Tests.Drivers.HFTOverTLSTestMain
+  supportInterpreter := true
+
+lean_exe «tls-x509-test» where
+  root := `Tests.Drivers.TLSX509TestMain
+  supportInterpreter := true
+
 lean_exe «sha512-check» where
   root := `Tests.Drivers.Sha512CheckMain
   supportInterpreter := true
@@ -277,6 +378,10 @@ lean_exe «pcie-test» where
 
 lean_exe «pcie-hft-test» where
   root := `Tests.Drivers.PCIeHFTTestMain
+  supportInterpreter := true
+
+lean_exe «sim-cost» where
+  root := `Tests.Drivers.SimCostMain
   supportInterpreter := true
 
 lean_exe «sparkle-bitnet-verilog-dump» where
@@ -426,10 +531,6 @@ lean_exe «drone-closed-loop-test» where
 
 lean_exe «iverilog-roundtrip-test» where
   root := `Tests.Drivers.IVerilogSimMain
-  supportInterpreter := true
-
-lean_exe «can-hw-test» where
-  root := `Tests.Drivers.CANHWTestMain
   supportInterpreter := true
 
 @[test_driver]
