@@ -322,12 +322,15 @@ def memcachedServer {dom : DomainConfig}
     let byteIsCR := ((· == ·) <$> inByte <*> pCR : Signal dom Bool)
     let byteIsLF := ((· == ·) <$> inByte <*> pLF : Signal dom Bool)
     let byteIsCROrLF := ((· || ·) <$> byteIsCR <*> byteIsLF : Signal dom Bool)
-    let validAndIs := fun pred =>
-      ((· && ·) <$> inValid <*> pred : Signal dom Bool)
+
+    -- (validAndIs was a let-bound lambda; the synth elaborator
+    -- doesn't unfold lambda-let bindings cleanly, so we inline
+    -- the `inValid && pred` pattern at each call site below.)
 
     -- VERB state: consume bytes until first space.  Transition
     -- to KEY collection.
-    let verbDone := ((· && ·) <$> inVerb <*> validAndIs byteIsSP : Signal dom Bool)
+    let verbDone := ((· && ·) <$> inVerb <*>
+      ((· && ·) <$> inValid <*> byteIsSP : Signal dom Bool) : Signal dom Bool)
     -- KEY state: shift bytes into keyReg.  On space → SKIP (set/add)
     --   or CRLF → FINAL (get/delete).
     let keyShift := ((· && ·) <$> inKey <*>
@@ -340,12 +343,15 @@ def memcachedServer {dom : DomainConfig}
     let keyShifted := ((· <<< ·) <$> keySig <*> p8 : Signal dom (BitVec 64))
     let inByte64 := Signal.map (fun (b : BitVec 8) => BitVec.append (0#56) b) inByte
     let keyNew := ((· ||| ·) <$> keyShifted <*> inByte64 : Signal dom (BitVec 64))
-    let keyEndSp := ((· && ·) <$> inKey <*> validAndIs byteIsSP : Signal dom Bool)
-    let keyEndCR := ((· && ·) <$> inKey <*> validAndIs byteIsCR : Signal dom Bool)
+    let keyEndSp := ((· && ·) <$> inKey <*>
+      ((· && ·) <$> inValid <*> byteIsSP : Signal dom Bool) : Signal dom Bool)
+    let keyEndCR := ((· && ·) <$> inKey <*>
+      ((· && ·) <$> inValid <*> byteIsCR : Signal dom Bool) : Signal dom Bool)
 
     -- SKIP state: skip set/add args (flags, exptime, bytes) until
     -- CRLF.  We don't parse them — simplification.
-    let skipDone := ((· && ·) <$> inSkip <*> validAndIs byteIsLF : Signal dom Bool)
+    let skipDone := ((· && ·) <$> inSkip <*>
+      ((· && ·) <$> inValid <*> byteIsLF : Signal dom Bool) : Signal dom Bool)
     -- After SKIP we enter VAL state with valueCnt=0; collect 16
     -- value bytes (or until CR).
     -- VAL state: shift bytes into valueReg until cnt=16 or CR.
@@ -364,13 +370,15 @@ def memcachedServer {dom : DomainConfig}
       (fun (b : BitVec 8) => BitVec.append (0#120 : BitVec 120) b) inByte
     let valueNew := ((· ||| ·) <$> valueShifted <*> inByte128 : Signal dom (BitVec 128))
     -- VAL done: byte is CR OR cnt is 16 → go to FINAL.
+    let validAndCR := ((· && ·) <$> inValid <*> byteIsCR : Signal dom Bool)
+    let validAndCntDone := ((· && ·) <$> inValid <*> cntDone : Signal dom Bool)
     let valDone := ((· && ·) <$> inVal <*>
-      ((· || ·) <$> (validAndIs byteIsCR) <*>
-        (validAndIs cntDone : Signal dom Bool) : Signal dom Bool)
+      ((· || ·) <$> validAndCR <*> validAndCntDone : Signal dom Bool)
       : Signal dom Bool)
 
     -- FINAL state: wait for LF, then dispatch.
-    let finalDone := ((· && ·) <$> inFinal <*> validAndIs byteIsLF : Signal dom Bool)
+    let finalDone := ((· && ·) <$> inFinal <*>
+      ((· && ·) <$> inValid <*> byteIsLF : Signal dom Bool) : Signal dom Bool)
 
     -- For set/add we go from KEY → SKIP via space, then SKIP → VAL via LF,
     -- then VAL → FINAL via CR, then FINAL → DISPATCH via LF.
