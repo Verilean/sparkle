@@ -693,6 +693,47 @@ opaque memoryWithInit {addrWidth dataWidth : Nat}
 -- Uses memoized evaluation via C FFI barriers (cacheGet/evalSignalAt)
 -- to prevent stack overflow during simulation. The pure `Signal dom α`
 -- signature is preserved via `unsafeIO` in the returned signal.
+--
+-- ─── Sim-speed caveat (`BitVec n` for n > 64) ─────────────────────
+-- Lean 4.28 stores `BitVec n` as a Nat under the hood, so every
+-- `>>>`, `<<<`, `&&&`, `^^^`, `==` allocates a fresh Nat object
+-- and goes through GMP-style multi-precision arithmetic.  For
+-- `BitVec 128` this costs ~1ms per primitive op, and a typical
+-- HW engine cycle invokes ~20 ops, giving ~20ms per cycle for
+-- 128-bit-wide designs.  Concretely:
+--
+--   * 32-bit-wide SHA-256 HW engine (19 reg + 64-way kMux + 512-bit
+--     wBuf, run for 70 cycles) — 3.8 s total.  Fast.
+--   * 128-bit GHASH gmulHW (single Signal.loop, 5 regs) —
+--     ~0ms/cycle up to t≈500 (cache pre-warmed), then ~360ms/cycle
+--     for fresh fills.
+--   * 128-bit ghashFullHW (nested gmulHW inside an outer FSM) —
+--     ~60 s for a single `result.val 131` sample (one block × 130
+--     inner cycles).
+--
+-- This is a Lean Nat representation cost, not a Sparkle DSL bug,
+-- and does NOT affect production paths:
+--   * `#synthesizeVerilog` (the synth elaborator) does NOT execute
+--     any of this code at all — it walks IR types.
+--   * `#verify_fpga` / `#verify_cost` likewise stay in IR-space.
+--   * Pure-data crypto references (e.g. SHA256, AES, GHASH.gmul)
+--     loop over BitVec at the data level, not the Signal level —
+--     they're fine because they use plain Nat ops without the
+--     extra Signal-Layer overhead.
+--
+-- If sim speed for wide-BitVec HW becomes a problem in practice,
+-- options (none yet attempted):
+--   (a) Add `@[extern]` C primitives for BitVec128 shift/xor/eq
+--       and let `Signal.map (· ^^^ ·)` inline through them.
+--   (b) Represent `Signal dom (BitVec n)` for n ≤ 128 internally
+--       as `Signal dom (UInt64 × UInt64)` with explicit conversion
+--       at observe time.
+--   (c) Use Verilog/iverilog through `#writeVerilogDesign` for
+--       cycle-accurate sim of large designs (already supported).
+-- Sticking with (c) by default — Sparkle's HW DSL value is in
+-- synthesis + formal verify, not native-Lean cycle-by-cycle sim
+-- for huge designs.
+-- ──────────────────────────────────────────────────────────────────
 private unsafe def loopImpl {dom : DomainConfig} {α : Type} [Inhabited α]
     (f : Signal dom α → Signal dom α) : Signal dom α :=
   match unsafeIO (loopMemoCore f) with
@@ -734,6 +775,46 @@ where
 
 @[implemented_by loopImpl]
 opaque loop {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
+
+/-- Memoize an existing Signal so each `.val t` is computed
+    at most once.  Same C-FFI cache trick as `loop`, but for
+    a plain (non-fixpoint) Signal.  Used by `runCircuitH` to
+    break the O(2^N) blow-up that happens when the per-cycle
+    next-state Signal references `live` N times via deeply
+    nested `bundle2` / `Signal.map` chains.
+
+    Functionally identical to its argument; only the
+    evaluation cost differs (cached after first hit per `t`). -/
+private unsafe def memoizeImpl {dom : DomainConfig} {α : Type} [Inhabited α]
+    (s : Signal dom α) : Signal dom α :=
+  match unsafeIO (memoizeCore s) with
+  | .ok sig => sig
+  | .error _ => default
+where
+  memoizeCore (s : Signal dom α) : IO (Signal dom α) := do
+    let cacheRef ← IO.mkRef (#[] : Array α)
+    let cacheSizeRef ← IO.mkRef (0 : Nat)
+    let evalAt (t : Nat) : IO α := do
+      let sz ← cacheSizeRef.get
+      if t < sz then
+        let arr ← cacheRef.get
+        return if h : t < arr.size then arr[t] else default
+      else
+        for i in [sz:t + 1] do
+          let v ← evalSignalAt s.val i
+          let arr ← cacheRef.swap #[]
+          cacheRef.set (arr.push v)
+        cacheSizeRef.set (t + 1)
+        let arr ← cacheRef.get
+        return if h : t < arr.size then arr[t] else default
+    return ⟨fun t =>
+      match unsafeIO (evalAt t) with
+      | .ok v => v
+      | .error _ => default⟩
+
+@[implemented_by memoizeImpl]
+opaque memoize {dom : DomainConfig} {α : Type} [Inhabited α]
+    (s : Signal dom α) : Signal dom α
 
 /--
   Memoized fixed-point combinator for feedback loops (IO variant).
