@@ -118,4 +118,66 @@ def onCurve (pt : Point) : Bool :=
   let rhs := fAdd 1 (fMul d (fMul x2 y2))
   decide (lhs = rhs)
 
+/-! ### Point decompression (RFC 8032 §5.1.3).
+
+    Given 32 little-endian bytes encoding y (low 255 bits)
+    with the top bit of byte 31 holding x_0 (= parity of x),
+    recover the full (x, y) point.
+
+    For p = 2^255 - 19, p ≡ 5 (mod 8), so we can compute
+    square roots via x = u·v³·(u·v⁷)^((p-5)/8) per RFC 8032
+    §5.1.1, then fix parity.
+-/
+
+/-- I = 2^((p-1)/4) mod p — fourth root of unity.  Used to
+    fix-up the square-root candidate when the first guess
+    doesn't satisfy x² = a. -/
+def fI : Nat :=
+  Sparkle.IP.Crypto.Ed25519Field.powMod 2 ((Sparkle.IP.Crypto.Ed25519Field.p - 1) / 4)
+
+/-- Recover the curve point from 32-byte little-endian
+    encoding.  Returns `none` on:
+      - non-canonical encoding (y ≥ p), or
+      - no valid x (curve membership fails after candidate
+        selection).
+    Matches RFC 8032 §5.1.3 "Decoding". -/
+def pointDecode (bytes : Array UInt8) : Option Point := Id.run do
+  if bytes.size ≠ 32 then return none
+  -- y is the low 255 bits, x_0 is bit 7 of byte 31.
+  let mut yBytes := bytes
+  let last := bytes[31]!.toNat
+  let x0 := (last >>> 7) &&& 1
+  yBytes := yBytes.set! 31 (UInt8.ofNat (last &&& 0x7F))
+  -- Decode y as little-endian Nat.
+  let mut y : Nat := 0
+  for i in [:32] do
+    y := y ||| (yBytes[i]!.toNat <<< (i * 8))
+  -- Reject non-canonical y ≥ p.
+  if y ≥ fP then return none
+  -- u = y² - 1, v = d·y² + 1.
+  let y2 := fSq y
+  let u := fSub y2 1
+  let v := fAdd (fMul d y2) 1
+  -- Compute x = u · v³ · (u · v⁷)^((p-5)/8) per §5.1.1.
+  let v2 := fSq v
+  let v3 := fMul v v2
+  let v7 := fMul v3 (fMul v3 v)
+  let uv7 := fMul u v7
+  let exp := (fP - 5) / 8
+  let pow := Sparkle.IP.Crypto.Ed25519Field.powMod uv7 exp
+  let mut x := fMul (fMul u v3) pow
+  -- Check x² · v == u (mod p).  If x² · v == -u, multiply by I.
+  let vx2 := fMul v (fSq x)
+  if vx2 = u then
+    pure ()
+  else if vx2 = fSub 0 u then
+    x := fMul x fI
+  else
+    return none
+  -- Fix parity: if (x mod 2) ≠ x0, replace with -x.
+  if x % 2 ≠ x0 then
+    if x = 0 then return none  -- can't pick -0 with x0=1
+    x := fSub 0 x
+  return some { x := x, y := y }
+
 end Sparkle.IP.Crypto.Ed25519Point
