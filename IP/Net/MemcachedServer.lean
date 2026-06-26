@@ -155,49 +155,20 @@ private def errorByte {dom : DomainConfig}
     Signal.pure 0x52#8, Signal.pure 0x0D#8, Signal.pure 0x0A#8
   ]
 
-/-- VALUE reply, offsets 0..36:
-      0..13:  "VALUE k 0 16\r\n"   (14 bytes — header + space + key + space + "0" + space + "16" + CRLF)
-      14..29: 16 bytes of value (byte i = value[15-i])
-      30..36: "\r\nEND\r\n"
--/
-private def valueByteFixed {dom : DomainConfig}
-    (phase : Signal dom (BitVec 6)) : Signal dom (BitVec 8) :=
-  kLut! phase [
-    -- "VALUE k 0 16\r\n" — 14 bytes
-    Signal.pure 0x56#8, Signal.pure 0x41#8, Signal.pure 0x4C#8, Signal.pure 0x55#8,
-    Signal.pure 0x45#8, Signal.pure 0x20#8,                       -- "VALUE "
-    Signal.pure 0x6B#8,                                            -- 'k'
-    Signal.pure 0x20#8, Signal.pure 0x30#8, Signal.pure 0x20#8,    -- " 0 "
-    Signal.pure 0x31#8, Signal.pure 0x36#8,                        -- "16"
-    Signal.pure 0x0D#8, Signal.pure 0x0A#8,                        -- CRLF
-    -- 16 placeholders for value bytes (filled from kvHw.replyValue
-    -- by a separate mux; this LUT entry value is unused for these
-    -- offsets).
-    Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8,
-    Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8,
-    Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8,
-    Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8, Signal.pure 0#8,
-    -- "\r\nEND\r\n" — 7 bytes
-    Signal.pure 0x0D#8, Signal.pure 0x0A#8,
-    Signal.pure 0x45#8, Signal.pure 0x4E#8, Signal.pure 0x44#8,
-    Signal.pure 0x0D#8, Signal.pure 0x0A#8
-  ]
-
-/-- Extract byte (15 - i) from a BitVec 128, indexed by phase
-    14..29.  i.e. valueOffset = phase - 14.  We build it as a
-    16-way mux over the lower 4 bits of (phase - 14). -/
-private def valueByteFromV {dom : DomainConfig}
+/-- Build the VALUE reply byte: phase 0..36 maps directly into
+    one big 37-entry mux.  Entries 0..13 = fixed header bytes,
+    14..29 = byte from `value` at MSB-first offset (phase-14),
+    30..36 = "\r\nEND\r\n" tail. -/
+private def valueByte {dom : DomainConfig}
     (phase : Signal dom (BitVec 6))
     (value : Signal dom (BitVec 128)) : Signal dom (BitVec 8) :=
-  let p14 := (Signal.pure 14#6 : Signal dom (BitVec 6))
-  let idx6 := ((· - ·) <$> phase <*> p14 : Signal dom (BitVec 6))
-  -- byte index in [0..15]; truncate to 4 bits
-  let idx := Signal.map (BitVec.extractLsb' 0 4 ·) idx6
-  -- byte at MSB position (15 - idx) of a 128-bit MSB-aligned value:
-  --   byte 0 = bits [127:120] = (value >>> 120) & 0xFF
-  --   byte 15 = bits [7:0]    = value & 0xFF
-  -- We pre-extract 16 byte slices via kLut over `idx` (0..15).
-  kLut! idx [
+  kLut! phase [
+    -- 0..13: "VALUE k 0 16\r\n"
+    Signal.pure 0x56#8, Signal.pure 0x41#8, Signal.pure 0x4C#8, Signal.pure 0x55#8,
+    Signal.pure 0x45#8, Signal.pure 0x20#8, Signal.pure 0x6B#8, Signal.pure 0x20#8,
+    Signal.pure 0x30#8, Signal.pure 0x20#8, Signal.pure 0x31#8, Signal.pure 0x36#8,
+    Signal.pure 0x0D#8, Signal.pure 0x0A#8,
+    -- 14..29: 16 bytes of value (MSB-first)
     Signal.map (fun (v : BitVec 128) => BitVec.extractLsb' 120 8 v) value,
     Signal.map (fun (v : BitVec 128) => BitVec.extractLsb' 112 8 v) value,
     Signal.map (fun (v : BitVec 128) => BitVec.extractLsb' 104 8 v) value,
@@ -213,27 +184,12 @@ private def valueByteFromV {dom : DomainConfig}
     Signal.map (fun (v : BitVec 128) => BitVec.extractLsb'  24 8 v) value,
     Signal.map (fun (v : BitVec 128) => BitVec.extractLsb'  16 8 v) value,
     Signal.map (fun (v : BitVec 128) => BitVec.extractLsb'   8 8 v) value,
-    Signal.map (fun (v : BitVec 128) => BitVec.extractLsb'   0 8 v) value
+    Signal.map (fun (v : BitVec 128) => BitVec.extractLsb'   0 8 v) value,
+    -- 30..36: "\r\nEND\r\n"
+    Signal.pure 0x0D#8, Signal.pure 0x0A#8,
+    Signal.pure 0x45#8, Signal.pure 0x4E#8, Signal.pure 0x44#8,
+    Signal.pure 0x0D#8, Signal.pure 0x0A#8
   ]
-
-/-- Build the VALUE reply byte: header from valueByteFixed for
-    phase 0..13 and 30..36; value bytes from valueByteFromV for
-    phase 14..29. -/
-private def valueByte {dom : DomainConfig}
-    (phase : Signal dom (BitVec 6))
-    (value : Signal dom (BitVec 128)) : Signal dom (BitVec 8) :=
-  let p14 := (Signal.pure 14#6 : Signal dom (BitVec 6))
-  let p30 := (Signal.pure 30#6 : Signal dom (BitVec 6))
-  let isHeader :=
-    ((fun a b => decide (a.toNat < b.toNat)) <$> phase <*> p14 : Signal dom Bool)
-  let isTail :=
-    ((fun a b => decide (a.toNat ≥ b.toNat)) <$> phase <*> p30 : Signal dom Bool)
-  let isValuePart :=
-    ((· && ·) <$>
-      ((fun b => !b) <$> isHeader : Signal dom Bool) <*>
-      ((fun b => !b) <$> isTail : Signal dom Bool)
-      : Signal dom Bool)
-  Signal.mux isValuePart (valueByteFromV phase value) (valueByteFixed phase)
 
 /-- Top-level reply byte for any kind, given phase + value. -/
 def replyByteOf {dom : DomainConfig}
