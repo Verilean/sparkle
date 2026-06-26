@@ -304,6 +304,14 @@ lean_exe «can-hw-test» where
   root := `Tests.Drivers.CANHWTestMain
   supportInterpreter := true
 
+lean_exe «uart-test» where
+  root := `Tests.Drivers.UARTTestMain
+  supportInterpreter := true
+
+lean_exe «slip-test» where
+  root := `Tests.Drivers.SLIPTestMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true
