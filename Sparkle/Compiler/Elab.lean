@@ -1881,6 +1881,9 @@ mutual
     let optedIntoModule := Sparkle.Compiler.isHardwareModule env name
 
     -- Helper: try the "unfold and translate inline" path — the default.
+    -- Returns the wire on success, or stashes the deepest captured
+    -- inline failure for the outer error message.
+    let lastInlineFail : IO.Ref (Option String) ← IO.mkRef none
     let tryInline : CompilerM (Option String) := do
       let eReduced ← CompilerM.liftMetaM do
         match ← Lean.Meta.unfoldDefinition? e with
@@ -1890,7 +1893,8 @@ mutual
         try
           let w ← translateExprToWire eReduced hint (isNamed := isNamed)
           return some w
-        catch _ex1 =>
+        catch ex1 =>
+          lastInlineFail.set (some (← ex1.toMessageData.toString))
           -- Inline expansion failed (often due to mixed Signal/BitVec operators
           -- inside the expanded body). Retry with reducible transparency to
           -- prevent over-expansion of Signal.pure and OfNat instances.
@@ -1905,7 +1909,8 @@ mutual
               return some w
             else
               return none
-          catch _ex2 =>
+          catch ex2 =>
+            lastInlineFail.set (some (← ex2.toMessageData.toString))
             return none
       else
         return none
@@ -1935,8 +1940,13 @@ mutual
           catch _ => pure none
     match subResult? with
     | none =>
+      let lastFail ← lastInlineFail.get
+      let detail :=
+        match lastFail with
+        | some msg => s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
+        | none => ""
       CompilerM.liftMetaM $ throwError
-        s!"Cannot synthesise {name}: not inlinable and not a hardware module"
+        s!"Cannot synthesise {name}: not inlinable and not a hardware module.{detail}"
     | some (subModule, subDesign) =>
 
     trace[sparkle.compiler] "→ sub-module synthesis {name}"
