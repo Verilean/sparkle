@@ -406,9 +406,16 @@ def memcachedServer {dom : DomainConfig}
     -- For now flags hardcoded to 0.
     let opFlagsSig := (Signal.pure 0#32 : Signal dom (BitVec 32))
     let engine := kvHw opStartPulse codeSig keySig valueSig opFlagsSig
+    -- Bind each engine field to a local Signal so the synth
+    -- elaborator's `<$>` / `<*>` handlers see plain Signal
+    -- references rather than nested structure projections (the
+    -- latter trip up the Seq.seq path).
+    let engineReplyValid := engine.replyValid
+    let engineReplyKind  := engine.replyKind
+    let engineReplyValue := engine.replyValue
 
     -- WAIT → EMIT on engine.replyValid.
-    let waitDone := ((· && ·) <$> inWait <*> engine.replyValid : Signal dom Bool)
+    let waitDone := ((· && ·) <$> inWait <*> engineReplyValid : Signal dom Bool)
 
     -- Reply length lookup (from latched replyKindR).
     let replyLen := replyLenOf rkSig
@@ -459,8 +466,8 @@ def memcachedServer {dom : DomainConfig}
         (Signal.mux inEmit phasePlus1 phaseSig)
 
     -- Latch reply kind + value at the cycle replyValid pulses.
-    let rkNext := Signal.mux engine.replyValid engine.replyKind rkSig
-    let rvNext := Signal.mux engine.replyValid engine.replyValue rvSig
+    let rkNext := Signal.mux engineReplyValid engineReplyKind rkSig
+    let rvNext := Signal.mux engineReplyValid engineReplyValue rvSig
 
     st <~ stNext
     keyReg <~ keyNext
