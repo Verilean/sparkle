@@ -252,6 +252,10 @@ lean_exe «eip1559-tx-test» where
   root := `Tests.Drivers.Eip1559TxTestMain
   supportInterpreter := true
 
+lean_exe «erc20-abi-test» where
+  root := `Tests.Drivers.Erc20AbiTestMain
+  supportInterpreter := true
+
 lean_exe «ed25519-field-test» where
   root := `Tests.Drivers.Ed25519FieldTestMain
   supportInterpreter := true
