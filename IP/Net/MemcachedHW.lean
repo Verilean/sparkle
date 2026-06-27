@@ -79,7 +79,7 @@ instance {dom : DomainConfig} :
       4..7 = unused
 -/
 
-def kvHw {dom : DomainConfig}
+@[hardware_module] def kvHw {dom : DomainConfig}
     (opStart : Signal dom Bool)
     (opCode  : Signal dom (BitVec 2))
     (opKey   : Signal dom (BitVec 64))

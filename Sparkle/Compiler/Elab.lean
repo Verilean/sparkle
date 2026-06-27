@@ -480,6 +480,14 @@ private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
     memoize chain.  Use this to detect and abort cleanly. -/
 private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← IO.mkRef {}
 
+/-- Map from `let`-bound HW fvar names back to their defining
+    expressions.  Populated by the HW-let branch of
+    handleDefinitionUnfold when it sees `let engine := kvHw …`,
+    consumed by the multi-output sub-module projection shortcut
+    so `engine.replyValid` can recover the underlying `kvHw …`
+    call and instantiate it as a sub-module. -/
+private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
+
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
     cost in handleTupleProjections / handleApplicative / handleMux
     (typeclass-instance search fires per call); the same `e` is
@@ -1326,6 +1334,12 @@ mutual
         let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
+          -- Also remember (fvar → defining expression) for
+          -- downstream handlers that need to recover the original
+          -- expression (e.g. struct-projection on a sub-module
+          -- call result).  Done as a side-effect on a global map
+          -- to avoid signature changes across the elaborator.
+          CompilerM.liftMetaM (sparkleFvarValueMap.modify (·.insert fvarId.name value))
           CompilerM.withVarMapping fvarId valueWire do
             let bodyInst := body.instantiate1 fvar
             translateExprToWire bodyInst hint isTopLevel isNamed
@@ -1949,15 +1963,103 @@ mutual
     -- Always inline projections through `unfoldDefinition?` and
     -- never fall back to sub-module synthesis.
     if let some structName := env.getProjectionStructureName? name then
-      -- Structure projections only "fire" once their record
-      -- argument reduces to a `.mk` constructor.  The record arg
-      -- is often an opaque `def` call (e.g. `rxFramer …`) whose
-      -- body itself unfolds to `runCircuitH …`, which has to be
-      -- further reduced before iota fires.  Repeatedly unfold +
-      -- whnf the record arg until either (a) its head is the
-      -- structure's `.mk` constructor, (b) we hit a fixed point,
-      -- or (c) a step-budget runs out (guards against divergence
-      -- on pathological terms).
+      -- Multi-output sub-module shortcut: if the projection's
+      -- record argument is a direct call to an `@[hardware_module]`
+      -- def whose return type is the same struct, we can avoid
+      -- the whnf unfold (which is expensive and step-limited)
+      -- by emitting a sub-module instance and pulling the field
+      -- straight from the corresponding output port.
+      if args.size >= 1 then
+        -- The record arg might be:
+        --   • a literal application like `kvHw a b c d e`
+        --   • an fvar (`engine`) introduced by a `let engine := kvHw …`
+        --     binding.  Sparkle's HW-let elaborator binds these
+        --     with `withLocalDecl` (no value in lctx) but records
+        --     the defining expression in sparkleFvarValueMap.
+        -- Try the global value map first; fall back to lctx.value?
+        -- for non-Sparkle let bindings.
+        let recordArgRaw := args.back!
+        let mut recordArg := recordArgRaw
+        if recordArg.isFVar then
+          let fvarId := recordArg.fvarId!
+          let fvarMap ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
+          match fvarMap.get? fvarId.name with
+          | some val => recordArg := val
+          | none =>
+            let val? ← CompilerM.liftMetaM do
+              let lctx ← getLCtx
+              match lctx.find? fvarId with
+              | some decl => return decl.value?
+              | none => return none
+            if let some val := val? then
+              recordArg := val
+        let recFn := recordArg.getAppFn
+        trace[sparkle.compiler] "→ projection {name}: recordArg head = {recFn}"
+        if let .const recName _ := recFn then
+          let isHW := Sparkle.Compiler.isHardwareModule env recName
+          trace[sparkle.compiler] "→ projection: recName={recName} isHardwareModule={isHW}"
+          if isHW then
+            -- Synthesise the sub-module (cached internally), look
+            -- up the field name on the projection, and bind a
+            -- wire that's connected to the sub-module instance's
+            -- matching output port.
+            try
+              let (subModule, subDesign) ← CompilerM.liftMetaM (synthesizeCombinational recName)
+              let env' ← getEnv
+              let some projInfo := env'.getProjectionFnInfo? name
+                | pure ()
+              let some indVal ← (try some <$> CompilerM.liftMetaM (getConstInfoInduct structName) catch _ => pure none)
+                | pure ()
+              let ctorName := indVal.ctors.head!
+              let ctorInfo ← CompilerM.liftMetaM (getConstInfoCtor ctorName)
+              let fieldName ← CompilerM.liftMetaM do
+                Lean.Meta.forallTelescopeReducing ctorInfo.type fun fargs _ => do
+                  let allFields := fargs.toList.drop indVal.numParams
+                  if h : projInfo.i < allFields.length then
+                    return (← allFields[projInfo.i].fvarId!.getUserName).toString
+                  else
+                    return s!"field{projInfo.i}"
+              -- Add the child's transitive modules + child itself.
+              let existing := (← get).design.modules.map (·.name)
+              for m in subDesign.modules do
+                if !existing.contains m.name then
+                  CompilerM.addModuleToDesign m
+              if !existing.contains subModule.name &&
+                 !((← get).design.modules.any (·.name == subModule.name)) then
+                CompilerM.addModuleToDesign subModule
+              -- Connect inputs (= recordArg's args, after the
+              -- structure's type-class implicits).
+              let recArgs := recordArg.getAppArgs
+              let mut connections := []
+              for p in subModule.inputs do
+                if p.name == "clk" || p.name == "rst" then
+                  let parent := (← get).module
+                  if !parent.inputs.any (·.name == p.name) then
+                    CompilerM.addInput p.name p.ty
+                  connections := (p.name, Sparkle.IR.AST.Expr.ref p.name) :: connections
+              let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
+              if recArgs.size >= inputPorts.length then
+                for i in [:inputPorts.length] do
+                  let argExpr := recArgs[recArgs.size - inputPorts.length + i]!
+                  let argWire ← translateExprToWire argExpr s!"arg{i}"
+                  connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
+              -- Allocate one wire per output port; remember the
+              -- one matching `fieldName`.
+              let mut targetWire : Option String := none
+              for outP in subModule.outputs do
+                let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
+                connections := (outP.name, Sparkle.IR.AST.Expr.ref w) :: connections
+                if outP.name == fieldName then
+                  targetWire := some w
+              let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+              CompilerM.emitInstance subModule.name instName connections.reverse
+              match targetWire with
+              | some w => return some w
+              | none => pure ()
+            catch _ => pure ()
+      -- Standard path (no multi-output shortcut): reduce the
+      -- record arg until a `.mk` constructor appears, then pull
+      -- the field directly.  Same as the original implementation.
       if args.size >= 1 then
         let recordArg := args.back!
         let mkName := structName ++ `mk
