@@ -696,7 +696,12 @@ mutual
     -- than hanging silently.  Tunable via SPARKLE_TRANSLATE_LIMIT.
     let limit ← CompilerM.liftMetaM do
       let envS ← IO.getEnv "SPARKLE_TRANSLATE_LIMIT"
-      return envS.bind String.toNat? |>.getD 500000
+      -- Default raised from 500_000 to 32_000_000 after empirical
+      -- observation that legitimate large IPs (memcached server
+      -- top-level with kvHw sub-module + 8-register FSM + 37-entry
+      -- response mux) need ~1-10M recursive translate calls.
+      -- The lower cap was creating false "hang" diagnoses.
+      return envS.bind String.toNat? |>.getD 32_000_000
     if callN > limit then
       CompilerM.liftMetaM $ throwError
         s!"Sparkle synth elaborator exceeded {limit} recursive translateExprToWire calls (likely runaway inline loop on hint={hint}).\n\nSet SPARKLE_TRANSLATE_LIMIT to raise the cap, or set `set_option trace.sparkle.compiler true` and grep for the deepest cycle to find the offending sub-expression."
@@ -2031,6 +2036,19 @@ mutual
     if !isValidDef then return none
 
     let env ← CompilerM.liftMetaM getEnv
+
+    -- Debugging hook: log hw-module call sites for cache-miss
+    -- diagnosis.  Activated only when env var
+    -- SPARKLE_DEBUG_HWCALL=1 to keep the normal trace clean.
+    if Sparkle.Compiler.isHardwareModule env name then
+      let dbg ← CompilerM.liftMetaM (do
+        let s ← IO.getEnv "SPARKLE_DEBUG_HWCALL"
+        return s.isSome)
+      if dbg then
+        let cache ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+        CompilerM.liftMetaM $ IO.eprintln
+          s!"[hwcall-dbg] {name} eHash={e.hash} args.size={args.size} subInstanceMap.size={cache.size}"
+        CompilerM.liftMetaM (← IO.getStderr).flush
     -- Structure field accessors (e.g. `RxOut.dmac`) are valid
     -- `defnInfo`s but they have a different calling convention
     -- than a hardware function: the value-level arg is the
