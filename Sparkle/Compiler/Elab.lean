@@ -685,24 +685,32 @@ mutual
     let cacheable := !isNamed && !e.isFVar && !isTopLevel
     if cacheable then
       if let some ref := cacheRef? then
-        let cache ← CompilerM.liftMetaM (ref.get : IO _)
-        if let some w := cache.get? ⟨e⟩ then
+        -- Lookup: don't bind `cache` to a let — that creates
+        -- a second reference that survives until the end of
+        -- the function, forcing `ref.modify` below to
+        -- copy-on-write the entire HashMap (O(n) per insert,
+        -- O(n²) overall on FSM-shape circuits).  Use the
+        -- short-lived expression form so the read result is
+        -- dropped immediately on cache miss.
+        let lookupResult ← CompilerM.liftMetaM do
+          let cache ← (ref.get : IO _)
+          match cache.get? ⟨e⟩ with
+          | some w => return some w
+          | none =>
+            let eStripped := e.consumeMData
+            if !(eStripped == e) then
+              return cache.get? ⟨eStripped⟩
+            else
+              return none
+        match lookupResult with
+        | some w =>
           CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
           return w
-        let eStripped := e.consumeMData
-        if !(eStripped == e) then
-          if let some w := cache.get? ⟨eStripped⟩ then
-            CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
-            return w
+        | none => pure ()
     let r ← translateExprToWireImpl e hint isTopLevel isNamed
     if cacheable then
       if let some ref := cacheRef? then
-        -- Use swap + set to avoid `modify`'s copy-on-write when
-        -- the HashMap's refcount is > 1 (a stale handle from
-        -- `let cache ← ref.get` above keeps it alive, triggering
-        -- a full table copy per insert — quadratic in cache size).
-        let cur ← CompilerM.liftMetaM (ref.swap {})
-        CompilerM.liftMetaM (ref.set (cur.insert ⟨e⟩ r))
+        CompilerM.liftMetaM (ref.modify (·.insert ⟨e⟩ r))
     return r
 
   partial def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
