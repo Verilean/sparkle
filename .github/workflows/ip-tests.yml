@@ -80,7 +80,7 @@ jobs:
 
           - group: crypto
             exes: >-
-              sha256-test sha512-check
+              sha256-test sha512-check keccak256-test rlp-test
               aes-test aes-gcm-test ghash-test ghash-hw-test
               hkdf-test x25519-test
               ed25519-field-test ed25519-point-test ed25519-sign-test

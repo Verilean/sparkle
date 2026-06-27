@@ -240,6 +240,14 @@ lean_exe «sha256-test» where
   root := `Tests.Drivers.SHA256TestMain
   supportInterpreter := true
 
+lean_exe «keccak256-test» where
+  root := `Tests.Drivers.Keccak256TestMain
+  supportInterpreter := true
+
+lean_exe «rlp-test» where
+  root := `Tests.Drivers.RLPTestMain
+  supportInterpreter := true
+
 lean_exe «ed25519-field-test» where
   root := `Tests.Drivers.Ed25519FieldTestMain
   supportInterpreter := true
