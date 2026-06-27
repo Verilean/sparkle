@@ -252,11 +252,13 @@ variable {dom : DomainConfig} {S α β : Type}
 @[reducible, inline] def next [Inhabited S] (r : Reg dom S τ) (sig : Signal dom τ) :
     Circuit dom S Unit :=
   fun b =>
-    -- Memoize the per-cycle next-state Signal at each write
-    -- layer.  Without this, `b live` is re-evaluated multiple
-    -- times by the outer slot.update's bundle2 chain — the
-    -- exponential cost we fix in Compiler C2.
-    let b' : NextBuilder dom S := fun live => Signal.memoize (r.slot.update sig (b live))
+    -- The Signal.memoize wrap that previously lived here (Compiler
+    -- C2 fix) is now folded into Signal.loop's implementation —
+    -- see loopImpl in Sparkle/Core/Signal.lean.  Keeping the wrap
+    -- here would leave Signal.memoize markers in the user-visible
+    -- expression tree, which trips up the synth elaborator on
+    -- FSM-shaped circuits that nest Signal.loop.
+    let b' : NextBuilder dom S := fun live => r.slot.update sig (b live)
     ((), b')
 
 /-- Type class capturing "things that can be the rhs of a
@@ -480,17 +482,18 @@ class SignalLeaves (ρ : Type) (dom : outParam DomainConfig) where
     fun n _ => n
   let stateLoop : Signal dom (HList αs) :=
     Signal.loop (α := HList αs) (fun live =>
-      -- Wrap `live` in `Signal.memoize` so each .val t is O(1).
-      -- Without this, the nested bundle2 / Signal.map chains
-      -- built by per-slot `update` references reach `live` up
-      -- to O(2^N) times per cycle, blowing simulation cost
-      -- exponentially in the number of `<~` writes
-      -- (Compiler C2 fix).
-      let liveCached := Signal.memoize live
-      let regs := mkRegList liveCached αs idRead idWrite
+      -- The Compiler C2 fix that previously wrapped `live` and
+      -- `b' live` in `Signal.memoize` here is now folded into
+      -- `Signal.loop`'s implementation (see loopImpl in
+      -- Sparkle/Core/Signal.lean): `loop` memoizes its body
+      -- output internally, so the runtime O(2^N) blow-up is
+      -- avoided without leaving Signal.memoize markers in the
+      -- user-visible expression tree (which the synth elaborator
+      -- was struggling to translate for FSM-shaped circuits).
+      let regs := mkRegList live αs idRead idWrite
       let bResult := body regs id
       let b' : Circuit.NextBuilder dom (HList αs) := bResult.snd
-      let nextState : Signal dom (HList αs) := Signal.memoize (b' liveCached)
+      let nextState : Signal dom (HList αs) := b' live
       packRegister αs inits nextState)
   let regs := mkRegList stateLoop αs idRead idWrite
   (body regs id).fst
