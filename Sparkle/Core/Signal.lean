@@ -748,9 +748,43 @@ where
     -- genuinely depends on t. Without this, LICM hoists unsafeIO cacheRef.get
     -- out of the lambda, caching a stale empty array forever.
     let result : Signal dom α := ⟨fun t => cacheGet cacheRef t default⟩
+    -- Memoize the body output (`f result`) internally so that any
+    -- duplicated subtrees in the body (typically the `bundle2 /
+    -- Signal.map Prod.fst / Signal.map Prod.snd` chain produced by
+    -- runCircuitH for N register slots) evaluate each underlying
+    -- signal at most once per cycle, instead of O(2^N) times.
+    --
+    -- Previously this O(2^N) blow-up was patched in CircuitMonad
+    -- via explicit `Signal.memoize live` / `Signal.memoize (b' liveCached)`
+    -- wraps (Compiler C2 fix).  Folding that wrap into `loop`'s
+    -- own implementation keeps the runtime benefit while removing
+    -- the `Signal.memoize` term from the user-visible expression
+    -- tree — the synth elaborator no longer has to special-case
+    -- memoize wrappers, and FSM-shaped circuits that nest Signal.loop
+    -- (memcachedServer + kvHw) no longer trigger the inline-and-
+    -- translate cycle that the explicit memoize chain caused.
+    let innerCacheRef ← IO.mkRef (#[] : Array α)
+    let innerSizeRef ← IO.mkRef (0 : Nat)
     let inner := f result
+    let innerMemo : Signal dom α := ⟨fun t =>
+      match unsafeIO (do
+        let sz ← innerSizeRef.get
+        if t < sz then
+          let arr ← innerCacheRef.get
+          return if h : t < arr.size then arr[t] else default
+        else
+          for i in [sz:t + 1] do
+            let v ← evalSignalAt inner.val i
+            let arr ← innerCacheRef.swap #[]
+            innerCacheRef.set (arr.push v)
+          innerSizeRef.set (t + 1)
+          let arr ← innerCacheRef.get
+          return if h : t < arr.size then arr[t] else default) with
+      | .ok v => v
+      | .error _ => default⟩
     -- evalAt: populate cache sequentially up to t, return value at t.
-    -- Each inner.val i reads result.val (i-1) which is a cache hit (already pushed).
+    -- Each innerMemo.val i reads result.val (i-1) which is a cache hit
+    -- (already pushed).
     let evalAt (t : Nat) : IO α := do
       let sz ← cacheSizeRef.get
       if t < sz then
@@ -759,9 +793,9 @@ where
       else
         for i in [sz:t + 1] do
           -- evalSignalAt forces evaluation BEFORE the swap.
-          -- Without it, the compiler reorders `inner.val i` (pure) after
+          -- Without it, the compiler reorders `innerMemo.val i` (pure) after
           -- `cacheRef.swap #[]` (IO), emptying the cache during evaluation.
-          let v ← evalSignalAt inner.val i
+          let v ← evalSignalAt innerMemo.val i
           -- swap out (rc=1), push in-place, set back
           let arr ← cacheRef.swap #[]
           cacheRef.set (arr.push v)
