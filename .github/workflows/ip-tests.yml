@@ -55,7 +55,7 @@ jobs:
             exes: >-
               signal-loop-test circuit-do-test circuit-sim-test
               run-circuit-h-test sim-runner-test cdc-multi-clock-test
-              svparser-test
+              svparser-test multi-output-submodule-hang-repro
 
           - group: bus
             exes: >-
