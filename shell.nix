@@ -28,6 +28,7 @@ pkgs.mkShell {
     nlohmann_json
     libuuid
     zstd.dev
+    gh
   ];
 
   # Environment variables
