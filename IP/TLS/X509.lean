@@ -240,4 +240,48 @@ def parseCertificate (bytes : Array UInt8) : Option Certificate := Id.run do
                 , tbsEnd := tbs.endOffset
                 , signature := sigBits }
 
+/-! ### Direct Ed25519 SPKI extraction
+
+    Lightweight scanner that finds an Ed25519 SubjectPublicKey
+    inside a DER blob (full cert or bare SPKI) by locating
+    the RFC 8410 §3 algorithm-OID marker
+
+      06 03 2b 65 70
+
+    (OBJECT IDENTIFIER, 3 bytes, value 1.3.101.112) and reading
+    the BIT STRING that follows.  RFC 8410 §4 fixes the SPKI
+    shape so the public key sits at a constant offset from the
+    OID:
+
+      ... 06 03 2b 65 70 03 21 00 <32-byte pubkey>
+
+    where `03 21 00` is "BIT STRING, length 33 bytes, 0 unused
+    bits".  We verify those three trailing bytes literally
+    before slicing the 32-byte key — that's what distinguishes a
+    real Ed25519 SPKI from accidental byte-sequence collisions
+    in unrelated parts of the cert (issuer OIDs, etc.).
+
+    Returns `none` if the OID sequence is absent or the
+    BIT-STRING shape after it doesn't match. -/
+def extractEd25519Pubkey (bytes : Array UInt8) : Option (Array UInt8) := Id.run do
+  -- Walk the byte string looking for the 5-byte OID marker.
+  let marker : Array UInt8 := #[0x06, 0x03, 0x2b, 0x65, 0x70]
+  let mut i := 0
+  while i + marker.size <= bytes.size do
+    let mut isMatch := true
+    for j in [:marker.size] do
+      if bytes.getD (i + j) 0 ≠ marker.getD j 0 then
+        isMatch := false
+    if isMatch then
+      -- After the OID expect `03 21 00` then 32 bytes of key.
+      let p := i + marker.size
+      if bytes.getD p       0 == 0x03 ∧
+         bytes.getD (p + 1) 0 == 0x21 ∧
+         bytes.getD (p + 2) 0 == 0x00 ∧
+         p + 3 + 32 <= bytes.size then
+        let key := (bytes.toList.drop (p + 3)).take 32 |>.toArray
+        return some key
+    i := i + 1
+  return none
+
 end Sparkle.IP.TLS.X509
