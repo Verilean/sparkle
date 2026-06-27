@@ -328,6 +328,14 @@ lean_exe «memcached-server-test» where
   root := `Tests.Drivers.MemcachedServerTestMain
   supportInterpreter := true
 
+-- Repro for the known sub-module-instance + multi-register
+-- caller hang in the synth elaborator.  Builds clean (the
+-- failing #synthesizeVerilog is commented out); see the file's
+-- docstring for the pattern and where it bites in real IPs.
+lean_exe «multi-output-submodule-hang-repro» where
+  root := `Tests.Drivers.MultiOutputSubModuleHangReproMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true
