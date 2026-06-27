@@ -47,7 +47,25 @@ structure CompilerState where
   -- harness via `{}` literals) stays trivially constructible;
   -- `synthesizeCombinational` populates it before the first
   -- translate call.
-  exprCache : Option (IO.Ref (Std.HashMap Lean.Expr String)) := none
+  -- Content-addressed expression cache.
+  -- Key type: `Lean.ExprStructEq` — Lean stdlib's wrapper that
+  -- uses `Expr.equal` (structural equality on the AST,
+  -- inclusive of binder names) for BEq, and `Expr.hash` for
+  -- Hashable.  Both are pure DAG-content fns, so two
+  -- structurally-identical expressions emitted by separate
+  -- elaboration paths (e.g. `kvHw a b c d e` re-elaborated
+  -- once per register-write) collide on the same key
+  -- regardless of pointer identity.
+  --
+  -- The original cache used `Std.HashMap Lean.Expr String`,
+  -- which via `Expr.eqv` / `BEq Expr` was effectively pointer-
+  -- equal cache lookup with fast-path-only structural fallback.
+  -- That cache hit < 10% on FSM-shape circuits because Lean's
+  -- elaborator routinely re-elaborates the same sub-tree into
+  -- fresh Expr objects with identical hash but distinct
+  -- pointer identity.  Switching to `ExprStructMap` collapses
+  -- those duplicates onto the same wire.
+  exprCache : Option (IO.Ref (Lean.ExprStructMap String)) := none
 
 /-- Compiler monad: combines CircuitM builder with MetaM -/
 abbrev CompilerM := ReaderT CompilerState (StateT CircuitState MetaM)
@@ -668,12 +686,12 @@ mutual
     if cacheable then
       if let some ref := cacheRef? then
         let cache ← CompilerM.liftMetaM (ref.get : IO _)
-        if let some w := cache.get? e then
+        if let some w := cache.get? ⟨e⟩ then
           CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
           return w
         let eStripped := e.consumeMData
         if !(eStripped == e) then
-          if let some w := cache.get? eStripped then
+          if let some w := cache.get? ⟨eStripped⟩ then
             CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
             return w
     let r ← translateExprToWireImpl e hint isTopLevel isNamed
@@ -684,7 +702,7 @@ mutual
         -- `let cache ← ref.get` above keeps it alive, triggering
         -- a full table copy per insert — quadratic in cache size).
         let cur ← CompilerM.liftMetaM (ref.swap {})
-        CompilerM.liftMetaM (ref.set (cur.insert e r))
+        CompilerM.liftMetaM (ref.set (cur.insert ⟨e⟩ r))
     return r
 
   partial def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
@@ -2699,7 +2717,7 @@ mutual
       let leaves ← splitReturnLeaves body
       let t2 ← IO.monoMsNow
       logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
-      let cacheRef ← IO.mkRef ({} : Std.HashMap Lean.Expr String)
+      let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
       let compiler : CompilerM String := do
         let mut firstWire : Option String := none
         let mut leafIdx := 0
@@ -2720,7 +2738,7 @@ mutual
           -- `Signal.loop` body in a multi-output return) reuse
           -- the wire instead of re-walking the whole tree.
           if !leafExpr.isFVar then
-            CompilerM.liftMetaM (cacheRef.modify (·.insert leafExpr leafWire))
+            CompilerM.liftMetaM (cacheRef.modify (·.insert ⟨leafExpr⟩ leafWire))
           let cs ← get
           let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
           let outputType := match wireDecl with
