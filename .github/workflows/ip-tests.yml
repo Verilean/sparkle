@@ -139,6 +139,14 @@ jobs:
       - name: Resolve Lean toolchain
         run: elan default $(cat lean-toolchain)
 
+      - name: Build cdc_runner.so (runtime dlopen target)
+        # Sparkle's JIT loads c_src/cdc/cdc_runner.so at run
+        # time via dlopen.  CI runners don't ship the artifact,
+        # so build it explicitly before any `lake exe` step.
+        # Without this, every test that touches CDC/JIT paths
+        # aborts with "failed to load cdc_runner shared library".
+        run: make -C c_src/cdc cdc_runner.so
+
       - name: Cache Lake build artifacts
         uses: actions/cache@v4
         with:
