@@ -260,6 +260,10 @@ lean_exe «bip39-test» where
   root := `Tests.Drivers.Bip39TestMain
   supportInterpreter := true
 
+lean_exe «bip32-test» where
+  root := `Tests.Drivers.Bip32TestMain
+  supportInterpreter := true
+
 lean_exe «ed25519-field-test» where
   root := `Tests.Drivers.Ed25519FieldTestMain
   supportInterpreter := true
