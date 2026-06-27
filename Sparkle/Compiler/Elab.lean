@@ -488,6 +488,16 @@ private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← I
     call and instantiate it as a sub-module. -/
 private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
 
+/-- Cache of previously-synthesised sub-modules.  Without this,
+    the multi-output sub-module projection shortcut would re-
+    invoke `synthesizeCombinational` once per `<call>.<field>`
+    access (multiple fields per sub-module instance × multiple
+    instances per design).  Cleared at the top of each
+    `synthesizeCombinational` invocation. -/
+private initialize sparkleSubModuleCache :
+    IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
+    IO.mkRef {}
+
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
     cost in handleTupleProjections / handleApplicative / handleMux
     (typeclass-instance search fires per call); the same `e` is
@@ -1996,7 +2006,12 @@ mutual
         let recFn := recordArg.getAppFn
         trace[sparkle.compiler] "→ projection {name}: recordArg head = {recFn}"
         if let .const recName _ := recFn then
-          let isHW := Sparkle.Compiler.isHardwareModule env recName
+          -- Re-fetch the env: the outer `env` was captured before
+          -- recursing into translateExprToWire, and our recursive
+          -- descent may have triggered attribute-touching code
+          -- elsewhere (we just want a fresh snapshot).
+          let envNow ← CompilerM.liftMetaM getEnv
+          let isHW := Sparkle.Compiler.isHardwareModule envNow recName
           trace[sparkle.compiler] "→ projection: recName={recName} isHardwareModule={isHW}"
           if isHW then
             -- Synthesise the sub-module (cached internally), look
@@ -2004,12 +2019,21 @@ mutual
             -- wire that's connected to the sub-module instance's
             -- matching output port.
             try
-              let (subModule, subDesign) ← CompilerM.liftMetaM (synthesizeCombinational recName)
+              let subCache ← CompilerM.liftMetaM (sparkleSubModuleCache.get : IO _)
+              let (subModule, subDesign) ← match subCache.get? recName with
+                | some pair =>
+                  trace[sparkle.compiler] "→ projection: sub-module {recName} (cached)"
+                  pure pair
+                | none =>
+                  let pair ← CompilerM.liftMetaM (synthesizeCombinational recName)
+                  CompilerM.liftMetaM (sparkleSubModuleCache.modify (·.insert recName pair))
+                  pure pair
+              trace[sparkle.compiler] "→ sub-module {recName} synthesised: {subModule.outputs.length} output ports"
               let env' ← getEnv
               let some projInfo := env'.getProjectionFnInfo? name
-                | pure ()
+                | trace[sparkle.compiler] "→ failed: no projInfo for {name}"; pure ()
               let some indVal ← (try some <$> CompilerM.liftMetaM (getConstInfoInduct structName) catch _ => pure none)
-                | pure ()
+                | trace[sparkle.compiler] "→ failed: no indVal for {structName}"; pure ()
               let ctorName := indVal.ctors.head!
               let ctorInfo ← CompilerM.liftMetaM (getConstInfoCtor ctorName)
               let fieldName ← CompilerM.liftMetaM do
@@ -2054,9 +2078,15 @@ mutual
               let instName ← CompilerM.freshName s!"inst_{subModule.name}"
               CompilerM.emitInstance subModule.name instName connections.reverse
               match targetWire with
-              | some w => return some w
-              | none => pure ()
-            catch _ => pure ()
+              | some w =>
+                trace[sparkle.compiler] "→ projection: matched output port {fieldName} → wire {w}"
+                return some w
+              | none =>
+                trace[sparkle.compiler] "→ projection: no output port matched {fieldName} (sub outputs: {subModule.outputs.map (·.name)})"
+                pure ()
+            catch ex =>
+              trace[sparkle.compiler] "→ projection: shortcut threw: {← ex.toMessageData.toString}"
+              pure ()
       -- Standard path (no multi-output shortcut): reduce the
       -- record arg until a `.mk` constructor appears, then pull
       -- the field directly.  Same as the original implementation.
