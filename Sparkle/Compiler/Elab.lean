@@ -91,11 +91,28 @@ def withLetDecl {α : Type} (name : Name) (type : Lean.Expr) (value : Lean.Expr)
 def liftMetaM {α : Type} (m : MetaM α) : CompilerM α :=
   liftM m
 
+end CompilerM
+
+/-- Wire-width cache: `wireName → bit width`.  Populated by
+    `makeWire`, `addInput`, `addOutput`; consumed by `getWireWidth`.
+    Avoids the O(n) linear scan that dominated runtime on FSM-
+    shape circuits (handleTupleProjections / handleMux call
+    getWireWidth in their hot loops, turning a ~5000-wire design
+    into an O(n²) walk). -/
+private initialize sparkleWireWidthCache :
+    IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
+
+namespace CompilerM
+
 /-- Lift CircuitM operations by modifying the circuit state -/
 def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CompilerM String := do
   let cs ← get
   let (name, cs') := CircuitM.makeWire hint ty named cs
   set cs'
+  -- Populate the wire-width cache so subsequent `getWireWidth name`
+  -- is O(1) instead of an O(n) module.wires scan.
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
   return name
 
 def freshName (hint : String) (named : Bool := false) : CompilerM String := do
@@ -113,20 +130,40 @@ def addInput (name : String) (ty : HWType) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.addInput name ty cs
   set cs'
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
 
 
 def addOutput (name : String) (ty : HWType) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.addOutput name ty cs
   set cs'
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
 
 /-- Look up the HW width of a wire by name (from wires, inputs, or outputs) -/
 def getWireWidth (wireName : String) : CompilerM Nat := do
-  let cs ← get
-  let allPorts := cs.module.wires ++ cs.module.inputs ++ cs.module.outputs
-  match allPorts.find? (fun p => p.name == wireName) with
-  | some p => return match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
-  | none => return 8
+  -- Hot path: O(1) lookup via the per-synth wire-width cache,
+  -- populated by `makeWire` and `addInput` / `addOutput`.  The
+  -- old implementation scanned `cs.module.wires ++ inputs ++
+  -- outputs` linearly, which is O(n) per call and O(n^2)
+  -- overall on FSM-shape circuits with thousands of wires.
+  let cache ← liftMetaM (sparkleWireWidthCache.get : IO _)
+  match cache.get? wireName with
+  | some w => return w
+  | none =>
+    -- Fallback: linear scan of the module's ports.  This only
+    -- happens for wires that bypass the cache-populating helpers
+    -- (e.g. external bindings, or `clk`/`rst` ports added without
+    -- going through our IO.Ref-tracked path).
+    let cs ← get
+    let allPorts := cs.module.wires ++ cs.module.inputs ++ cs.module.outputs
+    match allPorts.find? (fun p => p.name == wireName) with
+    | some p =>
+      let w := match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
+      liftMetaM (sparkleWireWidthCache.modify (·.insert wireName w))
+      return w
+    | none => return 8
 
 def emitRegister (hint : String) (clk : String) (rst : String)
     (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType)
@@ -498,6 +535,19 @@ private initialize sparkleSubModuleCache :
     IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
     IO.mkRef {}
 
+/-- Per-call output port wire mapping.  Keyed by
+    `(call-expression hash, field name)`, returns the wire bound
+    to that field of the sub-module instance.  Populated by the
+    multi-output sub-module instance emitter (handleDefinitionUnfold
+    line 2249); consumed by the projection handler when a struct-
+    typed sub-module call result is projected (`engine.replyValid`).
+
+    Hash key (UInt64) is used instead of full Expr identity
+    because Lean re-elaborates structurally equal expressions
+    into objects that fail pointer equality but share `Expr.hash`. -/
+private initialize sparkleSubInstanceOutputs :
+    IO.Ref (Std.HashMap (UInt64 × String) String) ← IO.mkRef {}
+
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
     cost in handleTupleProjections / handleApplicative / handleMux
     (typeclass-instance search fires per call); the same `e` is
@@ -618,7 +668,12 @@ mutual
     let r ← translateExprToWireImpl e hint isTopLevel isNamed
     if cacheable then
       if let some ref := cacheRef? then
-        CompilerM.liftMetaM (ref.modify (·.insert e r))
+        -- Use swap + set to avoid `modify`'s copy-on-write when
+        -- the HashMap's refcount is > 1 (a stale handle from
+        -- `let cache ← ref.get` above keeps it alive, triggering
+        -- a full table copy per insert — quadratic in cache size).
+        let cur ← CompilerM.liftMetaM (ref.swap {})
+        CompilerM.liftMetaM (ref.set (cur.insert e r))
     return r
 
   partial def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
@@ -1979,15 +2034,17 @@ mutual
       -- the whnf unfold (which is expensive and step-limited)
       -- by emitting a sub-module instance and pulling the field
       -- straight from the corresponding output port.
+      -- Multi-output sub-module shortcut: if the projection's
+      -- record argument is (after fvar resolution) a direct call
+      -- to a `@[hardware_module]` def, translate the call first
+      -- — that emits a sub-module instance and populates
+      -- sparkleSubInstanceOutputs with one entry per output port.
+      -- Then look up the wire for the projected field name.
+      --
+      -- This avoids the previous shortcut's duplicate sub-module
+      -- synthesis and works whether the call site is a literal
+      -- application or a `let engine := kvHw …` binding.
       if args.size >= 1 then
-        -- The record arg might be:
-        --   • a literal application like `kvHw a b c d e`
-        --   • an fvar (`engine`) introduced by a `let engine := kvHw …`
-        --     binding.  Sparkle's HW-let elaborator binds these
-        --     with `withLocalDecl` (no value in lctx) but records
-        --     the defining expression in sparkleFvarValueMap.
-        -- Try the global value map first; fall back to lctx.value?
-        -- for non-Sparkle let bindings.
         let recordArgRaw := args.back!
         let mut recordArg := recordArgRaw
         if recordArg.isFVar then
@@ -2004,89 +2061,38 @@ mutual
             if let some val := val? then
               recordArg := val
         let recFn := recordArg.getAppFn
-        trace[sparkle.compiler] "→ projection {name}: recordArg head = {recFn}"
         if let .const recName _ := recFn then
-          -- Re-fetch the env: the outer `env` was captured before
-          -- recursing into translateExprToWire, and our recursive
-          -- descent may have triggered attribute-touching code
-          -- elsewhere (we just want a fresh snapshot).
           let envNow ← CompilerM.liftMetaM getEnv
-          let isHW := Sparkle.Compiler.isHardwareModule envNow recName
-          trace[sparkle.compiler] "→ projection: recName={recName} isHardwareModule={isHW}"
-          if isHW then
-            -- Synthesise the sub-module (cached internally), look
-            -- up the field name on the projection, and bind a
-            -- wire that's connected to the sub-module instance's
-            -- matching output port.
-            try
-              let subCache ← CompilerM.liftMetaM (sparkleSubModuleCache.get : IO _)
-              let (subModule, subDesign) ← match subCache.get? recName with
-                | some pair =>
-                  trace[sparkle.compiler] "→ projection: sub-module {recName} (cached)"
-                  pure pair
-                | none =>
-                  let pair ← CompilerM.liftMetaM (synthesizeCombinational recName)
-                  CompilerM.liftMetaM (sparkleSubModuleCache.modify (·.insert recName pair))
-                  pure pair
-              trace[sparkle.compiler] "→ sub-module {recName} synthesised: {subModule.outputs.length} output ports"
-              let env' ← getEnv
-              let some projInfo := env'.getProjectionFnInfo? name
-                | trace[sparkle.compiler] "→ failed: no projInfo for {name}"; pure ()
-              let some indVal ← (try some <$> CompilerM.liftMetaM (getConstInfoInduct structName) catch _ => pure none)
-                | trace[sparkle.compiler] "→ failed: no indVal for {structName}"; pure ()
-              let ctorName := indVal.ctors.head!
-              let ctorInfo ← CompilerM.liftMetaM (getConstInfoCtor ctorName)
-              let fieldName ← CompilerM.liftMetaM do
-                Lean.Meta.forallTelescopeReducing ctorInfo.type fun fargs _ => do
-                  let allFields := fargs.toList.drop indVal.numParams
-                  if h : projInfo.i < allFields.length then
-                    return (← allFields[projInfo.i].fvarId!.getUserName).toString
-                  else
-                    return s!"field{projInfo.i}"
-              -- Add the child's transitive modules + child itself.
-              let existing := (← get).design.modules.map (·.name)
-              for m in subDesign.modules do
-                if !existing.contains m.name then
-                  CompilerM.addModuleToDesign m
-              if !existing.contains subModule.name &&
-                 !((← get).design.modules.any (·.name == subModule.name)) then
-                CompilerM.addModuleToDesign subModule
-              -- Connect inputs (= recordArg's args, after the
-              -- structure's type-class implicits).
-              let recArgs := recordArg.getAppArgs
-              let mut connections := []
-              for p in subModule.inputs do
-                if p.name == "clk" || p.name == "rst" then
-                  let parent := (← get).module
-                  if !parent.inputs.any (·.name == p.name) then
-                    CompilerM.addInput p.name p.ty
-                  connections := (p.name, Sparkle.IR.AST.Expr.ref p.name) :: connections
-              let inputPorts := subModule.inputs.filter (fun p => p.name != "clk" && p.name != "rst")
-              if recArgs.size >= inputPorts.length then
-                for i in [:inputPorts.length] do
-                  let argExpr := recArgs[recArgs.size - inputPorts.length + i]!
-                  let argWire ← translateExprToWire argExpr s!"arg{i}"
-                  connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
-              -- Allocate one wire per output port; remember the
-              -- one matching `fieldName`.
-              let mut targetWire : Option String := none
-              for outP in subModule.outputs do
-                let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
-                connections := (outP.name, Sparkle.IR.AST.Expr.ref w) :: connections
-                if outP.name == fieldName then
-                  targetWire := some w
-              let instName ← CompilerM.freshName s!"inst_{subModule.name}"
-              CompilerM.emitInstance subModule.name instName connections.reverse
-              match targetWire with
-              | some w =>
-                trace[sparkle.compiler] "→ projection: matched output port {fieldName} → wire {w}"
-                return some w
-              | none =>
-                trace[sparkle.compiler] "→ projection: no output port matched {fieldName} (sub outputs: {subModule.outputs.map (·.name)})"
-                pure ()
-            catch ex =>
-              trace[sparkle.compiler] "→ projection: shortcut threw: {← ex.toMessageData.toString}"
-              pure ()
+          if Sparkle.Compiler.isHardwareModule envNow recName then
+            -- Resolve the field name from the projection.
+            let some projInfo := envNow.getProjectionFnInfo? name
+              | pure ()
+            let some indVal ← (try some <$> CompilerM.liftMetaM (getConstInfoInduct structName) catch _ => pure none)
+              | pure ()
+            let ctorName := indVal.ctors.head!
+            let ctorInfo ← CompilerM.liftMetaM (getConstInfoCtor ctorName)
+            let fieldName ← CompilerM.liftMetaM do
+              Lean.Meta.forallTelescopeReducing ctorInfo.type fun fargs _ => do
+                let allFields := fargs.toList.drop indVal.numParams
+                if h : projInfo.i < allFields.length then
+                  return (← allFields[projInfo.i].fvarId!.getUserName).toString
+                else
+                  return s!"field{projInfo.i}"
+            -- See if this call has already been wired up.
+            let callKey := recordArg.hash
+            let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+            if let some w := portMap.get? (callKey, fieldName) then
+              trace[sparkle.compiler] "→ projection: cached wire {w} for {fieldName}"
+              return some w
+            -- Not cached yet → translate the call once.  The
+            -- multi-output sub-module instance path will populate
+            -- sparkleSubInstanceOutputs as a side effect.
+            let _ ← translateExprToWire recordArg s!"sub_call"
+            let portMap' ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+            if let some w := portMap'.get? (callKey, fieldName) then
+              trace[sparkle.compiler] "→ projection: wired sub-call, returning {w} for {fieldName}"
+              return some w
+            trace[sparkle.compiler] "→ projection: sub-call did not register {fieldName} (call hash {callKey})"
       -- Standard path (no multi-output shortcut): reduce the
       -- record arg until a `.mk` constructor appears, then pull
       -- the field directly.  Same as the original implementation.
@@ -2246,10 +2252,29 @@ mutual
        let argWire ← translateExprToWire argExpr s!"arg{i}"
        connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
 
+    -- Single-output sub-module: allocate one wire bound to "out".
+    -- Multi-output (struct-returning) sub-module: allocate one
+    -- wire per output port, remember each (call-expr-hash, field
+    -- name) → wire mapping in the global sub-instance port map so
+    -- subsequent projection handlers can recover them, and return
+    -- the *first* wire as a placeholder (the projection handlers
+    -- will normally resolve through the map and never look at it).
     let exprType ← cachedInferType e
-    let hwType ← inferHWTypeFromSignal exprType
-    let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-    connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
+    let resWire ← match subModule.outputs with
+      | [_singleOut] =>
+        let hwType ← inferHWTypeFromSignal exprType
+        let w ← CompilerM.makeWire hint hwType (named := isNamed)
+        connections := ("out", Sparkle.IR.AST.Expr.ref w) :: connections
+        pure w
+      | _multiOut =>
+        let callKey := e.hash
+        let mut firstW : Option String := none
+        for outP in subModule.outputs do
+          let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
+          connections := (outP.name, Sparkle.IR.AST.Expr.ref w) :: connections
+          CompilerM.liftMetaM (sparkleSubInstanceOutputs.modify (·.insert (callKey, outP.name) w))
+          if firstW.isNone then firstW := some w
+        pure (firstW.getD "")
 
     -- Generate a fresh, unique instance name.  Two calls to the same
     -- sub-module within a single parent must produce two distinct
@@ -2598,6 +2623,10 @@ mutual
     sparkleTypeCache.set {}
     sparkleTypeCacheHits.set 0
     sparkleTypeCacheMiss.set 0
+    sparkleSubModuleCache.set {}
+    sparkleSubInstanceOutputs.set {}
+    sparkleFvarValueMap.set {}
+    sparkleWireWidthCache.set {}
     let constInfo ← getConstInfo declName
     logProf s!"[profile] getConstInfo done"
     match constInfo with
