@@ -81,7 +81,7 @@ jobs:
           - group: crypto
             exes: >-
               sha256-test sha512-check keccak256-test rlp-test
-              eip1559-tx-test erc20-abi-test bip39-test
+              eip1559-tx-test erc20-abi-test bip39-test bip32-test
               aes-test aes-gcm-test ghash-test ghash-hw-test
               hkdf-test x25519-test
               ed25519-field-test ed25519-point-test ed25519-sign-test
