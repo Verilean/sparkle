@@ -258,7 +258,51 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
     | some hwElemType => return some (.array n hwElemType)
     | none => return none
   | _ =>
-    return none
+    -- User structure type (e.g. KvHwOut dom).  If the type is
+    -- a constant application to a structure whose fields are all
+    -- `Signal dom <hw type>`, treat the whole struct as the
+    -- concatenation of its field HW widths.  This lets
+    -- @[hardware_module] defs with user-defined output records
+    -- (Ethernet.RxOut, MemcachedHW.KvHwOut) be inferred without
+    -- a manual `Wireable` instance.
+    let env ← getEnv
+    let fn := type.getAppFn
+    match fn with
+    | .const structName _ =>
+      if let some _ := env.find? structName then
+        if isStructure env structName then
+          let fields := getStructureFieldsFlattened env structName
+          let typeArgs := type.getAppArgs
+          let mut totalW : Nat := 0
+          let mut allOk := true
+          for fieldName in fields do
+            let projName := structName ++ fieldName
+            match env.find? projName with
+            | none => allOk := false; break
+            | some _ =>
+              let projExpr := mkAppN (.const projName []) typeArgs
+              let fieldType ← inferType projExpr
+              -- field type is `<struct> → α`; we want the codomain
+              let codomain ← match fieldType with
+                | .forallE _ _ body _ => pure body
+                | _ => pure fieldType
+              -- codomain is typically `Signal dom α`; strip Signal.
+              let codomain ← whnf codomain
+              let inner := match codomain with
+                | .app (.app sf _) a =>
+                  match sf with
+                  | .const sname _ =>
+                    if sname.toString.endsWith "Signal" then a else codomain
+                  | _ => codomain
+                | _ => codomain
+              match ← inferHWType inner with
+              | some (.bitVector w) => totalW := totalW + w
+              | some .bit => totalW := totalW + 1
+              | _ => allOk := false; break
+          if allOk && totalW > 0 then
+            return some (.bitVector totalW)
+      return none
+    | _ => return none
 where
   extractWidth (e : Lean.Expr) : MetaM Nat := do
     let e ← whnf e
