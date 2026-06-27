@@ -2078,8 +2078,13 @@ mutual
                   return (← allFields[projInfo.i].fvarId!.getUserName).toString
                 else
                   return s!"field{projInfo.i}"
-            -- See if this call has already been wired up.
-            let callKey := recordArg.hash
+            -- Cache key must agree with the sub-module instance
+            -- handler (see comment there): use `name + args`
+            -- hash, not raw `recordArg.hash`.
+            let recArgs := recordArg.getAppArgs
+            let mut callKey : UInt64 := mixHash 17 (hash recName)
+            for arg in recArgs do
+              callKey := mixHash callKey arg.hash
             let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
             if let some w := portMap.get? (callKey, fieldName) then
               trace[sparkle.compiler] "→ projection: cached wire {w} for {fieldName}"
@@ -2267,12 +2272,27 @@ mutual
         connections := ("out", Sparkle.IR.AST.Expr.ref w) :: connections
         pure w
       | _multiOut =>
-        let callKey := e.hash
+        -- IMPORTANT: the cache key must agree between this
+        -- (sub-module instance emit) and the projection handler
+        -- that later looks up `(callKey, fieldName) → wire`.
+        -- The projection handler keys on `recordArg.hash` AFTER
+        -- fvar resolution (`let engine := kvHw …; engine.foo`
+        -- looks up `engine` in `sparkleFvarValueMap` to recover
+        -- `kvHw …`).  We must mirror that here: use the call's
+        -- **function-name-and-args** hash, not the raw `e.hash`
+        -- — Lean re-elaborates structurally-identical apps into
+        -- distinct Expr objects, so pointer-equal hashes won't
+        -- match across the two handlers.
+        --
+        -- Compose a stable key from `name` + args' individual hashes.
+        let mut keyHash : UInt64 := mixHash 17 (hash name)
+        for arg in args do
+          keyHash := mixHash keyHash arg.hash
         let mut firstW : Option String := none
         for outP in subModule.outputs do
           let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
           connections := (outP.name, Sparkle.IR.AST.Expr.ref w) :: connections
-          CompilerM.liftMetaM (sparkleSubInstanceOutputs.modify (·.insert (callKey, outP.name) w))
+          CompilerM.liftMetaM (sparkleSubInstanceOutputs.modify (·.insert (keyHash, outP.name) w))
           if firstW.isNone then firstW := some w
         pure (firstW.getD "")
 
@@ -2698,7 +2718,12 @@ mutual
       if hasRegisters then
         module := module.addInput { name := "clk", ty := .bit }
         module := module.addInput { name := "rst", ty := .bit }
-      return (module, finalCircuitState.design)
+      -- Finalize the in-progress module: addInput / addOutput /
+      -- addWire / addStmt all use O(1) head-prepend during the
+      -- synth loop; `finalize` reverses each list once so
+      -- downstream consumers (Verilog backend, CppSim, etc.)
+      -- see the natural forward order they always did.
+      return (module.finalize, finalCircuitState.design)
     | _ =>
       throwError s!"Cannot synthesize {declName}: not a definition"
 end
