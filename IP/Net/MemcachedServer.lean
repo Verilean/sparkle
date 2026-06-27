@@ -341,7 +341,15 @@ def memcachedServer {dom : DomainConfig}
         : Signal dom Bool) : Signal dom Bool)
     let p8 := (Signal.pure 8#64 : Signal dom (BitVec 64))
     let keyShifted := ((· <<< ·) <$> keySig <*> p8 : Signal dom (BitVec 64))
-    let inByte64 := Signal.map (fun (b : BitVec 8) => BitVec.append (0#56) b) inByte
+    -- Zero-extend inByte (BV8 → BV64) by concat-ing with a 56-bit
+    -- zero prefix.  We use the applicative `(· ++ ·) <$> a <*> b`
+    -- form (same shape the synth elaborator already handles
+    -- successfully elsewhere via the Seq.seq → concat path),
+    -- rather than `Signal.map (BitVec.append (0#56))`, because
+    -- map-with-a-lambda-using-`append` gets stuck inside
+    -- recursive inlining.
+    let p0_56 := (Signal.pure 0#56 : Signal dom (BitVec 56))
+    let inByte64 := ((· ++ ·) <$> p0_56 <*> inByte : Signal dom (BitVec 64))
     let keyNew := ((· ||| ·) <$> keyShifted <*> inByte64 : Signal dom (BitVec 64))
     let keyEndSp := ((· && ·) <$> inKey <*>
       ((· && ·) <$> inValid <*> byteIsSP : Signal dom Bool) : Signal dom Bool)
@@ -366,8 +374,8 @@ def memcachedServer {dom : DomainConfig}
           : Signal dom Bool) : Signal dom Bool) : Signal dom Bool)
     let p8_128 := (Signal.pure 8#128 : Signal dom (BitVec 128))
     let valueShifted := ((· <<< ·) <$> valueSig <*> p8_128 : Signal dom (BitVec 128))
-    let inByte128 := Signal.map
-      (fun (b : BitVec 8) => BitVec.append (0#120 : BitVec 120) b) inByte
+    let p0_120 := (Signal.pure 0#120 : Signal dom (BitVec 120))
+    let inByte128 := ((· ++ ·) <$> p0_120 <*> inByte : Signal dom (BitVec 128))
     let valueNew := ((· ||| ·) <$> valueShifted <*> inByte128 : Signal dom (BitVec 128))
     -- VAL done: byte is CR OR cnt is 16 → go to FINAL.
     let validAndCR := ((· && ·) <$> inValid <*> byteIsCR : Signal dom Bool)
@@ -468,5 +476,22 @@ def memcachedServer {dom : DomainConfig}
     let validOut := inEmit
 
     return ({ outByte := byteOut, outValid := validOut } : ServerOut dom)
+
+/-- Scalar projection of memcachedServer.outByte — gives the
+    synth elaborator a single-output entry point that avoids the
+    multi-leaf split path which currently re-attempts each leaf
+    on cache miss (and hits a memoize zeta cycle in the process). -/
+@[hardware_module] def memcachedServerByte {dom : DomainConfig}
+    (inByte : Signal dom (BitVec 8))
+    (inValid : Signal dom Bool) :
+    Signal dom (BitVec 8) :=
+  (memcachedServer inByte inValid).outByte
+
+/-- Scalar projection of memcachedServer.outValid. -/
+@[hardware_module] def memcachedServerValid {dom : DomainConfig}
+    (inByte : Signal dom (BitVec 8))
+    (inValid : Signal dom Bool) :
+    Signal dom Bool :=
+  (memcachedServer inByte inValid).outValid
 
 end Sparkle.IP.Net.MemcachedServer

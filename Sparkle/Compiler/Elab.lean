@@ -1709,7 +1709,25 @@ mutual
     -- see the memoize chain after its own bind, where the BVar
     -- is replaced with a real wire).
     if name.toString.endsWith ".memoize" && args.size >= 1 then
-      let inner := args.back!
+      -- Peel ALL nested Signal.memoize wrappers iteratively.
+      -- Each peel checks the head: if the application's head is
+      -- ".memoize", pull the last arg as new "inner" and repeat.
+      -- This is the same as stripMemoizeWrappers but at handler
+      -- level, where we can run after Lean has resolved any
+      -- aliases — the preprocessor at synth entry can't see
+      -- memoize wrappers introduced by reducible/inline defs.
+      let rec peelMemoize : Lean.Expr → Lean.Expr := fun ex =>
+        let exFn := ex.getAppFn
+        match exFn with
+        | .const constName _ =>
+          if constName.toString.endsWith ".memoize" then
+            let exArgs := ex.getAppArgs
+            if exArgs.size >= 1 then
+              peelMemoize exArgs[exArgs.size - 1]!
+            else ex
+          else ex
+        | _ => ex
+      let inner := peelMemoize args.back!
       -- Special case: `Signal.memoize <fvar>` where the fvar is
       -- a known loop-state wire (registered in varMap by an
       -- enclosing Signal.loop).  Short-circuit directly without
@@ -1721,7 +1739,7 @@ mutual
           trace[sparkle.compiler] "→ memoize (resolved to loop-state wire {wireName})"
           return some wireName
         | none => pure ()
-      trace[sparkle.compiler] "→ memoize (transparent for synth)"
+      trace[sparkle.compiler] "→ memoize (transparent for synth, peeled)"
       return some (← translateExprToWire inner "memoize_passthrough")
 
     -- Signal.loop
@@ -2353,6 +2371,42 @@ mutual
           mkLambdaFVars binders substituted
       walk 0 #[] #[] false
 
+  /-- Deep-strip every `Signal.memoize x` sub-expression to `x`
+      in a Lean expression tree.  `Signal.memoize` is a sim-only
+      identity wrapper used by Compiler C2 to cache per-cycle
+      register reads; for synthesis it serves no purpose and
+      causes infinite-loop hangs in FSM-shaped circuits where
+      register-read → register-write → memoize chain re-enters
+      via Signal.loop body inlining.  Stripping them once at
+      the synth entry point breaks the cycle definitively.
+
+      Implementation: post-order traversal — strip children
+      first, then check if THIS node is `Signal.memoize` and
+      unwrap if so.  Does not recurse under binders (lambdas)
+      because BVars under a binder have no fvar-binding yet and
+      the memoize wrap there will be handled by Signal.loop's
+      handler when it instantiates the binder. -/
+  partial def stripMemoizeWrappers (e : Lean.Expr) : Lean.Expr := Id.run do
+    let e' ← match e with
+      | .app f a => pure (.app (stripMemoizeWrappers f) (stripMemoizeWrappers a))
+      | .lam binderName binderTy body binderInfo =>
+          pure (.lam binderName (stripMemoizeWrappers binderTy) body binderInfo)
+      | .forallE binderName binderTy body binderInfo =>
+          pure (.forallE binderName (stripMemoizeWrappers binderTy) body binderInfo)
+      | .letE declName declTy declVal body nondep =>
+          pure (.letE declName (stripMemoizeWrappers declTy) (stripMemoizeWrappers declVal) body nondep)
+      | .mdata md sub => pure (.mdata md (stripMemoizeWrappers sub))
+      | _ => pure e
+    let fn := e'.getAppFn
+    match fn with
+    | .const constName _ =>
+        if constName.toString.endsWith ".memoize" then
+          let cArgs := e'.getAppArgs
+          if cArgs.size >= 1 then
+            return cArgs[cArgs.size - 1]!
+        return e'
+    | _ => return e'
+
   partial def synthesizeCombinational (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
     let logProf (msg : String) : IO Unit := do
@@ -2375,7 +2429,11 @@ mutual
       logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
       let t0 ← IO.monoMsNow
       logProf s!"[profile] calling openRecordInputs"
-      let body ← openRecordInputs defnInfo.value
+      let body0 ← openRecordInputs defnInfo.value
+      -- Strip sim-only Signal.memoize wrappers from the body
+      -- BEFORE translation.  This breaks the FSM memoize-cycle
+      -- root cause (see stripMemoizeWrappers doc).
+      let body := stripMemoizeWrappers body0
       let t1 ← IO.monoMsNow
       logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
       -- Split the return value into per-leaf Lean expressions
