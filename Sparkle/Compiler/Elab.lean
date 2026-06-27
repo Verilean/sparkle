@@ -509,6 +509,17 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
     Populated only when `SPARKLE_PROFILE=1`. -/
 private initialize sparkleCallCounter : IO.Ref Nat ← IO.mkRef 0
 private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
+/-- Nested-synth depth counter.  `synthesizeCombinational` only
+    resets the per-synth caches when entering at depth 0 (the
+    outermost user-triggered `#synthesizeVerilog`).  When the
+    parent synth recursively invokes child synths (via
+    `@[hardware_module]` sub-module instances), the child must
+    NOT clobber the parent's caches — doing so makes the parent
+    re-walk every previously-translated expression after the
+    child returns, which trivially turns sub-module-instance
+    synth into an O(n²) walk. -/
+private initialize sparkleSynthDepth : IO.Ref Nat ← IO.mkRef 0
+
 /-- Set of fvar names currently being zeta-reduced.  If we see
     the same fvar twice on the stack, the fvar's value contains
     a reference back to itself — typical of Signal.loop bodies
@@ -1394,28 +1405,7 @@ mutual
       catch _ =>
         pure false
 
-      -- Also detect "user struct" HW lets: the type isn't a
-      -- `Signal dom α` but it IS a structure with a HasDomain
-      -- instance and Signal-typed fields (e.g. `KvHwOut dom`
-      -- returned by `@[hardware_module] def kvHw`).  Without
-      -- this, the binding falls into the `else`/Logic-let path
-      -- below, which `withLetDecl`s the value and lets Lean's
-      -- zeta-reduction inline `let engine := kvHw …; engine.foo`
-      -- into `(Prod.fst (… (kvHw …)))`-style chains — and each
-      -- `Prod.fst` / `Prod.snd` re-translates the inner kvHw
-      -- call, triggering a fresh sub-module synthesis per field
-      -- access (the documented hang in
-      -- Tests/Compiler/MultiOutputSubModuleHangRepro.lean).
-      let isStructHW ← try
-        let typeReduced ← CompilerM.liftMetaM
-          (Lean.Meta.withTransparency .all <| Lean.Meta.whnf type)
-        match ← CompilerM.liftMetaM (inferHWType typeReduced) with
-        | some (.bitVector _) => pure true
-        | some .bit => pure true
-        | _ => pure false
-      catch _ => pure false
-
-      if isHW || isStructHW then
+      if isHW then
         -- Hardware let: translate value to wire
         let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
         CompilerM.withLocalDecl name type fun fvar => do
