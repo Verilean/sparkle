@@ -428,6 +428,13 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
     Populated only when `SPARKLE_PROFILE=1`. -/
 private initialize sparkleCallCounter : IO.Ref Nat ← IO.mkRef 0
 private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
+/-- Set of fvar names currently being zeta-reduced.  If we see
+    the same fvar twice on the stack, the fvar's value contains
+    a reference back to itself — typical of Signal.loop bodies
+    that bind the loop state to an fvar whose definition then
+    transitively references that fvar through the loop's
+    memoize chain.  Use this to detect and abort cleanly. -/
+private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← IO.mkRef {}
 
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
     cost in handleTupleProjections / handleApplicative / handleMux
@@ -610,10 +617,35 @@ mutual
           | some decl => return decl.value?
           | none => return none
         match inlinedVal with
-        | some val => return ← translateExprToWire val hint isTopLevel isNamed
+        | some val =>
+          -- Cycle break: if we're already zeta-reducing this same
+          -- fvar deeper in the stack, the value we'd unfold is
+          -- the very expression we're inside (= circular let
+          -- binding loop produced by Signal.loop's memoize
+          -- chain).  Throw rather than recurse.
+          let visited ← CompilerM.liftMetaM (sparkleFvarZetaVisited.get : IO _)
+          if visited.contains fvarId.name then
+            CompilerM.liftMetaM $ throwError
+              s!"Sparkle synth: circular zeta-reduction on fvar {fvarId.name} (hint={hint}). \
+                 This usually means a `Signal.loop` register is being walked twice via \
+                 its memoize chain. Common cause: an FSM where a register read feeds a \
+                 register write through `Signal.memoize` and a sub-`circuit do` (e.g. \
+                 nested kvHw inside memcachedServer)."
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.insert fvarId.name))
+          let r ← translateExprToWire val hint isTopLevel isNamed
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.erase fvarId.name))
+          return r
         | none =>
-          -- Try full reduction for type-level fvars (Nat widths, erased params)
+          -- Try full reduction for type-level fvars (Nat widths, erased params).
+          -- Same cycle-break as above: track which fvars we're currently
+          -- reducing to avoid infinite zeta loops.
+          let visited ← CompilerM.liftMetaM (sparkleFvarZetaVisited.get : IO _)
+          if visited.contains fvarId.name then
+            CompilerM.liftMetaM $ throwError
+              s!"Sparkle synth: circular reduction on fvar {fvarId.name} (hint={hint})."
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.insert fvarId.name))
           let reduced ← CompilerM.liftMetaM (try Lean.Meta.reduce e catch _ => pure e)
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.erase fvarId.name))
           if reduced != e then
             return ← translateExprToWire reduced hint isTopLevel isNamed
           let ty ← CompilerM.liftMetaM (try Lean.Meta.inferType e catch _ => pure (.const `unknown []))
@@ -1662,9 +1694,34 @@ mutual
     -- unchanged) — `runCircuitH` adds it to break the
     -- Compiler C2 exponential evaluation cost.  Synthesis
     -- treats it as a pass-through so it never reaches Verilog.
+    --
+    -- IMPORTANT: when `inner` is a bound variable (BVar) — most
+    -- commonly the `live` lambda binder of an enclosing
+    -- `Signal.loop` — we must NOT recursively translate.  The
+    -- BVar isn't bound in any local context yet (Signal.loop's
+    -- handler binds it later), so naively translating it
+    -- triggers an unfolder fallback that re-walks the *whole
+    -- outer expression* — an infinite loop characteristic for
+    -- FSM-shaped circuits where register reads feed register
+    -- writes via memoize.  In this case we fall back to letting
+    -- the caller's translation context handle the wrapper later
+    -- (the Signal.loop handler that introduced the BVar will
+    -- see the memoize chain after its own bind, where the BVar
+    -- is replaced with a real wire).
     if name.toString.endsWith ".memoize" && args.size >= 1 then
-      trace[sparkle.compiler] "→ memoize (transparent for synth)"
       let inner := args.back!
+      -- Special case: `Signal.memoize <fvar>` where the fvar is
+      -- a known loop-state wire (registered in varMap by an
+      -- enclosing Signal.loop).  Short-circuit directly without
+      -- triggering the unfold path that loops back through the
+      -- loop body.
+      if let .fvar fvarId := inner then
+        match ← CompilerM.lookupVar fvarId with
+        | some wireName =>
+          trace[sparkle.compiler] "→ memoize (resolved to loop-state wire {wireName})"
+          return some wireName
+        | none => pure ()
+      trace[sparkle.compiler] "→ memoize (transparent for synth)"
       return some (← translateExprToWire inner "memoize_passthrough")
 
     -- Signal.loop
