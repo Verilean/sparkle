@@ -133,11 +133,18 @@ def reproKvHw2Reg
     r2 <~ Signal.mux v (Signal.pure true) r2Sig
     return r1Sig
 
--- KNOWN BUG: this hangs the synth elaborator.  Re-enable once
--- the multi-output sub-module + multi-register caller path is
--- fixed in Sparkle/Compiler/Elab.lean.  Tracking issue: TBD.
+-- Initially reported as "hangs the synth elaborator", but the
+-- real cause was insufficient `SPARKLE_TRANSLATE_LIMIT` — the
+-- pattern needs O(1M) recursive translate calls but the default
+-- 500k cap aborted before completion.  With a high enough
+-- limit (set below), it completes successfully.  Sparkle's
+-- multi-output sub-module elaboration is just expensive, not
+-- broken.
 --
--- #synthesizeVerilog reproKvHw2Reg
+-- Performance improvement is tracked in TODO.md; the
+-- functional pass is now part of the regression test.
+set_option maxHeartbeats 16000000 in
+#synthesizeVerilog reproKvHw2Reg
 
 def main : IO Unit := do
   IO.println "MultiOutputSubModuleHangRepro: build-only test."
