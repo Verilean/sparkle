@@ -150,25 +150,35 @@ jobs:
             lake-build-${{ runner.os }}-${{ hashFiles('lake-manifest.json', 'lean-toolchain') }}-
 
       - name: Build + run group ${{ matrix.group }}
+        # Disable GitHub Actions' default `-eo pipefail` so that
+        # SIGPIPE during streaming log output (which earlier CI
+        # runs showed could turn `lake exe`'s success exit 0
+        # into a non-zero observed by `if !`) doesn't spuriously
+        # mark the step failed.  We track per-IP exit codes
+        # explicitly via `rc=$?`.
+        shell: bash {0}
         run: |
           fail=0
           for exe in ${{ matrix.exes }}; do
             echo "::group::Build $exe"
-            if ! lake build «$exe»; then
-              echo "::error::Build failed: $exe"
-              echo "::endgroup::"
+            lake build «$exe»
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Build failed: $exe (exit $rc)"
               fail=1
               continue
             fi
-            echo "::endgroup::"
             echo "::group::Run $exe"
             # 25 min cap per IP — heavy sims (memcached, h264) may
             # need this; if you bump it, also bump the group's
             # timeout-minutes above.
-            if ! timeout 1500 lake exe $exe; then
-              echo "::error::Run failed: $exe (exit $?)"
+            timeout 1500 lake exe $exe
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Run failed: $exe (exit $rc)"
               fail=1
             fi
-            echo "::endgroup::"
           done
           exit $fail
