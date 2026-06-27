@@ -1394,7 +1394,28 @@ mutual
       catch _ =>
         pure false
 
-      if isHW then
+      -- Also detect "user struct" HW lets: the type isn't a
+      -- `Signal dom α` but it IS a structure with a HasDomain
+      -- instance and Signal-typed fields (e.g. `KvHwOut dom`
+      -- returned by `@[hardware_module] def kvHw`).  Without
+      -- this, the binding falls into the `else`/Logic-let path
+      -- below, which `withLetDecl`s the value and lets Lean's
+      -- zeta-reduction inline `let engine := kvHw …; engine.foo`
+      -- into `(Prod.fst (… (kvHw …)))`-style chains — and each
+      -- `Prod.fst` / `Prod.snd` re-translates the inner kvHw
+      -- call, triggering a fresh sub-module synthesis per field
+      -- access (the documented hang in
+      -- Tests/Compiler/MultiOutputSubModuleHangRepro.lean).
+      let isStructHW ← try
+        let typeReduced ← CompilerM.liftMetaM
+          (Lean.Meta.withTransparency .all <| Lean.Meta.whnf type)
+        match ← CompilerM.liftMetaM (inferHWType typeReduced) with
+        | some (.bitVector _) => pure true
+        | some .bit => pure true
+        | _ => pure false
+      catch _ => pure false
+
+      if isHW || isStructHW then
         -- Hardware let: translate value to wire
         let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
         CompilerM.withLocalDecl name type fun fvar => do
