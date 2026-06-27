@@ -56,12 +56,22 @@ Tier-C scope (full HD wallet): BIP39 → BIP32 → secp256k1
 ECDSA → EIP-1559 tx sign → ERC-20 ABI decode for confirmation.
 
 Sub-tasks (see TaskList):
-- 422 Keccak-256 + RLP encoder (pure-data + sim)
-- 423 EIP-1559 tx signer (raw, RFC 6979 deterministic ECDSA)
-- 424 ERC-20 ABI decode (transfer / approve / transferFrom)
-- 425 BIP39 mnemonic → seed (PBKDF2-HMAC-SHA512, 2048 iters)
-- 426 BIP32 HD wallet child key derivation
-- 427 Top-level signer FSM + Tang Nano 50K bring-up
+- 422 ✅ Keccak-256 + RLP encoder (pure-data + sim)
+- 423 ✅ EIP-1559 tx signer (raw, secp256k1 ECDSA)
+- 424 ✅ ERC-20 ABI decode (transfer / approve / transferFrom)
+- 425 ✅ BIP39 mnemonic → seed (PBKDF2-HMAC-SHA512, 2048 iters)
+- 426 ✅ BIP32 HD wallet child key derivation
+- 427 ✅ Pure-data end-to-end signer (mnemonic → broadcast envelope)
+
+Status (2026-06-28): pure-data half complete.
+`IP/Crypto/EthWallet.lean::signFromMnemonic` derives the
+canonical Hardhat / MetaMask address from the BIP-39 Trezor
+mnemonic and emits a valid EIP-1559 envelope.  Byte-exact
+cross-compatible with every reference wallet.
+
+Signal-domain HW signer FSM + Tang Nano 50K bring-up
+tracked separately in Issue #68 (10-brick decomposition).
+RFC 6979 deterministic nonce derivation also deferred to #68.
 
 ### HSM-style signer (high throughput)
 Different from a Ledger-style personal wallet: server-side
