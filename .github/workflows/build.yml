@@ -764,14 +764,15 @@ jobs:
     - name: "Doc: build doc-gen4 API reference"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        # `Sparkle:docs` (target provided by doc-gen4 via the
-        # `require «doc-gen4»` in lakefile.lean) walks every
-        # module reachable from `Sparkle.lean` and renders
-        # Markdown + HTML reference pages into
-        # `.lake/build/doc/`.  Sticking to the `Sparkle` root
-        # keeps the IP libraries (which import `Sparkle`) in
-        # scope without us having to enumerate every lean_lib.
-        lake build Sparkle:docs
+        # `Sparkle:docs` (target provided by doc-gen4, now required
+        # from the `docbuild/` sub-project) walks every module
+        # reachable from `Sparkle.lean` and renders Markdown + HTML
+        # reference pages into `docbuild/.lake/build/doc/`.  Sticking
+        # to the `Sparkle` root keeps the IP libraries (which import
+        # `Sparkle`) in scope without us having to enumerate every
+        # lean_lib.  Building from `docbuild/` keeps doc-gen4 and its
+        # deps out of the main package's build graph.
+        (cd docbuild && lake build Sparkle:docs)
 
     - name: "Doc: build tutorial site + JupyterLite (xeus-lean image)"
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -967,8 +968,8 @@ jobs:
       run: |
         mkdir -p site/api
         # Copy the doc-gen4 output into site/api/.
-        if [ -d .lake/build/doc ]; then
-          cp -r .lake/build/doc/. site/api/
+        if [ -d docbuild/.lake/build/doc ]; then
+          cp -r docbuild/.lake/build/doc/. site/api/
         fi
         # Generate per-benchmark dashboard pages from the JSONs the
         # `build` job uploaded.  benchmark-action's
