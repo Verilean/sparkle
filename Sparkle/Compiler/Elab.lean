@@ -1011,20 +1011,32 @@ mutual
            let fFn := f.getAppFn
            if fFn.isConstOf ``Prod.fst then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
-               let totalWidth ← CompilerM.getWireWidth wireS
+               let wireWidth ← CompilerM.getWireWidth wireS
                let exprType ← cachedInferType e
                let hwType ← inferHWTypeFromSignal exprType
                let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+               let sType ← cachedInferType s
+               let sHWType ← inferHWTypeFromSignal sType
+               let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
+               -- Issue #67 step 2: clamp slice to wire's
+               -- declared width (see the matching comment in
+               -- `handleTupleProjections`).
+               let totalWidth := min wireWidth typeTotal
+               let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
+               let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
+               CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
                return resWire
            if fFn.isConstOf ``Prod.snd then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
+               let wireWidth ← CompilerM.getWireWidth wireS
                let exprType ← cachedInferType e
                let hwType ← inferHWTypeFromSignal exprType
                let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+               let actualWidth := min width wireWidth
+               let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
+               CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
                return resWire
 
            -- Handle lambda functions in Signal.map (extractLsb', unary primitives)
@@ -1639,12 +1651,24 @@ mutual
       trace[sparkle.compiler] "→ tuple projection (fst)"
       let s := args[args.size-1]!
       let wireS ← translateExprToWire s "s" (isTopLevel := false)
-      let totalWidth ← CompilerM.getWireWidth wireS
+      -- Slice index calc: prefer the WIRE'S declared width.
+      -- The expression-type-derived total can drift from the
+      -- realised concat width when the elaborator partially
+      -- unfolds a `bundle2` chain (Issue #67 step 2), so always
+      -- clamp to whichever is smaller — that's the bit-range
+      -- the wire actually carries.
+      let wireWidth ← CompilerM.getWireWidth wireS
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+      let sType ← cachedInferType s
+      let sHWType ← inferHWTypeFromSignal sType
+      let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
+      let totalWidth := min wireWidth typeTotal
+      let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
+      let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
+      CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
       return some resWire
 
     -- Signal.snd (new readable syntax)
@@ -1652,11 +1676,15 @@ mutual
       trace[sparkle.compiler] "→ tuple projection (snd)"
       let s := args[args.size-1]!
       let wireS ← translateExprToWire s "s" (isTopLevel := false)
+      let wireWidth ← CompilerM.getWireWidth wireS
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+      -- snd takes lower `width` bits, clamped to wire's declared width.
+      let actualWidth := min width wireWidth
+      let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
+      CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
       return some resWire
 
     -- Signal.bundle2 — pack two Signals into a Prod Signal.
@@ -1682,21 +1710,36 @@ mutual
       if fHead.isConstOf ``Prod.fst then
         trace[sparkle.compiler] "→ tuple projection (map fst)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
-        let totalWidth ← CompilerM.getWireWidth wireS
+        let wireWidth ← CompilerM.getWireWidth wireS
         let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+        let sType ← cachedInferType s
+        let sHWType ← inferHWTypeFromSignal sType
+        let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
+        -- Issue #67 step 2: clamp slice to the wire's
+        -- declared width.  When the elaborator partially
+        -- unfolds a `bundle2` chain, `wireWidth` shrinks
+        -- below the Prod-type-implied total — slicing
+        -- `[typeTotal-1:typeTotal-width]` then points past
+        -- the wire's last bit.
+        let totalWidth := min wireWidth typeTotal
+        let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
+        let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
+        CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
         return some resWire
       if fHead.isConstOf ``Prod.snd then
         trace[sparkle.compiler] "→ tuple projection (map snd)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
+        let wireWidth ← CompilerM.getWireWidth wireS
         let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+        let actualWidth := min width wireWidth
+        let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
+        CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
         return some resWire
 
     return none
