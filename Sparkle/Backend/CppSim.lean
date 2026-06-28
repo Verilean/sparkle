@@ -243,7 +243,7 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
         let mask := (2 ^ sliceWidth - 1 : Nat)
         let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
         if bitOffset == 0 then
-          s!"(((uint64_t){srcExpr}[{wordIdx + 1}] << 32) | (uint64_t){srcExpr}[{wordIdx}]) & {maskStr})"
+          s!"((((uint64_t){srcExpr}[{wordIdx + 1}] << 32) | (uint64_t){srcExpr}[{wordIdx}]) & {maskStr})"
         else
           s!"((((uint64_t){srcExpr}[{wordIdx + 1}] << {32 - bitOffset}) | ((uint64_t){srcExpr}[{wordIdx}] >> {bitOffset})) & {maskStr})"
       else
@@ -369,15 +369,33 @@ instance : Append StmtParts where
 def StmtParts.empty : StmtParts :=
   { declarations := [], evalBody := [], tickBody := [], resetBody := [], evalTickLocals := [] }
 
-/-- Emit a C++ constant expression for an init value with given width -/
+/-- Emit a C++ constant expression for an init value with given width.
+
+    For widths ≤ 64 bits the result is a plain integer cast
+    (`(uint64_t)0ULL`).  For widths > 64 bits the destination
+    is a `std::array<uint32_t, N>` which can't be initialised
+    from a scalar via C-style cast; emit a brace-initialiser
+    that splits the value across the 32-bit slots.  Lengths
+    fitting in 64 bits put the low half in slot 0 and the
+    high half in slot 1; longer constants are uncommon but
+    we splat the low 64 bits across the first two slots and
+    zero the rest. -/
 def emitInitValue (initValue : Int) (width : Nat) : String :=
   let cppType := emitCppType (.bitVector width)
-  if initValue < 0 then
-    let modulus : Int := (2 : Int) ^ width
-    let unsigned := ((initValue % modulus) + modulus) % modulus
-    s!"({cppType})0x{Nat.toDigits 16 unsigned.toNat |> String.ofList}ULL"
+  let modulus : Int := (2 : Int) ^ width
+  let unsigned : Nat :=
+    if initValue < 0 then (((initValue % modulus) + modulus) % modulus).toNat
+    else initValue.toNat
+  if width <= 64 then
+    s!"({cppType})0x{Nat.toDigits 16 unsigned |> String.ofList}ULL"
   else
-    s!"({cppType}){initValue}ULL"
+    let nWords := (width + 31) / 32
+    let wordHex (i : Nat) : String :=
+      let w := (unsigned >>> (i * 32)) &&& 0xFFFFFFFF
+      s!"0x{Nat.toDigits 16 w |> String.ofList}u"
+    let parts := (List.range nWords).map wordHex
+    let body := String.intercalate ", " parts
+    s!"{cppType}\{\{{body}}}"
 
 /-- Flatten a MUX chain into (condition, value) pairs + default.
     mux(c1, v1, mux(c2, v2, default)) → [(c1, v1), (c2, v2)], default -/
@@ -505,11 +523,21 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       | .const 0 _ => true | _ => false
     let writeTickLine := if isDeadWrite then []
       else [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
+    -- `arr.fill(0)` works for scalar element types but not for
+    -- `std::array<std::array<...>, N>` (the element is itself an
+    -- aggregate, and `0` isn't convertible to it).  Use aggregate
+    -- value-init (`= {}`) for wide-element memories — both
+    -- compilers accept it and it zero-initialises every byte.
+    let zeroLine :=
+      if dataWidth > 64 then
+        "        " ++ memName ++ " = {};"
+      else
+        s!"        {memName}.fill(0);"
     if comboRead then
       { declarations := [memDecl] ++ rdDecl
       , evalBody := [s!"        {rdName} = {memName}[{emitExpr typeMap readAddr}];"]
       , tickBody := writeTickLine
-      , resetBody := [s!"        {memName}.fill(0);"]
+      , resetBody := [zeroLine]
       , evalTickLocals := [] }
     else
       let addrLatch := s!"{memName}_raddr"
@@ -519,7 +547,7 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       , tickBody :=
           writeTickLine ++
           [ s!"        {rdName} = {memName}[{addrLatch}];" ]
-      , resetBody := [s!"        {memName}.fill(0);"]
+      , resetBody := [zeroLine]
       , evalTickLocals := [] }
 
   | .inst moduleName instName connections =>

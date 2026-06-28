@@ -356,6 +356,15 @@ lean_exe «memcached-server-test» where
   root := `Tests.Drivers.MemcachedServerTestMain
   supportInterpreter := true
 
+-- JIT-backed variant of memcached-server-test.  Same coverage
+-- as the pure-Lean form above, but routes the cycle loop
+-- through `#sim`-generated C++ + dlopen rather than evaluating
+-- `Signal.val` per cycle (which was hitting the 25-min CI cap
+-- on the BitVec 128 path).
+lean_exe «memcached-server-jit-test» where
+  root := `Tests.Drivers.MemcachedServerJITTestMain
+  supportInterpreter := true
+
 -- Repro for the known sub-module-instance + multi-register
 -- caller hang in the synth elaborator.  Builds clean (the
 -- failing #synthesizeVerilog is commented out); see the file's
