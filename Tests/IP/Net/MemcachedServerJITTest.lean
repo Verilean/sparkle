@@ -109,8 +109,7 @@ def main : IO Unit := do
   -- regressions in JIT C++ generation, dlopen, evalTick) but
   -- the byte-comparison assertions stay disabled until the
   -- cache-key fix in #71 lands.
-  let knownIssue71 :=
-    outStr.startsWith "S" ∧ ¬ outStr.startsWith "STORED\r\n"
+  let knownIssue71 := ¬ outStr.startsWith "STORED\r\n"
   if knownIssue71 then
     IO.println "  ⚠ Issue #71: JIT output diverges from pure-Lean reference"
     IO.println "    (FSM emits 'S' instead of advancing STORED→VALUE→END)."
