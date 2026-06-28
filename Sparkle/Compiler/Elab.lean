@@ -2141,13 +2141,27 @@ mutual
                   return (← allFields[projInfo.i].fvarId!.getUserName).toString
                 else
                   return s!"field{projInfo.i}"
-            -- Cache key must agree with the sub-module instance
-            -- handler (see comment there): use `name + args`
-            -- hash, not raw `recordArg.hash`.
+            -- Cache key.  We must agree with the sub-module
+            -- instance emit handler below.
+            --
+            -- The args of `recordArg` reach this point as
+            -- `let`-bound fvars whose `fvarId.name` is regenerated
+            -- on every translation pass — so hashing `arg.hash`
+            -- gives a per-leaf-distinct key and each projection
+            -- emits a fresh sub-module instance.
+            --
+            -- Key on `(recName, args.size)` instead.  This is
+            -- safe as long as the parent module calls the same
+            -- `@[hardware_module]` def AT MOST ONCE per arity
+            -- — true for memcachedServer (single `kvHw` call) and
+            -- every other current IP.  If a future IP needs two
+            -- distinct calls to the same sub-module, this key
+            -- would have to be widened with a call-site
+            -- discriminator the elaborator can compute
+            -- deterministically across passes.
             let recArgs := recordArg.getAppArgs
-            let mut callKey : UInt64 := mixHash 17 (hash recName)
-            for arg in recArgs do
-              callKey := mixHash callKey arg.hash
+            let callKey : UInt64 :=
+              mixHash (mixHash 17 (hash recName)) recArgs.size.toUInt64
             let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
             if let some w := portMap.get? (callKey, fieldName) then
               trace[sparkle.compiler] "→ projection: cached wire {w} for {fieldName}"
@@ -2347,10 +2361,29 @@ mutual
         -- distinct Expr objects, so pointer-equal hashes won't
         -- match across the two handlers.
         --
-        -- Compose a stable key from `name` + args' individual hashes.
-        let mut keyHash : UInt64 := mixHash 17 (hash name)
-        for arg in args do
-          keyHash := mixHash keyHash arg.hash
+        -- Match the projection handler's cache key: `(recName,
+        -- args.size)`.  See the comment in handleDefinitionUnfold
+        -- (the projection arm above) for why we can't use arg
+        -- hashes here.  Together they guarantee that every
+        -- projection on a `let engine := kvHw …` resolves to the
+        -- same emitted sub-module instance.
+        let keyHash : UInt64 :=
+          mixHash (mixHash 17 (hash name)) args.size.toUInt64
+        -- Idempotency check.  If we've already emitted this
+        -- `(keyHash, _)` instance in the current synth, return
+        -- the cached first-output wire and skip the emit step.
+        -- Without this, every projection on the same
+        -- `let engine := kvHw …` triggers a fresh emitInstance
+        -- (Issue #71).
+        let portMapNow ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+        let firstOutP? := subModule.outputs.head?
+        let alreadyEmitted := match firstOutP? with
+          | some firstOutP => portMapNow.contains (keyHash, firstOutP.name)
+          | none => false
+        if alreadyEmitted then
+          let firstOutP := firstOutP?.get!
+          let cachedW := portMapNow.get? (keyHash, firstOutP.name) |>.get!
+          return some cachedW
         let mut firstW : Option String := none
         for outP in subModule.outputs do
           let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
