@@ -3372,9 +3372,42 @@ elab "#sim" id:ident : command => do
     s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
-  let outputsIdx := (List.range outputs.length).zip outputs
-  let readLines := outputsIdx.map fun (idx, p) =>
-    s!"  let v{idx} ← JIT.getOutput sim.handle {idx}\n  let {simLeanIdent p.name} := BitVec.ofNat {p.ty.bitWidth} v{idx}.toNat"
+  -- For each output port: when the port width is > 64 bits,
+  -- emit multiple `JIT.getOutput` calls reading 32-bit chunks
+  -- (the C-side `jit_get_output` already exposes wide ports
+  -- as N consecutive switch cases of `uint32_t` slot reads —
+  -- see `emitGetOutputSwitch` in Sparkle/Backend/CppSim.lean).
+  -- Then OR-shift them into the BitVec.  Fixes Issue #75
+  -- (silent truncation of > 64-bit JIT output ports).
+  let (readLines, _) := outputs.foldl
+    (fun (acc : List String × Nat) (p : Port) =>
+      let w := p.ty.bitWidth
+      let nameId := simLeanIdent p.name
+      if w ≤ 64 then
+        let line :=
+          s!"  let v_{nameId} ← JIT.getOutput sim.handle {acc.2}\n" ++
+          s!"  let {nameId} := BitVec.ofNat {w} v_{nameId}.toNat"
+        (acc.1 ++ [line], acc.2 + 1)
+      else
+        -- Wide port: read ⌈w/32⌉ 32-bit slots and OR-shift.
+        let nWords := (w + 31) / 32
+        let slotIdxs := List.range nWords
+        let reads := slotIdxs.map fun j =>
+          s!"  let v_{nameId}_{j} ← JIT.getOutput sim.handle {acc.2 + j}"
+        -- Assemble: each slot j contributes
+        --   (BitVec.ofNat w v_<nameId>_j.toNat) <<< (32 * j)
+        -- and we fold them with `|||`.
+        let combineTerm (j : Nat) : String :=
+          s!"(BitVec.ofNat {w} (v_{nameId}_{j}.toNat &&& 0xFFFFFFFF) <<< {32 * j})"
+        let combined :=
+          match slotIdxs with
+          | [] => s!"(BitVec.ofNat {w} 0)"
+          | j :: rest =>
+            rest.foldl (fun s k => s ++ " ||| " ++ combineTerm k) (combineTerm j)
+        let assemble :=
+          s!"  let {nameId} : BitVec {w} := {combined}"
+        (acc.1 ++ reads ++ [assemble], acc.2 + nWords))
+    ([], 0)
   let readBody := String.intercalate "\n" readLines
   let readReturn := String.intercalate ", " <| outputs.map fun p => simLeanIdent p.name
   elabSimStr s!"def Simulator.read (sim : Simulator) : IO SimOutput := do\n{readBody}\n  pure {lb} {readReturn} {rb}"
