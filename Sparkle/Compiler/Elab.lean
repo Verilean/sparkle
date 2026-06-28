@@ -2839,8 +2839,14 @@ mutual
             | _ => false
           )
           if hasRegisters then
-            module := module.addInput { name := "clk", ty := .bit }
-            module := module.addInput { name := "rst", ty := .bit }
+            -- Idempotent: a sub-module instance handler may have
+            -- already declared clk/rst (see line 2307-2312 where
+            -- @[hardware_module] sub-modules require parent to
+            -- expose the same clock/reset).  Skip duplicate adds.
+            if !module.inputs.any (·.name == "clk") then
+              module := module.addInput { name := "clk", ty := .bit }
+            if !module.inputs.any (·.name == "rst") then
+              module := module.addInput { name := "rst", ty := .bit }
           -- Finalize the in-progress module: addInput / addOutput /
           -- addWire / addStmt all use O(1) head-prepend during the
           -- synth loop; `finalize` reverses each list once so
@@ -3132,9 +3138,21 @@ elab "#sim" id:ident : command => do
       IO.FS.writeFile jitPath jitCpp
       IO.FS.writeFile svPath  verilog
     catch _ => pure ()
-    let m ← match optimized.modules.head? with
+    -- Locate the TOP module by declName.  `synthesizeHierarchical`
+    -- appends top last, but each sub-module (`@[hardware_module]`)
+    -- was registered first via the synth-time submodule cache, so
+    -- `modules.head?` picks up the sub-module instead of the top.
+    -- Match by name (the synthesizeCombinational result uses
+    -- `declName.toString` as the module name).
+    let topModName := toString declName
+    let m ← match optimized.modules.find? (·.name == topModName) with
       | some m => pure m
-      | none => throwError "#sim: no module in design"
+      | none =>
+        -- Fallback: last module (which is what addModule appends).
+        -- Should never fire in practice; better than throwing.
+        match optimized.modules.getLast? with
+        | some m => pure m
+        | none => throwError "#sim: no module in design"
     let userInputs := m.inputs.filter fun p => !isSimClkRst p.name
     let outputs := m.outputs
     pure (ns, jitPath, svPath, m.name, userInputs, outputs)
