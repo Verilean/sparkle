@@ -93,10 +93,23 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Verification_Temporal.so"
   ]
 
+-- These args are GNU-ld specific: `-l:NAME.so` exact-file linking, the
+-- `--no-as-needed`/`--as-needed` toggles, and the ELF `$ORIGIN` rpath token.
+-- Apple `ld64` rejects all of them (per-module dynlibs are `.dylib`, not `.so`;
+-- the rpath origin token is `@loader_path`), and the force-load ordering bug
+-- they work around is itself Linux/glibc/GNU-ld-only — see
+-- docs/lean-lake-force-load-ordering-issue.md ("OS: Linux (x86_64, glibc), GNU
+-- ld"). So guard per-platform exactly like the `Sparkle` lib's `moreLinkArgs`
+-- below: on macOS/Windows fall back to Lake's default linking (empty extra
+-- args), which is also all the IP libs need there since the editor force-load
+-- path that triggers the bug is the Linux interpreter/LSP.
 def sparkleDynlibLinkArgs : Array String :=
-  #["-L", "./.lake/build/lib/lean", "-Wl,--no-as-needed"]
-    ++ sparkleModuleDeps
-    ++ #["-Wl,--as-needed", "-Wl,-rpath,$ORIGIN/lean"]
+  if System.Platform.isOSX || System.Platform.isWindows then
+    #[]
+  else
+    #["-L", "./.lake/build/lib/lean", "-Wl,--no-as-needed"]
+      ++ sparkleModuleDeps
+      ++ #["-Wl,--as-needed", "-Wl,-rpath,$ORIGIN/lean"]
 
 -- `precompileModules := true` builds a shared library
 -- (`.lake/build/lib/libsparkle_Sparkle.so`) alongside the oleans.
