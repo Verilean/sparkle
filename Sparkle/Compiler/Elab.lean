@@ -1076,14 +1076,96 @@ mutual
                    CompilerM.emitAssign shiftWire (.const shiftAmt srcWidth)
                    CompilerM.emitAssign resWire (.op .asr [.ref wireS, .ref shiftWire])
                    return resWire
-               -- Unary primitives (neg, not, etc.)
+               -- Unary primitives (neg, not, etc.).  ONLY take
+               -- this shortcut when the body is genuinely
+               -- `op p` — single primitive applied to the
+               -- lambda parameter.  Composite-body lambdas
+               -- (e.g. `fun p => 0x4000 ||| ((0#8) ++ p)`,
+               -- where the head is `HOr.hOr` but the body
+               -- mixes a constant and a nested op) fall
+               -- through to the composite-body path below
+               -- (Issue #73).
                if let some op := getOperator opName then
-                 let wireS ← translateExprToWire s "s" (isTopLevel := false)
-                 let exprType ← cachedInferType e
-                 let hwType ← inferHWTypeFromSignal exprType
-                 let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-                 CompilerM.emitAssign resWire (.op op [.ref wireS])
-                 return resWire
+                 let isUnary := op == .not || op == .neg
+                 if isUnary then
+                   let wireS ← translateExprToWire s "s" (isTopLevel := false)
+                   let exprType ← cachedInferType e
+                   let hwType ← inferHWTypeFromSignal exprType
+                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                   CompilerM.emitAssign resWire (.op op [.ref wireS])
+                   return resWire
+
+           -- Composite-body lambda fallback (Issue #73).
+           -- Pattern-match on common composite shapes built
+           -- from primitives + the lambda parameter + literals.
+           -- This handles `proto.map (fun p => 0x4000 ||| ((0#8) ++ p))`
+           -- and similar shallow trees.
+           --
+           -- General strategy: walk `body` recursively, emitting
+           -- IR ops as we go.  Literals become `.const`, `p`
+           -- becomes `.ref wireS`, primitive op apps become
+           -- `.op` / `.concat`.
+           if let .lam binderName binderType lamBody _ := f then
+             let wireS ← translateExprToWire s "s" (isTopLevel := false)
+             let srcWidth ← CompilerM.getWireWidth wireS
+             let exprType ← cachedInferType e
+             let hwType ← inferHWTypeFromSignal exprType
+             let dstWidth := match hwType with
+               | .bitVector w => w | .bit => 1 | _ => 8
+             -- Bind `p` to wireS in varMap so a recursive
+             -- walker can resolve it.  We then run a small
+             -- bespoke body translator (not the main
+             -- handler chain, which expects Signal-typed
+             -- intermediates) that returns an IR `Expr`.
+             let res? ← CompilerM.withLocalDecl binderName binderType fun fvar => do
+               let fvarId := fvar.fvarId!
+               CompilerM.withVarMapping fvarId wireS do
+                 let body' := lamBody.instantiate1 fvar
+                 -- Inline mini-translator: turn `body'` into an
+                 -- IR `Expr`.  Recognises: fvar (= wireS),
+                 -- BitVec literals, HOr/HAnd/HXor/HAdd/HSub,
+                 -- HAppend.hAppend, and `BitVec.extractLsb'`.
+                 let rec toIR (e : Lean.Expr) : CompilerM (Option Sparkle.IR.AST.Expr) := do
+                   if e.isFVar then
+                     if e.fvarId! == fvarId then
+                       return some (.ref wireS)
+                     else
+                       return none
+                   let fn := e.getAppFn
+                   let args := e.getAppArgs
+                   if let .const opNm _ := fn then
+                     -- BitVec literal (`OfNat.ofNat n k` or
+                     -- `BitVec.ofNat w n`).
+                     if opNm == ``OfNat.ofNat ∨ opNm == ``BitVec.ofNat then
+                       let valOpt ← try
+                           let (v, w) ← extractBitVecLiteral e
+                           pure (some (Sparkle.IR.AST.Expr.const (Int.ofNat v) w))
+                         catch _ => pure none
+                       return valOpt
+                     -- HAppend / BitVec.append → concat
+                     if (opNm == ``HAppend.hAppend ∨ opNm == ``BitVec.append) ∧ args.size ≥ 2 then
+                       let a := args[args.size - 2]!
+                       let b := args[args.size - 1]!
+                       match (← toIR a), (← toIR b) with
+                       | some ea, some eb => return some (.concat [ea, eb])
+                       | _, _ => return none
+                     -- Binary primitive op (HOr / HAnd / ...).
+                     if let some op := getOperator opNm then
+                       if args.size ≥ 2 then
+                         let a := args[args.size - 2]!
+                         let b := args[args.size - 1]!
+                         match (← toIR a), (← toIR b) with
+                         | some ea, some eb => return some (.op op [ea, eb])
+                         | _, _ => return none
+                   return none
+                 toIR body'
+             match res? with
+             | some irExpr =>
+               let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+               CompilerM.emitAssign resWire irExpr
+               let _ := dstWidth; let _ := srcWidth
+               return resWire
+             | none => pure ()
 
         -- Detect if-then-else and match expressions that cannot be synthesized
         if name == ``ite || name == ``dite then

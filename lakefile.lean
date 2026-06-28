@@ -382,6 +382,14 @@ lean_exe «toplevel-sim-jit-test» where
   root := `Tests.Drivers.TopLevelSimJITTestMain
   supportInterpreter := true
 
+-- JIT-backed variant of usb-webserver-sim.  Each multi-output
+-- sub-module projection is wrapped in its own scalar
+-- `@[hardware_module]` to keep the elaborator on its known
+-- struct-projection path.
+lean_exe «usb-webserver-jit-test» where
+  root := `Tests.Drivers.UsbWebServerJITTestMain
+  supportInterpreter := true
+
 
 -- Repro for the known sub-module-instance + multi-register
 -- caller hang in the synth elaborator.  Builds clean (the
