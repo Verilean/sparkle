@@ -31,29 +31,18 @@ namespace Sparkle.Tests.IP.Net.MemcachedServerJITTest
 
 abbrev D := defaultDomain
 
-/-- Scalar projection wrappers + 9-bit packed top.  The
-    sibling-wrapper pattern (each `@[hardware_module]` runs
-    its own copy of memcachedServer) currently diverges
-    semantically in the FSM, so this driver graceful-skips
-    the byte-match check.  See Issue #67 step 2 for the
-    underlying elaborator + backend story. -/
-
-@[hardware_module] def msvrByte
-    (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
-    Signal D (BitVec 8) :=
-  (memcachedServer inByte inValid).outByte
-
-@[hardware_module] def msvrValid
-    (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
-    Signal D Bool :=
-  (memcachedServer inByte inValid).outValid
-
+/-- Single-instance top.  `memcachedServer` is now
+    `@[hardware_module]`, so the multi-output struct
+    projection (`out.outByte` / `out.outValid`) hits the
+    elaborator's sub-module-instance shortcut — only ONE
+    copy of the FSM runs in the generated hardware. -/
 @[hardware_module] def memcachedServerTop
     (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
     Signal D (BitVec 9) :=
+  let out := memcachedServer inByte inValid
   let vBit : Signal D (BitVec 1) :=
-    Signal.mux (msvrValid inByte inValid) (Signal.pure 1#1) (Signal.pure 0#1)
-  (· ++ ·) <$> vBit <*> msvrByte inByte inValid
+    Signal.mux out.outValid (Signal.pure 1#1) (Signal.pure 0#1)
+  (· ++ ·) <$> vBit <*> out.outByte
 
 #sim memcachedServerTop
 
