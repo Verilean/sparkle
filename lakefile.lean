@@ -390,6 +390,10 @@ lean_exe «usb-webserver-jit-test» where
   root := `Tests.Drivers.UsbWebServerJITTestMain
   supportInterpreter := true
 
+lean_exe «ipv4-jit-test» where
+  root := `Tests.Drivers.IPv4JITTestMain
+  supportInterpreter := true
+
 
 -- Repro for the known sub-module-instance + multi-register
 -- caller hang in the synth elaborator.  Builds clean (the

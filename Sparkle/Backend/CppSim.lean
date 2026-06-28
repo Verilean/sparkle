@@ -174,34 +174,75 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
       let widths := args.map (inferExprWidth typeMap ·)
       let totalWidth := widths.foldl (· + ·) 0
       if totalWidth > 64 then
-        -- Wide concat: build std::array<uint32_t, N> initializer
+        -- Wide concat: build std::array<uint32_t, N> initializer.
+        -- Compute each 32-bit slot directly from the constituent
+        -- args without ever going through a single 64-bit
+        -- intermediate (which would UB on shifts >= 64 when
+        -- the concat exceeds 64 bits).
+        --
+        -- Layout: `args[0]` is the MSB-side, `args[last]` is the
+        -- LSB-side.  Bit `b` of the result (counted from LSB =
+        -- bit 0) lives in arg `i` at local bit position
+        -- `b - (sum of widths of args[i+1..end])`.
         let nWords := (totalWidth + 31) / 32
-        -- For now, if total ≤ 96 bits (3 words), build word-by-word
-        -- Each word = bits [i*32+31 : i*32] of the concatenated result
-        -- Simplified: delegate to narrow concat for the lower 64 bits,
-        -- and handle upper bits separately
-        let lowerArgs := args  -- all args contribute to the result
-        let lowerWidths := widths
-        -- Build as: {word0, word1, word2}
-        -- word0 = lower 32 bits, word1 = bits [63:32], word2 = bits [95:64]
-        -- This is complex in general; for the signExtend pattern specifically
-        -- (concat of sign-extension bits and original value), generate inline
-        let pairs := lowerArgs.zip lowerWidths
-        let (terms, _) := pairs.foldr (fun (arg, w) (acc, shift) =>
-          let expr := emitExpr typeMap arg
-          let term := if shift > 0 then
-            s!"(({emitCppType (.bitVector 64)}){expr} << {shift})"
-          else
-            s!"({emitCppType (.bitVector 64)}){expr}"
-          (term :: acc, shift + w)
-        ) ([], 0)
-        -- Build std::array initializer from terms
-        let combined := "(" ++ String.intercalate " | " terms ++ ")"
-        -- Pack into array: {low32, mid32, high32}
-        let w0 := s!"(uint32_t)({combined} & 0xffffffffULL)"
-        let w1 := s!"(uint32_t)(({combined} >> 32) & 0xffffffffULL)"
-        let w2 := if nWords > 2 then s!"(uint32_t)(({combined} >> 64) & 0xffffffffULL)" else "0U"
-        "std::array<uint32_t, " ++ toString nWords ++ ">{" ++ "{" ++ w0 ++ ", " ++ w1 ++ (if nWords > 2 then ", " ++ w2 else "") ++ "}" ++ "}"
+        -- Build a list of (arg, lowBit, width) where lowBit is
+        -- the result-side starting bit of `arg`.
+        let argsWithBits : List (Expr × Nat × Nat) := Id.run do
+          let mut acc : List (Expr × Nat × Nat) := []
+          let mut shift : Nat := 0
+          for (arg, w) in (args.zip widths).reverse do
+            acc := (arg, shift, w) :: acc
+            shift := shift + w
+          return acc.reverse
+        -- For each slot j (0..nWords-1), pick bits [j*32..j*32+31]
+        -- of the concat from whichever args overlap that range.
+        let slotExpr (j : Nat) : String := Id.run do
+          let slotLo : Nat := j * 32
+          let slotHi : Nat := slotLo + 31
+          let mut parts : List String := []
+          for (arg, argLo, w) in argsWithBits do
+            let argHi := argLo + w - 1
+            let lo := if argLo > slotLo then argLo else slotLo
+            let hi := if argHi < slotHi then argHi else slotHi
+            if lo ≤ hi then
+              let bitInArgLo := lo - argLo
+              let bitInArgHi := hi - argLo
+              let bitInResultLo := lo - slotLo
+              let argExpr := emitExpr typeMap arg
+              let bitCount := bitInArgHi - bitInArgLo + 1
+              let maskNat : Nat := (2 ^ bitCount) - 1
+              let mask := s!"0x{Nat.toDigits 16 maskNat |> String.ofList}ULL"
+              -- For wide args (width > 64), index into the
+              -- std::array slot that holds the source bits.
+              let shifted :=
+                if w > 64 then
+                  let argSlot := bitInArgLo / 32
+                  let argBitInSlot := bitInArgLo % 32
+                  let bitsFromThisSlot :=
+                    let available := 32 - argBitInSlot
+                    if bitCount < available then bitCount else available
+                  let m2 : Nat := (2 ^ bitsFromThisSlot) - 1
+                  let m2str := s!"0x{Nat.toDigits 16 m2 |> String.ofList}ULL"
+                  if argBitInSlot == 0 then
+                    s!"((uint64_t){argExpr}[{argSlot}] & {m2str})"
+                  else
+                    s!"(((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}) & {m2str})"
+                else
+                  if bitInArgLo == 0 then
+                    s!"((uint64_t){argExpr} & {mask})"
+                  else
+                    s!"(((uint64_t){argExpr} >> {bitInArgLo}) & {mask})"
+              let placed :=
+                if bitInResultLo == 0 then shifted
+                else s!"({shifted} << {bitInResultLo})"
+              parts := parts ++ [placed]
+          let combined :=
+            if parts.isEmpty then "0ULL"
+            else "(" ++ String.intercalate " | " parts ++ ")"
+          return s!"(uint32_t)({combined} & 0xffffffffULL)"
+        let slots := (List.range nWords).map slotExpr
+        "std::array<uint32_t, " ++ toString nWords ++ ">{{" ++
+          String.intercalate ", " slots ++ "}}"
       else
         let resultType := emitCppType (.bitVector totalWidth)
         let pairs := args.zip widths
@@ -438,14 +479,34 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
   | .assign lhs rhs =>
     let width := lookupWidth typeMap lhs
     if width > 64 then
-      -- Wide assign for `_gen_prod*`-style multiply results only:
-      -- emit a plain `lhs = mul(...)` IIFE that yields std::array.
-      -- For other wide assigns (e.g. `out = ...` packing) the
-      -- existing codegen relied on the assignment being skipped, so
-      -- preserve that behaviour. We detect a multiply RHS by looking
-      -- for the `.op .mul` shape directly.
+      -- Wide assign.  Two shapes:
+      --   * `.op .mul` — multiply IIFE returns std::array directly.
+      --   * `.concat ...` — wide concat assembled into
+      --     std::array<uint32_t, N> initializer by `emitExpr`.
+      --     Emit `lhs = {init}` so the wide output port (or any
+      --     wider-than-64-bit packed wire) gets populated.
+      --   * Anything else stays skipped — those slots are
+      --     populated through register / memory paths.
       match rhs with
       | .op .mul _ =>
+        let sn := sanitizeName lhs
+        let expr := emitExpr typeMap rhs
+        { declarations := []
+        , evalBody := [s!"        {sn} = {expr};"]
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      | .concat _ =>
+        let sn := sanitizeName lhs
+        let expr := emitExpr typeMap rhs
+        { declarations := []
+        , evalBody := [s!"        {sn} = {expr};"]
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      | .ref _ =>
+        -- Plain `lhs = rhs` between two std::array values —
+        -- C++ allows direct assignment for fixed-size arrays.
         let sn := sanitizeName lhs
         let expr := emitExpr typeMap rhs
         { declarations := []
