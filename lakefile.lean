@@ -373,6 +373,16 @@ lean_exe «crc32-jit-test» where
   root := `Tests.Drivers.CRC32JITTestMain
   supportInterpreter := true
 
+-- JIT-backed variant of toplevel-sim-test.  The BitNet
+-- accelerator's pure-Lean Signal evaluation hits the same
+-- O(t²) Signal.val cost that times out usb-webserver-sim
+-- and memcached-server-test in CI; this driver runs the
+-- same 50-cycle stimulus via JIT.
+lean_exe «toplevel-sim-jit-test» where
+  root := `Tests.Drivers.TopLevelSimJITTestMain
+  supportInterpreter := true
+
+
 -- Repro for the known sub-module-instance + multi-register
 -- caller hang in the synth elaborator.  Builds clean (the
 -- failing #synthesizeVerilog is commented out); see the file's
