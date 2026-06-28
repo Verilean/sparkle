@@ -166,6 +166,14 @@ jobs:
         if: matrix.group == 'bitnet'
         run: make -C firmware/bitnet_smoke
 
+      - name: Generate verilator/generated_soc.sv (bitnet group only)
+        # `bitnet-soc-test` axis 2 looks up `verilator/generated_soc.sv`
+        # to grep for the BitNet sub-tree.  The file is emitted as a
+        # side effect of building `IP.RV32.SoCVerilog` (the module
+        # carries a `#writeDesign` macro that runs at compile time).
+        if: matrix.group == 'bitnet'
+        run: lake build IP.RV32.SoCVerilog
+
       - name: Cache Lake build artifacts
         uses: actions/cache@v4
         with:
