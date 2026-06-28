@@ -1619,9 +1619,75 @@ mutual
 
     return none
 
-  /-- Handle Signal.ap — binary op lifting, concat/sshiftRight special cases -/
+  /-- Handle Signal.ap — binary op lifting, concat/sshiftRight special cases.
+
+      Also handles N-ary applicative chains
+      `f <$> a₁ <*> a₂ <*> ... <*> aₙ`  (n ≥ 2).
+      These desugar to nested `Signal.ap` calls — the
+      outermost is `Signal.ap (Signal.ap (... (Signal.map f a₁) ...) aₙ₋₁) aₙ`.
+      We strip the chain into the inner `Signal.map f a₁` plus
+      the trailing argument signals `[a₂, ..., aₙ]`, then apply
+      `f` to the wires sequentially.  For chains whose `f` is
+      a pure op (or / and / xor / add / etc.) operating
+      pairwise on a left-fold, this resolves into a chain of
+      binary IR ops. -/
   partial def handleApplicative (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
+      -- Walk the nested ap-chain to its innermost Signal.map.
+      -- Collect the trailing arguments in order.
+      let rec collectAp (acc : Array Lean.Expr) (cur : Lean.Expr) :
+          Option (Lean.Expr × Array Lean.Expr) :=
+        let fn := cur.getAppFn
+        let cArgs := cur.getAppArgs
+        if fn.isConstOf ``Sparkle.Core.Signal.Signal.ap ∧ cArgs.size ≥ 2 then
+          collectAp (acc.push cArgs[cArgs.size-1]!) cArgs[cArgs.size-2]!
+        else if fn.isConstOf ``Sparkle.Core.Signal.Signal.map ∧ cArgs.size ≥ 2 then
+          some (cur, acc.reverse)
+        else
+          none
+      let chainStart : Lean.Expr :=
+        Lean.mkAppN (Lean.mkConst ``Sparkle.Core.Signal.Signal.ap)
+                    args[:args.size]
+      let chainStart := if args.size > 2 then e else chainStart
+      let _ := chainStart
+      let topAcc : Array Lean.Expr := #[args[args.size-1]!]
+      match collectAp topAcc args[args.size-2]! with
+      | some (mapExpr, trailingArgs) =>
+        -- `mapExpr` is `Signal.map f a₁`.  `trailingArgs` is
+        -- `[a₂, a₃, ..., aₙ]` in left-to-right order.
+        if trailingArgs.size ≥ 2 then
+          trace[sparkle.compiler] s!"→ applicative (N-ary, n = {trailingArgs.size + 1})"
+          let mapArgs := mapExpr.getAppArgs
+          let f := mapArgs[mapArgs.size-2]!
+          let a₁ := mapArgs[mapArgs.size-1]!
+          let opName ← getPrimitiveNameFromLambda f
+          match getOperator opName with
+          | some op =>
+            -- f is binop-shaped: apply pairwise left-fold.
+            -- This handles `(fun x y => x | y) <$> a <*> b <*> c <*> d`
+            -- as `((a | b) | c) | d` — matches Lean's
+            -- left-associative `<*>` parse.
+            let wireA1 ← translateExprToWire a₁ "a"
+            let mut accWire := wireA1
+            let mut idx := 0
+            let exprType ← cachedInferType e
+            let hwType ← inferHWTypeFromSignal exprType
+            for nextArg in trailingArgs do
+              let isLast := idx + 1 == trailingArgs.size
+              let nextWire ← translateExprToWire nextArg s!"a{idx + 2}"
+              let resWire ←
+                if isLast then
+                  CompilerM.makeWire hint hwType (named := isNamed)
+                else
+                  CompilerM.makeWire s!"{hint}_acc" hwType (named := false)
+              CompilerM.emitAssign resWire (.op op [.ref accWire, .ref nextWire])
+              accWire := resWire
+              idx := idx + 1
+            return some accWire
+          | none => pure ()
+        -- Fall through to the 2-ary path when chain isn't a
+        -- single-op left-fold.
+      | none => pure ()
       let sf := args[args.size-2]!
       let b := args[args.size-1]!
       let sfFn := sf.getAppFn
