@@ -239,7 +239,7 @@ structure ParserState where
   deriving Inhabited
 
 /-- The top-level memcached byte-stream server. -/
-def memcachedServer {dom : DomainConfig}
+@[hardware_module] def memcachedServer {dom : DomainConfig}
     (inByte : Signal dom (BitVec 8))
     (inValid : Signal dom Bool) :
     ServerOut dom :=
