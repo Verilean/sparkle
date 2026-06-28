@@ -133,23 +133,30 @@ def reproKvHw2Reg
     r2 <~ Signal.mux v (Signal.pure true) r2Sig
     return r1Sig
 
--- Initially reported as "hangs the synth elaborator", but the
--- real cause was insufficient `SPARKLE_TRANSLATE_LIMIT` — the
--- pattern needs O(1M) recursive translate calls but the default
--- 500k cap aborted before completion.  With a high enough
--- limit (set below), it completes successfully.  Sparkle's
--- multi-output sub-module elaboration is just expensive, not
--- broken.
---
--- Performance improvement is tracked in TODO.md; the
--- functional pass is now part of the regression test.
-set_option maxHeartbeats 16000000 in
+-- Originally reported as "hangs the synth elaborator", and the
+-- first workaround was a 16 M `maxHeartbeats` + 32 M
+-- `SPARKLE_TRANSLATE_LIMIT`.  Issue #67 traced the real cost
+-- to two interacting bugs in `Sparkle.Compiler.Elab`:
+--   * the per-synth caches were reset unconditionally on every
+--     recursive `synthesizeCombinational` re-entry, so every
+--     projection of `kvHw` re-walked it from scratch;
+--   * `emitRegister / emitMemory` never registered the output
+--     wire width with `sparkleWireWidthCache`, so each
+--     downstream width lookup fell back to an O(n) scan over
+--     `module.wires` (n in the thousands by the last leaf);
+--   * each leaf re-entered `withLocalDecl` from scratch, giving
+--     the same source argument fresh fvars per leaf so the
+--     per-synth `Expr.equal` cache missed across leaf boundaries.
+-- All three are fixed in `synthesizeCombinational` (depth-gated
+-- reset, width-cache populate at emit, `lambdaTelescope` once
+-- across all leaves).  `reproKvHw2Reg` now synthesises in well
+-- under a second without any of the elevated limits.
 #synthesizeVerilog reproKvHw2Reg
 
 def main : IO Unit := do
   IO.println "MultiOutputSubModuleHangRepro: build-only test."
   IO.println "  ✓ baselineNoSubmodule synthesised (see lake build log)"
   IO.println "  ✓ baselineKvHw1Reg    synthesised"
-  IO.println "  ⚠ reproKvHw2Reg        #synthesizeVerilog disabled — known hang"
+  IO.println "  ✓ reproKvHw2Reg       synthesised (regression guard for Issue #67)"
 
 end Sparkle.Tests.Compiler.MultiOutputSubModuleHangRepro

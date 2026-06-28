@@ -192,6 +192,12 @@ def emitRegister (hint : String) (clk : String) (rst : String)
   let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty
                        (named := named) (resetKind := resetKind) cs
   set cs'
+  -- Register the output wire width so downstream `getWireWidth`
+  -- lookups hit the cache instead of falling back to a linear
+  -- scan over `module.wires` (which dominates wall time when
+  -- the wire list grows into the thousands — Issue #67).
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
   return name
 
 def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
@@ -199,6 +205,7 @@ def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
   let cs ← get
   let (name, cs') := CircuitM.emitMemory hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr named cs
   set cs'
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name dataWidth))
   return name
 
 def emitMemoryComboRead (hint : String) (addrWidth dataWidth : Nat) (clk : String)
@@ -206,6 +213,7 @@ def emitMemoryComboRead (hint : String) (addrWidth dataWidth : Nat) (clk : Strin
   let cs ← get
   let (name, cs') := CircuitM.emitMemoryComboRead hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr named cs
   set cs'
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name dataWidth))
   return name
 
 def emitInstance (moduleName : String) (instName : String) (connections : List (String × Sparkle.IR.AST.Expr)) : CompilerM Unit := do
@@ -2693,94 +2701,158 @@ mutual
         h.putStrLn msg
         h.flush
     logProf s!"[profile] synthesizeCombinational {declName} entering"
-    -- Reset per-synth caches so each #synthesizeVerilog starts
-    -- clean (Expr identity from one decl shouldn't alias another).
-    sparkleTypeCache.set {}
-    sparkleTypeCacheHits.set 0
-    sparkleTypeCacheMiss.set 0
-    sparkleSubModuleCache.set {}
-    sparkleSubInstanceOutputs.set {}
-    sparkleFvarValueMap.set {}
-    sparkleWireWidthCache.set {}
-    let constInfo ← getConstInfo declName
-    logProf s!"[profile] getConstInfo done"
-    match constInfo with
-    | .defnInfo defnInfo =>
-      logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
-      let t0 ← IO.monoMsNow
-      logProf s!"[profile] calling openRecordInputs"
-      let body0 ← openRecordInputs defnInfo.value
-      -- Strip sim-only Signal.memoize wrappers from the body
-      -- BEFORE translation.  This breaks the FSM memoize-cycle
-      -- root cause (see stripMemoizeWrappers doc).
-      let body := stripMemoizeWrappers body0
-      let t1 ← IO.monoMsNow
-      logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
-      -- Split the return value into per-leaf Lean expressions
-      -- BEFORE entering CompilerM.  This lets us reuse the
-      -- existing single-Signal translation path on each leaf,
-      -- yielding one Verilog output port per leaf rather than a
-      -- single packed wire.
-      logProf s!"[profile] calling splitReturnLeaves"
-      let leaves ← splitReturnLeaves body
-      let t2 ← IO.monoMsNow
-      logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
-      let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
-      let compiler : CompilerM String := do
-        let mut firstWire : Option String := none
-        let mut leafIdx := 0
-        for (portName, leafExpr) in leaves do
-          let tLeaf0 ← CompilerM.liftMetaM IO.monoMsNow
-          let callsBefore ← CompilerM.liftMetaM sparkleCallCounter.get
-          let hitsBefore  ← CompilerM.liftMetaM sparkleCacheHits.get
-          CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate starting (calls={callsBefore} hits={hitsBefore})")
-          let leafWire ← translateExprToWire leafExpr portName (isTopLevel := true)
-          let tLeaf1 ← CompilerM.liftMetaM IO.monoMsNow
-          let callsAfter ← CompilerM.liftMetaM sparkleCallCounter.get
-          let hitsAfter  ← CompilerM.liftMetaM sparkleCacheHits.get
-          CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate {tLeaf1 - tLeaf0} ms (calls Δ={callsAfter - callsBefore} hits Δ={hitsAfter - hitsBefore})")
-          leafIdx := leafIdx + 1
-          if firstWire.isNone then firstWire := some leafWire
-          -- Record the leaf-expr → wire mapping so subsequent
-          -- leaves that share sub-expressions (the common
-          -- `Signal.loop` body in a multi-output return) reuse
-          -- the wire instead of re-walking the whole tree.
-          if !leafExpr.isFVar then
-            CompilerM.liftMetaM (cacheRef.modify (·.insert ⟨leafExpr⟩ leafWire))
-          let cs ← get
-          let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
-          let outputType := match wireDecl with
-            | some decl => decl.ty
-            | none =>
-              match cs.module.inputs.find? (fun p => p.name == leafWire) with
-              | some inputPort => inputPort.ty
-              | none => .bitVector 8
-          CompilerM.addOutput portName outputType
-          CompilerM.emitAssign portName (.ref leafWire)
-        return firstWire.getD "out"
-      let circuitState := CircuitM.init declName.toString
-      let compilerState : CompilerState :=
-        { varMap := [], clockWire := none, resetWire := none
-        , exprCache := some cacheRef }
-      let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
-      let mut module := finalCircuitState.module
-      let hasRegisters := module.body.any (fun stmt =>
-        match stmt with
-        | .register .. => true
-        | .memory .. => true
-        | _ => false
-      )
-      if hasRegisters then
-        module := module.addInput { name := "clk", ty := .bit }
-        module := module.addInput { name := "rst", ty := .bit }
-      -- Finalize the in-progress module: addInput / addOutput /
-      -- addWire / addStmt all use O(1) head-prepend during the
-      -- synth loop; `finalize` reverses each list once so
-      -- downstream consumers (Verilog backend, CppSim, etc.)
-      -- see the natural forward order they always did.
-      return (module.finalize, finalCircuitState.design)
-    | _ =>
-      throwError s!"Cannot synthesize {declName}: not a definition"
+    -- Depth-gated cache reset (Issue #67).
+    --
+    -- The per-synth caches must be wiped at the start of every
+    -- *outermost* `#synthesizeVerilog` invocation so Expr identity
+    -- from one decl doesn't alias into the next, BUT they must
+    -- NOT be wiped on recursive re-entry — when a `circuit do`
+    -- body projects multiple fields off a single
+    -- `@[hardware_module]` call (e.g. `engine.replyValid`,
+    -- `engine.replyKind`, ...), each projection triggers a fresh
+    -- `synthesizeCombinational kvHw` nested call.  Resetting
+    -- `sparkleSubModuleCache` / `sparkleSubInstanceOutputs` at
+    -- that point forces every later projection of the same call
+    -- to re-walk `kvHw` from scratch, which is the O(N²)
+    -- behaviour memcached server top-level synth hits today
+    -- (kvHw walked 8× per top-level synth, ~17 min total).
+    --
+    -- `sparkleSynthDepth` tracks recursion depth; we only clear
+    -- when entering at depth 0 and bump+release the counter
+    -- around the body via `try ... finally` so it stays
+    -- balanced across throwError / panic exits.
+    let depth ← sparkleSynthDepth.get
+    if depth == 0 then
+      sparkleTypeCache.set {}
+      sparkleTypeCacheHits.set 0
+      sparkleTypeCacheMiss.set 0
+      sparkleSubModuleCache.set {}
+      sparkleSubInstanceOutputs.set {}
+      sparkleFvarValueMap.set {}
+      sparkleWireWidthCache.set {}
+    sparkleSynthDepth.set (depth + 1)
+    -- Extract the body into a local closure so `try ... finally`
+    -- can wrap the entire synthesis path (including the
+    -- `throwError` arm) with one balanced decrement, regardless
+    -- of which return path or exception fires.
+    let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+      let constInfo ← getConstInfo declName
+      logProf s!"[profile] getConstInfo done"
+      match constInfo with
+      | .defnInfo defnInfo =>
+        logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
+        let t0 ← IO.monoMsNow
+        logProf s!"[profile] calling openRecordInputs"
+        let body0 ← openRecordInputs defnInfo.value
+        -- Strip sim-only Signal.memoize wrappers from the body
+        -- BEFORE translation.  This breaks the FSM memoize-cycle
+        -- root cause (see stripMemoizeWrappers doc).
+        let body := stripMemoizeWrappers body0
+        let t1 ← IO.monoMsNow
+        logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
+        -- Open the lambda telescope ONCE so every leaf sees the
+        -- same fresh fvars.  Previously each leaf re-entered
+        -- `withLocalDecl` independently, giving the same source
+        -- argument fresh fvars per leaf — distinct enough that
+        -- `Expr.equal` rejected structurally identical sub-trees
+        -- and the per-synth cache missed across leaf boundaries
+        -- (Issue #67).
+        Lean.Meta.lambdaTelescope body fun xs innerBody => do
+          logProf s!"[profile] calling splitReturnLeaves"
+          let leaves ← splitReturnLeaves innerBody
+          let t2 ← IO.monoMsNow
+          logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
+          let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
+          -- Walk the bound fvars and wire each Signal-typed
+          -- argument to a fresh input port; non-Signal binders
+          -- (e.g. type-class instances) stay as local decls in
+          -- the Meta context but don't become hardware ports.
+          let rec buildEnv (i : Nat) (k : CompilerM String) : CompilerM String := do
+            if h : i < xs.size then
+              let x := xs[i]
+              let fvarId := x.fvarId!
+              let decl ← CompilerM.liftMetaM fvarId.getDecl
+              let binderName := decl.userName
+              let binderType := decl.type
+              -- Probe whether this binder has a Signal-shaped type
+              -- without raising on non-Signal types.
+              let isHWArg ← try
+                let _ ← inferHWTypeFromSignal binderType
+                pure true
+              catch _ => pure false
+              if isHWArg then
+                let hwType ← inferHWTypeFromSignal binderType
+                let w ← CompilerM.makeWire binderName.toString hwType (named := true)
+                CompilerM.addInput w hwType
+                CompilerM.withVarMapping fvarId w (buildEnv (i + 1) k)
+              else
+                buildEnv (i + 1) k
+            else
+              k
+          let compilerBody : CompilerM String := do
+            let mut firstWire : Option String := none
+            let mut leafIdx := 0
+            for (portName, leafExpr) in leaves do
+              let tLeaf0 ← CompilerM.liftMetaM IO.monoMsNow
+              let callsBefore ← CompilerM.liftMetaM sparkleCallCounter.get
+              let hitsBefore  ← CompilerM.liftMetaM sparkleCacheHits.get
+              CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate starting (calls={callsBefore} hits={hitsBefore})")
+              -- isTopLevel := false because the input ports are
+              -- already declared by `buildEnv` above — the per-leaf
+              -- translator must NOT re-create them.
+              let leafWire ← translateExprToWire leafExpr portName
+                                (isTopLevel := false) (isNamed := true)
+              let tLeaf1 ← CompilerM.liftMetaM IO.monoMsNow
+              let callsAfter ← CompilerM.liftMetaM sparkleCallCounter.get
+              let hitsAfter  ← CompilerM.liftMetaM sparkleCacheHits.get
+              CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate {tLeaf1 - tLeaf0} ms (calls Δ={callsAfter - callsBefore} hits Δ={hitsAfter - hitsBefore})")
+              leafIdx := leafIdx + 1
+              if firstWire.isNone then firstWire := some leafWire
+              -- Record the leaf-expr → wire mapping so subsequent
+              -- leaves that share sub-expressions (the common
+              -- `Signal.loop` body in a multi-output return) reuse
+              -- the wire instead of re-walking the whole tree.
+              if !leafExpr.isFVar then
+                CompilerM.liftMetaM (cacheRef.modify (·.insert ⟨leafExpr⟩ leafWire))
+              let cs ← get
+              let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
+              let outputType := match wireDecl with
+                | some decl => decl.ty
+                | none =>
+                  match cs.module.inputs.find? (fun p => p.name == leafWire) with
+                  | some inputPort => inputPort.ty
+                  | none => .bitVector 8
+              CompilerM.addOutput portName outputType
+              CompilerM.emitAssign portName (.ref leafWire)
+            return firstWire.getD "out"
+          let compiler := buildEnv 0 compilerBody
+          let circuitState := CircuitM.init declName.toString
+          let compilerState : CompilerState :=
+            { varMap := [], clockWire := none, resetWire := none
+            , exprCache := some cacheRef }
+          let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
+          let mut module := finalCircuitState.module
+          let hasRegisters := module.body.any (fun stmt =>
+            match stmt with
+            | .register .. => true
+            | .memory .. => true
+            | _ => false
+          )
+          if hasRegisters then
+            module := module.addInput { name := "clk", ty := .bit }
+            module := module.addInput { name := "rst", ty := .bit }
+          -- Finalize the in-progress module: addInput / addOutput /
+          -- addWire / addStmt all use O(1) head-prepend during the
+          -- synth loop; `finalize` reverses each list once so
+          -- downstream consumers (Verilog backend, CppSim, etc.)
+          -- see the natural forward order they always did.
+          return (module.finalize, finalCircuitState.design)
+      | _ =>
+        throwError s!"Cannot synthesize {declName}: not a definition"
+    try
+      doSynth
+    finally
+      sparkleSynthDepth.modify (· - 1)
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
