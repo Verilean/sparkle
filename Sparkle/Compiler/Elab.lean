@@ -2409,10 +2409,21 @@ mutual
     -- will normally resolve through the map and never look at it).
     let exprType ← cachedInferType e
     let resWire ← match subModule.outputs with
-      | [_singleOut] =>
+      | [singleOut] =>
+        -- Bind to the sub-module's ACTUAL output port name
+        -- rather than a hardcoded "out".  For scalar-Signal
+        -- sub-modules `synthesizeCombinational` emits the
+        -- port literally named "out" — those still work.  For
+        -- a sub-module whose body is a single struct-field
+        -- projection (e.g. `httpGotSig` wrapping
+        -- `(httpRequestParser b v).gotRequest`), the realised
+        -- single output keeps the field's name (`gotRequest`),
+        -- and the previous hardcoded "out" produced C++ /
+        -- Verilog that referenced a non-existent port.
+        -- (Issue #74.)
         let hwType ← inferHWTypeFromSignal exprType
         let w ← CompilerM.makeWire hint hwType (named := isNamed)
-        connections := ("out", Sparkle.IR.AST.Expr.ref w) :: connections
+        connections := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
         pure w
       | _multiOut =>
         -- IMPORTANT: the cache key must agree between this
