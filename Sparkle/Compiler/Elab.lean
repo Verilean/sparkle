@@ -2594,6 +2594,26 @@ mutual
           -- producing C++/Verilog where
           -- `_tmp_engine_replyValid_29` is used but never
           -- declared in the enclosing class/module.
+          -- If this parent module ALREADY has the cached wires
+          -- declared, the instance was emitted earlier in the
+          -- same synth pass — just return the cached wire.
+          -- Re-emitting the instance here would produce N copies
+          -- of the sub-module in the parent (one per projection
+          -- of `let engine := kvHw …; engine.foo`, which is
+          -- exactly the over-instantiation Issue #71 step-2
+          -- already tracks).
+          let firstOutP := firstOutP?.get!
+          let cachedW := portMapNow.get? (keyHash, firstOutP.name) |>.get!
+          let parentNow := (← get).module
+          let alreadyDeclared :=
+            parentNow.wires.any (·.name == cachedW) ||
+            parentNow.inputs.any (·.name == cachedW) ||
+            parentNow.outputs.any (·.name == cachedW)
+          if alreadyDeclared then
+            return some cachedW
+          -- New parent module that doesn't yet have the cached
+          -- wires (cross-module reuse).  Declare them and emit
+          -- the instance once.
           for outP in subModule.outputs do
             if let some cachedName := portMapNow.get? (keyHash, outP.name) then
               let parent := (← get).module
@@ -2608,10 +2628,6 @@ mutual
                     (·.insert cachedName (match outP.ty with
                       | .bitVector w => w | .bit => 1 | _ => 8)))
               connections := (outP.name, Sparkle.IR.AST.Expr.ref cachedName) :: connections
-          let firstOutP := firstOutP?.get!
-          let cachedW := portMapNow.get? (keyHash, firstOutP.name) |>.get!
-          -- Emit the instance once more so the new wires get
-          -- bound to outputs in the current module.
           let instName ← CompilerM.freshName s!"inst_{subModule.name}"
           CompilerM.emitInstance subModule.name instName connections.reverse
           return some cachedW
