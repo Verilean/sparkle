@@ -31,16 +31,28 @@ namespace Sparkle.Tests.IP.Net.MemcachedServerJITTest
 
 abbrev D := defaultDomain
 
-/-- Monomorphic top-level for `#sim` to grab.  `#sim` needs a
-    concrete (no-implicit-domain) def to bind the JIT wrapper
-    to.  The function returns the two output signals as a
-    bundled struct; `#sim` decomposes them into typed port
-    accessors on the generated `SimOutput`. -/
-def memcachedServerTop
-    (inByte  : Signal D (BitVec 8))
-    (inValid : Signal D Bool) :
-    ServerOut D :=
-  memcachedServer inByte inValid
+/-- Scalar projection wrappers + 9-bit packed top, the same
+    `httpGotSig`-style pattern that works for `usb-webserver-jit`.
+    Avoids the struct-return projection path that Issue #71's
+    step-2 concat-width bug runs into. -/
+
+@[hardware_module] def msvrByte
+    (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
+    Signal D (BitVec 8) :=
+  (memcachedServer inByte inValid).outByte
+
+@[hardware_module] def msvrValid
+    (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
+    Signal D Bool :=
+  (memcachedServer inByte inValid).outValid
+
+/-- Pack outValid (MSB) + outByte (LSB) into a 9-bit BitVec. -/
+@[hardware_module] def memcachedServerTop
+    (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
+    Signal D (BitVec 9) :=
+  let vBit : Signal D (BitVec 1) :=
+    Signal.mux (msvrValid inByte inValid) (Signal.pure 1#1) (Signal.pure 0#1)
+  (· ++ ·) <$> vBit <*> msvrByte inByte inValid
 
 #sim memcachedServerTop
 
@@ -90,8 +102,11 @@ def main : IO Unit := do
         _gen_inValid := BitVec.ofNat 1 inValid.toNat }
     Sparkle.Core.Sim.Sim.step sim inp
     let out ← Sparkle.Core.Sim.Sim.read sim
-    if out.outValid ≠ 0 then
-      outBytes := outBytes ++ [out.outByte.toNat.toUInt8]
+    let bits := out.out.toNat
+    let validBit := (bits >>> 8) &&& 1 = 1
+    let byteBits := bits &&& 0xFF
+    if validBit then
+      outBytes := outBytes ++ [byteBits.toUInt8]
 
   let t1 ← IO.monoMsNow
   IO.println s!"  {horizon} cycles in {t1 - t0} ms"

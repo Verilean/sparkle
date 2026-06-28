@@ -153,14 +153,25 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
   match e with
   | .const value width =>
     let cppType := emitCppType (.bitVector width)
-    -- Use appropriate literal suffix: U for ≤32bit, ULL for >32bit
-    let suffix := if width > 32 then "ULL" else "U"
-    if value < 0 then
-      let modulus : Int := (2 : Int) ^ width
-      let unsigned := ((value % modulus) + modulus) % modulus
-      s!"({cppType})0x{Nat.toDigits 16 unsigned.toNat |> String.ofList}{suffix}"
+    let modulus : Int := (2 : Int) ^ width
+    let unsigned : Nat :=
+      if value < 0 then (((value % modulus) + modulus) % modulus).toNat
+      else value.toNat
+    if width > 64 then
+      -- Wide constant: emit a `std::array<uint32_t, N>` brace
+      -- initializer.  A C-style `(std::array<...>)0ULL` cast
+      -- is not valid C++ (the cast type isn't class-castable
+      -- from a scalar) and trips on the wide-concat path
+      -- when the const is further indexed via `[i]`.
+      let nWords := (width + 31) / 32
+      let slot (j : Nat) : String :=
+        let w := (unsigned >>> (j * 32)) &&& 0xFFFFFFFF
+        s!"0x{Nat.toDigits 16 w |> String.ofList}u"
+      let body := String.intercalate ", " ((List.range nWords).map slot)
+      s!"{cppType}\{\{{body}}}"
     else
-      s!"({cppType}){value}{suffix}"
+      let suffix := if width > 32 then "ULL" else "U"
+      s!"({cppType})0x{Nat.toDigits 16 unsigned |> String.ofList}{suffix}"
 
   | .ref name =>
     sanitizeName name
@@ -214,6 +225,9 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
               let mask := s!"0x{Nat.toDigits 16 maskNat |> String.ofList}ULL"
               -- For wide args (width > 64), index into the
               -- std::array slot that holds the source bits.
+              -- If the arg is a literal const, we can fold to a
+              -- direct numeric value (no indexing of an
+              -- inline brace-initialiser, which C++ rejects).
               let shifted :=
                 if w > 64 then
                   let argSlot := bitInArgLo / 32
@@ -223,10 +237,24 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
                     if bitCount < available then bitCount else available
                   let m2 : Nat := (2 ^ bitsFromThisSlot) - 1
                   let m2str := s!"0x{Nat.toDigits 16 m2 |> String.ofList}ULL"
-                  if argBitInSlot == 0 then
-                    s!"((uint64_t){argExpr}[{argSlot}] & {m2str})"
-                  else
-                    s!"(((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}) & {m2str})"
+                  match arg with
+                  | .const value _ =>
+                    -- Inline the slot value as a numeric literal.
+                    let modulus : Int := (2 : Int) ^ w
+                    let unsigned : Nat :=
+                      if value < 0 then (((value % modulus) + modulus) % modulus).toNat
+                      else value.toNat
+                    let slotVal := (unsigned >>> (argSlot * 32)) &&& 0xFFFFFFFF
+                    let slotHex := s!"0x{Nat.toDigits 16 slotVal |> String.ofList}ULL"
+                    if argBitInSlot == 0 then
+                      s!"({slotHex} & {m2str})"
+                    else
+                      s!"(({slotHex} >> {argBitInSlot}) & {m2str})"
+                  | _ =>
+                    if argBitInSlot == 0 then
+                      s!"((uint64_t){argExpr}[{argSlot}] & {m2str})"
+                    else
+                      s!"(((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}) & {m2str})"
                 else
                   if bitInArgLo == 0 then
                     s!"((uint64_t){argExpr} & {mask})"

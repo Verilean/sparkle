@@ -2540,8 +2540,37 @@ mutual
           | some firstOutP => portMapNow.contains (keyHash, firstOutP.name)
           | none => false
         if alreadyEmitted then
+          -- Re-declare all the cached wires in the current
+          -- module's wires list before returning the cached
+          -- first-output wire.  Without this, the
+          -- `sparkleSubInstanceOutputs` cache persists across
+          -- nested `synthesizeCombinational` calls (e.g.
+          -- `msvrByte` then `msvrValid` both inlining the same
+          -- memcachedServer body) and the second module ends
+          -- up referencing wire names it never declared,
+          -- producing C++/Verilog where
+          -- `_tmp_engine_replyValid_29` is used but never
+          -- declared in the enclosing class/module.
+          for outP in subModule.outputs do
+            if let some cachedName := portMapNow.get? (keyHash, outP.name) then
+              let parent := (← get).module
+              if !parent.inputs.any (·.name == cachedName)
+                 ∧ !parent.wires.any (·.name == cachedName)
+                 ∧ !parent.outputs.any (·.name == cachedName) then
+                let p : Port := { name := cachedName, ty := outP.ty }
+                let cs ← get
+                set { cs with module := cs.module.addWire p }
+                CompilerM.liftMetaM
+                  (sparkleWireWidthCache.modify
+                    (·.insert cachedName (match outP.ty with
+                      | .bitVector w => w | .bit => 1 | _ => 8)))
+              connections := (outP.name, Sparkle.IR.AST.Expr.ref cachedName) :: connections
           let firstOutP := firstOutP?.get!
           let cachedW := portMapNow.get? (keyHash, firstOutP.name) |>.get!
+          -- Emit the instance once more so the new wires get
+          -- bound to outputs in the current module.
+          let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+          CompilerM.emitInstance subModule.name instName connections.reverse
           return some cachedW
         let mut firstW : Option String := none
         for outP in subModule.outputs do
