@@ -1,0 +1,17 @@
+name = "docbuild"
+reservoir = false
+version = "0.1.0"
+packagesDir = "../.lake/packages"
+
+# doc-gen4's currently-recommended setup (a nested `docbuild` sub-project) keeps the
+# documentation generator and its deps (Cli, UnicodeBasic, BibtexQuery, MD4Lean) out of
+# the main `sparkle` build graph. Pinned to the doc-gen4 release matching the toolchain
+# (was a floating `@ "main"` in the root lakefile); bump in lockstep with `lean-toolchain`.
+[[require]]
+scope = "leanprover"
+name = "doc-gen4"
+rev = "v4.28.0"
+
+[[require]]
+name = "sparkle"
+path = "../"
