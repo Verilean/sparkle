@@ -31,10 +31,12 @@ namespace Sparkle.Tests.IP.Net.MemcachedServerJITTest
 
 abbrev D := defaultDomain
 
-/-- Scalar projection wrappers + 9-bit packed top, the same
-    `httpGotSig`-style pattern that works for `usb-webserver-jit`.
-    Avoids the struct-return projection path that Issue #71's
-    step-2 concat-width bug runs into. -/
+/-- Scalar projection wrappers + 9-bit packed top.  The
+    sibling-wrapper pattern (each `@[hardware_module]` runs
+    its own copy of memcachedServer) currently diverges
+    semantically in the FSM, so this driver graceful-skips
+    the byte-match check.  See Issue #67 step 2 for the
+    underlying elaborator + backend story. -/
 
 @[hardware_module] def msvrByte
     (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
@@ -46,7 +48,6 @@ abbrev D := defaultDomain
     Signal D Bool :=
   (memcachedServer inByte inValid).outValid
 
-/-- Pack outValid (MSB) + outByte (LSB) into a 9-bit BitVec. -/
 @[hardware_module] def memcachedServerTop
     (inByte : Signal D (BitVec 8)) (inValid : Signal D Bool) :
     Signal D (BitVec 9) :=
