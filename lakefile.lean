@@ -365,6 +365,14 @@ lean_exe «memcached-server-jit-test» where
   root := `Tests.Drivers.MemcachedServerJITTestMain
   supportInterpreter := true
 
+-- JIT-backed pilot on a single-output, sub-module-free design
+-- (CRC32 engine).  Same golden vectors as `crc32-test` but
+-- routes the cycle loop through `#sim` + dlopen, demonstrating
+-- the wall-time win on a design that doesn't hit Issue #71.
+lean_exe «crc32-jit-test» where
+  root := `Tests.Drivers.CRC32JITTestMain
+  supportInterpreter := true
+
 -- Repro for the known sub-module-instance + multi-register
 -- caller hang in the synth elaborator.  Builds clean (the
 -- failing #synthesizeVerilog is commented out); see the file's
