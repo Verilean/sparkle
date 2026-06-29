@@ -3053,6 +3053,22 @@ mutual
                        else sparkleFvarValueMap.get
     let savedFvarWireMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name String)
                            else sparkleFvarWireMap.get
+    -- `sparkleWireWidthCache` is keyed by wire NAME (e.g.
+    -- `_tmp_loop_0`).  Wire names are allocated per-`CircuitM`
+    -- (i.e. per-module) so a parent module and a nested
+    -- sub-module can both have a wire named `_tmp_loop_0`
+    -- with DIFFERENT widths.  If we let the cache persist
+    -- across nested synth boundaries, the second module's
+    -- insert overwrites the first's — and any later
+    -- `getWireWidth "_tmp_loop_0"` from the parent context
+    -- gets the child's width.  This was the root cause of
+    -- Issue #67-step-2's `_gen_stSig_N = slice (_tmp_loop_0)
+    -- 242 239` bug in memcachedServer: the slice handler
+    -- read `_tmp_loop_0`'s width as 243 (kvHw's loop wire)
+    -- while it should have been 340 (memcachedServer's).
+    let savedWireWidthCache ←
+      if depth == 0 then pure ({} : Std.HashMap String Nat)
+      else sparkleWireWidthCache.get
     if depth == 0 then
       sparkleTypeCache.set {}
       sparkleTypeCacheHits.set 0
@@ -3065,9 +3081,11 @@ mutual
     else
       -- Nested synth: fresh fvar map (the parent's fvars are
       -- scoped to the parent's body and can't be visible
-      -- inside the child's body either).
+      -- inside the child's body either) and fresh wire-width
+      -- cache (wire names are per-module).
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
+      sparkleWireWidthCache.set {}
     sparkleSynthDepth.set (depth + 1)
     -- Extract the body into a local closure so `try ... finally`
     -- can wrap the entire synthesis path (including the
@@ -3197,10 +3215,11 @@ mutual
       doSynth
     finally
       sparkleSynthDepth.modify (· - 1)
-      -- Restore parent's fvar maps after a nested synth.
+      -- Restore parent's per-module caches after a nested synth.
       if depth != 0 then
         sparkleFvarValueMap.set savedFvarMap
         sparkleFvarWireMap.set savedFvarWireMap
+        sparkleWireWidthCache.set savedWireWidthCache
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
