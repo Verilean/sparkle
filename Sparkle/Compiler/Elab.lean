@@ -3002,6 +3002,23 @@ mutual
     -- around the body via `try ... finally` so it stays
     -- balanced across throwError / panic exits.
     let depth ← sparkleSynthDepth.get
+    -- Snapshot the fvar-value and sub-instance maps so nested
+    -- `synthesizeCombinational` calls (e.g. memcachedServer
+    -- inside memcachedServerTop) don't pollute their parent's
+    -- view of `let stReg := …` fvar bindings.  Without this,
+    -- the parent's `sparkleFvarValueMap` entries from a
+    -- previously-translated sub-module get reused when the
+    -- parent later translates its OWN register fvars that
+    -- happen to share user names — collapsing distinct
+    -- `stReg` / `valueReg` references onto the wrong wire.
+    --
+    -- The per-`(callKey, fieldName)` instance dedupe relies on
+    -- `sparkleSubInstanceOutputs` persisting across nested
+    -- synths (it's how the cross-module wire-reuse cache hit
+    -- in commit ae779e5 fires), so we ONLY snapshot the
+    -- fvar-value map.
+    let savedFvarMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name Lean.Expr)
+                       else sparkleFvarValueMap.get
     if depth == 0 then
       sparkleTypeCache.set {}
       sparkleTypeCacheHits.set 0
@@ -3010,6 +3027,11 @@ mutual
       sparkleSubInstanceOutputs.set {}
       sparkleFvarValueMap.set {}
       sparkleWireWidthCache.set {}
+    else
+      -- Nested synth: fresh fvar map (the parent's fvars are
+      -- scoped to the parent's body and can't be visible
+      -- inside the child's body either).
+      sparkleFvarValueMap.set {}
     sparkleSynthDepth.set (depth + 1)
     -- Extract the body into a local closure so `try ... finally`
     -- can wrap the entire synthesis path (including the
@@ -3139,6 +3161,9 @@ mutual
       doSynth
     finally
       sparkleSynthDepth.modify (· - 1)
+      -- Restore parent's fvar map after a nested synth.
+      if depth != 0 then
+        sparkleFvarValueMap.set savedFvarMap
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
