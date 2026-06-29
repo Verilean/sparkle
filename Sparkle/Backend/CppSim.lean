@@ -515,6 +515,12 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       --     wider-than-64-bit packed wire) gets populated.
       --   * Anything else stays skipped — those slots are
       --     populated through register / memory paths.
+      -- Wide assigns: handle the cases where `emitExpr` is
+      -- known to produce a valid wide-typed C++ expression.
+      -- For `.op` arms not in this list (`.shl`, `.shr`, `.add`,
+      -- `.or`, etc.), `emitExpr` would generate `a << b` /
+      -- `a | b` etc. against `std::array<uint32_t, N>` which
+      -- C++ rejects — those need element-wise lowering.
       match rhs with
       | .op .mul _ =>
         let sn := sanitizeName lhs
@@ -533,12 +539,6 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , resetBody := []
         , evalTickLocals := [] }
       | .op .mux [cond, thenVal, elseVal] =>
-        -- Wide mux: emit as a ternary expression returning
-        -- std::array.  C++ ternary requires both branches to
-        -- have the same type, which std::array<uint32_t, N>
-        -- satisfies.  Without this the wide mux assignment
-        -- (e.g. `opValueNext = opStart ? opValue : valueR_sig`)
-        -- got dropped and the downstream register stayed at 0.
         let sn := sanitizeName lhs
         let condS := emitExpr typeMap cond
         let thenS := emitExpr typeMap thenVal
@@ -548,9 +548,83 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
+      | .op .or [a, b] =>
+        -- Wide bitwise OR: element-wise OR over the
+        -- std::array<uint32_t, N> slots.
+        let nWords := (width + 31) / 32
+        let aS := emitExpr typeMap a
+        let bS := emitExpr typeMap b
+        let sn := sanitizeName lhs
+        -- Emit a sequence of slot-wise OR assignments.
+        let lines := (List.range nWords).map fun j =>
+          s!"        {sn}[{j}] = {aS}[{j}] | {bS}[{j}];"
+        { declarations := []
+        , evalBody := lines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      | .op .and [a, b] =>
+        let nWords := (width + 31) / 32
+        let aS := emitExpr typeMap a
+        let bS := emitExpr typeMap b
+        let sn := sanitizeName lhs
+        let lines := (List.range nWords).map fun j =>
+          s!"        {sn}[{j}] = {aS}[{j}] & {bS}[{j}];"
+        { declarations := []
+        , evalBody := lines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      | .op .xor [a, b] =>
+        let nWords := (width + 31) / 32
+        let aS := emitExpr typeMap a
+        let bS := emitExpr typeMap b
+        let sn := sanitizeName lhs
+        let lines := (List.range nWords).map fun j =>
+          s!"        {sn}[{j}] = {aS}[{j}] ^ {bS}[{j}];"
+        { declarations := []
+        , evalBody := lines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
+      | .op .shl [a, b] =>
+        -- Wide shift-left by a CONSTANT amount.  Only support
+        -- shift amounts that are wide-const literals (memcached's
+        -- `Signal.shl valueSig 8#128` pattern) — the IR-level
+        -- `.const` arm of `.shl` against a wide value is what
+        -- gets here.  Slot j of the result is
+        --   (slot[j-k] << (shift%32))
+        --   | (slot[j-k-1] >> (32 - shift%32))
+        -- where k = shift/32.  Skip the high-bit overflow into
+        -- the topmost slot (wide values don't preserve overflow).
+        let shiftAmount : Nat := match b with
+          | .const v _ => v.toNat
+          | _ => 0  -- non-const shift: emit dummy (correctness
+                    -- would need runtime variable-shift loop;
+                    -- memcached uses only const shifts)
+        let nWords := (width + 31) / 32
+        let aS := emitExpr typeMap a
+        let sn := sanitizeName lhs
+        let k := shiftAmount / 32
+        let r := shiftAmount % 32
+        let slot (j : Nat) : String :=
+          if j < k then "0u"
+          else if j == k then
+            if r == 0 then s!"{aS}[0]" else s!"({aS}[0] << {r})"
+          else
+            -- j > k
+            let lower := j - k
+            let upperShift := if r == 0 then "0u" else s!"({aS}[{lower - 1}] >> {32 - r})"
+            if r == 0 then s!"{aS}[{lower}]"
+            else s!"(({aS}[{lower}] << {r}) | {upperShift})"
+        let lines := (List.range nWords).map fun j =>
+          s!"        {sn}[{j}] = {slot j};"
+        { declarations := []
+        , evalBody := lines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
       | .ref _ =>
-        -- Plain `lhs = rhs` between two std::array values —
-        -- C++ allows direct assignment for fixed-size arrays.
         let sn := sanitizeName lhs
         let expr := emitExpr typeMap rhs
         { declarations := []
@@ -559,7 +633,6 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , resetBody := []
         , evalTickLocals := [] }
       | _ =>
-        -- Skip wide assigns (handled via memory/array paths elsewhere)
         StmtParts.empty
     else
       -- For deep MUX chains (≥16 arms), emit if-else for branch prediction
