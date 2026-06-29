@@ -139,11 +139,50 @@ opaque JIT.runCDC (handleA : @& JITHandle) (handleB : @& JITHandle)
     (cyclesA : UInt64) (cyclesB : UInt64)
     (outPortA : UInt32) (inPortB : UInt32) : IO (UInt64 × UInt64 × UInt64)
 
+/-- Discover the directory containing the libc.so.6 the host
+    process is currently using, by scanning `/proc/self/maps`.
+    Returns `none` on macOS or any failure.
+
+    Used by `JIT.compile` to pin the JIT .so's runtime linker
+    to the host's libc, defeating a silent multi-handle
+    `dlopen` failure when the build-environment glibc and the
+    host-binary glibc disagree on `GLIBC_ABI_*` symbol versions
+    (Issue #70: in that case the JIT .so still loads on the
+    first `dlopen` but every subsequent `dlopen` returns the
+    first handle, sharing dispatch state across what the
+    caller thinks are independent JIT contexts).
+
+    Strategy: find the line in `/proc/self/maps` ending in
+    `libc.so.6` and return its directory. -/
+private def JIT.hostLibcDir : IO (Option String) := do
+  if System.Platform.isOSX then return none
+  let mapsRes ← (IO.FS.readFile "/proc/self/maps" : IO String).toBaseIO
+  match mapsRes with
+  | .error _ => return none
+  | .ok maps =>
+    let libcLine := maps.splitOn "\n" |>.find? (·.endsWith "libc.so.6")
+    match libcLine with
+    | none => return none
+    | some line =>
+      let parts := line.splitOn " " |>.filter (· ≠ "")
+      match parts.reverse with
+      | path :: _ =>
+        let dir := (System.FilePath.mk path).parent.getD "."
+        return some dir.toString
+      | _ => return none
+
 /-- Compile a JIT .cpp file to a shared library, with hash-based caching -/
 def JIT.compile (cppPath : String) (cacheDir : String := ".lake/build/jit_cache") : IO String := do
   -- Read source, compute hash for caching
   let source ← IO.FS.readFile cppPath
-  let hash := toString (Hashable.hash source)
+  -- Discover the host's libc and pin the JIT .so to it
+  -- (Issue #70: see `JIT.hostLibcDir`).  Include the chosen
+  -- rpath in the cache key so a Nix environment swap that
+  -- changes the host libc forces a fresh JIT compile rather
+  -- than reusing a stale .so linked against the old libc.
+  let hostLibc ← JIT.hostLibcDir
+  let rpathTag := hostLibc.getD "default"
+  let hash := toString (Hashable.hash (source ++ "|rpath:" ++ rpathTag))
   let dylibExt := if System.Platform.isOSX then ".dylib" else ".so"
   let dylibPath := s!"{cacheDir}/{hash}{dylibExt}"
   -- Check cache
@@ -151,11 +190,25 @@ def JIT.compile (cppPath : String) (cacheDir : String := ".lake/build/jit_cache"
   -- Compile
   IO.FS.createDirAll cacheDir
   let cppDir := (System.FilePath.mk cppPath).parent.getD "."
+  let rpathArgs : Array String :=
+    match hostLibc with
+    | some dir => #["-Wl,-rpath," ++ dir]
+    | none => #[]
+  -- Statically link libstdc++ and libgcc into the JIT .so so
+  -- the host Lean process doesn't need to have them
+  -- pre-loaded (it usually doesn't).  Without this, dlopen
+  -- of a JIT .so depending on libstdc++.so.6 silently
+  -- collapses multiple loads onto the first handle (the
+  -- dynamic linker can't satisfy the dependency cleanly
+  -- from the host's loaded-libs view, but doesn't surface
+  -- the error to the caller — see Issue #70).
+  let staticCxxArgs : Array String :=
+    #["-static-libstdc++", "-static-libgcc"]
   let result ← IO.Process.output {
     cmd := "c++"
     args := #["-shared", "-fPIC", "-O2", "-std=c++17",
-              "-I", cppDir.toString,
-              "-o", dylibPath, cppPath]
+              "-I", cppDir.toString] ++ rpathArgs ++ staticCxxArgs ++
+            #["-o", dylibPath, cppPath]
   }
   if result.exitCode != 0 then
     throw (IO.userError s!"JIT compilation failed:\n{result.stderr}")
