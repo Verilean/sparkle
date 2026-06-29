@@ -76,10 +76,33 @@ namespace CompilerM
 def getCompilerState : CompilerM CompilerState :=
   read
 
-/-- Lookup a variable mapping -/
+end CompilerM
+
+/-- Persistent fvar-to-wire-name map.  Complements
+    `CompilerState.varMap` (which is reader-scoped and
+    expires at the end of each `withVarMapping` block).
+    `Signal.loop`'s lambda binder needs to be resolvable
+    for the ENTIRE synth pass — its body's wire references
+    are cached by the expression cache and revisited by
+    later `splitReturnLeaves` leaves after the original
+    `withVarMapping` block has exited.  Without a persistent
+    fallback, those revisits resolve the loop fvar through
+    the unfolder, which picks the wrong wire. -/
+private initialize sparkleFvarWireMap :
+    IO.Ref (Std.HashMap Lean.Name String) ← IO.mkRef {}
+
+namespace CompilerM
+
+/-- Lookup a variable mapping.  Consults the reader-scoped
+    `varMap` first, then falls back to the persistent
+    `sparkleFvarWireMap` IORef. -/
 def lookupVar (fvarId : FVarId) : CompilerM (Option String) := do
   let s ← getCompilerState
-  return s.varMap.lookup fvarId
+  match s.varMap.lookup fvarId with
+  | some w => return some w
+  | none =>
+    let m ← liftMetaM (sparkleFvarWireMap.get : IO _)
+    return m.get? fvarId.name
 
 /-- Execute an action with an additional variable mapping in scope -/
 def withVarMapping {α : Type} (fvarId : FVarId) (wireName : String) (k : CompilerM α) : CompilerM α := do
@@ -2122,6 +2145,15 @@ mutual
         -- MetaM (type checking) and CompilerM (wire mapping).
         let resultWire ← CompilerM.withLocalDecl binderName binderType fun fvar => do
           let bodyInst := body.instantiate1 fvar
+          -- Register the loop fvar → loopWire mapping in BOTH
+          -- the reader-scoped varMap (for the body's
+          -- translation) and the persistent
+          -- `sparkleFvarWireMap` (so later leaves that
+          -- revisit body sub-expressions via the expression
+          -- cache can still resolve the loop binder after
+          -- `withVarMapping` scope has exited).
+          CompilerM.liftMetaM
+            (sparkleFvarWireMap.modify (·.insert fvar.fvarId!.name loopWire))
           CompilerM.withVarMapping fvar.fvarId! loopWire do
             translateExprToWire bodyInst "loop_body"
         CompilerM.emitAssign loopWire (.ref resultWire)
@@ -3019,6 +3051,8 @@ mutual
     -- fvar-value map.
     let savedFvarMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name Lean.Expr)
                        else sparkleFvarValueMap.get
+    let savedFvarWireMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name String)
+                           else sparkleFvarWireMap.get
     if depth == 0 then
       sparkleTypeCache.set {}
       sparkleTypeCacheHits.set 0
@@ -3026,12 +3060,14 @@ mutual
       sparkleSubModuleCache.set {}
       sparkleSubInstanceOutputs.set {}
       sparkleFvarValueMap.set {}
+      sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
     else
       -- Nested synth: fresh fvar map (the parent's fvars are
       -- scoped to the parent's body and can't be visible
       -- inside the child's body either).
       sparkleFvarValueMap.set {}
+      sparkleFvarWireMap.set {}
     sparkleSynthDepth.set (depth + 1)
     -- Extract the body into a local closure so `try ... finally`
     -- can wrap the entire synthesis path (including the
@@ -3161,9 +3197,10 @@ mutual
       doSynth
     finally
       sparkleSynthDepth.modify (· - 1)
-      -- Restore parent's fvar map after a nested synth.
+      -- Restore parent's fvar maps after a nested synth.
       if depth != 0 then
         sparkleFvarValueMap.set savedFvarMap
+        sparkleFvarWireMap.set savedFvarWireMap
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
