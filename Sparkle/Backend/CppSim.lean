@@ -532,6 +532,22 @@ def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
+      | .op .mux [cond, thenVal, elseVal] =>
+        -- Wide mux: emit as a ternary expression returning
+        -- std::array.  C++ ternary requires both branches to
+        -- have the same type, which std::array<uint32_t, N>
+        -- satisfies.  Without this the wide mux assignment
+        -- (e.g. `opValueNext = opStart ? opValue : valueR_sig`)
+        -- got dropped and the downstream register stayed at 0.
+        let sn := sanitizeName lhs
+        let condS := emitExpr typeMap cond
+        let thenS := emitExpr typeMap thenVal
+        let elseS := emitExpr typeMap elseVal
+        { declarations := []
+        , evalBody := [s!"        {sn} = ({condS}) ? {thenS} : {elseS};"]
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
       | .ref _ =>
         -- Plain `lhs = rhs` between two std::array values —
         -- C++ allows direct assignment for fixed-size arrays.

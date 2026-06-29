@@ -2020,10 +2020,18 @@ mutual
     return none
 
   /-- Handle Signal.memory, Signal.memoryComboRead -/
-  partial def handleMemory (_e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+  partial def handleMemory (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- Signal.memory: synchronous RAM/BRAM
     if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
       trace[sparkle.compiler] "→ memory (sync)"
+      -- Memory dedupe: a `Signal.memory ...` expression should
+      -- emit ONE BRAM per synth pass, not one per
+      -- splitReturnLeaves leaf.  The per-synth `exprCache`
+      -- would handle this automatically — except `isNamed`
+      -- bypasses the cache.  Maintain a separate
+      -- memory-specific cache keyed on the Lean.Expr so
+      -- repeat translations return the same readData wire
+      -- and avoid re-emitting the memory statement.
       let addrWidthArg := args[args.size-6]!
       let dataWidthArg := args[args.size-5]!
       let (addrWidth, _) ← extractNatLiteral addrWidthArg
@@ -2036,9 +2044,34 @@ mutual
       let wdW ← translateExprToWire writeData "mem_wdata"
       let weW ← translateExprToWire writeEnable "mem_we"
       let raW ← translateExprToWire readAddr "mem_raddr"
-      let w ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
-        (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
-      return some w
+      -- Dedupe memory statements within a single module:
+      -- if an existing `.memory` statement has identical
+      -- (writeAddr, writeData, writeEnable, readAddr) wire
+      -- refs, return its readData wire instead of emitting
+      -- a new BRAM.  Required because per-leaf
+      -- translations re-elaborate the same `Signal.memory
+      -- writeSlot data we raddr` expression with fresh
+      -- Lean.Expr identities — the structural exprCache
+      -- misses, but the IR statement shape is identical.
+      let parent := (← get).module
+      let cachedRD : Option String := parent.body.findSome? fun stmt =>
+        match stmt with
+        | .memory _ aw dw _clk wa wd we ra rd _cr =>
+          if aw == addrWidth ∧ dw == dataWidth then
+            match wa, wd, we, ra with
+            | .ref a, .ref d, .ref e, .ref r =>
+              if a == waW ∧ d == wdW ∧ e == weW ∧ r == raW then
+                some rd
+              else none
+            | _, _, _, _ => none
+          else none
+        | _ => none
+      match cachedRD with
+      | some rd => return some rd
+      | none =>
+        let w ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
+          (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
+        return some w
 
     -- Signal.memoryComboRead: memory with combinational (same-cycle) read
     if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
