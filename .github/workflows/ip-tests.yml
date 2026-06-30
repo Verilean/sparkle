@@ -130,6 +130,13 @@ jobs:
               h264-playable-test
 
           - group: rv32
+            # `toplevel-sim-test` is the pure-Lean `Signal.val`
+            # variant.  It has the same O(t) per-cycle cost as
+            # `usb-webserver-sim` and `memcached-server-test`
+            # (lakefile.lean comment above
+            # `toplevel-sim-jit-test` documents this).  Use the
+            # JIT-backed variant for the CI gate; the pure-Lean
+            # form remains available for local debug.
             exes: >-
               rv32-flow-test rv32-jit-test
               rv32-jit-loop-test rv32-jit-oracle-test
@@ -137,7 +144,7 @@ jobs:
               rv32-jit-dynamic-warp-test rv32-jit-speculative-warp-test
               rv32-lean-sim-runner mext-rv32i-test mul-oracle-test
               oracle-accuracy-test timemux-sim-test
-              toplevel-sim-test verilog-sim-le
+              toplevel-sim-jit-test verilog-sim-le
 
           - group: bitnet
             exes: >-
