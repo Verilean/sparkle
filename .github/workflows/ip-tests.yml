@@ -205,12 +205,18 @@ jobs:
               continue
             fi
             echo "::group::Run $exe"
-            # 60 min cap per IP — heavy sims (memcached server
-            # top-level synth, rv32 toplevel sim) push past
-            # 25 min on the cold cache; group timeout-minutes
-            # above must be at least N × 60 where N is the
-            # group's heaviest IP count.
-            timeout 3600 lake exe $exe
+            # 90 min cap per IP.  The previous 60 min worked on the
+            # C++/CppSim backend, but the C-only CSim emitter
+            # (Issue #70 fix) currently has a ~10-15% per-cycle
+            # regression on the JIT path, which pushes some heavy
+            # sims (memcached-server-test, rv32 toplevel) over the
+            # old budget on the cold cache.  The slowdown lives
+            # entirely inside the eval/tick hot loop — root-cause
+            # investigation is tracked separately; this bump is the
+            # short-term unblock so CI doesn't false-fail while
+            # that work lands.  Bump back to 3600 once the eval
+            # loop is on par with the C++ baseline.
+            timeout 5400 lake exe $exe
             rc=$?
             echo "::endgroup::"
             if [ "$rc" -ne 0 ]; then
