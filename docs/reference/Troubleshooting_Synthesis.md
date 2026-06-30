@@ -338,6 +338,31 @@ The `#synthesizeVerilog` compiler can only handle specific Lean expression patte
 - Complex single-arg lambdas: `(fun x => !(x == 0#5))` — must split into two steps
 - if-then-else in map: `(fun x => if x then a else b)` — use `Signal.mux` instead
 - Multi-step concat in lambda: `(fun v => (0#20 ++ v ++ 0#2))` — break into chained `(· ++ ·)`
+- **User-defined N-arg function via `<$> ... <*>`**: `userFn <$> a <*> b` for any `userFn :
+  BitVec m → BitVec n → BitVec k` defined outside the operator registry.  Surfaces as
+  `Cannot synthesise Sparkle.Core.runCircuitH: not inlinable and not a hardware module`
+  when the lift sits inside a `circuit do` block, because the elaborator can't peel the
+  `Functor.map` / `Seq.seq` typeclass projections.  Rewrite the function body at the
+  Signal layer using only the overloaded operators (`+ - * &&& ||| ^^^ >>> ++` etc.) so
+  every step stays in the Signal-native domain.  See `IP/Net/CRC32.lean:crc32StepSig`
+  for a worked example (CRC-32 byte step rewritten without Applicative lifts).
+- **Two-or-more `Reg` operands combined with `+ - * &&& ||| ^^^`**: writing
+  `return a + b` (with `a b : Reg dom S (BitVec n)`) goes through the implicit
+  `Reg → Signal` coerce and then `Signal`'s Applicative `(· + ·) <$> a <*> b`.
+  Under the ρ-generic `runCircuitH`, the same `t : Nat` Stream binder
+  leak fires — `#synthesizeVerilog` reports
+  "Unbound variable: t : Nat".  Fix by binding each Reg to its Signal
+  *before* the combining operator so the `HAdd` etc. resolution sees
+  concrete `Signal _ _` operands instead of recovering them through
+  the coerce:
+  ```lean
+  let aSig := (a : Signal dom (BitVec n))
+  let bSig := (b : Signal dom (BitVec n))
+  return aSig + bSig
+  ```
+  Single-Reg returns (`return a`) are unaffected because no operator
+  resolution runs.  See `Tests/CircuitDoTest.lean:fourCounterCdo`
+  for a worked four-register example.
 
 ### Fix patterns
 
@@ -356,3 +381,21 @@ The `#synthesizeVerilog` compiler can only handle specific Lean expression patte
 -- GOOD: let step1 := (· ++ ·) <$> sig <*> Signal.pure 0#2
 --       let step2 := (· ++ ·) <$> Signal.pure 0#20 <*> step1
 ```
+
+---
+
+## `#synthesizeVerilog` is unexpectedly slow
+
+If `#synthesizeVerilog mything` takes >10 s or seems to hang
+on a circuit that's syntactically modest, the compiler's
+Expr-translation cache is probably not hitting.  Set
+`SPARKLE_PROFILE=1` and inspect `/tmp/sparkle-profile.log`
+for per-handler call counts and inclusive times.
+
+See `docs/reference/Compiler_Performance.md` for:
+
+- the `SPARKLE_PROFILE` workflow,
+- how to read the tick log,
+- the `acc4` cache-effectiveness probe,
+- a map of which handler in `Sparkle/Compiler/Elab.lean`
+  to investigate when a specific row of the profile is hot.

@@ -21,12 +21,12 @@
 -/
 
 import Tools.SVParser
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.Core.JIT
 
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
-open Sparkle.Backend.CppSim
+open Sparkle.Backend.CSim
 open Sparkle.Core.JIT
 
 /-- A simple Verilog memory module with read/write ports -/
@@ -69,8 +69,8 @@ def main : IO UInt32 := do
 
   -- Step 2: Generate C++ and JIT-compile
   IO.print "  JIT compiling... "
-  let jitCpp := toCppSimJIT design
-  let jitPath := "/tmp/sparkle_memory_rw_jit.cpp"
+  let jitCpp := toCJIT design
+  let jitPath := "/tmp/sparkle_memory_rw_jit.c"
   IO.FS.writeFile jitPath jitCpp
   let handle ← JIT.compileAndLoad jitPath
   IO.println "OK"

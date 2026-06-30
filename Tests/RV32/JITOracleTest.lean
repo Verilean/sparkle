@@ -26,7 +26,7 @@ def toHex32 (v : Nat) : String :=
   String.ofList (List.replicate (8 - hexStr.length) '0') ++ hexStr
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let hexPath := args[1]? |>.getD "firmware/firmware.hex"
   let maxCycles := (args[2]? >>= String.toNat?).getD 10_000_000
 

@@ -102,6 +102,45 @@ instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom
 instance {dom : DomainConfig} {S τ : Type} : CoeOut (Reg dom S τ) (Signal dom τ) where
   coe r := r.1
 
+/-! ### Reg-typed arithmetic / bitwise overloads.
+
+    `return a + b` (where `a b : Reg dom S (BitVec n)`) goes
+    through the `CoeHead Reg → Signal` instance, which then
+    drives Lean's `HAdd` resolution via the Signal overload's
+    `(· + ·) <$> a <*> b` Applicative lift.  Under the
+    ρ-generic `runCircuitH`, the Applicative path leaks the
+    Stream's `t : Nat` binder into wire translation (the same
+    failure mode this whole edge case keeps hitting).
+
+    The fix is to short-circuit the coerce: provide a Reg-Reg
+    overload that lowers straight to the Signal-Signal HAdd
+    instance, skipping the typeclass projection.  Lean prefers
+    the more specific Reg overload, so `a + b` resolves here
+    instead of going through `CoeHead`. -/
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAdd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAdd a b := (a.1 + b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HSub (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hSub a b := (a.1 - b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HMul (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hMul a b := (a.1 * b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HAnd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hAnd a b := (a.1 &&& b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HOr  (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hOr  a b := (a.1 ||| b.1 : Signal dom (BitVec n))
+
+instance {dom : DomainConfig} {S : Type} {n : Nat} :
+    HXor (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+  hXor a b := (a.1 ^^^ b.1 : Signal dom (BitVec n))
+
 
 /-! ### Operator instances lifting `Reg` to `Signal`.
 
@@ -210,8 +249,15 @@ variable {dom : DomainConfig} {S α β : Type}
 /-- Record a next-cycle Signal for one register slot.  Repeat
     writes overwrite earlier ones via Slot.update's "stamp into
     the slot" semantics (last write wins, matching the macro). -/
-@[reducible, inline] def next (r : Reg dom S τ) (sig : Signal dom τ) : Circuit dom S Unit :=
+@[reducible, inline] def next [Inhabited S] (r : Reg dom S τ) (sig : Signal dom τ) :
+    Circuit dom S Unit :=
   fun b =>
+    -- The Signal.memoize wrap that previously lived here (Compiler
+    -- C2 fix) is now folded into Signal.loop's implementation —
+    -- see loopImpl in Sparkle/Core/Signal.lean.  Keeping the wrap
+    -- here would leave Signal.memoize markers in the user-visible
+    -- expression tree, which trips up the synth elaborator on
+    -- FSM-shaped circuits that nest Signal.loop.
     let b' : NextBuilder dom S := fun live => r.slot.update sig (b live)
     ((), b')
 
@@ -242,7 +288,7 @@ class AsSignal (dom : DomainConfig) (τ : Type) (α : Type) where
     or a bare `τ` value (lifted via `AsSignal`).  Replaces
     `next` at the user-visible API; `next` remains as the raw
     `Signal`-only form used internally. -/
-@[reducible, inline] def nextAny {α : Type} [AsSignal dom τ α]
+@[reducible, inline] def nextAny [Inhabited S] {α : Type} [AsSignal dom τ α]
     (r : Reg dom S τ) (val : α) : Circuit dom S Unit :=
   next r (AsSignal.toSignal val)
 
@@ -251,6 +297,76 @@ class AsSignal (dom : DomainConfig) (τ : Type) (α : Type) where
 @[reducible, inline] def read (r : Reg dom S τ) : Signal dom τ := r.liveRead
 
 end Circuit
+
+/-! ### `HasDomain ρ dom` — outParam-style typeclass that walks
+    a return type ρ and reports the unique `DomainConfig` of
+    every `Signal` leaf it contains.
+
+    `runCircuitH`'s ρ-generalisation (single Signal / tuple of
+    Signals / user record packing several Signals) lets the body
+    return any Lean value, but the surrounding `Signal.loop`
+    needs `dom` to be a specific `DomainConfig` value, not a
+    metavariable.  Without this class, type inference can pull
+    `dom` out of `ρ` only when `ρ` is *literally* `Signal dom τ`
+    — a Prod or record wrapping Signal leaves it inaccessible to
+    the elaborator.
+
+    `dom` is `outParam` so it's inferred from `ρ`; one instance
+    per shape walks the type structurally.  User-defined records
+    can pick up a `HasDomain` instance via a one-line manual
+    `instance : HasDomain MyOut dom := ⟨⟩` (any single-`dom`
+    record qualifies; the instance is empty because the class
+    carries no methods — it's purely an inference hint). -/
+class HasDomain (ρ : Type) (dom : outParam DomainConfig)
+
+/-- Base case: a single `Signal dom τ` carries `dom`. -/
+instance {dom : DomainConfig} {τ : Type} :
+    HasDomain (Signal dom τ) dom where
+
+/-- Recursive case: a `Prod` of two values whose `HasDomain`
+    instances agree on `dom` carries the same `dom`.  If the two
+    sides disagree, instance search fails with a clear error
+    rather than silently picking one. -/
+instance {α β : Type} {dom : DomainConfig}
+    [HasDomain α dom] [HasDomain β dom] :
+    HasDomain (Prod α β) dom where
+
+/-! ### `SignalLeaves` — flatten ρ into a list of its Signal
+    leaves so the wire-translation compiler can emit one output
+    port per leaf.
+
+    Companion of `HasDomain`.  `toLeaves r` walks the value
+    structurally and produces a `(name, Σ τ, Signal dom τ)`
+    triple for every Signal slot in `r`.  The compiler's
+    `synthesizeCombinational` reads the list and registers each
+    leaf as its own Verilog wire, so
+    `circuit do { … return ⟨a, b, c⟩ }` (or its record-literal
+    equivalent) yields three real `output` ports rather than
+    one bundled `bundle2` blob.
+
+    The class is `outParam ρ` — driven by the user value;
+    `dom` is `outParam` so instance search can resolve from
+    `ρ`.  Base instances handle `Signal dom τ`, `Prod α β`,
+    `Unit`, and `PUnit`.  User records pick up a derived
+    instance via `deriving SignalLeaves`. -/
+class SignalLeaves (ρ : Type) (dom : outParam DomainConfig) where
+  /-- Walk `r` and emit one (label, τ, signal) record per
+      `Signal dom τ` leaf.  The label is intended for output-
+      port naming on the Verilog side; for unlabelled leaves
+      (`Signal dom τ` at the top level, `Prod`'s sides) we
+      pass `none` and the compiler invents a positional name. -/
+  toLeaves : ρ → List (Option String × (Σ τ, Signal dom τ))
+
+/-- Base case: a single `Signal dom τ` is one anonymous leaf. -/
+@[reducible] instance {dom : DomainConfig} {τ : Type} :
+    SignalLeaves (Signal dom τ) dom where
+  toLeaves s := [(none, ⟨τ, s⟩)]
+
+/-- Prod: concatenate the two sides' leaves, left first. -/
+@[reducible] instance {dom : DomainConfig} {α β : Type}
+    [SignalLeaves α dom] [SignalLeaves β dom] :
+    SignalLeaves (Prod α β) dom where
+  toLeaves p := SignalLeaves.toLeaves p.fst ++ SignalLeaves.toLeaves p.snd
 
 /-! ### Arbitrary-arity `runCircuitH` via HList state.
 
@@ -332,21 +448,48 @@ end Circuit
             (packRegister αs' init.2 (Signal.map Prod.snd next))
 
 /-- Generic `runCircuit` taking any HList of initial values.
-    The body receives a matching `RegList` of register handles.
+    The body receives a matching `RegList` of register handles
+    and returns an arbitrary `ρ`.
+
+    `ρ` is *unconstrained*: it can be a single `Signal dom τ`,
+    a tuple `(Signal dom τ₁, Signal dom τ₂)`, a user-defined
+    record packing several Signals (e.g. an Ethernet `RxOut`),
+    or any combination.  The synthesis elaborator
+    (`Sparkle/Compiler/Elab.lean`) walks `ρ` structurally and
+    emits one Verilog wire per Signal leaf, so multi-output
+    blocks come out of `circuit do { … return ⟨a, b, c⟩ }`
+    naturally without a `bundle2`-shaped contortion.
+
+    Historically this signature required `body : … → Circuit …
+    (Signal dom ρ)`, which made multi-output blocks
+    expressible only via tupling at the Signal level.  Dropping
+    that constraint is the monad-friendly story: the user's
+    body builds whatever Lean value they want and `return`s it;
+    the Circuit monad just threads the register-update slot
+    map alongside.
 
     `[HListWireable αs]` requires every slot type to be
     `Wireable`, gating non-synthesisable types at the call
     site instead of the synth elaborator. -/
 @[reducible, inline] def runCircuitH {dom : DomainConfig} {αs : List Type} {ρ : Type}
+    [HasDomain ρ dom]
     [HListWireable αs] [Inhabited (HList αs)]
     (inits : HList αs)
     (body : RegList dom (HList αs) αs →
-            Circuit dom (HList αs) (Signal dom ρ)) : Signal dom ρ :=
+            Circuit dom (HList αs) ρ) : ρ :=
   let idRead  : Signal dom (HList αs) → Signal dom (HList αs) := fun s => s
   let idWrite : Signal dom (HList αs) → Signal dom (HList αs) → Signal dom (HList αs) :=
     fun n _ => n
   let stateLoop : Signal dom (HList αs) :=
     Signal.loop (α := HList αs) (fun live =>
+      -- The Compiler C2 fix that previously wrapped `live` and
+      -- `b' live` in `Signal.memoize` here is now folded into
+      -- `Signal.loop`'s implementation (see loopImpl in
+      -- Sparkle/Core/Signal.lean): `loop` memoizes its body
+      -- output internally, so the runtime O(2^N) blow-up is
+      -- avoided without leaving Signal.memoize markers in the
+      -- user-visible expression tree (which the synth elaborator
+      -- was struggling to translate for FSM-shaped circuits).
       let regs := mkRegList live αs idRead idWrite
       let bResult := body regs id
       let b' : Circuit.NextBuilder dom (HList αs) := bResult.snd

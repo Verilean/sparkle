@@ -76,6 +76,21 @@ lean_lib «IP.Video» where
 lean_lib «IP.Bus» where
   roots := #[`IP.Bus]
 
+-- HFT-leaning TCP/IP stack (10 GbE XGMII ↔ TCP payload stream).
+-- Layers under IP/Net/: CRC32, Ethernet, ARP, IPv4, UDP, TCP, HFTStack.
+lean_lib «IP.Net» where
+  roots := #[`IP.Net]
+
+-- Ledger-style crypto (SHA-256, Ed25519, secp256k1) for signed
+-- order packets in the HFT stack and as standalone Sparkle IPs.
+lean_lib «IP.Crypto» where
+  roots := #[`IP.Crypto]
+
+-- TLS 1.3 stack: record layer, handshake state machine.
+-- Builds on IP.Crypto (AES-GCM, HKDF, X25519, SHA-256).
+lean_lib «IP.TLS» where
+  roots := #[`IP.TLS]
+
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
@@ -151,6 +166,318 @@ lean_exe «circuit-do-test» where
 -- mixed-width state and `forM` over the register list.
 lean_exe «run-circuit-h-test» where
   root := `Tests.Drivers.RunCircuitHTestMain
+  supportInterpreter := true
+
+-- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
+-- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
+-- 802.3 golden vectors must all agree.
+lean_exe «crc32-test» where
+  root := `Tests.Drivers.CRC32TestMain
+  supportInterpreter := true
+
+-- IP.Net.Ethernet (byte-feed RX framer).
+-- Sim test: a synthetic 18-byte frame fed cycle-by-cycle, and the
+-- six RX outputs (DMAC / SMAC / EthType / hdrDone / payloadByte /
+-- payloadValid) checked against golden values.  Also exercises
+-- the `circuit do { … return { field := … } }` multi-output
+-- return path that the runCircuitH ρ-generalisation enables.
+lean_exe «ethernet-test» where
+  root := `Tests.Drivers.EthernetTestMain
+  supportInterpreter := true
+
+lean_exe «eth-trace» where
+  root := `Tests.Drivers.EthTraceMain
+  supportInterpreter := true
+
+lean_exe «ethernet-tx-test» where
+  root := `Tests.Drivers.EthernetTxTestMain
+  supportInterpreter := true
+
+lean_exe «arp-test» where
+  root := `Tests.Drivers.ARPTestMain
+  supportInterpreter := true
+
+lean_exe «arp-trace» where
+  root := `Tests.Drivers.ArpTraceMain
+  supportInterpreter := true
+
+lean_exe «ipv4-test» where
+  root := `Tests.Drivers.IPv4TestMain
+  supportInterpreter := true
+
+lean_exe «icmp-test» where
+  root := `Tests.Drivers.ICMPTestMain
+  supportInterpreter := true
+
+lean_exe «icmp-trace» where
+  root := `Tests.Drivers.IcmpTraceMain
+  supportInterpreter := true
+
+lean_exe «tcp-header-test» where
+  root := `Tests.Drivers.TCPHeaderTestMain
+  supportInterpreter := true
+
+lean_exe «tcp-state-test» where
+  root := `Tests.Drivers.TCPStateTestMain
+  supportInterpreter := true
+
+lean_exe «tcp-loopback-test» where
+  root := `Tests.Drivers.TCPLoopbackTestMain
+  supportInterpreter := true
+
+lean_exe «http-test» where
+  root := `Tests.Drivers.HTTPTestMain
+  supportInterpreter := true
+
+lean_exe «hft-strategy-test» where
+  root := `Tests.Drivers.HFTStrategyTestMain
+  supportInterpreter := true
+
+lean_exe «sha256-test» where
+  root := `Tests.Drivers.SHA256TestMain
+  supportInterpreter := true
+
+lean_exe «keccak256-test» where
+  root := `Tests.Drivers.Keccak256TestMain
+  supportInterpreter := true
+
+lean_exe «rlp-test» where
+  root := `Tests.Drivers.RLPTestMain
+  supportInterpreter := true
+
+lean_exe «eip1559-tx-test» where
+  root := `Tests.Drivers.Eip1559TxTestMain
+  supportInterpreter := true
+
+lean_exe «erc20-abi-test» where
+  root := `Tests.Drivers.Erc20AbiTestMain
+  supportInterpreter := true
+
+lean_exe «bip39-test» where
+  root := `Tests.Drivers.Bip39TestMain
+  supportInterpreter := true
+
+lean_exe «bip32-test» where
+  root := `Tests.Drivers.Bip32TestMain
+  supportInterpreter := true
+
+lean_exe «eth-wallet-test» where
+  root := `Tests.Drivers.EthWalletTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-field-test» where
+  root := `Tests.Drivers.Ed25519FieldTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-point-test» where
+  root := `Tests.Drivers.Ed25519PointTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-sign-test» where
+  root := `Tests.Drivers.Ed25519SignTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-verify-test» where
+  root := `Tests.Drivers.Ed25519VerifyTestMain
+  supportInterpreter := true
+
+lean_exe «p256-ecdsa-test» where
+  root := `Tests.Drivers.P256ECDSATestMain
+  supportInterpreter := true
+
+lean_exe «rsa-pss-test» where
+  root := `Tests.Drivers.RSAPSSTestMain
+  supportInterpreter := true
+
+lean_exe «x509-parser-test» where
+  root := `Tests.Drivers.X509ParserTestMain
+  supportInterpreter := true
+
+lean_exe «x509-verify-test» where
+  root := `Tests.Drivers.X509VerifyTestMain
+  supportInterpreter := true
+
+lean_exe «tls-client-server-test» where
+  root := `Tests.Drivers.TLSClientServerTestMain
+  supportInterpreter := true
+
+lean_exe «https-demo» where
+  root := `Tests.Drivers.HTTPSDemoMain
+  supportInterpreter := true
+
+lean_exe «can-test» where
+  root := `Tests.Drivers.CANTestMain
+  supportInterpreter := true
+
+lean_exe «canopen-test» where
+  root := `Tests.Drivers.CANopenTestMain
+  supportInterpreter := true
+
+lean_exe «dronecan-test» where
+  root := `Tests.Drivers.DroneCANTestMain
+  supportInterpreter := true
+
+lean_exe «serial-bus-test» where
+  root := `Tests.Drivers.SerialBusTestMain
+  supportInterpreter := true
+
+lean_exe «avionics-bus-test» where
+  root := `Tests.Drivers.AvionicsBusTestMain
+  supportInterpreter := true
+
+lean_exe «can-hw-test» where
+  root := `Tests.Drivers.CANHWTestMain
+  supportInterpreter := true
+
+lean_exe «uart-test» where
+  root := `Tests.Drivers.UARTTestMain
+  supportInterpreter := true
+
+lean_exe «slip-test» where
+  root := `Tests.Drivers.SLIPTestMain
+  supportInterpreter := true
+
+lean_exe «usb-webserver-sim» where
+  root := `Tests.Drivers.UsbWebServerSimMain
+  supportInterpreter := true
+
+lean_exe «memcached-oracle-test» where
+  root := `Tests.Drivers.MemcachedOracleTestMain
+  supportInterpreter := true
+
+lean_exe «memcached-hw-test» where
+  root := `Tests.Drivers.MemcachedHWTestMain
+  supportInterpreter := true
+
+lean_exe «memcached-server-test» where
+  root := `Tests.Drivers.MemcachedServerTestMain
+  supportInterpreter := true
+
+-- JIT-backed variant of memcached-server-test.  Same coverage
+-- as the pure-Lean form above, but routes the cycle loop
+-- through `#sim`-generated C++ + dlopen rather than evaluating
+-- `Signal.val` per cycle (which was hitting the 25-min CI cap
+-- on the BitVec 128 path).
+lean_exe «memcached-server-jit-test» where
+  root := `Tests.Drivers.MemcachedServerJITTestMain
+  supportInterpreter := true
+
+-- JIT-backed pilot on a single-output, sub-module-free design
+-- (CRC32 engine).  Same golden vectors as `crc32-test` but
+-- routes the cycle loop through `#sim` + dlopen, demonstrating
+-- the wall-time win on a design that doesn't hit Issue #71.
+lean_exe «crc32-jit-test» where
+  root := `Tests.Drivers.CRC32JITTestMain
+  supportInterpreter := true
+
+-- JIT-backed variant of toplevel-sim-test.  The BitNet
+-- accelerator's pure-Lean Signal evaluation hits the same
+-- O(t²) Signal.val cost that times out usb-webserver-sim
+-- and memcached-server-test in CI; this driver runs the
+-- same 50-cycle stimulus via JIT.
+lean_exe «toplevel-sim-jit-test» where
+  root := `Tests.Drivers.TopLevelSimJITTestMain
+  supportInterpreter := true
+
+-- JIT-backed variant of usb-webserver-sim.  Each multi-output
+-- sub-module projection is wrapped in its own scalar
+-- `@[hardware_module]` to keep the elaborator on its known
+-- struct-projection path.
+lean_exe «usb-webserver-jit-test» where
+  root := `Tests.Drivers.UsbWebServerJITTestMain
+  supportInterpreter := true
+
+lean_exe «ipv4-jit-test» where
+  root := `Tests.Drivers.IPv4JITTestMain
+  supportInterpreter := true
+
+
+-- Repro for the known sub-module-instance + multi-register
+-- caller hang in the synth elaborator.  Builds clean (the
+-- failing #synthesizeVerilog is commented out); see the file's
+-- docstring for the pattern and where it bites in real IPs.
+lean_exe «multi-output-submodule-hang-repro» where
+  root := `Tests.Drivers.MultiOutputSubModuleHangReproMain
+  supportInterpreter := true
+
+lean_exe «x25519-test» where
+  root := `Tests.Drivers.X25519TestMain
+  supportInterpreter := true
+
+lean_exe «aes-test» where
+  root := `Tests.Drivers.AESTestMain
+  supportInterpreter := true
+
+lean_exe «ghash-test» where
+  root := `Tests.Drivers.GHASHTestMain
+  supportInterpreter := true
+
+lean_exe «ghash-hw-test» where
+  root := `Tests.Drivers.GHASHHWTestMain
+  supportInterpreter := true
+
+lean_exe «probe-ghash» where
+  root := `Tests.Drivers.ProbeGhashMain
+  supportInterpreter := true
+
+lean_exe «aes-gcm-test» where
+  root := `Tests.Drivers.AESGCMTestMain
+  supportInterpreter := true
+
+lean_exe «hkdf-test» where
+  root := `Tests.Drivers.HKDFTestMain
+  supportInterpreter := true
+
+lean_exe «tls-keysched-test» where
+  root := `Tests.Drivers.TLSKeyScheduleTestMain
+  supportInterpreter := true
+
+lean_exe «tls-client-fsm-test» where
+  root := `Tests.Drivers.TLSClientFsmTestMain
+  supportInterpreter := true
+
+lean_exe «hft-over-tls-test» where
+  root := `Tests.Drivers.HFTOverTLSTestMain
+  supportInterpreter := true
+
+lean_exe «tls-x509-test» where
+  root := `Tests.Drivers.TLSX509TestMain
+  supportInterpreter := true
+
+lean_exe «sha512-check» where
+  root := `Tests.Drivers.Sha512CheckMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-test» where
+  root := `Tests.Drivers.Secp256k1TestMain
+  supportInterpreter := true
+
+lean_exe «goldilocks-test» where
+  root := `Tests.Drivers.GoldilocksTestMain
+  supportInterpreter := true
+
+lean_exe «merkle-test» where
+  root := `Tests.Drivers.MerkleTestMain
+  supportInterpreter := true
+
+lean_exe «polynomial-test» where
+  root := `Tests.Drivers.PolynomialTestMain
+  supportInterpreter := true
+
+lean_exe «mini-stark-test» where
+  root := `Tests.Drivers.MiniSTARKTestMain
+  supportInterpreter := true
+
+lean_exe «pcie-test» where
+  root := `Tests.Drivers.PCIeTestMain
+  supportInterpreter := true
+
+lean_exe «pcie-hft-test» where
+  root := `Tests.Drivers.PCIeHFTTestMain
+  supportInterpreter := true
+
+lean_exe «sim-cost» where
+  root := `Tests.Drivers.SimCostMain
   supportInterpreter := true
 
 lean_exe «sparkle-bitnet-verilog-dump» where

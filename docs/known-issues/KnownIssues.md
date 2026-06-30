@@ -646,3 +646,110 @@ proactively.
 | LiteX + reverse synthesis | **18.1M cyc/s** | 8.4M baseline | **2.14x** |
 | 8-core parallel | **12.7M per-core** | 1.1M | **11.9x** |
 | Timer oracle (proof skip) | **49 GHz effective** | — | **9,900x** |
+
+## Issue X: Multi-handle `JIT.compileAndLoad` silently collapsed onto one handle — **RESOLVED (2026-06-30, Issue #70)**
+
+**Status**: Resolved in `JIT.compile` (commit `62573af`).
+
+### Symptom
+
+A driver loading multiple JIT modules in the same process —
+typically the h264 test drivers, which dlopen separate
+`encoder_pipeline_jit.cpp`, `decoder_pipeline_jit.cpp`, and
+`cavlc_synth_jit.cpp` — would SIGSEGV the first time it
+called `JIT.tick` (or `eval`) on the third handle.  The
+first and second handles worked.  A hand-written C++
+driver performing the IDENTICAL dlopen + tick sequence
+ran cleanly.
+
+### Diagnosis
+
+Tracing the C-side `sparkle_jit_load` revealed:
+
+```
+[jit_load] path=...enc.so lib=0x55e93f087b60 err=(none)
+[jit_load] path=...dec.so lib=0x55e93f087b60 err=(none)
+[jit_load] path=...cav.so lib=0x55e93f087b60 err=(none)
+```
+
+Three distinct `.so` paths, but `dlopen` returns the same
+library handle every time — and `/proc/self/maps`
+confirms only ONE mapping was actually added.  No error
+from `dlerror`.
+
+Underlying cause: **glibc ABI version mismatch** between
+the host Lean binary and the JIT-compiled `.so` files.
+
+- The Lean test binary is dynamically linked against the
+  glibc that was available when the Sparkle library was
+  built (often an older Nix store glibc, e.g. 2.40).
+- `JIT.compile` invokes `c++` from the user's `$PATH`.
+  That toolchain typically links the generated `.so`
+  against a newer glibc + libstdc++ (e.g. 2.42).
+- A 2.42-linked `.so` requires `GLIBC_ABI_*` symbol
+  versions absent in 2.40 — but `dlopen()` doesn't
+  surface this as an error.  Instead the dynamic linker
+  collapses subsequent calls onto the first handle and
+  silently keeps going.
+
+### Fix
+
+`Sparkle/Core/JIT.lean`'s `JIT.compile` now:
+
+1. Reads `/proc/self/maps` to discover the host's libc
+   directory (`JIT.hostLibcDir`).
+2. Passes `-Wl,-rpath,<dir>` to the JIT `c++` invocation
+   so the `.so`'s runtime linker prefers the host's
+   libc over the build environment's.
+3. Passes `-static-libstdc++ -static-libgcc` so the
+   `.so` doesn't depend on libstdc++/libgcc being
+   pre-loaded in the host process.
+4. Folds the chosen rpath into the hash cache key so
+   a Nix environment swap forces a fresh recompile.
+
+### Detection hint
+
+If you see multi-handle JIT tests SIGSEGV in `tick` or
+`eval` while single-handle tests pass, instrument
+`sparkle_jit_load` (in `c_src/sparkle_jit.c`) with:
+
+```c
+const char* err = dlerror();
+fprintf(stderr, "[jit_load] path=%s lib=%p err=%s\n",
+        cpath, lib, err ? err : "(none)");
+```
+
+If you observe distinct paths returning the same `lib`
+pointer, the host-vs-build glibc mismatch is the cause.
+
+### Cross-checking the build env
+
+To confirm the mismatch without running tests:
+
+```bash
+$ ldd .lake/build/bin/<any-jit-driver> | grep -E 'libc|ld-linux'
+libc.so.6  => /nix/store/.../glibc-2.40-66/lib/libc.so.6
+ld-linux   => /nix/store/.../glibc-2.42-61/lib64/ld-linux-x86-64.so.2
+
+$ readelf -d .lake/build/jit_cache/<any.so> | grep -E 'NEEDED|RUNPATH'
+NEEDED   libstdc++.so.6        # host doesn't pre-load this
+NEEDED   libm.so.6
+RUNPATH  .../glibc-2.42-61/lib  # newer than host's 2.40
+```
+
+When the host's libc and the .so's RUNPATH disagree on
+major versions, multi-handle dlopen will silently fail
+in the way described above.
+
+### Future automation
+
+A startup-time check in `JIT.compileAndLoad` could
+detect the mismatch by:
+1. Reading `/proc/self/maps` for the host's libc path
+   and comparing its major version against the `.so`'s
+   `readelf -d` NEEDED libc version.
+2. Emitting a one-time warning if they differ.
+
+Not yet implemented; the rpath fix prevents the
+mismatch from arising in the first place by pinning
+the `.so` to the host's libc.

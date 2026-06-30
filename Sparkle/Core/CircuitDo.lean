@@ -331,10 +331,6 @@ macro_rules
     -- — including any `<~` references — still reads register
     -- handles as plain names.
     let regsIdent := Lean.mkIdent (Lean.Name.mkSimple "_cdoRegs")
-    -- Build a chain `let (r0, rest1) := _cdoRegs; let (r1, rest2)
-    -- := rest1; …; let (rN-1, _) := restN-1; doBody`, walking
-    -- the regs array from last to first so the outermost binding
-    -- ends up binding `r0`.
     let prevRest (idx : Nat) : Lean.Ident :=
       if idx == 0 then regsIdent
       else Lean.mkIdent (Lean.Name.mkSimple s!"_cdoRest_{idx}")

@@ -233,21 +233,51 @@ def primitive (name : String) (inputs : List Port) (outputs : List Port) : Modul
   , isPrimitive := true
   }
 
-/-- Add an input port -/
+/-! ### Append-vs-prepend perf note
+
+    `addInput` / `addOutput` / `addWire` / `addStmt` are called
+    in the inner loop of every IP synthesis — once per port,
+    wire, and statement.  The natural definition (`m.body ++ [s]`)
+    is O(n) per call, which makes the whole module-building
+    loop O(n²) and dominated runtime for FSM-shape circuits
+    (memcached server top-level synth went from ~0.5 s for the
+    first multi-output leaf to 32+ s for the sixth — same Δcalls,
+    but `module.body` had grown 6× and every `++ [s]` paid
+    for that).
+
+    Fix: build the lists in REVERSE order via head-prepend
+    (O(1)), then reverse them once at the end of synthesis
+    in `Module.finalize`.  External callers that read
+    `m.body` / `m.wires` after `finalize` see the same forward
+    order they always did. -/
+
+/-- Add an input port (O(1); reversed by `finalize`). -/
 def addInput (m : Module) (p : Port) : Module :=
-  { m with inputs := m.inputs ++ [p] }
+  { m with inputs := p :: m.inputs }
 
-/-- Add an output port -/
+/-- Add an output port (O(1); reversed by `finalize`). -/
 def addOutput (m : Module) (p : Port) : Module :=
-  { m with outputs := m.outputs ++ [p] }
+  { m with outputs := p :: m.outputs }
 
-/-- Add an internal wire -/
+/-- Add an internal wire (O(1); reversed by `finalize`). -/
 def addWire (m : Module) (p : Port) : Module :=
-  { m with wires := m.wires ++ [p] }
+  { m with wires := p :: m.wires }
 
-/-- Add a statement to the body -/
+/-- Add a statement to the body (O(1); reversed by `finalize`). -/
 def addStmt (m : Module) (s : Stmt) : Module :=
-  { m with body := m.body ++ [s] }
+  { m with body := s :: m.body }
+
+/-- Reverse the four append-in-reverse lists to forward order.
+    Must be called exactly once after all incremental
+    additions are done and before any consumer reads
+    `m.inputs / outputs / wires / body`. -/
+def finalize (m : Module) : Module :=
+  { m with
+    inputs  := m.inputs.reverse
+    outputs := m.outputs.reverse
+    wires   := m.wires.reverse
+    body    := m.body.reverse
+  }
 
 /-- Convert module to string (for debugging) -/
 def toString (m : Module) : String :=

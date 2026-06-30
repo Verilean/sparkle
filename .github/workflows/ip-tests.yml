@@ -1,0 +1,255 @@
+name: IP Tests
+
+# Topic-grouped per-IP simulation tests.  Each group runs in its
+# own job and executes its IPs sequentially.
+#
+# Why topic groups instead of one job per IP:
+#   - 85 concurrent jobs all `curl`-installing elan would hammer
+#     GitHub's release CDN and trip the 429 rate limit (which is
+#     what killed the previous one-job-per-IP layout).
+#   - Failure attribution stays scoped (you know which topic
+#     group broke); within a group, the failing IP is the one
+#     `lake exe` returns non-zero on.
+#   - Lake build cache is shared across IPs in the same job, so
+#     the second IP doesn't pay the build cost again.
+#
+# Total wall-clock target: ≤ 1 hour.  Each group has ≤ 15 IPs;
+# heavy sims (BitVec-128 cycle-accurate) are isolated in their
+# own groups so a slow IP only blocks its small group.
+
+on:
+  push:
+    branches: [ main, master, 'feat/**', 'feature/**' ]
+    paths:
+      - 'IP/**'
+      - 'Sparkle/**'
+      - 'Tests/**'
+      - 'Examples/**'
+      - 'lakefile.lean'
+      - 'lake-manifest.json'
+      - 'lean-toolchain'
+      - '.github/workflows/ip-tests.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'IP/**'
+      - 'Sparkle/**'
+      - 'Tests/**'
+      - 'Examples/**'
+      - 'lakefile.lean'
+      - 'lake-manifest.json'
+      - 'lean-toolchain'
+      - '.github/workflows/ip-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  ip-test:
+    runs-on: ubuntu-latest
+    # Heavy groups (memcached top-level synth, rv32 toplevel sim,
+    # usb-webserver) can spend an hour on a single IP under
+    # Sparkle's current elaborator (tracked in Issue #67).  Set
+    # the per-job cap generously rather than mark them flaky.
+    timeout-minutes: 180
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: core-dsl
+            exes: >-
+              signal-loop-test circuit-do-test circuit-sim-test
+              run-circuit-h-test sim-runner-test cdc-multi-clock-test
+              svparser-test multi-output-submodule-hang-repro
+
+          - group: bus
+            exes: >-
+              pcie-test pcie-hft-test
+              can-test can-hw-test canopen-test dronecan-test
+              serial-bus-test avionics-bus-test
+
+          - group: ethernet
+            exes: >-
+              crc32-test ethernet-test ethernet-tx-test
+              arp-test ipv4-test icmp-test
+              tcp-header-test tcp-state-test tcp-loopback-test
+              http-test hft-strategy-test
+
+          - group: usb-webserver
+            # `usb-webserver-sim` is the pure-Lean `Signal.val`
+            # evaluation path.  It still works but hits per-cycle
+            # cost ~O(t) on this design (multi-output Signal chain
+            # without per-node memoization, see lakefile.lean
+            # comment above usb-webserver-jit-test), so a full
+            # CI run times out at the per-IP cap.  We switched
+            # the CI gate to the JIT-backed `usb-webserver-jit-test`,
+            # which exercises the same end-to-end coverage via the
+            # `#sim` flow at hardware speed.
+            exes: >-
+              uart-test slip-test usb-webserver-jit-test
+
+          - group: memcached
+            # `memcached-server-test` has the same O(t)
+            # Signal.val cost as `usb-webserver-sim` (FSM with a
+            # 128-bit register feeding the byte-emit datapath).
+            # Use `memcached-server-jit-test` as the CI gate —
+            # same input stim, same string-level assertions
+            # ("STORED\r\n", "VALUE…hello…END\r\n"), runs in
+            # ~3 s instead of past the per-IP timeout.
+            exes: >-
+              memcached-oracle-test memcached-hw-test memcached-server-jit-test
+
+          - group: crypto
+            exes: >-
+              sha256-test sha512-check keccak256-test rlp-test
+              eip1559-tx-test erc20-abi-test bip39-test bip32-test
+              eth-wallet-test
+              aes-test aes-gcm-test ghash-test ghash-hw-test
+              hkdf-test x25519-test
+              ed25519-field-test ed25519-point-test ed25519-sign-test
+              ed25519-verify-test
+              p256-ecdsa-test rsa-pss-test secp256k1-test
+
+          - group: zk
+            exes: >-
+              goldilocks-test merkle-test polynomial-test mini-stark-test
+
+          - group: tls
+            exes: >-
+              tls-keysched-test tls-x509-test
+              x509-parser-test x509-verify-test
+              tls-client-fsm-test tls-client-server-test
+
+          - group: hft-https
+            exes: >-
+              hft-over-tls-test https-demo
+
+          - group: video-h264
+            exes: >-
+              h264-bitstream-test h264-jit-test h264-jit-pipeline-test
+              h264-frame-encoder-test h264-mp4-encoder-test
+              h264-playable-test
+
+          - group: rv32
+            # `toplevel-sim-test` is the pure-Lean `Signal.val`
+            # variant.  It has the same O(t) per-cycle cost as
+            # `usb-webserver-sim` and `memcached-server-test`
+            # (lakefile.lean comment above
+            # `toplevel-sim-jit-test` documents this).  Use the
+            # JIT-backed variant for the CI gate; the pure-Lean
+            # form remains available for local debug.
+            exes: >-
+              rv32-flow-test rv32-jit-test
+              rv32-jit-loop-test rv32-jit-oracle-test
+              rv32-jit-boot-oracle-test rv32-jit-cycle-skip-test
+              rv32-jit-dynamic-warp-test rv32-jit-speculative-warp-test
+              rv32-lean-sim-runner mext-rv32i-test mul-oracle-test
+              oracle-accuracy-test timemux-sim-test
+              toplevel-sim-jit-test verilog-sim-le
+
+          - group: bitnet
+            exes: >-
+              bitnet-soc-test ffn-golden-test golden-compare-test
+
+          - group: drone-litex
+            exes: >-
+              drone-closed-loop-test litex-test
+
+    name: ip-test (${{ matrix.group }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Resolve Lean toolchain
+        run: elan default $(cat lean-toolchain)
+
+      - name: Build cdc_runner.so (runtime dlopen target)
+        # Sparkle's JIT loads c_src/cdc/cdc_runner.so at run
+        # time via dlopen.  CI runners don't ship the artifact,
+        # so build it explicitly before any `lake exe` step.
+        # Without this, every test that touches CDC/JIT paths
+        # aborts with "failed to load cdc_runner shared library".
+        run: make -C c_src/cdc cdc_runner.so
+
+      - name: Install RISC-V cross compiler (bitnet group only)
+        # `bitnet-soc-test` loads `firmware/bitnet_smoke/firmware.hex`
+        # at runtime; the hex is produced from a small RV32I C
+        # firmware via `riscv64-unknown-elf-gcc`.  Skip the apt
+        # install for every other group to keep their wall-time
+        # lean.
+        if: matrix.group == 'bitnet'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-unknown-elf
+
+      - name: Build BitNet smoke firmware (bitnet group only)
+        if: matrix.group == 'bitnet'
+        run: make -C firmware/bitnet_smoke
+
+      - name: Generate verilator/generated_soc.sv (bitnet + rv32)
+        # `bitnet-soc-test` axis 2 looks up `verilator/generated_soc.sv`
+        # to grep for the BitNet sub-tree.  The file is emitted as a
+        # side effect of building `IP.RV32.SoCVerilog` (the module
+        # carries a `#writeDesign` macro that runs at compile time).
+        #
+        # The `rv32` group's `rv32-flow-test` also expects the
+        # synth-time files (`verilator/generated_soc.sv`,
+        # `verilator/generated_soc_cppsim.h`) on disk, so it has the
+        # same prereq.  Without this, the cache restored from a
+        # different SHA would contain stale `cppsim.h` (with C++
+        # class syntax that no longer matches the C-only CSim
+        # emitter), making the substring checks in `synthTests`
+        # fail and the test exit 1.
+        if: matrix.group == 'bitnet' || matrix.group == 'rv32'
+        run: lake build IP.RV32.SoCVerilog
+
+      - name: Cache Lake build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: lake-build-${{ runner.os }}-${{ hashFiles('lake-manifest.json', 'lean-toolchain') }}-${{ github.sha }}
+          restore-keys: |
+            lake-build-${{ runner.os }}-${{ hashFiles('lake-manifest.json', 'lean-toolchain') }}-
+
+      - name: Build + run group ${{ matrix.group }}
+        # Disable GitHub Actions' default `-eo pipefail` so that
+        # SIGPIPE during streaming log output (which earlier CI
+        # runs showed could turn `lake exe`'s success exit 0
+        # into a non-zero observed by `if !`) doesn't spuriously
+        # mark the step failed.  We track per-IP exit codes
+        # explicitly via `rc=$?`.
+        shell: bash {0}
+        run: |
+          fail=0
+          for exe in ${{ matrix.exes }}; do
+            echo "::group::Build $exe"
+            lake build «$exe»
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Build failed: $exe (exit $rc)"
+              fail=1
+              continue
+            fi
+            echo "::group::Run $exe"
+            # 60 min cap per IP — heavy sims (rv32 toplevel
+            # synth) push past 25 min on the cold cache.  The
+            # JIT-backed variants of the multi-cycle byte-stream
+            # tests (memcached-server-jit-test,
+            # usb-webserver-jit-test) added under their group
+            # entries avoid the pure-Lean Signal.val O(N²) growth
+            # that previously timed those out.
+            timeout 3600 lake exe $exe
+            rc=$?
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::Run failed: $exe (exit $rc)"
+              fail=1
+            fi
+          done
+          exit $fail

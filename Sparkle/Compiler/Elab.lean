@@ -11,7 +11,7 @@ import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -38,6 +38,34 @@ structure CompilerState where
   varMap : List (FVarId × String) := []  -- Map Lean variables to wire names
   clockWire : Option String := none       -- Name of clock wire (if any)
   resetWire : Option String := none       -- Name of reset wire (if any)
+  -- Expression-keyed memoization for `translateExprToWire`.
+  -- When the ρ-generic synthesis splits a multi-output return
+  -- into N leaves, each leaf's expression shares the same
+  -- sub-structure (the body's `Signal.loop` chain), so caching
+  -- by Expr key keeps the cost O(body) instead of O(N × body).
+  -- Optional so `CompilerState.default` (used by the test
+  -- harness via `{}` literals) stays trivially constructible;
+  -- `synthesizeCombinational` populates it before the first
+  -- translate call.
+  -- Content-addressed expression cache.
+  -- Key type: `Lean.ExprStructEq` — Lean stdlib's wrapper that
+  -- uses `Expr.equal` (structural equality on the AST,
+  -- inclusive of binder names) for BEq, and `Expr.hash` for
+  -- Hashable.  Both are pure DAG-content fns, so two
+  -- structurally-identical expressions emitted by separate
+  -- elaboration paths (e.g. `kvHw a b c d e` re-elaborated
+  -- once per register-write) collide on the same key
+  -- regardless of pointer identity.
+  --
+  -- The original cache used `Std.HashMap Lean.Expr String`,
+  -- which via `Expr.eqv` / `BEq Expr` was effectively pointer-
+  -- equal cache lookup with fast-path-only structural fallback.
+  -- That cache hit < 10% on FSM-shape circuits because Lean's
+  -- elaborator routinely re-elaborates the same sub-tree into
+  -- fresh Expr objects with identical hash but distinct
+  -- pointer identity.  Switching to `ExprStructMap` collapses
+  -- those duplicates onto the same wire.
+  exprCache : Option (IO.Ref (Lean.ExprStructMap String)) := none
 
 /-- Compiler monad: combines CircuitM builder with MetaM -/
 abbrev CompilerM := ReaderT CompilerState (StateT CircuitState MetaM)
@@ -48,10 +76,33 @@ namespace CompilerM
 def getCompilerState : CompilerM CompilerState :=
   read
 
-/-- Lookup a variable mapping -/
+end CompilerM
+
+/-- Persistent fvar-to-wire-name map.  Complements
+    `CompilerState.varMap` (which is reader-scoped and
+    expires at the end of each `withVarMapping` block).
+    `Signal.loop`'s lambda binder needs to be resolvable
+    for the ENTIRE synth pass — its body's wire references
+    are cached by the expression cache and revisited by
+    later `splitReturnLeaves` leaves after the original
+    `withVarMapping` block has exited.  Without a persistent
+    fallback, those revisits resolve the loop fvar through
+    the unfolder, which picks the wrong wire. -/
+private initialize sparkleFvarWireMap :
+    IO.Ref (Std.HashMap Lean.Name String) ← IO.mkRef {}
+
+namespace CompilerM
+
+/-- Lookup a variable mapping.  Consults the reader-scoped
+    `varMap` first, then falls back to the persistent
+    `sparkleFvarWireMap` IORef. -/
 def lookupVar (fvarId : FVarId) : CompilerM (Option String) := do
   let s ← getCompilerState
-  return s.varMap.lookup fvarId
+  match s.varMap.lookup fvarId with
+  | some w => return some w
+  | none =>
+    let m ← liftMetaM (sparkleFvarWireMap.get : IO _)
+    return m.get? fvarId.name
 
 /-- Execute an action with an additional variable mapping in scope -/
 def withVarMapping {α : Type} (fvarId : FVarId) (wireName : String) (k : CompilerM α) : CompilerM α := do
@@ -81,11 +132,28 @@ def withLetDecl {α : Type} (name : Name) (type : Lean.Expr) (value : Lean.Expr)
 def liftMetaM {α : Type} (m : MetaM α) : CompilerM α :=
   liftM m
 
+end CompilerM
+
+/-- Wire-width cache: `wireName → bit width`.  Populated by
+    `makeWire`, `addInput`, `addOutput`; consumed by `getWireWidth`.
+    Avoids the O(n) linear scan that dominated runtime on FSM-
+    shape circuits (handleTupleProjections / handleMux call
+    getWireWidth in their hot loops, turning a ~5000-wire design
+    into an O(n²) walk). -/
+private initialize sparkleWireWidthCache :
+    IO.Ref (Std.HashMap String Nat) ← IO.mkRef {}
+
+namespace CompilerM
+
 /-- Lift CircuitM operations by modifying the circuit state -/
 def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CompilerM String := do
   let cs ← get
   let (name, cs') := CircuitM.makeWire hint ty named cs
   set cs'
+  -- Populate the wire-width cache so subsequent `getWireWidth name`
+  -- is O(1) instead of an O(n) module.wires scan.
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
   return name
 
 def freshName (hint : String) (named : Bool := false) : CompilerM String := do
@@ -103,20 +171,40 @@ def addInput (name : String) (ty : HWType) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.addInput name ty cs
   set cs'
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
 
 
 def addOutput (name : String) (ty : HWType) : CompilerM Unit := do
   let cs ← get
   let ((), cs') := CircuitM.addOutput name ty cs
   set cs'
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
 
 /-- Look up the HW width of a wire by name (from wires, inputs, or outputs) -/
 def getWireWidth (wireName : String) : CompilerM Nat := do
-  let cs ← get
-  let allPorts := cs.module.wires ++ cs.module.inputs ++ cs.module.outputs
-  match allPorts.find? (fun p => p.name == wireName) with
-  | some p => return match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
-  | none => return 8
+  -- Hot path: O(1) lookup via the per-synth wire-width cache,
+  -- populated by `makeWire` and `addInput` / `addOutput`.  The
+  -- old implementation scanned `cs.module.wires ++ inputs ++
+  -- outputs` linearly, which is O(n) per call and O(n^2)
+  -- overall on FSM-shape circuits with thousands of wires.
+  let cache ← liftMetaM (sparkleWireWidthCache.get : IO _)
+  match cache.get? wireName with
+  | some w => return w
+  | none =>
+    -- Fallback: linear scan of the module's ports.  This only
+    -- happens for wires that bypass the cache-populating helpers
+    -- (e.g. external bindings, or `clk`/`rst` ports added without
+    -- going through our IO.Ref-tracked path).
+    let cs ← get
+    let allPorts := cs.module.wires ++ cs.module.inputs ++ cs.module.outputs
+    match allPorts.find? (fun p => p.name == wireName) with
+    | some p =>
+      let w := match p.ty with | .bitVector w => w | .bit => 1 | _ => 8
+      liftMetaM (sparkleWireWidthCache.modify (·.insert wireName w))
+      return w
+    | none => return 8
 
 def emitRegister (hint : String) (clk : String) (rst : String)
     (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType)
@@ -127,6 +215,12 @@ def emitRegister (hint : String) (clk : String) (rst : String)
   let (name, cs') := CircuitM.emitRegister hint clk rst input initVal ty
                        (named := named) (resetKind := resetKind) cs
   set cs'
+  -- Register the output wire width so downstream `getWireWidth`
+  -- lookups hit the cache instead of falling back to a linear
+  -- scan over `module.wires` (which dominates wall time when
+  -- the wire list grows into the thousands — Issue #67).
+  let w := match ty with | .bitVector w => w | .bit => 1 | _ => 8
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name w))
   return name
 
 def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
@@ -134,6 +228,7 @@ def emitMemory (hint : String) (addrWidth dataWidth : Nat) (clk : String)
   let cs ← get
   let (name, cs') := CircuitM.emitMemory hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr named cs
   set cs'
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name dataWidth))
   return name
 
 def emitMemoryComboRead (hint : String) (addrWidth dataWidth : Nat) (clk : String)
@@ -141,6 +236,7 @@ def emitMemoryComboRead (hint : String) (addrWidth dataWidth : Nat) (clk : Strin
   let cs ← get
   let (name, cs') := CircuitM.emitMemoryComboRead hint addrWidth dataWidth clk writeAddr writeData writeEnable readAddr named cs
   set cs'
+  liftMetaM (sparkleWireWidthCache.modify (·.insert name dataWidth))
   return name
 
 def emitInstance (moduleName : String) (instName : String) (connections : List (String × Sparkle.IR.AST.Expr)) : CompilerM Unit := do
@@ -248,7 +344,51 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
     | some hwElemType => return some (.array n hwElemType)
     | none => return none
   | _ =>
-    return none
+    -- User structure type (e.g. KvHwOut dom).  If the type is
+    -- a constant application to a structure whose fields are all
+    -- `Signal dom <hw type>`, treat the whole struct as the
+    -- concatenation of its field HW widths.  This lets
+    -- @[hardware_module] defs with user-defined output records
+    -- (Ethernet.RxOut, MemcachedHW.KvHwOut) be inferred without
+    -- a manual `Wireable` instance.
+    let env ← getEnv
+    let fn := type.getAppFn
+    match fn with
+    | .const structName _ =>
+      if let some _ := env.find? structName then
+        if isStructure env structName then
+          let fields := getStructureFieldsFlattened env structName
+          let typeArgs := type.getAppArgs
+          let mut totalW : Nat := 0
+          let mut allOk := true
+          for fieldName in fields do
+            let projName := structName ++ fieldName
+            match env.find? projName with
+            | none => allOk := false; break
+            | some _ =>
+              let projExpr := mkAppN (.const projName []) typeArgs
+              let fieldType ← inferType projExpr
+              -- field type is `<struct> → α`; we want the codomain
+              let codomain ← match fieldType with
+                | .forallE _ _ body _ => pure body
+                | _ => pure fieldType
+              -- codomain is typically `Signal dom α`; strip Signal.
+              let codomain ← whnf codomain
+              let inner := match codomain with
+                | .app (.app sf _) a =>
+                  match sf with
+                  | .const sname _ =>
+                    if sname.toString.endsWith "Signal" then a else codomain
+                  | _ => codomain
+                | _ => codomain
+              match ← inferHWType inner with
+              | some (.bitVector w) => totalW := totalW + w
+              | some .bit => totalW := totalW + 1
+              | _ => allOk := false; break
+          if allOk && totalW > 0 then
+            return some (.bitVector totalW)
+      return none
+    | _ => return none
 where
   extractWidth (e : Lean.Expr) : MetaM Nat := do
     let e ← whnf e
@@ -305,7 +445,11 @@ def inferResetKindFromSignal (signalType : Lean.Expr) :
   | _ =>
     return .asynchronous
 
+private initialize sparkleHWInferCalls : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleHWInferMs    : IO.Ref Nat ← IO.mkRef 0
+
 def inferHWTypeFromSignal (signalType : Lean.Expr) : CompilerM HWType := do
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
   let signalType ← CompilerM.liftMetaM (whnf signalType)
   match signalType with
   | .app (.app signalConstr _dom) innerType =>
@@ -410,9 +554,246 @@ def extractBitVecArray (expr : Lean.Expr) : CompilerM (Array (Nat × Nat)) := do
   | _ =>
     CompilerM.liftMetaM $ throwError s!"Expected Array expression, got: {expr}"
 
+/-- Global call counters for `translateExprToWire` profiling.
+    Populated only when `SPARKLE_PROFILE=1`. -/
+private initialize sparkleCallCounter : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleCacheHits   : IO.Ref Nat ← IO.mkRef 0
+/-- Nested-synth depth counter.  `synthesizeCombinational` only
+    resets the per-synth caches when entering at depth 0 (the
+    outermost user-triggered `#synthesizeVerilog`).  When the
+    parent synth recursively invokes child synths (via
+    `@[hardware_module]` sub-module instances), the child must
+    NOT clobber the parent's caches — doing so makes the parent
+    re-walk every previously-translated expression after the
+    child returns, which trivially turns sub-module-instance
+    synth into an O(n²) walk. -/
+private initialize sparkleSynthDepth : IO.Ref Nat ← IO.mkRef 0
+
+/-- Set of fvar names currently being zeta-reduced.  If we see
+    the same fvar twice on the stack, the fvar's value contains
+    a reference back to itself — typical of Signal.loop bodies
+    that bind the loop state to an fvar whose definition then
+    transitively references that fvar through the loop's
+    memoize chain.  Use this to detect and abort cleanly. -/
+private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← IO.mkRef {}
+
+/-- Map from `let`-bound HW fvar names back to their defining
+    expressions.  Populated by the HW-let branch of
+    handleDefinitionUnfold when it sees `let engine := kvHw …`,
+    consumed by the multi-output sub-module projection shortcut
+    so `engine.replyValid` can recover the underlying `kvHw …`
+    call and instantiate it as a sub-module. -/
+private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
+
+/-- Cache of previously-synthesised sub-modules.  Without this,
+    the multi-output sub-module projection shortcut would re-
+    invoke `synthesizeCombinational` once per `<call>.<field>`
+    access (multiple fields per sub-module instance × multiple
+    instances per design).  Cleared at the top of each
+    `synthesizeCombinational` invocation. -/
+private initialize sparkleSubModuleCache :
+    IO.Ref (Std.HashMap Lean.Name (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design)) ←
+    IO.mkRef {}
+
+/-- Per-call output port wire mapping.  Keyed by
+    `(call-expression hash, field name)`, returns the wire bound
+    to that field of the sub-module instance.  Populated by the
+    multi-output sub-module instance emitter (handleDefinitionUnfold
+    line 2249); consumed by the projection handler when a struct-
+    typed sub-module call result is projected (`engine.replyValid`).
+
+    Hash key (UInt64) is used instead of full Expr identity
+    because Lean re-elaborates structurally equal expressions
+    into objects that fail pointer equality but share `Expr.hash`. -/
+private initialize sparkleSubInstanceOutputs :
+    IO.Ref (Std.HashMap (UInt64 × String) String) ← IO.mkRef {}
+
+/-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
+    cost in handleTupleProjections / handleApplicative / handleMux
+    (typeclass-instance search fires per call); the same `e` is
+    revisited many times when ρ-generic returns push the same
+    sub-expression through multiple projections.  Memoising the
+    inferred type by Expr identity collapses the hottest path. -/
+private initialize sparkleTypeCache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr) ← IO.mkRef {}
+
+/-- Memoised `Lean.Meta.inferType`.  Pure compiler-side cache;
+    correctness relies on the cache being scoped per `synth*`
+    invocation (we reset it at the start of `synthesizeCombinational`). -/
+private initialize sparkleTypeCacheHits : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleTypeCacheMiss : IO.Ref Nat ← IO.mkRef 0
+
+/-- Counters for the Lean.Meta operations the compiler issues
+    *directly*.  When SPARKLE_PROFILE=1 the tick log reports
+    each total — gives a direct read on which Meta call is
+    the actual hot spot rather than guessing from handler
+    inclusive times. -/
+private initialize sparkleWhnfCalls       : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleInferCalls      : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleUnfoldDefCalls  : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleWhnfMs          : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleInferMs         : IO.Ref Nat ← IO.mkRef 0
+private initialize sparkleUnfoldDefMs     : IO.Ref Nat ← IO.mkRef 0
+
+/-- Wrap a MetaM `whnf` with counters. -/
+def countedWhnf (e : Lean.Expr) : CompilerM Lean.Expr := do
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
+  let r ← CompilerM.liftMetaM (Lean.Meta.whnf e)
+  let t1 ← CompilerM.liftMetaM IO.monoMsNow
+  CompilerM.liftMetaM (sparkleWhnfCalls.modify (· + 1))
+  CompilerM.liftMetaM (sparkleWhnfMs.modify (· + (t1 - t0)))
+  return r
+
+/-- Wrap `Lean.Meta.unfoldDefinition?` with counters. -/
+def countedUnfoldDefinition? (e : Lean.Expr) : CompilerM (Option Lean.Expr) := do
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
+  let r ← CompilerM.liftMetaM (Lean.Meta.unfoldDefinition? e)
+  let t1 ← CompilerM.liftMetaM IO.monoMsNow
+  CompilerM.liftMetaM (sparkleUnfoldDefCalls.modify (· + 1))
+  CompilerM.liftMetaM (sparkleUnfoldDefMs.modify (· + (t1 - t0)))
+  return r
+
+def cachedInferType (e : Lean.Expr) : CompilerM Lean.Expr := do
+  let cache ← CompilerM.liftMetaM sparkleTypeCache.get
+  match cache.get? e with
+  | some ty =>
+    CompilerM.liftMetaM (sparkleTypeCacheHits.modify (· + 1))
+    return ty
+  | none =>
+    CompilerM.liftMetaM (sparkleTypeCacheMiss.modify (· + 1))
+    let t0 ← CompilerM.liftMetaM IO.monoMsNow
+    let ty ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+    let t1 ← CompilerM.liftMetaM IO.monoMsNow
+    CompilerM.liftMetaM (sparkleInferCalls.modify (· + 1))
+    CompilerM.liftMetaM (sparkleInferMs.modify (· + (t1 - t0)))
+    CompilerM.liftMetaM (sparkleTypeCache.modify (·.insert e ty))
+    return ty
+
+/-- Per-handler invocation counters + cumulative ms.  Index is
+    fixed by `sparkleProfHandlerNames` below. -/
+private initialize sparkleHandlerCalls : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 11 0)
+private initialize sparkleHandlerMs    : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 11 0)
+
+private def sparkleProfHandlerNames : Array String :=
+  #["handleErrorPatterns", "handleCircuitMonad", "handleTupleProjections",
+    "handleApplicative", "handleBitVecOps", "handleRegister",
+    "handleMux", "handleMemory", "handleLoop", "handleDefinitionUnfold",
+    "fallback"]
+
+/-- Wrap a handler call: bump the per-handler counter + ms when
+    SPARKLE_PROFILE=1, otherwise just delegate.  `idx` matches
+    `sparkleProfHandlerNames`. -/
+private def profHandler {α} (_idx : Nat) (k : CompilerM α) : CompilerM α := do
+  -- Profile disabled by default; the wrapper inlines to just `k`
+  -- when SPARKLE_PROFILE is unset.  We avoid checking the env on
+  -- every handler call (that itself shows up in the hot loop) by
+  -- relying on the IO.Ref counters being cheap when nobody reads
+  -- them.  `tInit ms`-tracking still happens unconditionally but
+  -- is a single `IO.monoMsNow` pair around `k` — comparable to a
+  -- handful of arithmetic ops on x86_64.
+  let t0 ← CompilerM.liftMetaM IO.monoMsNow
+  let r ← k
+  let t1 ← CompilerM.liftMetaM IO.monoMsNow
+  CompilerM.liftMetaM (sparkleHandlerCalls.modify (fun arr =>
+    arr.setIfInBounds _idx ((arr.getD _idx 0) + 1)))
+  CompilerM.liftMetaM (sparkleHandlerMs.modify (fun arr =>
+    arr.setIfInBounds _idx ((arr.getD _idx 0) + (t1 - t0))))
+  return r
+
 mutual
+  /-- Caching shim around `translateExprToWireImpl`.  All early-
+      intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
+      ...) currently `return` straight from the inner impl, which
+      means they never write back to the cache.  Wrapping here
+      means **every** successful translate caches its result —
+      so subsequent identical sub-trees become a HashMap lookup
+      instead of a full re-walk through ~10 handlers + Meta. -/
   partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
+    let cacheRef? := (← CompilerM.getCompilerState).exprCache
+    -- Cache only when there's no fresh wire name to emit
+    -- (`isNamed` would force a specific user-facing name) and
+    -- when the expression isn't a free variable (those resolve
+    -- against the lexically-scoped varMap, not by Expr identity).
+    let cacheable := !isNamed && !e.isFVar && !isTopLevel
+    if cacheable then
+      if let some ref := cacheRef? then
+        -- Lookup: don't bind `cache` to a let — that creates
+        -- a second reference that survives until the end of
+        -- the function, forcing `ref.modify` below to
+        -- copy-on-write the entire HashMap (O(n) per insert,
+        -- O(n²) overall on FSM-shape circuits).  Use the
+        -- short-lived expression form so the read result is
+        -- dropped immediately on cache miss.
+        let lookupResult ← CompilerM.liftMetaM do
+          let cache ← (ref.get : IO _)
+          match cache.get? ⟨e⟩ with
+          | some w => return some w
+          | none =>
+            let eStripped := e.consumeMData
+            if !(eStripped == e) then
+              return cache.get? ⟨eStripped⟩
+            else
+              return none
+        match lookupResult with
+        | some w =>
+          CompilerM.liftMetaM (sparkleCacheHits.modify (· + 1))
+          return w
+        | none => pure ()
+    let r ← translateExprToWireImpl e hint isTopLevel isNamed
+    if cacheable then
+      if let some ref := cacheRef? then
+        CompilerM.liftMetaM (ref.modify (·.insert ⟨e⟩ r))
+    return r
+
+  partial def translateExprToWireImpl (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     trace[sparkle.compiler] "translateExprToWire hint={hint} isTopLevel={isTopLevel}"
+    let callN ← CompilerM.liftMetaM (sparkleCallCounter.modifyGet fun n => (n + 1, n + 1))
+    -- Infinite-loop / runaway-walk backstop.  If the elaborator
+    -- ever exceeds 500k recursive translate calls on a single
+    -- top-level synth attempt, abort with a diagnostic rather
+    -- than hanging silently.  Tunable via SPARKLE_TRANSLATE_LIMIT.
+    let limit ← CompilerM.liftMetaM do
+      let envS ← IO.getEnv "SPARKLE_TRANSLATE_LIMIT"
+      -- Default raised from 500_000 to 32_000_000 after empirical
+      -- observation that legitimate large IPs (memcached server
+      -- top-level with kvHw sub-module + 8-register FSM + 37-entry
+      -- response mux) need ~1-10M recursive translate calls.
+      -- The lower cap was creating false "hang" diagnoses.
+      return envS.bind String.toNat? |>.getD 32_000_000
+    if callN > limit then
+      CompilerM.liftMetaM $ throwError
+        s!"Sparkle synth elaborator exceeded {limit} recursive translateExprToWire calls (likely runaway inline loop on hint={hint}).\n\nSet SPARKLE_TRANSLATE_LIMIT to raise the cap, or set `set_option trace.sparkle.compiler true` and grep for the deepest cycle to find the offending sub-expression."
+    if callN % 10000 == 0 then
+      CompilerM.liftMetaM do
+        if (← IO.getEnv "SPARKLE_PROFILE").isSome then
+          let hits ← sparkleCacheHits.get
+          let calls ← sparkleHandlerCalls.get
+          let msArr ← sparkleHandlerMs.get
+          let typeHits ← sparkleTypeCacheHits.get
+          let typeMiss ← sparkleTypeCacheMiss.get
+          let wCalls ← sparkleWhnfCalls.get
+          let wMs    ← sparkleWhnfMs.get
+          let iCalls ← sparkleInferCalls.get
+          let iMs    ← sparkleInferMs.get
+          let uCalls ← sparkleUnfoldDefCalls.get
+          let uMs    ← sparkleUnfoldDefMs.get
+          let mut tickLines : Array String :=
+            #[s!"[profile] tick {callN} (cache hits {hits}, typeCache hits={typeHits} miss={typeMiss})",
+              s!"  Meta whnf:       {wCalls} calls / {wMs} ms",
+              s!"  Meta inferType:  {iCalls} calls / {iMs} ms",
+              s!"  Meta unfoldDef?: {uCalls} calls / {uMs} ms"]
+          for h in [:sparkleProfHandlerNames.size] do
+            let n := calls.getD h 0
+            let m := msArr.getD h 0
+            if n > 0 then
+              tickLines := tickLines.push s!"  {sparkleProfHandlerNames.getD h "?"}: {n} calls / {m} ms"
+          let body := String.intercalate "\n" tickLines.toList
+          IO.eprintln body
+          (← IO.getStderr).flush
+          let fh ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+          fh.putStrLn body
+          fh.flush
+    -- Cache lookup is now handled by the `translateExprToWire`
+    -- wrapper above; this impl runs only on misses.
     -- 0. Handle free variables first (before any whnf)
     if let .fvar fvarId := e then
       match ← CompilerM.lookupVar fvarId with
@@ -426,10 +807,35 @@ mutual
           | some decl => return decl.value?
           | none => return none
         match inlinedVal with
-        | some val => return ← translateExprToWire val hint isTopLevel isNamed
+        | some val =>
+          -- Cycle break: if we're already zeta-reducing this same
+          -- fvar deeper in the stack, the value we'd unfold is
+          -- the very expression we're inside (= circular let
+          -- binding loop produced by Signal.loop's memoize
+          -- chain).  Throw rather than recurse.
+          let visited ← CompilerM.liftMetaM (sparkleFvarZetaVisited.get : IO _)
+          if visited.contains fvarId.name then
+            CompilerM.liftMetaM $ throwError
+              s!"Sparkle synth: circular zeta-reduction on fvar {fvarId.name} (hint={hint}). \
+                 This usually means a `Signal.loop` register is being walked twice via \
+                 its memoize chain. Common cause: an FSM where a register read feeds a \
+                 register write through `Signal.memoize` and a sub-`circuit do` (e.g. \
+                 nested kvHw inside memcachedServer)."
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.insert fvarId.name))
+          let r ← translateExprToWire val hint isTopLevel isNamed
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.erase fvarId.name))
+          return r
         | none =>
-          -- Try full reduction for type-level fvars (Nat widths, erased params)
+          -- Try full reduction for type-level fvars (Nat widths, erased params).
+          -- Same cycle-break as above: track which fvars we're currently
+          -- reducing to avoid infinite zeta loops.
+          let visited ← CompilerM.liftMetaM (sparkleFvarZetaVisited.get : IO _)
+          if visited.contains fvarId.name then
+            CompilerM.liftMetaM $ throwError
+              s!"Sparkle synth: circular reduction on fvar {fvarId.name} (hint={hint})."
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.insert fvarId.name))
           let reduced ← CompilerM.liftMetaM (try Lean.Meta.reduce e catch _ => pure e)
+          CompilerM.liftMetaM (sparkleFvarZetaVisited.modify (·.erase fvarId.name))
           if reduced != e then
             return ← translateExprToWire reduced hint isTopLevel isNamed
           let ty ← CompilerM.liftMetaM (try Lean.Meta.inferType e catch _ => pure (.const `unknown []))
@@ -472,7 +878,7 @@ mutual
           let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
           let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
           if isSignal1 || isSignal2 then
-            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let exprType ← cachedInferType e
             let hwType ← inferHWTypeFromSignal exprType
             let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
             -- For mixed Signal/BitVec: use extractBitVecLiteral for the constant arg
@@ -503,7 +909,7 @@ mutual
         let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
         -- Both Signal case: translate directly to concat
         if isSignal1 && isSignal2 then
-          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
           let wireA ← translateExprToWire arg1 "concat_hi" (isTopLevel := false)
@@ -512,7 +918,7 @@ mutual
           return resWire
         -- Mixed case: one is Signal, one is BitVec constant
         if isSignal1 != isSignal2 then
-          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
           if isSignal1 then
@@ -615,7 +1021,7 @@ mutual
         if name == ``Sparkle.Core.Signal.bundle2 && args.size >= 2 then
            let wireA ← translateExprToWire args[args.size-2]! "a"
            let wireB ← translateExprToWire args[args.size-1]! "b"
-           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+           let exprType ← cachedInferType e
            let hwType ← inferHWTypeFromSignal exprType
            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
            CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
@@ -628,20 +1034,32 @@ mutual
            let fFn := f.getAppFn
            if fFn.isConstOf ``Prod.fst then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
-               let totalWidth ← CompilerM.getWireWidth wireS
-               let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+               let wireWidth ← CompilerM.getWireWidth wireS
+               let exprType ← cachedInferType e
                let hwType ← inferHWTypeFromSignal exprType
                let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+               let sType ← cachedInferType s
+               let sHWType ← inferHWTypeFromSignal sType
+               let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
+               -- Issue #67 step 2: clamp slice to wire's
+               -- declared width (see the matching comment in
+               -- `handleTupleProjections`).
+               let totalWidth := min wireWidth typeTotal
+               let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
+               let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
+               CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
                return resWire
            if fFn.isConstOf ``Prod.snd then
                let wireS ← translateExprToWire s "s" (isTopLevel := false)
-               let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+               let wireWidth ← CompilerM.getWireWidth wireS
+               let exprType ← cachedInferType e
                let hwType ← inferHWTypeFromSignal exprType
                let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+               let actualWidth := min width wireWidth
+               let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
+               CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
                return resWire
 
            -- Handle lambda functions in Signal.map (extractLsb', unary primitives)
@@ -693,14 +1111,96 @@ mutual
                    CompilerM.emitAssign shiftWire (.const shiftAmt srcWidth)
                    CompilerM.emitAssign resWire (.op .asr [.ref wireS, .ref shiftWire])
                    return resWire
-               -- Unary primitives (neg, not, etc.)
+               -- Unary primitives (neg, not, etc.).  ONLY take
+               -- this shortcut when the body is genuinely
+               -- `op p` — single primitive applied to the
+               -- lambda parameter.  Composite-body lambdas
+               -- (e.g. `fun p => 0x4000 ||| ((0#8) ++ p)`,
+               -- where the head is `HOr.hOr` but the body
+               -- mixes a constant and a nested op) fall
+               -- through to the composite-body path below
+               -- (Issue #73).
                if let some op := getOperator opName then
-                 let wireS ← translateExprToWire s "s" (isTopLevel := false)
-                 let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-                 let hwType ← inferHWTypeFromSignal exprType
-                 let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-                 CompilerM.emitAssign resWire (.op op [.ref wireS])
-                 return resWire
+                 let isUnary := op == .not || op == .neg
+                 if isUnary then
+                   let wireS ← translateExprToWire s "s" (isTopLevel := false)
+                   let exprType ← cachedInferType e
+                   let hwType ← inferHWTypeFromSignal exprType
+                   let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                   CompilerM.emitAssign resWire (.op op [.ref wireS])
+                   return resWire
+
+           -- Composite-body lambda fallback (Issue #73).
+           -- Pattern-match on common composite shapes built
+           -- from primitives + the lambda parameter + literals.
+           -- This handles `proto.map (fun p => 0x4000 ||| ((0#8) ++ p))`
+           -- and similar shallow trees.
+           --
+           -- General strategy: walk `body` recursively, emitting
+           -- IR ops as we go.  Literals become `.const`, `p`
+           -- becomes `.ref wireS`, primitive op apps become
+           -- `.op` / `.concat`.
+           if let .lam binderName binderType lamBody _ := f then
+             let wireS ← translateExprToWire s "s" (isTopLevel := false)
+             let srcWidth ← CompilerM.getWireWidth wireS
+             let exprType ← cachedInferType e
+             let hwType ← inferHWTypeFromSignal exprType
+             let dstWidth := match hwType with
+               | .bitVector w => w | .bit => 1 | _ => 8
+             -- Bind `p` to wireS in varMap so a recursive
+             -- walker can resolve it.  We then run a small
+             -- bespoke body translator (not the main
+             -- handler chain, which expects Signal-typed
+             -- intermediates) that returns an IR `Expr`.
+             let res? ← CompilerM.withLocalDecl binderName binderType fun fvar => do
+               let fvarId := fvar.fvarId!
+               CompilerM.withVarMapping fvarId wireS do
+                 let body' := lamBody.instantiate1 fvar
+                 -- Inline mini-translator: turn `body'` into an
+                 -- IR `Expr`.  Recognises: fvar (= wireS),
+                 -- BitVec literals, HOr/HAnd/HXor/HAdd/HSub,
+                 -- HAppend.hAppend, and `BitVec.extractLsb'`.
+                 let rec toIR (e : Lean.Expr) : CompilerM (Option Sparkle.IR.AST.Expr) := do
+                   if e.isFVar then
+                     if e.fvarId! == fvarId then
+                       return some (.ref wireS)
+                     else
+                       return none
+                   let fn := e.getAppFn
+                   let args := e.getAppArgs
+                   if let .const opNm _ := fn then
+                     -- BitVec literal (`OfNat.ofNat n k` or
+                     -- `BitVec.ofNat w n`).
+                     if opNm == ``OfNat.ofNat ∨ opNm == ``BitVec.ofNat then
+                       let valOpt ← try
+                           let (v, w) ← extractBitVecLiteral e
+                           pure (some (Sparkle.IR.AST.Expr.const (Int.ofNat v) w))
+                         catch _ => pure none
+                       return valOpt
+                     -- HAppend / BitVec.append → concat
+                     if (opNm == ``HAppend.hAppend ∨ opNm == ``BitVec.append) ∧ args.size ≥ 2 then
+                       let a := args[args.size - 2]!
+                       let b := args[args.size - 1]!
+                       match (← toIR a), (← toIR b) with
+                       | some ea, some eb => return some (.concat [ea, eb])
+                       | _, _ => return none
+                     -- Binary primitive op (HOr / HAnd / ...).
+                     if let some op := getOperator opNm then
+                       if args.size ≥ 2 then
+                         let a := args[args.size - 2]!
+                         let b := args[args.size - 1]!
+                         match (← toIR a), (← toIR b) with
+                         | some ea, some eb => return some (.op op [ea, eb])
+                         | _, _ => return none
+                   return none
+                 toIR body'
+             match res? with
+             | some irExpr =>
+               let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+               CompilerM.emitAssign resWire irExpr
+               let _ := dstWidth; let _ := srcWidth
+               return resWire
+             | none => pure ()
 
         -- Detect if-then-else and match expressions that cannot be synthesized
         if name == ``ite || name == ``dite then
@@ -839,7 +1339,7 @@ mutual
                 match getOperator opName with
                 | some op =>
                    -- Infer result type from the expression type
-                   let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                   let exprType ← cachedInferType e
                    let hwType ← inferHWTypeFromSignal exprType
                    let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                    CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
@@ -847,14 +1347,14 @@ mutual
                 | none =>
                    -- Special: BitVec.append / HAppend → concat
                    if opName == ``HAppend.hAppend || opName == ``BitVec.append then
-                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
                      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                      CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
                      return resWire
                    -- Special: BitVec.sshiftRight → asr
                    if opName == ``BitVec.sshiftRight then
-                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
                      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                      CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
@@ -888,7 +1388,7 @@ mutual
                  if let some op := getOperator opName then
                    if op == .not || op == .neg then
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
-                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
                      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                      CompilerM.emitAssign resWire (.op op [.ref wireA])
@@ -907,7 +1407,7 @@ mutual
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
                      -- Check for concat (HAppend.hAppend / BitVec.append)
                      if opName == ``HAppend.hAppend || opName == ``BitVec.append then
-                       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                       let exprType ← cachedInferType e
                        let hwType ← inferHWTypeFromSignal exprType
                        if arg1HasBVar then
                          -- (fun d => d ++ const) — signal is high bits
@@ -927,7 +1427,7 @@ mutual
                          return resWire
                      -- Other binary primitives (add, sub, and, or, xor, etc.)
                      if let some op := getOperator opName then
-                       let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                       let exprType ← cachedInferType e
                        let hwType ← inferHWTypeFromSignal exprType
                        if arg1HasBVar then
                          -- (fun x => x + const)
@@ -953,7 +1453,7 @@ mutual
                    let numBVarArgs := bodyArgs.toList.filter (·.hasLooseBVars) |>.length
                    if numBVarArgs ≤ 1 then
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
-                     let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+                     let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
                      let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                      CompilerM.emitAssign resWire (.op op [.ref wireA])
@@ -1027,7 +1527,7 @@ mutual
           return ← translateExprToWire chosen hint (isTopLevel := isTopLevel) (isNamed := isNamed)
       let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
@@ -1038,7 +1538,7 @@ mutual
 
     | .lit (.natVal n) => do
       -- Infer result type from the expression type
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
       let wire ← CompilerM.makeWire hint hwType (named := isNamed)
@@ -1066,6 +1566,12 @@ mutual
         let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
+          -- Also remember (fvar → defining expression) for
+          -- downstream handlers that need to recover the original
+          -- expression (e.g. struct-projection on a sub-module
+          -- call result).  Done as a side-effect on a global map
+          -- to avoid signature changes across the elaborator.
+          CompilerM.liftMetaM (sparkleFvarValueMap.modify (·.insert fvarId.name value))
           CompilerM.withVarMapping fvarId valueWire do
             let bodyInst := body.instantiate1 fvar
             translateExprToWire bodyInst hint isTopLevel isNamed
@@ -1084,10 +1590,26 @@ mutual
 
       if isHWArg then
           let hwType ← inferHWTypeFromSignal binderType
-          let paramWire ← CompilerM.makeWire binderName.toString hwType (named := true)
-          -- Only add as input if this is a top-level function parameter
-          if isTopLevel then
-            CompilerM.addInput paramWire hwType
+          -- Reuse an existing input port if one already exists with
+          -- this binder name — this matters for the multi-output
+          -- record-return path where `splitReturnLeaves` emits one
+          -- lambda per leaf sharing the same parameter binders.
+          -- Without dedup, a 6-leaf 4-param function would emit
+          -- 24 input ports instead of 4.
+          let cs ← get
+          let existingInput? :=
+            if isTopLevel then
+              cs.module.inputs.find? (fun p => p.name == "_gen_" ++ binderName.toString)
+            else
+              none
+          let paramWire ←
+            match existingInput? with
+            | some p => pure p.name
+            | none =>
+              let w ← CompilerM.makeWire binderName.toString hwType (named := true)
+              if isTopLevel then
+                CompilerM.addInput w hwType
+              pure w
 
           -- Process the lambda body within a proper local context
           CompilerM.withLocalDecl binderName binderType fun fvar => do
@@ -1104,6 +1626,9 @@ mutual
 
 
     | _ =>
+      -- App / Const fall-through.  Caching is handled by the
+      -- `translateExprToWire` wrapper at the top of this mutual
+      -- block — no need to duplicate the insert here.
       translateExprToWireApp e hint isNamed
 
   -- ===========================================================================
@@ -1131,17 +1656,42 @@ mutual
 
   /-- Handle Signal.fst, Signal.snd, Signal.map Prod.fst/Prod.snd -/
   partial def handleTupleProjections (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    -- Fast-path: most callers of handleTupleProjections hit a
+    -- name that doesn't match any of the patterns below.  Bail
+    -- out before calling `Lean.Meta.inferType` (which kicks off
+    -- typeclass search / whnf and shows up as 75 ms / call on
+    -- Ethernet's rxFramer body, dwarfing every other handler).
+    -- The actual handler arms re-check the name as before.
+    let isTupleName :=
+      name == ``Sparkle.Core.Signal.Signal.fst ||
+      name == ``Sparkle.Core.Signal.Signal.snd ||
+      name == ``Sparkle.Core.Signal.bundle2 ||
+      name == ``Sparkle.Core.Signal.Signal.map
+    unless isTupleName do
+      return none
     -- Signal.fst (new readable syntax)
     if name == ``Sparkle.Core.Signal.Signal.fst && args.size >= 1 then
       trace[sparkle.compiler] "→ tuple projection (fst)"
       let s := args[args.size-1]!
       let wireS ← translateExprToWire s "s" (isTopLevel := false)
-      let totalWidth ← CompilerM.getWireWidth wireS
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      -- Slice index calc: prefer the WIRE'S declared width.
+      -- The expression-type-derived total can drift from the
+      -- realised concat width when the elaborator partially
+      -- unfolds a `bundle2` chain (Issue #67 step 2), so always
+      -- clamp to whichever is smaller — that's the bit-range
+      -- the wire actually carries.
+      let wireWidth ← CompilerM.getWireWidth wireS
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+      let sType ← cachedInferType s
+      let sHWType ← inferHWTypeFromSignal sType
+      let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
+      let totalWidth := min wireWidth typeTotal
+      let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
+      let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
+      CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
       return some resWire
 
     -- Signal.snd (new readable syntax)
@@ -1149,11 +1699,15 @@ mutual
       trace[sparkle.compiler] "→ tuple projection (snd)"
       let s := args[args.size-1]!
       let wireS ← translateExprToWire s "s" (isTopLevel := false)
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let wireWidth ← CompilerM.getWireWidth wireS
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+      -- snd takes lower `width` bits, clamped to wire's declared width.
+      let actualWidth := min width wireWidth
+      let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
+      CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
       return some resWire
 
     -- Signal.bundle2 — pack two Signals into a Prod Signal.
@@ -1162,7 +1716,7 @@ mutual
     if name == ``Sparkle.Core.Signal.bundle2 && args.size >= 2 then
       let wireA ← translateExprToWire args[args.size-2]! "a"
       let wireB ← translateExprToWire args[args.size-1]! "b"
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
@@ -1179,28 +1733,109 @@ mutual
       if fHead.isConstOf ``Prod.fst then
         trace[sparkle.compiler] "→ tuple projection (map fst)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
-        let totalWidth ← CompilerM.getWireWidth wireS
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let wireWidth ← CompilerM.getWireWidth wireS
+        let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        CompilerM.emitAssign resWire (.slice (.ref wireS) (totalWidth - 1) (totalWidth - width))
+        let sType ← cachedInferType s
+        let sHWType ← inferHWTypeFromSignal sType
+        let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
+        -- Issue #67 step 2: clamp slice to the wire's
+        -- declared width.  When the elaborator partially
+        -- unfolds a `bundle2` chain, `wireWidth` shrinks
+        -- below the Prod-type-implied total — slicing
+        -- `[typeTotal-1:typeTotal-width]` then points past
+        -- the wire's last bit.
+        let totalWidth := min wireWidth typeTotal
+        let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
+        let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
+        CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
         return some resWire
       if fHead.isConstOf ``Prod.snd then
         trace[sparkle.compiler] "→ tuple projection (map snd)"
         let wireS ← translateExprToWire s "s" (isTopLevel := false)
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let wireWidth ← CompilerM.getWireWidth wireS
+        let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        CompilerM.emitAssign resWire (.slice (.ref wireS) (width - 1) 0)
+        let actualWidth := min width wireWidth
+        let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
+        CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
         return some resWire
 
     return none
 
-  /-- Handle Signal.ap — binary op lifting, concat/sshiftRight special cases -/
+  /-- Handle Signal.ap — binary op lifting, concat/sshiftRight special cases.
+
+      Also handles N-ary applicative chains
+      `f <$> a₁ <*> a₂ <*> ... <*> aₙ`  (n ≥ 2).
+      These desugar to nested `Signal.ap` calls — the
+      outermost is `Signal.ap (Signal.ap (... (Signal.map f a₁) ...) aₙ₋₁) aₙ`.
+      We strip the chain into the inner `Signal.map f a₁` plus
+      the trailing argument signals `[a₂, ..., aₙ]`, then apply
+      `f` to the wires sequentially.  For chains whose `f` is
+      a pure op (or / and / xor / add / etc.) operating
+      pairwise on a left-fold, this resolves into a chain of
+      binary IR ops. -/
   partial def handleApplicative (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
+      -- Walk the nested ap-chain to its innermost Signal.map.
+      -- Collect the trailing arguments in order.
+      let rec collectAp (acc : Array Lean.Expr) (cur : Lean.Expr) :
+          Option (Lean.Expr × Array Lean.Expr) :=
+        let fn := cur.getAppFn
+        let cArgs := cur.getAppArgs
+        if fn.isConstOf ``Sparkle.Core.Signal.Signal.ap ∧ cArgs.size ≥ 2 then
+          collectAp (acc.push cArgs[cArgs.size-1]!) cArgs[cArgs.size-2]!
+        else if fn.isConstOf ``Sparkle.Core.Signal.Signal.map ∧ cArgs.size ≥ 2 then
+          some (cur, acc.reverse)
+        else
+          none
+      let chainStart : Lean.Expr :=
+        Lean.mkAppN (Lean.mkConst ``Sparkle.Core.Signal.Signal.ap)
+                    args[:args.size]
+      let chainStart := if args.size > 2 then e else chainStart
+      let _ := chainStart
+      let topAcc : Array Lean.Expr := #[args[args.size-1]!]
+      match collectAp topAcc args[args.size-2]! with
+      | some (mapExpr, trailingArgs) =>
+        -- `mapExpr` is `Signal.map f a₁`.  `trailingArgs` is
+        -- `[a₂, a₃, ..., aₙ]` in left-to-right order.
+        if trailingArgs.size ≥ 2 then
+          trace[sparkle.compiler] s!"→ applicative (N-ary, n = {trailingArgs.size + 1})"
+          let mapArgs := mapExpr.getAppArgs
+          let f := mapArgs[mapArgs.size-2]!
+          let a₁ := mapArgs[mapArgs.size-1]!
+          let opName ← getPrimitiveNameFromLambda f
+          match getOperator opName with
+          | some op =>
+            -- f is binop-shaped: apply pairwise left-fold.
+            -- This handles `(fun x y => x | y) <$> a <*> b <*> c <*> d`
+            -- as `((a | b) | c) | d` — matches Lean's
+            -- left-associative `<*>` parse.
+            let wireA1 ← translateExprToWire a₁ "a"
+            let mut accWire := wireA1
+            let mut idx := 0
+            let exprType ← cachedInferType e
+            let hwType ← inferHWTypeFromSignal exprType
+            for nextArg in trailingArgs do
+              let isLast := idx + 1 == trailingArgs.size
+              let nextWire ← translateExprToWire nextArg s!"a{idx + 2}"
+              let resWire ←
+                if isLast then
+                  CompilerM.makeWire hint hwType (named := isNamed)
+                else
+                  CompilerM.makeWire s!"{hint}_acc" hwType (named := false)
+              CompilerM.emitAssign resWire (.op op [.ref accWire, .ref nextWire])
+              accWire := resWire
+              idx := idx + 1
+            return some accWire
+          | none => pure ()
+        -- Fall through to the 2-ary path when chain isn't a
+        -- single-op left-fold.
+      | none => pure ()
       let sf := args[args.size-2]!
       let b := args[args.size-1]!
       let sfFn := sf.getAppFn
@@ -1214,7 +1849,7 @@ mutual
         let opName ← getPrimitiveNameFromLambda f
         match getOperator opName with
         | some op =>
-          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
           CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
@@ -1222,14 +1857,14 @@ mutual
         | none =>
           -- Special: BitVec.append / HAppend → concat
           if opName == ``HAppend.hAppend || opName == ``BitVec.append then
-            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let exprType ← cachedInferType e
             let hwType ← inferHWTypeFromSignal exprType
             let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
             CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
             return some resWire
           -- Special: BitVec.sshiftRight → asr (Nat arg handled via signal wire)
           if opName == ``BitVec.sshiftRight then
-            let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+            let exprType ← cachedInferType e
             let hwType ← inferHWTypeFromSignal exprType
             let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
             CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
@@ -1260,7 +1895,7 @@ mutual
       let op := if name == ``BitVec.shiftLeft then Operator.shl
                 else if name == ``BitVec.ushiftRight then Operator.shr
                 else Operator.asr
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign resWire (.op op [.ref wire1, .ref wire2])
@@ -1271,7 +1906,7 @@ mutual
       trace[sparkle.compiler] "→ concat"
       let hiWire ← translateExprToWire args[args.size - 2]! "concat_hi"
       let loWire ← translateExprToWire args[args.size - 1]! "concat_lo"
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
@@ -1287,7 +1922,7 @@ mutual
         let isUnary := op == .not || op == .neg
         if isUnary && args.size >= 1 then
            let wire1 ← translateExprToWire args[args.size-1]! "arg1"
-           let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+           let exprType ← cachedInferType e
            let hwType ← inferHWTypeFromSignal exprType
            let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
            CompilerM.emitAssign resultWire (.op op [.ref wire1])
@@ -1295,7 +1930,7 @@ mutual
         else if args.size >= 2 then
           let wire1 ← translateExprToWire args[args.size-2]! "arg1"
           let wire2 ← translateExprToWire args[args.size-1]! "arg2"
-          let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+          let exprType ← cachedInferType e
           let hwType ← inferHWTypeFromSignal exprType
           let resultWire ← CompilerM.makeWire hint hwType (named := isNamed)
           CompilerM.emitAssign resultWire (.op op [.ref wire1, .ref wire2])
@@ -1349,7 +1984,7 @@ mutual
       let indexArg := args[args.size-1]!
       let tableValues ← extractBitVecArray tableArg
       if tableValues.size > 0 then
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let (_, dataWidth) := tableValues[0]!
         let indexType ← CompilerM.liftMetaM (Lean.Meta.inferType indexArg)
@@ -1376,7 +2011,7 @@ mutual
       let cW ← translateExprToWire cond "mux_cond"
       let tW ← translateExprToWire thenSig "mux_then"
       let eW ← translateExprToWire elseSig "mux_else"
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let rW ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
@@ -1385,10 +2020,18 @@ mutual
     return none
 
   /-- Handle Signal.memory, Signal.memoryComboRead -/
-  partial def handleMemory (_e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+  partial def handleMemory (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- Signal.memory: synchronous RAM/BRAM
     if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
       trace[sparkle.compiler] "→ memory (sync)"
+      -- Memory dedupe: a `Signal.memory ...` expression should
+      -- emit ONE BRAM per synth pass, not one per
+      -- splitReturnLeaves leaf.  The per-synth `exprCache`
+      -- would handle this automatically — except `isNamed`
+      -- bypasses the cache.  Maintain a separate
+      -- memory-specific cache keyed on the Lean.Expr so
+      -- repeat translations return the same readData wire
+      -- and avoid re-emitting the memory statement.
       let addrWidthArg := args[args.size-6]!
       let dataWidthArg := args[args.size-5]!
       let (addrWidth, _) ← extractNatLiteral addrWidthArg
@@ -1401,9 +2044,34 @@ mutual
       let wdW ← translateExprToWire writeData "mem_wdata"
       let weW ← translateExprToWire writeEnable "mem_we"
       let raW ← translateExprToWire readAddr "mem_raddr"
-      let w ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
-        (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
-      return some w
+      -- Dedupe memory statements within a single module:
+      -- if an existing `.memory` statement has identical
+      -- (writeAddr, writeData, writeEnable, readAddr) wire
+      -- refs, return its readData wire instead of emitting
+      -- a new BRAM.  Required because per-leaf
+      -- translations re-elaborate the same `Signal.memory
+      -- writeSlot data we raddr` expression with fresh
+      -- Lean.Expr identities — the structural exprCache
+      -- misses, but the IR statement shape is identical.
+      let parent := (← get).module
+      let cachedRD : Option String := parent.body.findSome? fun stmt =>
+        match stmt with
+        | .memory _ aw dw _clk wa wd we ra rd _cr =>
+          if aw == addrWidth ∧ dw == dataWidth then
+            match wa, wd, we, ra with
+            | .ref a, .ref d, .ref e, .ref r =>
+              if a == waW ∧ d == wdW ∧ e == weW ∧ r == raW then
+                some rd
+              else none
+            | _, _, _, _ => none
+          else none
+        | _ => none
+      match cachedRD with
+      | some rd => return some rd
+      | none =>
+        let w ← CompilerM.emitMemory hint addrWidth dataWidth "clk"
+          (.ref waW) (.ref wdW) (.ref weW) (.ref raW) (named := isNamed)
+        return some w
 
     -- Signal.memoryComboRead: memory with combinational (same-cycle) read
     if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
@@ -1435,11 +2103,64 @@ mutual
       let idx := args[args.size-1]!
       let vecWire ← translateExprToWire vec "vec"
       let idxWire ← translateExprToWire idx "idx"
-      let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+      let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       CompilerM.emitAssign resWire (.index (.ref vecWire) (.ref idxWire))
       return some resWire
+
+    -- Signal.memoize: simulation-only cache wrapper.  It's
+    -- functionally identity (returns its argument Signal
+    -- unchanged) — `runCircuitH` adds it to break the
+    -- Compiler C2 exponential evaluation cost.  Synthesis
+    -- treats it as a pass-through so it never reaches Verilog.
+    --
+    -- IMPORTANT: when `inner` is a bound variable (BVar) — most
+    -- commonly the `live` lambda binder of an enclosing
+    -- `Signal.loop` — we must NOT recursively translate.  The
+    -- BVar isn't bound in any local context yet (Signal.loop's
+    -- handler binds it later), so naively translating it
+    -- triggers an unfolder fallback that re-walks the *whole
+    -- outer expression* — an infinite loop characteristic for
+    -- FSM-shaped circuits where register reads feed register
+    -- writes via memoize.  In this case we fall back to letting
+    -- the caller's translation context handle the wrapper later
+    -- (the Signal.loop handler that introduced the BVar will
+    -- see the memoize chain after its own bind, where the BVar
+    -- is replaced with a real wire).
+    if name.toString.endsWith ".memoize" && args.size >= 1 then
+      -- Peel ALL nested Signal.memoize wrappers iteratively.
+      -- Each peel checks the head: if the application's head is
+      -- ".memoize", pull the last arg as new "inner" and repeat.
+      -- This is the same as stripMemoizeWrappers but at handler
+      -- level, where we can run after Lean has resolved any
+      -- aliases — the preprocessor at synth entry can't see
+      -- memoize wrappers introduced by reducible/inline defs.
+      let rec peelMemoize : Lean.Expr → Lean.Expr := fun ex =>
+        let exFn := ex.getAppFn
+        match exFn with
+        | .const constName _ =>
+          if constName.toString.endsWith ".memoize" then
+            let exArgs := ex.getAppArgs
+            if exArgs.size >= 1 then
+              peelMemoize exArgs[exArgs.size - 1]!
+            else ex
+          else ex
+        | _ => ex
+      let inner := peelMemoize args.back!
+      -- Special case: `Signal.memoize <fvar>` where the fvar is
+      -- a known loop-state wire (registered in varMap by an
+      -- enclosing Signal.loop).  Short-circuit directly without
+      -- triggering the unfold path that loops back through the
+      -- loop body.
+      if let .fvar fvarId := inner then
+        match ← CompilerM.lookupVar fvarId with
+        | some wireName =>
+          trace[sparkle.compiler] "→ memoize (resolved to loop-state wire {wireName})"
+          return some wireName
+        | none => pure ()
+      trace[sparkle.compiler] "→ memoize (transparent for synth, peeled)"
+      return some (← translateExprToWire inner "memoize_passthrough")
 
     -- Signal.loop
     if name.toString.endsWith ".loop" && args.size >= 1 then
@@ -1450,13 +2171,22 @@ mutual
         | _ => CompilerM.liftMetaM (Lean.Meta.whnf f)
       match fReduced with
       | .lam binderName binderType body _ =>
-        let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
+        let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let loopWire ← CompilerM.makeWire "loop" hwType
         -- Use CompilerM.withLocalDecl to keep the fvar in scope for both
         -- MetaM (type checking) and CompilerM (wire mapping).
         let resultWire ← CompilerM.withLocalDecl binderName binderType fun fvar => do
           let bodyInst := body.instantiate1 fvar
+          -- Register the loop fvar → loopWire mapping in BOTH
+          -- the reader-scoped varMap (for the body's
+          -- translation) and the persistent
+          -- `sparkleFvarWireMap` (so later leaves that
+          -- revisit body sub-expressions via the expression
+          -- cache can still resolve the loop binder after
+          -- `withVarMapping` scope has exited).
+          CompilerM.liftMetaM
+            (sparkleFvarWireMap.modify (·.insert fvar.fvarId!.name loopWire))
           CompilerM.withVarMapping fvar.fvarId! loopWire do
             translateExprToWire bodyInst "loop_body"
         CompilerM.emitAssign loopWire (.ref resultWire)
@@ -1498,18 +2228,38 @@ mutual
             return some (← translateExprToWire e' hint (isNamed := isNamed))
     -- Value-level Prod.mk hit directly as the expression head.
     -- This shows up after `Bind.bind` peels and the user's `do`
-    -- block reduces to `Prod.mk out_signal builder`.  We're
-    -- being asked for the wire of the whole Prod, but the only
-    -- meaningful payload is the first component (the output
-    -- Signal); the builder is a `NextBuilder` function with no
-    -- wire representation.
+    -- block reduces to `Prod.mk out_payload builder` (where
+    -- `builder : Circuit.NextBuilder dom S`).  We're being asked
+    -- for the wire of the whole Prod, but the only meaningful
+    -- payload is the first component (the output: a Signal, a
+    -- tuple of Signals, or a user-defined record packing
+    -- Signals); the builder is a closure with no wire
+    -- representation.
     --
-    -- Scope: only fire when args[0] (the α type) is a Signal —
-    -- otherwise this could match user-constructed Prods that
-    -- should be `bundle2`'d.
+    -- Detection: the second component's type is
+    -- `Circuit.NextBuilder dom S` (= `Signal dom S → Signal
+    -- dom S`).  When that pattern matches we treat the Prod as
+    -- "circuit return + state-update accumulator" and only
+    -- translate the first component.  This covers both the
+    -- single-Signal case the original code handled and the
+    -- ρ-generalised case (multi-output records / tuples).
     if name == ``Prod.mk && args.size >= 4 then
       let αType := args[0]!
-      if αType.isAppOf ``Sparkle.Core.Signal.Signal then
+      let βType := args[1]!
+      -- Detection: either
+      --   (a) α is a Signal (the legacy single-output case), OR
+      --   (b) β is a `Circuit.NextBuilder` (or its η-expanded form
+      --       `Signal _ S → Signal _ S`), meaning the Prod came
+      --       from a `Circuit.pure'` and the second slot is the
+      --       state-update accumulator that has no wire image.
+      -- Either way, only the first component carries the wire(s);
+      -- the second is discarded.
+      let isNextBuilder :=
+        βType.isAppOf ``Sparkle.Core.Circuit.NextBuilder ||
+        (match βType with
+         | .forallE _ _ _ _ => true  -- η-expanded Signal _ S → Signal _ S
+         | _ => false)
+      if αType.isAppOf ``Sparkle.Core.Signal.Signal || isNextBuilder then
         let outExpr := args[2]!
         -- Force-reduce so any `Reg.liveRead r` (which unfolds to
         -- `r.1` = `Prod.fst (Prod.mk live slot)`) becomes `live`
@@ -1576,9 +2326,169 @@ mutual
     if !isValidDef then return none
 
     let env ← CompilerM.liftMetaM getEnv
+
+    -- Debugging hook: log hw-module call sites for cache-miss
+    -- diagnosis.  Activated only when env var
+    -- SPARKLE_DEBUG_HWCALL=1 to keep the normal trace clean.
+    if Sparkle.Compiler.isHardwareModule env name then
+      let dbg ← CompilerM.liftMetaM (do
+        let s ← IO.getEnv "SPARKLE_DEBUG_HWCALL"
+        return s.isSome)
+      if dbg then
+        let cache ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+        CompilerM.liftMetaM $ IO.eprintln
+          s!"[hwcall-dbg] {name} eHash={e.hash} args.size={args.size} subInstanceMap.size={cache.size}"
+        CompilerM.liftMetaM (← IO.getStderr).flush
+    -- Structure field accessors (e.g. `RxOut.dmac`) are valid
+    -- `defnInfo`s but they have a different calling convention
+    -- than a hardware function: the value-level arg is the
+    -- record itself, and `synthesizeCombinational` would try to
+    -- open it into N fields (one per `Signal dom α` field).
+    -- Always inline projections through `unfoldDefinition?` and
+    -- never fall back to sub-module synthesis.
+    if let some structName := env.getProjectionStructureName? name then
+      -- Multi-output sub-module shortcut: if the projection's
+      -- record argument is a direct call to an `@[hardware_module]`
+      -- def whose return type is the same struct, we can avoid
+      -- the whnf unfold (which is expensive and step-limited)
+      -- by emitting a sub-module instance and pulling the field
+      -- straight from the corresponding output port.
+      -- Multi-output sub-module shortcut: if the projection's
+      -- record argument is (after fvar resolution) a direct call
+      -- to a `@[hardware_module]` def, translate the call first
+      -- — that emits a sub-module instance and populates
+      -- sparkleSubInstanceOutputs with one entry per output port.
+      -- Then look up the wire for the projected field name.
+      --
+      -- This avoids the previous shortcut's duplicate sub-module
+      -- synthesis and works whether the call site is a literal
+      -- application or a `let engine := kvHw …` binding.
+      if args.size >= 1 then
+        let recordArgRaw := args.back!
+        let mut recordArg := recordArgRaw
+        if recordArg.isFVar then
+          let fvarId := recordArg.fvarId!
+          let fvarMap ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
+          match fvarMap.get? fvarId.name with
+          | some val => recordArg := val
+          | none =>
+            let val? ← CompilerM.liftMetaM do
+              let lctx ← getLCtx
+              match lctx.find? fvarId with
+              | some decl => return decl.value?
+              | none => return none
+            if let some val := val? then
+              recordArg := val
+        let recFn := recordArg.getAppFn
+        if let .const recName _ := recFn then
+          let envNow ← CompilerM.liftMetaM getEnv
+          if Sparkle.Compiler.isHardwareModule envNow recName then
+            -- Resolve the field name from the projection.
+            let some projInfo := envNow.getProjectionFnInfo? name
+              | pure ()
+            let some indVal ← (try some <$> CompilerM.liftMetaM (getConstInfoInduct structName) catch _ => pure none)
+              | pure ()
+            let ctorName := indVal.ctors.head!
+            let ctorInfo ← CompilerM.liftMetaM (getConstInfoCtor ctorName)
+            let fieldName ← CompilerM.liftMetaM do
+              Lean.Meta.forallTelescopeReducing ctorInfo.type fun fargs _ => do
+                let allFields := fargs.toList.drop indVal.numParams
+                if h : projInfo.i < allFields.length then
+                  return (← allFields[projInfo.i].fvarId!.getUserName).toString
+                else
+                  return s!"field{projInfo.i}"
+            -- Cache key.  We must agree with the sub-module
+            -- instance emit handler below.
+            --
+            -- The args of `recordArg` reach this point as
+            -- `let`-bound fvars whose `fvarId.name` is regenerated
+            -- on every translation pass — so hashing `arg.hash`
+            -- gives a per-leaf-distinct key and each projection
+            -- emits a fresh sub-module instance.
+            --
+            -- Key on `(recName, args.size)` instead.  This is
+            -- safe as long as the parent module calls the same
+            -- `@[hardware_module]` def AT MOST ONCE per arity
+            -- — true for memcachedServer (single `kvHw` call) and
+            -- every other current IP.  If a future IP needs two
+            -- distinct calls to the same sub-module, this key
+            -- would have to be widened with a call-site
+            -- discriminator the elaborator can compute
+            -- deterministically across passes.
+            let recArgs := recordArg.getAppArgs
+            let callKey : UInt64 :=
+              mixHash (mixHash 17 (hash recName)) recArgs.size.toUInt64
+            let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+            if let some w := portMap.get? (callKey, fieldName) then
+              trace[sparkle.compiler] "→ projection: cached wire {w} for {fieldName}"
+              return some w
+            -- Not cached yet → translate the call once.  The
+            -- multi-output sub-module instance path will populate
+            -- sparkleSubInstanceOutputs as a side effect.
+            let _ ← translateExprToWire recordArg s!"sub_call"
+            let portMap' ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+            if let some w := portMap'.get? (callKey, fieldName) then
+              trace[sparkle.compiler] "→ projection: wired sub-call, returning {w} for {fieldName}"
+              return some w
+            trace[sparkle.compiler] "→ projection: sub-call did not register {fieldName} (call hash {callKey})"
+      -- Standard path (no multi-output shortcut): reduce the
+      -- record arg until a `.mk` constructor appears, then pull
+      -- the field directly.  Same as the original implementation.
+      if args.size >= 1 then
+        let recordArg := args.back!
+        let mkName := structName ++ `mk
+        let mut cur := recordArg
+        let mut steps := 0
+        while steps < 32 do
+          -- Reduce the head: try unfoldDefinition? first, then
+          -- whnf for the harder cases (typeclass dispatch under
+          -- runCircuitH).  Stop as soon as the head is the
+          -- expected ctor.
+          let headName? := cur.getAppFn.constName?
+          if headName? == some mkName then
+            break
+          let stepped ← CompilerM.liftMetaM do
+            match ← Lean.Meta.unfoldDefinition? cur with
+            | some e' => return e'
+            | none => Lean.Meta.whnf cur
+          if stepped == cur then break
+          cur := stepped
+          steps := steps + 1
+        if cur != recordArg then
+          -- Got the constructor — directly grab the projected
+          -- field from the ctor's args rather than re-applying
+          -- the projection definition (which would route back to
+          -- this same code path).  The structure projection's
+          -- `structureFieldIdx` field gives the position of the
+          -- field within the constructor's value args.
+          let headName? := cur.getAppFn.constName?
+          let mkName := structName ++ `mk
+          if headName? == some mkName then
+            -- Find which field this projection targets.
+            let some projInfo := env.getProjectionFnInfo? name
+              | return none
+            -- ctor args = [implicit params...] ++ [field values]
+            let ctorArgs := cur.getAppArgs
+            let fieldIdx := projInfo.numParams + projInfo.i
+            if fieldIdx < ctorArgs.size then
+              let fieldExpr := ctorArgs[fieldIdx]!
+              let w ← translateExprToWire fieldExpr hint (isNamed := isNamed)
+              return some w
+          -- Couldn't pull out the field directly; fall back to
+          -- re-assembling and hoping a later pass picks it up.
+          let projHead := e.getAppFn
+          let leadingArgs := args.pop
+          let eReassembled := mkAppN (mkAppN projHead leadingArgs) #[cur]
+          let w ← translateExprToWire eReassembled hint (isNamed := isNamed)
+          return some w
+      return none
+
     let optedIntoModule := Sparkle.Compiler.isHardwareModule env name
 
     -- Helper: try the "unfold and translate inline" path — the default.
+    -- Returns the wire on success, or stashes the deepest captured
+    -- inline failure for the outer error message.
+    let lastInlineFail : IO.Ref (Option String) ← IO.mkRef none
     let tryInline : CompilerM (Option String) := do
       let eReduced ← CompilerM.liftMetaM do
         match ← Lean.Meta.unfoldDefinition? e with
@@ -1588,7 +2498,8 @@ mutual
         try
           let w ← translateExprToWire eReduced hint (isNamed := isNamed)
           return some w
-        catch _ex1 =>
+        catch ex1 =>
+          lastInlineFail.set (some (← ex1.toMessageData.toString))
           -- Inline expansion failed (often due to mixed Signal/BitVec operators
           -- inside the expanded body). Retry with reducible transparency to
           -- prevent over-expansion of Signal.pure and OfNat instances.
@@ -1603,7 +2514,8 @@ mutual
               return some w
             else
               return none
-          catch _ex2 =>
+          catch ex2 =>
+            lastInlineFail.set (some (← ex2.toMessageData.toString))
             return none
       else
         return none
@@ -1633,8 +2545,13 @@ mutual
           catch _ => pure none
     match subResult? with
     | none =>
+      let lastFail ← lastInlineFail.get
+      let detail :=
+        match lastFail with
+        | some msg => s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
+        | none => ""
       CompilerM.liftMetaM $ throwError
-        s!"Cannot synthesise {name}: not inlinable and not a hardware module"
+        s!"Cannot synthesise {name}: not inlinable and not a hardware module.{detail}"
     | some (subModule, subDesign) =>
 
     trace[sparkle.compiler] "→ sub-module synthesis {name}"
@@ -1673,10 +2590,119 @@ mutual
        let argWire ← translateExprToWire argExpr s!"arg{i}"
        connections := (inputPorts[i]!.name, Sparkle.IR.AST.Expr.ref argWire) :: connections
 
-    let exprType ← CompilerM.liftMetaM (Lean.Meta.inferType e)
-    let hwType ← inferHWTypeFromSignal exprType
-    let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-    connections := ("out", Sparkle.IR.AST.Expr.ref resWire) :: connections
+    -- Single-output sub-module: allocate one wire bound to "out".
+    -- Multi-output (struct-returning) sub-module: allocate one
+    -- wire per output port, remember each (call-expr-hash, field
+    -- name) → wire mapping in the global sub-instance port map so
+    -- subsequent projection handlers can recover them, and return
+    -- the *first* wire as a placeholder (the projection handlers
+    -- will normally resolve through the map and never look at it).
+    let exprType ← cachedInferType e
+    let resWire ← match subModule.outputs with
+      | [singleOut] =>
+        -- Bind to the sub-module's ACTUAL output port name
+        -- rather than a hardcoded "out".  For scalar-Signal
+        -- sub-modules `synthesizeCombinational` emits the
+        -- port literally named "out" — those still work.  For
+        -- a sub-module whose body is a single struct-field
+        -- projection (e.g. `httpGotSig` wrapping
+        -- `(httpRequestParser b v).gotRequest`), the realised
+        -- single output keeps the field's name (`gotRequest`),
+        -- and the previous hardcoded "out" produced C++ /
+        -- Verilog that referenced a non-existent port.
+        -- (Issue #74.)
+        let hwType ← inferHWTypeFromSignal exprType
+        let w ← CompilerM.makeWire hint hwType (named := isNamed)
+        connections := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
+        pure w
+      | _multiOut =>
+        -- IMPORTANT: the cache key must agree between this
+        -- (sub-module instance emit) and the projection handler
+        -- that later looks up `(callKey, fieldName) → wire`.
+        -- The projection handler keys on `recordArg.hash` AFTER
+        -- fvar resolution (`let engine := kvHw …; engine.foo`
+        -- looks up `engine` in `sparkleFvarValueMap` to recover
+        -- `kvHw …`).  We must mirror that here: use the call's
+        -- **function-name-and-args** hash, not the raw `e.hash`
+        -- — Lean re-elaborates structurally-identical apps into
+        -- distinct Expr objects, so pointer-equal hashes won't
+        -- match across the two handlers.
+        --
+        -- Match the projection handler's cache key: `(recName,
+        -- args.size)`.  See the comment in handleDefinitionUnfold
+        -- (the projection arm above) for why we can't use arg
+        -- hashes here.  Together they guarantee that every
+        -- projection on a `let engine := kvHw …` resolves to the
+        -- same emitted sub-module instance.
+        let keyHash : UInt64 :=
+          mixHash (mixHash 17 (hash name)) args.size.toUInt64
+        -- Idempotency check.  If we've already emitted this
+        -- `(keyHash, _)` instance in the current synth, return
+        -- the cached first-output wire and skip the emit step.
+        -- Without this, every projection on the same
+        -- `let engine := kvHw …` triggers a fresh emitInstance
+        -- (Issue #71).
+        let portMapNow ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+        let firstOutP? := subModule.outputs.head?
+        let alreadyEmitted := match firstOutP? with
+          | some firstOutP => portMapNow.contains (keyHash, firstOutP.name)
+          | none => false
+        if alreadyEmitted then
+          -- Re-declare all the cached wires in the current
+          -- module's wires list before returning the cached
+          -- first-output wire.  Without this, the
+          -- `sparkleSubInstanceOutputs` cache persists across
+          -- nested `synthesizeCombinational` calls (e.g.
+          -- `msvrByte` then `msvrValid` both inlining the same
+          -- memcachedServer body) and the second module ends
+          -- up referencing wire names it never declared,
+          -- producing C++/Verilog where
+          -- `_tmp_engine_replyValid_29` is used but never
+          -- declared in the enclosing class/module.
+          -- If this parent module ALREADY has the cached wires
+          -- declared, the instance was emitted earlier in the
+          -- same synth pass — just return the cached wire.
+          -- Re-emitting the instance here would produce N copies
+          -- of the sub-module in the parent (one per projection
+          -- of `let engine := kvHw …; engine.foo`, which is
+          -- exactly the over-instantiation Issue #71 step-2
+          -- already tracks).
+          let firstOutP := firstOutP?.get!
+          let cachedW := portMapNow.get? (keyHash, firstOutP.name) |>.get!
+          let parentNow := (← get).module
+          let alreadyDeclared :=
+            parentNow.wires.any (·.name == cachedW) ||
+            parentNow.inputs.any (·.name == cachedW) ||
+            parentNow.outputs.any (·.name == cachedW)
+          if alreadyDeclared then
+            return some cachedW
+          -- New parent module that doesn't yet have the cached
+          -- wires (cross-module reuse).  Declare them and emit
+          -- the instance once.
+          for outP in subModule.outputs do
+            if let some cachedName := portMapNow.get? (keyHash, outP.name) then
+              let parent := (← get).module
+              if !parent.inputs.any (·.name == cachedName)
+                 ∧ !parent.wires.any (·.name == cachedName)
+                 ∧ !parent.outputs.any (·.name == cachedName) then
+                let p : Port := { name := cachedName, ty := outP.ty }
+                let cs ← get
+                set { cs with module := cs.module.addWire p }
+                CompilerM.liftMetaM
+                  (sparkleWireWidthCache.modify
+                    (·.insert cachedName (match outP.ty with
+                      | .bitVector w => w | .bit => 1 | _ => 8)))
+              connections := (outP.name, Sparkle.IR.AST.Expr.ref cachedName) :: connections
+          let instName ← CompilerM.freshName s!"inst_{subModule.name}"
+          CompilerM.emitInstance subModule.name instName connections.reverse
+          return some cachedW
+        let mut firstW : Option String := none
+        for outP in subModule.outputs do
+          let w ← CompilerM.makeWire s!"{hint}_{outP.name}" outP.ty (named := false)
+          connections := (outP.name, Sparkle.IR.AST.Expr.ref w) :: connections
+          CompilerM.liftMetaM (sparkleSubInstanceOutputs.modify (·.insert (keyHash, outP.name) w))
+          if firstW.isNone then firstW := some w
+        pure (firstW.getD "")
 
     -- Generate a fresh, unique instance name.  Two calls to the same
     -- sub-module within a single parent must produce two distinct
@@ -1703,21 +2729,21 @@ mutual
       -- 2. Pattern matching on unbundle2 gets compiled away before synthesis
       -- 3. We'd only catch non-problematic uses, creating false positives
 
-      handleErrorPatterns e name args hint isNamed  -- throws or returns ()
+      profHandler 0 (handleErrorPatterns e name args hint isNamed)  -- throws or returns ()
       -- handleCircuitMonad must run before handleTupleProjections /
       -- handleDefinitionUnfold so that Bind.bind / Pure.pure get
       -- peeled, and value-level Prod.fst / Prod.snd / Prod.mk on
       -- Circuit-produced pairs reach our specialised path before
       -- the default unfold tries (and fails) to translate them.
-      if let some w ← handleCircuitMonad e name args hint isNamed then return w
-      if let some w ← handleTupleProjections e name args hint isNamed then return w
-      if let some w ← handleApplicative e name args hint isNamed then return w
-      if let some w ← handleBitVecOps e name args hint isNamed then return w
-      if let some w ← handleRegister e name args hint isNamed then return w
-      if let some w ← handleMux e name args hint isNamed then return w
-      if let some w ← handleMemory e name args hint isNamed then return w
-      if let some w ← handleLoop e name args hint isNamed then return w
-      if let some w ← handleDefinitionUnfold e name args hint isNamed then return w
+      if let some w ← profHandler 1 (handleCircuitMonad e name args hint isNamed) then return w
+      if let some w ← profHandler 2 (handleTupleProjections e name args hint isNamed) then return w
+      if let some w ← profHandler 3 (handleApplicative e name args hint isNamed) then return w
+      if let some w ← profHandler 4 (handleBitVecOps e name args hint isNamed) then return w
+      if let some w ← profHandler 5 (handleRegister e name args hint isNamed) then return w
+      if let some w ← profHandler 6 (handleMux e name args hint isNamed) then return w
+      if let some w ← profHandler 7 (handleMemory e name args hint isNamed) then return w
+      if let some w ← profHandler 8 (handleLoop e name args hint isNamed) then return w
+      if let some w ← profHandler 9 (handleDefinitionUnfold e name args hint isNamed) then return w
       -- Not a valid module - throw error with debug info
       CompilerM.liftMetaM $ do
         if name.toString.contains "ite" || name.toString.contains "Decidable" then
@@ -1763,46 +2789,470 @@ mutual
       | .const name _ => return name
       | _ => CompilerM.liftMetaM $ throwError s!"Could not identify primitive in lambda body: {e}"
 
+  /-- Split a return value of type ρ into a list of
+      `(suggested-port-name, leaf-Lean-expr)` pairs at the
+      Lean-expression level — one entry per `Signal dom τ` leaf
+      under ρ.
+
+      Handled shapes:
+        * `Signal dom τ`     → one anonymous leaf carrying the
+                               original expression.
+        * `Prod α β`         → recursively split `Prod.fst e` /
+                               `Prod.snd e` (positional names
+                               `out_0`, `out_1`, …).
+        * single-constructor inductive (i.e. user record) →
+                               for each field, recurse on
+                               `e.field` and prefix the field
+                               name so each leaf gets a
+                               human-readable port (`dmac`,
+                               `payloadValid`, …).
+
+      Falls back to `[(none, e)]` if the type doesn't match any
+      of the above — that keeps non-Signal payloads round-
+      tripping through the legacy single-wire path. -/
+  partial def splitReturnLeaves
+      (e : Lean.Expr) (prefix? : Option String := none) :
+      MetaM (Array (String × Lean.Expr)) := do
+    -- If the body is still wrapped in lambdas (e.g. the top-
+    -- level `def f (x : ...) : RxOut dom := …` whose params
+    -- weren't opened by `openRecordInputs` because they were
+    -- already flat Signals), peel through them so the per-leaf
+    -- splitting sees the actual record value.  We re-wrap each
+    -- leaf in the SAME lambda binders (one telescope, shared
+    -- across leaves) so all leaves reference the same parameter
+    -- fvars — otherwise downstream port-collection would see one
+    -- input set per leaf (e.g. 6 leaves × 4 params = 24 ports).
+    if e.isLambda then
+      return ← Lean.Meta.lambdaTelescope e fun xs innerBody => do
+        let innerLeaves ← splitReturnLeaves innerBody prefix?
+        innerLeaves.mapM fun (n, leafE) => do
+          let wrapped ← Lean.Meta.mkLambdaFVars xs leafE
+          return (n, wrapped)
+    let ty ← inferType e
+    let tyN ← whnf ty
+    -- For multi-output (Prod / record) returns, reduce `e`
+    -- once at the top of the recursion so the per-field arms
+    -- below see a concrete `Prod.mk` / ctor application
+    -- instead of paying the body-whnf cost per leaf.  Skip
+    -- the whnf for single-Signal returns to avoid peeling
+    -- past `Signal.mk` and leaking its Stream binder into
+    -- the wire context.
+    let needsReduce :=
+      (tyN.isAppOf ``Prod && tyN.getAppNumArgs == 2) ||
+      (match tyN.getAppFn with
+        | .const indName _ =>
+          indName != ``Sparkle.Core.Signal.Signal
+        | _ => false)
+    let e ← if needsReduce then whnf e else pure e
+    -- Signal dom τ — base case, one leaf.
+    if tyN.isAppOf ``Sparkle.Core.Signal.Signal then
+      let portName := prefix?.getD "out"
+      return #[(portName, e)]
+    -- Prod α β — recurse on .fst / .snd.
+    if tyN.isAppOf ``Prod && tyN.getAppNumArgs == 2 then
+      let lhsName := (prefix?.getD "out") ++ "_0"
+      let rhsName := (prefix?.getD "out") ++ "_1"
+      -- Cheap pre-reduce: when `e` is *literally* `Prod.mk a b
+      -- c d` already (no whnf needed), hand `c` / `d` directly
+      -- to the recursion.  Otherwise leave the `Prod.fst` /
+      -- `Prod.snd` wrapper in place — the cost of `whnf` is
+      -- O(body) at every leaf, which scales catastrophically
+      -- for 6+ output records.  The Expr cache in
+      -- translateExprToWire still memoises the body's wire so
+      -- the wrapper case stays correct, just slower than the
+      -- literal case.
+      let lhsExpr ← if e.isAppOfArity ``Prod.mk 4
+                    then pure (e.getArg! 2)
+                    else mkAppM ``Prod.fst #[e]
+      let rhsExpr ← if e.isAppOfArity ``Prod.mk 4
+                    then pure (e.getArg! 3)
+                    else mkAppM ``Prod.snd #[e]
+      let lhsLeaves ← splitReturnLeaves lhsExpr (some lhsName)
+      let rhsLeaves ← splitReturnLeaves rhsExpr (some rhsName)
+      return lhsLeaves ++ rhsLeaves
+    -- Single-ctor inductive (records like `RxOut dom`) —
+    -- recurse on each field, prefixing the field name so the
+    -- emitted Verilog ports are human-readable.
+    if let .const indName _ := tyN.getAppFn then
+      if let some indVal ← (try some <$> getConstInfoInduct indName catch _ => pure none) then
+        if indVal.ctors.length == 1 && !indVal.isRec then
+          let ctorName := indVal.ctors.head!
+          let ctorInfo ← getConstInfoCtor ctorName
+          let nParams := indVal.numParams
+          let mut acc : Array (String × Lean.Expr) := #[]
+          let fieldNames ← forallTelescopeReducing ctorInfo.type fun args _ => do
+            let mut ns : Array Name := #[]
+            for f in args.toList.drop nParams do
+              ns := ns.push (← f.fvarId!.getUserName)
+            return ns
+          -- `e` is already whnf'd at the top of splitReturnLeaves
+          -- (above), so check the ctor head directly.
+          let ctorArgs? :=
+            if e.isAppOf ctorName then
+              some (e.getAppArgs.toList.drop nParams |>.toArray)
+            else
+              none
+          for (fName, idx) in fieldNames.zipIdx do
+            let fieldExpr ← match ctorArgs? with
+              | some args =>
+                if h : idx < args.size then
+                  pure args[idx]
+                else
+                  pure e   -- shouldn't happen; defensive
+              | none =>
+                let projName := indName ++ fName
+                try
+                  mkAppM projName #[e]
+                catch _ =>
+                  pure e
+            let combinedPrefix :=
+              match prefix? with
+              | none => fName.toString
+              | some p => p ++ "_" ++ fName.toString
+            let sub ← splitReturnLeaves fieldExpr (some combinedPrefix)
+            acc := acc ++ sub
+          return acc
+    -- Anything else: treat as a single leaf with whatever name.
+    return #[(prefix?.getD "out", e)]
+
+  /-- "Open" record-typed parameters at the synth boundary.
+
+      For a function `body = fun (p₁ : T₁) (rec : MyRec) (p₂) => …`
+      where `MyRec` is a single-constructor inductive whose
+      fields are all `Signal …`, rewrite to
+        `fun (p₁) (f₁ : F₁) (f₂ : F₂) … (p₂) =>
+              body p₁ { f₁, f₂, … } p₂`
+      so the IR elaborator sees per-field Signal inputs instead
+      of an unsplittable record argument.
+
+      Records with no Signal fields (or with non-Signal mixed
+      in) are left untouched.  Recursion is one-level — a record
+      whose fields are themselves records is partially opened
+      (the outer record is unwrapped; inner records pass
+      through).  Good enough for the common HFT-NIC case where
+      each layer's `RxIn` is a flat record of Signals.
+
+      Implementation: walk params with a worker that recurses
+      *inside* successive `forallTelescopeReducing` callbacks so
+      every fvar stays in scope when `mkLambdaFVars` runs at
+      the deepest layer.  No IO.Ref shenanigans — the worker
+      threads state purely. -/
+  partial def openRecordInputs (body : Lean.Expr) : MetaM Lean.Expr := do
+    let bodyType ← inferType body
+    forallTelescopeReducing bodyType fun params _ => do
+      let inner := mkAppN body params
+      -- Worker: walk the param list with accumulators for the
+      -- output binders (in source order), substitution pairs
+      -- (orig fvar → rebuilt record value), and an "anything
+      -- opened?" flag.  We need to stay *inside* every
+      -- `forallTelescopeReducing` cb we open so the field
+      -- fvars remain in the local context when we finally call
+      -- `mkLambdaFVars`.
+      let rec walk
+          (idx : Nat)
+          (binders : Array Lean.Expr)
+          (subst   : Array (Lean.FVarId × Lean.Expr))
+          (opened  : Bool) : MetaM Lean.Expr := do
+        if h : idx < params.size then
+          let p := params[idx]
+          let pType ← whnf (← inferType p)
+          match pType.getAppFn with
+          | .const indName _ =>
+            let some indVal ← (try some <$> getConstInfoInduct indName catch _ => pure none)
+              | walk (idx + 1) (binders.push p) subst opened
+            unless indVal.ctors.length == 1 && !indVal.isRec do
+              return ← walk (idx + 1) (binders.push p) subst opened
+            let ctorName := indVal.ctors.head!
+            let ctorInfo ← getConstInfoCtor ctorName
+            let nParams := indVal.numParams
+            let paramArgs := pType.getAppArgs.toList.take nParams |>.toArray
+            let ctorType ← instantiateForall ctorInfo.type paramArgs
+            forallTelescopeReducing ctorType fun fields _ => do
+              -- Guard: only open records whose every field is
+              -- `Signal _ _`.  Reg, Slot, Prod-as-state, etc.
+              -- are technically single-ctor but opening them
+              -- would split a register handle into its internal
+              -- (Signal, Slot) pair and break the rest of the
+              -- elaborator.  HFT-NIC `RxIn` / `RxOut` / similar
+              -- shapes are all "flat Signal record"; that's
+              -- exactly what we want to catch.
+              let allSignalFields ← fields.allM fun f => do
+                let fT ← whnf (← inferType f)
+                return fT.isAppOf ``Sparkle.Core.Signal.Signal
+              if !allSignalFields then
+                walk (idx + 1) (binders.push p) subst opened
+              else
+                let recVal := mkAppN (.const ctorName (ctorInfo.levelParams.map Level.param))
+                                (paramArgs ++ fields)
+                walk (idx + 1)
+                  (binders ++ fields)
+                  (subst.push (p.fvarId!, recVal))
+                  true
+          | _ => walk (idx + 1) (binders.push p) subst opened
+        else
+          -- Reached the end of the param list.  If nothing was
+          -- opened, return the original `body` as-is; otherwise
+          -- apply the accumulated substitution and close.
+          if !opened then return body
+          let mut substituted := inner
+          for (origFvarId, recVal) in subst do
+            substituted := substituted.replaceFVarId origFvarId recVal
+          mkLambdaFVars binders substituted
+      walk 0 #[] #[] false
+
+  /-- Deep-strip every `Signal.memoize x` sub-expression to `x`
+      in a Lean expression tree.  `Signal.memoize` is a sim-only
+      identity wrapper used by Compiler C2 to cache per-cycle
+      register reads; for synthesis it serves no purpose and
+      causes infinite-loop hangs in FSM-shaped circuits where
+      register-read → register-write → memoize chain re-enters
+      via Signal.loop body inlining.  Stripping them once at
+      the synth entry point breaks the cycle definitively.
+
+      Implementation: post-order traversal — strip children
+      first, then check if THIS node is `Signal.memoize` and
+      unwrap if so.  Does not recurse under binders (lambdas)
+      because BVars under a binder have no fvar-binding yet and
+      the memoize wrap there will be handled by Signal.loop's
+      handler when it instantiates the binder. -/
+  partial def stripMemoizeWrappers (e : Lean.Expr) : Lean.Expr := Id.run do
+    let e' ← match e with
+      | .app f a => pure (.app (stripMemoizeWrappers f) (stripMemoizeWrappers a))
+      | .lam binderName binderTy body binderInfo =>
+          pure (.lam binderName (stripMemoizeWrappers binderTy) body binderInfo)
+      | .forallE binderName binderTy body binderInfo =>
+          pure (.forallE binderName (stripMemoizeWrappers binderTy) body binderInfo)
+      | .letE declName declTy declVal body nondep =>
+          pure (.letE declName (stripMemoizeWrappers declTy) (stripMemoizeWrappers declVal) body nondep)
+      | .mdata md sub => pure (.mdata md (stripMemoizeWrappers sub))
+      | _ => pure e
+    let fn := e'.getAppFn
+    match fn with
+    | .const constName _ =>
+        if constName.toString.endsWith ".memoize" then
+          let cArgs := e'.getAppArgs
+          if cArgs.size >= 1 then
+            return cArgs[cArgs.size - 1]!
+        return e'
+    | _ => return e'
+
   partial def synthesizeCombinational (declName : Name) : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-    let constInfo ← getConstInfo declName
-    match constInfo with
-    | .defnInfo defnInfo =>
-      let body := defnInfo.value
-      let compiler : CompilerM String := do
-        let resultWire ← translateExprToWire body "result" (isTopLevel := true)
-        -- Look up the actual wire type that was created
-        let cs ← get
-        let resultWireDecl := cs.module.wires.find? (fun (p : Port) => p.name == resultWire)
-        let outputType := match resultWireDecl with
-          | some decl =>
-            -- DEBUG: Found wire with correct type
-            decl.ty
-          | none =>
-            -- DEBUG: Wire not found, using fallback
-            -- This happens when result is input wire, not internal wire
-            -- Try to infer from inputs
-            match cs.module.inputs.find? (fun p => p.name == resultWire) with
-            | some inputPort => inputPort.ty
-            | none => .bitVector 8  -- True fallback
-        CompilerM.addOutput "out" outputType
-        CompilerM.emitAssign "out" (.ref resultWire)
-        return resultWire
-      let circuitState := CircuitM.init declName.toString
-      let compilerState : CompilerState := { varMap := [], clockWire := none, resetWire := none }
-      let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
-      let mut module := finalCircuitState.module
-      let hasRegisters := module.body.any (fun stmt =>
-        match stmt with
-        | .register .. => true
-        | .memory .. => true
-        | _ => false
-      )
-      if hasRegisters then
-        module := module.addInput { name := "clk", ty := .bit }
-        module := module.addInput { name := "rst", ty := .bit }
-      return (module, finalCircuitState.design)
-    | _ =>
-      throwError s!"Cannot synthesize {declName}: not a definition"
+    let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
+    let logProf (msg : String) : IO Unit := do
+      if profile then
+        IO.eprintln msg
+        (← IO.getStderr).flush
+        let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+        h.putStrLn msg
+        h.flush
+    logProf s!"[profile] synthesizeCombinational {declName} entering"
+    -- Depth-gated cache reset (Issue #67).
+    --
+    -- The per-synth caches must be wiped at the start of every
+    -- *outermost* `#synthesizeVerilog` invocation so Expr identity
+    -- from one decl doesn't alias into the next, BUT they must
+    -- NOT be wiped on recursive re-entry — when a `circuit do`
+    -- body projects multiple fields off a single
+    -- `@[hardware_module]` call (e.g. `engine.replyValid`,
+    -- `engine.replyKind`, ...), each projection triggers a fresh
+    -- `synthesizeCombinational kvHw` nested call.  Resetting
+    -- `sparkleSubModuleCache` / `sparkleSubInstanceOutputs` at
+    -- that point forces every later projection of the same call
+    -- to re-walk `kvHw` from scratch, which is the O(N²)
+    -- behaviour memcached server top-level synth hits today
+    -- (kvHw walked 8× per top-level synth, ~17 min total).
+    --
+    -- `sparkleSynthDepth` tracks recursion depth; we only clear
+    -- when entering at depth 0 and bump+release the counter
+    -- around the body via `try ... finally` so it stays
+    -- balanced across throwError / panic exits.
+    let depth ← sparkleSynthDepth.get
+    -- Snapshot the fvar-value and sub-instance maps so nested
+    -- `synthesizeCombinational` calls (e.g. memcachedServer
+    -- inside memcachedServerTop) don't pollute their parent's
+    -- view of `let stReg := …` fvar bindings.  Without this,
+    -- the parent's `sparkleFvarValueMap` entries from a
+    -- previously-translated sub-module get reused when the
+    -- parent later translates its OWN register fvars that
+    -- happen to share user names — collapsing distinct
+    -- `stReg` / `valueReg` references onto the wrong wire.
+    --
+    -- The per-`(callKey, fieldName)` instance dedupe relies on
+    -- `sparkleSubInstanceOutputs` persisting across nested
+    -- synths (it's how the cross-module wire-reuse cache hit
+    -- in commit ae779e5 fires), so we ONLY snapshot the
+    -- fvar-value map.
+    let savedFvarMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name Lean.Expr)
+                       else sparkleFvarValueMap.get
+    let savedFvarWireMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name String)
+                           else sparkleFvarWireMap.get
+    -- `sparkleWireWidthCache` is keyed by wire NAME (e.g.
+    -- `_tmp_loop_0`).  Wire names are allocated per-`CircuitM`
+    -- (i.e. per-module) so a parent module and a nested
+    -- sub-module can both have a wire named `_tmp_loop_0`
+    -- with DIFFERENT widths.  If we let the cache persist
+    -- across nested synth boundaries, the second module's
+    -- insert overwrites the first's — and any later
+    -- `getWireWidth "_tmp_loop_0"` from the parent context
+    -- gets the child's width.  This was the root cause of
+    -- Issue #67-step-2's `_gen_stSig_N = slice (_tmp_loop_0)
+    -- 242 239` bug in memcachedServer: the slice handler
+    -- read `_tmp_loop_0`'s width as 243 (kvHw's loop wire)
+    -- while it should have been 340 (memcachedServer's).
+    let savedWireWidthCache ←
+      if depth == 0 then pure ({} : Std.HashMap String Nat)
+      else sparkleWireWidthCache.get
+    if depth == 0 then
+      sparkleTypeCache.set {}
+      sparkleTypeCacheHits.set 0
+      sparkleTypeCacheMiss.set 0
+      sparkleSubModuleCache.set {}
+      sparkleSubInstanceOutputs.set {}
+      sparkleFvarValueMap.set {}
+      sparkleFvarWireMap.set {}
+      sparkleWireWidthCache.set {}
+    else
+      -- Nested synth: fresh fvar map (the parent's fvars are
+      -- scoped to the parent's body and can't be visible
+      -- inside the child's body either) and fresh wire-width
+      -- cache (wire names are per-module).
+      sparkleFvarValueMap.set {}
+      sparkleFvarWireMap.set {}
+      sparkleWireWidthCache.set {}
+    sparkleSynthDepth.set (depth + 1)
+    -- Extract the body into a local closure so `try ... finally`
+    -- can wrap the entire synthesis path (including the
+    -- `throwError` arm) with one balanced decrement, regardless
+    -- of which return path or exception fires.
+    let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+      let constInfo ← getConstInfo declName
+      logProf s!"[profile] getConstInfo done"
+      match constInfo with
+      | .defnInfo defnInfo =>
+        logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
+        let t0 ← IO.monoMsNow
+        logProf s!"[profile] calling openRecordInputs"
+        let body0 ← openRecordInputs defnInfo.value
+        -- Strip sim-only Signal.memoize wrappers from the body
+        -- BEFORE translation.  This breaks the FSM memoize-cycle
+        -- root cause (see stripMemoizeWrappers doc).
+        let body := stripMemoizeWrappers body0
+        let t1 ← IO.monoMsNow
+        logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
+        -- Open the lambda telescope ONCE so every leaf sees the
+        -- same fresh fvars.  Previously each leaf re-entered
+        -- `withLocalDecl` independently, giving the same source
+        -- argument fresh fvars per leaf — distinct enough that
+        -- `Expr.equal` rejected structurally identical sub-trees
+        -- and the per-synth cache missed across leaf boundaries
+        -- (Issue #67).
+        Lean.Meta.lambdaTelescope body fun xs innerBody => do
+          logProf s!"[profile] calling splitReturnLeaves"
+          let leaves ← splitReturnLeaves innerBody
+          let t2 ← IO.monoMsNow
+          logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
+          let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
+          -- Walk the bound fvars and wire each Signal-typed
+          -- argument to a fresh input port; non-Signal binders
+          -- (e.g. type-class instances) stay as local decls in
+          -- the Meta context but don't become hardware ports.
+          let rec buildEnv (i : Nat) (k : CompilerM String) : CompilerM String := do
+            if h : i < xs.size then
+              let x := xs[i]
+              let fvarId := x.fvarId!
+              let decl ← CompilerM.liftMetaM fvarId.getDecl
+              let binderName := decl.userName
+              let binderType := decl.type
+              -- Probe whether this binder has a Signal-shaped type
+              -- without raising on non-Signal types.
+              let isHWArg ← try
+                let _ ← inferHWTypeFromSignal binderType
+                pure true
+              catch _ => pure false
+              if isHWArg then
+                let hwType ← inferHWTypeFromSignal binderType
+                let w ← CompilerM.makeWire binderName.toString hwType (named := true)
+                CompilerM.addInput w hwType
+                CompilerM.withVarMapping fvarId w (buildEnv (i + 1) k)
+              else
+                buildEnv (i + 1) k
+            else
+              k
+          let compilerBody : CompilerM String := do
+            let mut firstWire : Option String := none
+            let mut leafIdx := 0
+            for (portName, leafExpr) in leaves do
+              let tLeaf0 ← CompilerM.liftMetaM IO.monoMsNow
+              let callsBefore ← CompilerM.liftMetaM sparkleCallCounter.get
+              let hitsBefore  ← CompilerM.liftMetaM sparkleCacheHits.get
+              CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate starting (calls={callsBefore} hits={hitsBefore})")
+              -- isTopLevel := false because the input ports are
+              -- already declared by `buildEnv` above — the per-leaf
+              -- translator must NOT re-create them.
+              let leafWire ← translateExprToWire leafExpr portName
+                                (isTopLevel := false) (isNamed := true)
+              let tLeaf1 ← CompilerM.liftMetaM IO.monoMsNow
+              let callsAfter ← CompilerM.liftMetaM sparkleCallCounter.get
+              let hitsAfter  ← CompilerM.liftMetaM sparkleCacheHits.get
+              CompilerM.liftMetaM (logProf s!"[profile] leaf {leafIdx} ({portName}) translate {tLeaf1 - tLeaf0} ms (calls Δ={callsAfter - callsBefore} hits Δ={hitsAfter - hitsBefore})")
+              leafIdx := leafIdx + 1
+              if firstWire.isNone then firstWire := some leafWire
+              -- Record the leaf-expr → wire mapping so subsequent
+              -- leaves that share sub-expressions (the common
+              -- `Signal.loop` body in a multi-output return) reuse
+              -- the wire instead of re-walking the whole tree.
+              if !leafExpr.isFVar then
+                CompilerM.liftMetaM (cacheRef.modify (·.insert ⟨leafExpr⟩ leafWire))
+              let cs ← get
+              let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
+              let outputType := match wireDecl with
+                | some decl => decl.ty
+                | none =>
+                  match cs.module.inputs.find? (fun p => p.name == leafWire) with
+                  | some inputPort => inputPort.ty
+                  | none => .bitVector 8
+              CompilerM.addOutput portName outputType
+              CompilerM.emitAssign portName (.ref leafWire)
+            return firstWire.getD "out"
+          let compiler := buildEnv 0 compilerBody
+          let circuitState := CircuitM.init declName.toString
+          let compilerState : CompilerState :=
+            { varMap := [], clockWire := none, resetWire := none
+            , exprCache := some cacheRef }
+          let (_, finalCircuitState) ← (compiler.run compilerState).run circuitState
+          let mut module := finalCircuitState.module
+          let hasRegisters := module.body.any (fun stmt =>
+            match stmt with
+            | .register .. => true
+            | .memory .. => true
+            | _ => false
+          )
+          if hasRegisters then
+            -- Idempotent: a sub-module instance handler may have
+            -- already declared clk/rst (see line 2307-2312 where
+            -- @[hardware_module] sub-modules require parent to
+            -- expose the same clock/reset).  Skip duplicate adds.
+            if !module.inputs.any (·.name == "clk") then
+              module := module.addInput { name := "clk", ty := .bit }
+            if !module.inputs.any (·.name == "rst") then
+              module := module.addInput { name := "rst", ty := .bit }
+          -- Finalize the in-progress module: addInput / addOutput /
+          -- addWire / addStmt all use O(1) head-prepend during the
+          -- synth loop; `finalize` reverses each list once so
+          -- downstream consumers (Verilog backend, CppSim, etc.)
+          -- see the natural forward order they always did.
+          return (module.finalize, finalCircuitState.design)
+      | _ =>
+        throwError s!"Cannot synthesize {declName}: not a definition"
+    try
+      doSynth
+    finally
+      sparkleSynthDepth.modify (· - 1)
+      -- Restore parent's per-module caches after a nested synth.
+      if depth != 0 then
+        sparkleFvarValueMap.set savedFvarMap
+        sparkleFvarWireMap.set savedFvarWireMap
+        sparkleWireWidthCache.set savedWireWidthCache
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
@@ -1844,9 +3294,26 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
     For a syntax-highlighted view inside JupyterLab use `#showVerilog`
     instead; for writing to a file use `#writeVerilogDesign id "path"`. -/
 elab "#synthesizeVerilog" id:ident : command => do
+  -- Profile breadcrumbs.  When SPARKLE_PROFILE=1 is set, write
+  -- to *both* stderr and /tmp/sparkle-profile.log so the timing
+  -- survives even when `timeout` SIGKILLs the process before
+  -- stdio buffers flush.  The log is append-mode so consecutive
+  -- runs accumulate (delete it yourself between runs if you
+  -- want a clean slate).
+  let profile := (← IO.getEnv "SPARKLE_PROFILE").isSome
+  let logProf (msg : String) : IO Unit := do
+    if profile then
+      IO.eprintln msg
+      (← IO.getStderr).flush
+      let h ← IO.FS.Handle.mk "/tmp/sparkle-profile.log" .append
+      h.putStrLn msg
+      h.flush
+  logProf s!"[profile] #synthesizeVerilog entry id={id}"
   let declName ← Lean.Elab.Command.liftCoreM do
     Lean.resolveGlobalConstNoOverload id
+  logProf s!"[profile] declName resolved: {declName}"
   Lean.Elab.Command.liftTermElabM do
+    logProf s!"[profile] entering liftTermElabM, calling synthesizeCombinational"
     let (module, _) ← synthesizeCombinational declName
     let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
     for w in warnings do
@@ -1965,12 +3432,12 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
-    let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
+    let cSrc := Sparkle.Backend.CSim.toCDesign optimized
     let path := str.getString
     if let some dir := (System.FilePath.mk path).parent then
       IO.FS.createDirAll dir
-    IO.FS.writeFile path cpp
-    IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {path}"
+    IO.FS.writeFile path cSrc
+    IO.println s!"Written C simulation ({optimized.modules.length} modules) to {path}"
 
 /-- Evaluate an Array String constant at elaboration time -/
 private unsafe def evalStringArrayImpl (name : Name) : TermElabM (Array String) :=
@@ -1995,16 +3462,17 @@ private def writeDesignCore (declName : Name) (svPath cppPath : String)
   let verilog := toVerilogDesign design
   IO.FS.writeFile svPath verilog
   IO.println s!"Written {design.modules.length} modules to {svPath}"
-  -- CppSim (optimized, no observableWires — keep all _gen_ as members for header)
+  -- CSim (optimized, no observableWires — keep all _gen_ as members for header)
   let optimized := Sparkle.IR.Optimize.optimizeDesign design
-  let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
-  IO.FS.writeFile cppPath cpp
-  IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {cppPath}"
+  let cSrc := Sparkle.Backend.CSim.toCDesign optimized
+  IO.FS.writeFile cppPath cSrc
+  IO.println s!"Written C simulation ({optimized.modules.length} modules) to {cppPath}"
   -- JIT wrapper (optimized with observableWires — demote non-observable to locals)
   let jitOptimized := Sparkle.IR.Optimize.optimizeDesign design observableWires
-  let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT jitOptimized observableWires
-  let jitPath := cppPath.replace "_cppsim.h" "_jit.cpp"
-  IO.FS.writeFile jitPath jitCpp
+  let jitC := Sparkle.Backend.CSim.toCJIT jitOptimized observableWires
+  let jitPath :=
+    (cppPath.replace "_cppsim.h" "_jit.c").replace "_jit.c" "_jit.c"
+  IO.FS.writeFile jitPath jitC
   IO.println s!"Written JIT wrapper to {jitPath}"
 
 /-- Combined command: synthesize once, emit both Verilog and optimized C++ simulation -/
@@ -2055,19 +3523,31 @@ elab "#sim" id:ident : command => do
   let (ns, jitPath, svPath, topName, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
-    let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
+    let jitC := Sparkle.Backend.CSim.toCJIT optimized
     let verilog := Sparkle.Backend.Verilog.toVerilogDesign optimized
     let ns := simLeanIdent (toString declName.components.getLast!)
-    let jitPath := s!".lake/build/gen/sim/{ns}_jit.cpp"
+    let jitPath := s!".lake/build/gen/sim/{ns}_jit.c"
     let svPath  := s!".lake/build/gen/sim/{ns}.sv"
     try
       IO.FS.createDirAll ".lake/build/gen/sim"
-      IO.FS.writeFile jitPath jitCpp
+      IO.FS.writeFile jitPath jitC
       IO.FS.writeFile svPath  verilog
     catch _ => pure ()
-    let m ← match optimized.modules.head? with
+    -- Locate the TOP module by declName.  `synthesizeHierarchical`
+    -- appends top last, but each sub-module (`@[hardware_module]`)
+    -- was registered first via the synth-time submodule cache, so
+    -- `modules.head?` picks up the sub-module instead of the top.
+    -- Match by name (the synthesizeCombinational result uses
+    -- `declName.toString` as the module name).
+    let topModName := toString declName
+    let m ← match optimized.modules.find? (·.name == topModName) with
       | some m => pure m
-      | none => throwError "#sim: no module in design"
+      | none =>
+        -- Fallback: last module (which is what addModule appends).
+        -- Should never fire in practice; better than throwing.
+        match optimized.modules.getLast? with
+        | some m => pure m
+        | none => throwError "#sim: no module in design"
     let userInputs := m.inputs.filter fun p => !isSimClkRst p.name
     let outputs := m.outputs
     pure (ns, jitPath, svPath, m.name, userInputs, outputs)
@@ -2095,9 +3575,42 @@ elab "#sim" id:ident : command => do
     s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
-  let outputsIdx := (List.range outputs.length).zip outputs
-  let readLines := outputsIdx.map fun (idx, p) =>
-    s!"  let v{idx} ← JIT.getOutput sim.handle {idx}\n  let {simLeanIdent p.name} := BitVec.ofNat {p.ty.bitWidth} v{idx}.toNat"
+  -- For each output port: when the port width is > 64 bits,
+  -- emit multiple `JIT.getOutput` calls reading 32-bit chunks
+  -- (the C-side `jit_get_output` already exposes wide ports
+  -- as N consecutive switch cases of `uint32_t` slot reads —
+  -- see `emitGetOutputSwitch` in Sparkle/Backend/CSim.lean).
+  -- Then OR-shift them into the BitVec.  Fixes Issue #75
+  -- (silent truncation of > 64-bit JIT output ports).
+  let (readLines, _) := outputs.foldl
+    (fun (acc : List String × Nat) (p : Port) =>
+      let w := p.ty.bitWidth
+      let nameId := simLeanIdent p.name
+      if w ≤ 64 then
+        let line :=
+          s!"  let v_{nameId} ← JIT.getOutput sim.handle {acc.2}\n" ++
+          s!"  let {nameId} := BitVec.ofNat {w} v_{nameId}.toNat"
+        (acc.1 ++ [line], acc.2 + 1)
+      else
+        -- Wide port: read ⌈w/32⌉ 32-bit slots and OR-shift.
+        let nWords := (w + 31) / 32
+        let slotIdxs := List.range nWords
+        let reads := slotIdxs.map fun j =>
+          s!"  let v_{nameId}_{j} ← JIT.getOutput sim.handle {acc.2 + j}"
+        -- Assemble: each slot j contributes
+        --   (BitVec.ofNat w v_<nameId>_j.toNat) <<< (32 * j)
+        -- and we fold them with `|||`.
+        let combineTerm (j : Nat) : String :=
+          s!"(BitVec.ofNat {w} (v_{nameId}_{j}.toNat &&& 0xFFFFFFFF) <<< {32 * j})"
+        let combined :=
+          match slotIdxs with
+          | [] => s!"(BitVec.ofNat {w} 0)"
+          | j :: rest =>
+            rest.foldl (fun s k => s ++ " ||| " ++ combineTerm k) (combineTerm j)
+        let assemble :=
+          s!"  let {nameId} : BitVec {w} := {combined}"
+        (acc.1 ++ reads ++ [assemble], acc.2 + nWords))
+    ([], 0)
   let readBody := String.intercalate "\n" readLines
   let readReturn := String.intercalate ", " <| outputs.map fun p => simLeanIdent p.name
   elabSimStr s!"def Simulator.read (sim : Simulator) : IO SimOutput := do\n{readBody}\n  pure {lb} {readReturn} {rb}"

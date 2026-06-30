@@ -54,7 +54,7 @@ structure SimSpec where
   deriving Repr
 
 /-- Names to hide from the user-visible SimInput surface (reset-like signals).
-    Clock is ALWAYS filtered at the raw JIT level (see Sparkle.Backend.CppSim
+    Clock is ALWAYS filtered at the raw JIT level (see Sparkle.Backend.CSim
     `emitSetInputSwitch`), so typed indices for `clk` would never be reachable.
     Reset-like names are still present at raw JIT index level; we hide them
     from `SimInput` for ergonomics but keep the raw index intact, so
