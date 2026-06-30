@@ -40,6 +40,14 @@ def runFirmware (h : JITHandle) (fwPath : String) (maxCycles : Nat := 200000)
   return uartOutput
 
 def main : IO Unit := do
+  -- The test fixtures are external (not vendored into the repo);
+  -- mirror MulOracleTest's SKIP convention so CI doesn't fail
+  -- when they're absent.
+  let socExists ← System.FilePath.pathExists "/tmp/picorv32_soc_m.v"
+  let cpuExists ← System.FilePath.pathExists "/tmp/picorv32.v"
+  unless socExists && cpuExists do
+    IO.println s!"SKIP: missing fixture (soc={socExists}, cpu={cpuExists})"
+    return
   let soc ← IO.FS.readFile "/tmp/picorv32_soc_m.v"
   let cpu ← IO.FS.readFile "/tmp/picorv32.v"
   let design ← IO.ofExcept (parseAndLowerFlat (soc ++ "\n" ++ cpu))
