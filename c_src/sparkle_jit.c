@@ -102,12 +102,77 @@ static lean_obj_res mk_io_ok(lean_obj_res val) {
     return result;
 }
 
+/* Multi-handle dlopen collision detector.
+ *
+ * Tracks the (lib pointer, path) pair for every successful dlopen.
+ * If a NEW path returns a previously-seen lib pointer, it means glibc
+ * has silently collapsed two distinct .so files onto one handle —
+ * the classic symptom of a host-vs-build glibc ABI mismatch (Issue #70).
+ * Emit a warning the first time we see this, so the user knows the
+ * subsequent SIGSEGV in tick/eval is the glibc mismatch and NOT some
+ * bug in their Sparkle circuit.
+ *
+ * The detector is best-effort: it caps at MAX_TRACKED entries to avoid
+ * unbounded growth in long-running drivers.
+ */
+#define MAX_TRACKED 64
+static struct {
+    void* lib;
+    const char* path;  /* heap copy, freed never (entries persist) */
+} g_jit_loaded[MAX_TRACKED];
+static int g_jit_loaded_count = 0;
+static int g_jit_collision_warned = 0;
+
+extern int strcmp(const char* a, const char* b);
+extern unsigned long strlen(const char* s);
+extern void* memcpy(void* dst, const void* src, unsigned long n);
+
+static void jit_check_collision(void* lib, const char* path) {
+    if (g_jit_collision_warned) return;
+    for (int i = 0; i < g_jit_loaded_count; ++i) {
+        if (g_jit_loaded[i].lib == lib &&
+            strcmp(g_jit_loaded[i].path, path) != 0) {
+            /* New path, same lib handle — collision. */
+            extern int dprintf(int fd, const char* fmt, ...);
+            dprintf(2,
+                "\n[Sparkle.JIT WARNING] dlopen returned the same lib\n"
+                "handle for two different .so paths:\n"
+                "  first:  %s\n"
+                "  second: %s\n"
+                "  handle: %p\n"
+                "\n"
+                "This is the symptom of a host-vs-build glibc ABI\n"
+                "mismatch — see docs/known-issues/KnownIssues.md\n"
+                "(Issue #70).  Subsequent JIT.tick/eval calls on the\n"
+                "second handle will likely SIGSEGV.  If they do, the\n"
+                "root cause is in the build environment, not your\n"
+                "Sparkle circuit.\n\n",
+                g_jit_loaded[i].path, path, lib);
+            g_jit_collision_warned = 1;
+            return;
+        }
+    }
+    if (g_jit_loaded_count < MAX_TRACKED) {
+        /* Persist a copy of the path (paths come from Lean strings
+           whose lifetime ends with the load call). */
+        unsigned long n = strlen(path) + 1;
+        char* copy = (char*)calloc(1, n);
+        if (copy) {
+            memcpy(copy, path, n);
+            g_jit_loaded[g_jit_loaded_count].lib = lib;
+            g_jit_loaded[g_jit_loaded_count].path = copy;
+            g_jit_loaded_count++;
+        }
+    }
+}
+
 /* sparkle_jit_load : @& String → IO JITHandle */
 LEAN_EXPORT lean_obj_res sparkle_jit_load(b_lean_obj_arg path, lean_obj_arg w) {
     (void)w;
     const char* cpath = lean_string_cstr(path);
 
     void* lib = dlopen(cpath, RTLD_NOW);
+    if (lib) jit_check_collision(lib, cpath);
     if (!lib) {
         char buf[1024];
         snprintf(buf, sizeof(buf), "JIT: dlopen failed: %s", dlerror());
