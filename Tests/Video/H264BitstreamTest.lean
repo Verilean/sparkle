@@ -180,7 +180,7 @@ def testBitstreamGeneration : IO Bool := do
     if h : i < rbTable.size then
       JIT.setMem cavlcHandle 4 i.toUInt32 rbTable[i]
 
-  let mut allBitstreams : Array (BitVec 32 × Nat) := #[]
+  let mut allBitstreams : Array (BitVec 64 × Nat) := #[]
 
   for blockIdx in [:4] do
     if h : blockIdx < allQuantLevels.size then
@@ -233,7 +233,7 @@ def testBitstreamGeneration : IO Bool := do
       IO.println s!"  Block {blockIdx} CAVLC: 0x{String.ofList (Nat.toDigits 16 bsData.toNat)} ({bpData} bits)"
       IO.println s!"    Reference:    0x{String.ofList (Nat.toDigits 16 refBits.toNat)} ({refLen} bits)"
 
-      allBitstreams := allBitstreams.push (BitVec.ofNat 32 bsData.toNat, bpData.toNat)
+      allBitstreams := allBitstreams.push (BitVec.ofNat 64 bsData.toNat, bpData.toNat)
 
   JIT.destroy cavlcHandle
 
@@ -279,8 +279,11 @@ def testBitstreamGeneration : IO Bool := do
   for entry in allBitstreams do
     let (bs, blen) := entry
     cavlcTotalBits := cavlcTotalBits + blen
-    -- Shift bitstream MSB-aligned into accumulator
-    bitAccum := (bitAccum <<< blen) ||| (bs.toNat >>> (32 - blen))
+    -- Shift bitstream MSB-aligned into accumulator.  `bs` is the
+    -- JIT FSM's 64-bit `_gen_bitBuffer` register, MSB-packed by
+    -- the encoder, so we right-shift by `64 - blen` to drop the
+    -- trailing zero padding.
+    bitAccum := (bitAccum <<< blen) ||| (bs.toNat >>> (64 - blen))
     bitCount := bitCount + blen
 
   -- Byte-align with rbsp_stop_one_bit + trailing zeros

@@ -694,20 +694,32 @@ def cavlcSynthModule {dom : DomainConfig}
     -- === Memory 1: coeff_token VLC table (272×32-bit, 4 nC-range tables) ===
     -- Read address = nCBase + totalCoeff * 4 + trailingOnes (9-bit)
     -- nCBase = nCTableSelect * 68
+    --
+    -- Previous: `ctAddr := nCBase + ((tc + 4) * t1)` — wrong: the
+    --   coefficient `4` is the row stride, and `+ trailingOnes` is the
+    --   in-row offset, not a multiply.  For tc=3,t1=0 the buggy form
+    --   resolved to address 0, which holds the tc=0,t1=0 entry
+    --   (code=1, len=1) — and explains why every nontrivial block was
+    --   emitting a stuck 1-bit coeff_token instead of the real 9-16
+    --   bit codeword.
     let nCSel9 := 0#7 ++ nCTableSelect
     let nCBase9 := nCSel9 * 68#9
     let tc9 := 0#4 ++ totalCoeff
     let t1_9 := 0#6 ++ trailingOnes
-    let ctAddr := nCBase9 + ((tc9 + 4#9) * t1_9)
+    let ctAddr := nCBase9 + (tc9 * 4#9) + t1_9
     let ctReadAddr := Signal.mux isEmitCT ctAddr (Signal.pure 0#9)
     let ctTableData := Signal.memoryComboRead ctTableWriteAddr ctTableWriteData ctTableWriteEn ctReadAddr
 
     -- === Memory 2: total_zeros VLC table (96×32-bit) ===
     -- Read address = (totalCoeff - 1) * 16 + totalZeros
+    --
+    -- Same operator-precedence bug as the coeff_token address used
+    -- to have: `(tcm + 16) * tz` was wrong (16 is a row stride,
+    -- not an addend).  Correct: `tcm * 16 + tz`.
     let tcMinus1 := totalCoeff - 1#5
     let tcm7 := 0#2 ++ tcMinus1
     let tz7 := 0#2 ++ totalZeros
-    let tzAddr := (tcm7 + 16#7) * tz7
+    let tzAddr := (tcm7 * 16#7) + tz7
     let tzReadAddr := Signal.mux isEmitTZ tzAddr (Signal.pure 0#7)
     let tzTableData := Signal.memoryComboRead tzTableWriteAddr tzTableWriteData tzTableWriteEn tzReadAddr
 
@@ -720,7 +732,12 @@ def cavlcSynthModule {dom : DomainConfig}
     let prevPos := CAVLCSynthState.prevPos state
     let runBefore := (prevPos - curPos) - 1#5
     let rb6 := runBefore.map (BitVec.extractLsb' 0 6 ·)
-    let rbAddr := (zlm6 + 7#6) * rb6
+    -- Same operator-precedence bug pattern as the coeff_token /
+    -- total_zeros addresses had: `(zlm + 7) * rb` was wrong.  The
+    -- run_before table is laid out by VLCTables.buildRunBeforeTable
+    -- as 7 entries per zerosLeft row (rb ∈ 0..6), so the address
+    -- is `zlm * 7 + rb`.
+    let rbAddr := (zlm6 * 7#6) + rb6
     let rbReadAddr := Signal.mux isEmitRB rbAddr (Signal.pure 0#6)
     let rbTableData := Signal.memoryComboRead rbTableWriteAddr rbTableWriteData rbTableWriteEn rbReadAddr
 
