@@ -277,7 +277,10 @@ private def cavlcSynthBody {dom : DomainConfig}
   let prefixBits7 := 0#1 ++ prefixBits6
 
   -- Normal suffix: levelCode & ((1 << suffixLen) - 1)
-  let slMask := (1#32 - slExt) <<< 1#32
+  -- Previous: `(1 - slExt) << 1` was wrong (operator order swapped and
+  -- the shift-by-suffixLen was missing).  Correct: shift `1` left by
+  -- `suffixLen`, then subtract 1 to get the low-`suffixLen` bit mask.
+  let slMask := (1#32 <<< slExt) - 1#32
   let normalSuffix := levelCode &&& slMask
   -- Escape suffix: levelCode - 15*(1 << suffixLen)  (works for suffixLen=0 too: lc-15)
   let shifted15 := 15#32 <<< slExt
