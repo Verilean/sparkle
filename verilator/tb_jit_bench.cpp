@@ -33,17 +33,33 @@ static std::vector<uint32_t> load_hex(const std::string& path) {
     return words;
 }
 
-// JIT function types
-typedef void* (*jit_create_fn)();
-typedef void  (*jit_destroy_fn)(void*);
-typedef void  (*jit_eval_fn)(void*);
-typedef void  (*jit_tick_fn)(void*);
-typedef void  (*jit_eval_tick_fn)(void*);
-typedef void  (*jit_reset_fn)(void*);
-typedef void  (*jit_set_mem_fn)(void*, uint32_t, uint32_t, uint32_t);
-typedef uint64_t (*jit_get_wire_fn)(void*, uint32_t);
-typedef const char* (*jit_wire_name_fn)(uint32_t);
-typedef uint32_t (*jit_num_wires_fn)();
+// JIT vtable schema — must match Sparkle/Backend/CSim.lean and
+// c_src/sparkle_jit.c.  See the Issue #70 fix for why we go
+// through a single per-`.so` `jit_vtable` accessor instead of
+// dlsym'ing every entry-point name (those are now `static`).
+struct JitVTable {
+    void* (*create)();
+    void  (*destroy)(void*);
+    void  (*reset)(void*);
+    void  (*eval)(void*);
+    void  (*tick)(void*);
+    void  (*eval_tick)(void*);
+    void  (*set_input)(void*, uint32_t, uint64_t);
+    uint64_t (*get_output)(void*, uint32_t);
+    uint64_t (*get_wire)(void*, uint32_t);
+    void  (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+    uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+    void  (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+    const char* (*wire_name)(uint32_t);
+    uint32_t (*num_wires)();
+    void  (*set_reg)(void*, uint32_t, uint64_t);
+    uint64_t (*get_reg)(void*, uint32_t);
+    const char* (*reg_name)(uint32_t);
+    uint32_t (*num_regs)();
+    void* (*snapshot)(void*);
+    void  (*restore)(void*, void*);
+    void  (*free_snapshot)(void*);
+};
 
 int main(int argc, char** argv) {
     std::string hex_path = "../firmware/opensbi/boot.hex";
@@ -66,19 +82,30 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto create   = (jit_create_fn)dlsym(lib, "jit_create");
-    auto destroy  = (jit_destroy_fn)dlsym(lib, "jit_destroy");
-    auto eval     = (jit_eval_fn)dlsym(lib, "jit_eval");
-    auto tick     = (jit_tick_fn)dlsym(lib, "jit_tick");
-    auto eval_tick = (jit_eval_tick_fn)dlsym(lib, "jit_eval_tick");
-    auto reset    = (jit_reset_fn)dlsym(lib, "jit_reset");
-    auto set_mem  = (jit_set_mem_fn)dlsym(lib, "jit_set_mem");
-    auto get_wire = (jit_get_wire_fn)dlsym(lib, "jit_get_wire");
-    auto wire_name = (jit_wire_name_fn)dlsym(lib, "jit_wire_name");
-    auto num_wires = (jit_num_wires_fn)dlsym(lib, "jit_num_wires");
+    typedef const JitVTable* (*vtable_getter)();
+    auto get_vt = (vtable_getter)dlsym(lib, "jit_vtable");
+    if (!get_vt) {
+        fprintf(stderr, "Failed to find jit_vtable: %s\n", dlerror());
+        return 1;
+    }
+    const JitVTable* vt = get_vt();
+    if (!vt) {
+        fprintf(stderr, "jit_vtable returned NULL\n");
+        return 1;
+    }
+    auto create    = vt->create;
+    auto destroy   = vt->destroy;
+    auto eval      = vt->eval;
+    auto tick      = vt->tick;
+    auto eval_tick = vt->eval_tick;
+    auto reset     = vt->reset;
+    auto set_mem   = vt->set_mem;
+    auto get_wire  = vt->get_wire;
+    auto wire_name = vt->wire_name;
+    auto num_wires = vt->num_wires;
 
     if (!create || !eval || !tick || !set_mem || !get_wire) {
-        fprintf(stderr, "Failed to resolve JIT symbols\n");
+        fprintf(stderr, "JIT vtable missing required functions\n");
         return 1;
     }
 
