@@ -264,7 +264,7 @@ end counter8.Sim
 
 Plus two side-effects on disk:
 
-- `.lake/build/gen/sim/counter8_jit.cpp` — the JIT C++ shim.
+- `.lake/build/gen/sim/counter8_jit.c` — the JIT C shim.
 - `.lake/build/gen/sim/counter8.sv`     — the Verilog source
   Verilator builds against.
 

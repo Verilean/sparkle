@@ -75,12 +75,28 @@ jobs:
               http-test hft-strategy-test
 
           - group: usb-webserver
+            # `usb-webserver-sim` is the pure-Lean `Signal.val`
+            # evaluation path.  It still works but hits per-cycle
+            # cost ~O(t) on this design (multi-output Signal chain
+            # without per-node memoization, see lakefile.lean
+            # comment above usb-webserver-jit-test), so a full
+            # CI run times out at the per-IP cap.  We switched
+            # the CI gate to the JIT-backed `usb-webserver-jit-test`,
+            # which exercises the same end-to-end coverage via the
+            # `#sim` flow at hardware speed.
             exes: >-
-              uart-test slip-test usb-webserver-sim
+              uart-test slip-test usb-webserver-jit-test
 
           - group: memcached
+            # `memcached-server-test` has the same O(t)
+            # Signal.val cost as `usb-webserver-sim` (FSM with a
+            # 128-bit register feeding the byte-emit datapath).
+            # Use `memcached-server-jit-test` as the CI gate —
+            # same input stim, same string-level assertions
+            # ("STORED\r\n", "VALUE…hello…END\r\n"), runs in
+            # ~3 s instead of past the per-IP timeout.
             exes: >-
-              memcached-oracle-test memcached-hw-test memcached-server-test
+              memcached-oracle-test memcached-hw-test memcached-server-jit-test
 
           - group: crypto
             exes: >-
@@ -166,12 +182,21 @@ jobs:
         if: matrix.group == 'bitnet'
         run: make -C firmware/bitnet_smoke
 
-      - name: Generate verilator/generated_soc.sv (bitnet group only)
+      - name: Generate verilator/generated_soc.sv (bitnet + rv32)
         # `bitnet-soc-test` axis 2 looks up `verilator/generated_soc.sv`
         # to grep for the BitNet sub-tree.  The file is emitted as a
         # side effect of building `IP.RV32.SoCVerilog` (the module
         # carries a `#writeDesign` macro that runs at compile time).
-        if: matrix.group == 'bitnet'
+        #
+        # The `rv32` group's `rv32-flow-test` also expects the
+        # synth-time files (`verilator/generated_soc.sv`,
+        # `verilator/generated_soc_cppsim.h`) on disk, so it has the
+        # same prereq.  Without this, the cache restored from a
+        # different SHA would contain stale `cppsim.h` (with C++
+        # class syntax that no longer matches the C-only CSim
+        # emitter), making the substring checks in `synthTests`
+        # fail and the test exit 1.
+        if: matrix.group == 'bitnet' || matrix.group == 'rv32'
         run: lake build IP.RV32.SoCVerilog
 
       - name: Cache Lake build artifacts
@@ -205,18 +230,14 @@ jobs:
               continue
             fi
             echo "::group::Run $exe"
-            # 90 min cap per IP.  The previous 60 min worked on the
-            # C++/CppSim backend, but the C-only CSim emitter
-            # (Issue #70 fix) currently has a ~10-15% per-cycle
-            # regression on the JIT path, which pushes some heavy
-            # sims (memcached-server-test, rv32 toplevel) over the
-            # old budget on the cold cache.  The slowdown lives
-            # entirely inside the eval/tick hot loop — root-cause
-            # investigation is tracked separately; this bump is the
-            # short-term unblock so CI doesn't false-fail while
-            # that work lands.  Bump back to 3600 once the eval
-            # loop is on par with the C++ baseline.
-            timeout 5400 lake exe $exe
+            # 60 min cap per IP — heavy sims (rv32 toplevel
+            # synth) push past 25 min on the cold cache.  The
+            # JIT-backed variants of the multi-cycle byte-stream
+            # tests (memcached-server-jit-test,
+            # usb-webserver-jit-test) added under their group
+            # entries avoid the pure-Lean Signal.val O(N²) growth
+            # that previously timed those out.
+            timeout 3600 lake exe $exe
             rc=$?
             echo "::endgroup::"
             if [ "$rc" -ne 0 ]; then
