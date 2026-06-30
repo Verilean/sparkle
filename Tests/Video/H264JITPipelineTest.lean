@@ -80,8 +80,8 @@ def testDecoderJIT : IO Bool := do
   IO.println "\n=== Test 1: Decoder JIT Pipeline (QP=20) ==="
 
   -- Compile and load
-  IO.println "  Compiling decoder_pipeline_jit.cpp..."
-  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.cpp"
+  IO.println "  Compiling decoder_pipeline_jit.c..."
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.c"
   IO.println "  Loaded decoder JIT module"
 
   -- Resolve done wire
@@ -161,8 +161,8 @@ def testEncoderJIT : IO Bool := do
   IO.println "\n=== Test 2: Encoder JIT Pipeline (QP=20) ==="
 
   -- Compile and load
-  IO.println "  Compiling encoder_pipeline_jit.cpp..."
-  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
+  IO.println "  Compiling encoder_pipeline_jit.c..."
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.c"
   IO.println "  Loaded encoder JIT module"
 
   -- Resolve done wire
@@ -243,7 +243,7 @@ def testRoundtrip : IO Bool := do
 
   -- Step 1: Encode
   IO.println "  Running encoder..."
-  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
+  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.c"
   let encDoneIdx ← resolveWire encHandle "_gen_done"
 
   setEncoderQP encHandle 20
@@ -277,7 +277,7 @@ def testRoundtrip : IO Bool := do
 
   -- Step 2: Decode using encoder output
   IO.println "  Running decoder with encoder output..."
-  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.cpp"
+  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.c"
   let decDoneIdx ← resolveWire decHandle "_gen_done"
 
   setDecoderQP decHandle 20
@@ -335,7 +335,7 @@ def testRoundtripQP10 : IO Bool := do
 
   -- Step 1: Encode at QP=10
   IO.println s!"  Running encoder at QP={qp}..."
-  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.cpp"
+  let encHandle ← JIT.compileAndLoad ".lake/build/gen/h264/encoder_pipeline_jit.c"
   let encDoneIdx ← resolveWire encHandle "_gen_done"
 
   setEncoderQP encHandle qp
@@ -386,7 +386,7 @@ def testRoundtripQP10 : IO Bool := do
 
   -- Step 2: Decode at QP=10
   IO.println s!"  Running decoder at QP={qp} with encoder output..."
-  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.cpp"
+  let decHandle ← JIT.compileAndLoad ".lake/build/gen/h264/decoder_pipeline_jit.c"
   let decDoneIdx ← resolveWire decHandle "_gen_done"
 
   setDecoderQP decHandle qp
@@ -454,8 +454,8 @@ def testCAVLCSynthJIT : IO Bool := do
   IO.println "\n=== Test 5: CAVLC Synth JIT ==="
 
   -- Compile and load
-  IO.println "  Compiling cavlc_synth_jit.cpp..."
-  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.cpp"
+  IO.println "  Compiling cavlc_synth_jit.c..."
+  let handle ← JIT.compileAndLoad ".lake/build/gen/h264/cavlc_synth_jit.c"
   IO.println "  Loaded CAVLC synth JIT module"
 
   -- Resolve done wire

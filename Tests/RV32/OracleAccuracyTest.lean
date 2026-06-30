@@ -4,7 +4,7 @@
   Tests the oracle's timer-compare skip accuracy, MIE/MTIE guard,
   and halt-loop detection using firmware.hex (no external firmware needed).
 
-  Requires: generated_soc_jit.cpp (built by `lake build IP.RV32.SoCVerilog`)
+  Requires: generated_soc_jit.c (built by `lake build IP.RV32.SoCVerilog`)
 
   Usage:
     lake exe oracle-accuracy-test [jit.cpp] [firmware.hex]
@@ -36,7 +36,7 @@ def loadFirmware (handle : JITHandle) (hexPath : String) : IO Nat := do
   return memSize
 
 def main (args : List String) : IO UInt32 := do
-  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.cpp"
+  let cppPath := args[0]? |>.getD "verilator/generated_soc_jit.c"
   let hexPath := args[1]? |>.getD "firmware/firmware.hex"
 
   -- Check files exist

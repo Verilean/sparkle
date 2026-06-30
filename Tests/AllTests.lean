@@ -89,6 +89,34 @@ import Tests.SVParser.TestVerilogCoSim
 import Tests.SVParser.TestVerify
 import Tests.Bus.TestAXI4Lite
 import Tests.RoundTrip.IRVerilogIR
+import Tests.RoundTrip.IVerilogSim
+import Tests.IP.Net.CRC32Test
+import Tests.IP.Net.EthernetTest
+import Tests.IP.Net.EthernetTxTest
+import Tests.IP.Net.ARPTest
+import Tests.IP.Net.IPv4Test
+import Tests.IP.Net.ICMPTest
+import Tests.IP.Net.TCPHeaderTest
+import Tests.IP.Net.TCPStateTest
+import Tests.IP.Net.TCPLoopbackTest
+import Tests.IP.Net.HTTPTest
+import Tests.IP.Net.HFTStrategyTest
+import Tests.IP.Crypto.SHA256Test
+import Tests.IP.Crypto.Ed25519FieldTest
+import Tests.IP.Crypto.Ed25519PointTest
+import Tests.IP.Crypto.Ed25519SignTest
+import Tests.IP.Crypto.X25519Test
+import Tests.IP.Crypto.AESTest
+import Tests.IP.Crypto.GHASHTest
+import Tests.IP.Crypto.AESGCMTest
+import Tests.IP.Crypto.HKDFTest
+import Tests.IP.Crypto.Secp256k1Test
+import Tests.IP.Crypto.GoldilocksTest
+import Tests.IP.Crypto.MerkleTest
+import Tests.IP.Crypto.PolynomialTest
+import Tests.IP.Crypto.MiniSTARKTest
+import Tests.IP.Bus.PCIeTest
+import Tests.IP.Bus.PCIeHFTTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -345,6 +373,12 @@ def makeVerilogTests (outputs : VerilogOutputs) : TestSeq :=
 -- Main Entry Point
 -- ============================================================================
 
+-- The main function below sequences ~150 test groups via a
+-- long chain of `let allTests := allTests ++ moreTests`
+-- bindings.  Lean's elaborator hits its default 512
+-- recursion-depth limit while expanding the do-notation, so
+-- bump the cap before elaborating.
+set_option maxRecDepth 2048 in
 def main : IO UInt32 := do
   IO.println "╔════════════════════════════════════════╗"
   IO.println "║  Sparkle Comprehensive Test Suite     ║"
@@ -404,6 +438,85 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitDoTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+
+  -- IP.Net layer sim tests (CRC32 reference + Ethernet RX framer
+  -- cycle-by-cycle).  Each aborts via IO.Process.exit 1 on
+  -- divergence, same convention as the Signal-DSL sim tests
+  -- above.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  IP.Net Sim Tests                      ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.IP.Net.CRC32Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.EthernetTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.EthernetTxTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.ARPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.IPv4Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.ICMPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPHeaderTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPStateTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.TCPLoopbackTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.HTTPTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Net.HFTStrategyTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA256Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519FieldTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519PointTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519SignTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.X25519Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GHASHTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESGCMTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HKDFTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GoldilocksTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.MerkleTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.PolynomialTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.MiniSTARKTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.PCIeTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.PCIeHFTTest.main
+  IO.println ""
+
+  -- iverilog round-trip: drive each fixture through
+  -- Sparkle → SystemVerilog → iverilog → vvp.  Skipped at run
+  -- time if iverilog/vvp aren't on PATH; returns non-zero only
+  -- when a fixture's output diverges from the Lean reference.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  iverilog round-trip                   ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  let rc ← Sparkle.Tests.RoundTrip.IVerilogSim.main
+  if rc != 0 then
+    IO.eprintln s!"iverilog round-trip exited {rc}; aborting release gate."
+    IO.Process.exit 1
   IO.println ""
 
   -- Run Sparkle16 tests

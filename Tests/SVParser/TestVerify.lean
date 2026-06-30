@@ -10,13 +10,13 @@
 
 import Tools.SVParser
 import Tools.SVParser.Verify
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import LSpec
 
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
 open Tools.SVParser.Verify
-open Sparkle.Backend.CppSim
+open Sparkle.Backend.CSim
 open LSpec
 
 namespace Sparkle.Tests.SVParser.TestVerify

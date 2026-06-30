@@ -156,9 +156,11 @@ Two patterns to flag here, both reused later in the chapter:
 ### Variant — JIT-simulating the counter
 
 `#writeDesign` emits three files for any design: the
-`.sv` we already saw, a header-only C++ CppSim model, and a
-`*_jit.cpp` wrapper exporting a tiny C ABI (`jit_eval`, `jit_tick`,
-`jit_get_output`, …).  Sparkle's `Sparkle.Core.JIT` library
+`.sv` we already saw, a header-only C CSim model, and a
+`*_jit.c` wrapper that exports a single `jit_vtable`
+accessor returning a table of function pointers
+(`jit_eval`, `jit_tick`, `jit_get_output`, …) the host
+loader dispatches through.  Sparkle's `Sparkle.Core.JIT` library
 compiles that wrapper to a shared object on the fly and lets us
 drive it from a `#eval` cell — the same DSL value, simulated
 ~200× faster than the pure-Lean interpreter.
@@ -170,7 +172,7 @@ The flow is `compileAndLoad` (clang → `dlopen` → cached) →
 #writeDesign grayCtr "/tmp/grayCtr.sv" "/tmp/grayCtr_cppsim.h"
 
 #eval (do
-  let h ← Sparkle.Core.JIT.JIT.compileAndLoad "/tmp/grayCtr_jit.cpp"
+  let h ← Sparkle.Core.JIT.JIT.compileAndLoad "/tmp/grayCtr_jit.c"
   Sparkle.Core.JIT.JIT.reset h
   let mut acc : List Nat := []
   for _ in [0:16] do
