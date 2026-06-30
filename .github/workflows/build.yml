@@ -149,7 +149,10 @@ jobs:
     - name: "Build JIT shared library (.so)"
       run: |
         cd verilator
-        g++ -O2 -std=c++17 -shared -fPIC -o generated_soc_jit.so generated_soc_jit.cpp
+        # CSim backend (Issue #70) emits a pure C source — file is
+        # `generated_soc_jit.c`, compiled with `cc`.  No libstdc++.
+        cc -O2 -std=gnu11 -shared -fPIC -fvisibility=hidden \
+           -o generated_soc_jit.so generated_soc_jit.c
 
     - name: "Build benchmark binaries"
       run: |
@@ -302,21 +305,24 @@ jobs:
         "
         cat > /tmp/gen_litex_jit.lean << 'GENEOF'
         import Tools.SVParser
-        import Sparkle.Backend.CppSim
+        import Sparkle.Backend.CSim
         open Tools.SVParser.Lower
         def main : IO Unit := do
           let src ← IO.FS.readFile "/tmp/litex_pp.v"
           let design ← IO.ofExcept (parseAndLowerFlat src)
-          let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
-          IO.FS.writeFile "/tmp/litex_jit.cpp" jitCpp
+          let jitC := Sparkle.Backend.CSim.toCJIT design
+          IO.FS.writeFile "/tmp/litex_jit.c" jitC
         GENEOF
-        # Ensure Tools.SVParser / Sparkle.Backend.CppSim oleans match the current
+        # Ensure Tools.SVParser / Sparkle.Backend.CSim oleans match the current
         # toolchain before `lake env lean --run`, which does NOT rebuild but
         # reads existing oleans and would otherwise fail with "incompatible
         # header" if the cache was produced by an older Lean version.
-        lake build Tools.SVParser Sparkle.Backend.CppSim
+        lake build Tools.SVParser Sparkle.Backend.CSim
         lake env lean --run /tmp/gen_litex_jit.lean
-        g++ -O2 -std=c++17 -shared -fPIC -o /tmp/litex_jit.so /tmp/litex_jit.cpp
+        # CSim emits pure C — use `cc`, not `g++` (which would mangle
+        # `jit_vtable` to `_Z10jit_vtablev` and break dlsym).
+        cc -O2 -std=gnu11 -shared -fPIC -fvisibility=hidden \
+           -o /tmp/litex_jit.so /tmp/litex_jit.c
 
     - name: "Run LiteX benchmark (10M cycles)"
       run: |
@@ -338,24 +344,39 @@ jobs:
         #include <cstdint>
         #include <chrono>
         #include <dlfcn.h>
-        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        // After Issue #70 fix each JIT .so exports only `jit_vtable`.
+        struct VT {
+            void* (*create)(); void (*destroy)(void*);
+            void (*reset)(void*); void (*eval)(void*);
+            void (*tick)(void*); void (*eval_tick)(void*);
+            void (*set_input)(void*, uint32_t, uint64_t);
+            uint64_t (*get_output)(void*, uint32_t);
+            uint64_t (*get_wire)(void*, uint32_t);
+            void (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+            uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+            void (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+            const char* (*wire_name)(uint32_t); uint32_t (*num_wires)();
+            void (*set_reg)(void*, uint32_t, uint64_t);
+            uint64_t (*get_reg)(void*, uint32_t);
+            const char* (*reg_name)(uint32_t); uint32_t (*num_regs)();
+            void* (*snapshot)(void*); void (*restore)(void*, void*);
+            void (*free_snapshot)(void*);
+        };
         int main() {
             void* lib = dlopen("/tmp/litex_jit.so", RTLD_LAZY);
             if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
-            auto create = (fn0)dlsym(lib,"jit_create");
-            auto destroy = (fn1)dlsym(lib,"jit_destroy");
-            auto reset = (fn1)dlsym(lib,"jit_reset");
-            auto et = (fn1)dlsym(lib,"jit_eval_tick");
-            if (!create || !destroy || !reset || !et) {
-                fprintf(stderr, "dlsym failed\n"); return 1;
-            }
-            void* ctx = create(); reset(ctx);
+            typedef const VT* (*get_vt_fn)();
+            auto get_vt = (get_vt_fn)dlsym(lib, "jit_vtable");
+            if (!get_vt) { fprintf(stderr, "jit_vtable not found\n"); return 1; }
+            const VT* vt = get_vt();
+            if (!vt) { fprintf(stderr, "vt is NULL\n"); return 1; }
+            void* ctx = vt->create(); vt->reset(ctx);
             auto t0 = std::chrono::high_resolution_clock::now();
-            for (uint64_t c = 0; c < 10000000; c++) et(ctx);
+            for (uint64_t c = 0; c < 10000000; c++) vt->eval_tick(ctx);
             auto t1 = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
             printf("%d\n", (int)(10000000.0/ms*1000.0));
-            destroy(ctx); dlclose(lib); return 0;
+            vt->destroy(ctx); dlclose(lib); return 0;
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_litex /tmp/bench_litex.cpp -ldl
@@ -413,18 +434,19 @@ jobs:
         # Generate hierarchical JIT
         cat > /tmp/gen_hier_jit.lean << 'GENEOF'
         import Tools.SVParser
-        import Sparkle.Backend.CppSim
+        import Sparkle.Backend.CSim
         open Tools.SVParser.Lower
         def main : IO Unit := do
           let src ← IO.FS.readFile "Tests/SVParser/fixtures/litex_1core.v"
           let pico ← IO.FS.readFile "/tmp/picorv32.v"
           let design ← IO.ofExcept (parseAndLowerHierarchical (src ++ "\n" ++ pico))
-          let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT design
-          IO.FS.writeFile "/tmp/sparkle_hier.cpp" jitCpp
-          IO.println s!"JIT: {jitCpp.length} chars, {design.modules.length} modules"
+          let jitC := Sparkle.Backend.CSim.toCJIT design
+          IO.FS.writeFile "/tmp/sparkle_hier.c" jitC
+          IO.println s!"JIT: {jitC.length} chars, {design.modules.length} modules"
         GENEOF
         lake env lean --run /tmp/gen_hier_jit.lean
-        g++ -O2 -std=c++17 -shared -fPIC -o /tmp/sparkle_hier.so /tmp/sparkle_hier.cpp
+        cc -O2 -std=gnu11 -shared -fPIC -fvisibility=hidden \
+           -o /tmp/sparkle_hier.so /tmp/sparkle_hier.c
 
     - name: "Build multi-core runner"
       run: g++ -O2 -std=c++20 -shared -fPIC -o /tmp/multicore_runner.so c_src/cdc/multicore_runner.cpp -lpthread
@@ -486,22 +508,38 @@ jobs:
         #include <cstdint>
         #include <chrono>
         #include <dlfcn.h>
-        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        struct VT {
+            void* (*create)(); void (*destroy)(void*);
+            void (*reset)(void*); void (*eval)(void*);
+            void (*tick)(void*); void (*eval_tick)(void*);
+            void (*set_input)(void*, uint32_t, uint64_t);
+            uint64_t (*get_output)(void*, uint32_t);
+            uint64_t (*get_wire)(void*, uint32_t);
+            void (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+            uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+            void (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+            const char* (*wire_name)(uint32_t); uint32_t (*num_wires)();
+            void (*set_reg)(void*, uint32_t, uint64_t);
+            uint64_t (*get_reg)(void*, uint32_t);
+            const char* (*reg_name)(uint32_t); uint32_t (*num_regs)();
+            void* (*snapshot)(void*); void (*restore)(void*, void*);
+            void (*free_snapshot)(void*);
+        };
         int main() {
             void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
             if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
-            auto create = (fn0)dlsym(lib,"jit_create");
-            auto destroy = (fn1)dlsym(lib,"jit_destroy");
-            auto reset = (fn1)dlsym(lib,"jit_reset");
-            auto et = (fn1)dlsym(lib,"jit_eval_tick");
-            if (!create || !destroy || !reset || !et) { fprintf(stderr, "dlsym failed\n"); return 1; }
-            void* ctx = create(); reset(ctx);
+            typedef const VT* (*get_vt_fn)();
+            auto get_vt = (get_vt_fn)dlsym(lib, "jit_vtable");
+            if (!get_vt) { fprintf(stderr, "jit_vtable not found\n"); return 1; }
+            const VT* vt = get_vt();
+            if (!vt) { fprintf(stderr, "vt is NULL\n"); return 1; }
+            void* ctx = vt->create(); vt->reset(ctx);
             auto t0 = std::chrono::high_resolution_clock::now();
-            for (uint64_t c = 0; c < 10000000; c++) et(ctx);
+            for (uint64_t c = 0; c < 10000000; c++) vt->eval_tick(ctx);
             auto t1 = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
             printf("%d\n", (int)(10000000.0/ms*1000.0));
-            destroy(ctx); dlclose(lib); return 0;
+            vt->destroy(ctx); dlclose(lib); return 0;
         }
         BEOF
         g++ -O2 -std=c++17 -o /tmp/bench_1core /tmp/bench_1core.cpp -ldl
@@ -516,24 +554,40 @@ jobs:
         #include <cstdint>
         #include <chrono>
         #include <dlfcn.h>
-        typedef void* (*fn0)(); typedef void (*fn1)(void*);
+        struct VT {
+            void* (*create)(); void (*destroy)(void*);
+            void (*reset)(void*); void (*eval)(void*);
+            void (*tick)(void*); void (*eval_tick)(void*);
+            void (*set_input)(void*, uint32_t, uint64_t);
+            uint64_t (*get_output)(void*, uint32_t);
+            uint64_t (*get_wire)(void*, uint32_t);
+            void (*set_mem)(void*, uint32_t, uint32_t, uint32_t);
+            uint32_t (*get_mem)(void*, uint32_t, uint32_t);
+            void (*memset_word)(void*, uint32_t, uint32_t, uint32_t, uint32_t);
+            const char* (*wire_name)(uint32_t); uint32_t (*num_wires)();
+            void (*set_reg)(void*, uint32_t, uint64_t);
+            uint64_t (*get_reg)(void*, uint32_t);
+            const char* (*reg_name)(uint32_t); uint32_t (*num_regs)();
+            void* (*snapshot)(void*); void (*restore)(void*, void*);
+            void (*free_snapshot)(void*);
+        };
         int main() {
             void* lib = dlopen("/tmp/sparkle_hier.so", RTLD_LAZY);
             if (!lib) { fprintf(stderr, "dlopen failed: %s\n", dlerror()); return 1; }
-            auto create = (fn0)dlsym(lib,"jit_create");
-            auto destroy = (fn1)dlsym(lib,"jit_destroy");
-            auto reset = (fn1)dlsym(lib,"jit_reset");
-            auto et = (fn1)dlsym(lib,"jit_eval_tick");
-            if (!create || !destroy || !reset || !et) { fprintf(stderr, "dlsym failed\n"); return 1; }
+            typedef const VT* (*get_vt_fn)();
+            auto get_vt = (get_vt_fn)dlsym(lib, "jit_vtable");
+            if (!get_vt) { fprintf(stderr, "jit_vtable not found\n"); return 1; }
+            const VT* vt = get_vt();
+            if (!vt) { fprintf(stderr, "vt is NULL\n"); return 1; }
             void* cores[8];
-            for (int i = 0; i < 8; i++) { cores[i] = create(); reset(cores[i]); }
+            for (int i = 0; i < 8; i++) { cores[i] = vt->create(); vt->reset(cores[i]); }
             auto t0 = std::chrono::high_resolution_clock::now();
             for (uint64_t c = 0; c < 10000000; c++)
-                for (int i = 0; i < 8; i++) et(cores[i]);
+                for (int i = 0; i < 8; i++) vt->eval_tick(cores[i]);
             auto t1 = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double,std::milli>(t1-t0).count();
             printf("%d\n", (int)(10000000.0/ms*1000.0));
-            for (int i = 0; i < 8; i++) destroy(cores[i]);
+            for (int i = 0; i < 8; i++) vt->destroy(cores[i]);
             dlclose(lib); return 0;
         }
         BEOF
