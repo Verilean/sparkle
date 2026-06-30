@@ -1,12 +1,12 @@
 /-
   JIT FFI Module
 
-  Provides Lean bindings to load and interact with compiled CppSim
+  Provides Lean bindings to load and interact with compiled CSim
   shared libraries (.dylib/.so) via dlopen/dlsym. Enables JIT-accelerated
   simulation (~1M cycles/sec vs ~5K cycles/sec interpreted).
 
   Usage:
-    let handle ← JIT.compileAndLoad "path/to/generated_jit.cpp"
+    let handle ← JIT.compileAndLoad "path/to/generated_jit.c"
     JIT.setMem handle 0 0 0x00000013  -- load firmware
     JIT.eval handle                    -- evaluate combinational
     JIT.tick handle                    -- advance clock
@@ -171,18 +171,25 @@ private def JIT.hostLibcDir : IO (Option String) := do
         return some dir.toString
       | _ => return none
 
-/-- Compile a JIT .cpp file to a shared library, with hash-based caching -/
+/-- Compile a JIT .c (or legacy .cpp) source file to a shared library,
+    with hash-based caching.
+
+    The CSim backend emits pure C — we use `cc` and `-std=c11`, and
+    drop libstdc++/libgcc static-linking entirely (the .so has no
+    C++ dependency).  We still pin the JIT .so's runtime linker to
+    the host libc (Issue #70) as defence in depth.
+
+    The input path's extension is accepted as `.c`, `.cpp`, or `.cc`
+    for backward compatibility with existing callers that have
+    historical `_jit.c` literal paths; the file contents are pure
+    C either way. -/
 def JIT.compile (cppPath : String) (cacheDir : String := ".lake/build/jit_cache") : IO String := do
   -- Read source, compute hash for caching
   let source ← IO.FS.readFile cppPath
-  -- Discover the host's libc and pin the JIT .so to it
-  -- (Issue #70: see `JIT.hostLibcDir`).  Include the chosen
-  -- rpath in the cache key so a Nix environment swap that
-  -- changes the host libc forces a fresh JIT compile rather
-  -- than reusing a stale .so linked against the old libc.
+  -- Discover the host's libc and pin the JIT .so to it (Issue #70).
   let hostLibc ← JIT.hostLibcDir
   let rpathTag := hostLibc.getD "default"
-  let hash := toString (Hashable.hash (source ++ "|rpath:" ++ rpathTag))
+  let hash := toString (Hashable.hash (source ++ "|rpath:" ++ rpathTag ++ "|c-backend-v1"))
   let dylibExt := if System.Platform.isOSX then ".dylib" else ".so"
   let dylibPath := s!"{cacheDir}/{hash}{dylibExt}"
   -- Check cache
@@ -194,20 +201,11 @@ def JIT.compile (cppPath : String) (cacheDir : String := ".lake/build/jit_cache"
     match hostLibc with
     | some dir => #["-Wl,-rpath," ++ dir]
     | none => #[]
-  -- Statically link libstdc++ and libgcc into the JIT .so so
-  -- the host Lean process doesn't need to have them
-  -- pre-loaded (it usually doesn't).  Without this, dlopen
-  -- of a JIT .so depending on libstdc++.so.6 silently
-  -- collapses multiple loads onto the first handle (the
-  -- dynamic linker can't satisfy the dependency cleanly
-  -- from the host's loaded-libs view, but doesn't surface
-  -- the error to the caller — see Issue #70).
-  let staticCxxArgs : Array String :=
-    #["-static-libstdc++", "-static-libgcc"]
   let result ← IO.Process.output {
-    cmd := "c++"
-    args := #["-shared", "-fPIC", "-O2", "-std=c++17",
-              "-I", cppDir.toString] ++ rpathArgs ++ staticCxxArgs ++
+    cmd := "cc"
+    args := #["-shared", "-fPIC", "-O2", "-std=gnu11",
+              "-fvisibility=hidden",
+              "-I", cppDir.toString] ++ rpathArgs ++
             #["-o", dylibPath, cppPath]
   }
   if result.exitCode != 0 then

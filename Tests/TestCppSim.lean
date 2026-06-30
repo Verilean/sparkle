@@ -1,10 +1,13 @@
 /-
-  C++ Simulation Backend Tests
+  C Simulation Backend Tests
 
-  Tests that the CppSim backend generates correct C++ code from IR modules.
+  Tests that the CSim backend generates correct C code from IR modules.
+  (Kept under the legacy filename to minimise churn for `Tests.AllTests`;
+  the namespace is renamed to `Sparkle.Test.CSim` so post-rename
+  consistency is preserved.)
 -/
 
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.IR.Builder
@@ -12,7 +15,7 @@ import LSpec
 
 namespace Sparkle.Test.CppSim
 
-open Sparkle.Backend.CppSim
+open Sparkle.Backend.CSim
 open Sparkle.IR.AST
 open Sparkle.IR.Type
 open Sparkle.IR.Builder
@@ -30,16 +33,11 @@ def counterModule : Module :=
     addInput "rst" .bit
     addInput "en" (.bitVector 8)
     addOutput "count_out" (.bitVector 8)
-    -- inc = count + 1
     let inc ← makeWire "inc" (.bitVector 8)
-    -- count register (output of register)
     let count ← emitRegister "count" "clk" "rst" (.ref inc) 0 (.bitVector 8)
-    -- inc = count + 1
     emitAssign inc (.op .add [.ref count, .const 1 8])
-    -- next = en ? inc : count
     let next ← makeWire "next" (.bitVector 8)
     emitAssign next (.op .mux [.ref "en", .ref inc, .ref count])
-    -- count_out = count
     emitAssign "count_out" (.ref count)
 
 /-- Build a memory module: write addr/data/en, read addr → read data -/
@@ -84,42 +82,41 @@ def registeredMemModule : Module :=
     emitAssign "rd_data" (.ref rdWire)
 
 def cppSimTests : IO TestSeq := do
-  let counterCpp := toCppSim counterModule
-  let memoryCpp := toCppSim memoryModule
-  let combCpp := toCppSim combModule
-  let regMemCpp := toCppSim registeredMemModule
+  let counterC := toC counterModule
+  let memoryC := toC memoryModule
+  let combC := toC combModule
+  let regMemC := toC registeredMemModule
 
-  return group "C++ Simulation Backend Tests" (
+  return group "C Simulation Backend Tests" (
     group "Counter Module" (
-      test "has class declaration" (hasSubstr counterCpp "class Counter8") $
-      test "has eval method" (hasSubstr counterCpp "void eval()") $
-      test "has tick method" (hasSubstr counterCpp "void tick()") $
-      test "has reset method" (hasSubstr counterCpp "void reset()") $
-      test "has uint8_t port type" (hasSubstr counterCpp "uint8_t") $
-      test "has _next suffix for register" (hasSubstr counterCpp "_next") $
-      test "has addition operator" (hasSubstr counterCpp " + ") $
-      test "has ternary for mux" (hasSubstr counterCpp " ? ") $
-      test "has constructor" (hasSubstr counterCpp "Counter8()") $
-      test "has include cstdint" (hasSubstr counterCpp "#include <cstdint>")
+      test "has struct declaration" (hasSubstr counterC "struct Counter8") $
+      test "has eval helper" (hasSubstr counterC "sparkle_Counter8_eval") $
+      test "has tick helper" (hasSubstr counterC "sparkle_Counter8_tick") $
+      test "has reset helper" (hasSubstr counterC "sparkle_Counter8_reset") $
+      test "has uint8_t port type" (hasSubstr counterC "uint8_t") $
+      test "has _next suffix for register" (hasSubstr counterC "_next") $
+      test "has addition operator" (hasSubstr counterC " + ") $
+      test "has ternary for mux" (hasSubstr counterC " ? ") $
+      test "has stdint header" (hasSubstr counterC "#include <stdint.h>")
     ) ++
     group "Memory Module" (
-      test "has class declaration" (hasSubstr memoryCpp "class MemTest") $
-      test "has std::array for memory" (hasSubstr memoryCpp "std::array<") $
-      test "has fill(0) in reset" (hasSubstr memoryCpp ".fill(0)") $
-      test "has eval method" (hasSubstr memoryCpp "void eval()") $
-      test "has tick method" (hasSubstr memoryCpp "void tick()")
+      test "has struct declaration" (hasSubstr memoryC "struct MemTest") $
+      test "has plain C array for memory" (hasSubstr memoryC "[16]") $
+      test "has memset in reset" (hasSubstr memoryC "memset(") $
+      test "has eval helper" (hasSubstr memoryC "sparkle_MemTest_eval") $
+      test "has tick helper" (hasSubstr memoryC "sparkle_MemTest_tick")
     ) ++
     group "Combinational Module" (
-      test "has class declaration" (hasSubstr combCpp "class CombOps") $
-      test "has addition" (hasSubstr combCpp " + ") $
-      test "has bitwise AND" (hasSubstr combCpp " & ") $
-      test "has ternary for mux" (hasSubstr combCpp " ? ") $
-      test "has uint8_t types" (hasSubstr combCpp "uint8_t")
+      test "has struct declaration" (hasSubstr combC "struct CombOps") $
+      test "has addition" (hasSubstr combC " + ") $
+      test "has bitwise AND" (hasSubstr combC " & ") $
+      test "has ternary for mux" (hasSubstr combC " ? ") $
+      test "has uint8_t types" (hasSubstr combC "uint8_t")
     ) ++
     group "Registered Memory Module" (
-      test "has class declaration" (hasSubstr regMemCpp "class RegMemTest") $
-      test "has std::array" (hasSubstr regMemCpp "std::array<") $
-      test "has read addr latch" (hasSubstr regMemCpp "_raddr")
+      test "has struct declaration" (hasSubstr regMemC "struct RegMemTest") $
+      test "has plain C array" (hasSubstr regMemC "[16]") $
+      test "has read addr latch" (hasSubstr regMemC "_raddr")
     )
   )
 

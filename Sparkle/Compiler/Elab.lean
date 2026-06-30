@@ -11,7 +11,7 @@ import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -3432,12 +3432,12 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
-    let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
+    let cSrc := Sparkle.Backend.CSim.toCDesign optimized
     let path := str.getString
     if let some dir := (System.FilePath.mk path).parent then
       IO.FS.createDirAll dir
-    IO.FS.writeFile path cpp
-    IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {path}"
+    IO.FS.writeFile path cSrc
+    IO.println s!"Written C simulation ({optimized.modules.length} modules) to {path}"
 
 /-- Evaluate an Array String constant at elaboration time -/
 private unsafe def evalStringArrayImpl (name : Name) : TermElabM (Array String) :=
@@ -3462,16 +3462,17 @@ private def writeDesignCore (declName : Name) (svPath cppPath : String)
   let verilog := toVerilogDesign design
   IO.FS.writeFile svPath verilog
   IO.println s!"Written {design.modules.length} modules to {svPath}"
-  -- CppSim (optimized, no observableWires — keep all _gen_ as members for header)
+  -- CSim (optimized, no observableWires — keep all _gen_ as members for header)
   let optimized := Sparkle.IR.Optimize.optimizeDesign design
-  let cpp := Sparkle.Backend.CppSim.toCppSimDesign optimized
-  IO.FS.writeFile cppPath cpp
-  IO.println s!"Written C++ simulation ({optimized.modules.length} modules) to {cppPath}"
+  let cSrc := Sparkle.Backend.CSim.toCDesign optimized
+  IO.FS.writeFile cppPath cSrc
+  IO.println s!"Written C simulation ({optimized.modules.length} modules) to {cppPath}"
   -- JIT wrapper (optimized with observableWires — demote non-observable to locals)
   let jitOptimized := Sparkle.IR.Optimize.optimizeDesign design observableWires
-  let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT jitOptimized observableWires
-  let jitPath := cppPath.replace "_cppsim.h" "_jit.cpp"
-  IO.FS.writeFile jitPath jitCpp
+  let jitC := Sparkle.Backend.CSim.toCJIT jitOptimized observableWires
+  let jitPath :=
+    (cppPath.replace "_cppsim.h" "_jit.c").replace "_jit.c" "_jit.c"
+  IO.FS.writeFile jitPath jitC
   IO.println s!"Written JIT wrapper to {jitPath}"
 
 /-- Combined command: synthesize once, emit both Verilog and optimized C++ simulation -/
@@ -3522,14 +3523,14 @@ elab "#sim" id:ident : command => do
   let (ns, jitPath, svPath, topName, userInputs, outputs) ← Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
-    let jitCpp := Sparkle.Backend.CppSim.toCppSimJIT optimized
+    let jitC := Sparkle.Backend.CSim.toCJIT optimized
     let verilog := Sparkle.Backend.Verilog.toVerilogDesign optimized
     let ns := simLeanIdent (toString declName.components.getLast!)
-    let jitPath := s!".lake/build/gen/sim/{ns}_jit.cpp"
+    let jitPath := s!".lake/build/gen/sim/{ns}_jit.c"
     let svPath  := s!".lake/build/gen/sim/{ns}.sv"
     try
       IO.FS.createDirAll ".lake/build/gen/sim"
-      IO.FS.writeFile jitPath jitCpp
+      IO.FS.writeFile jitPath jitC
       IO.FS.writeFile svPath  verilog
     catch _ => pure ()
     -- Locate the TOP module by declName.  `synthesizeHierarchical`
@@ -3578,7 +3579,7 @@ elab "#sim" id:ident : command => do
   -- emit multiple `JIT.getOutput` calls reading 32-bit chunks
   -- (the C-side `jit_get_output` already exposes wide ports
   -- as N consecutive switch cases of `uint32_t` slot reads —
-  -- see `emitGetOutputSwitch` in Sparkle/Backend/CppSim.lean).
+  -- see `emitGetOutputSwitch` in Sparkle/Backend/CSim.lean).
   -- Then OR-shift them into the BitVec.  Fixes Issue #75
   -- (silent truncation of > 64-bit JIT output ports).
   let (readLines, _) := outputs.foldl
