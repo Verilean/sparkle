@@ -14,7 +14,7 @@ import Sparkle.Core.JIT
 import Sparkle.Core.OracleSpec
 import Sparkle.Core.MulOracle  -- provides instance : OracleReduction "pcpi_mul"
 import Tools.SVParser.Lower
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 
 open Sparkle.Core.JIT
 open Sparkle.Core.OracleSpec
@@ -63,9 +63,9 @@ def main : IO Unit := do
 
   -- Phase 3: Compile JIT (original, for oracle resolution test)
   IO.print "  Phase 3: JIT compile (original)... "
-  let cppCode := Sparkle.Backend.CppSim.toCppSimJIT design
-  IO.FS.writeFile "/tmp/picorv32_oraclespec_jit.cpp" cppCode
-  let h ← JIT.compileAndLoad "/tmp/picorv32_oraclespec_jit.cpp"
+  let cppCode := Sparkle.Backend.CSim.toCJIT design
+  IO.FS.writeFile "/tmp/picorv32_oraclespec_jit.c" cppCode
+  let h ← JIT.compileAndLoad "/tmp/picorv32_oraclespec_jit.c"
   IO.println "OK"
 
   -- Phase 4: Resolve OracleReduction "pcpi_mul" against JIT

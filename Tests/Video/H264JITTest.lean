@@ -182,7 +182,7 @@ def testNegativeCoeffs (handle : JITHandle) (doneIdx : UInt32) : IO Bool := do
   return pass
 
 def main : IO UInt32 := do
-  let jitPath := ".lake/build/gen/h264/quant_roundtrip_jit.cpp"
+  let jitPath := ".lake/build/gen/h264/quant_roundtrip_jit.c"
 
   IO.println "=== H.264 JIT End-to-End Test ==="
   IO.println s!"JIT: Compiling {jitPath}..."

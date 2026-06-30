@@ -30,14 +30,14 @@
 
 import Lean
 import Tools.SVParser
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.Core.JIT
 import Sparkle.Core.SimParallel
 
 open Lean Elab Command
 open Tools.SVParser.Parser
 open Tools.SVParser.Lower
-open Sparkle.Backend.CppSim
+open Sparkle.Backend.CSim
 open Sparkle.Core.JIT
 open Sparkle.IR.AST
 open Sparkle.IR.Type
@@ -76,8 +76,8 @@ elab "sim!" src:str : command => do
   let rb := "}"
 
   -- Generate JIT C++ and write to a deterministic path
-  let jitCpp := toCppSimJIT design
-  let jitPath := s!".lake/build/gen/sim/{ns}_jit.cpp"
+  let jitCpp := toCJIT design
+  let jitPath := s!".lake/build/gen/sim/{ns}_jit.c"
   -- Write the file at elaboration time
   try
     IO.FS.createDirAll ".lake/build/gen/sim"

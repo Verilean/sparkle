@@ -1,6 +1,6 @@
 import Sparkle.Core.JIT
 import Tools.SVParser.Lower
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 open Sparkle.Core.JIT
 open Tools.SVParser.Lower
 def hexToNat (s : String) : Nat :=
@@ -43,8 +43,8 @@ def main : IO Unit := do
   let soc ← IO.FS.readFile "/tmp/picorv32_soc_m.v"
   let cpu ← IO.FS.readFile "/tmp/picorv32.v"
   let design ← IO.ofExcept (parseAndLowerFlat (soc ++ "\n" ++ cpu))
-  IO.FS.writeFile "/tmp/picorv32_mext_jit.cpp" (Sparkle.Backend.CppSim.toCppSimJIT design)
-  let h ← JIT.compileAndLoad "/tmp/picorv32_mext_jit.cpp"
+  IO.FS.writeFile "/tmp/picorv32_mext_jit.c" (Sparkle.Backend.CSim.toCJIT design)
+  let h ← JIT.compileAndLoad "/tmp/picorv32_mext_jit.c"
 
   -- Test 1: RV32I firmware on M-ext SoC
   IO.print "  RV32I on M-ext SoC... "

@@ -8,7 +8,7 @@
 
 import Tools.SVParser
 import Sparkle.Backend.Verilog
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 import Sparkle.Core.JIT
 
 open Tools.SVParser.AST
@@ -16,7 +16,7 @@ open Tools.SVParser.Parser
 open Tools.SVParser.Lower
 open Sparkle.IR.AST
 open Sparkle.Backend.Verilog
-open Sparkle.Backend.CppSim
+open Sparkle.Backend.CSim
 open Sparkle.Core.JIT
 
 -- The do-block of `main` is large enough that Lean's elaborator hits the
@@ -266,8 +266,8 @@ def main : IO UInt32 := do
     | some m =>
       -- Generate JIT C++
       let jitDesign : Design := { topModule := m.name, modules := [m] }
-      let jitCpp := toCppSimJIT jitDesign
-      let jitPath := "/tmp/sparkle_sv_counter_jit.cpp"
+      let jitCpp := toCJIT jitDesign
+      let jitPath := "/tmp/sparkle_sv_counter_jit.c"
       IO.FS.writeFile jitPath jitCpp
 
       -- JIT compile and load
@@ -326,8 +326,8 @@ def main : IO UInt32 := do
       | none => IO.println "FAIL: no modules"; failed := failed + 1
       | some core =>
         let coreDesign : Design := { topModule := core.name, modules := [core] }
-        let jitCpp := toCppSimJIT coreDesign
-        let cppPath := "/tmp/picorv32_core_jit.cpp"
+        let jitCpp := toCJIT coreDesign
+        let cppPath := "/tmp/picorv32_core_jit.c"
         IO.FS.writeFile cppPath jitCpp
         try
           let handle ← JIT.compileAndLoad cppPath
@@ -386,8 +386,8 @@ def main : IO UInt32 := do
       let flatDesign ← IO.ofExcept (parseAndLowerFlat combined)
 
       -- Generate and compile JIT (flattened — single module with all logic inlined)
-      let jitCpp := toCppSimJIT flatDesign
-      let cppPath := "/tmp/picorv32_soc_jit.cpp"
+      let jitCpp := toCJIT flatDesign
+      let cppPath := "/tmp/picorv32_soc_jit.c"
       IO.FS.writeFile cppPath jitCpp
 
       let handle ← JIT.compileAndLoad cppPath
@@ -454,9 +454,9 @@ def main : IO UInt32 := do
       let cpu ← IO.FS.readFile "/tmp/picorv32.v"
       let combined := soc ++ "\n" ++ cpu
       let flatDesign ← IO.ofExcept (parseAndLowerFlat combined)
-      let jitCpp := toCppSimJIT flatDesign
-      IO.FS.writeFile "/tmp/picorv32_cfirmware_jit.cpp" jitCpp
-      let handle ← JIT.compileAndLoad "/tmp/picorv32_cfirmware_jit.cpp"
+      let jitCpp := toCJIT flatDesign
+      IO.FS.writeFile "/tmp/picorv32_cfirmware_jit.c" jitCpp
+      let handle ← JIT.compileAndLoad "/tmp/picorv32_cfirmware_jit.c"
       JIT.reset handle
 
       -- Load C firmware
@@ -876,10 +876,10 @@ endmodule
   match pcpiMulIR with
   | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
   | .ok design =>
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.cpp" jitCpp
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.c" jitCpp
     try
-      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.cpp"
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.c"
       JIT.reset h
       -- Input mapping: 0=resetn, 1=pcpi_valid, 2=pcpi_insn, 3=pcpi_rs1, 4=pcpi_rs2
       -- Output mapping: 0=pcpi_wr, 1=pcpi_rd, 2=pcpi_wait, 3=pcpi_ready
@@ -917,7 +917,7 @@ endmodule
         -- Debug: dump all outputs at final state
         IO.println s!"FAIL: ready={ready} result=0x{String.ofList (Nat.toDigits 16 result.toNat)} expected=42 cycles={cycles}"
         -- Re-run with tracing to find the issue
-        let h2 ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.cpp"
+        let h2 ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.c"
         JIT.reset h2
         JIT.setInput h2 0 0; for _ in [:2] do JIT.evalTick h2
         JIT.setInput h2 0 1; JIT.setInput h2 1 1
@@ -940,10 +940,10 @@ endmodule
   match pcpiMulIR with
   | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
   | .ok design =>
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.cpp" jitCpp
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.c" jitCpp
     try
-      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.cpp"
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.c"
       JIT.reset h
       JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
       JIT.setInput h 0 1; JIT.setInput h 1 1
@@ -970,10 +970,10 @@ endmodule
   match pcpiMulIR with
   | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
   | .ok design =>
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.cpp" jitCpp
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.c" jitCpp
     try
-      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.cpp"
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.c"
       JIT.reset h
       JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
       JIT.setInput h 0 1; JIT.setInput h 1 1
@@ -1000,10 +1000,10 @@ endmodule
   match pcpiMulIR with
   | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
   | .ok design =>
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.cpp" jitCpp
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_pcpi_mul_jit.c" jitCpp
     try
-      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.cpp"
+      let h ← JIT.compileAndLoad "/tmp/sparkle_pcpi_mul_jit.c"
       JIT.reset h
       JIT.setInput h 0 0; for _ in [:2] do JIT.evalTick h
       JIT.setInput h 0 1
@@ -1084,10 +1084,10 @@ endmodule
   match parseAndLowerFlat mulWrapperVerilog with
   | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
   | .ok design =>
-    let jitCpp := toCppSimJIT design
-    IO.FS.writeFile "/tmp/sparkle_mul_wrapper_jit.cpp" jitCpp
+    let jitCpp := toCJIT design
+    IO.FS.writeFile "/tmp/sparkle_mul_wrapper_jit.c" jitCpp
     try
-      let h ← JIT.compileAndLoad "/tmp/sparkle_mul_wrapper_jit.cpp"
+      let h ← JIT.compileAndLoad "/tmp/sparkle_mul_wrapper_jit.c"
       JIT.reset h
       -- Inputs: 0=resetn, 1=start, 2=rs1, 3=rs2. Outputs: 0=result, 1=done
       JIT.setInput h 0 0; for _ in [:3] do JIT.evalTick h
@@ -1134,7 +1134,7 @@ endmodule
   let jitRun := fun (verilog : String) (setupFn : JITHandle → IO Unit)
                     (cycles : Nat) (getResults : JITHandle → IO (List UInt64)) => do
     let design ← IO.ofExcept (parseAndLowerFlat verilog)
-    let cpp := toCppSimJIT design
+    let cpp := toCJIT design
     IO.FS.writeFile "/tmp/sparkle_pair_test.cpp" cpp
     let h ← JIT.compileAndLoad "/tmp/sparkle_pair_test.cpp"
     JIT.reset h
@@ -1197,7 +1197,7 @@ module bytelane_test (input clk, input resetn,
 endmodule
 "
     let design ← IO.ofExcept (parseAndLowerFlat v)
-    let cpp := toCppSimJIT design
+    let cpp := toCJIT design
     IO.FS.writeFile "/tmp/sparkle_bytelane_test.cpp" cpp
     let h ← JIT.compileAndLoad "/tmp/sparkle_bytelane_test.cpp"
     JIT.reset h
