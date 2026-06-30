@@ -273,8 +273,11 @@ def main : IO UInt32 := do
       -- JIT compile and load
       try
         let handle ← JIT.compileAndLoad jitPath
-        -- Reset
+        -- Reset (zeroes internal registers AND input ports — so we
+        -- have to explicitly deassert the counter's active-low reset
+        -- before stepping, otherwise count_reg is held at 0).
         JIT.reset handle
+        JIT.setInput handle 0 1  -- rst_n = 1 (active-low → deassert)
         -- Run 10 cycles
         for _ in [:10] do
           JIT.evalTick handle
