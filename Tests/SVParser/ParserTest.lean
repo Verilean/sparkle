@@ -1135,8 +1135,8 @@ endmodule
                     (cycles : Nat) (getResults : JITHandle → IO (List UInt64)) => do
     let design ← IO.ofExcept (parseAndLowerFlat verilog)
     let cpp := toCJIT design
-    IO.FS.writeFile "/tmp/sparkle_pair_test.cpp" cpp
-    let h ← JIT.compileAndLoad "/tmp/sparkle_pair_test.cpp"
+    IO.FS.writeFile "/tmp/sparkle_pair_test.c" cpp
+    let h ← JIT.compileAndLoad "/tmp/sparkle_pair_test.c"
     JIT.reset h
     setupFn h
     for _ in [:cycles] do JIT.evalTick h
@@ -1198,8 +1198,8 @@ endmodule
 "
     let design ← IO.ofExcept (parseAndLowerFlat v)
     let cpp := toCJIT design
-    IO.FS.writeFile "/tmp/sparkle_bytelane_test.cpp" cpp
-    let h ← JIT.compileAndLoad "/tmp/sparkle_bytelane_test.cpp"
+    IO.FS.writeFile "/tmp/sparkle_bytelane_test.c" cpp
+    let h ← JIT.compileAndLoad "/tmp/sparkle_bytelane_test.c"
     JIT.reset h
     -- Inputs: 0=resetn, 1=mem_valid, 2=mem_addr, 3=mem_wdata, 4=mem_wstrb
     -- Outputs: 0=mem_ready, 1=mem_rdata
