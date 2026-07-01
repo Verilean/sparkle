@@ -349,6 +349,10 @@ lean_exe «crsf-hw-test» where
   root := `Tests.Drivers.CRSFHWTestMain
   supportInterpreter := true
 
+lean_exe «mil1553-hw-test» where
+  root := `Tests.Drivers.MIL1553HWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
