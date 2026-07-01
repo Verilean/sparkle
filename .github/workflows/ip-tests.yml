@@ -122,6 +122,17 @@ jobs:
               ed25519-verify-test
               p256-ecdsa-test rsa-pss-test secp256k1-test
 
+          # Wave-1 crypto HW modules (byte/word FSM tier).  Split
+          # out into its own group so the ~13-exe `crypto` bucket
+          # doesn't balloon past the per-group timeout when the
+          # AES HW's 128-bit-state sim (~54 s) is queued behind
+          # the existing crypto pure-data exes.
+          - group: crypto-hw
+            exes: >-
+              rlp-hw-test merkle-hw-test hkdf-hw-test
+              sha512-hw-test aes-hw-test aes-gcm-hw-test
+              keccak256-hw-test
+
           - group: zk
             exes: >-
               goldilocks-test merkle-test polynomial-test mini-stark-test
