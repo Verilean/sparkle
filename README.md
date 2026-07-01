@@ -8,6 +8,23 @@
 A type-safe hardware description language that brings dependent types and
 theorem proving to hardware design.
 
+**Live docs & benchmarks:** the project publishes three hosted pages at
+[verilean.github.io/sparkle](https://verilean.github.io/sparkle/):
+
+- 📘 [**Tutorial (JupyterLite)**](https://verilean.github.io/sparkle/tutorial/) —
+  the multi-chapter beginner course, runnable in-browser via xeus-lean.
+  *(Known issue: some environments fail to boot the Lean kernel or load Sparkle;
+  when that happens, read the rendered notebooks under
+  [`docs/tutorial/Notebooks/`](docs/tutorial/Notebooks/) or use the
+  Docker path in [Quick Start](#quick-start) below.)*
+- 🔎 [**API reference (doc-gen4)**](https://verilean.github.io/sparkle/api/) —
+  fully cross-linked documentation for every public definition, generated
+  from the source with `lake build Sparkle:docs`.
+- 📈 **Benchmarks** — CI-driven history of the RV32 JIT vs Verilator numbers:
+  [RV32 SoC](https://verilean.github.io/sparkle/dev/rv32-bench/) ·
+  [LiteX PicoRV32](https://verilean.github.io/sparkle/dev/litex-bench/) ·
+  [Multi-core (8-thread)](https://verilean.github.io/sparkle/dev/multicore-bench/)
+
 **Quick Start:** the multi-chapter [tutorial](docs/tutorial/) walks
 from "hello counter" through Verilog generation, proofs, and FPGA
 bring-up.  Run it in Docker, in your browser via xeus-lean's
@@ -267,7 +284,18 @@ Each IP has a dedicated getting-started recipe in its own doc
 
 ## Documentation
 
-Generate the full API reference locally with doc-gen4:
+- **Hosted (built by CI, always up-to-date with `main`):**
+  - 📘 [Tutorial (JupyterLite)](https://verilean.github.io/sparkle/tutorial/) —
+    in-browser, xeus-lean kernel.  *(Boot issues on some machines — see
+    "Live docs & benchmarks" at the top of this README for the fallback.)*
+  - 🔎 [API reference](https://verilean.github.io/sparkle/api/) —
+    doc-gen4 site covering every public definition.
+  - 📈 Benchmarks —
+    [RV32 SoC](https://verilean.github.io/sparkle/dev/rv32-bench/),
+    [LiteX PicoRV32](https://verilean.github.io/sparkle/dev/litex-bench/),
+    [Multi-core 8-thread](https://verilean.github.io/sparkle/dev/multicore-bench/).
+- **Generate the API reference locally with doc-gen4:**
+
 
 ```bash
 lake -R -Kenv=dev build Sparkle:docs
@@ -483,6 +511,17 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 - Inspired by [Clash HDL](https://clash-lang.org/)
 - Built with [Lean 4](https://lean-lang.org/)
+- Golden-reference cycle-accurate simulation via
+  [Verilator](https://www.veripool.org/verilator/) — used both
+  as the CI co-sim reference and as the "if the JIT disagrees,
+  the JIT is wrong" arbiter throughout the test suite.
+- In-browser Lean via [xeus-lean](https://github.com/xeus/xeus-lean)
+  and [JupyterLite](https://jupyterlite.readthedocs.io/) —
+  powers the hosted tutorial notebooks.
+- Verilog toolchain integration via
+  [iverilog](https://steveicarus.github.io/iverilog/) (round-trip
+  checks) and [Yosys](https://yosyshq.net/yosys/) (used in
+  Ch 8 of the tutorial for equivalence checking / FPGA fit).
 
 ## Community
 
