@@ -448,6 +448,14 @@ lean_exe «ghash-hw-test» where
   root := `Tests.Drivers.GHASHHWTestMain
   supportInterpreter := true
 
+-- Crypto HW modules (Wave 1: byte/word FSM tier).  Each pairs a
+-- pure-data reference in `IP/Crypto/<Name>.lean` with a `circuit
+-- do` HW module in `IP/Crypto/<Name>HW.lean`; behavioural + synth
+-- checks live under `Tests/IP/Crypto/<Name>HWTest.lean`.
+lean_exe «rlp-hw-test» where
+  root := `Tests.Drivers.RLPHWTestMain
+  supportInterpreter := true
+
 lean_exe «probe-ghash» where
   root := `Tests.Drivers.ProbeGhashMain
   supportInterpreter := true
