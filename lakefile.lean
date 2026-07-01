@@ -456,6 +456,10 @@ lean_exe «rlp-hw-test» where
   root := `Tests.Drivers.RLPHWTestMain
   supportInterpreter := true
 
+lean_exe «merkle-hw-test» where
+  root := `Tests.Drivers.MerkleHWTestMain
+  supportInterpreter := true
+
 lean_exe «probe-ghash» where
   root := `Tests.Drivers.ProbeGhashMain
   supportInterpreter := true
