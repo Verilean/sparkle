@@ -472,6 +472,10 @@ lean_exe «aes-hw-test» where
   root := `Tests.Drivers.AESHWTestMain
   supportInterpreter := true
 
+lean_exe «aes-gcm-hw-test» where
+  root := `Tests.Drivers.AESGCMHWTestMain
+  supportInterpreter := true
+
 lean_exe «probe-ghash» where
   root := `Tests.Drivers.ProbeGhashMain
   supportInterpreter := true
