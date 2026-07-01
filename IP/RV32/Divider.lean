@@ -44,25 +44,26 @@ namespace Sparkle.IP.RV32.Divider
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
-/-- Multi-cycle restoring divider — Signal DSL.
+/-- The 8 state registers of the divider, as a right-nested tuple matching
+    `bundleAll!` order: counter, remainder, quotient, divisor, dividend,
+    negate-flag, is-rem-flag, done-flag. -/
+abbrev DivState : Type :=
+  BitVec 6 × BitVec 33 × BitVec 32 × BitVec 33 × BitVec 32 × Bool × Bool × Bool
 
-    Uses Signal.loop with 8 state registers.
+/-- The combinational next-state body of the divider's `Signal.loop`.
 
-    FSM:
-    1. On `start` AND counter=0: latch abs(dividend), abs(divisor),
-       compute negate flag, set counter=33.
-    2. While counter > 1: restoring division shift-subtract step, decrement.
-    3. When counter=1: apply final negation if needed, assert done, set counter=0.
-    4. When counter=0: idle, done=false. -/
-def dividerSignal {dom : DomainConfig}
+    Extracted from `dividerSignal` as a named definition so it can be referenced
+    in correctness proofs (the synthesizer `whnf`-reduces it back to a lambda,
+    so the generated Verilog is unchanged). -/
+def dividerLoopBody {dom : DomainConfig}
     (dividend : Signal dom (BitVec 32))
     (divisor : Signal dom (BitVec 32))
     (start : Signal dom Bool)
     (is_signed : Signal dom Bool)
     (is_rem : Signal dom Bool)
-    (abort : Signal dom Bool := Signal.pure false)
-    : Signal dom (BitVec 32 × Bool) :=
-  let loopState := Signal.loop fun state =>
+    (abort : Signal dom Bool)
+    : Signal dom DivState → Signal dom DivState :=
+  fun state =>
     let counterReg    := projN! state 8 0  -- BitVec 6
     let remainderReg  := projN! state 8 1  -- BitVec 33
     let quotientReg   := projN! state 8 2  -- BitVec 32
@@ -70,7 +71,6 @@ def dividerSignal {dom : DomainConfig}
     let dividendReg   := projN! state 8 4  -- BitVec 32
     let negateReg     := projN! state 8 5  -- Bool
     let isRemReg      := projN! state 8 6  -- Bool
-    let doneReg       := projN! state 8 7  -- Bool
 
     -- Is the divider idle?
     let isIdle := counterReg === 0#6
@@ -113,14 +113,10 @@ def dividerSignal {dom : DomainConfig}
     -- Negate result flag: depends on is_rem
     let negateFlag := Signal.mux is_rem negateRem negateQuot
 
-    -- Divisor == 0 check
-    let divisorIsZero := divisor === 0#32
-
     -- Start condition: start pulse AND idle
     let startAndIdle := start &&& isIdle
 
-    -- Zero-extend absolute dividend and divisor to 33 bits
-    let absDividend33 := 0#1 ++ absDividend
+    -- Zero-extend absolute divisor to 33 bits
     let absDivisor33 := 0#1 ++ absDivisor
 
     -- ====================================================================
@@ -157,32 +153,6 @@ def dividerSignal {dom : DomainConfig}
 
     -- Decrement counter
     let counterDec := counterReg - 1#6
-
-    -- ====================================================================
-    -- FINISHING: Apply negation, output result
-    -- ====================================================================
-
-    -- Final quotient (from register, after last working step)
-    let finalQuot := quotientReg
-    -- Final remainder: lower 32 bits of remainder register
-    let finalRem := remainderReg.map (BitVec.extractLsb' 0 32 ·)
-
-    -- Select quotient or remainder
-    let rawResult := Signal.mux isRemReg finalRem finalQuot
-
-    -- Negate if needed
-    let negResult := 0#32 - rawResult
-    let finalResult := Signal.mux negateReg negResult rawResult
-
-    -- ====================================================================
-    -- Div-by-zero override: when divisor was zero at start
-    -- We handle this by checking divisorReg == 0 at finish time
-    -- ====================================================================
-    let divisorRegIsZero := divisorReg === 0#33
-
-    -- DIV/0 -> 0xFFFFFFFF, REM/0 -> dividend
-    let divByZeroResult := Signal.mux isRemReg dividendReg (Signal.pure 0xFFFFFFFF#32)
-    let finishResult := Signal.mux divisorRegIsZero divByZeroResult finalResult
 
     -- ====================================================================
     -- State update mux: idle/start -> working -> finishing -> idle
@@ -247,8 +217,26 @@ def dividerSignal {dom : DomainConfig}
       Signal.register false doneNext
     ]
 
+/-- Multi-cycle restoring divider — Signal DSL.
+
+    Uses `Signal.loop` (body: `dividerLoopBody`) with 8 state registers.
+
+    FSM:
+    1. On `start` AND counter=0: latch abs(dividend), abs(divisor),
+       compute negate flag, set counter=33.
+    2. While counter > 1: restoring division shift-subtract step, decrement.
+    3. When counter=1: apply final negation if needed, assert done, set counter=0.
+    4. When counter=0: idle, done=false. -/
+def dividerSignal {dom : DomainConfig}
+    (dividend : Signal dom (BitVec 32))
+    (divisor : Signal dom (BitVec 32))
+    (start : Signal dom Bool)
+    (is_signed : Signal dom Bool)
+    (is_rem : Signal dom Bool)
+    (abort : Signal dom Bool := Signal.pure false)
+    : Signal dom (BitVec 32 × Bool) :=
+  let loopState := Signal.loop (dividerLoopBody dividend divisor start is_signed is_rem abort)
   -- Extract outputs from loop state
-  let counterOut := projN! loopState 8 0
   let doneOut := projN! loopState 8 7
   let quotientOut := projN! loopState 8 2
   let remainderOut := projN! loopState 8 1
@@ -256,9 +244,6 @@ def dividerSignal {dom : DomainConfig}
   let isRemOut := projN! loopState 8 6
   let divisorRegOut := projN! loopState 8 3
   let dividendRegOut := projN! loopState 8 4
-
-  -- Recompute final result outside loop for output
-  let isFinishingOut := counterOut === 1#6
 
   -- The done register holds the finishing flag from last cycle
   -- When done=true, the registers hold the final values

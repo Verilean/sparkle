@@ -79,14 +79,24 @@ jobs:
         mkdir -p "$WORK"
         cd "$WORK"
 
-        # Pin to Sparkle main's lean-toolchain so we exercise the same
+        # Pin to Sparkle's lean-toolchain so we exercise the same
         # toolchain end-users would pick up.  Fetch from the SHA we
         # just checked out so a downstream PR can test its own changes
         # before they land on main.
+        #
+        # For a PR opened from a fork, `head.sha` is a commit that only
+        # exists in the FORK, and `github.repository` is the BASE repo —
+        # so pinning `git = <base>` / `rev = <fork sha>` makes `lake
+        # update` fetch a SHA the base repo doesn't have, and the job
+        # goes red without ever compiling the PR.  Use the PR head repo's
+        # clone URL + full_name instead, falling back to this repo for
+        # push events (where head.* is empty).
+        REPO_URL="${{ github.event.pull_request.head.repo.clone_url || format('https://github.com/{0}.git', github.repository) }}"
+        REPO_SLUG="${{ github.event.pull_request.head.repo.full_name || github.repository }}"
         SHA="${{ github.event.pull_request.head.sha || github.sha }}"
-        curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/$SHA/lean-toolchain" \
+        curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$SHA/lean-toolchain" \
           > lean-toolchain
-        echo "Pinned lean-toolchain to: $(cat lean-toolchain)"
+        echo "Pinned lean-toolchain to: $(cat lean-toolchain)  (from $REPO_SLUG@$SHA)"
 
         cat > lakefile.toml <<EOF
         name = "my-blinky"
@@ -94,7 +104,7 @@ jobs:
 
         [[require]]
         name = "sparkle"
-        git = "https://github.com/${{ github.repository }}.git"
+        git = "$REPO_URL"
         rev = "$SHA"
 
         [[lean_lib]]
@@ -161,6 +171,22 @@ jobs:
         lake build
         end=$(date +%s)
         echo "lake_build_secs=$((end - start))" >> "$GITHUB_ENV"
+
+    # The build above only links the precompiled `Sparkle` shared lib,
+    # whose `moreLinkArgs` are already per-platform guarded.  It does
+    # NOT exercise `sparkleDynlibLinkArgs` (the IP.RV32 / IP.BitNet
+    # monolithic dynlib), which is the exact thing flagged as
+    # potentially Linux-only: it must also link under Apple ld64, where
+    # per-module dynlibs are `.dylib` and the GNU `-l:NAME.so`,
+    # `--no-as-needed`, and `$ORIGIN`-rpath flags are all rejected.
+    # Build an IP lib from the Sparkle dependency to link that path
+    # explicitly.  macOS-only: Linux already covers IP.RV32 in
+    # build.yml, and this is the platform the args needed guarding for.
+    - name: "lake build sparkle/IP.RV32 (exercise IP dynlib link path)"
+      if: matrix.os == 'macos-latest'
+      run: |
+        cd "$WORK"
+        lake build sparkle/IP.RV32
 
     - name: "lake exe blinky (run the user binary)"
       run: |
@@ -275,17 +301,22 @@ jobs:
         WORK="$HOME/my-blinky"
         mkdir -p "$WORK"
         cd "$WORK"
+        # Use the PR head repo's clone URL + full_name (fork-aware),
+        # falling back to this repo for push events.  See the matrix
+        # job above for why pinning the base repo + a fork SHA fails.
+        REPO_URL="${{ github.event.pull_request.head.repo.clone_url || format('https://github.com/{0}.git', github.repository) }}"
+        REPO_SLUG="${{ github.event.pull_request.head.repo.full_name || github.repository }}"
         SHA="${{ github.event.pull_request.head.sha || github.sha }}"
-        curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/$SHA/lean-toolchain" \
+        curl -fsSL "https://raw.githubusercontent.com/$REPO_SLUG/$SHA/lean-toolchain" \
           > lean-toolchain
-        echo "Pinned lean-toolchain to: $(cat lean-toolchain)"
+        echo "Pinned lean-toolchain to: $(cat lean-toolchain)  (from $REPO_SLUG@$SHA)"
         cat > lakefile.toml <<EOF
         name = "my-blinky"
         defaultTargets = ["MyBlinky"]
 
         [[require]]
         name = "sparkle"
-        git = "https://github.com/${{ github.repository }}.git"
+        git = "$REPO_URL"
         rev = "$SHA"
 
         [[lean_lib]]
