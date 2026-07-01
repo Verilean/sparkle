@@ -464,6 +464,10 @@ lean_exe «hkdf-hw-test» where
   root := `Tests.Drivers.HKDFHWTestMain
   supportInterpreter := true
 
+lean_exe «sha512-hw-test» where
+  root := `Tests.Drivers.SHA512HWTestMain
+  supportInterpreter := true
+
 lean_exe «probe-ghash» where
   root := `Tests.Drivers.ProbeGhashMain
   supportInterpreter := true
