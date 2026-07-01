@@ -41,15 +41,85 @@ patterns and a worked Round-Robin Arbiter example (10 formal proofs).
 Sparkle ships with production-grade IP cores — each with pure Lean specs,
 formal proofs, and synthesizable Signal DSL implementations.
 
+### Compute accelerators & CPUs
+
 | IP | Description | Proofs | Synth | Details |
 |----|-------------|:------:|:-----:|---------|
-| [**BitNet b1.58**](docs/ip-catalog/BitNet.md) | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle) | 60+ theorems | Full | 202K / 99K cells |
+| [**BitNet b1.58**](docs/ip-catalog/BitNet.md) | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle). Standalone [FPGA fit + LTL investigation](docs/ip-catalog/BitNet_FPGA_Status.md) | 60+ theorems | Full | 202K / 99K cells |
 | [**YOLOv8n-WorldV2**](docs/ip-catalog/YOLOv8.md) | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
 | [**RV32IMA SoC**](docs/ip-catalog/RV32.md) | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 14.2M cyc/s (1.63x Verilator). 102 formal proofs | 102 theorems | Full | 122 registers |
-| [**AXI4-Lite Bus**](docs/ip-catalog/RV32.md) | Verified AXI4-Lite slave/master. Protocol compliance (valid persistence, deadlock-free), synthesizable | 14 theorems | Full | 23 sim tests |
 | [**SV→Sparkle Transpiler**](docs/ip-catalog/RV32.md#sv-transpiler) | Parse Verilog → JIT simulation. LiteX SoC at 18.1M cyc/s (1.72x Verilator). Verified reverse synthesis (2.14x speedup, zero sorry). 8-core parallel 11.9x Verilator. Timer oracle 9,900x. `OracleReduction` type class, 44 tests | 20+ theorems | JIT | 44 tests |
-| [**H.264 Codec**](docs/ip-catalog/H264.md) | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. 14 modules | 15+ theorems | Full | 709-byte MP4 output |
-| [**CDC Infrastructure**](docs/architecture/CDC.md) | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback, 8-core parallel runner (3.87x speedup). JIT.runCDC | 12 theorems | C++ | N-thread parallel |
+
+### [Networking stack](docs/ip-catalog/Networking.md) (new — PR #66)
+
+Full UART → SLIP → IPv4 → TCP → HTTP round-trip, live on Tang Nano 50K.
+`lake exe usb-webserver-jit-test` runs a GET request end-to-end in seconds.
+See [`docs/ip-catalog/Networking.md`](docs/ip-catalog/Networking.md) for
+the full layer-stack breakdown, bring-up notes, and sim entry points.
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**UART / SLIP**](IP/Net/UART.lean) | 8-N-1 UART RX/TX (configurable `bitDiv`) + RFC 1055 SLIP framer/deframer. Bring-up doc for Tang Nano 50K | — | Full | LUT 2% |
+| [**IPv4 / ARP / ICMP**](IP/Net/IPv4.lean) | RFC 791 IPv4 parser + emitter, ARP requester + responder, ICMP echo. Byte-exact against reference | 5+ theorems | Full | iverilog round-trip |
+| [**TCP**](IP/Net/TCP.lean) | Header + connection state machine + loopback. Includes retransmit / dup-ACK path | 3 theorems | Full | Cycle-accurate sim |
+| [**HTTP/1.0**](IP/Net/HTTP.lean) | Emitter + parser + iverilog loopback (`gotRequest` at cycle 48 in sim) | — | Full | GET/POST |
+| [**USB Web server**](IP/Net/UsbWebServer.lean) | End-to-end pipeline (UART→SLIP→IPv4→TCP→HTTP and back).  Emits `HTTP/1.0 200 OK\r\n\r\nHello, Sparkle!` on any `GET` | — | Full | Tang Nano 50K, LUT 2%, BRAM 0% |
+| [**memcached ASCII server**](IP/Net/MemcachedServer.lean) | Tier-1 (`get` / `set` / `add` / `delete`, key ≤ 8 B / value ≤ 16 B), BRAM-backed KV store + byte-stream FSM. Byte-exact against Lean reference oracle | 2 theorems | Full | LUT 1% / BRAM 25% / Fmax ≈ 57 MHz |
+| [**Ethernet framing**](IP/Net/Ethernet.lean) | MAC framer + RX / TX header extract + payload streaming.  DMAC / SMAC / EtherType recovery cycle-accurate | — | Full | iverilog round-trip |
+| [**CRC32**](IP/Net/CRC32.lean) | Bit-serial IEEE 802.3 CRC-32 engine.  Reference vs HW parity checked in `crc32-jit-test` | — | Full | 1 byte / cycle |
+
+### Bus & interconnect
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**AXI4-Lite Bus**](docs/ip-catalog/RV32.md) | Verified AXI4-Lite slave/master. Protocol compliance (valid persistence, deadlock-free), synthesizable | 14 theorems | Full | 23 sim tests |
+| [**AXI4 Full**](IP/Bus/AXI4/) | Multi-beat burst read/write + interleaving | — | Full | tested against RV32 SoC |
+| [**PCIe TLP**](IP/Bus/PCIe.lean) | Header emit + parse (Memory Read/Write, config space) + HFT loopback structural check | — | Full | 12-byte TLP round-trip |
+| [**CAN / CAN-FD / CANopen / DroneCAN**](IP/Bus/CAN.lean) | Automotive bus stack (bit-stuffing, CRC, arbitration, error frames).  DroneCAN HW node included | — | Full | serial-bus / avionics-bus tests |
+| [**LIN / I²C / SPI**](IP/Bus/LIN.lean) | Master + slave HW for the common embedded serial protocols | — | Full | `serial-bus-test` |
+| [**SBUS / CRSF**](IP/Bus/SBUS.lean) | Radio-control receiver protocols (drone control links) | — | Full | drone bring-up |
+| [**MIL-STD-1553B**](IP/Bus/MIL1553.lean) | Avionics dual-redundant bus (Manchester encode/decode, RT/BC/BM) | — | Full | `avionics-bus-test` |
+
+### Crypto & wallets
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**AES / AES-GCM / GHASH**](IP/Crypto/AES.lean) | AES-128/192/256 + GCM AEAD + hardware GHASH.  Byte-exact against NIST test vectors | — | Full | `ghash-hw-test`, hardware GF(2¹²⁸) |
+| [**SHA-256 / SHA-512 / Keccak-256**](IP/Crypto/SHA256.lean) | Byte-exact hash primitives + HW pipeline (SHA-256) | — | Sim + HW SHA-256 | NIST vectors |
+| [**Ed25519 / X25519**](IP/Crypto/Ed25519Sign.lean) | Ed25519 sign/verify + X25519 scalar mult (RFC 7748). Field theorems | 5+ theorems | Sim | RFC 8032 vectors |
+| [**P-256 / secp256k1 ECDSA**](IP/Crypto/P256ECDSA.lean) | NIST P-256 + secp256k1 ECDSA (Bitcoin/Ethereum curve) | — | Sim | wycheproof |
+| [**RSA-PSS**](IP/Crypto/RSAPSS.lean) | RSA signature verify (PKCS #1 v2.2 PSS) | — | Sim | webPKI test set |
+| [**HKDF**](IP/Crypto/HKDF.lean) | RFC 5869 HKDF extract + expand (SHA-256 backend) | — | Sim | TLS 1.3 dep |
+| [**Ethereum wallet stack**](IP/Crypto/EthWallet.lean) | BIP-32 / BIP-39 seed + HD wallet, RLP encoder, EIP-1559 tx, ERC-20 ABI | — | Sim | Byte-exact vs reference clients |
+
+### Security (TLS 1.3)
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**TLS 1.3**](IP/TLS/Client.lean) | Full TLS 1.3 client + server (record layer, handshake, key schedule, X.509 verify).  AES-128-GCM + Ed25519 cipher suite | 3 theorems | Sim | Interop vs OpenSSL fixtures |
+| [**HTTPS demo**](IP/Net/HFTOverTLS.lean) | HFT-over-TLS transport (TCP + TLS + custom framing) | — | Sim | Loopback demo |
+
+### Zero-knowledge
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**Merkle tree / polynomial commitment**](IP/Crypto/Merkle.lean) | Merkle-tree opening + polynomial evaluation with 8 honest openings round-trip | — | Sim | `polynomial-test`, `merkle-test` |
+| [**Mini-STARK verifier**](IP/Crypto/MiniSTARK.lean) | STARK proof verify (Goldilocks field, FRI, low-degree extension) | — | Sim | 8-opening verifier |
+| [**Goldilocks field**](IP/Crypto/Goldilocks.lean) | p = 2⁶⁴ − 2³² + 1 field arithmetic | — | Sim | STARK dep |
+
+### Video
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**H.264 Codec**](docs/ip-catalog/H264.md) | Baseline Profile encoder + decoder. Hardware MP4 muxer produces playable files. CAVLC now byte-exact vs Lean reference for all 4×4 blocks (fixed in PR #66) | 15+ theorems | Full | 709-byte MP4 output |
+
+### Verified infrastructure
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**CDC Infrastructure**](docs/architecture/CDC.md) | Lock-free multi-clock simulation. SPSC queue (210M ops/sec), rollback, 8-core parallel runner (3.87x on 8 cores).  Since PR #66, dispatches through the JIT vtable — no more per-symbol dlsym (`Issue #70`) | 12 theorems | C | N-thread parallel |
+| [**Drone SoC (bring-up)**](docs/ip-catalog/Drone_SoC_Status.md) | Multi-IP drone/humanoid SoC status pages (DroneCAN + SBUS + CRSF wired to RV32) | | Status page | — |
+| [**Humanoid SoC (bring-up)**](docs/ip-catalog/Humanoid_SoC_Status.md) | Sensor / actuator bus fabric for humanoid platform | | Status page | — |
 
 ---
 
