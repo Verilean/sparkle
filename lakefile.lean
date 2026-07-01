@@ -341,6 +341,10 @@ lean_exe «spi-hw-test» where
   root := `Tests.Drivers.SPIHWTestMain
   supportInterpreter := true
 
+lean_exe «sbus-hw-test» where
+  root := `Tests.Drivers.SBUSHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
