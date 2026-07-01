@@ -129,6 +129,8 @@ import Tests.IP.Bus.CRSFHWTest
 import Tests.IP.Bus.MIL1553HWTest
 import Tests.IP.Bus.CANopenHWTest
 import Tests.IP.Bus.DroneCANHWTest
+-- Crypto HW modules (Wave 1: byte/word FSM tier).
+import Tests.IP.Crypto.RLPHWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -533,6 +535,9 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Bus.CANopenHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Bus.DroneCANHWTest.main
+  IO.println ""
+  -- Crypto HW module behavioural mains (Wave 1: byte/word FSM tier).
+  Sparkle.Tests.IP.Crypto.RLPHWTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
