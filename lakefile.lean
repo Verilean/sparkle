@@ -333,6 +333,10 @@ lean_exe «lin-hw-test» where
   root := `Tests.Drivers.LINHWTestMain
   supportInterpreter := true
 
+lean_exe «i2c-hw-test» where
+  root := `Tests.Drivers.I2CHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
