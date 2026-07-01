@@ -48,7 +48,7 @@ extern_lib «sparkle_jit» pkg := do
 --   ls .lake/build/lib/lean/sparkle_Sparkle*.so
 -- A missing entry shows up as an undefined-symbol load error naming the module.
 def sparkleModuleDeps : Array String := #[
-    "-l:sparkle_Sparkle_Backend_CppSim.so",
+    "-l:sparkle_Sparkle_Backend_CSim.so",
     "-l:sparkle_Sparkle_Backend_VCD.so",
     "-l:sparkle_Sparkle_Backend_Verilog.so",
     "-l:sparkle_Sparkle_Compiler_DRC.so",
@@ -65,6 +65,7 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Core_Oracle.so",
     "-l:sparkle_Sparkle_Core_OracleSpec.so",
     "-l:sparkle_Sparkle_Core_Signal.so",
+    "-l:sparkle_Sparkle_Core_SignalLeavesDerive.so",
     "-l:sparkle_Sparkle_Core_SimParallel.so",
     "-l:sparkle_Sparkle_Core_SimPureLean.so",
     "-l:sparkle_Sparkle_Core_Sim.so",
