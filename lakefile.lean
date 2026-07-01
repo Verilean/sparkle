@@ -329,6 +329,10 @@ lean_exe «can-hw-test» where
   root := `Tests.Drivers.CANHWTestMain
   supportInterpreter := true
 
+lean_exe «lin-hw-test» where
+  root := `Tests.Drivers.LINHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
