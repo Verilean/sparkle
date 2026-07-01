@@ -67,6 +67,19 @@ jobs:
               can-test can-hw-test canopen-test dronecan-test
               serial-bus-test avionics-bus-test
 
+          - group: bus-hw
+            # HW (`circuit do`) modules for the 8 bus/serial IPs
+            # whose pure-data references live in
+            # `IP/Bus/{LIN,I2C,SPI,SBUS,CRSF,MIL1553,CANopen,
+            # DroneCAN}.lean`.  Each exe validates a
+            # behavioural cycle-by-cycle equivalence (or
+            # trajectory sanity for FSMs) and ships a
+            # `#synthesizeVerilog` check inside its Test file.
+            exes: >-
+              lin-hw-test i2c-hw-test spi-hw-test
+              sbus-hw-test crsf-hw-test mil1553-hw-test
+              canopen-hw-test dronecan-hw-test
+
           - group: ethernet
             exes: >-
               crc32-test ethernet-test ethernet-tx-test

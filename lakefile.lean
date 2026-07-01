@@ -329,6 +329,38 @@ lean_exe «can-hw-test» where
   root := `Tests.Drivers.CANHWTestMain
   supportInterpreter := true
 
+lean_exe «lin-hw-test» where
+  root := `Tests.Drivers.LINHWTestMain
+  supportInterpreter := true
+
+lean_exe «i2c-hw-test» where
+  root := `Tests.Drivers.I2CHWTestMain
+  supportInterpreter := true
+
+lean_exe «spi-hw-test» where
+  root := `Tests.Drivers.SPIHWTestMain
+  supportInterpreter := true
+
+lean_exe «sbus-hw-test» where
+  root := `Tests.Drivers.SBUSHWTestMain
+  supportInterpreter := true
+
+lean_exe «crsf-hw-test» where
+  root := `Tests.Drivers.CRSFHWTestMain
+  supportInterpreter := true
+
+lean_exe «mil1553-hw-test» where
+  root := `Tests.Drivers.MIL1553HWTestMain
+  supportInterpreter := true
+
+lean_exe «canopen-hw-test» where
+  root := `Tests.Drivers.CANopenHWTestMain
+  supportInterpreter := true
+
+lean_exe «dronecan-hw-test» where
+  root := `Tests.Drivers.DroneCANHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
