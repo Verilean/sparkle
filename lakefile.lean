@@ -353,6 +353,10 @@ lean_exe «mil1553-hw-test» where
   root := `Tests.Drivers.MIL1553HWTestMain
   supportInterpreter := true
 
+lean_exe «canopen-hw-test» where
+  root := `Tests.Drivers.CANopenHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
