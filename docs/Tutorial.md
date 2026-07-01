@@ -21,6 +21,13 @@ A step-by-step guide from "Hello World" to formal verification.
 
 ## Prerequisites
 
+A **glibc ≥ 2.34** Linux (Ubuntu 22.04+, Debian 12+, Fedora 35+),
+macOS, or WSL2.  On older systems (Ubuntu 20.04 / glibc 2.31)
+`lake build` aborts with `cadical: … version 'GLIBC_2.34' not
+found` — `cadical` (the SAT solver in the Lean 4.28 toolchain,
+used by `bv_decide` / `omega`) needs glibc 2.34.  It's a
+Lean-toolchain requirement; upgrade the OS or use Docker.
+
 ```bash
 git clone https://github.com/Verilean/sparkle
 cd sparkle
