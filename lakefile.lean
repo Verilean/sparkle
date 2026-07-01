@@ -337,6 +337,10 @@ lean_exe «i2c-hw-test» where
   root := `Tests.Drivers.I2CHWTestMain
   supportInterpreter := true
 
+lean_exe «spi-hw-test» where
+  root := `Tests.Drivers.SPIHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
