@@ -345,6 +345,10 @@ lean_exe «sbus-hw-test» where
   root := `Tests.Drivers.SBUSHWTestMain
   supportInterpreter := true
 
+lean_exe «crsf-hw-test» where
+  root := `Tests.Drivers.CRSFHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
