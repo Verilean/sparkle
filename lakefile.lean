@@ -448,6 +448,38 @@ lean_exe «ghash-hw-test» where
   root := `Tests.Drivers.GHASHHWTestMain
   supportInterpreter := true
 
+-- Crypto HW modules (Wave 1: byte/word FSM tier).  Each pairs a
+-- pure-data reference in `IP/Crypto/<Name>.lean` with a `circuit
+-- do` HW module in `IP/Crypto/<Name>HW.lean`; behavioural + synth
+-- checks live under `Tests/IP/Crypto/<Name>HWTest.lean`.
+lean_exe «rlp-hw-test» where
+  root := `Tests.Drivers.RLPHWTestMain
+  supportInterpreter := true
+
+lean_exe «merkle-hw-test» where
+  root := `Tests.Drivers.MerkleHWTestMain
+  supportInterpreter := true
+
+lean_exe «hkdf-hw-test» where
+  root := `Tests.Drivers.HKDFHWTestMain
+  supportInterpreter := true
+
+lean_exe «sha512-hw-test» where
+  root := `Tests.Drivers.SHA512HWTestMain
+  supportInterpreter := true
+
+lean_exe «aes-hw-test» where
+  root := `Tests.Drivers.AESHWTestMain
+  supportInterpreter := true
+
+lean_exe «aes-gcm-hw-test» where
+  root := `Tests.Drivers.AESGCMHWTestMain
+  supportInterpreter := true
+
+lean_exe «keccak256-hw-test» where
+  root := `Tests.Drivers.Keccak256HWTestMain
+  supportInterpreter := true
+
 lean_exe «probe-ghash» where
   root := `Tests.Drivers.ProbeGhashMain
   supportInterpreter := true

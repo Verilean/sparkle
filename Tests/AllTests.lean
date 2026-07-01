@@ -129,6 +129,14 @@ import Tests.IP.Bus.CRSFHWTest
 import Tests.IP.Bus.MIL1553HWTest
 import Tests.IP.Bus.CANopenHWTest
 import Tests.IP.Bus.DroneCANHWTest
+-- Crypto HW modules (Wave 1: byte/word FSM tier).
+import Tests.IP.Crypto.RLPHWTest
+import Tests.IP.Crypto.MerkleHWTest
+import Tests.IP.Crypto.HKDFHWTest
+import Tests.IP.Crypto.SHA512HWTest
+import Tests.IP.Crypto.AESHWTest
+import Tests.IP.Crypto.AESGCMHWTest
+import Tests.IP.Crypto.Keccak256HWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -533,6 +541,21 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Bus.CANopenHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Bus.DroneCANHWTest.main
+  IO.println ""
+  -- Crypto HW module behavioural mains (Wave 1: byte/word FSM tier).
+  Sparkle.Tests.IP.Crypto.RLPHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.MerkleHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HKDFHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA512HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESGCMHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Keccak256HWTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
