@@ -934,6 +934,34 @@ jobs:
                       cmake --install /work/.wasm-rebuild \
                  && [ -f "$CAND/conda-meta/history" ]
               then
+                # FIX (issue #85): the rebuild installs xeus-lean'\''s
+                # SOURCE kernel.json, whose `argv[0]` is the bare
+                # relative string "xlean".  jupyterlite-xeus'\''s
+                # `get_kernel_binaries` (add_on.py) then looks for
+                # "xlean.js" / "xlean.wasm" relative to `jupyter lite
+                # build`'\''s cwd (/work) — which don'\''t exist there —
+                # warns "kernel binaries not found for xlean", drops
+                # the kernel from the manifest, and the deployed
+                # `xeus/kernels.json` comes out `[]` → the lab shows
+                # "No Kernel".  The actual binaries are at
+                # `$CAND/bin/xlean.{js,wasm}`, so rewrite argv[0] to
+                # that absolute path.  (The stock image env'\''s
+                # kernel.json already uses an absolute
+                # `/opt/.../bin/xlean`; `cmake --install` clobbered it
+                # with the relative source template.)
+                KJSON="$CAND/share/jupyter/kernels/xlean/kernel.json"
+                if [ -f "$KJSON" ] && [ -f "$CAND/bin/xlean.js" ]; then
+                  # The rebuild installs xeus-lean'\''s SOURCE
+                  # kernel.json, whose argv is the bare relative
+                  # string "xlean" on its own line.  Rewrite that one
+                  # line to the absolute install path so
+                  # jupyterlite-xeus'\''s get_kernel_binaries resolves
+                  # xlean.js / xlean.wasm (no jq in the image; sed on
+                  # the standalone "xlean" argv line is quote-safe).
+                  sed -i "s|^\( *\)\"xlean\"\( *\)$|\1\"$CAND/bin/xlean\"\2|" "$KJSON"
+                  echo "  rewrote $KJSON argv[0] -> $CAND/bin/xlean"
+                  grep -A1 '"argv"' "$KJSON" || true
+                fi
                 SPARKLE_PREFIX="$CAND"
                 echo "Sparkle-enabled kernel installed at $SPARKLE_PREFIX"
               else
