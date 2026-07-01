@@ -134,6 +134,7 @@ import Tests.IP.Crypto.RLPHWTest
 import Tests.IP.Crypto.MerkleHWTest
 import Tests.IP.Crypto.HKDFHWTest
 import Tests.IP.Crypto.SHA512HWTest
+import Tests.IP.Crypto.AESHWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -547,6 +548,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.HKDFHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.SHA512HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.AESHWTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
