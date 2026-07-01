@@ -48,7 +48,7 @@ extern_lib «sparkle_jit» pkg := do
 --   ls .lake/build/lib/lean/sparkle_Sparkle*.so
 -- A missing entry shows up as an undefined-symbol load error naming the module.
 def sparkleModuleDeps : Array String := #[
-    "-l:sparkle_Sparkle_Backend_CppSim.so",
+    "-l:sparkle_Sparkle_Backend_CSim.so",
     "-l:sparkle_Sparkle_Backend_VCD.so",
     "-l:sparkle_Sparkle_Backend_Verilog.so",
     "-l:sparkle_Sparkle_Compiler_DRC.so",
@@ -65,6 +65,7 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Core_Oracle.so",
     "-l:sparkle_Sparkle_Core_OracleSpec.so",
     "-l:sparkle_Sparkle_Core_Signal.so",
+    "-l:sparkle_Sparkle_Core_SignalLeavesDerive.so",
     "-l:sparkle_Sparkle_Core_SimParallel.so",
     "-l:sparkle_Sparkle_Core_SimPureLean.so",
     "-l:sparkle_Sparkle_Core_Sim.so",
@@ -148,20 +149,36 @@ def sparkleDynlibLinkArgs : Array String :=
 -- against Sparkle's own package dir during `lake build` here; a
 -- separate downstream consumer that precompiles Sparkle may need an
 -- absolute path (see commit 67d2c73 for that history).
+-- Absolute path to this package's build dir, captured at lakefile
+-- elaboration.  `decide`-free: `__dir__` is the directory containing
+-- *this* lakefile, so `<pkgdir>/.lake/build/c_src` is correct whether
+-- Sparkle is the root package (`lake build` here) OR a git dependency
+-- of a downstream project (`<downstream>/.lake/packages/sparkle/…`).
+-- Using this instead of a relative `./.lake/build/c_src` is what keeps
+-- the barrier/jit force_load args from breaking downstream consumers,
+-- whose CWD-relative `./.lake/build/c_src` is their own empty build dir.
+def sparkleCSrcDir : System.FilePath :=
+  (__dir__ : System.FilePath) / ".lake" / "build" / "c_src"
+
 lean_lib «Sparkle» where
   precompileModules := true
+  -- Force the two extern archives whole-into the precompiled
+  -- `libsparkle_Sparkle.so` so it self-resolves `sparkle_cache_get` /
+  -- `sparkle_eval_at` (the `@[extern]` LICM barriers `Signal.loop`'s
+  -- memoization uses) regardless of dlopen load order.  Without this the
+  -- interpreter/LSP fails to load the `.so` with an undefined-symbol
+  -- error.  The path is ABSOLUTE (`sparkleCSrcDir`) so a downstream
+  -- consumer that inherits these args still finds Sparkle's own populated
+  -- c_src — the relative form (PR #65 `c59820c`) broke downstream-smoke.
   moreLinkArgs :=
+    let barrier := (sparkleCSrcDir / "libsparkle_barrier.a").toString
+    let jit := (sparkleCSrcDir / "libsparkle_jit.a").toString
     if System.Platform.isOSX then
-      #["-Wl,-force_load,.lake/build/c_src/libsparkle_barrier.a",
-        "-Wl,-force_load,.lake/build/c_src/libsparkle_jit.a"]
+      #[s!"-Wl,-force_load,{barrier}", s!"-Wl,-force_load,{jit}"]
     else if System.Platform.isWindows then
       #[]
     else
-      #["-L", "./.lake/build/c_src",
-        "-Wl,--whole-archive",
-        "-l:libsparkle_barrier.a",
-        "-l:libsparkle_jit.a",
-        "-Wl,--no-whole-archive"]
+      #["-Wl,--whole-archive", barrier, jit, "-Wl,--no-whole-archive"]
 
 lean_lib «IP.BitNet» where
   roots := #[`IP.BitNet]

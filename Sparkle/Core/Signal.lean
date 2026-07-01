@@ -807,8 +807,50 @@ where
       | .ok v => v
       | .error _ => default⟩
 
+/-- The pure fixpoint value of a feedback loop, computed by strong
+    recursion on the time index.
+
+    To compute the value at time `t`, we apply the loop body `f` to a
+    signal that recursively supplies the already-computed values for
+    every earlier cycle `i < t` and `default` at `t` and beyond.  For a
+    *strictly causal* `f` (every feedback path runs through a
+    `Signal.register`, so the output at `t` reads only inputs strictly
+    before `t`), the `default` placeholder at `≥ t` is never observed,
+    so this is exactly the loop's fixpoint — see `loop_unfold` in
+    `Sparkle/Verification/LoopProps.lean`, now a *theorem* rather than
+    an axiom.
+
+    The `if i < t` guard makes the recursion well-founded (`t`
+    strictly decreases), so this is a total, axiom-free definition.
+
+    Runtime note: this naive form recomputes the `< t` prefix on every
+    cycle (O(t) work per cycle → O(n²) for an n-cycle sim).  The
+    `@[implemented_by loopImpl]` on `loop` below swaps in the
+    memoizing `loopImpl` for *execution*, keeping O(n); the pure
+    `loopGo`/`loop` definitions are what the kernel and the proofs
+    see. -/
+def loopGo {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) (t : Nat) : α :=
+  (f ⟨fun i => if i < t then loopGo f i else default⟩).val t
+termination_by t
+
+/-- Fixed-point combinator for feedback loops.
+
+    Logically this is the pure `loopGo` fixpoint (no axiom, no
+    `opaque`, no `unsafe`).  For *execution* it is compiled to the
+    memoizing `loopImpl` via `@[implemented_by]`, which keeps
+    cycle-by-cycle simulation at O(n) instead of the O(n²) the naive
+    `loopGo` would cost. -/
 @[implemented_by loopImpl]
-opaque loop {dom : DomainConfig} {α : Type} [Inhabited α] (f : Signal dom α → Signal dom α) : Signal dom α
+def loop {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) : Signal dom α :=
+  ⟨loopGo f⟩
+
+/-- `loopGo`'s defining equation, exposed for proofs. -/
+theorem loopGo_eq {dom : DomainConfig} {α : Type} [Inhabited α]
+    (f : Signal dom α → Signal dom α) (t : Nat) :
+    loopGo f t = (f ⟨fun i => if i < t then loopGo f i else default⟩).val t := by
+  rw [loopGo]
 
 /-- Memoize an existing Signal so each `.val t` is computed
     at most once.  Same C-FFI cache trick as `loop`, but for
