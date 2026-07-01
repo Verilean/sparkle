@@ -357,6 +357,10 @@ lean_exe «canopen-hw-test» where
   root := `Tests.Drivers.CANopenHWTestMain
   supportInterpreter := true
 
+lean_exe «dronecan-hw-test» where
+  root := `Tests.Drivers.DroneCANHWTestMain
+  supportInterpreter := true
+
 lean_exe «uart-test» where
   root := `Tests.Drivers.UARTTestMain
   supportInterpreter := true
