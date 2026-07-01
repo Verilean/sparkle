@@ -659,6 +659,26 @@ lean_exe «goldilocks-test» where
   root := `Tests.Drivers.GoldilocksTestMain
   supportInterpreter := true
 
+lean_exe «goldilocks-mul-hw-test» where
+  root := `Tests.Drivers.GoldilocksHWTestMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-mul-hw-test» where
+  root := `Tests.Drivers.Secp256k1FieldHWTestMain
+  supportInterpreter := true
+
+lean_exe «p256-mul-hw-test» where
+  root := `Tests.Drivers.P256FieldHWTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-mul-hw-test» where
+  root := `Tests.Drivers.Ed25519FieldHWTestMain
+  supportInterpreter := true
+
+lean_exe «bls12381-test» where
+  root := `Tests.Drivers.BLS12381TestMain
+  supportInterpreter := true
+
 lean_exe «merkle-test» where
   root := `Tests.Drivers.MerkleTestMain
   supportInterpreter := true

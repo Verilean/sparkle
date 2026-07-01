@@ -137,6 +137,15 @@ import Tests.IP.Crypto.SHA512HWTest
 import Tests.IP.Crypto.AESHWTest
 import Tests.IP.Crypto.AESGCMHWTest
 import Tests.IP.Crypto.Keccak256HWTest
+-- Crypto Wave 2: BLS12-381 pure-data reference + field-multiply
+-- HW modules (Goldilocks / secp256k1 / P-256 / Ed25519).  The
+-- field-mul HW tests each carry `#synthesizeVerilog` under a
+-- `section SynthesisChecks`, so `lake build` covers synth.
+import Tests.IP.Crypto.BLS12381Test
+import Tests.IP.Crypto.GoldilocksHWTest
+import Tests.IP.Crypto.Secp256k1FieldHWTest
+import Tests.IP.Crypto.P256FieldHWTest
+import Tests.IP.Crypto.Ed25519FieldHWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -556,6 +565,18 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.AESGCMHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Keccak256HWTest.main
+  IO.println ""
+  -- Crypto Wave 2 behavioural mains: BLS12-381 signature-scheme
+  -- reference + the four bit-serial field-multiply HW engines.
+  Sparkle.Tests.IP.Crypto.BLS12381Test.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.GoldilocksHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1FieldHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.P256FieldHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519FieldHWTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
