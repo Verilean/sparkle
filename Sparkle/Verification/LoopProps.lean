@@ -1,24 +1,30 @@
 /-
   Signal.loop Characterization — closing the gap for feedback-circuit proofs.
 
-  `Signal.loop` is declared `opaque` (its real implementation is an `unsafe`
-  IO memoization that breaks combinational cycles), so `(Signal.loop f).val t`
-  cannot be unfolded by the kernel.  That is why feedback circuits were listed
-  as a *non-goal* in `Equivalence.lean`: nothing connected the opaque loop to a
-  value we can compute with.
+  `Signal.loop` is now a *pure* definition (`⟨loopGo f⟩`, the strong-
+  recursion fixpoint on the time index — see `Sparkle/Core/Signal.lean`),
+  not an `opaque` wrapper.  Its execution is still the fast memoizing
+  `loopImpl` via `@[implemented_by]`, but its *logical* value is the pure
+  fixpoint, so `(Signal.loop f).val t` unfolds in the kernel.
 
-  This file supplies the missing connection.  The single trusted assumption is
-  the fixpoint equation `loop f = f (loop f)`, valid ONLY for *strictly causal*
-  `f` — every feedback path passes through a register, so the output at time `t`
-  depends only on inputs strictly before `t`.
+  This file supplies the reduction from that fixpoint to a pure state
+  iterate.  The key fact is the fixpoint equation `loop f = f (loop f)`,
+  which holds for *strictly causal* `f` — every feedback path passes
+  through a register, so the output at time `t` depends only on inputs
+  strictly before `t`.
 
-  Soundness.  An unrestricted `∀ f, loop f = f (loop f)` is FALSE: take
-  `f s = ~~~s` (pointwise Bool negation); it has no fixpoint, and the equation
-  would give `b = !b`, hence `False`.  Restricting to `StrictlyCausal f` is
-  sound: such an endofunction on `Nat → α` has a *unique* fixpoint, definable by
-  well-founded recursion on the time index, so a model interpreting the opaque
-  `loop` as that fixpoint exists.  The unsafe memoizing implementation computes
-  exactly this fixpoint; the axiom is the formal stand-in for it.
+  `loop_unfold` used to be a trusted *axiom*; it is now a *theorem*
+  (proved from `loopGo`'s defining equation + `StrictlyCausal`).  The
+  only remaining trust base for this file is Lean's own `Quot.sound`
+  (used by `funext`), which every Lean development already relies on.
+
+  Why `StrictlyCausal` is needed.  An unrestricted `∀ f, loop f =
+  f (loop f)` is FALSE: take `f s = ~~~s` (pointwise Bool negation); it
+  has no fixpoint, and the equation would give `b = !b`, hence `False`.
+  `loopGo` sidesteps this by feeding `f` a signal that is `default` at
+  cycles `≥ t`; for a strictly causal `f` those placeholder cycles are
+  never observed, so `loopGo` computes the genuine fixpoint and
+  `loop_unfold` goes through.
 -/
 import Sparkle.Core.Signal
 
@@ -111,11 +117,31 @@ def StrictlyCausal (f : Signal dom α → Signal dom α) : Prop :=
   ∀ (s₁ s₂ : Signal dom α) (t : Nat),
     (∀ i, i < t → s₁.val i = s₂.val i) → (f s₁).val t = (f s₂).val t
 
-/-- THE trusted axiom.  For a strictly causal endofunction, `Signal.loop`
-    satisfies the fixpoint equation.  Sound because a strictly causal `f` has a
-    unique fixpoint; see the file header. -/
-axiom loop_unfold [Inhabited α] (f : Signal dom α → Signal dom α)
-    (hf : StrictlyCausal f) : Signal.loop f = f (Signal.loop f)
+/-- The fixpoint equation for `Signal.loop`.
+
+    Previously a trusted *axiom*; now a *theorem*, because `Signal.loop`
+    is defined as the pure strong-recursion fixpoint `⟨loopGo f⟩` (see
+    `Sparkle/Core/Signal.lean`) rather than an `opaque` wrapper around
+    the memoizing implementation.  The proof rewrites through
+    `loopGo`'s defining equation and uses `StrictlyCausal` to discharge
+    the `default` placeholder that `loopGo` supplies at cycles `≥ t`
+    (those cycles are never observed by a strictly causal body).
+
+    (`Signal.loop` still *executes* via the memoizing `loopImpl` through
+    `@[implemented_by]`; that only affects compiled code, not this
+    kernel-level equation.) -/
+theorem loop_unfold [Inhabited α] (f : Signal dom α → Signal dom α)
+    (hf : StrictlyCausal f) : Signal.loop f = f (Signal.loop f) := by
+  have hval : ∀ t, Signal.loopGo f t = (f (Signal.loop f)).val t := by
+    intro t
+    rw [Signal.loopGo_eq]
+    apply hf
+    intro i hi
+    show (if i < t then Signal.loopGo f i else default) = Signal.loopGo f i
+    rw [if_pos hi]
+  show (⟨Signal.loopGo f⟩ : Signal dom α) = f (Signal.loop f)
+  have : Signal.loopGo f = (f (Signal.loop f)).val := funext hval
+  rw [this]
 
 -- ============================================================================
 -- Master reduction: a Signal.loop of registers ≡ a pure state iterate
