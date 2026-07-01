@@ -198,6 +198,20 @@ both out of the box:
 
 ## Quick Start
 
+**Prerequisites:** a **glibc ≥ 2.34** Linux (Ubuntu 22.04+,
+Debian 12+, Fedora 35+), macOS, or WSL2.  Older systems
+(e.g. Ubuntu 20.04, glibc 2.31) fail during `lake build` with
+
+```
+.../bin/cadical: /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found
+```
+
+— `cadical` is the SAT solver bundled with the Lean 4.28
+toolchain (used by `bv_decide` / `omega`), and it is linked
+against glibc 2.34.  This is a Lean-toolchain requirement, not a
+Sparkle one; upgrade the OS (or use the Docker path in the
+tutorial) if you hit it.
+
 ```bash
 git clone https://github.com/Verilean/sparkle.git
 cd sparkle
