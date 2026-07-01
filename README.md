@@ -45,7 +45,7 @@ formal proofs, and synthesizable Signal DSL implementations.
 
 | IP | Description | Proofs | Synth | Details |
 |----|-------------|:------:|:-----:|---------|
-| [**BitNet b1.58**](docs/ip-catalog/BitNet.md) | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle) | 60+ theorems | Full | 202K / 99K cells |
+| [**BitNet b1.58**](docs/ip-catalog/BitNet.md) | Formally verified LLM inference accelerator. Ternary weights, Q16.16 datapath, dual architecture (1-cycle vs 12-cycle). Standalone [FPGA fit + LTL investigation](docs/ip-catalog/BitNet_FPGA_Status.md) | 60+ theorems | Full | 202K / 99K cells |
 | [**YOLOv8n-WorldV2**](docs/ip-catalog/YOLOv8.md) | Open-vocabulary object detection. INT4/INT8 quantized, 15 modules, CLIP text embeddings | Golden validation | Full | Backbone + Neck + Head |
 | [**RV32IMA SoC**](docs/ip-catalog/RV32.md) | RISC-V CPU — boots Linux 6.6.0. 4-stage pipeline, Sv32 MMU, UART, CLINT. JIT at 14.2M cyc/s (1.63x Verilator). 102 formal proofs | 102 theorems | Full | 122 registers |
 | [**SV→Sparkle Transpiler**](docs/ip-catalog/RV32.md#sv-transpiler) | Parse Verilog → JIT simulation. LiteX SoC at 18.1M cyc/s (1.72x Verilator). Verified reverse synthesis (2.14x speedup, zero sorry). 8-core parallel 11.9x Verilator. Timer oracle 9,900x. `OracleReduction` type class, 44 tests | 20+ theorems | JIT | 44 tests |
@@ -91,7 +91,6 @@ the full layer-stack breakdown, bring-up notes, and sim entry points.
 | [**RSA-PSS**](IP/Crypto/RSAPSS.lean) | RSA signature verify (PKCS #1 v2.2 PSS) | — | Sim | webPKI test set |
 | [**HKDF**](IP/Crypto/HKDF.lean) | RFC 5869 HKDF extract + expand (SHA-256 backend) | — | Sim | TLS 1.3 dep |
 | [**Ethereum wallet stack**](IP/Crypto/EthWallet.lean) | BIP-32 / BIP-39 seed + HD wallet, RLP encoder, EIP-1559 tx, ERC-20 ABI | — | Sim | Byte-exact vs reference clients |
-| [**BitNet formal FPGA status**](docs/ip-catalog/BitNet_FPGA_Status.md) | Standalone status page for the BitNet accelerator's FPGA fit + LTL investigation | | | |
 
 ### Security (TLS 1.3)
 
