@@ -117,6 +117,18 @@ import Tests.IP.Crypto.PolynomialTest
 import Tests.IP.Crypto.MiniSTARKTest
 import Tests.IP.Bus.PCIeTest
 import Tests.IP.Bus.PCIeHFTTest
+-- Bus HW modules (synth checks run at `lake build` time, since
+-- each of these files carries a `#synthesizeVerilog` under a
+-- `section SynthesisChecks`).  Their behavioural `main` fns are
+-- also invoked below so a runtime regression aborts `lake test`.
+import Tests.IP.Bus.LINHWTest
+import Tests.IP.Bus.I2CHWTest
+import Tests.IP.Bus.SPIHWTest
+import Tests.IP.Bus.SBUSHWTest
+import Tests.IP.Bus.CRSFHWTest
+import Tests.IP.Bus.MIL1553HWTest
+import Tests.IP.Bus.CANopenHWTest
+import Tests.IP.Bus.DroneCANHWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -502,6 +514,25 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Bus.PCIeTest.main
   IO.println ""
   Sparkle.Tests.IP.Bus.PCIeHFTTest.main
+  IO.println ""
+  -- Bus HW module behavioural mains.  Each aborts via
+  -- IO.Process.exit 1 on divergence from the corresponding
+  -- pure-data reference.
+  Sparkle.Tests.IP.Bus.LINHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.I2CHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.SPIHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.SBUSHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.CRSFHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.MIL1553HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.CANopenHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Bus.DroneCANHWTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through
