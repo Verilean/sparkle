@@ -210,29 +210,56 @@ emcc -O2 -sMEMORY64 -fPIC -w \
      -o "$OBJ_JIT_STUB"
 
 # 2c. Lake-generated `.c` wrappers for every `@[extern]` declaration.
-# These live under `.lake/build/ir/<module-path>.c`.  We find every
-# .c there and compile it with the LEAN_MIMALLOC override.
+# These live under `.lake/build/ir/<module-path>.c`.
+#
+# We MUST compile every module the umbrella `Sparkle.olean` transitively
+# imports — not just the `ir/Sparkle/` subtree.  `Sparkle` re-exports
+# `IP.*`, `Tools.*`, etc., and their generated wrappers reference each
+# other's `initialize_sparkle_<Module>` init functions.  Archiving only
+# `ir/Sparkle/` left the umbrella's `initialize_sparkle_Sparkle` and the
+# `IP.*` inits (e.g. `initialize_sparkle_IP_RV32_Divider`) UNDEFINED, so
+# `wasm-ld --whole-archive libsparkle_wasm.a` failed and the whole
+# Sparkle-enabled kernel rebuild silently fell back — which is why the
+# deployed lab had the Sparkle *symbols* but NOT the `.olean` files, and
+# `import Sparkle.Core.Domain` reported "unknown namespace".
+#
+# So: compile ALL of `ir/**/*.c` EXCEPT the executable entry point
+# (`Main.c`) and the test tree (`ir/Tests/`), which the library must not
+# pull in.  ~500 files, so compile in parallel.
 IR_ROOT="$REPO_ROOT/.lake/build/ir"
 declare -a WRAPPER_OBJS=()
 WRAPPER_COUNT=0
-if [ -d "$IR_ROOT/Sparkle" ]; then
-    while IFS= read -r -d '' src; do
-        rel="${src#$IR_ROOT/}"
-        # Strip ".c" → "obj name".  Underscore-escape the slashes so
-        # we keep a flat staging/lib/.
-        obj_name="$(echo "${rel%.c}" | tr '/' '_').o"
-        obj="$STAGING/lib/$obj_name"
-        emcc -O2 -sMEMORY64 -fPIC -w \
-             -I"$LEAN_INCLUDE" \
-             -include lean/config.h \
-             -include "$OVERRIDE_H" \
-             -c "$src" \
-             -o "$obj"
-        WRAPPER_OBJS+=("$obj")
-        WRAPPER_COUNT=$((WRAPPER_COUNT + 1))
-    done < <(find "$IR_ROOT/Sparkle" -name '*.c' -print0)
+JOBS="$(nproc 2>/dev/null || echo 4)"
+compile_wrapper() {
+    local src="$1"
+    local rel="${src#"$IR_ROOT"/}"
+    local obj_name
+    obj_name="$(echo "${rel%.c}" | tr '/' '_').o"
+    emcc -O2 -sMEMORY64 -fPIC -w \
+         -I"$LEAN_INCLUDE" \
+         -include lean/config.h \
+         -include "$OVERRIDE_H" \
+         -c "$src" \
+         -o "$STAGING/lib/$obj_name"
+}
+export -f compile_wrapper
+export IR_ROOT LEAN_INCLUDE OVERRIDE_H STAGING
+if [ -d "$IR_ROOT" ]; then
+    # Gather the source list (skip Main.c and the Tests subtree).
+    mapfile -d '' -t _ir_srcs < <(
+        find "$IR_ROOT" -name '*.c' \
+            ! -name 'Main.c' \
+            ! -path "$IR_ROOT/Tests/*" \
+            -print0)
+    WRAPPER_COUNT=${#_ir_srcs[@]}
+    printf '%s\0' "${_ir_srcs[@]}" \
+        | xargs -0 -P "$JOBS" -I '{}' bash -c 'compile_wrapper "$@"' _ '{}'
+    for src in "${_ir_srcs[@]}"; do
+        rel="${src#"$IR_ROOT"/}"
+        WRAPPER_OBJS+=("$STAGING/lib/$(echo "${rel%.c}" | tr '/' '_').o")
+    done
 fi
-echo "[sparkle-wasm] compiled $WRAPPER_COUNT Lean-generated wrappers"
+echo "[sparkle-wasm] compiled $WRAPPER_COUNT Lean-generated wrappers (all of ir/, minus Main/Tests)"
 
 rm -f "$OVERRIDE_H"
 
