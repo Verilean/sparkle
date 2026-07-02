@@ -6,6 +6,7 @@
 -/
 
 import Sparkle.IR.AST
+import Std.Data.HashSet
 
 namespace Sparkle.IR.Builder
 
@@ -17,8 +18,12 @@ structure CircuitState where
   counter : Nat                -- Counter for generating unique names
   module  : Module             -- The module being constructed
   design  : Design             -- The design being constructed (multi-module)
-  usedNames : List String      -- Track used names to prevent collisions
-  deriving Repr
+  -- Track used names to prevent collisions.  O(1) membership via a
+  -- HashSet — the previous `List String` made `freshName`'s
+  -- collision check O(n) per wire, hence O(n²) over a synth pass and
+  -- the dominant cost on wide FSMs (perf showed ~46% of synth time in
+  -- `List.elem` here; the BLS G2 wall).
+  usedNames : Std.HashSet String
 
 /-- Circuit builder monad -/
 abbrev CircuitM := StateM CircuitState
@@ -30,7 +35,7 @@ def init (topModuleName : String) : CircuitState :=
   { counter := 0
   , module := Module.empty topModuleName
   , design := Design.empty topModuleName
-  , usedNames := []
+  , usedNames := {}
   }
 
 /-- Get the current module -/
@@ -93,7 +98,7 @@ def freshName (hint : String) (named : Bool := false) : CircuitM String := do
     -- Stable name: try `_gen_{hint}`, then `_gen_{hint}_1`, `_gen_{hint}_2`, ...
     let base := s!"_gen_{baseName}"
     if !s.usedNames.contains base then
-      set { s with usedNames := base :: s.usedNames }
+      set { s with usedNames := s.usedNames.insert base }
       return base
     else
       let mut n := 1
@@ -101,11 +106,11 @@ def freshName (hint : String) (named : Bool := false) : CircuitM String := do
       while s.usedNames.contains candidate do
         n := n + 1
         candidate := s!"{base}_{n}"
-      set { s with usedNames := candidate :: s.usedNames }
+      set { s with usedNames := s.usedNames.insert candidate }
       return candidate
   else
     let name := s!"_tmp_{baseName}_{s.counter}"
-    set { s with counter := s.counter + 1, usedNames := name :: s.usedNames }
+    set { s with counter := s.counter + 1, usedNames := s.usedNames.insert name }
     return name
 
 /-- Sanitize a name to be a valid Verilog identifier -/
@@ -119,7 +124,7 @@ def isNameUsed (name : String) : CircuitM Bool := do
 
 /-- Reserve a specific name (for input/output ports) -/
 def reserveName (name : String) : CircuitM Unit := do
-  modify fun s => { s with usedNames := name :: s.usedNames }
+  modify fun s => { s with usedNames := s.usedNames.insert name }
 
 /--
   Create a new wire with the given type.
