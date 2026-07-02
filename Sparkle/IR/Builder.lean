@@ -7,6 +7,7 @@
 
 import Sparkle.IR.AST
 import Std.Data.HashSet
+import Std.Data.HashMap
 
 namespace Sparkle.IR.Builder
 
@@ -24,6 +25,11 @@ structure CircuitState where
   -- the dominant cost on wide FSMs (perf showed ~46% of synth time in
   -- `List.elem` here; the BLS G2 wall).
   usedNames : Std.HashSet String
+  -- Next disambiguation suffix to try for a given `_gen_{base}` name.
+  -- Without this, allocating the k-th wire that shares a base probes
+  -- `_gen_b_1 … _gen_b_{k-1}` linearly → O(k²) for a hot base.  Start
+  -- probing where we left off so each named allocation is O(1).
+  nextSuffix : Std.HashMap String Nat := {}
 
 /-- Circuit builder monad -/
 abbrev CircuitM := StateM CircuitState
@@ -101,12 +107,16 @@ def freshName (hint : String) (named : Bool := false) : CircuitM String := do
       set { s with usedNames := s.usedNames.insert base }
       return base
     else
-      let mut n := 1
+      -- Resume probing at the last suffix we reached for this base
+      -- (persisted in `nextSuffix`) so k collisions on one base cost
+      -- O(k) total, not O(k²).
+      let mut n := s.nextSuffix.getD base 1
       let mut candidate := s!"{base}_{n}"
       while s.usedNames.contains candidate do
         n := n + 1
         candidate := s!"{base}_{n}"
-      set { s with usedNames := s.usedNames.insert candidate }
+      set { s with usedNames := s.usedNames.insert candidate
+                 , nextSuffix := s.nextSuffix.insert base (n + 1) }
       return candidate
   else
     let name := s!"_tmp_{baseName}_{s.counter}"
