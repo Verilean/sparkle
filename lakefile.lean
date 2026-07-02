@@ -703,6 +703,18 @@ lean_exe «fp381-montmul-hw-test» where
   root := `Tests.Drivers.Fp381MontMulHWTestMain
   supportInterpreter := true
 
+lean_exe «fp2-mul-hw-test» where
+  root := `Tests.Drivers.Fp2MulHWTestMain
+  supportInterpreter := true
+
+lean_exe «g2-pointop-hw-test» where
+  root := `Tests.Drivers.G2PointOpHWTestMain
+  supportInterpreter := true
+
+lean_exe «g2-scalarmul-hw-test» where
+  root := `Tests.Drivers.G2ScalarMulHWTestMain
+  supportInterpreter := true
+
 lean_exe «merkle-test» where
   root := `Tests.Drivers.MerkleTestMain
   supportInterpreter := true
