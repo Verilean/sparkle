@@ -149,6 +149,10 @@ import Tests.IP.Crypto.Secp256k1ScalarMulHWTest
 import Tests.IP.Crypto.ModInvHWTest
 import Tests.IP.Crypto.Secp256k1OrderHWTest
 import Tests.IP.Crypto.Secp256k1ECDSAHWTest
+import Tests.IP.Crypto.SHA512BlockHWTest
+import Tests.IP.Crypto.HMACSHA512HWTest
+import Tests.IP.Crypto.BIP32CKDHWTest
+import Tests.IP.Crypto.Eip1559EnvelopeHWTest
 import Tests.IP.Crypto.P256FieldHWTest
 import Tests.IP.Crypto.Ed25519FieldHWTest
 import Tests.IP.Crypto.Ed25519PointOpHWTest
@@ -156,6 +160,10 @@ import Tests.IP.Crypto.Ed25519ScalarMulHWTest
 import Tests.IP.Crypto.Ed25519SignHWTest
 import Tests.IP.Crypto.Fp381MontMulHWTest
 import Tests.IP.Crypto.Fp2MulHWTest
+import Tests.IP.Crypto.Fp6MulHWTest
+import Tests.IP.Crypto.Fp12MulHWTest
+import Tests.IP.Crypto.BLS12MillerProjTest
+import Tests.IP.Crypto.BLS12MillerHWTest
 import Tests.IP.Crypto.G2PointOpHWTest
 import Tests.IP.Crypto.G2ScalarMulHWTest
 import LSpec
@@ -596,6 +604,14 @@ def main : IO UInt32 := do
   IO.println ""
   Sparkle.Tests.IP.Crypto.Secp256k1ECDSAHWTest.main
   IO.println ""
+  Sparkle.Tests.IP.Crypto.SHA512BlockHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.HMACSHA512HWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.BIP32CKDHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Eip1559EnvelopeHWTest.main
+  IO.println ""
   Sparkle.Tests.IP.Crypto.P256FieldHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Ed25519FieldHWTest.main
@@ -609,6 +625,14 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.Fp381MontMulHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Fp2MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp6MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp12MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.BLS12MillerProjTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.BLS12MillerHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.G2PointOpHWTest.main
   IO.println ""
