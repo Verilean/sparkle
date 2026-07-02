@@ -1355,7 +1355,16 @@ def toCJIT (d : Design)
     | some m =>
       let tickRefs := collectTickRefWires m.body
       let extra := observableWires0.getD []
-      some (tickRefs ++ extra)
+      -- Keep `_gen_*` wires (named let-bindings / FSM-state signals)
+      -- as struct members so `jit_get_wire` can still read them at
+      -- runtime — some drivers sample internal state like
+      -- `_gen_phase` / `_gen_done` (e.g. the H.264 encoders).  Only
+      -- the anonymous `_tmp_*` combinational intermediates and the
+      -- register `_next` temporaries get localised.
+      let genWires := m.wires.filterMap fun (w : Port) =>
+        let sn := sanitizeName w.name
+        if sn.startsWith "_gen_" then some sn else none
+      some (tickRefs ++ genWires ++ extra)
   let classCode := toCDesign d observableWires
   let topModule := d.modules.find? fun (m : Module) => m.name == d.topModule
   match topModule with
