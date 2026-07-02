@@ -687,6 +687,22 @@ lean_exe «secp256k1-ecdsa-hw-test» where
   root := `Tests.Drivers.Secp256k1ECDSAHWTestMain
   supportInterpreter := true
 
+lean_exe «sha512-block-hw-test» where
+  root := `Tests.Drivers.SHA512BlockHWTestMain
+  supportInterpreter := true
+
+lean_exe «hmac-sha512-hw-test» where
+  root := `Tests.Drivers.HMACSHA512HWTestMain
+  supportInterpreter := true
+
+lean_exe «bip32-ckd-hw-test» where
+  root := `Tests.Drivers.BIP32CKDHWTestMain
+  supportInterpreter := true
+
+lean_exe «eip1559-envelope-hw-test» where
+  root := `Tests.Drivers.Eip1559EnvelopeHWTestMain
+  supportInterpreter := true
+
 lean_exe «p256-mul-hw-test» where
   root := `Tests.Drivers.P256FieldHWTestMain
   supportInterpreter := true
