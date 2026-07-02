@@ -1315,7 +1315,23 @@ private def emitMemsetWordSwitch (body : List Stmt) : String :=
     nothing else (other than the unavoidable glibc init/fini
     stubs). -/
 def toCJIT (d : Design)
-    (observableWires : Option (List String) := none) : String :=
+    (observableWires0 : Option (List String) := none) : String :=
+  -- Determine which internal wires must be struct MEMBERS (persist
+  -- across ticks): those feeding a register/memory input.  All other
+  -- combinational wires can be eval-local stack values (register-
+  -- allocated, no per-tick struct store — a measured instruction-count
+  -- win on large flat SoCs like LiteX).  We express this by handing
+  -- the member set to everything downstream as `observableWires`, so
+  -- the struct layout, the eval bodies, and the JIT wire switches all
+  -- agree on the same partition.  Any caller-requested observables are
+  -- unioned in so debug pokes still work.
+  let observableWires : Option (List String) :=
+    match d.modules.find? fun (m : Module) => m.name == d.topModule with
+    | none => observableWires0
+    | some m =>
+      let tickRefs := collectTickRefWires m.body
+      let extra := observableWires0.getD []
+      some (tickRefs ++ extra)
   let classCode := toCDesign d observableWires
   let topModule := d.modules.find? fun (m : Module) => m.name == d.topModule
   match topModule with
