@@ -675,6 +675,18 @@ lean_exe «secp256k1-scalarmul-hw-test» where
   root := `Tests.Drivers.Secp256k1ScalarMulHWTestMain
   supportInterpreter := true
 
+lean_exe «modinv-hw-test» where
+  root := `Tests.Drivers.ModInvHWTestMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-ordermul-hw-test» where
+  root := `Tests.Drivers.Secp256k1OrderHWTestMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-ecdsa-hw-test» where
+  root := `Tests.Drivers.Secp256k1ECDSAHWTestMain
+  supportInterpreter := true
+
 lean_exe «p256-mul-hw-test» where
   root := `Tests.Drivers.P256FieldHWTestMain
   supportInterpreter := true

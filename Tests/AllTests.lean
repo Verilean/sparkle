@@ -146,6 +146,9 @@ import Tests.IP.Crypto.GoldilocksHWTest
 import Tests.IP.Crypto.Secp256k1FieldHWTest
 import Tests.IP.Crypto.Secp256k1PointOpHWTest
 import Tests.IP.Crypto.Secp256k1ScalarMulHWTest
+import Tests.IP.Crypto.ModInvHWTest
+import Tests.IP.Crypto.Secp256k1OrderHWTest
+import Tests.IP.Crypto.Secp256k1ECDSAHWTest
 import Tests.IP.Crypto.P256FieldHWTest
 import Tests.IP.Crypto.Ed25519FieldHWTest
 import Tests.IP.Crypto.Fp381MontMulHWTest
@@ -580,6 +583,12 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.Secp256k1PointOpHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Secp256k1ScalarMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.ModInvHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1OrderHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1ECDSAHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.P256FieldHWTest.main
   IO.println ""
