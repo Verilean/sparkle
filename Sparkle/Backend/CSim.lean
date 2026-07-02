@@ -981,7 +981,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let isTokChar (c : Char) : Bool :=
       c.isAlphanum || c == '_'
 
-    let qualify (input : String) : String := Id.run do
+    let qualifyWith (memberSet : Std.HashSet String) (input : String) : String := Id.run do
       -- A token is a maximal alnum/underscore run.  Two contexts
       -- where we MUST NOT add `self->`:
       --
@@ -1029,9 +1029,27 @@ def emitModule (m : Module) (design : Option Design := none)
           out := out ++ buf
       return out
 
+    let qualify := qualifyWith memberSet
     let evalBodyQ := evalBody.map qualify
     let tickBodyQ := tickBody.map qualify
     let resetBodyQ := resetBody.map qualify
+
+    -- For the FUSED eval_tick, register `_next` temporaries never need
+    -- to persist across calls (eval writes them and tick reads them in
+    -- the SAME function), so keep them as stack LOCALS instead of
+    -- struct fields — one store+reload per register per tick removed.
+    -- `evalTickLocals` already carries their `T name = self_reg;`
+    -- declarations; we just drop the `_next` names from the qualified
+    -- member set so they emit bare.  (The separate eval()/tick() path
+    -- still uses the full member set, where `_next` must persist.)
+    let regNextSet : Std.HashSet String :=
+      (m.body.filterMap (fun s => match s with
+        | .register o .. => some (sanitizeName o ++ "_next") | _ => none)).foldl
+        (fun s n => s.insert n) ({} : Std.HashSet String)
+    let memberSetET : Std.HashSet String :=
+      memberSet.fold (fun s n => if regNextSet.contains n then s else s.insert n)
+        ({} : Std.HashSet String)
+    let qualifyET := qualifyWith memberSetET
 
     let resetFn :=
       s!"static void sparkle_{className}_reset({structName}* self) \{\n" ++
@@ -1089,8 +1107,9 @@ def emitModule (m : Module) (design : Option Design := none)
     let evalTickTickBody := tickBodyQ.filter fun line =>
       !instNames.any (fun inst => (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1)
 
-    -- Sub-eval → sub-evalTick textual rewrite on eval body.
-    let evalTickEvalBody := evalBodyQ.map fun line =>
+    -- eval_tick uses the reduced member set so register `_next`
+    -- temporaries emit as bare locals (declared via evalTickLocals).
+    let evalTickEvalBody := (evalBody.map qualifyET).map fun line =>
       instNames.foldl (fun l inst =>
         -- We emit `sparkle_<modName>_eval(&self->iName)` — find
         -- the inst name and switch `_eval` → `_eval_tick`.  This
@@ -1101,22 +1120,27 @@ def emitModule (m : Module) (design : Option Design := none)
         else l) line
     -- Also strip tick calls that match instance names from the
     -- tick body when present.
-    let evalTickTickBody := evalTickTickBody.filter fun line =>
+    let evalTickTickBody := (tickBody.map qualifyET).filter fun line =>
       !instNames.any (fun inst =>
-        (line.splitOn s!"_tick(&self->{inst})").length > 1)
+        (line.splitOn s!"sparkle_evalTick_placeholder_TICK_{inst}").length > 1
+        || (line.splitOn s!"_tick(&self->{inst})").length > 1)
 
     let evalTickFn :=
       s!"static void sparkle_{className}_eval_tick({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
+      -- Stack-local register `_next` temporaries (pre-init from the
+      -- current register value to preserve non-blocking semantics).
+      -- Qualified so the `_next` LHS stays bare (local) while the
+      -- initialising register read becomes `self->reg`.
+      (if evalTickLocals.isEmpty then "" else
+        String.intercalate "\n" (evalTickLocals.map qualifyET) ++ "\n") ++
       (if evalTickEvalBody.isEmpty then "" else
         String.intercalate "\n" evalTickEvalBody ++ "\n") ++
       (if evalTickTickBody.isEmpty then "" else
         String.intercalate "\n" evalTickTickBody ++ "\n") ++
       "}\n\n"
-    let _ := evalTickLocals  -- evalTick-specific stack locals: future opt
-    let _ := regNames
 
     structDecl ++ resetFn ++ evalFn ++ tickFn ++ evalTickFn
 
@@ -1315,7 +1339,32 @@ private def emitMemsetWordSwitch (body : List Stmt) : String :=
     nothing else (other than the unavoidable glibc init/fini
     stubs). -/
 def toCJIT (d : Design)
-    (observableWires : Option (List String) := none) : String :=
+    (observableWires0 : Option (List String) := none) : String :=
+  -- Determine which internal wires must be struct MEMBERS (persist
+  -- across ticks): those feeding a register/memory input.  All other
+  -- combinational wires can be eval-local stack values (register-
+  -- allocated, no per-tick struct store — a measured instruction-count
+  -- win on large flat SoCs like LiteX).  We express this by handing
+  -- the member set to everything downstream as `observableWires`, so
+  -- the struct layout, the eval bodies, and the JIT wire switches all
+  -- agree on the same partition.  Any caller-requested observables are
+  -- unioned in so debug pokes still work.
+  let observableWires : Option (List String) :=
+    match d.modules.find? fun (m : Module) => m.name == d.topModule with
+    | none => observableWires0
+    | some m =>
+      let tickRefs := collectTickRefWires m.body
+      let extra := observableWires0.getD []
+      -- Keep `_gen_*` wires (named let-bindings / FSM-state signals)
+      -- as struct members so `jit_get_wire` can still read them at
+      -- runtime — some drivers sample internal state like
+      -- `_gen_phase` / `_gen_done` (e.g. the H.264 encoders).  Only
+      -- the anonymous `_tmp_*` combinational intermediates and the
+      -- register `_next` temporaries get localised.
+      let genWires := m.wires.filterMap fun (w : Port) =>
+        let sn := sanitizeName w.name
+        if sn.startsWith "_gen_" then some sn else none
+      some (tickRefs ++ genWires ++ extra)
   let classCode := toCDesign d observableWires
   let topModule := d.modules.find? fun (m : Module) => m.name == d.topModule
   match topModule with

@@ -144,8 +144,20 @@ import Tests.IP.Crypto.Keccak256HWTest
 import Tests.IP.Crypto.BLS12381Test
 import Tests.IP.Crypto.GoldilocksHWTest
 import Tests.IP.Crypto.Secp256k1FieldHWTest
+import Tests.IP.Crypto.Secp256k1PointOpHWTest
+import Tests.IP.Crypto.Secp256k1ScalarMulHWTest
+import Tests.IP.Crypto.ModInvHWTest
+import Tests.IP.Crypto.Secp256k1OrderHWTest
+import Tests.IP.Crypto.Secp256k1ECDSAHWTest
 import Tests.IP.Crypto.P256FieldHWTest
 import Tests.IP.Crypto.Ed25519FieldHWTest
+import Tests.IP.Crypto.Ed25519PointOpHWTest
+import Tests.IP.Crypto.Ed25519ScalarMulHWTest
+import Tests.IP.Crypto.Ed25519SignHWTest
+import Tests.IP.Crypto.Fp381MontMulHWTest
+import Tests.IP.Crypto.Fp2MulHWTest
+import Tests.IP.Crypto.G2PointOpHWTest
+import Tests.IP.Crypto.G2ScalarMulHWTest
 import LSpec
 
 open Sparkle.Core.Domain
@@ -574,9 +586,33 @@ def main : IO UInt32 := do
   IO.println ""
   Sparkle.Tests.IP.Crypto.Secp256k1FieldHWTest.main
   IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1ScalarMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.ModInvHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1OrderHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Secp256k1ECDSAHWTest.main
+  IO.println ""
   Sparkle.Tests.IP.Crypto.P256FieldHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Ed25519FieldHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519ScalarMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Ed25519SignHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp381MontMulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp2MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.G2PointOpHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.G2ScalarMulHWTest.main
   IO.println ""
 
   -- iverilog round-trip: drive each fixture through

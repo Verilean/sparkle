@@ -2488,7 +2488,14 @@ mutual
     -- Helper: try the "unfold and translate inline" path — the default.
     -- Returns the wire on success, or stashes the deepest captured
     -- inline failure for the outer error message.
-    let lastInlineFail : IO.Ref (Option String) ← IO.mkRef none
+    -- Hold the raw exception, NOT its rendered string.  Rendering a
+    -- Lean exception (`toMessageData.toString`) pretty-prints the
+    -- offending Expr and is expensive; on wide FSMs the inline path
+    -- fails-then-recovers thousands of times, so eagerly stringifying
+    -- every recoverable failure dominated synth wall-time.  We defer
+    -- the render to the single terminal error site (line ~2548),
+    -- which only runs when we actually throw.
+    let lastInlineFail : IO.Ref (Option Lean.Exception) ← IO.mkRef none
     let tryInline : CompilerM (Option String) := do
       let eReduced ← CompilerM.liftMetaM do
         match ← Lean.Meta.unfoldDefinition? e with
@@ -2499,7 +2506,7 @@ mutual
           let w ← translateExprToWire eReduced hint (isNamed := isNamed)
           return some w
         catch ex1 =>
-          lastInlineFail.set (some (← ex1.toMessageData.toString))
+          lastInlineFail.set (some ex1)
           -- Inline expansion failed (often due to mixed Signal/BitVec operators
           -- inside the expanded body). Retry with reducible transparency to
           -- prevent over-expansion of Signal.pure and OfNat instances.
@@ -2515,7 +2522,7 @@ mutual
             else
               return none
           catch ex2 =>
-            lastInlineFail.set (some (← ex2.toMessageData.toString))
+            lastInlineFail.set (some ex2)
             return none
       else
         return none
@@ -2546,10 +2553,12 @@ mutual
     match subResult? with
     | none =>
       let lastFail ← lastInlineFail.get
-      let detail :=
+      let detail ←
         match lastFail with
-        | some msg => s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
-        | none => ""
+        | some ex => do
+          let msg ← CompilerM.liftMetaM ex.toMessageData.toString
+          pure s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
+        | none => pure ""
       CompilerM.liftMetaM $ throwError
         s!"Cannot synthesise {name}: not inlinable and not a hardware module.{detail}"
     | some (subModule, subDesign) =>

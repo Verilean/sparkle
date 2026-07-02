@@ -667,6 +667,26 @@ lean_exe «secp256k1-mul-hw-test» where
   root := `Tests.Drivers.Secp256k1FieldHWTestMain
   supportInterpreter := true
 
+lean_exe «secp256k1-pointop-hw-test» where
+  root := `Tests.Drivers.Secp256k1PointOpHWTestMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-scalarmul-hw-test» where
+  root := `Tests.Drivers.Secp256k1ScalarMulHWTestMain
+  supportInterpreter := true
+
+lean_exe «modinv-hw-test» where
+  root := `Tests.Drivers.ModInvHWTestMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-ordermul-hw-test» where
+  root := `Tests.Drivers.Secp256k1OrderHWTestMain
+  supportInterpreter := true
+
+lean_exe «secp256k1-ecdsa-hw-test» where
+  root := `Tests.Drivers.Secp256k1ECDSAHWTestMain
+  supportInterpreter := true
+
 lean_exe «p256-mul-hw-test» where
   root := `Tests.Drivers.P256FieldHWTestMain
   supportInterpreter := true
@@ -675,8 +695,36 @@ lean_exe «ed25519-mul-hw-test» where
   root := `Tests.Drivers.Ed25519FieldHWTestMain
   supportInterpreter := true
 
+lean_exe «ed25519-pointop-hw-test» where
+  root := `Tests.Drivers.Ed25519PointOpHWTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-scalarmul-hw-test» where
+  root := `Tests.Drivers.Ed25519ScalarMulHWTestMain
+  supportInterpreter := true
+
+lean_exe «ed25519-sign-hw-test» where
+  root := `Tests.Drivers.Ed25519SignHWTestMain
+  supportInterpreter := true
+
 lean_exe «bls12381-test» where
   root := `Tests.Drivers.BLS12381TestMain
+  supportInterpreter := true
+
+lean_exe «fp381-montmul-hw-test» where
+  root := `Tests.Drivers.Fp381MontMulHWTestMain
+  supportInterpreter := true
+
+lean_exe «fp2-mul-hw-test» where
+  root := `Tests.Drivers.Fp2MulHWTestMain
+  supportInterpreter := true
+
+lean_exe «g2-pointop-hw-test» where
+  root := `Tests.Drivers.G2PointOpHWTestMain
+  supportInterpreter := true
+
+lean_exe «g2-scalarmul-hw-test» where
+  root := `Tests.Drivers.G2ScalarMulHWTestMain
   supportInterpreter := true
 
 lean_exe «merkle-test» where
