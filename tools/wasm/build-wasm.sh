@@ -69,6 +69,89 @@ for ext in olean.private olean.server ir ilean; do
 done
 
 # ---------------------------------------------------------------------
+# 1b. Olean version-header reconciliation.
+#
+# The `.olean` header carries a fixed-width version string (offsets
+# [7,40); githash follows at offset 40).  Lean's loader compares that
+# string EXACTLY.  xeus-lean's WASM kernel is a *source* build of
+# lean4 → its stdlib oleans are tagged e.g. "4.28.0-pre", while the
+# repo's oleans (built with the release toolchain at the SAME commit)
+# are tagged "4.28.0".  Same commit ⇒ byte-identical olean format, but
+# the differing version string makes the WASM kernel REJECT our oleans
+# — `import Sparkle` then "loads" nothing and `Sparkle.Core.Domain`
+# shows up as an unknown namespace in the lab.
+#
+# Fix: rewrite our staged oleans' version field to the WASM kernel's
+# version string.  We read the target string from a WASM stdlib olean
+# (WASM_LEAN_OLEAN, or a probe of common locations); this is only sound
+# when the githashes match, which we assert.  If we can't find a
+# reference olean we leave the headers untouched (no-op, no regression).
+WASM_REF_OLEAN="${WASM_LEAN_OLEAN:-}"
+if [ -z "$WASM_REF_OLEAN" ]; then
+    for cand in \
+        /opt/xeus-lean/wasm-build/test_olean_staging/lib/lean/Init.olean \
+        /opt/xeus-lean/.pixi/envs/wasm-host/lib/lean/Init.olean; do
+        [ -f "$cand" ] && WASM_REF_OLEAN="$cand" && break
+    done
+fi
+if [ -n "$WASM_REF_OLEAN" ] && [ -f "$WASM_REF_OLEAN" ]; then
+    echo "[sparkle-wasm] reconciling olean version headers against: $WASM_REF_OLEAN"
+    python3 - "$WASM_REF_OLEAN" "$STAGING" <<'PYEOF'
+import sys, os, pathlib
+ref, staging = sys.argv[1], sys.argv[2]
+MAGIC = b"olean"
+VER_OFF, GIT_OFF = 7, 40   # version field [7,40); githash at 40
+
+def read_hdr(p):
+    with open(p, "rb") as f:
+        h = f.read(64)
+    if h[:5] != MAGIC:
+        return None
+    ver = h[VER_OFF:h.index(b"\x00", VER_OFF)]
+    git = h[GIT_OFF:GIT_OFF+8]
+    return ver, git
+
+r = read_hdr(ref)
+if r is None:
+    print(f"[sparkle-wasm] WARN: reference {ref} is not an olean; skipping", file=sys.stderr)
+    sys.exit(0)
+tgt_ver, ref_git = r
+if len(tgt_ver) > (GIT_OFF - VER_OFF):
+    print("[sparkle-wasm] WARN: target version too long for header field; skipping", file=sys.stderr)
+    sys.exit(0)
+
+patched = skipped = 0
+for p in pathlib.Path(staging).rglob("*.olean"):
+    with open(p, "rb") as f:
+        data = bytearray(f.read())
+    if data[:5] != MAGIC:
+        continue
+    cur_ver = bytes(data[VER_OFF:data.index(b"\x00", VER_OFF)])
+    cur_git = bytes(data[GIT_OFF:GIT_OFF+8])
+    if cur_ver == tgt_ver:
+        continue
+    # Only safe when the underlying Lean commit matches.
+    if cur_git != ref_git:
+        print(f"[sparkle-wasm] WARN: githash mismatch on {p.name} "
+              f"({cur_git!r} vs ref {ref_git!r}); NOT patching", file=sys.stderr)
+        skipped += 1
+        continue
+    for i in range(VER_OFF, GIT_OFF):
+        data[i] = 0
+    data[VER_OFF:VER_OFF+len(tgt_ver)] = tgt_ver
+    with open(p, "wb") as f:
+        f.write(data)
+    patched += 1
+print(f"[sparkle-wasm] olean version reconcile: {patched} patched "
+      f"-> {tgt_ver.decode()}, {skipped} skipped")
+if skipped:
+    sys.exit(1)   # githash mismatch is a real problem — fail loudly
+PYEOF
+else
+    echo "[sparkle-wasm] WARN: no WASM reference olean found; leaving version headers as-is"
+fi
+
+# ---------------------------------------------------------------------
 # 2. Compile the WASM static library.  Three pieces:
 #
 #   (a) sparkle_barrier.c — pure C, WASM-safe.  Implements
