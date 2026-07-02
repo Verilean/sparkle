@@ -31,11 +31,13 @@
   48 cyc/Fp2-mul ≈ 255 · 1104 ≈ 281 k cycles per G2 scalar-mul
   (with the 14-cyc Fp381 Montgomery multiplier).
 
-  SYNTH: this module nests `g2PointOpHW`, whose `#synthesizeVerilog`
-  already hits the known super-linear translate wall, so the
-  ladder's synth is likewise punted (it builds / elaborates to
-  Signal.loop).  Logic is validated by the schedule-level sim
-  cross-check against `BLS12_381.G2.mulScalar`.
+  SYNTH: this module drives `g2PointOpHW` over start/done PORTS
+  (it does not inline it), so its own body is just the 12-register
+  Fp2 ladder controller — `#synthesizeVerilog` completes in ~2 s.
+  (The former super-linear translate wall on the wider G2 circuits
+  is fixed by the O(1) wire-name collision check in
+  Sparkle/IR/Builder.lean.)  Logic is additionally validated by the
+  schedule-level sim cross-check against `BLS12_381.G2.mulScalar`.
 -/
 import Sparkle
 import IP.Crypto.BLS12_381

@@ -150,8 +150,21 @@ def main : IO Unit := do
 
 end Sparkle.Tests.IP.Crypto.G2PointOpHWTest
 
--- NOTE: `#synthesizeVerilog` on `g2PointOpHW` is intentionally
--- omitted — it hits the known super-linear synth-time wall (see the
--- module-header note above).  The module still elaborates (builds),
--- and `lake build IP.Crypto.G2PointOpHW` is the synth-side smoke
--- test that the circuit is well-formed.
+section SynthesisChecks
+open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IP.Crypto.G2PointOpHW
+
+-- One representative output is synth-checked.  The former
+-- super-linear synth-time wall is gone (fixed by the O(1) wire-name
+-- collision check in Sparkle/IR/Builder.lean); a single G2 output now
+-- translates in ~35 s.  We check ONE output rather than all nine to
+-- keep the build time bounded — the wire-translation path is shared
+-- across outputs, so one is a sufficient regression guard.
+private def synth_g2PointOp_x0
+    (start opDouble : Signal defaultDomain Bool)
+    (x0 x1 y0 y1 z0 z1 bx0 bx1 by0 by1 bz0 bz1 fp2C0 fp2C1 : Signal defaultDomain (BitVec 384))
+    (fp2Done : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 384) :=
+  (g2PointOpHW start opDouble x0 x1 y0 y1 z0 z1 bx0 bx1 by0 by1 bz0 bz1 fp2C0 fp2C1 fp2Done).x0Out
+
+#synthesizeVerilog synth_g2PointOp_x0
+
+end SynthesisChecks

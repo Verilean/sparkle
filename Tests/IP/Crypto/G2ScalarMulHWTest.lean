@@ -10,13 +10,12 @@
   cross-checks the final R0 against `BLS12_381.G2.mulScalar` on
   several scalars applied to G2.generator.
 
-  SYNTH PUNTED.  `g2ScalarMulHW` nests `g2PointOpHW`, whose
-  `#synthesizeVerilog` already hits the known super-linear
-  translate wall (see G2PointOpHWTest); the ladder's synth is
-  likewise punted.  The module builds (elaborates to Signal.loop)
-  — `lake build IP.Crypto.G2ScalarMulHW` is the well-formedness
-  smoke test — and this schedule-level check validates the ladder
-  logic.
+  Synth: the ladder drives `g2PointOpHW` over start/done PORTS (it
+  does not inline it), so its own body is just the 12-register
+  Fp2-coord ladder controller — `#synthesizeVerilog` completes in
+  ~2 s.  (The former super-linear translate wall that had blocked
+  the G2 stack is fixed by the O(1) wire-name collision check in
+  Sparkle/IR/Builder.lean.)  See `section SynthesisChecks` below.
 -/
 import Sparkle
 import IP.Crypto.BLS12_381
@@ -90,3 +89,29 @@ def main : IO Unit := do
   IO.println "\nALL PASS"
 
 end Sparkle.Tests.IP.Crypto.G2ScalarMulHWTest
+
+section SynthesisChecks
+open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.IP.Crypto.G2ScalarMulHW
+
+-- The ladder controller synthesizes cleanly (~2 s): it drives the
+-- point-op over ports rather than inlining it, so its body is only
+-- the 12-register Fp2 ladder + phase FSM.
+private def synth_g2ScalarMul_x0
+    (start : Signal defaultDomain Bool) (k : Signal defaultDomain (BitVec 256))
+    (px0 px1 py0 py1 pz0 pz1 : Signal defaultDomain (BitVec 384))
+    (rx0 rx1 ry0 ry1 rz0 rz1 : Signal defaultDomain (BitVec 384))
+    (rdone : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 384) :=
+  (g2ScalarMulHW start k px0 px1 py0 py1 pz0 pz1 rx0 rx1 ry0 ry1 rz0 rz1 rdone).x0Out
+
+#synthesizeVerilog synth_g2ScalarMul_x0
+
+private def synth_g2ScalarMul_done
+    (start : Signal defaultDomain Bool) (k : Signal defaultDomain (BitVec 256))
+    (px0 px1 py0 py1 pz0 pz1 : Signal defaultDomain (BitVec 384))
+    (rx0 rx1 ry0 ry1 rz0 rz1 : Signal defaultDomain (BitVec 384))
+    (rdone : Signal defaultDomain Bool) : Signal defaultDomain Bool :=
+  (g2ScalarMulHW start k px0 px1 py0 py1 pz0 pz1 rx0 rx1 ry0 ry1 rz0 rz1 rdone).done
+
+#synthesizeVerilog synth_g2ScalarMul_done
+
+end SynthesisChecks
