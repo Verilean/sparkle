@@ -103,8 +103,9 @@ the full layer-stack breakdown, bring-up notes, and sim entry points.
 |----|-------------|:------:|:-----:|---------|
 | [**AES / AES-GCM / GHASH**](IP/Crypto/AES.lean) | AES-128/192/256 + GCM AEAD + hardware GHASH.  Byte-exact against NIST test vectors | — | Full | `ghash-hw-test`, hardware GF(2¹²⁸) |
 | [**SHA-256 / SHA-512 / Keccak-256**](IP/Crypto/SHA256.lean) | Byte-exact hash primitives + HW pipeline (SHA-256) | — | Sim + HW SHA-256 | NIST vectors |
-| [**Ed25519 / X25519**](IP/Crypto/Ed25519Sign.lean) | Ed25519 sign/verify + X25519 scalar mult (RFC 7748). Field theorems | 5+ theorems | Sim | RFC 8032 vectors |
-| [**P-256 / secp256k1 ECDSA**](IP/Crypto/P256ECDSA.lean) | NIST P-256 + secp256k1 ECDSA (Bitcoin/Ethereum curve) | — | Sim | wycheproof |
+| [**Ed25519 / X25519**](IP/Crypto/Ed25519Sign.lean) | Ed25519 sign/verify + X25519 scalar mult (RFC 7748). Field theorems | 5+ theorems | Sim + **HW signer** | RFC 8032 vectors |
+| [**P-256 / secp256k1 ECDSA**](IP/Crypto/P256ECDSA.lean) | NIST P-256 + secp256k1 ECDSA (Bitcoin/Ethereum curve) | — | Sim + **HW signer** | wycheproof |
+| [**HW signers (secp256k1 / BLS12-381 / Ed25519)**](IP/Crypto/Secp256k1ECDSAHW.lean) | Security-focused HW **signing** datapaths — key never leaves the chip.  Bit-serial field mul → projective/extended point-op → scalar-mul ladder → sign FSM; Fp381 Montgomery mul (blst `mul_mont_384` analogue).  Hash/nonce are host inputs | — | Full (sim + `#synthesizeVerilog`) | secp256k1 matches SEC1/RFC-6979 vector; BLS G2 sign; Ed25519 RFC 8032 |
 | [**RSA-PSS**](IP/Crypto/RSAPSS.lean) | RSA signature verify (PKCS #1 v2.2 PSS) | — | Sim | webPKI test set |
 | [**HKDF**](IP/Crypto/HKDF.lean) | RFC 5869 HKDF extract + expand (SHA-256 backend) | — | Sim | TLS 1.3 dep |
 | [**Ethereum wallet stack**](IP/Crypto/EthWallet.lean) | BIP-32 / BIP-39 seed + HD wallet, RLP encoder, EIP-1559 tx, ERC-20 ABI | — | Sim | Byte-exact vs reference clients |
