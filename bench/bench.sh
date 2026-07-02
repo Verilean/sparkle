@@ -69,15 +69,15 @@ EOF
     python3 bench/preprocess_litex.py
     cat > /tmp/gen_jit.lean << 'LEOF'
 import Tools.SVParser
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 open Tools.SVParser.Lower
 def main : IO Unit := do
   let src ← IO.FS.readFile "/tmp/litex_pp.v"
   let design ← IO.ofExcept (parseAndLowerFlat src)
-  IO.FS.writeFile "/tmp/litex_jit.cpp" (Sparkle.Backend.CppSim.toCppSimJIT design)
+  IO.FS.writeFile "/tmp/litex_jit.c" (Sparkle.Backend.CSim.toCJIT design)
 LEOF
     lake env lean --run /tmp/gen_jit.lean 2>/dev/null
-    $CXX -O2 -std=c++17 -shared -fPIC -o /tmp/litex_jit.so /tmp/litex_jit.cpp 2>/dev/null
+    ${CC:-cc} -O2 -shared -fPIC -o /tmp/litex_jit.so /tmp/litex_jit.c 2>/dev/null
 
     VLTR=$(/tmp/litex_bench_obj/Vsim_1core $CYCLES 2>/dev/null)
     JIT=$(/tmp/bench_jit $CYCLES /tmp/litex_jit.so)
@@ -94,16 +94,16 @@ bench_multicore() {
     python3 Tests/SVParser/fixtures/gen_litex_multicore.py 1
     cat > /tmp/gen_hier.lean << 'LEOF'
 import Tools.SVParser
-import Sparkle.Backend.CppSim
+import Sparkle.Backend.CSim
 open Tools.SVParser.Lower
 def main : IO Unit := do
   let s ← IO.FS.readFile "Tests/SVParser/fixtures/litex_1core.v"
   let p ← IO.FS.readFile "/tmp/picorv32.v"
   let d ← IO.ofExcept (parseAndLowerHierarchical (s ++ "\n" ++ p))
-  IO.FS.writeFile "/tmp/hier_jit.cpp" (Sparkle.Backend.CppSim.toCppSimJIT d)
+  IO.FS.writeFile "/tmp/hier_jit.c" (Sparkle.Backend.CSim.toCJIT d)
 LEOF
     lake env lean --run /tmp/gen_hier.lean 2>/dev/null
-    $CXX -O2 -std=c++17 -shared -fPIC -o /tmp/hier_jit.so /tmp/hier_jit.cpp 2>/dev/null
+    ${CC:-cc} -O2 -shared -fPIC -o /tmp/hier_jit.so /tmp/hier_jit.c 2>/dev/null
 
     # Runner
     $CXX -O2 -std=c++20 -shared -fPIC -o /tmp/mc_runner.so c_src/cdc/multicore_runner.cpp -lpthread
