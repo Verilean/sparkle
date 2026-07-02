@@ -160,6 +160,8 @@ import Tests.IP.Crypto.Ed25519ScalarMulHWTest
 import Tests.IP.Crypto.Ed25519SignHWTest
 import Tests.IP.Crypto.Fp381MontMulHWTest
 import Tests.IP.Crypto.Fp2MulHWTest
+import Tests.IP.Crypto.Fp6MulHWTest
+import Tests.IP.Crypto.Fp12MulHWTest
 import Tests.IP.Crypto.G2PointOpHWTest
 import Tests.IP.Crypto.G2ScalarMulHWTest
 import LSpec
@@ -621,6 +623,10 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.Fp381MontMulHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.Fp2MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp6MulHWTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.Fp12MulHWTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.G2PointOpHWTest.main
   IO.println ""

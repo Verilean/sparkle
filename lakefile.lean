@@ -735,6 +735,14 @@ lean_exe «fp2-mul-hw-test» where
   root := `Tests.Drivers.Fp2MulHWTestMain
   supportInterpreter := true
 
+lean_exe «fp6-mul-hw-test» where
+  root := `Tests.Drivers.Fp6MulHWTestMain
+  supportInterpreter := true
+
+lean_exe «fp12-mul-hw-test» where
+  root := `Tests.Drivers.Fp12MulHWTestMain
+  supportInterpreter := true
+
 lean_exe «g2-pointop-hw-test» where
   root := `Tests.Drivers.G2PointOpHWTestMain
   supportInterpreter := true
