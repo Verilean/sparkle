@@ -84,10 +84,12 @@ def main : IO Unit := do
 
   -- Statically check `keccakF1600HW` type-checks when instantiated
   -- with a fully-constant input.  This forces the elaborator to
-  -- construct the FSM but doesn't sample Signal.val.
-  let dummyIn : Array (Signal D (BitVec 64)) :=
-    Array.replicate laneCount (constSig 0#64)
-  let _dummyEngine := keccakF1600HW startSig dummyIn
+  -- construct the FSM but doesn't sample Signal.val.  `keccakF1600HW`
+  -- now takes the 25 state-in lanes as separate scalar args.
+  let _ := laneCount
+  let z : Signal D (BitVec 64) := constSig 0#64
+  let _dummyEngine := keccakF1600HW startSig
+    z z z z z z z z z z  z z z z z z z z z z  z z z z z
   IO.println "  ok keccakF1600HW instantiates cleanly on a constant input"
 
   if !ok then

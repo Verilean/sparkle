@@ -691,6 +691,26 @@ lean_exe «ecdsa-sign-demo-test» where
   root := `Tests.Drivers.EcdsaSignDemoTestMain
   supportInterpreter := true
 
+lean_exe «tx-policy-test» where
+  root := `Tests.Drivers.TxPolicyTestMain
+  supportInterpreter := true
+
+lean_exe «keccak256-sponge-test» where
+  root := `Tests.Drivers.Keccak256SpongeTestMain
+  supportInterpreter := true
+
+-- JIT co-sim: real-cycle validation of the sponge FSM (the block-loop
+-- handshake timing the pure-Lean Signal.val interpreter can't reach —
+-- see issue #95).  Lowers via #sim → CSim.toCJIT → native, then drives
+-- the actual hardware cycle-by-cycle and reads the digest out.
+lean_exe «keccak256-sponge-jit-test» where
+  root := `Tests.Drivers.Keccak256SpongeJITTestMain
+  supportInterpreter := true
+
+lean_exe «policy-sign-demo-test» where
+  root := `Tests.Drivers.PolicySignDemoTestMain
+  supportInterpreter := true
+
 lean_exe «sha512-block-hw-test» where
   root := `Tests.Drivers.SHA512BlockHWTestMain
   supportInterpreter := true
