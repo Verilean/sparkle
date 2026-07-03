@@ -54,10 +54,21 @@ def emitOperator (op : Operator) : String :=
   | .neg => "-"
   | .mux => "?"  -- Special case, handled in emitExpr
 
-/-- Convert IR expression to Verilog expression -/
-partial def emitExpr (e : Expr) : String :=
+/-- Convert IR expression to Verilog expression.
+    `widthOf` maps a wire name to its declared bit width (when known),
+    so a full-width / scalar `.slice` can be elided — Verilog forbids a
+    part-select on a scalar (`s[0:0]` → "can not select part of
+    scalar"). -/
+partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
+    (e : Expr) : String :=
   match e with
   | .const value width =>
+    -- Verilog forbids a zero-width sized literal (`0'd0` → "Sized
+    -- numeric constant must have a size greater than zero").  A
+    -- 0-width constant only ever arises as a degenerate zero-extend
+    -- piece (e.g. `{x, <0-width>}`); the wires that carry it are
+    -- declared `[0:0]` (1 bit), so emit a 1-bit literal to match.
+    let width := if width == 0 then 1 else width
     if value < 0 then
       -- Negative values: convert to two's complement hex to avoid
       -- invalid Verilog literals like 32'd-2147483648
@@ -71,31 +82,42 @@ partial def emitExpr (e : Expr) : String :=
     sanitizeName name
 
   | .concat args =>
-    s!"\{{String.intercalate ", " (args.map emitExpr)}}"
+    s!"\{{String.intercalate ", " (args.map (emitExpr widthOf))}}"
 
   | .slice e hi lo =>
-    s!"{emitExpr e}[{hi}:{lo}]"
+    -- Elide a slice that selects the FULL width of a known wire (in
+    -- particular `s[0:0]` on a scalar, which Verilog rejects with
+    -- "can not select part of scalar").  Only when the source is a
+    -- `.ref` with a known width and the range covers [width-1 : 0].
+    match e with
+    | .ref name =>
+      match widthOf (sanitizeName name) with
+      | some w =>
+        if lo == 0 && hi + 1 >= w then sanitizeName name
+        else s!"{sanitizeName name}[{hi}:{lo}]"
+      | none => s!"{emitExpr widthOf e}[{hi}:{lo}]"
+    | _ => s!"{emitExpr widthOf e}[{hi}:{lo}]"
 
   | .index arr idx =>
-    s!"{emitExpr arr}[{emitExpr idx}]"
+    s!"{emitExpr widthOf arr}[{emitExpr widthOf idx}]"
 
   | .op .mux args =>
     -- Mux is special: cond ? then_val : else_val
     match args with
     | [cond, thenVal, elseVal] =>
-      s!"({emitExpr cond} ? {emitExpr thenVal} : {emitExpr elseVal})"
+      s!"({emitExpr widthOf cond} ? {emitExpr widthOf thenVal} : {emitExpr widthOf elseVal})"
     | _ => "/* ERROR: mux requires 3 arguments */"
 
   | .op .not args =>
     -- Unary NOT
     match args with
-    | [arg] => s!"~{emitExpr arg}"
+    | [arg] => s!"~{emitExpr widthOf arg}"
     | _ => "/* ERROR: not requires 1 argument */"
 
   | .op .neg args =>
     -- Unary negation
     match args with
-    | [arg] => s!"-{emitExpr arg}"
+    | [arg] => s!"-{emitExpr widthOf arg}"
     | _ => "/* ERROR: neg requires 1 argument */"
 
   | .op operator args =>
@@ -104,9 +126,9 @@ partial def emitExpr (e : Expr) : String :=
     | [arg1, arg2] =>
       match operator with
       | .lt_s | .le_s | .gt_s | .ge_s | .asr =>
-        s!"($signed({emitExpr arg1}) {emitOperator operator} $signed({emitExpr arg2}))"
+        s!"($signed({emitExpr widthOf arg1}) {emitOperator operator} $signed({emitExpr widthOf arg2}))"
       | _ =>
-        s!"({emitExpr arg1} {emitOperator operator} {emitExpr arg2})"
+        s!"({emitExpr widthOf arg1} {emitOperator operator} {emitExpr widthOf arg2})"
     | _ => s!"/* ERROR: operator {operator} with wrong arity */"
 
 /-- Emit a single statement.
@@ -114,9 +136,17 @@ partial def emitExpr (e : Expr) : String :=
     reset value width lookup. -/
 def emitStmt (stmt : Stmt) (indent : String := "    ")
     (wires : List Port := []) : String :=
+  -- Wire-name → declared width, so `emitExpr` can elide full-width /
+  -- scalar slices that Verilog would reject.
+  let widthOf : String → Option Nat := fun n =>
+    (wires.find? (fun p => sanitizeName p.name == n)).bind fun p =>
+      match p.ty with
+      | .bitVector w => some w
+      | .bit         => some 1
+      | _            => none
   match stmt with
   | .assign lhs rhs =>
-    s!"{indent}assign {sanitizeName lhs} = {emitExpr rhs};"
+    s!"{indent}assign {sanitizeName lhs} = {emitExpr widthOf rhs};"
 
   | .register output clock reset input initValue =>
     -- Generate always_ff block for register.  The sensitivity list
@@ -138,9 +168,9 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
         s!"@(posedge {sanitizeName clock})"
     s!"{indent}always_ff {sensitivity} begin\n" ++
     s!"{indent}    if ({sanitizeName rstName})\n" ++
-    s!"{indent}        {sanitizeName output} <= {emitExpr (.const initValue resetWidth)};\n" ++
+    s!"{indent}        {sanitizeName output} <= {emitExpr widthOf (.const initValue resetWidth)};\n" ++
     s!"{indent}    else\n" ++
-    s!"{indent}        {sanitizeName output} <= {emitExpr input};\n" ++
+    s!"{indent}        {sanitizeName output} <= {emitExpr widthOf input};\n" ++
     s!"{indent}end"
 
   | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
@@ -149,11 +179,11 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
     let memDecl := s!"{indent}logic [{dataWidth-1}:0] {sanitizeName name} [0:{memSize-1}];"
     if comboRead then
       -- Combinational read: assign readData = mem[readAddr]
-      let assignRead := s!"{indent}assign {sanitizeName readData} = {sanitizeName name}[{emitExpr readAddr}];"
+      let assignRead := s!"{indent}assign {sanitizeName readData} = {sanitizeName name}[{emitExpr widthOf readAddr}];"
       let alwaysBlock :=
         s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
-        s!"{indent}    if ({emitExpr writeEnable}) begin\n" ++
-        s!"{indent}        {sanitizeName name}[{emitExpr writeAddr}] <= {emitExpr writeData};\n" ++
+        s!"{indent}    if ({emitExpr widthOf writeEnable}) begin\n" ++
+        s!"{indent}        {sanitizeName name}[{emitExpr widthOf writeAddr}] <= {emitExpr widthOf writeData};\n" ++
         s!"{indent}    end\n" ++
         s!"{indent}end"
       memDecl ++ "\n" ++ assignRead ++ "\n" ++ alwaysBlock
@@ -161,16 +191,16 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
       -- Registered read: readData latched inside always_ff
       let alwaysBlock :=
         s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
-        s!"{indent}    if ({emitExpr writeEnable}) begin\n" ++
-        s!"{indent}        {sanitizeName name}[{emitExpr writeAddr}] <= {emitExpr writeData};\n" ++
+        s!"{indent}    if ({emitExpr widthOf writeEnable}) begin\n" ++
+        s!"{indent}        {sanitizeName name}[{emitExpr widthOf writeAddr}] <= {emitExpr widthOf writeData};\n" ++
         s!"{indent}    end\n" ++
-        s!"{indent}    {sanitizeName readData} <= {sanitizeName name}[{emitExpr readAddr}];\n" ++
+        s!"{indent}    {sanitizeName readData} <= {sanitizeName name}[{emitExpr widthOf readAddr}];\n" ++
         s!"{indent}end"
       memDecl ++ "\n" ++ alwaysBlock
 
   | .inst moduleName instName connections =>
     let connStrs := connections.map fun (portName, expr) =>
-      s!".{sanitizeName portName}({emitExpr expr})"
+      s!".{sanitizeName portName}({emitExpr widthOf expr})"
     let connList := String.intercalate ", " connStrs
     s!"{indent}{sanitizeName moduleName} {sanitizeName instName} ({connList});"
 
