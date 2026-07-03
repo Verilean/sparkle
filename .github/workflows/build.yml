@@ -1017,11 +1017,60 @@ jobs:
               --title "Sparkle Tutorial" \
               --jupyterlite-base "../lab/index.html?path=tutorial/"
 
-            # 4. Drop prepacked olean tarballs (Std, Sparkle, …) so
-            #    first browser boot doesnt have to compile them.
+            # 4. Drop prepacked olean tarballs (Init/Std/Lean/…) so the
+            #    first browser boot doesnt have to compile them.  These
+            #    ship in the image and carry the stdlib manifest-v2.json.
             if [ -d /opt/xeus-lean/_olean ]; then
               mkdir -p site/xeus/wasm-host/olean
               cp /opt/xeus-lean/_olean/* site/xeus/wasm-host/olean/
+            fi
+
+            # 4b. Pack the SPARKLE oleans into their own tarball and
+            #     MERGE a Sparkle entry into the deployed manifest-v2.json.
+            #
+            #     The lab loads oleans dynamically from
+            #     site/xeus/wasm-host/olean/ via manifest-v2.json.  The
+            #     image-prepacked _olean/ is stdlib-only, so without this
+            #     step the manifest has no Sparkle entry and the lab
+            #     answers `import Sparkle.Core.Domain` with "unknown
+            #     namespace" — even though the kernel links the Sparkle
+            #     symbols.  (build-wasm.sh already staged the oleans at
+            #     /work/.sparkle-staging with Sparkle.olean + Sparkle/ at
+            #     its root; that is a valid pack SRC.)
+            OLEAN_OUT=site/xeus/wasm-host/olean
+            if [ -n "${SPARKLE_PREFIX:-}" ] \
+               && [ -f /work/.sparkle-staging/Sparkle.olean ] \
+               && [ -f /opt/xeus-lean/scripts/pack-olean-modules.sh ]; then
+              echo "::group::Pack Sparkle oleans for the lab"
+              mkdir -p "$OLEAN_OUT" /tmp/sparkle-pack
+              # Pack ONLY the Sparkle module (writes its own manifest we
+              # then merge, plus Sparkle-olean.tar.zst).
+              MODULES=Sparkle ZSTD_LEVEL=-15 \
+                bash /opt/xeus-lean/scripts/pack-olean-modules.sh \
+                     /work/.sparkle-staging /tmp/sparkle-pack || true
+              if [ -f /tmp/sparkle-pack/Sparkle-olean.tar.zst ]; then
+                cp /tmp/sparkle-pack/Sparkle-olean.tar.zst "$OLEAN_OUT/"
+                # Merge the Sparkle module entry into the existing
+                # (stdlib) manifest-v2.json.  If the stdlib manifest is
+                # absent for some reason, fall back to the freshly-packed
+                # Sparkle-only manifest.  NOTE: this whole step runs
+                # inside a `bash -eu -c '\''...'\''` single-quoted docker
+                # command, so the Python body must contain NO single
+                # quotes and the heredoc delimiter must be UNQUOTED (its
+                # body has no `$`, so nothing expands).
+                python3 - "$OLEAN_OUT/manifest-v2.json" /tmp/sparkle-pack/manifest-v2.json <<PYEOF
+import json, os, sys
+base_path, sparkle_path = sys.argv[1], sys.argv[2]
+sparkle = json.load(open(sparkle_path))
+base = json.load(open(base_path)) if os.path.exists(base_path) else {"version": "v2", "baseUrl": "", "modules": {}}
+base.setdefault("modules", {}).update(sparkle.get("modules", {}))
+json.dump(base, open(base_path, "w"))
+print("[pack] merged Sparkle into manifest-v2.json; modules now: " + ", ".join(sorted(base["modules"])))
+PYEOF
+              else
+                echo "::warning::Sparkle olean pack produced no tarball; lab will lack import Sparkle"
+              fi
+              echo "::endgroup::"
             fi
 
             # 5. Hand ownership of everything we wrote under /work
