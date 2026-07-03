@@ -1334,6 +1334,39 @@ mutual
                 let a := fmapArgs[fmapArgs.size-1]!
                 let wireA ← translateExprToWire a "a" (isTopLevel := false)
                 let wireB ← translateExprToWire b "b" (isTopLevel := false)
+                -- COMPOUND-body special case: `fun x y => !(x OP y)`.
+                -- `getPrimitiveNameFromLambda` returns just the outer
+                -- `not`, losing the inner `OP`, so the fast path below
+                -- would emit `.op .not [a,b]` — a unary op with two
+                -- args, rendered by the backends as
+                -- `/* ERROR: not requires 1 argument */`.  This is the
+                -- bit-serial engines' `busy = !(isIdle || isFinish)`.
+                -- Emit the correct nested `not (a OP b)` instead.
+                if let some innerOp := (
+                    match f with
+                    | .lam _ _ (.lam _ _ notBody _) _ =>
+                      let nfn := notBody.getAppFn
+                      let nargs := notBody.getAppArgs
+                      if (nfn.isConstOf ``not || nfn.isConstOf ``Bool.not
+                          || nfn.isConstOf ``Complement.complement
+                          || nfn.isConstOf ``BitVec.not) && nargs.size >= 1 then
+                        let inner := nargs[nargs.size-1]!
+                        match inner.getAppFn with
+                        | .const iname _ =>
+                          let iargs := inner.getAppArgs
+                          if iargs.size >= 2 && iargs[iargs.size-2]!.isBVar
+                             && iargs[iargs.size-1]!.isBVar then getOperator iname
+                          else none
+                        | _ => none
+                      else none
+                    | _ => none) then
+                  let exprType ← cachedInferType e
+                  let hwType ← inferHWTypeFromSignal exprType
+                  let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
+                  CompilerM.emitAssign innerWire (.op innerOp [.ref wireA, .ref wireB])
+                  let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+                  CompilerM.emitAssign resWire (.op .not [.ref innerWire])
+                  return resWire
                 -- Get op name from lambda body
                 let opName ← getPrimitiveNameFromLambda f
                 match getOperator opName with
@@ -1846,6 +1879,46 @@ mutual
         let a := sfArgs[sfArgs.size-1]!
         let wireA ← translateExprToWire a "a"
         let wireB ← translateExprToWire b "b"
+        -- COMPOUND-body special case: `fun x y => !(x OP y)`.
+        -- `getPrimitiveNameFromLambda` returns just the outermost
+        -- `not`, losing the inner `OP`, so the fast path below would
+        -- emit `.op .not [a, b]` — a unary op with two args, which the
+        -- Verilog/CSim backends render as
+        -- `/* ERROR: not requires 1 argument */`.  Recognise this exact
+        -- shape (the bit-serial engines' `busy = !(isIdle || isFinish)`)
+        -- and emit the correct nested `not (a OP b)`.
+        let compoundNot? : Option Operator :=
+          match f with
+          | .lam _ _ (.lam _ _ notBody _) _ =>
+            let nfn := notBody.getAppFn
+            let nargs := notBody.getAppArgs
+            -- outer must be a unary complement/not with one arg…
+            if (nfn.isConstOf ``not || nfn.isConstOf ``Bool.not
+                || nfn.isConstOf ``Complement.complement || nfn.isConstOf ``BitVec.not)
+               && nargs.size >= 1 then
+              let inner := nargs[nargs.size-1]!
+              let ifn := inner.getAppFn
+              let iargs := inner.getAppArgs
+              -- …applied to a single binary op on the two bound vars.
+              match ifn with
+              | .const iname _ =>
+                if iargs.size >= 2 && iargs[iargs.size-2]!.isBVar
+                   && iargs[iargs.size-1]!.isBVar then
+                  getOperator iname
+                else none
+              | _ => none
+            else none
+          | _ => none
+        match compoundNot? with
+        | some innerOp =>
+          let exprType ← cachedInferType e
+          let hwType ← inferHWTypeFromSignal exprType
+          let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
+          CompilerM.emitAssign innerWire (.op innerOp [.ref wireA, .ref wireB])
+          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+          CompilerM.emitAssign resWire (.op .not [.ref innerWire])
+          return some resWire
+        | none => pure ()
         let opName ← getPrimitiveNameFromLambda f
         match getOperator opName with
         | some op =>

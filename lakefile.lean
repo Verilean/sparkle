@@ -687,6 +687,10 @@ lean_exe «secp256k1-ecdsa-hw-test» where
   root := `Tests.Drivers.Secp256k1ECDSAHWTestMain
   supportInterpreter := true
 
+lean_exe «ecdsa-sign-demo-test» where
+  root := `Tests.Drivers.EcdsaSignDemoTestMain
+  supportInterpreter := true
+
 lean_exe «sha512-block-hw-test» where
   root := `Tests.Drivers.SHA512BlockHWTestMain
   supportInterpreter := true
