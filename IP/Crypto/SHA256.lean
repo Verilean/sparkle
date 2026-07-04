@@ -379,6 +379,18 @@ def sha256Block {dom : DomainConfig}
     --   slot 9  = W[t+9]    = W[(t+16)-7]    direct addend
     --   slot 14 = W[t+14]   = W[(t+16)-2]    for σ₁
     --   slot 15 = W[t+15]   = W[(t+16)-1]    (unused)
+    -- SHA-256 bit functions are FULLY INLINED at their call sites
+    -- below.  A named top-level `Signal → Signal` def (`rotr32Sig`,
+    -- `bigSigma1Sig`, …) is opaque to the synth elaborator
+    -- ("not inlinable"), AND wrapping the applicative body in a
+    -- local `let f := fun x => …` lambda that RETURNS a `<$>/<*>`
+    -- chain also fails ("Cannot instantiate Seq.seq") — the
+    -- elaborator only lowers applicative expressions written
+    -- directly, not returned from a lambda.  So each Σ/σ/Ch/Maj is
+    -- spelled out inline where it is consumed (see `sig1`, `sig0`,
+    -- `chv`, `majv`, `newW1`, `newW2`).  `rotrK x n` and `shrK x n`
+    -- macros would help but the elaborator needs the literal form.
+
     -- Convert "slot k" → `BitVec.extractLsb' ((15-k)*32) 32`.
     let wt    := wBufSig.map (BitVec.extractLsb' 480 32 ·)  -- slot 0
     let wTm15 := wBufSig.map (BitVec.extractLsb' 448 32 ·)  -- slot 1
@@ -395,10 +407,41 @@ def sha256Block {dom : DomainConfig}
 
     -- Compute T1, T2, next-state.
     let kt    := kMux cntSig
-    let sig1  := bigSigma1Sig eSig
-    let sig0  := bigSigma0Sig aSig
-    let chv   := chFnSig eSig fSig gSig
-    let majv  := majFnSig aSig bSig cSig
+    -- Σ₁(e) = ROTR(e,6) ⊕ ROTR(e,11) ⊕ ROTR(e,25), inlined.
+    let e6  := ((· >>> ·) <$> eSig <*> (Signal.pure 6#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let e6l := ((· <<< ·) <$> eSig <*> (Signal.pure 26#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rE6 := ((· ||| ·) <$> e6 <*> e6l : Signal dom (BitVec 32))
+    let e11  := ((· >>> ·) <$> eSig <*> (Signal.pure 11#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let e11l := ((· <<< ·) <$> eSig <*> (Signal.pure 21#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rE11 := ((· ||| ·) <$> e11 <*> e11l : Signal dom (BitVec 32))
+    let e25  := ((· >>> ·) <$> eSig <*> (Signal.pure 25#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let e25l := ((· <<< ·) <$> eSig <*> (Signal.pure 7#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rE25 := ((· ||| ·) <$> e25 <*> e25l : Signal dom (BitVec 32))
+    let sig1ab := ((· ^^^ ·) <$> rE6 <*> rE11 : Signal dom (BitVec 32))
+    let sig1  := ((· ^^^ ·) <$> sig1ab <*> rE25 : Signal dom (BitVec 32))
+    -- Σ₀(a) = ROTR(a,2) ⊕ ROTR(a,13) ⊕ ROTR(a,22), inlined.
+    let a2  := ((· >>> ·) <$> aSig <*> (Signal.pure 2#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let a2l := ((· <<< ·) <$> aSig <*> (Signal.pure 30#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rA2 := ((· ||| ·) <$> a2 <*> a2l : Signal dom (BitVec 32))
+    let a13  := ((· >>> ·) <$> aSig <*> (Signal.pure 13#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let a13l := ((· <<< ·) <$> aSig <*> (Signal.pure 19#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rA13 := ((· ||| ·) <$> a13 <*> a13l : Signal dom (BitVec 32))
+    let a22  := ((· >>> ·) <$> aSig <*> (Signal.pure 22#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let a22l := ((· <<< ·) <$> aSig <*> (Signal.pure 10#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rA22 := ((· ||| ·) <$> a22 <*> a22l : Signal dom (BitVec 32))
+    let sig0ab := ((· ^^^ ·) <$> rA2 <*> rA13 : Signal dom (BitVec 32))
+    let sig0  := ((· ^^^ ·) <$> sig0ab <*> rA22 : Signal dom (BitVec 32))
+    -- Ch(e,f,g) = (e ∧ f) ⊕ (¬e ∧ g), inlined.
+    let chXy  := ((· &&& ·) <$> eSig <*> fSig : Signal dom (BitVec 32))
+    let chNx  := ((~~~ ·) <$> eSig : Signal dom (BitVec 32))
+    let chNxz := ((· &&& ·) <$> chNx <*> gSig : Signal dom (BitVec 32))
+    let chv   := ((· ^^^ ·) <$> chXy <*> chNxz : Signal dom (BitVec 32))
+    -- Maj(a,b,c) = (a∧b) ⊕ (a∧c) ⊕ (b∧c), inlined.
+    let mjXy := ((· &&& ·) <$> aSig <*> bSig : Signal dom (BitVec 32))
+    let mjXz := ((· &&& ·) <$> aSig <*> cSig : Signal dom (BitVec 32))
+    let mjYz := ((· &&& ·) <$> bSig <*> cSig : Signal dom (BitVec 32))
+    let mjT1 := ((· ^^^ ·) <$> mjXy <*> mjXz : Signal dom (BitVec 32))
+    let majv  := ((· ^^^ ·) <$> mjT1 <*> mjYz : Signal dom (BitVec 32))
     let t1a := (· + ·) <$> hSig <*> sig1
     let t1b := (· + ·) <$> t1a <*> chv
     let t1c := (· + ·) <$> t1b <*> kt
@@ -464,8 +507,26 @@ def sha256Block {dom : DomainConfig}
     -- the buffer left by 32 bits, place newW in the bottom.
     -- During cnt 49..64 we still shift; the consumed wt
     -- is what we use this round.  Stop shifting at finish.
-    let newW1 := smallSigma1Sig wTm2
-    let newW2 := smallSigma0Sig wTm15
+    -- σ₁(wTm2) = ROTR(x,17) ⊕ ROTR(x,19) ⊕ SHR(x,10), inlined.
+    let w2r17  := ((· >>> ·) <$> wTm2 <*> (Signal.pure 17#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2r17l := ((· <<< ·) <$> wTm2 <*> (Signal.pure 15#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2R17  := ((· ||| ·) <$> w2r17 <*> w2r17l : Signal dom (BitVec 32))
+    let w2r19  := ((· >>> ·) <$> wTm2 <*> (Signal.pure 19#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2r19l := ((· <<< ·) <$> wTm2 <*> (Signal.pure 13#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2R19  := ((· ||| ·) <$> w2r19 <*> w2r19l : Signal dom (BitVec 32))
+    let w2s10  := ((· >>> ·) <$> wTm2 <*> (Signal.pure 10#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2ab   := ((· ^^^ ·) <$> w2R17 <*> w2R19 : Signal dom (BitVec 32))
+    let newW1  := ((· ^^^ ·) <$> w2ab <*> w2s10 : Signal dom (BitVec 32))
+    -- σ₀(wTm15) = ROTR(x,7) ⊕ ROTR(x,18) ⊕ SHR(x,3), inlined.
+    let w15r7  := ((· >>> ·) <$> wTm15 <*> (Signal.pure 7#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15r7l := ((· <<< ·) <$> wTm15 <*> (Signal.pure 25#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15R7  := ((· ||| ·) <$> w15r7 <*> w15r7l : Signal dom (BitVec 32))
+    let w15r18  := ((· >>> ·) <$> wTm15 <*> (Signal.pure 18#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15r18l := ((· <<< ·) <$> wTm15 <*> (Signal.pure 14#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15R18  := ((· ||| ·) <$> w15r18 <*> w15r18l : Signal dom (BitVec 32))
+    let w15s3  := ((· >>> ·) <$> wTm15 <*> (Signal.pure 3#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15ab  := ((· ^^^ ·) <$> w15R7 <*> w15R18 : Signal dom (BitVec 32))
+    let newW2  := ((· ^^^ ·) <$> w15ab <*> w15s3 : Signal dom (BitVec 32))
     let n1n2  := (· + ·) <$> newW1 <*> wTm7
     let n3    := (· + ·) <$> n1n2 <*> newW2
     let newW  := (· + ·) <$> n3 <*> wTm16
