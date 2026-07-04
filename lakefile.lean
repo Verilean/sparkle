@@ -716,6 +716,10 @@ lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true
 
+lean_exe «policy-sign-demo-m2-test» where
+  root := `Tests.Drivers.PolicySignDemoM2TestMain
+  supportInterpreter := true
+
 lean_exe «ctap2-data-test» where
   root := `Tests.Drivers.CTAP2DataTestMain
   supportInterpreter := true
