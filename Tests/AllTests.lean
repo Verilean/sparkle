@@ -153,6 +153,7 @@ import Tests.IP.Crypto.EcdsaSignDemoTest
 import Tests.IP.Crypto.TxPolicyTest
 import Tests.IP.Crypto.Keccak256SpongeTest
 import Tests.IP.Crypto.PolicySignDemoTest
+import Tests.IP.Crypto.CTAP2DataTest
 import Tests.IP.Crypto.SHA512BlockHWTest
 import Tests.IP.Crypto.HMACSHA512HWTest
 import Tests.IP.Crypto.BIP32CKDHWTest
@@ -615,6 +616,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.Keccak256SpongeTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.PolicySignDemoTest.main
+  IO.println ""
+  Sparkle.Tests.IP.Crypto.CTAP2DataTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.SHA512BlockHWTest.main
   IO.println ""

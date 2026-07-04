@@ -109,4 +109,28 @@ def digestToNat (digest : Array UInt8) : Nat := Id.run do
     z := (z <<< 8) ||| digest[i]!.toNat
   return z
 
+/-- ECDSA sign on P-256 with a caller-provided nonce `k`.
+
+    `r = (k·G).x mod n`, `s = k⁻¹·(z + r·d) mod n`.  Returns
+    `(r, s)`, or `none` on the degenerate `r = 0` / `s = 0` cases
+    (the caller must then retry with a fresh `k`).
+
+    Exact analogue of `Secp256k1ECDSA.sign`, on the P-256 curve.
+    The nonce `k` must be uniformly random and secret; a real
+    device derives it via RFC 6979 (HMAC-DRBG over `d‖z`) or a
+    TRNG — this function takes `k` as an input, like the hardware
+    signer, and does NOT itself provide entropy. -/
+def sign (d k z : Nat) : Option (Nat × Nat) :=
+  let kg := mulScalar k base
+  match kg with
+  | .infinity => none
+  | .affine x1 _ =>
+    let r := x1 % n
+    if r = 0 then none
+    else
+      let kInv := invModN k
+      let s := (kInv * ((z + r * d) % n)) % n
+      if s = 0 then none
+      else some (r, s)
+
 end Sparkle.IP.Crypto.P256ECDSA
