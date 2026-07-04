@@ -6,7 +6,7 @@
     * RFC 5869 Appendix A — HKDF-SHA-256 test vectors
 -/
 
-import IP.Crypto.HKDF
+import IP.Crypto.Codec.HKDF
 
 open Sparkle.IP.Crypto.HKDF
 

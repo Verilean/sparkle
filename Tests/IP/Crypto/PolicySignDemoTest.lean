@@ -19,8 +19,8 @@
   hardware, and iverilog elaborates the emitted Verilog.
 -/
 import Sparkle
-import IP.Crypto.Keccak256
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Keccak256
+import IP.Crypto.Proof.Secp256k1ECDSA
 import IP.Crypto.TxPolicy
 import IP.Crypto.PolicySignDemo
 

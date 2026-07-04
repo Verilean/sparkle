@@ -20,7 +20,7 @@
   uses the short prefix 0x80+17 = 0x91.
 -/
 
-import IP.Crypto.RLP
+import IP.Crypto.Codec.RLP
 
 open Sparkle.IP.Crypto.RLP
 

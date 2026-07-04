@@ -4,7 +4,7 @@
   Algebraic invariant checks for the Goldilocks prime field.
 -/
 
-import IP.Crypto.Goldilocks
+import IP.Crypto.Proof.Goldilocks
 
 open Sparkle.IP.Crypto.Goldilocks
 

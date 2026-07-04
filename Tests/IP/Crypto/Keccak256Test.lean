@@ -19,7 +19,7 @@
   ERC-20 reference.
 -/
 
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 
 open Sparkle.IP.Crypto.Keccak256
 

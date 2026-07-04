@@ -25,7 +25,7 @@
   Ed25519 for the cert chain because RSA modpow is huge.
 -/
 
-import IP.Crypto.HKDF
+import IP.Crypto.Codec.HKDF
 
 namespace Sparkle.IP.Crypto.RSAPSS
 

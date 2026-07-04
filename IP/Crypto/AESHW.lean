@@ -29,7 +29,7 @@
 -/
 import Sparkle
 import Sparkle.Core.Lut
-import IP.Crypto.AES
+import IP.Crypto.Codec.AES
 
 open Sparkle.Core (kLutMacro)
 open Sparkle.Core.Domain

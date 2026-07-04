@@ -20,7 +20,7 @@
   against.
 -/
 
-import IP.Crypto.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1Field
 
 namespace Sparkle.IP.Crypto.Secp256k1PointJac
 

@@ -37,8 +37,8 @@
   ≈ 0.83 M cycles (avg) with the 258-cyc bit-serial multiplier.
 -/
 import Sparkle
-import IP.Crypto.Ed25519Field
-import IP.Crypto.Ed25519PointExt
+import IP.Crypto.Proof.Ed25519Field
+import IP.Crypto.Proof.Ed25519PointExt
 import IP.Crypto.Ed25519PointOpHW
 
 namespace Sparkle.IP.Crypto.Ed25519ScalarMulHW

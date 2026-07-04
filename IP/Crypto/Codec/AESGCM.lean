@@ -16,8 +16,8 @@
   a 12-byte IV and 16-byte authentication tag.
 -/
 
-import IP.Crypto.AES
-import IP.Crypto.GHASH
+import IP.Crypto.Codec.AES
+import IP.Crypto.Codec.GHASH
 
 namespace Sparkle.IP.Crypto.AESGCM
 

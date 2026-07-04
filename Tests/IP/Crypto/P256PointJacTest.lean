@@ -9,8 +9,8 @@
   silent-wrong signature deep in hardware.
 -/
 
-import IP.Crypto.P256PointJac
-import IP.Crypto.P256Point
+import IP.Crypto.Proof.P256PointJac
+import IP.Crypto.Proof.P256Point
 
 open Sparkle.IP.Crypto
 

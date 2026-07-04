@@ -10,7 +10,7 @@
   fully exercised by Test 1.
 -/
 
-import IP.Crypto.Ed25519Sign
+import IP.Crypto.Proof.Ed25519Sign
 
 open Sparkle.IP.Crypto.Ed25519Sign
 

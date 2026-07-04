@@ -55,7 +55,7 @@
   per inverse with the bit-serial multiplier.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1Field
 import IP.Crypto.Secp256k1FieldHW
 
 namespace Sparkle.IP.Crypto.ModInvHW

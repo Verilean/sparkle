@@ -1,4 +1,4 @@
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 open Sparkle.IP.Crypto.SHA512
 
 def hexByte (b : Nat) : String :=

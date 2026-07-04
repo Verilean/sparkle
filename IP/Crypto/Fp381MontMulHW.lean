@@ -44,7 +44,7 @@
   and the post-shift accumulator stays below 382 bits.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 
 namespace Sparkle.IP.Crypto.Fp381MontMulHW
 

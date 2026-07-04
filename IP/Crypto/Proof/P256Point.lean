@@ -12,7 +12,7 @@
     G = (gx, gy) per SEC 2 §2.4.2.
 -/
 
-import IP.Crypto.P256Field
+import IP.Crypto.Proof.P256Field
 
 namespace Sparkle.IP.Crypto.P256Point
 

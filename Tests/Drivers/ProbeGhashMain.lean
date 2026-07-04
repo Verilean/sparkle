@@ -3,7 +3,7 @@
   Used to measure baseline per-cycle cost before/after C-FFI tuning.
 -/
 import Sparkle
-import IP.Crypto.GHASH
+import IP.Crypto.Codec.GHASH
 import IP.Crypto.GHASHHW
 
 open Sparkle.Core.Domain Sparkle.Core.Signal

@@ -10,9 +10,9 @@
     5. ECDSA verify rejects a tampered message hash.
 -/
 
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1Point
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1Point
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 namespace Sparkle.Tests.IP.Crypto.Secp256k1Test
 

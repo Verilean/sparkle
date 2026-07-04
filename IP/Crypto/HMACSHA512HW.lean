@@ -48,7 +48,7 @@
             bWin0..15   (BitVec 64)  — block engine message words
 -/
 import Sparkle
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 import IP.Crypto.SHA512BlockHW
 
 open Sparkle.Core.Domain

@@ -17,7 +17,7 @@
   wrapper cycle.
 -/
 
-import IP.Crypto.RLP
+import IP.Crypto.Codec.RLP
 import IP.Crypto.RLPHW
 
 open Sparkle.Core.Domain

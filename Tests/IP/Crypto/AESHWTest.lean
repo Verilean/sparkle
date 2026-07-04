@@ -17,7 +17,7 @@
   the wave-1 scope note in IP/Crypto/AESHW.lean).
 -/
 
-import IP.Crypto.AES
+import IP.Crypto.Codec.AES
 import IP.Crypto.AESHW
 
 open Sparkle.Core.Domain

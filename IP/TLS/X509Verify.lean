@@ -20,9 +20,9 @@
 -/
 
 import IP.TLS.X509
-import IP.Crypto.Ed25519Sign
-import IP.Crypto.P256ECDSA
-import IP.Crypto.RSAPSS
+import IP.Crypto.Proof.Ed25519Sign
+import IP.Crypto.Proof.P256ECDSA
+import IP.Crypto.Codec.RSAPSS
 
 namespace Sparkle.IP.TLS.X509Verify
 

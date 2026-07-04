@@ -15,9 +15,9 @@
   2. **Synth check** (`SynthesisChecks`): `#synthesizeVerilog` on
      childKey, a chain-code word, done, and a block-drive port.
 -/
-import IP.Crypto.Bip32
-import IP.Crypto.Bip39
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Codec.Bip32
+import IP.Crypto.Codec.Bip39
+import IP.Crypto.Proof.Secp256k1ECDSA
 import IP.Crypto.BIP32CKDHW
 
 open Sparkle.IP.Crypto.Bip39 (hmacSha512)

@@ -9,7 +9,7 @@
 -/
 
 import IP.TLS.KeySchedule
-import IP.Crypto.HKDF
+import IP.Crypto.Codec.HKDF
 
 open Sparkle.IP.TLS.KeySchedule
 open Sparkle.IP.Crypto.HKDF (sha256)

@@ -29,7 +29,7 @@
                                            low 8 bytes
 -/
 
-import IP.Crypto.AESGCM
+import IP.Crypto.Codec.AESGCM
 
 namespace Sparkle.IP.TLS.Record
 

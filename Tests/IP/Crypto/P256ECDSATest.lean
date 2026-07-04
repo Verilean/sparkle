@@ -9,7 +9,7 @@
     s      = F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8
 -/
 
-import IP.Crypto.P256ECDSA
+import IP.Crypto.Proof.P256ECDSA
 
 open Sparkle.IP.Crypto.P256ECDSA
 open Sparkle.IP.Crypto.P256Point (Point)

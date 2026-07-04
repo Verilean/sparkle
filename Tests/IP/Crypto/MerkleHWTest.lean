@@ -15,7 +15,7 @@
   Synth via #synthesizeVerilog at the bottom.
 -/
 
-import IP.Crypto.Merkle
+import IP.Crypto.Proof.Merkle
 import IP.Crypto.MerkleHW
 
 open Sparkle.Core.Domain

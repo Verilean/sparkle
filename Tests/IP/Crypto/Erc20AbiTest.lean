@@ -14,7 +14,7 @@
        amount as the wallet UI expects.
 -/
 
-import IP.Crypto.Erc20Abi
+import IP.Crypto.Codec.Erc20Abi
 
 open Sparkle.IP.Crypto.Erc20Abi
 

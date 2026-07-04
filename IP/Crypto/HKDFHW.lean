@@ -41,7 +41,7 @@
   hauling in SHA-256.
 -/
 import Sparkle
-import IP.Crypto.HKDF
+import IP.Crypto.Codec.HKDF
 
 namespace Sparkle.IP.Crypto.HKDFHW
 

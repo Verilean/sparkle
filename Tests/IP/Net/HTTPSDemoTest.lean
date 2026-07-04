@@ -26,9 +26,9 @@ import IP.TLS.Server
 import IP.TLS.Handshake
 import IP.TLS.KeySchedule
 import IP.Net.HFTOverTLS
-import IP.Crypto.Ed25519Sign
-import IP.Crypto.HKDF
-import IP.Crypto.X25519
+import IP.Crypto.Proof.Ed25519Sign
+import IP.Crypto.Codec.HKDF
+import IP.Crypto.Proof.X25519
 
 open Sparkle.IP.TLS.Client
 open Sparkle.IP.TLS.Server

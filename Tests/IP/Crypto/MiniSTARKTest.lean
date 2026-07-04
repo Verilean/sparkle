@@ -17,8 +17,8 @@
     4. Wrong index fails.
 -/
 
-import IP.Crypto.MiniSTARK
-import IP.Crypto.Polynomial
+import IP.Crypto.Proof.MiniSTARK
+import IP.Crypto.Proof.Polynomial
 
 open Sparkle.IP.Crypto.MiniSTARK
 open Sparkle.IP.Crypto.Polynomial

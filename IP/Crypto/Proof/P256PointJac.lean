@@ -23,8 +23,8 @@
   it is transcribed into the bit-serial hardware schedule.
 -/
 
-import IP.Crypto.P256Field
-import IP.Crypto.P256Point
+import IP.Crypto.Proof.P256Field
+import IP.Crypto.Proof.P256Point
 
 namespace Sparkle.IP.Crypto.P256PointJac
 

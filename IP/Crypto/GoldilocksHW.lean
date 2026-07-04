@@ -26,7 +26,7 @@
   same shift-add skeleton scales to the 256-bit curve fields.
 -/
 import Sparkle
-import IP.Crypto.Goldilocks
+import IP.Crypto.Proof.Goldilocks
 
 namespace Sparkle.IP.Crypto.GoldilocksHW
 

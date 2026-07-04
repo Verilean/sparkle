@@ -18,7 +18,7 @@
   Sparkle/IR/Builder.lean.)  See `section SynthesisChecks` below.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.G2ScalarMulHW
 
 open Sparkle.IP.Crypto.BLS12_381

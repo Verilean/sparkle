@@ -17,11 +17,11 @@
        when called with the derived public key.
 -/
 
-import IP.Crypto.Eip1559Tx
-import IP.Crypto.Secp256k1ECDSA
-import IP.Crypto.Secp256k1Point
-import IP.Crypto.Keccak256
-import IP.Crypto.RLP
+import IP.Crypto.Codec.Eip1559Tx
+import IP.Crypto.Proof.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Point
+import IP.Crypto.Proof.Keccak256
+import IP.Crypto.Codec.RLP
 
 open Sparkle.IP.Crypto.Eip1559Tx
 open Sparkle.IP.Crypto.Secp256k1ECDSA (sign verify derivePublicKey)

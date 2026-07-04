@@ -14,7 +14,7 @@
   Timing: start at cycle 0 ⇒ done pulses at cycle 258.
 -/
 import Sparkle
-import IP.Crypto.Ed25519Sign
+import IP.Crypto.Proof.Ed25519Sign
 
 namespace Sparkle.IP.Crypto.Ed25519OrderHW
 

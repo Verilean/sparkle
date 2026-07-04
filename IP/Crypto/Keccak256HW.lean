@@ -23,7 +23,7 @@
 -/
 import Sparkle
 import Sparkle.Core.Lut
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 
 open Sparkle.Core (kLutMacro)
 

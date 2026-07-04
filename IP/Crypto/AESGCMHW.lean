@@ -30,7 +30,7 @@
   16-byte tag).
 -/
 import Sparkle
-import IP.Crypto.AESGCM
+import IP.Crypto.Codec.AESGCM
 
 namespace Sparkle.IP.Crypto.AESGCMHW
 

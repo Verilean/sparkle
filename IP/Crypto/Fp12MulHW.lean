@@ -28,7 +28,7 @@
   Timing: each Fp6 multiply is ~300 cycles; 3 steps ⇒ ~900 cyc/Fp12-mul.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp6MulHW
 
 namespace Sparkle.IP.Crypto.Fp12MulHW

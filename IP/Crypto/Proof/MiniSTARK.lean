@@ -34,9 +34,9 @@
     * Horner evaluation    (Polynomial)
 -/
 
-import IP.Crypto.Merkle
-import IP.Crypto.Polynomial
-import IP.Crypto.Goldilocks
+import IP.Crypto.Proof.Merkle
+import IP.Crypto.Proof.Polynomial
+import IP.Crypto.Proof.Goldilocks
 
 namespace Sparkle.IP.Crypto.MiniSTARK
 

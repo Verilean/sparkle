@@ -62,9 +62,9 @@
   Montgomery multiplier (~76 cyc/mul) cuts that ~3.4×.
 -/
 import Sparkle
-import IP.Crypto.P256Field
+import IP.Crypto.Proof.P256Field
 import IP.Crypto.P256FieldHW
-import IP.Crypto.P256PointJac
+import IP.Crypto.Proof.P256PointJac
 import IP.Crypto.P256PointOpHW
 
 namespace Sparkle.IP.Crypto.P256ScalarMulHW

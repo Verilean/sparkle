@@ -24,7 +24,7 @@
   (`BLS12MillerHW`) mirrors: its per-iteration schedule is a
   line-for-line transcription of the body below.
 -/
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 
 namespace Sparkle.IP.Crypto.BLS12MillerProj
 

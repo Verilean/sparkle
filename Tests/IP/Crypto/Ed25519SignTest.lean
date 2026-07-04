@@ -19,7 +19,7 @@
                 → RFC 8032 byte sequence
 -/
 
-import IP.Crypto.Ed25519Sign
+import IP.Crypto.Proof.Ed25519Sign
 
 open Sparkle.IP.Crypto.Ed25519Sign
 

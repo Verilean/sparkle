@@ -17,7 +17,7 @@
   the HW piece owns the permutation.
 -/
 
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 import IP.Crypto.Keccak256HW
 
 open Sparkle.Core.Domain

@@ -32,7 +32,7 @@
   MEMORY as the known slowness root.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp2MulHW
 import IP.Crypto.G2PointOpHW
 

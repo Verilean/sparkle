@@ -49,7 +49,7 @@
     T   = 5bc94fbc3221a5db94fae95ae7121a47
 -/
 
-import IP.Crypto.AESGCM
+import IP.Crypto.Codec.AESGCM
 
 open Sparkle.IP.Crypto.AESGCM
 

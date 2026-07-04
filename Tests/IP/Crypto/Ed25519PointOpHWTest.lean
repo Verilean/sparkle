@@ -15,9 +15,9 @@
   Synth: `#synthesizeVerilog` on xOut, done.
 -/
 import Sparkle
-import IP.Crypto.Ed25519Field
+import IP.Crypto.Proof.Ed25519Field
 import IP.Crypto.Ed25519FieldHW
-import IP.Crypto.Ed25519PointExt
+import IP.Crypto.Proof.Ed25519PointExt
 import IP.Crypto.Ed25519PointOpHW
 
 open Sparkle.Core.Domain

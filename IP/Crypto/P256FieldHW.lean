@@ -27,7 +27,7 @@
   widened to 256-bit operands with a 258-bit accumulator.
 -/
 import Sparkle
-import IP.Crypto.P256Field
+import IP.Crypto.Proof.P256Field
 
 namespace Sparkle.IP.Crypto.P256FieldHW
 

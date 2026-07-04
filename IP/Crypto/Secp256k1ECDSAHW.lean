@@ -72,9 +72,9 @@
     ≈ 1.8 M cycles / sign — CPU-class latency, single shared engines.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1PointJac
 
 namespace Sparkle.IP.Crypto.Secp256k1ECDSAHW
 

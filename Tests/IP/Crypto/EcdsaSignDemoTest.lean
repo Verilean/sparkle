@@ -21,9 +21,9 @@
   closed-loop signer + UART wrapper lower to Verilog.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1PointJac
 import IP.Crypto.EcdsaSignDemo
 
 open Sparkle.Core.Domain

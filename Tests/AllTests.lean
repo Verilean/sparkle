@@ -155,6 +155,11 @@ import Tests.IP.Crypto.Keccak256SpongeTest
 import Tests.IP.Crypto.PolicySignDemoTest
 import Tests.IP.Crypto.CTAP2DataTest
 import Tests.IP.USB.Fido2DemoTest
+-- P-256 math-property proofs (field axioms + EC group laws).  These are
+-- `∀`-quantified theorems checked at `lake build` time (no `.main`); a
+-- regression is a proof failure, not a value-vector mismatch.
+import IP.Crypto.Proof.P256FieldTheorems
+import IP.Crypto.Proof.P256PointTheorems
 import Tests.IP.Crypto.P256PointJacTest
 import Tests.IP.Crypto.P256PointOpHWTest
 import Tests.IP.Crypto.P256ScalarMulHWTest

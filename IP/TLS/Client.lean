@@ -33,11 +33,11 @@
 
 import IP.TLS.KeySchedule
 import IP.TLS.Handshake
-import IP.Crypto.HKDF
-import IP.Crypto.X25519
-import IP.Crypto.Ed25519Sign
-import IP.Crypto.P256ECDSA
-import IP.Crypto.RSAPSS
+import IP.Crypto.Codec.HKDF
+import IP.Crypto.Proof.X25519
+import IP.Crypto.Proof.Ed25519Sign
+import IP.Crypto.Proof.P256ECDSA
+import IP.Crypto.Codec.RSAPSS
 import IP.TLS.X509
 
 namespace Sparkle.IP.TLS.Client

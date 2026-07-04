@@ -12,7 +12,7 @@
        (the curve order per RFC 8032 §5.1).
 -/
 
-import IP.Crypto.Ed25519Point
+import IP.Crypto.Proof.Ed25519Point
 
 open Sparkle.IP.Crypto.Ed25519Point
 

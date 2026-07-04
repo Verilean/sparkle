@@ -23,7 +23,7 @@
   pass, which would catch wiring bugs in either branch.
 -/
 
-import IP.Crypto.Bip32
+import IP.Crypto.Codec.Bip32
 
 open Sparkle.IP.Crypto.Bip32
 

@@ -18,8 +18,8 @@
   TransactionType prefix) — the wire-shape sanity check.
 -/
 
-import IP.Crypto.EthWallet
-import IP.Crypto.Eip1559Tx
+import IP.Crypto.Codec.EthWallet
+import IP.Crypto.Codec.Eip1559Tx
 
 open Sparkle.IP.Crypto.EthWallet (signFromMnemonic SignedTx)
 open Sparkle.IP.Crypto.Eip1559Tx (Tx emptyAccessList)

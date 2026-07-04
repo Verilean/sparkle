@@ -20,8 +20,8 @@
   2. **Synth check** (`SynthesisChecks`): `#synthesizeVerilog` on
      representative outputs (out0, done, blkStart, a bWin word).
 -/
-import IP.Crypto.Bip39
-import IP.Crypto.SHA512
+import IP.Crypto.Codec.Bip39
+import IP.Crypto.Proof.SHA512
 import IP.Crypto.HMACSHA512HW
 
 open Sparkle.IP.Crypto.Bip39 (hmacSha512)

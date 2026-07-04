@@ -24,7 +24,7 @@
   G1/G2 arithmetic, and the real optimal-ate pairing (Miller loop
   transcribed from py_ecc + full (p¹²-1)/r final exponentiation).
 -/
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 
 open Sparkle.IP.Crypto.BLS12_381
 

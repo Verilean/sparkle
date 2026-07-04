@@ -16,7 +16,7 @@
   version follows in L.6.b.
 -/
 
-import IP.Crypto.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1Field
 
 namespace Sparkle.IP.Crypto.Secp256k1Point
 

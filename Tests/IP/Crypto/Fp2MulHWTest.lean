@@ -21,7 +21,7 @@
   Synth: `#synthesizeVerilog` on c0Out, c1Out, done.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp381MontMulHW
 import IP.Crypto.Fp2MulHW
 

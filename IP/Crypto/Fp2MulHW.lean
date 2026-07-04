@@ -41,7 +41,7 @@
   3 steps ⇒ ~48 cycles/Fp2-mul.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp381MontMulHW
 
 namespace Sparkle.IP.Crypto.Fp2MulHW

@@ -21,7 +21,7 @@
   mux, exactly as RLPHW leaves payload emission to the caller.
 -/
 import Sparkle
-import IP.Crypto.CBOR
+import IP.Crypto.Codec.CBOR
 
 namespace Sparkle.IP.USB.CBOREmitHW
 
