@@ -31,7 +31,7 @@
   64-bit K-LUT keeps the interpreted `Signal.val` path slow —
   so the numeric spec is pinned by the pure-data cross-check.
 -/
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 import IP.Crypto.SHA512BlockHW
 
 open Sparkle.Core.Domain

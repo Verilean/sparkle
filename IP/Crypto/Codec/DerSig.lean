@@ -20,8 +20,8 @@
   `parseDerSignature`); it produces the `sig` bytes that CTAP2's
   attStmt / assertion responses carry.
 -/
-import IP.Crypto.RLP
-import IP.Crypto.P256ECDSA
+import IP.Crypto.Codec.RLP
+import IP.Crypto.Proof.P256ECDSA
 
 namespace Sparkle.IP.Crypto.DerSig
 

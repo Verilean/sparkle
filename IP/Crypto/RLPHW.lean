@@ -32,7 +32,7 @@
   (i.e. only the prefix).
 -/
 import Sparkle
-import IP.Crypto.RLP
+import IP.Crypto.Codec.RLP
 
 namespace Sparkle.IP.Crypto.RLPHW
 

@@ -12,7 +12,7 @@
   Synth: `#synthesizeVerilog` on sOut, done.
 -/
 import Sparkle
-import IP.Crypto.Ed25519Sign
+import IP.Crypto.Proof.Ed25519Sign
 import IP.Crypto.Ed25519OrderHW
 import IP.Crypto.Ed25519SignHW
 

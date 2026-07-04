@@ -31,7 +31,7 @@
 
 import Sparkle
 import Sparkle.Core.Lut
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 
 open Sparkle.Core (kLutMacro)
 open Sparkle.Core.Domain

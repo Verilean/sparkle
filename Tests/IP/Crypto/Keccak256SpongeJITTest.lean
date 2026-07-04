@@ -19,7 +19,7 @@
     * read d0..d3, assemble the 32-byte digest, compare to
       `keccak256OfBytes input`.
 -/
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 import IP.Crypto.Keccak256Sponge
 import Sparkle.Compiler.Elab
 

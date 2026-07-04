@@ -28,7 +28,7 @@
   cycles.  (R = r·B — the expensive part — is the scalar-mul.)
 -/
 import Sparkle
-import IP.Crypto.Ed25519Sign
+import IP.Crypto.Proof.Ed25519Sign
 import IP.Crypto.Ed25519OrderHW
 
 namespace Sparkle.IP.Crypto.Ed25519SignHW

@@ -21,7 +21,7 @@
     26      +4 bytes   (0x1a)
     27      +8 bytes   (0x1b)
 -/
-import IP.Crypto.RLP
+import IP.Crypto.Codec.RLP
 
 namespace Sparkle.IP.Crypto.CBOR
 

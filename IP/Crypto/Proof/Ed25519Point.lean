@@ -17,7 +17,7 @@
   follows in L.3.b once the affine reference is locked.
 -/
 
-import IP.Crypto.Ed25519Field
+import IP.Crypto.Proof.Ed25519Field
 
 namespace Sparkle.IP.Crypto.Ed25519Point
 

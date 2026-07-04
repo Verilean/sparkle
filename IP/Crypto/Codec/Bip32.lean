@@ -34,9 +34,9 @@
   coin-type purpose number 60 vs Bitcoin's 0).
 -/
 
-import IP.Crypto.Bip39
-import IP.Crypto.Secp256k1ECDSA
-import IP.Crypto.Secp256k1Point
+import IP.Crypto.Codec.Bip39
+import IP.Crypto.Proof.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Point
 
 namespace Sparkle.IP.Crypto.Bip32
 

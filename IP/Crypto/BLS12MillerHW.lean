@@ -38,7 +38,7 @@
   does not synthesise).
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp12MulHW
 
 namespace Sparkle.IP.Crypto.BLS12MillerHW

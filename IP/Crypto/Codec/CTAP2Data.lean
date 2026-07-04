@@ -13,10 +13,10 @@
   byte layouts before any hardware.  The hardware milestones feed
   the same bytes through the on-chip SHA-256 + P-256 signer.
 -/
-import IP.Crypto.CBOR
-import IP.Crypto.DerSig
+import IP.Crypto.Codec.CBOR
+import IP.Crypto.Codec.DerSig
 import IP.Crypto.SHA256
-import IP.Crypto.P256ECDSA
+import IP.Crypto.Proof.P256ECDSA
 
 namespace Sparkle.IP.Crypto.CTAP2Data
 

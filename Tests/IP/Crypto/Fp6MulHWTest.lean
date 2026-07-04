@@ -19,7 +19,7 @@
   Synth: `#synthesizeVerilog` on one output coordinate + done.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp381MontMulHW
 import IP.Crypto.Fp2MulHW
 import IP.Crypto.Fp6MulHW

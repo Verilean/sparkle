@@ -32,7 +32,7 @@
   Tests/IP/Crypto/GHASHHWTest.lean.
 -/
 import Sparkle
-import IP.Crypto.GHASH
+import IP.Crypto.Codec.GHASH
 
 namespace Sparkle.IP.Crypto.GHASHHW
 

@@ -20,7 +20,7 @@
   contract the top will drive the sponge with is correct.  The HW
   itself is validated by instantiation + `#synthesizeVerilog`.
 -/
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 import IP.Crypto.Keccak256Sponge
 
 open Sparkle.Core.Domain

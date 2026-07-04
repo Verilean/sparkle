@@ -38,7 +38,7 @@
 -/
 import Sparkle
 import IP.Crypto.HMACSHA512HW
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal

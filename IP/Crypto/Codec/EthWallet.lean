@@ -21,9 +21,9 @@
   signer FSM that follows in a subsequent commit.
 -/
 
-import IP.Crypto.Bip39
-import IP.Crypto.Bip32
-import IP.Crypto.Eip1559Tx
+import IP.Crypto.Codec.Bip39
+import IP.Crypto.Codec.Bip32
+import IP.Crypto.Codec.Eip1559Tx
 
 namespace Sparkle.IP.Crypto.EthWallet
 

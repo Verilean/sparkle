@@ -17,7 +17,7 @@
   HKDF-Expand-Label("iv", …, 12).
 -/
 
-import IP.Crypto.HKDF
+import IP.Crypto.Codec.HKDF
 
 namespace Sparkle.IP.TLS.KeySchedule
 

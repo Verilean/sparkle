@@ -51,9 +51,9 @@
   fields.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1PointJac
 import IP.Crypto.Secp256k1FieldHW
 import IP.Crypto.Secp256k1PointOpHW
 import IP.Crypto.Secp256k1ScalarMulHW

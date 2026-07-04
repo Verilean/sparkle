@@ -18,7 +18,7 @@
       matches the expected ciphertext + tag.
 -/
 
-import IP.Crypto.AESGCM
+import IP.Crypto.Codec.AESGCM
 import IP.Crypto.AESGCMHW
 
 open Sparkle.Core.Domain

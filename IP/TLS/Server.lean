@@ -31,8 +31,8 @@
 
 import IP.TLS.KeySchedule
 import IP.TLS.Handshake
-import IP.Crypto.HKDF
-import IP.Crypto.X25519
+import IP.Crypto.Codec.HKDF
+import IP.Crypto.Proof.X25519
 
 namespace Sparkle.IP.TLS.Server
 

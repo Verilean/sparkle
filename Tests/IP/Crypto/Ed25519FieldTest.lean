@@ -6,7 +6,7 @@
   follows after the curve / signing layers are in place.
 -/
 
-import IP.Crypto.Ed25519Field
+import IP.Crypto.Proof.Ed25519Field
 
 open Sparkle.IP.Crypto.Ed25519Field
 

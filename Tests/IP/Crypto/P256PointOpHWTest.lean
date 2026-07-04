@@ -13,9 +13,9 @@
   Synth: `#synthesizeVerilog` on xOut, done, mulStart.
 -/
 import Sparkle
-import IP.Crypto.P256Field
+import IP.Crypto.Proof.P256Field
 import IP.Crypto.P256FieldHW
-import IP.Crypto.P256PointJac
+import IP.Crypto.Proof.P256PointJac
 import IP.Crypto.P256PointOpHW
 
 open Sparkle.Core.Domain

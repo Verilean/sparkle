@@ -8,7 +8,7 @@
     4. Verify rejects when one auth-path digest is corrupted.
 -/
 
-import IP.Crypto.Merkle
+import IP.Crypto.Proof.Merkle
 
 open Sparkle.IP.Crypto.Merkle
 

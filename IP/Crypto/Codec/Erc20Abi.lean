@@ -28,7 +28,7 @@
     Solidity ABI: https://docs.soliditylang.org/en/latest/abi-spec.html
 -/
 
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 
 namespace Sparkle.IP.Crypto.Erc20Abi
 

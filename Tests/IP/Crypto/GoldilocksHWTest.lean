@@ -11,7 +11,7 @@
   Synth: `#synthesizeVerilog` on the result + done outputs.
 -/
 import Sparkle
-import IP.Crypto.Goldilocks
+import IP.Crypto.Proof.Goldilocks
 import IP.Crypto.GoldilocksHW
 
 open Sparkle.Core.Domain

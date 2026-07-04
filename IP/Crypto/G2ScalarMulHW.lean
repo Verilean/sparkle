@@ -40,7 +40,7 @@
   schedule-level sim cross-check against `BLS12_381.G2.mulScalar`.
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.G2PointOpHW
 
 namespace Sparkle.IP.Crypto.G2ScalarMulHW

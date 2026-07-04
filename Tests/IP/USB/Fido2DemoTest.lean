@@ -14,9 +14,9 @@ import Sparkle
 import IP.USB.Fido2Demo
 import IP.USB.CTAPHID
 import IP.USB.CBOREmitHW
-import IP.Crypto.P256ECDSA
-import IP.Crypto.CTAP2Data
-import IP.Crypto.CBOR
+import IP.Crypto.Proof.P256ECDSA
+import IP.Crypto.Codec.CTAP2Data
+import IP.Crypto.Codec.CBOR
 import IP.Crypto.SHA256
 
 open Sparkle.Core.Domain Sparkle.Core.Signal

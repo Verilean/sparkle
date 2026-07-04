@@ -39,7 +39,7 @@
   (~340 cyc), ADD ≈ 16 steps (~770 cyc).
 -/
 import Sparkle
-import IP.Crypto.BLS12_381
+import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp2MulHW
 
 namespace Sparkle.IP.Crypto.G2PointOpHW

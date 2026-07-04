@@ -11,7 +11,7 @@
   Synth: `#synthesizeVerilog` on the result + done outputs.
 -/
 import Sparkle
-import IP.Crypto.P256Field
+import IP.Crypto.Proof.P256Field
 import IP.Crypto.P256FieldHW
 
 open Sparkle.Core.Domain

@@ -20,8 +20,8 @@
   Synth: `#synthesizeVerilog` on result and done.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
 import IP.Crypto.ModInvHW
 
 open Sparkle.Core.Domain

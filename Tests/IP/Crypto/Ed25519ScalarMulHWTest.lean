@@ -13,7 +13,7 @@
   Synth: `#synthesizeVerilog` on xOut, done.
 -/
 import Sparkle
-import IP.Crypto.Ed25519PointExt
+import IP.Crypto.Proof.Ed25519PointExt
 import IP.Crypto.Ed25519ScalarMulHW
 
 open Sparkle.IP.Crypto.Ed25519PointExt (Point identity generator double add mulScalar toAffine)

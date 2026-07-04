@@ -22,7 +22,7 @@
   landed for SHA-256.
 -/
 
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 import IP.Crypto.SHA512HW
 import Sparkle
 

@@ -45,7 +45,7 @@
   the HW is validated by instantiation + `#synthesizeVerilog`.
 -/
 import Sparkle
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 import IP.Crypto.Keccak256HW
 
 namespace Sparkle.IP.Crypto.Keccak256Sponge

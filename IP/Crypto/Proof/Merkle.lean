@@ -25,7 +25,7 @@
 -/
 
 import IP.Crypto.SHA256
-import IP.Crypto.Goldilocks
+import IP.Crypto.Proof.Goldilocks
 
 namespace Sparkle.IP.Crypto.Merkle
 

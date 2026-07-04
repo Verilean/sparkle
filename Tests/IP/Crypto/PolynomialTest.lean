@@ -10,7 +10,7 @@
        at each x_i and non-zero elsewhere.
 -/
 
-import IP.Crypto.Polynomial
+import IP.Crypto.Proof.Polynomial
 
 open Sparkle.IP.Crypto.Polynomial
 

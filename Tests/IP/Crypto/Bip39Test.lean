@@ -30,7 +30,7 @@
   hammer it in a hot loop.
 -/
 
-import IP.Crypto.Bip39
+import IP.Crypto.Codec.Bip39
 
 open Sparkle.IP.Crypto.Bip39
 

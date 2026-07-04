@@ -28,7 +28,7 @@
     Valid iff P ≠ infinity AND (P.x mod n) = r.
 -/
 
-import IP.Crypto.Secp256k1Point
+import IP.Crypto.Proof.Secp256k1Point
 
 namespace Sparkle.IP.Crypto.Secp256k1ECDSA
 

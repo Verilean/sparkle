@@ -14,11 +14,11 @@
   Pure-data only (no `#synthesizeVerilog`, no iverilog) — this is
   the byte-layout lock, like the RLP / SHA-256 pure layers.
 -/
-import IP.Crypto.CTAP2Data
-import IP.Crypto.CBOR
-import IP.Crypto.DerSig
-import IP.Crypto.P256ECDSA
-import IP.Crypto.P256Point
+import IP.Crypto.Codec.CTAP2Data
+import IP.Crypto.Codec.CBOR
+import IP.Crypto.Codec.DerSig
+import IP.Crypto.Proof.P256ECDSA
+import IP.Crypto.Proof.P256Point
 
 open Sparkle.IP.Crypto.CTAP2Data
 open Sparkle.IP.Crypto

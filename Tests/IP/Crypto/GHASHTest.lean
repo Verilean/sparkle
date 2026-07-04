@@ -32,7 +32,7 @@
   Appendix B.
 -/
 
-import IP.Crypto.GHASH
+import IP.Crypto.Codec.GHASH
 
 open Sparkle.IP.Crypto.GHASH
 

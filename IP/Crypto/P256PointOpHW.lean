@@ -39,7 +39,7 @@
   Interface: identical to `Secp256k1PointOpHW.pointOpHW`.
 -/
 import Sparkle
-import IP.Crypto.P256Field
+import IP.Crypto.Proof.P256Field
 import IP.Crypto.P256FieldHW
 
 namespace Sparkle.IP.Crypto.P256PointOpHW

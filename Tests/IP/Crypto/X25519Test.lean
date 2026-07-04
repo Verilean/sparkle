@@ -21,7 +21,7 @@
     Shared       = 4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742
 -/
 
-import IP.Crypto.X25519
+import IP.Crypto.Proof.X25519
 
 open Sparkle.IP.Crypto.X25519
 

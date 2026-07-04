@@ -24,10 +24,10 @@
     EIP-2930: https://eips.ethereum.org/EIPS/eip-2930 (accessList)
 -/
 
-import IP.Crypto.Keccak256
-import IP.Crypto.RLP
-import IP.Crypto.Secp256k1ECDSA
-import IP.Crypto.Secp256k1Point
+import IP.Crypto.Proof.Keccak256
+import IP.Crypto.Codec.RLP
+import IP.Crypto.Proof.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Point
 
 namespace Sparkle.IP.Crypto.Eip1559Tx
 

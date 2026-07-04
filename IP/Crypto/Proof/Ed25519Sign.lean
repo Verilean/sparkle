@@ -22,8 +22,8 @@
     The high bit of the last byte carries x's sign bit.
 -/
 
-import IP.Crypto.SHA512
-import IP.Crypto.Ed25519Point
+import IP.Crypto.Proof.SHA512
+import IP.Crypto.Proof.Ed25519Point
 
 namespace Sparkle.IP.Crypto.Ed25519Sign
 

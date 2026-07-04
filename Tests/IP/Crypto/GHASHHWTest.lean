@@ -15,7 +15,7 @@
   time instead of timing out.
 -/
 import Sparkle
-import IP.Crypto.GHASH
+import IP.Crypto.Codec.GHASH
 import IP.Crypto.GHASHHW
 
 open Sparkle.Core.Domain

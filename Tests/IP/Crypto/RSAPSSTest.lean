@@ -11,7 +11,7 @@
   scheme 0x0804).
 -/
 
-import IP.Crypto.RSAPSS
+import IP.Crypto.Codec.RSAPSS
 
 open Sparkle.IP.Crypto.RSAPSS
 

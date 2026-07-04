@@ -6,8 +6,8 @@
   scaled inputs (bilinearity), plus a full sign→verify built on
   the projective pairing.
 -/
-import IP.Crypto.BLS12_381
-import IP.Crypto.BLS12MillerProj
+import IP.Crypto.Proof.BLS12_381
+import IP.Crypto.Proof.BLS12MillerProj
 
 open Sparkle.IP.Crypto.BLS12_381
 open Sparkle.IP.Crypto.BLS12MillerProj

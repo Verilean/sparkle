@@ -35,7 +35,7 @@
   untouched.
 -/
 
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 
 namespace Sparkle.IP.Crypto.Bip39
 

@@ -45,7 +45,7 @@
   result is latched.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1Field
 import IP.Crypto.Secp256k1FieldHW
 
 namespace Sparkle.IP.Crypto.Secp256k1PointOpHW

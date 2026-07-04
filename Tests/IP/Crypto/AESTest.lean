@@ -14,7 +14,7 @@
   Round-trip: encrypt then decrypt yields the plaintext.
 -/
 
-import IP.Crypto.AES
+import IP.Crypto.Codec.AES
 
 open Sparkle.IP.Crypto.AES
 

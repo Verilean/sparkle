@@ -24,7 +24,7 @@
   FSM shape.
 -/
 
-import IP.Crypto.HKDF
+import IP.Crypto.Codec.HKDF
 import IP.Crypto.HKDFHW
 
 open Sparkle.Core.Domain

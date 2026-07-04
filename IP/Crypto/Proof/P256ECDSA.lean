@@ -12,7 +12,7 @@
     Valid iff P ≠ ∞ ∧ (P.x mod n) = r.
 -/
 
-import IP.Crypto.P256Point
+import IP.Crypto.Proof.P256Point
 
 namespace Sparkle.IP.Crypto.P256ECDSA
 

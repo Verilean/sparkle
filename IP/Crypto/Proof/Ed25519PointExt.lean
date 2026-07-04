@@ -23,8 +23,8 @@
   controllers drive and cross-check against.
 -/
 
-import IP.Crypto.Ed25519Field
-import IP.Crypto.Ed25519Point
+import IP.Crypto.Proof.Ed25519Field
+import IP.Crypto.Proof.Ed25519Point
 
 namespace Sparkle.IP.Crypto.Ed25519PointExt
 

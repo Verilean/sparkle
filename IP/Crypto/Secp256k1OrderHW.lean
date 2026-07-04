@@ -25,7 +25,7 @@
   the mod-p engine.
 -/
 import Sparkle
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 namespace Sparkle.IP.Crypto.Secp256k1OrderHW
 

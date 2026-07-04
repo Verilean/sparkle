@@ -38,8 +38,8 @@
             mulStart, mulA, mulB (field-mul handshake out)
 -/
 import Sparkle
-import IP.Crypto.Ed25519Field
-import IP.Crypto.Ed25519Point
+import IP.Crypto.Proof.Ed25519Field
+import IP.Crypto.Proof.Ed25519Point
 import IP.Crypto.Ed25519FieldHW
 
 namespace Sparkle.IP.Crypto.Ed25519PointOpHW

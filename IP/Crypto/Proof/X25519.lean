@@ -12,7 +12,7 @@
   HW engine (multi-cycle ladder) follows in T.1.b.
 -/
 
-import IP.Crypto.Ed25519Field
+import IP.Crypto.Proof.Ed25519Field
 
 namespace Sparkle.IP.Crypto.X25519
 

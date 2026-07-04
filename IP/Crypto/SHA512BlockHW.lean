@@ -47,7 +47,7 @@
 -/
 import Sparkle
 import Sparkle.Core.Lut
-import IP.Crypto.SHA512
+import IP.Crypto.Proof.SHA512
 import IP.Crypto.SHA512HW
 
 open Sparkle.Core (kLutMacro)

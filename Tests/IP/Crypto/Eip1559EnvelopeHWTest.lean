@@ -17,7 +17,7 @@
 
   Synth: `#synthesizeVerilog` on the byte / valid / done outputs.
 -/
-import IP.Crypto.RLP
+import IP.Crypto.Codec.RLP
 import IP.Crypto.Eip1559EnvelopeHW
 
 open Sparkle.Core.Domain
