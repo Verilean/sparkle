@@ -63,14 +63,17 @@ open Sparkle.IP.Crypto.Keccak256 (rc rotOffsets)
 
 @[reducible, inline] def rotL64Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) (n : Nat) : Signal dom (BitVec 64) :=
+  -- NB: no `if m = 0` special-case.  When m = 0 the general form
+  -- already yields `x`: `x <<< 0 = x` and `x >>> 64 = 0` in BitVec 64,
+  -- so `(x<<<0) ||| (x>>>64) = x`.  Dropping the branch keeps the
+  -- expression a pure signal graph (a runtime if-then-else does not
+  -- lower through `#synthesizeVerilog`).
   let m := n % 64
-  if m = 0 then x
-  else
-    let sn  : BitVec 64 := BitVec.ofNat 64 m
-    let sn' : BitVec 64 := BitVec.ofNat 64 (64 - m)
-    let ls := ((· <<< ·) <$> x <*> (Signal.pure sn  : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
-    let rs := ((· >>> ·) <$> x <*> (Signal.pure sn' : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
-    (· ||| ·) <$> ls <*> rs
+  let sn  : BitVec 64 := BitVec.ofNat 64 m
+  let sn' : BitVec 64 := BitVec.ofNat 64 ((64 - m) % 64)
+  let ls := ((· <<< ·) <$> x <*> (Signal.pure sn  : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+  let rs := ((· >>> ·) <$> x <*> (Signal.pure sn' : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+  (· ||| ·) <$> ls <*> rs
 
 /-! ### Keccak-f[1600] iterative FSM.
 
@@ -80,9 +83,37 @@ open Sparkle.IP.Crypto.Keccak256 (rc rotOffsets)
     register in the module. -/
 
 structure KeccakFOut (dom : DomainConfig) where
-  /-- All 25 lanes.  Indexed the same way as pure-data
-      `IP.Crypto.Keccak256.State`: lane (x, y) = index `x + 5*y`. -/
-  lanes : Array (Signal dom (BitVec 64))
+  /-- The 25 lanes, exposed as NAMED SCALAR fields (l0..l24) rather
+      than an `Array`.  Indexed the same way as pure-data
+      `IP.Crypto.Keccak256.State`: lane (x, y) = field `l{x + 5*y}`.
+      Named scalars are required because the synth elaborator can
+      project a hardware-module's output record only through named
+      fields, not through a runtime `Array.getD`. -/
+  l0  : Signal dom (BitVec 64)
+  l1  : Signal dom (BitVec 64)
+  l2  : Signal dom (BitVec 64)
+  l3  : Signal dom (BitVec 64)
+  l4  : Signal dom (BitVec 64)
+  l5  : Signal dom (BitVec 64)
+  l6  : Signal dom (BitVec 64)
+  l7  : Signal dom (BitVec 64)
+  l8  : Signal dom (BitVec 64)
+  l9  : Signal dom (BitVec 64)
+  l10 : Signal dom (BitVec 64)
+  l11 : Signal dom (BitVec 64)
+  l12 : Signal dom (BitVec 64)
+  l13 : Signal dom (BitVec 64)
+  l14 : Signal dom (BitVec 64)
+  l15 : Signal dom (BitVec 64)
+  l16 : Signal dom (BitVec 64)
+  l17 : Signal dom (BitVec 64)
+  l18 : Signal dom (BitVec 64)
+  l19 : Signal dom (BitVec 64)
+  l20 : Signal dom (BitVec 64)
+  l21 : Signal dom (BitVec 64)
+  l22 : Signal dom (BitVec 64)
+  l23 : Signal dom (BitVec 64)
+  l24 : Signal dom (BitVec 64)
   /-- Round counter (0 = idle, 1..24 = running, 25 = done). -/
   round : Signal dom (BitVec 5)
   /-- Pulses one cycle after the last round completes. -/
@@ -91,110 +122,56 @@ structure KeccakFOut (dom : DomainConfig) where
 instance {dom : DomainConfig} :
     Sparkle.Core.HasDomain (KeccakFOut dom) dom := ⟨⟩
 
-/-- Single-round Keccak permutation implemented combinationally
-    over 25 lane signals.  Returns 25 next-cycle lane signals. -/
-def keccakRoundHW {dom : DomainConfig}
-    (lanes : Array (Signal dom (BitVec 64)))
-    (round : Signal dom (BitVec 5)) :
-    Array (Signal dom (BitVec 64)) := Id.run do
-  -- Bail with a plain array if lanes size ≠ 25 (defensive).
-  if lanes.size ≠ 25 then return lanes
-  let get := fun x y => lanes.getD (x + 5 * y) (Signal.pure 0#64 : Signal dom (BitVec 64))
+/-- 25 lane signals as NAMED scalar fields.  `keccakRoundHW` returns
+    this (rather than an `Array`) so `keccakF1600HW` can project each
+    next-lane signal by name — a runtime `Array.getD`/`[i]!` on an
+    opaque function result does not reduce through the synth
+    elaborator, whereas a structure projection does. -/
+structure Lanes25 (dom : DomainConfig) where
+  f0  : Signal dom (BitVec 64)
+  f1  : Signal dom (BitVec 64)
+  f2  : Signal dom (BitVec 64)
+  f3  : Signal dom (BitVec 64)
+  f4  : Signal dom (BitVec 64)
+  f5  : Signal dom (BitVec 64)
+  f6  : Signal dom (BitVec 64)
+  f7  : Signal dom (BitVec 64)
+  f8  : Signal dom (BitVec 64)
+  f9  : Signal dom (BitVec 64)
+  f10 : Signal dom (BitVec 64)
+  f11 : Signal dom (BitVec 64)
+  f12 : Signal dom (BitVec 64)
+  f13 : Signal dom (BitVec 64)
+  f14 : Signal dom (BitVec 64)
+  f15 : Signal dom (BitVec 64)
+  f16 : Signal dom (BitVec 64)
+  f17 : Signal dom (BitVec 64)
+  f18 : Signal dom (BitVec 64)
+  f19 : Signal dom (BitVec 64)
+  f20 : Signal dom (BitVec 64)
+  f21 : Signal dom (BitVec 64)
+  f22 : Signal dom (BitVec 64)
+  f23 : Signal dom (BitVec 64)
+  f24 : Signal dom (BitVec 64)
 
-  -- θ: column parity.
-  let cSig := fun x =>
-    let a := (· ^^^ ·) <$> get x 0 <*> get x 1
-    let b := (· ^^^ ·) <$> a <*> get x 2
-    let c := (· ^^^ ·) <$> b <*> get x 3
-    (· ^^^ ·) <$> c <*> get x 4
-  let c0 := cSig 0
-  let c1 := cSig 1
-  let c2 := cSig 2
-  let c3 := cSig 3
-  let c4 := cSig 4
-  let cArr := #[c0, c1, c2, c3, c4]
-  let cGet := fun i => cArr.getD i (Signal.pure 0#64 : Signal dom (BitVec 64))
-  let d := fun x =>
-    let xm := (x + 4) % 5
-    let xp := (x + 1) % 5
-    let rot := rotL64Sig (cGet xp) 1
-    (· ^^^ ·) <$> cGet xm <*> rot
-  let d0 := d 0
-  let d1 := d 1
-  let d2 := d 2
-  let d3 := d 3
-  let d4 := d 4
-  let dArr := #[d0, d1, d2, d3, d4]
-  let dGet := fun i => dArr.getD i (Signal.pure 0#64 : Signal dom (BitVec 64))
+set_option maxHeartbeats 4000000 in
+set_option maxRecDepth 100000 in
+/-- Full 24-round Keccak-f[1600] permutation as a `circuit do` FSM.
+    25 lane registers unrolled; one θ→ρ→π→χ→ι round per cycle, cnt=1..24.
+    The round is written INLINE (fully expanded, no helper lambdas /
+    `Id.run do`) so `#synthesizeVerilog` can lower it — the synth pass
+    can't inline let-bound signal lambdas or reduce monadic loops.
 
-  -- After θ: a'[x, y] = a[x, y] XOR d(x).
-  let mut thetaLanes : Array (Signal dom (BitVec 64)) :=
-    Array.replicate 25 (Signal.pure 0#64 : Signal dom (BitVec 64))
-  for y in [:5] do
-    for x in [:5] do
-      thetaLanes := thetaLanes.set! (x + 5 * y)
-        ((· ^^^ ·) <$> get x y <*> dGet x : Signal dom (BitVec 64))
-
-  -- ρ + π: rotate each lane and route to new position (x', y') = (y, (2x+3y) mod 5).
-  -- Build the post-πρ array directly.
-  let mut piLanes : Array (Signal dom (BitVec 64)) :=
-    Array.replicate 25 (Signal.pure 0#64 : Signal dom (BitVec 64))
-  for y in [:5] do
-    for x in [:5] do
-      let r := rotOffsets.getD (x + 5 * y) 0
-      let rotated :=
-        rotL64Sig (thetaLanes.getD (x + 5 * y) (Signal.pure 0#64 : Signal dom (BitVec 64))) r
-      let xNew := y
-      let yNew := (2 * x + 3 * y) % 5
-      piLanes := piLanes.set! (xNew + 5 * yNew) rotated
-
-  -- χ (per-row non-linear step).
-  let mut chiLanes : Array (Signal dom (BitVec 64)) :=
-    Array.replicate 25 (Signal.pure 0#64 : Signal dom (BitVec 64))
-  for y in [:5] do
-    -- row[x] = piLanes[x + 5*y]
-    let r0 := piLanes.getD (0 + 5*y) (Signal.pure 0#64 : Signal dom (BitVec 64))
-    let r1 := piLanes.getD (1 + 5*y) (Signal.pure 0#64 : Signal dom (BitVec 64))
-    let r2 := piLanes.getD (2 + 5*y) (Signal.pure 0#64 : Signal dom (BitVec 64))
-    let r3 := piLanes.getD (3 + 5*y) (Signal.pure 0#64 : Signal dom (BitVec 64))
-    let r4 := piLanes.getD (4 + 5*y) (Signal.pure 0#64 : Signal dom (BitVec 64))
-    let notR := fun (r : Signal dom (BitVec 64)) => (~~~ ·) <$> r
-    let mkChi (r ra rb : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-      let nRa := notR ra
-      let and2 := ((· &&& ·) <$> nRa <*> rb : Signal dom (BitVec 64))
-      ((· ^^^ ·) <$> r <*> and2 : Signal dom (BitVec 64))
-    chiLanes := chiLanes.set! (0 + 5*y) (mkChi r0 r1 r2)
-    chiLanes := chiLanes.set! (1 + 5*y) (mkChi r1 r2 r3)
-    chiLanes := chiLanes.set! (2 + 5*y) (mkChi r2 r3 r4)
-    chiLanes := chiLanes.set! (3 + 5*y) (mkChi r3 r4 r0)
-    chiLanes := chiLanes.set! (4 + 5*y) (mkChi r4 r0 r1)
-
-  -- ι: XOR round constant into lane (0, 0).  We subtract 1 from
-  -- the counter because our internal cnt walks 1..24 while the
-  -- pure-data RC table is 0..23.
-  let p1_5 := (Signal.pure 1#5 : Signal dom (BitVec 5))
-  let rIdx := ((· - ·) <$> round <*> p1_5 : Signal dom (BitVec 5))
-  let rcVal := keccakRcHW rIdx
-  let lane00 := chiLanes.getD 0 (Signal.pure 0#64 : Signal dom (BitVec 64))
-  let lane00' := ((· ^^^ ·) <$> lane00 <*> rcVal : Signal dom (BitVec 64))
-  let mut out := chiLanes
-  out := out.set! 0 lane00'
-  return out
-
-/-- Full 24-round Keccak-f[1600] permutation as a `circuit do`
-    FSM.  Because `circuit do` doesn't play nicely with an
-    array of 25 register handles created inside the `do`, we
-    unroll the register declarations explicitly.
-
-    Cycle 0     : start pulse, latch input state.
-    Cycle 1..24 : one round per cycle, cnt=1..24.
-    Cycle 25    : done pulse, hold state. -/
+    Cycle 0     : start pulse, latch input lanes (in0..in24).
+    Cycle 1..24 : one round per cycle.
+    Cycle 24    : done pulse; state held. -/
 def keccakF1600HW {dom : DomainConfig}
     (start : Signal dom Bool)
-    (stateIn : Array (Signal dom (BitVec 64))) :
+    (in0  in1  in2  in3  in4  in5  in6  in7  in8  in9
+     in10 in11 in12 in13 in14 in15 in16 in17 in18 in19
+     in20 in21 in22 in23 in24 : Signal dom (BitVec 64)) :
     KeccakFOut dom :=
   circuit do
-    -- 25 lane registers.
     let l0  ← Signal.reg (0#64); let l1  ← Signal.reg (0#64)
     let l2  ← Signal.reg (0#64); let l3  ← Signal.reg (0#64)
     let l4  ← Signal.reg (0#64); let l5  ← Signal.reg (0#64)
@@ -227,53 +204,104 @@ def keccakF1600HW {dom : DomainConfig}
       (l24 : Signal dom (BitVec 64))
     ] : Array (Signal dom (BitVec 64)))
     let cntSig := (cntR : Signal dom (BitVec 5))
-
     let p0_5  := (Signal.pure 0#5 : Signal dom (BitVec 5))
     let p1_5  := (Signal.pure 1#5 : Signal dom (BitVec 5))
     let p24_5 := (Signal.pure 24#5 : Signal dom (BitVec 5))
-
     let isIdle   := ((· == ·) <$> cntSig <*> p0_5 : Signal dom Bool)
     let isFinish := ((· == ·) <$> cntSig <*> p24_5 : Signal dom Bool)
-    let isRun :=
-      let notIdle := ((fun b => !b) <$> isIdle : Signal dom Bool)
-      let notFin  := ((fun b => !b) <$> isFinish : Signal dom Bool)
-      -- Actually finish IS the final round, so we run 1..24.
-      let _ := notFin
-      notIdle
+    let isRun := ((fun b => !b) <$> isIdle : Signal dom Bool)
 
-    -- Combinational one-round update.
-    let nextLanes := keccakRoundHW lanes cntSig
-
-    -- Register updates: on start ⇒ latch stateIn.  On isRun ⇒ nextLanes.
-    let nlAt := fun i =>
-      nextLanes.getD i (Signal.pure 0#64 : Signal dom (BitVec 64))
-    let inAt := fun i =>
-      stateIn.getD i (Signal.pure 0#64 : Signal dom (BitVec 64))
-    l0  <~ Signal.mux start (inAt 0)  (Signal.mux isRun (nlAt 0)  lanes[0]!)
-    l1  <~ Signal.mux start (inAt 1)  (Signal.mux isRun (nlAt 1)  lanes[1]!)
-    l2  <~ Signal.mux start (inAt 2)  (Signal.mux isRun (nlAt 2)  lanes[2]!)
-    l3  <~ Signal.mux start (inAt 3)  (Signal.mux isRun (nlAt 3)  lanes[3]!)
-    l4  <~ Signal.mux start (inAt 4)  (Signal.mux isRun (nlAt 4)  lanes[4]!)
-    l5  <~ Signal.mux start (inAt 5)  (Signal.mux isRun (nlAt 5)  lanes[5]!)
-    l6  <~ Signal.mux start (inAt 6)  (Signal.mux isRun (nlAt 6)  lanes[6]!)
-    l7  <~ Signal.mux start (inAt 7)  (Signal.mux isRun (nlAt 7)  lanes[7]!)
-    l8  <~ Signal.mux start (inAt 8)  (Signal.mux isRun (nlAt 8)  lanes[8]!)
-    l9  <~ Signal.mux start (inAt 9)  (Signal.mux isRun (nlAt 9)  lanes[9]!)
-    l10 <~ Signal.mux start (inAt 10) (Signal.mux isRun (nlAt 10) lanes[10]!)
-    l11 <~ Signal.mux start (inAt 11) (Signal.mux isRun (nlAt 11) lanes[11]!)
-    l12 <~ Signal.mux start (inAt 12) (Signal.mux isRun (nlAt 12) lanes[12]!)
-    l13 <~ Signal.mux start (inAt 13) (Signal.mux isRun (nlAt 13) lanes[13]!)
-    l14 <~ Signal.mux start (inAt 14) (Signal.mux isRun (nlAt 14) lanes[14]!)
-    l15 <~ Signal.mux start (inAt 15) (Signal.mux isRun (nlAt 15) lanes[15]!)
-    l16 <~ Signal.mux start (inAt 16) (Signal.mux isRun (nlAt 16) lanes[16]!)
-    l17 <~ Signal.mux start (inAt 17) (Signal.mux isRun (nlAt 17) lanes[17]!)
-    l18 <~ Signal.mux start (inAt 18) (Signal.mux isRun (nlAt 18) lanes[18]!)
-    l19 <~ Signal.mux start (inAt 19) (Signal.mux isRun (nlAt 19) lanes[19]!)
-    l20 <~ Signal.mux start (inAt 20) (Signal.mux isRun (nlAt 20) lanes[20]!)
-    l21 <~ Signal.mux start (inAt 21) (Signal.mux isRun (nlAt 21) lanes[21]!)
-    l22 <~ Signal.mux start (inAt 22) (Signal.mux isRun (nlAt 22) lanes[22]!)
-    l23 <~ Signal.mux start (inAt 23) (Signal.mux isRun (nlAt 23) lanes[23]!)
-    l24 <~ Signal.mux start (inAt 24) (Signal.mux isRun (nlAt 24) lanes[24]!)
+    -- Combinational one-round update, fully INLINED (c0..c4 θ-parities,
+    -- d0..d4 diffusion, pi0..pi24 ρ+π, nl0..nl24 χ+ι).
+    let z := (Signal.pure 0#64 : Signal dom (BitVec 64))
+    let c0 := ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> (l0 : Signal dom (BitVec 64)) <*> (l5 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l10 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l15 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l20 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let c1 := ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> (l1 : Signal dom (BitVec 64)) <*> (l6 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l11 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l16 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l21 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let c2 := ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> (l2 : Signal dom (BitVec 64)) <*> (l7 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l12 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l17 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l22 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let c3 := ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> (l3 : Signal dom (BitVec 64)) <*> (l8 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l13 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l18 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l23 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let c4 := ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> ((· ^^^ ·) <$> (l4 : Signal dom (BitVec 64)) <*> (l9 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l14 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l19 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> (l24 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let d0 := ((· ^^^ ·) <$> c4 <*> ((· ||| ·) <$> ((· <<< ·) <$> c1 <*> (Signal.pure (1#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> c1 <*> (Signal.pure (63#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let d1 := ((· ^^^ ·) <$> c0 <*> ((· ||| ·) <$> ((· <<< ·) <$> c2 <*> (Signal.pure (1#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> c2 <*> (Signal.pure (63#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let d2 := ((· ^^^ ·) <$> c1 <*> ((· ||| ·) <$> ((· <<< ·) <$> c3 <*> (Signal.pure (1#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> c3 <*> (Signal.pure (63#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let d3 := ((· ^^^ ·) <$> c2 <*> ((· ||| ·) <$> ((· <<< ·) <$> c4 <*> (Signal.pure (1#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> c4 <*> (Signal.pure (63#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let d4 := ((· ^^^ ·) <$> c3 <*> ((· ||| ·) <$> ((· <<< ·) <$> c0 <*> (Signal.pure (1#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> c0 <*> (Signal.pure (63#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi0 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l0 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (0#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l0 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (0#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi1 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l6 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (44#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l6 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (20#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi2 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l12 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (43#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l12 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (21#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi3 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l18 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (21#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l18 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (43#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi4 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l24 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (14#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l24 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (50#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi5 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l3 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (28#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l3 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (36#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi6 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l9 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (20#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l9 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (44#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi7 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l10 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (3#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l10 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (61#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi8 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l16 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (45#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l16 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (19#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi9 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l22 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (61#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l22 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (3#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi10 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l1 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (1#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l1 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (63#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi11 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l7 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (6#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l7 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (58#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi12 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l13 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (25#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l13 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (39#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi13 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l19 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (8#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l19 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (56#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi14 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l20 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (18#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l20 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (46#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi15 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l4 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (27#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l4 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (37#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi16 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l5 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (36#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l5 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (28#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi17 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l11 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (10#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l11 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (54#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi18 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l17 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (15#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l17 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (49#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi19 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l23 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (56#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l23 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (8#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi20 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l2 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (62#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l2 : Signal dom (BitVec 64)) <*> d2 : Signal dom (BitVec 64)) <*> (Signal.pure (2#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi21 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l8 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (55#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l8 : Signal dom (BitVec 64)) <*> d3 : Signal dom (BitVec 64)) <*> (Signal.pure (9#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi22 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l14 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (39#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l14 : Signal dom (BitVec 64)) <*> d4 : Signal dom (BitVec 64)) <*> (Signal.pure (25#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi23 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l15 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (41#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l15 : Signal dom (BitVec 64)) <*> d0 : Signal dom (BitVec 64)) <*> (Signal.pure (23#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let pi24 := ((· ||| ·) <$> ((· <<< ·) <$> ((· ^^^ ·) <$> (l21 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (2#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> ((· >>> ·) <$> ((· ^^^ ·) <$> (l21 : Signal dom (BitVec 64)) <*> d1 : Signal dom (BitVec 64)) <*> (Signal.pure (62#64 : BitVec 64) : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let rcVal := keccakRcHW ((· - ·) <$> cntSig <*> (Signal.pure 1#5 : Signal dom (BitVec 5)))
+    let nl0 := ((· ^^^ ·) <$> ((· ^^^ ·) <$> pi0 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi1 : Signal dom (BitVec 64)) <*> pi2 : Signal dom (BitVec 64)) : Signal dom (BitVec 64)) <*> rcVal : Signal dom (BitVec 64))
+    let nl1 := ((· ^^^ ·) <$> pi1 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi2 : Signal dom (BitVec 64)) <*> pi3 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl2 := ((· ^^^ ·) <$> pi2 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi3 : Signal dom (BitVec 64)) <*> pi4 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl3 := ((· ^^^ ·) <$> pi3 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi4 : Signal dom (BitVec 64)) <*> pi0 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl4 := ((· ^^^ ·) <$> pi4 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi0 : Signal dom (BitVec 64)) <*> pi1 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl5 := ((· ^^^ ·) <$> pi5 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi6 : Signal dom (BitVec 64)) <*> pi7 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl6 := ((· ^^^ ·) <$> pi6 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi7 : Signal dom (BitVec 64)) <*> pi8 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl7 := ((· ^^^ ·) <$> pi7 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi8 : Signal dom (BitVec 64)) <*> pi9 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl8 := ((· ^^^ ·) <$> pi8 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi9 : Signal dom (BitVec 64)) <*> pi5 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl9 := ((· ^^^ ·) <$> pi9 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi5 : Signal dom (BitVec 64)) <*> pi6 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl10 := ((· ^^^ ·) <$> pi10 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi11 : Signal dom (BitVec 64)) <*> pi12 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl11 := ((· ^^^ ·) <$> pi11 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi12 : Signal dom (BitVec 64)) <*> pi13 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl12 := ((· ^^^ ·) <$> pi12 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi13 : Signal dom (BitVec 64)) <*> pi14 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl13 := ((· ^^^ ·) <$> pi13 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi14 : Signal dom (BitVec 64)) <*> pi10 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl14 := ((· ^^^ ·) <$> pi14 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi10 : Signal dom (BitVec 64)) <*> pi11 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl15 := ((· ^^^ ·) <$> pi15 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi16 : Signal dom (BitVec 64)) <*> pi17 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl16 := ((· ^^^ ·) <$> pi16 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi17 : Signal dom (BitVec 64)) <*> pi18 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl17 := ((· ^^^ ·) <$> pi17 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi18 : Signal dom (BitVec 64)) <*> pi19 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl18 := ((· ^^^ ·) <$> pi18 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi19 : Signal dom (BitVec 64)) <*> pi15 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl19 := ((· ^^^ ·) <$> pi19 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi15 : Signal dom (BitVec 64)) <*> pi16 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl20 := ((· ^^^ ·) <$> pi20 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi21 : Signal dom (BitVec 64)) <*> pi22 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl21 := ((· ^^^ ·) <$> pi21 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi22 : Signal dom (BitVec 64)) <*> pi23 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl22 := ((· ^^^ ·) <$> pi22 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi23 : Signal dom (BitVec 64)) <*> pi24 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl23 := ((· ^^^ ·) <$> pi23 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi24 : Signal dom (BitVec 64)) <*> pi20 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    let nl24 := ((· ^^^ ·) <$> pi24 <*> ((· &&& ·) <$> ((~~~ ·) <$> pi20 : Signal dom (BitVec 64)) <*> pi21 : Signal dom (BitVec 64)) : Signal dom (BitVec 64))
+    -- Per-lane register update: on start ⇒ latch stateIn scalar; else
+    -- on isRun ⇒ round output; else hold the current lane.
+    l0  <~ Signal.mux start in0  (Signal.mux isRun nl0  (l0  : Signal dom (BitVec 64)))
+    l1  <~ Signal.mux start in1  (Signal.mux isRun nl1  (l1  : Signal dom (BitVec 64)))
+    l2  <~ Signal.mux start in2  (Signal.mux isRun nl2  (l2  : Signal dom (BitVec 64)))
+    l3  <~ Signal.mux start in3  (Signal.mux isRun nl3  (l3  : Signal dom (BitVec 64)))
+    l4  <~ Signal.mux start in4  (Signal.mux isRun nl4  (l4  : Signal dom (BitVec 64)))
+    l5  <~ Signal.mux start in5  (Signal.mux isRun nl5  (l5  : Signal dom (BitVec 64)))
+    l6  <~ Signal.mux start in6  (Signal.mux isRun nl6  (l6  : Signal dom (BitVec 64)))
+    l7  <~ Signal.mux start in7  (Signal.mux isRun nl7  (l7  : Signal dom (BitVec 64)))
+    l8  <~ Signal.mux start in8  (Signal.mux isRun nl8  (l8  : Signal dom (BitVec 64)))
+    l9  <~ Signal.mux start in9  (Signal.mux isRun nl9  (l9  : Signal dom (BitVec 64)))
+    l10 <~ Signal.mux start in10 (Signal.mux isRun nl10 (l10 : Signal dom (BitVec 64)))
+    l11 <~ Signal.mux start in11 (Signal.mux isRun nl11 (l11 : Signal dom (BitVec 64)))
+    l12 <~ Signal.mux start in12 (Signal.mux isRun nl12 (l12 : Signal dom (BitVec 64)))
+    l13 <~ Signal.mux start in13 (Signal.mux isRun nl13 (l13 : Signal dom (BitVec 64)))
+    l14 <~ Signal.mux start in14 (Signal.mux isRun nl14 (l14 : Signal dom (BitVec 64)))
+    l15 <~ Signal.mux start in15 (Signal.mux isRun nl15 (l15 : Signal dom (BitVec 64)))
+    l16 <~ Signal.mux start in16 (Signal.mux isRun nl16 (l16 : Signal dom (BitVec 64)))
+    l17 <~ Signal.mux start in17 (Signal.mux isRun nl17 (l17 : Signal dom (BitVec 64)))
+    l18 <~ Signal.mux start in18 (Signal.mux isRun nl18 (l18 : Signal dom (BitVec 64)))
+    l19 <~ Signal.mux start in19 (Signal.mux isRun nl19 (l19 : Signal dom (BitVec 64)))
+    l20 <~ Signal.mux start in20 (Signal.mux isRun nl20 (l20 : Signal dom (BitVec 64)))
+    l21 <~ Signal.mux start in21 (Signal.mux isRun nl21 (l21 : Signal dom (BitVec 64)))
+    l22 <~ Signal.mux start in22 (Signal.mux isRun nl22 (l22 : Signal dom (BitVec 64)))
+    l23 <~ Signal.mux start in23 (Signal.mux isRun nl23 (l23 : Signal dom (BitVec 64)))
+    l24 <~ Signal.mux start in24 (Signal.mux isRun nl24 (l24 : Signal dom (BitVec 64)))
 
     let cntInc := ((· + ·) <$> cntSig <*> p1_5 : Signal dom (BitVec 5))
     cntR <~ Signal.mux start p1_5
@@ -281,7 +309,31 @@ def keccakF1600HW {dom : DomainConfig}
                 (Signal.mux isIdle p0_5 cntInc))
     doneR <~ isFinish
 
-    return ({ lanes := lanes
+    return ({ l0  := (l0  : Signal dom (BitVec 64))
+            , l1  := (l1  : Signal dom (BitVec 64))
+            , l2  := (l2  : Signal dom (BitVec 64))
+            , l3  := (l3  : Signal dom (BitVec 64))
+            , l4  := (l4  : Signal dom (BitVec 64))
+            , l5  := (l5  : Signal dom (BitVec 64))
+            , l6  := (l6  : Signal dom (BitVec 64))
+            , l7  := (l7  : Signal dom (BitVec 64))
+            , l8  := (l8  : Signal dom (BitVec 64))
+            , l9  := (l9  : Signal dom (BitVec 64))
+            , l10 := (l10 : Signal dom (BitVec 64))
+            , l11 := (l11 : Signal dom (BitVec 64))
+            , l12 := (l12 : Signal dom (BitVec 64))
+            , l13 := (l13 : Signal dom (BitVec 64))
+            , l14 := (l14 : Signal dom (BitVec 64))
+            , l15 := (l15 : Signal dom (BitVec 64))
+            , l16 := (l16 : Signal dom (BitVec 64))
+            , l17 := (l17 : Signal dom (BitVec 64))
+            , l18 := (l18 : Signal dom (BitVec 64))
+            , l19 := (l19 : Signal dom (BitVec 64))
+            , l20 := (l20 : Signal dom (BitVec 64))
+            , l21 := (l21 : Signal dom (BitVec 64))
+            , l22 := (l22 : Signal dom (BitVec 64))
+            , l23 := (l23 : Signal dom (BitVec 64))
+            , l24 := (l24 : Signal dom (BitVec 64))
             , round := cntSig
             , done  := (doneR : Signal dom Bool)
             } : KeccakFOut dom)

@@ -3207,6 +3207,18 @@ mutual
     -- `throwError` arm) with one balanced decrement, regardless
     -- of which return path or exception fires.
     let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+      -- Issue #67: memoise the (Module × Design) result by declName
+      -- for the duration of one outermost synth.  A `@[hardware_module]`
+      -- projected across many output fields (e.g. Keccak's 25 lane
+      -- fields, each a leaf of the parent's return) otherwise re-walks
+      -- this whole body once per projection — and its own sub-modules
+      -- (e.g. keccakRcHW) O(N) times on top, giving the O(N²) blow-up.
+      -- The cache is reset at depth==0 alongside the other per-synth
+      -- caches, so it can't alias across independent top-level synths.
+      let memo ← sparkleSubModuleCache.get
+      if let some cached := memo.get? declName then
+        logProf s!"[profile] synthesizeCombinational {declName} MEMO HIT"
+        return cached
       let constInfo ← getConstInfo declName
       logProf s!"[profile] getConstInfo done"
       match constInfo with
@@ -3323,7 +3335,11 @@ mutual
           -- synth loop; `finalize` reverses each list once so
           -- downstream consumers (Verilog backend, CppSim, etc.)
           -- see the natural forward order they always did.
-          return (module.finalize, finalCircuitState.design)
+          let result := (module.finalize, finalCircuitState.design)
+          -- Issue #67: cache the result by declName for reuse by
+          -- later projections/instantiations within this synth.
+          sparkleSubModuleCache.modify (·.insert declName result)
+          return result
       | _ =>
         throwError s!"Cannot synthesize {declName}: not a definition"
     try
