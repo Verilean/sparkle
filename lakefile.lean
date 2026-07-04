@@ -715,6 +715,34 @@ lean_exe «ctap2-data-test» where
   root := `Tests.Drivers.CTAP2DataTestMain
   supportInterpreter := true
 
+lean_exe «p256-point-jac-test» where
+  root := `Tests.Drivers.P256PointJacTestMain
+  supportInterpreter := true
+
+lean_exe «p256-point-op-hw-test» where
+  root := `Tests.Drivers.P256PointOpHWTestMain
+  supportInterpreter := true
+
+lean_exe «p256-scalar-mul-hw-test» where
+  root := `Tests.Drivers.P256ScalarMulHWTestMain
+  supportInterpreter := true
+
+lean_exe «p256-order-hw-test» where
+  root := `Tests.Drivers.P256OrderHWTestMain
+  supportInterpreter := true
+
+lean_exe «p256-ecdsa-hw-test» where
+  root := `Tests.Drivers.P256ECDSAHWTestMain
+  supportInterpreter := true
+
+lean_exe «p256-sign-core-test» where
+  root := `Tests.Drivers.P256SignDemoTestMain
+  supportInterpreter := true
+
+lean_exe «sha256-stream-test» where
+  root := `Tests.Drivers.SHA256StreamTestMain
+  supportInterpreter := true
+
 lean_exe «sha512-block-hw-test» where
   root := `Tests.Drivers.SHA512BlockHWTestMain
   supportInterpreter := true
