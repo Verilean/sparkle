@@ -12,6 +12,7 @@ import Notebooks.Gen.Ch08_Yosys
 import Notebooks.Gen.Ch08b_Simulation
 import Notebooks.Gen.Ch09_FPGA
 import Notebooks.Gen.Ch10_Architecture
+import Notebooks.Gen.Ch11_Web3Signer
 import Display
 import Notebooks.Solutions.Ch02
 import Notebooks.Solutions.Ch03

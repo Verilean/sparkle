@@ -44,6 +44,7 @@ automatically.
 | 8b | Three Ways to Simulate, One Interface (pure-Lean / JIT / Verilator) | [`md/Ch08b_Simulation.md`](md/Ch08b_Simulation.md) |
 | 9 | FPGA Bring-Up | [`md/Ch09_FPGA.md`](md/Ch09_FPGA.md) |
 | 10 | Sparkle Architecture | [`md/Ch10_Architecture.md`](md/Ch10_Architecture.md) |
+| 11 | Running the web3 Signing Device on Real Hardware | [`md/Ch11_Web3Signer.md`](md/Ch11_Web3Signer.md) |
 
 ## How to run
 
