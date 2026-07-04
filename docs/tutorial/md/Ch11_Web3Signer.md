@@ -3,9 +3,10 @@
 The previous chapters took a *toy* design (a blinky) all the way to
 silicon. This chapter does the same for a **real security product**:
 the policy-enforcing Ethereum signer. You'll generate its Verilog from
-Sparkle Lean source, flash it to a Tang Nano 50K, and sign an Ethereum
+Sparkle Lean source, flash it to a Tang Nano 50K, sign an Ethereum
 transaction from your PC — watching the chip **refuse** to sign one that
-violates its baked-in policy.
+violates its baked-in policy — and finally **broadcast a real transfer to
+a local Ethereum node** (§11.7), watching the balance move on-chain.
 
 ## 11.1 What the device does
 
@@ -194,7 +195,102 @@ wire at all.
 > wire. A production device keeps `d` on-chip (fuse/PUF) and derives the
 > nonce `k` via RFC-6979. See the ip-catalog note.
 
-## 11.7 Where to go next
+## 11.7 Test against a local Ethereum node (anvil)
+
+The §11.6 demo hashes a fixed `to‖value` — a stand-in, not a real
+Ethereum transaction. To see the device's signature actually *land on a
+chain*, the **M2** path signs a genuine EIP-1559 transaction hash
+(`keccak256(0x02‖rlp([...]))`) that a real node accepts. We test it
+against a local [Foundry](https://getfoundry.sh) **anvil** node.
+
+### Install and start anvil (macOS)
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup                 # installs forge / cast / anvil
+anvil                     # starts a local chain on http://localhost:8545
+```
+
+anvil prints ten funded accounts. By design, **accounts #1–#4 are exactly
+the device's baked-in allowlist** (`IP/Crypto/TxPolicy.lean`):
+
+```
+(1) 0x70997970C51812dc3A010C7d01b50e0d17dc79C8   ← allow0 (the signer)
+(2) 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC   ← allow1
+(3) 0x90F79bf6EB2c4f870365E785982E1f101E93b906   ← allow2
+(4) 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65   ← allow3
+```
+
+The device's private key `d` is account #1's key, so its signatures come
+*from* `allow0` — an allowlisted sender signing to an allowlisted
+recipient.
+
+### Broadcast a real transfer
+
+`host/policy_signer/sign_tx.py --send` builds a canonical EIP-1559
+transfer, has it signed (on the device, or in pure Python with
+`--dry-run`), assembles the signed transaction, and broadcasts it over
+JSON-RPC — all with **zero dependencies** beyond stdlib (`urllib` for
+RPC; no `web3`). `--dry-run` signs with the same pure-Python secp256k1 +
+Keccak the device uses (byte-for-byte identical), so you can run the full
+round-trip **without a board**:
+
+```bash
+# From allow0 → allow1, 0.001 ETH. --dry-run signs in-process (no board).
+python3 host/policy_signer/sign_tx.py --send --dry-run \
+    --rpc http://localhost:8545 \
+    --to 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC \
+    --value 1000000000000000
+```
+
+Output — a real transaction, mined, funds moved:
+
+```
+broadcast tx 0xbd5b302a246aaf944c0d83f2fa1adaa50caba4a511a349b649f5364f0c441a15
+receipt status: 0x1
+recipient 0x3c44…293bc balance: 10000.000000 -> 10000.001000 ETH (+0.001000)
+```
+
+Confirm the sender is the allowlisted account with `cast`:
+
+```bash
+cast tx 0xbd5b302a…1a15 --rpc-url http://localhost:8545 | grep -E 'from|type'
+# from  0x70997970C51812dc3A010C7d01b50e0d17dc79C8   ← allow0
+# type  2                                             ← EIP-1559
+```
+
+To sign on the **real board** instead of `--dry-run`, drop `--dry-run`
+and add `--port /dev/ttyACM0` (needs `pip install pyserial`). The host
+frames `d‖k‖to‖value‖paddedPreimage` to the M2 bitstream, reads back
+`r‖s`, and broadcasts exactly the same transaction.
+
+### The policy still bites
+
+Point the transfer at a **non-allowlisted** recipient and the device
+refuses — nothing is broadcast:
+
+```bash
+python3 host/policy_signer/sign_tx.py --send --dry-run \
+    --to 0x000000000000000000000000000000000000dEaD \
+    --value 1000000000000000
+# policy: REJECT (recipient not allowlisted or value > cap) — not broadcasting.
+# device would return 0xEE (reject byte); led_reject strobes.
+```
+
+### The honest M2 boundary
+
+M2 signs the **real** transaction hash, so the signature is genuinely
+broadcastable — that part is fully verified above. But because RLP puts
+`to`/`value` at *variable* byte offsets (integer fields have no leading
+zeros, so their widths shift), the device cannot slice them out of the
+hashed preimage the way M1 does. So in M2 the **policy checks
+host-supplied `to`/`value` fields**, and binding those fields to the
+bytes actually hashed — a small on-chip RLP walk — is the **M3**
+follow-up. M1's tighter guarantee (policy fields *provably* come from the
+hashed bytes) is documented in
+[`docs/ip-catalog/PolicySignDemo.md`](../../ip-catalog/PolicySignDemo.md).
+
+## 11.8 Where to go next
 
 - [`docs/ip-catalog/PolicySignDemo.md`](../../ip-catalog/PolicySignDemo.md)
   — the protocol, the on-chip policy engine, and the Keccak sponge in

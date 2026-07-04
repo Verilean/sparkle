@@ -165,19 +165,26 @@ def policy_ok(to: int, value: int) -> bool:
 # --------------------------------------------------------------------------
 # Hardware I/O.
 # --------------------------------------------------------------------------
+def read_device_response(ser):
+    """Read the device's reply: 1 byte 0xEE (reject) or 64 bytes r‖s (sign).
+    Reads the first byte, then branches — so a reject returns immediately
+    instead of waiting out the timeout for the 63 bytes that never come."""
+    first = ser.read(1)
+    if len(first) == 1 and first[0] == 0xEE:
+        return None            # policy REJECT
+    rest = ser.read(63)
+    resp = first + rest
+    if len(resp) != 64:
+        raise IOError(f"expected 64 bytes r||s or 1 reject byte, got {len(resp)}")
+    return (int.from_bytes(resp[:32], "big"), int.from_bytes(resp[32:], "big"))
+
 def sign_on_device(port: str, d, k, to, value, baud=115200, timeout=10):
     import serial  # pyserial — only needed for real hardware, not --selftest
     ser = serial.Serial(port, baud, timeout=timeout)
     ser.write(build_frame(d, k, to, value))
-    resp = ser.read(64)
+    res = read_device_response(ser)
     ser.close()
-    if len(resp) == 1 and resp[0] == 0xEE:
-        return None            # policy REJECT
-    if len(resp) != 64:
-        raise IOError(f"expected 64 bytes r||s or 1 reject byte, got {len(resp)}")
-    r = int.from_bytes(resp[:32], "big")
-    s = int.from_bytes(resp[32:], "big")
-    return (r, s)
+    return res
 
 # --------------------------------------------------------------------------
 # Self-test (no hardware) — mirrors PolicySignDemoTest.
@@ -213,24 +220,199 @@ def selftest() -> int:
     print("ALL PASS" if ok else "FAIL")
     return 0 if ok else 1
 
+# --------------------------------------------------------------------------
+# EIP-1559 transaction (RLP) — the REAL Ethereum tx the device signs in M2.
+# Mirrors IP/Crypto/Eip1559Tx.signingPayload: 0x02 || rlp([chainId, nonce,
+# maxPriorityFee, maxFee, gasLimit, to, value, data, accessList]).
+# --------------------------------------------------------------------------
+def be_bytes(n: int) -> bytes:
+    """Big-endian, minimal (no leading zeros); 0 -> empty (RLP integer rule)."""
+    if n == 0:
+        return b""
+    return n.to_bytes((n.bit_length() + 7) // 8, "big")
+
+def rlp_len(length: int, offset: int) -> bytes:
+    if length < 56:
+        return bytes([offset + length])
+    lb = be_bytes(length)
+    return bytes([offset + 55 + len(lb)]) + lb
+
+def rlp_str(b: bytes) -> bytes:
+    if len(b) == 1 and b[0] < 0x80:
+        return b
+    return rlp_len(len(b), 0x80) + b
+
+def rlp_list(items: list) -> bytes:
+    body = b"".join(items)
+    return rlp_len(len(body), 0xC0) + body
+
+def eip1559_preimage(chain_id, nonce, max_prio, max_fee, gas, to, value):
+    """0x02 || rlp([...]) — the bytes that get Keccak-256'd and signed."""
+    inner = [
+        rlp_str(be_bytes(chain_id)), rlp_str(be_bytes(nonce)),
+        rlp_str(be_bytes(max_prio)), rlp_str(be_bytes(max_fee)),
+        rlp_str(be_bytes(gas)),
+        rlp_str(to.to_bytes(20, "big")), rlp_str(be_bytes(value)),
+        rlp_str(b""),          # data (empty)
+        rlp_list([]),          # accessList (empty)
+    ]
+    return b"\x02" + rlp_list(inner)
+
+def eip1559_signed(chain_id, nonce, max_prio, max_fee, gas, to, value, y_parity, r, s):
+    inner = [
+        rlp_str(be_bytes(chain_id)), rlp_str(be_bytes(nonce)),
+        rlp_str(be_bytes(max_prio)), rlp_str(be_bytes(max_fee)),
+        rlp_str(be_bytes(gas)),
+        rlp_str(to.to_bytes(20, "big")), rlp_str(be_bytes(value)),
+        rlp_str(b""), rlp_list([]),
+        rlp_str(be_bytes(y_parity)), rlp_str(be_bytes(r)), rlp_str(be_bytes(s)),
+    ]
+    return b"\x02" + rlp_list(inner)
+
+def keccak_pad136(preimage: bytes) -> bytes:
+    """Host-side Keccak pad to a fixed 136-byte block (what M2 sends the device)."""
+    if len(preimage) > 135:
+        raise ValueError("preimage > 135 bytes needs a 2-block frame (not this demo)")
+    p = bytearray(preimage)
+    p.append(0x01)
+    while len(p) < 136:
+        p.append(0x00)
+    p[135] ^= 0x80
+    return bytes(p)
+
+def eth_address(Q) -> int:
+    """Ethereum address = low 160 bits of keccak256(pubkey x||y)."""
+    xy = Q[0].to_bytes(32, "big") + Q[1].to_bytes(32, "big")
+    return int.from_bytes(keccak256(xy)[12:], "big")
+
+def recover_parity(d, k, z, r, s):
+    """Find y_parity (0/1) whose ecrecover matches the signer address."""
+    want = eth_address(derive_pubkey(d))
+    R = pt_mul(k, (GX, GY))
+    y_parity = R[1] & 1
+    # sanity: recovering with this parity should give `want`.
+    return y_parity if _ecrecover_addr(z, r, s, y_parity) == want else (1 - y_parity)
+
+def _ecrecover_addr(z, r, s, y_parity):
+    # R = point with x=r, chosen y parity
+    y2 = (pow(r, 3, P) + 7) % P
+    y = pow(y2, (P + 1) // 4, P)
+    if (y & 1) != y_parity:
+        y = P - y
+    R = (r, y)
+    rinv = inv_mod(r, N)
+    u1 = (-z) % N
+    Qrec = pt_add(pt_mul(u1 * rinv % N, (GX, GY)), pt_mul(s * rinv % N, R))
+    if Qrec is None:
+        return None
+    return eth_address(Qrec)
+
+# --------------------------------------------------------------------------
+# Minimal JSON-RPC over stdlib urllib (no web3 dependency).
+# --------------------------------------------------------------------------
+def rpc(url, method, params):
+    import json, urllib.request
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        out = json.loads(resp.read())
+    if "error" in out:
+        raise RuntimeError(f"{method}: {out['error']}")
+    return out["result"]
+
+def send_and_confirm(url, to, value, d, k, chain_id=31337,
+                     max_prio=10**9, max_fee=2*10**9, gas=21000, device_port=None):
+    """Build a real EIP-1559 transfer, sign it (device or pure-Python), broadcast
+    to anvil, and report the recipient balance delta."""
+    frm = eth_address(derive_pubkey(d))
+    nonce = int(rpc(url, "eth_getTransactionCount", [f"0x{frm:040x}", "latest"]), 16)
+    pre = eip1559_preimage(chain_id, nonce, max_prio, max_fee, gas, to, value)
+    z = int.from_bytes(keccak256(pre), "big")
+
+    # policy preview (mirrors the device gate).
+    if not policy_ok(to, value):
+        print(f"policy: REJECT (recipient not allowlisted or value > cap) — not broadcasting.")
+        # what the device returns on the wire in this case:
+        print("device would return 0xEE (reject byte); led_reject strobes.")
+        return 0
+
+    if device_port:
+        # frame d‖k‖to‖value‖paddedPreimage(136) to the M2 device
+        import serial
+        frame = (d.to_bytes(32, "big") + k.to_bytes(32, "big")
+                 + to.to_bytes(32, "big") + value.to_bytes(32, "big")
+                 + keccak_pad136(pre))
+        ser = serial.Serial(device_port, 115200, timeout=10)
+        ser.write(frame); sig = read_device_response(ser); ser.close()
+        if sig is None:
+            print("device REJECTED (0xEE)."); return 0
+        r, s = sig
+    else:
+        sig = ecdsa_sign(d, k, z)          # --dry-run: pure-Python (byte-identical)
+        if sig is None:
+            print("degenerate signature; retry with a different nonce k."); return 1
+        r, s = sig
+
+    y = recover_parity(d, k, z, r, s)
+    raw = eip1559_signed(chain_id, nonce, max_prio, max_fee, gas, to, value, y, r, s)
+    raw_hex = "0x" + raw.hex()
+
+    bal_before = int(rpc(url, "eth_getBalance", [f"0x{to:040x}", "latest"]), 16)
+    txh = rpc(url, "eth_sendRawTransaction", [raw_hex])
+    print(f"broadcast tx {txh}")
+    # poll for the receipt
+    import time
+    receipt = None
+    for _ in range(50):
+        receipt = rpc(url, "eth_getTransactionReceipt", [txh])
+        if receipt:
+            break
+        time.sleep(0.1)
+    status = receipt and receipt.get("status")
+    bal_after = int(rpc(url, "eth_getBalance", [f"0x{to:040x}", "latest"]), 16)
+    print(f"receipt status: {status}")
+    print(f"recipient 0x{to:040x} balance: {bal_before/1e18:.6f} -> {bal_after/1e18:.6f} ETH "
+          f"(+{(bal_after-bal_before)/1e18:.6f})")
+    return 0 if status == "0x1" else 1
+
+# anvil account #1 (= allow0, the device's allowlisted signer) — demo defaults.
+ANVIL_KEY1 = 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+DEMO_NONCE = 0x9E56F509196784D963D1C0A401510EE7ADA3DCC5DEE04B154BF61AF1D5A6DECE
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Drive the Sparkle policy-enforcing Ethereum signer.")
-    ap.add_argument("--selftest", action="store_true", help="run the no-hardware reference check")
-    ap.add_argument("--port", help="serial port, e.g. /dev/ttyACM0")
-    ap.add_argument("--to", help="recipient address (hex, e.g. 0x7099...79C8)")
+    ap.add_argument("--selftest", action="store_true", help="no-hardware reference check")
+    ap.add_argument("--send", action="store_true",
+                    help="build a real EIP-1559 transfer, sign it, broadcast to an anvil RPC")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="with --send, sign in pure Python (byte-identical to the device) — no board")
+    ap.add_argument("--rpc", default="http://localhost:8545", help="anvil JSON-RPC URL")
+    ap.add_argument("--port", help="serial port for the device, e.g. /dev/ttyACM0")
+    ap.add_argument("--to", help="recipient address (hex)")
     ap.add_argument("--value", help="value in wei (int)")
-    ap.add_argument("--key", help="private key d (hex) — DEMO ONLY")
-    ap.add_argument("--nonce", help="ECDSA nonce k (hex) — DEMO ONLY")
+    ap.add_argument("--key", help="private key d (hex); default = anvil account #1")
+    ap.add_argument("--nonce", help="ECDSA nonce k (hex); default = demo nonce")
     args = ap.parse_args()
 
     if args.selftest:
         return selftest()
 
+    if args.send:
+        if not (args.to and args.value):
+            ap.error("--send needs --to and --value")
+        to = int(args.to, 16); value = int(args.value)
+        d = int(args.key, 16) if args.key else ANVIL_KEY1
+        k = int(args.nonce, 16) if args.nonce else DEMO_NONCE
+        port = None if args.dry_run else args.port
+        if not args.dry_run and not args.port:
+            ap.error("--send needs --port (or add --dry-run to sign in pure Python)")
+        return send_and_confirm(args.rpc, to, value, d, k, device_port=port)
+
+    # legacy raw-frame signing (M1: keccak256(to||value), no broadcast)
     if not (args.port and args.to and args.value and args.key and args.nonce):
-        ap.error("real signing needs --port --to --value --key --nonce (or use --selftest)")
+        ap.error("use --selftest, --send …, or the raw M1 path --port --to --value --key --nonce")
     to = int(args.to, 16); value = int(args.value)
     d = int(args.key, 16); k = int(args.nonce, 16)
-
     print(f"policy(host preview): {'PASS' if policy_ok(to, value) else 'REJECT'}")
     res = sign_on_device(args.port, d, k, to, value)
     if res is None:
@@ -238,10 +420,8 @@ def main() -> int:
         return 0
     r, s = res
     z = signing_hash(to, value)
-    Q = derive_pubkey(d)
-    good = ecdsa_verify(Q, z, r, s)
-    print(f"r = 0x{r:064x}")
-    print(f"s = 0x{s:064x}")
+    good = ecdsa_verify(derive_pubkey(d), z, r, s)
+    print(f"r = 0x{r:064x}\ns = 0x{s:064x}")
     print(f"signature verifies against Q = d*G : {'YES' if good else 'NO'}")
     return 0 if good else 1
 
