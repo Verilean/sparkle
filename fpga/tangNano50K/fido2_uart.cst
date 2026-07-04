@@ -1,0 +1,18 @@
+// Sparkle FIDO2 getAssertion signing top — Tang Nano 50K pin constraints.
+//
+// USB path:  PC ─USB-C─ BL616 (onboard CDC-ACM bridge) ─UART─ FPGA
+//   FPGA uart_rx_line ← BL616 UART_TX = pin 69 (J17)
+//   FPGA uart_tx      → BL616 UART_RX = pin 70 (H17)
+// The host shim (host/fido2/fido2_shim.py) sends a fixed 133-byte
+// getAssertion frame over this CDC-ACM serial and reads back r‖s.
+//
+// 27 MHz system clock; bitDiv27M115200 ≈ 233 for 115200 baud.
+
+IO_LOC "clk" E2;
+IO_PORT "clk" PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_LOC "rst" E1;
+IO_PORT "rst" PULL_MODE=UP IO_TYPE=LVCMOS33;
+IO_LOC "uart_rx_line" J17;
+IO_PORT "uart_rx_line" PULL_MODE=UP IO_TYPE=LVCMOS33;
+IO_LOC "uart_tx" H17;
+IO_PORT "uart_tx" PULL_MODE=NONE IO_TYPE=LVCMOS33 DRIVE=8 SLEW_RATE=FAST;

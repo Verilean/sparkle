@@ -154,6 +154,7 @@ import Tests.IP.Crypto.TxPolicyTest
 import Tests.IP.Crypto.Keccak256SpongeTest
 import Tests.IP.Crypto.PolicySignDemoTest
 import Tests.IP.Crypto.CTAP2DataTest
+import Tests.IP.USB.Fido2DemoTest
 import Tests.IP.Crypto.P256PointJacTest
 import Tests.IP.Crypto.P256PointOpHWTest
 import Tests.IP.Crypto.P256ScalarMulHWTest
@@ -625,6 +626,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Crypto.PolicySignDemoTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.CTAP2DataTest.main
+  IO.println ""
+  Sparkle.Tests.IP.USB.Fido2DemoTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.P256PointJacTest.main
   IO.println ""

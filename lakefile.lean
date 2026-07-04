@@ -220,6 +220,11 @@ lean_lib «IP.Bus» where
 lean_lib «IP.Net» where
   roots := #[`IP.Net]
 
+-- USB / FIDO2 transport: CTAPHID report framing, CBOR byte emitter,
+-- and the FIDO2 authenticator top.
+lean_lib «IP.USB» where
+  roots := #[`IP.USB]
+
 -- Ledger-style crypto (SHA-256, Ed25519, secp256k1) for signed
 -- order packets in the HFT stack and as standalone Sparkle IPs.
 lean_lib «IP.Crypto» where
@@ -713,6 +718,10 @@ lean_exe «policy-sign-demo-test» where
 
 lean_exe «ctap2-data-test» where
   root := `Tests.Drivers.CTAP2DataTestMain
+  supportInterpreter := true
+
+lean_exe «fido2-demo-test» where
+  root := `Tests.Drivers.Fido2DemoTestMain
   supportInterpreter := true
 
 lean_exe «p256-point-jac-test» where
