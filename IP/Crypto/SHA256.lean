@@ -317,7 +317,8 @@ instance {dom : DomainConfig} :
 
 def sha256Block {dom : DomainConfig}
     (start : Signal dom Bool)
-    (blockIn : Signal dom (BitVec 512)) :
+    (blockIn : Signal dom (BitVec 512))
+    (first : Signal dom Bool := Signal.pure true) :
     SHA256Out dom :=
   circuit do
     -- 7-bit round counter (0..65, plus idle at 0).
@@ -405,8 +406,9 @@ def sha256Block {dom : DomainConfig}
     let isIdle   := (· == ·) <$> cntSig <*> p0_7
     let isFinish := (· == ·) <$> cntSig <*> p65_7
 
-    -- Compute T1, T2, next-state.
-    let kt    := kMux cntSig
+    -- Compute T1, T2, next-state.  Round t runs at cnt = t+1 (cnt 1..64), so
+    -- the round constant is K[cnt-1] — feed cnt-1 (NOT cnt) to the K table.
+    let kt    := kMux ((· - ·) <$> cntSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
     -- Σ₁(e) = ROTR(e,6) ⊕ ROTR(e,11) ⊕ ROTR(e,25), inlined.
     let e6  := ((· >>> ·) <$> eSig <*> (Signal.pure 6#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
     let e6l := ((· <<< ·) <$> eSig <*> (Signal.pure 26#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
@@ -453,14 +455,18 @@ def sha256Block {dom : DomainConfig}
     -- On start, reload a..h from H-state (so a 2nd block
     -- continues from H0..H7, not from initH — initH is
     -- pre-loaded into the H regs at reset time).
-    let aLoad := h0Sig
-    let bLoad := h1Sig
-    let cLoad := h2Sig
-    let dLoad := h3Sig
-    let eLoad := h4Sig
-    let fLoad := h5Sig
-    let gLoad := h6Sig
-    let hLoadV := h7Sig
+    -- On a `first` block, load a..h from the SHA-256 IV (initH) instead of the
+    -- carried H-state, so the module hashes a fresh message.  (Enables re-use
+    -- for the many independent hashes in HMAC / RFC-6979 without a hard reset.)
+    let firstSig := (first : Signal dom Bool)
+    let aLoad := Signal.mux firstSig (Signal.pure 0x6a09e667#32) h0Sig
+    let bLoad := Signal.mux firstSig (Signal.pure 0xbb67ae85#32) h1Sig
+    let cLoad := Signal.mux firstSig (Signal.pure 0x3c6ef372#32) h2Sig
+    let dLoad := Signal.mux firstSig (Signal.pure 0xa54ff53a#32) h3Sig
+    let eLoad := Signal.mux firstSig (Signal.pure 0x510e527f#32) h4Sig
+    let fLoad := Signal.mux firstSig (Signal.pure 0x9b05688c#32) h5Sig
+    let gLoad := Signal.mux firstSig (Signal.pure 0x1f83d9ab#32) h6Sig
+    let hLoadV := Signal.mux firstSig (Signal.pure 0x5be0cd19#32) h7Sig
     let aNext := (· + ·) <$> t1 <*> t2
     let eNext := (· + ·) <$> dSig <*> t1
 
@@ -492,14 +498,17 @@ def sha256Block {dom : DomainConfig}
     let h5Acc := (· + ·) <$> h5Sig <*> fSig
     let h6Acc := (· + ·) <$> h6Sig <*> gSig
     let h7Acc := (· + ·) <$> h7Sig <*> hSig
-    h0R <~ Signal.mux isFinish h0Acc h0Sig
-    h1R <~ Signal.mux isFinish h1Acc h1Sig
-    h2R <~ Signal.mux isFinish h2Acc h2Sig
-    h3R <~ Signal.mux isFinish h3Acc h3Sig
-    h4R <~ Signal.mux isFinish h4Acc h4Sig
-    h5R <~ Signal.mux isFinish h5Acc h5Sig
-    h6R <~ Signal.mux isFinish h6Acc h6Sig
-    h7R <~ Signal.mux isFinish h7Acc h7Sig
+    -- On a `first`-block start, (re)load H0..H7 with the IV so the finish-time
+    -- accumulation `H += a..h` starts from initH.  Otherwise carry / accumulate.
+    let startFirst := ((· && ·) <$> start <*> firstSig : Signal dom Bool)
+    h0R <~ Signal.mux startFirst (Signal.pure 0x6a09e667#32) (Signal.mux isFinish h0Acc h0Sig)
+    h1R <~ Signal.mux startFirst (Signal.pure 0xbb67ae85#32) (Signal.mux isFinish h1Acc h1Sig)
+    h2R <~ Signal.mux startFirst (Signal.pure 0x3c6ef372#32) (Signal.mux isFinish h2Acc h2Sig)
+    h3R <~ Signal.mux startFirst (Signal.pure 0xa54ff53a#32) (Signal.mux isFinish h3Acc h3Sig)
+    h4R <~ Signal.mux startFirst (Signal.pure 0x510e527f#32) (Signal.mux isFinish h4Acc h4Sig)
+    h5R <~ Signal.mux startFirst (Signal.pure 0x9b05688c#32) (Signal.mux isFinish h5Acc h5Sig)
+    h6R <~ Signal.mux startFirst (Signal.pure 0x1f83d9ab#32) (Signal.mux isFinish h6Acc h6Sig)
+    h7R <~ Signal.mux startFirst (Signal.pure 0x5be0cd19#32) (Signal.mux isFinish h7Acc h7Sig)
 
     -- W-buffer update: on start, load with the first 16
     -- words from blockIn.  During cnt 1..48, compute

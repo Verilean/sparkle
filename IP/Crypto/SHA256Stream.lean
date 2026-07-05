@@ -45,9 +45,10 @@ instance {dom : DomainConfig} :
 /-- `@[hardware_module]` wrapper so the streaming FSM can project
     the single-block core's `.hash` / `.done`. -/
 @[hardware_module] def wBlock {dom : DomainConfig}
-    (start : Signal dom Bool) (blockIn : Signal dom (BitVec 512)) :
+    (start : Signal dom Bool) (blockIn : Signal dom (BitVec 512))
+    (first : Signal dom Bool) :
     SHA256Out dom :=
-  sha256Block start blockIn
+  sha256Block start blockIn first
 
 /-- Multi-block SHA-256 streaming FSM (≤ 2 padded blocks). -/
 def sha256StreamHW {dom : DomainConfig}
@@ -86,7 +87,9 @@ def sha256StreamHW {dom : DomainConfig}
                       : Signal dom Bool)
     let blkStart := ((· || ·) <$> start <*> contLaunch : Signal dom Bool)
 
-    let blk := wBlock blkStart curBlock
+    -- `first` re-inits the H-state to the IV on block 0 of each message, so
+    -- the stream can hash multiple independent messages without a hard reset.
+    let blk := wBlock blkStart curBlock start
 
     -- Registers.
     blkR <~ Signal.mux start p0_2 (Signal.mux contLaunch blkNext blkSig)

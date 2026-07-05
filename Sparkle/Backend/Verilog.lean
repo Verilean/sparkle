@@ -6,6 +6,7 @@
 
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.Optimize
 
 namespace Sparkle.Backend.Verilog
 
@@ -260,9 +261,23 @@ def emitModule (m : Module) : String :=
 def toVerilog (m : Module) : String :=
   emitModule m
 
-/-- Convert a full Design to SystemVerilog -/
+/-- Convert a full Design to SystemVerilog.
+
+    Each module is run through the IR optimizer first — exactly as
+    `#synthesizeVerilog` does before `toVerilog` (see
+    `Sparkle.Compiler.Elab`).  This is essential, not cosmetic: the
+    optimizer's 0-bit elimination pass strips the degenerate 0-width
+    concat tails that `circuit do` / `Signal.loop` bundles leave behind
+    (`{reg, <0-bit>}`).  Without it those tails reach `emitConst`, which
+    promotes a 0-width literal to `1'd0`, widening the concat by one bit
+    so the intermediate wire (sized for the real field) TRUNCATES the
+    real value away — silently freezing the least-significant register of
+    every bundle at its reset value.  Hierarchical emission
+    (`#writeVerilogDesign`) is the only source of the `@[hardware_module]`
+    submodules, so skipping this here broke every sub-module's last
+    register (e.g. `uartRxHW`'s `rxValid`). -/
 def toVerilogDesign (d : Design) : String :=
-  let modules := d.modules.map emitModule
+  let modules := d.modules.map (fun m => emitModule (Sparkle.IR.Optimize.optimizeModule m))
   String.intercalate "\n" modules
 
 /-- Write module to a file -/
