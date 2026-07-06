@@ -23,7 +23,7 @@ namespace Sparkle.IP.Crypto.EcdsaSignMsgDemo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.IP.Crypto.EcdsaSignMsgSmall (signMsg1SmallDemo)
+open Sparkle.IP.Crypto.EcdsaSignMsgSmall (signMsg1SmallDemo signZSmallDemo)
 open Sparkle.IP.Crypto.EcdsaSignSmallDemo (wRx wTx SignSmallOut DemoOut)
 
 /-- Shift a byte into the low end of a 1088-bit accumulator (136-byte block). -/
@@ -91,6 +91,70 @@ def signMsgDemo {dom : DomainConfig}
     -- drops the multi-block sponge state to fit the Tang Nano 20k.
     let core := signMsg1SmallDemo (startR : Signal dom Bool)
       ml0 ml1 ml2 ml3 ml4 ml5 ml6 ml7 ml8 ml9 ml10 ml11 ml12 ml13 ml14 ml15 ml16
+
+    -- ===== TX: on `core.done` load r‖s, pump 64 bytes (MSB first) =====
+    let wantSend := sendingSig
+    let tx := wTx
+                (txDataSig.map (fun v => BitVec.extractLsb' 504 8 v) : Signal dom (BitVec 8))
+                wantSend bitDiv
+    let accepted := ((· && ·) <$> wantSend <*> tx.txReady : Signal dom Bool)
+    let rsConcat := ((· ++ ·) <$> core.rOut <*> core.sOut : Signal dom (BitVec 512))
+    let txShift := ((· <<< ·) <$> txDataSig <*> (Signal.pure (8#512) : Signal dom (BitVec 512)))
+    txDataR <~ Signal.mux core.done rsConcat (Signal.mux accepted txShift txDataSig)
+    let remDec := ((· - ·) <$> remSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
+    remR <~ Signal.mux core.done (Signal.pure 64#7 : Signal dom (BitVec 7))
+              (Signal.mux accepted remDec remSig)
+    let txLast := ((· && ·) <$> accepted <*> (remSig === 1#7) : Signal dom Bool)
+    sendingR <~ Signal.mux core.done (Signal.pure true : Signal dom Bool)
+                  (Signal.mux txLast (Signal.pure false : Signal dom Bool) sendingSig)
+
+    return ({ uartTx := tx.txLine, signDone := core.done } : DemoOut dom)
+
+/-- Shift a byte into the low end of a 256-bit accumulator. -/
+@[inline] private def shiftIn256 {dom : DomainConfig}
+    (acc : Signal dom (BitVec 256)) (b : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 256) :=
+  ((· <<< ·) <$> acc <*> (Signal.pure (8#256) : Signal dom (BitVec 256)))
+    ||| (b.map (fun v => BitVec.append (0#248) v) : Signal dom (BitVec 256))
+
+/-- UART front-end for the **k-on-chip** signer (no on-chip Keccak): the host
+    sends the 32-byte hash `z` (big-endian, MSB first); the device derives the
+    RFC-6979 nonce `k` on-chip and replies 64 bytes `r‖s`.  The private key `d`
+    is baked and `k` never leaves the die — so a leaked wire can't recover `d`
+    (the ECDSA key-security property).  This fits the Tang Nano 20k; the full
+    on-chip-Keccak variant (`signMsgDemo`) needs a larger part. -/
+def signZDemo {dom : DomainConfig}
+    (uartRx : Signal dom Bool) (bitDiv : Signal dom (BitVec 16)) : DemoOut dom :=
+  circuit do
+    -- ===== RX: assemble 32 bytes (MSB-first) into `zR` =====
+    let accR    ← Signal.reg (0#256)
+    let rxCntR  ← Signal.reg (0#6)     -- 0..31
+    let startR  ← Signal.reg false
+    let txDataR ← Signal.reg (0#512)   -- TX shift r‖s (MSB byte first)
+    let remR    ← Signal.reg (0#7)     -- bytes left to send
+    let sendingR ← Signal.reg false
+
+    let accSig    := (accR : Signal dom (BitVec 256))
+    let rxCntSig  := (rxCntR : Signal dom (BitVec 6))
+    let txDataSig := (txDataR : Signal dom (BitVec 512))
+    let remSig    := (remR : Signal dom (BitVec 7))
+    let sendingSig := (sendingR : Signal dom Bool)
+
+    let rx := wRx uartRx bitDiv
+    let gotByte := rx.rxValid
+    let accNext := shiftIn256 accSig rx.rxByte
+    let rxInc := ((· + ·) <$> rxCntSig <*> (Signal.pure 1#6 : Signal dom (BitVec 6)))
+    let atLast := (rxCntSig === 31#6)
+    let lastByte := ((· && ·) <$> gotByte <*> atLast : Signal dom Bool)
+    accR <~ Signal.mux gotByte accNext accSig
+    rxCntR <~ Signal.mux lastByte (Signal.pure 0#6 : Signal dom (BitVec 6))
+                (Signal.mux gotByte rxInc rxCntSig)
+    startR <~ lastByte
+
+    -- ===== k-on-chip signer: rfc6979(k) → sign =====
+    -- `accSig` holds the full 32-byte z after the last byte (no more bytes
+    -- arrive during the ~1.3M-cycle sign), so feed it straight in.
+    let core := signZSmallDemo (startR : Signal dom Bool) accSig
 
     -- ===== TX: on `core.done` load r‖s, pump 64 bytes (MSB first) =====
     let wantSend := sendingSig
