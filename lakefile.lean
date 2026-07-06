@@ -1094,3 +1094,11 @@ lean_exe «keccak-sponge-jit» where
 lean_exe «keccakf-jit» where
   root := `Tests.Drivers.KeccakFJIT
   supportInterpreter := true
+
+lean_exe «signz-small-jit» where
+  root := `Tests.Drivers.SignZSmallJIT
+  supportInterpreter := true
+
+lean_exe «signmsg-small-jit» where
+  root := `Tests.Drivers.SignMsgSmallJIT
+  supportInterpreter := true
