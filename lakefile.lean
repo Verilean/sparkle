@@ -1086,3 +1086,7 @@ lean_exe «hmac-jit» where
 lean_exe «rfc6979-jit» where
   root := `Tests.Drivers.Rfc6979JIT
   supportInterpreter := true
+
+lean_exe «keccak-sponge-jit» where
+  root := `Tests.Drivers.KeccakSpongeJIT
+  supportInterpreter := true
