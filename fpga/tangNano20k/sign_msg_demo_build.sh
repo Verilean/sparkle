@@ -39,9 +39,11 @@ yosys -p "read_verilog -sv $B/sign_msg_demo.v; \
   grep -E "Number of cells|LUT|DFF|ALU|BSRAM|Warnings" || true
 
 echo "== nextpnr-himbaechel (--device $DEVICE_PNR) =="
+# Timing-driven placement (the serialized-arithmetic signer now fits at ~77% LUT4,
+# so density hacks are no longer needed; timing-driven gives a good Fmax).
 nextpnr-himbaechel --device "$DEVICE_PNR" \
     --vopt family=GW2A-18C --vopt cst="$CST" \
-    --placer-heap-cell-placement-timeout 0 \
+    \
     --json "$B/sign_msg_demo.json" --write "$B/sign_msg_demo_pnr.json" 2>&1 | tee "$B/smd_pnr.log" | \
   grep -iE "Device utilisation|Info:.*[0-9]+/[0-9]+|error|Max frequency|Program finished" || true
 
