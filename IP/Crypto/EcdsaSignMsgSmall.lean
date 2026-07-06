@@ -117,8 +117,11 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
     The host sends the padded Keccak lanes `m0..m33` (block-major, ≤2 blocks)
     and `nBlocks`; the device returns the deterministic ECDSA `(r,s)` over the
     hash.  With the baked key, NOTHING secret (d, k, or even z) crosses the
-    wire — only the message the host wants signed. -/
-def signMsgSmallDemo {dom : DomainConfig}
+    wire — only the message the host wants signed.
+
+    `@[hardware_module]` so a UART front-end can drive it and project its
+    `(r,s,done)` outputs (see `EcdsaSignMsgDemo`). -/
+@[hardware_module] def signMsgSmallDemo {dom : DomainConfig}
     (start : Signal dom Bool) (nBlocks : Signal dom (BitVec 2))
     (m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16
      m17 m18 m19 m20 m21 m22 m23 m24 m25 m26 m27 m28 m29 m30 m31 m32 m33

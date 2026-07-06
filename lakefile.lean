@@ -1102,3 +1102,7 @@ lean_exe «signz-small-jit» where
 lean_exe «signmsg-small-jit» where
   root := `Tests.Drivers.SignMsgSmallJIT
   supportInterpreter := true
+
+lean_exe «signmsg-demo-jit» where
+  root := `Tests.Drivers.SignMsgDemoJIT
+  supportInterpreter := true
