@@ -165,6 +165,22 @@ private def fsubModM {dom : DomainConfig}
   let red := (Signal.mux ge ((· - ·) <$> s <*> m257) s : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
+/-- Unified modular add/sub `(isSub ? a-b : a+b) mod m` sharing ONE datapath.
+    `sel = isSub ? m-b : b` (both < m keep `t = a+sel` in [0,2m)), then a single
+    conditional `t-m`.  Uses 3 wide adds instead of `faddModM`+`fsubModM`'s
+    combined 5 — both of which the µ-engine used to instantiate every cycle. -/
+private def faddsubModM {dom : DomainConfig}
+    (a b : Signal dom (BitVec 256)) (m257 : Signal dom (BitVec 257))
+    (isSub : Signal dom Bool) : Signal dom (BitVec 256) :=
+  let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
+  let bw := (b.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
+  let mb := ((· - ·) <$> m257 <*> bw : Signal dom (BitVec 257))     -- m - b
+  let sel := (Signal.mux isSub mb bw : Signal dom (BitVec 257))
+  let t  := ((· + ·) <$> aw <*> sel : Signal dom (BitVec 257))       -- a + sel ∈ [0,2m)
+  let ge := ((BitVec.ule · ·) <$> m257 <*> t : Signal dom Bool)
+  let red := (Signal.mux ge ((· - ·) <$> t <*> m257) t : Signal dom (BitVec 257))
+  ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
+
 /-! ## The modular ALU.
 
     Opcodes (3-bit):  0 MULP · 1 MULN · 2 ADDP · 3 SUBP · 4 ADDN · 5 SUBN.
@@ -530,7 +546,9 @@ def microEngine {dom : DomainConfig}
 
     -- ===== combinational add/sub, modulus selected by opcode (p or n) =====
     let mSel := (Signal.mux isModN (Signal.pure nBv257) (Signal.pure pBv257) : Signal dom (BitVec 257))
-    let addsubRes := (Signal.mux isSub (fsubModM opASig rdSig mSel) (faddModM opASig rdSig mSel) : Signal dom (BitVec 256))
+    -- ONE shared modular add/sub unit (was `mux isSub (fsubModM …) (faddModM …)`,
+    -- which instantiated both — ~2 wide adders of dead logic every cycle).
+    let addsubRes := faddsubModM opASig rdSig mSel isSub
 
     -- opA latch (reg[srcA] in rdSig during M2).
     opAR <~ Signal.mux ((· && ·) <$> exec <*> inM2) rdSig opASig
