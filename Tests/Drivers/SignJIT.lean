@@ -25,7 +25,7 @@ def main : IO Unit := do
     load 40 d; load 41 z; load 42 k          -- d,z,k
     si 0 1; JIT.eval h; JIT.tick h; si 0 0    -- signStart
     let mut cyc := 0; let mut halted := false
-    while (!halted) && cyc < 4000000 do
+    while (!halted) && cyc < 15000000 do
       JIT.eval h
       if (← JIT.getOutput h 8) != 0 then halted := true
       JIT.tick h; cyc := cyc + 1
