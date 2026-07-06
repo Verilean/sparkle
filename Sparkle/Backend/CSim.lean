@@ -331,30 +331,30 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
               let mask := s!"0x{Nat.toDigits 16 maskNat |> String.ofList}ULL"
               let shifted :=
                 if w > 64 then
+                  -- Extract `bitCount` (≤ 32) bits of the WIDE operand starting
+                  -- at bit `bitInArgLo`.  These bits can straddle two of the
+                  -- operand's own 32-bit words — combine both (the old code took
+                  -- only the low word and dropped the overflow, corrupting any
+                  -- non-word-aligned wide operand, e.g. HMAC's `dLo8‖zmodn‖…`).
                   let argSlot := bitInArgLo / 32
                   let argBitInSlot := bitInArgLo % 32
-                  let bitsFromThisSlot :=
-                    let available := 32 - argBitInSlot
-                    if bitCount < available then bitCount else available
-                  let m2 : Nat := (2 ^ bitsFromThisSlot) - 1
-                  let m2str := s!"0x{Nat.toDigits 16 m2 |> String.ofList}ULL"
+                  let fullMask : Nat := (2 ^ bitCount) - 1
+                  let fmStr := s!"0x{Nat.toDigits 16 fullMask |> String.ofList}ULL"
                   match arg with
                   | .const value _ =>
                     let modulus : Int := (2 : Int) ^ w
                     let unsigned : Nat :=
                       if value < 0 then (((value % modulus) + modulus) % modulus).toNat
                       else value.toNat
-                    let slotVal := (unsigned >>> (argSlot * 32)) &&& 0xFFFFFFFF
-                    let slotHex := s!"0x{Nat.toDigits 16 slotVal |> String.ofList}ULL"
-                    if argBitInSlot == 0 then
-                      s!"({slotHex} & {m2str})"
-                    else
-                      s!"(({slotHex} >> {argBitInSlot}) & {m2str})"
+                    let bits := (unsigned >>> bitInArgLo) &&& fullMask
+                    s!"0x{Nat.toDigits 16 bits |> String.ofList}ULL"
                   | _ =>
                     if argBitInSlot == 0 then
-                      s!"((uint64_t){argExpr}[{argSlot}] & {m2str})"
+                      s!"((uint64_t){argExpr}[{argSlot}] & {fmStr})"
                     else
-                      s!"(((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}) & {m2str})"
+                      let spans := argBitInSlot + bitCount > 32
+                      let hiP := if spans then s!" | ((uint64_t){argExpr}[{argSlot + 1}] << {32 - argBitInSlot})" else ""
+                      s!"((((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}){hiP}) & {fmStr})"
                 else
                   if bitInArgLo == 0 then
                     s!"((uint64_t){argExpr} & {mask})"

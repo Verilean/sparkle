@@ -47,8 +47,9 @@ def main : IO Unit := do
   let m32 : Array UInt8 := i2octets32 0x1234                          -- V (32 bytes)
   let m33 : Array UInt8 := m32.push 0x00
   let m97 : Array UInt8 := m32 ++ #[(0x01 : UInt8)] ++ i2octets32 0xd ++ i2octets32 0xC0FFEE  -- V‖tag‖dz(64)
-  for (name, msg) in [("32B", m32), ("33B", m33), ("97B", m97)] do
-    let got ← run 12345 msg
-    let exp := octets2i (hmacSha256 (i2octets32 12345) msg)
-    IO.println s!"hmac {name}: {if got == exp then "PASS" else s!"FAIL\n got={got}\n exp={exp}"}"
+  for key in [12345, 0] do
+    for (name, msg) in [("32B", m32), ("33B", m33), ("97B", m97)] do
+      let got ← run key msg
+      let exp := octets2i (hmacSha256 (i2octets32 key) msg)
+      IO.println s!"hmac key={key} {name}: {if got == exp then "PASS" else s!"FAIL got={got} exp={exp}"}"
   JIT.destroy h

@@ -1082,3 +1082,7 @@ lean_exe «sha256stream-jit» where
 lean_exe «hmac-jit» where
   root := `Tests.Drivers.HmacJIT
   supportInterpreter := true
+
+lean_exe «rfc6979-jit» where
+  root := `Tests.Drivers.Rfc6979JIT
+  supportInterpreter := true
