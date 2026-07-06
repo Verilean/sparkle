@@ -33,6 +33,7 @@ open Sparkle.Core.Signal
 open Sparkle.IP.Crypto.EcdsaSignSmallDemo (signCoreSmall SignSmallOut)
 open Sparkle.IP.Crypto.Rfc6979HW (rfc6979HW NonceOut)
 open Sparkle.IP.Crypto.Keccak256Sponge (keccak256SpongeHW SpongeOut)
+open Sparkle.IP.Crypto.Keccak256HW (keccakF1600HW KeccakFOut)
 
 /-- Baked demo private key. -/
 def demoKey : BitVec 256 := BitVec.ofNat 256 12345
@@ -173,6 +174,76 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
     -- `sz` holds (r,s) past its done, so forward them; our `dnR` re-times the
     -- done pulse to this FSM's frame.  Valid on the cycle `dnR` is high (the
     -- UART TX loads r‖s then) and held after (until the next sign overwrites).
+    return ({ rOut := sz.rOut
+            , sOut := sz.sOut
+            , done := (dnR : Signal dom Bool) } : SignSmallOut dom)
+
+/-- `@[hardware_module]` wrapper around the raw 24-round Keccak-f[1600]. -/
+@[hardware_module] def wKf1600 {dom : DomainConfig}
+    (start : Signal dom Bool)
+    (in0  in1  in2  in3  in4  in5  in6  in7  in8  in9
+     in10 in11 in12 in13 in14 in15 in16 in17 in18 in19
+     in20 in21 in22 in23 in24 : Signal dom (BitVec 64)) : KeccakFOut dom :=
+  keccakF1600HW start
+    in0  in1  in2  in3  in4  in5  in6  in7  in8  in9
+    in10 in11 in12 in13 in14 in15 in16 in17 in18 in19
+    in20 in21 in22 in23 in24
+
+/-- SINGLE-BLOCK on-chip message signer (area-reduced for the ≤135-byte UART
+    demo).  A one-rate-block Keccak-256 is just `keccak-f(block ‖ 0^capacity)`
+    read out at lanes 0..3 — so this drives `keccakF1600HW` DIRECTLY, dropping
+    the sponge's separate 1600-bit running state and its 25-lane absorb/capture
+    mux bank (the bulk of the multi-block sponge's area).  The host sends the
+    17 padded block lanes `m0..m16`; capacity lanes 17..24 are 0.
+
+    `@[hardware_module]` so the UART front-end can drive it and project (r,s,done). -/
+@[hardware_module] def signMsg1SmallDemo {dom : DomainConfig}
+    (start : Signal dom Bool)
+    (m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16
+     : Signal dom (BitVec 64)) : SignSmallOut dom :=
+  circuit do
+    -- FSM: 0 idle · 1 kf-issue · 2 kf-wait · 3 sign-issue · 4 sign-wait
+    let stR ← Signal.reg (0#3)
+    let zR  ← Signal.reg (0#256)
+    let dnR ← Signal.reg false
+    let st := (stR : Signal dom (BitVec 3))
+    let zSig := (zR : Signal dom (BitVec 256))
+    let z64 := (Signal.pure 0#64 : Signal dom (BitVec 64))
+
+    let is0 := (st === 0#3)
+    let is1 := (st === 1#3)
+    let is2 := (st === 2#3)
+    let is3 := (st === 3#3)
+    let is4 := (st === 4#3)
+
+    -- Keccak-f directly on the padded block (capacity lanes 0).  One-cycle
+    -- start in state 1.
+    let kf := wKf1600 is1
+      m0 m1 m2 m3 m4 m5 m6 m7 m8 m9 m10 m11 m12 m13 m14 m15 m16
+      z64 z64 z64 z64 z64 z64 z64 z64
+    -- Digest z = revLane(l0)‖revLane(l1)‖revLane(l2)‖revLane(l3), big-endian.
+    let z :=
+      (BitVec.append <$> revLane kf.l0 <*>
+        (BitVec.append <$> revLane kf.l1 <*>
+          (BitVec.append <$> revLane kf.l2 <*> revLane kf.l3
+            : Signal dom (BitVec 128)) : Signal dom (BitVec 192))
+        : Signal dom (BitVec 256))
+    let capZ := ((· && ·) <$> is2 <*> kf.done : Signal dom Bool)
+    zR <~ Signal.mux capZ z zSig
+
+    let sz := signZSmallDemo is3 zSig
+    let capRS := ((· && ·) <$> is4 <*> sz.done : Signal dom Bool)
+    dnR <~ capRS
+
+    let stNext :=
+      Signal.mux is0 (Signal.mux start (Signal.pure 1#3 : Signal dom (BitVec 3)) (Signal.pure 0#3))
+      <| Signal.mux is1 (Signal.pure 2#3 : Signal dom (BitVec 3))
+      <| Signal.mux is2 (Signal.mux kf.done (Signal.pure 3#3 : Signal dom (BitVec 3)) (Signal.pure 2#3))
+      <| Signal.mux is3 (Signal.pure 4#3 : Signal dom (BitVec 3))
+        (Signal.mux is4 (Signal.mux sz.done (Signal.pure 0#3 : Signal dom (BitVec 3)) (Signal.pure 4#3))
+          (Signal.pure 0#3))
+    stR <~ stNext
+
     return ({ rOut := sz.rOut
             , sOut := sz.sOut
             , done := (dnR : Signal dom Bool) } : SignSmallOut dom)

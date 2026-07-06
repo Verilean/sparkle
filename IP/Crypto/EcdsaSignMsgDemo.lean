@@ -23,7 +23,7 @@ namespace Sparkle.IP.Crypto.EcdsaSignMsgDemo
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
-open Sparkle.IP.Crypto.EcdsaSignMsgSmall (signMsgSmallDemo)
+open Sparkle.IP.Crypto.EcdsaSignMsgSmall (signMsg1SmallDemo)
 open Sparkle.IP.Crypto.EcdsaSignSmallDemo (wRx wTx SignSmallOut DemoOut)
 
 /-- Shift a byte into the low end of a 1088-bit accumulator (136-byte block). -/
@@ -86,12 +86,11 @@ def signMsgDemo {dom : DomainConfig}
     let ml14 := ((BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 128 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 136 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 144 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 152 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 160 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 168 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 176 8 v) : Signal dom (BitVec 8)) <*> (accSig.map (fun v => BitVec.extractLsb' 184 8 v) : Signal dom (BitVec 8))))))))) : Signal dom (BitVec 64))
     let ml15 := ((BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 64 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 72 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 80 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 88 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 96 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 104 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 112 8 v) : Signal dom (BitVec 8)) <*> (accSig.map (fun v => BitVec.extractLsb' 120 8 v) : Signal dom (BitVec 8))))))))) : Signal dom (BitVec 64))
     let ml16 := ((BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 0 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 8 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 16 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 24 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 32 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 40 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (accSig.map (fun v => BitVec.extractLsb' 48 8 v) : Signal dom (BitVec 8)) <*> (accSig.map (fun v => BitVec.extractLsb' 56 8 v) : Signal dom (BitVec 8))))))))) : Signal dom (BitVec 64))
-    let z64 := (Signal.pure 0#64 : Signal dom (BitVec 64))
-
     -- ===== full on-chip signer: keccak(z) → rfc6979(k) → sign =====
-    let core := signMsgSmallDemo (startR : Signal dom Bool) (Signal.pure 1#2 : Signal dom (BitVec 2))
+    -- Single-block core (the padded preimage is one 136-byte rate block), which
+    -- drops the multi-block sponge state to fit the Tang Nano 20k.
+    let core := signMsg1SmallDemo (startR : Signal dom Bool)
       ml0 ml1 ml2 ml3 ml4 ml5 ml6 ml7 ml8 ml9 ml10 ml11 ml12 ml13 ml14 ml15 ml16
-      z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64 z64
 
     -- ===== TX: on `core.done` load r‖s, pump 64 bytes (MSB first) =====
     let wantSend := sendingSig

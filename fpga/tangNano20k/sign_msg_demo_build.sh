@@ -23,16 +23,27 @@ fi
 echo "== yosys (synth_gowin, ABC9 LUT packing, -top $TOP) =="
 # ABC9 (default) packs LUTs ~30% tighter than -noabc9; this design is small
 # enough that it fits in RAM (unlike the full fast signer, which needs -noabc9).
+# FLAT synth gives the tight cross-module LUT packing that fits the fabric
+# (~72% LUT4), unlike -noflatten which triples the LUT count (221%, unplaceable).
+# Replace the stock `abc9 -maxlut 8 -W 500` with `abc9 -maxlut 8` — the -W
+# wire-delay refinement is a memory hog; without it abc9 packs identically at
+# ~1 GB.  The map_cells techmap is still RAM-heavy on an 8 GB host (LUT-template
+# expansion) but completes through swap.
 yosys -p "read_verilog -sv $B/sign_msg_demo.v; \
           read_verilog -sv ${TOP}.v; \
-          synth_gowin -top $TOP -json $B/sign_msg_demo.json" 2>&1 | tee "$B/smd_yosys.log" | \
+          synth_gowin -top $TOP -run :map_luts; \
+          read_verilog -icells -lib -specify +/abc9_model.v; \
+          abc9 -maxlut 8; \
+          synth_gowin -top $TOP -run map_cells:; \
+          write_json $B/sign_msg_demo.json" 2>&1 | tee "$B/smd_yosys.log" | \
   grep -E "Number of cells|LUT|DFF|ALU|BSRAM|Warnings" || true
 
 echo "== nextpnr-himbaechel (--device $DEVICE_PNR) =="
 nextpnr-himbaechel --device "$DEVICE_PNR" \
     --vopt family=GW2A-18C --vopt cst="$CST" \
+    --placer-heap-cell-placement-timeout 0 \
     --json "$B/sign_msg_demo.json" --write "$B/sign_msg_demo_pnr.json" 2>&1 | tee "$B/smd_pnr.log" | \
-  grep -iE "Device utilisation|Info:.*[0-9]+/[0-9]+.*%|error|Max frequency|Program finished" || true
+  grep -iE "Device utilisation|Info:.*[0-9]+/[0-9]+|error|Max frequency|Program finished" || true
 
 echo "== gowin_pack (-d $DEVICE_PACK) =="
 gowin_pack -d "$DEVICE_PACK" -o "$B/sign_msg_demo.fs" "$B/sign_msg_demo_pnr.json"
