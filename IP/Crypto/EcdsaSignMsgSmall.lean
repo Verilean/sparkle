@@ -128,10 +128,10 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
      : Signal dom (BitVec 64)) : SignSmallOut dom :=
   circuit do
     -- FSM: 0 idle · 1 sponge-issue · 2 sponge-wait · 3 sign-issue · 4 sign-wait
+    -- (r,s) are NOT re-latched here — `signZSmallDemo` already holds them past
+    -- its done, so we forward `sz.rOut/sz.sOut` directly (saves two 256-bit regs).
     let stR ← Signal.reg (0#3)
     let zR  ← Signal.reg (0#256)
-    let rR  ← Signal.reg (0#256)
-    let sR  ← Signal.reg (0#256)
     let dnR ← Signal.reg false
     let st := (stR : Signal dom (BitVec 3))
     let zSig := (zR : Signal dom (BitVec 256))
@@ -159,8 +159,6 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
     -- Nonce+sign core (k on-chip): one-cycle start in state 3, fed the hash.
     let sz := signZSmallDemo is3 zSig
     let capRS := ((· && ·) <$> is4 <*> sz.done : Signal dom Bool)
-    rR <~ Signal.mux capRS sz.rOut (rR : Signal dom (BitVec 256))
-    sR <~ Signal.mux capRS sz.sOut (sR : Signal dom (BitVec 256))
     dnR <~ capRS
 
     let stNext :=
@@ -172,8 +170,11 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
           (Signal.pure 0#3))
     stR <~ stNext
 
-    return ({ rOut := (rR : Signal dom (BitVec 256))
-            , sOut := (sR : Signal dom (BitVec 256))
+    -- `sz` holds (r,s) past its done, so forward them; our `dnR` re-times the
+    -- done pulse to this FSM's frame.  Valid on the cycle `dnR` is high (the
+    -- UART TX loads r‖s then) and held after (until the next sign overwrites).
+    return ({ rOut := sz.rOut
+            , sOut := sz.sOut
             , done := (dnR : Signal dom Bool) } : SignSmallOut dom)
 
 end Sparkle.IP.Crypto.EcdsaSignMsgSmall
