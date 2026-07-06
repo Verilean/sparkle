@@ -1090,3 +1090,7 @@ lean_exe «rfc6979-jit» where
 lean_exe «keccak-sponge-jit» where
   root := `Tests.Drivers.KeccakSpongeJIT
   supportInterpreter := true
+
+lean_exe «keccakf-jit» where
+  root := `Tests.Drivers.KeccakFJIT
+  supportInterpreter := true

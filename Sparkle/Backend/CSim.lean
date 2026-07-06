@@ -26,27 +26,35 @@
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Std.Data.HashSet
+import Std.Data.HashMap
 
 namespace Sparkle.Backend.CSim
 
 open Sparkle.IR.AST
 open Sparkle.IR.Type
 
+/-- Name→type lookup used by the emitters.  Backed by a `Std.HashMap`
+    so `lookupWidth` is O(1): `emitExpr`/`inferExprWidth` probe it once
+    per expression node.  The old linear-scan `List` made emit O(N·M)
+    over a module's N nodes and M wires — quadratic on large designs
+    like Keccak's ~1600-wire round. -/
+abbrev TypeMap := Std.HashMap String HWType
+
 -- Helper to embed literal braces in string interpolation
 private def ob : String := "{"
 private def cb : String := "}"
 
-/-- Build a name-to-type map from a module's ports and wires -/
-def buildTypeMap (m : Module) : List (String × HWType) :=
-  let inputMap := m.inputs.map fun (p : Port) => (p.name, p.ty)
-  let outputMap := m.outputs.map fun (p : Port) => (p.name, p.ty)
-  let wireMap := m.wires.map fun (p : Port) => (p.name, p.ty)
-  inputMap ++ outputMap ++ wireMap
+/-- Build a name-to-type map from a module's ports and wires.
+    `insertIfNew` preserves the first binding on a name clash, matching
+    the old `List.find?` (inputs, then outputs, then wires) semantics. -/
+def buildTypeMap (m : Module) : TypeMap :=
+  let entries := (m.inputs ++ m.outputs ++ m.wires).map fun (p : Port) => (p.name, p.ty)
+  entries.foldl (fun acc (n, t) => acc.insertIfNew n t) {}
 
 /-- Look up bit-width for a name in the type map -/
-def lookupWidth (typeMap : List (String × HWType)) (name : String) : Nat :=
-  match typeMap.find? (fun (n, _) => n == name) with
-  | some (_, ty) => ty.bitWidth
+def lookupWidth (typeMap : TypeMap) (name : String) : Nat :=
+  match typeMap.get? name with
+  | some ty => ty.bitWidth
   | none => 32
 
 /-- Sanitize a name to be a valid C identifier -/
@@ -167,7 +175,7 @@ def signedCastType (w : Nat) : String :=
   else "int64_t"
 
 /-- Best-effort width inference for an expression -/
-partial def inferExprWidth (typeMap : List (String × HWType)) : Expr → Nat
+partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   | .const _ w => w
   | .ref name => lookupWidth typeMap name
   | .slice _ hi lo => hi - lo + 1
@@ -176,8 +184,8 @@ partial def inferExprWidth (typeMap : List (String × HWType)) : Expr → Nat
   | .index arr _ =>
     match arr with
     | .ref name =>
-      match typeMap.find? (fun (n, _) => n == name) with
-      | some (_, .array _ elemType) => elemType.bitWidth
+      match typeMap.get? name with
+      | some (.array _ elemType) => elemType.bitWidth
       | _ => 32
     | _ => 32
   | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
@@ -271,7 +279,7 @@ private def wideCmpExpr (strict : Bool) (a b : String) (nWords : Nat) : String :
       (b) wrap the RHS in `memcpy(lhs, RHS, sizeof(lhs))`
           when RHS is a compound literal — `lhs = RHS` on a
           C array is rejected by the compiler. -/
-partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
+partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
   match e with
   | .const value width =>
     let modulus : Int := (2 : Int) ^ width
@@ -613,7 +621,7 @@ private partial def muxChainDepth : Expr → Nat
   | _ => 0
 
 /-- Emit a MUX chain as if-else block for better branch prediction. -/
-def emitMuxAsIfElse (typeMap : List (String × HWType))
+def emitMuxAsIfElse (typeMap : TypeMap)
     (lhsName : String) (width : Nat) (rhs : Expr)
     (minArms : Nat := 4) : List String :=
   let (arms, default_) := flattenMuxChain rhs
@@ -631,7 +639,7 @@ def emitMuxAsIfElse (typeMap : List (String × HWType))
     [defaultLine] ++ ifLines
 
 /-- Split a statement into declaration/eval/tick/reset parts -/
-partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
+partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     (design : Option Design := none) : StmtParts :=
   match stmt with
   | .assign lhs rhs =>
@@ -941,7 +949,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       -- Build a typeMap entry for `out_next` so the wide
       -- assign code finds its width.  We can splice it onto
       -- the local typeMap.
-      let nextTypeMap := (nextName, HWType.bitVector width) :: typeMap
+      let nextTypeMap := typeMap.insert nextName (HWType.bitVector width)
       let nextParts := emitStmt assignToNext nextTypeMap design
       let declStr := emitFieldDecl (.bitVector width) outName ++ ";"
       let nextDeclStr := emitFieldDecl (.bitVector width) nextName ++ ";"
@@ -986,7 +994,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     -- Array of array (e.g. `uint32_t mem[1024][3]` for a 96-bit-wide BRAM).
     let elemSuffix := emitArraySuffix elemTy
     let memDecl := s!"    {emitScalarBase elemTy} {memName}[{memSize}]{elemSuffix};"
-    let rdInTypeMap := typeMap.any fun (n, _) => sanitizeName n == rdName
+    let rdInTypeMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
     let rdDecl := if rdInTypeMap then [] else [s!"    {emitFieldDecl elemTy rdName};"]
     let isDeadWrite := match writeEnable with
       | .const 0 _ => true | _ => false
@@ -1247,39 +1255,39 @@ def emitModule (m : Module) (design : Option Design := none)
       -- non-alnum character was `.` or whether the previous two
       -- non-alnum chars formed `->`.  If so, skip qualification
       -- for this token.
-      let mut out : String := ""
+      -- Accumulate into an `Array Char` (O(1) amortised push) instead of
+      -- `out := out ++ …` on a `String` — Lean's `String.append`/`push`
+      -- reallocates each time, making the old loop O(lineLen²).  Emitted
+      -- C lines can be very long (a wide-op eval line), so this keeps
+      -- qualification linear in the emitted source size.
+      let mut out : Array Char := #[]
       let mut buf : String := ""
       let mut prevC : Char := ' '
-      let mut prevPrevC : Char := ' '
       let mut skipNext : Bool := false
+      let pushStr (a : Array Char) (s : String) : Array Char := Id.run do
+        let mut a := a
+        for ch in s.toList do a := a.push ch
+        return a
       for c in input.toList do
         if isTokChar c then
           buf := buf.push c
         else
           if !buf.isEmpty then
-            if skipNext then
-              out := out ++ buf
-            else if memberSet.contains buf then
-              out := out ++ "self->" ++ buf
-            else
-              out := out ++ buf
+            if !skipNext && memberSet.contains buf then
+              out := pushStr out "self->"
+            out := pushStr out buf
             buf := ""
           out := out.push c
           -- Update next-token skip state: skip if this delimiter is `.`
           -- or if the last two chars formed `->`.
           skipNext :=
             c == '.' || (c == '>' && prevC == '-')
-          prevPrevC := prevC
           prevC := c
-      let _ := prevPrevC
       if !buf.isEmpty then
-        if skipNext then
-          out := out ++ buf
-        else if memberSet.contains buf then
-          out := out ++ "self->" ++ buf
-        else
-          out := out ++ buf
-      return out
+        if !skipNext && memberSet.contains buf then
+          out := pushStr out "self->"
+        out := pushStr out buf
+      return String.mk out.toList
 
     let qualify := qualifyWith memberSet
     let evalBodyQ := evalBody.map qualify
@@ -1457,7 +1465,7 @@ private def collectMemories (body : List Stmt) : List (String × Nat × Nat) :=
     | _ => none
 
 /-- Collect (sanitizedName, width) for all registers ≤64 bits -/
-private def collectRegisters (body : List Stmt) (typeMap : List (String × HWType))
+private def collectRegisters (body : List Stmt) (typeMap : TypeMap)
     : List (String × Nat) :=
   body.filterMap fun stmt =>
     match stmt with

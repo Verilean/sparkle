@@ -297,11 +297,25 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     | _ => s
   ) ({} : HashMap String Bool)
 
+  -- Width map (name → bit width) from the module's ports and wires.
+  let widthOf := (m.inputs ++ m.outputs ++ m.wires).foldl
+    (fun s (p : Port) => s.insert p.name p.ty.bitWidth) ({} : HashMap String Nat)
+
   -- Build inlinable set: used exactly once, not output/register/memory-read/named
   let inlinable := body.foldl (fun s stmt =>
     match stmt with
-    | .assign lhs _ =>
+    | .assign lhs rhs =>
+      -- Never inline a WIDE (>64-bit) `concat` wire.  The CSim/Verilog
+      -- wide-concat emitters re-emit each argument once per 32-bit output
+      -- word, so inlining a chain of single-use wide concats into one
+      -- deeply-nested concat explodes emit to O(nWords^depth) (megabytes
+      -- from a handful of nodes — e.g. Keccak's 1600-bit state assembly).
+      -- Keeping wide concats as named wires emits each exactly once.
+      let isWideConcat := match rhs with
+        | .concat _ => (widthOf.getD lhs 0) > 64
+        | _ => false
       if (useCounts.getD lhs 0) == 1
+        && !isWideConcat
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
         && !memoryReadData.contains lhs
