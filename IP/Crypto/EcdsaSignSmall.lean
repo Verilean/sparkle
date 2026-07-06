@@ -179,6 +179,124 @@ def nBv258 : BitVec 258 := BitVec.ofNat 258 Sparkle.IP.Crypto.Secp256k1ECDSA.n
     return ({ result := resOut, done := (doneR : Signal dom Bool) }
             : Sparkle.IP.Crypto.Secp256k1FieldHW.MulOut dom)
 
+/-- 16-bit **word-serial** modular multiplier — the minimal-resource variant.
+    Same MSB-first double-and-add as `wMulModSer`, but the 258-bit accumulator
+    arithmetic runs through a single 16-bit adder, no DSP: `acc`,`a`,`m` are held
+    in 272-bit (17×16) registers that ROTATE 16 bits/cycle so each word reaches
+    the ALU's fixed low slot with no wide select mux; only the ×2 doubling is a
+    (free) 1-bit whole-register shift.  Per multiplier bit: DBL (1 cyc) →
+    reduce (17, +17 restore-on-borrow) → add (17) → reduce (17,+17).  Conditional
+    reduce = subtract m, and only if it borrowed (acc<m) add m back.  ~22k
+    cyc/mul → ~a few seconds/sign; every op is a shift/16-bit add. -/
+@[hardware_module] def wMulModWS {dom : DomainConfig}
+    (start : Signal dom Bool) (aIn bIn : Signal dom (BitVec 256))
+    (modBv : Signal dom (BitVec 258)) :
+    Sparkle.IP.Crypto.Secp256k1FieldHW.MulOut dom :=
+  circuit do
+    let accR ← Signal.reg (0#272)     -- rotating; value < 2m
+    let aR   ← Signal.reg (0#272)     -- rotating (a in low 256)
+    let mR   ← Signal.reg (0#272)     -- rotating (m in low 256)
+    let bR   ← Signal.reg (0#256)     -- multiplier, MSB-first
+    let phR  ← Signal.reg (0#3)        -- 0 DBL·1 SUB1·2 RES1·3 ADD·4 SUB2·5 RES2
+    let wcR  ← Signal.reg (0#5)        -- word counter 0..16
+    let biR  ← Signal.reg (0#9)        -- bit counter 0..255
+    let cR   ← Signal.reg (0#1)        -- carry/borrow between words
+    let runR ← Signal.reg false
+    let doneR ← Signal.reg false
+
+    let acc := (accR : Signal dom (BitVec 272))
+    let aSig := (aR : Signal dom (BitVec 272))
+    let mSig := (mR : Signal dom (BitVec 272))
+    let bSig := (bR : Signal dom (BitVec 256))
+    let ph := (phR : Signal dom (BitVec 3))
+    let wc := (wcR : Signal dom (BitVec 5))
+    let bi := (biR : Signal dom (BitVec 9))
+    let cSig := (cR : Signal dom (BitVec 1))
+    let runSig := (runR : Signal dom Bool)
+
+    let phDbl := (ph === 0#3); let phS1 := (ph === 1#3); let phR1 := (ph === 2#3)
+    let phAdd := (ph === 3#3); let phS2 := (ph === 4#3); let phR2 := (ph === 5#3)
+    let isSub := ((· || ·) <$> phS1 <*> phS2 : Signal dom Bool)
+    let isAdd := ((· || ·) <$> ((· || ·) <$> phR1 <*> phR2) <*> phAdd : Signal dom Bool)
+    let wordPh := ((· || ·) <$> isSub <*> isAdd : Signal dom Bool)
+    let usesM := ((· || ·) <$> isSub <*> ((· || ·) <$> phR1 <*> phR2) : Signal dom Bool)
+    let lastWord := (wc === 16#5)
+    let lastBit := (bi === 255#9)
+    let bMsb := ((bSig.map (fun v => BitVec.extractLsb' 255 1 v)) === 1#1 : Signal dom Bool)
+
+    -- bottom 16-bit words + 17-bit ALU (shared add/sub).
+    let accW := (acc.map (fun v => BitVec.extractLsb' 0 16 v) : Signal dom (BitVec 16))
+    let mW   := (mSig.map (fun v => BitVec.extractLsb' 0 16 v) : Signal dom (BitVec 16))
+    let aW   := (aSig.map (fun v => BitVec.extractLsb' 0 16 v) : Signal dom (BitVec 16))
+    let opW  := (Signal.mux phAdd (Signal.mux bMsb aW (Signal.pure 0#16)) mW : Signal dom (BitVec 16))
+    let accW17 := (accW.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 17))
+    let opW17  := (opW.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 17))
+    let c17    := (cSig.map (fun v => BitVec.append (0#16) v) : Signal dom (BitVec 17))
+    let sub17 := ((· - ·) <$> ((· - ·) <$> accW17 <*> opW17) <*> c17 : Signal dom (BitVec 17))
+    let add17 := ((· + ·) <$> ((· + ·) <$> accW17 <*> opW17) <*> c17 : Signal dom (BitVec 17))
+    let res17 := (Signal.mux isSub sub17 add17 : Signal dom (BitVec 17))
+    let resW  := (res17.map (fun v => BitVec.extractLsb' 0 16 v) : Signal dom (BitVec 16))
+    let cNext := (res17.map (fun v => BitVec.extractLsb' 16 1 v) : Signal dom (BitVec 1))
+
+    -- rotate right by one 16-bit word = (x >> 16) | (resultWord << 256).
+    -- CSim mis-lowers append(var16,var256) (drops the low operand), so build each
+    -- half as an append with a CONSTANT operand (that form is codegen-correct) and OR.
+    let accShift := ((0#16 ++ ·) <$> (acc.map (fun v => BitVec.extractLsb' 16 256 v)) : Signal dom (BitVec 272))
+    let mShift   := ((0#16 ++ ·) <$> (mSig.map (fun v => BitVec.extractLsb' 16 256 v)) : Signal dom (BitVec 272))
+    let aShift   := ((0#16 ++ ·) <$> (aSig.map (fun v => BitVec.extractLsb' 16 256 v)) : Signal dom (BitVec 272))
+    let accTop := ((· ++ 0#256) <$> resW : Signal dom (BitVec 272))
+    let mTop   := ((· ++ 0#256) <$> mW : Signal dom (BitVec 272))
+    let aTop   := ((· ++ 0#256) <$> aW : Signal dom (BitVec 272))
+    let accRot := ((· ||| ·) <$> accShift <*> accTop : Signal dom (BitVec 272))
+    let mRot   := ((· ||| ·) <$> mShift <*> mTop : Signal dom (BitVec 272))
+    let aRot   := ((· ||| ·) <$> aShift <*> aTop : Signal dom (BitVec 272))
+    -- ×2 = 0(1 low) prepended? no: acc[0..270](high 271) ++ 0(low 1); here the low is const.
+    let accDbl := ((· ++ 0#1) <$> (acc.map (fun v => BitVec.extractLsb' 0 271 v)) : Signal dom (BitVec 272))
+
+    -- next-phase logic.
+    let borrow := (cNext === 1#1 : Signal dom Bool)
+    let bitDone := ((· || ·) <$> ((· && ·) <$> ((· && ·) <$> phS2 <*> lastWord) <*> ((fun b => !b) <$> borrow))
+                             <*> ((· && ·) <$> phR2 <*> lastWord) : Signal dom Bool)
+    let phNext :=
+      Signal.mux phDbl (Signal.pure 1#3)
+      <| Signal.mux phS1 (Signal.mux lastWord (Signal.mux borrow (Signal.pure 2#3) (Signal.pure 3#3)) (Signal.pure 1#3))
+      <| Signal.mux phR1 (Signal.mux lastWord (Signal.pure 3#3) (Signal.pure 2#3))
+      <| Signal.mux phAdd (Signal.mux lastWord (Signal.pure 4#3) (Signal.pure 3#3))
+      <| Signal.mux phS2 (Signal.mux lastWord (Signal.mux borrow (Signal.pure 5#3) (Signal.pure 0#3)) (Signal.pure 4#3))
+        (Signal.mux phR2 (Signal.mux lastWord (Signal.pure 0#3) (Signal.pure 5#3)) (Signal.pure 0#3))
+
+    let finish := ((· && ·) <$> bitDone <*> lastBit : Signal dom Bool)
+
+    -- register updates.
+    let mIn := (modBv.map (fun v => BitVec.append (0#14) v) : Signal dom (BitVec 272))
+    let aIn272 := (aIn.map (fun v => BitVec.append (0#16) v) : Signal dom (BitVec 272))
+    accR <~ Signal.mux start (Signal.pure 0#272)
+              (Signal.mux ((· && ·) <$> runSig <*> phDbl) accDbl
+                (Signal.mux ((· && ·) <$> runSig <*> wordPh) accRot acc))
+    mR <~ Signal.mux start mIn (Signal.mux ((· && ·) <$> runSig <*> usesM) mRot mSig)
+    aR <~ Signal.mux start aIn272 (Signal.mux ((· && ·) <$> runSig <*> phAdd) aRot aSig)
+    -- b << 1 = b[0..254](high 255) ++ 0(low 1); append/extract dodges wide-shift codegen.
+    let bShl := ((· ++ ·) <$> (bSig.map (fun v => BitVec.extractLsb' 0 255 v) : Signal dom (BitVec 255)) <*> (Signal.pure 0#1 : Signal dom (BitVec 1)) : Signal dom (BitVec 256))
+    bR <~ Signal.mux start bIn (Signal.mux bitDone bShl bSig)
+    phR <~ Signal.mux start (Signal.pure 0#3) (Signal.mux runSig phNext ph)
+    -- wc: 0 in DBL and at each word-phase's last word; else +1 within a word phase.
+    let wcInc := ((· + ·) <$> wc <*> (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
+    wcR <~ Signal.mux start (Signal.pure 0#5)
+             (Signal.mux ((· || ·) <$> phDbl <*> lastWord) (Signal.pure 0#5)
+               (Signal.mux wordPh wcInc wc))
+    let biInc := ((· + ·) <$> bi <*> (Signal.pure 1#9 : Signal dom (BitVec 9)) : Signal dom (BitVec 9))
+    biR <~ Signal.mux start (Signal.pure 0#9) (Signal.mux bitDone biInc bi)
+    -- c: 0 at DBL and at a word-phase's last word (reset for next phase); else cNext.
+    cR <~ Signal.mux start (Signal.pure 0#1)
+            (Signal.mux ((· || ·) <$> phDbl <*> ((· && ·) <$> wordPh <*> lastWord)) (Signal.pure 0#1)
+              (Signal.mux wordPh cNext cSig))
+    runR <~ Signal.mux start (Signal.pure true) (Signal.mux finish (Signal.pure false) runSig)
+    doneR <~ finish
+
+    let resOut := (acc.map (fun v => BitVec.extractLsb' 0 256 v) : Signal dom (BitVec 256))
+    return ({ result := resOut, done := (doneR : Signal dom Bool) }
+            : Sparkle.IP.Crypto.Secp256k1FieldHW.MulOut dom)
+
 /-! ## BRAM register file. -/
 
 /-- Register-file read-port output.  Two fields: the synth elaborator's

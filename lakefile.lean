@@ -1110,3 +1110,7 @@ lean_exe «signmsg-demo-jit» where
 lean_exe «signz-demo-jit» where
   root := `Tests.Drivers.SignZDemoJIT
   supportInterpreter := true
+
+lean_exe «mulmodser-jit» where
+  root := `Tests.Drivers.MulModSerJIT
+  supportInterpreter := true

@@ -313,6 +313,12 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
       -- Keeping wide concats as named wires emits each exactly once.
       let isWideConcat := match rhs with
         | .concat _ => (widthOf.getD lhs 0) > 64
+        -- Never inline a WIDE (>64-bit) `slice` with a non-zero offset.  As a
+        -- named wire it emits via the assignment-shape handler, which shifts
+        -- across 32-bit word boundaries correctly; inlined into `emitExpr`, a
+        -- wide-of-wide slice drops the offset and returns the whole source
+        -- array (silently wrong — e.g. the word-serial multiplier's `acc>>16`).
+        | .slice _ _ lo => (widthOf.getD lhs 0) > 64 && lo != 0
         | _ => false
       if (useCounts.getD lhs 0) == 1
         && !isWideConcat
