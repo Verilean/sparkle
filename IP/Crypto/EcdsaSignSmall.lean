@@ -727,7 +727,7 @@ def microEngine {dom : DomainConfig}
     -- modulus.  (Was two full multipliers — halved the largest LUT consumer.)
     let mulStart := ((· && ·) <$> ((· && ·) <$> exec <*> inM3) <*> isMul : Signal dom Bool)
     let modSel := (Signal.mux isMulN (Signal.pure nBv258) (Signal.pure pBv258) : Signal dom (BitVec 258))
-    let mul := wMulModSer mulStart opASig rdSig modSel
+    let mul := wMulModWS mulStart opASig rdSig modSel
     let mulDone   := mul.done
     let mulResult := mul.result
     let mulAck := ((· && ·) <$> inM4 <*> mulDone : Signal dom Bool)

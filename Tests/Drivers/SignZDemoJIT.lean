@@ -30,7 +30,7 @@ def main : IO Unit := do
     for _ in [0:20] do let _ ← stepRx true
     for i in [0:32] do sendByte ((z >>> (8*(31-i))) &&& 0xFF)   -- 32 bytes MSB-first
     let mut cyc := 0; let mut done := false
-    while (!done) && cyc < 2000000 do
+    while (!done) && cyc < 4000000 do
       let _ ← stepRx true
       if (← doneNow) then done := true
       cyc := cyc + 1
