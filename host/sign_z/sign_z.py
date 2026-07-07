@@ -14,7 +14,7 @@ runs on stock Python 3 with no `pip install`.
   ./sign_z.py --port /dev/ttyUSB1        # sign z=123456789 on the board, verify
   ./sign_z.py --port /dev/ttyUSB1 --z 9  # sign an arbitrary z
 """
-import argparse, os, sys
+import argparse, os, sys, time
 
 # --- secp256k1 (pure Python) — matches IP/Crypto/Secp256k1ECDSA -------------
 P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
@@ -65,6 +65,19 @@ def open_port(path, baud=115200, read_timeout_ds=100):
     lflag &= ~(termios.ICANON | termios.ECHO | termios.ECHOE | termios.ISIG | termios.IEXTEN)
     cc = list(cc); cc[termios.VMIN] = 0; cc[termios.VTIME] = read_timeout_ds  # deciseconds
     termios.tcsetattr(fd, termios.TCSANOW, [iflag, oflag, cflag, lflag, spd, spd, cc])
+    # Enable the host→FPGA direction: the Tang Nano 20k's on-board BL616 UART
+    # bridge only forwards host→FPGA (FPGA RX, pin 70) after DTR/RTS are PULSED
+    # through several transitions (a static level isn't enough).  Without this
+    # the device receives nothing and never replies.
+    import fcntl, array
+    TIOCMGET, TIOCMSET, DTR, RTS = 0x5415, 0x5418, 0x002, 0x004
+    def setlines(dtr, rts):
+        b = array.array('i', [0]); fcntl.ioctl(fd, TIOCMGET, b, True)
+        v = b[0]; v = (v | DTR) if dtr else (v & ~DTR); v = (v | RTS) if rts else (v & ~RTS)
+        fcntl.ioctl(fd, TIOCMSET, array.array('i', [v]))
+    for d, r in [(1, 1), (0, 0), (1, 0), (0, 1), (1, 1)]:
+        setlines(d, r); time.sleep(0.03)
+    time.sleep(0.1)
     termios.tcflush(fd, termios.TCIOFLUSH)
     return fd
 
