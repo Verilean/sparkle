@@ -137,9 +137,9 @@ def i2cMasterHW {dom : DomainConfig}
     -- 8-bit address+RW: addr ++ rwBit
     let addrRw := (addr ++ rwBit : Signal dom (BitVec 8))
     -- 9-bit shift-value: addrRw ++ 1 (idle for ACK slot)
-    let addrShift := (addrRw ++ (Signal.pure 1#1) : Signal dom (BitVec 9))
+    let addrShift := (addrRw ++ 1#1 : Signal dom (BitVec 9))
     -- 9-bit data-shift: dataByte ++ 1
-    let dataShift := (dataByte ++ (Signal.pure 1#1) : Signal dom (BitVec 9))
+    let dataShift := (dataByte ++ 1#1 : Signal dom (BitVec 9))
 
     -- State detection.
     let isIdle := (stSig === stIdle : Signal dom Bool)

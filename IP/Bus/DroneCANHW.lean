@@ -196,7 +196,7 @@ def transferIdTrackerHW {dom : DomainConfig}
     -- `eot` reserved for future extension (transfer boundary
     -- notification); prevent "unused" warning by folding it
     -- through error preservation (identity — mux by 0).
-    let _eotHold := (eot &&& (Signal.pure false) : Signal dom Bool)
+    let _eotHold := (eot &&& false : Signal dom Bool)
     let errNext2 := (errNext ||| _eotHold : Signal dom Bool)
 
     tidReg <~ tidNext
