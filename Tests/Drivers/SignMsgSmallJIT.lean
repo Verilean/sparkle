@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 import IP.Crypto.Rfc6979
 open Sparkle.Core.JIT
 open Sparkle.IP.Crypto.Keccak256 (keccak256OfBytes padEthereum rateBytes)

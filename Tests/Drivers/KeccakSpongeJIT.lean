@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Keccak256
+import IP.Crypto.Proof.Keccak256
 open Sparkle.Core.JIT
 open Sparkle.IP.Crypto.Keccak256 (keccak256OfBytes padEthereum rateBytes)
 -- keccakSpongeTop ports (64-bit values are single slots in this JIT ABI):

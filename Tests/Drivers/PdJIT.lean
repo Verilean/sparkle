@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1PointJac
 open Sparkle.Core.JIT
 
 -- inputs: runStart=0 loadEn=1 loadAddr=2 loadData=3..10 probeAddr=11

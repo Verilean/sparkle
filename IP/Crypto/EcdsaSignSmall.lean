@@ -25,8 +25,8 @@
 import Sparkle
 import IP.Crypto.Secp256k1FieldHW
 import IP.Crypto.Secp256k1OrderHW
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal

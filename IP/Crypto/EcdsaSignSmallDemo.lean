@@ -9,7 +9,7 @@
 -/
 import Sparkle
 import IP.Crypto.EcdsaSignSmall
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1PointJac
 import IP.Net.UART
 
 open Sparkle.Core.Domain Sparkle.Core.Signal

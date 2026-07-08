@@ -4,8 +4,8 @@
 --   lake exe ecdsa-sign-small-sim
 import Sparkle
 import IP.Crypto.EcdsaSignSmall
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Sparkle.IP.Crypto.EcdsaSignSmall

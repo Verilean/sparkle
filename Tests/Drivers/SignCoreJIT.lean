@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1ECDSA
 open Sparkle.Core.JIT
 -- signCoreTop ports: start=0 d=1..8 k=9..16 z=17..24 ; out rOut=0..7 sOut=8..15 done=16
 def main : IO Unit := do
