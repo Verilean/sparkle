@@ -33,8 +33,10 @@ module sign_z_uart_top(
     reg [1:0] rxsync=2'b11; always @(posedge clk_div) rxsync<={rxsync[0],uart_rx_line};
     wire rxpin=rxsync[1];
     reg rx_busy=1'b0; reg [9:0] rxdiv=10'd0; reg [3:0] rxbit=4'd0; reg [7:0] rxsh=8'd0;
-    reg [255:0] zsr=256'd0; reg [5:0] bytecnt=6'd0;
-    reg start_p=1'b0; reg [255:0] z_reg=256'd0;
+    // z is assembled in a single 256-bit shift register (it IS z — needed as the
+    // core input); the RX is idle during signing, so zsr stays stable — feed it
+    // straight to the core (no separate z_reg latch).
+    reg [255:0] zsr=256'd0; reg [5:0] bytecnt=6'd0; reg start_p=1'b0;
     always @(posedge clk_div) begin
         start_p <= 1'b0;
         if (crst) begin rx_busy<=1'b0; bytecnt<=6'd0; end
@@ -45,9 +47,8 @@ module sign_z_uart_top(
             if (rxbit==4'd8) begin
                 rx_busy<=1'b0;
                 zsr <= {zsr[247:0], rxsh};
-                if (bytecnt==6'd31) begin
-                    bytecnt<=6'd0; z_reg<={zsr[247:0], rxsh}; start_p<=1'b1;
-                end else bytecnt<=bytecnt+6'd1;
+                if (bytecnt==6'd31) begin bytecnt<=6'd0; start_p<=1'b1; end
+                else bytecnt<=bytecnt+6'd1;
             end else begin rxsh<={rxpin, rxsh[7:1]}; rxbit<=rxbit+4'd1; end
         end else rxdiv<=rxdiv-10'd1;
     end
@@ -55,36 +56,51 @@ module sign_z_uart_top(
     // --- signer core ---
     wire [255:0] rOut, sOut; wire done;
     Sparkle_IP_Crypto_EcdsaSignMsgSmall_signZSmallDemo core(
-        .clk(clk_div), .rst(crst), ._gen_start(start_p), ._gen_z(z_reg),
+        .clk(clk_div), .rst(crst), ._gen_start(start_p), ._gen_z(zsr),
         .rOut(rOut), .sOut(sOut), .done(done));
 
-    // --- latch r‖s; a new sign (start_p) clears have ---
-    reg [511:0] rs=512'd0; reg have=1'b0;
+    // --- 'have' flag only; the core already holds rOut/sOut stable between
+    //     signs, so index them directly (a wire) — no 512-bit copy register. ---
+    reg have=1'b0;
     always @(posedge clk_div) begin
         if (start_p) have<=1'b0;
-        else if (done && !have) begin rs<={rOut,sOut}; have<=1'b1; end
+        else if (done) have<=1'b1;
     end
+    wire [511:0] rsw = {rOut, sOut};
 
-    // --- UART TX: framed response, repeated while have; re-arm on new sign ---
-    // 67-byte frame = [0xA5][0x5A][0x01 status][r 32B MSB-first][s 32B MSB-first].
-    // Sent back-to-back so the host syncs on the A5 5A marker (no blind sliding),
-    // and the status byte is the extension point (0x01 ok; future 0xEE etc.).
+    // --- UART TX: framed response, indexed by counters (no shift register) ---
+    // 67-byte frame = [0xA5][0x5A][0x01 status][r 32B MSB-first][s 32B MSB-first],
+    // sent back-to-back so the host syncs on the A5 5A marker; the status byte is
+    // the extension point (0x01 ok; future 0xEE etc.).  `rs` stays static and a
+    // byteidx counter mux-selects the current byte — no big rotating register.
     reg [8:0] bcnt=9'd0; wire tick=(bcnt==DIV[8:0]-9'd1);
     always @(posedge clk_div) bcnt<=tick?9'd0:bcnt+9'd1;
-    reg [535:0] txsr=536'd0; reg loaded=1'b0; reg [3:0] bitidx=4'd0; reg txl=1'b1;
-    wire [9:0] frame={1'b1, txsr[535:528], 1'b0};   // stop, top byte (LSB-first), start
+    reg [6:0] byteidx=7'd0;   // 0..66
+    reg [3:0] bitidx=4'd0;    // 0..9 (start, 8 data LSB-first, stop)
+    reg loaded=1'b0; reg txl=1'b1;
+    // r‖s byte, MSB-first: byte 3 = rs[511:504] … byte 66 = rs[7:0]
+    wire [7:0] rsbyte = rsw[(511 - {2'b0,(byteidx-7'd3)}*8) -: 8];
+    reg [7:0] curbyte;
+    always @* begin
+        case (byteidx)
+            7'd0: curbyte = 8'hA5;
+            7'd1: curbyte = 8'h5A;
+            7'd2: curbyte = 8'h01;
+            default: curbyte = rsbyte;
+        endcase
+    end
+    wire [9:0] frame = {1'b1, curbyte, 1'b0};   // stop, data(LSB-first), start
     always @(posedge clk_div) begin
         if (start_p) loaded<=1'b0;
         if (!loaded) begin
             txl<=1'b1;
-            if (have) begin
-                txsr<={8'hA5, 8'h5A, 8'h01, rs};   // marker ‖ status ‖ r ‖ s
-                loaded<=1'b1; bitidx<=4'd0;
-            end
+            if (have) begin loaded<=1'b1; byteidx<=7'd0; bitidx<=4'd0; end
         end else if (tick) begin
             txl<=frame[bitidx];
-            if (bitidx==4'd9) begin bitidx<=4'd0; txsr<={txsr[527:0], txsr[535:528]}; end
-            else bitidx<=bitidx+4'd1;
+            if (bitidx==4'd9) begin
+                bitidx<=4'd0;
+                byteidx<=(byteidx==7'd66)?7'd0:byteidx+7'd1;
+            end else bitidx<=bitidx+4'd1;
         end
     end
     assign uart_tx=txl;
