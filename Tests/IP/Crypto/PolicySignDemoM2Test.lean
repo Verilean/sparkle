@@ -12,8 +12,8 @@
   below proves the whole M2 top lowers to hardware.
 -/
 import Sparkle
-import IP.Crypto.Eip1559Tx
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Codec.Eip1559Tx
+import IP.Crypto.Proof.Secp256k1ECDSA
 import IP.Crypto.TxPolicy
 import IP.Crypto.PolicySignDemoM2
 
