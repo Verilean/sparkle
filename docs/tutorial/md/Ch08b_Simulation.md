@@ -407,4 +407,41 @@ Plus two side-effects on disk:
 You usually don't read either; they're regenerated on every
 `#sim` invocation.
 
+## 8b.10 Sparkle sim vs a Verilog testbench
+
+The three backends above all differ from a hand-written Verilog
+testbench in the same way: in Sparkle a simulation is **evaluating a
+pure function**, not running procedural timed code. There is no clock to
+wiggle, no `initial` block, and no separate `_tb` module — you ask the
+`Signal` for its value at a cycle. This table is the simulation
+counterpart of the syntax reference in Ch 5 §5.6:
+
+| Task | Verilog testbench | Sparkle |
+|---|---|---|
+| clock | `always #5 clk = ~clk;` — generate a wiggling clock | none — the cycle index `t : Nat` **is** the clock; the domain carries it |
+| advance one cycle | `@(posedge clk);` | evaluate at `t + 1` / `sim.step` then `sim.read` |
+| drive an input | `a = 8'd5; #10;` (procedural, timed) | an input is a `Signal` = a function of cycle: `Signal.pure 5#8`, or `⟨fun t => …⟩` for a waveform |
+| read an output | `$display("%0d", out);` | `out.val t` — a pure value |
+| run N cycles | `initial begin repeat (N) @(posedge clk); … $finish; end` | `Signal.sample out N : List (BitVec …)` |
+| reset | drive `rst` high for a few cycles, procedurally | the reset value is baked into `Signal.reg init` — nothing to drive |
+| the testbench itself | a separate `_tb.v` with `initial` / `$finish` | none — the "testbench" is a Lean function, `#eval`, or `#sim`; you call the design directly |
+| check a result | `if (out !== exp) $error(…);` at run time | a Lean `theorem` proven once for **all** cycles (Ch 6/7), or `#eval` / `decide` on `.val` |
+| unknown / hi-Z | 4-state: `x` (unknown), `z` (tri-state) | 2-state: every wire is a definite `BitVec` — there is no `x` / `z` |
+| races / ordering | `always` blocks can race; `blocking =` vs `non-blocking <=` matters | none — a `Signal` is a pure function of `t`; evaluation order cannot change the result |
+| speed knob | compile with Verilator (C++) for long runs | `#sim` JIT-C (§8b.3), or Verilator via `loadVerilator` (§8b.4) — same `Sim` interface |
+
+Three consequences worth internalising:
+
+- **No testbench, no clock.** You never write stimulus procedurally over
+  time; you build input `Signal`s and read output `Signal`s. "Cycle `t`"
+  is an argument, not a wall-clock event.
+- **Deterministic and 2-state by construction.** Because a `Signal` is a
+  `Nat → value` function, a Sparkle simulation has no `x`/`z` and no
+  race conditions — the two classic sources of "passes in sim, fails on
+  silicon" simply cannot arise.
+- **Assertions become theorems.** A Verilog testbench checks a finite set
+  of traces at run time; a Sparkle property (`∀ t, …`) is proven once and
+  covers every trace (Ch 6/7). `#sim` is for when you want to *watch*
+  numbers go by, not to establish correctness.
+
 end Notebooks.Ch08b
