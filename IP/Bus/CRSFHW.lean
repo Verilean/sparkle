@@ -41,11 +41,11 @@ def crc8Step {dom : DomainConfig} (c : Signal dom (BitVec 8)) : Signal dom (BitV
   let pPoly := (Signal.pure 0xD5#8 : Signal dom (BitVec 8))
   let p1    := (Signal.pure 1#8    : Signal dom (BitVec 8))
   let pMSB  := (Signal.pure 0x80#8 : Signal dom (BitVec 8))
-  let msbAnd := ((· &&& ·) <$> c <*> pMSB : Signal dom (BitVec 8))
-  let msbNZ := ((fun x => !x) <$> ((· == ·) <$> msbAnd <*> p0 : Signal dom Bool)
+  let msbAnd := (c &&& pMSB : Signal dom (BitVec 8))
+  let msbNZ := ((fun x => !x) <$> (msbAnd === p0 : Signal dom Bool)
                 : Signal dom Bool)
-  let shifted := ((· <<< ·) <$> c <*> p1 : Signal dom (BitVec 8))
-  let shiftedXor := ((· ^^^ ·) <$> shifted <*> pPoly : Signal dom (BitVec 8))
+  let shifted := (c <<< p1 : Signal dom (BitVec 8))
+  let shiftedXor := (shifted ^^^ pPoly : Signal dom (BitVec 8))
   Signal.mux msbNZ shiftedXor shifted
 
 /-- Byte-serial CRC-8 poly 0xD5 (CRSF).  Per byte:
@@ -72,7 +72,7 @@ def crc8HW {dom : DomainConfig}
 
     let p0    := (Signal.pure 0#8    : Signal dom (BitVec 8))
 
-    let c0 := ((· ^^^ ·) <$> crcSig <*> byteIn : Signal dom (BitVec 8))
+    let c0 := (crcSig ^^^ byteIn : Signal dom (BitVec 8))
     let c1 := crc8Step c0
     let c2 := crc8Step c1
     let c3 := crc8Step c2

@@ -57,10 +57,10 @@ private def faddModL {dom : DomainConfig}
     (a b : Signal dom (BitVec 256)) : Signal dom (BitVec 256) :=
   let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let bw := (b.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 257))
+  let s  := (aw + bw : Signal dom (BitVec 257))
   let pL := (Signal.pure lBv257 : Signal dom (BitVec 257))
   let ge := ((BitVec.ule · ·) <$> pL <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pL) s : Signal dom (BitVec 257))
+  let red := (Signal.mux ge (s - pL) s : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
 /-- S = (r + k·a) mod L FSM.  One mod-L multiply then add mod L. -/
@@ -85,9 +85,9 @@ def signHW {dom : DomainConfig}
     let p2_2 := (Signal.pure 2#2 : Signal dom (BitVec 2))
     let p3_2 := (Signal.pure 3#2 : Signal dom (BitVec 2))
 
-    let isTrig := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isWait := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
-    let mulAck := ((· && ·) <$> isWait <*> mlDone : Signal dom Bool)
+    let isTrig := (stSig === p1_2 : Signal dom Bool)
+    let isWait := (stSig === p2_2 : Signal dom Bool)
+    let mulAck := (isWait &&& mlDone : Signal dom Bool)
 
     -- S = (r + k·a) mod L, computed at the mul-ack.
     let sVal := faddModL rS mlResult

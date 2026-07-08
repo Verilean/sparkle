@@ -71,7 +71,7 @@ instance {dom : DomainConfig} :
     let is16 := (st === 16#5)
 
     -- load port: enabled in states 1..6, addr/data selected per state.
-    let ldEn := ((· || ·) <$> is1 <*> ((· || ·) <$> is2 <*> ((· || ·) <$> is3 <*> ((· || ·) <$> is4 <*> ((· || ·) <$> is5 <*> is6)))) : Signal dom Bool)
+    let ldEn := (is1 ||| (is2 ||| (is3 ||| (is4 ||| (is5 ||| is6)))) : Signal dom Bool)
     let ldAddr :=
       (Signal.mux is1 (Signal.pure 3#6)
         (Signal.mux is2 (Signal.pure 4#6)
@@ -88,8 +88,8 @@ instance {dom : DomainConfig} :
                 k))))  : Signal dom (BitVec 256))
     let sStart := is7
     -- probe r35 during 9..12, r37 during 13..16.
-    let inRR := ((· || ·) <$> is9 <*> ((· || ·) <$> is10 <*> ((· || ·) <$> is11 <*> is12)) : Signal dom Bool)
-    let inRS := ((· || ·) <$> is13 <*> ((· || ·) <$> is14 <*> ((· || ·) <$> is15 <*> is16)) : Signal dom Bool)
+    let inRR := (is9 ||| (is10 ||| (is11 ||| is12)) : Signal dom Bool)
+    let inRS := (is13 ||| (is14 ||| (is15 ||| is16)) : Signal dom Bool)
     let probeAddr :=
       (Signal.mux inRR (Signal.pure 35#6)
         (Signal.mux inRS (Signal.pure 37#6)
@@ -103,7 +103,7 @@ instance {dom : DomainConfig} :
     dnR <~ is16
 
     -- next state.
-    let inc := ((· + ·) <$> st <*> (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
+    let inc := (st + (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
     let stNext :=
       Signal.mux is0 (Signal.mux start (Signal.pure 1#5 : Signal dom (BitVec 5)) (Signal.pure 0#5))
       <| Signal.mux is8 (Signal.mux sc.halted (Signal.pure 9#5 : Signal dom (BitVec 5)) (Signal.pure 8#5))
@@ -118,7 +118,7 @@ instance {dom : DomainConfig} :
 @[inline] private def shiftIn512 {dom : DomainConfig}
     (acc : Signal dom (BitVec 512)) (b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 512) :=
-  ((· <<< ·) <$> acc <*> (Signal.pure (8#512) : Signal dom (BitVec 512)))
+  (acc <<< (Signal.pure (8#512) : Signal dom (BitVec 512)))
     ||| (b.map (fun v => BitVec.append (0#504) v) : Signal dom (BitVec 512))
 
 structure DemoOut (dom : DomainConfig) where
@@ -155,9 +155,9 @@ def signSmallDemo {dom : DomainConfig}
     let rx := wRx uartRx bitDiv
     let gotByte := rx.rxValid
     let accNext := shiftIn512 accSig rx.rxByte
-    let rxInc := ((· + ·) <$> rxCntSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
+    let rxInc := (rxCntSig + (Signal.pure 1#7 : Signal dom (BitVec 7)))
     let atLast := rxCntSig === 63#7
-    let lastByte := ((· && ·) <$> gotByte <*> atLast : Signal dom Bool)
+    let lastByte := (gotByte &&& atLast : Signal dom Bool)
     accR <~ Signal.mux gotByte accNext accSig
     rxCntR <~ Signal.mux lastByte (Signal.pure 0#7 : Signal dom (BitVec 7))
                 (Signal.mux gotByte rxInc rxCntSig)
@@ -181,14 +181,14 @@ def signSmallDemo {dom : DomainConfig}
     let tx := wTx
                 (txDataSig.map (fun v => BitVec.extractLsb' 504 8 v) : Signal dom (BitVec 8))
                 wantSend bitDiv
-    let accepted := ((· && ·) <$> wantSend <*> tx.txReady : Signal dom Bool)
-    let rsConcat := ((· ++ ·) <$> core.rOut <*> core.sOut : Signal dom (BitVec 512))
-    let txShift := ((· <<< ·) <$> txDataSig <*> (Signal.pure (8#512) : Signal dom (BitVec 512)))
+    let accepted := (wantSend &&& tx.txReady : Signal dom Bool)
+    let rsConcat := (core.rOut ++ core.sOut : Signal dom (BitVec 512))
+    let txShift := (txDataSig <<< (Signal.pure (8#512) : Signal dom (BitVec 512)))
     txDataR <~ Signal.mux core.done rsConcat (Signal.mux accepted txShift txDataSig)
-    let remDec := ((· - ·) <$> remSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
+    let remDec := (remSig - (Signal.pure 1#7 : Signal dom (BitVec 7)))
     remR <~ Signal.mux core.done (Signal.pure 64#7 : Signal dom (BitVec 7))
               (Signal.mux accepted remDec remSig)
-    let lastByte := ((· && ·) <$> accepted <*> (remSig === 1#7) : Signal dom Bool)
+    let lastByte := (accepted &&& (remSig === 1#7) : Signal dom Bool)
     sendingR <~ Signal.mux core.done (Signal.pure true : Signal dom Bool)
                   (Signal.mux lastByte (Signal.pure false : Signal dom Bool) sendingSig)
 

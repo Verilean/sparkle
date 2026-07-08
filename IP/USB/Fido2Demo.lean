@@ -78,7 +78,7 @@ instance {dom : DomainConfig} :
 @[inline] private def shiftIn1064 {dom : DomainConfig}
     (acc : Signal dom (BitVec 1064)) (b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 1064) :=
-  ((· <<< ·) <$> acc <*> (Signal.pure (8#1064) : Signal dom (BitVec 1064)))
+  (acc <<< (Signal.pure (8#1064) : Signal dom (BitVec 1064)))
     |||
     (b.map (fun v => BitVec.append (0#1056) v) : Signal dom (BitVec 1064))
 
@@ -118,9 +118,9 @@ def fido2Demo {dom : DomainConfig}
     let rx := wRx uartRx bitDiv
     let gotByte := rx.rxValid
     let accNext := shiftIn1064 accSig rx.rxByte
-    let rxInc := ((· + ·) <$> rxCntSig <*> (Signal.pure 1#8 : Signal dom (BitVec 8)))
-    let atLast := ((· == ·) <$> rxCntSig <*> (Signal.pure 132#8 : Signal dom (BitVec 8)))
-    let lastByte := ((· && ·) <$> gotByte <*> atLast : Signal dom Bool)
+    let rxInc := (rxCntSig + (Signal.pure 1#8 : Signal dom (BitVec 8)))
+    let atLast := (rxCntSig === (Signal.pure 132#8 : Signal dom (BitVec 8)))
+    let lastByte := (gotByte &&& atLast : Signal dom Bool)
 
     accR <~ Signal.mux gotByte accNext accSig
     rxCntR <~ Signal.mux lastByte (Signal.pure 0#8 : Signal dom (BitVec 8))
@@ -148,7 +148,7 @@ def fido2Demo {dom : DomainConfig}
     -- Message bits, MSB-first: ad occupies bits [551:256] (296 bits),
     -- cdh bits [255:0] (256 bits) of a 552-bit value.
     -- Assemble msg552 = ad ‖ cdh, then slice blocks.
-    let msg552 := ((· ++ ·) <$> adSig <*> cdhSig : Signal dom (BitVec 552))
+    let msg552 := (adSig ++ cdhSig : Signal dom (BitVec 552))
     -- block0 = top 512 bits of msg552.
     let blk0 := (msg552.map (fun v => BitVec.extractLsb' 40 512 v) : Signal dom (BitVec 512))
     -- remaining 40 message bits = msg552[39:0]; block1 = those 40 bits
@@ -157,7 +157,7 @@ def fido2Demo {dom : DomainConfig}
     -- 0x80 padding byte + 400 zero bits + 64-bit length 552.
     let padConst := (Signal.pure (BitVec.append (0x80#8) (BitVec.append (0#400) (BitVec.ofNat 64 552)) : BitVec 472)
                       : Signal dom (BitVec 472))
-    let blk1 := ((· ++ ·) <$> msgTail40 <*> padConst : Signal dom (BitVec 512))
+    let blk1 := (msgTail40 ++ padConst : Signal dom (BitVec 512))
 
     let hashStartSig := (hashStartR : Signal dom Bool)
     let sha := wSha256 hashStartSig (Signal.pure 2#2 : Signal dom (BitVec 2)) blk0 blk1
@@ -172,14 +172,14 @@ def fido2Demo {dom : DomainConfig}
     -- ===== TX: on done stream r‖s (64 bytes MSB-first) =====
     let tx := wTx
                 (txAccSig.map (fun v => BitVec.extractLsb' 504 8 v) : Signal dom (BitVec 8))
-                ((· && ·) <$> txBusySig <*> (Signal.pure true : Signal dom Bool))
+                (txBusySig &&& (Signal.pure true : Signal dom Bool))
                 bitDiv
-    let txAccept := ((· && ·) <$> txBusySig <*> tx.txReady : Signal dom Bool)
-    let rsConcat := ((· ++ ·) <$> core.rOut <*> core.sOut : Signal dom (BitVec 512))
-    let txShift := ((· <<< ·) <$> txAccSig <*> (Signal.pure (8#512) : Signal dom (BitVec 512)))
+    let txAccept := (txBusySig &&& tx.txReady : Signal dom Bool)
+    let rsConcat := (core.rOut ++ core.sOut : Signal dom (BitVec 512))
+    let txShift := (txAccSig <<< (Signal.pure (8#512) : Signal dom (BitVec 512)))
     txAccR <~ Signal.mux core.done rsConcat
                 (Signal.mux txAccept txShift txAccSig)
-    let txDec := ((· - ·) <$> txCntSig <*> (Signal.pure 1#8 : Signal dom (BitVec 8)))
+    let txDec := (txCntSig - (Signal.pure 1#8 : Signal dom (BitVec 8)))
     txCntR <~ Signal.mux core.done (Signal.pure 64#8 : Signal dom (BitVec 8))
                 (Signal.mux txAccept txDec txCntSig)
     let txMore := ((fun c => !(c == 0#8)) <$> txCntSig : Signal dom Bool)

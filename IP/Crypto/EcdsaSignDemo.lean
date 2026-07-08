@@ -233,14 +233,14 @@ def signCore {dom : DomainConfig}
     let pInv := wInv sign.pInvStart sign.pA sign.pExp pMulResSig pMulDoneSig
     -- pMul serves either the inverse's internal multiply (pInv.mulStart)
     -- or the signer's direct mod-p multiply (sign.pMulStart).
-    let pMulStart := ((· || ·) <$> pInv.mulStart <*> sign.pMulStart : Signal dom Bool)
+    let pMulStart := (pInv.mulStart ||| sign.pMulStart : Signal dom Bool)
     let pMulA := (Signal.mux sign.pMulStart sign.pA pInv.mulA : Signal dom (BitVec 256))
     let pMulB := (Signal.mux sign.pMulStart sign.pB pInv.mulB : Signal dom (BitVec 256))
     let pMul := wMul pMulStart pMulA pMulB
 
     -- ===== mod-n inverse-or-multiply engine =====
     let nInv := wInv sign.nInvStart sign.nA sign.nExp nMulResSig nMulDoneSig
-    let nMulStart := ((· || ·) <$> nInv.mulStart <*> sign.nMulStart : Signal dom Bool)
+    let nMulStart := (nInv.mulStart ||| sign.nMulStart : Signal dom Bool)
     let nMulA := (Signal.mux sign.nMulStart sign.nA nInv.mulA : Signal dom (BitVec 256))
     let nMulB := (Signal.mux sign.nMulStart sign.nB nInv.mulB : Signal dom (BitVec 256))
     let nMul := wMulN nMulStart nMulA nMulB
@@ -264,7 +264,7 @@ def signCore {dom : DomainConfig}
     -- `pDir` tracks a pending signer DIRECT multiply: set when the
     -- signer issues one, cleared when pMul completes it.
     let pDirSet := sign.pMulStart
-    let pMulFinish := ((· && ·) <$> pDirSig <*> pMul.done : Signal dom Bool)
+    let pMulFinish := (pDirSig &&& pMul.done : Signal dom Bool)
     pDirR <~ Signal.mux pDirSet (Signal.pure true : Signal dom Bool)
               (Signal.mux pMul.done (Signal.pure false : Signal dom Bool) pDirSig)
     -- Signer's mod-p result: the direct multiply result when a direct
@@ -274,17 +274,17 @@ def signCore {dom : DomainConfig}
     -- Signer's mod-p done pulses when EITHER the inverse finished OR the
     -- signer's own direct multiply finished (NOT the inverse's internal
     -- squarings — those are gated out by pDir).
-    pDoneR <~ ((· || ·) <$> pInv.done <*> pMulFinish)
+    pDoneR <~ (pInv.done ||| pMulFinish)
     -- mod-n (same structure):
     nMulResR <~ nMul.result
     nMulDoneR <~ nMul.done
     let nDirSet := sign.nMulStart
-    let nMulFinish := ((· && ·) <$> nDirSig <*> nMul.done : Signal dom Bool)
+    let nMulFinish := (nDirSig &&& nMul.done : Signal dom Bool)
     nDirR <~ Signal.mux nDirSet (Signal.pure true : Signal dom Bool)
               (Signal.mux nMul.done (Signal.pure false : Signal dom Bool) nDirSig)
     nResR <~ Signal.mux nMulFinish nMul.result
               (Signal.mux nInv.done nInv.result nResSig)
-    nDoneR <~ ((· || ·) <$> nInv.done <*> nMulFinish)
+    nDoneR <~ (nInv.done ||| nMulFinish)
 
     return ({ rOut := sign.rOut
             , sOut := sign.sOut
@@ -326,7 +326,7 @@ instance {dom : DomainConfig} :
 @[inline] private def shiftIn768 {dom : DomainConfig}
     (acc : Signal dom (BitVec 768)) (b : Signal dom (BitVec 8)) :
     Signal dom (BitVec 768) :=
-  ((· <<< ·) <$> acc <*> (Signal.pure (8#768) : Signal dom (BitVec 768)))
+  (acc <<< (Signal.pure (8#768) : Signal dom (BitVec 768)))
     |||
     (b.map (fun v => BitVec.append (0#760) v) : Signal dom (BitVec 768))
 
@@ -363,10 +363,10 @@ def ecdsaSignDemo {dom : DomainConfig}
     let gotByte := rx.rxValid
     -- accumulator shifts in each received byte
     let accNext := shiftIn768 accSig rx.rxByte
-    let rxInc := ((· + ·) <$> rxCntSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
+    let rxInc := (rxCntSig + (Signal.pure 1#7 : Signal dom (BitVec 7)))
     -- last (96th) byte just arrived when the count is at 95 and gotByte
-    let atLast := ((· == ·) <$> rxCntSig <*> (Signal.pure 95#7 : Signal dom (BitVec 7)))
-    let lastByte := ((· && ·) <$> gotByte <*> atLast : Signal dom Bool)
+    let atLast := (rxCntSig === (Signal.pure 95#7 : Signal dom (BitVec 7)))
+    let lastByte := (gotByte &&& atLast : Signal dom Bool)
 
     accR <~ Signal.mux gotByte accNext accSig
     -- count wraps back to 0 after the last byte so a new frame can start
@@ -390,17 +390,17 @@ def ecdsaSignDemo {dom : DomainConfig}
                 -- top byte of the shift register
                 (txAccSig.map (fun v => BitVec.extractLsb' 504 8 v) : Signal dom (BitVec 8))
                 -- valid: we still have bytes to send and TX can accept
-                ((· && ·) <$> txBusySig <*> (Signal.pure true : Signal dom Bool))
+                (txBusySig &&& (Signal.pure true : Signal dom Bool))
                 bitDiv
     -- byte accepted this cycle = we are busy and TX was ready (not busy)
-    let txAccept := ((· && ·) <$> txBusySig <*> tx.txReady : Signal dom Bool)
+    let txAccept := (txBusySig &&& tx.txReady : Signal dom Bool)
     -- r‖s concatenated: r in high 256, s in low 256.
-    let rsConcat := ((· ++ ·) <$> core.rOut <*> core.sOut : Signal dom (BitVec 512))
+    let rsConcat := (core.rOut ++ core.sOut : Signal dom (BitVec 512))
     -- load on done; shift left one byte on each accepted byte.
-    let txShift := ((· <<< ·) <$> txAccSig <*> (Signal.pure (8#512) : Signal dom (BitVec 512)))
+    let txShift := (txAccSig <<< (Signal.pure (8#512) : Signal dom (BitVec 512)))
     txAccR <~ Signal.mux core.done rsConcat
                 (Signal.mux txAccept txShift txAccSig)
-    let txDec := ((· - ·) <$> txCntSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
+    let txDec := (txCntSig - (Signal.pure 1#7 : Signal dom (BitVec 7)))
     txCntR <~ Signal.mux core.done (Signal.pure 64#7 : Signal dom (BitVec 7))
                 (Signal.mux txAccept txDec txCntSig)
     -- busy while there are still bytes to send.

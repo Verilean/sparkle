@@ -42,11 +42,11 @@ def crc16Step {dom : DomainConfig} (c : Signal dom (BitVec 16)) : Signal dom (Bi
   let pPoly := (Signal.pure 0x1021#16 : Signal dom (BitVec 16))
   let p1    := (Signal.pure 1#16     : Signal dom (BitVec 16))
   let pMSB  := (Signal.pure 0x8000#16 : Signal dom (BitVec 16))
-  let msbAnd := ((· &&& ·) <$> c <*> pMSB : Signal dom (BitVec 16))
-  let msbNZ := ((fun x => !x) <$> ((· == ·) <$> msbAnd <*> p0 : Signal dom Bool)
+  let msbAnd := (c &&& pMSB : Signal dom (BitVec 16))
+  let msbNZ := ((fun x => !x) <$> (msbAnd === p0 : Signal dom Bool)
                 : Signal dom Bool)
-  let shifted := ((· <<< ·) <$> c <*> p1 : Signal dom (BitVec 16))
-  let shiftedXor := ((· ^^^ ·) <$> shifted <*> pPoly : Signal dom (BitVec 16))
+  let shifted := (c <<< p1 : Signal dom (BitVec 16))
+  let shiftedXor := (shifted ^^^ pPoly : Signal dom (BitVec 16))
   Signal.mux msbNZ shiftedXor shifted
 
 /-- Byte-serial CRC-16-CCITT-FALSE (poly 0x1021, init 0xFFFF).
@@ -73,12 +73,12 @@ def crc16CcittHW {dom : DomainConfig}
     -- top zero byte: (0#8 ++ byteIn) : BitVec 16 has byteIn in
     -- the LOW 8 bits and 0 in the HIGH 8 bits.
     let pZeroByte := (Signal.pure 0#8 : Signal dom (BitVec 8))
-    let widened := ((· ++ ·) <$> pZeroByte <*> byteIn : Signal dom (BitVec 16))
+    let widened := (pZeroByte ++ byteIn : Signal dom (BitVec 16))
 
     -- Shift byte into upper octet: (byte << 8)
-    let shBy8 := ((· <<< ·) <$> widened <*> p8 : Signal dom (BitVec 16))
+    let shBy8 := (widened <<< p8 : Signal dom (BitVec 16))
 
-    let c0 := ((· ^^^ ·) <$> crcSig <*> shBy8 : Signal dom (BitVec 16))
+    let c0 := (crcSig ^^^ shBy8 : Signal dom (BitVec 16))
     let c1 := crc16Step c0
     let c2 := crc16Step c1
     let c3 := crc16Step c2
@@ -115,7 +115,7 @@ def nodeFilterHW {dom : DomainConfig}
     (srcNode : Signal dom (BitVec 7))
     (selfNode : Signal dom (BitVec 7)) :
     NodeFilterOut dom :=
-  let eq := ((· == ·) <$> srcNode <*> selfNode : Signal dom Bool)
+  let eq := (srcNode === selfNode : Signal dom Bool)
   let notEq := ((fun b => !b) <$> eq : Signal dom Bool)
   { accept := notEq }
 
@@ -164,19 +164,19 @@ def transferIdTrackerHW {dom : DomainConfig}
     let togSig := (togReg : Signal dom Bool)
     let errSig := (errReg : Signal dom Bool)
 
-    let togEq := ((· == ·) <$> tog <*> togSig : Signal dom Bool)
+    let togEq := (tog === togSig : Signal dom Bool)
     let togMismatch := ((fun b => !b) <$> togEq : Signal dom Bool)
-    let tidEq := ((· == ·) <$> tid <*> tidSig : Signal dom Bool)
+    let tidEq := (tid === tidSig : Signal dom Bool)
     let tidMismatch := ((fun b => !b) <$> tidEq : Signal dom Bool)
-    let midMismatch := ((· || ·) <$> togMismatch <*> tidMismatch : Signal dom Bool)
+    let midMismatch := (togMismatch ||| tidMismatch : Signal dom Bool)
 
     -- validFrame = valid && !sot   (mid-transfer frame)
     let notSot := ((fun b => !b) <$> sot : Signal dom Bool)
-    let midValid := ((· && ·) <$> valid <*> notSot : Signal dom Bool)
-    let midErr := ((· && ·) <$> midValid <*> midMismatch : Signal dom Bool)
+    let midValid := (valid &&& notSot : Signal dom Bool)
+    let midErr := (midValid &&& midMismatch : Signal dom Bool)
 
     -- validSot = valid && sot
-    let sotValid := ((· && ·) <$> valid <*> sot : Signal dom Bool)
+    let sotValid := (valid &&& sot : Signal dom Bool)
 
     -- next expected toggle: after SOT it becomes true;
     --   after any mid-transfer valid frame it flips;
@@ -196,8 +196,8 @@ def transferIdTrackerHW {dom : DomainConfig}
     -- `eot` reserved for future extension (transfer boundary
     -- notification); prevent "unused" warning by folding it
     -- through error preservation (identity — mux by 0).
-    let _eotHold := ((· && ·) <$> eot <*> (Signal.pure false) : Signal dom Bool)
-    let errNext2 := ((· || ·) <$> errNext <*> _eotHold : Signal dom Bool)
+    let _eotHold := (eot &&& (Signal.pure false) : Signal dom Bool)
+    let errNext2 := (errNext ||| _eotHold : Signal dom Bool)
 
     tidReg <~ tidNext
     togReg <~ togNext

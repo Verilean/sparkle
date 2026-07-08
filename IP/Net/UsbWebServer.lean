@@ -174,20 +174,20 @@ def txSequencer {dom : DomainConfig}
     -- Detect each phase value (we need explicit equality muxes
     -- because the synth elaborator can't translate arithmetic
     -- comparisons).
-    let isByteLast := ((· == ·) <$> phSig <*> p73 : Signal dom Bool)
-    let isFrameEnd := ((· == ·) <$> phSig <*> p74 : Signal dom Bool)
-    let is75 := ((· == ·) <$> phSig <*> p75 : Signal dom Bool)
-    let is76 := ((· == ·) <$> phSig <*> p76 : Signal dom Bool)
-    let is77 := ((· == ·) <$> phSig <*> p77 : Signal dom Bool)
-    let is78 := ((· == ·) <$> phSig <*> p78 : Signal dom Bool)
-    let isPhaseEnd := ((· == ·) <$> phSig <*> p79 : Signal dom Bool)
+    let isByteLast := (phSig === p73 : Signal dom Bool)
+    let isFrameEnd := (phSig === p74 : Signal dom Bool)
+    let is75 := (phSig === p75 : Signal dom Bool)
+    let is76 := (phSig === p76 : Signal dom Bool)
+    let is77 := (phSig === p77 : Signal dom Bool)
+    let is78 := (phSig === p78 : Signal dom Bool)
+    let isPhaseEnd := (phSig === p79 : Signal dom Bool)
 
     -- inSlack = phase ∈ [75..79]
     let inSlack :=
       ((· || ·) <$> is75 <*>
         (((· || ·) <$> is76 <*>
           (((· || ·) <$> is77 <*>
-            (((· || ·) <$> is78 <*> isPhaseEnd : Signal dom Bool))
+            ((is78 ||| isPhaseEnd : Signal dom Bool))
             : Signal dom Bool))
           : Signal dom Bool))
         : Signal dom Bool)
@@ -196,13 +196,13 @@ def txSequencer {dom : DomainConfig}
     let notFrameEnd := ((fun b => !b) <$> isFrameEnd : Signal dom Bool)
     let notSlack := ((fun b => !b) <$> inSlack : Signal dom Bool)
     let inBodyPhase :=
-      ((· && ·) <$> notFrameEnd <*> notSlack : Signal dom Bool)
-    let inBytes := ((· && ·) <$> runSig <*> inBodyPhase : Signal dom Bool)
+      (notFrameEnd &&& notSlack : Signal dom Bool)
+    let inBytes := (runSig &&& inBodyPhase : Signal dom Bool)
 
     -- Phase next: when running, increment phase; when at slot 79
     -- (phaseEnd), wrap to 0 and clear running.
     -- When idle (running=false), trigger latches phase=0 and sets running=true.
-    let phInc := ((· + ·) <$> phSig <*> p1 : Signal dom (BitVec 7))
+    let phInc := (phSig + p1 : Signal dom (BitVec 7))
     let phNext :=
       Signal.mux trigger p0
         (Signal.mux runSig
@@ -219,7 +219,7 @@ def txSequencer {dom : DomainConfig}
     -- inBytes is high; downstream gates on `valid`).
     let byteOut := respByteMux phSig
     -- frameEnd pulse = running AND phase == 74
-    let frameEndOut := ((· && ·) <$> runSig <*> isFrameEnd : Signal dom Bool)
+    let frameEndOut := (runSig &&& isFrameEnd : Signal dom Bool)
 
     -- Suppress unused warning
     let _useIsByteLast := isByteLast
@@ -244,12 +244,12 @@ def sopPulse {dom : DomainConfig}
     -- armed we pulse and clear armed.
     let armed ← Signal.reg true
     let armedSig := (armed : Signal dom Bool)
-    let pulse := ((· && ·) <$> armedSig <*> validIn : Signal dom Bool)
+    let pulse := (armedSig &&& validIn : Signal dom Bool)
     -- next armed = (reset OR (armed AND !validIn))
     let stillArmed :=
       ((· && ·) <$> armedSig <*>
         ((fun b => !b) <$> validIn : Signal dom Bool) : Signal dom Bool)
-    let armedNext := ((· || ·) <$> reset <*> stillArmed : Signal dom Bool)
+    let armedNext := (reset ||| stillArmed : Signal dom Bool)
     armed <~ armedNext
     return pulse
 

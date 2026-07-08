@@ -120,17 +120,17 @@ instance {dom : DomainConfig} :
   let p9  := (Signal.pure 9#4  : Signal dom (BitVec 4))
   let p10 := (Signal.pure 10#4 : Signal dom (BitVec 4))
   let p11 := (Signal.pure 11#4 : Signal dom (BitVec 4))
-  let e1  := (· == ·) <$> cntSig <*> p1
-  let e2  := (· == ·) <$> cntSig <*> p2
-  let e3  := (· == ·) <$> cntSig <*> p3
-  let e4  := (· == ·) <$> cntSig <*> p4
-  let e5  := (· == ·) <$> cntSig <*> p5
-  let e6  := (· == ·) <$> cntSig <*> p6
-  let e7  := (· == ·) <$> cntSig <*> p7
-  let e8  := (· == ·) <$> cntSig <*> p8
-  let e9  := (· == ·) <$> cntSig <*> p9
-  let e10 := (· == ·) <$> cntSig <*> p10
-  let e11 := (· == ·) <$> cntSig <*> p11
+  let e1  := cntSig === p1
+  let e2  := cntSig === p2
+  let e3  := cntSig === p3
+  let e4  := cntSig === p4
+  let e5  := cntSig === p5
+  let e6  := cntSig === p6
+  let e7  := cntSig === p7
+  let e8  := cntSig === p8
+  let e9  := cntSig === p9
+  let e10 := cntSig === p10
+  let e11 := cntSig === p11
   Signal.mux e1 b0
     (Signal.mux e2 b1
       (Signal.mux e3 b2
@@ -197,16 +197,16 @@ def tlpRxParser {dom : DomainConfig}
     let p9  := (Signal.pure 9#4  : Signal dom (BitVec 4))
     let p10 := (Signal.pure 10#4 : Signal dom (BitVec 4))
     let p11 := (Signal.pure 11#4 : Signal dom (BitVec 4))
-    let inReq := (((· == ·) <$> cntSig <*> p4) |||
-                  ((· == ·) <$> cntSig <*> p5))
-    let inTag := (· == ·) <$> cntSig <*> p6
-    let inAddr := (((· == ·) <$> cntSig <*> p8) |||
-                   ((· == ·) <$> cntSig <*> p9) |||
-                   ((· == ·) <$> cntSig <*> p10) |||
-                   ((· == ·) <$> cntSig <*> p11))
-    let isLast := (· == ·) <$> cntSig <*> p11
+    let inReq := ((cntSig === p4) |||
+                  (cntSig === p5))
+    let inTag := cntSig === p6
+    let inAddr := ((cntSig === p8) |||
+                   (cntSig === p9) |||
+                   (cntSig === p10) |||
+                   (cntSig === p11))
+    let isLast := cntSig === p11
 
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt   <~ Signal.mux sopTlp p1
               (Signal.mux valid cntInc cntSig)
     fmtR  <~ Signal.mux sopTlp byte fmtSig
@@ -218,7 +218,7 @@ def tlpRxParser {dom : DomainConfig}
     -- isWrite = (fmtByte ≠ MRd).  We check just the top
     -- bit of Fmt (0x40 = MWr).  Bit 6 of byte 0.
     let topBit := fmtSig.map (BitVec.extractLsb' 6 1 ·)
-    let isWriteSig := (· == ·) <$> topBit <*> (Signal.pure 1#1 : Signal dom (BitVec 1))
+    let isWriteSig := topBit === (Signal.pure 1#1 : Signal dom (BitVec 1))
 
     return ({ isWrite := isWriteSig
             , reqId   := reqSig
@@ -299,21 +299,21 @@ abbrev tlpFmtCplD : BitVec 8 := 0x4A#8
   let p13 := (Signal.pure 13#5 : Signal dom (BitVec 5))
   let p14 := (Signal.pure 14#5 : Signal dom (BitVec 5))
   let p15 := (Signal.pure 15#5 : Signal dom (BitVec 5))
-  let e1  := (· == ·) <$> cntSig <*> p1
-  let e2  := (· == ·) <$> cntSig <*> p2
-  let e3  := (· == ·) <$> cntSig <*> p3
-  let e4  := (· == ·) <$> cntSig <*> p4
-  let e5  := (· == ·) <$> cntSig <*> p5
-  let e6  := (· == ·) <$> cntSig <*> p6
-  let e7  := (· == ·) <$> cntSig <*> p7
-  let e8  := (· == ·) <$> cntSig <*> p8
-  let e9  := (· == ·) <$> cntSig <*> p9
-  let e10 := (· == ·) <$> cntSig <*> p10
-  let e11 := (· == ·) <$> cntSig <*> p11
-  let e12 := (· == ·) <$> cntSig <*> p12
-  let e13 := (· == ·) <$> cntSig <*> p13
-  let e14 := (· == ·) <$> cntSig <*> p14
-  let e15 := (· == ·) <$> cntSig <*> p15
+  let e1  := cntSig === p1
+  let e2  := cntSig === p2
+  let e3  := cntSig === p3
+  let e4  := cntSig === p4
+  let e5  := cntSig === p5
+  let e6  := cntSig === p6
+  let e7  := cntSig === p7
+  let e8  := cntSig === p8
+  let e9  := cntSig === p9
+  let e10 := cntSig === p10
+  let e11 := cntSig === p11
+  let e12 := cntSig === p12
+  let e13 := cntSig === p13
+  let e14 := cntSig === p14
+  let e15 := cntSig === p15
   Signal.mux e1 b0
     (Signal.mux e2 b1
       (Signal.mux e3 b2
@@ -410,10 +410,10 @@ def mmioEndpoint {dom : DomainConfig}
     -- Decode the addressed register from addr[3:2] (low 2
     -- bits of the DWORD-aligned address index).
     let addrIdx := parsed.addr.map (BitVec.extractLsb' 2 2 ·)
-    let isR0 := (· == ·) <$> addrIdx <*> (Signal.pure (0#2 : BitVec 2) : Signal dom (BitVec 2))
-    let isR1 := (· == ·) <$> addrIdx <*> (Signal.pure (1#2 : BitVec 2) : Signal dom (BitVec 2))
-    let isR2 := (· == ·) <$> addrIdx <*> (Signal.pure (2#2 : BitVec 2) : Signal dom (BitVec 2))
-    let isR3 := (· == ·) <$> addrIdx <*> (Signal.pure (3#2 : BitVec 2) : Signal dom (BitVec 2))
+    let isR0 := addrIdx === (Signal.pure (0#2 : BitVec 2) : Signal dom (BitVec 2))
+    let isR1 := addrIdx === (Signal.pure (1#2 : BitVec 2) : Signal dom (BitVec 2))
+    let isR2 := addrIdx === (Signal.pure (2#2 : BitVec 2) : Signal dom (BitVec 2))
+    let isR3 := addrIdx === (Signal.pure (3#2 : BitVec 2) : Signal dom (BitVec 2))
 
     -- On parserDone + isWrite, latch the dataDword into the
     -- addressed register.  On parserDone + !isWrite, kick
@@ -449,9 +449,9 @@ def mmioEndpoint {dom : DomainConfig}
     let pZ5  := (Signal.pure 0#5  : Signal dom (BitVec 5))
     let p1_5 := (Signal.pure 1#5  : Signal dom (BitVec 5))
     let p16_5 := (Signal.pure 16#5 : Signal dom (BitVec 5))
-    let cplInc := (· + ·) <$> cplCntSig <*> p1_5
-    let isCplIdle := (· == ·) <$> cplCntSig <*> pZ5
-    let isCplLast := (· == ·) <$> cplCntSig <*> p16_5
+    let cplInc := cplCntSig + p1_5
+    let isCplIdle := cplCntSig === pZ5
+    let isCplLast := cplCntSig === p16_5
     cplCnt <~ Signal.mux readFire p1_5
                 (Signal.mux isCplLast pZ5
                   (Signal.mux isCplIdle pZ5 cplInc))

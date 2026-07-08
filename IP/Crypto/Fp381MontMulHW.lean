@@ -104,12 +104,12 @@ def montMulHW {dom : DomainConfig}
     let pP     := (Signal.pure pBv  : Signal dom (BitVec 448))
     let nP     := (Signal.pure nPrimeBv : Signal dom (BitVec 448))
 
-    let isIdle   := ((· == ·) <$> cntSig <*> p0_5 : Signal dom Bool)
-    let isFinish := ((· == ·) <$> cntSig <*> p13_5 : Signal dom Bool)
+    let isIdle   := (cntSig === p0_5 : Signal dom Bool)
+    let isFinish := (cntSig === p13_5 : Signal dom Bool)
     let busy     := ((fun i f => !(i || f)) <$> isIdle <*> isFinish : Signal dom Bool)
 
     -- Zero-prefix constants for widening.  We use the applicative
-    -- `(· ++ ·) <$> zeroPrefix <*> value` form (which the synth
+    -- `zeroPrefix ++ value` form (which the synth
     -- elaborator lowers via the concat path) rather than
     -- `Signal.map (fun v => BitVec.append (0#N) v)`, because the
     -- map-with-append-lambda gets stuck in recursive inlining at
@@ -118,35 +118,35 @@ def montMulHW {dom : DomainConfig}
     let z416 := (Signal.pure 0#416 : Signal dom (BitVec 416))
 
     -- a widened to 448 bits (0#64 ++ a).
-    let aWide := ((· ++ ·) <$> z64 <*> aSig : Signal dom (BitVec 448))
+    let aWide := (z64 ++ aSig : Signal dom (BitVec 448))
 
     -- Low 32-bit word of b, widened to 448 bits.
     let bLo32 := ((BitVec.extractLsb' 0 32 ·) <$> bSig : Signal dom (BitVec 32))
-    let biWide := ((· ++ ·) <$> z416 <*> bLo32 : Signal dom (BitVec 448))
+    let biWide := (z416 ++ bLo32 : Signal dom (BitVec 448))
 
     -- t1 = t + a·bi (448-bit space).
-    let abi := ((· * ·) <$> aWide <*> biWide : Signal dom (BitVec 448))
-    let t1  := ((· + ·) <$> accSig <*> abi : Signal dom (BitVec 448))
+    let abi := (aWide * biWide : Signal dom (BitVec 448))
+    let t1  := (accSig + abi : Signal dom (BitVec 448))
 
     -- m = (low32(t1) · n') mod 2^32, held in the low 32 bits of a
     -- 448-bit value.
     let t1lo32 := ((BitVec.extractLsb' 0 32 ·) <$> t1 : Signal dom (BitVec 32))
-    let t1lo := ((· ++ ·) <$> z416 <*> t1lo32 : Signal dom (BitVec 448))
-    let mFull := ((· * ·) <$> t1lo <*> nP : Signal dom (BitVec 448))
+    let t1lo := (z416 ++ t1lo32 : Signal dom (BitVec 448))
+    let mFull := (t1lo * nP : Signal dom (BitVec 448))
     let mLo32 := ((BitVec.extractLsb' 0 32 ·) <$> mFull : Signal dom (BitVec 32))
-    let m := ((· ++ ·) <$> z416 <*> mLo32 : Signal dom (BitVec 448))
+    let m := (z416 ++ mLo32 : Signal dom (BitVec 448))
 
     -- t2 = t1 + m·p, then shift down one word.
-    let mp := ((· * ·) <$> m <*> pP : Signal dom (BitVec 448))
-    let t2 := ((· + ·) <$> t1 <*> mp : Signal dom (BitVec 448))
+    let mp := (m * pP : Signal dom (BitVec 448))
+    let t2 := (t1 + mp : Signal dom (BitVec 448))
     let p32_448 := (Signal.pure 32#448 : Signal dom (BitVec 448))
-    let accNext := ((· >>> ·) <$> t2 <*> p32_448 : Signal dom (BitVec 448))
+    let accNext := (t2 >>> p32_448 : Signal dom (BitVec 448))
 
     -- b shifted right 32 bits each busy cycle.
     let p32_384 := (Signal.pure 32#384 : Signal dom (BitVec 384))
-    let bShr := ((· >>> ·) <$> bSig <*> p32_384 : Signal dom (BitVec 384))
+    let bShr := (bSig >>> p32_384 : Signal dom (BitVec 384))
     -- cnt + 1.
-    let cntInc := ((· + ·) <$> cntSig <*> p1_5 : Signal dom (BitVec 5))
+    let cntInc := (cntSig + p1_5 : Signal dom (BitVec 5))
 
     accR <~ Signal.mux start (Signal.pure 0#448 : Signal dom (BitVec 448))
               (Signal.mux busy accNext accSig)
@@ -163,7 +163,7 @@ def montMulHW {dom : DomainConfig}
     let accLo := ((BitVec.extractLsb' 0 384 ·) <$> accSig : Signal dom (BitVec 384))
     let pP384 := (Signal.pure pBv384 : Signal dom (BitVec 384))
     let ge    := ((BitVec.ule · ·) <$> pP384 <*> accLo : Signal dom Bool)
-    let resOut := (Signal.mux ge ((· - ·) <$> accLo <*> pP384) accLo
+    let resOut := (Signal.mux ge (accLo - pP384) accLo
                     : Signal dom (BitVec 384))
 
     return ({ result := resOut

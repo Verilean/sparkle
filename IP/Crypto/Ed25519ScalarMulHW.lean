@@ -72,9 +72,9 @@ instance {dom : DomainConfig} :
 private def bitOf {dom : DomainConfig}
     (k : Signal dom (BitVec 256)) (iSig : Signal dom (BitVec 256)) :
     Signal dom Bool :=
-  let sh := ((· >>> ·) <$> k <*> iSig : Signal dom (BitVec 256))
+  let sh := (k >>> iSig : Signal dom (BitVec 256))
   let lo := (sh.map (fun v => v &&& 1#256) : Signal dom (BitVec 256))
-  ((· == ·) <$> lo <*> (Signal.pure 1#256 : Signal dom (BitVec 256)))
+  (lo === (Signal.pure 1#256 : Signal dom (BitVec 256)))
 
 /-- The double-and-add scalar-mul FSM. -/
 def scalarMulHW {dom : DomainConfig}
@@ -114,24 +114,24 @@ def scalarMulHW {dom : DomainConfig}
     let ph4 := (Signal.pure 4#3 : Signal dom (BitVec 3))
     let ph5 := (Signal.pure 5#3 : Signal dom (BitVec 3))
 
-    let isDblIssue := ((· == ·) <$> phSig <*> ph1 : Signal dom Bool)
-    let isDblWait  := ((· == ·) <$> phSig <*> ph2 : Signal dom Bool)
-    let isAddIssue := ((· == ·) <$> phSig <*> ph3 : Signal dom Bool)
-    let isAddWait  := ((· == ·) <$> phSig <*> ph4 : Signal dom Bool)
+    let isDblIssue := (phSig === ph1 : Signal dom Bool)
+    let isDblWait  := (phSig === ph2 : Signal dom Bool)
+    let isAddIssue := (phSig === ph3 : Signal dom Bool)
+    let isAddWait  := (phSig === ph4 : Signal dom Bool)
 
     let bit := bitOf kSig biSig
 
     -- Point-op driver: DOUBLE issues in phase 1 (operand = R),
     -- ADD issues in phase 3 (operands R + P).
-    let opStart := ((· || ·) <$> isDblIssue <*> isAddIssue : Signal dom Bool)
+    let opStart := (isDblIssue ||| isAddIssue : Signal dom Bool)
     let opDouble := isDblIssue
 
     -- Point-op result / acks.
     let poDone := poResDone
-    let dblAck := ((· && ·) <$> isDblWait <*> poDone : Signal dom Bool)
-    let addAck := ((· && ·) <$> isAddWait <*> poDone : Signal dom Bool)
+    let dblAck := (isDblWait &&& poDone : Signal dom Bool)
+    let addAck := (isAddWait &&& poDone : Signal dom Bool)
 
-    let atBit0 := ((· == ·) <$> biSig <*> (Signal.pure 0#256 : Signal dom (BitVec 256))
+    let atBit0 := (biSig === (Signal.pure 0#256 : Signal dom (BitVec 256))
                     : Signal dom Bool)
 
     -- R register updates: double writes R on dblAck; add writes R on addAck.
@@ -155,19 +155,19 @@ def scalarMulHW {dom : DomainConfig}
     --   addAck & bi>0            ⇒ ph1 (next bit), bi--
     --   addAck & bi=0            ⇒ ph5 (complete)
     -- ==================================================================
-    let biDec := ((· - ·) <$> biSig <*> (Signal.pure 1#256 : Signal dom (BitVec 256))
+    let biDec := (biSig - (Signal.pure 1#256 : Signal dom (BitVec 256))
                     : Signal dom (BitVec 256))
     -- After a double: go to add if bit set, else advance/finish.
-    let dblToAdd := ((· && ·) <$> dblAck <*> bit : Signal dom Bool)
+    let dblToAdd := (dblAck &&& bit : Signal dom Bool)
     let dblSkip  := ((fun a b => a && !b) <$> dblAck <*> bit : Signal dom Bool)  -- bit=0
-    let dblNext  := ((· && ·) <$> dblSkip <*> ((fun b => !b) <$> atBit0) : Signal dom Bool)
-    let dblFin   := ((· && ·) <$> dblSkip <*> atBit0 : Signal dom Bool)
+    let dblNext  := (dblSkip &&& ((fun b => !b) <$> atBit0) : Signal dom Bool)
+    let dblFin   := (dblSkip &&& atBit0 : Signal dom Bool)
     -- After an add: advance/finish.
-    let addNext  := ((· && ·) <$> addAck <*> ((fun b => !b) <$> atBit0) : Signal dom Bool)
-    let addFin   := ((· && ·) <$> addAck <*> atBit0 : Signal dom Bool)
+    let addNext  := (addAck &&& ((fun b => !b) <$> atBit0) : Signal dom Bool)
+    let addFin   := (addAck &&& atBit0 : Signal dom Bool)
 
-    let goNext := ((· || ·) <$> dblNext <*> addNext : Signal dom Bool)
-    let goFin  := ((· || ·) <$> dblFin <*> addFin : Signal dom Bool)
+    let goNext := (dblNext ||| addNext : Signal dom Bool)
+    let goFin  := (dblFin ||| addFin : Signal dom Bool)
 
     phR <~ Signal.mux start ph1
              (Signal.mux isDblIssue ph2

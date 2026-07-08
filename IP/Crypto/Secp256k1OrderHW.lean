@@ -68,32 +68,32 @@ def mulModNHW {dom : DomainConfig}
     let p257_9 := (Signal.pure 257#9 : Signal dom (BitVec 9))
     let pN     := (Signal.pure nBv   : Signal dom (BitVec 258))
 
-    let isIdle   := ((· == ·) <$> cntSig <*> p0_9 : Signal dom Bool)
-    let isFinish := ((· == ·) <$> cntSig <*> p257_9 : Signal dom Bool)
+    let isIdle   := (cntSig === p0_9 : Signal dom Bool)
+    let isFinish := (cntSig === p257_9 : Signal dom Bool)
     let busy     := ((fun i f => !(i || f)) <$> isIdle <*> isFinish : Signal dom Bool)
 
     let aWide := (aSig.map (fun v => BitVec.append (0#2) v) : Signal dom (BitVec 258))
 
     let p255_256 := (Signal.pure 255#256 : Signal dom (BitVec 256))
     let p0_256   := (Signal.pure 0#256   : Signal dom (BitVec 256))
-    let bHi    := ((· >>> ·) <$> bSig <*> p255_256 : Signal dom (BitVec 256))
-    let bHiZ   := ((· == ·) <$> bHi <*> p0_256 : Signal dom Bool)
+    let bHi    := (bSig >>> p255_256 : Signal dom (BitVec 256))
+    let bHiZ   := (bHi === p0_256 : Signal dom Bool)
     let bMsb   := ((fun z => !z) <$> bHiZ : Signal dom Bool)
 
     let p1_258    := (Signal.pure 1#258 : Signal dom (BitVec 258))
-    let accDbl    := ((· <<< ·) <$> accSig <*> p1_258 : Signal dom (BitVec 258))
+    let accDbl    := (accSig <<< p1_258 : Signal dom (BitVec 258))
     let dblGe     := ((BitVec.ule · ·) <$> pN <*> accDbl : Signal dom Bool)
-    let accDblRed := (Signal.mux dblGe ((· - ·) <$> accDbl <*> pN) accDbl
+    let accDblRed := (Signal.mux dblGe (accDbl - pN) accDbl
                         : Signal dom (BitVec 258))
-    let accPlusA  := ((· + ·) <$> accDblRed <*> aWide : Signal dom (BitVec 258))
+    let accPlusA  := (accDblRed + aWide : Signal dom (BitVec 258))
     let addGe     := ((BitVec.ule · ·) <$> pN <*> accPlusA : Signal dom Bool)
-    let accAddRed := (Signal.mux addGe ((· - ·) <$> accPlusA <*> pN) accPlusA
+    let accAddRed := (Signal.mux addGe (accPlusA - pN) accPlusA
                         : Signal dom (BitVec 258))
     let accNext   := (Signal.mux bMsb accAddRed accDblRed : Signal dom (BitVec 258))
 
-    let bShl := ((· <<< ·) <$> bSig <*> (Signal.pure 1#256 : Signal dom (BitVec 256))
+    let bShl := (bSig <<< (Signal.pure 1#256 : Signal dom (BitVec 256))
                   : Signal dom (BitVec 256))
-    let cntInc := ((· + ·) <$> cntSig <*> p1_9 : Signal dom (BitVec 9))
+    let cntInc := (cntSig + p1_9 : Signal dom (BitVec 9))
 
     accR <~ Signal.mux start (Signal.pure 0#258 : Signal dom (BitVec 258))
               (Signal.mux busy accNext accSig)

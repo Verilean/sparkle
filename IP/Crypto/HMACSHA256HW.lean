@@ -57,15 +57,15 @@ def hmacSha256 {dom : DomainConfig}
     let st := (stR : Signal dom (BitVec 5))
     let innerSig := (innerR : Signal dom (BitVec 256))
     let padS := (Signal.pure pad256 : Signal dom (BitVec 256))
-    let keyPad := ((· ++ ·) <$> key <*> (Signal.pure (0#256) : Signal dom (BitVec 256)) : Signal dom (BitVec 512))
+    let keyPad := (key ++ (Signal.pure (0#256) : Signal dom (BitVec 256)) : Signal dom (BitVec 512))
     -- ipad/opad as a single 512-bit XOR (not concat-of-256-bit-xor).
-    let ipadBlk := ((· ^^^ ·) <$> keyPad <*> (Signal.pure c36_512 : Signal dom (BitVec 512)) : Signal dom (BitVec 512))
-    let opadBlk := ((· ^^^ ·) <$> keyPad <*> (Signal.pure c5c_512 : Signal dom (BitVec 512)) : Signal dom (BitVec 512))
-    let outerBlk := ((· ++ ·) <$> innerSig <*> padS : Signal dom (BitVec 512))
+    let ipadBlk := (keyPad ^^^ (Signal.pure c36_512 : Signal dom (BitVec 512)) : Signal dom (BitVec 512))
+    let opadBlk := (keyPad ^^^ (Signal.pure c5c_512 : Signal dom (BitVec 512)) : Signal dom (BitVec 512))
+    let outerBlk := (innerSig ++ padS : Signal dom (BitVec 512))
 
-    let isIssue := ((· || ·) <$> ((· || ·) <$> ((· || ·) <$> (st === 1#5) <*> (st === 3#5)) <*> (st === 5#5))
-                             <*> ((· || ·) <$> (st === 7#5) <*> (st === 9#5)) : Signal dom Bool)
-    let shaFirst := ((· || ·) <$> (st === 1#5) <*> (st === 7#5) : Signal dom Bool)
+    let isIssue := ((· || ·) <$> (((st === 1#5) ||| (st === 3#5)) ||| (st === 5#5))
+                             <*> ((st === 7#5) ||| (st === 9#5)) : Signal dom Bool)
+    let shaFirst := ((st === 1#5) ||| (st === 7#5) : Signal dom Bool)
     let shaBlk :=
       (Signal.mux (st === 1#5) ipadBlk
         (Signal.mux (st === 3#5) blk1
@@ -76,14 +76,14 @@ def hmacSha256 {dom : DomainConfig}
     let shaDone := sha.done
 
     -- capture inner: after iB1 when 2-block, after iB2 when 3-block.
-    let capInner2 := ((· && ·) <$> ((· && ·) <$> (st === 4#5) <*> ((fun b => !b) <$> threeBlk)) <*> shaDone : Signal dom Bool)
-    let capInner3 := ((· && ·) <$> (st === 6#5) <*> shaDone : Signal dom Bool)
-    innerR <~ Signal.mux ((· || ·) <$> capInner2 <*> capInner3) sha.hash innerSig
-    hmacR <~ Signal.mux ((· && ·) <$> (st === 10#5) <*> shaDone) sha.hash (hmacR : Signal dom (BitVec 256))
-    doneR <~ ((· && ·) <$> (st === 10#5) <*> shaDone)
+    let capInner2 := (((st === 4#5) &&& ((fun b => !b) <$> threeBlk)) &&& shaDone : Signal dom Bool)
+    let capInner3 := ((st === 6#5) &&& shaDone : Signal dom Bool)
+    innerR <~ Signal.mux (capInner2 ||| capInner3) sha.hash innerSig
+    hmacR <~ Signal.mux ((st === 10#5) &&& shaDone) sha.hash (hmacR : Signal dom (BitVec 256))
+    doneR <~ ((st === 10#5) &&& shaDone)
 
     -- next state.
-    let inc := ((· + ·) <$> st <*> (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
+    let inc := (st + (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
     -- from iB1-wait(4): →5 if threeBlk else →7 ; from iB2-wait(6): →7.
     let after4 := (Signal.mux threeBlk (Signal.pure 5#5 : Signal dom (BitVec 5)) (Signal.pure 7#5) : Signal dom (BitVec 5))
     let stNext :=

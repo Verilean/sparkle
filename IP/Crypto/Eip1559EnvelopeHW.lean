@@ -98,7 +98,7 @@ def eip1559EnvelopeHW {dom : DomainConfig}
     -- Valid whenever we emit the type byte or the inner emitter is
     -- emitting a header byte.
     let valid :=
-      ((· || ·) <$> start <*> hdr.headerValid : Signal dom Bool)
+      (start ||| hdr.headerValid : Signal dom Bool)
     -- The whole envelope header is done when the inner RLP header
     -- finishes.
     let doneOut := hdr.done

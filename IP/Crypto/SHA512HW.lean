@@ -48,63 +48,63 @@ namespace Sparkle.IP.Crypto.SHA512HW
   let nBv' : BitVec 64 := BitVec.ofNat 64 (64 - n)
   let pn  : Signal dom (BitVec 64) := Signal.pure nBv
   let pn' : Signal dom (BitVec 64) := Signal.pure nBv'
-  let rs : Signal dom (BitVec 64) := (· >>> ·) <$> x <*> pn
-  let ls : Signal dom (BitVec 64) := (· <<< ·) <$> x <*> pn'
-  (· ||| ·) <$> rs <*> ls
+  let rs : Signal dom (BitVec 64) := x >>> pn
+  let ls : Signal dom (BitVec 64) := x <<< pn'
+  rs ||| ls
 
 @[reducible, inline] def shr64Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) (n : Nat) :
     Signal dom (BitVec 64) :=
   let nBv : BitVec 64 := BitVec.ofNat 64 n
   let pn : Signal dom (BitVec 64) := Signal.pure nBv
-  (· >>> ·) <$> x <*> pn
+  x >>> pn
 
 @[reducible, inline] def bigSigma0Sig64 {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
   let a := rotr64Sig x 28
   let b := rotr64Sig x 34
   let c := rotr64Sig x 39
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[reducible, inline] def bigSigma1Sig64 {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
   let a := rotr64Sig x 14
   let b := rotr64Sig x 18
   let c := rotr64Sig x 41
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[reducible, inline] def smallSigma0Sig64 {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
   let a := rotr64Sig x 1
   let b := rotr64Sig x 8
   let c := shr64Sig x 7
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[reducible, inline] def smallSigma1Sig64 {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
   let a := rotr64Sig x 19
   let b := rotr64Sig x 61
   let c := shr64Sig x 6
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[reducible, inline] def chFn64Sig {dom : DomainConfig}
     (x y z : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  let xy   : Signal dom (BitVec 64) := (· &&& ·) <$> x <*> y
-  let nx   : Signal dom (BitVec 64) := (~~~ ·) <$> x
-  let nxz  : Signal dom (BitVec 64) := (· &&& ·) <$> nx <*> z
-  (· ^^^ ·) <$> xy <*> nxz
+  let xy   : Signal dom (BitVec 64) := x &&& y
+  let nx   : Signal dom (BitVec 64) := ~~~x
+  let nxz  : Signal dom (BitVec 64) := nx &&& z
+  xy ^^^ nxz
 
 @[reducible, inline] def majFn64Sig {dom : DomainConfig}
     (x y z : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  let xy  : Signal dom (BitVec 64) := (· &&& ·) <$> x <*> y
-  let xz  : Signal dom (BitVec 64) := (· &&& ·) <$> x <*> z
-  let yz  : Signal dom (BitVec 64) := (· &&& ·) <$> y <*> z
-  let t1  : Signal dom (BitVec 64) := (· ^^^ ·) <$> xy <*> xz
-  (· ^^^ ·) <$> t1 <*> yz
+  let xy  : Signal dom (BitVec 64) := x &&& y
+  let xz  : Signal dom (BitVec 64) := x &&& z
+  let yz  : Signal dom (BitVec 64) := y &&& z
+  let t1  : Signal dom (BitVec 64) := xy ^^^ xz
+  t1 ^^^ yz
 
 /-! ### K-mux: pick K[t] from a 7-bit counter (t = 0..79). -/
 

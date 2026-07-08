@@ -79,10 +79,10 @@ private def faddMod {dom : DomainConfig}
     (a b : Signal dom (BitVec 256)) : Signal dom (BitVec 256) :=
   let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let bw := (b.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 257))
+  let s  := (aw + bw : Signal dom (BitVec 257))
   let pP := (Signal.pure pBv257 : Signal dom (BitVec 257))
   let ge := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 257))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
 /-- Field sub mod p (combinational): a + p - b in 257 bits
@@ -92,10 +92,10 @@ private def fsubMod {dom : DomainConfig}
   let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let bw := (b.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let pP := (Signal.pure pBv257 : Signal dom (BitVec 257))
-  let apb := ((· + ·) <$> aw <*> pP : Signal dom (BitVec 257))
-  let s   := ((· - ·) <$> apb <*> bw : Signal dom (BitVec 257))
+  let apb := (aw + pP : Signal dom (BitVec 257))
+  let s   := (apb - bw : Signal dom (BitVec 257))
   let ge  := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 257))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
 /-- Field ×2 (combinational). -/
@@ -110,14 +110,14 @@ private def fnegMod {dom : DomainConfig}
 /-- `stepSig == k` as a Bool signal. -/
 private def stepEqK {dom : DomainConfig}
     (stepSig : Signal dom (BitVec 5)) (k : Nat) : Signal dom Bool :=
-  ((· == ·) <$> stepSig <*> (Signal.pure (BitVec.ofNat 5 k) : Signal dom (BitVec 5)))
+  (stepSig === (Signal.pure (BitVec.ofNat 5 k) : Signal dom (BitVec 5)))
 
 /-- Next value for scratch register `k`. -/
 private def latchIntoK {dom : DomainConfig}
     (stepAck : Signal dom Bool) (stepSig : Signal dom (BitVec 5))
     (engRes : Signal dom (BitVec 256)) (k : Nat)
     (cur : Signal dom (BitVec 256)) : Signal dom (BitVec 256) :=
-  Signal.mux ((· && ·) <$> stepAck <*> stepEqK stepSig k) engRes cur
+  Signal.mux (stepAck &&& stepEqK stepSig k) engRes cur
 
 /-- One extended-coords point op (double or add) FSM. -/
 def pointOpHW {dom : DomainConfig}
@@ -167,8 +167,8 @@ def pointOpHW {dom : DomainConfig}
     let p1_5 := (Signal.pure 1#5 : Signal dom (BitVec 5))
     let dConst := (Signal.pure dBv : Signal dom (BitVec 256))
 
-    let isTrig := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isWait := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
+    let isTrig := (stSig === p1_2 : Signal dom Bool)
+    let isWait := (stSig === p2_2 : Signal dom Bool)
 
     -- ================= DOUBLE combinational intermediates =================
     -- muls: m0=X*X(A) m1=Y*Y(B) m2=Z*Z m3=XY2=(X+Y)^2
@@ -242,8 +242,8 @@ def pointOpHW {dom : DomainConfig}
 
     -- Last step: double = 7, add = 8.
     let lastStep := (Signal.mux opDSig (stepEqK stepSig 7) (stepEqK stepSig 8) : Signal dom Bool)
-    let stepAck := ((· && ·) <$> isWait <*> engDone : Signal dom Bool)
-    let atLast := ((· && ·) <$> stepAck <*> lastStep : Signal dom Bool)
+    let stepAck := (isWait &&& engDone : Signal dom Bool)
+    let atLast := (stepAck &&& lastStep : Signal dom Bool)
     let advance := ((fun s l => s && !l) <$> stepAck <*> lastStep : Signal dom Bool)
 
     stR <~ Signal.mux start p1_2
@@ -251,7 +251,7 @@ def pointOpHW {dom : DomainConfig}
                 (Signal.mux stepAck
                   (Signal.mux lastStep p3_2 p1_2)
                   stSig))
-    let stepInc := ((· + ·) <$> stepSig <*> p1_5 : Signal dom (BitVec 5))
+    let stepInc := (stepSig + p1_5 : Signal dom (BitVec 5))
     stepR <~ Signal.mux start p0_5
               (Signal.mux advance stepInc stepSig)
     opDR <~ Signal.mux start opDouble opDSig

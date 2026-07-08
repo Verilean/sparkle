@@ -103,9 +103,9 @@ instance {dom : DomainConfig} :
 private def bitOf {dom : DomainConfig}
     (k : Signal dom (BitVec 256)) (iSig : Signal dom (BitVec 256)) :
     Signal dom Bool :=
-  let sh := ((· >>> ·) <$> k <*> iSig : Signal dom (BitVec 256))
+  let sh := (k >>> iSig : Signal dom (BitVec 256))
   let lo := (sh.map (fun v => v &&& 1#256) : Signal dom (BitVec 256))
-  ((· == ·) <$> lo <*> (Signal.pure 1#256 : Signal dom (BitVec 256)))
+  (lo === (Signal.pure 1#256 : Signal dom (BitVec 256)))
 
 /-- The scalar-mul ladder FSM. -/
 def scalarMulHW {dom : DomainConfig}
@@ -157,10 +157,10 @@ def scalarMulHW {dom : DomainConfig}
     let ph4 := (Signal.pure 4#3 : Signal dom (BitVec 3))
     let ph5 := (Signal.pure 5#3 : Signal dom (BitVec 3))
 
-    let isAddIssue := ((· == ·) <$> phSig <*> ph1 : Signal dom Bool)
-    let isAddWait  := ((· == ·) <$> phSig <*> ph2 : Signal dom Bool)
-    let isDblIssue := ((· == ·) <$> phSig <*> ph3 : Signal dom Bool)
-    let isDblWait  := ((· == ·) <$> phSig <*> ph4 : Signal dom Bool)
+    let isAddIssue := (phSig === ph1 : Signal dom Bool)
+    let isAddWait  := (phSig === ph2 : Signal dom Bool)
+    let isDblIssue := (phSig === ph3 : Signal dom Bool)
+    let isDblWait  := (phSig === ph4 : Signal dom Bool)
 
     -- Current scalar bit.
     let bit := bitOf kSig biSig
@@ -181,7 +181,7 @@ def scalarMulHW {dom : DomainConfig}
     -- pointOpHW's `start` must pulse for exactly one cycle at the
     -- issue phase.  `opStart` = (isAddIssue || isDblIssue).
     -- ==================================================================
-    let opStart := ((· || ·) <$> isAddIssue <*> isDblIssue : Signal dom Bool)
+    let opStart := (isAddIssue ||| isDblIssue : Signal dom Bool)
     let opDouble := isDblIssue          -- true only when issuing the double
     -- DOUBLE operand: bit ? R1 : R0.
     let dblX := (Signal.mux bit r1x r0x : Signal dom (BitVec 256))
@@ -206,11 +206,11 @@ def scalarMulHW {dom : DomainConfig}
     let poZ := poResZ
 
     -- Acks: the point-op completed in the wait phase.
-    let addAck := ((· && ·) <$> isAddWait <*> poDone : Signal dom Bool)
-    let dblAck := ((· && ·) <$> isDblWait <*> poDone : Signal dom Bool)
+    let addAck := (isAddWait &&& poDone : Signal dom Bool)
+    let dblAck := (isDblWait &&& poDone : Signal dom Bool)
 
     -- Are we at the last bit (i = 0)?
-    let atBit0 := ((· == ·) <$> biSig <*> (Signal.pure 0#256 : Signal dom (BitVec 256))
+    let atBit0 := (biSig === (Signal.pure 0#256 : Signal dom (BitVec 256))
                     : Signal dom Bool)
 
     -- ==================================================================
@@ -231,11 +231,11 @@ def scalarMulHW {dom : DomainConfig}
     let addSumZ := (Signal.mux r0Inf r1z poZ : Signal dom (BitVec 256))
 
     -- On addAck: write sum into R1 (bit=0) or R0 (bit=1).
-    let wrAddR0 := ((· && ·) <$> addAck <*> bit : Signal dom Bool)          -- bit=1
+    let wrAddR0 := (addAck &&& bit : Signal dom Bool)          -- bit=1
     let wrAddR1 := ((fun a b => a && !b) <$> addAck <*> bit : Signal dom Bool) -- bit=0
     -- On dblAck: write dbl into R0 (bit=0) or R1 (bit=1).
     let wrDblR0 := ((fun a b => a && !b) <$> dblAck <*> bit : Signal dom Bool) -- bit=0
-    let wrDblR1 := ((· && ·) <$> dblAck <*> bit : Signal dom Bool)            -- bit=1
+    let wrDblR1 := (dblAck &&& bit : Signal dom Bool)            -- bit=1
 
     -- R0 register: start ⇒ ∞ sentinel (0,0,0); addAck&bit ⇒ sum; dblAck&!bit ⇒ dbl.
     r0xR <~ Signal.mux start (Signal.pure 0#256 : Signal dom (BitVec 256))
@@ -261,7 +261,7 @@ def scalarMulHW {dom : DomainConfig}
 
     -- r0Inf flag: set on start; cleared once we consume the first set
     -- bit (an add-ack with bit=1 promotes R0 from ∞ to R1).
-    let clearInf := ((· && ·) <$> wrAddR0 <*> r0Inf : Signal dom Bool)
+    let clearInf := (wrAddR0 &&& r0Inf : Signal dom Bool)
     r0InfR <~ Signal.mux start (Signal.pure true : Signal dom Bool)
                 (Signal.mux clearInf (Signal.pure false : Signal dom Bool) r0Inf)
 
@@ -274,10 +274,10 @@ def scalarMulHW {dom : DomainConfig}
     --   dblAck & bi>0  ⇒ phase=1 (next bit), bi--
     --   dblAck & bi=0  ⇒ phase=5 (complete)
     -- ==================================================================
-    let biDec := ((· - ·) <$> biSig <*> (Signal.pure 1#256 : Signal dom (BitVec 256))
+    let biDec := (biSig - (Signal.pure 1#256 : Signal dom (BitVec 256))
                     : Signal dom (BitVec 256))
     let nextBit := ((fun d b0 => d && !b0) <$> dblAck <*> atBit0 : Signal dom Bool)
-    let finish  := ((· && ·) <$> dblAck <*> atBit0 : Signal dom Bool)
+    let finish  := (dblAck &&& atBit0 : Signal dom Bool)
 
     phR <~ Signal.mux start ph1
              (Signal.mux isAddIssue ph2

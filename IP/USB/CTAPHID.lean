@@ -153,11 +153,11 @@ def ctapHidDeframerHW {dom : DomainConfig}
 
     -- Position predicates (inlined — a local lambda returning an
     -- applicative chain does not lower, "Cannot instantiate Seq.seq").
-    let atByte4 := ((· == ·) <$> posSig <*> (Signal.pure 4#6 : Signal dom (BitVec 6)) : Signal dom Bool)
-    let atByte5 := ((· == ·) <$> posSig <*> (Signal.pure 5#6 : Signal dom (BitVec 6)) : Signal dom Bool)
-    let atByte6 := ((· == ·) <$> posSig <*> (Signal.pure 6#6 : Signal dom (BitVec 6)) : Signal dom Bool)
+    let atByte4 := (posSig === (Signal.pure 4#6 : Signal dom (BitVec 6)) : Signal dom Bool)
+    let atByte5 := (posSig === (Signal.pure 5#6 : Signal dom (BitVec 6)) : Signal dom Bool)
+    let atByte6 := (posSig === (Signal.pure 6#6 : Signal dom (BitVec 6)) : Signal dom Bool)
     let p63 := (Signal.pure 63#6 : Signal dom (BitVec 6))
-    let atReportEnd := ((· == ·) <$> posSig <*> p63 : Signal dom Bool)
+    let atReportEnd := (posSig === p63 : Signal dom Bool)
 
     -- Header field positions (INIT report): 0..3 cid, 4 cmd, 5 bcntH, 6 bcntL.
     -- Payload starts at pos 7 (INIT) or pos 5 (CONT).
@@ -170,44 +170,44 @@ def ctapHidDeframerHW {dom : DomainConfig}
         <*> ((fun p => BitVec.ule 5#6 p) <$> posSig : Signal dom Bool) : Signal dom Bool)
     -- This byte is a payload byte (and we still need more, pcnt < bcnt).
     let needMore := ((BitVec.ult · ·) <$> pcntSig <*> bcntSig : Signal dom Bool)
-    let isPayPos := ((· || ·) <$> initPayStart <*> contPayStart : Signal dom Bool)
+    let isPayPos := (initPayStart ||| contPayStart : Signal dom Bool)
     let isPayload :=
-      ((· && ·) <$> (((· && ·) <$> isPayPos <*> needMore : Signal dom Bool))
+      ((· && ·) <$> ((isPayPos &&& needMore : Signal dom Bool))
         <*> rxValid : Signal dom Bool)
 
     -- CID assembly: shift byte in at pos 0..3 (INIT).
-    let cidShift := (((· <<< ·) <$> cidSig <*> (Signal.pure 8#32 : Signal dom (BitVec 32)))
+    let cidShift := ((cidSig <<< (Signal.pure 8#32 : Signal dom (BitVec 32)))
                       ||| (rxByte.map (fun v => BitVec.append (0#24) v))
                       : Signal dom (BitVec 32))
     let inCidRange :=
       ((· && ·) <$> isInit
         <*> ((fun p => BitVec.ule p 3#6) <$> posSig : Signal dom Bool) : Signal dom Bool)
-    let cidGate := ((· && ·) <$> inCidRange <*> rxValid : Signal dom Bool)
+    let cidGate := (inCidRange &&& rxValid : Signal dom Bool)
     cidR <~ Signal.mux cidGate cidShift cidSig
 
     -- CMD at INIT pos 4.
-    let cmdGate := ((· && ·) <$> (((· && ·) <$> isInit <*> atByte4 : Signal dom Bool)) <*> rxValid : Signal dom Bool)
+    let cmdGate := (((isInit &&& atByte4 : Signal dom Bool)) &&& rxValid : Signal dom Bool)
     cmdR <~ Signal.mux cmdGate rxByte (cmdR : Signal dom (BitVec 8))
 
     -- BCNT: pos 5 = high byte, pos 6 = low byte (INIT).
     let bcntHi := (rxByte.map (fun v => BitVec.append v (0#8)) : Signal dom (BitVec 16))
     let bcntLoAppend := (rxByte.map (fun v => BitVec.append (0#8) v) : Signal dom (BitVec 16))
-    let bcntWithLo := ((· ||| ·) <$> bcntSig <*> bcntLoAppend : Signal dom (BitVec 16))
-    let bcntHiGate := ((· && ·) <$> (((· && ·) <$> isInit <*> atByte5 : Signal dom Bool)) <*> rxValid : Signal dom Bool)
-    let bcntLoGate := ((· && ·) <$> (((· && ·) <$> isInit <*> atByte6 : Signal dom Bool)) <*> rxValid : Signal dom Bool)
+    let bcntWithLo := (bcntSig ||| bcntLoAppend : Signal dom (BitVec 16))
+    let bcntHiGate := (((isInit &&& atByte5 : Signal dom Bool)) &&& rxValid : Signal dom Bool)
+    let bcntLoGate := (((isInit &&& atByte6 : Signal dom Bool)) &&& rxValid : Signal dom Bool)
     bcntR <~ Signal.mux bcntHiGate bcntHi (Signal.mux bcntLoGate bcntWithLo bcntSig)
 
     -- Payload counter: +1 on each payload byte.
-    let pcntInc := ((· + ·) <$> pcntSig <*> (Signal.pure 1#16 : Signal dom (BitVec 16)) : Signal dom (BitVec 16))
+    let pcntInc := (pcntSig + (Signal.pure 1#16 : Signal dom (BitVec 16)) : Signal dom (BitVec 16))
     -- msgDone when this payload byte makes pcnt reach bcnt.
     let pcntNext := Signal.mux isPayload pcntInc pcntSig
-    let reachedEnd := ((· == ·) <$> pcntNext <*> bcntSig : Signal dom Bool)
-    let msgDoneNow := ((· && ·) <$> isPayload <*> reachedEnd : Signal dom Bool)
+    let reachedEnd := (pcntNext === bcntSig : Signal dom Bool)
+    let msgDoneNow := (isPayload &&& reachedEnd : Signal dom Bool)
     pcntR <~ pcntNext
 
     -- Position: +1 per rxValid, wrap 63→0 and toggle to CONT.
-    let posInc := ((· + ·) <$> posSig <*> (Signal.pure 1#6 : Signal dom (BitVec 6)) : Signal dom (BitVec 6))
-    let posWrap := ((· && ·) <$> atReportEnd <*> rxValid : Signal dom Bool)
+    let posInc := (posSig + (Signal.pure 1#6 : Signal dom (BitVec 6)) : Signal dom (BitVec 6))
+    let posWrap := (atReportEnd &&& rxValid : Signal dom Bool)
     posR <~ Signal.mux rxValid (Signal.mux atReportEnd (Signal.pure 0#6 : Signal dom (BitVec 6)) posInc) posSig
     -- After the first report ends, subsequent reports are CONT.
     inCont <~ Signal.mux posWrap (Signal.pure true : Signal dom Bool) contSig

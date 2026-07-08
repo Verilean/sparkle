@@ -118,7 +118,7 @@ instance {dom : DomainConfig} :
     tracing: "Cannot infer hardware type from Nat"). -/
 private def xorPad {dom : DomainConfig}
     (x pad : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  ((· ^^^ ·) <$> x <*> pad)
+  (x ^^^ pad)
 
 /-- 4-way message-word select across phases 1..4. -/
 private def selW {dom : DomainConfig}
@@ -179,16 +179,16 @@ def hmacSha512HW {dom : DomainConfig}
     let c4 := (Signal.pure 4#3 : Signal dom (BitVec 3))
     let c5 := (Signal.pure 5#3 : Signal dom (BitVec 3))
 
-    let isIdle := ((· == ·) <$> ph <*> c0 : Signal dom Bool)
-    let isP1 := ((· == ·) <$> ph <*> c1 : Signal dom Bool)
-    let isP2 := ((· == ·) <$> ph <*> c2 : Signal dom Bool)
-    let isP3 := ((· == ·) <$> ph <*> c3 : Signal dom Bool)
-    let isP4 := ((· == ·) <$> ph <*> c4 : Signal dom Bool)
+    let isIdle := (ph === c0 : Signal dom Bool)
+    let isP1 := (ph === c1 : Signal dom Bool)
+    let isP2 := (ph === c2 : Signal dom Bool)
+    let isP3 := (ph === c3 : Signal dom Bool)
+    let isP4 := (ph === c4 : Signal dom Bool)
     let active := ((fun i c => !(i || c)) <$> isIdle
-                    <*> ((· == ·) <$> ph <*> c5) : Signal dom Bool)
+                    <*> (ph === c5) : Signal dom Bool)
 
     -- A block finishes when we're in a wait sub-phase and blkDone.
-    let blkAck := ((· && ·) <$> waiting <*> blkDone : Signal dom Bool)
+    let blkAck := (waiting &&& blkDone : Signal dom Bool)
 
     -- ── ipad / opad key words (K ⊕ pad, then zero-pad already 0) ──
     -- K is 32 bytes = k0..k3; bytes 32..127 of the padded key are 0,
@@ -220,7 +220,7 @@ def hmacSha512HW {dom : DomainConfig}
     let len192 := (Signal.pure 1536#64 : Signal dom (BitVec 64))  -- 192*8
 
     -- ── hIn selection: initH for block-1 phases, prev digest for block-2 ──
-    let useInit := ((· || ·) <$> isP1 <*> isP3 : Signal dom Bool)
+    let useInit := (isP1 ||| isP3 : Signal dom Bool)
     let bhIn0 := Signal.mux useInit hi0 p0
     let bhIn1 := Signal.mux useInit hi1 p1
     let bhIn2 := Signal.mux useInit hi2 p2
@@ -279,7 +279,7 @@ def hmacSha512HW {dom : DomainConfig}
     p6R <~ latchW start blkAck p6 blkOut6
     p7R <~ latchW start blkAck p7 blkOut7
     -- done pulses when the final block (phase 4) acks.
-    doneR <~ ((· && ·) <$> blkAck <*> atLastPhase : Signal dom Bool)
+    doneR <~ (blkAck &&& atLastPhase : Signal dom Bool)
 
     return ({ out0 := p0, out1 := p1, out2 := p2, out3 := p3
             , out4 := p4, out5 := p5, out6 := p6, out7 := p7

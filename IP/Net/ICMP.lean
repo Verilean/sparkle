@@ -93,7 +93,7 @@ abbrev icmpCode     : BitVec 8  := 0x00#8
   -- avoids a known emitter limitation with constant-shift
   -- through `Signal.map` closures.
   let w0 : Signal dom (BitVec 16) :=
-    (· ++ ·) <$> typ <*> (Signal.pure (0#8 : BitVec 8) : Signal dom (BitVec 8))
+    typ ++ (Signal.pure (0#8 : BitVec 8) : Signal dom (BitVec 8))
   let s1 := IPv4.onesAdd16Sig w0 ident
   let s2 := IPv4.onesAdd16Sig s1 seq
   s2.map (BitVec.not ·)
@@ -141,13 +141,13 @@ instance {dom : DomainConfig} :
   let p5  := (Signal.pure 5#4 : Signal dom (BitVec 4))
   let p6  := (Signal.pure 6#4 : Signal dom (BitVec 4))
   let p7  := (Signal.pure 7#4 : Signal dom (BitVec 4))
-  let e1  := (· == ·) <$> cntSig <*> p1
-  let e2  := (· == ·) <$> cntSig <*> p2
-  let e3  := (· == ·) <$> cntSig <*> p3
-  let e4  := (· == ·) <$> cntSig <*> p4
-  let e5  := (· == ·) <$> cntSig <*> p5
-  let e6  := (· == ·) <$> cntSig <*> p6
-  let e7  := (· == ·) <$> cntSig <*> p7
+  let e1  := cntSig === p1
+  let e2  := cntSig === p2
+  let e3  := cntSig === p3
+  let e4  := cntSig === p4
+  let e5  := cntSig === p5
+  let e6  := cntSig === p6
+  let e7  := cntSig === p7
   Signal.mux e1 b0
     (Signal.mux e2 b1
       (Signal.mux e3 b2
@@ -198,15 +198,15 @@ def icmpRxParser {dom : DomainConfig}
     let p5 := (Signal.pure 5#4 : Signal dom (BitVec 4))
     let p6 := (Signal.pure 6#4 : Signal dom (BitVec 4))
     let p7 := (Signal.pure 7#4 : Signal dom (BitVec 4))
-    let inIdent := (((· == ·) <$> cntSig <*> p4) |||
-                    ((· == ·) <$> cntSig <*> p5))
-    let inSeq   := (((· == ·) <$> cntSig <*> p6) |||
-                    ((· == ·) <$> cntSig <*> p7))
-    let isLast  := (· == ·) <$> cntSig <*> p7
+    let inIdent := ((cntSig === p4) |||
+                    (cntSig === p5))
+    let inSeq   := ((cntSig === p6) |||
+                    (cntSig === p7))
+    let isLast  := cntSig === p7
 
     let idNext  := shiftIn16 idSig byte
     let seqNext := shiftIn16 seqSig byte
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt   <~ Signal.mux sopIcmp p1
               (Signal.mux valid cntInc cntSig)
     typR  <~ Signal.mux sopIcmp byte typSig
@@ -258,13 +258,13 @@ def icmpEchoResponder {dom : DomainConfig}
     let p0 := (Signal.pure 0#4 : Signal dom (BitVec 4))
     let p1 := (Signal.pure 1#4 : Signal dom (BitVec 4))
     let p8 := (Signal.pure 8#4 : Signal dom (BitVec 4))
-    let isIdle := (· == ·) <$> txCntSig <*> p0
-    let isLast := (· == ·) <$> txCntSig <*> p8
+    let isIdle := txCntSig === p0
+    let isLast := txCntSig === p8
     let isEmitting := (fun b => !b) <$> isIdle
 
     -- Match check: parser done AND captured type == echo request.
     let pReq := (Signal.pure icmpTypeReq : Signal dom (BitVec 8))
-    let isReq := (· == ·) <$> parsed.typ <*> pReq
+    let isReq := parsed.typ === pReq
     let matchPulse := parsed.done &&& isReq
 
     -- Reply fields: type=Reply, ident/seq echoed back.
@@ -272,7 +272,7 @@ def icmpEchoResponder {dom : DomainConfig}
     let chksum := icmpEchoChecksumSig replyType idSig seqSig
     let byteOut := icmpHeaderByte replyType idSig seqSig chksum txCntSig
 
-    let txCntInc := (· + ·) <$> txCntSig <*> p1
+    let txCntInc := txCntSig + p1
     txCnt <~ Signal.mux matchPulse p1
               (Signal.mux isLast p0
                 (Signal.mux isEmitting txCntInc txCntSig))
@@ -333,8 +333,8 @@ def icmpEchoRequester {dom : DomainConfig}
     let p0 := (Signal.pure 0#4 : Signal dom (BitVec 4))
     let p1 := (Signal.pure 1#4 : Signal dom (BitVec 4))
     let p8 := (Signal.pure 8#4 : Signal dom (BitVec 4))
-    let isIdle := (· == ·) <$> txCntSig <*> p0
-    let isLast := (· == ·) <$> txCntSig <*> p8
+    let isIdle := txCntSig === p0
+    let isLast := txCntSig === p8
     let isEmitting := (fun b => !b) <$> isIdle
 
     -- Outgoing reply: type = request, ident/seq from
@@ -345,7 +345,7 @@ def icmpEchoRequester {dom : DomainConfig}
     let chksum := icmpEchoChecksumSig reqType idNow seqNow
     let byteOut := icmpHeaderByte reqType idNow seqNow chksum txCntSig
 
-    let txCntInc := (· + ·) <$> txCntSig <*> p1
+    let txCntInc := txCntSig + p1
     txCnt  <~ Signal.mux trigger p1
                 (Signal.mux isLast p0
                   (Signal.mux isEmitting txCntInc txCntSig))
@@ -355,9 +355,9 @@ def icmpEchoRequester {dom : DomainConfig}
     -- Reply capture: parser.done AND type == reply AND
     -- ident/seq match the latched values.
     let pRep := (Signal.pure icmpTypeRep : Signal dom (BitVec 8))
-    let isRep := (· == ·) <$> parsed.typ <*> pRep
-    let idMatch := (· == ·) <$> parsed.ident <*> idSig
-    let seqMatch := (· == ·) <$> parsed.seq <*> seqSig
+    let isRep := parsed.typ === pRep
+    let idMatch := parsed.ident === idSig
+    let seqMatch := parsed.seq === seqSig
     let captureP := parsed.done &&& isRep &&& idMatch &&& seqMatch
     okR <~ Signal.mux trigger (Signal.pure false)
             (Signal.mux captureP (Signal.pure true) okSig)

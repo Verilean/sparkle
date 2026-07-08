@@ -52,39 +52,39 @@ def pidParityHW {dom : DomainConfig}
     PidOut dom :=
   let mask1 := (Signal.pure 1#6 : Signal dom (BitVec 6))
   -- Per-bit projections.
-  let b0 := ((· &&& ·) <$> idIn <*> mask1 : Signal dom (BitVec 6))
+  let b0 := (idIn &&& mask1 : Signal dom (BitVec 6))
   let b1 :=
     ((· &&& ·) <$>
-      ((· >>> ·) <$> idIn <*> (Signal.pure 1#6 : Signal dom (BitVec 6)))
+      (idIn >>> (Signal.pure 1#6 : Signal dom (BitVec 6)))
       <*> mask1 : Signal dom (BitVec 6))
   let b2 :=
     ((· &&& ·) <$>
-      ((· >>> ·) <$> idIn <*> (Signal.pure 2#6 : Signal dom (BitVec 6)))
+      (idIn >>> (Signal.pure 2#6 : Signal dom (BitVec 6)))
       <*> mask1 : Signal dom (BitVec 6))
   let b3 :=
     ((· &&& ·) <$>
-      ((· >>> ·) <$> idIn <*> (Signal.pure 3#6 : Signal dom (BitVec 6)))
+      (idIn >>> (Signal.pure 3#6 : Signal dom (BitVec 6)))
       <*> mask1 : Signal dom (BitVec 6))
   let b4 :=
     ((· &&& ·) <$>
-      ((· >>> ·) <$> idIn <*> (Signal.pure 4#6 : Signal dom (BitVec 6)))
+      (idIn >>> (Signal.pure 4#6 : Signal dom (BitVec 6)))
       <*> mask1 : Signal dom (BitVec 6))
   let b5 :=
     ((· &&& ·) <$>
-      ((· >>> ·) <$> idIn <*> (Signal.pure 5#6 : Signal dom (BitVec 6)))
+      (idIn >>> (Signal.pure 5#6 : Signal dom (BitVec 6)))
       <*> mask1 : Signal dom (BitVec 6))
   -- P0 = b0 XOR b1 XOR b2 XOR b4
-  let p0a := ((· ^^^ ·) <$> b0 <*> b1 : Signal dom (BitVec 6))
-  let p0b := ((· ^^^ ·) <$> p0a <*> b2 : Signal dom (BitVec 6))
-  let p0  := ((· ^^^ ·) <$> p0b <*> b4 : Signal dom (BitVec 6))
+  let p0a := (b0 ^^^ b1 : Signal dom (BitVec 6))
+  let p0b := (p0a ^^^ b2 : Signal dom (BitVec 6))
+  let p0  := (p0b ^^^ b4 : Signal dom (BitVec 6))
   -- P1 = 1 XOR (b1 XOR b3 XOR b4 XOR b5)
-  let x1 := ((· ^^^ ·) <$> b1 <*> b3 : Signal dom (BitVec 6))
-  let x2 := ((· ^^^ ·) <$> x1 <*> b4 : Signal dom (BitVec 6))
-  let x3 := ((· ^^^ ·) <$> x2 <*> b5 : Signal dom (BitVec 6))
-  let p1 := ((· ^^^ ·) <$> x3 <*> mask1 : Signal dom (BitVec 6))
+  let x1 := (b1 ^^^ b3 : Signal dom (BitVec 6))
+  let x2 := (x1 ^^^ b4 : Signal dom (BitVec 6))
+  let x3 := (x2 ^^^ b5 : Signal dom (BitVec 6))
+  let p1 := (x3 ^^^ mask1 : Signal dom (BitVec 6))
   -- Combine: (p1 << 1) | p0, then narrow to BitVec 2.
-  let p1s := ((· <<< ·) <$> p1 <*> mask1 : Signal dom (BitVec 6))
-  let combined := ((· ||| ·) <$> p1s <*> p0 : Signal dom (BitVec 6))
+  let p1s := (p1 <<< mask1 : Signal dom (BitVec 6))
+  let combined := (p1s ||| p0 : Signal dom (BitVec 6))
   let narrowed := combined.map (BitVec.extractLsb' 0 2 ·)
   { parity := narrowed }
 
@@ -123,29 +123,29 @@ def checksumHW {dom : DomainConfig}
 
     -- 9-bit sum: widen both to BitVec 9 by (0#1 ++ ·).
     let zeroBit := (Signal.pure 0#1 : Signal dom (BitVec 1))
-    let accW := ((· ++ ·) <$> zeroBit <*> accSig : Signal dom (BitVec 9))
-    let byteW := ((· ++ ·) <$> zeroBit <*> byteIn : Signal dom (BitVec 9))
-    let sumW := ((· + ·) <$> accW <*> byteW : Signal dom (BitVec 9))
+    let accW := (zeroBit ++ accSig : Signal dom (BitVec 9))
+    let byteW := (zeroBit ++ byteIn : Signal dom (BitVec 9))
+    let sumW := (accW + byteW : Signal dom (BitVec 9))
 
     -- Detect carry: top bit of the 9-bit sum.
     let p1_9 := (Signal.pure 1#9 : Signal dom (BitVec 9))
     let p8_9 := (Signal.pure 8#9 : Signal dom (BitVec 9))
-    let carryShift := ((· >>> ·) <$> sumW <*> p8_9 : Signal dom (BitVec 9))
-    let carryMasked := ((· &&& ·) <$> carryShift <*> p1_9 : Signal dom (BitVec 9))
+    let carryShift := (sumW >>> p8_9 : Signal dom (BitVec 9))
+    let carryMasked := (carryShift &&& p1_9 : Signal dom (BitVec 9))
     let p0_9 := (Signal.pure 0#9 : Signal dom (BitVec 9))
-    let isCarryZero := ((· == ·) <$> carryMasked <*> p0_9 : Signal dom Bool)
+    let isCarryZero := (carryMasked === p0_9 : Signal dom Bool)
     let carry := ((fun b => !b) <$> isCarryZero : Signal dom Bool)
 
     -- Truncate low 8 bits via extractLsb'.
     let sumLo := sumW.map (BitVec.extractLsb' 0 8 ·)
-    let sumLoP1 := ((· + ·) <$> sumLo <*> p1 : Signal dom (BitVec 8))
+    let sumLoP1 := (sumLo + p1 : Signal dom (BitVec 8))
     let folded := Signal.mux carry sumLoP1 sumLo
 
     -- Update: start → 0; valid → folded; else hold.
     accR <~ Signal.mux start p0 (Signal.mux valid folded accSig)
 
     -- Final checksum = NOT acc = 0xFF XOR acc.
-    let chkSig := ((· ^^^ ·) <$> accSig <*> pFF : Signal dom (BitVec 8))
+    let chkSig := (accSig ^^^ pFF : Signal dom (BitVec 8))
     return ({ acc := accSig, chk := chkSig } : ChkOut dom)
 
 end Sparkle.IP.Bus.LINHW

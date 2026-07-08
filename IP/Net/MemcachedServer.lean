@@ -274,25 +274,25 @@ structure ParserState where
     let pst7 := (Signal.pure 7#4 : Signal dom (BitVec 4))
     let pst8 := (Signal.pure 8#4 : Signal dom (BitVec 4))
 
-    let inIdle := ((· == ·) <$> stSig <*> pst0 : Signal dom Bool)
-    let inVerb := ((· == ·) <$> stSig <*> pst1 : Signal dom Bool)
-    let inKey  := ((· == ·) <$> stSig <*> pst2 : Signal dom Bool)
-    let inSkip := ((· == ·) <$> stSig <*> pst3 : Signal dom Bool)
-    let inVal  := ((· == ·) <$> stSig <*> pst4 : Signal dom Bool)
-    let inFinal := ((· == ·) <$> stSig <*> pst5 : Signal dom Bool)
-    let inDispatch := ((· == ·) <$> stSig <*> pst6 : Signal dom Bool)
-    let inWait := ((· == ·) <$> stSig <*> pst7 : Signal dom Bool)
-    let inEmit := ((· == ·) <$> stSig <*> pst8 : Signal dom Bool)
+    let inIdle := (stSig === pst0 : Signal dom Bool)
+    let inVerb := (stSig === pst1 : Signal dom Bool)
+    let inKey  := (stSig === pst2 : Signal dom Bool)
+    let inSkip := (stSig === pst3 : Signal dom Bool)
+    let inVal  := (stSig === pst4 : Signal dom Bool)
+    let inFinal := (stSig === pst5 : Signal dom Bool)
+    let inDispatch := (stSig === pst6 : Signal dom Bool)
+    let inWait := (stSig === pst7 : Signal dom Bool)
+    let inEmit := (stSig === pst8 : Signal dom Bool)
 
     -- Verb decode: first byte after Idle.
     let pG := (Signal.pure 0x67#8 : Signal dom (BitVec 8))   -- 'g'
     let pS := (Signal.pure 0x73#8 : Signal dom (BitVec 8))   -- 's'
     let pA := (Signal.pure 0x61#8 : Signal dom (BitVec 8))   -- 'a'
     let pD := (Signal.pure 0x64#8 : Signal dom (BitVec 8))   -- 'd'
-    let isG := ((· == ·) <$> inByte <*> pG : Signal dom Bool)
-    let isS := ((· == ·) <$> inByte <*> pS : Signal dom Bool)
-    let isA := ((· == ·) <$> inByte <*> pA : Signal dom Bool)
-    let isD := ((· == ·) <$> inByte <*> pD : Signal dom Bool)
+    let isG := (inByte === pG : Signal dom Bool)
+    let isS := (inByte === pS : Signal dom Bool)
+    let isA := (inByte === pA : Signal dom Bool)
+    let isD := (inByte === pD : Signal dom Bool)
     let pCode0 := (Signal.pure 0#2 : Signal dom (BitVec 2))
     let pCode1 := (Signal.pure 1#2 : Signal dom (BitVec 2))
     let pCode2 := (Signal.pure 2#2 : Signal dom (BitVec 2))
@@ -307,21 +307,21 @@ structure ParserState where
     let isVerbByte :=
       ((· || ·) <$> isG <*>
         (((· || ·) <$> isS <*>
-          (((· || ·) <$> isA <*> isD : Signal dom Bool))
+          ((isA ||| isD : Signal dom Bool))
           : Signal dom Bool))
         : Signal dom Bool)
     let idleEnter := ((· && ·) <$> inIdle <*>
-      ((· && ·) <$> inValid <*> isVerbByte : Signal dom Bool)
+      (inValid &&& isVerbByte : Signal dom Bool)
       : Signal dom Bool)
 
     -- Byte predicates we use a lot.
     let pSP := (Signal.pure 0x20#8 : Signal dom (BitVec 8))
     let pCR := (Signal.pure 0x0D#8 : Signal dom (BitVec 8))
     let pLF := (Signal.pure 0x0A#8 : Signal dom (BitVec 8))
-    let byteIsSP := ((· == ·) <$> inByte <*> pSP : Signal dom Bool)
-    let byteIsCR := ((· == ·) <$> inByte <*> pCR : Signal dom Bool)
-    let byteIsLF := ((· == ·) <$> inByte <*> pLF : Signal dom Bool)
-    let byteIsCROrLF := ((· || ·) <$> byteIsCR <*> byteIsLF : Signal dom Bool)
+    let byteIsSP := (inByte === pSP : Signal dom Bool)
+    let byteIsCR := (inByte === pCR : Signal dom Bool)
+    let byteIsLF := (inByte === pLF : Signal dom Bool)
+    let byteIsCROrLF := (byteIsCR ||| byteIsLF : Signal dom Bool)
 
     -- (validAndIs was a let-bound lambda; the synth elaborator
     -- doesn't unfold lambda-let bindings cleanly, so we inline
@@ -330,7 +330,7 @@ structure ParserState where
     -- VERB state: consume bytes until first space.  Transition
     -- to KEY collection.
     let verbDone := ((· && ·) <$> inVerb <*>
-      ((· && ·) <$> inValid <*> byteIsSP : Signal dom Bool) : Signal dom Bool)
+      (inValid &&& byteIsSP : Signal dom Bool) : Signal dom Bool)
     -- KEY state: shift bytes into keyReg.  On space → SKIP (set/add)
     --   or CRLF → FINAL (get/delete).
     let keyShift := ((· && ·) <$> inKey <*>
@@ -340,32 +340,32 @@ structure ParserState where
           ((fun b => !b) <$> byteIsCROrLF : Signal dom Bool) : Signal dom Bool)
         : Signal dom Bool) : Signal dom Bool)
     let p8 := (Signal.pure 8#64 : Signal dom (BitVec 64))
-    let keyShifted := ((· <<< ·) <$> keySig <*> p8 : Signal dom (BitVec 64))
+    let keyShifted := (keySig <<< p8 : Signal dom (BitVec 64))
     -- Zero-extend inByte (BV8 → BV64) by concat-ing with a 56-bit
-    -- zero prefix.  We use the applicative `(· ++ ·) <$> a <*> b`
+    -- zero prefix.  We use the applicative `a ++ b`
     -- form (same shape the synth elaborator already handles
     -- successfully elsewhere via the Seq.seq → concat path),
     -- rather than `Signal.map (BitVec.append (0#56))`, because
     -- map-with-a-lambda-using-`append` gets stuck inside
     -- recursive inlining.
     let p0_56 := (Signal.pure 0#56 : Signal dom (BitVec 56))
-    let inByte64 := ((· ++ ·) <$> p0_56 <*> inByte : Signal dom (BitVec 64))
-    let keyNew := ((· ||| ·) <$> keyShifted <*> inByte64 : Signal dom (BitVec 64))
+    let inByte64 := (p0_56 ++ inByte : Signal dom (BitVec 64))
+    let keyNew := (keyShifted ||| inByte64 : Signal dom (BitVec 64))
     let keyEndSp := ((· && ·) <$> inKey <*>
-      ((· && ·) <$> inValid <*> byteIsSP : Signal dom Bool) : Signal dom Bool)
+      (inValid &&& byteIsSP : Signal dom Bool) : Signal dom Bool)
     let keyEndCR := ((· && ·) <$> inKey <*>
-      ((· && ·) <$> inValid <*> byteIsCR : Signal dom Bool) : Signal dom Bool)
+      (inValid &&& byteIsCR : Signal dom Bool) : Signal dom Bool)
 
     -- SKIP state: skip set/add args (flags, exptime, bytes) until
     -- CRLF.  We don't parse them — simplification.
     let skipDone := ((· && ·) <$> inSkip <*>
-      ((· && ·) <$> inValid <*> byteIsLF : Signal dom Bool) : Signal dom Bool)
+      (inValid &&& byteIsLF : Signal dom Bool) : Signal dom Bool)
     -- After SKIP we enter VAL state with valueCnt=0; collect 16
     -- value bytes (or until CR).
     -- VAL state: shift bytes into valueReg until cnt=16 or CR.
     let p16_5 := (Signal.pure 16#5 : Signal dom (BitVec 5))
     let p1_5 := (Signal.pure 1#5 : Signal dom (BitVec 5))
-    let cntDone := ((· == ·) <$> cntSig <*> p16_5 : Signal dom Bool)
+    let cntDone := (cntSig === p16_5 : Signal dom Bool)
     let valTake := ((· && ·) <$> inVal <*>
       ((· && ·) <$> inValid <*>
         ((· && ·) <$>
@@ -373,20 +373,20 @@ structure ParserState where
           ((fun b => !b) <$> cntDone : Signal dom Bool)
           : Signal dom Bool) : Signal dom Bool) : Signal dom Bool)
     let p8_128 := (Signal.pure 8#128 : Signal dom (BitVec 128))
-    let valueShifted := ((· <<< ·) <$> valueSig <*> p8_128 : Signal dom (BitVec 128))
+    let valueShifted := (valueSig <<< p8_128 : Signal dom (BitVec 128))
     let p0_120 := (Signal.pure 0#120 : Signal dom (BitVec 120))
-    let inByte128 := ((· ++ ·) <$> p0_120 <*> inByte : Signal dom (BitVec 128))
-    let valueNew := ((· ||| ·) <$> valueShifted <*> inByte128 : Signal dom (BitVec 128))
+    let inByte128 := (p0_120 ++ inByte : Signal dom (BitVec 128))
+    let valueNew := (valueShifted ||| inByte128 : Signal dom (BitVec 128))
     -- VAL done: byte is CR OR cnt is 16 → go to FINAL.
-    let validAndCR := ((· && ·) <$> inValid <*> byteIsCR : Signal dom Bool)
-    let validAndCntDone := ((· && ·) <$> inValid <*> cntDone : Signal dom Bool)
+    let validAndCR := (inValid &&& byteIsCR : Signal dom Bool)
+    let validAndCntDone := (inValid &&& cntDone : Signal dom Bool)
     let valDone := ((· && ·) <$> inVal <*>
-      ((· || ·) <$> validAndCR <*> validAndCntDone : Signal dom Bool)
+      (validAndCR ||| validAndCntDone : Signal dom Bool)
       : Signal dom Bool)
 
     -- FINAL state: wait for LF, then dispatch.
     let finalDone := ((· && ·) <$> inFinal <*>
-      ((· && ·) <$> inValid <*> byteIsLF : Signal dom Bool) : Signal dom Bool)
+      (inValid &&& byteIsLF : Signal dom Bool) : Signal dom Bool)
 
     -- For set/add we go from KEY → SKIP via space, then SKIP → VAL via LF,
     -- then VAL → FINAL via CR, then FINAL → DISPATCH via LF.
@@ -394,8 +394,8 @@ structure ParserState where
 
     -- code says set/add (need value): codeReg in {1,2}
     let needValue := ((· || ·) <$>
-      (((· == ·) <$> codeSig <*> pCode1 : Signal dom Bool)) <*>
-      (((· == ·) <$> codeSig <*> pCode2 : Signal dom Bool)) : Signal dom Bool)
+      ((codeSig === pCode1 : Signal dom Bool)) <*>
+      ((codeSig === pCode2 : Signal dom Bool)) : Signal dom Bool)
 
     -- DISPATCH state: opStart pulse to kvHw.
     -- WAIT state: monitor kvHw.replyValid (latched into replyKindR).
@@ -415,15 +415,15 @@ structure ParserState where
     let engineReplyValue := engine.replyValue
 
     -- WAIT → EMIT on engine.replyValid.
-    let waitDone := ((· && ·) <$> inWait <*> engineReplyValid : Signal dom Bool)
+    let waitDone := (inWait &&& engineReplyValid : Signal dom Bool)
 
     -- Reply length lookup (from latched replyKindR).
     let replyLen := replyLenOf rkSig
     let p1_6 := (Signal.pure 1#6 : Signal dom (BitVec 6))
-    let phasePlus1 := ((· + ·) <$> phaseSig <*> p1_6 : Signal dom (BitVec 6))
+    let phasePlus1 := (phaseSig + p1_6 : Signal dom (BitVec 6))
     -- emitDone when phase+1 == replyLen.
     let emitDone := ((· && ·) <$> inEmit <*>
-      ((· == ·) <$> phasePlus1 <*> replyLen : Signal dom Bool)
+      (phasePlus1 === replyLen : Signal dom Bool)
       : Signal dom Bool)
 
     -- State transitions
@@ -454,8 +454,8 @@ structure ParserState where
     let codeNext := Signal.mux idleEnter verbCode codeSig
 
     -- valueCnt next: 0 at idleEnter or skipDone; +1 on valTake; hold otherwise.
-    let cntInc := ((· + ·) <$> cntSig <*> p1_5 : Signal dom (BitVec 5))
-    let cntClear := ((· || ·) <$> idleEnter <*> skipDone : Signal dom Bool)
+    let cntInc := (cntSig + p1_5 : Signal dom (BitVec 5))
+    let cntClear := (idleEnter ||| skipDone : Signal dom Bool)
     let cntNext :=
       Signal.mux cntClear (Signal.pure 0#5)
         (Signal.mux valTake cntInc cntSig)

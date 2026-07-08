@@ -196,63 +196,63 @@ def sha256OfBytes (input : Array UInt8) : Array (BitVec 32) := Id.run do
   -- (x >>> n) ||| (x <<< (32 - n))
   let pn  : Signal dom (BitVec 32) := Signal.pure nBv
   let pn' : Signal dom (BitVec 32) := Signal.pure nBv'
-  let rs : Signal dom (BitVec 32) := (· >>> ·) <$> x <*> pn
-  let ls : Signal dom (BitVec 32) := (· <<< ·) <$> x <*> pn'
-  (· ||| ·) <$> rs <*> ls
+  let rs : Signal dom (BitVec 32) := x >>> pn
+  let ls : Signal dom (BitVec 32) := x <<< pn'
+  rs ||| ls
 
 @[inline] def shr32Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 32)) (n : Nat) :
     Signal dom (BitVec 32) :=
   let nBv : BitVec 32 := BitVec.ofNat 32 n
   let pn : Signal dom (BitVec 32) := Signal.pure nBv
-  (· >>> ·) <$> x <*> pn
+  x >>> pn
 
 @[inline] def bigSigma0Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   let a := rotr32Sig x 2
   let b := rotr32Sig x 13
   let c := rotr32Sig x 22
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[inline] def bigSigma1Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   let a := rotr32Sig x 6
   let b := rotr32Sig x 11
   let c := rotr32Sig x 25
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[inline] def smallSigma0Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   let a := rotr32Sig x 7
   let b := rotr32Sig x 18
   let c := shr32Sig x 3
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[inline] def smallSigma1Sig {dom : DomainConfig}
     (x : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
   let a := rotr32Sig x 17
   let b := rotr32Sig x 19
   let c := shr32Sig x 10
-  let ab := (· ^^^ ·) <$> a <*> b
-  (· ^^^ ·) <$> ab <*> c
+  let ab := a ^^^ b
+  ab ^^^ c
 
 @[inline] def chFnSig {dom : DomainConfig}
     (x y z : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
-  let xy   : Signal dom (BitVec 32) := (· &&& ·) <$> x <*> y
-  let nx   : Signal dom (BitVec 32) := (~~~ ·) <$> x
-  let nxz  : Signal dom (BitVec 32) := (· &&& ·) <$> nx <*> z
-  (· ^^^ ·) <$> xy <*> nxz
+  let xy   : Signal dom (BitVec 32) := x &&& y
+  let nx   : Signal dom (BitVec 32) := ~~~x
+  let nxz  : Signal dom (BitVec 32) := nx &&& z
+  xy ^^^ nxz
 
 @[inline] def majFnSig {dom : DomainConfig}
     (x y z : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
-  let xy  : Signal dom (BitVec 32) := (· &&& ·) <$> x <*> y
-  let xz  : Signal dom (BitVec 32) := (· &&& ·) <$> x <*> z
-  let yz  : Signal dom (BitVec 32) := (· &&& ·) <$> y <*> z
-  let t1  : Signal dom (BitVec 32) := (· ^^^ ·) <$> xy <*> xz
-  (· ^^^ ·) <$> t1 <*> yz
+  let xy  : Signal dom (BitVec 32) := x &&& y
+  let xz  : Signal dom (BitVec 32) := x &&& z
+  let yz  : Signal dom (BitVec 32) := y &&& z
+  let t1  : Signal dom (BitVec 32) := xy ^^^ xz
+  t1 ^^^ yz
 
 /-! ### K-table mux: pick K[t] from a 7-bit counter. -/
 
@@ -403,52 +403,52 @@ def sha256Block {dom : DomainConfig}
     let p0_7   := (Signal.pure 0#7  : Signal dom (BitVec 7))
     let p1_7   := (Signal.pure 1#7  : Signal dom (BitVec 7))
     let p65_7  := (Signal.pure 65#7 : Signal dom (BitVec 7))
-    let isIdle   := (· == ·) <$> cntSig <*> p0_7
-    let isFinish := (· == ·) <$> cntSig <*> p65_7
+    let isIdle   := cntSig === p0_7
+    let isFinish := cntSig === p65_7
 
     -- Compute T1, T2, next-state.  Round t runs at cnt = t+1 (cnt 1..64), so
     -- the round constant is K[cnt-1] — feed cnt-1 (NOT cnt) to the K table.
-    let kt    := kMux ((· - ·) <$> cntSig <*> (Signal.pure 1#7 : Signal dom (BitVec 7)))
+    let kt    := kMux (cntSig - (Signal.pure 1#7 : Signal dom (BitVec 7)))
     -- Σ₁(e) = ROTR(e,6) ⊕ ROTR(e,11) ⊕ ROTR(e,25), inlined.
-    let e6  := ((· >>> ·) <$> eSig <*> (Signal.pure 6#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let e6l := ((· <<< ·) <$> eSig <*> (Signal.pure 26#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let rE6 := ((· ||| ·) <$> e6 <*> e6l : Signal dom (BitVec 32))
-    let e11  := ((· >>> ·) <$> eSig <*> (Signal.pure 11#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let e11l := ((· <<< ·) <$> eSig <*> (Signal.pure 21#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let rE11 := ((· ||| ·) <$> e11 <*> e11l : Signal dom (BitVec 32))
-    let e25  := ((· >>> ·) <$> eSig <*> (Signal.pure 25#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let e25l := ((· <<< ·) <$> eSig <*> (Signal.pure 7#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let rE25 := ((· ||| ·) <$> e25 <*> e25l : Signal dom (BitVec 32))
-    let sig1ab := ((· ^^^ ·) <$> rE6 <*> rE11 : Signal dom (BitVec 32))
-    let sig1  := ((· ^^^ ·) <$> sig1ab <*> rE25 : Signal dom (BitVec 32))
+    let e6  := (eSig >>> (Signal.pure 6#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let e6l := (eSig <<< (Signal.pure 26#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rE6 := (e6 ||| e6l : Signal dom (BitVec 32))
+    let e11  := (eSig >>> (Signal.pure 11#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let e11l := (eSig <<< (Signal.pure 21#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rE11 := (e11 ||| e11l : Signal dom (BitVec 32))
+    let e25  := (eSig >>> (Signal.pure 25#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let e25l := (eSig <<< (Signal.pure 7#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rE25 := (e25 ||| e25l : Signal dom (BitVec 32))
+    let sig1ab := (rE6 ^^^ rE11 : Signal dom (BitVec 32))
+    let sig1  := (sig1ab ^^^ rE25 : Signal dom (BitVec 32))
     -- Σ₀(a) = ROTR(a,2) ⊕ ROTR(a,13) ⊕ ROTR(a,22), inlined.
-    let a2  := ((· >>> ·) <$> aSig <*> (Signal.pure 2#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let a2l := ((· <<< ·) <$> aSig <*> (Signal.pure 30#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let rA2 := ((· ||| ·) <$> a2 <*> a2l : Signal dom (BitVec 32))
-    let a13  := ((· >>> ·) <$> aSig <*> (Signal.pure 13#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let a13l := ((· <<< ·) <$> aSig <*> (Signal.pure 19#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let rA13 := ((· ||| ·) <$> a13 <*> a13l : Signal dom (BitVec 32))
-    let a22  := ((· >>> ·) <$> aSig <*> (Signal.pure 22#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let a22l := ((· <<< ·) <$> aSig <*> (Signal.pure 10#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let rA22 := ((· ||| ·) <$> a22 <*> a22l : Signal dom (BitVec 32))
-    let sig0ab := ((· ^^^ ·) <$> rA2 <*> rA13 : Signal dom (BitVec 32))
-    let sig0  := ((· ^^^ ·) <$> sig0ab <*> rA22 : Signal dom (BitVec 32))
+    let a2  := (aSig >>> (Signal.pure 2#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let a2l := (aSig <<< (Signal.pure 30#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rA2 := (a2 ||| a2l : Signal dom (BitVec 32))
+    let a13  := (aSig >>> (Signal.pure 13#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let a13l := (aSig <<< (Signal.pure 19#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rA13 := (a13 ||| a13l : Signal dom (BitVec 32))
+    let a22  := (aSig >>> (Signal.pure 22#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let a22l := (aSig <<< (Signal.pure 10#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let rA22 := (a22 ||| a22l : Signal dom (BitVec 32))
+    let sig0ab := (rA2 ^^^ rA13 : Signal dom (BitVec 32))
+    let sig0  := (sig0ab ^^^ rA22 : Signal dom (BitVec 32))
     -- Ch(e,f,g) = (e ∧ f) ⊕ (¬e ∧ g), inlined.
-    let chXy  := ((· &&& ·) <$> eSig <*> fSig : Signal dom (BitVec 32))
-    let chNx  := ((~~~ ·) <$> eSig : Signal dom (BitVec 32))
-    let chNxz := ((· &&& ·) <$> chNx <*> gSig : Signal dom (BitVec 32))
-    let chv   := ((· ^^^ ·) <$> chXy <*> chNxz : Signal dom (BitVec 32))
+    let chXy  := (eSig &&& fSig : Signal dom (BitVec 32))
+    let chNx  := (~~~eSig : Signal dom (BitVec 32))
+    let chNxz := (chNx &&& gSig : Signal dom (BitVec 32))
+    let chv   := (chXy ^^^ chNxz : Signal dom (BitVec 32))
     -- Maj(a,b,c) = (a∧b) ⊕ (a∧c) ⊕ (b∧c), inlined.
-    let mjXy := ((· &&& ·) <$> aSig <*> bSig : Signal dom (BitVec 32))
-    let mjXz := ((· &&& ·) <$> aSig <*> cSig : Signal dom (BitVec 32))
-    let mjYz := ((· &&& ·) <$> bSig <*> cSig : Signal dom (BitVec 32))
-    let mjT1 := ((· ^^^ ·) <$> mjXy <*> mjXz : Signal dom (BitVec 32))
-    let majv  := ((· ^^^ ·) <$> mjT1 <*> mjYz : Signal dom (BitVec 32))
-    let t1a := (· + ·) <$> hSig <*> sig1
-    let t1b := (· + ·) <$> t1a <*> chv
-    let t1c := (· + ·) <$> t1b <*> kt
-    let t1  := (· + ·) <$> t1c <*> wt
-    let t2  := (· + ·) <$> sig0 <*> majv
+    let mjXy := (aSig &&& bSig : Signal dom (BitVec 32))
+    let mjXz := (aSig &&& cSig : Signal dom (BitVec 32))
+    let mjYz := (bSig &&& cSig : Signal dom (BitVec 32))
+    let mjT1 := (mjXy ^^^ mjXz : Signal dom (BitVec 32))
+    let majv  := (mjT1 ^^^ mjYz : Signal dom (BitVec 32))
+    let t1a := hSig + sig1
+    let t1b := t1a + chv
+    let t1c := t1b + kt
+    let t1  := t1c + wt
+    let t2  := sig0 + majv
 
     -- Next-cycle round registers.  When in a compression
     -- round (cnt 1..64), shift a→b→c→d, e gets d+t1, etc.
@@ -467,8 +467,8 @@ def sha256Block {dom : DomainConfig}
     let fLoad := Signal.mux firstSig (Signal.pure 0x9b05688c#32) h5Sig
     let gLoad := Signal.mux firstSig (Signal.pure 0x1f83d9ab#32) h6Sig
     let hLoadV := Signal.mux firstSig (Signal.pure 0x5be0cd19#32) h7Sig
-    let aNext := (· + ·) <$> t1 <*> t2
-    let eNext := (· + ·) <$> dSig <*> t1
+    let aNext := t1 + t2
+    let eNext := dSig + t1
 
     aR <~ Signal.mux start aLoad
             (Signal.mux isIdle aSig aNext)
@@ -490,17 +490,17 @@ def sha256Block {dom : DomainConfig}
     -- H0..H7 update: at cycle 65 (isFinish), add a..h into
     -- H0..H7.  Hold otherwise (initH already loaded on
     -- reset).
-    let h0Acc := (· + ·) <$> h0Sig <*> aSig
-    let h1Acc := (· + ·) <$> h1Sig <*> bSig
-    let h2Acc := (· + ·) <$> h2Sig <*> cSig
-    let h3Acc := (· + ·) <$> h3Sig <*> dSig
-    let h4Acc := (· + ·) <$> h4Sig <*> eSig
-    let h5Acc := (· + ·) <$> h5Sig <*> fSig
-    let h6Acc := (· + ·) <$> h6Sig <*> gSig
-    let h7Acc := (· + ·) <$> h7Sig <*> hSig
+    let h0Acc := h0Sig + aSig
+    let h1Acc := h1Sig + bSig
+    let h2Acc := h2Sig + cSig
+    let h3Acc := h3Sig + dSig
+    let h4Acc := h4Sig + eSig
+    let h5Acc := h5Sig + fSig
+    let h6Acc := h6Sig + gSig
+    let h7Acc := h7Sig + hSig
     -- On a `first`-block start, (re)load H0..H7 with the IV so the finish-time
     -- accumulation `H += a..h` starts from initH.  Otherwise carry / accumulate.
-    let startFirst := ((· && ·) <$> start <*> firstSig : Signal dom Bool)
+    let startFirst := (start &&& firstSig : Signal dom Bool)
     h0R <~ Signal.mux startFirst (Signal.pure 0x6a09e667#32) (Signal.mux isFinish h0Acc h0Sig)
     h1R <~ Signal.mux startFirst (Signal.pure 0xbb67ae85#32) (Signal.mux isFinish h1Acc h1Sig)
     h2R <~ Signal.mux startFirst (Signal.pure 0x3c6ef372#32) (Signal.mux isFinish h2Acc h2Sig)
@@ -517,53 +517,53 @@ def sha256Block {dom : DomainConfig}
     -- During cnt 49..64 we still shift; the consumed wt
     -- is what we use this round.  Stop shifting at finish.
     -- σ₁(wTm2) = ROTR(x,17) ⊕ ROTR(x,19) ⊕ SHR(x,10), inlined.
-    let w2r17  := ((· >>> ·) <$> wTm2 <*> (Signal.pure 17#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w2r17l := ((· <<< ·) <$> wTm2 <*> (Signal.pure 15#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w2R17  := ((· ||| ·) <$> w2r17 <*> w2r17l : Signal dom (BitVec 32))
-    let w2r19  := ((· >>> ·) <$> wTm2 <*> (Signal.pure 19#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w2r19l := ((· <<< ·) <$> wTm2 <*> (Signal.pure 13#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w2R19  := ((· ||| ·) <$> w2r19 <*> w2r19l : Signal dom (BitVec 32))
-    let w2s10  := ((· >>> ·) <$> wTm2 <*> (Signal.pure 10#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w2ab   := ((· ^^^ ·) <$> w2R17 <*> w2R19 : Signal dom (BitVec 32))
-    let newW1  := ((· ^^^ ·) <$> w2ab <*> w2s10 : Signal dom (BitVec 32))
+    let w2r17  := (wTm2 >>> (Signal.pure 17#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2r17l := (wTm2 <<< (Signal.pure 15#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2R17  := (w2r17 ||| w2r17l : Signal dom (BitVec 32))
+    let w2r19  := (wTm2 >>> (Signal.pure 19#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2r19l := (wTm2 <<< (Signal.pure 13#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2R19  := (w2r19 ||| w2r19l : Signal dom (BitVec 32))
+    let w2s10  := (wTm2 >>> (Signal.pure 10#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w2ab   := (w2R17 ^^^ w2R19 : Signal dom (BitVec 32))
+    let newW1  := (w2ab ^^^ w2s10 : Signal dom (BitVec 32))
     -- σ₀(wTm15) = ROTR(x,7) ⊕ ROTR(x,18) ⊕ SHR(x,3), inlined.
-    let w15r7  := ((· >>> ·) <$> wTm15 <*> (Signal.pure 7#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w15r7l := ((· <<< ·) <$> wTm15 <*> (Signal.pure 25#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w15R7  := ((· ||| ·) <$> w15r7 <*> w15r7l : Signal dom (BitVec 32))
-    let w15r18  := ((· >>> ·) <$> wTm15 <*> (Signal.pure 18#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w15r18l := ((· <<< ·) <$> wTm15 <*> (Signal.pure 14#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w15R18  := ((· ||| ·) <$> w15r18 <*> w15r18l : Signal dom (BitVec 32))
-    let w15s3  := ((· >>> ·) <$> wTm15 <*> (Signal.pure 3#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
-    let w15ab  := ((· ^^^ ·) <$> w15R7 <*> w15R18 : Signal dom (BitVec 32))
-    let newW2  := ((· ^^^ ·) <$> w15ab <*> w15s3 : Signal dom (BitVec 32))
-    let n1n2  := (· + ·) <$> newW1 <*> wTm7
-    let n3    := (· + ·) <$> n1n2 <*> newW2
-    let newW  := (· + ·) <$> n3 <*> wTm16
+    let w15r7  := (wTm15 >>> (Signal.pure 7#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15r7l := (wTm15 <<< (Signal.pure 25#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15R7  := (w15r7 ||| w15r7l : Signal dom (BitVec 32))
+    let w15r18  := (wTm15 >>> (Signal.pure 18#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15r18l := (wTm15 <<< (Signal.pure 14#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15R18  := (w15r18 ||| w15r18l : Signal dom (BitVec 32))
+    let w15s3  := (wTm15 >>> (Signal.pure 3#32 : Signal dom (BitVec 32)) : Signal dom (BitVec 32))
+    let w15ab  := (w15R7 ^^^ w15R18 : Signal dom (BitVec 32))
+    let newW2  := (w15ab ^^^ w15s3 : Signal dom (BitVec 32))
+    let n1n2  := newW1 + wTm7
+    let n3    := n1n2 + newW2
+    let newW  := n3 + wTm16
     -- Shift the buffer left by 32 (drop the top 32 bits),
     -- then prepend new word into low position.
     -- Extract bits [479:0] (= old bits [479:0], shifted to
     -- [511:32]) and append newW [31:0].
     let bufLow := wBufSig.map (BitVec.extractLsb' 0 480 ·)
-    let shiftedBuf := (· ++ ·) <$> bufLow <*> newW
+    let shiftedBuf := bufLow ++ newW
     wBuf <~ Signal.mux start blockIn
               (Signal.mux ((fun b => !b) <$> isIdle) shiftedBuf wBufSig)
 
     -- Counter: 0 → 1 on start, +1 each cycle while non-zero,
     -- 0 again after finish (cycle 65).
-    let cntInc := (· + ·) <$> cntSig <*> p1_7
+    let cntInc := cntSig + p1_7
     cnt <~ Signal.mux start p1_7
             (Signal.mux isFinish p0_7
               (Signal.mux isIdle p0_7 cntInc))
     doneR <~ isFinish
 
     -- Pack hash output.
-    let h01 := (· ++ ·) <$> h0Sig <*> h1Sig
-    let h23 := (· ++ ·) <$> h2Sig <*> h3Sig
-    let h45 := (· ++ ·) <$> h4Sig <*> h5Sig
-    let h67 := (· ++ ·) <$> h6Sig <*> h7Sig
-    let h0123 := (· ++ ·) <$> h01 <*> h23
-    let h4567 := (· ++ ·) <$> h45 <*> h67
-    let hAll  := (· ++ ·) <$> h0123 <*> h4567
+    let h01 := h0Sig ++ h1Sig
+    let h23 := h2Sig ++ h3Sig
+    let h45 := h4Sig ++ h5Sig
+    let h67 := h6Sig ++ h7Sig
+    let h0123 := h01 ++ h23
+    let h4567 := h45 ++ h67
+    let hAll  := h0123 ++ h4567
 
     return ({ hash := hAll
             , done := (doneR : Signal dom Bool)

@@ -149,14 +149,14 @@ def slipFramerHW {dom : DomainConfig}
     let pESC_ESC := (Signal.pure ESC_ESC : Signal dom (BitVec 8))
 
     -- Predicates
-    let isIdle := ((· == ·) <$> stSig <*> p0_2 : Signal dom Bool)
-    let isBody := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isEsc  := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
+    let isIdle := (stSig === p0_2 : Signal dom Bool)
+    let isBody := (stSig === p1_2 : Signal dom Bool)
+    let isEsc  := (stSig === p2_2 : Signal dom Bool)
 
     -- Need to escape?  Payload byte equals END or ESC.
-    let byteIsEnd := ((· == ·) <$> payloadByte <*> pEND : Signal dom Bool)
-    let byteIsEsc := ((· == ·) <$> payloadByte <*> pESC : Signal dom Bool)
-    let needEscape := ((· || ·) <$> byteIsEnd <*> byteIsEsc : Signal dom Bool)
+    let byteIsEnd := (payloadByte === pEND : Signal dom Bool)
+    let byteIsEsc := (payloadByte === pESC : Signal dom Bool)
+    let needEscape := (byteIsEnd ||| byteIsEsc : Signal dom Bool)
 
     -- Compute the byte we'd emit in body state given payload + needEscape
     let escapeReplacement := Signal.mux byteIsEnd pESC_END pESC_ESC
@@ -175,14 +175,14 @@ def slipFramerHW {dom : DomainConfig}
 
     let payloadInIdleOrBody :=
       ((· && ·) <$>
-        (((· || ·) <$> isIdle <*> isBody : Signal dom Bool)) <*>
+        ((isIdle ||| isBody : Signal dom Bool)) <*>
         payloadValid : Signal dom Bool)
     let emitPayloadDirect :=
       ((· && ·) <$> payloadInIdleOrBody
         <*> ((fun b => !b) <$> needEscape : Signal dom Bool) : Signal dom Bool)
     let emitEscFirst :=
-      ((· && ·) <$> payloadInIdleOrBody <*> needEscape : Signal dom Bool)
-    let closeFrame := ((· && ·) <$> isBody <*> frameEnd : Signal dom Bool)
+      (payloadInIdleOrBody &&& needEscape : Signal dom Bool)
+    let closeFrame := (isBody &&& frameEnd : Signal dom Bool)
 
     -- outByte next
     let outByteNext :=
@@ -281,31 +281,31 @@ def slipDeframerHW {dom : DomainConfig}
     let pTrue := (Signal.pure true : Signal dom Bool)
     let pFalse := (Signal.pure false : Signal dom Bool)
 
-    let isIdle := ((· == ·) <$> stSig <*> p0_2 : Signal dom Bool)
-    let isBody := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isEsc  := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
+    let isIdle := (stSig === p0_2 : Signal dom Bool)
+    let isBody := (stSig === p1_2 : Signal dom Bool)
+    let isEsc  := (stSig === p2_2 : Signal dom Bool)
 
-    let byteIsEnd := ((· == ·) <$> rxByte <*> pEND : Signal dom Bool)
-    let byteIsEsc := ((· == ·) <$> rxByte <*> pESC : Signal dom Bool)
-    let byteIsEscEnd := ((· == ·) <$> rxByte <*> pESC_END : Signal dom Bool)
-    let byteIsEscEsc := ((· == ·) <$> rxByte <*> pESC_ESC : Signal dom Bool)
+    let byteIsEnd := (rxByte === pEND : Signal dom Bool)
+    let byteIsEsc := (rxByte === pESC : Signal dom Bool)
+    let byteIsEscEnd := (rxByte === pESC_END : Signal dom Bool)
+    let byteIsEscEsc := (rxByte === pESC_ESC : Signal dom Bool)
 
     -- Events (all gated by rxValid)
     let evIdleEnd :=                            -- idle + END → stay idle (skip)
-      ((· && ·) <$> (((· && ·) <$> isIdle <*> rxValid : Signal dom Bool))
+      ((· && ·) <$> ((isIdle &&& rxValid : Signal dom Bool))
         <*> byteIsEnd : Signal dom Bool)
     let evIdleData :=                           -- idle + non-END → enter body, emit byte
-      ((· && ·) <$> (((· && ·) <$> isIdle <*> rxValid : Signal dom Bool))
+      ((· && ·) <$> ((isIdle &&& rxValid : Signal dom Bool))
         <*> ((fun b => !b) <$> byteIsEnd : Signal dom Bool) : Signal dom Bool)
     let evBodyEnd :=                            -- body + END → frame done
-      ((· && ·) <$> (((· && ·) <$> isBody <*> rxValid : Signal dom Bool))
+      ((· && ·) <$> ((isBody &&& rxValid : Signal dom Bool))
         <*> byteIsEnd : Signal dom Bool)
     let evBodyEsc :=                            -- body + ESC → enter esc
-      ((· && ·) <$> (((· && ·) <$> isBody <*> rxValid : Signal dom Bool))
+      ((· && ·) <$> ((isBody &&& rxValid : Signal dom Bool))
         <*> byteIsEsc : Signal dom Bool)
     -- body + normal byte → emit byte
     let evBodyOther :=
-      ((· && ·) <$> (((· && ·) <$> isBody <*> rxValid : Signal dom Bool))
+      ((· && ·) <$> ((isBody &&& rxValid : Signal dom Bool))
         <*> ((· && ·) <$>
              ((fun b => !b) <$> byteIsEnd : Signal dom Bool) <*>
              ((fun b => !b) <$> byteIsEsc : Signal dom Bool)
@@ -313,7 +313,7 @@ def slipDeframerHW {dom : DomainConfig}
     -- esc + ESC_END → emit END
     -- esc + ESC_ESC → emit ESC
     -- esc + other  → emit byte as-is (protocol violation tolerance)
-    let evEscAny := ((· && ·) <$> isEsc <*> rxValid : Signal dom Bool)
+    let evEscAny := (isEsc &&& rxValid : Signal dom Bool)
 
     -- Output byte computation
     let escDecoded :=

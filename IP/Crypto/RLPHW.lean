@@ -108,13 +108,13 @@ def rlpHeaderHW {dom : DomainConfig}
     let lenLe255 := ((BitVec.ule · ·) <$> lenSig <*> p255_11 : Signal dom Bool)
     let is1B := lenLe55
     let notLe55 := ((fun b => !b) <$> lenLe55 : Signal dom Bool)
-    let is2B := ((· && ·) <$> notLe55 <*> lenLe255 : Signal dom Bool)
+    let is2B := (notLe55 &&& lenLe255 : Signal dom Bool)
 
     -- On start, compute the length class from lenIn *before* latching.
     let startLe55  := ((BitVec.ule · ·) <$> lenIn <*> p55_11  : Signal dom Bool)
     let startLe255 := ((BitVec.ule · ·) <$> lenIn <*> p255_11 : Signal dom Bool)
     let startNotLe55 := ((fun b => !b) <$> startLe55 : Signal dom Bool)
-    let startIs2 := ((· && ·) <$> startNotLe55 <*> startLe255 : Signal dom Bool)
+    let startIs2 := (startNotLe55 &&& startLe255 : Signal dom Bool)
     let hLenNext :=
       Signal.mux startLe55 p1_2 (Signal.mux startIs2 p2_2 p3_2)
 
@@ -132,13 +132,13 @@ def rlpHeaderHW {dom : DomainConfig}
       lenSig16.map (fun v => BitVec.extractLsb' 8 8 v)
     -- offsetShort + len (only used when is1B).
     let short1 :=
-      ((· + ·) <$> offShort <*> lenLoByte : Signal dom (BitVec 8))
+      (offShort + lenLoByte : Signal dom (BitVec 8))
     -- offsetLong + 1 (used when is2B, cycle 0).
     let long2H :=
-      ((· + ·) <$> offLong <*> (Signal.pure 1#8 : Signal dom (BitVec 8)))
+      (offLong + (Signal.pure 1#8 : Signal dom (BitVec 8)))
     -- offsetLong + 2 (used when 3B, cycle 0).
     let long3H :=
-      ((· + ·) <$> offLong <*> (Signal.pure 2#8 : Signal dom (BitVec 8)))
+      (offLong + (Signal.pure 2#8 : Signal dom (BitVec 8)))
 
     -- Cycle-0 byte: header start byte.
     let byte0 :=
@@ -152,10 +152,10 @@ def rlpHeaderHW {dom : DomainConfig}
     let byte2 := lenLoByte
 
     -- Which cycle are we on?
-    let isC0 := ((· == ·) <$> cntSig <*> p1_3 : Signal dom Bool)  -- emitting byte 0
-    let isC1 := ((· == ·) <$> cntSig <*> p2_3 : Signal dom Bool)
-    let isC2 := ((· == ·) <$> cntSig <*> p3_3 : Signal dom Bool)
-    let isIdle := ((· == ·) <$> cntSig <*> p0_3 : Signal dom Bool)
+    let isC0 := (cntSig === p1_3 : Signal dom Bool)  -- emitting byte 0
+    let isC1 := (cntSig === p2_3 : Signal dom Bool)
+    let isC2 := (cntSig === p3_3 : Signal dom Bool)
+    let isIdle := (cntSig === p0_3 : Signal dom Bool)
 
     -- Header byte on the current cycle.
     let curByte :=
@@ -167,19 +167,19 @@ def rlpHeaderHW {dom : DomainConfig}
       hLenSig.map (fun v => BitVec.append (0#1) v)
     let cntLeHLen := ((BitVec.ule · ·) <$> cntSig <*> hLenSig3 : Signal dom Bool)
     let notIdle := ((fun b => !b) <$> isIdle : Signal dom Bool)
-    let valid := ((· && ·) <$> notIdle <*> cntLeHLen : Signal dom Bool)
+    let valid := (notIdle &&& cntLeHLen : Signal dom Bool)
 
     -- done pulses when cnt == hLen (i.e. we just emitted the last byte
     -- and are transitioning back to idle).
-    let cntEqHLen := ((· == ·) <$> cntSig <*> hLenSig3 : Signal dom Bool)
-    let doneNow := ((· && ·) <$> notIdle <*> cntEqHLen : Signal dom Bool)
+    let cntEqHLen := (cntSig === hLenSig3 : Signal dom Bool)
+    let doneNow := (notIdle &&& cntEqHLen : Signal dom Bool)
 
     -- Register updates.
     lenR <~ Signal.mux start lenIn lenSig
     listR <~ Signal.mux start isList listSig
     hLenR <~ Signal.mux start hLenNext hLenSig
     -- Counter: 0 → 1 on start, +1 while emitting, → 0 after doneNow.
-    let cntInc := ((· + ·) <$> cntSig <*> p1_3 : Signal dom (BitVec 3))
+    let cntInc := (cntSig + p1_3 : Signal dom (BitVec 3))
     cntR <~ Signal.mux start p1_3
               (Signal.mux doneNow p0_3
                 (Signal.mux isIdle p0_3 cntInc))

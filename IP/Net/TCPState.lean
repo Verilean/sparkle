@@ -133,12 +133,12 @@ def tcpServerFSM {dom : DomainConfig}
     let pEstab     := (Signal.pure sEstab     : Signal dom (BitVec 4))
     let pCloseWait := (Signal.pure sCloseWait : Signal dom (BitVec 4))
     let pLastAck   := (Signal.pure sLastAck   : Signal dom (BitVec 4))
-    let isClosed    := (· == ·) <$> stSig <*> pClosed
-    let isListen    := (· == ·) <$> stSig <*> pListen
-    let isSynRcvd   := (· == ·) <$> stSig <*> pSynRcvd
-    let isEstab     := (· == ·) <$> stSig <*> pEstab
-    let isCloseWait := (· == ·) <$> stSig <*> pCloseWait
-    let isLastAck   := (· == ·) <$> stSig <*> pLastAck
+    let isClosed    := stSig === pClosed
+    let isListen    := stSig === pListen
+    let isSynRcvd   := stSig === pSynRcvd
+    let isEstab     := stSig === pEstab
+    let isCloseWait := stSig === pCloseWait
+    let isLastAck   := stSig === pLastAck
 
     -- Flag bit predicates from the inbound segment's flag byte.
     -- parsedFlags layout: [DataOff(4) | Rsvd(3) | NS | CWR | ECE | URG | ACK | PSH | RST | SYN | FIN]
@@ -149,16 +149,16 @@ def tcpServerFSM {dom : DomainConfig}
     let pAck := (Signal.pure TCP.flagAck : Signal dom (BitVec 8))
     let pFin := (Signal.pure TCP.flagFin : Signal dom (BitVec 8))
     let pZ8  := (Signal.pure (0#8 : BitVec 8) : Signal dom (BitVec 8))
-    let synBit := (· &&& ·) <$> flagLo <*> pSyn
-    let ackBit := (· &&& ·) <$> flagLo <*> pAck
-    let finBit := (· &&& ·) <$> flagLo <*> pFin
+    let synBit := flagLo &&& pSyn
+    let ackBit := flagLo &&& pAck
+    let finBit := flagLo &&& pFin
     -- Convert "bit-and-mask is nonzero" → Bool via "not equal
     -- to zero".  Express as `eq` followed by `not` so each
     -- step is a Signal-native primitive the elaborator
     -- recognises.
-    let synEqZ := (· == ·) <$> synBit <*> pZ8
-    let ackEqZ := (· == ·) <$> ackBit <*> pZ8
-    let finEqZ := (· == ·) <$> finBit <*> pZ8
+    let synEqZ := synBit === pZ8
+    let ackEqZ := ackBit === pZ8
+    let finEqZ := finBit === pZ8
     let synF := (fun b => !b) <$> synEqZ
     let ackF := (fun b => !b) <$> ackEqZ
     let finF := (fun b => !b) <$> finEqZ
@@ -218,7 +218,7 @@ def tcpServerFSM {dom : DomainConfig}
     -- Outbound SEQ = our latched seq.
     -- Outbound ACK = peerSeq + 1 (SYN consumes one slot).
     let p1_32 := (Signal.pure (1#32 : BitVec 32) : Signal dom (BitVec 32))
-    let txAckOut := (· + ·) <$> peerSeqSig <*> p1_32
+    let txAckOut := peerSeqSig + p1_32
 
     return ({ state := stSig
             , txReq := txReqSig
@@ -286,12 +286,12 @@ def tcpClientFSM {dom : DomainConfig}
     let pFinWait1 := (Signal.pure sFinWait1 : Signal dom (BitVec 4))
     let pFinWait2 := (Signal.pure sFinWait2 : Signal dom (BitVec 4))
     let pTimeWait := (Signal.pure sTimeWait : Signal dom (BitVec 4))
-    let isClosed   := (· == ·) <$> stSig <*> pClosed
-    let isSynSent  := (· == ·) <$> stSig <*> pSynSent
-    let isEstab    := (· == ·) <$> stSig <*> pEstab
-    let isFinWait1 := (· == ·) <$> stSig <*> pFinWait1
-    let isFinWait2 := (· == ·) <$> stSig <*> pFinWait2
-    let isTimeWait := (· == ·) <$> stSig <*> pTimeWait
+    let isClosed   := stSig === pClosed
+    let isSynSent  := stSig === pSynSent
+    let isEstab    := stSig === pEstab
+    let isFinWait1 := stSig === pFinWait1
+    let isFinWait2 := stSig === pFinWait2
+    let isTimeWait := stSig === pTimeWait
 
     -- Flag extraction (same recipe as server FSM).
     let flagLo := parsedFlags.map (BitVec.extractLsb' 0 8 ·)
@@ -299,12 +299,12 @@ def tcpClientFSM {dom : DomainConfig}
     let pAck := (Signal.pure TCP.flagAck : Signal dom (BitVec 8))
     let pFin := (Signal.pure TCP.flagFin : Signal dom (BitVec 8))
     let pZ8  := (Signal.pure (0#8 : BitVec 8) : Signal dom (BitVec 8))
-    let synBit := (· &&& ·) <$> flagLo <*> pSyn
-    let ackBit := (· &&& ·) <$> flagLo <*> pAck
-    let finBit := (· &&& ·) <$> flagLo <*> pFin
-    let synEqZ := (· == ·) <$> synBit <*> pZ8
-    let ackEqZ := (· == ·) <$> ackBit <*> pZ8
-    let finEqZ := (· == ·) <$> finBit <*> pZ8
+    let synBit := flagLo &&& pSyn
+    let ackBit := flagLo &&& pAck
+    let finBit := flagLo &&& pFin
+    let synEqZ := synBit === pZ8
+    let ackEqZ := ackBit === pZ8
+    let finEqZ := finBit === pZ8
     let synF := (fun b => !b) <$> synEqZ
     let ackF := (fun b => !b) <$> ackEqZ
     let finF := (fun b => !b) <$> finEqZ
@@ -317,7 +317,7 @@ def tcpClientFSM {dom : DomainConfig}
     let onPeerFin2   := parserDone &&& finF &&& isFinWait2           -- FIN_WAIT_2 + FIN → TIME_WAIT, emit ACK
     -- TIME_WAIT counter expiry: linger 4 cycles then close.
     let pTwMax := (Signal.pure 3#3 : Signal dom (BitVec 3))
-    let twExpired := (· == ·) <$> twCntSig <*> pTwMax
+    let twExpired := twCntSig === pTwMax
 
     let stNext :=
       Signal.mux onConnect   (Signal.pure sSynSent)
@@ -333,7 +333,7 @@ def tcpClientFSM {dom : DomainConfig}
     -- leaving / entering.
     let p1_3 := (Signal.pure 1#3 : Signal dom (BitVec 3))
     let pZ3  := (Signal.pure 0#3 : Signal dom (BitVec 3))
-    let twInc := (· + ·) <$> twCntSig <*> p1_3
+    let twInc := twCntSig + p1_3
     twCnt <~ Signal.mux onPeerFin2 pZ3
               (Signal.mux isTimeWait twInc pZ3)
 
@@ -355,7 +355,7 @@ def tcpClientFSM {dom : DomainConfig}
           (Signal.pure ackFlags))
 
     let p1_32 := (Signal.pure (1#32 : BitVec 32) : Signal dom (BitVec 32))
-    let txAckOut := (· + ·) <$> peerSeqSig <*> p1_32
+    let txAckOut := peerSeqSig + p1_32
 
     return ({ state := stSig
             , txReq := txReqSig

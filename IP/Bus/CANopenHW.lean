@@ -70,11 +70,11 @@ def cobIdDemuxHW {dom : DomainConfig}
   let pHb := (Signal.pure 14#4 : Signal dom (BitVec 4))
   let pSdoTx := (Signal.pure 11#4 : Signal dom (BitVec 4))
   let pSdoRx := (Signal.pure 12#4 : Signal dom (BitVec 4))
-  let isNmt := ((· == ·) <$> fc <*> pNmt : Signal dom Bool)
-  let isSync := ((· == ·) <$> fc <*> pSync : Signal dom Bool)
-  let isHb := ((· == ·) <$> fc <*> pHb : Signal dom Bool)
-  let isSdoRx := ((· == ·) <$> fc <*> pSdoRx : Signal dom Bool)
-  let isSdoTx := ((· == ·) <$> fc <*> pSdoTx : Signal dom Bool)
+  let isNmt := (fc === pNmt : Signal dom Bool)
+  let isSync := (fc === pSync : Signal dom Bool)
+  let isHb := (fc === pHb : Signal dom Bool)
+  let isSdoRx := (fc === pSdoRx : Signal dom Bool)
+  let isSdoTx := (fc === pSdoTx : Signal dom Bool)
   { fc := fc, nid := nid
   , isNmt := isNmt, isSync := isSync, isHeartbeat := isHb
   , isSdoRx := isSdoRx, isSdoTx := isSdoTx }
@@ -121,11 +121,11 @@ def nmtStateFsmHW {dom : DomainConfig}
     let pRstN   := (Signal.pure 0x81#8 : Signal dom (BitVec 8))
     let pRstC   := (Signal.pure 0x82#8 : Signal dom (BitVec 8))
 
-    let isStart := ((· == ·) <$> cmdIn <*> pStart : Signal dom Bool)
-    let isStop  := ((· == ·) <$> cmdIn <*> pStop  : Signal dom Bool)
-    let isPreOp := ((· == ·) <$> cmdIn <*> pPreOp : Signal dom Bool)
-    let isRstN  := ((· == ·) <$> cmdIn <*> pRstN  : Signal dom Bool)
-    let isRstC  := ((· == ·) <$> cmdIn <*> pRstC  : Signal dom Bool)
+    let isStart := (cmdIn === pStart : Signal dom Bool)
+    let isStop  := (cmdIn === pStop  : Signal dom Bool)
+    let isPreOp := (cmdIn === pPreOp : Signal dom Bool)
+    let isRstN  := (cmdIn === pRstN  : Signal dom Bool)
+    let isRstC  := (cmdIn === pRstC  : Signal dom Bool)
 
     let stOper := (Signal.pure 1#2 : Signal dom (BitVec 2))
     let stStop := (Signal.pure 2#2 : Signal dom (BitVec 2))
@@ -133,7 +133,7 @@ def nmtStateFsmHW {dom : DomainConfig}
     let stBoot := (Signal.pure 3#2 : Signal dom (BitVec 2))
 
     -- Reset command → boot-up.
-    let stAfterRst := ((· || ·) <$> isRstN <*> isRstC : Signal dom Bool)
+    let stAfterRst := (isRstN ||| isRstC : Signal dom Bool)
 
     -- Priority mux (highest priority first):
     --   isStart → oper

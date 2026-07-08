@@ -77,34 +77,34 @@ def frameAccumulatorHW {dom : DomainConfig}
     let pFtr := (Signal.pure 0x00#8 : Signal dom (BitVec 8))
 
     -- Position flags.
-    let isIdx0 := ((· == ·) <$> idxSig <*> p0_5 : Signal dom Bool)
-    let isIdx1 := ((· == ·) <$> idxSig <*> p1b_5 : Signal dom Bool)
-    let isIdx2 := ((· == ·) <$> idxSig <*> p2b_5 : Signal dom Bool)
-    let isIdx24 := ((· == ·) <$> idxSig <*> p24_5 : Signal dom Bool)
+    let isIdx0 := (idxSig === p0_5 : Signal dom Bool)
+    let isIdx1 := (idxSig === p1b_5 : Signal dom Bool)
+    let isIdx2 := (idxSig === p2b_5 : Signal dom Bool)
+    let isIdx24 := (idxSig === p24_5 : Signal dom Bool)
 
     -- byteIn matches expected header / footer?
-    let byteIsHdr := ((· == ·) <$> byteIn <*> pHdr : Signal dom Bool)
-    let byteIsFtr := ((· == ·) <$> byteIn <*> pFtr : Signal dom Bool)
+    let byteIsHdr := (byteIn === pHdr : Signal dom Bool)
+    let byteIsFtr := (byteIn === pFtr : Signal dom Bool)
 
     -- headerOk asserts this cycle iff idx=0, valid, byteIn=0x0F
-    let hdrValid := ((· && ·) <$> valid <*> isIdx0 : Signal dom Bool)
-    let hdrThisCyc := ((· && ·) <$> hdrValid <*> byteIsHdr : Signal dom Bool)
+    let hdrValid := (valid &&& isIdx0 : Signal dom Bool)
+    let hdrThisCyc := (hdrValid &&& byteIsHdr : Signal dom Bool)
 
     -- footerOk asserts this cycle iff idx=24, valid, byteIn=0x00,
     -- AND we saw header at position 0 (hdrSig latched)
-    let ftrValid := ((· && ·) <$> valid <*> isIdx24 : Signal dom Bool)
-    let ftrValFtr := ((· && ·) <$> ftrValid <*> byteIsFtr : Signal dom Bool)
-    let ftrOk := ((· && ·) <$> ftrValFtr <*> hdrSig : Signal dom Bool)
+    let ftrValid := (valid &&& isIdx24 : Signal dom Bool)
+    let ftrValFtr := (ftrValid &&& byteIsFtr : Signal dom Bool)
+    let ftrOk := (ftrValFtr &&& hdrSig : Signal dom Bool)
 
     -- Latch byte1 on cycle idx=1, valid.
-    let b1Load := ((· && ·) <$> valid <*> isIdx1 : Signal dom Bool)
+    let b1Load := (valid &&& isIdx1 : Signal dom Bool)
     let b1Next := Signal.mux b1Load byteIn b1Sig
     -- Latch byte2 on cycle idx=2, valid.
-    let b2Load := ((· && ·) <$> valid <*> isIdx2 : Signal dom Bool)
+    let b2Load := (valid &&& isIdx2 : Signal dom Bool)
     let b2Next := Signal.mux b2Load byteIn b2Sig
 
     -- Index advance on valid: idx := if start then 0 else if valid then idx+1 else idx
-    let idxPlus1 := ((· + ·) <$> idxSig <*> p1_5 : Signal dom (BitVec 5))
+    let idxPlus1 := (idxSig + p1_5 : Signal dom (BitVec 5))
     let idxAfterValid := Signal.mux valid idxPlus1 idxSig
     let idxNext := Signal.mux start p0_5 idxAfterValid
 
@@ -122,7 +122,7 @@ def frameAccumulatorHW {dom : DomainConfig}
     -- Assemble as BitVec 11: extract 3-bit low nibble of byte2,
     -- concat with byte1 (byte2_lo3 in upper bits, byte1 in lower).
     let b2lo3 := b2Sig.map (BitVec.extractLsb' 0 3 ·)
-    let ch0Sig := ((· ++ ·) <$> b2lo3 <*> b1Sig : Signal dom (BitVec 11))
+    let ch0Sig := (b2lo3 ++ b1Sig : Signal dom (BitVec 11))
 
     return ({ idxOut := idxSig, headerOk := hdrSig, footerOk := ftrOk, ch0 := ch0Sig } : FrameOut dom)
 

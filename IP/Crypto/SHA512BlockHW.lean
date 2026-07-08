@@ -72,26 +72,26 @@ namespace Sparkle.IP.Crypto.SHA512BlockHW
 @[inline] private def rotr {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) (r l : Signal dom (BitVec 64)) :
     Signal dom (BitVec 64) :=
-  let rs := ((· >>> ·) <$> x <*> r : Signal dom (BitVec 64))
-  let ls := ((· <<< ·) <$> x <*> l : Signal dom (BitVec 64))
-  ((· ||| ·) <$> rs <*> ls : Signal dom (BitVec 64))
+  let rs := (x >>> r : Signal dom (BitVec 64))
+  let ls := (x <<< l : Signal dom (BitVec 64))
+  (rs ||| ls : Signal dom (BitVec 64))
 
 @[inline] private def shr {dom : DomainConfig}
     (x : Signal dom (BitVec 64)) (r : Signal dom (BitVec 64)) :
     Signal dom (BitVec 64) :=
-  ((· >>> ·) <$> x <*> r : Signal dom (BitVec 64))
+  (x >>> r : Signal dom (BitVec 64))
 
 @[inline] private def add64 {dom : DomainConfig}
     (x y : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  ((· + ·) <$> x <*> y : Signal dom (BitVec 64))
+  (x + y : Signal dom (BitVec 64))
 
 @[inline] private def xor64 {dom : DomainConfig}
     (x y : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  ((· ^^^ ·) <$> x <*> y : Signal dom (BitVec 64))
+  (x ^^^ y : Signal dom (BitVec 64))
 
 @[inline] private def and64 {dom : DomainConfig}
     (x y : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  ((· &&& ·) <$> x <*> y : Signal dom (BitVec 64))
+  (x &&& y : Signal dom (BitVec 64))
 
 /-- The 8 chained digest words, valid when `done` pulses.
 
@@ -203,8 +203,8 @@ def sha512BlockHW {dom : DomainConfig}
     let p1_8  := (Signal.pure 1#8 : Signal dom (BitVec 8))
     let p81_8 := (Signal.pure 81#8 : Signal dom (BitVec 8))
 
-    let isIdle   := ((· == ·) <$> cntSig <*> p0_8 : Signal dom Bool)
-    let isFinish := ((· == ·) <$> cntSig <*> p81_8 : Signal dom Bool)
+    let isIdle   := (cntSig === p0_8 : Signal dom Bool)
+    let isFinish := (cntSig === p81_8 : Signal dom Bool)
     let busy :=
       ((fun i fn => !(i || fn)) <$> isIdle <*> isFinish : Signal dom Bool)
 
@@ -212,7 +212,7 @@ def sha512BlockHW {dom : DomainConfig}
     -- kMux takes a 7-bit counter; derive (cnt-1) as 7-bit.
     let cnt7 := (cntSig.map (BitVec.extractLsb' 0 7 ·) : Signal dom (BitVec 7))
     let p1_7 := (Signal.pure 1#7 : Signal dom (BitVec 7))
-    let kIdx := ((· - ·) <$> cnt7 <*> p1_7 : Signal dom (BitVec 7))
+    let kIdx := (cnt7 - p1_7 : Signal dom (BitVec 7))
     let kVal := kMux kIdx
 
     -- Shift-amount constants (as Signal.pure BitVec 64) for the
@@ -242,7 +242,7 @@ def sha512BlockHW {dom : DomainConfig}
     -- Σ1(e) = ROTR14 ⊕ ROTR18 ⊕ ROTR41  (complements 50, 46, 23)
     let s1e := xor64 (xor64 (rotr e c14 c50) (rotr e c18 c46)) (rotr e c41 c23)
     -- Ch(e,f,g) = (e&f) ⊕ (¬e & g)
-    let notE := ((~~~ ·) <$> e : Signal dom (BitVec 64))
+    let notE := (~~~e : Signal dom (BitVec 64))
     let che := xor64 (and64 e f) (and64 notE g)
     let t1a := add64 h s1e
     let t1b := add64 t1a che
@@ -307,7 +307,7 @@ def sha512BlockHW {dom : DomainConfig}
     w14R <~ Signal.mux start win14 (Signal.mux busy w15 w14)
     w15R <~ Signal.mux start win15 (Signal.mux busy wNew w15)
 
-    let cntInc := ((· + ·) <$> cntSig <*> p1_8 : Signal dom (BitVec 8))
+    let cntInc := (cntSig + p1_8 : Signal dom (BitVec 8))
     cntR <~ Signal.mux start p1_8
               (Signal.mux isFinish p0_8
                 (Signal.mux busy cntInc cntSig))
@@ -323,17 +323,17 @@ def sha512BlockHW {dom : DomainConfig}
     let o6 := add64 s6 g
     let o7 := add64 s7 h
     -- Packed 513-bit view: done ‖ o0 ‖ o1 ‖ … ‖ o7.
-    let d01 := (BitVec.append <$> o0 <*> o1 : Signal dom (BitVec 128))
-    let d012 := (BitVec.append <$> d01 <*> o2 : Signal dom (BitVec 192))
-    let d0123 := (BitVec.append <$> d012 <*> o3 : Signal dom (BitVec 256))
-    let d4 := (BitVec.append <$> d0123 <*> o4 : Signal dom (BitVec 320))
-    let d5 := (BitVec.append <$> d4 <*> o5 : Signal dom (BitVec 384))
-    let d6 := (BitVec.append <$> d5 <*> o6 : Signal dom (BitVec 448))
-    let digest := (BitVec.append <$> d6 <*> o7 : Signal dom (BitVec 512))
+    let d01 := (o0 ++ o1 : Signal dom (BitVec 128))
+    let d012 := (d01 ++ o2 : Signal dom (BitVec 192))
+    let d0123 := (d012 ++ o3 : Signal dom (BitVec 256))
+    let d4 := (d0123 ++ o4 : Signal dom (BitVec 320))
+    let d5 := (d4 ++ o5 : Signal dom (BitVec 384))
+    let d6 := (d5 ++ o6 : Signal dom (BitVec 448))
+    let digest := (d6 ++ o7 : Signal dom (BitVec 512))
     let doneBit :=
       (Signal.mux (doneR : Signal dom Bool)
         (Signal.pure 1#1) (Signal.pure 0#1) : Signal dom (BitVec 1))
-    let packedOut := (BitVec.append <$> doneBit <*> digest : Signal dom (BitVec 513))
+    let packedOut := (doneBit ++ digest : Signal dom (BitVec 513))
     return ({ out0 := o0
             , out1 := o1
             , out2 := o2

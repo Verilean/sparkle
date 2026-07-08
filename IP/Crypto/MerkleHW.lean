@@ -134,10 +134,10 @@ def merkleRootHW {dom : DomainConfig}
     let p0_256 := (Signal.pure 0#256 : Signal dom (BitVec 256))
 
     -- Level predicates.
-    let isL0 := ((· == ·) <$> lvlSig <*> p0_3 : Signal dom Bool)
-    let isL1 := ((· == ·) <$> lvlSig <*> p1_3 : Signal dom Bool)
-    let isL2 := ((· == ·) <$> lvlSig <*> p2_3 : Signal dom Bool)
-    let isL3 := ((· == ·) <$> lvlSig <*> p3_3 : Signal dom Bool)
+    let isL0 := (lvlSig === p0_3 : Signal dom Bool)
+    let isL1 := (lvlSig === p1_3 : Signal dom Bool)
+    let isL2 := (lvlSig === p2_3 : Signal dom Bool)
+    let isL3 := (lvlSig === p3_3 : Signal dom Bool)
 
     -- Current slot content for this level.
     let curSlot :=
@@ -150,29 +150,29 @@ def merkleRootHW {dom : DomainConfig}
       Signal.mux isL0 pOccBit0
         (Signal.mux isL1 pOccBit1
           (Signal.mux isL2 pOccBit2 pOccBit3))
-    let occAnd := ((· &&& ·) <$> occSig <*> occMask : Signal dom (BitVec 4))
-    let occIsZero := ((· == ·) <$> occAnd <*> p0_4 : Signal dom Bool)
+    let occAnd := (occSig &&& occMask : Signal dom (BitVec 4))
+    let occIsZero := (occAnd === p0_4 : Signal dom Bool)
     let occHere := ((fun b => !b) <$> occIsZero : Signal dom Bool)
 
     -- combineReq is high while busy AND the current level is occupied
     -- (i.e. we're waiting on external hasher).
-    let combineReq := ((· && ·) <$> busySig <*> occHere : Signal dom Bool)
+    let combineReq := (busySig &&& occHere : Signal dom Bool)
 
     -- On a push (accepted only when !busy): load carryR = leafIn, lvl = 0, busy = true.
     let pushAccepted := ((fun b p => !b && p) <$> busySig <*> push : Signal dom Bool)
 
     -- Progress condition: busy & level-is-empty ⇒ place carry, mark occupied, finish.
     -- Or: busy & level-is-occupied & combineDone ⇒ move to next level, carry = combineOut.
-    let placeNow := ((· && ·) <$> busySig <*> occIsZero : Signal dom Bool)
-    let combStep := ((· && ·) <$> combineReq <*> combineDone : Signal dom Bool)
+    let placeNow := (busySig &&& occIsZero : Signal dom Bool)
+    let combStep := (combineReq &&& combineDone : Signal dom Bool)
 
     -- Level increment.
-    let lvlInc := ((· + ·) <$> lvlSig <*> p1_3 : Signal dom (BitVec 3))
+    let lvlInc := (lvlSig + p1_3 : Signal dom (BitVec 3))
     -- New occupancy mask on placement: occ | occMask (using OR).
-    let occSet := ((· ||| ·) <$> occSig <*> occMask : Signal dom (BitVec 4))
+    let occSet := (occSig ||| occMask : Signal dom (BitVec 4))
     -- New occupancy mask on combine step: occ &~ occMask (clear the current level).
-    let notMask := ((~~~ ·) <$> occMask : Signal dom (BitVec 4))
-    let occClr := ((· &&& ·) <$> occSig <*> notMask : Signal dom (BitVec 4))
+    let notMask := (~~~occMask : Signal dom (BitVec 4))
+    let occClr := (occSig &&& notMask : Signal dom (BitVec 4))
 
     -- Register updates.
     -- Reset (start): everything back to zero, busy off.
@@ -180,10 +180,10 @@ def merkleRootHW {dom : DomainConfig}
     -- placeNow: slot[lvl] ← carry, occ ← occSet, busy ← false, lvl ← 0.
     -- combStep: carry ← combineOut, occ ← occClr, lvl ← lvl+1, busy stays true.
     -- Slot update: on placeNow AND isLk, slot k takes carry; else hold.
-    let placeS0 := ((· && ·) <$> placeNow <*> isL0 : Signal dom Bool)
-    let placeS1 := ((· && ·) <$> placeNow <*> isL1 : Signal dom Bool)
-    let placeS2 := ((· && ·) <$> placeNow <*> isL2 : Signal dom Bool)
-    let placeS3 := ((· && ·) <$> placeNow <*> isL3 : Signal dom Bool)
+    let placeS0 := (placeNow &&& isL0 : Signal dom Bool)
+    let placeS1 := (placeNow &&& isL1 : Signal dom Bool)
+    let placeS2 := (placeNow &&& isL2 : Signal dom Bool)
+    let placeS3 := (placeNow &&& isL3 : Signal dom Bool)
     s0R <~ Signal.mux start p0_256 (Signal.mux placeS0 carrySig s0Sig)
     s1R <~ Signal.mux start p0_256 (Signal.mux placeS1 carrySig s1Sig)
     s2R <~ Signal.mux start p0_256 (Signal.mux placeS2 carrySig s2Sig)
