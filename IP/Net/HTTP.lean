@@ -78,7 +78,7 @@ abbrev cH_l  : BitVec 8 := 0x48#8   -- 'H' (capital)
 @[inline] private def eqK {dom : DomainConfig}
     (cntSig : Signal dom (BitVec 6)) (k : Nat) :
     Signal dom Bool :=
-  (· == ·) <$> cntSig <*> (Signal.pure (BitVec.ofNat 6 k) : Signal dom (BitVec 6))
+  cntSig === (Signal.pure (BitVec.ofNat 6 k) : Signal dom (BitVec 6))
 
 /-! ### 18-byte GET request mux. -/
 
@@ -218,11 +218,11 @@ instance {dom : DomainConfig} :
     let pZero := (Signal.pure 0#6 : Signal dom (BitVec 6))
     let p1    := (Signal.pure 1#6 : Signal dom (BitVec 6))
     let pLast := (Signal.pure (BitVec.ofNat 6 nBytes) : Signal dom (BitVec 6))
-    let isIdle  := (· == ·) <$> cntSig <*> pZero
-    let isLast  := (· == ·) <$> cntSig <*> pLast
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isIdle  := cntSig === pZero
+    let isLast  := cntSig === pLast
+    let isEmitting := ~~~isIdle
     let byteOut := byteFn cntSig
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt <~ Signal.mux trigger p1
             (Signal.mux isLast pZero
               (Signal.mux isEmitting cntInc cntSig))
@@ -279,16 +279,16 @@ def httpRequestParser {dom : DomainConfig}
     let p3_3 := (Signal.pure 3#3 : Signal dom (BitVec 3))
     let p4_3 := (Signal.pure 4#3 : Signal dom (BitVec 3))
 
-    let isAt0 := (· == ·) <$> cntSig <*> p0_3
-    let isAt1 := (· == ·) <$> cntSig <*> p1_3
-    let isAt2 := (· == ·) <$> cntSig <*> p2_3
-    let isAt3 := (· == ·) <$> cntSig <*> p3_3
-    let isAt4 := (· == ·) <$> cntSig <*> p4_3
+    let isAt0 := cntSig === p0_3
+    let isAt1 := cntSig === p1_3
+    let isAt2 := cntSig === p2_3
+    let isAt3 := cntSig === p3_3
+    let isAt4 := cntSig === p4_3
 
-    let isG := (· == ·) <$> byte <*> pG
-    let isE := (· == ·) <$> byte <*> pE
-    let isT := (· == ·) <$> byte <*> pT
-    let isSp := (· == ·) <$> byte <*> pSP_
+    let isG := byte === pG
+    let isE := byte === pE
+    let isT := byte === pT
+    let isSp := byte === pSP_
 
     -- Step on valid byte: increment if it matches the expected,
     -- otherwise reset to 0 (but if the mismatched byte itself
@@ -299,7 +299,7 @@ def httpRequestParser {dom : DomainConfig}
     -- "go to state 1 because the current byte is 'G'" — used
     -- on mismatch in any state.
     let restartG := isG
-    let cntInc := (· + ·) <$> cntSig <*> p1_3
+    let cntInc := cntSig + p1_3
     let cntNext :=
       Signal.mux (valid &&& matchHere) cntInc
         (Signal.mux (valid &&& restartG) p1_3
@@ -363,11 +363,11 @@ def httpStatusParser {dom : DomainConfig}
     let p9  := (Signal.pure 9#5  : Signal dom (BitVec 5))
     let p10 := (Signal.pure 10#5 : Signal dom (BitVec 5))
     let p11 := (Signal.pure 11#5 : Signal dom (BitVec 5))
-    let at9  := (· == ·) <$> cntSig <*> p9
-    let at10 := (· == ·) <$> cntSig <*> p10
-    let at11 := (· == ·) <$> cntSig <*> p11
+    let at9  := cntSig === p9
+    let at10 := cntSig === p10
+    let at11 := cntSig === p11
 
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt   <~ Signal.mux sop p1
               (Signal.mux valid cntInc cntSig)
     d0R   <~ Signal.mux (valid &&& at9)  byte d0Sig
@@ -380,18 +380,18 @@ def httpStatusParser {dom : DomainConfig}
     let p30 := (Signal.pure (c0 : BitVec 8) : Signal dom (BitVec 8))
     let p100_16 := (Signal.pure (100#16 : BitVec 16) : Signal dom (BitVec 16))
     let p10_16  := (Signal.pure (10#16  : BitVec 16) : Signal dom (BitVec 16))
-    let d0Num   := (· - ·) <$> d0Sig <*> p30
-    let d1Num   := (· - ·) <$> d1Sig <*> p30
-    let d2Num   := (· - ·) <$> d2Sig <*> p30
+    let d0Num   := d0Sig - p30
+    let d1Num   := d1Sig - p30
+    let d2Num   := d2Sig - p30
     -- Zero-extend each digit to 16 bits via concat.
     let p0_8 := (Signal.pure (0#8 : BitVec 8) : Signal dom (BitVec 8))
-    let d0Wide := (· ++ ·) <$> p0_8 <*> d0Num
-    let d1Wide := (· ++ ·) <$> p0_8 <*> d1Num
-    let d2Wide := (· ++ ·) <$> p0_8 <*> d2Num
-    let d0_100 := (· * ·) <$> d0Wide <*> p100_16
-    let d1_10  := (· * ·) <$> d1Wide <*> p10_16
-    let part1  := (· + ·) <$> d0_100 <*> d1_10
-    let statusOut := (· + ·) <$> part1 <*> d2Wide
+    let d0Wide := p0_8 ++ d0Num
+    let d1Wide := p0_8 ++ d1Num
+    let d2Wide := p0_8 ++ d2Num
+    let d0_100 := d0Wide * p100_16
+    let d1_10  := d1Wide * p10_16
+    let part1  := d0_100 + d1_10
+    let statusOut := part1 + d2Wide
 
     return ({ status := statusOut
             , done   := doneSig

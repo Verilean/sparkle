@@ -53,38 +53,38 @@ def pBv385 : BitVec 385 := BitVec.ofNat 385 Sparkle.IP.Crypto.BLS12_381.Fp.p
 private def fAddP {dom : DomainConfig}
     (a b : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
   let z1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-  let aw := ((· ++ ·) <$> z1 <*> a : Signal dom (BitVec 385))
-  let bw := ((· ++ ·) <$> z1 <*> b : Signal dom (BitVec 385))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 385))
+  let aw := (z1 ++ a : Signal dom (BitVec 385))
+  let bw := (z1 ++ b : Signal dom (BitVec 385))
+  let s  := (aw + bw : Signal dom (BitVec 385))
   let pP := (Signal.pure pBv385 : Signal dom (BitVec 385))
   let ge := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 385))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 385))
   ((BitVec.extractLsb' 0 384 ·) <$> red : Signal dom (BitVec 384))
 
 /-- Fp sub mod p (combinational). -/
 private def fSubP {dom : DomainConfig}
     (a b : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
   let z1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-  let aw := ((· ++ ·) <$> z1 <*> a : Signal dom (BitVec 385))
-  let bw := ((· ++ ·) <$> z1 <*> b : Signal dom (BitVec 385))
+  let aw := (z1 ++ a : Signal dom (BitVec 385))
+  let bw := (z1 ++ b : Signal dom (BitVec 385))
   let pP := (Signal.pure pBv385 : Signal dom (BitVec 385))
-  let apb := ((· + ·) <$> aw <*> pP : Signal dom (BitVec 385))
-  let s   := ((· - ·) <$> apb <*> bw : Signal dom (BitVec 385))
+  let apb := (aw + pP : Signal dom (BitVec 385))
+  let s   := (apb - bw : Signal dom (BitVec 385))
   let ge  := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 385))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 385))
   ((BitVec.extractLsb' 0 384 ·) <$> red : Signal dom (BitVec 384))
 
 /-- `stepSig == k` (5-bit micro-op step compare). -/
 private def stepEq {dom : DomainConfig}
     (stepSig : Signal dom (BitVec 5)) (k : Nat) : Signal dom Bool :=
-  ((· == ·) <$> stepSig <*> (Signal.pure (BitVec.ofNat 5 k) : Signal dom (BitVec 5)))
+  (stepSig === (Signal.pure (BitVec.ofNat 5 k) : Signal dom (BitVec 5)))
 
 /-- Latch an engine-result half into scratch `k` on a step-`k` ack. -/
 private def latchStep {dom : DomainConfig}
     (stepAck : Signal dom Bool) (stepSig : Signal dom (BitVec 5))
     (engRes : Signal dom (BitVec 384)) (k : Nat)
     (cur : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
-  Signal.mux ((· && ·) <$> stepAck <*> stepEq stepSig k) engRes cur
+  Signal.mux (stepAck &&& stepEq stepSig k) engRes cur
 
 /-- Output of one Miller double-step: the 12 result-coord halves of
     each of fNum', fDen', and R' (X',Y',Z' each an Fp12) would be a
@@ -151,8 +151,8 @@ def millerDoubleStepHW {dom : DomainConfig}
     let p1_5 := (Signal.pure 1#5 : Signal dom (BitVec 5))
     let p0_5 := (Signal.pure 0#5 : Signal dom (BitVec 5))
 
-    let isTrig := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isWait := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
+    let isTrig := (stSig === p1_2 : Signal dom Bool)
+    let isWait := (stSig === p2_2 : Signal dom Bool)
 
     -- Micro-op operand routing:
     --   step0: A=fNum, B=fNum   (fNum²)
@@ -170,8 +170,8 @@ def millerDoubleStepHW {dom : DomainConfig}
                    (Signal.mux s2 fDenS ldS)) : Signal dom (BitVec 384))
 
     let lastStep := stepEq stepSig 3
-    let stepAck := ((· && ·) <$> isWait <*> f12Done : Signal dom Bool)
-    let atLast := ((· && ·) <$> stepAck <*> lastStep : Signal dom Bool)
+    let stepAck := (isWait &&& f12Done : Signal dom Bool)
+    let atLast := (stepAck &&& lastStep : Signal dom Bool)
     let advance := ((fun s l => s && !l) <$> stepAck <*> lastStep : Signal dom Bool)
 
     stR <~ Signal.mux start p1_2
@@ -180,7 +180,7 @@ def millerDoubleStepHW {dom : DomainConfig}
                   (Signal.mux lastStep p3_2 p1_2)
                   stSig))
 
-    let stepInc := ((· + ·) <$> stepSig <*> p1_5 : Signal dom (BitVec 5))
+    let stepInc := (stepSig + p1_5 : Signal dom (BitVec 5))
     stepR <~ Signal.mux start p0_5
               (Signal.mux advance stepInc stepSig)
 

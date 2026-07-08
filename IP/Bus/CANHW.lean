@@ -59,18 +59,18 @@ def crc15HW {dom : DomainConfig}
 
     -- crcBit14 = (crc >>> 14) & 1, derived via AND with the
     -- top-bit mask then comparing to 0.
-    let topAnd := ((· &&& ·) <$> crcSig <*> pMask : Signal dom (BitVec 15))
-    let topIsZero := ((· == ·) <$> topAnd <*> p0 : Signal dom Bool)
-    let topBit := ((fun b => !b) <$> topIsZero : Signal dom Bool)
+    let topAnd := (crcSig &&& pMask : Signal dom (BitVec 15))
+    let topIsZero := (topAnd === p0 : Signal dom Bool)
+    let topBit := (~~~topIsZero : Signal dom Bool)
 
     -- xorBit = topBit XOR bitIn  (use Bool ^^ as bitwise XOR)
     let xorBit := ((· ^^ ·) <$> topBit <*> bitIn : Signal dom Bool)
 
     -- shifted = (crc <<< 1)  (mask to 15 bits is implicit
     --   in BitVec 15 arithmetic).
-    let shifted := ((· <<< ·) <$> crcSig <*> p1c : Signal dom (BitVec 15))
+    let shifted := (crcSig <<< p1c : Signal dom (BitVec 15))
     -- shifted XOR poly  vs. shifted
-    let shiftedXor := ((· ^^^ ·) <$> shifted <*> pPoly : Signal dom (BitVec 15))
+    let shiftedXor := (shifted ^^^ pPoly : Signal dom (BitVec 15))
     let crcNextWhenValid := Signal.mux xorBit shiftedXor shifted
 
     -- Update logic:

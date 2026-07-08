@@ -116,18 +116,18 @@ def onesAdd16 (a b : BitVec 16) : BitVec 16 :=
     (a b : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
   -- 17-bit sum via zero-prepend concat
   let a17 : Signal dom (BitVec 17) :=
-    (· ++ ·) <$> (Signal.pure (0#1 : BitVec 1) : Signal dom (BitVec 1)) <*> a
+    (Signal.pure (0#1 : BitVec 1) : Signal dom (BitVec 1)) ++ a
   let b17 : Signal dom (BitVec 17) :=
-    (· ++ ·) <$> (Signal.pure (0#1 : BitVec 1) : Signal dom (BitVec 1)) <*> b
-  let s17 : Signal dom (BitVec 17) := (· + ·) <$> a17 <*> b17
+    (Signal.pure (0#1 : BitVec 1) : Signal dom (BitVec 1)) ++ b
+  let s17 : Signal dom (BitVec 17) := a17 + b17
   -- Low 16 bits and the carry bit (zero-extended back to 16).
   let low    : Signal dom (BitVec 16) :=
     s17.map (BitVec.extractLsb' 0 16 ·)
   let carBit : Signal dom (BitVec 1)  :=
     s17.map (BitVec.extractLsb' 16 1 ·)
   let car16  : Signal dom (BitVec 16) :=
-    (· ++ ·) <$> (Signal.pure (0#15 : BitVec 15) : Signal dom (BitVec 15)) <*> carBit
-  (· + ·) <$> low <*> car16
+    (Signal.pure (0#15 : BitVec 15) : Signal dom (BitVec 15)) ++ carBit
+  low + car16
 
 /-- Pure-data IPv4 header checksum (RFC 1071): sum of all
     16-bit header words with end-around carry, then inverted.
@@ -259,25 +259,25 @@ instance {dom : DomainConfig} :
   let p17 := (Signal.pure 17#5 : Signal dom (BitVec 5))
   let p18 := (Signal.pure 18#5 : Signal dom (BitVec 5))
   let p19 := (Signal.pure 19#5 : Signal dom (BitVec 5))
-  let e1  := (· == ·) <$> cntSig <*> p1
-  let e2  := (· == ·) <$> cntSig <*> p2
-  let e3  := (· == ·) <$> cntSig <*> p3
-  let e4  := (· == ·) <$> cntSig <*> p4
-  let e5  := (· == ·) <$> cntSig <*> p5
-  let e6  := (· == ·) <$> cntSig <*> p6
-  let e7  := (· == ·) <$> cntSig <*> p7
-  let e8  := (· == ·) <$> cntSig <*> p8
-  let e9  := (· == ·) <$> cntSig <*> p9
-  let e10 := (· == ·) <$> cntSig <*> p10
-  let e11 := (· == ·) <$> cntSig <*> p11
-  let e12 := (· == ·) <$> cntSig <*> p12
-  let e13 := (· == ·) <$> cntSig <*> p13
-  let e14 := (· == ·) <$> cntSig <*> p14
-  let e15 := (· == ·) <$> cntSig <*> p15
-  let e16 := (· == ·) <$> cntSig <*> p16
-  let e17 := (· == ·) <$> cntSig <*> p17
-  let e18 := (· == ·) <$> cntSig <*> p18
-  let e19 := (· == ·) <$> cntSig <*> p19
+  let e1  := cntSig === p1
+  let e2  := cntSig === p2
+  let e3  := cntSig === p3
+  let e4  := cntSig === p4
+  let e5  := cntSig === p5
+  let e6  := cntSig === p6
+  let e7  := cntSig === p7
+  let e8  := cntSig === p8
+  let e9  := cntSig === p9
+  let e10 := cntSig === p10
+  let e11 := cntSig === p11
+  let e12 := cntSig === p12
+  let e13 := cntSig === p13
+  let e14 := cntSig === p14
+  let e15 := cntSig === p15
+  let e16 := cntSig === p16
+  let e17 := cntSig === p17
+  let e18 := cntSig === p18
+  let e19 := cntSig === p19
   Signal.mux e1 b0
     (Signal.mux e2 b1
       (Signal.mux e3 b2
@@ -319,9 +319,9 @@ def ipv4TxBuilder {dom : DomainConfig}
     let pZero   := (Signal.pure 0#5  : Signal dom (BitVec 5))
     let p1      := (Signal.pure 1#5  : Signal dom (BitVec 5))
     let p20     := (Signal.pure 20#5 : Signal dom (BitVec 5))
-    let isIdle  := (· == ·) <$> cntSig <*> pZero
-    let isLast  := (· == ·) <$> cntSig <*> p20
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isIdle  := cntSig === pZero
+    let isLast  := cntSig === p20
+    let isEmitting := ~~~isIdle
 
     -- Latch on start.  During the burst we read from the
     -- registers; on the start cycle itself we bypass to the
@@ -343,7 +343,7 @@ def ipv4TxBuilder {dom : DomainConfig}
     let chksum := ipv4HeaderChecksumSig tlNow prNow siNow diNow
     let byteOut := ipv4HeaderByte tlNow prNow siNow diNow chksum cntSig
 
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt <~ Signal.mux start p1
             (Signal.mux isLast pZero
               (Signal.mux isEmitting cntInc cntSig))
@@ -418,20 +418,20 @@ def ipv4RxParser {dom : DomainConfig}
     let p19 := (Signal.pure 19#5 : Signal dom (BitVec 5))
     -- offset 0 is the version/IHL byte (sopIp pulses high)
     let inVerIhl := sopIp
-    let inTotLen := (((· == ·) <$> cntSig <*> p2) |||
-                     ((· == ·) <$> cntSig <*> p3))
-    let inProto  := (· == ·) <$> cntSig <*> p9
-    let inChk    := (((· == ·) <$> cntSig <*> p10) |||
-                     ((· == ·) <$> cntSig <*> p11))
-    let inSrc    := (((· == ·) <$> cntSig <*> p12) |||
-                     ((· == ·) <$> cntSig <*> p13) |||
-                     ((· == ·) <$> cntSig <*> p14) |||
-                     ((· == ·) <$> cntSig <*> p15))
-    let inDst    := (((· == ·) <$> cntSig <*> p16) |||
-                     ((· == ·) <$> cntSig <*> p17) |||
-                     ((· == ·) <$> cntSig <*> p18) |||
-                     ((· == ·) <$> cntSig <*> p19))
-    let isLast   := (· == ·) <$> cntSig <*> p19
+    let inTotLen := ((cntSig === p2) |||
+                     (cntSig === p3))
+    let inProto  := cntSig === p9
+    let inChk    := ((cntSig === p10) |||
+                     (cntSig === p11))
+    let inSrc    := ((cntSig === p12) |||
+                     (cntSig === p13) |||
+                     (cntSig === p14) |||
+                     (cntSig === p15))
+    let inDst    := ((cntSig === p16) |||
+                     (cntSig === p17) |||
+                     (cntSig === p18) |||
+                     (cntSig === p19))
+    let isLast   := cntSig === p19
 
     let verIhlSig := (verIhlR : Signal dom (BitVec 8))
     let totLenSig := (totLenR : Signal dom (BitVec 16))
@@ -448,7 +448,7 @@ def ipv4RxParser {dom : DomainConfig}
     let dstNext := shiftIn32 dstSig    byte
 
     -- Counter: on sopIp set to 1; while valid increment; else hold.
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt <~ Signal.mux sopIp p1
             (Signal.mux valid cntInc cntSig)
     verIhlR <~ Signal.mux (valid &&& inVerIhl) byte verIhlSig
@@ -465,13 +465,13 @@ def ipv4RxParser {dom : DomainConfig}
     -- all field registers (chkR, totLenR, srcR, dstR, etc.)
     -- have latched the last byte and hold their final values.
     let pVerIhl := (Signal.pure 0x45#8 : Signal dom (BitVec 8))
-    let verIhlOk := (· == ·) <$> verIhlSig <*> pVerIhl
+    let verIhlOk := verIhlSig === pVerIhl
     let computed := ipv4HeaderChecksumSig totLenSig protoSig srcSig dstSig
     -- The transmitted checksum was computed with the
     -- HeaderChecksum field = 0; the receiver's `chkSig` holds
     -- the value the sender put on the wire.  Recompute over
     -- the same inputs and compare against the captured chkSig.
-    let chkOk := (· == ·) <$> computed <*> chkSig
+    let chkOk := computed === chkSig
     okR     <~ Signal.mux doneSig (verIhlOk &&& chkOk) okSig
 
     return ({ srcIp    := srcSig

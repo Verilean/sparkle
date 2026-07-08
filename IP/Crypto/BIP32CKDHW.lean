@@ -55,19 +55,19 @@ private def addModN {dom : DomainConfig}
     (a b : Signal dom (BitVec 256)) : Signal dom (BitVec 256) :=
   let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let bw := (b.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 257))
+  let s  := (aw + bw : Signal dom (BitVec 257))
   let nP := (Signal.pure nBv257 : Signal dom (BitVec 257))
   let ge := ((BitVec.ule · ·) <$> nP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> nP) s : Signal dom (BitVec 257))
+  let red := (Signal.mux ge (s - nP) s : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
 /-- Concatenate four big-endian 64-bit words (w0 = most significant)
     into a 256-bit value. -/
 private def cat4 {dom : DomainConfig}
     (w0 w1 w2 w3 : Signal dom (BitVec 64)) : Signal dom (BitVec 256) :=
-  let a := (BitVec.append <$> w0 <*> w1 : Signal dom (BitVec 128))
-  let b := (BitVec.append <$> a <*> w2 : Signal dom (BitVec 192))
-  (BitVec.append <$> b <*> w3 : Signal dom (BitVec 256))
+  let a := (w0 ++ w1 : Signal dom (BitVec 128))
+  let b := (a ++ w2 : Signal dom (BitVec 192))
+  (b ++ w3 : Signal dom (BitVec 256))
 
 /-- Output record: the child private key + child chain code, plus
     the block-engine drive ports forwarded from the inner HMAC. -/

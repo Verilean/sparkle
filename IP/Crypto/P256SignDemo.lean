@@ -183,14 +183,14 @@ def p256SignCore {dom : DomainConfig}
     let pInv := wInv sign.pInvStart sign.pA sign.pExp pMulResSig pMulDoneSig
     -- pMul serves either the inverse's internal multiply (pInv.mulStart)
     -- or the signer's direct mod-p multiply (sign.pMulStart).
-    let pMulStart := ((· || ·) <$> pInv.mulStart <*> sign.pMulStart : Signal dom Bool)
+    let pMulStart := (pInv.mulStart ||| sign.pMulStart : Signal dom Bool)
     let pMulA := (Signal.mux sign.pMulStart sign.pA pInv.mulA : Signal dom (BitVec 256))
     let pMulB := (Signal.mux sign.pMulStart sign.pB pInv.mulB : Signal dom (BitVec 256))
     let pMul := wMul pMulStart pMulA pMulB
 
     -- ===== mod-n inverse-or-multiply engine =====
     let nInv := wInv sign.nInvStart sign.nA sign.nExp nMulResSig nMulDoneSig
-    let nMulStart := ((· || ·) <$> nInv.mulStart <*> sign.nMulStart : Signal dom Bool)
+    let nMulStart := (nInv.mulStart ||| sign.nMulStart : Signal dom Bool)
     let nMulA := (Signal.mux sign.nMulStart sign.nA nInv.mulA : Signal dom (BitVec 256))
     let nMulB := (Signal.mux sign.nMulStart sign.nB nInv.mulB : Signal dom (BitVec 256))
     let nMul := wMulN nMulStart nMulA nMulB
@@ -214,7 +214,7 @@ def p256SignCore {dom : DomainConfig}
     -- `pDir` tracks a pending signer DIRECT multiply: set when the
     -- signer issues one, cleared when pMul completes it.
     let pDirSet := sign.pMulStart
-    let pMulFinish := ((· && ·) <$> pDirSig <*> pMul.done : Signal dom Bool)
+    let pMulFinish := (pDirSig &&& pMul.done : Signal dom Bool)
     pDirR <~ Signal.mux pDirSet (Signal.pure true : Signal dom Bool)
               (Signal.mux pMul.done (Signal.pure false : Signal dom Bool) pDirSig)
     -- Signer's mod-p result: the direct multiply result when a direct
@@ -224,17 +224,17 @@ def p256SignCore {dom : DomainConfig}
     -- Signer's mod-p done pulses when EITHER the inverse finished OR the
     -- signer's own direct multiply finished (NOT the inverse's internal
     -- squarings — those are gated out by pDir).
-    pDoneR <~ ((· || ·) <$> pInv.done <*> pMulFinish)
+    pDoneR <~ (pInv.done ||| pMulFinish)
     -- mod-n (same structure):
     nMulResR <~ nMul.result
     nMulDoneR <~ nMul.done
     let nDirSet := sign.nMulStart
-    let nMulFinish := ((· && ·) <$> nDirSig <*> nMul.done : Signal dom Bool)
+    let nMulFinish := (nDirSig &&& nMul.done : Signal dom Bool)
     nDirR <~ Signal.mux nDirSet (Signal.pure true : Signal dom Bool)
               (Signal.mux nMul.done (Signal.pure false : Signal dom Bool) nDirSig)
     nResR <~ Signal.mux nMulFinish nMul.result
               (Signal.mux nInv.done nInv.result nResSig)
-    nDoneR <~ ((· || ·) <$> nInv.done <*> nMulFinish)
+    nDoneR <~ (nInv.done ||| nMulFinish)
 
     return ({ rOut := sign.rOut
             , sOut := sign.sOut

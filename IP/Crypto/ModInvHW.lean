@@ -84,9 +84,9 @@ instance {dom : DomainConfig} :
 private def bitAt {dom : DomainConfig}
     (v : Signal dom (BitVec 256)) (iSig : Signal dom (BitVec 256)) :
     Signal dom Bool :=
-  let sh := ((· >>> ·) <$> v <*> iSig : Signal dom (BitVec 256))
+  let sh := (v >>> iSig : Signal dom (BitVec 256))
   let lo := (sh.map (fun x => x &&& 1#256) : Signal dom (BitVec 256))
-  ((· == ·) <$> lo <*> (Signal.pure 1#256 : Signal dom (BitVec 256)))
+  (lo === (Signal.pure 1#256 : Signal dom (BitVec 256)))
 
 /-- Fermat modular-inverse FSM. -/
 def modInvHW {dom : DomainConfig}
@@ -125,10 +125,10 @@ def modInvHW {dom : DomainConfig}
     let ph4 := (Signal.pure 4#3 : Signal dom (BitVec 3))
     let ph5 := (Signal.pure 5#3 : Signal dom (BitVec 3))
 
-    let isResIssue := ((· == ·) <$> phSig <*> ph1 : Signal dom Bool)
-    let isResWait  := ((· == ·) <$> phSig <*> ph2 : Signal dom Bool)
-    let isSqIssue  := ((· == ·) <$> phSig <*> ph3 : Signal dom Bool)
-    let isSqWait   := ((· == ·) <$> phSig <*> ph4 : Signal dom Bool)
+    let isResIssue := (phSig === ph1 : Signal dom Bool)
+    let isResWait  := (phSig === ph2 : Signal dom Bool)
+    let isSqIssue  := (phSig === ph3 : Signal dom Bool)
+    let isSqWait   := (phSig === ph4 : Signal dom Bool)
 
     -- Current exponent bit.
     let bit := bitAt eSig biSig
@@ -138,18 +138,18 @@ def modInvHW {dom : DomainConfig}
     let mulA := (Signal.mux isSqIssue bSig resSig : Signal dom (BitVec 256))
     let mulB := bSig
     -- Trigger the multiplier at either issue phase.
-    let mulStart := ((· || ·) <$> isResIssue <*> isSqIssue : Signal dom Bool)
+    let mulStart := (isResIssue ||| isSqIssue : Signal dom Bool)
 
     -- Acks: the multiply completed in the corresponding wait phase.
-    let resAck := ((· && ·) <$> isResWait <*> mulDone : Signal dom Bool)
-    let sqAck  := ((· && ·) <$> isSqWait <*> mulDone : Signal dom Bool)
+    let resAck := (isResWait &&& mulDone : Signal dom Bool)
+    let sqAck  := (isSqWait &&& mulDone : Signal dom Bool)
 
     -- Are we at the last bit (i = 255)?
-    let atLast := ((· == ·) <$> biSig <*> (Signal.pure 255#256 : Signal dom (BitVec 256))
+    let atLast := (biSig === (Signal.pure 255#256 : Signal dom (BitVec 256))
                     : Signal dom Bool)
 
     -- result register: on start ⇒ 1; on resAck with bit set ⇒ mulResult.
-    let wrRes := ((· && ·) <$> resAck <*> bit : Signal dom Bool)
+    let wrRes := (resAck &&& bit : Signal dom Bool)
     resR <~ Signal.mux start (Signal.pure 1#256 : Signal dom (BitVec 256))
               (Signal.mux wrRes mulResult resSig)
 
@@ -165,7 +165,7 @@ def modInvHW {dom : DomainConfig}
     --   sqAck & i<255 ⇒ 1 (next bit), bi++
     --   sqAck & i=255 ⇒ 5 (complete)
     let nextBit := ((fun s l => s && !l) <$> sqAck <*> atLast : Signal dom Bool)
-    let finish  := ((· && ·) <$> sqAck <*> atLast : Signal dom Bool)
+    let finish  := (sqAck &&& atLast : Signal dom Bool)
 
     phR <~ Signal.mux start ph1
              (Signal.mux isResIssue ph2
@@ -174,7 +174,7 @@ def modInvHW {dom : DomainConfig}
                    (Signal.mux nextBit ph1
                      (Signal.mux finish ph5 phSig)))))
 
-    let biInc := ((· + ·) <$> biSig <*> (Signal.pure 1#256 : Signal dom (BitVec 256))
+    let biInc := (biSig + (Signal.pure 1#256 : Signal dom (BitVec 256))
                     : Signal dom (BitVec 256))
     biR <~ Signal.mux start (Signal.pure 0#256 : Signal dom (BitVec 256))
              (Signal.mux nextBit biInc biSig)

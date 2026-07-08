@@ -120,17 +120,17 @@ instance {dom : DomainConfig} :
     let p2_3 := (Signal.pure 2#3 : Signal dom (BitVec 3))
     let p3_3 := (Signal.pure 3#3 : Signal dom (BitVec 3))
 
-    let isIdle    := ((· == ·) <$> stSig <*> p0_3 : Signal dom Bool)
-    let isLookup  := ((· == ·) <$> stSig <*> p1_3 : Signal dom Bool)
-    let isDecide  := ((· == ·) <$> stSig <*> p2_3 : Signal dom Bool)
-    let isEmit    := ((· == ·) <$> stSig <*> p3_3 : Signal dom Bool)
+    let isIdle    := (stSig === p0_3 : Signal dom Bool)
+    let isLookup  := (stSig === p1_3 : Signal dom Bool)
+    let isDecide  := (stSig === p2_3 : Signal dom Bool)
+    let isEmit    := (stSig === p3_3 : Signal dom Bool)
 
     -- Scan index helpers
     let p0_5 := (Signal.pure 0#5 : Signal dom (BitVec 5))
     let p16_5 := (Signal.pure 16#5 : Signal dom (BitVec 5))
     let p1_5 := (Signal.pure 1#5 : Signal dom (BitVec 5))
-    let scanDone := ((· == ·) <$> scanSig <*> p16_5 : Signal dom Bool)
-    let scanInc := ((· + ·) <$> scanSig <*> p1_5 : Signal dom (BitVec 5))
+    let scanDone := (scanSig === p16_5 : Signal dom Bool)
+    let scanInc := (scanSig + p1_5 : Signal dom (BitVec 5))
 
     -- BRAM read address = current scan index (truncated to 4 bits).
     -- Read happens with 1-cycle latency: at cycle T set readAddr=N,
@@ -141,21 +141,21 @@ instance {dom : DomainConfig} :
     -- Write path: in EMIT state, for set/add we write to hitIdx
     -- (if hit) or nextSlot (if miss).  Write happens for ONE
     -- cycle inside EMIT.
-    let opIsSet := ((· == ·) <$> codeSig <*> (Signal.pure 1#2 : Signal dom (BitVec 2)) : Signal dom Bool)
-    let opIsAdd := ((· == ·) <$> codeSig <*> (Signal.pure 2#2 : Signal dom (BitVec 2)) : Signal dom Bool)
-    let opIsDel := ((· == ·) <$> codeSig <*> (Signal.pure 3#2 : Signal dom (BitVec 2)) : Signal dom Bool)
-    let opIsGet := ((· == ·) <$> codeSig <*> (Signal.pure 0#2 : Signal dom (BitVec 2)) : Signal dom Bool)
+    let opIsSet := (codeSig === (Signal.pure 1#2 : Signal dom (BitVec 2)) : Signal dom Bool)
+    let opIsAdd := (codeSig === (Signal.pure 2#2 : Signal dom (BitVec 2)) : Signal dom Bool)
+    let opIsDel := (codeSig === (Signal.pure 3#2 : Signal dom (BitVec 2)) : Signal dom Bool)
+    let opIsGet := (codeSig === (Signal.pure 0#2 : Signal dom (BitVec 2)) : Signal dom Bool)
 
     -- "set/add will write": set always writes; add writes only if !hit.
     let addWillWrite := ((· && ·) <$> opIsAdd <*>
-      ((fun b => !b) <$> hitSig : Signal dom Bool) : Signal dom Bool)
-    let willWrite := ((· || ·) <$> opIsSet <*> addWillWrite : Signal dom Bool)
+      (~~~hitSig : Signal dom Bool) : Signal dom Bool)
+    let willWrite := (opIsSet ||| addWillWrite : Signal dom Bool)
     -- "del will clear": del writes valid=0 when hit.
-    let delWillClear := ((· && ·) <$> opIsDel <*> hitSig : Signal dom Bool)
+    let delWillClear := (opIsDel &&& hitSig : Signal dom Bool)
     -- Combined: in EMIT we touch validMem if willWrite or delWillClear,
     -- with new valid = willWrite (clear-on-del, set-on-write).
     let validWE := ((· && ·) <$> isEmit <*>
-      (((· || ·) <$> willWrite <*> delWillClear : Signal dom Bool))
+      ((willWrite ||| delWillClear : Signal dom Bool))
       : Signal dom Bool)
     let validData := Signal.mux willWrite (Signal.pure 1#1 : Signal dom (BitVec 1))
                                           (Signal.pure 0#1 : Signal dom (BitVec 1))
@@ -179,7 +179,7 @@ instance {dom : DomainConfig} :
     let validRead := Signal.memory (addrWidth := 4) (dataWidth := 1)
       writeSlot validData validWE readAddr
     -- 64-bit key BRAM (data = opKeyR, write gate = willWrite in EMIT)
-    let keyWE := ((· && ·) <$> isEmit <*> willWrite : Signal dom Bool)
+    let keyWE := (isEmit &&& willWrite : Signal dom Bool)
     let keyRead := Signal.memory (addrWidth := 4) (dataWidth := 64)
       writeSlot keyR_sig keyWE readAddr
     -- 128-bit value BRAM
@@ -193,16 +193,16 @@ instance {dom : DomainConfig} :
     -- Compare current BRAM read against opKeyR.  BRAM has 1-cycle
     -- latency: cycle N sets readAddr=N, cycle N+1 we see slot N.
     -- We compare during LOOKUP whenever scanIdx >= 1.
-    let keyEqOpKey := ((· == ·) <$> keyRead <*> keyR_sig : Signal dom Bool)
+    let keyEqOpKey := (keyRead === keyR_sig : Signal dom Bool)
     let validBitTrue := ((· == ·) <$> validRead
                           <*> (Signal.pure 1#1 : Signal dom (BitVec 1))
                           : Signal dom Bool)
-    let slotMatches := ((· && ·) <$> validBitTrue <*> keyEqOpKey : Signal dom Bool)
+    let slotMatches := (validBitTrue &&& keyEqOpKey : Signal dom Bool)
 
     -- "Slot we just compared" = scanIdx - 1.  In LOOKUP we increment
     -- scanIdx, and on the cycle AFTER scanIdx becomes K, the BRAM
     -- output reflects slot K-1.  We capture hitIdx = scanIdx - 1.
-    let scanMinus1 := ((· - ·) <$> scanSig <*> p1_5 : Signal dom (BitVec 5))
+    let scanMinus1 := (scanSig - p1_5 : Signal dom (BitVec 5))
     let scanMinus1_4 := Signal.map (BitVec.extractLsb' 0 4 ·) scanMinus1
 
     -- "Are we examining a real slot this cycle?"
@@ -211,9 +211,9 @@ instance {dom : DomainConfig} :
     -- both bounds hold; scanIdx == 0 only happens on the entry
     -- cycle.
     let inScanCmp := ((· && ·) <$> isLookup <*>
-      ((fun b => !b) <$> (((· == ·) <$> scanSig <*> p0_5 : Signal dom Bool))
+      (~~~((scanSig === p0_5 : Signal dom Bool))
        : Signal dom Bool) : Signal dom Bool)
-    let foundThisCycle := ((· && ·) <$> inScanCmp <*> slotMatches : Signal dom Bool)
+    let foundThisCycle := (inScanCmp &&& slotMatches : Signal dom Bool)
 
     -- State next
     let stNextFromIdle := Signal.mux opStart p1_3 stSig
@@ -255,10 +255,10 @@ instance {dom : DomainConfig} :
     -- consumed a fresh slot).
     let bumpNext := ((· && ·) <$> isEmit <*>
       (((· && ·) <$> willWrite <*>
-        ((fun b => !b) <$> hitSig : Signal dom Bool) : Signal dom Bool))
+        (~~~hitSig : Signal dom Bool) : Signal dom Bool))
       : Signal dom Bool)
     let p1_4 := (Signal.pure 1#4 : Signal dom (BitVec 4))
-    let nextSlotInc := ((· + ·) <$> nextSlotSig <*> p1_4 : Signal dom (BitVec 4))
+    let nextSlotInc := (nextSlotSig + p1_4 : Signal dom (BitVec 4))
     let nextSlotNext := Signal.mux bumpNext nextSlotInc nextSlotSig
 
     st <~ stNext
@@ -273,7 +273,7 @@ instance {dom : DomainConfig} :
 
     -- Outputs
     let replyValid := isEmit
-    let busy := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let busy := (~~~isIdle : Signal dom Bool)
 
     -- Reply kind decoder (only meaningful when replyValid):
     --   get + hit  → 2 (VALUE)   ─ next cycle host expects END

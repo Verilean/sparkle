@@ -69,16 +69,16 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
     let is4 := (st === 4#3)
 
     -- Latch z on `start` (idle → issue rfc).
-    zR <~ Signal.mux ((· && ·) <$> is0 <*> start) z zSig
+    zR <~ Signal.mux (is0 &&& start) z zSig
 
     -- RFC-6979 nonce core (k on-chip).  One-cycle start in state 1.
     let rfc := wRfc is1 zSig
-    let capK := ((· && ·) <$> is2 <*> rfc.done : Signal dom Bool)
+    let capK := (is2 &&& rfc.done : Signal dom Bool)
     kR <~ Signal.mux capK rfc.k kSig
 
     -- Signing core (r,s from d,k,z).  One-cycle start in state 3.
     let sc := signCoreSmall is3 (Signal.pure demoKey : Signal dom (BitVec 256)) kSig zSig
-    let capRS := ((· && ·) <$> is4 <*> sc.done : Signal dom Bool)
+    let capRS := (is4 &&& sc.done : Signal dom Bool)
     rR <~ Signal.mux capRS sc.rOut (rR : Signal dom (BitVec 256))
     sR <~ Signal.mux capRS sc.sOut (sR : Signal dom (BitVec 256))
     dnR <~ capRS
@@ -112,7 +112,7 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
     (the only shape the synth pass lowers). -/
 @[inline] private def revLane {dom : DomainConfig}
     (d : Signal dom (BitVec 64)) : Signal dom (BitVec 64) :=
-  ((BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 0 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 8 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 16 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 24 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 32 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 40 8 v) : Signal dom (BitVec 8)) <*> (BitVec.append <$> (d.map (fun v => BitVec.extractLsb' 48 8 v) : Signal dom (BitVec 8)) <*> (d.map (fun v => BitVec.extractLsb' 56 8 v) : Signal dom (BitVec 8))))))))) : Signal dom (BitVec 64))
+  (((d.map (fun v => BitVec.extractLsb' 0 8 v) : Signal dom (BitVec 8)) ++ ((d.map (fun v => BitVec.extractLsb' 8 8 v) : Signal dom (BitVec 8)) ++ ((d.map (fun v => BitVec.extractLsb' 16 8 v) : Signal dom (BitVec 8)) ++ ((d.map (fun v => BitVec.extractLsb' 24 8 v) : Signal dom (BitVec 8)) ++ ((d.map (fun v => BitVec.extractLsb' 32 8 v) : Signal dom (BitVec 8)) ++ ((d.map (fun v => BitVec.extractLsb' 40 8 v) : Signal dom (BitVec 8)) ++ ((d.map (fun v => BitVec.extractLsb' 48 8 v) : Signal dom (BitVec 8)) ++ (d.map (fun v => BitVec.extractLsb' 56 8 v) : Signal dom (BitVec 8))))))))) : Signal dom (BitVec 64))
 
 /-- Full on-chip message signer: `z = keccak256(message)` then `signZSmallDemo`.
     The host sends the padded Keccak lanes `m0..m33` (block-major, ≤2 blocks)
@@ -154,12 +154,12 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
           (BitVec.append <$> revLane sponge.d2 <*> revLane sponge.d3
             : Signal dom (BitVec 128)) : Signal dom (BitVec 192))
         : Signal dom (BitVec 256))
-    let capZ := ((· && ·) <$> is2 <*> sponge.done : Signal dom Bool)
+    let capZ := (is2 &&& sponge.done : Signal dom Bool)
     zR <~ Signal.mux capZ z zSig
 
     -- Nonce+sign core (k on-chip): one-cycle start in state 3, fed the hash.
     let sz := signZSmallDemo is3 zSig
-    let capRS := ((· && ·) <$> is4 <*> sz.done : Signal dom Bool)
+    let capRS := (is4 &&& sz.done : Signal dom Bool)
     dnR <~ capRS
 
     let stNext :=
@@ -228,11 +228,11 @@ def demoKey : BitVec 256 := BitVec.ofNat 256 12345
           (BitVec.append <$> revLane kf.l2 <*> revLane kf.l3
             : Signal dom (BitVec 128)) : Signal dom (BitVec 192))
         : Signal dom (BitVec 256))
-    let capZ := ((· && ·) <$> is2 <*> kf.done : Signal dom Bool)
+    let capZ := (is2 &&& kf.done : Signal dom Bool)
     zR <~ Signal.mux capZ z zSig
 
     let sz := signZSmallDemo is3 zSig
-    let capRS := ((· && ·) <$> is4 <*> sz.done : Signal dom Bool)
+    let capRS := (is4 &&& sz.done : Signal dom Bool)
     dnR <~ capRS
 
     let stNext :=

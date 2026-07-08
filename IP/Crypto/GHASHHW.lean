@@ -61,7 +61,7 @@ instance {dom : DomainConfig} :
     (cond : Signal dom Bool)
     (a b : Signal dom (BitVec 128)) :
     Signal dom (BitVec 128) :=
-  Signal.mux cond ((· ^^^ ·) <$> a <*> b) a
+  Signal.mux cond (a ^^^ b) a
 
 /-- Multi-cycle GHASH multiplier.
 
@@ -94,9 +94,9 @@ def gmulHW {dom : DomainConfig}
     let pR     := (Signal.pure R     : Signal dom (BitVec 128))
 
     -- Predicates.
-    let isIdle   := (· == ·) <$> cntSig <*> p0_8
-    let isFinish := (· == ·) <$> cntSig <*> p128_8
-    let busy     := (fun b => !b) <$> ((fun a b => a || b) <$> isIdle <*> isFinish)
+    let isIdle   := cntSig === p0_8
+    let isFinish := cntSig === p128_8
+    let busy     := ~~~((fun a b => a || b) <$> isIdle <*> isFinish)
 
     -- One bit per cycle: read top bit of x and low bit of v.
     -- Use Signal-level shift + eq so the IR elaborator can lower
@@ -105,26 +105,26 @@ def gmulHW {dom : DomainConfig}
     let p127 := (Signal.pure 127#128 : Signal dom (BitVec 128))
     let p1c  := (Signal.pure 1#128   : Signal dom (BitVec 128))
     let p0c  := (Signal.pure 0#128   : Signal dom (BitVec 128))
-    let xHi  := ((· >>> ·) <$> xSig <*> p127 : Signal dom (BitVec 128))
-    let vLo  := ((· &&& ·) <$> vSig <*> p1c  : Signal dom (BitVec 128))
-    let xHiZ := ((· == ·) <$> xHi <*> p0c : Signal dom Bool)
-    let vLoZ := ((· == ·) <$> vLo <*> p0c : Signal dom Bool)
-    let xMsbBit := ((fun b => !b) <$> xHiZ : Signal dom Bool)
-    let vLsbBit := ((fun b => !b) <$> vLoZ : Signal dom Bool)
+    let xHi  := (xSig >>> p127 : Signal dom (BitVec 128))
+    let vLo  := (vSig &&& p1c  : Signal dom (BitVec 128))
+    let xHiZ := (xHi === p0c : Signal dom Bool)
+    let vLoZ := (vLo === p0c : Signal dom Bool)
+    let xMsbBit := (~~~xHiZ : Signal dom Bool)
+    let vLsbBit := (~~~vLoZ : Signal dom Bool)
 
     -- z' = z XOR v   if xMsbBit, else z
     let zNext := (xorIf xMsbBit zSig vSig : Signal dom (BitVec 128))
     -- v' = (v >>> 1) XOR R   if vLsbBit, else v >>> 1
     let vShifted :=
-      ((· >>> ·) <$> vSig <*> (Signal.pure 1#128 : Signal dom (BitVec 128))
+      (vSig >>> (Signal.pure 1#128 : Signal dom (BitVec 128))
         : Signal dom (BitVec 128))
     let vNext := (xorIf vLsbBit vShifted pR : Signal dom (BitVec 128))
     -- x' = x << 1
     let xNext :=
-      ((· <<< ·) <$> xSig <*> (Signal.pure 1#128 : Signal dom (BitVec 128))
+      (xSig <<< (Signal.pure 1#128 : Signal dom (BitVec 128))
         : Signal dom (BitVec 128))
     -- cnt' = cnt + 1
-    let cntInc := ((· + ·) <$> cntSig <*> p1_8 : Signal dom (BitVec 8))
+    let cntInc := (cntSig + p1_8 : Signal dom (BitVec 8))
 
     -- Updates:
     --   on start: load xR=xIn, vR=yIn, zR=0, cnt=1, done=false
@@ -201,7 +201,7 @@ def ghashFullHW {dom : DomainConfig}
     let hSig := (hR : Signal dom (BitVec 128))
     let stSig := (stateR : Signal dom Bool)
 
-    let isIdle := ((fun b => !b) <$> stSig : Signal dom Bool)
+    let isIdle := (~~~stSig : Signal dom Bool)
 
     -- Combinational firing signal: in IDLE and caller has
     -- blockValid.
@@ -210,7 +210,7 @@ def ghashFullHW {dom : DomainConfig}
 
     -- Multiplier inputs.  In IDLE+blockValid cycle, xIn = y XOR block;
     -- otherwise the multiplier ignores them (its own start is low).
-    let mulX := ((· ^^^ ·) <$> ySig <*> blockIn : Signal dom (BitVec 128))
+    let mulX := (ySig ^^^ blockIn : Signal dom (BitVec 128))
 
     -- Inner multi-cycle multiplier.  Driven by `fire` as start
     -- pulse; the engine is independent of our state otherwise.

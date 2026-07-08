@@ -104,17 +104,17 @@ def hkdfExpandHW {dom : DomainConfig}
     let p3_2   := (Signal.pure 3#2 : Signal dom (BitVec 2))
     let p0_256 := (Signal.pure 0#256 : Signal dom (BitVec 256))
 
-    let isIdle   := ((· == ·) <$> stSig <*> p0_2 : Signal dom Bool)
-    let isTrig   := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isWait   := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
-    let isDone   := ((· == ·) <$> stSig <*> p3_2 : Signal dom Bool)
+    let isIdle   := (stSig === p0_2 : Signal dom Bool)
+    let isTrig   := (stSig === p1_2 : Signal dom Bool)
+    let isWait   := (stSig === p2_2 : Signal dom Bool)
+    let isDone   := (stSig === p3_2 : Signal dom Bool)
 
     -- The current round is complete when we're waiting AND blockDone arrives.
-    let waitAck := ((· && ·) <$> isWait <*> blockDone : Signal dom Bool)
+    let waitAck := (isWait &&& blockDone : Signal dom Bool)
 
     -- After latching a T, if the counter reached nBlocks we're done;
     -- else move to the next round.
-    let atLast := ((· == ·) <$> cntSig <*> nSig : Signal dom Bool)
+    let atLast := (cntSig === nSig : Signal dom Bool)
 
     -- hmacTrig: pulse in the isTrig state.
     let hmacTrig := isTrig
@@ -132,7 +132,7 @@ def hkdfExpandHW {dom : DomainConfig}
                   stSig))
 
     -- cntR update.
-    let cntInc := ((· + ·) <$> cntSig <*> p1_8 : Signal dom (BitVec 8))
+    let cntInc := (cntSig + p1_8 : Signal dom (BitVec 8))
     -- On start ⇒ 1.  On waitAck & not last ⇒ cnt+1.  On isDone ⇒ hold.
     let advanceCnt := ((fun w a => w && !a) <$> waitAck <*> atLast : Signal dom Bool)
     cntR <~ Signal.mux start p1_8
@@ -146,7 +146,7 @@ def hkdfExpandHW {dom : DomainConfig}
     nR <~ Signal.mux start nBlocks nSig
 
     -- doneR: sticky after entering isDone.
-    let enterDone := ((· && ·) <$> waitAck <*> atLast : Signal dom Bool)
+    let enterDone := (waitAck &&& atLast : Signal dom Bool)
     doneR <~ Signal.mux start (Signal.pure false : Signal dom Bool)
               (Signal.mux enterDone (Signal.pure true : Signal dom Bool) doneSig)
 

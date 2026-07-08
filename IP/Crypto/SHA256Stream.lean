@@ -74,8 +74,8 @@ def sha256StreamHW {dom : DomainConfig}
 
     -- The block currently fed to the compressor: block 0 on the
     -- first pass, block 1 on a continuation.
-    let blkNext := ((· + ·) <$> blkSig <*> p1_2 : Signal dom (BitVec 2))
-    let atBlk1 := ((· == ·) <$> blkNext <*> p1_2 : Signal dom Bool)
+    let blkNext := (blkSig + p1_2 : Signal dom (BitVec 2))
+    let atBlk1 := (blkNext === p1_2 : Signal dom Bool)
     let curBlock := (Signal.mux start blk0 (Signal.mux atBlk1 blk1 blk0)
                       : Signal dom (BitVec 512))
 
@@ -83,9 +83,9 @@ def sha256StreamHW {dom : DomainConfig}
     let moreBlocks := ((BitVec.ult · ·) <$> blkNext <*> nBlkSig : Signal dom Bool)
     -- Launch-next continuation: one cycle after the block done, if
     -- there is a next block.
-    let contLaunch := ((· && ·) <$> (blkDoneP : Signal dom Bool) <*> moreBlocks
+    let contLaunch := ((blkDoneP : Signal dom Bool) &&& moreBlocks
                       : Signal dom Bool)
-    let blkStart := ((· || ·) <$> start <*> contLaunch : Signal dom Bool)
+    let blkStart := (start ||| contLaunch : Signal dom Bool)
 
     -- `first` re-inits the H-state to the IV on block 0 of each message, so
     -- the stream can hash multiple independent messages without a hard reset.
@@ -97,8 +97,8 @@ def sha256StreamHW {dom : DomainConfig}
     blkDoneP <~ blk.done
     -- Overall done: the block that just finished (blkDoneP) was the
     -- LAST (no more blocks).
-    let noMore := ((fun b => !b) <$> moreBlocks : Signal dom Bool)
-    let finish := ((· && ·) <$> (blkDoneP : Signal dom Bool) <*> noMore : Signal dom Bool)
+    let noMore := (~~~moreBlocks : Signal dom Bool)
+    let finish := ((blkDoneP : Signal dom Bool) &&& noMore : Signal dom Bool)
     doneR <~ finish
 
     return ({ hash := blk.hash

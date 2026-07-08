@@ -87,14 +87,14 @@ def spiMasterHW {dom : DomainConfig}
     let p1_8 := (Signal.pure 1#8 : Signal dom (BitVec 8))
     let pMSB_8 := (Signal.pure 0x80#8 : Signal dom (BitVec 8))
 
-    let tick := ((· == ·) <$> dcSig <*> p0_16 : Signal dom Bool)
+    let tick := (dcSig === p0_16 : Signal dom Bool)
 
     -- State detection.
-    let isIdle := ((· == ·) <$> stSig <*> stIdle : Signal dom Bool)
-    let isActive := ((· == ·) <$> stSig <*> stActive : Signal dom Bool)
-    let isPost := ((· == ·) <$> stSig <*> stPost : Signal dom Bool)
+    let isIdle := (stSig === stIdle : Signal dom Bool)
+    let isActive := (stSig === stActive : Signal dom Bool)
+    let isPost := (stSig === stPost : Signal dom Bool)
 
-    let bcAtMax := ((· == ·) <$> bcSig <*> p15_4 : Signal dom Bool)
+    let bcAtMax := (bcSig === p15_4 : Signal dom Bool)
 
     -- Next state on tick.
     let idleNext := Signal.mux start stActive stIdle
@@ -108,26 +108,26 @@ def spiMasterHW {dom : DomainConfig}
     stR <~ stNext
 
     -- Bit counter: incremented every tick in active; reset on transitions.
-    let bcInc := ((· + ·) <$> bcSig <*> p1_4 : Signal dom (BitVec 4))
+    let bcInc := (bcSig + p1_4 : Signal dom (BitVec 4))
     let bcActive := Signal.mux bcAtMax p0_4 bcInc
     let bcOnTick := Signal.mux isActive bcActive p0_4
     bitCntR <~ Signal.mux tick bcOnTick bcSig
 
     -- Divider countdown.
-    let dcDec := ((· - ·) <$> dcSig <*> p1_16 : Signal dom (BitVec 16))
+    let dcDec := (dcSig - p1_16 : Signal dom (BitVec 16))
     let dcNext := Signal.mux tick bitDiv dcDec
-    let dcAfterStart := Signal.mux ((· && ·) <$> isIdle <*> start : Signal dom Bool) bitDiv dcNext
+    let dcAfterStart := Signal.mux (isIdle &&& start : Signal dom Bool) bitDiv dcNext
     divR <~ dcAfterStart
 
     -- MOSI shift: load mosiByte on transition idle→active; shift-left every 2 ticks in active.
-    let loadMosi := ((· && ·) <$> tick <*> ((· && ·) <$> isIdle <*> start : Signal dom Bool)
+    let loadMosi := (tick &&& (isIdle &&& start : Signal dom Bool)
                     : Signal dom Bool)
-    let mosiSh := ((· <<< ·) <$> mosiShSig <*> p1_8 : Signal dom (BitVec 8))
+    let mosiSh := (mosiShSig <<< p1_8 : Signal dom (BitVec 8))
     -- Only advance on even-numbered ticks within a bit (bc bit 0 == 0).
     let bcBit0 := bcSig.map (BitVec.extractLsb' 0 1 ·)
     let p0_1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-    let bcEven := ((· == ·) <$> bcBit0 <*> p0_1 : Signal dom Bool)
-    let shiftMosi := ((· && ·) <$> tick <*> ((· && ·) <$> isActive <*> bcEven : Signal dom Bool)
+    let bcEven := (bcBit0 === p0_1 : Signal dom Bool)
+    let shiftMosi := (tick &&& (isActive &&& bcEven : Signal dom Bool)
                     : Signal dom Bool)
     let mosiShNext :=
       Signal.mux loadMosi mosiByte
@@ -135,18 +135,18 @@ def spiMasterHW {dom : DomainConfig}
     mosiShR <~ mosiShNext
 
     -- MISO shift-in: on odd ticks (sample edge), shift misoBit into low bit.
-    let bcOdd := ((fun b => !b) <$> bcEven : Signal dom Bool)
-    let sampleMiso := ((· && ·) <$> tick <*> ((· && ·) <$> isActive <*> bcOdd : Signal dom Bool)
+    let bcOdd := (~~~bcEven : Signal dom Bool)
+    let sampleMiso := (tick &&& (isActive &&& bcOdd : Signal dom Bool)
                      : Signal dom Bool)
-    let misoShL := ((· <<< ·) <$> misoShSig <*> p1_8 : Signal dom (BitVec 8))
+    let misoShL := (misoShSig <<< p1_8 : Signal dom (BitVec 8))
     -- OR-in the sampled bit as low bit of the shifted result.
     let misoBitBv := (Signal.mux misoBit (Signal.pure 1#8) p0_8 : Signal dom (BitVec 8))
-    let misoShL2 := ((· ||| ·) <$> misoShL <*> misoBitBv : Signal dom (BitVec 8))
+    let misoShL2 := (misoShL ||| misoBitBv : Signal dom (BitVec 8))
     let misoShNext := Signal.mux sampleMiso misoShL2 misoShSig
     misoShR <~ misoShNext
 
     -- SCLK toggles every tick while active.
-    let sclkTog := ((fun b => !b) <$> sclkRSig : Signal dom Bool)
+    let sclkTog := (~~~sclkRSig : Signal dom Bool)
     let sclkTicked :=
       Signal.mux isActive sclkTog
         (Signal.mux isPost cpol
@@ -155,19 +155,19 @@ def spiMasterHW {dom : DomainConfig}
     sclkR <~ sclkNext
 
     -- CS: goes low on idle→active (start), returns high on post→idle.
-    let csGoLow := ((· && ·) <$> isIdle <*> start : Signal dom Bool)
-    let csGoHigh := ((· && ·) <$> isPost <*> tick : Signal dom Bool)
+    let csGoLow := (isIdle &&& start : Signal dom Bool)
+    let csGoHigh := (isPost &&& tick : Signal dom Bool)
     let csAfterLow := Signal.mux csGoLow (Signal.pure false) csSig
     let csNext := Signal.mux csGoHigh (Signal.pure true) csAfterLow
     csR <~ csNext
 
     -- Outputs.
-    let msbAnd := ((· &&& ·) <$> mosiShSig <*> pMSB_8 : Signal dom (BitVec 8))
-    let msbIsZero := ((· == ·) <$> msbAnd <*> p0_8 : Signal dom Bool)
-    let mosiOut := ((fun b => !b) <$> msbIsZero : Signal dom Bool)
+    let msbAnd := (mosiShSig &&& pMSB_8 : Signal dom (BitVec 8))
+    let msbIsZero := (msbAnd === p0_8 : Signal dom Bool)
+    let mosiOut := (~~~msbIsZero : Signal dom Bool)
 
     -- `done` pulses on the cycle we're transitioning post → idle.
-    let done := ((· && ·) <$> isPost <*> tick : Signal dom Bool)
+    let done := (isPost &&& tick : Signal dom Bool)
 
     return ({ sclk := sclkRSig, mosi := mosiOut, cs := csSig, misoByte := misoShSig, done := done } : MasterOut dom)
 

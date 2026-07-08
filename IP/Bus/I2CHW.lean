@@ -128,30 +128,30 @@ def i2cMasterHW {dom : DomainConfig}
     let p1_9      := (Signal.pure 1#9 : Signal dom (BitVec 9))
     let pMSB_9    := (Signal.pure 0x100#9 : Signal dom (BitVec 9))
 
-    let tick := ((· == ·) <$> dcSig <*> p0_16 : Signal dom Bool)
-    let notTick := ((fun b => !b) <$> tick : Signal dom Bool)
+    let tick := (dcSig === p0_16 : Signal dom Bool)
+    let notTick := (~~~tick : Signal dom Bool)
 
     -- Assemble address byte: (addr << 1) | rw
     -- addr : BitVec 7, rw : Bool → convert to BitVec 1 via mux
     let rwBit := Signal.mux rw (Signal.pure 1#1) (Signal.pure 0#1)
     -- 8-bit address+RW: addr ++ rwBit
-    let addrRw := ((· ++ ·) <$> addr <*> rwBit : Signal dom (BitVec 8))
+    let addrRw := (addr ++ rwBit : Signal dom (BitVec 8))
     -- 9-bit shift-value: addrRw ++ 1 (idle for ACK slot)
-    let addrShift := ((· ++ ·) <$> addrRw <*> (Signal.pure 1#1) : Signal dom (BitVec 9))
+    let addrShift := (addrRw ++ 1#1 : Signal dom (BitVec 9))
     -- 9-bit data-shift: dataByte ++ 1
-    let dataShift := ((· ++ ·) <$> dataByte <*> (Signal.pure 1#1) : Signal dom (BitVec 9))
+    let dataShift := (dataByte ++ 1#1 : Signal dom (BitVec 9))
 
     -- State detection.
-    let isIdle := ((· == ·) <$> stSig <*> stIdle : Signal dom Bool)
-    let isStartC := ((· == ·) <$> stSig <*> stStartC : Signal dom Bool)
-    let isAddr := ((· == ·) <$> stSig <*> stAddr : Signal dom Bool)
-    let isAckA := ((· == ·) <$> stSig <*> stAckA : Signal dom Bool)
-    let isData := ((· == ·) <$> stSig <*> stData : Signal dom Bool)
-    let isAckD := ((· == ·) <$> stSig <*> stAckD : Signal dom Bool)
-    let isStopC := ((· == ·) <$> stSig <*> stStopC : Signal dom Bool)
+    let isIdle := (stSig === stIdle : Signal dom Bool)
+    let isStartC := (stSig === stStartC : Signal dom Bool)
+    let isAddr := (stSig === stAddr : Signal dom Bool)
+    let isAckA := (stSig === stAckA : Signal dom Bool)
+    let isData := (stSig === stData : Signal dom Bool)
+    let isAckD := (stSig === stAckD : Signal dom Bool)
+    let isStopC := (stSig === stStopC : Signal dom Bool)
 
     -- Bit-count at max (7): end-of-byte transition on tick.
-    let bcAtMax := ((· == ·) <$> bcSig <*> p7_4 : Signal dom Bool)
+    let bcAtMax := (bcSig === p7_4 : Signal dom Bool)
 
     -- Next FSM state (on tick).
     -- idle → (start? startC) : idle
@@ -184,8 +184,8 @@ def i2cMasterHW {dom : DomainConfig}
     -- Bit counter: on tick, if we're finishing a byte, reset;
     -- else in addr/data phase increment; on state transitions
     -- (ackA, stopC, idle) → reset to 0.
-    let bcInc := ((· + ·) <$> bcSig <*> p1_4 : Signal dom (BitVec 4))
-    let inCountingPhase := ((· || ·) <$> isAddr <*> isData : Signal dom Bool)
+    let bcInc := (bcSig + p1_4 : Signal dom (BitVec 4))
+    let inCountingPhase := (isAddr ||| isData : Signal dom Bool)
     let bcOnTickInPhase :=
       Signal.mux bcAtMax p0_4 bcInc
     let bcOnTick :=
@@ -193,19 +193,19 @@ def i2cMasterHW {dom : DomainConfig}
     bitCntR <~ Signal.mux tick bcOnTick bcSig
 
     -- Divider countdown.  When tick fires, reload with bitDiv.
-    let dcDec := ((· - ·) <$> dcSig <*> p1_16 : Signal dom (BitVec 16))
+    let dcDec := (dcSig - p1_16 : Signal dom (BitVec 16))
     let dcOnTick := bitDiv
     let dcNext := Signal.mux tick dcOnTick dcDec
     -- On start (in idle), reload immediately.
-    let dcAfterStart := Signal.mux ((· && ·) <$> isIdle <*> start : Signal dom Bool) bitDiv dcNext
+    let dcAfterStart := Signal.mux (isIdle &&& start : Signal dom Bool) bitDiv dcNext
     divR <~ dcAfterStart
 
     -- Shift register: load addrShift when transitioning from startC → addr;
     -- load dataShift when transitioning from ackA → data;
     -- shift-left one bit on each tick in addr/data phases.
-    let shiftLeft := ((· <<< ·) <$> shSig <*> p1_9 : Signal dom (BitVec 9))
-    let loadAddr := ((· && ·) <$> tick <*> isStartC : Signal dom Bool)
-    let loadData := ((· && ·) <$> tick <*> isAckA : Signal dom Bool)
+    let shiftLeft := (shSig <<< p1_9 : Signal dom (BitVec 9))
+    let loadAddr := (tick &&& isStartC : Signal dom Bool)
+    let loadData := (tick &&& isAckA : Signal dom Bool)
     let shiftOnTick :=
       Signal.mux loadAddr addrShift
         (Signal.mux loadData dataShift
@@ -214,36 +214,36 @@ def i2cMasterHW {dom : DomainConfig}
 
     -- SDA out: bit being transmitted = shift MSB.
     -- In idle/stopC/ackA/ackD → release (high). Otherwise MSB of shift.
-    let msbAnd := ((· &&& ·) <$> shSig <*> pMSB_9 : Signal dom (BitVec 9))
-    let msbIsZero := ((· == ·) <$> msbAnd <*> p0_9 : Signal dom Bool)
-    let msbBit := ((fun b => !b) <$> msbIsZero : Signal dom Bool)
+    let msbAnd := (shSig &&& pMSB_9 : Signal dom (BitVec 9))
+    let msbIsZero := (msbAnd === p0_9 : Signal dom Bool)
+    let msbBit := (~~~msbIsZero : Signal dom Bool)
     let releaseSda := ((· || ·) <$> isIdle
                         <*> ((· || ·) <$> isStartC
-                              <*> ((· || ·) <$> isAckA <*> isAckD : Signal dom Bool)
+                              <*> (isAckA ||| isAckD : Signal dom Bool)
                               : Signal dom Bool)
                        : Signal dom Bool)
-    let releaseOrStop := ((· || ·) <$> releaseSda <*> isStopC : Signal dom Bool)
+    let releaseOrStop := (releaseSda ||| isStopC : Signal dom Bool)
     let sdaOut := Signal.mux releaseOrStop (Signal.pure true) msbBit
 
     -- SCL: toggles every tick when active; high in idle/stopC final.
-    let sclToggled := ((fun b => !b) <$> sclSig : Signal dom Bool)
+    let sclToggled := (~~~sclSig : Signal dom Bool)
     let sclOnTick := Signal.mux isIdle (Signal.pure true) sclToggled
     let sclNext := Signal.mux tick sclOnTick sclSig
     sclR <~ sclNext
 
     -- Latch ACK on the tick during ackA/ackD phases.
-    let inAck := ((· || ·) <$> isAckA <*> isAckD : Signal dom Bool)
-    let ackLoad := ((· && ·) <$> tick <*> inAck : Signal dom Bool)
+    let inAck := (isAckA ||| isAckD : Signal dom Bool)
+    let ackLoad := (tick &&& inAck : Signal dom Bool)
     -- ACK is active-low: SDA = 0 during ACK means slave ACKed.
-    let ackReceived := ((fun b => !b) <$> sdaFromBus : Signal dom Bool)
+    let ackReceived := (~~~sdaFromBus : Signal dom Bool)
     ackR <~ Signal.mux ackLoad ackReceived _ackSig
 
     -- Busy signal: high whenever not in idle.
-    let busy := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let busy := (~~~isIdle : Signal dom Bool)
 
     -- Suppress unused warning for `notTick` by folding it into
     -- `sdaOut` via a mask-with-true identity.
-    let notTickOr := ((· || ·) <$> sdaOut <*> notTick : Signal dom Bool)
+    let notTickOr := (sdaOut ||| notTick : Signal dom Bool)
     let sdaOut2 := Signal.mux notTick sdaOut notTickOr
 
     return ({ state := stSig, scl := sclSig, sda := sdaOut2, busy := busy } : MasterOut dom)

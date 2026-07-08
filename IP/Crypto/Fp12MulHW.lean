@@ -80,38 +80,38 @@ instance {dom : DomainConfig} :
 private def fAddP {dom : DomainConfig}
     (a b : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
   let z1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-  let aw := ((· ++ ·) <$> z1 <*> a : Signal dom (BitVec 385))
-  let bw := ((· ++ ·) <$> z1 <*> b : Signal dom (BitVec 385))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 385))
+  let aw := (z1 ++ a : Signal dom (BitVec 385))
+  let bw := (z1 ++ b : Signal dom (BitVec 385))
+  let s  := (aw + bw : Signal dom (BitVec 385))
   let pP := (Signal.pure pBv385 : Signal dom (BitVec 385))
   let ge := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 385))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 385))
   ((BitVec.extractLsb' 0 384 ·) <$> red : Signal dom (BitVec 384))
 
 /-- Fp sub mod p (combinational). -/
 private def fSubP {dom : DomainConfig}
     (a b : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
   let z1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-  let aw := ((· ++ ·) <$> z1 <*> a : Signal dom (BitVec 385))
-  let bw := ((· ++ ·) <$> z1 <*> b : Signal dom (BitVec 385))
+  let aw := (z1 ++ a : Signal dom (BitVec 385))
+  let bw := (z1 ++ b : Signal dom (BitVec 385))
   let pP := (Signal.pure pBv385 : Signal dom (BitVec 385))
-  let apb := ((· + ·) <$> aw <*> pP : Signal dom (BitVec 385))
-  let s   := ((· - ·) <$> apb <*> bw : Signal dom (BitVec 385))
+  let apb := (aw + pP : Signal dom (BitVec 385))
+  let s   := (apb - bw : Signal dom (BitVec 385))
   let ge  := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 385))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 385))
   ((BitVec.extractLsb' 0 384 ·) <$> red : Signal dom (BitVec 384))
 
 /-- `stepSig == k` (2-bit step compare). -/
 private def stepEq {dom : DomainConfig}
     (stepSig : Signal dom (BitVec 2)) (k : Nat) : Signal dom Bool :=
-  ((· == ·) <$> stepSig <*> (Signal.pure (BitVec.ofNat 2 k) : Signal dom (BitVec 2)))
+  (stepSig === (Signal.pure (BitVec.ofNat 2 k) : Signal dom (BitVec 2)))
 
 /-- Latch an engine result half into scratch `k` on a step-`k` ack. -/
 private def latchStep {dom : DomainConfig}
     (stepAck : Signal dom Bool) (stepSig : Signal dom (BitVec 2))
     (engRes : Signal dom (BitVec 384)) (k : Nat)
     (cur : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
-  Signal.mux ((· && ·) <$> stepAck <*> stepEq stepSig k) engRes cur
+  Signal.mux (stepAck &&& stepEq stepSig k) engRes cur
 
 /-- Fp12 multiply FSM. -/
 def fp12MulHW {dom : DomainConfig}
@@ -185,8 +185,8 @@ def fp12MulHW {dom : DomainConfig}
     let p3_2 := (Signal.pure 3#2 : Signal dom (BitVec 2))
     let p0_2 := (Signal.pure 0#2 : Signal dom (BitVec 2))
 
-    let isTrig := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isWait := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
+    let isTrig := (stSig === p1_2 : Signal dom Bool)
+    let isWait := (stSig === p2_2 : Signal dom Bool)
 
     -- Combinational Fp6 operand sums for the cross step (a0+a1, b0+b1).
     let sa0a := fAddP a00aS a10aS; let sa0b := fAddP a00bS a10bS
@@ -213,8 +213,8 @@ def fp12MulHW {dom : DomainConfig}
 
     let engDone := f6Done
     let lastStep := stepEq stepSig 2
-    let stepAck := ((· && ·) <$> isWait <*> engDone : Signal dom Bool)
-    let atLast := ((· && ·) <$> stepAck <*> lastStep : Signal dom Bool)
+    let stepAck := (isWait &&& engDone : Signal dom Bool)
+    let atLast := (stepAck &&& lastStep : Signal dom Bool)
     let advance := ((fun s l => s && !l) <$> stepAck <*> lastStep : Signal dom Bool)
 
     stR <~ Signal.mux start p1_2
@@ -223,7 +223,7 @@ def fp12MulHW {dom : DomainConfig}
                   (Signal.mux lastStep p3_2 p1_2)
                   stSig))
 
-    let stepInc := ((· + ·) <$> stepSig <*> p1_2 : Signal dom (BitVec 2))
+    let stepInc := (stepSig + p1_2 : Signal dom (BitVec 2))
     stepR <~ Signal.mux start p0_2
               (Signal.mux advance stepInc stepSig)
 

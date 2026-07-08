@@ -224,25 +224,25 @@ instance {dom : DomainConfig} :
   let p17 := (Signal.pure 17#5 : Signal dom (BitVec 5))
   let p18 := (Signal.pure 18#5 : Signal dom (BitVec 5))
   let p19 := (Signal.pure 19#5 : Signal dom (BitVec 5))
-  let e1  := (· == ·) <$> cntSig <*> p1
-  let e2  := (· == ·) <$> cntSig <*> p2
-  let e3  := (· == ·) <$> cntSig <*> p3
-  let e4  := (· == ·) <$> cntSig <*> p4
-  let e5  := (· == ·) <$> cntSig <*> p5
-  let e6  := (· == ·) <$> cntSig <*> p6
-  let e7  := (· == ·) <$> cntSig <*> p7
-  let e8  := (· == ·) <$> cntSig <*> p8
-  let e9  := (· == ·) <$> cntSig <*> p9
-  let e10 := (· == ·) <$> cntSig <*> p10
-  let e11 := (· == ·) <$> cntSig <*> p11
-  let e12 := (· == ·) <$> cntSig <*> p12
-  let e13 := (· == ·) <$> cntSig <*> p13
-  let e14 := (· == ·) <$> cntSig <*> p14
-  let e15 := (· == ·) <$> cntSig <*> p15
-  let e16 := (· == ·) <$> cntSig <*> p16
-  let e17 := (· == ·) <$> cntSig <*> p17
-  let e18 := (· == ·) <$> cntSig <*> p18
-  let e19 := (· == ·) <$> cntSig <*> p19
+  let e1  := cntSig === p1
+  let e2  := cntSig === p2
+  let e3  := cntSig === p3
+  let e4  := cntSig === p4
+  let e5  := cntSig === p5
+  let e6  := cntSig === p6
+  let e7  := cntSig === p7
+  let e8  := cntSig === p8
+  let e9  := cntSig === p9
+  let e10 := cntSig === p10
+  let e11 := cntSig === p11
+  let e12 := cntSig === p12
+  let e13 := cntSig === p13
+  let e14 := cntSig === p14
+  let e15 := cntSig === p15
+  let e16 := cntSig === p16
+  let e17 := cntSig === p17
+  let e18 := cntSig === p18
+  let e19 := cntSig === p19
   Signal.mux e1 b0
     (Signal.mux e2 b1
       (Signal.mux e3 b2
@@ -340,25 +340,25 @@ def tcpRxParser {dom : DomainConfig}
     let p18 := (Signal.pure 18#5 : Signal dom (BitVec 5))
     let p19 := (Signal.pure 19#5 : Signal dom (BitVec 5))
     let eqK0 := sopTcp                                       -- offset 0
-    let eqK1  := (· == ·) <$> cntSig <*> p1
-    let eqK2  := (· == ·) <$> cntSig <*> p2
-    let eqK3  := (· == ·) <$> cntSig <*> p3
-    let eqK4  := (· == ·) <$> cntSig <*> p4
-    let eqK5  := (· == ·) <$> cntSig <*> p5
-    let eqK6  := (· == ·) <$> cntSig <*> p6
-    let eqK7  := (· == ·) <$> cntSig <*> p7
-    let eqK8  := (· == ·) <$> cntSig <*> p8
-    let eqK9  := (· == ·) <$> cntSig <*> p9
-    let eqK10 := (· == ·) <$> cntSig <*> p10
-    let eqK11 := (· == ·) <$> cntSig <*> p11
-    let eqK12 := (· == ·) <$> cntSig <*> p12
-    let eqK13 := (· == ·) <$> cntSig <*> p13
-    let eqK14 := (· == ·) <$> cntSig <*> p14
-    let eqK15 := (· == ·) <$> cntSig <*> p15
-    let eqK16 := (· == ·) <$> cntSig <*> p16
-    let eqK17 := (· == ·) <$> cntSig <*> p17
-    let eqK18 := (· == ·) <$> cntSig <*> p18
-    let eqK19 := (· == ·) <$> cntSig <*> p19
+    let eqK1  := cntSig === p1
+    let eqK2  := cntSig === p2
+    let eqK3  := cntSig === p3
+    let eqK4  := cntSig === p4
+    let eqK5  := cntSig === p5
+    let eqK6  := cntSig === p6
+    let eqK7  := cntSig === p7
+    let eqK8  := cntSig === p8
+    let eqK9  := cntSig === p9
+    let eqK10 := cntSig === p10
+    let eqK11 := cntSig === p11
+    let eqK12 := cntSig === p12
+    let eqK13 := cntSig === p13
+    let eqK14 := cntSig === p14
+    let eqK15 := cntSig === p15
+    let eqK16 := cntSig === p16
+    let eqK17 := cntSig === p17
+    let eqK18 := cntSig === p18
+    let eqK19 := cntSig === p19
     let inSp  := eqK0  ||| eqK1
     let inDp  := eqK2  ||| eqK3
     let inSeq := eqK4  ||| eqK5  ||| eqK6  ||| eqK7
@@ -378,7 +378,7 @@ def tcpRxParser {dom : DomainConfig}
     let chkNext := shiftIn16 chkSig byte
     let urgNext := shiftIn16 urgSig byte
 
-    let cntInc := (· + ·) <$> cntSig <*> p1
+    let cntInc := cntSig + p1
     cnt   <~ Signal.mux sopTcp p1
               (Signal.mux valid cntInc cntSig)
     spR   <~ Signal.mux (valid &&& inSp)  spNext spSig

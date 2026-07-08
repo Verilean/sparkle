@@ -181,33 +181,33 @@ structure ArpFields (dom : DomainConfig) where
   let p25 := (Signal.pure 25#6 : Signal dom (BitVec 6))
   let p26 := (Signal.pure 26#6 : Signal dom (BitVec 6))
   let p27 := (Signal.pure 27#6 : Signal dom (BitVec 6))
-  let e1  := (· == ·) <$> cntSig <*> p1
-  let e2  := (· == ·) <$> cntSig <*> p2
-  let e3  := (· == ·) <$> cntSig <*> p3
-  let e4  := (· == ·) <$> cntSig <*> p4
-  let e5  := (· == ·) <$> cntSig <*> p5
-  let e6  := (· == ·) <$> cntSig <*> p6
-  let e7  := (· == ·) <$> cntSig <*> p7
-  let e8  := (· == ·) <$> cntSig <*> p8
-  let e9  := (· == ·) <$> cntSig <*> p9
-  let e10 := (· == ·) <$> cntSig <*> p10
-  let e11 := (· == ·) <$> cntSig <*> p11
-  let e12 := (· == ·) <$> cntSig <*> p12
-  let e13 := (· == ·) <$> cntSig <*> p13
-  let e14 := (· == ·) <$> cntSig <*> p14
-  let e15 := (· == ·) <$> cntSig <*> p15
-  let e16 := (· == ·) <$> cntSig <*> p16
-  let e17 := (· == ·) <$> cntSig <*> p17
-  let e18 := (· == ·) <$> cntSig <*> p18
-  let e19 := (· == ·) <$> cntSig <*> p19
-  let e20 := (· == ·) <$> cntSig <*> p20
-  let e21 := (· == ·) <$> cntSig <*> p21
-  let e22 := (· == ·) <$> cntSig <*> p22
-  let e23 := (· == ·) <$> cntSig <*> p23
-  let e24 := (· == ·) <$> cntSig <*> p24
-  let e25 := (· == ·) <$> cntSig <*> p25
-  let e26 := (· == ·) <$> cntSig <*> p26
-  let e27 := (· == ·) <$> cntSig <*> p27
+  let e1  := cntSig === p1
+  let e2  := cntSig === p2
+  let e3  := cntSig === p3
+  let e4  := cntSig === p4
+  let e5  := cntSig === p5
+  let e6  := cntSig === p6
+  let e7  := cntSig === p7
+  let e8  := cntSig === p8
+  let e9  := cntSig === p9
+  let e10 := cntSig === p10
+  let e11 := cntSig === p11
+  let e12 := cntSig === p12
+  let e13 := cntSig === p13
+  let e14 := cntSig === p14
+  let e15 := cntSig === p15
+  let e16 := cntSig === p16
+  let e17 := cntSig === p17
+  let e18 := cntSig === p18
+  let e19 := cntSig === p19
+  let e20 := cntSig === p20
+  let e21 := cntSig === p21
+  let e22 := cntSig === p22
+  let e23 := cntSig === p23
+  let e24 := cntSig === p24
+  let e25 := cntSig === p25
+  let e26 := cntSig === p26
+  let e27 := cntSig === p27
   Signal.mux e1 b0
     (Signal.mux e2 b1
       (Signal.mux e3 b2
@@ -319,22 +319,22 @@ def arpRxParser {dom : DomainConfig}
     let p25 := (Signal.pure 25#6 : Signal dom (BitVec 6))
     let p26 := (Signal.pure 26#6 : Signal dom (BitVec 6))
     let p27 := (Signal.pure 27#6 : Signal dom (BitVec 6))
-    let eq6  := (· == ·) <$> cntSig <*> p6
-    let eq7  := (· == ·) <$> cntSig <*> p7
-    let eq8  := (· == ·) <$> cntSig <*> p8
-    let eq9  := (· == ·) <$> cntSig <*> p9
-    let eq10 := (· == ·) <$> cntSig <*> p10
-    let eq11 := (· == ·) <$> cntSig <*> p11
-    let eq12 := (· == ·) <$> cntSig <*> p12
-    let eq13 := (· == ·) <$> cntSig <*> p13
-    let eq14 := (· == ·) <$> cntSig <*> p14
-    let eq15 := (· == ·) <$> cntSig <*> p15
-    let eq16 := (· == ·) <$> cntSig <*> p16
-    let eq17 := (· == ·) <$> cntSig <*> p17
-    let eq24 := (· == ·) <$> cntSig <*> p24
-    let eq25 := (· == ·) <$> cntSig <*> p25
-    let eq26 := (· == ·) <$> cntSig <*> p26
-    let eq27 := (· == ·) <$> cntSig <*> p27
+    let eq6  := cntSig === p6
+    let eq7  := cntSig === p7
+    let eq8  := cntSig === p8
+    let eq9  := cntSig === p9
+    let eq10 := cntSig === p10
+    let eq11 := cntSig === p11
+    let eq12 := cntSig === p12
+    let eq13 := cntSig === p13
+    let eq14 := cntSig === p14
+    let eq15 := cntSig === p15
+    let eq16 := cntSig === p16
+    let eq17 := cntSig === p17
+    let eq24 := cntSig === p24
+    let eq25 := cntSig === p25
+    let eq26 := cntSig === p26
+    let eq27 := cntSig === p27
     let inOper := eq6 ||| eq7
     let inSha  := eq8  ||| eq9  ||| eq10 ||| eq11 ||| eq12 ||| eq13
     let inSpa  := eq14 ||| eq15 ||| eq16 ||| eq17
@@ -435,17 +435,17 @@ def arpResponder {dom : DomainConfig}
     -- tpa == ownIp.  The match latches just for one cycle
     -- (done is one-cycle); use it to load txCnt = 1.
     let pOpReq := (Signal.pure arpOpRequest : Signal dom (BitVec 16))
-    let isReq  := (· == ·) <$> parsed.oper <*> pOpReq
-    let isForMe := (· == ·) <$> parsed.tpa <*> ownIp
+    let isReq  := parsed.oper === pOpReq
+    let isForMe := parsed.tpa === ownIp
     let matchPulse := parsed.done &&& isReq &&& isForMe
 
     -- Emit-state predicates: txCnt > 0 AND txCnt <= 28.
     let pTxZero := (Signal.pure 0#6  : Signal dom (BitVec 6))
     let p28     := (Signal.pure 28#6 : Signal dom (BitVec 6))
     let p1      := (Signal.pure 1#6  : Signal dom (BitVec 6))
-    let isIdle  := (· == ·) <$> txCntSig <*> pTxZero
-    let isLastB := (· == ·) <$> txCntSig <*> p28
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isIdle  := txCntSig === pTxZero
+    let isLastB := txCntSig === p28
+    let isEmitting := ~~~isIdle
 
     -- Reply fields: swap requester/responder roles.
     let byteOut := arpPacketByte
@@ -458,7 +458,7 @@ def arpResponder {dom : DomainConfig}
 
     -- Counter update: load on matchPulse; +1 while emitting
     -- (txCnt < 28); roll back to 0 after byte 28.
-    let txCntInc := (· + ·) <$> txCntSig <*> p1
+    let txCntInc := txCntSig + p1
     txCnt <~ Signal.mux matchPulse p1
               (Signal.mux isLastB pTxZero
                 (Signal.mux isEmitting txCntInc txCntSig))
@@ -529,9 +529,9 @@ def arpRequester {dom : DomainConfig}
     let pTxZero := (Signal.pure 0#6  : Signal dom (BitVec 6))
     let p28     := (Signal.pure 28#6 : Signal dom (BitVec 6))
     let p1      := (Signal.pure 1#6  : Signal dom (BitVec 6))
-    let isIdle    := (· == ·) <$> txCntSig <*> pTxZero
-    let isLastB   := (· == ·) <$> txCntSig <*> p28
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isIdle    := txCntSig === pTxZero
+    let isLastB   := txCntSig === p28
+    let isEmitting := ~~~isIdle
 
     -- Request fields: broadcast THA placeholder (0); target IP
     -- from latched tpaReg, or live tpaIn on the trigger cycle
@@ -544,7 +544,7 @@ def arpRequester {dom : DomainConfig}
       (Signal.mux trigger tpaIn tpaSig)
       txCntSig
 
-    let txCntInc := (· + ·) <$> txCntSig <*> p1
+    let txCntInc := txCntSig + p1
     txCnt <~ Signal.mux trigger p1
               (Signal.mux isLastB pTxZero
                 (Signal.mux isEmitting txCntInc txCntSig))
@@ -553,8 +553,8 @@ def arpRequester {dom : DomainConfig}
     -- Reply-capture: when parser.done && oper == 2 && spa
     -- matches latched tpa, latch parser.sha into cache.
     let pOpReply := (Signal.pure arpOpReply : Signal dom (BitVec 16))
-    let isReply  := (· == ·) <$> parsed.oper <*> pOpReply
-    let spaMatch := (· == ·) <$> parsed.spa <*> tpaSig
+    let isReply  := parsed.oper === pOpReply
+    let spaMatch := parsed.spa === tpaSig
     let captureP := parsed.done &&& isReply &&& spaMatch
 
     cacheReg <~ Signal.mux captureP parsed.sha cacheSig

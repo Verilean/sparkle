@@ -135,12 +135,12 @@ namespace Sparkle.IP.Crypto.AESHW
   let poly := (Signal.pure 0x1B#8 : Signal dom (BitVec 8))
   let zero := (Signal.pure 0x00#8 : Signal dom (BitVec 8))
   let hi := (Signal.pure 0x80#8 : Signal dom (BitVec 8))
-  let shifted := ((· <<< ·) <$> b <*> one : Signal dom (BitVec 8))
+  let shifted := (b <<< one : Signal dom (BitVec 8))
   let mskZero := (Signal.pure 0x00#8 : Signal dom (BitVec 8))
-  let msbAnd := ((· &&& ·) <$> b <*> hi : Signal dom (BitVec 8))
-  let msbIsZero := ((· == ·) <$> msbAnd <*> mskZero : Signal dom Bool)
+  let msbAnd := (b &&& hi : Signal dom (BitVec 8))
+  let msbIsZero := (msbAnd === mskZero : Signal dom Bool)
   let addPoly := Signal.mux msbIsZero zero poly
-  ((· ^^^ ·) <$> shifted <*> addPoly : Signal dom (BitVec 8))
+  (shifted ^^^ addPoly : Signal dom (BitVec 8))
 
 /-! ### Byte-lane helpers on the 128-bit state.
 
@@ -182,19 +182,19 @@ abbrev subBytesHW {dom : DomainConfig}
   let s13 := subByteHW (byteAt state 13)
   let s14 := subByteHW (byteAt state 14)
   let s15 := subByteHW (byteAt state 15)
-  let cat := fun (a b : Signal dom (BitVec 8)) => (· ++ ·) <$> a <*> b
+  let cat := fun (a b : Signal dom (BitVec 8)) => a ++ b
   let cat4 := fun (a b c d : Signal dom (BitVec 8)) =>
     let ab := cat a b
     let cd := cat c d
-    (· ++ ·) <$> ab <*> cd
+    ab ++ cd
   let cat16 :=
     let w0 := cat4 s0 s1 s2 s3
     let w1 := cat4 s4 s5 s6 s7
     let w2 := cat4 s8 s9 s10 s11
     let w3 := cat4 s12 s13 s14 s15
-    let w01 := (· ++ ·) <$> w0 <*> w1
-    let w23 := (· ++ ·) <$> w2 <*> w3
-    (· ++ ·) <$> w01 <*> w23
+    let w01 := w0 ++ w1
+    let w23 := w2 ++ w3
+    w01 ++ w23
   cat16
 
 /-! ### ShiftRows — pure wiring (byte-position permutation).
@@ -217,16 +217,16 @@ abbrev subBytesHW {dom : DomainConfig}
 @[reducible, inline] def shiftRowsHW {dom : DomainConfig}
     (state : Signal dom (BitVec 128)) : Signal dom (BitVec 128) :=
   let b := fun i => byteAt state i
-  let cat := fun (a c : Signal dom (BitVec 8)) => (· ++ ·) <$> a <*> c
+  let cat := fun (a c : Signal dom (BitVec 8)) => a ++ c
   let cat4 := fun (a c d e : Signal dom (BitVec 8)) =>
-    let ab := cat a c; let cd := cat d e; (· ++ ·) <$> ab <*> cd
+    let ab := cat a c; let cd := cat d e; ab ++ cd
   let w0 := cat4 (b 0)  (b 5)  (b 10) (b 15)
   let w1 := cat4 (b 4)  (b 9)  (b 14) (b 3)
   let w2 := cat4 (b 8)  (b 13) (b 2)  (b 7)
   let w3 := cat4 (b 12) (b 1)  (b 6)  (b 11)
-  let w01 := (· ++ ·) <$> w0 <*> w1
-  let w23 := (· ++ ·) <$> w2 <*> w3
-  (· ++ ·) <$> w01 <*> w23
+  let w01 := w0 ++ w1
+  let w23 := w2 ++ w3
+  w01 ++ w23
 
 /-! ### MixColumns — GF(2^8) matrix multiply per column. -/
 
@@ -241,30 +241,30 @@ abbrev subBytesHW {dom : DomainConfig}
   let x2s1 := xtimeHW s1
   let x2s2 := xtimeHW s2
   let x2s3 := xtimeHW s3
-  let x3s0 := ((· ^^^ ·) <$> x2s0 <*> s0 : Signal dom (BitVec 8))
-  let x3s1 := ((· ^^^ ·) <$> x2s1 <*> s1 : Signal dom (BitVec 8))
-  let x3s2 := ((· ^^^ ·) <$> x2s2 <*> s2 : Signal dom (BitVec 8))
-  let x3s3 := ((· ^^^ ·) <$> x2s3 <*> s3 : Signal dom (BitVec 8))
+  let x3s0 := (x2s0 ^^^ s0 : Signal dom (BitVec 8))
+  let x3s1 := (x2s1 ^^^ s1 : Signal dom (BitVec 8))
+  let x3s2 := (x2s2 ^^^ s2 : Signal dom (BitVec 8))
+  let x3s3 := (x2s3 ^^^ s3 : Signal dom (BitVec 8))
   -- t0 = 2·s0 ^ 3·s1 ^ s2 ^ s3
   let t0 :=
-    let a := ((· ^^^ ·) <$> x2s0 <*> x3s1 : Signal dom (BitVec 8))
-    let b := ((· ^^^ ·) <$> s2 <*> s3 : Signal dom (BitVec 8))
-    ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+    let a := (x2s0 ^^^ x3s1 : Signal dom (BitVec 8))
+    let b := (s2 ^^^ s3 : Signal dom (BitVec 8))
+    (a ^^^ b : Signal dom (BitVec 8))
   -- t1 = s0 ^ 2·s1 ^ 3·s2 ^ s3
   let t1 :=
-    let a := ((· ^^^ ·) <$> s0 <*> x2s1 : Signal dom (BitVec 8))
-    let b := ((· ^^^ ·) <$> x3s2 <*> s3 : Signal dom (BitVec 8))
-    ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+    let a := (s0 ^^^ x2s1 : Signal dom (BitVec 8))
+    let b := (x3s2 ^^^ s3 : Signal dom (BitVec 8))
+    (a ^^^ b : Signal dom (BitVec 8))
   -- t2 = s0 ^ s1 ^ 2·s2 ^ 3·s3
   let t2 :=
-    let a := ((· ^^^ ·) <$> s0 <*> s1 : Signal dom (BitVec 8))
-    let b := ((· ^^^ ·) <$> x2s2 <*> x3s3 : Signal dom (BitVec 8))
-    ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+    let a := (s0 ^^^ s1 : Signal dom (BitVec 8))
+    let b := (x2s2 ^^^ x3s3 : Signal dom (BitVec 8))
+    (a ^^^ b : Signal dom (BitVec 8))
   -- t3 = 3·s0 ^ s1 ^ s2 ^ 2·s3
   let t3 :=
-    let a := ((· ^^^ ·) <$> x3s0 <*> s1 : Signal dom (BitVec 8))
-    let b := ((· ^^^ ·) <$> s2 <*> x2s3 : Signal dom (BitVec 8))
-    ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+    let a := (x3s0 ^^^ s1 : Signal dom (BitVec 8))
+    let b := (s2 ^^^ x2s3 : Signal dom (BitVec 8))
+    (a ^^^ b : Signal dom (BitVec 8))
   (t0, t1, t2, t3)
 
 /-- Full-state MixColumns: apply mixColumn to each of the
@@ -276,22 +276,22 @@ abbrev subBytesHW {dom : DomainConfig}
   let (c10, c11, c12, c13) := mixColumn (b 4)  (b 5)  (b 6)  (b 7)
   let (c20, c21, c22, c23) := mixColumn (b 8)  (b 9)  (b 10) (b 11)
   let (c30, c31, c32, c33) := mixColumn (b 12) (b 13) (b 14) (b 15)
-  let cat := fun (a c : Signal dom (BitVec 8)) => (· ++ ·) <$> a <*> c
+  let cat := fun (a c : Signal dom (BitVec 8)) => a ++ c
   let cat4 := fun (a c d e : Signal dom (BitVec 8)) =>
-    let ab := cat a c; let cd := cat d e; (· ++ ·) <$> ab <*> cd
+    let ab := cat a c; let cd := cat d e; ab ++ cd
   let w0 := cat4 c00 c01 c02 c03
   let w1 := cat4 c10 c11 c12 c13
   let w2 := cat4 c20 c21 c22 c23
   let w3 := cat4 c30 c31 c32 c33
-  let w01 := (· ++ ·) <$> w0 <*> w1
-  let w23 := (· ++ ·) <$> w2 <*> w3
-  (· ++ ·) <$> w01 <*> w23
+  let w01 := w0 ++ w1
+  let w23 := w2 ++ w3
+  w01 ++ w23
 
 /-! ### AddRoundKey — XOR the 128-bit state with the round key. -/
 
 @[reducible, inline] def addRoundKeyHW {dom : DomainConfig}
     (state key : Signal dom (BitVec 128)) : Signal dom (BitVec 128) :=
-  ((· ^^^ ·) <$> state <*> key : Signal dom (BitVec 128))
+  (state ^^^ key : Signal dom (BitVec 128))
 
 /-! ### Key expansion combinational step.
 
@@ -328,18 +328,18 @@ abbrev subBytesHW {dom : DomainConfig}
   let s3 := sboxHW w3b0
   -- Rcon on byte 0.
   let rc := rconHW roundIdx
-  let s0' := ((· ^^^ ·) <$> s0 <*> rc : Signal dom (BitVec 8))
+  let s0' := (s0 ^^^ rc : Signal dom (BitVec 8))
   -- Assemble g = [s0' s1 s2 s3] as a 32-bit word.
-  let g01 := (· ++ ·) <$> s0' <*> s1
-  let g23 := (· ++ ·) <$> s2 <*> s3
-  let g : Signal dom (BitVec 32) := (· ++ ·) <$> g01 <*> g23
-  let w0' := ((· ^^^ ·) <$> w0 <*> g : Signal dom (BitVec 32))
-  let w1' := ((· ^^^ ·) <$> w1 <*> w0' : Signal dom (BitVec 32))
-  let w2' := ((· ^^^ ·) <$> w2 <*> w1' : Signal dom (BitVec 32))
-  let w3' := ((· ^^^ ·) <$> w3 <*> w2' : Signal dom (BitVec 32))
-  let w01 := (· ++ ·) <$> w0' <*> w1'
-  let w23 := (· ++ ·) <$> w2' <*> w3'
-  ((· ++ ·) <$> w01 <*> w23 : Signal dom (BitVec 128))
+  let g01 := s0' ++ s1
+  let g23 := s2 ++ s3
+  let g : Signal dom (BitVec 32) := g01 ++ g23
+  let w0' := (w0 ^^^ g : Signal dom (BitVec 32))
+  let w1' := (w1 ^^^ w0' : Signal dom (BitVec 32))
+  let w2' := (w2 ^^^ w1' : Signal dom (BitVec 32))
+  let w3' := (w3 ^^^ w2' : Signal dom (BitVec 32))
+  let w01 := w0' ++ w1'
+  let w23 := w2' ++ w3'
+  (w01 ++ w23 : Signal dom (BitVec 128))
 
 /-! ### Top-level AES-128 encryption FSM.
 
@@ -385,16 +385,16 @@ def aes128BlockHW {dom : DomainConfig}
     let p10_4 := (Signal.pure 10#4 : Signal dom (BitVec 4))
     let p11_4 := (Signal.pure 11#4 : Signal dom (BitVec 4))
 
-    let isIdle   := ((· == ·) <$> cntSig <*> p0_4 : Signal dom Bool)
-    let isFinal  := ((· == ·) <$> cntSig <*> p10_4 : Signal dom Bool)
-    let isDone   := ((· == ·) <$> cntSig <*> p11_4 : Signal dom Bool)
+    let isIdle   := (cntSig === p0_4 : Signal dom Bool)
+    let isFinal  := (cntSig === p10_4 : Signal dom Bool)
+    let isDone   := (cntSig === p11_4 : Signal dom Bool)
     let isMid :=
       -- Between cnt = 1 and cnt = 9 inclusive (mid rounds with MixColumns).
-      let notIdle := ((fun b => !b) <$> isIdle : Signal dom Bool)
-      let notFin  := ((fun b => !b) <$> isFinal : Signal dom Bool)
-      let notDn   := ((fun b => !b) <$> isDone : Signal dom Bool)
-      let a := ((· && ·) <$> notIdle <*> notFin : Signal dom Bool)
-      ((· && ·) <$> a <*> notDn : Signal dom Bool)
+      let notIdle := (~~~isIdle : Signal dom Bool)
+      let notFin  := (~~~isFinal : Signal dom Bool)
+      let notDn   := (~~~isDone : Signal dom Bool)
+      let a := (notIdle &&& notFin : Signal dom Bool)
+      (a &&& notDn : Signal dom Bool)
 
     -- Round transformations.  Inlined here (rather than calling
     -- `subBytesHW` / `shiftRowsHW` / `mixColumnsHW` / etc. through
@@ -405,9 +405,9 @@ def aes128BlockHW {dom : DomainConfig}
     -- combinators for callers that want them.
     let byte := fun (s : Signal dom (BitVec 128)) (i : Nat) =>
       s.map (fun v => BitVec.extractLsb' ((15 - i) * 8) 8 v)
-    let cat := fun (a b : Signal dom (BitVec 8)) => (· ++ ·) <$> a <*> b
+    let cat := fun (a b : Signal dom (BitVec 8)) => a ++ b
     let cat4 := fun (a b c d : Signal dom (BitVec 8)) =>
-      (· ++ ·) <$> (cat a b) <*> (cat c d)
+      (cat a b) ++ (cat c d)
     let pack16 := fun
         (b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 b10 b11 b12 b13 b14 b15 :
           Signal dom (BitVec 8)) =>
@@ -415,7 +415,7 @@ def aes128BlockHW {dom : DomainConfig}
       let w1 := cat4 b4  b5  b6  b7
       let w2 := cat4 b8  b9  b10 b11
       let w3 := cat4 b12 b13 b14 b15
-      (· ++ ·) <$> ((· ++ ·) <$> w0 <*> w1) <*> ((· ++ ·) <$> w2 <*> w3)
+      (w0 ++ w1) ++ (w2 ++ w3)
 
     -- SubBytes: 16 sboxHW lookups.
     let sb0  := sboxHW (byte stateSig 0)
@@ -450,25 +450,25 @@ def aes128BlockHW {dom : DomainConfig}
       let x2s1 := xtimeHW s1
       let x2s2 := xtimeHW s2
       let x2s3 := xtimeHW s3
-      let x3s0 := ((· ^^^ ·) <$> x2s0 <*> s0 : Signal dom (BitVec 8))
-      let x3s2 := ((· ^^^ ·) <$> x2s2 <*> s2 : Signal dom (BitVec 8))
-      let x3s3 := ((· ^^^ ·) <$> x2s3 <*> s3 : Signal dom (BitVec 8))
+      let x3s0 := (x2s0 ^^^ s0 : Signal dom (BitVec 8))
+      let x3s2 := (x2s2 ^^^ s2 : Signal dom (BitVec 8))
+      let x3s3 := (x2s3 ^^^ s3 : Signal dom (BitVec 8))
       let t0 :=
-        let a := ((· ^^^ ·) <$> x2s0 <*> (((· ^^^ ·) <$> x2s1 <*> s1) : Signal dom (BitVec 8)) : Signal dom (BitVec 8))
-        let b := ((· ^^^ ·) <$> s2 <*> s3 : Signal dom (BitVec 8))
-        ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+        let a := (x2s0 ^^^ ((x2s1 ^^^ s1) : Signal dom (BitVec 8)) : Signal dom (BitVec 8))
+        let b := (s2 ^^^ s3 : Signal dom (BitVec 8))
+        (a ^^^ b : Signal dom (BitVec 8))
       let t1 :=
-        let a := ((· ^^^ ·) <$> s0 <*> x2s1 : Signal dom (BitVec 8))
-        let b := ((· ^^^ ·) <$> x3s2 <*> s3 : Signal dom (BitVec 8))
-        ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+        let a := (s0 ^^^ x2s1 : Signal dom (BitVec 8))
+        let b := (x3s2 ^^^ s3 : Signal dom (BitVec 8))
+        (a ^^^ b : Signal dom (BitVec 8))
       let t2 :=
-        let a := ((· ^^^ ·) <$> s0 <*> s1 : Signal dom (BitVec 8))
-        let b := ((· ^^^ ·) <$> x2s2 <*> x3s3 : Signal dom (BitVec 8))
-        ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+        let a := (s0 ^^^ s1 : Signal dom (BitVec 8))
+        let b := (x2s2 ^^^ x3s3 : Signal dom (BitVec 8))
+        (a ^^^ b : Signal dom (BitVec 8))
       let t3 :=
-        let a := ((· ^^^ ·) <$> x3s0 <*> s1 : Signal dom (BitVec 8))
-        let b := ((· ^^^ ·) <$> s2 <*> x2s3 : Signal dom (BitVec 8))
-        ((· ^^^ ·) <$> a <*> b : Signal dom (BitVec 8))
+        let a := (x3s0 ^^^ s1 : Signal dom (BitVec 8))
+        let b := (s2 ^^^ x2s3 : Signal dom (BitVec 8))
+        (a ^^^ b : Signal dom (BitVec 8))
       (t0, t1, t2, t3)
 
     let mc0 := mixCol (byte afterShiftRows 0)  (byte afterShiftRows 1)
@@ -499,22 +499,22 @@ def aes128BlockHW {dom : DomainConfig}
     let gS2 := sboxHW kW3b3
     let gS3 := sboxHW kW3b0
     let rc := rconHW cntSig
-    let gS0' := ((· ^^^ ·) <$> gS0 <*> rc : Signal dom (BitVec 8))
-    let gW01 := (· ++ ·) <$> gS0' <*> gS1
-    let gW23 := (· ++ ·) <$> gS2 <*> gS3
-    let gWord := ((· ++ ·) <$> gW01 <*> gW23 : Signal dom (BitVec 32))
-    let kW0' := ((· ^^^ ·) <$> kW0 <*> gWord : Signal dom (BitVec 32))
-    let kW1' := ((· ^^^ ·) <$> kW1 <*> kW0' : Signal dom (BitVec 32))
-    let kW2' := ((· ^^^ ·) <$> kW2 <*> kW1' : Signal dom (BitVec 32))
-    let kW3' := ((· ^^^ ·) <$> kW3 <*> kW2' : Signal dom (BitVec 32))
-    let kw01 := (· ++ ·) <$> kW0' <*> kW1'
-    let kw23 := (· ++ ·) <$> kW2' <*> kW3'
-    let nextKey := ((· ++ ·) <$> kw01 <*> kw23 : Signal dom (BitVec 128))
+    let gS0' := (gS0 ^^^ rc : Signal dom (BitVec 8))
+    let gW01 := gS0' ++ gS1
+    let gW23 := gS2 ++ gS3
+    let gWord := (gW01 ++ gW23 : Signal dom (BitVec 32))
+    let kW0' := (kW0 ^^^ gWord : Signal dom (BitVec 32))
+    let kW1' := (kW1 ^^^ kW0' : Signal dom (BitVec 32))
+    let kW2' := (kW2 ^^^ kW1' : Signal dom (BitVec 32))
+    let kW3' := (kW3 ^^^ kW2' : Signal dom (BitVec 32))
+    let kw01 := kW0' ++ kW1'
+    let kw23 := kW2' ++ kW3'
+    let nextKey := (kw01 ++ kw23 : Signal dom (BitVec 128))
 
     -- AddRoundKey (mid vs. final vs. initial).
-    let midOut := ((· ^^^ ·) <$> afterMixColumns <*> nextKey : Signal dom (BitVec 128))
-    let finOut := ((· ^^^ ·) <$> afterShiftRows <*> nextKey : Signal dom (BitVec 128))
-    let initState := ((· ^^^ ·) <$> blockIn <*> keyIn : Signal dom (BitVec 128))
+    let midOut := (afterMixColumns ^^^ nextKey : Signal dom (BitVec 128))
+    let finOut := (afterShiftRows ^^^ nextKey : Signal dom (BitVec 128))
+    let initState := (blockIn ^^^ keyIn : Signal dom (BitVec 128))
 
     -- State update:
     --   start ⇒ blockIn XOR keyIn.
@@ -526,14 +526,14 @@ def aes128BlockHW {dom : DomainConfig}
                   (Signal.mux isFinal finOut stateSig))
 
     -- Key update: latch keyIn on start; advance on mid/final rounds.
-    let notIdle := ((fun b => !b) <$> isIdle : Signal dom Bool)
-    let notDn   := ((fun b => !b) <$> isDone : Signal dom Bool)
-    let keyAdvance := ((· && ·) <$> notIdle <*> notDn : Signal dom Bool)
+    let notIdle := (~~~isIdle : Signal dom Bool)
+    let notDn   := (~~~isDone : Signal dom Bool)
+    let keyAdvance := (notIdle &&& notDn : Signal dom Bool)
     keyR <~ Signal.mux start keyIn
               (Signal.mux keyAdvance nextKey keySig)
 
     -- Counter: 0 → 1 on start, +1 each active cycle, hold at 11.
-    let cntInc := ((· + ·) <$> cntSig <*> p1_4 : Signal dom (BitVec 4))
+    let cntInc := (cntSig + p1_4 : Signal dom (BitVec 4))
     cntR <~ Signal.mux start p1_4
               (Signal.mux isDone p0_4
                 (Signal.mux isIdle p0_4 cntInc))

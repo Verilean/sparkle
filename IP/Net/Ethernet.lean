@@ -331,7 +331,7 @@ private abbrev txPayload : BitVec 5 := 15#5    -- payload pass-through
 
 /-- Mux among 6 MAC bytes by the cycle-relative index (0..5).
     `eqK` is locally written out as the Applicative form because
-    the IR elaborator needs `(· == ·) <$> a <*> b` (not `===`,
+    the IR elaborator needs `a === b` (not `===`,
     which desugars to non-`@[reducible]` `Signal.beq`) to lower
     cleanly to `.op .eq` via `handleApplicative`. -/
 @[inline] private def macByteMux {dom : DomainConfig}
@@ -349,11 +349,11 @@ private abbrev txPayload : BitVec 5 := 15#5    -- payload pass-through
   let pk2 : Signal dom (BitVec 3) := Signal.pure 2#3
   let pk3 : Signal dom (BitVec 3) := Signal.pure 3#3
   let pk4 : Signal dom (BitVec 3) := Signal.pure 4#3
-  Signal.mux ((· == ·) <$> idx <*> pk0) b0
-    (Signal.mux ((· == ·) <$> idx <*> pk1) b1
-      (Signal.mux ((· == ·) <$> idx <*> pk2) b2
-        (Signal.mux ((· == ·) <$> idx <*> pk3) b3
-          (Signal.mux ((· == ·) <$> idx <*> pk4) b4 b5))))
+  Signal.mux (idx === pk0) b0
+    (Signal.mux (idx === pk1) b1
+      (Signal.mux (idx === pk2) b2
+        (Signal.mux (idx === pk3) b3
+          (Signal.mux (idx === pk4) b4 b5))))
 
 /-- Mux among 2 EthType bytes by index (0..1). -/
 @[inline] private def etByteMux {dom : DomainConfig}
@@ -401,7 +401,7 @@ def txFramer {dom : DomainConfig}
     -- stSig=1..5 we're emitting DMAC bytes 1..5; etc.  When idle
     -- and `start` is low, no emission.
     -- Region predicates: use the explicit Applicative form
-    -- `(· == ·) <$> a <*> b` rather than the `===` infix, which
+    -- `a === b` rather than the `===` infix, which
     -- desugars to `Signal.beq` and isn't `@[reducible]` enough
     -- for the IR elaborator to unfold reliably.  The Applicative
     -- form goes through `handleApplicative` and lowers cleanly
@@ -421,21 +421,21 @@ def txFramer {dom : DomainConfig}
     let p11      := (Signal.pure 11#5 : Signal dom (BitVec 5))
     let p12      := (Signal.pure 12#5 : Signal dom (BitVec 5))
     let p13      := (Signal.pure 13#5 : Signal dom (BitVec 5))
-    let isIdle    := (· == ·) <$> stSig <*> pIdle
-    let isPayload := (· == ·) <$> stSig <*> pPayload
-    let is1  := (· == ·) <$> stSig <*> p1
-    let is2  := (· == ·) <$> stSig <*> p2
-    let is3  := (· == ·) <$> stSig <*> p3
-    let is4  := (· == ·) <$> stSig <*> p4
-    let is5  := (· == ·) <$> stSig <*> p5
-    let is6  := (· == ·) <$> stSig <*> p6
-    let is7  := (· == ·) <$> stSig <*> p7
-    let is8  := (· == ·) <$> stSig <*> p8
-    let is9  := (· == ·) <$> stSig <*> p9
-    let is10 := (· == ·) <$> stSig <*> p10
-    let is11 := (· == ·) <$> stSig <*> p11
-    let is12 := (· == ·) <$> stSig <*> p12
-    let is13 := (· == ·) <$> stSig <*> p13
+    let isIdle    := stSig === pIdle
+    let isPayload := stSig === pPayload
+    let is1  := stSig === p1
+    let is2  := stSig === p2
+    let is3  := stSig === p3
+    let is4  := stSig === p4
+    let is5  := stSig === p5
+    let is6  := stSig === p6
+    let is7  := stSig === p7
+    let is8  := stSig === p8
+    let is9  := stSig === p9
+    let is10 := stSig === p10
+    let is11 := stSig === p11
+    let is12 := stSig === p12
+    let is13 := stSig === p13
     let inDmacRest := is1 ||| is2 ||| is3 ||| is4 ||| is5
     let inDmac     := (start &&& isIdle) ||| inDmacRest
     let inSmac     := is6 ||| is7 ||| is8 ||| is9 ||| is10 ||| is11
@@ -515,7 +515,7 @@ def txFramer {dom : DomainConfig}
               -- bare `<$>` (unary `Functor.map`) doesn't match
               -- handleApplicative and the elaborator falls back to
               -- treating `Functor.map` as a sub-module call.
-              ((· + ·) <$> stSig <*> (Signal.pure 1#5 : Signal dom (BitVec 5))))))
+              (stSig + (Signal.pure 1#5 : Signal dom (BitVec 5))))))
     st <~ stNext
     dmacReg <~ Signal.mux start dmacIn dmacSig
     smacReg <~ Signal.mux start smacIn smacSig

@@ -76,7 +76,7 @@ def hftStrategy {dom : DomainConfig}
     let cntR ← Signal.reg (0#8)
     let cntSig := (cntR : Signal dom (BitVec 8))
     let cntInc :=
-      (· + ·) <$> cntSig <*> (Signal.pure 1#8 : Signal dom (BitVec 8))
+      cntSig + (Signal.pure 1#8 : Signal dom (BitVec 8))
     cntR <~ Signal.mux parsed.gotRequest cntInc cntSig
     return ({ triggerSeen := parsed.gotRequest
             , outByte    := emitted.byte

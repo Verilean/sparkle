@@ -75,8 +75,8 @@ def mulHW {dom : DomainConfig}
     let p65_7  := (Signal.pure 65#7 : Signal dom (BitVec 7))
     let pP     := (Signal.pure pBv  : Signal dom (BitVec 66))
 
-    let isIdle   := ((· == ·) <$> cntSig <*> p0_7 : Signal dom Bool)
-    let isFinish := ((· == ·) <$> cntSig <*> p65_7 : Signal dom Bool)
+    let isIdle   := (cntSig === p0_7 : Signal dom Bool)
+    let isFinish := (cntSig === p65_7 : Signal dom Bool)
     let busy     := ((fun i f => !(i || f)) <$> isIdle <*> isFinish : Signal dom Bool)
 
     -- Widen a to 66 bits for the add (zero-extend via prefix append).
@@ -85,30 +85,30 @@ def mulHW {dom : DomainConfig}
     -- MSB of b (bit 63): shift right 63.
     let p63_64 := (Signal.pure 63#64 : Signal dom (BitVec 64))
     let p0_64  := (Signal.pure 0#64  : Signal dom (BitVec 64))
-    let bHi    := ((· >>> ·) <$> bSig <*> p63_64 : Signal dom (BitVec 64))
-    let bHiZ   := ((· == ·) <$> bHi <*> p0_64 : Signal dom Bool)
-    let bMsb   := ((fun z => !z) <$> bHiZ : Signal dom Bool)
+    let bHi    := (bSig >>> p63_64 : Signal dom (BitVec 64))
+    let bHiZ   := (bHi === p0_64 : Signal dom Bool)
+    let bMsb   := (~~~bHiZ : Signal dom Bool)
 
     -- acc doubled (66-bit shift), then reduce once mod p.
     -- Reduction is a conditional subtract of p: subtract when p ≤ x.
     let p1_66     := (Signal.pure 1#66 : Signal dom (BitVec 66))
-    let accDbl    := ((· <<< ·) <$> accSig <*> p1_66 : Signal dom (BitVec 66))
+    let accDbl    := (accSig <<< p1_66 : Signal dom (BitVec 66))
     let dblGe     := ((BitVec.ule · ·) <$> pP <*> accDbl : Signal dom Bool)
-    let accDblRed := (Signal.mux dblGe ((· - ·) <$> accDbl <*> pP) accDbl
+    let accDblRed := (Signal.mux dblGe (accDbl - pP) accDbl
                         : Signal dom (BitVec 66))
     -- optionally add a, then reduce once mod p.
-    let accPlusA  := ((· + ·) <$> accDblRed <*> aWide : Signal dom (BitVec 66))
+    let accPlusA  := (accDblRed + aWide : Signal dom (BitVec 66))
     let addGe     := ((BitVec.ule · ·) <$> pP <*> accPlusA : Signal dom Bool)
-    let accAddRed := (Signal.mux addGe ((· - ·) <$> accPlusA <*> pP) accPlusA
+    let accAddRed := (Signal.mux addGe (accPlusA - pP) accPlusA
                         : Signal dom (BitVec 66))
     -- next acc: add-branch when bMsb, else the doubled-reduced value.
     let accNext   := (Signal.mux bMsb accAddRed accDblRed : Signal dom (BitVec 66))
 
     -- b shifted left one bit each busy cycle.
-    let bShl := ((· <<< ·) <$> bSig <*> (Signal.pure 1#64 : Signal dom (BitVec 64))
+    let bShl := (bSig <<< (Signal.pure 1#64 : Signal dom (BitVec 64))
                   : Signal dom (BitVec 64))
     -- cnt + 1.
-    let cntInc := ((· + ·) <$> cntSig <*> p1_7 : Signal dom (BitVec 7))
+    let cntInc := (cntSig + p1_7 : Signal dom (BitVec 7))
 
     accR <~ Signal.mux start (Signal.pure 0#66 : Signal dom (BitVec 66))
               (Signal.mux busy accNext accSig)

@@ -151,7 +151,7 @@ def keccak256SpongeHW {dom : DomainConfig}
     --   * on a permutation-complete continuation, that's blkR+1
     --     (the value blkR will hold next cycle).  We pre-compute the
     --     "block to absorb next" index and select its 17 lanes.
-    let blkNext := ((· + ·) <$> blkSig <*> p1_2 : Signal dom (BitVec 2))
+    let blkNext := (blkSig + p1_2 : Signal dom (BitVec 2))
     -- Lane i of block b is msgLanes[b*17 + i].  Split into two
     -- `if`-free selectors (a runtime if-then-else does not lower):
     --   startLane i — block 0's lane i (used on `start`)
@@ -159,7 +159,7 @@ def keccak256SpongeHW {dom : DomainConfig}
     --                 blkNext (0 or 1; with maxBlocks=2, ==1 here)
     -- Selects the continuation block (0 or 1) when XORing the next
     -- block in; with maxBlocks=2 this is 1 whenever we continue.
-    let isOne := ((· == ·) <$> blkNext <*> p1_2 : Signal dom Bool)
+    let isOne := (blkNext === p1_2 : Signal dom Bool)
 
     -- Are we going to run another block after this permutation?
     -- `blkNext < nBlocks` (with maxBlocks=2, "is there a block 1 and
@@ -172,9 +172,9 @@ def keccak256SpongeHW {dom : DomainConfig}
     -- LAUNCH-next cycle: one after capture, sSig now holds the
     -- permuted state → XOR the next block in and pulse start.  Only
     -- when there IS a next block.
-    let kfContinue := ((· && ·) <$> (kfDoneP2 : Signal dom Bool) <*> moreBlocks
+    let kfContinue := ((kfDoneP2 : Signal dom Bool) &&& moreBlocks
                         : Signal dom Bool)
-    let kfStart := ((· || ·) <$> start <*> kfContinue : Signal dom Bool)
+    let kfStart := (start ||| kfContinue : Signal dom Bool)
 
     -- State fed to the permutation, built ONLY from registered state
     -- (`sSig`) — no combinational loop through `kf`:
@@ -195,10 +195,10 @@ def keccak256SpongeHW {dom : DomainConfig}
     -- `msgLanes[i]`).  Capacity lanes 17..24: on start → 0; else →
     -- registered state.  Indices are literal, so `getD` reduces.
     let kf := wKeccakF kfStart
-      (Signal.mux start m0 ((· ^^^ ·) <$> (s0 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m17 m0) : Signal dom (BitVec 64)))  (Signal.mux start m1 ((· ^^^ ·) <$> (s1 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m18 m1) : Signal dom (BitVec 64)))  (Signal.mux start m2 ((· ^^^ ·) <$> (s2 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m19 m2) : Signal dom (BitVec 64)))  (Signal.mux start m3 ((· ^^^ ·) <$> (s3 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m20 m3) : Signal dom (BitVec 64)))  (Signal.mux start m4 ((· ^^^ ·) <$> (s4 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m21 m4) : Signal dom (BitVec 64)))
-      (Signal.mux start m5 ((· ^^^ ·) <$> (s5 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m22 m5) : Signal dom (BitVec 64)))  (Signal.mux start m6 ((· ^^^ ·) <$> (s6 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m23 m6) : Signal dom (BitVec 64)))  (Signal.mux start m7 ((· ^^^ ·) <$> (s7 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m24 m7) : Signal dom (BitVec 64)))  (Signal.mux start m8 ((· ^^^ ·) <$> (s8 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m25 m8) : Signal dom (BitVec 64)))  (Signal.mux start m9 ((· ^^^ ·) <$> (s9 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m26 m9) : Signal dom (BitVec 64)))
-      (Signal.mux start m10 ((· ^^^ ·) <$> (s10 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m27 m10) : Signal dom (BitVec 64)))  (Signal.mux start m11 ((· ^^^ ·) <$> (s11 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m28 m11) : Signal dom (BitVec 64)))  (Signal.mux start m12 ((· ^^^ ·) <$> (s12 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m29 m12) : Signal dom (BitVec 64)))  (Signal.mux start m13 ((· ^^^ ·) <$> (s13 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m30 m13) : Signal dom (BitVec 64)))  (Signal.mux start m14 ((· ^^^ ·) <$> (s14 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m31 m14) : Signal dom (BitVec 64)))
-      (Signal.mux start m15 ((· ^^^ ·) <$> (s15 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m32 m15) : Signal dom (BitVec 64)))  (Signal.mux start m16 ((· ^^^ ·) <$> (s16 : Signal dom (BitVec 64)) <*> (Signal.mux isOne m33 m16) : Signal dom (BitVec 64)))  (Signal.mux start z64 (s17 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s18 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s19 : Signal dom (BitVec 64)))
+      (Signal.mux start m0 ((s0 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m17 m0) : Signal dom (BitVec 64)))  (Signal.mux start m1 ((s1 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m18 m1) : Signal dom (BitVec 64)))  (Signal.mux start m2 ((s2 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m19 m2) : Signal dom (BitVec 64)))  (Signal.mux start m3 ((s3 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m20 m3) : Signal dom (BitVec 64)))  (Signal.mux start m4 ((s4 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m21 m4) : Signal dom (BitVec 64)))
+      (Signal.mux start m5 ((s5 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m22 m5) : Signal dom (BitVec 64)))  (Signal.mux start m6 ((s6 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m23 m6) : Signal dom (BitVec 64)))  (Signal.mux start m7 ((s7 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m24 m7) : Signal dom (BitVec 64)))  (Signal.mux start m8 ((s8 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m25 m8) : Signal dom (BitVec 64)))  (Signal.mux start m9 ((s9 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m26 m9) : Signal dom (BitVec 64)))
+      (Signal.mux start m10 ((s10 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m27 m10) : Signal dom (BitVec 64)))  (Signal.mux start m11 ((s11 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m28 m11) : Signal dom (BitVec 64)))  (Signal.mux start m12 ((s12 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m29 m12) : Signal dom (BitVec 64)))  (Signal.mux start m13 ((s13 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m30 m13) : Signal dom (BitVec 64)))  (Signal.mux start m14 ((s14 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m31 m14) : Signal dom (BitVec 64)))
+      (Signal.mux start m15 ((s15 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m32 m15) : Signal dom (BitVec 64)))  (Signal.mux start m16 ((s16 : Signal dom (BitVec 64)) ^^^ (Signal.mux isOne m33 m16) : Signal dom (BitVec 64)))  (Signal.mux start z64 (s17 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s18 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s19 : Signal dom (BitVec 64)))
       (Signal.mux start z64 (s20 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s21 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s22 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s23 : Signal dom (BitVec 64)))  (Signal.mux start z64 (s24 : Signal dom (BitVec 64)))
     -- The permutation output now exposes 25 NAMED scalar lane fields
     -- (l0..l24) instead of an `Array`, because the synth elaborator
@@ -245,8 +245,8 @@ def keccak256SpongeHW {dom : DomainConfig}
     -- `sSig` digest regs are assigned from `finish`/`capture` this
     -- cycle, so `done` pulses and `d0..d3` become valid together on the
     -- FOLLOWING cycle, and are held after.
-    let noMore := ((fun b => !b) <$> moreBlocks : Signal dom Bool)
-    let finish := ((· && ·) <$> capture <*> noMore : Signal dom Bool)
+    let noMore := (~~~moreBlocks : Signal dom Bool)
+    let finish := (capture &&& noMore : Signal dom Bool)
     doneR <~ finish
 
     return ({ d0 := (s0 : Signal dom (BitVec 64))

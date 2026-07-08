@@ -95,7 +95,7 @@ private def condSubN {dom : DomainConfig}
   let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let nP := (Signal.pure nBv257 : Signal dom (BitVec 257))
   let ge := ((BitVec.ule · ·) <$> nP <*> aw : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> aw <*> nP) aw : Signal dom (BitVec 257))
+  let red := (Signal.mux ge (aw - nP) aw : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
 /-- Field add mod n (combinational): widen to 257, add, single
@@ -104,10 +104,10 @@ private def addModN {dom : DomainConfig}
     (a b : Signal dom (BitVec 256)) : Signal dom (BitVec 256) :=
   let aw := (a.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
   let bw := (b.map (fun v => BitVec.append (0#1) v) : Signal dom (BitVec 257))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 257))
+  let s  := (aw + bw : Signal dom (BitVec 257))
   let nP := (Signal.pure nBv257 : Signal dom (BitVec 257))
   let ge := ((BitVec.ule · ·) <$> nP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> nP) s : Signal dom (BitVec 257))
+  let red := (Signal.mux ge (s - nP) s : Signal dom (BitVec 257))
   ((BitVec.extractLsb' 0 256 ·) <$> red : Signal dom (BitVec 256))
 
 /-- Output record. -/
@@ -147,12 +147,12 @@ instance {dom : DomainConfig} :
 /-- `stSig == k` as a Bool signal (step-index compare helper). -/
 @[inline] private def stepEq {dom : DomainConfig}
     (stSig : Signal dom (BitVec 5)) (kk : Nat) : Signal dom Bool :=
-  ((· == ·) <$> stSig <*> (Signal.pure (BitVec.ofNat 5 kk) : Signal dom (BitVec 5)))
+  (stSig === (Signal.pure (BitVec.ofNat 5 kk) : Signal dom (BitVec 5)))
 
 /-- OR of two Bool signals. -/
 @[inline] private def or2 {dom : DomainConfig}
     (a b : Signal dom Bool) : Signal dom Bool :=
-  ((· || ·) <$> a <*> b)
+  (a ||| b)
 
 /-- The ECDSA sign orchestrator FSM.
 
@@ -223,13 +223,13 @@ def signHW {dom : DomainConfig}
     let isSWait    := stepEq stSig 14
 
     -- Acks.
-    let smAck := ((· && ·) <$> isSmWait <*> smDone : Signal dom Bool)
-    let ziAck := ((· && ·) <$> isZiWait <*> pDone : Signal dom Bool)
-    let zi2Ack := ((· && ·) <$> isZi2Wait <*> pDone : Signal dom Bool)
-    let x1Ack := ((· && ·) <$> isX1Wait <*> pDone : Signal dom Bool)
-    let kiAck := ((· && ·) <$> isKiWait <*> nDone : Signal dom Bool)
-    let rdAck := ((· && ·) <$> isRdWait <*> nDone : Signal dom Bool)
-    let sAck := ((· && ·) <$> isSWait <*> nDone : Signal dom Bool)
+    let smAck := (isSmWait &&& smDone : Signal dom Bool)
+    let ziAck := (isZiWait &&& pDone : Signal dom Bool)
+    let zi2Ack := (isZi2Wait &&& pDone : Signal dom Bool)
+    let x1Ack := (isX1Wait &&& pDone : Signal dom Bool)
+    let kiAck := (isKiWait &&& nDone : Signal dom Bool)
+    let rdAck := (isRdWait &&& nDone : Signal dom Bool)
+    let sAck := (isSWait &&& nDone : Signal dom Bool)
 
     -- ============ combinational derived values ============
     -- zrd = (z + rd) mod n.
@@ -239,7 +239,7 @@ def signHW {dom : DomainConfig}
     -- Inverse (Zinv): operand = Z (zjSig), exponent p-2.
     -- Multiplies: Zinv² = zinv·zinv ; X·Zinv² = xR·zinv2.
     let pInvStart := isZiIssue
-    let pMulStart := ((· || ·) <$> isZi2Issue <*> isX1Issue : Signal dom Bool)
+    let pMulStart := (isZi2Issue ||| isX1Issue : Signal dom Bool)
     -- mod-p operand A: inverse feeds Z; Zinv² feeds zinv; X·Zinv² feeds X.
     let pA := (Signal.mux isZiIssue zjSig
                 (Signal.mux isZi2Issue zinvSig xSig) : Signal dom (BitVec 256))
@@ -250,7 +250,7 @@ def signHW {dom : DomainConfig}
     -- Inverse (kInv): operand = k, exponent n-2.
     -- Multiplies: r·d = rR·dR ; kInv·zrd = kinv·zrd.
     let nInvStart := isKiIssue
-    let nMulStart := ((· || ·) <$> isRdIssue <*> isSIssue : Signal dom Bool)
+    let nMulStart := (isRdIssue ||| isSIssue : Signal dom Bool)
     let nA := (Signal.mux isKiIssue kSig
                 (Signal.mux isRdIssue rSig kinvSig) : Signal dom (BitVec 256))
     let nB := (Signal.mux isRdIssue dSig zrdComb : Signal dom (BitVec 256))
@@ -289,8 +289,8 @@ def signHW {dom : DomainConfig}
     let anyAck :=
       or2 smAck (or2 ziAck (or2 zi2Ack (or2 x1Ack
         (or2 kiAck (or2 rdAck sAck)))))
-    let stInc := ((· + ·) <$> stSig <*> (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
-    let advance := ((· || ·) <$> advanceIssue <*> anyAck : Signal dom Bool)
+    let stInc := (stSig + (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
+    let advance := (advanceIssue ||| anyAck : Signal dom Bool)
     stR <~ Signal.mux start (Signal.pure 1#5 : Signal dom (BitVec 5))
              (Signal.mux advance stInc stSig)
 

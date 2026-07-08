@@ -65,34 +65,34 @@ def rfc6979HW {dom : DomainConfig}
 
     -- z mod n = z - n if z ≥ n else z  (z < 2^256 < 2n).
     let zGe := ((fun z' => BitVec.ule nBv z') <$> z : Signal dom Bool)
-    let zmodn := (Signal.mux zGe ((· - ·) <$> z <*> (Signal.pure nBv : Signal dom (BitVec 256))) z : Signal dom (BitVec 256))
+    let zmodn := (Signal.mux zGe (z - (Signal.pure nBv : Signal dom (BitVec 256))) z : Signal dom (BitVec 256))
 
     -- HMAC config keyed on the PHASE (issue+wait pair), so it stays stable for
     -- the ~270 cycles the HMAC runs (NOT on the 1-cycle issue state — that would
     -- drop threeBlk/tailC to their defaults mid-run, skipping block2 = zmodn).
-    let phaseA := ((· || ·) <$> (st === 1#5) <*> (st === 2#5) : Signal dom Bool)
-    let phaseC := ((· || ·) <$> (st === 5#5) <*> (st === 6#5) : Signal dom Bool)
-    let phaseD := ((· || ·) <$> (st === 13#5) <*> (st === 14#5) : Signal dom Bool)
+    let phaseA := ((st === 1#5) ||| (st === 2#5) : Signal dom Bool)
+    let phaseC := ((st === 5#5) ||| (st === 6#5) : Signal dom Bool)
+    let phaseD := ((st === 13#5) ||| (st === 14#5) : Signal dom Bool)
     let tailC :=
       (Signal.mux phaseA (Signal.pure tail00)
         (Signal.mux phaseC (Signal.pure tail01)
           (Signal.mux phaseD (Signal.pure tailV0)
             (Signal.pure tailV))) : Signal dom (BitVec 256))
-    let blk1 := ((· ++ ·) <$> vSig <*> tailC : Signal dom (BitVec 512))
-    let blk2 := ((· ++ ·) <$> ((· ++ ·) <$> (Signal.pure dLo8bv : Signal dom (BitVec 8)) <*> znSig)
+    let blk1 := (vSig ++ tailC : Signal dom (BitVec 512))
+    let blk2 := ((· ++ ·) <$> ((Signal.pure dLo8bv : Signal dom (BitVec 8)) ++ znSig)
                           <*> (Signal.pure tail1288 : Signal dom (BitVec 248)) : Signal dom (BitVec 512))
-    let threeBlk := ((· || ·) <$> phaseA <*> phaseC : Signal dom Bool)
+    let threeBlk := (phaseA ||| phaseC : Signal dom Bool)
 
     -- issue pulse: the ISSUE states 1,3,5,7,9,13,15 (start each HMAC once).
     let isIssue := ((· || ·) <$>
-        ((· || ·) <$> ((· || ·) <$> (st === 1#5) <*> (st === 3#5)) <*> ((· || ·) <$> (st === 5#5) <*> (st === 7#5)))
-        <*> ((· || ·) <$> (st === 9#5) <*> ((· || ·) <$> (st === 13#5) <*> (st === 15#5))) : Signal dom Bool)
+        (((st === 1#5) ||| (st === 3#5)) ||| ((st === 5#5) ||| (st === 7#5)))
+        <*> ((st === 9#5) ||| ((st === 13#5) ||| (st === 15#5))) : Signal dom Bool)
     let hm := wHmac isIssue (kR : Signal dom (BitVec 256)) blk1 blk2 threeBlk
     let hmDone := hm.done
 
     -- captures: K after A/C/D ; V after any B.
-    let capK := ((· && ·) <$> ((· || ·) <$> ((· || ·) <$> (st === 2#5) <*> (st === 6#5)) <*> (st === 14#5)) <*> hmDone : Signal dom Bool)
-    let capV := ((· && ·) <$> ((· || ·) <$> ((· || ·) <$> (st === 4#5) <*> (st === 8#5)) <*> ((· || ·) <$> (st === 10#5) <*> (st === 16#5))) <*> hmDone : Signal dom Bool)
+    let capK := ((((st === 2#5) ||| (st === 6#5)) ||| (st === 14#5)) &&& hmDone : Signal dom Bool)
+    let capV := ((((st === 4#5) ||| (st === 8#5)) ||| ((st === 10#5) ||| (st === 16#5))) &&& hmDone : Signal dom Bool)
     -- K = 0x00…00 on start, else latch HMAC result on capK.
     kR <~ Signal.mux start (Signal.pure 0#256)
             (Signal.mux capK hm.hmac (kR : Signal dom (BitVec 256)))
@@ -105,12 +105,12 @@ def rfc6979HW {dom : DomainConfig}
     -- `!(V == 0)` in a map-lambda mis-lowers to a wide bitwise `~V`.)
     let vNonzero := ((fun v => BitVec.ult (0#256) v) <$> vSig : Signal dom Bool)
     let vLtN := ((BitVec.ult · ·) <$> vSig <*> (Signal.pure nBv : Signal dom (BitVec 256)) : Signal dom Bool)
-    let vValid := ((· && ·) <$> vNonzero <*> vLtN : Signal dom Bool)
+    let vValid := (vNonzero &&& vLtN : Signal dom Bool)
 
-    doneR <~ ((· && ·) <$> (st === 11#5) <*> vValid)
+    doneR <~ ((st === 11#5) &&& vValid)
 
     -- next state.
-    let inc := ((· + ·) <$> st <*> (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
+    let inc := (st + (Signal.pure 1#5 : Signal dom (BitVec 5)) : Signal dom (BitVec 5))
     let advOnDone := (Signal.mux hmDone inc st : Signal dom (BitVec 5))
     let stNext :=
       Signal.mux (st === 0#5) (Signal.mux start (Signal.pure 1#5 : Signal dom (BitVec 5)) (Signal.pure 0#5))

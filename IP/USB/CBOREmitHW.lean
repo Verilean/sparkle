@@ -90,10 +90,10 @@ def cborHeadHW {dom : DomainConfig}
     -- arg low 5 bits as an 8-bit value (for the inline arg<24 case).
     let argLo5 := (argSig.map (fun v => BitVec.extractLsb' 0 8 v) : Signal dom (BitVec 8))
     -- initial byte for each class.
-    let ib1 := ((· ||| ·) <$> majShift <*> argLo5 : Signal dom (BitVec 8))   -- major | arg
-    let ib2 := ((· ||| ·) <$> majShift <*> pAi24 : Signal dom (BitVec 8))
-    let ib3 := ((· ||| ·) <$> majShift <*> pAi25 : Signal dom (BitVec 8))
-    let ib5 := ((· ||| ·) <$> majShift <*> pAi26 : Signal dom (BitVec 8))
+    let ib1 := (majShift ||| argLo5 : Signal dom (BitVec 8))   -- major | arg
+    let ib2 := (majShift ||| pAi24 : Signal dom (BitVec 8))
+    let ib3 := (majShift ||| pAi25 : Signal dom (BitVec 8))
+    let ib5 := (majShift ||| pAi26 : Signal dom (BitVec 8))
     let initByte :=
       Signal.mux argLt24 ib1 (Signal.mux argLt256 ib2 (Signal.mux argLt64k ib3 ib5))
 
@@ -112,10 +112,10 @@ def cborHeadHW {dom : DomainConfig}
     let p3c := (Signal.pure 3#3 : Signal dom (BitVec 3))
     let p4c := (Signal.pure 4#3 : Signal dom (BitVec 3))
     let p5c := (Signal.pure 5#3 : Signal dom (BitVec 3))
-    let isC1 := ((· == ·) <$> cntSig <*> p1c : Signal dom Bool)
-    let isC2 := ((· == ·) <$> cntSig <*> p2c : Signal dom Bool)
-    let isC3 := ((· == ·) <$> cntSig <*> p3c : Signal dom Bool)
-    let isC4 := ((· == ·) <$> cntSig <*> p4c : Signal dom Bool)
+    let isC1 := (cntSig === p1c : Signal dom Bool)
+    let isC2 := (cntSig === p2c : Signal dom Bool)
+    let isC3 := (cntSig === p3c : Signal dom Bool)
+    let isC4 := (cntSig === p4c : Signal dom Bool)
     -- tail byte for the current class + cnt.  Compute per class then mux.
     let tail2 := argB0                                   -- 2-byte head tail
     let tail3 := Signal.mux isC2 argB1 argB0             -- 3-byte head tail
@@ -124,10 +124,10 @@ def cborHeadHW {dom : DomainConfig}
     let outByte := Signal.mux isC1 initByte tailByte
 
     -- Emit while cnt in 1..hLen.  Position/counter management.
-    let cntInc := ((· + ·) <$> cntSig <*> (Signal.pure 1#3 : Signal dom (BitVec 3)) : Signal dom (BitVec 3))
-    let atLast := ((· == ·) <$> cntSig <*> hLenSig : Signal dom Bool)
-    let isIdle := ((· == ·) <$> cntSig <*> p0_3 : Signal dom Bool)
-    let emitting := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let cntInc := (cntSig + (Signal.pure 1#3 : Signal dom (BitVec 3)) : Signal dom (BitVec 3))
+    let atLast := (cntSig === hLenSig : Signal dom Bool)
+    let isIdle := (cntSig === p0_3 : Signal dom Bool)
+    let emitting := (~~~isIdle : Signal dom Bool)
 
     -- Latch inputs + length on start.
     majR  <~ Signal.mux start major majSig

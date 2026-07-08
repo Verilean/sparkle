@@ -65,9 +65,9 @@ def gcmCounterHW {dom : DomainConfig}
     let hi96 := ctrSig.map (fun v => BitVec.extractLsb' 32 96 v)
     -- lo32 + 1 (32-bit wrap).
     let p1_32 := (Signal.pure 1#32 : Signal dom (BitVec 32))
-    let loInc := ((· + ·) <$> lo32 <*> p1_32 : Signal dom (BitVec 32))
+    let loInc := (lo32 + p1_32 : Signal dom (BitVec 32))
     -- Concatenate hi96 ++ loInc (96 + 32 = 128 bits).
-    let next := ((· ++ ·) <$> hi96 <*> loInc : Signal dom (BitVec 128))
+    let next := (hi96 ++ loInc : Signal dom (BitVec 128))
 
     ctrR <~ Signal.mux start j0In
               (Signal.mux step next ctrSig)
@@ -127,9 +127,9 @@ def gcmTagAccumulatorHW {dom : DomainConfig}
     let ySig := (yR : Signal dom (BitVec 128))
     let stSig := (stR : Signal dom Bool)
 
-    let isIdle := ((fun b => !b) <$> stSig : Signal dom Bool)
-    let fire := ((· && ·) <$> isIdle <*> blockValid : Signal dom Bool)
-    let mulX := ((· ^^^ ·) <$> ySig <*> blockIn : Signal dom (BitVec 128))
+    let isIdle := (~~~stSig : Signal dom Bool)
+    let fire := (isIdle &&& blockValid : Signal dom Bool)
+    let mulX := (ySig ^^^ blockIn : Signal dom (BitVec 128))
 
     let p0c := (Signal.pure 0#128 : Signal dom (BitVec 128))
     yR <~ Signal.mux start p0c

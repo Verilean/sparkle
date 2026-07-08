@@ -126,8 +126,8 @@ def uartTxHW {dom : DomainConfig}
     let p1b1 := (Signal.pure 1#1 : Signal dom (BitVec 1))
     let p1b0 := (Signal.pure 0#1 : Signal dom (BitVec 1))
     -- frame = {stop=1, b7..b0, start=0}, LSB out first
-    let byteAsBV9 := ((· ++ ·) <$> txByte <*> p1b0 : Signal dom (BitVec 9))
-    let frame10 := ((· ++ ·) <$> p1b1 <*> byteAsBV9 : Signal dom (BitVec 10))
+    let byteAsBV9 := (txByte ++ p1b0 : Signal dom (BitVec 9))
+    let frame10 := (p1b1 ++ byteAsBV9 : Signal dom (BitVec 10))
 
     -- Start condition: a tx_valid pulse while idle.
     let p0_4 := (Signal.pure 0#4 : Signal dom (BitVec 4))
@@ -136,17 +136,17 @@ def uartTxHW {dom : DomainConfig}
     let pIdle10 := (Signal.pure 0x3FF#10 : Signal dom (BitVec 10))
     let p1_4 := (Signal.pure 1#4 : Signal dom (BitVec 4))
     let p1_10 := (Signal.pure 1#10 : Signal dom (BitVec 10))
-    let notBusy := ((fun b => !b) <$> busySig : Signal dom Bool)
-    let startReq := ((· && ·) <$> txValid <*> notBusy : Signal dom Bool)
+    let notBusy := (~~~busySig : Signal dom Bool)
+    let startReq := (txValid &&& notBusy : Signal dom Bool)
 
     -- Divider-tick: divCount == 0 means we cross to next bit this cycle.
-    let bitTick := ((· == ·) <$> dcSig <*> p0_16 : Signal dom Bool)
+    let bitTick := (dcSig === p0_16 : Signal dom Bool)
 
-    let dcDec := ((· - ·) <$> dcSig <*> (Signal.pure 1#16 : Signal dom (BitVec 16))
+    let dcDec := (dcSig - (Signal.pure 1#16 : Signal dom (BitVec 16))
                   : Signal dom (BitVec 16))
 
-    let shiftDown := ((· >>> ·) <$> shiftSig <*> p1_10 : Signal dom (BitVec 10))
-    let bcDec := ((· - ·) <$> bcSig <*> p1_4 : Signal dom (BitVec 4))
+    let shiftDown := (shiftSig >>> p1_10 : Signal dom (BitVec 10))
+    let bcDec := (bcSig - p1_4 : Signal dom (BitVec 4))
 
     -- Next-state logic.
     -- shiftReg : on start load frame10; on bitTick while busy shift right; else hold.
@@ -156,11 +156,11 @@ def uartTxHW {dom : DomainConfig}
 
     let shiftNext :=
       Signal.mux startReq frame10
-        (Signal.mux (((· && ·) <$> busySig <*> bitTick : Signal dom Bool))
+        (Signal.mux ((busySig &&& bitTick : Signal dom Bool))
            shiftDown shiftSig)
     let bcNext :=
       Signal.mux startReq p10_4
-        (Signal.mux (((· && ·) <$> busySig <*> bitTick : Signal dom Bool))
+        (Signal.mux ((busySig &&& bitTick : Signal dom Bool))
            bcDec bcSig)
     let dcNext :=
       Signal.mux startReq bitDiv
@@ -169,12 +169,12 @@ def uartTxHW {dom : DomainConfig}
     let busyNext :=
       Signal.mux startReq (Signal.pure true)
         (Signal.mux (((· && ·) <$> bitTick <*>
-                      (((· == ·) <$> bcSig <*> p1_4 : Signal dom Bool))
+                      ((bcSig === p1_4 : Signal dom Bool))
                       : Signal dom Bool))
            (Signal.pure false) busySig)
     -- When not busy and not starting, keep shiftReg at the idle all-1s
     -- pattern so tx_line stays high.
-    let shiftNext2 := Signal.mux (((· || ·) <$> busySig <*> startReq : Signal dom Bool))
+    let shiftNext2 := Signal.mux ((busySig ||| startReq : Signal dom Bool))
                         shiftNext pIdle10
 
     shiftReg <~ shiftNext2
@@ -184,10 +184,10 @@ def uartTxHW {dom : DomainConfig}
 
     -- tx_line = LSB of shiftReg.  When idle (shiftReg = 0x3FF) → 1.
     let p1_10b := (Signal.pure 1#10 : Signal dom (BitVec 10))
-    let lsbAnd := ((· &&& ·) <$> shiftSig <*> p1_10b : Signal dom (BitVec 10))
-    let isOne := ((· == ·) <$> lsbAnd <*> p1_10b : Signal dom Bool)
+    let lsbAnd := (shiftSig &&& p1_10b : Signal dom (BitVec 10))
+    let isOne := (lsbAnd === p1_10b : Signal dom Bool)
 
-    let readyOut := ((fun b => !b) <$> busySig : Signal dom Bool)
+    let readyOut := (~~~busySig : Signal dom Bool)
     return ({ txLine := isOne, txReady := readyOut } : TxOut dom)
 
 /-! ### Bit-level UART RX HW engine.
@@ -234,39 +234,39 @@ def uartRxHW {dom : DomainConfig}
     -- Half-bit divider (= bitDiv >>> 1).  We use it on entry to
     -- align sampling to the bit-slot midpoint.
     let p1_16 := (Signal.pure 1#16 : Signal dom (BitVec 16))
-    let halfDiv := ((· >>> ·) <$> bitDiv <*> p1_16 : Signal dom (BitVec 16))
+    let halfDiv := (bitDiv >>> p1_16 : Signal dom (BitVec 16))
 
     let p0_16 := (Signal.pure 0#16 : Signal dom (BitVec 16))
     let p0_4 := (Signal.pure 0#4 : Signal dom (BitVec 4))
     let p1_4 := (Signal.pure 1#4 : Signal dom (BitVec 4))
     let p10_4 := (Signal.pure 10#4 : Signal dom (BitVec 4))
 
-    let inIdle := ((· == ·) <$> stSig <*> p0_4 : Signal dom Bool)
-    let dvIsZero := ((· == ·) <$> dvSig <*> p0_16 : Signal dom Bool)
-    let startEdge := ((· && ·) <$> inIdle <*> ((fun b => !b) <$> rxLine : Signal dom Bool)
+    let inIdle := (stSig === p0_4 : Signal dom Bool)
+    let dvIsZero := (dvSig === p0_16 : Signal dom Bool)
+    let startEdge := (inIdle &&& (~~~rxLine : Signal dom Bool)
                       : Signal dom Bool)
 
-    let stInc := ((· + ·) <$> stSig <*> p1_4 : Signal dom (BitVec 4))
-    let dvDec := ((· - ·) <$> dvSig <*> p1_16 : Signal dom (BitVec 16))
-    let stIsStop := ((· == ·) <$> stSig <*> p10_4 : Signal dom Bool)
+    let stInc := (stSig + p1_4 : Signal dom (BitVec 4))
+    let dvDec := (dvSig - p1_16 : Signal dom (BitVec 16))
+    let stIsStop := (stSig === p10_4 : Signal dom Bool)
 
     -- Sample-and-shift: when divider hits zero (and we're not idle),
     -- we cross into the next bit slot.  For data bits (state in 2..9),
     -- shift the sampled rxLine into shiftReg's MSB and shift right by 1.
-    let bitTick := ((· && ·) <$> ((fun b => !b) <$> inIdle : Signal dom Bool)
+    let bitTick := ((· && ·) <$> (~~~inIdle : Signal dom Bool)
                      <*> dvIsZero : Signal dom Bool)
-    let stIsOne := ((· == ·) <$> stSig <*> p1_4 : Signal dom Bool)
+    let stIsOne := (stSig === p1_4 : Signal dom Bool)
     let inData2_9 :=
       ((· && ·) <$>
-        ((fun b => !b) <$> stIsOne : Signal dom Bool) <*>
-        ((fun b => !b) <$> stIsStop : Signal dom Bool) : Signal dom Bool)
-    let inDataAndTick := ((· && ·) <$> inData2_9 <*> bitTick : Signal dom Bool)
+        (~~~stIsOne : Signal dom Bool) <*>
+        (~~~stIsStop : Signal dom Bool) : Signal dom Bool)
+    let inDataAndTick := (inData2_9 &&& bitTick : Signal dom Bool)
     let shiftRight1 := ((· >>> ·) <$> shSig <*>
                         (Signal.pure 1#8 : Signal dom (BitVec 8)) : Signal dom (BitVec 8))
     let p0x80_8 := (Signal.pure 0x80#8 : Signal dom (BitVec 8))
     let p0_8 := (Signal.pure 0#8 : Signal dom (BitVec 8))
     let bitAsBV1 := Signal.mux rxLine p0x80_8 p0_8
-    let shiftWithBit := ((· ||| ·) <$> shiftRight1 <*> bitAsBV1 : Signal dom (BitVec 8))
+    let shiftWithBit := (shiftRight1 ||| bitAsBV1 : Signal dom (BitVec 8))
     let shiftNext := Signal.mux inDataAndTick shiftWithBit shSig
 
     -- State transitions:
@@ -286,7 +286,7 @@ def uartRxHW {dom : DomainConfig}
 
     -- emit valid pulse when leaving the stop slot AND stop bit was high
     let validPulse := ((· && ·) <$>
-      (((· && ·) <$> bitTick <*> stIsStop) : Signal dom Bool) <*>
+      ((bitTick &&& stIsStop) : Signal dom Bool) <*>
       rxLine : Signal dom Bool)
 
     stateReg <~ stateNext

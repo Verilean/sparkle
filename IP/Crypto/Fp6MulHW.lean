@@ -76,12 +76,12 @@ instance {dom : DomainConfig} :
 private def fAddP {dom : DomainConfig}
     (a b : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
   let z1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-  let aw := ((· ++ ·) <$> z1 <*> a : Signal dom (BitVec 385))
-  let bw := ((· ++ ·) <$> z1 <*> b : Signal dom (BitVec 385))
-  let s  := ((· + ·) <$> aw <*> bw : Signal dom (BitVec 385))
+  let aw := (z1 ++ a : Signal dom (BitVec 385))
+  let bw := (z1 ++ b : Signal dom (BitVec 385))
+  let s  := (aw + bw : Signal dom (BitVec 385))
   let pP := (Signal.pure pBv385 : Signal dom (BitVec 385))
   let ge := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 385))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 385))
   ((BitVec.extractLsb' 0 384 ·) <$> red : Signal dom (BitVec 384))
 
 /-- Fp sub mod p (combinational): a + p − b in 385 bits, one
@@ -89,26 +89,26 @@ private def fAddP {dom : DomainConfig}
 private def fSubP {dom : DomainConfig}
     (a b : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
   let z1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
-  let aw := ((· ++ ·) <$> z1 <*> a : Signal dom (BitVec 385))
-  let bw := ((· ++ ·) <$> z1 <*> b : Signal dom (BitVec 385))
+  let aw := (z1 ++ a : Signal dom (BitVec 385))
+  let bw := (z1 ++ b : Signal dom (BitVec 385))
   let pP := (Signal.pure pBv385 : Signal dom (BitVec 385))
-  let apb := ((· + ·) <$> aw <*> pP : Signal dom (BitVec 385))
-  let s   := ((· - ·) <$> apb <*> bw : Signal dom (BitVec 385))
+  let apb := (aw + pP : Signal dom (BitVec 385))
+  let s   := (apb - bw : Signal dom (BitVec 385))
   let ge  := ((BitVec.ule · ·) <$> pP <*> s : Signal dom Bool)
-  let red := (Signal.mux ge ((· - ·) <$> s <*> pP) s : Signal dom (BitVec 385))
+  let red := (Signal.mux ge (s - pP) s : Signal dom (BitVec 385))
   ((BitVec.extractLsb' 0 384 ·) <$> red : Signal dom (BitVec 384))
 
 /-- `stepSig == k` (3-bit step compare). -/
 private def stepEq {dom : DomainConfig}
     (stepSig : Signal dom (BitVec 3)) (k : Nat) : Signal dom Bool :=
-  ((· == ·) <$> stepSig <*> (Signal.pure (BitVec.ofNat 3 k) : Signal dom (BitVec 3)))
+  (stepSig === (Signal.pure (BitVec.ofNat 3 k) : Signal dom (BitVec 3)))
 
 /-- Latch the engine result half into scratch `k` on a step-`k` ack. -/
 private def latchStep {dom : DomainConfig}
     (stepAck : Signal dom Bool) (stepSig : Signal dom (BitVec 3))
     (engRes : Signal dom (BitVec 384)) (k : Nat)
     (cur : Signal dom (BitVec 384)) : Signal dom (BitVec 384) :=
-  Signal.mux ((· && ·) <$> stepAck <*> stepEq stepSig k) engRes cur
+  Signal.mux (stepAck &&& stepEq stepSig k) engRes cur
 
 /-- Fp6 multiply FSM. -/
 def fp6MulHW {dom : DomainConfig}
@@ -160,8 +160,8 @@ def fp6MulHW {dom : DomainConfig}
     let p0_3 := (Signal.pure 0#3 : Signal dom (BitVec 3))
     let p1_3 := (Signal.pure 1#3 : Signal dom (BitVec 3))
 
-    let isTrig := ((· == ·) <$> stSig <*> p1_2 : Signal dom Bool)
-    let isWait := ((· == ·) <$> stSig <*> p2_2 : Signal dom Bool)
+    let isTrig := (stSig === p1_2 : Signal dom Bool)
+    let isWait := (stSig === p2_2 : Signal dom Bool)
 
     -- Combinational operand sums for the cross-product steps.
     let s12a := fAddP a1aS a2aS; let s12b := fAddP a1bS a2bS  -- a1+a2
@@ -200,8 +200,8 @@ def fp6MulHW {dom : DomainConfig}
     let engDone := fp2Done
 
     let lastStep := stepEq stepSig 5
-    let stepAck := ((· && ·) <$> isWait <*> engDone : Signal dom Bool)
-    let atLast := ((· && ·) <$> stepAck <*> lastStep : Signal dom Bool)
+    let stepAck := (isWait &&& engDone : Signal dom Bool)
+    let atLast := (stepAck &&& lastStep : Signal dom Bool)
     let advance := ((fun s l => s && !l) <$> stepAck <*> lastStep : Signal dom Bool)
 
     -- Phase transitions.
@@ -212,7 +212,7 @@ def fp6MulHW {dom : DomainConfig}
                   stSig))
 
     -- Step index.
-    let stepInc := ((· + ·) <$> stepSig <*> p1_3 : Signal dom (BitVec 3))
+    let stepInc := (stepSig + p1_3 : Signal dom (BitVec 3))
     stepR <~ Signal.mux start p0_3
               (Signal.mux advance stepInc stepSig)
 
