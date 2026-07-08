@@ -40,6 +40,26 @@ GW2A-18) signing two live transfers on a local `anvil` node.
 The private key never travels the wire, and the nonce never leaves the
 chip — the two properties a "blind" software signer can't give you.
 
+```
+              Tang Nano 20K · GW2A-18 · rPLL 27→13.5 MHz (global clock)
+ host (PC)   ┌────────────────────────────────────────────────────────────────┐
+    │ z(32B) │   ┌─────────┐   z     ┌─────────────────────┐                    │
+    ├───────▶│──▶│ UART RX │───────▶ │ RFC-6979  (on-chip) │   d = 12345         │
+ ttyUSB1     │   └─────────┘         │ HMAC-SHA-256  K/V   │◀── baked, never     │
+    │        │                       └──────────┬──────────┘    on the wire      │
+    │        │                          k (never leaves the die)                 │
+    │        │                                  ▼                                │
+    │        │           ┌──────────────────────────────────────────┐           │
+    │        │           │ secp256k1 signer                          │           │
+    │        │           │  · 16-bit word-serial multiplier (no DSP) │           │
+    │        │           │  · bit-serial modular add/sub ALU         │           │
+    │        │           │  · BRAM register file + microcode FSM     │           │
+    │[A5 5A  │   ┌─────────┐  r‖s    └─────────────────────┬──────────┘           │
+    ◀─01|r|s]│◀──│ UART TX │◀──────────────────────────────┘                     │
+             │   └─────────┘                                                      │
+             └────────────────────────────────────────────────────────────────┘
+```
+
 ```lean
 import Sparkle
 import Sparkle.Compiler.Elab
@@ -136,6 +156,29 @@ response frame; the host syncs on `A5 5A`, checks the status, and reads
 `r‖s`. `fpga/tangNano20k/sign_z_uart_top.v` emits the frame;
 `host/sign_z/sign_z.py` parses it.
 
+One UART byte, at the bit level (115200 8N1; 1 bit-time = 13.5 MHz /
+115200 = 117 `clk_div` cycles):
+
+```
+              │◀── 117 clk_div cyc ──▶│
+       ‾‾‾‾‾‾‾╲                       ╱‾‾‾‾ … 8 data, LSB-first … ‾‾╲       ╱‾‾‾‾‾   idle
+  line        ╲_______________________╱                             ╲_____╱   (mark=1)
+              start bit (0)            D0  D1  D2 … D7               stop(1)
+```
+
+And one whole transaction — request, on-chip sign, framed response — on a
+cycle time-line (`clk_div` = 13.5 MHz):
+
+```
+              32 z-bytes in           on-chip sign                 framed frames out
+  uart_rx  ─┤▤▤▤ 32 bytes ▤▤▤├───────────────────────────────────────────────── idle
+  bytecnt   0 1 2 … 31 →0                                                          0
+  start_p   ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  (1 cyc @ byte 32)
+                           │◀─ ~1.3M clk_div cyc  (RFC-6979 + ECDSA ≈ 0.1 s) ─▶│
+  have      ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁███████████████
+  uart_tx   idle ──────────────────────────────────────────── ┤A5 5A 01 r s├┤A5…├
+```
+
 ## 11.5 Pin constraints
 
 `fpga/tangNano20k/sign_z_uart.cst` maps the 27 MHz `clk` (pin 4), the
@@ -191,6 +234,22 @@ the signer's address**, gets `(r,s)` from the FPGA over UART, normalizes
 to low-`s` (EIP-2), recovers the y-parity, assembles the signed raw
 transaction, and broadcasts it over JSON-RPC — **zero dependencies**
 beyond stdlib (`urllib`; no `web3`).
+
+```
+  host (eth_sign_tx.py)          FPGA signer               anvil (local node)
+  ─────────────────────          ───────────               ──────────────────
+  build EIP-1559 tx
+  z = keccak256(0x02‖rlp([…]))
+        │  z (32 bytes)  ──────▶  RX assembles z
+        │                         RFC-6979 k + ECDSA sign   (~0.1 s on-chip)
+        │  ◀── [A5 5A|01|r|s] ──  TX streams the framed r‖s
+  low-s normalize (EIP-2)
+  recover y-parity
+  assemble signed raw tx
+        │  eth_sendRawTransaction ──────────────────────▶   mine block
+        │  ◀───────────────── receipt {status: 0x1} ────────
+  assert ecrecover(z,r,s) == 0xeb46…4d9929   (the baked key's address) ✓
+```
 
 ```bash
 # start a local chain (chainId 31337)
