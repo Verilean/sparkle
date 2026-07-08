@@ -26,27 +26,35 @@
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Std.Data.HashSet
+import Std.Data.HashMap
 
 namespace Sparkle.Backend.CSim
 
 open Sparkle.IR.AST
 open Sparkle.IR.Type
 
+/-- Name→type lookup used by the emitters.  Backed by a `Std.HashMap`
+    so `lookupWidth` is O(1): `emitExpr`/`inferExprWidth` probe it once
+    per expression node.  The old linear-scan `List` made emit O(N·M)
+    over a module's N nodes and M wires — quadratic on large designs
+    like Keccak's ~1600-wire round. -/
+abbrev TypeMap := Std.HashMap String HWType
+
 -- Helper to embed literal braces in string interpolation
 private def ob : String := "{"
 private def cb : String := "}"
 
-/-- Build a name-to-type map from a module's ports and wires -/
-def buildTypeMap (m : Module) : List (String × HWType) :=
-  let inputMap := m.inputs.map fun (p : Port) => (p.name, p.ty)
-  let outputMap := m.outputs.map fun (p : Port) => (p.name, p.ty)
-  let wireMap := m.wires.map fun (p : Port) => (p.name, p.ty)
-  inputMap ++ outputMap ++ wireMap
+/-- Build a name-to-type map from a module's ports and wires.
+    `insertIfNew` preserves the first binding on a name clash, matching
+    the old `List.find?` (inputs, then outputs, then wires) semantics. -/
+def buildTypeMap (m : Module) : TypeMap :=
+  let entries := (m.inputs ++ m.outputs ++ m.wires).map fun (p : Port) => (p.name, p.ty)
+  entries.foldl (fun acc (n, t) => acc.insertIfNew n t) {}
 
 /-- Look up bit-width for a name in the type map -/
-def lookupWidth (typeMap : List (String × HWType)) (name : String) : Nat :=
-  match typeMap.find? (fun (n, _) => n == name) with
-  | some (_, ty) => ty.bitWidth
+def lookupWidth (typeMap : TypeMap) (name : String) : Nat :=
+  match typeMap.get? name with
+  | some ty => ty.bitWidth
   | none => 32
 
 /-- Sanitize a name to be a valid C identifier -/
@@ -167,7 +175,7 @@ def signedCastType (w : Nat) : String :=
   else "int64_t"
 
 /-- Best-effort width inference for an expression -/
-partial def inferExprWidth (typeMap : List (String × HWType)) : Expr → Nat
+partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   | .const _ w => w
   | .ref name => lookupWidth typeMap name
   | .slice _ hi lo => hi - lo + 1
@@ -176,8 +184,8 @@ partial def inferExprWidth (typeMap : List (String × HWType)) : Expr → Nat
   | .index arr _ =>
     match arr with
     | .ref name =>
-      match typeMap.find? (fun (n, _) => n == name) with
-      | some (_, .array _ elemType) => elemType.bitWidth
+      match typeMap.get? name with
+      | some (.array _ elemType) => elemType.bitWidth
       | _ => 32
     | _ => 32
   | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
@@ -192,6 +200,61 @@ partial def inferExprWidth (typeMap : List (String × HWType)) : Expr → Nat
     | [arg1, _] => inferExprWidth typeMap arg1
     | [arg1] => inferExprWidth typeMap arg1
     | _ => 32
+
+/-- Wide (>64-bit) add/sub as a multi-word ripple-carry/borrow GCC
+    statement-expression returning a compound-literal array (the same
+    shape the wide-`.mul` arm and `emitStmt`'s memcpy assign expect).
+    Operands `a`/`b` are the already-emitted C strings for two `nWords`
+    32-bit-slot arrays; they are indexed directly (`(a)[i]`), so they
+    must be side-effect-free lvalues/literals (refs, consts) — which is
+    what add/sub operands always are.  Without this, wide `+`/`-` fell
+    through to the scalar arm and emitted `arrayA - arrayB`, i.e. C
+    pointer subtraction — a hard compile error (breaks every >64-bit
+    datapath, e.g. the secp256k1 mul's 258-bit accumulator reduce). -/
+private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat) : String :=
+  let words := (List.range nWords).map (fun i =>
+    let ai := "(uint64_t)(" ++ a ++ ")[" ++ toString i ++ "]"
+    let bi := "(uint64_t)(" ++ b ++ ")[" ++ toString i ++ "]"
+    if isAdd then
+      "uint64_t __s" ++ toString i ++ " = " ++ ai ++ " + " ++ bi ++
+        " + __c; __c = __s" ++ toString i ++ " >> 32;"
+    else
+      "int64_t __s" ++ toString i ++ " = (int64_t)" ++ ai ++ " - (int64_t)" ++ bi ++
+        " - (int64_t)__c; __c = (__s" ++ toString i ++ " < 0) ? 1 : 0;")
+  let elems := String.intercalate ", "
+    ((List.range nWords).map (fun i => "(uint32_t)__s" ++ toString i))
+  let body := "uint64_t __c = 0; " ++ String.intercalate " " words ++
+    " (uint32_t[" ++ toString nWords ++ "]){" ++ elems ++ "};"
+  "(__extension__ ({ " ++ body ++ " }))"
+
+/-- Emit the C lines that ripple-add/sub two `nWords`-slot arrays `aS`,
+    `bS` DIRECTLY into `dst` (no compound-literal statement-expression,
+    whose block-scoped storage dangles before a `memcpy` reads it). -/
+private def wideAddSubInto (isAdd : Bool) (dst aS bS : String) (nWords : Nat) : List String :=
+  if isAdd then
+    ["        { uint64_t __c = 0;"]
+    ++ (List.range nWords).map (fun j =>
+        s!"          __c += (uint64_t){aS}[{j}] + (uint64_t){bS}[{j}]; {dst}[{j}] = (uint32_t)__c; __c >>= 32;")
+    ++ ["        }"]
+  else
+    ["        { uint64_t __brw = 0;"]
+    ++ (List.range nWords).map (fun j =>
+        s!"          \{ uint64_t __bi = (uint64_t){bS}[{j}] + __brw; {dst}[{j}] = (uint32_t)((uint64_t){aS}[{j}] - __bi); __brw = ((uint64_t){aS}[{j}] < __bi) ? 1 : 0; }")
+    ++ ["        }"]
+
+/-- Wide (>64-bit) unsigned compare as a most-significant-word-first
+    nested ternary.  Returns `a < b` when `strict`, else `a <= b`.
+    Without this, wide `<`/`<=`/… fell through to the scalar arm and
+    compared the operand ARRAYS as pointers (silently wrong), which
+    breaks e.g. the modular reduction's `if (2·acc ≥ p)` gate. -/
+private def wideCmpExpr (strict : Bool) (a b : String) (nWords : Nat) : String :=
+  let base := if strict then "0" else "1"
+  let expr := (List.range nWords).foldl (fun rest i =>
+    let ai := "(uint32_t)(" ++ a ++ ")[" ++ toString i ++ "]"
+    let bi := "(uint32_t)(" ++ b ++ ")[" ++ toString i ++ "]"
+    "(" ++ ai ++ " < " ++ bi ++ " ? 1 : (" ++ ai ++ " > " ++ bi ++ " ? 0 : " ++ rest ++ "))")
+    base
+  "(" ++ expr ++ ")"
 
 /-- Convert IR expression to C expression.
 
@@ -216,7 +279,7 @@ partial def inferExprWidth (typeMap : List (String × HWType)) : Expr → Nat
       (b) wrap the RHS in `memcpy(lhs, RHS, sizeof(lhs))`
           when RHS is a compound literal — `lhs = RHS` on a
           C array is rejected by the compiler. -/
-partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
+partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
   match e with
   | .const value width =>
     let modulus : Int := (2 : Int) ^ width
@@ -276,30 +339,30 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
               let mask := s!"0x{Nat.toDigits 16 maskNat |> String.ofList}ULL"
               let shifted :=
                 if w > 64 then
+                  -- Extract `bitCount` (≤ 32) bits of the WIDE operand starting
+                  -- at bit `bitInArgLo`.  These bits can straddle two of the
+                  -- operand's own 32-bit words — combine both (the old code took
+                  -- only the low word and dropped the overflow, corrupting any
+                  -- non-word-aligned wide operand, e.g. HMAC's `dLo8‖zmodn‖…`).
                   let argSlot := bitInArgLo / 32
                   let argBitInSlot := bitInArgLo % 32
-                  let bitsFromThisSlot :=
-                    let available := 32 - argBitInSlot
-                    if bitCount < available then bitCount else available
-                  let m2 : Nat := (2 ^ bitsFromThisSlot) - 1
-                  let m2str := s!"0x{Nat.toDigits 16 m2 |> String.ofList}ULL"
+                  let fullMask : Nat := (2 ^ bitCount) - 1
+                  let fmStr := s!"0x{Nat.toDigits 16 fullMask |> String.ofList}ULL"
                   match arg with
                   | .const value _ =>
                     let modulus : Int := (2 : Int) ^ w
                     let unsigned : Nat :=
                       if value < 0 then (((value % modulus) + modulus) % modulus).toNat
                       else value.toNat
-                    let slotVal := (unsigned >>> (argSlot * 32)) &&& 0xFFFFFFFF
-                    let slotHex := s!"0x{Nat.toDigits 16 slotVal |> String.ofList}ULL"
-                    if argBitInSlot == 0 then
-                      s!"({slotHex} & {m2str})"
-                    else
-                      s!"(({slotHex} >> {argBitInSlot}) & {m2str})"
+                    let bits := (unsigned >>> bitInArgLo) &&& fullMask
+                    s!"0x{Nat.toDigits 16 bits |> String.ofList}ULL"
                   | _ =>
                     if argBitInSlot == 0 then
-                      s!"((uint64_t){argExpr}[{argSlot}] & {m2str})"
+                      s!"((uint64_t){argExpr}[{argSlot}] & {fmStr})"
                     else
-                      s!"(((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}) & {m2str})"
+                      let spans := argBitInSlot + bitCount > 32
+                      let hiP := if spans then s!" | ((uint64_t){argExpr}[{argSlot + 1}] << {32 - argBitInSlot})" else ""
+                      s!"((((uint64_t){argExpr}[{argSlot}] >> {argBitInSlot}){hiP}) & {fmStr})"
                 else
                   if bitInArgLo == 0 then
                     s!"((uint64_t){argExpr} & {mask})"
@@ -377,8 +440,14 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
 
   | .op .not args =>
     match args with
-    -- IR `.not` is logical negation; bitwise NOT is lowered as XOR with -1.
-    | [arg] => s!"(!{emitExpr typeMap arg})"
+    -- `.op .not` is a hardware complement: LOGICAL `!` for a 1-bit Bool, but
+    -- BITWISE `~` (masked to the operand width) for a multi-bit bus.  Emitting
+    -- `!` for a wide bus collapses it to 0/1 (e.g. the 32-bit `~e` in SHA-256's
+    -- Ch became `!e`, silently corrupting every hash).
+    | [arg] =>
+      let w := inferExprWidth typeMap arg
+      if w ≤ 1 then s!"(!{emitExpr typeMap arg})"
+      else s!"((~{emitExpr typeMap arg}) & {(1 <<< w) - 1}ULL)"
     | _ => "/* ERROR: not requires 1 argument */"
 
   | .op .neg args =>
@@ -400,12 +469,47 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
         let utype := emitScalarBase (.bitVector w)
         s!"(({utype})(({stype}){emitExpr typeMap arg1} >> {emitExpr typeMap arg2}))"
       | .eq =>
+        let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
+        if w > 64 then
+          -- Wide equality: AND per-word compares.  A `const 0` operand
+          -- becomes a per-word zero-check.  Without this, `!(x)` / `x==y`
+          -- on the 32-bit-slot ARRAYS were pointer ops (always false /
+          -- address compare) — e.g. the bit-serial multiplier's
+          -- "is this bit zero?" test was stuck true, so it added the
+          -- multiplicand every cycle.
+          let n := wordsOf w
+          let mkTerms (x y : Expr) : String :=
+            let xs := emitExpr typeMap x
+            match y with
+            | .const 0 _ =>
+              String.intercalate " && " ((List.range n).map (fun j => s!"({xs}[{j}] == 0)"))
+            | _ =>
+              let ys := emitExpr typeMap y
+              String.intercalate " && " ((List.range n).map (fun j => s!"({xs}[{j}] == {ys}[{j}])"))
+          match arg1, arg2 with
+          | _, .const 0 _ => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
+          | .const 0 _, _ => s!"(({mkTerms arg2 arg1}) ? 1 : 0)"
+          | _, _          => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
+        else
         match arg1, arg2 with
         | _, .const 0 _ => s!"(!({emitExpr typeMap arg1}) ? 1 : 0)"
         | .const 0 _, _ => s!"(!({emitExpr typeMap arg2}) ? 1 : 0)"
         | _, _ => s!"({emitExpr typeMap arg1} == {emitExpr typeMap arg2} ? 1 : 0)"
       | .lt_u | .le_u | .gt_u | .ge_u =>
-        s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
+        let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
+        if w > 64 then
+          let a := emitExpr typeMap arg1
+          let b := emitExpr typeMap arg2
+          let n := wordsOf w
+          -- a≥b ⟺ b≤a ; a>b ⟺ b<a — reuse the (strict) le/lt form by
+          -- swapping operands for the ≥/> cases.
+          match operator with
+          | .lt_u => wideCmpExpr true  a b n
+          | .le_u => wideCmpExpr false a b n
+          | .gt_u => wideCmpExpr true  b a n
+          | _     => wideCmpExpr false b a n   -- .ge_u
+        else
+          s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
       | .mul =>
         -- Wide-multiply codegen.  Same algorithm as CppSim's
         -- C++ port: project both wide operands to int64_t (low
@@ -443,6 +547,14 @@ partial def emitExpr (typeMap : List (String × HWType)) (e : Expr) : String :=
           s!"(__extension__ ({body}))"
         else
           s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
+      | .add =>
+        let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
+        if w > 64 then wideAddSubExpr true (emitExpr typeMap arg1) (emitExpr typeMap arg2) (wordsOf w)
+        else s!"({emitExpr typeMap arg1} + {emitExpr typeMap arg2})"
+      | .sub =>
+        let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
+        if w > 64 then wideAddSubExpr false (emitExpr typeMap arg1) (emitExpr typeMap arg2) (wordsOf w)
+        else s!"({emitExpr typeMap arg1} - {emitExpr typeMap arg2})"
       | _ =>
         s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
     | _ => s!"/* ERROR: operator with wrong arity */"
@@ -509,7 +621,7 @@ private partial def muxChainDepth : Expr → Nat
   | _ => 0
 
 /-- Emit a MUX chain as if-else block for better branch prediction. -/
-def emitMuxAsIfElse (typeMap : List (String × HWType))
+def emitMuxAsIfElse (typeMap : TypeMap)
     (lhsName : String) (width : Nat) (rhs : Expr)
     (minArms : Nat := 4) : List String :=
   let (arms, default_) := flattenMuxChain rhs
@@ -527,7 +639,7 @@ def emitMuxAsIfElse (typeMap : List (String × HWType))
     [defaultLine] ++ ifLines
 
 /-- Split a statement into declaration/eval/tick/reset parts -/
-partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
+partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     (design : Option Design := none) : StmtParts :=
   match stmt with
   | .assign lhs rhs =>
@@ -535,6 +647,76 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     if width > 64 then
       let sn := sanitizeName lhs
       let nWords := wordsOf width
+      -- Per-word slot expressions for wide logical shifts (shared by the
+      -- direct `.op .shl`/`.op .shr` arms and `matWide` below).
+      let constAmt : Expr → Nat := fun b => match b with | .const v _ => v.toNat | _ => 0
+      let shlSlot (aS : String) (sa j : Nat) : String :=
+        let k := sa / 32; let r := sa % 32
+        if j < k then "0u"
+        else if j == k then (if r == 0 then s!"{aS}[0]" else s!"({aS}[0] << {r})")
+        else
+          let lower := j - k
+          let upperShift := if r == 0 then "0u" else s!"({aS}[{lower - 1}] >> {32 - r})"
+          if r == 0 then s!"{aS}[{lower}]" else s!"(({aS}[{lower}] << {r}) | {upperShift})"
+      let shrSlot (aS : String) (sa srcWords j : Nat) : String :=
+        let k := sa / 32; let r := sa % 32
+        let idx := j + k
+        if idx ≥ srcWords then "0u"
+        else if r == 0 then s!"{aS}[{idx}]"
+        else
+          let hiPart := if idx + 1 < srcWords then s!" | ({aS}[{idx + 1}] << {32 - r})" else ""
+          s!"(({aS}[{idx}] >> {r}){hiPart})"
+      -- Materialise a single operand into an indexable array: a `.ref` renders
+      -- directly; anything else (concat/const compound literal, …) is memcpy'd
+      -- into a temp so it can be read per-word.
+      let matOp (label : String) (e : Expr) : List String × String :=
+        match e with
+        | .ref _ => ([], emitExpr typeMap e)
+        | _ =>
+          let tmp := s!"__{label}_{sn}"
+          ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {emitExpr typeMap e}, sizeof({tmp}));"], tmp)
+      -- Materialise a wide sub-expression into an indexable temp array so it
+      -- can be read per-word (needed when a shift/bitwise op is NESTED inside
+      -- another op — `emitExpr` of a wide op is not a valid C expression, e.g.
+      -- HMAC's `(key ⊕ c36) ++ c36` produced an invalid `array ^ array`).
+      let matWide (label : String) (e : Expr) : List String × String :=
+        match e with
+        | .ref _ => ([], emitExpr typeMap e)
+        | .op .shl [a, b] =>
+          let tmp := s!"__{label}_{sn}"; let aS := emitExpr typeMap a; let sa := constAmt b
+          (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shlSlot aS sa j};"), tmp)
+        | .op .shr [a, b] =>
+          let tmp := s!"__{label}_{sn}"; let aS := emitExpr typeMap a; let sa := constAmt b
+          let srcWords := wordsOf (inferExprWidth typeMap a)
+          (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};"), tmp)
+        | .op .xor [a, b] =>
+          let (da, sa) := matOp s!"{label}a" a; let (db, sb) := matOp s!"{label}b" b
+          let tmp := s!"__{label}_{sn}"
+          (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] ^ {sb}[{j}];")), tmp)
+        | .op .and [a, b] =>
+          let (da, sa) := matOp s!"{label}a" a; let (db, sb) := matOp s!"{label}b" b
+          let tmp := s!"__{label}_{sn}"
+          (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] & {sb}[{j}];")), tmp)
+        | .op .or [a, b] =>
+          let (da, sa) := matOp s!"{label}a" a; let (db, sb) := matOp s!"{label}b" b
+          let tmp := s!"__{label}_{sn}"
+          (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] | {sb}[{j}];")), tmp)
+        | .op .add [a, b] =>
+          let tmp := s!"__{label}_{sn}"
+          (s!"        uint32_t {tmp}[{nWords}];"
+            :: wideAddSubInto true tmp (emitExpr typeMap a) (emitExpr typeMap b) nWords, tmp)
+        | .op .sub [a, b] =>
+          let tmp := s!"__{label}_{sn}"
+          (s!"        uint32_t {tmp}[{nWords}];"
+            :: wideAddSubInto false tmp (emitExpr typeMap a) (emitExpr typeMap b) nWords, tmp)
+        | _ =>
+          let tmp := s!"__{label}_{sn}"; let init := emitExpr typeMap e
+          ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {init}, sizeof({tmp}));"], tmp)
       match rhs with
       | .op .mul _ =>
         -- The wide-mul __int128 IIFE returns a `(uint32_t[3])`
@@ -564,6 +746,21 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
+      | .op .add [a, b] =>
+        -- Wide add: ripple-carry written DIRECTLY into the destination
+        -- words.  (Emitting into `sn[j]` avoids the compound-literal
+        -- statement-expression whose block-scoped storage dangles by the
+        -- time a `memcpy` reads it — that produced garbage, not the sum.
+        -- These assignments were also previously dropped entirely by the
+        -- `_ => empty` default, reading 0.)
+        { declarations := []
+        , evalBody := wideAddSubInto true sn (emitExpr typeMap a) (emitExpr typeMap b) nWords
+        , tickBody := [], resetBody := [], evalTickLocals := [] }
+      | .op .sub [a, b] =>
+        -- Wide sub: ripple-borrow written directly into the destination.
+        { declarations := []
+        , evalBody := wideAddSubInto false sn (emitExpr typeMap a) (emitExpr typeMap b) nWords
+        , tickBody := [], resetBody := [], evalTickLocals := [] }
       | .op .mux [cond, thenVal, elseVal] =>
         -- Wide mux: pick a side per slot via ternary on the
         -- shared scalar condition.  Both branches are wide
@@ -572,16 +769,10 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         -- temporary first (compound literal slot indexing
         -- isn't valid in C without parens).
         let condS := emitExpr typeMap cond
-        let materialise (label : String) (br : Expr)
-            : List String × String :=
-          match br with
-          | .ref _ => ([], emitExpr typeMap br)
-          | _ =>
-            let tmp := s!"__mux_{label}_{sn}"
-            let init := emitExpr typeMap br
-            ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {init}, sizeof({tmp}));"], tmp)
-        let (thenDecl, thenSym) := materialise "t" thenVal
-        let (elseDecl, elseSym) := materialise "e" elseVal
+        -- Both branches materialised through `matWide`, which handles ref /
+        -- shift / bitwise / add / sub / compound-literal shapes uniformly.
+        let (thenDecl, thenSym) := matWide "muxt" thenVal
+        let (elseDecl, elseSym) := matWide "muxe" elseVal
         let lines := (List.range nWords).map fun j =>
           s!"        {sn}[{j}] = ({condS}) ? {thenSym}[{j}] : {elseSym}[{j}];"
         { declarations := []
@@ -590,32 +781,32 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , resetBody := []
         , evalTickLocals := [] }
       | .op .or [a, b] =>
-        let aS := emitExpr typeMap a
-        let bS := emitExpr typeMap b
+        let (da, aS) := matWide "or_a" a
+        let (db, bS) := matWide "or_b" b
         let lines := (List.range nWords).map fun j =>
           s!"        {sn}[{j}] = {aS}[{j}] | {bS}[{j}];"
         { declarations := []
-        , evalBody := lines
+        , evalBody := da ++ db ++ lines
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
       | .op .and [a, b] =>
-        let aS := emitExpr typeMap a
-        let bS := emitExpr typeMap b
+        let (da, aS) := matWide "and_a" a
+        let (db, bS) := matWide "and_b" b
         let lines := (List.range nWords).map fun j =>
           s!"        {sn}[{j}] = {aS}[{j}] & {bS}[{j}];"
         { declarations := []
-        , evalBody := lines
+        , evalBody := da ++ db ++ lines
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
       | .op .xor [a, b] =>
-        let aS := emitExpr typeMap a
-        let bS := emitExpr typeMap b
+        let (da, aS) := matWide "xor_a" a
+        let (db, bS) := matWide "xor_b" b
         let lines := (List.range nWords).map fun j =>
           s!"        {sn}[{j}] = {aS}[{j}] ^ {bS}[{j}];"
         { declarations := []
-        , evalBody := lines
+        , evalBody := da ++ db ++ lines
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
@@ -642,6 +833,32 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
+      | .op .shr [a, b] =>
+        -- Wide logical shift right by a constant amount.  (Previously
+        -- dropped by the `_ => empty` default → the shifted word read 0;
+        -- e.g. the bit-serial multiplier's MSB extraction `b >> 255`
+        -- always yielded 0, so the whole multiply was silently wrong.)
+        let shiftAmount : Nat := match b with
+          | .const v _ => v.toNat
+          | _ => 0
+        let aS := emitExpr typeMap a
+        let srcWords := wordsOf (inferExprWidth typeMap a)
+        let k := shiftAmount / 32
+        let r := shiftAmount % 32
+        let slot (j : Nat) : String :=
+          let idx := j + k
+          if idx ≥ srcWords then "0u"
+          else if r == 0 then s!"{aS}[{idx}]"
+          else
+            let hiPart := if idx + 1 < srcWords then s!" | ({aS}[{idx + 1}] << {32 - r})" else ""
+            s!"(({aS}[{idx}] >> {r}){hiPart})"
+        let lines := (List.range nWords).map fun j =>
+          s!"        {sn}[{j}] = {slot j};"
+        { declarations := []
+        , evalBody := lines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
       | .ref _ =>
         -- Wide identifier copy: memcpy from src array to dest.
         let expr := emitExpr typeMap rhs
@@ -650,8 +867,51 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
+      | .slice src _hi lo =>
+        -- Wide slice `src[hi:lo]`: gather the destination words from the
+        -- source array, shifting across word boundaries when `lo` is not
+        -- 32-aligned, and masking the partial top word.  (This assignment
+        -- shape was previously dropped by the `_ => empty` default — e.g.
+        -- the `extractLsb' 0 256` that projects a 257-bit reduce result
+        -- back to 256 bits, which silently produced 0.)
+        let srcS := emitExpr typeMap src
+        let srcWords := wordsOf (inferExprWidth typeMap src)
+        let r := lo % 32
+        let k := lo / 32
+        let topBits := width % 32
+        let lines := (List.range nWords).map fun j =>
+          let idx := k + j
+          let raw :=
+            if r == 0 then
+              if idx < srcWords then s!"{srcS}[{idx}]" else "0u"
+            else
+              let lowP := if idx < srcWords then s!"({srcS}[{idx}] >> {r})" else "0u"
+              let hiP := if idx + 1 < srcWords then s!"({srcS}[{idx + 1}] << {32 - r})" else "0u"
+              s!"({lowP} | {hiP})"
+          if j == nWords - 1 && topBits != 0 then
+            s!"        {sn}[{j}] = ({raw}) & {(1 <<< topBits) - 1}u;"
+          else
+            s!"        {sn}[{j}] = {raw};"
+        { declarations := []
+        , evalBody := lines
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
       | _ =>
-        StmtParts.empty
+        -- Fallback: attempt a whole-array memcpy from the emitted RHS.
+        -- This is correct when `emitExpr` renders an array / compound
+        -- literal, and a LOUD compile error (not a silent 0) otherwise —
+        -- deliberately, so any remaining unhandled wide-assign shape
+        -- surfaces instead of being dropped like the historical
+        -- `StmtParts.empty` default did.
+        let expr := emitExpr typeMap rhs
+        { declarations := []
+        , evalBody :=
+            ["        /* wide assign fallback: unhandled RHS shape */",
+             s!"        memcpy({sn}, {expr}, sizeof({sn}));"]
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
     else
       let sn := sanitizeName lhs
       let ifElseLines := if muxChainDepth rhs >= 16 then
@@ -689,7 +949,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
       -- Build a typeMap entry for `out_next` so the wide
       -- assign code finds its width.  We can splice it onto
       -- the local typeMap.
-      let nextTypeMap := (nextName, HWType.bitVector width) :: typeMap
+      let nextTypeMap := typeMap.insert nextName (HWType.bitVector width)
       let nextParts := emitStmt assignToNext nextTypeMap design
       let declStr := emitFieldDecl (.bitVector width) outName ++ ";"
       let nextDeclStr := emitFieldDecl (.bitVector width) nextName ++ ";"
@@ -734,7 +994,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : List (String × HWType))
     -- Array of array (e.g. `uint32_t mem[1024][3]` for a 96-bit-wide BRAM).
     let elemSuffix := emitArraySuffix elemTy
     let memDecl := s!"    {emitScalarBase elemTy} {memName}[{memSize}]{elemSuffix};"
-    let rdInTypeMap := typeMap.any fun (n, _) => sanitizeName n == rdName
+    let rdInTypeMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
     let rdDecl := if rdInTypeMap then [] else [s!"    {emitFieldDecl elemTy rdName};"]
     let isDeadWrite := match writeEnable with
       | .const 0 _ => true | _ => false
@@ -995,39 +1255,39 @@ def emitModule (m : Module) (design : Option Design := none)
       -- non-alnum character was `.` or whether the previous two
       -- non-alnum chars formed `->`.  If so, skip qualification
       -- for this token.
-      let mut out : String := ""
+      -- Accumulate into an `Array Char` (O(1) amortised push) instead of
+      -- `out := out ++ …` on a `String` — Lean's `String.append`/`push`
+      -- reallocates each time, making the old loop O(lineLen²).  Emitted
+      -- C lines can be very long (a wide-op eval line), so this keeps
+      -- qualification linear in the emitted source size.
+      let mut out : Array Char := #[]
       let mut buf : String := ""
       let mut prevC : Char := ' '
-      let mut prevPrevC : Char := ' '
       let mut skipNext : Bool := false
+      let pushStr (a : Array Char) (s : String) : Array Char := Id.run do
+        let mut a := a
+        for ch in s.toList do a := a.push ch
+        return a
       for c in input.toList do
         if isTokChar c then
           buf := buf.push c
         else
           if !buf.isEmpty then
-            if skipNext then
-              out := out ++ buf
-            else if memberSet.contains buf then
-              out := out ++ "self->" ++ buf
-            else
-              out := out ++ buf
+            if !skipNext && memberSet.contains buf then
+              out := pushStr out "self->"
+            out := pushStr out buf
             buf := ""
           out := out.push c
           -- Update next-token skip state: skip if this delimiter is `.`
           -- or if the last two chars formed `->`.
           skipNext :=
             c == '.' || (c == '>' && prevC == '-')
-          prevPrevC := prevC
           prevC := c
-      let _ := prevPrevC
       if !buf.isEmpty then
-        if skipNext then
-          out := out ++ buf
-        else if memberSet.contains buf then
-          out := out ++ "self->" ++ buf
-        else
-          out := out ++ buf
-      return out
+        if !skipNext && memberSet.contains buf then
+          out := pushStr out "self->"
+        out := pushStr out buf
+      return String.mk out.toList
 
     let qualify := qualifyWith memberSet
     let evalBodyQ := evalBody.map qualify
@@ -1205,7 +1465,7 @@ private def collectMemories (body : List Stmt) : List (String × Nat × Nat) :=
     | _ => none
 
 /-- Collect (sanitizedName, width) for all registers ≤64 bits -/
-private def collectRegisters (body : List Stmt) (typeMap : List (String × HWType))
+private def collectRegisters (body : List Stmt) (typeMap : TypeMap)
     : List (String × Nat) :=
   body.filterMap fun stmt =>
     match stmt with
@@ -1236,12 +1496,32 @@ private def emitRegNameSwitch (regs : List (String × Nat)) : String :=
 private def emitSetInputSwitch (inputs : List Port) : String :=
   let userInputs := inputs.filter fun (p : Port) =>
     p.name != "clk"
-  let indexed := (List.range userInputs.length).zip userInputs
-  let cases := indexed.map fun (i, p) =>
+  -- Wide (>64-bit) input ports are split into `wordsOf w` consecutive
+  -- 32-bit slots, exactly mirroring `emitGetOutputSwitch` on the output
+  -- side.  Each slot is written by its own `set_input` index with the
+  -- low 32 bits of `val`, so a caller drives a 256-bit port with 8
+  -- successive `setInput`s.  Without this, wide inputs (e.g. a 256-bit
+  -- operand-load port) silently kept only their least-significant word.
+  let cases := userInputs.foldl (fun (acc : List String × Nat) (p : Port) =>
     let sName := sanitizeName p.name
-    let cType := emitScalarBase p.ty
-    s!"        case {i}: s->{sName} = ({cType})val; break;"
-  String.intercalate "\n" cases
+    let w := p.ty.bitWidth
+    if w > 64 then
+      let nWords := wordsOf w
+      let wordCases := List.range nWords |>.map fun j =>
+        s!"        case {acc.2 + j}: s->{sName}[{j}] = (uint32_t)val; break;"
+      (acc.1 ++ wordCases, acc.2 + nWords)
+    else
+      let cType := emitScalarBase p.ty
+      (acc.1 ++ [s!"        case {acc.2}: s->{sName} = ({cType})val; break;"], acc.2 + 1)
+  ) ([], 0)
+  String.intercalate "\n" cases.1
+
+/-- Number of `set_input` slots a design's user inputs occupy (wide ports
+    take `wordsOf w` slots each) — the mirror of `countOutputSlots`. -/
+private def countInputSlots (inputs : List Port) : Nat :=
+  (inputs.filter (fun p => p.name != "clk")).foldl (fun acc p =>
+    let w := p.ty.bitWidth
+    if w > 64 then acc + wordsOf w else acc + 1) 0
 
 private def emitGetOutputSwitch (outputs : List Port) : String :=
   let cases := outputs.foldl (fun (acc : List String × Nat) (p : Port) =>

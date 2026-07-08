@@ -59,6 +59,10 @@ verilator/verilator_bench
 # Python virtual environment
 venv/
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # Planning documents
 plans/
 Sparkle/Verification/Generated/
@@ -103,3 +107,7 @@ docs/tutorial/Notebooks/Gen/
 # Local agent / pair-programming instructions; per-developer,
 # not shared via the repo.
 CLAUDE.md
+
+# Tang Nano 20k FPGA build artifacts (blinky; build/ is covered by the global rule)
+fpga/tangNano20k/blinky/*.fs
+fpga/tangNano20k/blinky/*.json

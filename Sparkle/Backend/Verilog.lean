@@ -6,6 +6,7 @@
 
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.Optimize
 
 namespace Sparkle.Backend.Verilog
 
@@ -95,8 +96,16 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
       | some w =>
         if lo == 0 && hi + 1 >= w then sanitizeName name
         else s!"{sanitizeName name}[{hi}:{lo}]"
-      | none => s!"{emitExpr widthOf e}[{hi}:{lo}]"
-    | _ => s!"{emitExpr widthOf e}[{hi}:{lo}]"
+      | none => s!"{sanitizeName name}[{hi}:{lo}]"
+    | _ =>
+      -- A part-select is only legal in Verilog on a NAME (net/reg/array
+      -- element) — `(a >> b)[0:0]` is a syntax error.  When the operand is
+      -- a compound expression (e.g. a single-use shift the optimizer
+      -- inlined here), emit the equivalent shift-and-mask `((e >> lo) &
+      -- {n{1'b1}})` instead, which is valid on any expression.
+      let n := hi + 1 - lo
+      let mask := (Nat.pow 2 n) - 1
+      s!"(({emitExpr widthOf e} >> {lo}) & {n}'h{String.ofList (Nat.toDigits 16 mask)})"
 
   | .index arr idx =>
     s!"{emitExpr widthOf arr}[{emitExpr widthOf idx}]"
@@ -260,9 +269,23 @@ def emitModule (m : Module) : String :=
 def toVerilog (m : Module) : String :=
   emitModule m
 
-/-- Convert a full Design to SystemVerilog -/
+/-- Convert a full Design to SystemVerilog.
+
+    Each module is run through the IR optimizer first — exactly as
+    `#synthesizeVerilog` does before `toVerilog` (see
+    `Sparkle.Compiler.Elab`).  This is essential, not cosmetic: the
+    optimizer's 0-bit elimination pass strips the degenerate 0-width
+    concat tails that `circuit do` / `Signal.loop` bundles leave behind
+    (`{reg, <0-bit>}`).  Without it those tails reach `emitConst`, which
+    promotes a 0-width literal to `1'd0`, widening the concat by one bit
+    so the intermediate wire (sized for the real field) TRUNCATES the
+    real value away — silently freezing the least-significant register of
+    every bundle at its reset value.  Hierarchical emission
+    (`#writeVerilogDesign`) is the only source of the `@[hardware_module]`
+    submodules, so skipping this here broke every sub-module's last
+    register (e.g. `uartRxHW`'s `rxValid`). -/
 def toVerilogDesign (d : Design) : String :=
-  let modules := d.modules.map emitModule
+  let modules := d.modules.map (fun m => emitModule (Sparkle.IR.Optimize.optimizeModule m))
   String.intercalate "\n" modules
 
 /-- Write module to a file -/

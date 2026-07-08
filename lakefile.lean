@@ -716,6 +716,18 @@ lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true
 
+lean_exe «ecdsa-sign-small-sim» where
+  root := `Tests.Drivers.EcdsaSignSmallSim
+  supportInterpreter := true
+
+lean_exe «ecdsa-sign-small-jit» where
+  root := `Tests.Drivers.EcdsaSignSmallJIT
+  supportInterpreter := true
+
+lean_exe «policy-sign-demo-m2-test» where
+  root := `Tests.Drivers.PolicySignDemoM2TestMain
+  supportInterpreter := true
+
 lean_exe «ctap2-data-test» where
   root := `Tests.Drivers.CTAP2DataTestMain
   supportInterpreter := true
@@ -1002,3 +1014,103 @@ lean_exe «test» where
   root := `Tests.AllTests
   supportInterpreter := true
 
+
+lean_exe «ecdsa-sign-small-jit-dbg» where
+  root := `Tests.Drivers.EcdsaSignSmallJITDbg
+  supportInterpreter := true
+
+lean_exe «mem-jit-test» where
+  root := `Tests.Drivers.MemJITTest
+  supportInterpreter := true
+
+lean_exe «rf-jit-test» where
+  root := `Tests.Drivers.RfJITTest
+  supportInterpreter := true
+
+lean_exe «alu-lite-jit» where
+  root := `Tests.Drivers.AluLiteJIT
+  supportInterpreter := true
+
+lean_exe «add-jit» where
+  root := `Tests.Drivers.AddJIT
+  supportInterpreter := true
+
+lean_exe «mul-jit» where
+  root := `Tests.Drivers.MulJIT
+  supportInterpreter := true
+
+lean_exe «pd-jit» where
+  root := `Tests.Drivers.PdJIT
+  supportInterpreter := true
+
+lean_exe «addpt-jit» where
+  root := `Tests.Drivers.AddPtJIT
+  supportInterpreter := true
+
+lean_exe «ladder-jit» where
+  root := `Tests.Drivers.LadderJIT
+  supportInterpreter := true
+
+lean_exe «dblip-jit» where
+  root := `Tests.Drivers.DblIPJIT
+  supportInterpreter := true
+
+lean_exe «addip-jit» where
+  root := `Tests.Drivers.AddIPJIT
+  supportInterpreter := true
+
+lean_exe «exp-jit» where
+  root := `Tests.Drivers.ExpJIT
+  supportInterpreter := true
+
+lean_exe «sign-jit» where
+  root := `Tests.Drivers.SignJIT
+  supportInterpreter := true
+
+lean_exe «signcore-jit» where
+  root := `Tests.Drivers.SignCoreJIT
+  supportInterpreter := true
+
+lean_exe «signdemo-jit» where
+  root := `Tests.Drivers.SignDemoJIT
+  supportInterpreter := true
+
+lean_exe «sha256stream-jit» where
+  root := `Tests.Drivers.Sha256StreamJIT
+  supportInterpreter := true
+
+lean_exe «hmac-jit» where
+  root := `Tests.Drivers.HmacJIT
+  supportInterpreter := true
+
+lean_exe «rfc6979-jit» where
+  root := `Tests.Drivers.Rfc6979JIT
+  supportInterpreter := true
+
+lean_exe «keccak-sponge-jit» where
+  root := `Tests.Drivers.KeccakSpongeJIT
+  supportInterpreter := true
+
+lean_exe «keccakf-jit» where
+  root := `Tests.Drivers.KeccakFJIT
+  supportInterpreter := true
+
+lean_exe «signz-small-jit» where
+  root := `Tests.Drivers.SignZSmallJIT
+  supportInterpreter := true
+
+lean_exe «signmsg-small-jit» where
+  root := `Tests.Drivers.SignMsgSmallJIT
+  supportInterpreter := true
+
+lean_exe «signmsg-demo-jit» where
+  root := `Tests.Drivers.SignMsgDemoJIT
+  supportInterpreter := true
+
+lean_exe «signz-demo-jit» where
+  root := `Tests.Drivers.SignZDemoJIT
+  supportInterpreter := true
+
+lean_exe «mulmodser-jit» where
+  root := `Tests.Drivers.MulModSerJIT
+  supportInterpreter := true
