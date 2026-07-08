@@ -78,6 +78,23 @@ def tangNano50K : Target :=
   , maxDSP18x18 := 240
   , picoSecPerUnit := 2500 }   -- ~2.5 ns/unit (newer process, faster LUT4)
 
+/-! ### Tang Nano 20K — Gowin GW2AR-LV18QN88C8/I7.
+
+    Published spec (Gowin GW2A-18 datasheet, Sipeed wiki):
+      LUT4:       20,736
+      FF:         15,552
+      BSRAM 18Kb: 46   (828 Kbit = 92 × 9 Kb units)
+      18×18 mul:  48
+    Note: BSRAM blocks are 18 Kb here (vs 9 Kb on the GW1N 9K),
+    so the 9 Kb-equivalent count is 46 × 2 = 92. -/
+def tangNano20K : Target :=
+  { name        := "Tang Nano 20K (GW2AR-18)"
+  , maxLUT      := 20736
+  , maxFF       := 15552
+  , maxBSRAM9k  := 92
+  , maxDSP18x18 := 48
+  , picoSecPerUnit := 3000 }   -- ~3.0 ns/unit (GW2A: between GW1N 9K and GW5A 50K)
+
 /-- Apply a percentage haircut (0..100) to every ceiling.
     Use to leave routing/timing headroom — e.g.
     `tangNano9K.withMargin 80` budgets only 80% of each
