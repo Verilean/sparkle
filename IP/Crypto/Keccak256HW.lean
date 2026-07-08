@@ -209,7 +209,7 @@ def keccakF1600HW {dom : DomainConfig}
     let p24_5 := (Signal.pure 24#5 : Signal dom (BitVec 5))
     let isIdle   := (cntSig === p0_5 : Signal dom Bool)
     let isFinish := (cntSig === p24_5 : Signal dom Bool)
-    let isRun := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let isRun := (~~~isIdle : Signal dom Bool)
 
     -- Combinational one-round update, fully INLINED (c0..c4 θ-parities,
     -- d0..d4 diffusion, pi0..pi24 ρ+π, nl0..nl24 χ+ι).

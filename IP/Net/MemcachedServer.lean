@@ -336,8 +336,8 @@ structure ParserState where
     let keyShift := ((· && ·) <$> inKey <*>
       ((· && ·) <$> inValid <*>
         ((· && ·) <$>
-          ((fun b => !b) <$> byteIsSP : Signal dom Bool) <*>
-          ((fun b => !b) <$> byteIsCROrLF : Signal dom Bool) : Signal dom Bool)
+          (~~~byteIsSP : Signal dom Bool) <*>
+          (~~~byteIsCROrLF : Signal dom Bool) : Signal dom Bool)
         : Signal dom Bool) : Signal dom Bool)
     let p8 := (Signal.pure 8#64 : Signal dom (BitVec 64))
     let keyShifted := (keySig <<< p8 : Signal dom (BitVec 64))
@@ -369,8 +369,8 @@ structure ParserState where
     let valTake := ((· && ·) <$> inVal <*>
       ((· && ·) <$> inValid <*>
         ((· && ·) <$>
-          ((fun b => !b) <$> byteIsCROrLF : Signal dom Bool) <*>
-          ((fun b => !b) <$> cntDone : Signal dom Bool)
+          (~~~byteIsCROrLF : Signal dom Bool) <*>
+          (~~~cntDone : Signal dom Bool)
           : Signal dom Bool) : Signal dom Bool) : Signal dom Bool)
     let p8_128 := (Signal.pure 8#128 : Signal dom (BitVec 128))
     let valueShifted := (valueSig <<< p8_128 : Signal dom (BitVec 128))

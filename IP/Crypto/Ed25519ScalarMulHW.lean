@@ -160,10 +160,10 @@ def scalarMulHW {dom : DomainConfig}
     -- After a double: go to add if bit set, else advance/finish.
     let dblToAdd := (dblAck &&& bit : Signal dom Bool)
     let dblSkip  := ((fun a b => a && !b) <$> dblAck <*> bit : Signal dom Bool)  -- bit=0
-    let dblNext  := (dblSkip &&& ((fun b => !b) <$> atBit0) : Signal dom Bool)
+    let dblNext  := (dblSkip &&& (~~~atBit0) : Signal dom Bool)
     let dblFin   := (dblSkip &&& atBit0 : Signal dom Bool)
     -- After an add: advance/finish.
-    let addNext  := (addAck &&& ((fun b => !b) <$> atBit0) : Signal dom Bool)
+    let addNext  := (addAck &&& (~~~atBit0) : Signal dom Bool)
     let addFin   := (addAck &&& atBit0 : Signal dom Bool)
 
     let goNext := (dblNext ||| addNext : Signal dom Bool)

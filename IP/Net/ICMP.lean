@@ -260,7 +260,7 @@ def icmpEchoResponder {dom : DomainConfig}
     let p8 := (Signal.pure 8#4 : Signal dom (BitVec 4))
     let isIdle := txCntSig === p0
     let isLast := txCntSig === p8
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isEmitting := ~~~isIdle
 
     -- Match check: parser done AND captured type == echo request.
     let pReq := (Signal.pure icmpTypeReq : Signal dom (BitVec 8))
@@ -335,7 +335,7 @@ def icmpEchoRequester {dom : DomainConfig}
     let p8 := (Signal.pure 8#4 : Signal dom (BitVec 4))
     let isIdle := txCntSig === p0
     let isLast := txCntSig === p8
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isEmitting := ~~~isIdle
 
     -- Outgoing reply: type = request, ident/seq from
     -- live trigger inputs or latched registers.

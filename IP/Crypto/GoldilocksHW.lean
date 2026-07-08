@@ -87,7 +87,7 @@ def mulHW {dom : DomainConfig}
     let p0_64  := (Signal.pure 0#64  : Signal dom (BitVec 64))
     let bHi    := (bSig >>> p63_64 : Signal dom (BitVec 64))
     let bHiZ   := (bHi === p0_64 : Signal dom Bool)
-    let bMsb   := ((fun z => !z) <$> bHiZ : Signal dom Bool)
+    let bMsb   := (~~~bHiZ : Signal dom Bool)
 
     -- acc doubled (66-bit shift), then reduce once mod p.
     -- Reduction is a conditional subtract of p: subtract when p ≤ x.

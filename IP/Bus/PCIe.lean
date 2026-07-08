@@ -419,7 +419,7 @@ def mmioEndpoint {dom : DomainConfig}
     -- addressed register.  On parserDone + !isWrite, kick
     -- off the completion emit by loading cplCnt=1.
     let writeFire := parsed.done &&& parsed.isWrite
-    let readFire  := parsed.done &&& ((fun b => !b) <$> parsed.isWrite)
+    let readFire  := parsed.done &&& (~~~parsed.isWrite)
 
     r0 <~ Signal.mux (writeFire &&& isR0) dataDword r0Sig
     r1 <~ Signal.mux (writeFire &&& isR1) dataDword r1Sig
@@ -459,7 +459,7 @@ def mmioEndpoint {dom : DomainConfig}
     -- Emit cplByte from the helper.
     let cplByteOut :=
       tlpCplByte cplId reqIdSig tagSig lowAddrSig dataSig cplCntSig
-    let cplValidOut := (fun b => !b) <$> isCplIdle
+    let cplValidOut := ~~~isCplIdle
 
     return ({ reg0 := r0Sig
             , reg1 := r1Sig

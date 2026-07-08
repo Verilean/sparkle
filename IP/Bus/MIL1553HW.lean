@@ -141,7 +141,7 @@ def manchesterEncoderHW {dom : DomainConfig}
     let phaseSig := (phaseR : Signal dom Bool)
 
     -- Toggle phase on enable, clear on start.
-    let phaseFlipped := ((fun b => !b) <$> phaseSig : Signal dom Bool)
+    let phaseFlipped := (~~~phaseSig : Signal dom Bool)
     let phaseAfterEn := Signal.mux enable phaseFlipped phaseSig
     let phaseNext := Signal.mux start (Signal.pure false) phaseAfterEn
     phaseR <~ phaseNext
@@ -149,7 +149,7 @@ def manchesterEncoderHW {dom : DomainConfig}
     -- Line level:
     --   phase = 0 (first half):  line = !bitIn
     --   phase = 1 (second half): line = bitIn
-    let notBit := ((fun b => !b) <$> bitIn : Signal dom Bool)
+    let notBit := (~~~bitIn : Signal dom Bool)
     let lineSig := Signal.mux phaseSig bitIn notBit
     return ({ line := lineSig } : ManOut dom)
 

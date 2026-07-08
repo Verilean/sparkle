@@ -127,7 +127,7 @@ def cborHeadHW {dom : DomainConfig}
     let cntInc := (cntSig + (Signal.pure 1#3 : Signal dom (BitVec 3)) : Signal dom (BitVec 3))
     let atLast := (cntSig === hLenSig : Signal dom Bool)
     let isIdle := (cntSig === p0_3 : Signal dom Bool)
-    let emitting := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let emitting := (~~~isIdle : Signal dom Bool)
 
     -- Latch inputs + length on start.
     majR  <~ Signal.mux start major majSig

@@ -135,7 +135,7 @@ def spiMasterHW {dom : DomainConfig}
     mosiShR <~ mosiShNext
 
     -- MISO shift-in: on odd ticks (sample edge), shift misoBit into low bit.
-    let bcOdd := ((fun b => !b) <$> bcEven : Signal dom Bool)
+    let bcOdd := (~~~bcEven : Signal dom Bool)
     let sampleMiso := (tick &&& (isActive &&& bcOdd : Signal dom Bool)
                      : Signal dom Bool)
     let misoShL := (misoShSig <<< p1_8 : Signal dom (BitVec 8))
@@ -146,7 +146,7 @@ def spiMasterHW {dom : DomainConfig}
     misoShR <~ misoShNext
 
     -- SCLK toggles every tick while active.
-    let sclkTog := ((fun b => !b) <$> sclkRSig : Signal dom Bool)
+    let sclkTog := (~~~sclkRSig : Signal dom Bool)
     let sclkTicked :=
       Signal.mux isActive sclkTog
         (Signal.mux isPost cpol
@@ -164,7 +164,7 @@ def spiMasterHW {dom : DomainConfig}
     -- Outputs.
     let msbAnd := (mosiShSig &&& pMSB_8 : Signal dom (BitVec 8))
     let msbIsZero := (msbAnd === p0_8 : Signal dom Bool)
-    let mosiOut := ((fun b => !b) <$> msbIsZero : Signal dom Bool)
+    let mosiOut := (~~~msbIsZero : Signal dom Bool)
 
     -- `done` pulses on the cycle we're transitioning post → idle.
     let done := (isPost &&& tick : Signal dom Bool)

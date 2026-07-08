@@ -390,9 +390,9 @@ def aes128BlockHW {dom : DomainConfig}
     let isDone   := (cntSig === p11_4 : Signal dom Bool)
     let isMid :=
       -- Between cnt = 1 and cnt = 9 inclusive (mid rounds with MixColumns).
-      let notIdle := ((fun b => !b) <$> isIdle : Signal dom Bool)
-      let notFin  := ((fun b => !b) <$> isFinal : Signal dom Bool)
-      let notDn   := ((fun b => !b) <$> isDone : Signal dom Bool)
+      let notIdle := (~~~isIdle : Signal dom Bool)
+      let notFin  := (~~~isFinal : Signal dom Bool)
+      let notDn   := (~~~isDone : Signal dom Bool)
       let a := (notIdle &&& notFin : Signal dom Bool)
       (a &&& notDn : Signal dom Bool)
 
@@ -526,8 +526,8 @@ def aes128BlockHW {dom : DomainConfig}
                   (Signal.mux isFinal finOut stateSig))
 
     -- Key update: latch keyIn on start; advance on mid/final rounds.
-    let notIdle := ((fun b => !b) <$> isIdle : Signal dom Bool)
-    let notDn   := ((fun b => !b) <$> isDone : Signal dom Bool)
+    let notIdle := (~~~isIdle : Signal dom Bool)
+    let notDn   := (~~~isDone : Signal dom Bool)
     let keyAdvance := (notIdle &&& notDn : Signal dom Bool)
     keyR <~ Signal.mux start keyIn
               (Signal.mux keyAdvance nextKey keySig)

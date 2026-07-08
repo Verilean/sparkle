@@ -321,7 +321,7 @@ def ipv4TxBuilder {dom : DomainConfig}
     let p20     := (Signal.pure 20#5 : Signal dom (BitVec 5))
     let isIdle  := cntSig === pZero
     let isLast  := cntSig === p20
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isEmitting := ~~~isIdle
 
     -- Latch on start.  During the burst we read from the
     -- registers; on the start cycle itself we bypass to the

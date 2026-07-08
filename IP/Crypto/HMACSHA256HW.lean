@@ -76,7 +76,7 @@ def hmacSha256 {dom : DomainConfig}
     let shaDone := sha.done
 
     -- capture inner: after iB1 when 2-block, after iB2 when 3-block.
-    let capInner2 := (((st === 4#5) &&& ((fun b => !b) <$> threeBlk)) &&& shaDone : Signal dom Bool)
+    let capInner2 := (((st === 4#5) &&& (~~~threeBlk)) &&& shaDone : Signal dom Bool)
     let capInner3 := ((st === 6#5) &&& shaDone : Signal dom Bool)
     innerR <~ Signal.mux (capInner2 ||| capInner3) sha.hash innerSig
     hmacR <~ Signal.mux ((st === 10#5) &&& shaDone) sha.hash (hmacR : Signal dom (BitVec 256))

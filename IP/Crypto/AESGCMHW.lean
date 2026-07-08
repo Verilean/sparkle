@@ -127,7 +127,7 @@ def gcmTagAccumulatorHW {dom : DomainConfig}
     let ySig := (yR : Signal dom (BitVec 128))
     let stSig := (stR : Signal dom Bool)
 
-    let isIdle := ((fun b => !b) <$> stSig : Signal dom Bool)
+    let isIdle := (~~~stSig : Signal dom Bool)
     let fire := (isIdle &&& blockValid : Signal dom Bool)
     let mulX := (ySig ^^^ blockIn : Signal dom (BitVec 128))
 

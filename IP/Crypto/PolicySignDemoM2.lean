@@ -185,7 +185,7 @@ def policySignDemoM2 {dom : DomainConfig}
     let policyOk := txPolicyOk recip valSig
     let doSign := (sponge.done &&& policyOk : Signal dom Bool)
     let doReject := ((· && ·) <$> sponge.done
-                      <*> ((fun b => !b) <$> policyOk) : Signal dom Bool)
+                      <*> (~~~policyOk) : Signal dom Bool)
     signStartR <~ doSign
     rejectR <~ doReject
 

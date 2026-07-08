@@ -152,7 +152,7 @@ def merkleRootHW {dom : DomainConfig}
           (Signal.mux isL2 pOccBit2 pOccBit3))
     let occAnd := (occSig &&& occMask : Signal dom (BitVec 4))
     let occIsZero := (occAnd === p0_4 : Signal dom Bool)
-    let occHere := ((fun b => !b) <$> occIsZero : Signal dom Bool)
+    let occHere := (~~~occIsZero : Signal dom Bool)
 
     -- combineReq is high while busy AND the current level is occupied
     -- (i.e. we're waiting on external hasher).
@@ -215,7 +215,7 @@ def merkleRootHW {dom : DomainConfig}
     let combineRight := carrySig
 
     -- Ready = !busy.
-    let ready := ((fun b => !b) <$> busySig : Signal dom Bool)
+    let ready := (~~~busySig : Signal dom Bool)
 
     -- Expose all four slots (root lives in slot log₂(N)).
     return ({ slot0        := s0Sig

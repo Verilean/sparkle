@@ -129,7 +129,7 @@ def i2cMasterHW {dom : DomainConfig}
     let pMSB_9    := (Signal.pure 0x100#9 : Signal dom (BitVec 9))
 
     let tick := (dcSig === p0_16 : Signal dom Bool)
-    let notTick := ((fun b => !b) <$> tick : Signal dom Bool)
+    let notTick := (~~~tick : Signal dom Bool)
 
     -- Assemble address byte: (addr << 1) | rw
     -- addr : BitVec 7, rw : Bool → convert to BitVec 1 via mux
@@ -216,7 +216,7 @@ def i2cMasterHW {dom : DomainConfig}
     -- In idle/stopC/ackA/ackD → release (high). Otherwise MSB of shift.
     let msbAnd := (shSig &&& pMSB_9 : Signal dom (BitVec 9))
     let msbIsZero := (msbAnd === p0_9 : Signal dom Bool)
-    let msbBit := ((fun b => !b) <$> msbIsZero : Signal dom Bool)
+    let msbBit := (~~~msbIsZero : Signal dom Bool)
     let releaseSda := ((· || ·) <$> isIdle
                         <*> ((· || ·) <$> isStartC
                               <*> (isAckA ||| isAckD : Signal dom Bool)
@@ -226,7 +226,7 @@ def i2cMasterHW {dom : DomainConfig}
     let sdaOut := Signal.mux releaseOrStop (Signal.pure true) msbBit
 
     -- SCL: toggles every tick when active; high in idle/stopC final.
-    let sclToggled := ((fun b => !b) <$> sclSig : Signal dom Bool)
+    let sclToggled := (~~~sclSig : Signal dom Bool)
     let sclOnTick := Signal.mux isIdle (Signal.pure true) sclToggled
     let sclNext := Signal.mux tick sclOnTick sclSig
     sclR <~ sclNext
@@ -235,11 +235,11 @@ def i2cMasterHW {dom : DomainConfig}
     let inAck := (isAckA ||| isAckD : Signal dom Bool)
     let ackLoad := (tick &&& inAck : Signal dom Bool)
     -- ACK is active-low: SDA = 0 during ACK means slave ACKed.
-    let ackReceived := ((fun b => !b) <$> sdaFromBus : Signal dom Bool)
+    let ackReceived := (~~~sdaFromBus : Signal dom Bool)
     ackR <~ Signal.mux ackLoad ackReceived _ackSig
 
     -- Busy signal: high whenever not in idle.
-    let busy := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let busy := (~~~isIdle : Signal dom Bool)
 
     -- Suppress unused warning for `notTick` by folding it into
     -- `sdaOut` via a mask-with-true identity.

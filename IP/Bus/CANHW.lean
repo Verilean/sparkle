@@ -61,7 +61,7 @@ def crc15HW {dom : DomainConfig}
     -- top-bit mask then comparing to 0.
     let topAnd := (crcSig &&& pMask : Signal dom (BitVec 15))
     let topIsZero := (topAnd === p0 : Signal dom Bool)
-    let topBit := ((fun b => !b) <$> topIsZero : Signal dom Bool)
+    let topBit := (~~~topIsZero : Signal dom Bool)
 
     -- xorBit = topBit XOR bitIn  (use Bool ^^ as bitwise XOR)
     let xorBit := ((· ^^ ·) <$> topBit <*> bitIn : Signal dom Bool)

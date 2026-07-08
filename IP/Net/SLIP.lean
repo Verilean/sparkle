@@ -179,7 +179,7 @@ def slipFramerHW {dom : DomainConfig}
         payloadValid : Signal dom Bool)
     let emitPayloadDirect :=
       ((· && ·) <$> payloadInIdleOrBody
-        <*> ((fun b => !b) <$> needEscape : Signal dom Bool) : Signal dom Bool)
+        <*> (~~~needEscape : Signal dom Bool) : Signal dom Bool)
     let emitEscFirst :=
       (payloadInIdleOrBody &&& needEscape : Signal dom Bool)
     let closeFrame := (isBody &&& frameEnd : Signal dom Bool)
@@ -220,7 +220,7 @@ def slipFramerHW {dom : DomainConfig}
     -- escape" state.  In all other states we can accept a new
     -- payload byte (idle = first byte of a frame, body = next
     -- byte of current frame).
-    let txReadyOut := ((fun b => !b) <$> isEsc : Signal dom Bool)
+    let txReadyOut := (~~~isEsc : Signal dom Bool)
 
     return ({ txByte := (outByte : Signal dom (BitVec 8))
             , txValid := (outValid : Signal dom Bool)
@@ -296,7 +296,7 @@ def slipDeframerHW {dom : DomainConfig}
         <*> byteIsEnd : Signal dom Bool)
     let evIdleData :=                           -- idle + non-END → enter body, emit byte
       ((· && ·) <$> ((isIdle &&& rxValid : Signal dom Bool))
-        <*> ((fun b => !b) <$> byteIsEnd : Signal dom Bool) : Signal dom Bool)
+        <*> (~~~byteIsEnd : Signal dom Bool) : Signal dom Bool)
     let evBodyEnd :=                            -- body + END → frame done
       ((· && ·) <$> ((isBody &&& rxValid : Signal dom Bool))
         <*> byteIsEnd : Signal dom Bool)
@@ -307,8 +307,8 @@ def slipDeframerHW {dom : DomainConfig}
     let evBodyOther :=
       ((· && ·) <$> ((isBody &&& rxValid : Signal dom Bool))
         <*> ((· && ·) <$>
-             ((fun b => !b) <$> byteIsEnd : Signal dom Bool) <*>
-             ((fun b => !b) <$> byteIsEsc : Signal dom Bool)
+             (~~~byteIsEnd : Signal dom Bool) <*>
+             (~~~byteIsEsc : Signal dom Bool)
              : Signal dom Bool) : Signal dom Bool)
     -- esc + ESC_END → emit END
     -- esc + ESC_ESC → emit ESC

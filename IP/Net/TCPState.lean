@@ -159,9 +159,9 @@ def tcpServerFSM {dom : DomainConfig}
     let synEqZ := synBit === pZ8
     let ackEqZ := ackBit === pZ8
     let finEqZ := finBit === pZ8
-    let synF := (fun b => !b) <$> synEqZ
-    let ackF := (fun b => !b) <$> ackEqZ
-    let finF := (fun b => !b) <$> finEqZ
+    let synF := ~~~synEqZ
+    let ackF := ~~~ackEqZ
+    let finF := ~~~finEqZ
 
     -- Transition decisions.  Each is a one-cycle pulse when
     -- the parser-done arrives in the relevant state with the
@@ -305,9 +305,9 @@ def tcpClientFSM {dom : DomainConfig}
     let synEqZ := synBit === pZ8
     let ackEqZ := ackBit === pZ8
     let finEqZ := finBit === pZ8
-    let synF := (fun b => !b) <$> synEqZ
-    let ackF := (fun b => !b) <$> ackEqZ
-    let finF := (fun b => !b) <$> finEqZ
+    let synF := ~~~synEqZ
+    let ackF := ~~~ackEqZ
+    let finF := ~~~finEqZ
 
     -- Transition triggers.
     let onConnect    := isClosed &&& connectStart                    -- CLOSED → SYN_SENT, emit SYN

@@ -97,7 +97,7 @@ def sha256StreamHW {dom : DomainConfig}
     blkDoneP <~ blk.done
     -- Overall done: the block that just finished (blkDoneP) was the
     -- LAST (no more blocks).
-    let noMore := ((fun b => !b) <$> moreBlocks : Signal dom Bool)
+    let noMore := (~~~moreBlocks : Signal dom Bool)
     let finish := ((blkDoneP : Signal dom Bool) &&& noMore : Signal dom Bool)
     doneR <~ finish
 

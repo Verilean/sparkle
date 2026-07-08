@@ -193,8 +193,8 @@ def txSequencer {dom : DomainConfig}
         : Signal dom Bool)
     -- inBytes = running AND phase ∈ [0..73]
     -- = running AND !isFrameEnd AND !inSlack
-    let notFrameEnd := ((fun b => !b) <$> isFrameEnd : Signal dom Bool)
-    let notSlack := ((fun b => !b) <$> inSlack : Signal dom Bool)
+    let notFrameEnd := (~~~isFrameEnd : Signal dom Bool)
+    let notSlack := (~~~inSlack : Signal dom Bool)
     let inBodyPhase :=
       (notFrameEnd &&& notSlack : Signal dom Bool)
     let inBytes := (runSig &&& inBodyPhase : Signal dom Bool)
@@ -248,7 +248,7 @@ def sopPulse {dom : DomainConfig}
     -- next armed = (reset OR (armed AND !validIn))
     let stillArmed :=
       ((· && ·) <$> armedSig <*>
-        ((fun b => !b) <$> validIn : Signal dom Bool) : Signal dom Bool)
+        (~~~validIn : Signal dom Bool) : Signal dom Bool)
     let armedNext := (reset ||| stillArmed : Signal dom Bool)
     armed <~ armedNext
     return pulse

@@ -86,7 +86,7 @@ def nBv258 : BitVec 258 := BitVec.ofNat 258 Sparkle.IP.Crypto.Secp256k1ECDSA.n
 
     let aWide := (aSig.map (fun v => BitVec.append (0#2) v) : Signal dom (BitVec 258))
     let bHi    := (bSig >>> (Signal.pure 255#256 : Signal dom (BitVec 256)) : Signal dom (BitVec 256))
-    let bMsb   := ((fun z => !z) <$> (bHi === 0#256) : Signal dom Bool)
+    let bMsb   := (~~~(bHi === 0#256) : Signal dom Bool)
 
     let accDbl    := (accSig <<< (Signal.pure 1#258 : Signal dom (BitVec 258)) : Signal dom (BitVec 258))
     let dblGe     := ((BitVec.ule · ·) <$> pP <*> accDbl : Signal dom Bool)
@@ -148,7 +148,7 @@ def nBv258 : BitVec 258 := BitVec.ofNat 258 Sparkle.IP.Crypto.Secp256k1ECDSA.n
 
     -- b MSB (processed MSB-first); a zero-extended to 258.
     let bHi   := (bSig >>> (Signal.pure 255#256 : Signal dom (BitVec 256)) : Signal dom (BitVec 256))
-    let bMsb  := ((fun z => !z) <$> (bHi === 0#256) : Signal dom Bool)
+    let bMsb  := (~~~(bHi === 0#256) : Signal dom Bool)
     let aWide := (aSig.map (fun v => BitVec.append (0#2) v) : Signal dom (BitVec 258))
 
     -- ONE shared reducer: reduce(2·acc) in ph0, reduce(acc) in ph2.
@@ -255,7 +255,7 @@ def nBv258 : BitVec 258 := BitVec.ofNat 258 Sparkle.IP.Crypto.Secp256k1ECDSA.n
 
     -- next-phase logic.
     let borrow := (cNext === 1#1 : Signal dom Bool)
-    let bitDone := ((· || ·) <$> ((phS2 &&& lastWord) &&& ((fun b => !b) <$> borrow))
+    let bitDone := ((· || ·) <$> ((phS2 &&& lastWord) &&& (~~~borrow))
                              <*> (phR2 &&& lastWord) : Signal dom Bool)
     let phNext :=
       Signal.mux phDbl (Signal.pure 1#3)
@@ -433,7 +433,7 @@ def bignumALU {dom : DomainConfig}
     let inP6 := (phSig === ph6)
     let inP7 := (phSig === ph7)
 
-    let notLoad := ((fun b => !b) <$> loadEn : Signal dom Bool)
+    let notLoad := (~~~loadEn : Signal dom Bool)
     let doLoad  := (inP0 &&& loadEn : Signal dom Bool)
     let goStart := ((· && ·) <$> inP0 <*>
                      (start &&& notLoad) : Signal dom Bool)
@@ -461,7 +461,7 @@ def bignumALU {dom : DomainConfig}
     let rdSig := rf.rdata                 -- 2-cycle-latency read
 
     -- ===== shared multipliers =====
-    let notMulN := ((fun b => !b) <$> isMulN : Signal dom Bool)
+    let notMulN := (~~~isMulN : Signal dom Bool)
     let isMulP  := (isMul &&& notMulN : Signal dom Bool)   -- op == 0
     let mulStartP := (inP3 &&& isMulP : Signal dom Bool)
     let mulStartN := (inP3 &&& isMulN : Signal dom Bool)
@@ -483,7 +483,7 @@ def bignumALU {dom : DomainConfig}
     -- ===== result latch =====
     --   add/sub: latch the combinational result in P3.
     --   mul:     latch the product on the multiplier's done pulse.
-    let latchAddSub := (inP3 &&& ((fun m => !m) <$> isMul) : Signal dom Bool)
+    let latchAddSub := (inP3 &&& (~~~isMul) : Signal dom Bool)
     let mulAck := (inP4 &&& mulDone : Signal dom Bool)
     prodR <~ Signal.mux latchAddSub addsubRes
                (Signal.mux mulAck mulResult prodSig)
@@ -561,7 +561,7 @@ def bignumALUlite {dom : DomainConfig}
     let inP6 := (phSig === ph6)
     let inP7 := (phSig === ph7)
 
-    let notLoad := ((fun b => !b) <$> loadEn : Signal dom Bool)
+    let notLoad := (~~~loadEn : Signal dom Bool)
     let doLoad  := (inP0 &&& loadEn : Signal dom Bool)
     let goStart := (inP0 &&& (start &&& notLoad) : Signal dom Bool)
 
@@ -704,9 +704,9 @@ def microEngine {dom : DomainConfig}
     let inM6 := (phSig === 6#3)  -- pc advance
 
     -- Kick off a run.
-    let goRun := (((fun r => !r) <$> runSig) &&& runStart : Signal dom Bool)
+    let goRun := ((~~~runSig) &&& runStart : Signal dom Bool)
     -- Active instruction execution (running and not halted).
-    let exec := (runSig &&& ((fun h => !h) <$> isHalt) : Signal dom Bool)
+    let exec := (runSig &&& (~~~isHalt) : Signal dom Bool)
 
     -- ===== register file =====
     -- readAddr: srcA in M0/M6-entry, srcB in M1, else dst; when idle, the
@@ -715,7 +715,7 @@ def microEngine {dom : DomainConfig}
       Signal.mux inM1 bSig (Signal.mux inM0 aSig dSig)
     let readAddr := Signal.mux runSig runReadAddr probeAddr
     -- write port: external load in idle, else the op result in writeback.
-    let doLoad := (((fun r => !r) <$> runSig) &&& loadEn : Signal dom Bool)
+    let doLoad := ((~~~runSig) &&& loadEn : Signal dom Bool)
     let wrEn := (doLoad ||| (exec &&& inM5) : Signal dom Bool)
     let wrAddr := Signal.mux doLoad loadAddr dSig
     let wrData := Signal.mux doLoad loadData prodSig
@@ -741,7 +741,7 @@ def microEngine {dom : DomainConfig}
     -- opA latch (reg[srcA] in rdSig during M2).
     opAR <~ Signal.mux (exec &&& inM2) rdSig opASig
     -- result latch: add/sub in M3, mul on mulAck.
-    let latchAdd := ((exec &&& inM3) &&& ((fun m => !m) <$> isMul) : Signal dom Bool)
+    let latchAdd := ((exec &&& inM3) &&& (~~~isMul) : Signal dom Bool)
     prodR <~ Signal.mux latchAdd addsubRes (Signal.mux mulAck mulResult prodSig)
 
     -- microphase sequencing (add/sub skip the mul-wait M4→M5 gate).
@@ -769,7 +769,7 @@ def microEngine {dom : DomainConfig}
               (Signal.mux hitHalt (Signal.pure false : Signal dom Bool) runSig)
 
     return ({ probeVal := rdSig
-            , halted := ((fun r => !r) <$> runSig : Signal dom Bool) } : PdOut dom)
+            , halted := (~~~runSig : Signal dom Bool) } : PdOut dom)
 
 /-- Point-double engine (r0=X r1=Y r2=Z → X3=r11 Y3=r14 Z3=r16). -/
 def pdEngine {dom : DomainConfig}
@@ -963,10 +963,10 @@ instance {dom : DomainConfig} :
 
     let goStart  := (cIdle &&& opStart : Signal dom Bool)
     let goLoop   := (goStart &&& isLoop : Signal dom Bool)
-    let goSingle := (goStart &&& ((fun b => !b) <$> isLoop) : Signal dom Bool)
+    let goSingle := (goStart &&& (~~~isLoop) : Signal dom Bool)
     let kMsb := ((fun k => BitVec.extractLsb' 255 1 k) <$> kSig : Signal dom (BitVec 1))
     let bit := (kMsb === 1#1)
-    let notInf := ((fun b => !b) <$> accInf : Signal dom Bool)
+    let notInf := (~~~accInf : Signal dom Bool)
 
     -- ===== drive the shared micro-engine =====
     -- Loop: square in sq-issue (unless acc=∞); multiply/copy in mul-issue only
@@ -1016,7 +1016,7 @@ instance {dom : DomainConfig} :
              (Signal.mux cNext biInc biSig)
 
     return ({ probeVal := eng.probeVal
-            , busy := ((fun b => !b) <$> cIdle : Signal dom Bool) } : OpOut dom)
+            , busy := (~~~cIdle : Signal dom Bool) } : OpOut dom)
 
 /-- EC scalar-multiply ladder: `acc = scalar · P` (P in r3/r4/r5). -/
 def ladderCtrl {dom : DomainConfig}
@@ -1030,7 +1030,7 @@ def ladderCtrl {dom : DomainConfig}
     (Signal.pure (BitVec.ofNat 8 offDBL)) (Signal.pure (BitVec.ofNat 8 offADD))
     (Signal.pure (BitVec.ofNat 8 offCOPY))
     ladderStart extLoadEn extLoadAddr extLoadData scalarLoadEn scalarIn probeAddr
-  { probeVal := o.probeVal, halted := ((fun b => !b) <$> o.busy : Signal dom Bool) }
+  { probeVal := o.probeVal, halted := (~~~o.busy : Signal dom Bool) }
 
 /-- Fermat modular inversion: `acc = base^exponent mod m` (base in r3,
     `exponent` supplied as the scalar).  `modN` selects the modulus.  For `a⁻¹`
@@ -1047,7 +1047,7 @@ def expCtrl {dom : DomainConfig}
   let offMu := (Signal.mux modN (Signal.pure (BitVec.ofNat 8 offMULN)) (Signal.pure (BitVec.ofNat 8 offMULP)) : Signal dom (BitVec 8))
   let o := opCtrl (Signal.pure true) (Signal.pure 0#8) offSq offMu (Signal.pure (BitVec.ofNat 8 offCOPY))
     expStart extLoadEn extLoadAddr extLoadData scalarLoadEn scalarIn probeAddr
-  { probeVal := o.probeVal, halted := ((fun b => !b) <$> o.busy : Signal dom Bool) }
+  { probeVal := o.probeVal, halted := (~~~o.busy : Signal dom Bool) }
 
 /-! ## Top-level sign orchestrator. -/
 
@@ -1081,7 +1081,7 @@ def nMinus2Bv : BitVec 256 := BitVec.ofNat 256 (Sparkle.IP.Crypto.Secp256k1ECDSA
     let mDone := mcSig === 15#4
     -- ISSUE states are the odd values 1,3,5,7,9,11,13 (15 is done, also odd).
     let mOdd := (((fun m => BitVec.extractLsb' 0 1 m) <$> mcSig) === 1#1)
-    let mIssue := (mOdd &&& ((fun b => !b) <$> mDone) : Signal dom Bool)
+    let mIssue := (mOdd &&& (~~~mDone) : Signal dom Bool)
 
     -- Phase index `(mcst-1)>>1`, STABLE across a phase's ISSUE+WAIT pair
     -- (L=0 PREP=1 invZ=2 AFFINE=3 PREPk=4 invK=5 S=6).  The op selects below
@@ -1128,7 +1128,7 @@ def nMinus2Bv : BitVec 256 := BitVec.ofNat 256 (Sparkle.IP.Crypto.Secp256k1ECDSA
       Signal.mux mIdle (Signal.mux signStart (Signal.pure 1#4 : Signal dom (BitVec 4)) (Signal.pure 0#4))
       <| Signal.mux mDone (Signal.pure 0#4 : Signal dom (BitVec 4))
         (Signal.mux mIssue mcInc                                   -- ISSUE → WAIT
-          (Signal.mux ((fun b => !b) <$> opBusy) mcInc mcSig))     -- WAIT → next when op done
+          (Signal.mux (~~~opBusy) mcInc mcSig))     -- WAIT → next when op done
     mcR <~ mcNext
 
     return ({ probeVal := op.probeVal

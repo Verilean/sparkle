@@ -89,7 +89,7 @@ def mulHW {dom : DomainConfig}
     let p0_256   := (Signal.pure 0#256   : Signal dom (BitVec 256))
     let bHi    := (bSig >>> p255_256 : Signal dom (BitVec 256))
     let bHiZ   := (bHi === p0_256 : Signal dom Bool)
-    let bMsb   := ((fun z => !z) <$> bHiZ : Signal dom Bool)
+    let bMsb   := (~~~bHiZ : Signal dom Bool)
 
     -- acc doubled (258-bit shift), then reduce once mod p.
     let p1_258    := (Signal.pure 1#258 : Signal dom (BitVec 258))

@@ -245,7 +245,7 @@ def keccak256SpongeHW {dom : DomainConfig}
     -- `sSig` digest regs are assigned from `finish`/`capture` this
     -- cycle, so `done` pulses and `d0..d3` become valid together on the
     -- FOLLOWING cycle, and are held after.
-    let noMore := ((fun b => !b) <$> moreBlocks : Signal dom Bool)
+    let noMore := (~~~moreBlocks : Signal dom Bool)
     let finish := (capture &&& noMore : Signal dom Bool)
     doneR <~ finish
 

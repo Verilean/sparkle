@@ -136,7 +136,7 @@ def uartTxHW {dom : DomainConfig}
     let pIdle10 := (Signal.pure 0x3FF#10 : Signal dom (BitVec 10))
     let p1_4 := (Signal.pure 1#4 : Signal dom (BitVec 4))
     let p1_10 := (Signal.pure 1#10 : Signal dom (BitVec 10))
-    let notBusy := ((fun b => !b) <$> busySig : Signal dom Bool)
+    let notBusy := (~~~busySig : Signal dom Bool)
     let startReq := (txValid &&& notBusy : Signal dom Bool)
 
     -- Divider-tick: divCount == 0 means we cross to next bit this cycle.
@@ -187,7 +187,7 @@ def uartTxHW {dom : DomainConfig}
     let lsbAnd := (shiftSig &&& p1_10b : Signal dom (BitVec 10))
     let isOne := (lsbAnd === p1_10b : Signal dom Bool)
 
-    let readyOut := ((fun b => !b) <$> busySig : Signal dom Bool)
+    let readyOut := (~~~busySig : Signal dom Bool)
     return ({ txLine := isOne, txReady := readyOut } : TxOut dom)
 
 /-! ### Bit-level UART RX HW engine.
@@ -243,7 +243,7 @@ def uartRxHW {dom : DomainConfig}
 
     let inIdle := (stSig === p0_4 : Signal dom Bool)
     let dvIsZero := (dvSig === p0_16 : Signal dom Bool)
-    let startEdge := (inIdle &&& ((fun b => !b) <$> rxLine : Signal dom Bool)
+    let startEdge := (inIdle &&& (~~~rxLine : Signal dom Bool)
                       : Signal dom Bool)
 
     let stInc := (stSig + p1_4 : Signal dom (BitVec 4))
@@ -253,13 +253,13 @@ def uartRxHW {dom : DomainConfig}
     -- Sample-and-shift: when divider hits zero (and we're not idle),
     -- we cross into the next bit slot.  For data bits (state in 2..9),
     -- shift the sampled rxLine into shiftReg's MSB and shift right by 1.
-    let bitTick := ((· && ·) <$> ((fun b => !b) <$> inIdle : Signal dom Bool)
+    let bitTick := ((· && ·) <$> (~~~inIdle : Signal dom Bool)
                      <*> dvIsZero : Signal dom Bool)
     let stIsOne := (stSig === p1_4 : Signal dom Bool)
     let inData2_9 :=
       ((· && ·) <$>
-        ((fun b => !b) <$> stIsOne : Signal dom Bool) <*>
-        ((fun b => !b) <$> stIsStop : Signal dom Bool) : Signal dom Bool)
+        (~~~stIsOne : Signal dom Bool) <*>
+        (~~~stIsStop : Signal dom Bool) : Signal dom Bool)
     let inDataAndTick := (inData2_9 &&& bitTick : Signal dom Bool)
     let shiftRight1 := ((· >>> ·) <$> shSig <*>
                         (Signal.pure 1#8 : Signal dom (BitVec 8)) : Signal dom (BitVec 8))

@@ -445,7 +445,7 @@ def arpResponder {dom : DomainConfig}
     let p1      := (Signal.pure 1#6  : Signal dom (BitVec 6))
     let isIdle  := txCntSig === pTxZero
     let isLastB := txCntSig === p28
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isEmitting := ~~~isIdle
 
     -- Reply fields: swap requester/responder roles.
     let byteOut := arpPacketByte
@@ -531,7 +531,7 @@ def arpRequester {dom : DomainConfig}
     let p1      := (Signal.pure 1#6  : Signal dom (BitVec 6))
     let isIdle    := txCntSig === pTxZero
     let isLastB   := txCntSig === p28
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isEmitting := ~~~isIdle
 
     -- Request fields: broadcast THA placeholder (0); target IP
     -- from latched tpaReg, or live tpaIn on the trigger cycle

@@ -148,7 +148,7 @@ instance {dom : DomainConfig} :
 
     -- "set/add will write": set always writes; add writes only if !hit.
     let addWillWrite := ((· && ·) <$> opIsAdd <*>
-      ((fun b => !b) <$> hitSig : Signal dom Bool) : Signal dom Bool)
+      (~~~hitSig : Signal dom Bool) : Signal dom Bool)
     let willWrite := (opIsSet ||| addWillWrite : Signal dom Bool)
     -- "del will clear": del writes valid=0 when hit.
     let delWillClear := (opIsDel &&& hitSig : Signal dom Bool)
@@ -211,7 +211,7 @@ instance {dom : DomainConfig} :
     -- both bounds hold; scanIdx == 0 only happens on the entry
     -- cycle.
     let inScanCmp := ((· && ·) <$> isLookup <*>
-      ((fun b => !b) <$> ((scanSig === p0_5 : Signal dom Bool))
+      (~~~((scanSig === p0_5 : Signal dom Bool))
        : Signal dom Bool) : Signal dom Bool)
     let foundThisCycle := (inScanCmp &&& slotMatches : Signal dom Bool)
 
@@ -255,7 +255,7 @@ instance {dom : DomainConfig} :
     -- consumed a fresh slot).
     let bumpNext := ((· && ·) <$> isEmit <*>
       (((· && ·) <$> willWrite <*>
-        ((fun b => !b) <$> hitSig : Signal dom Bool) : Signal dom Bool))
+        (~~~hitSig : Signal dom Bool) : Signal dom Bool))
       : Signal dom Bool)
     let p1_4 := (Signal.pure 1#4 : Signal dom (BitVec 4))
     let nextSlotInc := (nextSlotSig + p1_4 : Signal dom (BitVec 4))
@@ -273,7 +273,7 @@ instance {dom : DomainConfig} :
 
     -- Outputs
     let replyValid := isEmit
-    let busy := ((fun b => !b) <$> isIdle : Signal dom Bool)
+    let busy := (~~~isIdle : Signal dom Bool)
 
     -- Reply kind decoder (only meaningful when replyValid):
     --   get + hit  → 2 (VALUE)   ─ next cycle host expects END

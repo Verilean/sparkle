@@ -161,7 +161,7 @@ def ctapHidDeframerHW {dom : DomainConfig}
 
     -- Header field positions (INIT report): 0..3 cid, 4 cmd, 5 bcntH, 6 bcntL.
     -- Payload starts at pos 7 (INIT) or pos 5 (CONT).
-    let isInit := ((fun b => !b) <$> contSig : Signal dom Bool)
+    let isInit := (~~~contSig : Signal dom Bool)
     let initPayStart :=
       ((· && ·) <$> isInit
         <*> ((fun p => BitVec.ule 7#6 p) <$> posSig : Signal dom Bool) : Signal dom Bool)

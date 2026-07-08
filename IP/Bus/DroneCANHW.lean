@@ -43,7 +43,7 @@ def crc16Step {dom : DomainConfig} (c : Signal dom (BitVec 16)) : Signal dom (Bi
   let p1    := (Signal.pure 1#16     : Signal dom (BitVec 16))
   let pMSB  := (Signal.pure 0x8000#16 : Signal dom (BitVec 16))
   let msbAnd := (c &&& pMSB : Signal dom (BitVec 16))
-  let msbNZ := ((fun x => !x) <$> (msbAnd === p0 : Signal dom Bool)
+  let msbNZ := (~~~(msbAnd === p0 : Signal dom Bool)
                 : Signal dom Bool)
   let shifted := (c <<< p1 : Signal dom (BitVec 16))
   let shiftedXor := (shifted ^^^ pPoly : Signal dom (BitVec 16))
@@ -116,7 +116,7 @@ def nodeFilterHW {dom : DomainConfig}
     (selfNode : Signal dom (BitVec 7)) :
     NodeFilterOut dom :=
   let eq := (srcNode === selfNode : Signal dom Bool)
-  let notEq := ((fun b => !b) <$> eq : Signal dom Bool)
+  let notEq := (~~~eq : Signal dom Bool)
   { accept := notEq }
 
 /-! ### Transfer-ID + toggle-bit tracker.
@@ -165,13 +165,13 @@ def transferIdTrackerHW {dom : DomainConfig}
     let errSig := (errReg : Signal dom Bool)
 
     let togEq := (tog === togSig : Signal dom Bool)
-    let togMismatch := ((fun b => !b) <$> togEq : Signal dom Bool)
+    let togMismatch := (~~~togEq : Signal dom Bool)
     let tidEq := (tid === tidSig : Signal dom Bool)
-    let tidMismatch := ((fun b => !b) <$> tidEq : Signal dom Bool)
+    let tidMismatch := (~~~tidEq : Signal dom Bool)
     let midMismatch := (togMismatch ||| tidMismatch : Signal dom Bool)
 
     -- validFrame = valid && !sot   (mid-transfer frame)
-    let notSot := ((fun b => !b) <$> sot : Signal dom Bool)
+    let notSot := (~~~sot : Signal dom Bool)
     let midValid := (valid &&& notSot : Signal dom Bool)
     let midErr := (midValid &&& midMismatch : Signal dom Bool)
 
@@ -181,7 +181,7 @@ def transferIdTrackerHW {dom : DomainConfig}
     -- next expected toggle: after SOT it becomes true;
     --   after any mid-transfer valid frame it flips;
     --   after EOT (last valid frame) it doesn't matter but hold.
-    let togFlipped := ((fun b => !b) <$> togSig : Signal dom Bool)
+    let togFlipped := (~~~togSig : Signal dom Bool)
     let togNextMid := Signal.mux midValid togFlipped togSig
     let togNext := Signal.mux sotValid (Signal.pure true) togNextMid
 

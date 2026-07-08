@@ -546,7 +546,7 @@ def sha256Block {dom : DomainConfig}
     let bufLow := wBufSig.map (BitVec.extractLsb' 0 480 ·)
     let shiftedBuf := bufLow ++ newW
     wBuf <~ Signal.mux start blockIn
-              (Signal.mux ((fun b => !b) <$> isIdle) shiftedBuf wBufSig)
+              (Signal.mux (~~~isIdle) shiftedBuf wBufSig)
 
     -- Counter: 0 → 1 on start, +1 each cycle while non-zero,
     -- 0 again after finish (cycle 65).

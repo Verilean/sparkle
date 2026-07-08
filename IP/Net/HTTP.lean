@@ -220,7 +220,7 @@ instance {dom : DomainConfig} :
     let pLast := (Signal.pure (BitVec.ofNat 6 nBytes) : Signal dom (BitVec 6))
     let isIdle  := cntSig === pZero
     let isLast  := cntSig === pLast
-    let isEmitting := (fun b => !b) <$> isIdle
+    let isEmitting := ~~~isIdle
     let byteOut := byteFn cntSig
     let cntInc := cntSig + p1
     cnt <~ Signal.mux trigger p1

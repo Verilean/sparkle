@@ -134,7 +134,7 @@ def checksumHW {dom : DomainConfig}
     let carryMasked := (carryShift &&& p1_9 : Signal dom (BitVec 9))
     let p0_9 := (Signal.pure 0#9 : Signal dom (BitVec 9))
     let isCarryZero := (carryMasked === p0_9 : Signal dom Bool)
-    let carry := ((fun b => !b) <$> isCarryZero : Signal dom Bool)
+    let carry := (~~~isCarryZero : Signal dom Bool)
 
     -- Truncate low 8 bits via extractLsb'.
     let sumLo := sumW.map (BitVec.extractLsb' 0 8 ·)
