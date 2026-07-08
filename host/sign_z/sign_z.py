@@ -99,12 +99,29 @@ def _pulse_lines(fd):
         fcntl.ioctl(fd, TIOCMSET, array.array('i', [v])); time.sleep(0.02)
     time.sleep(0.08)
 
+SYNC = b"\xA5\x5A"          # response frame marker
+ST_OK = 0x01               # status byte: signature ready
+
+def _parse_frame(buf, z, Q):
+    """Find a [A5 5A][status][r 32B][s 32B] frame in buf whose r,s verify."""
+    i = 0
+    while True:
+        j = buf.find(SYNC, i)
+        if j < 0 or j + 2 + 1 + 64 > len(buf):
+            return None
+        status = buf[j + 2]
+        r = int.from_bytes(buf[j+3:j+35], "big")
+        s = int.from_bytes(buf[j+35:j+67], "big")
+        if status == ST_OK and ecdsa_verify(Q, z, r, s):
+            return r, s
+        i = j + 1          # false marker inside data — resync past it
+
 def sign_on_device(port, z, attempts=12):
-    """Send z and read back r‖s.  The BL616 FTDI channel won't read reliably while a
-    write is in flight, so each attempt uses a SEPARATE write fd (pulse DTR/RTS to
-    enable host→FPGA, send the 32-byte z, close) and then a FRESH read fd to capture
-    the device's continuous rotate-stream, sliding a 64-byte window for the r‖s that
-    verifies against Q=DEMO_KEY·G.  Retries because the bridge enable is flaky."""
+    """Send z, read back the framed response [A5 5A][status][r][s].  The BL616 FTDI
+    channel won't read while a write is in flight, so each attempt writes z on a
+    SEPARATE fd (pulse DTR/RTS to enable host→FPGA, send 32-byte z, close), then
+    reads the repeated response frame on a FRESH fd and parses on the A5 5A marker.
+    Retries because the bridge host→FPGA enable is flaky."""
     import termios
     os.system(f"stty -F {port} 115200 raw -echo 2>/dev/null")
     Q = derive_pubkey(DEMO_KEY)
@@ -113,7 +130,7 @@ def sign_on_device(port, z, attempts=12):
         _pulse_lines(fw)
         termios.tcflush(fw, termios.TCIOFLUSH)
         os.write(fw, z.to_bytes(32, "big"))
-        time.sleep(0.5)                 # on-chip sign completes + stream restarts
+        time.sleep(0.5)                 # on-chip sign completes, frames start
         os.close(fw)                    # release the write side before reading
         fr = os.open(port, os.O_RDONLY | os.O_NONBLOCK)
         try:
@@ -123,16 +140,15 @@ def sign_on_device(port, z, attempts=12):
                     chunk = os.read(fr, 256)
                 except BlockingIOError:
                     chunk = b""
-                if chunk: buf += chunk
-                else: time.sleep(0.002)
-            for off in range(0, len(buf) - 63):
-                r = int.from_bytes(buf[off:off+32], "big")
-                s = int.from_bytes(buf[off+32:off+64], "big")
-                if ecdsa_verify(Q, z, r, s):
-                    return r, s
+                if chunk:
+                    buf += chunk
+                    got = _parse_frame(buf, z, Q)
+                    if got: return got
+                else:
+                    time.sleep(0.002)
         finally:
             os.close(fr)
-    raise IOError("no verifying r‖s from the device (all attempts)")
+    raise IOError("no valid response frame from the device (all attempts)")
 
 # --- entry points -----------------------------------------------------------
 def selftest():

@@ -1,9 +1,12 @@
 // Interactive UART secp256k1 signer for the Tang Nano 20k, built from three
-// individually hardware-proven blocks: a hand-written UART RX (rxtest), the real
-// signZSmallDemo core, and the rotate-register UART TX (self-test).  Host sends
-// a 32-byte z (big-endian) on pin 70 (RX); the device signs with baked d=12345
-// and on-chip RFC-6979 k, then streams the 64-byte r‖s out pin 69 (TX) in a
-// continuous rotate loop until the next z arrives.  rPLL 13.5 MHz clock, 115200.
+// individually hardware-proven blocks: a hand-written UART RX, the real
+// signZSmallDemo core, and a rotate-register UART TX.  rPLL 13.5 MHz clock, 115200.
+//
+// Protocol (framed request→response, see tutorial Ch11 §11.9):
+//   request :  z  (32 bytes, big-endian) on pin 70 (RX)
+//   response:  A5 5A  (sync marker) | 01 (status: signature ready)
+//              | r (32B) | s (32B)   on pin 69 (TX), repeated back-to-back
+// Baked d=12345, on-chip RFC-6979 k.  Host syncs on A5 5A, checks status, reads r‖s.
 //   led[2:0]=heartbeat (running), led[5:3]=have (signature ready).
 module sign_z_uart_top(
     input  clk, input rst,
@@ -62,19 +65,25 @@ module sign_z_uart_top(
         else if (done && !have) begin rs<={rOut,sOut}; have<=1'b1; end
     end
 
-    // --- UART TX: rotate-stream r‖s while have; re-arm on new sign ---
+    // --- UART TX: framed response, repeated while have; re-arm on new sign ---
+    // 67-byte frame = [0xA5][0x5A][0x01 status][r 32B MSB-first][s 32B MSB-first].
+    // Sent back-to-back so the host syncs on the A5 5A marker (no blind sliding),
+    // and the status byte is the extension point (0x01 ok; future 0xEE etc.).
     reg [8:0] bcnt=9'd0; wire tick=(bcnt==DIV[8:0]-9'd1);
     always @(posedge clk_div) bcnt<=tick?9'd0:bcnt+9'd1;
-    reg [511:0] txsr=512'd0; reg loaded=1'b0; reg [3:0] bitidx=4'd0; reg txl=1'b1;
-    wire [9:0] frame={1'b1, txsr[511:504], 1'b0};
+    reg [535:0] txsr=536'd0; reg loaded=1'b0; reg [3:0] bitidx=4'd0; reg txl=1'b1;
+    wire [9:0] frame={1'b1, txsr[535:528], 1'b0};   // stop, top byte (LSB-first), start
     always @(posedge clk_div) begin
         if (start_p) loaded<=1'b0;
         if (!loaded) begin
             txl<=1'b1;
-            if (have) begin txsr<=rs; loaded<=1'b1; bitidx<=4'd0; end
+            if (have) begin
+                txsr<={8'hA5, 8'h5A, 8'h01, rs};   // marker ‖ status ‖ r ‖ s
+                loaded<=1'b1; bitidx<=4'd0;
+            end
         end else if (tick) begin
             txl<=frame[bitidx];
-            if (bitidx==4'd9) begin bitidx<=4'd0; txsr<={txsr[503:0], txsr[511:504]}; end
+            if (bitidx==4'd9) begin bitidx<=4'd0; txsr<={txsr[527:0], txsr[535:528]}; end
             else bitidx<=bitidx+4'd1;
         end
     end

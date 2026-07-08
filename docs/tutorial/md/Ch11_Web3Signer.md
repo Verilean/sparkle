@@ -290,7 +290,65 @@ follow-up. M1's tighter guarantee (policy fields *provably* come from the
 hashed bytes) is documented in
 [`docs/ip-catalog/PolicySignDemo.md`](../../ip-catalog/PolicySignDemo.md).
 
-## 11.8 Where to go next
+## 11.8 Field notes: the on-chip-key variant on real silicon
+
+The signer above (Tang Nano 50K, `defaultDomain` off the 27 MHz crystal) is the
+easy case. The **on-chip-key** sibling — key baked in, nonce via RFC-6979, `z`
+the only thing on the wire (`docs/ip-catalog/EcdsaSignDemo.md`) — was brought up
+on a **Tang Nano 20K** (GW2A-18), and the small part surfaced three realities
+that simulation never shows:
+
+- **Generate the core clock with the PLL, not fabric logic.** §11.3's wrapper
+  drives the core straight off the crystal because the GW5A-60 closes timing
+  there. On the GW2A-18 that path *explodes the wide-mux mapping* (≈69 % LUT4,
+  unroutable), and a ÷2 clock made from a fabric flip-flop **buffered through a
+  BUFG is dead** — an LED probe on it never toggled, so the core never ran and
+  the UART only emitted noise. A Gowin **`rPLL`** (27 → 13.5 MHz) fixes both: its
+  output is a genuine global clock *and* the netlist packs ≈49 % LUT4. On the
+  small parts, instantiate the PLL primitive.
+- **Find the right serial device, and pulse DTR/RTS.** The on-board Sipeed BL616
+  exposes *two* nodes — interface 0 = JTAG, interface 1 = the FPGA UART (on the
+  20K, `/dev/ttyUSB0` / `ttyUSB1`). Talk to the UART one **only**; opening the
+  JTAG node as a serial port wedges JTAG. And the bridge forwards **host→FPGA**
+  only after DTR/RTS are *pulsed* through a few transitions — a static level
+  doesn't enable it.
+- **You can't read while a write is in flight.** The FTDI channel withholds read
+  bytes until the write drains. Write the request on one fd, **close it**, then
+  read on a fresh fd.
+- **Flash to SPI for a stable demo.** SRAM config is volatile and every
+  `openFPGALoader` run churns USB; use `-f` (SPI) so the design survives, and
+  after heavy JTAG use a physical re-plug is the only reliable recovery.
+
+`host/sign_z/sign_z.py` bakes all of this in, so on the 20K the full round-trip
+is just `python3 host/sign_z/eth_sign_tx.py --port /dev/ttyUSB1` — the chip signs
+a real EIP-1559 hash and the transfer mines on anvil, `ecrecover`ing to the
+baked key's address.
+
+## 11.9 Protocol design: frame the response, don't stream it
+
+The first cut of the 20K signer *streamed* `r‖s` out the UART continuously, so
+the host had to slide a 64-byte window and ECDSA-verify at every offset to find
+the frame boundary. Combined with the read/write coupling above, that needed an
+ugly two-fd-plus-retry dance. Don't do this — **give the device a framed
+request→response with a status byte** from the start:
+
+```
+request :  z            (32 bytes)
+response:  A5 5A         (2-byte sync marker)
+           01            (status: 01 = signature ready; reserve EE = error/reject)
+           r  (32 bytes) s (32 bytes)
+```
+
+The device repeats the frame so the host reliably catches a whole one; the host
+syncs on `A5 5A`, checks the status, then reads `r‖s` — no blind sliding, and a
+false marker inside the random `r‖s` is rejected because its status/signature
+won't validate. This is exactly the shape the §11.6 PolicySignDemo already uses
+at the transaction level (**64-byte `r‖s` on success, a single `0xEE` on policy
+reject**): a status/framing byte is the cheap, extensible thing to design in up
+front. (`fpga/tangNano20k/sign_z_uart_top.v` emits the frame;
+`host/sign_z/sign_z.py`'s `sign_on_device` parses it.)
+
+## 11.10 Where to go next
 
 - [`docs/ip-catalog/PolicySignDemo.md`](../../ip-catalog/PolicySignDemo.md)
   — the protocol, the on-chip policy engine, and the Keccak sponge in
