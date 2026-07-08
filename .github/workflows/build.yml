@@ -1188,6 +1188,7 @@ jobs:
           echo '  <li><a href="tutorial/">Tutorial</a> — chapter-by-chapter walk-through of the Signal DSL, register patterns, Verilog synthesis, formal proofs, and FPGA bring-up.</li>'
           echo '  <li><a href="lab/">JupyterLite</a> — run the tutorial chapters in your browser (xlean WASM kernel, no install required).</li>'
           echo '  <li><a href="api/">API reference</a> — generated from source by <code>doc-gen4</code>. Covers <code>Sparkle.Core</code>, every <code>IP.*</code> library, the SVParser toolchain, and the Display helpers.</li>'
+          echo '  <li><a href="https://verilean.github.io/xeus-lean/tutorial/">Lean 4 syntax tutorial</a> — the xeus-lean tutorial: a quick reference for the Lean 4 language itself (syntax, tactics, notation) that Sparkle is written in.</li>'
           echo '</ul>'
           echo '<h2>Benchmarks</h2>'
           echo '<ul>'
