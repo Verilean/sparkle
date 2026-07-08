@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1PointJac
 open Sparkle.Core.JIT
 open Sparkle.IP.Crypto.Secp256k1PointJac
 def main : IO Unit := do

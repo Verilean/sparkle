@@ -6,8 +6,8 @@
 -- Generate the C first:  lake env lean fpga/tangNano20k/build/GenAluSim.lean
 -- Then:                   lake exe ecdsa-sign-small-jit
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 open Sparkle.Core.JIT
 

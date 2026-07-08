@@ -1,6 +1,6 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1Field
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1Field
+import IP.Crypto.Proof.Secp256k1ECDSA
 open Sparkle.Core.JIT
 -- expTop ports: modN=0 expStart=1 extLoadEn=2 extLoadAddr=3 extLoadData=4..11
 --   scalarLoadEn=12 scalarIn=13..20 probeAddr=21 ; out probeVal=0..7 halted=8

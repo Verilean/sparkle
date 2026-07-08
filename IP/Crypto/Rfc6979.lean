@@ -11,7 +11,7 @@
       against `derivePublicKey d`.
 -/
 import IP.Crypto.SHA256
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1ECDSA
 
 namespace Sparkle.IP.Crypto.Rfc6979
 

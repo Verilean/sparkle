@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1ECDSA
+import IP.Crypto.Proof.Secp256k1ECDSA
 open Sparkle.Core.JIT
 -- demoTop ports: uartRx=0 bitDiv=1 ; out uartTx=0 signDone=1
 -- UART 8-N-1, bitDiv=3 → 4 cycles/bit.  Host sends 64 bytes k‖z (MSB-first),

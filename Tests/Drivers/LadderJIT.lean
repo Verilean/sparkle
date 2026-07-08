@@ -1,5 +1,5 @@
 import Sparkle.Core.JIT
-import IP.Crypto.Secp256k1PointJac
+import IP.Crypto.Proof.Secp256k1PointJac
 open Sparkle.Core.JIT
 open Sparkle.IP.Crypto.Secp256k1PointJac
 -- inputs: ladderStart=0 extLoadEn=1 extLoadAddr=2 extLoadData=3..10
