@@ -25,6 +25,7 @@ import Lean.Elab.Command
 import Sparkle.Verification.Cost
 import Sparkle.Verification.CostTargets
 import Sparkle.Compiler.Elab
+import Sparkle.IR.Optimize
 
 namespace Sparkle.Verification.CostCmd
 
@@ -88,7 +89,15 @@ def elabVerifyFpga : CommandElab := fun stx => do
     let target ← liftTermElabM do
       let e ← Term.elabTermAndSynthesize targetStx (some (mkConst ``Target))
       evalTarget e
-    let usage : Resources := moduleResources mod + designResources design
+    -- Estimate on the OPTIMISED IR — the same passes synthesis runs.
+    -- Constant-folding turns `x >>> Signal.pure c` into a constant-amount
+    -- shift (0 LUT, free rewiring); CSE + DCE collapse the shared/dead
+    -- logic the raw synthesised IR double-counts.  Without this the raw
+    -- estimate over-counts LUTs several-fold (e.g. SHA-256 60k → ~6k).
+    let optMod := Sparkle.IR.Optimize.optimizeModule mod
+    let optDesign :=
+      { design with modules := design.modules.map Sparkle.IR.Optimize.optimizeModule }
+    let usage : Resources := moduleResources optMod + designResources optDesign
     let fits :=
       usage.lut ≤ target.maxLUT
       ∧ usage.ff ≤ target.maxFF

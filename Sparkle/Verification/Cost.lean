@@ -333,7 +333,13 @@ def lutOf (env : String → Option Nat) : Expr → Nat
       | .eq | .lt_u | .lt_s
       | .le_u | .le_s | .gt_u
       | .gt_s | .ge_u | .ge_s     => (argW + 3) / 4 + 1
-      | .shl | .shr | .asr        => argW * (log2Up argW + 1)
+      | .shl | .shr | .asr        =>
+          -- A shift/rotate by a CONSTANT is free rewiring (0 LUT); only a
+          -- variable (data-dependent) shift synthesises to a barrel
+          -- shifter.  SHA-256 / Keccak rotations are all constant.
+          match args with
+          | [_, .const _ _] => 0
+          | _               => argW * (log2Up argW + 1)
       | .neg                      => argW
   | _ => 0
 

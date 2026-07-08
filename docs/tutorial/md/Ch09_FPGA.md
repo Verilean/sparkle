@@ -28,9 +28,11 @@ pre-installed.  No host-side dependency juggling.
 ```lean
 import Sparkle
 import Sparkle.Compiler.Elab
+import Sparkle.Verification.CostCmd
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
+open Sparkle.Verification.Cost.Targets
 
 namespace Notebooks.Ch09
 
@@ -175,7 +177,48 @@ yosys -p "read_verilog -sv /tmp/blinky.sv; \
    blinks at the expected rate (clock is 25 MHz on ULX3S, so
    bit 24 toggles at ~0.75 Hz).
 
-## 9.7 Where to go next
+## 9.7 Will it fit? — sizing before you synthesise
+
+The pipelines above take **minutes** (`yosys` + `nextpnr`). Before
+committing to one, you can size a design against a specific part in
+**seconds**, without running any of them — the compiler already knows
+every register width and every operator, so it counts LUT / FF / BSRAM
+/ DSP straight off the IR.
+
+`#verify_fpga <design> <target>` estimates the four resource pools and
+checks them against a part's published ceilings:
+
+```lean
+#verify_fpga blinky tangNano20K
+```
+
+⇒ `✅ fits Tang Nano 20K (GW2AR-18): blinky — LUT …, FF 24/15552, …` (a
+24-bit counter, so 24 FFs). Overflow logs `❌` with the offending pool.
+The part table lives in `CostTargets` (`tangNano9K`, `tangNano20K`,
+`tangNano50K`); `tangNano20K.withMargin 80` budgets only 80 % of each
+resource to leave routing headroom. For a raw area/depth budget instead
+of a named part, use `#verify_cost <design> { area := …, depth := … }`.
+
+**Why the estimate is trustworthy.** It runs the *same optimiser passes
+synthesis does* before counting: constant-folding makes constant
+shifts/rotations free (they are pure rewiring — an on-chip SHA-256
+estimates 5 966 LUT4 vs. ~6 000 from `yosys`, within ~1 %), and CSE +
+dead-code elimination collapse the shared and dead logic a raw node
+count would double-count. FF counts are exact (Σ register widths).
+
+**The payoff — turnaround.** Iterate against the instant estimate —
+shrink the design until it fits with margin — then run the minutes-long
+toolchain **once**. A design that obviously overflows (more registers
+than the part physically has) is rejected before `yosys` ever starts.
+This is a check the RTL-then-synthesise loop can't give you cheaply: the
+typed IR is countable without lowering to a netlist.
+
+> Caveat: this is an *upper-bound fit check*, not a substitute for
+> place-and-route. Timing closure, routing congestion, and clock-domain
+> crossings are not modelled — a green `#verify_fpga` means "the logic
+> fits", not "it closes timing".
+
+## 9.8 Where to go next
 
 - **Ch 10 — Architecture**: how the Sparkle compiler
   produces the SystemVerilog you've been feeding to Yosys.
