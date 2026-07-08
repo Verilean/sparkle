@@ -106,6 +106,42 @@ same job at the gate level.  Sparkle's advantage: the proof
 is mechanical Lean code, version-controlled, reproducible,
 and re-run on every CI build.
 
+## 7.3b Equivalence on the Signal, cycle by cycle
+
+§7.3 said the equivalence "lifts to signals" — here it is concretely.
+A Signal-level equivalence is just `∀ t, A.val t = B.val t`, and because
+the operators reduce pointwise (`(x + y).val t = x.val t + y.val t`),
+each cycle collapses to a plain `BitVec` fact you can `bv_decide`.
+
+Two *structurally different* combinational designs — `x + x` (an adder)
+and `x <<< 1` (a wired left-shift) — produce the same 4-bit value on
+every cycle:
+
+```lean
+theorem double_eq_shift {dom : DomainConfig} (x : Signal dom (BitVec 4)) :
+    ∀ t, (x + x).val t = (x <<< 1#4).val t := by
+  intro t
+  -- `show` rewrites both sides to their per-cycle BitVec form…
+  show x.val t + x.val t = x.val t <<< 1#4
+  bv_decide   -- …then it is just `v + v = v <<< 1` on `BitVec 4`.
+```
+
+When one side is defined *as* the behavioural spec the proof is even
+shorter — `Signal.mux` is literally the `if-then-else` it models, so the
+equivalence is `rfl` (this is the §7.5 exercise, worked):
+
+```lean
+theorem mux2_eq_behavioral {dom : DomainConfig} {α : Type}
+    (sel : Signal dom Bool) (a b : Signal dom α) :
+    ∀ t, (Signal.mux sel a b).val t
+       = (if sel.val t then a.val t else b.val t) := by
+  intro t; rfl
+```
+
+This is the same equivalence the pure-`BitVec` theorem in §7.2 states,
+now phrased on the actual `Signal` outputs — `∀ t` is the temporal
+"for every cycle", exactly as `□` was in Ch 6.
+
 ## 7.4 The `#verify_eq` macros
 
 For the common case "compare two signals over a fixed set of
@@ -121,18 +157,22 @@ interface.  We don't include `#verify_eq` examples in this
 notebook because they `IO`-print a result — that's better
 exercised in a real notebook session, not under `lake build`.
 
-## 7.5 Exercise — equivalence of two muxes
+## 7.5 Exercise — multiply-by-four, two ways
 
-Prove: a 2:1 multiplexer `Signal.mux sel a b` produces the
-same value (at every cycle) as the behavioural form
-`if sel.val t then a.val t else b.val t`.  Hint: the proof
-is two `unfold`s and a `rfl`, because Sparkle's `mux` IS
-defined that way.
+Following `double_eq_shift` (§7.3b), prove that a 4-bit multiply-by-four
+done as repeated addition agrees with a wired 2-bit shift on every cycle:
+
+```text
+∀ t, (x + x + x + x).val t = (x <<< 2#4).val t
+```
+
+Hint: same shape — `intro t`, `show` the per-cycle `BitVec 4` goal, then
+`bv_decide`.
 
 Reference solution in `Solutions/Ch07.lean`.
 
 ```lean
--- TODO: prove `mux2_eq_behavioral`.
+-- TODO: prove `quad_eq_shift2`.
 
 end Notebooks.Ch07
 ```
