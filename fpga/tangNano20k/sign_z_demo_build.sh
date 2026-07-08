@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tang Nano 20k build + flash for the Sparkle UART signing demo.
-#   1. lake env lean build/GenSignDemoSynth.lean   # -> build/sign_z_demo.v
+#   1. lake env lean build/GenSignZDemoSynth.lean  # -> build/sign_z_demo.v
 #   2. ./sign_z_demo_build.sh                          # yosys -> nextpnr -> gowin_pack
 #   3. ./sign_z_demo_build.sh flash                    # openFPGALoader (SRAM)
 #      ./sign_z_demo_build.sh flash-spi                # persist to on-board flash
