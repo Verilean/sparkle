@@ -10,6 +10,7 @@ import Notebooks.Gen.Ch07_Equivalence
 import Notebooks.Gen.Ch07b_FpQuantEquivalence
 import Notebooks.Gen.Ch08_Yosys
 import Notebooks.Gen.Ch08b_Simulation
+import Notebooks.Gen.Ch08c_Silicon
 import Notebooks.Gen.Ch09_FPGA
 import Notebooks.Gen.Ch10_Architecture
 import Notebooks.Gen.Ch11_Web3Signer
