@@ -55,6 +55,23 @@ def satNextPure (en : Bool) (curr : BitVec 8) : BitVec 8 :=
   else
     curr
 
+/-- Signal-level counter: the real hardware.  `Signal.reg` is the
+    register; the feedback `c <~ next` closes the loop.  Its
+    `.val t` is the counter's value at cycle `t` — the object our
+    temporal properties quantify over. -/
+def satCounterSig {dom : DomainConfig} (en : Signal dom Bool) :
+    Signal dom (BitVec 8) :=
+  circuit do
+    let c ← Signal.reg 0#8
+    let cSig := c.1
+    let next := Signal.mux en
+                  (Signal.mux (cSig === 0xFF#8)
+                    (Signal.pure 0xFF#8 : Signal dom (BitVec 8))
+                    (cSig + 1#8))
+                  cSig
+    c <~ next
+    return cSig
+
 ```
 ## 6.2 Property #1 — bounded
 
@@ -72,6 +89,31 @@ theorem satNext_bounded :
   cases en <;> bv_decide
 
 ```
+## 6.2b The same property, stated on the Signal
+
+The intro claimed `□ (count ≤ 0xFF)` is *literally* `∀ t, count.val t
+≤ 0xFF` — no temporal-logic library, just quantification over the
+`Signal`'s `.val`. Here it is on the real `satCounterSig`, not the pure
+spec: `□` is the `∀ t`, and `count.val t` is the value at cycle `t`.
+
+```lean
+theorem satCounterSig_bounded {dom : DomainConfig} (en : Signal dom Bool) :
+    ∀ t, (satCounterSig en).val t ≤ 0xFF#8 := by
+  intro t
+  -- The value at any cycle is a `BitVec 8`, so it is ≤ 0xFF by width
+  -- alone — the temporal quantifier adds nothing to discharge here.
+  generalize (satCounterSig en).val t = x
+  bv_decide
+```
+
+For this bound the proof is trivial (every `BitVec 8` fits), but the
+*shape* — `intro t` then reason about `count.val t` — is exactly how
+every safety invariant over a Sparkle design is stated. The non-trivial
+temporal properties (§6.5, §6.6) take the register's recurrence
+`count.val (t+1) = satNextPure (en.val t) (count.val t)` — which for
+`satCounterSig` is just `Signal.register`'s defining equation
+(`.val (n+1) = input.val n`) — and induct on the cycle count.
+
 ## 6.3 Property #2 — disabled means unchanged
 
 "If `en` is false, the counter doesn't change."  This is a
