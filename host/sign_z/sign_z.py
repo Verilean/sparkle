@@ -89,16 +89,50 @@ def read_exact(fd, n, tries=200):
         else: tries -= 1
     return buf
 
-def sign_on_device(port, z):
-    fd = open_port(port)
-    try:
-        os.write(fd, z.to_bytes(32, "big"))
-        resp = read_exact(fd, 64)
-    finally:
-        os.close(fd)
-    if len(resp) != 64:
-        raise IOError(f"expected 64 bytes r||s, got {len(resp)}: {resp.hex()}")
-    return int.from_bytes(resp[:32], "big"), int.from_bytes(resp[32:], "big")
+def _pulse_lines(fd):
+    """Pulse DTR/RTS through transitions to (re-)enable host→FPGA on the BL616."""
+    import fcntl, array
+    TIOCMGET, TIOCMSET, DTR, RTS = 0x5415, 0x5418, 0x002, 0x004
+    for d, r in [(1, 1), (0, 0), (1, 0), (0, 1), (1, 1)]:
+        b = array.array('i', [0]); fcntl.ioctl(fd, TIOCMGET, b, True)
+        v = b[0]; v = (v | DTR) if d else (v & ~DTR); v = (v | RTS) if r else (v & ~RTS)
+        fcntl.ioctl(fd, TIOCMSET, array.array('i', [v])); time.sleep(0.02)
+    time.sleep(0.08)
+
+def sign_on_device(port, z, attempts=12):
+    """Send z and read back r‖s.  The BL616 FTDI channel won't read reliably while a
+    write is in flight, so each attempt uses a SEPARATE write fd (pulse DTR/RTS to
+    enable host→FPGA, send the 32-byte z, close) and then a FRESH read fd to capture
+    the device's continuous rotate-stream, sliding a 64-byte window for the r‖s that
+    verifies against Q=DEMO_KEY·G.  Retries because the bridge enable is flaky."""
+    import termios
+    os.system(f"stty -F {port} 115200 raw -echo 2>/dev/null")
+    Q = derive_pubkey(DEMO_KEY)
+    for _ in range(attempts):
+        fw = os.open(port, os.O_RDWR | os.O_NONBLOCK)
+        _pulse_lines(fw)
+        termios.tcflush(fw, termios.TCIOFLUSH)
+        os.write(fw, z.to_bytes(32, "big"))
+        time.sleep(0.5)                 # on-chip sign completes + stream restarts
+        os.close(fw)                    # release the write side before reading
+        fr = os.open(port, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            buf = b""; t0 = time.time()
+            while time.time() - t0 < 1.2 and len(buf) < 512:
+                try:
+                    chunk = os.read(fr, 256)
+                except BlockingIOError:
+                    chunk = b""
+                if chunk: buf += chunk
+                else: time.sleep(0.002)
+            for off in range(0, len(buf) - 63):
+                r = int.from_bytes(buf[off:off+32], "big")
+                s = int.from_bytes(buf[off+32:off+64], "big")
+                if ecdsa_verify(Q, z, r, s):
+                    return r, s
+        finally:
+            os.close(fr)
+    raise IOError("no verifying r‖s from the device (all attempts)")
 
 # --- entry points -----------------------------------------------------------
 def selftest():
