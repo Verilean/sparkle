@@ -106,6 +106,38 @@ same job at the gate level.  Sparkle's advantage: the proof
 is mechanical Lean code, version-controlled, reproducible,
 and re-run on every CI build.
 
+## 7.3b Equivalence on the Signal, cycle by cycle
+
+§7.3 said the equivalence "lifts to signals" — here it is concretely.
+A Signal-level equivalence is just `∀ t, A.val t = B.val t`, and because
+the operators reduce pointwise (`(x + y).val t = x.val t + y.val t`),
+each cycle collapses to a plain `BitVec` fact you can `bv_decide`.
+
+Two combinational expressions that compute the same value every cycle —
+here `a + b` and `b + a` — are equal *as signals* (shown as a statement,
+like §7's opening; the operator forms reduce pointwise so each cycle is a
+plain `BitVec` goal):
+
+```text
+theorem add_comm_sig {dom : DomainConfig} (a b : Signal dom (BitVec 4)) :
+    ∀ t, (a + b).val t = (b + a).val t := by
+  intro t
+  -- `show` rewrites both sides to their per-cycle BitVec form…
+  show a.val t + b.val t = b.val t + a.val t
+  bv_decide   -- …then it is just commutativity on `BitVec 4`.
+```
+
+When one side is defined *as* the behavioural spec the proof is even
+shorter: `Signal.mux sel a b` is *by definition* `⟨fun t => if sel.val t
+then a.val t else b.val t⟩`, so the Signal-level statement
+`∀ t, (Signal.mux sel a b).val t = (if sel.val t then a.val t else
+b.val t)` is closed by a single `rfl` — a structural multiplexer and its
+behavioural `if-then-else` spec are *definitionally the same signal*.
+
+This is the same equivalence the pure-`BitVec` theorem in §7.2 states,
+now phrased on the actual `Signal` outputs — `∀ t` is the temporal
+"for every cycle", exactly as `□` was in Ch 6.
+
 ## 7.4 The `#verify_eq` macros
 
 For the common case "compare two signals over a fixed set of
@@ -121,18 +153,22 @@ interface.  We don't include `#verify_eq` examples in this
 notebook because they `IO`-print a result — that's better
 exercised in a real notebook session, not under `lake build`.
 
-## 7.5 Exercise — equivalence of two muxes
+## 7.5 Exercise — adder trees agree
 
-Prove: a 2:1 multiplexer `Signal.mux sel a b` produces the
-same value (at every cycle) as the behavioural form
-`if sel.val t then a.val t else b.val t`.  Hint: the proof
-is two `unfold`s and a `rfl`, because Sparkle's `mux` IS
-defined that way.
+Following `add_comm_sig` (§7.3b), prove that two ways of summing three
+signals — left- and right-associated — agree on every cycle:
+
+```text
+∀ t, ((a + b) + c).val t = (a + (b + c)).val t
+```
+
+Hint: same shape — `intro t`, `show` the per-cycle `BitVec 4` goal, then
+`bv_decide`.
 
 Reference solution in `Solutions/Ch07.lean`.
 
 ```lean
--- TODO: prove `mux2_eq_behavioral`.
+-- TODO: prove `quad_eq_shift2`.
 
 end Notebooks.Ch07
 ```

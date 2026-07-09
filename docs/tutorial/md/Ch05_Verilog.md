@@ -389,7 +389,52 @@ let `bv_decide` (or `decide` on small finite types) finish off the
 residual bit-vector goal.  Ch 6 takes this further with
 temporal-logic invariants over multi-cycle behaviour.
 
-## 5.6 Where to go next
+## 5.6 Sparkle ↔ Verilog syntax reference
+
+Sparkle overloads the ordinary Lean operators on `Signal`, so a
+combinational expression reads almost exactly like the Verilog it
+produces — **no applicative plumbing**. Reach for the operator, never
+`(· op ·) <$> a <*> b`: the operator *is* that lift (identical hardware)
+and costs a fraction of the tokens.
+
+| Operation | Sparkle (`Signal dom …`) | Verilog | Notes |
+|---|---|---|---|
+| add / sub / mul | `a + b`, `a - b`, `a * b` | `a + b`, `a - b`, `a * b` | |
+| bitwise and / or / xor | `a &&& b`, `a \|\|\| b`, `a ^^^ b` | `a & b`, `a \| b`, `a ^ b` | on `BitVec n` |
+| bitwise not | `~~~a` | `~a` | |
+| boolean and / or / not | `a &&& b`, `a \|\|\| b`, `~~~a` | `a && b`, `a \|\| b`, `!a` | on `Signal dom Bool` |
+| equality | `a === b` | `a == b` | result is 1-bit `Signal dom Bool` |
+| shift (const or signal amount) | `a <<< b`, `a >>> b` | `a << b`, `a >> b` | |
+| **concatenation** | `a ++ b` | `{a, b}` | width `m + n`; left operand is the MSBs |
+| **sub-bit / slice** | `a.map (·.extractLsb' lo w)` | `a[lo+w-1 : lo]` | `w` bits starting at bit `lo` |
+| single bit | `a.map (·.extractLsb' i 1)` | `a[i]` | |
+| mux / conditional | `Signal.mux c t e` | `c ? t : e` | |
+| literal | `0xFF#8`, `12#4` | `8'hFF`, `4'd12` | `value#width` |
+| signal ⊗ constant | `count + 1#8`, `flags &&& 0x0F#8` | `count + 8'd1` | no `Signal.pure` — the mixed instance handles it |
+| register | `let r ← Signal.reg 0#8` … `r <~ next` | `reg [7:0] r; always @(posedge clk) r <= next;` | clock/reset come from the domain |
+
+`.map` (a single-signal transform) is *not* applicative style — it is
+the natural way to push a pure `BitVec` function through one signal, and
+it is how slicing works. A worked slice + concat — split a 16-bit word
+into bytes and swap them:
+
+```lean
+def byteSwap (w : Signal defaultDomain (BitVec 16)) :
+    Signal defaultDomain (BitVec 16) :=
+  let hi := w.map (·.extractLsb' 8 8)   -- w[15:8]
+  let lo := w.map (·.extractLsb' 0 8)   -- w[7:0]
+  lo ++ hi                              -- {w[7:0], w[15:8]}
+
+#synthesizeVerilog byteSwap
+```
+
+> **Don't reach for applicative style.** `(· ^^^ ·) <$> a <*> b` and
+> `a ^^^ b` compile to the identical netlist, but the operator form is
+> what the rest of the codebase uses and what this table maps to.
+> Applicative chains (`<$>` / `<*>` / `Signal.pure`) roughly double the
+> token count for the same hardware.
+
+## 5.7 Where to go next
 
 - **Ch 6 — Proofs (LTL)**: prove invariants on the design
   you just synthesised.

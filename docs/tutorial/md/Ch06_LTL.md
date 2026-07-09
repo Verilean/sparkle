@@ -72,6 +72,33 @@ theorem satNext_bounded :
   cases en <;> bv_decide
 
 ```
+## 6.2b The same property, stated on the Signal
+
+The intro claimed `□ (count ≤ 0xFF)` is *literally* `∀ t, count.val t
+≤ 0xFF` — no temporal-logic library, just quantification over the
+`Signal`'s `.val`. Here it is on an actual register signal `regSig`
+(the same abstract `Signal dom (BitVec 8)` the recurrence proofs in §6.5
+/ §6.6 quantify over): `□` is the `∀ t`, and `regSig.val t` is the value
+at cycle `t`.
+
+```lean
+theorem regSig_bounded {dom : DomainConfig} (regSig : Signal dom (BitVec 8)) :
+    ∀ t, regSig.val t ≤ 0xFF#8 := by
+  intro t
+  -- The value at any cycle is a `BitVec 8`, so it is ≤ 0xFF by width
+  -- alone — the temporal quantifier adds nothing to discharge here.
+  generalize regSig.val t = x
+  bv_decide
+```
+
+For this bound the proof is trivial (every `BitVec 8` fits), but the
+*shape* — `intro t` then reason about `regSig.val t` — is exactly how
+every safety invariant over a Sparkle design is stated. The non-trivial
+temporal properties (§6.5, §6.6) take the register's recurrence
+`regSig.val (t+1) = satNextPure (en.val t) (regSig.val t)` — which for a
+concrete `Signal.reg`-built counter is just `Signal.register`'s defining
+equation (`.val (n+1) = input.val n`) — and induct on the cycle count.
+
 ## 6.3 Property #2 — disabled means unchanged
 
 "If `en` is false, the counter doesn't change."  This is a

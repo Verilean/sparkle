@@ -8,22 +8,24 @@ LED on real silicon, using **only open-source tools** —
 vendor-specific `*pack` / `*prog` for bitstream packing and
 upload.
 
-## Targets covered
+## The board — Tang Nano 20K
 
-| Target            | Synth          | P&R              | Pack    | Upload   |
-|-------------------|----------------|------------------|---------|----------|
-| Lattice iCE40     | `synth_ice40`  | `nextpnr-ice40`  | `icepack`| `iceprog`|
-| Lattice ECP5      | `synth_ecp5`   | `nextpnr-ecp5`   | `ecppack`| `ecpprog`|
+This chapter targets the **Sipeed Tang Nano 20K** (Gowin
+GW2AR-18, ~$30) — the board the Sparkle crypto IP was actually
+brought up on (a live on-chip secp256k1 signer; see Ch 11). The
+whole flow is open-source:
 
-Recommended boards:
+| Step  | Tool                 | Key argument                         |
+|-------|----------------------|--------------------------------------|
+| Synth | `yosys synth_gowin`  | flat ABC9 LUT packing                |
+| P&R   | `nextpnr-himbaechel` | `--device GW2AR-LV18QN88C8/I7`       |
+| Pack  | `gowin_pack`         | `-d GW2A-18C` → `.fs` bitstream      |
+| Load  | `openFPGALoader`     | `-b tangnano20k` (SRAM, or `-f` for SPI flash) |
 
-- **iCEstick** (iCE40-HX1K, Lattice's USB stick — ~$30,
-  widely available)
-- **TinyFPGA-BX** (iCE40-LP8K)
-- **ULX3S** (ECP5-LFE5U-85F, ~$85, has HDMI / SDRAM / PMOD)
-
-The Sparkle Docker image (Ch 0) ships all toolchains
-pre-installed.  No host-side dependency juggling.
+Part budget (what `#verify_fpga tangNano20K` checks against, §9.7):
+**20 736 LUT4, 15 552 FF, 46 × 18 Kb BSRAM, 48 DSP**, driven by an
+on-board **27 MHz** crystal. The Sparkle Docker image (Ch 0) ships the
+whole toolchain pre-installed — no host-side dependency juggling.
 
 ```lean
 import Sparkle
@@ -39,9 +41,9 @@ namespace Notebooks.Ch09
 ```
 ## 9.1 The blinky design
 
-A 24-bit counter divides a 12 MHz iCEstick clock down to a
-comfortable ~0.7 Hz LED blink (toggle when bit 23 changes,
-so half a period ≈ 2²³ / 12 MHz ≈ 0.7 s).
+A 24-bit counter divides the Tang Nano 20K's 27 MHz crystal down
+to a visible LED blink: bit 23 flips every 2²³ / 27 MHz ≈ 0.31 s,
+so the LED blinks at ~1.6 Hz.
 
 ```lean
 def blinky {dom : DomainConfig} : Signal dom Bool :=
@@ -58,84 +60,95 @@ def blinky {dom : DomainConfig} : Signal dom Bool :=
 #synthesizeVerilog blinky
 
 ```
-## 9.2 iCE40 toolchain — full pipeline
+## 9.2 Gowin toolchain — full pipeline
 
-Save the SystemVerilog from §9.1 to `/tmp/blinky.sv` (see Ch 8
-§8.2 for how).  Then:
-
-```bash
-# 1. Synthesise to iCE40 primitives.
-yosys -p "read_verilog -sv /tmp/blinky.sv; \
-          synth_ice40 -top blinky -json /tmp/blinky.json"
-
-# 2. Place-and-route on iCE40-HX1K (iCEstick).
-#    Pin constraints come from a .pcf file (next section).
-nextpnr-ice40 --hx1k --package tq144 \
-              --json /tmp/blinky.json \
-              --pcf /tmp/icestick.pcf \
-              --asc /tmp/blinky.asc
-
-# 3. Pack the .asc into a .bin bitstream.
-icepack /tmp/blinky.asc /tmp/blinky.bin
-
-# 4. Upload via USB (board must be connected).
-iceprog /tmp/blinky.bin
-```
-
-The first three steps work entirely offline; only `iceprog`
-needs the board plugged in.
-
-## 9.3 The constraint file (`icestick.pcf`)
-
-iCE40 uses a `.pcf` (Physical Constraints File) to bind
-top-level Verilog ports to physical pins.  For the iCEstick:
-
-```
-# /tmp/icestick.pcf
-# Clock — onboard 12 MHz oscillator on pin 21.
-set_io clk 21
-
-# On-board LEDs.  We light up D1 (red).
-set_io led 99
-```
-
-The pin numbers are board-specific — see the iCEstick user
-guide (Lattice TN1248).  Sparkle's generated module
-(`module blinky (input clk, input rst, output out);`)
-exposes `clk` and `out`; if your `.pcf` names the LED `led`,
-adjust the module's port name (or wrap in a small Verilog
-shim that maps `out` → `led`).
-
-## 9.4 ECP5 toolchain
-
-The ECP5 flow is structurally identical, just different
-tool names:
+Save the SystemVerilog from §9.1 to `/tmp/blinky.v` (see Ch 8
+§8.2 for how). Then:
 
 ```bash
-yosys -p "read_verilog -sv /tmp/blinky.sv; \
-          synth_ecp5 -top blinky -json /tmp/blinky.json"
+# 1. Synthesise to Gowin primitives.  synth_gowin is split around
+#    an explicit ABC9 pass for flat LUT4 packing (the same recipe
+#    the crypto IP uses to hit ~50% LUT4 instead of ~70%).
+yosys -p "read_verilog -sv /tmp/blinky.v; \
+          synth_gowin -top blinky -run :map_luts; \
+          read_verilog -icells -lib -specify +/abc9_model.v; \
+          abc9 -maxlut 8; \
+          synth_gowin -top blinky -run map_cells:; \
+          write_json /tmp/blinky.json"
 
-nextpnr-ecp5 --85k --package CABGA381 \
-             --json /tmp/blinky.json \
-             --lpf /tmp/ulx3s.lpf \
-             --textcfg /tmp/blinky.config
+# 2. Place-and-route on the GW2AR-18.  Pin constraints come from
+#    a .cst file (next section).
+nextpnr-himbaechel --device GW2AR-LV18QN88C8/I7 \
+                   --vopt family=GW2A-18C --vopt cst=/tmp/blinky.cst \
+                   --json /tmp/blinky.json \
+                   --write /tmp/blinky_pnr.json
 
-ecppack /tmp/blinky.config /tmp/blinky.bit
+# 3. Pack the routed netlist into a .fs bitstream.
+gowin_pack -d GW2A-18C -o /tmp/blinky.fs /tmp/blinky_pnr.json
 
-ecpprog /tmp/blinky.bit
+# 4a. Load to SRAM — fast, but volatile (lost on power-cycle).
+openFPGALoader -b tangnano20k /tmp/blinky.fs
+# 4b. …or persist to the on-board SPI flash (survives replug).
+openFPGALoader -b tangnano20k -f /tmp/blinky.fs
 ```
 
-The constraint format is `.lpf` (Lattice Preference File),
-not `.pcf`:
+The first three steps run entirely offline; only `openFPGALoader`
+needs the board plugged in. SRAM load is instant for the
+edit-flash-look loop; flash (`-f`) is for a design you want to
+keep across power cycles.
+
+## 9.3 The constraint file (`blinky.cst`)
+
+Gowin uses a `.cst` (Constraints file) to bind top-level Verilog
+ports to physical pins and set their I/O standard. For the Tang
+Nano 20K:
 
 ```
-# /tmp/ulx3s.lpf — for the ULX3S board (revision 3.0+).
-LOCATE COMP "clk" SITE "G2";
-IOBUF  PORT "clk" IO_TYPE=LVCMOS33;
+// /tmp/blinky.cst
+// 27 MHz crystal on pin 4.
+IO_LOC  "clk" 4;
+IO_PORT "clk" IO_TYPE=LVCMOS33 PULL_MODE=UP BANK_VCCIO=3.3;
 
-LOCATE COMP "led" SITE "B2";
-IOBUF  PORT "led" IO_TYPE=LVCMOS33;
+// Reset button on pin 88.
+IO_LOC  "rst" 88;
+IO_PORT "rst" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// On-board LED (leftmost of the six) on pin 15.
+IO_LOC  "out" 15;
+IO_PORT "out" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
 ```
+
+Sparkle's generated module is `module blinky (input clk, input
+rst, output out);`, so the `.cst` names must match those ports
+(`clk`, `rst`, `out`). The pin numbers are board-specific — see
+the Sipeed Tang Nano 20K schematic. Real `.cst` files for the
+crypto IP live under `fpga/tangNano20k/*.cst`.
+
+## 9.4 Field notes from real bring-up
+
+Two gotchas cost real hours on the GW2A-18 during the crypto-IP
+bring-up — worth knowing before you debug a dead board:
+
+- **Divided clocks: use an `rPLL`, not a fabric-flop `BUFG`.**
+  Driving a global-clock buffer (`BUFG`) from a fabric
+  flip-flop (`reg clk_div; always @(posedge clk) clk_div <= ~clk_div;`)
+  produces a clock that **never toggles** on this part — the
+  divided-clock domain is silently dead. Instantiate a Gowin
+  `rPLL` primitive instead (e.g. 27 MHz → 13.5 MHz with
+  `IDIV_SEL=1, FBDIV_SEL=0, ODIV_SEL=64, CLKFB_SEL="internal"`).
+  The rPLL output routes on the global spine and actually clocks.
+
+- **SRAM load is volatile and churns USB; flash to persist.**
+  Every `openFPGALoader` SRAM run re-enumerates the USB bridge.
+  For a design you want to keep — or when the read-back path gets
+  wedged — flash to SPI (`-f`) and **physically replug** the
+  board; that is the only reliable way to recover a stuck USB
+  bridge (a `USBDEVFS_RESET` ioctl only half-works).
+
+If your design talks UART over the on-board debugger, note the
+two `ttyUSB` devices are **interface 01 = UART, interface 00 =
+JTAG** (opening the JTAG one as a serial port wedges JTAG). See
+Ch 11 §11.9 for the full host-side UART recipe.
 
 ## 9.5 Top-level wrapper for FPGA boards
 
@@ -150,32 +163,37 @@ top-level Verilog wrapper that:
 3. Optionally adds a PLL to derive a different clock from
    the board oscillator.
 
-A minimal iCEstick wrapper:
+A minimal Tang Nano 20K wrapper (`out` here already matches the
+`.cst`, so the wrapper is only needed when you want to rename
+ports or drive several LEDs):
 
 ```verilog
-// /tmp/iceblinky_top.sv
-module iceblinky_top(input clk, output led);
+// /tmp/tnblinky_top.v
+module tnblinky_top(input clk, output led);
   blinky inst(.clk(clk), .rst(1'b0), .out(led));
 endmodule
 ```
 
-Pass *both* `.sv` files to Yosys:
+Pass *both* `.v` files to Yosys (top = the wrapper):
 
 ```bash
-yosys -p "read_verilog -sv /tmp/blinky.sv; \
-          read_verilog -sv /tmp/iceblinky_top.sv; \
-          synth_ice40 -top iceblinky_top -json /tmp/blinky.json"
+yosys -p "read_verilog -sv /tmp/blinky.v; \
+          read_verilog -sv /tmp/tnblinky_top.v; \
+          synth_gowin -top tnblinky_top -run :map_luts; \
+          read_verilog -icells -lib -specify +/abc9_model.v; \
+          abc9 -maxlut 8; \
+          synth_gowin -top tnblinky_top -run map_cells:; \
+          write_json /tmp/blinky.json"
 ```
 
-## 9.6 Optional exercise — port to ULX3S
+## 9.6 Optional exercise — light all six LEDs
 
-1. Take the blinky from §9.1.
-2. Write an ECP5 top-level wrapper analogous to §9.5.
-3. Use the `ulx3s.lpf` from the ULX3S
-   [pinout repo](https://github.com/emard/ulx3s).
-4. Run the §9.4 pipeline.  Verify on hardware that the LED
-   blinks at the expected rate (clock is 25 MHz on ULX3S, so
-   bit 24 toggles at ~0.75 Hz).
+1. Take the blinky from §9.1 and widen it: instead of one LED,
+   drive the six on-board LEDs (pins 15–20) from six different
+   counter bits so they blink at different rates.
+2. Add the corresponding `IO_LOC`/`IO_PORT` lines to the `.cst`.
+3. Bonus: clock the counter from a 13.5 MHz `rPLL` (§9.4) instead
+   of the raw 27 MHz crystal, and confirm the blink rate halves.
 
 ## 9.7 Will it fit? — sizing before you synthesise
 
