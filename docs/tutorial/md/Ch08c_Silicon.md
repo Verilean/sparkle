@@ -44,7 +44,7 @@ register: the value at reset is `init`, and the value at cycle `t+1` is
 the input sampled at cycle `t`. Both hold by `rfl` — the register
 literally is a DFF.
 
-```lean
+```text
 -- Q at reset is `init`.
 example {dom : DomainConfig} (init : BitVec 8) (d : Signal dom (BitVec 8)) :
     (Signal.register init d).val 0 = init := rfl
@@ -53,7 +53,6 @@ example {dom : DomainConfig} (init : BitVec 8) (d : Signal dom (BitVec 8)) :
 example {dom : DomainConfig} (init : BitVec 8) (d : Signal dom (BitVec 8))
     (t : Nat) :
     (Signal.register init d).val (t + 1) = d.val t := rfl
-
 ```
 The `init` is the DFF's **reset value**. On real hardware that reset is
 either *synchronous* (applied on a clock edge) or *asynchronous*

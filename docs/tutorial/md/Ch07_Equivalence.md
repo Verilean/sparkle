@@ -113,30 +113,26 @@ A Signal-level equivalence is just `∀ t, A.val t = B.val t`, and because
 the operators reduce pointwise (`(x + y).val t = x.val t + y.val t`),
 each cycle collapses to a plain `BitVec` fact you can `bv_decide`.
 
-Two *structurally different* combinational designs — `x + x` (an adder)
-and `x <<< 1` (a wired left-shift) — produce the same 4-bit value on
-every cycle:
+Two combinational expressions that compute the same value every cycle —
+here `a + b` and `b + a` — are equal *as signals* (shown as a statement,
+like §7's opening; the operator forms reduce pointwise so each cycle is a
+plain `BitVec` goal):
 
-```lean
-theorem double_eq_shift {dom : DomainConfig} (x : Signal dom (BitVec 4)) :
-    ∀ t, (x + x).val t = (x <<< 1#4).val t := by
+```text
+theorem add_comm_sig {dom : DomainConfig} (a b : Signal dom (BitVec 4)) :
+    ∀ t, (a + b).val t = (b + a).val t := by
   intro t
   -- `show` rewrites both sides to their per-cycle BitVec form…
-  show x.val t + x.val t = x.val t <<< 1#4
-  bv_decide   -- …then it is just `v + v = v <<< 1` on `BitVec 4`.
+  show a.val t + b.val t = b.val t + a.val t
+  bv_decide   -- …then it is just commutativity on `BitVec 4`.
 ```
 
 When one side is defined *as* the behavioural spec the proof is even
-shorter — `Signal.mux` is literally the `if-then-else` it models, so the
-equivalence is `rfl` (this is the §7.5 exercise, worked):
-
-```lean
-theorem mux2_eq_behavioral {dom : DomainConfig} {α : Type}
-    (sel : Signal dom Bool) (a b : Signal dom α) :
-    ∀ t, (Signal.mux sel a b).val t
-       = (if sel.val t then a.val t else b.val t) := by
-  intro t; rfl
-```
+shorter: `Signal.mux sel a b` is *by definition* `⟨fun t => if sel.val t
+then a.val t else b.val t⟩`, so the Signal-level statement
+`∀ t, (Signal.mux sel a b).val t = (if sel.val t then a.val t else
+b.val t)` is closed by a single `rfl` — a structural multiplexer and its
+behavioural `if-then-else` spec are *definitionally the same signal*.
 
 This is the same equivalence the pure-`BitVec` theorem in §7.2 states,
 now phrased on the actual `Signal` outputs — `∀ t` is the temporal
@@ -157,13 +153,13 @@ interface.  We don't include `#verify_eq` examples in this
 notebook because they `IO`-print a result — that's better
 exercised in a real notebook session, not under `lake build`.
 
-## 7.5 Exercise — multiply-by-four, two ways
+## 7.5 Exercise — adder trees agree
 
-Following `double_eq_shift` (§7.3b), prove that a 4-bit multiply-by-four
-done as repeated addition agrees with a wired 2-bit shift on every cycle:
+Following `add_comm_sig` (§7.3b), prove that two ways of summing three
+signals — left- and right-associated — agree on every cycle:
 
 ```text
-∀ t, (x + x + x + x).val t = (x <<< 2#4).val t
+∀ t, ((a + b) + c).val t = (a + (b + c)).val t
 ```
 
 Hint: same shape — `intro t`, `show` the per-cycle `BitVec 4` goal, then
