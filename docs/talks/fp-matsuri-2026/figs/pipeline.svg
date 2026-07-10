@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 560" font-family="Hiragino Sans, Noto Sans JP, Helvetica, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#556"/>
+    </marker>
+  </defs>
+  <rect width="1320" height="560" fill="white"/>
+
+  <!-- Lean DSL -->
+  <rect x="40" y="220" width="230" height="110" rx="14" fill="#e6f4f2" stroke="#1a9988" stroke-width="3"/>
+  <text x="155" y="268" text-anchor="middle" font-size="30" font-weight="bold" fill="#0d5c52">Lean DSL</text>
+  <text x="155" y="304" text-anchor="middle" font-size="21" fill="#333">circuit do …</text>
+
+  <!-- Elab arrow -->
+  <line x1="270" y1="275" x2="420" y2="275" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <rect x="284" y="212" width="124" height="40" rx="20" fill="#fdeedd" stroke="#e8710a" stroke-width="2.5"/>
+  <text x="346" y="239" text-anchor="middle" font-size="21" font-weight="bold" fill="#b35300">Lean Elab</text>
+  <text x="346" y="312" text-anchor="middle" font-size="18" fill="#666">Expr を走査</text>
+
+  <!-- Sparkle IR -->
+  <rect x="430" y="220" width="230" height="110" rx="14" fill="#e6f4f2" stroke="#1a9988" stroke-width="3"/>
+  <text x="545" y="268" text-anchor="middle" font-size="30" font-weight="bold" fill="#0d5c52">Sparkle IR</text>
+  <text x="545" y="304" text-anchor="middle" font-size="21" fill="#333">AST + 最適化</text>
+
+  <!-- branch up: SystemVerilog -->
+  <line x1="660" y1="250" x2="810" y2="130" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <rect x="820" y="70" width="270" height="110" rx="14" fill="#e6f4f2" stroke="#1a9988" stroke-width="3"/>
+  <text x="955" y="118" text-anchor="middle" font-size="30" font-weight="bold" fill="#0d5c52">SystemVerilog</text>
+  <text x="955" y="154" text-anchor="middle" font-size="21" fill="#333">yosys / Vivado / Gowin へ</text>
+
+  <!-- branch down: C -> clang -> .so -> JIT -->
+  <line x1="660" y1="300" x2="810" y2="420" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <rect x="820" y="370" width="150" height="100" rx="14" fill="#e6f4f2" stroke="#1a9988" stroke-width="3"/>
+  <text x="895" y="414" text-anchor="middle" font-size="28" font-weight="bold" fill="#0d5c52">C コード</text>
+  <text x="895" y="448" text-anchor="middle" font-size="19" fill="#333">1 クラス / 回路</text>
+
+  <line x1="970" y1="420" x2="1060" y2="420" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <text x="1015" y="404" text-anchor="middle" font-size="18" fill="#b35300" font-weight="bold">clang</text>
+
+  <rect x="1070" y="370" width="210" height="100" rx="14" fill="#fdeedd" stroke="#e8710a" stroke-width="3"/>
+  <text x="1175" y="410" text-anchor="middle" font-size="28" font-weight="bold" fill="#b35300">JIT 実行</text>
+  <text x="1175" y="444" text-anchor="middle" font-size="19" fill="#333">dlopen → eval/tick</text>
+
+  <!-- annotations -->
+  <text x="545" y="500" text-anchor="middle" font-size="20" fill="#666">同じ IR から合成とシミュレーションの両方へ — 乖離しない</text>
+  <text x="1175" y="345" text-anchor="middle" font-size="19" fill="#0d5c52" font-weight="bold">数秒で再実行 (ハッシュキャッシュ)</text>
+</svg>

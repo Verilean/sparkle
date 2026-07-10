@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 460" font-family="Hiragino Sans, Noto Sans JP, Helvetica, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#556"/>
+    </marker>
+    <marker id="arc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#e8710a"/>
+    </marker>
+  </defs>
+  <rect width="1320" height="460" fill="white"/>
+
+  <!-- input port d -->
+  <rect x="60" y="140" width="150" height="80" rx="40" fill="#fce8ef" stroke="#c2185b" stroke-width="3"/>
+  <text x="135" y="190" text-anchor="middle" font-size="32" font-weight="bold" fill="#8e1244">d</text>
+
+  <!-- comb cloud -->
+  <ellipse cx="390" cy="180" rx="120" ry="75" fill="#f2f2f2" stroke="#888" stroke-width="3" stroke-dasharray="10,6"/>
+  <text x="390" y="172" text-anchor="middle" font-size="24" fill="#444">組み合わせ</text>
+  <text x="390" y="204" text-anchor="middle" font-size="24" fill="#444">回路</text>
+
+  <!-- DFF -->
+  <rect x="620" y="110" width="220" height="150" rx="10" fill="#e3f0fd" stroke="#1565c0" stroke-width="3.5"/>
+  <text x="730" y="172" text-anchor="middle" font-size="34" font-weight="bold" fill="#0d3c78">DFF</text>
+  <text x="730" y="208" text-anchor="middle" font-size="20" fill="#333">posedge で取り込み</text>
+  <!-- clk triangle pin -->
+  <path d="M620 232 L648 246 L620 260 z" fill="#e8710a"/>
+
+  <!-- output port q -->
+  <rect x="1000" y="140" width="150" height="80" rx="40" fill="#fce8ef" stroke="#c2185b" stroke-width="3"/>
+  <text x="1075" y="190" text-anchor="middle" font-size="32" font-weight="bold" fill="#8e1244">q</text>
+
+  <!-- data wires -->
+  <line x1="210" y1="180" x2="262" y2="180" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <line x1="510" y1="180" x2="612" y2="180" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <line x1="840" y1="180" x2="992" y2="180" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+
+  <!-- clock -->
+  <circle cx="180" cy="360" r="46" fill="#fff8e1" stroke="#e8710a" stroke-width="3.5"/>
+  <text x="180" y="370" text-anchor="middle" font-size="24" font-weight="bold" fill="#b35300">clk</text>
+  <line x1="226" y1="352" x2="610" y2="250" stroke="#e8710a" stroke-width="3.5" stroke-dasharray="12,8" marker-end="url(#arc)"/>
+
+  <!-- feedback (state) -->
+  <path d="M 920 180 L 940 180 L 940 330 L 300 330 L 300 240" fill="none" stroke="#1a9988" stroke-width="3" stroke-dasharray="4,5" marker-end="url(#ar)"/>
+  <text x="620" y="358" text-anchor="middle" font-size="20" fill="#0d5c52">現在値が次サイクルの入力に戻る (状態)</text>
+
+  <!-- legend -->
+  <text x="1075" y="120" text-anchor="middle" font-size="18" fill="#666">データ = 実線</text>
+  <text x="1075" y="260" text-anchor="middle" font-size="18" fill="#b35300">クロック = 破線</text>
+</svg>

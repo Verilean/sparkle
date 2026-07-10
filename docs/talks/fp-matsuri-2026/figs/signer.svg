@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 560" font-family="Hiragino Sans, Noto Sans JP, Helvetica, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#556"/>
+    </marker>
+    <marker id="arb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#1a9988"/>
+    </marker>
+  </defs>
+  <rect width="1320" height="560" fill="white"/>
+
+  <!-- host -->
+  <rect x="40" y="180" width="200" height="200" rx="14" fill="#f2f2f2" stroke="#888" stroke-width="3"/>
+  <text x="140" y="255" text-anchor="middle" font-size="28" font-weight="bold" fill="#444">Host PC</text>
+  <text x="140" y="295" text-anchor="middle" font-size="20" fill="#666">sign_tx.py</text>
+  <text x="140" y="330" text-anchor="middle" font-size="19" fill="#a11">危殆化していても OK</text>
+
+  <!-- UART arrows -->
+  <line x1="240" y1="230" x2="360" y2="230" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <text x="298" y="210" text-anchor="middle" font-size="19" fill="#333">z (32B)</text>
+  <line x1="360" y1="330" x2="240" y2="330" stroke="#1a9988" stroke-width="3.5" marker-end="url(#arb)"/>
+  <text x="298" y="366" text-anchor="middle" font-size="19" fill="#0d5c52">r‖s (64B)</text>
+  <text x="298" y="284" text-anchor="middle" font-size="17" fill="#888">UART</text>
+
+  <!-- chip boundary -->
+  <rect x="370" y="60" width="800" height="440" rx="18" fill="#e6f4f2" stroke="#1a9988" stroke-width="4"/>
+  <text x="770" y="102" text-anchor="middle" font-size="26" font-weight="bold" fill="#0d5c52">Tang Nano 20K (Gowin GW2A-18) — 約5,000円</text>
+
+  <!-- RFC6979 -->
+  <rect x="410" y="150" width="330" height="120" rx="12" fill="white" stroke="#1565c0" stroke-width="3"/>
+  <text x="575" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#0d3c78">RFC-6979 ノンス導出</text>
+  <text x="575" y="232" text-anchor="middle" font-size="20" fill="#333">HMAC-SHA-256 K/V FSM</text>
+
+  <!-- signer -->
+  <rect x="410" y="320" width="330" height="150" rx="12" fill="white" stroke="#1565c0" stroke-width="3"/>
+  <text x="575" y="362" text-anchor="middle" font-size="24" font-weight="bold" fill="#0d3c78">secp256k1 signer</text>
+  <text x="575" y="396" text-anchor="middle" font-size="19" fill="#333">16-bit word-serial 乗算器 (DSP なし)</text>
+  <text x="575" y="428" text-anchor="middle" font-size="19" fill="#333">BRAM レジスタファイル + マイクロコード</text>
+
+  <!-- k arrow -->
+  <line x1="575" y1="270" x2="575" y2="312" stroke="#556" stroke-width="3.5" marker-end="url(#ar)"/>
+  <text x="620" y="298" font-size="22" font-weight="bold" fill="#b35300">k</text>
+
+  <!-- secrets box -->
+  <rect x="820" y="150" width="310" height="320" rx="12" fill="#fdeedd" stroke="#e8710a" stroke-width="3"/>
+  <text x="975" y="196" text-anchor="middle" font-size="24" font-weight="bold" fill="#b35300">🔒 die から出ないもの</text>
+  <text x="975" y="250" text-anchor="middle" font-size="22" fill="#333">秘密鍵 d — bitstream に焼き込み</text>
+  <text x="975" y="295" text-anchor="middle" font-size="22" fill="#333">ノンス k — オンチップ導出</text>
+  <line x1="850" y1="330" x2="1100" y2="330" stroke="#e8710a" stroke-width="2"/>
+  <text x="975" y="375" text-anchor="middle" font-size="20" fill="#333">wire に乗るのは z と r‖s だけ</text>
+  <text x="975" y="415" text-anchor="middle" font-size="20" fill="#333">署名から d は復元不能</text>
+  <text x="975" y="448" text-anchor="middle" font-size="19" fill="#666">d = (s·k − z)·r⁻¹ に k が要る</text>
+
+  <!-- footer -->
+  <text x="660" y="540" text-anchor="middle" font-size="21" fill="#0d5c52" font-weight="bold">全モジュール Sparkle (Lean) 製 — 実機で anvil に EIP-1559 送金に成功</text>
+</svg>

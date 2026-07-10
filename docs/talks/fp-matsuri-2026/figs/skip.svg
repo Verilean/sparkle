@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 480" font-family="Hiragino Sans, Noto Sans JP, Helvetica, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#0d5c52"/>
+    </marker>
+  </defs>
+  <rect width="1320" height="480" fill="white"/>
+
+  <!-- ===== normal sim row ===== -->
+  <text x="40" y="90" font-size="24" font-weight="bold" fill="#333">通常シミュレーション</text>
+  <g>
+    <!-- many small ticks -->
+    <rect x="40"  y="110" width="1240" height="56" rx="6" fill="none" stroke="#bbb" stroke-width="2"/>
+    <g fill="#9fc9c3">
+      <rect x="46" y="116" width="26" height="44"/><rect x="76" y="116" width="26" height="44"/>
+      <rect x="106" y="116" width="26" height="44"/><rect x="136" y="116" width="26" height="44"/>
+      <rect x="166" y="116" width="26" height="44"/><rect x="196" y="116" width="26" height="44"/>
+      <rect x="226" y="116" width="26" height="44"/><rect x="256" y="116" width="26" height="44"/>
+      <rect x="286" y="116" width="26" height="44"/><rect x="316" y="116" width="26" height="44"/>
+      <rect x="346" y="116" width="26" height="44"/><rect x="376" y="116" width="26" height="44"/>
+      <rect x="406" y="116" width="26" height="44"/><rect x="436" y="116" width="26" height="44"/>
+      <rect x="466" y="116" width="26" height="44"/><rect x="496" y="116" width="26" height="44"/>
+      <rect x="526" y="116" width="26" height="44"/><rect x="556" y="116" width="26" height="44"/>
+      <rect x="586" y="116" width="26" height="44"/><rect x="616" y="116" width="26" height="44"/>
+      <rect x="646" y="116" width="26" height="44"/><rect x="676" y="116" width="26" height="44"/>
+      <rect x="706" y="116" width="26" height="44"/><rect x="736" y="116" width="26" height="44"/>
+      <rect x="766" y="116" width="26" height="44"/><rect x="796" y="116" width="26" height="44"/>
+      <rect x="826" y="116" width="26" height="44"/><rect x="856" y="116" width="26" height="44"/>
+      <rect x="886" y="116" width="26" height="44"/><rect x="916" y="116" width="26" height="44"/>
+      <rect x="946" y="116" width="26" height="44"/><rect x="976" y="116" width="26" height="44"/>
+      <rect x="1006" y="116" width="26" height="44"/><rect x="1036" y="116" width="26" height="44"/>
+      <rect x="1066" y="116" width="26" height="44"/><rect x="1096" y="116" width="26" height="44"/>
+      <rect x="1126" y="116" width="26" height="44"/><rect x="1156" y="116" width="26" height="44"/>
+      <rect x="1186" y="116" width="26" height="44"/><rect x="1216" y="116" width="26" height="44"/>
+      <rect x="1246" y="116" width="26" height="44"/>
+    </g>
+    <text x="660" y="200" text-anchor="middle" font-size="20" fill="#666">1 サイクルずつ全部評価 — CPU がタイマー待ちでも回し続ける</text>
+  </g>
+
+  <!-- ===== oracle sim row ===== -->
+  <text x="40" y="280" font-size="24" font-weight="bold" fill="#333">Timer Oracle (証明つきスキップ)</text>
+  <g>
+    <rect x="40" y="300" width="1240" height="56" rx="6" fill="none" stroke="#bbb" stroke-width="2"/>
+    <!-- few ticks at start -->
+    <g fill="#9fc9c3">
+      <rect x="46" y="306" width="26" height="44"/><rect x="76" y="306" width="26" height="44"/>
+      <rect x="106" y="306" width="26" height="44"/>
+    </g>
+    <!-- skip region -->
+    <rect x="140" y="306" width="1000" height="44" fill="#fdeedd" stroke="#e8710a" stroke-width="2" stroke-dasharray="8,5"/>
+    <path d="M 200 328 L 1080 328" stroke="#e8710a" stroke-width="4" marker-end="url(#ar)"/>
+    <text x="640" y="340" text-anchor="middle" font-size="22" font-weight="bold" fill="#b35300">タイマー分 (100,000 cycles) を一括スキップ</text>
+    <!-- few ticks at end -->
+    <g fill="#9fc9c3">
+      <rect x="1146" y="306" width="26" height="44"/><rect x="1176" y="306" width="26" height="44"/>
+      <rect x="1206" y="306" width="26" height="44"/><rect x="1246" y="306" width="26" height="44"/>
+    </g>
+    <text x="660" y="395" text-anchor="middle" font-size="20" fill="#0d5c52" font-weight="bold">「状態が変わらない」ことの Lean 証明があるから結果は 1 bit も変わらない</text>
+    <text x="660" y="440" text-anchor="middle" font-size="22" fill="#333">5.04M cyc/s → 実効 48.9 GHz (9,707x)</text>
+  </g>
+</svg>

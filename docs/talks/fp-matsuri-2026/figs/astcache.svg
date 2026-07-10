@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 620" font-family="Hiragino Sans, Noto Sans JP, Helvetica, sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#556"/>
+    </marker>
+  </defs>
+  <rect width="1320" height="620" fill="white"/>
+
+  <!-- source -->
+  <rect x="40" y="40" width="380" height="180" rx="12" fill="#f6f8fa" stroke="#d0d7de" stroke-width="2"/>
+  <text x="60" y="80" font-size="22" font-family="Courier New, monospace" fill="#333">circuit do</text>
+  <text x="60" y="115" font-size="22" font-family="Courier New, monospace" fill="#333">  r1 &lt;~ nextState x</text>
+  <text x="60" y="150" font-size="22" font-family="Courier New, monospace" fill="#333">  r2 &lt;~ nextState x</text>
+  <text x="60" y="185" font-size="22" font-family="Courier New, monospace" fill="#333">  rN &lt;~ nextState x</text>
+  <text x="230" y="250" text-anchor="middle" font-size="20" fill="#666">同じ部分式を N 回参照</text>
+
+  <!-- elaborator emits copies -->
+  <line x1="420" y1="130" x2="520" y2="130" stroke="#556" stroke-width="3" marker-end="url(#ar)"/>
+  <text x="470" y="110" text-anchor="middle" font-size="18" fill="#b35300" font-weight="bold">elaborate</text>
+
+  <!-- three Expr trees, same structure different pointer -->
+  <g>
+    <polygon points="600,60 560,130 640,130" fill="#e6f4f2" stroke="#1a9988" stroke-width="2.5"/>
+    <text x="600" y="112" text-anchor="middle" font-size="17" fill="#0d5c52">Expr</text>
+    <text x="668" y="100" font-size="16" fill="#888">@0x7f01…</text>
+    <polygon points="600,160 560,230 640,230" fill="#e6f4f2" stroke="#1a9988" stroke-width="2.5"/>
+    <text x="600" y="212" text-anchor="middle" font-size="17" fill="#0d5c52">Expr</text>
+    <text x="668" y="200" font-size="16" fill="#888">@0x7f9a…</text>
+    <polygon points="600,260 560,330 640,330" fill="#e6f4f2" stroke="#1a9988" stroke-width="2.5"/>
+    <text x="600" y="312" text-anchor="middle" font-size="17" fill="#0d5c52">Expr</text>
+    <text x="668" y="300" font-size="16" fill="#888">@0x7fd4…</text>
+  </g>
+  <text x="600" y="370" text-anchor="middle" font-size="19" fill="#333" font-weight="bold">構造は同一・ポインタは全部違う</text>
+
+  <!-- LEFT: pointer cache -->
+  <rect x="800" y="40" width="480" height="240" rx="12" fill="#fdf2f2" stroke="#d33" stroke-width="2.5"/>
+  <text x="1040" y="76" text-anchor="middle" font-size="22" font-weight="bold" fill="#a11">旧: ポインタ等価キャッシュ</text>
+  <text x="830" y="118" font-size="20" fill="#333">@0x7f01… → wire_1</text>
+  <text x="1160" y="118" font-size="20" fill="#a11" font-weight="bold">miss</text>
+  <text x="830" y="153" font-size="20" fill="#333">@0x7f9a… → wire_2</text>
+  <text x="1160" y="153" font-size="20" fill="#a11" font-weight="bold">miss</text>
+  <text x="830" y="188" font-size="20" fill="#333">@0x7fd4… → wire_3</text>
+  <text x="1160" y="188" font-size="20" fill="#a11" font-weight="bold">miss</text>
+  <text x="1040" y="235" text-anchor="middle" font-size="21" fill="#a11" font-weight="bold">同じ回路を N 個生成 → 合成 N²・ヒット率 &lt; 10%</text>
+
+  <!-- RIGHT: struct cache -->
+  <rect x="800" y="330" width="480" height="240" rx="12" fill="#f0f9f4" stroke="#1a8a4a" stroke-width="2.5"/>
+  <text x="1040" y="366" text-anchor="middle" font-size="22" font-weight="bold" fill="#116a36">新: 構造等価 (content-addressed)</text>
+  <text x="830" y="408" font-size="20" fill="#333">hash(構造) → wire_1</text>
+  <text x="1160" y="408" font-size="20" fill="#116a36" font-weight="bold">登録</text>
+  <text x="830" y="443" font-size="20" fill="#333">hash(構造) → wire_1</text>
+  <text x="1160" y="443" font-size="20" fill="#116a36" font-weight="bold">hit</text>
+  <text x="830" y="478" font-size="20" fill="#333">hash(構造) → wire_1</text>
+  <text x="1160" y="478" font-size="20" fill="#116a36" font-weight="bold">hit</text>
+  <text x="1040" y="525" text-anchor="middle" font-size="21" fill="#116a36" font-weight="bold">同じワイヤに collapse → 合成が線形に</text>
+
+  <!-- arrows into caches -->
+  <line x1="700" y1="180" x2="790" y2="150" stroke="#556" stroke-width="3" marker-end="url(#ar)"/>
+  <line x1="700" y1="240" x2="790" y2="430" stroke="#556" stroke-width="3" marker-end="url(#ar)"/>
+</svg>
