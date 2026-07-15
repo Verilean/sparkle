@@ -586,6 +586,15 @@ lean_exe «multi-output-submodule-hang-repro» where
   root := `Tests.Drivers.MultiOutputSubModuleHangReproMain
   supportInterpreter := true
 
+-- Regression guard for Issue #107: a `let`-bound stateful
+-- @[hardware_module] inside `circuit do` must emit exactly one
+-- instance per source instantiation (was E = I·(D+1)).  The
+-- asserts run at elaboration time, so `lake build` of this
+-- target IS the test.
+lean_exe «issue107-letbound-instance-dup-test» where
+  root := `Tests.Drivers.Issue107LetBoundInstanceDupMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true

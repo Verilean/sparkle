@@ -677,6 +677,32 @@ private initialize sparkleSubModuleCache :
 private initialize sparkleSubInstanceOutputs :
     IO.Ref (Std.HashMap (UInt64 × String) String) ← IO.mkRef {}
 
+/-- Idempotency cache for SINGLE-output sub-module instances
+    (Issue #107).  The synth elaborator walks a `circuit do` body
+    once per register next-state leaf plus once for the output
+    leaf; a `let t := toggle en` binding is re-translated on every
+    pass because named translations bypass the structural
+    `exprCache` (see `cacheable` in `translateExprToWire`), so
+    each pass emitted a fresh instance — E = I · (D + 1) instead
+    of I.  The multi-output path has its own guard keyed on
+    `sparkleSubInstanceOutputs`; this covers the scalar path.
+
+    Key: `parent module name # child module name # port
+    connections (canonical wire names)`.  The connection wires
+    make the key fine enough to keep `toggle e0` / `toggle e1`
+    distinct (keying on name + arity alone would FOLD distinct
+    instances — a miscompile, not a cleanup).  The parent module
+    name scopes the cached output wire to the module that
+    actually declared it.  Folding same-key instances is sound:
+    two structurally identical calls denote the same signal in
+    Sparkle's pure semantics, stateful or not (same module, same
+    inputs, same reset ⇒ same state trajectory).
+
+    Value: the instance's output wire.  Cleared at depth 0 with
+    the other per-synth caches. -/
+private initialize sparkleSingleOutInstanceCache :
+    IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
     cost in handleTupleProjections / handleApplicative / handleMux
     (typeclass-instance search fires per call); the same `e` is
@@ -1727,6 +1753,16 @@ mutual
       if isHW then
         -- Hardware let: translate value to wire.
         --
+        -- NOTE ON #108: PR #108 solved this same problem by keying the
+        -- `let` cache on the RAW `value` via `exprCache`.  That is kept
+        -- here in the weaker-key form only as history: `canonKey` below
+        -- subsumes it, because it survives an INTERMEDIATE binding.  Adding
+        -- one `let num := y` between the module inputs and the engine takes
+        -- a single `dividerQ` to FOUR under the raw-value key (7 → 27
+        -- registers, measured) — the fvars are fresh per traversal, so the
+        -- raw values are structurally different while the hardware is the
+        -- same.  #108's instance-level caches (single-output guard + the IR
+        -- CSE pass) are taken as-is; only this hunk differs.
         -- `isNamed := true` gives the wire the binder's readable name, but it
         -- also makes `translateExprToWire` bypass the expression cache in BOTH
         -- directions.  That matters because `runCircuitH` calls the user's
@@ -2908,7 +2944,24 @@ mutual
         -- Verilog that referenced a non-existent port.
         -- (Issue #74.)
         let hwType ← inferHWTypeFromSignal exprType
+        -- Idempotency guard (Issue #107): if this exact instance
+        -- (same parent module, same child module, same input
+        -- connections) was already emitted during an earlier
+        -- leaf pass of the current module synth, reuse its
+        -- output wire instead of emitting a duplicate.  The
+        -- connections list at this point holds clk/rst + all
+        -- input-port wires, built in deterministic order, so it
+        -- serialises into a stable key.
+        let parentName := (← get).module.name
+        let connKey := String.intercalate ";"
+          (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))
+        let instKey := s!"{parentName}#{subModule.name}#{connKey}"
+        let instCache ← CompilerM.liftMetaM (sparkleSingleOutInstanceCache.get : IO _)
+        if let some cachedW := instCache.get? instKey then
+          return some cachedW
         let w ← CompilerM.makeWire hint hwType (named := isNamed)
+        CompilerM.liftMetaM
+          (sparkleSingleOutInstanceCache.modify (·.insert instKey w))
         connections := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
         pure w
       | _multiOut =>
@@ -3462,6 +3515,7 @@ mutual
       sparkleTypeCacheMiss.set 0
       sparkleSubModuleCache.set {}
       sparkleSubInstanceOutputs.set {}
+      sparkleSingleOutInstanceCache.set {}
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
