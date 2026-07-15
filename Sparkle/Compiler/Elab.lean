@@ -608,6 +608,32 @@ private initialize sparkleSubModuleCache :
 private initialize sparkleSubInstanceOutputs :
     IO.Ref (Std.HashMap (UInt64 × String) String) ← IO.mkRef {}
 
+/-- Idempotency cache for SINGLE-output sub-module instances
+    (Issue #107).  The synth elaborator walks a `circuit do` body
+    once per register next-state leaf plus once for the output
+    leaf; a `let t := toggle en` binding is re-translated on every
+    pass because named translations bypass the structural
+    `exprCache` (see `cacheable` in `translateExprToWire`), so
+    each pass emitted a fresh instance — E = I · (D + 1) instead
+    of I.  The multi-output path has its own guard keyed on
+    `sparkleSubInstanceOutputs`; this covers the scalar path.
+
+    Key: `parent module name # child module name # port
+    connections (canonical wire names)`.  The connection wires
+    make the key fine enough to keep `toggle e0` / `toggle e1`
+    distinct (keying on name + arity alone would FOLD distinct
+    instances — a miscompile, not a cleanup).  The parent module
+    name scopes the cached output wire to the module that
+    actually declared it.  Folding same-key instances is sound:
+    two structurally identical calls denote the same signal in
+    Sparkle's pure semantics, stateful or not (same module, same
+    inputs, same reset ⇒ same state trajectory).
+
+    Value: the instance's output wire.  Cleared at depth 0 with
+    the other per-synth caches. -/
+private initialize sparkleSingleOutInstanceCache :
+    IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+
 /-- Type-of-Expr cache.  `Lean.Meta.inferType` is the dominant
     cost in handleTupleProjections / handleApplicative / handleMux
     (typeclass-instance search fires per call); the same `e` is
@@ -1595,8 +1621,35 @@ mutual
         pure false
 
       if isHW then
-        -- Hardware let: translate value to wire
-        let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
+        -- Hardware let: translate value to wire.
+        --
+        -- Issue #107 (multi-pass variant): the elaborator re-walks
+        -- the circuit body once per register next-state leaf, and
+        -- `isNamed := true` bypasses the structural `exprCache` in
+        -- both directions — so every pass re-materialised each
+        -- let's whole value cone under fresh names (`_gen_x`,
+        -- `_gen_x_1`, …), and anything keyed on those wires (the
+        -- sub-module instance dedupe in particular) could never
+        -- fold across passes.  Consult the cache explicitly before
+        -- translating and populate it after: a later pass that
+        -- reaches a structurally identical `let` value reuses the
+        -- first pass's wire, which makes the downstream wire names
+        -- pass-stable by induction down the let chain.
+        let cacheRef? := (← CompilerM.getCompilerState).exprCache
+        let cachedW? ←
+          match cacheRef? with
+          | some ref => CompilerM.liftMetaM do
+              let cache ← (ref.get : IO _)
+              return cache.get? ⟨value⟩
+          | none => pure none
+        let valueWire ← match cachedW? with
+          | some w => pure w
+          | none =>
+            let w ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
+            if !value.isFVar then
+              if let some ref := cacheRef? then
+                CompilerM.liftMetaM (ref.modify (·.insert ⟨value⟩ w))
+            pure w
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
           -- Also remember (fvar → defining expression) for
@@ -2694,7 +2747,24 @@ mutual
         -- Verilog that referenced a non-existent port.
         -- (Issue #74.)
         let hwType ← inferHWTypeFromSignal exprType
+        -- Idempotency guard (Issue #107): if this exact instance
+        -- (same parent module, same child module, same input
+        -- connections) was already emitted during an earlier
+        -- leaf pass of the current module synth, reuse its
+        -- output wire instead of emitting a duplicate.  The
+        -- connections list at this point holds clk/rst + all
+        -- input-port wires, built in deterministic order, so it
+        -- serialises into a stable key.
+        let parentName := (← get).module.name
+        let connKey := String.intercalate ";"
+          (connections.reverse.map (fun (p, rhs) => s!"{p}={rhs}"))
+        let instKey := s!"{parentName}#{subModule.name}#{connKey}"
+        let instCache ← CompilerM.liftMetaM (sparkleSingleOutInstanceCache.get : IO _)
+        if let some cachedW := instCache.get? instKey then
+          return some cachedW
         let w ← CompilerM.makeWire hint hwType (named := isNamed)
+        CompilerM.liftMetaM
+          (sparkleSingleOutInstanceCache.modify (·.insert instKey w))
         connections := (singleOut.name, Sparkle.IR.AST.Expr.ref w) :: connections
         pure w
       | _multiOut =>
@@ -3190,6 +3260,7 @@ mutual
       sparkleTypeCacheMiss.set 0
       sparkleSubModuleCache.set {}
       sparkleSubInstanceOutputs.set {}
+      sparkleSingleOutInstanceCache.set {}
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}

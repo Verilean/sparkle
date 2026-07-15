@@ -486,6 +486,142 @@ def eliminateZeroBits (m : Module) : Module :=
   let wires' := m.wires.filter (·.ty.bitWidth > 0)
   { m with body := body', wires := wires' }
 
+/-- Resolve a wire name through the CSE substitution map, following
+    chains (`w2 → w1 → w0`).  Chains are acyclic by construction —
+    a wire only enters the map when its defining statement is
+    dropped, and the representative's statement is always kept —
+    so plain recursion terminates. -/
+partial def resolveSubst (subst : HashMap String String) (w : String) : String :=
+  match subst.get? w with
+  | some w' => if w' == w then w else resolveSubst subst w'
+  | none => w
+
+/-- Rewrite every wire reference through the CSE substitution map. -/
+partial def renameRefs (subst : HashMap String String) : Expr → Expr
+  | .ref name => .ref (resolveSubst subst name)
+  | .op o args => .op o (args.map (renameRefs subst))
+  | .concat args => .concat (args.map (renameRefs subst))
+  | .slice e hi lo => .slice (renameRefs subst e) hi lo
+  | .index a i => .index (renameRefs subst a) (renameRefs subst i)
+  | e => e
+
+/-- Apply `f` to every expression embedded in a statement. -/
+def mapStmtExprs (f : Expr → Expr) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (f rhs)
+  | .register out clk rst input init => .register out clk rst (f input) init
+  | .memory name aw dw clk wa wd we ra rd cr =>
+      .memory name aw dw clk (f wa) (f wd) (f we) (f ra) rd cr
+  | .inst mn inm conns => .inst mn inm (conns.map fun (p, e) => (p, f e))
+
+/-- Phase 0.6: cross-wire common-subexpression elimination +
+    duplicate sub-module instance merging (Issue #107).
+
+    The synth elaborator re-walks the circuit body once per register
+    next-state leaf; wires derived from `let`/loop-bound state come
+    out under fresh names per walk (`_gen_x`, `_gen_x_1`, …) even
+    though they compute identical expressions over identical base
+    wires, and each walk re-emits the sub-module instances fed by
+    those wires — E = I·(D+1) instances instead of I.  The Lean-side
+    caches can't see through the fresh fvars, but at the IR level
+    everything is canonical: the clones are literally `assign x_1 =
+    <same rhs>` and `inst … (<same input connections>)`.
+
+    Value-number assigns by their (substitution-rewritten) rhs; when
+    a later assign duplicates an earlier one, drop it and alias its
+    lhs to the representative.  Merge instances of the same module
+    whose *input* connections are identical, aliasing their output
+    wires.  A connection `.ref w` where `w` is not driven by any
+    non-instance statement (and is not a module input) is an output
+    of that instance — no cross-module port-direction table needed.
+
+    Merging stateful instances is sound: same module + same inputs +
+    same clock/reset ⇒ same state trajectory ⇒ same outputs, which
+    is exactly the denotation Sparkle's pure semantics assigns to
+    structurally identical calls.  (This is the fold yosys's
+    `opt_merge` refuses to do because it would need sequential
+    equivalence checking; here it is correct by construction.)
+
+    `protectedWire` (module outputs + observable waveform taps)
+    never gets aliased away.  Iterates to a fixpoint because folding
+    one layer of duplicates makes the next layer's keys equal. -/
+def cseAndMergeInstances (m : Module) (body0 : List Stmt)
+    (protectedWire : String → Bool) : List Stmt :=
+  Id.run do
+    let mut body := body0
+    for _ in [:16] do
+      -- Wires driven by a non-instance statement or module input.
+      -- Instance connections referencing anything else are that
+      -- instance's outputs.
+      let mut drivenElsewhere : HashMap String Bool := {}
+      for p in m.inputs do
+        drivenElsewhere := drivenElsewhere.insert p.name true
+      for s in body do
+        match s with
+        | .assign lhs _ => drivenElsewhere := drivenElsewhere.insert lhs true
+        | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
+        | .memory _ _ _ _ _ _ _ _ rd _ => drivenElsewhere := drivenElsewhere.insert rd true
+        | .inst _ _ _ => pure ()
+      let isInstOutput : HashMap String String → (String × Expr) → Bool :=
+        fun subst (_, e) =>
+          match e with
+          | .ref w => !drivenElsewhere.contains (resolveSubst subst w)
+          | _ => false
+      let mut subst : HashMap String String := {}
+      let mut assignVN : HashMap String String := {}
+      let mut instVN : HashMap String (List (String × Expr)) := {}
+      let mut kept : List Stmt := []
+      let mut dropped := 0
+      for s0 in body do
+        let s := mapStmtExprs (renameRefs subst) s0
+        match s with
+        | .assign lhs rhs =>
+          match assignVN.get? (toString rhs) with
+          | some rep =>
+            if rep != lhs && !protectedWire lhs then
+              subst := subst.insert lhs rep
+              dropped := dropped + 1
+            else
+              kept := s :: kept
+          | none =>
+            assignVN := assignVN.insert (toString rhs) lhs
+            kept := s :: kept
+        | .inst modName _ conns =>
+          let inputConns := conns.filter (fun c => !isInstOutput subst c)
+          let inKey := String.intercalate ";"
+            (inputConns.map (fun (p, e) => s!"{p}={e}"))
+          let key := s!"{modName}|{inKey}"
+          match instVN.get? key with
+          | some repConns =>
+            -- Alias every output wire to the representative's; bail
+            -- out (keep the duplicate) if any output is protected or
+            -- shaped unexpectedly.
+            let mut mergeable := true
+            let mut aliases : List (String × String) := []
+            for (p, e) in conns do
+              if isInstOutput subst (p, e) then
+                match e, repConns.find? (fun pc => pc.1 == p) with
+                | .ref w, some (_, .ref repW) =>
+                  if protectedWire w then mergeable := false
+                  else aliases := (w, repW) :: aliases
+                | _, _ => mergeable := false
+            if mergeable then
+              for (w, repW) in aliases do
+                subst := subst.insert w repW
+              dropped := dropped + 1
+            else
+              kept := s :: kept
+          | none =>
+            instVN := instVN.insert key conns
+            kept := s :: kept
+        | _ => kept := s :: kept
+      -- Final rewrite with the complete substitution: statements kept
+      -- early in the pass may reference wires whose duplicate-drop
+      -- happened later (backward references through loop wires).
+      body := kept.reverse.map (mapStmtExprs (renameRefs subst))
+      if dropped == 0 then
+        break
+    return body
+
 /-- Optimize a module: strip zero-bit shapes, eliminate concat/slice
     chains, then remove dead code. -/
 def optimizeModule (m : Module)
@@ -557,8 +693,24 @@ def optimizeModule (m : Module)
         | _ => result := result ++ [s]
       result
 
+    -- Phase 0.6: cross-wire CSE + duplicate instance merge (Issue
+    -- #107 — the elaborator's per-register-leaf re-walks duplicate
+    -- whole logic cones and the sub-module instances they feed).
+    let outputSet0 := m.outputs.foldl (fun s p => s.insert p.name true)
+      ({} : HashMap String Bool)
+    let protectedWire := fun (w : String) =>
+      outputSet0.contains w ||
+      (match observableWires with
+       | some ws => ws.contains w
+       | none => false)
+    let cseBody := cseAndMergeInstances m dedupBody protectedWire
+    -- Rebuild the def-map: CSE renamed references, and Phase 1's
+    -- slice-of-concat resolution must not chase stale entries that
+    -- mention dropped wires.
+    let dm := buildDefMap cseBody
+
     -- Phase 1: Replace slice-of-concat with direct references
-    let optimizedBody := dedupBody.map (optimizeStmt dm wm)
+    let optimizedBody := cseBody.map (optimizeStmt dm wm)
 
     -- Phase 2: Dead code elimination
     let useCounts := countAllUses optimizedBody
