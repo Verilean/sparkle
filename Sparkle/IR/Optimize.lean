@@ -561,6 +561,26 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
         | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
         | .memory _ _ _ _ _ _ _ _ rd _ => drivenElsewhere := drivenElsewhere.insert rd true
         | .inst _ _ _ => pure ()
+      -- How many instances reference each wire.  A wire that is an
+      -- instance output (not driven elsewhere) yet appears in ≥2
+      -- instance connection lists is an instance-to-instance chain —
+      -- one instance drives it, another consumes it.  The
+      -- driven-elsewhere heuristic cannot tell those two roles apart
+      -- without the child module's port directions, so the consuming
+      -- instance's *input* is misclassified as an *output* and dropped
+      -- from its merge key, folding genuinely distinct instances (a
+      -- miscompile: e.g. two identical pipeline/systolic stages fed by
+      -- different upstream instances).  Count refs so the merge below
+      -- can conservatively skip any instance touching such a wire.
+      let mut instRefCount : HashMap String Nat := {}
+      for s in body do
+        match s with
+        | .inst _ _ conns =>
+          for (_, e) in conns do
+            match e with
+            | .ref w => instRefCount := instRefCount.insert w ((instRefCount.getD w 0) + 1)
+            | _ => pure ()
+        | _ => pure ()
       let isInstOutput : HashMap String String → (String × Expr) → Bool :=
         fun subst (_, e) =>
           match e with
@@ -586,6 +606,21 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
             assignVN := assignVN.insert (toString rhs) lhs
             kept := s :: kept
         | .inst modName _ conns =>
+          -- Chain-safety gate: if any connection wire is an instance
+          -- output shared with another instance (an instance-to-instance
+          -- chain), the input/output roles of this instance's wires
+          -- cannot be inferred here — so keep it verbatim rather than
+          -- risk merging distinct instances.  Checked on the raw
+          -- (pre-substitution) connections against the iteration-start
+          -- ref counts, so it is a pure structural property.
+          let rawConns := match s0 with | .inst _ _ c => c | _ => conns
+          let chainSafe := rawConns.all (fun (pe : String × Expr) =>
+            match pe.2 with
+            | .ref w => drivenElsewhere.contains w || instRefCount.getD w 0 < 2
+            | _ => true)
+          if !chainSafe then
+            kept := s :: kept
+            continue
           let inputConns := conns.filter (fun c => !isInstOutput subst c)
           let inKey := String.intercalate ";"
             (inputConns.map (fun (p, e) => s!"{p}={e}"))
