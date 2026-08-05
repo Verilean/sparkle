@@ -72,6 +72,7 @@ import Tests.SignalLoopTest
 import Tests.IP.Control.IIRBiquadTest
 import Tests.IP.Control.PIDTest
 import Tests.IP.Control.LQRTest
+import Tests.IP.Control.PrecisionSweepTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
@@ -527,6 +528,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Control.PIDTest.mainUnit
   IO.println ""
   Sparkle.Tests.IP.Control.LQRTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.PrecisionSweepTest.mainUnit
   IO.println ""
 
   -- IP.Net layer sim tests (CRC32 reference + Ethernet RX framer

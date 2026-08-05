@@ -26,7 +26,9 @@ main package.
 | Circuits | `IP/Control/*.lean` | no | Q15.16 `BitVec 32`, synthesizes to Verilog |
 | Cycle-accurate tests | `Tests/IP/Control/*.lean` | no | LSpec + `#synthesizeVerilog` |
 | ℝ design + Lyapunov | `proofs/SparkleProofs/Control/LQRDesign.lean` | **yes** | `V = xᵀPx`, contraction, ISS |
-| The bridge | `proofs/SparkleProofs/Control/Transport.lean` | **yes** | quantization error → ultimate bound |
+| The bridge | `proofs/SparkleProofs/Control/Transport.lean` | **yes** | quantization error → ultimate bound (Q15.16) |
+| Precision selection | `proofs/SparkleProofs/Control/Precision.lean` | **yes** | the bound as a function of `f`; which formats meet a budget |
+| ℝ⇒Float falsification | `retypelab/` (separate pkg, **v4.32.0**) | yes (v4.32.0) | counterexample search before proving |
 
 ## What is actually proven
 
@@ -55,6 +57,56 @@ main package.
 
 Axiom base is `[propext, Classical.choice, Quot.sound]` — the three standard
 ones; `Classical.choice` arrives with `ℝ` itself. No `sorry`, no custom axioms.
+
+## Precision selection — `Precision.lean`
+
+`Transport.lean` fixes Q15.16.  `Precision.lean` makes the fractional-bit count a
+variable, giving `Vbound f = 583200 / 4^f` in closed form, and then decides the
+engineering question:
+
+- `Vbound_succ` — each extra fractional bit cuts the bound 4×;
+- `Vbound_antitone` — finer is never worse;
+- `q7_8_misses_budget`, `q11_4_misses_budget` — Q7.8 and Q11.4 miss a `V ≤ 0.01`
+  budget (Vbound 8 ≈ 8.9, Vbound 4 ≈ 2278);
+- `q15_16_meets_budget` — Q15.16 meets it (≈ 1.4e-4);
+- **`min_fracBits_for_budget`** — 13 fractional bits is exactly the threshold: 12
+  is not enough, 13 is, and every `f ≥ 13` follows by monotonicity.
+
+The bound depends on `f` alone, never on the total width `w`. That is not an
+omission — it is the point, and the measured sweep agrees: Q7.8 (16-bit) and
+Q23.8 (32-bit) give bit-identical output because they share `f = 8`.
+
+**What it does not cover:** coefficient rounding, which moves the poles (perturbs
+`ρ`) rather than adding a disturbance. Worth knowing because the naive guess about
+that is wrong — for `IIRBiquadGen.marginalCoeffs`, coarse quantization pulls the
+poles *inward* and *damps* the filter, so the measured residual is non-monotone in
+`f`. See `Tests/IP/Control/PrecisionSweepTest.lean`.
+
+## ℝ ⇒ Float falsification — `retypelab/`
+
+A second sidecar, on **Lean v4.32.0** because that is what retype pins (Sparkle
+and `proofs/` are v4.28.0; one Lake graph has one toolchain). It uses
+`declare_retype RealToFloat : Real => Float` and `retype_def` to turn the ℝ
+controller model into executable `Float`, then searches 10⁵ random trajectories
+for a contraction or ISS violation before anyone spends time on `nlinarith`.
+
+Measured on build:
+
+```
+contraction: counterexample = none, worst ratio = 0.971789  (certified ρ = 0.975)
+ISS:         counterexample = none, worst overshoot = 0
+negative control (ρ = 0.97, below the true 0.97179): 4832 violations found
+```
+
+The worst ratio 0.971789 matches the independently-computed true worst case, and
+the negative control is what makes "found nothing" meaningful rather than
+vacuous — the search demonstrably *can* fail.
+
+Float is **not** a synthesis target and never can be: Sparkle's `HWType` is
+`bit | bitVector | array`. It is a search tool. The cost of the toolchain split is
+that the ℝ model is *duplicated* there rather than imported; `#guard`s on the
+proven constants catch drift at build time. Fold it into `proofs/` if Sparkle ever
+moves to v4.32.0.
 
 ## Honest scope
 

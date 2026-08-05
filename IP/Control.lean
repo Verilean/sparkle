@@ -28,6 +28,8 @@
   See `proofs/README.md`.
 -/
 import IP.Control.FixedPoint
+import IP.Control.FixedPointGen
 import IP.Control.IIRBiquad
+import IP.Control.IIRBiquadGen
 import IP.Control.PID
 import IP.Control.LQRStateFeedback

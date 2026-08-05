@@ -1,0 +1,32 @@
+name = "retypelab"
+reservoir = false
+version = "0.1.0"
+defaultTargets = ["RetypeLab"]
+
+# Second sidecar, and the reason it is separate from `proofs/`:
+#
+# retype targets Lean v4.32.0; Sparkle and `proofs/` are on v4.28.0.  So this
+# package CANNOT `require` sparkle — a single Lake build graph has one toolchain.
+# It therefore does not share `packagesDir` with the root either (its mathlib must
+# be the v4.32.0 one, not the v4.28.0 copy `proofs/` uses).
+#
+# What that costs: the ℝ controller model is *duplicated* here rather than
+# imported from `proofs/`.  That is a real seam, and `Falsify.lean` states it
+# explicitly — the Float model is a falsification tool, not part of the proof
+# chain, so a duplicated definition weakens nothing that is claimed.  If Sparkle
+# bumps to v4.32.0 this package should be folded into `proofs/`.
+[[require]]
+name = "retype"
+git = "https://github.com/Verilean/retype"
+rev = "main"
+
+# mathlib at v4.32.0 — a SECOND copy, distinct from the v4.28.0 one `proofs/`
+# uses.  Unavoidable: retype pins v4.32.0 and a Lake build graph has one
+# toolchain.  This is the concrete cost of the two-sidecar split.
+[[require]]
+name = "mathlib"
+git = "https://github.com/leanprover-community/mathlib4"
+rev = "v4.32.0"
+
+[[lean_lib]]
+name = "RetypeLab"

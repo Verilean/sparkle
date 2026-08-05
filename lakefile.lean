@@ -734,6 +734,10 @@ lean_exe «control-lqr-test» where
   root := `Tests.Drivers.ControlLQRTestMain
   supportInterpreter := true
 
+lean_exe «control-precision-sweep» where
+  root := `Tests.Drivers.ControlPrecisionSweepTestMain
+  supportInterpreter := true
+
 lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true

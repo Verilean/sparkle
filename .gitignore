@@ -114,3 +114,4 @@ fpga/tangNano20k/blinky/*.json
 
 # sparkle-proofs sidecar build artifacts (mathlib sidecar, see proofs/README.md)
 proofs/.lake/
+retypelab/.lake/
