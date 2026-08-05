@@ -111,3 +111,6 @@ CLAUDE.md
 # Tang Nano 20k FPGA build artifacts (blinky; build/ is covered by the global rule)
 fpga/tangNano20k/blinky/*.fs
 fpga/tangNano20k/blinky/*.json
+
+# sparkle-proofs sidecar build artifacts (mathlib sidecar, see proofs/README.md)
+proofs/.lake/

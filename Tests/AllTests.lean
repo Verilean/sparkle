@@ -69,6 +69,9 @@ import Tests.YOLOv8.TestNeck
 -- Tests.X` (and hence `lake test`) directly — no separate exe
 -- run is needed for the synth side.
 import Tests.SignalLoopTest
+import Tests.IP.Control.IIRBiquadTest
+import Tests.IP.Control.PIDTest
+import Tests.IP.Control.LQRTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
@@ -506,6 +509,24 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitDoTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+
+  -- Fixed-point control datapaths (IIR biquad / PID / LQR).  These use
+  -- `lspecIO`, so they return a UInt32 exit code rather than aborting;
+  -- propagate a non-zero code so `lake test` fails on divergence.  The
+  -- IIR suite pins the naively-quantized biquad's period-6 limit cycle,
+  -- and the LQR suite checks the Lyapunov V from proofs/ decreases on the
+  -- actual fixed-point trajectory.
+  IO.println ""
+  IO.println "╔════════════════════════════════════════╗"
+  IO.println "║  IP.Control Sim Tests                  ║"
+  IO.println "╚════════════════════════════════════════╝"
+  IO.println ""
+  Sparkle.Tests.IP.Control.IIRBiquadTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.PIDTest.mainUnit
+  IO.println ""
+  Sparkle.Tests.IP.Control.LQRTest.mainUnit
   IO.println ""
 
   -- IP.Net layer sim tests (CRC32 reference + Ethernet RX framer

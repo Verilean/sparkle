@@ -1,0 +1,25 @@
+name = "sparkle-proofs"
+reservoir = false
+version = "0.1.0"
+packagesDir = "../.lake/packages"
+
+# Sidecar package, deliberately OUTSIDE the main `sparkle` build graph.
+#
+# Sparkle itself has nothing to do with real analysis or control theory: it is an
+# HDL.  This package is the *bridge* — it takes a controller designed and proven
+# stable over ℝ (which needs Mathlib: `Real`, `nlinarith`, `Matrix`) and connects
+# that proof to the fixed-point integer circuit that Sparkle actually synthesises.
+#
+# Keeping Mathlib here means `lake build` at the repo root (the RTL path) never
+# pays for it.  Same trick as `docbuild/`.
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.28.0"
+
+[[require]]
+name = "sparkle"
+path = "../"
+
+[[lean_lib]]
+name = "SparkleProofs"
