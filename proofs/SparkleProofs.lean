@@ -9,3 +9,4 @@
 import SparkleProofs.Control.LQRDesign
 import SparkleProofs.Control.Transport
 import SparkleProofs.Control.Precision
+import SparkleProofs.Control.EstimatorDesign

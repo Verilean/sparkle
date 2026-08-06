@@ -738,6 +738,10 @@ lean_exe «control-precision-sweep» where
   root := `Tests.Drivers.ControlPrecisionSweepTestMain
   supportInterpreter := true
 
+lean_exe «control-observer-test» where
+  root := `Tests.Drivers.ControlObserverTestMain
+  supportInterpreter := true
+
 lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true

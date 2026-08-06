@@ -394,15 +394,44 @@ where
     let e ← whnf e
     match e with
     | .lit (.natVal n) => return n
-    | .app fn _arg =>
-      let fnConst := fn.getAppFn
-      if fnConst.isConstOf ``OfNat.ofNat then
+    | .app _ _ =>
+      let fnConst := e.getAppFn
+      let args := e.getAppArgs
+      if fnConst.isConstOf ``OfNat.ofNat && args.size >= 2 then
         -- OfNat.ofNat Type n inst -> extract n
-        let args := e.getAppArgs
-        if args.size >= 2 then
-          extractWidth args[1]!
-        else
-          return 8
+        extractWidth args[1]!
+      -- Closed Nat arithmetic: widths of width-generic IP (`BitVec (w + f)`,
+      -- `BitVec (W + 1)`, …) reach here as `Nat.succ`/`Nat.add`/… applications
+      -- after `whnf` — `whnf` only exposes the head.  Evaluate structurally.
+      --
+      -- ⚠ Previously these fell into the silent `return 8` default below,
+      -- which MISCOMPILES: a 49-bit signal gets an 8-bit wire and the mux
+      -- feeding a 49-bit register truncates to zero.  Caught by iverilog
+      -- simulation of the emitted `IP/Control/DividerQ` RTL (the divisor
+      -- register never latched); invisible to every Lean-side test.
+      else if fnConst.isConstOf ``Nat.succ && args.size == 1 then
+        return (← extractWidth args[0]!) + 1
+      else if fnConst.isConstOf ``Nat.add && args.size == 2 then
+        return (← extractWidth args[0]!) + (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.sub && args.size == 2 then
+        return (← extractWidth args[0]!) - (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.mul && args.size == 2 then
+        return (← extractWidth args[0]!) * (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.pow && args.size == 2 then
+        return (← extractWidth args[0]!) ^ (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.mod && args.size == 2 then
+        return (← extractWidth args[0]!) % (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.div && args.size == 2 then
+        return (← extractWidth args[0]!) / (← extractWidth args[1]!)
+      else if (fnConst.isConstOf ``HAdd.hAdd || fnConst.isConstOf ``HSub.hSub ||
+               fnConst.isConstOf ``HMul.hMul || fnConst.isConstOf ``HPow.hPow)
+              && args.size >= 6 then
+        let a ← extractWidth args[4]!
+        let b ← extractWidth args[5]!
+        if fnConst.isConstOf ``HAdd.hAdd then return a + b
+        else if fnConst.isConstOf ``HSub.hSub then return a - b
+        else if fnConst.isConstOf ``HMul.hMul then return a * b
+        else return a ^ b
       else
         return 8
     | _ => return 8
@@ -480,11 +509,44 @@ partial def extractNat (e : Lean.Expr) : CompilerM Nat := do
   match fn with
   | .const name _ =>
     if name == ``OfNat.ofNat && args.size >= 2 then
-       match args[1]! with
-       | .lit (.natVal n) => return n
-       | _ => CompilerM.liftMetaM $ throwError s!"Expected Nat literal in OfNat, got: {args[1]!}"
+       -- Usually a raw literal, but width arithmetic can leave a closed
+       -- term here — recurse instead of insisting on `.lit`.
+       extractNat args[1]!
     else if name == ``Fin.mk && args.size >= 2 then
        extractNat args[1]!
+    -- Closed Nat arithmetic.  Width expressions of width-generic IP
+    -- (`BitVec (w + f)`, `extractLsb' (w - 1) 1`, `BitVec.ofNat (W + 1) …`)
+    -- reach this point as `Nat.succ`/`Nat.add`/… applications after `whnf`,
+    -- not as literals — `whnf` only exposes the head.  Evaluate them
+    -- structurally.  (Previously a hard error "Expected Nat literal, got
+    -- constant: Nat.succ", which made any width-generic module fail to
+    -- synthesize once instantiated; see IP/Control/DividerQ.lean.)
+    else if name == ``Nat.succ && args.size == 1 then
+       return (← extractNat args[0]!) + 1
+    else if name == ``Nat.add && args.size == 2 then
+       return (← extractNat args[0]!) + (← extractNat args[1]!)
+    else if name == ``Nat.sub && args.size == 2 then
+       return (← extractNat args[0]!) - (← extractNat args[1]!)
+    else if name == ``Nat.mul && args.size == 2 then
+       return (← extractNat args[0]!) * (← extractNat args[1]!)
+    else if name == ``Nat.pow && args.size == 2 then
+       return (← extractNat args[0]!) ^ (← extractNat args[1]!)
+    else if name == ``Nat.mod && args.size == 2 then
+       return (← extractNat args[0]!) % (← extractNat args[1]!)
+    else if name == ``Nat.div && args.size == 2 then
+       return (← extractNat args[0]!) / (← extractNat args[1]!)
+    else if (name == ``HAdd.hAdd || name == ``HSub.hSub || name == ``HMul.hMul ||
+             name == ``HPow.hPow || name == ``HMod.hMod || name == ``HDiv.hDiv)
+            && args.size >= 6 then
+       -- Heterogeneous wrappers, in case `whnf` left the instance unpeeled.
+       let a ← extractNat args[4]!
+       let b ← extractNat args[5]!
+       if name == ``HAdd.hAdd then return a + b
+       else if name == ``HSub.hSub then return a - b
+       else if name == ``HMul.hMul then return a * b
+       else if name == ``HPow.hPow then return a ^ b
+       else if name == ``HMod.hMod then return a % b
+       else return a / b
     else
        CompilerM.liftMetaM $ throwError s!"Expected Nat literal, got constant: {name}"
   | .lit (.natVal n) => return n

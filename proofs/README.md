@@ -108,6 +108,27 @@ that the ℝ model is *duplicated* there rather than imported; `#guard`s on the
 proven constants catch drift at build time. Fold it into `proofs/` if Sparkle ever
 moves to v4.32.0.
 
+## Estimator certificates — `EstimatorDesign.lean`
+
+For the Kalman / H∞ pair in `IP/Control/Observer.lean` (same RTL, different
+gain constants):
+
+- `kf_contraction`, `hinf_contraction` — both error dynamics contract at
+  ρ = 0.98.  Shared; says nothing about which filter to pick.
+- **`hinf_dissipation`** — only the H∞ gain satisfies
+  `V(e⁺) − V(e) ≤ 128w² + 400v² − ‖e‖²` for ALL disturbances (γ = 2,
+  weighted supply), proven by handing `nlinarith` the rows of an exact
+  rational LDLᵀ of the Gram matrix (pivots 551.3 / 6.60 / 4.57 / 14.27).
+- **`hinf_energy_bound`** — the telescoped worst-case guarantee:
+  Σ‖e‖² ≤ Σ(128w² + 400v²) + V(e₀) over any horizon, no distributional
+  assumption.  This is the theorem that distinguishes the two filters; the
+  measured 9 % adversarial win is the anecdote, this is the product.
+
+The LDLᵀ-hint recipe generalizes: compute the certificate's Gram matrix
+over exact rationals offline, LDLᵀ-decompose it exactly, hand the rows to
+`nlinarith` as `sq_nonneg` hints.  Every quadratic-form proof in this
+package now follows it.
+
 ## Honest scope
 
 Two gaps, both stated rather than papered over:

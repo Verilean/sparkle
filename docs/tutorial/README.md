@@ -46,6 +46,7 @@ automatically.
 | 9 | FPGA Bring-Up | [`md/Ch09_FPGA.md`](md/Ch09_FPGA.md) |
 | 10 | Sparkle Architecture | [`md/Ch10_Architecture.md`](md/Ch10_Architecture.md) |
 | 11 | Running the web3 Signing Device on Real Hardware | [`md/Ch11_Web3Signer.md`](md/Ch11_Web3Signer.md) |
+| 12 | Control, Estimation, and the Engineering of Precision | [`md/Ch12_ControlPrecision.md`](md/Ch12_ControlPrecision.md) |
 
 ## How to run
 

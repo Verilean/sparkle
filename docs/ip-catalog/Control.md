@@ -77,6 +77,44 @@ side: it evaluates the *same* `P` on the trajectory the integer circuit actually
 computes and asserts `V` is non-increasing. Retune the gain without redoing the
 certificate and it fails.
 
+## Estimators and the Q divider (2026-08 additions)
+
+| Module | What | Cycles |
+|---|---|---|
+| `DividerQ.lean` | width-generic restoring divider + Q-format division `(a·2^f)/b`, saturating, symmetric range | `w+f+2` per divide |
+| `Observer.lean : fixedGainObserver` | predictor-form observer; **Kalman and H∞ are this same RTL with different gain constants** | 1 |
+| `Observer.lean : tvKalman` | time-varying Kalman: covariance on-chip, gains via two `dividerQ` divisions, 5-phase FSM sharing one engine | ~115 per sample |
+
+Design constants (offline Riccati): Kalman `K = [0.4636, 1.3960]`
+(`q = 1/32`, `r = 0.01`); H∞ `K = [0.4974, 1.5472]` (`γ = 1.964`,
+`γ_min ≈ 1.309`).  Certificates in
+`proofs/SparkleProofs/Control/EstimatorDesign.lean`:
+
+* both gains — error-dynamics contraction at `ρ = 0.98`;
+* **H∞ only** — the dissipation inequality at `γ = 2`
+  (`V(e⁺)−V(e) ≤ 128w² + 400v² − ‖e‖²` for **all** disturbances) and its
+  telescoped energy bound `hinf_energy_bound`.  This is the theorem that
+  separates the two filters; the RTL difference is just the constants.
+
+Measured (deterministic seeds, `Tests/IP/Control/ObserverTest.lean`):
+random noise → KF beats H∞ by 0.6 %; adversarial square-wave gust →
+H∞ beats KF by ~9 %.  The certificate, not the 9 %, is the product.
+
+The divider exists because `Signal` has no division operator and the RV32
+integer divider can't do fractional Q division (and its 33-step proof is
+pinned to 32 bits).  Making the width-generic divider synthesize required an
+elaborator fix: `extractNat` now evaluates closed `Nat` arithmetic
+(`Nat.succ`/`add`/`sub`/`mul`/`pow`/…) instead of demanding a raw literal —
+previously ANY width-generic module died at synthesis with
+"Expected Nat literal, got constant: Nat.succ" once instantiated.
+
+On-chip Riccati cross-validation: iterated from `P = 0`, `tvKalman`'s gains
+converge to within 49 / 12 LSB of the offline constants.
+
+See also tutorial **Chapter 12** (`docs/tutorial/md/Ch12_ControlPrecision.md`),
+which walks PID → Lyapunov → quantization → the measured SMT boundary →
+Kalman/H∞ → two drone use cases.
+
 ## Running it
 
 ```
