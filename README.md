@@ -85,6 +85,22 @@ the full layer-stack breakdown, bring-up notes, and sim entry points.
 | [**Ethernet framing**](IP/Net/Ethernet.lean) | MAC framer + RX / TX header extract + payload streaming.  DMAC / SMAC / EtherType recovery cycle-accurate | — | Full | iverilog round-trip |
 | [**CRC32**](IP/Net/CRC32.lean) | Bit-serial IEEE 802.3 CRC-32 engine.  Reference vs HW parity checked in `crc32-jit-test` | — | Full | 1 byte / cycle |
 
+### Control & estimation (new — PR #109)
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**Control suite**](docs/ip-catalog/Control.md) | PID (anti-windup), LQR, IIR biquads at swept precisions, steady-state Kalman + H∞ (same RTL, different constants), time-varying Kalman with on-chip Riccati + width-generic Q divider | ℝ Lyapunov / ISS / dissipation certificates transported to fixed point (Mathlib sidecar `proofs/`, zero `sorry`) | Full (+ iverilog-verified) | Tutorial [Ch 12](docs/tutorial/md/Ch12_ControlPrecision.md) |
+
+The stability story: design over ℝ, prove `V(x⁺) ≤ ρ·V(x)` with Mathlib,
+treat quantization as a bounded disturbance (ISS), and get an unbounded
+kernel-checked ultimate bound on the *integer* datapath — plus the
+counterexample (a naively quantized resonator whose emitted Verilog sustains
+a period-6 limit cycle).  Precision selection is a theorem
+(`Vbound f = c/4^f`; 13 fractional bits is exactly the threshold for the demo
+budget).  The ℝ⇒Float falsification front-end (`retypelab/`, via
+[retype](https://github.com/Verilean/retype)) kills wrong certificate
+candidates in milliseconds before any `nlinarith` time is spent.
+
 ### Bus & interconnect
 
 | IP | Description | Proofs | Synth | Details |
@@ -381,6 +397,14 @@ See [docs/reference/Troubleshooting_Synthesis.md](docs/reference/Troubleshooting
 and [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md) for the current list of:
 
 - Imperative syntax limitations (`<~` inside conditionals).
+- ~~Deep multi-register `circuit do` FSMs hanging under `Signal.val`
+  co-simulation (issue #95)~~ — **fixed**: the `Circuit` monad now threads a
+  flat per-slot pending-writes tuple instead of composing state-update
+  closures, making interpreted simulation linear in circuit size (a
+  10-register chain went from hanging at t≈20 to instant at t=1000; the
+  16-register time-varying Kalman FSM with a nested divider engine simulates
+  in milliseconds).  Very wide `BitVec` (>64) datapaths are still slow under
+  the interpreter for *arithmetic* reasons — use the CSim JIT for those.
 - Pattern matching on tuples in synthesizable contexts.
 - `if`-then-else vs `Signal.mux` in Signal contexts.
 - `Signal.loop` feedback rules.

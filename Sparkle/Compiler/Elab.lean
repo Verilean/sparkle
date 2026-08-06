@@ -2391,6 +2391,11 @@ mutual
       -- the second is discarded.
       let isNextBuilder :=
         βType.isAppOf ``Sparkle.Core.Circuit.NextBuilder ||
+        -- The flat pending-writes accumulator that replaced NextBuilder
+        -- (issue #95 fix): `Circuit.SigList dom αs` — a tuple of per-slot
+        -- Signals.  Like the builder it has no wire image of its own; the
+        -- registers consume it inside runCircuitH's packRegister.
+        βType.isAppOf ``Sparkle.Core.Circuit.SigList ||
         (match βType with
          | .forallE _ _ _ _ => true  -- η-expanded Signal _ S → Signal _ S
          | _ => false)
@@ -2874,6 +2879,67 @@ mutual
       -- 3. We'd only catch non-problematic uses, creating false positives
 
       profHandler 0 (handleErrorPatterns e name args hint isNamed)  -- throws or returns ()
+
+      -- `Signal.pure ()` / `Signal.lit dom ()` — the `Unit`/`PUnit`
+      -- terminator that closes an HList Prod chain (`packRegister []`).
+      -- Zero-width constant, no real wire.  Handled FIRST, path-independently:
+      -- depending on how the surrounding chain reduced, this expression can
+      -- arrive here (rather than at the early-interception rule in
+      -- translateExprToWire), and falling through to definition-unfold used to
+      -- die on `PUnit.unit` — the failure mode surfaced by the flat
+      -- pending-writes rework of runCircuitH (issue #95 fix).
+      if (name == ``Sparkle.Core.Signal.Signal.pure ||
+          name == ``Sparkle.Core.Signal.Signal.lit) && args.size >= 1 then
+        let payload ← CompilerM.liftMetaM (whnf args.back!)
+        if payload.isConstOf ``Unit.unit || payload.isConstOf ``PUnit.unit then
+          let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+          CompilerM.emitAssign resWire (.const 0 0)
+          return resWire
+
+      -- `Seq.seq` / `Functor.map` typeclass projections over the Signal
+      -- applicative: peel with an `.all`-transparency whnf down to the
+      -- underlying `Signal.ap` / `Signal.map` that `handleApplicative`
+      -- recognises (same treatment `handleCircuitMonad` gives Bind/Pure).
+      -- Historically these were always pre-reduced by the time they reached
+      -- this dispatcher, because register inputs were projections of the
+      -- bundled next-state; with the flat pending-writes accumulator
+      -- (issue #95 fix) a register's input IS the user's raw applicative
+      -- expression, so the projection arrives unpeeled.
+      if (name == ``Seq.seq || name == ``Functor.map) && args.size >= 1 then
+        if args[0]!.isAppOf ``Sparkle.Core.Signal.Signal then
+          -- Normalize the whole applicative SPINE `f <$> a₁ <*> a₂ <*> …`
+          -- from the `Seq.seq`/`Functor.map` typeclass projections down to the
+          -- `Signal.ap`/`Signal.map` chain `handleApplicative` recognises.
+          -- `whnfUntil` (not a bare `.all` whnf) so reduction stops at the
+          -- target head instead of opening `Signal.ap`'s body and leaking the
+          -- time binder.  The recursion peels the function-position argument
+          -- too — the projections nest once per `<*>`.
+          let rec normSpine (x : Lean.Expr) (fuel : Nat) : MetaM Lean.Expr := do
+            match fuel with
+            | 0 => return x
+            | fuel + 1 =>
+              let h := x.getAppFn
+              if h.isConstOf ``Seq.seq then
+                match ← withTransparency TransparencyMode.all
+                    (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.ap) with
+                | some x' => normSpine x' fuel
+                | none => return x
+              else if h.isConstOf ``Functor.map then
+                match ← withTransparency TransparencyMode.all
+                    (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.map) with
+                | some x' => normSpine x' fuel
+                | none => return x
+              else if h.isConstOf ``Sparkle.Core.Signal.Signal.ap then
+                let xargs := x.getAppArgs
+                if xargs.size ≥ 2 then
+                  let fpos ← normSpine xargs[xargs.size - 2]! fuel
+                  return Lean.mkAppN h (xargs.set! (xargs.size - 2) fpos)
+                else return x
+              else return x
+          let e' ← CompilerM.liftMetaM (normSpine e 32)
+          if e' != e then
+            return ← translateExprToWire e' hint (isNamed := isNamed)
+
       -- handleCircuitMonad must run before handleTupleProjections /
       -- handleDefinitionUnfold so that Bind.bind / Pure.pure get
       -- peeled, and value-level Prod.fst / Prod.snd / Prod.mk on

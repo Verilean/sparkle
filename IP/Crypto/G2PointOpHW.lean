@@ -42,6 +42,11 @@ import Sparkle
 import IP.Crypto.Proof.BLS12_381
 import IP.Crypto.Fp2MulHW
 
+-- The flat pending-writes accumulator (`Circuit.SigList`, issue #95 fix)
+-- makes `circuit do` type-checking reduce a per-register tuple type; for
+-- this file's register count that exceeds the default heartbeat budget.
+set_option maxHeartbeats 4000000
+
 namespace Sparkle.IP.Crypto.G2PointOpHW
 
 open Sparkle.Core.Domain

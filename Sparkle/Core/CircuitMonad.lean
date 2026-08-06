@@ -43,25 +43,45 @@ open Sparkle.Core.Signal
 
 namespace Circuit
 
-/-- Slot accessor over a state of static shape `S`.
+/-- Slot accessor over a state of static shape `S`, writing into a
+    pending-writes accumulator of type `W`.
 
-    Concretely a pair `(read, update)` of lens functions over
-    the Prod-chain state.  Defined as a plain Prod alias rather
-    than a `structure` so the elaborator's existing Prod /
-    Prod.fst / Prod.snd recognition lowers field access without
-    needing a separate struct-projection rule. -/
-@[reducible] def Slot (dom : DomainConfig) (S : Type) (τ : Type) : Type :=
-  (Signal dom S → Signal dom τ) × (Signal dom τ → Signal dom S → Signal dom S)
+    Concretely a pair `(read, update)`: `read` is a lens over the live
+    Prod-chain state (unchanged from the original design); `update` stamps a
+    new Signal into the slot's entry of the pending-writes accumulator `W`.
 
-@[reducible] def Slot.read {dom : DomainConfig} {S : Type} {τ : Type}
-    (s : Slot dom S τ) : Signal dom S → Signal dom τ := s.1
+    ## Why `update` targets `W` (a tuple of per-slot Signals), not `Signal S`
 
-@[reducible] def Slot.update {dom : DomainConfig} {S : Type} {τ : Type}
-    (s : Slot dom S τ) : Signal dom τ → Signal dom S → Signal dom S := s.2
+    The original `update : Signal τ → Signal S → Signal S` rebuilt the FULL
+    bundled next-state on every write — reading every other slot back out of
+    the previous accumulator via lens chains.  Composing k writes therefore
+    built a k-deep chain in which each layer referenced the previous layer
+    once per slot, and the closure evaluator (which has no sharing — the
+    heap DAG is walked as a tree) paid ~k^k per cycle.  That is the real
+    mechanism behind issue #95: a 10-register pass-through chain hung near
+    t≈20 through `Signal.val`, while hand-written `bundleAll!` FSMs (flat,
+    single next-tuple) of 6+ registers were instant.
 
-@[reducible] def Slot.mk {dom : DomainConfig} {S : Type} {τ : Type}
+    With `W = SigList` (one pending Signal per slot), a write is pure tuple
+    surgery — no Signal nodes are created, nothing re-reads other slots —
+    and `runCircuitH` bundles the accumulator ONCE into the register file.
+    Evaluation cost per cycle is linear in the circuit size.
+
+    Defined as a plain Prod alias rather than a `structure` so the
+    elaborator's existing Prod / Prod.fst / Prod.snd recognition lowers
+    field access without needing a separate struct-projection rule. -/
+@[reducible] def Slot (dom : DomainConfig) (S : Type) (W : Type) (τ : Type) : Type :=
+  (Signal dom S → Signal dom τ) × (Signal dom τ → W → W)
+
+@[reducible] def Slot.read {dom : DomainConfig} {S W : Type} {τ : Type}
+    (s : Slot dom S W τ) : Signal dom S → Signal dom τ := s.1
+
+@[reducible] def Slot.update {dom : DomainConfig} {S W : Type} {τ : Type}
+    (s : Slot dom S W τ) : Signal dom τ → W → W := s.2
+
+@[reducible] def Slot.mk {dom : DomainConfig} {S W : Type} {τ : Type}
     (read : Signal dom S → Signal dom τ)
-    (update : Signal dom τ → Signal dom S → Signal dom S) : Slot dom S τ :=
+    (update : Signal dom τ → W → W) : Slot dom S W τ :=
   (read, update)
 
 end Circuit
@@ -71,17 +91,17 @@ end Circuit
     Same rationale as `Slot` — a Prod alias rather than a
     `structure`, so accesses through `.1` / `.2` ride on the
     existing elaborator rules. -/
-@[reducible] def Reg (dom : DomainConfig) (S : Type) (τ : Type) : Type :=
-  Signal dom τ × Circuit.Slot dom S τ
+@[reducible] def Reg (dom : DomainConfig) (S : Type) (W : Type) (τ : Type) : Type :=
+  Signal dom τ × Circuit.Slot dom S W τ
 
-@[reducible] def Reg.liveRead {dom : DomainConfig} {S : Type} {τ : Type}
-    (r : Reg dom S τ) : Signal dom τ := r.1
+@[reducible] def Reg.liveRead {dom : DomainConfig} {S W : Type} {τ : Type}
+    (r : Reg dom S W τ) : Signal dom τ := r.1
 
-@[reducible] def Reg.slot {dom : DomainConfig} {S : Type} {τ : Type}
-    (r : Reg dom S τ) : Circuit.Slot dom S τ := r.2
+@[reducible] def Reg.slot {dom : DomainConfig} {S W : Type} {τ : Type}
+    (r : Reg dom S W τ) : Circuit.Slot dom S W τ := r.2
 
-@[reducible] def Reg.mk {dom : DomainConfig} {S : Type} {τ : Type}
-    (liveRead : Signal dom τ) (slot : Circuit.Slot dom S τ) : Reg dom S τ :=
+@[reducible] def Reg.mk {dom : DomainConfig} {S W : Type} {τ : Type}
+    (liveRead : Signal dom τ) (slot : Circuit.Slot dom S W τ) : Reg dom S W τ :=
   (liveRead, slot)
 
 /-- A `Reg dom S τ` coerces to its live `Signal dom τ` read.
@@ -89,7 +109,7 @@ end Circuit
     is expected (e.g. as the rhs of `Circuit.next` or
     `Signal.mux`), without needing an explicit `Circuit.read`
     or `.1`. -/
-instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom τ) where
+instance {dom : DomainConfig} {S W τ : Type} : CoeHead (Reg dom S W τ) (Signal dom τ) where
   coe r := r.1
 
 /-- `CoeOut`: lets Lean coerce a `Reg` to a `Signal` even when
@@ -99,12 +119,12 @@ instance {dom : DomainConfig} {S τ : Type} : CoeHead (Reg dom S τ) (Signal dom
     *from* a concrete known type, not *to* one, so it triggers
     on a `Reg` lhs regardless of whether the target Signal's
     `τ` is yet determined. -/
-instance {dom : DomainConfig} {S τ : Type} : CoeOut (Reg dom S τ) (Signal dom τ) where
+instance {dom : DomainConfig} {S W τ : Type} : CoeOut (Reg dom S W τ) (Signal dom τ) where
   coe r := r.1
 
 /-! ### Reg-typed arithmetic / bitwise overloads.
 
-    `return a + b` (where `a b : Reg dom S (BitVec n)`) goes
+    `return a + b` (where `a b : Reg dom S W (BitVec n)`) goes
     through the `CoeHead Reg → Signal` instance, which then
     drives Lean's `HAdd` resolution via the Signal overload's
     `(· + ·) <$> a <*> b` Applicative lift.  Under the
@@ -117,28 +137,28 @@ instance {dom : DomainConfig} {S τ : Type} : CoeOut (Reg dom S τ) (Signal dom 
     instance, skipping the typeclass projection.  Lean prefers
     the more specific Reg overload, so `a + b` resolves here
     instead of going through `CoeHead`. -/
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAdd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAdd (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hAdd a b := (a.1 + b.1 : Signal dom (BitVec n))
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HSub (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HSub (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hSub a b := (a.1 - b.1 : Signal dom (BitVec n))
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HMul (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HMul (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hMul a b := (a.1 * b.1 : Signal dom (BitVec n))
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAnd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAnd (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hAnd a b := (a.1 &&& b.1 : Signal dom (BitVec n))
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HOr  (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HOr  (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hOr  a b := (a.1 ||| b.1 : Signal dom (BitVec n))
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HXor (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HXor (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hXor a b := (a.1 ^^^ b.1 : Signal dom (BitVec n))
 
 
@@ -150,60 +170,60 @@ instance {dom : DomainConfig} {S : Type} {n : Nat} :
     `HAdd (Reg …) (BitVec n) (Signal …)` instances explicitly,
     mirroring the existing `Signal × BitVec` instances. -/
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAdd (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAdd (Reg dom S W (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
   hAdd a b := a.1 + b
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HSub (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HSub (Reg dom S W (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
   hSub a b := a.1 - b
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HMul (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HMul (Reg dom S W (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
   hMul a b := a.1 * b
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAdd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAdd (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hAdd a b := a.1 + b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HSub (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HSub (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hSub a b := a.1 - b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HMul (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HMul (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hMul a b := a.1 * b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAdd (Reg dom S (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAdd (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) (Signal dom (BitVec n)) where
   hAdd a b := a.1 + b
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAdd (Signal dom (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAdd (Signal dom (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hAdd a b := a + b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HXor (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HXor (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hXor a b := a.1 ^^^ b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAnd (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAnd (Reg dom S W (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
   hAnd a b := a.1 &&& b
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HAnd (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HAnd (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hAnd a b := a.1 &&& b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HOr (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HOr (Reg dom S W (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
   hOr a b := a.1 ||| b
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HOr (Reg dom S (BitVec n)) (Reg dom S (BitVec n)) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HOr (Reg dom S W (BitVec n)) (Reg dom S W (BitVec n)) (Signal dom (BitVec n)) where
   hOr a b := a.1 ||| b.1
 
-instance {dom : DomainConfig} {S : Type} {n : Nat} :
-    HXor (Reg dom S (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
+instance {dom : DomainConfig} {S W : Type} {n : Nat} :
+    HXor (Reg dom S W (BitVec n)) (BitVec n) (Signal dom (BitVec n)) where
   hXor a b := a.1 ^^^ b
 
 namespace Circuit
@@ -219,16 +239,25 @@ variable {dom : DomainConfig} {S τ α β : Type}
 def NextBuilder (dom : DomainConfig) (S : Type) : Type :=
   Signal dom S → Signal dom S
 
+/-- Pending-writes accumulator: one Signal per register slot.
+
+    This replaces the function-composition `NextBuilder` as the thing the
+    `Circuit` monad threads.  A write is a pure tuple update; `runCircuitH`
+    bundles the final tuple into the register file once (flat, depth-1).
+    See the `Slot` docstring for why the composed form was catastrophic for
+    simulation (issue #95). -/
+@[reducible] def SigList (dom : DomainConfig) : List Type → Type
+  | []      => Unit
+  | α :: αs => Signal dom α × SigList dom αs
+
 end Circuit
 
-/-- The Circuit monad — state-passing over the pending writes
-    accumulator `Circuit.NextBuilder dom S`.
-
-    `S` is the static HList shape of the register state.  The
-    macro / allocator chooses `S` at `runCircuit` time and the
-    type stays fixed across the body. -/
-def Circuit (dom : DomainConfig) (S : Type) (α : Type) : Type :=
-  Circuit.NextBuilder dom S → α × Circuit.NextBuilder dom S
+/-- The Circuit monad — state-passing over the pending-writes
+    accumulator `W` (a `Circuit.SigList` at `runCircuitH`: one pending
+    Signal per register slot; see `Slot` for why this replaced the
+    function-composition `NextBuilder`, issue #95). -/
+def Circuit (dom : DomainConfig) (W : Type) (α : Type) : Type :=
+  W → α × W
 
 namespace Circuit
 
@@ -248,18 +277,14 @@ variable {dom : DomainConfig} {S α β : Type}
 
 /-- Record a next-cycle Signal for one register slot.  Repeat
     writes overwrite earlier ones via Slot.update's "stamp into
-    the slot" semantics (last write wins, matching the macro). -/
-@[reducible, inline] def next [Inhabited S] (r : Reg dom S τ) (sig : Signal dom τ) :
-    Circuit dom S Unit :=
-  fun b =>
-    -- The Signal.memoize wrap that previously lived here (Compiler
-    -- C2 fix) is now folded into Signal.loop's implementation —
-    -- see loopImpl in Sparkle/Core/Signal.lean.  Keeping the wrap
-    -- here would leave Signal.memoize markers in the user-visible
-    -- expression tree, which trips up the synth elaborator on
-    -- FSM-shaped circuits that nest Signal.loop.
-    let b' : NextBuilder dom S := fun live => r.slot.update sig (b live)
-    ((), b')
+    the slot" semantics (last write wins, matching the macro).
+
+    Note the accumulator parameter of `Circuit` here is the pending-writes
+    tuple (a `Circuit.SigList` at `runCircuitH`), NOT the live-state shape:
+    the write is pure tuple surgery and never touches the Signal graph. -/
+@[reducible, inline] def next {W : Type} (r : Reg dom S W τ) (sig : Signal dom τ) :
+    Circuit dom W Unit :=
+  fun w => ((), r.slot.update sig w)
 
 /-- Type class capturing "things that can be the rhs of a
     register write" — a `Signal dom τ` directly, or a bare
@@ -288,13 +313,13 @@ class AsSignal (dom : DomainConfig) (τ : Type) (α : Type) where
     or a bare `τ` value (lifted via `AsSignal`).  Replaces
     `next` at the user-visible API; `next` remains as the raw
     `Signal`-only form used internally. -/
-@[reducible, inline] def nextAny [Inhabited S] {α : Type} [AsSignal dom τ α]
-    (r : Reg dom S τ) (val : α) : Circuit dom S Unit :=
+@[reducible, inline] def nextAny {W : Type} {α : Type} [AsSignal dom τ α]
+    (r : Reg dom S W τ) (val : α) : Circuit dom W Unit :=
   next r (AsSignal.toSignal val)
 
 /-- Read the live current-cycle Signal of a register handle.
     Just a projection — there for symmetry with `next`. -/
-@[reducible, inline] def read (r : Reg dom S τ) : Signal dom τ := r.liveRead
+@[reducible, inline] def read {W : Type} (r : Reg dom S W τ) : Signal dom τ := r.liveRead
 
 end Circuit
 
@@ -396,56 +421,63 @@ class SignalLeaves (ρ : Type) (dom : outParam DomainConfig) where
     *fixed* across the whole list — it doesn't shrink as we
     recurse, which is the key to keeping the slot lenses typed
     against the original outer state. -/
-@[reducible] def RegList (dom : DomainConfig) (S : Type) : List Type → Type
+@[reducible] def RegList (dom : DomainConfig) (S W : Type) : List Type → Type
   | []      => Unit
-  | α :: αs => Reg dom S α × RegList dom S αs
+  | α :: αs => Reg dom S W α × RegList dom S W αs
 
-/-- Build a `RegList dom S αs` by walking down `αs`.
+/-- Build a `RegList dom S W αs` by walking down `αs`.
 
-    Constructed slot lenses are pure `Signal`-level chains of
-    `Signal.map Prod.fst / Prod.snd` and `bundle2` — the same
-    primitives Sparkle's IR elaborator already lowers.  No
-    value-level `Signal.map` closures over arbitrary functions.
+    Read lenses are pure `Signal`-level chains of `Signal.map Prod.fst /
+    Prod.snd` — the same primitives Sparkle's IR elaborator already lowers.
 
-    The slot read/update lenses are passed in as Signal-level
-    operations (rather than pure-value functions) so the
-    chained `Prod.fst`/`Prod.snd` calls stay visible to the
-    elaborator at every recursion depth. -/
-@[reducible] def mkRegList {dom : DomainConfig} {S : Type}
+    Write "lenses" are pure tuple updates into the pending-writes
+    accumulator: `lift` lifts an update on the local `SigList` suffix into
+    an update on the full accumulator `W`.  No Signal node is built on the
+    write path — this flatness is the issue-#95 fix (see `Slot`). -/
+@[reducible] def mkRegList {dom : DomainConfig} {S W : Type}
     (liveOuter : Signal dom S) :
     (αs : List Type) →
     (readSig : Signal dom S → Signal dom (HList αs)) →
-    (writeSig : Signal dom (HList αs) → Signal dom S → Signal dom S) →
-    RegList dom S αs
+    (lift : (Circuit.SigList dom αs → Circuit.SigList dom αs) → W → W) →
+    RegList dom S W αs
   | [],       _,    _      => ()
-  | α :: αs', readSig, writeSig =>
+  | α :: αs', readSig, lift =>
     let headReadSig : Signal dom S → Signal dom α :=
       fun s => Signal.map Prod.fst (readSig s)
     let tailReadSig : Signal dom S → Signal dom (HList αs') :=
       fun s => Signal.map Prod.snd (readSig s)
-    let headWriteSig : Signal dom α → Signal dom S → Signal dom S :=
-      fun n s => writeSig (bundle2 n (tailReadSig s)) s
-    let tailWriteSig : Signal dom (HList αs') → Signal dom S → Signal dom S :=
-      fun n s => writeSig (bundle2 (headReadSig s) n) s
-    let slot : Circuit.Slot dom S α :=
-      Circuit.Slot.mk headReadSig headWriteSig
-    let head : Reg dom S α :=
+    let headWrite : Signal dom α → W → W :=
+      fun n => lift (fun sl => (n, sl.2))
+    let tailLift : (Circuit.SigList dom αs' → Circuit.SigList dom αs') → W → W :=
+      fun f => lift (fun sl => (sl.1, f sl.2))
+    let slot : Circuit.Slot dom S W α :=
+      Circuit.Slot.mk headReadSig headWrite
+    let head : Reg dom S W α :=
       Reg.mk (headReadSig liveOuter) slot
-    let tail := mkRegList liveOuter αs' tailReadSig tailWriteSig
+    let tail := mkRegList liveOuter αs' tailReadSig tailLift
     (head, tail)
 
-/-- For each slot of `αs`, take the corresponding `init` and a
-    slice of `nextState`, and emit a `Signal.register`.  Pack
-    the results back into a `Signal dom (HList αs)`.
+/-- The "everything holds" seed for the pending-writes accumulator: each
+    slot's entry is its own live read.  A slot that is never written keeps
+    its value; a written slot's entry is replaced by `Circuit.next`. -/
+@[reducible] def mkHolds {dom : DomainConfig} :
+    (αs : List Type) → (live : Signal dom (HList αs)) → Circuit.SigList dom αs
+  | [],       _    => ()
+  | _ :: αs', live =>
+    (Signal.map Prod.fst live, mkHolds αs' (Signal.map Prod.snd live))
 
-    Reducible so the synth elaborator unfolds through it to the
-    underlying `Signal.register` / `bundle2` chain. -/
+/-- One `Signal.register` per slot, fed DIRECTLY by that slot's pending
+    Signal — no projection of a bundled next-state, no reconstruction.
+    Pack the register outputs back into a `Signal dom (HList αs)`.
+
+    Reducible so the synth elaborator unfolds through it to the underlying
+    `Signal.register` / `bundle2` chain. -/
 @[reducible, inline] def packRegister {dom : DomainConfig} :
-    (αs : List Type) → HList αs → Signal dom (HList αs) → Signal dom (HList αs)
-  | [],       _,    _    => Signal.pure ()
-  | _ :: αs', init, next =>
-    bundle2 (Signal.register init.1 (Signal.map Prod.fst next))
-            (packRegister αs' init.2 (Signal.map Prod.snd next))
+    (αs : List Type) → HList αs → Circuit.SigList dom αs → Signal dom (HList αs)
+  | [],       _,    _      => Signal.pure ()
+  | _ :: αs', init, writes =>
+    bundle2 (Signal.register init.1 writes.1)
+            (packRegister αs' init.2 writes.2)
 
 /-- Generic `runCircuit` taking any HList of initial values.
     The body receives a matching `RegList` of register handles
@@ -460,42 +492,28 @@ class SignalLeaves (ρ : Type) (dom : outParam DomainConfig) where
     blocks come out of `circuit do { … return ⟨a, b, c⟩ }`
     naturally without a `bundle2`-shaped contortion.
 
-    Historically this signature required `body : … → Circuit …
-    (Signal dom ρ)`, which made multi-output blocks
-    expressible only via tupling at the Signal level.  Dropping
-    that constraint is the monad-friendly story: the user's
-    body builds whatever Lean value they want and `return`s it;
-    the Circuit monad just threads the register-update slot
-    map alongside.
+    The `Circuit` accumulator is `Circuit.SigList dom αs` — the flat
+    pending-writes tuple seeded by `mkHolds` — rather than the historical
+    `NextBuilder` function composition.  See `Slot` for why (issue #95).
 
     `[HListWireable αs]` requires every slot type to be
     `Wireable`, gating non-synthesisable types at the call
     site instead of the synth elaborator. -/
-@[reducible, inline] def runCircuitH {dom : DomainConfig} {αs : List Type} {ρ : Type}
+@[reducible] def runCircuitH {dom : DomainConfig} {αs : List Type} {ρ : Type}
     [HasDomain ρ dom]
     [HListWireable αs] [Inhabited (HList αs)]
     (inits : HList αs)
-    (body : RegList dom (HList αs) αs →
-            Circuit dom (HList αs) ρ) : ρ :=
-  let idRead  : Signal dom (HList αs) → Signal dom (HList αs) := fun s => s
-  let idWrite : Signal dom (HList αs) → Signal dom (HList αs) → Signal dom (HList αs) :=
-    fun n _ => n
+    (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs →
+            Circuit dom (Circuit.SigList dom αs) ρ) : ρ :=
+  let idRead : Signal dom (HList αs) → Signal dom (HList αs) := fun s => s
+  let idLift : (Circuit.SigList dom αs → Circuit.SigList dom αs) →
+      Circuit.SigList dom αs → Circuit.SigList dom αs := fun f => f
   let stateLoop : Signal dom (HList αs) :=
     Signal.loop (α := HList αs) (fun live =>
-      -- The Compiler C2 fix that previously wrapped `live` and
-      -- `b' live` in `Signal.memoize` here is now folded into
-      -- `Signal.loop`'s implementation (see loopImpl in
-      -- Sparkle/Core/Signal.lean): `loop` memoizes its body
-      -- output internally, so the runtime O(2^N) blow-up is
-      -- avoided without leaving Signal.memoize markers in the
-      -- user-visible expression tree (which the synth elaborator
-      -- was struggling to translate for FSM-shaped circuits).
-      let regs := mkRegList live αs idRead idWrite
-      let bResult := body regs id
-      let b' : Circuit.NextBuilder dom (HList αs) := bResult.snd
-      let nextState : Signal dom (HList αs) := b' live
-      packRegister αs inits nextState)
-  let regs := mkRegList stateLoop αs idRead idWrite
-  (body regs id).fst
+      let regs := mkRegList live αs idRead idLift
+      let bResult := body regs (mkHolds αs live)
+      packRegister αs inits bResult.snd)
+  let regs := mkRegList stateLoop αs idRead idLift
+  (body regs (mkHolds αs stateLoop)).fst
 
 end Sparkle.Core
