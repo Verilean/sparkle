@@ -157,13 +157,18 @@ This is issue #95 (the Keccak-sponge co-sim hang), reproduced here on a much
 smaller circuit — the branching factor, not the register count, is what kills
 it.
 
-The repo's two working escapes are `Signal.loopMemo` simulation variants
-(see `IP/YOLOv8/Primitives/Conv2DEngine.conv2DEngineSimulate`) and the CSim
-JIT harness (see the PolicySignDemo tests).  Wiring the estimators into the
-JIT harness is the right follow-up; until then the correspondence is carried
-by (a) the pure-FSM-vs-reference cross-checks above, (b) the circuit bodies
-mirroring the pure steps definition-for-definition, and (c) the
-`#synthesizeVerilog` checks below. -/
+The working escape is the CSim JIT harness, and the estimators ARE wired into
+it: `Tests/IP/Control/ControlJITTest.lean` (`lake exe control-jit-test`) drives
+the divider through its real 50-cycle handshake, runs five full `tvKalman` FSM
+samples, 40 observer cycles and both biquads' impulse responses, all against
+the same pure models — in compiled C.  The emitted Verilog is additionally
+checked under iverilog (divider `1.0/3.0 → 21845`, `−7.5/2.5 → −196608`; five
+tvKalman samples `0, 0, 1581, 8167, 22409` matching `tvkStep` bit-for-bit).
+
+So the circuit↔model correspondence is carried by (a) the pure-FSM-vs-reference
+cross-checks above, (b) the JIT co-sim, (c) iverilog on the emitted RTL, and
+(d) the `#synthesizeVerilog` checks below — everything except the pure-Lean
+interpreter, which issue #95 rules out. -/
 
 def main : IO UInt32 := do
   lspecIO (Std.HashMap.ofList [("all", [suite])]) []

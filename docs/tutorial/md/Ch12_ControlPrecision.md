@@ -24,79 +24,175 @@ each one stops.
 Everything below that is stated as a number was measured or proven in
 this repository; the chapter cites the file each time.
 
-## 12.1 Two different claims: "bounded" and "converges"
+## 12.1 The worked example: one PID loop, from equations to theorem
 
-Start with the PID controller (`IP/Control/PID.lean`):
+Everything in this chapter is demonstrated on one concrete system, small
+enough to hold in your head and real enough to synthesize.  This section
+walks it end to end: the equations, the RTL that implements them, and the
+theorem that certifies them — each line of one mapped to the others.
 
-```
-e[n]    = r[n] − y[n]
-I[n+1]  = clamp_iLim( I[n] + Ki·e[n] )      -- anti-windup
-u[n]    = clamp_uLim( Kp·e[n] + I[n+1] + Kd·(e[n] − e[n−1]) )
-```
+### 12.1.1 The equations
 
-Note where the clamp sits: *inside* the integrator update, not on the
-output afterwards.  That placement is classical anti-windup, and it
-splits the correctness story into two claims of very different
-strength:
-
-1. **Bounded** — `I` never leaves `[−iLim, iLim]` and `u` never
-   leaves `[−uLim, uLim]`.  This holds *unconditionally*: for any
-   gains, any input, any noise, by a one-line case split on the two
-   comparators.  No control theory involved.  Overflow in the
-   datapath is therefore structurally impossible, which is why every
-   state register in `IP/Control/` is clamped this way.
-
-2. **Converges** — the closed loop actually tracks the setpoint
-   instead of oscillating between the rails forever.  This is a real
-   theorem about the *dynamics*, it depends on the gains, and no
-   amount of clamping gives it to you.
-
-`Tests/IP/Control/PIDTest.lean` checks claim 1 by slamming the loop
-with a huge constant error and watching the integrator saturate at
-exactly ±16.0.  Claim 2 is what the rest of this chapter is about.
-
-## 12.2 Lyapunov stability, from zero
-
-The tool for claim 2 is a **Lyapunov function**: a scalar "energy"
-`V(x) ≥ 0` that every step of the closed loop strictly shrinks:
+A first-order plant (think: the rate response of one drone axis — command a
+torque, the rate follows with a lag), sampled at `dt = 1/16 s`:
 
 ```
-V(x⁺) ≤ ρ·V(x),      ρ < 1
+x[n+1] = 0.9·x[n] + 0.1·u[n]
 ```
 
-If such a `V` exists, the state converges geometrically — not for the
-inputs you simulated, but for *all* states, forever.  For linear
-systems the standard candidate is a quadratic form `V(x) = xᵀPx`
-with `P` positive definite.
-
-Sparkle's LQR demo (`IP/Control/LQRStateFeedback.lean`) makes this
-concrete.  The plant is a double integrator sampled at `dt = 1/16`,
-the gain `K = [0.618, 1.26]` comes from an offline Riccati solve, and
-the certificate is
+and the textbook discrete PID regulating it to a setpoint r:
 
 ```
-P = [ 2.1180  0.9885 ]        ρ = 39/40 = 0.975
-    [ 0.9885  4.0160 ]
+e[n]   = r − x[n]                          error
+I[n+1] = I[n] + Ki·e[n]                    integrator      Ki = 0.25
+u[n]   = Kp·e[n] + I[n+1] + Kd·(e[n]−p[n]) control         Kp = 2, Kd = 0.125
+p[n+1] = e[n]                              previous error
 ```
 
-`proofs/SparkleProofs/Control/LQRDesign.lean` proves, with Mathlib
-over ℝ and zero `sorry`:
+Two state registers in the controller (`I`, `p`), one in the plant (`x`).
 
-* `P ≻ 0` (Sylvester's criterion),
-* the sandwich `½‖x‖² ≤ V(x) ≤ 5‖x‖²`,
-* **`lyapunov_decrease`** : `V(x⁺) ≤ 0.975·V(x)` for every state.
+### 12.1.2 The RTL, line for line
 
-Two practical notes that generalize:
+`IP/Control/PID.lean` implements exactly those four lines in Q15.16
+fixed point (`mulQSig` = 32×32→64 multiply, arithmetic shift by 16):
 
-* The certificate is *loose on purpose*.  The true worst-case ratio
-  is 0.97179 (measured by sweep, and independently by the Float
-  falsification harness in `retypelab/`).  Proving 0.975 instead of
-  0.972 costs nothing and makes the `nlinarith` proof robust.
-* `P` and `K` are **verified, not derived**.  The Riccati solve
-  happened in an offline script; Lean checks the inequality.  This
-  guess-and-verify shape is how Lyapunov arguments normally work, and
-  the verification is what carries the weight — a wrong guess simply
-  fails to prove.
+```
+def pid (iLim uLim : BitVec 32)
+    (r y kp ki kd : Signal dom (BitVec 32)) : Signal dom (BitVec 32) :=
+  circuit do
+    let integReg ← Signal.reg (0#32)                    -- I
+    let ePrevReg ← Signal.reg (0#32)                    -- p
+
+    let e := r - y                                      -- e[n]   = r − x[n]
+    let integNext := clampSymC iLim                     -- I[n+1] = I[n] + Ki·e[n]
+      (integ + mulQSig ki e)                            --          (clamped: anti-windup)
+    let d := e - ePrev                                  -- e[n] − p[n]
+    let u := clampSymC uLim                             -- u[n]   = Kp·e + I⁺ + Kd·d
+      (mulQSig kp e + integNext + mulQSig kd d)         --          (clamped: actuator limit)
+
+    integReg <~ integNext                               -- register writes
+    ePrevReg <~ e                                       -- p[n+1] = e[n]
+    return u
+```
+
+The correspondence is one-to-one — that is the point of writing hardware in
+the same language as the specification.  Note the two `clampSymC`s: they are
+*not* in the textbook equations.  They are the implementation's two safety
+nonlinearities, and they carry the first of two very different claims:
+
+1. **Bounded, unconditionally.**  `|I| ≤ iLim` and `|u| ≤ uLim` for ANY
+   gains, ANY input, ANY noise — because the clamp is inside the update, the
+   claim is a one-line case split on two comparators, no control theory
+   involved.  `Tests/IP/Control/PIDTest.lean` slams the loop with a huge
+   constant error and watches the integrator saturate at exactly ±16.0:
+
+   ```
+   ✓ integrator stays within ±16.0 under a huge sustained error
+   ✓ integrator actually saturates (the clamp is exercised)
+   ```
+
+   This is why the datapath can never overflow — and it is also why claim 1
+   is NOT stability: a badly tuned loop happily bangs between the rails
+   forever while satisfying every bound.
+
+2. **Converges** — the actual control claim.  That needs a theorem about the
+   dynamics, which is §12.1.3.
+
+### 12.1.3 The theorem
+
+Close the loop symbolically (set r = 0; substitute u into the plant) and the
+three states evolve linearly:
+
+```
+x[n+1] = 0.6625·x + 0.1·I − 0.0125·p      (0.6625 = 0.9 − 0.1·(Kp+Ki+Kd))
+I[n+1] = −0.25·x  + I
+p[n+1] = −x
+```
+
+Eigenvalues: 0.8717, 0.8085, −0.0177 — all inside the unit circle, so the
+loop is stable.  But "I computed eigenvalues" is a *numerical remark*, not a
+proof.  The machine-checked version
+(`proofs/SparkleProofs/Control/PIDDesign.lean`) exhibits a quadratic
+certificate instead:
+
+```
+P = ⎡ 8.0999  −5.4050  −0.0850 ⎤        V(s) = sᵀPs
+    ⎢−5.4050   9.7880   0.0574 ⎥
+    ⎣−0.0850   0.0574   1.0013 ⎦
+```
+
+and proves, over ℝ with Mathlib, zero `sorry`:
+
+```
+theorem pid_lyapunov_decrease (x I p : ℝ) :
+    V (nextX x I p) (nextI x I p) (nextP x I p) ≤ (39/40) * V x I p := by
+  unfold V nextX nextI nextP p11 p12 p13 p22 p23 p33 Kp Ki Kd pa pb
+  nlinarith [sq_nonneg (x + (1694/10000)*I + (27/10000)*p),
+             sq_nonneg (I − (25/10000)*p), sq_nonneg p, …]
+```
+
+Every sample, the energy `V` shrinks by at least the factor 39/40 — for
+*every* state, not the trajectories you happened to simulate.  Together with
+`P ≻ 0` (Sylvester, also proven) and the sandwich
+`0.999·‖s‖² ≤ V(s) ≤ 15·‖s‖²`, the corollary `pid_geometric_decay` gives
+geometric convergence of the state itself, by a five-line induction.
+
+Where did `P` and those strange `nlinarith` hints come from?  Offline — and
+this recipe is used for every quadratic-form proof in the repo, so learn it
+once:
+
+1. iterate the discrete Lyapunov equation `P ← AᵀPA + I` numerically to a
+   fixed point; round to 4 decimals;
+2. sweep for the true worst ratio `V(As)/V(s)` (here 0.9306) and pick a
+   *round* certified rate above it (39/40 = 0.975 — slack is robustness);
+3. compute `ρP − AᵀPA` over exact rationals and take its exact LDLᵀ; if all
+   pivots are positive (here 0.798 / 0.732 / 0.975) the matrix is PSD and
+   the LDLᵀ rows are literally a sum-of-squares witness;
+4. hand those rows to `nlinarith` as `sq_nonneg` hints.  The proof lands on
+   the first try, because you are not asking the tactic to *find* the
+   certificate — only to *check* it.
+
+Guess-and-verify is the honest shape of every Lyapunov argument; the kernel
+checking step 4 is what turns the numerical remark into a theorem.
+
+### 12.1.4 What just happened, and what did not
+
+The theorem is about the ℝ model.  The RTL runs Q15.16.  Three things bridge
+the gap, each covered later in this chapter: the quantization error of each
+multiply is one-sided and < 1 LSB (§12.3, `mulQ_error`); a Lyapunov
+contraction survives bounded per-step disturbances with a computable
+ultimate bound (§12.3, ISS); and the circuit is held to the pure model
+cycle-by-cycle on three different backends (§12.4d).  What is *deliberately
+not* claimed: that the clamps never engage (they exist precisely for the
+transients where they do), and that the certificate covers the saturated
+regions — extending `V` piecewise across the clamp boundaries is the
+natural next theorem, and is open.
+
+## 12.2 Lyapunov stability in general
+
+What §12.1.3 did for one system is the general recipe.  A **Lyapunov
+function** for `s⁺ = f(s)` is any `V ≥ 0` with
+
+```
+V(f(s)) ≤ ρ·V(s),      ρ < 1     (for all s)
+```
+
+— existence of such a `V` *is* geometric stability, and for linear systems a
+quadratic `V(s) = sᵀPs` always works when the system is stable (solve the
+discrete Lyapunov equation, as above).  Two more instances live in this
+repo, proved with the same LDLᵀ recipe:
+
+* the **LQR** double integrator (`LQRDesign.lean`) — the chapter's vehicle
+  for the quantization story, ρ = 39/40, true ratio 0.97179;
+* both **estimator error dynamics** (`EstimatorDesign.lean`, §12.5) — where
+  the *same* recipe also proves the H∞ dissipation inequality, a 4-variable
+  quadratic form.
+
+Why insist on the contraction form `V∘f ≤ ρV` rather than mere decrease
+`V∘f < V`?  Because only the former survives disturbances: ρ < 1 leaves
+room to absorb a bounded perturbation into a geometric series (§12.3's ISS
+argument), whereas strict-decrease-by-an-unquantified-amount absorbs
+nothing.  Certificates should always be stated with slack.
 
 ## 12.3 Quantization as a bounded disturbance
 
@@ -252,10 +348,21 @@ can catch that class of bug, because the bug is in the translation itself.
 What caught it: **simulating the emitted Verilog** against the pure model —
 which then agreed bit-for-bit once the backend was fixed (five full
 time-varying-Kalman samples, FSM + shared divider + covariance recursion:
-`0, 0, 1581, 8167, 22409` from both).  The moral for the toolbox: theorem,
-SAT and search all verify the *model*; only simulation of the *artifact*
-verifies the compiler that produced it.  Keep one RTL-level cross-sim in the
-loop no matter how much you have proven.
+`0, 0, 1581, 8167, 22409` from both).  A second lesson from the same week, one
+layer up: the interpreted `Signal.val` co-sim of a multi-register `circuit do`
+FSM *hangs* (issue #95 — the Circuit monad composes per-write state-update
+closures, so evaluation cost grows ~k^k in the register count).  An attempted
+fix made simulation linear, but it changed expression sharing enough to alter
+the generated RTL of nested engines behind multi-output records — caught only
+by re-running the emitted RTL against a known-good Keccak digest, and
+therefore not merged.  The estimators here are co-simulated through the CSim
+JIT (`lake exe control-jit-test`) and iverilog instead.
+
+The moral for the toolbox: theorem, SAT and search all verify the *model*;
+only executing the *artifact* — the emitted RTL, the compiled simulator —
+verifies the compiler that produced it.  Keep one artifact-level cross-sim per
+backend in the loop no matter how much you have proven, and treat a green
+`#synthesizeVerilog` as "well-formed", never as "correct".
 
 ## 12.5 Estimators: Kalman and H∞ are the same circuit
 

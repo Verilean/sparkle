@@ -62,17 +62,17 @@ private def packLanes34 (padded : Array UInt8) : Array (BitVec 64) × Nat := Id.
 /-- Build a `SimInput` for a given start bit + packed lanes + nBlocks. -/
 private def mkInput (start : Bool) (nBlocks : Nat) (L : Array (BitVec 64)) : SimInput :=
   let g := fun i => L.getD i 0#64
-  { start := if start then 1#1 else 0#1
-  , nBlocks := BitVec.ofNat 2 nBlocks
-  , m0 := g 0,   m1 := g 1,   m2 := g 2,   m3 := g 3
-  , m4 := g 4,   m5 := g 5,   m6 := g 6,   m7 := g 7
-  , m8 := g 8,   m9 := g 9,   m10 := g 10, m11 := g 11
-  , m12 := g 12, m13 := g 13, m14 := g 14, m15 := g 15
-  , m16 := g 16, m17 := g 17, m18 := g 18, m19 := g 19
-  , m20 := g 20, m21 := g 21, m22 := g 22, m23 := g 23
-  , m24 := g 24, m25 := g 25, m26 := g 26, m27 := g 27
-  , m28 := g 28, m29 := g 29, m30 := g 30, m31 := g 31
-  , m32 := g 32, m33 := g 33 }
+  { _gen_start := if start then 1#1 else 0#1
+  , _gen_nBlocks := BitVec.ofNat 2 nBlocks
+  , _gen_m0 := g 0, _gen_m1 := g 1, _gen_m2 := g 2, _gen_m3 := g 3
+  , _gen_m4 := g 4, _gen_m5 := g 5, _gen_m6 := g 6, _gen_m7 := g 7
+  , _gen_m8 := g 8, _gen_m9 := g 9, _gen_m10 := g 10, _gen_m11 := g 11
+  , _gen_m12 := g 12, _gen_m13 := g 13, _gen_m14 := g 14, _gen_m15 := g 15
+  , _gen_m16 := g 16, _gen_m17 := g 17, _gen_m18 := g 18, _gen_m19 := g 19
+  , _gen_m20 := g 20, _gen_m21 := g 21, _gen_m22 := g 22, _gen_m23 := g 23
+  , _gen_m24 := g 24, _gen_m25 := g 25, _gen_m26 := g 26, _gen_m27 := g 27
+  , _gen_m28 := g 28, _gen_m29 := g 29, _gen_m30 := g 30, _gen_m31 := g 31
+  , _gen_m32 := g 32, _gen_m33 := g 33 }
 
 /-- 4 LE lanes → 32-byte digest. -/
 private def lanesToDigest (o : SimOutput) : Array UInt8 :=

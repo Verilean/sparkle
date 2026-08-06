@@ -85,6 +85,22 @@ the full layer-stack breakdown, bring-up notes, and sim entry points.
 | [**Ethernet framing**](IP/Net/Ethernet.lean) | MAC framer + RX / TX header extract + payload streaming.  DMAC / SMAC / EtherType recovery cycle-accurate | — | Full | iverilog round-trip |
 | [**CRC32**](IP/Net/CRC32.lean) | Bit-serial IEEE 802.3 CRC-32 engine.  Reference vs HW parity checked in `crc32-jit-test` | — | Full | 1 byte / cycle |
 
+### Control & estimation (new — PR #109)
+
+| IP | Description | Proofs | Synth | Details |
+|----|-------------|:------:|:-----:|---------|
+| [**Control suite**](docs/ip-catalog/Control.md) | PID (anti-windup), LQR, IIR biquads at swept precisions, steady-state Kalman + H∞ (same RTL, different constants), time-varying Kalman with on-chip Riccati + width-generic Q divider | ℝ Lyapunov / ISS / dissipation certificates transported to fixed point (Mathlib sidecar `proofs/`, zero `sorry`) | Full (+ iverilog & JIT co-sim) | Tutorial [Ch 12](docs/tutorial/md/Ch12_ControlPrecision.md) |
+
+The stability story: design over ℝ, prove `V(x⁺) ≤ ρ·V(x)` with Mathlib,
+treat quantization as a bounded disturbance (ISS), and get an unbounded
+kernel-checked ultimate bound on the *integer* datapath — plus the
+counterexample (a naively quantized resonator whose emitted Verilog sustains
+a period-6 limit cycle).  Precision selection is a theorem
+(`Vbound f = c/4^f`; 13 fractional bits is exactly the threshold for the demo
+budget).  The ℝ⇒Float falsification front-end (`retypelab/`, via
+[retype](https://github.com/Verilean/retype)) kills wrong certificate
+candidates in milliseconds before any `nlinarith` time is spent.
+
 ### Bus & interconnect
 
 | IP | Description | Proofs | Synth | Details |
