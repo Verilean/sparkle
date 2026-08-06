@@ -361,12 +361,52 @@ straight from module inputs, its two projections both consumed.  Correct is
 7 registers (1 accumulator + 6 engine) and ONE engine.  Before the fix this
 was 13 registers / 2 engines.
 
-The residual case is when the engine's arguments derive from register reads —
-then the two walks close over different `live` and are genuinely different
-expressions (verified: `tvKalman`'s 11 divider loops all have distinct
-`Expr.hash`), so no expression-level cache can merge them.  That is why
-`tvkTop` above is still pinned at 76; fixing it needs sharing keyed on
-something other than expression identity. -/
+The residual case is when the engine's arguments derive from register reads.
+`tvkTop` above is still pinned at 76 because of it, and the reason is a hard
+one — established by instrumenting the elaborator rather than by guessing:
+
+* the 11 `let engine := dividerQ 32 16 divNum s startDiv` occurrences PRINT
+  identically but every one has a distinct `Expr.hash`;
+* the difference is invisible to the pretty-printer: `divNum`/`s`/`startDiv`
+  are distinct *fvar objects* sharing a user name, one set per walk;
+* those upstream `let divNum := …` bindings are themselves all distinct
+  (11 occurrences, 11 hashes, zero cache hits), and each resolves to a
+  freshly-allocated wire (`_gen_divNum`, `_gen_divNum_1`, …);
+* keying on the engine's argument wires therefore cannot work either — that
+  was tried and reverted.
+
+Contrast a binding that DOES dedupe: `let phase := …` (a direct register read)
+has the same hash nine times out of eleven occurrences, so the cache collapses
+it.  The divergence is injected downstream of the register reads and amplifies.
+
+Candidate keys that were checked and rejected, so nobody re-treads them:
+`(binderName)` alone — unsafe, `IP/Crypto/AESHW` has three different
+`let a := _ ^^^ _` in one `circuit do`; `(binderName, callee, arity)` — unsafe
+for the same reason (all three share `HXor.hXor`/2); a per-name ordinal — the
+two walks are not symmetric (11 engine bindings is odd).
+
+So merging these needs an identity that survives re-walking — not another
+cache key.  Two further approaches were implemented and MEASURED, and both are
+recorded here as dead ends:
+
+* **IR-level CSE** (same rhs → reuse one lhs, iterated to a fixpoint): merges
+  nothing on `tvKalman`.  The duplicate registers are MUTUALLY RECURSIVE —
+  `_gen_counterNext` references `_tmp_a_61` (its own register) while the copy's
+  `_gen_counterNext_1` references `_tmp_a_201` — so they are identical only up
+  to renaming and literal `BEq` never fires.  Note the existing dedupe in
+  `optimizeModule` keys on same-LHS, a different (and also insufficient) rule.
+* **Bisimulation / partition refinement** (seed same-shape registers into one
+  class, split on input disagreement until stable): got 76 → 66 registers but
+  was WRONG — it merged non-equivalent registers and every Keccak digest went
+  to all-zero.  Getting the refinement sound (correct seeding, correct
+  propagation of splits through the recursive cone) is real work, not a tweak.
+
+The honest status: functionally harmless (every copy is fed identical inputs,
+which is why all co-sims and digests pass), ~11× the divider area, and the
+sound fix is a `runCircuitH` restructuring so the body is walked once.  That
+restructuring needs `ρ` in the loop state, which needs `Inhabited`/`Wireable ρ`
+constraints at every `circuit do` call site — a deliberate API change, not a
+local patch. -/
 
 def engineFromInputs (n d : Signal defaultDomain (BitVec 32))
     (st : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 32) :=
