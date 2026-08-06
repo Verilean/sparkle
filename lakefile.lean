@@ -746,6 +746,13 @@ lean_exe «control-jit-test» where
   root := `Tests.Drivers.ControlJITTestMain
   supportInterpreter := true
 
+-- Structural lint over emitted RTL (undeclared wires, pinned register /
+-- instance counts).  Guards the miscompile class that Lean-side checks and
+-- `#synthesizeVerilog` both miss; the run_meta checks fail `lake build`.
+lean_exe «rtl-structure-test» where
+  root := `Tests.Drivers.RtlStructureTestMain
+  supportInterpreter := true
+
 lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true
