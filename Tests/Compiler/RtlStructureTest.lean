@@ -155,6 +155,36 @@ def undeclaredWires (body : String) : List String :=
   let bound := boundNames body
   (identsIn body).filter (fun i => !bound.contains i)
 
+/-- Declared output ports of a module body. -/
+def outputPorts (body : String) : List String := Id.run do
+  let mut out : List String := []
+  for line in body.splitOn "\n" do
+    let t := line.trim
+    if t.startsWith "output " then
+      let afterBracket := if containsSubstr t "]" then (t.splitOn "]").getLast! else t
+      let cleaned := ((afterBracket.replace "," "").replace ")" "").trim
+      let nm := ((cleaned.splitOn " ").getLast!).trim
+      if nm != "" then out := nm :: out
+  return out.eraseDups
+
+/-- Output ports that are declared but never driven — i.e. the module has a
+    dangling primary output.
+
+    This is a MISCOMPILE the `undeclaredWires` check cannot see: the port is
+    declared, so nothing is "undeclared"; it simply has no `assign` and no
+    `always_ff` writing it, so downstream logic reads Z/X.  Found exactly this
+    in the `#sim` `.sv` sidecar for multi-output records projected off a nested
+    engine (`divSim`, `tvkSim`): both declare their ports and drive neither,
+    while the same designs through `#synthesizeVerilog` DO emit
+    `assign out = …`.  yosys reports it as "Wire … is used but has no driver". -/
+def undrivenOutputs (body : String) : List String :=
+  let outs := outputPorts body
+  outs.filter fun o =>
+    let drivenByAssign := containsSubstr body s!"assign {o} ="
+    let drivenByReg := containsSubstr body s!"{o} <="
+    -- an instance connection `.o(wire)` on the CHILD side does not drive OUR o
+    !(drivenByAssign || drivenByReg)
+
 def countRegisters (body : String) : Nat :=
   (body.splitOn "always_ff").length - 1
 
@@ -195,6 +225,12 @@ run_meta do
     if mods.isEmpty then
       throwError s!"RTL structure: {declName} produced no modules"
     for (mname, body) in mods do
+      let undriven := undrivenOutputs body
+      unless undriven.isEmpty do
+        throwError s!"RTL structure: {declName} module {mname} declares output \
+port(s) {undriven} that are NEVER DRIVEN.\n\nDownstream logic reads Z/X. \
+yosys reports this as \"used but has no driver\".  Fix the backend; do not \
+relax this check."
       let bad := undeclaredWires body
       unless bad.isEmpty do
         throwError s!"RTL structure: {declName} module {mname} references \
@@ -401,12 +437,61 @@ recorded here as dead ends:
   to all-zero.  Getting the refinement sound (correct seeding, correct
   propagation of splits through the recursive cone) is real work, not a tweak.
 
-The honest status: functionally harmless (every copy is fed identical inputs,
-which is why all co-sims and digests pass), ~11× the divider area, and the
-sound fix is a `runCircuitH` restructuring so the body is walked once.  That
-restructuring needs `ρ` in the loop state, which needs `Inhabited`/`Wireable ρ`
-constraints at every `circuit do` call site — a deliberate API change, not a
-local patch. -/
+## The cost, measured with yosys (not "harmless")
+
+`synth -flatten` on `tvkTop`:
+
+    50 216 cells,  572 flip-flops,  49 509 wires
+
+and one `dividerQ15_16` alone:
+
+    1 058 cells,  137 flip-flops
+
+So the 11 copies are ≈11 600 cells — about **21 % of the whole design** — and
+removing 10 of them would save ≈10 600 cells.  For scale, a Tang Nano 20K has
+roughly 20 k LUTs: at 50 k cells this ONE drone-axis Kalman filter does not
+fit.  Calling it "functionally harmless" understates it; in hardware, area is
+part of correctness, and this duplication is the difference between fitting on
+the target board and not.
+
+### Correction: the multiplier is CONSUMERS, not the two body walks
+
+An earlier version of this note blamed the duplication on `runCircuitH` calling
+`body` twice.  Instrumenting every hardware-`let` shows that is wrong, and the
+real number is worse-behaved:
+
+    HWLET stateLoop  ×1     HWLET nextState ×1
+    HWLET e          ×4     HWLET res ×4    HWLET dn ×4   HWLET num ×4  …
+
+`stateLoop`/`nextState` appear ONCE, yet everything inside them jumps straight
+to 4 — and 4 = **3 register writes + 1 returned output**, i.e. the number of
+CONSUMERS of the shared `let` chain.  `packRegister` builds each register's
+input independently, and every one of those traversals re-enters the same
+`let e := dividerQ …`.  So the growth is (number of consumers), and the two
+body walks are a constant factor on top, not the cause.
+
+That also explains why every expression-keyed attempt fails: each consumer's
+traversal instantiates the binder with a FRESH fvar, so the four `let e` nodes
+have four distinct `Expr.hash`es (verified).  Memoizing the whole `.letE` node
+was tried too — same result, same reason.
+
+### Routes assessed for a sound fix
+
+* put `ρ` in the loop state — needs `Inhabited`/`Wireable ρ` at every call
+  site.  Measured surface: **173 `circuit do` sites**, 56 returning a bare
+  `Signal` and ~115 returning records (`MulOut`, `RxOut`, `SpongeOut`, …).  A
+  real API change, but a mechanical one.
+* have the loop body reuse the outer `regs` (so `body` is called once) — NOT
+  well-founded in Lean: `Signal.loop (fun _ => f stateLoop)` where `stateLoop`
+  is the loop itself fails termination checking.  Verified, not assumed.
+
+A third route, given the corrected diagnosis: make the elaborator translate a
+`circuit do` body ONCE into a shared wire environment, and have each consumer
+read wires out of it rather than re-traverse the term.  That is a change to how
+`splitReturnLeaves`/`packRegister` consume the body, and it is where the next
+attempt should start — not at another cache key.
+
+Until one lands, these pins are the tripwire. -/
 
 def engineFromInputs (n d : Signal defaultDomain (BitVec 32))
     (st : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 32) :=
@@ -432,6 +517,55 @@ is duplicating the engine again."
       throwError s!"RTL structure: engineFromInputs module {mname} undeclared {bad}"
   IO.println s!"[rtl-structure] engineFromInputs registers = {total} \
 (pinned; let-binding cache dedupe intact)"
+
+/-! ### The register-dependent duplication, as a small reproducer
+
+`tvkTop` (76 registers / 11 engines) is unwieldy to iterate on.  This is the
+same bug in 20 lines: a `dividerQ` engine whose arguments derive from REGISTER
+reads, so the two `runCircuitH` body walks produce structurally different
+expressions and the `let`-cache fix of da4daa7 cannot collapse them.
+
+Correct is 9 registers (3 FSM + 6 engine) and ONE engine.  Currently 27 / 4.
+
+Pinned at the broken value deliberately: when someone fixes the double body
+walk, THIS is the test that should flip first, and 27 → 9 is the signal that
+the fix works.  Measured area (yosys `synth -flatten`) for the full-size case
+is in the `tvkTop` note above: ≈21 % of the design is duplicate dividers. -/
+
+def regDependentEngine (y : Signal defaultDomain (BitVec 32))
+    : Signal defaultDomain (BitVec 32) :=
+  circuit do
+    let p ← Signal.reg (0#32)
+    let ph ← Signal.reg (0#3)
+    let acc ← Signal.reg (0#32)
+    let pS := (p : Signal defaultDomain (BitVec 32))
+    let phS := (ph : Signal defaultDomain (BitVec 3))
+    let num := pS + y
+    let den := pS + (Signal.lit defaultDomain 1#32)
+    let stt := phS === (Signal.lit defaultDomain 1#3)
+    let e := Sparkle.IP.Control.DividerQ.dividerQ 32 16 num den stt
+    let res := Signal.fst e
+    let dn := Signal.snd e
+    p <~ Signal.mux dn res pS
+    ph <~ Signal.mux dn (Signal.lit defaultDomain 2#3) phS
+    acc <~ Signal.mux dn res (acc : Signal defaultDomain (BitVec 32))
+    return acc
+
+run_meta do
+  let text ← designText ``regDependentEngine
+  let mods := splitModules text
+  let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
+  -- 9 is correct; 27 is the current (buggy) value.  Accept either so the test
+  -- documents the gap without blocking the build, but SHOUT when it changes.
+  unless total == 27 || total == 9 do
+    throwError s!"RTL structure: regDependentEngine registers = {total} \
+(expected 27 = current double-walk duplication, or 9 = fixed)."
+  if total == 9 then
+    IO.println "[rtl-structure] regDependentEngine = 9 — DOUBLE BODY WALK FIXED, \
+update the tvkTop pin too"
+  else
+    IO.println s!"[rtl-structure] regDependentEngine = {total} \
+(3 FSM + 4×6 duplicated engine; 9 would be correct — see the tvkTop note)"
 
 /-! ### LSpec surface
 
