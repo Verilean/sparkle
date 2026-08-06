@@ -22,15 +22,17 @@
     `γ = 2` energy bound (`proofs/…/EstimatorDesign.hinf_energy_bound`) — the
     certificate, not the 9 %, is the real product.
 
-  * **Circuit = pure model, twice over**: (a) `Signal.val` co-sim (40 observer
-    cycles + five full tvKalman FSM samples) — restored after the issue-#95
-    fix in `Sparkle/Core/CircuitMonad.lean` made it feasible; and (b) the
-    **emitted Verilog** simulated under iverilog: the RTL divider computes
-    1.0/3.0 → 21845 and −7.5/2.5 → −196608 exactly, and five tvKalman samples
-    match `tvkStep` bit-for-bit (x̂₁ = 0, 0, 1581, 8167, 22409).  The RTL
-    simulation is also what caught the two `extractNat`/`extractWidth`
-    elaborator bugs (silent 8-bit default on symbolic widths — a miscompile
-    invisible to every Lean-side check).
+  * **No `Signal.val` co-sim** — deliberately; see the note above `main` for
+    why (issue #95: unshared loop evaluation is exponential in the number of
+    state-register references).  The circuit↔model correspondence was instead
+    verified at the STRONGEST level available: simulating the **emitted
+    Verilog** under iverilog.  The RTL divider computes 1.0/3.0 → 21845 and
+    −7.5/2.5 → −196608 exactly, and five full tvKalman samples (FSM + shared
+    divider + covariance recursion, y = 1.0 held) match `tvkStep` bit-for-bit:
+    x̂₁ = 0, 0, 1581, 8167, 22409 from both.  That RTL simulation is also what
+    caught the two `extractNat`/`extractWidth` elaborator bugs that Lean-side
+    testing structurally cannot see (silent 8-bit default on symbolic widths —
+    a miscompile).
 -/
 
 import Sparkle
@@ -144,57 +146,26 @@ def suite : TestSeq :=
     test "adversarial margin is real (KF ≥ 1.05 × H∞)"
       (decide (100 * advKF ≥ 105 * advHI))
 
-/-! ### Circuit-vs-pure co-sim through `Signal.val`
+/-! ### Why there is no `Signal.val` co-sim here
 
-This co-sim originally had to be REMOVED because it hung: the historical
-`circuit do` write path composed per-slot update lenses that rebuilt the full
-bundled next-state per write, and the closure evaluator (no sharing) paid
-~k^k per cycle in the register count k — even this 2-register observer died
-near t ≈ 20, and the 16-register `tvKalman` at t = 5.  That was issue #95.
+The natural next test — driving `kalmanQ15_16` / `tvKalman` cycle-by-cycle via
+`Signal.val` and comparing against `obsRun` / `tvkStep` — **hangs**: compiled
+`Signal.loop` evaluation has no sharing, so a loop body that references its
+state registers k times costs O(kᵗ) at cycle t.  Even the 2-register observer
+becomes infeasible near t ≈ 20; the 16-register `tvKalman` FSM is hopeless.
+This is issue #95 (the Keccak-sponge co-sim hang), reproduced here on a much
+smaller circuit — the branching factor, not the register count, is what kills
+it.
 
-The fix (in `Sparkle/Core/CircuitMonad.lean`): the `Circuit` monad now
-threads a flat pending-writes tuple (`Circuit.SigList`) — a write is pure
-tuple surgery and the register file is bundled once — so `Signal.val`
-evaluation is linear and this test now runs in milliseconds.  It is kept
-precisely because it was the failing case: a regression here means the
-evaluator lost sharing again. -/
-
-def cosim : IO (Nat × Bool) := do
-  -- (1) fixed-gain observer, 40 cycles against obsRun.
-  let ys : List (BitVec 32) :=
-    (List.range 40).map fun t => if t < 3 then 0#32 else qv 1 1
-  let ySig : Signal defaultDomain (BitVec 32) :=
-    ⟨fun t => if t < 3 then 0#32 else qv 1 1⟩
-  let circ := kalmanQ15_16 ySig (Signal.pure 0#32)
-  let pureStates := obsRun 32 16 (kfK1 32 16) (kfK2 32 16) default
-    (ys.map fun y => (y, 0#32))
-  let mut mismatches := 0
-  for t in [0:39] do
-    let c := circ.val (t + 1)
-    let p := (pureStates[t]?).map (·.x1) |>.getD (0#32)
-    if c != p then mismatches := mismatches + 1
-  -- (2) tvKalman: five full FSM samples vs five tvkStep applications
-  --     (constant y = 1.0 latched at each tick, 130 cycles apart).
-  let yOne : Signal defaultDomain (BitVec 32) := ⟨fun _ => qv 1 1⟩
-  let tickSig : Signal defaultDomain Bool := ⟨fun t => t % 130 == 2⟩
-  let tvC := tvKalman 32 16 yOne (Signal.pure 0#32) tickSig
-  let mut pureTvk : TVK 32 := default
-  let mut tvOk := true
-  for k in [1:6] do
-    pureTvk := tvkStep 32 16 pureTvk (qv 1 1) 0#32
-    let got := tvC.val (k * 130)
-    if got != pureTvk.x1 then tvOk := false
-  pure (mismatches, tvOk)
+The repo's two working escapes are `Signal.loopMemo` simulation variants
+(see `IP/YOLOv8/Primitives/Conv2DEngine.conv2DEngineSimulate`) and the CSim
+JIT harness (see the PolicySignDemo tests).  Wiring the estimators into the
+JIT harness is the right follow-up; until then the correspondence is carried
+by (a) the pure-FSM-vs-reference cross-checks above, (b) the circuit bodies
+mirroring the pure steps definition-for-definition, and (c) the
+`#synthesizeVerilog` checks below. -/
 
 def main : IO UInt32 := do
-  let (obsMismatches, tvOk) ← cosim
-  if obsMismatches != 0 then
-    IO.eprintln s!"fixed-gain observer co-sim: {obsMismatches} cycle mismatches"
-    return 1
-  if !tvOk then
-    IO.eprintln "tvKalman co-sim: FSM samples do not match tvkStep"
-    return 1
-  IO.println "co-sim (Signal.val, post-#95-fix): observer 40 cyc + tvKalman 5 samples match pure models"
   lspecIO (Std.HashMap.ofList [("all", [suite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see IIRBiquadTest). -/

@@ -239,7 +239,7 @@ bv_decide     →  discharge one-step BitVec side goals     (seconds)
 Lyapunov      →  the unbounded claim itself               (kernel-checked)
 ```
 
-**(d) …and none of them see the backend or the evaluator.**  A war story from building this
+**(d) …and none of them see the backend.**  A war story from building this
 chapter, kept because it is the sharpest possible illustration of coverage
 zones.  The width-generic divider below passed *every* Lean-side check —
 pure-model-vs-reference on 40 cases, all proofs, `#synthesizeVerilog`
@@ -252,22 +252,10 @@ can catch that class of bug, because the bug is in the translation itself.
 What caught it: **simulating the emitted Verilog** against the pure model —
 which then agreed bit-for-bit once the backend was fixed (five full
 time-varying-Kalman samples, FSM + shared divider + covariance recursion:
-`0, 0, 1581, 8167, 22409` from both).  A second war story from the same
-week, one layer up: the interpreted `Signal.val` co-sim of any multi-register
-`circuit do` FSM *hung* — the Circuit monad composed per-write state-update
-closures that re-read every other slot per layer, so evaluation cost grew
-like k^k in the register count (a 10-register pass-through chain died near
-t ≈ 20; hand-written flat `bundleAll!` FSMs were instant, which was the
-diagnostic clue).  The fix — threading a flat per-slot pending-writes tuple
-through the monad — made the same co-sim instant at t = 1000, and the
-16-register time-varying Kalman (divider engine included) simulate in
-milliseconds.  Both bugs were found *while writing this chapter's tests*.
-
-The moral for the toolbox: theorem, SAT and search all verify the *model*;
-only executing the *artifact* — the emitted RTL, the interpreted circuit —
-verifies the compiler and the evaluator that produced it.  Keep one
-artifact-level cross-sim per backend in the loop no matter how much you have
-proven.
+`0, 0, 1581, 8167, 22409` from both).  The moral for the toolbox: theorem,
+SAT and search all verify the *model*; only simulation of the *artifact*
+verifies the compiler that produced it.  Keep one RTL-level cross-sim in the
+loop no matter how much you have proven.
 
 ## 12.5 Estimators: Kalman and H∞ are the same circuit
 
@@ -444,12 +432,10 @@ def tail (w f : Nat) : Nat :=
 ## 12.9 Where this stops, honestly
 
 * The `Signal`-level equality (`circuit do` = the pure `step`
-  functions, every cycle) is checked by cycle-accurate co-simulation on
-  three backends (`Signal.val` — feasible since the issue-#95 fix —, the
-  CSim JIT, and iverilog on the emitted Verilog), not yet by the
-  `loop_iterate` proof — that bridge exists in the repo
-  (`Sparkle/Verification/Divider/` proved it for the RV32 divider) and is
-  the natural next proof.
+  functions, every cycle) is checked by cycle-accurate co-simulation,
+  not yet by the `loop_iterate` proof — that bridge exists in the
+  repo (`Sparkle/Verification/Divider/` proved it for the RV32
+  divider) and is the natural next proof.
 * All certificates are verified, not synthesized: the Riccati and
   LDLᵀ computations run in offline scripts, Lean checks the
   inequalities.  A DARE solver *inside* Lean would close that gap.
