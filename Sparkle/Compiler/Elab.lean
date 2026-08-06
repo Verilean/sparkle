@@ -1657,8 +1657,41 @@ mutual
         pure false
 
       if isHW then
-        -- Hardware let: translate value to wire
-        let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
+        -- Hardware let: translate value to wire.
+        --
+        -- `isNamed := true` gives the wire the binder's readable name, but it
+        -- also makes `translateExprToWire` bypass the expression cache in BOTH
+        -- directions.  That matters because `runCircuitH` calls the user's
+        -- `body` TWICE (once inside `Signal.loop` for the register next-state,
+        -- once outside for the return value), so every `let e := <engine> …`
+        -- in a `circuit do` was translated twice — emitting a SECOND COPY of
+        -- the engine's registers each time, and once more per additional use
+        -- of a projection.  Measured on `IP/Control/Observer.tvKalman`: one
+        -- 6-register `dividerQ` engine became ELEVEN (76 registers instead of
+        -- 16).  The two copies were structurally identical (same `Expr.hash`),
+        -- so the cache would have collapsed them had `isNamed` not opted out.
+        --
+        -- Consult the cache first, and only fall back to a fresh named
+        -- translation on a miss.  A cache hit returns the existing wire; it
+        -- loses the pretty binder name for that occurrence, which is a
+        -- cosmetic price for not duplicating hardware.
+        let cachedValue? ← do
+          if value.isFVar then pure none
+          else match (← CompilerM.getCompilerState).exprCache with
+            | none => pure none
+            | some ref => CompilerM.liftMetaM do
+                let cache ← (ref.get : IO _)
+                pure (cache.get? ⟨value⟩)
+        let valueWire ←
+          match cachedValue? with
+          | some w => pure w
+          | none => translateExprToWire value name.toString
+                      (isTopLevel := false) (isNamed := true)
+        -- Record it so the *other* `body` call (and later uses) share this
+        -- wire instead of re-walking the value.
+        if !value.isFVar then
+          if let some ref := (← CompilerM.getCompilerState).exprCache then
+            CompilerM.liftMetaM (ref.modify (·.insert ⟨value⟩ valueWire))
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
           -- Also remember (fvar → defining expression) for

@@ -343,6 +343,56 @@ Both `e.done` and `e.cnt` must come from ONE shared instance."
       throwError s!"RTL structure: outerShared module {mname} undeclared wires {bad}"
   IO.println s!"[rtl-structure] outerShared: regs={total}, eng2 instances={insts} (shared)"
 
+/-! ### The `let`-binding cache win, pinned
+
+`runCircuitH` calls the user's `body` twice (once inside `Signal.loop` for the
+register next-state, once outside for the return value), and the hardware-`let`
+handler used to translate its value with `isNamed := true` — which bypasses the
+expression cache in both directions.  Every `let e := <engine> …` inside a
+`circuit do` was therefore walked twice, emitting a second copy of the engine's
+registers, plus one more per additional use of a projection.
+
+The handler now consults the cache before doing the named translation.  When
+the engine's inputs do NOT depend on the registers, the two walks produce
+structurally identical expressions and collapse to one instance.
+
+`engineFromInputs` below is that case: one 6-register `dividerQ` engine driven
+straight from module inputs, its two projections both consumed.  Correct is
+7 registers (1 accumulator + 6 engine) and ONE engine.  Before the fix this
+was 13 registers / 2 engines.
+
+The residual case is when the engine's arguments derive from register reads —
+then the two walks close over different `live` and are genuinely different
+expressions (verified: `tvKalman`'s 11 divider loops all have distinct
+`Expr.hash`), so no expression-level cache can merge them.  That is why
+`tvkTop` above is still pinned at 76; fixing it needs sharing keyed on
+something other than expression identity. -/
+
+def engineFromInputs (n d : Signal defaultDomain (BitVec 32))
+    (st : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 32) :=
+  circuit do
+    let acc ← Signal.reg (0#32)
+    let e := Sparkle.IP.Control.DividerQ.dividerQ 32 16 n d st
+    acc <~ Signal.mux (Signal.snd e) (Signal.fst e)
+             (acc : Signal defaultDomain (BitVec 32))
+    return acc
+
+run_meta do
+  let text ← designText ``engineFromInputs
+  let mods := splitModules text
+  let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
+  unless total == 7 do
+    throwError s!"RTL structure: engineFromInputs registers = {total} (pinned 7 \
+= 1 accumulator + 6 divider).  A rise to 13 means the hardware-`let` handler \
+stopped consulting the expression cache and `runCircuitH`'s double body call \
+is duplicating the engine again."
+  for (mname, body) in mods do
+    let bad := undeclaredWires body
+    unless bad.isEmpty do
+      throwError s!"RTL structure: engineFromInputs module {mname} undeclared {bad}"
+  IO.println s!"[rtl-structure] engineFromInputs registers = {total} \
+(pinned; let-binding cache dedupe intact)"
+
 /-! ### LSpec surface
 
 The checks above already fail the build.  This suite re-exposes the two
