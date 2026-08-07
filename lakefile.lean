@@ -3,8 +3,11 @@ open Lake DSL
 
 package «sparkle» where
 
+-- Pinned to the revision Reservoir verifies against v4.32.1.  `main` is
+-- newer (9389649) but its own lean-toolchain still says v4.31.0; the pin
+-- is what the toolchain bump is actually tested on.
 require LSpec from git
-  "https://github.com/argumentcomputer/LSpec" @ "main"
+  "https://github.com/argumentcomputer/LSpec" @ "3e23a4a"
 
 -- C FFI library for Signal memoization barriers (defeats Lean 4.28 LICM)
 extern_lib «sparkle_barrier» pkg := do

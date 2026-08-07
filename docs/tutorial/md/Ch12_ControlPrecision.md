@@ -393,8 +393,8 @@ Layer 2 says the two systems are related by transport; layer 3 has to say
 what that relation preserves.
 
 Two honest gaps in this layer, both recorded rather than papered over.
-`retype` pins Lean v4.32.0 while Sparkle is on v4.28.0, so the transport
-above runs in the `retypelab/` sidecar and the ℝ model is *duplicated*
+the transport above runs in the `retypelab/` sidecar, a separate Lake
+package with its own copy of mathlib, so the ℝ model is *duplicated*
 there rather than imported (`retypelab/RetypeLab/Falsify.lean` explains the
 seam and re-derives the proved constants so drift shows up as a failing
 `#guard`).  And the `mulQ` agreement is checked on cases, not proved for

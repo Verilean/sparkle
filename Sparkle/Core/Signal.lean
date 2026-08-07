@@ -64,8 +64,10 @@ namespace Sparkle.Core.Signal
 open Sparkle.Core.Domain
 
 -- Cache reader: reads arr[t] from an IORef, with the entire read in C.
--- Prevents Lean 4.28's LICM from hoisting `unsafeIO cacheRef.get` out of
--- lambdas by making the read genuinely depend on `t` (opaque + @[extern]).
+-- Prevents LICM from hoisting `unsafeIO cacheRef.get` out of lambdas by
+-- making the read genuinely depend on `t` (opaque + @[extern]).
+-- First observed on Lean 4.28.  The barrier is retained across the v4.32.1
+-- bump; whether the compiler still needs it has not been re-tested.
 @[extern "sparkle_cache_get"]
 private opaque cacheGet {α : Type} [Nonempty α] (ref : @& IO.Ref (Array α)) (t : @& Nat) (fallback : α) : α
 
@@ -695,7 +697,7 @@ opaque memoryWithInit {addrWidth dataWidth : Nat}
 -- signature is preserved via `unsafeIO` in the returned signal.
 --
 -- ─── Sim-speed caveat (`BitVec n` for n > 64) ─────────────────────
--- Lean 4.28 stores `BitVec n` as a Nat under the hood, so every
+-- Lean 4.28 stored `BitVec n` as a Nat under the hood, so every
 -- `>>>`, `<<<`, `&&&`, `^^^`, `==` allocates a fresh Nat object
 -- and goes through GMP-style multi-precision arithmetic.  For
 -- `BitVec 128` this costs ~1ms per primitive op, and a typical

@@ -24,9 +24,10 @@
 
   ## The seam, stated plainly
 
-  retype pins Lean v4.32.0; Sparkle and `proofs/` are on v4.28.0.  A Lake build
-  graph has one toolchain, so this package cannot import either of them, and the ℝ
-  model below is **duplicated** from `LQRDesign.lean` rather than imported.
+  Everything is on Lean v4.32.1 now — the toolchain split that originally forced
+  this separation is gone.  What is left is packaging: `retypelab/` is still its
+  own Lake package with its own mathlib, so the ℝ model below is **duplicated**
+  from `LQRDesign.lean` rather than imported.
 
   That duplication is a real risk — the two could drift — and it is only tolerable
   because nothing here is part of the proof chain.  A false negative (Float finds
@@ -36,7 +37,8 @@
   `checkAgainstProvenConstants` below re-derives the constants that
   `LQRDesign.lean` commits to, so drift shows up as a failing `#guard` here.
 
-  If Sparkle bumps to v4.32.0, fold this into `proofs/` and import the model.
+  Sparkle has now bumped; folding this into `proofs/` and importing the model is
+  the pending follow-up.
 -/
 
 import Retype

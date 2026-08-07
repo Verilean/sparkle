@@ -84,8 +84,10 @@ poles *inward* and *damps* the filter, so the measured residual is non-monotone 
 
 ## ℝ ⇒ Float falsification — `retypelab/`
 
-A second sidecar, on **Lean v4.32.0** because that is what retype pins (Sparkle
-and `proofs/` are v4.28.0; one Lake graph has one toolchain). It uses
+A second sidecar. It is no longer a *toolchain* split — root, `proofs/` and
+`retypelab/` are all on **v4.32.1** — but it is still its own Lake package with
+its own mathlib copy, so the ℝ model is duplicated rather than imported;
+folding it in is the pending follow-up. It uses
 `declare_retype RealToFloat : Real => Float` and `retype_def` to turn the ℝ
 controller model into executable `Float`, then searches 10⁵ random trajectories
 for a contraction or ISS violation before anyone spends time on `nlinarith`.

@@ -1,8 +1,9 @@
 /-
   RetypeLab — ℝ ⇒ Float falsification front-end for the IP/Control demo.
 
-  Separate from `proofs/` because retype pins Lean v4.32.0 while Sparkle and
-  `proofs/` are on v4.28.0.  See `RetypeLab/Falsify.lean`'s header for what that
+  Still a separate Lake package from `proofs/` (its own mathlib copy), though
+  the toolchain split that originally forced the split is gone — everything is
+  on v4.32.1 now.  See `RetypeLab/Falsify.lean`'s header for what the remaining
   seam costs and why it is safe.
 -/
 import RetypeLab.Falsify

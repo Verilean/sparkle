@@ -35,10 +35,12 @@
 
   ## The seam, again
 
-  retype pins Lean v4.32.0; Sparkle and `proofs/` are on v4.28.0, so this
-  package cannot import either and the ℝ model is duplicated here — the same
-  tradeoff `Falsify.lean` documents at length.  The duplication is kept
-  honest by `#guard`s below that re-derive the constants `proofs/` commits to.
+  The toolchain split that used to force this separation is gone — root,
+  `proofs/` and this package are all on v4.32.1.  What remains is packaging:
+  this is still its own Lake package with its own mathlib, so the ℝ model is
+  duplicated here rather than imported.  Folding it into `proofs/` is the
+  pending follow-up.  Until then the duplication is kept honest by the
+  `#guard`s below, which re-derive the constants `proofs/` commits to.
 
   What this file does NOT do: prove `∀ a b, (mulQ a b).toInt = (a.toInt *
   b.toInt) / 2^16`.  That is a `BitVec` lemma, it belongs on the Sparkle side
