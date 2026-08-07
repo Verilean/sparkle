@@ -591,6 +591,86 @@ def optimizeModule (m : Module)
     let finalWires := inlinedWires.filter fun w =>
       (useCounts2.getD w.name 0) > 0 || outputSet.contains w.name
 
+    -- Phase 4.5: prune registers (and instances) unreachable from the
+    -- module's outputs.
+    --
+    -- Phases 2 and 4 only filter `.assign`; `| _ => true` keeps every
+    -- `.register` unconditionally.  A plain use-count cannot do better,
+    -- because a dead register *bank* is self-referential: each register's
+    -- input mentions its siblings, so all of them show a nonzero count
+    -- while the bank as a whole feeds nothing observable.
+    --
+    -- This is exactly how a duplicated sub-engine survived: the second copy
+    -- of `dividerQ`'s 5 registers fed only a `packRegister` concat chain
+    -- that nothing read.  Reachability from the outputs is the only
+    -- analysis that removes it, and it is what takes `regDependentEngine`
+    -- from 15 registers to 9 and `tvkTop` from 22 to 16.
+    --
+    -- Fixed point from the output set, following refs through assigns,
+    -- register inputs, memory ports and instance connections.  Instances
+    -- are kept when ANY of their connected wires is live: a connection can
+    -- be an input being driven, so an instance is only dead when it is
+    -- wholly disconnected from the live set.
+    let assignDefs : HashMap String Expr := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .assign lhs rhs => s.insert lhs rhs
+      | _ => s) {}
+    let regInputs : HashMap String Expr := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out _ _ input _ => s.insert out input
+      | _ => s) {}
+    let seeds : List String :=
+      m.outputs.map (·.name) ++
+      -- Wires the caller has declared observable are roots too.  `#sim`
+      -- passes the JIT's probe list here, and those wires are read BY NAME
+      -- at runtime (`JIT.resolveWires`) rather than through a port — so
+      -- reachability cannot see the use and would prune them.  The RV32 SoC
+      -- oracle test reads `_gen_trap_taken` exactly this way.
+      (observableWires.getD []) ++
+      finalBody.foldl (fun acc stmt =>
+        match stmt with
+        -- memory writes and instance ports are observable side effects
+        | .memory _ _ _ _ wa wd we ra _ _ =>
+          acc ++ [wa, wd, we, ra].flatMap collectExprRefs
+        | .inst _ _ conns => acc ++ conns.flatMap (fun (_, e) => collectExprRefs e)
+        | _ => acc) []
+    let rec grow (worklist : List String) (live : HashMap String Bool)
+        (fuel : Nat) : HashMap String Bool :=
+      match fuel, worklist with
+      | 0, _ => live
+      | _, [] => live
+      | fuel + 1, w :: rest =>
+        if live.contains w then grow rest live fuel
+        else
+          let live := live.insert w true
+          let next :=
+            (assignDefs.get? w |>.map collectExprRefs |>.getD []) ++
+            (regInputs.get? w |>.map collectExprRefs |>.getD [])
+          grow (next ++ rest) live fuel
+    -- Fuel: every wire can enter the worklist once per referencing site.
+    let liveSet := grow seeds {} (finalBody.length * 8 + seeds.length + 64)
+    let reachableBody := finalBody.filter fun stmt =>
+      match stmt with
+      | .register out .. => liveSet.contains out
+      | _ => true
+    let reachableWires := finalWires.filter fun w =>
+      liveSet.contains w.name || outputSet.contains w.name
+    -- Only adopt the pruned body if it still drives every output.  A
+    -- reachability bug that drops a live register would otherwise silently
+    -- produce a module with undriven outputs; keeping the unpruned body in
+    -- that case makes this pass fail safe (bigger, never wrong).
+    let drivenAfter : HashMap String Bool := reachableBody.foldl (fun s stmt =>
+      match stmt with
+      | .assign lhs _ => s.insert lhs true
+      | .register out .. => s.insert out true
+      | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
+      | .inst _ _ conns => conns.foldl (fun acc (_, e) =>
+          match e with | .ref r => acc.insert r true | _ => acc) s) {}
+    let allOutputsDriven := m.outputs.all fun p => drivenAfter.contains p.name
+    let (finalBody, finalWires) :=
+      if allOutputsDriven then (reachableBody, reachableWires)
+      else (finalBody, finalWires)
+
     -- Phase 5: re-run the 0-bit / slice-of-op peephole.  Phase 3's
     -- single-use inlining can turn a `slice (.ref X) hi lo` into a
     -- `slice (.op …) hi lo` if X was an op-defining assign.  Emitting

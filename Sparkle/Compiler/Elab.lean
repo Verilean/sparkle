@@ -394,15 +394,44 @@ where
     let e ← whnf e
     match e with
     | .lit (.natVal n) => return n
-    | .app fn _arg =>
-      let fnConst := fn.getAppFn
-      if fnConst.isConstOf ``OfNat.ofNat then
+    | .app _ _ =>
+      let fnConst := e.getAppFn
+      let args := e.getAppArgs
+      if fnConst.isConstOf ``OfNat.ofNat && args.size >= 2 then
         -- OfNat.ofNat Type n inst -> extract n
-        let args := e.getAppArgs
-        if args.size >= 2 then
-          extractWidth args[1]!
-        else
-          return 8
+        extractWidth args[1]!
+      -- Closed Nat arithmetic: widths of width-generic IP (`BitVec (w + f)`,
+      -- `BitVec (W + 1)`, …) reach here as `Nat.succ`/`Nat.add`/… applications
+      -- after `whnf` — `whnf` only exposes the head.  Evaluate structurally.
+      --
+      -- ⚠ Previously these fell into the silent `return 8` default below,
+      -- which MISCOMPILES: a 49-bit signal gets an 8-bit wire and the mux
+      -- feeding a 49-bit register truncates to zero.  Caught by iverilog
+      -- simulation of the emitted `IP/Control/DividerQ` RTL (the divisor
+      -- register never latched); invisible to every Lean-side test.
+      else if fnConst.isConstOf ``Nat.succ && args.size == 1 then
+        return (← extractWidth args[0]!) + 1
+      else if fnConst.isConstOf ``Nat.add && args.size == 2 then
+        return (← extractWidth args[0]!) + (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.sub && args.size == 2 then
+        return (← extractWidth args[0]!) - (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.mul && args.size == 2 then
+        return (← extractWidth args[0]!) * (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.pow && args.size == 2 then
+        return (← extractWidth args[0]!) ^ (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.mod && args.size == 2 then
+        return (← extractWidth args[0]!) % (← extractWidth args[1]!)
+      else if fnConst.isConstOf ``Nat.div && args.size == 2 then
+        return (← extractWidth args[0]!) / (← extractWidth args[1]!)
+      else if (fnConst.isConstOf ``HAdd.hAdd || fnConst.isConstOf ``HSub.hSub ||
+               fnConst.isConstOf ``HMul.hMul || fnConst.isConstOf ``HPow.hPow)
+              && args.size >= 6 then
+        let a ← extractWidth args[4]!
+        let b ← extractWidth args[5]!
+        if fnConst.isConstOf ``HAdd.hAdd then return a + b
+        else if fnConst.isConstOf ``HSub.hSub then return a - b
+        else if fnConst.isConstOf ``HMul.hMul then return a * b
+        else return a ^ b
       else
         return 8
     | _ => return 8
@@ -480,11 +509,44 @@ partial def extractNat (e : Lean.Expr) : CompilerM Nat := do
   match fn with
   | .const name _ =>
     if name == ``OfNat.ofNat && args.size >= 2 then
-       match args[1]! with
-       | .lit (.natVal n) => return n
-       | _ => CompilerM.liftMetaM $ throwError s!"Expected Nat literal in OfNat, got: {args[1]!}"
+       -- Usually a raw literal, but width arithmetic can leave a closed
+       -- term here — recurse instead of insisting on `.lit`.
+       extractNat args[1]!
     else if name == ``Fin.mk && args.size >= 2 then
        extractNat args[1]!
+    -- Closed Nat arithmetic.  Width expressions of width-generic IP
+    -- (`BitVec (w + f)`, `extractLsb' (w - 1) 1`, `BitVec.ofNat (W + 1) …`)
+    -- reach this point as `Nat.succ`/`Nat.add`/… applications after `whnf`,
+    -- not as literals — `whnf` only exposes the head.  Evaluate them
+    -- structurally.  (Previously a hard error "Expected Nat literal, got
+    -- constant: Nat.succ", which made any width-generic module fail to
+    -- synthesize once instantiated; see IP/Control/DividerQ.lean.)
+    else if name == ``Nat.succ && args.size == 1 then
+       return (← extractNat args[0]!) + 1
+    else if name == ``Nat.add && args.size == 2 then
+       return (← extractNat args[0]!) + (← extractNat args[1]!)
+    else if name == ``Nat.sub && args.size == 2 then
+       return (← extractNat args[0]!) - (← extractNat args[1]!)
+    else if name == ``Nat.mul && args.size == 2 then
+       return (← extractNat args[0]!) * (← extractNat args[1]!)
+    else if name == ``Nat.pow && args.size == 2 then
+       return (← extractNat args[0]!) ^ (← extractNat args[1]!)
+    else if name == ``Nat.mod && args.size == 2 then
+       return (← extractNat args[0]!) % (← extractNat args[1]!)
+    else if name == ``Nat.div && args.size == 2 then
+       return (← extractNat args[0]!) / (← extractNat args[1]!)
+    else if (name == ``HAdd.hAdd || name == ``HSub.hSub || name == ``HMul.hMul ||
+             name == ``HPow.hPow || name == ``HMod.hMod || name == ``HDiv.hDiv)
+            && args.size >= 6 then
+       -- Heterogeneous wrappers, in case `whnf` left the instance unpeeled.
+       let a ← extractNat args[4]!
+       let b ← extractNat args[5]!
+       if name == ``HAdd.hAdd then return a + b
+       else if name == ``HSub.hSub then return a - b
+       else if name == ``HMul.hMul then return a * b
+       else if name == ``HPow.hPow then return a ^ b
+       else if name == ``HMod.hMod then return a % b
+       else return a / b
     else
        CompilerM.liftMetaM $ throwError s!"Expected Nat literal, got constant: {name}"
   | .lit (.natVal n) => return n
@@ -584,6 +646,13 @@ private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← I
     so `engine.replyValid` can recover the underlying `kvHw …`
     call and instantiate it as a sub-module. -/
 private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
+
+/-- Hardware-`let` wire cache, keyed by the value's structure PLUS the wires its
+    free variables denote.  See the `.letE` handler for why the plain
+    expression cache is insufficient (intermediate bindings are re-instantiated
+    with fresh fvars once per consumer of a `circuit do` body).  Reset per
+    top-level synth alongside the other caches. -/
+private initialize sparkleLetWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
 /-- Cache of previously-synthesised sub-modules.  Without this,
     the multi-output sub-module projection shortcut would re-
@@ -1558,6 +1627,67 @@ mutual
         if mkArgs.size >= 4 then
           let chosen := if idx == 0 then mkArgs[2]! else mkArgs[3]!
           return ← translateExprToWire chosen hint (isTopLevel := isTopLevel) (isNamed := isNamed)
+      -- Same iota reduction for any other single-constructor structure
+      -- (`KeccakFOut`, `RxOut`, …).  Taking field `idx` off the constructor
+      -- application is exact for a record of any width; the bit-slice
+      -- fallback below is not (see the note there).
+      --
+      -- Restricted to `idx ≥ 2`, i.e. exactly the cases the slice gets
+      -- WRONG.  Fields 0 and 1 keep the old path: they were already correct,
+      -- and routing them through here inlines the field's whole expression
+      -- instead of emitting a slice, which blows the heartbeat budget on the
+      -- BLS12-381 Fp12/G2 records.
+      if idx >= 2 then
+        if let some ctorName := eReduced.getAppFn.constName? then
+          if let some (.ctorInfo ci) := (← CompilerM.liftMetaM Lean.getEnv).find? ctorName then
+            let ctorArgs := eReduced.getAppArgs
+            if ci.numFields > 0 ∧ ctorArgs.size == ci.numParams + ci.numFields
+               ∧ idx < ci.numFields then
+              return ← translateExprToWire ctorArgs[ci.numParams + idx]! hint
+                (isTopLevel := isTopLevel) (isNamed := isNamed)
+      -- The slice arithmetic below is only valid for a TWO-field
+      -- packed product (`bundle2`): field 0 occupies the high half,
+      -- field 1 the low half.  For a wider record `(1 - idx)`
+      -- underflows in `Nat` — every field from index 1 up collapses to
+      -- `lo = 0`, i.e. the LOW bits of the FIRST field.
+      --
+      -- That is a silently wrong wire, not a synthesis error.  It cost
+      -- a long hunt via the Keccak sponge: `kfDonePrev <~ kf.done`
+      -- (field 26 of 27 in `KeccakFOut`) lowered to `lane0 & 1`, so the
+      -- sponge's `done` tracked a data bit, pulsed early, and the test
+      -- read a mid-permutation digest.  It only became reachable when
+      -- the elaborator stopped re-instantiating the sub-module per
+      -- projection — before that, each projection got its own instance
+      -- and the multi-output port map handled the lookup.
+      --
+      -- Refuse the guess instead: a >2-field record must be projected
+      -- through the multi-output sub-module port map.
+      -- Only fields 0 and 1 can be correct under the 2-field slice, so
+      -- `idx ≤ 1` needs no check at all.  Guarding on that first keeps the
+      -- `inferType`+`whnf` off the hot path — running it on every `.proj`
+      -- blew the 200k-heartbeat budget on the BLS12-381 Fp12 records.
+      let numFields ← if idx <= 1 then pure 2 else CompilerM.liftMetaM do
+        let sTy ← Lean.Meta.inferType eStruct
+        let sTy ← Lean.Meta.whnf sTy
+        match sTy.getAppFn.constName? with
+        | some sName =>
+          match (← Lean.getEnv).find? sName with
+          | some (.inductInfo iv) =>
+            match iv.ctors with
+            | [c] =>
+              match (← Lean.getEnv).find? c with
+              | some (.ctorInfo ci) => pure (ci.numFields)
+              | _ => pure 2
+            | _ => pure 2
+          | _ => pure 2
+        | none => pure 2
+      if numFields > 2 then
+        CompilerM.liftMetaM $ throwError
+          s!"Cannot project field {idx} of a {numFields}-field record by bit-slicing: \
+             the packed-product slice only covers 2-field bundles.  Project through \
+             the sub-module's named output ports instead (call the \
+             `@[hardware_module]` def directly, e.g. `let kf := wKeccakF …; kf.done`, \
+             so the multi-output port map resolves the field by name)."
       let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← cachedInferType e
@@ -1595,8 +1725,91 @@ mutual
         pure false
 
       if isHW then
-        -- Hardware let: translate value to wire
-        let valueWire ← translateExprToWire value name.toString (isTopLevel := false) (isNamed := true)
+        -- Hardware let: translate value to wire.
+        --
+        -- `isNamed := true` gives the wire the binder's readable name, but it
+        -- also makes `translateExprToWire` bypass the expression cache in BOTH
+        -- directions.  That matters because `runCircuitH` calls the user's
+        -- `body` TWICE (once inside `Signal.loop` for the register next-state,
+        -- once outside for the return value), so every `let e := <engine> …`
+        -- in a `circuit do` was translated twice — emitting a SECOND COPY of
+        -- the engine's registers each time, and once more per additional use
+        -- of a projection.  Measured on `IP/Control/Observer.tvKalman`: one
+        -- 6-register `dividerQ` engine became ELEVEN (76 registers instead of
+        -- 16).  The two copies were structurally identical (same `Expr.hash`),
+        -- so the cache would have collapsed them had `isNamed` not opted out.
+        --
+        -- Consult the cache first, and only fall back to a fresh named
+        -- translation on a miss.  A cache hit returns the existing wire; it
+        -- loses the pretty binder name for that occurrence, which is a
+        -- cosmetic price for not duplicating hardware.
+        -- Canonical cache key: the value with every already-translated fvar
+        -- replaced by the WIRE it denotes.
+        --
+        -- Keying on `value` itself is not enough.  As soon as an intermediate
+        -- binding sits between the module inputs and the engine —
+        --     let num := y            -- ANY intermediate `let`, even an alias
+        --     let e   := dividerQ … num …
+        -- — the engine's `value` embeds `num`'s fvar, and each consumer of the
+        -- `circuit do` body (every register write, plus the returned output)
+        -- re-instantiates that binder with a FRESH fvar.  So the `value`s are
+        -- structurally different per consumer and the cache never hits, while
+        -- the hardware they denote is identical.  Measured: adding the single
+        -- line `let num := y` to an otherwise-identical circuit took one
+        -- `dividerQ` engine to FOUR (7 → 27 registers).
+        --
+        -- Wire names are stable within a module (they are what the emitted
+        -- Verilog refers to), so substituting fvar → wire yields a key that is
+        -- equal exactly when the denoted hardware is the same.
+        let canonKey ← do
+          -- Abstract the value over its free variables by rewriting each fvar
+          -- to a CONSTANT named after the wire it denotes, then hash that.
+          -- Hashing `value` directly does not work: the fvars are fresh per
+          -- traversal, so two occurrences denoting the same hardware hash
+          -- differently (measured 2079038327 vs 1490760256 for two `let num`
+          -- occurrences whose fvars both mapped to `_gen_pS`, `_gen_y`).
+          let mut repl : Std.HashMap Lean.Name Lean.Expr := {}
+          for fv in (Lean.collectFVars {} value).fvarIds do
+            let w := (← CompilerM.lookupVar fv).getD s!"?{fv.name}"
+            repl := repl.insert fv.name (Lean.mkConst (Lean.Name.mkSimple s!"«wire:{w}»"))
+          let abstracted := value.replace fun sub =>
+            match sub with
+            | .fvar fid => repl.get? fid.name
+            | _ => none
+          pure (toString abstracted.hash)
+        let cachedValue? ← do
+          if value.isFVar then pure none
+          else CompilerM.liftMetaM do
+            let m ← (sparkleLetWireCache.get : IO _)
+            pure (m.get? canonKey)
+        let valueWire ←
+          match cachedValue? with
+          | some w =>
+            -- Cache hit: the hardware already exists, so do NOT translate
+            -- again.  But emit an alias wire carrying this binder's name and
+            -- return that.
+            --
+            -- Returning `w` directly (the original behaviour) silently drops
+            -- the binder's name, which is only cosmetic until something reads
+            -- a wire BY NAME at runtime.  The RV32 SoC does: `trap_taken` and
+            -- `early_trap_taken` are the same expression, so the cache
+            -- collapsed them onto the `early_` wire and `_gen_trap_taken`
+            -- vanished from the emitted C — `JIT.resolveWires` then failed at
+            -- run time on a name `SoCOutput.wireNames` still lists.
+            --
+            -- An alias costs one `assign` (which the backend's copy
+            -- propagation folds away wherever the name is not needed) and
+            -- keeps both names addressable.  The sharing — the whole point of
+            -- the cache — is untouched: one instance, two names.
+            let ty ← inferHWTypeFromSignal type
+            let aliasW ← CompilerM.makeWire name.toString ty (named := true)
+            CompilerM.emitAssign aliasW (.ref w)
+            pure aliasW
+          | none => translateExprToWire value name.toString
+                      (isTopLevel := false) (isNamed := true)
+        if !value.isFVar then
+          CompilerM.liftMetaM
+            (sparkleLetWireCache.modify (·.insert canonKey valueWire))
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
           -- Also remember (fvar → defining expression) for
@@ -2329,6 +2542,7 @@ mutual
       -- the second is discarded.
       let isNextBuilder :=
         βType.isAppOf ``Sparkle.Core.Circuit.NextBuilder ||
+        βType.isAppOf ``Sparkle.Core.Circuit.SigList ||
         (match βType with
          | .forallE _ _ _ _ => true  -- η-expanded Signal _ S → Signal _ S
          | _ => false)
@@ -2812,6 +3026,64 @@ mutual
       -- 3. We'd only catch non-problematic uses, creating false positives
 
       profHandler 0 (handleErrorPatterns e name args hint isNamed)  -- throws or returns ()
+
+      -- `Circuit.SigList`'s chain terminator carries no data, so it lowers
+      -- to a 0-width constant rather than a module instantiation.  It shows
+      -- up either bare (`PUnit.unit`, which carries a universe argument and
+      -- so arrives here as an application) or wrapped (`Signal.pure
+      -- PUnit.unit`).
+      --
+      -- Both forms are gated on the argument's TYPE, never on a whnf'd
+      -- payload value: `whnf` of a payload at some other type can reduce to
+      -- `Unit.unit`, and collapsing on that basis silently rewrites a real
+      -- output to constant zero.  That is what broke the Keccak sponge —
+      -- the digest came out equal to the unpermuted padded input.
+      if name == ``PUnit.unit || name == ``Unit.unit then
+        let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+        CompilerM.emitAssign resWire (.const 0 0)
+        return resWire
+      if (name == ``Sparkle.Core.Signal.Signal.pure ||
+          name == ``Sparkle.Core.Signal.Signal.lit) && args.size >= 1 then
+        -- Cheap syntactic pre-filter first: the terminator is literally
+        -- `PUnit.unit` / `Unit.unit`.  Only then pay for inferType+whnf.
+        -- Running those on every `Signal.pure` blew the heartbeat budget on
+        -- the BLS12-381 Fp12/G2 modules.
+        let a := args.back!
+        let looksUnit := a.isConstOf ``PUnit.unit || a.isConstOf ``Unit.unit
+        let argTy ← if !looksUnit then pure (Lean.mkConst ``Nat) else
+          CompilerM.liftMetaM (whnf (← Lean.Meta.inferType a))
+        if argTy.isConstOf ``Unit || argTy.isConstOf ``PUnit then
+          let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+          CompilerM.emitAssign resWire (.const 0 0)
+          return resWire
+      if (name == ``Seq.seq || name == ``Functor.map) && args.size >= 1 then
+        if args[0]!.isAppOf ``Sparkle.Core.Signal.Signal then
+          let rec normSpine (x : Lean.Expr) (fuel : Nat) : MetaM Lean.Expr := do
+            match fuel with
+            | 0 => return x
+            | fuel + 1 =>
+              let h := x.getAppFn
+              if h.isConstOf ``Seq.seq then
+                match ← withTransparency TransparencyMode.all
+                    (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.ap) with
+                | some x' => normSpine x' fuel
+                | none => return x
+              else if h.isConstOf ``Functor.map then
+                match ← withTransparency TransparencyMode.all
+                    (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.map) with
+                | some x' => normSpine x' fuel
+                | none => return x
+              else if h.isConstOf ``Sparkle.Core.Signal.Signal.ap then
+                let xargs := x.getAppArgs
+                if xargs.size ≥ 2 then
+                  let fpos ← normSpine xargs[xargs.size - 2]! fuel
+                  return Lean.mkAppN h (xargs.set! (xargs.size - 2) fpos)
+                else return x
+              else return x
+          let e' ← CompilerM.liftMetaM (normSpine e 32)
+          if e' != e then
+            return ← translateExprToWire e' hint (isNamed := isNamed)
+
       -- handleCircuitMonad must run before handleTupleProjections /
       -- handleDefinitionUnfold so that Bind.bind / Pure.pure get
       -- peeled, and value-level Prod.fst / Prod.snd / Prod.mk on
@@ -3193,6 +3465,7 @@ mutual
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
+      sparkleLetWireCache.set {}
     else
       -- Nested synth: fresh fvar map (the parent's fvars are
       -- scoped to the parent's body and can't be visible
@@ -3201,6 +3474,7 @@ mutual
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
+      sparkleLetWireCache.set {}
     sparkleSynthDepth.set (depth + 1)
     -- Extract the body into a local closure so `try ... finally`
     -- can wrap the entire synthesis path (including the

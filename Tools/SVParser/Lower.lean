@@ -2124,6 +2124,56 @@ def reachabilityDCE (design : Design) : Design :=
           | _ => true
         wires := m.wires.filter fun w => reachSet.contains w.name } }
 
+/-- Re-declare any name the body still references but nothing declares.
+
+    Runs LAST, after `Optimize.optimizeDesign`, because both that pass and
+    `reachabilityDCE` can leave a reference dangling and either could undo a
+    repair applied earlier:
+
+    * a `.memory` write is never pruned, so its address/data operands stay
+      referenced after the wires feeding them are gone (`latched_rd`,
+      `next_pc`);
+    * an `output reg` written only inside a disabled branch — PicoRV32 gates
+      `eoi`, `mem_addr`, `trace_data`, … on `ENABLE_IRQ`, 0 by default — yields
+      no `.register`, yet `lowerModule`'s output-reg rename still emits
+      `assign eoi = _reg_eoi`, and the port is a DCE root so the alias lives on
+      with nothing behind it.
+
+    Either way the emitted C names an undeclared identifier and gcc rejects the
+    translation unit (28 errors on the hierarchical PicoRV32 JIT — the failure
+    the `Build multi-core JIT` CI job hits).  Unreachable state reads as its
+    reset value, so binding these to 0 is the faithful repair, not a papering
+    over. -/
+def declareOrphanRefs (design : Design) : Design :=
+  { design with modules := design.modules.map fun m =>
+      let rec exprRefs (e : Expr) : List String :=
+        match e with
+        | .ref n => [n]
+        | .op _ xs => xs.flatMap exprRefs
+        | .concat xs => xs.flatMap exprRefs
+        | .slice x _ _ => exprRefs x
+        | .index a i => exprRefs a ++ exprRefs i
+        | _ => []
+      let referenced := m.body.flatMap fun s =>
+        match s with
+        | .assign _ rhs => exprRefs rhs
+        | .register _ _ _ input _ => exprRefs input
+        | .memory _ _ _ _ wa wd we ra _ _ =>
+          exprRefs wa ++ exprRefs wd ++ exprRefs we ++ exprRefs ra
+        | .inst _ _ conns => conns.flatMap fun (_, e) => exprRefs e
+      let declared := (m.inputs ++ m.outputs ++ m.wires).map (·.name)
+        ++ m.body.filterMap (fun s =>
+             match s with
+             | .memory n _ _ _ _ _ _ _ _ _ => some n
+             | _ => none)
+      let orphans := referenced.eraseDups.filter fun n => !(declared.any (· == n))
+      if orphans.isEmpty then m
+      else
+        { m with
+          wires := m.wires ++ orphans.map fun n =>
+            ({ name := n, ty := .bitVector 32 } : Port)
+          body := (orphans.map fun n => Stmt.assign n (.const 0 32)) ++ m.body } }
+
 def parseAndLowerFlat (input : String) : Except String Design := do
   let svDesign ← Tools.SVParser.Parser.parse input
   let design ← lowerDesign svDesign
@@ -2144,7 +2194,7 @@ def parseAndLowerFlat (input : String) : Except String Design := do
   let stripped := reachabilityDCE result
   -- Optimize: constant folding, DCE, single-use wire inlining
   let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
-  pure optimized
+  pure (declareOrphanRefs optimized)
 
 /-- Parse Verilog and lower to IR, preserving module hierarchy (no flattening).
     Each module is optimized independently. Sub-module instances remain as Stmt.inst.
@@ -2182,7 +2232,7 @@ def parseAndLowerHierarchical (input : String) : Except String Design := do
   let stripped := reachabilityDCE design
   -- Optimize each module independently
   let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
-  pure optimized
+  pure (declareOrphanRefs optimized)
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do
   let svDesign ← Tools.SVParser.Parser.parse input

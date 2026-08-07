@@ -14,6 +14,7 @@ import Notebooks.Gen.Ch08c_Silicon
 import Notebooks.Gen.Ch09_FPGA
 import Notebooks.Gen.Ch10_Architecture
 import Notebooks.Gen.Ch11_Web3Signer
+import Notebooks.Gen.Ch12_ControlPrecision
 import Display
 import Notebooks.Solutions.Ch02
 import Notebooks.Solutions.Ch03

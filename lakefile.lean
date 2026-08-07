@@ -3,8 +3,11 @@ open Lake DSL
 
 package «sparkle» where
 
+-- Pinned to the revision Reservoir verifies against v4.32.1.  `main` is
+-- newer (9389649) but its own lean-toolchain still says v4.31.0; the pin
+-- is what the toolchain bump is actually tested on.
 require LSpec from git
-  "https://github.com/argumentcomputer/LSpec" @ "main"
+  "https://github.com/argumentcomputer/LSpec" @ "3e23a4a"
 
 -- C FFI library for Signal memoization barriers (defeats Lean 4.28 LICM)
 extern_lib «sparkle_barrier» pkg := do
@@ -234,6 +237,13 @@ lean_lib «IP.Crypto» where
 -- Builds on IP.Crypto (AES-GCM, HKDF, X25519, SHA-256).
 lean_lib «IP.TLS» where
   roots := #[`IP.TLS]
+
+-- Fixed-point control datapaths: IIR biquad, PID, LQR state feedback.
+-- Mathlib-free by construction — these are the synthesized circuits.  The
+-- ℝ-level Lyapunov/LQR design that justifies the coefficients lives in the
+-- `proofs/` sidecar package, which is outside this build graph.
+lean_lib «IP.Control» where
+  roots := #[`IP.Control]
 
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
@@ -710,6 +720,40 @@ lean_exe «keccak256-sponge-test» where
 -- the actual hardware cycle-by-cycle and reads the digest out.
 lean_exe «keccak256-sponge-jit-test» where
   root := `Tests.Drivers.Keccak256SpongeJITTestMain
+  supportInterpreter := true
+
+-- Fixed-point control datapaths (IIR biquad / PID / LQR).  Each driver runs the
+-- cycle-by-cycle sim; the `#synthesizeVerilog` checks live in the test modules
+-- and run at `lake build` time.
+lean_exe «control-iir-test» where
+  root := `Tests.Drivers.ControlIIRBiquadTestMain
+  supportInterpreter := true
+
+lean_exe «control-pid-test» where
+  root := `Tests.Drivers.ControlPIDTestMain
+  supportInterpreter := true
+
+lean_exe «control-lqr-test» where
+  root := `Tests.Drivers.ControlLQRTestMain
+  supportInterpreter := true
+
+lean_exe «control-precision-sweep» where
+  root := `Tests.Drivers.ControlPrecisionSweepTestMain
+  supportInterpreter := true
+
+lean_exe «control-observer-test» where
+  root := `Tests.Drivers.ControlObserverTestMain
+  supportInterpreter := true
+
+lean_exe «control-jit-test» where
+  root := `Tests.Drivers.ControlJITTestMain
+  supportInterpreter := true
+
+-- Structural lint over emitted RTL (undeclared wires, pinned register /
+-- instance counts).  Guards the miscompile class that Lean-side checks and
+-- `#synthesizeVerilog` both miss; the run_meta checks fail `lake build`.
+lean_exe «rtl-structure-test» where
+  root := `Tests.Drivers.RtlStructureTestMain
   supportInterpreter := true
 
 lean_exe «policy-sign-demo-test» where

@@ -1,15 +1,16 @@
-{"version": "1.1.0",
+{"version": "1.2.0",
  "packagesDir": ".lake/packages",
  "packages":
  [{"url": "https://github.com/argumentcomputer/LSpec",
    "type": "git",
    "subDir": null,
    "scope": "",
-   "rev": "dc0904293d309af1ba4fcaae581cc8dd7b27f08e",
+   "rev": "3e23a4ad2e91eaf07845cecad157b7ffbb437aed",
    "name": "LSpec",
    "manifestFile": "lake-manifest.json",
-   "inputRev": "main",
+   "inputRev": "3e23a4a",
    "inherited": false,
    "configFile": "lakefile.toml"}],
  "name": "sparkle",
- "lakeDir": ".lake"}
+ "lakeDir": ".lake",
+ "fixedToolchain": false}

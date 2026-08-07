@@ -35,7 +35,7 @@ for "everything works out of the box".
 
 | Tool                 | Used in        | Source              |
 |----------------------|----------------|---------------------|
-| Lean 4 (`v4.28.0`)   | every chapter  | elan                |
+| Lean 4 (`v4.32.1`)   | every chapter  | elan                |
 | Lake                 | every chapter  | bundled with Lean   |
 | JupyterLab           | every chapter  | pip                 |
 | nbconvert            | output filling | pip                 |

@@ -679,30 +679,51 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       -- can be read per-word (needed when a shift/bitwise op is NESTED inside
       -- another op — `emitExpr` of a wide op is not a valid C expression, e.g.
       -- HMAC's `(key ⊕ c36) ++ c36` produced an invalid `array ^ array`).
-      let matWide (label : String) (e : Expr) : List String × String :=
+      let rec matWide (label : String) (e : Expr) : List String × String :=
         match e with
         | .ref _ => ([], emitExpr typeMap e)
         | .op .shl [a, b] =>
-          let tmp := s!"__{label}_{sn}"; let aS := emitExpr typeMap a; let sa := constAmt b
-          (s!"        uint32_t {tmp}[{nWords}];"
-            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shlSlot aS sa j};"), tmp)
+          -- Materialise the shifted operand too: it can itself be a compound
+          -- (concat / nested op / another wide op), and `aS[j]` indexing needs
+          -- an array lvalue.
+          let (da, aS) := matWide s!"{label}s" a
+          let tmp := s!"__{label}_{sn}"; let sa := constAmt b
+          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shlSlot aS sa j};")), tmp)
         | .op .shr [a, b] =>
-          let tmp := s!"__{label}_{sn}"; let aS := emitExpr typeMap a; let sa := constAmt b
+          let (da, aS) := matWide s!"{label}s" a
+          let tmp := s!"__{label}_{sn}"; let sa := constAmt b
           let srcWords := wordsOf (inferExprWidth typeMap a)
-          (s!"        uint32_t {tmp}[{nWords}];"
-            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};"), tmp)
+          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};")), tmp)
+        | .op .mux [c, t, f] =>
+          -- Nested wide mux (a mux feeding a mux operand): recurse on both
+          -- branches, then select per word on the scalar condition.  Without
+          -- this arm the fallback rendered `cond ? wide_expr : wide_expr` as
+          -- a C ternary over arrays — invalid C (caught by the memcached
+          -- CI job after the flat pending-writes rework changed which
+          -- expressions stay inline instead of getting their own wires).
+          let condS := emitExpr typeMap c
+          let (dt, tS) := matWide s!"{label}t" t
+          let (df, fS) := matWide s!"{label}e" f
+          let tmp := s!"__{label}_{sn}"
+          (dt ++ df ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j =>
+                 s!"        {tmp}[{j}] = ({condS}) ? {tS}[{j}] : {fS}[{j}];")), tmp)
         | .op .xor [a, b] =>
-          let (da, sa) := matOp s!"{label}a" a; let (db, sb) := matOp s!"{label}b" b
+          -- Operands recurse through matWide (NOT the generic matOp): they can
+          -- themselves be wide shifts/muxes, whose emitExpr is not valid C.
+          let (da, sa) := matWide s!"{label}a" a; let (db, sb) := matWide s!"{label}b" b
           let tmp := s!"__{label}_{sn}"
           (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
             :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] ^ {sb}[{j}];")), tmp)
         | .op .and [a, b] =>
-          let (da, sa) := matOp s!"{label}a" a; let (db, sb) := matOp s!"{label}b" b
+          let (da, sa) := matWide s!"{label}a" a; let (db, sb) := matWide s!"{label}b" b
           let tmp := s!"__{label}_{sn}"
           (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
             :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] & {sb}[{j}];")), tmp)
         | .op .or [a, b] =>
-          let (da, sa) := matOp s!"{label}a" a; let (db, sb) := matOp s!"{label}b" b
+          let (da, sa) := matWide s!"{label}a" a; let (db, sb) := matWide s!"{label}b" b
           let tmp := s!"__{label}_{sn}"
           (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
             :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] | {sb}[{j}];")), tmp)

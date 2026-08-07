@@ -44,6 +44,13 @@ import IP.Crypto.Fp2MulHW
 
 namespace Sparkle.IP.Crypto.G2PointOpHW
 
+-- The flat `Circuit.SigList` pending-write accumulator makes `whnf` on these
+-- wide Fp12/G2 records more expensive than the 200k default allows.  The
+-- elaboration is linear, just over budget — raise the ceiling rather than
+-- reshape the design.
+set_option maxHeartbeats 1000000
+
+
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 
