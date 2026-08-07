@@ -35,12 +35,15 @@
 
   ## The seam, again
 
-  The toolchain split that used to force this separation is gone — root,
-  `proofs/` and this package are all on v4.32.1.  What remains is packaging:
-  this is still its own Lake package with its own mathlib, so the ℝ model is
-  duplicated here rather than imported.  Folding it into `proofs/` is the
-  pending follow-up.  Until then the duplication is kept honest by the
-  `#guard`s below, which re-derive the constants `proofs/` commits to.
+  No seam left.  This module lives in `proofs/` alongside the theorems and
+  IMPORTS the ℝ model from `SparkleProofs.Control.PIDDesign` — the same
+  definitions `pid_lyapunov_decrease` is proved about.  So "the transported
+  equation" and "the equation the certificate is about" are the same term by
+  construction, not by a `#guard` that two copies agree.
+
+  (Until the v4.32.1 bump this had to be a separate package: retype pinned a
+  newer Lean than Sparkle, and one Lake graph has one toolchain.  The ℝ model
+  was duplicated as a result.)
 
   What this file does NOT do: prove `∀ a b, (mulQ a b).toInt = (a.toInt *
   b.toInt) / 2^16`.  That is a `BitVec` lemma, it belongs on the Sparkle side
@@ -50,8 +53,11 @@
 
 import Retype
 import Mathlib.Data.Real.Basic
+import SparkleProofs.Control.PIDDesign
 
-namespace RetypeLab.FixedPointTransport
+namespace SparkleProofs.Retype.FixedPointTransport
+
+open SparkleProofs.Control.PIDDesign
 
 /-! ### The fixed-point target type
 
@@ -93,35 +99,20 @@ end FixQ
 
 declare_retype RealToFixQ : Real => FixQ
 
-/-! ### The ℝ model — the closed loop of §12.1.1
+/-! ### The ℝ model — imported, not restated
 
-Duplicated from `proofs/SparkleProofs/Control/PIDDesign.lean`, kept
-definitionally identical so the transported version is a faithful image of
-what the proofs talk about.  These are the three lines §12.1.3 displays:
+`SparkleProofs.Control.PIDDesign` owns these: `Kp`, `Ki`, `Kd`, `pa`, `pb`
+and the closed loop `nextX` / `nextI` / `nextP`, i.e.
 
     x⁺ = 0.6625·x + 0.1·I − 0.0125·p        (0.6625 = pa − pb·(Kp+Ki+Kd))
     I⁺ = −0.25·x + I
     p⁺ = −x
+
+They are the SAME definitions `pid_lyapunov_decrease` is proved about, so
+the transport below cannot drift from the theorem — there is only one copy.
+(Before the v4.32.1 bump this file had to restate them, because retype
+pinned a newer Lean than Sparkle and a Lake graph has one toolchain.)
 -/
-
-/-- PID gains (§12.1.1). -/
-noncomputable def Kp : ℝ := 2
-noncomputable def Ki : ℝ := 1 / 4
-noncomputable def Kd : ℝ := 1 / 8
-
-/-- Plant pole and input gain: `x⁺ = pa·x + pb·u`. -/
-noncomputable def pa : ℝ := 9 / 10
-noncomputable def pb : ℝ := 1 / 10
-
-/-- Plant state. -/
-noncomputable def nextX (x I p : ℝ) : ℝ :=
-  (pa - pb * (Kp + Ki + Kd)) * x + pb * I - pb * Kd * p
-
-/-- Integrator. -/
-noncomputable def nextI (x I _p : ℝ) : ℝ := I - Ki * x
-
-/-- Previous-error register. -/
-noncomputable def nextP (x _I _p : ℝ) : ℝ := -x
 
 /-! ### The transport
 
@@ -190,4 +181,4 @@ negative side rather than toward zero: -/
 -- NOT having: its error bound is one-sided precisely because both signs floor.
 #guard ((⟨1⟩ : FixQ) * ⟨1⟩).n == 0
 
-end RetypeLab.FixedPointTransport
+end SparkleProofs.Retype.FixedPointTransport

@@ -24,10 +24,9 @@
 
   ## The seam, stated plainly
 
-  Everything is on Lean v4.32.1 now — the toolchain split that originally forced
-  this separation is gone.  What is left is packaging: `retypelab/` is still its
-  own Lake package with its own mathlib, so the ℝ model below is **duplicated**
-  from `LQRDesign.lean` rather than imported.
+  This module now lives in `proofs/` and IMPORTS the ℝ model from
+  `LQRDesign.lean` rather than duplicating it — so the Float search runs on
+  exactly the definitions the theorems are about.
 
   That duplication is a real risk — the two could drift — and it is only tolerable
   because nothing here is part of the proof chain.  A false negative (Float finds
@@ -37,39 +36,29 @@
   `checkAgainstProvenConstants` below re-derives the constants that
   `LQRDesign.lean` commits to, so drift shows up as a failing `#guard` here.
 
-  Sparkle has now bumped; folding this into `proofs/` and importing the model is
-  the pending follow-up.
+  (Before the v4.32.1 bump this had to be a separate package with a duplicated
+  model: retype pinned a newer Lean than Sparkle, and one Lake graph has one
+  toolchain.)
 -/
 
 import Retype
 import Mathlib.Data.Real.Basic
 import Mathlib.Analysis.SpecialFunctions.Pow.Real
+import SparkleProofs.Control.LQRDesign
 
-namespace RetypeLab.Falsify
+namespace SparkleProofs.Retype.Falsify
 
-/-! ### The ℝ model
+open SparkleProofs.Control.LQRDesign
 
-Duplicated from `proofs/SparkleProofs/Control/LQRDesign.lean` — see the header.
-Kept definitionally identical so the retyped version is a faithful executable
-image of what the proofs talk about. -/
+/-! ### The ℝ model — imported, not restated
 
-noncomputable def dt : ℝ := 1 / 16
-noncomputable def k1 : ℝ := 6180 / 10000
-noncomputable def k2 : ℝ := 12600 / 10000
-
-noncomputable def p11 : ℝ := 21180 / 10000
-noncomputable def p12 : ℝ := 9885 / 10000
-noncomputable def p22 : ℝ := 40160 / 10000
-
-/-- `V(x) = xᵀPx`. -/
-noncomputable def V (x1 x2 : ℝ) : ℝ := p11 * x1 ^ 2 + 2 * p12 * x1 * x2 + p22 * x2 ^ 2
-
-/-- Closed-loop next state. -/
-noncomputable def nextX1 (x1 x2 : ℝ) : ℝ := x1 + dt * x2
-noncomputable def nextX2 (x1 x2 : ℝ) : ℝ := x2 + dt * (-(k1 * x1 + k2 * x2))
-
-/-- The certified contraction rate. -/
-noncomputable def ρ : ℝ := 39 / 40
+`SparkleProofs.Control.LQRDesign` owns `dt`, `k1`, `k2`, the certificate
+entries `p11`/`p12`/`p22`, the Lyapunov function `V`, the closed loop
+`nextX1`/`nextX2`, and the certified rate `ρ`.  They are the SAME
+definitions `lyapunov_decrease` is proved about, so the Float image below
+searches the model the theorem is about — not a copy of it that could
+drift.  (Before the v4.32.1 bump this file had to restate all ten.)
+-/
 
 /-! ### Transport to Float
 
@@ -243,4 +232,4 @@ build time rather than silently invalidating every search result. -/
 #guard p11F > 0.0
 #guard p11F * p22F - p12F * p12F > 0.0
 
-end RetypeLab.Falsify
+end SparkleProofs.Retype.Falsify

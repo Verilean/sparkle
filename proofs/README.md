@@ -28,7 +28,8 @@ main package.
 | ℝ design + Lyapunov | `proofs/SparkleProofs/Control/LQRDesign.lean` | **yes** | `V = xᵀPx`, contraction, ISS |
 | The bridge | `proofs/SparkleProofs/Control/Transport.lean` | **yes** | quantization error → ultimate bound (Q15.16) |
 | Precision selection | `proofs/SparkleProofs/Control/Precision.lean` | **yes** | the bound as a function of `f`; which formats meet a budget |
-| ℝ⇒Float falsification | `retypelab/` (separate pkg, **v4.32.0**) | yes (v4.32.0) | counterexample search before proving |
+| ℝ⇒Float falsification | `proofs/SparkleProofs/Retype/Falsify.lean` | yes | counterexample search before proving |
+| ℝ⇒Q15.16 transport | `proofs/SparkleProofs/Retype/FixedPointTransport.lean` | yes | the fixed-point equation, *derived* from the ℝ one (Ch12 §12.2) |
 
 ## What is actually proven
 
@@ -82,12 +83,13 @@ that is wrong — for `IIRBiquadGen.marginalCoeffs`, coarse quantization pulls t
 poles *inward* and *damps* the filter, so the measured residual is non-monotone in
 `f`. See `Tests/IP/Control/PrecisionSweepTest.lean`.
 
-## ℝ ⇒ Float falsification — `retypelab/`
+## ℝ ⇒ Float falsification — `SparkleProofs.Retype.Falsify`
 
-A second sidecar. It is no longer a *toolchain* split — root, `proofs/` and
-`retypelab/` are all on **v4.32.1** — but it is still its own Lake package with
-its own mathlib copy, so the ℝ model is duplicated rather than imported;
-folding it in is the pending follow-up. It uses
+Lives here, in the same package as the theorems, and **imports** the ℝ model
+from `LQRDesign.lean` rather than restating it — so the search runs on exactly
+the definitions `lyapunov_decrease` is proved about. (Until the v4.32.1 bump
+this had to be a separate `retypelab/` package with a duplicated model: retype
+pinned a newer Lean than Sparkle, and one Lake graph has one toolchain.) It uses
 `declare_retype RealToFloat : Real => Float` and `retype_def` to turn the ℝ
 controller model into executable `Float`, then searches 10⁵ random trajectories
 for a contraction or ISS violation before anyone spends time on `nlinarith`.

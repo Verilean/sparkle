@@ -345,7 +345,7 @@ over sign-crossing and boundary cases (`(-1, 65535)`, `(3, -65537)`,
 `(-58982, -65536)`, …) — all agree.
 
 Both halves are live code, not listings:
-`retypelab/RetypeLab/FixedPointTransport.lean` does the transport and pins
+`proofs/SparkleProofs/Retype/FixedPointTransport.lean` does the transport and pins
 every constant with `#guard` (131072, 16384, 8192, 58982, and the step
 result 43419 — each checkable by hand against §12.1.1), and
 `Tests/IP/Control/PrecisionSweepTest.lean`'s *Transport agreement* suite
@@ -393,11 +393,11 @@ Layer 2 says the two systems are related by transport; layer 3 has to say
 what that relation preserves.
 
 Two honest gaps in this layer, both recorded rather than papered over.
-the transport above runs in the `retypelab/` sidecar, a separate Lake
-package with its own copy of mathlib, so the ℝ model is *duplicated*
-there rather than imported (`retypelab/RetypeLab/Falsify.lean` explains the
-seam and re-derives the proved constants so drift shows up as a failing
-`#guard`).  And the `mulQ` agreement is checked on cases, not proved for
+the transport above runs in the `proofs/` sidecar, which is deliberately
+outside the root build graph so an RTL-only build never pays for mathlib.
+It *imports* `nextX`/`nextI`/`nextP` from `PIDDesign.lean` — the same terms
+`pid_lyapunov_decrease` is proved about — so the transported equation and
+the certified equation cannot drift apart.  And the `mulQ` agreement is checked on cases, not proved for
 all inputs; the proof is a `BitVec`-level lemma (`(mulQ a b).toInt =
 (a.toInt * b.toInt) / 2¹⁶` under a no-overflow hypothesis) that `bv_decide`
 should get at this width, and it is not yet written.
@@ -538,7 +538,7 @@ oscillates, ever") is structurally out of reach — BMC can only ever
 say "no violation in the first N steps".  This is precisely the gap
 DSVerifier-style tools live in.
 
-**(b) Monte-Carlo falsification** (`retypelab/`).  The ℝ design is
+**(b) Monte-Carlo falsification** (`proofs/SparkleProofs/Retype/`).  The ℝ design is
 transported to executable `Float` by `retype`
 (`retype_def VF := V using Real => Float`) and hammered with 10⁵
 random states *before* anyone writes a proof.  Measured output, from
@@ -731,7 +731,7 @@ datapath:
 
 1. **Design in ℝ** (any tool).  Extract gains and a Lyapunov /
    dissipation certificate candidate.
-2. **Falsify first** (`retypelab/` pattern): retype the model to
+2. **Falsify first** (`SparkleProofs.Retype` pattern): retype the model to
    Float, sweep 10⁵ states against the candidate, include a negative
    control.  Fix constants until the search goes quiet.
 3. **Prove the ℝ certificate** (`proofs/` pattern): `nlinarith` with

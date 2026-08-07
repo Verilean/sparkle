@@ -21,5 +21,15 @@ rev = "v4.32.1"
 name = "sparkle"
 path = "../"
 
+# retype — the ℝ ⇒ Float / ℝ ⇒ FixQ transport used by SparkleProofs.Retype.*.
+# This used to live in a second sidecar (`retypelab/`) because retype targeted
+# Lean v4.32 while Sparkle was on v4.28 and one Lake graph has one toolchain.
+# Everything is on v4.32.1 now, so it folds in here and the ℝ models are
+# imported from their proof modules instead of being duplicated.
+[[require]]
+name = "retype"
+git = "https://github.com/Verilean/retype"
+rev = "main"
+
 [[lean_lib]]
 name = "SparkleProofs"

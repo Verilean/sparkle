@@ -97,7 +97,7 @@ kernel-checked ultimate bound on the *integer* datapath — plus the
 counterexample (a naively quantized resonator whose emitted Verilog sustains
 a period-6 limit cycle).  Precision selection is a theorem
 (`Vbound f = c/4^f`; 13 fractional bits is exactly the threshold for the demo
-budget).  The ℝ⇒Float falsification front-end (`retypelab/`, via
+budget).  The ℝ⇒Float falsification front-end (`proofs/SparkleProofs/Retype/`, via
 [retype](https://github.com/Verilean/retype)) kills wrong certificate
 candidates in milliseconds before any `nlinarith` time is spent.
 

@@ -83,7 +83,7 @@ def suite : TestSeq :=
 
 /-! ### Transport agreement — the Sparkle half of Ch12 §12.2.2
 
-`retypelab/RetypeLab/FixedPointTransport.lean` transports the ℝ controller
+`proofs/SparkleProofs/Retype/FixedPointTransport.lean` transports the ℝ controller
 equation to Q15.16 with `retype`, giving a fixed-point multiply that is
 `(a * b) / 2^16` on `Int`.  Sparkle's datapath uses `mulQ`, which is
 `extractLsb' 16` on a sign-extended product.
@@ -99,9 +99,10 @@ that is the only place the two could differ:
 
 Had either side truncated toward zero instead, every case below with a
 negative product and a non-zero remainder would fail.  (The two packages
-still do not import each other — `retypelab/` is a separate Lake package with
-its own mathlib — so `refMul` restates the transported multiply rather than
-importing it.  A drift between the two shows up as a failure here.) -/
+still do not import each other — the transport lives in the `proofs/` sidecar,
+which is kept out of the root build graph so an RTL build never pays for
+mathlib — so `refMul` restates the transported multiply rather than importing
+it.  A drift between the two shows up as a failure here.) -/
 
 /-- The transported multiply, as `FixQ.Mul` defines it. -/
 def refMul (a b : Int) : Int := (a * b) / 65536
