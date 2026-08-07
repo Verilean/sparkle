@@ -460,11 +460,38 @@ duplicated COMBINATIONAL logic on its own, so the real saving is in flip-flops,
 which it cannot merge.  The earlier "≈21 % of the design" estimate assumed no
 downstream sharing and was too optimistic.
 
-Residual: 3 engines rather than 1.  The remaining copies come from the register
-READ wires (`_gen_pS`, `_gen_pS_1`, …) still being allocated fresh per
-consumer, so the abstracted key differs from the third consumer onward.  Fixing
-that means making register reads yield a stable wire per register — a change in
-`mkRegList`/`Signal.register` handling, not another key.
+Residual: 3 engines rather than 1.  Localised exactly, by logging the cache key
+per consumer:
+
+    consumer 1   LK pS key=3590432345   wires=[_tmp_loop_0, …]        (miss)
+    consumer 2   LK pS key=3590432345   wires=[_tmp_loop_0, …]        (HIT)
+    consumer 3   LK pS key=1267503053   wires=[UNMAPPED(_uniq.3705), …]
+    consumer 4   LK pS key=771491018    …
+
+Consumers 1–2 share every key.  From consumer 3 the register read `pS` itself
+changes key, and everything downstream follows.  Printing the two values shows
+they differ in exactly one position:
+
+    consumer 3:  Reg.mk ((fun s => Signal.map Prod.fst (idRead s)) live)
+    consumer 4:  Reg.mk ((fun s => Signal.map Prod.fst (idRead s)) stateLoop)
+
+`live` (the `Signal.loop` binder, wire `_tmp_loop_0`) versus `stateLoop` (the
+loop term itself, wire `_tmp_loop_body_134`).  These DENOTE THE SAME SIGNAL —
+`stateLoop` is the loop's fixpoint — but are given different wires, so every
+register read behind them diverges and re-emits the engine.
+
+Sharing the loop wire was implemented and measured: no effect, because the four
+loop terms also carry four distinct `Expr.hash`es (each consumer re-instantiates
+the loop term too).  Reverted.  That is the FOURTH distinct expression-keyed
+approach to fail for the same underlying reason, which is now conclusive:
+
+    Every consumer of a `circuit do` body re-instantiates the ENTIRE term —
+    lets, loop binders and loop terms alike — so nothing keyed on expression
+    identity can ever merge them.
+
+The fix must therefore make `live` and `stateLoop` resolve to ONE wire by
+construction — i.e. translate the body once into a shared wire environment and
+have consumers read from it — rather than detect the coincidence afterwards.
 
 ## The cost, measured with yosys (not "harmless")
 
