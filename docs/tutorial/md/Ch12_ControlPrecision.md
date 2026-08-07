@@ -23,7 +23,8 @@ Three layers, and the interesting work is at the joints between them:
 1. **ℝ is the reference.**  `V(f(x)) ≤ ρ·V(x)`, kernel-checked, no `sorry`
    (§12.1, §12.3).
 2. **The fixed-point equation is *derived*, not re-typed.**  `retype`
-   transports the ℝ definition to Q15.16, and that transported equation is
+   transports the ℝ definition to Q15.16 fixed point (the format is
+   introduced from scratch in §12.1.2), and that transported equation is
    checked to be the one the RTL datapath actually computes (§12.2).  This
    is the joint people skip, and it is where a proved model quietly stops
    describing the shipped circuit.
@@ -73,8 +74,32 @@ Two state registers in the controller (`I`, `p`), one in the plant (`x`).
 
 ### 12.1.2 The RTL, line for line
 
-`IP/Control/PID.lean` implements exactly those four lines in Q15.16
-fixed point (`mulQSig` = 32×32→64 multiply, arithmetic shift by 16):
+**Fixed point, and the Q notation, in one paragraph.**  Hardware has no
+real numbers, and floating point costs far more than a control loop can
+usually justify.  So a fractional value is stored as a plain integer with
+an *implied* scale factor: the 32-bit integer `n` represents the value
+`n / 2¹⁶`.  Nothing in the hardware marks where the point is — the
+convention lives in your head and in the code that reads the register.
+
+`Q15.16` names that convention: **16 fractional bits**, **15 integer
+bits**, plus one sign bit — 32 in total.  So the representable range is
+about ±32768 (2¹⁵) and the resolution is 2⁻¹⁶ ≈ 0.0000153.  That
+resolution — the value of one integer step — is the **LSB** (least
+significant bit), the unit every error bound in this chapter is quoted in.
+Two consequences follow immediately, and both drive the rest of the
+chapter:
+
+* **Adding** two Q15.16 values is just integer addition — the scales
+  already match.
+* **Multiplying** them is not.  `(a/2¹⁶)·(b/2¹⁶) = a·b/2³²`, so the
+  integer product carries *twice* the intended scale and must be shifted
+  back down by 16 to return to Q15.16.  That shift discards the low 16
+  bits, and discarding them is where quantization error enters (§12.4).
+
+So `mulQSig` below is a 32×32→64 multiply followed by an arithmetic shift
+right by 16 — widen to avoid overflowing the product, then rescale.
+
+`IP/Control/PID.lean` implements exactly the four lines above in Q15.16:
 
 ```
 def pid (iLim uLim : BitVec 32)
@@ -405,10 +430,12 @@ nothing.  Certificates should always be stated with slack.
 
 ## 12.4 Quantization as a bounded disturbance
 
-The synthesized datapath does not compute over ℝ.  It computes
-Q15.16: integers scaled by 2⁻¹⁶, products floored by an arithmetic
-shift.  The bridge between the proof and the silicon rests on one
-small fact and one standard theorem.
+The synthesized datapath does not compute over ℝ.  It computes Q15.16
+(§12.1.2), and the shift that rescales every product throws the low 16
+bits away.  Layer 2 established that the RTL computes the *right*
+equation; this section is the other half — what flooring every product
+does to the ℝ theorem.  The bridge rests on one small fact and one
+standard theorem.
 
 **The small fact.**  In Lean 4, `Int./` floors — and
 `BitVec.sshiftRight` also floors.  They are *the same function*.  So

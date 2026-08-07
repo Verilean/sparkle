@@ -3,6 +3,14 @@
 Q15.16 signed arithmetic on `BitVec 32`. Three synthesizable blocks, plus a
 machine-checked stability argument that lives in the `proofs/` sidecar.
 
+*Q15.16* is fixed point: a value is stored as a plain 32-bit integer `n`
+standing for `n / 2¹⁶` — 16 fractional bits, 15 integer bits, one sign bit.
+Range ≈ ±32768, resolution (one LSB) 2⁻¹⁶ ≈ 0.0000153. Addition is ordinary
+integer addition; multiplication needs a widening multiply and a shift back
+down by 16, which is where quantization error enters. Tutorial
+[Chapter 12](../tutorial/md/Ch12_ControlPrecision.md) §12.1.2 introduces the
+format, and §12.4 bounds the resulting error.
+
 ## The blocks
 
 | Module | What | State |
