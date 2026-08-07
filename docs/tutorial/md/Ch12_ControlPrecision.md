@@ -509,15 +509,35 @@ theorem intTraj_ultimate_bound (f1 f2 : Nat → ℤ) (h1 h2 : …) (n : Nat) :
       ≤ σ ^ n * V (toR (f1 0)) (toR (f2 0)) + Vbound
 ```
 
-One caveat is real and is not swept aside.  `stepX2_err` is stated
-against the ℝ update *using the quantized gains* `toR k1Q`, `toR k2Q` —
-not the exact `k1 = 0.6180`, `k2 = 1.2600`, which quantize to 0.248 and
-0.360 LSB away.  Those coefficient errors multiply the **state**, so
-their contribution grows with `|x|` and cannot be folded into a constant
-ε.  (`dt = 1/16` is dyadic and has no such error — `toR dtQ = dt` is
-proved, not assumed.)  Closing that properly means certifying the
-quantized-gain system, which is what the circuit actually implements;
-§12.10 lists it.
+**And the gains, too.**  `stepX2_err` is stated against the ℝ update
+using the *quantized* gains `toR k1Q`, `toR k2Q` — not the exact
+`k1 = 0.6180`, `k2 = 1.2600`, which round 0.248 and 0.360 LSB away.
+That difference cannot be absorbed into ε: a gain error multiplies the
+**state**, so its contribution grows with `|x|`.
+
+The fix is not a bigger ε — it is to certify the system the hardware
+implements.  `QuantizedGains.lean` does that: same `V`, same `P`, same
+ρ = 39/40, only the gains changed.  It works because the certificate was
+built with slack — the true contraction ratio moves from 0.97178926 to
+0.97178930, a shift of 3.7·10⁻⁸, while ρ sits at 0.975.  This is the
+concrete payoff of §12.1.3's step 2 ("pick a *round* rate above the
+measured ratio"): an implementation detail perturbs the plant and the
+proof still holds.  A ρ pinned at 0.9717893 would have needed a new `P`.
+
+Composing the two gives the statement with nothing left conditional:
+
+```lean
+theorem circuit_ultimate_bound (f1 f2 : Nat → ℤ)
+    (hs1 : ∀ n, f1 (n+1) = stepX1 (f1 n) (f2 n))
+    (hs2 : ∀ n, f2 (n+1) = stepX2 40501 82575 (f1 n) (f2 n))
+    (n : Nat) :
+    V (toR (f1 n)) (toR (f2 n))
+      ≤ σ ^ n * V (toR (f1 0)) (toR (f2 0)) + Vbound
+```
+
+`f1`/`f2` are the integers in the registers, `40501`/`82575` are the
+gains in the ROM, `stepX1`/`stepX2` are the floors the datapath performs.
+(`dt = 1/16` is dyadic, so `toR dtQ = dt` exactly — proved, not assumed.)
 
 **The standard theorem (ISS).**  A per-step error bounded by ε is a
 *bounded disturbance*, and a Lyapunov contraction survives bounded
@@ -863,12 +883,12 @@ def tail (w f : Nat) : Nat :=
   bound (1 lsb on `x1`, 3 lsb on `x2`) and `intTraj_ultimate_bound`
   restates the envelope directly about integer state sequences, with no
   `QuantTraj` hypothesis.
-* **Gain quantization is not covered by ε.**  `stepX2_err` measures
-  against the ℝ update with the *quantized* gains.  The exact gains
-  differ by 0.248 / 0.360 LSB, and that error multiplies the state, so
-  it grows with `|x|` and is not a constant number of LSBs.  The honest
-  fix is to certify the quantized-gain system — the one the circuit
-  implements — rather than the nominal one; not done.
+* ~~Gain quantization is not covered by ε~~ — **closed.**
+  `QuantizedGains.lean` re-derives the certificate for the gains the
+  circuit holds (40501/65536, 82575/65536).  Same `P`, same ρ = 39/40:
+  the true contraction ratio moves only 3.7·10⁻⁸, well inside the
+  slack.  `StepError.circuit_ultimate_bound` composes it with the
+  per-step bound, so the theorem's gains are the ROM's gains.
 * ~~The `mulQ` agreement is checked on fixtures, not proved~~ —
   **closed.**  `Sparkle/Verification/FixedPointProps.lean` proves
   `mulQ_toInt`: the datapath multiply equals `(a·b)/2¹⁶` for all inputs
