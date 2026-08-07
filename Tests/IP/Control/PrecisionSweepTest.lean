@@ -197,6 +197,29 @@ def rewriteStats : Nat × Nat := Id.run do
         if d > worst then worst := d
   return (diff, worst)
 
+/-- Constant folding `mulQ a e + mulQ b e → mulQ (a+b) e`.  Exact iff one
+    coefficient is integral (`a % 2^16 = 0`) — see `AlgebraicRewrite.fold_exact`. -/
+def foldDiffers (a b : Int) : Nat := Id.run do
+  let mut bad := 0
+  for i in [0:400] do
+    let e := (i * 1009 % 393216) - 196608
+    if mq a e + mq b e != mq (a + b) e then bad := bad + 1
+  return bad
+
+def foldSuite : TestSeq :=
+  group "constant folding: exact iff one gain is integral" <|
+    -- 2.0 is integral -> exact, whatever the other gain is.
+    test "2.0 + 0.125 folds exactly"
+      (foldDiffers (2 * s16) (s16 / 8) == 0) $
+    test "2.0 + 0.618 folds exactly (other gain need not be dyadic)"
+      (foldDiffers (2 * s16) 40501 == 0) $
+    -- Neither is integral -> not exact, even though both are powers of two.
+    -- This is the counter-intuitive one: "both dyadic" is NOT the criterion.
+    test "0.5 + 0.25 does NOT fold exactly, despite both being dyadic"
+      (foldDiffers (s16 / 2) (s16 / 4) > 0) $
+    test "0.618 + 1.26 does NOT fold exactly"
+      (foldDiffers 40501 82575 > 0)
+
 def rewriteSuite : TestSeq :=
   group "ℝ-equal rewrite is not fixed-point-equal" <|
     test "the two shapes disagree on a large fraction of states"
@@ -240,7 +263,7 @@ def transportSuite : TestSeq :=
       (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite, foldSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/

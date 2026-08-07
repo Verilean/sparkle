@@ -123,6 +123,53 @@ theorem uBq_err (kp ki kd e s p : ℤ) :
       toR_eq_mul_lsb (mulQ kd p), abs_le]
   constructor <;> linarith
 
+/-! ### Which rewrites are FREE — the part a search needs
+
+For choosing an RTL shape automatically, the useful question is not "how big
+is the error" but "which rewrites cost nothing at all".  Those can be applied
+without bookkeeping; only the rest need an error budget.
+
+Measured, then proved:
+
+| rewrite | fixed point |
+|---|---|
+| reassociate / commute additions | **exact** |
+| `mulQ a e + mulQ b e → mulQ (a+b) e` | exact **iff** one coefficient is a whole number of units |
+| `mulQ k (a+b) → mulQ k a + mulQ k b` | 1 lsb — crosses a floor |
+
+The middle row is the one that surprises.  Folding two gains into one saves a
+multiplier, and it is tempting to assume it is always safe because it is
+"just constant folding".  It is not: with `a = 0.5, b = 0.25` — both powers
+of two — it disagrees on 25 % of inputs.  With `a = 2.0, b = 0.618` it is
+exact.  Being dyadic is not the criterion; having **no fractional part** is,
+because then `a·e / 2¹⁶` is an integer and there is nothing for the floor to
+discard. -/
+
+/-- **Constant folding is exact exactly when one gain is integral.**
+
+    `scale ∣ a` says `a` denotes a whole number (2.0, 3.0, …), so `a·e` is
+    always a multiple of `scale` and its `mulQ` loses nothing.  The other
+    coefficient is unconstrained.
+
+    A search may apply this rewrite freely under the hypothesis and must
+    treat it as costing 1 lsb otherwise. -/
+theorem fold_exact (a b e : ℤ) (ha : scale ∣ a) :
+    mulQ a e + mulQ b e = mulQ (a + b) e := by
+  obtain ⟨k, hk⟩ := ha
+  subst hk
+  unfold mulQ
+  have hs : (0 : ℤ) < scale := by unfold scale; decide
+  have h1 : scale * k * e = scale * (k * e) := by ring
+  have h2 : (scale * k + b) * e = scale * (k * e) + b * e := by ring
+  rw [h1, h2, Int.mul_ediv_cancel_left _ (by omega : (scale:ℤ) ≠ 0)]
+  rw [add_comm (scale * (k * e)) (b * e), Int.add_mul_ediv_left _ _
+      (by unfold scale; decide : (scale:ℤ) ≠ 0)]
+  ring
+
+/-- Additions reassociate exactly — no floor is involved, so this is just
+    `Int` arithmetic.  Free for a search to use. -/
+theorem add_reassoc_exact (x y z : ℤ) : (x + y) + z = x + (y + z) := by ring
+
 /-- **The gap between the two shapes, bounded.**
 
     Each side is within 3 lsb of the same ℝ value (`uA_eq_uB`), so they are

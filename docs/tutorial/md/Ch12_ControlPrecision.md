@@ -477,6 +477,38 @@ gains one level up: prove stability for `uA`, synthesize `uB`, and the
 Lyapunov argument covers a system the hardware does not implement — unless
 the difference is carried as an extra disturbance into the ISS bound.
 
+**Using this to search for an RTL shape.**  If you want a tool to *pick*
+the implementation — try rewrites, keep the cheapest that still meets the
+error budget — the useful question is not "how big is the error" but
+"which rewrites cost nothing", because those need no bookkeeping at all:
+
+| rewrite | fixed point | cost to a search |
+|---|---|---|
+| reassociate / commute `+` | exact | free |
+| `Kp·e + Kd·e → (Kp+Kd)·e` | exact **iff one gain is integral** | free under a check |
+| `K·(a+b) → K·a + K·b` | 1 lsb | budgeted |
+
+The middle row is the trap.  Folding two gains saves a multiplier and looks
+like plain constant folding, so it is tempting to treat as always-safe.  It
+is not — and the criterion is not the one you would guess:
+
+```
+2.0  + 0.125  → exact      (2.0 is a whole number)
+2.0  + 0.618  → exact      (the OTHER gain can be anything)
+0.5  + 0.25   → 25 % differ  ← both powers of two, still wrong
+0.618 + 1.26  → differs
+```
+
+Being dyadic is not what matters; having **no fractional part** is, because
+then `a·e / 2¹⁶` is an integer and the floor discards nothing.
+`AlgebraicRewrite.fold_exact` proves it under `scale ∣ a`, and
+`PrecisionSweepTest` pins all four rows above — including the
+counter-intuitive `0.5 + 0.25`.
+
+So a search can apply the free rules without touching the certificate, and
+only pay the ISS-disturbance price for the rewrites that genuinely cross a
+floor.
+
 Divisions carry one extra obligation.  `(a/b)·x = a·(x/b)` needs `b ≠ 0`
 (`div_reassoc` states it), so the rewrite is unlicensed where the guard
 fails.  And in fixed point a division is `divQref`, which *truncates* — its
