@@ -23,6 +23,7 @@
 import Sparkle
 import Sparkle.Compiler.Elab
 import IP.Control.IIRBiquadGen
+import IP.Control.FixedPoint
 import LSpec
 
 set_option maxRecDepth 100000
@@ -80,8 +81,61 @@ def suite : TestSeq :=
     test "marginal Q15.16 is very much alive at cycle 60"
       (tailAmp 32 16 marginalCoeffs 300 60 ≥ 50)
 
+/-! ### Transport agreement — the Sparkle half of Ch12 §12.2.2
+
+`retypelab/RetypeLab/FixedPointTransport.lean` transports the ℝ controller
+equation to Q15.16 with `retype`, giving a fixed-point multiply that is
+`(a * b) / 2^16` on `Int`.  Sparkle's datapath uses `mulQ`, which is
+`extractLsb' 16` on a sign-extended product.
+
+The chapter claims those are the same function.  That claim is the joint
+between the proved ℝ model and the shipped RTL, so it is checked here rather
+than asserted — and checked on SIGN-CROSSING cases specifically, because
+that is the only place the two could differ:
+
+  * `extractLsb' 16` on a sign-extended product is an ARITHMETIC shift, so
+    it rounds toward −∞;
+  * Lean's `Int./` also floors.
+
+Had either side truncated toward zero instead, every case below with a
+negative product and a non-zero remainder would fail.  (The two packages
+cannot import each other — retype pins Lean v4.32.0, Sparkle is on v4.28.0 —
+so `refMul` restates the transported multiply rather than importing it.  A
+drift between the two shows up as a failure here.) -/
+
+/-- The transported multiply, as `FixQ.Mul` defines it. -/
+def refMul (a b : Int) : Int := (a * b) / 65536
+
+/-- Sparkle's datapath multiply, on the same numerators. -/
+def hwMul (a b : Int) : Int :=
+  (Sparkle.IP.Control.FixedPoint.mulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b)).toInt
+
+/-- Cases chosen to cross zero and to land on non-zero remainders, where a
+    truncating implementation would disagree. -/
+def transportCases : List (Int × Int) :=
+  [(65536, 65536), (4096, 65536), (40501, 65536), (-65536, 65536),
+   (65536, -65536), (-40501, -65536), (1, 1), (-1, 1), (1, -1),
+   (123456, -7890), (-1, 65535), (3, -65537), (-82575, 65536),
+   (25035, 40501), (-25035, 40501)]
+
+def transportSuite : TestSeq :=
+  group "Transport agreement (ℝ →retype→ Q15.16 vs Sparkle mulQ)" <|
+    test "every case agrees"
+      ((transportCases.filter (fun (a, b) => hwMul a b != refMul a b)).isEmpty) $
+    -- Spelled out, so a failure says WHICH direction the rounding went.
+    test "negative product with remainder floors down (not toward zero)"
+      (hwMul (-1) 1 == -1) $
+    test "positive product with remainder floors to zero"
+      (hwMul 1 1 == 0) $
+    -- The constants the transport produced, re-derived on the Sparkle side.
+    test "k1 = 0.6180 transports to 40501"
+      ((q 32 16 6180 10000).toInt == 40501) $
+    test "one observer step matches the transported equation"
+      -- x1 = 1, x2 = 0, y = 0:  x1 + dt·x2 + k1·(y − x1) = 1 − 0.6180
+      (hwMul 40501 65536 == 40501 ∧ 65536 - 40501 == 25035)
+
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/

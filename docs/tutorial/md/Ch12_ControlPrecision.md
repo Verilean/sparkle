@@ -12,17 +12,37 @@ fractional bits and a provably-stable design oscillates on the bench.
 Pick too many and you burn LUTs, closing timing gets harder, and
 nothing improves.
 
-This chapter walks the whole path on real, synthesizable Sparkle
-designs from `IP/Control/`: a PID loop, an LQR regulator, IIR
-filters at five precisions, and two state estimators (Kalman and
-H∞) including one that computes its own gains on-chip with a
-multi-cycle divider.  Along the way it answers a practical question
-with *measured* data: **which verification tool covers which claim**
-— SMT, Monte-Carlo falsification, or Lyapunov induction — and where
-each one stops.
+The chapter has **one argument**, and every section is a step in it:
+
+> Write the system down once, in ℝ.  Prove it stable there.  Then carry
+> that ℝ text down to hardware mechanically, and account for exactly what
+> the trip costs.
+
+Three layers, and the interesting work is at the joints between them:
+
+1. **ℝ is the reference.**  `V(f(x)) ≤ ρ·V(x)`, kernel-checked, no `sorry`
+   (§12.1, §12.3).
+2. **The fixed-point equation is *derived*, not re-typed.**  `retype`
+   transports the ℝ definition to Q15.16, and that transported equation is
+   checked to be the one the RTL datapath actually computes (§12.2).  This
+   is the joint people skip, and it is where a proved model quietly stops
+   describing the shipped circuit.
+3. **The circuit's own stability.**  Quantization is not a rounding
+   footnote — flooring is a nonlinearity that can sustain a limit cycle —
+   so the ℝ theorem is re-earned as an ISS ultimate bound, and the residual
+   gap is stated plainly (§12.4, §12.10).
+
+The vehicles are real synthesizable designs from `IP/Control/`: a PID loop,
+an LQR regulator, IIR filters at five precisions, and two state estimators
+(Kalman and H∞), one of which computes its own gains on-chip with a
+multi-cycle divider.  Along the way the chapter answers a practical
+question with *measured* data — **which verification tool covers which
+claim** (SMT, Monte-Carlo falsification, Lyapunov induction), and where
+each one stops (§12.5).
 
 Everything below that is stated as a number was measured or proven in
-this repository; the chapter cites the file each time.
+this repository; the chapter cites the file each time.  Where a link in
+the chain is checked-on-cases rather than proved, it says so.
 
 ## 12.1 The worked example: one PID loop, from equations to theorem
 
@@ -157,18 +177,176 @@ checking step 4 is what turns the numerical remark into a theorem.
 
 ### 12.1.4 What just happened, and what did not
 
-The theorem is about the ℝ model.  The RTL runs Q15.16.  Three things bridge
-the gap, each covered later in this chapter: the quantization error of each
-multiply is one-sided and < 1 LSB (§12.3, `mulQ_error`); a Lyapunov
-contraction survives bounded per-step disturbances with a computable
-ultimate bound (§12.3, ISS); and the circuit is held to the pure model
-cycle-by-cycle on three different backends (§12.4d).  What is *deliberately
-not* claimed: that the clamps never engage (they exist precisely for the
-transients where they do), and that the certificate covers the saturated
-regions — extending `V` piecewise across the clamp boundaries is the
-natural next theorem, and is open.
+The theorem is about the ℝ model.  The RTL runs Q15.16.  **That gap is the
+subject of the rest of the chapter**, and it has two distinct halves that
+are easy to conflate:
 
-## 12.2 Lyapunov stability in general
+* *Is the RTL computing the same equation?*  A question about
+  **transport** — answered by deriving the fixed-point equation from the ℝ
+  one instead of hand-writing it, then checking the datapath against the
+  derivation (§12.2).
+* *Does the equation still converge once every product is floored?*  A
+  question about **dynamics** — answered by ISS: the quantization error of
+  each multiply is one-sided and < 1 LSB (`mulQ_error`), and a Lyapunov
+  contraction absorbs bounded per-step disturbances into a computable
+  ultimate bound (§12.4).  Plus the circuit held to the pure model
+  cycle-by-cycle on three backends (§12.5d).
+
+Answering only the second — the usual practice — leaves you with a proof
+about an equation you have not established the hardware implements.
+
+What is *deliberately not* claimed: that the clamps never engage (they
+exist precisely for the transients where they do), and that the certificate
+covers the saturated regions — extending `V` piecewise across the clamp
+boundaries is the natural next theorem, and is open.
+
+## 12.2 The spine: one equation, three layers
+
+Everything from here to §12.10 is one argument, and it is worth stating
+before the details bury it.  There is **one** system.  It is written down
+once, in ℝ, and that ℝ text is the reference — the thing the design *means*.
+Everything else in the chapter is an attempt to carry that meaning down to
+something you can put on an FPGA, and to be honest about what survives the
+trip.
+
+Three layers, three different kinds of claim:
+
+| Layer | Artifact | What is claimed | How |
+|---|---|---|---|
+| 1. Design | `nextX1, nextX2 : ℝ → ℝ` | `V(f(x)) ≤ ρ·V(x)`, ρ = 39/40 | Lean proof, kernel-checked |
+| 2. Implementation | `nextX1Q : FixQ → FixQ` | the Q15.16 equation **is** the ℝ equation, retyped | mechanical transport, then equality vs the RTL |
+| 3. Circuit | `fixedGainObserver` (Verilog) | ℝ stability + bounded error ⟹ ultimate bound | ISS, plus co-sim |
+
+Layer 1 is §12.1.3 — already done.  Layer 3 is §12.4.  This section is
+**layer 2**, which is the one that is easy to skip and is exactly where
+designs go wrong: the ℝ model is proved, the RTL is simulated, and nobody
+ever checks that the RTL implements *that* model rather than a slightly
+different one someone typed in by hand.
+
+### 12.2.1 Transporting the equation, not re-typing it
+
+The usual practice is to write the fixed-point version by hand.  That
+creates a second source of truth, and the two drift: a gain rounded
+differently, a `-` that became a saturating `-` on one side only.  No
+amount of simulating the RTL finds this, because the RTL is being compared
+against *itself*.
+
+Instead, generate it.  `retype` replaces a type throughout a definition and
+substitutes the corresponding operations, so the fixed-point equation is
+*derived from* the ℝ equation rather than written beside it:
+
+```lean
+structure FixQ where            -- Q15.16: the stored integer is value·2¹⁶
+  n : Int
+
+instance : Mul FixQ := ⟨fun a b => ⟨(a.n * b.n) / 65536⟩⟩
+instance : Add FixQ := ⟨fun a b => ⟨a.n + b.n⟩⟩
+
+declare_retype RealToFixQ : Real => FixQ
+
+noncomputable def dt : ℝ := 1 / 16
+noncomputable def k1 : ℝ := 6180 / 10000
+noncomputable def nextX1 (x1 x2 y : ℝ) : ℝ := x1 + dt * x2 + k1 * (y - x1)
+
+retype_def dtQ    := dt    using Real => FixQ
+retype_def k1Q    := k1    using Real => FixQ
+attribute [retype RealToFixQ] dt k1     -- so nextX1's references follow
+retype_def nextX1Q := nextX1 using Real => FixQ
+```
+
+`nextX1Q` is now a Q15.16 function nobody wrote.  Evaluating it:
+
+```lean
+#eval dtQ                       -- { n := 4096 }   = 1/16      ✓
+#eval k1Q                       -- { n := 40501 }  ≈ 0.61799   ✓
+#eval nextX1Q ⟨65536⟩ ⟨0⟩ ⟨0⟩    -- { n := 25035 }  ≈ 0.38200   ✓
+```
+
+The last line is the check worth pausing on.  With `x1 = 1, x2 = 0, y = 0`
+the ℝ equation gives `1 + 0 − 0.6180·1 = 0.3820`, and 25035/65536 = 0.38200.
+The transported equation agrees with the equation it came from, and no
+human transcribed a coefficient.
+
+### 12.2.2 Does the RTL implement *this*?
+
+Now the question that layer 2 exists to answer.  Sparkle's datapath uses
+`mulQ` on `BitVec 32` (`IP/Control/FixedPoint.lean`):
+
+```lean
+def mulQ (a b : BitVec 32) : BitVec 32 :=
+  BitVec.extractLsb' 16 32 ((a.signExtend 64) * (b.signExtend 64))
+```
+
+and the retyped model uses `(a.n * b.n) / 65536` on `Int`.  These are the
+same function, and the reason is not obvious: `extractLsb' 16` on a
+sign-extended product is an **arithmetic** right shift, which rounds toward
+−∞, and Lean's `Int./` also **floors**.  Had the hardware used a truncating
+shifter, or had `FixQ` used `Int.tdiv`, the two would agree on positives and
+disagree on every negative product.
+
+That is a claim, so it is checked rather than asserted:
+
+```lean
+def refMul (a b : Int) : Int := (a * b) / 65536
+def chk (a b : Int) : Bool :=
+  (mulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b)).toInt == refMul a b
+
+#eval cases.filter (fun (a,b) => !chk a b)     -- []
+```
+
+over sign-crossing and boundary cases (`(-1, 65535)`, `(3, -65537)`,
+`(-40501, -65536)`, …) — all agree.
+
+Both halves are live code, not listings:
+`retypelab/RetypeLab/FixedPointTransport.lean` does the transport and pins
+every constant with `#guard` (4096, 40501, 82575, 25035 — each checkable by
+hand against the ℝ values), and
+`Tests/IP/Control/PrecisionSweepTest.lean`'s *Transport agreement* suite
+runs the comparison on the Sparkle side under `lake test`:
+
+```
+Transport agreement (ℝ →retype→ Q15.16 vs Sparkle mulQ):
+  ✓ every case agrees
+  ✓ negative product with remainder floors down (not toward zero)
+  ✓ positive product with remainder floors to zero
+  ✓ k1 = 0.6180 transports to 40501
+  ✓ one observer step matches the transported equation
+```
+
+So the datapath's multiply is the retyped multiply, and the chain
+
+> ℝ equation → (retype) → Q15.16 equation → (this check) → RTL datapath
+
+closes.  §12.5d then holds the *whole circuit* to the pure model
+cycle-by-cycle on three backends, which extends the agreement from one
+operation to one design.
+
+### 12.2.3 What layer 2 does and does not buy
+
+It buys the elimination of a specific, common, silent failure: the
+implemented equation not being the designed equation.  After this section,
+"the RTL computes something slightly different from the model" is not on
+the table.
+
+It does **not** make the fixed-point loop stable.  `nextX1Q` is a different
+dynamical system from `nextX1` — it floors every product — and a floor is
+not a small perturbation of the identity, it is a nonlinearity that can
+sustain a limit cycle (§12.4 shows one doing exactly that, and §12.4's
+"more bits ≠ better" warning shows a *finer* grid behaving *worse*).
+Layer 2 says the two systems are related by transport; layer 3 has to say
+what that relation preserves.
+
+Two honest gaps in this layer, both recorded rather than papered over.
+`retype` pins Lean v4.32.0 while Sparkle is on v4.28.0, so the transport
+above runs in the `retypelab/` sidecar and the ℝ model is *duplicated*
+there rather than imported (`retypelab/RetypeLab/Falsify.lean` explains the
+seam and re-derives the proved constants so drift shows up as a failing
+`#guard`).  And the `mulQ` agreement is checked on cases, not proved for
+all inputs; the proof is a `BitVec`-level lemma (`(mulQ a b).toInt =
+(a.toInt * b.toInt) / 2¹⁶` under a no-overflow hypothesis) that `bv_decide`
+should get at this width, and it is not yet written.
+
+## 12.3 Lyapunov stability in general
 
 What §12.1.3 did for one system is the general recipe.  A **Lyapunov
 function** for `s⁺ = f(s)` is any `V ≥ 0` with
@@ -184,17 +362,17 @@ repo, proved with the same LDLᵀ recipe:
 
 * the **LQR** double integrator (`LQRDesign.lean`) — the chapter's vehicle
   for the quantization story, ρ = 39/40, true ratio 0.97179;
-* both **estimator error dynamics** (`EstimatorDesign.lean`, §12.5) — where
+* both **estimator error dynamics** (`EstimatorDesign.lean`, §12.6) — where
   the *same* recipe also proves the H∞ dissipation inequality, a 4-variable
   quadratic form.
 
 Why insist on the contraction form `V∘f ≤ ρV` rather than mere decrease
 `V∘f < V`?  Because only the former survives disturbances: ρ < 1 leaves
-room to absorb a bounded perturbation into a geometric series (§12.3's ISS
+room to absorb a bounded perturbation into a geometric series (§12.4's ISS
 argument), whereas strict-decrease-by-an-unquantified-amount absorbs
 nothing.  Certificates should always be stated with slack.
 
-## 12.3 Quantization as a bounded disturbance
+## 12.4 Quantization as a bounded disturbance
 
 The synthesized datapath does not compute over ℝ.  It computes
 Q15.16: integers scaled by 2⁻¹⁶, products floored by an arithmetic
@@ -265,14 +443,14 @@ only one of them:
 
 Fine precision gives you a *more faithful copy of whatever you
 designed* — including its flaws.  Precision and design margin are
-separate budgets; the worksheet in §12.8 keeps them separate.
+separate budgets; the worksheet in §12.9 keeps them separate.
 
 Also measured in the same sweep: Q7.8 (16-bit) and Q23.8 (32-bit)
 produce **bit-identical** output — they share `f = 8`.  Width buys
 range (later saturation), never accuracy.  If a review comment says
 "widen the datapath for accuracy", this test is the counterexample.
 
-## 12.4 Three verifiers, three coverage zones — measured
+## 12.5 Three verifiers, three coverage zones — measured
 
 You now have three ways to check a fixed-point control claim.  They
 are not interchangeable; each has a hard edge, and we measured where.
@@ -364,7 +542,7 @@ verifies the compiler that produced it.  Keep one artifact-level cross-sim per
 backend in the loop no matter how much you have proven, and treat a green
 `#synthesizeVerilog` as "well-formed", never as "correct".
 
-## 12.5 Estimators: Kalman and H∞ are the same circuit
+## 12.6 Estimators: Kalman and H∞ are the same circuit
 
 Real loops close on *estimated* state — gyro rates are noisy, and
 position comes through a filter.  `IP/Control/Observer.lean`
@@ -429,7 +607,7 @@ on-chip fixed-point Riccati converges to gains within **49 and 12
 LSB** of the offline design constants — the hardware recursion and
 the offline script confirming each other to ~0.1%.
 
-## 12.6 Use case A: the fast drone
+## 12.7 Use case A: the fast drone
 
 A racing-drone rate loop closes at 1–8 kHz on a controller running at
 27 MHz.  Sample-period budget at 4 kHz: 6750 cycles.  What the
@@ -443,7 +621,7 @@ numbers in this chapter say about that design:
   adaptive gains, let tvKalman update them at a slower rate.
 * **Precision**: the inner loop's signals are small (rate errors,
   ±10 rad/s) and the budget is tight.  `Vbound(f) = 583200/4^f` says
-  f = 13 meets a 0.01 budget; Q15.16 gives 30× margin, and §12.3's
+  f = 13 meets a 0.01 budget; Q15.16 gives 30× margin, and §12.4's
   sweep says the *16-bit* Q7.8 datapath — half the multiplier area —
   fails the same budget by three orders of magnitude.  The correct
   cheap choice is a 16-bit *container* only if you can spend 13+ bits
@@ -455,7 +633,7 @@ numbers in this chapter say about that design:
   bound; and every gain retune gets the millisecond Float-falsifier
   pass before anyone re-proves anything.
 
-## 12.7 Use case B: the disturbance-heavy environment
+## 12.8 Use case B: the disturbance-heavy environment
 
 Now the other regime: an inspection drone next to a building in gusty
 wind, a vehicle with unmodelled vibration — the disturbance is large,
@@ -481,14 +659,14 @@ Read this honestly, because the honest reading *is* the lesson:
   worst-case guarantee is the engineering choice, and the guarantee —
   not the 9% — is the product.
 
-This is also where the three-verifier split from §12.4 pays off: the
+This is also where the three-verifier split from §12.5 pays off: the
 dissipation inequality is a 4-variable quadratic form — far beyond
 BMC's unrolling wall as a trajectory claim, but as a one-shot
 algebraic inequality it is exactly what an SOS certificate plus
 `nlinarith` handles, and the exact rational LDLᵀ that seeds those
 hints was found in milliseconds offline.
 
-## 12.8 The precision-selection worksheet
+## 12.9 The precision-selection worksheet
 
 The procedure this chapter justifies, step by step, for a new control
 datapath:
@@ -522,7 +700,7 @@ import IP.Control.IIRBiquadGen
 open Sparkle.IP.Control.IIRBiquadGen
 open Sparkle.IP.Control.FixedPointGen
 
--- The §12.3 sweep, live: the same marginal resonator at three formats.
+-- The §12.4 sweep, live: the same marginal resonator at three formats.
 -- Residual ringing amplitude (×1e-3) after 200 quiet samples:
 def tail (w f : Nat) : Nat :=
   let impulse := (q w f 1 1) :: List.replicate 300 (BitVec.zero w)
@@ -536,7 +714,7 @@ def tail (w f : Nat) : Nat :=
 #eval tail 32 8    -- 0   : same f as Q7.8, twice the width — identical
 ```
 
-## 12.9 Where this stops, honestly
+## 12.10 Where this stops, honestly
 
 * The `Signal`-level equality (`circuit do` = the pure `step`
   functions, every cycle) is checked by cycle-accurate co-simulation,
