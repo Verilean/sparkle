@@ -186,4 +186,44 @@ theorem uAq_uBq_gap (kp ki kd e s p : ℤ) :
   rw [abs_le]
   constructor <;> linarith [h1.1, h1.2, h2.1, h2.2]
 
+/-! ### Feeding a search: what a rewrite costs the certificate
+
+A shape search needs three things, and all three now exist:
+
+1. **Is the rewrite valid over ℝ?**  `ring` / `field_simp` (`uA_eq_uB`,
+   `div_reassoc`).  This is the filter — a candidate that fails here is not
+   the same function and is simply rejected.
+2. **Is it free in fixed point?**  `fold_exact` and `add_reassoc_exact`
+   above.  Free rewrites need no further accounting.
+3. **If not free, what does it cost?**  A per-step error of `extra` lsb on
+   top of the quantization ε, which enters the ISS bound exactly the way
+   quantization does.
+
+`Vbound_mono` below is the third piece: the ultimate bound is monotone in
+the per-step error, so a search can rank candidates by
+`(multiplier count, VboundOf (ε + extra))` and reject any whose bound
+exceeds the budget — without re-running a Lyapunov proof per candidate.
+
+Note the direction of the guarantee.  This says a cheaper shape is
+ADMISSIBLE if its inflated bound still meets the budget; it does not say the
+inflated bound is tight.  As §12.2.4 records, floor-counting gave 6 lsb
+where the measured worst case was 1, so a search driven by these bounds is
+conservative: it will never accept an unsafe shape, and it may reject a safe
+one. -/
+
+/-- The ultimate bound as a function of the per-step error, so a search can
+    evaluate a candidate without redoing the fixed-point argument. -/
+noncomputable def VboundOf (d : ℝ) : ℝ := 810 * d ^ 2 / (1 - σ)
+
+/-- **Monotone in the per-step error.**  A rewrite that adds `extra` lsb per
+    step can only enlarge the ultimate bound, and by a computable amount —
+    which is what makes "does this candidate still meet the budget?" a
+    decidable numeric check rather than a fresh proof obligation. -/
+theorem Vbound_mono {d1 d2 : ℝ} (h0 : 0 ≤ d1) (h : d1 ≤ d2) :
+    VboundOf d1 ≤ VboundOf d2 := by
+  unfold VboundOf
+  have hs : (0:ℝ) < 1 - σ := by have := sigma_lt_one; linarith
+  have : d1 ^ 2 ≤ d2 ^ 2 := by nlinarith
+  gcongr
+
 end SparkleProofs.Control.AlgebraicRewrite

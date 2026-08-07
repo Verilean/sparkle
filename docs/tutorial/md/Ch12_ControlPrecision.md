@@ -509,6 +509,28 @@ So a search can apply the free rules without touching the certificate, and
 only pay the ISS-disturbance price for the rewrites that genuinely cross a
 floor.
 
+**The search itself.**  `IP/Control/ShapeSearch.lean` implements this:
+enumerate the rewritings, keep the ℝ-equivalent ones, price each by
+multiplier count and measured lsb gap.  On `0.618·x + 1.26·x` it reports
+
+```
+  muls=1 gap=1 lsb  (1.878 * x)                  ← fold: one multiplier less
+  muls=2 gap=0 lsb  (0.618*x + 1.26*x)           ← original: exact
+```
+
+which is the shape of the answer you want: the cheaper option is *offered
+with its price attached*, not silently applied.  On the dyadic-gain PID it
+finds only `muls=0 gap=0` shapes — every gain is already a shift, so
+reassociation is all that is on the table and all of it is free.
+
+Two limits, both deliberate.  The gap is *measured* over a sample, so it is
+a lower bound on the worst case — use the search to find candidates, then
+discharge the chosen one against the proved bound (`uAq_uBq_gap`).  And
+admission is by ℝ-equivalence on samples, not by `ring`; a candidate that
+survives is a *proposal*, and `ring` is what makes it a theorem.  This is
+the same division of labour as the Float falsifier in
+`SparkleProofs/Retype/`: search cheaply, prove the survivor.
+
 Divisions carry one extra obligation.  `(a/b)·x = a·(x/b)` needs `b ≠ 0`
 (`div_reassoc` states it), so the rewrite is unlicensed where the guard
 fails.  And in fixed point a division is `divQref`, which *truncates* — its

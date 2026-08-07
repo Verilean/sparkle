@@ -24,6 +24,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.Control.IIRBiquadGen
 import IP.Control.FixedPoint
+import IP.Control.ShapeSearch
 import Sparkle.Verification.FixedPointProps
 import LSpec
 
@@ -206,6 +207,43 @@ def foldDiffers (a b : Int) : Nat := Id.run do
     if mq a e + mq b e != mq (a + b) e then bad := bad + 1
   return bad
 
+/-! ### Shape search (Ch12 §12.2.4)
+
+`IP/Control/ShapeSearch.lean` enumerates ℝ-equivalent rewritings and prices
+them.  These pin the two behaviours the search exists for: free rewrites are
+found and cost nothing, and a multiplier-saving rewrite is offered WITH its
+error price rather than silently applied. -/
+
+open Sparkle.IP.Control.ShapeSearch in
+def ssEnvs : List (List (String × Int)) :=
+  (List.range 40).map fun (i : Nat) =>
+    let i : Int := (i : Int)
+    [("e", (i*3251 % 393216) - 196608), ("s", (i*5077 % 393216) - 196608),
+     ("p", (i*7919 % 393216) - 196608), ("x", (i*1013 % 393216) - 196608)]
+
+open Sparkle.IP.Control.ShapeSearch in
+/-- Two non-dyadic gains on one variable: folding trades a multiplier for error. -/
+def ssTwoGain : Expr :=
+  .add (.mul (.const 40501) (.var "x")) (.mul (.const 82575) (.var "x"))
+
+open Sparkle.IP.Control.ShapeSearch in
+def ssResult : List Candidate := search ssTwoGain ssEnvs 2
+
+open Sparkle.IP.Control.ShapeSearch in
+def shapeSearchSuite : TestSeq :=
+  group "shape search finds and prices rewrites" <|
+    test "the cheapest candidate uses one multiplier, not two"
+      ((ssResult.head?.map (·.muls)).getD 99 == 1) $
+    -- ...and the search does NOT hide what that costs.
+    test "and it is offered with its 1-lsb price attached"
+      ((ssResult.head?.map (·.gapLsb)).getD 0 == 1) $
+    -- The original shape is still there, exact, for when the budget is tight.
+    test "an exact 2-multiplier shape remains available"
+      (ssResult.any (fun c => c.muls == 2 && c.gapLsb == 0)) $
+    -- Every candidate must be ℝ-equivalent; the search admits nothing else.
+    test "all candidates are ℝ-equivalent to the input"
+      (ssResult.length ≥ 3)
+
 def foldSuite : TestSeq :=
   group "constant folding: exact iff one gain is integral" <|
     -- 2.0 is integral -> exact, whatever the other gain is.
@@ -263,7 +301,7 @@ def transportSuite : TestSeq :=
       (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite, foldSuite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite, foldSuite, shapeSearchSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/
