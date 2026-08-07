@@ -482,6 +482,43 @@ error confined to `(−1, 0]` LSB, independent of sign
 Contrast the divider below, which truncates toward zero and pays a
 two-sided `(−1, 1)` LSB interval for it.
 
+**The step that used to be folklore.**  "A per-step error bounded by ε"
+is the hypothesis the whole ISS argument runs on, and until recently
+nothing connected it to the integers the circuit iterates —
+`ultimate_bound` was stated for a `QuantTraj`, a *structure whose fields
+assume* `x⁺ = nextX x + d` with `|d| ≤ ε`.  It read "IF the hardware
+trajectory has this shape, THEN it is ultimately bounded", and the
+antecedent was asserted rather than proved.
+
+`StepError.lean` discharges it.  Counting floors per component:
+
+| channel | update | floors | proved bound |
+|---|---|---|---|
+| `x1` | `x1 + mulQ dtQ x2` | 1 | **1 lsb** (`stepX1_err`) |
+| `x2` | `x2 + mulQ dtQ (-(mulQ k1Q x1 + mulQ k2Q x2))` | 3 | **3 lsb = ε** (`stepX2_err`) |
+
+`mkTraj` then packages an integer state sequence into a `QuantTraj` —
+the disturbances are not invented, `d n` is *defined* as the difference
+between what the circuit computed and what ℝ would have, so the
+step equations hold by `ring` and the only content is the bound above.
+The consequence is stated with no `QuantTraj` in sight:
+
+```lean
+theorem intTraj_ultimate_bound (f1 f2 : Nat → ℤ) (h1 h2 : …) (n : Nat) :
+    V (toR (f1 n)) (toR (f2 n))
+      ≤ σ ^ n * V (toR (f1 0)) (toR (f2 0)) + Vbound
+```
+
+One caveat is real and is not swept aside.  `stepX2_err` is stated
+against the ℝ update *using the quantized gains* `toR k1Q`, `toR k2Q` —
+not the exact `k1 = 0.6180`, `k2 = 1.2600`, which quantize to 0.248 and
+0.360 LSB away.  Those coefficient errors multiply the **state**, so
+their contribution grows with `|x|` and cannot be folded into a constant
+ε.  (`dt = 1/16` is dyadic and has no such error — `toR dtQ = dt` is
+proved, not assumed.)  Closing that properly means certifying the
+quantized-gain system, which is what the circuit actually implements;
+§12.10 lists it.
+
 **The standard theorem (ISS).**  A per-step error bounded by ε is a
 *bounded disturbance*, and a Lyapunov contraction survives bounded
 disturbances in degraded form:
@@ -821,6 +858,17 @@ def tail (w f : Nat) : Nat :=
 * The H∞ dissipation is proven for the ℝ model; its fixed-point
   transport (the estimator analogue of `Transport.lean`) follows the
   same ISS pattern but is not written.
+* ~~The ISS argument assumes the hardware trajectory is an ε-perturbed
+  ℝ trajectory~~ — **closed.**  `StepError.lean` proves the per-step
+  bound (1 lsb on `x1`, 3 lsb on `x2`) and `intTraj_ultimate_bound`
+  restates the envelope directly about integer state sequences, with no
+  `QuantTraj` hypothesis.
+* **Gain quantization is not covered by ε.**  `stepX2_err` measures
+  against the ℝ update with the *quantized* gains.  The exact gains
+  differ by 0.248 / 0.360 LSB, and that error multiplies the state, so
+  it grows with `|x|` and is not a constant number of LSBs.  The honest
+  fix is to certify the quantized-gain system — the one the circuit
+  implements — rather than the nominal one; not done.
 * ~~The `mulQ` agreement is checked on fixtures, not proved~~ —
   **closed.**  `Sparkle/Verification/FixedPointProps.lean` proves
   `mulQ_toInt`: the datapath multiply equals `(a·b)/2¹⁶` for all inputs
