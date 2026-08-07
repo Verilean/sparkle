@@ -252,9 +252,15 @@ run_meta do
   let text ← designText ``divTop
   let mods := splitModules text
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
-  -- DividerQ.SigState: counter, rem, quot, den, negate, done = 6 registers.
-  unless total == 6 do
-    throwError s!"RTL structure: divTop register count changed: {total} (pinned 6). \
+  -- DividerQ.SigState is counter, rem, quot, den, negate, done = 6 registers,
+  -- but `divTop` only exposes the quotient — it never reads `done`.  The
+  -- Phase-4.5 output-reachability prune therefore drops the `done` register,
+  -- leaving 5.  That is a genuine removal, not a fusion: the 22-case divider
+  -- co-sim in `Tests/IP/Control/ControlJITTest.lean` still matches `divQref`
+  -- through the full handshake, and `tvkTop` (which DOES consume `done`)
+  -- keeps all 6.
+  unless total == 5 do
+    throwError s!"RTL structure: divTop register count changed: {total} (pinned 5). \
 A DROP means state was fused (the bug that collapsed 27 Keccak ROMs to 1); \
 a RISE means state was duplicated (the bug that copied a nested engine per \
 output field).  Investigate before repinning."
@@ -302,15 +308,16 @@ run_meta do
   let text ← designText ``tvkTop
   let mods := splitModules text
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
-  unless total == 22 do
+  -- 16 = 10 FSM + ONE 6-register divider engine.  This is the design's own
+  -- answer: the duplication is gone.  Getting here took three fixes —
+  -- the fvar-abstracted `let` cache key (76 → 28), the flat pending-write
+  -- accumulator (28 → 22), and the Phase-4.5 output-reachability prune
+  -- (22 → 16).  A RISE means duplication regressed.
+  unless total == 16 do
     throwError s!"RTL structure: tvkTop register count changed: {total} \
-(pinned 22 = 10 FSM + 2 duplicated 6-register divider engines).\n\n\
-Was 76 (11 engines) before the fvar-abstracted `let` cache key, then 28 \
-(3 engines) before the flat pending-write accumulator.  A further DROP is \
-good news — update this pin and say so; 16 (one engine) is the design's own \
-answer.  A RISE means duplication regressed."
+(pinned 16 = 10 FSM + 1 divider engine — the fully-deduplicated value)."
   IO.println s!"[rtl-structure] tvkTop registers = {total} \
-(pinned; 2 engines remain — see the note above)"
+(pinned; single engine — duplication fully eliminated)"
 
 /-! ### The unsupported pattern, documented as a test
 
@@ -642,22 +649,18 @@ run_meta do
   let text ← designText ``regDependentEngine
   let mods := splitModules text
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
-  -- 9 is correct; 15 is the current value (was 21 before the flat pending-write
-  -- accumulator, 27 before the fvar-abstracted `let` cache key).  Accept either
-  -- so the test documents the remaining gap without blocking the build, but
-  -- SHOUT when it changes.
-  unless total == 15 || total == 9 do
+  -- 9 = 3 FSM + one 6-register engine, which is correct.  Was 27, then 21
+  -- (fvar-abstracted `let` cache key), then 15 (flat pending-write
+  -- accumulator), now 9 (Phase-4.5 output-reachability prune).  Pinned
+  -- exactly: this reproducer is the canary for consumer duplication, so any
+  -- movement in either direction should fail.
+  unless total == 9 do
     throwError s!"RTL structure: regDependentEngine registers = {total} \
 (expected 15 = current, or 9 = fully fixed).  Was 21 before the flat \
 pending-write accumulator, 27 before the \
 fvar-abstracted `let` cache key."
-  if total == 9 then
-    IO.println "[rtl-structure] regDependentEngine = 9 — CONSUMER DUPLICATION \
-FULLY FIXED, update the tvkTop pin too"
-  else
-    IO.println s!"[rtl-structure] regDependentEngine = {total} \
-(3 FSM + 3×6 engine; 9 would be correct — the residual is register-read wires \
-getting fresh names per consumer)"
+  IO.println s!"[rtl-structure] regDependentEngine = {total} \
+(pinned; 3 FSM + 1 engine — consumer duplication eliminated)"
 
 /-! ### Sponge-shaped structural test
 
@@ -685,12 +688,15 @@ run_meta do
     let undriven := undrivenOutputs body
     unless undriven.isEmpty do
       throwError s!"RTL structure: sponge module {mname} undriven outputs {undriven}"
-  -- 84 registers / 1 permutation instance / 2 round-constant ROM instances.
+  -- 59 registers / 1 permutation instance / 2 round-constant ROM instances.
   --
   -- These counts are DIGEST-VERIFIED: with them, `keccak256-sponge-jit-test`
   -- reproduces the reference hashes for `empty` and `abc`.  (The 136B/200B
   -- multi-block fixtures fail identically on `main` — a separate,
   -- pre-existing bug, not covered by these pins.)
+  --
+  -- Was 84 before the Phase-4.5 output-reachability prune removed the
+  -- unreachable duplicate register banks.
   --
   -- They replaced an earlier 57/1/27 pin taken while the `.proj` handler was
   -- silently miscompiling wide records: field `idx ≥ 1` of an N>2-field
@@ -698,8 +704,8 @@ run_meta do
   -- 0, so `kf.done` (field 26 of 27) became `lane0 & 1`.  That aliasing is
   -- what made the register count look smaller.  Don't "restore" 57 — it
   -- encodes the bug.
-  unless total == 84 do
-    throwError s!"RTL structure: sponge register count = {total} (pinned 84). \
+  unless total == 59 do
+    throwError s!"RTL structure: sponge register count = {total} (pinned 59). \
 The sponge is the design that breaks when `runCircuitH` is restructured — \
 run `lake exe keccak256-sponge-jit-test` and confirm the `empty`/`abc` \
 digests before repinning."
@@ -710,6 +716,97 @@ digests before repinning."
 (want 2)."
   IO.println s!"[rtl-structure] sponge: regs={total}, wKeccakF={kfInst}, \
 keccakRcHW={rcInst} (pinned)"
+
+/-! ### Dead register banks, as a property rather than a pinned number
+
+Every pin above is a specific number for a specific design, so each one only
+catches a regression in that design.  This check is the general form of the
+bug they were all circling: a register whose value can never reach an output.
+
+Duplicated sub-engines show up exactly this way.  The second copy of
+`dividerQ`'s register bank fed only a `packRegister` concat chain that nothing
+read — the registers were live by use-count (they reference each other) but
+dead by reachability.  A plain use-count cannot see that; a fixed point from
+the outputs can.
+
+Stated as a property over every design in this file, so a NEW design that
+grows an unreachable bank fails here without anyone remembering to pin it. -/
+
+/-- Registers in `body` that cannot reach any output port.
+
+    This must be a REACHABILITY analysis, not a use-count.  A dead register
+    bank is self-referential — each register's input mentions its siblings —
+    so "is this name read anywhere" reports every one of them as live and
+    misses the bug entirely.  (Checked: with the prune disabled, a use-count
+    version of this function reports nothing while the pinned counts
+    correctly jump 16 → 22.)
+
+    So: start from the output ports, walk backwards through `assign` RHSs and
+    register inputs to a fixed point, and report the registers never reached. -/
+def unreachableRegisters (body : String) : List String := Id.run do
+  let lines := body.splitOn "\n"
+  -- name → the expression text that defines it (assign RHS or register input)
+  let mut defOf : List (String × String) := []
+  let mut regs : List String := []
+  for l in lines do
+    let t := l.trim
+    if containsSubstr t "<=" then
+      -- first `<=` only, same reason as the `assign` case below
+      let lhs := ((t.splitOn "<=").head!).trim
+      let rhs := match t.splitOn "<=" with
+        | _ :: rest@(_ :: _) => (String.intercalate "<=" rest).trim
+        | _ => ""
+      -- the reset arm (`x <= 8'd0;`) carries no dependency, so it simply
+      -- contributes no idents
+      if lhs.startsWith "_tmp_" || lhs.startsWith "_gen_" then
+        unless regs.contains lhs do regs := lhs :: regs
+        unless (identsIn rhs).isEmpty do defOf := (lhs, rhs) :: defOf
+    else if t.startsWith "assign " then
+      let body' := String.mk (t.toList.drop 7)
+      -- Split on the FIRST `=` only.  `getLast!` on `splitOn "="` breaks on
+      -- any RHS containing `==`, `<=` or a second `=`, which silently drops
+      -- the real dependencies and makes everything look reachable.
+      match body'.splitOn "=" with
+      | lhs :: rest@(_ :: _) =>
+        defOf := (lhs.trim, (String.intercalate "=" rest).trim) :: defOf
+      | _ => pure ()
+  -- seeds: output ports, plus everything feeding an instance port (an
+  -- instance connection is an observable side effect from this module's view)
+  let mut work : List String := outputPorts body
+  for l in lines do
+    let t := l.trim
+    if containsSubstr t "_tmp_inst_" then
+      work := work ++ identsIn t
+  -- fixed point
+  let mut live : List String := []
+  let mut fuel := lines.length * 8 + 256
+  while fuel > 0 do
+    match work with
+    | [] => fuel := 0
+    | w :: rest =>
+      fuel := fuel - 1
+      work := rest
+      unless live.contains w do
+        live := w :: live
+        for (n, rhs) in defOf do
+          if n == w then work := work ++ identsIn rhs
+  return regs.filter (fun r => !live.contains r)
+
+run_meta do
+  for declName in [``divTop, ``tvkTop, ``biqTop, ``regDependentEngine,
+                   ``Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW] do
+    let text ← designText declName
+    for (mname, body) in splitModules text do
+      let dead := unreachableRegisters body
+      unless dead.isEmpty do
+        throwError s!"RTL structure: {declName} module {mname} has \
+{dead.length} register(s) that no output can reach: {dead}.\n\n\
+A register bank that is live by use-count but dead by reachability is the \
+signature of a DUPLICATED sub-engine — the extra copy drives only a \
+`packRegister` concat chain nothing reads.  Phase 4.5 of \
+`Sparkle/IR/Optimize.lean` prunes these; if they are back, either that pass \
+regressed or the elaborator grew a new way to produce them."
+  IO.println "[rtl-structure] no unreachable register banks in any pinned design"
 
 /-! ### LSpec surface
 
