@@ -117,24 +117,29 @@ Kalman/H∞ → two drone use cases.
 
 ## Choosing an IP — by use case
 
-| あなたの状況 | 使う IP | なぜ |
+| Your situation | IP to use | Why |
 |---|---|---|
-| 高速な内側ループ(ドローンのレート制御、モータ電流制御)。毎サイクル 1 回の更新、レイテンシ最優先 | `PID.demoPID` / `fixedGainObserver` | 単サイクル・データパス。測定→アクチュエータが 1 クロック。アンチワインドアップは構造的(ゲインに依らず `|I| ≤ iLim`) |
-| 多状態の位置決め・姿勢制御(ジンバル、倒立振子、ロケット TVC の内側姿勢ループ)で、設計時に最適ゲインを решать | `LQRStateFeedback` | 状態フィードバック 1 段。Riccati 由来の K と、その K を保証する `V = xᵀPx` 証明書(`LQRDesign.lean`)がセット |
-| センサ信号の平滑化・帯域制限(IMU のノイズ除去、アンチエイリアス) | `IIRBiquadGen` | 精度パラメトリック。`Vbound(f) = c/4^f` の定理で分数ビット数を予算から決められる。粗量子化の deadband 挙動も実測済み |
-| ノイズ統計を**信頼できる**ときの状態推定(データシート通りのセンサ、静穏環境) | `kalmanQ15_16` | 平均二乗最適。実測: 自分の設計条件では H∞ に 0.6 % 勝つ |
-| 外乱が**モデル外**のときの状態推定(突風、振動、隣接機器の干渉、敵対的環境) | `hinfQ15_16` | 全外乱に対する γ=2 エネルギー上界が**定理**(`hinf_energy_bound`)。実測: 最悪掃引で KF に 9 % 勝つ。RTL は KF と同一、定数が違うだけ |
-| ノイズ環境が**運転中に変わる**(離陸→巡航、屋内→屋外) | `tvKalman` | 共分散をオンチップで回しゲインを毎サンプル再計算(共有 `dividerQ` で 2 除算、~115 cyc)。定常ではオフライン設計ゲインに 49/12 LSB で収束(実測) |
-| 上のどれかに**割り算**が要る(正規化、ゲイン計算、比率) | `DividerQ.dividerQ` | 幅ジェネリック `(a·2^f)/b`、w+f+2 サイクル、対称飽和、0 除算全域定義。tdiv 意味論(誤差 ±1 LSB 両側)は文書化済み |
+| Fast inner loop (drone rate control, motor current control).  One update per cycle, latency first | `PID.demoPID` / `fixedGainObserver` | Single-cycle datapath — measurement to actuator in one clock.  Anti-windup is structural: `&#124;I&#124; ≤ iLim` for any gains |
+| Multi-state positioning or attitude control (gimbals, inverted pendulum, the inner attitude loop of a rocket TVC) where the optimal gains are settled at design time | `LQRStateFeedback` | One state-feedback stage.  Ships as a pair: the Riccati-derived `K`, and the `V = xᵀPx` certificate that guarantees that `K` (`LQRDesign.lean`) |
+| Smoothing or band-limiting a sensor signal (IMU denoising, anti-aliasing) | `IIRBiquadGen` | Precision-parametric.  The `Vbound(f) = c/4^f` theorem lets you pick the fractional width from an error budget, and the deadband behaviour under coarse quantization is measured, not guessed |
+| State estimation when the noise statistics are **trustworthy** (sensors behaving per datasheet, quiet environment) | `kalmanQ15_16` | Mean-square optimal.  Measured: beats H∞ by 0.6 % under its own design assumptions |
+| State estimation when disturbances are **outside the model** (gusts, vibration, interference from neighbouring equipment, adversarial conditions) | `hinfQ15_16` | The γ = 2 energy bound over *all* disturbances is a **theorem** (`hinf_energy_bound`).  Measured: beats the Kalman filter by 9 % on an adversarial sweep.  Identical RTL to the KF — only the constants differ |
+| The noise environment **changes during operation** (takeoff → cruise, indoors → outdoors) | `tvKalman` | Propagates the covariance on-chip and recomputes the gain every sample (two divisions through a shared `dividerQ`, ~115 cyc).  In steady state it converges to within 49 / 12 LSB of the offline design gains (measured) |
+| Any of the above needs a **division** (normalization, gain computation, ratios) | `DividerQ.dividerQ` | Width-generic `(a·2^f)/b`, `w+f+2` cycles, symmetric saturation, total on divide-by-zero.  The `tdiv` semantics (two-sided ±1 LSB error) are documented rather than assumed |
 
-**ロケット(TVC)への当てはめ** — 内側姿勢レートループ = `PID`(kHz、単サイクル)、
-姿勢角ループ = `LQRStateFeedback`(二重積分器はまさに教科書の TVC 小信号モデル)、
-風せん断・スロッシュ下の推定 = `hinfQ15_16`(統計を信じない設計)、
-燃料消費で特性が変わる区間 = ゲインスケジューリングが必要(現状は区間ごとの
-定数ゲイン+証明書の張り替えで近似。LPV 証明書は未着手 — proofs/README の
-Honest scope 参照)。歴史的注記: Ariane 5 初号機の喪失は固定小数点オーバー
-フローが起点 — ここの全レジスタが構造的クランプで持つ「無条件有界」は、
-まさにそのクラスの故障を型ではなく証明で排除するもの。
+**Mapping this onto a rocket (TVC).**  Inner attitude-rate loop = `PID`
+(kHz, single-cycle); attitude-angle loop = `LQRStateFeedback` (the double
+integrator *is* the textbook TVC small-signal model); estimation under wind
+shear and slosh = `hinfQ15_16` (the design that does not trust its noise
+statistics).  Where the vehicle's dynamics change as fuel burns off, you need
+gain scheduling: today that is approximated by piecewise-constant gains with a
+re-derived certificate per segment.  A genuine LPV certificate is not started —
+see the *Honest scope* section of `proofs/README.md`.
+
+A historical note on why the boundedness claim is worth stating separately from
+stability: the loss of the first Ariane 5 began with a fixed-point overflow.
+The unconditional bound every register here carries via its structural clamp is
+exactly the class of failure that rules out — by proof rather than by type.
 
 ## Running it
 

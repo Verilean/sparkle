@@ -621,6 +621,12 @@ def optimizeModule (m : Module)
       | _ => s) {}
     let seeds : List String :=
       m.outputs.map (·.name) ++
+      -- Wires the caller has declared observable are roots too.  `#sim`
+      -- passes the JIT's probe list here, and those wires are read BY NAME
+      -- at runtime (`JIT.resolveWires`) rather than through a port — so
+      -- reachability cannot see the use and would prune them.  The RV32 SoC
+      -- oracle test reads `_gen_trap_taken` exactly this way.
+      (observableWires.getD []) ++
       finalBody.foldl (fun acc stmt =>
         match stmt with
         -- memory writes and instance ports are observable side effects
