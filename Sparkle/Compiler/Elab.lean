@@ -1784,7 +1784,27 @@ mutual
             pure (m.get? canonKey)
         let valueWire ←
           match cachedValue? with
-          | some w => pure w
+          | some w =>
+            -- Cache hit: the hardware already exists, so do NOT translate
+            -- again.  But emit an alias wire carrying this binder's name and
+            -- return that.
+            --
+            -- Returning `w` directly (the original behaviour) silently drops
+            -- the binder's name, which is only cosmetic until something reads
+            -- a wire BY NAME at runtime.  The RV32 SoC does: `trap_taken` and
+            -- `early_trap_taken` are the same expression, so the cache
+            -- collapsed them onto the `early_` wire and `_gen_trap_taken`
+            -- vanished from the emitted C — `JIT.resolveWires` then failed at
+            -- run time on a name `SoCOutput.wireNames` still lists.
+            --
+            -- An alias costs one `assign` (which the backend's copy
+            -- propagation folds away wherever the name is not needed) and
+            -- keeps both names addressable.  The sharing — the whole point of
+            -- the cache — is untouched: one instance, two names.
+            let ty ← inferHWTypeFromSignal type
+            let aliasW ← CompilerM.makeWire name.toString ty (named := true)
+            CompilerM.emitAssign aliasW (.ref w)
+            pure aliasW
           | none => translateExprToWire value name.toString
                       (isTopLevel := false) (isNamed := true)
         if !value.isFVar then
