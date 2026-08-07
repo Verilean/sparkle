@@ -209,15 +209,28 @@ Everything else in the chapter is an attempt to carry that meaning down to
 something you can put on an FPGA, and to be honest about what survives the
 trip.
 
+The system is the one you already have in your head: the PID closed loop of
+§12.1.1.  Written out over ℝ, its three states evolve by the three functions
+§12.1.3 proved a certificate for —
+
+```
+nextX x I p  =  0.6625·x + 0.1·I − 0.0125·p      -- plant
+nextI x I p  =  −0.25·x + I                      -- integrator
+nextP x I p  =  −x                               -- previous error
+```
+
+— and those three names are what the rest of this section transports.
+
 Three layers, three different kinds of claim:
 
 | Layer | Artifact | What is claimed | How |
 |---|---|---|---|
-| 1. Design | `nextX1, nextX2 : ℝ → ℝ` | `V(f(x)) ≤ ρ·V(x)`, ρ = 39/40 | Lean proof, kernel-checked |
-| 2. Implementation | `nextX1Q : FixQ → FixQ` | the Q15.16 equation **is** the ℝ equation, retyped | mechanical transport, then equality vs the RTL |
-| 3. Circuit | `fixedGainObserver` (Verilog) | ℝ stability + bounded error ⟹ ultimate bound | ISS, plus co-sim |
+| 1. Design | `nextX, nextI, nextP : ℝ → ℝ` | `V(f(s)) ≤ ρ·V(s)`, ρ = 39/40 | Lean proof, kernel-checked |
+| 2. Implementation | `nextXQ, nextIQ, nextPQ : FixQ → FixQ` | the Q15.16 equations **are** the ℝ equations, retyped | mechanical transport, then equality vs the RTL |
+| 3. Circuit | `IP/Control/PID.lean` (Verilog) | ℝ stability + bounded error ⟹ ultimate bound | ISS, plus co-sim |
 
-Layer 1 is §12.1.3 — already done.  Layer 3 is §12.4.  This section is
+Layer 1 is §12.1.3 — already done, same three functions.  Layer 3 is §12.4.
+This section is
 **layer 2**, which is the one that is easy to skip and is exactly where
 designs go wrong: the ℝ model is proved, the RTL is simulated, and nobody
 ever checks that the RTL implements *that* model rather than a slightly
@@ -239,33 +252,42 @@ substitutes the corresponding operations, so the fixed-point equation is
 structure FixQ where            -- Q15.16: the stored integer is value·2¹⁶
   n : Int
 
-instance : Mul FixQ := ⟨fun a b => ⟨(a.n * b.n) / 65536⟩⟩
 instance : Add FixQ := ⟨fun a b => ⟨a.n + b.n⟩⟩
+instance : Mul FixQ := ⟨fun a b => ⟨(a.n * b.n) / 65536⟩⟩   -- floors; see §12.2.2
 
 declare_retype RealToFixQ : Real => FixQ
 
-noncomputable def dt : ℝ := 1 / 16
-noncomputable def k1 : ℝ := 6180 / 10000
-noncomputable def nextX1 (x1 x2 y : ℝ) : ℝ := x1 + dt * x2 + k1 * (y - x1)
+-- the gains and plant of §12.1.1, unchanged
+noncomputable def Kp : ℝ := 2 ; noncomputable def Ki : ℝ := 1 / 4
+noncomputable def Kd : ℝ := 1 / 8
+noncomputable def pa : ℝ := 9 / 10 ; noncomputable def pb : ℝ := 1 / 10
 
-retype_def dtQ    := dt    using Real => FixQ
-retype_def k1Q    := k1    using Real => FixQ
-attribute [retype RealToFixQ] dt k1     -- so nextX1's references follow
-retype_def nextX1Q := nextX1 using Real => FixQ
+noncomputable def nextX (x I p : ℝ) : ℝ :=
+  (pa - pb * (Kp + Ki + Kd)) * x + pb * I - pb * Kd * p
+
+retype_def KpQ := Kp using Real => FixQ    -- …and Ki, Kd, pa, pb
+attribute [retype RealToFixQ] Kp Ki Kd pa pb   -- so nextX's references follow
+retype_def nextXQ := nextX using Real => FixQ
 ```
 
-`nextX1Q` is now a Q15.16 function nobody wrote.  Evaluating it:
+`nextXQ` is now a Q15.16 function nobody wrote.  Evaluating it:
 
 ```lean
-#eval dtQ                       -- { n := 4096 }   = 1/16      ✓
-#eval k1Q                       -- { n := 40501 }  ≈ 0.61799   ✓
-#eval nextX1Q ⟨65536⟩ ⟨0⟩ ⟨0⟩    -- { n := 25035 }  ≈ 0.38200   ✓
+#eval KpQ                     -- { n := 131072 }  = 2        ✓
+#eval KiQ                     -- { n := 16384 }   = 0.25     ✓
+#eval paQ                     -- { n := 58982 }   ≈ 0.89999  ✓
+#eval nextXQ ⟨65536⟩ ⟨0⟩ ⟨0⟩   -- { n := 43419 }   = 0.66250  ✓
 ```
 
-The last line is the check worth pausing on.  With `x1 = 1, x2 = 0, y = 0`
-the ℝ equation gives `1 + 0 − 0.6180·1 = 0.3820`, and 25035/65536 = 0.38200.
-The transported equation agrees with the equation it came from, and no
-human transcribed a coefficient.
+The last line is the check worth pausing on.  Set `x = 1, I = 0, p = 0`: the
+ℝ equation collapses to its leading coefficient, which §12.1.3 displays as
+**0.6625** — and 43419/65536 = 0.66250.  The transported equation reproduces
+the number the ℝ proof is about, and no human transcribed a coefficient.
+
+The `attribute` line is the one non-obvious step.  Without it, `nextX`'s
+references to `Kp`/`pa` stay at type ℝ and the elaborator reports
+`pa has type ℝ but is expected to have type FixQ`; the attribute is what
+makes a definition's *dependencies* follow the transport too.
 
 ### 12.2.2 Does the RTL implement *this*?
 
@@ -295,12 +317,12 @@ def chk (a b : Int) : Bool :=
 ```
 
 over sign-crossing and boundary cases (`(-1, 65535)`, `(3, -65537)`,
-`(-40501, -65536)`, …) — all agree.
+`(-58982, -65536)`, …) — all agree.
 
 Both halves are live code, not listings:
 `retypelab/RetypeLab/FixedPointTransport.lean` does the transport and pins
-every constant with `#guard` (4096, 40501, 82575, 25035 — each checkable by
-hand against the ℝ values), and
+every constant with `#guard` (131072, 16384, 8192, 58982, and the step
+result 43419 — each checkable by hand against §12.1.1), and
 `Tests/IP/Control/PrecisionSweepTest.lean`'s *Transport agreement* suite
 runs the comparison on the Sparkle side under `lake test`:
 
@@ -309,7 +331,7 @@ Transport agreement (ℝ →retype→ Q15.16 vs Sparkle mulQ):
   ✓ every case agrees
   ✓ negative product with remainder floors down (not toward zero)
   ✓ positive product with remainder floors to zero
-  ✓ k1 = 0.6180 transports to 40501
+  ✓ pa = 0.9 transports to 58982
   ✓ one observer step matches the transported equation
 ```
 
@@ -328,8 +350,17 @@ implemented equation not being the designed equation.  After this section,
 "the RTL computes something slightly different from the model" is not on
 the table.
 
-It does **not** make the fixed-point loop stable.  `nextX1Q` is a different
-dynamical system from `nextX1` — it floors every product — and a floor is
+It also does not mean the transported equation equals the ℝ answer.  Worth
+seeing concretely: `nextXQ ⟨65536⟩ ⟨0⟩ ⟨0⟩` gives **43419**, while quantizing
+the already-simplified constant 0.6625 in one go gives **43417**.  Neither is
+wrong.  The transport evaluates the *expression* `(pa − pb·(Kp+Ki+Kd))·x` in
+Q15.16, flooring at each product; the other rounds the ℝ answer once.  Two
+LSB apart — and that gap is precisely the per-step quantization error that
+§12.4 has to bound rather than wish away.  (Both numbers are pinned in
+`Tests/IP/Control/PrecisionSweepTest.lean`, so neither can drift silently.)
+
+It does **not** make the fixed-point loop stable.  `nextXQ` is a different
+dynamical system from `nextX` — it floors every product — and a floor is
 not a small perturbation of the identity, it is a nonlinearity that can
 sustain a limit cycle (§12.4 shows one doing exactly that, and §12.4's
 "more bits ≠ better" warning shows a *finer* grid behaving *worse*).

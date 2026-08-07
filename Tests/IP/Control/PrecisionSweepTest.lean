@@ -113,10 +113,10 @@ def hwMul (a b : Int) : Int :=
 /-- Cases chosen to cross zero and to land on non-zero remainders, where a
     truncating implementation would disagree. -/
 def transportCases : List (Int × Int) :=
-  [(65536, 65536), (4096, 65536), (40501, 65536), (-65536, 65536),
-   (65536, -65536), (-40501, -65536), (1, 1), (-1, 1), (1, -1),
-   (123456, -7890), (-1, 65535), (3, -65537), (-82575, 65536),
-   (25035, 40501), (-25035, 40501)]
+  [(65536, 65536), (4096, 65536), (58982, 65536), (-65536, 65536),
+   (65536, -65536), (-58982, -65536), (1, 1), (-1, 1), (1, -1),
+   (123456, -7890), (-1, 65535), (3, -65537), (-58982, 65536),
+   (43419, 58982), (-43419, 58982)]
 
 def transportSuite : TestSeq :=
   group "Transport agreement (ℝ →retype→ Q15.16 vs Sparkle mulQ)" <|
@@ -128,11 +128,17 @@ def transportSuite : TestSeq :=
     test "positive product with remainder floors to zero"
       (hwMul 1 1 == 0) $
     -- The constants the transport produced, re-derived on the Sparkle side.
-    test "k1 = 0.6180 transports to 40501"
-      ((q 32 16 6180 10000).toInt == 40501) $
-    test "one observer step matches the transported equation"
-      -- x1 = 1, x2 = 0, y = 0:  x1 + dt·x2 + k1·(y − x1) = 1 − 0.6180
-      (hwMul 40501 65536 == 40501 ∧ 65536 - 40501 == 25035)
+    test "pa = 0.9 transports to 58982"
+      ((q 32 16 9 10).toInt == 58982) $
+    -- x = 1, I = 0, p = 0 gives nextX = pa − pb·(Kp+Ki+Kd) = 0.6625.
+    -- The transported step evaluates that EXPRESSION in Q15.16, flooring at
+    -- each product, and lands on 43419.  Quantizing the already-simplified
+    -- constant 0.6625 in one go gives 43417.  The 2-LSB gap is not an error
+    -- in either: it is the difference between "the equation, computed in
+    -- fixed point" and "the ℝ answer, rounded once" — which is exactly the
+    -- per-step error §12.4 has to bound.  Pinned so neither drifts.
+    test "transported step evaluates the expression, not the rounded constant"
+      (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
   lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite])]) []

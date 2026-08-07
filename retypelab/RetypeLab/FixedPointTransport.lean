@@ -3,6 +3,12 @@
   `retype`, and check that the transported equation is the one Sparkle's
   datapath actually computes.
 
+  The system is the SAME PID loop the chapter runs on throughout — the
+  closed loop of §12.1.1, whose ℝ Lyapunov certificate is §12.1.3
+  (`proofs/SparkleProofs/Control/PIDDesign.lean`).  Nothing new is
+  introduced here; this file only carries that already-proved equation
+  down to fixed point.
+
   ## The failure this exists to prevent
 
   The usual practice is to write the fixed-point version of a control law by
@@ -67,10 +73,11 @@ def toNum (a : FixQ) : Int := a.n
 
 instance : OfNat FixQ 0 := ⟨⟨0⟩⟩
 instance : OfNat FixQ 1 := ⟨⟨scale⟩⟩
-instance : OfNat FixQ 16 := ⟨⟨16 * scale⟩⟩
-instance : OfNat FixQ 10000 := ⟨⟨10000 * scale⟩⟩
-instance : OfNat FixQ 6180 := ⟨⟨6180 * scale⟩⟩
-instance : OfNat FixQ 12600 := ⟨⟨12600 * scale⟩⟩
+instance : OfNat FixQ 2 := ⟨⟨2 * scale⟩⟩
+instance : OfNat FixQ 4 := ⟨⟨4 * scale⟩⟩
+instance : OfNat FixQ 8 := ⟨⟨8 * scale⟩⟩
+instance : OfNat FixQ 9 := ⟨⟨9 * scale⟩⟩
+instance : OfNat FixQ 10 := ⟨⟨10 * scale⟩⟩
 
 instance : Add FixQ := ⟨fun a b => ⟨a.n + b.n⟩⟩
 instance : Sub FixQ := ⟨fun a b => ⟨a.n - b.n⟩⟩
@@ -84,21 +91,35 @@ end FixQ
 
 declare_retype RealToFixQ : Real => FixQ
 
-/-! ### The ℝ model
+/-! ### The ℝ model — the closed loop of §12.1.1
 
-Duplicated from `proofs/SparkleProofs/Control/EstimatorDesign.lean` (the
-fixed-gain Kalman observer), kept definitionally identical so the transported
-version is a faithful image of what the proofs talk about. -/
+Duplicated from `proofs/SparkleProofs/Control/PIDDesign.lean`, kept
+definitionally identical so the transported version is a faithful image of
+what the proofs talk about.  These are the three lines §12.1.3 displays:
 
-noncomputable def dt : ℝ := 1 / 16
-noncomputable def k1 : ℝ := 6180 / 10000
-noncomputable def k2 : ℝ := 12600 / 10000
+    x⁺ = 0.6625·x + 0.1·I − 0.0125·p        (0.6625 = pa − pb·(Kp+Ki+Kd))
+    I⁺ = −0.25·x + I
+    p⁺ = −x
+-/
 
-/-- One observer step, position channel: `x1⁺ = x1 + dt·x2 + k1·(y − x1)`. -/
-noncomputable def nextX1 (x1 x2 y : ℝ) : ℝ := x1 + dt * x2 + k1 * (y - x1)
+/-- PID gains (§12.1.1). -/
+noncomputable def Kp : ℝ := 2
+noncomputable def Ki : ℝ := 1 / 4
+noncomputable def Kd : ℝ := 1 / 8
 
-/-- Velocity channel: `x2⁺ = x2 + dt·u + k2·(y − x1)`. -/
-noncomputable def nextX2 (x1 x2 y u : ℝ) : ℝ := x2 + dt * u + k2 * (y - x1)
+/-- Plant pole and input gain: `x⁺ = pa·x + pb·u`. -/
+noncomputable def pa : ℝ := 9 / 10
+noncomputable def pb : ℝ := 1 / 10
+
+/-- Plant state. -/
+noncomputable def nextX (x I p : ℝ) : ℝ :=
+  (pa - pb * (Kp + Ki + Kd)) * x + pb * I - pb * Kd * p
+
+/-- Integrator. -/
+noncomputable def nextI (x I _p : ℝ) : ℝ := I - Ki * x
+
+/-- Previous-error register. -/
+noncomputable def nextP (x _I _p : ℝ) : ℝ := -x
 
 /-! ### The transport
 
@@ -107,43 +128,51 @@ makes `nextX1`'s *references* to `dt`/`k1` follow the transport instead of
 staying at type ℝ (without it the elaborator reports `dt has type ℝ but is
 expected to have type FixQ`). -/
 
-retype_def dtQ := dt using Real => FixQ
-retype_def k1Q := k1 using Real => FixQ
-retype_def k2Q := k2 using Real => FixQ
+retype_def KpQ := Kp using Real => FixQ
+retype_def KiQ := Ki using Real => FixQ
+retype_def KdQ := Kd using Real => FixQ
+retype_def paQ := pa using Real => FixQ
+retype_def pbQ := pb using Real => FixQ
 
-attribute [retype RealToFixQ] dt k1 k2
+attribute [retype RealToFixQ] Kp Ki Kd pa pb
 
-retype_def nextX1Q := nextX1 using Real => FixQ
-retype_def nextX2Q := nextX2 using Real => FixQ
+retype_def nextXQ := nextX using Real => FixQ
+retype_def nextIQ := nextI using Real => FixQ
+retype_def nextPQ := nextP using Real => FixQ
 
 /-! ### Checks
 
-The constants first — each is the ℝ value times 2^16, floored, and each is
-checkable by hand:
+The gains first — each is the ℝ value times 2^16, and each is checkable by
+hand against §12.1.1:
 
-    dt = 1/16       → 65536/16      = 4096
-    k1 = 0.6180     → 0.6180·65536  = 40501.2…  → 40501
-    k2 = 1.2600     → 1.2600·65536  = 82575.4…  → 82575
+    Kp = 2      → 2·65536      = 131072
+    Ki = 1/4    → 65536/4      = 16384
+    Kd = 1/8    → 65536/8      = 8192
+    pa = 9/10   → 0.9·65536    = 58982.4  → 58982
 -/
 
-#guard dtQ.toNum == 4096
-#guard k1Q.toNum == 40501
-#guard k2Q.toNum == 82575
+#guard KpQ.toNum == 131072
+#guard KiQ.toNum == 16384
+#guard KdQ.toNum == 8192
+#guard paQ.toNum == 58982
 
-/-! Then the transported equation.  With `x1 = 1, x2 = 0, y = 0` the ℝ
-equation gives `1 + 0 − 0.6180·1 = 0.3820`, and 25035/65536 = 0.38200…
+/-! Then the transported closed loop, at `x = 1, I = 0, p = 0`.  §12.1.3
+displays the coefficient 0.6625, and 43419/65536 = 0.66250 — so the
+transported equation reproduces the number the ℝ proof is about, with no
+coefficient transcribed by hand.
 
-This is the check that matters: the transported function agrees with the
-function it was derived from, and no human transcribed a coefficient. -/
+This is the check the whole section exists for. -/
 
-#guard (nextX1Q ⟨65536⟩ ⟨0⟩ ⟨0⟩).toNum == 25035
+#guard (nextXQ ⟨65536⟩ ⟨0⟩ ⟨0⟩).toNum == 43419      -- 0.66250 = 0.6625 ✓
 
--- `y = x1` kills the innovation, leaving pure integration `x1 + dt·x2`.
--- With `x2 = 1`: `1 + 1/16 = 1.0625` → 69632.
-#guard (nextX1Q ⟨65536⟩ ⟨65536⟩ ⟨65536⟩).toNum == 69632
+-- The other two rows of the same step: I⁺ = −Ki·x = −0.25, p⁺ = −x = −1.
+#guard (nextIQ ⟨65536⟩ ⟨0⟩ ⟨0⟩).toNum == -16384
+#guard (nextPQ ⟨65536⟩ ⟨0⟩ ⟨0⟩).toNum == -65536
 
--- Velocity channel, `u = 0`, `y = 0`, `x1 = 1`: `x2 − k2 = 0 − 1.26`.
-#guard (nextX2Q ⟨65536⟩ ⟨0⟩ ⟨0⟩ ⟨0⟩).toNum == -82575
+-- The integrator channel is exact here (Ki = 1/4 is a power of two, so
+-- nothing is lost); the plant channel is not (0.9 is not dyadic).  That
+-- asymmetry is why §12.4 has to bound the error rather than dismiss it.
+#guard (nextIQ ⟨4 * 65536⟩ ⟨0⟩ ⟨0⟩).toNum == -65536
 
 /-! ### The floor is not a rounding footnote
 
