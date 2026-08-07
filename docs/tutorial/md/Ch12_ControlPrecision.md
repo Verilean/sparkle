@@ -33,6 +33,12 @@ Three layers, and the interesting work is at the joints between them:
    so the ℝ theorem is re-earned as an ISS ultimate bound, and the residual
    gap is stated plainly (§12.4, §12.10).
 
+And one payoff worth flagging up front: keeping the ℝ equation is not
+only an obligation to discharge.  It is the **oracle that lets you search
+for the implementation** — "are these two circuits the same design or two
+different designs that happen to agree on my tests?" is decidable over ℝ
+and merely plausible over `BitVec` (§12.2.5).
+
 The vehicles are real synthesizable designs from `IP/Control/`: a PID loop,
 an LQR regulator, IIR filters at five precisions, and two state estimators
 (Kalman and H∞), one of which computes its own gains on-chip with a
@@ -509,6 +515,38 @@ So a search can apply the free rules without touching the certificate, and
 only pay the ISS-disturbance price for the rewrites that genuinely cross a
 floor.
 
+### 12.2.5 Why keep the ℝ equation at all — searching for the RTL
+
+Layers 1–3 make the ℝ text sound like an obligation: something you must
+write down and then discharge.  This section is the argument that it *pays
+for itself*, and it is the strongest practical reason to keep an ℝ model
+around after the RTL exists.
+
+Ask the design question directly: **which of the many ways to write this
+control law should the hardware use?**  The candidates all compute the same
+thing on paper and differ by a multiplier here, a shift there.  Choosing
+between them needs two judgements:
+
+1. *Are these actually the same function?*
+2. *What does each one cost — in area, and in error?*
+
+Without an ℝ model you can only answer the second.  You have Q15.16
+expressions; you can simulate them and compare outputs; and when two of them
+differ by 1 lsb you cannot tell whether you are looking at
+
+* the same design, rewritten, with quantization accounting for the gap, or
+* a **different design** that happens to be close on the states you sampled.
+
+Those need opposite responses — accept the first, reject the second — and
+the fixed-point text alone does not distinguish them.  The ℝ equation does,
+because equality over ℝ is decidable by `ring`: no sampling, no threshold,
+no judgement call.  It is the oracle that turns "these agree on my tests"
+into "these are the same function, and here is the price of the rewrite".
+
+That is worth stating plainly, because the ℝ model is usually sold as
+*documentation* or as a *proof artifact*.  It is also a **search oracle**,
+and that role survives long after the stability proof is finished.
+
 **The search itself.**  `IP/Control/ShapeSearch.lean` implements this:
 enumerate the rewritings, keep the ℝ-equivalent ones, price each by
 multiplier count and measured lsb gap.  On `0.618·x + 1.26·x` it reports
@@ -530,6 +568,42 @@ admission is by ℝ-equivalence on samples, not by `ring`; a candidate that
 survives is a *proposal*, and `ring` is what makes it a theorem.  This is
 the same division of labour as the Float falsifier in
 `SparkleProofs/Retype/`: search cheaply, prove the survivor.
+
+**The loop, end to end.**  Putting the pieces together, choosing an
+implementation looks like this — and every step is a check the repo already
+has:
+
+```
+   ℝ equation  ──────────────────────────┐
+        │                                │  ring        (is it the same function?)
+        │ enumerate rewrites             │
+        ▼                                │
+   candidates ──── ℝ-equivalent? ────────┘
+        │              (ShapeSearch)
+        ▼
+   price each:  multipliers          (cost model)
+                lsb gap             (fold_exact / floor counting)
+        │
+        ▼
+   still within budget?  Vbound_mono + Precision.Vbound
+        │
+        ▼
+   synthesize the winner, discharge its gap against uAq_uBq_gap
+```
+
+The budget step is the one that would otherwise be a re-proof.  Because
+`Vbound_mono` says the ultimate bound is monotone in the per-step error, a
+candidate that adds `extra` lsb needs only a numeric comparison — no fresh
+Lyapunov argument per shape.  That is what makes searching over dozens of
+shapes practical rather than a proof-engineering project.
+
+**And a caution the search makes concrete.**  Run it on the dyadic-gain PID
+and the ranking is *not* the one intuition offers.  Folding `Kp + Kd` looks
+like the obvious saving — one multiply instead of two — but `2.0`, `0.25`
+and `0.125` are all powers of two and lower to shifts, so the original costs
+**zero** multipliers and the "optimized" `2.125·e` costs **one**.  The
+rewrite that looks cheaper on the page is more expensive in silicon.  A cost
+model that knows about shifts catches this; reading the expression does not.
 
 Divisions carry one extra obligation.  `(a/b)·x = a·(x/b)` needs `b ≠ 0`
 (`div_reassoc` states it), so the rewrite is unlicensed where the guard

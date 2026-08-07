@@ -230,6 +230,30 @@ open Sparkle.IP.Control.ShapeSearch in
 def ssResult : List Candidate := search ssTwoGain ssEnvs 2
 
 open Sparkle.IP.Control.ShapeSearch in
+/-- The dyadic-gain PID fragment `2.0·e + 0.125·e`.  Folding it to `2.125·e`
+    looks like the obvious saving — but 2.0 and 0.125 are powers of two and
+    lower to shifts, so the ORIGINAL costs zero multipliers and the folded
+    form costs one.  Ch12 §12.2.5 uses this as the case where reading the
+    expression misleads and a shift-aware cost model does not. -/
+def ssPidPart : Expr :=
+  .add (.mul (.const (2 * s16)) (.var "e")) (.mul (.const (s16 / 8)) (.var "e"))
+
+open Sparkle.IP.Control.ShapeSearch in
+def ssPidResult : List Candidate := search ssPidPart ssEnvs 2
+
+open Sparkle.IP.Control.ShapeSearch in
+def foldCostsMoreSuite : TestSeq :=
+  group "folding dyadic gains COSTS a multiplier (shifts are free)" <|
+    test "the cheapest shape uses zero multipliers"
+      ((ssPidResult.head?.map (·.muls)).getD 99 == 0) $
+    test "the folded 2.125·e shape exists and costs one multiplier"
+      (ssPidResult.any (fun c => c.muls == 1)) $
+    -- fold_exact: 2.0 is integral, so this particular fold is still EXACT —
+    -- it is rejected on area, not on error.
+    test "and folding here is exact (2.0 is integral), so the loss is area only"
+      (ssPidResult.all (fun c => c.gapLsb == 0))
+
+open Sparkle.IP.Control.ShapeSearch in
 def shapeSearchSuite : TestSeq :=
   group "shape search finds and prices rewrites" <|
     test "the cheapest candidate uses one multiplier, not two"
@@ -301,7 +325,7 @@ def transportSuite : TestSeq :=
       (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite, foldSuite, shapeSearchSuite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite, foldSuite, shapeSearchSuite, foldCostsMoreSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/
