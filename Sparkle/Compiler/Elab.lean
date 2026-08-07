@@ -647,6 +647,13 @@ private initialize sparkleFvarZetaVisited : IO.Ref (Std.HashSet Lean.Name) ← I
     call and instantiate it as a sub-module. -/
 private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr) ← IO.mkRef {}
 
+/-- Hardware-`let` wire cache, keyed by the value's structure PLUS the wires its
+    free variables denote.  See the `.letE` handler for why the plain
+    expression cache is insufficient (intermediate bindings are re-instantiated
+    with fresh fvars once per consumer of a `circuit do` body).  Reset per
+    top-level synth alongside the other caches. -/
+private initialize sparkleLetWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+
 /-- Cache of previously-synthesised sub-modules.  Without this,
     the multi-output sub-module projection shortcut would re-
     invoke `synthesizeCombinational` once per `<call>.<field>`
@@ -1675,23 +1682,53 @@ mutual
         -- translation on a miss.  A cache hit returns the existing wire; it
         -- loses the pretty binder name for that occurrence, which is a
         -- cosmetic price for not duplicating hardware.
+        -- Canonical cache key: the value with every already-translated fvar
+        -- replaced by the WIRE it denotes.
+        --
+        -- Keying on `value` itself is not enough.  As soon as an intermediate
+        -- binding sits between the module inputs and the engine —
+        --     let num := y            -- ANY intermediate `let`, even an alias
+        --     let e   := dividerQ … num …
+        -- — the engine's `value` embeds `num`'s fvar, and each consumer of the
+        -- `circuit do` body (every register write, plus the returned output)
+        -- re-instantiates that binder with a FRESH fvar.  So the `value`s are
+        -- structurally different per consumer and the cache never hits, while
+        -- the hardware they denote is identical.  Measured: adding the single
+        -- line `let num := y` to an otherwise-identical circuit took one
+        -- `dividerQ` engine to FOUR (7 → 27 registers).
+        --
+        -- Wire names are stable within a module (they are what the emitted
+        -- Verilog refers to), so substituting fvar → wire yields a key that is
+        -- equal exactly when the denoted hardware is the same.
+        let canonKey ← do
+          -- Abstract the value over its free variables by rewriting each fvar
+          -- to a CONSTANT named after the wire it denotes, then hash that.
+          -- Hashing `value` directly does not work: the fvars are fresh per
+          -- traversal, so two occurrences denoting the same hardware hash
+          -- differently (measured 2079038327 vs 1490760256 for two `let num`
+          -- occurrences whose fvars both mapped to `_gen_pS`, `_gen_y`).
+          let mut repl : Std.HashMap Lean.Name Lean.Expr := {}
+          for fv in (Lean.collectFVars {} value).fvarIds do
+            let w := (← CompilerM.lookupVar fv).getD s!"?{fv.name}"
+            repl := repl.insert fv.name (Lean.mkConst (Lean.Name.mkSimple s!"«wire:{w}»"))
+          let abstracted := value.replace fun sub =>
+            match sub with
+            | .fvar fid => repl.get? fid.name
+            | _ => none
+          pure (toString abstracted.hash)
         let cachedValue? ← do
           if value.isFVar then pure none
-          else match (← CompilerM.getCompilerState).exprCache with
-            | none => pure none
-            | some ref => CompilerM.liftMetaM do
-                let cache ← (ref.get : IO _)
-                pure (cache.get? ⟨value⟩)
+          else CompilerM.liftMetaM do
+            let m ← (sparkleLetWireCache.get : IO _)
+            pure (m.get? canonKey)
         let valueWire ←
           match cachedValue? with
           | some w => pure w
           | none => translateExprToWire value name.toString
                       (isTopLevel := false) (isNamed := true)
-        -- Record it so the *other* `body` call (and later uses) share this
-        -- wire instead of re-walking the value.
         if !value.isFVar then
-          if let some ref := (← CompilerM.getCompilerState).exprCache then
-            CompilerM.liftMetaM (ref.modify (·.insert ⟨value⟩ valueWire))
+          CompilerM.liftMetaM
+            (sparkleLetWireCache.modify (·.insert canonKey valueWire))
         CompilerM.withLocalDecl name type fun fvar => do
           let fvarId := fvar.fvarId!
           -- Also remember (fvar → defining expression) for
@@ -3288,6 +3325,7 @@ mutual
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
+      sparkleLetWireCache.set {}
     else
       -- Nested synth: fresh fvar map (the parent's fvars are
       -- scoped to the parent's body and can't be visible
@@ -3296,6 +3334,7 @@ mutual
       sparkleFvarValueMap.set {}
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
+      sparkleLetWireCache.set {}
     sparkleSynthDepth.set (depth + 1)
     -- Extract the body into a local closure so `try ... finally`
     -- can wrap the entire synthesis path (including the

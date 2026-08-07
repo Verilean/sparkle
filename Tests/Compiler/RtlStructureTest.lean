@@ -301,13 +301,14 @@ run_meta do
   let text ← designText ``tvkTop
   let mods := splitModules text
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
-  unless total == 76 do
+  unless total == 28 do
     throwError s!"RTL structure: tvkTop register count changed: {total} \
-(pinned 76 = 10 FSM + 11 duplicated 6-register divider engines).\n\n\
-A DROP is good news — the runCircuitH double-body duplication was fixed; \
-update this pin and say so.  A RISE means duplication got worse."
-  IO.println s!"[rtl-structure] tvkTop registers = {total} (pinned; \
-documents the runCircuitH double-body duplication)"
+(pinned 28 = 10 FSM + 3 duplicated 6-register divider engines).\n\n\
+Was 76 (11 engines) before the fvar-abstracted `let` cache key.  A further \
+DROP is good news — update this pin and say so; 16 (one engine) is the \
+design's own answer.  A RISE means duplication regressed."
+  IO.println s!"[rtl-structure] tvkTop registers = {total} \
+(pinned; 3 engines remain — see the note above)"
 
 /-! ### The unsupported pattern, documented as a test
 
@@ -437,6 +438,34 @@ recorded here as dead ends:
   to all-zero.  Getting the refinement sound (correct seeding, correct
   propagation of splits through the recursive cone) is real work, not a tweak.
 
+## Fixed (partly): fvar-abstracted `let` cache key
+
+The `.letE` handler now keys its wire cache on the value ABSTRACTED over its
+free variables — each fvar rewritten to a constant named after the wire it
+denotes — instead of on the raw expression.  Raw hashing cannot work because
+each consumer of a `circuit do` body re-instantiates binders with fresh fvars,
+so two occurrences denoting identical hardware hash differently (measured:
+2079038327 vs 1490760256 for two `let num` occurrences whose fvars both mapped
+to `_gen_pS`, `_gen_y`).
+
+Measured effect:
+
+    regDependentEngine   27 regs / 4 engines  →  21 / 3
+    tvkTop               76 regs / 11 engines →  28 / 3
+    yosys on tvkTop      1144 flip-flops      →  850   (−26 %)
+                         50 216 cells         →  49 349 (−1.7 %)
+
+The cell number is the honest one to quote: yosys already merged most of the
+duplicated COMBINATIONAL logic on its own, so the real saving is in flip-flops,
+which it cannot merge.  The earlier "≈21 % of the design" estimate assumed no
+downstream sharing and was too optimistic.
+
+Residual: 3 engines rather than 1.  The remaining copies come from the register
+READ wires (`_gen_pS`, `_gen_pS_1`, …) still being allocated fresh per
+consumer, so the abstracted key differs from the third consumer onward.  Fixing
+that means making register reads yield a stable wire per register — a change in
+`mkRegList`/`Signal.register` handling, not another key.
+
 ## The cost, measured with yosys (not "harmless")
 
 `synth -flatten` on `tvkTop`:
@@ -557,15 +586,17 @@ run_meta do
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
   -- 9 is correct; 27 is the current (buggy) value.  Accept either so the test
   -- documents the gap without blocking the build, but SHOUT when it changes.
-  unless total == 27 || total == 9 do
+  unless total == 21 || total == 9 do
     throwError s!"RTL structure: regDependentEngine registers = {total} \
-(expected 27 = current double-walk duplication, or 9 = fixed)."
+(expected 21 = current, or 9 = fully fixed).  Was 27 before the \
+fvar-abstracted `let` cache key."
   if total == 9 then
-    IO.println "[rtl-structure] regDependentEngine = 9 — DOUBLE BODY WALK FIXED, \
-update the tvkTop pin too"
+    IO.println "[rtl-structure] regDependentEngine = 9 — CONSUMER DUPLICATION \
+FULLY FIXED, update the tvkTop pin too"
   else
     IO.println s!"[rtl-structure] regDependentEngine = {total} \
-(3 FSM + 4×6 duplicated engine; 9 would be correct — see the tvkTop note)"
+(3 FSM + 3×6 engine; 9 would be correct — the residual is register-read wires \
+getting fresh names per consumer)"
 
 /-! ### LSpec surface
 
