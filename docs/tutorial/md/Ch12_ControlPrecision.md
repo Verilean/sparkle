@@ -875,9 +875,17 @@ def tail (w f : Nat) : Nat :=
 * All certificates are verified, not synthesized: the Riccati and
   LDLᵀ computations run in offline scripts, Lean checks the
   inequalities.  A DARE solver *inside* Lean would close that gap.
-* The H∞ dissipation is proven for the ℝ model; its fixed-point
-  transport (the estimator analogue of `Transport.lean`) follows the
-  same ISS pattern but is not written.
+* ~~The H∞ fixed-point transport is not written~~ — **closed** for the
+  contraction half.  `HinfTransport.lean` certifies the quantized gains
+  (32598/65536, 101397/65536; true ratio moves 0.97224763 → 0.97223470
+  against ρ = 0.98) and carries them through ISS to
+  `hinf_ultimate_bound`.  Two constants had to be recomputed rather than
+  copied: the Young split is 1/100, not the LQR's 1/80 — `(81/80)·0.98
+  = 0.99225 > 0.99` does not close — and the disturbance constant is
+  56 rather than 10, because `hiP` is scaled differently
+  (`p11+2|p12|+p22 = 55.71`).  The *dissipation* inequality
+  (`hinf_energy_bound`) is still ℝ-only; transporting an energy bound is
+  a different argument from transporting a contraction, and is open.
 * ~~The ISS argument assumes the hardware trajectory is an ε-perturbed
   ℝ trajectory~~ — **closed.**  `StepError.lean` proves the per-step
   bound (1 lsb on `x1`, 3 lsb on `x2`) and `intTraj_ultimate_bound`

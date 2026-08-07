@@ -13,6 +13,7 @@ import SparkleProofs.Control.EstimatorDesign
 import SparkleProofs.Control.PIDDesign
 import SparkleProofs.Control.StepError
 import SparkleProofs.Control.QuantizedGains
+import SparkleProofs.Control.HinfTransport
 
 -- The retype bridge: ℝ ⇒ Float (falsification search) and ℝ ⇒ Q15.16
 -- (the fixed-point transport Ch12 §12.2 walks through).  Folded in from the
