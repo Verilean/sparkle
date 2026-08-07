@@ -119,6 +119,47 @@ def transportCases : List (Int × Int) :=
    (123456, -7890), (-1, 65535), (3, -65537), (-58982, 65536),
    (43419, 58982), (-43419, 58982)]
 
+/-- The `mulQ` identity at a SMALL width, checked exhaustively.
+
+    Q15.16 has 2⁶⁴ input pairs, so §12.2.2's suite samples it.  The same shape
+    at 8 bits / 4 fractional bits has only 65536, which is cheap to enumerate
+    — and enumerating it pins two things the sampled version cannot:
+
+    * the identity `(mulQ a b).toInt = (a.toInt * b.toInt) / 2^f` holds for
+      EVERY pair whose result fits, not just the chosen fixtures;
+    * it is genuinely FALSE without the no-overflow side condition
+      (`a = 17, b = 121` → 128, one past the signed 8-bit max, which
+      `extractLsb'` wraps to −128).
+
+    That second point is why the pending `BitVec` lemma needs the hypothesis.
+    Recorded here so nobody drops it as pedantry. -/
+def mulQ84 (a b : BitVec 8) : Int :=
+  (BitVec.extractLsb' 4 8 ((a.signExtend 16) * (b.signExtend 16))).toInt
+
+def mulQ84Exhaustive : Bool × Bool := Id.run do
+  let mut allAgree := true      -- with the fits-in-range guard
+  let mut sawWrap  := false     -- without it
+  for i in [0:256] do
+    for j in [0:256] do
+      let a : BitVec 8 := BitVec.ofNat 8 i
+      let b : BitVec 8 := BitVec.ofNat 8 j
+      let rhs := (a.toInt * b.toInt) / 16
+      let lhs := mulQ84 a b
+      if -128 ≤ rhs && rhs ≤ 127 then
+        if lhs != rhs then allAgree := false
+      else if lhs != rhs then sawWrap := true
+  return (allAgree, sawWrap)
+
+def exhaustiveSuite : TestSeq :=
+  group "mulQ identity, exhaustive at 8/4" <|
+    test "holds for all 65536 pairs whose result fits"
+      mulQ84Exhaustive.1 $
+    test "and is FALSE without the no-overflow hypothesis"
+      mulQ84Exhaustive.2 $
+    test "the documented counterexample: 17 · 121 / 16 wraps 128 → −128"
+      (mulQ84 (BitVec.ofNat 8 17) (BitVec.ofNat 8 121) == -128
+        ∧ (17 * 121 : Int) / 16 == 128)
+
 def transportSuite : TestSeq :=
   group "Transport agreement (ℝ →retype→ Q15.16 vs Sparkle mulQ)" <|
     test "every case agrees"
@@ -142,7 +183,7 @@ def transportSuite : TestSeq :=
       (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/

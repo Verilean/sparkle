@@ -392,15 +392,34 @@ sustain a limit cycle (§12.4 shows one doing exactly that, and §12.4's
 Layer 2 says the two systems are related by transport; layer 3 has to say
 what that relation preserves.
 
-Two honest gaps in this layer, both recorded rather than papered over.
-the transport above runs in the `proofs/` sidecar, which is deliberately
-outside the root build graph so an RTL-only build never pays for mathlib.
-It *imports* `nextX`/`nextI`/`nextP` from `PIDDesign.lean` — the same terms
-`pid_lyapunov_decrease` is proved about — so the transported equation and
-the certified equation cannot drift apart.  And the `mulQ` agreement is checked on cases, not proved for
-all inputs; the proof is a `BitVec`-level lemma (`(mulQ a b).toInt =
-(a.toInt * b.toInt) / 2¹⁶` under a no-overflow hypothesis) that `bv_decide`
-should get at this width, and it is not yet written.
+One honest gap in this layer, recorded rather than papered over: the `mulQ`
+agreement of §12.2.2 is **checked on cases, not proved**.  The lemma to prove
+is
+
+```
+(mulQ a b).toInt = (a.toInt * b.toInt) / 2¹⁶     -- when the result fits
+```
+
+and both halves of that sentence matter.  The no-overflow hypothesis is not
+decoration: at 8/4 (the same shape, small enough to enumerate) the identity is
+**false** without it — `a = 17, b = 121` gives `17·121/16 = 128`, one past the
+signed 8-bit maximum, and `extractLsb'` wraps it to −128.  Restricted to
+results that fit, all 65536 pairs at 8/4 agree.
+
+What does *not* work is the obvious tactic.  `bv_decide` rejects the goal
+outright — "none of the hypotheses are in the supported BitVec fragment" —
+because `toInt` and `Int./` leave the bitvector fragment it decides.  Proving
+this needs the `BitVec.toInt`/`extractLsb'` lemmas and an explicit bound
+argument, not a decision procedure, and that is why it is still unwritten.
+
+The *other* gap this section used to carry is now closed.  The transport
+lives in `proofs/SparkleProofs/Retype/`, alongside the theorems, and it
+**imports** `nextX`/`nextI`/`nextP` from `PIDDesign.lean` — the very terms
+`pid_lyapunov_decrease` is proved about.  Earlier it had to restate them
+(retype pinned a newer Lean than Sparkle, and a Lake graph has one
+toolchain), so "the transported equation is the certified equation" was
+underwritten by `#guard`s comparing two copies.  It now holds because there
+is only one copy.
 
 ## 12.3 Lyapunov stability in general
 
@@ -785,7 +804,10 @@ def tail (w f : Nat) : Nat :=
 * The H∞ dissipation is proven for the ℝ model; its fixed-point
   transport (the estimator analogue of `Transport.lean`) follows the
   same ISS pattern but is not written.
-* `retype` pins a newer toolchain than Sparkle, so the Float
-  falsifier lives in its own package with a duplicated (and
-  `#guard`-drift-checked) model — an accepted seam until the
-  toolchains align.
+* ~~`retype` pins a newer toolchain than Sparkle~~ — **closed.**  Every
+  package is on Lean v4.32.1, the `retypelab/` sidecar is folded into
+  `proofs/SparkleProofs/Retype/`, and both the Float falsifier and the
+  Q15.16 transport now *import* their ℝ models from `LQRDesign.lean` /
+  `PIDDesign.lean` instead of restating them.  So §12.2's claim — the
+  transported equation is the equation the certificate is about — holds
+  by construction rather than by a drift check.
