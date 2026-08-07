@@ -392,25 +392,42 @@ sustain a limit cycle (§12.4 shows one doing exactly that, and §12.4's
 Layer 2 says the two systems are related by transport; layer 3 has to say
 what that relation preserves.
 
-One honest gap in this layer, recorded rather than papered over: the `mulQ`
-agreement of §12.2.2 is **checked on cases, not proved**.  The lemma to prove
-is
+This layer's last sampled link is now **proved**
+(`Sparkle/Verification/FixedPointProps.lean`):
+
+```lean
+theorem mulQ_toInt (a b : BitVec 32)
+    (hlo : -(2^31 : Int) ≤ (a.toInt * b.toInt) / 2^16)
+    (hhi : (a.toInt * b.toInt) / 2^16 < 2^31) :
+    (mulQ a b).toInt = (a.toInt * b.toInt) / 2^16
+```
+
+So §12.2.2's fixture sweep is no longer load-bearing: the datapath multiply
+*is* the transported multiply, for all inputs whose result is representable.
+
+Two things about it are worth keeping.
+
+**The hypothesis is not decoration.**  Without it the statement is false —
+the extract wraps.  At the 8/4 analogue (small enough to enumerate) `a = 17,
+b = 121` gives `17·121/16 = 128`, one past the signed 8-bit maximum, and the
+extract returns −128.  All three facts — holds under the guard, fails
+without it, and that exact counterexample — are pinned in
+`Tests/IP/Control/PrecisionSweepTest.lean`, so the side condition cannot be
+dropped later as pedantry.
+
+**`bv_decide` cannot do it.**  The obvious move fails outright —
 
 ```
-(mulQ a b).toInt = (a.toInt * b.toInt) / 2¹⁶     -- when the result fits
+error: None of the hypotheses are in the supported BitVec fragment
 ```
 
-and both halves of that sentence matter.  The no-overflow hypothesis is not
-decoration: at 8/4 (the same shape, small enough to enumerate) the identity is
-**false** without it — `a = 17, b = 121` gives `17·121/16 = 128`, one past the
-signed 8-bit maximum, and `extractLsb'` wraps it to −128.  Restricted to
-results that fit, all 65536 pairs at 8/4 agree.
-
-What does *not* work is the obvious tactic.  `bv_decide` rejects the goal
-outright — "none of the hypotheses are in the supported BitVec fragment" —
-because `toInt` and `Int./` leave the bitvector fragment it decides.  Proving
-this needs the `BitVec.toInt`/`extractLsb'` lemmas and an explicit bound
-argument, not a decision procedure, and that is why it is still unwritten.
+— because `toInt` and `Int./` leave the bitvector fragment it decides; no
+width helps.  The proof instead goes: the 64-bit product of two
+sign-extended 32-bit values is exact (`|a·b| ≤ 2^62` kills the `bmod`), then
+`extractLsb' 16 32` is `/ 2^16` on `toInt` given the range hypothesis
+(`Int.bmod` unfolded and split, since `omega` cannot see through it), then
+compose.  Mathlib-free, so it is checked by the same `lake build` as the
+RTL.
 
 The *other* gap this section used to carry is now closed.  The transport
 lives in `proofs/SparkleProofs/Retype/`, alongside the theorems, and it
@@ -804,6 +821,11 @@ def tail (w f : Nat) : Nat :=
 * The H∞ dissipation is proven for the ℝ model; its fixed-point
   transport (the estimator analogue of `Transport.lean`) follows the
   same ISS pattern but is not written.
+* ~~The `mulQ` agreement is checked on fixtures, not proved~~ —
+  **closed.**  `Sparkle/Verification/FixedPointProps.lean` proves
+  `mulQ_toInt`: the datapath multiply equals `(a·b)/2¹⁶` for all inputs
+  whose result is representable.  Mathlib-free, so the RTL and its
+  correctness proof are checked by one `lake build`.
 * ~~`retype` pins a newer toolchain than Sparkle~~ — **closed.**  Every
   package is on Lean v4.32.1, the `retypelab/` sidecar is folded into
   `proofs/SparkleProofs/Retype/`, and both the Float falsifier and the

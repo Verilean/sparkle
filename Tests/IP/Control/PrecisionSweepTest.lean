@@ -24,6 +24,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.Control.IIRBiquadGen
 import IP.Control.FixedPoint
+import Sparkle.Verification.FixedPointProps
 import LSpec
 
 set_option maxRecDepth 100000
@@ -150,6 +151,21 @@ def mulQ84Exhaustive : Bool × Bool := Id.run do
       else if lhs != rhs then sawWrap := true
   return (allAgree, sawWrap)
 
+/-- `Sparkle/Verification/FixedPointProps.lean` restates `mulQ` rather than
+    importing `IP.Control` (it stays free of the Signal/elaborator stack).
+    This pins the restatement against the real definition so it cannot drift
+    — if they ever diverge, the proved lemma would be about a function the
+    hardware does not use. -/
+def provedMulQ (a b : BitVec 32) : BitVec 32 :=
+  Sparkle.Verification.FixedPointProps.mulQ a b
+
+def restatementSuite : TestSeq :=
+  group "the proved mulQ is the datapath mulQ" <|
+    test "agree on every transport case"
+      ((transportCases.filter (fun (a, b) =>
+          provedMulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b)
+            != Sparkle.IP.Control.FixedPoint.mulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b))).isEmpty)
+
 def exhaustiveSuite : TestSeq :=
   group "mulQ identity, exhaustive at 8/4" <|
     test "holds for all 65536 pairs whose result fits"
@@ -183,7 +199,7 @@ def transportSuite : TestSeq :=
       (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/
