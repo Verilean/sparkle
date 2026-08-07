@@ -279,7 +279,7 @@ Instead, generate it.  `retype` replaces a type throughout a definition and
 substitutes the corresponding operations, so the fixed-point equation is
 *derived from* the ℝ equation rather than written beside it:
 
-```lean
+```
 structure FixQ where            -- Q15.16: the stored integer is value·2¹⁶
   n : Int
 
@@ -303,7 +303,7 @@ retype_def nextXQ := nextX using Real => FixQ
 
 `nextXQ` is now a Q15.16 function nobody wrote.  Evaluating it:
 
-```lean
+```
 #eval KpQ                     -- { n := 131072 }  = 2        ✓
 #eval KiQ                     -- { n := 16384 }   = 0.25     ✓
 #eval paQ                     -- { n := 58982 }   ≈ 0.89999  ✓
@@ -325,7 +325,7 @@ makes a definition's *dependencies* follow the transport too.
 Now the question that layer 2 exists to answer.  Sparkle's datapath uses
 `mulQ` on `BitVec 32` (`IP/Control/FixedPoint.lean`):
 
-```lean
+```
 def mulQ (a b : BitVec 32) : BitVec 32 :=
   BitVec.extractLsb' 16 32 ((a.signExtend 64) * (b.signExtend 64))
 ```
@@ -339,7 +339,7 @@ disagree on every negative product.
 
 That is a claim, so it is checked rather than asserted:
 
-```lean
+```
 def refMul (a b : Int) : Int := (a * b) / 65536
 def chk (a b : Int) : Bool :=
   (mulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b)).toInt == refMul a b
@@ -401,7 +401,7 @@ what that relation preserves.
 This layer's last sampled link is now **proved**
 (`Sparkle/Verification/FixedPointProps.lean`):
 
-```lean
+```
 theorem mulQ_toInt (a b : BitVec 32)
     (hlo : -(2^31 : Int) ≤ (a.toInt * b.toInt) / 2^16)
     (hhi : (a.toInt * b.toInt) / 2^16 < 2^31) :
@@ -677,7 +677,7 @@ between what the circuit computed and what ℝ would have, so the
 step equations hold by `ring` and the only content is the bound above.
 The consequence is stated with no `QuantTraj` in sight:
 
-```lean
+```
 theorem intTraj_ultimate_bound (f1 f2 : Nat → ℤ) (h1 h2 : …) (n : Nat) :
     V (toR (f1 n)) (toR (f2 n))
       ≤ σ ^ n * V (toR (f1 0)) (toR (f2 0)) + Vbound
@@ -700,7 +700,7 @@ proof still holds.  A ρ pinned at 0.9717893 would have needed a new `P`.
 
 Composing the two gives the statement with nothing left conditional:
 
-```lean
+```
 theorem circuit_ultimate_bound (f1 f2 : Nat → ℤ)
     (hs1 : ∀ n, f1 (n+1) = stepX1 (f1 n) (f2 n))
     (hs2 : ∀ n, f2 (n+1) = stepX2 40501 82575 (f1 n) (f2 n))
