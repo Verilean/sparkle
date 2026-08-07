@@ -48,6 +48,7 @@ import Sparkle
 import Sparkle.Compiler.Elab
 import IP.Control.Observer
 import IP.Control.IIRBiquadGen
+import IP.Crypto.Keccak256Sponge
 import LSpec
 
 open Sparkle.Core.Domain
@@ -493,6 +494,35 @@ The fix must therefore make `live` and `stateLoop` resolve to ONE wire by
 construction — i.e. translate the body once into a shared wire environment and
 have consumers read from it — rather than detect the coincidence afterwards.
 
+### The rebuild was attempted, and measured
+
+`packRegister` is where the multiplication happens: each slot re-projects the
+shared next-state term (`Signal.map Prod.fst next` / `… Prod.snd next`), so
+`next` — the whole body computation — appears once per slot.  Confirmed by
+counting: `regDependentEngine` has ONE return leaf yet three engine copies, so
+`splitReturnLeaves` is not the multiplier; and the `next` mentions carry
+distinct `Expr.hash`es per slot, so the elaborator cannot share them either.
+
+The flat per-slot accumulator (`Circuit.SigList`, from the reverted #95 work)
+addresses this directly, and it does improve the numbers — with the three
+elaborator gaps it needs re-applied (PUnit chain terminator, `SigList` in the
+Prod.mk accumulator detection, `Seq.seq`/`Functor.map` spine normalisation):
+
+    regDependentEngine   21 regs / 3 engines  →  15 / 2
+    tvkTop               28 regs / 3 engines  →  22 / 2
+
+But the Keccak sponge digest breaks — all four fixtures, including the two
+(`empty`, `abc`) that pass on main.  Same failure that caused the original
+revert of #95, so the three re-applied elaborator fixes are NOT the whole gap.
+Reverted again; digests verified restored.
+
+Conclusion for the next attempt: the flat accumulator is the right direction
+(it is the only change that has moved these numbers), but landing it requires
+first finding what it breaks in the sponge — a nested `@[hardware_module]`
+engine (`wKeccakF`) driven from an FSM, which neither `regDependentEngine` nor
+`tvkTop` covers.  A sponge-shaped structural test should exist BEFORE the next
+attempt, so the failure is localised in seconds rather than by digest bisection.
+
 ## The cost, measured with yosys (not "harmless")
 
 `synth -flatten` on `tvkTop`:
@@ -624,6 +654,48 @@ FULLY FIXED, update the tvkTop pin too"
     IO.println s!"[rtl-structure] regDependentEngine = {total} \
 (3 FSM + 3×6 engine; 9 would be correct — the residual is register-read wires \
 getting fresh names per consumer)"
+
+/-! ### Sponge-shaped structural test
+
+The one design shape that repeatedly breaks when `runCircuitH` is restructured
+is Keccak's sponge: an FSM that drives a nested `@[hardware_module]` engine
+(`wKeccakF`) and consumes several of its output fields.  Both attempts at the
+flat pending-writes accumulator produced a wrong sponge digest while
+`regDependentEngine` and `tvkTop` looked fine, so those two do not cover it.
+
+This pins the sponge's STRUCTURE, which is checkable in seconds — unlike the
+digest, which needs a JIT build and a full co-sim run.  A restructuring that
+changes these counts is changing the sponge's hardware, and that is the signal
+to stop and look before spending a co-sim cycle. -/
+
+run_meta do
+  let text ← designText ``Sparkle.IP.Crypto.Keccak256Sponge.keccak256SpongeHW
+  let mods := splitModules text
+  let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
+  let rcInst := countInstancesOf text "Sparkle_IP_Crypto_Keccak256HW_keccakRcHW"
+  let kfInst := countInstancesOf text "Sparkle_IP_Crypto_Keccak256Sponge_wKeccakF"
+  for (mname, body) in mods do
+    let bad := undeclaredWires body
+    unless bad.isEmpty do
+      throwError s!"RTL structure: sponge module {mname} undeclared wires {bad}"
+    let undriven := undrivenOutputs body
+    unless undriven.isEmpty do
+      throwError s!"RTL structure: sponge module {mname} undriven outputs {undriven}"
+  -- 57 registers / 1 permutation instance / 27 round-constant ROM instances.
+  -- The reverted #95 rework collapsed the ROMs 27 → 1, which is exactly how
+  -- every Keccak round ended up using the same round constant.
+  unless total == 57 do
+    throwError s!"RTL structure: sponge register count = {total} (pinned 57). \
+The sponge is the design that breaks when `runCircuitH` is restructured — \
+check the digest before repinning."
+  unless kfInst == 1 do
+    throwError s!"RTL structure: sponge has {kfInst} wKeccakF instances (want 1)"
+  unless rcInst == 27 do
+    throwError s!"RTL structure: sponge has {rcInst} keccakRcHW ROM instances \
+(want 27).  A collapse to 1 means every round shares one round constant and \
+the digest is wrong — this is the exact reverted-#95 failure."
+  IO.println s!"[rtl-structure] sponge: regs={total}, wKeccakF={kfInst}, \
+keccakRcHW={rcInst} (pinned)"
 
 /-! ### LSpec surface
 
