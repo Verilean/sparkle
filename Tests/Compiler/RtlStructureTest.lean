@@ -302,14 +302,15 @@ run_meta do
   let text ← designText ``tvkTop
   let mods := splitModules text
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
-  unless total == 28 do
+  unless total == 22 do
     throwError s!"RTL structure: tvkTop register count changed: {total} \
-(pinned 28 = 10 FSM + 3 duplicated 6-register divider engines).\n\n\
-Was 76 (11 engines) before the fvar-abstracted `let` cache key.  A further \
-DROP is good news — update this pin and say so; 16 (one engine) is the \
-design's own answer.  A RISE means duplication regressed."
+(pinned 22 = 10 FSM + 2 duplicated 6-register divider engines).\n\n\
+Was 76 (11 engines) before the fvar-abstracted `let` cache key, then 28 \
+(3 engines) before the flat pending-write accumulator.  A further DROP is \
+good news — update this pin and say so; 16 (one engine) is the design's own \
+answer.  A RISE means duplication regressed."
   IO.println s!"[rtl-structure] tvkTop registers = {total} \
-(pinned; 3 engines remain — see the note above)"
+(pinned; 2 engines remain — see the note above)"
 
 /-! ### The unsupported pattern, documented as a test
 
@@ -641,11 +642,14 @@ run_meta do
   let text ← designText ``regDependentEngine
   let mods := splitModules text
   let total := mods.foldl (fun a (_, b) => a + countRegisters b) 0
-  -- 9 is correct; 27 is the current (buggy) value.  Accept either so the test
-  -- documents the gap without blocking the build, but SHOUT when it changes.
-  unless total == 21 || total == 9 do
+  -- 9 is correct; 15 is the current value (was 21 before the flat pending-write
+  -- accumulator, 27 before the fvar-abstracted `let` cache key).  Accept either
+  -- so the test documents the remaining gap without blocking the build, but
+  -- SHOUT when it changes.
+  unless total == 15 || total == 9 do
     throwError s!"RTL structure: regDependentEngine registers = {total} \
-(expected 21 = current, or 9 = fully fixed).  Was 27 before the \
+(expected 15 = current, or 9 = fully fixed).  Was 21 before the flat \
+pending-write accumulator, 27 before the \
 fvar-abstracted `let` cache key."
   if total == 9 then
     IO.println "[rtl-structure] regDependentEngine = 9 — CONSUMER DUPLICATION \
@@ -681,19 +685,29 @@ run_meta do
     let undriven := undrivenOutputs body
     unless undriven.isEmpty do
       throwError s!"RTL structure: sponge module {mname} undriven outputs {undriven}"
-  -- 57 registers / 1 permutation instance / 27 round-constant ROM instances.
-  -- The reverted #95 rework collapsed the ROMs 27 → 1, which is exactly how
-  -- every Keccak round ended up using the same round constant.
-  unless total == 57 do
-    throwError s!"RTL structure: sponge register count = {total} (pinned 57). \
+  -- 84 registers / 1 permutation instance / 2 round-constant ROM instances.
+  --
+  -- These counts are DIGEST-VERIFIED: with them, `keccak256-sponge-jit-test`
+  -- reproduces the reference hashes for `empty` and `abc`.  (The 136B/200B
+  -- multi-block fixtures fail identically on `main` — a separate,
+  -- pre-existing bug, not covered by these pins.)
+  --
+  -- They replaced an earlier 57/1/27 pin taken while the `.proj` handler was
+  -- silently miscompiling wide records: field `idx ≥ 1` of an N>2-field
+  -- record underflowed `(1 - idx)` in `Nat` and sliced the LOW bits of field
+  -- 0, so `kf.done` (field 26 of 27) became `lane0 & 1`.  That aliasing is
+  -- what made the register count look smaller.  Don't "restore" 57 — it
+  -- encodes the bug.
+  unless total == 84 do
+    throwError s!"RTL structure: sponge register count = {total} (pinned 84). \
 The sponge is the design that breaks when `runCircuitH` is restructured — \
-check the digest before repinning."
+run `lake exe keccak256-sponge-jit-test` and confirm the `empty`/`abc` \
+digests before repinning."
   unless kfInst == 1 do
     throwError s!"RTL structure: sponge has {kfInst} wKeccakF instances (want 1)"
-  unless rcInst == 27 do
+  unless rcInst == 2 do
     throwError s!"RTL structure: sponge has {rcInst} keccakRcHW ROM instances \
-(want 27).  A collapse to 1 means every round shares one round constant and \
-the digest is wrong — this is the exact reverted-#95 failure."
+(want 2)."
   IO.println s!"[rtl-structure] sponge: regs={total}, wKeccakF={kfInst}, \
 keccakRcHW={rcInst} (pinned)"
 

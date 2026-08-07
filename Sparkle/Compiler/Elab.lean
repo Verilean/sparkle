@@ -1627,6 +1627,67 @@ mutual
         if mkArgs.size >= 4 then
           let chosen := if idx == 0 then mkArgs[2]! else mkArgs[3]!
           return ← translateExprToWire chosen hint (isTopLevel := isTopLevel) (isNamed := isNamed)
+      -- Same iota reduction for any other single-constructor structure
+      -- (`KeccakFOut`, `RxOut`, …).  Taking field `idx` off the constructor
+      -- application is exact for a record of any width; the bit-slice
+      -- fallback below is not (see the note there).
+      --
+      -- Restricted to `idx ≥ 2`, i.e. exactly the cases the slice gets
+      -- WRONG.  Fields 0 and 1 keep the old path: they were already correct,
+      -- and routing them through here inlines the field's whole expression
+      -- instead of emitting a slice, which blows the heartbeat budget on the
+      -- BLS12-381 Fp12/G2 records.
+      if idx >= 2 then
+        if let some ctorName := eReduced.getAppFn.constName? then
+          if let some (.ctorInfo ci) := (← CompilerM.liftMetaM Lean.getEnv).find? ctorName then
+            let ctorArgs := eReduced.getAppArgs
+            if ci.numFields > 0 ∧ ctorArgs.size == ci.numParams + ci.numFields
+               ∧ idx < ci.numFields then
+              return ← translateExprToWire ctorArgs[ci.numParams + idx]! hint
+                (isTopLevel := isTopLevel) (isNamed := isNamed)
+      -- The slice arithmetic below is only valid for a TWO-field
+      -- packed product (`bundle2`): field 0 occupies the high half,
+      -- field 1 the low half.  For a wider record `(1 - idx)`
+      -- underflows in `Nat` — every field from index 1 up collapses to
+      -- `lo = 0`, i.e. the LOW bits of the FIRST field.
+      --
+      -- That is a silently wrong wire, not a synthesis error.  It cost
+      -- a long hunt via the Keccak sponge: `kfDonePrev <~ kf.done`
+      -- (field 26 of 27 in `KeccakFOut`) lowered to `lane0 & 1`, so the
+      -- sponge's `done` tracked a data bit, pulsed early, and the test
+      -- read a mid-permutation digest.  It only became reachable when
+      -- the elaborator stopped re-instantiating the sub-module per
+      -- projection — before that, each projection got its own instance
+      -- and the multi-output port map handled the lookup.
+      --
+      -- Refuse the guess instead: a >2-field record must be projected
+      -- through the multi-output sub-module port map.
+      -- Only fields 0 and 1 can be correct under the 2-field slice, so
+      -- `idx ≤ 1` needs no check at all.  Guarding on that first keeps the
+      -- `inferType`+`whnf` off the hot path — running it on every `.proj`
+      -- blew the 200k-heartbeat budget on the BLS12-381 Fp12 records.
+      let numFields ← if idx <= 1 then pure 2 else CompilerM.liftMetaM do
+        let sTy ← Lean.Meta.inferType eStruct
+        let sTy ← Lean.Meta.whnf sTy
+        match sTy.getAppFn.constName? with
+        | some sName =>
+          match (← Lean.getEnv).find? sName with
+          | some (.inductInfo iv) =>
+            match iv.ctors with
+            | [c] =>
+              match (← Lean.getEnv).find? c with
+              | some (.ctorInfo ci) => pure (ci.numFields)
+              | _ => pure 2
+            | _ => pure 2
+          | _ => pure 2
+        | none => pure 2
+      if numFields > 2 then
+        CompilerM.liftMetaM $ throwError
+          s!"Cannot project field {idx} of a {numFields}-field record by bit-slicing: \
+             the packed-product slice only covers 2-field bundles.  Project through \
+             the sub-module's named output ports instead (call the \
+             `@[hardware_module]` def directly, e.g. `let kf := wKeccakF …; kf.done`, \
+             so the multi-output port map resolves the field by name)."
       let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← cachedInferType e
@@ -2461,6 +2522,7 @@ mutual
       -- the second is discarded.
       let isNextBuilder :=
         βType.isAppOf ``Sparkle.Core.Circuit.NextBuilder ||
+        βType.isAppOf ``Sparkle.Core.Circuit.SigList ||
         (match βType with
          | .forallE _ _ _ _ => true  -- η-expanded Signal _ S → Signal _ S
          | _ => false)
@@ -2944,6 +3006,64 @@ mutual
       -- 3. We'd only catch non-problematic uses, creating false positives
 
       profHandler 0 (handleErrorPatterns e name args hint isNamed)  -- throws or returns ()
+
+      -- `Circuit.SigList`'s chain terminator carries no data, so it lowers
+      -- to a 0-width constant rather than a module instantiation.  It shows
+      -- up either bare (`PUnit.unit`, which carries a universe argument and
+      -- so arrives here as an application) or wrapped (`Signal.pure
+      -- PUnit.unit`).
+      --
+      -- Both forms are gated on the argument's TYPE, never on a whnf'd
+      -- payload value: `whnf` of a payload at some other type can reduce to
+      -- `Unit.unit`, and collapsing on that basis silently rewrites a real
+      -- output to constant zero.  That is what broke the Keccak sponge —
+      -- the digest came out equal to the unpermuted padded input.
+      if name == ``PUnit.unit || name == ``Unit.unit then
+        let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+        CompilerM.emitAssign resWire (.const 0 0)
+        return resWire
+      if (name == ``Sparkle.Core.Signal.Signal.pure ||
+          name == ``Sparkle.Core.Signal.Signal.lit) && args.size >= 1 then
+        -- Cheap syntactic pre-filter first: the terminator is literally
+        -- `PUnit.unit` / `Unit.unit`.  Only then pay for inferType+whnf.
+        -- Running those on every `Signal.pure` blew the heartbeat budget on
+        -- the BLS12-381 Fp12/G2 modules.
+        let a := args.back!
+        let looksUnit := a.isConstOf ``PUnit.unit || a.isConstOf ``Unit.unit
+        let argTy ← if !looksUnit then pure (Lean.mkConst ``Nat) else
+          CompilerM.liftMetaM (whnf (← Lean.Meta.inferType a))
+        if argTy.isConstOf ``Unit || argTy.isConstOf ``PUnit then
+          let resWire ← CompilerM.makeWire hint (.bitVector 0) (named := isNamed)
+          CompilerM.emitAssign resWire (.const 0 0)
+          return resWire
+      if (name == ``Seq.seq || name == ``Functor.map) && args.size >= 1 then
+        if args[0]!.isAppOf ``Sparkle.Core.Signal.Signal then
+          let rec normSpine (x : Lean.Expr) (fuel : Nat) : MetaM Lean.Expr := do
+            match fuel with
+            | 0 => return x
+            | fuel + 1 =>
+              let h := x.getAppFn
+              if h.isConstOf ``Seq.seq then
+                match ← withTransparency TransparencyMode.all
+                    (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.ap) with
+                | some x' => normSpine x' fuel
+                | none => return x
+              else if h.isConstOf ``Functor.map then
+                match ← withTransparency TransparencyMode.all
+                    (Lean.Meta.whnfUntil x ``Sparkle.Core.Signal.Signal.map) with
+                | some x' => normSpine x' fuel
+                | none => return x
+              else if h.isConstOf ``Sparkle.Core.Signal.Signal.ap then
+                let xargs := x.getAppArgs
+                if xargs.size ≥ 2 then
+                  let fpos ← normSpine xargs[xargs.size - 2]! fuel
+                  return Lean.mkAppN h (xargs.set! (xargs.size - 2) fpos)
+                else return x
+              else return x
+          let e' ← CompilerM.liftMetaM (normSpine e 32)
+          if e' != e then
+            return ← translateExprToWire e' hint (isNamed := isNamed)
+
       -- handleCircuitMonad must run before handleTupleProjections /
       -- handleDefinitionUnfold so that Bind.bind / Pure.pure get
       -- peeled, and value-level Prod.fst / Prod.snd / Prod.mk on

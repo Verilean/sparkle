@@ -92,15 +92,26 @@ private def runSponge (sim : Simulator) (input : Array UInt8) : IO (Array UInt8)
   sim.reset
   -- Cycle 0: start pulse with lanes + nBlocks.
   sim.step (mkInput true nBlocks lanes)
-  -- Hold start low; tick until done, cap at a generous bound
-  -- (2 blocks × ~30 cyc ≪ 200).
+  -- Hold start low; tick until done.  keccak-f is a SEQUENTIAL engine —
+  -- one round per cycle, 24 rounds, plus the capture/launch handshake —
+  -- so a block costs ~28 cycles and the cap must clear
+  -- maxBlocks × 28 with room to spare.  (An earlier 200-cycle cap was
+  -- sized for a redundantly-unrolled permutation; when the elaborator
+  -- stopped duplicating it, the loop hit the cap and silently returned
+  -- the UNPERMUTED state — which reads as a wrong digest, not a
+  -- timeout.  Hence the explicit failure below.)
   let zeroLanes : Array (BitVec 64) := Array.replicate (rateLanes * maxBlocks) 0#64
+  let cap := 200 + maxBlocks * 64
   let mut out ← sim.read
   let mut cyc := 0
-  while out.done == 0#1 && cyc < 200 do
+  while out.done == 0#1 && cyc < cap do
     sim.step (mkInput false nBlocks zeroLanes)
     out ← sim.read
     cyc := cyc + 1
+  if out.done == 0#1 then
+    throw <| IO.userError
+      s!"sponge did not assert done within {cap} cycles — the digest below \
+         would be the unpermuted state, not a hash"
   return lanesToDigest out
 
 def main : IO Unit := do
