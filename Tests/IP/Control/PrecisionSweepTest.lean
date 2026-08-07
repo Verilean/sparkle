@@ -166,6 +166,47 @@ def restatementSuite : TestSeq :=
           provedMulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b)
             != Sparkle.IP.Control.FixedPoint.mulQ (BitVec.ofInt 32 a) (BitVec.ofInt 32 b))).isEmpty)
 
+/-! ### ℝ-equal, fixed-point-different (Ch12 §12.2.4)
+
+`proofs/…/AlgebraicRewrite.lean` proves the two shapes of the PID output are
+equal over ℝ and within 6 lsb of each other in Q15.16.  This is the
+measurement behind that: the ℝ identity does NOT survive quantization, and
+the disagreement is common rather than exotic. -/
+
+def s16 : Int := 65536
+def mq (a b : Int) : Int := (a * b) / s16
+def kpQ : Int := 2 * s16
+def kiQ : Int := s16 / 4
+def kdQ : Int := s16 / 8
+
+def uAq (e st p : Int) : Int := mq kpQ e + mq kiQ st + mq kdQ (e - p)
+def uBq (e st p : Int) : Int := mq (kpQ + kdQ) e + mq kiQ st - mq kdQ p
+
+/-- A deterministic sweep — no RNG, so the counts are reproducible. -/
+def rewriteStats : Nat × Nat := Id.run do
+  let mut diff := 0
+  let mut worst := 0
+  for i in [0:40] do
+    for j in [0:40] do
+      for k in [0:40] do
+        let e := (i * 3251 % 196608) - 98304
+        let st := (j * 5077 % 196608) - 98304
+        let p := (k * 7919 % 196608) - 98304
+        let d := (uAq e st p - uBq e st p).natAbs
+        if d != 0 then diff := diff + 1
+        if d > worst then worst := d
+  return (diff, worst)
+
+def rewriteSuite : TestSeq :=
+  group "ℝ-equal rewrite is not fixed-point-equal" <|
+    test "the two shapes disagree on a large fraction of states"
+      (rewriteStats.1 > 1000) $
+    test "but never by more than 1 lsb (proved bound is 6)"
+      (rewriteStats.2 == 1) $
+    -- The documented example from the file header.
+    test "worked example: e=64336 s=81068 p=-149121 differs by 1"
+      ((uAq 64336 81068 (-149121) - uBq 64336 81068 (-149121)).natAbs == 1)
+
 def exhaustiveSuite : TestSeq :=
   group "mulQ identity, exhaustive at 8/4" <|
     test "holds for all 65536 pairs whose result fits"
@@ -199,7 +240,7 @@ def transportSuite : TestSeq :=
       (hwMul 43419 65536 == 43419 ∧ (q 32 16 6625 10000).toInt == 43417)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, transportSuite, exhaustiveSuite, restatementSuite, rewriteSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see the note in
     `Tests/IP/Control/IIRBiquadTest.lean`). -/

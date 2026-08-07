@@ -438,6 +438,52 @@ toolchain), so "the transported equation is the certified equation" was
 underwritten by `#guard`s comparing two copies.  It now holds because there
 is only one copy.
 
+### 12.2.4 Rewriting the equation: ℝ-equal is not circuit-equal
+
+A practical question that arrives the moment you care about area: can you
+rewrite the control law to use fewer multiplies?
+
+```
+u = Kp·e + Ki·s + Kd·(e − p)        -- as written
+u = (Kp+Kd)·e + Ki·s − Kd·p         -- Kd folded into the e coefficient
+```
+
+Over ℝ these are the same function, and `ring` proves it in one line
+(`AlgebraicRewrite.uA_eq_uB`).  It is tempting to stop there.
+
+Don't.  In Q15.16 they are **different circuits**, because each `mulQ`
+floors and the rewrite moved the floors around.  Measured over 200 000
+random states:
+
+| | |
+|---|---|
+| states where the two disagree | 87 751 / 200 000 (44 %) |
+| worst disagreement | 1 lsb |
+
+Disagreement is the common case, not a corner case.  So the honest form of
+the claim is not "the rewrite is safe" but
+
+> exact over ℝ, and at most *N* lsb apart in Q15.16, where *N* comes from
+> the floor count
+
+and both halves need proving.  `uAq_uBq_gap` does the second: each shape is
+within 3 lsb of the shared ℝ value, so they are within 6 lsb of each other.
+Note the gap between **proved 6** and **measured 1** — floor-counting is
+sound but loose, because the floors are strongly correlated.  A tight bound
+needs a finer argument.
+
+This matters for the certificate, and it is the same trap as §12.2.3's
+gains one level up: prove stability for `uA`, synthesize `uB`, and the
+Lyapunov argument covers a system the hardware does not implement — unless
+the difference is carried as an extra disturbance into the ISS bound.
+
+Divisions carry one extra obligation.  `(a/b)·x = a·(x/b)` needs `b ≠ 0`
+(`div_reassoc` states it), so the rewrite is unlicensed where the guard
+fails.  And in fixed point a division is `divQref`, which *truncates* — its
+error interval is two-sided `(−1,1)` lsb, against `mulQ`'s one-sided
+`(−1,0]`.  Moving a division across a rewrite changes the shape of the
+error, not just its size.
+
 ## 12.3 Lyapunov stability in general
 
 What §12.1.3 did for one system is the general recipe.  A **Lyapunov
