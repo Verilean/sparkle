@@ -24,6 +24,13 @@ open Sparkle.IP.Video.H264.MP4Encoder
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign h264MP4Encoder ".lake/build/gen/h264/mp4_encoder.sv" ".lake/build/gen/h264/mp4_encoder_cppsim.h"
+/-- Internal wires the JIT drivers sample by name (`JIT.resolveWire`).
+    Declaring them is what protects them; observability is opt-in
+    (see `Optimize.inlineSingleUseWires`). -/
+def mp4EncoderObservableWires : Array String :=
+  #[ "_gen_phase"
+   ]
+
+#writeDesign h264MP4Encoder ".lake/build/gen/h264/mp4_encoder.sv" ".lake/build/gen/h264/mp4_encoder_cppsim.h" mp4EncoderObservableWires
 
 end Sparkle.IP.Video.H264.MP4EncoderSynth

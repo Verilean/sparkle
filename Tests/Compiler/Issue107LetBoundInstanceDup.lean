@@ -118,28 +118,13 @@ elab "#assertInstCountOptimized" id:ident n:num : command => do
 #assertInstCountOptimized oneInstance 1
 #assertInstCountOptimized threeInstances 3
 #assertInstCountOptimized controlInline 1
--- `stateArg` stays at 2, and that is a deliberate trade rather than an
--- oversight.  Folding it needs CSE to substitute away a `_gen_*` wire, and
--- those are JIT-observable by an established contract in this repo
--- (`Optimize.inlineSingleUseWires` has treated them so all along, and
--- `CSim` emits them as struct members precisely "some drivers sample
--- internal state like `_gen_phase` / `_gen_done` (e.g. the H.264
--- encoders)").  Letting CSE fold them makes `h264-bitstream-test` fail at
--- run time with `wire '_gen_done' not found`.
---
--- Closing this properly means giving the observability contract a real
--- opt-in — every design that samples internal wires declares them, and the
--- default flips to "optimise freely".  The 4-argument `#writeDesign`
--- already exists for that; migrating the H.264 designs onto it exposed a
--- separate output-cone folding bug (a CAVLC module returning a tuple lost
--- its output logic), so it is left for its own change.
-#assertInstCountOptimized stateArg 2
+#assertInstCountOptimized stateArg 1
 
 def main : IO Unit := do
   IO.println "Issue107LetBoundInstanceDup: build-only regression test."
   IO.println "  ✓ oneInstance    emits exactly 1 toggle instance (was 2)"
   IO.println "  ✓ threeInstances emits exactly 3 toggle instances (was 12)"
   IO.println "  ✓ controlInline  emits exactly 1 toggle instance"
-  IO.println "  ✓ stateArg       stays at 2 — see the note above (JIT observability)"
+  IO.println "  ✓ stateArg       optimizes to exactly 1 toggle instance"
 
 end Sparkle.Tests.Compiler.Issue107LetBoundInstanceDup

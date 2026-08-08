@@ -149,6 +149,13 @@ def quantDequantSynth {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign quantDequantSynth ".lake/build/gen/h264/quant_roundtrip.sv" ".lake/build/gen/h264/quant_roundtrip_cppsim.h"
+/-- Internal wires the JIT drivers sample by name (`JIT.resolveWire`).
+    Declaring them is what protects them; observability is opt-in
+    (see `Optimize.inlineSingleUseWires`). -/
+def quantRoundtripObservableWires : Array String :=
+  #[ "_gen_done"
+   ]
+
+#writeDesign quantDequantSynth ".lake/build/gen/h264/quant_roundtrip.sv" ".lake/build/gen/h264/quant_roundtrip_cppsim.h" quantRoundtripObservableWires
 
 end Sparkle.IP.Video.H264.QuantRoundtripSynth
