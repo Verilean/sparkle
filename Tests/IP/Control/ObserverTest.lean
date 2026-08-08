@@ -22,11 +22,15 @@
     `γ = 2` energy bound (`proofs/…/EstimatorDesign.hinf_energy_bound`) — the
     certificate, not the 9 %, is the real product.
 
-  * **No `Signal.val` co-sim** — deliberately; see the note above `main` for
-    why (issue #95: unshared loop evaluation is exponential in the number of
-    state-register references).  The circuit↔model correspondence was instead
-    verified at the STRONGEST level available: simulating the **emitted
-    Verilog** under iverilog.  The RTL divider computes 1.0/3.0 → 21845 and
+  * **`Signal.val` co-sim** — present, as the `Signal.val co-sim (issue #95
+    closed)` group below.  It could not exist for most of this file's life:
+    unshared loop evaluation was exponential in the number of state-register
+    references (issue #95; even the 2-register observer died near t ≈ 20).
+    The flat pending-writes accumulator landed in PR #109 made evaluation
+    linear, and the exact test that note declared impossible now runs in
+    milliseconds.  The correspondence is additionally verified at the
+    STRONGEST level available: simulating the **emitted Verilog** under
+    iverilog.  The RTL divider computes 1.0/3.0 → 21845 and
     −7.5/2.5 → −196608 exactly, and five full tvKalman samples (FSM + shared
     divider + covariance recursion, y = 1.0 held) match `tvkStep` bit-for-bit:
     x̂₁ = 0, 0, 1581, 8167, 22409 from both.  That RTL simulation is also what
@@ -146,32 +150,84 @@ def suite : TestSeq :=
     test "adversarial margin is real (KF ≥ 1.05 × H∞)"
       (decide (100 * advKF ≥ 105 * advHI))
 
-/-! ### Why there is no `Signal.val` co-sim here
+/-! ### `Signal.val` co-sim — the test issue #95 used to rule out
 
-The natural next test — driving `kalmanQ15_16` / `tvKalman` cycle-by-cycle via
-`Signal.val` and comparing against `obsRun` / `tvkStep` — **hangs**: compiled
-`Signal.loop` evaluation has no sharing, so a loop body that references its
-state registers k times costs O(kᵗ) at cycle t.  Even the 2-register observer
-becomes infeasible near t ≈ 20; the 16-register `tvKalman` FSM is hopeless.
-This is issue #95 (the Keccak-sponge co-sim hang), reproduced here on a much
-smaller circuit — the branching factor, not the register count, is what kills
-it.
+For most of this file's life the natural test — driving `kalmanQ15_16` /
+`tvKalman` cycle-by-cycle via `Signal.val` against `obsRun` / `tvkStep` —
+**hung**: compiled `Signal.loop` evaluation had no sharing, so a loop body
+referencing its state registers k times cost O(kᵗ) at cycle t, and even the
+2-register observer died near t ≈ 20.  That was issue #95.
 
-The working escape is the CSim JIT harness, and the estimators ARE wired into
-it: `Tests/IP/Control/ControlJITTest.lean` (`lake exe control-jit-test`) drives
-the divider through its real 50-cycle handshake, runs five full `tvKalman` FSM
-samples, 40 observer cycles and both biquads' impulse responses, all against
-the same pure models — in compiled C.  The emitted Verilog is additionally
-checked under iverilog (divider `1.0/3.0 → 21845`, `−7.5/2.5 → −196608`; five
-tvKalman samples `0, 0, 1581, 8167, 22409` matching `tvkStep` bit-for-bit).
+The flat pending-writes accumulator (`Circuit.SigList`, landed in PR #109
+after its first attempt was reverted over the wide-record `.proj` miscompile)
+made evaluation linear, so the impossible test is now just a test.  Measured
+while closing #95: a 10-register chain samples t = 1000 in 0 ms, and the
+40-cycle Kalman co-sim below runs in under a millisecond.
 
-So the circuit↔model correspondence is carried by (a) the pure-FSM-vs-reference
-cross-checks above, (b) the JIT co-sim, (c) iverilog on the emitted RTL, and
-(d) the `#synthesizeVerilog` checks below — everything except the pure-Lean
-interpreter, which issue #95 rules out. -/
+What #95 leaves in place: >64-bit datapaths (Keccak-f, SHA-512) are
+*structurally* linear now but still pay per-op boxed-GMP costs under the
+interpreter, so the CSim JIT (`lake exe control-jit-test`, three-backend
+pattern) remains the recommended path for those.  This module is 32-bit
+arithmetic, so `Signal.val` completes the backend triple here:
+Signal.val / CSim JIT / iverilog, all against the same pure models. -/
+
+/-- 40 cycles of the fixed-gain observer via `Signal.val`, y = 1.0 held. -/
+def kalmanValTrace : List (BitVec 32) :=
+  let one := q 32 16 1 1
+  let hw : Signal defaultDomain (BitVec 32) :=
+    kalmanQ15_16 (Signal.pure one) (Signal.pure 0#32)
+  (List.range 40).map fun t => Signal.val hw t
+
+/-- The same 40 cycles from the pure model (registered-output alignment:
+    the value read at cycle t is the state after t steps, so t = 0 reads the
+    reset value and t reads `obsRun`'s step t−1). -/
+def kalmanValExpected : List (BitVec 32) :=
+  let one := q 32 16 1 1
+  let ys := List.replicate 40 one
+  let pure := obsRun 32 16 (kfK1 32 16) (kfK2 32 16) default
+    (ys.map fun y => (y, 0#32))
+  (List.range 40).map fun t =>
+    if t == 0 then (0#32 : BitVec 32) else ((pure[t-1]?).map (·.x1)).getD 0#32
+
+/-- A tick that pulses at t = 0, 131, 262, … — one `tvKalman` sample per
+    period, mirroring the JIT driver's pulse-then-hold-low protocol. -/
+def tickEvery131 : Signal defaultDomain Bool :=
+  let cnt : Signal defaultDomain (BitVec 8) := Signal.loop fun c =>
+    Signal.register 0#8
+      (Signal.mux (c === (130#8 : BitVec 8)) (Signal.pure 0#8) (c + 1#8))
+  cnt === (0#8 : BitVec 8)
+
+/-- Three full `tvKalman` FSM samples (16-register FSM + nested 50-cycle
+    divider engine) via `Signal.val`, read at the end of each 131-cycle
+    period. -/
+def tvkValSamples : List (BitVec 32) :=
+  let one := q 32 16 1 1
+  let hw : Signal defaultDomain (BitVec 32) :=
+    tvKalman 32 16 (Signal.pure one) (Signal.pure 0#32) tickEvery131
+  [Signal.val hw 130, Signal.val hw 261, Signal.val hw 392]
+
+def tvkValExpected : List (BitVec 32) := Id.run do
+  let one := q 32 16 1 1
+  let mut st : TVK 32 := default
+  let mut out : List (BitVec 32) := []
+  for _ in [0:3] do
+    st := tvkStep 32 16 st one 0#32
+    out := out ++ [st.x1]
+  pure out
+
+def valCoSimSuite : TestSeq :=
+  group "Signal.val co-sim (issue #95 closed)" <|
+    test "kalmanQ15_16: 40 cycles match obsRun bit-for-bit"
+      (kalmanValTrace == kalmanValExpected) $
+    test "tvKalman: 3 full FSM samples (divider engine incl.) match tvkStep"
+      (tvkValSamples == tvkValExpected) $
+    -- the third sample is the first NON-ZERO one (0, 0, 1581) — pin it so a
+    -- co-sim that trivially reads zeros cannot pass
+    test "third sample is the documented non-zero 1581"
+      ((tvkValExpected[2]?.map (·.toInt)).getD 0 == 1581)
 
 def main : IO UInt32 := do
-  lspecIO (Std.HashMap.ofList [("all", [suite])]) []
+  lspecIO (Std.HashMap.ofList [("all", [suite, valCoSimSuite])]) []
 
 /-- `IO Unit` wrapper for `Tests/AllTests.lean` (see IIRBiquadTest). -/
 def mainUnit : IO Unit := do
