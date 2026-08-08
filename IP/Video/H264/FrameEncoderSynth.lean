@@ -24,6 +24,16 @@ open Sparkle.IP.Video.H264.FrameEncoder
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign h264FrameEncoder ".lake/build/gen/h264/frame_encoder.sv" ".lake/build/gen/h264/frame_encoder_cppsim.h"
+/-- Internal wires the JIT drivers sample by name (`JIT.resolveWire`).
+    Declaring them is what protects them; observability is opt-in
+    (see `Optimize.inlineSingleUseWires`). -/
+def frameEncoderObservableWires : Array String :=
+  #[ "_gen_mainPhase"
+   , "_gen_scanIdx"
+   , "_gen_cavlcBitPos"
+   , "_gen_cavlcBitBuffer"
+   ]
+
+#writeDesign h264FrameEncoder ".lake/build/gen/h264/frame_encoder.sv" ".lake/build/gen/h264/frame_encoder_cppsim.h" frameEncoderObservableWires
 
 end Sparkle.IP.Video.H264.FrameEncoderSynth

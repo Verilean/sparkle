@@ -358,7 +358,16 @@ def decoderPipeline {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign decoderPipeline ".lake/build/gen/h264/decoder_pipeline.sv" ".lake/build/gen/h264/decoder_pipeline_cppsim.h"
+/-- Internal wires the JIT drivers sample by name (`JIT.resolveWire`).
+    Declaring them is what protects them; observability is opt-in
+    (see `Optimize.inlineSingleUseWires`). -/
+def decoderObservableWires : Array String :=
+  #[ "_gen_done"
+   , "_gen_bitPos"
+   , "_gen_bitBuffer"
+   ]
+
+#writeDesign decoderPipeline ".lake/build/gen/h264/decoder_pipeline.sv" ".lake/build/gen/h264/decoder_pipeline_cppsim.h" decoderObservableWires
 
 -- ============================================================================
 -- V2: Decoder pipeline with external read port for reconstructed pixels

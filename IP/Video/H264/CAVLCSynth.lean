@@ -784,6 +784,18 @@ def cavlcSynthModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
-#writeDesign cavlcSynthModule ".lake/build/gen/h264/cavlc_synth.sv" ".lake/build/gen/h264/cavlc_synth_cppsim.h"
+/-- Internal wires the JIT drivers sample by name (`JIT.resolveWire`).
+
+    Declaring them is what protects them; every other wire in this module is
+    fair game for CSE and wire inlining (observability is opt-in — see
+    `Optimize.inlineSingleUseWires`).  Read by
+    `Tests/Video/H264BitstreamTest.lean` and the other H.264 drivers. -/
+def cavlcObservableWires : Array String :=
+  #[ "_gen_done"      -- FSM completion strobe: drivers poll this to stop
+   , "_gen_bitPos"    -- bit-writer position
+   , "_gen_bitBuffer" -- bit-writer accumulator
+   ]
+
+#writeDesign cavlcSynthModule ".lake/build/gen/h264/cavlc_synth.sv" ".lake/build/gen/h264/cavlc_synth_cppsim.h" cavlcObservableWires
 
 end Sparkle.IP.Video.H264.CAVLCSynth

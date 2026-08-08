@@ -259,22 +259,49 @@ def optimizeStmt (dm : DefMap) (wm : WidthMap) : Stmt → Stmt
   | .inst modName instName conns =>
     .inst modName instName (conns.map fun (p, e) => (p, optimizeExpr dm wm e))
 
-/-- Recursively substitute inlinable references with their defining expressions -/
+/-- Recursively substitute inlinable references with their defining expressions.
+
+    `widthOfWire` is the substituted wire's DECLARED width, and it is load-
+    bearing: CSim emits expressions unmasked and re-masks only at named-wire
+    assignment boundaries (`self->w = (expr) & 0x7ULL`).  A wire is therefore
+    a masking point, and inlining one deletes its mask.  When the declared
+    width differs from the width C arithmetic naturally wraps at (32 for
+    promoted narrow operands, 64 for wide storage), the value changes:
+    CAVLC's 3-bit `slDec = suffixLen - 1` reads 7 as a wire but −1 → 2³²−1
+    inlined, and `3 << slDec` went from 384 to garbage — every emitted
+    bitstream block was wrong.  So any inlined definition whose declared
+    width is not exactly 32 or 64 is re-wrapped in an explicit
+    `& (2^w − 1)`, which every backend renders inline and constant-folds. -/
 partial def substituteExpr (dm : DefMap) (inlinable : HashMap String Bool)
+    (widthOfWire : String → Nat)
     (fuel : Nat) : Expr → Expr
   | .ref name =>
     if fuel == 0 then .ref name
     else if inlinable.getD name false then
       match dm.get? name with
-      | some defExpr => substituteExpr dm inlinable (fuel - 1) defExpr
+      | some defExpr =>
+        let e' := substituteExpr dm inlinable widthOfWire (fuel - 1) defExpr
+        let w := widthOfWire name
+        let needsMask :=
+          w != 32 && w != 64 && w != 0 &&
+          (match e' with
+           -- already-in-range shapes: a stored wire, a constant, or a
+           -- low slice that is itself the mask
+           | .ref _ => false
+           | .const _ _ => false
+           | .slice _ hi 0 => hi + 1 != w
+           | _ => true)
+        if needsMask && w ≤ 64 then
+          .op .and [e', .const ((1 <<< w) - 1 : Int) w]
+        else e'
       | none => .ref name
     else .ref name
   | .const v w => .const v w
-  | .slice e hi lo => .slice (substituteExpr dm inlinable fuel e) hi lo
-  | .concat args => .concat (args.map (substituteExpr dm inlinable fuel ·))
-  | .op op args => .op op (args.map (substituteExpr dm inlinable fuel ·))
+  | .slice e hi lo => .slice (substituteExpr dm inlinable widthOfWire fuel e) hi lo
+  | .concat args => .concat (args.map (substituteExpr dm inlinable widthOfWire fuel ·))
+  | .op op args => .op op (args.map (substituteExpr dm inlinable widthOfWire fuel ·))
   | .index arr idx =>
-    .index (substituteExpr dm inlinable fuel arr) (substituteExpr dm inlinable fuel idx)
+    .index (substituteExpr dm inlinable widthOfWire fuel arr) (substituteExpr dm inlinable widthOfWire fuel idx)
 
 /-- Inline single-use wires: replace references with their defining expressions
     and remove the now-dead assign statements. -/
@@ -283,6 +310,11 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     (protectedWires : HashMap String Bool := {}) : List Stmt × List Port :=
   let dm := buildDefMap body
   let useCounts := countAllUses body
+  -- Declared widths, for the masking rule in `substituteExpr`.
+  let wireWidths : HashMap String Nat :=
+    (m.inputs ++ m.outputs ++ m.wires).foldl
+      (fun acc p => acc.insert p.name p.ty.bitWidth) {}
+  let widthOfWire := fun (n : String) => wireWidths.getD n 0
 
   -- Build sets of names that must NOT be inlined
   let outputSet := m.outputs.foldl (fun s p => s.insert p.name true) ({} : HashMap String Bool)
@@ -296,6 +328,39 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
     | _ => s
   ) ({} : HashMap String Bool)
+  -- Wires feeding a memory PORT must survive too, not just the read-data
+  -- wire.  Inlining the write-data wire away deletes the write statement's
+  -- operand and the backend then drops the write entirely: the H.264
+  -- quant-roundtrip lost `if (isProcess) outMem[addr] = result`, so every
+  -- negative coefficient came back unsigned (−50 read as 32717).
+  --
+  -- This was masked while `_gen_*` wires were unconditionally treated as
+  -- observable; making observability opt-in exposed it.
+  -- Transitive: `wd` is usually a wire whose own definition names further
+  -- wires, and inlining ANY of them collapses the write's data cone.  Walk
+  -- the assign graph to a fixed point from the port operands.
+  let memoryPortRefs :=
+    let assignDefs := body.foldl (fun (m : HashMap String Expr) stmt =>
+      match stmt with
+      | .assign lhs rhs => m.insert lhs rhs
+      | _ => m) {}
+    let seeds := body.foldl (fun acc stmt =>
+      match stmt with
+      | .memory _ _ _ _ wa wd we ra _ _ =>
+        acc ++ [wa, wd, we, ra].flatMap collectExprRefs
+      | _ => acc) []
+    let rec grow (work : List String) (seen : HashMap String Bool) (fuel : Nat)
+        : HashMap String Bool :=
+      match fuel, work with
+      | 0, _ => seen
+      | _, [] => seen
+      | fuel + 1, w :: rest =>
+        if seen.contains w then grow rest seen fuel
+        else
+          let seen := seen.insert w true
+          let next := (assignDefs.get? w |>.map collectExprRefs).getD []
+          grow (next ++ rest) seen fuel
+    grow seeds {} (body.length * 8 + seeds.length + 64)
 
   -- Width map (name → bit width) from the module's ports and wires.
   let widthOf := (m.inputs ++ m.outputs ++ m.wires).foldl
@@ -311,24 +376,43 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
       -- deeply-nested concat explodes emit to O(nWords^depth) (megabytes
       -- from a handful of nodes — e.g. Keccak's 1600-bit state assembly).
       -- Keeping wide concats as named wires emits each exactly once.
+      -- Never inline a WIDE (>64-bit) wire whose RHS is anything but a
+      -- plain ref/const.  This used to be a per-shape blacklist (wide
+      -- `concat`: O(nWords^depth) emit explosion; wide `slice` with a
+      -- non-zero offset: silently drops the offset), and the blacklist was
+      -- incomplete: CAVLC's 160-bit tuple-output cone contains wide shapes
+      -- that also mis-render when nested inside `emitExpr` (a wide value is
+      -- a uint32_t ARRAY in CSim — most expression contexts cannot take one
+      -- inline), and folding them corrupted the emitted bitstream on every
+      -- block.  As named wires, all of these emit through the
+      -- assignment-shape handlers, which are word-serial and correct.  The
+      -- masking was accidental: `_gen_*` wires were unconditionally treated
+      -- as JIT-observable, which pinned most wide cones by luck.
       let isWideConcat := match rhs with
-        | .concat _ => (widthOf.getD lhs 0) > 64
-        -- Never inline a WIDE (>64-bit) `slice` with a non-zero offset.  As a
-        -- named wire it emits via the assignment-shape handler, which shifts
-        -- across 32-bit word boundaries correctly; inlined into `emitExpr`, a
-        -- wide-of-wide slice drops the offset and returns the whole source
-        -- array (silently wrong — e.g. the word-serial multiplier's `acc>>16`).
-        | .slice _ _ lo => (widthOf.getD lhs 0) > 64 && lo != 0
-        | _ => false
+        | .ref _ => false
+        | .const _ _ => false
+        | _ => (widthOf.getD lhs 0) > 64
       if (useCounts.getD lhs 0) == 1
         && !isWideConcat
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
         && !memoryReadData.contains lhs
+        && !memoryPortRefs.contains lhs
         && !protectedWires.contains lhs
         && (match observableWires with
             | some ws => !ws.contains lhs
-            | none => !lhs.startsWith "_gen_")  -- _gen_ wires are JIT-observable
+            -- No explicit list ⇒ nothing is pinned, so the optimiser is
+            -- free.  This used to default to "every `_gen_*` wire is
+            -- JIT-observable", which protected hundreds of wires in order to
+            -- preserve the handful a driver actually samples, and blocked
+            -- sub-module CSE outright (issue #107's `stateArg` shape).
+            --
+            -- Observability is now opt-in, via the 4-argument `#writeDesign`
+            -- (`#writeDesign mod "x.sv" "x.h" observableWires`) — the form the
+            -- RV32 SoC always used.  A design whose drivers read internal
+            -- wires by name must declare them; see
+            -- `IP/Video/H264/CAVLCSynth.lean : cavlcObservableWires`.
+            | none => true)
       then s.insert lhs true
       else s
     | _ => s
@@ -338,15 +422,15 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
   let inlinedBody := body.map fun stmt =>
     match stmt with
     | .assign lhs rhs =>
-      .assign lhs (substituteExpr dm inlinable 100 rhs)
+      .assign lhs (substituteExpr dm inlinable widthOfWire 100 rhs)
     | .register output clock reset input initValue =>
-      .register output clock reset (substituteExpr dm inlinable 100 input) initValue
+      .register output clock reset (substituteExpr dm inlinable widthOfWire 100 input) initValue
     | .memory name aw dw clk wa wd we ra rd cr =>
       .memory name aw dw clk
-        (substituteExpr dm inlinable 100 wa) (substituteExpr dm inlinable 100 wd)
-        (substituteExpr dm inlinable 100 we) (substituteExpr dm inlinable 100 ra) rd cr
+        (substituteExpr dm inlinable widthOfWire 100 wa) (substituteExpr dm inlinable widthOfWire 100 wd)
+        (substituteExpr dm inlinable widthOfWire 100 we) (substituteExpr dm inlinable widthOfWire 100 ra) rd cr
     | .inst modName instName conns =>
-      .inst modName instName (conns.map fun (p, e) => (p, substituteExpr dm inlinable 100 e))
+      .inst modName instName (conns.map fun (p, e) => (p, substituteExpr dm inlinable widthOfWire 100 e))
 
   -- Remove inlined assignments
   let filteredBody := inlinedBody.filter fun stmt =>
@@ -486,6 +570,156 @@ def eliminateZeroBits (m : Module) : Module :=
   let wires' := m.wires.filter (·.ty.bitWidth > 0)
   { m with body := body', wires := wires' }
 
+/-- Resolve a wire name through the CSE substitution map, following
+    chains (`w2 → w1 → w0`).  Chains are acyclic by construction —
+    a wire only enters the map when its defining statement is
+    dropped, and the representative's statement is always kept —
+    so plain recursion terminates. -/
+partial def resolveSubst (subst : HashMap String String) (w : String) : String :=
+  match subst.get? w with
+  | some w' => if w' == w then w else resolveSubst subst w'
+  | none => w
+
+/-- Rewrite every wire reference through the CSE substitution map. -/
+partial def renameRefs (subst : HashMap String String) : Expr → Expr
+  | .ref name => .ref (resolveSubst subst name)
+  | .op o args => .op o (args.map (renameRefs subst))
+  | .concat args => .concat (args.map (renameRefs subst))
+  | .slice e hi lo => .slice (renameRefs subst e) hi lo
+  | .index a i => .index (renameRefs subst a) (renameRefs subst i)
+  | e => e
+
+/-- Apply `f` to every expression embedded in a statement. -/
+def mapStmtExprs (f : Expr → Expr) : Stmt → Stmt
+  | .assign lhs rhs => .assign lhs (f rhs)
+  | .register out clk rst input init => .register out clk rst (f input) init
+  | .memory name aw dw clk wa wd we ra rd cr =>
+      .memory name aw dw clk (f wa) (f wd) (f we) (f ra) rd cr
+  | .inst mn inm conns => .inst mn inm (conns.map fun (p, e) => (p, f e))
+
+/-- Phase 0.6: cross-wire common-subexpression elimination +
+    duplicate sub-module instance merging (Issue #107).
+
+    The synth elaborator re-walks the circuit body once per register
+    next-state leaf; wires derived from `let`/loop-bound state come
+    out under fresh names per walk (`_gen_x`, `_gen_x_1`, …) even
+    though they compute identical expressions over identical base
+    wires, and each walk re-emits the sub-module instances fed by
+    those wires — E = I·(D+1) instances instead of I.  The Lean-side
+    caches can't see through the fresh fvars, but at the IR level
+    everything is canonical: the clones are literally `assign x_1 =
+    <same rhs>` and `inst … (<same input connections>)`.
+
+    Value-number assigns by their (substitution-rewritten) rhs; when
+    a later assign duplicates an earlier one, drop it and alias its
+    lhs to the representative.  Merge instances of the same module
+    whose *input* connections are identical, aliasing their output
+    wires.  A connection `.ref w` where `w` is not driven by any
+    non-instance statement (and is not a module input) is an output
+    of that instance — no cross-module port-direction table needed.
+
+    Merging stateful instances is sound: same module + same inputs +
+    same clock/reset ⇒ same state trajectory ⇒ same outputs, which
+    is exactly the denotation Sparkle's pure semantics assigns to
+    structurally identical calls.  (This is the fold yosys's
+    `opt_merge` refuses to do because it would need sequential
+    equivalence checking; here it is correct by construction.)
+
+    `protectedWire` (module outputs + observable waveform taps)
+    never gets aliased away.  Iterates to a fixpoint because folding
+    one layer of duplicates makes the next layer's keys equal. -/
+def cseAndMergeInstances (m : Module) (body0 : List Stmt)
+    (protectedWire : String → Bool) : List Stmt :=
+  Id.run do
+    -- Widths, for the value-numbering key below.
+    let wireW : Std.HashMap String Nat :=
+      (m.inputs ++ m.outputs ++ m.wires).foldl
+        (fun acc p => acc.insert p.name p.ty.bitWidth) {}
+    let mut body := body0
+    for _ in [:16] do
+      -- Wires driven by a non-instance statement or module input.
+      -- Instance connections referencing anything else are that
+      -- instance's outputs.
+      let mut drivenElsewhere : HashMap String Bool := {}
+      for p in m.inputs do
+        drivenElsewhere := drivenElsewhere.insert p.name true
+      for s in body do
+        match s with
+        | .assign lhs _ => drivenElsewhere := drivenElsewhere.insert lhs true
+        | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
+        | .memory _ _ _ _ _ _ _ _ rd _ => drivenElsewhere := drivenElsewhere.insert rd true
+        | .inst _ _ _ => pure ()
+      let isInstOutput : HashMap String String → (String × Expr) → Bool :=
+        fun subst (_, e) =>
+          match e with
+          | .ref w => !drivenElsewhere.contains (resolveSubst subst w)
+          | _ => false
+      let mut subst : HashMap String String := {}
+      let mut assignVN : HashMap String String := {}
+      let mut instVN : HashMap String (List (String × Expr)) := {}
+      let mut kept : List Stmt := []
+      let mut dropped := 0
+      for s0 in body do
+        let s := mapStmtExprs (renameRefs subst) s0
+        match s with
+        | .assign lhs rhs =>
+          -- The value-numbering key MUST include the destination width.  An
+          -- `assign` truncates its RHS to the wire's declared width, so two
+          -- assigns with the same RHS text but different widths compute
+          -- different values — `a16 = x + y` masks to 16 bits where
+          -- `a32 = x + y` does not.  Keying on the RHS alone folded exactly
+          -- such pairs in the H.264 CAVLC encoder (narrow counters share
+          -- their RHS shape with wider datapath adds), and every reader of
+          -- the narrow wire then saw the unmasked value: the emitted
+          -- bitstream had bitPos 73 where the reference said 32.
+          let vnKey := s!"{wireW.getD lhs 0}|{toString rhs}"
+          match assignVN.get? vnKey with
+          | some rep =>
+            if rep != lhs && !protectedWire lhs then
+              subst := subst.insert lhs rep
+              dropped := dropped + 1
+            else
+              kept := s :: kept
+          | none =>
+            assignVN := assignVN.insert vnKey lhs
+            kept := s :: kept
+        | .inst modName _ conns =>
+          let inputConns := conns.filter (fun c => !isInstOutput subst c)
+          let inKey := String.intercalate ";"
+            (inputConns.map (fun (p, e) => s!"{p}={e}"))
+          let key := s!"{modName}|{inKey}"
+          match instVN.get? key with
+          | some repConns =>
+            -- Alias every output wire to the representative's; bail
+            -- out (keep the duplicate) if any output is protected or
+            -- shaped unexpectedly.
+            let mut mergeable := true
+            let mut aliases : List (String × String) := []
+            for (p, e) in conns do
+              if isInstOutput subst (p, e) then
+                match e, repConns.find? (fun pc => pc.1 == p) with
+                | .ref w, some (_, .ref repW) =>
+                  if protectedWire w then mergeable := false
+                  else aliases := (w, repW) :: aliases
+                | _, _ => mergeable := false
+            if mergeable then
+              for (w, repW) in aliases do
+                subst := subst.insert w repW
+              dropped := dropped + 1
+            else
+              kept := s :: kept
+          | none =>
+            instVN := instVN.insert key conns
+            kept := s :: kept
+        | _ => kept := s :: kept
+      -- Final rewrite with the complete substitution: statements kept
+      -- early in the pass may reference wires whose duplicate-drop
+      -- happened later (backward references through loop wires).
+      body := kept.reverse.map (mapStmtExprs (renameRefs subst))
+      if dropped == 0 then
+        break
+    return body
+
 /-- Optimize a module: strip zero-bit shapes, eliminate concat/slice
     chains, then remove dead code. -/
 def optimizeModule (m : Module)
@@ -557,8 +791,25 @@ def optimizeModule (m : Module)
         | _ => result := result ++ [s]
       result
 
+    -- Phase 0.6: cross-wire CSE + duplicate instance merge (Issue
+    -- #107 — the elaborator's per-register-leaf re-walks duplicate
+    -- whole logic cones and the sub-module instances they feed).
+    let outputSet0 := m.outputs.foldl (fun s p => s.insert p.name true)
+      ({} : HashMap String Bool)
+    let protectedWire := fun (w : String) =>
+      outputSet0.contains w ||
+      (match observableWires with
+       | some ws => ws.contains w
+       -- Match Phase 3 (see the note there): observability is opt-in.
+       | none => false)
+    let cseBody := cseAndMergeInstances m dedupBody protectedWire
+    -- Rebuild the def-map: CSE renamed references, and Phase 1's
+    -- slice-of-concat resolution must not chase stale entries that
+    -- mention dropped wires.
+    let dm := buildDefMap cseBody
+
     -- Phase 1: Replace slice-of-concat with direct references
-    let optimizedBody := dedupBody.map (optimizeStmt dm wm)
+    let optimizedBody := cseBody.map (optimizeStmt dm wm)
 
     -- Phase 2: Dead code elimination
     let useCounts := countAllUses optimizedBody

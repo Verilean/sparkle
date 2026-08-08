@@ -128,9 +128,12 @@ def test_hierarchical_synthesis : IO LSpec.TestSeq := do
       LSpec.test "has output port" (verilog.contains "output")
     ) ++
     LSpec.group "Inlined ALU Logic" (
-      LSpec.test "has addition (inlined ALU)" (verilog.contains "_gen_addResult") $
-      LSpec.test "has subtraction (inlined ALU)" (verilog.contains "_gen_subResult") $
-      LSpec.test "has ALU result" (verilog.contains "_gen_aluResult")
+      -- These used to assert the internal NAMES survive.  Observability is
+      -- opt-in now — unobserved `_gen_*` wires are the optimiser's to
+      -- inline, and these are.  Assert the computation instead.
+      LSpec.test "has addition (inlined ALU)" (verilog.contains " + ") $
+      LSpec.test "has subtraction (inlined ALU)" (verilog.contains " - ") $
+      LSpec.test "has ALU mux" (verilog.contains " ? ")
     ) ++
     LSpec.group "Sequential Logic" (
       LSpec.test "has always_ff block" (verilog.contains "always_ff") $
