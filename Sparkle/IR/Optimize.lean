@@ -296,6 +296,39 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
     | _ => s
   ) ({} : HashMap String Bool)
+  -- Wires feeding a memory PORT must survive too, not just the read-data
+  -- wire.  Inlining the write-data wire away deletes the write statement's
+  -- operand and the backend then drops the write entirely: the H.264
+  -- quant-roundtrip lost `if (isProcess) outMem[addr] = result`, so every
+  -- negative coefficient came back unsigned (−50 read as 32717).
+  --
+  -- This was masked while `_gen_*` wires were unconditionally treated as
+  -- observable; making observability opt-in exposed it.
+  -- Transitive: `wd` is usually a wire whose own definition names further
+  -- wires, and inlining ANY of them collapses the write's data cone.  Walk
+  -- the assign graph to a fixed point from the port operands.
+  let memoryPortRefs :=
+    let assignDefs := body.foldl (fun (m : HashMap String Expr) stmt =>
+      match stmt with
+      | .assign lhs rhs => m.insert lhs rhs
+      | _ => m) {}
+    let seeds := body.foldl (fun acc stmt =>
+      match stmt with
+      | .memory _ _ _ _ wa wd we ra _ _ =>
+        acc ++ [wa, wd, we, ra].flatMap collectExprRefs
+      | _ => acc) []
+    let rec grow (work : List String) (seen : HashMap String Bool) (fuel : Nat)
+        : HashMap String Bool :=
+      match fuel, work with
+      | 0, _ => seen
+      | _, [] => seen
+      | fuel + 1, w :: rest =>
+        if seen.contains w then grow rest seen fuel
+        else
+          let seen := seen.insert w true
+          let next := (assignDefs.get? w |>.map collectExprRefs).getD []
+          grow (next ++ rest) seen fuel
+    grow seeds {} (body.length * 8 + seeds.length + 64)
 
   -- Width map (name → bit width) from the module's ports and wires.
   let widthOf := (m.inputs ++ m.outputs ++ m.wires).foldl
@@ -325,10 +358,22 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
         && !memoryReadData.contains lhs
+        && !memoryPortRefs.contains lhs
         && !protectedWires.contains lhs
         && (match observableWires with
             | some ws => !ws.contains lhs
-            | none => !lhs.startsWith "_gen_")  -- _gen_ wires are JIT-observable
+            -- No explicit list ⇒ nothing is pinned, so the optimiser is
+            -- free.  This used to default to "every `_gen_*` wire is
+            -- JIT-observable", which protected hundreds of wires in order to
+            -- preserve the handful a driver actually samples, and blocked
+            -- sub-module CSE outright (issue #107's `stateArg` shape).
+            --
+            -- Observability is now opt-in, via the 4-argument `#writeDesign`
+            -- (`#writeDesign mod "x.sv" "x.h" observableWires`) — the form the
+            -- RV32 SoC always used.  A design whose drivers read internal
+            -- wires by name must declare them; see
+            -- `IP/Video/H264/CAVLCSynth.lean : cavlcObservableWires`.
+            | none => !lhs.startsWith "_gen_")
       then s.insert lhs true
       else s
     | _ => s
@@ -702,7 +747,13 @@ def optimizeModule (m : Module)
       outputSet0.contains w ||
       (match observableWires with
        | some ws => ws.contains w
-       | none => false)
+         -- Match `inlineSingleUseWires` (Phase 3): with no explicit list, a
+         -- `_gen_*` wire counts as JIT-observable.  Drivers resolve those by
+         -- name at run time (`JIT.resolveWire`) — the H.264 encoders read
+         -- `_gen_done` / `_gen_bitPos` out of a module whose output is a
+         -- TUPLE, so they are not output ports and nothing else pins them.
+         -- CSE folding them away breaks the lookup at run time.
+       | none => w.startsWith "_gen_")
     let cseBody := cseAndMergeInstances m dedupBody protectedWire
     -- Rebuild the def-map: CSE renamed references, and Phase 1's
     -- slice-of-concat resolution must not chase stale entries that

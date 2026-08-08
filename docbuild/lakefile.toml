@@ -10,7 +10,7 @@ packagesDir = "../.lake/packages"
 [[require]]
 scope = "leanprover"
 name = "doc-gen4"
-rev = "v4.32.0"
+rev = "v4.32.1"
 
 [[require]]
 name = "sparkle"

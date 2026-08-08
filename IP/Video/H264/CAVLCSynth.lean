@@ -784,6 +784,23 @@ def cavlcSynthModule {dom : DomainConfig}
 -- Generate SystemVerilog + CppSim + JIT
 -- ============================================================================
 
+/-- Wires the JIT drivers sample by name (`JIT.resolveWire`).
+
+    Only the three the drivers actually read.  Note this list is a
+    *superset* request, not a restriction: `Optimize` still falls back to
+    "treat every `_gen_*` as observable" when no list is given, and this
+    module NEEDS that fallback — pinning only these three lets the optimiser
+    fold the tuple-output cone and the emitted bitstream comes out wrong
+    (measured: every CAVLC block mismatched the reference).  So the list is
+    documentation of what the drivers depend on; the safety comes from the
+    default.  Narrowing it is possible once the output-cone folding bug is
+    fixed separately. -/
+def cavlcObservableWires : Array String :=
+  #[ "_gen_done"      -- FSM completion strobe: drivers poll this to stop
+   , "_gen_bitPos"    -- bit-writer position
+   , "_gen_bitBuffer" -- bit-writer accumulator
+   ]
+
 #writeDesign cavlcSynthModule ".lake/build/gen/h264/cavlc_synth.sv" ".lake/build/gen/h264/cavlc_synth_cppsim.h"
 
 end Sparkle.IP.Video.H264.CAVLCSynth
