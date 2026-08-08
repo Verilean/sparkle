@@ -419,10 +419,16 @@ def makeVerilogTests (outputs : VerilogOutputs) : TestSeq :=
       group "test_hierarchical_alu" (
         test "top module declared"
           (outputs.hierarchicalVerilog.containsSubstr "module test_hierarchical_alu") $
+        -- These used to assert the NAMES `_gen_addResult` / `_gen_subResult`
+        -- survive into the netlist.  That was the old blanket contract
+        -- ("every `_gen_*` wire is JIT-observable"), which is now opt-in:
+        -- unobserved internal wires are the optimiser's to inline, and these
+        -- two are.  What the test actually cares about is that the inlined
+        -- ALU still computes — so assert the operators, not the names.
         test "has addition (inlined test_add)"
-          (hierTopModule.containsSubstr "_gen_addResult") $
+          (hierTopModule.containsSubstr " + ") $
         test "has subtraction (inlined test_sub)"
-          (hierTopModule.containsSubstr "_gen_subResult") $
+          (hierTopModule.containsSubstr " - ") $
         test "has mux for op select"
           (hierTopModule.containsSubstr "_gen_op ? ")
       )
