@@ -22,12 +22,18 @@ fi
 
 echo "== build =="
 g++ -O3 -std=c++17 -o systolic_cpu systolic_cpu.cpp && echo "  cpu: ok" || { echo "  cpu: FAILED"; exit 1; }
-HAVE_GPU=0
+HAVE_GPU=0 HAVE_GRID=0
 if command -v nvcc >/dev/null 2>&1; then
   if nvcc -O3 -std=c++17 -arch="$ARCH" -o systolic_gpu systolic_gpu.cu 2>/tmp/nvcc.err; then
-    HAVE_GPU=1; echo "  gpu: ok (arch=$ARCH)"
+    HAVE_GPU=1; echo "  gpu 1-block: ok (arch=$ARCH)"
   else
-    echo "  gpu: nvcc failed:"; sed 's/^/    /' /tmp/nvcc.err
+    echo "  gpu 1-block: nvcc failed:"; sed 's/^/    /' /tmp/nvcc.err
+  fi
+  # grid-sync kernel needs relocatable device code for cooperative groups.
+  if nvcc -O3 -std=c++17 -arch="$ARCH" -rdc=true -o systolic_gpu_grid systolic_gpu_grid.cu 2>/tmp/nvcc.err; then
+    HAVE_GRID=1; echo "  gpu grid  : ok (arch=$ARCH, -rdc=true)"
+  else
+    echo "  gpu grid  : nvcc failed:"; sed 's/^/    /' /tmp/nvcc.err
   fi
 else
   echo "  gpu: nvcc not found — CPU-only run (see header for what GPU adds)"
@@ -35,12 +41,13 @@ fi
 
 echo
 echo "== sweep (cycles=$CYCLES) =="
-for N in 16 32 64; do
+for N in 16 32 64 128 256; do
   ./systolic_cpu "$N" "$CYCLES"
-  [ "$HAVE_GPU" = 1 ] && ./systolic_gpu "$N" "$CYCLES"
+  [ "$HAVE_GPU" = 1 ]  && ./systolic_gpu      "$N" "$CYCLES"   # 1-block (N<=32)
+  [ "$HAVE_GRID" = 1 ] && ./systolic_gpu_grid "$N" "$CYCLES"   # grid-sync (any N)
 done
 
 echo
-echo "Cross-check: CPU and GPU 'checksum=' must match for each N."
-echo "Scaling read: compare PE-upd/s across N.  CPU stays ~flat (serial);"
-echo "GPU PE-upd/s should RISE with N if PE-per-thread genuinely parallelises."
+echo "Cross-check: all 'checksum=' for a given N must match (CPU is golden)."
+echo "PE-upd/s = work done; cyc/s = how fast one run advances."
+echo "1-block wins cyc/s for small N; grid-sync scales PE-upd/s with PE count."

@@ -78,39 +78,54 @@ time. The `.cu` also passes a host `g++ -fsyntax-only` (nvcc-free).
 
 ## Results
 
-RTX 4070 Ti (sm_89), `nvcc -O3 -std=c++17`, driver 565.77 / CUDA 12.7,
-CPU `g++ -O3`, cycles = 200000, checksums matched CPU exactly for every N:
+RTX 4070 Ti (sm_89, 60 SMs), `nvcc 12.6 -O3 -std=c++17`, driver 565.77 /
+CUDA 12.7, CPU `g++ -O3`, cycles = 200000. Every checksum matched the serial
+golden model. Two GPU schedulers:
 
-| N | PEs | CPU PE-upd/s | GPU PE-upd/s | GPU/CPU |
-|---|----:|---:|---:|---:|
-| 16 | 256 | 1.64e9 | 2.85e9 | 1.7× |
-| 32 | 1024 | 2.21e9 | 4.95e9 | 2.2× |
-| 64 | 4096 | 1.89e9 | (needs grid-sync) | — |
+- **1-block** (`systolic_gpu.cu`): whole array in one block, `__syncthreads()`
+  per phase. Cheap barrier, but N≤32 (1024 threads/block) and only 1 SM used.
+- **grid-sync** (`systolic_gpu_grid.cu`): array spread over many blocks/SMs,
+  cooperative-groups `grid.sync()` per phase, double-buffered global state.
+  Scales past N=32 and uses the whole GPU, but the grid barrier is expensive.
 
-**Verdict: proceed.** GPU PE-upd/s *rises* with the array (2.85e9 → 4.95e9)
-while the CPU stays flat (~1.6–2.2e9, the serial ceiling), and GPU/CPU widens
-1.7× → 2.2× from N=16 to N=32. That rise is the signature of genuine
-within-instance parallelism — the thing you cannot buy by adding machines,
-unlike the batch backend in #115.
+| N | PEs | CPU PE/s | 1-block PE/s | grid PE/s | CPU cyc/s | grid cyc/s |
+|---|----:|---:|---:|---:|---:|---:|
+| 16 | 256 | 1.49e9 | **2.85e9** | 2.30e8 | 5.8e6 | 9.0e5 |
+| 32 | 1024 | 2.11e9 | **5.44e9** | 9.18e8 | 2.1e6 | 9.0e5 |
+| 64 | 4096 | 1.85e9 | — | 3.64e9 | 4.5e5 | 8.9e5 |
+| 128 | 16384 | 1.67e9 | — | 1.45e10 | 1.0e5 | 8.9e5 |
+| 256 | 65536 | 8.9e8 | — | **4.34e10** | 1.4e4 | 6.6e5 |
 
-Caveats (why 2.2× is a floor, not the ceiling):
+`PE/s = cyc/s × N²` (work done); `cyc/s` = simulated clocks per second (how
+fast one run advances).
 
-- One block = one SM, so N≤32 uses a *single* SM of the 4070 Ti's 60. The
-  win is real but the GPU is 98% idle. The payoff scales with array size, and
-  the array that unlocks the *other* SMs is exactly the one a single block
-  can't hold.
-- **N=64 (4096 PEs) is the gate.** It exceeds 1024 threads/block, so it needs
-  a grid-wide barrier (cooperative groups) or multi-block tiling — which is
-  also what finally spreads the work across all SMs. That is the next step,
-  and where the interesting speedup should appear.
+## Verdict — three regimes
 
-## Next steps
+1. **CPU**: PE/s flat (serial ceiling), `cyc/s` collapses as N² — N=256 does
+   1.4e4 cyc/s, effectively unusable for a large array.
+2. **1-block GPU (N≤32)**: `__syncthreads()` is cheap, so **`cyc/s` is
+   highest** (5.4e6 at N=32, 2.6× CPU). Best when the array fits one block and
+   you want a single run to finish fast.
+3. **grid-sync GPU (N≥64)**: `cyc/s` is pinned ~9e5 by the grid-barrier
+   latency, but **PE/s scales linearly with PE count** — N=256 hits 4.34e10
+   PE/s, **49× the CPU**. Best for throughput on a large array.
 
-1. **Grid-sync N≥64** (cooperative-groups `grid.sync()` or a multi-block tile
-   with a global barrier), so one array spans many SMs. Re-measure the sweep
-   out to N=128/256 — this is where GPU/CPU should jump well past 2×.
-2. **Emit this kernel from Sparkle IR.** Port the deferred
-   `CudaDesignStateStruct` hierarchical path (PR #33) onto CSim so the
-   wire-copy between module boundaries is *generated*, not hand-written —
-   turning this PoC into a real backend for single-large-design simulation
-   (systolic array + RISC-V bank).
+So the answer to "can this speed up a real ~1000-PE accelerator?": **yes**, and
+the bigger the design the more decisively GPU wins. A 1000-PE array is around
+N=32 here — take the 1-block path (5.4e6 cyc/s, 2.6× CPU) if latency of a
+single run matters, or grid-sync for raw PE throughput. Past a few thousand PEs
+the CPU is simply not in the race (N=256: GPU 4.34e10 vs CPU 8.9e8 PE/s).
+
+The grid `cyc/s` ceiling (~9e5) is the one thing to improve: it is dominated by
+two `grid.sync()` per simulated cycle. Coarsening the barrier (multiple
+sim-cycles between syncs where the dependency depth allows) or a persistent
+megakernel with a lighter cross-SM barrier is the lever — noted for later, not
+needed to justify the backend.
+
+## Next step
+
+**Emit these kernels from Sparkle IR.** Port the deferred `CudaDesignStateStruct`
+hierarchical path (PR #33) onto CSim so the wire-copy between module boundaries
+is *generated*, not hand-written — turning this PoC into a real backend for
+single-large-design simulation (systolic array + RISC-V bank), picking the
+1-block vs grid-sync scheduler by array size.

@@ -1,3 +1,4 @@
 systolic_cpu
 systolic_gpu
+systolic_gpu_grid
 *.o
