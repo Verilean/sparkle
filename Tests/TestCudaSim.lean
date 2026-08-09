@@ -55,6 +55,65 @@ def aluModule : Module := {
   ]
 }
 
+-- ── Hierarchical fixture: a 2×2 weight-stationary systolic mesh ──────
+-- Exercises toCudaSimDesign's whole-design emission: the top instantiates
+-- PE sub-modules and wires them nearest-neighbour, so CSim must emit the
+-- PE struct/functions AND generate the PE-to-PE wire-copy inside the top's
+-- eval — the mechanism a real accelerator SIM relies on.
+
+/-- One weight-stationary MAC PE. -/
+def peModule : Module := {
+  name        := "PE"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩,
+                  ⟨"a_in", .bitVector 32⟩, ⟨"p_in", .bitVector 32⟩,
+                  ⟨"w", .bitVector 32⟩]
+  outputs     := [⟨"a_out", .bitVector 32⟩, ⟨"p_out", .bitVector 32⟩]
+  wires       := [⟨"a_reg", .bitVector 32⟩, ⟨"p_reg", .bitVector 32⟩,
+                  ⟨"mul", .bitVector 32⟩]
+  body := [
+    .assign "mul" (.op .mul [.ref "a_in", .ref "w"]),
+    .register "a_reg" "clk" ("rst", .synchronous) (.ref "a_in") 0,
+    .register "p_reg" "clk" ("rst", .synchronous) (.op .add [.ref "p_in", .ref "mul"]) 0,
+    .assign "a_out" (.ref "a_reg"),
+    .assign "p_out" (.ref "p_reg") ]
+}
+
+/-- 2×2 mesh of PEs, activations from the left edge, partial sums down. -/
+def systolic2x2 : Module := {
+  name        := "Systolic2x2"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩,
+                  ⟨"ain_0", .bitVector 32⟩, ⟨"ain_1", .bitVector 32⟩,
+                  ⟨"w_0_0", .bitVector 32⟩, ⟨"w_0_1", .bitVector 32⟩,
+                  ⟨"w_1_0", .bitVector 32⟩, ⟨"w_1_1", .bitVector 32⟩]
+  outputs     := [⟨"result_0", .bitVector 32⟩, ⟨"result_1", .bitVector 32⟩]
+  wires       := [⟨"zero32", .bitVector 32⟩,
+                  ⟨"aout_0_0", .bitVector 32⟩, ⟨"pout_0_0", .bitVector 32⟩,
+                  ⟨"aout_0_1", .bitVector 32⟩, ⟨"pout_0_1", .bitVector 32⟩,
+                  ⟨"aout_1_0", .bitVector 32⟩, ⟨"pout_1_0", .bitVector 32⟩,
+                  ⟨"aout_1_1", .bitVector 32⟩, ⟨"pout_1_1", .bitVector 32⟩]
+  body := [
+    .assign "zero32" (.const 0 32),
+    .inst "PE" "pe_0_0" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .ref "ain_0"), ("p_in", .ref "zero32"), ("w", .ref "w_0_0"),
+      ("a_out", .ref "aout_0_0"), ("p_out", .ref "pout_0_0")],
+    .inst "PE" "pe_0_1" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .ref "aout_0_0"), ("p_in", .ref "zero32"), ("w", .ref "w_0_1"),
+      ("a_out", .ref "aout_0_1"), ("p_out", .ref "pout_0_1")],
+    .inst "PE" "pe_1_0" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .ref "ain_1"), ("p_in", .ref "pout_0_0"), ("w", .ref "w_1_0"),
+      ("a_out", .ref "aout_1_0"), ("p_out", .ref "pout_1_0")],
+    .inst "PE" "pe_1_1" [("clk", .ref "clk"), ("rst", .ref "rst"),
+      ("a_in", .ref "aout_1_0"), ("p_in", .ref "pout_0_1"), ("w", .ref "w_1_1"),
+      ("a_out", .ref "aout_1_1"), ("p_out", .ref "pout_1_1")],
+    .assign "result_0" (.ref "pout_1_0"),
+    .assign "result_1" (.ref "pout_1_1") ]
+}
+
+def systolicDesign : Design :=
+  { topModule := "Systolic2x2", modules := [peModule, systolic2x2] }
+
 -- ── Tests ─────────────────────────────────────────────────────────
 
 def cudaSimTests : IO TestSeq := do
@@ -64,6 +123,7 @@ def cudaSimTests : IO TestSeq := do
   -- `_cuda_evalTick` class-wrapper names.
   let counterCu := toCudaSim counterModule
   let aluCu     := toCudaSim aluModule
+  let meshCu    := toCudaSimDesign systolicDesign
 
   return group "CUDA Simulation Backend Tests" (
     group "toCudaSim: Counter Module" (
@@ -95,6 +155,21 @@ def cudaSimTests : IO TestSeq := do
       test "has uint32_t for 32-bit ports"           (hasSubstr aluCu "uint32_t") $
       test "has set_input switch"                    (hasSubstr aluCu "jit_cuda_set_input") $
       test "has get_output switch"                   (hasSubstr aluCu "jit_cuda_get_output")
+    ) ++
+    -- Hierarchical design: whole-design emission + generated PE-to-PE
+    -- wire-copy inside the top's eval (the systolic-array mechanism).
+    group "toCudaSimDesign: 2×2 systolic mesh" (
+      test "emits the PE sub-module struct"          (hasSubstr meshCu "struct PE") $
+      test "emits the PE eval function"              (hasSubstr meshCu "sparkle_PE_eval") $
+      test "emits the top struct"                    (hasSubstr meshCu "struct Systolic2x2") $
+      test "top eval_tick present"                   (hasSubstr meshCu "sparkle_Systolic2x2_eval_tick") $
+      test "embeds PE instance pe_0_0"               (hasSubstr meshCu "struct PE pe_0_0") $
+      test "embeds PE instance pe_1_1"               (hasSubstr meshCu "struct PE pe_1_1") $
+      -- the wire-copy: PE[0][0].a_out feeds PE[0][1].a_in, PE[0][0].p_out
+      -- feeds PE[1][0].p_in — generated, not hand-written.
+      test "generates activation wire-copy →right"   (hasSubstr meshCu "pe_0_1.a_in = aout_0_0") $
+      test "generates partial-sum wire-copy →down"   (hasSubstr meshCu "pe_1_0.p_in = pout_0_0") $
+      test "batch kernel targets the top"            (hasSubstr meshCu "Systolic2x2_batch_kernel")
     )
   )
 

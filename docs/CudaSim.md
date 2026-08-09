@@ -122,19 +122,38 @@ GPU or `nvcc` — catching real emitter bugs a pure type-check misses (e.g. the
 `(void**)&` cast `cudaMalloc` requires) — and it *skips* (does not fail) when
 no compiler is present.
 
+## Hierarchical designs (`toCudaSimDesign`)
+
+`toCudaSim` takes a single `Module`; `toCudaSimDesign` takes a whole `Design`
+and emits **every** module (in dependency order), then targets the batch
+kernel + host API at the top. This is what a design *hierarchy* needs — e.g. a
+systolic array whose top instantiates an N×N mesh of `PE` sub-modules:
+
+* the `PE` `struct` + `sparkle_PE_eval` are emitted alongside the top's;
+* the top's fused device struct **embeds** every instance (`struct PE
+  pe_0_0; …`);
+* the PE-to-PE **wire-copy is generated** by CSim inside the top's
+  `eval_tick` — each `.inst` lowers to `self->pe_0_1.a_in = aout_0_0; …;
+  sparkle_PE_eval(&self->pe_0_1); …` — not hand-written.
+
+So poking the top's input ports and stepping the batch kernel drives the whole
+hierarchy. This is the emitter form of the hand-written kernels in
+`bench/systolic/` (which measured up to 49× vs CPU for a large array); it
+replaces #33's CppSim-class-model `CudaDesignStateStruct` path.
+
 ## Scope and follow-ups
 
-Single-module batch simulation, same coverage as CSim's scalar path; wide
-(> 64-bit) values are `uint32_t` arrays and work identically on the device.
+Batch simulation (N independent instances), single module or full hierarchy;
+same coverage as CSim's scalar path; wide (> 64-bit) values are `uint32_t`
+arrays and work identically on the device.
 
 Deliberately **not** here yet:
 
-* The fused hierarchical / multi-module path (#33's `CudaDesignStateStruct`
-  and `toCudaSimHetero`) — running a design *hierarchy* as one fused device
-  struct with wire-copy between topological levels. #33 built it against the
-  CppSim class model; porting it to CSim is a follow-up.
-* GPU-specific scheduling of the combinational DAG within a single cycle
-  (#33's Strategies 2–4). Separate, harder changes; this backend parallelises
-  the cross-instance axis only.
+* **Within-instance (PE-per-thread) scheduling.** `toCudaSimDesign` runs the
+  batch axis: one thread simulates one *whole* array instance. Making a
+  *single* large array faster by mapping each PE-instance to its own thread
+  with a per-cycle barrier (#33's Strategy 4; prototyped in
+  `bench/systolic/systolic_gpu_grid.cu`) is a separate kernel the emitter does
+  not yet generate — the next step.
 * Wide (> 64-bit) *input* ports in `set_input` (outputs already handle the
   per-word form).

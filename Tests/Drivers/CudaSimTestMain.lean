@@ -65,21 +65,64 @@ def cudaTop : Module :=
     emitAssign inc (.op .add [.ref count, .const 1 8])
     emitAssign "count_out" (.ref count)
 
-def main : IO Unit := do
-  let cu := toCudaSim cudaTop
-  IO.println s!"[cuda] emitted {cu.length} chars"
+/-- A 2×2 weight-stationary systolic mesh (top instantiates 4 PEs and wires
+    them nearest-neighbour) — exercises whole-design emission with generated
+    PE-to-PE wire-copy, the systolic-array path. -/
+def pe : Module := {
+  name := "PE", isPrimitive := false
+  inputs  := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩, ⟨"a_in", .bitVector 32⟩,
+              ⟨"p_in", .bitVector 32⟩, ⟨"w", .bitVector 32⟩]
+  outputs := [⟨"a_out", .bitVector 32⟩, ⟨"p_out", .bitVector 32⟩]
+  wires   := [⟨"a_reg", .bitVector 32⟩, ⟨"p_reg", .bitVector 32⟩, ⟨"mul", .bitVector 32⟩]
+  body := [
+    .assign "mul" (.op .mul [.ref "a_in", .ref "w"]),
+    .register "a_reg" "clk" ("rst", .synchronous) (.ref "a_in") 0,
+    .register "p_reg" "clk" ("rst", .synchronous) (.op .add [.ref "p_in", .ref "mul"]) 0,
+    .assign "a_out" (.ref "a_reg"), .assign "p_out" (.ref "p_reg") ] }
 
+def mesh2x2 : Module := {
+  name := "Mesh2x2", isPrimitive := false
+  inputs  := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩, ⟨"ain_0", .bitVector 32⟩,
+              ⟨"ain_1", .bitVector 32⟩, ⟨"w_0_0", .bitVector 32⟩,
+              ⟨"w_0_1", .bitVector 32⟩, ⟨"w_1_0", .bitVector 32⟩, ⟨"w_1_1", .bitVector 32⟩]
+  outputs := [⟨"result_0", .bitVector 32⟩, ⟨"result_1", .bitVector 32⟩]
+  wires   := [⟨"zero32", .bitVector 32⟩,
+              ⟨"aout_0_0", .bitVector 32⟩, ⟨"pout_0_0", .bitVector 32⟩,
+              ⟨"aout_0_1", .bitVector 32⟩, ⟨"pout_0_1", .bitVector 32⟩,
+              ⟨"aout_1_0", .bitVector 32⟩, ⟨"pout_1_0", .bitVector 32⟩,
+              ⟨"aout_1_1", .bitVector 32⟩, ⟨"pout_1_1", .bitVector 32⟩]
+  body := [
+    .assign "zero32" (.const 0 32),
+    .inst "PE" "pe_0_0" [("clk", .ref "clk"), ("rst", .ref "rst"), ("a_in", .ref "ain_0"),
+      ("p_in", .ref "zero32"), ("w", .ref "w_0_0"), ("a_out", .ref "aout_0_0"), ("p_out", .ref "pout_0_0")],
+    .inst "PE" "pe_0_1" [("clk", .ref "clk"), ("rst", .ref "rst"), ("a_in", .ref "aout_0_0"),
+      ("p_in", .ref "zero32"), ("w", .ref "w_0_1"), ("a_out", .ref "aout_0_1"), ("p_out", .ref "pout_0_1")],
+    .inst "PE" "pe_1_0" [("clk", .ref "clk"), ("rst", .ref "rst"), ("a_in", .ref "ain_1"),
+      ("p_in", .ref "pout_0_0"), ("w", .ref "w_1_0"), ("a_out", .ref "aout_1_0"), ("p_out", .ref "pout_1_0")],
+    .inst "PE" "pe_1_1" [("clk", .ref "clk"), ("rst", .ref "rst"), ("a_in", .ref "aout_1_0"),
+      ("p_in", .ref "pout_0_1"), ("w", .ref "w_1_1"), ("a_out", .ref "aout_1_1"), ("p_out", .ref "pout_1_1")],
+    .assign "result_0" (.ref "pout_1_0"), .assign "result_1" (.ref "pout_1_1") ] }
+
+def meshDesign : Design := { topModule := "Mesh2x2", modules := [pe, mesh2x2] }
+
+/-- Prepare a host-parseable variant of an emitted `.cu`: swap the CUDA
+    runtime include for the stub and strip the `<<<>>>` launch syntax. -/
+def toHostVariant (cu : String) : String :=
+  (cu.replace "#include <cuda_runtime.h>" "#include \"cuda_stub.h\"") |> stripLaunch
+
+def main : IO Unit := do
   let dir := ".lake/build/gen/cuda"
   IO.FS.createDirAll dir
-  IO.FS.writeFile s!"{dir}/cuda_top.cu" cu
   IO.FS.writeFile s!"{dir}/cuda_stub.h" cudaStub
 
-  -- Prepare a host-parseable variant: swap the CUDA runtime include for the
-  -- stub, and strip the kernel launch syntax.
-  let hostCu := (cu.replace "#include <cuda_runtime.h>" "#include \"cuda_stub.h\"")
-                |> stripLaunch
-  let checkPath := s!"{dir}/cuda_top_hostcheck.cu"
-  IO.FS.writeFile checkPath hostCu
+  -- Two fixtures: a single sequential module, and a hierarchical 2×2 mesh
+  -- (whole-design emission with generated wire-copy).
+  let cases : List (String × String) :=
+    [ ("single", toCudaSim cudaTop)
+    , ("mesh",   toCudaSimDesign meshDesign) ]
+  for (name, cu) in cases do
+    IO.println s!"[cuda] {name}: emitted {cu.length} chars"
+    IO.FS.writeFile s!"{dir}/cuda_{name}_hostcheck.cu" (toHostVariant cu)
 
   let findCC : IO (Option String) := do
     for cc in ["g++", "c++", "clang++"] do
@@ -90,11 +133,13 @@ def main : IO Unit := do
   | none =>
     IO.println "[cuda] no host C++ compiler found — syntax check skipped (Layer 1 type-check already ran)"
   | some cc =>
-    let r ← IO.Process.output
-      { cmd := cc, args := #["-std=c++17", "-fsyntax-only", "-x", "c++", checkPath] }
-    if r.exitCode == 0 then
-      IO.println s!"[cuda] {cc} -fsyntax-only: OK — emitted CUDA is well-formed"
-    else
-      IO.println s!"[cuda] {cc} syntax check FAILED:\n{r.stderr}"
-      IO.Process.exit 1
+    for (name, _) in cases do
+      let checkPath := s!"{dir}/cuda_{name}_hostcheck.cu"
+      let r ← IO.Process.output
+        { cmd := cc, args := #["-std=c++17", "-fsyntax-only", "-x", "c++", checkPath] }
+      if r.exitCode == 0 then
+        IO.println s!"[cuda] {name}: {cc} -fsyntax-only: OK — well-formed"
+      else
+        IO.println s!"[cuda] {name}: {cc} syntax check FAILED:\n{r.stderr}"
+        IO.Process.exit 1
   IO.println "\nALL PASS"

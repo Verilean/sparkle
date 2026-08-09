@@ -29,6 +29,7 @@ pkgs.mkShell {
     libuuid
     zstd.dev
     gh
+    cudaPackages_12_6.cudatoolkit
   ];
 
   # Environment variables
