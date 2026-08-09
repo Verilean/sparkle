@@ -72,6 +72,7 @@ import Tests.SignalLoopTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
+import Tests.TestCudaSim
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
 import Tests.Video.CAVLCTest
@@ -772,6 +773,10 @@ def main : IO UInt32 := do
   -- C++ Simulation Backend tests
   let cppSimTests ← Sparkle.Test.CppSim.cppSimTests
   let allTests := allTests ++ cppSimTests
+
+  -- CUDA Simulation Backend tests (emitter shape; build-only, no nvcc/GPU)
+  let cudaSimTests ← Sparkle.Test.CudaSim.cudaSimTests
+  let allTests := allTests ++ cudaSimTests
 
   -- RV32 SoC Flow tests
   let rv32FlowTests ← Sparkle.Tests.RV32.TestFlow.flowTests
