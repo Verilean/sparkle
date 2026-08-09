@@ -64,6 +64,15 @@ jobs:
     - name: Build CDC Multi-Clock example
       run: lake build Examples.CDC
 
+    # ---- CUDA batch-simulation backend ----
+    # Build-only: type-checks the emitter and the Layer-1 shape test.
+    # Compiling the emitted `.cu` needs `nvcc` + a GPU, so it stays opt-in
+    # and off CI (see docs/CudaSim.md).  The nvcc-free host syntax check
+    # (`lake exe cuda-sim-test`) runs in ip-tests.yml where a C++ compiler
+    # is available.
+    - name: Build CUDA simulation backend
+      run: lake build Sparkle.Backend.CudaSim Tests.TestCudaSim
+
     # ---- H.264 Video Codec — Verilog Generation ----
 
     - name: Build H.264 IP library (all synth modules + Verilog generation)

@@ -322,6 +322,14 @@ lean_exe «run-circuit-h-test» where
   root := `Tests.Drivers.RunCircuitHTestMain
   supportInterpreter := true
 
+-- CUDA backend Layer 2: emit a `.cu` and syntax-check it with a host C++
+-- compiler (no nvcc / no GPU).  Skips cleanly when no compiler is present.
+-- Layer 1 (emitter type-check + shape) is `Tests.TestCudaSim` under `lake
+-- test`; the opt-in nvcc + GPU run is documented in `docs/CudaSim.md`.
+lean_exe «cuda-sim-test» where
+  root := `Tests.Drivers.CudaSimTestMain
+  supportInterpreter := true
+
 -- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
 -- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
 -- 802.3 golden vectors must all agree.
