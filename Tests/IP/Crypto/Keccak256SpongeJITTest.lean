@@ -100,12 +100,19 @@ private def runSponge (sim : Simulator) (input : Array UInt8) : IO (Array UInt8)
   -- stopped duplicating it, the loop hit the cap and silently returned
   -- the UNPERMUTED state — which reads as a wrong digest, not a
   -- timeout.  Hence the explicit failure below.)
-  let zeroLanes : Array (BitVec 64) := Array.replicate (rateLanes * maxBlocks) 0#64
+  --
+  -- The message lanes MUST be held for the whole run, not zeroed after the
+  -- start pulse: the block-loop XORs block 1's lanes (`m17..m33`) into the
+  -- permuted state on the CONTINUE cycle, which is ~28 cycles in.  Feeding
+  -- zeros there absorbs an all-zero second block — a wrong digest for every
+  -- multi-block input, which was tracked as issue #112.  The circuit was
+  -- always correct (a `Signal.val` co-sim holding the lanes matches
+  -- `keccak256OfBytes` for 136B/200B); the bug was here, in the driver.
   let cap := 200 + maxBlocks * 64
   let mut out ← sim.read
   let mut cyc := 0
   while out.done == 0#1 && cyc < cap do
-    sim.step (mkInput false nBlocks zeroLanes)
+    sim.step (mkInput false nBlocks lanes)
     out ← sim.read
     cyc := cyc + 1
   if out.done == 0#1 then
