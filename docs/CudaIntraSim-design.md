@@ -1,8 +1,10 @@
 # Design: within-instance CUDA scheduling (`toCudaIntraDesign`)
 
-Status: **design, v1 not yet implemented.** Builds on the batch backend
-(#115), hierarchical emission (#117), and the measurements in
-`bench/systolic/` (#116).
+Status: **v1 implemented** (`Sparkle/Backend/CudaIntra.lean`), co-simulated
+cycle-exact against the CSim CPU reference on an RTX 4070 Ti (2×2 and 16×16
+meshes, per-cycle and single-launch — `lake exe cuda-intra-cosim`). Builds on
+the batch backend (#115), hierarchical emission (#117), and the measurements
+in `bench/systolic/` (#116).
 
 ## 1. Goal
 
@@ -239,7 +241,29 @@ All string-level; no new IR.
   `bench/systolic/`'s hand-written ceiling. Not in CI (needs nvcc + GPU);
   runs on the RTX 4070 Ti dev box, results recorded in the PR.
 
-## 10. Implementation order
+## 10. v1 measured results (RTX 4070 Ti, sm_89, nvcc 12.6 `-O2 -rdc=true`)
+
+Correctness: **cycle-exact vs the CSim CPU reference** on 2×2 and 16×16
+meshes — per-cycle comparison over 64 cycles AND a 64-cycle single launch,
+all outputs equal (`cuda-intra-cosim`, COSIM PASS).
+
+Throughput (one launch, 100 000 cycles):
+
+| design | PEs | emitted intra kernel | hand-written PoC (block) |
+|---|---:|---:|---:|
+| Mesh2x2 | 4 | 1.97e6 cyc/s | — |
+| Mesh16x16 | 256 | 3.66e5 cyc/s | ~1.1e7 cyc/s |
+
+The emitted v1 is well below the hand-written ceiling, for known reasons:
+state lives in **global** memory (the PoC staged it in shared), eval runs
+twice per cycle, and the generated eval functions do full struct-field
+traffic. These are optimizations on an unchanged schedule — shared-memory
+staging for blocks that fit, an `eval_outputs`/`eval_state` split in CSim's
+emission (another `funcQual`-style parameter), and copy-table coalescing —
+and none of them affect the correctness argument. v1's job was to prove the
+*generated* kernel semantics; the ceiling is known from `bench/systolic/`.
+
+## 11. Implementation order
 
 1. `combDeps` + `resolveConn` + Moore check, with LSpec rejection tests.
 2. Table + kernel + `jit_intra_run` emission; Layer-1 shape tests.

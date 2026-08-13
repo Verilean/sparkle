@@ -7,6 +7,7 @@
 -/
 
 import Sparkle.Backend.CudaSim
+import Sparkle.Backend.CudaIntra
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.IR.Builder
@@ -15,6 +16,7 @@ import LSpec
 namespace Sparkle.Test.CudaSim
 
 open Sparkle.Backend.CudaSim
+open Sparkle.Backend.CudaIntra
 open Sparkle.IR.AST
 open Sparkle.IR.Type
 open Sparkle.IR.Builder
@@ -114,6 +116,66 @@ def systolic2x2 : Module := {
 def systolicDesign : Design :=
   { topModule := "Systolic2x2", modules := [peModule, systolic2x2] }
 
+-- ── Intra-backend rejection fixtures (v1 restrictions) ──────────────
+
+/-- Purely combinational pass-through: `y = x + 1`.  Its output is a Mealy
+    output (comb-depends on the input), so chaining two of them crosses a
+    Mealy boundary the intra v1 must reject. -/
+def combPassModule : Module := {
+  name        := "CombPass"
+  isPrimitive := false
+  inputs      := [⟨"x", .bitVector 32⟩]
+  outputs     := [⟨"y", .bitVector 32⟩]
+  wires       := []
+  body        := [.assign "y" (.op .add [.ref "x", .const 1 32])]
+}
+
+def mealyTop : Module := {
+  name        := "MealyTop"
+  isPrimitive := false
+  inputs      := [⟨"xin", .bitVector 32⟩]
+  outputs     := [⟨"yout", .bitVector 32⟩]
+  wires       := [⟨"w1", .bitVector 32⟩]
+  body := [
+    .inst "CombPass" "c0" [("x", .ref "xin"), ("y", .ref "w1")],
+    .inst "CombPass" "c1" [("x", .ref "w1"), ("y", .ref "yout")] ]
+}
+
+def mealyDesign : Design :=
+  { topModule := "MealyTop", modules := [combPassModule, mealyTop] }
+
+def topRegTop : Module := {
+  name        := "TopRegTop"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩]
+  outputs     := []
+  wires       := [⟨"r", .bitVector 8⟩]
+  body        := [.register "r" "clk" ("rst", .synchronous) (.ref "r") 0]
+}
+
+def topRegDesign : Design :=
+  { topModule := "TopRegTop", modules := [peModule, topRegTop] }
+
+def exprConnTop : Module := {
+  name        := "ExprConnTop"
+  isPrimitive := false
+  inputs      := [⟨"clk", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 32⟩]
+  outputs     := []
+  wires       := []
+  body        := [.inst "PE" "pe0" [("a_in", .op .add [.ref "a", .const 1 32])]]
+}
+
+def exprConnDesign : Design :=
+  { topModule := "ExprConnTop", modules := [peModule, exprConnTop] }
+
+private def okOut : Except String String → String
+  | .ok s => s
+  | .error e => s!"<EMIT ERROR: {e}>"
+
+private def errMsg : Except String String → String
+  | .ok _ => ""
+  | .error e => e
+
 -- ── Tests ─────────────────────────────────────────────────────────
 
 def cudaSimTests : IO TestSeq := do
@@ -124,6 +186,7 @@ def cudaSimTests : IO TestSeq := do
   let counterCu := toCudaSim counterModule
   let aluCu     := toCudaSim aluModule
   let meshCu    := toCudaSimDesign systolicDesign
+  let intraCu   := okOut (toCudaIntraDesign systolicDesign)
 
   return group "CUDA Simulation Backend Tests" (
     group "toCudaSim: Counter Module" (
@@ -170,6 +233,29 @@ def cudaSimTests : IO TestSeq := do
       test "generates activation wire-copy →right"   (hasSubstr meshCu "pe_0_1.a_in = aout_0_0") $
       test "generates partial-sum wire-copy →down"   (hasSubstr meshCu "pe_1_0.p_in = pout_0_0") $
       test "batch kernel targets the top"            (hasSubstr meshCu "Systolic2x2_batch_kernel")
+    ) ++
+    -- Intra (PE-per-thread) backend: table-driven copy descriptors, the two
+    -- kernels, and the host entry point (see docs/CudaIntraSim-design.md).
+    group "toCudaIntraDesign: 2×2 systolic mesh" (
+      test "instance count in tables"                (hasSubstr intraCu "Systolic2x2_intra_M = 4") $
+      test "copy dst: consumer a_in offset"          (hasSubstr intraCu "offsetof(struct Systolic2x2, pe_0_1) + offsetof(struct PE, a_in)") $
+      test "copy src: producer a_out offset"         (hasSubstr intraCu "offsetof(struct Systolic2x2, pe_0_0) + offsetof(struct PE, a_out)") $
+      test "const p_in becomes an immediate"         (hasSubstr intraCu "offsetof(struct PE, p_in)") $
+      test "top input feeds a copy entry"            (hasSubstr intraCu "offsetof(struct Systolic2x2, ain_0)") $
+      test "top output observed via copy"            (hasSubstr intraCu "offsetof(struct Systolic2x2, result_0)") $
+      test "kind dispatch calls PE eval"             (hasSubstr intraCu "sparkle_PE_eval((struct PE*)b)") $
+      test "block-barrier kernel emitted"            (hasSubstr intraCu "Systolic2x2_intra_block_kernel") $
+      test "grid-barrier kernel emitted"             (hasSubstr intraCu "Systolic2x2_intra_grid_kernel") $
+      test "cooperative-groups barrier"              (hasSubstr intraCu "g.sync()") $
+      test "host entry jit_intra_run"                (hasSubstr intraCu "jit_intra_run")
+    ) ++
+    group "toCudaIntraDesign: v1 rejections" (
+      test "Mealy boundary rejected with names"
+        (hasSubstr (errMsg (toCudaIntraDesign mealyDesign)) "Mealy boundary") $
+      test "top-level register rejected"
+        (hasSubstr (errMsg (toCudaIntraDesign topRegDesign)) "top-level register") $
+      test "compound connection expr rejected"
+        (hasSubstr (errMsg (toCudaIntraDesign exprConnDesign)) "compound expression")
     )
   )
 

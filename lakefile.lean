@@ -330,6 +330,14 @@ lean_exe «cuda-sim-test» where
   root := `Tests.Drivers.CudaSimTestMain
   supportInterpreter := true
 
+-- CUDA intra backend Layer 3: co-simulate the emitted PE-per-thread kernel
+-- against the CSim CPU reference (host side of the same __host__ __device__
+-- functions), cycle-exact.  Emission always runs; the compile+run half needs
+-- nvcc + a GPU and is gated on SPARKLE_CUDA=1 (skips cleanly otherwise).
+lean_exe «cuda-intra-cosim» where
+  root := `Tests.Drivers.CudaIntraCosimMain
+  supportInterpreter := true
+
 -- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
 -- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
 -- 802.3 golden vectors must all agree.
