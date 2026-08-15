@@ -142,7 +142,11 @@ sensitivity × window length), leaving
     q' = (1 − c)·q + w,     |w| ≤ W
 
 where W is the per-window fill cap — you cannot be filled for more than you
-quote. `SparkleProofs.Hft.MarketMaking` then proves:
+quote. Concretely: **c = 0.2 means the skewed quotes work off an expected
+20% of whatever inventory you are carrying, every window** — the other 80%
+carries over, which is exactly why the envelope below decays as (1−c)ⁿ and
+why a *larger* skew response (bigger c) shrinks the resting ball W/c.
+`SparkleProofs.Hft.MarketMaking` then proves:
 
 ```lean
 theorem inventory_ultimate_bound (T : InvTraj) (n : Nat) :
@@ -194,8 +198,16 @@ strategy block is deliberately trivial ("always fire") — a placeholder with
 a comment promising that "a real HFT block would inspect the payload…
 between parser and emitter".
 
-`quoteEngine` is that block: one `mulQ` and two adds of combinational
-depth, quotes valid in the same cycle the inventory register settles.
+`quoteEngine` is that block, and it costs **zero additional pipeline
+stages**: the only state is the inventory register, and the quotes are
+combinational from it — critical path = one 32×32 multiply (a DSP block on
+any FPGA of interest), the 16-bit extract (free — it is wiring), and two
+32-bit adds. Whether that path closes timing in one cycle at a given clock
+is a place-and-route question, not an architectural one: at the 156 MHz of
+the 10 GbE datapath (6.4 ns budget) a DSP multiply plus two carry-chain
+adds is a plausible single-cycle path, and if a faster clock breaks it, one
+pipeline register on `r` costs exactly one cycle of the budget — the
+5-cycle first-in→first-out figure becomes 6, nothing else moves.
 The composition — parser feeding `mid`, fill reports feeding
 `buyFill`/`sellFill`, emitter serialising `bid`/`ask` — keeps the whole
 loop on silicon, with the part that decides *prices* carrying an ℝ-level

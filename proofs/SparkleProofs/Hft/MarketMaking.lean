@@ -19,7 +19,10 @@
       q' = (1 − c)·q + w
 
   where `w` is the residual fill noise, bounded per window by the fill cap
-  `W` (you cannot be filled more than the size you quote).
+  `W` (you cannot be filled more than the size you quote).  Intuition for
+  `c`: at c = 0.2, the skewed quotes work off an expected 20% of the
+  carried inventory each window — hence the (1−c)ⁿ decay and the fact that
+  a stronger skew response shrinks the resting ball W/c.
 
   ## What is proved
 
