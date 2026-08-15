@@ -12,6 +12,8 @@ import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CSim
+import Sparkle.Backend.CudaSim
+import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -793,6 +795,30 @@ private def profHandler {α} (_idx : Nat) (k : CompilerM α) : CompilerM α := d
   CompilerM.liftMetaM (sparkleHandlerMs.modify (fun arr =>
     arr.setIfInBounds _idx ((arr.getD _idx 0) + (t1 - t0))))
   return r
+
+/-- Canonical, pass-stable key for a hardware-denoting expression: abstract
+    every free variable to a constant named after the WIRE it denotes (wire
+    names are stable within a module synth — they are what the emitted
+    Verilog/C refers to), then hash the abstracted expression.
+
+    Hashing the expression directly does not work: fvars are fresh per
+    traversal, so two occurrences denoting the same hardware hash differently
+    (measured 2079038327 vs 1490760256 for two `let num` occurrences whose
+    fvars both mapped to `_gen_pS`, `_gen_y`).  After abstraction the key is
+    equal exactly when the denoted hardware is the same — which also makes it
+    the correct INSTANCE identity for multi-output sub-modules: calls with
+    different argument wires get different keys (issue #120), while repeated
+    projections of one `let engine := …` binder share one key (issue #71). -/
+def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
+  let mut repl : Std.HashMap Lean.Name Lean.Expr := {}
+  for fv in (Lean.collectFVars {} value).fvarIds do
+    let w := (← CompilerM.lookupVar fv).getD s!"?{fv.name}"
+    repl := repl.insert fv.name (Lean.mkConst (Lean.Name.mkSimple s!"«wire:{w}»"))
+  let abstracted := value.replace fun sub =>
+    match sub with
+    | .fvar fid => repl.get? fid.name
+    | _ => none
+  return toString abstracted.hash
 
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
@@ -1797,22 +1823,7 @@ mutual
         -- Wire names are stable within a module (they are what the emitted
         -- Verilog refers to), so substituting fvar → wire yields a key that is
         -- equal exactly when the denoted hardware is the same.
-        let canonKey ← do
-          -- Abstract the value over its free variables by rewriting each fvar
-          -- to a CONSTANT named after the wire it denotes, then hash that.
-          -- Hashing `value` directly does not work: the fvars are fresh per
-          -- traversal, so two occurrences denoting the same hardware hash
-          -- differently (measured 2079038327 vs 1490760256 for two `let num`
-          -- occurrences whose fvars both mapped to `_gen_pS`, `_gen_y`).
-          let mut repl : Std.HashMap Lean.Name Lean.Expr := {}
-          for fv in (Lean.collectFVars {} value).fvarIds do
-            let w := (← CompilerM.lookupVar fv).getD s!"?{fv.name}"
-            repl := repl.insert fv.name (Lean.mkConst (Lean.Name.mkSimple s!"«wire:{w}»"))
-          let abstracted := value.replace fun sub =>
-            match sub with
-            | .fvar fid => repl.get? fid.name
-            | _ => none
-          pure (toString abstracted.hash)
+        let canonKey ← canonHardwareKey value
         let cachedValue? ← do
           if value.isFVar then pure none
           else CompilerM.liftMetaM do
@@ -2721,26 +2732,23 @@ mutual
                 else
                   return s!"field{projInfo.i}"
             -- Cache key.  We must agree with the sub-module
-            -- instance emit handler below.
+            -- instance emit handler below — both sides canonise
+            -- the SAME call expression (the projection recovers
+            -- the original app from `sparkleFvarValueMap`, and
+            -- `translateExprToWire` hands that very object to the
+            -- emit handler), so `canonHardwareKey` yields the same
+            -- string at both sites.
             --
-            -- The args of `recordArg` reach this point as
-            -- `let`-bound fvars whose `fvarId.name` is regenerated
-            -- on every translation pass — so hashing `arg.hash`
-            -- gives a per-leaf-distinct key and each projection
-            -- emits a fresh sub-module instance.
-            --
-            -- Key on `(recName, args.size)` instead.  This is
-            -- safe as long as the parent module calls the same
-            -- `@[hardware_module]` def AT MOST ONCE per arity
-            -- — true for memcachedServer (single `kvHw` call) and
-            -- every other current IP.  If a future IP needs two
-            -- distinct calls to the same sub-module, this key
-            -- would have to be widened with a call-site
-            -- discriminator the elaborator can compute
-            -- deterministically across passes.
-            let recArgs := recordArg.getAppArgs
-            let callKey : UInt64 :=
-              mixHash (mixHash 17 (hash recName)) recArgs.size.toUInt64
+            -- Raw `arg.hash` cannot be used (fvar names regenerate
+            -- per pass → per-leaf-distinct keys → one instance per
+            -- projection, issue #71), and the previous
+            -- `(recName, args.size)` key could not tell two calls
+            -- with DIFFERENT arguments apart — a mesh of
+            -- `pe a …`/`pe b …` silently collapsed onto the first
+            -- instance (issue #120).  The fvar→wire abstraction
+            -- distinguishes argument wires while staying stable
+            -- within the pass.
+            let callKey : UInt64 := hash (← canonHardwareKey recordArg)
             let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
             if let some w := portMap.get? (callKey, fieldName) then
               trace[sparkle.compiler] "→ projection: cached wire {w} for {fieldName}"
@@ -2977,14 +2985,14 @@ mutual
         -- distinct Expr objects, so pointer-equal hashes won't
         -- match across the two handlers.
         --
-        -- Match the projection handler's cache key: `(recName,
-        -- args.size)`.  See the comment in handleDefinitionUnfold
-        -- (the projection arm above) for why we can't use arg
-        -- hashes here.  Together they guarantee that every
-        -- projection on a `let engine := kvHw …` resolves to the
-        -- same emitted sub-module instance.
-        let keyHash : UInt64 :=
-          mixHash (mixHash 17 (hash name)) args.size.toUInt64
+        -- Match the projection handler's cache key: both sites
+        -- run `canonHardwareKey` over the same call expression
+        -- (see the projection arm in handleDefinitionUnfold), so
+        -- every projection on a `let engine := kvHw …` resolves to
+        -- the same emitted instance (issue #71) while calls with
+        -- different argument wires get their own instances
+        -- (issue #120).
+        let keyHash : UInt64 := hash (← canonHardwareKey e)
         -- Idempotency check.  If we've already emitted this
         -- `(keyHash, _)` instance in the current synth, return
         -- the cached first-output wire and skip the emit step.
@@ -3864,6 +3872,44 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
       IO.FS.createDirAll dir
     IO.FS.writeFile path cSrc
     IO.println s!"Written C simulation ({optimized.modules.length} modules) to {path}"
+
+/-- Emit the CUDA **batch** backend (`.cu`): N independent instances of the
+    design, one GPU thread each — Monte-Carlo / fuzzing / test-vector sweeps.
+    Compile: `nvcc -O2 -std=c++17 -shared -Xcompiler -fPIC -o lib<top>.so <top>.cu`.
+    See `docs/CudaSim.md`. -/
+elab "#writeCudaDesign" id:ident str:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    let cu := Sparkle.Backend.CudaSim.toCudaSimDesign optimized
+    let path := str.getString
+    if let some dir := (System.FilePath.mk path).parent then
+      IO.FS.createDirAll dir
+    IO.FS.writeFile path cu
+    IO.println s!"Written CUDA batch simulation ({optimized.modules.length} modules) to {path}"
+
+/-- Emit the CUDA **intra** backend (`.cu`): ONE design instance with one GPU
+    thread per top-level sub-module instance (PE-per-thread) — makes a single
+    large design (systolic array, core bank) simulate faster.  Analysis
+    failures (Mealy boundaries, unsupported connections, …) surface here as
+    build errors with the offender named.  Compile with `-rdc=true`.
+    See `docs/CudaIntraSim-design.md`. -/
+elab "#writeCudaIntraDesign" id:ident str:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    match Sparkle.Backend.CudaIntra.toCudaIntraDesign optimized with
+    | .error e => throwError "CUDA intra backend: {e}"
+    | .ok cu =>
+      let path := str.getString
+      if let some dir := (System.FilePath.mk path).parent then
+        IO.FS.createDirAll dir
+      IO.FS.writeFile path cu
+      IO.println s!"Written CUDA intra simulation to {path}"
 
 /-- Evaluate an Array String constant at elaboration time -/
 private unsafe def evalStringArrayImpl (name : Name) : TermElabM (Array String) :=

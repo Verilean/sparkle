@@ -80,6 +80,8 @@ import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.TestCudaSim
 import Tests.TestSmt
+import Tests.CudaTutorialTest
+import Tests.Compiler.MultiInstanceTest
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
 import Tests.Video.CAVLCTest
