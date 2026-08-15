@@ -147,13 +147,22 @@ Batch simulation (N independent instances), single module or full hierarchy;
 same coverage as CSim's scalar path; wide (> 64-bit) values are `uint32_t`
 arrays and work identically on the device.
 
+Related backends:
+
+* **Within-instance (PE-per-thread) scheduling — `toCudaIntraDesign`**
+  (`Sparkle/Backend/CudaIntra.lean`). Makes a *single* large design faster:
+  each top-level `.inst` becomes one GPU thread, with a three-phase
+  barrier-separated schedule per simulated cycle. Design and correctness
+  argument in `docs/CudaIntraSim-design.md`; v1 requires Moore-bounded
+  cross-instance connections (each violation is rejected with a named error).
+  Co-simulated cycle-exact against the CSim CPU reference on a real GPU
+  (`lake exe cuda-intra-cosim`, gated on `SPARKLE_CUDA=1`). The emitted `.cu`
+  needs `nvcc -rdc=true` (cooperative groups) and also carries the batch
+  kernel + host API — one `.so` serves both axes, plus `jit_intra_run`.
+
 Deliberately **not** here yet:
 
-* **Within-instance (PE-per-thread) scheduling.** `toCudaSimDesign` runs the
-  batch axis: one thread simulates one *whole* array instance. Making a
-  *single* large array faster by mapping each PE-instance to its own thread
-  with a per-cycle barrier (#33's Strategy 4; prototyped in
-  `bench/systolic/systolic_gpu_grid.cu`) is a separate kernel the emitter does
-  not yet generate — the next step.
+* Mealy (combinational) cross-instance boundaries in the intra backend —
+  v2 is a K-round relaxation on the same schedule (memo §7).
 * Wide (> 64-bit) *input* ports in `set_input` (outputs already handle the
   per-word form).

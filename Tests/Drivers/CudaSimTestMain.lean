@@ -1,8 +1,10 @@
 import Sparkle.Backend.CudaSim
+import Sparkle.Backend.CudaIntra
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.IR.Builder
-open Sparkle.Backend.CudaSim Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Builder CircuitM
+open Sparkle.Backend.CudaSim Sparkle.Backend.CudaIntra
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Builder CircuitM
 
 /-  Layer 2 of the CUDA backend tests: prove the emitted `.cu` is *well-formed*
     without `nvcc` or a GPU.  We stub the CUDA tokens, strip the `<<<grid,
@@ -34,7 +36,32 @@ static inline cudaError_t cudaFree(void* p){ free(p); return 0; }\n\
 static inline cudaError_t cudaFreeHost(void* p){ free(p); return 0; }\n\
 enum cudaMemcpyKind { cudaMemcpyHostToDevice, cudaMemcpyDeviceToHost };\n\
 static inline cudaError_t cudaMemcpy(void* d,const void* s,size_t n,cudaMemcpyKind){ memcpy(d,s,n); return 0; }\n\
-static inline cudaError_t cudaDeviceSynchronize(){ return 0; }\n"
+static inline cudaError_t cudaDeviceSynchronize(){ return 0; }\n\
+enum { cudaDevAttrCooperativeLaunch = 95 };\n\
+static inline cudaError_t cudaGetDevice(int* d){ *d=0; return 0; }\n\
+static inline cudaError_t cudaDeviceGetAttribute(int* v,int,int){ *v=0; return 0; }\n\
+struct cudaDeviceProp { int multiProcessorCount; };\n\
+static inline cudaError_t cudaGetDeviceProperties(cudaDeviceProp* p,int){ p->multiProcessorCount=1; return 0; }\n\
+template <class T>\n\
+static inline cudaError_t cudaOccupancyMaxActiveBlocksPerMultiprocessor(int* n,T,int,size_t){ *n=1; return 0; }\n\
+static inline cudaError_t cudaLaunchCooperativeKernel(const void*,dim3,dim3,void**,size_t,void*){ return 0; }\n"
+
+/-- cooperative_groups stub: enough surface for the intra kernels' templated
+    cycle body (`thread_rank` / `num_threads` / `sync`) to parse on a host
+    C++ compiler. -/
+def cgStub : String := "\
+#pragma once\n\
+namespace cooperative_groups {\n\
+  struct __grp {\n\
+    unsigned thread_rank() const { return 0; }\n\
+    unsigned num_threads() const { return 1; }\n\
+    void sync() const {}\n\
+  };\n\
+  typedef __grp thread_block;\n\
+  typedef __grp grid_group;\n\
+  inline thread_block this_thread_block() { return thread_block(); }\n\
+  inline grid_group this_grid() { return grid_group(); }\n\
+}\n"
 
 /-- Strip the `<<<grid, block>>>` launch config (nvcc-only syntax) so host
     g++ can parse the kernel call as an ordinary function call: turns
@@ -106,20 +133,26 @@ def mesh2x2 : Module := {
 def meshDesign : Design := { topModule := "Mesh2x2", modules := [pe, mesh2x2] }
 
 /-- Prepare a host-parseable variant of an emitted `.cu`: swap the CUDA
-    runtime include for the stub and strip the `<<<>>>` launch syntax. -/
+    runtime and cooperative-groups includes for stubs and strip the `<<<>>>`
+    launch syntax. -/
 def toHostVariant (cu : String) : String :=
-  (cu.replace "#include <cuda_runtime.h>" "#include \"cuda_stub.h\"") |> stripLaunch
+  (cu.replace "#include <cuda_runtime.h>" "#include \"cuda_stub.h\""
+    |>.replace "#include <cooperative_groups.h>" "#include \"cg_stub.h\"")
+  |> stripLaunch
 
 def main : IO Unit := do
   let dir := ".lake/build/gen/cuda"
   IO.FS.createDirAll dir
   IO.FS.writeFile s!"{dir}/cuda_stub.h" cudaStub
+  IO.FS.writeFile s!"{dir}/cg_stub.h" cgStub
 
-  -- Two fixtures: a single sequential module, and a hierarchical 2×2 mesh
-  -- (whole-design emission with generated wire-copy).
+  -- Three fixtures: a single sequential module; a hierarchical 2×2 mesh
+  -- (whole-design emission with generated wire-copy); and the same mesh
+  -- through the intra (PE-per-thread) backend.
   let cases : List (String × String) :=
     [ ("single", toCudaSim cudaTop)
-    , ("mesh",   toCudaSimDesign meshDesign) ]
+    , ("mesh",   toCudaSimDesign meshDesign)
+    , ("intra",  toCudaIntraDesign! meshDesign) ]
   for (name, cu) in cases do
     IO.println s!"[cuda] {name}: emitted {cu.length} chars"
     IO.FS.writeFile s!"{dir}/cuda_{name}_hostcheck.cu" (toHostVariant cu)

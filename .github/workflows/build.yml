@@ -71,7 +71,7 @@ jobs:
     # (`lake exe cuda-sim-test`) runs in ip-tests.yml where a C++ compiler
     # is available.
     - name: Build CUDA simulation backend
-      run: lake build Sparkle.Backend.CudaSim Tests.TestCudaSim
+      run: lake build Sparkle.Backend.CudaSim Sparkle.Backend.CudaIntra Tests.TestCudaSim
 
     # ---- H.264 Video Codec — Verilog Generation ----
 
