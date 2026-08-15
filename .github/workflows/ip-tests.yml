@@ -86,7 +86,7 @@ jobs:
               crc32-test ethernet-test ethernet-tx-test
               arp-test ipv4-test icmp-test
               tcp-header-test tcp-state-test tcp-loopback-test
-              http-test hft-strategy-test
+              http-test hft-strategy-test hft-quote-test
 
           - group: usb-webserver
             # `usb-webserver-sim` is the pure-Lean `Signal.val`

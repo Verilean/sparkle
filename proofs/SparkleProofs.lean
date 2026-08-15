@@ -21,3 +21,5 @@ import SparkleProofs.Control.AlgebraicRewrite
 -- former `retypelab/` sidecar once every package reached Lean v4.32.1.
 import SparkleProofs.Retype.Falsify
 import SparkleProofs.Retype.FixedPointTransport
+import SparkleProofs.Hft.MarketMaking
+import SparkleProofs.Retype.HftTransport

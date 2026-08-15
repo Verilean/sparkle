@@ -403,6 +403,12 @@ lean_exe «hft-strategy-test» where
   root := `Tests.Drivers.HFTStrategyTestMain
   supportInterpreter := true
 
+-- Ch14 quoting engine: circuit vs pure-data reference (Signal.val co-sim,
+-- incl. both position-limit clamp hits) + 3 synth wrappers at build time.
+lean_exe «hft-quote-test» where
+  root := `Tests.Drivers.HFTQuoteTestMain
+  supportInterpreter := true
+
 lean_exe «sha256-test» where
   root := `Tests.Drivers.SHA256TestMain
   supportInterpreter := true
