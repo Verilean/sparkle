@@ -338,6 +338,13 @@ lean_exe «cuda-intra-cosim» where
   root := `Tests.Drivers.CudaIntraCosimMain
   supportInterpreter := true
 
+-- SMT bridge Layer 2: emit BMC queries (always), run z3 + replay
+-- counterexamples on the CSim C reference when z3/gcc are present
+-- (skips cleanly otherwise).  Layer 1 is Tests.TestSmt under lake test.
+lean_exe «smt-bmc-test» where
+  root := `Tests.Drivers.SmtBmcTestMain
+  supportInterpreter := true
+
 -- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
 -- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
 -- 802.3 golden vectors must all agree.

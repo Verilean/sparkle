@@ -60,7 +60,7 @@ jobs:
               signal-loop-test circuit-do-test circuit-sim-test
               run-circuit-h-test sim-runner-test cdc-multi-clock-test
               svparser-test multi-output-submodule-hang-repro
-              cuda-sim-test cuda-intra-cosim
+              cuda-sim-test cuda-intra-cosim smt-bmc-test
 
           - group: bus
             exes: >-
