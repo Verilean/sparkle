@@ -30,6 +30,7 @@ pkgs.mkShell {
     zstd.dev
     gh
     cudaPackages_12_6.cudatoolkit
+    z3
   ];
 
   # Environment variables

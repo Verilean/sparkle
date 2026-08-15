@@ -79,6 +79,7 @@ import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.TestCudaSim
+import Tests.TestSmt
 import Tests.RV32.TestFlow
 import Tests.Library.TestSyncFIFO
 import Tests.Video.CAVLCTest
@@ -813,6 +814,10 @@ def main : IO UInt32 := do
   -- CUDA Simulation Backend tests (emitter shape; build-only, no nvcc/GPU)
   let cudaSimTests ← Sparkle.Test.CudaSim.cudaSimTests
   let allTests := allTests ++ cudaSimTests
+
+  -- SMT bridge tests (query shape + solver-output parser; no z3 needed)
+  let smtTests ← Sparkle.Test.Smt.smtTests
+  let allTests := allTests ++ smtTests
 
   -- RV32 SoC Flow tests
   let rv32FlowTests ← Sparkle.Tests.RV32.TestFlow.flowTests

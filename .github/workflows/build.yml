@@ -73,6 +73,12 @@ jobs:
     - name: Build CUDA simulation backend
       run: lake build Sparkle.Backend.CudaSim Sparkle.Backend.CudaIntra Tests.TestCudaSim
 
+    # ---- SMT bridge (BMC via z3) ----
+    # Build-only here; `smt-bmc-test` (ip-tests core-dsl) emits queries
+    # unconditionally and runs z3 + counterexample replay when present.
+    - name: Build SMT bridge
+      run: lake build Sparkle.Backend.Smt Tests.TestSmt
+
     # ---- H.264 Video Codec — Verilog Generation ----
 
     - name: Build H.264 IP library (all synth modules + Verilog generation)
