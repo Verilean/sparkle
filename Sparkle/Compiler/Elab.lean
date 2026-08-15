@@ -12,6 +12,8 @@ import Sparkle.IR.Type
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CSim
+import Sparkle.Backend.CudaSim
+import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
@@ -3870,6 +3872,44 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
       IO.FS.createDirAll dir
     IO.FS.writeFile path cSrc
     IO.println s!"Written C simulation ({optimized.modules.length} modules) to {path}"
+
+/-- Emit the CUDA **batch** backend (`.cu`): N independent instances of the
+    design, one GPU thread each — Monte-Carlo / fuzzing / test-vector sweeps.
+    Compile: `nvcc -O2 -std=c++17 -shared -Xcompiler -fPIC -o lib<top>.so <top>.cu`.
+    See `docs/CudaSim.md`. -/
+elab "#writeCudaDesign" id:ident str:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    let cu := Sparkle.Backend.CudaSim.toCudaSimDesign optimized
+    let path := str.getString
+    if let some dir := (System.FilePath.mk path).parent then
+      IO.FS.createDirAll dir
+    IO.FS.writeFile path cu
+    IO.println s!"Written CUDA batch simulation ({optimized.modules.length} modules) to {path}"
+
+/-- Emit the CUDA **intra** backend (`.cu`): ONE design instance with one GPU
+    thread per top-level sub-module instance (PE-per-thread) — makes a single
+    large design (systolic array, core bank) simulate faster.  Analysis
+    failures (Mealy boundaries, unsupported connections, …) surface here as
+    build errors with the offender named.  Compile with `-rdc=true`.
+    See `docs/CudaIntraSim-design.md`. -/
+elab "#writeCudaIntraDesign" id:ident str:str : command => do
+  let declName ← Lean.Elab.Command.liftCoreM do
+    Lean.resolveGlobalConstNoOverload id
+  Lean.Elab.Command.liftTermElabM do
+    let design ← synthesizeHierarchical declName
+    let optimized := Sparkle.IR.Optimize.optimizeDesign design
+    match Sparkle.Backend.CudaIntra.toCudaIntraDesign optimized with
+    | .error e => throwError "CUDA intra backend: {e}"
+    | .ok cu =>
+      let path := str.getString
+      if let some dir := (System.FilePath.mk path).parent then
+        IO.FS.createDirAll dir
+      IO.FS.writeFile path cu
+      IO.println s!"Written CUDA intra simulation to {path}"
 
 /-- Evaluate an Array String constant at elaboration time -/
 private unsafe def evalStringArrayImpl (name : Name) : TermElabM (Array String) :=
