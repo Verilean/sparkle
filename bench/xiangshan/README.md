@@ -69,3 +69,23 @@ Generated: 1,943 .sv files, 1.1 GB. Survey (`lake exe sv-roundtrip`):
 Phase-1 work list, in order: (1) size casts, (2) packed dims + `'{}` +
 dynamic element select, (3) parser/lower complexity on deep nesting,
 (4) the long-tail classes. Then re-survey to 100%, then Phase 2 metrics.
+
+## Phase 1 progress log
+
+| step | OK rate | notes |
+|---|---|---|
+| baseline | 74.1% (1438/1940) | 502 parse failures; 3 giants never finished |
+| + `N'(expr)` size casts | — | 502 → 275 failures |
+| + packed multi-dim arrays (`[A:B][C:D]`, `'{…}`, dynamic elem select via `+:`) | — | 275 → ~120 |
+| + **O(file²) `fail()` fix** | **93.7% (1818/1941)** | full 1.1 GB corpus in **139 s wall** (24 workers); ICacheWayLookup 352 s → **355 ms (992×)** |
+
+The `fail()` bug: the lexer's error path built its "near" context with
+`chars.toList.drop pos` — O(file) — and `attempt` uses failure as control
+flow on every operator probe, giving O(file²) with a huge constant.
+`Array.extract` (O(30)) fixed parse AND lower (which re-parses).
+
+Remaining 123 failures (long tail): `^(…)` reduction-xor in expressions,
+`$signed(…)` arithmetic forms, a few instance-connection shapes
+(IntRFWBCollideChecker / DelayN / SRAMTemplate / skidBufferConnect classes),
+Rob.sv's class. TLFIFOFixer (3.5 MB) still takes 120 s — a second-order
+hotspot for later.

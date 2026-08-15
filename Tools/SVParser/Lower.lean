@@ -144,6 +144,7 @@ private partial def svExprToNat : SVExpr → Option Nat
 
 private def concatWidth : SVExpr → Nat
   | .concat args => args.foldl (fun acc a => acc + concatWidth a) 0
+  | .sizeCast w _ => w
   | .slice _ hi lo => hi - lo + 1
   | .partSelectPlus _ _ widthExpr => svExprToNat widthExpr |>.getD 1
   | .index _ _ => 1  -- single bit select
@@ -160,6 +161,12 @@ partial def lowerExpr (e : SVExpr) : Expr :=
   match e with
   | .lit l => literalToConst l
   | .ident name => .ref name
+  | .sizeCast w arg =>
+    -- N'(expr): resize to exactly w bits without needing the operand's
+    -- width — prepend w zero bits, take the low w.  Zero-extends narrow
+    -- operands, truncates wide ones; `resolveSliceOfConcat` in the IR
+    -- optimizer folds the indirection away.
+    .slice (.concat [.const 0 w, lowerExpr arg]) (w - 1) 0
   | .unary .reductAnd arg =>
     -- Reduction AND: &x → all bits set → (x XOR 0xFF...FF) == 0
     -- Use XOR with -1 (all ones) for bitwise inversion, then compare with 0
@@ -1463,7 +1470,77 @@ private def promoteSignedStmt (env : LowerEnv) : Stmt → Stmt
 -- Module lowering
 -- ============================================================================
 
+/-! ### Multi-dim packed arrays — flattened before lowering
+
+`wire [3:0][1:0] g = {…}` becomes an 8-bit wire, and every `g[i]` becomes
+the dynamic part-select `g[i*2 +: 2]` (which the existing lowering already
+handles on both sides of assignments).  firtool uses these as case-mux
+tables (`_GEN[state]`), so this runs before anything else sees the items. -/
+
+private def pDimW (d : Nat × Nat) : Nat := d.1 - d.2 + 1
+
+private partial def expandPackedExpr (tbl : List (String × Nat)) : SVExpr → SVExpr
+  | .index (.ident n) i =>
+    let i' := expandPackedExpr tbl i
+    match tbl.find? (·.1 == n) with
+    | some (_, ew) =>
+      if ew == 1 then .index (.ident n) i'
+      else .partSelectPlus (.ident n)
+             (.binary .mul i' (.lit (.decimal none ew)))
+             (.lit (.decimal none ew))
+    | none => .index (.ident n) i'
+  | .index a i => .index (expandPackedExpr tbl a) (expandPackedExpr tbl i)
+  | .unary op a => .unary op (expandPackedExpr tbl a)
+  | .binary op a b => .binary op (expandPackedExpr tbl a) (expandPackedExpr tbl b)
+  | .ternary c t f =>
+    .ternary (expandPackedExpr tbl c) (expandPackedExpr tbl t) (expandPackedExpr tbl f)
+  | .slice e hi lo => .slice (expandPackedExpr tbl e) hi lo
+  | .partSelectPlus e b w =>
+    .partSelectPlus (expandPackedExpr tbl e) (expandPackedExpr tbl b) (expandPackedExpr tbl w)
+  | .concat args => .concat (args.map (expandPackedExpr tbl))
+  | .repeat_ c v => .repeat_ (expandPackedExpr tbl c) (expandPackedExpr tbl v)
+  | .sizeCast w a => .sizeCast w (expandPackedExpr tbl a)
+  | e => e
+
+private partial def expandPackedStmt (tbl : List (String × Nat)) : SVStmt → SVStmt
+  | .blockAssign l r => .blockAssign (expandPackedExpr tbl l) (expandPackedExpr tbl r)
+  | .nonblockAssign l r => .nonblockAssign (expandPackedExpr tbl l) (expandPackedExpr tbl r)
+  | .ifElse c t e =>
+    .ifElse (expandPackedExpr tbl c) (t.map (expandPackedStmt tbl)) (e.map (expandPackedStmt tbl))
+  | .caseStmt e arms dflt =>
+    .caseStmt (expandPackedExpr tbl e)
+      (arms.map fun (gs, ss) => (gs.map (expandPackedExpr tbl), ss.map (expandPackedStmt tbl)))
+      (dflt.map (·.map (expandPackedStmt tbl)))
+  | .forLoop i c st b =>
+    .forLoop (expandPackedStmt tbl i) (expandPackedExpr tbl c)
+      (expandPackedStmt tbl st) (b.map (expandPackedStmt tbl))
+  | .assertStmt c => .assertStmt (expandPackedExpr tbl c)
+
+private partial def expandPackedItem (tbl : List (String × Nat)) : SVModuleItem → SVModuleItem
+  | .packedArrayDecl n dims init =>
+    let total := dims.foldl (fun a d => a * pDimW d) 1
+    .wireDecl n (some (total - 1, 0)) (init.map (expandPackedExpr tbl))
+  | .wireDecl n w init => .wireDecl n w (init.map (expandPackedExpr tbl))
+  | .contAssign l r => .contAssign (expandPackedExpr tbl l) (expandPackedExpr tbl r)
+  | .alwaysBlock sens body => .alwaysBlock sens (body.map (expandPackedStmt tbl))
+  | .generateBlock c b e =>
+    .generateBlock (expandPackedExpr tbl c)
+      (b.map (expandPackedItem tbl)) (e.map (expandPackedItem tbl))
+  | .instantiation m i conns po =>
+    .instantiation m i (conns.map fun (p, e) => (p, expandPackedExpr tbl e)) po
+  | .taskDecl n body => .taskDecl n (body.map (expandPackedStmt tbl))
+  | it => it
+
+private def preprocessPackedItems (items : List SVModuleItem) : List SVModuleItem :=
+  let tbl := items.filterMap fun it => match it with
+    | .packedArrayDecl n dims _ =>
+      some (n, (dims.drop 1).foldl (fun a d => a * pDimW d) 1)
+    | _ => none
+  if tbl.isEmpty then items else items.map (expandPackedItem tbl)
+
 /-- Lower a single SVModule to Sparkle IR Module, optionally overriding parameters. -/
+
+
 def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := []) : Except String Module := do
   -- Expand generate blocks using parameter defaults + overrides
   let paramDefaults := extractParamDefaults svMod
@@ -1493,7 +1570,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       match evalConstExpr paramVals hiE, evalConstExpr paramVals loE with
       | some hiV, some loV => { p with width := some (hiV, loV) }
       | _, _ => p  -- couldn't resolve; keep the parser's fallback
-  let svMod := { svMod with items := expandedItems, params := svParams, ports := resolvedPorts }
+  let svMod := { svMod with items := preprocessPackedItems expandedItems, params := svParams, ports := resolvedPorts }
 
   -- Build environment
   let mut env := LowerEnv.empty

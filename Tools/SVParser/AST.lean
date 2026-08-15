@@ -59,6 +59,7 @@ inductive SVExpr where
   | partSelectPlus (expr : SVExpr) (base : SVExpr) (width : SVExpr)  -- [base +: width]
   | concat  (args : List SVExpr)
   | repeat_ (count : SVExpr) (value : SVExpr)  -- {n{expr}}
+  | sizeCast (width : Nat) (arg : SVExpr)      -- N'(expr) — SV size cast
   deriving Repr, BEq
 
 /-- Statements (inside always blocks) -/
@@ -120,6 +121,8 @@ structure SVParam where
 inductive SVModuleItem where
   | wireDecl      (name : String) (width : Option (Nat × Nat))
                   (initExpr : Option SVExpr)              -- wire [w] x = expr;
+  | packedArrayDecl (name : String) (dims : List (Nat × Nat))
+                    (initExpr : Option SVExpr)            -- wire [A:B][C:D] x (= e)?;
   | regDecl       (name : String) (width : Option (Nat × Nat))
                   (arraySize : Option Nat)                -- reg [w] x [0:N];
   | integerDecl   (name : String)                         -- integer i;

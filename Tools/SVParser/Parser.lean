@@ -331,8 +331,22 @@ partial def parsePrimary : P SVExpr := do
     else
       pure arg
   | some '\'' =>
-    -- Unsized literal: 'b0, 'bx, 'h0, etc.
+    -- Unsized literal ('b0, 'h0, …) or SV assignment pattern '{a, b, …}.
     let _ ← token (matchStr "'")
+    match ← peekChar with
+    | some '{' =>
+      -- '{…}: for packed arrays this is element-MSB-first, same as concat.
+      lbrace
+      let first ← parseExpr
+      let mut args := [first]
+      let mut cont := true
+      while cont do
+        match ← attempt comma with
+        | some _ => let e ← parseExpr; args := args ++ [e]
+        | none => cont := false
+      rbrace
+      return SVExpr.concat args
+    | _ => pure ()
     let base ← nextChar
     match base with
     | 'b' | 'B' =>
@@ -349,7 +363,23 @@ partial def parsePrimary : P SVExpr := do
       pure (SVExpr.lit (.decimal none dd.toNat!))
     | _ => fail s!"unexpected base '{base}' in unsized literal"
   | some c' =>
-    if isDigit c' then let lit ← numericLiteral; pure (SVExpr.lit lit)
+    if isDigit c' then
+      -- Disambiguate `N'(expr)` (SV size cast — firtool emits these
+      -- everywhere) from `N'h…` sized literals: try the cast form first,
+      -- backtracking to the literal on anything else after the tick.
+      match ← attempt (do
+          let d ← digits
+          let t ← nextChar
+          if t != '\'' then fail "not a size cast"
+          match ← peekChar with
+          | some '(' => let _ ← nextChar; ws; pure d.toNat!
+          | _ => fail "not a size cast") with
+      | some w =>
+        let e ← parseExpr
+        rparen
+        pure (SVExpr.sizeCast w e)
+      | none =>
+        let lit ← numericLiteral; pure (SVExpr.lit lit)
     else if isAlpha c' then let name ← identifier; pure (SVExpr.ident name)
     else fail s!"unexpected char in expression: '{c'}'"
   | none => fail "unexpected end of input in expression"
@@ -700,6 +730,21 @@ partial def parseModuleItems : P (List SVModuleItem) := do
     | some _ =>
       let _ ← attempt (keyword "signed")
       let w ← parseOptWidth
+      -- extra packed dimensions: wire [A:B][C:D]… name  (firtool mux tables)
+      let mut extraDims : List (Nat × Nat) := []
+      let mut moreDims := true
+      while moreDims do
+        match ← parseOptWidth with
+        | some d => extraDims := extraDims ++ [d]
+        | none => moreDims := false
+      if !extraDims.isEmpty then
+        let dims := (w.map (· :: extraDims)).getD extraDims
+        let n ← identifier
+        let init ← match ← attempt eqSign with
+          | some _ => let e ← parseExpr; pure (some e)
+          | none => pure none
+        semi
+        return [SVModuleItem.packedArrayDecl n dims init]
       let n ← identifier
       match ← attempt eqSign with
       | some _ => let e ← parseExpr; semi; pure [SVModuleItem.wireDecl n w (some e)]

@@ -22,7 +22,12 @@ abbrev P (α : Type) := ExceptT String (StateM PState) α
 
 def fail (msg : String) : P α := do
   let s ← get
-  let near := String.ofList (s.chars.toList.drop s.pos |>.take 30)
+  -- O(30), NOT O(file): `attempt` uses failure as control flow (every
+  -- operator probe fails), so this ran per probe — with `toList.drop` it
+  -- was O(file) per probe = O(file²) overall, 200+ s on XiangShan-sized
+  -- modules (perf: 63% in toList/List.drop/dec_ref).
+  let hi := min (s.pos + 30) s.chars.size
+  let near := String.ofList (s.chars.extract s.pos hi).toList
   throw s!"at position {s.pos}: {msg} (near: \"{near}\")"
 
 def getPos : P Nat := do let s ← get; pure s.pos
