@@ -111,6 +111,7 @@ import Tests.IP.Net.TCPStateTest
 import Tests.IP.Net.TCPLoopbackTest
 import Tests.IP.Net.HTTPTest
 import Tests.IP.Net.HFTStrategyTest
+import Tests.IP.Net.HFTQuoteTest
 import Tests.IP.Crypto.SHA256Test
 import Tests.IP.Crypto.Ed25519FieldTest
 import Tests.IP.Crypto.Ed25519PointTest
@@ -578,6 +579,7 @@ def main : IO UInt32 := do
   Sparkle.Tests.IP.Net.HTTPTest.main
   IO.println ""
   Sparkle.Tests.IP.Net.HFTStrategyTest.main
+  Sparkle.Tests.IP.Net.HFTQuoteTest.main
   IO.println ""
   Sparkle.Tests.IP.Crypto.SHA256Test.main
   IO.println ""
