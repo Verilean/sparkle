@@ -275,31 +275,35 @@ def hexDigitsWithUnderscore : P String := do
     | none => cont := false
   pure (String.ofList result)
 
-def numericLiteral : P SVLiteral := token do
+def numericLiteral : P (SVLiteral × Bool) := token do
   let d ← digits
   let next ← peekChar
   if next == some '\'' then
     let _ ← nextChar
+    -- optional signed marker: 7'sh1, 4'sd3, 3'sb101
+    let sPeek ← peekChar
+    let isSigned := sPeek == some 's' || sPeek == some 'S'
+    if isSigned then let _ ← nextChar
     let base ← nextChar
     match base with
     | 'h' | 'H' =>
       let hd ← hexDigitsWithUnderscore
-      pure (SVLiteral.hex (some d.toNat!) (hexToNat hd))
+      pure (SVLiteral.hex (some d.toNat!) (hexToNat hd), isSigned)
     | 'd' | 'D' =>
       skipUnderscoresAndSpaces
       let dd ← digits
-      pure (SVLiteral.decimal (some d.toNat!) dd.toNat!)
+      pure (SVLiteral.decimal (some d.toNat!) dd.toNat!, isSigned)
     | 'b' | 'B' =>
       skipUnderscoresAndSpaces
       let bd ← binDigitsOrWildcardStr
       if bd.any (· == '?') then
         let (v, m) := binWildToValMask bd
-        pure (SVLiteral.binaryWild d.toNat! v m)
+        pure (SVLiteral.binaryWild d.toNat! v m, isSigned)
       else
-        pure (SVLiteral.binary (some d.toNat!) (binToNat bd))
+        pure (SVLiteral.binary (some d.toNat!) (binToNat bd), isSigned)
     | _ => fail s!"unknown base '{base}'"
   else
-    pure (SVLiteral.decimal none d.toNat!)
+    pure (SVLiteral.decimal none d.toNat!, false)
 
 -- ============================================================================
 -- Punctuation

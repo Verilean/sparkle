@@ -79,6 +79,7 @@ def lowerUnaryOp : SVUnaryOp → Operator
   | .reductAnd => .and  -- reduction ops treated as bitwise for now
   | .reductOr  => .or
   | .signed    => .not  -- unreachable: handled in lowerExpr
+  | .reductXor => .not  -- unreachable: expanded in lowerExpr
 
 def lowerBinOp : SVBinOp → Operator
   | .add    => .add
@@ -157,6 +158,49 @@ private def concatWidth : SVExpr → Nat
   | .lit (.binaryWild w _ _) => w  -- casez wildcard: width is always explicit
   | _ => 32  -- default: assume 32-bit
 
+/-- Static (env-free) width of an SVExpr, where determinable. -/
+private def staticExprWidth : SVExpr → Option Nat
+  | .slice _ hi lo => some (hi - lo + 1)
+  | .sizeCast w _ => some w
+  | .index _ _ => some 1
+  | .partSelectPlus _ _ (.lit (.decimal none w)) => some w
+  | .lit (.decimal (some w) _) => some w
+  | .lit (.hex (some w) _) => some w
+  | .lit (.binary (some w) _) => some w
+  | .concat args => args.foldl (fun acc a =>
+      match acc, staticExprWidth a with
+      | some x, some y => some (x + y)
+      | _, _ => none) (some 0)
+  | _ => none
+
+/-- Expand `^expr` (reduction XOR / parity) into an explicit bit fold when
+    the operand width is statically known — firtool's uses are all slices
+    (`~(^(data[255:248]))` parity bytes), so this covers them without any
+    width environment.  For a slice, bits index the BASE directly to avoid
+    nested slices. -/
+private def expandReductXor (a : SVExpr) : Option SVExpr := do
+  let w ← staticExprWidth a
+  if w == 0 then return .lit (.binary (some 1) 0)
+  let bit := fun (i : Nat) =>
+    match a with
+    | .slice base _ lo => SVExpr.slice base (lo + i) (lo + i)
+    | _ => SVExpr.slice a i i
+  return (List.range (w - 1)).foldl
+    (fun acc i => SVExpr.binary .bitXor acc (bit (i + 1))) (bit 0)
+
+/-- Signedness marker checks for comparison lowering: `$signed(x)` and `'s`
+    literals wrap their expression in `.unary .signed`; a leading unary minus
+    (`-7'sh1`) sits above the marker. -/
+private def hasSignedMark : SVExpr → Bool
+  | .unary .signed _ => true
+  | .unary .neg a => hasSignedMark a
+  | _ => false
+
+private def stripSignedMark : SVExpr → SVExpr
+  | .unary .signed a => a
+  | .unary .neg a => .unary .neg (stripSignedMark a)
+  | e => e
+
 partial def lowerExpr (e : SVExpr) : Expr :=
   match e with
   | .lit l => literalToConst l
@@ -190,6 +234,13 @@ partial def lowerExpr (e : SVExpr) : Expr :=
       -- Sign extend: shift left then arithmetic shift right
       let shiftAmt := 32 - innerWidth
       .op .asr [.op .shl [lowered, .const (Int.ofNat shiftAmt) 32], .const (Int.ofNat shiftAmt) 32]
+  | .unary .reductXor arg =>
+    -- Parity: expanded to an explicit XOR fold when the width is static;
+    -- otherwise fail LOUDLY downstream via an undeclared wire rather than
+    -- guessing a width (a wrong parity is a silent miscompile).
+    match expandReductXor arg with
+    | some e => lowerExpr e
+    | none => .ref "__reduction_xor_unknown_width__"
   | .unary op arg => .op (lowerUnaryOp op) [lowerExpr arg]
   | .binary .neq lhs rhs => .op .not [.op .eq [lowerExpr lhs, lowerExpr rhs]]
   | .binary .logAnd lhs rhs =>
@@ -202,6 +253,25 @@ partial def lowerExpr (e : SVExpr) : Expr :=
     let la := .op .not [.op .eq [lowerExpr lhs, .const 0 32]]
     let lb := .op .not [.op .eq [lowerExpr rhs, .const 0 32]]
     .op .or [la, lb]
+  | .binary .lt lhs rhs =>
+    -- Comparisons: a `$signed(…)`/`'s`-literal marker on EITHER side selects
+    -- the signed IR operator; markers are stripped so both sides compare at
+    -- their native width (firtool always emits same-width operands here).
+    let sgn := hasSignedMark lhs || hasSignedMark rhs
+    .op (if sgn then .lt_s else .lt_u)
+      [lowerExpr (stripSignedMark lhs), lowerExpr (stripSignedMark rhs)]
+  | .binary .le lhs rhs =>
+    let sgn := hasSignedMark lhs || hasSignedMark rhs
+    .op (if sgn then .le_s else .le_u)
+      [lowerExpr (stripSignedMark lhs), lowerExpr (stripSignedMark rhs)]
+  | .binary .gt lhs rhs =>
+    let sgn := hasSignedMark lhs || hasSignedMark rhs
+    .op (if sgn then .gt_s else .gt_u)
+      [lowerExpr (stripSignedMark lhs), lowerExpr (stripSignedMark rhs)]
+  | .binary .ge lhs rhs =>
+    let sgn := hasSignedMark lhs || hasSignedMark rhs
+    .op (if sgn then .ge_s else .ge_u)
+      [lowerExpr (stripSignedMark lhs), lowerExpr (stripSignedMark rhs)]
   | .binary op lhs rhs => .op (lowerBinOp op) [lowerExpr lhs, lowerExpr rhs]
   | .ternary cond t el => .op .mux [lowerExpr cond, lowerExpr t, lowerExpr el]
   | .index arr idx =>

@@ -251,6 +251,13 @@ partial def parseUnary : P SVExpr := do
       let e ← parseUnary; pure e) with
     | some e => pure (SVExpr.unary .reductOr e)
     | none => parsePrimaryPost
+  | some '^' =>
+    -- Prefix ^ is reduction XOR (parity); infix ^ never reaches here.
+    match ← attempt (do
+      let _ ← token (matchStr "^")
+      let e ← parseUnary; pure e) with
+    | some e => pure (SVExpr.unary .reductXor e)
+    | none => parsePrimaryPost
   | _ => parsePrimaryPost
 
 partial def parsePrimaryPost : P SVExpr := do
@@ -321,13 +328,12 @@ partial def parsePrimary : P SVExpr := do
     let name ← identifier
     lparen; let arg ← parseExpr; rparen
     if name == "signed" then
-      -- Apply $signed to concat and slice expressions (known sub-32-bit width)
-      -- Identity for full-width wire references (already 32-bit)
-      match arg with
-      | .concat _ => pure (SVExpr.unary .signed arg)
-      | .slice _ _ _ => pure (SVExpr.unary .signed arg)
-      | .index _ _ => pure (SVExpr.unary .signed arg)
-      | _ => pure arg
+      -- Keep the signedness marker for EVERY argument shape.  Dropping it
+      -- for plain wire refs (the old behaviour) silently turned
+      -- `$signed(x) > -7'sh1` into an UNSIGNED compare — a miscompile.
+      -- Comparison lowering strips the marker and picks the signed IR op;
+      -- in other positions the lowering arm is identity for refs.
+      pure (SVExpr.unary .signed arg)
     else
       pure arg
   | some '\'' =>
@@ -379,7 +385,10 @@ partial def parsePrimary : P SVExpr := do
         rparen
         pure (SVExpr.sizeCast w e)
       | none =>
-        let lit ← numericLiteral; pure (SVExpr.lit lit)
+        let (lit, sgn) ← numericLiteral
+        -- `'s` literals carry a signedness MARKER (`.unary .signed`) so a
+        -- comparison against them lowers to the signed IR operator.
+        pure (if sgn then SVExpr.unary .signed (SVExpr.lit lit) else SVExpr.lit lit)
     else if isAlpha c' then let name ← identifier; pure (SVExpr.ident name)
     else fail s!"unexpected char in expression: '{c'}'"
   | none => fail "unexpected end of input in expression"
@@ -878,8 +887,14 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                     let mut conns : List (String × SVExpr) := []
                     let mut cont := true
                     while cont do
-                      dot; let pName ← identifier; lparen; let pExpr ← parseExpr; rparen
-                      conns := conns ++ [(pName, pExpr)]
+                      dot; let pName ← identifier; lparen
+                      -- `.port ()` — unconnected output (firtool: `(/* unused */)`
+                      -- once comments are skipped); omit the connection.
+                      match ← attempt rparen with
+                      | some _ => pure ()
+                      | none =>
+                        let pExpr ← parseExpr; rparen
+                        conns := conns ++ [(pName, pExpr)]
                       match ← attempt comma with | some _ => pure () | none => cont := false
                     rparen; semi
                     pure (modName, instName, conns, paramOvr)

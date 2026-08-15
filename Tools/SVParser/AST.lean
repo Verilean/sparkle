@@ -30,6 +30,7 @@ inductive SVUnaryOp where
   | neg       -- - (unary minus)
   | reductAnd -- &x (reduction AND)
   | reductOr  -- |x (reduction OR)
+  | reductXor -- ^x (reduction XOR / parity)
   | signed    -- $signed(x)
   deriving Repr, BEq
 

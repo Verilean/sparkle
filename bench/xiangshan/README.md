@@ -89,3 +89,19 @@ Remaining 123 failures (long tail): `^(…)` reduction-xor in expressions,
 (IntRFWBCollideChecker / DelayN / SRAMTemplate / skidBufferConnect classes),
 Rob.sv's class. TLFIFOFixer (3.5 MB) still takes 120 s — a second-order
 hotspot for later.
+
+## Long-tail fixes (same day)
+
+| fix | effect |
+|---|---|
+| signed literals `N'sh…` + `$signed` marker retention | the `$signed(x) > -7'sh1` family — and closed a latent **miscompile**: the old parser DROPPED `$signed` on plain wire refs, silently turning signed comparisons unsigned. Comparisons now pick `lt_s`/`gt_s`/… whenever either side carries the marker (stripped, native-width compare — firtool emits same-width operands). |
+| empty instance connections `.port (/* unused */)` | the IntRFWBCollideChecker / DelayN / SRAMTemplate / skidBuffer classes |
+| reduction XOR `^(…)` | expanded to an explicit bit-fold when the operand width is static (all firtool uses are slices — CHI dataCheck parity bytes); unknown width fails loudly via an undeclared wire, never guesses |
+
+**Result: 1,940 / 1,941 = 99.95% roundtrip OK** (150 s wall, full corpus).
+The one exclusion is `ClockGate.sv` (`always_latch` — a latch-based ICG
+cell, a physical-design primitive outside Sparkle's single-clock register
+model; blackbox territory, as for Verilator's `--conv` style flows).
+
+Second-order hotspot noted: TLFIFOFixer.sv (3.5 MB) takes 123 s.
+Regressions: svparser-test 44/44, LiteX all phases PASS.
