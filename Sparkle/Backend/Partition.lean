@@ -38,6 +38,7 @@ partial def collectRefs : Expr → List String
   | .op _ args => args.flatMap collectRefs
   | .concat args => args.flatMap collectRefs
   | .slice e _ _ => collectRefs e
+  | .sliceDim e _ _ => collectRefs e
   | .index arr idx => collectRefs arr ++ collectRefs idx
   | _ => []
 

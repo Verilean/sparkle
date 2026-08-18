@@ -92,6 +92,7 @@ partial def exprWidth (env : String → Option Nat) : Expr → Nat
       | _, []             => 0
   | .concat args   => args.foldl (fun acc e => acc + exprWidth env e) 0
   | .slice _ hi lo => if hi ≥ lo then hi - lo + 1 else 0
+  | .sliceDim e _ _ => exprWidth env e
   | .index arr _   => exprWidth env arr
 
 /-- Approximate `log2(n)` rounded up (used for barrel-shifter cost). -/
@@ -127,6 +128,7 @@ def opCost (m : CostModel) (env : String → Option Nat) : Expr → Nat
       | .neg                      => m.negCost * argW
   | .concat _      => 0
   | .slice _ _ _   => 0
+  | .sliceDim _ _ _ => 0
   | .index _ _     => 0
 
 /-- Recursively sum area over an expression tree (each shared
@@ -136,6 +138,7 @@ partial def exprArea (m : CostModel) (env : String → Option Nat) : Expr → Na
   | e@(.op _ args)    => opCost m env e + args.foldl (fun acc a => acc + exprArea m env a) 0
   | .concat args      => args.foldl (fun acc a => acc + exprArea m env a) 0
   | .slice e _ _      => exprArea m env e
+  | .sliceDim e _ _   => exprArea m env e
   | .index arr idx    => exprArea m env arr + exprArea m env idx
   | .const _ _        => 0
   | .ref _            => 0
@@ -189,6 +192,7 @@ partial def exprDepth (m : CostModel) (env : String → Option Nat)
         if d > best then best := d
       return best
   | .slice e _ _   => exprDepth m env assignMap e
+  | .sliceDim e _ _ => exprDepth m env assignMap e
   | .index arr idx => do
       let a ← exprDepth m env assignMap arr
       let b ← exprDepth m env assignMap idx
@@ -218,11 +222,8 @@ def exprDepthOf (m : CostModel) (env : String → Option Nat)
 /-- Build a `String → Option Nat` width-lookup function from
     a module's ports + internal wires. -/
 def buildEnv (mod : Module) : String → Option Nat :=
-  let table : List (String × Nat) :=
-    (mod.inputs.map (fun p => (p.name, p.ty.bitWidth)))
-    ++ (mod.outputs.map (fun p => (p.name, p.ty.bitWidth)))
-    ++ (mod.wires.map (fun p => (p.name, p.ty.bitWidth)))
-  fun name => (table.find? (fun (n, _) => n == name)).map (·.2)
+  let ports := mod.inputs ++ mod.outputs ++ mod.wires
+  fun name => (ports.find? (·.name == name)).bind (fun p => p.ty.bitWidth?)
 
 /-- Area contribution of one statement. -/
 def stmtArea (m : CostModel) (env : String → Option Nat) : Stmt → Nat
@@ -347,6 +348,7 @@ partial def exprLUT (env : String → Option Nat) : Expr → Nat
   | e@(.op _ args)    => lutOf env e + args.foldl (fun acc a => acc + exprLUT env a) 0
   | .concat args      => args.foldl (fun acc a => acc + exprLUT env a) 0
   | .slice e _ _      => exprLUT env e
+  | .sliceDim e _ _   => exprLUT env e
   | .index arr idx    => exprLUT env arr + exprLUT env idx
   | .const _ _        => 0
   | .ref _            => 0
@@ -380,6 +382,7 @@ partial def exprDSP (env : String → Option Nat) : Expr → Nat
   | .op _ args     => args.foldl (fun acc a => acc + exprDSP env a) 0
   | .concat args   => args.foldl (fun acc a => acc + exprDSP env a) 0
   | .slice e _ _   => exprDSP env e
+  | .sliceDim e _ _ => exprDSP env e
   | .index arr idx => exprDSP env arr + exprDSP env idx
   | _ => 0
 

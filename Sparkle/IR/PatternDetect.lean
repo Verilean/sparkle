@@ -45,6 +45,7 @@ partial def collectRefs : Expr → List String
   | .op _ args => args.flatMap collectRefs
   | .concat args => args.flatMap collectRefs
   | .slice e _ _ => collectRefs e
+  | .sliceDim e _ _ => collectRefs e
   | .index arr idx => collectRefs arr ++ collectRefs idx
   | _ => []
 
@@ -54,6 +55,7 @@ partial def exprContains (name : String) : Expr → Bool
   | .op _ args => args.any (exprContains name)
   | .concat args => args.any (exprContains name)
   | .slice e _ _ => exprContains name e
+  | .sliceDim e _ _ => exprContains name e
   | .index arr idx => exprContains name arr || exprContains name idx
   | _ => false
 

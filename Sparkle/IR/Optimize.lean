@@ -46,6 +46,7 @@ partial def inferWidth (wm : WidthMap) : Expr → Nat
   | .const _ w => w
   | .ref name => wm.getD name 0
   | .slice _ hi lo => hi - lo + 1
+  | .sliceDim _ _ _ => 0
   | .concat args => args.foldl (fun acc a => acc + inferWidth wm a) 0
   | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
   | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
@@ -211,6 +212,7 @@ partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
   | .ref name => .ref name  -- Note: constant propagation deferred (needs use-count guard)
   | .slice (.ref name) hi lo => foldConstants (resolveSlice dm wm name hi lo 500)
   | .slice e hi lo => foldConstants (.slice (optimizeExpr dm wm e) hi lo)
+  | .sliceDim e hi lo => .sliceDim (optimizeExpr dm wm e) hi lo
   | .op op args => foldConstants (.op op (args.map (optimizeExpr dm wm ·)))
   | .concat args => .concat (args.map (optimizeExpr dm wm ·))
   | .index arr idx => .index (optimizeExpr dm wm arr) (optimizeExpr dm wm idx)
@@ -222,6 +224,7 @@ partial def collectExprRefs : Expr → List String
   | .op _ args => args.flatMap collectExprRefs
   | .concat args => args.flatMap collectExprRefs
   | .slice e _ _ => collectExprRefs e
+  | .sliceDim e _ _ => collectExprRefs e
   | .index a i => collectExprRefs a ++ collectExprRefs i
   | .const _ _ => []
 
@@ -231,6 +234,7 @@ partial def countExprUses (e : Expr) (counts : HashMap String Nat)
   | .ref name => counts.insert name ((counts.getD name 0) + 1)
   | .const _ _ => counts
   | .slice inner _ _ => countExprUses inner counts
+  | .sliceDim inner _ _ => countExprUses inner counts
   | .concat args => args.foldl (fun acc a => countExprUses a acc) counts
   | .op _ args => args.foldl (fun acc a => countExprUses a acc) counts
   | .index arr idx => countExprUses idx (countExprUses arr counts)
@@ -298,6 +302,7 @@ partial def substituteExpr (dm : DefMap) (inlinable : HashMap String Bool)
     else .ref name
   | .const v w => .const v w
   | .slice e hi lo => .slice (substituteExpr dm inlinable widthOfWire fuel e) hi lo
+  | .sliceDim e hi lo => .sliceDim (substituteExpr dm inlinable widthOfWire fuel e) hi lo
   | .concat args => .concat (args.map (substituteExpr dm inlinable widthOfWire fuel ·))
   | .op op args => .op op (args.map (substituteExpr dm inlinable widthOfWire fuel ·))
   | .index arr idx =>
@@ -475,6 +480,7 @@ def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
       | none => .ref name
     | .const v w => .const v w
     | .slice e hi lo => .slice (substExpr e) hi lo
+    | .sliceDim e hi lo => .sliceDim (substExpr e) hi lo
     | .concat args => .concat (args.map substExpr)
     | .op op args => .op op (args.map substExpr)
     | .index arr idx => .index (substExpr arr) (substExpr idx)
@@ -542,6 +548,8 @@ partial def eliminateZeroBitInExpr (wm : WidthMap) : Expr → Expr
         else .slice e' hi lo
       | _ => .slice e' hi lo
   | .index a i => .index (eliminateZeroBitInExpr wm a) (eliminateZeroBitInExpr wm i)
+  | .sliceDim e hi lo =>
+    .sliceDim (eliminateZeroBitInExpr wm e) hi lo
 
 /-- Drop `Stmt.assign` whose LHS has zero width — these only exist as
     leftover bookkeeping from 0-bit IR construction (see
@@ -586,6 +594,7 @@ partial def renameRefs (subst : HashMap String String) : Expr → Expr
   | .op o args => .op o (args.map (renameRefs subst))
   | .concat args => .concat (args.map (renameRefs subst))
   | .slice e hi lo => .slice (renameRefs subst e) hi lo
+  | .sliceDim e hi lo => .sliceDim (renameRefs subst e) hi lo
   | .index a i => .index (renameRefs subst a) (renameRefs subst i)
   | e => e
 

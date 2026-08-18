@@ -57,6 +57,19 @@ def aluModule : Module := {
   ]
 }
 
+/-- Native symbolic-width IR is Verilog-only in P1. -/
+def symbolicModule : Module := {
+  name := "Symbolic"
+  parameters := [{ name := "W", defaultValue := 8 }]
+  inputs := [⟨"x", .bitVectorDim (.parameter "W")⟩]
+  outputs := [⟨"y", .bitVectorDim (.parameter "W")⟩]
+  wires := []
+  body := [.assign "y" (.ref "x")]
+}
+
+def symbolicDesign : Design :=
+  { topModule := "Symbolic", modules := [symbolicModule] }
+
 -- ── Hierarchical fixture: a 2×2 weight-stationary systolic mesh ──────
 -- Exercises toCudaSimDesign's whole-design emission: the top instantiates
 -- PE sub-modules and wires them nearest-neighbour, so CSim must emit the
@@ -187,6 +200,8 @@ def cudaSimTests : IO TestSeq := do
   let aluCu     := toCudaSim aluModule
   let meshCu    := toCudaSimDesign systolicDesign
   let intraCu   := okOut (toCudaIntraDesign systolicDesign)
+  let symbolicCu := toCudaSim symbolicModule
+  let symbolicDesignCu := toCudaSimDesign symbolicDesign
 
   return group "CUDA Simulation Backend Tests" (
     group "toCudaSim: Counter Module" (
@@ -233,6 +248,12 @@ def cudaSimTests : IO TestSeq := do
       test "generates activation wire-copy →right"   (hasSubstr meshCu "pe_0_1.a_in = aout_0_0") $
       test "generates partial-sum wire-copy →down"   (hasSubstr meshCu "pe_1_0.p_in = pout_0_0") $
       test "batch kernel targets the top"            (hasSubstr meshCu "Systolic2x2_batch_kernel")
+    ) ++
+    group "symbolic-width rejection" (
+      test "single-module API fails closed"
+        (hasSubstr symbolicCu "#error \"Sparkle CudaSim does not support native symbolic-width modules") $
+      test "design API fails closed"
+        (hasSubstr symbolicDesignCu "#error \"Sparkle CudaSim does not support native symbolic-width modules")
     ) ++
     -- Intra (PE-per-thread) backend: table-driven copy descriptors, the two
     -- kernels, and the host entry point (see docs/CudaIntraSim-design.md).

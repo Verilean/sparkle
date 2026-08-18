@@ -1,6 +1,7 @@
 import Sparkle
 import Sparkle.Compiler.Elab
 import Tests.TestCircuits
+import Tests.SymbolicParameterCircuits
 import LSpec
 
 open Sparkle.Core.Domain
@@ -38,6 +39,22 @@ def synthesizeDesignToString (declName : Name) : Lean.MetaM String := do
   let design ← synthesizeHierarchical declName
   return toVerilogDesign design
 
+/-- Synthesize a native parameterized module without specializing its widths. -/
+def synthesizeParameterizedToString (declName : Name)
+    (parameters : List (String × Nat)) : Lean.MetaM String := do
+  let (module, _) ← synthesizeCombinationalWithParameters declName parameters
+  return toVerilog module
+
+/-- Check that rejected parameter contracts report the intended reason. -/
+def parameterizedSynthesisRejectsWith (declName : Name)
+    (parameters : List (String × Nat)) (needle : String) : Lean.MetaM Bool := do
+  try
+    let _ ← synthesizeCombinationalWithParameters declName parameters
+    return false
+  catch error =>
+    let message ← error.toMessageData.toString
+    return message.containsSubstr needle
+
 /-- Extract a specific module from multi-module Verilog output -/
 def extractModule (verilog : String) (moduleName : String) : String :=
   let lines := verilog.splitOn "\n"
@@ -64,6 +81,14 @@ structure VerilogOutputs where
   muxVerilog : String
   flipflopVerilog : String
   hierarchicalVerilog : String
+  symbolicXorVerilog : String
+  symbolicConcatVerilog : String
+  symbolicSliceLowVerilog : String
+  symbolicZeroExtendVerilog : String
+  rejectsUnretainedWidth : Bool
+  rejectsMissingBinder : Bool
+  rejectsDuplicateParameter : Bool
+  rejectsZeroWidthDefault : Bool
 
 /-- Synthesize all modules for testing -/
 def synthesizeAll : Lean.MetaM VerilogOutputs := do
@@ -72,7 +97,31 @@ def synthesizeAll : Lean.MetaM VerilogOutputs := do
   let muxVerilog ← synthesizeToString `test_mux
   let flipflopVerilog ← synthesizeToString `test_flipflop
   let hierarchicalVerilog ← synthesizeDesignToString `test_hierarchical_alu
-  return { addVerilog, andVerilog, muxVerilog, flipflopVerilog, hierarchicalVerilog }
+  let symbolicXorVerilog ←
+    synthesizeParameterizedToString `symbolicXor [("W", 8)]
+  let symbolicConcatVerilog ←
+    synthesizeParameterizedToString `symbolicConcat [("HI", 5), ("LO", 3)]
+  let symbolicSliceLowVerilog ←
+    synthesizeParameterizedToString `symbolicSliceLow [("W", 8)]
+  let symbolicZeroExtendVerilog ←
+    synthesizeParameterizedToString `symbolicZeroExtend [("W", 8)]
+  let rejectsUnretainedWidth ←
+    parameterizedSynthesisRejectsWith `symbolicXor [] "was not retained"
+  let rejectsMissingBinder ←
+    parameterizedSynthesisRejectsWith `symbolicXor [("MISSING", 8)]
+      "is not a top-level Nat binder"
+  let rejectsDuplicateParameter ←
+    parameterizedSynthesisRejectsWith `symbolicXor [("W", 8), ("W", 16)]
+      "must be unique"
+  let rejectsZeroWidthDefault ←
+    parameterizedSynthesisRejectsWith `symbolicXor [("W", 0)]
+      "must have a positive default"
+  return {
+    addVerilog, andVerilog, muxVerilog, flipflopVerilog, hierarchicalVerilog,
+    symbolicXorVerilog, symbolicConcatVerilog, symbolicSliceLowVerilog,
+    symbolicZeroExtendVerilog, rejectsUnretainedWidth, rejectsMissingBinder,
+    rejectsDuplicateParameter, rejectsZeroWidthDefault
+  }
 
 /-- Create test suite from synthesized outputs -/
 def makeTests (outputs : VerilogOutputs) : TestSeq :=
@@ -95,6 +144,41 @@ def makeTests (outputs : VerilogOutputs) : TestSeq :=
       group "test_mux (Multiplexer)" (
         test "module declared" (outputs.muxVerilog.containsSubstr "module test_mux") $
         test "has ternary operator" (outputs.muxVerilog.containsSubstr " ? ")
+      )
+    ) ++
+    group "Native Symbolic Parameters" (
+      group "symbolicXor" (
+        test "module has a parameter list"
+          (outputs.symbolicXorVerilog.containsSubstr "module symbolicXor #(") $
+        test "retains W with its default"
+          (outputs.symbolicXorVerilog.containsSubstr "parameter integer W = 8") $
+        test "input width depends on W"
+          (outputs.symbolicXorVerilog.containsSubstr "input logic [W-1:0]") $
+        test "output width depends on W"
+          (outputs.symbolicXorVerilog.containsSubstr "output logic [W-1:0]") $
+        test "does not freeze the default width"
+          (!outputs.symbolicXorVerilog.containsSubstr "[7:0]") $
+        test "emits XOR logic"
+          (outputs.symbolicXorVerilog.containsSubstr " ^ ")
+      ) ++
+      group "derived dimensions" (
+        test "concat retains both parameters"
+          (outputs.symbolicConcatVerilog.containsSubstr "parameter integer HI = 5" &&
+           outputs.symbolicConcatVerilog.containsSubstr "parameter integer LO = 3") $
+        test "concat output width is HI + LO"
+          (outputs.symbolicConcatVerilog.containsSubstr "logic [(HI + LO)-1:0]") $
+        test "slice length remains W"
+          (outputs.symbolicSliceLowVerilog.containsSubstr "[W-1:0]") $
+        test "slice high index remains W - 1"
+          (outputs.symbolicSliceLowVerilog.containsSubstr "[(W - 1):0]") $
+        test "extension output width remains W + 1"
+          (outputs.symbolicZeroExtendVerilog.containsSubstr "logic [(W + 1)-1:0]")
+      ) ++
+      group "fail-closed diagnostics" (
+        test "rejects an unretained generic width" outputs.rejectsUnretainedWidth $
+        test "rejects a requested name without a binder" outputs.rejectsMissingBinder $
+        test "rejects duplicate parameter names" outputs.rejectsDuplicateParameter $
+        test "rejects a zero hardware-width default" outputs.rejectsZeroWidthDefault
       )
     ) ++
     group "Hierarchical Circuits" (
@@ -146,7 +230,8 @@ def main : IO UInt32 := do
 
   -- Import required modules
   let env ← Lean.importModules
-    #[{module := `Sparkle.Compiler.Elab}, {module := `Sparkle.Backend.Verilog}, {module := `Tests.TestCircuits}]
+    #[{module := `Sparkle.Compiler.Elab}, {module := `Sparkle.Backend.Verilog},
+      {module := `Tests.TestCircuits}, {module := `Tests.SymbolicParameterCircuits}]
     {}
     (trustLevel := 1024)
 

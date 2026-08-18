@@ -300,6 +300,7 @@ private def kindOfExpr : Expr → NodeKind
   | .op _     _             => .gen
   | .concat _               => .gen
   | .slice _ _ _            => .gen
+  | .sliceDim _ _ _         => .gen
   | .index _ _              => .gen
 
 /-- Collect every wire reference inside an expression. -/
@@ -309,6 +310,7 @@ private partial def refsOf : Expr → List String
   | .op _ args        => args.foldl (fun acc e => acc ++ refsOf e) []
   | .concat args      => args.foldl (fun acc e => acc ++ refsOf e) []
   | .slice e _ _      => refsOf e
+  | .sliceDim e _ _   => refsOf e
   | .index a i        => refsOf a ++ refsOf i
 
 /-- Build a `Diagram` from a Sparkle IR module.

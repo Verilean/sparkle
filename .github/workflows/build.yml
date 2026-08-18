@@ -148,6 +148,9 @@ jobs:
     - name: "Install iverilog"
       run: sudo apt-get install -y iverilog
 
+    - name: "Verify native symbolic parameters"
+      run: scripts/verify_symbolic_parameters.sh
+
     - name: "Run iverilog round-trip tests"
       run: lake exe iverilog-roundtrip-test
 

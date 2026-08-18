@@ -62,6 +62,11 @@ def getDesign : CircuitM Design := do
 def addModuleToDesign (m : Module) : CircuitM Unit := do
   modify fun s => { s with design := s.design.addModule m }
 
+/-- Add a retained parameter to the module being built. -/
+def addParameter (name : String) (defaultValue : Nat) : CircuitM Unit := do
+  let m ← getModule
+  setModule (m.addParameter { name, defaultValue })
+
 /-- Strip Lean's macro-hygiene suffix from an identifier name.
 
     Lean macros introduce identifiers like
