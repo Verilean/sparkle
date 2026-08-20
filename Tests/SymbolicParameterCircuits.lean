@@ -19,3 +19,8 @@ def symbolicSliceLow {dom : DomainConfig} {W : Nat}
 def symbolicZeroExtend {dom : DomainConfig} {W : Nat}
     (x : Signal dom (BitVec W)) : Signal dom (BitVec (W + 1)) :=
   x.map (·.zeroExtend (W + 1))
+
+/-- Ordinary synthesis remains supported once a generic width is made concrete. -/
+def concreteSliceLow8 {dom : DomainConfig}
+    (x : Signal dom (BitVec 9)) : Signal dom (BitVec 8) :=
+  symbolicSliceLow (W := 8) x

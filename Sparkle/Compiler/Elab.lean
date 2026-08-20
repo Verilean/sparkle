@@ -434,6 +434,11 @@ partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
 where
   extractWidth (e : Lean.Expr) : MetaM Nat := do
     let e ← whnf e
+    let unresolvedWidth : MetaM Nat := do
+      let rendered ← ppExpr e
+      throwError s!"Unresolved symbolic hardware width '{rendered}' in ordinary synthesis. " ++
+        "Specialize it to a concrete Nat or use #synthesizeParameterizedVerilog " ++
+        "with a retained parameter."
     match e with
     | .lit (.natVal n) => return n
     | .app _ _ =>
@@ -475,8 +480,8 @@ where
         else if fnConst.isConstOf ``HMul.hMul then return a * b
         else return a ^ b
       else
-        return 8
-    | _ => return 8
+        unresolvedWidth
+    | _ => unresolvedWidth
 
 /-- Preserve a retained top-level Nat binder as a closed symbolic dimension. -/
 partial def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr := do
@@ -536,7 +541,7 @@ partial def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr := do
       CompilerM.liftMetaM $ throwError s!"Unsupported symbolic hardware dimension '{rendered}'"
 
 /-- Infer hardware types with retained dimensions when parameter synthesis is active.
-    The established concrete inference path remains untouched for ordinary APIs. -/
+    Ordinary synthesis delegates to concrete inference and rejects unresolved widths. -/
 partial def inferHWTypeWithDimensions (type : Lean.Expr) : CompilerM (Option HWType) := do
   let state ← CompilerM.getCompilerState
   if !state.symbolicMode then
@@ -3816,15 +3821,16 @@ mutual
                   (buildEnv (i + 1) k)
               | none =>
                 let isSignalArg ← isSignalBinderType binderType
-                if symbolicMode && isSignalArg then
-                  -- Do not catch failures here: an unretained width must report
-                  -- its symbolic-parameter diagnostic instead of disappearing.
+                if isSignalArg then
+                  -- Signal binders are hardware ports in both synthesis modes.
+                  -- Do not swallow their type errors as if they were erased
+                  -- configuration arguments.
                   let hwType ← inferHWTypeFromSignal binderType
                   let w ← CompilerM.makeWire binderName.toString hwType (named := true)
                   CompilerM.addInput w hwType
                   CompilerM.withVarMapping fvarId w (buildEnv (i + 1) k)
                 else
-                  -- Preserve the legacy fallback for unusual concrete HW args.
+                  -- Preserve the legacy fallback for unusual non-Signal HW args.
                   let isHWArg ← try
                     let _ ← inferHWTypeFromSignal binderType
                     pure true

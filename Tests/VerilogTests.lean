@@ -55,6 +55,15 @@ def parameterizedSynthesisRejectsWith (declName : Name)
     let message ← error.toMessageData.toString
     return message.containsSubstr needle
 
+/-- Check that ordinary synthesis rejects an invalid top with the intended reason. -/
+def synthesisRejectsWith (declName : Name) (needle : String) : Lean.MetaM Bool := do
+  try
+    let _ ← synthesizeCombinational declName
+    return false
+  catch error =>
+    let message ← error.toMessageData.toString
+    return message.containsSubstr needle
+
 /-- Extract a specific module from multi-module Verilog output -/
 def extractModule (verilog : String) (moduleName : String) : String :=
   let lines := verilog.splitOn "\n"
@@ -85,6 +94,8 @@ structure VerilogOutputs where
   symbolicConcatVerilog : String
   symbolicSliceLowVerilog : String
   symbolicZeroExtendVerilog : String
+  concreteSliceLow8Verilog : String
+  rejectsOrdinaryUnresolvedWidth : Bool
   rejectsUnretainedWidth : Bool
   rejectsMissingBinder : Bool
   rejectsDuplicateParameter : Bool
@@ -105,6 +116,9 @@ def synthesizeAll : Lean.MetaM VerilogOutputs := do
     synthesizeParameterizedToString `symbolicSliceLow [("W", 8)]
   let symbolicZeroExtendVerilog ←
     synthesizeParameterizedToString `symbolicZeroExtend [("W", 8)]
+  let concreteSliceLow8Verilog ← synthesizeToString `concreteSliceLow8
+  let rejectsOrdinaryUnresolvedWidth ←
+    synthesisRejectsWith `symbolicXor "Unresolved symbolic hardware width"
   let rejectsUnretainedWidth ←
     parameterizedSynthesisRejectsWith `symbolicXor [] "was not retained"
   let rejectsMissingBinder ←
@@ -119,7 +133,8 @@ def synthesizeAll : Lean.MetaM VerilogOutputs := do
   return {
     addVerilog, andVerilog, muxVerilog, flipflopVerilog, hierarchicalVerilog,
     symbolicXorVerilog, symbolicConcatVerilog, symbolicSliceLowVerilog,
-    symbolicZeroExtendVerilog, rejectsUnretainedWidth, rejectsMissingBinder,
+    symbolicZeroExtendVerilog, concreteSliceLow8Verilog,
+    rejectsOrdinaryUnresolvedWidth, rejectsUnretainedWidth, rejectsMissingBinder,
     rejectsDuplicateParameter, rejectsZeroWidthDefault
   }
 
@@ -174,7 +189,15 @@ def makeTests (outputs : VerilogOutputs) : TestSeq :=
         test "extension output width remains W + 1"
           (outputs.symbolicZeroExtendVerilog.containsSubstr "logic [(W + 1)-1:0]")
       ) ++
+      group "ordinary concrete specialization" (
+        test "specializes W + 1 in the input width"
+          (outputs.concreteSliceLow8Verilog.containsSubstr "input logic [8:0]") $
+        test "specializes W in the output width"
+          (outputs.concreteSliceLow8Verilog.containsSubstr "output logic [7:0]")
+      ) ++
       group "fail-closed diagnostics" (
+        test "ordinary synthesis rejects an unresolved width"
+          outputs.rejectsOrdinaryUnresolvedWidth $
         test "rejects an unretained generic width" outputs.rejectsUnretainedWidth $
         test "rejects a requested name without a binder" outputs.rejectsMissingBinder $
         test "rejects duplicate parameter names" outputs.rejectsDuplicateParameter $
