@@ -81,6 +81,7 @@ def emitScalarBase : HWType → String
     else if w ≤ 64 then "uint64_t"
     else "uint32_t"  -- wide: array of 32-bit words
   | .array _ elemType => emitScalarBase elemType
+  | .bitVectorDim _ => "SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH"
 
 /-- Total array length suffix for a HWType, e.g. `[3]` for a
     96-bit wide type, `[8][3]` for `array 8 (bitVector 96)`,
@@ -90,6 +91,7 @@ partial def emitArraySuffix : HWType → String
   | .bitVector w =>
     if w ≤ 64 then "" else s!"[{wordsOf w}]"
   | .array size elemType => s!"[{size}]" ++ emitArraySuffix elemType
+  | .bitVectorDim _ => "[SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH]"
 
 /-- Emit a C field/local declaration like `uint32_t foo[3]` —
     the type goes on the left, the array dimensions on the
@@ -179,6 +181,7 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   | .const _ w => w
   | .ref name => lookupWidth typeMap name
   | .slice _ hi lo => hi - lo + 1
+  | .sliceDim _ _ _ => 0
   | .concat args =>
     args.foldl (fun acc arg => acc + inferExprWidth typeMap arg) 0
   | .index arr _ =>
@@ -429,6 +432,8 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
         else
           s!"(({emitExpr typeMap e} >> {lo}) & {maskStr})"
 
+  | .sliceDim _ _ _ =>
+    "SPARKLE_UNSUPPORTED_SYMBOLIC_SLICE"
   | .index arr idx =>
     s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
 
@@ -1106,6 +1111,7 @@ partial def collectExprRefs : Expr → List String
   | .const _ _ => []
   | .slice inner _ _ => collectExprRefs inner
   | .concat args => args.foldl (fun acc a => acc ++ collectExprRefs a) []
+  | .sliceDim inner _ _ => collectExprRefs inner
   | .op _ args => args.foldl (fun acc a => acc ++ collectExprRefs a) []
   | .index arr idx => collectExprRefs arr ++ collectExprRefs idx
 
@@ -1122,13 +1128,38 @@ def collectTickRefWires (body : List Stmt) : List String :=
     | _ => acc
   ) []
 
+/-- Parameterized IR is intentionally Verilog-only in P1.  Reject it at CSim
+    module boundaries before concrete-width helpers can observe it. -/
+partial def exprHasSymbolicWidth : Expr → Bool
+  | .sliceDim _ _ _ => true
+  | .op _ args | .concat args => args.any exprHasSymbolicWidth
+  | .slice expr _ _ => exprHasSymbolicWidth expr
+  | .index array index => exprHasSymbolicWidth array || exprHasSymbolicWidth index
+  | _ => false
+
+def moduleHasSymbolicWidth (m : Module) : Bool :=
+  !m.parameters.isEmpty ||
+  (m.inputs ++ m.outputs ++ m.wires).any (fun port => port.ty.bitWidth?.isNone) ||
+  m.body.any fun stmt => match stmt with
+    | .assign _ rhs => exprHasSymbolicWidth rhs
+    | .register _ _ _ input _ => exprHasSymbolicWidth input
+    | .memory _ _ _ _ wa wd we ra _ _ =>
+        exprHasSymbolicWidth wa || exprHasSymbolicWidth wd ||
+        exprHasSymbolicWidth we || exprHasSymbolicWidth ra
+    | .inst _ _ connections => connections.any (exprHasSymbolicWidth ·.2)
+
+def unsupportedSymbolicWidthError : String :=
+  "#error \"Sparkle CSim does not support native symbolic-width modules; use the Verilog backend\"\n"
+
 /-- Emit a complete C struct + static helpers for a module.
     Returns the full C source fragment (no includes; callers
     add those at design level). -/
 def emitModule (m : Module) (design : Option Design := none)
     (observableWires : Option (List String) := none)
     (funcQual : String := "") : String :=
-  if m.isPrimitive then
+  if moduleHasSymbolicWidth m then
+    unsupportedSymbolicWidthError
+  else if m.isPrimitive then
     s!"/* Primitive module: {m.name} */\n/* (blackbox - not generated) */\n\n"
   else
     let typeMap := buildTypeMap m
@@ -1641,7 +1672,7 @@ private def emitMemsetWordSwitch (body : List Stmt) : String :=
     The top-level `.so` therefore exports `jit_vtable` and
     nothing else (other than the unavoidable glibc init/fini
     stubs). -/
-def toCJIT (d : Design)
+private def toCJITUnchecked (d : Design)
     (observableWires0 : Option (List String) := none) : String :=
   -- Determine which internal wires must be struct MEMBERS (persist
   -- across ticks): those feeding a register/memory input.  All other
@@ -1842,4 +1873,11 @@ def toCJIT (d : Design)
 
     classCode ++ "\n" ++ vtableType ++ trampolines ++ vtableInst
 
+
+def toCJIT (d : Design)
+    (observableWires : Option (List String) := none) : String :=
+  if d.modules.any moduleHasSymbolicWidth then
+    unsupportedSymbolicWidthError
+  else
+    toCJITUnchecked d observableWires
 end Sparkle.Backend.CSim

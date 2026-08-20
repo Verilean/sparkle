@@ -195,12 +195,14 @@ structure ImmEnt where
 
 /-- C storage size of a port, matching CSim's field emission
     (uint8/16/32/64 by width; wide → uint32_t words). -/
-private def byteSize : HWType → Nat
-  | .bit => 1
+private def byteSize : HWType → Except String Nat
+  | .bit => pure 1
   | .bitVector w =>
-    if w ≤ 8 then 1 else if w ≤ 16 then 2 else if w ≤ 32 then 4
+    pure <| if w ≤ 8 then 1 else if w ≤ 16 then 2 else if w ≤ 32 then 4
     else if w ≤ 64 then 8 else 4 * ((w + 31) / 32)
-  | .array n t => n * byteSize t
+  | .bitVectorDim width =>
+    throw s!"CudaIntra requires a concrete bit width, found {width}; specialize retained parameters before CUDA lowering"
+  | .array n t => return n * (← byteSize t)
 
 private def portTy (ports : List Port) (name : String) : Option HWType :=
   (ports.find? (·.name == name)).map (·.ty)
@@ -237,23 +239,25 @@ private def buildTables (top : Module) (insts : List InstInfo) :
         continue   -- output connections become `drivers` entries
       let some ty := portTy ii.mod.inputs port
         | throw s!"instance '{ii.instName}': '{port}' is not an input of module '{ii.modName}'"
-      let nbytes := byteSize ty
+      let nbytes ← byteSize ty
       let dstC := s!"offsetof(struct {topC}, {ii.field}) + offsetof(struct {modC}, {sanitizeName port})"
       match ← resolveConn top drivers fuel e with
       | .instOutput prod pport =>
         mooreCheck s!"'{ii.instName}.{port}'" prod pport
         let some pty := portTy prod.mod.outputs pport
           | throw s!"internal: output '{pport}' not found on '{prod.modName}'"
-        if byteSize pty != nbytes then
-          throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← '{prod.instName}.{pport}' ({byteSize pty} bytes)"
+        let pbytes ← byteSize pty
+        if pbytes != nbytes then
+          throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← '{prod.instName}.{pport}' ({pbytes} bytes)"
         copies := copies ++ [⟨dstC,
           s!"offsetof(struct {topC}, {prod.field}) + offsetof(struct {sanitizeName prod.modName}, {sanitizeName pport})",
           nbytes⟩]
       | .topInput tport =>
         let some tty := portTy top.inputs tport
           | throw s!"internal: top input '{tport}' not found"
-        if byteSize tty != nbytes then
-          throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← top input '{tport}' ({byteSize tty} bytes)"
+        let tbytes ← byteSize tty
+        if tbytes != nbytes then
+          throw s!"width mismatch: '{ii.instName}.{port}' ({nbytes} bytes) ← top input '{tport}' ({tbytes} bytes)"
         copies := copies ++ [⟨dstC, s!"offsetof(struct {topC}, {sanitizeName tport})", nbytes⟩]
       | .imm v w =>
         if nbytes > 8 then
@@ -264,7 +268,7 @@ private def buildTables (top : Module) (insts : List InstInfo) :
   -- skipped (it stays at its reset value), but resolvable sources get the
   -- same Moore check — observing a Mealy output would read Phase-A garbage.
   for p in top.outputs do
-    let nbytes := byteSize p.ty
+    let nbytes ← byteSize p.ty
     let dstC := s!"offsetof(struct {topC}, {sanitizeName p.name})"
     match resolveRef top drivers fuel p.name with
     | .error _ => pure ()

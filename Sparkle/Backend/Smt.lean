@@ -139,6 +139,8 @@ partial def emitW (ctx : Ctx) (e : Expr) (w : Nat) : Except String String := do
     if hi ≥ wi || lo > hi then
       throw s!"slice [{hi}:{lo}] out of range for width {wi}: {e}"
     return coerce s!"((_ extract {hi} {lo}) {s})" (hi - lo + 1) w
+  | .sliceDim _ hi lo =>
+    throw s!"SMT backend requires concrete slice bounds; found symbolic slice [{hi}:{lo}]. Specialize retained parameters before SMT emission"
   | .index (.ref arr) idx =>
     match ctx.mems.find? (·.name == arr) with
     | some mi =>
@@ -168,6 +170,13 @@ def bmcInputs (m : Module) : List Port :=
 
 /-- Sanity checks + collected pieces for the frame emitter. -/
 private def checkModule (m : Module) : Except String Unit := do
+  if !m.parameters.isEmpty then
+    throw s!"module '{m.name}' has retained symbolic parameters; the SMT backend requires an explicitly specialized concrete module"
+  for p in m.inputs ++ m.outputs ++ m.wires do
+    match p.ty.bitWidth? with
+    | some _ => pure ()
+    | none =>
+      throw s!"{p.name}: the SMT backend requires a concrete bit width; specialize retained parameters before SMT emission"
   for s in m.body do
     match s with
     | .inst _ instName _ =>
