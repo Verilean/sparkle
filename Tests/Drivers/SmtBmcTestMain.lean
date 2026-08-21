@@ -37,10 +37,21 @@ def emitReplayC (m : Module) (k : Nat) (cex : Array (List (String × Nat))) :
   for c in [0:k+1] do
     lines := lines ++ [s!"  // cycle {c}"]
     for p in bmcInputs m do
-      if p.ty.bitWidth > 64 then
-        throw s!"replay v1 supports ≤64-bit input ports ('{p.name}' is {p.ty.bitWidth})"
       let v := ((cex.getD c []).find? (·.1 == sanitizeName p.name)).map (·.2) |>.getD 0
-      lines := lines ++ [s!"  s.{sanitizeName p.name} = {v}ULL;"]
+      let field := sanitizeName p.name
+      match p.ty with
+      | .bit =>
+        lines := lines ++ [s!"  s.{field} = {v}ULL;"]
+      | .bitVector width =>
+        if width ≤ 64 then
+          lines := lines ++ [s!"  s.{field} = {v}ULL;"]
+        else
+          let wordCount := (width + 31) / 32
+          for wordIndex in List.range wordCount do
+            let word := (v / (2 ^ (32 * wordIndex))) % (2 ^ 32)
+            lines := lines ++ [s!"  s.{field}[{wordIndex}] = {word}U;"]
+      | _ =>
+        throw s!"replay supports only concrete packed bit-vector inputs ('{p.name}')"
     lines := lines ++ [s!"  sparkle_{cls}_eval(&s);"]
     for (aname, _) in m.assertions do
       lines := lines ++
@@ -72,6 +83,13 @@ def main : IO Unit := do
     , ("mem-good",      memGood,      10, .unsat)
     , ("mem-buggy",     memBuggy,      8, .sat) ]
 
+  let parameterizedCases :
+      List (String × Module × Sparkle.IR.Specialize.Bindings × Nat × Expect) :=
+    [ ("param-zero-w3", parameterizedZeroAssertion, [("W", 3)], 0, .sat)
+    , ("param-zero-w17", parameterizedZeroAssertion, [("W", 17)], 0, .sat)
+    , ("param-zero-w65", parameterizedZeroAssertion, [("W", 65)], 0, .sat)
+    , ("param-derived-w65", parameterizedDerivedSlice, [("W", 65)], 0, .unsat) ]
+
   -- Layer 2a: always emit (generation regressions fail without a solver).
   let mut queries : List (String × Module × Nat × Expect × String) := []
   for (name, m, k, expect) in cases do
@@ -82,6 +100,22 @@ def main : IO Unit := do
       IO.FS.writeFile path q
       IO.println s!"[smt] emitted {path} ({q.length} chars)"
       queries := queries ++ [(name, m, k, expect, path)]
+
+  for (name, symbolic, bindings, k, expect) in parameterizedCases do
+    match Sparkle.IR.Specialize.specializeModule symbolic bindings with
+    | .error e =>
+      IO.eprintln s!"[smt] specialization error ({name}): {e}"
+      IO.Process.exit 1
+    | .ok concrete =>
+      match toSmtBmcQueryWithParameters symbolic bindings k with
+      | .error e =>
+        IO.eprintln s!"[smt] parameterized emit error ({name}): {e}"
+        IO.Process.exit 1
+      | .ok q =>
+        let path := s!"{dir}/{name}.smt2"
+        IO.FS.writeFile path q
+        IO.println s!"[smt] emitted {path} ({q.length} chars)"
+        queries := queries ++ [(name, concrete, k, expect, path)]
 
   -- Layer 2b: run z3 if present.
   let some z3 ← findExe "z3" "SPARKLE_Z3"

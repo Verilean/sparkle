@@ -54,6 +54,41 @@ operands directly at `w`. Non-ring ops evaluate at *natural* width
 `bvult`/`bvslt`/… at max operand width), `shr`/`asr` (high bits matter),
 `slice`, `concat` (first arg = MSB, matching Verilog/SMT conventions).
 
+### Parameter specialization
+
+The concrete entry point remains:
+
+```lean
+toSmtBmcQuery (m : Module) (k : Nat) : Except String String
+```
+
+It rejects retained parameters and symbolic widths. Fixed-layout SMT queries
+for retained-width IR use the explicit configuration API instead:
+
+```lean
+toSmtBmcQueryWithParameters
+  (m : Module) (bindings : Sparkle.IR.Specialize.Bindings) (k : Nat) :
+  Except String String
+```
+
+Every declared parameter must be bound exactly once. Missing, unknown,
+duplicate, and zero-valued bindings fail closed, as do invalid derived
+dimensions such as subtraction underflow or division by zero. The lowering
+order is deliberately:
+
+```text
+retained-parameter Module
+  → IR.Specialize.specializeModule
+  → concrete Module
+  → toSmtBmcQuery
+  → SMT-LIB2
+```
+
+There is **no generic IR optimization pass** between specialization and SMT
+emission. The current optimizer neither treats `Module.assertions` as
+reachability roots nor rewrites assertion expressions during CSE/inlining;
+running it here could remove or rename logic used only by a property.
+
 **Semantics note — reset**: CSim ignores the `rst` port at runtime (reset is
 the `reset()` entry point); frame 0 *is* the post-reset state. BMC mirrors
 CSim exactly because CSim is the replay reference. (The Verilog backend
@@ -62,26 +97,42 @@ honours `rst` in `always` blocks — that divergence predates this work.)
 ## 3. v1 scope (named error for each exclusion)
 
 - Flat modules only (no `.inst`) — the elaborator inlines by default;
-  hierarchical designs must be flattened first.
+  specialization does not flatten hierarchy, so hierarchical designs must be
+  flattened first.
+- At least one `Module.assertions` entry is required, and every assertion
+  expression must have width exactly 1 bit.
+- Every port and wire must have a positive concrete bit width at emission;
+  memory address and data widths must also be positive. Retained widths must
+  first pass through `toSmtBmcQueryWithParameters` with positive bindings.
 - `.index` only on memories; array-typed wires unsupported.
-- Undriven wires are an error (a free variable would over-approximate and
-  invite spurious cex; replay would catch them, but loudly failing is
-  better).
-- Replay requires ≤ 64-bit input ports (wide state inside the design is
-  fine — replay only pokes inputs).
+- Replay accepts concrete packed `Bit`/`BitVec` inputs. Inputs wider than 64
+  bits are split into the same 32-bit word-array representation used by CSim,
+  so the W=65 gate exercises the wide-input replay path.
 
 ## 4. Testing (same three-layer pattern as the CUDA backends)
 
 1. **Shape** (LSpec, `Tests/TestSmt.lean`): emitted `.smt2` structure on
    fixtures — declare/define frames, `store`/`select` for memories, the
-   violation disjunction; rejection errors (`.inst`, undriven wire).
-2. **Solver run** (`lake exe smt-bmc-test`, skips without z3):
+   violation disjunction, concrete W=3/17/65 sorts, and the derived W+1 /
+   W-1 slice. Rejection coverage includes raw symbolic emission, invalid
+   bindings, `.inst`, missing/non-1-bit assertions, and non-positive widths.
+2. **Solver run** (`lake exe smt-bmc-test`):
    - `goodCounter` (saturates at 5, assert `count ≤ 5`) → **unsat** at k=20;
    - `buggyCounter` (wrapping bv4, assert `count < 12`) → **sat** at k=14,
      replay **confirms** the violation cycle;
    - `memGood` (write x, read back, compare with registered x) → **unsat**
-     — the QF_ABV demo bv_decide cannot express;
-   - `memBuggy` (assert `rd = x` current-cycle) → **sat** + replay confirm.
+     — the array+bit-vector demo `bv_decide` cannot express;
+   - `memBuggy` (assert `rd = x` current-cycle) → **sat** + replay confirm;
+   - `parameterizedZeroAssertion` specialized at W=3, W=17, and W=65 →
+     **sat**, with every counterexample confirmed by the same specialized
+     CSim model (including the W=65 wide-input path);
+   - `parameterizedDerivedSlice` at W=65 → **unsat**, covering a W+1 input
+     and concrete `[64:0]` slice after specialization.
+
+   The executable still degrades to emit-only on local machines without Z3.
+   The `core-dsl` job in `.github/workflows/ip-tests.yml` explicitly installs,
+   locates, version-checks, and smoke-tests Z3 first, so CI cannot silently
+   take that fallback.
 3. **Replay** is layer 2's second half: generated C main (assertions
    exported as extra outputs so they are struct fields), gcc, run.
 
