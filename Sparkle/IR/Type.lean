@@ -60,6 +60,44 @@ def mkMul : DimExpr → DimExpr → DimExpr
   | .literal lhs, .literal rhs => .literal (lhs * rhs)
   | lhs, rhs => .mul lhs rhs
 
+/-- Evaluate a retained hardware dimension for one concrete parameter
+    configuration. Arithmetic that would make a hardware dimension
+    ill-defined fails closed instead of inheriting `Nat`'s saturating/default
+    behavior. In particular, subtraction may not underflow, division and
+    modulo require a non-zero divisor, and `clog2 0` is rejected. -/
+partial def evaluate (bindings : List (String × Nat)) : DimExpr → Except String Nat
+  | .literal value => return value
+  | .parameter name =>
+    match bindings.lookup name with
+    | some value => return value
+    | none => throw s!"missing specialization binding for parameter '{name}'"
+  | .add lhs rhs => return (← evaluate bindings lhs) + (← evaluate bindings rhs)
+  | .sub lhs rhs => do
+    let lhsValue ← evaluate bindings lhs
+    let rhsValue ← evaluate bindings rhs
+    if lhsValue < rhsValue then
+      throw s!"hardware dimension subtraction underflow: {lhsValue} - {rhsValue}"
+    return lhsValue - rhsValue
+  | .mul lhs rhs => return (← evaluate bindings lhs) * (← evaluate bindings rhs)
+  | .div lhs rhs => do
+    let lhsValue ← evaluate bindings lhs
+    let rhsValue ← evaluate bindings rhs
+    if rhsValue == 0 then throw "hardware dimension division by zero"
+    return lhsValue / rhsValue
+  | .mod lhs rhs => do
+    let lhsValue ← evaluate bindings lhs
+    let rhsValue ← evaluate bindings rhs
+    if rhsValue == 0 then throw "hardware dimension modulo by zero"
+    return lhsValue % rhsValue
+  | .pow base exponent => return (← evaluate bindings base) ^ (← evaluate bindings exponent)
+  | .clog2 value => do
+    let value ← evaluate bindings value
+    if value == 0 then throw "clog2 is undefined for hardware dimension 0"
+    if value == 1 then return 0
+    return Nat.log2 (value - 1) + 1
+  | .min lhs rhs => return Nat.min (← evaluate bindings lhs) (← evaluate bindings rhs)
+  | .max lhs rhs => return Nat.max (← evaluate bindings lhs) (← evaluate bindings rhs)
+
 partial def toString : DimExpr → String
   | .literal value => s!"{value}"
   | .parameter name => name
