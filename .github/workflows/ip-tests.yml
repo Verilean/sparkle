@@ -191,6 +191,19 @@ jobs:
       - name: Resolve Lean toolchain
         run: elan default $(cat lean-toolchain)
 
+      - name: Install and verify Z3 (core-dsl group only)
+        # `smt-bmc-test` intentionally supports an emit-only fallback for
+        # developer machines without a solver.  The core-dsl CI gate must not
+        # take that fallback: install Z3 explicitly and smoke-test the binary
+        # before the matrix runner reaches the SMT test.
+        if: matrix.group == 'core-dsl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3
+          command -v z3
+          z3 --version
+          printf '(check-sat)\n' | z3 -in | grep -qx sat
+
       - name: Build cdc_runner.so (runtime dlopen target)
         # Sparkle's JIT loads c_src/cdc/cdc_runner.so at run
         # time via dlopen.  CI runners don't ship the artifact,

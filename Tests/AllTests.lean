@@ -475,7 +475,9 @@ def main : IO UInt32 := do
 
   -- Import required modules
   let env ← Lean.importModules
-    #[{module := `Sparkle.Compiler.Elab}, {module := `Sparkle.Backend.Verilog}, {module := `Tests.TestCircuits}]
+    #[{module := `Sparkle.Compiler.Elab}, {module := `Sparkle.Backend.Verilog},
+      {module := `Tests.TestCircuits},
+      {module := `Tests.SymbolicParameterCircuits}]
     {}
     (trustLevel := 1024)
 
@@ -487,6 +489,10 @@ def main : IO UInt32 := do
 
   let (outputs, _) ← Lean.Meta.MetaM.toIO
     synthesizeAll
+    coreCtx
+    coreState
+  let (leanParameterizedCSim, _) ← Lean.Meta.MetaM.toIO
+    Sparkle.Test.CppSim.synthesizeLeanParameterizedXorCSim
     coreCtx
     coreState
 
@@ -812,7 +818,7 @@ def main : IO UInt32 := do
   let allTests := allTests ++ yolov8HeadTests ++ yolov8BottleneckTests ++ yolov8C2fTests ++ yolov8BackboneTests ++ yolov8NeckTests
 
   -- C++ Simulation Backend tests
-  let cppSimTests ← Sparkle.Test.CppSim.cppSimTests
+  let cppSimTests ← Sparkle.Test.CppSim.cppSimTests leanParameterizedCSim
   let allTests := allTests ++ cppSimTests
 
   -- CUDA Simulation Backend tests (emitter shape; build-only, no nvcc/GPU)
