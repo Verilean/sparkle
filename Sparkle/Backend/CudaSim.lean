@@ -17,13 +17,15 @@
   Limitations (v1)
   ─────────────────
   • No memory (BRAM) in device code — memories stay on the host.
-  • Wide integers (> 64 bit) are passed as uint64_t (low 64 bits), same as the
-    existing JIT ABI.
+  • Packed integers wider than 64 bits use CSim's uint32_t word-array layout;
+    the JIT ABI exposes consecutive little-endian 32-bit slots for input and
+    output ports.
   • The generated code requires CUDA ≥ 11.0 and a C++17-capable nvcc.
 -/
 
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.Specialize
 import Sparkle.Backend.CSim
 namespace Sparkle.Backend.CudaSim
 
@@ -154,13 +156,24 @@ def emitCudaJITHostAPI (m : Module) : String :=
   -- Input port list (excluding clk)
   let userInputs := m.inputs.filter fun p => p.name != "clk"
 
-  -- set_input switch (scalar ≤ 64-bit inputs; wide inputs would need the
-  -- per-word form get_output already uses — rare, so left as a follow-up).
-  let setInputCases := (userInputs.zip (List.range userInputs.length)).map
-    fun (p, i) =>
-      let sn := sanitizeName p.name
+  -- set_input switch.  Wide inputs use the same little-endian sequence of
+  -- 32-bit ABI slots as CSim's JIT wrapper: slot 0 writes bits [31:0], slot 1
+  -- writes [63:32], and so on.  Keeping this expansion symmetric with the
+  -- output side is essential because a wide field is a C array and cannot be
+  -- assigned from the scalar `val` parameter.
+  let setInputCases := userInputs.foldl (fun (acc : List String × Nat) p =>
+    let sn := sanitizeName p.name
+    let w := p.ty.bitWidth
+    if w > 64 then
+      let nWords := (w + 31) / 32
+      let wordCases := List.range nWords |>.map fun j =>
+        s!"    case {acc.2 + j}: h_state->{sn}[{j}] = (uint32_t)val; break;"
+      (acc.1 ++ wordCases, acc.2 + nWords)
+    else
       let ct := emitTypeName p.ty
-      s!"    case {i}: h_state->{sn} = ({ct})val; break;"
+      (acc.1 ++ [s!"    case {acc.2}: h_state->{sn} = ({ct})val; break;"],
+        acc.2 + 1)
+  ) ([], 0)
 
   -- get_output switch (using same multi-slot expansion as existing JIT)
   let getOutputCases := m.outputs.foldl (fun (acc : List String × Nat) p =>
@@ -217,7 +230,7 @@ def emitCudaJITHostAPI (m : Module) : String :=
     s!"  {structName}* h_state = h->h_staging + inst;",
     "  switch (port) {",
   ] ++
-  setInputCases ++
+  setInputCases.1 ++
   [
     "  }",
     "}",
@@ -292,7 +305,7 @@ private def assembleCu (top : Module) (deviceCode : String) : String :=
 /-- CudaSim shares CSim's concrete-width representation and therefore cannot
     consume native symbolic-width modules. -/
 private def unsupportedSymbolicWidthError : String :=
-  "#error \"Sparkle CudaSim does not support native symbolic-width modules; use the Verilog backend\"\n"
+  "#error \"Sparkle CudaSim requires concrete widths; specialize retained parameters before CUDA lowering\"\n"
 
 /-- Generate a self-contained `.cu` for a single `Module` (no sub-instances).
     `_cppHeaderName` is accepted for source compatibility with #33/#37 call
@@ -317,5 +330,21 @@ def toCudaSimDesign (d : Design) (_cppHeaderName : String := "") : String :=
   else match d.modules.find? fun m => m.name == d.topModule with
   | none   => s!"// ERROR: top module '{d.topModule}' not found in design\n"
   | some top => assembleCu top (emitCudaDeviceCodeD d)
+
+/-- Specialize retained dimensions for one explicit configuration, then emit
+    one fixed-layout CUDA batch model for a single module. -/
+def toCudaSimWithParameters (m : Module)
+    (bindings : Sparkle.IR.Specialize.Bindings)
+    (_cppHeaderName : String := "") : Except String String := do
+  let concrete ← Sparkle.IR.Specialize.specializeModule m bindings
+  return toCudaSim concrete _cppHeaderName
+
+/-- Specialize every module in a retained-parameter design, then emit one
+    fixed-layout CUDA batch model for that explicit configuration. -/
+def toCudaSimDesignWithParameters (d : Design)
+    (bindings : Sparkle.IR.Specialize.Bindings)
+    (_cppHeaderName : String := "") : Except String String := do
+  let concrete ← Sparkle.IR.Specialize.specializeDesign d bindings
+  return toCudaSimDesign concrete _cppHeaderName
 
 end Sparkle.Backend.CudaSim

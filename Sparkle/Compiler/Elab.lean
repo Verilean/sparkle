@@ -4205,6 +4205,39 @@ elab "#writeCudaDesign" id:ident str:str : command => do
     IO.FS.writeFile path cu
     IO.println s!"Written CUDA batch simulation ({optimized.modules.length} modules) to {path}"
 
+syntax (name := writeParameterizedCudaDesign)
+  "#writeParameterizedCudaDesign " ident " [" sparkleParameterBinding,* "]" str : command
+
+/-- Emit one fixed-layout CUDA batch model after specializing every retained
+    dimension for an explicit parameter configuration. -/
+elab_rules : command
+  | `(#writeParameterizedCudaDesign $id:ident [$bindings:sparkleParameterBinding,*]
+      $path:str) => do
+    let mut parameters : List (String × Nat) := []
+    for binding in bindings.getElems do
+      match binding with
+      | `(sparkleParameterBinding| $name:ident := $value:num) =>
+        parameters := parameters ++ [(name.getId.toString, value.getNat)]
+      | _ => throwUnsupportedSyntax
+    let declName ← Lean.Elab.Command.liftCoreM do
+      Lean.resolveGlobalConstNoOverload id
+    Lean.Elab.Command.liftTermElabM do
+      -- CUDA shares CSim's fixed data layout.  Retain dimensions during Lean
+      -- synthesis, specialize the whole design, and only then run passes that
+      -- query concrete bit widths.
+      let design ← synthesizeHierarchicalWithParameters declName parameters
+      let concrete ←
+        match Sparkle.IR.Specialize.specializeDesign design parameters with
+        | .ok specialized => pure specialized
+        | .error message => throwError message
+      let optimized := Sparkle.IR.Optimize.optimizeDesign concrete
+      let cu := Sparkle.Backend.CudaSim.toCudaSimDesign optimized
+      let outputPath := path.getString
+      if let some dir := (System.FilePath.mk outputPath).parent then
+        IO.FS.createDirAll dir
+      IO.FS.writeFile outputPath cu
+      IO.println s!"Written specialized CUDA batch simulation to {outputPath}"
+
 /-- Emit the CUDA **intra** backend (`.cu`): ONE design instance with one GPU
     thread per top-level sub-module instance (PE-per-thread) — makes a single
     large design (systolic array, core bank) simulate faster.  Analysis

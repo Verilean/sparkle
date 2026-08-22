@@ -1248,17 +1248,26 @@ def emitModule (m : Module) (design : Option Design := none)
         | none => result := result ++ [decl]
       result
 
-    -- Callers may write every storage word of a wide input directly.  Mask
-    -- the unused bits in its partial top word before evaluating any logic;
-    -- otherwise padding could shift into the declared hardware width.
+    -- Callers write the fixed-ABI C storage rather than a native BitVec.
+    -- Normalize every packed input before evaluating logic so padding in a
+    -- uint8/16/32/64 scalar, or in the last word of a wide value, can never
+    -- participate in shifts or comparisons as if it were a hardware bit.
     let inputMaskBody := m.inputs.filterMap fun (p : Port) =>
       match p.ty with
+      | .bit =>
+        some s!"        {sanitizeName p.name} &= 1u;"
       | .bitVector width =>
-        let topBits := width % 32
-        if width > 64 && topBits != 0 then
-          let topMask := (1 <<< topBits) - 1
-          some s!"        {sanitizeName p.name}[{wordsOf width - 1}] &= {topMask}u;"
-        else none
+        if width == 0 then none
+        else if width ≤ 64 then
+          let mask := emitMask width
+          if mask.isEmpty then none
+          else some s!"        {sanitizeName p.name} &= {mask};"
+        else
+          let topBits := width % 32
+          if topBits != 0 then
+            let topMask := (1 <<< topBits) - 1
+            some s!"        {sanitizeName p.name}[{wordsOf width - 1}] &= {topMask}u;"
+          else none
       | _ => none
     let evalBody := inputMaskBody ++
       allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalBody) []

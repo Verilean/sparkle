@@ -265,12 +265,16 @@ def cppSimTests (leanOutput : LeanParameterizedCSimOutput) : IO TestSeq := do
            hasSubstr xor3C "uint8_t lhs;" &&
            hasSubstr xor3C "uint8_t rhs;" &&
            hasSubstr xor3C "uint8_t out;" &&
+           hasSubstr xor3C "self->lhs &= 0x7ULL;" &&
+           hasSubstr xor3C "self->rhs &= 0x7ULL;" &&
            !hasSubstr xor3C "SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH") $
         test "W=17 emits a concrete uint32_t model"
           (concreteXorHasWidth 17 &&
            hasSubstr xor17C "uint32_t lhs;" &&
            hasSubstr xor17C "uint32_t rhs;" &&
            hasSubstr xor17C "uint32_t out;" &&
+           hasSubstr xor17C "self->lhs &= 0x1ffffULL;" &&
+           hasSubstr xor17C "self->rhs &= 0x1ffffULL;" &&
            !hasSubstr xor17C "SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH") $
         test "W=65 emits three-word packed ports"
           (concreteXorHasWidth 65 &&
@@ -346,6 +350,9 @@ def cppSimTests (leanOutput : LeanParameterizedCSimOutput) : IO TestSeq := do
       test "has tick helper" (hasSubstr counterC "sparkle_Counter8_tick") $
       test "has reset helper" (hasSubstr counterC "sparkle_Counter8_reset") $
       test "has uint8_t port type" (hasSubstr counterC "uint8_t") $
+      test "normalizes one-bit C ABI inputs before evaluation"
+        (hasSubstr counterC "self->clk &= 1u;" &&
+         hasSubstr counterC "self->rst &= 1u;") $
       test "has _next suffix for register" (hasSubstr counterC "_next") $
       test "has addition operator" (hasSubstr counterC " + ") $
       test "has ternary for mux" (hasSubstr counterC " ? ") $
