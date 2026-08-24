@@ -39,8 +39,9 @@ On top of that struct + device functions, `CudaSim.toCudaSim` adds:
   each thread loops one instance's `sparkle_<cls>_eval_tick` for `numCycles`;
 * an `extern "C"` host JIT API: `jit_cuda_alloc(N)`, `jit_cuda_free`,
   `jit_cuda_set_input(h, inst, port, val)` / `jit_cuda_get_output(h, inst,
-  port)` (port-index ABI, matching the CPU JIT), `jit_cuda_run(h, numCycles)`
-  (H→D copy, launch, D→H copy), and `jit_cuda_reset`. Staging uses
+  port)` (flattened slot-index ABI, matching the CPU JIT),
+  `jit_cuda_run(h, numCycles)` (H→D copy, launch, D→H copy), and
+  `jit_cuda_reset`. Staging uses
   `cudaMallocHost` (pinned memory) for faster transfers.
 
 ### What changed from #33
@@ -73,6 +74,87 @@ def myTop : Module := …           -- an IR Module
 `toCudaSim` is pure string generation — no `nvcc`, no GPU. The emitted `.cu`
 is self-contained (no external header include): CSim's struct + device
 functions are inlined into it.
+
+### Retained-width designs
+
+CUDA shares CSim's concrete C struct layout, so a retained width cannot remain
+a run-time CUDA parameter. Instead, one explicit binding configuration is
+specialized into one fixed-layout `.cu`. The IR-level entry points are:
+
+* `CudaSim.toCudaSimWithParameters` for one `Module`;
+* `CudaSim.toCudaSimDesignWithParameters` for a complete `Design`;
+* `CudaIntra.toCudaIntraDesignWithParameters` for a hand-built hierarchical
+  design accepted by the intra scheduler.
+
+Each returns `Except String String`. Every retained parameter must be supplied
+exactly once and widths must specialize to positive values; missing, unknown,
+duplicate, zero, and invalid arithmetic bindings fail before CUDA emission.
+The existing `toCudaSim` / `toCudaSimDesign` paths continue to reject
+unspecialized symbolic IR.
+
+For a retained-width Lean definition, the batch backend also has a build-time
+command:
+
+```lean
+import Sparkle
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
+def symbolicXor {dom : DomainConfig} {W : Nat}
+    (lhs rhs : Signal dom (BitVec W)) : Signal dom (BitVec W) :=
+  lhs ^^^ rhs
+
+#writeParameterizedCudaDesign symbolicXor [W := 65] "gen/xor65.cu"
+```
+
+The command deliberately runs these phases in this order:
+
+```text
+retained-width Lean synthesis
+  → specialize the whole Design with [W := 65]
+  → optimize the now-concrete IR
+  → emit the CUDA batch model
+```
+
+The optimizer must not run before specialization because it queries concrete
+bit widths. Re-run the command for each desired width; the generated CUDA ABI
+and state layout are concrete for that configuration.
+
+There is intentionally no `#writeParameterizedCudaIntraDesign` command yet.
+Native retained-width synthesis currently supports combinational modules only
+and rejects registers, memories, and `.inst` statements, while the intra
+backend requires a hierarchical top containing `.inst` statements. The
+`toCudaIntraDesignWithParameters` IR API is still useful for a hand-built
+retained-parameter `Design`; it specializes first and then applies all normal
+intra-backend restrictions.
+
+### Wide-port slot ABI (`W = 3`, `17`, `65`)
+
+Input and output indices enumerate storage slots, not always source-level
+ports. Ports other than `clk` are flattened in declaration order:
+
+* widths up to 64 bits consume one slot (`W = 3` and `W = 17`);
+* widths above 64 bits consume `⌈W / 32⌉` consecutive 32-bit word slots,
+  least-significant word first (`W = 65` consumes three slots).
+
+For a design whose first non-clock input is 65 bits, drive it as:
+
+```c
+jit_cuda_set_input(h, inst, 0, word_0_31);
+jit_cuda_set_input(h, inst, 1, word_32_63);
+jit_cuda_set_input(h, inst, 2, word_64 & 1u);
+```
+
+The next input begins at slot 3. `jit_cuda_get_output` uses the same
+least-significant-word-first convention. Only the low 32 bits of `val` are
+stored for each wide slot, and the generated evaluator masks unused bits in
+the partial top word. This makes `W = 65` a real three-word ABI rather than a
+silent `uint64_t` truncation.
+
+This slot contract covers packed `.bit` and `.bitVector` ports, which are
+also the payloads accepted by the current retained-width Lean frontend.
+Top-level `.array` ports do not yet have a flattened CUDA JIT ABI.
 
 ## Compiling and running (opt-in, needs `nvcc` + a GPU)
 
@@ -110,7 +192,7 @@ Three layers, in decreasing CI-friendliness:
 
 | layer | needs | where |
 |---|---|---|
-| emitter type-check + shape assertions | nothing | `Tests.TestCudaSim` — `lake test` / `lake build` |
+| emitter type-check + shape assertions, including parameterized W=3/17/65 | nothing | `Tests.TestCudaSim` — `lake test` / `lake build` |
 | host `g++ -fsyntax-only` on the emitted `.cu` | a C++ compiler | `lake exe cuda-sim-test` |
 | `nvcc` compile + GPU run | `nvcc`, a GPU | opt-in, `SPARKLE_CUDA=1` — not in CI |
 
@@ -159,10 +241,13 @@ Related backends:
   (`lake exe cuda-intra-cosim`, gated on `SPARKLE_CUDA=1`). The emitted `.cu`
   needs `nvcc -rdc=true` (cooperative groups) and also carries the batch
   kernel + host API — one `.so` serves both axes, plus `jit_intra_run`.
+  Retained-width hand-built IR can use
+  `toCudaIntraDesignWithParameters`; as explained above, this is currently an
+  IR wrapper only, not a Lean elaborator command.
 
 Deliberately **not** here yet:
 
 * Mealy (combinational) cross-instance boundaries in the intra backend —
   v2 is a K-round relaxation on the same schedule (memo §7).
-* Wide (> 64-bit) *input* ports in `set_input` (outputs already handle the
-  per-word form).
+* A parameterized intra elaborator command — it depends on retained-width
+  synthesis growing support for hierarchical instances and sequential logic.

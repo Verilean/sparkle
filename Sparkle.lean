@@ -18,6 +18,7 @@ import Sparkle.IR.Type
 import Sparkle.IR.AST
 import Sparkle.IR.Builder
 import Sparkle.IR.Optimize
+import Sparkle.IR.Specialize
 import Sparkle.Compiler.Elab
 import Sparkle.Compiler.DRC
 import Sparkle.Backend.Verilog

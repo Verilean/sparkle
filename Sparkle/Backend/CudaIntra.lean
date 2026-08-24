@@ -37,6 +37,7 @@
     - no combinational loops.
 -/
 import Sparkle.Backend.CudaSim
+import Sparkle.IR.Specialize
 
 namespace Sparkle.Backend.CudaIntra
 
@@ -433,6 +434,8 @@ private def emitIntraHostRun (top : Module) : String :=
     kernels, AND the batch kernel + host JIT API — one `.so` serves both
     axes.  Compile with `-rdc=true` (cooperative groups). -/
 def toCudaIntraDesign (d : Design) : Except String String := do
+  if d.modules.any moduleHasSymbolicWidth then
+    throw "CudaIntra requires concrete widths; specialize retained parameters before CUDA lowering"
   let some top := d.findModule d.topModule
     | throw s!"top module '{d.topModule}' not found in design"
   let insts ← topInsts d top
@@ -465,10 +468,25 @@ def toCudaIntraDesign (d : Design) : Except String String := do
     , emitCudaJITHostAPI top
     , emitIntraHostRun top ]
 
+/-- Specialize every retained dimension before analysing struct layouts and
+    emitting the within-instance copy tables for one fixed configuration. -/
+def toCudaIntraDesignWithParameters (d : Design)
+    (bindings : Sparkle.IR.Specialize.Bindings) : Except String String := do
+  let concrete ← Sparkle.IR.Specialize.specializeDesign d bindings
+  toCudaIntraDesign concrete
+
 /-- Like `toCudaIntraDesign`, but renders an analysis error as a `#error`
     line so a build-time generation failure is loud at nvcc time. -/
 def toCudaIntraDesign! (d : Design) : String :=
   match toCudaIntraDesign d with
+  | .ok s => s
+  | .error e => s!"#error \"Sparkle CudaIntra: {e.replace "\"" "'"}\"\n"
+
+/-- String-rendering form of `toCudaIntraDesignWithParameters`; specialization
+    and analysis failures remain loud compiler errors in the generated file. -/
+def toCudaIntraDesignWithParameters! (d : Design)
+    (bindings : Sparkle.IR.Specialize.Bindings) : String :=
+  match toCudaIntraDesignWithParameters d bindings with
   | .ok s => s
   | .error e => s!"#error \"Sparkle CudaIntra: {e.replace "\"" "'"}\"\n"
 

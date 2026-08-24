@@ -9,6 +9,7 @@ import Lean
 import Sparkle.IR.Builder
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.Specialize
 import Sparkle.Data.BitPack
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CSim
@@ -4099,6 +4100,12 @@ elab "#showVerilog" id:ident : command => do
     -- bytes the same way it did before.
     Sparkle.Display.Mime.logHtml html
 
+def synthesizeHierarchicalWithParameters (declName : Name)
+    (parameters : List (String × Nat)) : MetaM Sparkle.IR.AST.Design := do
+  let (module, design) ← synthesizeCombinationalWithParameters declName parameters
+  let design' := if (design.modules.any (·.name == module.name)) then design else design.addModule module
+  return design'
+
 def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
   let (module, design) ← synthesizeCombinational declName
   let design' := if (design.modules.any (·.name == module.name)) then design else design.addModule module
@@ -4149,6 +4156,38 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
     IO.FS.writeFile path cSrc
     IO.println s!"Written C simulation ({optimized.modules.length} modules) to {path}"
 
+syntax (name := writeParameterizedCppSimDesign)
+  "#writeParameterizedCppSimDesign " ident " [" sparkleParameterBinding,* "]" str : command
+
+/-- Emit one fixed-ABI CSim model after specializing all retained dimensions
+    for an explicit parameter configuration. -/
+elab_rules : command
+  | `(#writeParameterizedCppSimDesign $id:ident [$bindings:sparkleParameterBinding,*]
+      $path:str) => do
+    let mut parameters : List (String × Nat) := []
+    for binding in bindings.getElems do
+      match binding with
+      | `(sparkleParameterBinding| $name:ident := $value:num) =>
+        parameters := parameters ++ [(name.getId.toString, value.getNat)]
+      | _ => throwUnsupportedSyntax
+    let declName ← Lean.Elab.Command.liftCoreM do
+      Lean.resolveGlobalConstNoOverload id
+    Lean.Elab.Command.liftTermElabM do
+      let design ← synthesizeHierarchicalWithParameters declName parameters
+      let concrete ←
+        match Sparkle.IR.Specialize.specializeDesign design parameters with
+        | .ok specialized => pure specialized
+        | .error message => throwError message
+      -- CSim has a fixed ABI.  Optimize only after every symbolic dimension
+      -- has become concrete because the optimizer itself queries bit widths.
+      let optimized := Sparkle.IR.Optimize.optimizeDesign concrete
+      let cSrc := Sparkle.Backend.CSim.toCDesign optimized
+      let outputPath := path.getString
+      if let some dir := (System.FilePath.mk outputPath).parent then
+        IO.FS.createDirAll dir
+      IO.FS.writeFile outputPath cSrc
+      IO.println s!"Written specialized C simulation to {outputPath}"
+
 /-- Emit the CUDA **batch** backend (`.cu`): N independent instances of the
     design, one GPU thread each — Monte-Carlo / fuzzing / test-vector sweeps.
     Compile: `nvcc -O2 -std=c++17 -shared -Xcompiler -fPIC -o lib<top>.so <top>.cu`.
@@ -4165,6 +4204,39 @@ elab "#writeCudaDesign" id:ident str:str : command => do
       IO.FS.createDirAll dir
     IO.FS.writeFile path cu
     IO.println s!"Written CUDA batch simulation ({optimized.modules.length} modules) to {path}"
+
+syntax (name := writeParameterizedCudaDesign)
+  "#writeParameterizedCudaDesign " ident " [" sparkleParameterBinding,* "]" str : command
+
+/-- Emit one fixed-layout CUDA batch model after specializing every retained
+    dimension for an explicit parameter configuration. -/
+elab_rules : command
+  | `(#writeParameterizedCudaDesign $id:ident [$bindings:sparkleParameterBinding,*]
+      $path:str) => do
+    let mut parameters : List (String × Nat) := []
+    for binding in bindings.getElems do
+      match binding with
+      | `(sparkleParameterBinding| $name:ident := $value:num) =>
+        parameters := parameters ++ [(name.getId.toString, value.getNat)]
+      | _ => throwUnsupportedSyntax
+    let declName ← Lean.Elab.Command.liftCoreM do
+      Lean.resolveGlobalConstNoOverload id
+    Lean.Elab.Command.liftTermElabM do
+      -- CUDA shares CSim's fixed data layout.  Retain dimensions during Lean
+      -- synthesis, specialize the whole design, and only then run passes that
+      -- query concrete bit widths.
+      let design ← synthesizeHierarchicalWithParameters declName parameters
+      let concrete ←
+        match Sparkle.IR.Specialize.specializeDesign design parameters with
+        | .ok specialized => pure specialized
+        | .error message => throwError message
+      let optimized := Sparkle.IR.Optimize.optimizeDesign concrete
+      let cu := Sparkle.Backend.CudaSim.toCudaSimDesign optimized
+      let outputPath := path.getString
+      if let some dir := (System.FilePath.mk outputPath).parent then
+        IO.FS.createDirAll dir
+      IO.FS.writeFile outputPath cu
+      IO.println s!"Written specialized CUDA batch simulation to {outputPath}"
 
 /-- Emit the CUDA **intra** backend (`.cu`): ONE design instance with one GPU
     thread per top-level sub-module instance (PE-per-thread) — makes a single

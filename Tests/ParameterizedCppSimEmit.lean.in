@@ -1,0 +1,4 @@
+import Sparkle.Compiler.Elab
+import Tests.SymbolicParameterCircuits
+
+#writeParameterizedCppSimDesign symbolicXor [W := @WIDTH@] "@OUTPUT_C@"
