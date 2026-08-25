@@ -5,6 +5,7 @@
   The input string is converted to Array Char for O(1) indexing.
 -/
 
+import Std.Data.HashMap
 import Tools.SVParser.AST
 
 open Tools.SVParser.AST
@@ -146,21 +147,29 @@ private def reservedKeywords : List String :=
    "assign", "always", "generate", "task", "parameter", "localparam",
    "posedge", "negedge", "or"]
 
+/-- Keyword membership as a hash set: `identifier` runs once per
+    `attempt` probe (millions of times on a 15 MB file) and the linear
+    `List.any` over 25 keywords was ~24% of the whole lower phase. -/
+private def reservedKeywordSet : Std.HashMap String Bool :=
+  reservedKeywords.foldl (fun h k => h.insert k true) {}
+
 def identifier : P String := token do
   let savedPos ← getPos
   let first ← nextChar
   if !isAlpha first then fail s!"expected identifier, got '{first}'"
-  let mut result : List Char := [first]
+  -- Scan to the end, then extract ONE slice from the source array: the
+  -- old per-char `result ++ [c]` list append is O(len²) per identifier.
   let mut cont := true
   while cont do
     let c ← peekChar
     match c with
     | some c' =>
-      if isAlphaNum c' then let _ ← nextChar; result := result ++ [c']
+      if isAlphaNum c' then let _ ← nextChar
       else cont := false
     | none => cont := false
-  let name := String.ofList result
-  if reservedKeywords.any (· == name) then
+  let s ← get
+  let name := String.ofList (s.chars.extract savedPos s.pos).toList
+  if reservedKeywordSet.contains name then
     setPos savedPos
     fail s!"'{name}' is a reserved keyword, expected identifier"
   pure name

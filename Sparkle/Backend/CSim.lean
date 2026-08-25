@@ -57,13 +57,19 @@ def lookupWidth (typeMap : TypeMap) (name : String) : Nat :=
   | some ty => ty.bitWidth
   | none => 32
 
-/-- Sanitize a name to be a valid C identifier -/
+/-- Sanitize a name to be a valid C identifier.
+    Fast path: called per name occurrence during emission (millions of
+    times on XiangShan-scale modules); almost every name is clean. -/
 def sanitizeName (name : String) : String :=
-  name.replace "." "_"
-    |>.replace "-" "_"
-    |>.replace " " "_"
-    |>.replace "'" "_prime"
-    |>.replace "#" ""
+  if name.all (fun c =>
+      c.isAlphanum || c == '_' || c == '$') then
+    name
+  else
+    name.replace "." "_"
+      |>.replace "-" "_"
+      |>.replace " " "_"
+      |>.replace "'" "_prime"
+      |>.replace "#" ""
 
 /-- Number of 32-bit words a wide bit-vector occupies. -/
 private def wordsOf (w : Nat) : Nat := (w + 31) / 32
@@ -1198,13 +1204,17 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     , evalTickLocals := [] }
 
 /-- Collect all wire name references from an IR expression -/
-partial def collectExprRefs : Expr → List String
-  | .ref name => [name]
-  | .const _ _ => []
-  | .slice inner _ _ => collectExprRefs inner
-  | .concat args => args.foldl (fun acc a => acc ++ collectExprRefs a) []
-  | .op _ args => args.foldl (fun acc a => acc ++ collectExprRefs a) []
-  | .index arr idx => collectExprRefs arr ++ collectExprRefs idx
+-- Accumulator form — the `acc ++ recursive` version was O(nodes × depth)
+-- on XiangShan-scale mux chains (see Optimize.collectExprRefsAux).
+partial def collectExprRefsAux (acc : List String) : Expr → List String
+  | .ref name => name :: acc
+  | .const _ _ => acc
+  | .slice inner _ _ => collectExprRefsAux acc inner
+  | .concat args => args.foldl collectExprRefsAux acc
+  | .op _ args => args.foldl collectExprRefsAux acc
+  | .index arr idx => collectExprRefsAux (collectExprRefsAux acc arr) idx
+
+def collectExprRefs (e : Expr) : List String := collectExprRefsAux [] e
 
 /-- Collect all wire names referenced in tick() bodies. -/
 def collectTickRefWires (body : List Stmt) : List String :=

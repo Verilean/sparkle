@@ -24,7 +24,9 @@ namespace Tools.SVParser.Parser
     strip `timescale/`define/`default_nettype directives and (* ... *) attributes -/
 def preprocess (input : String) : String := Id.run do
   let lines := input.splitOn "\n"
-  let mut result : List String := []
+  -- Array + push: the previous `List ++ [line]` per line is O(lines²) —
+  -- Rob.sv (15 MB, ~330k lines) spent minutes here before ever parsing.
+  let mut result : Array String := #[]
   let mut ifdefDepth : Nat := 0
   let mut skipDepth : Nat := 0  -- depth at which we started skipping (0 = not skipping)
   for line in lines do
@@ -62,16 +64,20 @@ def preprocess (input : String) : String := Id.run do
       pure ()  -- skip directive / macro invocation
     else if trimmed.startsWith "`debug" then
       -- Replace debug macro with empty statement (semicolon)
-      result := result ++ [";"]
+      result := result.push ";"
     else
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
-      result := result ++ [cleaned]
+      result := result.push cleaned
   -- Replace @(*) with @* (LiteX/Migen outputs @(*) which is equivalent)
-  let joined := "\n".intercalate result
+  let joined := "\n".intercalate result.toList
   "@*".intercalate (joined.splitOn "@(*)")
 where
   removeAttributes (s : String) : String := Id.run do
+    -- Fast path: the overwhelming majority of lines have neither an
+    -- attribute nor a backtick macro — don't pay for splitOn/replace.
+    if !(containsSubstrP s "(*") && !(containsSubstrP s "`FORMAL_KEEP") then
+      return s
     let mut result := s
     -- Remove (* ... *) attributes
     let mut cont := true
@@ -88,6 +94,8 @@ where
     result := result.replace "`FORMAL_KEEP " ""
     result := result.replace "`FORMAL_KEEP" ""
     result
+  containsSubstrP (s sub : String) : Bool :=
+    (s.splitOn sub).length > 1
 
 -- ============================================================================
 -- Expression parsing (all mutually recursive)

@@ -41,24 +41,27 @@ def widthToBits : Option (Nat × Nat) → Nat
 -- Environment for tracking declarations
 -- ============================================================================
 
+-- HashMap-backed: these tables were `List` with linear `find?`/`any`
+-- per lookup AND `++ [x]` per insertion — O(decls²) to build and
+-- O(decls) per query.  XiangShan's Rob (12,804 registers, ~30k decls)
+-- spent ~85% of its 100 s lower phase in `isReg` scans and list copies.
 structure LowerEnv where
-  portWidths  : List (String × Option (Nat × Nat))  -- port name → width
-  wireWidths  : List (String × Option (Nat × Nat))  -- wire name → width
-  regNames    : List String                          -- names declared as reg
-  signedNames : List String := []                    -- ports declared `signed`
+  portWidths  : Std.HashMap String (Option (Nat × Nat))  -- port name → width
+  wireWidths  : Std.HashMap String (Option (Nat × Nat))  -- wire name → width
+  regNames    : Std.HashMap String Bool                  -- names declared as reg
+  signedNames : Std.HashMap String Bool := {}            -- ports declared `signed`
 
 def LowerEnv.empty : LowerEnv :=
-  { portWidths := [], wireWidths := [], regNames := [], signedNames := [] }
+  { portWidths := {}, wireWidths := {}, regNames := {}, signedNames := {} }
 
 def LowerEnv.getWidth (env : LowerEnv) (name : String) : Option (Nat × Nat) :=
-  (env.portWidths.find? (·.1 == name) |>.map (·.2)).join <|>
-  (env.wireWidths.find? (·.1 == name) |>.map (·.2)).join
+  (env.portWidths.get? name).join <|> (env.wireWidths.get? name).join
 
 def LowerEnv.getHWType (env : LowerEnv) (name : String) : HWType :=
   widthToHWType (env.getWidth name)
 
 def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
-  env.regNames.any (· == name)
+  env.regNames.contains name
 
 /-- Conservative signedness inference for SV expressions: an expression
     is *signed* iff its top-level operand reaches a declared-`signed`
@@ -66,7 +69,7 @@ def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
     only in the common operand-ref case; sub-expressions involving
     arithmetic are treated as unsigned (matches IR `op` semantics). -/
 def LowerEnv.isSignedRef (env : LowerEnv) (name : String) : Bool :=
-  env.signedNames.any (· == name)
+  env.signedNames.contains name
 
 -- ============================================================================
 -- Expression lowering
@@ -662,13 +665,18 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
     | _ => []
 
 /-- Collect all Expr.ref names used in an expression -/
-partial def collectRefs : Expr → List String
-  | .ref name => [name]
-  | .op _ args => args.flatMap collectRefs
-  | .concat args => args.flatMap collectRefs
-  | .slice e _ _ => collectRefs e
-  | .index a i => collectRefs a ++ collectRefs i
-  | _ => []
+-- Accumulator form — the flatMap version re-copied child result lists at
+-- every ancestor, O(nodes × depth) on XiangShan-scale mux chains (see
+-- Optimize.collectExprRefsAux).
+partial def collectRefsAux (acc : List String) : Expr → List String
+  | .ref name => name :: acc
+  | .op _ args => args.foldl collectRefsAux acc
+  | .concat args => args.foldl collectRefsAux acc
+  | .slice e _ _ => collectRefsAux acc e
+  | .index a i => collectRefsAux (collectRefsAux acc a) i
+  | _ => acc
+
+def collectRefs (e : Expr) : List String := collectRefsAux [] e
 
 /-- Chain guarded assignments into a flat priority mux (last-write-wins).
     `base` is the default when no guard is active (hold value for registers,
@@ -684,7 +692,8 @@ def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
 
 /-- Build mux expression for a blocking combinational signal.
     Base is the first flat assignment (default value). -/
-def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
+def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt)
+    (pre : Option (List GuardedAssign) := none) : Expr :=
   let initDefault := stmts.findSome? fun s => match s with
     | .blockAssign lhs rhs =>
       match exprToName lhs with
@@ -713,7 +722,10 @@ def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt) : Expr :=
         | some n => some (.ref s!"{ssaPrefix}_ssa{depth}_{n - 1}")
         | none => none
   let base := initDefault.getD (ssaBase.getD (.ref sigName))
-  let all := collectGuardedBlock stmts
+  -- `collectGuardedBlock` re-lowers every RHS in the block; callers that
+  -- loop over many signals precompute it ONCE and pass it in (Rob: this
+  -- was quadratic in block size × signal count).
+  let all := pre.getD (collectGuardedBlock stmts)
   let filtered := all.filter (·.target == sigName)
   -- For SSA variables, replace self-references (Expr.ref sigName) in guarded assign
   -- values with the actual base (ssaBase = previous SSA iteration's output).
@@ -1068,21 +1080,25 @@ partial def emitSequentialSSA (stmts : List SVStmt)
 -- Topological sort of IR statements
 -- ============================================================================
 
+-- Array/HashMap Kahn: the List version appended per statement (O(n²))
+-- and did LINEAR `assignNames.any` / `emitted.any` per DEPENDENCY per
+-- PASS — 71% of the whole lower phase on XiangShan's Rob (~30k assigns).
 def topoSortBody (body : List Stmt) : List Stmt := Id.run do
-  let mut assigns : List (String × Expr) := []
-  let mut registers : List Stmt := []
-  let mut memories : List Stmt := []
-  let mut others : List Stmt := []
+  let mut assigns : Array (String × Expr) := #[]
+  let mut registers : Array Stmt := #[]
+  let mut memories : Array Stmt := #[]
+  let mut others : Array Stmt := #[]
   for s in body do
     match s with
-    | .assign name rhs => assigns := assigns ++ [(name, rhs)]
-    | .register _ _ _ _ _ => registers := registers ++ [s]
-    | .memory _ _ _ _ _ _ _ _ _ _ => memories := memories ++ [s]
-    | _ => others := others ++ [s]
-  let assignNames := assigns.map (·.1)
-  let mut sorted : List Stmt := []
-  let mut emitted : List String := []
-  let mut remaining := assigns
+    | .assign name rhs => assigns := assigns.push (name, rhs)
+    | .register _ _ _ _ _ => registers := registers.push s
+    | .memory _ _ _ _ _ _ _ _ _ _ => memories := memories.push s
+    | _ => others := others.push s
+  let assignNameSet : Std.HashMap String Bool :=
+    assigns.foldl (fun h (n, _) => h.insert n true) {}
+  let mut sorted : Array Stmt := #[]
+  let mut emitted : Std.HashMap String Bool := {}
+  let mut remaining := assigns.toList
   -- Kahn's algorithm
   -- SSA prologues (name_ssa0_0 = original) should not depend on the
   -- epilogue assignment of 'original' — they read the initial value.
@@ -1104,32 +1120,30 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
       if segParts.length >= 2 && segParts[segParts.length - 1]! == "0" then
         some (String.intercalate "_ssa" (parts.take (parts.length - 1)))
       else none
-  let ssaPrologueOriginals := assigns.filterMap fun (name, _rhs) =>
-    if isSsaPrologueName name then ssaPrologueBase name else none
   let mut changed := true
   while changed do
     changed := false
-    let mut nextRemaining : List (String × Expr) := []
+    let mut nextRemaining : Array (String × Expr) := #[]
     for (name, rhs) in remaining do
       let deps := collectRefs rhs
       let isSsaPrologue := isSsaPrologueName name
       let prologueBase := if isSsaPrologue then ssaPrologueBase name else none
       let depsReady := deps.all fun dep =>
         dep == name ||
-        !(assignNames.any (· == dep)) || emitted.any (· == dep) ||
+        !(assignNameSet.contains dep) || emitted.contains dep ||
         (isSsaPrologue && prologueBase.any (· == dep))
       if depsReady then
-        sorted := sorted ++ [.assign name rhs]
-        emitted := emitted ++ [name]
+        sorted := sorted.push (.assign name rhs)
+        emitted := emitted.insert name true
         changed := true
       else
-        nextRemaining := nextRemaining ++ [(name, rhs)]
-    remaining := nextRemaining
+        nextRemaining := nextRemaining.push (name, rhs)
+    remaining := nextRemaining.toList
   if !remaining.isEmpty then
-    dbg_trace s!"[TOPO WARNING] {remaining.length} assigns have cyclic deps (of {assigns.length} total). Names: {remaining.map (·.1) |>.take 20}"
+    dbg_trace s!"[TOPO WARNING] {remaining.length} assigns have cyclic deps (of {assigns.size} total). Names: {remaining.map (·.1) |>.take 20}"
   for (name, rhs) in remaining do
-    sorted := sorted ++ [.assign name rhs]
-  return memories ++ sorted ++ registers ++ others
+    sorted := sorted.push (.assign name rhs)
+  return memories.toList ++ sorted.toList ++ registers.toList ++ others.toList
 
 -- ============================================================================
 -- Generate block evaluation
@@ -1439,7 +1453,7 @@ private def exprWidthForNarrow (env : LowerEnv) : Expr → Option Nat
       -- does the most damage (XiangShan: `countingEn ^ 32'hffffffff`
       -- makes every enclosing ternary condition 32-bit non-zero, so
       -- `~w_wen` reads as TRUE even when `w_wen` is 1).
-      if env.portWidths.any (·.1 == name) || env.wireWidths.any (·.1 == name)
+      if env.portWidths.contains name || env.wireWidths.contains name
       then some 1 else none
   | .const _ w => some w
   | .slice _ hi lo => some (hi - lo + 1)
@@ -1687,15 +1701,23 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   -- Build environment
   let mut env := LowerEnv.empty
   for p in svMod.ports do
-    env := { env with portWidths := env.portWidths ++ [(p.name, p.width)] }
+    env := { env with portWidths :=
+      if env.portWidths.contains p.name then env.portWidths
+      else env.portWidths.insert p.name p.width }
     if p.isSigned then
-      env := { env with signedNames := env.signedNames ++ [p.name] }
+      env := { env with signedNames := env.signedNames.insert p.name true }
   for item in svMod.items do
     match item with
-    | .wireDecl name width _ => env := { env with wireWidths := env.wireWidths ++ [(name, width)] }
+    | .wireDecl name width _ =>
+      env := { env with wireWidths :=
+        if env.wireWidths.contains name then env.wireWidths
+        else env.wireWidths.insert name width }
     | .regDecl name width _ =>
-      env := { env with wireWidths := env.wireWidths ++ [(name, width)],
-                         regNames := env.regNames ++ [name] }
+      env := { env with
+        wireWidths :=
+          if env.wireWidths.contains name then env.wireWidths
+          else env.wireWidths.insert name width,
+        regNames := env.regNames.insert name true }
     | _ => pure ()
 
   -- Build ports
@@ -1711,19 +1733,20 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     | _ => none
 
   -- Helper: check if a wire name is already declared
-  let wireExists := fun (wires : List Port) (name : String) =>
-    wires.any (·.name == name) || allPortNames.any (· == name)
+  let portNameSet : Std.HashMap String Bool :=
+    allPortNames.foldl (fun h n => h.insert n true) {}
 
   -- Build wires list (from wire and reg declarations)
-  let mut wires : List Port := []
+  let mut wires : Array Port := #[]
+  let mut wireSet : Std.HashMap String Bool := {}
   for item in svMod.items do
     match item with
-    | .wireDecl name width _ => wires := wires ++ [{ name, ty := widthToHWType width }]
+    | .wireDecl name width _ => wires := wires.push { name, ty := widthToHWType width }; wireSet := wireSet.insert name true
     | .regDecl name width arraySize =>
       match arraySize with
       | some _ => pure ()  -- Array regs handled by Stmt.memory (not wires)
-      | none => wires := wires ++ [{ name, ty := widthToHWType width }]
-    | .integerDecl name => wires := wires ++ [{ name, ty := .bitVector 32 }]
+      | none => wires := wires.push { name, ty := widthToHWType width }; wireSet := wireSet.insert name true
+    | .integerDecl name => wires := wires.push { name, ty := .bitVector 32 }; wireSet := wireSet.insert name true
     | _ => pure ()
 
   -- Add parameters as constant wires (track names to avoid duplicates)
@@ -1731,19 +1754,19 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   for p in svMod.params do
     let ty := widthToHWType p.width
     if !(paramNames.any (· == p.name)) then
-      wires := wires ++ [{ name := p.name, ty }]
+      wires := wires.push { name := p.name, ty }; wireSet := wireSet.insert p.name true
       paramNames := paramNames ++ [p.name]
   for item in svMod.items do
     match item with
     | .paramDecl param =>
       let ty := widthToHWType param.width
       if !(paramNames.any (· == param.name)) then
-        wires := wires ++ [{ name := param.name, ty }]
+        wires := wires.push { name := param.name, ty }; wireSet := wireSet.insert param.name true
         paramNames := paramNames ++ [param.name]
     | _ => pure ()
 
   -- Build body statements
-  let mut body : List Stmt := []
+  let mut body : Array Stmt := #[]
   -- All always @* blocks now use MUX mode (SSA handles loop dependencies)
 
   -- Emit parameter values as constant assigns (with overrides applied)
@@ -1753,21 +1776,21 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
     let val := match paramVals.find? fun (n, _) => n == p.name with
       | some (_, v) => .const (Int.ofNat v) (paramWidth p.width)
       | none => lowerExpr p.value
-    body := body ++ [.assign p.name val]
+    body := body.push (.assign p.name val)
   for item in svMod.items do
     match item with
     | .paramDecl param =>
       let val := match paramVals.find? fun (n, _) => n == param.name with
         | some (_, v) => .const (Int.ofNat v) (paramWidth param.width)
         | none => lowerExpr param.value
-      body := body ++ [.assign param.name val]
+      body := body.push (.assign param.name val)
     | _ => pure ()
 
   for item in svMod.items do
     match item with
     | .contAssign lhs rhs =>
       match exprToName lhs with
-      | some name => body := body ++ [.assign name (lowerExpr rhs)]
+      | some name => body := body.push (.assign name (lowerExpr rhs))
       | none =>
         -- Concat-LHS continuous assign: assign {a, b, c} = expr;
         -- Decompose into individual assigns for each target variable
@@ -1775,13 +1798,13 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         if assigns.isEmpty then
           -- Try single-variable concat (all elements same variable)
           match lowerConcatLhsAssign lhs rhs with
-          | some (name, value) => body := body ++ [.assign name value]
+          | some (name, value) => body := body.push (.assign name value)
           | none => throw s!"continuous assign LHS not supported: {repr lhs}"
         else
           for (name, value) in assigns do
-            body := body ++ [.assign name value]
-            if !(wireExists wires name) then
-              wires := wires ++ [{ name, ty := env.getHWType name }]
+            body := body.push (.assign name value)
+            if !((wireSet.contains name || portNameSet.contains name)) then
+              wires := wires.push { name, ty := env.getHWType name }; wireSet := wireSet.insert name true
     | .alwaysBlock (.posedge clock) stmts =>
       -- Sequential: extract all register names, then build mux expression per register
       -- Detect reset pattern: find first if/else that looks like a reset check
@@ -1796,8 +1819,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       | some (resetSig, isActiveHigh, initBranch, _dataBranch) =>
         resetName := if isActiveHigh then resetSig else s!"_rst_{resetSig}_inv"
         if !isActiveHigh then
-          wires := wires ++ [{ name := resetName, ty := .bit }]
-          body := body ++ [.assign resetName (.op .not [.ref resetSig])]
+          wires := wires.push { name := resetName, ty := .bit }; wireSet := wireSet.insert resetName true
+          body := body.push (.assign resetName (.op .not [.ref resetSig]))
         initMap := initBranch.filterMap fun s => match s with
           | .nonblockAssign lhs rhs =>
             match exprToName lhs with
@@ -1816,30 +1839,37 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         -- the sensitivity list stays clock-only.
         resetName := "_no_rst"
         resetKind := .synchronous
-        if !(wireExists wires "_no_rst") then
-          wires := wires ++ [{ name := "_no_rst", ty := .bit }]
-          body := body ++ [.assign "_no_rst" (.const 0 1)]
+        if !((wireSet.contains "_no_rst" || portNameSet.contains "_no_rst")) then
+          wires := wires.push { name := "_no_rst", ty := .bit }; wireSet := wireSet.insert "_no_rst" true
+          body := body.push (.assign "_no_rst" (.const 0 1))
 
       -- Extract blocking assigns as combinational intermediates (from full always body)
       let blockingNames := (collectBlockNamesTop stmts).eraseDups
+      let preBlocking := collectGuardedBlock stmts
       for sigName in blockingNames do
-        let expr := stmtsToMuxExprBlocking sigName stmts
-        body := body ++ [.assign sigName expr]
-        if !(wireExists wires sigName) then
-          wires := wires ++ [{ name := sigName, ty := .bitVector 32 }]  -- default 32-bit
+        let expr := stmtsToMuxExprBlocking sigName stmts (some preBlocking)
+        body := body.push (.assign sigName expr)
+        if !((wireSet.contains sigName || portNameSet.contains sigName)) then
+          wires := wires.push { name := sigName, ty := .bitVector 32 }; wireSet := wireSet.insert sigName true  -- default 32-bit
 
       -- Collect all register names (exclude array regs handled by Stmt.memory)
       let regNames := (collectAllRegNames stmts).eraseDups.filter
         fun n => !arrayRegNames.any (· == n)
+      -- Collect the guarded assigns ONCE for the whole block:
+      -- `stmtsToMuxExpr` re-ran `collectGuardedNB` (a full lowering of
+      -- every RHS in the block) once PER REGISTER — O(regs × block), the
+      -- dominant cost on XiangShan's RenameTable/Rob (323+ registers in
+      -- one always block).
+      let allGuarded := collectGuardedNB stmts
       for regName in regNames do
         let hwTy := env.getHWType regName
         let initVal := match initMap.find? (·.1 == regName) with
           | some (_, v) => v
           | none => 0
-        let dataExpr := stmtsToMuxExpr regName stmts
-        body := body ++ [.register regName clock (resetName, resetKind) dataExpr initVal]
-        if !(wireExists wires regName) then
-          wires := wires ++ [{ name := regName, ty := hwTy }]
+        let dataExpr := guardedToMux (allGuarded.filter (·.target == regName)) (.ref regName)
+        body := body.push (.register regName clock (resetName, resetKind) dataExpr initVal)
+        if !((wireSet.contains regName || portNameSet.contains regName)) then
+          wires := wires.push { name := regName, ty := hwTy }; wireSet := wireSet.insert regName true
 
     | .alwaysBlock .star stmts =>
       -- Sequential SSA: process statements top-to-bottom, creating SSA wires
@@ -1864,13 +1894,13 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       for sigName in sigNames do
         let latestWire := seqEnvLookup finalEnv sigName
         if latestWire != sigName then
-          body := body ++ [.assign sigName (.ref latestWire)]
-          if !wireExists wires sigName then
+          body := body.push (.assign sigName (.ref latestWire))
+          if !(wireSet.contains sigName || portNameSet.contains sigName) then
             let sigTy := env.getHWType sigName
-            wires := wires ++ [{ name := sigName, ty := sigTy }]
+            wires := wires.push { name := sigName, ty := sigTy }; wireSet := wireSet.insert sigName true
     | .wireDecl name _ (some initExpr) =>
       -- wire x = expr; → assign
-      body := body ++ [.assign name (lowerExpr initExpr)]
+      body := body.push (.assign name (lowerExpr initExpr))
     | .regDecl name width (some arraySize) =>
       -- Array reg → Stmt.memory for JIT memory access
       -- Do NOT add to wires list — Stmt.memory creates the class member.
@@ -1927,50 +1957,41 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
                 readDataName := rdName; readAddr := lowerExpr idx; comboRead := false
             | _ => pure ()
         | _ => pure ()
-      body := body ++ [.memory name addrWidth dataWidth "clk"
+      body := body.push (.memory name addrWidth dataWidth "clk"
         writeAddr writeData writeEnable
-        readAddr readDataName comboRead]
-      wires := wires ++ [{ name := readDataName, ty := widthToHWType width }]
+        readAddr readDataName comboRead)
+      wires := wires.push { name := readDataName, ty := widthToHWType width }; wireSet := wireSet.insert readDataName true
     | .instantiation modName instName conns _paramOvr =>
       -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
-      body := body ++ [.inst modName instName irConns]
+      body := body.push (.inst modName instName irConns)
     | _ => pure ()
 
-  -- Deduplicate wires
-  let mut dedupWires : List Port := []
-  let mut seenWireNames : List String := []
-  let portNames := inputs.map (·.name) ++ outputs.map (·.name)
+  -- Deduplicate wires (hash-set membership + Array push: the List
+  -- version was O(wires²) — 15% of Rob's lower phase)
+  let mut dedupWiresA : Array Port := #[]
+  let mut seenWireNames : Std.HashMap String Bool := {}
+  let portNames2 : Std.HashMap String Bool :=
+    (inputs.map (·.name) ++ outputs.map (·.name)).foldl
+      (fun h n => h.insert n true) {}
   for w in wires do
-    if !(seenWireNames.any (· == w.name)) && !(portNames.any (· == w.name)) then
-      dedupWires := dedupWires ++ [w]
-      seenWireNames := seenWireNames ++ [w.name]
+    if !(seenWireNames.contains w.name) && !(portNames2.contains w.name) then
+      dedupWiresA := dedupWiresA.push w
+      seenWireNames := seenWireNames.insert w.name true
+  let mut dedupWires := dedupWiresA.toList
 
   -- Deduplicate registers and handle output reg ports
   let mut dedupBody : List Stmt := []
-  let mut seenRegNames : List String := []
-  let outputNames := outputs.map (·.name)
-  let exprDepthSimple := fun (e : Expr) =>
-    let rec go : Expr → Nat
-      | .op _ args => 1 + (args.map go).foldl max 0
-      | .slice e _ _ => 1 + go e
-      | .index a i => 1 + max (go a) (go i)
-      | _ => 0
-    go e
+  let mut seenRegNames : Std.HashMap String Bool := {}
+  let outputNames : Std.HashMap String Bool :=
+    (outputs.map (·.name)).foldl (fun h n => h.insert n true) {}
+  -- (dead `exprDepthSimple`/`regDepthMap`/`bestDepth` removed: they were
+  -- never read, yet walked every register's full mux expression — pure
+  -- overhead on Rob-scale modules)
 
   -- For registers assigned in multiple always blocks, keep the one
   -- with deeper mux expression (more logic). This handles the PicoRV32
   -- pattern where the decode block sets a flag and the execution block clears it.
-  let mut regDepthMap : List (String × Nat) := []
-  for stmt in body do
-    match stmt with
-    | .register name _ _ input _ =>
-      let depth := exprDepthSimple input
-      regDepthMap := regDepthMap ++ [(name, depth)]
-    | _ => pure ()
-  let bestDepth (name : String) : Nat :=
-    (regDepthMap.filter (·.1 == name)).foldl (fun acc (_, d) => max acc d) 0
-
   -- Process in FORWARD order — first occurrence wins.
   -- For PicoRV32, the decode block (always[9]) comes before the execution
   -- block (always[17]). The decode block sets flags; the execution block clears them.
@@ -1978,19 +1999,19 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   for stmt in body do
     match stmt with
     | .register name clk rst input init =>
-      if !(seenRegNames.any (· == name)) then
+      if !(seenRegNames.contains name) then
         -- For output reg: rename the register to _reg_name, add assign output = _reg_name
-        if outputNames.any (· == name) then
+        if outputNames.contains name then
           let regName := s!"_reg_{name}"
           dedupBody := [.assign name (.ref regName), .register regName clk rst input init] ++ dedupBody
-          seenRegNames := seenRegNames ++ [name]
+          seenRegNames := seenRegNames.insert name true
           -- Add the internal register wire
           if !(dedupWires.any (·.name == regName)) then
             let hwTy := env.getHWType name
             dedupWires := dedupWires ++ [{ name := regName, ty := hwTy }]
         else
           dedupBody := [stmt] ++ dedupBody
-          seenRegNames := seenRegNames ++ [name]
+          seenRegNames := seenRegNames.insert name true
     | _ => dedupBody := [stmt] ++ dedupBody
 
   -- Collect assertions from all always blocks
@@ -2354,27 +2375,41 @@ def reachabilityDCE (design : Design) : Design :=
     over. -/
 def declareOrphanRefs (design : Design) : Design :=
   { design with modules := design.modules.map fun m =>
-      let rec exprRefs (e : Expr) : List String :=
-        match e with
-        | .ref n => [n]
-        | .op _ xs => xs.flatMap exprRefs
-        | .concat xs => xs.flatMap exprRefs
-        | .slice x _ _ => exprRefs x
-        | .index a i => exprRefs a ++ exprRefs i
-        | _ => []
-      let referenced := m.body.flatMap fun s =>
-        match s with
-        | .assign _ rhs => exprRefs rhs
-        | .register _ _ _ input _ => exprRefs input
-        | .memory _ _ _ _ wa wd we ra _ _ =>
-          exprRefs wa ++ exprRefs wd ++ exprRefs we ++ exprRefs ra
-        | .inst _ _ conns => conns.flatMap fun (_, e) => exprRefs e
-      let declared := (m.inputs ++ m.outputs ++ m.wires).map (·.name)
-        ++ m.body.filterMap (fun s =>
-             match s with
-             | .memory n _ _ _ _ _ _ _ _ _ => some n
-             | _ => none)
-      let orphans := referenced.eraseDups.filter fun n => !(declared.any (· == n))
+      -- Accumulator collection + HashMap dedup: the flatMap + list
+      -- `eraseDups` version was O(refs²) — RenameTable-scale bodies have
+      -- hundreds of thousands of ref occurrences.
+      let referenced : Std.HashMap String Bool := Id.run do
+        let mut acc : Std.HashMap String Bool := {}
+        let rec go (h : Std.HashMap String Bool) (e : Expr) :
+            Std.HashMap String Bool :=
+          match e with
+          | .ref n => h.insert n true
+          | .op _ xs => xs.foldl go h
+          | .concat xs => xs.foldl go h
+          | .slice x _ _ => go h x
+          | .index a i => go (go h a) i
+          | _ => h
+        for s in m.body do
+          match s with
+          | .assign _ rhs => acc := go acc rhs
+          | .register _ _ _ input _ => acc := go acc input
+          | .memory _ _ _ _ wa wd we ra _ _ =>
+            acc := go (go (go (go acc wa) wd) we) ra
+          | .inst _ _ conns =>
+            for (_, e) in conns do
+              acc := go acc e
+        return acc
+      let declared : Std.HashMap String Bool := Id.run do
+        let mut d : Std.HashMap String Bool := {}
+        for p in m.inputs ++ m.outputs ++ m.wires do
+          d := d.insert p.name true
+        for s in m.body do
+          match s with
+          | .memory n _ _ _ _ _ _ _ _ _ => d := d.insert n true
+          | _ => pure ()
+        return d
+      let orphans := referenced.toList.filterMap fun (n, _) =>
+        if declared.contains n then none else some n
       if orphans.isEmpty then m
       else
         { m with

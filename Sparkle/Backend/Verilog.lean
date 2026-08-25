@@ -13,13 +13,23 @@ namespace Sparkle.Backend.Verilog
 open Sparkle.IR.AST
 open Sparkle.IR.Type
 
-/-- Sanitize a name to be a valid Verilog identifier -/
+/-- Sanitize a name to be a valid Verilog identifier.
+
+    Fast path first: `sanitizeName` is called once per NAME OCCURRENCE
+    during emission — millions of times on XiangShan's Rob — and the
+    five-`String.replace` chain (each a Slice walk + fresh string) was
+    ~20% of the whole emit.  Almost every name is already clean; one
+    byte scan decides. -/
 def sanitizeName (name : String) : String :=
-  name.replace "." "_"
-    |>.replace "-" "_"
-    |>.replace " " "_"
-    |>.replace "'" "_prime"
-    |>.replace "#" ""
+  if name.all (fun c =>
+      c.isAlphanum || c == '_' || c == '$') then
+    name
+  else
+    name.replace "." "_"
+      |>.replace "-" "_"
+      |>.replace " " "_"
+      |>.replace "'" "_prime"
+      |>.replace "#" ""
 
 /-- Convert HWType to Verilog type declaration -/
 def emitType (ty : HWType) : String :=

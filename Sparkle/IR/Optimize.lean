@@ -216,14 +216,21 @@ partial def optimizeExpr (dm : DefMap) (wm : WidthMap) : Expr → Expr
   | .index arr idx => .index (optimizeExpr dm wm arr) (optimizeExpr dm wm idx)
   | e => e
 
-/-- Collect all reference names from an expression. -/
-partial def collectExprRefs : Expr → List String
-  | .ref name => [name]
-  | .op _ args => args.flatMap collectExprRefs
-  | .concat args => args.flatMap collectExprRefs
-  | .slice e _ _ => collectExprRefs e
-  | .index a i => collectExprRefs a ++ collectExprRefs i
-  | .const _ _ => []
+/-- Collect all reference names from an expression.
+
+    Accumulator form: the old `flatMap`/`++` version re-copied every
+    child's result list at each ancestor, i.e. O(nodes × depth) — on
+    XiangShan's RenameTable/Rob (mux chains tens of thousands of nodes
+    deep) this alone made lowering minutes-long.  One pass, O(nodes). -/
+partial def collectExprRefsAux (acc : List String) : Expr → List String
+  | .ref name => name :: acc
+  | .op _ args => args.foldl collectExprRefsAux acc
+  | .concat args => args.foldl collectExprRefsAux acc
+  | .slice e _ _ => collectExprRefsAux acc e
+  | .index a i => collectExprRefsAux (collectExprRefsAux acc a) i
+  | .const _ _ => acc
+
+def collectExprRefs (e : Expr) : List String := collectExprRefsAux [] e
 
 partial def countExprUses (e : Expr) (counts : HashMap String Nat)
     : HashMap String Nat :=
