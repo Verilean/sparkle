@@ -1968,5 +1968,35 @@ endmodule
         failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 49 (XiangShan Phr): DYNAMIC shift of a >64-bit value.  CSim's
+  -- wide shl/shr emitters resolved the amount with `constAmt`, which
+  -- returned 0 for any non-constant expression — Phr's rotation idiom
+  -- `{phr, phr} >> ptr` (104-bit) silently read the UNSHIFTED vector, so
+  -- every folded-history output was wrong once the pointer moved.
+  IO.print "  Test 49: dynamic shift of a >64-bit value (Phr rotation)... "
+  try
+    let v := "
+module wide_dyn_shr (input clk, input [6:0] amt, output [15:0] y);
+  wire [79:0] base = 80'h5A5A5A5A5A5A5A5A5A5A;
+  wire [79:0] shifted = base >> amt;
+  assign y = shifted[15:0];
+endmodule
+"
+    let r36 ← jitRun v
+      (fun h => do JIT.setInput h 0 36)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v
+      (fun h => do JIT.setInput h 0 0)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- base >> 36 = 0x5A5A5A5A5A5A5A5A5A5A >> 36 → low 16 bits = 0xA5A5
+    if r36 == [0xA5A5] && r0 == [0x5A5A] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: amt=36→{r36} (want [42405]), amt=0→{r0} (want [23130])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

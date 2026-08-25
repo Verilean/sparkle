@@ -718,15 +718,49 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           -- (concat / nested op / another wide op), and `aS[j]` indexing needs
           -- an array lvalue.
           let (da, aS) := matWide s!"{label}s" a
-          let tmp := s!"__{label}_{sn}"; let sa := constAmt b
-          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
-            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shlSlot aS sa j};")), tmp)
+          let tmp := s!"__{label}_{sn}"
+          match b with
+          | .const v _ =>
+            let sa := v.toNat
+            (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+              :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shlSlot aS sa j};")), tmp)
+          | _ =>
+            -- DYNAMIC shift amount.  The old `constAmt` fallback treated any
+            -- non-constant amount as 0 — XiangShan's Phr rotates a doubled
+            -- 52-bit history vector with `{phr, phr} >> ptr` (104-bit), and
+            -- every folded-history output silently used the UNSHIFTED value.
+            -- Emit a runtime word loop instead.
+            let bS := emitExpr typeMap b
+            (da ++
+              [ s!"        uint32_t {tmp}[{nWords}];"
+              , s!"        \{ unsigned {tmp}_sa = (unsigned)({bS}); unsigned {tmp}_k = {tmp}_sa >> 5, {tmp}_r = {tmp}_sa & 31;"
+              , s!"          for (unsigned {tmp}_j = 0; {tmp}_j < {nWords}u; {tmp}_j++) \{"
+              , s!"            uint32_t {tmp}_lo = ({tmp}_j >= {tmp}_k) ? {aS}[{tmp}_j - {tmp}_k] : 0u;"
+              , s!"            uint32_t {tmp}_hi = ({tmp}_j >= {tmp}_k + 1) ? {aS}[{tmp}_j - {tmp}_k - 1] : 0u;"
+              , s!"            {tmp}[{tmp}_j] = {tmp}_r ? (({tmp}_lo << {tmp}_r) | ({tmp}_hi >> (32 - {tmp}_r))) : {tmp}_lo;"
+              , s!"          }"
+              , s!"        }" ], tmp)
         | .op .shr [a, b] =>
           let (da, aS) := matWide s!"{label}s" a
-          let tmp := s!"__{label}_{sn}"; let sa := constAmt b
+          let tmp := s!"__{label}_{sn}"
           let srcWords := wordsOf (inferExprWidth typeMap a)
-          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
-            :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};")), tmp)
+          match b with
+          | .const v _ =>
+            let sa := v.toNat
+            (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+              :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};")), tmp)
+          | _ =>
+            -- Dynamic amount: same word loop, shifting right (see shl note).
+            let bS := emitExpr typeMap b
+            (da ++
+              [ s!"        uint32_t {tmp}[{nWords}];"
+              , s!"        \{ unsigned {tmp}_sa = (unsigned)({bS}); unsigned {tmp}_k = {tmp}_sa >> 5, {tmp}_r = {tmp}_sa & 31;"
+              , s!"          for (unsigned {tmp}_j = 0; {tmp}_j < {nWords}u; {tmp}_j++) \{"
+              , s!"            uint32_t {tmp}_lo = ({tmp}_j + {tmp}_k < {srcWords}u) ? {aS}[{tmp}_j + {tmp}_k] : 0u;"
+              , s!"            uint32_t {tmp}_hi = ({tmp}_j + {tmp}_k + 1 < {srcWords}u) ? {aS}[{tmp}_j + {tmp}_k + 1] : 0u;"
+              , s!"            {tmp}[{tmp}_j] = {tmp}_r ? (({tmp}_lo >> {tmp}_r) | ({tmp}_hi << (32 - {tmp}_r))) : {tmp}_lo;"
+              , s!"          }"
+              , s!"        }" ], tmp)
         | .op .mux [c, t, f] =>
           -- Nested wide mux (a mux feeding a mux operand): recurse on both
           -- branches, then select per word on the scalar condition.  Without
@@ -863,54 +897,86 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , resetBody := []
         , evalTickLocals := [] }
       | .op .shl [a, b] =>
-        let shiftAmount : Nat := match b with
-          | .const v _ => v.toNat
-          | _ => 0
         let aS := emitExpr typeMap a
-        let k := shiftAmount / 32
-        let r := shiftAmount % 32
-        let slot (j : Nat) : String :=
-          if j < k then "0u"
-          else if j == k then
-            if r == 0 then s!"{aS}[0]" else s!"({aS}[0] << {r})"
-          else
-            let lower := j - k
-            let upperShift := if r == 0 then "0u" else s!"({aS}[{lower - 1}] >> {32 - r})"
-            if r == 0 then s!"{aS}[{lower}]"
-            else s!"(({aS}[{lower}] << {r}) | {upperShift})"
-        let lines := (List.range nWords).map fun j =>
-          s!"        {sn}[{j}] = {slot j};"
-        { declarations := []
-        , evalBody := lines
-        , tickBody := []
-        , resetBody := []
-        , evalTickLocals := [] }
+        match b with
+        | .const v _ =>
+          let shiftAmount := v.toNat
+          let k := shiftAmount / 32
+          let r := shiftAmount % 32
+          let slot (j : Nat) : String :=
+            if j < k then "0u"
+            else if j == k then
+              if r == 0 then s!"{aS}[0]" else s!"({aS}[0] << {r})"
+            else
+              let lower := j - k
+              let upperShift := if r == 0 then "0u" else s!"({aS}[{lower - 1}] >> {32 - r})"
+              if r == 0 then s!"{aS}[{lower}]"
+              else s!"(({aS}[{lower}] << {r}) | {upperShift})"
+          let lines := (List.range nWords).map fun j =>
+            s!"        {sn}[{j}] = {slot j};"
+          { declarations := []
+          , evalBody := lines
+          , tickBody := []
+          , resetBody := []
+          , evalTickLocals := [] }
+        | _ =>
+          -- DYNAMIC shift amount: the old fallback treated it as 0.  Runtime
+          -- word loop (mirrors the nested matWide arm; see the Phr note there).
+          let bS := emitExpr typeMap b
+          { declarations := []
+          , evalBody :=
+              [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
+              , s!"          for (unsigned {sn}_j = 0; {sn}_j < {nWords}u; {sn}_j++) \{"
+              , s!"            uint32_t {sn}_lo = ({sn}_j >= {sn}_k) ? {aS}[{sn}_j - {sn}_k] : 0u;"
+              , s!"            uint32_t {sn}_hi = ({sn}_j >= {sn}_k + 1) ? {aS}[{sn}_j - {sn}_k - 1] : 0u;"
+              , s!"            {sn}[{sn}_j] = {sn}_r ? (({sn}_lo << {sn}_r) | ({sn}_hi >> (32 - {sn}_r))) : {sn}_lo;"
+              , s!"          }"
+              , s!"        }" ]
+          , tickBody := []
+          , resetBody := []
+          , evalTickLocals := [] }
       | .op .shr [a, b] =>
-        -- Wide logical shift right by a constant amount.  (Previously
+        -- Wide logical shift right.  (Constant amounts were previously
         -- dropped by the `_ => empty` default → the shifted word read 0;
         -- e.g. the bit-serial multiplier's MSB extraction `b >> 255`
-        -- always yielded 0, so the whole multiply was silently wrong.)
-        let shiftAmount : Nat := match b with
-          | .const v _ => v.toNat
-          | _ => 0
+        -- always yielded 0, so the whole multiply was silently wrong.
+        -- DYNAMIC amounts were then treated as 0 — XiangShan Phr's
+        -- `{phr, phr} >> ptr` rotation read the unshifted vector.)
         let aS := emitExpr typeMap a
         let srcWords := wordsOf (inferExprWidth typeMap a)
-        let k := shiftAmount / 32
-        let r := shiftAmount % 32
-        let slot (j : Nat) : String :=
-          let idx := j + k
-          if idx ≥ srcWords then "0u"
-          else if r == 0 then s!"{aS}[{idx}]"
-          else
-            let hiPart := if idx + 1 < srcWords then s!" | ({aS}[{idx + 1}] << {32 - r})" else ""
-            s!"(({aS}[{idx}] >> {r}){hiPart})"
-        let lines := (List.range nWords).map fun j =>
-          s!"        {sn}[{j}] = {slot j};"
-        { declarations := []
-        , evalBody := lines
-        , tickBody := []
-        , resetBody := []
-        , evalTickLocals := [] }
+        match b with
+        | .const v _ =>
+          let shiftAmount := v.toNat
+          let k := shiftAmount / 32
+          let r := shiftAmount % 32
+          let slot (j : Nat) : String :=
+            let idx := j + k
+            if idx ≥ srcWords then "0u"
+            else if r == 0 then s!"{aS}[{idx}]"
+            else
+              let hiPart := if idx + 1 < srcWords then s!" | ({aS}[{idx + 1}] << {32 - r})" else ""
+              s!"(({aS}[{idx}] >> {r}){hiPart})"
+          let lines := (List.range nWords).map fun j =>
+            s!"        {sn}[{j}] = {slot j};"
+          { declarations := []
+          , evalBody := lines
+          , tickBody := []
+          , resetBody := []
+          , evalTickLocals := [] }
+        | _ =>
+          let bS := emitExpr typeMap b
+          { declarations := []
+          , evalBody :=
+              [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
+              , s!"          for (unsigned {sn}_j = 0; {sn}_j < {nWords}u; {sn}_j++) \{"
+              , s!"            uint32_t {sn}_lo = ({sn}_j + {sn}_k < {srcWords}u) ? {aS}[{sn}_j + {sn}_k] : 0u;"
+              , s!"            uint32_t {sn}_hi = ({sn}_j + {sn}_k + 1 < {srcWords}u) ? {aS}[{sn}_j + {sn}_k + 1] : 0u;"
+              , s!"            {sn}[{sn}_j] = {sn}_r ? (({sn}_lo >> {sn}_r) | ({sn}_hi << (32 - {sn}_r))) : {sn}_lo;"
+              , s!"          }"
+              , s!"        }" ]
+          , tickBody := []
+          , resetBody := []
+          , evalTickLocals := [] }
       | .ref _ =>
         -- Wide identifier copy: memcpy from src array to dest.
         let expr := emitExpr typeMap rhs
