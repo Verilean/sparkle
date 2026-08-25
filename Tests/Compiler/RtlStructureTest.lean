@@ -125,12 +125,14 @@ def boundNames (body : String) : List String := Id.run do
   let mut out : List String := []
   for line in body.splitOn "\n" do
     let t := line.trim
-    -- `logic [7:0] name;`  /  `logic name;`
+    -- `logic [7:0] name;`  /  `logic name;`  /  `logic [7:0] name = 8'h0;`
+    -- (register declarations now carry the IR initial value)
     if t.startsWith "logic " then
       let afterBracket : String :=
         if containsSubstr t "]" then (t.splitOn "]").getLast!
         else String.mk (t.toList.drop 6)
-      let nm := ((afterBracket.splitOn ";").head!).trim
+      let beforeSemi := (afterBracket.splitOn ";").head!
+      let nm := ((beforeSemi.splitOn "=").head!).trim
       if nm != "" then out := nm :: out
     -- ports: `input logic [..] name,` / `output logic name`
     if t.startsWith "input " || t.startsWith "output " then

@@ -1429,9 +1429,51 @@ partial def expandGenerateBlocks (paramVals : List (String × Nat))
     determined locally; the caller treats `none` as "leave the constant
     alone". -/
 private def exprWidthForNarrow (env : LowerEnv) : Expr → Option Nat
-  | .ref name => (env.getWidth name).map (fun (hi, lo) => hi - lo + 1)
+  | .ref name =>
+    match env.getWidth name with
+    | some (hi, lo) => some (hi - lo + 1)
+    | none =>
+      -- `getWidth` can't distinguish "declared without a range" from
+      -- "unknown name".  A range-less SV declaration IS a 1-bit scalar,
+      -- and 1-bit operands are exactly where the un-narrowed 32-bit mask
+      -- does the most damage (XiangShan: `countingEn ^ 32'hffffffff`
+      -- makes every enclosing ternary condition 32-bit non-zero, so
+      -- `~w_wen` reads as TRUE even when `w_wen` is 1).
+      if env.portWidths.any (·.1 == name) || env.wireWidths.any (·.1 == name)
+      then some 1 else none
   | .const _ w => some w
   | .slice _ hi lo => some (hi - lo + 1)
+  | .concat args =>
+    -- Sum of member widths (self-determined in Verilog).  Needed for the
+    -- reduction-AND shape over a concat of slices, e.g. AgeDetector's
+    -- `&{T[5:5], T[3:0]}` → `({…} ^ 32'hffffffff) == 32'd0`, which is
+    -- constantly false unless the mask narrows to the concat's width.
+    args.foldl (fun acc a =>
+      match acc, exprWidthForNarrow env a with
+      | some x, some y => some (x + y)
+      | _, _ => none) (some 0)
+  | .op op args =>
+    -- Comparison/reduction-shaped results are 1-bit by construction.
+    match op with
+    | .eq | .lt_u | .lt_s | .le_u | .le_s | .gt_u | .gt_s | .ge_u | .ge_s => some 1
+    | .and | .or | .xor | .not =>
+      -- Bitwise ops: result width = max operand width (Verilog
+      -- context-determined sizing).  Needed so `~(valid & issue)` on
+      -- 1-bit wires narrows its all-ones mask too, not just `~ref`
+      -- (XiangShan ICacheMshr.io_wfi_wfiSafe).  Recursion is safe:
+      -- `narrowMaskConstants` rewrites innermost masks first.
+      args.foldl (fun acc a =>
+        match acc, exprWidthForNarrow env a with
+        | some x, some y => some (max x y)
+        | _, _ => none) (some 1)
+    | .mux =>
+      match args with
+      | [_, t, e] =>
+        match exprWidthForNarrow env t, exprWidthForNarrow env e with
+        | some x, some y => some (max x y)
+        | _, _ => none
+      | _ => none
+    | _ => none
   | _ => none
 
 /-- Rewrite the `(x XOR <32-bit -1>)` shape emitted by `lowerExpr` for
@@ -1745,6 +1787,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       -- Detect reset pattern: find first if/else that looks like a reset check
       -- PicoRV32 has flat assigns before the reset check, so we scan for it
       let mut resetName := "rst"
+      let mut resetKind : Sparkle.IR.Type.ResetKind := .asynchronous
       let mut initMap : List (String × Nat) := []
       let resetCheck := stmts.findSome? fun s => match s with
         | .ifElse cond thenB elseB => detectReset cond thenB elseB
@@ -1763,7 +1806,19 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               | none => none
             | none => none
           | _ => none
-      | none => pure ()
+      | none =>
+        -- No reset pattern in this block (XiangShan `Hstateen*`: plain
+        -- `always @(posedge clock)` with enable-only updates).  The old
+        -- default referenced a phantom `rst` wire that exists in no such
+        -- module — the re-emitted Verilog then fails elaboration
+        -- ("Unable to bind wire/reg/memory `rst'").  Drive a shared
+        -- constant-0 reset instead and mark the register synchronous so
+        -- the sensitivity list stays clock-only.
+        resetName := "_no_rst"
+        resetKind := .synchronous
+        if !(wireExists wires "_no_rst") then
+          wires := wires ++ [{ name := "_no_rst", ty := .bit }]
+          body := body ++ [.assign "_no_rst" (.const 0 1)]
 
       -- Extract blocking assigns as combinational intermediates (from full always body)
       let blockingNames := (collectBlockNamesTop stmts).eraseDups
@@ -1782,7 +1837,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           | some (_, v) => v
           | none => 0
         let dataExpr := stmtsToMuxExpr regName stmts
-        body := body ++ [.register regName clock (resetName, .asynchronous) dataExpr initVal]
+        body := body ++ [.register regName clock (resetName, resetKind) dataExpr initVal]
         if !(wireExists wires regName) then
           wires := wires ++ [{ name := regName, ty := hwTy }]
 
@@ -2220,9 +2275,15 @@ def reachabilityDCE (design : Design) : Design :=
       -- All registers are reachable roots. Registers hold state and may
       -- indirectly affect outputs through multi-cycle FSM behavior.
       -- Only combinational wires (assigns) are candidates for DCE.
+      -- The register's RESET is a use too: it lives in a String field
+      -- (not an Expr), so `countExprUses` never sees it — without this
+      -- root, synthesized reset wires (`_no_rst`, `_rst_<sig>_inv`)
+      -- lose their driving assign and the emitted Verilog fails
+      -- elaboration ("Unable to bind wire/reg/memory").
       for s in m.body do
         match s with
-        | .register output _ _ _ _ => frontier := frontier ++ [output]
+        | .register output _ (rstName, _) _ _ =>
+          frontier := frontier ++ [output, rstName]
         | _ => pure ()
       for s in m.body do
         match s with
@@ -2362,7 +2423,18 @@ def parseAndLowerHierarchical (input : String) : Except String Design := do
         if trimmed.startsWith "integer " then ""
         else
           let parts := l.splitOn "begin : "
-          if parts.length >= 2 then parts[0]! ++ "begin"
+          -- Only strip a NAMED BLOCK label, i.e. when `begin` is a whole
+          -- token.  `io_in_begin : 8'h0` (XiangShan ByteMaskTailGen has a
+          -- port literally named `io_in_begin` inside a ternary) must not
+          -- match — the old substring split silently ate the rest of the
+          -- line.
+          let isTokenBoundary :=
+            parts.length >= 2 &&
+            (let before := parts[0]!
+             before.isEmpty ||
+             (let c := before.back
+              !(c.isAlphanum || c == '_' || c == '$')))
+          if isTokenBoundary then parts[0]! ++ "begin"
           else l
       ) |> ("\n".intercalate ·)
   let svDesign ← Tools.SVParser.Parser.parse preprocessed

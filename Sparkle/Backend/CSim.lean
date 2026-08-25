@@ -128,7 +128,12 @@ def applyMask (expr : String) (w : Nat) : String :=
 /-- Check if an IR expression produces a result that is already correctly masked.
     Invariant: every assignment applies a mask, so .ref reads yield masked values. -/
 partial def exprIsMasked (w : Nat) : Expr → Bool
-  | .const _ _ => true
+  -- A constant is only "already masked" if its DECLARED width fits the
+  -- target width.  `.const (-1) 32` (the SVParser's bitwise-NOT mask)
+  -- feeding a 1-bit wire used to pass here unconditionally, so the xor
+  -- arm below skipped the store mask and a `~x` landed as 0xff in a
+  -- 1-bit uint8 field (XiangShan ICacheMshr.io_wfi_wfiSafe, 14 modules).
+  | .const _ cw => cw ≤ w
   | .ref _ => true
   | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
   | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
@@ -411,10 +416,23 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
       else if sliceWidth <= 64 then
         let mask := (2 ^ sliceWidth - 1 : Nat)
         let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
-        if bitOffset == 0 then
-          s!"((((uint64_t){srcExpr}[{wordIdx + 1}] << 32) | (uint64_t){srcExpr}[{wordIdx}]) & {maskStr})"
-        else
-          s!"((((uint64_t){srcExpr}[{wordIdx + 1}] << {32 - bitOffset}) | ((uint64_t){srcExpr}[{wordIdx}] >> {bitOffset})) & {maskStr})"
+        -- A 33..64-bit slice at a non-zero offset spans up to THREE
+        -- source words (e.g. `ram[88:25]`: bits 25-31 of word 0, all of
+        -- word 1, bits 0-24 of word 2).  The old two-word form silently
+        -- zeroed everything above bit 32+(32-offset) — XiangShan's
+        -- Queue1_RegMapperInput lost the top half of its 64-bit payload.
+        -- Build the general OR over words lo/32 .. hi/32.  Shift bounds:
+        -- for k ≥ 1, 32k - bitOffset ≤ 64 - bitOffset ≤ 63 when a third
+        -- word exists (bitOffset ≥ 1), so no UB-range shifts.
+        let hiWord := hi / 32
+        let terms := (List.range (hiWord - wordIdx + 1)).map fun k =>
+          let j := wordIdx + k
+          if k == 0 then
+            if bitOffset == 0 then s!"(uint64_t){srcExpr}[{j}]"
+            else s!"((uint64_t){srcExpr}[{j}] >> {bitOffset})"
+          else
+            s!"((uint64_t){srcExpr}[{j}] << {32 * k - bitOffset})"
+        s!"((({String.intercalate " | " terms})) & {maskStr})"
       else
         emitExpr typeMap e
     else
@@ -460,9 +478,22 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
     | [arg1, arg2] =>
       match operator with
       | .lt_s | .le_s | .gt_s | .ge_s =>
-        let w := inferExprWidth typeMap arg1
-        let stype := signedCastType w
-        s!"(({stype}){emitExpr typeMap arg1} {emitCOperator operator} ({stype}){emitExpr typeMap arg2} ? 1 : 0)"
+        -- Signed compare at the INFERRED value width w.  A plain signed
+        -- C cast only works when w is exactly the cast's width: for
+        -- w = 6 the value's sign bit (bit 5) is not int8_t's bit 7, so
+        -- `(int8_t)x` reads padding as sign (XiangShan FIFOReg's wrap
+        -- flag).  Compare with the sign bit flipped instead — unsigned,
+        -- container-independent, and `& mask` shields against any
+        -- unmasked upper bits.
+        let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
+        if w == 8 || w == 16 || w == 32 || w == 64 then
+          let stype := signedCastType w
+          s!"(({stype}){emitExpr typeMap arg1} {emitCOperator operator} ({stype}){emitExpr typeMap arg2} ? 1 : 0)"
+        else
+          let w := min w 64
+          let m := s!"0x{String.ofList (Nat.toDigits 16 (2 ^ w - 1))}ULL"
+          let sb := s!"0x{String.ofList (Nat.toDigits 16 (2 ^ (w - 1)))}ULL"
+          s!"(((({emitExpr typeMap arg1} & {m}) ^ {sb}) {emitCOperator operator} (({emitExpr typeMap arg2} & {m}) ^ {sb})) ? 1 : 0)"
       | .asr =>
         let w := max (inferExprWidth typeMap arg1) 32
         let stype := signedCastType w

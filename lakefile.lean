@@ -351,6 +351,12 @@ lean_exe «sv-roundtrip» where
   root := `Tests.Drivers.SvRoundtripMain
   supportInterpreter := true
 
+-- Phase-2 three-way co-sim: iverilog(original)=golden vs iverilog(roundtrip)
+-- vs Sparkle CSim JIT, over baked deterministic vectors.
+lean_exe «sv-cosim» where
+  root := `Tests.Drivers.SvCosimMain
+  supportInterpreter := true
+
 -- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
 -- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
 -- 802.3 golden vectors must all agree.

@@ -77,7 +77,7 @@ def processOne (dir name : String) (bytes : Nat) (emitDir : Option String) :
            , err := s!"{snip} ||| {e}" }
   | .ok _ =>
     let tParse ← IO.monoMsNow
-    match parseAndLowerFlat src with
+    match parseAndLowerHierarchical src with
     | .error e =>
       let t1 ← IO.monoMsNow
       return { file := name, bytes, ms := t1 - t0, phase := "lower", err := e }

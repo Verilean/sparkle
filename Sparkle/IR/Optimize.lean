@@ -240,7 +240,11 @@ def countAllUses (stmts : List Stmt) : HashMap String Nat :=
   stmts.foldl (fun counts stmt =>
     match stmt with
     | .assign _ rhs => countExprUses rhs counts
-    | .register _ _ _ input _ => countExprUses input counts
+    | .register _ _ (rstName, _) input _ =>
+      -- The reset lives in a String field, not an Expr — count it as a
+      -- use so a synthesized reset wire's driving assign (`_no_rst = 0`,
+      -- `_rst_<sig>_inv = ~sig`) is never dropped as dead.
+      countExprUses input (counts.insert rstName ((counts.getD rstName 0) + 1))
     | .memory _ _ _ _ wa wd we ra _ _ =>
       [wa, wd, we, ra].foldl (fun acc e => countExprUses e acc) counts
     | .inst _ _ conns =>
@@ -323,6 +327,15 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
     | .register output .. => s.insert output true
     | _ => s
   ) ({} : HashMap String Bool)
+  -- A register's reset is referenced BY NAME (a String field, not an
+  -- Expr), so `substituteExpr` can never reach it — inlining a reset
+  -- wire's assign deletes its only driver (`_no_rst = 0`,
+  -- `_rst_<sig>_inv = ~sig`) and the emitted Verilog fails elaboration.
+  let resetNames := body.foldl (fun s stmt =>
+    match stmt with
+    | .register _ _ (rstName, _) _ _ => s.insert rstName true
+    | _ => s
+  ) ({} : HashMap String Bool)
   let memoryReadData := body.foldl (fun s stmt =>
     match stmt with
     | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
@@ -360,7 +373,18 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
           let seen := seen.insert w true
           let next := (assignDefs.get? w |>.map collectExprRefs).getD []
           grow (next ++ rest) seen fuel
-    grow seeds {} (body.length * 8 + seeds.length + 64)
+    -- Fuel must cover every possible worklist POP.  A wire is pushed at
+    -- most once per REFERENCE to it (revisits pop without pushing), so
+    -- the exact bound is seeds + the total ref count across all assign
+    -- rhss.  The old `body.length * 8` heuristic underestimates modules
+    -- whose expressions are much wider than they are numerous (XiangShan
+    -- RenameTable: deep per-register mux chains) — the walk then stopped
+    -- early and silently under-protected the memory cone.
+    let totalRefs := body.foldl (fun acc stmt =>
+      match stmt with
+      | .assign _ rhs => acc + (collectExprRefs rhs).length
+      | _ => acc) 0
+    grow seeds {} (seeds.length + totalRefs + 64)
 
   -- Width map (name → bit width) from the module's ports and wires.
   let widthOf := (m.inputs ++ m.outputs ++ m.wires).foldl
@@ -396,6 +420,7 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
         && !isWideConcat
         && !outputSet.contains lhs
         && !registerOutputs.contains lhs
+        && !resetNames.contains lhs
         && !memoryReadData.contains lhs
         && !memoryPortRefs.contains lhs
         && !protectedWires.contains lhs
@@ -870,6 +895,14 @@ def optimizeModule (m : Module)
       match stmt with
       | .register out _ _ input _ => s.insert out input
       | _ => s) {}
+    -- The reset is a String field, invisible to `collectExprRefs`; a live
+    -- register must keep its reset wire (and that wire's driving assign)
+    -- live, or Phase 5's width-map rebuild drops the assign and the
+    -- emitted Verilog references an undeclared wire.
+    let regResets : HashMap String String := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out _ (rstName, _) _ _ => s.insert out rstName
+      | _ => s) {}
     let seeds : List String :=
       m.outputs.map (·.name) ++
       -- Wires the caller has declared observable are roots too.  `#sim`
@@ -896,10 +929,24 @@ def optimizeModule (m : Module)
           let live := live.insert w true
           let next :=
             (assignDefs.get? w |>.map collectExprRefs |>.getD []) ++
-            (regInputs.get? w |>.map collectExprRefs |>.getD [])
+            (regInputs.get? w |>.map collectExprRefs |>.getD []) ++
+            (regResets.get? w |>.map ([·]) |>.getD [])
           grow (next ++ rest) live fuel
-    -- Fuel: every wire can enter the worklist once per referencing site.
-    let liveSet := grow seeds {} (finalBody.length * 8 + seeds.length + 64)
+    -- Fuel: every pop is either a revisit (pushed once per reference) or
+    -- a fresh wire (pushes its def's refs).  Bound fuel by seeds + the
+    -- TOTAL ref count across assign rhss, register inputs and register
+    -- resets — the old `finalBody.length * 8` heuristic ran out on
+    -- XiangShan's RenameTable (few statements, enormous mux expressions)
+    -- and the truncated liveSet silently pruned LIVE registers
+    -- (spec_table_0..2), which Phase 5 then cascaded into dropped concat
+    -- operands.  The `allOutputsDriven` fail-safe cannot catch this:
+    -- outputs stay driven by the surviving assigns.
+    let totalRefs := finalBody.foldl (fun acc stmt =>
+      match stmt with
+      | .assign _ rhs => acc + (collectExprRefs rhs).length
+      | .register _ _ _ input _ => acc + (collectExprRefs input).length + 1
+      | _ => acc) 0
+    let liveSet := grow seeds {} (seeds.length + totalRefs + 64)
     let reachableBody := finalBody.filter fun stmt =>
       match stmt with
       | .register out .. => liveSet.contains out
