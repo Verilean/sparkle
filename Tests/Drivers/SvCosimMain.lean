@@ -19,7 +19,7 @@
   v1 scope: LEAF modules (no sub-instances) whose ports are all ≤ 64 bits.
 
   Usage:
-    lake exe sv-cosim <orig-dir> <rt-dir> [--jobs N] [--cycles K] [--limit M] [--max-kb S]
+    lake exe sv-cosim <orig-dir> <rt-dir> [--jobs N] [--cycles K] [--limit M] [--max-kb S] [--skip K] [--hier [--max-closure F]]
     lake exe sv-cosim <orig-file.sv> <rt-dir>     # single, verbose
 -/
 import Tools.SVParser
@@ -66,7 +66,8 @@ def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
   return out
 
 def emitTb (modName : String) (ports : List PortInfo)
-    (stim : List (List (String × UInt64))) (cycles : Nat) : String := Id.run do
+    (stim : List (List (String × UInt64))) (cycles : Nat)
+    (hasClock : Bool := true) : String := Id.run do
   let ins := ports.filter (·.isIn)
   let outs := ports.filter (!·.isIn)
   let mut l : List String := ["`timescale 1ns/1ps", "module tb;"]
@@ -81,16 +82,21 @@ def emitTb (modName : String) (ports : List PortInfo)
     let row := (stim[c]?).getD []
     for (n, v) in row do
       l := l ++ [s!"    {n} = 64'h{String.ofList (Nat.toDigits 16 v.toNat)};"]
-    l := l ++ ["    #1; if (clock !== 1'b1) clock = 0; #4; clock = 1; #4;"]
+    if hasClock then
+      l := l ++ ["    #1; if (clock !== 1'b1) clock = 0; #4; clock = 1; #4;"]
+    else
+      -- pure-combinational module: just let the values settle
+      l := l ++ ["    #2;"]
     let outFmt := String.intercalate " " (outs.map fun _ => "%0h")
     let outArgs := String.intercalate ", " (outs.map (·.name))
-    l := l ++ [s!"    $display(\"C{c} {outFmt}\", {outArgs});", "    clock = 0; #1;"]
+    l := l ++ [s!"    $display(\"C{c} {outFmt}\", {outArgs});"]
+      ++ (if hasClock then ["    clock = 0; #1;"] else [])
   l := l ++ ["    $finish;", "  end", "endmodule"]
   return String.intercalate "\n" l
 
 def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
     (ports : List PortInfo) (stim : List (List (String × UInt64)))
-    (cycles : Nat) : String := Id.run do
+    (cycles : Nat) (hasClock : Bool := true) : String := Id.run do
   let cls := Sparkle.Backend.CSim.sanitizeName modName
   let outs := ports.filter (!·.isIn)
   let mut l : List String :=
@@ -104,8 +110,13 @@ def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
     let row := (stim[c]?).getD []
     for (n, v) in row do
       l := l ++ [s!"  s.{Sparkle.Backend.CSim.sanitizeName n} = {v}ULL;"]
-    -- sample f(I_k, R_{k+1}) to match negedge sampling: eval, tick, eval
-    l := l ++ [s!"  sparkle_{cls}_eval(&s);", s!"  sparkle_{cls}_tick(&s);", s!"  sparkle_{cls}_eval(&s);"]
+    -- clocked: sample f(I_k, R_{k+1}) to match negedge sampling
+    -- (eval, tick, eval); combinational: a single eval settles it
+    l := l ++
+      (if hasClock then
+        [s!"  sparkle_{cls}_eval(&s);", s!"  sparkle_{cls}_tick(&s);", s!"  sparkle_{cls}_eval(&s);"]
+      else
+        [s!"  sparkle_{cls}_eval(&s);"])
     let fmt := String.intercalate " " (outs.map fun _ => "%llx")
     let args := String.intercalate ", " (outs.map fun p =>
       s!"(unsigned long long)s.{Sparkle.Backend.CSim.sanitizeName p.name}")
@@ -120,20 +131,95 @@ inductive CosimResult where
   | toolFail (detail : String)        -- compile/infra failure
   | skipped (why : String)
 
-def runCosim (dir rtDir workDir name : String) (cycles : Nat) :
+/-- Names of modules instantiated by any module in the list. -/
+def instNamesOf (ms : List Sparkle.IR.AST.Module) : List String :=
+  (ms.flatMap fun m => m.body.filterMap fun s =>
+    match s with
+    | .inst modName _ _ => some modName
+    | _ => none).eraseDups
+
+/-- Per-worker cache: file basename → its lowered Design (or none on
+    parse/lower failure).  Children repeat massively across targets
+    (utility modules), and each worker processes its bucket sequentially,
+    so an `IO.Ref` per worker needs no locking. -/
+abbrev ChildCache := IO.Ref (Std.HashMap String (Option Sparkle.IR.AST.Design))
+
+/-- Load the transitive instantiation closure of `rootModules` from
+    `dir`.  XiangShan naming: module `Foo` lives in `Foo.sv`.  Fails
+    (returns .error reason) on a missing/unparseable child or when the
+    closure exceeds `maxFiles`. -/
+def loadClosure (dir : String) (cache : ChildCache)
+    (rootModules : List Sparkle.IR.AST.Module) (maxFiles : Nat) :
+    IO (Except String (List Sparkle.IR.AST.Module)) := do
+  let mut modules := rootModules
+  let mut haveNames : List String := rootModules.map (·.name)
+  let mut work : List String :=
+    (instNamesOf rootModules).filter (fun n => !haveNames.contains n)
+  let mut loaded := 0
+  while !work.isEmpty do
+    let n := work.head!
+    work := work.tail!
+    if haveNames.contains n then
+      continue
+    if n == "ClockGate" then
+      -- an ICG in the closure means gated clocks below: outside the
+      -- single-clock IR model (CSim would tick gated children
+      -- unconditionally) — punt honestly.
+      return .error "clock-gated subtree (ClockGate)"
+    if loaded ≥ maxFiles then
+      return .error s!"closure > {maxFiles} files"
+    let cached := (← cache.get).get? n
+    let d? ← match cached with
+      | some d? => pure d?
+      | none => do
+        let path := System.FilePath.mk dir / s!"{n}.sv"
+        let d? ← try
+          let csrc ← IO.FS.readFile path
+          pure (match parseAndLowerHierarchical csrc with
+            | .ok d => some d
+            | .error _ => none)
+        catch _ => pure none
+        cache.modify (·.insert n d?)
+        pure d?
+    match d? with
+    | none => return .error s!"child {n} missing/unlowered"
+    | some d =>
+      loaded := loaded + 1
+      for cm in d.modules do
+        if !haveNames.contains cm.name then
+          modules := modules ++ [cm]
+          haveNames := haveNames ++ [cm.name]
+      work := work ++ ((instNamesOf d.modules).filter (fun x => !haveNames.contains x))
+  return .ok modules
+
+def runCosim (dir rtDir workDir name : String) (cycles : Nat)
+    (hier : Bool := false) (maxClosure : Nat := 25)
+    (cache : Option ChildCache := none) :
     IO (String × CosimResult) := do
   let src ← IO.FS.readFile (System.FilePath.mk dir / name)
   let .ok sv := parse src | return (name, .skipped "parse")
   let some m := sv.modules.head? | return (name, .skipped "no module")
   let ports := portsOf m
-  -- leaf + ≤64-bit ports only (v1)
+  -- ≤64-bit top ports only (v1); leaf-only unless --hier
   let hasInst := m.items.any fun it => match it with
     | .instantiation .. => true | _ => false
-  if hasInst then return (name, .skipped "has sub-instances")
+  if hasInst && !hier then return (name, .skipped "has sub-instances")
+  if !hasInst && hier then return (name, .skipped "leaf (covered by leaf run)")
   if ports.any (·.width > 64) then return (name, .skipped "wide port")
-  if !(ports.any (fun p => p.isIn && (p.name == "clock" || p.name == "clk"))) then
-    return (name, .skipped "no clock")
-  let .ok design := parseAndLowerHierarchical src | return (name, .skipped "lower")
+  -- clock-less modules are pure combinational: co-sim with a settle-and-
+  -- sample protocol instead of skipping (XiangShan CVT32ModuleS0/S1)
+  let hasClock := ports.any fun p => p.isIn && (p.name == "clock" || p.name == "clk")
+  let .ok rootDesign := parseAndLowerHierarchical src | return (name, .skipped "lower")
+  let design ← do
+    if hier && hasInst then
+      let cache ← match cache with
+        | some c => pure c
+        | none => IO.mkRef {}
+      match ← loadClosure dir cache rootDesign.modules maxClosure with
+      | .error why => return (name, .skipped why)
+      | .ok all => pure { rootDesign with modules := all, topModule := m.name }
+    else
+      pure rootDesign
   -- Emission-blowup guard.  CSim's wide (>32-bit) emitters re-emit each
   -- operand's WHOLE expression once per 32-bit word, so cost multiplies
   -- down the tree: a chain of d nested 40-bit ops costs ~2^d.  VpnTable
@@ -171,8 +257,8 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat) :
     return (name, .skipped "C-emission cost blowup")
   let ins := ports.filter (·.isIn)
   let stim := bake ins cycles (0xC0FFEE + name.hash)
-  let tb := emitTb m.name ports stim cycles
-  let cmain := emitCMain design m.name ports stim cycles
+  let tb := emitTb m.name ports stim cycles hasClock
+  let cmain := emitCMain design m.name ports stim cycles hasClock
   let wd := System.FilePath.mk workDir
   IO.FS.createDirAll wd
   let base := name.dropRight 3
@@ -181,14 +267,17 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat) :
   let run (cmd : String) (args : Array String) : IO (Nat × String) := do
     let r ← IO.Process.output { cmd, args }
     return (r.exitCode.toNat, r.stdout ++ (if r.exitCode != 0 then r.stderr else ""))
-  -- golden: iverilog on the ORIGINAL
-  let (e1, _) ← run "iverilog" #["-g2012", "-o", s!"{workDir}/{base}_gold",
-    s!"{dir}/{name}", s!"{workDir}/{base}_tb.v"]
+  -- golden: iverilog on the ORIGINAL (in --hier mode, resolve children
+  -- from the source directory as a library)
+  let lib := fun (d : String) =>
+    if hier then #["-y", d, "-Y", ".sv"] else #[]
+  let (e1, _) ← run "iverilog" (#["-g2012", "-o", s!"{workDir}/{base}_gold"]
+    ++ lib dir ++ #[s!"{dir}/{name}", s!"{workDir}/{base}_tb.v"])
   if e1 != 0 then return (name, .toolFail "iverilog(orig) compile")
   let (_, gold) ← run "vvp" #[s!"{workDir}/{base}_gold"]
-  -- roundtrip side
-  let (e2, _) ← run "iverilog" #["-g2012", "-o", s!"{workDir}/{base}_rt",
-    s!"{rtDir}/{name}", s!"{workDir}/{base}_tb.v"]
+  -- roundtrip side (children come from the re-emitted corpus)
+  let (e2, _) ← run "iverilog" (#["-g2012", "-o", s!"{workDir}/{base}_rt"]
+    ++ lib rtDir ++ #[s!"{rtDir}/{name}", s!"{workDir}/{base}_tb.v"])
   if e2 != 0 then return (name, .rtMismatch "iverilog(rt) does not compile")
   let (_, rt) ← run "vvp" #[s!"{workDir}/{base}_rt"]
   -- JIT side
@@ -201,7 +290,7 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat) :
     (out.splitOn "\n").filter (fun l =>
       if l.startsWith "C" then
         match ((l.drop 1).toString.takeWhile Char.isDigit).toNat? with
-        | some c => decide (c ≥ 3)
+        | some c => decide (c ≥ (if hasClock then 3 else 0))
         | none => false
       else false)
   let g := keep gold
@@ -232,11 +321,17 @@ def main (args : List String) : IO Unit := do
   -- workers that OOMs the box.  Leaf co-sim doesn't need them — cap the
   -- ORIGINAL source size (the emitted C tracks it).
   let maxKb := ((flagVal "--max-kb").bind (·.toNat?)).getD 512
+  -- --hier: co-simulate NON-leaf modules with their transitive
+  -- instantiation closure (iverilog resolves children via `-y`; the CSim
+  -- side merges the lowered child designs into one hierarchical Design).
+  let hier := args.contains "--hier"
+  let maxClosure := ((flagVal "--max-closure").bind (·.toNat?)).getD 25
   let workDir := "/tmp/sv-cosim"
   if dir.endsWith ".sv" then
     let p := System.FilePath.mk dir
+    let cache : ChildCache ← IO.mkRef {}
     let (n, res) ← runCosim (p.parent.getD "." |>.toString) rtDir workDir
-      (p.fileName.getD dir) cycles
+      (p.fileName.getD dir) cycles hier maxClosure (some cache)
     IO.println s!"{n}: {match res with
       | .ok => "OK"
       | .rtMismatch d => s!"RT-MISMATCH {d}"
@@ -267,9 +362,10 @@ def main (args : List String) : IO Unit := do
       b := b.modify (i % jobs) (·.push sorted[i].1)
     return b
   let worker (bucket : Array String) : IO (Array (String × CosimResult)) := do
+    let cache : ChildCache ← IO.mkRef {}
     let mut out := #[]
     for n in bucket do
-      out := out.push (← runCosim dir rtDir workDir n cycles)
+      out := out.push (← runCosim dir rtDir workDir n cycles hier maxClosure (some cache))
     return out
   let mut tasks := #[]
   for b in chunks do

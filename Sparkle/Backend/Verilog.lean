@@ -134,11 +134,18 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
       -- A part-select is only legal in Verilog on a NAME (net/reg/array
       -- element) — `(a >> b)[0:0]` is a syntax error.  When the operand is
       -- a compound expression (e.g. a single-use shift the optimizer
-      -- inlined here), emit the equivalent shift-and-mask `((e >> lo) &
-      -- {n{1'b1}})` instead, which is valid on any expression.
+      -- inlined here), emit a SIZE CAST `n'((e >> lo))`: it truncates the
+      -- VALUE like the old `& mask` form AND fixes the expression's
+      -- self-determined width to n.  The mask form kept the operand's
+      -- width (`&` is max-width), so a 1-bit slice of a 20-bit shift used
+      -- as a CONCAT ELEMENT inflated the concat by 19 bits and shifted
+      -- every element above it out of the target (XiangShan
+      -- CVT32ModuleS1's fflags lost its NV bit).
       let n := hi + 1 - lo
-      let mask := (Nat.pow 2 n) - 1
-      s!"(({emitExpr widthOf e} >> {lo}) & {n}'h{String.ofList (Nat.toDigits 16 mask)})"
+      if lo == 0 then
+        s!"{n}'({emitExpr widthOf e})"
+      else
+        s!"{n}'(({emitExpr widthOf e}) >> {lo})"
 
   | .index arr idx =>
     s!"{emitExpr widthOf arr}[{emitExpr widthOf idx}]"

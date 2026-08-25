@@ -1219,6 +1219,79 @@ def collectTickRefWires (body : List Stmt) : List String :=
     | _ => acc
   ) []
 
+/-- Order the eval-relevant statements (assigns, instances, combo-read
+    memories) topologically by def-use.  The lowering's `topoSortBody`
+    sorts ASSIGNS only and appends instances last, so a parent's
+    combinational logic that CONSUMES a child instance's outputs was
+    emitted before the child's eval call and read stale values — a
+    Mealy path through a sub-module (XiangShan CVT64: parent mantissa
+    logic reads the Lzc child's `leadZeros` output).  Registers and
+    non-combo memories contribute nothing to eval (they latch in tick),
+    so they keep their original relative order at the end; on a
+    combinational cycle the remaining statements fall back to source
+    order (single-pass semantics, as before). -/
+def scheduleEvalBody (design : Option Design) (m : Module)
+    (body : List Stmt) : List Stmt := Id.run do
+  let childOutputs : Stmt → List String := fun s => match s with
+    | .inst modName _ conns =>
+      match design.bind (·.findModule modName) with
+      | some sm => conns.filterMap (fun (p, e) =>
+          if sm.outputs.any (·.name == p) then
+            match e with | .ref w => some w | _ => none
+          else none)
+      | none => []
+    | _ => []
+  let defsOf : Stmt → List String := fun s => match s with
+    | .assign lhs _ => [lhs]
+    | .memory _ _ _ _ _ _ _ _ rd cr => if cr then [rd] else []
+    | .inst .. => childOutputs s
+    | _ => []
+  let usesOf : Stmt → List String := fun s => match s with
+    | .assign _ rhs => collectExprRefs rhs
+    | .memory _ _ _ _ _ _ _ ra _ cr => if cr then collectExprRefs ra else []
+    | .inst modName _ conns =>
+      let outs := childOutputs s
+      match design.bind (·.findModule modName) with
+      | some _ => conns.foldl (fun acc (_, e) =>
+          acc ++ ((collectExprRefs e).filter (fun r => !outs.contains r))) []
+      | none => conns.foldl (fun acc (_, e) => acc ++ collectExprRefs e) []
+    | _ => []
+  let schedulable : Stmt → Bool := fun s => match s with
+    | .assign .. | .inst .. => true
+    | .memory _ _ _ _ _ _ _ _ _ cr => cr
+    | _ => false
+  let (sched, rest) := body.partition schedulable
+  -- Which names are produced by a schedulable statement?  Everything
+  -- else (inputs, register outputs, latched memory reads) is state and
+  -- always ready.
+  let producedList := sched.flatMap defsOf
+  let produced : Std.HashMap String Bool :=
+    producedList.foldl (fun h n => h.insert n true) {}
+  let mut done : Std.HashMap String Bool := {}
+  let mut result : List Stmt := []
+  let mut remaining := sched
+  let mut fuel := sched.length + 1
+  while !remaining.isEmpty && fuel > 0 do
+    fuel := fuel - 1
+    let mut next : List Stmt := []
+    let mut progressed := false
+    for s in remaining do
+      let ready := (usesOf s).all fun r =>
+        !(produced.getD r false) || done.getD r false
+      if ready then
+        result := result ++ [s]
+        for d in defsOf s do
+          done := done.insert d true
+        progressed := true
+      else
+        next := next ++ [s]
+    remaining := next
+    if !progressed then
+      break
+  -- cycle (or fuel-out): keep the rest in original order — same
+  -- single-pass behaviour as before this pass existed.
+  return result ++ remaining ++ rest
+
 /-- Emit a complete C struct + static helpers for a module.
     Returns the full C source fragment (no includes; callers
     add those at design level). -/
@@ -1234,6 +1307,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let filteredBody := m.body.filter fun s => match s with
       | .assign lhs (.ref name) => lhs != name
       | _ => true
+    let filteredBody := scheduleEvalBody design m filteredBody
     let allParts := filteredBody.map (emitStmt · typeMap design)
 
     let registerNames := m.body.filterMap fun s => match s with
