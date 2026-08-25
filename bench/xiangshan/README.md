@@ -273,3 +273,41 @@ runnable leaf), the JIT agrees except one open module, and the cell
 metric now measures style, not correctness.** Next: Phase 3 = KunminghuV2
 (big config) + hierarchical co-sim (iverilog -y over the whole tree);
 Phase 4 = Verilator-vs-CSim performance shootout (`make emu` workloads).
+
+## Phase 3 — the full config (DefaultConfig = Kunminghu core)
+
+The repo (branch `kunminghu-v3`) has no "KunminghuV2" config class; the
+full-size build is `CONFIG=DefaultConfig`.  Generation:
+`PATH=$HOME/bin-mill:$PATH NOOP_HOME=$PWD nix shell nixpkgs#jdk17 -c make
+verilog CONFIG=DefaultConfig` — mill wrapper resolves `.mill-version`
+0.12.17 from ~/.cache/mill/download.  219 s elaboration, 2,050 build/rtl
+files / 1.5 GB (MinimalConfig outputs archived at build/rtl_min[_rt]).
+
+Roundtrip survey: **2,047 / 2,048 OK (99.95%)** in 2,281 s (16 workers);
+the sole exclusion is ClockGate.sv (`always_latch` ICG), same as
+MinimalConfig.  ZERO new failure classes — the Phase-1/2 front-end work
+generalizes to the full core unchanged.
+
+Phr postscript (fixed before Phase 3 started, commit 65a54d7): the last
+Phase-2 JIT mismatch was CSim's `constAmt` treating every NON-CONSTANT
+wide-shift amount as 0 — Phr rotates its 52-bit path history with the
+doubled-vector idiom `{phr, phr} >> ptr` (104 bits), so every folded
+history read the unshifted vector.  Dynamic amounts now emit a runtime
+word loop (Test 49).  Leaf co-sim on MinimalConfig is now clean:
+RT✗ 0 / JIT✗ 0.
+
+DefaultConfig leaf co-sim (same harness, sliced, --max-kb 512):
+
+| verdict | count |
+|---|---|
+| OK (orig-iverilog ≡ rt-iverilog ≡ CSim JIT) | **450** |
+| RT mismatch | **0** |
+| JIT mismatch | **0** |
+| golden-side tool failures | 54 |
+| skipped (hierarchical / wide ports / no clock) | 1,444 (+78 files > 512 KB) |
+
+Clean on the FIRST run — every miscompile class found on MinimalConfig
+was fixed at the right layer, so the 2× bigger config added nothing.
+Remaining Phase-3/4 work: hierarchical co-sim (iverilog -y over the whole
+tree vs a multi-file CSim design), and the Verilator performance
+shootout (`make emu` workloads vs the CSim JIT).
