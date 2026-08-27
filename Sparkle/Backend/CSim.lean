@@ -748,8 +748,30 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       -- another op — `emitExpr` of a wide op is not a valid C expression, e.g.
       -- HMAC's `(key ⊕ c36) ++ c36` produced an invalid `array ^ array`).
       let rec matWide (label : String) (e : Expr) : List String × String :=
+        -- A NARROW (≤64-bit) operand inside a wide op is a C scalar —
+        -- indexing it `[j]` is invalid (FMA's borrow chain fed
+        -- `(x >> 26) & 1` straight into the wide subtract).  Box it into
+        -- a zero-extended word array first.
+        let wE := inferExprWidth typeMap e
+        if wE ≤ 64 && (match e with | .ref _ => wE ≤ 64 && false | _ => true) then
+          let tmp := s!"__{label}_{sn}"
+          ([ s!"        uint32_t {tmp}[{nWords}]; memset({tmp}, 0, sizeof({tmp}));"
+           , s!"        \{ uint64_t {tmp}_v = (uint64_t){emitExpr typeMap e}; {tmp}[0] = (uint32_t){tmp}_v;" ++
+             (if nWords > 1 then s!" {tmp}[1] = (uint32_t)({tmp}_v >> 32);" else "") ++ " }"
+           ], tmp)
+        else
         match e with
-        | .ref _ => ([], emitExpr typeMap e)
+        | .ref name =>
+          if (lookupWidth typeMap name) ≤ 64 then
+            -- narrow REF: same boxing (a scalar struct field can't be
+            -- indexed per word either)
+            let tmp := s!"__{label}_{sn}"
+            ([ s!"        uint32_t {tmp}[{nWords}]; memset({tmp}, 0, sizeof({tmp}));"
+             , s!"        \{ uint64_t {tmp}_v = (uint64_t){emitExpr typeMap e}; {tmp}[0] = (uint32_t){tmp}_v;" ++
+               (if nWords > 1 then s!" {tmp}[1] = (uint32_t)({tmp}_v >> 32);" else "") ++ " }"
+             ], tmp)
+          else
+            ([], emitExpr typeMap e)
         | .op .shl [a, b] =>
           -- Materialise the shifted operand too: it can itself be a compound
           -- (concat / nested op / another wide op), and `aS[j]` indexing needs
@@ -830,13 +852,45 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
             :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {sa}[{j}] | {sb}[{j}];")), tmp)
         | .op .add [a, b] =>
+          -- operands through matWide: a narrow or compound operand has
+          -- no indexable rendering (FMA fed `(x >> 26) & 1` into the
+          -- wide borrow chain)
+          let (da, sa) := matWide s!"{label}a" a; let (db, sb) := matWide s!"{label}b" b
           let tmp := s!"__{label}_{sn}"
-          (s!"        uint32_t {tmp}[{nWords}];"
-            :: wideAddSubInto true tmp (emitExpr typeMap a) (emitExpr typeMap b) nWords, tmp)
+          (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: wideAddSubInto true tmp sa sb nWords), tmp)
         | .op .sub [a, b] =>
+          let (da, sa) := matWide s!"{label}a" a; let (db, sb) := matWide s!"{label}b" b
           let tmp := s!"__{label}_{sn}"
-          (s!"        uint32_t {tmp}[{nWords}];"
-            :: wideAddSubInto false tmp (emitExpr typeMap a) (emitExpr typeMap b) nWords, tmp)
+          (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: wideAddSubInto false tmp sa sb nWords), tmp)
+        | .concat cargs =>
+          -- Wide concat: arguments that are themselves wide OPS have no
+          -- inline rendering — materialise them first (FMA nests a wide
+          -- XOR inside a mux'd concat), then build the compound literal
+          -- over refs with a width-shadowed type map.
+          let (ds, cargs', tws) := Id.run do
+            let mut ds : List String := []
+            let mut out : List Expr := []
+            let mut tws : List (String × Nat) := []
+            let mut i := 0
+            for a in cargs do
+              let wa := inferExprWidth typeMap a
+              let needsMat := wa > 64 && (match a with
+                | .ref _ => false | .const _ _ => false | _ => true)
+              if needsMat then
+                let (da, aS) := matWide s!"{label}k{i}" a
+                ds := ds ++ da
+                out := out ++ [.ref aS]
+                tws := tws ++ [(aS, wa)]
+              else
+                out := out ++ [a]
+              i := i + 1
+            return (ds, out, tws)
+          let typeMap' := tws.foldl
+            (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
+          let tmp := s!"__{label}_{sn}"
+          (ds ++ [s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {emitExpr typeMap' (.concat cargs')}, sizeof({tmp}));"], tmp)
         | _ =>
           let tmp := s!"__{label}_{sn}"; let init := emitExpr typeMap e
           ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {init}, sizeof({tmp}));"], tmp)
@@ -902,13 +956,15 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         -- time a `memcpy` reads it — that produced garbage, not the sum.
         -- These assignments were also previously dropped entirely by the
         -- `_ => empty` default, reading 0.)
+        let (da, sa) := matWide "adda" a; let (db, sb) := matWide "addb" b
         { declarations := []
-        , evalBody := wideAddSubInto true sn (emitExpr typeMap a) (emitExpr typeMap b) nWords
+        , evalBody := da ++ db ++ wideAddSubInto true sn sa sb nWords
         , tickBody := [], resetBody := [], evalTickLocals := [] }
       | .op .sub [a, b] =>
         -- Wide sub: ripple-borrow written directly into the destination.
+        let (da, sa) := matWide "suba" a; let (db, sb) := matWide "subb" b
         { declarations := []
-        , evalBody := wideAddSubInto false sn (emitExpr typeMap a) (emitExpr typeMap b) nWords
+        , evalBody := da ++ db ++ wideAddSubInto false sn sa sb nWords
         , tickBody := [], resetBody := [], evalTickLocals := [] }
       | .op .mux [cond, thenVal, elseVal] =>
         -- Wide mux: pick a side per slot via ternary on the
