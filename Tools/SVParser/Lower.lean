@@ -785,12 +785,31 @@ partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
       armWrites ++ defWrites
     | _ => []
 
+/-- Literal-only constant evaluator (for part-select bases/widths in
+    memory-write patterns; full `evalConstExpr` is defined later). -/
+private def evalConstExprSimple : SVExpr → Option Nat
+  | .lit (.decimal _ v) => some v
+  | .lit (.hex _ v) => some v
+  | .lit (.binary _ v) => some v
+  | _ => none
+
 /-- Collect byte-lane writes: if (cond) arr[addr][hi:lo] <= data[hi:lo] -/
 partial def collectByteLaneWrites (arrName : String) (stmts : List SVStmt)
     : List ByteLaneWrite :=
   stmts.flatMap fun s => match s with
     | .nonblockAssign (.slice (.index (.ident name) addr) hi lo) rhs =>
       if name == arrName then [{ addr, data := rhs, cond := .lit (.decimal none 1), hi, lo }] else []
+    | .nonblockAssign (.partSelectPlus (.index (.ident name) addr) base wExpr) rhs =>
+      -- firtool SRAM macros write mask chunks as
+      -- `Memory[addr][32'h1D +: 29] <= wdata[57:29]` — a constant-base
+      -- indexed part-select.
+      if name == arrName then
+        match evalConstExprSimple base, evalConstExprSimple wExpr with
+        | some lo, some w =>
+          if w == 0 then []
+          else [{ addr, data := rhs, cond := .lit (.decimal none 1), hi := lo + w - 1, lo }]
+        | _, _ => []
+      else []
     | .ifElse cond thenB elseB =>
       -- Recurse into both branches, propagating condition for then-branch
       let thenWrites := (collectByteLaneWrites arrName thenB).map
@@ -806,29 +825,34 @@ partial def collectByteLaneWrites (arrName : String) (stmts : List SVStmt)
 /-- Build a read-modify-write expression for byte-lane writes.
     Combines multiple byte-strobe writes into: for each lane,
     if (cond) use new_byte else use old_byte. -/
-def buildByteStrobeWrite (arrName : String) (addrExpr : Expr) (lanes : List ByteLaneWrite) : Expr :=
+def buildByteStrobeWrite (arrName : String) (addrExpr : Expr)
+    (lanes : List ByteLaneWrite) (dataWidth : Nat := 32) : Expr :=
   -- Start with the old value: arr[addr]
   let oldVal := Expr.index (.ref arrName) addrExpr
-  -- For each lane, apply a mux: cond ? (old & ~mask) | (new & mask) : old
+  let allOnes : Int := Int.ofNat ((1 <<< dataWidth) - 1)
+  -- Per lane: acc' = (acc & ~effMask) | (data<<lo & effMask), where
+  -- effMask = cond ? laneMask : 0.  The condition selects between two
+  -- CONSTANTS, so `acc` appears exactly ONCE per lane — the previous
+  -- `cond ? f(acc) : acc` form referenced it twice and the tree doubled
+  -- per lane: firtool's per-BIT write masks (array_128x38: 38 lanes)
+  -- made lowering build a 2^38-node expression.  (The old constants were
+  -- also hardcoded 32-bit, corrupting words wider than 32.)
   lanes.foldl (fun acc lane =>
     let condExpr := lowerExpr lane.cond
     let dataExpr := lowerExpr lane.data
     let width := lane.hi - lane.lo + 1
-    let mask : Nat := ((1 <<< width) - 1) <<< lane.lo  -- e.g., 0xFF for [7:0], 0xFF00 for [15:8]
-    let notMask : Nat := 0xFFFFFFFF ^^^ mask
-    let maskConst := Expr.const (Int.ofNat mask) 32
-    let notMaskConst := Expr.const (Int.ofNat notMask) 32
-    -- Shift data to the correct bit position before masking
-    -- dataExpr is already sliced (e.g., mem_wdata[15:8] → 8-bit value at bit 0)
-    -- Need to shift it to lane.lo position before ANDing with mask
+    let mask : Nat := ((1 <<< width) - 1) <<< lane.lo
+    let notMask : Int := Int.ofNat (((1 <<< dataWidth) - 1) ^^^ mask)
+    let effMask := Expr.op .mux [condExpr,
+      Expr.const (Int.ofNat mask) dataWidth, Expr.const 0 dataWidth]
+    let effNotMask := Expr.op .mux [condExpr,
+      Expr.const notMask dataWidth, Expr.const allOnes dataWidth]
     let shiftedData := if lane.lo == 0 then dataExpr
       else Expr.op .shl [dataExpr, Expr.const (Int.ofNat lane.lo) 32]
-    -- new_val = (old & ~mask) | (shifted_data & mask)
-    let newVal := Expr.op .or [
-      Expr.op .and [acc, notMaskConst],
-      Expr.op .and [shiftedData, maskConst]
+    Expr.op .or [
+      Expr.op .and [acc, effNotMask],
+      Expr.op .and [shiftedData, effMask]
     ]
-    Expr.op .mux [condExpr, newVal, acc]
   ) oldVal
 
 /-- Collect all blocking-assigned signal names recursively -/
@@ -1789,6 +1813,15 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   for item in svMod.items do
     match item with
     | .contAssign lhs rhs =>
+      -- Memory-array reads (`assign rd = Memory[addr]`) are handled by
+      -- the array-reg arm (Stmt.memory read port / extra `.index`
+      -- assigns).  Lowering them here TOO emitted a second, bogus
+      -- driver (`(Memory >> addr) & 1`) — iverilog: "multiple drivers".
+      let isMemRead := match rhs with
+        | .index (.ident arrN) _ => arrayRegNames.any (· == arrN)
+        | _ => false
+      if isMemRead then pure ()
+      else
       match exprToName lhs with
       | some name => body := body.push (.assign name (lowerExpr rhs))
       | none =>
@@ -1844,7 +1877,12 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           body := body.push (.assign "_no_rst" (.const 0 1))
 
       -- Extract blocking assigns as combinational intermediates (from full always body)
-      let blockingNames := (collectBlockNamesTop stmts).eraseDups
+      -- Array regs are Stmt.memory, not combinational intermediates —
+      -- without this filter a nonblocking `Memory[addr] <= x` write made
+      -- `Memory` a phantom 32-bit wire + assign (duplicate declaration
+      -- in the emitted Verilog, dt_352x1).
+      let blockingNames := (collectBlockNamesTop stmts).eraseDups.filter
+        fun n => !arrayRegNames.any (· == n)
       let preBlocking := collectGuardedBlock stmts
       for sigName in blockingNames do
         let expr := stmtsToMuxExprBlocking sigName stmts (some preBlocking)
@@ -1910,26 +1948,42 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       let mut writeAddr : Expr := .const 0 addrWidth
       let mut writeData : Expr := .const 0 dataWidth
       let mut writeEnable : Expr := .const 0 1
+      let mut memClock : String := "clk"
       for prevItem in svMod.items do
         match prevItem with
-        | .alwaysBlock (.posedge _) stmts =>
+        | .alwaysBlock (.posedge blkClk) stmts =>
           -- Try full-word writes first: arr[idx] <= data
           let arrayWrites := collectArrayWrites name stmts
           if !arrayWrites.isEmpty then
+            -- The memory is clocked by the block that WRITES it (firtool
+            -- SRAM macros use `W0_clk`/`RW0_clk`, never a wire named
+            -- `clk` — the old hardcoded name failed elaboration).
+            memClock := blkClk
+            -- Compose MULTIPLE guarded writes as a priority mux (later
+            -- statements win, mirroring non-blocking semantics); the old
+            -- loop simply kept the LAST write and dropped the others.
             for (idx, data, cond) in arrayWrites do
-              writeAddr := lowerExpr idx
-              writeData := lowerExpr data
-              writeEnable := match cond with
+              let c : Expr := match cond with
                 | some c => lowerExpr c
                 | none => .const 1 1
+              let a := lowerExpr idx
+              let d := lowerExpr data
+              if writeEnable == Expr.const 0 1 then
+                writeAddr := a; writeData := d; writeEnable := c
+              else
+                writeAddr := .op .mux [c, a, writeAddr]
+                writeData := .op .mux [c, d, writeData]
+                writeEnable := .op .or [c, writeEnable]
           else
             -- Try byte-lane writes: if (wstrb[n]) arr[addr][hi:lo] <= data[hi:lo]
+            -- (also matches firtool's `[base +: w]` mask-chunk form)
             let byteLanes := collectByteLaneWrites name stmts
             match byteLanes with
             | lane0 :: _ =>
+              memClock := blkClk
               let addr := lowerExpr lane0.addr
               writeAddr := addr
-              writeData := buildByteStrobeWrite name addr byteLanes
+              writeData := buildByteStrobeWrite name addr byteLanes dataWidth
               -- Enable if any strobe bit is set
               let enableExpr := byteLanes.foldl (fun acc lane =>
                 let c := lowerExpr lane.cond
@@ -1938,29 +1992,41 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               writeEnable := enableExpr
             | [] => pure ()
         | _ => pure ()
-      -- Extract read port: continuous assign (combo) or registered read (sync)
+      -- Extract read ports.  The FIRST continuous-assign read claims the
+      -- Stmt.memory combo-read port; EXTRA reads (multi-port SRAM macros
+      -- like dt_352x1 with 8 read ports) become plain `.index` assigns —
+      -- both backends render `Memory[addr]` directly.  The claimed
+      -- contAssign items are excluded from normal lowering below (they
+      -- used to ALSO lower as ordinary assigns → duplicate drivers).
       let mut readAddr : Expr := .const 0 addrWidth
       let mut readDataName := s!"{name}_rdata"
       let mut comboRead := true
+      let mut claimed := false
       for prevItem in svMod.items do
         match prevItem with
         | .contAssign lhs (.index (.ident arrN) idx) =>
           if arrN == name then
             match exprToName lhs with
-            | some rdName => readDataName := rdName; readAddr := lowerExpr idx
+            | some rdName =>
+              if !claimed then
+                readDataName := rdName; readAddr := lowerExpr idx; claimed := true
+              else
+                body := body.push (.assign rdName (.index (.ref name) (lowerExpr idx)))
             | none => pure ()
         | .alwaysBlock (.posedge _) innerStmts =>
           for s in innerStmts do
             match s with
             | .nonblockAssign (.ident rdName) (.index (.ident arrN) idx) =>
-              if arrN == name then
+              if arrN == name && !claimed then
                 readDataName := rdName; readAddr := lowerExpr idx; comboRead := false
+                claimed := true
             | _ => pure ()
         | _ => pure ()
-      body := body.push (.memory name addrWidth dataWidth "clk"
+      body := body.push (.memory name addrWidth dataWidth memClock
         writeAddr writeData writeEnable
         readAddr readDataName comboRead)
-      wires := wires.push { name := readDataName, ty := widthToHWType width }; wireSet := wireSet.insert readDataName true
+      if !(wireSet.contains readDataName || portNameSet.contains readDataName) then
+        wires := wires.push { name := readDataName, ty := widthToHWType width }; wireSet := wireSet.insert readDataName true
     | .instantiation modName instName conns _paramOvr =>
       -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)

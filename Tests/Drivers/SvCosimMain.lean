@@ -32,6 +32,18 @@ open Tools.SVParser.Lower
 /-- Deterministic 64-bit LCG for vector baking (same constants as Ch13). -/
 def lcgNext (x : UInt64) : UInt64 := x * 6364136223846793005 + 1442695040888963407
 
+/-- splitmix64 finalizer: an LCG's LOW bits have tiny periods (bit 0
+    alternates every step), so two 1-bit inputs drawn from consecutive
+    raw states sit in perfect antiphase — array_2048x10's `RW0_en` and
+    `RW0_wmode` were never 1 together and its memory stayed X forever.
+    Mixing spreads state entropy into every output bit. -/
+def mix64 (x : UInt64) : UInt64 :=
+  let z := x ^^^ (x >>> 30)
+  let z := z * 0xBF58476D1CE4E5B9
+  let z := z ^^^ (z >>> 27)
+  let z := z * 0x94D049BB133111EB
+  z ^^^ (z >>> 31)
+
 structure PortInfo where
   name  : String
   width : Nat
@@ -46,6 +58,9 @@ def portsOf (m : SVModule) : List PortInfo :=
 def maskTo (w : Nat) (v : UInt64) : UInt64 :=
   if w ≥ 64 then v else v &&& ((1 <<< w) - 1).toUInt64
 
+def containsSubstr (s sub : String) : Bool :=
+  (s.splitOn sub).length > 1
+
 /-- Baked stimulus: per cycle, per data-input, a masked random value.
     `reset` is scripted (1,1,0,0,…); `clock` is the TB's/loop's job. -/
 def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
@@ -55,19 +70,30 @@ def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
   for c in [0:cycles] do
     let mut row := []
     for p in ins do
-      if p.name == "clock" || p.name == "clk" then
+      if p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk" then
         pure ()
       else if p.name == "reset" || p.name == "rst" then
         row := row ++ [(p.name, if c < 2 then (1 : UInt64) else 0)]
       else
         s := lcgNext s
-        row := row ++ [(p.name, maskTo p.width s)]
+        let m := mix64 s
+        -- Memory-friendly stimulus shaping (same values feed all three
+        -- sims, so this only raises coverage): address-like inputs stay
+        -- in [0,3] so reads hit previously-written entries (a random
+        -- address into a 2048-entry memory never does, and iverilog
+        -- reads X); write masks go all-ones so entries become fully
+        -- defined on first write.
+        let v :=
+          if containsSubstr p.name "addr" then m &&& 3
+          else if containsSubstr p.name "mask" then (0xFFFFFFFFFFFFFFFF : UInt64)
+          else m
+        row := row ++ [(p.name, maskTo p.width v)]
     out := out ++ [row]
   return out
 
 def emitTb (modName : String) (ports : List PortInfo)
     (stim : List (List (String × UInt64))) (cycles : Nat)
-    (hasClock : Bool := true) : String := Id.run do
+    (hasClock : Bool := true) (clockNames : List String := ["clock"]) : String := Id.run do
   let ins := ports.filter (·.isIn)
   let outs := ports.filter (!·.isIn)
   let mut l : List String := ["`timescale 1ns/1ps", "module tb;"]
@@ -83,14 +109,16 @@ def emitTb (modName : String) (ports : List PortInfo)
     for (n, v) in row do
       l := l ++ [s!"    {n} = 64'h{String.ofList (Nat.toDigits 16 v.toNat)};"]
     if hasClock then
-      l := l ++ ["    #1; if (clock !== 1'b1) clock = 0; #4; clock = 1; #4;"]
+      let low := String.intercalate " " (clockNames.map fun cn => s!"if ({cn} !== 1'b1) {cn} = 0;")
+      let high := String.intercalate " " (clockNames.map fun cn => s!"{cn} = 1;")
+      l := l ++ [s!"    #1; {low} #4; {high} #4;"]
     else
       -- pure-combinational module: just let the values settle
       l := l ++ ["    #2;"]
     let outFmt := String.intercalate " " (outs.map fun _ => "%0h")
     let outArgs := String.intercalate ", " (outs.map (·.name))
     l := l ++ [s!"    $display(\"C{c} {outFmt}\", {outArgs});"]
-      ++ (if hasClock then ["    clock = 0; #1;"] else [])
+      ++ (if hasClock then [String.intercalate " " (clockNames.map fun cn => s!"    {cn} = 0;") ++ " #1;"] else [])
   l := l ++ ["    $finish;", "  end", "endmodule"]
   return String.intercalate "\n" l
 
@@ -207,8 +235,17 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   if !hasInst && hier then return (name, .skipped "leaf (covered by leaf run)")
   if ports.any (·.width > 64) then return (name, .skipped "wide port")
   -- clock-less modules are pure combinational: co-sim with a settle-and-
-  -- sample protocol instead of skipping (XiangShan CVT32ModuleS0/S1)
-  let hasClock := ports.any fun p => p.isIn && (p.name == "clock" || p.name == "clk")
+  -- sample protocol instead of skipping (XiangShan CVT32ModuleS0/S1).
+  -- Clock inputs: `clock`/`clk` or firtool's `<port>_clk` (SRAM macros:
+  -- RW0_clk).  Several DISTINCT clocks (ram_2x10: R0_clk + W0_clk) are
+  -- outside the single-clock tick model — skip honestly.
+  let clockPorts := ports.filter fun p =>
+    p.isIn && (p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk")
+  let hasClock := !clockPorts.isEmpty
+  -- Multiple clock PORTS (firtool SRAM macros: R0_clk + W0_clk) are
+  -- driven with the SAME waveform — in XiangShan they are one clock
+  -- split per port — and CSim ticks once per cycle accordingly.
+  let clockNames := clockPorts.map (·.name)
   let .ok rootDesign := parseAndLowerHierarchical src | return (name, .skipped "lower")
   let design ← do
     if hier && hasInst then
@@ -242,7 +279,11 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
           | _ => []
         let base := 1 + kids.foldl (fun acc k => min emitCostCap (acc + go fuel k)) 0
         let w := Sparkle.Backend.CSim.inferExprWidth tm e
-        min emitCostCap ((max 1 ((w + 31) / 32)) * base)
+        -- ≤64-bit expressions emit through the SCALAR path (single
+        -- uint64 op, no per-word re-emission) — only >64-bit nodes
+        -- multiply cost by their word count.
+        let words := if w > 64 then (w + 31) / 32 else 1
+        min emitCostCap (words * base)
     let mut total := 0
     for s in dm.body do
       let es : List Sparkle.IR.AST.Expr := match s with
@@ -251,13 +292,13 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
         | .memory _ _ _ _ wa wd we ra _ _ => [wa, wd, we, ra]
         | .inst _ _ conns => conns.map (·.2)
       for e in es do
-        total := min emitCostCap (total + go 64 e)
+        total := min emitCostCap (total + go 2048 e)
     return total
   if design.modules.any (fun dm => costOf dm ≥ emitCostCap) then
     return (name, .skipped "C-emission cost blowup")
   let ins := ports.filter (·.isIn)
   let stim := bake ins cycles (0xC0FFEE + name.hash)
-  let tb := emitTb m.name ports stim cycles hasClock
+  let tb := emitTb m.name ports stim cycles hasClock clockNames
   let cmain := emitCMain design m.name ports stim cycles hasClock
   let wd := System.FilePath.mk workDir
   IO.FS.createDirAll wd
@@ -293,11 +334,20 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
         | some c => decide (c ≥ (if hasClock then 3 else 0))
         | none => false
       else false)
-  let g := keep gold
-  let r := keep rt
-  let j := keep jit
-  if g.any (fun l => (l.splitOn "x").length > 1 || (l.splitOn "z").length > 1) then
-    return (name, .skipped "X/Z in golden")
+  let hasXZ := fun (l : String) =>
+    (l.splitOn "x").length > 1 || (l.splitOn "z").length > 1
+  let g0 := keep gold
+  let r0 := keep rt
+  let j0 := keep jit
+  -- Drop CYCLES where the golden has X/Z (unwritten memory entries read
+  -- back as X in iverilog; CSim memories start at 0) instead of skipping
+  -- the whole module — keep every defined cycle comparable.
+  let defined := (g0.zip (r0.zip j0)).filter (fun (gl, _) => !hasXZ gl)
+  if defined.isEmpty && !g0.isEmpty then
+    return (name, .skipped "X/Z in golden (all cycles)")
+  let g := defined.map (·.1)
+  let r := defined.map (·.2.1)
+  let j := defined.map (·.2.2)
   if r != g then
     match (g.zip r).find? (fun p => p.1 != p.2) with
     | some (a, b) => return (name, .rtMismatch s!"{a} vs {b}")
