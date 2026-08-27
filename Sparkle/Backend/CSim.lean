@@ -506,15 +506,31 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
         -- 32/64, so `table_0 >> req` with a random 8-bit req (BusyTable
         -- read ports) produced phantom bits whenever req ≥ 32.  Promote
         -- to uint64 and guard dynamic amounts; constant amounts fold.
-        let cop := if operator == .shr then ">>" else "<<"
-        match arg2 with
-        | .const v _ =>
-          if v ≥ 64 then "0ULL"
-          else s!"((uint64_t){emitExpr typeMap arg1} {cop} {v})"
-        | _ =>
-          let aS := emitExpr typeMap arg1
-          let bS := emitExpr typeMap arg2
-          s!"((uint64_t)({bS}) >= 64 ? 0ULL : ((uint64_t){aS} {cop} ({bS})))"
+        -- ONLY for ≤64-bit operands: a >64-bit operand here is a uint32
+        -- ARRAY, and casting it to uint64 shifts the POINTER (the wide
+        -- paths in matWide / the top-level assign arms own that case).
+        let w1 := inferExprWidth typeMap arg1
+        if w1 > 64 then
+          -- A >64-bit operand is a uint32 ARRAY here.  A wide SHR whose
+          -- result is consumed in a ≤64-bit context (firtool's packed-
+          -- array dynamic select `(_GEN >> (addr*8)) & 0xff`) extracts a
+          -- 64-bit window via the emitted helper; wide SHL nested in a
+          -- scalar context has no meaningful ≤64-bit reading — leave the
+          -- (non-compiling) raw form so it fails loudly.
+          if operator == .shr then
+            s!"sparkle_wide_shr64({emitExpr typeMap arg1}, {wordsOf w1}u, (unsigned)({emitExpr typeMap arg2}))"
+          else
+            s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
+        else
+          let cop := if operator == .shr then ">>" else "<<"
+          match arg2 with
+          | .const v _ =>
+            if v ≥ 64 then "0ULL"
+            else s!"((uint64_t){emitExpr typeMap arg1} {cop} {v})"
+          | _ =>
+            let aS := emitExpr typeMap arg1
+            let bS := emitExpr typeMap arg2
+            s!"((uint64_t)({bS}) >= 64 ? 0ULL : ((uint64_t){aS} {cop} ({bS})))"
       | .asr =>
         let w := max (inferExprWidth typeMap arg1) 32
         let stype := signedCastType w
@@ -1317,9 +1333,26 @@ def scheduleEvalBody (design : Option Design) (m : Module)
   -- single-pass behaviour as before this pass existed.
   return result ++ remaining ++ rest
 
-/-- Emit a complete C struct + static helpers for a module.
-    Returns the full C source fragment (no includes; callers
-    add those at design level). -/
+/-- Runtime helper for a DYNAMIC shift of a >64-bit value consumed in a
+    ≤64-bit context (firtool's flattened packed-array dynamic select:
+    `(_GEN >> (addr * 8)) & 0xff` with a multi-word `_GEN`): returns the
+    64-bit window starting at bit `amt`.  Emitted (once, guarded) ahead
+    of every module so nested wide shifts have a valid C rendering —
+    the raw form `array >> amt` is not C at all. -/
+def wideShrHelper (funcQual : String) : String :=
+  let q := if funcQual.isEmpty then "" else funcQual ++ " "
+  "#ifndef SPARKLE_WIDE_SHR64\n" ++
+  "#define SPARKLE_WIDE_SHR64\n" ++
+  q ++ "static inline uint64_t sparkle_wide_shr64(const uint32_t* a, unsigned words, unsigned amt) {\n" ++
+  "    unsigned k = amt >> 5, r = amt & 31;\n" ++
+  "    uint64_t w0 = (k < words) ? a[k] : 0u;\n" ++
+  "    uint64_t w1 = (k + 1 < words) ? a[k + 1] : 0u;\n" ++
+  "    uint64_t w2 = (k + 2 < words) ? a[k + 2] : 0u;\n" ++
+  "    uint64_t lo = w0 | (w1 << 32);\n" ++
+  "    return r ? ((lo >> r) | (w2 << (32 - r) << 32)) : lo;\n" ++
+  "}\n" ++
+  "#endif\n\n"
+
 def emitModule (m : Module) (design : Option Design := none)
     (observableWires : Option (List String) := none)
     (funcQual : String := "") : String :=
@@ -1406,6 +1439,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let evalTickLocals := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
 
     let structName := s!"struct {className}"
+    let helperPrefix := wideShrHelper funcQual
 
     let inputSection := if inputDecls.isEmpty then "" else
       "    /* Input ports */\n" ++ String.intercalate "\n" inputDecls ++ "\n\n"
@@ -1417,6 +1451,7 @@ def emitModule (m : Module) (design : Option Design := none)
       "    /* Registers, memories, sub-instances */\n" ++ String.intercalate "\n" stmtDecls ++ "\n\n"
 
     let structDecl :=
+      helperPrefix ++
       structName ++ " {\n" ++
       inputSection ++ outputSection ++ wireSection ++ stmtDeclSection ++
       "};\n\n"
