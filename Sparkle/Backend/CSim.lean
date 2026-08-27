@@ -859,12 +859,38 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
-      | .concat _ =>
-        -- Wide concat returns `(uint32_t[N]){…}` compound
-        -- literal. memcpy into the lvalue.
-        let expr := emitExpr typeMap rhs
+      | .concat cargs =>
+        -- Wide concat whose ARGUMENTS may themselves be wide OPS
+        -- (XiangShan CSA4to2: `{…, ((a&b)|(a&c)|(b&c))[…], …}` — a
+        -- majority function of 128-bit operands).  `emitExpr` cannot
+        -- render a wide op inline (arrays have no `&`), so materialise
+        -- every wide non-ref argument through `matWide` first and
+        -- rebuild the concat over the temp names.
+        let (decls, cargs', tempWidths) := Id.run do
+          let mut ds : List String := []
+          let mut out : List Expr := []
+          let mut tws : List (String × Nat) := []
+          let mut i := 0
+          for a in cargs do
+            let wa := inferExprWidth typeMap a
+            let needsMat := wa > 64 && (match a with
+              | .ref _ => false | .const _ _ => false | _ => true)
+            if needsMat then
+              let (da, aS) := matWide s!"cc{i}" a
+              ds := ds ++ da
+              out := out ++ [.ref aS]
+              tws := tws ++ [(aS, wa)]
+            else
+              out := out ++ [a]
+            i := i + 1
+          return (ds, out, tws)
+        -- the temps are locals, not module wires: shadow the type map so
+        -- width inference sees them
+        let typeMap' := tempWidths.foldl
+          (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
+        let expr := emitExpr typeMap' (.concat cargs')
         { declarations := []
-        , evalBody :=
+        , evalBody := decls ++
             [s!"        memcpy({sn}, {expr}, sizeof({sn}));"]
         , tickBody := []
         , resetBody := []

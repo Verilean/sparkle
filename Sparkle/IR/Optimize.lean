@@ -681,10 +681,27 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
         | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
         | .memory _ _ _ _ _ _ _ _ rd _ => drivenElsewhere := drivenElsewhere.insert rd true
         | .inst _ _ _ => pure ()
+      -- A wire connected to MORE THAN ONE instance cannot be treated as
+      -- "this instance's output": it may be another instance's output
+      -- feeding this one's INPUT (XiangShan MulModuleS0: PPGen's
+      -- `io_in_code(_booth4_N_io_out)` comes from a Booth4 — the old
+      -- rule dropped it from the merge key, all 16 PPGens looked
+      -- identical, and their Booth4 codes were aliased to one).
+      let mut instConnCount : HashMap String Nat := {}
+      for s in body do
+        match s with
+        | .inst _ _ conns =>
+          for (_, e) in conns do
+            match e with
+            | .ref w => instConnCount := instConnCount.insert w ((instConnCount.getD w 0) + 1)
+            | _ => pure ()
+        | _ => pure ()
       let isInstOutput : HashMap String String → (String × Expr) → Bool :=
         fun subst (_, e) =>
           match e with
-          | .ref w => !drivenElsewhere.contains (resolveSubst subst w)
+          | .ref w =>
+            let w' := resolveSubst subst w
+            !drivenElsewhere.contains w' && instConnCount.getD w 0 ≤ 1
           | _ => false
       let mut subst : HashMap String String := {}
       let mut assignVN : HashMap String String := {}
