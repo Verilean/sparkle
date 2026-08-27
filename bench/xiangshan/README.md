@@ -311,3 +311,48 @@ was fixed at the right layer, so the 2× bigger config added nothing.
 Remaining Phase-3/4 work: hierarchical co-sim (iverilog -y over the whole
 tree vs a multi-file CSim design), and the Verilator performance
 shootout (`make emu` workloads vs the CSim JIT).
+
+## Phase 3.5 — DefaultConfig leaf/hier co-sim hardening (post-reboot rounds)
+
+SRAM macros (`array_*`/`ram_*`/`dt_*`, 93 files) now LOWER correctly:
+masked partial-word writes (`Memory[addr][k +: w] <=`) via a linear RMW
+(the old builder doubled the expression tree PER MASK BIT — 2^38 nodes on
+array_128x38, the likely cause of the machine-freezing OOMs), the writing
+block's real clock, priority-mux composition of multiple guarded writes,
+first read claims the Stmt.memory port with extra reads as `Memory[addr]`
+assigns.  v1 limit: simultaneous multi-write-port macros fold to priority
+(1 of 93: dt_352x1, Difftest debug infra).
+
+Determinism: both iverilog sides now compile with
+`-DRANDOMIZE_REG_INIT -DRANDOM=32'h0` (firtool leaves reset-less
+registers X by default; X-optimism in guards legitimately diverges from
+the IR's defined init=0), and stimulus is splitmix64-mixed (a raw LCG's
+bit 0 alternates every draw — paired 1-bit enables sat in antiphase and
+memories stayed X forever), with addresses shaped into [0,3] and write
+masks all-ones so reads hit written entries.
+
+CSim fixes found by the sweeps: dynamic scalar shifts ≥ container width
+(C UB wraps mod 32/64; Verilog says 0 — BusyTable's random read indexes),
+`sparkle_wide_shr64` helper for wide dynamic shifts nested in scalar
+contexts (packed-array dynamic select), narrow/compound operand BOXING
+for wide add/sub/concat (FMA's borrow chains), and the instance-merge CSE
+no longer treats an input fed by another instance's output as this
+instance's output (MulModuleS0's 16 PPGens all shared booth4_31's code).
+
+**Final leaf sweep: OK 994 / RT✗ 1 (dt_352x1 multi-write-port, known) /
+JIT✗ 0** out of ~1,970 candidates (937 skipped: hierarchical-only shapes,
+78 >512 KB, 16 golden tool failures).
+
+Hier sweep (pre-fix round: OK 248 / RT✗ 12 / JIT✗ 51) — the remaining
+work list, classified:
+* TwoLevelRRArbiter class (~15): bidirectional combinational handshake
+  THROUGH instances = a cycle at instance granularity; needs K-round
+  relaxation (or per-port scheduling) in CSim eval — the NLnet Task-1
+  "Mealy boundaries" item.
+* Wide-arithmetic internals (Mul/FMA family): FloatFMA is clean after the
+  boxing fixes; Mul/FMA still have one value-level divergence inside the
+  128-bit CSA tree.  Bisecting needs >64-bit port support in sv-cosim.
+* RenameTable_3-class: iverilog's vvp hits its 512-flag codegen limit on
+  our single-expression register muxes — an emitter-style item (share
+  condition subexpressions), same root as the cell-count redundancy.
+* NCBUpstreamRXREQ: one real RT logic diff, untriaged.
