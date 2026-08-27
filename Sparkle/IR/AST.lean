@@ -11,6 +11,12 @@ namespace Sparkle.IR.AST
 
 open Sparkle.IR.Type
 
+/-- A retained top-level Lean `Nat` binder exposed as a module parameter. -/
+structure Parameter where
+  name : String
+  defaultValue : Nat
+  deriving Repr, BEq, Inhabited
+
 /-- Port declaration (input/output of a module) -/
 structure Port where
   name : String
@@ -91,6 +97,7 @@ inductive Expr where
   | op (operator : Operator) (args : List Expr) : Expr
   | concat (args : List Expr) : Expr
   | slice (expr : Expr) (hi lo : Nat) : Expr
+  | sliceDim (expr : Expr) (hi lo : DimExpr) : Expr
   | index (array : Expr) (idx : Expr) : Expr
   deriving Repr, BEq, Inhabited
 
@@ -125,6 +132,7 @@ partial def toString : Expr → String
       s!"{operator}({argStr})"
   | concat args => s!"\{{String.intercalate ", " (args.map toString)}}"
   | slice e hi lo => s!"{toString e}[{hi}:{lo}]"
+  | sliceDim e hi lo => s!"{toString e}[{hi}:{lo}]"
   | index arr idx => s!"{toString arr}[{toString idx}]"
 
 instance : ToString Expr where
@@ -203,6 +211,7 @@ end Stmt
 -/
 structure Module where
   name        : String
+  parameters  : List Parameter := []
   inputs      : List Port
   outputs     : List Port
   wires       : List Port    -- Internal wires (ignored for primitives)
@@ -216,6 +225,7 @@ namespace Module
 /-- Create an empty module -/
 def empty (name : String) : Module :=
   { name := name
+  , parameters := []
   , inputs := []
   , outputs := []
   , wires := []
@@ -226,6 +236,7 @@ def empty (name : String) : Module :=
 /-- Create a primitive (blackbox) module with specified interface -/
 def primitive (name : String) (inputs : List Port) (outputs : List Port) : Module :=
   { name := name
+  , parameters := []
   , inputs := inputs
   , outputs := outputs
   , wires := []
@@ -235,9 +246,9 @@ def primitive (name : String) (inputs : List Port) (outputs : List Port) : Modul
 
 /-! ### Append-vs-prepend perf note
 
-    `addInput` / `addOutput` / `addWire` / `addStmt` are called
-    in the inner loop of every IP synthesis — once per port,
-    wire, and statement.  The natural definition (`m.body ++ [s]`)
+    `addParameter` / `addInput` / `addOutput` / `addWire` / `addStmt`
+    are called in the inner loop of synthesis. The natural definition
+    (`m.body ++ [s]`)
     is O(n) per call, which makes the whole module-building
     loop O(n²) and dominated runtime for FSM-shape circuits
     (memcached server top-level synth went from ~0.5 s for the
@@ -248,8 +259,12 @@ def primitive (name : String) (inputs : List Port) (outputs : List Port) : Modul
     Fix: build the lists in REVERSE order via head-prepend
     (O(1)), then reverse them once at the end of synthesis
     in `Module.finalize`.  External callers that read
-    `m.body` / `m.wires` after `finalize` see the same forward
+    module lists after `finalize` see the same forward
     order they always did. -/
+
+/-- Add a retained module parameter (O(1); reversed by `finalize`). -/
+def addParameter (m : Module) (parameter : Parameter) : Module :=
+  { m with parameters := parameter :: m.parameters }
 
 /-- Add an input port (O(1); reversed by `finalize`). -/
 def addInput (m : Module) (p : Port) : Module :=
@@ -267,25 +282,29 @@ def addWire (m : Module) (p : Port) : Module :=
 def addStmt (m : Module) (s : Stmt) : Module :=
   { m with body := s :: m.body }
 
-/-- Reverse the four append-in-reverse lists to forward order.
+/-- Reverse the append-in-reverse lists to forward order.
     Must be called exactly once after all incremental
     additions are done and before any consumer reads
-    `m.inputs / outputs / wires / body`. -/
+    `m.parameters / inputs / outputs / wires / body`. -/
 def finalize (m : Module) : Module :=
   { m with
-    inputs  := m.inputs.reverse
-    outputs := m.outputs.reverse
-    wires   := m.wires.reverse
-    body    := m.body.reverse
+    parameters := m.parameters.reverse
+    inputs     := m.inputs.reverse
+    outputs    := m.outputs.reverse
+    wires      := m.wires.reverse
+    body       := m.body.reverse
   }
 
 /-- Convert module to string (for debugging) -/
 def toString (m : Module) : String :=
+  let parameterStr := String.intercalate ", "
+    (m.parameters.map fun p => s!"{p.name}={p.defaultValue}")
   let inputStr := String.intercalate ", " (m.inputs.map fun p => s!"{p.name}: {p.ty}")
   let outputStr := String.intercalate ", " (m.outputs.map fun p => s!"{p.name}: {p.ty}")
   let wireStr := String.intercalate ", " (m.wires.map fun p => s!"{p.name}: {p.ty}")
   let bodyStr := String.intercalate "\n  " (m.body.map Stmt.toString)
   s!"module {m.name}\n" ++
+  s!"  parameters: {parameterStr}\n" ++
   s!"  inputs:  {inputStr}\n" ++
   s!"  outputs: {outputStr}\n" ++
   s!"  wires:   {wireStr}\n" ++

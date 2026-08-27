@@ -86,6 +86,7 @@ partial def inlineAssigns (assigns : List (String × Expr)) : Expr → Expr
   | .op operator args => .op operator (args.map (inlineAssigns assigns))
   | .concat args => .concat (args.map (inlineAssigns assigns))
   | .slice e hi lo => .slice (inlineAssigns assigns e) hi lo
+  | .sliceDim e hi lo => .sliceDim (inlineAssigns assigns e) hi lo
   | .index a i => .index (inlineAssigns assigns a) (inlineAssigns assigns i)
   | e => e  -- const passes through
 
@@ -118,6 +119,8 @@ partial def inferWidth (regWidths inputWidths : List (String × Nat)) : Expr →
     | a :: _ => inferWidth regWidths inputWidths a
     | _ => 32
   | .slice _ hi lo => hi - lo + 1
+  | .sliceDim _ hi lo =>
+      panic! s!"SVParser verification requires concrete slice bounds, found [{hi}:{lo}]"
   | .concat args => args.foldl (fun acc a => acc + inferWidth regWidths inputWidths a) 0
   | .index _ _ => 32
 
@@ -142,6 +145,7 @@ partial def fixConstWidths (expr : Expr) (targetWidth : Nat)
   | .op op args => .op op (args.map (fixConstWidths · targetWidth widthEnv))
   | .concat args => .concat (args.map (fixConstWidths · targetWidth widthEnv))
   | .slice e hi lo => .slice (fixConstWidths e (hi - lo + 1) widthEnv) hi lo
+  | .sliceDim e hi lo => .sliceDim (fixConstWidths e targetWidth widthEnv) hi lo
   | _ => expr
 
 /-- Fix constant widths by inferring the correct width from context.
@@ -176,6 +180,7 @@ partial def fixConstWidthsSmart (expr : Expr) (widthEnv : List (String × Nat)) 
     let b := if wb == 32 && wa != 32 then match b with | .const v _ => .const v wa | _ => b else b
     .op op [a, b]
   | .op op args => .op op (args.map (fixConstWidthsSmart · widthEnv))
+  | .sliceDim e hi lo => .sliceDim (fixConstWidthsSmart e widthEnv) hi lo
   | _ => expr
 
 /-- Convert IR Expr to a Lean BitVec expression string.
@@ -214,6 +219,8 @@ partial def irExprToLean (expr : Expr) (regNames inputNames : List (String × Na
     s!"(BitVec.sshiftRight {go a} {go b}.toNat)"
   | .op .neg [a] => s!"(- {go a})"
   | .slice e hi lo => s!"(BitVec.extractLsb' {lo} {hi - lo + 1} {go e})"
+  | .sliceDim _ hi lo =>
+    panic! s!"SVParser verification cannot emit symbolic slice bounds [{hi}:{lo}]"
   | .concat args =>
     match args with
     | [] => "(0 : BitVec 0)"

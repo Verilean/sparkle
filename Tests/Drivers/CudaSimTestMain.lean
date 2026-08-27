@@ -3,6 +3,7 @@ import Sparkle.Backend.CudaIntra
 import Sparkle.IR.AST
 import Sparkle.IR.Type
 import Sparkle.IR.Builder
+import Tests.TestCudaSim
 open Sparkle.Backend.CudaSim Sparkle.Backend.CudaIntra
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Builder CircuitM
 
@@ -140,19 +141,51 @@ def toHostVariant (cu : String) : String :=
     |>.replace "#include <cooperative_groups.h>" "#include \"cg_stub.h\"")
   |> stripLaunch
 
+private def hasSubstr (s : String) (sub : String) : Bool :=
+  decide ((s.splitOn sub).length > 1)
+
+private def requireGenerated (label : String)
+    (result : Except String String) : IO String :=
+  match result with
+  | .ok output => pure output
+  | .error message => do
+      IO.eprintln s!"[cuda] {label}: specialization failed: {message}"
+      IO.Process.exit 1
+
 def main : IO Unit := do
   let dir := ".lake/build/gen/cuda"
   IO.FS.createDirAll dir
   IO.FS.writeFile s!"{dir}/cuda_stub.h" cudaStub
   IO.FS.writeFile s!"{dir}/cg_stub.h" cgStub
 
-  -- Three fixtures: a single sequential module; a hierarchical 2×2 mesh
-  -- (whole-design emission with generated wire-copy); and the same mesh
-  -- through the intra (PE-per-thread) backend.
+  let parameterizedBatch3 ← requireGenerated "batch-w3"
+    (toCudaSimWithParameters Sparkle.Test.CudaSim.symbolicModule [("W", 3)])
+  let parameterizedBatch17 ← requireGenerated "batch-w17"
+    (toCudaSimWithParameters Sparkle.Test.CudaSim.symbolicModule [("W", 17)])
+  let parameterizedBatch65 ← requireGenerated "batch-w65"
+    (toCudaSimWithParameters Sparkle.Test.CudaSim.symbolicModule [("W", 65)])
+  let parameterizedIntra65 ← requireGenerated "intra-w65"
+    (toCudaIntraDesignWithParameters
+      Sparkle.Test.CudaSim.retainedIntraDesign [("W", 65)])
+
+  unless hasSubstr parameterizedBatch65
+      "case 2: h_state->x[2] = (uint32_t)val; break;" do
+    IO.eprintln "[cuda] batch-w65: third input-word setter is missing"
+    IO.Process.exit 1
+  unless hasSubstr parameterizedIntra65
+      "case 3: h_state->x[2] = (uint32_t)val; break;" do
+    IO.eprintln "[cuda] intra-w65: third input-word setter is missing"
+    IO.Process.exit 1
+
+  -- Concrete legacy fixtures plus retained-width batch and intra models.
   let cases : List (String × String) :=
     [ ("single", toCudaSim cudaTop)
     , ("mesh",   toCudaSimDesign meshDesign)
-    , ("intra",  toCudaIntraDesign! meshDesign) ]
+    , ("intra",  toCudaIntraDesign! meshDesign)
+    , ("param-batch-w3", parameterizedBatch3)
+    , ("param-batch-w17", parameterizedBatch17)
+    , ("param-batch-w65", parameterizedBatch65)
+    , ("param-intra-w65", parameterizedIntra65) ]
   for (name, cu) in cases do
     IO.println s!"[cuda] {name}: emitted {cu.length} chars"
     IO.FS.writeFile s!"{dir}/cuda_{name}_hostcheck.cu" (toHostVariant cu)

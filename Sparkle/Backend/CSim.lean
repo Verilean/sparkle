@@ -25,6 +25,7 @@
 
 import Sparkle.IR.AST
 import Sparkle.IR.Type
+import Sparkle.IR.Specialize
 import Std.Data.HashSet
 import Std.Data.HashMap
 
@@ -87,6 +88,7 @@ def emitScalarBase : HWType → String
     else if w ≤ 64 then "uint64_t"
     else "uint32_t"  -- wide: array of 32-bit words
   | .array _ elemType => emitScalarBase elemType
+  | .bitVectorDim _ => "SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH"
 
 /-- Total array length suffix for a HWType, e.g. `[3]` for a
     96-bit wide type, `[8][3]` for `array 8 (bitVector 96)`,
@@ -96,6 +98,7 @@ partial def emitArraySuffix : HWType → String
   | .bitVector w =>
     if w ≤ 64 then "" else s!"[{wordsOf w}]"
   | .array size elemType => s!"[{size}]" ++ emitArraySuffix elemType
+  | .bitVectorDim _ => "[SPARKLE_UNSUPPORTED_SYMBOLIC_WIDTH]"
 
 /-- Emit a C field/local declaration like `uint32_t foo[3]` —
     the type goes on the left, the array dimensions on the
@@ -190,6 +193,7 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   | .const _ w => w
   | .ref name => lookupWidth typeMap name
   | .slice _ hi lo => hi - lo + 1
+  | .sliceDim _ _ _ => 0
   | .concat args =>
     args.foldl (fun acc arg => acc + inferExprWidth typeMap arg) 0
   | .index arr _ =>
@@ -453,6 +457,8 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
         else
           s!"(({emitExpr typeMap e} >> {lo}) & {maskStr})"
 
+  | .sliceDim _ _ _ =>
+    "SPARKLE_UNSUPPORTED_SYMBOLIC_SLICE"
   | .index arr idx =>
     s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
 
@@ -894,7 +900,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         | _ =>
           let tmp := s!"__{label}_{sn}"; let init := emitExpr typeMap e
           ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {init}, sizeof({tmp}));"], tmp)
-      match rhs with
+      let parts := match rhs with
       | .op .mul _ =>
         -- The wide-mul __int128 IIFE returns a `(uint32_t[3])`
         -- compound literal. C will not let us assign that to a
@@ -1149,6 +1155,16 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
+      -- A wide value occupies whole 32-bit C words.  Canonicalize the
+      -- partial top word after every assignment so padding bits can never
+      -- become observable hardware state or feed a later operation.
+      let topBits := width % 32
+      if topBits == 0 then parts
+      else
+        let topMask := (1 <<< topBits) - 1
+        { parts with
+          evalBody := parts.evalBody ++
+            [s!"        {sn}[{nWords - 1}] &= {topMask}u;"] }
     else
       let sn := sanitizeName lhs
       let ifElseLines := if muxChainDepth rhs >= 16 then
@@ -1323,6 +1339,7 @@ partial def collectExprRefsAux (acc : List String) : Expr → List String
   | .ref name => name :: acc
   | .const _ _ => acc
   | .slice inner _ _ => collectExprRefsAux acc inner
+  | .sliceDim inner _ _ => collectExprRefsAux acc inner
   | .concat args => args.foldl collectExprRefsAux acc
   | .op _ args => args.foldl collectExprRefsAux acc
   | .index arr idx => collectExprRefsAux (collectExprRefsAux acc arr) idx
@@ -1435,10 +1452,41 @@ def wideShrHelper (funcQual : String) : String :=
   "}\n" ++
   "#endif\n\n"
 
+
+/-- Reject unspecialized parameterized IR at CSim module boundaries before
+    concrete-width helpers can observe it.  Use the explicit specialization
+    entry points below to emit one fixed-ABI C model for a chosen parameter
+    configuration. -/
+partial def exprHasSymbolicWidth : Expr → Bool
+  | .sliceDim _ _ _ => true
+  | .op _ args | .concat args => args.any exprHasSymbolicWidth
+  | .slice expr _ _ => exprHasSymbolicWidth expr
+  | .index array index => exprHasSymbolicWidth array || exprHasSymbolicWidth index
+  | _ => false
+
+def moduleHasSymbolicWidth (m : Module) : Bool :=
+  !m.parameters.isEmpty ||
+  (m.inputs ++ m.outputs ++ m.wires).any (fun port => port.ty.bitWidth?.isNone) ||
+  m.body.any fun stmt => match stmt with
+    | .assign _ rhs => exprHasSymbolicWidth rhs
+    | .register _ _ _ input _ => exprHasSymbolicWidth input
+    | .memory _ _ _ _ wa wd we ra _ _ =>
+        exprHasSymbolicWidth wa || exprHasSymbolicWidth wd ||
+        exprHasSymbolicWidth we || exprHasSymbolicWidth ra
+    | .inst _ _ connections => connections.any (exprHasSymbolicWidth ·.2)
+
+def unsupportedSymbolicWidthError : String :=
+  "#error \"Sparkle CSim requires concrete widths; specialize retained parameters before emission\"\n"
+
+/-- Emit a complete C struct + static helpers for a module.
+    Returns the full C source fragment (no includes; callers
+    add those at design level). -/
 def emitModule (m : Module) (design : Option Design := none)
     (observableWires : Option (List String) := none)
     (funcQual : String := "") : String :=
-  if m.isPrimitive then
+  if moduleHasSymbolicWidth m then
+    unsupportedSymbolicWidthError
+  else if m.isPrimitive then
     s!"/* Primitive module: {m.name} */\n/* (blackbox - not generated) */\n\n"
   else
     let typeMap := buildTypeMap m
@@ -1515,7 +1563,29 @@ def emitModule (m : Module) (design : Option Design := none)
         | none => result := result ++ [decl]
       result
 
-    let evalBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalBody) []
+    -- Callers write the fixed-ABI C storage rather than a native BitVec.
+    -- Normalize every packed input before evaluating logic so padding in a
+    -- uint8/16/32/64 scalar, or in the last word of a wide value, can never
+    -- participate in shifts or comparisons as if it were a hardware bit.
+    let inputMaskBody := m.inputs.filterMap fun (p : Port) =>
+      match p.ty with
+      | .bit =>
+        some s!"        {sanitizeName p.name} &= 1u;"
+      | .bitVector width =>
+        if width == 0 then none
+        else if width ≤ 64 then
+          let mask := emitMask width
+          if mask.isEmpty then none
+          else some s!"        {sanitizeName p.name} &= {mask};"
+        else
+          let topBits := width % 32
+          if topBits != 0 then
+            let topMask := (1 <<< topBits) - 1
+            some s!"        {sanitizeName p.name}[{wordsOf width - 1}] &= {topMask}u;"
+          else none
+      | _ => none
+    let evalBody := inputMaskBody ++
+      allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalBody) []
     let tickBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.tickBody) []
     let resetBody := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.resetBody) []
     let evalTickLocals := allParts.foldl (fun acc (p : StmtParts) => acc ++ p.evalTickLocals) []
@@ -1774,6 +1844,15 @@ def toCDesign (d : Design)
     else emitModule m (some d) none funcQual
   header ++ String.intercalate "\n" code
 
+/-- Specialize retained dimensions for one explicit configuration, then emit
+    a fixed-ABI C model for the whole design. -/
+def toCDesignWithParameters (d : Design)
+    (bindings : Sparkle.IR.Specialize.Bindings)
+    (observableWires : Option (List String) := none)
+    (funcQual : String := "") : Except String String := do
+  let concrete ← Sparkle.IR.Specialize.specializeDesign d bindings
+  return toCDesign concrete observableWires funcQual
+
 /-- Convert a single module to C simulation code with includes -/
 def toC (m : Module) : String :=
   let includes :=
@@ -1781,6 +1860,13 @@ def toC (m : Module) : String :=
     "#include <stdlib.h>\n" ++
     "#include <string.h>\n\n"
   includes ++ emitModule m
+
+/-- Specialize retained dimensions for one explicit configuration, then emit
+    a fixed-ABI C model for a single module. -/
+def toCWithParameters (m : Module)
+    (bindings : Sparkle.IR.Specialize.Bindings) : Except String String := do
+  let concrete ← Sparkle.IR.Specialize.specializeModule m bindings
+  return toC concrete
 
 /-! ## JIT FFI wrapper
 
@@ -1954,7 +2040,7 @@ private def emitMemsetWordSwitch (body : List Stmt) : String :=
     The top-level `.so` therefore exports `jit_vtable` and
     nothing else (other than the unavoidable glibc init/fini
     stubs). -/
-def toCJIT (d : Design)
+private def toCJITUnchecked (d : Design)
     (observableWires0 : Option (List String) := none) : String :=
   -- Determine which internal wires must be struct MEMBERS (persist
   -- across ticks): those feeding a register/memory input.  All other
@@ -2155,4 +2241,19 @@ def toCJIT (d : Design)
 
     classCode ++ "\n" ++ vtableType ++ trampolines ++ vtableInst
 
+
+def toCJIT (d : Design)
+    (observableWires : Option (List String) := none) : String :=
+  if d.modules.any moduleHasSymbolicWidth then
+    unsupportedSymbolicWidthError
+  else
+    toCJITUnchecked d observableWires
+
+/-- Specialize retained dimensions for one explicit configuration, then emit
+    the fixed-ABI C JIT wrapper. -/
+def toCJITWithParameters (d : Design)
+    (bindings : Sparkle.IR.Specialize.Bindings)
+    (observableWires : Option (List String) := none) : Except String String := do
+  let concrete ← Sparkle.IR.Specialize.specializeDesign d bindings
+  return toCJIT concrete observableWires
 end Sparkle.Backend.CSim

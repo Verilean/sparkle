@@ -673,6 +673,7 @@ partial def collectRefsAux (acc : List String) : Expr → List String
   | .op _ args => args.foldl collectRefsAux acc
   | .concat args => args.foldl collectRefsAux acc
   | .slice e _ _ => collectRefsAux acc e
+  | .sliceDim e _ _ => collectRefsAux acc e
   | .index a i => collectRefsAux (collectRefsAux acc a) i
   | _ => acc
 
@@ -737,6 +738,7 @@ def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt)
         | .op o args => .op o (args.map substSelf)
         | .concat args => .concat (args.map substSelf)
         | .slice inner hi lo => .slice (substSelf inner) hi lo
+        | .sliceDim inner hi lo => .sliceDim (substSelf inner) hi lo
         | .index arr idx => .index (substSelf arr) (substSelf idx)
         | other => other
       filtered.map fun ga => { ga with value := substSelf ga.value }
@@ -907,6 +909,7 @@ private partial def substExprEnv (env : SeqSSAEnv) : Expr → Expr
   | .op o args => .op o (args.map (substExprEnv env))
   | .concat args => .concat (args.map (substExprEnv env))
   | .slice e hi lo => .slice (substExprEnv env e) hi lo
+  | .sliceDim e hi lo => .sliceDim (substExprEnv env e) hi lo
   | .index arr idx => .index (substExprEnv env arr) (substExprEnv env idx)
   | other => other
 
@@ -1527,6 +1530,7 @@ private partial def narrowMaskConstants (env : LowerEnv) : Expr → Expr
   | .op o args => .op o (args.map (narrowMaskConstants env))
   | .concat args => .concat (args.map (narrowMaskConstants env))
   | .slice e hi lo => .slice (narrowMaskConstants env e) hi lo
+  | .sliceDim e hi lo => .sliceDim (narrowMaskConstants env e) hi lo
   | .index arr idx => .index (narrowMaskConstants env arr) (narrowMaskConstants env idx)
   | e => e
 
@@ -1564,6 +1568,7 @@ private def narrowMaskStmt (env : LowerEnv) : Stmt → Stmt
 private partial def exprHasSignedLeaf (env : LowerEnv) : Expr → Bool
   | .ref name => env.isSignedRef name
   | .slice e _ _ => exprHasSignedLeaf env e
+  | .sliceDim e _ _ => exprHasSignedLeaf env e
   | _ => false
 
 /-- Rewrite each `lt_u`/`le_u`/`gt_u`/`ge_u` to the signed counterpart
@@ -1596,6 +1601,7 @@ private partial def promoteSignedComparisons (env : LowerEnv) : Expr → Expr
   | .op o args => .op o (args.map (promoteSignedComparisons env))
   | .concat args => .concat (args.map (promoteSignedComparisons env))
   | .slice e hi lo => .slice (promoteSignedComparisons env e) hi lo
+  | .sliceDim e hi lo => .sliceDim (promoteSignedComparisons env e) hi lo
   | .index arr idx =>
     .index (promoteSignedComparisons env arr) (promoteSignedComparisons env idx)
   | e => e
@@ -2131,6 +2137,7 @@ partial def prefixExprNames (pfx : String) (nameSet : List String) : Expr → Ex
   | .op o args => .op o (args.map (prefixExprNames pfx nameSet))
   | .concat args => .concat (args.map (prefixExprNames pfx nameSet))
   | .slice e hi lo => .slice (prefixExprNames pfx nameSet e) hi lo
+  | .sliceDim e hi lo => .sliceDim (prefixExprNames pfx nameSet e) hi lo
   | .index arr idx => .index (prefixExprNames pfx nameSet arr) (prefixExprNames pfx nameSet idx)
   | e => e
 
@@ -2287,6 +2294,7 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
       | .op o args => .op o (args.map (genExprRefs wireNames))
       | .concat args => .concat (args.map (genExprRefs wireNames))
       | .slice e hi lo => .slice (genExprRefs wireNames e) hi lo
+      | .sliceDim e hi lo => .sliceDim (genExprRefs wireNames e) hi lo
       | .index a i => .index (genExprRefs wireNames a) (genExprRefs wireNames i)
       | e => e
 
@@ -2453,6 +2461,7 @@ def declareOrphanRefs (design : Design) : Design :=
           | .op _ xs => xs.foldl go h
           | .concat xs => xs.foldl go h
           | .slice x _ _ => go h x
+          | .sliceDim x _ _ => go h x
           | .index a i => go (go h a) i
           | _ => h
         for s in m.body do

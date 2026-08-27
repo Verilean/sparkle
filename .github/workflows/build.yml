@@ -148,6 +148,12 @@ jobs:
     - name: "Install iverilog"
       run: sudo apt-get install -y iverilog
 
+    - name: "Verify native symbolic parameters"
+      run: scripts/verify_symbolic_parameters.sh
+
+    - name: "Verify parameterized CSim widths"
+      run: scripts/verify_parameterized_csim.sh
+
     - name: "Run iverilog round-trip tests"
       run: lake exe iverilog-roundtrip-test
 
