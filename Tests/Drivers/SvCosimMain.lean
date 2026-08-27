@@ -312,12 +312,20 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   -- from the source directory as a library)
   let lib := fun (d : String) =>
     if hier then #["-y", d, "-Y", ".sv"] else #[]
-  let (e1, _) ← run "iverilog" (#["-g2012", "-o", s!"{workDir}/{base}_gold"]
+  -- -DRANDOM=0: firtool initializes reset-less registers and memories
+  -- in an `initial` block with `\`RANDOM` (default `$random`, guarded
+  -- by `ifndef RANDOM`).  Predefining RANDOM=0 makes the golden start
+  -- from ALL-ZERO state — exactly the IR's register init that CSim's
+  -- reset() applies and the re-emitted Verilog declares — so
+  -- initialization-sensitive pipelines (VtTrainPipeline's reset-less
+  -- valid chain) compare deterministically instead of diverging on
+  -- unknowable initial state.
+  let (e1, _) ← run "iverilog" (#["-g2012", "-DRANDOM=32'h0", "-DRANDOMIZE_REG_INIT", "-o", s!"{workDir}/{base}_gold"]
     ++ lib dir ++ #[s!"{dir}/{name}", s!"{workDir}/{base}_tb.v"])
   if e1 != 0 then return (name, .toolFail "iverilog(orig) compile")
   let (_, gold) ← run "vvp" #[s!"{workDir}/{base}_gold"]
   -- roundtrip side (children come from the re-emitted corpus)
-  let (e2, _) ← run "iverilog" (#["-g2012", "-o", s!"{workDir}/{base}_rt"]
+  let (e2, _) ← run "iverilog" (#["-g2012", "-DRANDOM=32'h0", "-DRANDOMIZE_REG_INIT", "-o", s!"{workDir}/{base}_rt"]
     ++ lib rtDir ++ #[s!"{rtDir}/{name}", s!"{workDir}/{base}_tb.v"])
   if e2 != 0 then return (name, .rtMismatch "iverilog(rt) does not compile")
   let (_, rt) ← run "vvp" #[s!"{workDir}/{base}_rt"]

@@ -500,6 +500,21 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           let m := s!"0x{String.ofList (Nat.toDigits 16 (2 ^ w - 1))}ULL"
           let sb := s!"0x{String.ofList (Nat.toDigits 16 (2 ^ (w - 1)))}ULL"
           s!"(((({emitExpr typeMap arg1} & {m}) ^ {sb}) {emitCOperator operator} (({emitExpr typeMap arg2} & {m}) ^ {sb})) ? 1 : 0)"
+      | .shr | .shl =>
+        -- Verilog: a shift amount ≥ the value width yields 0.  C: a
+        -- shift ≥ the CONTAINER width is UB — x86 wraps the count mod
+        -- 32/64, so `table_0 >> req` with a random 8-bit req (BusyTable
+        -- read ports) produced phantom bits whenever req ≥ 32.  Promote
+        -- to uint64 and guard dynamic amounts; constant amounts fold.
+        let cop := if operator == .shr then ">>" else "<<"
+        match arg2 with
+        | .const v _ =>
+          if v ≥ 64 then "0ULL"
+          else s!"((uint64_t){emitExpr typeMap arg1} {cop} {v})"
+        | _ =>
+          let aS := emitExpr typeMap arg1
+          let bS := emitExpr typeMap arg2
+          s!"((uint64_t)({bS}) >= 64 ? 0ULL : ((uint64_t){aS} {cop} ({bS})))"
       | .asr =>
         let w := max (inferExprWidth typeMap arg1) 32
         let stype := signedCastType w
