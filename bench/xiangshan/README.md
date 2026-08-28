@@ -445,6 +445,20 @@ work list, classified:
   fallout: 229/229 executed leaf co-sims and 17/17 hierarchical pass,
   RT✗ 0 / JIT✗ 0.  Pinned by ParserTest 58.
 
+  Sweeping the 12 modules in the full build that use a replicated NOT (plus
+  their transitive closures, 87 files) then found one MORE emitter gap of
+  the same family: `staticExprWidth` had no arm for a CONDITIONAL, so
+  `^(cond ? 8'h0 : beat[255:248])` had no static width and the parity
+  expansion bailed to its fail-loud sentinel — TXDAT's
+  `io_out_bits_dataCheck` collapsed to a constant, losing all 32 parity
+  bytes.  Fixed with width rules for ternary, repeat, the passthrough
+  unaries, and the one-bit reductions/comparisons.  Pinned by ParserTest 59.
+
+  That sweep leaves ONE open failure: `VectorFloatFMA` disagrees by a
+  single LSB on `io_fp_result` (`…6324` vs `…6325`) at cycle 13 — a
+  JIT-side floating-point rounding-path bug, unrelated to width handling
+  and not yet triaged.
+
 ## CI gate
 
 `bench/xiangshan/ci_check.sh` (workflow: xiangshan-roundtrip.yml) runs on

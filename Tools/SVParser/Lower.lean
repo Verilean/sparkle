@@ -174,6 +174,38 @@ private def staticExprWidth : SVExpr → Option Nat
       match acc, staticExprWidth a with
       | some x, some y => some (x + y)
       | _, _ => none) (some 0)
+  -- A ternary is as wide as its arms.  Without this, `^(cond ? 8'h0 :
+  -- beat[255:248])` had no static width, so the parity expansion bailed
+  -- to the undeclared-wire sentinel and `io_out_bits_dataCheck` collapsed
+  -- to a constant — XiangShan's TXDAT computes 32 parity bytes exactly
+  -- this way.  Prefer whichever arm resolves; if both do and they differ,
+  -- decline rather than guess.
+  | .ternary _ t e =>
+    match staticExprWidth t, staticExprWidth e with
+    | some wt, some we => if wt == we then some wt else some (max wt we)
+    | some wt, none => some wt
+    | none, some we => some we
+    | none, none => none
+  -- `{n{expr}}` is n copies of a statically-known operand.
+  | .repeat_ (.lit (.decimal _ n)) v =>
+    (staticExprWidth v).map (n * ·)
+  -- These pass their operand's width through unchanged.
+  | .unary .bitNot a => staticExprWidth a
+  | .unary .neg a => staticExprWidth a
+  | .unary .signed a => staticExprWidth a
+  -- Reductions and logical negation are always one bit.
+  | .unary .reductAnd _ | .unary .reductOr _ | .unary .reductXor _
+  | .unary .logNot _ => some 1
+  | .binary .eq _ _ | .binary .neq _ _ | .binary .lt _ _ | .binary .le _ _
+  | .binary .gt _ _ | .binary .ge _ _
+  | .binary .logAnd _ _ | .binary .logOr _ _ => some 1
+  -- Bitwise binaries are as wide as their widest operand.
+  | .binary .bitAnd a b | .binary .bitOr a b | .binary .bitXor a b =>
+    match staticExprWidth a, staticExprWidth b with
+    | some wa, some wb => some (max wa wb)
+    | some wa, none => some wa
+    | none, some wb => some wb
+    | none, none => none
   | _ => none
 
 /-- Expand `^expr` (reduction XOR / parity) into an explicit bit fold when

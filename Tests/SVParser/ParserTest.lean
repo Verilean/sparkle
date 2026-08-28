@@ -2312,5 +2312,33 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 59 (XiangShan TXDAT): reduction XOR over a TERNARY operand.
+  -- `staticExprWidth` had no arm for a conditional, so `^(cond ? 8'h0 :
+  -- beat[255:248])` had no static width and the parity expansion bailed
+  -- to its undeclared-wire sentinel — `io_out_bits_dataCheck` collapsed
+  -- to a constant, losing all 32 parity bytes.  (The sentinel is the
+  -- deliberate fail-loud path; the gap was that a resolvable width was
+  -- treated as unknown.)
+  IO.print "  Test 59: reduction XOR over a ternary keeps its width... "
+  try
+    let v := "
+module parity_tern (input [15:0] d, input z, output [1:0] p);
+  assign p = {^(z ? 8'h0 : d[15:8]), ^(z ? 8'h0 : d[7:0])};
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "__reduction_xor_unknown_width__" then
+        IO.println "FAIL: parity bailed to the unknown-width sentinel"
+        failed := failed + 1
+      else if containsSubstr sv "assign p = 1'd0" then
+        IO.println "FAIL: parity collapsed to a constant"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
