@@ -381,3 +381,37 @@ Known emitter-quality debt this exposed: RenameTable's emission is
 306 MB of text (29M IR nodes — the per-register mux forests share
 nothing).  Excluded from the CI corpus; the subexpression-sharing
 emitter work tracks it.
+
+## verilog → IR → lean₄ → IR → proof (the other round trip)
+
+`lake exe sv-to-dsl <rtl-dir> [--emit out]` prints ingested RTL back as
+Sparkle circuit-DSL source (`Tools/SVParser/DslEmit.lean`), and
+`#verify_dsl_roundtrip` proves the printed source re-synthesizes to an
+equivalent design (per-register / per-output cone equality, `bv_decide`,
+under rst = 0).  Together with the Verilog-side round trip this closes
+both loops through the IR.
+
+Survey on DefaultConfig (1,847 files ≤ 128 KB): **228 print as
+circuit-DSL today**.  What blocks the rest, in order:
+
+| blocker | files | note |
+|---|---|---|
+| sub-instances | 644 | needs hierarchical DSL printing (`@[hardware_module]` children) |
+| more than one output | 880 | multi-output DSL returns are the elaborator's known tuple-output gap |
+| memories | 93 | `Stmt.memory` has no DSL surface yet |
+| operators outside the v1 subset | 1 | `neg` |
+
+Proven end-to-end on real XiangShan RTL
+(`Tests/Verification/XiangShanDslRoundtrip.lean`, machine-generated
+source pasted verbatim): `AddWModule` (combinational, 1 cone),
+`PipelineStallReason` (6 registers, 7 cones), `VtypeModule` (the CSR
+vtype register file, 5 registers, 6 cones).
+
+Decompiler details worth knowing: register-bundle reads
+(`concat[r0,r1,…][hi:lo]`) are folded back to plain register references,
+firtool's in-expression reset arm (`mux(¬rst & c, v, mux(rst, init,
+hold))`) is folded away because the DSL keeps reset in `Signal.reg`, and
+every register READ is printed with an explicit `Signal` ascription (a
+`Reg` binder does not coerce where `.map` / `++` / `Signal.ult` expect a
+`Signal`).  Purely combinational modules print without `circuit do`,
+which requires at least one register.

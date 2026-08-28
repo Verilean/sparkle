@@ -44,10 +44,20 @@ def paramName (n : String) : String :=
   let base := if n.startsWith "_gen_" then n.drop 5 |>.toString else n
   Sparkle.Backend.Verilog.sanitizeName base
 
-/-- Signal-level variable text for an input/register reference. -/
-private def refText (regNames : List (String × String)) (n : String) : String :=
+/-- Signal-level variable text for an input/register reference.
+
+    A `let r ← Signal.reg …` binder has type `Reg dom …`, which coerces
+    to `Signal dom τ` only when unification asks for it — `.map`, `++`
+    and `Signal.ult` all see the `Reg` first and fail to elaborate.  So
+    every register READ is printed with an explicit ascription; `<~`
+    still takes the bare binder on the left. -/
+private def refText (wt : Std.HashMap String Nat)
+    (regNames : List (String × String)) (n : String) : String :=
   match regNames.find? (·.1 == n) with
-  | some (_, dslName) => dslName
+  | some (_, dslName) =>
+    match wt.get? n with
+    | some w => s!"({dslName} : Signal defaultDomain (BitVec {w}))"
+    | none => dslName
   | none => paramName n
 
 /-- Widths for concat members, used by `simplifyCone`. -/
@@ -127,7 +137,7 @@ partial def dslExpr (wt : Std.HashMap String Nat)
       .ok s!"(Signal.pure ({((v % m + m) % m)}#{w}) : Signal defaultDomain (BitVec {w}))"
     else
       .ok s!"(Signal.pure ({v}#{w}) : Signal defaultDomain (BitVec {w}))"
-  | .ref n => .ok (refText regNames n)
+  | .ref n => .ok (refText wt regNames n)
   | .slice e hi lo => do
     .ok s!"({← dslExpr wt regNames e})[{hi}, {lo}]"
   | .concat args => do
@@ -159,6 +169,40 @@ partial def dslExpr (wt : Std.HashMap String Nat)
     | .shr, [a, .const v _] => do
       let w ← widthOf wt a
       .ok s!"({← dslExpr wt regNames a} >>> ({v}#{w} : BitVec {w}))"
+    | .shl, [a, b] => do
+      -- dynamic amount: shift by a Signal.  Widths must agree, so the
+      -- amount is zero-extended/truncated to the value's width first.
+      let wa ← widthOf wt a
+      let wb ← widthOf wt b
+      let amt ← if wb == wa then dslExpr wt regNames b
+                else do
+                  let bs ← dslExpr wt regNames b
+                  if wb < wa then
+                    .ok s!"((Signal.pure (0#{wa - wb}) : Signal defaultDomain (BitVec {wa - wb})) ++ {bs})"
+                  else .ok s!"({bs})[{wa - 1}, 0]"
+      .ok s!"(Signal.ap (Signal.map (· <<< ·) {← dslExpr wt regNames a}) {amt})"
+    | .shr, [a, b] => do
+      let wa ← widthOf wt a
+      let wb ← widthOf wt b
+      let amt ← if wb == wa then dslExpr wt regNames b
+                else do
+                  let bs ← dslExpr wt regNames b
+                  if wb < wa then
+                    .ok s!"((Signal.pure (0#{wa - wb}) : Signal defaultDomain (BitVec {wa - wb})) ++ {bs})"
+                  else .ok s!"({bs})[{wa - 1}, 0]"
+      .ok s!"(Signal.ap (Signal.map (· >>> ·) {← dslExpr wt regNames a}) {amt})"
+    | .lt_u, [a, b] | .le_u, [a, b] | .gt_u, [a, b] | .ge_u, [a, b]
+    | .lt_s, [a, b] | .le_s, [a, b] | .gt_s, [a, b] | .ge_s, [a, b] => do
+      -- `Signal.{ult,ule,slt,sle}` are Bool-valued; gt/ge are the same
+      -- with the operands swapped.  Lift back to BitVec 1 via mux so the
+      -- result composes in arithmetic contexts (mux conditions strip it
+      -- again below).
+      let (fn, x, y) := match o with
+        | .lt_u => ("Signal.ult", a, b) | .le_u => ("Signal.ule", a, b)
+        | .gt_u => ("Signal.ult", b, a) | .ge_u => ("Signal.ule", b, a)
+        | .lt_s => ("Signal.slt", a, b) | .le_s => ("Signal.sle", a, b)
+        | .gt_s => ("Signal.slt", b, a) | _      => ("Signal.sle", b, a)
+      .ok s!"(Signal.mux ({fn} {← dslExpr wt regNames x} {← dslExpr wt regNames y}) (Signal.pure 1#1) (Signal.pure 0#1))"
     | .eq, [a, b] => do
       -- The elaborator maps `BEq.beq` to `.eq`; a Bool-valued Signal is
       -- what `Signal.mux` wants as its condition, and lifting it back to
@@ -173,10 +217,50 @@ partial def dslExpr (wt : Std.HashMap String Nat)
         let condTxt ← match c with
           | .op .eq [ca, cb] =>
             .ok s!"(Signal.ap (Signal.map (· == ·) {← dslExpr wt regNames ca}) {← dslExpr wt regNames cb})"
-          | _ => .ok s!"(({← dslExpr wt regNames c}).map (· == 1#1))"
+          | .op .lt_u [ca, cb] => .ok s!"(Signal.ult {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
+          | .op .le_u [ca, cb] => .ok s!"(Signal.ule {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
+          | .op .gt_u [ca, cb] => .ok s!"(Signal.ult {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
+          | .op .ge_u [ca, cb] => .ok s!"(Signal.ule {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
+          | .op .lt_s [ca, cb] => .ok s!"(Signal.slt {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
+          | .op .le_s [ca, cb] => .ok s!"(Signal.sle {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
+          | .op .gt_s [ca, cb] => .ok s!"(Signal.slt {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
+          | .op .ge_s [ca, cb] => .ok s!"(Signal.sle {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
+          | _ =>
+            -- any other 1-bit cone (a slice, a wire, an and/or tree):
+            -- lift to Bool.  Parenthesize so `[hi, lo]` binds first.
+            .ok s!"(({← dslExpr wt regNames c}).map (· == 1#1))"
         .ok s!"(Signal.mux {condTxt} {← dslExpr wt regNames t} {← dslExpr wt regNames e})"
     | _, _ => .error s!"operator {repr o}/{args.length} not in the v1 circuit-DSL subset"
   | e => .error s!"expression {repr e} not in the v1 circuit-DSL subset"
+
+/-- Rewrite a reparsed register cone into its rst = 0 form: replace
+    every `.ref rstName` with 0, then constant-fold the muxes it feeds.
+    firtool's emitted `always_ff` puts the reset branch INSIDE the data
+    expression (`mux(¬rst & c, v, mux(rst, init, hold))`); in the DSL the
+    reset lives in `Signal.reg` instead, so the printed source must not
+    mention it (there is no `reset` binder in scope). -/
+partial def dropReset (rstNames : List String) :
+    Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | .ref n => if rstNames.contains n then .const 0 1 else .ref n
+  | .op o args =>
+    let args := args.map (dropReset rstNames)
+    match o, args with
+    -- constant-fold once the reset ref became 0
+    | .and, [.const 0 _, _] | .and, [_, .const 0 _] => .const 0 1
+    | .and, [.const _ _, x] => x
+    | .and, [x, .const v _] => if v == 0 then .const 0 1 else x
+    | .or,  [.const 0 _, x] => x
+    | .or,  [x, .const 0 _] => x
+    | .xor, [.const 0 _, x] => x
+    | .xor, [x, .const 0 _] => x
+    | .not, [.const 0 w] => .const ((1 <<< w) - 1) w
+    | .mux, [.const 0 _, _, e] => e
+    | .mux, [.const _ _, t, _] => t
+    | _, _ => .op o args
+  | .concat args => .concat (args.map (dropReset rstNames))
+  | .slice e hi lo => .slice (dropReset rstNames e) hi lo
+  | .index a i => .index (dropReset rstNames a) (dropReset rstNames i)
+  | e => e
 
 /-- Decompile a single-output IR module to a `circuit do` definition.
     Returns (source text, register order used). -/
@@ -197,22 +281,33 @@ def toCircuitDsl (m : Sparkle.IR.AST.Module) (defName : String) :
   -- DSL-side register names r0, r1, … in body order
   let regNames : List (String × String) :=
     (sigs.zipIdx).map (fun ((n, _, _, _), i) => (n, s!"r{i}"))
+  let rstUsed := (sigs.map (fun (_, _, _, r) => r)).eraseDups
   let dataIns := m.inputs.filter fun p =>
     !isClockName p.name && p.name != "rst" && p.name != "reset"
+      && !rstUsed.contains p.name
   let params := String.intercalate " " (dataIns.map fun p =>
     s!"({paramName p.name} : Signal defaultDomain (BitVec {p.ty.bitWidth}))")
+  let rstNames := (sigs.map (fun (_, _, _, r) => r)).eraseDups
+  let prep := fun (e : Sparkle.IR.AST.Expr) =>
+    simplifyCone wt (dropReset rstNames e)
   let mut lines : List String := []
-  lines := lines ++
-    [s!"def {defName} {params} : Signal defaultDomain (BitVec {out.ty.bitWidth}) :="
-    , "  circuit do"]
-  for ((n, w, init, _), i) in sigs.zipIdx do
-    let _ := n
-    lines := lines ++ [s!"    let r{i} ← Signal.reg ({init}#{w})"]
-  for (n, cone) in regCones do
-    let some (_, dslName) := regNames.find? (·.1 == n)
-      | .error s!"register {n} missing from name table"
-    lines := lines ++ [s!"    {dslName} <~ {← dslExpr wt regNames (simplifyCone wt cone)}"]
-  lines := lines ++ [s!"    return {← dslExpr wt regNames (simplifyCone wt outCone)}"]
+  if sigs.isEmpty then
+    -- purely combinational: `circuit do` requires at least one register
+    lines := lines ++
+      [s!"def {defName} {params} : Signal defaultDomain (BitVec {out.ty.bitWidth}) :="
+      , s!"  {← dslExpr wt regNames (prep outCone)}"]
+  else
+    lines := lines ++
+      [s!"def {defName} {params} : Signal defaultDomain (BitVec {out.ty.bitWidth}) :="
+      , "  circuit do"]
+    for ((n, w, init, _), i) in sigs.zipIdx do
+      let _ := n
+      lines := lines ++ [s!"    let r{i} ← Signal.reg ({init}#{w})"]
+    for (n, cone) in regCones do
+      let some (_, dslName) := regNames.find? (·.1 == n)
+        | .error s!"register {n} missing from name table"
+      lines := lines ++ [s!"    {dslName} <~ {← dslExpr wt regNames (prep cone)}"]
+    lines := lines ++ [s!"    return {← dslExpr wt regNames (prep outCone)}"]
   .ok (String.intercalate "\n" lines, regNames.map (·.1))
 
 /-- α-rename input/register refs of the REPARSED design's cones back to
