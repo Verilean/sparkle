@@ -84,7 +84,7 @@ def partitionModule (m : Module) : PartitionResult := Id.run do
     | .register name _ _ _ _ =>
       if classifyWire name == .cpu then cpuBody := cpuBody ++ [s]
       else periBody := periBody ++ [s]
-    | .memory name _ _ _ _ _ _ _ _ _ =>
+    | .memory name _ _ _ _ _ _ _ _ _ .. =>
       if classifyWire name == .cpu then cpuBody := cpuBody ++ [s]
       else periBody := periBody ++ [s]
     | _ => cpuBody := cpuBody ++ [s]  -- default to CPU
@@ -98,7 +98,7 @@ def partitionModule (m : Module) : PartitionResult := Id.run do
     let (name, refs) := match s with
       | .assign n rhs => (n, collectRefs rhs)
       | .register n _ _ input _ => (n, collectRefs input)
-      | .memory _ _ _ _ wa wd we _ _ _ =>
+      | .memory _ _ _ _ wa wd we _ _ _ .. =>
         ("", collectRefs wa ++ collectRefs wd ++ collectRefs we)
       | _ => ("", [])
     let stmtPart := classifyWire name

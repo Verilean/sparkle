@@ -14,7 +14,11 @@
 #        dynamic  — 3-way co-sim: iverilog(original) is golden, both the
 #                   re-emitted Verilog AND the CSim JIT must match, so the
 #                   C simulation path is covered too;
-#   3. circuit quality — the Sparkle-native IR complexity metric
+#   3. lean₄ round trip — ingested RTL is decompiled back to circuit-DSL
+#                       source and PROVEN equivalent per cone
+#                       (`#verify_dsl_roundtrip`, bv_decide), and the
+#                       decompiler's printable count is reported;
+#   4. circuit quality — the Sparkle-native IR complexity metric
 #                       (expression-node counts of parse(orig) and of
 #                       parse(emit(parse(orig))), sv-roundtrip --metric):
 #                       neither may GROW past the committed baseline —
@@ -158,6 +162,28 @@ if [ -f "$EQUIV_BASE" ]; then
 else
   echo "NOTE: no equiv baseline — writing one from this run"
   cp "$WORK/equiv.tsv" "$EQUIV_BASE"
+fi
+
+echo "== phase 4: verilog → IR → lean₄ → IR proofs (#verify_dsl_roundtrip)"
+# The committed proof file holds machine-generated circuit-DSL source for
+# a register-count-stratified set of real XiangShan modules; every cone
+# must close under bv_decide.  Also report the decompiler's printable
+# count so a drop shows up in the log.
+DSL_FILE=Tests/Verification/XiangShanDslRoundtrip.lean
+if [ -f "$DSL_FILE" ]; then
+  if lake env lean "$DSL_FILE" > "$WORK/dsl_roundtrip.log" 2>&1; then
+    proven=$(grep -c '✅' "$WORK/dsl_roundtrip.log")
+    cones=$(grep -oE '— [0-9]+ cone' "$WORK/dsl_roundtrip.log" | grep -oE '[0-9]+' | paste -sd+ | bc)
+    echo "dsl-roundtrip: $proven modules proven, ${cones:-0} cone obligations"
+    if [ "$proven" -lt 1 ]; then echo "FAIL: no dsl-roundtrip proofs ran"; fail=1; fi
+  else
+    echo "FAIL: #verify_dsl_roundtrip proofs did not close"
+    grep -m3 -E "error" "$WORK/dsl_roundtrip.log" | sed 's/^/    /'
+    fail=1
+  fi
+  lake exe sv-to-dsl "$CORPUS" --jobs 2 --max-kb 128 > "$WORK/sv_to_dsl.log" 2>&1 || true
+  printable=$(grep -oP 'printable as circuit-DSL : \K[0-9]+' "$WORK/sv_to_dsl.log")
+  echo "dsl-printable on the CI corpus: ${printable:-0}"
 fi
 
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi

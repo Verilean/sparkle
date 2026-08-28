@@ -62,7 +62,7 @@ structure MemInfo where
 
 private def memsOf (m : Module) : List MemInfo :=
   m.body.filterMap fun s => match s with
-    | .memory name aw dw _clk wa wd we ra rd cr =>
+    | .memory name aw dw _clk wa wd we ra rd cr .. =>
       some { name, addrW := aw, dataW := dw, writeAddr := wa, writeData := wd
            , writeEn := we, readAddr := ra, readData := rd, comboRead := cr }
     | _ => none
@@ -228,7 +228,7 @@ private def emitFrame (m : Module) (tm : TypeMap) (mems : List MemInfo)
       let w := lookupWidth tm out
       lines := lines ++
         [s!"(define-fun {sym out (c+1)} () {bvSort w} {← emitW ctx input w})"]
-    | .memory name aw dw _clk wa wd we ra rd cr =>
+    | .memory name aw dw _clk wa wd we ra rd cr .. =>
       let waS ← emitW ctx wa aw
       let wdS ← emitW ctx wd dw
       let weW := max (inferExprWidth tm we) 1

@@ -1119,7 +1119,7 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
     match s with
     | .assign name rhs => assigns := assigns.push (name, rhs)
     | .register _ _ _ _ _ => registers := registers.push s
-    | .memory _ _ _ _ _ _ _ _ _ _ => memories := memories.push s
+    | .memory _ _ _ _ _ _ _ _ _ _ .. => memories := memories.push s
     | _ => others := others.push s
   let assignNameSet : Std.HashMap String Bool :=
     assigns.foldl (fun h (n, _) => h.insert n true) {}
@@ -1539,13 +1539,18 @@ private def narrowMaskStmt (env : LowerEnv) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (narrowMaskConstants env rhs)
   | .register output clk rst input init =>
     .register output clk rst (narrowMaskConstants env input) init
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
     .memory name aw dw clk
       (narrowMaskConstants env wa)
       (narrowMaskConstants env wd)
       (narrowMaskConstants env we)
       (narrowMaskConstants env ra)
       rd cr
+      -- extra ports get the same rewrite; dropping them here silently
+      -- reduced a multi-port memory to port 0
+      (ew.map fun (a, d, e) =>
+        (narrowMaskConstants env a, narrowMaskConstants env d, narrowMaskConstants env e))
+      (er.map fun (a, r) => (narrowMaskConstants env a, r))
   | .inst modName instName conns =>
     .inst modName instName
       (conns.map fun (p, e) => (p, narrowMaskConstants env e))
@@ -1611,13 +1616,17 @@ private def promoteSignedStmt (env : LowerEnv) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (promoteSignedComparisons env rhs)
   | .register output clk rst input init =>
     .register output clk rst (promoteSignedComparisons env input) init
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
     .memory name aw dw clk
       (promoteSignedComparisons env wa)
       (promoteSignedComparisons env wd)
       (promoteSignedComparisons env we)
       (promoteSignedComparisons env ra)
       rd cr
+      (ew.map fun (a, d, e) =>
+        (promoteSignedComparisons env a, promoteSignedComparisons env d,
+         promoteSignedComparisons env e))
+      (er.map fun (a, r) => (promoteSignedComparisons env a, r))
   | .inst modName instName conns =>
     .inst modName instName
       (conns.map fun (p, e) => (p, promoteSignedComparisons env e))
@@ -1954,6 +1963,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       let mut writeAddr : Expr := .const 0 addrWidth
       let mut writeData : Expr := .const 0 dataWidth
       let mut writeEnable : Expr := .const 0 1
+      let mut extraWrites : List (Expr × Expr × Expr) := []
+      let mut extraReads : List (Expr × String) := []
       let mut memClock : String := "clk"
       for prevItem in svMod.items do
         match prevItem with
@@ -1968,6 +1979,15 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
             -- Compose MULTIPLE guarded writes as a priority mux (later
             -- statements win, mirroring non-blocking semantics); the old
             -- loop simply kept the LAST write and dropped the others.
+            -- Each guarded write becomes its OWN write port.  Folding
+            -- them into a priority mux (the previous behaviour) is only
+            -- correct when at most one guard is ever true: XiangShan's
+            -- dt_352x1 fires several of its eight write ports in the same
+            -- cycle, and the folded form then dropped every write but the
+            -- highest-priority one.  `Stmt.memory` carries the extra
+            -- ports, and both backends emit one guarded write each in
+            -- port order (last-port-wins on an address collision, the
+            -- Verilog `always_ff` rule).
             for (idx, data, cond) in arrayWrites do
               let c : Expr := match cond with
                 | some c => lowerExpr c
@@ -1977,9 +1997,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               if writeEnable == Expr.const 0 1 then
                 writeAddr := a; writeData := d; writeEnable := c
               else
-                writeAddr := .op .mux [c, a, writeAddr]
-                writeData := .op .mux [c, d, writeData]
-                writeEnable := .op .or [c, writeEnable]
+                extraWrites := extraWrites ++ [(a, d, c)]
           else
             -- Try byte-lane writes: if (wstrb[n]) arr[addr][hi:lo] <= data[hi:lo]
             -- (also matches firtool's `[base +: w]` mask-chunk form)
@@ -1998,12 +2016,11 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               writeEnable := enableExpr
             | [] => pure ()
         | _ => pure ()
-      -- Extract read ports.  The FIRST continuous-assign read claims the
-      -- Stmt.memory combo-read port; EXTRA reads (multi-port SRAM macros
-      -- like dt_352x1 with 8 read ports) become plain `.index` assigns —
-      -- both backends render `Memory[addr]` directly.  The claimed
-      -- contAssign items are excluded from normal lowering below (they
-      -- used to ALSO lower as ordinary assigns → duplicate drivers).
+      -- Extract read ports.  The first read claims `Stmt.memory`'s
+      -- dedicated read fields; the rest become genuine EXTRA read ports
+      -- (XiangShan's dt_352x1 has eight).  The claimed contAssign items
+      -- are excluded from normal lowering below (they used to also lower
+      -- as ordinary assigns → duplicate drivers).
       let mut readAddr : Expr := .const 0 addrWidth
       let mut readDataName := s!"{name}_rdata"
       let mut comboRead := true
@@ -2017,7 +2034,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               if !claimed then
                 readDataName := rdName; readAddr := lowerExpr idx; claimed := true
               else
-                body := body.push (.assign rdName (.index (.ref name) (lowerExpr idx)))
+                extraReads := extraReads ++ [(lowerExpr idx, rdName)]
             | none => pure ()
         | .alwaysBlock (.posedge _) innerStmts =>
           for s in innerStmts do
@@ -2030,9 +2047,11 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         | _ => pure ()
       body := body.push (.memory name addrWidth dataWidth memClock
         writeAddr writeData writeEnable
-        readAddr readDataName comboRead)
-      if !(wireSet.contains readDataName || portNameSet.contains readDataName) then
-        wires := wires.push { name := readDataName, ty := widthToHWType width }; wireSet := wireSet.insert readDataName true
+        readAddr readDataName comboRead extraWrites extraReads)
+      for rd in readDataName :: extraReads.map (·.2) do
+        if !(wireSet.contains rd || portNameSet.contains rd) then
+          wires := wires.push { name := rd, ty := widthToHWType width }
+          wireSet := wireSet.insert rd true
     | .instantiation modName instName conns _paramOvr =>
       -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
@@ -2196,7 +2215,7 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
 
           -- Collect all internal names in sub-module (including memory names)
           let memNames := effectiveSubMod.body.filterMap fun s => match s with
-            | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
+            | .memory n _ _ _ _ _ _ _ _ _ .. => some n | _ => none
           let subNames := effectiveSubMod.wires.map (·.name) ++
                           effectiveSubMod.inputs.map (·.name) ++
                           effectiveSubMod.outputs.map (·.name) ++
@@ -2246,13 +2265,19 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
                 -- Keep nested .inst with prefixed names — will be flattened in next iteration
                 .inst subModName s!"{instName}_{subInstName}"
                   (subConns.map fun (pn, e) => (pn, prefixExprNames instName subNames e))
-              | .memory name aw dw clk wa wd we ra rd combo =>
+              | .memory name aw dw clk wa wd we ra rd combo ew er =>
                 .memory s!"{instName}_{name}" aw dw s!"{instName}_{clk}"
                   (prefixExprNames instName subNames wa)
                   (prefixExprNames instName subNames wd)
                   (prefixExprNames instName subNames we)
                   (prefixExprNames instName subNames ra)
                   s!"{instName}_{rd}" combo
+                  (ew.map fun (a, d, e) =>
+                    (prefixExprNames instName subNames a,
+                     prefixExprNames instName subNames d,
+                     prefixExprNames instName subNames e))
+                  (er.map fun (a, r) =>
+                    (prefixExprNames instName subNames a, s!"{instName}_{r}"))
             flatBody := flatBody ++ [prefixed]
       | other => flatBody := flatBody ++ [other]
 
@@ -2262,7 +2287,7 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
     let regNames := flatBody.filterMap fun s => match s with
       | .register n _ _ _ _ => some n | _ => none
     let memNames := flatBody.filterMap fun s => match s with
-      | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
+      | .memory n _ _ _ _ _ _ _ _ _ .. => some n | _ => none
     let internalWireNames := flatWires.map (·.name) |>.filter fun n =>
       !(portNames.any (· == n)) && !(regNames.any (· == n)) && !(memNames.any (· == n))
     let addGen (n : String) : String :=
@@ -2275,8 +2300,10 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
       | .assign n rhs => .assign (addGen n) (genExpr rhs)
       | .register n clk rst input init => .register n clk rst (genExpr input) init
       | .inst mn in_ conns => .inst mn in_ (conns.map fun (p, e) => (p, genExpr e))
-      | .memory n aw dw clk wa wd we ra rd combo =>
+      | .memory n aw dw clk wa wd we ra rd combo ew er =>
         .memory n aw dw clk (genExpr wa) (genExpr wd) (genExpr we) (genExpr ra) rd combo
+          (ew.map fun (a, d, e) => (genExpr a, genExpr d, genExpr e))
+          (er.map fun (a, r) => (genExpr a, r))
 
     let flatModule : Module := {
       name := top.name
@@ -2359,7 +2386,7 @@ def reachabilityDCE (design : Design) : Design :=
         match s with | .register output _ _ input _ => acc.insert output input | _ => acc) {}
       let memMap := m.body.foldl (fun (acc : Std.HashMap String (List Expr)) s =>
         match s with
-        | .memory _ _ _ _ wa wd we ra rd _ => acc.insert rd [wa, wd, we, ra]
+        | .memory _ _ _ _ wa wd we ra rd _ .. => acc.insert rd [wa, wd, we, ra]
         | _ => acc) {}
       let instExprs := m.body.foldl (fun (acc : List Expr) s =>
         match s with
@@ -2382,7 +2409,7 @@ def reachabilityDCE (design : Design) : Design :=
         | _ => pure ()
       for s in m.body do
         match s with
-        | .memory _ _ _ _ wa wd we ra rd _ =>
+        | .memory _ _ _ _ wa wd we ra rd _ .. =>
           frontier := frontier ++ [rd]
           for e in [wa, wd, we, ra] do
             frontier := frontier ++ (Sparkle.IR.Optimize.countExprUses e {} |>.toList.map (·.1))
@@ -2468,7 +2495,7 @@ def declareOrphanRefs (design : Design) : Design :=
           match s with
           | .assign _ rhs => acc := go acc rhs
           | .register _ _ _ input _ => acc := go acc input
-          | .memory _ _ _ _ wa wd we ra _ _ =>
+          | .memory _ _ _ _ wa wd we ra _ _ .. =>
             acc := go (go (go (go acc wa) wd) we) ra
           | .inst _ _ conns =>
             for (_, e) in conns do
@@ -2480,7 +2507,7 @@ def declareOrphanRefs (design : Design) : Design :=
           d := d.insert p.name true
         for s in m.body do
           match s with
-          | .memory n _ _ _ _ _ _ _ _ _ => d := d.insert n true
+          | .memory n _ _ _ _ _ _ _ _ _ .. => d := d.insert n true
           | _ => pure ()
         return d
       let orphans := referenced.toList.filterMap fun (n, _) =>

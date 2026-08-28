@@ -1239,48 +1239,64 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       , resetBody := [s!"        {outName} = {initExpr};"]
       , evalTickLocals := [nextLocalDecl] }
 
-  | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable readAddr readData comboRead =>
+  | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable
+      readAddr readData comboRead extraWrites extraReads =>
+    -- Multi-port memory.  Port 0 is the dedicated field set; the extras
+    -- carry the additional ports (1R1W, dual-port, two-port, and
+    -- XiangShan's 8R8W Difftest array).  Reads land in `evalBody` (or the
+    -- latched-address path for synchronous reads) and writes in
+    -- `tickBody`, so every port reads the state BEFORE this cycle's
+    -- writes; simultaneous same-address writes resolve last-port-wins,
+    -- because the write lines are emitted in port order.
     let memSize := 2 ^ addrWidth
     let memName := sanitizeName name
-    let rdName := sanitizeName readData
     let elemTy : HWType := .bitVector dataWidth
-    -- Array of array (e.g. `uint32_t mem[1024][3]` for a 96-bit-wide BRAM).
     let elemSuffix := emitArraySuffix elemTy
     let memDecl := s!"    {emitScalarBase elemTy} {memName}[{memSize}]{elemSuffix};"
-    let rdInTypeMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
-    let rdDecl := if rdInTypeMap then [] else [s!"    {emitFieldDecl elemTy rdName};"]
-    let isDeadWrite := match writeEnable with
-      | .const 0 _ => true | _ => false
-    let writeTickLine := if isDeadWrite then []
-      else
+    let readPorts := (readAddr, readData) :: extraReads
+    let writePorts := (writeAddr, writeData, writeEnable) :: extraWrites
+    let rdDecls := readPorts.filterMap fun (_, rd) =>
+      let rdName := sanitizeName rd
+      let inMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
+      if inMap then none else some s!"    {emitFieldDecl elemTy rdName};"
+    let writeLines := writePorts.filterMap fun (a, d, en) =>
+      match en with
+      | .const 0 _ => none   -- dead port
+      | _ =>
         if dataWidth > 64 then
-          -- Wide write: memcpy into the BRAM slot.
-          [s!"        if ({emitExpr typeMap writeEnable}) memcpy({memName}[{emitExpr typeMap writeAddr}], {emitExpr typeMap writeData}, sizeof({memName}[0]));"]
+          some s!"        if ({emitExpr typeMap en}) memcpy({memName}[{emitExpr typeMap a}], {emitExpr typeMap d}, sizeof({memName}[0]));"
         else
-          [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
+          some s!"        if ({emitExpr typeMap en}) {memName}[{emitExpr typeMap a}] = {emitExpr typeMap d};"
     let zeroLine := s!"        memset({memName}, 0, sizeof({memName}));"
     if comboRead then
-      let readLine :=
+      let readLines := readPorts.map fun (a, rd) =>
+        let rdName := sanitizeName rd
         if dataWidth > 64 then
-          s!"        memcpy({rdName}, {memName}[{emitExpr typeMap readAddr}], sizeof({rdName}));"
+          s!"        memcpy({rdName}, {memName}[{emitExpr typeMap a}], sizeof({rdName}));"
         else
-          s!"        {rdName} = {memName}[{emitExpr typeMap readAddr}];"
-      { declarations := [memDecl] ++ rdDecl
-      , evalBody := [readLine]
-      , tickBody := writeTickLine
+          s!"        {rdName} = {memName}[{emitExpr typeMap a}];"
+      { declarations := [memDecl] ++ rdDecls
+      , evalBody := readLines
+      , tickBody := writeLines
       , resetBody := [zeroLine]
       , evalTickLocals := [] }
     else
-      let addrLatch := s!"{memName}_raddr"
       let addrType := emitScalarBase (.bitVector addrWidth)
-      let readTickLine :=
+      let latchName := fun (i : Nat) =>
+        if i == 0 then s!"{memName}_raddr" else s!"{memName}_raddr{i}"
+      let latchDecls := (readPorts.zipIdx).map fun (_, i) =>
+        s!"    {addrType} {latchName i};"
+      let latchSets := (readPorts.zipIdx).map fun ((a, _), i) =>
+        s!"        {latchName i} = {emitExpr typeMap a};"
+      let readTickLines := (readPorts.zipIdx).map fun ((_, rd), i) =>
+        let rdName := sanitizeName rd
         if dataWidth > 64 then
-          s!"        memcpy({rdName}, {memName}[{addrLatch}], sizeof({rdName}));"
+          s!"        memcpy({rdName}, {memName}[{latchName i}], sizeof({rdName}));"
         else
-          s!"        {rdName} = {memName}[{addrLatch}];"
-      { declarations := [memDecl, s!"    {addrType} {addrLatch};"] ++ rdDecl
-      , evalBody := [s!"        {addrLatch} = {emitExpr typeMap readAddr};"]
-      , tickBody := writeTickLine ++ [readTickLine]
+          s!"        {rdName} = {memName}[{latchName i}];"
+      { declarations := [memDecl] ++ latchDecls ++ rdDecls
+      , evalBody := latchSets
+      , tickBody := writeLines ++ readTickLines
       , resetBody := [zeroLine]
       , evalTickLocals := [] }
 
@@ -1352,7 +1368,7 @@ def collectTickRefWires (body : List Stmt) : List String :=
     match stmt with
     | .register _ _ _ input _ =>
       acc ++ (collectExprRefs input).map sanitizeName
-    | .memory _ _ _ _ wa wd we ra rd cr =>
+    | .memory _ _ _ _ wa wd we ra rd cr .. =>
       let refs := collectExprRefs wa ++ collectExprRefs wd ++ collectExprRefs we
       let refs := if !cr then refs ++ collectExprRefs ra ++ [rd] else refs
       acc ++ refs.map sanitizeName
@@ -1383,12 +1399,12 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     | _ => []
   let defsOf : Stmt → List String := fun s => match s with
     | .assign lhs _ => [lhs]
-    | .memory _ _ _ _ _ _ _ _ rd cr => if cr then [rd] else []
+    | .memory _ _ _ _ _ _ _ _ rd cr .. => if cr then [rd] else []
     | .inst .. => childOutputs s
     | _ => []
   let usesOf : Stmt → List String := fun s => match s with
     | .assign _ rhs => collectExprRefs rhs
-    | .memory _ _ _ _ _ _ _ ra _ cr => if cr then collectExprRefs ra else []
+    | .memory _ _ _ _ _ _ _ ra _ cr .. => if cr then collectExprRefs ra else []
     | .inst modName _ conns =>
       let outs := childOutputs s
       match design.bind (·.findModule modName) with
@@ -1398,7 +1414,7 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     | _ => []
   let schedulable : Stmt → Bool := fun s => match s with
     | .assign .. | .inst .. => true
-    | .memory _ _ _ _ _ _ _ _ _ cr => cr
+    | .memory _ _ _ _ _ _ _ _ _ cr .. => cr
     | _ => false
   let (sched, rest) := body.partition schedulable
   -- Which names are produced by a schedulable statement?  Everything
@@ -1470,7 +1486,7 @@ def moduleHasSymbolicWidth (m : Module) : Bool :=
   m.body.any fun stmt => match stmt with
     | .assign _ rhs => exprHasSymbolicWidth rhs
     | .register _ _ _ input _ => exprHasSymbolicWidth input
-    | .memory _ _ _ _ wa wd we ra _ _ =>
+    | .memory _ _ _ _ wa wd we ra _ _ .. =>
         exprHasSymbolicWidth wa || exprHasSymbolicWidth wd ||
         exprHasSymbolicWidth we || exprHasSymbolicWidth ra
     | .inst _ _ connections => connections.any (exprHasSymbolicWidth ·.2)
@@ -1529,7 +1545,7 @@ def emitModule (m : Module) (design : Option Design := none)
           let sn := sanitizeName w.name
           sn.startsWith "_gen_" || tickRefs.contains sn
     let memoryNames := m.body.filterMap fun s => match s with
-      | .memory name _ _ _ _ _ _ _ _ _ => some (sanitizeName name) | _ => none
+      | .memory name _ _ _ _ _ _ _ _ _ .. => some (sanitizeName name) | _ => none
     let localWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name

@@ -256,7 +256,7 @@ def countAllUses (stmts : List Stmt) : HashMap String Nat :=
       -- use so a synthesized reset wire's driving assign (`_no_rst = 0`,
       -- `_rst_<sig>_inv = ~sig`) is never dropped as dead.
       countExprUses input (counts.insert rstName ((counts.getD rstName 0) + 1))
-    | .memory _ _ _ _ wa wd we ra _ _ =>
+    | .memory _ _ _ _ wa wd we ra _ _ .. =>
       [wa, wd, we, ra].foldl (fun acc e => countExprUses e acc) counts
     | .inst _ _ conns =>
       conns.foldl (fun acc (_, e) => countExprUses e acc) counts
@@ -267,10 +267,15 @@ def optimizeStmt (dm : DefMap) (wm : WidthMap) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (optimizeExpr dm wm rhs)
   | .register output clock reset input initValue =>
     .register output clock reset (optimizeExpr dm wm input) initValue
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
+    -- extra ports must be rewritten too, or a multi-port memory silently
+    -- degrades to port 0 as it passes through the optimizer
     .memory name aw dw clk
       (optimizeExpr dm wm wa) (optimizeExpr dm wm wd)
       (optimizeExpr dm wm we) (optimizeExpr dm wm ra) rd cr
+      (ew.map fun (a, d, e) =>
+        (optimizeExpr dm wm a, optimizeExpr dm wm d, optimizeExpr dm wm e))
+      (er.map fun (a, r) => (optimizeExpr dm wm a, r))
   | .inst modName instName conns =>
     .inst modName instName (conns.map fun (p, e) => (p, optimizeExpr dm wm e))
 
@@ -350,7 +355,7 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
   ) ({} : HashMap String Bool)
   let memoryReadData := body.foldl (fun s stmt =>
     match stmt with
-    | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
+    | .memory _ _ _ _ _ _ _ _ rd _ .. => s.insert rd true
     | _ => s
   ) ({} : HashMap String Bool)
   -- Wires feeding a memory PORT must survive too, not just the read-data
@@ -371,7 +376,7 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
       | _ => m) {}
     let seeds := body.foldl (fun acc stmt =>
       match stmt with
-      | .memory _ _ _ _ wa wd we ra _ _ =>
+      | .memory _ _ _ _ wa wd we ra _ _ .. =>
         acc ++ [wa, wd, we, ra].flatMap collectExprRefs
       | _ => acc) []
     let rec grow (work : List String) (seen : HashMap String Bool) (fuel : Nat)
@@ -462,10 +467,15 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
       .assign lhs (substituteExpr dm inlinable widthOfWire 100 rhs)
     | .register output clock reset input initValue =>
       .register output clock reset (substituteExpr dm inlinable widthOfWire 100 input) initValue
-    | .memory name aw dw clk wa wd we ra rd cr =>
+    | .memory name aw dw clk wa wd we ra rd cr ew er =>
       .memory name aw dw clk
         (substituteExpr dm inlinable widthOfWire 100 wa) (substituteExpr dm inlinable widthOfWire 100 wd)
         (substituteExpr dm inlinable widthOfWire 100 we) (substituteExpr dm inlinable widthOfWire 100 ra) rd cr
+        (ew.map fun (a, d, e) =>
+          (substituteExpr dm inlinable widthOfWire 100 a,
+           substituteExpr dm inlinable widthOfWire 100 d,
+           substituteExpr dm inlinable widthOfWire 100 e))
+        (er.map fun (a, r) => (substituteExpr dm inlinable widthOfWire 100 a, r))
     | .inst modName instName conns =>
       .inst modName instName (conns.map fun (p, e) => (p, substituteExpr dm inlinable widthOfWire 100 e))
 
@@ -519,8 +529,10 @@ def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
   let substStmt : Stmt → Stmt
     | .assign lhs rhs => .assign lhs (substExpr rhs)
     | .register o c r input iv => .register o c r (substExpr input) iv
-    | .memory n aw dw clk wa wd we ra rd cr =>
+    | .memory n aw dw clk wa wd we ra rd cr ew er =>
       .memory n aw dw clk (substExpr wa) (substExpr wd) (substExpr we) (substExpr ra) rd cr
+        (ew.map fun (a, d, e) => (substExpr a, substExpr d, substExpr e))
+        (er.map fun (a, r) => (substExpr a, r))
     | .inst mn ins conns => .inst mn ins (conns.map fun (p, e) => (p, substExpr e))
   let newBody := body.map substStmt
   let newDm := buildDefMap newBody
@@ -592,13 +604,17 @@ def eliminateZeroBitStmt (wm : WidthMap) : Stmt → Option Stmt
     else some (.assign lhs (eliminateZeroBitInExpr wm rhs))
   | .register output clk rst input init =>
     some (.register output clk rst (eliminateZeroBitInExpr wm input) init)
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
     some (.memory name aw dw clk
       (eliminateZeroBitInExpr wm wa)
       (eliminateZeroBitInExpr wm wd)
       (eliminateZeroBitInExpr wm we)
       (eliminateZeroBitInExpr wm ra)
-      rd cr)
+      rd cr
+      (ew.map fun (a, d, e) =>
+        (eliminateZeroBitInExpr wm a, eliminateZeroBitInExpr wm d,
+         eliminateZeroBitInExpr wm e))
+      (er.map fun (a, r) => (eliminateZeroBitInExpr wm a, r)))
   | .inst modName instName conns =>
     some (.inst modName instName
       (conns.map fun (p, e) => (p, eliminateZeroBitInExpr wm e)))
@@ -634,8 +650,10 @@ partial def renameRefs (subst : HashMap String String) : Expr → Expr
 def mapStmtExprs (f : Expr → Expr) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (f rhs)
   | .register out clk rst input init => .register out clk rst (f input) init
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
       .memory name aw dw clk (f wa) (f wd) (f we) (f ra) rd cr
+        (ew.map fun (a, d, e) => (f a, f d, f e))
+        (er.map fun (a, r) => (f a, r))
   | .inst mn inm conns => .inst mn inm (conns.map fun (p, e) => (p, f e))
 
 /-- Phase 0.6: cross-wire common-subexpression elimination +
@@ -688,7 +706,7 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
         match s with
         | .assign lhs _ => drivenElsewhere := drivenElsewhere.insert lhs true
         | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
-        | .memory _ _ _ _ _ _ _ _ rd _ => drivenElsewhere := drivenElsewhere.insert rd true
+        | .memory _ _ _ _ _ _ _ _ rd _ .. => drivenElsewhere := drivenElsewhere.insert rd true
         | .inst _ _ _ => pure ()
       -- A wire connected to MORE THAN ONE instance cannot be treated as
       -- "this instance's output": it may be another instance's output
@@ -947,7 +965,7 @@ def optimizeModule (m : Module)
       finalBody.foldl (fun acc stmt =>
         match stmt with
         -- memory writes and instance ports are observable side effects
-        | .memory _ _ _ _ wa wd we ra _ _ =>
+        | .memory _ _ _ _ wa wd we ra _ _ .. =>
           acc ++ [wa, wd, we, ra].flatMap collectExprRefs
         | .inst _ _ conns => acc ++ conns.flatMap (fun (_, e) => collectExprRefs e)
         | _ => acc) []
@@ -994,7 +1012,7 @@ def optimizeModule (m : Module)
       match stmt with
       | .assign lhs _ => s.insert lhs true
       | .register out .. => s.insert out true
-      | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
+      | .memory _ _ _ _ _ _ _ _ rd _ .. => s.insert rd true
       | .inst _ _ conns => conns.foldl (fun acc (_, e) =>
           match e with | .ref r => acc.insert r true | _ => acc) s) {}
     let allOutputsDriven := m.outputs.all fun p => drivenAfter.contains p.name

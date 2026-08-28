@@ -1998,5 +1998,56 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 50 (XiangShan dt_352x1): TRUE MULTI-PORT memory.  Real SRAM
+  -- macros are not all 1R1W — XiangShan's Difftest array is 8R8W and
+  -- fires several write ports in the same cycle.  The lowering used to
+  -- fold every guarded write into a priority mux, which silently kept
+  -- only the highest-priority write; `Stmt.memory` now carries extra
+  -- read/write ports and both backends emit one guarded write per port.
+  IO.print "  Test 50: multi-port memory (2W2R) keeps every port... "
+  try
+    let v := "
+module mp_mem (
+  input        clk,
+  input  [1:0] w0_addr, input w0_en, input [7:0] w0_data,
+  input  [1:0] w1_addr, input w1_en, input [7:0] w1_data,
+  input  [1:0] r0_addr, input [1:0] r1_addr,
+  output [7:0] r0_data, output [7:0] r1_data
+);
+  reg [7:0] Memory[0:3];
+  always @(posedge clk) begin
+    if (w0_en)
+      Memory[w0_addr] <= w0_data;
+    if (w1_en)
+      Memory[w1_addr] <= w1_data;
+  end
+  assign r0_data = Memory[r0_addr];
+  assign r1_data = Memory[r1_addr];
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      -- IR must carry one extra write port and one extra read port
+      let ports := design.modules.foldl (fun acc m =>
+        acc ++ m.body.filterMap fun s => match s with
+          | .memory _ _ _ _ _ _ _ _ _ _ ew er => some (ew.length, er.length)
+          | _ => none) []
+      let sv := toVerilogDesign design
+      -- both writes and both reads must appear in the emitted Verilog
+      let writes := (sv.splitOn "Memory[").length - 1
+      if ports != [(1, 1)] then
+        IO.println s!"FAIL: IR extra ports = {ports} (expected [(1, 1)])"
+        failed := failed + 1
+      else if !(containsSubstr sv "w0_en" && containsSubstr sv "w1_en") then
+        IO.println "FAIL: emitted Verilog lost a write port"
+        failed := failed + 1
+      else if writes < 4 then
+        IO.println s!"FAIL: only {writes} Memory[...] references emitted (want 2 writes + 2 reads)"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

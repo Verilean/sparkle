@@ -63,7 +63,7 @@ private def netMapsOf (m : Module) : NetMaps :=
       | .register out .. => some out
       | _ => none
   , memReads := m.body.filterMap fun s => match s with
-      | .memory _ _ _ _ _ _ _ ra rd cr => some (rd, cr, ra)
+      | .memory _ _ _ _ _ _ _ ra rd cr .. => some (rd, cr, ra)
       | _ => none }
 
 /-- Walk backwards from `name` through assign chains, collecting the input

@@ -274,30 +274,41 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
     s!"{indent}        {sanitizeName output} <= {emitExpr widthOf input};\n" ++
     s!"{indent}end"
 
-  | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
-    -- Generate memory array and always_ff block
+  | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable
+      readAddr readData comboRead extraWrites extraReads =>
+    -- Generate memory array and always_ff block.  Port 0 comes from the
+    -- dedicated fields; `extraWrites` / `extraReads` carry the additional
+    -- ports of a true multi-port memory (1R1W, dual-port, two-port and
+    -- the 8R8W Difftest array in XiangShan all land here).
+    --
+    -- Write ordering: every enabled write is emitted as its own guarded
+    -- statement inside ONE `always_ff`, in port order, so simultaneous
+    -- writes to the same address resolve last-port-wins — the same rule
+    -- the IR documents and the CSim backend implements.
     let memSize := 2 ^ addrWidth
-    let memDecl := s!"{indent}logic [{dataWidth-1}:0] {sanitizeName name} [0:{memSize-1}];"
+    let mem := sanitizeName name
+    let memDecl := s!"{indent}logic [{dataWidth-1}:0] {mem} [0:{memSize-1}];"
+    let writePorts := (writeAddr, writeData, writeEnable) :: extraWrites
+    let writeStmts := String.intercalate "\n" (writePorts.map fun (a, d, en) =>
+      s!"{indent}    if ({emitExpr widthOf en}) begin\n" ++
+      s!"{indent}        {mem}[{emitExpr widthOf a}] <= {emitExpr widthOf d};\n" ++
+      s!"{indent}    end")
+    let comboReadAssigns := String.intercalate "\n"
+      (((readAddr, readData) :: extraReads).map fun (a, rd) =>
+        s!"{indent}assign {sanitizeName rd} = {mem}[{emitExpr widthOf a}];")
+    let syncReadStmts := String.intercalate "\n"
+      (((readAddr, readData) :: extraReads).map fun (a, rd) =>
+        s!"{indent}    {sanitizeName rd} <= {mem}[{emitExpr widthOf a}];")
     if comboRead then
-      -- Combinational read: assign readData = mem[readAddr]
-      let assignRead := s!"{indent}assign {sanitizeName readData} = {sanitizeName name}[{emitExpr widthOf readAddr}];"
-      let alwaysBlock :=
-        s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
-        s!"{indent}    if ({emitExpr widthOf writeEnable}) begin\n" ++
-        s!"{indent}        {sanitizeName name}[{emitExpr widthOf writeAddr}] <= {emitExpr widthOf writeData};\n" ++
-        s!"{indent}    end\n" ++
-        s!"{indent}end"
-      memDecl ++ "\n" ++ assignRead ++ "\n" ++ alwaysBlock
+      memDecl ++ "\n" ++ comboReadAssigns ++ "\n" ++
+      s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
+      writeStmts ++ "\n" ++
+      s!"{indent}end"
     else
-      -- Registered read: readData latched inside always_ff
-      let alwaysBlock :=
-        s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
-        s!"{indent}    if ({emitExpr widthOf writeEnable}) begin\n" ++
-        s!"{indent}        {sanitizeName name}[{emitExpr widthOf writeAddr}] <= {emitExpr widthOf writeData};\n" ++
-        s!"{indent}    end\n" ++
-        s!"{indent}    {sanitizeName readData} <= {sanitizeName name}[{emitExpr widthOf readAddr}];\n" ++
-        s!"{indent}end"
-      memDecl ++ "\n" ++ alwaysBlock
+      memDecl ++ "\n" ++
+      s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
+      writeStmts ++ "\n" ++ syncReadStmts ++ "\n" ++
+      s!"{indent}end"
 
   | .inst moduleName instName connections =>
     let connStrs := connections.map fun (portName, expr) =>

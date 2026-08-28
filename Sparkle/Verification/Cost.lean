@@ -230,7 +230,7 @@ def stmtArea (m : CostModel) (env : String → Option Nat) : Stmt → Nat
   | .assign _ rhs => exprArea m env rhs
   | .register _ _ _ input _ =>
       m.regCost * exprWidth env input + exprArea m env input
-  | .memory _ aw dw _ wa wd we ra _ _ =>
+  | .memory _ aw dw _ wa wd we ra _ _ .. =>
       m.memCost * (2 ^ aw) * dw
         + exprArea m env wa + exprArea m env wd
         + exprArea m env we + exprArea m env ra
@@ -246,7 +246,7 @@ def stmtDepthM (m : CostModel) (env : String → Option Nat)
     Stmt → StateM (Std.HashMap String Nat) Nat
   | .assign _ rhs => exprDepth m env assignMap rhs
   | .register _ _ _ input _ => exprDepth m env assignMap input
-  | .memory _ _ _ _ wa wd we ra _ _ => do
+  | .memory _ _ _ _ wa wd we ra _ _ .. => do
       let a ← exprDepth m env assignMap wa
       let b ← exprDepth m env assignMap wd
       let c ← exprDepth m env assignMap we
@@ -357,7 +357,7 @@ partial def exprLUT (env : String → Option Nat) : Expr → Nat
 def stmtLUT (env : String → Option Nat) : Stmt → Nat
   | .assign _ rhs     => exprLUT env rhs
   | .register _ _ _ input _ => exprLUT env input
-  | .memory _ _ _ _ wa wd we ra _ _ =>
+  | .memory _ _ _ _ wa wd we ra _ _ .. =>
       exprLUT env wa + exprLUT env wd + exprLUT env we + exprLUT env ra
   | .inst _ _ conns   => conns.foldl (fun acc (_, e) => acc + exprLUT env e) 0
 
@@ -368,7 +368,7 @@ def stmtFF (env : String → Option Nat) : Stmt → Nat
 
 /-- Per-statement BRAM contribution (in 9Kb units, ceiling). -/
 def stmtBSRAM9k : Stmt → Nat
-  | .memory _ aw dw _ _ _ _ _ _ _ =>
+  | .memory _ aw dw _ _ _ _ _ _ _ .. =>
       let bits := (2 ^ aw) * dw
       (bits + 9215) / 9216
   | _ => 0
@@ -389,7 +389,7 @@ partial def exprDSP (env : String → Option Nat) : Expr → Nat
 def stmtDSP (env : String → Option Nat) : Stmt → Nat
   | .assign _ rhs     => exprDSP env rhs
   | .register _ _ _ input _ => exprDSP env input
-  | .memory _ _ _ _ wa wd we ra _ _ =>
+  | .memory _ _ _ _ wa wd we ra _ _ .. =>
       exprDSP env wa + exprDSP env wd + exprDSP env we + exprDSP env ra
   | .inst _ _ conns   => conns.foldl (fun acc (_, e) => acc + exprDSP env e) 0
 

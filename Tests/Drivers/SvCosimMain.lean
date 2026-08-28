@@ -289,7 +289,7 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
       let es : List Sparkle.IR.AST.Expr := match s with
         | .assign _ rhs => [rhs]
         | .register _ _ _ input _ => [input]
-        | .memory _ _ _ _ wa wd we ra _ _ => [wa, wd, we, ra]
+        | .memory _ _ _ _ wa wd we ra _ _ .. => [wa, wd, we, ra]
         | .inst _ _ conns => conns.map (·.2)
       for e in es do
         total := min emitCostCap (total + go 2048 e)

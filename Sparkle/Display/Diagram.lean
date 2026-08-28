@@ -355,7 +355,7 @@ def fromModule (m : Module) : Diagram := Id.run do
       edges := edges ++ [{ src := clock, dst := output, kind := .clock }]
       for r in refsOf input do
         edges := edges ++ [{ src := r, dst := output }]
-    | .memory name _ _ clock writeAddr writeData writeEnable readAddr readData _ =>
+    | .memory name _ _ clock writeAddr writeData writeEnable readAddr readData _ .. =>
       nodes := nodes ++ [{
         id := name, label := s!"mem {name}", kind := .gen,
         col := 1, row := row

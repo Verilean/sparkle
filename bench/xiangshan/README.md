@@ -320,8 +320,21 @@ masked partial-word writes (`Memory[addr][k +: w] <=`) via a linear RMW
 array_128x38, the likely cause of the machine-freezing OOMs), the writing
 block's real clock, priority-mux composition of multiple guarded writes,
 first read claims the Stmt.memory port with extra reads as `Memory[addr]`
-assigns.  v1 limit: simultaneous multi-write-port macros fold to priority
-(1 of 93: dt_352x1, Difftest debug infra).
+assigns.  **Resolved**: `Stmt.memory` now carries extra read/write PORTS
+(`extraWrites` / `extraReads`), so multi-port macros keep every port.
+XiangShan's memory macros are 61x 1R1W, 31x single read-write, and one
+8R8W (dt_352x1, the Difftest array) — all 93 now round-trip and
+co-simulate cleanly (RT 0 / JIT 0 over the 31 harness-runnable ones).
+Semantics: all ports share the clock, reads see pre-write state, and
+simultaneous same-address writes resolve last-port-wins (the Verilog
+`always_ff` rule).  Dual-port and two-port memories need no new IR —
+they are simply two read and/or two write ports.
+
+The fix touched 9 further sites that REBUILD a `.memory` statement (four
+in the lowering's refinement passes and sub-module flattening, five in
+the IR optimizer): each dropped the new fields and silently degraded a
+multi-port memory back to port 0.  Regression test: `svparser-test`
+Test 50 checks both the IR port counts and the emitted Verilog.
 
 Determinism: both iverilog sides now compile with
 `-DRANDOMIZE_REG_INIT -DRANDOM=32'h0` (firtool leaves reset-less
@@ -391,8 +404,11 @@ equivalent design (per-register / per-output cone equality, `bv_decide`,
 under rst = 0).  Together with the Verilog-side round trip this closes
 both loops through the IR.
 
-Survey on DefaultConfig (1,847 files ≤ 128 KB): **228 print as
-circuit-DSL today**.  What blocks the rest, in order:
+Survey on DefaultConfig (1,847 files ≤ 128 KB): **216 print as
+circuit-DSL today** — and "printable" now means "elaborates": shapes
+whose printed form would not typecheck are declined with a named error
+rather than counted (the earlier 228 included eight-in-twelve sampled
+modules that printed but failed to elaborate).  What blocks the rest, in order:
 
 | blocker | files | note |
 |---|---|---|
@@ -415,3 +431,34 @@ every register READ is printed with an explicit `Signal` ascription (a
 `Reg` binder does not coerce where `.map` / `++` / `Signal.ult` expect a
 `Signal`).  Purely combinational modules print without `circuit do`,
 which requires at least one register.
+
+### CI phase 4 — the lean₄ round trip is gated
+
+`Tests/Verification/XiangShanDslRoundtrip.lean` holds machine-generated
+circuit-DSL source for twelve real XiangShan modules (register counts
+0..32: AMOALU, ClockCrossingReg, DelayN, AsyncResetSynchronizer,
+Iprio0Module, DelayNWithValid, ClmulModule, CaptureChain, AddWModule,
+PipelineStallReason, VtypeModule) and proves all 85 register/output
+cones with `bv_decide` in 6.3 s.  `ci_check.sh` phase 4 runs it and
+reports the decompiler's printable count.
+
+Elaboration fixes this required (each a case where the printed source
+looked fine but would not typecheck):
+
+* slices print as `.map (fun x => BitVec.extractLsb' lo w x)` — the
+  `x[hi, lo]` form has the syntactically unreduced width
+  `BitVec (hi - lo + 1)`, which the DSL's arithmetic instances reject
+  and the synth elaborator cannot inline;
+* mixed-width binary ops and comparisons (IR inherits Verilog's context
+  sizing, e.g. `BitVec 4 * BitVec 32`) are normalized to the wider
+  operand;
+* shapes where that normalization would build absurd terms — a dynamic
+  shift of a 4096-bit packed-array value, giving `0#4092 ++ …` — are
+  declined instead of printed;
+* generated files carry `set_option maxRecDepth 8192`, since decompiled
+  cones are deep single expressions.
+
+Still out of reach: modules above ~66 registers hit `HListWireable`
+instance-synthesis limits in `circuit do` (AgeDetector_27, 120
+registers), plus the structural blockers above (sub-instances,
+multi-output, memories).
