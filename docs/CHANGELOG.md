@@ -57,7 +57,8 @@ emitted SystemVerilog is equivalent to its source IR.
   `rst = 0` — per-cone theorems checked by the Lean kernel.  Tutorial
   Ch 7 §7.4b; demo `Tests/Verification/VerifyEmitDemo.lean`.
 - Merged main's community parameterization work (#124 symbolic widths,
-  #130 all-backend retained-parameter specialization) into the branch.
+  #130 all-backend retained-parameter specialization — Jing Xiong,
+  @menik1126) into the branch.
 
 ### Why
 

@@ -585,6 +585,16 @@ Apache License 2.0 — see [LICENSE](LICENSE).
   firtool-generated RTL is our production-scale validation corpus; the
   SystemVerilog front-end owes its current robustness to round-tripping
   all 2,048 files of the Kunminghu core.
+- Community contributors — among them
+  [Jing Xiong](https://github.com/menik1126) (parameterised /
+  retained-dimension width support across all backends, #124/#130),
+  [xiangze](https://github.com/xiangze) (the CUDA batch-simulation
+  backend that seeded the GPU work), and
+  [Mark Christiaens](https://github.com/mark-christiaens) (the verified
+  RV32 divider proof, the sub-module instance-duplication fix, and CI
+  robustness work).  Per-phase credits live in
+  [docs/CHANGELOG.md](docs/CHANGELOG.md); the full picture is the
+  [contributor graph](https://github.com/Verilean/sparkle/graphs/contributors).
 - Built with [Lean 4](https://lean-lang.org/)
 - Golden-reference cycle-accurate simulation via
   [Verilator](https://www.veripool.org/verilator/) — used both
