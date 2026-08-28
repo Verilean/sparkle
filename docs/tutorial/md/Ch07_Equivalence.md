@@ -203,6 +203,54 @@ production-scale *ingested* Verilog the same question is answered
 statistically by the XiangShan CI gate (yosys formal equivalence +
 three-way co-simulation) instead of by proof.
 
+### The other direction: `#verify_dsl_roundtrip`
+
+The IR is not only a compilation target — it can be printed back as
+`circuit do` source.  `#verify_dsl_roundtrip` closes that loop and
+proves it:
+
+```text
+import Tools.SVParser.DslEmit
+
+def mix (a b : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let x ← Signal.reg 0#8
+    let y ← Signal.reg 0#8
+    x <~ (a ^^^ b)
+    y <~ ((x &&& b) ||| a)
+    return (x + y)
+
+#verify_dsl_roundtrip mix
+-- generated circuit-DSL source:
+-- def mix_dslRT (a : Signal defaultDomain (BitVec 8)) (b : …) : … :=
+--   circuit do
+--     let r0 ← Signal.reg (0#8)
+--     let r1 ← Signal.reg (0#8)
+--     r0 <~ (a ^^^ b)
+--     r1 <~ ((r0 &&& b) ||| a)
+--     return (r0 + r1)
+-- ✅ decompiled circuit-DSL re-synthesizes to an equivalent design —
+--    3 cone obligations proven
+```
+
+It synthesizes your definition, *decompiles* the IR to fresh
+`circuit do` text, elaborates that text as a new definition,
+re-synthesizes it, and proves the two designs' cones equal — so the
+printed source is not merely plausible-looking, it provably denotes the
+same circuit.  (Register names become `r0, r1, …` and inputs keep their
+parameter names; the comparison α-renames before calling `bv_decide`.)
+
+Two reasons to care.  First, it is the round-trip test for the *Lean*
+side of the toolchain, mirroring the Verilog→IR→Verilog testing the
+SystemVerilog front-end gets from the XiangShan corpus (Ch 8).  Second,
+the same decompiler is the path from ingested RTL to *maintainable*
+Sparkle source: parse a Verilog module, and print it back as a DSL
+definition you can read, edit and prove about — with this command
+checking the printer never lies.  The v1 operator subset is
+`{const, ref, +, -, *, &&&, |||, ^^^, ~, ++, slice, <<< / >>> by a
+constant, ==, mux}`, single module, one output, no memories.
+
 ## 7.5 Exercise — adder trees agree
 
 Following `add_comm_sig` (§7.3b), prove that two ways of summing three

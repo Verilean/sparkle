@@ -264,6 +264,7 @@ Two practical guidelines fall out of this:
 | `#verify_eq_at sigA sigB t`    | Compare at one specific cycle                  |
 | `#verify_eq_git sigA sigB ref n`| Compare against a committed reference trace    |
 | `#verify_emit name`            | Prove the EMITTED SystemVerilog ≡ the circuit (kernel-checked; Ch 7 §7.4b) |
+| `#verify_dsl_roundtrip name`   | Decompile the IR back to `circuit do` source and prove it equivalent (Ch 7 §7.4b) |
 | `bv_decide`                    | Tactic: SAT-style proof of bit-vector goals    |
 | `decide` / `native_decide`     | Tactic: exhaustive enumeration of small types  |
 

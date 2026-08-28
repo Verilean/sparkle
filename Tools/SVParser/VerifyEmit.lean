@@ -42,20 +42,20 @@ open Lean Elab Command
 open Sparkle.IR.AST
 open Sparkle.IR.Optimize (buildDefMap DefMap)
 
-private def isClockName (n : String) : Bool :=
+def isClockName (n : String) : Bool :=
   n == "clk" || n == "clock"
 
-private def varIdent (n : String) : Ident :=
+def varIdent (n : String) : Ident :=
   mkIdent (Name.mkSimple s!"v_{Sparkle.Backend.Verilog.sanitizeName n}")
 
 /-- Widths of every named wire/port in a module. -/
-private def widthTable (m : Sparkle.IR.AST.Module) : Std.HashMap String Nat :=
+def widthTable (m : Sparkle.IR.AST.Module) : Std.HashMap String Nat :=
   (m.inputs ++ m.outputs ++ m.wires).foldl
     (fun h p => h.insert p.name p.ty.bitWidth) {}
 
 /-- Fully inline a cone over (inputs ∪ registers): substitute assign
     definitions until only input/register refs remain. -/
-private partial def inlineCone (dm : DefMap) (stopAt : Std.HashMap String Bool)
+partial def inlineCone (dm : DefMap) (stopAt : Std.HashMap String Bool)
     (fuel : Nat) : Sparkle.IR.AST.Expr → Except String Sparkle.IR.AST.Expr
   | .ref n =>
     if stopAt.contains n then .ok (.ref n)
@@ -71,7 +71,7 @@ private partial def inlineCone (dm : DefMap) (stopAt : Std.HashMap String Bool)
   | e => .ok e
 
 /-- Width of an inlined expression (refs are inputs/registers only). -/
-private partial def widthOf (wt : Std.HashMap String Nat) : Sparkle.IR.AST.Expr → Except String Nat
+partial def widthOf (wt : Std.HashMap String Nat) : Sparkle.IR.AST.Expr → Except String Nat
   | .const _ w => .ok w
   | .ref n => match wt.get? n with
     | some w => .ok w
@@ -96,7 +96,7 @@ private partial def widthOf (wt : Std.HashMap String Nat) : Sparkle.IR.AST.Expr 
     comparisons produce `BitVec 1`, mux tests ≠ 0, shifts by dynamic
     `BitVec` amounts (≥ width ⇒ 0, the Verilog rule), slices via
     `extractLsb'`, MSB-first concat via `++`. -/
-private partial def denote (wt : Std.HashMap String Nat) :
+partial def denote (wt : Std.HashMap String Nat) :
     Sparkle.IR.AST.Expr → CommandElabM Term
   | .const v w =>
     if v < 0 then
@@ -156,14 +156,14 @@ private partial def denote (wt : Std.HashMap String Nat) :
     | _, _ => throwError "#verify_emit: unsupported operator {repr o} / arity {args.length}"
   | e => throwError "#verify_emit: unsupported expression {repr e}"
 
-private structure Obligation where
+structure Obligation where
   label : String     -- register or output name
   lhs   : Sparkle.IR.AST.Expr -- inlined cone in the source design
   rhs   : Sparkle.IR.AST.Expr -- inlined cone in the reparsed design
 
 /-- Collect the per-register next-state and per-output cones of a module,
     fully inlined over (inputs ∪ registers). -/
-private def conesOf (m : Sparkle.IR.AST.Module) : Except String (List (String × Sparkle.IR.AST.Expr) × List (String × Sparkle.IR.AST.Expr)) := do
+def conesOf (m : Sparkle.IR.AST.Module) : Except String (List (String × Sparkle.IR.AST.Expr) × List (String × Sparkle.IR.AST.Expr)) := do
   if m.body.any (fun s => match s with | .inst .. => true | _ => false) then
     .error "sub-instances unsupported by #verify_emit (v1) — flatten first"
   else if m.body.any (fun s => match s with | .memory .. => true | _ => false) then
@@ -190,7 +190,7 @@ private def conesOf (m : Sparkle.IR.AST.Module) : Except String (List (String ×
   .ok (regCones, outCones)
 
 /-- Registers of a module as (name, width, init, rstName, kind). -/
-private def regSigs (m : Sparkle.IR.AST.Module) : List (String × Nat × Int × String) :=
+def regSigs (m : Sparkle.IR.AST.Module) : List (String × Nat × Int × String) :=
   let wt := widthTable m
   m.body.filterMap fun s => match s with
     | .register out _ (rst, _) _ init => some (out, wt.getD out 0, init, rst)
