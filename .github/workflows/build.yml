@@ -1142,9 +1142,20 @@ jobs:
         path, out, name = sys.argv[1], sys.argv[2], sys.argv[3]
         with open(path) as f:
             src = f.read()
-        # Strip "window.BENCHMARK_DATA = " prefix and trailing semicolon
-        m = re.search(r'=\s*(\{.*\})\s*;?\s*$', src, re.S)
-        data = json.loads(m.group(1) if m else src)
+        # benchmark-action writes either a bare JSON document or a JS
+        # assignment (`window.BENCHMARK_DATA = {...};`).  Try JSON first
+        # and only fall back to stripping an assignment prefix — the old
+        # regex-first order matched a `{...}` that appeared inside a
+        # COMMIT MESSAGE stored in the data (a changelog line mentioning
+        # SystemVerilog `'{…}` patterns), capturing prose instead of the
+        # document and failing with "Expecting property name".
+        try:
+            data = json.loads(src)
+        except json.JSONDecodeError:
+            head = re.match(r'\s*[\w.$\[\]\'"]+\s*=\s*', src)
+            body = src[head.end():] if head else src
+            body = re.sub(r';\s*$', '', body.strip())
+            data = json.loads(body)
         # Pull the most recent commit's entries across every suite.
         entries = data.get('entries', {})
         rows = []
