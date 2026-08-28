@@ -119,3 +119,8 @@ retypelab/.lake/
 # XiangShan CI corpus is DOWNLOADED (release asset xiangshan-corpus-v1),
 # not committed — third-party generated code stays out of the tree
 bench/xiangshan/corpus/
+
+# Compiled systolic PoC benchmarks (build artifacts, not sources)
+bench/systolic/systolic_cpu
+bench/systolic/systolic_gpu
+bench/systolic/systolic_gpu_grid
