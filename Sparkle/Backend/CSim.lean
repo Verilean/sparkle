@@ -1494,7 +1494,7 @@ def collectTickRefWires (body : List Stmt) : List String :=
     combinational cycle the remaining statements fall back to source
     order (single-pass semantics, as before). -/
 def scheduleEvalBody (design : Option Design) (m : Module)
-    (body : List Stmt) : List Stmt := Id.run do
+    (body : List Stmt) : List Stmt × Bool := Id.run do
   let childOutputs : Stmt → List String := fun s => match s with
     | .inst modName _ conns =>
       match design.bind (·.findModule modName) with
@@ -1513,10 +1513,18 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     | .assign _ rhs => collectExprRefs rhs
     | .memory _ _ _ _ _ _ _ ra _ cr .. => if cr then collectExprRefs ra else []
     | .inst modName _ conns =>
-      let outs := childOutputs s
       match design.bind (·.findModule modName) with
-      | some _ => conns.foldl (fun acc (_, e) =>
-          acc ++ ((collectExprRefs e).filter (fun r => !outs.contains r))) []
+      | some sm =>
+        -- Only an OUTPUT connection is exempt from counting as a use.
+        -- Filtering the instance's outputs out of EVERY connection hid
+        -- the back edge: XiangShan's arbiters feed `gnt` (a child output)
+        -- back into the child's own `req` input, and once the optimizer
+        -- inlines `req` into the connection the instance is the only
+        -- statement left — so the cycle became invisible and the emitted
+        -- pass read a stale `gnt`.
+        conns.foldl (fun acc (p, e) =>
+          if sm.outputs.any (·.name == p) then acc
+          else acc ++ collectExprRefs e) []
       | none => conns.foldl (fun acc (_, e) => acc ++ collectExprRefs e) []
     | _ => []
   let schedulable : Stmt → Bool := fun s => match s with
@@ -1551,9 +1559,14 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     remaining := next
     if !progressed then
       break
-  -- cycle (or fuel-out): keep the rest in original order — same
-  -- single-pass behaviour as before this pass existed.
-  return result ++ remaining ++ rest
+  -- cycle (or fuel-out): keep the rest in original order.  `remaining`
+  -- non-empty means a genuine dependency cycle at STATEMENT granularity
+  -- — for an `.inst`, the whole child is one node, so a handshake that
+  -- goes into the child and back out again (XiangShan's arbiters gate
+  -- `req` with the `gnt` the child produces) is a cycle here even though
+  -- it is acyclic per signal.  A single pass then reads the STALE value.
+  -- The caller re-evaluates to a fixed point instead.
+  return (result ++ remaining ++ rest, !remaining.isEmpty)
 
 /-- Runtime helper for a DYNAMIC shift of a >64-bit value consumed in a
     ≤64-bit context (firtool's flattened packed-array dynamic select:
@@ -1618,7 +1631,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let filteredBody := m.body.filter fun s => match s with
       | .assign lhs (.ref name) => lhs != name
       | _ => true
-    let filteredBody := scheduleEvalBody design m filteredBody
+    let (filteredBody, hasEvalCycle) := scheduleEvalBody design m filteredBody
     let allParts := filteredBody.map (emitStmt · typeMap design)
 
     let registerNames := m.body.filterMap fun s => match s with
@@ -1846,13 +1859,30 @@ def emitModule (m : Module) (design : Option Design := none)
         String.intercalate "\n" resetBodyQ ++ "\n") ++
       "}\n\n"
 
+    -- When the schedule could not be topologically ordered, a
+    -- combinational dependency runs BACKWARDS through the emitted order
+    -- (a handshake into a child instance and back out — the whole child
+    -- is one node, so this is a cycle at statement granularity even when
+    -- it is acyclic per signal).  One pass reads the stale value, so
+    -- relax to a fixed point: re-run the body until the observable state
+    -- stops changing.  Bounded, and the bound is not a heuristic —
+    -- a settling combinational network converges in at most as many
+    -- rounds as it has statements.
+    let relaxRounds := evalBodyQ.length + 1
     let evalFn :=
       s!"{funcQual}static void sparkle_{className}_eval({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
       (if evalBodyQ.isEmpty then "" else
-        String.intercalate "\n" evalBodyQ ++ "\n") ++
+        (if hasEvalCycle then
+          s!"    \{ {structName} __prev; unsigned __round = 0;\n" ++
+          s!"      for (; __round < {relaxRounds}u; __round++) \{\n" ++
+          "        __prev = *self;\n" ++
+          String.intercalate "\n" evalBodyQ ++ "\n" ++
+          "        if (__builtin_memcmp(&__prev, self, sizeof(__prev)) == 0) break;\n" ++
+          "      } }\n"
+        else String.intercalate "\n" evalBodyQ ++ "\n")) ++
       "}\n\n"
 
     let tickFn :=

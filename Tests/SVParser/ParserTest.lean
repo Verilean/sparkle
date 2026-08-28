@@ -2149,5 +2149,70 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 54 (XiangShan arbiters): several continuous assigns each
+  -- driving a DIFFERENT bit of one vector.  `exprToName` mapped `gnt[0]`
+  -- and `gnt[1]` both to bare `gnt`, dropping the position, so the
+  -- statements became competing full-vector drivers: iverilog rejected
+  -- the emitted Verilog ("cannot have multiple drivers") and the IR kept
+  -- only the LAST write.  They are now merged into one driver.
+  IO.print "  Test 54: part-select assigns merge into one driver... "
+  try
+    let v := "
+module bitsel (input [1:0] req, input ready, output [1:0] gnt);
+  assign gnt[0] = req[0] & ready;
+  assign gnt[1] = req[1] & ready;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let drivers := design.modules.foldl (fun acc m =>
+        acc + (m.body.filter fun s => match s with
+          | .assign lhs _ => lhs == "gnt" | _ => false).length) 0
+      let sv := toVerilogDesign design
+      if drivers != 1 then
+        IO.println s!"FAIL: {drivers} drivers for gnt (expected 1)"
+        failed := failed + 1
+      -- Both bits must survive the merge: req[1] belongs at bit 1.
+      else if !(containsSubstr sv "req[1:1]" && containsSubstr sv "req[0:0]") then
+        IO.println "FAIL: the merge dropped a bit"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 55 (XiangShan TwoLevelRRArbiter): a combinational handshake
+  -- THROUGH a child instance.  `usesOf` filtered the instance's outputs
+  -- out of EVERY connection, so feeding a child output back into that
+  -- same child's input was invisible to the scheduler — the emitted pass
+  -- read the STALE value.  The back edge must now be seen, which makes
+  -- the body un-orderable and switches eval to fixed-point relaxation.
+  IO.print "  Test 55: back edge through an instance is scheduled... "
+  try
+    let v := "
+module rr (input [1:0] want, input ready_in, output [1:0] gnt_o);
+  wire [1:0] gnt;
+  wire [1:0] req = {want[1] & ~gnt[0], want[0]};
+  rr_child c (.req(req), .ready(ready_in), .gnt(gnt));
+  assign gnt_o = gnt;
+endmodule
+module rr_child (input [1:0] req, input ready, output [1:0] gnt);
+  assign gnt[0] = req[0] & ready;
+  assign gnt[1] = req[1] & ready;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let c := toCDesign design
+      -- The relaxation loop is the observable consequence of detecting
+      -- the cycle; without it the single pass silently used stale `gnt`.
+      if !(containsSubstr c "__round") then
+        IO.println "FAIL: no fixed-point relaxation emitted for the cycle"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

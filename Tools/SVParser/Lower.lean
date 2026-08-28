@@ -333,6 +333,17 @@ def exprToName : SVExpr → Option String
   -- Concat LHS handled separately by lowerConcatLhsAssign (needs bit scatter)
   | _ => none
 
+/-- Bit/part-select bounds of an assignment LHS, when it writes only PART
+    of its target: `gnt[0]` → `(0, 0)`, `gnt[3:1]` → `(3, 1)`.  A bare
+    identifier writes the whole vector and yields `none`, as does a
+    non-constant index (a dynamic write, which cannot be merged
+    statically). -/
+def lhsSelectBounds : SVExpr → Option (Nat × Nat)
+  | .index (.ident name) (.lit (.decimal _ idx)) =>
+    if isArrayName name then none else some (idx, idx)
+  | .slice (.ident name) hi lo => if isArrayName name then none else some (hi, lo)
+  | _ => none
+
 /-- Extract target name from concat LHS (all elements must reference same register) -/
 def concatLhsName : SVExpr → Option String
   | .concat elems =>
@@ -1806,6 +1817,9 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
 
   -- Build body statements
   let mut body : Array Stmt := #[]
+  -- Continuous assigns that write only PART of a vector, collected so
+  -- they can be merged into one driver per target (see `lhsSelectBounds`).
+  let mut partialAssigns : Array (String × Nat × Nat × Expr) := #[]
   -- All always @* blocks now use MUX mode (SSA handles loop dependencies)
 
   -- Emit parameter values as constant assigns (with overrides applied)
@@ -1838,7 +1852,18 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       if isMemRead then pure ()
       else
       match exprToName lhs with
-      | some name => body := body.push (.assign name (lowerExpr rhs))
+      | some name =>
+        -- A bit/part-select LHS (`assign gnt[0] = …`) carries a POSITION
+        -- that `exprToName` discards.  Several such statements to one
+        -- vector are legal Verilog (XiangShan's arbiters drive `gnt` one
+        -- bit per statement) but collapsed to competing `assign gnt = …`
+        -- drivers: the emitted Verilog was rejected for multiple drivers
+        -- and, worse, the IR kept only the last write.  Record the bounds
+        -- so the partial writes can be merged after the item loop.
+        match lhsSelectBounds lhs with
+        | some (hi, lo) =>
+          partialAssigns := partialAssigns.push (name, hi, lo, lowerExpr rhs)
+        | none => body := body.push (.assign name (lowerExpr rhs))
       | none =>
         -- Concat-LHS continuous assign: assign {a, b, c} = expr;
         -- Decompose into individual assigns for each target variable
@@ -2153,7 +2178,29 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   --                             their `_s` counterparts when either
   --                             arg references a `signed` port
   --                             (issue #43 / Test 32).
-  let narrowedBody := dedupBody.map (narrowMaskStmt env)
+  -- Merge the part-select continuous assigns: one driver per target,
+  -- built as an OR of each written slice shifted into place.  Emitting
+  -- them as separate `assign name = …` statements produced competing
+  -- full-vector drivers (iverilog rejects it) and kept only the last.
+  let mut mergedBody : List Stmt := dedupBody
+  if !partialAssigns.isEmpty then
+    let targets := partialAssigns.foldl (fun (acc : List String) (n, _, _, _) =>
+      if acc.contains n then acc else acc ++ [n]) []
+    for tgt in targets do
+      let parts := partialAssigns.toList.filter (fun (n, _, _, _) => n == tgt)
+      -- Widest bit touched decides the shift widths; a target whose other
+      -- bits are driven elsewhere is not our concern (Verilog would call
+      -- that multiple drivers too).
+      let terms := parts.map fun (_, hi, lo, rhs) =>
+        let w := hi - lo + 1
+        let bits := Expr.slice rhs (w - 1) 0
+        if lo == 0 then bits
+        else Expr.op .shl [bits, Expr.const (Int.ofNat lo) 32]
+      let merged := match terms with
+        | [] => Expr.const 0 1
+        | t :: rest => rest.foldl (fun acc t' => Expr.op .or [acc, t']) t
+      mergedBody := mergedBody ++ [.assign tgt merged]
+  let narrowedBody := mergedBody.map (narrowMaskStmt env)
   let promotedBody := narrowedBody.map (promoteSignedStmt env)
   pure {
     name := svMod.name
