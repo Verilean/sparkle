@@ -1420,6 +1420,36 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     let outputPortNames : List String := match subModule with
       | some sm => sm.outputs.map fun (p : Port) => p.name
       | none => []
+    -- A wide connection expression must be gathered WORD BY WORD: a
+    -- `memcpy` from `emitExpr expr` copies from the operand's base word
+    -- and so drops a slice's offset.  `LCredit2Decoupled_4` wires the
+    -- child's 256-bit data port to `io_in_flit[385:130]`; the memcpy read
+    -- from bit 0 instead, so every entry stored in the child's SRAM held
+    -- the wrong 256 bits (the IR and the re-emitted Verilog were both
+    -- correct — only the JIT was wrong).
+    let wideConnLines (dst : String) (expr : Expr) (nWords : Nat) : List String :=
+      match expr with
+      | .slice inner hi lo =>
+        match inner with
+        | .ref src =>
+          let srcWords := (inferExprWidth typeMap inner + 31) / 32
+          let k := lo / 32; let r := lo % 32
+          let sn := sanitizeName src
+          let outW := hi - lo + 1
+          let topBits := outW - 32 * (nWords - 1)
+          (List.range nWords).map fun j =>
+            let idx := j + k
+            let v :=
+              if idx ≥ srcWords then "0u"
+              else if r == 0 then s!"{sn}[{idx}]"
+              else
+                let hiPart := if idx + 1 < srcWords then s!" | ({sn}[{idx + 1}] << {32 - r})" else ""
+                s!"(({sn}[{idx}] >> {r}){hiPart})"
+            if j == nWords - 1 && topBits < 32 then
+              s!"        {dst}[{j}] = ({v}) & {(2 ^ topBits - 1 : Nat)}u;"
+            else s!"        {dst}[{j}] = {v};"
+        | _ => [s!"        memcpy({dst}, {emitExpr typeMap expr}, sizeof({dst}));"]
+      | _ => [s!"        memcpy({dst}, {emitExpr typeMap expr}, sizeof({dst}));"]
     let inputConns := connections.filterMap fun (portName, expr) =>
       if !outputPortNames.contains portName then
         let portWidth := match subModule with
@@ -1429,7 +1459,8 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             | none => 32
           | none => 32
         if portWidth > 64 then
-          some s!"        memcpy({iName}.{sanitizeName portName}, {emitExpr typeMap expr}, sizeof({iName}.{sanitizeName portName}));"
+          some (String.intercalate "\n"
+            (wideConnLines s!"{iName}.{sanitizeName portName}" expr ((portWidth + 31) / 32)))
         else
           some s!"        {iName}.{sanitizeName portName} = {emitExpr typeMap expr};"
       else none

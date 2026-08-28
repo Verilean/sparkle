@@ -416,7 +416,21 @@ work list, classified:
 * RenameTable_3-class: iverilog's vvp hits its 512-flag codegen limit on
   our single-expression register muxes — an emitter-style item (share
   condition subexpressions), same root as the cell-count redundancy.
-* NCBUpstreamRXREQ: one real RT logic diff, untriaged.
+* LCredit2Decoupled_4 / RNLinkMonitor: RESOLVED.  A wide INSTANCE
+  CONNECTION that is a slice at a non-zero offset was emitted as
+  `memcpy(child.port, <expr>, sizeof(...))`, which copies from the
+  operand's base word and drops the offset.  The parent wires the child's
+  256-bit data port to `io_in_flit[385:130]`, so the child's SRAM stored
+  the wrong 256 bits every cycle.  Same bug class as the `matWide`
+  `.slice` gap, on a different code path — the connection emitter now
+  gathers word by word.  RNLinkMonitor inherited it through its
+  LCredit2Decoupled children.  Pinned by ParserTest 57.
+
+  The CI corpus is now clean in BOTH modes: 35/35 leaf and 17/17
+  hierarchical, RT✗ 0 / JIT✗ 0.
+
+* NCBUpstreamRXREQ: one real RT logic diff, untriaged (not in the CI
+  corpus; needs the full DefaultConfig corpus to reproduce).
 
 ## CI gate
 

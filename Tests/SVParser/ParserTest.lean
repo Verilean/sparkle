@@ -2243,5 +2243,35 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 57 (XiangShan LCredit2Decoupled_4): a wide INSTANCE CONNECTION
+  -- that is a slice at a non-zero offset.  The connection emitter did
+  -- `memcpy(child.port, <expr>, sizeof(...))`, which copies from the
+  -- operand's BASE word and drops the offset — the parent wires the
+  -- child's 256-bit data port to `io_in_flit[385:130]`, so the child's
+  -- SRAM stored the wrong 256 bits every cycle.  The IR and the
+  -- re-emitted Verilog were both correct; only the JIT was wrong.
+  IO.print "  Test 57: wide instance connection keeps its slice offset... "
+  try
+    let v := "
+module wconn (input clk, input [421:0] flit, output [63:0] y);
+  wsink s (.d(flit[385:130]), .y(y));
+endmodule
+module wsink (input [255:0] d, output [63:0] y);
+  assign y = d[63:0];
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let c := toCDesign design
+      -- bit 130 = word 4, shift 2.  A memcpy from the base word (the bug)
+      -- would reference flit[0] with no shift.
+      if !(containsSubstr c "flit[4] >> 2") then
+        IO.println "FAIL: the connection dropped its slice offset"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
