@@ -520,13 +520,45 @@ of `^^^`/`&&&`/`>>>`/`++`/`-`.
 
 Completed phases live in [docs/CHANGELOG.md](docs/CHANGELOG.md).
 
+**Recently landed** (details in the changelog):
+
+- **Round-trip testing on production-grade CPUs** — the XiangShan
+  validation campaign (`bench/xiangshan/`): 99.95 % parse→IR→re-emit
+  coverage on both MinimalConfig and the full Kunminghu DefaultConfig,
+  three-way co-simulation (iverilog golden vs re-emitted RTL vs CSim
+  JIT) clean on every runnable leaf module, and a CI gate that keeps
+  it that way.
+- **Continuous compile-speed & circuit-size monitoring** — the CI gate
+  budgets whole-corpus compile time (the O(N²) blowups it was built to
+  catch cost us a 37× slowdown once) and gates an IR-complexity metric
+  against committed baselines, alongside yosys formal equivalence.
+- **Kernel-checked emission** — `#verify_emit`: the SystemVerilog
+  Sparkle emits for a circuit is parsed back and proven (`bv_decide`)
+  equivalent to its source IR.
+- **Parameterised (retained-dimension) support across all backends** —
+  symbolic widths in the IR with explicit specialization for
+  Verilog / CSim / SMT / CUDA (community contribution, #124/#130).
+
 **Next up:**
 
-- **Verified Standard IP — Parameterised FIFO** — generic depth / width FIFO.
-- **Verified Standard IP — N-way Arbiter** — generalise the 2-client
-  round-robin arbiter to N clients.
-- **Verified Standard IP — TileLink / AXI4 Interconnect** — full AXI4
-  (bursts, IDs) and TileLink.
+- **Simulation support for parameters** — exercise retained-dimension
+  designs directly in the simulators, beyond per-configuration
+  specialization.
+- **DRC enhancements** — better diagnostics and faster turnaround;
+  tutorial coverage for DRC and real-FPGA deployment flows.
+- **Enhanced Z3 / SMT integration** — k-induction, CHC/Spacer invariant
+  discovery, and Lean-side re-certification on top of the BMC bridge
+  (M1 landed; see `docs/SmtBridge-design.md`).
+- **GPU-based simulation for AI circuits** — systolic-array-scale
+  designs on the within-instance CUDA backend.
+- **Fluid-dynamics simulation** — circuits for plasma control as a
+  driving application.
+- **Monad support for high-level synthesis** — a synthesizable
+  effect-structured layer above `Signal.circuit do`.
+- **Transaction-level interfaces (SystemC-style TLM)** and **UVM
+  support** — verification interop with the mainstream ecosystem.
+- **Verified Standard IP** — parameterised FIFO, N-way arbiter,
+  TileLink / full AXI4 (bursts, IDs) interconnect.
 - **GPGPU / Vector Core** — apply the VDD framework to highly concurrent,
   memory-bound accelerator architectures.
 - **FPGA Tape-out Flow** — end-to-end examples deploying Sparkle-generated
@@ -542,7 +574,17 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- Inspired by [Clash HDL](https://clash-lang.org/)
+- Inspired by [Clash HDL](https://clash-lang.org/) — special thanks to
+  Christiaan Baaij for encouragement and for sharing hard-won lessons
+  from a decade of functional-HDL compiler engineering (compile-time
+  scalability, compile-time evaluation under lazy semantics,
+  name/hierarchy preservation down to the RTL), which directly shaped
+  our continuous compile-speed and circuit-size monitoring.
+- The [XiangShan](https://github.com/OpenXiangShan/XiangShan) open-source
+  high-performance RISC-V processor project (MulanPSL-2.0) — its
+  firtool-generated RTL is our production-scale validation corpus; the
+  SystemVerilog front-end owes its current robustness to round-tripping
+  all 2,048 files of the Kunminghu core.
 - Built with [Lean 4](https://lean-lang.org/)
 - Golden-reference cycle-accurate simulation via
   [Verilator](https://www.veripool.org/verilator/) — used both

@@ -153,6 +153,56 @@ interface.  We don't include `#verify_eq` examples in this
 notebook because they `IO`-print a result — that's better
 exercised in a real notebook session, not under `lake build`.
 
+## 7.4b `#verify_emit` — is the emitted Verilog still my circuit?
+
+Everything above compares two things *you wrote*.  There is one more
+equivalence you usually take on faith: that the SystemVerilog Sparkle
+**emits** for your circuit still means what the circuit means.  The
+`#verify_emit` command turns that faith into a kernel-checked theorem:
+
+```text
+import Tools.SVParser.VerifyEmit
+
+def acc (en : Signal defaultDomain (BitVec 1))
+    (d : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let r ← Signal.reg 0#4
+    r <~ Signal.mux (en.map (· == 1#1)) (r + d) r
+    return r
+
+#verify_emit acc
+-- ✅ #verify_emit `acc`: emitted SystemVerilog proven equivalent —
+--    2 cone obligations (registers + outputs), ports/registers/inits
+--    structurally matched
+```
+
+Under the hood it closes the whole emission loop *inside Lean*:
+
+1. synthesize `acc` to the IR (the same path `#synthesizeVerilog` takes);
+2. emit SystemVerilog text from that IR;
+3. parse the text back with Sparkle's own SystemVerilog front-end —
+   the one hardened against the XiangShan corpus (Ch 8's round-trip
+   pipeline);
+4. for every register's next-state cone and every output cone, on both
+   sides, inline everything down to (inputs ∪ registers), reflect the
+   two expressions into pure `BitVec` terms, and prove them equal with
+   `bv_decide` — a real theorem per cone, checked by the Lean kernel,
+   with no external tool trusted.
+
+The comparison holds under `rst = 0` (asserted reset is decided by the
+register construct itself on both sides), and structural checks pin the
+rest: same ports, same registers, same initial values, same reset kind.
+Stepwise cone equality plus equal initial state is sequential
+equivalence by induction.
+
+Like the `#verify_eq` family, run it interactively or via
+`lake env lean` (bv_decide's known `lake build` caveat applies); see
+`Tests/Verification/VerifyEmitDemo.lean` for a runnable demo.  Scope:
+single-module designs without memories, at DSL-scale widths — for
+production-scale *ingested* Verilog the same question is answered
+statistically by the XiangShan CI gate (yosys formal equivalence +
+three-way co-simulation) instead of by proof.
+
 ## 7.5 Exercise — adder trees agree
 
 Following `add_comm_sig` (§7.3b), prove that two ways of summing three
