@@ -2088,5 +2088,66 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 52 (XiangShan MulModuleS0): a wide concat NARROWER than its
+  -- destination.  Booth partial products are sign-extended concats like
+  -- `{{32{b[63]}}, b[63:32], a[31:0]}` (96 bits) assigned to a 128-bit
+  -- wire.  The emitter copied `sizeof(dst)` from a 3-word compound
+  -- literal — 16 bytes out of a 12-byte source — so the top word held
+  -- whatever followed the literal in memory instead of the zero fill.
+  -- This was the 128-bit CSA-tree value divergence in the hier sweep.
+  IO.print "  Test 52: wide concat narrower than its destination... "
+  try
+    -- The short source `memcpy` reads whatever FOLLOWS the compound
+    -- literal, so the test must observe the top word directly and keep
+    -- other wide values live around it.  `pad` is all-ones so a stale
+    -- read is distinguishable from the correct zero fill.
+    let v := "
+module concat_short (input clk, input [31:0] a, output [31:0] y);
+  wire [127:0] pad = {4{32'hAAAAAAAA}};
+  wire [127:0] x = {64'd0, a};
+  wire [127:0] z = x | {96'd0, pad[31:0]};
+  assign y = z[127:96];
+endmodule
+"
+    -- x is 96 bits wide, so x[127:96] — and hence z[127:96] — must be 0.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0xFFFFFFFF)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: {r} (want [0]; nonzero = short memcpy read past the literal)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 53 (XiangShan Booth partial products): the top-level wide
+  -- shl/shr arms called `emitExpr` and then SUBSCRIPTED the result, so a
+  -- compound operand rendered as `(uint32_t[4]){...}[j]` — GCC rejects
+  -- that ("subscripted value is not an array") once the nesting is deep
+  -- enough, which is why MulModuleS0 would not even compile.  Assert on
+  -- the emitted C directly: a shift operand must be materialised into a
+  -- named temp, never subscripted inline.
+  IO.print "  Test 53: wide shift materialises its operand (no literal[j])... "
+  try
+    let v := "
+module shl_concat (input clk, input [15:0] sel, output [15:0] y);
+  wire [95:0] hi = {96{sel[15]}};
+  wire [127:0] x = {hi, sel, 16'd0} << 16;
+  assign y = x[47:32];
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let c := toCDesign design
+      -- No `}[` anywhere: that is a compound literal being subscripted.
+      if containsSubstr c "}[" then
+        IO.println "FAIL: emitted C subscripts a compound literal"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

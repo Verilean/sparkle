@@ -248,10 +248,26 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
     through to the scalar arm and emitted `arrayA - arrayB`, i.e. C
     pointer subtraction — a hard compile error (breaks every >64-bit
     datapath, e.g. the secp256k1 mul's 258-bit accumulator reduce). -/
-private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat) : String :=
+private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat)
+    (aWide bWide : Bool := true) : String :=
+  -- Each operand must be reachable as an indexable word array.
+  -- `(uint64_t)(x)[i]` casts BEFORE subscripting, so `[i]` was applied to
+  -- a scalar; and a compound-literal operand (wide const / concat /
+  -- nested wide op) is not an lvalue to subscript at all — GCC rejects
+  -- both.  Bind a wide operand to a `const uint32_t *`, and BOX a narrow
+  -- one into a zero-extended word array (XiangShan's CSA tree subtracts
+  -- a 1-bit borrow from a 128-bit partial product).
+  let boxOf (nm src : String) (wide : Bool) : String :=
+    if wide then s!"const uint32_t *{nm} = (const uint32_t *)({src}); "
+    else
+      s!"uint32_t {nm}_b[{nWords}] = \{0}; \{ uint64_t {nm}_v = (uint64_t)({src}); " ++
+      s!"{nm}_b[0] = (uint32_t){nm}_v;" ++
+      (if nWords > 1 then s!" {nm}_b[1] = (uint32_t)({nm}_v >> 32);" else "") ++
+      s!" } const uint32_t *{nm} = {nm}_b; "
+  let binds := boxOf "__wa" a aWide ++ boxOf "__wb" b bWide
   let words := (List.range nWords).map (fun i =>
-    let ai := "(uint64_t)(" ++ a ++ ")[" ++ toString i ++ "]"
-    let bi := "(uint64_t)(" ++ b ++ ")[" ++ toString i ++ "]"
+    let ai := "(uint64_t)__wa[" ++ toString i ++ "]"
+    let bi := "(uint64_t)__wb[" ++ toString i ++ "]"
     if isAdd then
       "uint64_t __s" ++ toString i ++ " = " ++ ai ++ " + " ++ bi ++
         " + __c; __c = __s" ++ toString i ++ " >> 32;"
@@ -260,7 +276,7 @@ private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat) : String
         " - (int64_t)__c; __c = (__s" ++ toString i ++ " < 0) ? 1 : 0;")
   let elems := String.intercalate ", "
     ((List.range nWords).map (fun i => "(uint32_t)__s" ++ toString i))
-  let body := "uint64_t __c = 0; " ++ String.intercalate " " words ++
+  let body := binds ++ "uint64_t __c = 0; " ++ String.intercalate " " words ++
     " (uint32_t[" ++ toString nWords ++ "]){" ++ elems ++ "};"
   "(__extension__ ({ " ++ body ++ " }))"
 
@@ -620,11 +636,19 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
         if w1 > 64 || w2 > 64 then
           let lhsExpr := emitExpr typeMap arg1
           let rhsExpr := emitExpr typeMap arg2
+          -- `(uint64_t)(x)[0]` casts BEFORE subscripting, so `[0]` was
+          -- applied to a scalar; and when the operand is itself a
+          -- compound literal (a wide const, concat or nested wide op)
+          -- the subscript has no array to bind to at all — GCC rejects
+          -- it outright.  Bind each wide operand to a local `const
+          -- uint32_t *` first, then index THAT.
+          let lhsBind := if w1 > 64 then s!"const uint32_t *__ml = (const uint32_t *)({lhsExpr}); " else ""
+          let rhsBind := if w2 > 64 then s!"const uint32_t *__mr = (const uint32_t *)({rhsExpr}); " else ""
           let lhsLo64 :=
-            if w1 > 64 then s!"((uint64_t)({lhsExpr})[0] | ((uint64_t)({lhsExpr})[1] << 32))"
+            if w1 > 64 then "((uint64_t)__ml[0] | ((uint64_t)__ml[1] << 32))"
             else s!"((uint64_t)({lhsExpr}))"
           let rhsLo64 :=
-            if w2 > 64 then s!"((uint64_t)({rhsExpr})[0] | ((uint64_t)({rhsExpr})[1] << 32))"
+            if w2 > 64 then "((uint64_t)__mr[0] | ((uint64_t)__mr[1] << 32))"
             else s!"((uint64_t)({rhsExpr}))"
           -- The wide-mul value is consumed by `emitStmt`'s
           -- `.op .mul` arm which generates a slot-by-slot
@@ -634,7 +658,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- compound-literal array; this is only used by
           -- `memcpy`-style wide assigns.
           let body :=
-            s!"\{ __int128 __p = (__int128)(int64_t){lhsLo64} * (__int128)(int64_t){rhsLo64};" ++
+            s!"\{ {lhsBind}{rhsBind}__int128 __p = (__int128)(int64_t){lhsLo64} * (__int128)(int64_t){rhsLo64};" ++
             " (uint32_t[3]){(uint32_t)((unsigned __int128)__p & 0xffffffffULL), " ++
             "(uint32_t)(((unsigned __int128)__p >> 32) & 0xffffffffULL), " ++
             "(uint32_t)(((unsigned __int128)__p >> 64) & 0xffffffffULL)}; }"
@@ -646,10 +670,12 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
       | .add =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then wideAddSubExpr true (emitExpr typeMap arg1) (emitExpr typeMap arg2) (wordsOf w)
+          (inferExprWidth typeMap arg1 > 64) (inferExprWidth typeMap arg2 > 64)
         else s!"({emitExpr typeMap arg1} + {emitExpr typeMap arg2})"
       | .sub =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then wideAddSubExpr false (emitExpr typeMap arg1) (emitExpr typeMap arg2) (wordsOf w)
+          (inferExprWidth typeMap arg1 > 64) (inferExprWidth typeMap arg2 > 64)
         else s!"({emitExpr typeMap arg1} - {emitExpr typeMap arg2})"
       | _ =>
         s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
@@ -925,7 +951,11 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let typeMap' := tws.foldl
             (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
           let tmp := s!"__{label}_{sn}"
-          (ds ++ [s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {emitExpr typeMap' (.concat cargs')}, sizeof({tmp}));"], tmp)
+          -- Same narrower-than-destination hazard as the top-level concat
+          -- arm: copy only the concat's OWN words and zero the rest.
+          let cw := cargs.foldl (fun acc a => acc + inferExprWidth typeMap a) 0
+          let copyWords := min (wordsOf cw) nWords
+          (ds ++ [s!"        uint32_t {tmp}[{nWords}] = \{0}; memcpy({tmp}, {emitExpr typeMap' (.concat cargs')}, {copyWords} * sizeof(uint32_t));"], tmp)
         | .slice a hi lo =>
           -- A wide slice is a right-shift by `lo`, truncated to
           -- `hi-lo+1` bits.  Without this arm it fell into the generic
@@ -997,9 +1027,18 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         let typeMap' := tempWidths.foldl
           (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
         let expr := emitExpr typeMap' (.concat cargs')
+        -- The concat may be NARROWER than its destination (a 96-bit
+        -- `{{32{b[63]}}, b[63:32], a[31:0]}` assigned to a 128-bit wire).
+        -- `memcpy(dst, lit, sizeof(dst))` then read PAST the compound
+        -- literal — 16 bytes out of a 12-byte source — so the top word
+        -- held whatever followed it in memory instead of the zero fill.
+        let cw := cargs.foldl (fun acc a => acc + inferExprWidth typeMap a) 0
+        let srcWords := wordsOf cw
+        let copyWords := min srcWords nWords
         { declarations := []
         , evalBody := decls ++
-            [s!"        memcpy({sn}, {expr}, sizeof({sn}));"]
+            (if copyWords < nWords then [s!"        memset({sn}, 0, sizeof({sn}));"] else []) ++
+            [s!"        memcpy({sn}, {expr}, {copyWords} * sizeof(uint32_t));"]
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
@@ -1070,7 +1109,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , resetBody := []
         , evalTickLocals := [] }
       | .op .shl [a, b] =>
-        let aS := emitExpr typeMap a
+        -- The shifted operand must be an indexable word array.  Calling
+        -- `emitExpr` straight produced `(compound literal)[j]` whenever
+        -- `a` was a concat or a nested wide op (XiangShan's Booth
+        -- partial products are `{{96{b[31]}}, b[31:16]} << 16`), which C
+        -- rejects — every other wide arm materialises through `matWide`,
+        -- so these two did not need to be the exception.
+        let (aDecls, aS) := matWide "sh" a
         match b with
         | .const v _ =>
           let shiftAmount := v.toNat
@@ -1088,7 +1133,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let lines := (List.range nWords).map fun j =>
             s!"        {sn}[{j}] = {slot j};"
           { declarations := []
-          , evalBody := lines
+          , evalBody := aDecls ++ lines
           , tickBody := []
           , resetBody := []
           , evalTickLocals := [] }
@@ -1097,7 +1142,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           -- word loop (mirrors the nested matWide arm; see the Phr note there).
           let bS := emitExpr typeMap b
           { declarations := []
-          , evalBody :=
+          , evalBody := aDecls ++
               [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
               , s!"          for (unsigned {sn}_j = 0; {sn}_j < {nWords}u; {sn}_j++) \{"
               , s!"            uint32_t {sn}_lo = ({sn}_j >= {sn}_k) ? {aS}[{sn}_j - {sn}_k] : 0u;"
@@ -1115,7 +1160,8 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         -- always yielded 0, so the whole multiply was silently wrong.
         -- DYNAMIC amounts were then treated as 0 — XiangShan Phr's
         -- `{phr, phr} >> ptr` rotation read the unshifted vector.)
-        let aS := emitExpr typeMap a
+        -- Materialise the operand for the same reason as `shl` above.
+        let (aDecls, aS) := matWide "sh" a
         let srcWords := wordsOf (inferExprWidth typeMap a)
         match b with
         | .const v _ =>
@@ -1132,14 +1178,14 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let lines := (List.range nWords).map fun j =>
             s!"        {sn}[{j}] = {slot j};"
           { declarations := []
-          , evalBody := lines
+          , evalBody := aDecls ++ lines
           , tickBody := []
           , resetBody := []
           , evalTickLocals := [] }
         | _ =>
           let bS := emitExpr typeMap b
           { declarations := []
-          , evalBody :=
+          , evalBody := aDecls ++
               [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
               , s!"          for (unsigned {sn}_j = 0; {sn}_j < {nWords}u; {sn}_j++) \{"
               , s!"            uint32_t {sn}_lo = ({sn}_j + {sn}_k < {srcWords}u) ? {aS}[{sn}_j + {sn}_k] : 0u;"
