@@ -159,6 +159,26 @@ def foldConstants : Expr → Expr
   -- This is handled in emitExpr instead since foldConstants lacks width context
   -- not(not(x)) = x
   | .op .not [.op .not [x]] => x
+  -- Complementary nested conditions: an inner mux on the SAME predicate
+  -- as the enclosing one can only take the branch the outer choice
+  -- already implies, so the other arm is dead.
+  --   mux(not c, t, mux(c, u, _)) = mux(not c, t, u)
+  --   mux(not c, t, mux(not c, _, v)) = mux(not c, t, v)
+  --   mux(c, mux(c, u, _), e)     = mux(c, u, e)
+  --   mux(c, t, mux(c, _, v))     = mux(c, t, v)
+  -- Every register lowered from `if (reset) … else …` carried a dead
+  -- `reset ? init : old` arm inside the else branch — emitted as
+  -- `(~reset ? d : (reset ? 0 : q))` — which yosys counts as real cells.
+  | .op .mux [.op .not [c], t, .op .mux [c', u, v]] =>
+    if c == c' then .op .mux [.op .not [c], t, u]
+    else if c' == .op .not [c] then .op .mux [.op .not [c], t, v]
+    else .op .mux [.op .not [c], t, .op .mux [c', u, v]]
+  | .op .mux [c, .op .mux [c', u, v], e] =>
+    if c == c' then .op .mux [c, u, e]
+    else .op .mux [c, .op .mux [c', u, v], e]
+  | .op .mux [c, t, .op .mux [c', u, v]] =>
+    if c == c' then .op .mux [c, t, v]
+    else .op .mux [c, t, .op .mux [c', u, v]]
   -- and(x, all-ones) = x (identity mask removal)
   -- IMPORTANT: This rewrite is only sound when x's width equals w. The Expr IR
   -- does not carry per-node widths, so we cannot verify that in general. We
@@ -795,6 +815,7 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
       if dropped == 0 then
         break
     return body
+
 
 /-- Optimize a module: strip zero-bit shapes, eliminate concat/slice
     chains, then remove dead code. -/

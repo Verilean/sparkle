@@ -2214,5 +2214,34 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 56: complementary nested mux conditions.  Every register lowered
+  -- from `if (reset) … else …` carried a DEAD `reset ? init : old` arm
+  -- inside the else branch, emitted as `(~reset ? d : (reset ? 0 : q))`.
+  -- When `~reset` is false, `reset` is true, so the inner mux can only
+  -- pick its then-arm — the else-arm is unreachable.
+  IO.print "  Test 56: complementary nested mux arms fold away... "
+  try
+    let v := "
+module resetarm (input clk, input reset, input io_d, output q);
+  reg r;
+  always @(posedge clk) begin
+    if (reset) r <= 1'd0;
+    else r <= io_d;
+  end
+  assign q = r;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      -- The dead inner arm mentions `reset` a SECOND time inside the mux.
+      if containsSubstr sv "(reset ?" then
+        IO.println "FAIL: the dead reset arm survived"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

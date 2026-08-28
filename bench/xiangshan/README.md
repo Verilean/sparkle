@@ -262,11 +262,35 @@ Reading the two tails:
   fuel fix this bucket was 96 modules / −197k cells of silently DELETED
   logic — the metric only became meaningful once co-sim forced
   correctness.)
-* **rt-more (+13%)** is emission-style redundancy, not logic: per-register
-  mux chains duplicate shared condition cones (RenameTable ×1.9) and each
-  register's data expression still carries a dead `reset ? init : …` arm
-  inside the `else` branch of an `if (reset)`. Both are Phase-3 emitter
-  improvements (share condition wires; strip the duplicated reset arm).
+* **rt-more (+13%)** — diagnosis CORRECTED by measuring at the right
+  synthesis stage. `synth -run coarse` is too early to tell: it reports
+  the same totals whether or not shared cones are hoisted, because its own
+  CSE folds them. After a FULL `synth; opt -full` the gap survives
+  (FreeList_4 8,426 → 10,392 = 1.23×), so this IS real gate cost.
+
+  Where it goes: flip-flops are IDENTICAL (252/156/60/4/21 by type) and so
+  is `$_MUX_` (1,641 both sides). The entire excess is the boolean gate
+  layer, dominated by `$_ANDNOT_` 557 → 1,022.
+
+  The cause is not duplicated *cones* but the fused-expression shape
+  itself. firtool emits a register as separate guarded statements
+  (`if (…) r <= C; else r <= T;`); Sparkle collapses each register into ONE
+  mux expression and so rebuilds the whole guard chain per register —
+  FreeList_4 carries 168 copies of a single guard term. yosys shares some
+  but not all of them.
+
+  Two things were tried and MEASURED:
+  - Folding the dead `reset ? init : …` arm (a general complementary-
+    condition mux rule, ParserTest 56): correct and kept, but worth only
+    3 cells corpus-wide. The arm was already nearly free.
+  - Hoisting repeated subexpressions into wires (whole-wire CSE cannot
+    reach inside expressions): shrank emitted source 8% and hoisted 681
+    wires in FreeList_4, but cell count went 10,392 → 10,408 — slightly
+    WORSE, because each hoisted wire is then used both plain and negated
+    (168 `$_NOT_`s that the un-hoisted form let yosys share). Reverted.
+
+  The real fix is emitter-architectural: emit guarded `if` statements per
+  register instead of one fused mux expression. Not attempted here.
 
 Phase-2 verdict: **re-emission is functionally faithful (RT✗ = 0 on every
 runnable leaf), the JIT agrees except one open module, and the cell
