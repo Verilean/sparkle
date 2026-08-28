@@ -2273,5 +2273,44 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 58 (XiangShan NCBUpstreamRXREQ): Verilog's `~` is CONTEXT-
+  -- determined, not self-determined, so an unbounded `~expr` inverts the
+  -- CONTAINER's bits once it lands in a wider context.  NCBUpstreamRXREQ
+  -- builds `{6{~(|Size)}}` as the sign-extend trick
+  -- `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded, `~(…)` widened to 32
+  -- bits, `^ 1` gave 0xffffffff, and `6'd0 - 0xffffffff` evaluated to 1
+  -- instead of 6'h3f — the mask silently lost five of its six bits, and
+  -- only the RE-EMITTED Verilog was wrong (an RT mismatch, not a JIT one).
+  IO.print "  Test 58: unary NOT is width-bounded in emitted Verilog... "
+  try
+    -- The replication must be CONSUMED (here through a packed-array
+    -- lookup) for the lowering to produce the `~(x == 0) ^ 1` shape that
+    -- the unbounded emitter mis-evaluated.  Asserting the VALUE, not the
+    -- absence of a syntax form: unfixed this yields 1, fixed 6'h3f.
+    let v := "
+module notw (input [2:0] sz, output [5:0] m);
+  wire [5:0] t = {6{~(|sz)}};
+  wire [7:0][5:0] tbl = {{t}, {6'h0}, {6'h20}, {6'h30}, {6'h38}, {6'h3C}, {6'h3E}, {t}};
+  assign m = tbl[sz];
+endmodule
+"
+    -- The JIT was always CORRECT here — only the emitted Verilog was
+    -- wrong — so this asserts on the emitted RTL.  Under iverilog the
+    -- unbounded form evaluates the 6-bit mask to 1 instead of 6'h3f;
+    -- that end-to-end check is the sv-cosim harness's job (NCBUpstreamRXREQ
+    -- is an RT mismatch there).  What can be pinned cheaply here is the
+    -- invariant that makes it sound: a unary NOT never reaches the output
+    -- unbounded, because Verilog's `~` is context-determined.
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "~(" || containsSubstr sv "~_" then
+        IO.println "FAIL: emitted an unbounded `~`"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

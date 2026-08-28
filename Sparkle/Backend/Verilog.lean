@@ -188,9 +188,22 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     | _ => "/* ERROR: mux requires 3 arguments */"
 
   | .op .not args =>
-    -- Unary NOT
+    -- Unary NOT.  Verilog's `~` is CONTEXT-determined, not
+    -- self-determined: in a wider context it inverts the container's
+    -- bits, so an N-bit NOT silently becomes a wider one.  XiangShan's
+    -- NCBUpstreamRXREQ builds `{6{~(|Size)}}` as the sign-extend trick
+    -- `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded, `~(…)` widened to
+    -- 32 bits, `^ 1` gave 0xffffffff, and `6'd0 - 0xffffffff` evaluated
+    -- to 1 instead of 6'h3f — the mask lost five of its six bits.
+    -- Masking to the operand's own width pins it.
     match args with
-    | [arg] => s!"~{emitExpr widthOf arg}"
+    | [arg] =>
+      let inner := emitExpr widthOf arg
+      match exprWidthV widthOf arg with
+      | some w =>
+        if w == 0 then s!"~{inner}"
+        else s!"({w}'({inner} ^ {w}'({(2 : Nat) ^ w - 1})))"
+      | none => s!"~{inner}"
     | _ => "/* ERROR: not requires 1 argument */"
 
   | .op .neg args =>

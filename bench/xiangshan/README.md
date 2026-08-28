@@ -429,8 +429,21 @@ work list, classified:
   The CI corpus is now clean in BOTH modes: 35/35 leaf and 17/17
   hierarchical, RT✗ 0 / JIT✗ 0.
 
-* NCBUpstreamRXREQ: one real RT logic diff, untriaged (not in the CI
-  corpus; needs the full DefaultConfig corpus to reproduce).
+* NCBUpstreamRXREQ: RESOLVED.  Verilog's `~` is CONTEXT-determined, not
+  self-determined, so an unbounded `~expr` inverts the CONTAINER's bits
+  once it lands in a wider context.  This module builds `{6{~(|Size)}}`
+  as the sign-extend trick `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded,
+  `~(…)` widened to 32 bits, `^ 1` gave 0xffffffff, and
+  `6'd0 - 0xffffffff` evaluated to 1 instead of 6'h3f — the mask silently
+  lost five of its six bits.  The emitter now width-casts the NOT.
+
+  This one was EMITTER-side only: the IR and the JIT were both correct, so
+  it showed up as an RT mismatch (re-emitted RTL vs original under
+  iverilog), which is why no amount of JIT work would have found it.  The
+  bug class is general — any N-bit NOT feeding a wider context — so a
+  400-module slice of the real DefaultConfig build was swept to check for
+  fallout: 229/229 executed leaf co-sims and 17/17 hierarchical pass,
+  RT✗ 0 / JIT✗ 0.  Pinned by ParserTest 58.
 
 ## CI gate
 
