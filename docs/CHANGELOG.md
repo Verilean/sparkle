@@ -2,6 +2,80 @@
 
 This document tracks the development phases and implementation milestones of Sparkle HDL.
 
+## Phase 74: XiangShan production validation — round-trip 99.95 %, CI gate, `#verify_emit`
+
+**Date**: 2026-08-28
+**Branch**: `feat/xiangshan-validation` (PR #131)
+**Headline**: the SystemVerilog front-end round-trips the full
+XiangShan Kunminghu core (2,048 firtool-generated files, 1.5 GB) at
+99.95 % coverage with three-way co-simulation clean on every runnable
+leaf module, a 37× whole-corpus compile-speed win, a CI gate that
+locks all of it in, and `#verify_emit` — kernel-checked proofs that
+emitted SystemVerilog is equivalent to its source IR.
+
+### What changed
+
+- **Coverage**: parse→IR→re-emit 74.1 % → **99.95 %** on MinimalConfig
+  AND the full DefaultConfig (sole exclusion: `ClockGate.sv`
+  `always_latch` ICG).  New front-end support included `N'(expr)` size
+  casts, packed multi-dim arrays with `'{…}` patterns and dynamic
+  element select, signed literals with `$signed` marker retention,
+  reduction XOR, empty instance connections, and the firtool SRAM
+  macros (masked partial-word writes, real write clocks, multi-read
+  ports).
+- **Correctness**: a three-way co-sim harness (`lake exe sv-cosim`;
+  iverilog on the original as golden vs the re-emitted Verilog vs the
+  CSim JIT) drove out ~10 silent-miscompile classes across the
+  lowering, the IR optimizer (String-typed register resets invisible
+  to every Expr walker; liveness-fuel exhaustion silently pruning live
+  registers; CSE instance-merge misclassifying cross-instance inputs),
+  CSim (constant-width masking, container-width signed compares,
+  3-word wide slices, dynamic shifts ≥ container width, dynamic WIDE
+  shifts, Mealy-through-instance eval ordering, narrow/compound
+  operands of wide ops) and the Verilog emitter (slice-of-compound
+  width inflation — now a SystemVerilog size cast; register
+  declarations now carry the IR initial value).  Final leaf sweep:
+  **OK 994 / RT✗ 1 (documented multi-write-port limit) / JIT✗ 0**.
+- **Compile speed**: perf-guided sweep removed List-shaped quadratics
+  (flatMap ref collectors, per-signal re-collection in
+  `stmtsToMuxExpr`, List-backed `LowerEnv`, `topoSortBody`, lexer
+  identifier scanning, `sanitizeName`) — full corpus 2,281 s → 53–61 s,
+  `Rob.sv` 845 s → 14.7 s.
+- **CI gate** (`.github/workflows/xiangshan-roundtrip.yml`): a 52-file
+  instantiation-closed corpus (hosted as the `xiangshan-corpus-v1`
+  release asset — third-party MulanPSL-2.0 code stays out of the
+  tree — downloaded and sha256-verified by
+  `bench/xiangshan/ci_check.sh`) checked four ways per PR:
+  compile-time budget, yosys formal equivalence (38 proven;
+  baseline-regression gating for the induction-limited rest), 3-way
+  co-sim, and a Sparkle-native IR node-count metric vs committed
+  baselines (`sv-roundtrip --metric`) as the fast circuit-size signal.
+- **`#verify_emit`** (`Tools/SVParser/VerifyEmit.lean`): synthesize a
+  circuit, emit SystemVerilog, re-parse it with the hardened front-end,
+  inline each register/output cone over (inputs ∪ registers) on both
+  sides, reflect to `BitVec`, prove equal with `bv_decide` under
+  `rst = 0` — per-cone theorems checked by the Lean kernel.  Tutorial
+  Ch 7 §7.4b; demo `Tests/Verification/VerifyEmitDemo.lean`.
+- Merged main's community parameterization work (#124 symbolic widths,
+  #130 all-backend retained-parameter specialization — Jing Xiong,
+  @menik1126) into the branch.
+
+### Why
+
+Production-scale third-party RTL is the only honest test of a
+SystemVerilog front-end, and the campaign proved it: every one of the
+miscompile classes above shipped silently past the existing unit
+tests.  The CI gate and the IR-size metric exist because compile time
+and circuit size both ballooned at O(N²) more than once during the
+campaign — from here on they are measured, not assumed.
+
+### Known remaining work (tracked in `bench/xiangshan/README.md`)
+
+Instance-granularity combinational cycles (TwoLevelRRArbiter class —
+needs K-round relaxation), one CSA-tree value divergence in Mul/FMA
+(needs >64-bit-port co-sim), emitter subexpression sharing (RenameTable
+emits 306 MB of text today), simultaneous multi-write-port memories.
+
 ## Phase 73: Tutorial — Markdown source via xeus-lean's `xlean-convert`
 
 **Date**: 2026-05-08

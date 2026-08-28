@@ -1838,5 +1838,165 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 45 (XiangShan Phase 2): reset-less register — `always
+  -- @(posedge clock)` with an enable-only update.  The old lowering
+  -- referenced a phantom `rst` wire that exists in no such module, so the
+  -- re-emitted Verilog failed elaboration.  Now a shared `_no_rst`
+  -- constant-0 wire drives a SYNCHRONOUS register (clock-only
+  -- sensitivity), and it must survive DCE/const-prop/inlining (the reset
+  -- is a String field no Expr walker sees).
+  IO.print "  Test 45: reset-less register emits _no_rst, not phantom rst... "
+  try
+    let v := "
+module no_rst_reg (input clock, input w, input [3:0] d, output [3:0] q);
+  reg [3:0] r;
+  always @(posedge clock) begin
+    if (w)
+      r <= d;
+  end
+  assign q = r;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "posedge rst" || containsSubstr sv "if (rst)" then
+        IO.println "FAIL: emitted Verilog references phantom `rst`"
+        failed := failed + 1
+      else if !(containsSubstr sv "logic _no_rst;"
+                && containsSubstr sv "assign _no_rst = 1'd0;") then
+        IO.println "FAIL: `_no_rst` wire/assign missing (eaten by DCE or inlining)"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 46 (XiangShan Phase 2, Mhpmcounter class): `~x` on a RANGE-LESS
+  -- (scalar) wire inside a ternary condition.  `~x` lowers to
+  -- `x ^ 32'hffffffff`; if the mask is not narrowed to the operand's 1-bit
+  -- width, Verilog context sizing makes the whole condition 32-bit and
+  -- `~w` evaluates non-zero even when w=1 — and the CSim JIT computes the
+  -- unmasked 32-bit XOR, same wrong answer.  w=1 must select b.
+  IO.print "  Test 46: scalar ~x in ternary condition (32-bit mask narrowing)... "
+  try
+    let v := "
+module scalar_not_cond (input clk, input w, input [7:0] a, input [7:0] b,
+                        output [7:0] y);
+  assign y = (~w) ? a : b;
+endmodule
+"
+    let rSel ← jitRun v
+      (fun h => do JIT.setInput h 0 1; JIT.setInput h 1 17; JIT.setInput h 2 42)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let rUnsel ← jitRun v
+      (fun h => do JIT.setInput h 0 0; JIT.setInput h 1 17; JIT.setInput h 2 42)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    if rSel == [42] && rUnsel == [17] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: w=1→{rSel} (want [42]), w=0→{rUnsel} (want [17])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 47 (XiangShan Phase 2, RenameTable class): the optimizer's
+  -- register-liveness BFS must not run out of fuel on ref-dense bodies.
+  -- 16 registers, each referencing all 16 (256 ref occurrences from a
+  -- handful of statements) — the old `body.length * 8` fuel budget
+  -- truncated the walk and SILENTLY PRUNED live registers, which
+  -- `declareOrphanRefs` then patched with `assign x = 32'd0`.
+  IO.print "  Test 47: liveness fuel on ref-dense register mesh... "
+  try
+    let n := 16
+    let regDecls := String.intercalate "\n" ((List.range n).map fun i =>
+      s!"  reg [3:0] r{i};")
+    let allXor := String.intercalate " ^ " ((List.range n).map fun i => s!"r{i}")
+    let updates := String.intercalate "\n" ((List.range n).map fun i =>
+      s!"      r{i} <= d ^ {allXor};")
+    let v := s!"
+module reg_mesh (input clock, input rst, input [3:0] d, output [3:0] q);
+{regDecls}
+  always @(posedge clock) begin
+    if (rst) begin
+{String.intercalate "\n" ((List.range n).map fun i => s!"      r{i} <= 4'h0;")}
+    end else begin
+{updates}
+    end
+  end
+  assign q = r0;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let regCount := design.modules.foldl (fun acc m =>
+        acc + m.body.foldl (fun a s => match s with
+          | .register .. => a + 1 | _ => a) 0) 0
+      let sv := toVerilogDesign design
+      if regCount != n then
+        IO.println s!"FAIL: {regCount}/{n} registers survived (liveness fuel ran out)"
+        failed := failed + 1
+      else if containsSubstr sv "= 32'd0;" then
+        IO.println "FAIL: orphaned register patched with `assign x = 32'd0`"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 48 (XiangShan Phase 2, ByteMaskTailGen): an identifier ENDING in
+  -- `begin` followed by a ternary colon (`io_in_begin : 8'h0`) must not
+  -- trigger the hierarchical path's named-block strip (`begin : label`),
+  -- which used to eat the rest of the line.
+  IO.print "  Test 48: `x_begin :` in ternary survives named-block strip... "
+  try
+    let v := "
+module begin_ident (input clk, input sel, input [7:0] io_in_begin,
+                    output [7:0] y);
+  assign y = sel ? io_in_begin : 8'h0;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "io_in_begin" then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println "FAIL: io_in_begin vanished from the roundtrip"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 49 (XiangShan Phr): DYNAMIC shift of a >64-bit value.  CSim's
+  -- wide shl/shr emitters resolved the amount with `constAmt`, which
+  -- returned 0 for any non-constant expression — Phr's rotation idiom
+  -- `{phr, phr} >> ptr` (104-bit) silently read the UNSHIFTED vector, so
+  -- every folded-history output was wrong once the pointer moved.
+  IO.print "  Test 49: dynamic shift of a >64-bit value (Phr rotation)... "
+  try
+    let v := "
+module wide_dyn_shr (input clk, input [6:0] amt, output [15:0] y);
+  wire [79:0] base = 80'h5A5A5A5A5A5A5A5A5A5A;
+  wire [79:0] shifted = base >> amt;
+  assign y = shifted[15:0];
+endmodule
+"
+    let r36 ← jitRun v
+      (fun h => do JIT.setInput h 0 36)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    let r0 ← jitRun v
+      (fun h => do JIT.setInput h 0 0)
+      1
+      (fun h => do let v ← JIT.getOutput h 0; return [v])
+    -- base >> 36 = 0x5A5A5A5A5A5A5A5A5A5A >> 36 → low 16 bits = 0xA5A5
+    if r36 == [0xA5A5] && r0 == [0x5A5A] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: amt=36→{r36} (want [42405]), amt=0→{r0} (want [23130])"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

@@ -5,6 +5,7 @@
   The input string is converted to Array Char for O(1) indexing.
 -/
 
+import Std.Data.HashMap
 import Tools.SVParser.AST
 
 open Tools.SVParser.AST
@@ -22,7 +23,12 @@ abbrev P (α : Type) := ExceptT String (StateM PState) α
 
 def fail (msg : String) : P α := do
   let s ← get
-  let near := String.ofList (s.chars.toList.drop s.pos |>.take 30)
+  -- O(30), NOT O(file): `attempt` uses failure as control flow (every
+  -- operator probe fails), so this ran per probe — with `toList.drop` it
+  -- was O(file) per probe = O(file²) overall, 200+ s on XiangShan-sized
+  -- modules (perf: 63% in toList/List.drop/dec_ref).
+  let hi := min (s.pos + 30) s.chars.size
+  let near := String.ofList (s.chars.extract s.pos hi).toList
   throw s!"at position {s.pos}: {msg} (near: \"{near}\")"
 
 def getPos : P Nat := do let s ← get; pure s.pos
@@ -141,21 +147,29 @@ private def reservedKeywords : List String :=
    "assign", "always", "generate", "task", "parameter", "localparam",
    "posedge", "negedge", "or"]
 
+/-- Keyword membership as a hash set: `identifier` runs once per
+    `attempt` probe (millions of times on a 15 MB file) and the linear
+    `List.any` over 25 keywords was ~24% of the whole lower phase. -/
+private def reservedKeywordSet : Std.HashMap String Bool :=
+  reservedKeywords.foldl (fun h k => h.insert k true) {}
+
 def identifier : P String := token do
   let savedPos ← getPos
   let first ← nextChar
   if !isAlpha first then fail s!"expected identifier, got '{first}'"
-  let mut result : List Char := [first]
+  -- Scan to the end, then extract ONE slice from the source array: the
+  -- old per-char `result ++ [c]` list append is O(len²) per identifier.
   let mut cont := true
   while cont do
     let c ← peekChar
     match c with
     | some c' =>
-      if isAlphaNum c' then let _ ← nextChar; result := result ++ [c']
+      if isAlphaNum c' then let _ ← nextChar
       else cont := false
     | none => cont := false
-  let name := String.ofList result
-  if reservedKeywords.any (· == name) then
+  let s ← get
+  let name := String.ofList (s.chars.extract savedPos s.pos).toList
+  if reservedKeywordSet.contains name then
     setPos savedPos
     fail s!"'{name}' is a reserved keyword, expected identifier"
   pure name
@@ -270,31 +284,35 @@ def hexDigitsWithUnderscore : P String := do
     | none => cont := false
   pure (String.ofList result)
 
-def numericLiteral : P SVLiteral := token do
+def numericLiteral : P (SVLiteral × Bool) := token do
   let d ← digits
   let next ← peekChar
   if next == some '\'' then
     let _ ← nextChar
+    -- optional signed marker: 7'sh1, 4'sd3, 3'sb101
+    let sPeek ← peekChar
+    let isSigned := sPeek == some 's' || sPeek == some 'S'
+    if isSigned then let _ ← nextChar
     let base ← nextChar
     match base with
     | 'h' | 'H' =>
       let hd ← hexDigitsWithUnderscore
-      pure (SVLiteral.hex (some d.toNat!) (hexToNat hd))
+      pure (SVLiteral.hex (some d.toNat!) (hexToNat hd), isSigned)
     | 'd' | 'D' =>
       skipUnderscoresAndSpaces
       let dd ← digits
-      pure (SVLiteral.decimal (some d.toNat!) dd.toNat!)
+      pure (SVLiteral.decimal (some d.toNat!) dd.toNat!, isSigned)
     | 'b' | 'B' =>
       skipUnderscoresAndSpaces
       let bd ← binDigitsOrWildcardStr
       if bd.any (· == '?') then
         let (v, m) := binWildToValMask bd
-        pure (SVLiteral.binaryWild d.toNat! v m)
+        pure (SVLiteral.binaryWild d.toNat! v m, isSigned)
       else
-        pure (SVLiteral.binary (some d.toNat!) (binToNat bd))
+        pure (SVLiteral.binary (some d.toNat!) (binToNat bd), isSigned)
     | _ => fail s!"unknown base '{base}'"
   else
-    pure (SVLiteral.decimal none d.toNat!)
+    pure (SVLiteral.decimal none d.toNat!, false)
 
 -- ============================================================================
 -- Punctuation

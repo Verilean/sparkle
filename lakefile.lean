@@ -345,6 +345,25 @@ lean_exe «smt-bmc-test» where
   root := `Tests.Drivers.SmtBmcTestMain
   supportInterpreter := true
 
+-- XiangShan-scale SVParser survey: parse → lower → re-emit over a directory
+-- of .sv files, cataloguing failure classes (bench/xiangshan/README.md).
+lean_exe «sv-roundtrip» where
+  root := `Tests.Drivers.SvRoundtripMain
+  supportInterpreter := true
+
+-- Phase-2 three-way co-sim: iverilog(original)=golden vs iverilog(roundtrip)
+-- vs Sparkle CSim JIT, over baked deterministic vectors.
+lean_exe «sv-cosim» where
+  root := `Tests.Drivers.SvCosimMain
+  supportInterpreter := true
+
+-- sv-to-dsl: survey how much ingested RTL prints back as circuit-DSL
+-- source (the reporting half of verilog → IR → lean₄; the proof half is
+-- `#verify_dsl_roundtrip`).
+lean_exe «sv-to-dsl» where
+  root := `Tests.Drivers.SvToDslMain
+  supportInterpreter := true
+
 -- IP.Net.CRC32 (Ethernet FCS, reflected CRC-32/IEEE-802.3).
 -- Sim test: pure Lean reference, Signal-DSL engine, and IEEE
 -- 802.3 golden vectors must all agree.

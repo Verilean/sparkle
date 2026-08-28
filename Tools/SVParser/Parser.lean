@@ -24,7 +24,9 @@ namespace Tools.SVParser.Parser
     strip `timescale/`define/`default_nettype directives and (* ... *) attributes -/
 def preprocess (input : String) : String := Id.run do
   let lines := input.splitOn "\n"
-  let mut result : List String := []
+  -- Array + push: the previous `List ++ [line]` per line is O(lines²) —
+  -- Rob.sv (15 MB, ~330k lines) spent minutes here before ever parsing.
+  let mut result : Array String := #[]
   let mut ifdefDepth : Nat := 0
   let mut skipDepth : Nat := 0  -- depth at which we started skipping (0 = not skipping)
   for line in lines do
@@ -62,16 +64,20 @@ def preprocess (input : String) : String := Id.run do
       pure ()  -- skip directive / macro invocation
     else if trimmed.startsWith "`debug" then
       -- Replace debug macro with empty statement (semicolon)
-      result := result ++ [";"]
+      result := result.push ";"
     else
       -- Remove (* ... *) attributes
       let cleaned := removeAttributes line
-      result := result ++ [cleaned]
+      result := result.push cleaned
   -- Replace @(*) with @* (LiteX/Migen outputs @(*) which is equivalent)
-  let joined := "\n".intercalate result
+  let joined := "\n".intercalate result.toList
   "@*".intercalate (joined.splitOn "@(*)")
 where
   removeAttributes (s : String) : String := Id.run do
+    -- Fast path: the overwhelming majority of lines have neither an
+    -- attribute nor a backtick macro — don't pay for splitOn/replace.
+    if !(containsSubstrP s "(*") && !(containsSubstrP s "`FORMAL_KEEP") then
+      return s
     let mut result := s
     -- Remove (* ... *) attributes
     let mut cont := true
@@ -88,6 +94,8 @@ where
     result := result.replace "`FORMAL_KEEP " ""
     result := result.replace "`FORMAL_KEEP" ""
     result
+  containsSubstrP (s sub : String) : Bool :=
+    (s.splitOn sub).length > 1
 
 -- ============================================================================
 -- Expression parsing (all mutually recursive)
@@ -251,6 +259,13 @@ partial def parseUnary : P SVExpr := do
       let e ← parseUnary; pure e) with
     | some e => pure (SVExpr.unary .reductOr e)
     | none => parsePrimaryPost
+  | some '^' =>
+    -- Prefix ^ is reduction XOR (parity); infix ^ never reaches here.
+    match ← attempt (do
+      let _ ← token (matchStr "^")
+      let e ← parseUnary; pure e) with
+    | some e => pure (SVExpr.unary .reductXor e)
+    | none => parsePrimaryPost
   | _ => parsePrimaryPost
 
 partial def parsePrimaryPost : P SVExpr := do
@@ -321,18 +336,31 @@ partial def parsePrimary : P SVExpr := do
     let name ← identifier
     lparen; let arg ← parseExpr; rparen
     if name == "signed" then
-      -- Apply $signed to concat and slice expressions (known sub-32-bit width)
-      -- Identity for full-width wire references (already 32-bit)
-      match arg with
-      | .concat _ => pure (SVExpr.unary .signed arg)
-      | .slice _ _ _ => pure (SVExpr.unary .signed arg)
-      | .index _ _ => pure (SVExpr.unary .signed arg)
-      | _ => pure arg
+      -- Keep the signedness marker for EVERY argument shape.  Dropping it
+      -- for plain wire refs (the old behaviour) silently turned
+      -- `$signed(x) > -7'sh1` into an UNSIGNED compare — a miscompile.
+      -- Comparison lowering strips the marker and picks the signed IR op;
+      -- in other positions the lowering arm is identity for refs.
+      pure (SVExpr.unary .signed arg)
     else
       pure arg
   | some '\'' =>
-    -- Unsized literal: 'b0, 'bx, 'h0, etc.
+    -- Unsized literal ('b0, 'h0, …) or SV assignment pattern '{a, b, …}.
     let _ ← token (matchStr "'")
+    match ← peekChar with
+    | some '{' =>
+      -- '{…}: for packed arrays this is element-MSB-first, same as concat.
+      lbrace
+      let first ← parseExpr
+      let mut args := [first]
+      let mut cont := true
+      while cont do
+        match ← attempt comma with
+        | some _ => let e ← parseExpr; args := args ++ [e]
+        | none => cont := false
+      rbrace
+      return SVExpr.concat args
+    | _ => pure ()
     let base ← nextChar
     match base with
     | 'b' | 'B' =>
@@ -349,7 +377,26 @@ partial def parsePrimary : P SVExpr := do
       pure (SVExpr.lit (.decimal none dd.toNat!))
     | _ => fail s!"unexpected base '{base}' in unsized literal"
   | some c' =>
-    if isDigit c' then let lit ← numericLiteral; pure (SVExpr.lit lit)
+    if isDigit c' then
+      -- Disambiguate `N'(expr)` (SV size cast — firtool emits these
+      -- everywhere) from `N'h…` sized literals: try the cast form first,
+      -- backtracking to the literal on anything else after the tick.
+      match ← attempt (do
+          let d ← digits
+          let t ← nextChar
+          if t != '\'' then fail "not a size cast"
+          match ← peekChar with
+          | some '(' => let _ ← nextChar; ws; pure d.toNat!
+          | _ => fail "not a size cast") with
+      | some w =>
+        let e ← parseExpr
+        rparen
+        pure (SVExpr.sizeCast w e)
+      | none =>
+        let (lit, sgn) ← numericLiteral
+        -- `'s` literals carry a signedness MARKER (`.unary .signed`) so a
+        -- comparison against them lowers to the signed IR operator.
+        pure (if sgn then SVExpr.unary .signed (SVExpr.lit lit) else SVExpr.lit lit)
     else if isAlpha c' then let name ← identifier; pure (SVExpr.ident name)
     else fail s!"unexpected char in expression: '{c'}'"
   | none => fail "unexpected end of input in expression"
@@ -700,6 +747,21 @@ partial def parseModuleItems : P (List SVModuleItem) := do
     | some _ =>
       let _ ← attempt (keyword "signed")
       let w ← parseOptWidth
+      -- extra packed dimensions: wire [A:B][C:D]… name  (firtool mux tables)
+      let mut extraDims : List (Nat × Nat) := []
+      let mut moreDims := true
+      while moreDims do
+        match ← parseOptWidth with
+        | some d => extraDims := extraDims ++ [d]
+        | none => moreDims := false
+      if !extraDims.isEmpty then
+        let dims := (w.map (· :: extraDims)).getD extraDims
+        let n ← identifier
+        let init ← match ← attempt eqSign with
+          | some _ => let e ← parseExpr; pure (some e)
+          | none => pure none
+        semi
+        return [SVModuleItem.packedArrayDecl n dims init]
       let n ← identifier
       match ← attempt eqSign with
       | some _ => let e ← parseExpr; semi; pure [SVModuleItem.wireDecl n w (some e)]
@@ -833,8 +895,14 @@ partial def parseModuleItems : P (List SVModuleItem) := do
                     let mut conns : List (String × SVExpr) := []
                     let mut cont := true
                     while cont do
-                      dot; let pName ← identifier; lparen; let pExpr ← parseExpr; rparen
-                      conns := conns ++ [(pName, pExpr)]
+                      dot; let pName ← identifier; lparen
+                      -- `.port ()` — unconnected output (firtool: `(/* unused */)`
+                      -- once comments are skipped); omit the connection.
+                      match ← attempt rparen with
+                      | some _ => pure ()
+                      | none =>
+                        let pExpr ← parseExpr; rparen
+                        conns := conns ++ [(pName, pExpr)]
                       match ← attempt comma with | some _ => pure () | none => cont := false
                     rparen; semi
                     pure (modName, instName, conns, paramOvr)
