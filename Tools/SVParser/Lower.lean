@@ -2007,7 +2007,22 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               memClock := blkClk
               let addr := lowerExpr lane0.addr
               writeAddr := addr
-              writeData := buildByteStrobeWrite name addr byteLanes dataWidth
+              let rmw := buildByteStrobeWrite name addr byteLanes dataWidth
+              -- A masked read-modify-write on a WIDE memory is a wide OP
+              -- (`row & ~mask | data & mask`).  Nested in the memory
+              -- statement's write-data slot it has no valid C rendering
+              -- (`array & array`); as its own wire it goes through the
+              -- backends' wide-ASSIGN paths, which materialise operands
+              -- word by word.  Narrow memories keep the inline form.
+              if dataWidth > 64 then
+                let wdWire := s!"{name}_wdata_rmw"
+                body := body.push (.assign wdWire rmw)
+                if !(wireSet.contains wdWire || portNameSet.contains wdWire) then
+                  wires := wires.push { name := wdWire, ty := widthToHWType width }
+                  wireSet := wireSet.insert wdWire true
+                writeData := .ref wdWire
+              else
+                writeData := rmw
               -- Enable if any strobe bit is set
               let enableExpr := byteLanes.foldl (fun acc lane =>
                 let c := lowerExpr lane.cond

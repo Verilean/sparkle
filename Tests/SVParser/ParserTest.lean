@@ -2049,5 +2049,44 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 51 (XiangShan array_128x138): wide SLICE at a NON-ZERO offset.
+  -- `matWide` had no `.slice` arm, so a >64-bit slice fell into the
+  -- generic memcpy fallback, which copies from the operand's BASE word
+  -- and DISCARDS `lo`.  firtool's 138x2 SRAM writes
+  -- `wdata[137:69] << 69`; CSim silently computed `wdata[68:0] << 69`,
+  -- so the JIT wrote the wrong half of every masked entry while both the
+  -- IR and the re-emitted Verilog were correct.
+  IO.print "  Test 51: wide slice at a non-zero offset (138-bit lane)... "
+  try
+    -- `sel` widens to 138 bits and shifts up by 69, so d[137:69] == sel
+    -- while d[68:0] == 0.  Driving a 138-bit port directly is not
+    -- possible through `JIT.setInput` (one machine word), so the wide
+    -- value is built inside the module.
+    let v := "
+module wide_slice_off (input clk, input [15:0] sel, output [15:0] y);
+  reg [137:0] d;
+  always @(posedge clk) d <= {53'd0, sel, 69'd0};
+  // The slice feeds a WIDE op, so it is materialised by `matWide`; its
+  // operand is a plain 138-bit array lvalue, which is the shape that hit
+  // the offset-dropping memcpy fallback.
+  wire [137:0] w = {69'd0, d[137:69]} | 138'd0;
+  assign y = w[15:0];
+endmodule
+"
+    -- The buggy emitter read d[68:0] (== 0) and returned 0.
+    -- sel sits at d[84:69], so the CORRECT slice d[137:69] lands it at
+    -- bits [15:0] and y == sel.  The offset-dropping fallback reads
+    -- d[68:0], whose low 16 bits are zero, so y == 0.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0xBEEF)
+      2
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [0xBEEF] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: sel=0xBEEF → {r} (want [48879]; 0 means the slice offset was dropped)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

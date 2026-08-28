@@ -61,7 +61,12 @@ def maskTo (w : Nat) (v : UInt64) : UInt64 :=
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
 
+/-- Number of 64-bit words needed for a port. -/
+def wordsOf64 (w : Nat) : Nat := (w + 63) / 64
+
 /-- Baked stimulus: per cycle, per data-input, a masked random value.
+    Wide (>64-bit) ports contribute one entry PER 64-bit word, named
+    `port#k`; both emitters expand those back into a single value.
     `reset` is scripted (1,1,0,0,…); `clock` is the TB's/loop's job. -/
 def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
     List (List (String × UInt64)) := Id.run do
@@ -86,8 +91,37 @@ def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
         let v :=
           if containsSubstr p.name "addr" then m &&& 3
           else if containsSubstr p.name "mask" then (0xFFFFFFFFFFFFFFFF : UInt64)
+          -- Enables stay asserted: a random 1-bit `en` fires half the
+          -- time, and firtool's RW ports need `en & wmode` together, so
+          -- a write landed only ~1 cycle in 4 and reads mostly missed.
+          else if containsSubstr p.name "en" && p.width == 1 then 1
+          -- Write for the first half of the run, read for the second, so
+          -- every written entry is read back while defined.  (Random
+          -- wmode left 1-port SRAMs all-X for the whole window.)
+          else if containsSubstr p.name "wmode" && p.width == 1 then
+            (if c < cycles / 2 then 1 else 0)
           else m
-        row := row ++ [(p.name, maskTo p.width v)]
+        if p.width ≤ 64 then
+          row := row ++ [(p.name, maskTo p.width v)]
+        else
+          -- Wide port: one 64-bit word per slot, top word masked to the
+          -- residual width.  Both the Verilog TB and the C main consume
+          -- the same word list, so the two sides still see one value.
+          let nw := wordsOf64 p.width
+          let mut ws : List (String × UInt64) := []
+          for k in [0:nw] do
+            s := lcgNext s
+            -- Wide masks need the same all-ones shaping as narrow ones:
+            -- firtool emits PER-BIT write enables (array_128x76 has a
+            -- 76-bit wmask), so a random wide mask left most bits never
+            -- written and the golden read X forever.
+            let wv := if containsSubstr p.name "mask"
+                      then (0xFFFFFFFFFFFFFFFF : UInt64) else mix64 s
+            let topBits := p.width - 64 * (nw - 1)
+            let masked := if k == nw - 1 && topBits < 64
+                          then wv &&& ((1 <<< topBits) - 1).toUInt64 else wv
+            ws := ws ++ [(s!"{p.name}#{k}", masked)]
+          row := row ++ ws
     out := out ++ [row]
   return out
 
@@ -107,7 +141,13 @@ def emitTb (modName : String) (ports : List PortInfo)
   for c in [0:cycles] do
     let row := (stim[c]?).getD []
     for (n, v) in row do
-      l := l ++ [s!"    {n} = 64'h{String.ofList (Nat.toDigits 16 v.toNat)};"]
+      -- `port#k` entries drive one 64-bit slice of a wide port
+      match (n.splitOn "#") with
+      | [base, k] =>
+        let lo := 64 * (k.toNat!)
+        l := l ++ [s!"    {base}[{lo} +: 64] = 64'h{String.ofList (Nat.toDigits 16 v.toNat)};"]
+      | _ =>
+        l := l ++ [s!"    {n} = 64'h{String.ofList (Nat.toDigits 16 v.toNat)};"]
     if hasClock then
       let low := String.intercalate " " (clockNames.map fun cn => s!"if ({cn} !== 1'b1) {cn} = 0;")
       let high := String.intercalate " " (clockNames.map fun cn => s!"{cn} = 1;")
@@ -115,8 +155,24 @@ def emitTb (modName : String) (ports : List PortInfo)
     else
       -- pure-combinational module: just let the values settle
       l := l ++ ["    #2;"]
-    let outFmt := String.intercalate " " (outs.map fun _ => "%0h")
-    let outArgs := String.intercalate ", " (outs.map (·.name))
+    -- Wide outputs are printed one 64-bit word at a time (LSB word
+    -- first) so the C side can emit byte-identical text without needing
+    -- a 128-bit printf.
+    let outSlots := outs.flatMap fun p =>
+      if p.width ≤ 64 then [p.name]
+      else
+        let nw := wordsOf64 p.width
+        (List.range nw).map fun k =>
+          -- The TOP word must be sliced to the residual width: on a
+          -- 138-bit port `[128 +: 64]` reads 54 bits past the end, and
+          -- Verilog returns X for those — the all-X check then rejected
+          -- the run even though every real bit was defined.  That alone
+          -- accounted for the whole "X/Z in golden" skip class on wide
+          -- memories.
+          let bits := if k == nw - 1 then p.width - 64 * k else 64
+          s!"{p.name}[{64 * k} +: {bits}]"
+    let outFmt := String.intercalate " " (outSlots.map fun _ => "%0h")
+    let outArgs := String.intercalate ", " outSlots
     l := l ++ [s!"    $display(\"C{c} {outFmt}\", {outArgs});"]
       ++ (if hasClock then [String.intercalate " " (clockNames.map fun cn => s!"    {cn} = 0;") ++ " #1;"] else [])
   l := l ++ ["    $finish;", "  end", "endmodule"]
@@ -137,7 +193,18 @@ def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
   for c in [0:cycles] do
     let row := (stim[c]?).getD []
     for (n, v) in row do
-      l := l ++ [s!"  s.{Sparkle.Backend.CSim.sanitizeName n} = {v}ULL;"]
+      -- A wide port is a `uint32_t[]` field in the CSim struct, so a
+      -- `port#k` word writes TWO 32-bit slots (little-endian word order,
+      -- matching the emitters' slot layout).
+      match (n.splitOn "#") with
+      | [base, k] =>
+        let sn := Sparkle.Backend.CSim.sanitizeName base
+        let j := 2 * (k.toNat!)
+        l := l ++
+          [ s!"  s.{sn}[{j}] = (uint32_t)({v}ULL & 0xffffffffULL);"
+          , s!"  s.{sn}[{j + 1}] = (uint32_t)({v}ULL >> 32);" ]
+      | _ =>
+        l := l ++ [s!"  s.{Sparkle.Backend.CSim.sanitizeName n} = {v}ULL;"]
     -- clocked: sample f(I_k, R_{k+1}) to match negedge sampling
     -- (eval, tick, eval); combinational: a single eval settles it
     l := l ++
@@ -145,9 +212,24 @@ def emitCMain (design : Sparkle.IR.AST.Design) (modName : String)
         [s!"  sparkle_{cls}_eval(&s);", s!"  sparkle_{cls}_tick(&s);", s!"  sparkle_{cls}_eval(&s);"]
       else
         [s!"  sparkle_{cls}_eval(&s);"])
-    let fmt := String.intercalate " " (outs.map fun _ => "%llx")
-    let args := String.intercalate ", " (outs.map fun p =>
-      s!"(unsigned long long)s.{Sparkle.Backend.CSim.sanitizeName p.name}")
+    -- Mirror the TB's per-word printing for wide outputs: word k is the
+    -- pair of 32-bit slots (2k, 2k+1), assembled into one 64-bit value.
+    let outExprs := outs.flatMap fun p =>
+      let sn := Sparkle.Backend.CSim.sanitizeName p.name
+      if p.width ≤ 64 then [s!"(unsigned long long)s.{sn}"]
+      else
+        let nw := wordsOf64 p.width
+        (List.range nw).map fun k =>
+          let raw := s!"((unsigned long long)s.{sn}[{2*k}] | ((unsigned long long)s.{sn}[{2*k+1}] << 32))"
+          -- Mask the top word to its residual width to match the TB's
+          -- `[64k +: bits]` slice.  A 138-bit port keeps 10 bits in
+          -- word 2; leaving the C side unmasked printed the container's
+          -- upper garbage and read as a mismatch.
+          let bits := if k == nw - 1 then p.width - 64 * k else 64
+          if bits == 64 then raw
+          else s!"({raw} & ((1ULL << {bits}) - 1))"
+    let fmt := String.intercalate " " (outExprs.map fun _ => "%llx")
+    let args := String.intercalate ", " outExprs
     l := l ++ [s!"  printf(\"C{c} {fmt}\\n\", {args});"]
   l := l ++ ["  return 0;", "}"]
   return String.intercalate "\n" l
@@ -233,7 +315,11 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
     | .instantiation .. => true | _ => false
   if hasInst && !hier then return (name, .skipped "has sub-instances")
   if !hasInst && hier then return (name, .skipped "leaf (covered by leaf run)")
-  if ports.any (·.width > 64) then return (name, .skipped "wide port")
+  -- Wide (>64-bit) ports are supported: the stimulus is baked per
+  -- 64-bit word and both emitters drive/sample word by word.  Only
+  -- absurd widths are declined, to keep the generated TB/C readable.
+  if ports.any (·.width > 4096) then
+    return (name, .skipped "port wider than 4096 bits")
   -- clock-less modules are pure combinational: co-sim with a settle-and-
   -- sample protocol instead of skipping (XiangShan CVT32ModuleS0/S1).
   -- Clock inputs: `clock`/`clk` or firtool's `<port>_clk` (SRAM macros:
@@ -277,13 +363,7 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
           | .slice a _ _ => [a]
           | .index a i => [a, i]
           | _ => []
-        let base := 1 + kids.foldl (fun acc k => min emitCostCap (acc + go fuel k)) 0
-        let w := Sparkle.Backend.CSim.inferExprWidth tm e
-        -- ≤64-bit expressions emit through the SCALAR path (single
-        -- uint64 op, no per-word re-emission) — only >64-bit nodes
-        -- multiply cost by their word count.
-        let words := if w > 64 then (w + 31) / 32 else 1
-        min emitCostCap (words * base)
+        min emitCostCap (1 + kids.foldl (fun acc k => min emitCostCap (acc + go fuel k)) 0)
     let mut total := 0
     for s in dm.body do
       let es : List Sparkle.IR.AST.Expr := match s with
@@ -292,7 +372,14 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
         | .memory _ _ _ _ wa wd we ra _ _ .. => [wa, wd, we, ra]
         | .inst _ _ conns => conns.map (·.2)
       for e in es do
-        total := min emitCostCap (total + go 2048 e)
+        -- A wide (>64-bit) statement emits ONE per-word loop over its
+        -- whole tree, so word count multiplies the statement's node
+        -- count exactly once.  Applying it per NODE (as this guard used
+        -- to) compounded as words^depth and scored a 25 KB masked-RMW
+        -- memory at 3e11, skipping every wide byte-enable SRAM.
+        let w := Sparkle.Backend.CSim.inferExprWidth tm e
+        let words := if w > 64 then (w + 31) / 32 else 1
+        total := min emitCostCap (total + min emitCostCap (words * go 2048 e))
     return total
   if design.modules.any (fun dm => costOf dm ≥ emitCostCap) then
     return (name, .skipped "C-emission cost blowup")
@@ -440,6 +527,16 @@ def main (args : List String) : IO Unit := do
   IO.println s!"  JIT mismatch         : {count (fun r => match r with | .jitMismatch _ => true | _ => false)}"
   IO.println s!"  tool failures        : {count (fun r => match r with | .toolFail _ => true | _ => false)}"
   IO.println s!"  skipped              : {count (fun r => match r with | .skipped _ => true | _ => false)}"
+  -- Break the skip count down by reason.  A bare total hides WHY cases
+  -- were not exercised, which is the difference between "the harness
+  -- can't drive it" (a gap to close) and "the golden run is all-X"
+  -- (nothing to compare against).
+  let reasons := results.foldl (fun (acc : Std.HashMap String Nat) (_, r) =>
+    match r with
+    | .skipped why => acc.insert why (acc.getD why 0 + 1)
+    | _ => acc) {}
+  for (why, n) in reasons.toList.mergeSort (fun a b => a.2 ≥ b.2) do
+    IO.println s!"    - {why}: {n}"
   for (n, r) in results do
     match r with
     | .rtMismatch d => IO.println s!"  RT✗  {n}: {d.take 140}"

@@ -50,7 +50,17 @@ private def cb : String := "}"
     the old `List.find?` (inputs, then outputs, then wires) semantics. -/
 def buildTypeMap (m : Module) : TypeMap :=
   let entries := (m.inputs ++ m.outputs ++ m.wires).map fun (p : Port) => (p.name, p.ty)
-  entries.foldl (fun acc (n, t) => acc.insertIfNew n t) {}
+  -- Memories are declared by `Stmt.memory`, not by a wire, so without
+  -- this they were absent from the map and `inferExprWidth` fell back to
+  -- 32 for `Memory[addr]`.  A wide memory's row then looked NARROW, and
+  -- a masked read-modify-write on it took the scalar path and emitted
+  -- `array & array` (invalid C).  Register the array type so row reads
+  -- infer the element width.
+  let memEntries := m.body.filterMap fun st => match st with
+    | .memory name aw dw _ _ _ _ _ _ _ _ _ =>
+      some (name, HWType.array (2 ^ aw) (.bitVector dw))
+    | _ => none
+  (entries ++ memEntries).foldl (fun acc (n, t) => acc.insertIfNew n t) {}
 
 /-- Look up bit-width for a name in the type map -/
 def lookupWidth (typeMap : TypeMap) (name : String) : Nat :=
@@ -210,9 +220,21 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
     match args with
     | [_, thenVal, _] => inferExprWidth typeMap thenVal
     | _ => 32
+  -- A left shift by a constant grows the value: `x << k` needs
+  -- `width(x) + k` bits.  Inferring it as `width(x)` (first operand
+  -- only) truncated firtool's byte-lane writes — lane 4 of a 128-bit
+  -- SRAM is `(wdata >> 16) << 48`, computed in a uint64 scalar, so
+  -- every bit destined for words 2-3 was silently dropped.
+  | .op .shl [a, .const k _] =>
+    inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)
   | .op _ args =>
     match args with
-    | [arg1, _] => inferExprWidth typeMap arg1
+    -- A binary op is as wide as its WIDEST operand — taking only the
+    -- first one inferred `(wdata & 16'hffff) & <128-bit mux>` as 16 bits,
+    -- so the wide emitter sent it down the scalar uint64 path and
+    -- produced `uint64 & uint32_t*` (invalid C) on firtool's masked
+    -- read-modify-write SRAMs.
+    | [arg1, arg2] => max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
     | [arg1] => inferExprWidth typeMap arg1
     | _ => 32
 
@@ -767,6 +789,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
            ], tmp)
         else
         match e with
+        | .index _ _ =>
+          -- `Memory[addr]` on a wide memory IS an indexable uint32 row —
+          -- exactly like a `.ref` to a wide wire — so it needs no temp.
+          -- Without this arm, a masked read-modify-write on a wide
+          -- memory (firtool's byte-enable SRAMs) fell through to the
+          -- generic memcpy arm and emitted `array & array`.
+          ([], emitExpr typeMap e)
         | .ref name =>
           if (lookupWidth typeMap name) ≤ 64 then
             -- narrow REF: same boxing (a scalar struct field can't be
@@ -897,6 +926,25 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
           let tmp := s!"__{label}_{sn}"
           (ds ++ [s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {emitExpr typeMap' (.concat cargs')}, sizeof({tmp}));"], tmp)
+        | .slice a hi lo =>
+          -- A wide slice is a right-shift by `lo`, truncated to
+          -- `hi-lo+1` bits.  Without this arm it fell into the generic
+          -- memcpy below, which copies from the operand's BASE word and
+          -- so silently DROPPED the `lo` offset: firtool's 138x2 SRAM
+          -- wrote `wdata[68:0] << 69` where the RTL says
+          -- `wdata[137:69] << 69`.
+          let (da, aS) := matWide s!"{label}s" a
+          let tmp := s!"__{label}_{sn}"
+          let srcWords := wordsOf (inferExprWidth typeMap a)
+          let outW := hi - lo + 1
+          let topBits := outW - 32 * (nWords - 1)
+          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j =>
+                 let v := shrSlot aS lo srcWords j
+                 -- Mask the top word so bits above the slice don't leak.
+                 if j == nWords - 1 && topBits < 32 then
+                   s!"        {tmp}[{j}] = ({v}) & {(2 ^ topBits - 1 : Nat)}u;"
+                 else s!"        {tmp}[{j}] = {v};")), tmp)
         | _ =>
           let tmp := s!"__{label}_{sn}"; let init := emitExpr typeMap e
           ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {init}, sizeof({tmp}));"], tmp)
@@ -1259,14 +1307,27 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       let rdName := sanitizeName rd
       let inMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
       if inMap then none else some s!"    {emitFieldDecl elemTy rdName};"
-    let writeLines := writePorts.filterMap fun (a, d, en) =>
+    -- Wide (>64-bit) write data is a uint32 ARRAY, and a wide OP has no
+    -- inline C rendering (`array & array` is not C) — the masked
+    -- read-modify-write that firtool's byte-enable SRAMs generate lands
+    -- exactly there.  Materialise such data into a temp array first, one
+    -- 32-bit slot at a time, then memcpy the temp into the row.
+    let writeLines := (writePorts.zipIdx).flatMap fun ((a, d, en), pi) =>
       match en with
-      | .const 0 _ => none   -- dead port
+      | .const 0 _ => []   -- dead port
       | _ =>
         if dataWidth > 64 then
-          some s!"        if ({emitExpr typeMap en}) memcpy({memName}[{emitExpr typeMap a}], {emitExpr typeMap d}, sizeof({memName}[0]));"
+          match d with
+          | .ref _ =>
+            [s!"        if ({emitExpr typeMap en}) memcpy({memName}[{emitExpr typeMap a}], {emitExpr typeMap d}, sizeof({memName}[0]));"]
+          | _ =>
+            let tmp := s!"__mw{pi}_{memName}"
+            let nWords := (dataWidth + 31) / 32
+            [ s!"        \{ uint32_t {tmp}[{nWords}];"
+            , s!"          memcpy({tmp}, {emitExpr typeMap d}, sizeof({tmp}));"
+            , s!"          if ({emitExpr typeMap en}) memcpy({memName}[{emitExpr typeMap a}], {tmp}, sizeof({tmp})); }" ]
         else
-          some s!"        if ({emitExpr typeMap en}) {memName}[{emitExpr typeMap a}] = {emitExpr typeMap d};"
+          [s!"        if ({emitExpr typeMap en}) {memName}[{emitExpr typeMap a}] = {emitExpr typeMap d};"]
     let zeroLine := s!"        memset({memName}, 0, sizeof({memName}));"
     if comboRead then
       let readLines := readPorts.map fun (a, rd) =>
