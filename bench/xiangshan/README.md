@@ -344,6 +344,22 @@ bit 0 alternates every draw — paired 1-bit enables sat in antiphase and
 memories stayed X forever), with addresses shaped into [0,3] and write
 masks all-ones so reads hit written entries.
 
+Wide (>64-bit) ports: sv-cosim drives and samples them as one 64-bit word
+per slot (`port#k`), so nothing is skipped for width up to 4096 bits.
+Getting there required matching the two sides exactly at the top word:
+the TB slices it to the RESIDUAL width (on a 138-bit port `[128 +: 64]`
+reads 54 bits past the end and Verilog returns X, so the all-X check
+rejected runs whose every real bit was defined — that alone was the whole
+"X/Z in golden" skip class), and the C side masks the same bits.  Wide
+write masks are shaped all-ones like narrow ones, because firtool emits
+PER-BIT write enables (array_128x76 has a 76-bit wmask) and a random one
+leaves most bits never written.  The emission-cost guard also had to stop
+multiplying word count at every NODE — that compounded as words^depth and
+scored a 25 KB masked-RMW memory at 3e11.  Result on the 93 SRAM macros:
+93/93 three-way, 0 skipped (was 22 executed / 62 skipped for wide port).
+The skip counter now breaks down by reason, so "the harness cannot drive
+it" is distinguishable from "the golden run is all-X".
+
 CSim fixes found by the sweeps: dynamic scalar shifts ≥ container width
 (C UB wraps mod 32/64; Verilog says 0 — BusyTable's random read indexes),
 `sparkle_wide_shr64` helper for wide dynamic shifts nested in scalar
@@ -362,9 +378,17 @@ work list, classified:
   THROUGH instances = a cycle at instance granularity; needs K-round
   relaxation (or per-port scheduling) in CSim eval — the NLnet Task-1
   "Mealy boundaries" item.
-* Wide-arithmetic internals (Mul/FMA family): FloatFMA is clean after the
-  boxing fixes; Mul/FMA still have one value-level divergence inside the
-  128-bit CSA tree.  Bisecting needs >64-bit port support in sv-cosim.
+* Wide-arithmetic internals (Mul/FMA family): RESOLVED.  sv-cosim now
+  drives and samples >64-bit ports (one 64-bit word per slot), which made
+  the bisect possible.  The CSA-tree divergence was a short `memcpy`, not
+  the arithmetic: a wide concat NARROWER than its destination (Booth
+  partial products are 96-bit sign-extended concats assigned to 128-bit
+  wires) was copied with `sizeof(dst)`, reading past the compound literal
+  so the top word held adjacent memory instead of the zero fill.  Two
+  further bugs found building the reproduction stopped these modules from
+  compiling at all: the top-level wide `shl`/`shr` arms subscripted an
+  un-materialised operand, and `wideAddSubExpr` / the wide-mul arm cast to
+  `uint64_t` BEFORE subscripting.  Pinned by ParserTest 51-53.
 * RenameTable_3-class: iverilog's vvp hits its 512-flag codegen limit on
   our single-expression register muxes — an emitter-style item (share
   condition subexpressions), same root as the cell-count redundancy.
