@@ -1,0 +1,85 @@
+name: XiangShan Roundtrip Gate
+
+# Production-scale front-end regression gate (bench/xiangshan/README.md):
+# a curated subset of firtool-generated XiangShan RTL — one exemplar per
+# miscompile class the Phase-2/3 co-sim sweeps found — is parsed, lowered
+# and re-emitted, then checked three ways:
+#   compile speed   : whole-subset wall-time budget (quadratic-blowup guard)
+#   functional equiv: yosys formal equivalence (orig vs re-emitted Verilog)
+#                     + 3-way co-sim (iverilog golden vs roundtrip vs CSim
+#                     JIT — the C simulation path is equivalence-checked too)
+#   circuit quality : yosys coarse-synth cell-count ratio rt/orig must not
+#                     grow past the committed baseline (redundancy guard)
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'Tools/SVParser/**'
+      - 'Sparkle/IR/**'
+      - 'Sparkle/Backend/**'
+      - 'Tests/Drivers/SvRoundtripMain.lean'
+      - 'Tests/Drivers/SvCosimMain.lean'
+      - 'bench/xiangshan/**'
+      - '.github/workflows/xiangshan-roundtrip.yml'
+  pull_request:
+    paths:
+      - 'Tools/SVParser/**'
+      - 'Sparkle/IR/**'
+      - 'Sparkle/Backend/**'
+      - 'Tests/Drivers/SvRoundtripMain.lean'
+      - 'Tests/Drivers/SvCosimMain.lean'
+      - 'bench/xiangshan/**'
+      - '.github/workflows/xiangshan-roundtrip.yml'
+  workflow_dispatch:
+
+jobs:
+  xiangshan-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Elan
+        run: |
+          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+      - name: Install Lean toolchain
+        run: |
+          export PATH="$HOME/.elan/bin:$PATH"
+          elan default $(cat lean-toolchain)
+
+      - name: Install iverilog + zstd
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq iverilog zstd
+
+      # Modern yosys (the size-cast `N'(expr)` emission and equiv flow are
+      # exercised); apt's yosys is too old on some runners.
+      - name: Install yosys (OSS CAD Suite)
+        uses: YosysHQ/setup-oss-cad-suite@v3
+        with:
+          osscadsuite-version: '2024-11-01'
+
+      - name: Build roundtrip + co-sim harnesses
+        run: |
+          lake build sv-roundtrip sv-cosim
+
+      - name: Run the gate
+        run: |
+          # CI runners are ~2x slower than the dev box; the budget in
+          # ci_check.sh defaults to 240 s for the whole subset (the dev
+          # box does it in well under 30 s — anything near the budget IS
+          # the regression being hunted).
+          bash bench/xiangshan/ci_check.sh
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiangshan-gate-logs
+          path: /tmp/xs-ci/*.log
+          if-no-files-found: ignore

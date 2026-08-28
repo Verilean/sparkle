@@ -115,3 +115,7 @@ fpga/tangNano20k/blinky/*.json
 # sparkle-proofs sidecar build artifacts (mathlib sidecar, see proofs/README.md)
 proofs/.lake/
 retypelab/.lake/
+
+# XiangShan CI corpus is DOWNLOADED (release asset xiangshan-corpus-v1),
+# not committed — third-party generated code stays out of the tree
+bench/xiangshan/corpus/

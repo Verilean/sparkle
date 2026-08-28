@@ -34,11 +34,48 @@ structure Verdict where
   insts   : Nat := 0
   regs    : Nat := 0
   emitted : Nat := 0
+  irNodes  : Nat := 0   -- IR expression nodes of parse(orig)
+  rtNodes  : Nat := 0   -- IR expression nodes of parse(emit(...)); 0 = not measured
 
 def classify (err : String) : String :=
   let core := (err.splitOn " ||| ").headD err
   let head := (((core.splitOn "\n").headD core).take 70).toString
   String.ofList (head.toList.map fun c => if c.isDigit then '#' else c)
+
+/-- IR complexity metric: total expression nodes + mux count + register
+    bit count.  A fast, yosys-free redundancy signal: comparing the
+    metric of `parse(orig)` against `parse(emit(parse(orig)))` measures
+    the redundancy the EMISSION itself introduces (the slow, trusted
+    alternative — yosys coarse-synth cell counts — stays available in
+    bench/xiangshan/ci_check.sh's formal-equivalence phase). -/
+def irMetric (d : Sparkle.IR.AST.Design) : Nat × Nat := Id.run do
+  let rec nodes : Sparkle.IR.AST.Expr → Nat × Nat
+    | .op .mux args => args.foldl (fun (n, mx) a =>
+        let (n2, m2) := nodes a; (n + n2, mx + m2)) (1, 1)
+    | .op _ args => args.foldl (fun (n, mx) a =>
+        let (n2, m2) := nodes a; (n + n2, mx + m2)) (1, 0)
+    | .concat args => args.foldl (fun (n, mx) a =>
+        let (n2, m2) := nodes a; (n + n2, mx + m2)) (1, 0)
+    | .slice e _ _ => let (n, mx) := nodes e; (n + 1, mx)
+    | .sliceDim e _ _ => let (n, mx) := nodes e; (n + 1, mx)
+    | .index a i =>
+      let (n1, m1) := nodes a; let (n2, m2) := nodes i
+      (n1 + n2 + 1, m1 + m2)
+    | _ => (1, 0)
+  let mut total := 0
+  let mut muxes := 0
+  for m in d.modules do
+    for st in m.body do
+      let es : List Sparkle.IR.AST.Expr := match st with
+        | .assign _ rhs => [rhs]
+        | .register _ _ _ input _ => [input]
+        | .memory _ _ _ _ wa wd we ra _ _ => [wa, wd, we, ra]
+        | .inst _ _ conns => conns.map (·.2)
+      for e in es do
+        let (n, mx) := nodes e
+        total := total + n
+        muxes := muxes + mx
+  return (total, muxes)
 
 def statsOf (d : Sparkle.IR.AST.Design) : Nat × Nat × Nat :=
   let insts := d.modules.foldl (fun acc m =>
@@ -50,7 +87,7 @@ def statsOf (d : Sparkle.IR.AST.Design) : Nat × Nat × Nat :=
   (d.modules.length, insts, regs)
 
 def tsvLine (v : Verdict) : String :=
-  s!"{v.phase}\t{v.file}\t{v.bytes}\t{v.ms}\t{v.modules}\t{v.insts}\t{v.regs}\t{((v.err.splitOn "\n").headD "" |>.take 160)}"
+  s!"{v.phase}\t{v.file}\t{v.bytes}\t{v.ms}\t{v.modules}\t{v.insts}\t{v.regs}\t{v.irNodes}\t{v.rtNodes}\t{((v.err.splitOn "\n").headD "" |>.take 160)}"
 
 /-- On a parse failure, name the CONSTRUCT: slice the preprocessed source at
     the reported position (the parser's "expected 'endmodule' at position N"
@@ -65,8 +102,8 @@ def failSnippet (src : String) (err : String) : String :=
     let upto := min (pos + 70) chars.size
     (String.ofList ((chars.toList.drop pos).take (upto - pos))).replace "\n" " "
 
-def processOne (dir name : String) (bytes : Nat) (emitDir : Option String) :
-    IO Verdict := do
+def processOne (dir name : String) (bytes : Nat) (emitDir : Option String)
+    (metric : Bool := false) : IO Verdict := do
   let src ← IO.FS.readFile (System.FilePath.mk dir / name)
   let t0 ← IO.monoMsNow
   match parse src with
@@ -89,8 +126,18 @@ def processOne (dir name : String) (bytes : Nat) (emitDir : Option String) :
       if let some out := emitDir then
         IO.FS.createDirAll out
         IO.FS.writeFile (System.FilePath.mk out / name) sv
+      -- optional fast redundancy metric: reparse the emitted text and
+      -- compare IR node counts (yosys-free)
+      let (irN, rtN) :=
+        if metric then
+          let (n1, _) := irMetric design
+          match parseAndLowerHierarchical sv with
+          | .ok d2 => (n1, (irMetric d2).1)
+          | .error _ => (n1, 0)
+        else (0, 0)
       return { file := name, bytes, ms := t1 - t0, phase := "ok"
              , modules := ms_, insts := is_, regs := rs, emitted := sv.length
+             , irNodes := irN, rtNodes := rtN
              , err := s!"parse={tParse - t0}ms lower={tLower - tParse}ms emit={t1 - tLower}ms" }
 
 def flagVal (args : List String) (flag : String) : Option String :=
@@ -107,12 +154,13 @@ def main (args : List String) : IO Unit := do
     let dir := (p.parent.getD ".").toString
     let name := p.fileName.getD target
     IO.println s!"[probe] {name} ({md.byteSize} bytes)"
-    let v ← processOne dir name md.byteSize.toNat none
+    let v ← processOne dir name md.byteSize.toNat none true
     IO.println (tsvLine v)
     return
   let jobs := ((flagVal args "--jobs").bind (·.toNat?)).getD 24
   let maxKb := ((flagVal args "--max-kb").bind (·.toNat?)).getD 100000
   let emitDir := flagVal args "--emit"
+  let metric := args.contains "--metric"
   let entries ← System.FilePath.readDir target
   let svs := entries.filter (fun e => e.fileName.endsWith ".sv" || e.fileName.endsWith ".v")
   let mut withSize : Array (String × Nat) := #[]
@@ -138,7 +186,7 @@ def main (args : List String) : IO Unit := do
     let h ← IO.FS.Handle.mk part .append
     let mut out : Array Verdict := #[]
     for (name, sz) in bucket do
-      let v ← processOne target name sz emitDir
+      let v ← processOne target name sz emitDir metric
       out := out.push v
       h.putStrLn (tsvLine v)
       h.flush

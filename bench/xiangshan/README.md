@@ -356,3 +356,28 @@ work list, classified:
   our single-expression register muxes — an emitter-style item (share
   condition subexpressions), same root as the cell-count redundancy.
 * NCBUpstreamRXREQ: one real RT logic diff, untriaged.
+
+## CI gate
+
+`bench/xiangshan/ci_check.sh` (workflow: xiangshan-roundtrip.yml) runs on
+every SVParser/IR/backend PR against a 52-file corpus that is NOT
+committed — it is third-party generated code (XiangShan, MulanPSL-2.0)
+hosted as the release asset `xiangshan-corpus-v1` and downloaded +
+sha256-verified by the script (NOTICE inside the tarball;
+instantiation-closed): compile-
+speed budget, yosys formal equivalence (38 proven; unproven = induction
+limit, gated only against baseline regressions), 3-way co-sim (RT and
+CSim-JIT both vs iverilog golden), and the Sparkle-native IR node-count
+metric vs `ci_baseline.tsv` (the fast redundancy signal; yosys cell
+counts stay offline in compare_stat.sh).
+
+`#verify_emit f` (Tools/SVParser/VerifyEmit.lean) covers the OTHER
+direction — Sparkle-authored circuits: emitted SystemVerilog is reparsed
+and each register/output cone is PROVEN (bv_decide, kernel-checked)
+equal to the source IR under rst = 0.  Demo:
+Tests/Verification/VerifyEmitDemo.lean.
+
+Known emitter-quality debt this exposed: RenameTable's emission is
+306 MB of text (29M IR nodes — the per-register mux forests share
+nothing).  Excluded from the CI corpus; the subexpression-sharing
+emitter work tracks it.
