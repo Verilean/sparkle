@@ -455,9 +455,27 @@ work list, classified:
   unaries, and the one-bit reductions/comparisons.  Pinned by ParserTest 59.
 
   That sweep leaves ONE open failure: `VectorFloatFMA` disagrees by a
-  single LSB on `io_fp_result` (`…6324` vs `…6325`) at cycle 13 — a
-  JIT-side floating-point rounding-path bug, unrelated to width handling
-  and not yet triaged.
+  single LSB on `io_fp_result` (`…6324` vs `…6325`, i.e. 5.5556386672943e-24
+  either way) at cycles 13-14 and nowhere else — a JIT-side rounding
+  decision.  What has been RULED OUT so far:
+
+  * All three children pass co-sim standalone (`CSA3to2`,
+    `BoothEncoderF64F32F16_4`, `CSA_Nto2With3to2MainPipeline --hier`), so
+    it is `VectorFloatFMA`'s own logic.
+  * RT✗ is 0 for this module, so the IR and the re-emitted Verilog are
+    both correct — this is CSim-only.
+  * `round_add1_f64` (the RNE decision) re-emits with correct operator
+    precedence in both backends; firtool writes it as
+    `A & B | C & D | E & F & G | H & I` and the parenthesisation is right.
+  * The sticky path's 164-bit trailing-zero detect
+    (`_sticky_uf_f64_reg2_T`, ~164 nested ternaries over `tzd_adder_reg1`)
+    emits correct word/offset arithmetic at both ends of the chain
+    (bit 163 → word 5 offset 3; bit 0 → word 0 offset 0), and its
+    63-bit `5555…` mask constants match the original.
+
+  Isolating further needs signal-level tracing: sv-cosim compares
+  top-level ports only, and the divergence is somewhere inside a 164-bit
+  multi-stage pipeline.  That is the next tool to build for this module.
 
 ## CI gate
 
