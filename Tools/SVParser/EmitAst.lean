@@ -310,6 +310,16 @@ def widthAstOf : Sparkle.IR.Type.HWType → Option (Option (Nat × Nat))
   | .bitVector w => some (some (w - 1, 0))
   | _ => none
 
+/-- The register reset-value width lookup (the shipping `emitStmt`'s
+    rule, named so proofs can rewrite through it). -/
+def regResetWidth (wires : List Sparkle.IR.AST.Port) (output : String) : Nat :=
+  match wires.find? (fun p => p.name == output) with
+  | some p => match p.ty with
+    | .bitVector w => w
+    | .bit => 1
+    | _ => 8
+  | none => 8
+
 /-- One IR statement, as the list of parsed items its emission yields. -/
 def emitAstStmt (widthOf : String → Option Nat)
     (wires : List Sparkle.IR.AST.Port) :
@@ -317,12 +327,7 @@ def emitAstStmt (widthOf : String → Option Nat)
   | .assign lhs rhs => do
     some [.contAssign (.ident (sanitizeName lhs)) (← emitAstExpr widthOf rhs)]
   | .register output clock (rstName, _) input initValue => do
-    let resetWidth := match wires.find? (fun p => p.name == output) with
-      | some p => match p.ty with
-        | .bitVector w => w
-        | .bit => 1
-        | _ => 8
-      | none => 8
+    let resetWidth := regResetWidth wires output
     let initE ← emitAstExpr widthOf (.const initValue resetWidth)
     let inputE ← emitAstExpr widthOf input
     some [.alwaysBlock (.posedge (sanitizeName clock))

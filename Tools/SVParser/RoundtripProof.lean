@@ -468,8 +468,8 @@ theorem bias_le (w : Nat) (hw0 : 0 < w) (va vb : Nat)
     simp [hva, hvb] <;> omega
 
 theorem encodeConst_lt (v : Int) (w : Nat) (hw : 0 < w) :
-    EmitAst.encodeConst v w < 2 ^ w := by
-  unfold EmitAst.encodeConst
+    Tools.SVParser.EmitAst.encodeConst v w < 2 ^ w := by
+  unfold Tools.SVParser.EmitAst.encodeConst
   have hg : (0 : Int) < ((2 ^ w : Nat) : Int) := by
     exact_mod_cast Nat.two_pow_pos w
   have h1 := Int.emod_lt_of_pos (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int)) hg
@@ -480,8 +480,8 @@ theorem encodeConst_lt (v : Int) (w : Nat) (hw : 0 < w) :
 open Sparkle.IR.Semantics in
 /-- Any constant evaluates to its two's-complement encode. -/
 theorem eval_const_encode (we : WEnv) (env : Env) (v : Int) (w : Nat) :
-    evalExpr we env (.const v w) = some (mask w (EmitAst.encodeConst v w)) := by
-  simp [evalExpr, EmitAst.encodeConst]
+    evalExpr we env (.const v w) = some (mask w (Tools.SVParser.EmitAst.encodeConst v w)) := by
+  simp [evalExpr, Tools.SVParser.EmitAst.encodeConst]
 
 open Sparkle.IR.Semantics in
 /-- A fitting non-negative constant evaluates to itself. -/
@@ -508,6 +508,20 @@ theorem eval_binop_pair (we : WEnv) (env : Env)
               (Sparkle.IR.Semantics.widthOf we (.op op [x, y])) := by
   simp only [evalExpr, evalList, Option.bind_eq_bind]
   cases evalExpr we env x <;> cases evalExpr we env y <;> simp
+
+open Sparkle.IR.Semantics in
+/-- Three-operand mux decomposition with opaque part evaluations
+    (`evalOp` for mux ignores the context width, so the result form is
+    baked in). -/
+theorem eval_mux3 (we : WEnv) (env : Env) (c t f : Sparkle.IR.AST.Expr) :
+    evalExpr we env (.op .mux [c, t, f])
+      = (evalExpr we env c).bind fun vc =>
+          (evalExpr we env t).bind fun vt =>
+            (evalExpr we env f).bind fun vf =>
+              some (if vc ≠ 0 then vt else vf) := by
+  simp only [evalExpr, evalList, Option.bind_eq_bind]
+  cases evalExpr we env c <;> cases evalExpr we env t <;>
+    cases evalExpr we env f <;> simp [evalOp]
 
 open Sparkle.IR.Semantics in
 /-- Evaluation of one BIASED operand of the emitted signed compare:
@@ -626,7 +640,7 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
     by_cases h0 : v < 0
     · -- negative: emitted as sized-hex two's complement; semantically
       -- the same constant
-      refine ⟨.const (Int.ofNat (EmitAst.encodeConst v w)) w, ?_, rfl, ?_⟩
+      refine ⟨.const (Int.ofNat (Tools.SVParser.EmitAst.encodeConst v w)) w, ?_, rfl, ?_⟩
       · simp [emitAstExpr, hne, if_pos h0, lowerT]
       · have henc := encodeConst_lt v w hw
         rw [eval_const_ofNat we env _ w henc, eval_const_encode,
@@ -1035,4 +1049,395 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       · rw [sliceEncode_sem we env x' hi lo hlo (by rw [hwx]; omega) hhi v hval']
         simp [evalExpr, hvx]
 
+
+/- ------------------------------------------------------------------ -/
+/- M1/M2, statement layer: the lowering twin for the ITEM sub-language
+   `emitAstStmt` produces, and the per-statement roundtrip images.
+
+   The shipping lowering turns our emitted register
+
+       always_ff @(posedge clk or posedge rst)
+         if (rst) out <= init; else out <= input;
+
+   into `.register out clk (rst, async) (mux [¬rst, input', init']) init`
+   — the reset arm FOLDED INTO the input expression.  Two consequences
+   the theorems below make precise:
+
+   * the mux-guarded input is equivalent to `regNexts`' reset-mux ONLY
+     when the reset is 1-bit (for wider rst, `~rst ≠ 0` even under
+     reset) — a WIDTH side condition, not a formality;
+   * the init constant comes back ENCODED (`Int.ofNat (encodeConst …)`),
+     equal under `encodeInit`. -/
+
+/-- Item-level lowering twin for the emitted sub-language: continuous
+    assigns and the always-if register shape. -/
+def lowerTItem : SVModuleItem → Option (List Sparkle.IR.AST.Stmt)
+  | .contAssign (.ident l) rhs => do
+    some [.assign l (← lowerT rhs)]
+  | .alwaysBlock (.posedge clk)
+      [.ifElse (.ident rst)
+        [.nonblockAssign (.ident out1) initE]
+        [.nonblockAssign (.ident out2) inputE]] => do
+    if out1 ≠ out2 then none else
+    let init' ← lowerT initE
+    let input' ← lowerT inputE
+    match init' with
+    | .const iv _ =>
+      some [.register out1 clk (rst, .asynchronous)
+        (.op .mux [.op .not [.ref rst], input', init']) iv]
+    | _ => none
+  | .wireDecl _ _ none => some []       -- declaration only
+  | .wireDecl _ _ (some _) => some []   -- register initializer (guarded)
+  | _ => none
+
+-- Twin ties against the SHIPPING module lowering, via the probe module:
+-- emit → parse → lower must agree with emitAstStmt → lowerTItem.
+private def probeStmtM : Sparkle.IR.AST.Module := {
+  name := "pstmt"
+  inputs := [⟨"clock", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 8⟩]
+  outputs := [⟨"q", .bitVector 8⟩]
+  wires := [⟨"w", .bitVector 8⟩, ⟨"r", .bitVector 8⟩, ⟨"q", .bitVector 8⟩]
+  body := [
+    .assign "w" (.op .add [.ref "a", .ref "r"]),
+    .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3,
+    .assign "q" (.ref "r")]
+  assertions := [] }
+
+private def chkStmtTwin : Bool := Id.run do
+  -- shipping path
+  let shipped :=
+    match Tools.SVParser.Lower.parseAndLowerHierarchical
+        (Sparkle.Backend.Verilog.emitModule probeStmtM) with
+    | .ok d => d.modules.foldl
+        (fun acc (m : Sparkle.IR.AST.Module) => acc ++ m.body) []
+    | .error _ => []
+  -- twin path
+  let wof : String → Option Nat := fun n =>
+    (probeStmtM.wires.find? (fun p =>
+      Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
+      match p.ty with
+      | .bitVector w => some w
+      | .bit => some 1
+      | _ => none
+  let twinned : Option (List Sparkle.IR.AST.Stmt) := do
+    let mut out : List Sparkle.IR.AST.Stmt := []
+    for st in probeStmtM.body do
+      let items ← Tools.SVParser.EmitAst.emitAstStmt wof probeStmtM.wires st
+      for it in items do
+        out := out ++ (← lowerTItem it)
+    some out
+  -- shipping reorders (assigns first, registers after) and may add the
+  -- optimizer's touches; compare as SETS of statements
+  match twinned with
+  | none => false
+  | some tw =>
+    tw.all (fun st => shipped.contains st)
+      && shipped.all (fun st => tw.contains st)
+
+#guard chkStmtTwin
+
+
+/- ------------------------------------------------------------------ -/
+/- The module-level roundtrip theorem (assign+register bodies).
+
+   Pleasant discovery: NO reset-width or boundedness side conditions are
+   needed.  `regNexts` reads the reset from the post-elaboration env
+   directly, so the image's redundant `mux(¬rst, …)` guard is consistent
+   by construction: under reset both sides take their INIT fields, and
+   out of reset the mux picks the input branch (the `¬rst ≠ 0` test is
+   satisfied for rst = 0 at ANY width).  The width worry only applies to
+   semantics that derive reset behavior from the mux alone. -/
+
+open Sparkle.IR.Semantics in
+/-- The statement-level roundtrip image: emit, then lower, at the AST
+    level. -/
+def stmtImage (wof : String → Option Nat)
+    (wires : List Sparkle.IR.AST.Port) (st : Sparkle.IR.AST.Stmt) :
+    Option (List Sparkle.IR.AST.Stmt) := do
+  let items ← Tools.SVParser.EmitAst.emitAstStmt wof wires st
+  let ls ← items.mapM lowerTItem
+  some ls.flatten
+
+def bodyImage (wof : String → Option Nat)
+    (wires : List Sparkle.IR.AST.Port) :
+    List Sparkle.IR.AST.Stmt → Option (List Sparkle.IR.AST.Stmt)
+  | [] => some []
+  | st :: rest => do
+    some ((← stmtImage wof wires st) ++ (← bodyImage wof wires rest))
+
+open Sparkle.IR.Semantics in
+/-- The init constant survives the emit/lower encode up to `encodeInit`. -/
+theorem encodeInit_image (v : Int) (w : Nat) :
+    encodeInit (Int.ofNat (Tools.SVParser.EmitAst.encodeConst v w)) w = encodeInit v w := by
+  unfold encodeInit Tools.SVParser.EmitAst.encodeConst
+  have hg : (0 : Int) < ((2 ^ w : Nat) : Int) := by
+    exact_mod_cast Nat.two_pow_pos w
+  have h2 := Int.emod_nonneg (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int))
+    (by omega : ((2 ^ w : Nat) : Int) ≠ 0)
+  have h3 := Int.emod_lt_of_pos (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int)) hg
+  generalize hE : (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int))
+      % ((2 ^ w : Nat) : Int) = E at *
+  -- LHS: encode of the already-encoded value; the inner value is in
+  -- [0, 2^w), so every mod is the identity
+  have hEeq : Int.ofNat E.toNat = E := Int.toNat_of_nonneg h2
+  have hEmod : E % ((2 ^ w : Nat) : Int) = E := Int.emod_eq_of_lt h2 h3
+  rw [hEeq, hEmod, Int.add_emod_right, hEmod]
+
+open Sparkle.IR.Semantics in
+/-- The nonnegative-init image likewise. -/
+theorem encodeInit_image_nonneg (v : Int) (w : Nat) (h0 : 0 ≤ v) :
+    encodeInit (Int.ofNat v.toNat) w = encodeInit v w := by
+  unfold encodeInit
+  have : Int.ofNat v.toNat = v := Int.toNat_of_nonneg h0
+  rw [this]
+
+
+open Sparkle.IR.Semantics in
+/-- The module-body fragment: assigns and registers whose expressions
+    are (env-uniformly) in the expression fragment, with sanitize-fixed
+    names and width agreement between the declared reset width and the
+    semantic width. -/
+inductive BFrag (wof : String → Option Nat) (we : WEnv)
+    (wires : List Sparkle.IR.AST.Port) : List Sparkle.IR.AST.Stmt → Prop
+  | nil : BFrag wof we wires []
+  | assign {l x rest}
+      (hs : Sparkle.Backend.Verilog.sanitizeName l = l)
+      (hx : ∀ env, SFrag wof we env x)
+      (hrest : BFrag wof we wires rest) :
+      BFrag wof we wires (.assign l x :: rest)
+  | reg {out clk rst kind x init rest}
+      (hso : Sparkle.Backend.Verilog.sanitizeName out = out)
+      (hsc : Sparkle.Backend.Verilog.sanitizeName clk = clk)
+      (hsr : Sparkle.Backend.Verilog.sanitizeName rst = rst)
+      (hx : ∀ env, SFrag wof we env x)
+      (hrw : Tools.SVParser.EmitAst.regResetWidth wires out = we out)
+      (hw0 : 0 < we out)
+      (hwrst : 0 < we rst)
+      (hrest : BFrag wof we wires rest) :
+      BFrag wof we wires (.register out clk (rst, kind) x init :: rest)
+
+open Sparkle.IR.Semantics in
+/-- Combinational phase: the image body folds to the same environment. -/
+theorem fold_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+    (hB : BFrag wof we wires body)
+    (hI : bodyImage wof wires body = some body') :
+    ∀ env0, evalAssigns we body' env0 = evalAssigns we body env0 := by
+  induction hB generalizing body' with
+  | nil =>
+    intro env0
+    simp only [bodyImage] at hI
+    cases hI
+    rfl
+  | assign hs hx hrest ih =>
+    rename_i l x rest
+    obtain ⟨x'', hbind, hwid, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    have hval : ∀ env, evalExpr we env x'' = evalExpr we env x := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hx env)
+      rw [hbind] at hb3
+      cases hb3
+      exact hv3
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
+    obtain ⟨img, hImg, rest', hRest, rfl⟩ :
+        ∃ img, stmtImage wof wires (.assign l x) = some img
+          ∧ ∃ rest', bodyImage wof wires rest = some rest'
+          ∧ body' = img ++ rest' := by
+      simp only [bodyImage, Option.bind_eq_bind] at hI
+      cases hS : stmtImage wof wires (.assign l x) with
+      | none => rw [hS] at hI; simp at hI
+      | some img =>
+        rw [hS] at hI
+        cases hR : bodyImage wof wires rest with
+        | none => rw [hR] at hI; simp at hI
+        | some rest' =>
+          rw [hR] at hI
+          simp only [Option.bind_some, Option.some_inj] at hI
+          exact ⟨img, rfl, rest', rfl, hI.symm⟩
+    have hImgEq : img = [.assign l x''] := by
+      simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt, hex1, hs,
+        lowerTItem, hex2] at hImg
+      exact hImg.symm
+    subst hImgEq
+    intro env0
+    simp only [List.cons_append, List.nil_append, evalAssigns,
+      Option.bind_eq_bind, hval env0]
+    cases evalExpr we env0 x with
+    | none => rfl
+    | some v => exact ih hRest _
+  | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
+    rename_i out clk rst kind x init rest
+    obtain ⟨x'', hbind, hwid, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
+    obtain ⟨img, hImg, rest', hRest, rfl⟩ :
+        ∃ img, stmtImage wof wires (.register out clk (rst, kind) x init)
+            = some img
+          ∧ ∃ rest', bodyImage wof wires rest = some rest'
+          ∧ body' = img ++ rest' := by
+      simp only [bodyImage, Option.bind_eq_bind] at hI
+      cases hS : stmtImage wof wires (.register out clk (rst, kind) x init) with
+      | none => rw [hS] at hI; simp at hI
+      | some img =>
+        rw [hS] at hI
+        cases hR : bodyImage wof wires rest with
+        | none => rw [hR] at hI; simp at hI
+        | some rest' =>
+          rw [hR] at hI
+          simp only [Option.bind_some, Option.some_inj] at hI
+          exact ⟨img, rfl, rest', rfl, hI.symm⟩
+    -- the image register: mux-guarded input, encoded init
+    have hne : (we out == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    obtain ⟨iv, hivShape⟩ :
+        ∃ iv, img = [.register out clk (rst, .asynchronous)
+          (.op .mux [.op .not [.ref rst], x'', .const iv (we out)]) iv] := by
+      by_cases hneg : init < 0
+      · refine ⟨Int.ofNat (Tools.SVParser.EmitAst.encodeConst init (we out)),
+          ?_⟩
+        simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt,
+          show Tools.SVParser.EmitAst.regResetWidth wires out = we out from hrw,
+          Tools.SVParser.EmitAst.emitAstExpr, hso, hsc, hsr,
+          hex1, hne, if_pos hneg, lowerTItem, lowerT, hex2] at hImg
+        exact hImg.symm
+      · refine ⟨max init 0, ?_⟩
+        simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt,
+          show Tools.SVParser.EmitAst.regResetWidth wires out = we out from hrw,
+          Tools.SVParser.EmitAst.emitAstExpr, hso, hsc, hsr,
+          hex1, hne, if_neg hneg, lowerTItem, lowerT, hex2] at hImg
+        exact hImg.symm
+    subst hivShape
+    intro env0
+    simp only [List.cons_append, List.nil_append, evalAssigns]
+    exact ih hRest env0
+
+open Sparkle.IR.Semantics in
+/-- Register phase: the image body computes the same next-state list. -/
+theorem regNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+    (hB : BFrag wof we wires body)
+    (hI : bodyImage wof wires body = some body') :
+    ∀ envF, regNexts we body' envF = regNexts we body envF := by
+  induction hB generalizing body' with
+  | nil =>
+    intro envF
+    simp only [bodyImage] at hI
+    cases hI
+    rfl
+  | assign hs hx hrest ih =>
+    rename_i l x rest
+    obtain ⟨x'', hbind, _, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
+    obtain ⟨img, hImg, rest', hRest, rfl⟩ :
+        ∃ img, stmtImage wof wires (.assign l x) = some img
+          ∧ ∃ rest', bodyImage wof wires rest = some rest'
+          ∧ body' = img ++ rest' := by
+      simp only [bodyImage, Option.bind_eq_bind] at hI
+      cases hS : stmtImage wof wires (.assign l x) with
+      | none => rw [hS] at hI; simp at hI
+      | some img =>
+        rw [hS] at hI
+        cases hR : bodyImage wof wires rest with
+        | none => rw [hR] at hI; simp at hI
+        | some rest' =>
+          rw [hR] at hI
+          simp only [Option.bind_some, Option.some_inj] at hI
+          exact ⟨img, rfl, rest', rfl, hI.symm⟩
+    have hImgEq : img = [.assign l x''] := by
+      simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt, hex1, hs,
+        lowerTItem, hex2] at hImg
+      exact hImg.symm
+    subst hImgEq
+    intro envF
+    simp only [List.cons_append, List.nil_append, regNexts]
+    exact ih hRest envF
+  | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
+    rename_i out clk rst kind x init rest
+    obtain ⟨x'', hbind, hwid, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    have hval : ∀ env, evalExpr we env x'' = evalExpr we env x := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hx env)
+      rw [hbind] at hb3
+      cases hb3
+      exact hv3
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
+    obtain ⟨img, hImg, rest', hRest, rfl⟩ :
+        ∃ img, stmtImage wof wires (.register out clk (rst, kind) x init)
+            = some img
+          ∧ ∃ rest', bodyImage wof wires rest = some rest'
+          ∧ body' = img ++ rest' := by
+      simp only [bodyImage, Option.bind_eq_bind] at hI
+      cases hS : stmtImage wof wires (.register out clk (rst, kind) x init) with
+      | none => rw [hS] at hI; simp at hI
+      | some img =>
+        rw [hS] at hI
+        cases hR : bodyImage wof wires rest with
+        | none => rw [hR] at hI; simp at hI
+        | some rest' =>
+          rw [hR] at hI
+          simp only [Option.bind_some, Option.some_inj] at hI
+          exact ⟨img, rfl, rest', rfl, hI.symm⟩
+    have hne : (we out == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    obtain ⟨iv, hivShape, hivEnc⟩ :
+        ∃ iv, img = [.register out clk (rst, .asynchronous)
+            (.op .mux [.op .not [.ref rst], x'', .const iv (we out)]) iv]
+          ∧ encodeInit iv (we out) = encodeInit init (we out) := by
+      by_cases hneg : init < 0
+      · refine ⟨Int.ofNat (Tools.SVParser.EmitAst.encodeConst init (we out)),
+          ?_, encodeInit_image init (we out)⟩
+        simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt,
+          show Tools.SVParser.EmitAst.regResetWidth wires out = we out from hrw,
+          Tools.SVParser.EmitAst.emitAstExpr, hso, hsc, hsr,
+          hex1, hne, if_pos hneg, lowerTItem, lowerT, hex2] at hImg
+        exact hImg.symm
+      · have hmax : (max init 0 : Int) = init := by omega
+        refine ⟨max init 0, ?_, by rw [hmax]⟩
+        simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt,
+          show Tools.SVParser.EmitAst.regResetWidth wires out = we out from hrw,
+          Tools.SVParser.EmitAst.emitAstExpr, hso, hsc, hsr,
+          hex1, hne, if_neg hneg, lowerTItem, lowerT, hex2] at hImg
+        exact hImg.symm
+    subst hivShape
+    intro envF
+    simp only [List.cons_append, List.nil_append, regNexts,
+      Option.bind_eq_bind]
+    -- the image input (a redundantly-guarded mux) evaluates together
+    -- with the original input; under reset both sides use their inits
+    have hnot : evalExpr we envF (.op .not [.ref rst])
+        = some (mask (we rst) ((envF rst) ^^^ (2 ^ (we rst) - 1))) := by
+      simp [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf]
+    have hconst := eval_const_encode we envF iv (we out)
+    rw [eval_mux3 we envF (.op .not [.ref rst]) x'' (.const iv (we out)),
+      hnot, hconst, hval envF]
+    cases hX : evalExpr we envF x with
+    | none => simp
+    | some vx =>
+      simp only [Option.bind_some]
+      by_cases hrz : envF rst = 0
+      · -- out of reset: the mux picks the input branch
+        have hcond : mask (we rst) (2 ^ (we rst) - 1) ≠ 0 := by
+          have hp2 : 2 ≤ 2 ^ (we rst) := by
+            calc 2 = 2 ^ 1 := rfl
+            _ ≤ 2 ^ (we rst) := Nat.pow_le_pow_right (by omega) hwrst
+          unfold mask
+          rw [Nat.mod_eq_of_lt (by omega)]
+          omega
+        simp [hrz, hcond, ih hRest envF]
+      · -- under reset: both sides take their (encode-equal) inits
+        have hini : encodeInit iv (we out) = encodeInit init (we out) := hivEnc
+        have hencl : mask (we out)
+            (Tools.SVParser.EmitAst.encodeConst iv (we out))
+              = encodeInit iv (we out) := rfl
+        simp [hrz, ih hRest envF, hini]
+
+open Sparkle.IR.Semantics in
+/-- **The module-level roundtrip theorem** (assign+register bodies):
+    one cycle of the emit-then-lower image is one cycle of the original. -/
+theorem step_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+    (hB : BFrag wof we wires body)
+    (hI : bodyImage wof wires body = some body') (env0 : Env) :
+    stepModule we body' env0 = stepModule we body env0 := by
+  unfold stepModule
+  rw [fold_eq hB hI env0]
+  cases evalAssigns we body env0 with
+  | none => rfl
+  | some envF => simp [regNexts_eq hB hI envF]
 end Tools.SVParser.RoundtripProof
