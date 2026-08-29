@@ -36,6 +36,7 @@
 -/
 
 import Sparkle.IR.Semantics
+import Sparkle.IR.ReorderInvariance
 import Tools.SVParser.Lower
 import Tools.SVParser.EmitAst
 
