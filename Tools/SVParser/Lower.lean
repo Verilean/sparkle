@@ -832,6 +832,46 @@ partial def collectRefsAux (acc : List String) : Expr → List String
 
 def collectRefs (e : Expr) : List String := collectRefsAux [] e
 
+/-- Does this lowered condition mean `¬reset`?  Sparkle's own emission
+    of the register mux produces several encodings of the same guard
+    (`~(reset)` → xor -1/32, `reset ^ 1'h1` → xor 1/1, and the same
+    under a 1-bit cast encode).  All agree OUT of reset (reset = 0 →
+    nonzero → the mux picks its then-branch), which is the only case
+    the strip below needs: under reset the register's own (rst, init)
+    fields win. -/
+partial def isNotOfReset (rst : String) : Expr → Bool
+  | .op .not [.ref r] => r == rst
+  | .op .xor [.ref r, .const 1 1] => r == rst
+  | .op .xor [.ref r, .const (-1) _] => r == rst
+  | .slice (.concat [.const 0 1, inner]) 0 0 => isNotOfReset rst inner
+  | _ => false
+
+/-- Strip the redundant reset mux from a register's reconstructed input.
+    Sparkle emits a register as `if (rst) r <= init; else r <= X;` where
+    the register statement ALSO carries (rst, init) — so the
+    reconstruction wrapped X in `mux(¬rst, X, init)` (and `mux(rst,
+    init, X)`) once more per reparse, and the roundtrip grew one mux
+    layer per generation (certified-roundtrip idempotence check).
+    Semantically inert: under reset the register's own init wins; out of
+    reset every encoding of the guard picks X. -/
+partial def stripResetMux (rst : String) (init : Int) : Expr → Expr
+  | e@(.op .mux [c, x, .const iv _]) =>
+    if isNotOfReset rst c && iv == init then stripResetMux rst init x else e
+  | e@(.op .mux [.ref r, .const iv _, x]) =>
+    if r == rst && iv == init then stripResetMux rst init x else e
+  | e => e
+
+/-- Apply `stripResetMux` to every register input in a design.  Runs
+    AFTER `Optimize.optimizeDesign`: the redundant layer only reaches
+    the strippable `mux(¬rst, x, init)` shape once the optimizer folds
+    the dead `rst ? init : q` arm out of its else branch. -/
+def stripResetMuxDesign (d : Design) : Design :=
+  { d with modules := d.modules.map fun m =>
+      { m with body := m.body.map fun st => match st with
+          | .register out clk (rst, kind) input init =>
+            .register out clk (rst, kind) (stripResetMux rst init input) init
+          | st => st } }
+
 /-- Chain guarded assignments into a flat priority mux (last-write-wins).
     `base` is the default when no guard is active (hold value for registers,
     first flat assign for blocking signals). -/
@@ -2153,7 +2193,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         let initVal := match initMap.find? (·.1 == regName) with
           | some (_, v) => v
           | none => 0
-        let dataExpr := guardedToMux (allGuarded.filter (·.target == regName)) (.ref regName)
+        let dataExpr := stripResetMux resetName initVal
+          (guardedToMux (allGuarded.filter (·.target == regName)) (.ref regName))
         body := body.push (.register regName clock (resetName, resetKind) dataExpr initVal)
         if !((wireSet.contains regName || portNameSet.contains regName)) then
           wires := wires.push { name := regName, ty := hwTy }; wireSet := wireSet.insert regName true
@@ -2828,7 +2869,7 @@ def parseAndLowerFlat (input : String) : Except String Design := do
   -- Generic reachability DCE: remove unreachable wires/registers
   let stripped := reachabilityDCE result
   -- Optimize: constant folding, DCE, single-use wire inlining
-  let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
+  let optimized := stripResetMuxDesign (Sparkle.IR.Optimize.optimizeDesign stripped)
   pure (declareOrphanRefs optimized)
 
 /-- Parse Verilog and lower to IR, preserving module hierarchy (no flattening).
@@ -2877,7 +2918,7 @@ def parseAndLowerHierarchical (input : String) : Except String Design := do
   -- Generic reachability DCE: remove unreachable wires/registers
   let stripped := reachabilityDCE design
   -- Optimize each module independently
-  let optimized := Sparkle.IR.Optimize.optimizeDesign stripped
+  let optimized := stripResetMuxDesign (Sparkle.IR.Optimize.optimizeDesign stripped)
   pure (declareOrphanRefs optimized)
 
 def parseAndLowerWithMemInit (input : String) : Except String (Design × List ReadMemHInfo) := do

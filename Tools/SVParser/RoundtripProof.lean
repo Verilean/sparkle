@@ -1104,8 +1104,10 @@ def lowerTItem : SVModuleItem → Option (List Sparkle.IR.AST.Stmt)
     let input' ← lowerT inputE
     match init' with
     | .const iv _ =>
-      some [.register out1 clk (rst, .asynchronous)
-        (.op .mux [.op .not [.ref rst], input', init']) iv]
+      -- the shipping pipeline's post-optimize stripResetMux pass removes
+      -- the redundant reset mux, so the image register carries the
+      -- lowered input DIRECTLY (near-identity roundtrip)
+      some [.register out1 clk (rst, .asynchronous) input' iv]
     | _ => none
   | .wireDecl _ _ none => some []       -- declaration only
   | .wireDecl _ _ (some _) => some []   -- register initializer (guarded)
@@ -1743,8 +1745,7 @@ theorem fold_eq {wof we wires} (mems : MEnv)
     have hne : (we out == 0) = false := by
       simp only [beq_eq_false_iff_ne]; omega
     obtain ⟨iv, hivShape⟩ :
-        ∃ iv, img = [.register out clk (rst, .asynchronous)
-          (.op .mux [.op .not [.ref rst], x'', .const iv (we out)]) iv] := by
+        ∃ iv, img = [.register out clk (rst, .asynchronous) x'' iv] := by
       by_cases hneg : init < 0
       · refine ⟨Int.ofNat (Tools.SVParser.EmitAst.encodeConst init (we out)),
           ?_⟩
@@ -1861,8 +1862,7 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
     have hne : (we out == 0) = false := by
       simp only [beq_eq_false_iff_ne]; omega
     obtain ⟨iv, hivShape, hivEnc⟩ :
-        ∃ iv, img = [.register out clk (rst, .asynchronous)
-            (.op .mux [.op .not [.ref rst], x'', .const iv (we out)]) iv]
+        ∃ iv, img = [.register out clk (rst, .asynchronous) x'' iv]
           ∧ encodeInit iv (we out) = encodeInit init (we out) := by
       by_cases hneg : init < 0
       · refine ⟨Int.ofNat (Tools.SVParser.EmitAst.encodeConst init (we out)),
@@ -1883,34 +1883,15 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
     intro envF
     simp only [List.cons_append, List.nil_append, regNexts,
       Option.bind_eq_bind]
-    -- the image input (a redundantly-guarded mux) evaluates together
-    -- with the original input; under reset both sides use their inits
-    have hnot : evalExpr we envF (.op .not [.ref rst])
-        = some (mask (we rst) ((envF rst) ^^^ (2 ^ (we rst) - 1))) := by
-      simp [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf]
-    have hconst := eval_const_encode we envF iv (we out)
-    rw [eval_mux3 we envF (.op .not [.ref rst]) x'' (.const iv (we out)),
-      hnot, hconst, hval envF]
+    -- the image register carries the roundtripped input DIRECTLY (the
+    -- shipping stripResetMux pass removed the redundant reset mux);
+    -- inits agree up to encode
+    rw [hval envF]
     cases hX : evalExpr we envF x with
     | none => simp
     | some vx =>
       simp only [Option.bind_some]
-      by_cases hrz : envF rst = 0
-      · -- out of reset: the mux picks the input branch
-        have hcond : mask (we rst) (2 ^ (we rst) - 1) ≠ 0 := by
-          have hp2 : 2 ≤ 2 ^ (we rst) := by
-            calc 2 = 2 ^ 1 := rfl
-            _ ≤ 2 ^ (we rst) := Nat.pow_le_pow_right (by omega) hwrst
-          unfold mask
-          rw [Nat.mod_eq_of_lt (by omega)]
-          omega
-        simp [hrz, hcond, ih hRest envF]
-      · -- under reset: both sides take their (encode-equal) inits
-        have hini : encodeInit iv (we out) = encodeInit init (we out) := hivEnc
-        have hencl : mask (we out)
-            (Tools.SVParser.EmitAst.encodeConst iv (we out))
-              = encodeInit iv (we out) := rfl
-        simp [hrz, ih hRest envF, hini]
+      simp [ih hRest envF, hivEnc]
   | mem hsn hsc hwp hrp hdw hrest ih =>
     rename_i name aw dw clk wa wd wen ra rd cr ew er rest
     obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
@@ -1973,8 +1954,7 @@ theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     have hne : (we out == 0) = false := by
       simp only [beq_eq_false_iff_ne]; omega
     obtain ⟨iv, hivShape⟩ :
-        ∃ iv, img = [.register out clk (rst, .asynchronous)
-          (.op .mux [.op .not [.ref rst], x'', .const iv (we out)]) iv] := by
+        ∃ iv, img = [.register out clk (rst, .asynchronous) x'' iv] := by
       by_cases hneg : init < 0
       · refine ⟨Int.ofNat (Tools.SVParser.EmitAst.encodeConst init (we out)),
           ?_⟩
