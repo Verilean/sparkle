@@ -2567,5 +2567,36 @@ endmodule
       passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 65 (certified-roundtrip M1): a REGISTER survives re-parsing
+  -- Sparkle's own emission.  `logic r = 8'h3;` is a register
+  -- INITIALIZER when r is procedurally assigned in an always block; the
+  -- lowering used to also emit `assign r = 3`, the register-vs-assign
+  -- dedup kept the constant assign, and the register folded away —
+  -- q became `assign q = 3'd3` and the feedback loop vanished.
+  IO.print "  Test 65: registers survive self-reparse... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "selfrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 8⟩]
+      outputs := [⟨"q", .bitVector 8⟩]
+      wires := [⟨"w", .bitVector 8⟩, ⟨"r", .bitVector 8⟩, ⟨"q", .bitVector 8⟩]
+      body := [
+        .assign "w" (.op .add [.ref "a", .ref "r"]),
+        .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3,
+        .assign "q" (.ref "r")]
+      assertions := [] }
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let regs := d.modules.foldl (fun acc lm =>
+        acc + (lm.body.filter fun st => match st with
+          | .register out _ _ _ _ => out == "r" | _ => false).length) 0
+      if regs == 1 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: register count {regs} (folded to a constant?)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

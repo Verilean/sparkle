@@ -155,6 +155,78 @@ def evalList (we : WEnv) (env : Env) : List Expr → Option (List Nat)
     some (v :: vs)
 end
 
+/- ------------------------------------------------------------------ -/
+/- Module-level step semantics (M1).
+
+   One clock cycle of a module, in two phases exactly mirroring the
+   backends' eval/tick split:
+
+   * `evalAssigns` — combinational elaboration: fold the body's assigns
+     IN ORDER over an environment seeded with inputs and current
+     register values.  Correctness relies on the body being
+     topologically sorted, which is a WELL-FORMEDNESS assumption here
+     and a guarantee of `topoSortBody` on the shipping pipeline.
+
+   * `regNexts` — the register phase: each register's next value is
+     `if reset ≠ 0 then init else ⟦input⟧` under the POST-elaboration
+     environment.  Reset KIND (sync/async) is deliberately ignored: in
+     the cycle-level model both kinds sample reset once per cycle, which
+     is also why the parser losing the `or posedge rst` sensitivity is
+     semantically inert.
+
+   Memories and instances are outside the v1 fragment (they return
+   `none`), entering the same way the expression fragment grew. -/
+
+def evalAssigns (we : WEnv) : List Stmt → Env → Option Env
+  | [], env => some env
+  | .assign l r :: rest, env => do
+    let v ← evalExpr we env r
+    evalAssigns we rest (fun n => if n = l then v else env n)
+  | .register _ _ _ _ _ :: rest, env => evalAssigns we rest env
+  | _ :: _, _ => none
+
+/-- Encode a register's reset value the way `evalExpr` encodes
+    constants. -/
+def encodeInit (v : Int) (w : Nat) : Nat :=
+  mask w (Int.toNat (((v % (2 ^ w : Nat)) + (2 ^ w : Nat)) % (2 ^ w : Nat)))
+
+/-- Next values for every register, under the post-elaboration env. -/
+def regNexts (we : WEnv) : List Stmt → Env → Option (List (String × Nat))
+  | [], _ => some []
+  | .register out _ (rstName, _) input init :: rest, env => do
+    let vin ← evalExpr we env input
+    let nexts ← regNexts we rest env
+    let next := if env rstName ≠ 0 then encodeInit init (we out)
+                else mask (we out) vin
+    some ((out, next) :: nexts)
+  | .assign _ _ :: rest, env => regNexts we rest env
+  | _ :: _, _ => none
+
+/-- One cycle: elaborate, then step the registers.  Returns the final
+    combinational environment (outputs are read from it) and the
+    register updates. -/
+def stepModule (we : WEnv) (body : List Stmt) (env0 : Env) :
+    Option (Env × List (String × Nat)) := do
+  let envF ← evalAssigns we body env0
+  let nexts ← regNexts we body envF
+  some (envF, nexts)
+
+section StepGuards
+private def weS : WEnv := fun _ => 8
+private def envS : Env := fun n =>
+  if n == "a" then 0xA5 else if n == "rst" then 0 else if n == "r" then 7 else 0
+private def bodyS : List Stmt :=
+  [ .assign "w" (.op .add [.ref "a", .ref "r"]),
+    .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3 ]
+-- combinational: w = a + r = 0xA5 + 7 = 0xAC
+#guard (stepModule weS bodyS envS).map (fun p => p.1 "w") = some 0xAC
+-- register next: rst=0 → w's value
+#guard (stepModule weS bodyS envS).map (fun p => p.2) = some [("r", 0xAC)]
+-- under reset: init encoded
+private def envR : Env := fun n => if n == "rst" then 1 else envS n
+#guard (stepModule weS bodyS envR).map (fun p => p.2) = some [("r", 3)]
+end StepGuards
+
 /- Behavioral pins: the semantics agrees with hardware intuition on
    small cases (evaluated at compile time). -/
 section Guards

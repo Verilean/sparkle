@@ -1856,6 +1856,24 @@ private def preprocessPackedItems (items : List SVModuleItem) : List SVModuleIte
     | _ => none
   if tbl.isEmpty then items else items.map (expandPackedItem tbl)
 
+/-- Names procedurally assigned by a statement (recursively through
+    if/case/for) — see the register-initializer note in `lowerModule`. -/
+private partial def collectProcTargets
+    (acc : Std.HashMap String Bool) (st : SVStmt) :
+    Std.HashMap String Bool :=
+  match st with
+  | .nonblockAssign lhs _ | .blockAssign lhs _ =>
+    (match exprToName lhs with
+     | some n => acc.insert n true
+     | none => acc)
+  | .ifElse _ t e => e.foldl collectProcTargets (t.foldl collectProcTargets acc)
+  | .caseStmt _ arms dflt =>
+    let acc1 := arms.foldl (fun a (p : List SVExpr × List SVStmt) =>
+      p.2.foldl collectProcTargets a) acc
+    (dflt.getD []).foldl collectProcTargets acc1
+  | .forLoop _ _ _ b => b.foldl collectProcTargets acc
+  | _ => acc
+
 /-- Lower a single SVModule to Sparkle IR Module, optionally overriding parameters. -/
 
 
@@ -1960,6 +1978,22 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         wires := wires.push { name := param.name, ty }; wireSet := wireSet.insert param.name true
         paramNames := paramNames ++ [param.name]
     | _ => pure ()
+
+  -- Names procedurally assigned inside ANY always block: a
+  -- `logic name = init;` for such a name is a REGISTER INITIALIZER
+  -- (SystemVerilog variable init), not a continuous assign — emitting
+  -- `assign name = init` created a competing constant driver, the
+  -- register-vs-assign dedup kept the assign, and the register
+  -- CONSTANT-FOLDED away.  firtool never writes this shape (it uses
+  -- RANDOMIZE initial blocks), so only re-parsing Sparkle's OWN emitted
+  -- registers hit it — silently, including in the roundtrip metric.
+  let alwaysTargets : Std.HashMap String Bool := Id.run do
+    let mut acc : Std.HashMap String Bool := {}
+    for it in svMod.items do
+      match it with
+      | .alwaysBlock _ stmts => acc := stmts.foldl collectProcTargets acc
+      | _ => pure ()
+    return acc
 
   -- Build body statements
   let mut body : Array Stmt := #[]
@@ -2123,8 +2157,12 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
             let sigTy := env.getHWType sigName
             wires := wires.push { name := sigName, ty := sigTy }; wireSet := wireSet.insert sigName true
     | .wireDecl name _ (some initExpr) =>
-      -- wire x = expr; → assign
-      body := body.push (.assign name (lowerExpr initExpr))
+      -- `wire x = expr;` → assign — UNLESS x is procedurally assigned in
+      -- an always block, in which case the initializer is register init
+      -- (already carried by the reset arm) and a continuous assign would
+      -- be a competing driver (see `alwaysTargets` above).
+      if !(alwaysTargets.contains name) then
+        body := body.push (.assign name (lowerExpr initExpr))
     | .regDecl name width (some arraySize) =>
       -- Array reg → Stmt.memory for JIT memory access
       -- Do NOT add to wires list — Stmt.memory creates the class member.
