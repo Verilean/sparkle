@@ -2580,7 +2580,7 @@ mutual
       let parent := (← get).module
       let cachedRD : Option String := parent.body.findSome? fun stmt =>
         match stmt with
-        | .memory _ aw dw _clk wa wd we ra rd _cr =>
+        | .memory _ aw dw _clk wa wd we ra rd _cr .. =>
           if aw == addrWidth ∧ dw == dataWidth then
             match wa, wd, we, ra with
             | .ref a, .ref d, .ref e, .ref r =>

@@ -71,6 +71,53 @@ def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
 def LowerEnv.isSignedRef (env : LowerEnv) (name : String) : Bool :=
   env.signedNames.contains name
 
+/-- `staticExprWidth` with an ENVIRONMENT: identifiers resolve through the
+    module's declarations.  `^{mshrInfo_blkPAddr[41:6], wire_a, wire_b, …}`
+    (ICacheMissUnit's meta-entry parity) has no static width — every bare
+    ident defeated `expandReductXor`, the sentinel wire was then declared
+    by `declareOrphanRefs` and const-folded, and the parity silently
+    became 0.  With the environment the width is exact. -/
+partial def envExprWidth (env : LowerEnv) : SVExpr → Option Nat
+  | .ident n =>
+    if env.portWidths.contains n || env.wireWidths.contains n then
+      some (match env.getWidth n with
+        | some (hi, lo) => hi - lo + 1
+        | none => 1)
+    else none
+  | .slice _ hi lo => some (hi - lo + 1)
+  | .sizeCast w _ => some w
+  | .index _ _ => some 1
+  | .partSelectPlus _ _ (.lit (.decimal none w)) => some w
+  | .lit (.decimal (some w) _) => some w
+  | .lit (.hex (some w) _) => some w
+  | .lit (.binary (some w) _) => some w
+  | .concat args => args.foldl (fun acc a =>
+      match acc, envExprWidth env a with
+      | some x, some y => some (x + y)
+      | _, _ => none) (some 0)
+  | .ternary _ t e =>
+    match envExprWidth env t, envExprWidth env e with
+    | some wt, some we => some (max wt we)
+    | some wt, none => some wt
+    | none, some we => some we
+    | none, none => none
+  | .repeat_ (.lit (.decimal _ n)) v => (envExprWidth env v).map (n * ·)
+  | .unary .bitNot a => envExprWidth env a
+  | .unary .neg a => envExprWidth env a
+  | .unary .signed a => envExprWidth env a
+  | .unary .reductAnd _ | .unary .reductOr _ | .unary .reductXor _
+  | .unary .logNot _ => some 1
+  | .binary .eq _ _ | .binary .neq _ _ | .binary .lt _ _ | .binary .le _ _
+  | .binary .gt _ _ | .binary .ge _ _
+  | .binary .logAnd _ _ | .binary .logOr _ _ => some 1
+  | .binary .bitAnd a b | .binary .bitOr a b | .binary .bitXor a b =>
+    match envExprWidth env a, envExprWidth env b with
+    | some wa, some wb => some (max wa wb)
+    | some wa, none => some wa
+    | none, some wb => some wb
+    | none, none => none
+  | _ => none
+
 -- ============================================================================
 -- Expression lowering
 -- ============================================================================
@@ -174,7 +221,89 @@ private def staticExprWidth : SVExpr → Option Nat
       match acc, staticExprWidth a with
       | some x, some y => some (x + y)
       | _, _ => none) (some 0)
+  -- A ternary is as wide as its arms.  Without this, `^(cond ? 8'h0 :
+  -- beat[255:248])` had no static width, so the parity expansion bailed
+  -- to the undeclared-wire sentinel and `io_out_bits_dataCheck` collapsed
+  -- to a constant — XiangShan's TXDAT computes 32 parity bytes exactly
+  -- this way.  Prefer whichever arm resolves; if both do and they differ,
+  -- decline rather than guess.
+  | .ternary _ t e =>
+    match staticExprWidth t, staticExprWidth e with
+    | some wt, some we => if wt == we then some wt else some (max wt we)
+    | some wt, none => some wt
+    | none, some we => some we
+    | none, none => none
+  -- `{n{expr}}` is n copies of a statically-known operand.
+  | .repeat_ (.lit (.decimal _ n)) v =>
+    (staticExprWidth v).map (n * ·)
+  -- These pass their operand's width through unchanged.
+  | .unary .bitNot a => staticExprWidth a
+  | .unary .neg a => staticExprWidth a
+  | .unary .signed a => staticExprWidth a
+  -- Reductions and logical negation are always one bit.
+  | .unary .reductAnd _ | .unary .reductOr _ | .unary .reductXor _
+  | .unary .logNot _ => some 1
+  | .binary .eq _ _ | .binary .neq _ _ | .binary .lt _ _ | .binary .le _ _
+  | .binary .gt _ _ | .binary .ge _ _
+  | .binary .logAnd _ _ | .binary .logOr _ _ => some 1
+  -- Bitwise binaries are as wide as their widest operand.
+  | .binary .bitAnd a b | .binary .bitOr a b | .binary .bitXor a b =>
+    match staticExprWidth a, staticExprWidth b with
+    | some wa, some wb => some (max wa wb)
+    | some wa, none => some wa
+    | none, some wb => some wb
+    | none, none => none
   | _ => none
+
+/-- Annotate every `^expr` whose width is NOT statically visible with a
+    size cast resolved from the environment, so `expandReductXor` can
+    expand it instead of bailing to its sentinel. -/
+partial def annotateRXExpr (env : LowerEnv) : SVExpr → SVExpr
+  | .unary .reductXor a =>
+    let a' := annotateRXExpr env a
+    if (staticExprWidth a').isSome then .unary .reductXor a'
+    else match envExprWidth env a' with
+      | some w => .unary .reductXor (.sizeCast w a')
+      | none => .unary .reductXor a'
+  | .unary op a => .unary op (annotateRXExpr env a)
+  | .binary op a b => .binary op (annotateRXExpr env a) (annotateRXExpr env b)
+  | .ternary c t e =>
+    .ternary (annotateRXExpr env c) (annotateRXExpr env t) (annotateRXExpr env e)
+  | .index a i => .index (annotateRXExpr env a) (annotateRXExpr env i)
+  | .slice e hi lo => .slice (annotateRXExpr env e) hi lo
+  | .partSelectPlus e b w =>
+    .partSelectPlus (annotateRXExpr env e) (annotateRXExpr env b) (annotateRXExpr env w)
+  | .concat args => .concat (args.map (annotateRXExpr env))
+  | .repeat_ c v => .repeat_ c (annotateRXExpr env v)
+  | .sizeCast w a => .sizeCast w (annotateRXExpr env a)
+  | e => e
+
+partial def annotateRXStmt (env : LowerEnv) : SVStmt → SVStmt
+  | .blockAssign l r => .blockAssign l (annotateRXExpr env r)
+  | .nonblockAssign l r => .nonblockAssign l (annotateRXExpr env r)
+  | .ifElse c t e =>
+    .ifElse (annotateRXExpr env c) (t.map (annotateRXStmt env)) (e.map (annotateRXStmt env))
+  -- Every statement form that can hold an expression: Directory's ECC
+  -- syndrome parities sat inside a case arm and stayed unannotated.
+  | .caseStmt e arms dflt =>
+    .caseStmt (annotateRXExpr env e)
+      (arms.map fun (gs, ss) => (gs.map (annotateRXExpr env), ss.map (annotateRXStmt env)))
+      (dflt.map (·.map (annotateRXStmt env)))
+  | .forLoop i c st body =>
+    .forLoop (annotateRXStmt env i) (annotateRXExpr env c)
+      (annotateRXStmt env st) (body.map (annotateRXStmt env))
+  | .assertStmt c => .assertStmt (annotateRXExpr env c)
+
+partial def annotateRXItem (env : LowerEnv) : SVModuleItem → SVModuleItem
+  | .contAssign l r => .contAssign l (annotateRXExpr env r)
+  | .alwaysBlock trig stmts => .alwaysBlock trig (stmts.map (annotateRXStmt env))
+  | .wireDecl n w (some e) => .wireDecl n w (some (annotateRXExpr env e))
+  | .packedArrayDecl n d (some e) => .packedArrayDecl n d (some (annotateRXExpr env e))
+  | .generateBlock c b eb =>
+    .generateBlock (annotateRXExpr env c)
+      (b.map (annotateRXItem env)) (eb.map (annotateRXItem env))
+  | it => it
+
 
 /-- Expand `^expr` (reduction XOR / parity) into an explicit bit fold when
     the operand width is statically known — firtool's uses are all slices
@@ -288,15 +417,28 @@ partial def lowerExpr (e : SVExpr) : Expr :=
         if isArrayName name then
           .index (lowerExpr arr) (lowerExpr idx)  -- array access
         else
-          .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- bit select
+          -- Wrapped in `.slice … 0 0` for the same reason as
+          -- `.partSelectPlus` below: the bare and-mask's inferred width
+          -- is the CONTAINER's, so as a self-determined concat element it
+          -- inflated and shifted its siblings out (VpnTable's
+          -- `{_GEN_35[i], _GEN_34[i], …}` subValid vector).
+          .slice (.op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]) 0 0
       | _ =>
-        .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
+        .slice (.op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]) 0 0
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
   | .partSelectPlus expr base widthExpr =>
-    -- [base +: width] = (expr >> base) & ((1 << width) - 1)
+    -- [base +: width] = (expr >> base) & ((1 << width) - 1), wrapped in
+    -- an explicit `.slice … (width-1) 0`.  The bare and-mask carries NO
+    -- width metadata — both backends infer the CONTAINER's width from
+    -- the shift, so as a self-determined concat element it inflated to
+    -- 64 bits and pushed every element above it out of the target
+    -- (MiscModule's 16-nibble xperm gather kept only its LAST nibble).
+    -- The slice pins the width; the Verilog emitter renders it as a
+    -- size cast, and CSim's slice arm truncates.
     let width := svExprToNat widthExpr |>.getD 1
     let mask := (1 <<< width) - 1
-    .op .and [.op .shr [lowerExpr expr, lowerExpr base], .const (Int.ofNat mask) width]
+    .slice (.op .and [.op .shr [lowerExpr expr, lowerExpr base],
+                      .const (Int.ofNat mask) width]) (width - 1) 0
   | .concat args => .concat (args.map lowerExpr)
   | .repeat_ count value =>
     -- {N{expr}}: replicate expr N times (bit replication)
@@ -331,6 +473,17 @@ def exprToName : SVExpr → Option String
   | .index (.ident name) _ => if isArrayName name then none else some name
   | .slice (.ident name) _ _ => some name
   -- Concat LHS handled separately by lowerConcatLhsAssign (needs bit scatter)
+  | _ => none
+
+/-- Bit/part-select bounds of an assignment LHS, when it writes only PART
+    of its target: `gnt[0]` → `(0, 0)`, `gnt[3:1]` → `(3, 1)`.  A bare
+    identifier writes the whole vector and yields `none`, as does a
+    non-constant index (a dynamic write, which cannot be merged
+    statically). -/
+def lhsSelectBounds : SVExpr → Option (Nat × Nat)
+  | .index (.ident name) (.lit (.decimal _ idx)) =>
+    if isArrayName name then none else some (idx, idx)
+  | .slice (.ident name) hi lo => if isArrayName name then none else some (hi, lo)
   | _ => none
 
 /-- Extract target name from concat LHS (all elements must reference same register) -/
@@ -1119,7 +1272,7 @@ def topoSortBody (body : List Stmt) : List Stmt := Id.run do
     match s with
     | .assign name rhs => assigns := assigns.push (name, rhs)
     | .register _ _ _ _ _ => registers := registers.push s
-    | .memory _ _ _ _ _ _ _ _ _ _ => memories := memories.push s
+    | .memory _ _ _ _ _ _ _ _ _ _ .. => memories := memories.push s
     | _ => others := others.push s
   let assignNameSet : Std.HashMap String Bool :=
     assigns.foldl (fun h (n, _) => h.insert n true) {}
@@ -1539,13 +1692,18 @@ private def narrowMaskStmt (env : LowerEnv) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (narrowMaskConstants env rhs)
   | .register output clk rst input init =>
     .register output clk rst (narrowMaskConstants env input) init
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
     .memory name aw dw clk
       (narrowMaskConstants env wa)
       (narrowMaskConstants env wd)
       (narrowMaskConstants env we)
       (narrowMaskConstants env ra)
       rd cr
+      -- extra ports get the same rewrite; dropping them here silently
+      -- reduced a multi-port memory to port 0
+      (ew.map fun (a, d, e) =>
+        (narrowMaskConstants env a, narrowMaskConstants env d, narrowMaskConstants env e))
+      (er.map fun (a, r) => (narrowMaskConstants env a, r))
   | .inst modName instName conns =>
     .inst modName instName
       (conns.map fun (p, e) => (p, narrowMaskConstants env e))
@@ -1611,13 +1769,17 @@ private def promoteSignedStmt (env : LowerEnv) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (promoteSignedComparisons env rhs)
   | .register output clk rst input init =>
     .register output clk rst (promoteSignedComparisons env input) init
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
     .memory name aw dw clk
       (promoteSignedComparisons env wa)
       (promoteSignedComparisons env wd)
       (promoteSignedComparisons env we)
       (promoteSignedComparisons env ra)
       rd cr
+      (ew.map fun (a, d, e) =>
+        (promoteSignedComparisons env a, promoteSignedComparisons env d,
+         promoteSignedComparisons env e))
+      (er.map fun (a, r) => (promoteSignedComparisons env a, r))
   | .inst modName instName conns =>
     .inst modName instName
       (conns.map fun (p, e) => (p, promoteSignedComparisons env e))
@@ -1750,6 +1912,10 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         regNames := env.regNames.insert name true }
     | _ => pure ()
 
+  -- With the environment complete, resolve reduction-XOR widths that are
+  -- invisible statically (bare idents inside the parity concat).
+  let svMod := { svMod with items := svMod.items.map (annotateRXItem env) }
+
   -- Build ports
   let inputs := svMod.ports.filter (·.dir == .input) |>.map fun p =>
     { name := p.name, ty := widthToHWType p.width : Port }
@@ -1797,6 +1963,9 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
 
   -- Build body statements
   let mut body : Array Stmt := #[]
+  -- Continuous assigns that write only PART of a vector, collected so
+  -- they can be merged into one driver per target (see `lhsSelectBounds`).
+  let mut partialAssigns : Array (String × Nat × Nat × Expr) := #[]
   -- All always @* blocks now use MUX mode (SSA handles loop dependencies)
 
   -- Emit parameter values as constant assigns (with overrides applied)
@@ -1829,7 +1998,18 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       if isMemRead then pure ()
       else
       match exprToName lhs with
-      | some name => body := body.push (.assign name (lowerExpr rhs))
+      | some name =>
+        -- A bit/part-select LHS (`assign gnt[0] = …`) carries a POSITION
+        -- that `exprToName` discards.  Several such statements to one
+        -- vector are legal Verilog (XiangShan's arbiters drive `gnt` one
+        -- bit per statement) but collapsed to competing `assign gnt = …`
+        -- drivers: the emitted Verilog was rejected for multiple drivers
+        -- and, worse, the IR kept only the last write.  Record the bounds
+        -- so the partial writes can be merged after the item loop.
+        match lhsSelectBounds lhs with
+        | some (hi, lo) =>
+          partialAssigns := partialAssigns.push (name, hi, lo, lowerExpr rhs)
+        | none => body := body.push (.assign name (lowerExpr rhs))
       | none =>
         -- Concat-LHS continuous assign: assign {a, b, c} = expr;
         -- Decompose into individual assigns for each target variable
@@ -1954,6 +2134,8 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       let mut writeAddr : Expr := .const 0 addrWidth
       let mut writeData : Expr := .const 0 dataWidth
       let mut writeEnable : Expr := .const 0 1
+      let mut extraWrites : List (Expr × Expr × Expr) := []
+      let mut extraReads : List (Expr × String) := []
       let mut memClock : String := "clk"
       for prevItem in svMod.items do
         match prevItem with
@@ -1968,6 +2150,15 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
             -- Compose MULTIPLE guarded writes as a priority mux (later
             -- statements win, mirroring non-blocking semantics); the old
             -- loop simply kept the LAST write and dropped the others.
+            -- Each guarded write becomes its OWN write port.  Folding
+            -- them into a priority mux (the previous behaviour) is only
+            -- correct when at most one guard is ever true: XiangShan's
+            -- dt_352x1 fires several of its eight write ports in the same
+            -- cycle, and the folded form then dropped every write but the
+            -- highest-priority one.  `Stmt.memory` carries the extra
+            -- ports, and both backends emit one guarded write each in
+            -- port order (last-port-wins on an address collision, the
+            -- Verilog `always_ff` rule).
             for (idx, data, cond) in arrayWrites do
               let c : Expr := match cond with
                 | some c => lowerExpr c
@@ -1977,9 +2168,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               if writeEnable == Expr.const 0 1 then
                 writeAddr := a; writeData := d; writeEnable := c
               else
-                writeAddr := .op .mux [c, a, writeAddr]
-                writeData := .op .mux [c, d, writeData]
-                writeEnable := .op .or [c, writeEnable]
+                extraWrites := extraWrites ++ [(a, d, c)]
           else
             -- Try byte-lane writes: if (wstrb[n]) arr[addr][hi:lo] <= data[hi:lo]
             -- (also matches firtool's `[base +: w]` mask-chunk form)
@@ -1989,7 +2178,22 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               memClock := blkClk
               let addr := lowerExpr lane0.addr
               writeAddr := addr
-              writeData := buildByteStrobeWrite name addr byteLanes dataWidth
+              let rmw := buildByteStrobeWrite name addr byteLanes dataWidth
+              -- A masked read-modify-write on a WIDE memory is a wide OP
+              -- (`row & ~mask | data & mask`).  Nested in the memory
+              -- statement's write-data slot it has no valid C rendering
+              -- (`array & array`); as its own wire it goes through the
+              -- backends' wide-ASSIGN paths, which materialise operands
+              -- word by word.  Narrow memories keep the inline form.
+              if dataWidth > 64 then
+                let wdWire := s!"{name}_wdata_rmw"
+                body := body.push (.assign wdWire rmw)
+                if !(wireSet.contains wdWire || portNameSet.contains wdWire) then
+                  wires := wires.push { name := wdWire, ty := widthToHWType width }
+                  wireSet := wireSet.insert wdWire true
+                writeData := .ref wdWire
+              else
+                writeData := rmw
               -- Enable if any strobe bit is set
               let enableExpr := byteLanes.foldl (fun acc lane =>
                 let c := lowerExpr lane.cond
@@ -1998,12 +2202,11 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               writeEnable := enableExpr
             | [] => pure ()
         | _ => pure ()
-      -- Extract read ports.  The FIRST continuous-assign read claims the
-      -- Stmt.memory combo-read port; EXTRA reads (multi-port SRAM macros
-      -- like dt_352x1 with 8 read ports) become plain `.index` assigns —
-      -- both backends render `Memory[addr]` directly.  The claimed
-      -- contAssign items are excluded from normal lowering below (they
-      -- used to ALSO lower as ordinary assigns → duplicate drivers).
+      -- Extract read ports.  The first read claims `Stmt.memory`'s
+      -- dedicated read fields; the rest become genuine EXTRA read ports
+      -- (XiangShan's dt_352x1 has eight).  The claimed contAssign items
+      -- are excluded from normal lowering below (they used to also lower
+      -- as ordinary assigns → duplicate drivers).
       let mut readAddr : Expr := .const 0 addrWidth
       let mut readDataName := s!"{name}_rdata"
       let mut comboRead := true
@@ -2017,7 +2220,7 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
               if !claimed then
                 readDataName := rdName; readAddr := lowerExpr idx; claimed := true
               else
-                body := body.push (.assign rdName (.index (.ref name) (lowerExpr idx)))
+                extraReads := extraReads ++ [(lowerExpr idx, rdName)]
             | none => pure ()
         | .alwaysBlock (.posedge _) innerStmts =>
           for s in innerStmts do
@@ -2030,9 +2233,11 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         | _ => pure ()
       body := body.push (.memory name addrWidth dataWidth memClock
         writeAddr writeData writeEnable
-        readAddr readDataName comboRead)
-      if !(wireSet.contains readDataName || portNameSet.contains readDataName) then
-        wires := wires.push { name := readDataName, ty := widthToHWType width }; wireSet := wireSet.insert readDataName true
+        readAddr readDataName comboRead extraWrites extraReads)
+      for rd in readDataName :: extraReads.map (·.2) do
+        if !(wireSet.contains rd || portNameSet.contains rd) then
+          wires := wires.push { name := rd, ty := widthToHWType width }
+          wireSet := wireSet.insert rd true
     | .instantiation modName instName conns _paramOvr =>
       -- Module instantiation → Stmt.inst (parameter overrides resolved at flatten time)
       let irConns := conns.map fun (portName, expr) => (portName, lowerExpr expr)
@@ -2119,7 +2324,29 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
   --                             their `_s` counterparts when either
   --                             arg references a `signed` port
   --                             (issue #43 / Test 32).
-  let narrowedBody := dedupBody.map (narrowMaskStmt env)
+  -- Merge the part-select continuous assigns: one driver per target,
+  -- built as an OR of each written slice shifted into place.  Emitting
+  -- them as separate `assign name = …` statements produced competing
+  -- full-vector drivers (iverilog rejects it) and kept only the last.
+  let mut mergedBody : List Stmt := dedupBody
+  if !partialAssigns.isEmpty then
+    let targets := partialAssigns.foldl (fun (acc : List String) (n, _, _, _) =>
+      if acc.contains n then acc else acc ++ [n]) []
+    for tgt in targets do
+      let parts := partialAssigns.toList.filter (fun (n, _, _, _) => n == tgt)
+      -- Widest bit touched decides the shift widths; a target whose other
+      -- bits are driven elsewhere is not our concern (Verilog would call
+      -- that multiple drivers too).
+      let terms := parts.map fun (_, hi, lo, rhs) =>
+        let w := hi - lo + 1
+        let bits := Expr.slice rhs (w - 1) 0
+        if lo == 0 then bits
+        else Expr.op .shl [bits, Expr.const (Int.ofNat lo) 32]
+      let merged := match terms with
+        | [] => Expr.const 0 1
+        | t :: rest => rest.foldl (fun acc t' => Expr.op .or [acc, t']) t
+      mergedBody := mergedBody ++ [.assign tgt merged]
+  let narrowedBody := mergedBody.map (narrowMaskStmt env)
   let promotedBody := narrowedBody.map (promoteSignedStmt env)
   pure {
     name := svMod.name
@@ -2196,7 +2423,7 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
 
           -- Collect all internal names in sub-module (including memory names)
           let memNames := effectiveSubMod.body.filterMap fun s => match s with
-            | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
+            | .memory n _ _ _ _ _ _ _ _ _ .. => some n | _ => none
           let subNames := effectiveSubMod.wires.map (·.name) ++
                           effectiveSubMod.inputs.map (·.name) ++
                           effectiveSubMod.outputs.map (·.name) ++
@@ -2246,13 +2473,19 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
                 -- Keep nested .inst with prefixed names — will be flattened in next iteration
                 .inst subModName s!"{instName}_{subInstName}"
                   (subConns.map fun (pn, e) => (pn, prefixExprNames instName subNames e))
-              | .memory name aw dw clk wa wd we ra rd combo =>
+              | .memory name aw dw clk wa wd we ra rd combo ew er =>
                 .memory s!"{instName}_{name}" aw dw s!"{instName}_{clk}"
                   (prefixExprNames instName subNames wa)
                   (prefixExprNames instName subNames wd)
                   (prefixExprNames instName subNames we)
                   (prefixExprNames instName subNames ra)
                   s!"{instName}_{rd}" combo
+                  (ew.map fun (a, d, e) =>
+                    (prefixExprNames instName subNames a,
+                     prefixExprNames instName subNames d,
+                     prefixExprNames instName subNames e))
+                  (er.map fun (a, r) =>
+                    (prefixExprNames instName subNames a, s!"{instName}_{r}"))
             flatBody := flatBody ++ [prefixed]
       | other => flatBody := flatBody ++ [other]
 
@@ -2262,7 +2495,7 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
     let regNames := flatBody.filterMap fun s => match s with
       | .register n _ _ _ _ => some n | _ => none
     let memNames := flatBody.filterMap fun s => match s with
-      | .memory n _ _ _ _ _ _ _ _ _ => some n | _ => none
+      | .memory n _ _ _ _ _ _ _ _ _ .. => some n | _ => none
     let internalWireNames := flatWires.map (·.name) |>.filter fun n =>
       !(portNames.any (· == n)) && !(regNames.any (· == n)) && !(memNames.any (· == n))
     let addGen (n : String) : String :=
@@ -2275,8 +2508,10 @@ def flattenDesign (design : Design) (svDesign : SVDesign := { modules := [] }) :
       | .assign n rhs => .assign (addGen n) (genExpr rhs)
       | .register n clk rst input init => .register n clk rst (genExpr input) init
       | .inst mn in_ conns => .inst mn in_ (conns.map fun (p, e) => (p, genExpr e))
-      | .memory n aw dw clk wa wd we ra rd combo =>
+      | .memory n aw dw clk wa wd we ra rd combo ew er =>
         .memory n aw dw clk (genExpr wa) (genExpr wd) (genExpr we) (genExpr ra) rd combo
+          (ew.map fun (a, d, e) => (genExpr a, genExpr d, genExpr e))
+          (er.map fun (a, r) => (genExpr a, r))
 
     let flatModule : Module := {
       name := top.name
@@ -2359,7 +2594,7 @@ def reachabilityDCE (design : Design) : Design :=
         match s with | .register output _ _ input _ => acc.insert output input | _ => acc) {}
       let memMap := m.body.foldl (fun (acc : Std.HashMap String (List Expr)) s =>
         match s with
-        | .memory _ _ _ _ wa wd we ra rd _ => acc.insert rd [wa, wd, we, ra]
+        | .memory _ _ _ _ wa wd we ra rd _ .. => acc.insert rd [wa, wd, we, ra]
         | _ => acc) {}
       let instExprs := m.body.foldl (fun (acc : List Expr) s =>
         match s with
@@ -2377,12 +2612,16 @@ def reachabilityDCE (design : Design) : Design :=
       -- elaboration ("Unable to bind wire/reg/memory").
       for s in m.body do
         match s with
-        | .register output _ (rstName, _) _ _ =>
-          frontier := frontier ++ [output, rstName]
+        | .register output clkName (rstName, _) _ _ =>
+          -- The CLOCK is String-typed like the reset: a derived clock
+          -- (`clock_falling = ~clock`, JTAG's negedge domain) must seed
+          -- reachability or its driving assign is pruned, leaving
+          -- `always_ff @(posedge clock_falling)` unbound.
+          frontier := frontier ++ [output, rstName, clkName]
         | _ => pure ()
       for s in m.body do
         match s with
-        | .memory _ _ _ _ wa wd we ra rd _ =>
+        | .memory _ _ _ _ wa wd we ra rd _ .. =>
           frontier := frontier ++ [rd]
           for e in [wa, wd, we, ra] do
             frontier := frontier ++ (Sparkle.IR.Optimize.countExprUses e {} |>.toList.map (·.1))
@@ -2468,7 +2707,7 @@ def declareOrphanRefs (design : Design) : Design :=
           match s with
           | .assign _ rhs => acc := go acc rhs
           | .register _ _ _ input _ => acc := go acc input
-          | .memory _ _ _ _ wa wd we ra _ _ =>
+          | .memory _ _ _ _ wa wd we ra _ _ .. =>
             acc := go (go (go (go acc wa) wd) we) ra
           | .inst _ _ conns =>
             for (_, e) in conns do
@@ -2480,11 +2719,16 @@ def declareOrphanRefs (design : Design) : Design :=
           d := d.insert p.name true
         for s in m.body do
           match s with
-          | .memory n _ _ _ _ _ _ _ _ _ => d := d.insert n true
+          | .memory n _ _ _ _ _ _ _ _ _ .. => d := d.insert n true
           | _ => pure ()
         return d
       let orphans := referenced.toList.filterMap fun (n, _) =>
-        if declared.contains n then none else some n
+        -- Never paper over a fail-loud sentinel: declaring it and driving
+        -- it 0 turned "reduction over unknown width" from a loud
+        -- elaboration error into a silent constant (ICacheMissUnit's
+        -- meta-entry parity read 0 for every entry).
+        if declared.contains n || n.startsWith "__reduction_xor" then none
+        else some n
       if orphans.isEmpty then m
       else
         { m with

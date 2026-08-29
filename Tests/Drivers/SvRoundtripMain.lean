@@ -69,7 +69,7 @@ def irMetric (d : Sparkle.IR.AST.Design) : Nat × Nat := Id.run do
       let es : List Sparkle.IR.AST.Expr := match st with
         | .assign _ rhs => [rhs]
         | .register _ _ _ input _ => [input]
-        | .memory _ _ _ _ wa wd we ra _ _ => [wa, wd, we, ra]
+        | .memory _ _ _ _ wa wd we ra _ _ .. => [wa, wd, we, ra]
         | .inst _ _ conns => conns.map (·.2)
       for e in es do
         let (n, mx) := nodes e

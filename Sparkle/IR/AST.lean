@@ -163,12 +163,31 @@ inductive Stmt where
       (addrWidth : Nat)       -- Address width (size = 2^addrWidth)
       (dataWidth : Nat)       -- Data width
       (clock : String)        -- Clock signal
-      (writeAddr : Expr)      -- Write address port
-      (writeData : Expr)      -- Write data port
-      (writeEnable : Expr)    -- Write enable port
-      (readAddr : Expr)       -- Read address port
-      (readData : String)     -- Read data output wire
+      (writeAddr : Expr)      -- Write address port (port 0)
+      (writeData : Expr)      -- Write data port (port 0)
+      (writeEnable : Expr)    -- Write enable port (port 0)
+      (readAddr : Expr)       -- Read address port (port 0)
+      (readData : String)     -- Read data output wire (port 0)
       (comboRead : Bool := false) -- Combinational (same-cycle) read
+      -- EXTRA ports beyond port 0, for true multi-port memories.
+      --
+      -- Real SRAM macros are not all 1R1W: XiangShan's generated memories
+      -- are 61× 1R1W, 31× single read-write (RW), and one 8R8W
+      -- (`dt_352x1`, the Difftest debug array).  Port 0 keeps its own
+      -- fields so every existing `.memory` pattern match — 72 sites
+      -- across the backends — stays valid; additional ports live here and
+      -- are honoured by the backends that support them.
+      --
+      -- Semantics: all ports share `clock`.  Reads see the state BEFORE
+      -- this cycle's writes (read-old / write-after-read), matching the
+      -- single-port behaviour the CSim/Verilog backends already
+      -- implement.  Simultaneous writes to the SAME address are resolved
+      -- by port order: the LAST enabled port in the list wins, which is
+      -- what a Verilog `always_ff` with sequential `if` statements does.
+      (extraWrites : List (Expr × Expr × Expr) := [])
+                              -- (addr, data, enable) per additional port
+      (extraReads : List (Expr × String) := [])
+                              -- (addr, readData wire) per additional port
       : Stmt
   | inst
       (moduleName : String)   -- Name of module to instantiate
@@ -188,7 +207,7 @@ def toString : Stmt → String
         | .synchronous => "sync"
         | .asynchronous => "async"
       s!"reg {output} @(posedge {clock}, {edge} {rstName}) <= {input} (init: {initValue})"
-  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
+  | memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead .. =>
       let readKind := if comboRead then "combo_read" else "read"
       s!"memory {name}[2^{addrWidth}][{dataWidth}] @(posedge {clock}) " ++
       s!"write({writeAddr}, {writeData}, {writeEnable}) {readKind}({readAddr}) => {readData}"

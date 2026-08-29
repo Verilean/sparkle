@@ -50,7 +50,17 @@ private def cb : String := "}"
     the old `List.find?` (inputs, then outputs, then wires) semantics. -/
 def buildTypeMap (m : Module) : TypeMap :=
   let entries := (m.inputs ++ m.outputs ++ m.wires).map fun (p : Port) => (p.name, p.ty)
-  entries.foldl (fun acc (n, t) => acc.insertIfNew n t) {}
+  -- Memories are declared by `Stmt.memory`, not by a wire, so without
+  -- this they were absent from the map and `inferExprWidth` fell back to
+  -- 32 for `Memory[addr]`.  A wide memory's row then looked NARROW, and
+  -- a masked read-modify-write on it took the scalar path and emitted
+  -- `array & array` (invalid C).  Register the array type so row reads
+  -- infer the element width.
+  let memEntries := m.body.filterMap fun st => match st with
+    | .memory name aw dw _ _ _ _ _ _ _ _ _ =>
+      some (name, HWType.array (2 ^ aw) (.bitVector dw))
+    | _ => none
+  (entries ++ memEntries).foldl (fun acc (n, t) => acc.insertIfNew n t) {}
 
 /-- Look up bit-width for a name in the type map -/
 def lookupWidth (typeMap : TypeMap) (name : String) : Nat :=
@@ -210,9 +220,21 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
     match args with
     | [_, thenVal, _] => inferExprWidth typeMap thenVal
     | _ => 32
+  -- A left shift by a constant grows the value: `x << k` needs
+  -- `width(x) + k` bits.  Inferring it as `width(x)` (first operand
+  -- only) truncated firtool's byte-lane writes — lane 4 of a 128-bit
+  -- SRAM is `(wdata >> 16) << 48`, computed in a uint64 scalar, so
+  -- every bit destined for words 2-3 was silently dropped.
+  | .op .shl [a, .const k _] =>
+    inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)
   | .op _ args =>
     match args with
-    | [arg1, _] => inferExprWidth typeMap arg1
+    -- A binary op is as wide as its WIDEST operand — taking only the
+    -- first one inferred `(wdata & 16'hffff) & <128-bit mux>` as 16 bits,
+    -- so the wide emitter sent it down the scalar uint64 path and
+    -- produced `uint64 & uint32_t*` (invalid C) on firtool's masked
+    -- read-modify-write SRAMs.
+    | [arg1, arg2] => max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
     | [arg1] => inferExprWidth typeMap arg1
     | _ => 32
 
@@ -226,10 +248,26 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
     through to the scalar arm and emitted `arrayA - arrayB`, i.e. C
     pointer subtraction — a hard compile error (breaks every >64-bit
     datapath, e.g. the secp256k1 mul's 258-bit accumulator reduce). -/
-private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat) : String :=
+private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat)
+    (aWide bWide : Bool := true) : String :=
+  -- Each operand must be reachable as an indexable word array.
+  -- `(uint64_t)(x)[i]` casts BEFORE subscripting, so `[i]` was applied to
+  -- a scalar; and a compound-literal operand (wide const / concat /
+  -- nested wide op) is not an lvalue to subscript at all — GCC rejects
+  -- both.  Bind a wide operand to a `const uint32_t *`, and BOX a narrow
+  -- one into a zero-extended word array (XiangShan's CSA tree subtracts
+  -- a 1-bit borrow from a 128-bit partial product).
+  let boxOf (nm src : String) (wide : Bool) : String :=
+    if wide then s!"const uint32_t *{nm} = (const uint32_t *)({src}); "
+    else
+      s!"uint32_t {nm}_b[{nWords}] = \{0}; \{ uint64_t {nm}_v = (uint64_t)({src}); " ++
+      s!"{nm}_b[0] = (uint32_t){nm}_v;" ++
+      (if nWords > 1 then s!" {nm}_b[1] = (uint32_t)({nm}_v >> 32);" else "") ++
+      s!" } const uint32_t *{nm} = {nm}_b; "
+  let binds := boxOf "__wa" a aWide ++ boxOf "__wb" b bWide
   let words := (List.range nWords).map (fun i =>
-    let ai := "(uint64_t)(" ++ a ++ ")[" ++ toString i ++ "]"
-    let bi := "(uint64_t)(" ++ b ++ ")[" ++ toString i ++ "]"
+    let ai := "(uint64_t)__wa[" ++ toString i ++ "]"
+    let bi := "(uint64_t)__wb[" ++ toString i ++ "]"
     if isAdd then
       "uint64_t __s" ++ toString i ++ " = " ++ ai ++ " + " ++ bi ++
         " + __c; __c = __s" ++ toString i ++ " >> 32;"
@@ -238,7 +276,7 @@ private def wideAddSubExpr (isAdd : Bool) (a b : String) (nWords : Nat) : String
         " - (int64_t)__c; __c = (__s" ++ toString i ++ " < 0) ? 1 : 0;")
   let elems := String.intercalate ", "
     ((List.range nWords).map (fun i => "(uint32_t)__s" ++ toString i))
-  let body := "uint64_t __c = 0; " ++ String.intercalate " " words ++
+  let body := binds ++ "uint64_t __c = 0; " ++ String.intercalate " " words ++
     " (uint32_t[" ++ toString nWords ++ "]){" ++ elems ++ "};"
   "(__extension__ ({ " ++ body ++ " }))"
 
@@ -268,6 +306,39 @@ private def wideCmpExpr (strict : Bool) (a b : String) (nWords : Nat) : String :
     let ai := "(uint32_t)(" ++ a ++ ")[" ++ toString i ++ "]"
     let bi := "(uint32_t)(" ++ b ++ ")[" ++ toString i ++ "]"
     "(" ++ ai ++ " < " ++ bi ++ " ? 1 : (" ++ ai ++ " > " ++ bi ++ " ? 0 : " ++ rest ++ "))")
+    base
+  "(" ++ expr ++ ")"
+
+/-- Emit the lines of a wide ARITHMETIC shift right into `dst`:
+    a sign-extended copy of the source feeds a word-window loop, so words
+    beyond the top read the sign fill.  Wide `.op .asr` previously had NO
+    wide arm at all — it fell through to the scalar emitter, which cast
+    the operand array to `int64_t` (a pointer) and shifted THAT
+    (SRT16Divint's remainder alignment). -/
+private def wideAsrInto (dst aS bS : String) (nWords srcWords srcW : Nat) : List String :=
+  let topBit := (srcW - 1) % 32
+  [ s!"        \{ uint32_t {dst}_sf = (({aS}[{srcWords - 1}] >> {topBit}) & 1u) ? 0xFFFFFFFFu : 0u;"
+  , s!"          uint32_t {dst}_ext[{srcWords}];"
+  , s!"          for (unsigned {dst}_i = 0; {dst}_i < {srcWords}u; {dst}_i++) {dst}_ext[{dst}_i] = {aS}[{dst}_i];"
+  ] ++
+  (if topBit < 31 then
+    [ s!"          if ({dst}_sf) {dst}_ext[{srcWords - 1}] |= ~((1u << {topBit + 1}) - 1u);" ]
+   else []) ++
+  [ s!"          unsigned {dst}_sa = (unsigned)({bS}); unsigned {dst}_k = {dst}_sa >> 5, {dst}_r = {dst}_sa & 31;"
+  , s!"          for (unsigned {dst}_j = 0; {dst}_j < {nWords}u; {dst}_j++) \{"
+  , s!"            uint32_t {dst}_lo = ({dst}_j + {dst}_k < {srcWords}u) ? {dst}_ext[{dst}_j + {dst}_k] : {dst}_sf;"
+  , s!"            uint32_t {dst}_hi = ({dst}_j + {dst}_k + 1 < {srcWords}u) ? {dst}_ext[{dst}_j + {dst}_k + 1] : {dst}_sf;"
+  , s!"            {dst}[{dst}_j] = {dst}_r ? (({dst}_lo >> {dst}_r) | ({dst}_hi << (32 - {dst}_r))) : {dst}_lo;"
+  , s!"          }"
+  , s!"        }" ]
+
+/-- Same nested-ternary compare, but over caller-supplied per-word slot
+    expressions, so a NARROW operand can present zero-extended words
+    instead of being subscripted. -/
+private def wideCmpSlots (strict : Bool) (a b : Nat → String) (nWords : Nat) : String :=
+  let base := if strict then "0" else "1"
+  let expr := (List.range nWords).foldl (fun rest i =>
+    "(" ++ a i ++ " < " ++ b i ++ " ? 1 : (" ++ a i ++ " > " ++ b i ++ " ? 0 : " ++ rest ++ "))")
     base
   "(" ++ expr ++ ")"
 
@@ -359,6 +430,20 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
                   -- operand's own 32-bit words — combine both (the old code took
                   -- only the low word and dropped the overflow, corrupting any
                   -- non-word-aligned wide operand, e.g. HMAC's `dLo8‖zmodn‖…`).
+                  -- A wide `.slice` has NO inline C rendering, so
+                  -- `emitExpr` on it used to hand back the BASE with the
+                  -- offset silently dropped — `{car[106:1], b}` became
+                  -- `(car << 1) | b`, off by one bit through the whole
+                  -- vector (VectorFloatFMA's CSA input, a 1-LSB FMA
+                  -- rounding error three pipeline stages later).  Fold
+                  -- the slice's own offset into the bit index and read
+                  -- the base directly.
+                  let (arg, argExpr, bitInArgLo) := match arg with
+                    | .slice base _ slo =>
+                      if inferExprWidth typeMap base > 64 then
+                        (base, emitExpr typeMap base, bitInArgLo + slo)
+                      else (arg, argExpr, bitInArgLo)
+                    | _ => (arg, argExpr, bitInArgLo)
                   let argSlot := bitInArgLo / 32
                   let argBitInSlot := bitInArgLo % 32
                   let fullMask : Nat := (2 ^ bitCount) - 1
@@ -444,7 +529,14 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
             s!"((uint64_t){srcExpr}[{j}] << {32 * k - bitOffset})"
         s!"((({String.intercalate " | " terms})) & {maskStr})"
       else
-        emitExpr typeMap e
+        -- sliceWidth > 64: there is no inline C form.  `lo == 0` is a
+        -- plain truncation (word-count handled by the consumer), but a
+        -- non-zero offset CANNOT be expressed here — returning the base
+        -- silently dropped it.  Emit a loud non-compiling token instead;
+        -- consumers that can handle this shape (matWide, the concat slot
+        -- builder, wideConnLines) all materialise it themselves first.
+        if lo == 0 then emitExpr typeMap e
+        else s!"SPARKLE_WIDE_SLICE_OFFSET_DROPPED_{lo}"
     else
       let mask := (2 ^ sliceWidth - 1 : Nat)
       let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
@@ -552,14 +644,24 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- "is this bit zero?" test was stuck true, so it added the
           -- multiplicand every cycle.
           let n := wordsOf w
+          -- Verilog zero-extends the NARROWER operand of an equality, so
+          -- a ≤64-bit side is a C scalar and cannot be indexed `[j]`:
+          -- word 0 is its low half, word 1 its high half, and every word
+          -- above that is zero.  (RasStack compares a wide hoisted cone
+          -- against a 64-bit input; the old code subscripted the input.)
+          let slot (e : Expr) (j : Nat) : String :=
+            let we := inferExprWidth typeMap e
+            let es := emitExpr typeMap e
+            if we > 64 then s!"{es}[{j}]"
+            else if j == 0 then s!"((uint32_t)({es}))"
+            else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
+            else "0u"
           let mkTerms (x y : Expr) : String :=
-            let xs := emitExpr typeMap x
             match y with
             | .const 0 _ =>
-              String.intercalate " && " ((List.range n).map (fun j => s!"({xs}[{j}] == 0)"))
+              String.intercalate " && " ((List.range n).map (fun j => s!"({slot x j} == 0)"))
             | _ =>
-              let ys := emitExpr typeMap y
-              String.intercalate " && " ((List.range n).map (fun j => s!"({xs}[{j}] == {ys}[{j}])"))
+              String.intercalate " && " ((List.range n).map (fun j => s!"({slot x j} == {slot y j})"))
           match arg1, arg2 with
           | _, .const 0 _ => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
           | .const 0 _, _ => s!"(({mkTerms arg2 arg1}) ? 1 : 0)"
@@ -572,16 +674,28 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
       | .lt_u | .le_u | .gt_u | .ge_u =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then
-          let a := emitExpr typeMap arg1
-          let b := emitExpr typeMap arg2
+          -- Like the eq arm: Verilog zero-extends the NARROWER operand,
+          -- so a ≤64-bit side is a C scalar — word 0 its low half,
+          -- word 1 its high half, zero above (StreamBitVectorArray
+          -- compares an 8-bit constant against a wide cone; the old code
+          -- subscripted the constant).
+          let slotOf (e : Expr) : Nat → String := fun j =>
+            let we := inferExprWidth typeMap e
+            let es := emitExpr typeMap e
+            if we > 64 then s!"(uint32_t)({es})[{j}]"
+            else if j == 0 then s!"((uint32_t)({es}))"
+            else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
+            else "0u"
+          let a := slotOf arg1
+          let b := slotOf arg2
           let n := wordsOf w
           -- a≥b ⟺ b≤a ; a>b ⟺ b<a — reuse the (strict) le/lt form by
           -- swapping operands for the ≥/> cases.
           match operator with
-          | .lt_u => wideCmpExpr true  a b n
-          | .le_u => wideCmpExpr false a b n
-          | .gt_u => wideCmpExpr true  b a n
-          | _     => wideCmpExpr false b a n   -- .ge_u
+          | .lt_u => wideCmpSlots true  a b n
+          | .le_u => wideCmpSlots false a b n
+          | .gt_u => wideCmpSlots true  b a n
+          | _     => wideCmpSlots false b a n   -- .ge_u
         else
           s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
       | .mul =>
@@ -598,11 +712,19 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
         if w1 > 64 || w2 > 64 then
           let lhsExpr := emitExpr typeMap arg1
           let rhsExpr := emitExpr typeMap arg2
+          -- `(uint64_t)(x)[0]` casts BEFORE subscripting, so `[0]` was
+          -- applied to a scalar; and when the operand is itself a
+          -- compound literal (a wide const, concat or nested wide op)
+          -- the subscript has no array to bind to at all — GCC rejects
+          -- it outright.  Bind each wide operand to a local `const
+          -- uint32_t *` first, then index THAT.
+          let lhsBind := if w1 > 64 then s!"const uint32_t *__ml = (const uint32_t *)({lhsExpr}); " else ""
+          let rhsBind := if w2 > 64 then s!"const uint32_t *__mr = (const uint32_t *)({rhsExpr}); " else ""
           let lhsLo64 :=
-            if w1 > 64 then s!"((uint64_t)({lhsExpr})[0] | ((uint64_t)({lhsExpr})[1] << 32))"
+            if w1 > 64 then "((uint64_t)__ml[0] | ((uint64_t)__ml[1] << 32))"
             else s!"((uint64_t)({lhsExpr}))"
           let rhsLo64 :=
-            if w2 > 64 then s!"((uint64_t)({rhsExpr})[0] | ((uint64_t)({rhsExpr})[1] << 32))"
+            if w2 > 64 then "((uint64_t)__mr[0] | ((uint64_t)__mr[1] << 32))"
             else s!"((uint64_t)({rhsExpr}))"
           -- The wide-mul value is consumed by `emitStmt`'s
           -- `.op .mul` arm which generates a slot-by-slot
@@ -612,7 +734,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- compound-literal array; this is only used by
           -- `memcpy`-style wide assigns.
           let body :=
-            s!"\{ __int128 __p = (__int128)(int64_t){lhsLo64} * (__int128)(int64_t){rhsLo64};" ++
+            s!"\{ {lhsBind}{rhsBind}__int128 __p = (__int128)(int64_t){lhsLo64} * (__int128)(int64_t){rhsLo64};" ++
             " (uint32_t[3]){(uint32_t)((unsigned __int128)__p & 0xffffffffULL), " ++
             "(uint32_t)(((unsigned __int128)__p >> 32) & 0xffffffffULL), " ++
             "(uint32_t)(((unsigned __int128)__p >> 64) & 0xffffffffULL)}; }"
@@ -624,10 +746,12 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
       | .add =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then wideAddSubExpr true (emitExpr typeMap arg1) (emitExpr typeMap arg2) (wordsOf w)
+          (inferExprWidth typeMap arg1 > 64) (inferExprWidth typeMap arg2 > 64)
         else s!"({emitExpr typeMap arg1} + {emitExpr typeMap arg2})"
       | .sub =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then wideAddSubExpr false (emitExpr typeMap arg1) (emitExpr typeMap arg2) (wordsOf w)
+          (inferExprWidth typeMap arg1 > 64) (inferExprWidth typeMap arg2 > 64)
         else s!"({emitExpr typeMap arg1} - {emitExpr typeMap arg2})"
       | _ =>
         s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
@@ -767,6 +891,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
            ], tmp)
         else
         match e with
+        | .index _ _ =>
+          -- `Memory[addr]` on a wide memory IS an indexable uint32 row —
+          -- exactly like a `.ref` to a wide wire — so it needs no temp.
+          -- Without this arm, a masked read-modify-write on a wide
+          -- memory (firtool's byte-enable SRAMs) fell through to the
+          -- generic memcpy arm and emitted `array & array`.
+          ([], emitExpr typeMap e)
         | .ref name =>
           if (lookupWidth typeMap name) ≤ 64 then
             -- narrow REF: same boxing (a scalar struct field can't be
@@ -795,7 +926,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             -- 52-bit history vector with `{phr, phr} >> ptr` (104-bit), and
             -- every folded-history output silently used the UNSHIFTED value.
             -- Emit a runtime word loop instead.
-            let bS := emitExpr typeMap b
+            let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
             (da ++
               [ s!"        uint32_t {tmp}[{nWords}];"
               , s!"        \{ unsigned {tmp}_sa = (unsigned)({bS}); unsigned {tmp}_k = {tmp}_sa >> 5, {tmp}_r = {tmp}_sa & 31;"
@@ -816,7 +953,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
               :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};")), tmp)
           | _ =>
             -- Dynamic amount: same word loop, shifting right (see shl note).
-            let bS := emitExpr typeMap b
+            let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
             (da ++
               [ s!"        uint32_t {tmp}[{nWords}];"
               , s!"        \{ unsigned {tmp}_sa = (unsigned)({bS}); unsigned {tmp}_k = {tmp}_sa >> 5, {tmp}_r = {tmp}_sa & 31;"
@@ -870,6 +1013,15 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let tmp := s!"__{label}_{sn}"
           (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
             :: wideAddSubInto false tmp sa sb nWords), tmp)
+        | .op .asr [a, b] =>
+          let (da, aS) := matWide s!"{label}s" a
+          let tmp := s!"__{label}_{sn}"
+          let srcW := inferExprWidth typeMap a
+          let bS :=
+            if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+            else emitExpr typeMap b
+          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: wideAsrInto tmp aS bS nWords (wordsOf srcW) srcW), tmp)
         | .concat cargs =>
           -- Wide concat: arguments that are themselves wide OPS have no
           -- inline rendering — materialise them first (FMA nests a wide
@@ -896,7 +1048,30 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let typeMap' := tws.foldl
             (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
           let tmp := s!"__{label}_{sn}"
-          (ds ++ [s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {emitExpr typeMap' (.concat cargs')}, sizeof({tmp}));"], tmp)
+          -- Same narrower-than-destination hazard as the top-level concat
+          -- arm: copy only the concat's OWN words and zero the rest.
+          let cw := cargs.foldl (fun acc a => acc + inferExprWidth typeMap a) 0
+          let copyWords := min (wordsOf cw) nWords
+          (ds ++ [s!"        uint32_t {tmp}[{nWords}] = \{0}; memcpy({tmp}, {emitExpr typeMap' (.concat cargs')}, {copyWords} * sizeof(uint32_t));"], tmp)
+        | .slice a hi lo =>
+          -- A wide slice is a right-shift by `lo`, truncated to
+          -- `hi-lo+1` bits.  Without this arm it fell into the generic
+          -- memcpy below, which copies from the operand's BASE word and
+          -- so silently DROPPED the `lo` offset: firtool's 138x2 SRAM
+          -- wrote `wdata[68:0] << 69` where the RTL says
+          -- `wdata[137:69] << 69`.
+          let (da, aS) := matWide s!"{label}s" a
+          let tmp := s!"__{label}_{sn}"
+          let srcWords := wordsOf (inferExprWidth typeMap a)
+          let outW := hi - lo + 1
+          let topBits := outW - 32 * (nWords - 1)
+          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: (List.range nWords).map (fun j =>
+                 let v := shrSlot aS lo srcWords j
+                 -- Mask the top word so bits above the slice don't leak.
+                 if j == nWords - 1 && topBits < 32 then
+                   s!"        {tmp}[{j}] = ({v}) & {(2 ^ topBits - 1 : Nat)}u;"
+                 else s!"        {tmp}[{j}] = {v};")), tmp)
         | _ =>
           let tmp := s!"__{label}_{sn}"; let init := emitExpr typeMap e
           ([s!"        uint32_t {tmp}[{nWords}]; memcpy({tmp}, {init}, sizeof({tmp}));"], tmp)
@@ -949,9 +1124,18 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         let typeMap' := tempWidths.foldl
           (fun tm (n, w) => tm.insert n (HWType.bitVector w)) typeMap
         let expr := emitExpr typeMap' (.concat cargs')
+        -- The concat may be NARROWER than its destination (a 96-bit
+        -- `{{32{b[63]}}, b[63:32], a[31:0]}` assigned to a 128-bit wire).
+        -- `memcpy(dst, lit, sizeof(dst))` then read PAST the compound
+        -- literal — 16 bytes out of a 12-byte source — so the top word
+        -- held whatever followed it in memory instead of the zero fill.
+        let cw := cargs.foldl (fun acc a => acc + inferExprWidth typeMap a) 0
+        let srcWords := wordsOf cw
+        let copyWords := min srcWords nWords
         { declarations := []
         , evalBody := decls ++
-            [s!"        memcpy({sn}, {expr}, sizeof({sn}));"]
+            (if copyWords < nWords then [s!"        memset({sn}, 0, sizeof({sn}));"] else []) ++
+            [s!"        memcpy({sn}, {expr}, {copyWords} * sizeof(uint32_t));"]
         , tickBody := []
         , resetBody := []
         , evalTickLocals := [] }
@@ -1022,7 +1206,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , resetBody := []
         , evalTickLocals := [] }
       | .op .shl [a, b] =>
-        let aS := emitExpr typeMap a
+        -- The shifted operand must be an indexable word array.  Calling
+        -- `emitExpr` straight produced `(compound literal)[j]` whenever
+        -- `a` was a concat or a nested wide op (XiangShan's Booth
+        -- partial products are `{{96{b[31]}}, b[31:16]} << 16`), which C
+        -- rejects — every other wide arm materialises through `matWide`,
+        -- so these two did not need to be the exception.
+        let (aDecls, aS) := matWide "sh" a
         match b with
         | .const v _ =>
           let shiftAmount := v.toNat
@@ -1040,16 +1230,22 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let lines := (List.range nWords).map fun j =>
             s!"        {sn}[{j}] = {slot j};"
           { declarations := []
-          , evalBody := lines
+          , evalBody := aDecls ++ lines
           , tickBody := []
           , resetBody := []
           , evalTickLocals := [] }
         | _ =>
           -- DYNAMIC shift amount: the old fallback treated it as 0.  Runtime
           -- word loop (mirrors the nested matWide arm; see the Phr note there).
-          let bS := emitExpr typeMap b
+          let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
           { declarations := []
-          , evalBody :=
+          , evalBody := aDecls ++
               [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
               , s!"          for (unsigned {sn}_j = 0; {sn}_j < {nWords}u; {sn}_j++) \{"
               , s!"            uint32_t {sn}_lo = ({sn}_j >= {sn}_k) ? {aS}[{sn}_j - {sn}_k] : 0u;"
@@ -1067,7 +1263,8 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         -- always yielded 0, so the whole multiply was silently wrong.
         -- DYNAMIC amounts were then treated as 0 — XiangShan Phr's
         -- `{phr, phr} >> ptr` rotation read the unshifted vector.)
-        let aS := emitExpr typeMap a
+        -- Materialise the operand for the same reason as `shl` above.
+        let (aDecls, aS) := matWide "sh" a
         let srcWords := wordsOf (inferExprWidth typeMap a)
         match b with
         | .const v _ =>
@@ -1084,14 +1281,20 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let lines := (List.range nWords).map fun j =>
             s!"        {sn}[{j}] = {slot j};"
           { declarations := []
-          , evalBody := lines
+          , evalBody := aDecls ++ lines
           , tickBody := []
           , resetBody := []
           , evalTickLocals := [] }
         | _ =>
-          let bS := emitExpr typeMap b
+          let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
           { declarations := []
-          , evalBody :=
+          , evalBody := aDecls ++
               [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
               , s!"          for (unsigned {sn}_j = 0; {sn}_j < {nWords}u; {sn}_j++) \{"
               , s!"            uint32_t {sn}_lo = ({sn}_j + {sn}_k < {srcWords}u) ? {aS}[{sn}_j + {sn}_k] : 0u;"
@@ -1102,6 +1305,17 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           , tickBody := []
           , resetBody := []
           , evalTickLocals := [] }
+      | .op .asr [a, b] =>
+        let (aDecls, aS) := matWide "sh" a
+        let srcW := inferExprWidth typeMap a
+        let bS :=
+          if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+          else emitExpr typeMap b
+        { declarations := []
+        , evalBody := aDecls ++ wideAsrInto sn aS bS nWords (wordsOf srcW) srcW
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
       | .ref _ =>
         -- Wide identifier copy: memcpy from src array to dest.
         let expr := emitExpr typeMap rhs
@@ -1239,48 +1453,77 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       , resetBody := [s!"        {outName} = {initExpr};"]
       , evalTickLocals := [nextLocalDecl] }
 
-  | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable readAddr readData comboRead =>
+  | .memory name addrWidth dataWidth _clock writeAddr writeData writeEnable
+      readAddr readData comboRead extraWrites extraReads =>
+    -- Multi-port memory.  Port 0 is the dedicated field set; the extras
+    -- carry the additional ports (1R1W, dual-port, two-port, and
+    -- XiangShan's 8R8W Difftest array).  Reads land in `evalBody` (or the
+    -- latched-address path for synchronous reads) and writes in
+    -- `tickBody`, so every port reads the state BEFORE this cycle's
+    -- writes; simultaneous same-address writes resolve last-port-wins,
+    -- because the write lines are emitted in port order.
     let memSize := 2 ^ addrWidth
     let memName := sanitizeName name
-    let rdName := sanitizeName readData
     let elemTy : HWType := .bitVector dataWidth
-    -- Array of array (e.g. `uint32_t mem[1024][3]` for a 96-bit-wide BRAM).
     let elemSuffix := emitArraySuffix elemTy
     let memDecl := s!"    {emitScalarBase elemTy} {memName}[{memSize}]{elemSuffix};"
-    let rdInTypeMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
-    let rdDecl := if rdInTypeMap then [] else [s!"    {emitFieldDecl elemTy rdName};"]
-    let isDeadWrite := match writeEnable with
-      | .const 0 _ => true | _ => false
-    let writeTickLine := if isDeadWrite then []
-      else
+    let readPorts := (readAddr, readData) :: extraReads
+    let writePorts := (writeAddr, writeData, writeEnable) :: extraWrites
+    let rdDecls := readPorts.filterMap fun (_, rd) =>
+      let rdName := sanitizeName rd
+      let inMap := typeMap.fold (fun acc n _ => acc || sanitizeName n == rdName) false
+      if inMap then none else some s!"    {emitFieldDecl elemTy rdName};"
+    -- Wide (>64-bit) write data is a uint32 ARRAY, and a wide OP has no
+    -- inline C rendering (`array & array` is not C) — the masked
+    -- read-modify-write that firtool's byte-enable SRAMs generate lands
+    -- exactly there.  Materialise such data into a temp array first, one
+    -- 32-bit slot at a time, then memcpy the temp into the row.
+    let writeLines := (writePorts.zipIdx).flatMap fun ((a, d, en), pi) =>
+      match en with
+      | .const 0 _ => []   -- dead port
+      | _ =>
         if dataWidth > 64 then
-          -- Wide write: memcpy into the BRAM slot.
-          [s!"        if ({emitExpr typeMap writeEnable}) memcpy({memName}[{emitExpr typeMap writeAddr}], {emitExpr typeMap writeData}, sizeof({memName}[0]));"]
+          match d with
+          | .ref _ =>
+            [s!"        if ({emitExpr typeMap en}) memcpy({memName}[{emitExpr typeMap a}], {emitExpr typeMap d}, sizeof({memName}[0]));"]
+          | _ =>
+            let tmp := s!"__mw{pi}_{memName}"
+            let nWords := (dataWidth + 31) / 32
+            [ s!"        \{ uint32_t {tmp}[{nWords}];"
+            , s!"          memcpy({tmp}, {emitExpr typeMap d}, sizeof({tmp}));"
+            , s!"          if ({emitExpr typeMap en}) memcpy({memName}[{emitExpr typeMap a}], {tmp}, sizeof({tmp})); }" ]
         else
-          [s!"        if ({emitExpr typeMap writeEnable}) {memName}[{emitExpr typeMap writeAddr}] = {emitExpr typeMap writeData};"]
+          [s!"        if ({emitExpr typeMap en}) {memName}[{emitExpr typeMap a}] = {emitExpr typeMap d};"]
     let zeroLine := s!"        memset({memName}, 0, sizeof({memName}));"
     if comboRead then
-      let readLine :=
+      let readLines := readPorts.map fun (a, rd) =>
+        let rdName := sanitizeName rd
         if dataWidth > 64 then
-          s!"        memcpy({rdName}, {memName}[{emitExpr typeMap readAddr}], sizeof({rdName}));"
+          s!"        memcpy({rdName}, {memName}[{emitExpr typeMap a}], sizeof({rdName}));"
         else
-          s!"        {rdName} = {memName}[{emitExpr typeMap readAddr}];"
-      { declarations := [memDecl] ++ rdDecl
-      , evalBody := [readLine]
-      , tickBody := writeTickLine
+          s!"        {rdName} = {memName}[{emitExpr typeMap a}];"
+      { declarations := [memDecl] ++ rdDecls
+      , evalBody := readLines
+      , tickBody := writeLines
       , resetBody := [zeroLine]
       , evalTickLocals := [] }
     else
-      let addrLatch := s!"{memName}_raddr"
       let addrType := emitScalarBase (.bitVector addrWidth)
-      let readTickLine :=
+      let latchName := fun (i : Nat) =>
+        if i == 0 then s!"{memName}_raddr" else s!"{memName}_raddr{i}"
+      let latchDecls := (readPorts.zipIdx).map fun (_, i) =>
+        s!"    {addrType} {latchName i};"
+      let latchSets := (readPorts.zipIdx).map fun ((a, _), i) =>
+        s!"        {latchName i} = {emitExpr typeMap a};"
+      let readTickLines := (readPorts.zipIdx).map fun ((_, rd), i) =>
+        let rdName := sanitizeName rd
         if dataWidth > 64 then
-          s!"        memcpy({rdName}, {memName}[{addrLatch}], sizeof({rdName}));"
+          s!"        memcpy({rdName}, {memName}[{latchName i}], sizeof({rdName}));"
         else
-          s!"        {rdName} = {memName}[{addrLatch}];"
-      { declarations := [memDecl, s!"    {addrType} {addrLatch};"] ++ rdDecl
-      , evalBody := [s!"        {addrLatch} = {emitExpr typeMap readAddr};"]
-      , tickBody := writeTickLine ++ [readTickLine]
+          s!"        {rdName} = {memName}[{latchName i}];"
+      { declarations := [memDecl] ++ latchDecls ++ rdDecls
+      , evalBody := latchSets
+      , tickBody := writeLines ++ readTickLines
       , resetBody := [zeroLine]
       , evalTickLocals := [] }
 
@@ -1297,6 +1540,36 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     let outputPortNames : List String := match subModule with
       | some sm => sm.outputs.map fun (p : Port) => p.name
       | none => []
+    -- A wide connection expression must be gathered WORD BY WORD: a
+    -- `memcpy` from `emitExpr expr` copies from the operand's base word
+    -- and so drops a slice's offset.  `LCredit2Decoupled_4` wires the
+    -- child's 256-bit data port to `io_in_flit[385:130]`; the memcpy read
+    -- from bit 0 instead, so every entry stored in the child's SRAM held
+    -- the wrong 256 bits (the IR and the re-emitted Verilog were both
+    -- correct — only the JIT was wrong).
+    let wideConnLines (dst : String) (expr : Expr) (nWords : Nat) : List String :=
+      match expr with
+      | .slice inner hi lo =>
+        match inner with
+        | .ref src =>
+          let srcWords := (inferExprWidth typeMap inner + 31) / 32
+          let k := lo / 32; let r := lo % 32
+          let sn := sanitizeName src
+          let outW := hi - lo + 1
+          let topBits := outW - 32 * (nWords - 1)
+          (List.range nWords).map fun j =>
+            let idx := j + k
+            let v :=
+              if idx ≥ srcWords then "0u"
+              else if r == 0 then s!"{sn}[{idx}]"
+              else
+                let hiPart := if idx + 1 < srcWords then s!" | ({sn}[{idx + 1}] << {32 - r})" else ""
+                s!"(({sn}[{idx}] >> {r}){hiPart})"
+            if j == nWords - 1 && topBits < 32 then
+              s!"        {dst}[{j}] = ({v}) & {(2 ^ topBits - 1 : Nat)}u;"
+            else s!"        {dst}[{j}] = {v};"
+        | _ => [s!"        memcpy({dst}, {emitExpr typeMap expr}, sizeof({dst}));"]
+      | _ => [s!"        memcpy({dst}, {emitExpr typeMap expr}, sizeof({dst}));"]
     let inputConns := connections.filterMap fun (portName, expr) =>
       if !outputPortNames.contains portName then
         let portWidth := match subModule with
@@ -1306,7 +1579,8 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             | none => 32
           | none => 32
         if portWidth > 64 then
-          some s!"        memcpy({iName}.{sanitizeName portName}, {emitExpr typeMap expr}, sizeof({iName}.{sanitizeName portName}));"
+          some (String.intercalate "\n"
+            (wideConnLines s!"{iName}.{sanitizeName portName}" expr ((portWidth + 31) / 32)))
         else
           some s!"        {iName}.{sanitizeName portName} = {emitExpr typeMap expr};"
       else none
@@ -1352,7 +1626,7 @@ def collectTickRefWires (body : List Stmt) : List String :=
     match stmt with
     | .register _ _ _ input _ =>
       acc ++ (collectExprRefs input).map sanitizeName
-    | .memory _ _ _ _ wa wd we ra rd cr =>
+    | .memory _ _ _ _ wa wd we ra rd cr .. =>
       let refs := collectExprRefs wa ++ collectExprRefs wd ++ collectExprRefs we
       let refs := if !cr then refs ++ collectExprRefs ra ++ [rd] else refs
       acc ++ refs.map sanitizeName
@@ -1371,7 +1645,7 @@ def collectTickRefWires (body : List Stmt) : List String :=
     combinational cycle the remaining statements fall back to source
     order (single-pass semantics, as before). -/
 def scheduleEvalBody (design : Option Design) (m : Module)
-    (body : List Stmt) : List Stmt := Id.run do
+    (body : List Stmt) : List Stmt × Bool := Id.run do
   let childOutputs : Stmt → List String := fun s => match s with
     | .inst modName _ conns =>
       match design.bind (·.findModule modName) with
@@ -1383,22 +1657,30 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     | _ => []
   let defsOf : Stmt → List String := fun s => match s with
     | .assign lhs _ => [lhs]
-    | .memory _ _ _ _ _ _ _ _ rd cr => if cr then [rd] else []
+    | .memory _ _ _ _ _ _ _ _ rd cr .. => if cr then [rd] else []
     | .inst .. => childOutputs s
     | _ => []
   let usesOf : Stmt → List String := fun s => match s with
     | .assign _ rhs => collectExprRefs rhs
-    | .memory _ _ _ _ _ _ _ ra _ cr => if cr then collectExprRefs ra else []
+    | .memory _ _ _ _ _ _ _ ra _ cr .. => if cr then collectExprRefs ra else []
     | .inst modName _ conns =>
-      let outs := childOutputs s
       match design.bind (·.findModule modName) with
-      | some _ => conns.foldl (fun acc (_, e) =>
-          acc ++ ((collectExprRefs e).filter (fun r => !outs.contains r))) []
+      | some sm =>
+        -- Only an OUTPUT connection is exempt from counting as a use.
+        -- Filtering the instance's outputs out of EVERY connection hid
+        -- the back edge: XiangShan's arbiters feed `gnt` (a child output)
+        -- back into the child's own `req` input, and once the optimizer
+        -- inlines `req` into the connection the instance is the only
+        -- statement left — so the cycle became invisible and the emitted
+        -- pass read a stale `gnt`.
+        conns.foldl (fun acc (p, e) =>
+          if sm.outputs.any (·.name == p) then acc
+          else acc ++ collectExprRefs e) []
       | none => conns.foldl (fun acc (_, e) => acc ++ collectExprRefs e) []
     | _ => []
   let schedulable : Stmt → Bool := fun s => match s with
     | .assign .. | .inst .. => true
-    | .memory _ _ _ _ _ _ _ _ _ cr => cr
+    | .memory _ _ _ _ _ _ _ _ _ cr .. => cr
     | _ => false
   let (sched, rest) := body.partition schedulable
   -- Which names are produced by a schedulable statement?  Everything
@@ -1428,9 +1710,14 @@ def scheduleEvalBody (design : Option Design) (m : Module)
     remaining := next
     if !progressed then
       break
-  -- cycle (or fuel-out): keep the rest in original order — same
-  -- single-pass behaviour as before this pass existed.
-  return result ++ remaining ++ rest
+  -- cycle (or fuel-out): keep the rest in original order.  `remaining`
+  -- non-empty means a genuine dependency cycle at STATEMENT granularity
+  -- — for an `.inst`, the whole child is one node, so a handshake that
+  -- goes into the child and back out again (XiangShan's arbiters gate
+  -- `req` with the `gnt` the child produces) is a cycle here even though
+  -- it is acyclic per signal.  A single pass then reads the STALE value.
+  -- The caller re-evaluates to a fixed point instead.
+  return (result ++ remaining ++ rest, !remaining.isEmpty)
 
 /-- Runtime helper for a DYNAMIC shift of a >64-bit value consumed in a
     ≤64-bit context (firtool's flattened packed-array dynamic select:
@@ -1470,7 +1757,7 @@ def moduleHasSymbolicWidth (m : Module) : Bool :=
   m.body.any fun stmt => match stmt with
     | .assign _ rhs => exprHasSymbolicWidth rhs
     | .register _ _ _ input _ => exprHasSymbolicWidth input
-    | .memory _ _ _ _ wa wd we ra _ _ =>
+    | .memory _ _ _ _ wa wd we ra _ _ .. =>
         exprHasSymbolicWidth wa || exprHasSymbolicWidth wd ||
         exprHasSymbolicWidth we || exprHasSymbolicWidth ra
     | .inst _ _ connections => connections.any (exprHasSymbolicWidth ·.2)
@@ -1495,7 +1782,7 @@ def emitModule (m : Module) (design : Option Design := none)
     let filteredBody := m.body.filter fun s => match s with
       | .assign lhs (.ref name) => lhs != name
       | _ => true
-    let filteredBody := scheduleEvalBody design m filteredBody
+    let (filteredBody, hasEvalCycle) := scheduleEvalBody design m filteredBody
     let allParts := filteredBody.map (emitStmt · typeMap design)
 
     let registerNames := m.body.filterMap fun s => match s with
@@ -1529,7 +1816,7 @@ def emitModule (m : Module) (design : Option Design := none)
           let sn := sanitizeName w.name
           sn.startsWith "_gen_" || tickRefs.contains sn
     let memoryNames := m.body.filterMap fun s => match s with
-      | .memory name _ _ _ _ _ _ _ _ _ => some (sanitizeName name) | _ => none
+      | .memory name _ _ _ _ _ _ _ _ _ .. => some (sanitizeName name) | _ => none
     let localWires := match observableWires with
       | some ws => internalWires.filter fun (w : Port) =>
           let sn := sanitizeName w.name
@@ -1723,13 +2010,30 @@ def emitModule (m : Module) (design : Option Design := none)
         String.intercalate "\n" resetBodyQ ++ "\n") ++
       "}\n\n"
 
+    -- When the schedule could not be topologically ordered, a
+    -- combinational dependency runs BACKWARDS through the emitted order
+    -- (a handshake into a child instance and back out — the whole child
+    -- is one node, so this is a cycle at statement granularity even when
+    -- it is acyclic per signal).  One pass reads the stale value, so
+    -- relax to a fixed point: re-run the body until the observable state
+    -- stops changing.  Bounded, and the bound is not a heuristic —
+    -- a settling combinational network converges in at most as many
+    -- rounds as it has statements.
+    let relaxRounds := evalBodyQ.length + 1
     let evalFn :=
       s!"{funcQual}static void sparkle_{className}_eval({structName}* self) \{\n" ++
       "    (void)self;\n" ++
       (if localWireDecls.isEmpty then "" else
         String.intercalate "\n" localWireDecls ++ "\n") ++
       (if evalBodyQ.isEmpty then "" else
-        String.intercalate "\n" evalBodyQ ++ "\n") ++
+        (if hasEvalCycle then
+          s!"    \{ {structName} __prev; unsigned __round = 0;\n" ++
+          s!"      for (; __round < {relaxRounds}u; __round++) \{\n" ++
+          "        __prev = *self;\n" ++
+          String.intercalate "\n" evalBodyQ ++ "\n" ++
+          "        if (__builtin_memcmp(&__prev, self, sizeof(__prev)) == 0) break;\n" ++
+          "      } }\n"
+        else String.intercalate "\n" evalBodyQ ++ "\n")) ++
       "}\n\n"
 
     let tickFn :=
@@ -1809,6 +2113,188 @@ def emitModule (m : Module) (design : Option Design := none)
 
     structDecl ++ resetFn ++ evalFn ++ tickFn ++ evalTickFn
 
+/-- Backend-local pre-pass: hoist wide (>64-bit) compound expressions out
+    of positions the C emitter cannot render inline, into their own wires.
+    C has no expression form for a multi-word value, so a wide compound is
+    only renderable where the emitter MATERIALISES it (`matWide` under an
+    assign/register, `wideConnLines` for slice connections).  Everywhere
+    else — an instance connection built from a mux-of-concats (DivUnit's
+    `csa_sel` operands), a wide operand of a comparison (ShiftRightJam's
+    `|(io_in & sticky_mask)`), a wide arm of a mux whose RESULT is ≤64
+    bits (SBToTL's `cond ? 64'h0 : {…}`) — `emitExpr` used to render a
+    compound literal into scalar arithmetic and the C did not compile.
+    Hoisting each such subexpression into a wire routes it through the
+    well-tested wide-assign machinery; scalar consumers then read the
+    wire, which every arm already handles.  Semantically neutral: the
+    hoisted cones are combinational and effect-free. -/
+def hoistWideForC (m : Module) : Module := Id.run do
+  let tm := buildTypeMap m
+  let mut counter := 0
+  let mut newWires : List Port := []
+  let mut newAssigns : List Stmt := []
+  -- Hoist `e` into a fresh wire, returning the replacement ref.
+  let hoist (e : Expr) (w : Nat) (c : Nat) : Expr × Stmt × Port :=
+    let nm := s!"_wide_hoist_{c}"
+    (.ref nm, .assign nm e, { name := nm, ty := .bitVector w })
+  let isCompound : Expr → Bool := fun e => match e with
+    | .ref _ => false | .const _ _ => false | _ => true
+  -- Rewrite one expression tree.  `top` marks the RHS root of an
+  -- assign/register, where the wide machinery already copes.
+  let rec fix (top : Bool) (e : Expr) : StateM (Nat × List Stmt × List Port) Expr := do
+    match e with
+    | .op .mux [c, t, f] =>
+      -- The CONDITION is a truth value, not a bit pattern: a wide ref
+      -- there renders as an array name (a pointer — always true), and
+      -- truncating it to 64 bits is just as wrong (a value whose only
+      -- set bits are above bit 63 must still count as true).  Rewrite
+      -- wide conditions as an explicit `!= 0`, which the word-wise eq
+      -- arm renders correctly.  Arms keep value semantics.
+      let wc := inferExprWidth tm c
+      let mut c' ← fix false c
+      if wc > 64 then
+        if isCompound c' then
+          let (n, as_, ws) ← get
+          let (r, asg, p) := hoist c' wc n
+          set (n + 1, as_ ++ [asg], ws ++ [p])
+          c' := r
+        c' := .op .not [.op .eq [c', .const 0 wc]]
+      let w := inferExprWidth tm e
+      let t' ← fix false t
+      let f' ← fix false f
+      let e' := Expr.op .mux [c', t', f']
+      if w > 64 && !top then
+        let (n, as_, ws) ← get
+        let (r, a, p) := hoist e' w n
+        set (n + 1, as_ ++ [a], ws ++ [p])
+        return r
+      else if w ≤ 64 then
+        -- ≤64-bit mux: a wide-ref ARM reads its low 64 bits (context
+        -- truncation), same as the scalar-op rule below.
+        let wrap := fun (orig : Expr) (a : Expr) => match a with
+          | .ref _ => if inferExprWidth tm orig > 64 then Expr.slice a 63 0 else a
+          | _ => a
+        return Expr.op .mux [c', wrap t t', wrap f f']
+      else return e'
+    | .op op args =>
+      let w := inferExprWidth tm e
+      if w > 64 then
+        -- Wide result: matWide handles it AT an assign root; anywhere
+        -- else it must become a wire itself.
+        let args' ← args.mapM (fix false)
+        let e' := Expr.op op args'
+        if top then return e'
+        else
+          let (n, as_, ws) ← get
+          let (r, a, p) := hoist e' w n
+          set (n + 1, as_ ++ [a], ws ++ [p])
+          return r
+      else
+        -- Scalar result: any WIDE COMPOUND operand must become a wire.
+        -- A comparison then compares the wire (emitExpr has a word-wise
+        -- arm for wide refs); a VALUE context (a mux arm feeding a ≤64-bit
+        -- result) instead reads the wire's low 64 bits via `.slice`,
+        -- which is exactly Verilog's context-width truncation — a bare
+        -- wide ref there would render as an array name in scalar
+        -- arithmetic (SBToTL's `cond ? 64'h0 : {…}`).
+        let isCmp := match op with
+          | .eq | .lt_u | .lt_s | .le_u | .le_s
+          | .gt_u | .gt_s | .ge_u | .ge_s => true
+          | _ => false
+        let args' ← args.mapM fun a => do
+          let wa := inferExprWidth tm a
+          let mut a' ← fix false a
+          if wa > 64 && isCompound a' then
+            let (n, as_, ws) ← get
+            let (r, asg, p) := hoist a' wa n
+            set (n + 1, as_ ++ [asg], ws ++ [p])
+            a' := r
+          if wa > 64 && !isCmp then
+            match a' with
+            | .ref _ => return .slice a' 63 0
+            | _ => return a'
+          else return a'
+        return .op op args'
+    | .concat args =>
+      let w := inferExprWidth tm e
+      let args' ← args.mapM (fix false)
+      let e' := Expr.concat args'
+      if w > 64 && !top then
+        let (n, as_, ws) ← get
+        let (r, a, p) := hoist e' w n
+        set (n + 1, as_ ++ [a], ws ++ [p])
+        return r
+      else return e'
+    | .slice a hi lo =>
+      let a' ← fix false a
+      -- Compose nested slices: `slice(slice(base, h1, l1), h2, l2)` is
+      -- `slice(base, l1+h2, l1+l2)`.  Left nested, the scalar-slice
+      -- emitter calls emitExpr on the INNER wide slice — which has no
+      -- inline C form and used to hand back the base with its offset
+      -- silently dropped (now the loud sentinel; either way, compose).
+      match a' with
+      | .slice base _ l1 => return .slice base (l1 + hi) (l1 + lo)
+      | _ => return .slice a' hi lo
+    | .sliceDim a hi lo =>
+      let a' ← fix false a
+      return .sliceDim a' hi lo
+    | .index a i =>
+      return .index (← fix false a) (← fix false i)
+    | _ => return e
+  let runFix (top : Bool) (e : Expr) : StateM (Nat × List Stmt × List Port) Expr :=
+    fix top e
+  -- `top := true` (skip hoisting: matWide copes) is only sound when the
+  -- DESTINATION is itself wide.  A wide RHS landing in a ≤64-bit lhs
+  -- (`_GEN_1 = wide & 64'hff…`, MiscResultSelect) took the scalar assign
+  -- path and rendered the array name in scalar arithmetic — hoist it and
+  -- read the wire's low 64 bits instead (= Verilog context truncation).
+  let widthOfName := fun (nm : String) => lookupWidth tm nm
+  -- `origWide` is the pre-rewrite RHS width: a freshly hoisted wire is
+  -- not in `tm`, so the original expression's width is what says whether
+  -- the returned ref needs its low-64 read.
+  let scalarize := fun (origWide : Bool) (e : Expr) => match e with
+    | .ref nm => if origWide || lookupWidth tm nm > 64 then Expr.slice e 63 0 else e
+    | _ => e
+  let mut body' : List Stmt := []
+  for st in m.body do
+    let (st', (c', as_, ws)) := (do
+      match st with
+      | .assign l r =>
+        if widthOfName l > 64 then
+          return Stmt.assign l (← runFix true r)
+        else
+          let wide := inferExprWidth tm r > 64
+          let r' ← runFix false r
+          return Stmt.assign l (scalarize wide r')
+      | .register o ck rs inp init =>
+        if widthOfName o > 64 then
+          return Stmt.register o ck rs (← runFix true inp) init
+        else
+          let wide := inferExprWidth tm inp > 64
+          let inp' ← runFix false inp
+          return Stmt.register o ck rs (scalarize wide inp') init
+      | .inst mn inm conns =>
+        let conns' ← conns.mapM fun (p, e) => do
+          let e' ← runFix false e
+          return (p, e')
+        return Stmt.inst mn inm conns'
+      | .memory n aw dw ck wa wd we ra rd cr ew er =>
+        let wdTop := dw > 64
+        return Stmt.memory n aw dw ck (← runFix false wa) (← runFix wdTop wd)
+          (← runFix false we) (← runFix false ra) rd cr
+          (← ew.mapM fun (a, dta, en) =>
+            return (← runFix false a, ← runFix wdTop dta, ← runFix false en))
+          (← er.mapM fun (a, r) => return (← runFix false a, r))
+      : StateM (Nat × List Stmt × List Port) Stmt).run (counter, [], []) |>.run
+    counter := c'
+    newAssigns := newAssigns ++ as_
+    newWires := newWires ++ ws
+    body' := body' ++ [st']
+  -- No early-out on "nothing hoisted": the pass also performs PURE
+  -- rewrites (nested-slice composition, mux-condition truthiness,
+  -- scalar-lhs truncation) that must survive even when no wire was
+  -- added — keying the return on newAssigns discarded them.
+  return { m with body := newAssigns ++ body', wires := m.wires ++ newWires }
+
 /-- Convert a full design to C simulation code (no JIT wrapper) -/
 def toCDesign (d : Design)
     (observableWires : Option (List String) := none)
@@ -1839,7 +2325,8 @@ def toCDesign (d : Design)
           next := next ++ [m]
       remaining := next
     result ++ remaining
-  let code := sorted.map fun m =>
+  let code := sorted.map fun m0 =>
+    let m := hoistWideForC m0
     if m.name == topName then emitModule m (some d) observableWires funcQual
     else emitModule m (some d) none funcQual
   header ++ String.intercalate "\n" code

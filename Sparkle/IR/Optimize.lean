@@ -159,6 +159,26 @@ def foldConstants : Expr → Expr
   -- This is handled in emitExpr instead since foldConstants lacks width context
   -- not(not(x)) = x
   | .op .not [.op .not [x]] => x
+  -- Complementary nested conditions: an inner mux on the SAME predicate
+  -- as the enclosing one can only take the branch the outer choice
+  -- already implies, so the other arm is dead.
+  --   mux(not c, t, mux(c, u, _)) = mux(not c, t, u)
+  --   mux(not c, t, mux(not c, _, v)) = mux(not c, t, v)
+  --   mux(c, mux(c, u, _), e)     = mux(c, u, e)
+  --   mux(c, t, mux(c, _, v))     = mux(c, t, v)
+  -- Every register lowered from `if (reset) … else …` carried a dead
+  -- `reset ? init : old` arm inside the else branch — emitted as
+  -- `(~reset ? d : (reset ? 0 : q))` — which yosys counts as real cells.
+  | .op .mux [.op .not [c], t, .op .mux [c', u, v]] =>
+    if c == c' then .op .mux [.op .not [c], t, u]
+    else if c' == .op .not [c] then .op .mux [.op .not [c], t, v]
+    else .op .mux [.op .not [c], t, .op .mux [c', u, v]]
+  | .op .mux [c, .op .mux [c', u, v], e] =>
+    if c == c' then .op .mux [c, u, e]
+    else .op .mux [c, .op .mux [c', u, v], e]
+  | .op .mux [c, t, .op .mux [c', u, v]] =>
+    if c == c' then .op .mux [c, t, v]
+    else .op .mux [c, t, .op .mux [c', u, v]]
   -- and(x, all-ones) = x (identity mask removal)
   -- IMPORTANT: This rewrite is only sound when x's width equals w. The Expr IR
   -- does not carry per-node widths, so we cannot verify that in general. We
@@ -251,13 +271,23 @@ def countAllUses (stmts : List Stmt) : HashMap String Nat :=
   stmts.foldl (fun counts stmt =>
     match stmt with
     | .assign _ rhs => countExprUses rhs counts
-    | .register _ _ (rstName, _) input _ =>
-      -- The reset lives in a String field, not an Expr — count it as a
-      -- use so a synthesized reset wire's driving assign (`_no_rst = 0`,
-      -- `_rst_<sig>_inv = ~sig`) is never dropped as dead.
-      countExprUses input (counts.insert rstName ((counts.getD rstName 0) + 1))
-    | .memory _ _ _ _ wa wd we ra _ _ =>
-      [wa, wd, we, ra].foldl (fun acc e => countExprUses e acc) counts
+    | .register _ clkName (rstName, _) input _ =>
+      -- The reset AND the clock live in String fields, not Exprs — count
+      -- both as uses.  A synthesized reset wire (`_no_rst = 0`) was
+      -- already guarded; a DERIVED clock (`clock_falling = ~clock`,
+      -- JtagTapController's negedge domain) was still dropped as dead,
+      -- leaving `always_ff @(posedge clock_falling)` with no driver.
+      let counts := counts.insert rstName ((counts.getD rstName 0) + 1)
+      let counts := counts.insert clkName ((counts.getD clkName 0) + 1)
+      countExprUses input counts
+    | .memory _ _ _ clkName wa wd we ra _ _ ew er =>
+      -- The memory's clock is a String field too, and the EXTRA
+      -- read/write ports' expressions were not counted at all — a wire
+      -- feeding only a second port looked dead.
+      let counts := counts.insert clkName ((counts.getD clkName 0) + 1)
+      let base := [wa, wd, we, ra]
+        ++ ew.flatMap (fun (a, d, e) => [a, d, e]) ++ er.map (·.1)
+      base.foldl (fun acc e => countExprUses e acc) counts
     | .inst _ _ conns =>
       conns.foldl (fun acc (_, e) => countExprUses e acc) counts
   ) {}
@@ -267,10 +297,15 @@ def optimizeStmt (dm : DefMap) (wm : WidthMap) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (optimizeExpr dm wm rhs)
   | .register output clock reset input initValue =>
     .register output clock reset (optimizeExpr dm wm input) initValue
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
+    -- extra ports must be rewritten too, or a multi-port memory silently
+    -- degrades to port 0 as it passes through the optimizer
     .memory name aw dw clk
       (optimizeExpr dm wm wa) (optimizeExpr dm wm wd)
       (optimizeExpr dm wm we) (optimizeExpr dm wm ra) rd cr
+      (ew.map fun (a, d, e) =>
+        (optimizeExpr dm wm a, optimizeExpr dm wm d, optimizeExpr dm wm e))
+      (er.map fun (a, r) => (optimizeExpr dm wm a, r))
   | .inst modName instName conns =>
     .inst modName instName (conns.map fun (p, e) => (p, optimizeExpr dm wm e))
 
@@ -345,12 +380,16 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
   -- `_rst_<sig>_inv = ~sig`) and the emitted Verilog fails elaboration.
   let resetNames := body.foldl (fun s stmt =>
     match stmt with
-    | .register _ _ (rstName, _) _ _ => s.insert rstName true
+    | .register _ clkName (rstName, _) _ _ =>
+      -- Clocks are String-typed like resets: a derived clock's driving
+      -- assign must survive inlining too (see countAllUses).
+      (s.insert rstName true).insert clkName true
+    | .memory _ _ _ clkName _ _ _ _ _ _ _ _ => s.insert clkName true
     | _ => s
   ) ({} : HashMap String Bool)
   let memoryReadData := body.foldl (fun s stmt =>
     match stmt with
-    | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
+    | .memory _ _ _ _ _ _ _ _ rd _ .. => s.insert rd true
     | _ => s
   ) ({} : HashMap String Bool)
   -- Wires feeding a memory PORT must survive too, not just the read-data
@@ -371,7 +410,7 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
       | _ => m) {}
     let seeds := body.foldl (fun acc stmt =>
       match stmt with
-      | .memory _ _ _ _ wa wd we ra _ _ =>
+      | .memory _ _ _ _ wa wd we ra _ _ .. =>
         acc ++ [wa, wd, we, ra].flatMap collectExprRefs
       | _ => acc) []
     let rec grow (work : List String) (seen : HashMap String Bool) (fuel : Nat)
@@ -462,10 +501,15 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
       .assign lhs (substituteExpr dm inlinable widthOfWire 100 rhs)
     | .register output clock reset input initValue =>
       .register output clock reset (substituteExpr dm inlinable widthOfWire 100 input) initValue
-    | .memory name aw dw clk wa wd we ra rd cr =>
+    | .memory name aw dw clk wa wd we ra rd cr ew er =>
       .memory name aw dw clk
         (substituteExpr dm inlinable widthOfWire 100 wa) (substituteExpr dm inlinable widthOfWire 100 wd)
         (substituteExpr dm inlinable widthOfWire 100 we) (substituteExpr dm inlinable widthOfWire 100 ra) rd cr
+        (ew.map fun (a, d, e) =>
+          (substituteExpr dm inlinable widthOfWire 100 a,
+           substituteExpr dm inlinable widthOfWire 100 d,
+           substituteExpr dm inlinable widthOfWire 100 e))
+        (er.map fun (a, r) => (substituteExpr dm inlinable widthOfWire 100 a, r))
     | .inst modName instName conns =>
       .inst modName instName (conns.map fun (p, e) => (p, substituteExpr dm inlinable widthOfWire 100 e))
 
@@ -519,8 +563,10 @@ def propagateConstants (body : List Stmt) (dm : DefMap) : List Stmt × DefMap :=
   let substStmt : Stmt → Stmt
     | .assign lhs rhs => .assign lhs (substExpr rhs)
     | .register o c r input iv => .register o c r (substExpr input) iv
-    | .memory n aw dw clk wa wd we ra rd cr =>
+    | .memory n aw dw clk wa wd we ra rd cr ew er =>
       .memory n aw dw clk (substExpr wa) (substExpr wd) (substExpr we) (substExpr ra) rd cr
+        (ew.map fun (a, d, e) => (substExpr a, substExpr d, substExpr e))
+        (er.map fun (a, r) => (substExpr a, r))
     | .inst mn ins conns => .inst mn ins (conns.map fun (p, e) => (p, substExpr e))
   let newBody := body.map substStmt
   let newDm := buildDefMap newBody
@@ -592,13 +638,17 @@ def eliminateZeroBitStmt (wm : WidthMap) : Stmt → Option Stmt
     else some (.assign lhs (eliminateZeroBitInExpr wm rhs))
   | .register output clk rst input init =>
     some (.register output clk rst (eliminateZeroBitInExpr wm input) init)
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
     some (.memory name aw dw clk
       (eliminateZeroBitInExpr wm wa)
       (eliminateZeroBitInExpr wm wd)
       (eliminateZeroBitInExpr wm we)
       (eliminateZeroBitInExpr wm ra)
-      rd cr)
+      rd cr
+      (ew.map fun (a, d, e) =>
+        (eliminateZeroBitInExpr wm a, eliminateZeroBitInExpr wm d,
+         eliminateZeroBitInExpr wm e))
+      (er.map fun (a, r) => (eliminateZeroBitInExpr wm a, r)))
   | .inst modName instName conns =>
     some (.inst modName instName
       (conns.map fun (p, e) => (p, eliminateZeroBitInExpr wm e)))
@@ -634,8 +684,10 @@ partial def renameRefs (subst : HashMap String String) : Expr → Expr
 def mapStmtExprs (f : Expr → Expr) : Stmt → Stmt
   | .assign lhs rhs => .assign lhs (f rhs)
   | .register out clk rst input init => .register out clk rst (f input) init
-  | .memory name aw dw clk wa wd we ra rd cr =>
+  | .memory name aw dw clk wa wd we ra rd cr ew er =>
       .memory name aw dw clk (f wa) (f wd) (f we) (f ra) rd cr
+        (ew.map fun (a, d, e) => (f a, f d, f e))
+        (er.map fun (a, r) => (f a, r))
   | .inst mn inm conns => .inst mn inm (conns.map fun (p, e) => (p, f e))
 
 /-- Phase 0.6: cross-wire common-subexpression elimination +
@@ -688,7 +740,7 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
         match s with
         | .assign lhs _ => drivenElsewhere := drivenElsewhere.insert lhs true
         | .register out _ _ _ _ => drivenElsewhere := drivenElsewhere.insert out true
-        | .memory _ _ _ _ _ _ _ _ rd _ => drivenElsewhere := drivenElsewhere.insert rd true
+        | .memory _ _ _ _ _ _ _ _ rd _ .. => drivenElsewhere := drivenElsewhere.insert rd true
         | .inst _ _ _ => pure ()
       -- A wire connected to MORE THAN ONE instance cannot be treated as
       -- "this instance's output": it may be another instance's output
@@ -777,6 +829,7 @@ def cseAndMergeInstances (m : Module) (body0 : List Stmt)
       if dropped == 0 then
         break
     return body
+
 
 /-- Optimize a module: strip zero-bit shapes, eliminate concat/slice
     chains, then remove dead code. -/
@@ -936,6 +989,15 @@ def optimizeModule (m : Module)
       match stmt with
       | .register out _ (rstName, _) _ _ => s.insert out rstName
       | _ => s) {}
+    -- Clocks are String-typed exactly like resets, so a DERIVED clock
+    -- (`clock_falling = ~clock`, JtagTapController's negedge domain) was
+    -- invisible to this walk and its driving assign was pruned — the
+    -- emitted `always_ff @(posedge clock_falling)` referenced an
+    -- undeclared wire.
+    let regClocks : HashMap String String := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out clkName _ _ _ => s.insert out clkName
+      | _ => s) {}
     let seeds : List String :=
       m.outputs.map (·.name) ++
       -- Wires the caller has declared observable are roots too.  `#sim`
@@ -947,7 +1009,7 @@ def optimizeModule (m : Module)
       finalBody.foldl (fun acc stmt =>
         match stmt with
         -- memory writes and instance ports are observable side effects
-        | .memory _ _ _ _ wa wd we ra _ _ =>
+        | .memory _ _ _ _ wa wd we ra _ _ .. =>
           acc ++ [wa, wd, we, ra].flatMap collectExprRefs
         | .inst _ _ conns => acc ++ conns.flatMap (fun (_, e) => collectExprRefs e)
         | _ => acc) []
@@ -963,7 +1025,8 @@ def optimizeModule (m : Module)
           let next :=
             (assignDefs.get? w |>.map collectExprRefs |>.getD []) ++
             (regInputs.get? w |>.map collectExprRefs |>.getD []) ++
-            (regResets.get? w |>.map ([·]) |>.getD [])
+            (regResets.get? w |>.map ([·]) |>.getD []) ++
+            (regClocks.get? w |>.map ([·]) |>.getD [])
           grow (next ++ rest) live fuel
     -- Fuel: every pop is either a revisit (pushed once per reference) or
     -- a fresh wire (pushes its def's refs).  Bound fuel by seeds + the
@@ -977,7 +1040,12 @@ def optimizeModule (m : Module)
     let totalRefs := finalBody.foldl (fun acc stmt =>
       match stmt with
       | .assign _ rhs => acc + (collectExprRefs rhs).length
-      | .register _ _ _ input _ => acc + (collectExprRefs input).length + 1
+      -- +2: each register can push its reset AND its clock name.
+      -- Adding regClocks without raising this exhausted the fuel and the
+      -- truncated liveSet pruned LIVE registers again (DelayReg's whole
+      -- r_3_* pipeline stage) — the exact failure mode this comment
+      -- already warns about.
+      | .register _ _ _ input _ => acc + (collectExprRefs input).length + 2
       | _ => acc) 0
     let liveSet := grow seeds {} (seeds.length + totalRefs + 64)
     let reachableBody := finalBody.filter fun stmt =>
@@ -994,7 +1062,7 @@ def optimizeModule (m : Module)
       match stmt with
       | .assign lhs _ => s.insert lhs true
       | .register out .. => s.insert out true
-      | .memory _ _ _ _ _ _ _ _ rd _ => s.insert rd true
+      | .memory _ _ _ _ _ _ _ _ rd _ .. => s.insert rd true
       | .inst _ _ conns => conns.foldl (fun acc (_, e) =>
           match e with | .ref r => acc.insert r true | _ => acc) s) {}
     let allOutputsDriven := m.outputs.all fun p => drivenAfter.contains p.name

@@ -126,8 +126,11 @@ private partial def simplifyCone (wt : Std.HashMap String Nat) :
   | .index a i => .index (simplifyCone wt a) (simplifyCone wt i)
   | e => e
 
+mutual
+
 /-- Render an inlined IR expression (refs are inputs/registers only) as
-    circuit-DSL source text. -/
+    circuit-DSL source text.  Mutually recursive with `cmpOperand`, which
+    brings two operands of a width-polymorphic IR node to one width. -/
 partial def dslExpr (wt : Std.HashMap String Nat)
     (regNames : List (String × String)) :
     Sparkle.IR.AST.Expr → Except String String
@@ -139,7 +142,16 @@ partial def dslExpr (wt : Std.HashMap String Nat)
       .ok s!"(Signal.pure ({v}#{w}) : Signal defaultDomain (BitVec {w}))"
   | .ref n => .ok (refText wt regNames n)
   | .slice e hi lo => do
-    .ok s!"({← dslExpr wt regNames e})[{hi}, {lo}]"
+    -- NOT `x[hi, lo]`: `HasBitSlice.slice` has type
+    -- `BitVec (hi - lo + 1)` — a syntactically UNREDUCED width that the
+    -- DSL's HAdd/HSub instances reject and that the synth elaborator
+    -- cannot inline ("Cannot instantiate HasBitSlice.slice: not a
+    -- hardware module definition").  `BitVec.extractLsb' lo w` has a
+    -- literal width, and the elaborator maps exactly the LAMBDA form
+    -- `.map (fun x => BitVec.extractLsb' …)` to `Expr.slice` — a
+    -- partially applied `extractLsb' lo w` is not a lambda and misses
+    -- that path.
+    .ok s!"(({← dslExpr wt regNames e}).map (fun x => BitVec.extractLsb' {lo} {hi - lo + 1} x))"
   | .concat args => do
     match args with
     | [] => .error "empty concat"
@@ -149,8 +161,23 @@ partial def dslExpr (wt : Std.HashMap String Nat)
         acc := s!"({acc} ++ {← dslExpr wt regNames r})"
       .ok acc
   | .op o args => do
+    -- IR binary ops inherit Verilog's context sizing and may mix widths
+    -- (`BitVec 4 * BitVec 32`); the width-indexed DSL instances demand
+    -- one width, so operands are normalized to the wider one.  Very wide
+    -- results are DECLINED rather than printed: zero-extending a small
+    -- operand up to e.g. 4096 bits builds `0#4092 ++ …` terms that either
+    -- mismatch or exhaust `whnf` heartbeats — "printable" must mean
+    -- "elaborates".
     let bin := fun (sym : String) (a b : Sparkle.IR.AST.Expr) => do
-      .ok s!"({← dslExpr wt regNames a} {sym} {← dslExpr wt regNames b})"
+      let wa := (widthOf wt a).toOption.getD 1
+      let wb := (widthOf wt b).toOption.getD 1
+      if wa == wb then
+        .ok s!"({← dslExpr wt regNames a} {sym} {← dslExpr wt regNames b})"
+      else if max wa wb > 64 then
+        .error s!"mixed-width `{sym}` at {max wa wb} bits not in the v1 circuit-DSL subset"
+      else
+        let w := max wa wb
+        .ok s!"({← cmpOperand wt regNames w a} {sym} {← cmpOperand wt regNames w b})"
     match o, args with
     | .add, [a, b] => bin "+" a b
     | .sub, [a, b] => bin "-" a b
@@ -170,27 +197,22 @@ partial def dslExpr (wt : Std.HashMap String Nat)
       let w ← widthOf wt a
       .ok s!"({← dslExpr wt regNames a} >>> ({v}#{w} : BitVec {w}))"
     | .shl, [a, b] => do
-      -- dynamic amount: shift by a Signal.  Widths must agree, so the
-      -- amount is zero-extended/truncated to the value's width first.
+      -- dynamic amount: value and amount must share a width; a very wide
+      -- value would need an absurd zero-extension of the amount, so it is
+      -- declined (those shapes are packed-array index computations).
       let wa ← widthOf wt a
-      let wb ← widthOf wt b
-      let amt ← if wb == wa then dslExpr wt regNames b
-                else do
-                  let bs ← dslExpr wt regNames b
-                  if wb < wa then
-                    .ok s!"((Signal.pure (0#{wa - wb}) : Signal defaultDomain (BitVec {wa - wb})) ++ {bs})"
-                  else .ok s!"({bs})[{wa - 1}, 0]"
-      .ok s!"(Signal.ap (Signal.map (· <<< ·) {← dslExpr wt regNames a}) {amt})"
+      if wa > 64 then
+        .error s!"dynamic shift of a {wa}-bit value not in the v1 circuit-DSL subset"
+      else
+        let amt ← cmpOperand wt regNames wa b
+        .ok s!"((Signal.ap (Signal.map (fun (x : BitVec {wa}) (y : BitVec {wa}) => x <<< y) {← cmpOperand wt regNames wa a}) {amt}) : Signal defaultDomain (BitVec {wa}))"
     | .shr, [a, b] => do
       let wa ← widthOf wt a
-      let wb ← widthOf wt b
-      let amt ← if wb == wa then dslExpr wt regNames b
-                else do
-                  let bs ← dslExpr wt regNames b
-                  if wb < wa then
-                    .ok s!"((Signal.pure (0#{wa - wb}) : Signal defaultDomain (BitVec {wa - wb})) ++ {bs})"
-                  else .ok s!"({bs})[{wa - 1}, 0]"
-      .ok s!"(Signal.ap (Signal.map (· >>> ·) {← dslExpr wt regNames a}) {amt})"
+      if wa > 64 then
+        .error s!"dynamic shift of a {wa}-bit value not in the v1 circuit-DSL subset"
+      else
+        let amt ← cmpOperand wt regNames wa b
+        .ok s!"((Signal.ap (Signal.map (fun (x : BitVec {wa}) (y : BitVec {wa}) => x >>> y) {← cmpOperand wt regNames wa a}) {amt}) : Signal defaultDomain (BitVec {wa}))"
     | .lt_u, [a, b] | .le_u, [a, b] | .gt_u, [a, b] | .ge_u, [a, b]
     | .lt_s, [a, b] | .le_s, [a, b] | .gt_s, [a, b] | .ge_s, [a, b] => do
       -- `Signal.{ult,ule,slt,sle}` are Bool-valued; gt/ge are the same
@@ -202,12 +224,16 @@ partial def dslExpr (wt : Std.HashMap String Nat)
         | .gt_u => ("Signal.ult", b, a) | .ge_u => ("Signal.ule", b, a)
         | .lt_s => ("Signal.slt", a, b) | .le_s => ("Signal.sle", a, b)
         | .gt_s => ("Signal.slt", b, a) | _      => ("Signal.sle", b, a)
-      .ok s!"(Signal.mux ({fn} {← dslExpr wt regNames x} {← dslExpr wt regNames y}) (Signal.pure 1#1) (Signal.pure 0#1))"
+      let w := max ((widthOf wt x).toOption.getD 1) ((widthOf wt y).toOption.getD 1)
+      if w > 64 then .error s!"comparison at {w} bits not in the v1 circuit-DSL subset" else
+      .ok s!"(Signal.mux ({fn} {← cmpOperand wt regNames w x} {← cmpOperand wt regNames w y}) (Signal.pure (1#1) : Signal defaultDomain (BitVec 1)) (Signal.pure (0#1) : Signal defaultDomain (BitVec 1)))"
     | .eq, [a, b] => do
       -- The elaborator maps `BEq.beq` to `.eq`; a Bool-valued Signal is
       -- what `Signal.mux` wants as its condition, and lifting it back to
       -- BitVec 1 (for arithmetic contexts) uses the same mux.
-      .ok s!"(Signal.mux (Signal.ap (Signal.map (· == ·) {← dslExpr wt regNames a}) {← dslExpr wt regNames b}) (Signal.pure 1#1) (Signal.pure 0#1))"
+      let w := max ((widthOf wt a).toOption.getD 1) ((widthOf wt b).toOption.getD 1)
+      if w > 64 then .error s!"comparison at {w} bits not in the v1 circuit-DSL subset" else
+      .ok s!"(Signal.mux (Signal.ap (Signal.map (· == ·) {← cmpOperand wt regNames w a}) {← cmpOperand wt regNames w b}) (Signal.pure (1#1) : Signal defaultDomain (BitVec 1)) (Signal.pure (0#1) : Signal defaultDomain (BitVec 1)))"
     | .mux, [c, t, e] => do
       let wc ← widthOf wt c
       if wc != 1 then .error s!"mux condition of width {wc} (v1 supports 1-bit)"
@@ -215,16 +241,42 @@ partial def dslExpr (wt : Std.HashMap String Nat)
         -- Bool-valued condition without a BitVec detour when the cone is
         -- itself a comparison (the common `.map (· == 1#1)` shape).
         let condTxt ← match c with
-          | .op .eq [ca, cb] =>
-            .ok s!"(Signal.ap (Signal.map (· == ·) {← dslExpr wt regNames ca}) {← dslExpr wt regNames cb})"
-          | .op .lt_u [ca, cb] => .ok s!"(Signal.ult {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
-          | .op .le_u [ca, cb] => .ok s!"(Signal.ule {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
-          | .op .gt_u [ca, cb] => .ok s!"(Signal.ult {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
-          | .op .ge_u [ca, cb] => .ok s!"(Signal.ule {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
-          | .op .lt_s [ca, cb] => .ok s!"(Signal.slt {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
-          | .op .le_s [ca, cb] => .ok s!"(Signal.sle {← dslExpr wt regNames ca} {← dslExpr wt regNames cb})"
-          | .op .gt_s [ca, cb] => .ok s!"(Signal.slt {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
-          | .op .ge_s [ca, cb] => .ok s!"(Signal.sle {← dslExpr wt regNames cb} {← dslExpr wt regNames ca})"
+          | .op .eq [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.ap (Signal.map (· == ·) {← cmpOperand wt regNames w ca}) {← cmpOperand wt regNames w cb})"
+          | .op .lt_u [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.ult {← cmpOperand wt regNames w ca} {← cmpOperand wt regNames w cb})"
+          | .op .le_u [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.ule {← cmpOperand wt regNames w ca} {← cmpOperand wt regNames w cb})"
+          | .op .gt_u [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.ult {← cmpOperand wt regNames w cb} {← cmpOperand wt regNames w ca})"
+          | .op .ge_u [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.ule {← cmpOperand wt regNames w cb} {← cmpOperand wt regNames w ca})"
+          | .op .lt_s [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.slt {← cmpOperand wt regNames w ca} {← cmpOperand wt regNames w cb})"
+          | .op .le_s [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.sle {← cmpOperand wt regNames w ca} {← cmpOperand wt regNames w cb})"
+          | .op .gt_s [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.slt {← cmpOperand wt regNames w cb} {← cmpOperand wt regNames w ca})"
+          | .op .ge_s [ca, cb] => do
+            let w := max ((widthOf wt ca).toOption.getD 1) ((widthOf wt cb).toOption.getD 1)
+            if w > 64 then .error s!"mux condition compares {w} bits (v1 limit)" else
+            .ok s!"(Signal.sle {← cmpOperand wt regNames w cb} {← cmpOperand wt regNames w ca})"
           | _ =>
             -- any other 1-bit cone (a slice, a wire, an and/or tree):
             -- lift to Bool.  Parenthesize so `[hi, lo]` binds first.
@@ -232,6 +284,31 @@ partial def dslExpr (wt : Std.HashMap String Nat)
         .ok s!"(Signal.mux {condTxt} {← dslExpr wt regNames t} {← dslExpr wt regNames e})"
     | _, _ => .error s!"operator {repr o}/{args.length} not in the v1 circuit-DSL subset"
   | e => .error s!"expression {repr e} not in the v1 circuit-DSL subset"
+
+/-- Render an operand at a common width `w`: constants are
+    re-materialised at `w`, narrower expressions zero-extended, wider
+    ones truncated.  IR nodes inherit Verilog's context sizing
+    (`x == 32'd0` against a 4-bit `x`), which the width-indexed DSL will
+    not accept. -/
+partial def cmpOperand (wt : Std.HashMap String Nat)
+    (regNames : List (String × String)) (w : Nat)
+    (e : Sparkle.IR.AST.Expr) : Except String String := do
+  match e with
+  | .const v _ =>
+    let m : Int := (2 : Int) ^ w
+    let uv := ((v % m) + m) % m
+    .ok s!"(Signal.pure ({uv}#{w}) : Signal defaultDomain (BitVec {w}))"
+  | _ =>
+    let we ← widthOf wt e
+    let txt ← dslExpr wt regNames e
+    if we == w then .ok s!"(({txt} : Signal defaultDomain (BitVec {w})))"
+    else if we < w then
+      .ok s!"(((Signal.pure (0#{w - we}) : Signal defaultDomain (BitVec {w - we})) ++ {txt}) : Signal defaultDomain (BitVec {w}))"
+    else
+      .ok s!"((({txt}).map (fun x => BitVec.extractLsb' 0 {w} x)) : Signal defaultDomain (BitVec {w}))"
+
+end
+
 
 /-- Rewrite a reparsed register cone into its rst = 0 form: replace
     every `.ref rstName` with 0, then constant-fold the muxes it feeds.

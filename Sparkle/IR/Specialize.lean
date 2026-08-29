@@ -96,7 +96,7 @@ def specializeStmt (bindings : Bindings) : Stmt → Except String Stmt
   | .register output clock reset input initValue =>
     return .register output clock reset (← specializeExpr bindings input) initValue
   | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable
-      readAddr readData comboRead => do
+      readAddr readData comboRead .. => do
     return .memory name addrWidth dataWidth clock
       (← specializeExpr bindings writeAddr)
       (← specializeExpr bindings writeData)

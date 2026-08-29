@@ -262,11 +262,35 @@ Reading the two tails:
   fuel fix this bucket was 96 modules / −197k cells of silently DELETED
   logic — the metric only became meaningful once co-sim forced
   correctness.)
-* **rt-more (+13%)** is emission-style redundancy, not logic: per-register
-  mux chains duplicate shared condition cones (RenameTable ×1.9) and each
-  register's data expression still carries a dead `reset ? init : …` arm
-  inside the `else` branch of an `if (reset)`. Both are Phase-3 emitter
-  improvements (share condition wires; strip the duplicated reset arm).
+* **rt-more (+13%)** — diagnosis CORRECTED by measuring at the right
+  synthesis stage. `synth -run coarse` is too early to tell: it reports
+  the same totals whether or not shared cones are hoisted, because its own
+  CSE folds them. After a FULL `synth; opt -full` the gap survives
+  (FreeList_4 8,426 → 10,392 = 1.23×), so this IS real gate cost.
+
+  Where it goes: flip-flops are IDENTICAL (252/156/60/4/21 by type) and so
+  is `$_MUX_` (1,641 both sides). The entire excess is the boolean gate
+  layer, dominated by `$_ANDNOT_` 557 → 1,022.
+
+  The cause is not duplicated *cones* but the fused-expression shape
+  itself. firtool emits a register as separate guarded statements
+  (`if (…) r <= C; else r <= T;`); Sparkle collapses each register into ONE
+  mux expression and so rebuilds the whole guard chain per register —
+  FreeList_4 carries 168 copies of a single guard term. yosys shares some
+  but not all of them.
+
+  Two things were tried and MEASURED:
+  - Folding the dead `reset ? init : …` arm (a general complementary-
+    condition mux rule, ParserTest 56): correct and kept, but worth only
+    3 cells corpus-wide. The arm was already nearly free.
+  - Hoisting repeated subexpressions into wires (whole-wire CSE cannot
+    reach inside expressions): shrank emitted source 8% and hoisted 681
+    wires in FreeList_4, but cell count went 10,392 → 10,408 — slightly
+    WORSE, because each hoisted wire is then used both plain and negated
+    (168 `$_NOT_`s that the un-hoisted form let yosys share). Reverted.
+
+  The real fix is emitter-architectural: emit guarded `if` statements per
+  register instead of one fused mux expression. Not attempted here.
 
 Phase-2 verdict: **re-emission is functionally faithful (RT✗ = 0 on every
 runnable leaf), the JIT agrees except one open module, and the cell
@@ -320,8 +344,21 @@ masked partial-word writes (`Memory[addr][k +: w] <=`) via a linear RMW
 array_128x38, the likely cause of the machine-freezing OOMs), the writing
 block's real clock, priority-mux composition of multiple guarded writes,
 first read claims the Stmt.memory port with extra reads as `Memory[addr]`
-assigns.  v1 limit: simultaneous multi-write-port macros fold to priority
-(1 of 93: dt_352x1, Difftest debug infra).
+assigns.  **Resolved**: `Stmt.memory` now carries extra read/write PORTS
+(`extraWrites` / `extraReads`), so multi-port macros keep every port.
+XiangShan's memory macros are 61x 1R1W, 31x single read-write, and one
+8R8W (dt_352x1, the Difftest array) — all 93 now round-trip and
+co-simulate cleanly (RT 0 / JIT 0 over the 31 harness-runnable ones).
+Semantics: all ports share the clock, reads see pre-write state, and
+simultaneous same-address writes resolve last-port-wins (the Verilog
+`always_ff` rule).  Dual-port and two-port memories need no new IR —
+they are simply two read and/or two write ports.
+
+The fix touched 9 further sites that REBUILD a `.memory` statement (four
+in the lowering's refinement passes and sub-module flattening, five in
+the IR optimizer): each dropped the new fields and silently degraded a
+multi-port memory back to port 0.  Regression test: `svparser-test`
+Test 50 checks both the IR port counts and the emitted Verilog.
 
 Determinism: both iverilog sides now compile with
 `-DRANDOMIZE_REG_INIT -DRANDOM=32'h0` (firtool leaves reset-less
@@ -330,6 +367,22 @@ the IR's defined init=0), and stimulus is splitmix64-mixed (a raw LCG's
 bit 0 alternates every draw — paired 1-bit enables sat in antiphase and
 memories stayed X forever), with addresses shaped into [0,3] and write
 masks all-ones so reads hit written entries.
+
+Wide (>64-bit) ports: sv-cosim drives and samples them as one 64-bit word
+per slot (`port#k`), so nothing is skipped for width up to 4096 bits.
+Getting there required matching the two sides exactly at the top word:
+the TB slices it to the RESIDUAL width (on a 138-bit port `[128 +: 64]`
+reads 54 bits past the end and Verilog returns X, so the all-X check
+rejected runs whose every real bit was defined — that alone was the whole
+"X/Z in golden" skip class), and the C side masks the same bits.  Wide
+write masks are shaped all-ones like narrow ones, because firtool emits
+PER-BIT write enables (array_128x76 has a 76-bit wmask) and a random one
+leaves most bits never written.  The emission-cost guard also had to stop
+multiplying word count at every NODE — that compounded as words^depth and
+scored a 25 KB masked-RMW memory at 3e11.  Result on the 93 SRAM macros:
+93/93 three-way, 0 skipped (was 22 executed / 62 skipped for wide port).
+The skip counter now breaks down by reason, so "the harness cannot drive
+it" is distinguishable from "the golden run is all-X".
 
 CSim fixes found by the sweeps: dynamic scalar shifts ≥ container width
 (C UB wraps mod 32/64; Verilog says 0 — BusyTable's random read indexes),
@@ -349,13 +402,202 @@ work list, classified:
   THROUGH instances = a cycle at instance granularity; needs K-round
   relaxation (or per-port scheduling) in CSim eval — the NLnet Task-1
   "Mealy boundaries" item.
-* Wide-arithmetic internals (Mul/FMA family): FloatFMA is clean after the
-  boxing fixes; Mul/FMA still have one value-level divergence inside the
-  128-bit CSA tree.  Bisecting needs >64-bit port support in sv-cosim.
+* Wide-arithmetic internals (Mul/FMA family): RESOLVED.  sv-cosim now
+  drives and samples >64-bit ports (one 64-bit word per slot), which made
+  the bisect possible.  The CSA-tree divergence was a short `memcpy`, not
+  the arithmetic: a wide concat NARROWER than its destination (Booth
+  partial products are 96-bit sign-extended concats assigned to 128-bit
+  wires) was copied with `sizeof(dst)`, reading past the compound literal
+  so the top word held adjacent memory instead of the zero fill.  Two
+  further bugs found building the reproduction stopped these modules from
+  compiling at all: the top-level wide `shl`/`shr` arms subscripted an
+  un-materialised operand, and `wideAddSubExpr` / the wide-mul arm cast to
+  `uint64_t` BEFORE subscripting.  Pinned by ParserTest 51-53.
 * RenameTable_3-class: iverilog's vvp hits its 512-flag codegen limit on
   our single-expression register muxes — an emitter-style item (share
   condition subexpressions), same root as the cell-count redundancy.
-* NCBUpstreamRXREQ: one real RT logic diff, untriaged.
+* LCredit2Decoupled_4 / RNLinkMonitor: RESOLVED.  A wide INSTANCE
+  CONNECTION that is a slice at a non-zero offset was emitted as
+  `memcpy(child.port, <expr>, sizeof(...))`, which copies from the
+  operand's base word and drops the offset.  The parent wires the child's
+  256-bit data port to `io_in_flit[385:130]`, so the child's SRAM stored
+  the wrong 256 bits every cycle.  Same bug class as the `matWide`
+  `.slice` gap, on a different code path — the connection emitter now
+  gathers word by word.  RNLinkMonitor inherited it through its
+  LCredit2Decoupled children.  Pinned by ParserTest 57.
+
+  The CI corpus is now clean in BOTH modes: 35/35 leaf and 17/17
+  hierarchical, RT✗ 0 / JIT✗ 0.
+
+* Full-corpus HIERARCHICAL verification: after the leaf sweep went clean,
+  the hier mode surfaced its own tail — all fixed except one:
+  - The rt closure was incomplete for >512 KB children (the IssueQueue
+    family's Entries* modules): the size cap was a CSim-emitter OOM
+    guard, wrongly applied to Verilog re-emission.  The full corpus now
+    re-emits at full size (2,047/2,048).
+  - Derived clocks (`clock_falling = ~clock`, JTAG's negedge domain) were
+    String-typed and invisible to FIVE liveness/DCE layers; the reset
+    fix had covered four.  All now seed clocks — and the reachability
+    fuel accounts for the extra push (missing that pruned live registers
+    corpus-wide, caught by the sweep before commit).
+  - Clock detection broadened to any input ending clk/clock
+    (`io_mbistCgCtl_rclk` drove SRAMTemplate's array as random data).
+  - The X/Z filter now catches CAPITAL X/Z (iverilog prints capitals for
+    partially-unknown nibbles; Directory_3's bore_ack slipped through as
+    a spurious mismatch).
+  - Reduction-XOR widths resolve through the module ENVIRONMENT
+    (ICacheMissUnit's `^{tag, wire_a, …}` parity has no static width),
+    the annotator walks every statement form (Directory's ECC syndromes
+    live in case arms), and `declareOrphanRefs` no longer papers over the
+    fail-loud sentinel by driving it 0.
+  - Wide ARITHMETIC shift right had no wide arm at all — the scalar
+    emitter cast the operand array to `int64_t` (a pointer) and shifted
+    that (SRT16Divint's remainder alignment).  Sign-extended word-window
+    loops added.
+
+  Final: leaf **1,237 executed, RT✗ 0 / JIT✗ 0**; hier **509 executed,
+  RT✗ 1 / JIT✗ 0**.  The one: RenameTable_3, iverilog's own vvp 512-flag
+  codegen limit on our fused register muxes — the documented Phase-3
+  emitter-architecture item, not a correctness bug (CSim and the IR
+  agree; iverilog cannot compile the shape).  Every other failure in
+  both modes is `iverilog(orig) compile`: Icarus rejecting XiangShan's
+  ORIGINAL source, where no golden can exist.
+
+* Full-corpus verification (DefaultConfig, all 2,026 files): the trimmed
+  corpora had gone clean, so the entire build was swept as the real
+  "no known issues" test — and it surfaced ELEVEN more defects the small
+  corpora never exercised.  All fixed; final state: roundtrip 1,969 OK /
+  1 parse-fail (ClockGate's `always_latch` ICG, the documented
+  exclusion), leaf co-sim **1,237 executed, RT✗ 0 / JIT✗ 0**.  The only
+  remaining failures are 4× `iverilog(orig) compile` — Icarus rejecting
+  XiangShan's ORIGINAL source (e.g. DstMgu's `_GEN_8[io_in_vdIdx][0]`
+  dynamic array index), so no golden exists; Sparkle round-trips all
+  four.
+
+  The eleven, by root cause:
+  - Wide eq/lt/gt with a NARROW operand: the word-wise compare
+    subscripted a scalar (RasStack, PredChecker, WriteBuffer_12/_54,
+    StreamBitVectorArray).  Narrow sides now present zero-extended words.
+  - Concat elements are SELF-DETERMINED in Verilog: a packed-table
+    gather element `(_GEN >> idx*4) & 4'd15` is container-wide, so
+    MiscModule's 16-nibble xperm concat became 1024 bits and kept only
+    its last element; VpnTable's 1-bit variant likewise.  The dynamic
+    select lowerings now pin widths with an explicit `.slice` (rendered
+    as a size cast); op-typed concat elements are also cast (HPTW fixed
+    by the same change).
+  - A WIDE dynamic shift AMOUNT (TIMER's `128'h1 << {121'h0, addr…}`):
+    once hoisted to a word array, `(unsigned)(amount)` took the POINTER —
+    the CLINT's one-hot register select shifted by garbage
+    (VLSplitPipelineImp shared the cause).
+  - `~~reset`: the NOT emitter's width-unknown fallback was
+    unparenthesised, and iverilog rejects bare `~~` (TLBusBypassBar).
+  Pinned by ParserTest 62-63 (both verified non-vacuous).
+
+* NCBUpstreamRXREQ: RESOLVED.  Verilog's `~` is CONTEXT-determined, not
+  self-determined, so an unbounded `~expr` inverts the CONTAINER's bits
+  once it lands in a wider context.  This module builds `{6{~(|Size)}}`
+  as the sign-extend trick `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded,
+  `~(…)` widened to 32 bits, `^ 1` gave 0xffffffff, and
+  `6'd0 - 0xffffffff` evaluated to 1 instead of 6'h3f — the mask silently
+  lost five of its six bits.  The emitter now width-casts the NOT.
+
+  This one was EMITTER-side only: the IR and the JIT were both correct, so
+  it showed up as an RT mismatch (re-emitted RTL vs original under
+  iverilog), which is why no amount of JIT work would have found it.  The
+  bug class is general — any N-bit NOT feeding a wider context — so a
+  400-module slice of the real DefaultConfig build was swept to check for
+  fallout: 229/229 executed leaf co-sims and 17/17 hierarchical pass,
+  RT✗ 0 / JIT✗ 0.  Pinned by ParserTest 58.
+
+  Sweeping the 12 modules in the full build that use a replicated NOT (plus
+  their transitive closures, 87 files) then found one MORE emitter gap of
+  the same family: `staticExprWidth` had no arm for a CONDITIONAL, so
+  `^(cond ? 8'h0 : beat[255:248])` had no static width and the parity
+  expansion bailed to its fail-loud sentinel — TXDAT's
+  `io_out_bits_dataCheck` collapsed to a constant, losing all 32 parity
+  bytes.  Fixed with width rules for ternary, repeat, the passthrough
+  unaries, and the one-bit reductions/comparisons.  Pinned by ParserTest 59.
+
+  That sweep's last failure, `VectorFloatFMA` (a single LSB on
+  `io_fp_result`), is RESOLVED — and it was never a rounding bug.
+  Signal-level tracing (debug output ports spliced into the original SV;
+  the roundtrip carries them through, so the harness compares every probe
+  automatically) walked it back in four hops: rounding decision → sticky
+  → 164-bit TZD → `_adder_lowbit_f64_T` → the CSA3to2 INPUTS.  The
+  connection `{car[106:1], bit}` was emitted as `(car << 1) | bit`: a
+  >64-bit slice with a non-aligned offset has no inline C form, and
+  `emitExpr` handed back the BASE with the offset silently dropped — the
+  entire CSA carry off by one bit, visible only as a 1-LSB rounding error
+  three pipeline stages later.
+
+  Fixing that class properly took a backend-local pre-pass,
+  `hoistWideForC`: every wide compound in a position the C emitter cannot
+  render inline (instance connections, comparison operands, mux arms of
+  ≤64-bit results, wide mux CONDITIONS — a hoisted array name is a
+  pointer, i.e. always true, so conditions get an explicit `!= 0`) is
+  hoisted into a wire and routed through the wide-assign machinery.
+  Nested wide slices compose (`slice(slice(b,h1,l1),h2,l2)` →
+  `slice(b, l1+h2, l1+l2)`), and the un-renderable fall-through now emits
+  a loud non-compiling token instead of a silently wrong value.
+
+  That unlocked the rest of the 12-module sweep: DivUnit, FP_INCVT,
+  AluDataModule/_3 and TLDebugModuleInner all pass now (20 OK / 0 fail;
+  was 14 OK, 1 value mismatch, 5 tool failures).  TLDebugModuleInner's
+  divergence was a HARNESS gap, not an emitter one: its second clock
+  domain arrives as `io_tl_clock`, and the clock detector only knew
+  `clock`/`clk`/`*_clk` — driven as random data, the golden's SBToTL
+  barely ticked while CSim ticked it every cycle; the two sims were
+  simulating different machines.  All `*_clock` ports are now driven
+  together as clocks.  Pinned by ParserTest 60-61; batch summaries now
+  name tool failures instead of only counting them.
+
+* NCBUpstreamRXREQ: RESOLVED.  Verilog's `~` is CONTEXT-determined, not
+  self-determined, so an unbounded `~expr` inverts the CONTAINER's bits
+  once it lands in a wider context.  This module builds `{6{~(|Size)}}`
+  as the sign-extend trick `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded,
+  `~(…)` widened to 32 bits, `^ 1` gave 0xffffffff, and
+  `6'd0 - 0xffffffff` evaluated to 1 instead of 6'h3f — the mask silently
+  lost five of its six bits.  The emitter now width-casts the NOT.
+
+  This one was EMITTER-side only: the IR and the JIT were both correct, so
+  it showed up as an RT mismatch (re-emitted RTL vs original under
+  iverilog), which is why no amount of JIT work would have found it.  The
+  bug class is general — any N-bit NOT feeding a wider context — so a
+  400-module slice of the real DefaultConfig build was swept to check for
+  fallout: 229/229 executed leaf co-sims and 17/17 hierarchical pass,
+  RT✗ 0 / JIT✗ 0.  Pinned by ParserTest 58.
+
+  Sweeping the 12 modules in the full build that use a replicated NOT (plus
+  their transitive closures, 87 files) then found one MORE emitter gap of
+  the same family: `staticExprWidth` had no arm for a CONDITIONAL, so
+  `^(cond ? 8'h0 : beat[255:248])` had no static width and the parity
+  expansion bailed to its fail-loud sentinel — TXDAT's
+  `io_out_bits_dataCheck` collapsed to a constant, losing all 32 parity
+  bytes.  Fixed with width rules for ternary, repeat, the passthrough
+  unaries, and the one-bit reductions/comparisons.  Pinned by ParserTest 59.
+
+  That sweep leaves ONE open failure: `VectorFloatFMA` disagrees by a
+  single LSB on `io_fp_result` (`…6324` vs `…6325`, i.e. 5.5556386672943e-24
+  either way) at cycles 13-14 and nowhere else — a JIT-side rounding
+  decision.  What has been RULED OUT so far:
+
+  * All three children pass co-sim standalone (`CSA3to2`,
+    `BoothEncoderF64F32F16_4`, `CSA_Nto2With3to2MainPipeline --hier`), so
+    it is `VectorFloatFMA`'s own logic.
+  * RT✗ is 0 for this module, so the IR and the re-emitted Verilog are
+    both correct — this is CSim-only.
+  * `round_add1_f64` (the RNE decision) re-emits with correct operator
+    precedence in both backends; firtool writes it as
+    `A & B | C & D | E & F & G | H & I` and the parenthesisation is right.
+  * The sticky path's 164-bit trailing-zero detect
+    (`_sticky_uf_f64_reg2_T`, ~164 nested ternaries over `tzd_adder_reg1`)
+    emits correct word/offset arithmetic at both ends of the chain
+    (bit 163 → word 5 offset 3; bit 0 → word 0 offset 0), and its
+    63-bit `5555…` mask constants match the original.
+
+  Isolating further needs signal-level tracing: sv-cosim compares
+  top-level ports only, and the divergence is somewhere inside a 164-bit
+  multi-stage pipeline.  That is the next tool to build for this module.
 
 ## CI gate
 
@@ -391,8 +633,11 @@ equivalent design (per-register / per-output cone equality, `bv_decide`,
 under rst = 0).  Together with the Verilog-side round trip this closes
 both loops through the IR.
 
-Survey on DefaultConfig (1,847 files ≤ 128 KB): **228 print as
-circuit-DSL today**.  What blocks the rest, in order:
+Survey on DefaultConfig (1,847 files ≤ 128 KB): **216 print as
+circuit-DSL today** — and "printable" now means "elaborates": shapes
+whose printed form would not typecheck are declined with a named error
+rather than counted (the earlier 228 included eight-in-twelve sampled
+modules that printed but failed to elaborate).  What blocks the rest, in order:
 
 | blocker | files | note |
 |---|---|---|
@@ -415,3 +660,34 @@ every register READ is printed with an explicit `Signal` ascription (a
 `Reg` binder does not coerce where `.map` / `++` / `Signal.ult` expect a
 `Signal`).  Purely combinational modules print without `circuit do`,
 which requires at least one register.
+
+### CI phase 4 — the lean₄ round trip is gated
+
+`Tests/Verification/XiangShanDslRoundtrip.lean` holds machine-generated
+circuit-DSL source for twelve real XiangShan modules (register counts
+0..32: AMOALU, ClockCrossingReg, DelayN, AsyncResetSynchronizer,
+Iprio0Module, DelayNWithValid, ClmulModule, CaptureChain, AddWModule,
+PipelineStallReason, VtypeModule) and proves all 85 register/output
+cones with `bv_decide` in 6.3 s.  `ci_check.sh` phase 4 runs it and
+reports the decompiler's printable count.
+
+Elaboration fixes this required (each a case where the printed source
+looked fine but would not typecheck):
+
+* slices print as `.map (fun x => BitVec.extractLsb' lo w x)` — the
+  `x[hi, lo]` form has the syntactically unreduced width
+  `BitVec (hi - lo + 1)`, which the DSL's arithmetic instances reject
+  and the synth elaborator cannot inline;
+* mixed-width binary ops and comparisons (IR inherits Verilog's context
+  sizing, e.g. `BitVec 4 * BitVec 32`) are normalized to the wider
+  operand;
+* shapes where that normalization would build absurd terms — a dynamic
+  shift of a 4096-bit packed-array value, giving `0#4092 ++ …` — are
+  declined instead of printed;
+* generated files carry `set_option maxRecDepth 8192`, since decompiled
+  cones are deep single expressions.
+
+Still out of reach: modules above ~66 registers hit `HListWireable`
+instance-synthesis limits in `circuit do` (AgeDetector_27, 120
+registers), plus the structural blockers above (sub-instances,
+multi-output, memories).

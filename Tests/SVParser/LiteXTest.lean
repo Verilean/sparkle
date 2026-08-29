@@ -63,7 +63,7 @@ def main : IO Unit := do
       let assignCount := m.body.filter fun s => match s with
         | .assign _ _ => true | _ => false
       let memCount := m.body.filter fun s => match s with
-        | .memory _ _ _ _ _ _ _ _ _ _ => true | _ => false
+        | .memory _ _ _ _ _ _ _ _ _ _ .. => true | _ => false
       IO.println s!"    {m.name}: {regCount.length} regs, {assignCount.length} assigns, {memCount.length} memories, {m.wires.length} wires"
 
   -- Phase 3: Generate JIT C++

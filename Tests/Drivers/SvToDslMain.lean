@@ -49,7 +49,20 @@ def processFile (dir name : String) (emitDir : Option String) :
         IO.FS.createDirAll out
         IO.FS.writeFile (System.FilePath.mk out / s!"{defName}.lean")
           ("import Sparkle\nimport Sparkle.Core.CircuitDo\nimport Sparkle.Compiler.Elab\n\n" ++
-           "open Sparkle.Core.Domain Sparkle.Core.Signal\n\n" ++ txt ++ "\n")
+           "open Sparkle.Core.Domain Sparkle.Core.Signal\n\n" ++
+           -- decompiled cones can be deep single expressions; the default
+           -- 512 recursion budget is not enough for the big ones
+           -- Budgets for big register banks.  A `circuit do` with N
+           -- registers presents `HListWireable` with an N-element list
+           -- (nested `let`s from the elaborator's sharing) and drives a
+           -- deep `whnf` through the HList/Prod chain: past ~64
+           -- registers the DEFAULT instance-size and heartbeat limits
+           -- are hit, not any structural gap — raising them lets the
+           -- ordinary structural instances finish (XiangShan's
+           -- AgeDetector_27, 120 registers, then elaborates).
+           "set_option maxRecDepth 8192\n" ++
+           "set_option maxHeartbeats 2000000\n" ++
+           "set_option synthInstance.maxSize 1024\n\n" ++ txt ++ "\n")
       return { file := name, phase := "ok"
              , lines := (txt.splitOn "\n").length, regs := regs.length }
 

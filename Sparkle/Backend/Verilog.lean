@@ -143,7 +143,22 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     sanitizeName name
 
   | .concat args =>
-    s!"\{{String.intercalate ", " (args.map (emitExpr widthOf))}}"
+    -- Concat elements are SELF-DETERMINED in Verilog, so an element like
+    -- `(x >> k) & 4'd15` is as wide as x (64 bits), not the 4 bits the
+    -- IR assigns it — MiscModule's 16-nibble xperm gather became a
+    -- 1024-bit concat whose low 64 bits (the LAST element alone) were
+    -- kept.  Cast each operator element to its IR width so the emitted
+    -- concat's layout matches the IR's.  Refs, constants and slices
+    -- already carry their exact width.
+    let one := fun (a : Expr) =>
+      let rendered := emitExpr widthOf a
+      match a with
+      | .op _ _ =>
+        match exprWidthV widthOf a with
+        | some w => if w > 0 then s!"{w}'({rendered})" else rendered
+        | none => rendered
+      | _ => rendered
+    s!"\{{String.intercalate ", " (args.map one)}}"
 
   | .slice e hi lo =>
     -- Elide a slice that selects the FULL width of a known wire (in
@@ -188,9 +203,26 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     | _ => "/* ERROR: mux requires 3 arguments */"
 
   | .op .not args =>
-    -- Unary NOT
+    -- Unary NOT.  Verilog's `~` is CONTEXT-determined, not
+    -- self-determined: in a wider context it inverts the container's
+    -- bits, so an N-bit NOT silently becomes a wider one.  XiangShan's
+    -- NCBUpstreamRXREQ builds `{6{~(|Size)}}` as the sign-extend trick
+    -- `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded, `~(…)` widened to
+    -- 32 bits, `^ 1` gave 0xffffffff, and `6'd0 - 0xffffffff` evaluated
+    -- to 1 instead of 6'h3f — the mask lost five of its six bits.
+    -- Masking to the operand's own width pins it.
     match args with
-    | [arg] => s!"~{emitExpr widthOf arg}"
+    | [arg] =>
+      let inner := emitExpr widthOf arg
+      match exprWidthV widthOf arg with
+      | some w =>
+        if w == 0 then s!"~({inner})"
+        else s!"({w}'({inner} ^ {w}'({(2 : Nat) ^ w - 1})))"
+      | none =>
+        -- Parenthesise: a nested NOT otherwise renders as `~~x`, which
+        -- iverilog rejects as a syntax error (TLBusBypassBar's
+        -- `in_reset <= ~~reset` from a double negation).
+        s!"~({inner})"
     | _ => "/* ERROR: not requires 1 argument */"
 
   | .op .neg args =>
@@ -274,30 +306,41 @@ def emitStmt (stmt : Stmt) (indent : String := "    ")
     s!"{indent}        {sanitizeName output} <= {emitExpr widthOf input};\n" ++
     s!"{indent}end"
 
-  | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable readAddr readData comboRead =>
-    -- Generate memory array and always_ff block
+  | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable
+      readAddr readData comboRead extraWrites extraReads =>
+    -- Generate memory array and always_ff block.  Port 0 comes from the
+    -- dedicated fields; `extraWrites` / `extraReads` carry the additional
+    -- ports of a true multi-port memory (1R1W, dual-port, two-port and
+    -- the 8R8W Difftest array in XiangShan all land here).
+    --
+    -- Write ordering: every enabled write is emitted as its own guarded
+    -- statement inside ONE `always_ff`, in port order, so simultaneous
+    -- writes to the same address resolve last-port-wins — the same rule
+    -- the IR documents and the CSim backend implements.
     let memSize := 2 ^ addrWidth
-    let memDecl := s!"{indent}logic [{dataWidth-1}:0] {sanitizeName name} [0:{memSize-1}];"
+    let mem := sanitizeName name
+    let memDecl := s!"{indent}logic [{dataWidth-1}:0] {mem} [0:{memSize-1}];"
+    let writePorts := (writeAddr, writeData, writeEnable) :: extraWrites
+    let writeStmts := String.intercalate "\n" (writePorts.map fun (a, d, en) =>
+      s!"{indent}    if ({emitExpr widthOf en}) begin\n" ++
+      s!"{indent}        {mem}[{emitExpr widthOf a}] <= {emitExpr widthOf d};\n" ++
+      s!"{indent}    end")
+    let comboReadAssigns := String.intercalate "\n"
+      (((readAddr, readData) :: extraReads).map fun (a, rd) =>
+        s!"{indent}assign {sanitizeName rd} = {mem}[{emitExpr widthOf a}];")
+    let syncReadStmts := String.intercalate "\n"
+      (((readAddr, readData) :: extraReads).map fun (a, rd) =>
+        s!"{indent}    {sanitizeName rd} <= {mem}[{emitExpr widthOf a}];")
     if comboRead then
-      -- Combinational read: assign readData = mem[readAddr]
-      let assignRead := s!"{indent}assign {sanitizeName readData} = {sanitizeName name}[{emitExpr widthOf readAddr}];"
-      let alwaysBlock :=
-        s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
-        s!"{indent}    if ({emitExpr widthOf writeEnable}) begin\n" ++
-        s!"{indent}        {sanitizeName name}[{emitExpr widthOf writeAddr}] <= {emitExpr widthOf writeData};\n" ++
-        s!"{indent}    end\n" ++
-        s!"{indent}end"
-      memDecl ++ "\n" ++ assignRead ++ "\n" ++ alwaysBlock
+      memDecl ++ "\n" ++ comboReadAssigns ++ "\n" ++
+      s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
+      writeStmts ++ "\n" ++
+      s!"{indent}end"
     else
-      -- Registered read: readData latched inside always_ff
-      let alwaysBlock :=
-        s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
-        s!"{indent}    if ({emitExpr widthOf writeEnable}) begin\n" ++
-        s!"{indent}        {sanitizeName name}[{emitExpr widthOf writeAddr}] <= {emitExpr widthOf writeData};\n" ++
-        s!"{indent}    end\n" ++
-        s!"{indent}    {sanitizeName readData} <= {sanitizeName name}[{emitExpr widthOf readAddr}];\n" ++
-        s!"{indent}end"
-      memDecl ++ "\n" ++ alwaysBlock
+      memDecl ++ "\n" ++
+      s!"{indent}always_ff @(posedge {sanitizeName clock}) begin\n" ++
+      writeStmts ++ "\n" ++ syncReadStmts ++ "\n" ++
+      s!"{indent}end"
 
   | .inst moduleName instName connections =>
     let connStrs := connections.map fun (portName, expr) =>

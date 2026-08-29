@@ -1998,5 +1998,501 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 50 (XiangShan dt_352x1): TRUE MULTI-PORT memory.  Real SRAM
+  -- macros are not all 1R1W — XiangShan's Difftest array is 8R8W and
+  -- fires several write ports in the same cycle.  The lowering used to
+  -- fold every guarded write into a priority mux, which silently kept
+  -- only the highest-priority write; `Stmt.memory` now carries extra
+  -- read/write ports and both backends emit one guarded write per port.
+  IO.print "  Test 50: multi-port memory (2W2R) keeps every port... "
+  try
+    let v := "
+module mp_mem (
+  input        clk,
+  input  [1:0] w0_addr, input w0_en, input [7:0] w0_data,
+  input  [1:0] w1_addr, input w1_en, input [7:0] w1_data,
+  input  [1:0] r0_addr, input [1:0] r1_addr,
+  output [7:0] r0_data, output [7:0] r1_data
+);
+  reg [7:0] Memory[0:3];
+  always @(posedge clk) begin
+    if (w0_en)
+      Memory[w0_addr] <= w0_data;
+    if (w1_en)
+      Memory[w1_addr] <= w1_data;
+  end
+  assign r0_data = Memory[r0_addr];
+  assign r1_data = Memory[r1_addr];
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      -- IR must carry one extra write port and one extra read port
+      let ports := design.modules.foldl (fun acc m =>
+        acc ++ m.body.filterMap fun s => match s with
+          | .memory _ _ _ _ _ _ _ _ _ _ ew er => some (ew.length, er.length)
+          | _ => none) []
+      let sv := toVerilogDesign design
+      -- both writes and both reads must appear in the emitted Verilog
+      let writes := (sv.splitOn "Memory[").length - 1
+      if ports != [(1, 1)] then
+        IO.println s!"FAIL: IR extra ports = {ports} (expected [(1, 1)])"
+        failed := failed + 1
+      else if !(containsSubstr sv "w0_en" && containsSubstr sv "w1_en") then
+        IO.println "FAIL: emitted Verilog lost a write port"
+        failed := failed + 1
+      else if writes < 4 then
+        IO.println s!"FAIL: only {writes} Memory[...] references emitted (want 2 writes + 2 reads)"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 51 (XiangShan array_128x138): wide SLICE at a NON-ZERO offset.
+  -- `matWide` had no `.slice` arm, so a >64-bit slice fell into the
+  -- generic memcpy fallback, which copies from the operand's BASE word
+  -- and DISCARDS `lo`.  firtool's 138x2 SRAM writes
+  -- `wdata[137:69] << 69`; CSim silently computed `wdata[68:0] << 69`,
+  -- so the JIT wrote the wrong half of every masked entry while both the
+  -- IR and the re-emitted Verilog were correct.
+  IO.print "  Test 51: wide slice at a non-zero offset (138-bit lane)... "
+  try
+    -- `sel` widens to 138 bits and shifts up by 69, so d[137:69] == sel
+    -- while d[68:0] == 0.  Driving a 138-bit port directly is not
+    -- possible through `JIT.setInput` (one machine word), so the wide
+    -- value is built inside the module.
+    let v := "
+module wide_slice_off (input clk, input [15:0] sel, output [15:0] y);
+  reg [137:0] d;
+  always @(posedge clk) d <= {53'd0, sel, 69'd0};
+  // The slice feeds a WIDE op, so it is materialised by `matWide`; its
+  // operand is a plain 138-bit array lvalue, which is the shape that hit
+  // the offset-dropping memcpy fallback.
+  wire [137:0] w = {69'd0, d[137:69]} | 138'd0;
+  assign y = w[15:0];
+endmodule
+"
+    -- The buggy emitter read d[68:0] (== 0) and returned 0.
+    -- sel sits at d[84:69], so the CORRECT slice d[137:69] lands it at
+    -- bits [15:0] and y == sel.  The offset-dropping fallback reads
+    -- d[68:0], whose low 16 bits are zero, so y == 0.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0xBEEF)
+      2
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [0xBEEF] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: sel=0xBEEF → {r} (want [48879]; 0 means the slice offset was dropped)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 52 (XiangShan MulModuleS0): a wide concat NARROWER than its
+  -- destination.  Booth partial products are sign-extended concats like
+  -- `{{32{b[63]}}, b[63:32], a[31:0]}` (96 bits) assigned to a 128-bit
+  -- wire.  The emitter copied `sizeof(dst)` from a 3-word compound
+  -- literal — 16 bytes out of a 12-byte source — so the top word held
+  -- whatever followed the literal in memory instead of the zero fill.
+  -- This was the 128-bit CSA-tree value divergence in the hier sweep.
+  IO.print "  Test 52: wide concat narrower than its destination... "
+  try
+    -- The short source `memcpy` reads whatever FOLLOWS the compound
+    -- literal, so the test must observe the top word directly and keep
+    -- other wide values live around it.  `pad` is all-ones so a stale
+    -- read is distinguishable from the correct zero fill.
+    let v := "
+module concat_short (input clk, input [31:0] a, output [31:0] y);
+  wire [127:0] pad = {4{32'hAAAAAAAA}};
+  wire [127:0] x = {64'd0, a};
+  wire [127:0] z = x | {96'd0, pad[31:0]};
+  assign y = z[127:96];
+endmodule
+"
+    -- x is 96 bits wide, so x[127:96] — and hence z[127:96] — must be 0.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0xFFFFFFFF)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [0] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: {r} (want [0]; nonzero = short memcpy read past the literal)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 53 (XiangShan Booth partial products): the top-level wide
+  -- shl/shr arms called `emitExpr` and then SUBSCRIPTED the result, so a
+  -- compound operand rendered as `(uint32_t[4]){...}[j]` — GCC rejects
+  -- that ("subscripted value is not an array") once the nesting is deep
+  -- enough, which is why MulModuleS0 would not even compile.  Assert on
+  -- the emitted C directly: a shift operand must be materialised into a
+  -- named temp, never subscripted inline.
+  IO.print "  Test 53: wide shift materialises its operand (no literal[j])... "
+  try
+    let v := "
+module shl_concat (input clk, input [15:0] sel, output [15:0] y);
+  wire [95:0] hi = {96{sel[15]}};
+  wire [127:0] x = {hi, sel, 16'd0} << 16;
+  assign y = x[47:32];
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let c := toCDesign design
+      -- No `}[` anywhere: that is a compound literal being subscripted.
+      if containsSubstr c "}[" then
+        IO.println "FAIL: emitted C subscripts a compound literal"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 54 (XiangShan arbiters): several continuous assigns each
+  -- driving a DIFFERENT bit of one vector.  `exprToName` mapped `gnt[0]`
+  -- and `gnt[1]` both to bare `gnt`, dropping the position, so the
+  -- statements became competing full-vector drivers: iverilog rejected
+  -- the emitted Verilog ("cannot have multiple drivers") and the IR kept
+  -- only the LAST write.  They are now merged into one driver.
+  IO.print "  Test 54: part-select assigns merge into one driver... "
+  try
+    let v := "
+module bitsel (input [1:0] req, input ready, output [1:0] gnt);
+  assign gnt[0] = req[0] & ready;
+  assign gnt[1] = req[1] & ready;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let drivers := design.modules.foldl (fun acc m =>
+        acc + (m.body.filter fun s => match s with
+          | .assign lhs _ => lhs == "gnt" | _ => false).length) 0
+      let sv := toVerilogDesign design
+      if drivers != 1 then
+        IO.println s!"FAIL: {drivers} drivers for gnt (expected 1)"
+        failed := failed + 1
+      -- Both bits must survive the merge: req[1] belongs at bit 1.
+      else if !(containsSubstr sv "req[1:1]" && containsSubstr sv "req[0:0]") then
+        IO.println "FAIL: the merge dropped a bit"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 55 (XiangShan TwoLevelRRArbiter): a combinational handshake
+  -- THROUGH a child instance.  `usesOf` filtered the instance's outputs
+  -- out of EVERY connection, so feeding a child output back into that
+  -- same child's input was invisible to the scheduler — the emitted pass
+  -- read the STALE value.  The back edge must now be seen, which makes
+  -- the body un-orderable and switches eval to fixed-point relaxation.
+  IO.print "  Test 55: back edge through an instance is scheduled... "
+  try
+    let v := "
+module rr (input [1:0] want, input ready_in, output [1:0] gnt_o);
+  wire [1:0] gnt;
+  wire [1:0] req = {want[1] & ~gnt[0], want[0]};
+  rr_child c (.req(req), .ready(ready_in), .gnt(gnt));
+  assign gnt_o = gnt;
+endmodule
+module rr_child (input [1:0] req, input ready, output [1:0] gnt);
+  assign gnt[0] = req[0] & ready;
+  assign gnt[1] = req[1] & ready;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let c := toCDesign design
+      -- The relaxation loop is the observable consequence of detecting
+      -- the cycle; without it the single pass silently used stale `gnt`.
+      if !(containsSubstr c "__round") then
+        IO.println "FAIL: no fixed-point relaxation emitted for the cycle"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 56: complementary nested mux conditions.  Every register lowered
+  -- from `if (reset) … else …` carried a DEAD `reset ? init : old` arm
+  -- inside the else branch, emitted as `(~reset ? d : (reset ? 0 : q))`.
+  -- When `~reset` is false, `reset` is true, so the inner mux can only
+  -- pick its then-arm — the else-arm is unreachable.
+  IO.print "  Test 56: complementary nested mux arms fold away... "
+  try
+    let v := "
+module resetarm (input clk, input reset, input io_d, output q);
+  reg r;
+  always @(posedge clk) begin
+    if (reset) r <= 1'd0;
+    else r <= io_d;
+  end
+  assign q = r;
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      -- The dead inner arm mentions `reset` a SECOND time inside the mux.
+      if containsSubstr sv "(reset ?" then
+        IO.println "FAIL: the dead reset arm survived"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 57 (XiangShan LCredit2Decoupled_4): a wide INSTANCE CONNECTION
+  -- that is a slice at a non-zero offset.  The connection emitter did
+  -- `memcpy(child.port, <expr>, sizeof(...))`, which copies from the
+  -- operand's BASE word and drops the offset — the parent wires the
+  -- child's 256-bit data port to `io_in_flit[385:130]`, so the child's
+  -- SRAM stored the wrong 256 bits every cycle.  The IR and the
+  -- re-emitted Verilog were both correct; only the JIT was wrong.
+  IO.print "  Test 57: wide instance connection keeps its slice offset... "
+  try
+    let v := "
+module wconn (input clk, input [421:0] flit, output [63:0] y);
+  wsink s (.d(flit[385:130]), .y(y));
+endmodule
+module wsink (input [255:0] d, output [63:0] y);
+  assign y = d[63:0];
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let c := toCDesign design
+      -- bit 130 = word 4, shift 2.  A memcpy from the base word (the bug)
+      -- would reference flit[0] with no shift.
+      if !(containsSubstr c "flit[4] >> 2") then
+        IO.println "FAIL: the connection dropped its slice offset"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 58 (XiangShan NCBUpstreamRXREQ): Verilog's `~` is CONTEXT-
+  -- determined, not self-determined, so an unbounded `~expr` inverts the
+  -- CONTAINER's bits once it lands in a wider context.  NCBUpstreamRXREQ
+  -- builds `{6{~(|Size)}}` as the sign-extend trick
+  -- `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded, `~(…)` widened to 32
+  -- bits, `^ 1` gave 0xffffffff, and `6'd0 - 0xffffffff` evaluated to 1
+  -- instead of 6'h3f — the mask silently lost five of its six bits, and
+  -- only the RE-EMITTED Verilog was wrong (an RT mismatch, not a JIT one).
+  IO.print "  Test 58: unary NOT is width-bounded in emitted Verilog... "
+  try
+    -- The replication must be CONSUMED (here through a packed-array
+    -- lookup) for the lowering to produce the `~(x == 0) ^ 1` shape that
+    -- the unbounded emitter mis-evaluated.  Asserting the VALUE, not the
+    -- absence of a syntax form: unfixed this yields 1, fixed 6'h3f.
+    let v := "
+module notw (input [2:0] sz, output [5:0] m);
+  wire [5:0] t = {6{~(|sz)}};
+  wire [7:0][5:0] tbl = {{t}, {6'h0}, {6'h20}, {6'h30}, {6'h38}, {6'h3C}, {6'h3E}, {t}};
+  assign m = tbl[sz];
+endmodule
+"
+    -- The JIT was always CORRECT here — only the emitted Verilog was
+    -- wrong — so this asserts on the emitted RTL.  Under iverilog the
+    -- unbounded form evaluates the 6-bit mask to 1 instead of 6'h3f;
+    -- that end-to-end check is the sv-cosim harness's job (NCBUpstreamRXREQ
+    -- is an RT mismatch there).  What can be pinned cheaply here is the
+    -- invariant that makes it sound: a unary NOT never reaches the output
+    -- unbounded, because Verilog's `~` is context-determined.
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "~(" || containsSubstr sv "~_" then
+        IO.println "FAIL: emitted an unbounded `~`"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 59 (XiangShan TXDAT): reduction XOR over a TERNARY operand.
+  -- `staticExprWidth` had no arm for a conditional, so `^(cond ? 8'h0 :
+  -- beat[255:248])` had no static width and the parity expansion bailed
+  -- to its undeclared-wire sentinel — `io_out_bits_dataCheck` collapsed
+  -- to a constant, losing all 32 parity bytes.  (The sentinel is the
+  -- deliberate fail-loud path; the gap was that a resolvable width was
+  -- treated as unknown.)
+  IO.print "  Test 59: reduction XOR over a ternary keeps its width... "
+  try
+    let v := "
+module parity_tern (input [15:0] d, input z, output [1:0] p);
+  assign p = {^(z ? 8'h0 : d[15:8]), ^(z ? 8'h0 : d[7:0])};
+endmodule
+"
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      if containsSubstr sv "__reduction_xor_unknown_width__" then
+        IO.println "FAIL: parity bailed to the unknown-width sentinel"
+        failed := failed + 1
+      else if containsSubstr sv "assign p = 1'd0" then
+        IO.println "FAIL: parity collapsed to a constant"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 60 (VectorFloatFMA): a WIDE slice at a non-word-aligned offset
+  -- as a CONCAT element.  The wide-concat slot builder indexed
+  -- `emitExpr(slice)`, and emitExpr has no inline form for a >64-bit
+  -- slice with lo≠0 — it silently handed back the BASE, so
+  -- `{car[106:1], b}` became `(car << 1) | b`: every bit of the CSA
+  -- carry off by one, surfacing as a 1-LSB FMA rounding error three
+  -- pipeline stages later.
+  IO.print "  Test 60: wide slice offset survives inside a concat slot... "
+  try
+    -- The slice must itself be >64 bits (94:31 is exactly 64 and takes
+    -- the sound narrow path) — the broken path was the >64-bit slice
+    -- with a non-aligned lo, `car[106:1]`-style.
+    let v := "
+module cslot (input [31:0] a, input b, output [7:0] y);
+  wire [127:0] base = {a, a, a, a};
+  wire [96:0] r = {base[126:31], b};
+  assign y = r[9:2];
+endmodule
+"
+    -- base bit i = a[i % 32]; r bit j (j ≥ 1) = base[j + 30], so
+    -- r[9:2] = base[39:32] = a[7:0] = 8'h01... compute: r[j]=base[j+30]:
+    -- r[2]=base[32]=a[0], …, r[9]=base[39]=a[7] → y = a[7:0].
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0x800000A5; JIT.setInput h 1 1)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [0xA5] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: {r} (want [165]; anything else = the slice offset was dropped)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 61 (DivUnit / SBToTL): a wide instance connection that is a
+  -- COMPOUND (mux of concats), and a wide value consumed by a ≤64-bit
+  -- context.  C has no expression form for a multi-word value, so these
+  -- rendered compound literals into scalar arithmetic and did not
+  -- compile — or, once hoisted, an un-truncated wide ref (SBToTL's
+  -- `cond ? 64'h0 : {…}`) assigned a pointer to a uint64.  The
+  -- `hoistWideForC` pre-pass now routes every such subexpression
+  -- through a wire.
+  IO.print "  Test 61: wide compound connection is hoisted and correct... "
+  try
+    -- The connection is a wide OP (not a concat): pre-hoist this emitted
+    -- `array | array` — the C did not compile at all.
+    let v := "
+module hst (input [31:0] a, input s, output [7:0] y);
+  wire [95:0] p = {a, a, a};
+  wire [95:0] q = {a, 32'h0, a};
+  hsink u (.d((s ? p : 96'h0) | (s ? 96'h0 : q)), .y(y));
+endmodule
+module hsink (input [95:0] d, output [7:0] y);
+  assign y = d[39:32];
+endmodule
+"
+    -- s=1: d = p | 0; d[39:32] = p[39:32] = a[7:0].  (The OR at the
+    -- connection root with mux operands is DivUnit's csa_sel shape.)
+    -- Value check AND a structural pin: from SV the optimizer's inlining
+    -- protections can leave a wire in place, so the value alone cannot
+    -- distinguish the hoisting pass — assert the hoist fired too.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0x800000A5; JIT.setInput h 1 1)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    let structOk := match parseAndLowerHierarchical v with
+      | .ok design =>
+        -- The IR shape that reached DivUnit came from the optimizer
+        -- inlining a single-use wire into the connection; reproduce it
+        -- directly at the IR level and demand the hoist wire.
+        let m : Sparkle.IR.AST.Module := {
+          name := "hroot"
+          inputs := [⟨"s", .bit⟩, ⟨"p", .bitVector 96⟩, ⟨"q", .bitVector 96⟩]
+          outputs := [⟨"y", .bitVector 8⟩]
+          wires := [⟨"dw", .bitVector 96⟩]
+          body := [
+            .inst "hsink" "u" [("d",
+              .op .or [
+                .op .mux [.ref "s", .ref "p", .const 0 96],
+                .op .mux [.ref "s", .const 0 96, .ref "q"]]),
+              ("y", .ref "y")]]
+          assertions := [] }
+        let sink := (design.modules.find? (·.name == "hsink")).getD m
+        let c := Sparkle.Backend.CSim.toCDesign
+          { topModule := "hroot", modules := [m, sink] }
+        containsSubstr c "_wide_hoist_"
+      | .error _ => false
+    if r == [0xA5] && structOk then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: value={r} (want [165]) hoisted={structOk}"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 62 (XiangShan MiscModule / VpnTable): concat elements are
+  -- SELF-DETERMINED in Verilog, so a packed-table gather element like
+  -- `(_GEN >> (idx*4)) & 4'd15` is as wide as `_GEN` (64 bits), not the
+  -- 4 bits the IR means — the 16-nibble xperm concat became 1024 bits
+  -- and only its LAST element landed in the 64-bit target.  The dynamic
+  -- select lowerings now pin the width with an explicit `.slice`, which
+  -- the Verilog emitter renders as a size cast.
+  IO.print "  Test 62: dynamic packed-select keeps its width in a concat... "
+  try
+    let v := "
+module xperm (input [15:0] src, input [7:0] sel, output [7:0] y);
+  wire [3:0][3:0] tbl = {src[15:12], src[11:8], src[7:4], src[3:0]};
+  assign y = {tbl[sel[5:4]], tbl[sel[1:0]]};
+endmodule
+"
+    -- src = 0xABCD, sel = 8'h01 → hi nibble tbl[0]=D, lo nibble tbl[1]=C
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0xABCD; JIT.setInput h 1 0x01)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      -- iverilog must also agree, i.e. each op element carries a cast.
+      if r != [0xDC] then
+        IO.println s!"FAIL: JIT {r} (want [220])"
+        failed := failed + 1
+      else if !(containsSubstr sv "4'(") then
+        IO.println "FAIL: emitted concat elements are unsized"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 63 (XiangShan TIMER): a WIDE dynamic shift AMOUNT.  The amount
+  -- of `128'h1 << {121'h0, addr[14], addr[8:3]}` is itself a 128-bit
+  -- value; once hoisted to a word array, `(unsigned)(amount)` took the
+  -- POINTER, so the CLINT's register-select one-hot was shifted by
+  -- garbage and every ipi/timecmp write was lost.  Wide amounts now read
+  -- their low word.
+  IO.print "  Test 63: wide dynamic shift amount reads its value... "
+  try
+    let v := "
+module whot (input [6:0] a, output o);
+  wire [127:0] sel = 128'h1 << {121'h0, a};
+  assign o = sel[0];
+endmodule
+"
+    -- a = 0 → sel = 1 → o = 1.  With the pointer bug o was 0.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: {r} (want [1]; 0 = the amount was read as a pointer)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
