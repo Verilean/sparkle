@@ -1067,4 +1067,131 @@ theorem runModule_perm (we : WEnv) {body body' : List Stmt}
         try simp only [Option.bind_eq_bind, Option.bind_some]
         rw [hkeq, ih (applyNexts st n') m]
 
+/- ------------------------------------------------------------------ -/
+/- Decidable checkers, so the permutation/well-ordering hypotheses can
+   be VALIDATED per module (compile-time #guards + corpus tests) and
+   the theorems applied to concrete shipping outputs. -/
+
+deriving instance DecidableEq for Sparkle.IR.Type.DimExpr
+
+mutual
+/-- Structural equality on `Expr` (the DERIVED `BEq` is well-founded
+    recursion and opaque to both kernel reduction and lawfulness
+    proofs, so we roll a structural one and prove it sound). -/
+def eqExpr : Expr → Expr → Bool
+  | .const v w, .const v' w' => v == v' && w == w'
+  | .ref n, .ref n' => n == n'
+  | .op o args, .op o' args' => decide (o = o') && eqList args args'
+  | .concat args, .concat args' => eqList args args'
+  | .slice e hi lo, .slice e' hi' lo' =>
+    eqExpr e e' && hi == hi' && lo == lo'
+  | .sliceDim e hi lo, .sliceDim e' hi' lo' =>
+    eqExpr e e' && decide (hi = hi') && decide (lo = lo')
+  | .index a i, .index a' i' => eqExpr a a' && eqExpr i i'
+  | _, _ => false
+
+def eqList : List Expr → List Expr → Bool
+  | [], [] => true
+  | a :: rest, a' :: rest' => eqExpr a a' && eqList rest rest'
+  | _, _ => false
+end
+
+mutual
+theorem eqExpr_iff : ∀ a b : Expr, eqExpr a b = true ↔ a = b
+  | .const v w, b => by
+    cases b <;> simp [eqExpr, Bool.and_eq_true]
+  | .ref n, b => by
+    cases b <;> simp [eqExpr]
+  | .op o args, b => by
+    cases b <;> simp [eqExpr, Bool.and_eq_true, eqList_iff args]
+  | .concat args, b => by
+    cases b <;> simp [eqExpr, eqList_iff args]
+  | .slice e hi lo, b => by
+    cases b <;> simp [eqExpr, Bool.and_eq_true, eqExpr_iff e, and_assoc]
+  | .sliceDim e hi lo, b => by
+    cases b <;> simp [eqExpr, Bool.and_eq_true, eqExpr_iff e, and_assoc]
+  | .index a i, b => by
+    cases b <;> simp [eqExpr, Bool.and_eq_true, eqExpr_iff a, eqExpr_iff i]
+
+theorem eqList_iff : ∀ (l l' : List Expr), eqList l l' = true ↔ l = l'
+  | [], l' => by cases l' <;> simp [eqList]
+  | a :: rest, l' => by
+    cases l' <;> simp [eqList, Bool.and_eq_true, eqExpr_iff a,
+      eqList_iff rest]
+end
+
+instance : DecidableEq Expr :=
+  fun a b => decidable_of_iff _ (eqExpr_iff a b)
+
+deriving instance DecidableEq for Stmt
+
+/-- Boolean well-ordering check (sound for `WO`). -/
+def woCheck (done : List String) : List Stmt → Bool
+  | [] => true
+  | s :: rest =>
+    (match s with
+      | .assign _ _ => true
+      | .register _ _ _ _ _ => true
+      | .memory _ _ _ _ _ _ _ _ _ cr _ _ => !cr
+      | .inst _ _ _ => false)
+    && (stmtReads s).all (fun n => !(writesOf rest).contains n)
+    && (stmtWrites s).all (fun n =>
+        !done.contains n && !(writesOf rest).contains n)
+    && woCheck (done ++ stmtWrites s) rest
+
+theorem woCheck_sound (done : List String) (body : List Stmt)
+    (h : woCheck done body = true) : WO done body := by
+  induction body generalizing done with
+  | nil => exact WO.nil
+  | cons s rest ih =>
+    simp only [woCheck, Bool.and_eq_true, List.all_eq_true] at h
+    obtain ⟨⟨⟨hok, hreads⟩, hw⟩, hrest⟩ := h
+    refine WO.cons ?_ ?_ ?_ (ih _ hrest)
+    · match s, hok with
+      | .assign _ _, _ => trivial
+      | .register _ _ _ _ _, _ => trivial
+      | .memory _ _ _ _ _ _ _ _ _ cr _ _, hok =>
+        show cr = false
+        simpa using hok
+    · intro n hn
+      have := hreads n hn
+      simpa [List.contains_iff_mem] using this
+    · intro n hn
+      have := hw n hn
+      simp only [Bool.and_eq_true, Bool.not_eq_true'] at this
+      constructor
+      · intro hin
+        have h1 := this.1
+        simp [List.contains_iff_mem] at h1
+        exact h1 hin
+      · intro hin
+        have h2 := this.2
+        simp [List.contains_iff_mem] at h2
+        exact h2 hin
+
+/-- Sound (one-directional) permutation check, erase-based. -/
+def isPermOf [DecidableEq α] : List α → List α → Bool
+  | [], [] => true
+  | [], _ :: _ => false
+  | a :: rest, l =>
+    if a ∈ l then isPermOf rest (l.erase a) else false
+
+theorem isPermOf_sound [DecidableEq α] :
+    ∀ {l₁ l₂ : List α}, isPermOf l₁ l₂ = true → l₁.Perm l₂ := by
+  intro l₁
+  induction l₁ with
+  | nil =>
+    intro l₂ h
+    cases l₂ with
+    | nil => exact List.Perm.refl _
+    | cons _ _ => simp [isPermOf] at h
+  | cons a rest ih =>
+    intro l₂ h
+    simp only [isPermOf] at h
+    by_cases hmem : a ∈ l₂
+    · rw [if_pos hmem] at h
+      exact ((ih h).cons a).trans (List.perm_cons_erase hmem).symm
+    · rw [if_neg hmem] at h
+      cases h
+
 end Sparkle.IR.Reorder

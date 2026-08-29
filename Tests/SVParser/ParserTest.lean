@@ -10,6 +10,7 @@ import Tools.SVParser
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CSim
 import Tools.SVParser.EmitAst
+import Tools.SVParser.RoundtripProof
 import Sparkle.Core.JIT
 
 open Tools.SVParser.AST
@@ -2663,6 +2664,46 @@ endmodule
       else
         IO.println s!"FAIL: gen2 {g2.body.length} stmts ≠ gen3 {g3.body.length} stmts (or shapes drifted)"
         failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 68 (certified-roundtrip, module boundary): on every corpus
+  -- module inside the v1 reorder fragment, the SHIPPING pipeline's
+  -- output on the module's own emission is a WELL-ORDERED PERMUTATION
+  -- of the statement-wise twin image (bodyReorderCheck) — exactly the
+  -- checkable hypotheses of `body_trace_roundtrip`, so the full-
+  -- pipeline trace theorem applies to each passing module.
+  IO.print "  Test 68: shipping output ≡ well-ordered permutation of the image... "
+  try
+    let corpusDir := "bench/xiangshan/corpus"
+    if ← System.FilePath.pathExists corpusDir then
+      let mut ok := 0
+      let mut outFrag := 0
+      let mut bad := 0
+      let mut firstBad := ""
+      let entries ← System.FilePath.readDir corpusDir
+      for ent in entries do
+        if ent.fileName.endsWith ".sv" then
+          let src ← IO.FS.readFile ent.path
+          match parseAndLowerHierarchical src with
+          | .error _ => pure ()
+          | .ok design =>
+            for m in design.modules do
+              match Tools.SVParser.RoundtripProof.bodyTraceCheck m with
+              | none => outFrag := outFrag + 1
+              | some true => ok := ok + 1
+              | some false =>
+                bad := bad + 1
+                if firstBad == "" then
+                  firstBad := s!"{ent.fileName}/{m.name}"
+      if bad == 0 && ok > 0 then
+        IO.println s!"PASS ({ok} modules checked, {outFrag} outside the v1 fragment)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: {bad} modules failed (first: {firstBad}); ok={ok} outFrag={outFrag}"
+        failed := failed + 1
+    else
+      IO.println "SKIP (corpus not present)"
+      passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="

@@ -2035,4 +2035,80 @@ theorem trace_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     | none => rfl
     | some p => simp [ih]
 
+/- ------------------------------------------------------------------ -/
+/- Module-boundary composition: the shipping module lowering re-sorts
+   the body, so its output is (validated to be) a well-ordered
+   PERMUTATION of the statement-wise image; reorder invariance then
+   lifts step/trace roundtrip over the whole pipeline. -/
+
+open Sparkle.IR.Semantics Sparkle.IR.Reorder in
+/-- The checkable side conditions bundled as one boolean: `body'` is a
+    permutation of `bimg`, both are well-ordered, memory names and
+    update keys are unique. -/
+def bodyReorderCheck (body' bimg : List Sparkle.IR.AST.Stmt) : Bool :=
+  isPermOf body' bimg
+  && woCheck [] body'
+  && woCheck [] bimg
+  && decide ((body'.filterMap stmtMemName).Nodup)
+  && decide ((nextKeys body').Nodup)
+
+open Sparkle.IR.Semantics Sparkle.IR.Reorder in
+/-- **Full-pipeline trace roundtrip**: if the shipping lowering's
+    output `body'` passes `bodyReorderCheck` against the statement-wise
+    image of `body`, it produces the SAME TRACE as `body` — for any
+    cycle count, seeding, and initial state. -/
+theorem body_trace_roundtrip {wof we wires}
+    {body bimg body' : List Sparkle.IR.AST.Stmt}
+    (hB : BFrag wof we wires body)
+    (hI : bodyImage wof wires body = some bimg)
+    (hchk : bodyReorderCheck body' bimg = true)
+    (seed : Nat → (String → Nat) → Env) (k : Nat) (st : String → Nat)
+    (mems : MEnv) :
+    runModule we body' seed k st mems = runModule we body seed k st mems := by
+  simp only [bodyReorderCheck, Bool.and_eq_true, decide_eq_true_eq] at hchk
+  obtain ⟨⟨⟨⟨hperm, hwo1⟩, hwo2⟩, hmem⟩, hkeys⟩ := hchk
+  rw [runModule_perm we (isPermOf_sound hperm) (woCheck_sound _ _ hwo1)
+      (woCheck_sound _ _ hwo2) hmem hkeys seed k st mems]
+  exact trace_roundtrip hB hI seed k st mems
+
+/-- Is this statement inside the v1 reorder fragment?  (Boolean twin
+    of `SimpleStmt`.) -/
+def simpleStmtB : Sparkle.IR.AST.Stmt → Bool
+  | .assign _ _ => true
+  | .register _ _ _ _ _ => true
+  | .memory _ _ _ _ _ _ _ _ _ cr _ _ => !cr
+  | .inst _ _ _ => false
+
+/-- End-to-end validation for one module: run the SHIPPING pipeline on
+    the module's own emission and check its output against the
+    statement-wise twin image with `bodyReorderCheck`.
+    `none` = outside the v1 fragment (an image-less statement or a
+    combo-read memory); `some b` = the checked verdict. -/
+def bodyTraceCheck (m : Sparkle.IR.AST.Module) : Option Bool :=
+  let wof : String → Option Nat := fun n =>
+    (m.wires.find? (fun p =>
+      Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
+      match p.ty with
+      | .bitVector w => some w
+      | .bit => some 1
+      | _ => none
+  if !(m.body.all simpleStmtB) then none
+  else
+    match (m.body.mapM (stmtImage wof m.wires)).map List.flatten with
+    | none => none
+    | some bimg =>
+      match Tools.SVParser.Lower.parseAndLowerHierarchical
+          (Sparkle.Backend.Verilog.emitModule m) with
+      | .error _ => some false
+      | .ok d =>
+        let body' := d.modules.foldl
+          (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
+        some (bodyReorderCheck body' bimg)
+
+-- Validation on the probes (register bodies and sync-read memories;
+-- combo-read memories are outside the v1 reorder fragment).
+#guard bodyTraceCheck probeStmtM == some true
+#guard bodyTraceCheck probeMemSync == some true
+#guard bodyTraceCheck probeMemSync2 == some true
+
 end Tools.SVParser.RoundtripProof
