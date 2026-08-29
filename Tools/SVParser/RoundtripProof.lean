@@ -1218,10 +1218,12 @@ inductive BFrag (wof : String → Option Nat) (we : WEnv)
 
 open Sparkle.IR.Semantics in
 /-- Combinational phase: the image body folds to the same environment. -/
-theorem fold_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+theorem fold_eq {wof we wires} (mems : MEnv)
+    {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body') :
-    ∀ env0, evalAssigns we body' env0 = evalAssigns we body env0 := by
+    ∀ env0, evalAssigns we mems body' env0
+      = evalAssigns we mems body env0 := by
   induction hB generalizing body' with
   | nil =>
     intro env0
@@ -1311,10 +1313,12 @@ theorem fold_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
 
 open Sparkle.IR.Semantics in
 /-- Register phase: the image body computes the same next-state list. -/
-theorem regNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+theorem regNexts_eq {wof we wires} (mems : MEnv)
+    {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body') :
-    ∀ envF, regNexts we body' envF = regNexts we body envF := by
+    ∀ envF, regNexts we mems body' envF
+      = regNexts we mems body envF := by
   induction hB generalizing body' with
   | nil =>
     intro envF
@@ -1428,18 +1432,95 @@ theorem regNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
               = encodeInit iv (we out) := rfl
         simp [hrz, ih hRest envF, hini]
 
+/-- Decompose the image of a cons body: a statement image followed by
+    the rest's image. -/
+theorem cons_image_shape {wof wires} {st : Sparkle.IR.AST.Stmt}
+    {rest body' : List Sparkle.IR.AST.Stmt}
+    (hI : bodyImage wof wires (st :: rest) = some body') :
+    ∃ img rest', stmtImage wof wires st = some img
+      ∧ bodyImage wof wires rest = some rest' ∧ body' = img ++ rest' := by
+  simp only [bodyImage, Option.bind_eq_bind] at hI
+  cases hS : stmtImage wof wires st with
+  | none => rw [hS] at hI; simp at hI
+  | some img =>
+    rw [hS] at hI
+    cases hR : bodyImage wof wires rest with
+    | none => rw [hR] at hI; simp at hI
+    | some rest' =>
+      rw [hR] at hI
+      simp only [Option.bind_some, Option.some_inj] at hI
+      exact ⟨img, rest', rfl, rfl, hI.symm⟩
+
+open Sparkle.IR.Semantics in
+/-- Memory phase: the image body computes the same post-write memory
+    state. -/
+theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+    (hB : BFrag wof we wires body)
+    (hI : bodyImage wof wires body = some body') :
+    ∀ mems envF, memNexts we body' mems envF
+      = memNexts we body mems envF := by
+  induction hB generalizing body' with
+  | nil =>
+    intro mems envF
+    simp only [bodyImage] at hI
+    cases hI
+    rfl
+  | assign hs hx hrest ih =>
+    rename_i l x rest
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨x'', hbind, _, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
+    have hImgEq : img = [.assign l x''] := by
+      simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt, hex1, hs,
+        lowerTItem, hex2] at hImg
+      exact hImg.symm
+    subst hImgEq
+    intro mems envF
+    simp only [List.cons_append, List.nil_append, memNexts]
+    exact ih hRest mems envF
+  | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
+    rename_i out clk rst kind x init rest
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨x'', hbind, _, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
+    have hne : (we out == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    obtain ⟨iv, hivShape⟩ :
+        ∃ iv, img = [.register out clk (rst, .asynchronous)
+          (.op .mux [.op .not [.ref rst], x'', .const iv (we out)]) iv] := by
+      by_cases hneg : init < 0
+      · refine ⟨Int.ofNat (Tools.SVParser.EmitAst.encodeConst init (we out)),
+          ?_⟩
+        simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt,
+          show Tools.SVParser.EmitAst.regResetWidth wires out = we out from hrw,
+          Tools.SVParser.EmitAst.emitAstExpr, hso, hsc, hsr,
+          hex1, hne, if_pos hneg, lowerTItem, lowerT, hex2] at hImg
+        exact hImg.symm
+      · refine ⟨max init 0, ?_⟩
+        simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt,
+          show Tools.SVParser.EmitAst.regResetWidth wires out = we out from hrw,
+          Tools.SVParser.EmitAst.emitAstExpr, hso, hsc, hsr,
+          hex1, hne, if_neg hneg, lowerTItem, lowerT, hex2] at hImg
+        exact hImg.symm
+    subst hivShape
+    intro mems envF
+    simp only [List.cons_append, List.nil_append, memNexts]
+    exact ih hRest mems envF
+
 open Sparkle.IR.Semantics in
 /-- **The module-level roundtrip theorem** (assign+register bodies):
-    one cycle of the emit-then-lower image is one cycle of the original. -/
+    one cycle of the emit-then-lower image is one cycle of the original —
+    the final environment, the register updates, and the memory state. -/
 theorem step_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
-    (hI : bodyImage wof wires body = some body') (env0 : Env) :
-    stepModule we body' env0 = stepModule we body env0 := by
+    (hI : bodyImage wof wires body = some body') (env0 : Env) (mems : MEnv) :
+    stepModule we body' env0 mems = stepModule we body env0 mems := by
   unfold stepModule
-  rw [fold_eq hB hI env0]
-  cases evalAssigns we body env0 with
+  rw [fold_eq mems hB hI env0]
+  cases evalAssigns we mems body env0 with
   | none => rfl
-  | some envF => simp [regNexts_eq hB hI envF]
+  | some envF =>
+    simp [regNexts_eq mems hB hI envF, memNexts_eq hB hI mems envF]
 
 open Sparkle.IR.Semantics in
 /-- **Trace equivalence**: the image body produces the same observable
@@ -1450,16 +1531,17 @@ theorem trace_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body')
     (seed : Nat → (String → Nat) → Env) :
-    ∀ (k : Nat) (st : String → Nat),
-      runModule we body' seed k st = runModule we body seed k st := by
+    ∀ (k : Nat) (st : String → Nat) (mems : MEnv),
+      runModule we body' seed k st mems
+        = runModule we body seed k st mems := by
   intro k
   induction k with
-  | zero => intro st; rfl
+  | zero => intro st mems; rfl
   | succ k ih =>
-    intro st
+    intro st mems
     simp only [runModule, Option.bind_eq_bind,
-      step_roundtrip hB hI (seed k st)]
-    cases stepModule we body (seed k st) with
+      step_roundtrip hB hI (seed k st) mems]
+    cases stepModule we body (seed k st) mems with
     | none => rfl
     | some p => simp [ih]
 

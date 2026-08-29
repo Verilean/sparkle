@@ -174,15 +174,41 @@ end
      is also why the parser losing the `or posedge rst` sensitivity is
      semantically inert.
 
-   Memories and instances are outside the v1 fragment (they return
-   `none`), entering the same way the expression fragment grew. -/
+   Memories follow the `Stmt.memory` contract documented in the AST:
+   all ports share the clock, reads see the state BEFORE this cycle's
+   writes (read-old), and simultaneous writes to the same address are
+   resolved by port order (last enabled port wins).  Memory state is an
+   `MEnv`; combinational reads extend the environment during
+   elaboration, synchronous reads latch like registers, and writes are
+   evaluated under the POST-elaboration environment (the backends'
+   tick phase).  Instances remain outside the fragment (`none`). -/
 
-def evalAssigns (we : WEnv) : List Stmt → Env → Option Env
+/-- Memory state: array contents by memory name. -/
+abbrev MEnv := String → Nat → Nat
+
+/-- Combinational read ports: extend the env with `rd ↦ mem[addr]`,
+    in port order (mirrors the emitted `assign` per port). -/
+def comboReads (we : WEnv) (mems : MEnv) (name : String) (aw dw : Nat) :
+    List (Expr × String) → Env → Option Env
+  | [], env => some env
+  | (a, rd) :: rest, env => do
+    let av ← evalExpr we env a
+    comboReads we mems name aw dw rest
+      (fun n => if n = rd then mask dw (mems name (mask aw av)) else env n)
+
+def evalAssigns (we : WEnv) (mems : MEnv) : List Stmt → Env → Option Env
   | [], env => some env
   | .assign l r :: rest, env => do
     let v ← evalExpr we env r
-    evalAssigns we rest (fun n => if n = l then v else env n)
-  | .register _ _ _ _ _ :: rest, env => evalAssigns we rest env
+    evalAssigns we mems rest (fun n => if n = l then v else env n)
+  | .register _ _ _ _ _ :: rest, env => evalAssigns we mems rest env
+  | .memory name aw dw _ _ _ _ ra rd cr _ er :: rest, env =>
+    if cr then do
+      let env' ← comboReads we mems name aw dw ((ra, rd) :: er) env
+      evalAssigns we mems rest env'
+    else
+      -- sync-read data is register-like state, seeded into env0
+      evalAssigns we mems rest env
   | _ :: _, _ => none
 
 /-- Encode a register's reset value the way `evalExpr` encodes
@@ -190,26 +216,75 @@ def evalAssigns (we : WEnv) : List Stmt → Env → Option Env
 def encodeInit (v : Int) (w : Nat) : Nat :=
   mask w (Int.toNat (((v % (2 ^ w : Nat)) + (2 ^ w : Nat)) % (2 ^ w : Nat)))
 
-/-- Next values for every register, under the post-elaboration env. -/
-def regNexts (we : WEnv) : List Stmt → Env → Option (List (String × Nat))
+/-- Synchronous read ports: latch `mem[addr]` (read-old — `mems` is the
+    pre-write state) into the register-update list. -/
+def syncReadLatches (we : WEnv) (mems : MEnv) (name : String)
+    (aw dw : Nat) :
+    List (Expr × String) → Env → Option (List (String × Nat))
+  | [], _ => some []
+  | (a, rd) :: rest, env => do
+    let av ← evalExpr we env a
+    let latches ← syncReadLatches we mems name aw dw rest env
+    some ((rd, mask dw (mems name (mask aw av))) :: latches)
+
+/-- Next values for every register (and sync-read latch), under the
+    post-elaboration env. -/
+def regNexts (we : WEnv) (mems : MEnv) :
+    List Stmt → Env → Option (List (String × Nat))
   | [], _ => some []
   | .register out _ (rstName, _) input init :: rest, env => do
     let vin ← evalExpr we env input
-    let nexts ← regNexts we rest env
+    let nexts ← regNexts we mems rest env
     let next := if env rstName ≠ 0 then encodeInit init (we out)
                 else mask (we out) vin
     some ((out, next) :: nexts)
-  | .assign _ _ :: rest, env => regNexts we rest env
+  | .memory name aw dw _ _ _ _ ra rd cr _ er :: rest, env =>
+    if cr then regNexts we mems rest env
+    else do
+      let latches ← syncReadLatches we mems name aw dw ((ra, rd) :: er) env
+      let nexts ← regNexts we mems rest env
+      some (latches ++ nexts)
+  | .assign _ _ :: rest, env => regNexts we mems rest env
   | _ :: _, _ => none
+
+/-- Write ports of one memory, in port order: an enabled port stores
+    `mask dw data` at `mask aw addr`; a later port overwrites an earlier
+    one on the same address (the Verilog `always_ff` sequential-`if`
+    rule). -/
+def memWritePorts (we : WEnv) (env : Env) (name : String) (aw dw : Nat) :
+    List (Expr × Expr × Expr) → MEnv → Option MEnv
+  | [], m => some m
+  | (a, d, en) :: rest, m => do
+    let ev ← evalExpr we env en
+    let av ← evalExpr we env a
+    let dv ← evalExpr we env d
+    memWritePorts we env name aw dw rest
+      (if ev ≠ 0 then
+        (fun nm i => if nm = name ∧ i = mask aw av then mask dw dv
+                     else m nm i)
+       else m)
+
+/-- Memory state after this cycle's writes, evaluated under the
+    post-elaboration env. -/
+def memNexts (we : WEnv) : List Stmt → MEnv → Env → Option MEnv
+  | [], mems, _ => some mems
+  | .memory name aw dw _ wa wd wen _ _ _ ew _ :: rest, mems, env => do
+    let mems' ← memWritePorts we env name aw dw ((wa, wd, wen) :: ew) mems
+    memNexts we rest mems' env
+  | .assign _ _ :: rest, mems, env => memNexts we rest mems env
+  | .register _ _ _ _ _ :: rest, mems, env => memNexts we rest mems env
+  | _ :: _, _, _ => none
 
 /-- One cycle: elaborate, then step the registers.  Returns the final
     combinational environment (outputs are read from it) and the
     register updates. -/
-def stepModule (we : WEnv) (body : List Stmt) (env0 : Env) :
-    Option (Env × List (String × Nat)) := do
-  let envF ← evalAssigns we body env0
-  let nexts ← regNexts we body envF
-  some (envF, nexts)
+def stepModule (we : WEnv) (body : List Stmt) (env0 : Env)
+    (mems : MEnv := fun _ _ => 0) :
+    Option (Env × List (String × Nat) × MEnv) := do
+  let envF ← evalAssigns we mems body env0
+  let nexts ← regNexts we mems body envF
+  let mems' ← memNexts we body mems envF
+  some (envF, nexts, mems')
 
 section StepGuards
 private def weS : WEnv := fun _ => 8
@@ -221,10 +296,10 @@ private def bodyS : List Stmt :=
 -- combinational: w = a + r = 0xA5 + 7 = 0xAC
 #guard (stepModule weS bodyS envS).map (fun p => p.1 "w") = some 0xAC
 -- register next: rst=0 → w's value
-#guard (stepModule weS bodyS envS).map (fun p => p.2) = some [("r", 0xAC)]
+#guard (stepModule weS bodyS envS).map (fun p => p.2.1) = some [("r", 0xAC)]
 -- under reset: init encoded
 private def envR : Env := fun n => if n == "rst" then 1 else envS n
-#guard (stepModule weS bodyS envR).map (fun p => p.2) = some [("r", 3)]
+#guard (stepModule weS bodyS envR).map (fun p => p.2.1) = some [("r", 3)]
 end StepGuards
 
 /-- Apply a register-update list to a state. -/
@@ -243,18 +318,55 @@ def applyNexts (st : String → Nat) (nexts : List (String × Nat)) :
     wall-clock indices maps `t ↦ k-1-t`.) -/
 def runModule (we : WEnv) (body : List Stmt)
     (seed : Nat → (String → Nat) → Env) :
-    Nat → (String → Nat) → Option (List Env)
-  | 0, _ => some []
-  | k + 1, st => do
-    let (envF, nexts) ← stepModule we body (seed k st)
-    let rest ← runModule we body seed k (applyNexts st nexts)
+    Nat → (String → Nat) → MEnv → Option (List Env)
+  | 0, _, _ => some []
+  | k + 1, st, mems => do
+    let (envF, nexts, mems') ← stepModule we body (seed k st) mems
+    let rest ← runModule we body seed k (applyNexts st nexts) mems'
     some (envF :: rest)
+
+-- memory pins: combo read sees PRE-write state (read-old); writes land
+-- masked at the masked address; last enabled port wins on collision;
+-- sync read latches old data into the register-update list.
+private def memBody (combo : Bool) : List Stmt :=
+  [ .memory "Mem" 2 8 "clock"
+      (.ref "wa") (.ref "wd") (.ref "wen")   -- write port 0
+      (.ref "ra") "rdata" combo
+      [(.ref "wa2", .ref "wd2", .ref "wen2")]  -- extra write port
+      [] ]
+private def memEnv : Env := fun n =>
+  if n == "wa" then 1 else if n == "wd" then 0x51 else
+  if n == "wen" then 1 else
+  if n == "wa2" then 1 else if n == "wd2" then 0x62 else
+  if n == "wen2" then 0 else
+  if n == "ra" then 1 else 0
+private def mems0 : MEnv := fun nm i =>
+  if nm == "Mem" && i == 1 then 0x33 else 0
+-- combo read: rdata = old Mem[1] = 0x33 (NOT this cycle's 0x51)
+#guard (stepModule (fun _ => 8) (memBody true) memEnv mems0).map
+    (fun p => p.1 "rdata") = some 0x33
+-- write port 0 enabled, extra port disabled → Mem[1] = 0x51 after tick
+#guard (stepModule (fun _ => 8) (memBody true) memEnv mems0).map
+    (fun p => p.2.2 "Mem" 1) = some 0x51
+-- collision, both enabled: LAST port wins → 0x62
+private def memEnv2 : Env := fun n => if n == "wen2" then 1 else memEnv n
+#guard (stepModule (fun _ => 8) (memBody true) memEnv2 mems0).map
+    (fun p => p.2.2 "Mem" 1) = some 0x62
+-- sync read: rdata latches old Mem[1] into the update list
+#guard (stepModule (fun _ => 8) (memBody false) memEnv mems0).map
+    (fun p => p.2.1) = some [("rdata", 0x33)]
+-- masking: address masked to aw bits, data masked to dw bits
+private def memEnvM : Env := fun n =>
+  if n == "wa" then 5 else if n == "wd" then 0x151 else memEnv n
+#guard (stepModule (fun _ => 8) (memBody true) memEnvM mems0).map
+    (fun p => p.2.2 "Mem" 1) = some 0x51
 
 -- multi-cycle: seed each cycle from register state with a=1, rst=0;
 -- r accumulates 7, 8, 9 → trace of w = r+1 each cycle
 private def seedS : Nat → (String → Nat) → Env := fun _ st n =>
   if n == "a" then 1 else if n == "rst" then 0 else st n
-#guard (runModule weS bodyS seedS 3 (fun n => if n == "r" then 7 else 0)).map
+#guard (runModule weS bodyS seedS 3 (fun n => if n == "r" then 7 else 0)
+    (fun _ _ => 0)).map
     (fun tr => tr.map (fun e => e "w")) = some [8, 9, 10]
 
 /- Behavioral pins: the semantics agrees with hardware intuition on
