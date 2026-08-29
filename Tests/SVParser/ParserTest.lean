@@ -2626,5 +2626,44 @@ endmodule
         failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 67 (certified-roundtrip): emit∘parse is an IR FIXPOINT after
+  -- one trip — parse(emit(parse(emit(m)))) equals parse(emit(m)) as a
+  -- statement multiset.  Pins the three amplifier fixes (cast-of-
+  -- literal, cast-encode re-wrapping, redundant reset mux): each used
+  -- to grow the body by one wrapper per generation.
+  IO.print "  Test 67: emit∘parse reaches an IR fixpoint... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "fixrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 8⟩]
+      outputs := [⟨"q", .bitVector 8⟩]
+      wires := [⟨"w", .bitVector 8⟩, ⟨"r", .bitVector 8⟩, ⟨"q", .bitVector 8⟩]
+      body := [
+        .assign "w" (.op .not [.op .add [.ref "a", .ref "r"]]),
+        .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3,
+        .assign "q" (.ref "r")]
+      assertions := [] }
+    let reparse (mm : Sparkle.IR.AST.Module) :
+        Except String Sparkle.IR.AST.Module := do
+      let d ← parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule mm)
+      match d.modules with
+      | [one] => pure one
+      | _ => throw "expected one module"
+    -- one trip normalizes value representations (e.g. const -1/32 →
+    -- its two's-complement Nat); the FIXPOINT claim is gen2 == gen3
+    match do { let g1 ← reparse m; let g2 ← reparse g1;
+               let g3 ← reparse g2; pure (g2, g3) } with
+    | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+    | .ok (g2, g3) =>
+      let key := fun (st : Sparkle.IR.AST.Stmt) => s!"{repr st}"
+      let s2 := (g2.body.map key).mergeSort (· ≤ ·)
+      let s3 := (g3.body.map key).mergeSort (· ≤ ·)
+      if s2 == s3 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: gen2 {g2.body.length} stmts ≠ gen3 {g3.body.length} stmts (or shapes drifted)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
