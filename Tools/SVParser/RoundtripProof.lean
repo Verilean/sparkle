@@ -226,6 +226,13 @@ def lowerT : SVExpr → Option Sparkle.IR.AST.Expr
   | .sizeCast w a => do
     some (.slice (.concat [.const 0 w, ← lowerT a]) (w - 1) 0)
   | .unary .neg a => do some (.op .neg [← lowerT a])
+  -- NOTE: no `.unary .bitNot` arm.  The emitter's width-UNKNOWN NOT
+  -- (`~x`) lowers on the shipping side to `xor(x, -1, 32)` and is then
+  -- rewritten by the width-inference pass `narrowMaskConstants` to
+  -- `xor(x, -1, w)` — mirroring that needs the width ENVIRONMENT and a
+  -- semantic narrowing lemma (the standing Bool-not finding), so those
+  -- statements stay outside the twin for now (Test 68 counts them as
+  -- outside-the-fragment).
   | .unary .signed a => lowerT a
   | .binary .asr a b => do some (.op .asr [← lowerT a, ← lowerT b])
   | .slice e hi lo => do some (.slice (← lowerT e) hi lo)
@@ -2071,20 +2078,32 @@ theorem body_trace_roundtrip {wof we wires}
       (woCheck_sound _ _ hwo2) hmem hkeys seed k st mems]
   exact trace_roundtrip hB hI seed k st mems
 
-/-- Is this statement inside the v1 reorder fragment?  (Boolean twin
-    of `SimpleStmt`.) -/
+/-- Is this statement inside the reorder fragment?  (Boolean twin of
+    `SimpleStmt` — everything except instances.) -/
 def simpleStmtB : Sparkle.IR.AST.Stmt → Bool
-  | .assign _ _ => true
-  | .register _ _ _ _ _ => true
-  | .memory _ _ _ _ _ _ _ _ _ cr _ _ => !cr
   | .inst _ _ _ => false
+  | _ => true
+
+/-- Verdicts of the per-module end-to-end validation. -/
+inductive TraceCheck where
+  /-- the trace theorem's checkable hypotheses HOLD for the shipping
+      output -/
+  | ok
+  /-- the shipping output differs from the raw image, but matches once
+      the image passes through the same shipping optimizer — the module
+      sits behind the optimizer boundary (covered by `#verify_emit`
+      translation validation, not by the trace theorem) -/
+  | optRewritten
+  /-- outside the fragment (an image-less statement or an instance) -/
+  | outside
+  /-- genuine mismatch -/
+  | bad
+  deriving Repr, DecidableEq
 
 /-- End-to-end validation for one module: run the SHIPPING pipeline on
     the module's own emission and check its output against the
-    statement-wise twin image with `bodyReorderCheck`.
-    `none` = outside the v1 fragment (an image-less statement or a
-    combo-read memory); `some b` = the checked verdict. -/
-def bodyTraceCheck (m : Sparkle.IR.AST.Module) : Option Bool :=
+    statement-wise twin image with `bodyReorderCheck`. -/
+def bodyTraceCheck (m : Sparkle.IR.AST.Module) : TraceCheck :=
   let wof : String → Option Nat := fun n =>
     (m.wires.find? (fun p =>
       Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
@@ -2092,23 +2111,35 @@ def bodyTraceCheck (m : Sparkle.IR.AST.Module) : Option Bool :=
       | .bitVector w => some w
       | .bit => some 1
       | _ => none
-  if !(m.body.all simpleStmtB) then none
+  if !(m.body.all simpleStmtB) then .outside
   else
     match (m.body.mapM (stmtImage wof m.wires)).map List.flatten with
-    | none => none
+    | none => .outside
     | some bimg =>
       match Tools.SVParser.Lower.parseAndLowerHierarchical
           (Sparkle.Backend.Verilog.emitModule m) with
-      | .error _ => some false
+      | .error _ => .bad
       | .ok d =>
         let body' := d.modules.foldl
           (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
-        some (bodyReorderCheck body' bimg)
+        if bodyReorderCheck body' bimg then .ok
+        else
+          -- classify: does the image agree once optimized the same way?
+          let imgDesign : Sparkle.IR.AST.Design :=
+            { topModule := m.name, modules := [{ m with body := bimg }] }
+          let opt := Tools.SVParser.Lower.stripResetMuxDesign
+            (Sparkle.IR.Optimize.optimizeDesign imgDesign)
+          let bimgOpt := opt.modules.foldl
+            (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
+          if Sparkle.IR.Reorder.isPermOf body' bimgOpt then .optRewritten
+          else .bad
 
--- Validation on the probes (register bodies and sync-read memories;
--- combo-read memories are outside the v1 reorder fragment).
-#guard bodyTraceCheck probeStmtM == some true
-#guard bodyTraceCheck probeMemSync == some true
-#guard bodyTraceCheck probeMemSync2 == some true
+-- Validation on the probes (register bodies and memories of both read
+-- kinds, single- and multi-port).
+#guard bodyTraceCheck probeStmtM == .ok
+#guard bodyTraceCheck probeMemSync == .ok
+#guard bodyTraceCheck probeMemSync2 == .ok
+#guard bodyTraceCheck probeMemCombo == .ok
+#guard bodyTraceCheck probeMemMulti == .ok
 
 end Tools.SVParser.RoundtripProof

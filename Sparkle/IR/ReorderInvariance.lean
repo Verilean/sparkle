@@ -88,14 +88,11 @@ def stmtReads : Stmt → List String
 
 def writesOf (body : List Stmt) : List String := body.flatMap stmtWrites
 
-/-- The v1 reorder fragment: statements whose combinational effect is a
-    single-name functional update or a no-op.  Combo-read memories
-    (multi-name sequential env extension) and instances join later. -/
+/-- The reorder fragment: every statement except instances (whose
+    combinational semantics is `none`). -/
 def SimpleStmt : Stmt → Prop
-  | .assign _ _ => True
-  | .register _ _ _ _ _ => True
-  | .memory _ _ _ _ _ _ _ _ _ cr _ _ => cr = false
-  | _ => False
+  | .inst _ _ _ => False
+  | _ => True
 
 /-- Well-ordered w.r.t. already-evaluated names `done`: every read of a
     locally-written name comes after its (unique) write.  This is the
@@ -131,6 +128,106 @@ theorem WO_done_congr {d1 d2 : List String} {body : List Stmt}
     exact ih (fun n => by simp [hd n])
 
 /- ------------------------------------------------------------------ -/
+/- comboReads: the combinational effect of a combo-read memory.  It
+   changes exactly its own read-data names (frame), and given
+   environments agreeing on its addresses' refs it computes the same
+   values (agree) — the two facts the swap lemma needs. -/
+
+theorem comboReads_frame (we : WEnv) (mems : MEnv) (name : String)
+    (aw dw : Nat) :
+    ∀ (ports : List (Expr × String)) (env r : Env),
+    comboReads we mems name aw dw ports env = some r →
+    ∀ n, n ∉ ports.map Prod.snd → r n = env n := by
+  intro ports
+  induction ports with
+  | nil =>
+    intro env r h n _
+    cases h
+    rfl
+  | cons p rest ih =>
+    intro env r h n hn
+    obtain ⟨a, rd⟩ := p
+    simp only [comboReads, Option.bind_eq_bind] at h
+    cases ha : evalExpr we env a with
+    | none => rw [ha] at h; exact absurd h (by simp)
+    | some av =>
+      rw [ha] at h
+      simp only [Option.bind_some] at h
+      simp only [List.map_cons, List.mem_cons, not_or] at hn
+      rw [ih _ _ h n hn.2]
+      simp [hn.1]
+
+theorem comboReads_agree (we : WEnv) (mems : MEnv) (name : String)
+    (aw dw : Nat) :
+    ∀ (ports : List (Expr × String)) (env₁ env₂ : Env),
+    (∀ n ∈ (ports.flatMap fun p => refsOf p.1), env₁ n = env₂ n) →
+    match comboReads we mems name aw dw ports env₁,
+          comboReads we mems name aw dw ports env₂ with
+    | some r₁, some r₂ => ∀ n ∈ ports.map Prod.snd, r₁ n = r₂ n
+    | none, none => True
+    | _, _ => False := by
+  intro ports
+  induction ports with
+  | nil => intro env₁ env₂ _; simp [comboReads]
+  | cons p rest ih =>
+    intro env₁ env₂ hag
+    obtain ⟨a, rd⟩ := p
+    have hae : evalExpr we env₁ a = evalExpr we env₂ a := by
+      apply evalExpr_congr
+      intro n hn
+      exact hag n
+        (by simp only [List.flatMap_cons, List.mem_append]; exact Or.inl hn)
+    simp only [comboReads, Option.bind_eq_bind]
+    cases ha : evalExpr we env₁ a with
+    | none => rw [← hae, ha]; trivial
+    | some av =>
+      rw [← hae, ha]
+      simp only [Option.bind_some]
+      have hag' : ∀ n ∈ (rest.flatMap fun p => refsOf p.1),
+          (fun m => if m = rd then mask dw (mems name (mask aw av))
+            else env₁ m) n
+          = (fun m => if m = rd then mask dw (mems name (mask aw av))
+            else env₂ m) n := by
+        intro n hn
+        by_cases hrd : n = rd
+        · simp [hrd]
+        · simp only [hrd, if_false]
+          exact hag n
+            (by simp only [List.flatMap_cons, List.mem_append]
+                exact Or.inr hn)
+      have := ih _ _ hag'
+      cases h1 : comboReads we mems name aw dw rest
+          (fun m => if m = rd then mask dw (mems name (mask aw av))
+            else env₁ m) with
+      | none =>
+        rw [h1] at this
+        cases h2 : comboReads we mems name aw dw rest
+            (fun m => if m = rd then mask dw (mems name (mask aw av))
+              else env₂ m) with
+        | none => trivial
+        | some _ => rw [h2] at this; exact absurd this (by simp)
+      | some r₁ =>
+        rw [h1] at this
+        cases h2 : comboReads we mems name aw dw rest
+            (fun m => if m = rd then mask dw (mems name (mask aw av))
+              else env₂ m) with
+        | none => rw [h2] at this; exact absurd this (by simp)
+        | some r₂ =>
+          rw [h2] at this
+          intro n hn
+          simp only [List.map_cons, List.mem_cons] at hn
+          by_cases hmem : n ∈ rest.map Prod.snd
+          · exact this n hmem
+          · have hn_rd : n = rd := by
+              cases hn with
+              | inl h => exact h
+              | inr h => exact absurd h hmem
+            subst hn_rd
+            rw [comboReads_frame we mems name aw dw rest _ r₁ h1 n hmem,
+              comboReads_frame we mems name aw dw rest _ r₂ h2 n hmem]
+            simp
+
+/- ------------------------------------------------------------------ -/
 /- Adjacent-swap machinery. -/
 
 /-- In the v1 fragment, a non-writing statement is a combinational
@@ -143,21 +240,12 @@ theorem nop_step (we : WEnv) (mems : MEnv) {s : Stmt}
   | .assign l r => simp [stmtWrites] at hw
   | .register _ _ _ _ _ => rfl
   | .memory n aw dw c wa wd wen ra rd cr ew er =>
-    have hcr : cr = false := hs
+    have hcr : cr = false := by
+      cases cr
+      · rfl
+      · simp [stmtWrites] at hw
     subst hcr
     rfl
-  | .inst _ _ _ => exact absurd hs (by simp [SimpleStmt])
-
-/-- The only writer in the v1 fragment is `.assign`. -/
-theorem writer_is_assign {s : Stmt} (hs : SimpleStmt s)
-    (hw : stmtWrites s ≠ []) : ∃ l r, s = .assign l r := by
-  match s with
-  | .assign l r => exact ⟨l, r, rfl⟩
-  | .register _ _ _ _ _ => simp [stmtWrites] at hw
-  | .memory n aw dw c wa wd wen ra rd cr ew er =>
-    have hcr : cr = false := hs
-    subst hcr
-    simp [stmtWrites] at hw
   | .inst _ _ _ => exact absurd hs (by simp [SimpleStmt])
 
 /-- Rewriting under one leading statement: if two tails agree at every
@@ -174,9 +262,13 @@ theorem evalAssigns_cons_congr (we : WEnv) (mems : MEnv) {X Y : List Stmt}
     | some v => simp [h]
   | .register _ _ _ _ _ => exact h env
   | .memory n aw dw c wa wd wen ra rd cr ew er =>
-    have hcr : cr = false := hp
-    subst hcr
-    exact h env
+    cases cr with
+    | false => exact h env
+    | true =>
+      simp only [evalAssigns, if_true, Option.bind_eq_bind]
+      cases comboReads we mems n aw dw ((ra, rd) :: er) env with
+      | none => rfl
+      | some env' => simp [h]
   | .inst _ _ _ => exact absurd hp (by simp [SimpleStmt])
 
 /-- A no-op in SECOND position can be dropped. -/
@@ -188,6 +280,184 @@ theorem nop_second (we : WEnv) (mems : MEnv) {a b : Stmt}
       = evalAssigns we mems (b :: rest) env :=
   evalAssigns_cons_congr we mems
     (fun env' => nop_step we mems ha haw rest env') b hb env
+
+/-- An assign and a combo-read memory with disjoint footprints
+    commute. -/
+theorem swap_assign_mem (we : WEnv) (mems : MEnv)
+    (la : String) (ra : Expr)
+    (nB : String) (awB dwB : Nat) (cB : String)
+    (waB wdB wenB raB : Expr) (rdB : String)
+    (ewB : List (Expr × Expr × Expr)) (erB : List (Expr × String))
+    (hla_refs : la ∉ (((raB, rdB) :: erB).flatMap fun p => refsOf p.1))
+    (hla_rds : la ∉ ((raB, rdB) :: erB).map Prod.snd)
+    (hrds_ra : ∀ n ∈ ((raB, rdB) :: erB).map Prod.snd, n ∉ refsOf ra)
+    (rest : List Stmt) (env0 : Env) :
+    evalAssigns we mems (.assign la ra
+        :: .memory nB awB dwB cB waB wdB wenB raB rdB true ewB erB :: rest)
+        env0
+      = evalAssigns we mems
+          (.memory nB awB dwB cB waB wdB wenB raB rdB true ewB erB
+            :: .assign la ra :: rest) env0 := by
+  simp only [evalAssigns, if_true, Option.bind_eq_bind]
+  cases hva : evalExpr we env0 ra with
+  | none =>
+    cases hc0 : comboReads we mems nB awB dwB ((raB, rdB) :: erB) env0 with
+    | none => rfl
+    | some e2 =>
+      have hf1 : evalExpr we e2 ra = evalExpr we env0 ra := by
+        apply evalExpr_congr
+        intro n hn
+        refine comboReads_frame we mems nB awB dwB _ env0 e2 hc0 n ?_
+        intro hin
+        exact hrds_ra n hin hn
+      simp [hf1, hva]
+  | some va =>
+    simp only [Option.bind_some]
+    have hag : ∀ n ∈ (((raB, rdB) :: erB).flatMap fun p => refsOf p.1),
+        (fun m => if m = la then va else env0 m) n = env0 n := by
+      intro n hn
+      have : n ≠ la := fun hEq => hla_refs (hEq ▸ hn)
+      simp [this]
+    have hrel := comboReads_agree we mems nB awB dwB ((raB, rdB) :: erB)
+      (fun m => if m = la then va else env0 m) env0 hag
+    cases h1 : comboReads we mems nB awB dwB ((raB, rdB) :: erB)
+        (fun m => if m = la then va else env0 m) with
+    | none =>
+      rw [h1] at hrel
+      cases h2 : comboReads we mems nB awB dwB ((raB, rdB) :: erB) env0 with
+      | none => rfl
+      | some _ => rw [h2] at hrel; exact absurd hrel (by simp)
+    | some r1 =>
+      rw [h1] at hrel
+      cases h2 : comboReads we mems nB awB dwB ((raB, rdB) :: erB) env0 with
+      | none => rw [h2] at hrel; exact absurd hrel (by simp)
+      | some r2 =>
+        rw [h2] at hrel
+        have hf1 : evalExpr we r2 ra = evalExpr we env0 ra := by
+          apply evalExpr_congr
+          intro n hn
+          refine comboReads_frame we mems nB awB dwB _ env0 r2 h2 n ?_
+          intro hin
+          exact hrds_ra n hin hn
+        simp only [Option.bind_some]
+        rw [hf1, hva]
+        simp only [Option.bind_some]
+        have henv : r1 = fun n => if n = la then va else r2 n := by
+          funext n
+          by_cases hrd : n ∈ ((raB, rdB) :: erB).map Prod.snd
+          · have h3 := hrel n hrd
+            have : n ≠ la := fun hEq => hla_rds (hEq ▸ hrd)
+            simp [this, h3]
+          · rw [comboReads_frame we mems nB awB dwB _ _ r1 h1 n hrd]
+            by_cases hla : n = la
+            · simp [hla]
+            · rw [comboReads_frame we mems nB awB dwB _ _ r2 h2 n hrd]
+              try simp [hla]
+        rw [henv]
+
+/-- Two combo-read memories with disjoint footprints commute. -/
+theorem swap_mem_mem (we : WEnv) (mems : MEnv)
+    (nA : String) (awA dwA : Nat) (cA : String)
+    (waA wdA wenA raA : Expr) (rdA : String)
+    (ewA : List (Expr × Expr × Expr)) (erA : List (Expr × String))
+    (nB : String) (awB dwB : Nat) (cB : String)
+    (waB wdB wenB raB : Expr) (rdB : String)
+    (ewB : List (Expr × Expr × Expr)) (erB : List (Expr × String))
+    (hA_refsB : ∀ n ∈ ((raA, rdA) :: erA).map Prod.snd,
+      n ∉ (((raB, rdB) :: erB).flatMap fun p => refsOf p.1))
+    (hA_rdsB : ∀ n ∈ ((raA, rdA) :: erA).map Prod.snd,
+      n ∉ ((raB, rdB) :: erB).map Prod.snd)
+    (hB_refsA : ∀ n ∈ ((raB, rdB) :: erB).map Prod.snd,
+      n ∉ (((raA, rdA) :: erA).flatMap fun p => refsOf p.1))
+    (rest : List Stmt) (env0 : Env) :
+    evalAssigns we mems
+        (.memory nA awA dwA cA waA wdA wenA raA rdA true ewA erA
+          :: .memory nB awB dwB cB waB wdB wenB raB rdB true ewB erB :: rest)
+        env0
+      = evalAssigns we mems
+          (.memory nB awB dwB cB waB wdB wenB raB rdB true ewB erB
+            :: .memory nA awA dwA cA waA wdA wenA raA rdA true ewA erA :: rest)
+          env0 := by
+  simp only [evalAssigns, if_true, Option.bind_eq_bind]
+  cases hA0 : comboReads we mems nA awA dwA ((raA, rdA) :: erA) env0 with
+  | none =>
+    cases hB0 : comboReads we mems nB awB dwB ((raB, rdB) :: erB) env0 with
+    | none => rfl
+    | some eB =>
+      -- A on eB must fail too (agree: eB matches env0 on A's refs)
+      have hagA : ∀ n ∈ (((raA, rdA) :: erA).flatMap fun p => refsOf p.1),
+          env0 n = eB n := by
+        intro n hn
+        refine (comboReads_frame we mems nB awB dwB _ env0 eB hB0 n ?_).symm
+        intro hin
+        exact hB_refsA n hin hn
+      have hrelA := comboReads_agree we mems nA awA dwA ((raA, rdA) :: erA)
+        env0 eB hagA
+      rw [hA0] at hrelA
+      cases hAe : comboReads we mems nA awA dwA ((raA, rdA) :: erA) eB with
+      | none => simp only [Option.bind_some]; rw [hAe]; rfl
+      | some _ => rw [hAe] at hrelA; exact absurd hrelA (by simp)
+  | some eA =>
+    simp only [Option.bind_some]
+    have hagB : ∀ n ∈ (((raB, rdB) :: erB).flatMap fun p => refsOf p.1),
+        eA n = env0 n := by
+      intro n hn
+      refine comboReads_frame we mems nA awA dwA _ env0 eA hA0 n ?_
+      intro hin
+      exact hA_refsB n hin hn
+    have hrelB := comboReads_agree we mems nB awB dwB ((raB, rdB) :: erB)
+      eA env0 hagB
+    cases hBA : comboReads we mems nB awB dwB ((raB, rdB) :: erB) eA with
+    | none =>
+      rw [hBA] at hrelB
+      cases hB0 : comboReads we mems nB awB dwB ((raB, rdB) :: erB) env0 with
+      | none => rfl
+      | some _ => rw [hB0] at hrelB; exact absurd hrelB (by simp)
+    | some e2 =>
+      rw [hBA] at hrelB
+      cases hB0 : comboReads we mems nB awB dwB ((raB, rdB) :: erB) env0 with
+      | none => rw [hB0] at hrelB; exact absurd hrelB (by simp)
+      | some eB =>
+        rw [hB0] at hrelB
+        simp only [Option.bind_some]
+        have hagA : ∀ n ∈ (((raA, rdA) :: erA).flatMap fun p => refsOf p.1),
+            env0 n = eB n := by
+          intro n hn
+          refine (comboReads_frame we mems nB awB dwB _ env0 eB hB0 n ?_).symm
+          intro hin
+          exact hB_refsA n hin hn
+        have hrelA := comboReads_agree we mems nA awA dwA ((raA, rdA) :: erA)
+          env0 eB hagA
+        rw [hA0] at hrelA
+        cases hAB : comboReads we mems nA awA dwA ((raA, rdA) :: erA) eB with
+        | none => rw [hAB] at hrelA; exact absurd hrelA (by simp)
+        | some e2' =>
+          rw [hAB] at hrelA
+          simp only [Option.bind_some]
+          have henv : e2 = e2' := by
+            funext n
+            by_cases hInA : n ∈ ((raA, rdA) :: erA).map Prod.snd
+            · -- A's slice: LHS via B-frame back to eA; RHS via A-agree
+              have h1 : e2 n = eA n :=
+                comboReads_frame we mems nB awB dwB _ eA e2 hBA n
+                  (fun hin => hA_rdsB n hInA hin)
+              have h2 : e2' n = eA n := (hrelA n hInA).symm
+              rw [h1, h2]
+            · by_cases hInB : n ∈ ((raB, rdB) :: erB).map Prod.snd
+              · have h1 : e2 n = eB n := hrelB n hInB
+                have h2 : e2' n = eB n :=
+                  comboReads_frame we mems nA awA dwA _ eB e2' hAB n hInA
+                rw [h1, h2]
+              · have h1 : e2 n = eA n :=
+                  comboReads_frame we mems nB awB dwB _ eA e2 hBA n hInB
+                have h2 : eA n = env0 n :=
+                  comboReads_frame we mems nA awA dwA _ env0 eA hA0 n hInA
+                have h3 : e2' n = eB n :=
+                  comboReads_frame we mems nA awA dwA _ eB e2' hAB n hInA
+                have h4 : eB n = env0 n :=
+                  comboReads_frame we mems nB awB dwB _ env0 eB hB0 n hInB
+                rw [h1, h2, h3, h4]
+          rw [henv]
 
 /-- Adjacent independent statements commute. -/
 theorem evalAssigns_swap (we : WEnv) (mems : MEnv) {a b : Stmt}
@@ -204,57 +474,113 @@ theorem evalAssigns_swap (we : WEnv) (mems : MEnv) {a b : Stmt}
   · by_cases heb : stmtWrites b = []
     · rw [nop_step we mems hb heb (a :: rest) env0,
         nop_second we mems ha hb heb rest env0]
-    · obtain ⟨la, ra, rfl⟩ := writer_is_assign ha hea
-      obtain ⟨lb, rb, rfl⟩ := writer_is_assign hb heb
-      have hlab : la ≠ lb := by
-        intro hEq
-        exact hwa_wb la (by simp [stmtWrites]) (by simp [stmtWrites, hEq])
-      have hla_rb : la ∉ refsOf rb := by
-        have := hwa_rb la (by simp [stmtWrites])
-        simpa [stmtReads] using this
-      have hlb_ra : lb ∉ refsOf ra := by
-        have := hwb_ra lb (by simp [stmtWrites])
-        simpa [stmtReads] using this
-      simp only [evalAssigns, Option.bind_eq_bind]
-      cases hva : evalExpr we env0 ra with
-      | none =>
-        cases hvb : evalExpr we env0 rb with
-        | none => rfl
-        | some vb =>
-          have : evalExpr we (fun n => if n = lb then vb else env0 n) ra
-              = evalExpr we env0 ra := by
-            apply evalExpr_congr
-            intro n hn
-            have : n ≠ lb := fun hEq => hlb_ra (hEq ▸ hn)
-            simp [this]
-          simp [hvb, this, hva]
-      | some va =>
-        have hrb' : evalExpr we (fun n => if n = la then va else env0 n) rb
-            = evalExpr we env0 rb := by
-          apply evalExpr_congr
-          intro n hn
-          have : n ≠ la := fun hEq => hla_rb (hEq ▸ hn)
-          simp [this]
-        cases hvb : evalExpr we env0 rb with
-        | none => simp [hva, hvb, hrb']
-        | some vb =>
-          have hra' : evalExpr we (fun n => if n = lb then vb else env0 n) ra
-              = evalExpr we env0 ra := by
-            apply evalExpr_congr
-            intro n hn
-            have : n ≠ lb := fun hEq => hlb_ra (hEq ▸ hn)
-            simp [this]
-          have henv :
-              (fun n => if n = lb then vb
-                else (fun m => if m = la then va else env0 m) n)
-              = (fun n => if n = la then va
-                else (fun m => if m = lb then vb else env0 m) n) := by
-            funext n
-            by_cases h1 : n = lb
-            · subst h1
-              simp [Ne.symm hlab, hlab]
-            · by_cases h2 : n = la <;> simp [h1, h2, hlab]
-          simp [hva, hvb, hrb', hra', henv]
+    · -- both statements write: each is an assign or a combo-read memory
+      cases a with
+      | register _ _ _ _ _ => exact absurd rfl hea
+      | inst _ _ _ => exact absurd ha (by simp [SimpleStmt])
+      | memory nA awA dwA cA waA wdA wenA raA rdA crA ewA erA =>
+        have hcrA : crA = true := by
+          cases crA
+          · simp [stmtWrites] at hea
+          · rfl
+        subst hcrA
+        cases b with
+        | register _ _ _ _ _ => exact absurd rfl heb
+        | inst _ _ _ => exact absurd hb (by simp [SimpleStmt])
+        | assign lb rb =>
+          exact (swap_assign_mem we mems lb rb nA awA dwA cA waA wdA wenA
+            raA rdA ewA erA
+            (fun hin => hwb_ra lb (by simp [stmtWrites])
+              (by simpa [stmtReads] using hin))
+            (fun hin => hwa_wb lb (by simpa [stmtWrites] using hin)
+              (by simp [stmtWrites]))
+            (fun n hn hin => hwa_rb n (by simpa [stmtWrites] using hn)
+              (by simpa [stmtReads] using hin))
+            rest env0).symm
+        | memory nB awB dwB cB waB wdB wenB raB rdB crB ewB erB =>
+          have hcrB : crB = true := by
+            cases crB
+            · simp [stmtWrites] at heb
+            · rfl
+          subst hcrB
+          exact swap_mem_mem we mems nA awA dwA cA waA wdA wenA raA rdA
+            ewA erA nB awB dwB cB waB wdB wenB raB rdB ewB erB
+            (fun n hn hin => hwa_rb n (by simpa [stmtWrites] using hn)
+              (by simpa [stmtReads] using hin))
+            (fun n hn hin => hwa_wb n (by simpa [stmtWrites] using hn)
+              (by simpa [stmtWrites] using hin))
+            (fun n hn hin => hwb_ra n (by simpa [stmtWrites] using hn)
+              (by simpa [stmtReads] using hin))
+            rest env0
+      | assign la ra =>
+        cases b with
+        | register _ _ _ _ _ => exact absurd rfl heb
+        | inst _ _ _ => exact absurd hb (by simp [SimpleStmt])
+        | memory nB awB dwB cB waB wdB wenB raB rdB crB ewB erB =>
+          have hcrB : crB = true := by
+            cases crB
+            · simp [stmtWrites] at heb
+            · rfl
+          subst hcrB
+          exact swap_assign_mem we mems la ra nB awB dwB cB waB wdB wenB
+            raB rdB ewB erB
+            (fun hin => hwa_rb la (by simp [stmtWrites])
+              (by simpa [stmtReads] using hin))
+            (fun hin => hwa_wb la (by simp [stmtWrites])
+              (by simpa [stmtWrites] using hin))
+            (fun n hn hin => hwb_ra n (by simpa [stmtWrites] using hn)
+              (by simpa [stmtReads] using hin))
+            rest env0
+        | assign lb rb =>
+          have hlab : la ≠ lb := by
+            intro hEq
+            exact hwa_wb la (by simp [stmtWrites]) (by simp [stmtWrites, hEq])
+          have hla_rb : la ∉ refsOf rb := by
+            have := hwa_rb la (by simp [stmtWrites])
+            simpa [stmtReads] using this
+          have hlb_ra : lb ∉ refsOf ra := by
+            have := hwb_ra lb (by simp [stmtWrites])
+            simpa [stmtReads] using this
+          simp only [evalAssigns, Option.bind_eq_bind]
+          cases hva : evalExpr we env0 ra with
+          | none =>
+            cases hvb : evalExpr we env0 rb with
+            | none => rfl
+            | some vb =>
+              have : evalExpr we (fun n => if n = lb then vb else env0 n) ra
+                  = evalExpr we env0 ra := by
+                apply evalExpr_congr
+                intro n hn
+                have : n ≠ lb := fun hEq => hlb_ra (hEq ▸ hn)
+                simp [this]
+              simp [hvb, this, hva]
+          | some va =>
+            have hrb' : evalExpr we (fun n => if n = la then va else env0 n) rb
+                = evalExpr we env0 rb := by
+              apply evalExpr_congr
+              intro n hn
+              have : n ≠ la := fun hEq => hla_rb (hEq ▸ hn)
+              simp [this]
+            cases hvb : evalExpr we env0 rb with
+            | none => simp [hva, hvb, hrb']
+            | some vb =>
+              have hra' : evalExpr we (fun n => if n = lb then vb else env0 n) ra
+                  = evalExpr we env0 ra := by
+                apply evalExpr_congr
+                intro n hn
+                have : n ≠ lb := fun hEq => hlb_ra (hEq ▸ hn)
+                simp [this]
+              have henv :
+                  (fun n => if n = lb then vb
+                    else (fun m => if m = la then va else env0 m) n)
+                  = (fun n => if n = la then va
+                    else (fun m => if m = lb then vb else env0 m) n) := by
+                funext n
+                by_cases h1 : n = lb
+                · subst h1
+                  simp [Ne.symm hlab, hlab]
+                · by_cases h2 : n = la <;> simp [h1, h2, hlab]
+              simp [hva, hvb, hrb', hra', henv]
 
 /-- Bubble an independent statement to the front. -/
 theorem evalAssigns_bubble (we : WEnv) (mems : MEnv) {s : Stmt}
@@ -1130,10 +1456,8 @@ def woCheck (done : List String) : List Stmt → Bool
   | [] => true
   | s :: rest =>
     (match s with
-      | .assign _ _ => true
-      | .register _ _ _ _ _ => true
-      | .memory _ _ _ _ _ _ _ _ _ cr _ _ => !cr
-      | .inst _ _ _ => false)
+      | .inst _ _ _ => false
+      | _ => true)
     && (stmtReads s).all (fun n => !(writesOf rest).contains n)
     && (stmtWrites s).all (fun n =>
         !done.contains n && !(writesOf rest).contains n)
@@ -1150,9 +1474,7 @@ theorem woCheck_sound (done : List String) (body : List Stmt)
     · match s, hok with
       | .assign _ _, _ => trivial
       | .register _ _ _ _ _, _ => trivial
-      | .memory _ _ _ _ _ _ _ _ _ cr _ _, hok =>
-        show cr = false
-        simpa using hok
+      | .memory _ _ _ _ _ _ _ _ _ _ _ _, _ => trivial
     · intro n hn
       have := hreads n hn
       simpa [List.contains_iff_mem] using this

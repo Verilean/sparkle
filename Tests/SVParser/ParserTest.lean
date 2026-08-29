@@ -2678,6 +2678,7 @@ endmodule
     if ← System.FilePath.pathExists corpusDir then
       let mut ok := 0
       let mut outFrag := 0
+      let mut optRw := 0
       let mut bad := 0
       let mut firstBad := ""
       let entries ← System.FilePath.readDir corpusDir
@@ -2689,17 +2690,18 @@ endmodule
           | .ok design =>
             for m in design.modules do
               match Tools.SVParser.RoundtripProof.bodyTraceCheck m with
-              | none => outFrag := outFrag + 1
-              | some true => ok := ok + 1
-              | some false =>
+              | .outside => outFrag := outFrag + 1
+              | .ok => ok := ok + 1
+              | .optRewritten => optRw := optRw + 1
+              | .bad =>
                 bad := bad + 1
                 if firstBad == "" then
                   firstBad := s!"{ent.fileName}/{m.name}"
       if bad == 0 && ok > 0 then
-        IO.println s!"PASS ({ok} modules checked, {outFrag} outside the v1 fragment)"
+        IO.println s!"PASS ({ok} theorem-checked, {optRw} behind the optimizer, {outFrag} outside the fragment)"
         passed := passed + 1
       else
-        IO.println s!"FAIL: {bad} modules failed (first: {firstBad}); ok={ok} outFrag={outFrag}"
+        IO.println s!"FAIL: {bad} modules failed (first: {firstBad}); ok={ok} optRw={optRw} outFrag={outFrag}"
         failed := failed + 1
     else
       IO.println "SKIP (corpus not present)"
