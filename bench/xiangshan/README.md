@@ -429,6 +429,40 @@ work list, classified:
   The CI corpus is now clean in BOTH modes: 35/35 leaf and 17/17
   hierarchical, RT✗ 0 / JIT✗ 0.
 
+* Full-corpus HIERARCHICAL verification: after the leaf sweep went clean,
+  the hier mode surfaced its own tail — all fixed except one:
+  - The rt closure was incomplete for >512 KB children (the IssueQueue
+    family's Entries* modules): the size cap was a CSim-emitter OOM
+    guard, wrongly applied to Verilog re-emission.  The full corpus now
+    re-emits at full size (2,047/2,048).
+  - Derived clocks (`clock_falling = ~clock`, JTAG's negedge domain) were
+    String-typed and invisible to FIVE liveness/DCE layers; the reset
+    fix had covered four.  All now seed clocks — and the reachability
+    fuel accounts for the extra push (missing that pruned live registers
+    corpus-wide, caught by the sweep before commit).
+  - Clock detection broadened to any input ending clk/clock
+    (`io_mbistCgCtl_rclk` drove SRAMTemplate's array as random data).
+  - The X/Z filter now catches CAPITAL X/Z (iverilog prints capitals for
+    partially-unknown nibbles; Directory_3's bore_ack slipped through as
+    a spurious mismatch).
+  - Reduction-XOR widths resolve through the module ENVIRONMENT
+    (ICacheMissUnit's `^{tag, wire_a, …}` parity has no static width),
+    the annotator walks every statement form (Directory's ECC syndromes
+    live in case arms), and `declareOrphanRefs` no longer papers over the
+    fail-loud sentinel by driving it 0.
+  - Wide ARITHMETIC shift right had no wide arm at all — the scalar
+    emitter cast the operand array to `int64_t` (a pointer) and shifted
+    that (SRT16Divint's remainder alignment).  Sign-extended word-window
+    loops added.
+
+  Final: leaf **1,237 executed, RT✗ 0 / JIT✗ 0**; hier **509 executed,
+  RT✗ 1 / JIT✗ 0**.  The one: RenameTable_3, iverilog's own vvp 512-flag
+  codegen limit on our fused register muxes — the documented Phase-3
+  emitter-architecture item, not a correctness bug (CSim and the IR
+  agree; iverilog cannot compile the shape).  Every other failure in
+  both modes is `iverilog(orig) compile`: Icarus rejecting XiangShan's
+  ORIGINAL source, where no golden can exist.
+
 * Full-corpus verification (DefaultConfig, all 2,026 files): the trimmed
   corpora had gone clean, so the entire build was swept as the real
   "no known issues" test — and it surfaced ELEVEN more defects the small

@@ -71,6 +71,53 @@ def LowerEnv.isReg (env : LowerEnv) (name : String) : Bool :=
 def LowerEnv.isSignedRef (env : LowerEnv) (name : String) : Bool :=
   env.signedNames.contains name
 
+/-- `staticExprWidth` with an ENVIRONMENT: identifiers resolve through the
+    module's declarations.  `^{mshrInfo_blkPAddr[41:6], wire_a, wire_b, …}`
+    (ICacheMissUnit's meta-entry parity) has no static width — every bare
+    ident defeated `expandReductXor`, the sentinel wire was then declared
+    by `declareOrphanRefs` and const-folded, and the parity silently
+    became 0.  With the environment the width is exact. -/
+partial def envExprWidth (env : LowerEnv) : SVExpr → Option Nat
+  | .ident n =>
+    if env.portWidths.contains n || env.wireWidths.contains n then
+      some (match env.getWidth n with
+        | some (hi, lo) => hi - lo + 1
+        | none => 1)
+    else none
+  | .slice _ hi lo => some (hi - lo + 1)
+  | .sizeCast w _ => some w
+  | .index _ _ => some 1
+  | .partSelectPlus _ _ (.lit (.decimal none w)) => some w
+  | .lit (.decimal (some w) _) => some w
+  | .lit (.hex (some w) _) => some w
+  | .lit (.binary (some w) _) => some w
+  | .concat args => args.foldl (fun acc a =>
+      match acc, envExprWidth env a with
+      | some x, some y => some (x + y)
+      | _, _ => none) (some 0)
+  | .ternary _ t e =>
+    match envExprWidth env t, envExprWidth env e with
+    | some wt, some we => some (max wt we)
+    | some wt, none => some wt
+    | none, some we => some we
+    | none, none => none
+  | .repeat_ (.lit (.decimal _ n)) v => (envExprWidth env v).map (n * ·)
+  | .unary .bitNot a => envExprWidth env a
+  | .unary .neg a => envExprWidth env a
+  | .unary .signed a => envExprWidth env a
+  | .unary .reductAnd _ | .unary .reductOr _ | .unary .reductXor _
+  | .unary .logNot _ => some 1
+  | .binary .eq _ _ | .binary .neq _ _ | .binary .lt _ _ | .binary .le _ _
+  | .binary .gt _ _ | .binary .ge _ _
+  | .binary .logAnd _ _ | .binary .logOr _ _ => some 1
+  | .binary .bitAnd a b | .binary .bitOr a b | .binary .bitXor a b =>
+    match envExprWidth env a, envExprWidth env b with
+    | some wa, some wb => some (max wa wb)
+    | some wa, none => some wa
+    | none, some wb => some wb
+    | none, none => none
+  | _ => none
+
 -- ============================================================================
 -- Expression lowering
 -- ============================================================================
@@ -207,6 +254,56 @@ private def staticExprWidth : SVExpr → Option Nat
     | none, some wb => some wb
     | none, none => none
   | _ => none
+
+/-- Annotate every `^expr` whose width is NOT statically visible with a
+    size cast resolved from the environment, so `expandReductXor` can
+    expand it instead of bailing to its sentinel. -/
+partial def annotateRXExpr (env : LowerEnv) : SVExpr → SVExpr
+  | .unary .reductXor a =>
+    let a' := annotateRXExpr env a
+    if (staticExprWidth a').isSome then .unary .reductXor a'
+    else match envExprWidth env a' with
+      | some w => .unary .reductXor (.sizeCast w a')
+      | none => .unary .reductXor a'
+  | .unary op a => .unary op (annotateRXExpr env a)
+  | .binary op a b => .binary op (annotateRXExpr env a) (annotateRXExpr env b)
+  | .ternary c t e =>
+    .ternary (annotateRXExpr env c) (annotateRXExpr env t) (annotateRXExpr env e)
+  | .index a i => .index (annotateRXExpr env a) (annotateRXExpr env i)
+  | .slice e hi lo => .slice (annotateRXExpr env e) hi lo
+  | .partSelectPlus e b w =>
+    .partSelectPlus (annotateRXExpr env e) (annotateRXExpr env b) (annotateRXExpr env w)
+  | .concat args => .concat (args.map (annotateRXExpr env))
+  | .repeat_ c v => .repeat_ c (annotateRXExpr env v)
+  | .sizeCast w a => .sizeCast w (annotateRXExpr env a)
+  | e => e
+
+partial def annotateRXStmt (env : LowerEnv) : SVStmt → SVStmt
+  | .blockAssign l r => .blockAssign l (annotateRXExpr env r)
+  | .nonblockAssign l r => .nonblockAssign l (annotateRXExpr env r)
+  | .ifElse c t e =>
+    .ifElse (annotateRXExpr env c) (t.map (annotateRXStmt env)) (e.map (annotateRXStmt env))
+  -- Every statement form that can hold an expression: Directory's ECC
+  -- syndrome parities sat inside a case arm and stayed unannotated.
+  | .caseStmt e arms dflt =>
+    .caseStmt (annotateRXExpr env e)
+      (arms.map fun (gs, ss) => (gs.map (annotateRXExpr env), ss.map (annotateRXStmt env)))
+      (dflt.map (·.map (annotateRXStmt env)))
+  | .forLoop i c st body =>
+    .forLoop (annotateRXStmt env i) (annotateRXExpr env c)
+      (annotateRXStmt env st) (body.map (annotateRXStmt env))
+  | .assertStmt c => .assertStmt (annotateRXExpr env c)
+
+partial def annotateRXItem (env : LowerEnv) : SVModuleItem → SVModuleItem
+  | .contAssign l r => .contAssign l (annotateRXExpr env r)
+  | .alwaysBlock trig stmts => .alwaysBlock trig (stmts.map (annotateRXStmt env))
+  | .wireDecl n w (some e) => .wireDecl n w (some (annotateRXExpr env e))
+  | .packedArrayDecl n d (some e) => .packedArrayDecl n d (some (annotateRXExpr env e))
+  | .generateBlock c b eb =>
+    .generateBlock (annotateRXExpr env c)
+      (b.map (annotateRXItem env)) (eb.map (annotateRXItem env))
+  | it => it
+
 
 /-- Expand `^expr` (reduction XOR / parity) into an explicit bit fold when
     the operand width is statically known — firtool's uses are all slices
@@ -1815,6 +1912,10 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
         regNames := env.regNames.insert name true }
     | _ => pure ()
 
+  -- With the environment complete, resolve reduction-XOR widths that are
+  -- invisible statically (bare idents inside the parity concat).
+  let svMod := { svMod with items := svMod.items.map (annotateRXItem env) }
+
   -- Build ports
   let inputs := svMod.ports.filter (·.dir == .input) |>.map fun p =>
     { name := p.name, ty := widthToHWType p.width : Port }
@@ -2511,8 +2612,12 @@ def reachabilityDCE (design : Design) : Design :=
       -- elaboration ("Unable to bind wire/reg/memory").
       for s in m.body do
         match s with
-        | .register output _ (rstName, _) _ _ =>
-          frontier := frontier ++ [output, rstName]
+        | .register output clkName (rstName, _) _ _ =>
+          -- The CLOCK is String-typed like the reset: a derived clock
+          -- (`clock_falling = ~clock`, JTAG's negedge domain) must seed
+          -- reachability or its driving assign is pruned, leaving
+          -- `always_ff @(posedge clock_falling)` unbound.
+          frontier := frontier ++ [output, rstName, clkName]
         | _ => pure ()
       for s in m.body do
         match s with
@@ -2618,7 +2723,12 @@ def declareOrphanRefs (design : Design) : Design :=
           | _ => pure ()
         return d
       let orphans := referenced.toList.filterMap fun (n, _) =>
-        if declared.contains n then none else some n
+        -- Never paper over a fail-loud sentinel: declaring it and driving
+        -- it 0 turned "reduction over unknown width" from a loud
+        -- elaboration error into a silent constant (ICacheMissUnit's
+        -- meta-entry parity read 0 for every entry).
+        if declared.contains n || n.startsWith "__reduction_xor" then none
+        else some n
       if orphans.isEmpty then m
       else
         { m with

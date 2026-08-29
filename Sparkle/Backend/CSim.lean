@@ -309,6 +309,29 @@ private def wideCmpExpr (strict : Bool) (a b : String) (nWords : Nat) : String :
     base
   "(" ++ expr ++ ")"
 
+/-- Emit the lines of a wide ARITHMETIC shift right into `dst`:
+    a sign-extended copy of the source feeds a word-window loop, so words
+    beyond the top read the sign fill.  Wide `.op .asr` previously had NO
+    wide arm at all — it fell through to the scalar emitter, which cast
+    the operand array to `int64_t` (a pointer) and shifted THAT
+    (SRT16Divint's remainder alignment). -/
+private def wideAsrInto (dst aS bS : String) (nWords srcWords srcW : Nat) : List String :=
+  let topBit := (srcW - 1) % 32
+  [ s!"        \{ uint32_t {dst}_sf = (({aS}[{srcWords - 1}] >> {topBit}) & 1u) ? 0xFFFFFFFFu : 0u;"
+  , s!"          uint32_t {dst}_ext[{srcWords}];"
+  , s!"          for (unsigned {dst}_i = 0; {dst}_i < {srcWords}u; {dst}_i++) {dst}_ext[{dst}_i] = {aS}[{dst}_i];"
+  ] ++
+  (if topBit < 31 then
+    [ s!"          if ({dst}_sf) {dst}_ext[{srcWords - 1}] |= ~((1u << {topBit + 1}) - 1u);" ]
+   else []) ++
+  [ s!"          unsigned {dst}_sa = (unsigned)({bS}); unsigned {dst}_k = {dst}_sa >> 5, {dst}_r = {dst}_sa & 31;"
+  , s!"          for (unsigned {dst}_j = 0; {dst}_j < {nWords}u; {dst}_j++) \{"
+  , s!"            uint32_t {dst}_lo = ({dst}_j + {dst}_k < {srcWords}u) ? {dst}_ext[{dst}_j + {dst}_k] : {dst}_sf;"
+  , s!"            uint32_t {dst}_hi = ({dst}_j + {dst}_k + 1 < {srcWords}u) ? {dst}_ext[{dst}_j + {dst}_k + 1] : {dst}_sf;"
+  , s!"            {dst}[{dst}_j] = {dst}_r ? (({dst}_lo >> {dst}_r) | ({dst}_hi << (32 - {dst}_r))) : {dst}_lo;"
+  , s!"          }"
+  , s!"        }" ]
+
 /-- Same nested-ternary compare, but over caller-supplied per-word slot
     expressions, so a NARROW operand can present zero-extended words
     instead of being subscripted. -/
@@ -990,6 +1013,15 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           let tmp := s!"__{label}_{sn}"
           (da ++ db ++ (s!"        uint32_t {tmp}[{nWords}];"
             :: wideAddSubInto false tmp sa sb nWords), tmp)
+        | .op .asr [a, b] =>
+          let (da, aS) := matWide s!"{label}s" a
+          let tmp := s!"__{label}_{sn}"
+          let srcW := inferExprWidth typeMap a
+          let bS :=
+            if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+            else emitExpr typeMap b
+          (da ++ (s!"        uint32_t {tmp}[{nWords}];"
+            :: wideAsrInto tmp aS bS nWords (wordsOf srcW) srcW), tmp)
         | .concat cargs =>
           -- Wide concat: arguments that are themselves wide OPS have no
           -- inline rendering — materialise them first (FMA nests a wide
@@ -1273,6 +1305,17 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           , tickBody := []
           , resetBody := []
           , evalTickLocals := [] }
+      | .op .asr [a, b] =>
+        let (aDecls, aS) := matWide "sh" a
+        let srcW := inferExprWidth typeMap a
+        let bS :=
+          if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+          else emitExpr typeMap b
+        { declarations := []
+        , evalBody := aDecls ++ wideAsrInto sn aS bS nWords (wordsOf srcW) srcW
+        , tickBody := []
+        , resetBody := []
+        , evalTickLocals := [] }
       | .ref _ =>
         -- Wide identifier copy: memcpy from src array to dest.
         let expr := emitExpr typeMap rhs

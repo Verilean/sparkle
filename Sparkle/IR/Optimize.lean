@@ -271,13 +271,23 @@ def countAllUses (stmts : List Stmt) : HashMap String Nat :=
   stmts.foldl (fun counts stmt =>
     match stmt with
     | .assign _ rhs => countExprUses rhs counts
-    | .register _ _ (rstName, _) input _ =>
-      -- The reset lives in a String field, not an Expr — count it as a
-      -- use so a synthesized reset wire's driving assign (`_no_rst = 0`,
-      -- `_rst_<sig>_inv = ~sig`) is never dropped as dead.
-      countExprUses input (counts.insert rstName ((counts.getD rstName 0) + 1))
-    | .memory _ _ _ _ wa wd we ra _ _ .. =>
-      [wa, wd, we, ra].foldl (fun acc e => countExprUses e acc) counts
+    | .register _ clkName (rstName, _) input _ =>
+      -- The reset AND the clock live in String fields, not Exprs — count
+      -- both as uses.  A synthesized reset wire (`_no_rst = 0`) was
+      -- already guarded; a DERIVED clock (`clock_falling = ~clock`,
+      -- JtagTapController's negedge domain) was still dropped as dead,
+      -- leaving `always_ff @(posedge clock_falling)` with no driver.
+      let counts := counts.insert rstName ((counts.getD rstName 0) + 1)
+      let counts := counts.insert clkName ((counts.getD clkName 0) + 1)
+      countExprUses input counts
+    | .memory _ _ _ clkName wa wd we ra _ _ ew er =>
+      -- The memory's clock is a String field too, and the EXTRA
+      -- read/write ports' expressions were not counted at all — a wire
+      -- feeding only a second port looked dead.
+      let counts := counts.insert clkName ((counts.getD clkName 0) + 1)
+      let base := [wa, wd, we, ra]
+        ++ ew.flatMap (fun (a, d, e) => [a, d, e]) ++ er.map (·.1)
+      base.foldl (fun acc e => countExprUses e acc) counts
     | .inst _ _ conns =>
       conns.foldl (fun acc (_, e) => countExprUses e acc) counts
   ) {}
@@ -370,7 +380,11 @@ def inlineSingleUseWires (m : Module) (body : List Stmt)
   -- `_rst_<sig>_inv = ~sig`) and the emitted Verilog fails elaboration.
   let resetNames := body.foldl (fun s stmt =>
     match stmt with
-    | .register _ _ (rstName, _) _ _ => s.insert rstName true
+    | .register _ clkName (rstName, _) _ _ =>
+      -- Clocks are String-typed like resets: a derived clock's driving
+      -- assign must survive inlining too (see countAllUses).
+      (s.insert rstName true).insert clkName true
+    | .memory _ _ _ clkName _ _ _ _ _ _ _ _ => s.insert clkName true
     | _ => s
   ) ({} : HashMap String Bool)
   let memoryReadData := body.foldl (fun s stmt =>
@@ -975,6 +989,15 @@ def optimizeModule (m : Module)
       match stmt with
       | .register out _ (rstName, _) _ _ => s.insert out rstName
       | _ => s) {}
+    -- Clocks are String-typed exactly like resets, so a DERIVED clock
+    -- (`clock_falling = ~clock`, JtagTapController's negedge domain) was
+    -- invisible to this walk and its driving assign was pruned — the
+    -- emitted `always_ff @(posedge clock_falling)` referenced an
+    -- undeclared wire.
+    let regClocks : HashMap String String := finalBody.foldl (fun s stmt =>
+      match stmt with
+      | .register out clkName _ _ _ => s.insert out clkName
+      | _ => s) {}
     let seeds : List String :=
       m.outputs.map (·.name) ++
       -- Wires the caller has declared observable are roots too.  `#sim`
@@ -1002,7 +1025,8 @@ def optimizeModule (m : Module)
           let next :=
             (assignDefs.get? w |>.map collectExprRefs |>.getD []) ++
             (regInputs.get? w |>.map collectExprRefs |>.getD []) ++
-            (regResets.get? w |>.map ([·]) |>.getD [])
+            (regResets.get? w |>.map ([·]) |>.getD []) ++
+            (regClocks.get? w |>.map ([·]) |>.getD [])
           grow (next ++ rest) live fuel
     -- Fuel: every pop is either a revisit (pushed once per reference) or
     -- a fresh wire (pushes its def's refs).  Bound fuel by seeds + the
@@ -1016,7 +1040,12 @@ def optimizeModule (m : Module)
     let totalRefs := finalBody.foldl (fun acc stmt =>
       match stmt with
       | .assign _ rhs => acc + (collectExprRefs rhs).length
-      | .register _ _ _ input _ => acc + (collectExprRefs input).length + 1
+      -- +2: each register can push its reset AND its clock name.
+      -- Adding regClocks without raising this exhausted the fuel and the
+      -- truncated liveSet pruned LIVE registers again (DelayReg's whole
+      -- r_3_* pipeline stage) — the exact failure mode this comment
+      -- already warns about.
+      | .register _ _ _ input _ => acc + (collectExprRefs input).length + 2
       | _ => acc) 0
     let liveSet := grow seeds {} (seeds.length + totalRefs + 64)
     let reachableBody := finalBody.filter fun stmt =>

@@ -75,7 +75,7 @@ def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
   for c in [0:cycles] do
     let mut row := []
     for p in ins do
-      if p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk" || p.name.endsWith "_clock" then
+      if p.name == "clock" || p.name == "clk" || p.name.endsWith "clk" || p.name.endsWith "clock" then
         pure ()
       else if p.name == "reset" || p.name == "rst" then
         row := row ++ [(p.name, if c < 2 then (1 : UInt64) else 0)]
@@ -332,7 +332,12 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
     -- the two sims simulated different machines.  All detected clocks are
     -- driven TOGETHER (same phase), which is the one multi-clock shape
     -- CSim's tick model can represent faithfully.
-    p.isIn && (p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk" || p.name.endsWith "_clock")
+    -- Suffix match without the underscore: SRAMTemplate's array clock is
+    -- `io_mbistCgCtl_rclk`, JTAG uses `_clock` — any input ENDING in
+    -- clk/clock is a clock.  All detected clocks are driven together
+    -- (same phase), the one multi-clock shape CSim's single-domain tick
+    -- represents faithfully.
+    p.isIn && (p.name == "clock" || p.name == "clk" || p.name.endsWith "clk" || p.name.endsWith "clock")
   let hasClock := !clockPorts.isEmpty
   -- Multiple clock PORTS (firtool SRAM macros: R0_clk + W0_clk) are
   -- driven with the SAME waveform — in XiangShan they are one clock
@@ -436,7 +441,12 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
         | none => false
       else false)
   let hasXZ := fun (l : String) =>
-    (l.splitOn "x").length > 1 || (l.splitOn "z").length > 1
+    -- Capital X/Z too: iverilog prints lowercase for a fully-unknown
+    -- nibble but CAPITAL for a partially-unknown one (Directory_3's
+    -- bore_ack showed as `XX` and slipped past the filter, turning an
+    -- undefined golden into a spurious mismatch).
+    (l.splitOn "x").length > 1 || (l.splitOn "z").length > 1 ||
+    (l.splitOn "X").length > 1 || (l.splitOn "Z").length > 1
   let g0 := keep gold
   let r0 := keep rt
   let j0 := keep jit
