@@ -170,7 +170,7 @@ private def indexToConst : SVExpr → Option Nat
   | .lit (.binary _ n) => some n
   | _ => none
 
-private def isArrayName (name : String) : Bool :=
+def isArrayName (name : String) : Bool :=
   -- Heuristic: names matching common array patterns
   -- Extended for LiteX (regs, sram, rom, storage) + PicoRV32 (cpuregs, memory)
   name == "cpuregs" || name == "memory" || name == "mem" ||
@@ -939,6 +939,18 @@ partial def collectArrayWrites (arrName : String) (stmts : List SVStmt)
       let defWrites := match default_ with | some body => collectArrayWrites arrName body | none => []
       armWrites ++ defWrites
     | _ => []
+
+/-- All nonblocking assigns to plain idents, RAW (un-lowered) RHS,
+    recursing through if/case — for recognising sync-read targets. -/
+partial def collectNBRaw : List SVStmt → List (String × SVExpr)
+  | [] => []
+  | .nonblockAssign (.ident n) rhs :: rest => (n, rhs) :: collectNBRaw rest
+  | .ifElse _ t e :: rest => collectNBRaw t ++ collectNBRaw e ++ collectNBRaw rest
+  | .caseStmt _ arms default_ :: rest =>
+    arms.flatMap (fun (_, b) => collectNBRaw b)
+      ++ (match default_ with | some b => collectNBRaw b | none => [])
+      ++ collectNBRaw rest
+  | _ :: rest => collectNBRaw rest
 
 /-- Literal-only constant evaluator (for part-select bases/widths in
     memory-write patterns; full `evalConstExpr` is defined later). -/
@@ -2111,8 +2123,25 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           wires := wires.push { name := sigName, ty := .bitVector 32 }; wireSet := wireSet.insert sigName true  -- default 32-bit
 
       -- Collect all register names (exclude array regs handled by Stmt.memory)
+      -- A sync-read target (`rd <= mem[ra]` with mem an array reg) is a
+      -- Stmt.memory read port, not a scalar register: lowering it as a
+      -- register made a garbage bit-select of the ARRAY the register
+      -- input (`(Mem >> ra) & 1`) plus a duplicate driver on rd — found
+      -- by the roundtrip-proof probe (sync-read memories broke on
+      -- self-reparse).  Exclude a name only when ALL its nonblocking
+      -- assigns in this block are array sync reads.
+      let nbRaw := collectNBRaw stmts
+      let syncReadTargets := (stmts.filterMap fun st => match st with
+        | .nonblockAssign (.ident rd) (.index (.ident arrN) _) =>
+          if arrayRegNames.any (· == arrN) then some rd else none
+        | _ => none).eraseDups.filter fun rd =>
+          nbRaw.all fun (t, rhs) =>
+            t != rd ||
+              (match rhs with
+               | .index (.ident arrN) _ => arrayRegNames.any (· == arrN)
+               | _ => false)
       let regNames := (collectAllRegNames stmts).eraseDups.filter
-        fun n => !arrayRegNames.any (· == n)
+        fun n => !arrayRegNames.any (· == n) && !syncReadTargets.any (· == n)
       -- Collect the guarded assigns ONCE for the whole block:
       -- `stmtsToMuxExpr` re-ran `collectGuardedNB` (a full lowering of
       -- every RHS in the block) once PER REGISTER — O(regs × block), the
@@ -2264,9 +2293,15 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
           for s in innerStmts do
             match s with
             | .nonblockAssign (.ident rdName) (.index (.ident arrN) idx) =>
-              if arrN == name && !claimed then
-                readDataName := rdName; readAddr := lowerExpr idx; comboRead := false
-                claimed := true
+              -- Sync reads: first claims the dedicated fields; the rest
+              -- become extra read ports, symmetric with the combo scan
+              -- (they used to be silently dropped).
+              if arrN == name then
+                if !claimed then
+                  readDataName := rdName; readAddr := lowerExpr idx
+                  comboRead := false; claimed := true
+                else
+                  extraReads := extraReads ++ [(lowerExpr idx, rdName)]
             | _ => pure ()
         | _ => pure ()
       body := body.push (.memory name addrWidth dataWidth memClock

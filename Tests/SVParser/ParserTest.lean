@@ -2598,5 +2598,33 @@ endmodule
         failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 66 (certified-roundtrip): a SYNC-READ memory survives
+  -- re-parsing Sparkle's own emission as exactly the original stmt.
+  -- `rdata <= Mem[ra]` used to be claimed as the memory's sync read
+  -- AND lowered as a scalar register whose input was a garbage
+  -- bit-select of the ARRAY (`(Mem >> ra) & 1`) — a duplicate driver.
+  IO.print "  Test 66: sync-read memory survives self-reparse... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "syncrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩, ⟨"wd", .bitVector 8⟩,
+                 ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩]
+      outputs := [⟨"rdata", .bitVector 8⟩]
+      wires := [⟨"rdata", .bitVector 8⟩]
+      body := [
+        .memory "Mem" 2 8 "clock" (.ref "wa") (.ref "wd") (.ref "wen")
+          (.ref "ra") "rdata" false [] []]
+      assertions := [] }
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let bodies := d.modules.foldl (fun acc lm => acc ++ lm.body) []
+      if bodies == m.body then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: lowered body ≠ original ({bodies.length} stmts)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
