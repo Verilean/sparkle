@@ -1148,15 +1148,165 @@ private def chkStmtTwin : Bool := Id.run do
    satisfied for rst = 0 at ANY width).  The width worry only applies to
    semantics that derive reset behavior from the mux alone. -/
 
+/-- One port expression through emit∘lower. -/
+def lowerPort (wof : String → Option Nat) (e : Sparkle.IR.AST.Expr) :
+    Option Sparkle.IR.AST.Expr :=
+  (Tools.SVParser.EmitAst.emitAstExpr wof e).bind lowerT
+
+/-- Write ports through emit∘lower, in order (structural recursion so
+    proofs can rewrite it). -/
+def lowerWritePorts (wof : String → Option Nat) :
+    List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr) →
+    Option (List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
+      × Sparkle.IR.AST.Expr))
+  | [] => some []
+  | (a, d, en) :: rest => do
+    let a' ← lowerPort wof a
+    let d' ← lowerPort wof d
+    let en' ← lowerPort wof en
+    some ((a', d', en') :: (← lowerWritePorts wof rest))
+
+/-- Read ports through emit∘lower.  A COMBO read whose target trips the
+    `isArrayName` heuristic is dropped by the shipping scan
+    (`exprToName` returns none) — outside the twin. -/
+def lowerReadPorts (wof : String → Option Nat) (cr : Bool) :
+    List (Sparkle.IR.AST.Expr × String) →
+    Option (List (Sparkle.IR.AST.Expr × String))
+  | [] => some []
+  | (a, r) :: rest =>
+    if cr && Tools.SVParser.Lower.isArrayName
+        (Sparkle.Backend.Verilog.sanitizeName r) then none
+    else do
+      let a' ← lowerPort wof a
+      some ((a', Sparkle.Backend.Verilog.sanitizeName r)
+        :: (← lowerReadPorts wof cr rest))
+
+/-- The shipping claim sentinel, transparently: `e == Expr.const 0 1`
+    (the derived `Expr.beq` is well-founded recursion and opaque to
+    kernel reduction, so proofs need this match form). -/
+def isConst01 : Sparkle.IR.AST.Expr → Bool
+  | .const v w => v == 0 && w == 1
+  | _ => false
+
+/-- The shipping claim fold: a port claims the dedicated fields while
+    the accumulated enable is still the initial `.const 0 1`; the rest
+    become extra ports in order. -/
+def claimWrites (aw dw' : Nat)
+    (ports : List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
+      × Sparkle.IR.AST.Expr)) :
+    (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr)
+      × List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
+        × Sparkle.IR.AST.Expr) :=
+  ports.foldl (fun acc p =>
+    if isConst01 acc.1.2.2 then (p, acc.2)
+    else (acc.1, acc.2 ++ [p]))
+    ((.const 0 aw, .const 0 dw', .const 0 1), [])
+
+/-- Image of a `.memory` statement through emit∘lower: the shipping
+    reconstruction result on the emitted item group (array regDecl +
+    read assigns/latches + guarded-write always block), as a twin. -/
+def memImage (wof : String → Option Nat) :
+    Sparkle.IR.AST.Stmt → Option Sparkle.IR.AST.Stmt
+  | .memory name aw dw clk wa wd wen ra rd cr ew er => do
+    -- the emitted decl is `logic [dw-1:0] M [0:2^aw-1]` for dw > 1 and
+    -- `logic M [0:2^aw-1]` otherwise; `widthToBits` reads dw back with
+    -- floor 1, and `log2 (2^aw)` reads aw back exactly
+    let dw' := if dw ≤ 1 then 1 else dw
+    let writesI ← lowerWritePorts wof ((wa, wd, wen) :: ew)
+    let (w0, extraW) := claimWrites aw dw' writesI
+    let readsI ← lowerReadPorts wof cr ((ra, rd) :: er)
+    match readsI with
+    | [] => none
+    | (ra0, rd0) :: extraR =>
+      some (.memory (Sparkle.Backend.Verilog.sanitizeName name) aw dw'
+        (Sparkle.Backend.Verilog.sanitizeName clk)
+        w0.1 w0.2.1 w0.2.2 ra0 rd0 cr extraW extraR)
+  | _ => none
+
 open Sparkle.IR.Semantics in
 /-- The statement-level roundtrip image: emit, then lower, at the AST
-    level. -/
+    level.  Memories are multi-item groups reconstructed by a global
+    scan, so their image is the dedicated `memImage` twin. -/
 def stmtImage (wof : String → Option Nat)
     (wires : List Sparkle.IR.AST.Port) (st : Sparkle.IR.AST.Stmt) :
-    Option (List Sparkle.IR.AST.Stmt) := do
-  let items ← Tools.SVParser.EmitAst.emitAstStmt wof wires st
-  let ls ← items.mapM lowerTItem
-  some ls.flatten
+    Option (List Sparkle.IR.AST.Stmt) :=
+  match st with
+  | .memory n aw dw clk wa wd wen ra rd cr ew er => do
+    some [← memImage wof (.memory n aw dw clk wa wd wen ra rd cr ew er)]
+  | st => do
+    let items ← Tools.SVParser.EmitAst.emitAstStmt wof wires st
+    let ls ← items.mapM lowerTItem
+    some ls.flatten
+
+-- Memory twin ties against the SHIPPING pipeline on probe modules:
+-- emit → parse → lower must equal the memImage stmt exactly.
+private def chkMemTwin (m : Sparkle.IR.AST.Module) : Bool :=
+  let shipped :=
+    match Tools.SVParser.Lower.parseAndLowerHierarchical
+        (Sparkle.Backend.Verilog.emitModule m) with
+    | .ok d => d.modules.foldl
+        (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
+    | .error _ => []
+  let wof : String → Option Nat := fun n =>
+    (m.wires.find? (fun p =>
+      Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
+      match p.ty with
+      | .bitVector w => some w
+      | .bit => some 1
+      | _ => none
+  match m.body with
+  | [st] =>
+    match stmtImage wof m.wires st with
+    | some img => img == shipped
+    | none => false
+  | _ => false
+
+private def probeMemCombo : Sparkle.IR.AST.Module := {
+  name := "pmemc"
+  inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩, ⟨"wd", .bitVector 8⟩,
+             ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩]
+  outputs := [⟨"rdata", .bitVector 8⟩]
+  wires := [⟨"rdata", .bitVector 8⟩]
+  body := [.memory "Mem" 2 8 "clock" (.ref "wa") (.ref "wd") (.ref "wen")
+    (.ref "ra") "rdata" true [] []]
+  assertions := [] }
+
+private def probeMemMulti : Sparkle.IR.AST.Module := {
+  name := "pmemm"
+  inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩, ⟨"wd", .bitVector 8⟩,
+             ⟨"wen", .bit⟩, ⟨"wa2", .bitVector 2⟩, ⟨"wd2", .bitVector 8⟩,
+             ⟨"wen2", .bit⟩, ⟨"ra", .bitVector 2⟩, ⟨"ra2", .bitVector 2⟩]
+  outputs := [⟨"rdata", .bitVector 8⟩, ⟨"rdata2", .bitVector 8⟩]
+  wires := [⟨"rdata", .bitVector 8⟩, ⟨"rdata2", .bitVector 8⟩]
+  body := [.memory "Mem" 2 8 "clock" (.ref "wa") (.ref "wd") (.ref "wen")
+    (.ref "ra") "rdata" true
+    [(.ref "wa2", .ref "wd2", .ref "wen2")] [(.ref "ra2", "rdata2")]]
+  assertions := [] }
+
+private def probeMemSync : Sparkle.IR.AST.Module := {
+  name := "pmems"
+  inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩, ⟨"wd", .bitVector 8⟩,
+             ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩]
+  outputs := [⟨"rdata", .bitVector 8⟩]
+  wires := [⟨"rdata", .bitVector 8⟩]
+  body := [.memory "Mem" 2 8 "clock" (.ref "wa") (.ref "wd") (.ref "wen")
+    (.ref "ra") "rdata" false [] []]
+  assertions := [] }
+
+private def probeMemSync2 : Sparkle.IR.AST.Module := {
+  name := "pmems2"
+  inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩, ⟨"wd", .bitVector 8⟩,
+             ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩, ⟨"ra2", .bitVector 2⟩]
+  outputs := [⟨"rdata", .bitVector 8⟩, ⟨"rdata2", .bitVector 8⟩]
+  wires := [⟨"rdata", .bitVector 8⟩, ⟨"rdata2", .bitVector 8⟩]
+  body := [.memory "Mem" 2 8 "clock" (.ref "wa") (.ref "wd") (.ref "wen")
+    (.ref "ra") "rdata" false [] [(.ref "ra2", "rdata2")]]
+  assertions := [] }
+
+#guard chkMemTwin probeMemCombo
+#guard chkMemTwin probeMemMulti
+#guard chkMemTwin probeMemSync
+#guard chkMemTwin probeMemSync2
 
 def bodyImage (wof : String → Option Nat)
     (wires : List Sparkle.IR.AST.Port) :
@@ -1193,10 +1343,35 @@ theorem encodeInit_image_nonneg (v : Int) (w : Nat) (h0 : 0 ≤ v) :
 
 
 open Sparkle.IR.Semantics in
-/-- The module-body fragment: assigns and registers whose expressions
-    are (env-uniformly) in the expression fragment, with sanitize-fixed
-    names and width agreement between the declared reset width and the
-    semantic width. -/
+/-- Single-port memory image, in closed form. -/
+theorem memImage_single {wof : String → Option Nat}
+    {name clk rd : String} {aw dw : Nat} {cr : Bool}
+    {wa wd wen ra wa' wd' wen' ra' : Sparkle.IR.AST.Expr}
+    (hwa : (Tools.SVParser.EmitAst.emitAstExpr wof wa).bind lowerT = some wa')
+    (hwd : (Tools.SVParser.EmitAst.emitAstExpr wof wd).bind lowerT = some wd')
+    (hwen : (Tools.SVParser.EmitAst.emitAstExpr wof wen).bind lowerT
+      = some wen')
+    (hra : (Tools.SVParser.EmitAst.emitAstExpr wof ra).bind lowerT = some ra')
+    (hna : Tools.SVParser.Lower.isArrayName
+      (Sparkle.Backend.Verilog.sanitizeName rd) = false)
+    (hdw : 0 < dw) :
+    memImage wof (.memory name aw dw clk wa wd wen ra rd cr [] []) =
+      some (.memory (Sparkle.Backend.Verilog.sanitizeName name) aw dw
+        (Sparkle.Backend.Verilog.sanitizeName clk)
+        wa' wd' wen' ra' (Sparkle.Backend.Verilog.sanitizeName rd)
+        cr [] []) := by
+  have hdw' : (if dw ≤ 1 then 1 else dw) = dw := by
+    by_cases h : dw ≤ 1
+    · simp [h]; omega
+    · simp [h]
+  simp [memImage, lowerWritePorts, lowerReadPorts, lowerPort,
+    hwa, hwd, hwen, hra, hna, claimWrites, isConst01, hdw']
+
+open Sparkle.IR.Semantics in
+/-- The module-body fragment: assigns, registers, and single-port
+    memories whose expressions are (env-uniformly) in the expression
+    fragment, with sanitize-fixed names and width agreement between the
+    declared reset width and the semantic width. -/
 inductive BFrag (wof : String → Option Nat) (we : WEnv)
     (wires : List Sparkle.IR.AST.Port) : List Sparkle.IR.AST.Stmt → Prop
   | nil : BFrag wof we wires []
@@ -1215,6 +1390,39 @@ inductive BFrag (wof : String → Option Nat) (we : WEnv)
       (hwrst : 0 < we rst)
       (hrest : BFrag wof we wires rest) :
       BFrag wof we wires (.register out clk (rst, kind) x init :: rest)
+  | mem {name : String} {aw dw : Nat} {clk : String}
+      {wa wd wen ra : Sparkle.IR.AST.Expr} {rd : String} {cr : Bool} {rest}
+      (hsn : Sparkle.Backend.Verilog.sanitizeName name = name)
+      (hsc : Sparkle.Backend.Verilog.sanitizeName clk = clk)
+      (hsr : Sparkle.Backend.Verilog.sanitizeName rd = rd)
+      (hna : Tools.SVParser.Lower.isArrayName rd = false)
+      (hwa : ∀ env, SFrag wof we env wa)
+      (hwd : ∀ env, SFrag wof we env wd)
+      (hwen : ∀ env, SFrag wof we env wen)
+      (hra : ∀ env, SFrag wof we env ra)
+      (hdw : 0 < dw)
+      (hrest : BFrag wof we wires rest) :
+      BFrag wof we wires
+        (.memory name aw dw clk wa wd wen ra rd cr [] [] :: rest)
+
+/-- Decompose the image of a cons body: a statement image followed by
+    the rest's image. -/
+theorem cons_image_shape {wof wires} {st : Sparkle.IR.AST.Stmt}
+    {rest body' : List Sparkle.IR.AST.Stmt}
+    (hI : bodyImage wof wires (st :: rest) = some body') :
+    ∃ img rest', stmtImage wof wires st = some img
+      ∧ bodyImage wof wires rest = some rest' ∧ body' = img ++ rest' := by
+  simp only [bodyImage, Option.bind_eq_bind] at hI
+  cases hS : stmtImage wof wires st with
+  | none => rw [hS] at hI; simp at hI
+  | some img =>
+    rw [hS] at hI
+    cases hR : bodyImage wof wires rest with
+    | none => rw [hR] at hI; simp at hI
+    | some rest' =>
+      rw [hR] at hI
+      simp only [Option.bind_some, Option.some_inj] at hI
+      exact ⟨img, rest', rfl, rfl, hI.symm⟩
 
 open Sparkle.IR.Semantics in
 /-- Combinational phase: the image body folds to the same environment. -/
@@ -1310,6 +1518,39 @@ theorem fold_eq {wof we wires} (mems : MEnv)
     intro env0
     simp only [List.cons_append, List.nil_append, evalAssigns]
     exact ih hRest env0
+  | mem hsn hsc hsr hna hwa hwd hwen hra hdw hrest ih =>
+    rename_i name aw dw clk wa wd wen ra rd cr rest
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨wa'', hwaB, _, _⟩ := roundtrip_sem (hwa (fun _ => 0))
+    obtain ⟨wd'', hwdB, _, _⟩ := roundtrip_sem (hwd (fun _ => 0))
+    obtain ⟨wen'', hwenB, _, _⟩ := roundtrip_sem (hwen (fun _ => 0))
+    obtain ⟨ra'', hraB, _, _⟩ := roundtrip_sem (hra (fun _ => 0))
+    have hImgEq : img
+        = [.memory name aw dw clk wa'' wd'' wen'' ra'' rd cr [] []] := by
+      simp only [stmtImage,
+        memImage_single hwaB hwdB hwenB hraB (by rw [hsr]; exact hna) hdw,
+        hsn, hsc, hsr, Option.bind_eq_bind, Option.bind_some] at hImg
+      exact (Option.some_inj.mp hImg).symm
+    subst hImgEq
+    have hraV : ∀ env, evalExpr we env ra'' = evalExpr we env ra := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hra env)
+      rw [hraB] at hb3
+      cases hb3
+      exact hv3
+    intro env0
+    simp only [List.cons_append, List.nil_append, evalAssigns]
+    cases cr with
+    | false =>
+      simp only [Bool.false_eq_true, if_false]
+      exact ih hRest env0
+    | true =>
+      simp only [if_true, comboReads, Option.bind_eq_bind, hraV env0]
+      cases evalExpr we env0 ra with
+      | none => rfl
+      | some av =>
+        simp only [Option.bind_some, comboReads, Option.bind_eq_bind]
+        exact ih hRest _
 
 open Sparkle.IR.Semantics in
 /-- Register phase: the image body computes the same next-state list. -/
@@ -1431,25 +1672,39 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
             (Tools.SVParser.EmitAst.encodeConst iv (we out))
               = encodeInit iv (we out) := rfl
         simp [hrz, ih hRest envF, hini]
-
-/-- Decompose the image of a cons body: a statement image followed by
-    the rest's image. -/
-theorem cons_image_shape {wof wires} {st : Sparkle.IR.AST.Stmt}
-    {rest body' : List Sparkle.IR.AST.Stmt}
-    (hI : bodyImage wof wires (st :: rest) = some body') :
-    ∃ img rest', stmtImage wof wires st = some img
-      ∧ bodyImage wof wires rest = some rest' ∧ body' = img ++ rest' := by
-  simp only [bodyImage, Option.bind_eq_bind] at hI
-  cases hS : stmtImage wof wires st with
-  | none => rw [hS] at hI; simp at hI
-  | some img =>
-    rw [hS] at hI
-    cases hR : bodyImage wof wires rest with
-    | none => rw [hR] at hI; simp at hI
-    | some rest' =>
-      rw [hR] at hI
-      simp only [Option.bind_some, Option.some_inj] at hI
-      exact ⟨img, rest', rfl, rfl, hI.symm⟩
+  | mem hsn hsc hsr hna hwa hwd hwen hra hdw hrest ih =>
+    rename_i name aw dw clk wa wd wen ra rd cr rest
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨wa'', hwaB, _, _⟩ := roundtrip_sem (hwa (fun _ => 0))
+    obtain ⟨wd'', hwdB, _, _⟩ := roundtrip_sem (hwd (fun _ => 0))
+    obtain ⟨wen'', hwenB, _, _⟩ := roundtrip_sem (hwen (fun _ => 0))
+    obtain ⟨ra'', hraB, _, _⟩ := roundtrip_sem (hra (fun _ => 0))
+    have hImgEq : img
+        = [.memory name aw dw clk wa'' wd'' wen'' ra'' rd cr [] []] := by
+      simp only [stmtImage,
+        memImage_single hwaB hwdB hwenB hraB (by rw [hsr]; exact hna) hdw,
+        hsn, hsc, hsr, Option.bind_eq_bind, Option.bind_some] at hImg
+      exact (Option.some_inj.mp hImg).symm
+    subst hImgEq
+    have hraV : ∀ env, evalExpr we env ra'' = evalExpr we env ra := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hra env)
+      rw [hraB] at hb3
+      cases hb3
+      exact hv3
+    intro envF
+    simp only [List.cons_append, List.nil_append, regNexts]
+    cases cr with
+    | false =>
+      simp only [Bool.false_eq_true, if_false, syncReadLatches,
+        Option.bind_eq_bind, hraV envF]
+      cases evalExpr we envF ra with
+      | none => rfl
+      | some av =>
+        simp only [Option.bind_some, syncReadLatches, ih hRest envF]
+    | true =>
+      simp only [if_true]
+      exact ih hRest envF
 
 open Sparkle.IR.Semantics in
 /-- Memory phase: the image body computes the same post-write memory
@@ -1506,6 +1761,52 @@ theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     intro mems envF
     simp only [List.cons_append, List.nil_append, memNexts]
     exact ih hRest mems envF
+  | mem hsn hsc hsr hna hwa hwd hwen hra hdw hrest ih =>
+    rename_i name aw dw clk wa wd wen ra rd cr rest
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨wa'', hwaB, _, _⟩ := roundtrip_sem (hwa (fun _ => 0))
+    obtain ⟨wd'', hwdB, _, _⟩ := roundtrip_sem (hwd (fun _ => 0))
+    obtain ⟨wen'', hwenB, _, _⟩ := roundtrip_sem (hwen (fun _ => 0))
+    obtain ⟨ra'', hraB, _, _⟩ := roundtrip_sem (hra (fun _ => 0))
+    have hImgEq : img
+        = [.memory name aw dw clk wa'' wd'' wen'' ra'' rd cr [] []] := by
+      simp only [stmtImage,
+        memImage_single hwaB hwdB hwenB hraB (by rw [hsr]; exact hna) hdw,
+        hsn, hsc, hsr, Option.bind_eq_bind, Option.bind_some] at hImg
+      exact (Option.some_inj.mp hImg).symm
+    subst hImgEq
+    have hwaV : ∀ env, evalExpr we env wa'' = evalExpr we env wa := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hwa env)
+      rw [hwaB] at hb3
+      cases hb3
+      exact hv3
+    have hwdV : ∀ env, evalExpr we env wd'' = evalExpr we env wd := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hwd env)
+      rw [hwdB] at hb3
+      cases hb3
+      exact hv3
+    have hwenV : ∀ env, evalExpr we env wen'' = evalExpr we env wen := by
+      intro env
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hwen env)
+      rw [hwenB] at hb3
+      cases hb3
+      exact hv3
+    intro mems envF
+    simp only [List.cons_append, List.nil_append, memNexts, memWritePorts,
+      Option.bind_eq_bind, hwenV envF, hwaV envF, hwdV envF]
+    cases evalExpr we envF wen with
+    | none => rfl
+    | some ev =>
+      cases evalExpr we envF wa with
+      | none => rfl
+      | some av =>
+        cases evalExpr we envF wd with
+        | none => rfl
+        | some dv =>
+          simp only [Option.bind_some]
+          exact ih hRest _ envF
 
 open Sparkle.IR.Semantics in
 /-- **The module-level roundtrip theorem** (assign+register bodies):
