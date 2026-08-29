@@ -221,6 +221,7 @@ mutual
 def lowerT : SVExpr → Option Sparkle.IR.AST.Expr
   | .lit (.decimal (some w) v) => some (.const (Int.ofNat v) w)
   | .lit (.decimal none v) => some (.const (Int.ofNat v) 32)
+  | .lit (.hex (some w) v) => some (.const (Int.ofNat v) w)
   | .ident name => some (.ref name)
   | .sizeCast w a => do
     some (.slice (.concat [.const 0 w, ← lowerT a]) (w - 1) 0)
@@ -259,6 +260,7 @@ end
 #guard (lowerT (.binary .eq (.ident "a") (.ident "b"))
         == some (lowerExpr (.binary .eq (.ident "a") (.ident "b"))))
 #guard (lowerT (.unary .neg (.ident "a")) == some (lowerExpr (.unary .neg (.ident "a"))))
+#guard (lowerT (.lit (.hex (some 8) 255)) == some (lowerExpr (.lit (.hex (some 8) 255))))
 #guard (lowerT (.slice (.ident "a") 3 1) == some (lowerExpr (.slice (.ident "a") 3 1)))
 #guard (lowerT (.concat [.ident "a", .ident "b"])
         == some (lowerExpr (.concat [.ident "a", .ident "b"])))
@@ -377,6 +379,142 @@ theorem restW_eq (we : WEnv) : ∀ (as : List Sparkle.IR.AST.Expr)
       simp [Sparkle.IR.Semantics.widthOf.go]
       omega
 
+/-- Flipping the sign bit, arithmetically: for `v < 2^w`, XOR with the
+    top bit adds it below the midpoint and subtracts it above.  Proven by
+    div/mod decomposition at the bit boundary (`xor_div_two_pow` /
+    `xor_mod_two_pow`), with the quotient confined to {0,1}. -/
+theorem xor_top_bit (w : Nat) (hw0 : 0 < w) (v : Nat) (hv : v < 2 ^ w) :
+    v ^^^ 2 ^ (w - 1)
+      = if v < 2 ^ (w - 1) then v + 2 ^ (w - 1) else v - 2 ^ (w - 1) := by
+  have h2 : 2 ^ (w - 1) + 2 ^ (w - 1) = 2 ^ w := by
+    have : w - 1 + 1 = w := by omega
+    calc 2 ^ (w - 1) + 2 ^ (w - 1) = 2 ^ (w - 1) * 2 := by omega
+    _ = 2 ^ (w - 1 + 1) := (Nat.pow_succ 2 (w - 1)).symm
+    _ = 2 ^ w := by rw [this]
+  have hpos : 0 < 2 ^ (w - 1) := Nat.two_pow_pos (w - 1)
+  have hdm := Nat.div_add_mod (v ^^^ 2 ^ (w - 1)) (2 ^ (w - 1))
+  have hmod : (v ^^^ 2 ^ (w - 1)) % 2 ^ (w - 1) = v % 2 ^ (w - 1) := by
+    rw [Nat.xor_mod_two_pow, Nat.mod_self, Nat.xor_zero]
+  have hdiv : (v ^^^ 2 ^ (w - 1)) / 2 ^ (w - 1) = v / 2 ^ (w - 1) ^^^ 1 := by
+    rw [Nat.xor_div_two_pow, Nat.div_self hpos]
+  have hq : v / 2 ^ (w - 1) = 0 ∨ v / 2 ^ (w - 1) = 1 := by
+    have h3 : v / 2 ^ (w - 1) < 2 := by
+      apply Nat.div_lt_of_lt_mul
+      rw [Nat.mul_two]
+      omega
+    -- (`omega` treats division by a non-constant as an opaque atom and
+    -- loses the connection; discharge by direct case analysis instead)
+    match h : v / 2 ^ (w - 1), h3 with
+    | 0, _ => exact Or.inl rfl
+    | 1, _ => exact Or.inr rfl
+  have hvdm := Nat.div_add_mod v (2 ^ (w - 1))
+  have hvm : v % 2 ^ (w - 1) < 2 ^ (w - 1) := Nat.mod_lt _ hpos
+  rw [hdiv, hmod] at hdm
+  rcases hq with hq | hq
+  · have h1 : v / 2 ^ (w - 1) ^^^ 1 = 1 := by rw [hq]; rfl
+    rw [hq] at hvdm
+    rw [h1] at hdm
+    have hlt : v < 2 ^ (w - 1) := by omega
+    rw [if_pos hlt]
+    omega
+  · have h1 : v / 2 ^ (w - 1) ^^^ 1 = 0 := by rw [hq]; rfl
+    rw [hq] at hvdm
+    rw [h1] at hdm
+    have hge : ¬ v < 2 ^ (w - 1) := by omega
+    rw [if_neg hge]
+    omega
+
+open Sparkle.IR.Semantics in
+/-- The bias encoding of signed comparison: XOR-ing the sign bit into
+    both operands turns two's-complement order into unsigned order. -/
+theorem bias_lt (w : Nat) (hw0 : 0 < w) (va vb : Nat)
+    (ha : va < 2 ^ w) (hb : vb < 2 ^ w) :
+    ((va ^^^ 2 ^ (w - 1)) < (vb ^^^ 2 ^ (w - 1)))
+      ↔ (toSigned w va < toSigned w vb) := by
+  have h2 : 2 ^ (w - 1) + 2 ^ (w - 1) = 2 ^ w := by
+    have hww : w - 1 + 1 = w := by omega
+    calc 2 ^ (w - 1) + 2 ^ (w - 1) = 2 ^ (w - 1) * 2 := by omega
+    _ = 2 ^ (w - 1 + 1) := (Nat.pow_succ 2 (w - 1)).symm
+    _ = 2 ^ w := by rw [hww]
+  rw [xor_top_bit w hw0 va ha, xor_top_bit w hw0 vb hb]
+  unfold toSigned
+  -- keep the two powers as LINKED Nat atoms (omega loses the h+h=g
+  -- relation once casts turn one of them into an Int power)
+  generalize hh : 2 ^ (w - 1) = hb2 at *
+  generalize hg : 2 ^ w = g at *
+  by_cases hva : va < hb2 <;> by_cases hvb : vb < hb2 <;>
+    simp [hva, hvb] <;> omega
+
+open Sparkle.IR.Semantics in
+theorem bias_le (w : Nat) (hw0 : 0 < w) (va vb : Nat)
+    (ha : va < 2 ^ w) (hb : vb < 2 ^ w) :
+    ((va ^^^ 2 ^ (w - 1)) ≤ (vb ^^^ 2 ^ (w - 1)))
+      ↔ (toSigned w va ≤ toSigned w vb) := by
+  have h2 : 2 ^ (w - 1) + 2 ^ (w - 1) = 2 ^ w := by
+    have hww : w - 1 + 1 = w := by omega
+    calc 2 ^ (w - 1) + 2 ^ (w - 1) = 2 ^ (w - 1) * 2 := by omega
+    _ = 2 ^ (w - 1 + 1) := (Nat.pow_succ 2 (w - 1)).symm
+    _ = 2 ^ w := by rw [hww]
+  rw [xor_top_bit w hw0 va ha, xor_top_bit w hw0 vb hb]
+  unfold toSigned
+  generalize hh : 2 ^ (w - 1) = hb2 at *
+  generalize hg : 2 ^ w = g at *
+  by_cases hva : va < hb2 <;> by_cases hvb : vb < hb2 <;>
+    simp [hva, hvb] <;> omega
+
+open Sparkle.IR.Semantics in
+/-- A fitting non-negative constant evaluates to itself. -/
+theorem eval_const_ofNat (we : WEnv) (env : Env) (v w : Nat)
+    (h : v < 2 ^ w) :
+    evalExpr we env (.const (Int.ofNat v) w) = some v := by
+  simp only [evalExpr, mask]
+  have h1 : Int.ofNat v % ((2 ^ w : Nat) : Int) = Int.ofNat v :=
+    Int.emod_eq_of_lt (Int.ofNat_nonneg _) (by exact Int.ofNat_lt.mpr h)
+  have h2 : (Int.ofNat v + ((2 ^ w : Nat) : Int)) % ((2 ^ w : Nat) : Int)
+      = Int.ofNat v % ((2 ^ w : Nat) : Int) := Int.add_emod_right _ _
+  rw [h1, h2, h1]
+  simp [Nat.mod_eq_of_lt h]
+
+open Sparkle.IR.Semantics in
+/-- Two-operand decomposition of op evaluation with OPAQUE operand
+    evaluations (same rationale as `eval_concat_cons`). -/
+theorem eval_binop_pair (we : WEnv) (env : Env)
+    (op : Sparkle.IR.AST.Operator) (x y : Sparkle.IR.AST.Expr) :
+    evalExpr we env (.op op [x, y])
+      = (evalExpr we env x).bind fun vx =>
+          (evalExpr we env y).bind fun vy =>
+            evalOp we op [x, y] [vx, vy]
+              (Sparkle.IR.Semantics.widthOf we (.op op [x, y])) := by
+  simp only [evalExpr, evalList, Option.bind_eq_bind]
+  cases evalExpr we env x <;> cases evalExpr we env y <;> simp
+
+open Sparkle.IR.Semantics in
+/-- Evaluation of one BIASED operand of the emitted signed compare:
+    `(z & (2^w-1)) ^ 2^(w-1)` computes the sign-bit flip. -/
+theorem biasOperand_sem (we : WEnv) (env : Env) (z : Sparkle.IR.AST.Expr)
+    (w : Nat) (hw0 : 0 < w) (hwz : Sparkle.IR.Semantics.widthOf we z = w)
+    (v : Nat) (hv : v < 2 ^ w) (hz : evalExpr we env z = some v) :
+    evalExpr we env
+      (.op .xor [.op .and [z, .const (Int.ofNat (2 ^ w - 1)) w],
+                 .const (Int.ofNat (2 ^ (w - 1))) w])
+      = some (v ^^^ 2 ^ (w - 1)) := by
+  have hM : 2 ^ w - 1 < 2 ^ w := by
+    have := Nat.two_pow_pos w; omega
+  have hSB : 2 ^ (w - 1) < 2 ^ w :=
+    Nat.pow_lt_pow_right (by omega) (by omega)
+  have hxor : v ^^^ 2 ^ (w - 1) < 2 ^ w :=
+    Nat.xor_lt_two_pow hv hSB
+  have hMc := eval_const_ofNat we env (2 ^ w - 1) w hM
+  have hSBc := eval_const_ofNat we env (2 ^ (w - 1)) w hSB
+  rw [eval_binop_pair we env .xor
+        (.op .and [z, .const (Int.ofNat (2 ^ w - 1)) w])
+        (.const (Int.ofNat (2 ^ (w - 1))) w),
+      eval_binop_pair we env .and z (.const (Int.ofNat (2 ^ w - 1)) w),
+      hz, hMc, hSBc]
+  simp [evalOp, Sparkle.IR.Semantics.widthOf, hwz, Nat.max_self, mask,
+    Nat.and_two_pow_sub_one_eq_mod, Nat.mod_eq_of_lt hv,
+    Nat.mod_eq_of_lt hxor]
+
 open Sparkle.IR.Semantics in
 /-- The semantic fragment (see `roundtrip_sem`). -/
 inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
@@ -424,6 +562,18 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       (ha : SFrag wof we env a)
       (hrest : SFrag wof we env (.concat rest)) :
       SFrag wof we env (.concat (a :: rest))
+  | cmpS (op : Sparkle.IR.AST.Operator)
+      (hop : op = .lt_s ∨ op = .le_s ∨ op = .gt_s ∨ op = .ge_s)
+      {x y} (w : Nat)
+      (hwTx : EmitAst.exprWidthT wof x = some w)
+      (hwTy : EmitAst.exprWidthT wof y = some w)
+      (hwSx : Sparkle.IR.Semantics.widthOf we x = w)
+      (hwSy : Sparkle.IR.Semantics.widthOf we y = w)
+      (hw0 : 0 < w)
+      (hbx : ∀ v, evalExpr we env x = some v → v < 2 ^ w)
+      (hby : ∀ v, evalExpr we env y = some v → v < 2 ^ w)
+      (hx : SFrag wof we env x) (hy : SFrag wof we env y) :
+      SFrag wof we env (.op op [x, y])
   | sliceCompound {x} (hi lo : Nat) (hlo : lo ≤ hi)
       (hwid : hi < Sparkle.IR.Semantics.widthOf we x)
       (hhi : hi < 4294967296)
@@ -658,6 +808,157 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       simp [lowerT]
     · simp only [Sparkle.IR.Semantics.widthOf, Nat.sub_zero]; omega
     · simp [evalExpr, mask, Nat.sub_zero, hexact, Nat.mod_eq_of_lt henv]
+  | cmpS op hop w hwTx hwTy hwSx hwSy hw0 hbx hby hx hy ihx ihy =>
+    rename_i x y
+    obtain ⟨x', hex, hwx, hvx⟩ := ihx
+    obtain ⟨y', hey, hwy, hvy⟩ := ihy
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hex
+    obtain ⟨ey, hey1, hey2⟩ := Option.bind_eq_some_iff.mp hey
+    have hne : (w == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    have hwx' : Sparkle.IR.Semantics.widthOf we x' = w := by rw [hwx, hwSx]
+    have hwy' : Sparkle.IR.Semantics.widthOf we y' = w := by rw [hwy, hwSy]
+    rcases hop with rfl | rfl | rfl | rfl
+    · -- lt_s
+      refine ⟨.op .lt_u
+          [.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w],
+           .op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w]], ?_, ?_, ?_⟩
+      · simp [emitAstExpr, hex1, hey1, hwTx, hwTy, hne, Nat.max_self,
+          lowerT, hex2, hey2]
+      · rfl
+      · cases hA : evalExpr we env x with
+        | none =>
+          have hA' : evalExpr we env x' = none := by rw [hvx, hA]
+          simp [evalExpr, evalList, hA, hA']
+        | some vx =>
+          have hA' : evalExpr we env x' = some vx := by rw [hvx, hA]
+          have hvxb := hbx vx hA
+          cases hB : evalExpr we env y with
+          | none =>
+            have hB' : evalExpr we env y' = none := by rw [hvy, hB]
+            simp [evalExpr, evalList, evalOp, hA, hA', hB, hB']
+          | some vy =>
+            have hB' : evalExpr we env y' = some vy := by rw [hvy, hB]
+            have hvyb := hby vy hB
+            have hbx1 := biasOperand_sem we env x' w hw0 hwx' vx hvxb hA'
+            have hby1 := biasOperand_sem we env y' w hw0 hwy' vy hvyb hB'
+            have hcond : ((vx ^^^ 2 ^ (w - 1)) < (vy ^^^ 2 ^ (w - 1))) = (toSigned w vx < toSigned w vy) :=
+              propext (bias_lt w hw0 vx vy hvxb hvyb)
+            rw [eval_binop_pair we env Operator.lt_u
+                  (.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w])
+                  (.op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w]),
+                eval_binop_pair we env Operator.lt_s x y,
+                hbx1, hby1, hA, hB]
+            simp [evalOp, hwSx, hwSy, Nat.max_self, hcond]
+    · -- le_s
+      refine ⟨.op .le_u
+          [.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w],
+           .op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w]], ?_, ?_, ?_⟩
+      · simp [emitAstExpr, hex1, hey1, hwTx, hwTy, hne, Nat.max_self,
+          lowerT, hex2, hey2]
+      · rfl
+      · cases hA : evalExpr we env x with
+        | none =>
+          have hA' : evalExpr we env x' = none := by rw [hvx, hA]
+          simp [evalExpr, evalList, hA, hA']
+        | some vx =>
+          have hA' : evalExpr we env x' = some vx := by rw [hvx, hA]
+          have hvxb := hbx vx hA
+          cases hB : evalExpr we env y with
+          | none =>
+            have hB' : evalExpr we env y' = none := by rw [hvy, hB]
+            simp [evalExpr, evalList, evalOp, hA, hA', hB, hB']
+          | some vy =>
+            have hB' : evalExpr we env y' = some vy := by rw [hvy, hB]
+            have hvyb := hby vy hB
+            have hbx1 := biasOperand_sem we env x' w hw0 hwx' vx hvxb hA'
+            have hby1 := biasOperand_sem we env y' w hw0 hwy' vy hvyb hB'
+            have hcond : ((vx ^^^ 2 ^ (w - 1)) ≤ (vy ^^^ 2 ^ (w - 1))) = (toSigned w vx ≤ toSigned w vy) :=
+              propext (bias_le w hw0 vx vy hvxb hvyb)
+            rw [eval_binop_pair we env Operator.le_u
+                  (.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w])
+                  (.op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w]),
+                eval_binop_pair we env Operator.le_s x y,
+                hbx1, hby1, hA, hB]
+            simp [evalOp, hwSx, hwSy, Nat.max_self, hcond]
+    · -- gt_s
+      refine ⟨.op .gt_u
+          [.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w],
+           .op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w]], ?_, ?_, ?_⟩
+      · simp [emitAstExpr, hex1, hey1, hwTx, hwTy, hne, Nat.max_self,
+          lowerT, hex2, hey2]
+      · rfl
+      · cases hA : evalExpr we env x with
+        | none =>
+          have hA' : evalExpr we env x' = none := by rw [hvx, hA]
+          simp [evalExpr, evalList, hA, hA']
+        | some vx =>
+          have hA' : evalExpr we env x' = some vx := by rw [hvx, hA]
+          have hvxb := hbx vx hA
+          cases hB : evalExpr we env y with
+          | none =>
+            have hB' : evalExpr we env y' = none := by rw [hvy, hB]
+            simp [evalExpr, evalList, evalOp, hA, hA', hB, hB']
+          | some vy =>
+            have hB' : evalExpr we env y' = some vy := by rw [hvy, hB]
+            have hvyb := hby vy hB
+            have hbx1 := biasOperand_sem we env x' w hw0 hwx' vx hvxb hA'
+            have hby1 := biasOperand_sem we env y' w hw0 hwy' vy hvyb hB'
+            have hcond : ((vy ^^^ 2 ^ (w - 1)) < (vx ^^^ 2 ^ (w - 1))) = (toSigned w vy < toSigned w vx) :=
+              propext (bias_lt w hw0 vy vx hvyb hvxb)
+            rw [eval_binop_pair we env Operator.gt_u
+                  (.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w])
+                  (.op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w]),
+                eval_binop_pair we env Operator.gt_s x y,
+                hbx1, hby1, hA, hB]
+            simp [evalOp, hwSx, hwSy, Nat.max_self, hcond]
+    · -- ge_s
+      refine ⟨.op .ge_u
+          [.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w],
+           .op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                     .const (Int.ofNat (2 ^ (w - 1))) w]], ?_, ?_, ?_⟩
+      · simp [emitAstExpr, hex1, hey1, hwTx, hwTy, hne, Nat.max_self,
+          lowerT, hex2, hey2]
+      · rfl
+      · cases hA : evalExpr we env x with
+        | none =>
+          have hA' : evalExpr we env x' = none := by rw [hvx, hA]
+          simp [evalExpr, evalList, hA, hA']
+        | some vx =>
+          have hA' : evalExpr we env x' = some vx := by rw [hvx, hA]
+          have hvxb := hbx vx hA
+          cases hB : evalExpr we env y with
+          | none =>
+            have hB' : evalExpr we env y' = none := by rw [hvy, hB]
+            simp [evalExpr, evalList, evalOp, hA, hA', hB, hB']
+          | some vy =>
+            have hB' : evalExpr we env y' = some vy := by rw [hvy, hB]
+            have hvyb := hby vy hB
+            have hbx1 := biasOperand_sem we env x' w hw0 hwx' vx hvxb hA'
+            have hby1 := biasOperand_sem we env y' w hw0 hwy' vy hvyb hB'
+            have hcond : ((vy ^^^ 2 ^ (w - 1)) ≤ (vx ^^^ 2 ^ (w - 1))) = (toSigned w vy ≤ toSigned w vx) :=
+              propext (bias_le w hw0 vy vx hvyb hvxb)
+            rw [eval_binop_pair we env Operator.ge_u
+                  (.op .xor [.op .and [x', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w])
+                  (.op .xor [.op .and [y', .const (Int.ofNat (2 ^ w - 1)) w],
+                             .const (Int.ofNat (2 ^ (w - 1))) w]),
+                eval_binop_pair we env Operator.ge_s x y,
+                hbx1, hby1, hA, hB]
+            simp [evalOp, hwSx, hwSy, Nat.max_self, hcond]
   | sliceCompound hi lo hlo hwid hhi hcomp hx ih =>
     rename_i x
     obtain ⟨x', hex, hwx, hvx⟩ := ih
