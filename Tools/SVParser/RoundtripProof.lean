@@ -226,6 +226,8 @@ def lowerT : SVExpr → Option Sparkle.IR.AST.Expr
   | .sizeCast w a => do
     some (.slice (.concat [.const 0 w, ← lowerT a]) (w - 1) 0)
   | .unary .neg a => do some (.op .neg [← lowerT a])
+  | .unary .signed a => lowerT a
+  | .binary .asr a b => do some (.op .asr [← lowerT a, ← lowerT b])
   | .slice e hi lo => do some (.slice (← lowerT e) hi lo)
   | .concat args => do some (.concat (← lowerTList args))
   | .binary .bitAnd a b => do some (.op .and [← lowerT a, ← lowerT b])
@@ -261,6 +263,9 @@ end
         == some (lowerExpr (.binary .eq (.ident "a") (.ident "b"))))
 #guard (lowerT (.unary .neg (.ident "a")) == some (lowerExpr (.unary .neg (.ident "a"))))
 #guard (lowerT (.lit (.hex (some 8) 255)) == some (lowerExpr (.lit (.hex (some 8) 255))))
+#guard (lowerT (.unary .signed (.ident "a")) == some (lowerExpr (.unary .signed (.ident "a"))))
+#guard (lowerT (.binary .asr (.unary .signed (.ident "a")) (.unary .signed (.ident "b")))
+        == some (lowerExpr (.binary .asr (.unary .signed (.ident "a")) (.unary .signed (.ident "b")))))
 #guard (lowerT (.slice (.ident "a") 3 1) == some (lowerExpr (.slice (.ident "a") 3 1)))
 #guard (lowerT (.concat [.ident "a", .ident "b"])
         == some (lowerExpr (.concat [.ident "a", .ident "b"])))
@@ -462,6 +467,22 @@ theorem bias_le (w : Nat) (hw0 : 0 < w) (va vb : Nat)
   by_cases hva : va < hb2 <;> by_cases hvb : vb < hb2 <;>
     simp [hva, hvb] <;> omega
 
+theorem encodeConst_lt (v : Int) (w : Nat) (hw : 0 < w) :
+    EmitAst.encodeConst v w < 2 ^ w := by
+  unfold EmitAst.encodeConst
+  have hg : (0 : Int) < ((2 ^ w : Nat) : Int) := by
+    exact_mod_cast Nat.two_pow_pos w
+  have h1 := Int.emod_lt_of_pos (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int)) hg
+  have h2 := Int.emod_nonneg (v % ((2 ^ w : Nat) : Int) + ((2 ^ w : Nat) : Int))
+    (by omega : ((2 ^ w : Nat) : Int) ≠ 0)
+  omega
+
+open Sparkle.IR.Semantics in
+/-- Any constant evaluates to its two's-complement encode. -/
+theorem eval_const_encode (we : WEnv) (env : Env) (v : Int) (w : Nat) :
+    evalExpr we env (.const v w) = some (mask w (EmitAst.encodeConst v w)) := by
+  simp [evalExpr, EmitAst.encodeConst]
+
 open Sparkle.IR.Semantics in
 /-- A fitting non-negative constant evaluates to itself. -/
 theorem eval_const_ofNat (we : WEnv) (env : Env) (v w : Nat)
@@ -521,7 +542,7 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
     Sparkle.IR.AST.Expr → Prop
   | ref (n : String) (hs : Sparkle.Backend.Verilog.sanitizeName n = n)
       (hw : wof n = some (we n)) : SFrag wof we env (.ref n)
-  | const (v : Int) (w : Nat) (h0 : 0 ≤ v) (hw : 0 < w) :
+  | const (v : Int) (w : Nat) (hw : 0 < w) :
       SFrag wof we env (.const v w)
   | binop (op : Sparkle.IR.AST.Operator) {a b}
       (hop : (binOpOf op).isSome)
@@ -562,6 +583,12 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       (ha : SFrag wof we env a)
       (hrest : SFrag wof we env (.concat rest)) :
       SFrag wof we env (.concat (a :: rest))
+  | asr {x y}
+      -- concat operands take the sign-extend ENCODE branch of the
+      -- shipping `$signed` lowering; everything else passes through
+      (hncx : ∀ l, x ≠ .concat l) (hncy : ∀ l, y ≠ .concat l)
+      (hx : SFrag wof we env x) (hy : SFrag wof we env y) :
+      SFrag wof we env (.op .asr [x, y])
   | cmpS (op : Sparkle.IR.AST.Operator)
       (hop : op = .lt_s ∨ op = .le_s ∨ op = .gt_s ∨ op = .ge_s)
       {x y} (w : Nat)
@@ -593,12 +620,20 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
   induction h with
   | ref n hs hw =>
     exact ⟨.ref n, by simp [emitAstExpr, hs, lowerT], rfl, rfl⟩
-  | const v w h0 hw =>
-    refine ⟨.const v w, ?_, rfl, rfl⟩
+  | const v w hw =>
     have hne : (w == 0) = false := by
       simp only [beq_eq_false_iff_ne]; omega
-    have hnl : ¬ v < 0 := by omega
-    simp [emitAstExpr, hne, if_neg hnl, lowerT, Int.toNat_of_nonneg h0]
+    by_cases h0 : v < 0
+    · -- negative: emitted as sized-hex two's complement; semantically
+      -- the same constant
+      refine ⟨.const (Int.ofNat (EmitAst.encodeConst v w)) w, ?_, rfl, ?_⟩
+      · simp [emitAstExpr, hne, if_pos h0, lowerT]
+      · have henc := encodeConst_lt v w hw
+        rw [eval_const_ofNat we env _ w henc, eval_const_encode,
+          mask, Nat.mod_eq_of_lt henc]
+    · refine ⟨.const v w, ?_, rfl, rfl⟩
+      have h0' : 0 ≤ v := by omega
+      simp [emitAstExpr, hne, if_neg h0, lowerT, Int.toNat_of_nonneg h0']
   | binop op hop ha hb iha ihb =>
     rename_i a b
     obtain ⟨a', hea, hwa, hva⟩ := iha
@@ -808,6 +843,17 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       simp [lowerT]
     · simp only [Sparkle.IR.Semantics.widthOf, Nat.sub_zero]; omega
     · simp [evalExpr, mask, Nat.sub_zero, hexact, Nat.mod_eq_of_lt henv]
+  | asr hncx hncy hx hy ihx ihy =>
+    rename_i x y
+    obtain ⟨x', hex, hwx, hvx⟩ := ihx
+    obtain ⟨y', hey, hwy, hvy⟩ := ihy
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hex
+    obtain ⟨ey, hey1, hey2⟩ := Option.bind_eq_some_iff.mp hey
+    refine ⟨.op .asr [x', y'], ?_, ?_, ?_⟩
+    · simp [emitAstExpr, hex1, hey1, lowerT, hex2, hey2]
+    · simp_all [Sparkle.IR.Semantics.widthOf]
+    · cases hA : evalExpr we env x <;> cases hB : evalExpr we env y <;>
+        simp_all [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf]
   | cmpS op hop w hwTx hwTy hwSx hwSy hw0 hbx hby hx hy ihx ihy =>
     rename_i x y
     obtain ⟨x', hex, hwx, hvx⟩ := ihx
