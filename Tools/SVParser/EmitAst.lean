@@ -278,4 +278,151 @@ private def chkW (e : Expr) : Bool :=
 #guard chkW (.op .not [.ref "a"])
 #guard chkW (.op .eq [.ref "a", .ref "b"])
 
+
+/- ------------------------------------------------------------------ -/
+/- M0, statement/module layer: the shipping `emitStmt`/`emitModule` at
+   the AST level, under the same parse-equality contract:
+
+       Parser.parseModuleFromString (Verilog.emitModule m)
+         = .ok  ↔  emitAstModule m = some ‹same AST›
+
+   Mirrored faithfully, including the quirks the probe exposed:
+   * the PARSER keeps only the FIRST posedge of a sensitivity list, so
+     an asynchronous-reset register and a synchronous one parse to the
+     SAME AST — reset KIND is not recoverable from the parsed module
+     (the lowering re-detects it from the if-shape);
+   * wire-decl register inits print as sized HEX, the reset arm inside
+     `always_ff` as sized DECIMAL;
+   * `.bit` and `.bitVector 1` both print bare `logic` → width `none`;
+   * the register reset-width lookup defaults to 8 when the output is
+     not among the wires (a shipping quirk, mirrored as-is);
+   * `emitStmt`'s widthOf sees WIRES only (not ports), keyed by
+     sanitized name.
+
+   `none` = outside the fragment: primitive/blackbox modules,
+   parameterized modules, non-scalar wire types, and expressions
+   `emitAstExpr` declines. -/
+
+def widthAstOf : Sparkle.IR.Type.HWType → Option (Option (Nat × Nat))
+  | .bit => some none
+  | .bitVector 0 => some none      -- degenerate; the emitter prints `logic`
+  | .bitVector 1 => some none
+  | .bitVector w => some (some (w - 1, 0))
+  | _ => none
+
+/-- One IR statement, as the list of parsed items its emission yields. -/
+def emitAstStmt (widthOf : String → Option Nat)
+    (wires : List Sparkle.IR.AST.Port) :
+    Sparkle.IR.AST.Stmt → Option (List SVModuleItem)
+  | .assign lhs rhs => do
+    some [.contAssign (.ident (sanitizeName lhs)) (← emitAstExpr widthOf rhs)]
+  | .register output clock (rstName, _) input initValue => do
+    let resetWidth := match wires.find? (fun p => p.name == output) with
+      | some p => match p.ty with
+        | .bitVector w => w
+        | .bit => 1
+        | _ => 8
+      | none => 8
+    let initE ← emitAstExpr widthOf (.const initValue resetWidth)
+    let inputE ← emitAstExpr widthOf input
+    some [.alwaysBlock (.posedge (sanitizeName clock))
+      [.ifElse (.ident (sanitizeName rstName))
+        [.nonblockAssign (.ident (sanitizeName output)) initE]
+        [.nonblockAssign (.ident (sanitizeName output)) inputE]]]
+  | .memory name addrWidth dataWidth clock writeAddr writeData writeEnable
+      readAddr readData comboRead extraWrites extraReads => do
+    let mem := sanitizeName name
+    let memW : Option (Nat × Nat) :=
+      if dataWidth ≤ 1 then none else some (dataWidth - 1, 0)
+    let decl : SVModuleItem := .regDecl mem memW (some (2 ^ addrWidth))
+    let writePorts := (writeAddr, writeData, writeEnable) :: extraWrites
+    let writes ← writePorts.mapM fun (a, d, en) => do
+      pure (SVStmt.ifElse (← emitAstExpr widthOf en)
+        [.nonblockAssign (.index (.ident mem) (← emitAstExpr widthOf a))
+          (← emitAstExpr widthOf d)] [])
+    let readPorts := (readAddr, readData) :: extraReads
+    if comboRead then
+      let reads ← readPorts.mapM fun (a, rd) => do
+        pure (SVModuleItem.contAssign (.ident (sanitizeName rd))
+          (.index (.ident mem) (← emitAstExpr widthOf a)))
+      some ([decl] ++ reads ++
+        [.alwaysBlock (.posedge (sanitizeName clock)) writes])
+    else
+      let reads ← readPorts.mapM fun (a, rd) => do
+        pure (SVStmt.nonblockAssign (.ident (sanitizeName rd))
+          (.index (.ident mem) (← emitAstExpr widthOf a)))
+      some [decl, .alwaysBlock (.posedge (sanitizeName clock)) (writes ++ reads)]
+  | .inst moduleName instName connections => do
+    let conns ← connections.mapM fun (p, e) => do
+      pure (sanitizeName p, ← emitAstExpr widthOf e)
+    some [.instantiation (sanitizeName moduleName) (sanitizeName instName)
+      conns []]
+
+def emitAstModule (m : Sparkle.IR.AST.Module) : Option SVModule := do
+  if m.isPrimitive then none else
+  if !m.parameters.isEmpty then none else
+  let mkPort (dir : SVPortDir) (p : Sparkle.IR.AST.Port) :
+      Option SVPort := do
+    let w ← widthAstOf p.ty
+    some { dir, isReg := false, width := w, name := sanitizeName p.name,
+           widthExpr := none, isSigned := false }
+  let ins ← m.inputs.mapM (mkPort .input)
+  let outs ← m.outputs.mapM (mkPort .output)
+  -- internal wires: port-name filtering on UNSANITIZED names (shipping)
+  let portNames := (m.inputs ++ m.outputs).map (·.name)
+  let internalWires := m.wires.filter fun w => !portNames.contains w.name
+  let regInits := m.body.filterMap fun s => match s with
+    | .register output _ _ _ init => some (output, init)
+    | _ => none
+  let wireItems ← internalWires.mapM fun p => do
+    let w ← widthAstOf p.ty
+    match regInits.find? (·.1 == p.name) with
+    | some (_, init) =>
+      let bw := p.ty.bitWidth
+      some (SVModuleItem.wireDecl (sanitizeName p.name) w
+        (some (.lit (.hex (some bw) (encodeConst init bw)))))
+    | none => some (SVModuleItem.wireDecl (sanitizeName p.name) w none)
+  -- emitStmt's widthOf: wires only, by sanitized name
+  let widthOf : String → Option Nat := fun n =>
+    (m.wires.find? (fun p => sanitizeName p.name == n)).bind fun p =>
+      match p.ty with
+      | .bitVector w => some w
+      | .bit => some 1
+      | _ => none
+  let bodyItems ← m.body.mapM (emitAstStmt widthOf m.wires)
+  some { name := sanitizeName m.name, params := [],
+         ports := ins ++ outs,
+         items := wireItems ++ bodyItems.flatten }
+
+/- Validation: module-level parse-equality on a sample covering every
+   statement kind (async + sync registers, combo + sync multi-port
+   memory, instance).  Corpus-wide coverage lives in ParserTest. -/
+
+private def probeM : Sparkle.IR.AST.Module := {
+  name := "probe"
+  inputs := [⟨"clock", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 8⟩,
+             ⟨"ra", .bitVector 2⟩]
+  outputs := [⟨"q", .bitVector 8⟩, ⟨"rd", .bitVector 8⟩]
+  wires := [⟨"w1", .bitVector 8⟩, ⟨"r1", .bitVector 8⟩, ⟨"r2", .bitVector 4⟩,
+            ⟨"q", .bitVector 8⟩, ⟨"rd", .bitVector 8⟩, ⟨"rd2", .bitVector 8⟩]
+  body := [
+    .assign "w1" (.op .and [.ref "a", .const 15 8]),
+    .register "r1" "clock" ("rst", .asynchronous) (.ref "w1") 0,
+    .register "r2" "clock" ("rst", .synchronous) (.slice (.ref "a") 3 0) (-1),
+    .assign "q" (.ref "r1"),
+    .memory "Mem" 2 8 "clock" (.ref "ra") (.ref "a") (.ref "rst")
+      (.ref "ra") "rd" true [((.ref "ra"), (.ref "w1"), (.ref "rst"))] [],
+    .memory "Mem2" 2 8 "clock" (.ref "ra") (.ref "a") (.ref "rst")
+      (.ref "ra") "rd2" false [] [((.ref "ra"), "rd2")],
+    .inst "child" "u0" [("x", .ref "a"), ("y", .op .not [.ref "w1"])]]
+  assertions := [] }
+
+private def chkModule (m : Sparkle.IR.AST.Module) : Bool :=
+  match Tools.SVParser.Parser.parseModuleFromString
+      (Sparkle.Backend.Verilog.emitModule m) with
+  | .ok sv => emitAstModule m == some sv
+  | .error _ => false
+
+#guard chkModule probeM
+
 end Tools.SVParser.EmitAst

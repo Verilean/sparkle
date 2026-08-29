@@ -2501,7 +2501,7 @@ endmodule
   -- module, every assign RHS and register input must satisfy
   --   parse (Verilog.emitExpr widthOf e) = emitAstExpr widthOf e.
   -- Skips gracefully when the corpus is absent (it is downloaded in CI).
-  IO.print "  Test 64: emitAstExpr ≡ shipping emitter on the CI corpus... "
+  IO.print "  Test 64: emitAst{Expr,Module} ≡ shipping emitter on the CI corpus... "
   try
     let corpusDir := "bench/xiangshan/corpus"
     if ← System.FilePath.pathExists corpusDir then
@@ -2543,6 +2543,19 @@ endmodule
                   bad := bad + 1
                   if firstBad == "" then
                     firstBad := s!"{ent.fileName}/{m.name} (parse: {err.take 40}): {rendered.take 60}"
+              -- module level: whole-module parse-equality
+              exprs := exprs + 1
+              match Tools.SVParser.Parser.parseModuleFromString
+                  (Sparkle.Backend.Verilog.emitModule m) with
+              | .ok sv =>
+                if Tools.SVParser.EmitAst.emitAstModule m != some sv then
+                  bad := bad + 1
+                  if firstBad == "" then
+                    firstBad := s!"MODULE {ent.fileName}/{m.name}"
+              | .error err =>
+                bad := bad + 1
+                if firstBad == "" then
+                  firstBad := s!"MODULE {ent.fileName}/{m.name} (parse: {err.take 60})"
       if bad == 0 && exprs > 0 then
         IO.println s!"PASS ({exprs} expressions)"
         passed := passed + 1
