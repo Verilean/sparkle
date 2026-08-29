@@ -143,7 +143,22 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     sanitizeName name
 
   | .concat args =>
-    s!"\{{String.intercalate ", " (args.map (emitExpr widthOf))}}"
+    -- Concat elements are SELF-DETERMINED in Verilog, so an element like
+    -- `(x >> k) & 4'd15` is as wide as x (64 bits), not the 4 bits the
+    -- IR assigns it — MiscModule's 16-nibble xperm gather became a
+    -- 1024-bit concat whose low 64 bits (the LAST element alone) were
+    -- kept.  Cast each operator element to its IR width so the emitted
+    -- concat's layout matches the IR's.  Refs, constants and slices
+    -- already carry their exact width.
+    let one := fun (a : Expr) =>
+      let rendered := emitExpr widthOf a
+      match a with
+      | .op _ _ =>
+        match exprWidthV widthOf a with
+        | some w => if w > 0 then s!"{w}'({rendered})" else rendered
+        | none => rendered
+      | _ => rendered
+    s!"\{{String.intercalate ", " (args.map one)}}"
 
   | .slice e hi lo =>
     -- Elide a slice that selects the FULL width of a known wire (in
@@ -201,9 +216,13 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
       let inner := emitExpr widthOf arg
       match exprWidthV widthOf arg with
       | some w =>
-        if w == 0 then s!"~{inner}"
+        if w == 0 then s!"~({inner})"
         else s!"({w}'({inner} ^ {w}'({(2 : Nat) ^ w - 1})))"
-      | none => s!"~{inner}"
+      | none =>
+        -- Parenthesise: a nested NOT otherwise renders as `~~x`, which
+        -- iverilog rejects as a syntax error (TLBusBypassBar's
+        -- `in_reset <= ~~reset` from a double negation).
+        s!"~({inner})"
     | _ => "/* ERROR: not requires 1 argument */"
 
   | .op .neg args =>

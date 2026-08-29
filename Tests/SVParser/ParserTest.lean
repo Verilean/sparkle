@@ -2433,5 +2433,66 @@ endmodule
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 62 (XiangShan MiscModule / VpnTable): concat elements are
+  -- SELF-DETERMINED in Verilog, so a packed-table gather element like
+  -- `(_GEN >> (idx*4)) & 4'd15` is as wide as `_GEN` (64 bits), not the
+  -- 4 bits the IR means — the 16-nibble xperm concat became 1024 bits
+  -- and only its LAST element landed in the 64-bit target.  The dynamic
+  -- select lowerings now pin the width with an explicit `.slice`, which
+  -- the Verilog emitter renders as a size cast.
+  IO.print "  Test 62: dynamic packed-select keeps its width in a concat... "
+  try
+    let v := "
+module xperm (input [15:0] src, input [7:0] sel, output [7:0] y);
+  wire [3:0][3:0] tbl = {src[15:12], src[11:8], src[7:4], src[3:0]};
+  assign y = {tbl[sel[5:4]], tbl[sel[1:0]]};
+endmodule
+"
+    -- src = 0xABCD, sel = 8'h01 → hi nibble tbl[0]=D, lo nibble tbl[1]=C
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0xABCD; JIT.setInput h 1 0x01)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    match parseAndLowerHierarchical v with
+    | .error e => IO.println s!"FAIL: lower error {e}"; failed := failed + 1
+    | .ok design =>
+      let sv := toVerilogDesign design
+      -- iverilog must also agree, i.e. each op element carries a cast.
+      if r != [0xDC] then
+        IO.println s!"FAIL: JIT {r} (want [220])"
+        failed := failed + 1
+      else if !(containsSubstr sv "4'(") then
+        IO.println "FAIL: emitted concat elements are unsized"
+        failed := failed + 1
+      else
+        IO.println "PASS"; passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 63 (XiangShan TIMER): a WIDE dynamic shift AMOUNT.  The amount
+  -- of `128'h1 << {121'h0, addr[14], addr[8:3]}` is itself a 128-bit
+  -- value; once hoisted to a word array, `(unsigned)(amount)` took the
+  -- POINTER, so the CLINT's register-select one-hot was shifted by
+  -- garbage and every ipi/timecmp write was lost.  Wide amounts now read
+  -- their low word.
+  IO.print "  Test 63: wide dynamic shift amount reads its value... "
+  try
+    let v := "
+module whot (input [6:0] a, output o);
+  wire [127:0] sel = 128'h1 << {121'h0, a};
+  assign o = sel[0];
+endmodule
+"
+    -- a = 0 → sel = 1 → o = 1.  With the pointer bug o was 0.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [1] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: {r} (want [1]; 0 = the amount was read as a pointer)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

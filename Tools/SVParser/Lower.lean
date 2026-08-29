@@ -320,15 +320,28 @@ partial def lowerExpr (e : SVExpr) : Expr :=
         if isArrayName name then
           .index (lowerExpr arr) (lowerExpr idx)  -- array access
         else
-          .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- bit select
+          -- Wrapped in `.slice … 0 0` for the same reason as
+          -- `.partSelectPlus` below: the bare and-mask's inferred width
+          -- is the CONTAINER's, so as a self-determined concat element it
+          -- inflated and shifted its siblings out (VpnTable's
+          -- `{_GEN_35[i], _GEN_34[i], …}` subValid vector).
+          .slice (.op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]) 0 0
       | _ =>
-        .op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]  -- dynamic
+        .slice (.op .and [.op .shr [lowerExpr arr, lowerExpr idx], .const 1 1]) 0 0
   | .slice expr hi lo => .slice (lowerExpr expr) hi lo
   | .partSelectPlus expr base widthExpr =>
-    -- [base +: width] = (expr >> base) & ((1 << width) - 1)
+    -- [base +: width] = (expr >> base) & ((1 << width) - 1), wrapped in
+    -- an explicit `.slice … (width-1) 0`.  The bare and-mask carries NO
+    -- width metadata — both backends infer the CONTAINER's width from
+    -- the shift, so as a self-determined concat element it inflated to
+    -- 64 bits and pushed every element above it out of the target
+    -- (MiscModule's 16-nibble xperm gather kept only its LAST nibble).
+    -- The slice pins the width; the Verilog emitter renders it as a
+    -- size cast, and CSim's slice arm truncates.
     let width := svExprToNat widthExpr |>.getD 1
     let mask := (1 <<< width) - 1
-    .op .and [.op .shr [lowerExpr expr, lowerExpr base], .const (Int.ofNat mask) width]
+    .slice (.op .and [.op .shr [lowerExpr expr, lowerExpr base],
+                      .const (Int.ofNat mask) width]) (width - 1) 0
   | .concat args => .concat (args.map lowerExpr)
   | .repeat_ count value =>
     -- {N{expr}}: replicate expr N times (bit replication)

@@ -309,6 +309,16 @@ private def wideCmpExpr (strict : Bool) (a b : String) (nWords : Nat) : String :
     base
   "(" ++ expr ++ ")"
 
+/-- Same nested-ternary compare, but over caller-supplied per-word slot
+    expressions, so a NARROW operand can present zero-extended words
+    instead of being subscripted. -/
+private def wideCmpSlots (strict : Bool) (a b : Nat → String) (nWords : Nat) : String :=
+  let base := if strict then "0" else "1"
+  let expr := (List.range nWords).foldl (fun rest i =>
+    "(" ++ a i ++ " < " ++ b i ++ " ? 1 : (" ++ a i ++ " > " ++ b i ++ " ? 0 : " ++ rest ++ "))")
+    base
+  "(" ++ expr ++ ")"
+
 /-- Convert IR expression to C expression.
 
     Wide (> 64 bit) values are represented as `uint32_t[N]`
@@ -611,14 +621,24 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- "is this bit zero?" test was stuck true, so it added the
           -- multiplicand every cycle.
           let n := wordsOf w
+          -- Verilog zero-extends the NARROWER operand of an equality, so
+          -- a ≤64-bit side is a C scalar and cannot be indexed `[j]`:
+          -- word 0 is its low half, word 1 its high half, and every word
+          -- above that is zero.  (RasStack compares a wide hoisted cone
+          -- against a 64-bit input; the old code subscripted the input.)
+          let slot (e : Expr) (j : Nat) : String :=
+            let we := inferExprWidth typeMap e
+            let es := emitExpr typeMap e
+            if we > 64 then s!"{es}[{j}]"
+            else if j == 0 then s!"((uint32_t)({es}))"
+            else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
+            else "0u"
           let mkTerms (x y : Expr) : String :=
-            let xs := emitExpr typeMap x
             match y with
             | .const 0 _ =>
-              String.intercalate " && " ((List.range n).map (fun j => s!"({xs}[{j}] == 0)"))
+              String.intercalate " && " ((List.range n).map (fun j => s!"({slot x j} == 0)"))
             | _ =>
-              let ys := emitExpr typeMap y
-              String.intercalate " && " ((List.range n).map (fun j => s!"({xs}[{j}] == {ys}[{j}])"))
+              String.intercalate " && " ((List.range n).map (fun j => s!"({slot x j} == {slot y j})"))
           match arg1, arg2 with
           | _, .const 0 _ => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
           | .const 0 _, _ => s!"(({mkTerms arg2 arg1}) ? 1 : 0)"
@@ -631,16 +651,28 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
       | .lt_u | .le_u | .gt_u | .ge_u =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then
-          let a := emitExpr typeMap arg1
-          let b := emitExpr typeMap arg2
+          -- Like the eq arm: Verilog zero-extends the NARROWER operand,
+          -- so a ≤64-bit side is a C scalar — word 0 its low half,
+          -- word 1 its high half, zero above (StreamBitVectorArray
+          -- compares an 8-bit constant against a wide cone; the old code
+          -- subscripted the constant).
+          let slotOf (e : Expr) : Nat → String := fun j =>
+            let we := inferExprWidth typeMap e
+            let es := emitExpr typeMap e
+            if we > 64 then s!"(uint32_t)({es})[{j}]"
+            else if j == 0 then s!"((uint32_t)({es}))"
+            else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
+            else "0u"
+          let a := slotOf arg1
+          let b := slotOf arg2
           let n := wordsOf w
           -- a≥b ⟺ b≤a ; a>b ⟺ b<a — reuse the (strict) le/lt form by
           -- swapping operands for the ≥/> cases.
           match operator with
-          | .lt_u => wideCmpExpr true  a b n
-          | .le_u => wideCmpExpr false a b n
-          | .gt_u => wideCmpExpr true  b a n
-          | _     => wideCmpExpr false b a n   -- .ge_u
+          | .lt_u => wideCmpSlots true  a b n
+          | .le_u => wideCmpSlots false a b n
+          | .gt_u => wideCmpSlots true  b a n
+          | _     => wideCmpSlots false b a n   -- .ge_u
         else
           s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
       | .mul =>
@@ -871,7 +903,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
             -- 52-bit history vector with `{phr, phr} >> ptr` (104-bit), and
             -- every folded-history output silently used the UNSHIFTED value.
             -- Emit a runtime word loop instead.
-            let bS := emitExpr typeMap b
+            let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
             (da ++
               [ s!"        uint32_t {tmp}[{nWords}];"
               , s!"        \{ unsigned {tmp}_sa = (unsigned)({bS}); unsigned {tmp}_k = {tmp}_sa >> 5, {tmp}_r = {tmp}_sa & 31;"
@@ -892,7 +930,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
               :: (List.range nWords).map (fun j => s!"        {tmp}[{j}] = {shrSlot aS sa srcWords j};")), tmp)
           | _ =>
             -- Dynamic amount: same word loop, shifting right (see shl note).
-            let bS := emitExpr typeMap b
+            let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
             (da ++
               [ s!"        uint32_t {tmp}[{nWords}];"
               , s!"        \{ unsigned {tmp}_sa = (unsigned)({bS}); unsigned {tmp}_k = {tmp}_sa >> 5, {tmp}_r = {tmp}_sa & 31;"
@@ -1161,7 +1205,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         | _ =>
           -- DYNAMIC shift amount: the old fallback treated it as 0.  Runtime
           -- word loop (mirrors the nested matWide arm; see the Phr note there).
-          let bS := emitExpr typeMap b
+          let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
           { declarations := []
           , evalBody := aDecls ++
               [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"
@@ -1204,7 +1254,13 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
           , resetBody := []
           , evalTickLocals := [] }
         | _ =>
-          let bS := emitExpr typeMap b
+          let bS :=
+              -- A WIDE dynamic shift amount is an array; casting it to
+              -- unsigned takes the POINTER (TIMER's `128'h1 << {121'h0,
+              -- addr…}` shifted by garbage).  Read its low word instead
+              -- — amounts ≥ 2^32 are already out of range.
+              if inferExprWidth typeMap b > 64 then s!"{emitExpr typeMap b}[0]"
+              else emitExpr typeMap b
           { declarations := []
           , evalBody := aDecls ++
               [ s!"        \{ unsigned {sn}_sa = (unsigned)({bS}); unsigned {sn}_k = {sn}_sa >> 5, {sn}_r = {sn}_sa & 31;"

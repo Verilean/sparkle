@@ -429,6 +429,36 @@ work list, classified:
   The CI corpus is now clean in BOTH modes: 35/35 leaf and 17/17
   hierarchical, RT✗ 0 / JIT✗ 0.
 
+* Full-corpus verification (DefaultConfig, all 2,026 files): the trimmed
+  corpora had gone clean, so the entire build was swept as the real
+  "no known issues" test — and it surfaced ELEVEN more defects the small
+  corpora never exercised.  All fixed; final state: roundtrip 1,969 OK /
+  1 parse-fail (ClockGate's `always_latch` ICG, the documented
+  exclusion), leaf co-sim **1,237 executed, RT✗ 0 / JIT✗ 0**.  The only
+  remaining failures are 4× `iverilog(orig) compile` — Icarus rejecting
+  XiangShan's ORIGINAL source (e.g. DstMgu's `_GEN_8[io_in_vdIdx][0]`
+  dynamic array index), so no golden exists; Sparkle round-trips all
+  four.
+
+  The eleven, by root cause:
+  - Wide eq/lt/gt with a NARROW operand: the word-wise compare
+    subscripted a scalar (RasStack, PredChecker, WriteBuffer_12/_54,
+    StreamBitVectorArray).  Narrow sides now present zero-extended words.
+  - Concat elements are SELF-DETERMINED in Verilog: a packed-table
+    gather element `(_GEN >> idx*4) & 4'd15` is container-wide, so
+    MiscModule's 16-nibble xperm concat became 1024 bits and kept only
+    its last element; VpnTable's 1-bit variant likewise.  The dynamic
+    select lowerings now pin widths with an explicit `.slice` (rendered
+    as a size cast); op-typed concat elements are also cast (HPTW fixed
+    by the same change).
+  - A WIDE dynamic shift AMOUNT (TIMER's `128'h1 << {121'h0, addr…}`):
+    once hoisted to a word array, `(unsigned)(amount)` took the POINTER —
+    the CLINT's one-hot register select shifted by garbage
+    (VLSplitPipelineImp shared the cause).
+  - `~~reset`: the NOT emitter's width-unknown fallback was
+    unparenthesised, and iverilog rejects bare `~~` (TLBusBypassBar).
+  Pinned by ParserTest 62-63 (both verified non-vacuous).
+
 * NCBUpstreamRXREQ: RESOLVED.  Verilog's `~` is CONTEXT-determined, not
   self-determined, so an unbounded `~expr` inverts the CONTAINER's bits
   once it lands in a wider context.  This module builds `{6{~(|Size)}}`
