@@ -117,6 +117,7 @@ def evalOp (we : WEnv) (operator : Operator) (args : List Expr)
     let s := toSigned wx a
     some (mask wx (Int.toNat ((s >>> b) % (2 ^ wx : Nat))))
   | .mux, _, [c, t, f] => some (if c ≠ 0 then t else f)
+  | .neg, _, [a] => some (mask w (2 ^ w - mask w a))
   | _, _, _ => none
 
 mutual

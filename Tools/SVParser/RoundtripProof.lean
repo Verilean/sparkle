@@ -211,16 +211,22 @@ theorem notEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr) (w : Nat
 
 open Tools.SVParser.EmitAst
 
-/-- Total lowering twin, extended to the images `emitAstExpr` produces:
-    bare (width-`none`) decimals lower at 32 bits, and a size cast
-    expands to `slice (concat [0_w, ·]) (w-1) 0` — both verbatim from
-    the shipping `literalToConst` / `lowerExpr`. -/
+/- Total lowering twin, extended to the images `emitAstExpr` produces:
+   bare (width-`none`) decimals lower at 32 bits, and a size cast
+   expands to `slice (concat [0_w, ·]) (w-1) 0` — both verbatim from
+   the shipping `literalToConst` / `lowerExpr`; slice/concat/unary-neg
+   are the 1:1 shipping equations. -/
+mutual
+/-- See the section comment. -/
 def lowerT : SVExpr → Option Sparkle.IR.AST.Expr
   | .lit (.decimal (some w) v) => some (.const (Int.ofNat v) w)
   | .lit (.decimal none v) => some (.const (Int.ofNat v) 32)
   | .ident name => some (.ref name)
   | .sizeCast w a => do
     some (.slice (.concat [.const 0 w, ← lowerT a]) (w - 1) 0)
+  | .unary .neg a => do some (.op .neg [← lowerT a])
+  | .slice e hi lo => do some (.slice (← lowerT e) hi lo)
+  | .concat args => do some (.concat (← lowerTList args))
   | .binary .bitAnd a b => do some (.op .and [← lowerT a, ← lowerT b])
   | .binary .bitOr  a b => do some (.op .or  [← lowerT a, ← lowerT b])
   | .binary .bitXor a b => do some (.op .xor [← lowerT a, ← lowerT b])
@@ -238,6 +244,11 @@ def lowerT : SVExpr → Option Sparkle.IR.AST.Expr
     some (.op .mux [← lowerT c, ← lowerT t, ← lowerT f])
   | _ => none
 
+def lowerTList : List SVExpr → Option (List Sparkle.IR.AST.Expr)
+  | [] => some []
+  | a :: rest => do some ((← lowerT a) :: (← lowerTList rest))
+end
+
 -- Tie the new arms to the shipping lowerExpr.
 #guard (lowerT (.lit (.decimal none 63)) == some (lowerExpr (.lit (.decimal none 63))))
 #guard (lowerT (.sizeCast 6 (.ident "x")) == some (lowerExpr (.sizeCast 6 (.ident "x"))))
@@ -247,14 +258,52 @@ def lowerT : SVExpr → Option Sparkle.IR.AST.Expr
         == some (lowerExpr (.binary .shr (.ident "a") (.ident "b"))))
 #guard (lowerT (.binary .eq (.ident "a") (.ident "b"))
         == some (lowerExpr (.binary .eq (.ident "a") (.ident "b"))))
+#guard (lowerT (.unary .neg (.ident "a")) == some (lowerExpr (.unary .neg (.ident "a"))))
+#guard (lowerT (.slice (.ident "a") 3 1) == some (lowerExpr (.slice (.ident "a") 3 1)))
+#guard (lowerT (.concat [.ident "a", .ident "b"])
+        == some (lowerExpr (.concat [.ident "a", .ident "b"])))
 
 open Sparkle.IR.Semantics in
-/-- The semantic fragment.  Side conditions live on the constructors:
-    a ref must be sanitize-fixed with an agreed, positive width; a const
-    must be non-negative with a positive width (so the emit-side 0→1
-    promotion is inert); NOT carries its operand width (agreed between
-    the emitter's inference and the semantics) bounded to the 32-bit
-    literal container (see the finding above `notEncode_sem`). -/
+/-- The image of a slice-of-COMPOUND under emit-then-lower (`n'(E)` for
+    `lo = 0`, `n'((E) >> lo)` otherwise, then size-cast expansion).
+    Semantically the original slice — near-definitional because the
+    concat combiner already masks each element to its width. -/
+theorem sliceEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr)
+    (hi lo : Nat) (hlo : lo ≤ hi)
+    -- the slice must lie within its operand (the proof needs the concat
+    -- combiner's element mask `% 2^widthOf x` to be absorbed by the
+    -- slice's own `% 2^(hi+1)`), and lo must fit the 32-bit literal
+    (hwid : hi < Sparkle.IR.Semantics.widthOf we x)
+    (hhi : hi < 4294967296) (v : Nat)
+    (hx : evalExpr we env x = some v) :
+    evalExpr we env
+      (.slice (.concat [.const 0 (hi + 1 - lo),
+        if lo == 0 then x else .op .shr [x, .const (Int.ofNat lo) 32]])
+        (hi + 1 - lo - 1) 0)
+      = evalExpr we env (.slice x hi lo) := by
+  have hn : hi + 1 - lo - 1 + 1 = hi + 1 - lo := by omega
+  have hmm : ∀ a n : Nat, a % n % n = a % n :=
+    fun a n => Nat.mod_mod_of_dvd a (Nat.dvd_refl n)
+  have hdvd : ∀ a b : Nat, a ≤ b → ∀ v : Nat, v % 2 ^ b % 2 ^ a = v % 2 ^ a :=
+    fun a b hab v => Nat.mod_mod_of_dvd v (Nat.pow_dvd_pow 2 hab)
+  by_cases h0 : lo = 0
+  · subst h0
+    simp [evalExpr, evalList, evalOp, evalExpr.go, widthOf, widthOf.go,
+      hx, hn, mask, hmm, Nat.shiftRight_zero, Nat.zero_shiftLeft,
+      Nat.mod_self, hdvd (hi + 1) (Sparkle.IR.Semantics.widthOf we x)
+        (by omega)]
+  · have hne : (lo == 0) = false := by simp [h0]
+    have hlo32 : ((lo : Int) % 4294967296).toNat % 4294967296 = lo := by
+      omega
+    simp [hne, evalExpr, evalList, evalOp, evalExpr.go, widthOf, widthOf.go,
+      hx, hn, mask, hmm, Nat.shiftRight_zero, Nat.zero_shiftLeft,
+      Nat.mod_self, hlo32,
+      hdvd (hi + 1 - lo) (max (Sparkle.IR.Semantics.widthOf we x) 32)
+        (by omega),
+      show hi - lo + 1 = hi + 1 - lo from by omega]
+
+open Sparkle.IR.Semantics in
+/-- The semantic fragment (see `roundtrip_sem`). -/
 inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
     Sparkle.IR.AST.Expr → Prop
   | ref (n : String) (hs : Sparkle.Backend.Verilog.sanitizeName n = n)
@@ -267,14 +316,37 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       SFrag wof we env (.op op [a, b])
   | mux {c t f} (hc : SFrag wof we env c) (ht : SFrag wof we env t)
       (hf : SFrag wof we env f) : SFrag wof we env (.op .mux [c, t, f])
+  | neg {x} (hx : SFrag wof we env x) : SFrag wof we env (.op .neg [x])
   | not {x} (w : Nat)
       (hwT : EmitAst.exprWidthT wof x = some w)
       (hwS : Sparkle.IR.Semantics.widthOf we x = w)
       (hw32 : w ≤ 32) (hw0 : 0 < w)
       (hx : SFrag wof we env x) : SFrag wof we env (.op .not [x])
+  | sliceRefKeep (n : String) (hi lo : Nat)
+      (hs : Sparkle.Backend.Verilog.sanitizeName n = n)
+      -- the shipping elision does NOT fire: either an unknown width, or
+      -- lo ≠ 0, or a strictly partial select
+      (hkeep : wof n = none ∨ ¬(lo = 0 ∧ we n ≤ hi + 1))
+      (hw : wof n = none ∨ wof n = some (we n)) :
+      SFrag wof we env (.slice (.ref n) hi lo)
+  | sliceRefElide (n : String) (hi : Nat)
+      (hs : Sparkle.Backend.Verilog.sanitizeName n = n)
+      (hw : wof n = some (we n))
+      -- EXACT full-width select only: `hi + 1 > width` also elides in the
+      -- shipping emitter but SHRINKS the expression's width, which can
+      -- shift sibling layout in a concat — deliberately outside the
+      -- fragment (recorded as a suspect to test).
+      (hexact : hi + 1 = we n)
+      (henv : env n < 2 ^ we n) :
+      SFrag wof we env (.slice (.ref n) hi 0)
+  | sliceCompound {x} (hi lo : Nat) (hlo : lo ≤ hi)
+      (hwid : hi < Sparkle.IR.Semantics.widthOf we x)
+      (hhi : hi < 4294967296)
+      (hcomp : ∀ n, x ≠ .ref n)
+      (hx : SFrag wof we env x) : SFrag wof we env (.slice x hi lo)
 
-set_option maxHeartbeats 1600000 in
 open Sparkle.IR.Semantics in
+set_option maxHeartbeats 3200000 in
 /-- **The semantic roundtrip theorem** (expression layer, fragment):
     emitting through the real `emitAstExpr` and lowering back yields an
     expression with the SAME width and the SAME value. -/
@@ -321,6 +393,15 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
     · cases hC : evalExpr we env c <;> cases hT : evalExpr we env t <;>
         cases hF : evalExpr we env f <;>
         simp_all [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf]
+  | neg hx ih =>
+    rename_i x
+    obtain ⟨x', hex, hwx, hvx⟩ := ih
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hex
+    refine ⟨.op .neg [x'], ?_, ?_, ?_⟩
+    · simp_all [emitAstExpr, lowerT]
+    · simp_all [Sparkle.IR.Semantics.widthOf]
+    · cases hX : evalExpr we env x <;>
+        simp_all [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf]
   | not w hwT hwS hw32 hw0 hx ih =>
     rename_i x
     obtain ⟨x', hex, hwx, hvx⟩ := ih
@@ -330,10 +411,8 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
     refine ⟨notEncode x' w, ?_, ?_, ?_⟩
     · simp [emitAstExpr, hex1, hwT, hne, lowerT, hex2, notEncode]
     · simp [notEncode, Sparkle.IR.Semantics.widthOf]; omega
-    · -- eval x is defined: mine it from the eval-equality via cases
-      cases hval : evalExpr we env x with
+    · cases hval : evalExpr we env x with
       | none =>
-        -- then both sides are none through the op-not eval
         have hval' : evalExpr we env x' = none := by rw [hvx, hval]
         rw [show evalExpr we env (.op .not [x])
               = ((evalList we env [x]).bind fun vals =>
@@ -346,5 +425,54 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         have := notEncode_sem we env x' w (by rw [hwx, hwS]) hw32 hw0 v hval'
         rw [this]
         simp [evalExpr, evalList, evalOp, hval, hval', hwx]
+  | sliceRefKeep n hi lo hs hkeep hw =>
+    refine ⟨.slice (.ref n) hi lo, ?_, rfl, rfl⟩
+    rcases hw with hw | hw
+    · simp [emitAstExpr, hs, hw, lowerT]
+    · rcases hkeep with hk | hk
+      · rw [hk] at hw; cases hw
+      · have hb : (lo == 0 && decide (hi + 1 ≥ we n)) = false := by
+          simp only [Bool.and_eq_false_iff, beq_eq_false_iff_ne,
+            decide_eq_false_iff_not]
+          omega
+        simp [emitAstExpr, hs, hw, hb, lowerT]
+  | sliceRefElide n hi hs hw hexact henv =>
+    refine ⟨.ref n, ?_, ?_, ?_⟩
+    · have hb : ((0 : Nat) == 0 && decide (hi + 1 ≥ we n)) = true := by
+        have : hi + 1 ≥ we n := Nat.le_of_eq hexact.symm
+        simp [this]
+      simp only [emitAstExpr, hs, hw, hb, if_true]
+      simp [lowerT]
+    · simp only [Sparkle.IR.Semantics.widthOf, Nat.sub_zero]; omega
+    · simp [evalExpr, mask, Nat.sub_zero, hexact, Nat.mod_eq_of_lt henv]
+  | sliceCompound hi lo hlo hwid hhi hcomp hx ih =>
+    rename_i x
+    obtain ⟨x', hex, hwx, hvx⟩ := ih
+    obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hex
+    cases hval : evalExpr we env x with
+    | none =>
+      have hval' : evalExpr we env x' = none := by rw [hvx, hval]
+      refine ⟨.slice (.concat [.const 0 (hi + 1 - lo),
+        if lo == 0 then x' else .op .shr [x', .const (Int.ofNat lo) 32]])
+        (hi + 1 - lo - 1) 0, ?_, ?_, ?_⟩
+      · cases x <;> simp_all [emitAstExpr, lowerT] <;>
+          first
+            | (exact absurd rfl (hcomp _))
+            | (by_cases h0 : lo = 0 <;> simp_all [lowerT])
+      · simp [Sparkle.IR.Semantics.widthOf]; omega
+      · by_cases h0 : lo = 0 <;>
+          simp_all [evalExpr, evalList, evalOp, evalExpr.go]
+    | some v =>
+      have hval' : evalExpr we env x' = some v := by rw [hvx, hval]
+      refine ⟨.slice (.concat [.const 0 (hi + 1 - lo),
+        if lo == 0 then x' else .op .shr [x', .const (Int.ofNat lo) 32]])
+        (hi + 1 - lo - 1) 0, ?_, ?_, ?_⟩
+      · cases x <;> simp_all [emitAstExpr, lowerT] <;>
+          first
+            | (exact absurd rfl (hcomp _))
+            | (by_cases h0 : lo = 0 <;> simp_all [lowerT])
+      · simp [Sparkle.IR.Semantics.widthOf]; omega
+      · rw [sliceEncode_sem we env x' hi lo hlo (by rw [hwx]; omega) hhi v hval']
+        simp [evalExpr, hvx]
 
 end Tools.SVParser.RoundtripProof
