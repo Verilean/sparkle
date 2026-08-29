@@ -172,6 +172,21 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
         if lo == 0 && hi + 1 >= w then sanitizeName name
         else s!"{sanitizeName name}[{hi}:{lo}]"
       | none => s!"{sanitizeName name}[{hi}:{lo}]"
+    | .concat [.const 0 w, x] =>
+      -- The lowerer encodes a size cast `w'(y)` as
+      -- `slice (concat [0_w, y]) (w-1) 0`.  Emit that shape back as the
+      -- cast itself: the reparse then reproduces this IR verbatim
+      -- (emit∘parse becomes a projection) instead of wrapping one more
+      -- `{1'd0, ·}` layer per roundtrip — found by the
+      -- certified-roundtrip idempotence check.
+      if lo == 0 && hi + 1 == w then
+        s!"{w}'({emitExpr widthOf x})"
+      else
+        let n := hi + 1 - lo
+        if lo == 0 then
+          s!"{n}'({emitExpr widthOf e})"
+        else
+          s!"{n}'(({emitExpr widthOf e}) >> {lo})"
     | _ =>
       -- A part-select is only legal in Verilog on a NAME (net/reg/array
       -- element) — `(a >> b)[0:0]` is a syntax error.  When the operand is
@@ -217,7 +232,11 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
       match exprWidthV widthOf arg with
       | some w =>
         if w == 0 then s!"~({inner})"
-        else s!"({w}'({inner} ^ {w}'({(2 : Nat) ^ w - 1})))"
+        -- the mask is a SIZED literal (w'dN), not a cast of a bare one:
+        -- `w'(N)` re-parsed as a width-32 literal under a size cast and
+        -- grew one wrapper per roundtrip (certified-roundtrip
+        -- idempotence check)
+        else s!"({w}'({inner} ^ {w}'d{(2 : Nat) ^ w - 1}))"
       | none =>
         -- Parenthesise: a nested NOT otherwise renders as `~~x`, which
         -- iverilog rejects as a syntax error (TLBusBypassBar's

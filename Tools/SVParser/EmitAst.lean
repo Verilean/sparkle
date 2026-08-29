@@ -120,6 +120,16 @@ def emitAstExpr (widthOf : String → Option Nat) : Expr → Option SVExpr
     -- Op-typed elements of known nonzero width get a size cast, pinning
     -- Verilog's self-determined element width to the IR's.
     some (.concat (← emitConcatElems widthOf args))
+  | .slice (.concat [.const 0 w, x]) hi lo =>
+    -- inverse of the lowerer's size-cast encode (see the shipping
+    -- emitter): `slice (concat [0_w, y]) (w-1) 0` emits as `w'(y)`
+    if lo == 0 && hi + 1 == w then do
+      some (.sizeCast w (← emitAstExpr widthOf x))
+    else do
+      let inner ← emitAstExpr widthOf (.concat [.const 0 w, x])
+      let n := hi + 1 - lo
+      if lo == 0 then some (.sizeCast n inner)
+      else some (.sizeCast n (.binary .shr inner (.lit (.decimal none lo))))
   | .slice e hi lo =>
     match e with
     | .ref name =>
@@ -152,7 +162,7 @@ def emitAstExpr (widthOf : String → Option Nat) : Expr → Option SVExpr
     | some w =>
       if w == 0 then some (.unary .bitNot inner)
       else some (.sizeCast w (.binary .bitXor inner
-                   (.sizeCast w (.lit (.decimal none (2 ^ w - 1))))))
+                   (.lit (.decimal (some w) (2 ^ w - 1)))))
     | none => some (.unary .bitNot inner)
   | .op .neg [arg] => do
     some (.unary .neg (← emitAstExpr widthOf arg))

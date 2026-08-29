@@ -157,8 +157,7 @@ open Sparkle.IR.Semantics in
 /-- The image of `.op .not [x]` under emit-then-lower. -/
 def notEncode (x : Sparkle.IR.AST.Expr) (w : Nat) : Sparkle.IR.AST.Expr :=
   .slice (.concat [.const 0 w,
-    .op .xor [x,
-      .slice (.concat [.const 0 w, .const (Int.ofNat (2 ^ w - 1)) 32]) (w - 1) 0]])
+    .op .xor [x, .const (Int.ofNat (2 ^ w - 1)) w]])
     (w - 1) 0
 
 /- The `w ≤ 32` hypothesis below is not an artifact: it flushed out a
@@ -179,22 +178,22 @@ theorem notEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr) (w : Nat
     (hx : evalExpr we env x = some v) :
     evalExpr we env (notEncode x w) = evalExpr we env (.op .not [x]) := by
   have hp : 0 < 2 ^ w := Nat.two_pow_pos w
-  have hM32 : 2 ^ w - 1 < 4294967296 := by
-    have h32 : (2 : Nat) ^ w ≤ 2 ^ 32 := Nat.pow_le_pow_right (by omega) hw32
-    have : (2 : Nat) ^ 32 = 4294967296 := by decide
-    omega
   have hw1 : w - 1 + 1 = w := by omega
   have hmm : ∀ a n : Nat, a % n % n = a % n :=
     fun a n => Nat.mod_mod_of_dvd a (Nat.dvd_refl n)
   simp [notEncode, evalExpr, evalList, evalOp, evalExpr.go, widthOf,
-    widthOf.go, hx, hw, hw1, mask, hmm,
-    Nat.shiftRight_zero, Nat.zero_shiftLeft, Nat.mod_self]
-  -- One arithmetic goal remains: the sized-literal encode of 2^w-1
-  -- through Int and the 32-bit container reduces to 2^w-1 itself.
-  generalize hMdef : 2 ^ w - 1 = M at hM32 ⊢
-  have hMw : M % 2 ^ w = M := Nat.mod_eq_of_lt (by omega)
-  have hInt : ((M : Int) % 4294967296).toNat = M := by omega
-  simp [hInt, Nat.mod_eq_of_lt hM32, hMw, hmm]
+    hx, hw, hw1, mask, hmm,
+    Nat.shiftRight_zero, Nat.zero_shiftLeft]
+  -- residue: the Int-encode of the sized mask literal is 2^w-1 itself
+  have hcast : ((2 : Int) ^ w) = ((2 ^ w : Nat) : Int) := by push_cast; rfl
+  rw [hcast]
+  generalize (2 : Nat) ^ w = P at hp ⊢
+  have hMe : (((P - 1 : Nat) : Int) % ((P : Nat) : Int)).toNat % P = P - 1 := by
+    have h1 : ((P - 1 : Nat) : Int) % ((P : Nat) : Int) = ((P - 1 : Nat) : Int) :=
+      Int.emod_eq_of_lt (by omega) (by omega)
+    rw [h1, Int.toNat_natCast]
+    omega
+  rw [hMe]
 
 /- ------------------------------------------------------------------ -/
 /- M2, expression layer: the SEMANTIC roundtrip theorem, against the
@@ -619,7 +618,16 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       (hwid : hi < Sparkle.IR.Semantics.widthOf we x)
       (hhi : hi < 4294967296)
       (hcomp : ∀ n, x ≠ .ref n)
+      -- slice-of-CONCAT is split off: the canonical cast-encode shape
+      -- `slice (concat [0_w, y]) (w-1) 0` has its own constructor
+      -- (castEnc, below — the emitter inverts it to `w'(y)`); other
+      -- concat operands are outside the v1 fragment (the emitter's
+      -- shape dispatch makes their image list-shape-dependent)
+      (hnc : ∀ args, x ≠ .concat args)
       (hx : SFrag wof we env x) : SFrag wof we env (.slice x hi lo)
+  | castEnc {y} (w : Nat) (hw0 : 0 < w)
+      (hy : SFrag wof we env y) :
+      SFrag wof we env (.slice (.concat [.const 0 w, y]) (w - 1) 0)
 
 open Sparkle.IR.Semantics in
 set_option maxHeartbeats 3200000 in
@@ -1019,7 +1027,7 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
                 eval_binop_pair we env Operator.ge_s x y,
                 hbx1, hby1, hA, hB]
             simp [evalOp, hwSx, hwSy, Nat.max_self, hcond]
-  | sliceCompound hi lo hlo hwid hhi hcomp hx ih =>
+  | sliceCompound hi lo hlo hwid hhi hcomp hnc hx ih =>
     rename_i x
     obtain ⟨x', hex, hwx, hvx⟩ := ih
     obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hex
@@ -1032,6 +1040,7 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       · cases x <;> simp_all [emitAstExpr, lowerT] <;>
           first
             | (exact absurd rfl (hcomp _))
+            | (exact absurd rfl (hnc _))
             | (by_cases h0 : lo = 0 <;> simp_all [lowerT])
       · simp [Sparkle.IR.Semantics.widthOf]; omega
       · by_cases h0 : lo = 0 <;>
@@ -1044,10 +1053,22 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       · cases x <;> simp_all [emitAstExpr, lowerT] <;>
           first
             | (exact absurd rfl (hcomp _))
+            | (exact absurd rfl (hnc _))
             | (by_cases h0 : lo = 0 <;> simp_all [lowerT])
       · simp [Sparkle.IR.Semantics.widthOf]; omega
       · rw [sliceEncode_sem we env x' hi lo hlo (by rw [hwx]; omega) hhi v hval']
         simp [evalExpr, hvx]
+  | castEnc w hw0 hy ihy =>
+    rename_i y
+    obtain ⟨y', hey, hwy, hvy⟩ := ihy
+    obtain ⟨ey, hey1, hey2⟩ := Option.bind_eq_some_iff.mp hey
+    have hww : w - 1 + 1 = w := by omega
+    refine ⟨.slice (.concat [.const 0 w, y']) (w - 1) 0, ?_, ?_, ?_⟩
+    · simp [emitAstExpr, hey1, hww, lowerT, hey2]
+    · simp [Sparkle.IR.Semantics.widthOf]
+    · cases hv : evalExpr we env y with
+      | none => simp [evalExpr, evalList, hvy, hv]
+      | some v => simp [evalExpr, evalList, evalExpr.go, hvy, hv, hwy]
 
 
 /- ------------------------------------------------------------------ -/
