@@ -142,3 +142,56 @@ private def chk (sv : SVExpr) : Bool :=
 #guard chk (.ternary (.ident "c") (.ident "t") (.ident "f"))
 
 end Tools.SVParser.RoundtripProof
+
+/- ------------------------------------------------------------------ -/
+/- M2 calibration: the first NON-1:1 case.
+
+   The emitter prints `.op .not [x]` as `w'(x ^ w'(2^w-1))`, and the
+   lowerer turns each size cast into `slice (concat [0_w, ·]) (w-1) 0` —
+   so the roundtrip of a NOT is not syntactic identity but the IR
+   expression `notEncode` below.  This lemma proves the encoding is
+   SEMANTICALLY the NOT, which is the shape every non-1:1 case of the
+   full roundtrip theorem will take. -/
+
+open Sparkle.IR.Semantics in
+/-- The image of `.op .not [x]` under emit-then-lower. -/
+def notEncode (x : Sparkle.IR.AST.Expr) (w : Nat) : Sparkle.IR.AST.Expr :=
+  .slice (.concat [.const 0 w,
+    .op .xor [x,
+      .slice (.concat [.const 0 w, .const (Int.ofNat (2 ^ w - 1)) 32]) (w - 1) 0]])
+    (w - 1) 0
+
+/- The `w ≤ 32` hypothesis below is not an artifact: it flushed out a
+   real width-annotation inconsistency.  `literalToConst` gives every
+   BARE literal width 32, so for w > 32 the emitted mask `w'(2^w-1)`
+   lowers to `.const (2^w-1) 32` — a value wider than its annotation.
+   The executables agree anyway (Int values are carried in full and the
+   re-emitter prints the full value: a 40-bit `~d` round-trips to
+   `d ^ 40'hffffffffff` and co-sims clean), but the FORMAL semantics
+   masks a const to its annotated width, so such IR is outside the
+   well-formed fragment.  Resolution belongs to M1/M2: either lowering
+   annotates bare literals `max 32 (bits needed)`, or well-formedness
+   (const values fit their widths) becomes a standing hypothesis. -/
+open Sparkle.IR.Semantics in
+theorem notEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr) (w : Nat)
+    (hw : Sparkle.IR.Semantics.widthOf we x = w)
+    (hw32 : w ≤ 32) (hw0 : 0 < w) (v : Nat)
+    (hx : evalExpr we env x = some v) :
+    evalExpr we env (notEncode x w) = evalExpr we env (.op .not [x]) := by
+  have hp : 0 < 2 ^ w := Nat.two_pow_pos w
+  have hM32 : 2 ^ w - 1 < 4294967296 := by
+    have h32 : (2 : Nat) ^ w ≤ 2 ^ 32 := Nat.pow_le_pow_right (by omega) hw32
+    have : (2 : Nat) ^ 32 = 4294967296 := by decide
+    omega
+  have hw1 : w - 1 + 1 = w := by omega
+  have hmm : ∀ a n : Nat, a % n % n = a % n :=
+    fun a n => Nat.mod_mod_of_dvd a (Nat.dvd_refl n)
+  simp [notEncode, evalExpr, evalList, evalOp, evalExpr.go, widthOf,
+    widthOf.go, hx, hw, hw1, mask, hmm,
+    Nat.shiftRight_zero, Nat.zero_shiftLeft, Nat.mod_self]
+  -- One arithmetic goal remains: the sized-literal encode of 2^w-1
+  -- through Int and the 32-bit container reduces to 2^w-1 itself.
+  generalize hMdef : 2 ^ w - 1 = M at hM32 ⊢
+  have hMw : M % 2 ^ w = M := Nat.mod_eq_of_lt (by omega)
+  have hInt : ((M : Int) % 4294967296).toNat = M := by omega
+  simp [hInt, Nat.mod_eq_of_lt hM32, hMw, hmm]

@@ -9,6 +9,7 @@
 import Tools.SVParser
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CSim
+import Tools.SVParser.EmitAst
 import Sparkle.Core.JIT
 
 open Tools.SVParser.AST
@@ -2492,6 +2493,65 @@ endmodule
     else
       IO.println s!"FAIL: {r} (want [1]; 0 = the amount was read as a pointer)"
       failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 64 (certified-roundtrip M0): `emitAstExpr` is the shipping
+  -- emitter, at the AST level — validated by PARSE-equality over every
+  -- expression of the real XiangShan CI corpus.  For each parsed+lowered
+  -- module, every assign RHS and register input must satisfy
+  --   parse (Verilog.emitExpr widthOf e) = emitAstExpr widthOf e.
+  -- Skips gracefully when the corpus is absent (it is downloaded in CI).
+  IO.print "  Test 64: emitAstExpr ≡ shipping emitter on the CI corpus... "
+  try
+    let corpusDir := "bench/xiangshan/corpus"
+    if ← System.FilePath.pathExists corpusDir then
+      let mut exprs := 0
+      let mut bad := 0
+      let mut firstBad := ""
+      let entries ← System.FilePath.readDir corpusDir
+      for ent in entries do
+        if ent.fileName.endsWith ".sv" then
+          let src ← IO.FS.readFile ent.path
+          match parseAndLowerHierarchical src with
+          | .error _ => pure ()
+          | .ok design =>
+            for m in design.modules do
+              -- the widthOf the shipping emitStmt builds: wires by
+              -- SANITIZED name
+              let wof : String → Option Nat := fun n =>
+                ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
+                  Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind
+                  fun p => match p.ty with
+                    | .bitVector w => some w
+                    | .bit => some 1
+                    | _ => none
+              let es : List Sparkle.IR.AST.Expr := m.body.foldl (fun acc st =>
+                match st with
+                | .assign _ rhs => rhs :: acc
+                | .register _ _ _ input _ => input :: acc
+                | _ => acc) []
+              for e in es do
+                exprs := exprs + 1
+                let rendered := Sparkle.Backend.Verilog.emitExpr wof e
+                match Tools.SVParser.EmitAst.parseExprString rendered with
+                | .ok sv =>
+                  if Tools.SVParser.EmitAst.emitAstExpr wof e != some sv then
+                    bad := bad + 1
+                    if firstBad == "" then
+                      firstBad := s!"{ent.fileName}/{m.name}: {rendered.take 80}"
+                | .error err =>
+                  bad := bad + 1
+                  if firstBad == "" then
+                    firstBad := s!"{ent.fileName}/{m.name} (parse: {err.take 40}): {rendered.take 60}"
+      if bad == 0 && exprs > 0 then
+        IO.println s!"PASS ({exprs} expressions)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: {bad}/{exprs} disagree; first: {firstBad}"
+        failed := failed + 1
+    else
+      IO.println "SKIP (corpus not present)"
+      passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
