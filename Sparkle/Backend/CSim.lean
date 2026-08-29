@@ -1399,10 +1399,19 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , resetBody := []
         , evalTickLocals := [] }
 
-  | .register output _clock _reset input initValue =>
+  | .register output _clock (rstName, _) input initValue =>
     let width := lookupWidth typeMap output
     let outName := sanitizeName output
     let nextName := s!"{outName}_next"
+    -- Per-cycle reset: the register statement CARRIES (rst, init), and
+    -- the Verilog backend emits `if (rst) q <= init` from it.  CSim used
+    -- to ignore the field — correct only while the reset mux was ALSO
+    -- baked into the input expression, which the lowering's
+    -- stripResetMux no longer guarantees (and Sparkle-native inputs
+    -- never did).  Guard on membership so a phantom reset name cannot
+    -- produce an unbound C identifier.
+    let rstC := sanitizeName rstName
+    let hasRst := typeMap.fold (fun acc n _ => acc || sanitizeName n == rstC) false
     if width > 64 then
       -- Wide register.  Storage is `uint32_t out[N]`.  We
       -- maintain a parallel `out_next[N]` and on tick() we
@@ -1430,8 +1439,14 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       -- the same evalTick.
       let nextLocalDecl :=
         s!"        uint32_t {nextName}[{nWords}]; memcpy({nextName}, {outName}, sizeof({nextName}));"
+      let rstGuard : List String :=
+        if hasRst then
+          [s!"        if ({rstC}) \{"]
+            ++ emitInitWideLines nextName initValue width
+            ++ ["        }"]
+        else []
       { declarations := [s!"    {declStr}", s!"    {nextDeclStr}"]
-      , evalBody := nextParts.evalBody
+      , evalBody := nextParts.evalBody ++ rstGuard
       , tickBody := tickLines
       , resetBody := resetLines
       , evalTickLocals := [nextLocalDecl] }
@@ -1447,8 +1462,11 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
       let body : List String :=
         if ifElseLines.isEmpty then [s!"        {nextName} = {inputExpr};"]
         else ifElseLines
+      let rstGuard : List String :=
+        if hasRst then [s!"        if ({rstC}) {nextName} = {initExpr};"]
+        else []
       { declarations := [s!"    {cType} {outName};", s!"    {cType} {nextName};"]
-      , evalBody := body
+      , evalBody := body ++ rstGuard
       , tickBody := [s!"        {outName} = {nextName};"]
       , resetBody := [s!"        {outName} = {initExpr};"]
       , evalTickLocals := [nextLocalDecl] }
