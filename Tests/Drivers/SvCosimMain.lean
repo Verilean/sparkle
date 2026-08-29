@@ -75,7 +75,7 @@ def bake (ins : List PortInfo) (cycles : Nat) (seed : UInt64) :
   for c in [0:cycles] do
     let mut row := []
     for p in ins do
-      if p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk" then
+      if p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk" || p.name.endsWith "_clock" then
         pure ()
       else if p.name == "reset" || p.name == "rst" then
         row := row ++ [(p.name, if c < 2 then (1 : UInt64) else 0)]
@@ -326,7 +326,13 @@ def runCosim (dir rtDir workDir name : String) (cycles : Nat)
   -- RW0_clk).  Several DISTINCT clocks (ram_2x10: R0_clk + W0_clk) are
   -- outside the single-clock tick model — skip honestly.
   let clockPorts := ports.filter fun p =>
-    p.isIn && (p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk")
+    -- `_clock` too: TLDebugModuleInner carries a second domain as
+    -- `io_tl_clock`; treated as DATA it toggled randomly in the TB while
+    -- CSim's single-domain tick advanced those registers every cycle —
+    -- the two sims simulated different machines.  All detected clocks are
+    -- driven TOGETHER (same phase), which is the one multi-clock shape
+    -- CSim's tick model can represent faithfully.
+    p.isIn && (p.name == "clock" || p.name == "clk" || p.name.endsWith "_clk" || p.name.endsWith "_clock")
   let hasClock := !clockPorts.isEmpty
   -- Multiple clock PORTS (firtool SRAM macros: R0_clk + W0_clk) are
   -- driven with the SAME waveform — in XiangShan they are one clock
@@ -541,4 +547,8 @@ def main (args : List String) : IO Unit := do
     match r with
     | .rtMismatch d => IO.println s!"  RT✗  {n}: {d.take 140}"
     | .jitMismatch d => IO.println s!"  JIT✗ {n}: {d.take 140}"
+    -- Name tool failures too: a bare count hid WHICH module failed to
+    -- compile, so a real emitter bug (SBToTL's clock-domain sibling
+    -- shapes) sat unidentified behind "tool failures: 1".
+    | .toolFail d => IO.println s!"  TOOL✗ {n}: {d.take 140}"
     | _ => pure ()

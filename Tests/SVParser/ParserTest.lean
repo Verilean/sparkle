@@ -2340,5 +2340,98 @@ endmodule
         IO.println "PASS"; passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 60 (VectorFloatFMA): a WIDE slice at a non-word-aligned offset
+  -- as a CONCAT element.  The wide-concat slot builder indexed
+  -- `emitExpr(slice)`, and emitExpr has no inline form for a >64-bit
+  -- slice with lo≠0 — it silently handed back the BASE, so
+  -- `{car[106:1], b}` became `(car << 1) | b`: every bit of the CSA
+  -- carry off by one, surfacing as a 1-LSB FMA rounding error three
+  -- pipeline stages later.
+  IO.print "  Test 60: wide slice offset survives inside a concat slot... "
+  try
+    -- The slice must itself be >64 bits (94:31 is exactly 64 and takes
+    -- the sound narrow path) — the broken path was the >64-bit slice
+    -- with a non-aligned lo, `car[106:1]`-style.
+    let v := "
+module cslot (input [31:0] a, input b, output [7:0] y);
+  wire [127:0] base = {a, a, a, a};
+  wire [96:0] r = {base[126:31], b};
+  assign y = r[9:2];
+endmodule
+"
+    -- base bit i = a[i % 32]; r bit j (j ≥ 1) = base[j + 30], so
+    -- r[9:2] = base[39:32] = a[7:0] = 8'h01... compute: r[j]=base[j+30]:
+    -- r[2]=base[32]=a[0], …, r[9]=base[39]=a[7] → y = a[7:0].
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0x800000A5; JIT.setInput h 1 1)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    if r == [0xA5] then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: {r} (want [165]; anything else = the slice offset was dropped)"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 61 (DivUnit / SBToTL): a wide instance connection that is a
+  -- COMPOUND (mux of concats), and a wide value consumed by a ≤64-bit
+  -- context.  C has no expression form for a multi-word value, so these
+  -- rendered compound literals into scalar arithmetic and did not
+  -- compile — or, once hoisted, an un-truncated wide ref (SBToTL's
+  -- `cond ? 64'h0 : {…}`) assigned a pointer to a uint64.  The
+  -- `hoistWideForC` pre-pass now routes every such subexpression
+  -- through a wire.
+  IO.print "  Test 61: wide compound connection is hoisted and correct... "
+  try
+    -- The connection is a wide OP (not a concat): pre-hoist this emitted
+    -- `array | array` — the C did not compile at all.
+    let v := "
+module hst (input [31:0] a, input s, output [7:0] y);
+  wire [95:0] p = {a, a, a};
+  wire [95:0] q = {a, 32'h0, a};
+  hsink u (.d((s ? p : 96'h0) | (s ? 96'h0 : q)), .y(y));
+endmodule
+module hsink (input [95:0] d, output [7:0] y);
+  assign y = d[39:32];
+endmodule
+"
+    -- s=1: d = p | 0; d[39:32] = p[39:32] = a[7:0].  (The OR at the
+    -- connection root with mux operands is DivUnit's csa_sel shape.)
+    -- Value check AND a structural pin: from SV the optimizer's inlining
+    -- protections can leave a wire in place, so the value alone cannot
+    -- distinguish the hoisting pass — assert the hoist fired too.
+    let r ← jitRun v
+      (fun h => do JIT.setInput h 0 0x800000A5; JIT.setInput h 1 1)
+      1
+      (fun h => do let o ← JIT.getOutput h 0; return [o])
+    let structOk := match parseAndLowerHierarchical v with
+      | .ok design =>
+        -- The IR shape that reached DivUnit came from the optimizer
+        -- inlining a single-use wire into the connection; reproduce it
+        -- directly at the IR level and demand the hoist wire.
+        let m : Sparkle.IR.AST.Module := {
+          name := "hroot"
+          inputs := [⟨"s", .bit⟩, ⟨"p", .bitVector 96⟩, ⟨"q", .bitVector 96⟩]
+          outputs := [⟨"y", .bitVector 8⟩]
+          wires := [⟨"dw", .bitVector 96⟩]
+          body := [
+            .inst "hsink" "u" [("d",
+              .op .or [
+                .op .mux [.ref "s", .ref "p", .const 0 96],
+                .op .mux [.ref "s", .const 0 96, .ref "q"]]),
+              ("y", .ref "y")]]
+          assertions := [] }
+        let sink := (design.modules.find? (·.name == "hsink")).getD m
+        let c := Sparkle.Backend.CSim.toCDesign
+          { topModule := "hroot", modules := [m, sink] }
+        containsSubstr c "_wide_hoist_"
+      | .error _ => false
+    if r == [0xA5] && structOk then
+      IO.println "PASS"; passed := passed + 1
+    else
+      IO.println s!"FAIL: value={r} (want [165]) hoisted={structOk}"
+      failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

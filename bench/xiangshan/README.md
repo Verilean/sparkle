@@ -454,6 +454,64 @@ work list, classified:
   bytes.  Fixed with width rules for ternary, repeat, the passthrough
   unaries, and the one-bit reductions/comparisons.  Pinned by ParserTest 59.
 
+  That sweep's last failure, `VectorFloatFMA` (a single LSB on
+  `io_fp_result`), is RESOLVED — and it was never a rounding bug.
+  Signal-level tracing (debug output ports spliced into the original SV;
+  the roundtrip carries them through, so the harness compares every probe
+  automatically) walked it back in four hops: rounding decision → sticky
+  → 164-bit TZD → `_adder_lowbit_f64_T` → the CSA3to2 INPUTS.  The
+  connection `{car[106:1], bit}` was emitted as `(car << 1) | bit`: a
+  >64-bit slice with a non-aligned offset has no inline C form, and
+  `emitExpr` handed back the BASE with the offset silently dropped — the
+  entire CSA carry off by one bit, visible only as a 1-LSB rounding error
+  three pipeline stages later.
+
+  Fixing that class properly took a backend-local pre-pass,
+  `hoistWideForC`: every wide compound in a position the C emitter cannot
+  render inline (instance connections, comparison operands, mux arms of
+  ≤64-bit results, wide mux CONDITIONS — a hoisted array name is a
+  pointer, i.e. always true, so conditions get an explicit `!= 0`) is
+  hoisted into a wire and routed through the wide-assign machinery.
+  Nested wide slices compose (`slice(slice(b,h1,l1),h2,l2)` →
+  `slice(b, l1+h2, l1+l2)`), and the un-renderable fall-through now emits
+  a loud non-compiling token instead of a silently wrong value.
+
+  That unlocked the rest of the 12-module sweep: DivUnit, FP_INCVT,
+  AluDataModule/_3 and TLDebugModuleInner all pass now (20 OK / 0 fail;
+  was 14 OK, 1 value mismatch, 5 tool failures).  TLDebugModuleInner's
+  divergence was a HARNESS gap, not an emitter one: its second clock
+  domain arrives as `io_tl_clock`, and the clock detector only knew
+  `clock`/`clk`/`*_clk` — driven as random data, the golden's SBToTL
+  barely ticked while CSim ticked it every cycle; the two sims were
+  simulating different machines.  All `*_clock` ports are now driven
+  together as clocks.  Pinned by ParserTest 60-61; batch summaries now
+  name tool failures instead of only counting them.
+
+* NCBUpstreamRXREQ: RESOLVED.  Verilog's `~` is CONTEXT-determined, not
+  self-determined, so an unbounded `~expr` inverts the CONTAINER's bits
+  once it lands in a wider context.  This module builds `{6{~(|Size)}}`
+  as the sign-extend trick `6'd0 - (~(Size == 0) ^ 1)`; emitted unbounded,
+  `~(…)` widened to 32 bits, `^ 1` gave 0xffffffff, and
+  `6'd0 - 0xffffffff` evaluated to 1 instead of 6'h3f — the mask silently
+  lost five of its six bits.  The emitter now width-casts the NOT.
+
+  This one was EMITTER-side only: the IR and the JIT were both correct, so
+  it showed up as an RT mismatch (re-emitted RTL vs original under
+  iverilog), which is why no amount of JIT work would have found it.  The
+  bug class is general — any N-bit NOT feeding a wider context — so a
+  400-module slice of the real DefaultConfig build was swept to check for
+  fallout: 229/229 executed leaf co-sims and 17/17 hierarchical pass,
+  RT✗ 0 / JIT✗ 0.  Pinned by ParserTest 58.
+
+  Sweeping the 12 modules in the full build that use a replicated NOT (plus
+  their transitive closures, 87 files) then found one MORE emitter gap of
+  the same family: `staticExprWidth` had no arm for a CONDITIONAL, so
+  `^(cond ? 8'h0 : beat[255:248])` had no static width and the parity
+  expansion bailed to its fail-loud sentinel — TXDAT's
+  `io_out_bits_dataCheck` collapsed to a constant, losing all 32 parity
+  bytes.  Fixed with width rules for ternary, repeat, the passthrough
+  unaries, and the one-bit reductions/comparisons.  Pinned by ParserTest 59.
+
   That sweep leaves ONE open failure: `VectorFloatFMA` disagrees by a
   single LSB on `io_fp_result` (`…6324` vs `…6325`, i.e. 5.5556386672943e-24
   either way) at cycles 13-14 and nowhere else — a JIT-side rounding

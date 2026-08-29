@@ -397,6 +397,20 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
                   -- operand's own 32-bit words — combine both (the old code took
                   -- only the low word and dropped the overflow, corrupting any
                   -- non-word-aligned wide operand, e.g. HMAC's `dLo8‖zmodn‖…`).
+                  -- A wide `.slice` has NO inline C rendering, so
+                  -- `emitExpr` on it used to hand back the BASE with the
+                  -- offset silently dropped — `{car[106:1], b}` became
+                  -- `(car << 1) | b`, off by one bit through the whole
+                  -- vector (VectorFloatFMA's CSA input, a 1-LSB FMA
+                  -- rounding error three pipeline stages later).  Fold
+                  -- the slice's own offset into the bit index and read
+                  -- the base directly.
+                  let (arg, argExpr, bitInArgLo) := match arg with
+                    | .slice base _ slo =>
+                      if inferExprWidth typeMap base > 64 then
+                        (base, emitExpr typeMap base, bitInArgLo + slo)
+                      else (arg, argExpr, bitInArgLo)
+                    | _ => (arg, argExpr, bitInArgLo)
                   let argSlot := bitInArgLo / 32
                   let argBitInSlot := bitInArgLo % 32
                   let fullMask : Nat := (2 ^ bitCount) - 1
@@ -482,7 +496,14 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
             s!"((uint64_t){srcExpr}[{j}] << {32 * k - bitOffset})"
         s!"((({String.intercalate " | " terms})) & {maskStr})"
       else
-        emitExpr typeMap e
+        -- sliceWidth > 64: there is no inline C form.  `lo == 0` is a
+        -- plain truncation (word-count handled by the consumer), but a
+        -- non-zero offset CANNOT be expressed here — returning the base
+        -- silently dropped it.  Emit a loud non-compiling token instead;
+        -- consumers that can handle this shape (matWide, the concat slot
+        -- builder, wideConnLines) all materialise it themselves first.
+        if lo == 0 then emitExpr typeMap e
+        else s!"SPARKLE_WIDE_SLICE_OFFSET_DROPPED_{lo}"
     else
       let mask := (2 ^ sliceWidth - 1 : Nat)
       let maskStr := s!"0x{Nat.toDigits 16 mask |> String.ofList}ULL"
@@ -1993,6 +2014,188 @@ def emitModule (m : Module) (design : Option Design := none)
 
     structDecl ++ resetFn ++ evalFn ++ tickFn ++ evalTickFn
 
+/-- Backend-local pre-pass: hoist wide (>64-bit) compound expressions out
+    of positions the C emitter cannot render inline, into their own wires.
+    C has no expression form for a multi-word value, so a wide compound is
+    only renderable where the emitter MATERIALISES it (`matWide` under an
+    assign/register, `wideConnLines` for slice connections).  Everywhere
+    else — an instance connection built from a mux-of-concats (DivUnit's
+    `csa_sel` operands), a wide operand of a comparison (ShiftRightJam's
+    `|(io_in & sticky_mask)`), a wide arm of a mux whose RESULT is ≤64
+    bits (SBToTL's `cond ? 64'h0 : {…}`) — `emitExpr` used to render a
+    compound literal into scalar arithmetic and the C did not compile.
+    Hoisting each such subexpression into a wire routes it through the
+    well-tested wide-assign machinery; scalar consumers then read the
+    wire, which every arm already handles.  Semantically neutral: the
+    hoisted cones are combinational and effect-free. -/
+def hoistWideForC (m : Module) : Module := Id.run do
+  let tm := buildTypeMap m
+  let mut counter := 0
+  let mut newWires : List Port := []
+  let mut newAssigns : List Stmt := []
+  -- Hoist `e` into a fresh wire, returning the replacement ref.
+  let hoist (e : Expr) (w : Nat) (c : Nat) : Expr × Stmt × Port :=
+    let nm := s!"_wide_hoist_{c}"
+    (.ref nm, .assign nm e, { name := nm, ty := .bitVector w })
+  let isCompound : Expr → Bool := fun e => match e with
+    | .ref _ => false | .const _ _ => false | _ => true
+  -- Rewrite one expression tree.  `top` marks the RHS root of an
+  -- assign/register, where the wide machinery already copes.
+  let rec fix (top : Bool) (e : Expr) : StateM (Nat × List Stmt × List Port) Expr := do
+    match e with
+    | .op .mux [c, t, f] =>
+      -- The CONDITION is a truth value, not a bit pattern: a wide ref
+      -- there renders as an array name (a pointer — always true), and
+      -- truncating it to 64 bits is just as wrong (a value whose only
+      -- set bits are above bit 63 must still count as true).  Rewrite
+      -- wide conditions as an explicit `!= 0`, which the word-wise eq
+      -- arm renders correctly.  Arms keep value semantics.
+      let wc := inferExprWidth tm c
+      let mut c' ← fix false c
+      if wc > 64 then
+        if isCompound c' then
+          let (n, as_, ws) ← get
+          let (r, asg, p) := hoist c' wc n
+          set (n + 1, as_ ++ [asg], ws ++ [p])
+          c' := r
+        c' := .op .not [.op .eq [c', .const 0 wc]]
+      let w := inferExprWidth tm e
+      let t' ← fix false t
+      let f' ← fix false f
+      let e' := Expr.op .mux [c', t', f']
+      if w > 64 && !top then
+        let (n, as_, ws) ← get
+        let (r, a, p) := hoist e' w n
+        set (n + 1, as_ ++ [a], ws ++ [p])
+        return r
+      else if w ≤ 64 then
+        -- ≤64-bit mux: a wide-ref ARM reads its low 64 bits (context
+        -- truncation), same as the scalar-op rule below.
+        let wrap := fun (orig : Expr) (a : Expr) => match a with
+          | .ref _ => if inferExprWidth tm orig > 64 then Expr.slice a 63 0 else a
+          | _ => a
+        return Expr.op .mux [c', wrap t t', wrap f f']
+      else return e'
+    | .op op args =>
+      let w := inferExprWidth tm e
+      if w > 64 then
+        -- Wide result: matWide handles it AT an assign root; anywhere
+        -- else it must become a wire itself.
+        let args' ← args.mapM (fix false)
+        let e' := Expr.op op args'
+        if top then return e'
+        else
+          let (n, as_, ws) ← get
+          let (r, a, p) := hoist e' w n
+          set (n + 1, as_ ++ [a], ws ++ [p])
+          return r
+      else
+        -- Scalar result: any WIDE COMPOUND operand must become a wire.
+        -- A comparison then compares the wire (emitExpr has a word-wise
+        -- arm for wide refs); a VALUE context (a mux arm feeding a ≤64-bit
+        -- result) instead reads the wire's low 64 bits via `.slice`,
+        -- which is exactly Verilog's context-width truncation — a bare
+        -- wide ref there would render as an array name in scalar
+        -- arithmetic (SBToTL's `cond ? 64'h0 : {…}`).
+        let isCmp := match op with
+          | .eq | .lt_u | .lt_s | .le_u | .le_s
+          | .gt_u | .gt_s | .ge_u | .ge_s => true
+          | _ => false
+        let args' ← args.mapM fun a => do
+          let wa := inferExprWidth tm a
+          let mut a' ← fix false a
+          if wa > 64 && isCompound a' then
+            let (n, as_, ws) ← get
+            let (r, asg, p) := hoist a' wa n
+            set (n + 1, as_ ++ [asg], ws ++ [p])
+            a' := r
+          if wa > 64 && !isCmp then
+            match a' with
+            | .ref _ => return .slice a' 63 0
+            | _ => return a'
+          else return a'
+        return .op op args'
+    | .concat args =>
+      let w := inferExprWidth tm e
+      let args' ← args.mapM (fix false)
+      let e' := Expr.concat args'
+      if w > 64 && !top then
+        let (n, as_, ws) ← get
+        let (r, a, p) := hoist e' w n
+        set (n + 1, as_ ++ [a], ws ++ [p])
+        return r
+      else return e'
+    | .slice a hi lo =>
+      let a' ← fix false a
+      -- Compose nested slices: `slice(slice(base, h1, l1), h2, l2)` is
+      -- `slice(base, l1+h2, l1+l2)`.  Left nested, the scalar-slice
+      -- emitter calls emitExpr on the INNER wide slice — which has no
+      -- inline C form and used to hand back the base with its offset
+      -- silently dropped (now the loud sentinel; either way, compose).
+      match a' with
+      | .slice base _ l1 => return .slice base (l1 + hi) (l1 + lo)
+      | _ => return .slice a' hi lo
+    | .sliceDim a hi lo =>
+      let a' ← fix false a
+      return .sliceDim a' hi lo
+    | .index a i =>
+      return .index (← fix false a) (← fix false i)
+    | _ => return e
+  let runFix (top : Bool) (e : Expr) : StateM (Nat × List Stmt × List Port) Expr :=
+    fix top e
+  -- `top := true` (skip hoisting: matWide copes) is only sound when the
+  -- DESTINATION is itself wide.  A wide RHS landing in a ≤64-bit lhs
+  -- (`_GEN_1 = wide & 64'hff…`, MiscResultSelect) took the scalar assign
+  -- path and rendered the array name in scalar arithmetic — hoist it and
+  -- read the wire's low 64 bits instead (= Verilog context truncation).
+  let widthOfName := fun (nm : String) => lookupWidth tm nm
+  -- `origWide` is the pre-rewrite RHS width: a freshly hoisted wire is
+  -- not in `tm`, so the original expression's width is what says whether
+  -- the returned ref needs its low-64 read.
+  let scalarize := fun (origWide : Bool) (e : Expr) => match e with
+    | .ref nm => if origWide || lookupWidth tm nm > 64 then Expr.slice e 63 0 else e
+    | _ => e
+  let mut body' : List Stmt := []
+  for st in m.body do
+    let (st', (c', as_, ws)) := (do
+      match st with
+      | .assign l r =>
+        if widthOfName l > 64 then
+          return Stmt.assign l (← runFix true r)
+        else
+          let wide := inferExprWidth tm r > 64
+          let r' ← runFix false r
+          return Stmt.assign l (scalarize wide r')
+      | .register o ck rs inp init =>
+        if widthOfName o > 64 then
+          return Stmt.register o ck rs (← runFix true inp) init
+        else
+          let wide := inferExprWidth tm inp > 64
+          let inp' ← runFix false inp
+          return Stmt.register o ck rs (scalarize wide inp') init
+      | .inst mn inm conns =>
+        let conns' ← conns.mapM fun (p, e) => do
+          let e' ← runFix false e
+          return (p, e')
+        return Stmt.inst mn inm conns'
+      | .memory n aw dw ck wa wd we ra rd cr ew er =>
+        let wdTop := dw > 64
+        return Stmt.memory n aw dw ck (← runFix false wa) (← runFix wdTop wd)
+          (← runFix false we) (← runFix false ra) rd cr
+          (← ew.mapM fun (a, dta, en) =>
+            return (← runFix false a, ← runFix wdTop dta, ← runFix false en))
+          (← er.mapM fun (a, r) => return (← runFix false a, r))
+      : StateM (Nat × List Stmt × List Port) Stmt).run (counter, [], []) |>.run
+    counter := c'
+    newAssigns := newAssigns ++ as_
+    newWires := newWires ++ ws
+    body' := body' ++ [st']
+  -- No early-out on "nothing hoisted": the pass also performs PURE
+  -- rewrites (nested-slice composition, mux-condition truthiness,
+  -- scalar-lhs truncation) that must survive even when no wire was
+  -- added — keying the return on newAssigns discarded them.
+  return { m with body := newAssigns ++ body', wires := m.wires ++ newWires }
+
 /-- Convert a full design to C simulation code (no JIT wrapper) -/
 def toCDesign (d : Design)
     (observableWires : Option (List String) := none)
@@ -2023,7 +2226,8 @@ def toCDesign (d : Design)
           next := next ++ [m]
       remaining := next
     result ++ remaining
-  let code := sorted.map fun m =>
+  let code := sorted.map fun m0 =>
+    let m := hoistWideForC m0
     if m.name == topName then emitModule m (some d) observableWires funcQual
     else emitModule m (some d) none funcQual
   header ++ String.intercalate "\n" code
