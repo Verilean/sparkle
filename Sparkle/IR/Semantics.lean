@@ -227,6 +227,36 @@ private def envR : Env := fun n => if n == "rst" then 1 else envS n
 #guard (stepModule weS bodyS envR).map (fun p => p.2) = some [("r", 3)]
 end StepGuards
 
+/-- Apply a register-update list to a state. -/
+def applyNexts (st : String → Nat) (nexts : List (String × Nat)) :
+    String → Nat :=
+  fun n => match nexts.find? (fun p => p.1 == n) with
+    | some p => p.2
+    | none => st n
+
+/-- Run `k` cycles.  `seed t st` builds cycle `t`'s starting environment
+    from the register state (module plumbing — typically inputs overlaid
+    on registers — is the CALLER's, so the trace theorem quantifies over
+    every seeding discipline).  Returns the per-cycle post-elaboration
+    environments, oldest first — the observable trace.  (The cycle
+    index passed to `seed` counts DOWN from `k-1`; a caller wanting
+    wall-clock indices maps `t ↦ k-1-t`.) -/
+def runModule (we : WEnv) (body : List Stmt)
+    (seed : Nat → (String → Nat) → Env) :
+    Nat → (String → Nat) → Option (List Env)
+  | 0, _ => some []
+  | k + 1, st => do
+    let (envF, nexts) ← stepModule we body (seed k st)
+    let rest ← runModule we body seed k (applyNexts st nexts)
+    some (envF :: rest)
+
+-- multi-cycle: seed each cycle from register state with a=1, rst=0;
+-- r accumulates 7, 8, 9 → trace of w = r+1 each cycle
+private def seedS : Nat → (String → Nat) → Env := fun _ st n =>
+  if n == "a" then 1 else if n == "rst" then 0 else st n
+#guard (runModule weS bodyS seedS 3 (fun n => if n == "r" then 7 else 0)).map
+    (fun tr => tr.map (fun e => e "w")) = some [8, 9, 10]
+
 /- Behavioral pins: the semantics agrees with hardware intuition on
    small cases (evaluated at compile time). -/
 section Guards

@@ -1440,4 +1440,27 @@ theorem step_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
   cases evalAssigns we body env0 with
   | none => rfl
   | some envF => simp [regNexts_eq hB hI envF]
+
+open Sparkle.IR.Semantics in
+/-- **Trace equivalence**: the image body produces the same observable
+    trace for any number of cycles, any initial state, and any input
+    seeding discipline — the multi-cycle corollary of `step_roundtrip`,
+    by induction on the cycle count. -/
+theorem trace_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
+    (hB : BFrag wof we wires body)
+    (hI : bodyImage wof wires body = some body')
+    (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : String → Nat),
+      runModule we body' seed k st = runModule we body seed k st := by
+  intro k
+  induction k with
+  | zero => intro st; rfl
+  | succ k ih =>
+    intro st
+    simp only [runModule, Option.bind_eq_bind,
+      step_roundtrip hB hI (seed k st)]
+    cases stepModule we body (seed k st) with
+    | none => rfl
+    | some p => simp [ih]
+
 end Tools.SVParser.RoundtripProof
