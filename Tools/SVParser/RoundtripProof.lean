@@ -303,6 +303,81 @@ theorem sliceEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr)
       show hi - lo + 1 = hi + 1 - lo from by omega]
 
 open Sparkle.IR.Semantics in
+/-- Head/tail decomposition of concat evaluation (the head stays an
+    opaque `evalExpr` application, so hypotheses about it keep
+    rewriting after the unfold). -/
+theorem eval_concat_cons (we : WEnv) (env : Env)
+    (x : Sparkle.IR.AST.Expr) (xs : List Sparkle.IR.AST.Expr) :
+    evalExpr we env (.concat (x :: xs))
+      = (evalExpr we env x).bind fun v =>
+          (evalList we env xs).bind fun vs =>
+            some (evalExpr.go we (x :: xs) (v :: vs)) := by
+  simp only [evalExpr, evalList, Option.bind_eq_bind]
+  cases evalExpr we env x <;>
+    cases hxs : evalList we env xs <;> simp [hxs]
+
+open Sparkle.IR.Semantics in
+/-- Evaluation of a lowered size cast `w'(x)` whose operand has exactly
+    width `w`: the identity mask. -/
+theorem castEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr)
+    (w : Nat) (hwx : Sparkle.IR.Semantics.widthOf we x = w) (hw0 : 0 < w)
+    (v : Nat) (hx : evalExpr we env x = some v) :
+    evalExpr we env (.slice (.concat [.const 0 w, x]) (w - 1) 0)
+      = some (mask w v) := by
+  have hn : w - 1 + 1 = w := by omega
+  have hmm : ∀ a n : Nat, a % n % n = a % n :=
+    fun a n => Nat.mod_mod_of_dvd a (Nat.dvd_refl n)
+  simp [evalExpr, evalList, evalOp, evalExpr.go, widthOf, widthOf.go,
+    hx, hwx, hn, mask, hmm, Nat.shiftRight_zero, Nat.zero_shiftLeft,
+    Nat.mod_self]
+
+open Sparkle.IR.Semantics in
+theorem evalList_length {we env} : ∀ {args : List Sparkle.IR.AST.Expr}
+    {vs : List Nat}, evalList we env args = some vs → vs.length = args.length
+  | [], vs, h => by simp [evalList] at h; simp [← h]
+  | a :: rest, vs, h => by
+    simp only [evalList, Option.bind_eq_bind] at h
+    cases hA : evalExpr we env a with
+    | none => rw [hA] at h; simp at h
+    | some v =>
+      rw [hA] at h
+      cases hR : evalList we env rest with
+      | none => rw [hR] at h; simp at h
+      | some vs' =>
+        rw [hR] at h
+        simp only [Option.bind_some] at h
+        cases h
+        simp [evalList_length hR]
+
+open Sparkle.IR.Semantics in
+/-- The concat combiner's running offset (a zip-fold over widths) is the
+    plain width sum whenever the value list is long enough. -/
+theorem restW_eq (we : WEnv) : ∀ (as : List Sparkle.IR.AST.Expr)
+    (vs : List Nat), as.length ≤ vs.length →
+    ((as.zip vs).foldl (fun acc (p : Sparkle.IR.AST.Expr × Nat) =>
+        acc + Sparkle.IR.Semantics.widthOf we p.1) 0)
+      = Sparkle.IR.Semantics.widthOf.go we as := by
+  -- foldl with a running accumulator: generalize it first.
+  suffices h : ∀ (as : List Sparkle.IR.AST.Expr) (vs : List Nat), as.length ≤ vs.length →
+      ∀ acc, ((as.zip vs).foldl (fun a (p : Sparkle.IR.AST.Expr × Nat) =>
+          a + Sparkle.IR.Semantics.widthOf we p.1) acc)
+        = acc + Sparkle.IR.Semantics.widthOf.go we as by
+    intro as vs hlen
+    simpa using h as vs hlen 0
+  intro as
+  induction as with
+  | nil => intro vs _ acc; simp [Sparkle.IR.Semantics.widthOf.go]
+  | cons a rest ih =>
+    intro vs hlen acc
+    cases vs with
+    | nil => simp at hlen
+    | cons v vs' =>
+      simp only [List.zip_cons_cons, List.foldl_cons]
+      rw [ih vs' (by simpa using hlen)]
+      simp [Sparkle.IR.Semantics.widthOf.go]
+      omega
+
+open Sparkle.IR.Semantics in
 /-- The semantic fragment (see `roundtrip_sem`). -/
 inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
     Sparkle.IR.AST.Expr → Prop
@@ -339,6 +414,16 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       (hexact : hi + 1 = we n)
       (henv : env n < 2 ^ we n) :
       SFrag wof we env (.slice (.ref n) hi 0)
+  | concatNil : SFrag wof we env (.concat [])
+  | concatCons {a rest}
+      -- op-typed elements get a size cast on emission; its width must be
+      -- the element's semantic width for the cast to be an identity
+      (hopw : ∀ o as, a = Sparkle.IR.AST.Expr.op o as →
+          ∃ w, EmitAst.exprWidthT wof a = some w ∧ 0 < w ∧
+            Sparkle.IR.Semantics.widthOf we a = w)
+      (ha : SFrag wof we env a)
+      (hrest : SFrag wof we env (.concat rest)) :
+      SFrag wof we env (.concat (a :: rest))
   | sliceCompound {x} (hi lo : Nat) (hlo : lo ≤ hi)
       (hwid : hi < Sparkle.IR.Semantics.widthOf we x)
       (hhi : hi < 4294967296)
@@ -402,6 +487,134 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
     · simp_all [Sparkle.IR.Semantics.widthOf]
     · cases hX : evalExpr we env x <;>
         simp_all [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf]
+  | concatNil =>
+    exact ⟨.concat [],
+      by simp [emitAstExpr, emitConcatElems, lowerT, lowerTList], rfl, rfl⟩
+  | concatCons hopw ha hrest iha ihrest =>
+    rename_i a rest
+    obtain ⟨a', hea, hwa, hva⟩ := iha
+    obtain ⟨r', her, hwr, hvr⟩ := ihrest
+    obtain ⟨ea, hea1, hea2⟩ := Option.bind_eq_some_iff.mp hea
+    obtain ⟨er, her1, her2⟩ := Option.bind_eq_some_iff.mp her
+    obtain ⟨es, hes1, rfl⟩ : ∃ es, emitConcatElems wof rest = some es
+        ∧ er = SVExpr.concat es := by
+      cases hE : emitConcatElems wof rest with
+      | none => simp [emitAstExpr, hE] at her1
+      | some es =>
+        simp only [emitAstExpr, hE, Option.bind_some] at her1
+        exact ⟨es, rfl, (Option.some_inj.mp her1).symm⟩
+    obtain ⟨rls, hrls1, rfl⟩ : ∃ rls, lowerTList es = some rls
+        ∧ r' = Sparkle.IR.AST.Expr.concat rls := by
+      cases hL : lowerTList es with
+      | none => simp [lowerT, hL] at her2
+      | some rls =>
+        simp only [lowerT, hL, Option.bind_some] at her2
+        exact ⟨rls, rfl, (Option.some_inj.mp her2).symm⟩
+    -- aggregate width of the rest-lists
+    have hgoW : Sparkle.IR.Semantics.widthOf.go we rls
+        = Sparkle.IR.Semantics.widthOf.go we rest := by
+      simpa [Sparkle.IR.Semantics.widthOf] using hwr
+    -- rest evaluation transfer (both directions, some and none)
+    have hrestEval : ∀ vs, evalList we env rest = some vs →
+        ∃ vs2, evalList we env rls = some vs2
+          ∧ evalExpr.go we rls vs2 = evalExpr.go we rest vs := by
+      intro vs hR
+      have hcr : evalExpr we env (.concat rest)
+          = some (evalExpr.go we rest vs) := by
+        simp [evalExpr, hR]
+      have h2 := hvr.trans hcr
+      cases hL : evalList we env rls with
+      | none => simp [evalExpr, hL] at h2
+      | some vs2 =>
+        simp only [evalExpr, hL, Option.bind_eq_bind, Option.bind_some,
+          Option.some_inj] at h2
+        exact ⟨vs2, rfl, h2⟩
+    have hrestNone : evalList we env rest = none →
+        evalList we env rls = none := by
+      intro hR
+      have hcr : evalExpr we env (.concat rest) = none := by
+        simp [evalExpr, hR]
+      have h2 := hvr.trans hcr
+      cases hL : evalList we env rls with
+      | none => rfl
+      | some vs2 => simp [evalExpr, hL] at h2
+    by_cases hop : ∃ o as, a = Sparkle.IR.AST.Expr.op o as
+    · -- op-typed head: emitted with a size cast
+      obtain ⟨o, as, rfl⟩ := hop
+      obtain ⟨w, hwT, hw0, hwS⟩ := hopw o as rfl
+      have hwa' : Sparkle.IR.Semantics.widthOf we a' = w := by
+        rw [hwa, hwS]
+      refine ⟨.concat (.slice (.concat [.const 0 w, a']) (w - 1) 0 :: rls),
+        ?_, ?_, ?_⟩
+      · have hif : (if w > 0 then SVExpr.sizeCast w ea else ea)
+            = SVExpr.sizeCast w ea := if_pos hw0
+        simp [emitAstExpr, emitConcatElems, hea1, hes1, hwT, hif, lowerT,
+          lowerTList, hea2, hrls1]
+      · simp only [Sparkle.IR.Semantics.widthOf, widthOf.go, hgoW]
+        have h1 : w - 1 - 0 + 1 = w := by omega
+        rw [h1, hwS]
+      · cases hA : evalExpr we env (.op o as) with
+        | none =>
+          have hA' : evalExpr we env a' = none := by rw [hva, hA]
+          have hEnc : evalExpr we env
+              (.slice (.concat [.const 0 w, a']) (w - 1) 0) = none := by
+            simp [evalExpr, evalList, hA']
+          rw [eval_concat_cons, eval_concat_cons, hA, hEnc]
+          simp
+        | some v =>
+          have hA' : evalExpr we env a' = some v := by rw [hva, hA]
+          have hcast := castEncode_sem we env a' w hwa' hw0 v hA'
+          cases hR : evalList we env rest with
+          | none =>
+            have hRls := hrestNone hR
+            rw [eval_concat_cons, eval_concat_cons, hA, hcast, hR, hRls]
+            simp
+          | some vs =>
+            obtain ⟨vs2, hRls, hgo⟩ := hrestEval vs hR
+            have hlen2 : rls.length ≤ vs2.length := by
+              have := evalList_length hRls; omega
+            have hlenR : rest.length ≤ vs.length := by
+              have := evalList_length hR; omega
+            have hw1 : w - 1 + 1 = w := by omega
+            have hw1' : w - 1 - 0 + 1 = w := by omega
+            have hmm : ∀ x n : Nat, x % n % n = x % n :=
+              fun x n => Nat.mod_mod_of_dvd x (Nat.dvd_refl n)
+            rw [eval_concat_cons, eval_concat_cons, hA, hcast, hR, hRls]
+            simp only [Option.bind_eq_bind, Option.bind_some,
+              Option.some_inj]
+            simp only [evalExpr.go, restW_eq we rls vs2 hlen2,
+              restW_eq we rest vs hlenR, hgoW, hgo,
+              Sparkle.IR.Semantics.widthOf, hw1, hw1', hwS, mask, hmm]
+    · -- plain head: emitted 1:1
+      refine ⟨.concat (a' :: rls), ?_, ?_, ?_⟩
+      · cases a <;>
+          first
+            | (exact absurd ⟨_, _, rfl⟩ hop)
+            | simp_all [emitAstExpr, emitConcatElems, lowerT, lowerTList]
+      · simp only [Sparkle.IR.Semantics.widthOf, widthOf.go, hgoW, hwa]
+      · cases hA : evalExpr we env a with
+        | none =>
+          have hA' : evalExpr we env a' = none := by rw [hva, hA]
+          rw [eval_concat_cons, eval_concat_cons, hA, hA']
+          simp
+        | some v =>
+          have hA' : evalExpr we env a' = some v := by rw [hva, hA]
+          cases hR : evalList we env rest with
+          | none =>
+            have hRls := hrestNone hR
+            rw [eval_concat_cons, eval_concat_cons, hA, hA', hR, hRls]
+            simp
+          | some vs =>
+            obtain ⟨vs2, hRls, hgo⟩ := hrestEval vs hR
+            have hlen2 : rls.length ≤ vs2.length := by
+              have := evalList_length hRls; omega
+            have hlenR : rest.length ≤ vs.length := by
+              have := evalList_length hR; omega
+            rw [eval_concat_cons, eval_concat_cons, hA, hA', hR, hRls]
+            simp only [Option.bind_eq_bind, Option.bind_some,
+              Option.some_inj]
+            simp only [evalExpr.go, restW_eq we rls vs2 hlen2,
+              restW_eq we rest vs hlenR, hgoW, hgo, hwa]
   | not w hwT hwS hw32 hw0 hx ih =>
     rename_i x
     obtain ⟨x', hex, hwx, hvx⟩ := ih
