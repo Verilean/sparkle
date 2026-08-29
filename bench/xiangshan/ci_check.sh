@@ -171,6 +171,16 @@ echo "== phase 4: verilog → IR → lean₄ → IR proofs (#verify_dsl_roundtri
 # count so a drop shows up in the log.
 DSL_FILE=Tests/Verification/XiangShanDslRoundtrip.lean
 if [ -f "$DSL_FILE" ]; then
+  # `lake env lean` does NOT build missing dependencies — it needs the
+  # oleans of the file's import closure on disk.  On the dev box those
+  # are always present; in CI only the phase-1/2 exes were built, so
+  # phase 4 failed with "object file ... does not exist" on every run
+  # since it was added (masked at first behind a phase-1 failure).
+  lake build Sparkle Tools.SVParser.DslEmit > "$WORK/dsl_build.log" 2>&1 || {
+    echo "FAIL: could not build the dsl-roundtrip import closure"
+    tail -5 "$WORK/dsl_build.log" | sed 's/^/    /'
+    fail=1
+  }
   if lake env lean "$DSL_FILE" > "$WORK/dsl_roundtrip.log" 2>&1; then
     proven=$(grep -c '✅' "$WORK/dsl_roundtrip.log")
     cones=$(grep -oE '— [0-9]+ cone' "$WORK/dsl_roundtrip.log" | grep -oE '[0-9]+' | paste -sd+ | bc)
