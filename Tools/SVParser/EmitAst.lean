@@ -218,6 +218,112 @@ def emitConcatElems (widthOf : String → Option Nat) :
     some (ea :: es)
 end
 
+/-- The emitter's GENERAL compound-slice arm fires for every non-ref
+    operand except the canonical cast-encode shape (whose arm is the
+    inversion `w'(y)`). -/
+theorem emitAst_slice_general {wof : String → Option Nat}
+    {x : Sparkle.IR.AST.Expr} (hi lo : Nat)
+    (hcomp : ∀ n, x ≠ .ref n)
+    (hncast : ∀ w y, x = .concat [.const 0 w, y] →
+      ¬(lo = 0 ∧ hi + 1 = w)) :
+    Tools.SVParser.EmitAst.emitAstExpr wof (.slice x hi lo)
+      = (Tools.SVParser.EmitAst.emitAstExpr wof x).bind fun inner =>
+          if lo == 0 then some (.sizeCast (hi + 1) inner)
+          else some (.sizeCast (hi + 1 - lo)
+            (.binary .shr inner (.lit (.decimal none lo)))) := by
+  have hgen : ∀ (e : Sparkle.IR.AST.Expr),
+      (do
+        let inner ← Tools.SVParser.EmitAst.emitAstExpr wof e
+        let n := hi + 1 - lo
+        if lo == 0 then some (Tools.SVParser.AST.SVExpr.sizeCast n inner)
+        else some (.sizeCast n (.binary .shr inner (.lit (.decimal none lo)))))
+      = (Tools.SVParser.EmitAst.emitAstExpr wof e).bind fun inner =>
+          if lo == 0 then some (.sizeCast (hi + 1) inner)
+          else some (.sizeCast (hi + 1 - lo)
+            (.binary .shr inner (.lit (.decimal none lo)))) := by
+    intro e
+    cases Tools.SVParser.EmitAst.emitAstExpr wof e with
+    | none => rfl
+    | some inner =>
+      by_cases h0 : lo = 0
+      · simp [h0, Nat.sub_zero]
+      · simp [h0]
+  match x, hcomp, hncast with
+  | .const v w, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .op o args, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .slice y hi2 lo2, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .sliceDim y hi2 lo2, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .index a i, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .ref n, hcomp, _ => exact absurd rfl (hcomp n)
+  | .concat [], _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .concat [a], _, _ =>
+    rw [Tools.SVParser.EmitAst.emitAstExpr.eq_def]
+    split <;>
+      first
+        | exact hgen _
+        | (rename_i heq
+           first
+             | injection heq with he hh hl
+             | obtain ⟨he, hh, hl⟩ := heq
+           subst he hh hl
+           refine Eq.trans ?_ (hgen _)
+           rfl)
+        | simp_all
+  | .concat (a :: b :: c :: rest), _, _ =>
+    rw [Tools.SVParser.EmitAst.emitAstExpr.eq_def]
+    split <;>
+      first
+        | exact hgen _
+        | (rename_i heq
+           first
+             | injection heq with he hh hl
+             | obtain ⟨he, hh, hl⟩ := heq
+           subst he hh hl
+           refine Eq.trans ?_ (hgen _)
+           rfl)
+        | simp_all
+  | .concat [a, b], _, hncast =>
+    match a, hncast with
+    | .ref _, _ | .op _ _, _ | .concat _, _ | .slice _ _ _, _
+    | .sliceDim _ _ _, _ | .index _ _, _ => exact Eq.trans (by rfl) (hgen _)
+    | .const v w, hncast =>
+      by_cases hv : v = 0
+      · subst hv
+        have hng : (lo == 0 && hi + 1 == w) = false := by
+          have := hncast w b rfl
+          simp only [Bool.and_eq_false_iff, beq_eq_false_iff_ne]
+          by_cases hl0 : lo = 0
+          · right; intro hEq; exact this ⟨hl0, hEq⟩
+          · left; exact hl0
+        show Tools.SVParser.EmitAst.emitAstExpr wof
+            (.slice (.concat [.const 0 w, b]) hi lo) = _
+        rw [show Tools.SVParser.EmitAst.emitAstExpr wof
+            (.slice (.concat [.const 0 w, b]) hi lo)
+          = if (lo == 0 && hi + 1 == w) = true then do
+              some (.sizeCast w (← Tools.SVParser.EmitAst.emitAstExpr wof b))
+            else do
+              let inner ← Tools.SVParser.EmitAst.emitAstExpr wof
+                (.concat [.const 0 w, b])
+              let n := hi + 1 - lo
+              if lo == 0 then some (.sizeCast n inner)
+              else some (.sizeCast n
+                (.binary .shr inner (.lit (.decimal none lo))))
+          from rfl]
+        rw [if_neg (by simp [hng])]
+        exact Eq.trans (by rfl) (hgen _)
+      · rw [Tools.SVParser.EmitAst.emitAstExpr.eq_def]
+        split <;>
+          first
+            | exact hgen _
+            | (rename_i heq
+               first
+                 | injection heq with he hh hl
+                 | obtain ⟨he, hh, hl⟩ := heq
+               subst he hh hl
+               refine Eq.trans ?_ (hgen _)
+               rfl)
+            | simp_all
+
 /-- Run the shipping expression parser on a string (the validation
     harness for parse-equality). -/
 def parseExprString (s : String) : Except String SVExpr :=
