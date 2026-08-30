@@ -916,12 +916,40 @@ theorem applyNexts_perm {l l' : List (String × Nat)} (hp : l.Perm l')
    memory state (only on `envF`), and each fold touches exactly its own
    array slice. -/
 
-/-- One statement's memory-state effect.  (Matches on the statement
-    ONLY, so the partial application `stmtMemUpd we envF s` reduces —
-    it appears as a `bind` continuation in the lemmas below.) -/
+/-- Payload evaluation depends on the memory state only through its
+    OWN array's slice. -/
+theorem evalPayload_mems_congr {we : WEnv} {m₁ m₂ : MEnv} {env : Env}
+    {arr : String} {aw dw : Nat}
+    (hm : ∀ i, m₁ arr i = m₂ arr i) (e : Expr) :
+    evalPayload we m₁ env arr aw dw e = evalPayload we m₂ env arr aw dw e := by
+  unfold evalPayload
+  have hs : ∀ (reads : List (String × Expr)) (acc : Env),
+      spliceReads we m₁ env arr aw dw reads acc
+        = spliceReads we m₂ env arr aw dw reads acc := by
+    intro reads
+    induction reads with
+    | nil => intro acc; rfl
+    | cons p rest ih =>
+      intro acc
+      obtain ⟨ph, idx⟩ := p
+      simp only [spliceReads, Option.bind_eq_bind]
+      cases evalExpr we env idx with
+      | none => rfl
+      | some vi =>
+        simp only [Option.bind_some, hm (mask aw vi)]
+        exact ih _
+  cases hE : extractReads arr e 0 with
+  | mk e' rest =>
+    cases rest with
+    | mk reads k => simp [hs]
+
+/-- One statement's memory-state effect: `mems0` for read resolution is
+    the state the statement receives (Verilog nonblocking: payloads see
+    the pre-write state — and earlier statements only touch OTHER
+    arrays, so this equals the pre-cycle state of the OWN array). -/
 def stmtMemUpd (we : WEnv) (envF : Env) : Stmt → MEnv → Option MEnv
   | .memory name aw dw _ wa wd wen _ _ _ ew _ =>
-    fun m => memWritePorts we envF name aw dw ((wa, wd, wen) :: ew) m
+    fun m => memWritePorts we m envF name aw dw ((wa, wd, wen) :: ew) m
   | _ => fun m => some m
 
 theorem memNexts_cons (we : WEnv) (envF : Env) (s : Stmt) (t : List Stmt)
@@ -935,98 +963,106 @@ theorem memNexts_cons (we : WEnv) (envF : Env) (s : Stmt) (t : List Stmt)
   | .register _ _ _ _ _ => rfl
   | .inst _ _ _ => rfl
 
-/-- Success of a write fold does not depend on the memory state. -/
+/-- Success of a write fold does not depend on the THREADED state, and
+    tracks the read-resolution state only through the own slice. -/
 theorem memWritePorts_isSome (we : WEnv) (env : Env) (name : String)
     (aw dw : Nat) :
-    ∀ (ports : List (Expr × Expr × Expr)) (m₁ m₂ : MEnv),
-    (memWritePorts we env name aw dw ports m₁).isSome
-      = (memWritePorts we env name aw dw ports m₂).isSome := by
+    ∀ (ports : List (Expr × Expr × Expr)) (ms₁ ms₂ m₁ m₂ : MEnv),
+    (∀ i, ms₁ name i = ms₂ name i) →
+    (memWritePorts we ms₁ env name aw dw ports m₁).isSome
+      = (memWritePorts we ms₂ env name aw dw ports m₂).isSome := by
   intro ports
   induction ports with
-  | nil => intro m₁ m₂; rfl
+  | nil => intro _ _ m₁ m₂ _; rfl
   | cons p rest ih =>
-    intro m₁ m₂
+    intro ms₁ ms₂ m₁ m₂ hms
     obtain ⟨a, d, en⟩ := p
-    simp only [memWritePorts, Option.bind_eq_bind]
-    cases evalExpr we env en with
+    simp only [memWritePorts, Option.bind_eq_bind,
+      evalPayload_mems_congr hms en, evalPayload_mems_congr hms a,
+      evalPayload_mems_congr hms d]
+    cases evalPayload we ms₂ env name aw dw en with
     | none => rfl
     | some ev =>
-    cases evalExpr we env a with
+    cases evalPayload we ms₂ env name aw dw a with
     | none => rfl
     | some av =>
-    cases evalExpr we env d with
+    cases evalPayload we ms₂ env name aw dw d with
     | none => rfl
     | some dv =>
     simp only [Option.bind_some]
-    exact ih _ _
+    exact ih _ _ _ _ hms
 
 /-- A write fold leaves every OTHER array untouched. -/
 theorem memWritePorts_frame (we : WEnv) (env : Env) (name : String)
     (aw dw : Nat) :
-    ∀ (ports : List (Expr × Expr × Expr)) (m r : MEnv),
-    memWritePorts we env name aw dw ports m = some r →
+    ∀ (ports : List (Expr × Expr × Expr)) (ms m r : MEnv),
+    memWritePorts we ms env name aw dw ports m = some r →
     ∀ nm, nm ≠ name → ∀ i, r nm i = m nm i := by
   intro ports
   induction ports with
   | nil =>
-    intro m r h nm hnm i
+    intro ms m r h nm hnm i
     cases h
     rfl
   | cons p rest ih =>
-    intro m r h nm hnm i
+    intro ms m r h nm hnm i
     obtain ⟨a, d, en⟩ := p
     simp only [memWritePorts, Option.bind_eq_bind] at h
-    cases hen : evalExpr we env en with
+    cases hen : evalPayload we ms env name aw dw en with
     | none => rw [hen] at h; exact absurd h (by simp)
     | some ev =>
     rw [hen] at h
-    cases ha : evalExpr we env a with
+    cases ha : evalPayload we ms env name aw dw a with
     | none => rw [ha] at h; exact absurd h (by simp)
     | some av =>
     rw [ha] at h
-    cases hd : evalExpr we env d with
+    cases hd : evalPayload we ms env name aw dw d with
     | none => rw [hd] at h; exact absurd h (by simp)
     | some dv =>
     rw [hd] at h
     simp only [Option.bind_some] at h
-    have := ih _ _ h nm hnm i
+    have := ih _ _ _ h nm hnm i
     rw [this]
     by_cases hev : ev ≠ 0
     · simp [hev, hnm]
     · simp [hev]
 
-/-- A write fold's OWN slice is determined by the incoming own slice. -/
+/-- A write fold's OWN slice is determined by the incoming own slices
+    (both the read-resolution state's and the threaded state's). -/
 theorem memWritePorts_slice (we : WEnv) (env : Env) (name : String)
     (aw dw : Nat) :
-    ∀ (ports : List (Expr × Expr × Expr)) (m₁ m₂ r₁ r₂ : MEnv),
+    ∀ (ports : List (Expr × Expr × Expr)) (ms₁ ms₂ m₁ m₂ r₁ r₂ : MEnv),
+    (∀ i, ms₁ name i = ms₂ name i) →
     (∀ i, m₁ name i = m₂ name i) →
-    memWritePorts we env name aw dw ports m₁ = some r₁ →
-    memWritePorts we env name aw dw ports m₂ = some r₂ →
+    memWritePorts we ms₁ env name aw dw ports m₁ = some r₁ →
+    memWritePorts we ms₂ env name aw dw ports m₂ = some r₂ →
     ∀ i, r₁ name i = r₂ name i := by
   intro ports
   induction ports with
   | nil =>
-    intro m₁ m₂ r₁ r₂ hm h1 h2 i
+    intro ms₁ ms₂ m₁ m₂ r₁ r₂ _ hm h1 h2 i
     cases h1; cases h2
     exact hm i
   | cons p rest ih =>
-    intro m₁ m₂ r₁ r₂ hm h1 h2 i
+    intro ms₁ ms₂ m₁ m₂ r₁ r₂ hms hm h1 h2 i
     obtain ⟨a, d, en⟩ := p
     simp only [memWritePorts, Option.bind_eq_bind] at h1 h2
-    cases hen : evalExpr we env en with
+    rw [evalPayload_mems_congr hms en, evalPayload_mems_congr hms a,
+      evalPayload_mems_congr hms d] at h1
+    cases hen : evalPayload we ms₂ env name aw dw en with
     | none => rw [hen] at h1; exact absurd h1 (by simp)
     | some ev =>
     rw [hen] at h1 h2
-    cases ha : evalExpr we env a with
+    cases ha : evalPayload we ms₂ env name aw dw a with
     | none => rw [ha] at h1; exact absurd h1 (by simp)
     | some av =>
     rw [ha] at h1 h2
-    cases hd : evalExpr we env d with
+    cases hd : evalPayload we ms₂ env name aw dw d with
     | none => rw [hd] at h1; exact absurd h1 (by simp)
     | some dv =>
     rw [hd] at h1 h2
     simp only [Option.bind_some] at h1 h2
-    refine ih _ _ _ _ (fun j => ?_) h1 h2 i
+    refine ih _ _ _ _ _ _ hms (fun j => ?_) h1 h2 i
     by_cases hev : ev ≠ 0
     · by_cases hj : j = mask aw av <;> simp [hev, hj, hm j]
     · simp [hev, hm j]
@@ -1035,8 +1071,9 @@ def stmtMemName : Stmt → Option String
   | .memory name _ _ _ _ _ _ _ _ _ _ _ => some name
   | _ => none
 
-/-- Memory effects of two v1-fragment statements with distinct array
-    names commute. -/
+/-- Memory effects of two statements with distinct array names commute:
+    each fold touches only its own slice, resolves reads only against
+    its own slice, and its success is independent of everything else. -/
 theorem stmtMemUpd_comm (we : WEnv) (envF : Env) {x y : Stmt}
     (hx : SimpleStmt x) (hy : SimpleStmt y)
     (hname : ∀ nx, stmtMemName x = some nx →
@@ -1044,10 +1081,9 @@ theorem stmtMemUpd_comm (we : WEnv) (envF : Env) {x y : Stmt}
     (m : MEnv) :
     (stmtMemUpd we envF x m).bind (stmtMemUpd we envF y)
       = (stmtMemUpd we envF y m).bind (stmtMemUpd we envF x) := by
-  -- identity cases: a non-memory statement's effect is `some m`
-  have hid : ∀ {s : Stmt}, SimpleStmt s → stmtMemName s = none →
+  have hid : ∀ {s : Stmt}, stmtMemName s = none →
       ∀ m', stmtMemUpd we envF s m' = some m' := by
-    intro s hs hn m'
+    intro s hn m'
     match s with
     | .assign _ _ => rfl
     | .register _ _ _ _ _ => rfl
@@ -1055,20 +1091,19 @@ theorem stmtMemUpd_comm (we : WEnv) (envF : Env) {x y : Stmt}
     | .inst _ _ _ => rfl
   cases hxn : stmtMemName x with
   | none =>
-    rw [hid hx hxn m, Option.bind_some]
+    rw [hid hxn m, Option.bind_some]
     cases hyu : stmtMemUpd we envF y m with
     | none => rfl
-    | some m' => rw [Option.bind_some, hid hx hxn m']
+    | some m' => rw [Option.bind_some, hid hxn m']
   | some nx =>
     cases hyn : stmtMemName y with
     | none =>
-      rw [hid hy hyn m, Option.bind_some]
+      rw [hid hyn m, Option.bind_some]
       cases hxu : stmtMemUpd we envF x m with
       | none => rfl
-      | some m' => rw [Option.bind_some, hid hy hyn m']
+      | some m' => rw [Option.bind_some, hid hyn m']
     | some ny =>
       have hne : nx ≠ ny := hname nx hxn ny hyn
-      -- both are memories
       cases x with
       | assign _ _ => simp [stmtMemName] at hxn
       | register _ _ _ _ _ => simp [stmtMemName] at hxn
@@ -1083,73 +1118,86 @@ theorem stmtMemUpd_comm (we : WEnv) (envF : Env) {x y : Stmt}
       have hnY : nY = ny := by simpa [stmtMemName] using hyn
       subst hnX hnY
       simp only [stmtMemUpd]
-      cases hxu : memWritePorts we envF nX awX dwX ((waX, wdX, wenX) :: ewX) m with
+      cases hxu : memWritePorts we m envF nX awX dwX
+          ((waX, wdX, wenX) :: ewX) m with
       | none =>
-        cases hyu : memWritePorts we envF nY awY dwY ((waY, wdY, wenY) :: ewY) m with
+        cases hyu : memWritePorts we m envF nY awY dwY
+            ((waY, wdY, wenY) :: ewY) m with
         | none => rfl
         | some mY =>
           rw [Option.bind_some]
-          have := memWritePorts_isSome we envF nX awX dwX ((waX, wdX, wenX) :: ewX) m mY
+          have hframeY : ∀ i, mY nX i = m nX i := fun i =>
+            memWritePorts_frame we envF nY awY dwY _ m m mY hyu nX hne i
+          have := memWritePorts_isSome we envF nX awX dwX
+            ((waX, wdX, wenX) :: ewX) m mY m mY (fun i => (hframeY i).symm)
           rw [hxu] at this
-          cases hxu2 : memWritePorts we envF nX awX dwX ((waX, wdX, wenX) :: ewX) mY with
+          cases hxu2 : memWritePorts we mY envF nX awX dwX
+              ((waX, wdX, wenX) :: ewX) mY with
           | none => rfl
           | some _ => rw [hxu2] at this; simp at this
       | some mX =>
         rw [Option.bind_some]
-        cases hyu : memWritePorts we envF nY awY dwY ((waY, wdY, wenY) :: ewY) m with
+        cases hyu : memWritePorts we m envF nY awY dwY
+            ((waY, wdY, wenY) :: ewY) m with
         | none =>
-          have := memWritePorts_isSome we envF nY awY dwY ((waY, wdY, wenY) :: ewY) m mX
+          have hframeX : ∀ i, mX nY i = m nY i := fun i =>
+            memWritePorts_frame we envF nX awX dwX _ m m mX hxu nY
+              (Ne.symm hne) i
+          have := memWritePorts_isSome we envF nY awY dwY
+            ((waY, wdY, wenY) :: ewY) m mX m mX (fun i => (hframeX i).symm)
           rw [hyu] at this
-          cases hyu2 : memWritePorts we envF nY awY dwY ((waY, wdY, wenY) :: ewY) mX with
+          cases hyu2 : memWritePorts we mX envF nY awY dwY
+              ((waY, wdY, wenY) :: ewY) mX with
           | none => rfl
           | some _ => rw [hyu2] at this; simp at this
         | some mY =>
           rw [Option.bind_some]
-          -- both succeed on the flipped states too
-          cases hyx : memWritePorts we envF nY awY dwY ((waY, wdY, wenY) :: ewY) mX with
+          have hframeX : ∀ i, mX nY i = m nY i := fun i =>
+            memWritePorts_frame we envF nX awX dwX _ m m mX hxu nY
+              (Ne.symm hne) i
+          have hframeY : ∀ i, mY nX i = m nX i := fun i =>
+            memWritePorts_frame we envF nY awY dwY _ m m mY hyu nX hne i
+          cases hyx : memWritePorts we mX envF nY awY dwY
+              ((waY, wdY, wenY) :: ewY) mX with
           | none =>
-            have := memWritePorts_isSome we envF nY awY dwY ((waY, wdY, wenY) :: ewY) m mX
+            have := memWritePorts_isSome we envF nY awY dwY
+              ((waY, wdY, wenY) :: ewY) m mX m mX (fun i => (hframeX i).symm)
             rw [hyu, hyx] at this; simp at this
           | some rYX =>
-          cases hxy : memWritePorts we envF nX awX dwX ((waX, wdX, wenX) :: ewX) mY with
+          cases hxy : memWritePorts we mY envF nX awX dwX
+              ((waX, wdX, wenX) :: ewX) mY with
           | none =>
-            have := memWritePorts_isSome we envF nX awX dwX ((waX, wdX, wenX) :: ewX) m mY
+            have := memWritePorts_isSome we envF nX awX dwX
+              ((waX, wdX, wenX) :: ewX) m mY m mY (fun i => (hframeY i).symm)
             rw [hxu, hxy] at this; simp at this
           | some rXY =>
-          -- pointwise equality of the two composites
           congr 1
           funext nm i
           by_cases hnmx : nm = nX
           · subst hnmx
-            -- x's slice: settled by the x-fold from an agreeing slice
             have h1 : rYX nm i = mX nm i :=
-              memWritePorts_frame we envF nY awY dwY ((waY, wdY, wenY) :: ewY) mX rYX hyx nm hne i
-            have h2 : ∀ j, mY nm j = m nm j := fun j =>
-              memWritePorts_frame we envF nY awY dwY ((waY, wdY, wenY) :: ewY) m mY hyu nm hne j
+              memWritePorts_frame we envF nY awY dwY _ mX mX rYX hyx nm hne i
             have h3 : ∀ j, rXY nm j = mX nm j :=
-              memWritePorts_slice we envF nm awX dwX ((waX, wdX, wenX) :: ewX) mY m rXY mX
-                (fun j => h2 j) hxy hxu
+              memWritePorts_slice we envF nm awX dwX _ mY m mY m rXY mX
+                (fun j => hframeY j) (fun j => hframeY j) hxy hxu
             rw [h1, h3 i]
           · by_cases hnmy : nm = nY
             · subst hnmy
-              have h1 : ∀ j, mX nm j = m nm j := fun j =>
-                memWritePorts_frame we envF nX awX dwX ((waX, wdX, wenX) :: ewX) m mX hxu nm
-                  (Ne.symm hne) j
               have h2 : ∀ j, rYX nm j = mY nm j :=
-                memWritePorts_slice we envF nm awY dwY ((waY, wdY, wenY) :: ewY) mX m rYX mY
-                  (fun j => h1 j) hyx hyu
+                memWritePorts_slice we envF nm awY dwY _ mX m mX m rYX mY
+                  (fun j => hframeX j) (fun j => hframeX j) hyx hyu
               have h3 : rXY nm i = mY nm i :=
-                memWritePorts_frame we envF nX awX dwX ((waX, wdX, wenX) :: ewX) mY rXY hxy nm
+                memWritePorts_frame we envF nX awX dwX _ mY mY rXY hxy nm
                   (Ne.symm hne) i
               rw [h2 i, h3]
             · have h1 : rYX nm i = mX nm i :=
-                memWritePorts_frame we envF nY awY dwY ((waY, wdY, wenY) :: ewY) mX rYX hyx nm hnmy i
+                memWritePorts_frame we envF nY awY dwY _ mX mX rYX hyx nm hnmy i
               have h2 : mX nm i = m nm i :=
-                memWritePorts_frame we envF nX awX dwX ((waX, wdX, wenX) :: ewX) m mX hxu nm hnmx i
+                memWritePorts_frame we envF nX awX dwX _ m m mX hxu nm hnmx i
               have h3 : rXY nm i = mY nm i :=
-                memWritePorts_frame we envF nX awX dwX ((waX, wdX, wenX) :: ewX) mY rXY hxy nm hnmx i
+                memWritePorts_frame we envF nX awX dwX _ mY mY rXY hxy nm hnmx i
               have h4 : mY nm i = m nm i :=
-                memWritePorts_frame we envF nY awY dwY ((waY, wdY, wenY) :: ewY) m mY hyu nm hnmy i
+                memWritePorts_frame we envF nY awY dwY _ m m mY hyu nm hnmy i
               rw [h1, h2, h3, h4]
 
 /-- The memory phase only cares about the statement MULTISET when

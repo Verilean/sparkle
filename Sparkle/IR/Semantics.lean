@@ -256,18 +256,68 @@ def regNexts (we : WEnv) (mems : MEnv) :
   | .assign _ _ :: rest, env => regNexts we mems rest env
   | .inst _ _ _ :: rest, env => regNexts we mems rest env
 
+mutual
+/-- Extract reads of ONE array (`.index (.ref arr) idx`) from an IR
+    expression, replacing each with a placeholder ref (semantics-side
+    mirror of the lowering's `extractArrayReads`).  Nested reads (an
+    index whose address itself reads the array) stay in place and make
+    the payload evaluation fail — outside the v1 model. -/
+def extractReads (arr : String) : Expr → Nat → (Expr × List (String × Expr) × Nat)
+  | .index (.ref a) idx, k =>
+    if a = arr then
+      (.ref (s!"__memread_{arr}_{k}"), [(s!"__memread_{arr}_{k}", idx)], k + 1)
+    else (.index (.ref a) idx, [], k)
+  | .op o args, k =>
+    let (args', l, k') := extractReadsList arr args k
+    (.op o args', l, k')
+  | .concat args, k =>
+    let (args', l, k') := extractReadsList arr args k
+    (.concat args', l, k')
+  | .slice x hi lo, k =>
+    let (x', l, k') := extractReads arr x k
+    (.slice x' hi lo, l, k')
+  | e, k => (e, [], k)
+
+def extractReadsList (arr : String) : List Expr → Nat → (List Expr × List (String × Expr) × Nat)
+  | [], k => ([], [], k)
+  | a :: rest, k =>
+    let (a', l1, k1) := extractReads arr a k
+    let (rest', l2, k2) := extractReadsList arr rest k1
+    (a' :: rest', l1 ++ l2, k2)
+end
+
+/-- Evaluate a memory-port payload: reads of the memory's OWN array are
+    resolved against the PRE-cycle memory state (nonblocking RHS
+    evaluate before any write lands), then the payload evaluates as an
+    ordinary expression with the read values spliced in as fresh
+    names.  Payloads without such reads evaluate exactly as before. -/
+def spliceReads (we : WEnv) (mems : MEnv) (env : Env)
+    (arr : String) (aw dw : Nat) :
+    List (String × Expr) → Env → Option Env
+  | [], acc => some acc
+  | (ph, idx) :: rest, acc => do
+    let vi ← evalExpr we env idx
+    spliceReads we mems env arr aw dw rest
+      (fun n => if n = ph then mask dw (mems arr (mask aw vi)) else acc n)
+
+def evalPayload (we : WEnv) (mems : MEnv) (env : Env)
+    (arr : String) (aw dw : Nat) (e : Expr) : Option Nat :=
+  let (e', reads, _) := extractReads arr e 0
+  do evalExpr we (← spliceReads we mems env arr aw dw reads env) e'
+
 /-- Write ports of one memory, in port order: an enabled port stores
     `mask dw data` at `mask aw addr`; a later port overwrites an earlier
     one on the same address (the Verilog `always_ff` sequential-`if`
     rule). -/
-def memWritePorts (we : WEnv) (env : Env) (name : String) (aw dw : Nat) :
+def memWritePorts (we : WEnv) (mems0 : MEnv) (env : Env) (name : String)
+    (aw dw : Nat) :
     List (Expr × Expr × Expr) → MEnv → Option MEnv
   | [], m => some m
   | (a, d, en) :: rest, m => do
-    let ev ← evalExpr we env en
-    let av ← evalExpr we env a
-    let dv ← evalExpr we env d
-    memWritePorts we env name aw dw rest
+    let ev ← evalPayload we mems0 env name aw dw en
+    let av ← evalPayload we mems0 env name aw dw a
+    let dv ← evalPayload we mems0 env name aw dw d
+    memWritePorts we mems0 env name aw dw rest
       (if ev ≠ 0 then
         (fun nm i => if nm = name ∧ i = mask aw av then mask dw dv
                      else m nm i)
@@ -278,7 +328,7 @@ def memWritePorts (we : WEnv) (env : Env) (name : String) (aw dw : Nat) :
 def memNexts (we : WEnv) : List Stmt → MEnv → Env → Option MEnv
   | [], mems, _ => some mems
   | .memory name aw dw _ wa wd wen _ _ _ ew _ :: rest, mems, env => do
-    let mems' ← memWritePorts we env name aw dw ((wa, wd, wen) :: ew) mems
+    let mems' ← memWritePorts we mems env name aw dw ((wa, wd, wen) :: ew) mems
     memNexts we rest mems' env
   | .assign _ _ :: rest, mems, env => memNexts we rest mems env
   | .register _ _ _ _ _ :: rest, mems, env => memNexts we rest mems env
@@ -369,6 +419,19 @@ private def mems0 : MEnv := fun nm i =>
 private def memEnv2 : Env := fun n => if n == "wen2" then 1 else memEnv n
 #guard (stepModule (fun _ => 8) (memBody true) memEnv2 mems0).map
     (fun p => p.2.2 "Mem" 1) = some 0x62
+-- byte-strobe RMW: the write data reads the array's OWN row (pre-cycle):
+-- Mem[1] := (Mem[1] & ~0x0F) | (wd & 0x0F) = (0x33 & 0xF0) | (0x51 & 0x0F)
+private def rmwBody : List Stmt :=
+  [ .memory "Mem" 2 8 "clock"
+      (.ref "wa")
+      (.op .or [
+        .op .and [.index (.ref "Mem") (.ref "wa"),
+          .const (Int.ofNat 0xF0) 8],
+        .op .and [.ref "wd", .const (Int.ofNat 0x0F) 8]])
+      (.ref "wen") (.ref "ra") "rdata" true [] [] ]
+#guard (stepModule (fun _ => 8) rmwBody memEnv mems0).map
+    (fun p => p.2.2 "Mem" 1) = some ((0x33 &&& 0xF0) ||| (0x51 &&& 0x0F))
+
 -- sync read: rdata latches old Mem[1] into the update list
 #guard (stepModule (fun _ => 8) (memBody false) memEnv mems0).map
     (fun p => p.2.1) = some [("rdata", 0x33)]

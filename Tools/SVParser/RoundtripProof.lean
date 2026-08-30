@@ -1790,6 +1790,260 @@ theorem memImage_inv {wof : String → Option Nat}
           · simp only [Option.some_inj] at h
             exact h.symm
 
+mutual
+/-- No array-read nodes (`.index`) anywhere in an IR expression. -/
+def noIdxE : Sparkle.IR.AST.Expr → Bool
+  | .index _ _ => false
+  | .op _ args => noIdxL args
+  | .concat args => noIdxL args
+  | .slice x _ _ => noIdxE x
+  | .sliceDim x _ _ => noIdxE x
+  | _ => true
+
+def noIdxL : List Sparkle.IR.AST.Expr → Bool
+  | [] => true
+  | a :: rest => noIdxE a && noIdxL rest
+end
+
+open Sparkle.IR.Semantics in
+/-- Index-free expressions are untouched by the read extraction. -/
+theorem extractReads_id_of_noIdx :
+    ∀ (e : Sparkle.IR.AST.Expr), noIdxE e = true →
+    ∀ arr k, extractReads arr e k = (e, [], k) := by
+  intro e
+  induction e using noIdxE.induct (motive_2 := fun l =>
+        noIdxL l = true →
+        ∀ arr k, extractReadsList arr l k = (l, [], k)) with
+  | case1 a i => intro h; cases h
+  | case2 o args ih =>
+    intro h arr k
+    simp only [noIdxE] at h
+    simp [extractReads, ih h arr k]
+  | case3 args ih =>
+    intro h arr k
+    simp only [noIdxE] at h
+    simp [extractReads, ih h arr k]
+  | case4 x hi lo ih =>
+    intro h arr k
+    simp only [noIdxE] at h
+    simp [extractReads, ih h arr k]
+  | case5 x hi lo ih =>
+    intro h arr k
+    simp only [noIdxE] at h
+    simp [extractReads]
+  | case6 e h1 h2 h3 h4 h5 =>
+    intro _ arr k
+    cases e with
+    | ref n => rfl
+    | const v w => rfl
+    | op o args => exact absurd rfl (h2 o args)
+    | concat args => exact absurd rfl (h3 args)
+    | slice x hi lo => exact absurd rfl (h4 x hi lo)
+    | sliceDim x hi lo => exact absurd rfl (h5 x hi lo)
+    | index a i => exact absurd rfl (h1 a i)
+  | case7 =>
+    rename_i _ arr k
+    rfl
+  | case8 a rest iha ihrest =>
+    rename_i h arr k
+    simp only [noIdxL, Bool.and_eq_true] at h
+    simp [extractReadsList, iha h.1 arr k, ihrest h.2 arr k]
+
+open Sparkle.IR.Semantics in
+mutual
+/-- The lowering twin never constructs an array-read node. -/
+theorem lowerT_noIdx : ∀ (sv : SVExpr) (e' : Sparkle.IR.AST.Expr),
+    lowerT sv = some e' → noIdxE e' = true
+  | .lit (.decimal (some w) v), e', h => by
+    simp only [lowerT, Option.some_inj] at h; subst h; rfl
+  | .lit (.decimal none v), e', h => by
+    simp only [lowerT, Option.some_inj] at h; subst h; rfl
+  | .lit (.hex (some w) v), e', h => by
+    simp only [lowerT, Option.some_inj] at h; subst h; rfl
+  | .ident n, e', h => by
+    simp only [lowerT, Option.some_inj] at h; subst h; rfl
+  | .sizeCast w a, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha]
+  | .unary .neg a, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha]
+  | .unary .signed a, e', h => lowerT_noIdx a e' h
+  | .slice x hi lo, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨x', hx, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simpa [noIdxE] using lowerT_noIdx x x' hx
+  | .concat args, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨es, hes, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simpa [noIdxE] using lowerTList_noIdx args es hes
+  | .ternary c t f, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨c', hc, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨t', ht, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨f', hf, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx c c' hc, lowerT_noIdx t t' ht,
+      lowerT_noIdx f f' hf]
+  | .binary .asr a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .bitAnd a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .bitOr a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .bitXor a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .add a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .sub a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .mul a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .eq a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .lt a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .le a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .gt a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .ge a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .shl a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+  | .binary .shr a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxE, noIdxL, lowerT_noIdx a a' ha, lowerT_noIdx b b' hb]
+
+theorem lowerTList_noIdx : ∀ (l : List SVExpr) (es : List Sparkle.IR.AST.Expr),
+    lowerTList l = some es → noIdxL es = true
+  | [], es, h => by
+    simp only [lowerTList, Option.some_inj] at h; subst h; rfl
+  | a :: rest, es, h => by
+    simp only [lowerTList, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨rest', hrest, h⟩ := Option.bind_eq_some_iff.mp h
+    simp only [Option.some_inj] at h
+    subst h
+    simp [noIdxL, lowerT_noIdx a a' ha, lowerTList_noIdx rest rest' hrest]
+end
+
+open Sparkle.IR.Semantics in
+/-- Fragment expressions contain no array reads. -/
+theorem sfrag_noIdx {wof : String → Option Nat} {we : WEnv} {env : Env}
+    {e : Sparkle.IR.AST.Expr} (h : SFrag wof we env e) :
+    noIdxE e = true := by
+  induction h with
+  | ref n hs hw => rfl
+  | const v w hw => rfl
+  | binop op hop ha hb iha ihb => simp [noIdxE, noIdxL, iha, ihb]
+  | mux hwfw hc ht hf ihc iht ihf => simp [noIdxE, noIdxL, ihc, iht, ihf]
+  | neg hx ihx => simp [noIdxE, noIdxL, ihx]
+  | not w hwT hwS hw32 hw0 hx ihx => simp [noIdxE, noIdxL, ihx]
+  | sliceRefKeep n hi lo hs hkeep hin hw => rfl
+  | sliceRefElide n hi hs hw hexact henv => rfl
+  | concatNil => rfl
+  | concatCons hopw ha hrest iha ihrest =>
+    simp only [noIdxE] at ihrest ⊢
+    simp [noIdxL, iha, ihrest]
+  | asr hncx hncy hx hy ihx ihy => simp [noIdxE, noIdxL, ihx, ihy]
+  | cmpS op hop w hwTx hwTy hwSx hwSy hw0 hbx hby hx hy ihx ihy =>
+    rcases hop with h | h | h | h <;> subst h <;>
+      simp [noIdxE, noIdxL, ihx, ihy]
+  | sliceCompound hi lo hlo hwid hhi hcomp hncast hx ihx =>
+    simp [noIdxE, ihx]
+  | castEnc w hw0 hy ihy => simp [noIdxE, noIdxL, ihy]
+
+open Sparkle.IR.Semantics in
+/-- Index-free payloads evaluate as plain expressions. -/
+theorem evalPayload_of_noIdx {we : WEnv} {ms : MEnv} {env : Env}
+    {arr : String} {aw dw : Nat} {e : Sparkle.IR.AST.Expr}
+    (h : noIdxE e = true) :
+    evalPayload we ms env arr aw dw e = evalExpr we env e := by
+  unfold evalPayload
+  rw [extractReads_id_of_noIdx e h arr 0]
+  simp [spliceReads]
+
 open Sparkle.IR.Semantics in
 /-- Pointwise semantic preservation of lowered write ports: the write
     phase computes the same memory update. -/
@@ -1800,15 +2054,15 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     (∀ p ∈ ports, (∀ env, Bounded we env → SFrag wof we env p.1)
       ∧ (∀ env, Bounded we env → SFrag wof we env p.2.1)
       ∧ (∀ env, Bounded we env → SFrag wof we env p.2.2)) →
-    ∀ env, Bounded we env → ∀ name aw dw mems,
-      memWritePorts we env name aw dw ports' mems
-        = memWritePorts we env name aw dw ports mems := by
+    ∀ env, Bounded we env → ∀ ms name aw dw mems,
+      memWritePorts we ms env name aw dw ports' mems
+        = memWritePorts we ms env name aw dw ports mems := by
   induction ports with
   | nil =>
     intro ports' h _
     simp only [lowerWritePorts] at h
     cases h
-    intro env _ name aw dw mems
+    intro env _ ms name aw dw mems
     rfl
   | cons p rest ih =>
     intro ports' h hf
@@ -1855,9 +2109,27 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
       rw [hEn] at hb3
       cases hb3
       exact hv3
-    intro env hbe name aw dw mems
-    simp only [memWritePorts, Option.bind_eq_bind, hva env hbe,
-      hvd env hbe, hven env hbe]
+    intro env hbe ms name aw dw mems
+    -- both sides' payloads are INDEX-FREE (source: fragment; image:
+    -- the lowering twin never constructs an array read), so payload
+    -- evaluation is plain evaluation and the value equalities apply
+    have hnA' : noIdxE a' = true := by
+      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hA
+      exact lowerT_noIdx _ _ h2
+    have hnD' : noIdxE d' = true := by
+      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hD
+      exact lowerT_noIdx _ _ h2
+    have hnEn' : noIdxE en' = true := by
+      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hEn
+      exact lowerT_noIdx _ _ h2
+    have hnA : noIdxE a = true := sfrag_noIdx (hfp.1 env hbe)
+    have hnD : noIdxE d = true := sfrag_noIdx (hfp.2.1 env hbe)
+    have hnEn : noIdxE en = true := sfrag_noIdx (hfp.2.2 env hbe)
+    simp only [memWritePorts, Option.bind_eq_bind,
+      evalPayload_of_noIdx hnA', evalPayload_of_noIdx hnD',
+      evalPayload_of_noIdx hnEn', evalPayload_of_noIdx hnA,
+      evalPayload_of_noIdx hnD, evalPayload_of_noIdx hnEn,
+      hva env hbe, hvd env hbe, hven env hbe]
     cases evalExpr we env en with
     | none => rfl
     | some ev =>
@@ -1869,7 +2141,7 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     | some dv =>
     simp only [Option.bind_some]
     exact ih hRest (fun q hq => hf q (List.mem_cons_of_mem _ hq))
-      env hbe name aw dw _
+      env hbe ms name aw dw _
 
 open Sparkle.IR.Semantics in
 /-- Pointwise semantic preservation of lowered COMBO read ports: the
@@ -2530,8 +2802,8 @@ theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     intro mems envF hbF
     simp only [List.cons_append, List.nil_append, memNexts,
       Option.bind_eq_bind,
-      lowerWritePorts_sem _ hW hwp envF hbF name aw dw mems]
-    cases memWritePorts we envF name aw dw ((wa, wd, wen) :: ew) mems with
+      lowerWritePorts_sem _ hW hwp envF hbF mems name aw dw mems]
+    cases memWritePorts we mems envF name aw dw ((wa, wd, wen) :: ew) mems with
     | none => rfl
     | some memsX =>
       simp only [Option.bind_some]
