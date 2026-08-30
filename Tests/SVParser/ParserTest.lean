@@ -2751,5 +2751,56 @@ endmodule
         failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 70 (certified-roundtrip): byte-strobe RMW write data keeps
+  -- its array reads on self-reparse.  `Memory[addr] & ~mask | data`
+  -- used to lower as a BIT-SELECT of the array on the second parse
+  -- ("Memory" misses the isArrayName heuristic); the regDecl scan now
+  -- extracts reads of its OWN array before lowering.
+  IO.print "  Test 70: RMW write data keeps its array reads... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "rmwrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩,
+                 ⟨"wd", .bitVector 8⟩, ⟨"wm", .bitVector 8⟩,
+                 ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩]
+      outputs := [⟨"rdata", .bitVector 8⟩]
+      wires := [⟨"rdata", .bitVector 8⟩]
+      body := [
+        .memory "Memory" 2 8 "clock" (.ref "wa")
+          (.op .or [
+            .op .and [.index (.ref "Memory") (.ref "wa"),
+              .op .xor [.ref "wm", .const (-1) 8]],
+            .op .and [.ref "wd", .ref "wm"]])
+          (.ref "wen") (.ref "ra") "rdata" true [] []]
+      assertions := [] }
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let hasIdx : Sparkle.IR.AST.Expr → Bool := fun e =>
+        -- shallow scan is enough: the RMW read sits under and/or ops
+        let isRead : Sparkle.IR.AST.Expr → Bool := fun x =>
+          match x with
+          | .index (.ref a) _ => a == "Memory"
+          | _ => false
+        match e with
+        | .op _ args => args.any fun x =>
+            isRead x || (match x with
+              | .op _ args2 => args2.any isRead
+              | _ => false)
+        | _ => isRead e
+      let mut ok := false
+      for lm in d.modules do
+        for st in lm.body do
+          match st with
+          | .memory _ _ _ _ _ wd _ _ _ _ _ _ =>
+            if hasIdx wd then ok := true
+          | _ => pure ()
+      if ok then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println "FAIL: array read lost from the write data"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

@@ -992,6 +992,92 @@ partial def collectNBRaw : List SVStmt → List (String × SVExpr)
       ++ collectNBRaw rest
   | _ :: rest => collectNBRaw rest
 
+mutual
+/-- Extract reads of ONE array (`arr[idx]`) from a raw SVExpr, replacing
+    each with a fresh placeholder ident.  The regDecl memory scan lowers
+    write data through `lowerExpr`, which without module context turned
+    `Memory[addr]` into a bit-select of the ARRAY (the isArrayName
+    heuristic misses names like "Memory") — a silent self-reparse
+    miscompile of byte-strobe RMW write data.  The scan KNOWS its own
+    array name, so reads of it are pulled out first and re-attached as
+    proper `.index` nodes after lowering.  TOTAL, so the certified-
+    roundtrip twin can reuse it verbatim. -/
+def extractArrayReads (arr : String) :
+    SVExpr → Nat → (SVExpr × List (String × SVExpr) × Nat)
+  | .index (.ident a) idx, k =>
+    if a == arr then
+      let ph := s!"__memread_{arr}_{k}"
+      (.ident ph, [(ph, idx)], k + 1)
+    else
+      let (idx', l, k') := extractArrayReads arr idx k
+      (.index (.ident a) idx', l, k')
+  | .index a idx, k =>
+    let (a', l1, k1) := extractArrayReads arr a k
+    let (idx', l2, k2) := extractArrayReads arr idx k1
+    (.index a' idx', l1 ++ l2, k2)
+  | .unary op a, k =>
+    let (a', l, k') := extractArrayReads arr a k
+    (.unary op a', l, k')
+  | .binary op a b, k =>
+    let (a', l1, k1) := extractArrayReads arr a k
+    let (b', l2, k2) := extractArrayReads arr b k1
+    (.binary op a' b', l1 ++ l2, k2)
+  | .ternary c t e, k =>
+    let (c', l1, k1) := extractArrayReads arr c k
+    let (t', l2, k2) := extractArrayReads arr t k1
+    let (e', l3, k3) := extractArrayReads arr e k2
+    (.ternary c' t' e', l1 ++ l2 ++ l3, k3)
+  | .slice x hi lo, k =>
+    let (x', l, k') := extractArrayReads arr x k
+    (.slice x' hi lo, l, k')
+  | .partSelectPlus x b w, k =>
+    let (x', l1, k1) := extractArrayReads arr x k
+    let (b', l2, k2) := extractArrayReads arr b k1
+    let (w', l3, k3) := extractArrayReads arr w k2
+    (.partSelectPlus x' b' w', l1 ++ l2 ++ l3, k3)
+  | .concat args, k =>
+    let (args', l, k') := extractArrayReadsList arr args k
+    (.concat args', l, k')
+  | .repeat_ c v, k =>
+    let (v', l, k') := extractArrayReads arr v k
+    (.repeat_ c v', l, k')
+  | .sizeCast w a, k =>
+    let (a', l, k') := extractArrayReads arr a k
+    (.sizeCast w a', l, k')
+  | e, k => (e, [], k)
+
+/-- List version of `extractArrayReads` (kept separate for totality). -/
+def extractArrayReadsList (arr : String) :
+    List SVExpr → Nat → (List SVExpr × List (String × SVExpr) × Nat)
+  | [], k => ([], [], k)
+  | a :: rest, k =>
+    let (a', l1, k1) := extractArrayReads arr a k
+    let (rest', l2, k2) := extractArrayReadsList arr rest k1
+    (a' :: rest', l1 ++ l2, k2)
+end
+
+/-- Substitute placeholder refs back as proper array-read nodes.  TOTAL
+    (twin-reusable). -/
+def substArrayReads (subs : List (String × Expr)) : Expr → Expr
+  | .ref n =>
+    match subs.find? (·.1 == n) with
+    | some (_, e) => e
+    | none => .ref n
+  | .op o args => .op o (args.map (substArrayReads subs))
+  | .concat args => .concat (args.map (substArrayReads subs))
+  | .slice x hi lo => .slice (substArrayReads subs x) hi lo
+  | .sliceDim x hi lo => .sliceDim (substArrayReads subs x) hi lo
+  | .index a i => .index (substArrayReads subs a) (substArrayReads subs i)
+  | e => e
+
+/-- Lower a memory-write payload with reads of the memory's OWN array
+    preserved as `.index` nodes (see `extractArrayReads`). -/
+def lowerMemPayload (arr : String) (e : SVExpr) : Expr :=
+  let (e', reads, _) := extractArrayReads arr e 0
+  substArrayReads
+    (reads.map fun (ph, ix) => (ph, .index (.ref arr) (lowerExpr ix)))
+    (lowerExpr e')
+
 /-- Literal-only constant evaluator (for part-select bases/widths in
     memory-write patterns; full `evalConstExpr` is defined later). -/
 private def evalConstExprSimple : SVExpr → Option Nat
@@ -2269,10 +2355,10 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
             -- Verilog `always_ff` rule).
             for (idx, data, cond) in arrayWrites do
               let c : Expr := match cond with
-                | some c => lowerExpr c
+                | some c => lowerMemPayload name c
                 | none => .const 1 1
-              let a := lowerExpr idx
-              let d := lowerExpr data
+              let a := lowerMemPayload name idx
+              let d := lowerMemPayload name data
               if writeEnable == Expr.const 0 1 then
                 writeAddr := a; writeData := d; writeEnable := c
               else
