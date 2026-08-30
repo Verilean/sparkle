@@ -2677,6 +2677,7 @@ endmodule
     let corpusDir := "bench/xiangshan/corpus"
     if ← System.FilePath.pathExists corpusDir then
       let mut ok := 0
+      let mut certified := 0
       let mut outFrag := 0
       let mut optRw := 0
       let mut bad := 0
@@ -2691,14 +2692,20 @@ endmodule
             for m in design.modules do
               match Tools.SVParser.RoundtripProof.bodyTraceCheck m with
               | .outside => outFrag := outFrag + 1
-              | .ok => ok := ok + 1
+              | .ok =>
+                ok := ok + 1
+                -- census: also fully inside the PROVEN semantic
+                -- fragment (BFrag), i.e. body_trace_roundtrip applies
+                -- end to end
+                if Tools.SVParser.RoundtripProof.semFragCheck m then
+                  certified := certified + 1
               | .optRewritten => optRw := optRw + 1
               | .bad =>
                 bad := bad + 1
                 if firstBad == "" then
                   firstBad := s!"{ent.fileName}/{m.name}"
       if bad == 0 && ok > 0 then
-        IO.println s!"PASS ({ok} theorem-checked, {optRw} behind the optimizer, {outFrag} outside the fragment)"
+        IO.println s!"PASS ({ok} theorem-checked / {certified} fully in the semantic fragment, {optRw} behind the optimizer, {outFrag} outside)"
         passed := passed + 1
       else
         IO.println s!"FAIL: {bad} modules failed (first: {firstBad}); ok={ok} optRw={optRw} outFrag={outFrag}"

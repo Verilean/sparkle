@@ -2134,9 +2134,125 @@ def bodyTraceCheck (m : Sparkle.IR.AST.Module) : TraceCheck :=
           if Sparkle.IR.Reorder.isPermOf body' bimgOpt then .optRewritten
           else .bad
 
+/- ------------------------------------------------------------------ -/
+/- Coverage census: a decidable mirror of the env-independent SFrag /
+   BFrag constructors.  `we` is INDUCED from the width oracle
+   (`(wof n).getD 0`), which discharges the wof/we agreement conditions
+   by construction.  The env-dependent constructors (sliceRefElide's
+   env bound, cmpS's value bounds) are excluded — they are unusable in
+   the env-UNIFORM form BFrag needs anyway (future work: a bounded-env
+   refinement, since every write in the semantics is masked).
+   Census-only for now: the soundness bridge (sfragCheck → ∀ env,
+   SFrag) is mechanical and deferred. -/
+
+open Sparkle.IR.Semantics in
+mutual
+def sfragCheck (wof : String → Option Nat) : Sparkle.IR.AST.Expr → Bool
+  | .ref n =>
+    Sparkle.Backend.Verilog.sanitizeName n == n && (wof n).isSome
+  | .const _ w => decide (0 < w)
+  | .op .mux [c, t, f] =>
+    sfragCheck wof c && sfragCheck wof t && sfragCheck wof f
+  | .op .neg [x] => sfragCheck wof x
+  | .op .not [x] =>
+    (match Tools.SVParser.EmitAst.exprWidthT wof x with
+     | some w =>
+       decide (widthOf (fun n => (wof n).getD 0) x = w)
+         && decide (w ≤ 32) && decide (0 < w)
+     | none => false)
+    && sfragCheck wof x
+  | .op .asr [x, y] =>
+    (match x with | .concat _ => false | _ => true)
+    && (match y with | .concat _ => false | _ => true)
+    && sfragCheck wof x && sfragCheck wof y
+  | .op op [a, b] =>
+    (Tools.SVParser.EmitAst.binOpOf op).isSome
+    && sfragCheck wof a && sfragCheck wof b
+  | .slice (.ref n) hi lo =>
+    Sparkle.Backend.Verilog.sanitizeName n == n
+    && ((wof n).isNone
+        || !(lo == 0 && (wof n).getD 0 ≤ hi + 1))
+  | .slice (.concat [.const 0 w, y]) hi lo =>
+    if lo == 0 && hi + 1 == w then decide (0 < w) && sfragCheck wof y
+    else
+      -- general compound slice of THIS shape is outside (see castEnc)
+      false
+  | .slice x hi lo =>
+    (match x with
+     | .ref _ => false | .concat _ => false
+     | _ => true)
+    && decide (lo ≤ hi)
+    && decide (hi < widthOf (fun n => (wof n).getD 0) x)
+    && decide (hi < 4294967296)
+    && sfragCheck wof x
+  | .concat args => sfragCheckList wof args
+  | _ => false
+
+def sfragCheckList (wof : String → Option Nat) :
+    List Sparkle.IR.AST.Expr → Bool
+  | [] => true
+  | a :: rest =>
+    (match a with
+     | .op _ _ =>
+       match Tools.SVParser.EmitAst.exprWidthT wof a with
+       | some w =>
+         decide (0 < w)
+           && decide (widthOf (fun n => (wof n).getD 0) a = w)
+       | none => false
+     | _ => true)
+    && sfragCheck wof a && sfragCheckList wof rest
+end
+
+open Sparkle.IR.Semantics in
+/-- Decidable mirror of BFrag (census). -/
+def bfragCheck (wof : String → Option Nat)
+    (wires : List Sparkle.IR.AST.Port) :
+    List Sparkle.IR.AST.Stmt → Bool
+  | [] => true
+  | .assign l x :: rest =>
+    Sparkle.Backend.Verilog.sanitizeName l == l
+    && sfragCheck wof x && bfragCheck wof wires rest
+  | .register out clk (rst, _) x _ :: rest =>
+    Sparkle.Backend.Verilog.sanitizeName out == out
+    && Sparkle.Backend.Verilog.sanitizeName clk == clk
+    && Sparkle.Backend.Verilog.sanitizeName rst == rst
+    && sfragCheck wof x
+    && decide (Tools.SVParser.EmitAst.regResetWidth wires out
+        = (wof out).getD 0)
+    && decide (0 < (wof out).getD 0)
+    && decide (0 < (wof rst).getD 0)
+    && bfragCheck wof wires rest
+  | .memory name _ dw clk wa wd wen ra rd _ ew er :: rest =>
+    Sparkle.Backend.Verilog.sanitizeName name == name
+    && Sparkle.Backend.Verilog.sanitizeName clk == clk
+    && ((wa, wd, wen) :: ew).all (fun p =>
+        sfragCheck wof p.1 && sfragCheck wof p.2.1
+          && sfragCheck wof p.2.2)
+    && ((ra, rd) :: er).all (fun p =>
+        sfragCheck wof p.1
+          && (Sparkle.Backend.Verilog.sanitizeName p.2 == p.2))
+    && decide (0 < dw)
+    && bfragCheck wof wires rest
+  | .inst _ _ _ :: _ => false
+
+/-- Census verdict for one module: is its body fully inside the PROVEN
+    semantic fragment (BFrag with the induced width env)? -/
+def semFragCheck (m : Sparkle.IR.AST.Module) : Bool :=
+  let wof : String → Option Nat := fun n =>
+    ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
+      Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
+      match p.ty with
+      | .bitVector w => some w
+      | .bit => some 1
+      | _ => none
+  bfragCheck wof m.wires m.body
+
 -- Validation on the probes (register bodies and memories of both read
 -- kinds, single- and multi-port).
 #guard bodyTraceCheck probeStmtM == .ok
+#guard semFragCheck probeStmtM
+#guard semFragCheck probeMemSync
+#guard semFragCheck probeMemCombo
 #guard bodyTraceCheck probeMemSync == .ok
 #guard bodyTraceCheck probeMemSync2 == .ok
 #guard bodyTraceCheck probeMemCombo == .ok
