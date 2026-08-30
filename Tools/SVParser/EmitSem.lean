@@ -2520,6 +2520,87 @@ def readPortsCheck (wof : String → Option Nat) (we : WEnv)
   ports.all fun p => portCheck wof we aw p.1 && (wof p.2 == some (we p.2))
     && (decide (dw ≤ we p.2))
 
+/- --- Read-modify-write payloads (`Mem[a] <= Mem[a] & ~m | d;`) ---- -/
+
+mutual
+/-- The SV mirror of `extractReads`: pull each read of the memory's OWN
+    array out of the emitted payload, replacing it with the SAME
+    placeholder name the IR uses.  Verilog's nonblocking RHS reads the
+    pre-write state, which is exactly what the placeholder is bound to.
+    (`sanitizeName` is the identity on `__memread_*`, so the emitted
+    placeholder and the IR's agree.) -/
+def extractReadsSV (arr : String) : SVExpr → Nat → (SVExpr × List (String × SVExpr) × Nat)
+  | .index (.ident a) idx, k =>
+    if a = arr then
+      (.ident s!"__memread_{arr}_{k}", [(s!"__memread_{arr}_{k}", idx)], k + 1)
+    else (.index (.ident a) idx, [], k)
+  | .binary o a b, k =>
+    let (a', l1, k1) := extractReadsSV arr a k
+    let (b', l2, k2) := extractReadsSV arr b k1
+    (.binary o a' b', l1 ++ l2, k2)
+  | .unary o a, k =>
+    let (a', l, k') := extractReadsSV arr a k
+    (.unary o a', l, k')
+  | .ternary c t f, k =>
+    let (c', l1, k1) := extractReadsSV arr c k
+    let (t', l2, k2) := extractReadsSV arr t k1
+    let (f', l3, k3) := extractReadsSV arr f k2
+    (.ternary c' t' f', l1 ++ l2 ++ l3, k3)
+  | .sizeCast w a, k =>
+    let (a', l, k') := extractReadsSV arr a k
+    (.sizeCast w a', l, k')
+  | .concat args, k =>
+    let (args', l, k') := extractReadsListSV arr args k
+    (.concat args', l, k')
+  | .slice x hi lo, k =>
+    let (x', l, k') := extractReadsSV arr x k
+    (.slice x' hi lo, l, k')
+  | e, k => (e, [], k)
+
+def extractReadsListSV (arr : String) :
+    List SVExpr → Nat → (List SVExpr × List (String × SVExpr) × Nat)
+  | [], k => ([], [], k)
+  | a :: rest, k =>
+    let (a', l1, k1) := extractReadsSV arr a k
+    let (rest', l2, k2) := extractReadsListSV arr rest k1
+    (a' :: rest', l1 ++ l2, k2)
+end
+
+/-- The SV mirror of `spliceReads`: bind each placeholder to the
+    pre-write word at its (self-determined) address. -/
+def spliceReadsSV (wof : String → Option Nat)
+    (mems : Sparkle.IR.Semantics.MEnv) (env : SEnv)
+    (arr : String) (aw dw : Nat) :
+    List (String × SVExpr) → SEnv → Option SEnv
+  | [], acc => some acc
+  | (ph, idx) :: rest, acc => do
+    let vi ← evalSV wof env aw idx
+    spliceReadsSV wof mems env arr aw dw rest
+      (fun n => if n = ph then mask dw (mems arr (mask aw vi)) else acc n)
+
+/-- Evaluate an emitted memory payload at width `W`. -/
+def evalPayloadSV (wof : String → Option Nat)
+    (mems : Sparkle.IR.Semantics.MEnv) (env : SEnv)
+    (arr : String) (aw dw W : Nat) (sv : SVExpr) : Option Nat :=
+  let (sv', reads, _) := extractReadsSV arr sv 0
+  do evalSV wof (← spliceReadsSV wof mems env arr aw dw reads env) W sv'
+
+/-- The width map extended with a memory's read placeholders, each at
+    the memory's data width.  `extractReads` introduces at most `n`
+    placeholders numbered `0 .. n-1`, so extending for a bound `n`
+    covers every payload with at most `n` own-array reads. -/
+def wofWithReads (wof : String → Option Nat) (arr : String) (dw n : Nat) :
+    String → Option Nat :=
+  fun x =>
+    if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
+    then some dw else wof x
+
+/-- The value environment extended the same way (the pre-write words). -/
+def weWithReads (we : WEnv) (arr : String) (dw n : Nat) : WEnv :=
+  fun x =>
+    if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
+    then dw else we x
+
 /-- The emitter's read-port list for one memory. -/
 def emitReadPorts (wof : String → Option Nat) :
     List (Expr × String) → Option (List (SVExpr × String))
