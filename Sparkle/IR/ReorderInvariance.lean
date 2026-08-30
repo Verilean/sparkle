@@ -88,10 +88,11 @@ def stmtReads : Stmt → List String
 
 def writesOf (body : List Stmt) : List String := body.flatMap stmtWrites
 
-/-- The reorder fragment: every statement except instances (whose
-    combinational semantics is `none`). -/
+/-- The reorder fragment: with the open-module semantics (instances
+    are no-ops) EVERY statement is in it.  Kept as a def so the
+    fragment can narrow again if a closed hierarchical semantics
+    lands. -/
 def SimpleStmt : Stmt → Prop
-  | .inst _ _ _ => False
   | _ => True
 
 /-- Well-ordered w.r.t. already-evaluated names `done`: every read of a
@@ -246,7 +247,7 @@ theorem nop_step (we : WEnv) (mems : MEnv) {s : Stmt}
       · simp [stmtWrites] at hw
     subst hcr
     rfl
-  | .inst _ _ _ => exact absurd hs (by simp [SimpleStmt])
+  | .inst _ _ _ => rfl
 
 /-- Rewriting under one leading statement: if two tails agree at every
     environment, so do the bodies with the same head. -/
@@ -269,7 +270,7 @@ theorem evalAssigns_cons_congr (we : WEnv) (mems : MEnv) {X Y : List Stmt}
       cases comboReads we mems n aw dw ((ra, rd) :: er) env with
       | none => rfl
       | some env' => simp [h]
-  | .inst _ _ _ => exact absurd hp (by simp [SimpleStmt])
+  | .inst _ _ _ => exact h env
 
 /-- A no-op in SECOND position can be dropped. -/
 theorem nop_second (we : WEnv) (mems : MEnv) {a b : Stmt}
@@ -477,7 +478,7 @@ theorem evalAssigns_swap (we : WEnv) (mems : MEnv) {a b : Stmt}
     · -- both statements write: each is an assign or a combo-read memory
       cases a with
       | register _ _ _ _ _ => exact absurd rfl hea
-      | inst _ _ _ => exact absurd ha (by simp [SimpleStmt])
+      | inst _ _ _ => exact absurd rfl hea
       | memory nA awA dwA cA waA wdA wenA raA rdA crA ewA erA =>
         have hcrA : crA = true := by
           cases crA
@@ -486,7 +487,7 @@ theorem evalAssigns_swap (we : WEnv) (mems : MEnv) {a b : Stmt}
         subst hcrA
         cases b with
         | register _ _ _ _ _ => exact absurd rfl heb
-        | inst _ _ _ => exact absurd hb (by simp [SimpleStmt])
+        | inst _ _ _ => exact absurd rfl heb
         | assign lb rb =>
           exact (swap_assign_mem we mems lb rb nA awA dwA cA waA wdA wenA
             raA rdA ewA erA
@@ -515,7 +516,7 @@ theorem evalAssigns_swap (we : WEnv) (mems : MEnv) {a b : Stmt}
       | assign la ra =>
         cases b with
         | register _ _ _ _ _ => exact absurd rfl heb
-        | inst _ _ _ => exact absurd hb (by simp [SimpleStmt])
+        | inst _ _ _ => exact absurd rfl heb
         | memory nB awB dwB cB waB wdB wenB raB rdB crB ewB erB =>
           have hcrB : crB = true := by
             cases crB
@@ -745,8 +746,7 @@ def stmtNexts (we : WEnv) (mems : MEnv) (envF : Env) :
   | .memory name aw dw _ _ _ _ ra rd cr _ er =>
     if cr then some []
     else syncReadLatches we mems name aw dw ((ra, rd) :: er) envF
-  | .assign _ _ => some []
-  | .inst _ _ _ => none
+  | _ => some []
 
 /-- `regNexts` is the in-order concatenation of contributions. -/
 theorem regNexts_cons (we : WEnv) (mems : MEnv) (envF : Env)
@@ -784,7 +784,11 @@ theorem regNexts_cons (we : WEnv) (mems : MEnv) (envF : Env)
     cases regNexts we mems t envF with
     | none => rfl
     | some nexts => rfl
-  | .inst _ _ _ => rfl
+  | .inst _ _ _ =>
+    simp only [regNexts, stmtNexts]
+    cases regNexts we mems t envF with
+    | none => rfl
+    | some nexts => rfl
 
 /-- Permutation relation on optional lists. -/
 def OPerm : Option (List α) → Option (List α) → Prop
@@ -918,7 +922,6 @@ theorem applyNexts_perm {l l' : List (String × Nat)} (hp : l.Perm l')
 def stmtMemUpd (we : WEnv) (envF : Env) : Stmt → MEnv → Option MEnv
   | .memory name aw dw _ wa wd wen _ _ _ ew _ =>
     fun m => memWritePorts we envF name aw dw ((wa, wd, wen) :: ew) m
-  | .inst _ _ _ => fun _ => none
   | _ => fun m => some m
 
 theorem memNexts_cons (we : WEnv) (envF : Env) (s : Stmt) (t : List Stmt)
@@ -1049,7 +1052,7 @@ theorem stmtMemUpd_comm (we : WEnv) (envF : Env) {x y : Stmt}
     | .assign _ _ => rfl
     | .register _ _ _ _ _ => rfl
     | .memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [stmtMemName] at hn
-    | .inst _ _ _ => exact absurd hs (by simp [SimpleStmt])
+    | .inst _ _ _ => rfl
   cases hxn : stmtMemName x with
   | none =>
     rw [hid hx hxn m, Option.bind_some]
@@ -1286,7 +1289,9 @@ theorem regNexts_keys (we : WEnv) (mems : MEnv) (envF : Env) :
             have hk := syncReadLatches_keys we mems name aw dw envF
               ((ra, rd) :: er) latches hl
             simp [nextKeys, List.flatMap_cons, hk, ih nexts hrest]
-    | .inst _ _ _ => simp [regNexts] at h
+    | .inst _ _ _ =>
+      simp only [regNexts] at h
+      simpa [nextKeys, List.flatMap_cons] using ih l h
 
 /-- Invert one step into its three stages. -/
 theorem stepModule_inv {we : WEnv} {body : List Stmt} {env0 : Env}
@@ -1455,10 +1460,7 @@ deriving instance DecidableEq for Stmt
 def woCheck (done : List String) : List Stmt → Bool
   | [] => true
   | s :: rest =>
-    (match s with
-      | .inst _ _ _ => false
-      | _ => true)
-    && (stmtReads s).all (fun n => !(writesOf rest).contains n)
+    (stmtReads s).all (fun n => !(writesOf rest).contains n)
     && (stmtWrites s).all (fun n =>
         !done.contains n && !(writesOf rest).contains n)
     && woCheck (done ++ stmtWrites s) rest
@@ -1469,12 +1471,9 @@ theorem woCheck_sound (done : List String) (body : List Stmt)
   | nil => exact WO.nil
   | cons s rest ih =>
     simp only [woCheck, Bool.and_eq_true, List.all_eq_true] at h
-    obtain ⟨⟨⟨hok, hreads⟩, hw⟩, hrest⟩ := h
+    obtain ⟨⟨hreads, hw⟩, hrest⟩ := h
     refine WO.cons ?_ ?_ ?_ (ih _ hrest)
-    · match s, hok with
-      | .assign _ _, _ => trivial
-      | .register _ _ _ _ _, _ => trivial
-      | .memory _ _ _ _ _ _ _ _ _ _ _ _, _ => trivial
+    · trivial
     · intro n hn
       have := hreads n hn
       simpa [List.contains_iff_mem] using this

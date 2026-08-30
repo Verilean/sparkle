@@ -181,7 +181,14 @@ end
    `MEnv`; combinational reads extend the environment during
    elaboration, synchronous reads latch like registers, and writes are
    evaluated under the POST-elaboration environment (the backends'
-   tick phase).  Instances remain outside the fragment (`none`). -/
+   tick phase).
+
+   INSTANCES are no-ops in this OPEN-module semantics: an instance's
+   outputs are free inputs of the enclosing module (driven by the
+   seed), so the trace theorems quantify over EVERY behavior of the
+   instantiated modules.  The actual composition is covered dynamically
+   by the hierarchical co-sim; a closed hierarchical semantics is
+   future work. -/
 
 /-- Memory state: array contents by memory name. -/
 abbrev MEnv := String → Nat → Nat
@@ -209,7 +216,9 @@ def evalAssigns (we : WEnv) (mems : MEnv) : List Stmt → Env → Option Env
     else
       -- sync-read data is register-like state, seeded into env0
       evalAssigns we mems rest env
-  | _ :: _, _ => none
+  | .inst _ _ _ :: rest, env =>
+    -- open-module view: instance outputs are free inputs
+    evalAssigns we mems rest env
 
 /-- Encode a register's reset value the way `evalExpr` encodes
     constants. -/
@@ -245,7 +254,7 @@ def regNexts (we : WEnv) (mems : MEnv) :
       let nexts ← regNexts we mems rest env
       some (latches ++ nexts)
   | .assign _ _ :: rest, env => regNexts we mems rest env
-  | _ :: _, _ => none
+  | .inst _ _ _ :: rest, env => regNexts we mems rest env
 
 /-- Write ports of one memory, in port order: an enabled port stores
     `mask dw data` at `mask aw addr`; a later port overwrites an earlier
@@ -273,7 +282,7 @@ def memNexts (we : WEnv) : List Stmt → MEnv → Env → Option MEnv
     memNexts we rest mems' env
   | .assign _ _ :: rest, mems, env => memNexts we rest mems env
   | .register _ _ _ _ _ :: rest, mems, env => memNexts we rest mems env
-  | _ :: _, _, _ => none
+  | .inst _ _ _ :: rest, mems, env => memNexts we rest mems env
 
 /-- One cycle: elaborate, then step the registers.  Returns the final
     combinational environment (outputs are read from it) and the

@@ -1436,8 +1436,16 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
    * the init constant comes back ENCODED (`Int.ofNat (encodeConst …)`),
      equal under `encodeInit`. -/
 
+/-- Connection expressions through the lowering twin (structural, so
+    proofs can peel it). -/
+def lowerTConns : List (String × Tools.SVParser.AST.SVExpr) →
+    Option (List (String × Sparkle.IR.AST.Expr))
+  | [] => some []
+  | (p, e) :: rest => do
+    some ((p, ← lowerT e) :: (← lowerTConns rest))
+
 /-- Item-level lowering twin for the emitted sub-language: continuous
-    assigns and the always-if register shape. -/
+    assigns, the always-if register shape, and instantiations. -/
 def lowerTItem : SVModuleItem → Option (List Sparkle.IR.AST.Stmt)
   | .contAssign (.ident l) rhs => do
     some [.assign l (← lowerT rhs)]
@@ -1457,6 +1465,8 @@ def lowerTItem : SVModuleItem → Option (List Sparkle.IR.AST.Stmt)
     | _ => none
   | .wireDecl _ _ none => some []       -- declaration only
   | .wireDecl _ _ (some _) => some []   -- register initializer (guarded)
+  | .instantiation modName instName conns _ => do
+    some [.inst modName instName (← lowerTConns conns)]
   | _ => none
 
 -- Twin ties against the SHIPPING module lowering, via the probe module:
@@ -2018,6 +2028,14 @@ inductive BFrag (wof : String → Option Nat) (we : WEnv)
       (hrest : BFrag wof we wires rest) :
       BFrag wof we wires
         (.memory name aw dw clk wa wd wen ra rd cr ew er :: rest)
+  | inst {mn inm : String} {conns : List (String × Sparkle.IR.AST.Expr)}
+      {rest}
+      -- no side conditions: the OPEN-module semantics ignores every
+      -- field of an instance (its outputs are free inputs), so only
+      -- the image's EXISTENCE matters — and that rides in through the
+      -- bodyImage hypothesis
+      (hrest : BFrag wof we wires rest) :
+      BFrag wof we wires (.inst mn inm conns :: rest)
 
 /-- Decompose the image of a cons body: a statement image followed by
     the rest's image. -/
@@ -2037,6 +2055,36 @@ theorem cons_image_shape {wof wires} {st : Sparkle.IR.AST.Stmt}
       rw [hR] at hI
       simp only [Option.bind_some, Option.some_inj] at hI
       exact ⟨img, rest', rfl, rfl, hI.symm⟩
+
+/-- The image of an instance statement is a single instance. -/
+theorem instImage_shape {wof : String → Option Nat}
+    {wires : List Sparkle.IR.AST.Port} {mn inm : String}
+    {conns : List (String × Sparkle.IR.AST.Expr)}
+    {img : List Sparkle.IR.AST.Stmt}
+    (hImg : stmtImage wof wires (.inst mn inm conns) = some img) :
+    ∃ mn' inm' conns', img = [.inst mn' inm' conns'] := by
+  simp only [stmtImage, Option.bind_eq_bind] at hImg
+  cases hE : Tools.SVParser.EmitAst.emitAstStmt wof wires
+      (.inst mn inm conns) with
+  | none => rw [hE] at hImg; exact absurd hImg (by simp)
+  | some items =>
+    rw [hE] at hImg
+    simp only [Option.bind_some] at hImg
+    -- the emitted items are a single instantiation
+    simp only [Tools.SVParser.EmitAst.emitAstStmt,
+      Option.bind_eq_bind] at hE
+    obtain ⟨conns1, hC, hE2⟩ := Option.bind_eq_some_iff.mp hE
+    simp only [Option.some_inj] at hE2
+    subst hE2
+    simp only [List.mapM_cons, lowerTItem, Option.bind_eq_bind] at hImg
+    cases hL : lowerTConns conns1 with
+    | none => rw [hL] at hImg; simp at hImg
+    | some conns2 =>
+      rw [hL] at hImg
+      simp only [List.mapM_nil, Option.pure_def, Option.bind_some,
+        List.flatten_cons, List.flatten_nil, List.append_nil,
+        Option.some_inj] at hImg
+      exact ⟨_, _, conns2, hImg.symm⟩
 
 open Sparkle.IR.Semantics in
 theorem bounded_zero (we : WEnv) : Bounded we (fun _ => 0) :=
@@ -2127,6 +2175,10 @@ theorem evalAssigns_bounded {wof we wires} (mems : MEnv)
         refine ih ?_ h
         exact comboReads_bounded
           (fun p hp => (hrp p hp).2.2) hb hc
+  | inst hrest ih =>
+    intro env0 envF hb h
+    simp only [evalAssigns] at h
+    exact ih hb h
 
 open Sparkle.IR.Semantics in
 /-- Combinational phase: the image body folds to the same environment. -/
@@ -2260,6 +2312,12 @@ theorem fold_eq {wof we wires} (mems : MEnv)
         simp only [Option.bind_some]
         exact ih hRest envX
           (comboReads_bounded (fun p hp => (hrp p hp).2.2) hb0 hc)
+  | inst hrest ih =>
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨mn', inm', conns', rfl⟩ := instImage_shape hImg
+    intro env0 hb0
+    simp only [List.cons_append, List.nil_append, evalAssigns]
+    exact ih hRest env0 hb0
 
 open Sparkle.IR.Semantics in
 /-- Register phase: the image body computes the same next-state list. -/
@@ -2392,6 +2450,12 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
     | true =>
       simp only [if_true]
       exact ih hRest envF hbF
+  | inst hrest ih =>
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨mn', inm', conns', rfl⟩ := instImage_shape hImg
+    intro envF hbF
+    simp only [List.cons_append, List.nil_append, regNexts]
+    exact ih hRest envF hbF
 
 open Sparkle.IR.Semantics in
 /-- Memory phase: the image body computes the same post-write memory
@@ -2471,6 +2535,12 @@ theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     | some memsX =>
       simp only [Option.bind_some]
       exact ih hRest memsX envF hbF
+  | inst hrest ih =>
+    obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
+    obtain ⟨mn', inm', conns', rfl⟩ := instImage_shape hImg
+    intro mems envF hbF
+    simp only [List.cons_append, List.nil_append, memNexts]
+    exact ih hRest mems envF hbF
 
 open Sparkle.IR.Semantics in
 /-- **The module-level roundtrip theorem** (assign+register bodies):
@@ -2551,9 +2621,8 @@ theorem body_trace_roundtrip {wof we wires}
   exact trace_roundtrip hB hI seed hseed k st mems
 
 /-- Is this statement inside the reorder fragment?  (Boolean twin of
-    `SimpleStmt` — everything except instances.) -/
+    `SimpleStmt` — with the open-module semantics, everything.) -/
 def simpleStmtB : Sparkle.IR.AST.Stmt → Bool
-  | .inst _ _ _ => false
   | _ => true
 
 /-- Verdicts of the per-module end-to-end validation. -/
@@ -2727,7 +2796,9 @@ def bfragCheck (wof : String → Option Nat)
           && decide ((wof p.2).getD 0 = dw))
     && decide (0 < dw)
     && bfragCheck wof wires rest
-  | .inst _ _ _ :: _ => false
+  | .inst _ _ _ :: rest =>
+    -- open-module semantics: no conditions on instances
+    bfragCheck wof wires rest
 
 /-- The module's width oracle: wires and ports, by sanitized name —
     the same map the shipping statement emitter uses. -/
@@ -3054,7 +3125,9 @@ theorem bfragCheck_sound (wof : String → Option Nat)
         decide_eq_true_eq] at this
       exact ⟨fun env hbe => sfragCheck_sound wof p.1 this.1.1 env hbe,
         this.1.2, this.2⟩
-  | .inst _ _ _ :: _, h => by simp [bfragCheck] at h
+  | .inst _ _ _ :: rest, h => by
+    simp only [bfragCheck] at h
+    exact BFrag.inst (bfragCheck_sound wof wires rest h)
 
 open Sparkle.IR.Semantics Sparkle.IR.Reorder in
 /-- **The capstone**: a module that passes the semantic-fragment census
