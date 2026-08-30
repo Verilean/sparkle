@@ -65,6 +65,14 @@ def widthOf (we : WEnv) : Expr → Nat
     match args with
     | [a] => widthOf we a
     | _ => 0
+  -- A right shift only DROPS bits: its width is its VALUE operand's,
+  -- matching Verilog's self-determined rule (the amount's width used
+  -- to leak in through the generic max — a 32-bit literal amount made
+  -- an 8-bit shift "32 bits wide", `_GEN >> (idx * 32'd4)`).
+  | .op .shr args =>
+    match args with
+    | [a, _] => widthOf we a
+    | _ => 0
   | .op _ args =>
     match args with
     | [a, b] => max (widthOf we a) (widthOf we b)

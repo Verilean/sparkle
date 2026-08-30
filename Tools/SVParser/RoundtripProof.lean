@@ -314,7 +314,7 @@ theorem sliceEncode_sem (we : WEnv) (env : Env) (x : Sparkle.IR.AST.Expr)
     simp [hne, evalExpr, evalList, evalOp, evalExpr.go, widthOf, widthOf.go,
       hx, hn, mask, hmm, Nat.shiftRight_zero, Nat.zero_shiftLeft,
       Nat.mod_self, hlo32,
-      hdvd (hi + 1 - lo) (max (Sparkle.IR.Semantics.widthOf we x) 32)
+      hdvd (hi + 1 - lo) (Sparkle.IR.Semantics.widthOf we x)
         (by omega),
       show hi - lo + 1 = hi + 1 - lo from by omega]
 

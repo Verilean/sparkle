@@ -205,6 +205,9 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   -- every bit destined for words 2-3 was silently dropped.
   | .op .shl [a, .const k _] =>
     inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)
+  -- A right shift only drops bits: the amount's width must not leak
+  -- into the value's (twin of the formal `widthOf` rule).
+  | .op .shr [a, _] => inferExprWidth typeMap a
   | .op _ args =>
     match args with
     -- A binary op is as wide as its WIDEST operand — taking only the

@@ -2856,10 +2856,13 @@ endmodule"
   -- Test 72 (certified-roundtrip, M4 forward direction): census of the
   -- proven forward fragment.  `sf4Check` is the decidable mirror of
   -- `SF4` (soundness: `sf4Check_sound`), so every counted RHS carries
-  -- the `emit_sem` theorem — the emitted Verilog computes the IR value.
-  -- The pinned number is the fragment's HONEST boundary on this corpus:
-  -- the 18 outside are real width-rule divergences (shift amounts wider
-  -- than the value, up-casts of bare arithmetic), not proof debt.
+  -- the `emit_sem` theorem — the emitted Verilog computes the IR value;
+  -- `seqCheck` likewise carries `certified_forward_trace`, the
+  -- cycle-by-cycle statement.  The ONE expression outside is the
+  -- fragment's honest boundary: an up-cast of bare arithmetic, where
+  -- Verilog keeps the inner carry at the cast width and the IR masks
+  -- per node.  The 8 modules outside are the memory arrays (their
+  -- combinational read ports are the next layer) and CVT32ModuleS0.
   IO.print "  Test 72: forward fragment census (emit_sem coverage)... "
   try
     let corpusDir := "bench/xiangshan/corpus"
@@ -2896,16 +2899,16 @@ endmodule"
                   if Tools.SVParser.EmitSem.sf4Check wof we r then
                     ok := ok + 1
                 | _ => pure ()
-      if ok == 1008 && total == 1026 && mok == 42 && tok == 41
+      if ok == 1025 && total == 1026 && mok == 44 && tok == 44
           && mtotal == 52 then
         IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} combinational phases; {tok}/{mtotal} full cycle traces)"
         passed := passed + 1
-      else if ok ≥ 1008 && total == 1026 && mok ≥ 42 && tok ≥ 41
+      else if ok ≥ 1025 && total == 1026 && mok ≥ 44 && tok ≥ 44
           && mtotal == 52 then
         IO.println s!"PASS ({ok}/{total}, comb {mok}, trace {tok} of {mtotal} — fragment GREW past the pin; update the pin)"
         passed := passed + 1
       else
-        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1008/1026), comb {mok} (want ≥ 42), trace {tok} (want ≥ 41) of {mtotal}"
+        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1025/1026), comb {mok} (want ≥ 44), trace {tok} (want ≥ 44) of {mtotal}"
         failed := failed + 1
     else
       IO.println "SKIP (corpus not present)"
