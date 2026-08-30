@@ -2850,5 +2850,49 @@ endmodule"
         IO.println s!"FAIL (JIT): {toString e}"
         failed := failed + 1
 
+  -- Test 72 (certified-roundtrip, M4 forward direction): census of the
+  -- proven forward fragment.  `sf4Check` is the decidable mirror of
+  -- `SF4` (soundness: `sf4Check_sound`), so every counted RHS carries
+  -- the `emit_sem` theorem — the emitted Verilog computes the IR value.
+  -- The pinned number is the fragment's HONEST boundary on this corpus:
+  -- the 18 outside are real width-rule divergences (shift amounts wider
+  -- than the value, up-casts of bare arithmetic), not proof debt.
+  IO.print "  Test 72: forward fragment census (emit_sem coverage)... "
+  try
+    let corpusDir := "bench/xiangshan/corpus"
+    if ← System.FilePath.pathExists corpusDir then
+      let mut ok := 0
+      let mut total := 0
+      let entries ← System.FilePath.readDir corpusDir
+      for ent in entries do
+        if ent.fileName.endsWith ".sv" then
+          let src ← IO.FS.readFile ent.path
+          match parseAndLowerHierarchical src with
+          | .error _ => pure ()
+          | .ok design =>
+            for m in design.modules do
+              let wof := Tools.SVParser.RoundtripProof.moduleWof m
+              let we : Sparkle.IR.Semantics.WEnv :=
+                fun n => (wof n).getD 0
+              for st in m.body do
+                match st with
+                | .assign _ r =>
+                  total := total + 1
+                  if Tools.SVParser.EmitSem.sf4Check wof we r then
+                    ok := ok + 1
+                | _ => pure ()
+      if ok == 1008 && total == 1026 then
+        IO.println s!"PASS ({ok}/{total} assign RHSs theorem-covered)"
+        passed := passed + 1
+      else if ok ≥ 1008 && total == 1026 then
+        IO.println s!"PASS ({ok}/{total} — fragment GREW past the pin; update the pin)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: {ok}/{total}, want ≥ 1008/1026"
+        failed := failed + 1
+    else
+      IO.println "SKIP (corpus not present)"
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

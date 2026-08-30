@@ -1968,6 +1968,270 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         Nat.sub_zero, Option.some_inj]
       simp [Nat.shiftRight_zero]
 
+/-- Decidable mirror of `SF4` — the per-expression forward-fragment
+    membership test the census and gate run.  Soundness below ties a
+    `true` verdict to the `emit_sem` theorem. -/
+def sf4Check (wof : String → Option Nat) (we : WEnv) :
+    Expr → Bool
+  | .ref n =>
+    (Sparkle.Backend.Verilog.sanitizeName n == n)
+      && (wof n == some (we n))
+  | .const _ w => 0 < w
+  | .op .neg [x] => sf4Check wof we x
+  | .op .not [x] =>
+    (Tools.SVParser.EmitAst.exprWidthT wof x
+        == some (Sparkle.IR.Semantics.widthOf we x))
+      && (0 < Sparkle.IR.Semantics.widthOf we x)
+      && sf4Check wof we x
+  | .op .mux [c, t, f] =>
+    (Sparkle.IR.Semantics.widthOf we f
+        == Sparkle.IR.Semantics.widthOf we t)
+      && sf4Check wof we c && sf4Check wof we t && sf4Check wof we f
+  | .op op [a, b] =>
+    let wa := Sparkle.IR.Semantics.widthOf we a
+    let wb := Sparkle.IR.Semantics.widthOf we b
+    let perOp := ((wa == max wa wb) || immuneE a)
+      && ((wb == max wa wb) || immuneE b)
+      && sf4Check wof we a && sf4Check wof we b
+    match op with
+    | .and | .or | .xor | .add | .sub | .mul => perOp
+    | .eq | .lt_u | .le_u | .gt_u | .ge_u => perOp
+    | .shl | .shr =>
+      (wb ≤ wa) && sf4Check wof we a && sf4Check wof we b
+    | .lt_s | .le_s | .gt_s | .ge_s =>
+      ((Tools.SVParser.EmitAst.exprWidthT wof a == some wa)
+        && (Tools.SVParser.EmitAst.exprWidthT wof b == some wb)
+        && (0 < max wa wb) && perOp) ||
+      ((Tools.SVParser.EmitAst.exprWidthT wof a == some wa)
+        && (Tools.SVParser.EmitAst.exprWidthT wof b == none)
+        && (wb ≤ wa) && ((wb == wa) || immuneE b) && (0 < wa)
+        && sf4Check wof we a && sf4Check wof we b)
+    | _ => false
+  | .concat args =>
+    args.attach.all fun ⟨e, _⟩ =>
+      sf4Check wof we e &&
+      (match e with
+       | .op _ _ =>
+         (Tools.SVParser.EmitAst.exprWidthT wof e
+             == some (Sparkle.IR.Semantics.widthOf we e))
+           && (0 < Sparkle.IR.Semantics.widthOf we e)
+       | _ => true)
+  | .slice (.concat [.const 0 w, x]) hi lo =>
+    -- canonical cast encode, or the general-slice route over the concat
+    ((lo == 0) && (hi + 1 == w) && (0 < w) && sf4Check wof we x
+      && ((w ≤ Sparkle.IR.Semantics.widthOf we x) || immuneE x)) ||
+    (!(lo == 0 && hi + 1 == w) && (lo ≤ hi) && (lo < 2 ^ 32)
+      && sf4Check wof we (.concat [.const 0 w, x])
+      && ((hi + 1 - lo
+            ≤ Sparkle.IR.Semantics.widthOf we (.concat [.const 0 w, x]))
+        || immuneE (.concat [.const 0 w, x])))
+  | .slice (.ref n) hi lo =>
+    ((Sparkle.Backend.Verilog.sanitizeName n == n)
+      && (wof n == some (we n))
+      && (lo ≤ hi) && (hi < we n) && !(lo == 0 && hi + 1 == we n)) ||
+    ((Sparkle.Backend.Verilog.sanitizeName n == n)
+      && (wof n == some (we n)) && (lo == 0) && (hi + 1 == we n))
+  | .slice x hi lo =>
+    (lo ≤ hi) && (lo < 2 ^ 32) && sf4Check wof we x
+      && ((hi + 1 - lo ≤ Sparkle.IR.Semantics.widthOf we x)
+        || immuneE x)
+  | _ => false
+decreasing_by all_goals
+  first
+  | (simp_wf
+     have := List.sizeOf_lt_of_mem ‹_ ∈ _›
+     omega)
+  | (simp_wf; omega)
+
+set_option maxHeartbeats 1600000 in
+/-- Soundness of the mirror: a `true` verdict puts the expression in
+    the proven forward fragment, so `emit_sem` applies to it. -/
+theorem sf4Check_sound {wof : String → Option Nat} {we : WEnv} :
+    ∀ {e : Expr}, sf4Check wof we e = true → SF4 wof we e := by
+  intro e h
+  induction e using sf4Check.induct wof we
+  case case1 n =>
+    simp only [sf4Check, Bool.and_eq_true, beq_iff_eq] at h
+    exact SF4.ref n h.1 h.2
+  case case2 v w =>
+    simp only [sf4Check, decide_eq_true_eq] at h
+    exact SF4.const v w h
+  case case3 x ih =>
+    simp only [sf4Check] at h
+    exact SF4.neg (ih h)
+  case case4 x ih =>
+    simp only [sf4Check, Bool.and_eq_true, beq_iff_eq,
+      decide_eq_true_eq] at h
+    exact SF4.not _ h.1.1 rfl h.1.2 (ih h.2)
+  case case5 c t f ihc iht ihf =>
+    simp only [sf4Check, Bool.and_eq_true, beq_iff_eq] at h
+    exact SF4.mux h.1.1.1 (ihc h.1.1.2) (iht h.1.2) (ihf h.2)
+  case case6 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case7 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case8 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case9 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case10 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case11 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case12 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case13 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case14 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case15 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case16 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      beq_iff_eq] at h
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
+  case case17 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, decide_eq_true_eq] at h
+    exact SF4.shiftOp _ (Or.inl rfl) h.1.1 (iha h.1.2) (ihb h.2)
+  case case18 a b iha ihb =>
+    simp only [sf4Check, Bool.and_eq_true, decide_eq_true_eq] at h
+    exact SF4.shiftOp _ (Or.inr rfl) h.1.1 (iha h.1.2) (ihb h.2)
+  case case19 a b iha ihb =>
+    simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
+      beq_iff_eq, decide_eq_true_eq] at h
+    rcases h with
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
+    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+        (iha hchka) (ihb hchkb)
+    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+        (iha hchka) (ihb hchkb)
+  case case20 a b iha ihb =>
+    simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
+      beq_iff_eq, decide_eq_true_eq] at h
+    rcases h with
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
+    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+        (iha hchka) (ihb hchkb)
+    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+        (iha hchka) (ihb hchkb)
+  case case21 a b iha ihb =>
+    simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
+      beq_iff_eq, decide_eq_true_eq] at h
+    rcases h with
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
+    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+        (iha hchka) (ihb hchkb)
+    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+        (iha hchka) (ihb hchkb)
+  case case22 a b iha ihb =>
+    simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
+      beq_iff_eq, decide_eq_true_eq] at h
+    rcases h with
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
+    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+        (iha hchka) (ihb hchkb)
+    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+        (iha hchka) (ihb hchkb)
+  case case23 =>
+    exfalso
+    rw [sf4Check.eq_def] at h
+    split at h <;>
+      first
+      | (simp_all; done)
+      | grind
+      | (simp_all; grind)
+  case case24 args ih =>
+    simp only [sf4Check, List.all_eq_true, List.mem_attach,
+      true_implies, Subtype.forall, Bool.and_eq_true] at h
+    refine SF4.concat (fun e he => ih e he (h e he).1) ?_
+    intro e he op as heq
+    obtain ⟨-, hpin⟩ := h e he
+    subst heq
+    simpa [beq_iff_eq, decide_eq_true_eq] using hpin
+  case case25 w x hi lo ih2 ih1 =>
+    simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
+      beq_iff_eq, decide_eq_true_eq, Bool.not_eq_eq_eq_not,
+      Bool.not_true] at h
+    rcases h with h | h
+    · obtain ⟨⟨⟨⟨hlo, hhi⟩, hw0⟩, hchk⟩, hsafe⟩ := h
+      subst hlo
+      have : hi = w - 1 := by omega
+      subst this
+      exact SF4.castEnc w hw0 (ih2 hchk) (by
+        rcases hsafe with hle | himm
+        · exact Or.inl hle
+        · exact Or.inr himm)
+    · obtain ⟨⟨⟨⟨hne, hlohi⟩, hlo32⟩, hchk⟩, hsafe⟩ := h
+      refine SF4.sliceGen hi lo (fun n hn => by simp at hn)
+        (fun w' y heq => ?_) hlohi hlo32 (ih1 (by simp only [sf4Check]; exact hchk)) (by
+          rcases hsafe with hle | himm
+          · exact Or.inl hle
+          · exact Or.inr himm)
+      -- the non-canonical guard survives the concat injectivity
+      obtain ⟨he1, he2⟩ := by
+        simpa using heq
+      subst he1
+      intro ⟨hl0, hh1⟩
+      subst hl0
+      simp_all
+  case case26 n hi lo =>
+    simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
+      beq_iff_eq, decide_eq_true_eq, Bool.not_eq_eq_eq_not,
+      Bool.not_true] at h
+    rcases h with h | h
+    · obtain ⟨⟨⟨⟨hs, hw⟩, hlo⟩, hhi⟩, hne⟩ := h
+      refine SF4.sliceRef n hi lo hs hw hlo hhi ?_
+      intro ⟨hl0, hh1⟩
+      subst hl0
+      simp [hh1] at hne
+    · obtain ⟨⟨⟨hs, hw⟩, hlo⟩, hhi⟩ := h
+      subst hlo
+      exact SF4.sliceRefFull n hi hs hw hhi
+  case case27 x hi lo hncast hcomp ih =>
+    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
+      decide_eq_true_eq] at h
+    obtain ⟨⟨⟨hlohi, hlo32⟩, hchk⟩, hsafe⟩ := h
+    exact SF4.sliceGen hi lo (fun n hn => absurd hn (by
+        intro hc; exact hcomp n hc))
+      (fun w' y heq => absurd heq (by
+        intro hc; exact hncast w' y hc))
+      hlohi hlo32 (ih hchk) (by
+        rcases hsafe with hle | himm
+        · exact Or.inl hle
+        · exact Or.inr himm)
+  case case28 =>
+    exfalso
+    rw [sf4Check.eq_def] at h
+    split at h <;>
+      first
+      | (simp_all; done)
+      | grind
+      | (simp_all; grind)
+
 /-- The headline form: at the assignment context width (which the
     module fragment's width-agreement conditions supply), the emitted
     Verilog computes the IR value. -/
