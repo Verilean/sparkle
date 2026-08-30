@@ -2715,5 +2715,41 @@ endmodule
       passed := passed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 69 (certified-roundtrip): an OVER-wide slice keeps its
+  -- zero-extension.  `{2'd1, w[7:0], 2'd3}` with 4-bit w used to emit
+  -- as `{2'd1, w, 2'd3}` — the elided slice shrank from 8 to 4 bits
+  -- and every element above it shifted (silent miscompile of the
+  -- FIRST emission, not just the roundtrip).
+  IO.print "  Test 69: over-wide slice keeps its zero-extension... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "ow"
+      inputs := [⟨"w", .bitVector 4⟩]
+      outputs := [⟨"q", .bitVector 12⟩]
+      wires := [⟨"q", .bitVector 12⟩]
+      body := [.assign "q"
+        (.concat [.const 1 2, .slice (.ref "w") 7 0, .const 3 2])]
+      assertions := [] }
+    let origRhs : Sparkle.IR.AST.Expr :=
+      .concat [.const 1 2, .slice (.ref "w") 7 0, .const 3 2]
+    let we : Sparkle.IR.Semantics.WEnv := fun n => if n == "w" then 4 else 12
+    let env : Sparkle.IR.Semantics.Env := fun n => if n == "w" then 5 else 0
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let vOrig := Sparkle.IR.Semantics.evalExpr we env origRhs
+      let mut vRep : Option Nat := none
+      for lm in d.modules do
+        for st in lm.body do
+          match st with
+          | .assign "q" rhs => vRep := Sparkle.IR.Semantics.evalExpr we env rhs
+          | _ => pure ()
+      if vOrig == some 1047 && vRep == some 1047 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: orig={repr vOrig} reparsed={repr vRep} (expected 1047)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

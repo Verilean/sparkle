@@ -582,6 +582,9 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       -- the shipping elision does NOT fire: either an unknown width, or
       -- lo ≠ 0, or a strictly partial select
       (hkeep : wof n = none ∨ ¬(lo = 0 ∧ we n ≤ hi + 1))
+      -- and the select is IN RANGE, so the part-select arm fires (an
+      -- over-wide select emits its zero-extension as a cast instead)
+      (hin : wof n = none ∨ hi < we n)
       (hw : wof n = none ∨ wof n = some (we n)) :
       SFrag wof we env (.slice (.ref n) hi lo)
   | sliceRefElide (n : String) (hi : Nat)
@@ -853,22 +856,22 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         have := notEncode_sem we env x' w (by rw [hwx, hwS]) hw32 hw0 v hval'
         rw [this]
         simp [evalExpr, evalList, evalOp, hval, hval', hwx]
-  | sliceRefKeep n hi lo hs hkeep hw =>
+  | sliceRefKeep n hi lo hs hkeep hin hw =>
     refine ⟨.slice (.ref n) hi lo, ?_, rfl, rfl⟩
     rcases hw with hw | hw
     · simp [emitAstExpr, hs, hw, lowerT]
     · rcases hkeep with hk | hk
       · rw [hk] at hw; cases hw
-      · have hb : (lo == 0 && decide (hi + 1 ≥ we n)) = false := by
-          simp only [Bool.and_eq_false_iff, beq_eq_false_iff_ne,
-            decide_eq_false_iff_not]
-          omega
-        simp [emitAstExpr, hs, hw, hb, lowerT]
+      · rcases hin with hin | hin
+        · rw [hin] at hw; cases hw
+        · have hb : (lo == 0 && hi + 1 == we n) = false := by
+            simp only [Bool.and_eq_false_iff, beq_eq_false_iff_ne]
+            omega
+          simp [emitAstExpr, hs, hw, hb, hin, lowerT]
   | sliceRefElide n hi hs hw hexact henv =>
     refine ⟨.ref n, ?_, ?_, ?_⟩
-    · have hb : ((0 : Nat) == 0 && decide (hi + 1 ≥ we n)) = true := by
-        have : hi + 1 ≥ we n := Nat.le_of_eq hexact.symm
-        simp [this]
+    · have hb : ((0 : Nat) == 0 && hi + 1 == we n) = true := by
+        simp [hexact]
       simp only [emitAstExpr, hs, hw, hb, if_true]
       simp [lowerT]
     · simp only [Sparkle.IR.Semantics.widthOf, Nat.sub_zero]; omega
@@ -2171,7 +2174,8 @@ def sfragCheck (wof : String → Option Nat) : Sparkle.IR.AST.Expr → Bool
   | .slice (.ref n) hi lo =>
     Sparkle.Backend.Verilog.sanitizeName n == n
     && ((wof n).isNone
-        || !(lo == 0 && (wof n).getD 0 ≤ hi + 1))
+        || (!(lo == 0 && (wof n).getD 0 ≤ hi + 1)
+            && decide (hi < (wof n).getD 0)))
   | .slice (.concat [.const 0 w, y]) hi lo =>
     if lo == 0 && hi + 1 == w then decide (0 < w) && sfragCheck wof y
     else
@@ -2304,23 +2308,21 @@ theorem sfragCheck_sound (wof : String → Option Nat)
     intro h env
     simp only [sfragCheck, Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨hs, hkeep⟩ := h
-    refine SFrag.sliceRefKeep n hi lo hs ?_ ?_
-    · cases hw : wof n with
-      | none => exact Or.inl rfl
-      | some w =>
-        rw [hw] at hkeep
-        simp only [Option.isNone_some, Bool.false_or, Bool.not_eq_true',
-          Bool.and_eq_false_iff] at hkeep
-        refine Or.inr ?_
-        intro ⟨h0, hle⟩
-        cases hkeep with
-        | inl hlo0 => simp [h0] at hlo0
-        | inr hgt =>
-          simp only [hw, Option.getD_some, decide_eq_false_iff_not] at hgt
-          exact hgt hle
-    · cases hw : wof n with
-      | none => exact Or.inl rfl
-      | some w => exact Or.inr (by simp [hw])
+    cases hw : wof n with
+    | none =>
+      exact SFrag.sliceRefKeep n hi lo hs (Or.inl hw) (Or.inl hw)
+        (Or.inl hw)
+    | some w =>
+      rw [hw] at hkeep
+      simp only [Option.isNone_some, Bool.false_or, Bool.and_eq_true,
+        Bool.not_eq_true', decide_eq_true_eq, Option.getD_some] at hkeep
+      refine SFrag.sliceRefKeep n hi lo hs (Or.inr ?_)
+        (Or.inr (by simpa [hw] using hkeep.2)) (Or.inr (by simp [hw]))
+      intro ⟨h0, hle⟩
+      rcases Bool.and_eq_false_iff.mp hkeep.1 with hlo0 | hgt
+      · simp [h0] at hlo0
+      · simp only [decide_eq_false_iff_not] at hgt
+        exact hgt (by simpa [hw] using hle)
   | case9 w y hi lo hguard ihy =>
     intro h env
     simp only [Bool.and_eq_true, beq_iff_eq] at hguard

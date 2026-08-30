@@ -133,13 +133,20 @@ def emitAstExpr (widthOf : String → Option Nat) : Expr → Option SVExpr
   | .slice e hi lo =>
     match e with
     | .ref name =>
-      -- Full-width slice of a known wire is elided (`s[0:0]` on a
-      -- scalar is illegal Verilog).  NOTE: the shipping lookup is on
-      -- the SANITIZED name.
+      -- Exact full-width slice of a known wire is elided (`s[0:0]` on a
+      -- scalar is illegal Verilog); an OVER-wide slice emits its
+      -- zero-extension as a size cast (see the shipping emitter).
+      -- NOTE: the shipping lookup is on the SANITIZED name.
       match widthOf (sanitizeName name) with
       | some w =>
-        if lo == 0 && hi + 1 ≥ w then some (.ident (sanitizeName name))
-        else some (.slice (.ident (sanitizeName name)) hi lo)
+        if lo == 0 && hi + 1 == w then some (.ident (sanitizeName name))
+        else if hi < w then some (.slice (.ident (sanitizeName name)) hi lo)
+        else if lo == 0 then
+          some (.sizeCast (hi + 1) (.ident (sanitizeName name)))
+        else
+          some (.sizeCast (hi + 1 - lo)
+            (.binary .shr (.ident (sanitizeName name))
+              (.lit (.decimal none lo))))
       | none => some (.slice (.ident (sanitizeName name)) hi lo)
     | _ => do
       -- Part-select on a compound is illegal; the emitter prints a size

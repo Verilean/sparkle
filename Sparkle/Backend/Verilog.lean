@@ -169,8 +169,22 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     | .ref name =>
       match widthOf (sanitizeName name) with
       | some w =>
-        if lo == 0 && hi + 1 >= w then sanitizeName name
-        else s!"{sanitizeName name}[{hi}:{lo}]"
+        if lo == 0 && hi + 1 == w then
+          -- exact full-width select: elide (`s[0:0]` on a scalar is
+          -- illegal Verilog)
+          sanitizeName name
+        else if hi < w then
+          s!"{sanitizeName name}[{hi}:{lo}]"
+        else if lo == 0 then
+          -- OVER-wide slice: the IR value is the zero-extension to
+          -- hi+1 bits.  Eliding it (the old behaviour) shrank the
+          -- expression's self-determined width and shifted every
+          -- element above it in a concat (silent miscompile, found by
+          -- the certified-roundtrip fragment analysis); a bare
+          -- `name[hi:0]` beyond the width is x-producing Verilog.
+          s!"{hi + 1}'({sanitizeName name})"
+        else
+          s!"{hi + 1 - lo}'(({sanitizeName name}) >> {lo})"
       | none => s!"{sanitizeName name}[{hi}:{lo}]"
     | .concat [.const 0 w, x] =>
       -- The lowerer encodes a size cast `w'(y)` as
