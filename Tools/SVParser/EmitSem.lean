@@ -27,6 +27,21 @@ open Tools.SVParser.SVSemantics
 open Sparkle.IR.AST
 open Sparkle.IR.Semantics
 
+/-- IR shapes whose EMISSIONS are context-immune (see `immuneSV`):
+    refs, fitting constants, compares, the pinned NOT (a size cast),
+    and every slice (all three slice emission arms are idents, ident
+    slices, or size casts). -/
+def immuneE : Expr → Bool
+  | .ref _ => true
+  | .const v w => v < ((2 ^ w : Nat) : Int)
+  | .op .not [_] => true
+  | .op op [_, _] =>
+    match op with
+    | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
+    | _ => false
+  | .slice _ _ _ => true
+  | _ => false
+
 /-- v0 forward fragment: refs, fitting constants, width-uniform
     unsigned arithmetic/bitwise, width-uniform mux, and the pinned
     NOT. -/
@@ -59,10 +74,12 @@ inductive SF4 (wof : String → Option Nat) (we : WEnv) : Expr → Prop
         ∨ op = .ge_u)
       {a b : Expr}
       -- Verilog sizes comparison operands to their own max, the IR
-      -- masks each per node; width agreement makes both read the same
-      -- self-determined values.
-      (hww : Sparkle.IR.Semantics.widthOf we a
-        = Sparkle.IR.Semantics.widthOf we b)
+      -- masks each per node; both read the same self-determined values
+      -- when the widths agree, OR when both emissions are
+      -- context-immune (up-sizing them adds no bits).
+      (hcm : Sparkle.IR.Semantics.widthOf we a
+          = Sparkle.IR.Semantics.widthOf we b
+        ∨ (immuneE a && immuneE b) = true)
       (ha : SF4 wof we a) (hb : SF4 wof we b) :
       SF4 wof we (.op op [a, b])
   | sliceRef (n : String) (hi lo : Nat)
@@ -87,6 +104,91 @@ inductive SF4 (wof : String → Option Nat) (we : WEnv) : Expr → Prop
           = some (Sparkle.IR.Semantics.widthOf we e)
         ∧ 0 < Sparkle.IR.Semantics.widthOf we e) :
       SF4 wof we (.concat args)
+  | castEnc {x : Expr} (w : Nat) (hw0 : 0 < w)
+      (hx : SF4 wof we x)
+      -- Verilog evaluates a cast's argument at the CAST width: a
+      -- DOWN-cast evaluates it at its own width (safe for any
+      -- fragment shape); an UP-cast widens the context, which is only
+      -- faithful for context-immune emissions.
+      (hsafe : w ≤ Sparkle.IR.Semantics.widthOf we x
+        ∨ immuneE x = true) :
+      SF4 wof we (.slice (.concat [.const 0 w, x]) (w - 1) 0)
+
+/-- Emission shapes whose value is CONTEXT-IMMUNE: evaluating at any
+    width ≥ their own gives the same value.  These are exactly the
+    shapes that carry their own mask (casts, slices, fitting literals,
+    0/1-valued compares) or are bounded by declaration (idents under a
+    width-respecting environment). -/
+def immuneSV : SVExpr → Bool
+  | .ident _ => true
+  | .lit (.decimal (some w) v) => v < 2 ^ w
+  | .lit (.hex (some w) v) => v < 2 ^ w
+  | .sizeCast _ _ => true
+  | .slice (.ident _) _ _ => true
+  | .binary .eq _ _ | .binary .lt _ _ | .binary .le _ _
+  | .binary .gt _ _ | .binary .ge _ _ => true
+  | _ => false
+
+/-- Context-immunity, semantically: an immune emission evaluates the
+    same at every width ≥ its own.  This is what makes the
+    self-determined boundaries (cast arguments, comparison operands)
+    safe to UP-size — the extra context bits never materialize. -/
+private theorem evalAt_immune {wof : String → Option Nat} {env : SEnv}
+    {sv : SVExpr} {w : Nat}
+    (himm : immuneSV sv = true)
+    (hw : widthSV wof sv = some w)
+    (hb : ∀ n wn, wof n = some wn → env n < 2 ^ wn) :
+    ∀ W, w ≤ W → evalAt wof env W sv = evalAt wof env w sv := by
+  intro W hW
+  have hpow : (2 : Nat) ^ w ≤ 2 ^ W := Nat.pow_le_pow_right (by omega) hW
+  match sv, himm, hw with
+  | .ident n, _, hw =>
+    simp only [widthSV] at hw
+    have hbn := hb n w hw
+    simp only [evalAt, hw, Option.bind_eq_bind, Option.bind_some]
+    simp [mask, Nat.mod_eq_of_lt hbn,
+      Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hbn hpow)]
+  | .lit (.decimal (some w') v), himm, hw =>
+    simp only [widthSV, Option.some_inj] at hw
+    subst hw
+    simp only [immuneSV, decide_eq_true_eq] at himm
+    simp [evalAt, litVal, mask, Nat.mod_eq_of_lt himm,
+      Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le himm hpow)]
+  | .lit (.hex (some w') v), himm, hw =>
+    simp only [widthSV, Option.some_inj] at hw
+    subst hw
+    simp only [immuneSV, decide_eq_true_eq] at himm
+    simp [evalAt, litVal, mask, Nat.mod_eq_of_lt himm,
+      Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le himm hpow)]
+  | .sizeCast w' a, _, hw =>
+    simp only [widthSV, Option.some_inj] at hw
+    subst hw
+    simp only [evalAt]
+    cases hv : evalSV wof env w' a with
+    | none => simp [hv]
+    | some v =>
+      have hlt : v % 2 ^ w' < 2 ^ w' := Nat.mod_lt _ (Nat.two_pow_pos _)
+      simp [hv, mask, Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hlt hpow),
+        Nat.mod_mod_of_dvd _ (Nat.dvd_refl _), Nat.mod_eq_of_lt hlt]
+  | .slice (.ident n) hi lo, _, hw =>
+    simp only [widthSV, Option.some_inj] at hw
+    subst hw
+    simp only [evalAt]
+    cases hwn : wof n with
+    | none => simp [hwn]
+    | some wn =>
+      by_cases hc : lo ≤ hi ∧ hi < wn
+      · have hlt : (env n >>> lo) % 2 ^ (hi - lo + 1)
+            < 2 ^ (hi - lo + 1) := Nat.mod_lt _ (Nat.two_pow_pos _)
+        simp [hwn, hc, mask,
+          Nat.mod_eq_of_lt (Nat.lt_of_lt_of_le hlt hpow),
+          Nat.mod_mod_of_dvd _ (Nat.dvd_refl _), Nat.mod_eq_of_lt hlt]
+      · simp [hwn, hc]
+  | .binary .eq a b, _, _ => simp only [evalAt]
+  | .binary .lt a b, _, _ => simp only [evalAt]
+  | .binary .le a b, _, _ => simp only [evalAt]
+  | .binary .gt a b, _, _ => simp only [evalAt]
+  | .binary .ge a b, _, _ => simp only [evalAt]
 
 /-- v0 fragment expressions always evaluate (their shapes are total in
     `evalExpr`). -/
@@ -115,7 +217,7 @@ theorem sf4_eval_isSome {wof : String → Option Nat} {we : WEnv}
     intro env
     obtain ⟨vx, hvx⟩ := Option.isSome_iff_exists.mp (ihx env)
     simp [evalExpr, evalList, hvx, evalOp]
-  | cmpU op hop hww ha hb iha ihb =>
+  | cmpU op hop hcm ha hb iha ihb =>
     rename_i a b
     intro env
     obtain ⟨va, hva⟩ := Option.isSome_iff_exists.mp (iha env)
@@ -144,6 +246,11 @@ theorem sf4_eval_isSome {wof : String → Option Nat} {we : WEnv}
     obtain ⟨vals, hvals⟩ := Option.isSome_iff_exists.mp
       (this args fun e he => ihall e he env)
     simp [evalExpr, hvals]
+  | castEnc w hw0 hx hsafe ihx =>
+    rename_i x
+    intro env
+    obtain ⟨vx, hvx⟩ := Option.isSome_iff_exists.mp (ihx env)
+    simp [evalExpr, evalList, hvx]
 
 private theorem evalList_length {we : WEnv} {env : Env} :
     ∀ (as : List Expr) (vs : List Nat),
@@ -180,6 +287,56 @@ private theorem zip_foldl_width {we : WEnv} :
       rw [ih vrest _ (by simpa using hlen),
         Sparkle.IR.Semantics.widthOf.go]
       omega
+
+private theorem evalOp_mask_bound {we : WEnv} {op : Operator}
+    {args : List Expr} {vals : List Nat} {w v : Nat}
+    (hop : op = .and ∨ op = .or ∨ op = .xor ∨ op = .add
+      ∨ op = .sub ∨ op = .mul)
+    (h : evalOp we op args vals w = some v) : v < 2 ^ w := by
+  rcases hop with h' | h' | h' | h' | h' | h' <;> subst h' <;>
+  · match vals, h with
+    | [a, b], h =>
+      simp only [evalOp, Option.some_inj] at h
+      subst h
+      exact Nat.mod_lt _ (Nat.two_pow_pos _)
+
+/-- The IR's MSB-first assembly fits the total width (no boundedness
+    of the values needed — `go` masks each element itself). -/
+private theorem evalExpr_go_lt {we : WEnv} :
+    ∀ (args : List Expr) (vals : List Nat),
+      args.length = vals.length →
+      Sparkle.IR.Semantics.evalExpr.go we args vals
+        < 2 ^ Sparkle.IR.Semantics.widthOf.go we args := by
+  intro args
+  induction args with
+  | nil =>
+    intro vals _
+    simp [Sparkle.IR.Semantics.evalExpr.go,
+      Sparkle.IR.Semantics.widthOf.go]
+  | cons a rest ih =>
+    intro vals hlen
+    cases vals with
+    | nil => simp at hlen
+    | cons v vrest =>
+      simp only [Sparkle.IR.Semantics.evalExpr.go,
+        Sparkle.IR.Semantics.widthOf.go]
+      rw [zip_foldl_width rest vrest 0 (by simpa using hlen)]
+      simp only [Nat.zero_add]
+      have h1 : mask (Sparkle.IR.Semantics.widthOf we a) v
+          < 2 ^ Sparkle.IR.Semantics.widthOf we a :=
+        Nat.mod_lt _ (Nat.two_pow_pos _)
+      have h2 : mask (Sparkle.IR.Semantics.widthOf we a) v
+            <<< Sparkle.IR.Semantics.widthOf.go we rest
+          < 2 ^ (Sparkle.IR.Semantics.widthOf we a
+              + Sparkle.IR.Semantics.widthOf.go we rest) := by
+        rw [Nat.shiftLeft_eq, Nat.pow_add]
+        exact (Nat.mul_lt_mul_right (Nat.two_pow_pos _)).mpr h1
+      have h3 : Sparkle.IR.Semantics.evalExpr.go we rest vrest
+          < 2 ^ (Sparkle.IR.Semantics.widthOf we a
+              + Sparkle.IR.Semantics.widthOf.go we rest) :=
+        Nat.lt_of_lt_of_le (ih vrest (by simpa using hlen))
+          (Nat.pow_le_pow_right (by omega) (by omega))
+      exact Nat.or_lt_two_pow h2 h3
 
 /-- Element-wise alignment of the emitter's concat with the IR's:
     same total width, same MSB-first assembly, and the assembled value
@@ -304,11 +461,230 @@ private theorem concat_elems_sem {wof : String → Option Nat} {we : WEnv}
        unfold evalSV;
        simp [hwea, hvea, hvA])
 
+/-- Fragment values are width-bounded: under a bounded environment,
+    every fragment expression evaluates below 2^its-width.  (The one
+    rule that does not mask its own result is `mux` — its arms carry
+    the bound.) -/
+theorem sf4_bounded {wof : String → Option Nat} {we : WEnv} {e : Expr}
+    (h : SF4 wof we e) {env : Env} (hbe : Bounded we env) :
+    ∀ v, evalExpr we env e = some v
+      → v < 2 ^ Sparkle.IR.Semantics.widthOf we e := by
+  induction h with
+  | ref n hs hw =>
+    intro v hv
+    simp only [evalExpr, Option.some_inj] at hv
+    subst hv
+    simpa [Sparkle.IR.Semantics.widthOf] using hbe n
+  | const v' w hw =>
+    intro v hv
+    simp only [evalExpr, Option.some_inj] at hv
+    subst hv
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+  | binop op hop hww ha hb iha ihb =>
+    rename_i a b
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨vals, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+    exact evalOp_mask_bound hop hv
+  | mux hwf hc ht hf ihc iht ihf =>
+    rename_i c t f
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨vals, hvals, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [evalList, Option.bind_eq_bind] at hvals
+    obtain ⟨vc, hvc, hvals⟩ := Option.bind_eq_some_iff.mp hvals
+    obtain ⟨vrest, hvrest, hvals⟩ := Option.bind_eq_some_iff.mp hvals
+    obtain ⟨vt, hvt, hvrest⟩ := Option.bind_eq_some_iff.mp hvrest
+    obtain ⟨vrest2, hvrest2, hvrest⟩ := Option.bind_eq_some_iff.mp hvrest
+    obtain ⟨vf, hvf, hvrest2⟩ := Option.bind_eq_some_iff.mp hvrest2
+    obtain ⟨vnil, hvnil, hvrest2⟩ := Option.bind_eq_some_iff.mp hvrest2
+    simp only [evalList, Option.some_inj] at hvnil
+    subst hvnil
+    simp only [Option.some_inj] at hvrest2 hvrest hvals
+    subst hvrest2; subst hvrest; subst hvals
+    simp only [evalOp, Option.some_inj] at hv
+    have hWt : Sparkle.IR.Semantics.widthOf we (.op .mux [c, t, f])
+        = Sparkle.IR.Semantics.widthOf we t := by
+      simp [Sparkle.IR.Semantics.widthOf]
+    rw [hWt]
+    subst hv
+    by_cases h0 : vc ≠ 0
+    · rw [if_pos h0]; exact iht vt hvt
+    · rw [if_neg h0]; exact hwf ▸ ihf vf hvf
+  | not w hwT hwS hw0 hx ihx =>
+    rename_i x
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨vals, hvals, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [evalList, Option.bind_eq_bind] at hvals
+    obtain ⟨vx, hvx, hvals⟩ := Option.bind_eq_some_iff.mp hvals
+    obtain ⟨vnil, hvnil, hvals⟩ := Option.bind_eq_some_iff.mp hvals
+    simp only [evalList, Option.some_inj] at hvnil
+    subst hvnil
+    simp only [Option.some_inj] at hvals
+    subst hvals
+    simp only [evalOp, Option.some_inj] at hv
+    subst hv
+    have : Sparkle.IR.Semantics.widthOf we (.op .not [x])
+        = Sparkle.IR.Semantics.widthOf we x := by
+      simp [Sparkle.IR.Semantics.widthOf]
+    rw [this]
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+  | cmpU op hop hcm ha hb iha ihb =>
+    rename_i a b
+    intro v hv
+    rcases hop with h' | h' | h' | h' | h' <;> subst h' <;>
+    · simp only [evalExpr, Option.bind_eq_bind] at hv
+      obtain ⟨vals, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+      match vals, hv with
+      | [x, y], hv =>
+        simp only [evalOp, Option.some_inj] at hv
+        subst hv
+        simp only [Sparkle.IR.Semantics.widthOf]
+        split <;> omega
+  | sliceRef n hi lo hs hw hlo hhi hne =>
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind, Option.bind_some,
+      Option.some_inj] at hv
+    subst hv
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+  | sliceRefFull n hi hs hw hfull =>
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind, Option.bind_some,
+      Option.some_inj] at hv
+    subst hv
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+  | concat hall hpin ihall =>
+    rename_i args
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨vals, hvals, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [Option.some_inj] at hv
+    subst hv
+    have := evalExpr_go_lt (we := we) args vals
+      (evalList_length args vals hvals).symm
+    simpa [Sparkle.IR.Semantics.widthOf] using this
+  | castEnc w hw0 hx hsafe ihx =>
+    rename_i x
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨vin, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [Option.some_inj] at hv
+    subst hv
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
+
+/-- Emissions of `immuneE` fragment shapes are context-immune
+    (`immuneSV`) — the bridge from the IR-level side condition to the
+    semantic stability lemma. -/
+private theorem emit_immune {wof : String → Option Nat} {we : WEnv}
+    {e : Expr} (h : SF4 wof we e) (himm : immuneE e = true) :
+    ∀ sv, Tools.SVParser.EmitAst.emitAstExpr wof e = some sv →
+      immuneSV sv = true := by
+  cases h with
+  | ref n hs hw =>
+    intro sv hsv
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hs,
+      Option.some_inj] at hsv
+    subst hsv; rfl
+  | const v w hw =>
+    intro sv hsv
+    have hne : (w == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    simp only [immuneE, decide_eq_true_eq] at himm
+    have h2 : (0 : Int) < ((2 ^ w : Nat) : Int) :=
+      Int.natCast_pos.mpr (Nat.two_pow_pos w)
+    by_cases hneg : v < 0
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr, hne,
+        if_pos hneg, Option.some_inj] at hsv
+      subst hsv
+      simp only [immuneSV, decide_eq_true_eq,
+        Tools.SVParser.EmitAst.encodeConst]
+      have hlt := Int.emod_lt_of_pos
+        (b := ((2 ^ w : Nat) : Int))
+        ((v % ((2 ^ w : Nat) : Int)) + ((2 ^ w : Nat) : Int)) h2
+      have hge := Int.emod_nonneg
+        (b := ((2 ^ w : Nat) : Int))
+        ((v % ((2 ^ w : Nat) : Int)) + ((2 ^ w : Nat) : Int))
+        (Int.ne_of_gt h2)
+      have hcast : ((((v % ((2 ^ w : Nat) : Int))
+            + ((2 ^ w : Nat) : Int)) % ((2 ^ w : Nat) : Int)).toNat
+            : Int) < ((2 ^ w : Nat) : Int) := by
+        rw [Int.toNat_of_nonneg hge]; exact hlt
+      exact Int.ofNat_lt.mp hcast
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr, hne,
+        if_neg hneg, Option.some_inj] at hsv
+      subst hsv
+      simp only [immuneSV, decide_eq_true_eq]
+      have hcast : ((v.toNat : Int)) < ((2 ^ w : Nat) : Int) := by
+        rw [Int.toNat_of_nonneg (Int.not_lt.mp hneg)]; exact himm
+      exact Int.ofNat_lt.mp hcast
+  | binop op hop hww ha hb =>
+    intro sv hsv
+    exfalso
+    rcases hop with h' | h' | h' | h' | h' | h' <;> subst h' <;>
+      simp [immuneE] at himm
+  | mux hwf hc ht hf =>
+    intro sv hsv
+    exfalso
+    simp [immuneE] at himm
+  | not w hwT hwS hw0 hx =>
+    intro sv hsv
+    have hne : (w == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hwT, hne,
+      Option.bind_eq_bind] at hsv
+    obtain ⟨svx, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+    simp only [hne, Bool.false_eq_true, if_false,
+      Option.some_inj] at hsv
+    subst hsv; rfl
+  | cmpU op hop hcm ha hb =>
+    intro sv hsv
+    rcases hop with h' | h' | h' | h' | h' <;> subst h' <;>
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr,
+        Option.bind_eq_bind] at hsv
+      obtain ⟨sva, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      obtain ⟨svb, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      simp only [Tools.SVParser.EmitAst.binOpOf, Option.bind_some,
+        Option.some_inj] at hsv
+      subst hsv; rfl
+  | sliceRef n hi lo hs hw hlo hhi hne' =>
+    intro sv hsv
+    have helide : (lo == 0 && hi + 1 == we n) = false := by
+      rcases Nat.eq_zero_or_pos lo with h0 | h0
+      · subst h0
+        have : hi + 1 ≠ we n := fun hc => hne' ⟨rfl, hc⟩
+        simp [this]
+      · simp [Nat.pos_iff_ne_zero.mp h0]
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hs, hw, helide,
+      Bool.false_eq_true, if_false, if_pos hhi,
+      Option.some_inj] at hsv
+    subst hsv; rfl
+  | sliceRefFull n hi hs hw hfull =>
+    intro sv hsv
+    have helide : (0 == 0 && hi + 1 == we n) = true := by simp [hfull]
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hs, hw, helide,
+      if_true, Option.some_inj] at hsv
+    subst hsv; rfl
+  | concat hall hpin =>
+    intro sv hsv
+    exfalso
+    simp [immuneE] at himm
+  | castEnc w hw0 hx hsafe =>
+    intro sv hsv
+    have hsucc : w - 1 + 1 = w := Nat.sub_add_cancel hw0
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hsucc,
+      beq_self_eq_true, Bool.and_self, if_true,
+      Option.bind_eq_bind] at hsv
+    obtain ⟨svx, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+    simp only [Option.some_inj] at hsv
+    subst hsv; rfl
+
 /-- **Forward correctness, v0**: the emitted form has the same
     self-determined width AND, evaluated at the IR width as context,
     the same value as the IR expression. -/
 theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
-    {e : Expr} (h : SF4 wof we e) (hbe : Bounded we env) :
+    {e : Expr} (h : SF4 wof we e) (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn) :
     ∀ sv, Tools.SVParser.EmitAst.emitAstExpr wof e = some sv →
       widthSV wof sv = some (Sparkle.IR.Semantics.widthOf we e)
       ∧ evalAt wof env (Sparkle.IR.Semantics.widthOf we e) sv
@@ -478,7 +854,7 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         have := Nat.two_pow_pos w
         simp [mask, Nat.mod_eq_of_lt (by omega)]
       simp [mask, hm, Nat.mod_mod_of_dvd _ (Nat.dvd_refl _), hwS]
-  | cmpU op hop hww ha hb iha ihb =>
+  | cmpU op hop hcm ha hb iha ihb =>
     rename_i a b
     intro sv hsv
     rcases hop with h | h | h | h | h <;> subst h <;>
@@ -491,14 +867,41 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       subst hsv
       obtain ⟨hwa, hva⟩ := iha sva hsa
       obtain ⟨hwb, hvb⟩ := ihb svb hsb
-      have hvb' : evalAt wof env (Sparkle.IR.Semantics.widthOf we a) svb
-          = evalExpr we env b := hww ▸ hvb
+      -- comparison operands are SELF-determined: they size to their
+      -- own max.  Width agreement pins that to the IH's width; when
+      -- instead both emissions are context-immune, up-sizing to the
+      -- max is inert (evalAt_immune).
+      have hA' : evalAt wof env
+            (max (Sparkle.IR.Semantics.widthOf we a)
+              (Sparkle.IR.Semantics.widthOf we b)) sva
+          = evalExpr we env a := by
+        rcases hcm with hww | himm
+        · rw [show max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b)
+              = Sparkle.IR.Semantics.widthOf we a by
+            rw [hww]; exact Nat.max_self _]
+          exact hva
+        · obtain ⟨himmA, _⟩ := Bool.and_eq_true_iff.mp himm
+          rw [evalAt_immune (emit_immune ha himmA sva hsa) hwa hbw _
+            (Nat.le_max_left _ _)]
+          exact hva
+      have hB' : evalAt wof env
+            (max (Sparkle.IR.Semantics.widthOf we a)
+              (Sparkle.IR.Semantics.widthOf we b)) svb
+          = evalExpr we env b := by
+        rcases hcm with hww | himm
+        · rw [show max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b)
+              = Sparkle.IR.Semantics.widthOf we b by
+            rw [hww]; exact Nat.max_self _]
+          exact hvb
+        · obtain ⟨_, himmB⟩ := Bool.and_eq_true_iff.mp himm
+          rw [evalAt_immune (emit_immune hb himmB svb hsb) hwb hbw _
+            (Nat.le_max_right _ _)]
+          exact hvb
       constructor
       · simp [widthSV, Sparkle.IR.Semantics.widthOf]
-      · -- comparison operands are SELF-determined: they size to their
-        -- own max, which width agreement pins to `widthOf we a` — the
-        -- exact width the IH evaluated them at.
-        rw [show evalExpr we env (.op _ [a, b])
+      · rw [show evalExpr we env (.op _ [a, b])
               = ((evalList we env [a, b]).bind fun vals =>
                   evalOp we _ [a, b] vals
                     (Sparkle.IR.Semantics.widthOf we (.op _ [a, b])))
@@ -514,7 +917,7 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
             (sf4_eval_isSome hb env))
         | some vb =>
         simp only [evalAt, hwa, hwb, Option.bind_eq_bind,
-          Option.bind_some, ← hww, Nat.max_self, hva, hvb', hA, hB,
+          Option.bind_some, hA', hB', hA, hB,
           evalList, evalOp, Option.some_inj]
   | sliceRef n hi lo hs hw hlo hhi hne =>
     intro sv hsv
@@ -553,6 +956,62 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         evalExpr, hvals, Sparkle.IR.Semantics.widthOf,
         Option.some_inj]
       simp [mask, Nat.mod_eq_of_lt hbnd]
+  | castEnc w hw0 hx hsafe ihx =>
+    rename_i x
+    intro sv hsv
+    have hsucc : w - 1 + 1 = w := Nat.sub_add_cancel hw0
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hsucc,
+      beq_self_eq_true, Bool.and_self, if_true,
+      Option.bind_eq_bind] at hsv
+    obtain ⟨svx, hsx, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+    simp only [Option.some_inj] at hsv
+    subst hsv
+    obtain ⟨hwx, hvx⟩ := ihx svx hsx
+    obtain ⟨vx, hvxv⟩ := Option.isSome_iff_exists.mp
+      (sf4_eval_isSome hx env)
+    have hW : Sparkle.IR.Semantics.widthOf we
+        (.slice (.concat [.const 0 w, x]) (w - 1) 0) = w := by
+      simp [Sparkle.IR.Semantics.widthOf, hsucc]
+    constructor
+    · simp [widthSV, hW]
+    · rw [hW]
+      -- SV side: the cast's argument sees a w-bit context
+      have hstab : evalAt wof env
+            (max w (Sparkle.IR.Semantics.widthOf we x)) svx
+          = some vx := by
+        rcases hsafe with hle | himm
+        · rw [Nat.max_eq_right hle, hvx]; exact hvxv
+        · rw [evalAt_immune (emit_immune hx himm svx hsx) hwx hbw _
+            (Nat.le_max_right _ _), hvx]
+          exact hvxv
+      have hSV : evalAt wof env w (.sizeCast w svx)
+          = some (mask w (mask w vx)) := by
+        simp only [evalAt]
+        unfold evalSV
+        simp [hwx, hstab]
+      rw [hSV]
+      -- IR side: slice of the zero-extension concat
+      have hc0 : evalExpr we env (.const 0 w) = some 0 := by
+        simp only [evalExpr, Option.some_inj]
+        simp [Int.zero_emod, Int.zero_add, Int.emod_self, mask]
+      have hIR : evalExpr we env
+          (.slice (.concat [.const 0 w, x]) (w - 1) 0)
+          = some (mask w (mask (Sparkle.IR.Semantics.widthOf we x) vx)) := by
+        simp only [evalExpr, evalList, hc0, hvxv, Option.bind_eq_bind,
+          Option.bind_some, Option.some_inj,
+          Sparkle.IR.Semantics.evalExpr.go]
+        simp [mask, Nat.shiftRight_zero, Nat.shiftLeft_eq, hsucc,
+          Nat.zero_mod, Nat.sub_zero]
+      rw [hIR, Option.some_inj]
+      -- mask w (mask w vx) = mask w (mask wx vx)
+      rcases hsafe with hle | himm
+      · -- down/equal cast: both collapse to mask w vx
+        simp [mask, Nat.mod_mod_of_dvd _ (Nat.dvd_refl _),
+          Nat.mod_mod_of_dvd _ (Nat.pow_dvd_pow 2 hle)]
+      · -- up-cast of an immune shape: the value already fits its width
+        have hb := sf4_bounded hx hbe vx hvxv
+        simp [mask, Nat.mod_mod_of_dvd _ (Nat.dvd_refl _),
+          Nat.mod_eq_of_lt hb]
   | sliceRefFull n hi hs hw hfull =>
     intro sv hsv
     have helide : (0 == 0 && hi + 1 == we n) = true := by simp [hfull]
@@ -571,11 +1030,12 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
     Verilog computes the IR value. -/
 theorem emit_sem_evalSV {wof : String → Option Nat} {we : WEnv}
     {env : Env} {e : Expr} (h : SF4 wof we e) (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
     {sv : SVExpr}
     (hsv : Tools.SVParser.EmitAst.emitAstExpr wof e = some sv) :
     evalSV wof env (Sparkle.IR.Semantics.widthOf we e) sv
       = evalExpr we env e := by
-  obtain ⟨hw, hv⟩ := emit_sem h hbe sv hsv
+  obtain ⟨hw, hv⟩ := emit_sem h hbe hbw sv hsv
   unfold evalSV
   simp [hw, Nat.max_self, hv]
 
