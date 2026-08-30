@@ -2406,39 +2406,319 @@ theorem emit_sem_evalSV {wof : String → Option Nat} {we : WEnv}
   simp [hw, Nat.max_self, hv]
 
 /- ------------------------------------------------------------------ -/
+/- The memory layer: combinational read ports and write ports.          -/
+
+mutual
+/-- No array-read (`.index`) nodes anywhere.  For a memory port
+    expression this rules out reads of the memory being written, which
+    is what makes `evalPayload` collapse to plain `evalExpr` (the
+    read-modify-write splice has nothing to splice). -/
+def idxFree : Expr → Bool
+  | .index _ _ => false
+  | .op _ args => idxFreeL args
+  | .concat args => idxFreeL args
+  | .slice x _ _ => idxFree x
+  | .sliceDim x _ _ => idxFree x
+  | _ => true
+
+/-- List lift of `idxFree`. -/
+def idxFreeL : List Expr → Bool
+  | [] => true
+  | a :: rest => idxFree a && idxFreeL rest
+end
+
+/-- On index-free expressions the RMW read extraction is the identity,
+    so `evalPayload` is just `evalExpr`. -/
+theorem evalPayload_of_idxFree {we : WEnv} {mems : Sparkle.IR.Semantics.MEnv}
+    {env : Env} {arr : String} {aw dw : Nat} {e : Expr}
+    (h : idxFree e = true) :
+    Sparkle.IR.Semantics.evalPayload we mems env arr aw dw e
+      = evalExpr we env e := by
+  have hid : ∀ (x : Expr), idxFree x = true →
+      ∀ a k, Sparkle.IR.Semantics.extractReads a x k = (x, [], k) := by
+    intro x
+    induction x using idxFree.induct (motive_2 := fun l =>
+        idxFreeL l = true →
+        ∀ a k, Sparkle.IR.Semantics.extractReadsList a l k = (l, [], k)) with
+    | case1 a i => intro h; cases h
+    | case2 o args ih =>
+      intro h a k
+      simp only [idxFree] at h
+      simp [Sparkle.IR.Semantics.extractReads, ih h a k]
+    | case3 args ih =>
+      intro h a k
+      simp only [idxFree] at h
+      simp [Sparkle.IR.Semantics.extractReads, ih h a k]
+    | case4 x hi lo ih =>
+      intro h a k
+      simp only [idxFree] at h
+      simp [Sparkle.IR.Semantics.extractReads, ih h a k]
+    | case5 x hi lo ih =>
+      intro h a k
+      simp [Sparkle.IR.Semantics.extractReads]
+    | case6 x h1 h2 h3 h4 h5 =>
+      intro _ a k
+      cases x with
+      | ref n => rfl
+      | const v w => rfl
+      | op o args => exact absurd rfl (h2 o args)
+      | concat args => exact absurd rfl (h3 args)
+      | slice y hi lo => exact absurd rfl (h4 y hi lo)
+      | sliceDim y d i => exact absurd rfl (h5 y d i)
+      | index y i => exact absurd rfl (h1 y i)
+    | case7 =>
+      rename_i _ ar k
+      rfl
+    | case8 a rest ih1 ih2 =>
+      rename_i h ar k
+      simp only [idxFreeL, Bool.and_eq_true] at h
+      simp [Sparkle.IR.Semantics.extractReadsList, ih1 h.1 ar k,
+        ih2 h.2 ar k]
+  simp [Sparkle.IR.Semantics.evalPayload, hid e h,
+    Sparkle.IR.Semantics.spliceReads]
+
+/-- Verilog's combinational read port: `assign rd = Mem[addr];` — the
+    address is evaluated self-determined (it indexes an array), the
+    fetched word truncated into the read target's width. -/
+def comboReadsSV (wof : String → Option Nat) (mems : Sparkle.IR.Semantics.MEnv)
+    (name : String) (aw dw : Nat) :
+    List (SVExpr × String) → SEnv → Option SEnv
+  | [], env => some env
+  | (a, rd) :: rest, env => do
+    let av ← evalSV wof env aw a
+    comboReadsSV wof mems name aw dw rest
+      (fun n => if n = rd then mask dw (mems name (mask aw av)) else env n)
+
+/-- Verilog's write port inside `always_ff`: `if (en) Mem[a] <= d;` —
+    a later port overwrites an earlier one at the same address. -/
+def memWritePortsSV (wof : String → Option Nat) (env : SEnv)
+    (name : String) (aw dw : Nat) :
+    List (SVExpr × SVExpr × SVExpr) → Sparkle.IR.Semantics.MEnv →
+    Option Sparkle.IR.Semantics.MEnv
+  | [], m => some m
+  | (a, d, en) :: rest, m => do
+    let ev ← evalSV wof env 1 en
+    let av ← evalSV wof env aw a
+    let dv ← evalSV wof env dw d
+    memWritePortsSV wof env name aw dw rest
+      (if ev ≠ 0 then
+        (fun nm i => if nm = name ∧ i = mask aw av then mask dw dv
+                     else m nm i)
+       else m)
+
+/-- Port-list check: each port expression is in the fragment, is
+    index-free (no read of the memory being written — that is the RMW
+    layer), and its IR width matches the port's declared width. -/
+def portCheck (wof : String → Option Nat) (we : WEnv) (w : Nat)
+    (e : Expr) : Bool :=
+  idxFree e && (Sparkle.IR.Semantics.widthOf we e == w) && sf4Check wof we e
+
+/-- Every read port of one memory is checkable and its target is a
+    declared name wide enough for the fetched word. -/
+def readPortsCheck (wof : String → Option Nat) (we : WEnv)
+    (aw dw : Nat) (ports : List (Expr × String)) : Bool :=
+  ports.all fun p => portCheck wof we aw p.1 && (wof p.2 == some (we p.2))
+    && (decide (dw ≤ we p.2))
+
+/-- The emitter's read-port list for one memory. -/
+def emitReadPorts (wof : String → Option Nat) :
+    List (Expr × String) → Option (List (SVExpr × String))
+  | [] => some []
+  | (a, rd) :: rest => do
+    let sa ← Tools.SVParser.EmitAst.emitAstExpr wof a
+    let others ← emitReadPorts wof rest
+    some ((sa, rd) :: others)
+
+/-- The emitter's write-port list for one memory. -/
+def emitWritePorts (wof : String → Option Nat) :
+    List (Expr × Expr × Expr) → Option (List (SVExpr × SVExpr × SVExpr))
+  | [] => some []
+  | (a, d, en) :: rest => do
+    let sa ← Tools.SVParser.EmitAst.emitAstExpr wof a
+    let sd ← Tools.SVParser.EmitAst.emitAstExpr wof d
+    let sen ← Tools.SVParser.EmitAst.emitAstExpr wof en
+    let others ← emitWritePorts wof rest
+    some ((sa, sd, sen) :: others)
+
+set_option maxHeartbeats 800000 in
+/-- **Forward correctness, combinational read ports**: the emitted
+    `assign rd = Mem[addr];` chain lands in the same environment as the
+    IR's `comboReads`, and preserves the width invariants. -/
+theorem emit_sem_comboReads {wof : String → Option Nat} {we : WEnv}
+    (mems : Sparkle.IR.Semantics.MEnv) (name : String) (aw dw : Nat) :
+    ∀ (ports : List (Expr × String)) (env : Env),
+      readPortsCheck wof we aw dw ports = true →
+      Bounded we env →
+      (∀ n wn, wof n = some wn → env n < 2 ^ wn) →
+      ∃ svports env',
+        emitReadPorts wof ports = some svports
+        ∧ Sparkle.IR.Semantics.comboReads we mems name aw dw ports env
+            = some env'
+        ∧ comboReadsSV wof mems name aw dw svports env = some env'
+        ∧ Bounded we env'
+        ∧ (∀ n wn, wof n = some wn → env' n < 2 ^ wn) := by
+  intro ports
+  induction ports with
+  | nil => intro env _ hbe hbw; exact ⟨[], env, rfl, rfl, rfl, hbe, hbw⟩
+  | cons p rest ih =>
+    obtain ⟨a, rd⟩ := p
+    intro env hchk hbe hbw
+    simp only [readPortsCheck, List.all_cons, Bool.and_eq_true,
+      portCheck, beq_iff_eq, decide_eq_true_eq] at hchk
+    obtain ⟨⟨⟨⟨hidx, hwa⟩, hfr⟩, hwrd⟩, hdwrd⟩ := hchk.1
+    have hSF := sf4Check_sound hfr
+    obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp
+      (sf4_eval_isSome hSF env)
+    obtain ⟨sa, hsa⟩ := Option.isSome_iff_exists.mp (sf4_emit_isSome hSF)
+    -- the fetched word fits `dw`, hence the read target's width
+    have hfit : mask dw (mems name (mask aw av)) < 2 ^ dw :=
+      Nat.mod_lt _ (Nat.two_pow_pos _)
+    have hbe' : Bounded we
+        (fun n => if n = rd then mask dw (mems name (mask aw av))
+                  else env n) := by
+      intro n
+      by_cases hn : n = rd <;> simp [hn]
+      · exact Nat.lt_of_lt_of_le hfit
+          (Nat.pow_le_pow_right (by omega) (hn ▸ hdwrd))
+      · exact hbe n
+    have hbw' : ∀ n wn, wof n = some wn →
+        (fun n => if n = rd then mask dw (mems name (mask aw av))
+                  else env n) n < 2 ^ wn := by
+      intro n wn hn
+      by_cases hnr : n = rd <;> simp [hnr]
+      · subst hnr
+        rw [hn] at hwrd
+        simp only [Option.some_inj] at hwrd
+        exact Nat.lt_of_lt_of_le hfit
+          (Nat.pow_le_pow_right (by omega) (hwrd ▸ hdwrd))
+      · exact hbw n wn hn
+    have htail : readPortsCheck wof we aw dw rest = true := by
+      simp only [readPortsCheck, List.all_eq_true]
+      intro x hx
+      have h2 := hchk.2
+      simp only [List.all_eq_true] at h2
+      exact h2 x hx
+    obtain ⟨svrest, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+      ih _ htail hbe' hbw'
+    refine ⟨(sa, rd) :: svrest, env', ?_, ?_, ?_, hbe'', hbw''⟩
+    · simp [emitReadPorts, hsa, hemit]
+    · simp [Sparkle.IR.Semantics.comboReads, hav, hIR]
+    · have hval : evalSV wof env aw sa = some av := by
+        rw [← hwa, emit_sem_evalSV hSF hbe hbw hsa]
+        exact hav
+      simp only [comboReadsSV, hval, Option.bind_eq_bind,
+        Option.bind_some]
+      exact hSV
+
+set_option maxHeartbeats 800000 in
+/-- **Forward correctness, write ports**: the emitted `always_ff`
+    guarded stores produce the same memory state as the IR's
+    `memWritePorts` (index-free ports, so the RMW splice is inert). -/
+theorem emit_sem_writePorts {wof : String → Option Nat} {we : WEnv}
+    (mems0 : Sparkle.IR.Semantics.MEnv) (name : String) (aw dw : Nat) :
+    ∀ (ports : List (Expr × Expr × Expr)) (env : Env)
+      (m : Sparkle.IR.Semantics.MEnv),
+      (ports.all fun p => portCheck wof we aw p.1
+        && portCheck wof we dw p.2.1
+        && portCheck wof we 1 p.2.2) = true →
+      Bounded we env →
+      (∀ n wn, wof n = some wn → env n < 2 ^ wn) →
+      ∃ svports m',
+        emitWritePorts wof ports = some svports
+        ∧ Sparkle.IR.Semantics.memWritePorts we mems0 env name aw dw
+            ports m = some m'
+        ∧ memWritePortsSV wof env name aw dw svports m = some m' := by
+  intro ports
+  induction ports with
+  | nil => intro env m _ _ _; exact ⟨[], m, rfl, rfl, rfl⟩
+  | cons p rest ih =>
+    obtain ⟨a, d, en⟩ := p
+    intro env m hchk hbe hbw
+    simp only [List.all_cons, Bool.and_eq_true, portCheck,
+      beq_iff_eq] at hchk
+    obtain ⟨⟨⟨⟨hidxA, hwa⟩, hfrA⟩, ⟨⟨hidxD, hwd⟩, hfrD⟩⟩,
+      ⟨⟨hidxE, hwe⟩, hfrE⟩⟩ := hchk.1
+    have hSFa := sf4Check_sound hfrA
+    have hSFd := sf4Check_sound hfrD
+    have hSFe := sf4Check_sound hfrE
+    obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp
+      (sf4_eval_isSome hSFa env)
+    obtain ⟨dv, hdv⟩ := Option.isSome_iff_exists.mp
+      (sf4_eval_isSome hSFd env)
+    obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.mp
+      (sf4_eval_isSome hSFe env)
+    obtain ⟨sa, hsa⟩ := Option.isSome_iff_exists.mp (sf4_emit_isSome hSFa)
+    obtain ⟨sd, hsd⟩ := Option.isSome_iff_exists.mp (sf4_emit_isSome hSFd)
+    obtain ⟨sen, hsen⟩ := Option.isSome_iff_exists.mp (sf4_emit_isSome hSFe)
+    obtain ⟨svrest, m', hemit, hIR, hSV⟩ := ih env _ hchk.2 hbe hbw
+    refine ⟨(sa, sd, sen) :: svrest, m', ?_, ?_, ?_⟩
+    · simp [emitWritePorts, hsa, hsd, hsen, hemit]
+    · simp only [Sparkle.IR.Semantics.memWritePorts,
+        evalPayload_of_idxFree hidxE, evalPayload_of_idxFree hidxA,
+        evalPayload_of_idxFree hidxD, hev, hav, hdv,
+        Option.bind_eq_bind, Option.bind_some]
+      exact hIR
+    · have hvA : evalSV wof env aw sa = some av := by
+        rw [← hwa, emit_sem_evalSV hSFa hbe hbw hsa]; exact hav
+      have hvD : evalSV wof env dw sd = some dv := by
+        rw [← hwd, emit_sem_evalSV hSFd hbe hbw hsd]; exact hdv
+      have hvE : evalSV wof env 1 sen = some ev := by
+        rw [← hwe, emit_sem_evalSV hSFe hbe hbw hsen]; exact hev
+      simp only [memWritePortsSV, hvA, hvD, hvE, Option.bind_eq_bind,
+        Option.bind_some]
+      exact hSV
+
+/- ------------------------------------------------------------------ -/
 /- The statement layer: the combinational phase of a module.           -/
 
-/-- The assign pairs the emitter prints (`assign l = E;`), for a body
-    whose non-assign statements contribute nothing to the
-    combinational phase. -/
+/-- One step of the emitted combinational program: a continuous
+    assignment, or one memory's combinational read ports. -/
+inductive CombStep where
+  | assign (lhs : String) (rhs : SVExpr)
+  | reads (name : String) (aw dw : Nat) (ports : List (SVExpr × String))
+
+/-- The combinational program the emitter prints: `assign l = E;` for
+    each assign, and `assign rd = Mem[addr];` for each
+    combinationally-read memory.  Registers, instances and sync-read
+    memories contribute nothing to this phase. -/
 def emitAssigns (wof : String → Option Nat) :
-    List Stmt → Option (List (String × SVExpr))
+    List Stmt → Option (List CombStep)
   | [] => some []
   | .assign l r :: rest => do
     let sv ← Tools.SVParser.EmitAst.emitAstExpr wof r
     let others ← emitAssigns wof rest
-    some ((l, sv) :: others)
+    some (.assign l sv :: others)
   | .register _ _ _ _ _ :: rest => emitAssigns wof rest
-  | .memory _ _ _ _ _ _ _ _ _ _ _ _ :: rest => emitAssigns wof rest
+  | .memory name aw dw _ _ _ _ ra rd cr _ er :: rest =>
+    if cr then do
+      let ports ← emitReadPorts wof ((ra, rd) :: er)
+      let others ← emitAssigns wof rest
+      some (.reads name aw dw ports :: others)
+    else emitAssigns wof rest
   | .inst _ _ _ :: rest => emitAssigns wof rest
 
-/-- Verilog's combinational assignment fold: each RHS is evaluated at
-    its LHS's declared width (the assignment context) and truncated
-    into the target. -/
-def evalAssignsSV (wof : String → Option Nat) :
-    List (String × SVExpr) → SEnv → Option SEnv
+/-- Verilog's combinational fold: each continuous assignment evaluates
+    its RHS at its LHS's declared width (the assignment context) and
+    truncates into the target; each read port fetches its word. -/
+def evalAssignsSV (wof : String → Option Nat)
+    (mems : Sparkle.IR.Semantics.MEnv) :
+    List CombStep → SEnv → Option SEnv
   | [], env => some env
-  | (n, sv) :: rest, env => do
+  | .assign n sv :: rest, env => do
     let w ← wof n
     let v ← evalSV wof env w sv
-    evalAssignsSV wof rest
+    evalAssignsSV wof mems rest
       (fun m => if m = n then mask w v else env m)
+  | .reads name aw dw ports :: rest, env => do
+    let env' ← comboReadsSV wof mems name aw dw ports env
+    evalAssignsSV wof mems rest env'
 
 /-- Per-body forward-fragment check: every assign's RHS is in the
     fragment, agrees in width with its LHS, and the LHS is a declared,
-    sanitize-fixed name; registers and instances are combinationally
-    inert; combinationally-read memories are outside (their read ports
-    are combinational logic this layer does not model). -/
+    sanitize-fixed name; a combinationally-read memory's read ports are
+    checkable (index-free addresses at the address width, targets wide
+    enough); registers, instances and sync-read memories are
+    combinationally inert. -/
 def assignsCheck (wof : String → Option Nat) (we : WEnv) :
     List Stmt → Bool
   | [] => true
@@ -2449,8 +2729,9 @@ def assignsCheck (wof : String → Option Nat) (we : WEnv) :
       && sf4Check wof we r
       && assignsCheck wof we rest
   | .register _ _ _ _ _ :: rest => assignsCheck wof we rest
-  | .memory _ _ _ _ _ _ _ _ _ cr _ _ :: rest =>
-    !cr && assignsCheck wof we rest
+  | .memory _ aw dw _ _ _ _ ra rd cr _ er :: rest =>
+    (!cr || readPortsCheck wof we aw dw ((ra, rd) :: er))
+      && assignsCheck wof we rest
   | .inst _ _ _ :: rest => assignsCheck wof we rest
 
 set_option maxHeartbeats 800000 in
@@ -2468,7 +2749,7 @@ theorem emit_sem_assigns {wof : String → Option Nat} {we : WEnv}
       ∃ pairs env',
         emitAssigns wof body = some pairs
         ∧ Sparkle.IR.Semantics.evalAssigns we mems body env = some env'
-        ∧ evalAssignsSV wof pairs env = some env'
+        ∧ evalAssignsSV wof mems pairs env = some env'
         ∧ Bounded we env'
         ∧ (∀ n wn, wof n = some wn → env' n < 2 ^ wn) := by
   intro body
@@ -2511,7 +2792,7 @@ theorem emit_sem_assigns {wof : String → Option Nat} {we : WEnv}
         · exact hbw n wn hn
       obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
         ih _ hrest hbe' hbw'
-      refine ⟨(l, sv) :: pairs, env', ?_, ?_, ?_, hbe'', hbw''⟩
+      refine ⟨.assign l sv :: pairs, env', ?_, ?_, ?_, hbe'', hbw''⟩
       · simp [emitAssigns, hsv, hemit]
       · simp [Sparkle.IR.Semantics.evalAssigns, hv, hIR]
       · -- SV: the LHS width is declared; the RHS at that width is the
@@ -2532,15 +2813,32 @@ theorem emit_sem_assigns {wof : String → Option Nat} {we : WEnv}
         by simpa [Sparkle.IR.Semantics.evalAssigns] using hIR,
         hSV, hbe'', hbw''⟩
     | memory nm aw dw clk wa wd wen ra rd cr ew er =>
-      simp only [assignsCheck, Bool.and_eq_true,
+      simp only [assignsCheck, Bool.and_eq_true, Bool.or_eq_true,
         Bool.not_eq_eq_eq_not, Bool.not_true] at hchk
-      obtain ⟨hcr, hrest⟩ := hchk
-      subst hcr
-      obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
-        ih env hrest hbe hbw
-      exact ⟨pairs, env', by simpa [emitAssigns] using hemit,
-        by simpa [Sparkle.IR.Semantics.evalAssigns] using hIR,
-        hSV, hbe'', hbw''⟩
+      obtain ⟨hmem, hrest⟩ := hchk
+      by_cases hcr : cr
+      · -- combinational read ports: they ARE part of this phase
+        subst hcr
+        have hports : readPortsCheck wof we aw dw ((ra, rd) :: er) = true := by
+          rcases hmem with h | h
+          · exact absurd h (by simp)
+          · exact h
+        obtain ⟨svports, envR, hemitR, hIRR, hSVR, hbeR, hbwR⟩ :=
+          emit_sem_comboReads mems nm aw dw ((ra, rd) :: er) env hports
+            hbe hbw
+        obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+          ih envR hrest hbeR hbwR
+        refine ⟨.reads nm aw dw svports :: pairs, env', ?_, ?_, ?_,
+          hbe'', hbw''⟩
+        · simp [emitAssigns, hemitR, hemit]
+        · simp [Sparkle.IR.Semantics.evalAssigns, hIRR, hIR]
+        · simp [evalAssignsSV, hSVR, hSV]
+      · simp only [hcr] at hmem
+        obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+          ih env hrest hbe hbw
+        exact ⟨pairs, env', by simpa [emitAssigns, hcr] using hemit,
+          by simpa [Sparkle.IR.Semantics.evalAssigns, hcr] using hIR,
+          hSV, hbe'', hbw''⟩
     | inst nm md conns =>
       simp only [assignsCheck] at hchk
       obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
@@ -2598,7 +2896,15 @@ def seqCheck (wof : String → Option Nat) (we : WEnv) :
       && (Sparkle.IR.Semantics.widthOf we input == we out)
       && sf4Check wof we input
       && seqCheck wof we rest
-  | .memory _ _ _ _ _ _ _ _ _ _ _ _ :: _ => false
+  -- a combinationally-read memory: read ports feed the combinational
+  -- phase, write ports the sequential one (sync-read memories latch
+  -- into register-like state, which is the next layer)
+  | .memory _ aw dw _ wa wd wen ra rd cr ew er :: rest =>
+    cr && readPortsCheck wof we aw dw ((ra, rd) :: er)
+      && (((wa, wd, wen) :: ew).all fun p =>
+            portCheck wof we aw p.1 && portCheck wof we dw p.2.1
+              && portCheck wof we 1 p.2.2)
+      && seqCheck wof we rest
   | .inst _ _ _ :: rest => seqCheck wof we rest
 
 /-- `seqCheck` implies the combinational-phase check. -/
@@ -2618,33 +2924,82 @@ theorem seqCheck_assigns {wof : String → Option Nat} {we : WEnv} :
     | register _ _ _ _ _ =>
       simp only [seqCheck, Bool.and_eq_true] at h
       simpa [assignsCheck] using ih h.2
-    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [seqCheck] at h
+    | memory nm aw dw clk wa wd wen ra rd cr ew er =>
+      simp only [seqCheck, Bool.and_eq_true] at h
+      obtain ⟨⟨⟨hcr, hrd⟩, _⟩, hrest⟩ := h
+      simp only [assignsCheck, Bool.and_eq_true, Bool.or_eq_true]
+      exact ⟨Or.inr hrd, ih hrest⟩
     | inst _ _ _ =>
       simp only [seqCheck] at h
       simpa [assignsCheck] using ih h
 
-/-- A memory-free body leaves the memory state untouched. -/
-private theorem memNexts_of_seqCheck {wof : String → Option Nat}
-    {we : WEnv} :
-    ∀ {body : List Stmt}, seqCheck wof we body = true →
-      ∀ (mems : Sparkle.IR.Semantics.MEnv) (env : Env),
-        Sparkle.IR.Semantics.memNexts we body mems env = some mems := by
+/-- The emitter's memory-write program: one entry per memory. -/
+def emitMemWrites (wof : String → Option Nat) :
+    List Stmt → Option (List (String × Nat × Nat ×
+      List (SVExpr × SVExpr × SVExpr)))
+  | [] => some []
+  | .memory name aw dw _ wa wd wen _ _ _ ew _ :: rest => do
+    let ports ← emitWritePorts wof ((wa, wd, wen) :: ew)
+    let others ← emitMemWrites wof rest
+    some ((name, aw, dw, ports) :: others)
+  | .assign _ _ :: rest => emitMemWrites wof rest
+  | .register _ _ _ _ _ :: rest => emitMemWrites wof rest
+  | .inst _ _ _ :: rest => emitMemWrites wof rest
+
+/-- Verilog's memory-update phase: run each memory's write ports in the
+    settled environment. -/
+def memNextsSV (wof : String → Option Nat) :
+    List (String × Nat × Nat × List (SVExpr × SVExpr × SVExpr)) →
+    Sparkle.IR.Semantics.MEnv → SEnv → Option Sparkle.IR.Semantics.MEnv
+  | [], mems, _ => some mems
+  | (name, aw, dw, ports) :: rest, mems, env => do
+    let mems' ← memWritePortsSV wof env name aw dw ports mems
+    memNextsSV wof rest mems' env
+
+set_option maxHeartbeats 800000 in
+/-- **Forward correctness, memory phase**: the emitted `always_ff`
+    stores produce the same memory state as the IR's `memNexts`. -/
+theorem emit_sem_memNexts {wof : String → Option Nat} {we : WEnv} :
+    ∀ (body : List Stmt) (mems : Sparkle.IR.Semantics.MEnv) (env : Env),
+      seqCheck wof we body = true →
+      Bounded we env →
+      (∀ n wn, wof n = some wn → env n < 2 ^ wn) →
+      ∃ prog mems',
+        emitMemWrites wof body = some prog
+        ∧ Sparkle.IR.Semantics.memNexts we body mems env = some mems'
+        ∧ memNextsSV wof prog mems env = some mems' := by
   intro body
   induction body with
-  | nil => intro _ mems env; rfl
+  | nil => intro mems env _ _ _; exact ⟨[], mems, rfl, rfl, rfl⟩
   | cons st rest ih =>
-    intro h mems env
+    intro mems env hchk hbe hbw
     cases st with
     | assign l r =>
-      simp only [seqCheck, Bool.and_eq_true] at h
-      simpa [Sparkle.IR.Semantics.memNexts] using ih h.2 mems env
+      simp only [seqCheck, Bool.and_eq_true] at hchk
+      obtain ⟨prog, mems', hemit, hIR, hSV⟩ := ih mems env hchk.2 hbe hbw
+      exact ⟨prog, mems', by simpa [emitMemWrites] using hemit,
+        by simpa [Sparkle.IR.Semantics.memNexts] using hIR, hSV⟩
     | register _ _ _ _ _ =>
-      simp only [seqCheck, Bool.and_eq_true] at h
-      simpa [Sparkle.IR.Semantics.memNexts] using ih h.2 mems env
-    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [seqCheck] at h
+      simp only [seqCheck, Bool.and_eq_true] at hchk
+      obtain ⟨prog, mems', hemit, hIR, hSV⟩ := ih mems env hchk.2 hbe hbw
+      exact ⟨prog, mems', by simpa [emitMemWrites] using hemit,
+        by simpa [Sparkle.IR.Semantics.memNexts] using hIR, hSV⟩
+    | memory nm aw dw clk wa wd wen ra rd cr ew er =>
+      simp only [seqCheck, Bool.and_eq_true] at hchk
+      obtain ⟨⟨⟨_, _⟩, hwp⟩, hrest⟩ := hchk
+      obtain ⟨svports, m1, hemitW, hIRW, hSVW⟩ :=
+        emit_sem_writePorts mems nm aw dw ((wa, wd, wen) :: ew) env mems
+          hwp hbe hbw
+      obtain ⟨prog, mems', hemit, hIR, hSV⟩ := ih m1 env hrest hbe hbw
+      refine ⟨(nm, aw, dw, svports) :: prog, mems', ?_, ?_, ?_⟩
+      · simp [emitMemWrites, hemitW, hemit]
+      · simp [Sparkle.IR.Semantics.memNexts, hIRW, hIR]
+      · simp [memNextsSV, hSVW, hSV]
     | inst _ _ _ =>
-      simp only [seqCheck] at h
-      simpa [Sparkle.IR.Semantics.memNexts] using ih h mems env
+      simp only [seqCheck] at hchk
+      obtain ⟨prog, mems', hemit, hIR, hSV⟩ := ih mems env hchk hbe hbw
+      exact ⟨prog, mems', by simpa [emitMemWrites] using hemit,
+        by simpa [Sparkle.IR.Semantics.memNexts] using hIR, hSV⟩
 
 /-- **Forward correctness, register phase**: on a checked body, the
     emitter's register list exists and Verilog's always-block fold in
@@ -2690,7 +3045,13 @@ theorem emit_sem_regs {wof : String → Option Nat} {we : WEnv}
       · simp [emitRegs, hsv, hemit]
       · simp [Sparkle.IR.Semantics.regNexts, hv, hIR]
       · simp [regNextsSV, hwo, hval, hSV]
-    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [seqCheck] at hchk
+    | memory nm aw dw clk wa wd wen ra rd cr ew er =>
+      simp only [seqCheck, Bool.and_eq_true] at hchk
+      obtain ⟨⟨⟨hcr, _⟩, _⟩, hrest⟩ := hchk
+      obtain ⟨regs, nexts, hemit, hIR, hSV⟩ := ih env hrest hbe hbw
+      -- a COMBINATIONALLY-read memory contributes no register updates
+      refine ⟨regs, nexts, by simpa [emitRegs] using hemit, ?_, hSV⟩
+      simpa [Sparkle.IR.Semantics.regNexts, hcr] using hIR
     | inst _ _ _ =>
       simp only [seqCheck] at hchk
       obtain ⟨regs, nexts, hemit, hIR, hSV⟩ := ih env hchk hbe hbw
@@ -2700,16 +3061,18 @@ theorem emit_sem_regs {wof : String → Option Nat} {we : WEnv}
 /-- The Verilog trace: elaborate the assigns, step the registers,
     recurse — the mirror of `runModule` for a memory-free module. -/
 def runModuleSV (wof : String → Option Nat)
-    (pairs : List (String × SVExpr))
+    (pairs : List CombStep)
     (regs : List (String × String × SVExpr × Int))
+    (mprog : List (String × Nat × Nat × List (SVExpr × SVExpr × SVExpr)))
     (seed : Nat → (String → Nat) → SEnv) :
-    Nat → (String → Nat) → Option (List SEnv)
-  | 0, _ => some []
-  | k + 1, st => do
-    let envF ← evalAssignsSV wof pairs (seed k st)
+    Nat → (String → Nat) → Sparkle.IR.Semantics.MEnv → Option (List SEnv)
+  | 0, _, _ => some []
+  | k + 1, st, mems => do
+    let envF ← evalAssignsSV wof mems pairs (seed k st)
     let nexts ← regNextsSV wof regs envF
-    let rest ← runModuleSV wof pairs regs seed k
-      (Sparkle.IR.Semantics.applyNexts st nexts)
+    let mems' ← memNextsSV wof mprog mems envF
+    let rest ← runModuleSV wof pairs regs mprog seed k
+      (Sparkle.IR.Semantics.applyNexts st nexts) mems'
     some (envF :: rest)
 
 set_option maxHeartbeats 800000 in
@@ -2725,13 +3088,14 @@ theorem certified_forward_trace {wof : String → Option Nat} {we : WEnv}
     (seed : Nat → (String → Nat) → Env)
     (hseed : ∀ t st, Bounded we (seed t st)
       ∧ ∀ n wn, wof n = some wn → seed t st n < 2 ^ wn) :
-    ∃ pairs regs,
+    ∃ pairs regs mprog,
       emitAssigns wof body = some pairs
       ∧ emitRegs wof body = some regs
+      ∧ emitMemWrites wof body = some mprog
       ∧ ∀ (k : Nat) (st : String → Nat)
           (mems : Sparkle.IR.Semantics.MEnv),
           Sparkle.IR.Semantics.runModule we body seed k st mems
-            = runModuleSV wof pairs regs seed k st := by
+            = runModuleSV wof pairs regs mprog seed k st mems := by
   -- the emissions exist (any bounded env will do to instantiate the
   -- phase theorems; take the seed at 0)
   obtain ⟨pairs0, env0', hemitA, _, _, _, _⟩ :=
@@ -2740,7 +3104,10 @@ theorem certified_forward_trace {wof : String → Option Nat} {we : WEnv}
   obtain ⟨regs0, _, hemitR, _, _⟩ :=
     emit_sem_regs (fun _ _ => 0) body (seed 0 fun _ => 0) hchk
       (hseed 0 _).1 (hseed 0 _).2
-  refine ⟨pairs0, regs0, hemitA, hemitR, ?_⟩
+  obtain ⟨mprog0, _, hemitM, _, _⟩ :=
+    emit_sem_memNexts body (fun _ _ => 0) (seed 0 fun _ => 0) hchk
+      (hseed 0 _).1 (hseed 0 _).2
+  refine ⟨pairs0, regs0, mprog0, hemitA, hemitR, hemitM, ?_⟩
   intro k
   induction k with
   | zero =>
@@ -2759,10 +3126,14 @@ theorem certified_forward_trace {wof : String → Option Nat} {we : WEnv}
     rw [hemitR] at hemitR'
     simp only [Option.some_inj] at hemitR'
     subst hemitR'
-    have hmems := memNexts_of_seqCheck hchk mems envF
+    obtain ⟨mprog, mems', hemitM', hIRM, hSVM⟩ :=
+      emit_sem_memNexts body mems envF hchk hbeF hbwF
+    rw [hemitM] at hemitM'
+    simp only [Option.some_inj] at hemitM'
+    subst hemitM'
     simp only [Sparkle.IR.Semantics.runModule,
       Sparkle.IR.Semantics.stepModule, runModuleSV, hIRA, hSVA, hIRR,
-      hSVR, hmems, Option.bind_eq_bind, Option.bind_some]
-    rw [ihk (Sparkle.IR.Semantics.applyNexts st nexts) mems]
+      hSVR, hIRM, hSVM, Option.bind_eq_bind, Option.bind_some]
+    rw [ihk (Sparkle.IR.Semantics.applyNexts st nexts) mems']
 
 end Tools.SVParser.EmitSem
