@@ -635,12 +635,12 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       (hwid : hi < Sparkle.IR.Semantics.widthOf we x)
       (hhi : hi < 4294967296)
       (hcomp : ∀ n, x ≠ .ref n)
-      -- slice-of-CONCAT is split off: the canonical cast-encode shape
-      -- `slice (concat [0_w, y]) (w-1) 0` has its own constructor
-      -- (castEnc, below — the emitter inverts it to `w'(y)`); other
-      -- concat operands are outside the v1 fragment (the emitter's
-      -- shape dispatch makes their image list-shape-dependent)
-      (hnc : ∀ args, x ≠ .concat args)
+      -- the CANONICAL cast-encode shape `slice (concat [0_w, y]) (w-1) 0`
+      -- has its own constructor (castEnc, below — the emitter inverts
+      -- it to `w'(y)`); every other slice-of-concat takes the general
+      -- compound arm and is covered HERE
+      (hncast : ∀ w y, x = .concat [.const 0 w, y] →
+        ¬(lo = 0 ∧ hi + 1 = w))
       (hx : SFrag wof we env x) : SFrag wof we env (.slice x hi lo)
   | castEnc {y} (w : Nat) (hw0 : 0 < w)
       (hy : SFrag wof we env y) :
@@ -864,6 +864,112 @@ theorem sfrag_eval_bounded {wof : String → Option Nat} {we : WEnv}
     simp only [Option.some_inj] at hv
     subst hv
     simpa [widthOf] using hmask (w - 1 - 0 + 1) _
+
+/-- The emitter's GENERAL compound-slice arm fires for every non-ref
+    operand except the canonical cast-encode shape (whose arm is the
+    inversion `w'(y)`). -/
+theorem emitAst_slice_general {wof : String → Option Nat}
+    {x : Sparkle.IR.AST.Expr} (hi lo : Nat)
+    (hcomp : ∀ n, x ≠ .ref n)
+    (hncast : ∀ w y, x = .concat [.const 0 w, y] →
+      ¬(lo = 0 ∧ hi + 1 = w)) :
+    Tools.SVParser.EmitAst.emitAstExpr wof (.slice x hi lo)
+      = (Tools.SVParser.EmitAst.emitAstExpr wof x).bind fun inner =>
+          if lo == 0 then some (.sizeCast (hi + 1) inner)
+          else some (.sizeCast (hi + 1 - lo)
+            (.binary .shr inner (.lit (.decimal none lo)))) := by
+  have hgen : ∀ (e : Sparkle.IR.AST.Expr),
+      (do
+        let inner ← Tools.SVParser.EmitAst.emitAstExpr wof e
+        let n := hi + 1 - lo
+        if lo == 0 then some (Tools.SVParser.AST.SVExpr.sizeCast n inner)
+        else some (.sizeCast n (.binary .shr inner (.lit (.decimal none lo)))))
+      = (Tools.SVParser.EmitAst.emitAstExpr wof e).bind fun inner =>
+          if lo == 0 then some (.sizeCast (hi + 1) inner)
+          else some (.sizeCast (hi + 1 - lo)
+            (.binary .shr inner (.lit (.decimal none lo)))) := by
+    intro e
+    cases Tools.SVParser.EmitAst.emitAstExpr wof e with
+    | none => rfl
+    | some inner =>
+      by_cases h0 : lo = 0
+      · simp [h0, Nat.sub_zero]
+      · simp [h0]
+  match x, hcomp, hncast with
+  | .const v w, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .op o args, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .slice y hi2 lo2, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .sliceDim y hi2 lo2, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .index a i, _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .ref n, hcomp, _ => exact absurd rfl (hcomp n)
+  | .concat [], _, _ => exact Eq.trans (by rfl) (hgen _)
+  | .concat [a], _, _ =>
+    rw [Tools.SVParser.EmitAst.emitAstExpr.eq_def]
+    split <;>
+      first
+        | exact hgen _
+        | (rename_i heq
+           first
+             | injection heq with he hh hl
+             | obtain ⟨he, hh, hl⟩ := heq
+           subst he hh hl
+           refine Eq.trans ?_ (hgen _)
+           rfl)
+        | simp_all
+  | .concat (a :: b :: c :: rest), _, _ =>
+    rw [Tools.SVParser.EmitAst.emitAstExpr.eq_def]
+    split <;>
+      first
+        | exact hgen _
+        | (rename_i heq
+           first
+             | injection heq with he hh hl
+             | obtain ⟨he, hh, hl⟩ := heq
+           subst he hh hl
+           refine Eq.trans ?_ (hgen _)
+           rfl)
+        | simp_all
+  | .concat [a, b], _, hncast =>
+    match a, hncast with
+    | .ref _, _ | .op _ _, _ | .concat _, _ | .slice _ _ _, _
+    | .sliceDim _ _ _, _ | .index _ _, _ => exact Eq.trans (by rfl) (hgen _)
+    | .const v w, hncast =>
+      by_cases hv : v = 0
+      · subst hv
+        have hng : (lo == 0 && hi + 1 == w) = false := by
+          have := hncast w b rfl
+          simp only [Bool.and_eq_false_iff, beq_eq_false_iff_ne]
+          by_cases hl0 : lo = 0
+          · right; intro hEq; exact this ⟨hl0, hEq⟩
+          · left; exact hl0
+        show Tools.SVParser.EmitAst.emitAstExpr wof
+            (.slice (.concat [.const 0 w, b]) hi lo) = _
+        rw [show Tools.SVParser.EmitAst.emitAstExpr wof
+            (.slice (.concat [.const 0 w, b]) hi lo)
+          = if (lo == 0 && hi + 1 == w) = true then do
+              some (.sizeCast w (← Tools.SVParser.EmitAst.emitAstExpr wof b))
+            else do
+              let inner ← Tools.SVParser.EmitAst.emitAstExpr wof
+                (.concat [.const 0 w, b])
+              let n := hi + 1 - lo
+              if lo == 0 then some (.sizeCast n inner)
+              else some (.sizeCast n
+                (.binary .shr inner (.lit (.decimal none lo))))
+          from rfl]
+        rw [if_neg (by simp [hng])]
+        exact Eq.trans (by rfl) (hgen _)
+      · rw [Tools.SVParser.EmitAst.emitAstExpr.eq_def]
+        split <;>
+          first
+            | exact hgen _
+            | (rename_i heq
+               first
+                 | injection heq with he hh hl
+                 | obtain ⟨he, hh, hl⟩ := heq
+               subst he hh hl
+               refine Eq.trans ?_ (hgen _)
+               rfl)
+            | simp_all
 
 open Sparkle.IR.Semantics in
 set_option maxHeartbeats 3200000 in
@@ -1263,7 +1369,7 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
                 eval_binop_pair we env Operator.ge_s x y,
                 hbx1, hby1, hA, hB]
             simp [evalOp, hwSx, hwSy, Nat.max_self, hcond]
-  | sliceCompound hi lo hlo hwid hhi hcomp hnc hx ih =>
+  | sliceCompound hi lo hlo hwid hhi hcomp hncast hx ih =>
     rename_i x
     obtain ⟨x', hex, hwx, hvx⟩ := ih
     obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hex
@@ -1273,11 +1379,13 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       refine ⟨.slice (.concat [.const 0 (hi + 1 - lo),
         if lo == 0 then x' else .op .shr [x', .const (Int.ofNat lo) 32]])
         (hi + 1 - lo - 1) 0, ?_, ?_, ?_⟩
-      · cases x <;> simp_all [emitAstExpr, lowerT] <;>
-          first
-            | (exact absurd rfl (hcomp _))
-            | (exact absurd rfl (hnc _))
-            | (by_cases h0 : lo = 0 <;> simp_all [lowerT])
+      · rw [emitAst_slice_general hi lo hcomp hncast]
+        cases hE : Tools.SVParser.EmitAst.emitAstExpr wof x with
+        | none => rw [hE] at hex1; cases hex1
+        | some ex0 =>
+          have : ex0 = ex := by rw [hE] at hex1; injection hex1
+          subst this
+          by_cases h0 : lo = 0 <;> simp_all [lowerT]
       · simp [Sparkle.IR.Semantics.widthOf]; omega
       · by_cases h0 : lo = 0 <;>
           simp_all [evalExpr, evalList, evalOp, evalExpr.go]
@@ -1286,11 +1394,13 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
       refine ⟨.slice (.concat [.const 0 (hi + 1 - lo),
         if lo == 0 then x' else .op .shr [x', .const (Int.ofNat lo) 32]])
         (hi + 1 - lo - 1) 0, ?_, ?_, ?_⟩
-      · cases x <;> simp_all [emitAstExpr, lowerT] <;>
-          first
-            | (exact absurd rfl (hcomp _))
-            | (exact absurd rfl (hnc _))
-            | (by_cases h0 : lo = 0 <;> simp_all [lowerT])
+      · rw [emitAst_slice_general hi lo hcomp hncast]
+        cases hE : Tools.SVParser.EmitAst.emitAstExpr wof x with
+        | none => rw [hE] at hex1; cases hex1
+        | some ex0 =>
+          have : ex0 = ex := by rw [hE] at hex1; injection hex1
+          subst this
+          by_cases h0 : lo = 0 <;> simp_all [lowerT]
       · simp [Sparkle.IR.Semantics.widthOf]; omega
       · rw [sliceEncode_sem we env x' hi lo hlo (by rw [hwx]; omega) hhi v hval']
         simp [evalExpr, hvx]
@@ -2552,11 +2662,15 @@ def sfragCheck (wof : String → Option Nat) : Sparkle.IR.AST.Expr → Bool
   | .slice (.concat [.const 0 w, y]) hi lo =>
     if lo == 0 && hi + 1 == w then decide (0 < w) && sfragCheck wof y
     else
-      -- general compound slice of THIS shape is outside (see castEnc)
-      false
+      -- non-canonical: the general compound-slice arm fires
+      decide (lo ≤ hi)
+      && decide (hi < widthOf (fun n => (wof n).getD 0)
+          (.concat [.const 0 w, y]))
+      && decide (hi < 4294967296)
+      && sfragCheck wof (.concat [.const 0 w, y])
   | .slice x hi lo =>
     (match x with
-     | .ref _ => false | .concat _ => false
+     | .ref _ => false
      | _ => true)
     && decide (lo ≤ hi)
     && decide (hi < widthOf (fun n => (wof n).getD 0) x)
@@ -2629,6 +2743,66 @@ def moduleWof (m : Sparkle.IR.AST.Module) : String → Option Nat := fun n =>
     semantic fragment (BFrag with the induced width env)? -/
 def semFragCheck (m : Sparkle.IR.AST.Module) : Bool :=
   bfragCheck (moduleWof m) m.wires m.body
+
+open Sparkle.IR.Semantics in
+/-- The checker's GENERAL slice arm fires on every slice-of-concat
+    except the canonical cast-encode shape. -/
+theorem sfragCheck_slice_concat_general {wof : String → Option Nat}
+    (args : List Sparkle.IR.AST.Expr) (hi lo : Nat)
+    (hne : ∀ w y, args ≠ [Sparkle.IR.AST.Expr.const 0 w, y]) :
+    sfragCheck wof (.slice (.concat args) hi lo)
+      = (decide (lo ≤ hi)
+        && decide (hi < widthOf (fun n => (wof n).getD 0) (.concat args))
+        && decide (hi < 4294967296)
+        && sfragCheck wof (.concat args)) := by
+  match args, hne with
+  | [], _ => rfl
+  | [a], _ =>
+    rw [sfragCheck.eq_def]
+    split <;>
+      first
+        | rfl
+        | simp_all
+        | (rename_i heq
+           injection heq with he hh hl
+           subst he hh hl
+           rfl)
+  | a :: b :: c :: rest, _ =>
+    rw [sfragCheck.eq_def]
+    split <;>
+      first
+        | rfl
+        | simp_all
+        | (rename_i heq
+           injection heq with he hh hl
+           subst he hh hl
+           rfl)
+  | [a, b], hne =>
+    match a, hne with
+    | .ref _, _ | .op _ _, _ | .concat _, _ | .slice _ _ _, _
+    | .sliceDim _ _ _, _ | .index _ _, _ =>
+      rw [sfragCheck.eq_def]
+      split <;>
+        first
+          | rfl
+          | simp_all
+          | (rename_i heq
+             injection heq with he hh hl
+             subst he hh hl
+             rfl)
+    | .const v w, hne =>
+      by_cases hv : v = 0
+      · subst hv
+        exact absurd rfl (hne w b)
+      · rw [sfragCheck.eq_def]
+        split <;>
+          first
+            | rfl
+            | simp_all
+            | (rename_i heq
+               injection heq with he hh hl
+               subst he hh hl
+               rfl)
 
 open Sparkle.IR.Semantics in
 /-- Soundness of the census checker: a checked expression is in the
@@ -2754,42 +2928,52 @@ theorem sfragCheck_sound (wof : String → Option Nat)
     rw [if_pos (by simp [hhw])] at h
     simp only [Bool.and_eq_true, decide_eq_true_eq] at h
     exact SFrag.castEnc w h.1 (ihy h.2 env hbe)
-  | case10 w y hi lo hguard =>
-    intro h env _
+  | case10 w y hi lo hguard ihc =>
+    intro h env hbe
     simp only [sfragCheck] at h
-    rw [if_neg (by simp [hguard])] at h
-    cases h
+    rw [if_neg hguard] at h
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    refine SFrag.sliceCompound hi lo h.1.1.1 h.1.1.2 h.1.2
+      (fun _ hEq => nomatch hEq)
+      (fun w' y' hEq hand => ?_) (ihc h.2 env hbe)
+    -- the guard is FALSE, so the canonical-shape condition cannot hold
+    have hww : w' = w := by
+      injection hEq with hl
+      injection hl with h1 _
+      injection h1 with _ hww
+      omega
+    subst hww
+    simp only [Bool.not_eq_true, Bool.and_eq_false_iff,
+      beq_eq_false_iff_ne] at hguard
+    rcases hguard with h0 | hw'
+    · exact h0 hand.1
+    · exact hw' hand.2
   | case11 x hi lo hne1 hne2 ihx =>
     intro h env hbe
     cases x with
     | ref n => exact absurd rfl (hne1 n)
     | concat args =>
-      match args, hne2 with
-      | [], _ => simp [sfragCheck] at h
-      | [a], _ => simp [sfragCheck] at h
-      | a :: b :: c :: rest, _ => simp [sfragCheck] at h
-      | [a, b], hne2 =>
-        cases a with
-        | const v w' =>
-          by_cases hv : v = 0
-          · subst hv
-            exact absurd rfl (hne2 w' b)
-          · simp [sfragCheck, hv] at h
-        | _ => simp [sfragCheck] at h
+      rw [sfragCheck_slice_concat_general args hi lo
+        (fun w y hEq => hne2 w y (by rw [hEq]))] at h
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+      exact SFrag.sliceCompound hi lo h.1.1.1 h.1.1.2 h.1.2
+        (fun _ hEq => nomatch hEq)
+        (fun w' y' hEq _ => hne2 w' y' hEq)
+        (ihx h.2 env hbe)
     | const v w =>
       simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
       exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
-        (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
+        (fun _ hEq => nomatch hEq) (fun _ _ hEq => nomatch hEq)
         (SFrag.const v w h.2)
     | op o args =>
       simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
       exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
-        (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
+        (fun _ hEq => nomatch hEq) (fun _ _ hEq => nomatch hEq)
         (ihx h.2 env hbe)
     | slice y hi2 lo2 =>
       simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
       exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
-        (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
+        (fun _ hEq => nomatch hEq) (fun _ _ hEq => nomatch hEq)
         (ihx h.2 env hbe)
     | sliceDim y hi2 lo2 => simp [sfragCheck] at h
     | index a i => simp [sfragCheck] at h
