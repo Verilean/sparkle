@@ -1676,10 +1676,10 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     (ports : List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
       × Sparkle.IR.AST.Expr)) :
     ∀ {ports'}, lowerWritePorts wof ports = some ports' →
-    (∀ p ∈ ports, (∀ env, SFrag wof we env p.1)
-      ∧ (∀ env, SFrag wof we env p.2.1)
-      ∧ (∀ env, SFrag wof we env p.2.2)) →
-    ∀ env name aw dw mems,
+    (∀ p ∈ ports, (∀ env, Bounded we env → SFrag wof we env p.1)
+      ∧ (∀ env, Bounded we env → SFrag wof we env p.2.1)
+      ∧ (∀ env, Bounded we env → SFrag wof we env p.2.2)) →
+    ∀ env, Bounded we env → ∀ name aw dw mems,
       memWritePorts we env name aw dw ports' mems
         = memWritePorts we env name aw dw ports mems := by
   induction ports with
@@ -1687,7 +1687,7 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     intro ports' h _
     simp only [lowerWritePorts] at h
     cases h
-    intro env name aw dw mems
+    intro env _ name aw dw mems
     rfl
   | cons p rest ih =>
     intro ports' h hf
@@ -1713,27 +1713,30 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     subst h
     have hfp := hf (a, d, en) (List.mem_cons_self ..)
     unfold lowerPort at hA hD hEn
-    have hva : ∀ env, evalExpr we env a' = evalExpr we env a := by
-      intro env
-      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env)
+    have hva : ∀ env, Bounded we env →
+        evalExpr we env a' = evalExpr we env a := by
+      intro env hbe
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env hbe)
       rw [hA] at hb3
       cases hb3
       exact hv3
-    have hvd : ∀ env, evalExpr we env d' = evalExpr we env d := by
-      intro env
-      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.2.1 env)
+    have hvd : ∀ env, Bounded we env →
+        evalExpr we env d' = evalExpr we env d := by
+      intro env hbe
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.2.1 env hbe)
       rw [hD] at hb3
       cases hb3
       exact hv3
-    have hven : ∀ env, evalExpr we env en' = evalExpr we env en := by
-      intro env
-      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.2.2 env)
+    have hven : ∀ env, Bounded we env →
+        evalExpr we env en' = evalExpr we env en := by
+      intro env hbe
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.2.2 env hbe)
       rw [hEn] at hb3
       cases hb3
       exact hv3
-    intro env name aw dw mems
-    simp only [memWritePorts, Option.bind_eq_bind, hva env, hvd env,
-      hven env]
+    intro env hbe name aw dw mems
+    simp only [memWritePorts, Option.bind_eq_bind, hva env hbe,
+      hvd env hbe, hven env hbe]
     cases evalExpr we env en with
     | none => rfl
     | some ev =>
@@ -1745,17 +1748,19 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     | some dv =>
     simp only [Option.bind_some]
     exact ih hRest (fun q hq => hf q (List.mem_cons_of_mem _ hq))
-      env name aw dw _
+      env hbe name aw dw _
 
 open Sparkle.IR.Semantics in
 /-- Pointwise semantic preservation of lowered COMBO read ports: the
     combinational read phase extends the env identically. -/
 theorem lowerReadPorts_sem_combo {wof : String → Option Nat} {we : WEnv}
+    (dw : Nat)
     (ports : List (Sparkle.IR.AST.Expr × String)) :
     ∀ {ports'}, lowerReadPorts wof true ports = some ports' →
-    (∀ p ∈ ports, (∀ env, SFrag wof we env p.1)
-      ∧ Sparkle.Backend.Verilog.sanitizeName p.2 = p.2) →
-    ∀ mems name aw dw env,
+    (∀ p ∈ ports, (∀ env, Bounded we env → SFrag wof we env p.1)
+      ∧ Sparkle.Backend.Verilog.sanitizeName p.2 = p.2
+      ∧ we p.2 = dw) →
+    ∀ mems name aw env, Bounded we env →
       comboReads we mems name aw dw ports' env
         = comboReads we mems name aw dw ports env := by
   induction ports with
@@ -1763,7 +1768,7 @@ theorem lowerReadPorts_sem_combo {wof : String → Option Nat} {we : WEnv}
     intro ports' h _
     simp only [lowerReadPorts] at h
     cases h
-    intro mems name aw dw env
+    intro mems name aw env _
     rfl
   | cons p rest ih =>
     intro ports' h hf
@@ -1785,20 +1790,27 @@ theorem lowerReadPorts_sem_combo {wof : String → Option Nat} {we : WEnv}
       simp only [Option.bind_some, Option.some_inj] at h
       subst h
       unfold lowerPort at hA
-      have hva : ∀ env, evalExpr we env a' = evalExpr we env a := by
-        intro env
-        obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env)
+      have hva : ∀ env, Bounded we env →
+          evalExpr we env a' = evalExpr we env a := by
+        intro env hbe
+        obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env hbe)
         rw [hA] at hb3
         cases hb3
         exact hv3
-      intro mems name aw dw env
-      simp only [comboReads, Option.bind_eq_bind, hva env, hfp.2]
-      cases evalExpr we env a with
+      intro mems name aw env hbe
+      simp only [comboReads, Option.bind_eq_bind, hva env hbe, hfp.2.1]
+      cases hev : evalExpr we env a with
       | none => rfl
       | some av =>
       simp only [Option.bind_some]
-      exact ih hRest (fun q hq => hf q (List.mem_cons_of_mem _ hq))
-        mems name aw dw _
+      refine ih hRest (fun q hq => hf q (List.mem_cons_of_mem _ hq))
+        mems name aw _ ?_
+      intro n
+      by_cases hn : n = r
+      · subst hn
+        rw [hfp.2.2]
+        simp [mask, Nat.mod_lt _ (Nat.two_pow_pos dw)]
+      · simpa [hn] using hbe n
 
 open Sparkle.IR.Semantics in
 /-- Pointwise semantic preservation of lowered SYNC read ports: the
@@ -1806,9 +1818,9 @@ open Sparkle.IR.Semantics in
 theorem lowerReadPorts_sem_sync {wof : String → Option Nat} {we : WEnv}
     (ports : List (Sparkle.IR.AST.Expr × String)) :
     ∀ {ports'}, lowerReadPorts wof false ports = some ports' →
-    (∀ p ∈ ports, (∀ env, SFrag wof we env p.1)
+    (∀ p ∈ ports, (∀ env, Bounded we env → SFrag wof we env p.1)
       ∧ Sparkle.Backend.Verilog.sanitizeName p.2 = p.2) →
-    ∀ mems name aw dw env,
+    ∀ mems name aw dw env, Bounded we env →
       syncReadLatches we mems name aw dw ports' env
         = syncReadLatches we mems name aw dw ports env := by
   induction ports with
@@ -1816,7 +1828,7 @@ theorem lowerReadPorts_sem_sync {wof : String → Option Nat} {we : WEnv}
     intro ports' h _
     simp only [lowerReadPorts] at h
     cases h
-    intro mems name aw dw env
+    intro mems name aw dw env _
     rfl
   | cons p rest ih =>
     intro ports' h hf
@@ -1835,16 +1847,17 @@ theorem lowerReadPorts_sem_sync {wof : String → Option Nat} {we : WEnv}
     simp only [Option.bind_some, Option.some_inj] at h
     subst h
     unfold lowerPort at hA
-    have hva : ∀ env, evalExpr we env a' = evalExpr we env a := by
-      intro env
-      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env)
+    have hva : ∀ env, Bounded we env →
+        evalExpr we env a' = evalExpr we env a := by
+      intro env hbe
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env hbe)
       rw [hA] at hb3
       cases hb3
       exact hv3
-    intro mems name aw dw env
-    simp only [syncReadLatches, Option.bind_eq_bind, hva env, hfp.2,
+    intro mems name aw dw env hbe
+    simp only [syncReadLatches, Option.bind_eq_bind, hva env hbe, hfp.2,
       ih hRest (fun q hq => hf q (List.mem_cons_of_mem _ hq))
-        mems name aw dw env]
+        mems name aw dw env hbe]
 
 open Sparkle.IR.Semantics in
 /-- The module-body fragment: assigns, registers, and single-port
@@ -1856,14 +1869,19 @@ inductive BFrag (wof : String → Option Nat) (we : WEnv)
   | nil : BFrag wof we wires []
   | assign {l x rest}
       (hs : Sparkle.Backend.Verilog.sanitizeName l = l)
-      (hx : ∀ env, SFrag wof we env x)
+      -- width agreement: the stored value is masked at the RHS width,
+      -- so this is what keeps the environment BOUNDED through the fold
+      (hwl : Sparkle.IR.Semantics.widthOf we x = we l)
+      (hx : ∀ env, Sparkle.IR.Semantics.Bounded we env →
+        SFrag wof we env x)
       (hrest : BFrag wof we wires rest) :
       BFrag wof we wires (.assign l x :: rest)
   | reg {out clk rst kind x init rest}
       (hso : Sparkle.Backend.Verilog.sanitizeName out = out)
       (hsc : Sparkle.Backend.Verilog.sanitizeName clk = clk)
       (hsr : Sparkle.Backend.Verilog.sanitizeName rst = rst)
-      (hx : ∀ env, SFrag wof we env x)
+      (hx : ∀ env, Sparkle.IR.Semantics.Bounded we env →
+        SFrag wof we env x)
       (hrw : Tools.SVParser.EmitAst.regResetWidth wires out = we out)
       (hw0 : 0 < we out)
       (hwrst : 0 < we rst)
@@ -1877,12 +1895,15 @@ inductive BFrag (wof : String → Option Nat) (we : WEnv)
       (hsn : Sparkle.Backend.Verilog.sanitizeName name = name)
       (hsc : Sparkle.Backend.Verilog.sanitizeName clk = clk)
       (hwp : ∀ p ∈ (wa, wd, wen) :: ew,
-        (∀ env, SFrag wof we env p.1)
-        ∧ (∀ env, SFrag wof we env p.2.1)
-        ∧ (∀ env, SFrag wof we env p.2.2))
+        (∀ env, Sparkle.IR.Semantics.Bounded we env → SFrag wof we env p.1)
+        ∧ (∀ env, Sparkle.IR.Semantics.Bounded we env → SFrag wof we env p.2.1)
+        ∧ (∀ env, Sparkle.IR.Semantics.Bounded we env → SFrag wof we env p.2.2))
       (hrp : ∀ p ∈ (ra, rd) :: er,
-        (∀ env, SFrag wof we env p.1)
-        ∧ Sparkle.Backend.Verilog.sanitizeName p.2 = p.2)
+        (∀ env, Sparkle.IR.Semantics.Bounded we env → SFrag wof we env p.1)
+        ∧ Sparkle.Backend.Verilog.sanitizeName p.2 = p.2
+        -- read data lands masked at dw, so boundedness needs the
+        -- declared width to BE dw
+        ∧ we p.2 = dw)
       (hdw : 0 < dw)
       (hrest : BFrag wof we wires rest) :
       BFrag wof we wires
@@ -1908,25 +1929,117 @@ theorem cons_image_shape {wof wires} {st : Sparkle.IR.AST.Stmt}
       exact ⟨img, rest', rfl, rfl, hI.symm⟩
 
 open Sparkle.IR.Semantics in
+theorem bounded_zero (we : WEnv) : Bounded we (fun _ => 0) :=
+  fun _ => Nat.two_pow_pos _
+
+open Sparkle.IR.Semantics in
+/-- Combinational reads preserve boundedness when the read-data widths
+    agree with the declared data width. -/
+theorem comboReads_bounded {we : WEnv} {mems : MEnv} {name : String}
+    {aw dw : Nat} :
+    ∀ {ports : List (Sparkle.IR.AST.Expr × String)},
+    (∀ p ∈ ports, we p.2 = dw) →
+    ∀ {env env' : Env}, Bounded we env →
+    comboReads we mems name aw dw ports env = some env' →
+    Bounded we env' := by
+  intro ports
+  induction ports with
+  | nil =>
+    intro _ env env' hb h
+    cases h
+    exact hb
+  | cons p rest ih =>
+    intro hw env env' hb h
+    obtain ⟨a, rd⟩ := p
+    simp only [comboReads, Option.bind_eq_bind] at h
+    cases ha : evalExpr we env a with
+    | none => rw [ha] at h; exact absurd h (by simp)
+    | some av =>
+      rw [ha] at h
+      simp only [Option.bind_some] at h
+      refine ih (fun q hq => hw q (List.mem_cons_of_mem _ hq)) ?_ h
+      intro n
+      by_cases hn : n = rd
+      · subst hn
+        have := hw (a, n) (List.mem_cons_self ..)
+        simp only at this
+        rw [this]
+        simp [Nat.mod_lt _ (Nat.two_pow_pos dw), mask]
+      · simpa [hn] using hb n
+
+open Sparkle.IR.Semantics in
+/-- The combinational fold preserves boundedness on fragment bodies:
+    every assign stores a masked value at an agreeing width, and every
+    combo read lands masked at the declared data width. -/
+theorem evalAssigns_bounded {wof we wires} (mems : MEnv)
+    {body : List Sparkle.IR.AST.Stmt} (hB : BFrag wof we wires body) :
+    ∀ {env0 envF : Env}, Bounded we env0 →
+    evalAssigns we mems body env0 = some envF → Bounded we envF := by
+  induction hB with
+  | nil =>
+    intro env0 envF hb h
+    cases h
+    exact hb
+  | assign hs hwl hx hrest ih =>
+    rename_i l x rest
+    intro env0 envF hb h
+    simp only [evalAssigns, Option.bind_eq_bind] at h
+    cases hv : evalExpr we env0 x with
+    | none => rw [hv] at h; exact absurd h (by simp)
+    | some v =>
+      rw [hv] at h
+      simp only [Option.bind_some] at h
+      refine ih ?_ h
+      intro n
+      by_cases hn : n = l
+      · subst hn
+        have := sfrag_eval_bounded (hx env0 hb) hb v hv
+        rw [hwl] at this
+        simpa using this
+      · simpa [hn] using hb n
+  | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
+    intro env0 envF hb h
+    simp only [evalAssigns] at h
+    exact ih hb h
+  | mem hsn hsc hwp hrp hdw hrest ih =>
+    rename_i name aw dw clk wa wd wen ra rd cr ew er rest
+    intro env0 envF hb h
+    simp only [evalAssigns] at h
+    cases cr with
+    | false => exact ih hb h
+    | true =>
+      simp only [if_true, Option.bind_eq_bind] at h
+      cases hc : comboReads we mems name aw dw ((ra, rd) :: er) env0 with
+      | none => rw [hc] at h; exact absurd h (by simp)
+      | some env1 =>
+        rw [hc] at h
+        simp only [Option.bind_some] at h
+        refine ih ?_ h
+        exact comboReads_bounded
+          (fun p hp => (hrp p hp).2.2) hb hc
+
+open Sparkle.IR.Semantics in
 /-- Combinational phase: the image body folds to the same environment. -/
 theorem fold_eq {wof we wires} (mems : MEnv)
     {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body') :
-    ∀ env0, evalAssigns we mems body' env0
-      = evalAssigns we mems body env0 := by
+    ∀ env0, Bounded we env0 →
+      evalAssigns we mems body' env0 = evalAssigns we mems body env0 := by
   induction hB generalizing body' with
   | nil =>
-    intro env0
+    intro env0 _
     simp only [bodyImage] at hI
     cases hI
     rfl
-  | assign hs hx hrest ih =>
+  | assign hs hwl hx hrest ih =>
     rename_i l x rest
-    obtain ⟨x'', hbind, hwid, _⟩ := roundtrip_sem (hx (fun _ => 0))
-    have hval : ∀ env, evalExpr we env x'' = evalExpr we env x := by
-      intro env
-      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hx env)
+    obtain ⟨x'', hbind, hwid, _⟩ :=
+      roundtrip_sem (hx (fun _ => 0) (bounded_zero we))
+    have hval : ∀ env, Bounded we env →
+        evalExpr we env x'' = evalExpr we env x := by
+      intro env hbe
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hx env hbe)
       rw [hbind] at hb3
       cases hb3
       exact hv3
@@ -1951,15 +2064,24 @@ theorem fold_eq {wof we wires} (mems : MEnv)
         lowerTItem, hex2] at hImg
       exact hImg.symm
     subst hImgEq
-    intro env0
+    intro env0 hb0
     simp only [List.cons_append, List.nil_append, evalAssigns,
-      Option.bind_eq_bind, hval env0]
-    cases evalExpr we env0 x with
+      Option.bind_eq_bind, hval env0 hb0]
+    cases hv : evalExpr we env0 x with
     | none => rfl
-    | some v => exact ih hRest _
+    | some v =>
+      refine ih hRest _ ?_
+      intro n
+      by_cases hn : n = l
+      · subst hn
+        have := sfrag_eval_bounded (hx env0 hb0) hb0 v hv
+        rw [hwl] at this
+        simpa using this
+      · simpa [hn] using hb0 n
   | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
     rename_i out clk rst kind x init rest
-    obtain ⟨x'', hbind, hwid, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨x'', hbind, hwid, _⟩ :=
+      roundtrip_sem (hx (fun _ => 0) (bounded_zero we))
     obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
     obtain ⟨img, hImg, rest', hRest, rfl⟩ :
         ∃ img, stmtImage wof wires (.register out clk (rst, kind) x init)
@@ -1997,9 +2119,9 @@ theorem fold_eq {wof we wires} (mems : MEnv)
           hex1, hne, if_neg hneg, lowerTItem, lowerT, hex2] at hImg
         exact hImg.symm
     subst hivShape
-    intro env0
+    intro env0 hb0
     simp only [List.cons_append, List.nil_append, evalAssigns]
-    exact ih hRest env0
+    exact ih hRest env0 hb0
   | mem hsn hsc hwp hrp hdw hrest ih =>
     rename_i name aw dw clk wa wd wen ra rd cr ew er rest
     obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
@@ -2013,20 +2135,21 @@ theorem fold_eq {wof we wires} (mems : MEnv)
       · simp [hh]
     rw [hsn, hsc, hdw'] at hIL
     subst hIL
-    intro env0
+    intro env0 hb0
     simp only [List.cons_append, List.nil_append, evalAssigns]
     cases cr with
     | false =>
       simp only [Bool.false_eq_true, if_false]
-      exact ih hRest env0
+      exact ih hRest env0 hb0
     | true =>
       simp only [if_true, Option.bind_eq_bind,
-        lowerReadPorts_sem_combo _ hR hrp mems name aw dw env0]
-      cases comboReads we mems name aw dw ((ra, rd) :: er) env0 with
+        lowerReadPorts_sem_combo dw _ hR hrp mems name aw env0 hb0]
+      cases hc : comboReads we mems name aw dw ((ra, rd) :: er) env0 with
       | none => rfl
       | some envX =>
         simp only [Option.bind_some]
         exact ih hRest envX
+          (comboReads_bounded (fun p hp => (hrp p hp).2.2) hb0 hc)
 
 open Sparkle.IR.Semantics in
 /-- Register phase: the image body computes the same next-state list. -/
@@ -2034,17 +2157,18 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
     {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body') :
-    ∀ envF, regNexts we mems body' envF
-      = regNexts we mems body envF := by
+    ∀ envF, Bounded we envF →
+      regNexts we mems body' envF = regNexts we mems body envF := by
   induction hB generalizing body' with
   | nil =>
-    intro envF
+    intro envF _
     simp only [bodyImage] at hI
     cases hI
     rfl
-  | assign hs hx hrest ih =>
+  | assign hs hwl hx hrest ih =>
     rename_i l x rest
-    obtain ⟨x'', hbind, _, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨x'', hbind, _, _⟩ :=
+      roundtrip_sem (hx (fun _ => 0) (bounded_zero we))
     obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
     obtain ⟨img, hImg, rest', hRest, rfl⟩ :
         ∃ img, stmtImage wof wires (.assign l x) = some img
@@ -2066,15 +2190,17 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
         lowerTItem, hex2] at hImg
       exact hImg.symm
     subst hImgEq
-    intro envF
+    intro envF hbF
     simp only [List.cons_append, List.nil_append, regNexts]
-    exact ih hRest envF
+    exact ih hRest envF hbF
   | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
     rename_i out clk rst kind x init rest
-    obtain ⟨x'', hbind, hwid, _⟩ := roundtrip_sem (hx (fun _ => 0))
-    have hval : ∀ env, evalExpr we env x'' = evalExpr we env x := by
-      intro env
-      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hx env)
+    obtain ⟨x'', hbind, hwid, _⟩ :=
+      roundtrip_sem (hx (fun _ => 0) (bounded_zero we))
+    have hval : ∀ env, Bounded we env →
+        evalExpr we env x'' = evalExpr we env x := by
+      intro env hbe
+      obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hx env hbe)
       rw [hbind] at hb3
       cases hb3
       exact hv3
@@ -2116,18 +2242,18 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
           hex1, hne, if_neg hneg, lowerTItem, lowerT, hex2] at hImg
         exact hImg.symm
     subst hivShape
-    intro envF
+    intro envF hbF
     simp only [List.cons_append, List.nil_append, regNexts,
       Option.bind_eq_bind]
     -- the image register carries the roundtripped input DIRECTLY (the
     -- shipping stripResetMux pass removed the redundant reset mux);
     -- inits agree up to encode
-    rw [hval envF]
+    rw [hval envF hbF]
     cases hX : evalExpr we envF x with
     | none => simp
     | some vx =>
       simp only [Option.bind_some]
-      simp [ih hRest envF, hivEnc]
+      simp [ih hRest envF hbF, hivEnc]
   | mem hsn hsc hwp hrp hdw hrest ih =>
     rename_i name aw dw clk wa wd wen ra rd cr ew er rest
     obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
@@ -2141,19 +2267,21 @@ theorem regNexts_eq {wof we wires} (mems : MEnv)
       · simp [hh]
     rw [hsn, hsc, hdw'] at hIL
     subst hIL
-    intro envF
+    intro envF hbF
     simp only [List.cons_append, List.nil_append, regNexts]
     cases cr with
     | false =>
       simp only [Bool.false_eq_true, if_false, Option.bind_eq_bind,
-        lowerReadPorts_sem_sync _ hR hrp mems name aw dw envF]
+        lowerReadPorts_sem_sync _ hR
+          (fun p hp => ⟨(hrp p hp).1, (hrp p hp).2.1⟩)
+          mems name aw dw envF hbF]
       cases syncReadLatches we mems name aw dw ((ra, rd) :: er) envF with
       | none => rfl
       | some latches =>
-        simp only [Option.bind_some, ih hRest envF]
+        simp only [Option.bind_some, ih hRest envF hbF]
     | true =>
       simp only [if_true]
-      exact ih hRest envF
+      exact ih hRest envF hbF
 
 open Sparkle.IR.Semantics in
 /-- Memory phase: the image body computes the same post-write memory
@@ -2161,31 +2289,33 @@ open Sparkle.IR.Semantics in
 theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body') :
-    ∀ mems envF, memNexts we body' mems envF
-      = memNexts we body mems envF := by
+    ∀ mems envF, Bounded we envF →
+      memNexts we body' mems envF = memNexts we body mems envF := by
   induction hB generalizing body' with
   | nil =>
-    intro mems envF
+    intro mems envF _
     simp only [bodyImage] at hI
     cases hI
     rfl
-  | assign hs hx hrest ih =>
+  | assign hs hwl hx hrest ih =>
     rename_i l x rest
     obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
-    obtain ⟨x'', hbind, _, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨x'', hbind, _, _⟩ :=
+      roundtrip_sem (hx (fun _ => 0) (bounded_zero we))
     obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
     have hImgEq : img = [.assign l x''] := by
       simp [stmtImage, Tools.SVParser.EmitAst.emitAstStmt, hex1, hs,
         lowerTItem, hex2] at hImg
       exact hImg.symm
     subst hImgEq
-    intro mems envF
+    intro mems envF hbF
     simp only [List.cons_append, List.nil_append, memNexts]
-    exact ih hRest mems envF
+    exact ih hRest mems envF hbF
   | reg hso hsc hsr hx hrw hw0 hwrst hrest ih =>
     rename_i out clk rst kind x init rest
     obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
-    obtain ⟨x'', hbind, _, _⟩ := roundtrip_sem (hx (fun _ => 0))
+    obtain ⟨x'', hbind, _, _⟩ :=
+      roundtrip_sem (hx (fun _ => 0) (bounded_zero we))
     obtain ⟨ex, hex1, hex2⟩ := Option.bind_eq_some_iff.mp hbind
     have hne : (we out == 0) = false := by
       simp only [beq_eq_false_iff_ne]; omega
@@ -2206,9 +2336,9 @@ theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
           hex1, hne, if_neg hneg, lowerTItem, lowerT, hex2] at hImg
         exact hImg.symm
     subst hivShape
-    intro mems envF
+    intro mems envF hbF
     simp only [List.cons_append, List.nil_append, memNexts]
-    exact ih hRest mems envF
+    exact ih hRest mems envF hbF
   | mem hsn hsc hwp hrp hdw hrest ih =>
     rename_i name aw dw clk wa wd wen ra rd cr ew er rest
     obtain ⟨img, rest', hImg, hRest, rfl⟩ := cons_image_shape hI
@@ -2222,15 +2352,15 @@ theorem memNexts_eq {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
       · simp [hh]
     rw [hsn, hsc, hdw'] at hIL
     subst hIL
-    intro mems envF
+    intro mems envF hbF
     simp only [List.cons_append, List.nil_append, memNexts,
       Option.bind_eq_bind,
-      lowerWritePorts_sem _ hW hwp envF name aw dw mems]
+      lowerWritePorts_sem _ hW hwp envF hbF name aw dw mems]
     cases memWritePorts we envF name aw dw ((wa, wd, wen) :: ew) mems with
     | none => rfl
     | some memsX =>
       simp only [Option.bind_some]
-      exact ih hRest memsX envF
+      exact ih hRest memsX envF hbF
 
 open Sparkle.IR.Semantics in
 /-- **The module-level roundtrip theorem** (assign+register bodies):
@@ -2238,14 +2368,16 @@ open Sparkle.IR.Semantics in
     the final environment, the register updates, and the memory state. -/
 theorem step_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
-    (hI : bodyImage wof wires body = some body') (env0 : Env) (mems : MEnv) :
+    (hI : bodyImage wof wires body = some body') (env0 : Env)
+    (hb0 : Bounded we env0) (mems : MEnv) :
     stepModule we body' env0 mems = stepModule we body env0 mems := by
   unfold stepModule
-  rw [fold_eq mems hB hI env0]
-  cases evalAssigns we mems body env0 with
+  rw [fold_eq mems hB hI env0 hb0]
+  cases hF : evalAssigns we mems body env0 with
   | none => rfl
   | some envF =>
-    simp [regNexts_eq mems hB hI envF, memNexts_eq hB hI mems envF]
+    have hbF : Bounded we envF := evalAssigns_bounded mems hB hb0 hF
+    simp [regNexts_eq mems hB hI envF hbF, memNexts_eq hB hI mems envF hbF]
 
 open Sparkle.IR.Semantics in
 /-- **Trace equivalence**: the image body produces the same observable
@@ -2255,7 +2387,8 @@ open Sparkle.IR.Semantics in
 theorem trace_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some body')
-    (seed : Nat → (String → Nat) → Env) :
+    (seed : Nat → (String → Nat) → Env)
+    (hseed : ∀ t st, Bounded we (seed t st)) :
     ∀ (k : Nat) (st : String → Nat) (mems : MEnv),
       runModule we body' seed k st mems
         = runModule we body seed k st mems := by
@@ -2265,7 +2398,7 @@ theorem trace_roundtrip {wof we wires} {body body' : List Sparkle.IR.AST.Stmt}
   | succ k ih =>
     intro st mems
     simp only [runModule, Option.bind_eq_bind,
-      step_roundtrip hB hI (seed k st) mems]
+      step_roundtrip hB hI (seed k st) (hseed k st) mems]
     cases stepModule we body (seed k st) mems with
     | none => rfl
     | some p => simp [ih]
@@ -2297,14 +2430,15 @@ theorem body_trace_roundtrip {wof we wires}
     (hB : BFrag wof we wires body)
     (hI : bodyImage wof wires body = some bimg)
     (hchk : bodyReorderCheck body' bimg = true)
-    (seed : Nat → (String → Nat) → Env) (k : Nat) (st : String → Nat)
-    (mems : MEnv) :
+    (seed : Nat → (String → Nat) → Env)
+    (hseed : ∀ t st, Bounded we (seed t st))
+    (k : Nat) (st : String → Nat) (mems : MEnv) :
     runModule we body' seed k st mems = runModule we body seed k st mems := by
   simp only [bodyReorderCheck, Bool.and_eq_true, decide_eq_true_eq] at hchk
   obtain ⟨⟨⟨⟨hperm, hwo1⟩, hwo2⟩, hmem⟩, hkeys⟩ := hchk
   rw [runModule_perm we (isPermOf_sound hperm) (woCheck_sound _ _ hwo1)
       (woCheck_sound _ _ hwo2) hmem hkeys seed k st mems]
-  exact trace_roundtrip hB hI seed k st mems
+  exact trace_roundtrip hB hI seed hseed k st mems
 
 /-- Is this statement inside the reorder fragment?  (Boolean twin of
     `SimpleStmt` — everything except instances.) -/
@@ -2396,11 +2530,23 @@ def sfragCheck (wof : String → Option Nat) : Sparkle.IR.AST.Expr → Bool
     && (match y with | .concat _ => false | _ => true)
     && sfragCheck wof x && sfragCheck wof y
   | .op op [a, b] =>
-    (Tools.SVParser.EmitAst.binOpOf op).isSome
+    (if op = .lt_s ∨ op = .le_s ∨ op = .gt_s ∨ op = .ge_s then
+      -- signed compares: value bounds come from Bounded via
+      -- sfrag_eval_bounded; only the width agreements are checked
+      (match Tools.SVParser.EmitAst.exprWidthT wof a,
+             Tools.SVParser.EmitAst.exprWidthT wof b with
+       | some w, some w' =>
+         w == w'
+         && decide (widthOf (fun n => (wof n).getD 0) a = w)
+         && decide (widthOf (fun n => (wof n).getD 0) b = w)
+         && decide (0 < w)
+       | _, _ => false)
+    else (Tools.SVParser.EmitAst.binOpOf op).isSome)
     && sfragCheck wof a && sfragCheck wof b
   | .slice (.ref n) hi lo =>
     Sparkle.Backend.Verilog.sanitizeName n == n
     && ((wof n).isNone
+        || (lo == 0 && hi + 1 == (wof n).getD 0)  -- exact elide (Bounded)
         || (!(lo == 0 && (wof n).getD 0 ≤ hi + 1)
             && decide (hi < (wof n).getD 0)))
   | .slice (.concat [.const 0 w, y]) hi lo =>
@@ -2442,6 +2588,8 @@ def bfragCheck (wof : String → Option Nat)
   | [] => true
   | .assign l x :: rest =>
     Sparkle.Backend.Verilog.sanitizeName l == l
+    && decide (Sparkle.IR.Semantics.widthOf (fun n => (wof n).getD 0) x
+        = (wof l).getD 0)
     && sfragCheck wof x && bfragCheck wof wires rest
   | .register out clk (rst, _) x _ :: rest =>
     Sparkle.Backend.Verilog.sanitizeName out == out
@@ -2461,7 +2609,8 @@ def bfragCheck (wof : String → Option Nat)
           && sfragCheck wof p.2.2)
     && ((ra, rd) :: er).all (fun p =>
         sfragCheck wof p.1
-          && (Sparkle.Backend.Verilog.sanitizeName p.2 == p.2))
+          && (Sparkle.Backend.Verilog.sanitizeName p.2 == p.2)
+          && decide ((wof p.2).getD 0 = dw))
     && decide (0 < dw)
     && bfragCheck wof wires rest
   | .inst _ _ _ :: _ => false
@@ -2488,31 +2637,33 @@ open Sparkle.IR.Semantics in
     induction, so the case split matches the checker arm for arm. -/
 theorem sfragCheck_sound (wof : String → Option Nat)
     (e : Sparkle.IR.AST.Expr) (h : sfragCheck wof e = true) :
-    ∀ env, SFrag wof (fun n => (wof n).getD 0) env e := by
+    ∀ env, Bounded (fun n => (wof n).getD 0) env →
+      SFrag wof (fun n => (wof n).getD 0) env e := by
   revert h
   induction e using sfragCheck.induct (motive_2 := fun args =>
     sfragCheckList wof args = true →
-    ∀ env, SFrag wof (fun n => (wof n).getD 0) env (.concat args)) with
+    ∀ env, Bounded (fun n => (wof n).getD 0) env →
+      SFrag wof (fun n => (wof n).getD 0) env (.concat args)) with
   | case1 n =>
-    intro h env
+    intro h env _
     simp only [sfragCheck, Bool.and_eq_true, beq_iff_eq,
       Option.isSome_iff_exists] at h
     obtain ⟨hs, w, hw⟩ := h
     exact SFrag.ref n hs (by simp [hw])
   | case2 v w =>
-    intro h env
+    intro h env _
     simp only [sfragCheck, decide_eq_true_eq] at h
     exact SFrag.const v w h
   | case3 c t f ihc iht ihf =>
-    intro h env
+    intro h env hbe
     simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
-    exact SFrag.mux h.1.1.1 (ihc h.1.1.2 env) (iht h.1.2 env)
-      (ihf h.2 env)
+    exact SFrag.mux h.1.1.1 (ihc h.1.1.2 env hbe) (iht h.1.2 env hbe)
+      (ihf h.2 env hbe)
   | case4 x ihx =>
-    intro h env
-    exact SFrag.neg (ihx (by simpa [sfragCheck] using h) env)
+    intro h env hbe
+    exact SFrag.neg (ihx h env hbe)
   | case5 x ihx =>
-    intro h env
+    intro h env hbe
     simp only [sfragCheck, Bool.and_eq_true] at h
     obtain ⟨hcond, hx⟩ := h
     cases hwT : Tools.SVParser.EmitAst.exprWidthT wof x with
@@ -2520,20 +2671,47 @@ theorem sfragCheck_sound (wof : String → Option Nat)
     | some w =>
       rw [hwT] at hcond
       simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
-      exact SFrag.not w hwT hcond.1.1 hcond.1.2 hcond.2 (ihx hx env)
+      exact SFrag.not w hwT hcond.1.1 hcond.1.2 hcond.2
+        (ihx hx env hbe)
   | case6 x y ihx ihy =>
-    intro h env
+    intro h env hbe
     simp only [sfragCheck, Bool.and_eq_true] at h
     obtain ⟨⟨⟨hnx, hny⟩, hx⟩, hy⟩ := h
-    refine SFrag.asr ?_ ?_ (ihx hx env) (ihy hy env)
+    refine SFrag.asr ?_ ?_ (ihx hx env hbe) (ihy hy env hbe)
     · intro l hEq; subst hEq; simp at hnx
     · intro l hEq; subst hEq; simp at hny
   | case7 op a b hne iha ihb =>
-    intro h env
+    intro h env hbe
     simp only [sfragCheck, Bool.and_eq_true] at h
-    exact SFrag.binop op h.1.1 (iha h.1.2 env) (ihb h.2 env)
+    have hop := h.1.1
+    have ha := h.1.2
+    have hb' := h.2
+    by_cases hsg : op = .lt_s ∨ op = .le_s ∨ op = .gt_s ∨ op = .ge_s
+    · rw [if_pos hsg] at hop
+      cases hwa : Tools.SVParser.EmitAst.exprWidthT wof a with
+      | none => rw [hwa] at hop; cases hop
+      | some w =>
+      cases hwb : Tools.SVParser.EmitAst.exprWidthT wof b with
+      | none => rw [hwa, hwb] at hop; cases hop
+      | some w' =>
+      rw [hwa, hwb] at hop
+      simp only [Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hop
+      obtain ⟨⟨⟨hww, hwsa⟩, hwsb⟩, hw0⟩ := hop
+      subst hww
+      have hfa := iha ha env hbe
+      have hfb := ihb hb' env hbe
+      exact SFrag.cmpS op hsg w hwa hwb hwsa hwsb hw0
+        (fun v hv => by
+          have := sfrag_eval_bounded hfa hbe v hv
+          rwa [hwsa] at this)
+        (fun v hv => by
+          have := sfrag_eval_bounded hfb hbe v hv
+          rwa [hwsb] at this)
+        hfa hfb
+    · rw [if_neg hsg] at hop
+      exact SFrag.binop op hop (iha ha env hbe) (ihb hb' env hbe)
   | case8 n hi lo =>
-    intro h env
+    intro h env hbe
     simp only [sfragCheck, Bool.and_eq_true, beq_iff_eq] at h
     obtain ⟨hs, hkeep⟩ := h
     cases hw : wof n with
@@ -2542,17 +2720,31 @@ theorem sfragCheck_sound (wof : String → Option Nat)
         (Or.inl hw)
     | some w =>
       rw [hw] at hkeep
-      simp only [Option.isNone_some, Bool.false_or, Bool.and_eq_true,
-        Bool.not_eq_true', decide_eq_true_eq, Option.getD_some] at hkeep
-      refine SFrag.sliceRefKeep n hi lo hs (Or.inr ?_)
-        (Or.inr (by simpa [hw] using hkeep.2)) (Or.inr (by simp [hw]))
-      intro ⟨h0, hle⟩
-      rcases Bool.and_eq_false_iff.mp hkeep.1 with hlo0 | hgt
-      · simp [h0] at hlo0
-      · simp only [decide_eq_false_iff_not] at hgt
-        exact hgt (by simpa [hw] using hle)
+      simp only [Option.isNone_some, Bool.false_or, Bool.or_eq_true,
+        Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq,
+        beq_iff_eq, Option.getD_some] at hkeep
+      cases hkeep with
+      | inl helide =>
+        -- exact full-width select: the ELIDE constructor, its range
+        -- condition discharged by Bounded
+        obtain ⟨hlo, hhw⟩ := helide
+        subst hlo
+        have henv : env n < 2 ^ ((fun m => (wof m).getD 0) n) := hbe n
+        rw [show ((fun m => (wof m).getD 0) n) = w by simp [hw]] at henv
+        have := SFrag.sliceRefElide (wof := wof)
+          (we := fun m => (wof m).getD 0) (env := env) n hi hs
+          (by simp [hw]) (by simp [hw]; omega) (by simp [hw]; omega)
+        exact this
+      | inr hkeep =>
+        refine SFrag.sliceRefKeep n hi lo hs (Or.inr ?_)
+          (Or.inr (by simpa [hw] using hkeep.2)) (Or.inr (by simp [hw]))
+        intro ⟨h0, hle⟩
+        rcases Bool.and_eq_false_iff.mp hkeep.1 with hlo0 | hgt
+        · simp [h0] at hlo0
+        · simp only [decide_eq_false_iff_not] at hgt
+          exact hgt (by simpa [hw] using hle)
   | case9 w y hi lo hguard ihy =>
-    intro h env
+    intro h env hbe
     simp only [Bool.and_eq_true, beq_iff_eq] at hguard
     obtain ⟨hlo, hhw⟩ := hguard
     subst hlo
@@ -2561,14 +2753,14 @@ theorem sfragCheck_sound (wof : String → Option Nat)
     simp only [sfragCheck] at h
     rw [if_pos (by simp [hhw])] at h
     simp only [Bool.and_eq_true, decide_eq_true_eq] at h
-    exact SFrag.castEnc w h.1 (ihy h.2 env)
+    exact SFrag.castEnc w h.1 (ihy h.2 env hbe)
   | case10 w y hi lo hguard =>
-    intro h env
+    intro h env _
     simp only [sfragCheck] at h
     rw [if_neg (by simp [hguard])] at h
     cases h
   | case11 x hi lo hne1 hne2 ihx =>
-    intro h env
+    intro h env hbe
     cases x with
     | ref n => exact absurd rfl (hne1 n)
     | concat args =>
@@ -2593,21 +2785,20 @@ theorem sfragCheck_sound (wof : String → Option Nat)
       simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
       exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
         (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
-        (ihx h.2 env)
+        (ihx h.2 env hbe)
     | slice y hi2 lo2 =>
       simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
       exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
         (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
-        (ihx h.2 env)
+        (ihx h.2 env hbe)
     | sliceDim y hi2 lo2 => simp [sfragCheck] at h
     | index a i => simp [sfragCheck] at h
   | case12 args ih =>
-    intro h env
-    exact ih h env
+    intro h env hbe
+    exact ih h env hbe
   | case13 t d1 d2 d3 d4 d5 d6 d7 d8 d9 d10 d11 =>
-    intro h env
+    intro h env _
     exfalso
-    -- the checker's catch-all is false
     cases t with
     | ref n => exact absurd rfl (d1 n)
     | const v w => exact absurd rfl (d2 v w)
@@ -2628,10 +2819,10 @@ theorem sfragCheck_sound (wof : String → Option Nat)
   | case14 =>
     exact SFrag.concatNil
   | case15 a rest iha ihrest =>
-    rename_i h env
+    rename_i h env hbe
     simp only [sfragCheckList, Bool.and_eq_true] at h
     obtain ⟨⟨hopw, ha⟩, hrest⟩ := h
-    refine SFrag.concatCons ?_ (iha ha env) (ihrest hrest env)
+    refine SFrag.concatCons ?_ (iha ha env hbe) (ihrest hrest env hbe)
     intro o as hEq
     subst hEq
     cases hwT : Tools.SVParser.EmitAst.exprWidthT wof (.op o as) with
@@ -2649,15 +2840,17 @@ theorem bfragCheck_sound (wof : String → Option Nat)
     BFrag wof (fun n => (wof n).getD 0) wires body
   | [], _ => BFrag.nil
   | .assign l x :: rest, h => by
-    simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq] at h
-    exact BFrag.assign h.1.1 (fun env => sfragCheck_sound wof x h.1.2 env)
+    simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq,
+      decide_eq_true_eq] at h
+    exact BFrag.assign h.1.1.1 h.1.1.2
+      (fun env hbe => sfragCheck_sound wof x h.1.2 env hbe)
       (bfragCheck_sound wof wires rest h.2)
   | .register out clk (rst, kind) x init :: rest, h => by
     simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq,
       decide_eq_true_eq] at h
     obtain ⟨⟨⟨⟨⟨⟨⟨hso, hsc⟩, hsr⟩, hx⟩, hrw⟩, hw0⟩, hwrst⟩, hrest⟩ := h
     exact BFrag.reg hso hsc hsr
-      (fun env => sfragCheck_sound wof x hx env) hrw hw0 hwrst
+      (fun env hbe => sfragCheck_sound wof x hx env hbe) hrw hw0 hwrst
       (bfragCheck_sound wof wires rest hrest)
   | .memory name aw dw clk wa wd wen ra rd cr ew er :: rest, h => by
     simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq,
@@ -2668,13 +2861,15 @@ theorem bfragCheck_sound (wof : String → Option Nat)
     · intro p hp
       have := hwp p hp
       try simp only [Bool.and_eq_true] at this
-      exact ⟨fun env => sfragCheck_sound wof p.1 this.1.1 env,
-        fun env => sfragCheck_sound wof p.2.1 this.1.2 env,
-        fun env => sfragCheck_sound wof p.2.2 this.2 env⟩
+      exact ⟨fun env hbe => sfragCheck_sound wof p.1 this.1.1 env hbe,
+        fun env hbe => sfragCheck_sound wof p.2.1 this.1.2 env hbe,
+        fun env hbe => sfragCheck_sound wof p.2.2 this.2 env hbe⟩
     · intro p hp
       have := hrp p hp
-      try simp only [Bool.and_eq_true, beq_iff_eq] at this
-      exact ⟨fun env => sfragCheck_sound wof p.1 this.1 env, this.2⟩
+      try simp only [Bool.and_eq_true, beq_iff_eq,
+        decide_eq_true_eq] at this
+      exact ⟨fun env hbe => sfragCheck_sound wof p.1 this.1.1 env hbe,
+        this.1.2, this.2⟩
   | .inst _ _ _ :: _, h => by simp [bfragCheck] at h
 
 open Sparkle.IR.Semantics Sparkle.IR.Reorder in
@@ -2687,13 +2882,15 @@ theorem certified_body_trace (m : Sparkle.IR.AST.Module)
     (hcert : semFragCheck m = true)
     (hI : bodyImage (moduleWof m) m.wires m.body = some bimg)
     (hchk : bodyReorderCheck body' bimg = true)
-    (seed : Nat → (String → Nat) → Env) (k : Nat) (st : String → Nat)
-    (mems : MEnv) :
+    (seed : Nat → (String → Nat) → Env)
+    (hseed : ∀ t st,
+      Bounded (fun n => (moduleWof m n).getD 0) (seed t st))
+    (k : Nat) (st : String → Nat) (mems : MEnv) :
     runModule (fun n => (moduleWof m n).getD 0) body' seed k st mems
       = runModule (fun n => (moduleWof m n).getD 0) m.body seed k st mems :=
   body_trace_roundtrip
     (bfragCheck_sound (moduleWof m) m.wires m.body hcert) hI hchk
-    seed k st mems
+    seed hseed k st mems
 
 -- Validation on the probes (register bodies and memories of both read
 -- kinds, single- and multi-port).
