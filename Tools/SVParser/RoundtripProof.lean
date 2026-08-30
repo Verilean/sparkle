@@ -39,6 +39,7 @@ import Sparkle.IR.Semantics
 import Sparkle.IR.ReorderInvariance
 import Tools.SVParser.Lower
 import Tools.SVParser.EmitAst
+import Tools.SVParser.SVSemantics
 
 namespace Tools.SVParser.RoundtripProof
 
