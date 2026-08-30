@@ -26,6 +26,9 @@ open Sparkle.Core.JIT
 -- tests.  Bumping the budget keeps the whole file building without
 -- splitting tests into many `lean_exe` drivers.
 set_option maxRecDepth 1024
+-- The compiler pass over the (very long) `main` needs a larger
+-- heartbeat budget as well.
+set_option maxHeartbeats 800000
 
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
@@ -2864,6 +2867,7 @@ endmodule"
       let mut ok := 0
       let mut total := 0
       let mut mok := 0
+      let mut tok := 0
       let mut mtotal := 0
       let entries ← System.FilePath.readDir corpusDir
       for ent in entries do
@@ -2881,6 +2885,10 @@ endmodule"
               -- (`emit_sem_assigns` applies to the module)
               if Tools.SVParser.EmitSem.assignsCheck wof we m.body then
                 mok := mok + 1
+              -- full cycle-trace certified
+              -- (`certified_forward_trace` applies to the module)
+              if Tools.SVParser.EmitSem.seqCheck wof we m.body then
+                tok := tok + 1
               for st in m.body do
                 match st with
                 | .assign _ r =>
@@ -2888,14 +2896,16 @@ endmodule"
                   if Tools.SVParser.EmitSem.sf4Check wof we r then
                     ok := ok + 1
                 | _ => pure ()
-      if ok == 1008 && total == 1026 && mok == 42 && mtotal == 52 then
-        IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} modules' full combinational phase)"
+      if ok == 1008 && total == 1026 && mok == 42 && tok == 41
+          && mtotal == 52 then
+        IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} combinational phases; {tok}/{mtotal} full cycle traces)"
         passed := passed + 1
-      else if ok ≥ 1008 && total == 1026 && mok ≥ 42 && mtotal == 52 then
-        IO.println s!"PASS ({ok}/{total}, modules {mok}/{mtotal} — fragment GREW past the pin; update the pin)"
+      else if ok ≥ 1008 && total == 1026 && mok ≥ 42 && tok ≥ 41
+          && mtotal == 52 then
+        IO.println s!"PASS ({ok}/{total}, comb {mok}, trace {tok} of {mtotal} — fragment GREW past the pin; update the pin)"
         passed := passed + 1
       else
-        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1008/1026), modules {mok}/{mtotal} (want ≥ 42/52)"
+        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1008/1026), comb {mok} (want ≥ 42), trace {tok} (want ≥ 41) of {mtotal}"
         failed := failed + 1
     else
       IO.println "SKIP (corpus not present)"

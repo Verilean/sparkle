@@ -2494,4 +2494,220 @@ theorem emit_sem_assigns {wof : String → Option Nat} {we : WEnv}
         by simpa [Sparkle.IR.Semantics.evalAssigns] using hIR,
         hSV, hbe'', hbw''⟩
 
+/- ------------------------------------------------------------------ -/
+/- The sequential layer and the cycle-trace capstone.                   -/
+
+/-- The register tuples the emitter prints as always-blocks:
+    (target, reset name, next-value emission, reset value). -/
+def emitRegs (wof : String → Option Nat) :
+    List Stmt → Option (List (String × String × SVExpr × Int))
+  | [] => some []
+  | .register out _ (rstName, _) input init :: rest => do
+    let sv ← Tools.SVParser.EmitAst.emitAstExpr wof input
+    let others ← emitRegs wof rest
+    some ((out, rstName, sv, init) :: others)
+  | .assign _ _ :: rest => emitRegs wof rest
+  | .memory _ _ _ _ _ _ _ _ _ _ _ _ :: rest => emitRegs wof rest
+  | .inst _ _ _ :: rest => emitRegs wof rest
+
+/-- Verilog's register phase: each always-block reads the SETTLED
+    combinational environment, applies its reset mux, and truncates
+    the next value into the register's declared width. -/
+def regNextsSV (wof : String → Option Nat) :
+    List (String × String × SVExpr × Int) → SEnv →
+    Option (List (String × Nat))
+  | [], _ => some []
+  | (out, rst, svin, init) :: rest, env => do
+    let w ← wof out
+    let v ← evalSV wof env w svin
+    let nexts ← regNextsSV wof rest env
+    some ((out, if env rst ≠ 0
+      then Sparkle.IR.Semantics.encodeInit init w
+      else mask w v) :: nexts)
+
+/-- The sequential fragment check: the combinational conditions, plus
+    every register's next value in the fragment at the register's
+    width under a declared name — and NO memories (their ports are the
+    next layer). -/
+def seqCheck (wof : String → Option Nat) (we : WEnv) :
+    List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    (Sparkle.Backend.Verilog.sanitizeName l == l)
+      && (wof l == some (we l))
+      && (Sparkle.IR.Semantics.widthOf we r == we l)
+      && sf4Check wof we r
+      && seqCheck wof we rest
+  | .register out _ _ input _ :: rest =>
+    (wof out == some (we out))
+      && (Sparkle.IR.Semantics.widthOf we input == we out)
+      && sf4Check wof we input
+      && seqCheck wof we rest
+  | .memory _ _ _ _ _ _ _ _ _ _ _ _ :: _ => false
+  | .inst _ _ _ :: rest => seqCheck wof we rest
+
+/-- `seqCheck` implies the combinational-phase check. -/
+theorem seqCheck_assigns {wof : String → Option Nat} {we : WEnv} :
+    ∀ {body : List Stmt}, seqCheck wof we body = true →
+      assignsCheck wof we body = true := by
+  intro body
+  induction body with
+  | nil => intro _; rfl
+  | cons st rest ih =>
+    intro h
+    cases st with
+    | assign l r =>
+      simp only [seqCheck, Bool.and_eq_true] at h
+      simp only [assignsCheck, Bool.and_eq_true]
+      exact ⟨h.1, ih h.2⟩
+    | register _ _ _ _ _ =>
+      simp only [seqCheck, Bool.and_eq_true] at h
+      simpa [assignsCheck] using ih h.2
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [seqCheck] at h
+    | inst _ _ _ =>
+      simp only [seqCheck] at h
+      simpa [assignsCheck] using ih h
+
+/-- A memory-free body leaves the memory state untouched. -/
+private theorem memNexts_of_seqCheck {wof : String → Option Nat}
+    {we : WEnv} :
+    ∀ {body : List Stmt}, seqCheck wof we body = true →
+      ∀ (mems : Sparkle.IR.Semantics.MEnv) (env : Env),
+        Sparkle.IR.Semantics.memNexts we body mems env = some mems := by
+  intro body
+  induction body with
+  | nil => intro _ mems env; rfl
+  | cons st rest ih =>
+    intro h mems env
+    cases st with
+    | assign l r =>
+      simp only [seqCheck, Bool.and_eq_true] at h
+      simpa [Sparkle.IR.Semantics.memNexts] using ih h.2 mems env
+    | register _ _ _ _ _ =>
+      simp only [seqCheck, Bool.and_eq_true] at h
+      simpa [Sparkle.IR.Semantics.memNexts] using ih h.2 mems env
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [seqCheck] at h
+    | inst _ _ _ =>
+      simp only [seqCheck] at h
+      simpa [Sparkle.IR.Semantics.memNexts] using ih h mems env
+
+/-- **Forward correctness, register phase**: on a checked body, the
+    emitter's register list exists and Verilog's always-block fold in
+    the settled environment computes exactly the IR's `regNexts`. -/
+theorem emit_sem_regs {wof : String → Option Nat} {we : WEnv}
+    (mems : Sparkle.IR.Semantics.MEnv) :
+    ∀ (body : List Stmt) (env : Env),
+      seqCheck wof we body = true →
+      Bounded we env →
+      (∀ n wn, wof n = some wn → env n < 2 ^ wn) →
+      ∃ regs nexts,
+        emitRegs wof body = some regs
+        ∧ Sparkle.IR.Semantics.regNexts we mems body env = some nexts
+        ∧ regNextsSV wof regs env = some nexts := by
+  intro body
+  induction body with
+  | nil => intro env _ _ _; exact ⟨[], [], rfl, rfl, rfl⟩
+  | cons st rest ih =>
+    intro env hchk hbe hbw
+    cases st with
+    | assign l r =>
+      simp only [seqCheck, Bool.and_eq_true] at hchk
+      obtain ⟨regs, nexts, hemit, hIR, hSV⟩ := ih env hchk.2 hbe hbw
+      exact ⟨regs, nexts, by simpa [emitRegs] using hemit,
+        by simpa [Sparkle.IR.Semantics.regNexts] using hIR, hSV⟩
+    | register out clk rstK input init =>
+      obtain ⟨rstName, kind⟩ := rstK
+      simp only [seqCheck, Bool.and_eq_true, beq_iff_eq] at hchk
+      obtain ⟨⟨⟨hwo, hwi⟩, hfr⟩, hrest⟩ := hchk
+      have hSF := sf4Check_sound hfr
+      obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp
+        (sf4_eval_isSome hSF env)
+      obtain ⟨sv, hsv⟩ := Option.isSome_iff_exists.mp
+        (sf4_emit_isSome hSF)
+      obtain ⟨regs, nexts, hemit, hIR, hSV⟩ := ih env hrest hbe hbw
+      have hval : evalSV wof env (we out) sv = some v := by
+        rw [← hwi, emit_sem_evalSV hSF hbe hbw hsv]
+        exact hv
+      refine ⟨(out, rstName, sv, init) :: regs,
+        (out, if env rstName ≠ 0
+          then Sparkle.IR.Semantics.encodeInit init (we out)
+          else mask (we out) v) :: nexts, ?_, ?_, ?_⟩
+      · simp [emitRegs, hsv, hemit]
+      · simp [Sparkle.IR.Semantics.regNexts, hv, hIR]
+      · simp [regNextsSV, hwo, hval, hSV]
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simp [seqCheck] at hchk
+    | inst _ _ _ =>
+      simp only [seqCheck] at hchk
+      obtain ⟨regs, nexts, hemit, hIR, hSV⟩ := ih env hchk hbe hbw
+      exact ⟨regs, nexts, by simpa [emitRegs] using hemit,
+        by simpa [Sparkle.IR.Semantics.regNexts] using hIR, hSV⟩
+
+/-- The Verilog trace: elaborate the assigns, step the registers,
+    recurse — the mirror of `runModule` for a memory-free module. -/
+def runModuleSV (wof : String → Option Nat)
+    (pairs : List (String × SVExpr))
+    (regs : List (String × String × SVExpr × Int))
+    (seed : Nat → (String → Nat) → SEnv) :
+    Nat → (String → Nat) → Option (List SEnv)
+  | 0, _ => some []
+  | k + 1, st => do
+    let envF ← evalAssignsSV wof pairs (seed k st)
+    let nexts ← regNextsSV wof regs envF
+    let rest ← runModuleSV wof pairs regs seed k
+      (Sparkle.IR.Semantics.applyNexts st nexts)
+    some (envF :: rest)
+
+set_option maxHeartbeats 800000 in
+/-- **The M4 capstone — the forward trace theorem.**  For a module
+    body in the sequential fragment, and ANY seeding discipline that
+    respects the declared widths, the emitted Verilog — under the
+    SystemVerilog-subset semantics — produces the SAME cycle-by-cycle
+    trace as the IR, for every cycle count.  On these modules the
+    emitter is out of the trusted base in the forward direction. -/
+theorem certified_forward_trace {wof : String → Option Nat} {we : WEnv}
+    {body : List Stmt}
+    (hchk : seqCheck wof we body = true)
+    (seed : Nat → (String → Nat) → Env)
+    (hseed : ∀ t st, Bounded we (seed t st)
+      ∧ ∀ n wn, wof n = some wn → seed t st n < 2 ^ wn) :
+    ∃ pairs regs,
+      emitAssigns wof body = some pairs
+      ∧ emitRegs wof body = some regs
+      ∧ ∀ (k : Nat) (st : String → Nat)
+          (mems : Sparkle.IR.Semantics.MEnv),
+          Sparkle.IR.Semantics.runModule we body seed k st mems
+            = runModuleSV wof pairs regs seed k st := by
+  -- the emissions exist (any bounded env will do to instantiate the
+  -- phase theorems; take the seed at 0)
+  obtain ⟨pairs0, env0', hemitA, _, _, _, _⟩ :=
+    emit_sem_assigns (fun _ _ => 0) body (seed 0 fun _ => 0)
+      (seqCheck_assigns hchk) (hseed 0 _).1 (hseed 0 _).2
+  obtain ⟨regs0, _, hemitR, _, _⟩ :=
+    emit_sem_regs (fun _ _ => 0) body (seed 0 fun _ => 0) hchk
+      (hseed 0 _).1 (hseed 0 _).2
+  refine ⟨pairs0, regs0, hemitA, hemitR, ?_⟩
+  intro k
+  induction k with
+  | zero =>
+    intro st mems
+    rfl
+  | succ k ihk =>
+    intro st mems
+    obtain ⟨pairs, envF, hemitA', hIRA, hSVA, hbeF, hbwF⟩ :=
+      emit_sem_assigns mems body (seed k st)
+        (seqCheck_assigns hchk) (hseed k st).1 (hseed k st).2
+    rw [hemitA] at hemitA'
+    simp only [Option.some_inj] at hemitA'
+    subst hemitA'
+    obtain ⟨regs, nexts, hemitR', hIRR, hSVR⟩ :=
+      emit_sem_regs mems body envF hchk hbeF hbwF
+    rw [hemitR] at hemitR'
+    simp only [Option.some_inj] at hemitR'
+    subst hemitR'
+    have hmems := memNexts_of_seqCheck hchk mems envF
+    simp only [Sparkle.IR.Semantics.runModule,
+      Sparkle.IR.Semantics.stepModule, runModuleSV, hIRA, hSVA, hIRR,
+      hSVR, hmems, Option.bind_eq_bind, Option.bind_some]
+    rw [ihk (Sparkle.IR.Semantics.applyNexts st nexts) mems]
+
 end Tools.SVParser.EmitSem
