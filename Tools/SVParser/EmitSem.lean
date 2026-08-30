@@ -38,6 +38,7 @@ def immuneE : Expr → Bool
   | .op op [a, b] =>
     match op with
     | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
+    | .lt_s | .le_s | .gt_s | .ge_s => true
     -- bitwise ops are carry-free: immune operands make the node immune
     | .and | .or | .xor => immuneE a && immuneE b
     | _ => false
@@ -83,6 +84,8 @@ inductive SF4 (wof : String → Option Nat) (we : WEnv) : Expr → Prop
       (hwS : Sparkle.IR.Semantics.widthOf we x = w)
       (hw0 : 0 < w)
       (hx : SF4 wof we x) : SF4 wof we (.op .not [x])
+  | neg {x : Expr} (hx : SF4 wof we x) :
+      SF4 wof we (.op .neg [x])
   | cmpU (op : Operator)
       (hop : op = .eq ∨ op = .lt_u ∨ op = .le_u ∨ op = .gt_u
         ∨ op = .ge_u)
@@ -97,6 +100,44 @@ inductive SF4 (wof : String → Option Nat) (we : WEnv) : Expr → Prop
           = max (Sparkle.IR.Semantics.widthOf we a)
               (Sparkle.IR.Semantics.widthOf we b)
         ∨ immuneE b = true)
+      (ha : SF4 wof we a) (hb : SF4 wof we b) :
+      SF4 wof we (.op op [a, b])
+  | cmpS (op : Operator)
+      (hop : op = .lt_s ∨ op = .le_s ∨ op = .gt_s ∨ op = .ge_s)
+      {a b : Expr}
+      -- the emitter's bias encoding `((x&m)^sb) OP ((y&m)^sb)` needs
+      -- the emitter's width computation to agree with the IR's
+      (hwTa : Tools.SVParser.EmitAst.exprWidthT wof a
+        = some (Sparkle.IR.Semantics.widthOf we a))
+      (hwTb : Tools.SVParser.EmitAst.exprWidthT wof b
+        = some (Sparkle.IR.Semantics.widthOf we b))
+      (hA : Sparkle.IR.Semantics.widthOf we a
+          = max (Sparkle.IR.Semantics.widthOf we a)
+              (Sparkle.IR.Semantics.widthOf we b)
+        ∨ immuneE a = true)
+      (hB : Sparkle.IR.Semantics.widthOf we b
+          = max (Sparkle.IR.Semantics.widthOf we a)
+              (Sparkle.IR.Semantics.widthOf we b)
+        ∨ immuneE b = true)
+      (hw0 : 0 < max (Sparkle.IR.Semantics.widthOf we a)
+        (Sparkle.IR.Semantics.widthOf we b))
+      (ha : SF4 wof we a) (hb : SF4 wof we b) :
+      SF4 wof we (.op op [a, b])
+  | cmpS1 (op : Operator)
+      (hop : op = .lt_s ∨ op = .le_s ∨ op = .gt_s ∨ op = .ge_s)
+      {a b : Expr}
+      -- the emitter cannot width the RIGHT operand (a mul/shift): it
+      -- biases at the LEFT operand's width, which must therefore BE
+      -- the comparison width
+      (hwTa : Tools.SVParser.EmitAst.exprWidthT wof a
+        = some (Sparkle.IR.Semantics.widthOf we a))
+      (hwTb : Tools.SVParser.EmitAst.exprWidthT wof b = none)
+      (hwba : Sparkle.IR.Semantics.widthOf we b
+        ≤ Sparkle.IR.Semantics.widthOf we a)
+      (hB : Sparkle.IR.Semantics.widthOf we b
+          = Sparkle.IR.Semantics.widthOf we a
+        ∨ immuneE b = true)
+      (hw0 : 0 < Sparkle.IR.Semantics.widthOf we a)
       (ha : SF4 wof we a) (hb : SF4 wof we b) :
       SF4 wof we (.op op [a, b])
   | sliceRef (n : String) (hi lo : Nat)
@@ -555,12 +596,31 @@ theorem sf4_eval_isSome {wof : String → Option Nat} {we : WEnv}
     intro env
     obtain ⟨vx, hvx⟩ := Option.isSome_iff_exists.mp (ihx env)
     simp [evalExpr, evalList, hvx, evalOp]
+  | neg hx ihx =>
+    rename_i x
+    intro env
+    obtain ⟨vx, hvx⟩ := Option.isSome_iff_exists.mp (ihx env)
+    simp [evalExpr, evalList, hvx, evalOp]
   | cmpU op hop hA hB ha hb iha ihb =>
     rename_i a b
     intro env
     obtain ⟨va, hva⟩ := Option.isSome_iff_exists.mp (iha env)
     obtain ⟨vb, hvb⟩ := Option.isSome_iff_exists.mp (ihb env)
     rcases hop with h | h | h | h | h <;> subst h <;>
+      simp [evalExpr, evalList, hva, hvb, evalOp]
+  | cmpS op hop hwTa hwTb hA hB hw0 ha hb iha ihb =>
+    rename_i a b
+    intro env
+    obtain ⟨va, hva⟩ := Option.isSome_iff_exists.mp (iha env)
+    obtain ⟨vb, hvb⟩ := Option.isSome_iff_exists.mp (ihb env)
+    rcases hop with h | h | h | h <;> subst h <;>
+      simp [evalExpr, evalList, hva, hvb, evalOp]
+  | cmpS1 op hop hwTa hwTb hwba hB hw0 ha hb iha ihb =>
+    rename_i a b
+    intro env
+    obtain ⟨va, hva⟩ := Option.isSome_iff_exists.mp (iha env)
+    obtain ⟨vb, hvb⟩ := Option.isSome_iff_exists.mp (ihb env)
+    rcases hop with h | h | h | h <;> subst h <;>
       simp [evalExpr, evalList, hva, hvb, evalOp]
   | sliceRef n hi lo hs hw hlo hhi hne =>
     intro env; simp [evalExpr]
@@ -811,6 +871,72 @@ private theorem concat_elems_sem {wof : String → Option Nat} {we : WEnv}
        unfold evalSV;
        simp [hwea, hvea, hvA])
 
+/-- XORing the top bit of a `w`-bit value adds the bias when the bit
+    is clear and removes it when set — the classic biased encoding. -/
+private theorem xor_top_bit {w v : Nat} (hw : 0 < w) (hv : v < 2 ^ w) :
+    v ^^^ 2 ^ (w - 1)
+      = if v < 2 ^ (w - 1) then v + 2 ^ (w - 1) else v - 2 ^ (w - 1) := by
+  have h2 : (2 : Nat) ^ w = 2 ^ (w - 1) * 2 := by
+    rw [← Nat.pow_succ]
+    congr 1
+    omega
+  have hpos : 0 < (2 : Nat) ^ (w - 1) := Nat.two_pow_pos _
+  have hdiv : (v ^^^ 2 ^ (w - 1)) / 2 ^ (w - 1)
+      = v / 2 ^ (w - 1) ^^^ 1 := by
+    rw [Nat.xor_div_two_pow, Nat.div_self hpos]
+  have hmod : (v ^^^ 2 ^ (w - 1)) % 2 ^ (w - 1) = v % 2 ^ (w - 1) := by
+    rw [Nat.xor_mod_two_pow, Nat.mod_self, Nat.xor_zero]
+  have hda := Nat.div_add_mod (v ^^^ 2 ^ (w - 1)) (2 ^ (w - 1))
+  have hdv := Nat.div_add_mod v (2 ^ (w - 1))
+  rw [hdiv, hmod] at hda
+  have hmv : v % 2 ^ (w - 1) < 2 ^ (w - 1) := Nat.mod_lt _ hpos
+  have hxlt : v ^^^ 2 ^ (w - 1) < 2 ^ w :=
+    Nat.xor_lt_two_pow hv (by omega)
+  by_cases hcase : v < 2 ^ (w - 1)
+  · have hd0 : v / 2 ^ (w - 1) = 0 := Nat.div_eq_of_lt hcase
+    rw [hd0] at hda
+    have hx1 : (0 : Nat) ^^^ 1 = 1 := rfl
+    rw [hx1] at hda
+    have hm0 : v % 2 ^ (w - 1) = v := Nat.mod_eq_of_lt hcase
+    rw [hm0] at hda
+    rw [if_pos hcase]
+    omega
+  · have hd1 : v / 2 ^ (w - 1) = 1 := by
+      apply Nat.div_eq_of_lt_le
+      · omega
+      · omega
+    rw [hd1] at hda
+    have hx0 : (1 : Nat) ^^^ 1 = 0 := rfl
+    rw [hx0] at hda
+    rw [hd1] at hdv
+    rw [if_neg hcase]
+    omega
+
+/-- Unsigned comparison of biased values IS signed comparison. -/
+private theorem biased_lt {w a b : Nat} (hw : 0 < w)
+    (ha : a < 2 ^ w) (hb : b < 2 ^ w) :
+    ((a ^^^ 2 ^ (w - 1)) < (b ^^^ 2 ^ (w - 1)))
+      ↔ toSigned w a < toSigned w b := by
+  rw [xor_top_bit hw ha, xor_top_bit hw hb]
+  have h2 : (2 : Nat) ^ w = 2 ^ (w - 1) * 2 := by
+    rw [← Nat.pow_succ]; congr 1; omega
+  unfold toSigned
+  by_cases hA : a < 2 ^ (w - 1) <;> by_cases hB : b < 2 ^ (w - 1) <;>
+    simp only [if_pos, if_neg, hA, hB, if_true, if_false] <;>
+    omega
+
+private theorem biased_le {w a b : Nat} (hw : 0 < w)
+    (ha : a < 2 ^ w) (hb : b < 2 ^ w) :
+    ((a ^^^ 2 ^ (w - 1)) ≤ (b ^^^ 2 ^ (w - 1)))
+      ↔ toSigned w a ≤ toSigned w b := by
+  rw [xor_top_bit hw ha, xor_top_bit hw hb]
+  have h2 : (2 : Nat) ^ w = 2 ^ (w - 1) * 2 := by
+    rw [← Nat.pow_succ]; congr 1; omega
+  unfold toSigned
+  by_cases hA : a < 2 ^ (w - 1) <;> by_cases hB : b < 2 ^ (w - 1) <;>
+    simp only [if_pos, if_neg, hA, hB, if_true, if_false] <;>
+    omega
+
 /-- Fragment values are width-bounded: under a bounded environment,
     every fragment expression evaluates below 2^its-width.  (The one
     rule that does not mask its own result is `mux` — its arms carry
@@ -880,10 +1006,49 @@ theorem sf4_bounded {wof : String → Option Nat} {we : WEnv} {e : Expr}
       simp [Sparkle.IR.Semantics.widthOf]
     rw [this]
     exact Nat.mod_lt _ (Nat.two_pow_pos _)
+  | neg hx ihx =>
+    rename_i x
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨vals, hvals, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [evalList, Option.bind_eq_bind] at hvals
+    obtain ⟨vx, hvx, hvals⟩ := Option.bind_eq_some_iff.mp hvals
+    obtain ⟨vnil, hvnil, hvals⟩ := Option.bind_eq_some_iff.mp hvals
+    simp only [evalList, Option.some_inj] at hvnil
+    subst hvnil
+    simp only [Option.some_inj] at hvals
+    subst hvals
+    simp only [evalOp, Option.some_inj] at hv
+    subst hv
+    exact Nat.mod_lt _ (Nat.two_pow_pos _)
   | cmpU op hop hA hB ha hb iha ihb =>
     rename_i a b
     intro v hv
     rcases hop with h' | h' | h' | h' | h' <;> subst h' <;>
+    · simp only [evalExpr, Option.bind_eq_bind] at hv
+      obtain ⟨vals, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+      match vals, hv with
+      | [x, y], hv =>
+        simp only [evalOp, Option.some_inj] at hv
+        subst hv
+        simp only [Sparkle.IR.Semantics.widthOf]
+        split <;> omega
+  | cmpS op hop hwTa hwTb hA hB hw0 ha hb iha ihb =>
+    rename_i a b
+    intro v hv
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+    · simp only [evalExpr, Option.bind_eq_bind] at hv
+      obtain ⟨vals, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+      match vals, hv with
+      | [x, y], hv =>
+        simp only [evalOp, Option.some_inj] at hv
+        subst hv
+        simp only [Sparkle.IR.Semantics.widthOf]
+        split <;> omega
+  | cmpS1 op hop hwTa hwTb hwba hB hw0 ha hb iha ihb =>
+    rename_i a b
+    intro v hv
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
     · simp only [evalExpr, Option.bind_eq_bind] at hv
       obtain ⟨vals, _, hv⟩ := Option.bind_eq_some_iff.mp hv
       match vals, hv with
@@ -1034,6 +1199,10 @@ private theorem emit_immune {wof : String → Option Nat} {we : WEnv}
     simp only [hne, Bool.false_eq_true, if_false,
       Option.some_inj] at hsv
     subst hsv; rfl
+  | neg hx ihx =>
+    intro himm sv hsv
+    exfalso
+    simp [immuneE] at himm
   | cmpU op hop hA hB ha hb iha ihb =>
     intro himm sv hsv
     rcases hop with h' | h' | h' | h' | h' <;> subst h' <;>
@@ -1044,6 +1213,35 @@ private theorem emit_immune {wof : String → Option Nat} {we : WEnv}
       simp only [Tools.SVParser.EmitAst.binOpOf, Option.bind_some,
         Option.some_inj] at hsv
       subst hsv; rfl
+  | cmpS op hop hwTa hwTb hA hB hw0 ha hb iha ihb =>
+    intro himm sv hsv
+    rename_i a b
+    have hne : (max (Sparkle.IR.Semantics.widthOf we a)
+        (Sparkle.IR.Semantics.widthOf we b) == 0) = false := by
+      simp only [beq_eq_false_iff_ne]
+      omega
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr, hwTa, hwTb, hne,
+        Bool.false_eq_true, if_false, Option.bind_eq_bind] at hsv
+      obtain ⟨sva, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      obtain ⟨svb, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      simp only [Option.some_inj] at hsv
+      subst hsv
+      rfl
+  | cmpS1 op hop hwTa hwTb hwba hB hw0 ha hb iha ihb =>
+    intro himm sv hsv
+    rename_i a b
+    have hne : (Sparkle.IR.Semantics.widthOf we a == 0) = false := by
+      simp only [beq_eq_false_iff_ne]
+      omega
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr, hwTa, hwTb, hne,
+        Bool.false_eq_true, if_false, Option.bind_eq_bind] at hsv
+      obtain ⟨sva, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      obtain ⟨svb, _, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      simp only [Option.some_inj] at hsv
+      subst hsv
+      rfl
   | sliceRef n hi lo hs hw hlo hhi hne' =>
     intro himm sv hsv
     have helide : (lo == 0 && hi + 1 == we n) = false := by
@@ -1089,6 +1287,56 @@ private theorem emit_immune {wof : String → Option Nat} {we : WEnv}
     intro himm sv hsv
     exfalso
     rcases hop with h' | h' <;> subst h' <;> simp [immuneE] at himm
+
+/-- The bias-encoded operand `((x & m) ^ sb)` at context `W` reads
+    exactly `vx ^^^ 2^(W-1)`, where `vx` is the operand's IR value. -/
+private theorem biased_operand_sem {wof : String → Option Nat}
+    {we : WEnv} {env : Env} {x : Expr} {sve : SVExpr} {vx : Nat}
+    (W : Nat)
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
+    (hx : SF4 wof we x)
+    (hsx : Tools.SVParser.EmitAst.emitAstExpr wof x = some sve)
+    (hwx : widthSV wof sve = some (Sparkle.IR.Semantics.widthOf we x))
+    (hvxAt : evalAt wof env (Sparkle.IR.Semantics.widthOf we x) sve
+      = evalExpr we env x)
+    (hcond : Sparkle.IR.Semantics.widthOf we x = W ∨ immuneE x = true)
+    (hWx : Sparkle.IR.Semantics.widthOf we x ≤ W)
+    (hW0 : 0 < W)
+    (hvx : evalExpr we env x = some vx) :
+    widthSV wof (SVExpr.binary .bitXor
+        (.binary .bitAnd sve (.lit (.hex (some W) (2 ^ W - 1))))
+        (.lit (.hex (some W) (2 ^ (W - 1)))))
+      = some W
+    ∧ evalAt wof env W (SVExpr.binary .bitXor
+        (.binary .bitAnd sve (.lit (.hex (some W) (2 ^ W - 1))))
+        (.lit (.hex (some W) (2 ^ (W - 1)))))
+      = some (vx ^^^ 2 ^ (W - 1))
+    ∧ vx < 2 ^ W := by
+  have hvW : vx < 2 ^ W :=
+    Nat.lt_of_lt_of_le (sf4_bounded hx hbe vx hvx)
+      (Nat.pow_le_pow_right (by omega) hWx)
+  have hval : evalAt wof env W sve = some vx := by
+    rcases hcond with hEq | himm
+    · rw [← hEq, hvxAt]; exact hvx
+    · rw [evalAt_immune (emit_immune hx himm sve hsx) hwx hbw W hWx,
+        hvxAt]
+      exact hvx
+  refine ⟨?_, ?_, hvW⟩
+  · simp [widthSV, hwx, Nat.max_eq_right hWx]
+  · have hm1 : (2 : Nat) ^ W - 1 < 2 ^ W := by
+      have := Nat.two_pow_pos W
+      omega
+    have hsb : (2 : Nat) ^ (W - 1) < 2 ^ W :=
+      Nat.pow_lt_pow_right (by omega) (by omega)
+    have hand : vx &&& 2 ^ W - 1 = vx :=
+      Nat.and_two_pow_sub_one_of_lt_two_pow hvW
+    have hxor : vx ^^^ 2 ^ (W - 1) < 2 ^ W :=
+      Nat.xor_lt_two_pow hvW hsb
+    simp only [evalAt, litVal, hval, Option.bind_eq_bind,
+      Option.bind_some, Option.some_inj]
+    simp [mask, Nat.mod_eq_of_lt hm1, Nat.mod_eq_of_lt hsb,
+      Nat.mod_eq_of_lt hvW, Nat.mod_eq_of_lt hxor, hand]
 
 /-- **Forward correctness, v0**: the emitted form has the same
     self-determined width AND, evaluated at the IR width as context,
@@ -1286,6 +1534,36 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         have := Nat.two_pow_pos w
         simp [mask, Nat.mod_eq_of_lt (by omega)]
       simp [mask, hm, Nat.mod_mod_of_dvd _ (Nat.dvd_refl _), hwS]
+  | neg hx ihx =>
+    rename_i x
+    intro sv hsv
+    simp only [Tools.SVParser.EmitAst.emitAstExpr,
+      Option.bind_eq_bind] at hsv
+    obtain ⟨svx, hsx, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+    simp only [Option.some_inj] at hsv
+    subst hsv
+    obtain ⟨hwx, hvx⟩ := ihx svx hsx
+    have hW : Sparkle.IR.Semantics.widthOf we (.op .neg [x])
+        = Sparkle.IR.Semantics.widthOf we x := by
+      simp [Sparkle.IR.Semantics.widthOf]
+    constructor
+    · simp [widthSV, hwx, hW]
+    · rw [hW]
+      -- both sides: mask w (2^w - mask w v) at w = widthOf x
+      rw [show evalExpr we env (.op .neg [x])
+            = ((evalList we env [x]).bind fun vals =>
+                evalOp we .neg [x] vals
+                  (Sparkle.IR.Semantics.widthOf we (.op .neg [x])))
+          from rfl]
+      cases hX : evalExpr we env x with
+      | none =>
+        exact absurd hX (Option.isSome_iff_ne_none.mp
+          (sf4_eval_isSome hx env))
+      | some vx =>
+      rw [hX] at hvx
+      simp only [evalAt, hvx, Option.bind_eq_bind, Option.bind_some,
+        evalList, hX, evalOp, Sparkle.IR.Semantics.widthOf,
+        Option.some_inj]
   | cmpU op hop hA hB ha hb iha ihb =>
     rename_i a b
     intro sv hsv
@@ -1341,6 +1619,142 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         simp only [evalAt, hwa, hwb, Option.bind_eq_bind,
           Option.bind_some, hA', hB', hA, hB,
           evalList, evalOp, Option.some_inj]
+  | cmpS op hop hwTa hwTb hA hB hw0 ha hb iha ihb =>
+    rename_i a b
+    intro sv hsv
+    have hne : (max (Sparkle.IR.Semantics.widthOf we a)
+        (Sparkle.IR.Semantics.widthOf we b) == 0) = false := by
+      simp only [beq_eq_false_iff_ne]
+      omega
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr, hwTa, hwTb, hne,
+        Bool.false_eq_true, if_false, Option.bind_eq_bind] at hsv
+      obtain ⟨sva, hsa, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      obtain ⟨svb, hsb, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      simp only [Option.some_inj] at hsv
+      subst hsv
+      obtain ⟨hwa, hva⟩ := iha sva hsa
+      obtain ⟨hwb, hvb⟩ := ihb svb hsb
+      obtain ⟨vA, hvA⟩ := Option.isSome_iff_exists.mp
+        (sf4_eval_isSome ha env)
+      obtain ⟨vB, hvB⟩ := Option.isSome_iff_exists.mp
+        (sf4_eval_isSome hb env)
+      obtain ⟨hWa, hVa, hbndA⟩ := biased_operand_sem
+        (max (Sparkle.IR.Semantics.widthOf we a)
+          (Sparkle.IR.Semantics.widthOf we b))
+        hbe hbw ha hsa hwa hva hA (Nat.le_max_left _ _) hw0 hvA
+      obtain ⟨hWb, hVb, hbndB⟩ := biased_operand_sem
+        (max (Sparkle.IR.Semantics.widthOf we a)
+          (Sparkle.IR.Semantics.widthOf we b))
+        hbe hbw hb hsb hwb hvb hB (Nat.le_max_right _ _) hw0 hvB
+      constructor
+      · simp [widthSV, Sparkle.IR.Semantics.widthOf]
+      · rw [show evalExpr we env (.op _ [a, b])
+              = ((evalList we env [a, b]).bind fun vals =>
+                  evalOp we _ [a, b] vals
+                    (Sparkle.IR.Semantics.widthOf we (.op _ [a, b])))
+            from rfl]
+        simp only [evalList, hvA, hvB, Option.bind_eq_bind,
+          Option.bind_some, evalOp]
+        -- make the biased operands opaque so unfolding `evalAt` stops
+        -- at the comparison arm
+        obtain ⟨A, hAdef⟩ : ∃ A, SVExpr.binary .bitXor
+            (.binary .bitAnd sva (.lit (.hex
+              (some (max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b)))
+              (2 ^ max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b) - 1))))
+            (.lit (.hex
+              (some (max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b)))
+              (2 ^ (max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b) - 1)))) = A :=
+          ⟨_, rfl⟩
+        obtain ⟨B, hBdef⟩ : ∃ B, SVExpr.binary .bitXor
+            (.binary .bitAnd svb (.lit (.hex
+              (some (max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b)))
+              (2 ^ max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b) - 1))))
+            (.lit (.hex
+              (some (max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b)))
+              (2 ^ (max (Sparkle.IR.Semantics.widthOf we a)
+                (Sparkle.IR.Semantics.widthOf we b) - 1)))) = B :=
+          ⟨_, rfl⟩
+        rw [hAdef] at hWa hVa
+        rw [hBdef] at hWb hVb
+        rw [hAdef, hBdef]
+        simp only [evalAt, hWa, hWb, Option.bind_eq_bind,
+          Option.bind_some, Nat.max_self, hVa, hVb, Option.some_inj]
+        first
+        | (simp only [biased_lt hw0 hbndA hbndB])
+        | (simp only [biased_le hw0 hbndA hbndB])
+        | (simp only [biased_lt hw0 hbndB hbndA])
+        | (simp only [biased_le hw0 hbndB hbndA])
+  | cmpS1 op hop hwTa hwTb hwba hB hw0 ha hb iha ihb =>
+    rename_i a b
+    intro sv hsv
+    have hne : (Sparkle.IR.Semantics.widthOf we a == 0) = false := by
+      simp only [beq_eq_false_iff_ne]
+      omega
+    have hmaxw : max (Sparkle.IR.Semantics.widthOf we a)
+        (Sparkle.IR.Semantics.widthOf we b)
+        = Sparkle.IR.Semantics.widthOf we a := Nat.max_eq_left hwba
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr, hwTa, hwTb, hne,
+        Bool.false_eq_true, if_false, Option.bind_eq_bind] at hsv
+      obtain ⟨sva, hsa, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      obtain ⟨svb, hsb, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      simp only [Option.some_inj] at hsv
+      subst hsv
+      obtain ⟨hwa, hva⟩ := iha sva hsa
+      obtain ⟨hwb, hvb⟩ := ihb svb hsb
+      obtain ⟨vA, hvA⟩ := Option.isSome_iff_exists.mp
+        (sf4_eval_isSome ha env)
+      obtain ⟨vB, hvB⟩ := Option.isSome_iff_exists.mp
+        (sf4_eval_isSome hb env)
+      obtain ⟨hWa, hVa, hbndA⟩ := biased_operand_sem
+        (Sparkle.IR.Semantics.widthOf we a)
+        hbe hbw ha hsa hwa hva (Or.inl rfl) (Nat.le_refl _) hw0 hvA
+      obtain ⟨hWb, hVb, hbndB⟩ := biased_operand_sem
+        (Sparkle.IR.Semantics.widthOf we a)
+        hbe hbw hb hsb hwb hvb hB hwba hw0 hvB
+      constructor
+      · simp [widthSV, Sparkle.IR.Semantics.widthOf]
+      · rw [show evalExpr we env (.op _ [a, b])
+              = ((evalList we env [a, b]).bind fun vals =>
+                  evalOp we _ [a, b] vals
+                    (Sparkle.IR.Semantics.widthOf we (.op _ [a, b])))
+            from rfl]
+        simp only [evalList, hvA, hvB, Option.bind_eq_bind,
+          Option.bind_some, evalOp, hmaxw]
+        obtain ⟨A, hAdef⟩ : ∃ A, SVExpr.binary .bitXor
+            (.binary .bitAnd sva (.lit (.hex
+              (some (Sparkle.IR.Semantics.widthOf we a))
+              (2 ^ Sparkle.IR.Semantics.widthOf we a - 1))))
+            (.lit (.hex
+              (some (Sparkle.IR.Semantics.widthOf we a))
+              (2 ^ (Sparkle.IR.Semantics.widthOf we a - 1)))) = A :=
+          ⟨_, rfl⟩
+        obtain ⟨B, hBdef⟩ : ∃ B, SVExpr.binary .bitXor
+            (.binary .bitAnd svb (.lit (.hex
+              (some (Sparkle.IR.Semantics.widthOf we a))
+              (2 ^ Sparkle.IR.Semantics.widthOf we a - 1))))
+            (.lit (.hex
+              (some (Sparkle.IR.Semantics.widthOf we a))
+              (2 ^ (Sparkle.IR.Semantics.widthOf we a - 1)))) = B :=
+          ⟨_, rfl⟩
+        rw [hAdef] at hWa hVa
+        rw [hBdef] at hWb hVb
+        rw [hAdef, hBdef]
+        simp only [evalAt, hWa, hWb, Option.bind_eq_bind,
+          Option.bind_some, Nat.max_self, hVa, hVb, Option.some_inj]
+        first
+        | (simp only [biased_lt hw0 hbndA hbndB])
+        | (simp only [biased_le hw0 hbndA hbndB])
+        | (simp only [biased_lt hw0 hbndB hbndA])
+        | (simp only [biased_le hw0 hbndB hbndA])
   | sliceRef n hi lo hs hw hlo hhi hne =>
     intro sv hsv
     -- unfold the emitter on the non-castEnc, non-elided, in-range slice
