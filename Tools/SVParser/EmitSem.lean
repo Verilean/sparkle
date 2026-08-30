@@ -1968,6 +1968,110 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         Nat.sub_zero, Option.some_inj]
       simp [Nat.shiftRight_zero]
 
+private theorem emitConcatElems_isSome {wof : String → Option Nat} :
+    ∀ (args : List Expr),
+      (∀ e, e ∈ args → (Tools.SVParser.EmitAst.emitAstExpr wof e).isSome) →
+      (Tools.SVParser.EmitAst.emitConcatElems wof args).isSome := by
+  intro args
+  induction args with
+  | nil => intro _; simp [Tools.SVParser.EmitAst.emitConcatElems]
+  | cons a rest ih =>
+    intro hall
+    obtain ⟨ea, hea⟩ := Option.isSome_iff_exists.mp
+      (hall a (List.mem_cons_self ..))
+    obtain ⟨es, hes⟩ := Option.isSome_iff_exists.mp
+      (ih fun e he => hall e (List.mem_cons_of_mem _ he))
+    simp [Tools.SVParser.EmitAst.emitConcatElems, hea, hes]
+
+/-- Fragment expressions always EMIT: the emitter is total on `SF4`.
+    (Together with `emit_sem` this upgrades the per-expression theorem
+    from "if it emits, it is right" to "it emits, and is right".) -/
+theorem sf4_emit_isSome {wof : String → Option Nat} {we : WEnv}
+    {e : Expr} (h : SF4 wof we e) :
+    (Tools.SVParser.EmitAst.emitAstExpr wof e).isSome := by
+  induction h with
+  | ref n hs hw => simp [Tools.SVParser.EmitAst.emitAstExpr, hs]
+  | const v w hw =>
+    have hne : (w == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    by_cases hneg : v < 0 <;>
+      simp [Tools.SVParser.EmitAst.emitAstExpr, hne, hneg]
+  | binop op hop hA hB ha hb iha ihb =>
+    obtain ⟨sva, hsa⟩ := Option.isSome_iff_exists.mp iha
+    obtain ⟨svb, hsb⟩ := Option.isSome_iff_exists.mp ihb
+    rcases hop with h' | h' | h' | h' | h' | h' <;> subst h' <;>
+      simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb,
+        Tools.SVParser.EmitAst.binOpOf]
+  | mux hwf hc ht hf ihc iht ihf =>
+    obtain ⟨svc, hsc⟩ := Option.isSome_iff_exists.mp ihc
+    obtain ⟨svt, hst⟩ := Option.isSome_iff_exists.mp iht
+    obtain ⟨svf, hsf⟩ := Option.isSome_iff_exists.mp ihf
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hsc, hst, hsf]
+  | not w hwT hwS hw0 hx ihx =>
+    obtain ⟨svx, hsx⟩ := Option.isSome_iff_exists.mp ihx
+    have hne : (w == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hsx, hwT, hne]
+  | neg hx ihx =>
+    obtain ⟨svx, hsx⟩ := Option.isSome_iff_exists.mp ihx
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hsx]
+  | cmpU op hop hA hB ha hb iha ihb =>
+    obtain ⟨sva, hsa⟩ := Option.isSome_iff_exists.mp iha
+    obtain ⟨svb, hsb⟩ := Option.isSome_iff_exists.mp ihb
+    rcases hop with h' | h' | h' | h' | h' <;> subst h' <;>
+      simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb,
+        Tools.SVParser.EmitAst.binOpOf]
+  | cmpS op hop hwTa hwTb hA hB hw0 ha hb iha ihb =>
+    rename_i a b
+    obtain ⟨sva, hsa⟩ := Option.isSome_iff_exists.mp iha
+    obtain ⟨svb, hsb⟩ := Option.isSome_iff_exists.mp ihb
+    have hne : (max (Sparkle.IR.Semantics.widthOf we a)
+        (Sparkle.IR.Semantics.widthOf we b) == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+      simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb, hwTa, hwTb,
+        hne]
+  | cmpS1 op hop hwTa hwTb hwba hB hw0 ha hb iha ihb =>
+    rename_i a b
+    obtain ⟨sva, hsa⟩ := Option.isSome_iff_exists.mp iha
+    obtain ⟨svb, hsb⟩ := Option.isSome_iff_exists.mp ihb
+    have hne : (Sparkle.IR.Semantics.widthOf we a == 0) = false := by
+      simp only [beq_eq_false_iff_ne]; omega
+    rcases hop with h' | h' | h' | h' <;> subst h' <;>
+      simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb, hwTa, hwTb,
+        hne]
+  | sliceRef n hi lo hs hw hlo hhi hne =>
+    have helide : (lo == 0 && hi + 1 == we n) = false := by
+      rcases Nat.eq_zero_or_pos lo with h0 | h0
+      · subst h0
+        have : hi + 1 ≠ we n := fun hc => hne ⟨rfl, hc⟩
+        simp [this]
+      · simp [Nat.pos_iff_ne_zero.mp h0]
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hs, hw, helide, hhi]
+  | sliceRefFull n hi hs hw hfull =>
+    have helide : (0 == 0 && hi + 1 == we n) = true := by simp [hfull]
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hs, hw, helide, hfull]
+  | concat hall hpin ihall =>
+    rename_i args
+    obtain ⟨svs, hsvs⟩ := Option.isSome_iff_exists.mp
+      (emitConcatElems_isSome args fun e he => ihall e he)
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hsvs]
+  | castEnc w hw0 hx hsafe ihx =>
+    obtain ⟨svx, hsx⟩ := Option.isSome_iff_exists.mp ihx
+    have hsucc : w - 1 + 1 = w := Nat.sub_add_cancel hw0
+    simp [Tools.SVParser.EmitAst.emitAstExpr, hsucc, hsx]
+  | sliceGen hi lo hcomp hncast hlo hlo32 hx hsafe ihx =>
+    obtain ⟨svx, hsx⟩ := Option.isSome_iff_exists.mp ihx
+    rw [Tools.SVParser.EmitAst.emitAst_slice_general hi lo hcomp
+      hncast]
+    by_cases h0 : lo == 0 <;> simp [hsx, h0]
+  | shiftOp op hop hwb ha hb iha ihb =>
+    obtain ⟨sva, hsa⟩ := Option.isSome_iff_exists.mp iha
+    obtain ⟨svb, hsb⟩ := Option.isSome_iff_exists.mp ihb
+    rcases hop with h' | h' <;> subst h' <;>
+      simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb,
+        Tools.SVParser.EmitAst.binOpOf]
+
 /-- Decidable mirror of `SF4` — the per-expression forward-fragment
     membership test the census and gate run.  Soundness below ties a
     `true` verdict to the `emit_sem` theorem. -/
@@ -2245,5 +2349,149 @@ theorem emit_sem_evalSV {wof : String → Option Nat} {we : WEnv}
   obtain ⟨hw, hv⟩ := emit_sem h hbe hbw sv hsv
   unfold evalSV
   simp [hw, Nat.max_self, hv]
+
+/- ------------------------------------------------------------------ -/
+/- The statement layer: the combinational phase of a module.           -/
+
+/-- The assign pairs the emitter prints (`assign l = E;`), for a body
+    whose non-assign statements contribute nothing to the
+    combinational phase. -/
+def emitAssigns (wof : String → Option Nat) :
+    List Stmt → Option (List (String × SVExpr))
+  | [] => some []
+  | .assign l r :: rest => do
+    let sv ← Tools.SVParser.EmitAst.emitAstExpr wof r
+    let others ← emitAssigns wof rest
+    some ((l, sv) :: others)
+  | .register _ _ _ _ _ :: rest => emitAssigns wof rest
+  | .memory _ _ _ _ _ _ _ _ _ _ _ _ :: rest => emitAssigns wof rest
+  | .inst _ _ _ :: rest => emitAssigns wof rest
+
+/-- Verilog's combinational assignment fold: each RHS is evaluated at
+    its LHS's declared width (the assignment context) and truncated
+    into the target. -/
+def evalAssignsSV (wof : String → Option Nat) :
+    List (String × SVExpr) → SEnv → Option SEnv
+  | [], env => some env
+  | (n, sv) :: rest, env => do
+    let w ← wof n
+    let v ← evalSV wof env w sv
+    evalAssignsSV wof rest
+      (fun m => if m = n then mask w v else env m)
+
+/-- Per-body forward-fragment check: every assign's RHS is in the
+    fragment, agrees in width with its LHS, and the LHS is a declared,
+    sanitize-fixed name; registers and instances are combinationally
+    inert; combinationally-read memories are outside (their read ports
+    are combinational logic this layer does not model). -/
+def assignsCheck (wof : String → Option Nat) (we : WEnv) :
+    List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    (Sparkle.Backend.Verilog.sanitizeName l == l)
+      && (wof l == some (we l))
+      && (Sparkle.IR.Semantics.widthOf we r == we l)
+      && sf4Check wof we r
+      && assignsCheck wof we rest
+  | .register _ _ _ _ _ :: rest => assignsCheck wof we rest
+  | .memory _ _ _ _ _ _ _ _ _ cr _ _ :: rest =>
+    !cr && assignsCheck wof we rest
+  | .inst _ _ _ :: rest => assignsCheck wof we rest
+
+set_option maxHeartbeats 800000 in
+/-- **Forward correctness, statement layer**: on a checked body, the
+    emitter's assign list EXISTS and Verilog's in-order assignment fold
+    computes exactly the IR's `evalAssigns` — the whole combinational
+    phase of the module agrees, and the result environment stays
+    width-bounded on both counts. -/
+theorem emit_sem_assigns {wof : String → Option Nat} {we : WEnv}
+    (mems : Sparkle.IR.Semantics.MEnv) :
+    ∀ (body : List Stmt) (env : Env),
+      assignsCheck wof we body = true →
+      Bounded we env →
+      (∀ n wn, wof n = some wn → env n < 2 ^ wn) →
+      ∃ pairs env',
+        emitAssigns wof body = some pairs
+        ∧ Sparkle.IR.Semantics.evalAssigns we mems body env = some env'
+        ∧ evalAssignsSV wof pairs env = some env'
+        ∧ Bounded we env'
+        ∧ (∀ n wn, wof n = some wn → env' n < 2 ^ wn) := by
+  intro body
+  induction body with
+  | nil =>
+    intro env _ hbe hbw
+    exact ⟨[], env, rfl, rfl, rfl, hbe, hbw⟩
+  | cons st rest ih =>
+    intro env hchk hbe hbw
+    cases st with
+    | assign l r =>
+      simp only [assignsCheck, Bool.and_eq_true, beq_iff_eq] at hchk
+      obtain ⟨⟨⟨⟨hs, hwl⟩, hwr⟩, hfr⟩, hrest⟩ := hchk
+      have hSF := sf4Check_sound hfr
+      obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp
+        (sf4_eval_isSome hSF env)
+      obtain ⟨sv, hsv⟩ := Option.isSome_iff_exists.mp
+        (sf4_emit_isSome hSF)
+      have hvlt : v < 2 ^ we l :=
+        hwr ▸ sf4_bounded hSF hbe v hv
+      -- the two updated environments are the SAME function
+      have henv : (fun m => if m = l then mask (we l) v else env m)
+          = (fun m => if m = l then v else env m) := by
+        funext m
+        by_cases hm : m = l <;>
+          simp [hm, mask, Nat.mod_eq_of_lt hvlt]
+      have hbe' : Bounded we (fun m => if m = l then v else env m) := by
+        intro m
+        by_cases hm : m = l <;> simp [hm]
+        · exact hvlt
+        · exact hbe m
+      have hbw' : ∀ n wn, wof n = some wn →
+          (fun m => if m = l then v else env m) n < 2 ^ wn := by
+        intro n wn hn
+        by_cases hm : n = l <;> simp [hm]
+        · subst hm
+          rw [hn] at hwl
+          simp only [Option.some_inj] at hwl
+          exact hwl ▸ hvlt
+        · exact hbw n wn hn
+      obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+        ih _ hrest hbe' hbw'
+      refine ⟨(l, sv) :: pairs, env', ?_, ?_, ?_, hbe'', hbw''⟩
+      · simp [emitAssigns, hsv, hemit]
+      · simp [Sparkle.IR.Semantics.evalAssigns, hv, hIR]
+      · -- SV: the LHS width is declared; the RHS at that width is the
+        -- IR value (width agreement rewrites the context)
+        have hval : evalSV wof env (we l) sv = some v := by
+          rw [← hwr]
+          rw [emit_sem_evalSV hSF hbe hbw hsv]
+          exact hv
+        simp only [evalAssignsSV, hwl, hval, Option.bind_eq_bind,
+          Option.bind_some]
+        rw [henv]
+        exact hSV
+    | register n w clk x init =>
+      simp only [assignsCheck] at hchk
+      obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+        ih env hchk hbe hbw
+      exact ⟨pairs, env', by simpa [emitAssigns] using hemit,
+        by simpa [Sparkle.IR.Semantics.evalAssigns] using hIR,
+        hSV, hbe'', hbw''⟩
+    | memory nm aw dw clk wa wd wen ra rd cr ew er =>
+      simp only [assignsCheck, Bool.and_eq_true,
+        Bool.not_eq_eq_eq_not, Bool.not_true] at hchk
+      obtain ⟨hcr, hrest⟩ := hchk
+      subst hcr
+      obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+        ih env hrest hbe hbw
+      exact ⟨pairs, env', by simpa [emitAssigns] using hemit,
+        by simpa [Sparkle.IR.Semantics.evalAssigns] using hIR,
+        hSV, hbe'', hbw''⟩
+    | inst nm md conns =>
+      simp only [assignsCheck] at hchk
+      obtain ⟨pairs, env', hemit, hIR, hSV, hbe'', hbw''⟩ :=
+        ih env hchk hbe hbw
+      exact ⟨pairs, env', by simpa [emitAssigns] using hemit,
+        by simpa [Sparkle.IR.Semantics.evalAssigns] using hIR,
+        hSV, hbe'', hbw''⟩
 
 end Tools.SVParser.EmitSem

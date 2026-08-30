@@ -2863,6 +2863,8 @@ endmodule"
     if ← System.FilePath.pathExists corpusDir then
       let mut ok := 0
       let mut total := 0
+      let mut mok := 0
+      let mut mtotal := 0
       let entries ← System.FilePath.readDir corpusDir
       for ent in entries do
         if ent.fileName.endsWith ".sv" then
@@ -2874,6 +2876,11 @@ endmodule"
               let wof := Tools.SVParser.RoundtripProof.moduleWof m
               let we : Sparkle.IR.Semantics.WEnv :=
                 fun n => (wof n).getD 0
+              mtotal := mtotal + 1
+              -- whole combinational phase certified
+              -- (`emit_sem_assigns` applies to the module)
+              if Tools.SVParser.EmitSem.assignsCheck wof we m.body then
+                mok := mok + 1
               for st in m.body do
                 match st with
                 | .assign _ r =>
@@ -2881,14 +2888,14 @@ endmodule"
                   if Tools.SVParser.EmitSem.sf4Check wof we r then
                     ok := ok + 1
                 | _ => pure ()
-      if ok == 1008 && total == 1026 then
-        IO.println s!"PASS ({ok}/{total} assign RHSs theorem-covered)"
+      if ok == 1008 && total == 1026 && mok == 42 && mtotal == 52 then
+        IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} modules' full combinational phase)"
         passed := passed + 1
-      else if ok ≥ 1008 && total == 1026 then
-        IO.println s!"PASS ({ok}/{total} — fragment GREW past the pin; update the pin)"
+      else if ok ≥ 1008 && total == 1026 && mok ≥ 42 && mtotal == 52 then
+        IO.println s!"PASS ({ok}/{total}, modules {mok}/{mtotal} — fragment GREW past the pin; update the pin)"
         passed := passed + 1
       else
-        IO.println s!"FAIL: {ok}/{total}, want ≥ 1008/1026"
+        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1008/1026), modules {mok}/{mtotal} (want ≥ 42/52)"
         failed := failed + 1
     else
       IO.println "SKIP (corpus not present)"
