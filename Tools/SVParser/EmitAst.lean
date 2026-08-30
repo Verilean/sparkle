@@ -397,9 +397,10 @@ def emitAstModule (m : Sparkle.IR.AST.Module) : Option SVModule := do
       some (SVModuleItem.wireDecl (sanitizeName p.name) w
         (some (.lit (.hex (some bw) (encodeConst init bw)))))
     | none => some (SVModuleItem.wireDecl (sanitizeName p.name) w none)
-  -- emitStmt's widthOf: wires only, by sanitized name
+  -- emitStmt's widthOf: wires AND ports, by sanitized name
   let widthOf : String → Option Nat := fun n =>
-    (m.wires.find? (fun p => sanitizeName p.name == n)).bind fun p =>
+    ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
+      sanitizeName p.name == n)).bind fun p =>
       match p.ty with
       | .bitVector w => some w
       | .bit => some 1

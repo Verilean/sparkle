@@ -1144,7 +1144,7 @@ private def chkStmtTwin : Bool := Id.run do
     | .error _ => []
   -- twin path
   let wof : String → Option Nat := fun n =>
-    (probeStmtM.wires.find? (fun p =>
+    ((probeStmtM.wires ++ probeStmtM.inputs ++ probeStmtM.outputs).find? (fun p =>
       Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
       match p.ty with
       | .bitVector w => some w
@@ -1285,7 +1285,7 @@ private def chkMemTwin (m : Sparkle.IR.AST.Module) : Bool :=
         (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
     | .error _ => []
   let wof : String → Option Nat := fun n =>
-    (m.wires.find? (fun p =>
+    ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
       Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
       match p.ty with
       | .bitVector w => some w
@@ -2105,7 +2105,7 @@ inductive TraceCheck where
     statement-wise twin image with `bodyReorderCheck`. -/
 def bodyTraceCheck (m : Sparkle.IR.AST.Module) : TraceCheck :=
   let wof : String → Option Nat := fun n =>
-    (m.wires.find? (fun p =>
+    ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
       Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
       match p.ty with
       | .bitVector w => some w

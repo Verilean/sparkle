@@ -440,7 +440,11 @@ def emitModule (m : Module) : String :=
     let body := if m.body.isEmpty then
       ""
     else
-      let stmts := m.body.map (emitStmt · "    " m.wires)
+      -- Ports carry widths too: without them a NOT of an input (e.g.
+      -- `~reset`) emitted width-UNKNOWN (`~(x)`), which reparses to a
+      -- 32-bit-container xor — the width-pinned masked form is both
+      -- more precise and roundtrip-stable (certified-roundtrip Test 68).
+      let stmts := m.body.map (emitStmt · "    " (m.wires ++ m.inputs ++ m.outputs))
       "\n" ++ String.intercalate "\n\n" stmts ++ "\n"
 
     let footer := "\nendmodule\n"
