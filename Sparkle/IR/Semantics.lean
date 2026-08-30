@@ -302,6 +302,14 @@ private def envR : Env := fun n => if n == "rst" then 1 else envS n
 #guard (stepModule weS bodyS envR).map (fun p => p.2.1) = some [("r", 3)]
 end StepGuards
 
+/-- Width-bounded environment: every name's value fits its width.
+    Hardware invariant — inputs are port-width bounded and every write
+    the semantics performs is masked.  Recovers the env-dependent
+    fragment side conditions (signed-compare value bounds, exact-elide
+    range) for module-level use. -/
+def Bounded (we : WEnv) (env : Env) : Prop :=
+  ∀ n, env n < 2 ^ we n
+
 /-- Apply a register-update list to a state. -/
 def applyNexts (st : String → Nat) (nexts : List (String × Nat)) :
     String → Nat :=

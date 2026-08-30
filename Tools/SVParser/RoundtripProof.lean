@@ -569,7 +569,13 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       (hop : (binOpOf op).isSome)
       (ha : SFrag wof we env a) (hb : SFrag wof we env b) :
       SFrag wof we env (.op op [a, b])
-  | mux {c t f} (hc : SFrag wof we env c) (ht : SFrag wof we env t)
+  | mux {c t f}
+      -- the arms agree in width: `evalOp` passes the selected arm
+      -- through UNMASKED while `widthOf` reports the then-arm's width,
+      -- so a wider else-arm would break value boundedness
+      (hwf : Sparkle.IR.Semantics.widthOf we f
+        = Sparkle.IR.Semantics.widthOf we t)
+      (hc : SFrag wof we env c) (ht : SFrag wof we env t)
       (hf : SFrag wof we env f) : SFrag wof we env (.op .mux [c, t, f])
   | neg {x} (hx : SFrag wof we env x) : SFrag wof we env (.op .neg [x])
   | not {x} (w : Nat)
@@ -641,6 +647,225 @@ inductive SFrag (wof : String → Option Nat) (we : WEnv) (env : Env) :
       SFrag wof we env (.slice (.concat [.const 0 w, y]) (w - 1) 0)
 
 open Sparkle.IR.Semantics in
+/-- **Value boundedness on the fragment**: under a width-bounded
+    environment, every fragment expression evaluates within its width.
+    The base fact of the bounded-env refinement — it discharges the
+    env-dependent side conditions (signed-compare bounds, exact-elide
+    range) from `Bounded` alone. -/
+theorem sfrag_eval_bounded {wof : String → Option Nat} {we : WEnv}
+    {env : Env} {e : Sparkle.IR.AST.Expr}
+    (h : SFrag wof we env e) (hb : Bounded we env) :
+    ∀ v, evalExpr we env e = some v → v < 2 ^ widthOf we e := by
+  have hmask : ∀ w x, mask w x < 2 ^ w :=
+    fun w x => Nat.mod_lt _ (Nat.two_pow_pos w)
+  induction h with
+  | ref n hs hw =>
+    intro v hv
+    simp only [evalExpr, Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hb n
+  | const cv w hw =>
+    intro v hv
+    simp only [evalExpr, Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hmask w _
+  | binop op hop ha hb' iha ihb =>
+    rename_i a b
+    intro v hv
+    obtain ⟨sop, hsop⟩ := Option.isSome_iff_exists.mp hop
+    rw [show evalExpr we env (.op op [a, b])
+          = ((evalList we env [a, b]).bind fun vals =>
+              evalOp we op [a, b] vals (widthOf we (.op op [a, b])))
+        from rfl] at hv
+    cases hA : evalExpr we env a with
+    | none => simp [evalList, hA] at hv
+    | some va =>
+    cases hB : evalExpr we env b with
+    | none => simp [evalList, hA, hB] at hv
+    | some vb =>
+    simp only [evalList, hA, hB, Option.bind_some, Option.bind_eq_bind] at hv
+    cases op <;> simp only [binOpOf] at hsop <;> cases hsop <;>
+      simp only [evalOp, Option.some_inj] at hv <;> subst hv <;>
+      first
+        | exact hmask _ _
+        | (split <;> simp [widthOf])
+        | -- shr: unmasked, but bounded by its left operand
+          (have h1 : va >>> vb ≤ va := by
+            rw [Nat.shiftRight_eq_div_pow]
+            exact Nat.div_le_self _ _
+           have h2 : va < 2 ^ widthOf we a := iha va hA
+           have h3 : (2 : Nat) ^ widthOf we a
+               ≤ 2 ^ widthOf we (.op .shr [a, b]) := by
+             apply Nat.pow_le_pow_right (by omega)
+             simp only [widthOf]
+             omega
+           omega)
+  | mux hwfw hc ht hf ihc iht ihf =>
+    rename_i c t f
+    intro v hv
+    rw [show evalExpr we env (.op .mux [c, t, f])
+          = ((evalList we env [c, t, f]).bind fun vals =>
+              evalOp we .mux [c, t, f] vals
+                (widthOf we (.op .mux [c, t, f]))) from rfl] at hv
+    cases hC : evalExpr we env c with
+    | none => simp [evalList, hC] at hv
+    | some vc =>
+    cases hT : evalExpr we env t with
+    | none => simp [evalList, hC, hT] at hv
+    | some vt =>
+    cases hF : evalExpr we env f with
+    | none => simp [evalList, hC, hT, hF] at hv
+    | some vf =>
+    simp only [evalList, hC, hT, hF, Option.bind_some, Option.bind_eq_bind,
+      evalOp, Option.some_inj] at hv
+    subst hv
+    have h1 := iht vt hT
+    have h2 := ihf vf hF
+    rw [hwfw] at h2
+    simp only [widthOf]
+    split <;> assumption
+  | neg hx ihx =>
+    rename_i x
+    intro v hv
+    rw [show evalExpr we env (.op .neg [x])
+          = ((evalList we env [x]).bind fun vals =>
+              evalOp we .neg [x] vals (widthOf we (.op .neg [x])))
+        from rfl] at hv
+    cases hX : evalExpr we env x with
+    | none => simp [evalList, hX] at hv
+    | some vx =>
+    simp only [evalList, hX, Option.bind_some, Option.bind_eq_bind,
+      evalOp, Option.some_inj] at hv
+    subst hv
+    exact hmask _ _
+  | not w hwT hwS hw32 hw0 hx ihx =>
+    rename_i x
+    intro v hv
+    rw [show evalExpr we env (.op .not [x])
+          = ((evalList we env [x]).bind fun vals =>
+              evalOp we .not [x] vals (widthOf we (.op .not [x])))
+        from rfl] at hv
+    cases hX : evalExpr we env x with
+    | none => simp [evalList, hX] at hv
+    | some vx =>
+    simp only [evalList, hX, Option.bind_some, Option.bind_eq_bind,
+      evalOp, Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hmask (widthOf we x) _
+  | sliceRefKeep n hi lo hs hkeep hin hw =>
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind, Option.bind_some,
+      Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hmask (hi - lo + 1) _
+  | sliceRefElide n hi hs hw hexact henv =>
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind, Option.bind_some,
+      Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hmask (hi - 0 + 1) _
+  | concatNil =>
+    intro v hv
+    simp only [evalExpr, evalList, Option.bind_eq_bind, Option.bind_some,
+      Option.some_inj] at hv
+    subst hv
+    simp [widthOf, evalExpr.go, widthOf.go]
+  | concatCons hopw ha hrest iha ihrest =>
+    rename_i a rest
+    intro v hv
+    rw [show evalExpr we env (.concat (a :: rest))
+          = ((evalList we env (a :: rest)).bind fun vals =>
+              some (evalExpr.go we (a :: rest) vals)) from rfl] at hv
+    cases hA : evalExpr we env a with
+    | none => simp [evalList, hA] at hv
+    | some va =>
+    cases hR : evalList we env rest with
+    | none => simp [evalList, hA, hR] at hv
+    | some vrest =>
+    simp only [evalList, hA, hR, Option.bind_some, Option.bind_eq_bind,
+      Option.some_inj] at hv
+    subst hv
+    have hlen : rest.length ≤ vrest.length := by
+      rw [evalList_length hR]
+      omega
+    have hrw := restW_eq we rest vrest hlen
+    have hgo : evalExpr.go we rest vrest < 2 ^ widthOf.go we rest := by
+      have := ihrest (evalExpr.go we rest vrest)
+        (by simp [evalExpr, evalList, hR])
+      simpa [widthOf] using this
+    simp only [evalExpr.go, hrw, widthOf, widthOf.go]
+    -- (mask wa va) <<< restW ||| go rest < 2^(wa + restW)
+    have h1 : (mask (widthOf we a) va) <<< (widthOf.go we rest)
+        < 2 ^ (widthOf we a + widthOf.go we rest) := by
+      rw [Nat.shiftLeft_eq, Nat.pow_add]
+      exact Nat.mul_lt_mul_of_lt_of_le (hmask _ _) (Nat.le_refl _)
+        (Nat.two_pow_pos _)
+    have h2 : evalExpr.go we rest vrest
+        < 2 ^ (widthOf we a + widthOf.go we rest) := by
+      calc evalExpr.go we rest vrest < 2 ^ widthOf.go we rest := hgo
+        _ ≤ 2 ^ (widthOf we a + widthOf.go we rest) :=
+          Nat.pow_le_pow_right (by omega) (by omega)
+    exact Nat.or_lt_two_pow h1 h2
+  | asr hncx hncy hx hy ihx ihy =>
+    rename_i x y
+    intro v hv
+    rw [show evalExpr we env (.op .asr [x, y])
+          = ((evalList we env [x, y]).bind fun vals =>
+              evalOp we .asr [x, y] vals (widthOf we (.op .asr [x, y])))
+        from rfl] at hv
+    cases hX : evalExpr we env x with
+    | none => simp [evalList, hX] at hv
+    | some vx =>
+    cases hY : evalExpr we env y with
+    | none => simp [evalList, hX, hY] at hv
+    | some vy =>
+    simp only [evalList, hX, hY, Option.bind_some, Option.bind_eq_bind,
+      evalOp, Option.some_inj] at hv
+    subst hv
+    have h1 := hmask (widthOf we x) (Int.toNat
+      ((toSigned (widthOf we x) vx >>> vy) % ((2 ^ widthOf we x : Nat) : Int)))
+    have h2 : (2 : Nat) ^ widthOf we x
+        ≤ 2 ^ widthOf we (.op .asr [x, y]) := by
+      apply Nat.pow_le_pow_right (by omega)
+      simp only [widthOf]
+      omega
+    omega
+  | cmpS op hop hwTx hwTy hwSx hwSy hw0 hbx hby hx hy ihx ihy =>
+    rename_i x y w
+    intro v hv
+    rcases hop with h | h | h | h <;> subst h <;>
+    · rw [show ∀ o, evalExpr we env (.op o [x, y])
+            = ((evalList we env [x, y]).bind fun vals =>
+                evalOp we o [x, y] vals (widthOf we (.op o [x, y])))
+          from fun _ => rfl] at hv
+      cases hX : evalExpr we env x with
+      | none => simp [evalList, hX] at hv
+      | some vx =>
+      cases hY : evalExpr we env y with
+      | none => simp [evalList, hX, hY] at hv
+      | some vy =>
+      simp only [evalList, hX, hY, Option.bind_some, Option.bind_eq_bind,
+        evalOp, Option.some_inj] at hv
+      subst hv
+      split <;> simp [widthOf]
+  | sliceCompound hi lo hlo hwid hhi hcomp hnc hx ihx =>
+    rename_i x
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨_, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hmask (hi - lo + 1) _
+  | castEnc w hw0 hy ihy =>
+    rename_i y
+    intro v hv
+    simp only [evalExpr, Option.bind_eq_bind] at hv
+    obtain ⟨_, _, hv⟩ := Option.bind_eq_some_iff.mp hv
+    simp only [Option.some_inj] at hv
+    subst hv
+    simpa [widthOf] using hmask (w - 1 - 0 + 1) _
+
+open Sparkle.IR.Semantics in
 set_option maxHeartbeats 3200000 in
 /-- **The semantic roundtrip theorem** (expression layer, fragment):
     emitting through the real `emitAstExpr` and lowering back yields an
@@ -682,7 +907,7 @@ theorem roundtrip_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         cases op <;> simp only [binOpOf] at hsop <;> cases hsop <;>
         simp_all [evalExpr, evalList, evalOp, Sparkle.IR.Semantics.widthOf,
           binOpOf]
-  | mux hc ht hf ihc iht ihf =>
+  | mux hwfw hc ht hf ihc iht ihf =>
     rename_i c t f
     obtain ⟨c', hec, hwc, hvc⟩ := ihc
     obtain ⟨t', het, hwt, hvt⟩ := iht
@@ -2155,7 +2380,9 @@ def sfragCheck (wof : String → Option Nat) : Sparkle.IR.AST.Expr → Bool
     Sparkle.Backend.Verilog.sanitizeName n == n && (wof n).isSome
   | .const _ w => decide (0 < w)
   | .op .mux [c, t, f] =>
-    sfragCheck wof c && sfragCheck wof t && sfragCheck wof f
+    decide (widthOf (fun n => (wof n).getD 0) f
+      = widthOf (fun n => (wof n).getD 0) t)
+    && sfragCheck wof c && sfragCheck wof t && sfragCheck wof f
   | .op .neg [x] => sfragCheck wof x
   | .op .not [x] =>
     (match Tools.SVParser.EmitAst.exprWidthT wof x with
@@ -2278,8 +2505,9 @@ theorem sfragCheck_sound (wof : String → Option Nat)
     exact SFrag.const v w h
   | case3 c t f ihc iht ihf =>
     intro h env
-    simp only [sfragCheck, Bool.and_eq_true] at h
-    exact SFrag.mux (ihc h.1.1 env) (iht h.1.2 env) (ihf h.2 env)
+    simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
+    exact SFrag.mux h.1.1.1 (ihc h.1.1.2 env) (iht h.1.2 env)
+      (ihf h.2 env)
   | case4 x ihx =>
     intro h env
     exact SFrag.neg (ihx (by simpa [sfragCheck] using h) env)
