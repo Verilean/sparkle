@@ -55,6 +55,30 @@ inductive SF4 (wof : String → Option Nat) (we : WEnv) : Expr → Prop
       (hwS : Sparkle.IR.Semantics.widthOf we x = w)
       (hw0 : 0 < w)
       (hx : SF4 wof we x) : SF4 wof we (.op .not [x])
+  | cmpU (op : Operator)
+      (hop : op = .eq ∨ op = .lt_u ∨ op = .le_u ∨ op = .gt_u
+        ∨ op = .ge_u)
+      {a b : Expr}
+      -- Verilog sizes comparison operands to their own max, the IR
+      -- masks each per node; width agreement makes both read the same
+      -- self-determined values.
+      (hww : Sparkle.IR.Semantics.widthOf we a
+        = Sparkle.IR.Semantics.widthOf we b)
+      (ha : SF4 wof we a) (hb : SF4 wof we b) :
+      SF4 wof we (.op op [a, b])
+  | sliceRef (n : String) (hi lo : Nat)
+      (hs : Sparkle.Backend.Verilog.sanitizeName n = n)
+      (hw : wof n = some (we n))
+      (hlo : lo ≤ hi) (hhi : hi < we n)
+      -- the exact full-width slice is the ELIDED emission — see
+      -- `sliceRefFull`
+      (hne : ¬(lo = 0 ∧ hi + 1 = we n)) :
+      SF4 wof we (.slice (.ref n) hi lo)
+  | sliceRefFull (n : String) (hi : Nat)
+      (hs : Sparkle.Backend.Verilog.sanitizeName n = n)
+      (hw : wof n = some (we n))
+      (hfull : hi + 1 = we n) :
+      SF4 wof we (.slice (.ref n) hi 0)
 
 /-- v0 fragment expressions always evaluate (their shapes are total in
     `evalExpr`). -/
@@ -83,6 +107,17 @@ theorem sf4_eval_isSome {wof : String → Option Nat} {we : WEnv}
     intro env
     obtain ⟨vx, hvx⟩ := Option.isSome_iff_exists.mp (ihx env)
     simp [evalExpr, evalList, hvx, evalOp]
+  | cmpU op hop hww ha hb iha ihb =>
+    rename_i a b
+    intro env
+    obtain ⟨va, hva⟩ := Option.isSome_iff_exists.mp (iha env)
+    obtain ⟨vb, hvb⟩ := Option.isSome_iff_exists.mp (ihb env)
+    rcases hop with h | h | h | h | h <;> subst h <;>
+      simp [evalExpr, evalList, hva, hvb, evalOp]
+  | sliceRef n hi lo hs hw hlo hhi hne =>
+    intro env; simp [evalExpr]
+  | sliceRefFull n hi hs hw hfull =>
+    intro env; simp [evalExpr]
 
 /-- **Forward correctness, v0**: the emitted form has the same
     self-determined width AND, evaluated at the IR width as context,
@@ -241,6 +276,75 @@ theorem emit_sem {wof : String → Option Nat} {we : WEnv} {env : Env}
         have := Nat.two_pow_pos w
         simp [mask, Nat.mod_eq_of_lt (by omega)]
       simp [mask, hm, Nat.mod_mod_of_dvd _ (Nat.dvd_refl _), hwS]
+  | cmpU op hop hww ha hb iha ihb =>
+    rename_i a b
+    intro sv hsv
+    rcases hop with h | h | h | h | h <;> subst h <;>
+    · simp only [Tools.SVParser.EmitAst.emitAstExpr,
+        Option.bind_eq_bind] at hsv
+      obtain ⟨sva, hsa, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      obtain ⟨svb, hsb, hsv⟩ := Option.bind_eq_some_iff.mp hsv
+      simp only [Tools.SVParser.EmitAst.binOpOf, Option.bind_some,
+        Option.some_inj] at hsv
+      subst hsv
+      obtain ⟨hwa, hva⟩ := iha sva hsa
+      obtain ⟨hwb, hvb⟩ := ihb svb hsb
+      have hvb' : evalAt wof env (Sparkle.IR.Semantics.widthOf we a) svb
+          = evalExpr we env b := hww ▸ hvb
+      constructor
+      · simp [widthSV, Sparkle.IR.Semantics.widthOf]
+      · -- comparison operands are SELF-determined: they size to their
+        -- own max, which width agreement pins to `widthOf we a` — the
+        -- exact width the IH evaluated them at.
+        rw [show evalExpr we env (.op _ [a, b])
+              = ((evalList we env [a, b]).bind fun vals =>
+                  evalOp we _ [a, b] vals
+                    (Sparkle.IR.Semantics.widthOf we (.op _ [a, b])))
+            from rfl]
+        cases hA : evalExpr we env a with
+        | none =>
+          exact absurd hA (Option.isSome_iff_ne_none.mp
+            (sf4_eval_isSome ha env))
+        | some va =>
+        cases hB : evalExpr we env b with
+        | none =>
+          exact absurd hB (Option.isSome_iff_ne_none.mp
+            (sf4_eval_isSome hb env))
+        | some vb =>
+        simp only [evalAt, hwa, hwb, Option.bind_eq_bind,
+          Option.bind_some, ← hww, Nat.max_self, hva, hvb', hA, hB,
+          evalList, evalOp, Option.some_inj]
+  | sliceRef n hi lo hs hw hlo hhi hne =>
+    intro sv hsv
+    -- unfold the emitter on the non-castEnc, non-elided, in-range slice
+    have helide : (lo == 0 && hi + 1 == we n) = false := by
+      rcases Nat.eq_zero_or_pos lo with h0 | h0
+      · subst h0
+        have : hi + 1 ≠ we n := fun hc => hne ⟨rfl, hc⟩
+        simp [this]
+      · simp [Nat.pos_iff_ne_zero.mp h0]
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hs, hw, helide,
+      Bool.false_eq_true, if_false, if_pos hhi,
+      Option.some_inj] at hsv
+    subst hsv
+    constructor
+    · simp [widthSV, Sparkle.IR.Semantics.widthOf]
+    · simp only [Sparkle.IR.Semantics.widthOf, evalAt, hw,
+        Option.bind_eq_bind, Option.bind_some, evalExpr,
+        if_pos (And.intro hlo hhi)]
+      simp [mask, Nat.mod_mod_of_dvd _ (Nat.dvd_refl _)]
+  | sliceRefFull n hi hs hw hfull =>
+    intro sv hsv
+    have helide : (0 == 0 && hi + 1 == we n) = true := by simp [hfull]
+    simp only [Tools.SVParser.EmitAst.emitAstExpr, hs, hw, helide,
+      if_true, Option.some_inj] at hsv
+    subst hsv
+    constructor
+    · simp [widthSV, hw, Sparkle.IR.Semantics.widthOf, hfull]
+    · simp only [Sparkle.IR.Semantics.widthOf, evalAt, hw,
+        Option.bind_eq_bind, Option.bind_some, evalExpr,
+        Nat.sub_zero, Option.some_inj]
+      simp [Nat.shiftRight_zero]
 
 /-- The headline form: at the assignment context width (which the
     module fragment's width-agreement conditions supply), the emitted

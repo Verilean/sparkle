@@ -54,6 +54,7 @@ def widthSV (wof : String → Option Nat) : SVExpr → Option Nat
     | _ => do some (max (← widthSV wof a) (← widthSV wof b))
   | .ternary _ t f => do some (max (← widthSV wof t) (← widthSV wof f))
   | .concat args => go args
+  | .slice (.ident _) hi lo => some (hi - lo + 1)
   | _ => none
 where
   go : List SVExpr → Option Nat
@@ -143,6 +144,15 @@ def evalAt (wof : String → Option Nat) (env : SEnv) (W : Nat) :
     -- elements are self-determined; MSB-first assembly, zero-extended
     let v ← goConcat wof env args
     some (mask W v)
+  | .slice (.ident n) hi lo => do
+    -- part-select on a declared vector: reads the RAW bits of the
+    -- signal (never context-widened), then zero-extends into W.
+    -- Only in-range selects are modeled — an out-of-range select is
+    -- x-valued in Verilog and outside this subset.
+    let w ← wof n
+    if lo ≤ hi ∧ hi < w then
+      some (mask W (mask (hi - lo + 1) ((env n) >>> lo)))
+    else none
   | _ => none
 
 /-- Evaluate with a CONTEXT width: the effective width is the max of
@@ -193,6 +203,11 @@ private def envP : SEnv := fun n =>
 -- concat elements are self-determined
 #guard evalSV wofP envP 0 (.concat [.ident "c", .ident "s"])
     = some ((1 <<< 4) ||| 9)
+-- part-select reads raw bits, context-immune (a = 0xA5 → a[6:4] = 2,
+-- even in a 32-bit context)
+#guard evalSV wofP envP 32 (.slice (.ident "a") 6 4) = some 2
+-- out-of-range select is outside the subset
+#guard evalSV wofP envP 0 (.slice (.ident "a") 8 0) = none
 end Pins
 
 end Tools.SVParser.SVSemantics
