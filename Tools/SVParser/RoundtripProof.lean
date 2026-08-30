@@ -1533,18 +1533,41 @@ def lowerPort (wof : String → Option Nat) (e : Sparkle.IR.AST.Expr) :
     Option Sparkle.IR.AST.Expr :=
   (Tools.SVParser.EmitAst.emitAstExpr wof e).bind lowerT
 
+/-- Lowered read substitutions (structural, twin of the shipping
+    substitution list construction in `lowerMemPayload`). -/
+def lowerTSubs (arr : String) :
+    List (String × Tools.SVParser.AST.SVExpr) →
+    Option (List (String × Sparkle.IR.AST.Expr))
+  | [] => some []
+  | (ph, ix) :: rest => do
+    some ((ph, Sparkle.IR.AST.Expr.index (.ref arr) (← lowerT ix))
+      :: (← lowerTSubs arr rest))
+
+/-- One WRITE-port payload through emit∘lower, mirroring the shipping
+    `lowerMemPayload`: reads of the memory's OWN array are extracted
+    before lowering and re-attached as `.index` nodes (using the SAME
+    total shipping helpers).  On index-free payloads this is exactly
+    `lowerPort`. -/
+def lowerPortMem (wof : String → Option Nat) (arr : String)
+    (e : Sparkle.IR.AST.Expr) : Option Sparkle.IR.AST.Expr := do
+  let sv ← Tools.SVParser.EmitAst.emitAstExpr wof e
+  let (sv', reads, _) := Tools.SVParser.Lower.extractArrayReads arr sv 0
+  let base ← lowerT sv'
+  let subs ← lowerTSubs arr reads
+  some (Tools.SVParser.Lower.substArrayReads subs base)
+
 /-- Write ports through emit∘lower, in order (structural recursion so
     proofs can rewrite it). -/
-def lowerWritePorts (wof : String → Option Nat) :
+def lowerWritePorts (wof : String → Option Nat) (arr : String) :
     List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr) →
     Option (List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
       × Sparkle.IR.AST.Expr))
   | [] => some []
   | (a, d, en) :: rest => do
-    let a' ← lowerPort wof a
-    let d' ← lowerPort wof d
-    let en' ← lowerPort wof en
-    some ((a', d', en') :: (← lowerWritePorts wof rest))
+    let a' ← lowerPortMem wof arr a
+    let d' ← lowerPortMem wof arr d
+    let en' ← lowerPortMem wof arr en
+    some ((a', d', en') :: (← lowerWritePorts wof arr rest))
 
 /-- Read ports through emit∘lower.  A COMBO read whose target trips the
     `isArrayName` heuristic is dropped by the shipping scan
@@ -1593,7 +1616,8 @@ def claimWritesT
 def memImage (wof : String → Option Nat) :
     Sparkle.IR.AST.Stmt → Option Sparkle.IR.AST.Stmt
   | .memory name aw dw clk wa wd wen ra rd cr ew er => do
-    let writesI ← lowerWritePorts wof ((wa, wd, wen) :: ew)
+    let writesI ← lowerWritePorts wof
+      (Sparkle.Backend.Verilog.sanitizeName name) ((wa, wd, wen) :: ew)
     let (w0, extraW) ← claimWritesT writesI
     let readsI ← lowerReadPorts wof cr ((ra, rd) :: er)
     match readsI with
@@ -1757,7 +1781,8 @@ theorem memImage_inv {wof : String → Option Nat}
     (h : memImage wof (.memory name aw dw clk wa wd wen ra rd cr ew er)
       = some mi) :
     ∃ w0a w0d w0e extraW ra0 rd0 extraR,
-      lowerWritePorts wof ((wa, wd, wen) :: ew)
+      lowerWritePorts wof (Sparkle.Backend.Verilog.sanitizeName name)
+          ((wa, wd, wen) :: ew)
         = some ((w0a, w0d, w0e) :: extraW)
       ∧ lowerReadPorts wof cr ((ra, rd) :: er) = some ((ra0, rd0) :: extraR)
       ∧ mi = .memory (Sparkle.Backend.Verilog.sanitizeName name) aw
@@ -1765,7 +1790,8 @@ theorem memImage_inv {wof : String → Option Nat}
           (Sparkle.Backend.Verilog.sanitizeName clk)
           w0a w0d w0e ra0 rd0 cr extraW extraR := by
   simp only [memImage, Option.bind_eq_bind] at h
-  cases hW : lowerWritePorts wof ((wa, wd, wen) :: ew) with
+  cases hW : lowerWritePorts wof (Sparkle.Backend.Verilog.sanitizeName name)
+      ((wa, wd, wen) :: ew) with
   | none => rw [hW] at h; exact absurd h (by simp)
   | some writes' =>
     rw [hW] at h
@@ -2044,13 +2070,250 @@ theorem evalPayload_of_noIdx {we : WEnv} {ms : MEnv} {env : Env}
   rw [extractReads_id_of_noIdx e h arr 0]
   simp [spliceReads]
 
+mutual
+/-- No array-read nodes in an SVExpr (emitted side). -/
+def noIdxSV : SVExpr → Bool
+  | .index _ _ => false
+  | .unary _ a => noIdxSV a
+  | .binary _ a b => noIdxSV a && noIdxSV b
+  | .ternary c t f => noIdxSV c && noIdxSV t && noIdxSV f
+  | .slice x _ _ => noIdxSV x
+  | .partSelectPlus x b w => noIdxSV x && noIdxSV b && noIdxSV w
+  | .concat args => noIdxSVL args
+  | .repeat_ c v => noIdxSV c && noIdxSV v
+  | .sizeCast _ a => noIdxSV a
+  | _ => true
+
+def noIdxSVL : List SVExpr → Bool
+  | [] => true
+  | a :: rest => noIdxSV a && noIdxSVL rest
+end
+
+/-- Index-free SVExprs are untouched by the shipping read extraction. -/
+theorem extractArrayReadsSV_id :
+    ∀ (sv : SVExpr), noIdxSV sv = true →
+    ∀ arr k, Tools.SVParser.Lower.extractArrayReads arr sv k = (sv, [], k) := by
+  intro sv
+  induction sv using noIdxSV.induct (motive_2 := fun l =>
+      noIdxSVL l = true →
+      ∀ arr k,
+        Tools.SVParser.Lower.extractArrayReadsList arr l k = (l, [], k)) with
+  | case1 a i => intro h; cases h
+  | case2 op a ih =>
+    intro h arr k
+    simp only [noIdxSV] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ih h arr k]
+  | case3 op a b iha ihb =>
+    intro h arr k
+    simp only [noIdxSV, Bool.and_eq_true] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, iha h.1 arr k,
+      ihb h.2 arr k]
+  | case4 c t f ihc iht ihf =>
+    intro h arr k
+    simp only [noIdxSV, Bool.and_eq_true] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ihc h.1.1 arr k,
+      iht h.1.2 arr k, ihf h.2 arr k]
+  | case5 x hi lo ih =>
+    intro h arr k
+    simp only [noIdxSV] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ih h arr k]
+  | case6 x b w ihx ihb ihw =>
+    intro h arr k
+    simp only [noIdxSV, Bool.and_eq_true] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ihx h.1.1 arr k,
+      ihb h.1.2 arr k, ihw h.2 arr k]
+  | case7 args ih =>
+    intro h arr k
+    simp only [noIdxSV] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ih h arr k]
+  | case8 c v ihc ihv =>
+    intro h arr k
+    simp only [noIdxSV, Bool.and_eq_true] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ihv h.2 arr k]
+  | case9 w a ih =>
+    intro h arr k
+    simp only [noIdxSV] at h
+    simp [Tools.SVParser.Lower.extractArrayReads, ih h arr k]
+  | case10 sv h1 h2 h3 h4 h5 h6 h7 h8 h9 =>
+    intro _ arr k
+    cases sv with
+    | lit l => rfl
+    | ident n => rfl
+    | index a i => exact absurd rfl (h1 a i)
+    | unary op a => exact absurd rfl (h2 op a)
+    | binary op a b => exact absurd rfl (h3 op a b)
+    | ternary c t f => exact absurd rfl (h4 c t f)
+    | slice x hi lo => exact absurd rfl (h5 x hi lo)
+    | partSelectPlus x b w => exact absurd rfl (h6 x b w)
+    | concat args => exact absurd rfl (h7 args)
+    | repeat_ c v => exact absurd rfl (h8 c v)
+    | sizeCast w a => exact absurd rfl (h9 w a)
+  | case11 =>
+    rename_i _ arr k
+    rfl
+  | case12 a rest iha ihrest =>
+    rename_i h arr k
+    simp only [noIdxSVL, Bool.and_eq_true] at h
+    simp [Tools.SVParser.Lower.extractArrayReadsList, iha h.1 arr k,
+      ihrest h.2 arr k]
+
+/-- Empty substitution is the identity. -/
+theorem substArrayReads_nil :
+    ∀ (e : Sparkle.IR.AST.Expr),
+      Tools.SVParser.Lower.substArrayReads [] e = e := by
+  intro e
+  induction e using Tools.SVParser.Lower.substArrayReads.induct
+      (subs := []) with
+  | case1 n => simp [Tools.SVParser.Lower.substArrayReads]
+  | case3 o args ih =>
+    simp only [Tools.SVParser.Lower.substArrayReads]
+    rw [List.map_congr_left ih]; simp
+  | case4 args ih =>
+    simp only [Tools.SVParser.Lower.substArrayReads]
+    rw [List.map_congr_left ih]; simp
+  | _ => simp_all [Tools.SVParser.Lower.substArrayReads]
+
+mutual
+/-- `lowerT`'s DOMAIN is index-free: it has no arm for `.index`, so a
+    successfully lowered SVExpr contains no array-read node. -/
+theorem lowerT_dom_noIdxSV : ∀ (sv : SVExpr) (e' : Sparkle.IR.AST.Expr),
+    lowerT sv = some e' → noIdxSV sv = true
+  | .lit (.decimal (some w) v), _, _ => rfl
+  | .lit (.decimal none v), _, _ => rfl
+  | .lit (.hex (some w) v), _, _ => rfl
+  | .ident n, _, _ => rfl
+  | .sizeCast w a, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    simpa [noIdxSV] using lowerT_dom_noIdxSV a a' ha
+  | .unary .neg a, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    simpa [noIdxSV] using lowerT_dom_noIdxSV a a' ha
+  | .unary .signed a, e', h => by
+    simpa [noIdxSV] using lowerT_dom_noIdxSV a e' h
+  | .slice x hi lo, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨x', hx, h⟩ := Option.bind_eq_some_iff.mp h
+    simpa [noIdxSV] using lowerT_dom_noIdxSV x x' hx
+  | .concat args, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨es, hes, h⟩ := Option.bind_eq_some_iff.mp h
+    simpa [noIdxSV] using lowerTList_dom_noIdxSV args es hes
+  | .ternary c t f, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨c', hc, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨t', ht, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨f', hf, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV c c' hc, lowerT_dom_noIdxSV t t' ht,
+      lowerT_dom_noIdxSV f f' hf]
+  | .binary .asr a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .bitAnd a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .bitOr a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .bitXor a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .add a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .sub a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .mul a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .eq a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .lt a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .le a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .gt a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .ge a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .shl a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+  | .binary .shr a b, e', h => by
+    simp only [lowerT, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨b', hb, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSV, lowerT_dom_noIdxSV a a' ha, lowerT_dom_noIdxSV b b' hb]
+
+theorem lowerTList_dom_noIdxSV :
+    ∀ (l : List SVExpr) (es : List Sparkle.IR.AST.Expr),
+    lowerTList l = some es → noIdxSVL l = true
+  | [], _, _ => rfl
+  | a :: rest, es, h => by
+    simp only [lowerTList, Option.bind_eq_bind] at h
+    obtain ⟨a', ha, h⟩ := Option.bind_eq_some_iff.mp h
+    obtain ⟨rest', hrest, h⟩ := Option.bind_eq_some_iff.mp h
+    simp [noIdxSVL, lowerT_dom_noIdxSV a a' ha,
+      lowerTList_dom_noIdxSV rest rest' hrest]
+end
+
+/-- On payloads whose emitted form actually LOWERS (in particular, on
+    fragment payloads), the memory-aware port lowering IS the plain
+    one. -/
+theorem lowerPortMem_of_lowerPort {wof : String → Option Nat}
+    {arr : String} {e : Sparkle.IR.AST.Expr} {x : Sparkle.IR.AST.Expr}
+    (h : lowerPort wof e = some x) :
+    lowerPortMem wof arr e = some x := by
+  unfold lowerPort at h
+  obtain ⟨sv, hE, hL⟩ := Option.bind_eq_some_iff.mp h
+  have hn : noIdxSV sv = true := lowerT_dom_noIdxSV sv x hL
+  unfold lowerPortMem
+  rw [hE]
+  simp only [Option.bind_eq_bind, Option.bind_some]
+  rw [extractArrayReadsSV_id sv hn arr 0]
+  simp [lowerTSubs, hL, substArrayReads_nil]
+
 open Sparkle.IR.Semantics in
 /-- Pointwise semantic preservation of lowered write ports: the write
     phase computes the same memory update. -/
 theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
+    {arr : String}
     (ports : List (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
       × Sparkle.IR.AST.Expr)) :
-    ∀ {ports'}, lowerWritePorts wof ports = some ports' →
+    ∀ {ports'}, lowerWritePorts wof arr ports = some ports' →
     (∀ p ∈ ports, (∀ env, Bounded we env → SFrag wof we env p.1)
       ∧ (∀ env, Bounded we env → SFrag wof we env p.2.1)
       ∧ (∀ env, Bounded we env → SFrag wof we env p.2.2)) →
@@ -2068,45 +2331,63 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     intro ports' h hf
     obtain ⟨a, d, en⟩ := p
     simp only [lowerWritePorts, Option.bind_eq_bind] at h
-    cases hA : lowerPort wof a with
+    cases hA : lowerPortMem wof arr a with
     | none => rw [hA] at h; exact absurd h (by simp)
     | some a' =>
     rw [hA] at h
-    cases hD : lowerPort wof d with
+    cases hD : lowerPortMem wof arr d with
     | none => rw [hD] at h; exact absurd h (by simp)
     | some d' =>
     rw [hD] at h
-    cases hEn : lowerPort wof en with
+    cases hEn : lowerPortMem wof arr en with
     | none => rw [hEn] at h; exact absurd h (by simp)
     | some en' =>
     rw [hEn] at h
-    cases hRest : lowerWritePorts wof rest with
+    cases hRest : lowerWritePorts wof arr rest with
     | none => rw [hRest] at h; exact absurd h (by simp)
     | some rest' =>
     rw [hRest] at h
     simp only [Option.bind_some, Option.some_inj] at h
     subst h
     have hfp := hf (a, d, en) (List.mem_cons_self ..)
-    unfold lowerPort at hA hD hEn
+    -- fragment payloads lower through the PLAIN path, so the memory-
+    -- aware lowering coincides and roundtrip value equality applies
+    have hplain : ∀ {x : Sparkle.IR.AST.Expr} {x' : Sparkle.IR.AST.Expr},
+        lowerPortMem wof arr x = some x' →
+        (∀ env, Bounded we env → SFrag wof we env x) →
+        (Tools.SVParser.EmitAst.emitAstExpr wof x).bind lowerT = some x' := by
+      intro x x' hMem hS
+      obtain ⟨x0, hb0, _, _⟩ := roundtrip_sem
+        (hS (fun _ => 0) (fun _ => Nat.two_pow_pos _))
+      have := lowerPortMem_of_lowerPort (arr := arr)
+        (show lowerPort wof x = some x0 from hb0)
+      rw [hMem] at this
+      injection this with hEq
+      rw [← hEq] at hb0
+      exact hb0
+    have hA' := hplain hA hfp.1
+    have hD' := hplain hD hfp.2.1
+    have hEn' := hplain hEn hfp.2.2
+    unfold lowerPort at hA' hD' hEn'
     have hva : ∀ env, Bounded we env →
         evalExpr we env a' = evalExpr we env a := by
       intro env hbe
       obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.1 env hbe)
-      rw [hA] at hb3
+      rw [hA'] at hb3
       cases hb3
       exact hv3
     have hvd : ∀ env, Bounded we env →
         evalExpr we env d' = evalExpr we env d := by
       intro env hbe
       obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.2.1 env hbe)
-      rw [hD] at hb3
+      rw [hD'] at hb3
       cases hb3
       exact hv3
     have hven : ∀ env, Bounded we env →
         evalExpr we env en' = evalExpr we env en := by
       intro env hbe
       obtain ⟨x3, hb3, _, hv3⟩ := roundtrip_sem (hfp.2.2 env hbe)
-      rw [hEn] at hb3
+      rw [hEn'] at hb3
       cases hb3
       exact hv3
     intro env hbe ms name aw dw mems
@@ -2114,13 +2395,13 @@ theorem lowerWritePorts_sem {wof : String → Option Nat} {we : WEnv}
     -- the lowering twin never constructs an array read), so payload
     -- evaluation is plain evaluation and the value equalities apply
     have hnA' : noIdxE a' = true := by
-      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hA
+      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hA'
       exact lowerT_noIdx _ _ h2
     have hnD' : noIdxE d' = true := by
-      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hD
+      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hD'
       exact lowerT_noIdx _ _ h2
     have hnEn' : noIdxE en' = true := by
-      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hEn
+      obtain ⟨sv, _, h2⟩ := Option.bind_eq_some_iff.mp hEn'
       exact lowerT_noIdx _ _ h2
     have hnA : noIdxE a = true := sfrag_noIdx (hfp.1 env hbe)
     have hnD : noIdxE d = true := sfrag_noIdx (hfp.2.1 env hbe)
