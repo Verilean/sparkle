@@ -2802,5 +2802,53 @@ endmodule
         failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 71 (certified-roundtrip / CSim bug #8): operand-exact masking.
+  -- CSim's store-mask invariant only covers `.ref` reads; an unmasked
+  -- intermediate keeps its carry in the C scalar, so width-sensitive
+  -- CONSUMERS saw wrong values: `((x+y)==4'h0)` compared 16 not 0,
+  -- `(x+y) ? a : b` took the wrong arm, `(x+y)>>1` shifted the phantom
+  -- carry down into live bits.  Expectations pinned by iverilog
+  -- (x=15, y=1, z=0): q=16 p=1 m=7 s=0.  q documents that CSim and
+  -- Verilog AGREE on mixed-width bare arithmetic (both keep the inner
+  -- carry at context width) — the formal IR semantics masks per node
+  -- and gives 0 there, which is the parser-side open item, not CSim's.
+  IO.print "  Test 71: CSim masks width-sensitive operands... "
+  let opmaskVerilog := "module opmask(input [3:0] x, input [3:0] y, input [7:0] z,
+  output [7:0] q, output p, output [7:0] m, output [3:0] s);
+  assign q = (x + y) + z;
+  assign p = ((x + y) == 4'h0);
+  assign m = (x + y) ? 8'd5 : 8'd7;
+  assign s = (x + y) >> 1;
+endmodule"
+  match parseAndLower opmaskVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m71 =>
+      let jitPath := "/tmp/sparkle_sv_opmask_jit.c"
+      IO.FS.writeFile jitPath (toCJIT { topModule := m71.name, modules := [m71] })
+      try
+        let handle ← JIT.compileAndLoad jitPath
+        JIT.reset handle
+        JIT.setInput handle 0 15  -- x
+        JIT.setInput handle 1 1   -- y
+        JIT.setInput handle 2 0   -- z
+        JIT.eval handle
+        let q ← JIT.getOutput handle 0
+        let pv ← JIT.getOutput handle 1
+        let mv ← JIT.getOutput handle 2
+        let sv ← JIT.getOutput handle 3
+        JIT.destroy handle
+        if q == 16 && pv == 1 && mv == 7 && sv == 0 then
+          IO.println "PASS (q=16 p=1 m=7 s=0, matches iverilog)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: got q={q} p={pv} m={mv} s={sv}, want q=16 p=1 m=7 s=0"
+          failed := failed + 1
+      catch e =>
+        IO.println s!"FAIL (JIT): {toString e}"
+        failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

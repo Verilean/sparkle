@@ -144,28 +144,6 @@ def applyMask (expr : String) (w : Nat) : String :=
   if mask.isEmpty then expr
   else s!"(({expr}) & {mask})"
 
-/-- Check if an IR expression produces a result that is already correctly masked.
-    Invariant: every assignment applies a mask, so .ref reads yield masked values. -/
-partial def exprIsMasked (w : Nat) : Expr → Bool
-  -- A constant is only "already masked" if its DECLARED width fits the
-  -- target width.  `.const (-1) 32` (the SVParser's bitwise-NOT mask)
-  -- feeding a 1-bit wire used to pass here unconditionally, so the xor
-  -- arm below skipped the store mask and a `~x` landed as 0xff in a
-  -- 1-bit uint8 field (XiangShan ICacheMshr.io_wfi_wfiSafe, 14 modules).
-  | .const _ cw => cw ≤ w
-  | .ref _ => true
-  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
-  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
-  | .op .ge_s _ => w == 1
-  | .slice _ hi lo => (hi - lo + 1) == w
-  | .op .mux [_, t, e] => exprIsMasked w t && exprIsMasked w e
-  | .op .and [a, b] => exprIsMasked w a || exprIsMasked w b
-  | .op .or [a, b] => exprIsMasked w a && exprIsMasked w b
-  | .op .xor [a, b] => exprIsMasked w a && exprIsMasked w b
-  | .op .shr _ => true
-  | .op .asr _ => true
-  | _ => !needsMask w
-
 /-- Convert Operator to C operator symbol -/
 def emitCOperator (op : Operator) : String :=
   match op with
@@ -341,6 +319,60 @@ private def wideCmpSlots (strict : Bool) (a b : Nat → String) (nWords : Nat) :
     "(" ++ a i ++ " < " ++ b i ++ " ? 1 : (" ++ a i ++ " > " ++ b i ++ " ? 0 : " ++ rest ++ "))")
     base
   "(" ++ expr ++ ")"
+
+/-- Check if an IR expression produces a result that is already correctly
+    masked to `w` bits.  `atStore` says whether the value is about to be
+    written into a C field of exactly `w` bits' container — there (and
+    ONLY there) a container-width value (w = 8/16/32/64) is truncated by
+    the store itself, so the default arm may answer "masked".  In an
+    OPERAND position (compare/shift/truthiness/index) the value lives in
+    a uint64 expression and no such truncation happens — callers must
+    pass `atStore := false`, and the default arm answers "not masked".
+
+    A constant is only "already masked" if its DECLARED width fits the
+    target width.  `.const (-1) 32` (the SVParser's bitwise-NOT mask)
+    feeding a 1-bit wire used to pass here unconditionally, so the xor
+    arm below skipped the store mask and a `~x` landed as 0xff in a
+    1-bit uint8 field (XiangShan ICacheMshr.io_wfi_wfiSafe, 14 modules).
+
+    `.shr` is masked only up to its VALUE operand's width (the shifted
+    value is emitted exact, see the shift arm of `emitExpr`), and `.asr`
+    is never masked — sign extension deliberately sets bits above the
+    value width inside the container. -/
+partial def exprIsMasked (typeMap : TypeMap) (w : Nat) (atStore : Bool) : Expr → Bool
+  | .const _ cw => cw ≤ w
+  | .ref name => lookupWidth typeMap name ≤ w
+  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _
+  | .op .le_s _ | .op .gt_u _ | .op .gt_s _ | .op .ge_u _
+  | .op .ge_s _ => 1 ≤ w
+  | .slice _ hi lo => (hi - lo + 1) ≤ w
+  | .op .mux [_, t, e] => exprIsMasked typeMap w atStore t && exprIsMasked typeMap w atStore e
+  | .op .and [a, b] => exprIsMasked typeMap w atStore a || exprIsMasked typeMap w atStore b
+  | .op .or [a, b] => exprIsMasked typeMap w atStore a && exprIsMasked typeMap w atStore b
+  | .op .xor [a, b] => exprIsMasked typeMap w atStore a && exprIsMasked typeMap w atStore b
+  | .op .shr (a :: _) => inferExprWidth typeMap a ≤ w
+  | .op .asr _ => false
+  | _ => atStore && !needsMask w
+
+/-- Mask an already-emitted operand string to the operand's own width,
+    unless the expression is provably already masked.  For consumers
+    that need the EXACT value — compare operands, shift arguments,
+    mux/`!` truthiness, memory indices — not one that a later
+    store-mask will clean up.  The store-mask invariant only covers
+    `.ref` reads: an unmasked intermediate keeps its carry in the C
+    scalar (`x+y` at 4 bits holds 16), so `((x+y) == 4'h0)` compared
+    16, not 0, and diverged from the RTL.  Congruence makes one mask
+    at the consumer sufficient: `+ - * & | ^ ~ neg` all preserve
+    values mod 2^w, so bits above w in sub-operands never affect the
+    masked top value.  At w = 64 the uint64 container itself wraps
+    mod 2^64, so no mask is needed (unlike `applyMask`, w = 8/16/32
+    DO get a mask here — there is no store truncation in an operand
+    position). -/
+private def maskOperandExact (typeMap : TypeMap) (w : Nat) (arg : Expr) (s : String) : String :=
+  if w ≥ 64 then s
+  else if exprIsMasked typeMap w false arg then s
+  else if w == 1 then s!"(({s}) & 1)"
+  else s!"(({s}) & 0x{Nat.toDigits 16 (2 ^ w - 1) |> String.ofList}ULL)"
 
 /-- Convert IR expression to C expression.
 
@@ -552,12 +584,18 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
   | .sliceDim _ _ _ =>
     "SPARKLE_UNSUPPORTED_SYMBOLIC_SLICE"
   | .index arr idx =>
-    s!"{emitExpr typeMap arr}[{emitExpr typeMap idx}]"
+    -- The address must be exact: an unmasked `(i+1)` walks past the
+    -- C array (UB), where the RTL wraps at the address width.
+    s!"{emitExpr typeMap arr}[{maskOperandExact typeMap (inferExprWidth typeMap idx) idx (emitExpr typeMap idx)}]"
 
   | .op .mux args =>
     match args with
     | [cond, thenVal, elseVal] =>
-      s!"({emitExpr typeMap cond} ? {emitExpr typeMap thenVal} : {emitExpr typeMap elseVal})"
+      -- Truthiness is width-sensitive: `(x+y)` with x=15,y=1 is 16 in
+      -- the C scalar but 0 at 4 bits, so the unmasked condition took
+      -- the wrong arm.  The ARMS stay lazy — congruence + store-mask
+      -- (or the consumer's own operand mask) covers them.
+      s!"({maskOperandExact typeMap (inferExprWidth typeMap cond) cond (emitExpr typeMap cond)} ? {emitExpr typeMap thenVal} : {emitExpr typeMap elseVal})"
     | _ => "/* ERROR: mux requires 3 arguments */"
 
   | .op .not args =>
@@ -568,7 +606,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
     -- Ch became `!e`, silently corrupting every hash).
     | [arg] =>
       let w := inferExprWidth typeMap arg
-      if w ≤ 1 then s!"(!{emitExpr typeMap arg})"
+      if w ≤ 1 then s!"(!{maskOperandExact typeMap (inferExprWidth typeMap arg) arg (emitExpr typeMap arg)})"
       else s!"((~{emitExpr typeMap arg}) & {(1 <<< w) - 1}ULL)"
     | _ => "/* ERROR: not requires 1 argument */"
 
@@ -616,18 +654,22 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- scalar context has no meaningful ≤64-bit reading — leave the
           -- (non-compiling) raw form so it fails loudly.
           if operator == .shr then
-            s!"sparkle_wide_shr64({emitExpr typeMap arg1}, {wordsOf w1}u, (unsigned)({emitExpr typeMap arg2}))"
+            s!"sparkle_wide_shr64({emitExpr typeMap arg1}, {wordsOf w1}u, (unsigned)({maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)}))"
           else
             s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2})"
         else
           let cop := if operator == .shr then ">>" else "<<"
+          -- Both arguments need exact values: a phantom carry in the
+          -- VALUE shifts down into live bits under `>>` (and past the
+          -- store-mask under `<<`); an unmasked AMOUNT shifts by the
+          -- wrong count entirely.
           match arg2 with
           | .const v _ =>
             if v ≥ 64 then "0ULL"
-            else s!"((uint64_t){emitExpr typeMap arg1} {cop} {v})"
+            else s!"((uint64_t){maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)} {cop} {v})"
           | _ =>
-            let aS := emitExpr typeMap arg1
-            let bS := emitExpr typeMap arg2
+            let aS := maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)
+            let bS := maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)
             s!"((uint64_t)({bS}) >= 64 ? 0ULL : ((uint64_t){aS} {cop} ({bS})))"
       | .asr =>
         let w := max (inferExprWidth typeMap arg1) 32
@@ -651,7 +693,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- against a 64-bit input; the old code subscripted the input.)
           let slot (e : Expr) (j : Nat) : String :=
             let we := inferExprWidth typeMap e
-            let es := emitExpr typeMap e
+            let es := maskOperandExact typeMap we e (emitExpr typeMap e)
             if we > 64 then s!"{es}[{j}]"
             else if j == 0 then s!"((uint32_t)({es}))"
             else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
@@ -668,9 +710,9 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           | _, _          => s!"(({mkTerms arg1 arg2}) ? 1 : 0)"
         else
         match arg1, arg2 with
-        | _, .const 0 _ => s!"(!({emitExpr typeMap arg1}) ? 1 : 0)"
-        | .const 0 _, _ => s!"(!({emitExpr typeMap arg2}) ? 1 : 0)"
-        | _, _ => s!"({emitExpr typeMap arg1} == {emitExpr typeMap arg2} ? 1 : 0)"
+        | _, .const 0 _ => s!"(!({maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)}) ? 1 : 0)"
+        | .const 0 _, _ => s!"(!({maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)}) ? 1 : 0)"
+        | _, _ => s!"({maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)} == {maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)} ? 1 : 0)"
       | .lt_u | .le_u | .gt_u | .ge_u =>
         let w := max (inferExprWidth typeMap arg1) (inferExprWidth typeMap arg2)
         if w > 64 then
@@ -681,7 +723,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           -- subscripted the constant).
           let slotOf (e : Expr) : Nat → String := fun j =>
             let we := inferExprWidth typeMap e
-            let es := emitExpr typeMap e
+            let es := maskOperandExact typeMap we e (emitExpr typeMap e)
             if we > 64 then s!"(uint32_t)({es})[{j}]"
             else if j == 0 then s!"((uint32_t)({es}))"
             else if j == 1 && we > 32 then s!"((uint32_t)((uint64_t)({es}) >> 32))"
@@ -697,7 +739,7 @@ partial def emitExpr (typeMap : TypeMap) (e : Expr) : String :=
           | .gt_u => wideCmpSlots true  b a n
           | _     => wideCmpSlots false b a n   -- .ge_u
         else
-          s!"({emitExpr typeMap arg1} {emitCOperator operator} {emitExpr typeMap arg2} ? 1 : 0)"
+          s!"({maskOperandExact typeMap (inferExprWidth typeMap arg1) arg1 (emitExpr typeMap arg1)} {emitCOperator operator} {maskOperandExact typeMap (inferExprWidth typeMap arg2) arg2 (emitExpr typeMap arg2)} ? 1 : 0)"
       | .mul =>
         -- Wide-multiply codegen.  Same algorithm as CppSim's
         -- C++ port: project both wide operands to int64_t (low
@@ -827,7 +869,7 @@ def emitMuxAsIfElse (typeMap : TypeMap)
   else
     let maskFn := fun (e : Expr) =>
       let s := emitExpr typeMap e
-      if exprIsMasked width e then s else applyMask s width
+      if exprIsMasked typeMap width true e then s else applyMask s width
     let defaultLine := s!"        {lhsName} = {maskFn default_};"
     let ifLines := (arms.zip (List.range arms.length)).map fun ((cond, val), idx) =>
       let condStr := emitExpr typeMap cond
@@ -1392,7 +1434,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
         , evalTickLocals := [] }
       else
         let expr := emitExpr typeMap rhs
-        let masked := if exprIsMasked width rhs then expr else applyMask expr width
+        let masked := if exprIsMasked typeMap width true rhs then expr else applyMask expr width
         { declarations := []
         , evalBody := [s!"        {sanitizeName lhs} = {masked};"]
         , tickBody := []
@@ -1453,7 +1495,7 @@ partial def emitStmt (stmt : Stmt) (typeMap : TypeMap)
     else
       let cType := emitScalarBase (.bitVector width)
       let rawExpr := emitExpr typeMap input
-      let inputExpr := if exprIsMasked width input then rawExpr else applyMask rawExpr width
+      let inputExpr := if exprIsMasked typeMap width true input then rawExpr else applyMask rawExpr width
       let initExpr := emitInitScalar initValue width
       let ifElseLines := if muxChainDepth input >= 16 then
           emitMuxAsIfElse typeMap nextName width input 16
