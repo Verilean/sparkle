@@ -2235,17 +2235,235 @@ def bfragCheck (wof : String → Option Nat)
     && bfragCheck wof wires rest
   | .inst _ _ _ :: _ => false
 
+/-- The module's width oracle: wires and ports, by sanitized name —
+    the same map the shipping statement emitter uses. -/
+def moduleWof (m : Sparkle.IR.AST.Module) : String → Option Nat := fun n =>
+  ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
+    Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
+    match p.ty with
+    | .bitVector w => some w
+    | .bit => some 1
+    | _ => none
+
 /-- Census verdict for one module: is its body fully inside the PROVEN
     semantic fragment (BFrag with the induced width env)? -/
 def semFragCheck (m : Sparkle.IR.AST.Module) : Bool :=
-  let wof : String → Option Nat := fun n =>
-    ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
-      Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind fun p =>
-      match p.ty with
-      | .bitVector w => some w
-      | .bit => some 1
-      | _ => none
-  bfragCheck wof m.wires m.body
+  bfragCheck (moduleWof m) m.wires m.body
+
+open Sparkle.IR.Semantics in
+/-- Soundness of the census checker: a checked expression is in the
+    semantic fragment, for EVERY environment, with the width env
+    induced from the oracle.  Proved by the checker's own functional
+    induction, so the case split matches the checker arm for arm. -/
+theorem sfragCheck_sound (wof : String → Option Nat)
+    (e : Sparkle.IR.AST.Expr) (h : sfragCheck wof e = true) :
+    ∀ env, SFrag wof (fun n => (wof n).getD 0) env e := by
+  revert h
+  induction e using sfragCheck.induct (motive_2 := fun args =>
+    sfragCheckList wof args = true →
+    ∀ env, SFrag wof (fun n => (wof n).getD 0) env (.concat args)) with
+  | case1 n =>
+    intro h env
+    simp only [sfragCheck, Bool.and_eq_true, beq_iff_eq,
+      Option.isSome_iff_exists] at h
+    obtain ⟨hs, w, hw⟩ := h
+    exact SFrag.ref n hs (by simp [hw])
+  | case2 v w =>
+    intro h env
+    simp only [sfragCheck, decide_eq_true_eq] at h
+    exact SFrag.const v w h
+  | case3 c t f ihc iht ihf =>
+    intro h env
+    simp only [sfragCheck, Bool.and_eq_true] at h
+    exact SFrag.mux (ihc h.1.1 env) (iht h.1.2 env) (ihf h.2 env)
+  | case4 x ihx =>
+    intro h env
+    exact SFrag.neg (ihx (by simpa [sfragCheck] using h) env)
+  | case5 x ihx =>
+    intro h env
+    simp only [sfragCheck, Bool.and_eq_true] at h
+    obtain ⟨hcond, hx⟩ := h
+    cases hwT : Tools.SVParser.EmitAst.exprWidthT wof x with
+    | none => rw [hwT] at hcond; cases hcond
+    | some w =>
+      rw [hwT] at hcond
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hcond
+      exact SFrag.not w hwT hcond.1.1 hcond.1.2 hcond.2 (ihx hx env)
+  | case6 x y ihx ihy =>
+    intro h env
+    simp only [sfragCheck, Bool.and_eq_true] at h
+    obtain ⟨⟨⟨hnx, hny⟩, hx⟩, hy⟩ := h
+    refine SFrag.asr ?_ ?_ (ihx hx env) (ihy hy env)
+    · intro l hEq; subst hEq; simp at hnx
+    · intro l hEq; subst hEq; simp at hny
+  | case7 op a b hne iha ihb =>
+    intro h env
+    simp only [sfragCheck, Bool.and_eq_true] at h
+    exact SFrag.binop op h.1.1 (iha h.1.2 env) (ihb h.2 env)
+  | case8 n hi lo =>
+    intro h env
+    simp only [sfragCheck, Bool.and_eq_true, beq_iff_eq] at h
+    obtain ⟨hs, hkeep⟩ := h
+    refine SFrag.sliceRefKeep n hi lo hs ?_ ?_
+    · cases hw : wof n with
+      | none => exact Or.inl rfl
+      | some w =>
+        rw [hw] at hkeep
+        simp only [Option.isNone_some, Bool.false_or, Bool.not_eq_true',
+          Bool.and_eq_false_iff] at hkeep
+        refine Or.inr ?_
+        intro ⟨h0, hle⟩
+        cases hkeep with
+        | inl hlo0 => simp [h0] at hlo0
+        | inr hgt =>
+          simp only [hw, Option.getD_some, decide_eq_false_iff_not] at hgt
+          exact hgt hle
+    · cases hw : wof n with
+      | none => exact Or.inl rfl
+      | some w => exact Or.inr (by simp [hw])
+  | case9 w y hi lo hguard ihy =>
+    intro h env
+    simp only [Bool.and_eq_true, beq_iff_eq] at hguard
+    obtain ⟨hlo, hhw⟩ := hguard
+    subst hlo
+    have hhi : hi = w - 1 := by omega
+    subst hhi
+    simp only [sfragCheck] at h
+    rw [if_pos (by simp [hhw])] at h
+    simp only [Bool.and_eq_true, decide_eq_true_eq] at h
+    exact SFrag.castEnc w h.1 (ihy h.2 env)
+  | case10 w y hi lo hguard =>
+    intro h env
+    simp only [sfragCheck] at h
+    rw [if_neg (by simp [hguard])] at h
+    cases h
+  | case11 x hi lo hne1 hne2 ihx =>
+    intro h env
+    cases x with
+    | ref n => exact absurd rfl (hne1 n)
+    | concat args =>
+      match args, hne2 with
+      | [], _ => simp [sfragCheck] at h
+      | [a], _ => simp [sfragCheck] at h
+      | a :: b :: c :: rest, _ => simp [sfragCheck] at h
+      | [a, b], hne2 =>
+        cases a with
+        | const v w' =>
+          by_cases hv : v = 0
+          · subst hv
+            exact absurd rfl (hne2 w' b)
+          · simp [sfragCheck, hv] at h
+        | _ => simp [sfragCheck] at h
+    | const v w =>
+      simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
+      exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
+        (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
+        (SFrag.const v w h.2)
+    | op o args =>
+      simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
+      exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
+        (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
+        (ihx h.2 env)
+    | slice y hi2 lo2 =>
+      simp only [sfragCheck, Bool.and_eq_true, decide_eq_true_eq] at h
+      exact SFrag.sliceCompound hi lo h.1.1.1.2 h.1.1.2 h.1.2
+        (fun _ hEq => nomatch hEq) (fun _ hEq => nomatch hEq)
+        (ihx h.2 env)
+    | sliceDim y hi2 lo2 => simp [sfragCheck] at h
+    | index a i => simp [sfragCheck] at h
+  | case12 args ih =>
+    intro h env
+    exact ih h env
+  | case13 t d1 d2 d3 d4 d5 d6 d7 d8 d9 d10 d11 =>
+    intro h env
+    exfalso
+    -- the checker's catch-all is false
+    cases t with
+    | ref n => exact absurd rfl (d1 n)
+    | const v w => exact absurd rfl (d2 v w)
+    | op o args =>
+      match o, args with
+      | .mux, [c, t', f] => exact absurd rfl (d3 c t' f)
+      | .neg, [x] => exact absurd rfl (d4 x)
+      | .not, [x] => exact absurd rfl (d5 x)
+      | .asr, [x, y] => exact absurd rfl (d6 x y)
+      | o, [a, b] => exact absurd rfl (d7 o a b)
+      | o, [] => simp [sfragCheck] at h
+      | o, [a] => simp [sfragCheck] at h
+      | o, a :: b :: c :: rest => simp [sfragCheck] at h
+    | slice x hi lo => exact absurd rfl (d10 x hi lo)
+    | concat args => exact absurd rfl (d11 args)
+    | sliceDim x hi lo => simp [sfragCheck] at h
+    | index a i => simp [sfragCheck] at h
+  | case14 =>
+    exact SFrag.concatNil
+  | case15 a rest iha ihrest =>
+    rename_i h env
+    simp only [sfragCheckList, Bool.and_eq_true] at h
+    obtain ⟨⟨hopw, ha⟩, hrest⟩ := h
+    refine SFrag.concatCons ?_ (iha ha env) (ihrest hrest env)
+    intro o as hEq
+    subst hEq
+    cases hwT : Tools.SVParser.EmitAst.exprWidthT wof (.op o as) with
+    | none => rw [hwT] at hopw; cases hopw
+    | some w =>
+      rw [hwT] at hopw
+      simp only [Bool.and_eq_true, decide_eq_true_eq] at hopw
+      exact ⟨w, rfl, hopw.1, hopw.2⟩
+
+open Sparkle.IR.Semantics in
+/-- Soundness of the body census checker. -/
+theorem bfragCheck_sound (wof : String → Option Nat)
+    (wires : List Sparkle.IR.AST.Port) :
+    ∀ (body : List Sparkle.IR.AST.Stmt), bfragCheck wof wires body = true →
+    BFrag wof (fun n => (wof n).getD 0) wires body
+  | [], _ => BFrag.nil
+  | .assign l x :: rest, h => by
+    simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq] at h
+    exact BFrag.assign h.1.1 (fun env => sfragCheck_sound wof x h.1.2 env)
+      (bfragCheck_sound wof wires rest h.2)
+  | .register out clk (rst, kind) x init :: rest, h => by
+    simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq,
+      decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨⟨⟨hso, hsc⟩, hsr⟩, hx⟩, hrw⟩, hw0⟩, hwrst⟩, hrest⟩ := h
+    exact BFrag.reg hso hsc hsr
+      (fun env => sfragCheck_sound wof x hx env) hrw hw0 hwrst
+      (bfragCheck_sound wof wires rest hrest)
+  | .memory name aw dw clk wa wd wen ra rd cr ew er :: rest, h => by
+    simp only [bfragCheck, Bool.and_eq_true, beq_iff_eq,
+      decide_eq_true_eq, List.all_eq_true] at h
+    obtain ⟨⟨⟨⟨⟨hsn, hsc⟩, hwp⟩, hrp⟩, hdw⟩, hrest⟩ := h
+    refine BFrag.mem hsn hsc ?_ ?_ hdw
+      (bfragCheck_sound wof wires rest hrest)
+    · intro p hp
+      have := hwp p hp
+      try simp only [Bool.and_eq_true] at this
+      exact ⟨fun env => sfragCheck_sound wof p.1 this.1.1 env,
+        fun env => sfragCheck_sound wof p.2.1 this.1.2 env,
+        fun env => sfragCheck_sound wof p.2.2 this.2 env⟩
+    · intro p hp
+      have := hrp p hp
+      try simp only [Bool.and_eq_true, beq_iff_eq] at this
+      exact ⟨fun env => sfragCheck_sound wof p.1 this.1 env, this.2⟩
+  | .inst _ _ _ :: _, h => by simp [bfragCheck] at h
+
+open Sparkle.IR.Semantics Sparkle.IR.Reorder in
+/-- **The capstone**: a module that passes the semantic-fragment census
+    and whose shipping-lowered image passes the reorder check produces
+    the SAME TRACE as the original — every hypothesis here is decidable
+    and is exactly what Test 68 evaluates corpus-wide. -/
+theorem certified_body_trace (m : Sparkle.IR.AST.Module)
+    {bimg body' : List Sparkle.IR.AST.Stmt}
+    (hcert : semFragCheck m = true)
+    (hI : bodyImage (moduleWof m) m.wires m.body = some bimg)
+    (hchk : bodyReorderCheck body' bimg = true)
+    (seed : Nat → (String → Nat) → Env) (k : Nat) (st : String → Nat)
+    (mems : MEnv) :
+    runModule (fun n => (moduleWof m n).getD 0) body' seed k st mems
+      = runModule (fun n => (moduleWof m n).getD 0) m.body seed k st mems :=
+  body_trace_roundtrip
+    (bfragCheck_sound (moduleWof m) m.wires m.body hcert) hI hchk
+    seed k st mems
 
 -- Validation on the probes (register bodies and memories of both read
 -- kinds, single- and multi-port).
