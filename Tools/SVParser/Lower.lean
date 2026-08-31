@@ -1140,8 +1140,15 @@ def buildByteStrobeWrite (arrName : String) (addrExpr : Expr)
       Expr.const (Int.ofNat mask) dataWidth, Expr.const 0 dataWidth]
     let effNotMask := Expr.op .mux [condExpr,
       Expr.const notMask dataWidth, Expr.const allOnes dataWidth]
+    -- The shift AMOUNT is declared at `dataWidth`, not 32.  A shift's
+    -- IR width is the max of its operands, so a 32-bit amount forced
+    -- the whole payload to 32 bits regardless of the memory's data
+    -- width — a 10-bit `Memory` got a 32-bit write value, disagreeing
+    -- with its own declaration.  (Every other constant in this
+    -- function already uses `dataWidth`; this one was missed.)
     let shiftedData := if lane.lo == 0 then dataExpr
-      else Expr.op .shl [dataExpr, Expr.const (Int.ofNat lane.lo) 32]
+      else Expr.op .shl [dataExpr,
+             Expr.const (Int.ofNat lane.lo) dataWidth]
     Expr.op .or [
       Expr.op .and [acc, effNotMask],
       Expr.op .and [shiftedData, effMask]
