@@ -2344,6 +2344,60 @@ theorem sf4_emit_isSome {wof : String → Option Nat} {we : WEnv}
       simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb,
         Tools.SVParser.EmitAst.binOpOf]
 
+/-- Decidable side conditions of `bitwiseShl` on the LEFT operand:
+    `a` must BE `x << const k kw` with the rule's conditions met.  The
+    sub-fragment check is NOT here — `sf4Check` supplies it via
+    `shlOperand`, so this stays independent of the checker. -/
+def shlSideOK (we : WEnv) (a b : Expr) : Bool :=
+  match a with
+  | .op .shl [x, .const kk kw] =>
+    (0 ≤ kk) && (decide (kk.toNat < 2 ^ kw)) && (decide (0 < kw))
+      && (decide (Sparkle.IR.Semantics.widthOf we x + kk.toNat
+            ≤ max (Sparkle.IR.Semantics.widthOf we x) kw))
+      && immuneE x
+      && (decide (max (Sparkle.IR.Semantics.widthOf we x) kw
+            ≤ Sparkle.IR.Semantics.widthOf we b))
+  | _ => false
+
+/-- The VALUE operand of a literal-amount shift, or the expression
+    itself otherwise.  `sf4Check` recurses through this so the shl
+    route's sub-check rides an ordinary structural recursion. -/
+def shlOperand : Expr → Expr
+  | .op .shl [x, .const _ _] => x
+  | e => e
+
+/-- `shlOperand` never grows its argument — what the termination proof
+    of `sf4Check` needs. -/
+theorem shlOperand_lt (e : Expr) : sizeOf (shlOperand e) ≤ sizeOf e := by
+  unfold shlOperand
+  split
+  · rename_i x kk kw
+    simp
+    omega
+  · exact Nat.le_refl _
+
+/-- Soundness of the side test: with the operand's fragment fact, the
+    `bitwiseShl` rule applies. -/
+theorem shlSideOK_sound {wof : String → Option Nat} {we : WEnv}
+    {a b : Expr}
+    (hfa : SF4 wof we (shlOperand a))
+    (h : shlSideOK we a b = true)
+    (hfb : SF4 wof we b) (op : Operator)
+    (hop : op = .and ∨ op = .or ∨ op = .xor) :
+    SF4 wof we (.op op [a, b]) := by
+  match a, h, hfa with
+  | .op .shl [x, .const kk kw], h, hfa =>
+    simp only [shlSideOK, Bool.and_eq_true, decide_eq_true_eq] at h
+    obtain ⟨⟨⟨⟨⟨hnn, hk⟩, hkw⟩, hfit⟩, himm⟩, hdom⟩ := h
+    simp only [shlOperand] at hfa
+    obtain ⟨k, hkdef⟩ : ∃ k : Nat, kk = Int.ofNat k := by
+      refine ⟨kk.toNat, ?_⟩
+      simp only [Int.ofNat_eq_natCast]
+      omega
+    subst hkdef
+    simp only [Int.ofNat_eq_natCast, Int.toNat_natCast] at hk hfit
+    exact SF4.bitwiseShl op hop k kw hfa himm hk hkw hfit hfb hdom
+
 /-- Decidable mirror of `SF4` — the per-expression forward-fragment
     membership test the census and gate run.  Soundness below ties a
     `true` verdict to the `emit_sem` theorem. -/
@@ -2366,11 +2420,23 @@ def sf4Check (wof : String → Option Nat) (we : WEnv) :
   | .op op [a, b] =>
     let wa := Sparkle.IR.Semantics.widthOf we a
     let wb := Sparkle.IR.Semantics.widthOf we b
+    -- All THREE recursive calls are made unconditionally and at the
+    -- arm's top level, so `sf4Check.induct` hands out one IH each and
+    -- both routes below have what they need.  (`shlOperand a` is `a`
+    -- itself unless `a` is a literal-amount shift.)
+    let chkA := sf4Check wof we a
+    let chkB := sf4Check wof we b
+    let chkShl := sf4Check wof we (shlOperand a)
     let perOp := ((wa == max wa wb) || immuneE a)
       && ((wb == max wa wb) || immuneE b)
-      && sf4Check wof we a && sf4Check wof we b
+      && chkA && chkB
     match op with
-    | .and | .or | .xor | .add | .sub | .mul => perOp
+    -- a bitwise node over a literal-amount shift rides `bitwiseShl`:
+    -- the shift carries only a VALUE claim (`shl_val_at`), which is
+    -- all a bitwise parent needs
+    | .and | .or | .xor =>
+      perOp || (shlSideOK we a b && chkShl && chkB)
+    | .add | .sub | .mul => perOp
     | .eq | .lt_u | .le_u | .gt_u | .ge_u => perOp
     -- SHR's width is its value operand's, so no width condition;
     -- SHL still takes the generic max
@@ -2420,6 +2486,8 @@ decreasing_by all_goals
      have := List.sizeOf_lt_of_mem ‹_ ∈ _›
      omega)
   | (simp_wf; omega)
+  | -- the `shlOperand a` recursion: never larger than `a`
+    (simp_wf; exact Nat.lt_of_le_of_lt (shlOperand_lt _) (by omega))
 
 set_option maxHeartbeats 1600000 in
 /-- Soundness of the mirror: a `true` verdict puts the expression in
@@ -2444,97 +2512,115 @@ theorem sf4Check_sound {wof : String → Option Nat} {we : WEnv} :
   case case5 c t f ihc iht ihf =>
     simp only [sf4Check, Bool.and_eq_true, beq_iff_eq] at h
     exact SF4.mux h.1.1.1 (ihc h.1.1.2) (iht h.1.2) (ihf h.2)
-  case case6 a b iha ihb =>
+  case case6 l r ihL ihR ihS =>
+    rw [sf4Check] at h
+    simp only [Bool.or_eq_true] at h
+    rcases h with hper | hshl
+    · simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hper
+      exact SF4.binop _ (by simp) hper.1.1.1 hper.1.1.2
+        (ihL hper.1.2) (ihR hper.2)
+    · simp only [Bool.and_eq_true] at hshl
+      exact shlSideOK_sound (ihS hshl.1.2) hshl.1.1 (ihR hshl.2) _
+        (by simp)
+  case case7 l r ihL ihR ihS =>
+    rw [sf4Check] at h
+    simp only [Bool.or_eq_true] at h
+    rcases h with hper | hshl
+    · simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hper
+      exact SF4.binop _ (by simp) hper.1.1.1 hper.1.1.2
+        (ihL hper.1.2) (ihR hper.2)
+    · simp only [Bool.and_eq_true] at hshl
+      exact shlSideOK_sound (ihS hshl.1.2) hshl.1.1 (ihR hshl.2) _
+        (by simp)
+  case case8 l r ihL ihR ihS =>
+    rw [sf4Check] at h
+    simp only [Bool.or_eq_true] at h
+    rcases h with hper | hshl
+    · simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hper
+      exact SF4.binop _ (by simp) hper.1.1.1 hper.1.1.2
+        (ihL hper.1.2) (ihR hper.2)
+    · simp only [Bool.and_eq_true] at hshl
+      exact shlSideOK_sound (ihS hshl.1.2) hshl.1.1 (ihR hshl.2) _
+        (by simp)
+  case case9 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case7 a b iha ihb =>
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case10 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case8 a b iha ihb =>
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case11 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case9 a b iha ihb =>
+    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case12 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case10 a b iha ihb =>
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case13 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case11 a b iha ihb =>
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case14 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case12 a b iha ihb =>
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case15 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case13 a b iha ihb =>
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case16 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case14 a b iha ihb =>
-    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
-      beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case15 a b iha ihb =>
-    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
-      beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case16 a b iha ihb =>
-    simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
-      beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (iha h.1.2) (ihb h.2)
-  case case17 a b iha ihb =>
+    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
+  case case17 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true, decide_eq_true_eq] at h
     exact SF4.shiftOp _ (Or.inl rfl) (Or.inr h.1.1)
-      (iha h.1.2) (ihb h.2)
-  case case18 a b iha ihb =>
+      (ihL h.1.2) (ihR h.2)
+  case case18 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.and_eq_true] at h
-    exact SF4.shiftOp _ (Or.inr rfl) (Or.inl rfl) (iha h.1) (ihb h.2)
-  case case19 a b iha ihb =>
+    exact SF4.shiftOp _ (Or.inr rfl) (Or.inl rfl) (ihL h.1) (ihR h.2)
+  case case19 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
       ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
       ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
     · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
-        (iha hchka) (ihb hchkb)
+        (ihL hchka) (ihR hchkb)
     · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
-        (iha hchka) (ihb hchkb)
-  case case20 a b iha ihb =>
+        (ihL hchka) (ihR hchkb)
+  case case20 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
       ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
       ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
     · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
-        (iha hchka) (ihb hchkb)
+        (ihL hchka) (ihR hchkb)
     · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
-        (iha hchka) (ihb hchkb)
-  case case21 a b iha ihb =>
+        (ihL hchka) (ihR hchkb)
+  case case21 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
       ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
       ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
     · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
-        (iha hchka) (ihb hchkb)
+        (ihL hchka) (ihR hchkb)
     · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
-        (iha hchka) (ihb hchkb)
-  case case22 a b iha ihb =>
+        (ihL hchka) (ihR hchkb)
+  case case22 l r ihL ihR ihS =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
       ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
       ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
     · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
-        (iha hchka) (ihb hchkb)
+        (ihL hchka) (ihR hchkb)
     · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
-        (iha hchka) (ihb hchkb)
+        (ihL hchka) (ihR hchkb)
   case case23 =>
     exfalso
     rw [sf4Check.eq_def] at h
