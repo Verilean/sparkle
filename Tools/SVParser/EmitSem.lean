@@ -2992,6 +2992,26 @@ def weWithReads (we : WEnv) (arr : String) (dw n : Nat) : WEnv :=
     if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
     then dw else we x
 
+/-- A memory port payload that may READ its own array: check the
+    stripped form and each extracted address, under the width map
+    extended with the read placeholders.
+
+    `portCheck`'s `idxFree` requirement is the special case with no
+    reads; this generalizes it to the read-modify-write payloads
+    firtool emits for byte strobes. -/
+def payloadCheck (wof : String → Option Nat) (we : WEnv)
+    (arr : String) (aw dw w : Nat) (e : Expr) : Bool :=
+  let (e', reads, k) := Sparkle.IR.Semantics.extractReads arr e 0
+  let wof' := wofWithReads wof arr dw k
+  let we' := weWithReads we arr dw k
+  idxFree e'
+    && (Sparkle.IR.Semantics.widthOf we' e' == w)
+    && sf4Check wof' we' e'
+    && reads.all (fun p =>
+         idxFree p.2
+           && (Sparkle.IR.Semantics.widthOf we' p.2 == aw)
+           && sf4Check wof' we' p.2)
+
 /-- The emitter's read-port list for one memory. -/
 def emitReadPorts (wof : String → Option Nat) :
     List (Expr × String) → Option (List (SVExpr × String))
