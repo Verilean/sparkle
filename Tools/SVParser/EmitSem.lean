@@ -3102,6 +3102,94 @@ theorem emit_sem_comboReads {wof : String → Option Nat} {we : WEnv}
         Option.bind_some]
       exact hSV
 
+/-- The IR's and Verilog's read splices agree, given that each
+    address's emission computes its IR value at the address width.
+    Stated over PAIRED read lists so the induction runs on one
+    structure. -/
+theorem splice_agree {wof : String → Option Nat} {we : WEnv}
+    {mems : MEnv} {env : Env} {arr : String} {aw dw : Nat}
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn) :
+    ∀ (readsIR : List (String × Expr)) (readsSV : List (String × SVExpr)),
+      -- paired, name for name, with each SV address the emission of the
+      -- IR one and its value right at width `aw`
+      readsIR.length = readsSV.length →
+      (∀ i (hi : i < readsIR.length) (hj : i < readsSV.length),
+        (readsIR[i]'hi).1 = (readsSV[i]'hj).1
+        ∧ evalSV wof env aw (readsSV[i]'hj).2
+            = evalExpr we env (readsIR[i]'hi).2) →
+      ∀ acc, spliceReads we mems env arr aw dw readsIR acc
+        = spliceReadsSV wof mems env arr aw dw readsSV acc := by
+  intro readsIR
+  induction readsIR with
+  | nil =>
+    intro readsSV hlen _ acc
+    cases readsSV with
+    | nil => rfl
+    | cons p ps => simp at hlen
+  | cons p ps ih =>
+    intro readsSV hlen hpair acc
+    cases readsSV with
+    | nil => simp at hlen
+    | cons q qs =>
+      obtain ⟨hname, hval⟩ := hpair 0 (by simp) (by simp)
+      simp only [List.getElem_cons_zero] at hname hval
+      simp only [spliceReads, spliceReadsSV, hval, hname,
+        Option.bind_eq_bind]
+      cases hv : evalExpr we env p.2 with
+      | none => simp [hv]
+      | some vi =>
+        simp only [hv, Option.bind_some]
+        exact ih qs (by simpa using hlen)
+          (fun i hi hj => by
+            have := hpair (i+1) (by simpa using hi) (by simpa using hj)
+            simpa using this) _
+
+/-- **Read-modify-write payloads agree.**  A byte-strobe write value
+    reads the array it writes, so `evalPayload` resolves those reads
+    against the PRE-write state before evaluating.  Verilog's
+    nonblocking RHS does the same, and `evalPayloadSV` mirrors it with
+    the same placeholder names.
+
+    The hypotheses are: emission commutes with extraction (the stripped
+    emission is the emission of the stripped form, and the read lists
+    pair up name-for-name), plus the stripped form's own forward
+    correctness.  Commutation is measured true on both corpus RMW
+    arrays — same placeholder count and numbering, identical stripped
+    emissions. -/
+theorem payload_agree {wof : String → Option Nat} {we : WEnv}
+    {mems : MEnv} {env : Env} {arr : String} {aw dw W : Nat}
+    {e : Expr} {sv sv' : SVExpr}
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
+    -- the IR split
+    (e' : Expr) (readsIR : List (String × Expr)) (k : Nat)
+    (hsplitIR : extractReads arr e 0 = (e', readsIR, k))
+    -- the SV split of the WHOLE emission
+    (readsSV : List (String × SVExpr)) (k2 : Nat)
+    (hsplitSV : extractReadsSV arr sv 0 = (sv', readsSV, k2))
+    -- commutation: the stripped emission IS the emission of the
+    -- stripped form, and the reads pair up
+    (hstrip : Tools.SVParser.EmitAst.emitAstExpr
+      (wofWithReads wof arr dw k) e' = some sv')
+    (hlen : readsIR.length = readsSV.length)
+    (hpair : ∀ i (hi : i < readsIR.length) (hj : i < readsSV.length),
+      (readsIR[i]'hi).1 = (readsSV[i]'hj).1
+      ∧ evalSV wof env aw (readsSV[i]'hj).2
+          = evalExpr we env (readsIR[i]'hi).2)
+    -- the stripped form's own forward correctness, at width W
+    (hval : ∀ spl, spliceReads we mems env arr aw dw readsIR env = some spl
+      → evalSV wof spl W sv' = evalExpr we spl e') :
+    evalPayloadSV wof mems env arr aw dw W sv
+      = evalPayload we mems env arr aw dw e := by
+  unfold evalPayloadSV evalPayload
+  rw [hsplitIR, hsplitSV]
+  simp only []
+  rw [← splice_agree hbe hbw readsIR readsSV hlen hpair env]
+  cases hs : spliceReads we mems env arr aw dw readsIR env with
+  | none => simp [hs]
+  | some spl => simp [hs, hval spl hs]
+
 set_option maxHeartbeats 800000 in
 /-- **Forward correctness, write ports**: the emitted `always_ff`
     guarded stores produce the same memory state as the IR's
