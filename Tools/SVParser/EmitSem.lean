@@ -3217,4 +3217,40 @@ theorem certified_forward_trace {wof : String → Option Nat} {we : WEnv}
       hSVR, hIRM, hSVM, Option.bind_eq_bind, Option.bind_some]
     rw [ihk (Sparkle.IR.Semantics.applyNexts st nexts) mems']
 
+/- ------------------------------------------------------------------ -/
+/- Module-level packaging: discharging the width hypotheses.           -/
+
+/-- The value-width environment a module induces from its width map —
+    the one `moduleWof`-based census uses. -/
+def weOf (wof : String → Option Nat) : WEnv := fun n => (wof n).getD 0
+
+/-- Under the induced environment the two width hypotheses of the M4
+    theorems are literally the same statement, so a caller supplies
+    ONE.  (`wof n = some wn` forces `weOf wof n = wn`.) -/
+theorem bounded_iff_wof {wof : String → Option Nat} {env : Env}
+    (hbe : Bounded (weOf wof) env) :
+    ∀ n wn, wof n = some wn → env n < 2 ^ wn := by
+  intro n wn hn
+  have := hbe n
+  simpa [weOf, hn] using this
+
+/-- **The M4 capstone, module form.**  One width hypothesis on the
+    seeding discipline (values fit their declared widths), and the
+    emitted Verilog's trace IS the IR's, for every cycle count. -/
+theorem certified_forward_trace_module {wof : String → Option Nat}
+    {body : List Stmt}
+    (hchk : seqCheck wof (weOf wof) body = true)
+    (seed : Nat → (String → Nat) → Env)
+    (hseed : ∀ t st, Bounded (weOf wof) (seed t st)) :
+    ∃ pairs regs mprog,
+      emitAssigns wof body = some pairs
+      ∧ emitRegs wof body = some regs
+      ∧ emitMemWrites wof body = some mprog
+      ∧ ∀ (k : Nat) (st : String → Nat)
+          (mems : Sparkle.IR.Semantics.MEnv),
+          Sparkle.IR.Semantics.runModule (weOf wof) body seed k st mems
+            = runModuleSV wof pairs regs mprog seed k st mems :=
+  certified_forward_trace hchk seed
+    (fun t st => ⟨hseed t st, bounded_iff_wof (hseed t st)⟩)
+
 end Tools.SVParser.EmitSem

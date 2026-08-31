@@ -2881,8 +2881,10 @@ endmodule"
           | .ok design =>
             for m in design.modules do
               let wof := Tools.SVParser.RoundtripProof.moduleWof m
-              let we : Sparkle.IR.Semantics.WEnv :=
-                fun n => (wof n).getD 0
+              -- the SAME environment the module-form capstone uses,
+              -- so a passing census hands `certified_forward_trace_module`
+              -- its hypothesis directly
+              let we := Tools.SVParser.EmitSem.weOf wof
               mtotal := mtotal + 1
               -- whole combinational phase certified
               -- (`emit_sem_assigns` applies to the module)
