@@ -1,6 +1,6 @@
 # Certified roundtrip: design and current state
 
-Branch: `poc/roundtrip-proof`.  Status as of 2026-08-30.
+Branch: `poc/roundtrip-proof`.  Status as of 2026-08-31.
 
 ## Goal
 
@@ -9,6 +9,13 @@ A CompCert-style statement for Sparkle's emit/parse/lower pipeline:
 > Re-ingesting Sparkle's own emitted SystemVerilog produces a circuit
 > with the **same cycle-by-cycle trace** as the original IR — proven in
 > Lean, not just tested.
+
+and, in the forward direction (M4):
+
+> The emitted SystemVerilog, read by a mathematical semantics of the
+> language subset, computes **the same cycle-by-cycle trace** as the
+> IR it was emitted from — which removes the PARSER from the trusted
+> base for that direction.
 
 `parse (emit x) = x` is FALSE syntactically (lowering normalizes
 bit-selects, size casts, signed compares; emission normalizes `~`,
@@ -28,13 +35,15 @@ nothing is provable about it directly).  The split:
   twins.
 * **Validated shell** — the twins are tied to the shipping functions by
   compile-time `#guard`s that run the REAL emit→parse→lower on probe
-  modules, and by corpus-wide executable tests (ParserTest 64–70) over
+  modules, and by corpus-wide executable tests (ParserTest 64–72) over
   the XiangShan CI corpus.  A divergence breaks `lake build`.
 
 The trusted base is therefore: twin↔shipping agreement (executable, not
 proven), the string-level printer/parser (M3, tested TCB), and the
 optimizer (out of scope by design — `#verify_emit` translation
-validation covers it per instance).
+validation covers it per instance).  M4 additionally removes the
+PARSER from the forward direction's trusted base, leaving only the
+printer and the SV-subset semantics itself.
 
 ## The semantics (M1)
 
@@ -86,21 +95,96 @@ Statement/module layer:
   trace equality.  **Every hypothesis is decidable** and is exactly
   what Test 68 evaluates corpus-wide.
 
+## The forward direction (M4)
+
+`Tools/SVParser/SVSemantics.lean` gives the emitted SystemVerilog
+SUBSET a semantics: every expression evaluates at a CONTEXT width
+`W = max ctx (widthSV e)`, context-determined operands inherit `W`,
+and the self-determined boundaries reset it (size-cast arguments,
+comparison operands, shift amounts, concat elements, ternary
+conditions).  `Tools/SVParser/EmitSem.lean` then proves the emitter
+right against it, in four rungs:
+
+* `emit_sem` — for the fragment `SF4`,
+  `evalSV wof env (widthOf we e) (emitAstExpr wof e) = evalExpr we env e`,
+  carrying `widthSV (emission) = widthOf (IR)` as the induction's
+  invariant.  `sf4_emit_isSome` makes the emitter TOTAL on the
+  fragment, so the statement is "it emits, and is right".
+* `emit_sem_assigns` — the whole combinational phase: Verilog's
+  assignment fold (each RHS at its LHS's width, truncated into the
+  target) lands in the same environment as `evalAssigns`.  Memory read
+  ports are part of this phase (`emit_sem_comboReads`).
+* `emit_sem_regs` / `emit_sem_memNexts` — the sequential phase: the
+  always-block reset mux and width truncation agree with `regNexts`,
+  and the guarded stores agree with `memNexts`.
+* `certified_forward_trace` — the capstone: for any width-respecting
+  seeding discipline and any cycle count,
+  `runModule = runModuleSV`.
+
+Two load-bearing lemmas make the fragment as wide as it is:
+
+* **Context immunity** (`immuneSV`/`evalAt_immune_all`): emissions that
+  carry their own mask (casts, slices, fitting literals, 0/1-valued
+  compares), are bounded by declaration (idents), or are built
+  carry-free from such (bitwise ops, concats, ternaries) evaluate the
+  SAME at every width ≥ their own.  This is what makes up-sizing safe
+  at the self-determined boundaries, and it unlocks the cast encode,
+  width-mismatched compares, and the pervasive firtool idiom
+  `(x ^ w'ones) == 32'd0`.
+* **Bias encoding** (`xor_top_bit`/`biased_lt`/`biased_le`): the
+  emitter's signed compare `((x&m)^sb) OP ((y&m)^sb)` is PROVEN equal
+  to two's-complement comparison — unsigned comparison of biased
+  values IS signed comparison.
+
+`sf4Check`/`assignsCheck`/`seqCheck` are decidable mirrors with
+soundness proofs (`sf4Check_sound` by functional induction), so the
+census below is theorem-backed per item, not a heuristic tally.
+
 ## Coverage (XiangShan CI corpus, 52 modules)
 
-* **47 theorem-checked** (shipping output = well-ordered permutation of
+Roundtrip direction (Test 68):
+
+* **49 theorem-checked** (shipping output = well-ordered permutation of
   the image), of which **46 fully inside the proven semantic fragment**
   — `certified_body_trace` applies end to end.
 * 3 behind the optimizer (their reparse differs only by optimizer
   rewrites; equivalence is `#verify_emit`'s translation validation).
-* 2 byte-strobe SRAM arrays: write payloads read the array
-  (`Memory[addr]`, IR `.index`) — full coverage needs an
-  `evalExpr`-with-memory-state semantics (helpers are already in
-  place; see Future work).
+* **0 outside.**
+
+Forward direction (Test 72):
+
+* **1025 of 1026 assign RHSs** carry `emit_sem`.
+* **51 of 52 modules** have their entire combinational phase certified.
+* **49 of 52 modules** have a full certified cycle trace
+  (`certified_forward_trace` applies).
 
 Additional roundtrip quality: emit∘parse is an **IR fixpoint** from the
 second generation (Test 67) — three amplifier classes were found and
 fixed to get there.
+
+### The honest boundary
+
+What remains outside is characterized, not unexplained:
+
+* One expression (CVT32ModuleS0): a 7-bit cone containing
+  `sub 0'7 x`, xored against a 32-bit constant.  Subtraction is not
+  carry-free, so the cone cannot be context-immune — `0 - x` is
+  `128 - x` at 7 bits and `2^32 - x` at 32.  A real divergence.
+* Two byte-strobe RMW arrays: their payloads contain
+  `wdata[i] << 32'd i` — a 1-bit value shifted by a 32-bit literal.
+  Checked against iverilog, the VALUES agree at every context width;
+  only the width bookkeeping differs (IR width 32 by the max rule,
+  emission width 1 by Verilog's self-determined rule).  Both repairs
+  were attempted and both are closed: making `widthOf` of `shl` match
+  CSim's `width a + k` breaks `roundtrip_sem`'s congruence (the rule
+  reads the literal's VALUE, and roundtrip replaces operands with
+  equivalent-but-different ones), and weakening `emit_sem`'s width
+  invariant to an inequality kills the immunity bridge, which needs
+  the exact width.  A width-INDEXED `emit_sem`
+  (`∀ W ≥ widthOf, evalAt W = mask W ∘ evalExpr`) would dissolve it,
+  at the cost of restructuring the M4 stack.
+  The RMW machinery itself (`extractReadsSV`, `spliceReadsSV`,
+  `evalPayloadSV`, `wofWithReads`) is built and waiting behind this.
 
 ## Shipping bugs found by the proof work
 
@@ -121,26 +205,52 @@ fixed to get there.
    extracting the scan's OWN array reads before lowering
    (`lowerMemPayload`), no heuristic.
 
+8. CSim applied masks only at assignment, so unmasked intermediates
+   reached width-sensitive CONSUMERS with their carry intact:
+   `((x+y) == 4'h0)` compared 16 rather than 0, mux conditions took the
+   wrong arm, `(x+y) >> 1` shifted a phantom carry into live bits, and
+   an unmasked index walked past the C array.  Found by the M4 3-way
+   experiment (formal semantics vs the SV semantics vs iverilog vs
+   CSim); fixed with `maskOperandExact` at the consumer sites, and
+   `exprIsMasked` split into store/operand positions.  The CUDA
+   backends inherit the fix — device code IS CSim.
+
 Bugs 2/4/7 share a blind spot: the co-sim gate only exercises the FIRST
 emission, never the second parse; only the IR metric (and now the
-roundtrip checks) see reparse fidelity.
+roundtrip checks) see reparse fidelity.  Bug 8 is a different blind
+spot: co-sim compares CSim against iverilog on the SAME shapes the
+corpus happens to contain, and the width-sensitive-consumer shapes were
+simply absent — it took a formal semantics disagreeing with both
+executables to surface it.
+
+Two IR width rules were also corrected, in `widthOf` and its CSim twin
+`inferExprWidth` together: a right shift is as wide as its VALUE (the
+amount's width used to leak in through the generic max, so
+`_GEN >> (idx * 32'd4)` measured 32 bits), which moved the forward
+census from 1008 to 1025 expressions and 41 to 44 traces.
 
 ## Compile cost
 
-The whole proof stack elaborates in ~34 s, ~29 s of which is the single
-`roundtrip_sem` theorem; the file is a leaf, so incremental `lake
-build`s replay the olean at no cost.
+The two proof files (`RoundtripProof.lean` ~3.6 kloc,
+`EmitSem.lean` ~3.2 kloc) elaborate in ~41 s together, the bulk of it
+`roundtrip_sem`; both are leaves, so incremental `lake build`s replay
+the oleans at no cost.
 
 ## Future work
 
-* `.index`/memory-state expression semantics to cover the two SRAM
-  arrays (the `extractArrayReads`/`substArrayReads` helpers are total
-  and twin-reusable).
-* Closed hierarchical semantics (state trees or a verified flatten).
+* Read-modify-write memory payloads: the SV-side machinery is built
+  (`extractReadsSV`/`spliceReadsSV`/`evalPayloadSV`, and
+  `wofWithReads` to give the `__memread_*` placeholders a width).  It
+  is blocked only by the `shl` width artifact above, not by the RMW
+  modeling.
+* A width-indexed `emit_sem`, which would dissolve that artifact and
+  is the principled fix rather than a patch.
+* Closed hierarchical semantics (state trees or a verified flatten) —
+  today instances are open-module no-ops and composition is covered
+  dynamically by the hierarchical co-sim.
 * M3: the string layer — today a tested TCB (parse-equality on every
   corpus expression); a verified printer/parser inverse is the
-  classical hard next step.
-* M4: a semantics for the emitted SystemVerilog SUBSET and a direct
-  emit-correctness theorem (`⟦e⟧_IR = ⟦emit e⟧_SV`), which would remove
-  the parser from the trusted base for the forward direction — the
-  NLnet Task 2/3-scale research item.
+  classical hard next step, and the last piece between the current
+  state and an end-to-end statement about TEXT rather than ASTs.
+* Swapping the twins in as the shipping emitter/lowerer, which would
+  collapse the twin↔shipping half of the trusted base.
