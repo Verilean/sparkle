@@ -2344,6 +2344,13 @@ theorem sf4_emit_isSome {wof : String → Option Nat} {we : WEnv}
       simp [Tools.SVParser.EmitAst.emitAstExpr, hsa, hsb,
         Tools.SVParser.EmitAst.binOpOf]
 
+/-- Is this expression a literal-amount left shift?  A top-level
+    definition so its equation lemmas are available to proofs, rather
+    than an inline `match` whose splitting leaks side goals. -/
+def isShlLit : Expr → Bool
+  | .op .shl [_, .const _ _] => true
+  | _ => false
+
 /-- Decidable side conditions of `bitwiseShl` on the LEFT operand:
     `a` must BE `x << const k kw` with the rule's conditions met.  The
     sub-fragment check is NOT here — `sf4Check` supplies it via
@@ -2375,6 +2382,17 @@ theorem shlOperand_lt (e : Expr) : sizeOf (shlOperand e) ≤ sizeOf e := by
     simp
     omega
   · exact Nat.le_refl _
+
+/-- `shlOperand` is the identity off `isShlLit`. -/
+theorem shlOperand_id {e : Expr} (h : isShlLit e = false) :
+    shlOperand e = e := by
+  -- both functions split on the SAME shape, so one `split` covers it
+  unfold shlOperand
+  split
+  · rename_i x kk kw
+    simp [isShlLit] at h
+  · rfl
+
 
 /-- Soundness of the side test: with the operand's fragment fact, the
     `bitwiseShl` rule applies. -/
@@ -2424,24 +2442,31 @@ def sf4Check (wof : String → Option Nat) (we : WEnv) :
     -- arm's top level, so `sf4Check.induct` hands out one IH each and
     -- both routes below have what they need.  (`shlOperand a` is `a`
     -- itself unless `a` is a literal-amount shift.)
-    let chkA := sf4Check wof we a
+    -- ONE recursive call on the left, through `shlOperand`.  When `a`
+    -- is a literal-amount shift the shl route is the only one that can
+    -- fire (`sf4Check` rejects the shift node itself), and when it is
+    -- not, `shlOperand a = a` — so a single call serves both routes.
+    -- Recursing on BOTH `a` and `shlOperand a` re-walked the left
+    -- subtree at every bitwise level: 249 nodes became 19.7 M calls.
+    let chkL := sf4Check wof we (shlOperand a)
     let chkB := sf4Check wof we b
-    let chkShl := sf4Check wof we (shlOperand a)
+    let notShl : Bool := !isShlLit a
     let perOp := ((wa == max wa wb) || immuneE a)
       && ((wb == max wa wb) || immuneE b)
-      && chkA && chkB
+      && notShl && chkL && chkB
     match op with
     -- a bitwise node over a literal-amount shift rides `bitwiseShl`:
     -- the shift carries only a VALUE claim (`shl_val_at`), which is
     -- all a bitwise parent needs
     | .and | .or | .xor =>
-      perOp || (shlSideOK we a b && chkShl && chkB)
+      perOp || (shlSideOK we a b && chkL && chkB)
     | .add | .sub | .mul => perOp
     | .eq | .lt_u | .le_u | .gt_u | .ge_u => perOp
     -- SHR's width is its value operand's, so no width condition;
     -- SHL still takes the generic max
-    | .shl => (wb ≤ wa) && sf4Check wof we a && sf4Check wof we b
-    | .shr => sf4Check wof we a && sf4Check wof we b
+    -- these arms reuse `chkL`; `notShl` makes it a check on `a` itself
+    | .shl => (wb ≤ wa) && notShl && chkL && chkB
+    | .shr => notShl && chkL && chkB
     | .lt_s | .le_s | .gt_s | .ge_s =>
       ((Tools.SVParser.EmitAst.exprWidthT wof a == some wa)
         && (Tools.SVParser.EmitAst.exprWidthT wof b == some wb)
@@ -2449,7 +2474,7 @@ def sf4Check (wof : String → Option Nat) (we : WEnv) :
       ((Tools.SVParser.EmitAst.exprWidthT wof a == some wa)
         && (Tools.SVParser.EmitAst.exprWidthT wof b == none)
         && (wb ≤ wa) && ((wb == wa) || immuneE b) && (0 < wa)
-        && sf4Check wof we a && sf4Check wof we b)
+        && notShl && chkL && chkB)
     | _ => false
   | .concat args =>
     args.attach.all fun ⟨e, _⟩ =>
@@ -2512,114 +2537,174 @@ theorem sf4Check_sound {wof : String → Option Nat} {we : WEnv} :
   case case5 c t f ihc iht ihf =>
     simp only [sf4Check, Bool.and_eq_true, beq_iff_eq] at h
     exact SF4.mux h.1.1.1 (ihc h.1.1.2) (iht h.1.2) (ihf h.2)
-  case case6 l r ihL ihR ihS =>
+  case case6 l r ihL ihR =>
     rw [sf4Check] at h
     simp only [Bool.or_eq_true] at h
     rcases h with hper | hshl
     · simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hper
-      exact SF4.binop _ (by simp) hper.1.1.1 hper.1.1.2
-        (ihL hper.1.2) (ihR hper.2)
+      obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := hper
+      -- `notShl` says `l` is not a literal-amount shift, so
+      -- `shlOperand l = l` and the IH applies to `l` directly
+      have hid : shlOperand l = l :=
+        shlOperand_id (by simpa using hns)
+      rw [hid] at hcl ihL
+      exact SF4.binop _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
     · simp only [Bool.and_eq_true] at hshl
-      exact shlSideOK_sound (ihS hshl.1.2) hshl.1.1 (ihR hshl.2) _
+      exact shlSideOK_sound (ihL hshl.1.2) hshl.1.1 (ihR hshl.2) _
         (by simp)
-  case case7 l r ihL ihR ihS =>
+  case case7 l r ihL ihR =>
     rw [sf4Check] at h
     simp only [Bool.or_eq_true] at h
     rcases h with hper | hshl
     · simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hper
-      exact SF4.binop _ (by simp) hper.1.1.1 hper.1.1.2
-        (ihL hper.1.2) (ihR hper.2)
+      obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := hper
+      -- `notShl` says `l` is not a literal-amount shift, so
+      -- `shlOperand l = l` and the IH applies to `l` directly
+      have hid : shlOperand l = l :=
+        shlOperand_id (by simpa using hns)
+      rw [hid] at hcl ihL
+      exact SF4.binop _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
     · simp only [Bool.and_eq_true] at hshl
-      exact shlSideOK_sound (ihS hshl.1.2) hshl.1.1 (ihR hshl.2) _
+      exact shlSideOK_sound (ihL hshl.1.2) hshl.1.1 (ihR hshl.2) _
         (by simp)
-  case case8 l r ihL ihR ihS =>
+  case case8 l r ihL ihR =>
     rw [sf4Check] at h
     simp only [Bool.or_eq_true] at h
     rcases h with hper | hshl
     · simp only [Bool.and_eq_true, Bool.or_eq_true, beq_iff_eq] at hper
-      exact SF4.binop _ (by simp) hper.1.1.1 hper.1.1.2
-        (ihL hper.1.2) (ihR hper.2)
+      obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := hper
+      -- `notShl` says `l` is not a literal-amount shift, so
+      -- `shlOperand l = l` and the IH applies to `l` directly
+      have hid : shlOperand l = l :=
+        shlOperand_id (by simpa using hns)
+      rw [hid] at hcl ihL
+      exact SF4.binop _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
     · simp only [Bool.and_eq_true] at hshl
-      exact shlSideOK_sound (ihS hshl.1.2) hshl.1.1 (ihR hshl.2) _
+      exact shlSideOK_sound (ihL hshl.1.2) hshl.1.1 (ihR hshl.2) _
         (by simp)
-  case case9 l r ihL ihR ihS =>
+  case case9 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case10 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.binop _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case10 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case11 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.binop _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case11 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.binop _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case12 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.binop _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case12 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case13 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.cmpU _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case13 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case14 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.cmpU _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case14 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case15 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.cmpU _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case15 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case16 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.cmpU _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case16 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, Bool.or_eq_true,
       beq_iff_eq] at h
-    exact SF4.cmpU _ (by simp) h.1.1.1 h.1.1.2 (ihL h.1.2) (ihR h.2)
-  case case17 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨⟨hwA, hwB⟩, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.cmpU _ (by simp) hwA hwB (ihL hcl) (ihR hcb)
+  case case17 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true, decide_eq_true_eq] at h
-    exact SF4.shiftOp _ (Or.inl rfl) (Or.inr h.1.1)
-      (ihL h.1.2) (ihR h.2)
-  case case18 l r ihL ihR ihS =>
+    obtain ⟨⟨⟨hwb, hns⟩, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.shiftOp _ (Or.inl rfl) (Or.inr hwb) (ihL hcl) (ihR hcb)
+  case case18 l r ihL ihR =>
     simp only [sf4Check, Bool.and_eq_true] at h
-    exact SF4.shiftOp _ (Or.inr rfl) (Or.inl rfl) (ihL h.1) (ihR h.2)
-  case case19 l r ihL ihR ihS =>
+    obtain ⟨⟨hns, hcl⟩, hcb⟩ := h
+    have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+    rw [hid] at hcl ihL
+    exact SF4.shiftOp _ (Or.inr rfl) (Or.inl rfl) (ihL hcl) (ihR hcb)
+  case case19 l r ihL ihR =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
-      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
-      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
-    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨⟨hpA, hpB⟩, hns⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hns⟩, hchka⟩, hchkb⟩
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
         (ihL hchka) (ihR hchkb)
-    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
         (ihL hchka) (ihR hchkb)
-  case case20 l r ihL ihR ihS =>
+  case case20 l r ihL ihR =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
-      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
-      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
-    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨⟨hpA, hpB⟩, hns⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hns⟩, hchka⟩, hchkb⟩
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
         (ihL hchka) (ihR hchkb)
-    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
         (ihL hchka) (ihR hchkb)
-  case case21 l r ihL ihR ihS =>
+  case case21 l r ihL ihR =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
-      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
-      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
-    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨⟨hpA, hpB⟩, hns⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hns⟩, hchka⟩, hchkb⟩
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
         (ihL hchka) (ihR hchkb)
-    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
         (ihL hchka) (ihR hchkb)
-  case case22 l r ihL ihR ihS =>
+  case case22 l r ihL ihR =>
     simp only [sf4Check, Bool.or_eq_true, Bool.and_eq_true,
       beq_iff_eq, decide_eq_true_eq] at h
     rcases h with
-      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨hpA, hpB⟩, hchka⟩, hchkb⟩ |
-      ⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hchka⟩, hchkb⟩
-    · exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
+      ⟨⟨⟨hwTa, hwTb⟩, hmax0⟩, ⟨⟨⟨hpA, hpB⟩, hns⟩, hchka⟩, hchkb⟩ |
+      ⟨⟨⟨⟨⟨⟨⟨hwTa, hwTbn⟩, hba⟩, hBor⟩, h0⟩, hns⟩, hchka⟩, hchkb⟩
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS _ (by simp) hwTa hwTb hpA hpB hmax0
         (ihL hchka) (ihR hchkb)
-    · exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
+    · have hid : shlOperand l = l := shlOperand_id (by simpa using hns)
+      rw [hid] at hchka ihL
+      exact SF4.cmpS1 _ (by simp) hwTa hwTbn hba hBor h0
         (ihL hchka) (ihR hchkb)
   case case23 =>
     exfalso
