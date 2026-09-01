@@ -1963,7 +1963,7 @@ theorem evalPayload_of_noIdx {we : WEnv} {ms : MEnv} {env : Env}
     evalPayload we ms env arr aw dw e = evalExpr we env e := by
   unfold evalPayload
   rw [extractReads_id_of_noIdx e h arr 0]
-  simp [spliceReads]
+  simp [spliceReads, weWithReads_zero]
 
 mutual
 /-- No array-read nodes in an SVExpr (emitted side). -/

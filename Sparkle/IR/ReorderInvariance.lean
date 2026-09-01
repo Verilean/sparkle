@@ -923,17 +923,19 @@ theorem evalPayload_mems_congr {we : WEnv} {m₁ m₂ : MEnv} {env : Env}
     (hm : ∀ i, m₁ arr i = m₂ arr i) (e : Expr) :
     evalPayload we m₁ env arr aw dw e = evalPayload we m₂ env arr aw dw e := by
   unfold evalPayload
-  have hs : ∀ (reads : List (String × Expr)) (acc : Env),
-      spliceReads we m₁ env arr aw dw reads acc
-        = spliceReads we m₂ env arr aw dw reads acc := by
-    intro reads
+  -- parametric in the width environment: `evalPayload` now splices
+  -- under its own placeholder extension, not the caller's `we`
+  have hs : ∀ (w' : WEnv) (reads : List (String × Expr)) (acc : Env),
+      spliceReads w' m₁ env arr aw dw reads acc
+        = spliceReads w' m₂ env arr aw dw reads acc := by
+    intro w' reads
     induction reads with
     | nil => intro acc; rfl
     | cons p rest ih =>
       intro acc
       obtain ⟨ph, idx⟩ := p
       simp only [spliceReads, Option.bind_eq_bind]
-      cases evalExpr we env idx with
+      cases evalExpr w' env idx with
       | none => rfl
       | some vi =>
         simp only [Option.bind_some, hm (mask aw vi)]

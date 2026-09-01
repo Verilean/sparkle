@@ -308,10 +308,34 @@ def spliceReads (we : WEnv) (mems : MEnv) (env : Env)
     spliceReads we mems env arr aw dw rest
       (fun n => if n = ph then mask dw (mems arr (mask aw vi)) else acc n)
 
+/-- The width environment extended with a payload's read placeholders,
+    each at the memory's data width.  `extractReads` invents these
+    names, so their widths are the extractor's to declare: a
+    placeholder holds a `dw`-bit word by construction.  Leaving them to
+    `we`'s default (0 under `weOf`) made the reference semantics mask an
+    arithmetic RMW like `Mem[a] + Mem[a]` by `2^0` — the sum of two 5s
+    in a 10-bit memory evaluated to 0 where Verilog computes 10. -/
+def weWithReads (we : WEnv) (arr : String) (dw n : Nat) : WEnv :=
+  fun x =>
+    if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
+    then dw else we x
+
+/-- Extending for zero placeholders changes nothing. -/
+theorem weWithReads_zero (we : WEnv) (arr : String) (dw : Nat) :
+    weWithReads we arr dw 0 = we :=
+  funext fun n => by simp [weWithReads]
+
 def evalPayload (we : WEnv) (mems : MEnv) (env : Env)
     (arr : String) (aw dw : Nat) (e : Expr) : Option Nat :=
-  let (e', reads, _) := extractReads arr e 0
-  do evalExpr we (← spliceReads we mems env arr aw dw reads env) e'
+  let (e', reads, k) := extractReads arr e 0
+  -- the WHOLE payload evaluation happens under the extended widths:
+  -- the stripped form mentions the placeholders, and the splice's
+  -- address evaluations never do (extraction pulled the reads out), so
+  -- extending uniformly changes nothing for them while keeping one
+  -- environment throughout
+  let we' := weWithReads we arr dw k
+  (spliceReads we' mems env arr aw dw reads env).bind fun spl =>
+    evalExpr we' spl e'
 
 /-- Write ports of one memory, in port order: an enabled port stores
     `mask dw data` at `mask aw addr`; a later port overwrites an earlier

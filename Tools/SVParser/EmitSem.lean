@@ -2866,7 +2866,8 @@ theorem evalPayload_of_idxFree {we : WEnv} {mems : Sparkle.IR.Semantics.MEnv}
       simp [Sparkle.IR.Semantics.extractReadsList, ih1 h.1 ar k,
         ih2 h.2 ar k]
   simp [Sparkle.IR.Semantics.evalPayload, hid e h,
-    Sparkle.IR.Semantics.spliceReads]
+    Sparkle.IR.Semantics.spliceReads,
+    Sparkle.IR.Semantics.weWithReads_zero]
 
 /-- Verilog's combinational read port: `assign rd = Mem[addr];` — the
     address is evaluated self-determined (it indexes an array), the
@@ -2969,13 +2970,6 @@ def spliceReadsSV (wof : String → Option Nat)
     spliceReadsSV wof mems env arr aw dw rest
       (fun n => if n = ph then mask dw (mems arr (mask aw vi)) else acc n)
 
-/-- Evaluate an emitted memory payload at width `W`. -/
-def evalPayloadSV (wof : String → Option Nat)
-    (mems : Sparkle.IR.Semantics.MEnv) (env : SEnv)
-    (arr : String) (aw dw W : Nat) (sv : SVExpr) : Option Nat :=
-  let (sv', reads, _) := extractReadsSV arr sv 0
-  do evalSV wof (← spliceReadsSV wof mems env arr aw dw reads env) W sv'
-
 /-- The width map extended with a memory's read placeholders, each at
     the memory's data width.  `extractReads` introduces at most `n`
     placeholders numbered `0 .. n-1`, so extending for a bound `n`
@@ -2986,11 +2980,22 @@ def wofWithReads (wof : String → Option Nat) (arr : String) (dw n : Nat) :
     if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
     then some dw else wof x
 
-/-- The value environment extended the same way (the pre-write words). -/
-def weWithReads (we : WEnv) (arr : String) (dw n : Nat) : WEnv :=
-  fun x =>
-    if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
-    then dw else we x
+/-- Evaluate an emitted memory payload at width `W`. -/
+def evalPayloadSV (wof : String → Option Nat)
+    (mems : Sparkle.IR.Semantics.MEnv) (env : SEnv)
+    (arr : String) (aw dw W : Nat) (sv : SVExpr) : Option Nat :=
+  let (sv', reads, k) := extractReadsSV arr sv 0
+  -- The placeholders are THIS function's own invention, so their
+  -- widths are its to declare — mirroring the core `evalPayload` fix.
+  -- With the caller's plain map, `evalAt`'s ident case (`let _ ← wof
+  -- n`) fails on every placeholder: measured on the corpus, the
+  -- byte-strobe payload evaluated to `none` under the plain map and
+  -- `some 0` under the extended one, so `memWritePortsSVP` at the
+  -- caller's map was returning `none` on exactly the ports the whole
+  -- construction exists for.
+  let wof' := wofWithReads wof arr dw k
+  (spliceReadsSV wof' mems env arr aw dw reads env).bind fun spl =>
+    evalSV wof' spl W sv'
 
 /-- A memory port payload that may READ its own array: check the
     stripped form and each extracted address, under the width map
@@ -3003,7 +3008,7 @@ def payloadCheck (wof : String → Option Nat) (we : WEnv)
     (arr : String) (aw dw w : Nat) (e : Expr) : Bool :=
   let (e', reads, k) := Sparkle.IR.Semantics.extractReads arr e 0
   let wof' := wofWithReads wof arr dw k
-  let we' := weWithReads we arr dw k
+  let we' := Sparkle.IR.Semantics.weWithReads we arr dw k
   idxFree e'
     && (Sparkle.IR.Semantics.widthOf we' e' == w)
     && sf4Check wof' we' e'
@@ -3267,9 +3272,9 @@ theorem bounded_withReads {we : WEnv} {env : Env} {arr : String}
     {dw k : Nat} (hbe : Bounded we env)
     (hph : ∀ n, (List.range k).any
         (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw) :
-    Bounded (weWithReads we arr dw k) env := by
+    Bounded (Sparkle.IR.Semantics.weWithReads we arr dw k) env := by
   intro n
-  unfold weWithReads
+  unfold Sparkle.IR.Semantics.weWithReads
   by_cases hb : (List.range k).any (fun j => n == s!"__memread_{arr}_{j}")
   · simp only [hb, if_pos]
     exact hph n hb
@@ -3300,14 +3305,14 @@ theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
     (hsplit : extractReads arr e 0 = (e', reads, k))
     (h : payloadCheck wof we arr aw dw w e = true) :
     idxFree e' = true
-    ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) e' = w
-    ∧ sf4Check (wofWithReads wof arr dw k) (weWithReads we arr dw k) e'
+    ∧ Sparkle.IR.Semantics.widthOf (Sparkle.IR.Semantics.weWithReads we arr dw k) e' = w
+    ∧ sf4Check (wofWithReads wof arr dw k) (Sparkle.IR.Semantics.weWithReads we arr dw k) e'
         = true
     -- addresses in the EXTENDED maps, where `hpair` consumes them
     ∧ ∀ p ∈ reads, idxFree p.2 = true
-        ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) p.2 = aw
+        ∧ Sparkle.IR.Semantics.widthOf (Sparkle.IR.Semantics.weWithReads we arr dw k) p.2 = aw
         ∧ sf4Check (wofWithReads wof arr dw k)
-            (weWithReads we arr dw k) p.2 = true := by
+            (Sparkle.IR.Semantics.weWithReads we arr dw k) p.2 = true := by
   rw [payloadCheck, hsplit] at h
   simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
   obtain ⟨⟨⟨hidx, hw⟩, hfr⟩, hreads⟩ := h
@@ -3342,14 +3347,14 @@ theorem splice_bounded {wof : String → Option Nat} {we : WEnv}
     ∀ (reads : List (String × Expr)) (acc : Env),
       -- every spliced name IS a placeholder of this array (which is
       -- how `extractReads` builds the list)
-      (∀ p ∈ reads, weWithReads we arr dw k p.1 = dw
+      (∀ p ∈ reads, Sparkle.IR.Semantics.weWithReads we arr dw k p.1 = dw
         ∧ wofWithReads wof arr dw k p.1 = some dw) →
-      Bounded (weWithReads we arr dw k) acc →
+      Bounded (Sparkle.IR.Semantics.weWithReads we arr dw k) acc →
       (∀ n wn, wofWithReads wof arr dw k n = some wn → acc n < 2 ^ wn) →
       -- the splice runs in the EXTENDED maps, matching `payload_agree`
-      ∀ spl, spliceReads (weWithReads we arr dw k) mems env arr aw dw
+      ∀ spl, spliceReads (Sparkle.IR.Semantics.weWithReads we arr dw k) mems env arr aw dw
           reads acc = some spl →
-        Bounded (weWithReads we arr dw k) spl
+        Bounded (Sparkle.IR.Semantics.weWithReads we arr dw k) spl
         ∧ (∀ n wn, wofWithReads wof arr dw k n = some wn → spl n < 2 ^ wn) := by
   intro reads
   induction reads with
@@ -3403,12 +3408,14 @@ theorem payload_agree {wof : String → Option Nat} {we : WEnv}
     -- placeholders, so its own forward correctness — and hence the
     -- conclusion, which evaluates it — can only live there.  Stating
     -- `hval` over the plain maps made it unsatisfiable by any caller.
-    (hbeX : Bounded (weWithReads we arr dw k) env)
+    (hbeX : Bounded (Sparkle.IR.Semantics.weWithReads we arr dw k) env)
     (hbwX : ∀ n wn, wofWithReads wof arr dw k n = some wn
       → env n < 2 ^ wn)
     -- the SV split of the WHOLE emission
     (readsSV : List (String × SVExpr)) (k2 : Nat)
     (hsplitSV : extractReadsSV arr sv 0 = (sv', readsSV, k2))
+    -- the two extractions count in lockstep (checked by the caller)
+    (hk2 : k2 = k)
     -- commutation: the stripped emission IS the emission of the
     -- stripped form, and the reads pair up
     (hstrip : Tools.SVParser.EmitAst.emitAstExpr
@@ -3417,20 +3424,21 @@ theorem payload_agree {wof : String → Option Nat} {we : WEnv}
     (hpair : ∀ i (hi : i < readsIR.length) (hj : i < readsSV.length),
       (readsIR[i]'hi).1 = (readsSV[i]'hj).1
       ∧ evalSV (wofWithReads wof arr dw k) env aw (readsSV[i]'hj).2
-          = evalExpr (weWithReads we arr dw k) env (readsIR[i]'hi).2)
+          = evalExpr (Sparkle.IR.Semantics.weWithReads we arr dw k) env (readsIR[i]'hi).2)
     (hval : ∀ spl,
-      spliceReads (weWithReads we arr dw k) mems env arr aw dw readsIR env
+      spliceReads (Sparkle.IR.Semantics.weWithReads we arr dw k) mems env arr aw dw readsIR env
         = some spl
       → evalSV (wofWithReads wof arr dw k) spl W sv'
-          = evalExpr (weWithReads we arr dw k) spl e') :
-    evalPayloadSV (wofWithReads wof arr dw k) mems env arr aw dw W sv
-      = evalPayload (weWithReads we arr dw k) mems env arr aw dw e := by
+          = evalExpr (Sparkle.IR.Semantics.weWithReads we arr dw k) spl e') :
+    evalPayloadSV wof mems env arr aw dw W sv
+      = evalPayload we mems env arr aw dw e := by
+  subst hk2
   unfold evalPayloadSV evalPayload
   rw [hsplitIR, hsplitSV]
   simp only []
   rw [← splice_agree hbeX hbwX readsIR readsSV hlen hpair env]
-  cases hs : spliceReads (weWithReads we arr dw k) mems env arr aw dw
-      readsIR env with
+  cases hs : spliceReads (Sparkle.IR.Semantics.weWithReads we arr dw k2)
+      mems env arr aw dw readsIR env with
   | none => simp [hs]
   | some spl => simp [hs, hval spl hs]
 
@@ -3466,7 +3474,7 @@ theorem payloadCheckC_agree {wof : String → Option Nat} {we : WEnv}
     {e' : Expr} {readsIR : List (String × Expr)} {k : Nat}
     (hsplit : extractReads arr e 0 = (e', readsIR, k))
     -- the placeholder facts `extractReads` guarantees
-    (hph : ∀ p ∈ readsIR, weWithReads we arr dw k p.1 = dw
+    (hph : ∀ p ∈ readsIR, Sparkle.IR.Semantics.weWithReads we arr dw k p.1 = dw
       ∧ wofWithReads wof arr dw k p.1 = some dw)
     (hbe : Bounded we env)
     (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
@@ -3476,8 +3484,8 @@ theorem payloadCheckC_agree {wof : String → Option Nat} {we : WEnv}
         (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw)
     (h : payloadCheckC wof we arr aw dw w e = true) :
     ∀ sv, Tools.SVParser.EmitAst.emitAstExpr wof e = some sv →
-      evalPayloadSV (wofWithReads wof arr dw k) mems env arr aw dw w sv
-        = evalPayload (weWithReads we arr dw k) mems env arr aw dw e := by
+      evalPayloadSV wof mems env arr aw dw w sv
+        = evalPayload we mems env arr aw dw e := by
   intro sv hsv
   -- lift the bounds to the extended maps (once, up front)
   have hbeX := bounded_withReads (arr := arr) (dw := dw) (k := k) hbe hphv
@@ -3514,7 +3522,7 @@ theorem payloadCheckC_agree {wof : String → Option Nat} {we : WEnv}
       rfl
     refine payload_agree (sv := sv) (sv' := sv') e' readsIR k hsplit
       hbeX hbwX (extractReadsSV arr sv 0).2.1
-      (extractReadsSV arr sv 0).2.2 hsplitSV hstrip hlen.symm ?_ ?_
+      (extractReadsSV arr sv 0).2.2 hsplitSV hk2 hstrip hlen.symm ?_ ?_
     · -- names pair up (from hnames), values from addr_agree
       intro i hi hj
       -- both halves come from the zip-wise check, decoded at index i
@@ -3658,8 +3666,8 @@ theorem weWithReads_agree_below {we : WEnv} {arr : String}
         (fun j => n == s!"__memread_{arr}_{j}") = true)
       ∨ (List.range k).any
         (fun j => n == s!"__memread_{arr}_{j}") = true) :
-    weWithReads we arr dw k n = weWithReads we arr dw kmax n := by
-  unfold weWithReads
+    Sparkle.IR.Semantics.weWithReads we arr dw k n = Sparkle.IR.Semantics.weWithReads we arr dw kmax n := by
+  unfold Sparkle.IR.Semantics.weWithReads
   rcases hn with hno | hyes
   · have hk : ¬((List.range k).any
         (fun j => n == s!"__memread_{arr}_{j}") = true) := by

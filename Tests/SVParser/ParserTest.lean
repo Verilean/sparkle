@@ -3009,5 +3009,30 @@ endmodule"
         IO.println "FAIL: no register driver found"
         failed := failed + 1
 
+  -- Test 75 (shipping bug #12): the REFERENCE semantics evaluated a
+  -- payload's own read placeholders under the caller's plain `we`,
+  -- whose `weOf` default is 0 — so an arithmetic RMW like
+  -- `Mem[a] <= Mem[a] + Mem[a]` on a 10-bit memory had its sum masked
+  -- by 2^0 and computed 0 where Verilog computes 10.  The byte-strobe
+  -- corpus shapes never caught it because their full-width masks
+  -- dominate the placeholder's width.  `evalPayload` (and its SV
+  -- mirror) now declare the widths of the names they invent.
+  IO.print "  Test 75: arithmetic RMW payload width (evalPayload)... "
+  let rmwPayload : Sparkle.IR.AST.Expr := .op .add
+    [.index (.ref "M") (.ref "a"), .index (.ref "M") (.ref "a")]
+  let wof75 : String → Option Nat := fun n =>
+    if n == "a" then some 4 else none
+  let we75 := Tools.SVParser.EmitSem.weOf wof75
+  let env75 : Sparkle.IR.Semantics.Env := fun n => if n == "a" then 3 else 0
+  let mems75 : Sparkle.IR.Semantics.MEnv := fun _ _ => 5
+  let r75 := Sparkle.IR.Semantics.evalPayload we75 mems75 env75 "M" 4 10
+    rmwPayload
+  if r75 == some 10 then
+    IO.println "PASS ((5+5) mod 2^10 = 10, matches Verilog)"
+    passed := passed + 1
+  else
+    IO.println s!"FAIL: got {r75}, want some 10"
+    failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
