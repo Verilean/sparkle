@@ -3007,10 +3007,15 @@ def payloadCheck (wof : String → Option Nat) (we : WEnv)
   idxFree e'
     && (Sparkle.IR.Semantics.widthOf we' e' == w)
     && sf4Check wof' we' e'
+    -- The extracted ADDRESSES are checked under the PLAIN maps: they
+    -- contain no placeholders (extraction pulled the reads out), and
+    -- `payload_agree`'s `hpair` evaluates them there, because the IR's
+    -- own splice does.  Checking them under the extended maps left a
+    -- gap exactly at that hypothesis.
     && reads.all (fun p =>
          idxFree p.2
-           && (Sparkle.IR.Semantics.widthOf we' p.2 == aw)
-           && sf4Check wof' we' p.2)
+           && (Sparkle.IR.Semantics.widthOf we p.2 == aw)
+           && sf4Check wof we p.2)
 
 /- Structural equality on the emitted syntax.  `SVExpr`'s DERIVED
    `BEq` has no `LawfulBEq` instance and `DecidableEq` will not derive
@@ -3113,7 +3118,7 @@ def payloadCheckC (wof : String → Option Nat) (we : WEnv)
        -- `hpair` could not be discharged from a passing verdict.
        && ((readsIR.zip readsSV).all fun pq =>
              (pq.1.1 == pq.2.1)
-             && (match Tools.SVParser.EmitAst.emitAstExpr wof' pq.1.2 with
+             && (match Tools.SVParser.EmitAst.emitAstExpr wof pq.1.2 with
                  | some sa => eqSV sa pq.2.2
                  | none => false))
    | _, _ => false)
@@ -3297,10 +3302,11 @@ theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
     ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) e' = w
     ∧ sf4Check (wofWithReads wof arr dw k) (weWithReads we arr dw k) e'
         = true
+    -- addresses are checked under the PLAIN maps (they hold no
+    -- placeholders, and that is where `hpair` evaluates them)
     ∧ ∀ p ∈ reads, idxFree p.2 = true
-        ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) p.2 = aw
-        ∧ sf4Check (wofWithReads wof arr dw k)
-            (weWithReads we arr dw k) p.2 = true := by
+        ∧ Sparkle.IR.Semantics.widthOf we p.2 = aw
+        ∧ sf4Check wof we p.2 = true := by
   rw [payloadCheck, hsplit] at h
   simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
   obtain ⟨⟨⟨hidx, hw⟩, hfr⟩, hreads⟩ := h
@@ -3313,16 +3319,13 @@ theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
     address width — `emit_sem_evalSV` under the placeholder-extended
     maps, which is what `payloadCheck` verifies the address satisfies. -/
 theorem addr_agree {wof : String → Option Nat} {we : WEnv} {env : Env}
-    {arr : String} {aw dw k : Nat} {idx : Expr} {svi : SVExpr}
-    (hbe : Bounded (weWithReads we arr dw k) env)
-    (hbw : ∀ n wn, wofWithReads wof arr dw k n = some wn → env n < 2 ^ wn)
-    (hw : Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) idx = aw)
-    (hfr : sf4Check (wofWithReads wof arr dw k)
-      (weWithReads we arr dw k) idx = true)
-    (hemit : Tools.SVParser.EmitAst.emitAstExpr
-      (wofWithReads wof arr dw k) idx = some svi) :
-    evalSV (wofWithReads wof arr dw k) env aw svi
-      = evalExpr (weWithReads we arr dw k) env idx := by
+    {aw : Nat} {idx : Expr} {svi : SVExpr}
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
+    (hw : Sparkle.IR.Semantics.widthOf we idx = aw)
+    (hfr : sf4Check wof we idx = true)
+    (hemit : Tools.SVParser.EmitAst.emitAstExpr wof idx = some svi) :
+    evalSV wof env aw svi = evalExpr we env idx := by
   rw [← hw]
   exact emit_sem_evalSV (sf4Check_sound hfr) hbe hbw hemit
 
