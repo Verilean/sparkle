@@ -3624,6 +3624,24 @@ def memWritePortsSVP (wof : String → Option Nat)
                      else m nm i)
        else m)
 
+/-- The placeholder extension is MONOTONE in the count: a map built
+    for `k'` still declares every placeholder of a smaller `k`.  This is
+    what lets one map serve a whole port list whose operands have
+    different placeholder counts (measured on the corpus: 0, 1, 0 for
+    address, data, enable) — build it from the maximum. -/
+theorem wofWithReads_mono {wof : String → Option Nat} {arr : String}
+    {dw k k' : Nat} {n : String} (hle : k ≤ k')
+    (h : (List.range k).any
+      (fun j => n == s!"__memread_{arr}_{j}") = true) :
+    wofWithReads wof arr dw k' n = some dw := by
+  unfold wofWithReads
+  have hk' : (List.range k').any
+      (fun j => n == s!"__memread_{arr}_{j}") = true := by
+    simp only [List.any_eq_true, List.mem_range] at h ⊢
+    obtain ⟨j, hj, hn⟩ := h
+    exact ⟨j, by omega, hn⟩
+  rw [if_pos hk']
+
 /-- `emitWritePorts` is total when every port expression emits. -/
 theorem emitWritePorts_isSome {wof : String → Option Nat}
     (ports : List (Expr × Expr × Expr))
