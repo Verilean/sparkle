@@ -3007,15 +3007,16 @@ def payloadCheck (wof : String → Option Nat) (we : WEnv)
   idxFree e'
     && (Sparkle.IR.Semantics.widthOf we' e' == w)
     && sf4Check wof' we' e'
-    -- The extracted ADDRESSES are checked under the PLAIN maps: they
-    -- contain no placeholders (extraction pulled the reads out), and
-    -- `payload_agree`'s `hpair` evaluates them there, because the IR's
-    -- own splice does.  Checking them under the extended maps left a
-    -- gap exactly at that hypothesis.
+    -- The extracted ADDRESSES are checked in the EXTENDED maps, which
+    -- is where `payload_agree`'s `hpair` evaluates them (the splice and
+    -- the stripped form all live there).  They contain no placeholders,
+    -- so the extension is inert on them — but the CHECK must be stated
+    -- where the hypothesis is consumed, not where it reads more
+    -- naturally.
     && reads.all (fun p =>
          idxFree p.2
-           && (Sparkle.IR.Semantics.widthOf we p.2 == aw)
-           && sf4Check wof we p.2)
+           && (Sparkle.IR.Semantics.widthOf we' p.2 == aw)
+           && sf4Check wof' we' p.2)
 
 /- Structural equality on the emitted syntax.  `SVExpr`'s DERIVED
    `BEq` has no `LawfulBEq` instance and `DecidableEq` will not derive
@@ -3118,7 +3119,7 @@ def payloadCheckC (wof : String → Option Nat) (we : WEnv)
        -- `hpair` could not be discharged from a passing verdict.
        && ((readsIR.zip readsSV).all fun pq =>
              (pq.1.1 == pq.2.1)
-             && (match Tools.SVParser.EmitAst.emitAstExpr wof pq.1.2 with
+             && (match Tools.SVParser.EmitAst.emitAstExpr wof' pq.1.2 with
                  | some sa => eqSV sa pq.2.2
                  | none => false))
    | _, _ => false)
@@ -3302,11 +3303,11 @@ theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
     ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) e' = w
     ∧ sf4Check (wofWithReads wof arr dw k) (weWithReads we arr dw k) e'
         = true
-    -- addresses are checked under the PLAIN maps (they hold no
-    -- placeholders, and that is where `hpair` evaluates them)
+    -- addresses in the EXTENDED maps, where `hpair` consumes them
     ∧ ∀ p ∈ reads, idxFree p.2 = true
-        ∧ Sparkle.IR.Semantics.widthOf we p.2 = aw
-        ∧ sf4Check wof we p.2 = true := by
+        ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) p.2 = aw
+        ∧ sf4Check (wofWithReads wof arr dw k)
+            (weWithReads we arr dw k) p.2 = true := by
   rw [payloadCheck, hsplit] at h
   simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
   obtain ⟨⟨⟨hidx, hw⟩, hfr⟩, hreads⟩ := h
@@ -3345,7 +3346,9 @@ theorem splice_bounded {wof : String → Option Nat} {we : WEnv}
         ∧ wofWithReads wof arr dw k p.1 = some dw) →
       Bounded (weWithReads we arr dw k) acc →
       (∀ n wn, wofWithReads wof arr dw k n = some wn → acc n < 2 ^ wn) →
-      ∀ spl, spliceReads we mems env arr aw dw reads acc = some spl →
+      -- the splice runs in the EXTENDED maps, matching `payload_agree`
+      ∀ spl, spliceReads (weWithReads we arr dw k) mems env arr aw dw
+          reads acc = some spl →
         Bounded (weWithReads we arr dw k) spl
         ∧ (∀ n wn, wofWithReads wof arr dw k n = some wn → spl n < 2 ^ wn) := by
   intro reads
@@ -3430,6 +3433,119 @@ theorem payload_agree {wof : String → Option Nat} {we : WEnv}
       readsIR env with
   | none => simp [hs]
   | some spl => simp [hs, hval spl hs]
+
+/-- Decode a zip-wise `all` into the indexed statement
+    `payload_agree`'s `hpair` wants.  Stated over a PAIR predicate,
+    which is what `List.all` produces. -/
+theorem zip_all_index {α β : Type} (l : List α) (l' : List β)
+    (f : α × β → Bool) (hlen : l.length = l'.length)
+    (h : ((l.zip l').all f) = true) :
+    ∀ i (hi : i < l.length) (hj : i < l'.length),
+      f ((l[i]'hi), (l'[i]'hj)) = true := by
+  intro i hi hj
+  have hmem : (l[i]'hi, l'[i]'hj) ∈ l.zip l' := by
+    have : (l.zip l')[i]'(by simp [List.length_zip]; omega)
+        = (l[i]'hi, l'[i]'hj) := by
+      simp [List.getElem_zip]
+    exact this ▸ List.getElem_mem _
+  simp only [List.all_eq_true] at h
+  exact h _ hmem
+
+/-- **The checker's verdict yields the payload agreement.**  Every
+    hypothesis of `payload_agree` now comes from `payloadCheckC` plus
+    the ambient width bounds: the syntactic ones directly (via `eqSV`,
+    so they are propositional equalities), the address values through
+    `addr_agree`, and the stripped form's own correctness through
+    `splice_bounded` and `emit_sem_evalSV`.
+
+    Getting here took five corrections to where hypotheses were stated
+    — each found by attempting this derivation, none visible from
+    reading the definitions. -/
+theorem payloadCheckC_agree {wof : String → Option Nat} {we : WEnv}
+    {mems : MEnv} {env : Env} {arr : String} {aw dw w : Nat} {e : Expr}
+    {e' : Expr} {readsIR : List (String × Expr)} {k : Nat}
+    (hsplit : extractReads arr e 0 = (e', readsIR, k))
+    -- the placeholder facts `extractReads` guarantees
+    (hph : ∀ p ∈ readsIR, weWithReads we arr dw k p.1 = dw
+      ∧ wofWithReads wof arr dw k p.1 = some dw)
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
+    -- the environment holds a dw-fitting value at each placeholder
+    -- name (synthetic names, so 0 in any real environment)
+    (hphv : ∀ n, (List.range k).any
+        (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw)
+    (h : payloadCheckC wof we arr aw dw w e = true) :
+    ∀ sv, Tools.SVParser.EmitAst.emitAstExpr wof e = some sv →
+      evalPayloadSV (wofWithReads wof arr dw k) mems env arr aw dw w sv
+        = evalPayload (weWithReads we arr dw k) mems env arr aw dw e := by
+  intro sv hsv
+  -- lift the bounds to the extended maps (once, up front)
+  have hbeX := bounded_withReads (arr := arr) (dw := dw) (k := k) hbe hphv
+  have hbwX := bw_withReads (arr := arr) (dw := dw) (k := k) hbw hphv
+  -- unpack the checker
+  rw [payloadCheckC] at h
+  simp only [Bool.and_eq_true] at h
+  obtain ⟨hpc, hcomm⟩ := h
+  obtain ⟨hidx, hwstrip, hfrstrip, hreads⟩ :=
+    payloadCheck_parts hsplit hpc
+  -- the commutation half, decoded
+  rw [hsplit] at hcomm
+  -- the checker now emits the WHOLE payload under `wof`, matching hsv
+  simp only [hsv] at hcomm
+  -- the stripped form must emit (else the checker is false)
+  cases hstrip : Tools.SVParser.EmitAst.emitAstExpr
+      (wofWithReads wof arr dw k) e' with
+  | none => simp [hstrip] at hcomm
+  | some sv' =>
+    simp only [hstrip, Bool.and_eq_true, beq_iff_eq] at hcomm
+    obtain ⟨⟨⟨hsv'B, hk2⟩, hlen⟩, hnames⟩ := hcomm
+    -- eqSV's verdict IS a propositional equality
+    have hsv' : (extractReadsSV arr sv 0).1 = sv' := (eqSV_iff _ _).mp hsv'B
+    -- now apply payload_agree
+    -- the SV split, as one equation with sv' as its stripped form
+    -- rebuild the triple from its components; only the first differs
+    -- rebuild the triple: only the first component is renamed
+    have hsplitSV : extractReadsSV arr sv 0
+        = (sv', (extractReadsSV arr sv 0).2.1,
+                (extractReadsSV arr sv 0).2.2) := by
+      rcases hx : extractReadsSV arr sv 0 with ⟨x1, x2, x3⟩
+      rw [hx] at hsv'
+      subst hsv'
+      rfl
+    refine payload_agree (sv := sv) (sv' := sv') e' readsIR k hsplit
+      hbeX hbwX (extractReadsSV arr sv 0).2.1
+      (extractReadsSV arr sv 0).2.2 hsplitSV hstrip hlen.symm ?_ ?_
+    · -- names pair up (from hnames), values from addr_agree
+      intro i hi hj
+      -- both halves come from the zip-wise check, decoded at index i
+      have hz := zip_all_index readsIR (extractReadsSV arr sv 0).2.1 _
+        hlen.symm hnames i hi hj
+      simp only [Bool.and_eq_true, beq_iff_eq] at hz
+      obtain ⟨hname, hemitAddr⟩ := hz
+      refine ⟨hname, ?_⟩
+      -- the SV address IS the emission of the IR one
+      cases hea : Tools.SVParser.EmitAst.emitAstExpr
+          (wofWithReads wof arr dw k) (readsIR[i]'hi).2 with
+      | none => rw [hea] at hemitAddr; simp at hemitAddr
+      | some sa =>
+        rw [hea] at hemitAddr
+        have hsa : sa = ((extractReadsSV arr sv 0).2.1[i]'hj).2 :=
+          (eqSV_iff _ _).mp hemitAddr
+        -- and each address is in the fragment at width aw
+        have hmem : (readsIR[i]'hi) ∈ readsIR := List.getElem_mem _
+        obtain ⟨_, hwaddr, hfraddr⟩ := hreads _ hmem
+        rw [← hsa]
+        exact addr_agree hbeX hbwX hwaddr hfraddr hea
+    · -- hval: the stripped form agrees under the SPLICED environment.
+      -- `splice_bounded` keeps the width bounds there (under the
+      -- extended maps, where the placeholders are declared), and then
+      -- `emit_sem_evalSV` fires on the stripped form.
+      intro spl hs
+      obtain ⟨hbeS, hbwS⟩ := splice_bounded (wof := wof) (we := we)
+        (mems := mems) (env := env) (arr := arr) (aw := aw) (dw := dw)
+        (k := k) readsIR env hph hbeX hbwX spl hs
+      rw [← hwstrip]
+      exact emit_sem_evalSV (sf4Check_sound hfrstrip) hbeS hbwS hstrip
 
 set_option maxHeartbeats 800000 in
 /-- **Forward correctness, write ports**: the emitted `always_ff`
