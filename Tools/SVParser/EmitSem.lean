@@ -3208,6 +3208,54 @@ theorem addr_agree {wof : String → Option Nat} {we : WEnv} {env : Env}
   rw [← hw]
   exact emit_sem_evalSV (sf4Check_sound hfr) hbe hbw hemit
 
+/-- The spliced environment is still width-bounded under the extended
+    maps.  This is what lets `emit_sem_evalSV` fire on the stripped
+    form, and hence what `payload_agree`'s `hval` rests on: the splice
+    writes `mask dw (mems …)` into each placeholder, and the extended
+    maps declare placeholders at exactly `dw`, so the bound holds by
+    construction.  The hypothesis that every spliced name IS such a
+    placeholder is how `extractReads` builds the list. -/
+theorem splice_bounded {wof : String → Option Nat} {we : WEnv}
+    {mems : MEnv} {env : Env} {arr : String} {aw dw k : Nat} :
+    ∀ (reads : List (String × Expr)) (acc : Env),
+      -- every spliced name IS a placeholder of this array (which is
+      -- how `extractReads` builds the list)
+      (∀ p ∈ reads, weWithReads we arr dw k p.1 = dw
+        ∧ wofWithReads wof arr dw k p.1 = some dw) →
+      Bounded (weWithReads we arr dw k) acc →
+      (∀ n wn, wofWithReads wof arr dw k n = some wn → acc n < 2 ^ wn) →
+      ∀ spl, spliceReads we mems env arr aw dw reads acc = some spl →
+        Bounded (weWithReads we arr dw k) spl
+        ∧ (∀ n wn, wofWithReads wof arr dw k n = some wn → spl n < 2 ^ wn) := by
+  intro reads
+  induction reads with
+  | nil =>
+    intro acc hph hbe hbw spl hs
+    simp only [spliceReads, Option.some_inj] at hs
+    subst hs
+    exact ⟨hbe, hbw⟩
+  | cons p rest ih =>
+    intro acc hph hbe hbw spl hs
+    obtain ⟨hwph, hwofph⟩ := hph p (List.mem_cons_self ..)
+    simp only [spliceReads, Option.bind_eq_bind] at hs
+    obtain ⟨vi, hvi, hs⟩ := Option.bind_eq_some_iff.mp hs
+    -- the updated accumulator: the placeholder gets a dw-masked word
+    refine ih _ (fun q hq => hph q (List.mem_cons_of_mem _ hq)) ?_ ?_ spl hs
+    · intro n
+      by_cases hn : n = p.1
+      · simp only [hn, if_pos rfl, hwph]
+        exact Nat.mod_lt _ (Nat.two_pow_pos _)
+      · simp only [if_neg hn]; exact hbe n
+    · intro n wn hn
+      by_cases hnp : n = p.1
+      · subst hnp
+        rw [hwofph] at hn
+        simp only [Option.some_inj] at hn
+        subst hn
+        simp only [if_pos rfl]
+        exact Nat.mod_lt _ (Nat.two_pow_pos _)
+      · simp only [if_neg hnp]; exact hbw n wn hn
+
 /-- **Read-modify-write payloads agree.**  A byte-strobe write value
     reads the array it writes, so `evalPayload` resolves those reads
     against the PRE-write state before evaluating.  Verilog's
