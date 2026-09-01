@@ -3392,11 +3392,17 @@ theorem splice_bounded {wof : String → Option Nat} {we : WEnv}
 theorem payload_agree {wof : String → Option Nat} {we : WEnv}
     {mems : MEnv} {env : Env} {arr : String} {aw dw W : Nat}
     {e : Expr} {sv sv' : SVExpr}
-    (hbe : Bounded we env)
-    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
-    -- the IR split
+    -- the IR split (k first: the extended maps mention it)
     (e' : Expr) (readsIR : List (String × Expr)) (k : Nat)
     (hsplitIR : extractReads arr e 0 = (e', readsIR, k))
+    -- Everything below is stated in the PLACEHOLDER-EXTENDED maps.
+    -- That is forced, not chosen: the stripped form contains the
+    -- placeholders, so its own forward correctness — and hence the
+    -- conclusion, which evaluates it — can only live there.  Stating
+    -- `hval` over the plain maps made it unsatisfiable by any caller.
+    (hbeX : Bounded (weWithReads we arr dw k) env)
+    (hbwX : ∀ n wn, wofWithReads wof arr dw k n = some wn
+      → env n < 2 ^ wn)
     -- the SV split of the WHOLE emission
     (readsSV : List (String × SVExpr)) (k2 : Nat)
     (hsplitSV : extractReadsSV arr sv 0 = (sv', readsSV, k2))
@@ -3407,18 +3413,21 @@ theorem payload_agree {wof : String → Option Nat} {we : WEnv}
     (hlen : readsIR.length = readsSV.length)
     (hpair : ∀ i (hi : i < readsIR.length) (hj : i < readsSV.length),
       (readsIR[i]'hi).1 = (readsSV[i]'hj).1
-      ∧ evalSV wof env aw (readsSV[i]'hj).2
-          = evalExpr we env (readsIR[i]'hi).2)
-    -- the stripped form's own forward correctness, at width W
-    (hval : ∀ spl, spliceReads we mems env arr aw dw readsIR env = some spl
-      → evalSV wof spl W sv' = evalExpr we spl e') :
-    evalPayloadSV wof mems env arr aw dw W sv
-      = evalPayload we mems env arr aw dw e := by
+      ∧ evalSV (wofWithReads wof arr dw k) env aw (readsSV[i]'hj).2
+          = evalExpr (weWithReads we arr dw k) env (readsIR[i]'hi).2)
+    (hval : ∀ spl,
+      spliceReads (weWithReads we arr dw k) mems env arr aw dw readsIR env
+        = some spl
+      → evalSV (wofWithReads wof arr dw k) spl W sv'
+          = evalExpr (weWithReads we arr dw k) spl e') :
+    evalPayloadSV (wofWithReads wof arr dw k) mems env arr aw dw W sv
+      = evalPayload (weWithReads we arr dw k) mems env arr aw dw e := by
   unfold evalPayloadSV evalPayload
   rw [hsplitIR, hsplitSV]
   simp only []
-  rw [← splice_agree hbe hbw readsIR readsSV hlen hpair env]
-  cases hs : spliceReads we mems env arr aw dw readsIR env with
+  rw [← splice_agree hbeX hbwX readsIR readsSV hlen hpair env]
+  cases hs : spliceReads (weWithReads we arr dw k) mems env arr aw dw
+      readsIR env with
   | none => simp [hs]
   | some spl => simp [hs, hval spl hs]
 
