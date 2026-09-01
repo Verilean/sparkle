@@ -3168,6 +3168,46 @@ theorem splice_agree {wof : String → Option Nat} {we : WEnv}
             have := hpair (i+1) (by simpa using hi) (by simpa using hj)
             simpa using this) _
 
+/-- `payloadCheck`, unpacked over explicit split components (no `let`
+    in the statement, so callers can rewrite freely). -/
+theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
+    {arr : String} {aw dw w : Nat} {e e' : Expr}
+    {reads : List (String × Expr)} {k : Nat}
+    (hsplit : extractReads arr e 0 = (e', reads, k))
+    (h : payloadCheck wof we arr aw dw w e = true) :
+    idxFree e' = true
+    ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) e' = w
+    ∧ sf4Check (wofWithReads wof arr dw k) (weWithReads we arr dw k) e'
+        = true
+    ∧ ∀ p ∈ reads, idxFree p.2 = true
+        ∧ Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) p.2 = aw
+        ∧ sf4Check (wofWithReads wof arr dw k)
+            (weWithReads we arr dw k) p.2 = true := by
+  rw [payloadCheck, hsplit] at h
+  simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
+  obtain ⟨⟨⟨hidx, hw⟩, hfr⟩, hreads⟩ := h
+  refine ⟨hidx, hw, hfr, ?_⟩
+  intro p hp
+  have hp2 := hreads p hp
+  exact ⟨hp2.1.1, hp2.1.2, hp2.2⟩
+
+/-- An extracted address's emission computes its IR value at the
+    address width — `emit_sem_evalSV` under the placeholder-extended
+    maps, which is what `payloadCheck` verifies the address satisfies. -/
+theorem addr_agree {wof : String → Option Nat} {we : WEnv} {env : Env}
+    {arr : String} {aw dw k : Nat} {idx : Expr} {svi : SVExpr}
+    (hbe : Bounded (weWithReads we arr dw k) env)
+    (hbw : ∀ n wn, wofWithReads wof arr dw k n = some wn → env n < 2 ^ wn)
+    (hw : Sparkle.IR.Semantics.widthOf (weWithReads we arr dw k) idx = aw)
+    (hfr : sf4Check (wofWithReads wof arr dw k)
+      (weWithReads we arr dw k) idx = true)
+    (hemit : Tools.SVParser.EmitAst.emitAstExpr
+      (wofWithReads wof arr dw k) idx = some svi) :
+    evalSV (wofWithReads wof arr dw k) env aw svi
+      = evalExpr (weWithReads we arr dw k) env idx := by
+  rw [← hw]
+  exact emit_sem_evalSV (sf4Check_sound hfr) hbe hbw hemit
+
 /-- **Read-modify-write payloads agree.**  A byte-strobe write value
     reads the array it writes, so `evalPayload` resolves those reads
     against the PRE-write state before evaluating.  Verilog's
