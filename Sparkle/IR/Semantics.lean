@@ -294,6 +294,108 @@ def extractReadsList (arr : String) : List Expr → Nat → (List Expr × List (
     (a' :: rest', l1 ++ l2, k2)
 end
 
+mutual
+/-- Counter monotonicity: extraction never decreases the counter. -/
+theorem extractReads_mono {arr : String} :
+    ∀ (e : Expr) (k0 : Nat), k0 ≤ (extractReads arr e k0).2.2
+  | .index (.ref a) idx, k0 => by
+    by_cases h : a = arr <;> simp [extractReads, h]
+  | .op o args, k0 => by
+    simpa [extractReads] using extractReadsList_mono args k0
+  | .concat args, k0 => by
+    simpa [extractReads] using extractReadsList_mono args k0
+  | .slice x hi lo, k0 => by
+    simpa [extractReads] using extractReads_mono x k0
+  | .ref n, k0 => by simp [extractReads]
+  | .const v w, k0 => by simp [extractReads]
+  | .sliceDim x d i, k0 => by simp [extractReads]
+  | .index (.const v w) idx, k0 => by simp [extractReads]
+  | .index (.op o args) idx, k0 => by simp [extractReads]
+  | .index (.concat args) idx, k0 => by simp [extractReads]
+  | .index (.slice x hi lo) idx, k0 => by simp [extractReads]
+  | .index (.sliceDim x d i) idx, k0 => by simp [extractReads]
+  | .index (.index a i) idx, k0 => by simp [extractReads]
+
+theorem extractReadsList_mono {arr : String} :
+    ∀ (l : List Expr) (k0 : Nat), k0 ≤ (extractReadsList arr l k0).2.2
+  | [], k0 => by simp [extractReadsList]
+  | a :: rest, k0 => by
+    have h1 := extractReads_mono (arr := arr) a k0
+    have h2 := extractReadsList_mono (arr := arr) rest
+      (extractReads arr a k0).2.2
+    show k0 ≤ (extractReadsList arr rest (extractReads arr a k0).2.2).2.2
+    omega
+end
+
+mutual
+/-- Placeholder-name characterization: every read the extractor
+    collects is named `__memread_arr_j` with `j` inside the counter
+    window — the fact that lets a payload's splice facts and bounds be
+    established for names the extractor invented. -/
+theorem extractReads_names {arr : String} :
+    ∀ (e : Expr) (k0 : Nat),
+      ∀ p ∈ (extractReads arr e k0).2.1,
+        ∃ j, k0 ≤ j ∧ j < (extractReads arr e k0).2.2
+          ∧ p.1 = s!"__memread_{arr}_{j}"
+  | .index (.ref a) idx, k0 => by
+    by_cases h : a = arr
+    · subst h
+      intro p hp
+      simp only [extractReads, if_true, List.mem_singleton] at hp
+      refine ⟨k0, Nat.le_refl _, by simp [extractReads], ?_⟩
+      rw [hp]
+    · intro p hp
+      simp [extractReads, h] at hp
+  | .op o args, k0 => by
+    intro p hp
+    simp only [extractReads] at hp ⊢
+    exact extractReadsList_names args k0 p hp
+  | .concat args, k0 => by
+    intro p hp
+    simp only [extractReads] at hp ⊢
+    exact extractReadsList_names args k0 p hp
+  | .slice x hi lo, k0 => by
+    intro p hp
+    simp only [extractReads] at hp ⊢
+    exact extractReads_names x k0 p hp
+  | .ref n, k0 => by intro p hp; simp [extractReads] at hp
+  | .const v w, k0 => by intro p hp; simp [extractReads] at hp
+  | .sliceDim x d i, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.const v w) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.op o args) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.concat args) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.slice x hi lo) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.sliceDim x d i) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.index a i) idx, k0 => by intro p hp; simp [extractReads] at hp
+
+theorem extractReadsList_names {arr : String} :
+    ∀ (l : List Expr) (k0 : Nat),
+      ∀ p ∈ (extractReadsList arr l k0).2.1,
+        ∃ j, k0 ≤ j ∧ j < (extractReadsList arr l k0).2.2
+          ∧ p.1 = s!"__memread_{arr}_{j}"
+  | [], k0 => by intro p hp; simp [extractReadsList] at hp
+  | a :: rest, k0 => by
+    intro p hp
+    have hsplit : (extractReadsList arr (a :: rest) k0).2.1
+        = (extractReads arr a k0).2.1
+          ++ (extractReadsList arr rest (extractReads arr a k0).2.2).2.1 :=
+      rfl
+    have hk : (extractReadsList arr (a :: rest) k0).2.2
+        = (extractReadsList arr rest (extractReads arr a k0).2.2).2.2 :=
+      rfl
+    rw [hsplit] at hp
+    rw [hk]
+    rcases List.mem_append.mp hp with hL | hR
+    · obtain ⟨j, hj0, hjk, hn⟩ := extractReads_names a k0 p hL
+      have := extractReadsList_mono (arr := arr) rest
+        (extractReads arr a k0).2.2
+      exact ⟨j, hj0, by omega, hn⟩
+    · obtain ⟨j, hj0, hjk, hn⟩ := extractReadsList_names rest
+        (extractReads arr a k0).2.2 p hR
+      have := extractReads_mono (arr := arr) a k0
+      exact ⟨j, by omega, hjk, hn⟩
+end
+
 /-- Evaluate a memory-port payload: reads of the memory's OWN array are
     resolved against the PRE-cycle memory state (nonblocking RHS
     evaluate before any write lands), then the payload evaluates as an
