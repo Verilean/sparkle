@@ -3107,7 +3107,15 @@ def payloadCheckC (wof : String → Option Nat) (we : WEnv)
      let (svStripped', readsSV, k2) := extractReadsSV arr svWhole 0
      eqSV svStripped' svStripped && (k2 == k)
        && (readsSV.length == readsIR.length)
-       && ((readsIR.zip readsSV).all fun pq => pq.1.1 == pq.2.1)
+       -- each read must pair NAME for name AND each SV address must be
+       -- the emission of its IR counterpart.  Checking only the names
+       -- left the address VALUES unrelated, so `payload_agree`'s
+       -- `hpair` could not be discharged from a passing verdict.
+       && ((readsIR.zip readsSV).all fun pq =>
+             (pq.1.1 == pq.2.1)
+             && (match Tools.SVParser.EmitAst.emitAstExpr wof' pq.1.2 with
+                 | some sa => eqSV sa pq.2.2
+                 | none => false))
    | _, _ => false)
 
 /-- The emitter's read-port list for one memory. -/
