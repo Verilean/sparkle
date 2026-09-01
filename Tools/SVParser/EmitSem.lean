@@ -3012,6 +3012,29 @@ def payloadCheck (wof : String → Option Nat) (we : WEnv)
            && (Sparkle.IR.Semantics.widthOf we' p.2 == aw)
            && sf4Check wof' we' p.2)
 
+/-- `payloadCheck` plus the COMMUTATION of emission with extraction:
+    emitting the whole payload and then splitting it on the SV side
+    yields the emission of the IR-side stripped form, with the read
+    lists pairing name for name.
+
+    Commutation is decidable — it is an equality of emitted syntax — so
+    it is checked here rather than proven over all shapes.  Measured on
+    the corpus it holds for both byte-strobe arrays: same placeholder
+    count, same numbering, identical stripped emissions. -/
+def payloadCheckC (wof : String → Option Nat) (we : WEnv)
+    (arr : String) (aw dw w : Nat) (e : Expr) : Bool :=
+  payloadCheck wof we arr aw dw w e &&
+  (let (e', readsIR, k) := Sparkle.IR.Semantics.extractReads arr e 0
+   let wof' := wofWithReads wof arr dw k
+   match Tools.SVParser.EmitAst.emitAstExpr wof' e,
+         Tools.SVParser.EmitAst.emitAstExpr wof' e' with
+   | some svWhole, some svStripped =>
+     let (svStripped', readsSV, k2) := extractReadsSV arr svWhole 0
+     (svStripped' == svStripped) && (k2 == k)
+       && (readsSV.length == readsIR.length)
+       && ((readsIR.zip readsSV).all fun pq => pq.1.1 == pq.2.1)
+   | _, _ => false)
+
 /-- The emitter's read-port list for one memory. -/
 def emitReadPorts (wof : String → Option Nat) :
     List (Expr × String) → Option (List (SVExpr × String))
