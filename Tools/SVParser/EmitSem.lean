@@ -3664,6 +3664,77 @@ theorem memWritePorts_isSome {we : WEnv} {mems0 : MEnv} {env : Env}
       Option.bind_some]
     exact ih (fun q hq => h q (List.mem_cons_of_mem _ hq)) _
 
+/-- The port lists have equal length once the emission succeeded — one
+    of the two list-shape hypotheses `emit_sem_writePortsP` asks for. -/
+theorem ports_agree {wof : String → Option Nat} {we : WEnv}
+    {mems0 : MEnv} {env : Env} {name : String} {aw dw : Nat}
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
+    -- the placeholder-value condition, per port
+    (hphv : ∀ (k : Nat) n, (List.range k).any
+        (fun j => n == s!"__memread_{name}_{j}") → env n < 2 ^ dw) :
+    ∀ (ports : List (Expr × Expr × Expr))
+      (svports : List (SVExpr × SVExpr × SVExpr)),
+      emitWritePorts wof ports = some svports →
+      (ports.all fun p =>
+        payloadCheckC wof we name aw dw aw p.1
+        && payloadCheckC wof we name aw dw dw p.2.1
+        && payloadCheckC wof we name aw dw 1 p.2.2) = true →
+      ports.length = svports.length := by
+  intro ports
+  induction ports with
+  | nil =>
+    intro svports hemit _
+    simp only [emitWritePorts, Option.some_inj] at hemit
+    subst hemit; rfl
+  | cons p rest ih =>
+    intro svports hemit hchk
+    simp only [emitWritePorts, Option.bind_eq_bind] at hemit
+    obtain ⟨sa, _, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨sd, _, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨se, _, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨others, hoth, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    simp only [Option.some_inj] at hemit
+    subst hemit
+    simp only [List.all_cons, Bool.and_eq_true] at hchk
+    simp only [List.length_cons]
+    exact congrArg (· + 1) (ih others hoth hchk.2)
+
+/-- At each index, the three SV operands ARE the emissions of the three
+    IR ones.  This is what lets `payloadCheckC_agree` be applied per
+    port to produce the agreement `emit_sem_writePortsP` consumes. -/
+theorem ports_agree_idx {wof : String → Option Nat} {we : WEnv}
+    {mems0 : MEnv} {env : Env} {name : String} {aw dw : Nat}
+    (hbe : Bounded we env)
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn) :
+    ∀ (ports : List (Expr × Expr × Expr))
+      (svports : List (SVExpr × SVExpr × SVExpr)),
+      emitWritePorts wof ports = some svports →
+      ∀ i (hi : i < ports.length) (hj : i < svports.length),
+        Tools.SVParser.EmitAst.emitAstExpr wof (ports[i]'hi).1
+            = some (svports[i]'hj).1
+        ∧ Tools.SVParser.EmitAst.emitAstExpr wof (ports[i]'hi).2.1
+            = some (svports[i]'hj).2.1
+        ∧ Tools.SVParser.EmitAst.emitAstExpr wof (ports[i]'hi).2.2
+            = some (svports[i]'hj).2.2 := by
+  intro ports
+  induction ports with
+  | nil => intro svports _ i hi; simp at hi
+  | cons p rest ih =>
+    intro svports hemit i hi hj
+    simp only [emitWritePorts, Option.bind_eq_bind] at hemit
+    obtain ⟨sa, hsa, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨sd, hsd, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨se, hse, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨others, hoth, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    simp only [Option.some_inj] at hemit
+    subst hemit
+    cases i with
+    | zero => exact ⟨hsa, hsd, hse⟩
+    | succ n =>
+      simp only [List.getElem_cons_succ]
+      exact ih others hoth n (by simpa using hi) (by simpa using hj)
+
 /-- **Forward correctness of write ports, payload form.**  Each port
     carries its own payload agreement as a hypothesis — exactly what
     `payload_agree` produces and what `payloadCheck` verifies per
