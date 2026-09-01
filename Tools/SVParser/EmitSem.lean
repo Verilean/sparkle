@@ -3012,6 +3012,76 @@ def payloadCheck (wof : String → Option Nat) (we : WEnv)
            && (Sparkle.IR.Semantics.widthOf we' p.2 == aw)
            && sf4Check wof' we' p.2)
 
+/- Structural equality on the emitted syntax.  `SVExpr`'s DERIVED
+   `BEq` has no `LawfulBEq` instance and `DecidableEq` will not derive
+   for it (nested inductive), so a `==` verdict yields no propositional
+   equality — which makes it useless inside a proof.  The leaf types
+   are non-recursive, so those derive fine. -/
+deriving instance DecidableEq for SVLiteral
+deriving instance DecidableEq for SVUnaryOp
+deriving instance DecidableEq for SVBinOp
+
+mutual
+/-- Structural equality on `SVExpr` (the derived `BEq` has no
+    `LawfulBEq`, and `DecidableEq` will not derive for this nested
+    inductive, so roll a structural one and prove it sound). -/
+def eqSV : SVExpr → SVExpr → Bool
+  | .lit l, .lit l' => decide (l = l')
+  | .ident n, .ident n' => n == n'
+  | .unary o a, .unary o' a' => decide (o = o') && eqSV a a'
+  | .binary o a b, .binary o' a' b' =>
+    decide (o = o') && eqSV a a' && eqSV b b'
+  | .ternary c t f, .ternary c' t' f' =>
+    eqSV c c' && eqSV t t' && eqSV f f'
+  | .index a i, .index a' i' => eqSV a a' && eqSV i i'
+  | .slice e hi lo, .slice e' hi' lo' =>
+    eqSV e e' && decide (hi = hi') && decide (lo = lo')
+  | .partSelectPlus e b w, .partSelectPlus e' b' w' =>
+    eqSV e e' && eqSV b b' && eqSV w w'
+  | .concat args, .concat args' => eqSVList args args'
+  | .repeat_ c v, .repeat_ c' v' => eqSV c c' && eqSV v v'
+  | .sizeCast w a, .sizeCast w' a' => decide (w = w') && eqSV a a'
+  | _, _ => false
+
+def eqSVList : List SVExpr → List SVExpr → Bool
+  | [], [] => true
+  | a :: rest, a' :: rest' => eqSV a a' && eqSVList rest rest'
+  | _, _ => false
+end
+
+mutual
+theorem eqSV_iff : ∀ a b : SVExpr, eqSV a b = true ↔ a = b
+  | .lit l, b => by cases b <;> simp [eqSV]
+  | .ident n, b => by cases b <;> simp [eqSV]
+  | .unary o a, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff a, and_assoc]
+  | .binary o a c, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff a, eqSV_iff c,
+      and_assoc]
+  | .ternary c t f, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff c, eqSV_iff t,
+      eqSV_iff f, and_assoc]
+  | .index a i, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff a, eqSV_iff i]
+  | .slice e hi lo, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff e, and_assoc]
+  | .partSelectPlus e bs w, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff e, eqSV_iff bs,
+      eqSV_iff w, and_assoc]
+  | .concat args, b => by
+    cases b <;> simp [eqSV, eqSVList_iff args]
+  | .repeat_ c v, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff c, eqSV_iff v]
+  | .sizeCast w a, b => by
+    cases b <;> simp [eqSV, Bool.and_eq_true, eqSV_iff a, and_assoc]
+
+theorem eqSVList_iff : ∀ (l l' : List SVExpr), eqSVList l l' = true ↔ l = l'
+  | [], l' => by cases l' <;> simp [eqSVList]
+  | a :: rest, l' => by
+    cases l' <;> simp [eqSVList, Bool.and_eq_true, eqSV_iff a,
+      eqSVList_iff rest]
+end
+
 /-- `payloadCheck` plus the COMMUTATION of emission with extraction:
     emitting the whole payload and then splitting it on the SV side
     yields the emission of the IR-side stripped form, with the read
@@ -3030,7 +3100,7 @@ def payloadCheckC (wof : String → Option Nat) (we : WEnv)
          Tools.SVParser.EmitAst.emitAstExpr wof' e' with
    | some svWhole, some svStripped =>
      let (svStripped', readsSV, k2) := extractReadsSV arr svWhole 0
-     (svStripped' == svStripped) && (k2 == k)
+     eqSV svStripped' svStripped && (k2 == k)
        && (readsSV.length == readsIR.length)
        && ((readsIR.zip readsSV).all fun pq => pq.1.1 == pq.2.1)
    | _, _ => false)
