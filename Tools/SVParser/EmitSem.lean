@@ -3624,6 +3624,46 @@ def memWritePortsSVP (wof : String → Option Nat)
                      else m nm i)
        else m)
 
+/-- `emitWritePorts` is total when every port expression emits. -/
+theorem emitWritePorts_isSome {wof : String → Option Nat}
+    (ports : List (Expr × Expr × Expr))
+    (h : ∀ p ∈ ports,
+      (Tools.SVParser.EmitAst.emitAstExpr wof p.1).isSome
+      ∧ (Tools.SVParser.EmitAst.emitAstExpr wof p.2.1).isSome
+      ∧ (Tools.SVParser.EmitAst.emitAstExpr wof p.2.2).isSome) :
+    (emitWritePorts wof ports).isSome := by
+  induction ports with
+  | nil => simp [emitWritePorts]
+  | cons p rest ih =>
+    obtain ⟨h1, h2, h3⟩ := h p (List.mem_cons_self ..)
+    obtain ⟨sa, hsa⟩ := Option.isSome_iff_exists.mp h1
+    obtain ⟨sd, hsd⟩ := Option.isSome_iff_exists.mp h2
+    obtain ⟨se, hse⟩ := Option.isSome_iff_exists.mp h3
+    obtain ⟨others, hoth⟩ := Option.isSome_iff_exists.mp
+      (ih (fun q hq => h q (List.mem_cons_of_mem _ hq)))
+    simp [emitWritePorts, hsa, hsd, hse, hoth]
+
+/-- `memWritePorts` is total when every payload evaluates. -/
+theorem memWritePorts_isSome {we : WEnv} {mems0 : MEnv} {env : Env}
+    {name : String} {aw dw : Nat}
+    (ports : List (Expr × Expr × Expr))
+    (h : ∀ p ∈ ports,
+      (evalPayload we mems0 env name aw dw p.1).isSome
+      ∧ (evalPayload we mems0 env name aw dw p.2.1).isSome
+      ∧ (evalPayload we mems0 env name aw dw p.2.2).isSome) :
+    ∀ m, (memWritePorts we mems0 env name aw dw ports m).isSome := by
+  induction ports with
+  | nil => intro m; simp [memWritePorts]
+  | cons p rest ih =>
+    intro m
+    obtain ⟨h1, h2, h3⟩ := h p (List.mem_cons_self ..)
+    obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp h1
+    obtain ⟨dv, hdv⟩ := Option.isSome_iff_exists.mp h2
+    obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.mp h3
+    simp only [memWritePorts, hav, hdv, hev, Option.bind_eq_bind,
+      Option.bind_some]
+    exact ih (fun q hq => h q (List.mem_cons_of_mem _ hq)) _
+
 /-- **Forward correctness of write ports, payload form.**  Each port
     carries its own payload agreement as a hypothesis — exactly what
     `payload_agree` produces and what `payloadCheck` verifies per
