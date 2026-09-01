@@ -2967,5 +2967,47 @@ endmodule"
         IO.println "FAIL: q has no driver (the bit writes were dropped)"
         failed := failed + 1
 
+  -- Test 74 (shipping bug #11): a concat-LHS write whose fields reach
+  -- above bit 31.  `lowerConcatLhsAssign` declared every shift amount
+  -- 32, so `widthOf` pinned the OR-chain at 32 bits and
+  -- `{q[103:96], q[7:0]} <= {a, b}` on a 128-bit q lost the high field
+  -- entirely — only q[7:0] survived.  iverilog on the original sets
+  -- q[103:96]=ab and q[7:0]=cd, i.e. (0xAB << 96) | 0xCD.
+  IO.print "  Test 74: concat-LHS fields above bit 31 survive... "
+  let wideVerilog := "module w128(input clk, input [7:0] a, input [7:0] b,
+  output reg [127:0] q);
+  always @(posedge clk) {q[103:96], q[7:0]} <= {a, b};
+endmodule"
+  match parseAndLower wideVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m74 =>
+      let wof := Tools.SVParser.RoundtripProof.moduleWof m74
+      let we := Tools.SVParser.EmitSem.weOf wof
+      let want := (0xAB <<< 96) ||| 0xCD
+      let mut got : Option Nat := none
+      for st in m74.body do
+        match st with
+        | .register _ _ _ x _ =>
+          let env : Sparkle.IR.Semantics.Env := fun n =>
+            if n == "a" then 0xAB else if n == "b" then 0xCD else 0
+          match Sparkle.IR.Semantics.evalExpr we env x with
+          | some v => got := some v
+          | none => pure ()
+        | _ => pure ()
+      match got with
+      | some v =>
+        if v == want then
+          IO.println s!"PASS (high field preserved, matches iverilog)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: got {v}, want {want}"
+          failed := failed + 1
+      | none =>
+        IO.println "FAIL: no register driver found"
+        failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1

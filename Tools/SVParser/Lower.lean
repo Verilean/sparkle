@@ -593,17 +593,25 @@ private def lowerConcatLhsAssign (lhs : SVExpr) (rhs : SVExpr) : Option (String 
     else
       let rhsExpr := lowerExpr rhs
       let totalWidth := fields.foldl (fun acc (hi, lo) => acc + (hi - lo + 1)) 0
+      -- Work at a width covering the HIGHEST bit written, not a fixed
+      -- 32.  `{q[103:96], q[7:0]} <= …` on a 128-bit `q` had every
+      -- shift amount declared 32, so `widthOf` pinned the OR-chain at
+      -- 32 bits and the q[103:96] field was shifted straight out —
+      -- only q[7:0] survived.
+      let opW := max 32 (fields.foldl (fun acc (hi, _) => max acc (hi + 1)) 0)
       let (terms, _) := fields.foldl (fun (acc, rhsOff) (hi, lo) =>
         let w := hi - lo + 1
         let rhsBit := totalWidth - rhsOff - w
-        let extracted := Expr.slice rhsExpr (rhsBit + w - 1) rhsBit
+        -- zero-extend the extracted field to `opW` before shifting
+        let extracted := Expr.slice (.concat [.const 0 opW,
+          Expr.slice rhsExpr (rhsBit + w - 1) rhsBit]) (opW - 1) 0
         let shifted := if lo == 0 then extracted
-                       else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) 32]
+                       else Expr.op .shl [extracted, Expr.const (Int.ofNat lo) opW]
         (acc ++ [shifted], rhsOff + w)
       ) ([], 0)
       let result := terms.foldl (fun acc t =>
-        if acc == Expr.const 0 32 then t else Expr.op .or [acc, t]
-      ) (Expr.const 0 32)
+        if acc == Expr.const 0 opW then t else Expr.op .or [acc, t]
+      ) (Expr.const 0 opW)
       some (name, result)
   | _, _ => none
 
@@ -648,24 +656,33 @@ private def decomposeMultiConcatLhs (lhs : SVExpr) (rhs : SVExpr) : List (String
         let combinedMask := myFields.foldl (fun acc (_, width, lo, _) =>
           acc ||| (((1 <<< width) - 1) <<< lo)
         ) 0
-        let invMask := combinedMask ^^^ 0xFFFFFFFFFFFFFFFF
+        -- Work at a width that covers the HIGHEST bit written, not a
+        -- fixed 64.  `{q[103:96], q[7:0]} <= …` on a 128-bit `q` used to
+        -- clear everything above bit 63 (the inverse mask was
+        -- 64-bit all-ones) and cap the expression at 64 bits, so the
+        -- q[103:96] field was dropped and only q[7:0] survived.
+        let topBit := myFields.foldl (fun acc (_, width, lo, _) =>
+          max acc (lo + width)) 0
+        let opW := max 64 topBit
+        let invMask := combinedMask ^^^ ((1 <<< opW) - 1)
         -- Build new bits: OR all shifted+masked fields
         let newBits := myFields.foldl (fun acc (_, width, lo, rhsBit) =>
           let extracted := Expr.slice rhsExpr (rhsBit + width - 1) rhsBit
           -- Force 64-bit promotion to avoid C++ UB on shifts >= 32
-          let extracted64 := Expr.op .or [extracted, Expr.const 0 64]
+          let extracted64 := Expr.op .or [extracted, Expr.const 0 opW]
           let shifted := if lo == 0 then extracted64
-                         else Expr.op .shl [extracted64, Expr.const (Int.ofNat lo) 64]
+                         else Expr.op .shl [extracted64, Expr.const (Int.ofNat lo) opW]
           let maskVal := ((1 <<< width) - 1) <<< lo
-          let masked := Expr.op .and [shifted, Expr.const (Int.ofNat maskVal) 64]
-          if acc == Expr.const 0 64 then masked
+          let masked := Expr.op .and [shifted, Expr.const (Int.ofNat maskVal) opW]
+          if acc == Expr.const 0 opW then masked
           else Expr.op .or [acc, masked]
-        ) (Expr.const 0 64)
+        ) (Expr.const 0 opW)
         -- RMW: (varName & ~mask) | newBits
         -- Uses Expr.ref varName directly. For SSA variables, stmtsToMuxExprBlocking
         -- replaces self-references with the ssaBase (previous SSA iteration).
         -- This ensures topoSortBody's collectRefs sees the correct dependency.
-        let cleared := Expr.op .and [Expr.ref varName, Expr.const (Int.ofNat invMask) 64]
+        let cleared := Expr.op .and [Expr.ref varName,
+          Expr.const (Int.ofNat invMask) opW]
         [(varName, Expr.op .or [cleared, newBits])]
   | _ => []
 
