@@ -3248,6 +3248,92 @@ theorem emit_sem_writePorts {wof : String → Option Nat} {we : WEnv}
         Option.bind_some]
       exact hSV
 
+/-- A payload-aware SV write-port model: every port expression is
+    evaluated as a PAYLOAD against the pre-write state, which on
+    index-free expressions is plain `evalSV`.  This is what a
+    byte-strobe write needs — its data reads the array being written,
+    and Verilog's nonblocking RHS sees the pre-write words. -/
+def memWritePortsSVP (wof : String → Option Nat)
+    (mems0 : MEnv) (env : SEnv) (name : String) (aw dw : Nat) :
+    List (SVExpr × SVExpr × SVExpr) → MEnv → Option MEnv
+  | [], m => some m
+  | (a, d, en) :: rest, m => do
+    let ev ← evalPayloadSV wof mems0 env name aw dw 1 en
+    let av ← evalPayloadSV wof mems0 env name aw dw aw a
+    let dv ← evalPayloadSV wof mems0 env name aw dw dw d
+    memWritePortsSVP wof mems0 env name aw dw rest
+      (if ev ≠ 0 then
+        (fun nm i => if nm = name ∧ i = mask aw av then mask dw dv
+                     else m nm i)
+       else m)
+
+/-- **Forward correctness of write ports, payload form.**  Each port
+    carries its own payload agreement as a hypothesis — exactly what
+    `payload_agree` produces and what `payloadCheck` verifies per
+    instance.  Unlike `emit_sem_writePorts` this places no `idxFree`
+    demand, so it covers the read-modify-write payloads firtool emits
+    for byte strobes. -/
+theorem emit_sem_writePortsP {wof : String → Option Nat} {we : WEnv}
+    (mems0 : MEnv) (name : String) (aw dw : Nat) :
+    ∀ (ports : List (Expr × Expr × Expr))
+      (svports : List (SVExpr × SVExpr × SVExpr)) (env : Env)
+      (m : MEnv),
+      emitWritePorts wof ports = some svports →
+      ports.length = svports.length →
+      -- per-port payload agreement, for all three operands
+      (∀ i (hi : i < ports.length) (hj : i < svports.length),
+        evalPayloadSV wof mems0 env name aw dw aw (svports[i]'hj).1
+          = evalPayload we mems0 env name aw dw (ports[i]'hi).1
+        ∧ evalPayloadSV wof mems0 env name aw dw dw (svports[i]'hj).2.1
+            = evalPayload we mems0 env name aw dw (ports[i]'hi).2.1
+        ∧ evalPayloadSV wof mems0 env name aw dw 1 (svports[i]'hj).2.2
+            = evalPayload we mems0 env name aw dw (ports[i]'hi).2.2) →
+      memWritePortsSVP wof mems0 env name aw dw svports m
+        = memWritePorts we mems0 env name aw dw ports m := by
+  intro ports
+  induction ports with
+  | nil =>
+    intro svports env m hemit hlen _
+    cases svports with
+    | nil => rfl
+    | cons q qs => simp at hlen
+  | cons p rest ih =>
+    intro svports env m hemit hlen hagree
+    cases svports with
+    | nil => simp at hlen
+    | cons q qs =>
+      obtain ⟨hA, hD, hE⟩ := hagree 0 (by simp) (by simp)
+      simp only [List.getElem_cons_zero] at hA hD hE
+      simp only [memWritePortsSVP, memWritePorts, hA, hD, hE,
+        Option.bind_eq_bind]
+      cases hev : evalPayload we mems0 env name aw dw p.2.2 with
+      | none => simp [hev]
+      | some ev =>
+      cases hav : evalPayload we mems0 env name aw dw p.1 with
+      | none => simp [hev, hav]
+      | some av =>
+      cases hdv : evalPayload we mems0 env name aw dw p.2.1 with
+      | none => simp [hev, hav, hdv]
+      | some dv =>
+      simp only [hev, hav, hdv, Option.bind_some]
+      -- the emitter's list decomposes
+      simp only [emitWritePorts, Option.bind_eq_bind] at hemit
+      obtain ⟨sa, hsa, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+      obtain ⟨sd, hsd, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+      obtain ⟨sen, hsen, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+      obtain ⟨others, hoth, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+      simp only [Option.some_inj] at hemit
+      -- the emitter's cons matches the given cons
+      have hq : q = (sa, sd, sen) ∧ qs = others := by
+        have h := hemit
+        simp only [List.cons.injEq] at h
+        exact ⟨h.1.symm, h.2.symm⟩
+      exact ih qs env _ (hq.2 ▸ hoth)
+        (by simpa using hlen)
+        (fun i hi hj => by
+          have := hagree (i+1) (by simpa using hi) (by simpa using hj)
+          simpa using this)
+
 /- ------------------------------------------------------------------ -/
 /- The statement layer: the combinational phase of a module.           -/
 
