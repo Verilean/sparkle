@@ -2263,9 +2263,55 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       let blockingNames := (collectBlockNamesTop stmts).eraseDups.filter
         fun n => !arrayRegNames.any (· == n)
       let preBlocking := collectGuardedBlock stmts
+      -- Bit-range blocking writes (`q[35] = d`) are a read-modify-write,
+      -- which `stmtsToMuxExprBlocking` cannot express — it builds a
+      -- WHOLE-signal value.  Collect them here and scatter each piece to
+      -- its position, at the TARGET's declared width so nothing is
+      -- shifted out (the same discipline as the combinational path's
+      -- `partialAssigns` merge).
+      let bitWrites : List (String × Nat × Nat × SVExpr) :=
+        stmts.filterMap fun st => match st with
+          | .blockAssign lhs rhs =>
+            match lhsSelectBounds lhs, exprToName lhs with
+            | some (hi, lo), some n => some (n, hi, lo, rhs)
+            | _, _ => none
+          | _ => none
+      let bitTargets := (bitWrites.map (fun p => p.1)).eraseDups
       for sigName in blockingNames do
-        let expr := stmtsToMuxExprBlocking sigName stmts (some preBlocking)
-        body := body.push (.assign sigName expr)
+        if bitTargets.contains sigName then
+          -- read-modify-write: start from the signal, overwrite each
+          -- written range
+          let tgtW := match env.getWidth sigName with
+            | some (hi, lo) => hi - lo + 1
+            | none => 32
+          let parts := bitWrites.filter (fun p => p.1 == sigName)
+          -- The BASE is whatever the signal holds before the bit writes:
+          -- a preceding whole-signal blocking write if there is one
+          -- (`q = init; q[5] = d;`), else the signal's own value.
+          let base :=
+            match stmts.findSome? (fun st => match st with
+              | .blockAssign lhs rhs =>
+                match lhsSelectBounds lhs, exprToName lhs with
+                | none, some n => if n == sigName then some rhs else none
+                | _, _ => none
+              | _ => none) with
+            | some rhs => lowerExpr rhs
+            | none => Expr.ref sigName
+          let merged := parts.foldl (fun acc (_, hi, lo, rhs) =>
+            let w := hi - lo + 1
+            let m : Nat := ((1 <<< w) - 1) <<< lo
+            let notM : Int := Int.ofNat (((1 <<< tgtW) - 1) ^^^ m)
+            let piece := Expr.slice (.concat [.const 0 tgtW,
+              Expr.slice (lowerExpr rhs) (w - 1) 0]) (tgtW - 1) 0
+            let shifted := if lo == 0 then piece
+              else Expr.op .shl [piece, Expr.const (Int.ofNat lo) tgtW]
+            Expr.op .or [Expr.op .and [acc, Expr.const notM tgtW],
+                         Expr.op .and [shifted, Expr.const (Int.ofNat m) tgtW]]
+          ) base
+          body := body.push (.assign sigName merged)
+        else
+          let expr := stmtsToMuxExprBlocking sigName stmts (some preBlocking)
+          body := body.push (.assign sigName expr)
         if !((wireSet.contains sigName || portNameSet.contains sigName)) then
           wires := wires.push { name := sigName, ty := .bitVector 32 }; wireSet := wireSet.insert sigName true  -- default 32-bit
 

@@ -2916,5 +2916,56 @@ endmodule"
       IO.println "SKIP (corpus not present)"
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
 
+  -- Test 73 (shipping bug #10): a blocking write to a BIT RANGE inside
+  -- `always @(posedge)` is a read-modify-write, not a whole-signal
+  -- assignment.  `exprToName` answers "q" for the LHS `q[5]`, so both
+  -- blocking collectors used to capture the bare RHS: `q = init;
+  -- q[5] = d; q[1] = d;` on an 8-bit q emitted `assign q = d` — the
+  -- scatter gone, a 1-bit value driving 8 bits, and the CLOCK gone.
+  -- Expectations pinned by iverilog on the ORIGINAL source:
+  --   init=0x00 d=1 -> 34 (bits 5,1);  init=0xFF d=0 -> 221.
+  IO.print "  Test 73: blocking bit-range write scatters correctly... "
+  let bitwrVerilog := "module bw2(input clk, input d, input [7:0] init, output reg [7:0] q);
+  always @(posedge clk) begin
+    q    = init;
+    q[5] = d;
+    q[1] = d;
+  end
+endmodule"
+  match parseAndLower bitwrVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m73 =>
+      -- find q's driver and evaluate it directly
+      let wof := Tools.SVParser.RoundtripProof.moduleWof m73
+      let we := Tools.SVParser.EmitSem.weOf wof
+      let mut got : Option (Nat × Nat) := none
+      for st in m73.body do
+        match st with
+        | .assign l r =>
+          if l == "q" then
+            let e1 : Sparkle.IR.Semantics.Env := fun n =>
+              if n == "d" then 1 else 0
+            let e2 : Sparkle.IR.Semantics.Env := fun n =>
+              if n == "init" then 255 else 0
+            match Sparkle.IR.Semantics.evalExpr we e1 r,
+                  Sparkle.IR.Semantics.evalExpr we e2 r with
+            | some v1, some v2 => got := some (v1, v2)
+            | _, _ => pure ()
+        | _ => pure ()
+      match got with
+      | some (v1, v2) =>
+        if v1 == 34 && v2 == 221 then
+          IO.println s!"PASS (34/221, matches iverilog)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: got {v1}/{v2}, want 34/221"
+          failed := failed + 1
+      | none =>
+        IO.println "FAIL: q has no driver (the bit writes were dropped)"
+        failed := failed + 1
+
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
