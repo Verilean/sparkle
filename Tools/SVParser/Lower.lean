@@ -2544,13 +2544,25 @@ def lowerModule (svMod : SVModule) (paramOverrides : List (String × Nat) := [])
       -- Widest bit touched decides the shift widths; a target whose other
       -- bits are driven elsewhere is not our concern (Verilog would call
       -- that multiple drivers too).
+      -- Build at the TARGET's declared width.  The pieces are narrow
+      -- slices, so a shift amount declared 32 made the OR-chain 32 bits
+      -- wide (`widthOf` of a shift is the max of its operands): a write
+      -- to bit 35 of a 40-bit reg was shifted straight out and lost.
+      -- Widening each piece to the target width first pins the whole
+      -- chain there, and the amount's own width is irrelevant since
+      -- Verilog treats a shift count as self-determined.
+      let tgtW := match env.getWidth tgt with
+        | some (hi, lo) => hi - lo + 1
+        | none => 32
       let terms := parts.map fun (_, hi, lo, rhs) =>
         let w := hi - lo + 1
-        let bits := Expr.slice rhs (w - 1) 0
+        -- zero-extend the piece to the target width before shifting
+        let bits := Expr.slice (.concat [.const 0 tgtW,
+          Expr.slice rhs (w - 1) 0]) (tgtW - 1) 0
         if lo == 0 then bits
-        else Expr.op .shl [bits, Expr.const (Int.ofNat lo) 32]
+        else Expr.op .shl [bits, Expr.const (Int.ofNat lo) tgtW]
       let merged := match terms with
-        | [] => Expr.const 0 1
+        | [] => Expr.const 0 tgtW
         | t :: rest => rest.foldl (fun acc t' => Expr.op .or [acc, t']) t
       mergedBody := mergedBody ++ [.assign tgt merged]
   let narrowedBody := mergedBody.map (narrowMaskStmt env)
