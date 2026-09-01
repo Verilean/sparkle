@@ -3642,6 +3642,40 @@ theorem wofWithReads_mono {wof : String → Option Nat} {arr : String}
     exact ⟨j, by omega, hn⟩
   rw [if_pos hk']
 
+/-- The extension at `k` and at `kmax ≥ k` agree on every name an
+    operand can mention: placeholders below its own `k` (both declare
+    them at `dw`) and non-placeholders (both defer to the base map).
+    They DIFFER exactly on placeholders in `(k, kmax]` — which an
+    operand produced by `extractReads … 0` with count `k` never
+    mentions, since extraction numbers from 0 upward.
+
+    Monotonicity alone does not give this: the maps really are
+    different functions, so transporting a per-operand conclusion to a
+    shared map needs the agreement, not just the inclusion. -/
+theorem weWithReads_agree_below {we : WEnv} {arr : String}
+    {dw k kmax : Nat} (hle : k ≤ kmax) (n : String)
+    (hn : ¬((List.range kmax).any
+        (fun j => n == s!"__memread_{arr}_{j}") = true)
+      ∨ (List.range k).any
+        (fun j => n == s!"__memread_{arr}_{j}") = true) :
+    weWithReads we arr dw k n = weWithReads we arr dw kmax n := by
+  unfold weWithReads
+  rcases hn with hno | hyes
+  · have hk : ¬((List.range k).any
+        (fun j => n == s!"__memread_{arr}_{j}") = true) := by
+      intro hk
+      apply hno
+      simp only [List.any_eq_true, List.mem_range] at hk ⊢
+      obtain ⟨j, hj, hjn⟩ := hk
+      exact ⟨j, by omega, hjn⟩
+    rw [if_neg hk, if_neg hno]
+  · have hkm : (List.range kmax).any
+        (fun j => n == s!"__memread_{arr}_{j}") = true := by
+      simp only [List.any_eq_true, List.mem_range] at hyes ⊢
+      obtain ⟨j, hj, hjn⟩ := hyes
+      exact ⟨j, by omega, hjn⟩
+    rw [if_pos hyes, if_pos hkm]
+
 /-- `emitWritePorts` is total when every port expression emits. -/
 theorem emitWritePorts_isSome {wof : String → Option Nat}
     (ports : List (Expr × Expr × Expr))
