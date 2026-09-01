@@ -3251,6 +3251,41 @@ theorem splice_agree {wof : String → Option Nat} {we : WEnv}
             have := hpair (i+1) (by simpa using hi) (by simpa using hj)
             simpa using this) _
 
+/-- Boundedness lifts to the placeholder-extended environment exactly
+    when the ambient environment's value at each placeholder name fits
+    `dw`.  Placeholder names are synthetic (`__memread_arr_k`), so a
+    real environment holds 0 there and the condition is trivial — but
+    it IS a condition, and saying so is what lets the address lemmas
+    fire under the extended maps. -/
+theorem bounded_withReads {we : WEnv} {env : Env} {arr : String}
+    {dw k : Nat} (hbe : Bounded we env)
+    (hph : ∀ n, (List.range k).any
+        (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw) :
+    Bounded (weWithReads we arr dw k) env := by
+  intro n
+  unfold weWithReads
+  by_cases hb : (List.range k).any (fun j => n == s!"__memread_{arr}_{j}")
+  · simp only [hb, if_pos]
+    exact hph n hb
+  · simp only [hb, if_neg]
+    exact hbe n
+
+/-- The same lift for the `wof`-indexed bound. -/
+theorem bw_withReads {wof : String → Option Nat} {env : Env}
+    {arr : String} {dw k : Nat}
+    (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
+    (hph : ∀ n, (List.range k).any
+        (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw) :
+    ∀ n wn, wofWithReads wof arr dw k n = some wn → env n < 2 ^ wn := by
+  intro n wn hn
+  unfold wofWithReads at hn
+  by_cases hb : (List.range k).any (fun j => n == s!"__memread_{arr}_{j}")
+  · simp only [hb, if_pos, Option.some_inj] at hn
+    subst hn
+    exact hph n hb
+  · simp only [hb, if_neg] at hn
+    exact hbw n wn hn
+
 /-- `payloadCheck`, unpacked over explicit split components (no `let`
     in the statement, so callers can rewrite freely). -/
 theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
