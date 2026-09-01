@@ -783,6 +783,10 @@ partial def collectGuardedBlock (stmts : List SVStmt) (guard : Expr := .const 1 
   stmts.flatMap fun s => match s with
     | .blockAssign lhs rhs =>
       if isDontCare rhs then []
+      -- A write to a BIT RANGE is not a whole-signal value: `exprToName`
+      -- answers `q` for `q[35]`, which used to capture the bare RHS and
+      -- lose the position.  Leave those to the partial-assign merge.
+      else if (lhsSelectBounds lhs).isSome then []
       else match exprToName lhs with
         | some name => [{ guard, target := name, value := lowerExpr rhs }]
         | none =>
@@ -888,11 +892,21 @@ def stmtsToMuxExpr (regName : String) (stmts : List SVStmt) : Expr :=
     Base is the first flat assignment (default value). -/
 def stmtsToMuxExprBlocking (sigName : String) (stmts : List SVStmt)
     (pre : Option (List GuardedAssign) := none) : Expr :=
+  -- A blocking write to a BIT RANGE of the signal (`q[35] = d`) is not
+  -- a whole-signal assignment: taking `lowerExpr rhs` alone dropped the
+  -- position entirely, so `q[35] = d; q[3] = d;` on a 40-bit `q`
+  -- lowered to `q = d` — the scatter lost and a 1-bit value driving a
+  -- 40-bit target.  Such a write needs a read-modify-write, which this
+  -- whole-signal mux builder cannot express, so it is refused here and
+  -- left to the partial-assign merge (`lhsSelectBounds`).
   let initDefault := stmts.findSome? fun s => match s with
     | .blockAssign lhs rhs =>
-      match exprToName lhs with
-      | some n => if n == sigName then some (lowerExpr rhs) else none
-      | none => none
+      match lhsSelectBounds lhs with
+      | some _ => none          -- bit-range write: not a whole-signal value
+      | none =>
+        match exprToName lhs with
+        | some n => if n == sigName then some (lowerExpr rhs) else none
+        | none => none
     | _ => none
   -- For SSA variables (e.g., next_rd_ssa0_1), use the previous SSA version as base
   -- This avoids self-reference when no initDefault exists
