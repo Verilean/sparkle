@@ -3096,7 +3096,12 @@ def payloadCheckC (wof : String → Option Nat) (we : WEnv)
   payloadCheck wof we arr aw dw w e &&
   (let (e', readsIR, k) := Sparkle.IR.Semantics.extractReads arr e 0
    let wof' := wofWithReads wof arr dw k
-   match Tools.SVParser.EmitAst.emitAstExpr wof' e,
+   -- The WHOLE payload is emitted under the caller's own map (it has
+   -- no placeholders in it), while the STRIPPED form needs the
+   -- extended one — the placeholders are exactly what extraction put
+   -- there.  Using the extended map for both would leave a gap between
+   -- this check and what a caller can supply.
+   match Tools.SVParser.EmitAst.emitAstExpr wof e,
          Tools.SVParser.EmitAst.emitAstExpr wof' e' with
    | some svWhole, some svStripped =>
      let (svStripped', readsSV, k2) := extractReadsSV arr svWhole 0
