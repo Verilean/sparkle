@@ -34,6 +34,7 @@ namespace Tools.VerifyElab
 
 open Lean Elab Command
 open Sparkle.IR.AST
+open Sparkle.Core Sparkle.Core.Signal
 open Sparkle.IR.Optimize (buildDefMap)
 open Tools.SVParser.VerifyEmit (inlineCone widthTable denote varIdent)
 
@@ -59,8 +60,10 @@ def dataInputs (m : Sparkle.IR.AST.Module) : List (String × Nat) :=
     else some (p.name, p.ty.bitWidth)
 
 elab "#verify_elab" id:ident : command => do
+  let declName ← liftTermElabM <|
+    Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
   let design ← liftTermElabM
-    (Sparkle.Compiler.Elab.synthesizeHierarchical id.getId)
+    (Sparkle.Compiler.Elab.synthesizeHierarchical declName)
   let m ← match design.modules with
     | [m] => pure m
     | _ => throwError "#verify_elab v1: single-module designs only"
@@ -84,7 +87,8 @@ elab "#verify_elab" id:ident : command => do
     match n.dropPrefix? "_gen_" with
     | some sub => sub.toString
     | none => n
-  let base := id.getId.toString
+  let base := declName.componentsRev.headD (Name.mkSimple "x")
+    |>.toString
   let mkI (s : String) : Ident := mkIdent (Name.mkSimple s)
   let weId := mkI s!"{base}_weM"
   let envId := mkI s!"{base}_envAt"
@@ -125,12 +129,74 @@ elab "#verify_elab" id:ident : command => do
     value := toExpr cone
     hints := .abbrev
     safety := .safe }
+  -- without this, `simp only [f_cone]` in generated (or user) proofs
+  -- dies with "enableRealizationsForConst must be called first"
+  liftCoreM <| Lean.enableRealizationsForConst coneId.getId
   let coneT : Term := ⟨coneId.raw⟩
   let appArgs : Array Term := paramIds.map fun p => ⟨p.raw⟩
   elabCommand (← `(def $trId $paramBinders* : Nat → Nat
     | 0 => $(quote regInit.toNat)
     | t+1 => (Sparkle.IR.Semantics.evalExpr $weId
         ($envId $appArgs* ($trId $appArgs* t) t) $coneT).getD 0))
-  logInfo m!"#verify_elab {id.getId}: definitions generated (register {regName}, cone inlined, {ins.length} inputs)"
+  -- ---- stage 2: the theorems --------------------------------------
+  -- the step form: VerifyEmit's reflector over the cone, refs as v_*
+  -- idents, beta-bound register-first-then-inputs
+  let stepBody ← denote wt cone
+  let vBinders ← ((regName, regW) :: ins).toArray.mapM fun (n, w) => do
+    `(Lean.Parser.Term.funBinder|
+      ($(varIdent n) : BitVec $(quote w)))
+  let fApp ← `(($(id) $appArgs*))
+  let stepArgs ← ((regName, regW) :: ins).toArray.mapM fun (n, _) => do
+    if n == regName then `((($fApp).val n))
+    else `((($(mkI (paramOf n))).val n))
+  let stepId := mkI s!"{base}_step'"
+  let zeroId := mkI s!"{base}_zero'"
+  let traceThId := mkI s!"{base}_elab_trace"
+  -- the tactic recipes, validated in Tests/Verification (prototype)
+  -- and scratch velab8 (fully generic form)
+  let recipeHead ← `(tactic|
+    (simp only [$id:ident, runCircuitH, Signal.loop, Signal.map];
+     rw [Signal.loopGo_eq];
+     simp [packRegister, Signal.register, Signal.mux, Signal.map,
+       bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap,
+       Signal.seq, Nat.lt_succ_iff]))
+  elabCommand (← `(private theorem $zeroId $paramBinders* :
+      ($fApp).val 0 = BitVec.ofNat $(quote regW) $(quote regInit.toNat)
+      := by $recipeHead:tactic))
+  elabCommand (← `(private theorem $stepId $paramBinders* (n : Nat) :
+      ($fApp).val (n+1)
+      = (fun $vBinders* => $stepBody) $stepArgs* := by
+    $recipeHead:tactic
+    simp only [HAdd.hAdd, HSub.hSub, HMul.hMul, HAnd.hAnd, HOr.hOr,
+      HXor.hXor, Functor.map, Seq.seq, Signal.ap, Signal.seq,
+      Signal.map]
+    repeat' split
+    all_goals (try simp_all)
+    all_goals (first | rfl | bv_decide)))
+  elabCommand (← `(theorem $traceThId $paramBinders* (t : Nat) :
+      $trId $appArgs* t = (($fApp).val t).toNat := by
+    induction t with
+    | zero => simp [$trId:ident, $zeroId:ident]
+    | succ n ih =>
+      rw [$trId:ident, ih]
+      unfold $envId:ident
+      simp only [$coneId:ident]
+      simp [Sparkle.IR.Semantics.evalExpr,
+        Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp,
+        Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.mask,
+        $weId:ident, Sparkle.IR.Semantics.widthOf]
+      rw [$stepId:ident]
+      simp only []
+      repeat' split
+      all_goals (try simp_all [BitVec.toNat_eq,
+        BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_add])
+      all_goals (first | rfl | bv_omega)))
+  -- the generated proofs recover failed tactics as `sorry`, so a
+  -- success log without an axiom check would lie — it did once, on the
+  -- first `sub` circuit, before this check existed
+  let axioms ← liftCoreM <| Lean.collectAxioms traceThId.getId
+  if axioms.contains ``sorryAx then
+    throwError "#verify_elab {id.getId}: a generated proof FAILED (the theorem depends on sorryAx) — see the errors above"
+  logInfo m!"#verify_elab {id.getId}: PROVEN — {traceThId.getId} (register {regName}, {ins.length} inputs; axioms clean)"
 
 end Tools.VerifyElab
