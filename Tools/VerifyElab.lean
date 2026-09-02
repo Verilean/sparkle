@@ -30,6 +30,95 @@ import Sparkle.Compiler.Elab
 import Sparkle.IR.Semantics
 import Tools.SVParser.VerifyEmit
 
+/-! ## The generic decomposition layer (proven once)
+
+`runCircuitH` hides its feedback loop in a local `let`, so nothing
+about the loop's STATE is nameable from a `circuit do` definition —
+which is exactly what a multi-register or comb-output trace theorem
+must talk about (one register's next value can depend on another's
+current one, so no self-contained recurrence exists for the output
+alone).
+
+The fix needs no extraction at all: `runCircuitH`'s loop body is a
+CLOSED FORM in the circuit body, so naming it (`loopFOf`) and the
+output projection (`outFOf`) makes `runCircuitH_eq` hold by `rfl`, and
+one strong-induction lemma (`loop_trace`) reduces every per-circuit
+trace proof to a single step obligation that sees the loop only
+through an agreement hypothesis.  Validated by hand on a two-register
+circuit in scratch before this was written. -/
+
+namespace Sparkle.Core
+
+/-- The loop body `runCircuitH` feeds to `Sparkle.Core.Signal.Signal.loop`, as a named
+    closed form over the circuit body. -/
+def loopFOf {dom : Sparkle.Core.Domain.DomainConfig} {αs : List Type} {ρ : Type}
+    [HasDomain ρ dom] [HListWireable αs] [Inhabited (HList αs)]
+    (inits : HList αs)
+    (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs →
+            Circuit dom (Circuit.SigList dom αs) ρ) :
+    Sparkle.Core.Signal.Signal dom (HList αs) → Sparkle.Core.Signal.Signal dom (HList αs) :=
+  fun live =>
+    packRegister αs inits
+      (body (mkRegList live αs (fun s => s) (fun f => f))
+        (mkHolds αs live)).snd
+
+/-- The output projection, same decomposition. -/
+def outFOf {dom : Sparkle.Core.Domain.DomainConfig} {αs : List Type} {ρ : Type}
+    [HasDomain ρ dom] [HListWireable αs] [Inhabited (HList αs)]
+    (inits : HList αs)
+    (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs →
+            Circuit dom (Circuit.SigList dom αs) ρ)
+    (L : Sparkle.Core.Signal.Signal dom (HList αs)) : ρ :=
+  (body (mkRegList L αs (fun s => s) (fun f => f)) (mkHolds αs L)).fst
+
+/-- `runCircuitH` IS the projection of the loop — definitionally. -/
+theorem runCircuitH_eq {dom : Sparkle.Core.Domain.DomainConfig} {αs : List Type} {ρ : Type}
+    [HasDomain ρ dom] [HListWireable αs] [Inhabited (HList αs)]
+    (inits : HList αs)
+    (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs →
+            Circuit dom (Circuit.SigList dom αs) ρ) :
+    runCircuitH inits body
+      = outFOf inits body (Sparkle.Core.Signal.Signal.loop (loopFOf inits body)) := rfl
+
+/-- The generic joint-trace lemma: ONE per-instance obligation
+    (`hstep`), which sees the loop's guarded prefix only through the
+    agreement hypothesis — exactly what the per-circuit recipe can
+    discharge. -/
+theorem loop_trace {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} [Inhabited α]
+    (F : Sparkle.Core.Signal.Signal dom α → Sparkle.Core.Signal.Signal dom α) (trace : Nat → α)
+    (hstep : ∀ t (pre : Sparkle.Core.Signal.Signal dom α),
+      (∀ i, i < t → pre.val i = trace i) →
+      (F pre).val t = trace t) :
+    ∀ t, (Sparkle.Core.Signal.Signal.loop F).val t = trace t := by
+  intro t
+  induction t using Nat.strongRecOn with
+  | ind t ih =>
+    show Sparkle.Core.Signal.Signal.loopGo F t = trace t
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    exact hstep t _ (fun i hi => by simp [hi]; exact ih i hi)
+
+/-- `simp` sees `Add.add` (the unfolded `HAdd` chain), not `x + y`;
+    these restate the `toNat` lemmas at that head.  Proofs are the
+    originals — the forms are definitionally equal. -/
+theorem toNat_AddAdd {w : Nat} (x y : BitVec w) :
+    (Add.add x y).toNat = (x.toNat + y.toNat) % 2 ^ w :=
+  BitVec.toNat_add x y
+
+theorem toNat_SubSub {w : Nat} (x y : BitVec w) :
+    (Sub.sub x y).toNat = (2 ^ w - y.toNat + x.toNat) % 2 ^ w :=
+  BitVec.toNat_sub x y
+
+/-- Pointwise form, for `rw` (F and t unify from the goal). -/
+theorem loop_trace_at {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} [Inhabited α]
+    (F : Sparkle.Core.Signal.Signal dom α → Sparkle.Core.Signal.Signal dom α) (trace : Nat → α)
+    (hstep : ∀ t (pre : Sparkle.Core.Signal.Signal dom α),
+      (∀ i, i < t → pre.val i = trace i) →
+      (F pre).val t = trace t) (t : Nat) :
+    (Sparkle.Core.Signal.Signal.loop F).val t = trace t :=
+  loop_trace F trace hstep t
+
+end Sparkle.Core
+
 namespace Tools.VerifyElab
 
 open Lean Elab Command
