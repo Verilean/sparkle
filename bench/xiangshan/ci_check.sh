@@ -196,5 +196,31 @@ if [ -f "$DSL_FILE" ]; then
   echo "dsl-printable on the CI corpus: ${printable:-0}"
 fi
 
+# == phase 5: the Signal↔IR link (#verify_elab) ======================
+# Generates and kernel-checks, per demo circuit, that the elaborated
+# IR's register/output trace under the PROVEN evalExpr equals the
+# circuit's own Signal semantics.  The command aborts itself if any
+# generated proof smuggles in sorryAx, so grepping PROVEN is sound.
+ELAB_FILE=Tests/Verification/VerifyElabDemo.lean
+if [ -f "$ELAB_FILE" ]; then
+  echo "== phase 5: Signal ↔ IR (#verify_elab)"
+  lake build Sparkle Tools.VerifyElab > "$WORK/velab_build.log" 2>&1 || {
+    echo "FAIL: could not build the verify-elab import closure"
+    tail -5 "$WORK/velab_build.log" | sed 's/^/    /'
+    fail=1
+  }
+  if lake env lean "$ELAB_FILE" > "$WORK/verify_elab.log" 2>&1; then
+    vproven=$(grep -c 'PROVEN' "$WORK/verify_elab.log")
+    echo "verify-elab: $vproven circuits proven (axioms audited)"
+    if [ "$vproven" -lt 7 ]; then
+      echo "FAIL: verify-elab proved $vproven < 7 demo circuits"; fail=1
+    fi
+  else
+    echo "FAIL: #verify_elab demo did not close"
+    grep -m3 -E "error" "$WORK/verify_elab.log" | sed 's/^/    /'
+    fail=1
+  fi
+fi
+
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi
 echo "== XiangShan gate: OK (roundtrip ${wall}s, equiv $equiv_ok proven/$equiv_skip skipped)"
