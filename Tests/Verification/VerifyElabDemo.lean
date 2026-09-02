@@ -77,9 +77,54 @@ def twoReg (d : Signal defaultDomain (BitVec 4)) :
 
 #verify_elab twoReg
 
+/-- House-style statement-level `if` with a `Bool` input signal. -/
+def rstCnt (reset : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let cnt ← Signal.reg 0#8
+    if reset then
+      cnt <~ 0#8
+    else
+      cnt <~ cnt + 1#8
+    return cnt
+
+#verify_elab rstCnt
+
+/-- House-style `match` FSM. -/
+def fsm3 : Signal defaultDomain (BitVec 2) :=
+  circuit do
+    let state ← Signal.reg 0#2
+    match state with
+    | 0#2 => state <~ 1#2
+    | 1#2 => state <~ 2#2
+    | 2#2 => state <~ 0#2
+    | _   => state <~ 0#2
+    return state
+
+#verify_elab fsm3
+
+/-- Two registers under one statement-level `if`, both branches. -/
+def twoIf (reset : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let b ← Signal.reg 0#8
+    if reset then
+      a <~ 0#8
+      b <~ 0#8
+    else
+      a <~ a + 1#8
+      b <~ a
+    return b
+
+#verify_elab twoIf
+
 #print axioms accEn_elab_trace
 #print axioms cnt8_elab_trace
 #print axioms subEn_elab_trace
 #print axioms twoReg_elab_trace
+#print axioms rstCnt_elab_trace
+#print axioms fsm3_elab_trace
+#print axioms twoIf_elab_trace
 
 end Sparkle.Tests.VerifyElabDemo

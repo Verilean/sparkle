@@ -252,11 +252,24 @@ elab "#verify_elab" id:ident : command => do
   let thId := mkI s!"{base}_elab_trace"
   let paramIds : Array Ident :=
     (ins.map fun (n, _) => mkI (paramOf n)).toArray
-  let paramBinders ← ins.toArray.mapM fun (n, w) => do
-    let pid := mkI (paramOf n)
-    `(Lean.Parser.Term.bracketedBinderF| ($pid :
-      Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain
-        (BitVec $(quote w))))
+  -- binder types come from the DSL function's OWN signature (a module
+  -- input of width 1 may be `Signal … Bool`, not `Signal … (BitVec 1)`
+  -- — guessing from the IR width generated ill-typed statements)
+  let (paramTys, paramIsBool) ← liftTermElabM do
+    let info ← getConstInfo declName
+    Meta.forallTelescope info.type fun xs _ => do
+      let mut tys : Array Term := #[]
+      let mut bools : Array Bool := #[]
+      for x in xs do
+        let t ← Meta.inferType x
+        tys := tys.push (← Lean.PrettyPrinter.delab t)
+        bools := bools.push ((← Meta.whnf t).getAppArgs.any
+          fun a => a.isConstOf ``Bool)
+      pure (tys, bools)
+  if paramTys.size != ins.length then
+    throwError "#verify_elab: {paramTys.size} DSL parameters vs {ins.length} module inputs — unsupported shape"
+  let paramBinders ← (paramIds.zip paramTys).mapM fun (pid, ty) => do
+    `(Lean.Parser.Term.bracketedBinderF| ($pid : $ty))
   let appArgs : Array Term := paramIds.map fun p => ⟨p.raw⟩
   -- weM
   let weBody ← do
@@ -286,9 +299,14 @@ elab "#verify_elab" id:ident : command => do
   let trTy ← trTypeStx nRegs
   let envBody ← do
     let mut acc ← `((0 : Nat))
-    for (n, _) in ins.reverse do
+    for i in (List.range ins.length).reverse do
+      let (n, _) := ins[i]!
       let pid := mkI (paramOf n)
-      acc ← `(if n == $(quote n) then (($pid).val t).toNat else $acc)
+      let v ← if paramIsBool[i]! then
+          `(if ($pid).val t then 1 else 0)
+        else
+          `((($pid).val t).toNat)
+      acc ← `(if n == $(quote n) then $v else $acc)
     let sTerm : Term ← `(s)
     for i in (List.range nRegs).reverse do
       let (rn, _, _) := regs[i]!
