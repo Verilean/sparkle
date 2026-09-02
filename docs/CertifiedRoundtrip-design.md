@@ -145,7 +145,7 @@ census below is theorem-backed per item, not a heuristic tally.
 Roundtrip direction (Test 68):
 
 * **49 theorem-checked** (shipping output = well-ordered permutation of
-  the image), of which **46 fully inside the proven semantic fragment**
+  the image), of which **47 fully inside the proven semantic fragment**
   — `certified_body_trace` applies end to end.
 * 3 behind the optimizer (their reparse differs only by optimizer
   rewrites; equivalence is `#verify_emit`'s translation validation).
@@ -153,12 +153,13 @@ Roundtrip direction (Test 68):
 
 Forward direction (Test 72):
 
-* **1025 of 1026 assign RHSs** carry `emit_sem`.
-* **51 of 52 modules** have their entire combinational phase certified.
-* **51 of 52 modules** have a full certified cycle trace
-  (`certified_forward_trace` applies) — the two byte-strobe RMW
-  arrays entered when write ports moved to `payloadCheckC` and the
-  memory layer was reproven for payloads that read their own array.
+* **1026 of 1026 assign RHSs** carry `emit_sem`.
+* **52 of 52 modules** have their entire combinational phase certified.
+* **52 of 52 modules** have a full certified cycle trace
+  (`certified_forward_trace` applies) — TOTAL COVERAGE on this corpus.
+  The byte-strobe RMW arrays entered when write ports moved to
+  `payloadCheckC` and the memory layer was reproven for payloads that
+  read their own array; the CVT32 cone entered when bug #13 fell.
 
 Additional roundtrip quality: emit∘parse is an **IR fixpoint** from the
 second generation (Test 67) — three amplifier classes were found and
@@ -166,25 +167,24 @@ fixed to get there.
 
 ### The honest boundary
 
-What remains outside is characterized, not unexplained:
+Nothing on this corpus remains outside.  The section used to carry two
+characterized exclusions, and both are worth remembering for what they
+turned out to be:
 
-* One expression (CVT32ModuleS0): a 7-bit cone containing
-  `sub 0'7 x`, xored against a 32-bit constant.  Subtraction is not
-  carry-free, so the cone cannot be context-immune — `0 - x` is
-  `128 - x` at 7 bits and `2^32 - x` at 32.  A real divergence.
-* That is the ONLY remaining exclusion.  The two byte-strobe RMW
-  arrays, excluded through many revisions of this section, are in: the
-  `x << 32'd i` width mismatch that kept them out turned out to be
-  shipping bug #9 (the strobe lowering hardcoded the shift amount's
-  width instead of using the memory's), and what the "permanently
-  closed repairs" narrative had been protecting was a defect.  Their
-  write payloads — which READ the array being written — are certified
-  through the payload layer: `payloadCheckC` (fragment facts for the
-  stripped form and each extracted address, commutation of emission
-  with extraction, window-wide freshness of the `__memread_*`
-  placeholder names), `payload_agree` (the SV and IR payload
-  evaluations agree), and a memory-case proof that feeds
-  `emit_sem_writePortsP` entirely from the checker's verdict.
+* The two byte-strobe RMW arrays ("the `shl` width artifact, both
+  repairs closed") — shipping bug #9, a hardcoded shift-amount width in
+  the strobe lowering.
+* One expression in CVT32ModuleS0 ("a 7-bit cone containing
+  `sub 0'7 x`, xored against a 32-bit constant … a real divergence") —
+  shipping bug #13, a `~` whose narrowed mask silently kept its 32-bit
+  fallback because the width inference did not know the arithmetic
+  inside a lowered replication.  The "32-bit constant" in the exclusion
+  story WAS the defect, verbatim.
+
+Every permanent-exclusion narrative this document has carried was a
+defect wearing a boundary's clothes.  The operational lesson: when the
+proof refuses something the specification says must hold, establish
+which side is wrong before writing the story down.
 
 ## Shipping bugs found by the proof work
 
@@ -246,6 +246,15 @@ What remains outside is characterized, not unexplained:
    the corpus's byte-strobe shapes are dominated by full-width masks.
    Both payload evaluators now declare the widths of the names they
    invent (Test 75).
+13. `~` lowers to `x ^ 32'(-1)` with a post-pass narrowing the mask to
+   the operand's inferred width — and the inference did not know
+   arithmetic, which the replication lowering `{n{bit}}` =
+   `(0 - bit) & mask` contains.  So the mask under `~({7{b}})` silently
+   stayed 32 bits: `{3'h5, ~({7{x[0]}})}` computed 1023 where iverilog
+   computes 767, the NOT's phantom high ones landing where the concat
+   prefix belongs.  XiangShan's CVT32 has this exact shape with prefix
+   `3'h7` — all-ones — hiding the value error behind a width
+   disagreement that read like a proof limitation (Test 76).
 
 Bugs 2/4/7 share a blind spot: the co-sim gate only exercises the FIRST
 emission, never the second parse; only the IR metric (and now the
@@ -253,13 +262,14 @@ roundtrip checks) see reparse fidelity.  Bug 8 is a different blind
 spot: co-sim compares CSim against iverilog on the SAME shapes the
 corpus happens to contain, and the width-sensitive-consumer shapes were
 simply absent — it took a formal semantics disagreeing with both
-executables to surface it.  Bugs 9–12 sharpen the pattern: 9 and 12
+executables to surface it.  Bugs 9–13 sharpen the pattern: 9 and 12
 are width-bookkeeping errors whose VALUES were right on every shape
 any executable ever ran, and 10 and 11 are miscompiles of shapes the
-corpus simply lacks.  None of the four is reachable by testing the
-implementation against itself; each fell out of trying to prove a
-statement and refusing to accept "the proof doesn't cover this" until
-it was established WHICH side was wrong.
+corpus simply lacks.  (#13 combines both: a value error on shapes the corpus lacks, hidden
+on the shapes it has by an all-ones prefix.)  None of the five is
+reachable by testing the implementation against itself; each fell out
+of trying to prove a statement and refusing to accept "the proof
+doesn't cover this" until it was established WHICH side was wrong.
 
 Two IR width rules were also corrected, in `widthOf` and its CSim twin
 `inferExprWidth` together: a right shift is as wide as its VALUE (the
