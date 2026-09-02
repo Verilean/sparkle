@@ -351,6 +351,13 @@ lean_exe «sv-roundtrip» where
   root := `Tests.Drivers.SvRoundtripMain
   supportInterpreter := true
 
+-- Certified-trace census at production scale: which fraction of a
+-- corpus do the M4 theorems actually cover (same decidable checkers
+-- the capstones consume).
+lean_exe «sv-cert-census» where
+  root := `Tests.Drivers.SvCertCensusMain
+  supportInterpreter := true
+
 -- Phase-2 three-way co-sim: iverilog(original)=golden vs iverilog(roundtrip)
 -- vs Sparkle CSim JIT, over baked deterministic vectors.
 lean_exe «sv-cosim» where
