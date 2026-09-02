@@ -30,6 +30,10 @@ import Sparkle.Compiler.Elab
 import Sparkle.IR.Semantics
 import Tools.SVParser.VerifyEmit
 
+open Sparkle.Core Sparkle.Core.Signal in
+section
+open Sparkle.Core Sparkle.Core.Signal
+
 /-! ## The generic decomposition layer (proven once)
 
 `runCircuitH` hides its feedback loop in a local `let`, so nothing
@@ -46,8 +50,6 @@ one strong-induction lemma (`loop_trace`) reduces every per-circuit
 trace proof to a single step obligation that sees the loop only
 through an agreement hypothesis.  Validated by hand on a two-register
 circuit in scratch before this was written. -/
-
-namespace Sparkle.Core
 
 /-- The loop body `runCircuitH` feeds to `Sparkle.Core.Signal.Signal.loop`, as a named
     closed form over the circuit body. -/
@@ -117,7 +119,7 @@ theorem loop_trace_at {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} [Inha
     (Sparkle.Core.Signal.Signal.loop F).val t = trace t :=
   loop_trace F trace hstep t
 
-end Sparkle.Core
+end
 
 namespace Tools.VerifyElab
 
@@ -131,22 +133,77 @@ deriving instance ToExpr for Sparkle.IR.Type.DimExpr
 deriving instance ToExpr for Sparkle.IR.AST.Operator
 deriving instance ToExpr for Sparkle.IR.AST.Expr
 
-/-- Collect the module's single register: (name, inputExpr, init). -/
-def theRegister (m : Sparkle.IR.AST.Module) :
-    Except String (String × Sparkle.IR.AST.Expr × Int) := do
-  let regs := m.body.filterMap fun st => match st with
+/-- The module's registers, in body order — which is the loop-state
+    packing order (`packRegister` follows the HList left to right, and
+    the elaborator emits registers as declared). -/
+def theRegisters (m : Sparkle.IR.AST.Module) :
+    List (String × Sparkle.IR.AST.Expr × Int) :=
+  m.body.filterMap fun st => match st with
     | .register out _ _ input init => some (out, input, init)
     | _ => none
-  match regs with
-  | [r] => .ok r
-  | [] => .error "#verify_elab: no register in the module"
-  | _ => .error "#verify_elab v1: exactly one register supported"
 
 /-- Non-clock, non-reset inputs, elaborator order. -/
 def dataInputs (m : Sparkle.IR.AST.Module) : List (String × Nat) :=
   m.inputs.filterMap fun p =>
     if p.name == "clk" || p.name == "rst" then none
     else some (p.name, p.ty.bitWidth)
+
+/-- Right-nested tuple type of `n` copies of `Nat` (n ≥ 1). -/
+def trTypeStx : Nat → CommandElabM Term
+  | 0 => `(Unit)
+  | 1 => `(Nat)
+  | n+1 => do `(Nat × $(← trTypeStx n))
+
+/-- Projection of component `i` out of `n` (right-nested tuple). -/
+def projStx (s : Term) : Nat → Nat → CommandElabM Term
+  | _, 0 => pure s
+  | n, i+1 => do projStx (← `(($s).2)) (n-1) i
+
+def projAt (s : Term) (n i : Nat) : CommandElabM Term := do
+  let inner ← projStx s n i
+  if i + 1 == n then pure inner else `(($inner).1)
+
+/-- Resolve `slice (concat parts) hi lo` when the window falls exactly
+    on one part — the shape inlining through the loop wire's register
+    pack always produces.  Purely syntactic, part of goal generation
+    (same trust shape as `inlineCone`): the generated cone must simply
+    BE the register's input; without this, every cone that crosses the
+    pack drags `<<< ||| >>>` arithmetic into all downstream goals.
+    `wt` gives ref widths; the concat is MSB-first. -/
+partial def resolveSlicesW (wt : Std.HashMap String Nat) :
+    Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | .slice (.concat parts0) hi lo => Id.run do
+    -- flatten nested concats (the HList pack nests to the right)
+    let rec flatten : Sparkle.IR.AST.Expr → List Sparkle.IR.AST.Expr
+      | .concat ps => ps.flatMap flatten
+      | e => [e]
+    let parts := (parts0.flatMap flatten).map (resolveSlicesW wt)
+    let widthOfPart : Sparkle.IR.AST.Expr → Option Nat := fun e =>
+      match e with
+      | .const _ w => some w
+      | .ref n => wt.get? n
+      | .slice _ h l => some (h - l + 1)
+      | _ => none
+    -- compute each part's [lo, hi] window (LSB-based, list is MSB-first)
+    let some ws := parts.mapM widthOfPart | return .slice (.concat parts) hi lo
+    let total := ws.foldl (· + ·) 0
+    let mut acc := total
+    for (p, w) in parts.zip ws do
+      let pHi := acc - 1
+      let pLo := acc - w
+      if lo == pLo && hi == pHi then
+        return p
+      if pLo ≤ lo && hi ≤ pHi then
+        return .slice p (hi - pLo) (lo - pLo)
+      acc := acc - w
+    return .slice (.concat parts) hi lo
+  | .op o args => .op o (args.map (resolveSlicesW wt))
+  | .concat args => .concat (args.map (resolveSlicesW wt))
+  | .slice e hi lo =>
+    match resolveSlicesW wt e with
+    | .concat parts => resolveSlicesW wt (.slice (.concat parts) hi lo)
+    | e' => .slice e' hi lo
+  | e => e
 
 elab "#verify_elab" id:ident : command => do
   let declName ← liftTermElabM <|
@@ -155,23 +212,32 @@ elab "#verify_elab" id:ident : command => do
     (Sparkle.Compiler.Elab.synthesizeHierarchical declName)
   let m ← match design.modules with
     | [m] => pure m
-    | _ => throwError "#verify_elab v1: single-module designs only"
-  let (regName, regInput, regInit) ← match theRegister m with
-    | .ok r => pure r
-    | .error e => throwError e
+    | _ => throwError "#verify_elab: single-module designs only"
+  let regs := theRegisters m
+  if regs.isEmpty then
+    throwError "#verify_elab: no registers"
+  let nRegs := regs.length
   let ins := dataInputs m
-  -- widths: register + inputs
-  let wt := (widthTable m)
-  let regW := wt.getD regName 0
-  -- inline the register's next-state cone over {register} ∪ inputs
+  let wt := widthTable m
+  let regWs := regs.map fun (n, _, _) => wt.getD n 0
+  -- inline every register's cone AND the output cone over
+  -- {registers} ∪ inputs
   let stopAt : Std.HashMap String Bool :=
     (ins.foldl (fun (h : Std.HashMap String Bool) (n, _) =>
-      h.insert n true) {}).insert regName true
+      h.insert n true) {})
+    |> regs.foldl (fun h (n, _, _) => h.insert n true)
   let dm := buildDefMap m.body
-  let cone ← match inlineCone dm stopAt 10000 regInput with
-    | .ok c => pure c
-    | .error e => throwError "#verify_elab: {e}"
-  -- the DSL's parameter names, from `_gen_<param>` input names
+  let cones ← regs.mapM fun (n, input, _) => do
+    match inlineCone dm stopAt 10000 input with
+    | .ok c => pure (n, resolveSlicesW wt c)
+    | .error e => throwError "#verify_elab: cone of {n}: {e}"
+  let outName ← match m.outputs with
+    | [p] => pure p.name
+    | _ => throwError "#verify_elab: exactly one output supported"
+  let outCone ← match inlineCone dm stopAt 10000 (.ref outName) with
+    | .ok c => pure (resolveSlicesW wt c)
+    | .error e => throwError "#verify_elab: output cone: {e}"
+  -- names
   let paramOf (n : String) : String :=
     match n.dropPrefix? "_gen_" with
     | some sub => sub.toString
@@ -182,8 +248,8 @@ elab "#verify_elab" id:ident : command => do
   let weId := mkI s!"{base}_weM"
   let envId := mkI s!"{base}_envAt"
   let trId := mkI s!"{base}_irTrace"
+  let bndId := mkI s!"{base}_irTrace_bound"
   let thId := mkI s!"{base}_elab_trace"
-  -- binders for the DSL inputs
   let paramIds : Array Ident :=
     (ins.map fun (n, _) => mkI (paramOf n)).toArray
   let paramBinders ← ins.toArray.mapM fun (n, w) => do
@@ -191,101 +257,161 @@ elab "#verify_elab" id:ident : command => do
     `(Lean.Parser.Term.bracketedBinderF| ($pid :
       Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain
         (BitVec $(quote w))))
-  -- weM : widths of register and inputs
+  let appArgs : Array Term := paramIds.map fun p => ⟨p.raw⟩
+  -- weM
   let weBody ← do
     let mut acc ← `((0 : Nat))
-    for (n, w) in ((regName, regW) :: ins).reverse do
+    for (n, w) in ((regs.map fun r => (r.1, wt.getD r.1 0)) ++ ins).reverse do
       acc ← `(if n == $(quote n) then $(quote w) else $acc)
     pure acc
   elabCommand (← `(def $weId : Sparkle.IR.Semantics.WEnv :=
     fun n => $weBody))
-  -- envAt : register ↦ s, each input ↦ (x.val t).toNat
+  -- cone constants
+  let mut coneIds : Array Ident := #[]
+  for (n, c) in cones do
+    let cid := mkI s!"{base}_cone_{Sparkle.Backend.Verilog.sanitizeName n}"
+    liftCoreM <| addAndCompile <| .defnDecl {
+      name := cid.getId, levelParams := []
+      type := mkConst ``Sparkle.IR.AST.Expr
+      value := toExpr c, hints := .abbrev, safety := .safe }
+    liftCoreM <| Lean.enableRealizationsForConst cid.getId
+    coneIds := coneIds.push cid
+  let outConeId := mkI s!"{base}_cone_out"
+  liftCoreM <| addAndCompile <| .defnDecl {
+    name := outConeId.getId, levelParams := []
+    type := mkConst ``Sparkle.IR.AST.Expr
+    value := toExpr outCone, hints := .abbrev, safety := .safe }
+  liftCoreM <| Lean.enableRealizationsForConst outConeId.getId
+  -- envAt: registers ↦ projections of s, inputs ↦ toNat of signals
+  let trTy ← trTypeStx nRegs
   let envBody ← do
     let mut acc ← `((0 : Nat))
     for (n, _) in ins.reverse do
       let pid := mkI (paramOf n)
       acc ← `(if n == $(quote n) then (($pid).val t).toNat else $acc)
-    `(if n == $(quote regName) then s else $acc)
-  elabCommand (← `(def $envId $paramBinders* (s t : Nat) :
+    let sTerm : Term ← `(s)
+    for i in (List.range nRegs).reverse do
+      let (rn, _, _) := regs[i]!
+      let pj ← projAt sTerm nRegs i
+      acc ← `(if n == $(quote rn) then $pj else $acc)
+    pure acc
+  elabCommand (← `(def $envId $paramBinders* (s : $trTy) (t : Nat) :
       Sparkle.IR.Semantics.Env := fun n => $envBody))
-  -- the inlined cone, declared directly as a constant (ToExpr gives a
-  -- closed value; addDecl avoids the syntax round-trip)
-  let coneId := mkI s!"{base}_cone"
-  liftCoreM <| addAndCompile <| .defnDecl {
-    name := coneId.getId
-    levelParams := []
-    type := mkConst ``Sparkle.IR.AST.Expr
-    value := toExpr cone
-    hints := .abbrev
-    safety := .safe }
-  -- without this, `simp only [f_cone]` in generated (or user) proofs
-  -- dies with "enableRealizationsForConst must be called first"
-  liftCoreM <| Lean.enableRealizationsForConst coneId.getId
-  let coneT : Term := ⟨coneId.raw⟩
-  let appArgs : Array Term := paramIds.map fun p => ⟨p.raw⟩
-  elabCommand (← `(def $trId $paramBinders* : Nat → Nat
-    | 0 => $(quote regInit.toNat)
-    | t+1 => (Sparkle.IR.Semantics.evalExpr $weId
-        ($envId $appArgs* ($trId $appArgs* t) t) $coneT).getD 0))
-  -- ---- stage 2: the theorems --------------------------------------
-  -- the step form: VerifyEmit's reflector over the cone, refs as v_*
-  -- idents, beta-bound register-first-then-inputs
-  let stepBody ← denote wt cone
-  let vBinders ← ((regName, regW) :: ins).toArray.mapM fun (n, w) => do
-    `(Lean.Parser.Term.funBinder|
-      ($(varIdent n) : BitVec $(quote w)))
-  let fApp ← `(($(id) $appArgs*))
-  let stepArgs ← ((regName, regW) :: ins).toArray.mapM fun (n, _) => do
-    if n == regName then `((($fApp).val n))
-    else `((($(mkI (paramOf n))).val n))
-  let stepId := mkI s!"{base}_step'"
-  let zeroId := mkI s!"{base}_zero'"
-  let traceThId := mkI s!"{base}_elab_trace"
-  -- the tactic recipes, validated in Tests/Verification (prototype)
-  -- and scratch velab8 (fully generic form)
-  let recipeHead ← `(tactic|
-    (simp only [$id:ident, runCircuitH, Signal.loop, Signal.map];
-     rw [Signal.loopGo_eq];
-     simp [packRegister, Signal.register, Signal.mux, Signal.map,
-       bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap,
-       Signal.seq, Nat.lt_succ_iff]))
-  elabCommand (← `(private theorem $zeroId $paramBinders* :
-      ($fApp).val 0 = BitVec.ofNat $(quote regW) $(quote regInit.toNat)
-      := by $recipeHead:tactic))
-  elabCommand (← `(private theorem $stepId $paramBinders* (n : Nat) :
-      ($fApp).val (n+1)
-      = (fun $vBinders* => $stepBody) $stepArgs* := by
-    $recipeHead:tactic
-    simp only [HAdd.hAdd, HSub.hSub, HMul.hMul, HAnd.hAnd, HOr.hOr,
-      HXor.hXor, Functor.map, Seq.seq, Signal.ap, Signal.seq,
-      Signal.map]
-    repeat' split
-    all_goals (try simp_all)
-    all_goals (first | rfl | bv_decide)))
-  elabCommand (← `(theorem $traceThId $paramBinders* (t : Nat) :
-      $trId $appArgs* t = (($fApp).val t).toNat := by
+  -- irTrace
+  let initsTr ← do
+    let comps := regs.map fun (_, _, init) => init.toNat
+    let mut acc : Term ← `(($(quote comps.getLast!) : Nat))
+    for c in comps.dropLast.reverse do
+      acc ← `((($(quote c) : Nat), $acc))
+    pure acc
+  let stepTr ← do
+    let mut comps : Array Term := #[]
+    for cid in coneIds do
+      comps := comps.push (← `((Sparkle.IR.Semantics.evalExpr $weId
+        ($envId $appArgs* ($trId $appArgs* t) t) $cid).getD 0))
+    let mut acc : Term := comps.back!
+    for c in comps.pop.reverse do
+      acc ← `(($c, $acc))
+    pure acc
+  elabCommand (← `(def $trId $paramBinders* : Nat → $trTy
+    | 0 => $initsTr
+    | t+1 => $stepTr))
+  -- the bound: every component below its width
+  let boundBody ← do
+    let sTerm : Term ← `($trId $appArgs* t)
+    let mut conjs : Array Term := #[]
+    for i in List.range nRegs do
+      let pj ← projAt sTerm nRegs i
+      conjs := conjs.push (← `($pj < 2 ^ $(quote regWs[i]!)))
+    let mut acc : Term := conjs.back!
+    for c in conjs.pop.reverse do
+      acc ← `($c ∧ $acc)
+    pure acc
+  elabCommand (← `(theorem $bndId $paramBinders* (t : Nat) :
+      $boundBody := by
     induction t with
-    | zero => simp [$trId:ident, $zeroId:ident]
+    | zero => simp [$trId:ident]
     | succ n ih =>
-      rw [$trId:ident, ih]
-      unfold $envId:ident
-      simp only [$coneId:ident]
-      simp [Sparkle.IR.Semantics.evalExpr,
-        Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalOp,
-        Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.mask,
-        $weId:ident, Sparkle.IR.Semantics.widthOf]
-      rw [$stepId:ident]
-      simp only []
+      simp only [$trId:ident]
+      simp [$envId:ident, $weId:ident,
+        Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList,
+        Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.evalExpr.go,
+        Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.widthOf,
+        Sparkle.IR.Semantics.widthOf.go,
+        $[$coneIds:ident],*]
+      repeat' apply And.intro
+      all_goals (repeat' split)
+      all_goals (try simp_all)
+      all_goals (first | omega | bv_omega)))
+  -- the pack: fun (s : Nat) => the TRACE AT TIME s, components as
+  -- BitVecs, HList-shaped (Unit tail).  The first generated version
+  -- packed the time itself — `ofNat w s` — and every downstream goal
+  -- quietly compared traces against the clock.
+  let packBody ← do
+    let sTerm : Term ← `($trId $appArgs* s)
+    let mut acc : Term ← `(())
+    for i in (List.range nRegs).reverse do
+      let pj ← projAt sTerm nRegs i
+      acc ← `((BitVec.ofNat $(quote regWs[i]!) $pj, $acc))
+    pure acc
+  -- the theorem
+  elabCommand (← `(theorem $thId $paramBinders* (t : Nat) :
+      (($(id) $appArgs*).val t).toNat
+      = (Sparkle.IR.Semantics.evalExpr $weId
+          ($envId $appArgs* ($trId $appArgs* t) t) $outConeId).getD 0
+      := by
+    have hbT := $bndId $appArgs* t
+    simp only [$id:ident]
+    rw [runCircuitH_eq]
+    simp only [outFOf, mkHolds, Signal.map]
+    rw [loop_trace_at _ (fun s => $packBody) ?hstep]
+    case hstep =>
+      intro u pre hpre
+      cases u with
+      | zero =>
+        simp [loopFOf, packRegister, Signal.register, Circuit.next,
+          Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux,
+          bundle2,
+          Signal.pure, Functor.map, Seq.seq, Signal.ap, Signal.seq,
+          $trId:ident]
+      | succ n =>
+        have hb := $bndId $appArgs* n
+        -- stage 1: the Signal side down to BitVec exprs over pack
+        simp [loopFOf, packRegister, Signal.register, Circuit.next,
+          Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux,
+          bundle2,
+          Signal.pure, Functor.map, Seq.seq, Signal.ap, Signal.seq,
+          hpre n (Nat.lt_succ_self n), HAdd.hAdd, HSub.hSub, HMul.hMul,
+          HAnd.hAnd, HOr.hOr, HXor.hXor]
+        -- stage 2: the IR side, from tr's evalExpr to arithmetic
+        simp only [$trId:ident]
+        simp [$envId:ident, $weId:ident,
+          Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList,
+          Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.evalExpr.go,
+          Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.widthOf,
+        Sparkle.IR.Semantics.widthOf.go,
+          $[$coneIds:ident],*]
+        -- stage 3: components, branches, arithmetic
+        repeat' apply And.intro
+        all_goals (repeat' split)
+        all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
+          toNat_SubSub, BitVec.toNat_add,
+          BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat])
+        all_goals (first | rfl | bv_decide | bv_omega)
+    · simp [$envId:ident, $weId:ident, $outConeId:ident,
+        Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalList,
+        Sparkle.IR.Semantics.evalOp, Sparkle.IR.Semantics.evalExpr.go,
+        Sparkle.IR.Semantics.mask, Sparkle.IR.Semantics.widthOf,
+        Sparkle.IR.Semantics.widthOf.go,
+        BitVec.toNat_ofNat, BitVec.toNat_eq,
+        BitVec.extractLsb'_eq_extractLsb]
       repeat' split
-      all_goals (try simp_all [BitVec.toNat_eq,
-        BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_add])
+      all_goals (try simp_all)
       all_goals (first | rfl | bv_omega)))
-  -- the generated proofs recover failed tactics as `sorry`, so a
-  -- success log without an axiom check would lie — it did once, on the
-  -- first `sub` circuit, before this check existed
-  let axioms ← liftCoreM <| Lean.collectAxioms traceThId.getId
+  -- honesty check
+  let axioms ← liftCoreM <| Lean.collectAxioms thId.getId
   if axioms.contains ``sorryAx then
-    throwError "#verify_elab {id.getId}: a generated proof FAILED (the theorem depends on sorryAx) — see the errors above"
-  logInfo m!"#verify_elab {id.getId}: PROVEN — {traceThId.getId} (register {regName}, {ins.length} inputs; axioms clean)"
+    throwError "#verify_elab {declName}: a generated proof FAILED (the theorem depends on sorryAx) — see the errors above"
+  logInfo m!"#verify_elab {declName}: PROVEN — {thId.getId} ({nRegs} registers, {ins.length} inputs; axioms clean)"
 
 end Tools.VerifyElab

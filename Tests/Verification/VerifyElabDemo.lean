@@ -61,8 +61,25 @@ def subEn (en : Signal defaultDomain (BitVec 1))
 
 #verify_elab subEn
 
+/-- Two registers with a cross-register dependency (`b`'s next value
+    reads `a`'s current one) — the case v1 could not even STATE, since
+    the joint state lives in `runCircuitH`'s hidden loop.  Now handled
+    through the generic decomposition (`runCircuitH_eq` by `rfl` +
+    `loop_trace_at`, the loop lambda picked up by unification). -/
+def twoReg (d : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let a ← Signal.reg 0#4
+    let b ← Signal.reg 0#4
+    a <~ a + d
+    b <~ a
+    return b
+
+#verify_elab twoReg
+
 #print axioms accEn_elab_trace
 #print axioms cnt8_elab_trace
 #print axioms subEn_elab_trace
+#print axioms twoReg_elab_trace
 
 end Sparkle.Tests.VerifyElabDemo
