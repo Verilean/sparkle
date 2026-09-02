@@ -3702,6 +3702,42 @@ theorem weWithReads_agree_below {we : WEnv} {arr : String}
       exact ⟨j, by omega, hjn⟩
     rw [if_pos hyes, if_pos hkm]
 
+/-- Splice totality: succeeds when every address evaluates. -/
+theorem spliceReads_isSome {we : WEnv} {mems : MEnv} {env : Env}
+    {arr : String} {aw dw : Nat} :
+    ∀ (reads : List (String × Expr)) (acc : Env),
+      (∀ p ∈ reads, (evalExpr we env p.2).isSome) →
+      (spliceReads we mems env arr aw dw reads acc).isSome := by
+  intro reads
+  induction reads with
+  | nil => intro acc _; simp [spliceReads]
+  | cons p rest ih =>
+    intro acc h
+    obtain ⟨vi, hvi⟩ := Option.isSome_iff_exists.mp
+      (h p (List.mem_cons_self ..))
+    simp only [spliceReads, hvi, Option.bind_eq_bind, Option.bind_some]
+    exact ih _ (fun q hq => h q (List.mem_cons_of_mem _ hq))
+
+/-- A checked payload always evaluates.  Totality needs no width
+    bounds at all: the fragment's shapes are total in `evalExpr`, for
+    the addresses (hence the splice) and the stripped form alike. -/
+theorem payloadCheck_eval_isSome {wof : String → Option Nat} {we : WEnv}
+    {mems : MEnv} {env : Env} {arr : String} {aw dw w : Nat}
+    {e e' : Expr} {reads : List (String × Expr)} {k : Nat}
+    (hsplit : extractReads arr e 0 = (e', reads, k))
+    (h : payloadCheck wof we arr aw dw w e = true) :
+    (evalPayload we mems env arr aw dw e).isSome := by
+  obtain ⟨_, _, hfr, hreads, _⟩ := payloadCheck_parts hsplit h
+  have hsp := spliceReads_isSome (we := weWithReads we arr dw k)
+    (mems := mems) (env := env) (arr := arr) (aw := aw) (dw := dw)
+    reads env
+    (fun p hp => sf4_eval_isSome (sf4Check_sound (hreads p hp).2.2) env)
+  obtain ⟨spl, hspl⟩ := Option.isSome_iff_exists.mp hsp
+  unfold evalPayload
+  rw [hsplit]
+  simp only [hspl, Option.bind_eq_bind, Option.bind_some]
+  exact sf4_eval_isSome (sf4Check_sound hfr) spl
+
 /-- `emitWritePorts` is total when every port expression emits. -/
 theorem emitWritePorts_isSome {wof : String → Option Nat}
     (ports : List (Expr × Expr × Expr))
