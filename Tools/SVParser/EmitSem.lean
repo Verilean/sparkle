@@ -3022,6 +3022,18 @@ def payloadCheck (wof : String → Option Nat) (we : WEnv)
          idxFree p.2
            && (Sparkle.IR.Semantics.widthOf we' p.2 == aw)
            && sf4Check wof' we' p.2)
+    -- every placeholder name in the counter window must be FRESH:
+    -- undeclared in the module (a real signal literally named
+    -- `__memread_*` would alias the extractor's invention) and of
+    -- width 0 in the value environment, so `Bounded` pins the ambient
+    -- value there to 0.  Checked over the WHOLE window `[0, k)` rather
+    -- than over the collected reads, because the bounds lift to the
+    -- extended maps quantifies over every window name — this is what
+    -- lets downstream theorems discharge the placeholder-value side
+    -- condition with no extra hypothesis threaded through the stack.
+    && (List.range k).all (fun j =>
+         (wof s!"__memread_{arr}_{j}").isNone
+           && (we s!"__memread_{arr}_{j}" == 0))
 
 /- Structural equality on the emitted syntax.  `SVExpr`'s DERIVED
    `BEq` has no `LawfulBEq` instance and `DecidableEq` will not derive
@@ -3309,17 +3321,23 @@ theorem payloadCheck_parts {wof : String → Option Nat} {we : WEnv}
     ∧ sf4Check (wofWithReads wof arr dw k) (Sparkle.IR.Semantics.weWithReads we arr dw k) e'
         = true
     -- addresses in the EXTENDED maps, where `hpair` consumes them
-    ∧ ∀ p ∈ reads, idxFree p.2 = true
+    ∧ (∀ p ∈ reads, idxFree p.2 = true
         ∧ Sparkle.IR.Semantics.widthOf (Sparkle.IR.Semantics.weWithReads we arr dw k) p.2 = aw
         ∧ sf4Check (wofWithReads wof arr dw k)
-            (Sparkle.IR.Semantics.weWithReads we arr dw k) p.2 = true := by
+            (Sparkle.IR.Semantics.weWithReads we arr dw k) p.2 = true)
+    -- window-wide freshness of the placeholder names
+    ∧ ∀ j < k, wof s!"__memread_{arr}_{j}" = none
+        ∧ we s!"__memread_{arr}_{j}" = 0 := by
   rw [payloadCheck, hsplit] at h
-  simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true] at h
-  obtain ⟨⟨⟨hidx, hw⟩, hfr⟩, hreads⟩ := h
-  refine ⟨hidx, hw, hfr, ?_⟩
-  intro p hp
-  have hp2 := hreads p hp
-  exact ⟨hp2.1.1, hp2.1.2, hp2.2⟩
+  simp only [Bool.and_eq_true, beq_iff_eq, List.all_eq_true,
+    Option.isNone_iff_eq_none, List.mem_range] at h
+  obtain ⟨⟨⟨⟨hidx, hw⟩, hfr⟩, hreads⟩, hfresh⟩ := h
+  refine ⟨hidx, hw, hfr, ?_, ?_⟩
+  · intro p hp
+    have hp2 := hreads p hp
+    exact ⟨hp2.1.1, hp2.1.2, hp2.2⟩
+  · intro j hj
+    exact hfresh j hj
 
 /-- An extracted address's emission computes its IR value at the
     address width — `emit_sem_evalSV` under the placeholder-extended
@@ -3494,7 +3512,7 @@ theorem payloadCheckC_agree {wof : String → Option Nat} {we : WEnv}
   rw [payloadCheckC] at h
   simp only [Bool.and_eq_true] at h
   obtain ⟨hpc, hcomm⟩ := h
-  obtain ⟨hidx, hwstrip, hfrstrip, hreads⟩ :=
+  obtain ⟨hidx, hwstrip, hfrstrip, hreads, hfresh⟩ :=
     payloadCheck_parts hsplit hpc
   -- the commutation half, decoded
   rw [hsplit] at hcomm
