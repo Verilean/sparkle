@@ -2901,16 +2901,19 @@ endmodule"
                   if Tools.SVParser.EmitSem.sf4Check wof we r then
                     ok := ok + 1
                 | _ => pure ()
-      if ok == 1025 && total == 1026 && mok == 51 && tok == 49
+      -- trace pin moved 49 → 51: the byte-strobe RMW arrays entered
+      -- the fragment once write ports went through `payloadCheckC`
+      -- (and the memory-case theorem was reproven for payloads).
+      if ok == 1025 && total == 1026 && mok == 51 && tok == 51
           && mtotal == 52 then
         IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} combinational phases; {tok}/{mtotal} full cycle traces)"
         passed := passed + 1
-      else if ok ≥ 1025 && total == 1026 && mok ≥ 51 && tok ≥ 49
+      else if ok ≥ 1025 && total == 1026 && mok ≥ 51 && tok ≥ 51
           && mtotal == 52 then
         IO.println s!"PASS ({ok}/{total}, comb {mok}, trace {tok} of {mtotal} — fragment GREW past the pin; update the pin)"
         passed := passed + 1
       else
-        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1025/1026), comb {mok} (want ≥ 51), trace {tok} (want ≥ 49) of {mtotal}"
+        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1025/1026), comb {mok} (want ≥ 51), trace {tok} (want ≥ 51) of {mtotal}"
         failed := failed + 1
     else
       IO.println "SKIP (corpus not present)"

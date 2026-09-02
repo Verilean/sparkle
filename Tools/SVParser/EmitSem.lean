@@ -3477,6 +3477,24 @@ theorem zip_all_index {α β : Type} (l : List α) (l' : List β)
   simp only [List.all_eq_true] at h
   exact h _ hmem
 
+/-- A passing `payloadCheckC` verdict contains the whole payload's
+    emission: its commutation half is a `match` on exactly that, and
+    every non-`some` arm is `false`. -/
+theorem payloadCheckC_emit_isSome {wof : String → Option Nat} {we : WEnv}
+    {arr : String} {aw dw w : Nat} {e : Expr}
+    (h : payloadCheckC wof we arr aw dw w e = true) :
+    (Tools.SVParser.EmitAst.emitAstExpr wof e).isSome := by
+  rw [payloadCheckC] at h
+  obtain ⟨-, hcomm⟩ := Bool.and_eq_true _ _ |>.mp h
+  cases hE : Tools.SVParser.EmitAst.emitAstExpr wof e with
+  | some _ => rfl
+  | none =>
+    rw [hE] at hcomm
+    revert hcomm
+    cases Tools.SVParser.EmitAst.emitAstExpr
+        (wofWithReads wof arr dw (extractReads arr e 0).2.2)
+        (extractReads arr e 0).1 <;> simp
+
 /-- **The checker's verdict yields the payload agreement.**  Every
     hypothesis of `payload_agree` now comes from `payloadCheckC` plus
     the ambient width bounds: the syntactic ones directly (via `eqSV`,
@@ -3491,19 +3509,49 @@ theorem payloadCheckC_agree {wof : String → Option Nat} {we : WEnv}
     {mems : MEnv} {env : Env} {arr : String} {aw dw w : Nat} {e : Expr}
     {e' : Expr} {readsIR : List (String × Expr)} {k : Nat}
     (hsplit : extractReads arr e 0 = (e', readsIR, k))
-    -- the placeholder facts `extractReads` guarantees
-    (hph : ∀ p ∈ readsIR, Sparkle.IR.Semantics.weWithReads we arr dw k p.1 = dw
-      ∧ wofWithReads wof arr dw k p.1 = some dw)
     (hbe : Bounded we env)
     (hbw : ∀ n wn, wof n = some wn → env n < 2 ^ wn)
-    -- the environment holds a dw-fitting value at each placeholder
-    -- name (synthetic names, so 0 in any real environment)
-    (hphv : ∀ n, (List.range k).any
-        (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw)
     (h : payloadCheckC wof we arr aw dw w e = true) :
     ∀ sv, Tools.SVParser.EmitAst.emitAstExpr wof e = some sv →
       evalPayloadSV wof mems env arr aw dw w sv
         = evalPayload we mems env arr aw dw e := by
+  -- The placeholder facts are no longer the caller's burden: the
+  -- checker verifies window-wide freshness, and `extractReads_names`
+  -- pins every read's name inside the window, so both derive here.
+  have hfreshW : ∀ j < k, wof s!"__memread_{arr}_{j}" = none
+      ∧ we s!"__memread_{arr}_{j}" = 0 := by
+    have hpc : payloadCheck wof we arr aw dw w e = true := by
+      rw [payloadCheckC] at h
+      exact (Bool.and_eq_true _ _ |>.mp h).1
+    exact (payloadCheck_parts hsplit hpc).2.2.2.2
+  have hphv : ∀ n, (List.range k).any
+      (fun j => n == s!"__memread_{arr}_{j}") → env n < 2 ^ dw := by
+    intro n hn
+    simp only [List.any_eq_true, List.mem_range, beq_iff_eq] at hn
+    obtain ⟨j, hj, hnj⟩ := hn
+    subst hnj
+    have hwe0 := (hfreshW j hj).2
+    have := hbe s!"__memread_{arr}_{j}"
+    rw [hwe0] at this
+    have h0 : env s!"__memread_{arr}_{j}" = 0 := by omega
+    rw [h0]
+    exact Nat.two_pow_pos dw
+  have hph : ∀ p ∈ readsIR,
+      Sparkle.IR.Semantics.weWithReads we arr dw k p.1 = dw
+      ∧ wofWithReads wof arr dw k p.1 = some dw := by
+    intro p hp
+    obtain ⟨j, _, hjk, hname⟩ :=
+      Sparkle.IR.Semantics.extractReads_names e 0 p (by rw [hsplit]; exact hp)
+    rw [hsplit] at hjk
+    have hwin : (List.range k).any
+        (fun j' => p.1 == s!"__memread_{arr}_{j'}") = true := by
+      simp only [List.any_eq_true, List.mem_range, beq_iff_eq]
+      exact ⟨j, hjk, hname⟩
+    constructor
+    · unfold Sparkle.IR.Semantics.weWithReads
+      rw [if_pos hwin]
+    · unfold wofWithReads
+      rw [if_pos hwin]
   intro sv hsv
   -- lift the bounds to the extended maps (once, up front)
   have hbeX := bounded_withReads (arr := arr) (dw := dw) (k := k) hbe hphv
@@ -3756,6 +3804,39 @@ theorem emitWritePorts_isSome {wof : String → Option Nat}
     obtain ⟨others, hoth⟩ := Option.isSome_iff_exists.mp
       (ih (fun q hq => h q (List.mem_cons_of_mem _ hq)))
     simp [emitWritePorts, hsa, hsd, hse, hoth]
+
+/-- A successful port-list emission pairs the lists element for
+    element, so in particular the lengths agree — with no side
+    hypotheses, unlike the earlier `ports_agree`. -/
+theorem emitWritePorts_length {wof : String → Option Nat} :
+    ∀ (ports : List (Expr × Expr × Expr))
+      (svports : List (SVExpr × SVExpr × SVExpr)),
+      emitWritePorts wof ports = some svports →
+      ports.length = svports.length := by
+  intro ports
+  induction ports with
+  | nil =>
+    intro svports hemit
+    simp only [emitWritePorts, Option.some_inj] at hemit
+    subst hemit; rfl
+  | cons p rest ih =>
+    intro svports hemit
+    simp only [emitWritePorts, Option.bind_eq_bind] at hemit
+    obtain ⟨sa, _, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨sd, _, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨se, _, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    obtain ⟨others, hoth, hemit⟩ := Option.bind_eq_some_iff.mp hemit
+    simp only [Option.some_inj] at hemit
+    subst hemit
+    simp [ih others hoth]
+
+/-- The syntactic half of `payloadCheckC` is `payloadCheck`. -/
+theorem payloadCheckC_pc {wof : String → Option Nat} {we : WEnv}
+    {arr : String} {aw dw w : Nat} {e : Expr}
+    (h : payloadCheckC wof we arr aw dw w e = true) :
+    payloadCheck wof we arr aw dw w e = true := by
+  rw [payloadCheckC] at h
+  exact (Bool.and_eq_true _ _ |>.mp h).1
 
 /-- `memWritePorts` is total when every payload evaluates. -/
 theorem memWritePorts_isSome {we : WEnv} {mems0 : MEnv} {env : Env}
@@ -4147,11 +4228,15 @@ def seqCheck (wof : String → Option Nat) (we : WEnv) :
   -- a combinationally-read memory: read ports feed the combinational
   -- phase, write ports the sequential one (sync-read memories latch
   -- into register-like state, which is the next layer)
-  | .memory _ aw dw _ wa wd wen ra rd cr ew er :: rest =>
+  | .memory nm aw dw _ wa wd wen ra rd cr ew er :: rest =>
     cr && readPortsCheck wof we aw dw ((ra, rd) :: er)
+      -- write ports through `payloadCheckC`: admits a value that READS
+      -- the array being written (byte-strobe RMW), and verifies
+      -- everything `payloadCheckC_agree` needs
       && (((wa, wd, wen) :: ew).all fun p =>
-            portCheck wof we aw p.1 && portCheck wof we dw p.2.1
-              && portCheck wof we 1 p.2.2)
+            payloadCheckC wof we nm aw dw aw p.1
+              && payloadCheckC wof we nm aw dw dw p.2.1
+              && payloadCheckC wof we nm aw dw 1 p.2.2)
       && seqCheck wof we rest
   | .inst _ _ _ :: rest => seqCheck wof we rest
 
@@ -4201,7 +4286,8 @@ def memNextsSV (wof : String → Option Nat) :
     Sparkle.IR.Semantics.MEnv → SEnv → Option Sparkle.IR.Semantics.MEnv
   | [], mems, _ => some mems
   | (name, aw, dw, ports) :: rest, mems, env => do
-    let mems' ← memWritePortsSV wof env name aw dw ports mems
+    -- payload form: each port reads the PRE-write state, like the IR
+    let mems' ← memWritePortsSVP wof mems env name aw dw ports mems
     memNextsSV wof rest mems' env
 
 set_option maxHeartbeats 800000 in
@@ -4235,9 +4321,50 @@ theorem emit_sem_memNexts {wof : String → Option Nat} {we : WEnv} :
     | memory nm aw dw clk wa wd wen ra rd cr ew er =>
       simp only [seqCheck, Bool.and_eq_true] at hchk
       obtain ⟨⟨⟨_, _⟩, hwp⟩, hrest⟩ := hchk
-      obtain ⟨svports, m1, hemitW, hIRW, hSVW⟩ :=
-        emit_sem_writePorts mems nm aw dw ((wa, wd, wen) :: ew) env mems
-          hwp hbe hbw
+      simp only [List.all_eq_true, Bool.and_eq_true] at hwp
+      -- the port list emits (each operand's emission is inside its
+      -- passing check)
+      obtain ⟨svports, hemitW⟩ := Option.isSome_iff_exists.mp
+        (emitWritePorts_isSome ((wa, wd, wen) :: ew) (fun p hp =>
+          ⟨payloadCheckC_emit_isSome (hwp p hp).1.1,
+           payloadCheckC_emit_isSome (hwp p hp).1.2,
+           payloadCheckC_emit_isSome (hwp p hp).2⟩))
+      -- the IR fold succeeds (checked payloads always evaluate)
+      obtain ⟨m1, hIRW⟩ := Option.isSome_iff_exists.mp
+        (memWritePorts_isSome (we := we) (mems0 := mems) (env := env)
+          (name := nm) (aw := aw) (dw := dw)
+          ((wa, wd, wen) :: ew) (fun p hp => by
+          rcases hs1 : Sparkle.IR.Semantics.extractReads nm p.1 0
+            with ⟨e1, r1, k1⟩
+          rcases hs2 : Sparkle.IR.Semantics.extractReads nm p.2.1 0
+            with ⟨e2, r2, k2⟩
+          rcases hs3 : Sparkle.IR.Semantics.extractReads nm p.2.2 0
+            with ⟨e3, r3, k3⟩
+          exact ⟨payloadCheck_eval_isSome hs1 (payloadCheckC_pc (hwp p hp).1.1),
+                 payloadCheck_eval_isSome hs2 (payloadCheckC_pc (hwp p hp).1.2),
+                 payloadCheck_eval_isSome hs3 (payloadCheckC_pc (hwp p hp).2)⟩)
+          mems)
+      -- the two folds agree, port by port, from the checker's verdict
+      have hagree := emit_sem_writePortsP mems nm aw dw
+        ((wa, wd, wen) :: ew) svports env mems hemitW
+        (emitWritePorts_length _ _ hemitW)
+        (fun i hi hj => by
+          obtain ⟨hE1, hE2, hE3⟩ :=
+            ports_agree_idx (mems0 := mems) (name := nm) (aw := aw)
+              (dw := dw) hbe hbw ((wa, wd, wen) :: ew) svports
+              hemitW i hi hj
+          have hp := hwp _ (List.getElem_mem hi)
+          rcases hs1 : Sparkle.IR.Semantics.extractReads nm
+              (((wa, wd, wen) :: ew)[i]'hi).1 0 with ⟨e1, r1, k1⟩
+          rcases hs2 : Sparkle.IR.Semantics.extractReads nm
+              (((wa, wd, wen) :: ew)[i]'hi).2.1 0 with ⟨e2, r2, k2⟩
+          rcases hs3 : Sparkle.IR.Semantics.extractReads nm
+              (((wa, wd, wen) :: ew)[i]'hi).2.2 0 with ⟨e3, r3, k3⟩
+          exact ⟨payloadCheckC_agree hs1 hbe hbw hp.1.1 _ hE1,
+                 payloadCheckC_agree hs2 hbe hbw hp.1.2 _ hE2,
+                 payloadCheckC_agree hs3 hbe hbw hp.2 _ hE3⟩)
+      have hSVW : memWritePortsSVP wof mems env nm aw dw svports mems
+          = some m1 := by rw [hagree]; exact hIRW
       obtain ⟨prog, mems', hemit, hIR, hSV⟩ := ih m1 env hrest hbe hbw
       refine ⟨(nm, aw, dw, svports) :: prog, mems', ?_, ?_, ?_⟩
       · simp [emitMemWrites, hemitW, hemit]
