@@ -248,6 +248,10 @@ lean_lib «IP.Control» where
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
 
+-- `#verify_elab` — the Signal↔IR link (see Tools/VerifyElab.lean)
+lean_lib «Tools.VerifyElab» where
+  roots := #[`Tools.VerifyElab]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
