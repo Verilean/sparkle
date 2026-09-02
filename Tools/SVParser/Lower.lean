@@ -1826,11 +1826,18 @@ private def exprWidthForNarrow (env : LowerEnv) : Expr → Option Nat
     -- Comparison/reduction-shaped results are 1-bit by construction.
     match op with
     | .eq | .lt_u | .lt_s | .le_u | .le_s | .gt_u | .gt_s | .ge_u | .ge_s => some 1
-    | .and | .or | .xor | .not =>
-      -- Bitwise ops: result width = max operand width (Verilog
-      -- context-determined sizing).  Needed so `~(valid & issue)` on
+    | .and | .or | .xor | .not | .add | .sub | .mul =>
+      -- Bitwise AND arithmetic ops: result width = max operand width
+      -- (Verilog context-determined sizing; the IR's `widthOf` uses the
+      -- same max rule for these).  Needed so `~(valid & issue)` on
       -- 1-bit wires narrows its all-ones mask too, not just `~ref`
-      -- (XiangShan ICacheMshr.io_wfi_wfiSafe).  Recursion is safe:
+      -- (XiangShan ICacheMshr.io_wfi_wfiSafe).  Arithmetic joined the
+      -- list for the replication lowering `{n{bit}}` = `(0 - bit) &
+      -- mask`: the `sub` made the inference fail, so a `~` above such
+      -- a shape SILENTLY kept its 32-bit all-ones — `{3'h5, ~({7{b}})}`
+      -- put the NOT's phantom high bits where the concat prefix
+      -- belongs (bug #13; XiangShan's CVT32 masked it because its
+      -- prefix 3'h7 happens to be all-ones too).  Recursion is safe:
       -- `narrowMaskConstants` rewrites innermost masks first.
       args.foldl (fun acc a =>
         match acc, exprWidthForNarrow env a with

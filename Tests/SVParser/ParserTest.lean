@@ -2901,19 +2901,21 @@ endmodule"
                   if Tools.SVParser.EmitSem.sf4Check wof we r then
                     ok := ok + 1
                 | _ => pure ()
-      -- trace pin moved 49 → 51: the byte-strobe RMW arrays entered
-      -- the fragment once write ports went through `payloadCheckC`
-      -- (and the memory-case theorem was reproven for payloads).
-      if ok == 1025 && total == 1026 && mok == 51 && tok == 51
+      -- trace pin history: 49 → 51 (byte-strobe RMW arrays entered
+      -- via payloadCheckC) → 52 (bug #13: the CVT32 cone's ~ mask kept
+      -- its 32-bit fallback over a replication, and the "genuinely
+      -- divergent sub cone" was that defect, not a boundary).  TOTAL
+      -- coverage: every corpus module has a certified cycle trace.
+      if ok == 1026 && total == 1026 && mok == 52 && tok == 52
           && mtotal == 52 then
         IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} combinational phases; {tok}/{mtotal} full cycle traces)"
         passed := passed + 1
-      else if ok ≥ 1025 && total == 1026 && mok ≥ 51 && tok ≥ 51
+      else if ok ≥ 1026 && total == 1026 && mok ≥ 52 && tok ≥ 52
           && mtotal == 52 then
         IO.println s!"PASS ({ok}/{total}, comb {mok}, trace {tok} of {mtotal} — fragment GREW past the pin; update the pin)"
         passed := passed + 1
       else
-        IO.println s!"FAIL: exprs {ok}/{total} (want ≥ 1025/1026), comb {mok} (want ≥ 51), trace {tok} (want ≥ 51) of {mtotal}"
+        IO.println s!"FAIL: exprs {ok}/{total} (want 1026/1026), comb {mok} (want 52), trace {tok} (want 52) of {mtotal}"
         failed := failed + 1
     else
       IO.println "SKIP (corpus not present)"
@@ -3036,6 +3038,43 @@ endmodule"
   else
     IO.println s!"FAIL: got {r75}, want some 10"
     failed := failed + 1
+
+  -- Test 76 (shipping bug #13): `~` lowers to `x ^ 32'(-1)` and a
+  -- post-pass narrows the mask to x's inferred width — but the
+  -- inference did not know arithmetic, and the replication lowering
+  -- `{n{bit}}` = `(0 - bit) & mask` contains a `sub`.  So the mask
+  -- under `~({7{b}})` SILENTLY stayed 32 bits wide and
+  -- `{3'h5, ~({7{x[0]}})}` read the NOT's phantom high ones where the
+  -- concat prefix belongs: 1023 where iverilog computes 767.
+  -- (XiangShan's CVT32 had exactly this shape with prefix 3'h7 — all
+  -- ones — which masked the value error and left only the width
+  -- disagreement the M4 fragment refused.)
+  IO.print "  Test 76: NOT over replication keeps its width... "
+  let notVerilog := "module t(input [6:0] x, output [9:0] y);
+  assign y = {3'h5, ~({7{x[0]}})};
+endmodule"
+  match parseAndLower notVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m76 =>
+      let wof := Tools.SVParser.RoundtripProof.moduleWof m76
+      let we := Tools.SVParser.EmitSem.weOf wof
+      let mut got : Option Nat := none
+      for st in m76.body do
+        match st with
+        | .assign l r =>
+          if l == "y" then
+            let env : Sparkle.IR.Semantics.Env := fun _ => 0
+            got := Sparkle.IR.Semantics.evalExpr we env r
+        | _ => pure ()
+      if got == some 767 then
+        IO.println "PASS (767, matches iverilog)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: got {got}, want some 767"
+        failed := failed + 1
 
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
