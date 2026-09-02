@@ -155,8 +155,10 @@ Forward direction (Test 72):
 
 * **1025 of 1026 assign RHSs** carry `emit_sem`.
 * **51 of 52 modules** have their entire combinational phase certified.
-* **49 of 52 modules** have a full certified cycle trace
-  (`certified_forward_trace` applies).
+* **51 of 52 modules** have a full certified cycle trace
+  (`certified_forward_trace` applies) — the two byte-strobe RMW
+  arrays entered when write ports moved to `payloadCheckC` and the
+  memory layer was reproven for payloads that read their own array.
 
 Additional roundtrip quality: emit∘parse is an **IR fixpoint** from the
 second generation (Test 67) — three amplifier classes were found and
@@ -170,21 +172,19 @@ What remains outside is characterized, not unexplained:
   `sub 0'7 x`, xored against a 32-bit constant.  Subtraction is not
   carry-free, so the cone cannot be context-immune — `0 - x` is
   `128 - x` at 7 bits and `2^32 - x` at 32.  A real divergence.
-* Two byte-strobe RMW arrays: their payloads contain
-  `wdata[i] << 32'd i` — a 1-bit value shifted by a 32-bit literal.
-  Checked against iverilog, the VALUES agree at every context width;
-  only the width bookkeeping differs (IR width 32 by the max rule,
-  emission width 1 by Verilog's self-determined rule).  Both repairs
-  were attempted and both are closed: making `widthOf` of `shl` match
-  CSim's `width a + k` breaks `roundtrip_sem`'s congruence (the rule
-  reads the literal's VALUE, and roundtrip replaces operands with
-  equivalent-but-different ones), and weakening `emit_sem`'s width
-  invariant to an inequality kills the immunity bridge, which needs
-  the exact width.  A width-INDEXED `emit_sem`
-  (`∀ W ≥ widthOf, evalAt W = mask W ∘ evalExpr`) would dissolve it,
-  at the cost of restructuring the M4 stack.
-  The RMW machinery itself (`extractReadsSV`, `spliceReadsSV`,
-  `evalPayloadSV`, `wofWithReads`) is built and waiting behind this.
+* That is the ONLY remaining exclusion.  The two byte-strobe RMW
+  arrays, excluded through many revisions of this section, are in: the
+  `x << 32'd i` width mismatch that kept them out turned out to be
+  shipping bug #9 (the strobe lowering hardcoded the shift amount's
+  width instead of using the memory's), and what the "permanently
+  closed repairs" narrative had been protecting was a defect.  Their
+  write payloads — which READ the array being written — are certified
+  through the payload layer: `payloadCheckC` (fragment facts for the
+  stripped form and each extracted address, commutation of emission
+  with extraction, window-wide freshness of the `__memread_*`
+  placeholder names), `payload_agree` (the SV and IR payload
+  evaluations agree), and a memory-case proof that feeds
+  `emit_sem_writePortsP` entirely from the checker's verdict.
 
 ## Shipping bugs found by the proof work
 
@@ -215,13 +215,51 @@ What remains outside is characterized, not unexplained:
    `exprIsMasked` split into store/operand positions.  The CUDA
    backends inherit the fix — device code IS CSim.
 
+9. The byte-strobe lowering declared every shift amount at 32 bits.
+   A shift's IR width is the max of its operands, so the assembled
+   write value for a 10-bit memory measured 32 bits — width bookkeeping
+   only (Verilog treats shift counts as self-determined), which is why
+   no executable ever disagreed.  Found because the M4 fragment
+   REFUSED the payload and the width disagreement was pressed as a bug
+   rather than accepted as a proof limitation.
+10. A blocking write to a bit range inside `always @(posedge)` —
+   `q[35] = d; q[3] = d;` — lowered to `assign q = d`: the scatter
+   gone, a 1-bit driver on a 40-bit target, and the CLOCK gone.
+   `exprToName` answers `q` for `q[35]`.  Fixed by refusing bit-range
+   LHSs in the whole-signal collectors and merging them as a
+   read-modify-write at the target's declared width (iverilog-pinned,
+   Test 73).
+11. A concat-LHS write with fields above bit 31 —
+   `{q[103:96], q[7:0]} <= {a, b}` — pinned its scatter at 32 bits, so
+   the high field was shifted out entirely; the multi-variable path had
+   the same defect one size up (a 64-bit inverse mask CLEARING
+   everything above bit 63 on a 128-bit signal).  Both concat-LHS
+   paths now work at a width covering the highest bit written
+   (iverilog-pinned, Test 74).
+12. The REFERENCE SEMANTICS itself: `evalPayload` resolved a payload's
+   own-array reads into invented `__memread_*` placeholders and then
+   evaluated them under the caller's plain `we`, where undeclared
+   names default to width 0.  An arithmetic read-modify-write
+   `Mem[a] <= Mem[a] + Mem[a]` on a 10-bit memory computed 0 where
+   Verilog computes 10 — the sum masked by `2^0`.  Every green signal
+   (census, co-sim, 41 equivalence proofs) sat on top of it, because
+   the corpus's byte-strobe shapes are dominated by full-width masks.
+   Both payload evaluators now declare the widths of the names they
+   invent (Test 75).
+
 Bugs 2/4/7 share a blind spot: the co-sim gate only exercises the FIRST
 emission, never the second parse; only the IR metric (and now the
 roundtrip checks) see reparse fidelity.  Bug 8 is a different blind
 spot: co-sim compares CSim against iverilog on the SAME shapes the
 corpus happens to contain, and the width-sensitive-consumer shapes were
 simply absent — it took a formal semantics disagreeing with both
-executables to surface it.
+executables to surface it.  Bugs 9–12 sharpen the pattern: 9 and 12
+are width-bookkeeping errors whose VALUES were right on every shape
+any executable ever ran, and 10 and 11 are miscompiles of shapes the
+corpus simply lacks.  None of the four is reachable by testing the
+implementation against itself; each fell out of trying to prove a
+statement and refusing to accept "the proof doesn't cover this" until
+it was established WHICH side was wrong.
 
 Two IR width rules were also corrected, in `widthOf` and its CSim twin
 `inferExprWidth` together: a right shift is as wide as its VALUE (the
@@ -238,13 +276,9 @@ the oleans at no cost.
 
 ## Future work
 
-* Read-modify-write memory payloads: the SV-side machinery is built
-  (`extractReadsSV`/`spliceReadsSV`/`evalPayloadSV`, and
-  `wofWithReads` to give the `__memread_*` placeholders a width).  It
-  is blocked only by the `shl` width artifact above, not by the RMW
-  modeling.
-* A width-indexed `emit_sem`, which would dissolve that artifact and
-  is the principled fix rather than a patch.
+* A width-indexed `emit_sem` (`∀ W ≥ widthOf, evalAt W = mask W ∘
+  evalExpr`) remains the principled generalization of the immunity
+  machinery, though nothing currently outside the fragment needs it.
 * Closed hierarchical semantics (state trees or a verified flatten) —
   today instances are open-module no-ops and composition is covered
   dynamically by the hierarchical co-sim.
