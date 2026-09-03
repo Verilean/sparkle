@@ -722,6 +722,38 @@ elab "#verify_elab_deep" id:ident : command => do
   elabCommand (← `(def $nmId :
       Fin (($ΓrT ++ $ΓiT : List Nat).length) → String := fun i =>
     match i with $nmArms:matchAlt*))
+  -- FIDELITY: the compiled reification IS the elaborated cone, by
+  -- kernel rfl per register and for the output.  This is the
+  -- roundtrip leg: without it the capstone theorem talks about
+  -- `compile (toCExpr cone)`, an intended-identical but unverified
+  -- twin of the elaborator's actual IR.  With it, the IR side of the
+  -- generated theorem is literally the module's (inlined,
+  -- slice-resolved) cone, so the Signal↔IR result composes with the
+  -- IR↔Verilog theorems (roundtrip_sem / emit_sem) on the same
+  -- expressions.  toCExpr's few normalizations (n-ary concat →
+  -- nested cats, gt/ge → mirrored lt/le) make this fail loudly when
+  -- they fire on shapes where compile can't reproduce the original —
+  -- a to-be-closed gap, not a silent one.
+  let quoteIR (e : Sparkle.IR.AST.Expr) : CommandElabM Term := do
+    match Lean.Parser.runParserCategory (← getEnv) `term
+        (toString (repr e)) with
+    | .ok stx => pure ⟨stx⟩
+    | .error err => throwError "#verify_elab_deep: fidelity quote: {err}"
+  let fidIds ← (List.range nR).toArray.mapM fun i => do
+    let fidId := mkI s!"{base}_deep_fidelity_r{i}"
+    let coneQ ← quoteIR conesIR[i]!
+    elabCommand (← `(theorem $fidId :
+      CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)
+        = $coneQ := by
+      simp only [$nextEqId:ident, CExpr.compile, $nmId:ident]
+      try simp))
+    pure fidId
+  let fidOutId := mkI s!"{base}_deep_fidelity_out"
+  let outQ ← quoteIR outIR
+  elabCommand (← `(theorem $fidOutId :
+    CExpr.compile $nmId (Cdo.out $deepId) = $outQ := by
+    simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
+    try simp))
   -- the input family from the params
   let inpSArms ← (List.range nI).toArray.mapM fun j => do
     let pj : Ident := paramIds.getD j (mkI "unreachable")
@@ -885,9 +917,13 @@ elab "#verify_elab_deep" id:ident : command => do
     logInfo m!"#verify_elab_deep {declName}: defs only (SPARKLE_DEEP_NOTHM)"
     return
   elabCommand thmCmd
-  let axioms ← liftCoreM <| Lean.collectAxioms thId.getId
-  if axioms.contains ``sorryAx then
-    throwError "#verify_elab_deep {declName}: a generated proof FAILED (sorryAx) — see the errors above"
-  logInfo m!"#verify_elab_deep {declName}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean)"
+  -- audit the capstone AND every fidelity theorem: elabCommand
+  -- recovers failed tactic blocks as sorry, and a sorry'd fidelity
+  -- proof would silently demote the result to the unverified twin
+  for aud in #[thId] ++ fidIds ++ #[fidOutId] do
+    let axioms ← liftCoreM <| Lean.collectAxioms aud.getId
+    if axioms.contains ``sorryAx then
+      throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (sorryAx) — see the errors above"
+  logInfo m!"#verify_elab_deep {declName}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + out = the elaborated IR, by unfolding)"
 
 end Tools.DeepElab
