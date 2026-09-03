@@ -82,6 +82,25 @@ theorem runCircuitH_eq {dom : Sparkle.Core.Domain.DomainConfig} {αs : List Type
     runCircuitH inits body
       = outFOf inits body (Sparkle.Core.Signal.Signal.loop (loopFOf inits body)) := rfl
 
+/-- A struct-returning `circuit do` projects one field.  The loop's
+    STATE (`loopFOf`, which reads only `.snd`) is independent of the
+    body's result type, so a field projection `P` of the whole result
+    equals the same projection applied to `outFOf`.  This reduces a
+    struct-output trace to the single-`outFOf` form the bridge already
+    handles: `P` is pushed onto the output projection, the loop is
+    untouched.  (Definitional — `runCircuitH`'s state loop never
+    mentions `ρ`.) -/
+theorem runCircuitH_proj_eq {dom : Sparkle.Core.Domain.DomainConfig}
+    {αs : List Type} {ρ σ : Type}
+    [HasDomain ρ dom] [HListWireable αs] [Inhabited (HList αs)]
+    (P : ρ → σ)
+    (inits : HList αs)
+    (body : RegList dom (HList αs) (Circuit.SigList dom αs) αs →
+            Circuit dom (Circuit.SigList dom αs) ρ) :
+    P (runCircuitH inits body)
+      = P (outFOf inits body
+          (Sparkle.Core.Signal.Signal.loop (loopFOf inits body))) := rfl
+
 /-- The generic joint-trace lemma: ONE per-instance obligation
     (`hstep`), which sees the loop's guarded prefix only through the
     agreement hypothesis — exactly what the per-circuit recipe can
@@ -194,6 +213,12 @@ theorem sigval_or_b (a b : Signal dom Bool) (t : Nat) :
     (a ||| b).val t = (a.val t || b.val t) := rfl
 theorem sigval_xor_b (a b : Signal dom Bool) (t : Nat) :
     (a ^^^ b).val t = (a.val t ^^ b.val t) := rfl
+theorem sigval_not (a : Signal dom (BitVec n)) (t : Nat) :
+    (~~~a).val t = ~~~(a.val t) := rfl
+theorem sigval_not_b (a : Signal dom Bool) (t : Nat) :
+    (~~~a).val t = !(a.val t) := rfl
+theorem sigval_neg (a : Signal dom (BitVec n)) (t : Nat) :
+    (-a).val t = -(a.val t) := rfl
 
 end
 
