@@ -47,6 +47,9 @@ inductive CExpr : List Nat → Nat → Type where
   | sub   {Γ w} (a b : CExpr Γ w) : CExpr Γ w
   | mux   {Γ w} (c : CExpr Γ 1) (t e : CExpr Γ w) : CExpr Γ w
   | eq    {Γ w} (a b : CExpr Γ w) : CExpr Γ 1
+  | and   {Γ w} (a b : CExpr Γ w) : CExpr Γ w
+  | or    {Γ w} (a b : CExpr Γ w) : CExpr Γ w
+  | xor   {Γ w} (a b : CExpr Γ w) : CExpr Γ w
 
 /-- Shallow denotation: BitVec values for the variables, BitVec out. -/
 def CEnv (Γ : List Nat) := ∀ i : Fin Γ.length, BitVec (Γ.get i)
@@ -58,6 +61,9 @@ def CExpr.denote {Γ w} (ρ : CEnv Γ) : CExpr Γ w → BitVec w
   | .sub a b => a.denote ρ - b.denote ρ
   | .mux c t e => if c.denote ρ = 1#1 then t.denote ρ else e.denote ρ
   | .eq a b => if a.denote ρ = b.denote ρ then 1#1 else 0#1
+  | .and a b => a.denote ρ &&& b.denote ρ
+  | .or a b => a.denote ρ ||| b.denote ρ
+  | .xor a b => a.denote ρ ^^^ b.denote ρ
 
 /-- Compilation to the IR, with a naming of the context slots. -/
 def CExpr.compile {Γ w} (names : Fin Γ.length → String) :
@@ -69,6 +75,9 @@ def CExpr.compile {Γ w} (names : Fin Γ.length → String) :
   | .mux c t e => .op .mux [c.compile names, t.compile names,
       e.compile names]
   | .eq a b => .op .eq [a.compile names, b.compile names]
+  | .and a b => .op .and [a.compile names, b.compile names]
+  | .or a b => .op .or [a.compile names, b.compile names]
+  | .xor a b => .op .xor [a.compile names, b.compile names]
 
 /-- Compiled expressions carry their type-level width — the companion
     fact that pins `evalOp`'s node mask. -/
@@ -88,6 +97,12 @@ theorem CExpr.compile_width {Γ w} (names : Fin Γ.length → String)
     simp [CExpr.compile, Sparkle.IR.Semantics.widthOf, iht, ihe]
   | eq a b iha ihb =>
     simp [CExpr.compile, Sparkle.IR.Semantics.widthOf]
+  | and a b iha ihb =>
+    simp [CExpr.compile, Sparkle.IR.Semantics.widthOf, iha, ihb]
+  | or a b iha ihb =>
+    simp [CExpr.compile, Sparkle.IR.Semantics.widthOf, iha, ihb]
+  | xor a b iha ihb =>
+    simp [CExpr.compile, Sparkle.IR.Semantics.widthOf, iha, ihb]
 
 /-- E1, THE general theorem: for any deep expression, the compiled IR
     under the PROVEN semantics computes the denotation — one structural
@@ -136,6 +151,18 @@ theorem CExpr.compile_correct {Γ w} (names : Fin Γ.length → String)
     · have hne : (denote ρ a).toNat ≠ (denote ρ b).toNat := fun h =>
         he (BitVec.eq_of_toNat_eq h)
       simp [he, hne]
+  | and a b iha ihb =>
+    simp [CExpr.compile, CExpr.denote, evalExpr, evalList, evalOp,
+      iha, ihb, Sparkle.IR.Semantics.widthOf, mask,
+      CExpr.compile_width names we hw, ← BitVec.toNat_and]
+  | or a b iha ihb =>
+    simp [CExpr.compile, CExpr.denote, evalExpr, evalList, evalOp,
+      iha, ihb, Sparkle.IR.Semantics.widthOf, mask,
+      CExpr.compile_width names we hw, ← BitVec.toNat_or]
+  | xor a b iha ihb =>
+    simp [CExpr.compile, CExpr.denote, evalExpr, evalList, evalOp,
+      iha, ihb, Sparkle.IR.Semantics.widthOf, mask,
+      CExpr.compile_width names we hw, ← BitVec.toNat_xor]
 
 /-! E2: the statement layer.  A deep circuit = register widths Γr,
     input widths Γi, one next-state expression per register, one
@@ -389,6 +416,12 @@ partial def toCExpr (slot : String → Option Nat) :
         $(← toCExpr slot e))
   | .op .eq [a, b] => do
     `(CExpr.eq $(← toCExpr slot a) $(← toCExpr slot b))
+  | .op .and [a, b] => do
+    `(CExpr.and $(← toCExpr slot a) $(← toCExpr slot b))
+  | .op .or [a, b] => do
+    `(CExpr.or $(← toCExpr slot a) $(← toCExpr slot b))
+  | .op .xor [a, b] => do
+    `(CExpr.xor $(← toCExpr slot a) $(← toCExpr slot b))
   | e => throwError "#verify_elab_deep: {repr e} outside the deep grammar"
 
 end Tools.DeepElab
@@ -457,13 +490,17 @@ elab "#verify_elab_deep" id:ident : command => do
     | some sub => sub.toString | none => n
   let paramIds : Array Ident :=
     (ins.map fun (n, _) => mkI (paramOf n)).toArray
-  let (paramTys, _) ← liftTermElabM do
+  let (paramTys, paramIsBool) ← liftTermElabM do
     let info ← getConstInfo declName
     Lean.Meta.forallTelescope info.type fun xs _ => do
       let mut tys : Array Term := #[]
+      let mut bools : Array Bool := #[]
       for x in xs do
-        tys := tys.push (← Lean.PrettyPrinter.delab (← Lean.Meta.inferType x))
-      pure (tys, ())
+        let t ← Lean.Meta.inferType x
+        tys := tys.push (← Lean.PrettyPrinter.delab t)
+        bools := bools.push ((← Lean.Meta.whnf t).getAppArgs.any
+          fun a => a.isConstOf ``Bool)
+      pure (tys, bools)
   let paramBinders ← (paramIds.zip paramTys).mapM fun (pid, ty) => do
     `(Lean.Parser.Term.bracketedBinderF| ($pid : $ty))
   let appArgs : Array Term := paramIds.map fun p => ⟨p.raw⟩
@@ -501,8 +538,14 @@ elab "#verify_elab_deep" id:ident : command => do
   -- the input family from the params
   let inpSArms ← (List.range nI).toArray.mapM fun j => do
     let pj : Ident := paramIds.getD j (mkI "unreachable")
-    `(Lean.Parser.Term.matchAltExpr|
-      | ⟨$(quote j), _⟩ => $pj)
+    if paramIsBool.getD j false then
+      -- a Bool signal enters the deep circuit as its 1-bit encoding
+      `(Lean.Parser.Term.matchAltExpr|
+        | ⟨$(quote j), _⟩ => Sparkle.Core.Signal.Signal.map
+            (fun b => if b then (1 : BitVec 1) else 0) $pj)
+    else
+      `(Lean.Parser.Term.matchAltExpr|
+        | ⟨$(quote j), _⟩ => $pj)
   let inpS ← if nI == 0 then
       `((fun j => nomatch j :
         ∀ j : Fin ($ΓiT : List Nat).length,

@@ -220,6 +220,24 @@ if [ -f "$ELAB_FILE" ]; then
     grep -m3 -E "error" "$WORK/verify_elab.log" | sed 's/^/    /'
     fail=1
   fi
+  # the GENERAL-theorem route: same circuits reified into the deep
+  # grammar, certified through Cdo.elab_general
+  DEEP_FILE=Tests/Verification/DeepElabReifyDemo.lean
+  if [ -f "$DEEP_FILE" ]; then
+    lake build Tools.DeepElab > "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the deep-elab import closure"; fail=1; }
+    if lake env lean "$DEEP_FILE" > "$WORK/deep_elab.log" 2>&1; then
+      dproven=$(grep -c 'PROVEN' "$WORK/deep_elab.log")
+      echo "deep-elab (general theorem): $dproven circuits proven"
+      if [ "$dproven" -lt 7 ]; then
+        echo "FAIL: deep-elab proved $dproven < 7 demo circuits"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep demo did not close"
+      grep -m3 -E "error" "$WORK/deep_elab.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
 fi
 
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi

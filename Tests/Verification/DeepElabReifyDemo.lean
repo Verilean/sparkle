@@ -12,8 +12,7 @@
   there the IR side is re-proven per circuit.  This file is the
   CompCert-shaped version.
 
-  v0 scope: BitVec inputs (Bool inputs need an encoding wrapper —
-  next).  Run: `lake env lean Tests/Verification/DeepElabReifyDemo.lean`
+  Bool inputs enter through their 1-bit encoding.  Run: `lake env lean Tests/Verification/DeepElabReifyDemo.lean`
 -/
 
 import Sparkle
@@ -74,10 +73,41 @@ def fsm3 : Signal defaultDomain (BitVec 2) :=
 
 #verify_elab_deep fsm3
 
+/-- Statement-level `if` with a `Bool` input — enters the deep circuit
+    through its 1-bit encoding. -/
+def rstCnt (reset : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let cnt ← Signal.reg 0#8
+    if reset then
+      cnt <~ 0#8
+    else
+      cnt <~ cnt + 1#8
+    return cnt
+
+#verify_elab_deep rstCnt
+
+def twoIf (reset : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let a ← Signal.reg 0#8
+    let b ← Signal.reg 0#8
+    if reset then
+      a <~ 0#8
+      b <~ 0#8
+    else
+      a <~ a + 1#8
+      b <~ a
+    return b
+
+#verify_elab_deep twoIf
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
 #print axioms twoReg_deep_trace
 #print axioms fsm3_deep_trace
+#print axioms rstCnt_deep_trace
+#print axioms twoIf_deep_trace
 
 end Sparkle.Tests.DeepElabReifyDemo
