@@ -34,6 +34,7 @@
 
 import Sparkle.IR.Semantics
 import Tools.VerifyElab
+import Tools.ConcatNorm
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -886,7 +887,7 @@ elab "#verify_elab_deep" id:ident : command => do
     let fidIds ← if k == 0 then
         (List.range nR).toArray.mapM fun i => do
           let fidId := mkI s!"{base}{suffix}_deep_fidelity_r{i}"
-          let coneQ ← quoteIR conesIR[i]!
+          let coneQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 conesIR[i]!)
           elabCommand (← `(theorem $fidId :
             CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)
               = $coneQ := by
@@ -895,7 +896,7 @@ elab "#verify_elab_deep" id:ident : command => do
           pure fidId
       else pure #[]
     let fidOutId := mkI s!"{base}{suffix}_deep_fidelity_out"
-    let outQ ← quoteIR outIR
+    let outQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 outIR)
     elabCommand (← `(theorem $fidOutId :
       CExpr.compile $nmId (Cdo.out $deepId) = $outQ := by
       simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
@@ -971,7 +972,8 @@ elab "#verify_elab_deep" id:ident : command => do
       -- same outFOf shape a single Signal output produces.
       $idUnfold:tactic
       $projRw:tactic
-      simp only [outFOf, mkHolds, Signal.map, $[$outUnfoldIds:ident],*]
+      simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg,
+        $[$outUnfoldIds:ident],*]
       rw [loop_trace_at _ (fun s => $packBody) ?hstep]
       case hstep =>
         intro u pre hpre
