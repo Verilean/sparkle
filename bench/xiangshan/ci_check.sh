@@ -238,6 +238,23 @@ if [ -f "$ELAB_FILE" ]; then
       fail=1
     fi
   fi
+  # the general theorem on REAL shipping IP (crc32Engine, …)
+  REAL_FILE=Tests/Verification/DeepElabRealIP.lean
+  if [ -f "$REAL_FILE" ]; then
+    lake build IP.Net.CRC32 >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the real-IP import closure"; fail=1; }
+    if lake env lean "$REAL_FILE" > "$WORK/deep_real.log" 2>&1; then
+      rproven=$(grep -c 'PROVEN' "$WORK/deep_real.log")
+      echo "deep-elab (real IP): $rproven circuits proven"
+      if [ "$rproven" -lt 1 ]; then
+        echo "FAIL: deep-elab real-IP proved $rproven < 1 circuits"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep real-IP did not close"
+      grep -m3 -E "error" "$WORK/deep_real.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
 fi
 
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi

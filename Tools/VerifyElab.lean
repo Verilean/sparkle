@@ -119,6 +119,84 @@ theorem loop_trace_at {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} [Inha
     (Sparkle.Core.Signal.Signal.loop F).val t = trace t :=
   loop_trace F trace hstep t
 
+/-! `.val`-pushing lemmas: every Signal-level operator instance,
+    pointwise.  The deep route's bridge uses these instead of
+    unfolding the `H*` class projections — a global `HXor.hXor`
+    unfold rewrites the BitVec level too, leaving the two sides of
+    each goal in different head forms (`XorOp.xor` vs `^^^`) that
+    blind both simp and bv_decide. -/
+section
+open Sparkle.Core.Domain Sparkle.Core.Signal
+
+variable {dom : DomainConfig} {m n : Nat}
+
+theorem sigval_add (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a + b).val t = a.val t + b.val t := rfl
+theorem sigval_sub (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a - b).val t = a.val t - b.val t := rfl
+theorem sigval_mul (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a * b).val t = a.val t * b.val t := rfl
+theorem sigval_and (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a &&& b).val t = a.val t &&& b.val t := rfl
+theorem sigval_or (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a ||| b).val t = a.val t ||| b.val t := rfl
+theorem sigval_xor (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a ^^^ b).val t = a.val t ^^^ b.val t := rfl
+theorem sigval_shl (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a <<< b).val t = a.val t <<< b.val t := rfl
+theorem sigval_shr (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a >>> b).val t = a.val t >>> b.val t := rfl
+theorem sigval_append (a : Signal dom (BitVec m))
+    (b : Signal dom (BitVec n)) (t : Nat) :
+    (a ++ b).val t = a.val t ++ b.val t := rfl
+
+theorem sigval_add_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a + c).val t = a.val t + c := rfl
+theorem sigval_sub_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a - c).val t = a.val t - c := rfl
+theorem sigval_mul_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a * c).val t = a.val t * c := rfl
+theorem sigval_and_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a &&& c).val t = a.val t &&& c := rfl
+theorem sigval_or_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a ||| c).val t = a.val t ||| c := rfl
+theorem sigval_xor_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a ^^^ c).val t = a.val t ^^^ c := rfl
+theorem sigval_shl_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a <<< c).val t = a.val t <<< c := rfl
+theorem sigval_shr_c (a : Signal dom (BitVec n)) (c : BitVec n)
+    (t : Nat) : (a >>> c).val t = a.val t >>> c := rfl
+theorem sigval_append_c (a : Signal dom (BitVec m)) (c : BitVec n)
+    (t : Nat) : (a ++ c).val t = a.val t ++ c := rfl
+
+theorem sigval_c_add (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c + a).val t = c + a.val t := rfl
+theorem sigval_c_sub (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c - a).val t = c - a.val t := rfl
+theorem sigval_c_mul (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c * a).val t = c * a.val t := rfl
+theorem sigval_c_and (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c &&& a).val t = c &&& a.val t := rfl
+theorem sigval_c_or (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c ||| a).val t = c ||| a.val t := rfl
+theorem sigval_c_xor (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c ^^^ a).val t = c ^^^ a.val t := rfl
+theorem sigval_c_shl (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c <<< a).val t = c <<< a.val t := rfl
+theorem sigval_c_shr (c : BitVec n) (a : Signal dom (BitVec n))
+    (t : Nat) : (c >>> a).val t = c >>> a.val t := rfl
+theorem sigval_c_append (c : BitVec m) (a : Signal dom (BitVec n))
+    (t : Nat) : (c ++ a).val t = c ++ a.val t := rfl
+
+theorem sigval_and_b (a b : Signal dom Bool) (t : Nat) :
+    (a &&& b).val t = (a.val t && b.val t) := rfl
+theorem sigval_or_b (a b : Signal dom Bool) (t : Nat) :
+    (a ||| b).val t = (a.val t || b.val t) := rfl
+theorem sigval_xor_b (a b : Signal dom Bool) (t : Nat) :
+    (a ^^^ b).val t = (a.val t ^^ b.val t) := rfl
+
+end
+
 end
 
 namespace Tools.VerifyElab
