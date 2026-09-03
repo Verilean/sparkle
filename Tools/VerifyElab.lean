@@ -228,6 +228,24 @@ theorem sigval_beq {α} [BEq α] (a b : Signal dom α) (t : Nat) :
 theorem sigval_pure {α} (x : α) (t : Nat) :
     (Sparkle.Core.Signal.Signal.pure (dom := dom) x).val t = x := rfl
 
+/-- A Bool register's HList slot is decoded from its `BitVec 1` state
+    as `bif (x == 1#1) then 1#1 else 0#1`; that decode is the identity
+    on a 1-bit value.  Closes the output/step goals where the packed
+    Bool-register value meets its `BitVec 1` spec form. -/
+theorem bif_beq_ofBool (x : BitVec 1) :
+    (bif x == 1#1 then (1#1 : BitVec 1) else 0#1) = x := by
+  bv_decide
+
+theorem bif_beq_ofBool_toNat (x : BitVec 1) :
+    (bif x == 1#1 then (1#1 : BitVec 1) else 0#1).toNat = x.toNat := by
+  rw [bif_beq_ofBool]
+
+/-- Bool-register NOT: `~~~` on the 1-bit state vs `!` on its Bool
+    decode. -/
+theorem beq_not_bv1 (x : BitVec 1) :
+    (x == 1#1) = !(~~~x == 1#1) := by
+  bv_decide
+
 end
 
 end

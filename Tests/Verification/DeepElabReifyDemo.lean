@@ -167,6 +167,20 @@ def selRegDemo (d : Signal defaultDomain (BitVec 8)) :
 
 #verify_elab_deep selRegDemo
 
+/-- A Bool-typed REGISTER (`Signal.reg false`): the loop-state HList
+    holds it as `Bool` while the deep embedding sees `BitVec 1`.
+    Exercises the register-type detection (from runCircuitH's αs), the
+    Bool-decoded pack slot, and the stateAt-generalizing 1-bit closer. -/
+def flipRegDemo (en : Signal defaultDomain Bool) :
+    Signal defaultDomain Bool :=
+  circuit do
+    let st ← Signal.reg false
+    let s := (st : Signal defaultDomain Bool)
+    st <~ Signal.mux en (~~~s) s
+    return s
+
+#verify_elab_deep flipRegDemo
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -179,5 +193,6 @@ def selRegDemo (d : Signal defaultDomain (BitVec 8)) :
 #print axioms twoOutDemo_flag_deep_trace
 #print axioms packerDemo_deep_trace
 #print axioms selRegDemo_deep_trace
+#print axioms flipRegDemo_deep_trace
 
 end Sparkle.Tests.DeepElabReifyDemo

@@ -657,6 +657,55 @@ elab "#verify_elab_deep" id:ident : command => do
   let wt := widthTable m
   let regWs := regs.map fun (n, _, _) => wt.getD n 0
   let inWs := ins.map fun (_, w) => w
+  -- Which registers are Bool-typed on the Signal side.  The IR gives
+  -- them width 1, but the loop-state HList holds them as `Bool`, so
+  -- their pack slot must be `bif`-encoded back from `BitVec 1`.  Read
+  -- the element types from `runCircuitH`'s `αs` (a `List Type`) in the
+  -- elaborated value.
+  let regIsBool : Array Bool ← liftTermElabM do
+    let info ← getConstInfo declName
+    let some val := info.value? | pure (Array.replicate nR false)
+    -- open the leading lambdas PROPERLY (loose bvars from a naive
+    -- descent break inferType), then find the runCircuitH application
+    Lean.Meta.lambdaTelescope val fun _ body => do
+    let rec findRC (e : Lean.Expr) (fuel : Nat) : Option Lean.Expr :=
+      match fuel with
+      | 0 => none
+      | fuel + 1 =>
+        let e := e.headBeta
+        match e with
+        | .letE _ _ v body _ => findRC (body.instantiate1 v) fuel
+        | _ =>
+          if e.getAppFn.isConstOf ``Sparkle.Core.runCircuitH then some e
+          else match e with
+            | .app f _ => findRC f fuel
+            | _ => none
+    match findRC body 64 with
+    | none => pure (Array.replicate nR false)
+    | some rc =>
+      -- runCircuitH {dom} {αs} {ρ} … : αs is the `List Type` argument
+      let args := rc.getAppArgs
+      let mut αs? : Option Lean.Expr := none
+      for a in args do
+        if a.hasLooseBVars then continue
+        let ty ← Lean.Meta.inferType a
+        if ty.isAppOf ``List && (ty.getAppArgs[0]?.map (·.isSort)).getD false then
+          αs? := some a
+      match αs? with
+      | none => pure (Array.replicate nR false)
+      | some αs =>
+        -- unfold the List literal into element types
+        let rec elems (e : Lean.Expr) (acc : Array Bool)
+            (fuel : Nat) : Array Bool :=
+          match fuel with
+          | 0 => acc
+          | fuel + 1 =>
+            match e.getAppFnArgs with
+            | (``List.cons, #[_, hd, tl]) =>
+              elems tl (acc.push (hd.isConstOf ``Bool)) fuel
+            | _ => acc
+        let bs := elems (← Lean.Meta.whnf αs) #[] 64
+        pure (if bs.size == nR then bs else Array.replicate nR false)
   let stopAt : Std.HashMap String Bool :=
     (ins.foldl (fun (h : Std.HashMap String Bool) (n, _) =>
       h.insert n true) {})
@@ -905,9 +954,56 @@ elab "#verify_elab_deep" id:ident : command => do
     let packBody ← do
       let mut acc : Term ← `(())
       for i in (List.range nR).reverse do
-        acc ← `((Cdo.stateAt $deepId
-          (fun t j => (($inpS) j).val t) s ⟨$(quote i), by decide⟩, $acc))
+        let slot ← `(Cdo.stateAt $deepId
+          (fun t j => (($inpS) j).val t) s ⟨$(quote i), by decide⟩)
+        -- a Bool register's HList slot is `Bool`, but stateAt yields
+        -- `BitVec 1`; decode it so the pack has the loop-state type
+        let slot ← if regIsBool.getD i false then
+            `(($slot == 1#1))
+          else pure slot
+        acc ← `(($slot, $acc))
       pure acc
+    -- Bool-register closer: per Bool register, generalize its stateAt
+    -- reads (concrete deep + concrete Fin index — with metavariable
+    -- widths the `: BitVec 1` ascription is stuck at elaboration and
+    -- the generalize never fires), twice for two time instants, then
+    -- normalize the abstracted variables' `List.get` widths so
+    -- bv_decide sees literal `BitVec 1`s.
+    -- One generalize pair per register (two time instants), index in
+    -- OfNat-literal form (the bridge's plain simp normalizes the
+    -- pack's `⟨k, by decide⟩` via Fin.zero_eta-style lemmas, and
+    -- kabstract's instances-level defeq cannot cross the mk/OfNat
+    -- gap).  Each abstracted variable's width is `Γr.get k`-shaped —
+    -- defeq to the literal but not syntactically it, which bv_decide
+    -- rejects — so a rfl-rw pins it to the literal immediately.
+    let regGenLines : Array (Lean.TSyntax `tactic) ←
+      (List.range nR).toArray.mapM fun k => do
+        let wk := quote (regWs.getD k 0)
+        `(tactic| (
+          try (generalize (Cdo.stateAt $deepId _ _
+              $(quote k) : BitVec $wk) = gA
+            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
+              = $wk from rfl] at gA ⊢))
+          try (generalize (Cdo.stateAt $deepId _ _
+              $(quote k) : BitVec $wk) = gB
+            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
+              = $wk from rfl] at gB ⊢))
+          try (generalize (Cdo.stateAt $deepId _ _
+              $(quote k) : BitVec $wk) = gC
+            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
+              = $wk from rfl] at gC ⊢))
+          try (generalize (Cdo.stateAt $deepId _ _
+              $(quote k) : BitVec $wk) = gD
+            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
+              = $wk from rfl] at gD ⊢))))
+    let boolCloser : Lean.TSyntax `tactic ←
+      `(tactic| all_goals (try (
+        $[$regGenLines:tactic]*
+        first
+        | exact bif_beq_ofBool_toNat _
+        | exact bif_beq_ofBool _
+        | exact beq_not_bv1 _
+        | bv_decide)))
     -- stage-2 of the bridge, pipeline-selected (see `coneHasBitwise`)
     let stage2 : Lean.TSyntax `tactic ← if bitwise then
         `(tactic| all_goals (simp +decide only [Cdo.stateAt,
@@ -954,6 +1050,7 @@ elab "#verify_elab_deep" id:ident : command => do
       | none => helperIds
     -- the theorem: general theorem + per-instance Signal bridge
     let thmCmd ← `(set_option maxRecDepth 65536 in
+      set_option maxHeartbeats 1600000 in
       theorem $thId $paramBinders* (t : Nat) :
         (($lhsSig).val t).toNat
         = (Sparkle.IR.Semantics.evalExpr
@@ -993,9 +1090,17 @@ elab "#verify_elab_deep" id:ident : command => do
           repeat' apply And.intro
           all_goals (repeat' split)
           all_goals (try (first | rfl | bv_decide))
+          $boolCloser:tactic
           all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
             toNat_SubSub, BitVec.toNat_add,
-            BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat])
+            BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat,
+            bif_beq_ofBool, bif_beq_ofBool_toNat])
+          all_goals (try (rw [bif_beq_ofBool_toNat]))
+          all_goals (try (rw [bif_beq_ofBool]))
+          -- Bool-register 1-bit identities: generalize the (recursive,
+          -- so bv_decide-opaque) stateAt function to a variable, then
+          -- bv_decide settles the Bool/BitVec1 bridge
+          $boolCloser:tactic
           all_goals (first | rfl | bv_decide | bv_omega)
         | succ n =>
           simp [loopFOf, packRegister, Signal.register, Circuit.next,
@@ -1007,19 +1112,40 @@ elab "#verify_elab_deep" id:ident : command => do
           repeat' apply And.intro
           all_goals (repeat' split)
           all_goals (try (first | rfl | bv_decide))
+          $boolCloser:tactic
           all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
             toNat_SubSub, BitVec.toNat_add,
-            BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat])
+            BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat,
+            bif_beq_ofBool, bif_beq_ofBool_toNat])
+          all_goals (try (rw [bif_beq_ofBool_toNat]))
+          all_goals (try (rw [bif_beq_ofBool]))
+          -- Bool-register 1-bit identities: generalize the (recursive,
+          -- so bv_decide-opaque) stateAt function to a variable, then
+          -- bv_decide settles the Bool/BitVec1 bridge
+          $boolCloser:tactic
           all_goals (first | rfl | bv_decide | bv_omega)
       · -- the output side: outSig against the packed projection
         simp only [Cdo.outSig]
         simp only [Cdo.stateSig_eq]
         simp [CExpr.denote, CEnv.join, Cdo.stateAt, toNat_cast,
-          $nextEqId:ident, $initsEqId:ident, $outEqId:ident]
+          $nextEqId:ident, $initsEqId:ident, $outEqId:ident,
+          Signal.map]
+        -- Bool-register decode BEFORE split (split collapses the bif
+        -- into a case analysis, hiding the `bif (x==1#1)…` head the
+        -- decode lemma matches)
+        all_goals (try simp only [bif_beq_ofBool, bif_beq_ofBool_toNat])
         repeat' split
+        all_goals (try simp only [bif_beq_ofBool, bif_beq_ofBool_toNat])
         all_goals (try (first | rfl | bv_decide))
+        $boolCloser:tactic
         all_goals (try simp_all [BitVec.toNat_eq, BitVec.toNat_add,
-          BitVec.toNat_ofNat])
+          BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
+          Signal.map])
+        -- residual Bool-register decode goals: (bif (x==1#1)…).toNat
+        -- = x.toNat, closed by the decode identity applied directly
+        all_goals (try (rw [bif_beq_ofBool_toNat]))
+        all_goals (try (rw [bif_beq_ofBool]))
+        $boolCloser:tactic
         all_goals (first | rfl | bv_decide | bv_omega))
     if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
       logInfo m!"{thmCmd}"
