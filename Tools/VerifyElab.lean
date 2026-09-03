@@ -309,6 +309,14 @@ partial def resolveSlicesW (wt : Std.HashMap String Nat) :
       -- identity slice of a full-width ref collapses to the ref
       if lo == 0 && wt.get? n == some (hi + 1) then .ref n
       else .slice (.ref n) hi lo
+    | .slice inner ihi _ilo =>
+      -- slice-of-slice fusion: the OUTER window [hi,lo] is measured in
+      -- the inner slice's bits, whose bit k is `inner`'s bit (ilo+k),
+      -- so it re-slices `inner` at [ilo+hi, ilo+lo].  (ihi only bounds
+      -- the inner width; the outer hi ≤ ihi-ilo already holds.)  Re-run
+      -- to collapse the fused slice against `inner` (often a concat).
+      let _ := ihi
+      resolveSlicesW wt (.slice inner (_ilo + hi) (_ilo + lo))
     | e' => .slice e' hi lo
   | e => e
 

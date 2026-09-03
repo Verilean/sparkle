@@ -134,6 +134,26 @@ def twoOutDemo (d : Signal defaultDomain (BitVec 8)) :
 
 #verify_elab_deep twoOutDemo
 
+/-- A concat OUTPUT: three registers packed MSB-first into a wider
+    word.  Exercises n-ary concat fidelity (concatNorm) and the
+    slice-of-slice fusion in resolveSlicesW that collapses firtool's
+    slice-reconstructed output back to the register concat. -/
+def packerDemo (d : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 12) :=
+  circuit do
+    let a ← Signal.reg 0#4
+    let b ← Signal.reg 0#4
+    let c ← Signal.reg 0#4
+    let av := (a : Signal defaultDomain (BitVec 4))
+    let bv := (b : Signal defaultDomain (BitVec 4))
+    let cv := (c : Signal defaultDomain (BitVec 4))
+    a <~ d
+    b <~ av
+    c <~ bv
+    return (av ++ bv ++ cv)
+
+#verify_elab_deep packerDemo
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -144,5 +164,6 @@ def twoOutDemo (d : Signal defaultDomain (BitVec 8)) :
 #print axioms isZeroDemo_deep_trace
 #print axioms twoOutDemo_sum_deep_trace
 #print axioms twoOutDemo_flag_deep_trace
+#print axioms packerDemo_deep_trace
 
 end Sparkle.Tests.DeepElabReifyDemo
