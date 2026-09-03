@@ -219,6 +219,14 @@ theorem sigval_not_b (a : Signal dom Bool) (t : Nat) :
     (~~~a).val t = !(a.val t) := rfl
 theorem sigval_neg (a : Signal dom (BitVec n)) (t : Nat) :
     (-a).val t = -(a.val t) := rfl
+theorem sigval_mux {α} (c : Signal dom Bool) (a b : Signal dom α)
+    (t : Nat) :
+    (Sparkle.Core.Signal.Signal.mux c a b).val t
+      = if c.val t then a.val t else b.val t := rfl
+theorem sigval_beq {α} [BEq α] (a b : Signal dom α) (t : Nat) :
+    (Sparkle.Core.Signal.Signal.beq a b).val t = (a.val t == b.val t) := rfl
+theorem sigval_pure {α} (x : α) (t : Nat) :
+    (Sparkle.Core.Signal.Signal.pure (dom := dom) x).val t = x := rfl
 
 end
 

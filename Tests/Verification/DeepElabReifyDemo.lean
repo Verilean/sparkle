@@ -154,6 +154,19 @@ def packerDemo (d : Signal defaultDomain (BitVec 4)) :
 
 #verify_elab_deep packerDemo
 
+/-- Signal.mux over a Signal.beq condition with Signal.pure constants:
+    exercises the method-style mux / beq / pure `.val`-push lemmas. -/
+def selRegDemo (d : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let isMax := Signal.beq a (Signal.pure 255#8)
+    acc <~ Signal.mux isMax (Signal.pure 0#8) (a + d)
+    return a
+
+#verify_elab_deep selRegDemo
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -165,5 +178,6 @@ def packerDemo (d : Signal defaultDomain (BitVec 4)) :
 #print axioms twoOutDemo_sum_deep_trace
 #print axioms twoOutDemo_flag_deep_trace
 #print axioms packerDemo_deep_trace
+#print axioms selRegDemo_deep_trace
 
 end Sparkle.Tests.DeepElabReifyDemo
