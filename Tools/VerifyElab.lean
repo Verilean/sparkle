@@ -202,6 +202,10 @@ partial def resolveSlicesW (wt : Std.HashMap String Nat) :
   | .slice e hi lo =>
     match resolveSlicesW wt e with
     | .concat parts => resolveSlicesW wt (.slice (.concat parts) hi lo)
+    | .ref n =>
+      -- identity slice of a full-width ref collapses to the ref
+      if lo == 0 && wt.get? n == some (hi + 1) then .ref n
+      else .slice (.ref n) hi lo
     | e' => .slice e' hi lo
   | e => e
 

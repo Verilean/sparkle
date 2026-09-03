@@ -355,3 +355,226 @@ theorem Cdo.elab_general {Γr Γi wOut} (c : Cdo Γr Γi wOut)
       = (c.out.denote _).toNat
   unfold Cdo.outSig
   simp only [c.stateSig_eq inpS t]
+
+/-! E3: reifying elaborated circuits into `Cdo` values.
+
+The meta side lives here: turn an inlined IR cone back into a `CExpr`
+term (well-defined on the compiler's image — the cones `#verify_elab`
+already computes), so a circuit's deep value can be GENERATED and the
+general theorem applied, leaving only the Signal-side bridge as a
+per-instance proof. -/
+
+namespace Tools.DeepElab
+
+open Lean Elab Command
+
+/-- Build the `CExpr Γ w` term for an inlined cone.  `slot` maps a ref
+    name to its context index; widths are checked by the elaborator
+    when the generated definition elaborates. -/
+partial def toCExpr (slot : String → Option Nat) :
+    Sparkle.IR.AST.Expr → CommandElabM Term
+  | .const v w => do
+    if v < 0 then throwError "#verify_elab_deep: negative const"
+    `(CExpr.const $(quote w) $(quote v.toNat))
+  | .ref n => do
+    match slot n with
+    | some i => `(CExpr.var ⟨$(quote i), by decide⟩)
+    | none => throwError "#verify_elab_deep: unknown ref {n}"
+  | .op .add [a, b] => do
+    `(CExpr.add $(← toCExpr slot a) $(← toCExpr slot b))
+  | .op .sub [a, b] => do
+    `(CExpr.sub $(← toCExpr slot a) $(← toCExpr slot b))
+  | .op .mux [c, t, e] => do
+    `(CExpr.mux $(← toCExpr slot c) $(← toCExpr slot t)
+        $(← toCExpr slot e))
+  | .op .eq [a, b] => do
+    `(CExpr.eq $(← toCExpr slot a) $(← toCExpr slot b))
+  | e => throwError "#verify_elab_deep: {repr e} outside the deep grammar"
+
+end Tools.DeepElab
+
+namespace Tools.DeepElab
+
+open Lean Elab Command
+open Tools.VerifyElab (theRegisters dataInputs resolveSlicesW)
+open Tools.SVParser.VerifyEmit (inlineCone widthTable)
+open Sparkle.IR.Optimize (buildDefMap)
+
+/-- `#verify_elab_deep f` — reify `f`'s elaborated circuit into a deep
+    `Cdo` value and certify it through the GENERAL theorem
+    `Cdo.elab_general`.  The only per-circuit proof left is the
+    Signal-side bridge (the validated recipe); everything about the IR
+    is the one general theorem.  v0 scope: BitVec inputs. -/
+elab "#verify_elab_deep" id:ident : command => do
+  let declName ← liftTermElabM <|
+    Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
+  let design ← liftTermElabM
+    (Sparkle.Compiler.Elab.synthesizeHierarchical declName)
+  let m ← match design.modules with
+    | [m] => pure m
+    | _ => throwError "#verify_elab_deep: single-module designs only"
+  let regs := theRegisters m
+  let nR := regs.length
+  if nR == 0 then throwError "#verify_elab_deep: no registers"
+  let ins := dataInputs m
+  let nI := ins.length
+  let wt := widthTable m
+  let regWs := regs.map fun (n, _, _) => wt.getD n 0
+  let inWs := ins.map fun (_, w) => w
+  let stopAt : Std.HashMap String Bool :=
+    (ins.foldl (fun (h : Std.HashMap String Bool) (n, _) =>
+      h.insert n true) {})
+    |> regs.foldl (fun h (n, _, _) => h.insert n true)
+  let dm := buildDefMap m.body
+  let slotIdx : String → Option Nat := fun s =>
+    match (regs.map (·.1)).idxOf? s with
+    | some i => some i
+    | none => (ins.map (·.1)).idxOf? s |>.map (· + nR)
+  let cones ← regs.mapM fun (n, input, _) => do
+    match inlineCone dm stopAt 10000 input with
+    | .ok c => toCExpr slotIdx (resolveSlicesW wt c)
+    | .error e => throwError "#verify_elab_deep: cone of {n}: {e}"
+  let outName ← match m.outputs with
+    | [p] => pure p.name
+    | _ => throwError "#verify_elab_deep: exactly one output"
+  let outC ← match inlineCone dm stopAt 10000 (.ref outName) with
+    | .ok c => toCExpr slotIdx (resolveSlicesW wt c)
+    | .error e => throwError "#verify_elab_deep: output cone: {e}"
+  let wOut := wt.getD outName (m.outputs.head!.ty.bitWidth)
+  -- names / syntax scaffolding
+  let base := declName.componentsRev.headD (Name.mkSimple "x") |>.toString
+  let mkI (s : String) : Ident := mkIdent (Name.mkSimple s)
+  let deepId := mkI s!"{base}_deep"
+  let nmId := mkI s!"{base}_nm"
+  let thId := mkI s!"{base}_deep_trace"
+  let regWsT : Array Term := regWs.toArray.map fun w => quote w
+  let inWsT : Array Term := inWs.toArray.map fun w => quote w
+  let ΓrT : Term ← `([$regWsT,*])
+  let ΓiT : Term ← `([$inWsT,*])
+  -- param binders from the DSL signature
+  let paramOf (n : String) : String :=
+    match n.dropPrefix? "_gen_" with
+    | some sub => sub.toString | none => n
+  let paramIds : Array Ident :=
+    (ins.map fun (n, _) => mkI (paramOf n)).toArray
+  let (paramTys, _) ← liftTermElabM do
+    let info ← getConstInfo declName
+    Lean.Meta.forallTelescope info.type fun xs _ => do
+      let mut tys : Array Term := #[]
+      for x in xs do
+        tys := tys.push (← Lean.PrettyPrinter.delab (← Lean.Meta.inferType x))
+      pure (tys, ())
+  let paramBinders ← (paramIds.zip paramTys).mapM fun (pid, ty) => do
+    `(Lean.Parser.Term.bracketedBinderF| ($pid : $ty))
+  let appArgs : Array Term := paramIds.map fun p => ⟨p.raw⟩
+  -- the deep value
+  let initArms ← (List.range nR).toArray.mapM fun i => do
+    let (_, _, init) := regs[i]!
+    `(Lean.Parser.Term.matchAltExpr|
+      | ⟨$(quote i), _⟩ => BitVec.ofNat _ $(quote init.toNat))
+  let nextArms ← (List.range nR).toArray.mapM fun i => do
+    `(Lean.Parser.Term.matchAltExpr|
+      | ⟨$(quote i), _⟩ => $(cones[i]!))
+  elabCommand (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
+    inits := fun i => match i with $initArms:matchAlt*
+    next := fun i => match i with $nextArms:matchAlt*
+    out := $outC))
+  -- projection equations (rfl): rewrite `f_deep.next` etc. WITHOUT
+  -- ever exposing the anonymous structure literal — a literal that
+  -- appears in some hypotheses but not others (the pack references the
+  -- NAME) leaves simp_all unable to see two forms of the same fact
+  let nextEqId := mkI s!"{base}_deep_next"
+  let initsEqId := mkI s!"{base}_deep_inits"
+  let outEqId := mkI s!"{base}_deep_out"
+  elabCommand (← `(theorem $nextEqId :
+    Cdo.next $deepId = fun i => match i with $nextArms:matchAlt* := rfl))
+  elabCommand (← `(theorem $initsEqId :
+    Cdo.inits $deepId = fun i => match i with $initArms:matchAlt* := rfl))
+  elabCommand (← `(theorem $outEqId : Cdo.out $deepId = $outC := rfl))
+  -- slot names
+  let nmArms ← (List.range (nR + nI)).toArray.mapM fun i => do
+    let s := if h : i < nR then (regs[i]!).1 else (ins[i - nR]!).1
+    `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(quote s))
+  elabCommand (← `(def $nmId :
+      Fin (($ΓrT ++ $ΓiT : List Nat).length) → String := fun i =>
+    match i with $nmArms:matchAlt*))
+  -- the input family from the params
+  let inpSArms ← (List.range nI).toArray.mapM fun j => do
+    let pj : Ident := paramIds.getD j (mkI "unreachable")
+    `(Lean.Parser.Term.matchAltExpr|
+      | ⟨$(quote j), _⟩ => $pj)
+  let inpS ← if nI == 0 then
+      `((fun j => nomatch j :
+        ∀ j : Fin ($ΓiT : List Nat).length,
+          Sparkle.Core.Signal.Signal
+            Sparkle.Core.Domain.defaultDomain
+            (BitVec (($ΓiT : List Nat).get j))))
+    else
+      `((fun j => match j with $inpSArms:matchAlt* :
+        ∀ j : Fin ($ΓiT : List Nat).length,
+          Sparkle.Core.Signal.Signal
+            Sparkle.Core.Domain.defaultDomain
+            (BitVec (($ΓiT : List Nat).get j))))
+  -- the pack: HList of stateAt components
+  let packBody ← do
+    let mut acc : Term ← `(())
+    for i in (List.range nR).reverse do
+      acc ← `((Cdo.stateAt $deepId
+        (fun t j => (($inpS) j).val t) s ⟨$(quote i), by decide⟩, $acc))
+    pure acc
+  -- the theorem: general theorem + per-instance Signal bridge
+  elabCommand (← `(theorem $thId $paramBinders* (t : Nat) :
+      (($(id) $appArgs*).val t).toNat
+      = (Sparkle.IR.Semantics.evalExpr
+          (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
+          (envOfC $nmId (natJoin
+            (Cdo.irState $deepId $nmId (fun t j => (($inpS) j).val t) t)
+            (fun j => ((($inpS) j).val t).toNat)))
+          (CExpr.compile $nmId (Cdo.out $deepId))).getD 0 := by
+    rw [← Cdo.elab_general $deepId $nmId (by decide) $inpS t]
+    congr 1
+    -- the Signal-side bridge: f's runCircuitH loop against the deep
+    -- spec recurrence, both through loop_trace
+    simp only [$id:ident]
+    rw [runCircuitH_eq]
+    simp only [outFOf, mkHolds, Signal.map]
+    rw [loop_trace_at _ (fun s => $packBody) ?hstep]
+    case hstep =>
+      intro u pre hpre
+      cases u with
+      | zero =>
+        simp [loopFOf, packRegister, Signal.register, Circuit.next,
+          Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux,
+          bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap,
+          Signal.seq]
+        simp [Cdo.stateAt, CExpr.denote, CEnv.join, toNat_cast,
+          $nextEqId:ident, $initsEqId:ident]
+      | succ n =>
+        simp [loopFOf, packRegister, Signal.register, Circuit.next,
+          Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux,
+          bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap,
+          Signal.seq, hpre n (Nat.lt_succ_self n), HAdd.hAdd, HSub.hSub,
+          HMul.hMul, HAnd.hAnd, HOr.hOr, HXor.hXor]
+        simp [Cdo.stateAt, CExpr.denote, CEnv.join, toNat_cast,
+          $nextEqId:ident, $initsEqId:ident]
+        repeat' apply And.intro
+        all_goals (repeat' split)
+        all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
+          toNat_SubSub, BitVec.toNat_add,
+          BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat])
+        all_goals (first | rfl | bv_decide | (trace_state; bv_omega))
+    · -- the output side: outSig against the packed projection
+      simp only [Cdo.outSig]
+      simp only [Cdo.stateSig_eq]
+      simp [CExpr.denote, CEnv.join, Cdo.stateAt, toNat_cast,
+        $nextEqId:ident, $initsEqId:ident, $outEqId:ident]
+      repeat' split
+      all_goals (try simp_all [BitVec.toNat_eq, BitVec.toNat_add,
+        BitVec.toNat_ofNat])
+      all_goals (first | rfl | bv_decide | bv_omega)))
+  let axioms ← liftCoreM <| Lean.collectAxioms thId.getId
+  if axioms.contains ``sorryAx then
+    throwError "#verify_elab_deep {declName}: a generated proof FAILED (sorryAx) — see the errors above"
+  logInfo m!"#verify_elab_deep {declName}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean)"
+
+end Tools.DeepElab
