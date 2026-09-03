@@ -102,6 +102,38 @@ def twoIf (reset : Signal defaultDomain Bool) :
 
 #verify_elab_deep twoIf
 
+/-- A single Bool output: exercises the `bif`-encoded output family. -/
+def isZeroDemo (d : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain Bool :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    acc <~ a + d
+    return (a.map (· == 0#8))
+
+#verify_elab_deep isZeroDemo
+
+/-- A struct return with TWO ports (BitVec + Bool): exercises the
+    per-field Cdo generation and the struct-projection bridge
+    (runCircuitH_proj_eq + `.eq_1` unfold). -/
+structure TwoOutDemo (dom : DomainConfig) where
+  sum  : Signal dom (BitVec 8)
+  flag : Signal dom Bool
+
+instance {dom : DomainConfig} :
+    Sparkle.Core.HasDomain (TwoOutDemo dom) dom := ⟨⟩
+
+def twoOutDemo (d : Signal defaultDomain (BitVec 8)) :
+    TwoOutDemo defaultDomain :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    acc <~ a + d
+    let f := (a.map (· == 0#8) : Signal defaultDomain Bool)
+    return ({ sum := a, flag := f } : TwoOutDemo defaultDomain)
+
+#verify_elab_deep twoOutDemo
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -109,5 +141,8 @@ def twoIf (reset : Signal defaultDomain Bool) :
 #print axioms fsm3_deep_trace
 #print axioms rstCnt_deep_trace
 #print axioms twoIf_deep_trace
+#print axioms isZeroDemo_deep_trace
+#print axioms twoOutDemo_sum_deep_trace
+#print axioms twoOutDemo_flag_deep_trace
 
 end Sparkle.Tests.DeepElabReifyDemo

@@ -229,8 +229,8 @@ if [ -f "$ELAB_FILE" ]; then
     if lake env lean "$DEEP_FILE" > "$WORK/deep_elab.log" 2>&1; then
       dproven=$(grep -c 'PROVEN' "$WORK/deep_elab.log")
       echo "deep-elab (general theorem): $dproven circuits proven"
-      if [ "$dproven" -lt 7 ]; then
-        echo "FAIL: deep-elab proved $dproven < 7 demo circuits"; fail=1
+      if [ "$dproven" -lt 10 ]; then
+        echo "FAIL: deep-elab proved $dproven < 10 demo circuits"; fail=1
       fi
     else
       echo "FAIL: #verify_elab_deep demo did not close"

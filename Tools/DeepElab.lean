@@ -776,7 +776,7 @@ elab "#verify_elab_deep" id:ident : command => do
       -- a Bool signal enters the deep circuit as its 1-bit encoding
       `(Lean.Parser.Term.matchAltExpr|
         | ⟨$(quote j), _⟩ => Sparkle.Core.Signal.Signal.map
-            (fun b => if b then (1 : BitVec 1) else 0) $pj)
+            (fun b => bif b then (1 : BitVec 1) else 0) $pj)
     else
       `(Lean.Parser.Term.matchAltExpr|
         | ⟨$(quote j), _⟩ => $pj)
@@ -924,12 +924,27 @@ elab "#verify_elab_deep" id:ident : command => do
       | some projId => `(($projId ($(id) $appArgs*)))
       | none => `(($(id) $appArgs*))
     let lhsSig : Term ← if isBoolOut then
+        -- annotate the projected signal as `Signal … Bool` so the
+        -- encode lambda's `b` is inferred `Bool` (else Lean reads the
+        -- `if` as a Prop-if and demands `Decidable b`)
         `((Sparkle.Core.Signal.Signal.map
-            (fun b => if b then (1 : BitVec 1) else 0) $lhsSig))
+            (fun b => bif b then (1 : BitVec 1) else 0)
+            ($lhsSig : Sparkle.Core.Signal.Signal
+              Sparkle.Core.Domain.defaultDomain Bool)))
       else pure lhsSig
     -- struct outputs: the projection (e.g. TwoOut.sum) must unfold
     -- alongside the function so `TwoOut.sum (f d)` β-reduces to the
     -- field value before runCircuitH_eq can fire
+    let eq1Id : Ident := mkIdent (declName ++ `eq_1)
+    let idUnfold : Lean.TSyntax `tactic ← match proj? with
+      | some _ =>
+        -- `simp only [f]` reducible-reduces runCircuitH THROUGH the
+        -- field projection into `Signal.map Prod.fst (loop …)`, past
+        -- which runCircuitH_proj_eq can't fire.  The def's `.eq_1`
+        -- unfolds only to the `runCircuitH` application, keeping it
+        -- matchable.
+        `(tactic| rw [$eq1Id:ident])
+      | none => `(tactic| simp only [$id:ident])
     let projRw : Lean.TSyntax `tactic ← match proj? with
       | some pj => `(tactic| rw [runCircuitH_proj_eq $pj])
       | none => `(tactic| rw [runCircuitH_eq])
@@ -954,7 +969,7 @@ elab "#verify_elab_deep" id:ident : command => do
       -- the field projection onto the output via runCircuitH_proj_eq
       -- (the loop's STATE is projection-independent), landing on the
       -- same outFOf shape a single Signal output produces.
-      simp only [$id:ident]
+      $idUnfold:tactic
       $projRw:tactic
       simp only [outFOf, mkHolds, Signal.map, $[$outUnfoldIds:ident],*]
       rw [loop_trace_at _ (fun s => $packBody) ?hstep]
