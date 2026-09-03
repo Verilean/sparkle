@@ -252,6 +252,10 @@ lean_lib «Tools.SVParser» where
 lean_lib «Tools.VerifyElab» where
   roots := #[`Tools.VerifyElab]
 
+-- The GENERAL Signal↔IR theorem over the deep circuit grammar
+lean_lib «Tools.DeepElab» where
+  roots := #[`Tools.DeepElab]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
