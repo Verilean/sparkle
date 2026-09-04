@@ -1018,31 +1018,15 @@ elab "#verify_elab_deep" id:ident : command => do
     -- rejects — so a rfl-rw pins it to the literal immediately.
     let regGenLines : Array (Lean.TSyntax `tactic) ←
       (List.range nR).toArray.mapM fun k => do
-        let wk := quote (regWs.getD k 0)
         `(tactic| (
-          -- normalize the register index to its OfNat-literal form
-          -- (mk and OfNat occurrences coexist depending on whether
-          -- Fin.zero_eta-style normalization reached them) so ONE
-          -- generalize abstracts every occurrence
-          try (simp only [show ((⟨$(quote k), by decide⟩ :
-            Fin (List.length ($ΓrT : List Nat)))) = $(quote k)
-            from rfl])
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gA
-            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
-              = $wk from rfl] at gA ⊢))
+              $(quote k)) = gA)
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gB
-            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
-              = $wk from rfl] at gB ⊢))
+              $(quote k)) = gB)
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gC
-            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
-              = $wk from rfl] at gC ⊢))
+              $(quote k)) = gC)
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gD
-            <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
-              = $wk from rfl] at gD ⊢))
+              $(quote k)) = gD)
           ))
     -- Extra lemmas for the OUTER simp_all fallbacks, only when the
     -- circuit has a Bool register: the input-family application
