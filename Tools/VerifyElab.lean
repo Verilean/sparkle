@@ -631,6 +631,80 @@ elab "#verify_elab" id:ident : command => do
         (fuel := 10000) (e := $rid)
         (hinl := by native_decide)
         10000 hv))
+  -- the REGISTER PHASE: regNexts' next-value list IS the recurrence's
+  -- next state — the mask regNexts applies is killed by the
+  -- recurrence's own bound AT t+1, and the reset wire reads 0 because
+  -- the combinational fold never writes it.  v1 shape: every register
+  -- input is a materialized wire (`.ref w`) — the elaborator always
+  -- produces that; emission is skipped otherwise.
+  let refWires? : Option (List String) := regs.foldr
+    (fun (r : String × Sparkle.IR.AST.Expr × Int) acc =>
+      match r.2.1, acc with
+      | .ref w, some l => some (w :: l)
+      | _, _ => none) (some [])
+  let regRsts : List String := m.body.filterMap fun s =>
+    match s with
+    | .register _ _ (rstName, _) _ _ => some rstName
+    | _ => none
+  if let some regWires := refWires? then
+    if regRsts.length == regs.length then
+      let regstepId := mkI s!"{base}_regstep"
+      let sTerm1 : Term ← `($trId $appArgs* (t + 1))
+      let mut nextsItems : Array Term := #[]
+      for i in List.range nRegs do
+        let (rn, _, _) := regs[i]!
+        let pj ← projAt sTerm1 nRegs i
+        nextsItems := nextsItems.push (← `(($(quote rn), $pj)))
+      let mut pre : Array (Lean.TSyntax `tactic) := #[]
+      let mut finalArgs : Array Term := #[]
+      for i in List.range nRegs do
+        let (rn, _, _) := regs[i]!
+        let rstName := regRsts[i]!
+        let w := regWires[i]!
+        let stepId := mkI s!"{base}_step_{Sparkle.Backend.Verilog.sanitizeName rn}"
+        let rid := regInIds[i]!
+        let hrstId := mkI s!"hrst{i}"
+        let hstepId := mkI s!"hstep{i}"
+        let hnextId := mkI s!"hnext{i}"
+        let hbndId := mkI s!"hbnd{i}"
+        let pj ← projAt sTerm1 nRegs i
+        pre := pre.push (← `(tactic| have $hrstId:ident :
+            env1 $(quote rstName) = 0 := by
+          have hfr := Tools.ConeFold.evalAssigns_frame $weId (fun _ _ => 0)
+            $bodyId _ env1 hrun
+            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+            $(quote rstName) (by native_decide)
+          rw [hfr]
+          simp [$envId:ident]))
+        pre := pre.push (← `(tactic| have $hstepId:ident :=
+          $stepId $appArgs* t hrun
+            (show Sparkle.IR.Semantics.evalExpr $weId env1 $rid
+                = some (env1 $(quote w)) by
+              simp [$rid:ident, Sparkle.IR.Semantics.evalExpr])))
+        pre := pre.push (← `(tactic| have $hnextId:ident :
+            $pj = env1 $(quote w) := by
+          simp only [$trId:ident]
+          rw [$hstepId:ident]
+          rfl))
+        pre := pre.push (← `(tactic| have $hbndId:ident :
+            env1 $(quote w) < 2 ^ $(quote regWs[i]!) := by
+          rw [← $hnextId:ident]
+          have hbb := $bndId $appArgs* (t + 1)
+          omega))
+        finalArgs := finalArgs.push (← `(Nat.mod_eq_of_lt $hbndId:ident))
+        finalArgs := finalArgs.push (← `($hnextId:ident))
+        finalArgs := finalArgs.push (← `($hrstId:ident))
+      elabCommand (← `(theorem $regstepId $paramBinders* (t : Nat)
+          {env1 : Sparkle.IR.Semantics.Env}
+          (hrun : Sparkle.IR.Semantics.evalAssigns $weId (fun _ _ => 0)
+            $bodyId ($envId $appArgs* ($trId $appArgs* t) t) = some env1) :
+          Sparkle.IR.Semantics.regNexts $weId (fun _ _ => 0) $bodyId env1
+            = some [$nextsItems,*] := by
+        $[$pre:tactic]*
+        simp only [$bodyId:ident, Sparkle.IR.Semantics.regNexts,
+          Sparkle.IR.Semantics.evalExpr, Option.bind_eq_bind,
+          Option.bind_some]
+        simp [Sparkle.IR.Semantics.mask, $weId:ident, $[$finalArgs:term],*]))
   let stepOutId := mkI s!"{base}_step_out"
   elabCommand (← `(theorem $stepOutId $paramBinders* (t : Nat)
       {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
