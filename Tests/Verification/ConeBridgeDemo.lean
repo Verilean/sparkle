@@ -57,4 +57,12 @@ theorem cnt8_irTrace_step (t : Nat) {env1 : Env}
 #check @rstCnt_signal_fold
 #check @fsm3_signal_fold
 
+-- …and against runModule itself — the object Arc 2's certified
+-- capstones (certified_body_trace / certified_forward_trace) are
+-- stated over: the t-th trace entry's output wire IS the Signal value
+#check @cnt8_signal_runModule
+#check @accEn_signal_runModule
+#check @twoReg_signal_runModule
+#check @fsm3_signal_runModule
+
 end Sparkle.Tests.ConeBridgeDemo

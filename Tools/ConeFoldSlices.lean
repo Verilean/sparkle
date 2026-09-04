@@ -1550,6 +1550,159 @@ theorem memNexts_memFree (we : WEnv) :
   | .inst .. :: rest, hm, mems, env =>
     memNexts_memFree we rest (by simpa [memFree] using hm) mems env
 
+/- ---- stepIter ↔ runModule reindexing ----
+   `runModule` (the object the certified Arc-2 capstones are stated
+   over) seeds with a COUNTDOWN index; the generated `state_trace` /
+   `signal_fold` theorems run over the wall-clock-indexed `stepIter`.
+   These lemmas connect the two once and for all. -/
+
+theorem stepIter_seed_congr (we : WEnv) (body : List Stmt)
+    (s1 s2 : Nat → (String → Nat) → Env) (st0 : String → Nat) :
+    ∀ (j : Nat), (∀ t, t < j → s1 t = s2 t) →
+    stepIter we body s1 st0 j = stepIter we body s2 st0 j
+  | 0, _ => rfl
+  | j + 1, h => by
+    simp only [stepIter, Option.bind_eq_bind]
+    rw [stepIter_seed_congr we body s1 s2 st0 j
+      (fun t ht => h t (by omega))]
+    cases hs : stepIter we body s2 st0 j with
+    | none => rfl
+    | some st =>
+      simp only [Option.bind_some]
+      rw [h j (by omega)]
+
+theorem runModule_seed_congr (we : WEnv) (body : List Stmt) :
+    ∀ (k : Nat) (s1 s2 : Nat → (String → Nat) → Env),
+    (∀ td, td < k → s1 td = s2 td) →
+    ∀ (st : String → Nat) (mems : MEnv),
+    runModule we body s1 k st mems = runModule we body s2 k st mems
+  | 0, _, _, _, _, _ => rfl
+  | k + 1, s1, s2, h, st, mems => by
+    simp only [runModule, Option.bind_eq_bind]
+    rw [h k (by omega)]
+    cases hs : stepModule we body (s2 k st) mems with
+    | none => rfl
+    | some trip =>
+      simp only [Option.bind_some]
+      rw [runModule_seed_congr we body k s1 s2
+        (fun td htd => h td (by omega))]
+
+/-- One-step (rear) unfold of the iteration, as an equation. -/
+theorem stepIter_succ (we : WEnv) (body : List Stmt)
+    (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) (j : Nat) :
+    stepIter we body seed st0 (j + 1) = (do
+      let st ← stepIter we body seed st0 j
+      let (_, nexts, _) ← stepModule we body (seed j st) (fun _ _ => 0)
+      some (applyNexts st nexts)) := rfl
+
+/-- Peel the FIRST step off the upward iteration (`stepIter` recurses
+    on the last). -/
+theorem stepIter_succ_front (we : WEnv) (body : List Stmt)
+    (seed : Nat → (String → Nat) → Env) (st0 : String → Nat)
+    {envF : Env} {nexts : List (String × Nat)} {mems' : MEnv}
+    (hstep : stepModule we body (seed 0 st0) (fun _ _ => 0)
+      = some (envF, nexts, mems')) :
+    ∀ (j : Nat),
+    stepIter we body seed st0 (j + 1)
+      = stepIter we body (fun t s => seed (t + 1) s)
+          (applyNexts st0 nexts) j
+  | 0 => by
+    simp only [stepIter, Option.bind_eq_bind, Option.bind_some, hstep]
+  | j + 1 => by
+    rw [stepIter_succ we body seed st0 (j + 1),
+        stepIter_succ_front we body seed st0 hstep j,
+        stepIter_succ we body (fun t s => seed (t + 1) s)
+          (applyNexts st0 nexts) j]
+
+/-- THE REINDEXING: a successful `runModule` run under the reversed
+    (wall-clock) seed produces, at position `j`, exactly the
+    combinational environment of `stepIter`'s cycle `j`. -/
+theorem runModule_stepIter (we : WEnv) (body : List Stmt)
+    (hm : memFree body) (seedUp : Nat → (String → Nat) → Env) :
+    ∀ (k off : Nat) (st : String → Nat) (envs : List Env),
+    runModule we body (fun td s => seedUp (off + (k - 1 - td)) s) k st
+      (fun _ _ => 0) = some envs →
+    ∀ j, j < k →
+    ∃ (st' : String → Nat) (env1 : Env),
+      stepIter we body (fun t s => seedUp (off + t) s) st j = some st'
+        ∧ evalAssigns we (fun _ _ => 0) body (seedUp (off + j) st')
+            = some env1
+        ∧ envs[j]? = some env1
+  | 0, _, _, _, _, j, hj => by omega
+  | k + 1, off, st, envs, hrunM, j, hj => by
+    simp only [runModule, Option.bind_eq_bind] at hrunM
+    cases hs : stepModule we body
+        (seedUp (off + (k + 1 - 1 - k)) st) (fun _ _ => 0) with
+    | none => rw [hs] at hrunM; simp at hrunM
+    | some trip =>
+      obtain ⟨envF, nexts, mems'⟩ := trip
+      rw [hs] at hrunM
+      simp only [Option.bind_some] at hrunM
+      cases hrest : runModule we body
+          (fun td s => seedUp (off + (k + 1 - 1 - td)) s) k
+          (applyNexts st nexts) mems' with
+      | none => rw [hrest] at hrunM; simp at hrunM
+      | some restEnvs =>
+        rw [hrest] at hrunM
+        simp only [Option.bind_some, Option.some_inj] at hrunM
+        subst hrunM
+        -- the head step is wall-clock `off`
+        have hoff : off + (k + 1 - 1 - k) = off := by omega
+        rw [hoff] at hs
+        -- decompose the head step once
+        simp only [stepModule, Option.bind_eq_bind] at hs
+        cases hA : evalAssigns we (fun _ _ => 0) body
+            (seedUp off st) with
+        | none => rw [hA] at hs; simp at hs
+        | some envA =>
+          rw [hA] at hs
+          simp only [Option.bind_some] at hs
+          cases hN : regNexts we (fun _ _ => 0) body envA with
+          | none => rw [hN] at hs; simp at hs
+          | some nx =>
+            rw [hN] at hs
+            rw [memNexts_memFree we body hm] at hs
+            simp only [Option.bind_some, Option.some_inj,
+              Prod.mk.injEq] at hs
+            obtain ⟨hEnvF, hNexts, hMems⟩ := hs
+            subst hEnvF
+            subst hNexts
+            subst hMems
+            -- align the tail's seed with offset off+1
+            have hseed : runModule we body
+                (fun td s => seedUp ((off + 1) + (k - 1 - td)) s) k
+                (applyNexts st nx) (fun _ _ => 0) = some restEnvs := by
+              rw [← hrest]
+              exact (runModule_seed_congr we body k _ _
+                (fun td htd => by
+                  have h : off + (k + 1 - 1 - td)
+                      = (off + 1) + (k - 1 - td) := by omega
+                  simp only [h]) _ _).symm
+            cases j with
+            | zero => exact ⟨st, envA, rfl, hA, rfl⟩
+            | succ j' =>
+              have hstep' : stepModule we body (seedUp off st)
+                  (fun _ _ => 0) = some (envA, nx, fun _ _ => 0) := by
+                simp only [stepModule, Option.bind_eq_bind, hA, hN,
+                  memNexts_memFree we body hm, Option.bind_some]
+              have ih := runModule_stepIter we body hm seedUp k (off + 1)
+                (applyNexts st nx) restEnvs hseed j' (by omega)
+              obtain ⟨st', env1, hsi, hev, hget⟩ := ih
+              refine ⟨st', env1, ?_, ?_, ?_⟩
+              · rw [stepIter_succ_front we body
+                  (fun t s => seedUp (off + t) s) st hstep' j']
+                rw [stepIter_seed_congr we body
+                  (fun t s => seedUp (off + (t + 1)) s)
+                  (fun t s => seedUp ((off + 1) + t) s) _ j'
+                  (fun t ht => by
+                    have h : off + (t + 1) = (off + 1) + t := by omega
+                    simp only [h])]
+                exact hsi
+              · have hidx : off + (j' + 1) = (off + 1) + j' := by omega
+                rw [hidx]
+                exact hev
+              · simpa using hget
+
 end Bridge
 
 end Tools.ConeFold

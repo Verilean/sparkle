@@ -909,6 +909,44 @@ elab "#verify_elab" id:ident : command => do
           simp [Sparkle.IR.Semantics.evalExpr])
       rw [$thId $appArgs* t, hout]
       rfl))
+    -- and against runModule itself (the object the certified Arc-2
+    -- capstones are stated over): the t-th trace entry's output wire
+    -- is the Signal's value, for every cycle of a successful run.
+    let sigRunId := mkI s!"{base}_signal_runModule"
+    elabCommand (← `(theorem $sigRunId $paramBinders* (K : Nat)
+        {envs : List Sparkle.IR.Semantics.Env}
+        (hrunM : Sparkle.IR.Semantics.runModule $weId $bodyId
+          (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id
+          (fun _ _ => 0) = some envs) :
+        ∀ t, t < K → ∃ env1, envs[t]? = some env1
+          ∧ (($(id) $appArgs*).val t).toNat = env1 $(quote outName) := by
+      intro t ht
+      have hrunM' : Sparkle.IR.Semantics.runModule $weId $bodyId
+          (fun td s => $envStId $appArgs* (0 + (K - 1 - td)) s) K $st0Id
+          (fun _ _ => 0) = some envs := by
+        rw [Tools.ConeFold.runModule_seed_congr $weId $bodyId K
+          (fun td s => $envStId $appArgs* (0 + (K - 1 - td)) s)
+          (fun td s => $envStId $appArgs* (K - 1 - td) s)
+          (fun td htd => by simp only [Nat.zero_add])]
+        exact hrunM
+      obtain ⟨st', env1, hsi, hev, hget⟩ :=
+        Tools.ConeFold.runModule_stepIter $weId $bodyId
+          (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+          ($envStId $appArgs*) K 0 $st0Id envs hrunM' t ht
+      refine ⟨env1, hget, ?_⟩
+      have hsi' : Tools.ConeFold.stepIter $weId $bodyId
+          ($envStId $appArgs*) $st0Id t = some st' := by
+        rw [Tools.ConeFold.stepIter_seed_congr $weId $bodyId
+          ($envStId $appArgs*)
+          (fun tt s => $envStId $appArgs* (0 + tt) s) $st0Id t
+          (fun tt htt => by simp only [Nat.zero_add])]
+        exact hsi
+      have hev' : Sparkle.IR.Semantics.evalAssigns $weId (fun _ _ => 0)
+          $bodyId ($envStId $appArgs* t st') = some env1 := by
+        have h0 : (0 : Nat) + t = t := by omega
+        rw [← h0]
+        exact hev
+      exact $sigFoldId $appArgs* t hsi' hev'))
   -- honesty check
   let axioms ← liftCoreM <| Lean.collectAxioms thId.getId
   if axioms.contains ``sorryAx then
