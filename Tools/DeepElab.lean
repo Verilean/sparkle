@@ -1028,19 +1028,19 @@ elab "#verify_elab_deep" id:ident : command => do
             Fin (List.length ($ΓrT : List Nat)))) = $(quote k)
             from rfl])
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k) : BitVec $wk) = gA
+              $(quote k)) = gA
             <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
               = $wk from rfl] at gA ⊢))
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k) : BitVec $wk) = gB
+              $(quote k)) = gB
             <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
               = $wk from rfl] at gB ⊢))
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k) : BitVec $wk) = gC
+              $(quote k)) = gC
             <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
               = $wk from rfl] at gC ⊢))
           try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k) : BitVec $wk) = gD
+              $(quote k)) = gD
             <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
               = $wk from rfl] at gD ⊢))
           ))
@@ -1196,7 +1196,12 @@ elab "#verify_elab_deep" id:ident : command => do
           -- so bv_decide-opaque) stateAt function to a variable, then
           -- bv_decide settles the Bool/BitVec1 bridge
           $boolCloser:tactic
-          all_goals (first | rfl | bv_decide | bv_omega | (simp; done))
+          all_goals (first
+            | rfl
+            | (with_unfolding_all rfl)
+            | bv_decide
+            | bv_omega
+            | (simp; done))
         | succ n =>
           simp [loopFOf, packRegister, Signal.register, Circuit.next,
             Circuit.pure', Circuit.bind, mkHolds, Signal.map,
@@ -1219,7 +1224,12 @@ elab "#verify_elab_deep" id:ident : command => do
           -- so bv_decide-opaque) stateAt function to a variable, then
           -- bv_decide settles the Bool/BitVec1 bridge
           $boolCloser:tactic
-          all_goals (first | rfl | bv_decide | bv_omega | (simp; done))
+          all_goals (first
+            | rfl
+            | (with_unfolding_all rfl)
+            | bv_decide
+            | bv_omega
+            | (simp; done))
       · -- the output side: outSig against the packed projection
         simp only [Cdo.outSig]
         simp only [Cdo.stateSig_eq]
@@ -1241,7 +1251,12 @@ elab "#verify_elab_deep" id:ident : command => do
         all_goals (try (rw [bif_beq_ofBool_toNat]))
         all_goals (try (rw [bif_beq_ofBool]))
         $boolCloser:tactic
-        all_goals (first | rfl | bv_decide | bv_omega | (simp; done)))
+        all_goals (first
+            | rfl
+            | (with_unfolding_all rfl)
+            | bv_decide
+            | bv_omega
+            | (simp; done)))
     if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
       logInfo m!"{thmCmd}"
     if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then
