@@ -716,8 +716,8 @@ elab "#verify_elab_deep" id:ident : command => do
     | some i => some i
     | none => (ins.map (·.1)).idxOf? s |>.map (· + nR)
   let conesIR ← regs.mapM fun (n, input, _) => do
-    match inlineCone dm stopAt 10000 input with
-    | .ok c => pure (resolveSlicesW wt c)
+    match Tools.ConeFold.inlineConeT dm stopAt 10000 input with
+    | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
     | .error e => throwError "#verify_elab_deep: cone of {n}: {e}"
   let cones ← conesIR.mapM (toCExpr slotIdx)
   -- ALL output ports.  A struct-returning `circuit do` flattens its
@@ -728,8 +728,8 @@ elab "#verify_elab_deep" id:ident : command => do
   let outPorts : List (String × Nat) := m.outputs.map fun p =>
     (p.name, wt.getD p.name p.ty.bitWidth)
   let outIRs ← outPorts.mapM fun (n, _) => do
-    match inlineCone dm stopAt 10000 (.ref n) with
-    | .ok c => pure (resolveSlicesW wt c)
+    match Tools.ConeFold.inlineConeT dm stopAt 10000 (.ref n) with
+    | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
     | .error e => throwError "#verify_elab_deep: output cone {n}: {e}"
   let outCs ← outIRs.mapM (toCExpr slotIdx)
   let bitwise := conesIR.any coneHasBitwise || outIRs.any coneHasBitwise

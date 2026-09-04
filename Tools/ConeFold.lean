@@ -741,4 +741,81 @@ theorem cone_agrees_with_fold (we : WEnv) (mems : MEnv)
 
 end Preserve
 
+/- ------------------------------------------------------------------ -/
+/- Slice-resolution twin (defs only — the theorem stack lives in
+   Tools/ConeFoldSlices.lean).  The defs live HERE so the goal
+   generators (Tools/VerifyElab.lean, Tools/DeepElab.lean) can call
+   the twins directly without an import cycle: the spliced cones are
+   then BY CONSTRUCTION the functions the seam theorems cover. -/
+section ResolveSlicesDefs
+
+mutual
+-- Flatten nested concats (the HList pack nests to the right); twin of
+-- the shipping arm's local `let rec flatten`.
+def flattenE : Expr → List Expr
+  | .concat ps => flattenL ps
+  | e => [e]
+
+def flattenL : List Expr → List Expr
+  | [] => []
+  | a :: rest => flattenE a ++ flattenL rest
+end
+
+/-- Twin of the shipping arm's local `widthOfPart` closure. -/
+def widthOfPartT (wt : Std.HashMap String Nat) : Expr → Option Nat
+  | .const _ w => some w
+  | .ref n => wt.get? n
+  | .slice _ h l => some (h - l + 1)
+  | _ => none
+
+/-- Structural twin of the shipping arm's window-search `for` loop.
+    The lists are MSB-first; `acc` is the total width of the REMAINING
+    parts, so the head occupies `[acc - w, acc - 1]`. -/
+def findWindow (hi lo : Nat) : List Expr → List Nat → Nat → Option Expr
+  | p :: ps, w :: ws, acc =>
+    if 0 < w ∧ lo ≤ hi ∧ lo = acc - w ∧ hi = acc - 1 then some p
+    else if 0 < w ∧ lo ≤ hi ∧ acc - w ≤ lo ∧ hi ≤ acc - 1 then
+      some (.slice p (hi - (acc - w)) (lo - (acc - w)))
+    else findWindow hi lo ps ws (acc - w)
+  | _, _, _ => none
+
+mutual
+/-- Total twin of the shipping `partial def resolveSlicesW`
+    (Tools/VerifyElab.lean).  Fuel decreases on the self-re-entering
+    calls; the expression shrinks on the rest — (fuel, e) is the
+    measure, as for `inlineConeT`. -/
+def resolveSlicesT (wt : Std.HashMap String Nat) : Nat → Expr → Expr
+  | 0, e => e
+  | fuel + 1, .slice (.concat parts0) hi lo =>
+    let parts := resolveSlicesTL wt fuel (flattenL parts0)
+    match parts.mapM (widthOfPartT wt) with
+    | none => .slice (.concat parts) hi lo
+    | some ws =>
+      match findWindow hi lo parts ws (ws.foldl (· + ·) 0) with
+      | some r => r
+      | none => .slice (.concat parts) hi lo
+  | fuel + 1, .op o args => .op o (resolveSlicesTL wt fuel args)
+  | fuel + 1, .concat args => .concat (resolveSlicesTL wt fuel args)
+  | fuel + 1, .slice e hi lo =>
+    match resolveSlicesT wt fuel e with
+    | .concat parts => resolveSlicesT wt fuel (.slice (.concat parts) hi lo)
+    | .ref n =>
+      if lo == 0 && wt.get? n == some (hi + 1) then .ref n
+      else .slice (.ref n) hi lo
+    | .slice inner ihi ilo =>
+      if ilo + hi ≤ ihi ∧ lo ≤ hi then
+        resolveSlicesT wt fuel (.slice inner (ilo + hi) (ilo + lo))
+      else .slice (.slice inner ihi ilo) hi lo
+    | e' => .slice e' hi lo
+  | _, e => e
+
+def resolveSlicesTL (wt : Std.HashMap String Nat) :
+    Nat → List Expr → List Expr
+  | _, [] => []
+  | fuel, a :: rest =>
+    resolveSlicesT wt fuel a :: resolveSlicesTL wt fuel rest
+end
+
+end ResolveSlicesDefs
+
 end Tools.ConeFold

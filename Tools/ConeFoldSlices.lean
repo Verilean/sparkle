@@ -31,73 +31,6 @@ namespace Tools.ConeFold
 
 section ResolveSlices
 
-mutual
--- Flatten nested concats (the HList pack nests to the right); twin of
--- the shipping arm's local `let rec flatten`.
-def flattenE : Expr → List Expr
-  | .concat ps => flattenL ps
-  | e => [e]
-
-def flattenL : List Expr → List Expr
-  | [] => []
-  | a :: rest => flattenE a ++ flattenL rest
-end
-
-/-- Twin of the shipping arm's local `widthOfPart` closure. -/
-def widthOfPartT (wt : Std.HashMap String Nat) : Expr → Option Nat
-  | .const _ w => some w
-  | .ref n => wt.get? n
-  | .slice _ h l => some (h - l + 1)
-  | _ => none
-
-/-- Structural twin of the shipping arm's window-search `for` loop.
-    The lists are MSB-first; `acc` is the total width of the REMAINING
-    parts, so the head occupies `[acc - w, acc - 1]`. -/
-def findWindow (hi lo : Nat) : List Expr → List Nat → Nat → Option Expr
-  | p :: ps, w :: ws, acc =>
-    if 0 < w ∧ lo ≤ hi ∧ lo = acc - w ∧ hi = acc - 1 then some p
-    else if 0 < w ∧ lo ≤ hi ∧ acc - w ≤ lo ∧ hi ≤ acc - 1 then
-      some (.slice p (hi - (acc - w)) (lo - (acc - w)))
-    else findWindow hi lo ps ws (acc - w)
-  | _, _, _ => none
-
-mutual
-/-- Total twin of the shipping `partial def resolveSlicesW`
-    (Tools/VerifyElab.lean).  Fuel decreases on the self-re-entering
-    calls; the expression shrinks on the rest — (fuel, e) is the
-    measure, as for `inlineConeT`. -/
-def resolveSlicesT (wt : Std.HashMap String Nat) : Nat → Expr → Expr
-  | 0, e => e
-  | fuel + 1, .slice (.concat parts0) hi lo =>
-    let parts := resolveSlicesTL wt fuel (flattenL parts0)
-    match parts.mapM (widthOfPartT wt) with
-    | none => .slice (.concat parts) hi lo
-    | some ws =>
-      match findWindow hi lo parts ws (ws.foldl (· + ·) 0) with
-      | some r => r
-      | none => .slice (.concat parts) hi lo
-  | fuel + 1, .op o args => .op o (resolveSlicesTL wt fuel args)
-  | fuel + 1, .concat args => .concat (resolveSlicesTL wt fuel args)
-  | fuel + 1, .slice e hi lo =>
-    match resolveSlicesT wt fuel e with
-    | .concat parts => resolveSlicesT wt fuel (.slice (.concat parts) hi lo)
-    | .ref n =>
-      if lo == 0 && wt.get? n == some (hi + 1) then .ref n
-      else .slice (.ref n) hi lo
-    | .slice inner ihi ilo =>
-      if ilo + hi ≤ ihi ∧ lo ≤ hi then
-        resolveSlicesT wt fuel (.slice inner (ilo + hi) (ilo + lo))
-      else .slice (.slice inner ihi ilo) hi lo
-    | e' => .slice e' hi lo
-  | _, e => e
-
-def resolveSlicesTL (wt : Std.HashMap String Nat) :
-    Nat → List Expr → List Expr
-  | _, [] => []
-  | fuel, a :: rest =>
-    resolveSlicesT wt fuel a :: resolveSlicesTL wt fuel rest
-end
-
 -- Fidelity probes against the shipping function, on the shapes the
 -- pack/cone pipeline actually produces.
 section FidelityProbes
@@ -1093,5 +1026,483 @@ theorem cone_resolved_agrees_with_fold (we : WEnv) (mems : MEnv)
   exact hv
 
 end ResolveSlices
+
+/- ------------------------------------------------------------------ -/
+/- The bridge to the generated recurrence.
+
+   `#verify_elab`'s generated `irTrace` evaluates each register's cone
+   in the SEED environment (registers ↦ trace components, inputs ↦
+   signal samples) — not in the fold's final environment.  The two
+   agree because a fully-inlined cone only reads stop-set names
+   (`inlineConeT_refs`, `resolveSlicesT_refs`) and the combinational
+   fold never writes those (`evalAssigns_frame`).
+
+   The decidable checkers at the end make every hypothesis of the
+   composed capstone per-instance dischargeable: `woCheck` (existing,
+   ReorderInvariance) + `memFreeCheck` + `noSelfReadCheck` +
+   `hwfCheck` + `stopAtFrozenCheck`. -/
+section Bridge
+
+open Sparkle.IR.Reorder
+open Sparkle.IR.Optimize (buildDefMap DefMap)
+
+/- ---- reference sets ---- -/
+
+theorem refsList_append :
+    ∀ (xs ys : List Expr),
+      refsOf.refsList (xs ++ ys) = refsOf.refsList xs ++ refsOf.refsList ys
+  | [], ys => by simp [refsOf.refsList]
+  | x :: xs', ys => by
+    simp [refsOf.refsList, refsList_append xs' ys]
+
+mutual
+theorem flattenE_refs (e : Expr) :
+    refsOf.refsList (flattenE e) = refsOf e := by
+  cases e with
+  | concat ps =>
+    simp only [flattenE, refsOf]
+    exact flattenL_refs ps
+  | const v w => simp [flattenE, refsOf.refsList]
+  | ref n => simp [flattenE, refsOf.refsList]
+  | op o args => simp [flattenE, refsOf.refsList]
+  | slice i a b => simp [flattenE, refsOf.refsList]
+  | sliceDim i d j => simp [flattenE, refsOf.refsList]
+  | index a i => simp [flattenE, refsOf.refsList]
+
+theorem flattenL_refs (l : List Expr) :
+    refsOf.refsList (flattenL l) = refsOf.refsList l := by
+  cases l with
+  | nil => simp [flattenL]
+  | cons a rest =>
+    simp only [flattenL, refsList_append, refsOf.refsList,
+      flattenE_refs a, flattenL_refs rest]
+end
+
+theorem findWindow_refs (hi lo : Nat) :
+    ∀ (ps : List Expr) (ws : List Nat) (acc : Nat) (r : Expr),
+      findWindow hi lo ps ws acc = some r →
+      ∀ n ∈ refsOf r, n ∈ refsOf.refsList ps
+  | [], ws, acc, r, h => by
+    cases ws <;> simp [findWindow] at h
+  | p :: ps', [], acc, r, h => by simp [findWindow] at h
+  | p :: ps', w :: ws', acc, r, h => by
+    simp only [findWindow] at h
+    split at h
+    · cases h
+      intro n hn
+      simp [refsOf.refsList, hn]
+    · split at h
+      · cases h
+        intro n hn
+        simp only [refsOf] at hn
+        simp [refsOf.refsList, hn]
+      · intro n hn
+        have := findWindow_refs hi lo ps' ws' (acc - w) r h n hn
+        simp [refsOf.refsList, this]
+
+/-- Slice resolution never introduces a reference. -/
+theorem resolveSlicesT_refs (wt : Std.HashMap String Nat) :
+    ∀ fuel e, ∀ n ∈ refsOf (resolveSlicesT wt fuel e), n ∈ refsOf e := by
+  intro fuel e
+  induction fuel, e using resolveSlicesT.induct wt
+    (motive2 := fun fuel args =>
+      ∀ n ∈ refsOf.refsList (resolveSlicesTL wt fuel args),
+        n ∈ refsOf.refsList args) with
+  | case1 e =>
+    rw [rsT_zero]
+    exact fun n hn => hn
+  | case2 fuel parts0 hi lo parts hmap ih =>
+    rw [show parts = resolveSlicesTL wt fuel (flattenL parts0) from rfl]
+      at hmap
+    rw [rsT_slice_concat, hmap]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    rw [← flattenL_refs parts0]
+    exact ih n hn
+  | case3 fuel parts0 hi lo parts ws hmap r hfw ih =>
+    rw [show parts = resolveSlicesTL wt fuel (flattenL parts0) from rfl]
+      at hmap hfw
+    rw [rsT_slice_concat, hmap]
+    dsimp only
+    rw [hfw]
+    intro n hn
+    simp only [refsOf]
+    rw [← flattenL_refs parts0]
+    exact ih n (findWindow_refs hi lo _ _ _ r hfw n hn)
+  | case4 fuel parts0 hi lo parts ws hmap hfw ih =>
+    rw [show parts = resolveSlicesTL wt fuel (flattenL parts0) from rfl]
+      at hmap hfw
+    rw [rsT_slice_concat, hmap]
+    dsimp only
+    rw [hfw]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    rw [← flattenL_refs parts0]
+    exact ih n hn
+  | case5 fuel o args ih =>
+    rw [rsT_op]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    exact ih n hn
+  | case6 fuel args ih =>
+    rw [rsT_concat]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    exact ih n hn
+  | case7 fuel e hi lo hne parts hcp ih2 ih1 =>
+    rw [rsT_slice_reduce wt fuel e hi lo (fun ps h => hne ps h), hcp]
+    dsimp only
+    intro n hn
+    have h1 := ih1 n hn
+    simp only [refsOf] at h1 ⊢
+    have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+      rw [hcp]; simpa [refsOf] using h1
+    exact ih2 n h2
+  | case8 fuel e hi lo hne n' href hguard ih1 =>
+    rw [rsT_slice_reduce wt fuel e hi lo (fun ps h => hne ps h), href]
+    dsimp only
+    rw [if_pos hguard]
+    intro n hn
+    have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+      rw [href]; exact hn
+    simpa [refsOf] using ih1 n h2
+  | case9 fuel e hi lo hne n' href hguard ih1 =>
+    rw [rsT_slice_reduce wt fuel e hi lo (fun ps h => hne ps h), href]
+    dsimp only
+    rw [if_neg hguard]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+      rw [href]; exact hn
+    exact ih1 n h2
+  | case10 fuel e hi lo hne inner ihi ilo hsl hguard ih2 ih1 =>
+    rw [rsT_slice_reduce wt fuel e hi lo (fun ps h => hne ps h), hsl]
+    dsimp only
+    rw [if_pos hguard]
+    intro n hn
+    have h1 := ih1 n hn
+    simp only [refsOf] at h1 ⊢
+    have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+      rw [hsl]; simpa [refsOf] using h1
+    exact ih2 n h2
+  | case11 fuel e hi lo hne inner ihi ilo hsl hguard ih1 =>
+    rw [rsT_slice_reduce wt fuel e hi lo (fun ps h => hne ps h), hsl]
+    dsimp only
+    rw [if_neg hguard]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+      rw [hsl]; simpa [refsOf] using hn
+    exact ih1 n h2
+  | case12 fuel e hi lo hne hnc hnr hns ih1 =>
+    rw [rsT_slice_reduce wt fuel e hi lo (fun ps h => hne ps h)]
+    intro n hn
+    simp only [refsOf] at ⊢
+    cases hre : resolveSlicesT wt fuel e with
+    | concat parts => exact (hnc parts hre).elim
+    | ref n' => exact (hnr n' hre).elim
+    | slice i a b => exact (hns i a b hre).elim
+    | const cv cw =>
+      rw [hre] at hn
+      simp [refsOf] at hn
+    | op o args =>
+      rw [hre] at hn
+      simp only [refsOf] at hn
+      have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+        rw [hre]; simpa [refsOf] using hn
+      exact ih1 n h2
+    | sliceDim i d j =>
+      rw [hre] at hn
+      simp only [refsOf] at hn
+      have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+        rw [hre]; simpa [refsOf] using hn
+      exact ih1 n h2
+    | index a i =>
+      rw [hre] at hn
+      simp only [refsOf] at hn
+      have h2 : n ∈ refsOf (resolveSlicesT wt fuel e) := by
+        rw [hre]; simpa [refsOf] using hn
+      exact ih1 n h2
+  | case13 x e h0 h1 h2 h3 h4 =>
+    match x, h0 with
+    | fuel + 1, _ =>
+      cases e with
+      | op o args => exact (h2 fuel o args rfl rfl).elim
+      | concat args => exact (h3 fuel args rfl rfl).elim
+      | slice s a b => exact (h4 fuel s a b rfl rfl).elim
+      | const cv cw => rw [rsT_const]; exact fun n hn => hn
+      | ref n => rw [rsT_ref]; exact fun n hn => hn
+      | sliceDim i d j => rw [rsT_sliceDim]; exact fun n hn => hn
+      | index a i => rw [rsT_index]; exact fun n hn => hn
+  | case14 fuel n hn =>
+    rw [rsTL_nil] at hn
+    exact hn
+  | case15 fuel a rest ih2 ih1 n hn =>
+    rw [rsTL_cons] at hn
+    simp only [refsOf.refsList, List.mem_append] at hn ⊢
+    rcases hn with hn | hn
+    · exact Or.inl (ih2 n hn)
+    · exact Or.inr (ih1 n hn)
+
+/-- A fully-inlined cone only references stop-set names. -/
+theorem inlineConeT_refs (dm : DefMap) (stopAt : Std.HashMap String Bool) :
+    ∀ fuel e, (∀ e', inlineConeT dm stopAt fuel e = .ok e' →
+      ∀ n ∈ refsOf e', stopAt.contains n = true) := by
+  intro fuel e
+  induction fuel, e using inlineConeT.induct dm stopAt
+    (motive2 := fun fuel args => ∀ args',
+      inlineConeTL dm stopAt fuel args = .ok args' →
+      ∀ n ∈ refsOf.refsList args', stopAt.contains n = true) with
+  | case1 fuel n hs =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_pos] at h
+    cases h
+    intro m hm
+    simp only [refsOf, List.mem_singleton] at hm
+    subst hm
+    exact hs
+  | case2 n hs =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, Bool.false_eq_true, ite_false] at h
+    simp at h
+  | case3 fuel n hs hdm hf =>
+    intro e' h
+    match fuel, hf with
+    | fuel + 1, _ =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp only [hs, Bool.false_eq_true, ite_false, hdm] at h
+      simp at h
+  | case4 n hs fuel rhs hdm ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, Bool.false_eq_true, ite_false, hdm] at h
+    exact ih e' h
+  | case5 fuel o args ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind] at h
+      subst h
+      intro n hn
+      exact ih args' hl n (by simpa [refsOf] using hn)
+  | case6 fuel args ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind] at h
+      subst h
+      intro n hn
+      exact ih args' hl n (by simpa [refsOf] using hn)
+  | case7 fuel e hi lo ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases he : inlineConeT dm stopAt fuel e with
+    | error err => rw [he] at h; simp [Bind.bind, Except.bind] at h
+    | ok e0 =>
+      rw [he] at h
+      simp [Bind.bind, Except.bind] at h
+      subst h
+      intro n hn
+      exact ih e0 he n (by simpa [refsOf] using hn)
+  | case8 x array idx =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h; simp at h
+  | case9 x expr hi lo =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h; simp at h
+  | case10 x e hne1 hne2 hne3 hne4 hne5 hne6 =>
+    intro e' h
+    cases e with
+    | ref n => exact absurd rfl (hne1 n)
+    | op o args => exact absurd rfl (hne2 o args)
+    | concat args => exact absurd rfl (hne3 args)
+    | slice e hi lo => exact absurd rfl (hne4 e hi lo)
+    | index a i => exact absurd rfl (hne5 a i)
+    | sliceDim e hi lo => exact absurd rfl (hne6 e hi lo)
+    | const v w =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp at h
+      subst h
+      intro n hn
+      simp [refsOf] at hn
+  | case11 x args' h n hn =>
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    simp at h
+    subst h
+    simp [refsOf.refsList] at hn
+  | case12 fuel a rest iha ihrest args' h n hn =>
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    cases ha : inlineConeT dm stopAt fuel a with
+    | error err => rw [ha] at h; simp [Bind.bind, Except.bind] at h
+    | ok a' =>
+      rw [ha] at h
+      cases hr : inlineConeTL dm stopAt fuel rest with
+      | error err => rw [hr] at h; simp [Bind.bind, Except.bind] at h
+      | ok rest' =>
+        rw [hr] at h
+        simp [Bind.bind, Except.bind] at h
+        subst h
+        simp only [refsOf.refsList, List.mem_append] at hn
+        rcases hn with hn | hn
+        · exact iha a' ha n hn
+        · exact ihrest rest' hr n hn
+
+/- ---- decidable checkers for the capstone's hypotheses ---- -/
+
+/-- Boolean mirror of `memFree`. -/
+def memFreeCheck : List Stmt → Bool
+  | [] => true
+  | .memory .. :: _ => false
+  | _ :: rest => memFreeCheck rest
+
+theorem memFreeCheck_sound :
+    ∀ body, memFreeCheck body = true → memFree body
+  | [], _ => trivial
+  | .assign .. :: rest, h => memFreeCheck_sound rest (by simpa [memFreeCheck] using h)
+  | .register .. :: rest, h => memFreeCheck_sound rest (by simpa [memFreeCheck] using h)
+  | .memory .. :: _, h => by simp [memFreeCheck] at h
+  | .inst .. :: rest, h => memFreeCheck_sound rest (by simpa [memFreeCheck] using h)
+
+/-- Boolean mirror of `noSelfRead`. -/
+def noSelfReadCheck : List Stmt → Bool
+  | [] => true
+  | s :: rest =>
+    (stmtReads s).all (fun n => !(stmtWrites s).contains n)
+      && noSelfReadCheck rest
+
+theorem noSelfReadCheck_sound :
+    ∀ body, noSelfReadCheck body = true → noSelfRead body
+  | [], _ => trivial
+  | s :: rest, h => by
+    simp only [noSelfReadCheck, Bool.and_eq_true, List.all_eq_true] at h
+    exact ⟨fun n hn hw => by
+        have := h.1 n hn
+        simp at this
+        exact this hw,
+      noSelfReadCheck_sound rest h.2⟩
+
+/-- Boolean mirror of the capstone's `hwf` (assignment-width
+    discipline), stated over the body list. -/
+def hwfCheck (we : WEnv) (stopAt : Std.HashMap String Bool) :
+    List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    (stopAt.contains l || widthOf we r == we l) && hwfCheck we stopAt rest
+  | _ :: rest => hwfCheck we stopAt rest
+
+theorem hwfCheck_mem (we : WEnv) (stopAt : Std.HashMap String Bool) :
+    ∀ body, hwfCheck we stopAt body = true →
+    ∀ n rhs, Stmt.assign n rhs ∈ body →
+      stopAt.contains n = false → widthOf we rhs = we n
+  | [], _, n, rhs, hin, _ => by simp at hin
+  | s :: rest, h, n, rhs, hin, hns => by
+    cases hin with
+    | head =>
+      simp only [hwfCheck, Bool.and_eq_true, Bool.or_eq_true,
+        beq_iff_eq] at h
+      rcases h.1 with hc | hc
+      · rw [hns] at hc; simp at hc
+      · exact hc
+    | tail _ hin' =>
+      cases s with
+      | assign l r =>
+        simp only [hwfCheck, Bool.and_eq_true] at h
+        exact hwfCheck_mem we stopAt rest h.2 n rhs hin' hns
+      | register o c rs i iv =>
+        exact hwfCheck_mem we stopAt rest (by simpa [hwfCheck] using h)
+          n rhs hin' hns
+      | memory a b c d e f g i j k m nn =>
+        exact hwfCheck_mem we stopAt rest (by simpa [hwfCheck] using h)
+          n rhs hin' hns
+      | inst a b c =>
+        exact hwfCheck_mem we stopAt rest (by simpa [hwfCheck] using h)
+          n rhs hin' hns
+
+theorem hwfCheck_sound (we : WEnv) (stopAt : Std.HashMap String Bool)
+    (body : List Stmt) (h : hwfCheck we stopAt body = true) :
+    ∀ n rhs, (buildDefMap body).get? n = some rhs →
+      stopAt.contains n = false → widthOf we rhs = we n := by
+  intro n rhs hget hns
+  rcases buildDefMap_mem body {} n rhs hget with hin | hempty
+  · exact hwfCheck_mem we stopAt body h n rhs hin hns
+  · simp at hempty
+
+/-- Boolean mirror of "the combinational fold never writes a stop-set
+    name" (inputs and registers are not assign targets). -/
+def stopAtFrozenCheck (stopAt : Std.HashMap String Bool) :
+    List Stmt → Bool
+  | [] => true
+  | s :: rest =>
+    (stmtWrites s).all (fun n => !stopAt.contains n)
+      && stopAtFrozenCheck stopAt rest
+
+theorem stopAtFrozenCheck_sound (stopAt : Std.HashMap String Bool) :
+    ∀ body, stopAtFrozenCheck stopAt body = true →
+    ∀ n, stopAt.contains n = true → n ∉ writesOf body
+  | [], _, n, _ => by simp [writesOf]
+  | s :: rest, h, n, hc => by
+    simp only [stopAtFrozenCheck, Bool.and_eq_true, List.all_eq_true] at h
+    intro hin
+    simp only [writesOf, List.flatMap_cons, List.mem_append] at hin
+    rcases hin with hin | hin
+    · have := h.1 n hin
+      rw [hc] at this
+      simp at this
+    · exact stopAtFrozenCheck_sound stopAt rest h.2 n hc
+        (by simpa [writesOf] using hin)
+
+/- ---- the seed-side capstone ---- -/
+
+/-- THE BRIDGE FORM of the capstone: the resolved inlined cone
+    evaluated in the SEED environment (what the generated `irTrace`
+    recurrence actually does) still equals the fold's value — the cone
+    only reads stop-set names, and the fold never writes those. -/
+theorem cone_resolved_agrees_at_seed (we : WEnv) (mems : MEnv)
+    {done : List String} {body : List Stmt} {env0 env1 : Env}
+    (stopAt : Std.HashMap String Bool) (wt : Std.HashMap String Nat)
+    (hWO : WO done body)
+    (hm : memFree body) (hsr : noSelfRead body)
+    (hrun : evalAssigns we mems body env0 = some env1)
+    (hwf : ∀ n rhs, (buildDefMap body).get? n = some rhs →
+      stopAt.contains n = false → widthOf we rhs = we n)
+    (hwt : ∀ n w, wt.get? n = some w → we n = w)
+    (hb : ∀ n, env1 n < 2 ^ we n)
+    (hfrozen : ∀ n, stopAt.contains n = true → n ∉ writesOf body)
+    {fuel : Nat} {e e' : Expr}
+    (hinl : inlineConeT (buildDefMap body) stopAt fuel e = .ok e')
+    (rfuel : Nat) {v : Nat} (hv : evalExpr we env1 e = some v) :
+    evalExpr we env0 (resolveSlicesT wt rfuel e') = some v := by
+  have hcong : evalExpr we env0 (resolveSlicesT wt rfuel e')
+      = evalExpr we env1 (resolveSlicesT wt rfuel e') := by
+    apply evalExpr_congr
+    intro n hn
+    have hn' : n ∈ refsOf e' := resolveSlicesT_refs wt rfuel e' n hn
+    have hc : stopAt.contains n = true :=
+      inlineConeT_refs (buildDefMap body) stopAt fuel e e' hinl n hn'
+    exact (evalAssigns_frame we mems body env0 env1 hrun hm n
+      (hfrozen n hc)).symm
+  rw [hcong]
+  exact cone_resolved_agrees_with_fold we mems stopAt wt hWO hm hsr hrun
+    hwf hwt hb hinl rfuel hv
+
+end Bridge
 
 end Tools.ConeFold

@@ -29,6 +29,7 @@ import Lean
 import Sparkle.Compiler.Elab
 import Sparkle.IR.Semantics
 import Tools.SVParser.VerifyEmit
+import Tools.ConeFold
 
 open Sparkle.Core Sparkle.Core.Signal in
 section
@@ -369,14 +370,14 @@ elab "#verify_elab" id:ident : command => do
     |> regs.foldl (fun h (n, _, _) => h.insert n true)
   let dm := buildDefMap m.body
   let cones ← regs.mapM fun (n, input, _) => do
-    match inlineCone dm stopAt 10000 input with
-    | .ok c => pure (n, resolveSlicesW wt c)
+    match Tools.ConeFold.inlineConeT dm stopAt 10000 input with
+    | .ok c => pure (n, Tools.ConeFold.resolveSlicesT wt 10000 c)
     | .error e => throwError "#verify_elab: cone of {n}: {e}"
   let outName ← match m.outputs with
     | [p] => pure p.name
     | _ => throwError "#verify_elab: exactly one output supported"
-  let outCone ← match inlineCone dm stopAt 10000 (.ref outName) with
-    | .ok c => pure (resolveSlicesW wt c)
+  let outCone ← match Tools.ConeFold.inlineConeT dm stopAt 10000 (.ref outName) with
+    | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
     | .error e => throwError "#verify_elab: output cone: {e}"
   -- names
   let paramOf (n : String) : String :=
