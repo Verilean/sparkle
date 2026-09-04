@@ -96,7 +96,7 @@ theorem rsT_slice_concat (wt : Std.HashMap String Nat) (fuel : Nat)
           | none =>
             .slice (.concat (resolveSlicesTL wt fuel (flattenL parts0)))
               hi lo) := by
-  rw [resolveSlicesT.eq_def]
+  rw [resolveSlicesT.eq_def]; rfl
 
 theorem rsT_slice_reduce (wt : Std.HashMap String Nat) (fuel : Nat)
     (e : Expr) (hi lo : Nat) (hne : ∀ ps, e ≠ Expr.concat ps) :
@@ -114,12 +114,12 @@ theorem rsT_slice_reduce (wt : Std.HashMap String Nat) (fuel : Nat)
         | e' => .slice e' hi lo) := by
   cases e with
   | concat ps => exact absurd rfl (hne ps)
-  | const v w => rw [resolveSlicesT.eq_def]
-  | ref n => rw [resolveSlicesT.eq_def]
-  | op o args => rw [resolveSlicesT.eq_def]
-  | slice i a b => rw [resolveSlicesT.eq_def]
-  | sliceDim i d j => rw [resolveSlicesT.eq_def]
-  | index a i => rw [resolveSlicesT.eq_def]
+  | const v w => rw [resolveSlicesT.eq_def]; rfl
+  | ref n => rw [resolveSlicesT.eq_def]; rfl
+  | op o args => rw [resolveSlicesT.eq_def]; rfl
+  | slice i a b => rw [resolveSlicesT.eq_def]; rfl
+  | sliceDim i d j => rw [resolveSlicesT.eq_def]; rfl
+  | index a i => rw [resolveSlicesT.eq_def]; rfl
 
 theorem rsT_const (wt : Std.HashMap String Nat) (fuel : Nat) (v : Int)
     (w : Nat) : resolveSlicesT wt (fuel + 1) (.const v w) = .const v w := by
@@ -1043,6 +1043,10 @@ end ResolveSlices
    `hwfCheck` + `stopAtFrozenCheck`. -/
 section Bridge
 
+-- `inlineConeT … = .ok cone` facts are discharged per instance by
+-- `native_decide`; the equality needs a Decidable instance on Except.
+deriving instance DecidableEq for Except
+
 open Sparkle.IR.Reorder
 open Sparkle.IR.Optimize (buildDefMap DefMap)
 
@@ -1474,7 +1478,14 @@ theorem stopAtFrozenCheck_sound (stopAt : Std.HashMap String Bool) :
 /-- THE BRIDGE FORM of the capstone: the resolved inlined cone
     evaluated in the SEED environment (what the generated `irTrace`
     recurrence actually does) still equals the fold's value — the cone
-    only reads stop-set names, and the fold never writes those. -/
+    only reads stop-set names, and the fold never writes those.
+
+    Boundedness is required of the SEED only (`hb0`): the inlined cone
+    is moved back to `env0` by the frame/congruence argument BEFORE
+    slice resolution is applied, so nothing about the fold's own
+    writes is needed.  Per instance `hb0` is immediate — registers by
+    the generated `irTrace_bound`, inputs by `BitVec.isLt`, all other
+    names 0. -/
 theorem cone_resolved_agrees_at_seed (we : WEnv) (mems : MEnv)
     {done : List String} {body : List Stmt} {env0 env1 : Env}
     (stopAt : Std.HashMap String Bool) (wt : Std.HashMap String Nat)
@@ -1484,24 +1495,59 @@ theorem cone_resolved_agrees_at_seed (we : WEnv) (mems : MEnv)
     (hwf : ∀ n rhs, (buildDefMap body).get? n = some rhs →
       stopAt.contains n = false → widthOf we rhs = we n)
     (hwt : ∀ n w, wt.get? n = some w → we n = w)
-    (hb : ∀ n, env1 n < 2 ^ we n)
+    (hb0 : ∀ n, env0 n < 2 ^ we n)
     (hfrozen : ∀ n, stopAt.contains n = true → n ∉ writesOf body)
     {fuel : Nat} {e e' : Expr}
     (hinl : inlineConeT (buildDefMap body) stopAt fuel e = .ok e')
     (rfuel : Nat) {v : Nat} (hv : evalExpr we env1 e = some v) :
     evalExpr we env0 (resolveSlicesT wt rfuel e') = some v := by
-  have hcong : evalExpr we env0 (resolveSlicesT wt rfuel e')
-      = evalExpr we env1 (resolveSlicesT wt rfuel e') := by
-    apply evalExpr_congr
-    intro n hn
-    have hn' : n ∈ refsOf e' := resolveSlicesT_refs wt rfuel e' n hn
-    have hc : stopAt.contains n = true :=
-      inlineConeT_refs (buildDefMap body) stopAt fuel e e' hinl n hn'
-    exact (evalAssigns_frame we mems body env0 env1 hrun hm n
-      (hfrozen n hc)).symm
-  rw [hcong]
-  exact cone_resolved_agrees_with_fold we mems stopAt wt hWO hm hsr hrun
-    hwf hwt hb hinl rfuel hv
+  have h1 : evalExpr we env1 e' = some v := by
+    rw [cone_agrees_with_fold we mems stopAt hWO hm hsr hrun hwf hinl]
+    exact hv
+  have h0 : evalExpr we env0 e' = some v := by
+    rw [evalExpr_congr we env0 env1 e' (fun n hn =>
+      (evalAssigns_frame we mems body env0 env1 hrun hm n
+        (hfrozen n (inlineConeT_refs (buildDefMap body) stopAt fuel e e'
+          hinl n hn))).symm)]
+    exact h1
+  exact resolveSlicesT_eval wt we env0 hwt hb0 rfuel e' v h0
+
+/- ---- per-instance width-table plumbing ---- -/
+
+/-- A binding in an assoc-list-built map came from the list. -/
+theorem assocMap_mem :
+    ∀ (l : List (String × Nat)) (m0 : Std.HashMap String Nat)
+      (n : String) (w : Nat),
+    (l.foldl (fun m p => m.insert p.1 p.2) m0).get? n = some w →
+    (n, w) ∈ l ∨ m0.get? n = some w
+  | [], _, _, _, h => Or.inr h
+  | p :: rest, m0, n, w, h => by
+    simp only [List.foldl_cons] at h
+    rcases assocMap_mem rest (m0.insert p.1 p.2) n w h with hin | hm0
+    · exact Or.inl (List.mem_cons_of_mem _ hin)
+    · simp only [Std.HashMap.get?_insert] at hm0
+      split at hm0
+      · rename_i heq
+        simp only [Option.some_inj] at hm0
+        left
+        obtain ⟨a, b⟩ := p
+        simp only [beq_iff_eq] at heq
+        subst heq
+        subst hm0
+        exact List.mem_cons_self ..
+      · exact Or.inr hm0
+
+/-- The capstone's `hwt` from a finite width list: if the width env
+    agrees with every listed pair, it agrees with the map built from
+    the list.  The premise is a decidable finite conjunction. -/
+theorem hwt_of_assoc (we : WEnv) (l : List (String × Nat))
+    (h : ∀ p ∈ l, we p.1 = p.2) :
+    ∀ n w, (l.foldl (fun m p => m.insert p.1 p.2)
+        ({} : Std.HashMap String Nat)).get? n = some w → we n = w := by
+  intro n w hget
+  rcases assocMap_mem l {} n w hget with hin | hempty
+  · exact h (n, w) hin
+  · simp at hempty
 
 end Bridge
 

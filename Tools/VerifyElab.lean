@@ -262,6 +262,8 @@ open Tools.SVParser.VerifyEmit (inlineCone widthTable denote varIdent)
 deriving instance ToExpr for Sparkle.IR.Type.DimExpr
 deriving instance ToExpr for Sparkle.IR.AST.Operator
 deriving instance ToExpr for Sparkle.IR.AST.Expr
+deriving instance ToExpr for Sparkle.IR.Type.ResetKind
+deriving instance ToExpr for Sparkle.IR.AST.Stmt
 
 /-- The module's registers, in body order — which is the loop-state
     packing order (`packRegister` follows the HList left to right, and
@@ -371,13 +373,14 @@ elab "#verify_elab" id:ident : command => do
   let dm := buildDefMap m.body
   let cones ← regs.mapM fun (n, input, _) => do
     match Tools.ConeFold.inlineConeT dm stopAt 10000 input with
-    | .ok c => pure (n, Tools.ConeFold.resolveSlicesT wt 10000 c)
+    | .ok c => pure (n, Tools.ConeFold.resolveSlicesT wt 10000 c, c)
     | .error e => throwError "#verify_elab: cone of {n}: {e}"
   let outName ← match m.outputs with
     | [p] => pure p.name
     | _ => throwError "#verify_elab: exactly one output supported"
-  let outCone ← match Tools.ConeFold.inlineConeT dm stopAt 10000 (.ref outName) with
-    | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
+  let (outCone, outConeRaw) ←
+    match Tools.ConeFold.inlineConeT dm stopAt 10000 (.ref outName) with
+    | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c, c)
     | .error e => throwError "#verify_elab: output cone: {e}"
   -- names
   let paramOf (n : String) : String :=
@@ -416,14 +419,14 @@ elab "#verify_elab" id:ident : command => do
   -- weM
   let weBody ← do
     let mut acc ← `((0 : Nat))
-    for (n, w) in ((regs.map fun r => (r.1, wt.getD r.1 0)) ++ ins).reverse do
+    for (n, w) in wt.toList do
       acc ← `(if n == $(quote n) then $(quote w) else $acc)
     pure acc
   elabCommand (← `(def $weId : Sparkle.IR.Semantics.WEnv :=
     fun n => $weBody))
   -- cone constants
   let mut coneIds : Array Ident := #[]
-  for (n, c) in cones do
+  for (n, c, craw) in cones do
     let cid := mkI s!"{base}_cone_{Sparkle.Backend.Verilog.sanitizeName n}"
     liftCoreM <| addAndCompile <| .defnDecl {
       name := cid.getId, levelParams := []
@@ -431,12 +434,61 @@ elab "#verify_elab" id:ident : command => do
       value := toExpr c, hints := .abbrev, safety := .safe }
     liftCoreM <| Lean.enableRealizationsForConst cid.getId
     coneIds := coneIds.push cid
+    let crid := mkI s!"{base}_coneRaw_{Sparkle.Backend.Verilog.sanitizeName n}"
+    liftCoreM <| addAndCompile <| .defnDecl {
+      name := crid.getId, levelParams := []
+      type := mkConst ``Sparkle.IR.AST.Expr
+      value := toExpr craw, hints := .abbrev, safety := .safe }
+    liftCoreM <| Lean.enableRealizationsForConst crid.getId
   let outConeId := mkI s!"{base}_cone_out"
   liftCoreM <| addAndCompile <| .defnDecl {
     name := outConeId.getId, levelParams := []
     type := mkConst ``Sparkle.IR.AST.Expr
     value := toExpr outCone, hints := .abbrev, safety := .safe }
   liftCoreM <| Lean.enableRealizationsForConst outConeId.getId
+  let outConeRawId := mkI s!"{base}_coneRaw_out"
+  liftCoreM <| addAndCompile <| .defnDecl {
+    name := outConeRawId.getId, levelParams := []
+    type := mkConst ``Sparkle.IR.AST.Expr
+    value := toExpr outConeRaw, hints := .abbrev, safety := .safe }
+  liftCoreM <| Lean.enableRealizationsForConst outConeRawId.getId
+  -- per-instance seam constants: the module body, the stop set and the
+  -- width table as OBJECT values, so the ConeFold bridge theorems'
+  -- hypotheses become per-instance dischargeable facts about exactly
+  -- the constants the goals mention (Tools/ConeFoldSlices.lean).
+  -- The body is emitted TOPO-SORTED: the elaborator's raw body carries
+  -- the loop-pack wire in source order (read before its assign), which
+  -- is not well-ordered; the shipping emission pipeline sorts before
+  -- emitting, and `evalAssigns`' in-order fold needs the same.  Cones
+  -- are order-blind (buildDefMap is a map), so nothing else changes.
+  let bodyId := mkI s!"{base}_body"
+  liftCoreM <| addAndCompile <| .defnDecl {
+    name := bodyId.getId, levelParams := []
+    type := mkApp (mkConst ``List [levelZero]) (mkConst ``Sparkle.IR.AST.Stmt)
+    value := toExpr (Tools.SVParser.Lower.topoSortBody m.body),
+    hints := .abbrev, safety := .safe }
+  liftCoreM <| Lean.enableRealizationsForConst bodyId.getId
+  let stopL : List String := (ins.map (·.1)) ++ (regs.map (·.1))
+  let stopLId := mkI s!"{base}_stopL"
+  liftCoreM <| addAndCompile <| .defnDecl {
+    name := stopLId.getId, levelParams := []
+    type := mkApp (mkConst ``List [levelZero]) (mkConst ``String)
+    value := toExpr stopL, hints := .abbrev, safety := .safe }
+  liftCoreM <| Lean.enableRealizationsForConst stopLId.getId
+  let wtLId := mkI s!"{base}_wtL"
+  liftCoreM <| addAndCompile <| .defnDecl {
+    name := wtLId.getId, levelParams := []
+    type := mkApp (mkConst ``List [levelZero])
+      (mkApp2 (mkConst ``Prod [levelZero, levelZero])
+        (mkConst ``String) (mkConst ``Nat))
+    value := toExpr wt.toList, hints := .abbrev, safety := .safe }
+  liftCoreM <| Lean.enableRealizationsForConst wtLId.getId
+  let stopAtMId := mkI s!"{base}_stopAtM"
+  elabCommand (← `(def $stopAtMId : Std.HashMap String Bool :=
+    ($stopLId).foldl (fun h n => h.insert n true) {}))
+  let wtMId := mkI s!"{base}_wtM"
+  elabCommand (← `(def $wtMId : Std.HashMap String Nat :=
+    ($wtLId).foldl (fun m p => m.insert p.1 p.2) {}))
   -- envAt: registers ↦ projections of s, inputs ↦ toNat of signals
   let trTy ← trTypeStx nRegs
   let envBody ← do

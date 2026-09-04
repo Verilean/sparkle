@@ -255,6 +255,21 @@ if [ -f "$ELAB_FILE" ]; then
       fail=1
     fi
   fi
+  # the SEAM bridge: per-instance composition of the generated
+  # recurrence with the module-level fold semantics (ConeFold capstone
+  # instantiated on cnt8; checker hypotheses by native_decide)
+  BRIDGE_FILE=Tests/Verification/ConeBridgeDemo.lean
+  if [ -f "$BRIDGE_FILE" ]; then
+    lake build Tools.ConeFoldSlices >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the cone-bridge import closure"; fail=1; }
+    if lake env lean "$BRIDGE_FILE" > "$WORK/cone_bridge.log" 2>&1; then
+      echo "cone-bridge (seam per-instance): cnt8 step agreement proven"
+    else
+      echo "FAIL: cone-bridge demo did not close"
+      grep -m3 -E "error" "$WORK/cone_bridge.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
 fi
 
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi
