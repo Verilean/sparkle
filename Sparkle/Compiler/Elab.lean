@@ -16,6 +16,7 @@ import Sparkle.Backend.CSim
 import Sparkle.Backend.CudaSim
 import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
+import Sparkle.IR.ZeroWidth
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
@@ -3932,13 +3933,17 @@ mutual
         sparkleFvarWireMap.set savedFvarWireMap
         sparkleWireWidthCache.set savedWireWidthCache
   partial def synthesizeCombinational (declName : Name) :
-      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
-    synthesizeCombinationalCore declName [] false
+      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    let (m, d) ← synthesizeCombinationalCore declName [] false
+    return (Sparkle.IR.ZeroWidth.dropZeroWidthModule m,
+      Sparkle.IR.ZeroWidth.dropZeroWidthDesign d)
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :
-      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
-    synthesizeCombinationalCore declName parameters true
+      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+    let (m, d) ← synthesizeCombinationalCore declName parameters true
+    return (Sparkle.IR.ZeroWidth.dropZeroWidthModule m,
+      Sparkle.IR.ZeroWidth.dropZeroWidthDesign d)
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
