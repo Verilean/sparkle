@@ -256,6 +256,9 @@ lean_lib «Tools.VerifyElab» where
 lean_lib «Tools.ConcatNorm» where
   roots := #[`Tools.ConcatNorm]
 
+lean_lib «Tools.ConeFold» where
+  roots := #[`Tools.ConeFold]
+
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
