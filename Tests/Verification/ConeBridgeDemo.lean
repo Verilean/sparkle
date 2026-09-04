@@ -46,4 +46,15 @@ theorem cnt8_irTrace_step (t : Nat) {env1 : Env}
 #check @rstCnt_step_out
 #check @fsm3_step_out
 
+-- the register phase and the cycle-level composition
+#check @cnt8_regstep
+#check @twoReg_regstep
+#check @twoReg_state_trace
+-- THE HEADLINE: the DSL's Signal value at cycle t = the module fold's
+-- output wire under the iterated certified step semantics
+#check @cnt8_signal_fold
+#check @accEn_signal_fold
+#check @rstCnt_signal_fold
+#check @fsm3_signal_fold
+
 end Sparkle.Tests.ConeBridgeDemo

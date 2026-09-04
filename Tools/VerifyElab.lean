@@ -705,6 +705,89 @@ elab "#verify_elab" id:ident : command => do
           Sparkle.IR.Semantics.evalExpr, Option.bind_eq_bind,
           Option.bind_some]
         simp [Sparkle.IR.Semantics.mask, $weId:ident, $[$finalArgs:term],*]))
+      -- the CYCLE-LEVEL theorem: the stepModule iteration's register
+      -- state IS the recurrence, for every cycle (induction; the
+      -- register phase by {base}_regstep, the memory phase inert on a
+      -- memory-free body, the seed matched to envAt by the invariant).
+      let envStId := mkI s!"{base}_envSt"
+      let st0Id := mkI s!"{base}_st0"
+      let envStBody ← do
+        let mut acc ← `((0 : Nat))
+        for i in (List.range ins.length).reverse do
+          let (n, _) := ins[i]!
+          let pid := mkI (paramOf n)
+          let v ← if paramIsBool[i]! then
+              `(if ($pid).val t then 1 else 0)
+            else
+              `((($pid).val t).toNat)
+          acc ← `(if n == $(quote n) then $v else $acc)
+        for i in (List.range nRegs).reverse do
+          let (rn, _, _) := regs[i]!
+          acc ← `(if n == $(quote rn) then st $(quote rn) else $acc)
+        pure acc
+      elabCommand (← `(def $envStId $paramBinders* (t : Nat)
+          (st : String → Nat) : Sparkle.IR.Semantics.Env :=
+        fun n => $envStBody))
+      let st0Body ← do
+        let mut acc ← `((0 : Nat))
+        for (rn, _, init) in regs.reverse do
+          acc ← `(if n == $(quote rn) then $(quote init.toNat) else $acc)
+        pure acc
+      elabCommand (← `(def $st0Id : String → Nat := fun n => $st0Body))
+      let stateTraceId := mkI s!"{base}_state_trace"
+      let stateConj ← do
+        let sTerm : Term ← `($trId $appArgs* t)
+        let mut conjs : Array Term := #[]
+        for i in List.range nRegs do
+          let (rn, _, _) := regs[i]!
+          let pj ← projAt sTerm nRegs i
+          conjs := conjs.push (← `(st $(quote rn) = $pj))
+        let mut acc : Term := conjs.back!
+        for c in conjs.pop.reverse do
+          acc ← `($c ∧ $acc)
+        pure acc
+      elabCommand (← `(theorem $stateTraceId $paramBinders* :
+          ∀ (t : Nat) {st : String → Nat},
+          Tools.ConeFold.stepIter $weId $bodyId ($envStId $appArgs*)
+            $st0Id t = some st → $stateConj := by
+        intro t
+        induction t with
+        | zero =>
+          intro st h
+          simp only [Tools.ConeFold.stepIter, Option.some_inj] at h
+          subst h
+          simp [$st0Id:ident, $trId:ident]
+        | succ t ih =>
+          intro st' h
+          simp only [Tools.ConeFold.stepIter, Option.bind_eq_bind] at h
+          cases hprev : Tools.ConeFold.stepIter $weId $bodyId
+              ($envStId $appArgs*) $st0Id t with
+          | none => rw [hprev] at h; simp at h
+          | some st =>
+            rw [hprev] at h
+            simp only [Option.bind_some] at h
+            have ihc := ih hprev
+            have henv : $envStId $appArgs* t st
+                = $envId $appArgs* ($trId $appArgs* t) t := by
+              funext n
+              simp only [$envStId:ident, $envId:ident, ihc]
+            rw [henv] at h
+            simp only [Sparkle.IR.Semantics.stepModule,
+              Option.bind_eq_bind] at h
+            cases hrun : Sparkle.IR.Semantics.evalAssigns $weId
+                (fun _ _ => 0) $bodyId
+                ($envId $appArgs* ($trId $appArgs* t) t) with
+            | none => rw [hrun] at h; simp at h
+            | some env1 =>
+              rw [hrun] at h
+              simp only [Option.bind_some] at h
+              rw [$regstepId $appArgs* t hrun] at h
+              rw [Tools.ConeFold.memNexts_memFree $weId $bodyId
+                (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))]
+                at h
+              simp only [Option.bind_some, Option.some_inj] at h
+              subst h
+              simp [Sparkle.IR.Semantics.applyNexts]))
   let stepOutId := mkI s!"{base}_step_out"
   elabCommand (← `(theorem $stepOutId $paramBinders* (t : Nat)
       {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
@@ -798,6 +881,34 @@ elab "#verify_elab" id:ident : command => do
       repeat' split
       all_goals (try simp_all)
       all_goals (first | rfl | bv_omega)))
+  -- the HEADLINE per-instance corollary (when the bridge lemmas were
+  -- emitted): the DSL's Signal value at cycle t equals the module
+  -- fold's OUTPUT WIRE under the iterated certified step semantics —
+  -- Signal ≡ stepModule-iteration, every cycle.
+  if refWires?.isSome && regRsts.length == regs.length then
+    let envStId := mkI s!"{base}_envSt"
+    let st0Id := mkI s!"{base}_st0"
+    let stateTraceId := mkI s!"{base}_state_trace"
+    let sigFoldId := mkI s!"{base}_signal_fold"
+    elabCommand (← `(theorem $sigFoldId $paramBinders* (t : Nat)
+        {st : String → Nat} {env1 : Sparkle.IR.Semantics.Env}
+        (hstep : Tools.ConeFold.stepIter $weId $bodyId
+          ($envStId $appArgs*) $st0Id t = some st)
+        (hrun : Sparkle.IR.Semantics.evalAssigns $weId (fun _ _ => 0)
+          $bodyId ($envStId $appArgs* t st) = some env1) :
+        (($(id) $appArgs*).val t).toNat = env1 $(quote outName) := by
+      have ihc := $stateTraceId $appArgs* t hstep
+      have henv : $envStId $appArgs* t st
+          = $envId $appArgs* ($trId $appArgs* t) t := by
+        funext n
+        simp only [$envStId:ident, $envId:ident, ihc]
+      rw [henv] at hrun
+      have hout := $stepOutId $appArgs* t hrun
+        (show Sparkle.IR.Semantics.evalExpr $weId env1
+            (.ref $(quote outName)) = some (env1 $(quote outName)) by
+          simp [Sparkle.IR.Semantics.evalExpr])
+      rw [$thId $appArgs* t, hout]
+      rfl))
   -- honesty check
   let axioms ← liftCoreM <| Lean.collectAxioms thId.getId
   if axioms.contains ``sorryAx then

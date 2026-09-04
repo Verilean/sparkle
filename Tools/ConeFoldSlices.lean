@@ -1521,6 +1521,35 @@ theorem hwt_of_assoc (we : WEnv) (l : List (String × Nat))
   · exact h (n, w) hin
   · simp at hempty
 
+/- ---- the cycle-level iteration ---- -/
+
+/-- Upward-counting register-state iteration of the module step
+    (wall-clock indices, unlike `runModule`'s countdown): `seed t st`
+    builds cycle `t`'s starting environment from the register state.
+    The generated `{base}_state_trace` theorems relate this to the
+    `irTrace` recurrence by induction. -/
+def stepIter (we : WEnv) (body : List Stmt)
+    (seed : Nat → (String → Nat) → Env) (st0 : String → Nat) :
+    Nat → Option (String → Nat)
+  | 0 => some st0
+  | t + 1 => do
+    let st ← stepIter we body seed st0 t
+    let (_, nexts, _) ← stepModule we body (seed t st) (fun _ _ => 0)
+    some (applyNexts st nexts)
+
+/-- On a memory-free body the memory phase is the identity. -/
+theorem memNexts_memFree (we : WEnv) :
+    ∀ (body : List Stmt), memFree body →
+    ∀ (mems : MEnv) (env : Env), memNexts we body mems env = some mems
+  | [], _, _, _ => rfl
+  | .assign .. :: rest, hm, mems, env =>
+    memNexts_memFree we rest (by simpa [memFree] using hm) mems env
+  | .register .. :: rest, hm, mems, env =>
+    memNexts_memFree we rest (by simpa [memFree] using hm) mems env
+  | .memory .. :: _, hm, _, _ => by simp [memFree] at hm
+  | .inst .. :: rest, hm, mems, env =>
+    memNexts_memFree we rest (by simpa [memFree] using hm) mems env
+
 end Bridge
 
 end Tools.ConeFold
