@@ -29,7 +29,7 @@ import Lean
 import Sparkle.Compiler.Elab
 import Sparkle.IR.Semantics
 import Tools.SVParser.VerifyEmit
-import Tools.ConeFold
+import Tools.ConeFoldSlices
 
 open Sparkle.Core Sparkle.Core.Signal in
 section
@@ -426,6 +426,8 @@ elab "#verify_elab" id:ident : command => do
     fun n => $weBody))
   -- cone constants
   let mut coneIds : Array Ident := #[]
+  let mut coneRawIds : Array Ident := #[]
+  let mut regInIds : Array Ident := #[]
   for (n, c, craw) in cones do
     let cid := mkI s!"{base}_cone_{Sparkle.Backend.Verilog.sanitizeName n}"
     liftCoreM <| addAndCompile <| .defnDecl {
@@ -440,6 +442,15 @@ elab "#verify_elab" id:ident : command => do
       type := mkConst ``Sparkle.IR.AST.Expr
       value := toExpr craw, hints := .abbrev, safety := .safe }
     liftCoreM <| Lean.enableRealizationsForConst crid.getId
+    coneRawIds := coneRawIds.push crid
+  for (n, input, _) in regs do
+    let rid := mkI s!"{base}_regIn_{Sparkle.Backend.Verilog.sanitizeName n}"
+    liftCoreM <| addAndCompile <| .defnDecl {
+      name := rid.getId, levelParams := []
+      type := mkConst ``Sparkle.IR.AST.Expr
+      value := toExpr input, hints := .abbrev, safety := .safe }
+    liftCoreM <| Lean.enableRealizationsForConst rid.getId
+    regInIds := regInIds.push rid
   let outConeId := mkI s!"{base}_cone_out"
   liftCoreM <| addAndCompile <| .defnDecl {
     name := outConeId.getId, levelParams := []
@@ -555,6 +566,99 @@ elab "#verify_elab" id:ident : command => do
       all_goals (repeat' split)
       all_goals (try simp_all)
       all_goals (first | omega | bv_omega)))
+  -- THE SEAM, per instance (Tools/ConeFoldSlices.lean): the seed
+  -- environment the recurrence evaluates cones in is width-bounded,
+  -- and each register's cone evaluation equals the value the
+  -- module-level combinational fold assigns to that register's input.
+  -- Checker hypotheses and the inlining/resolution equations are
+  -- discharged by native_decide (HashMap hashing is platform-opaque,
+  -- so kernel `decide` cannot reduce them).
+  let sbId := mkI s!"{base}_seed_bounded"
+  elabCommand (← `(theorem $sbId $paramBinders* (t : Nat) :
+      ∀ n, $envId $appArgs* ($trId $appArgs* t) t n
+        < 2 ^ $weId n := by
+    have hb := $bndId $appArgs* t
+    intro n
+    simp only [$envId:ident]
+    repeat' split
+    all_goals
+      first
+        | exact Nat.two_pow_pos _
+        | (simp only [beq_iff_eq] at *
+           subst_vars
+           first
+             | simpa [$weId:ident] using hb
+             | (simp only [$weId:ident]
+                first
+                  | exact BitVec.isLt _
+                  | (split <;> simp)
+                  | (simp
+                     first
+                       | exact BitVec.isLt _
+                       | (split <;> simp)
+                       | omega)
+                  | omega)
+             | (simp [$weId:ident]; omega))))
+  for i in List.range regs.length do
+    let (rn, _, _) := regs[i]!
+    let stepId := mkI s!"{base}_step_{Sparkle.Backend.Verilog.sanitizeName rn}"
+    let cid := coneIds[i]!
+    let crid := coneRawIds[i]!
+    let rid := regInIds[i]!
+    elabCommand (← `(theorem $stepId $paramBinders* (t : Nat)
+        {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
+        (hrun : Sparkle.IR.Semantics.evalAssigns $weId (fun _ _ => 0)
+          $bodyId ($envId $appArgs* ($trId $appArgs* t) t) = some env1)
+        (hv : Sparkle.IR.Semantics.evalExpr $weId env1 $rid = some v) :
+        Sparkle.IR.Semantics.evalExpr $weId
+          ($envId $appArgs* ($trId $appArgs* t) t) $cid = some v := by
+      have hres : $cid
+          = Tools.ConeFold.resolveSlicesT $wtMId 10000 $crid := by
+        native_decide
+      rw [hres]
+      exact Tools.ConeFold.cone_resolved_agrees_at_seed $weId
+        (fun _ _ => 0) $stopAtMId $wtMId
+        (Sparkle.IR.Reorder.woCheck_sound [] $bodyId (by native_decide))
+        (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+        (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
+        hrun
+        (Tools.ConeFold.hwfCheck_sound $weId $stopAtMId $bodyId
+          (by native_decide))
+        (Tools.ConeFold.hwt_of_assoc $weId $wtLId (by native_decide))
+        ($sbId $appArgs* t)
+        (Tools.ConeFold.stopAtFrozenCheck_sound $stopAtMId $bodyId
+          (by native_decide))
+        (fuel := 10000) (e := $rid)
+        (hinl := by native_decide)
+        10000 hv))
+  let stepOutId := mkI s!"{base}_step_out"
+  elabCommand (← `(theorem $stepOutId $paramBinders* (t : Nat)
+      {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
+      (hrun : Sparkle.IR.Semantics.evalAssigns $weId (fun _ _ => 0)
+        $bodyId ($envId $appArgs* ($trId $appArgs* t) t) = some env1)
+      (hv : Sparkle.IR.Semantics.evalExpr $weId env1
+        (.ref $(quote outName)) = some v) :
+      Sparkle.IR.Semantics.evalExpr $weId
+        ($envId $appArgs* ($trId $appArgs* t) t) $outConeId = some v := by
+    have hres : $outConeId
+        = Tools.ConeFold.resolveSlicesT $wtMId 10000 $outConeRawId := by
+      native_decide
+    rw [hres]
+    exact Tools.ConeFold.cone_resolved_agrees_at_seed $weId
+      (fun _ _ => 0) $stopAtMId $wtMId
+      (Sparkle.IR.Reorder.woCheck_sound [] $bodyId (by native_decide))
+      (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+      (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
+      hrun
+      (Tools.ConeFold.hwfCheck_sound $weId $stopAtMId $bodyId
+        (by native_decide))
+      (Tools.ConeFold.hwt_of_assoc $weId $wtLId (by native_decide))
+      ($sbId $appArgs* t)
+      (Tools.ConeFold.stopAtFrozenCheck_sound $stopAtMId $bodyId
+        (by native_decide))
+      (fuel := 10000) (e := .ref $(quote outName))
+      (hinl := by native_decide)
+      10000 hv))
   -- the pack: fun (s : Nat) => the TRACE AT TIME s, components as
   -- BitVecs, HList-shaped (Unit tail).  The first generated version
   -- packed the time itself — `ofNat w s` — and every downstream goal

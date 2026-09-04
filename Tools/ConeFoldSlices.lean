@@ -1,5 +1,4 @@
 import Tools.ConeFold
-import Tools.VerifyElab
 
 /-!
   The seam, slice-resolution half.
@@ -31,33 +30,6 @@ namespace Tools.ConeFold
 
 section ResolveSlices
 
--- Fidelity probes against the shipping function, on the shapes the
--- pack/cone pipeline actually produces.
-section FidelityProbes
-private def wtP : Std.HashMap String Nat :=
-  (({} : Std.HashMap String Nat).insert "a" 8).insert "b" 4 |>.insert "c" 1
-
-private def chk (e : Expr) : Bool :=
-  decide (resolveSlicesT wtP 100 e = Tools.VerifyElab.resolveSlicesW wtP e)
-
--- exact window on a pack slice (MSB part and LSB part)
-#guard chk (.slice (.concat [.ref "a", .ref "b"]) 11 4)
-#guard chk (.slice (.concat [.ref "a", .ref "b"]) 3 0)
--- contained window inside one part
-#guard chk (.slice (.concat [.ref "a", .ref "b"]) 9 6)
--- nested concat flattening
-#guard chk (.slice (.concat [.concat [.ref "c", .ref "a"], .ref "b"]) 12 4)
--- identity-slice collapse
-#guard chk (.slice (.ref "a") 7 0)
--- non-identity slice stays
-#guard chk (.slice (.ref "a") 6 1)
--- slice-of-slice fusion (in-range)
-#guard chk (.slice (.slice (.ref "a") 6 1) 3 1)
--- recursion through ops and window falling across the general arm
-#guard chk (.op .add [.slice (.concat [.ref "b", .ref "b"]) 7 4, .ref "b"])
--- straddling window: unresolved on both sides
-#guard chk (.slice (.concat [.ref "a", .ref "b"]) 8 2)
-end FidelityProbes
 
 /- ---- reduction lemmas ----
    The (fuel+1, .slice (.concat …)) pattern OVERLAPS the general

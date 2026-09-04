@@ -262,6 +262,9 @@ lean_lib «Tools.ConeFold» where
 lean_lib «Tools.ConeFoldSlices» where
   roots := #[`Tools.ConeFoldSlices]
 
+lean_lib «Tools.ConeFoldProbes» where
+  roots := #[`Tools.ConeFoldProbes]
+
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
