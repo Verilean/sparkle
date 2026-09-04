@@ -820,28 +820,68 @@ elab "#verify_elab_deep" id:ident : command => do
       Fin (($ΓrT ++ $ΓiT : List Nat).length) → String := fun i =>
     match i with $nmArms:matchAlt*))
   -- the input family from the params
-  let inpSArms ← (List.range nI).toArray.mapM fun j => do
+  let inpRhs : Array Term ← (List.range nI).toArray.mapM fun j => do
     let pj : Ident := paramIds.getD j (mkI "unreachable")
     if paramIsBool.getD j false then
       -- a Bool signal enters the deep circuit as its 1-bit encoding
-      `(Lean.Parser.Term.matchAltExpr|
-        | ⟨$(quote j), _⟩ => Sparkle.Core.Signal.Signal.map
-            (fun b => bif b then (1 : BitVec 1) else 0) $pj)
+      `((Sparkle.Core.Signal.Signal.map
+          (fun b => bif b then (1 : BitVec 1) else 0) $pj))
     else
-      `(Lean.Parser.Term.matchAltExpr|
-        | ⟨$(quote j), _⟩ => $pj)
-  let inpS ← if nI == 0 then
-      `((fun j => nomatch j :
+      `(($pj))
+  let inpSArms ← (List.range nI).toArray.mapM fun j => do
+    `(Lean.Parser.Term.matchAltExpr|
+      | ⟨$(quote j), _⟩ => $(inpRhs[j]!))
+  -- The input family is a NAMED def: a `fun j => match j with …`
+  -- term spliced into several places elaborates a fresh auxiliary
+  -- matcher constant at each site, so the same state read appears in
+  -- syntactically different forms and abstracts into different
+  -- variables (kabstract's keyed matching cannot cross matcher
+  -- constants).  One def = one matcher = one form everywhere.
+  let inpId := mkI s!"{base}_inp"
+  if nI == 0 then
+    elabCommand (← `(def $inpId :
         ∀ j : Fin ($ΓiT : List Nat).length,
           Sparkle.Core.Signal.Signal
             Sparkle.Core.Domain.defaultDomain
-            (BitVec (($ΓiT : List Nat).get j))))
-    else
-      `((fun j => match j with $inpSArms:matchAlt* :
+            (BitVec (($ΓiT : List Nat).get j)) :=
+      fun j => nomatch j))
+  else
+    elabCommand (← `(def $inpId $paramBinders* :
         ∀ j : Fin ($ΓiT : List Nat).length,
           Sparkle.Core.Signal.Signal
             Sparkle.Core.Domain.defaultDomain
-            (BitVec (($ΓiT : List Nat).get j))))
+            (BitVec (($ΓiT : List Nat).get j)) :=
+      fun j => match j with $inpSArms:matchAlt*))
+  let inpS : Term ← if nI == 0 then `(($inpId))
+    else `(($inpId $appArgs*))
+  -- rfl application lemmas: `inp args j = <arm>` for each literal j.
+  -- The def's match does not iota-reduce on an OfNat-form scrutinee
+  -- and simp cannot rewrite inside a match scrutinee, so residual
+  -- `(inp args j).val t` conditions in the bridge are rewritten by
+  -- these instead of unfolding the def
+  -- the lemmas are stated at the `.val t` level, all the way to the
+  -- encoded VALUE (`bif (p.val t) then 1#1 else 0#1` for Bool inputs,
+  -- `p.val t` otherwise): a term-level `inp k = Signal.map …` RHS
+  -- stops at the map and the split hypotheses' contradictions
+  -- (`p.val n = true` vs `¬(inp k).val n = 1`) never connect
+  let inpValRhs : Array (Lean.TSyntax `term → Lean.Elab.Command.CommandElabM Term) :=
+    (List.range nI).toArray.map fun j tv => do
+      let pj : Ident := paramIds.getD j (mkI "unreachable")
+      if paramIsBool.getD j false then
+        `((bif ($pj).val $tv then (1 : BitVec 1) else 0))
+      else
+        `((($pj).val $tv))
+  let inpAtIds : Array Ident ← (List.range nI).toArray.flatMapM fun j => do
+    let rhs ← inpValRhs[j]! (← `(tv))
+    let atId := mkI s!"{base}_inp_at_{j}"
+    elabCommand (← `(theorem $atId $paramBinders* (tv : Nat) :
+      ($inpId $appArgs* $(quote j)).val tv = $rhs := rfl))
+    -- the applied index appears in BOTH OfNat-literal and Fin.mk
+    -- forms depending on which normalization reached it; cover both
+    let atMkId := mkI s!"{base}_inp_at_mk_{j}"
+    elabCommand (← `(theorem $atMkId $paramBinders* (tv : Nat) :
+      ($inpId $appArgs* ⟨$(quote j), by decide⟩).val tv = $rhs := rfl))
+    pure #[atId, atMkId]
   -- Helper Signal functions called from the body (e.g. a private
   -- `crc32StepSig`) inline on the IR side but stay FOLDED on the
   -- Signal side unless the bridge unfolds them.  Collect the def's
@@ -980,6 +1020,13 @@ elab "#verify_elab_deep" id:ident : command => do
       (List.range nR).toArray.mapM fun k => do
         let wk := quote (regWs.getD k 0)
         `(tactic| (
+          -- normalize the register index to its OfNat-literal form
+          -- (mk and OfNat occurrences coexist depending on whether
+          -- Fin.zero_eta-style normalization reached them) so ONE
+          -- generalize abstracts every occurrence
+          try (simp only [show ((⟨$(quote k), by decide⟩ :
+            Fin (List.length ($ΓrT : List Nat)))) = $(quote k)
+            from rfl])
           try (generalize (Cdo.stateAt $deepId _ _
               $(quote k) : BitVec $wk) = gA
             <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
@@ -995,15 +1042,62 @@ elab "#verify_elab_deep" id:ident : command => do
           try (generalize (Cdo.stateAt $deepId _ _
               $(quote k) : BitVec $wk) = gD
             <;> try (rw [show ((($ΓrT : List Nat)).get $(quote k) : Nat)
-              = $wk from rfl] at gD ⊢))))
+              = $wk from rfl] at gD ⊢))
+          ))
+    -- Extra lemmas for the OUTER simp_all fallbacks, only when the
+    -- circuit has a Bool register: the input-family application
+    -- lemmas + Signal.map let the fallback reduce the Bool-encoded
+    -- input conditions in the same pass that toNat-normalizes.
+    -- (Unconditionally they reshape goals of Bool-free circuits, e.g.
+    -- fsm3's match-driven muxes, out of the closers' reach.)
+    let hasBoolReg := regIsBool.any (fun b => b)
+    -- the input-family application lemmas are needed by the outer
+    -- fallbacks UNCONDITIONALLY (split hypotheses mention `inp k`
+    -- applications on any circuit); Signal.map only for Bool
+    -- registers (on Bool-free circuits it reshapes match-driven mux
+    -- goals out of the closers' reach — fsm3)
+    let outerExtra : Array Ident :=
+      if hasBoolReg then
+        inpAtIds.push (mkIdent ``Sparkle.Core.Signal.Signal.map)
+      else inpAtIds
     let boolCloser : Lean.TSyntax `tactic ←
-      `(tactic| all_goals (try (
-        $[$regGenLines:tactic]*
-        first
-        | exact bif_beq_ofBool_toNat _
-        | exact bif_beq_ofBool _
-        | exact beq_not_bv1 _
-        | bv_decide)))
+      -- The generalizes must be kept even when the closing tactic
+      -- fails (an all-or-nothing try rolls the abstraction back and
+      -- later stages see the raw stateAt again), so abstraction,
+      -- re-splitting (spec-side ite conditions become splittable once
+      -- the reads are variables), and closing are separate steps.
+      `(tactic| (
+        -- normalize the input family to ONE form first: the goal mixes
+        -- folded `Signal.map f x` (from the statement's inpS, entering
+        -- via hpre) and its unfolded `{val := …}` (from stage-1), and
+        -- the SAME state read would otherwise abstract into TWO
+        -- different variables — bv_decide then sees a (spurious)
+        -- counterexample
+        all_goals (try (simp only [Signal.map]))
+        all_goals (try ($[$regGenLines:tactic]*))
+        -- cheap exact lemmas first; then the input-family reduction
+        -- (residual `if (inp …).toNat = 1` conditions from the split
+        -- hypotheses); bv_decide LAST — on a Nat-conditioned ite it
+        -- burns the whole heartbeat budget before failing, starving
+        -- the later alternatives
+        all_goals (try (first
+          | rfl
+          | exact bif_beq_ofBool_toNat _
+          | exact bif_beq_ofBool _
+          | exact beq_not_bv1 _
+          | (simp_all [$[$inpAtIds:ident],*, Signal.map]
+             all_goals (try (repeat' split <;> simp_all))
+             first
+             | rfl
+             | exact bif_beq_ofBool_toNat _
+             | exact bif_beq_ofBool _
+             | exact beq_not_bv1 _
+             | bv_decide)
+          | bv_decide
+          -- (simp; done): closes CLOSED arithmetic side-goals like
+          -- width-table lookups; `decide` here is unusable — its
+          -- free-variable error escapes both `try` and `first`
+          | (simp; done)))))
     -- stage-2 of the bridge, pipeline-selected (see `coneHasBitwise`)
     let stage2 : Lean.TSyntax `tactic ← if bitwise then
         `(tactic| all_goals (simp +decide only [Cdo.stateAt,
@@ -1085,45 +1179,47 @@ elab "#verify_elab_deep" id:ident : command => do
           simp [loopFOf, packRegister, Signal.register, Circuit.next,
             Circuit.pure', Circuit.bind, mkHolds, Signal.map,
             Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
-            Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure]
+            Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
+            $[$inpAtIds:ident],*]
           $stage2:tactic
           repeat' apply And.intro
           all_goals (repeat' split)
           all_goals (try (first | rfl | bv_decide))
-          $boolCloser:tactic
           all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
             toNat_SubSub, BitVec.toNat_add,
             BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat,
-            bif_beq_ofBool, bif_beq_ofBool_toNat])
+            bif_beq_ofBool, bif_beq_ofBool_toNat,
+            $[$outerExtra:ident],*])
           all_goals (try (rw [bif_beq_ofBool_toNat]))
           all_goals (try (rw [bif_beq_ofBool]))
           -- Bool-register 1-bit identities: generalize the (recursive,
           -- so bv_decide-opaque) stateAt function to a variable, then
           -- bv_decide settles the Bool/BitVec1 bridge
           $boolCloser:tactic
-          all_goals (first | rfl | bv_decide | bv_omega)
+          all_goals (first | rfl | bv_decide | bv_omega | (simp; done))
         | succ n =>
           simp [loopFOf, packRegister, Signal.register, Circuit.next,
             Circuit.pure', Circuit.bind, mkHolds, Signal.map,
             Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
             Signal.ap, Signal.seq, hpre n (Nat.lt_succ_self n),
-            sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure]
+            sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
+            $[$inpAtIds:ident],*]
           $stage2:tactic
           repeat' apply And.intro
           all_goals (repeat' split)
           all_goals (try (first | rfl | bv_decide))
-          $boolCloser:tactic
           all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
             toNat_SubSub, BitVec.toNat_add,
             BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat,
-            bif_beq_ofBool, bif_beq_ofBool_toNat])
+            bif_beq_ofBool, bif_beq_ofBool_toNat,
+            $[$outerExtra:ident],*])
           all_goals (try (rw [bif_beq_ofBool_toNat]))
           all_goals (try (rw [bif_beq_ofBool]))
           -- Bool-register 1-bit identities: generalize the (recursive,
           -- so bv_decide-opaque) stateAt function to a variable, then
           -- bv_decide settles the Bool/BitVec1 bridge
           $boolCloser:tactic
-          all_goals (first | rfl | bv_decide | bv_omega)
+          all_goals (first | rfl | bv_decide | bv_omega | (simp; done))
       · -- the output side: outSig against the packed projection
         simp only [Cdo.outSig]
         simp only [Cdo.stateSig_eq]
@@ -1137,16 +1233,15 @@ elab "#verify_elab_deep" id:ident : command => do
         repeat' split
         all_goals (try simp only [bif_beq_ofBool, bif_beq_ofBool_toNat])
         all_goals (try (first | rfl | bv_decide))
-        $boolCloser:tactic
         all_goals (try simp_all [BitVec.toNat_eq, BitVec.toNat_add,
           BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
-          Signal.map])
+          $[$outerExtra:ident],*])
         -- residual Bool-register decode goals: (bif (x==1#1)…).toNat
         -- = x.toNat, closed by the decode identity applied directly
         all_goals (try (rw [bif_beq_ofBool_toNat]))
         all_goals (try (rw [bif_beq_ofBool]))
         $boolCloser:tactic
-        all_goals (first | rfl | bv_decide | bv_omega))
+        all_goals (first | rfl | bv_decide | bv_omega | (simp; done)))
     if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
       logInfo m!"{thmCmd}"
     if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then
