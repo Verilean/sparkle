@@ -259,6 +259,9 @@ lean_lib «Tools.ConcatNorm» where
 lean_lib «Tools.ConeFold» where
   roots := #[`Tools.ConeFold]
 
+lean_lib «Tools.ConeFoldSlices» where
+  roots := #[`Tools.ConeFoldSlices]
+
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
