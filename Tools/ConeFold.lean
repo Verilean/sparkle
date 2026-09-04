@@ -189,4 +189,556 @@ theorem evalAssigns_fixpoint (we : WEnv) (mems : MEnv) :
 
 end Fixpoint
 
+section Preserve
+
+/-- Pointwise width agreement between an argument list and its inlined
+    image — the exact shape `widthOf`'s per-operator arms consume.
+    (Core has no List.Forall₂; this is that, specialized.) -/
+inductive WidthMatch (we : WEnv) : List Expr → List Expr → Prop
+  | nil : WidthMatch we [] []
+  | cons {a a' as as'} (h : widthOf we a' = widthOf we a)
+      (hrest : WidthMatch we as as') : WidthMatch we (a :: as) (a' :: as')
+
+theorem widthOfGo_congr (we : WEnv) :
+    ∀ {args args'}, WidthMatch we args args' →
+      widthOf.go we args' = widthOf.go we args
+  | [], [], _ => rfl
+  | _ :: _, _ :: _, .cons h hrest => by
+    simp [widthOf.go, h, widthOfGo_congr we hrest]
+
+theorem inlineConeT_width (dm : DefMap) (stopAt : Std.HashMap String Bool)
+    (we : WEnv)
+    (hwf : ∀ n rhs, dm.get? n = some rhs → stopAt.contains n = false →
+      widthOf we rhs = we n) :
+    ∀ fuel e, (∀ e', inlineConeT dm stopAt fuel e = .ok e' →
+      widthOf we e' = widthOf we e) := by
+  intro fuel e
+  induction fuel, e using inlineConeT.induct dm stopAt
+    (motive2 := fun fuel args => ∀ args',
+      inlineConeTL dm stopAt fuel args = .ok args' →
+      WidthMatch we args args') with
+  | case1 fuel n hs =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_pos] at h
+    cases h; rfl
+  | case2 n hs =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_neg, Bool.false_eq_true, ite_false] at h
+    simp at h
+  | case3 fuel n hs hdm hf =>
+    intro e' h
+    match fuel, hf with
+    | fuel + 1, _ =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp only [hs, if_neg, Bool.false_eq_true, ite_false, hdm] at h
+      simp at h
+  | case4 n hs fuel rhs hdm ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_neg, Bool.false_eq_true, ite_false, hdm] at h
+    rw [ih e' h]  -- h : inlineConeT dm stopAt fuel rhs = .ok e' verbatim
+    rw [hwf n rhs hdm (by simpa using hs)]
+    simp [Sparkle.IR.Semantics.widthOf]
+  | case5 fuel o args ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      have hm := ih args' hl
+      cases o <;>
+        (cases hm with
+         | nil => rfl
+         | cons h1 hrest =>
+           cases hrest with
+           | nil => simp [Sparkle.IR.Semantics.widthOf, h1]
+           | cons h2 hrest2 =>
+             cases hrest2 with
+             | nil => simp [Sparkle.IR.Semantics.widthOf, h1, h2]
+             | cons h3 hrest3 =>
+               cases hrest3 with
+               | nil => simp [Sparkle.IR.Semantics.widthOf, h1, h2, h3]
+               | cons h4 hrest4 =>
+                 simp [Sparkle.IR.Semantics.widthOf, h1, h2, h3])
+  | case6 fuel args ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [Sparkle.IR.Semantics.widthOf, widthOfGo_congr we (ih args' hl)]
+  | case7 fuel e hi lo ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases he : inlineConeT dm stopAt fuel e with
+    | error err => rw [he] at h; simp [Bind.bind, Except.bind] at h
+    | ok e0 =>
+      rw [he] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [Sparkle.IR.Semantics.widthOf]
+  | case8 x array idx =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h; simp at h
+  | case9 x expr hi lo =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h; simp at h
+  | case10 x e hne1 hne2 hne3 hne4 hne5 hne6 =>
+    intro e' h
+    cases e with
+    | ref n => exact absurd rfl (hne1 n)
+    | op o args => exact absurd rfl (hne2 o args)
+    | concat args => exact absurd rfl (hne3 args)
+    | slice e hi lo => exact absurd rfl (hne4 e hi lo)
+    | index a i => exact absurd rfl (hne5 a i)
+    | sliceDim e hi lo => exact absurd rfl (hne6 e hi lo)
+    | const v w =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp at h
+      simp [← h]
+  | case11 x args' h =>
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    simp at h
+    subst h
+    exact .nil
+  | case12 fuel a rest iha ihrest args' h =>
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    cases ha : inlineConeT dm stopAt fuel a with
+    | error err => rw [ha] at h; simp [Bind.bind, Except.bind] at h
+    | ok a' =>
+      rw [ha] at h
+      cases hr : inlineConeTL dm stopAt fuel rest with
+      | error err => rw [hr] at h; simp [Bind.bind, Except.bind] at h
+      | ok rest' =>
+        rw [hr] at h
+        simp [Bind.bind, Except.bind, pure, Except.pure] at h
+        rw [← h]
+        exact .cons (iha a' ha) (ihrest rest' hr)
+
+theorem inlineConeTL_width (dm : DefMap) (stopAt : Std.HashMap String Bool)
+    (we : WEnv)
+    (hwf : ∀ n rhs, dm.get? n = some rhs → stopAt.contains n = false →
+      widthOf we rhs = we n) :
+    ∀ fuel args, (∀ args', inlineConeTL dm stopAt fuel args = .ok args' →
+      WidthMatch we args args') := by
+  intro fuel args
+  induction fuel, args using inlineConeTL.induct dm stopAt
+    (motive1 := fun fuel e => ∀ e',
+      inlineConeT dm stopAt fuel e = .ok e' →
+      widthOf we e' = widthOf we e) with
+  | case1 fuel n hs e' h =>
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_pos] at h
+    cases h; rfl
+  | case2 n hs e' h =>
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_neg, Bool.false_eq_true, ite_false] at h
+    simp at h
+  | case3 fuel n hs hdm hf e' h =>
+    match fuel, hf with
+    | fuel + 1, _ =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp only [hs, if_neg, Bool.false_eq_true, ite_false, hdm] at h
+      simp at h
+  | case4 n hs fuel rhs hdm ih e' h =>
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_neg, Bool.false_eq_true, ite_false, hdm] at h
+    rw [ih e' h]  -- h : inlineConeT dm stopAt fuel rhs = .ok e' verbatim
+    rw [hwf n rhs hdm (by simpa using hs)]
+    simp [Sparkle.IR.Semantics.widthOf]
+  | case5 fuel o args ih e' h =>
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      have hm := ih args' hl
+      cases o <;>
+        (cases hm with
+         | nil => rfl
+         | cons h1 hrest =>
+           cases hrest with
+           | nil => simp [Sparkle.IR.Semantics.widthOf, h1]
+           | cons h2 hrest2 =>
+             cases hrest2 with
+             | nil => simp [Sparkle.IR.Semantics.widthOf, h1, h2]
+             | cons h3 hrest3 =>
+               cases hrest3 with
+               | nil => simp [Sparkle.IR.Semantics.widthOf, h1, h2, h3]
+               | cons h4 hrest4 =>
+                 simp [Sparkle.IR.Semantics.widthOf, h1, h2, h3])
+  | case6 fuel args ih e' h =>
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [Sparkle.IR.Semantics.widthOf, widthOfGo_congr we (ih args' hl)]
+  | case7 fuel e hi lo ih e' h =>
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases he : inlineConeT dm stopAt fuel e with
+    | error err => rw [he] at h; simp [Bind.bind, Except.bind] at h
+    | ok e0 =>
+      rw [he] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp [Sparkle.IR.Semantics.widthOf]
+  | case8 x array idx e' h =>
+    rw [inlineConeT.eq_def] at h; simp at h
+  | case9 x expr hi lo e' h =>
+    rw [inlineConeT.eq_def] at h; simp at h
+  | case10 x e hne1 hne2 hne3 hne4 hne5 hne6 e' h =>
+    cases e with
+    | ref n => exact absurd rfl (hne1 n)
+    | op o args => exact absurd rfl (hne2 o args)
+    | concat args => exact absurd rfl (hne3 args)
+    | slice e hi lo => exact absurd rfl (hne4 e hi lo)
+    | index a i => exact absurd rfl (hne5 a i)
+    | sliceDim e hi lo => exact absurd rfl (hne6 e hi lo)
+    | const v w =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp at h
+      simp [← h]
+  | case11 x =>
+    intro args' h
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    simp at h
+    subst h
+    exact .nil
+  | case12 fuel a rest iha ihrest =>
+    intro args' h
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    cases ha : inlineConeT dm stopAt fuel a with
+    | error err => rw [ha] at h; simp [Bind.bind, Except.bind] at h
+    | ok a' =>
+      rw [ha] at h
+      cases hr : inlineConeTL dm stopAt fuel rest with
+      | error err => rw [hr] at h; simp [Bind.bind, Except.bind] at h
+      | ok rest' =>
+        rw [hr] at h
+        simp [Bind.bind, Except.bind, pure, Except.pure] at h
+        rw [← h]
+        exact .cons (iha a' ha) (ihrest rest' hr)
+
+
+/-- The concat combiner's running-offset fold reads only the FIRST
+    component widths of the zip; width-matched lists fold alike. -/
+theorem zipFoldW_congr (we : WEnv) :
+    ∀ {as as'}, WidthMatch we as as' → ∀ (vs : List Nat) (acc : Nat),
+      ((as'.zip vs).foldl (fun a (p : Expr × Nat) =>
+        a + widthOf we p.1) acc)
+      = ((as.zip vs).foldl (fun a (p : Expr × Nat) =>
+        a + widthOf we p.1) acc)
+  | [], [], _, _, _ => rfl
+  | _ :: _, _ :: _, .cons h hrest, vs, acc => by
+    cases vs with
+    | nil => rfl
+    | cons v vs' =>
+      simp only [List.zip_cons_cons, List.foldl_cons, h]
+      exact zipFoldW_congr we hrest vs' _
+
+/-- `evalOp` reads its expression arguments only through `widthOf`
+    (not/asr/signed compares) and through the list SHAPE; a
+    width-matched replacement list computes the same value. -/
+theorem evalOp_congr (we : WEnv) {args args' : List Expr}
+    (hm : WidthMatch we args args') (o : Operator) (vals : List Nat)
+    (w : Nat) : evalOp we o args' vals w = evalOp we o args vals w := by
+  cases o <;>
+    (cases hm with
+     | nil => rfl
+     | cons h1 hrest =>
+       cases hrest with
+       | nil =>
+         (cases vals with
+             | nil => simp_all [evalOp]
+             | cons v1 t1 =>
+               cases t1 with
+               | nil => simp_all [evalOp]
+               | cons v2 t2 =>
+                 cases t2 with
+                 | nil => simp_all [evalOp]
+                 | cons v3 t3 =>
+                   cases t3 with
+                   | nil => simp_all [evalOp]
+                   | cons v4 t4 => simp_all [evalOp])
+       | cons h2 hrest2 =>
+         cases hrest2 with
+         | nil =>
+           (cases vals with
+             | nil => simp_all [evalOp]
+             | cons v1 t1 =>
+               cases t1 with
+               | nil => simp_all [evalOp]
+               | cons v2 t2 =>
+                 cases t2 with
+                 | nil => simp_all [evalOp]
+                 | cons v3 t3 =>
+                   cases t3 with
+                   | nil => simp_all [evalOp]
+                   | cons v4 t4 => simp_all [evalOp])
+         | cons h3 hrest3 =>
+           cases hrest3 with
+           | nil =>
+             (cases vals with
+             | nil => simp_all [evalOp]
+             | cons v1 t1 =>
+               cases t1 with
+               | nil => simp_all [evalOp]
+               | cons v2 t2 =>
+                 cases t2 with
+                 | nil => simp_all [evalOp]
+                 | cons v3 t3 =>
+                   cases t3 with
+                   | nil => simp_all [evalOp]
+                   | cons v4 t4 => simp_all [evalOp])
+           | cons h4 hrest4 =>
+             (cases vals with
+             | nil => simp_all [evalOp]
+             | cons v1 t1 =>
+               cases t1 with
+               | nil => simp_all [evalOp]
+               | cons v2 t2 =>
+                 cases t2 with
+                 | nil => simp_all [evalOp]
+                 | cons v3 t3 =>
+                   cases t3 with
+                   | nil => simp_all [evalOp]
+                   | cons v4 t4 => simp_all [evalOp]))
+
+/-- The concat combiner under a width-matched expression list. -/
+theorem evalGo_congr (we : WEnv) :
+    ∀ {args args'}, WidthMatch we args args' → ∀ (vals : List Nat),
+      evalExpr.go we args' vals = evalExpr.go we args vals
+  | [], [], _, _ => rfl
+  | _ :: _, _ :: _, .cons h hrest, vals => by
+    cases vals with
+    | nil => rfl
+    | cons v vs =>
+      simp only [evalExpr.go, h, zipFoldW_congr we hrest,
+        evalGo_congr we hrest]
+
+/-- THE SEAM (expression half): under the fold's fixpoint environment
+    (`evalAssigns_fixpoint`) and the assignment-width discipline
+    (`hwf` — literally `BFrag.assign`'s condition, where the two
+    certified arcs' hypotheses meet), inlining preserves evaluation:
+    the fully-inlined cone computes exactly what the wire-by-wire fold
+    computed. -/
+theorem inlineConeT_eval (dm : DefMap) (stopAt : Std.HashMap String Bool)
+    (we : WEnv) (env : Env)
+    (hwf : ∀ n rhs, dm.get? n = some rhs → stopAt.contains n = false →
+      widthOf we rhs = we n)
+    (hfix : ∀ n rhs, dm.get? n = some rhs → stopAt.contains n = false →
+      evalExpr we env rhs = some (env n)) :
+    ∀ fuel e, (∀ e', inlineConeT dm stopAt fuel e = .ok e' →
+      evalExpr we env e' = evalExpr we env e) := by
+  intro fuel e
+  induction fuel, e using inlineConeT.induct dm stopAt
+    (motive2 := fun fuel args => ∀ args',
+      inlineConeTL dm stopAt fuel args = .ok args' →
+      evalList we env args' = evalList we env args) with
+  | case1 fuel n hs =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, if_pos] at h
+    cases h; rfl
+  | case2 n hs =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, Bool.false_eq_true, ite_false] at h
+    simp at h
+  | case3 fuel n hs hdm hf =>
+    intro e' h
+    match fuel, hf with
+    | fuel + 1, _ =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp only [hs, Bool.false_eq_true, ite_false, hdm] at h
+      simp at h
+  | case4 n hs fuel rhs hdm ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    simp only [hs, Bool.false_eq_true, ite_false, hdm] at h
+    rw [ih e' h]
+    rw [hfix n rhs hdm (by simpa using hs)]
+    simp [evalExpr]
+  | case5 fuel o args ih =>
+    intro e' h
+    have hw := inlineConeT_width dm stopAt we hwf fuel (.op o args) e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      have hm := inlineConeTL_width dm stopAt we hwf fuel args args' hl
+      simp only [evalExpr, ih args' hl, hw,
+        evalOp_congr we hm o]
+  | case6 fuel args ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases hl : inlineConeTL dm stopAt fuel args with
+    | error err => rw [hl] at h; simp [Bind.bind, Except.bind] at h
+    | ok args' =>
+      rw [hl] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      have hm := inlineConeTL_width dm stopAt we hwf fuel args args' hl
+      simp only [evalExpr, ih args' hl, evalGo_congr we hm]
+  | case7 fuel e hi lo ih =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h
+    dsimp only at h
+    cases he : inlineConeT dm stopAt fuel e with
+    | error err => rw [he] at h; simp [Bind.bind, Except.bind] at h
+    | ok e0 =>
+      rw [he] at h
+      simp [Bind.bind, Except.bind, pure, Except.pure] at h
+      subst h
+      simp only [evalExpr, ih e0 he]
+  | case8 x array idx =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h; dsimp only at h; simp at h
+  | case9 x expr hi lo =>
+    intro e' h
+    rw [inlineConeT.eq_def] at h; dsimp only at h; simp at h
+  | case10 x e hne1 hne2 hne3 hne4 hne5 hne6 =>
+    intro e' h
+    cases e with
+    | ref n => exact absurd rfl (hne1 n)
+    | op o args => exact absurd rfl (hne2 o args)
+    | concat args => exact absurd rfl (hne3 args)
+    | slice e hi lo => exact absurd rfl (hne4 e hi lo)
+    | index a i => exact absurd rfl (hne5 a i)
+    | sliceDim e hi lo => exact absurd rfl (hne6 e hi lo)
+    | const v w =>
+      rw [inlineConeT.eq_def] at h
+      dsimp only at h
+      simp at h
+      simp [← h]
+  | case11 x args' h =>
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    simp at h
+    subst h; rfl
+  | case12 fuel a rest iha ihrest args' h =>
+    rw [inlineConeTL.eq_def] at h
+    dsimp only at h
+    cases ha : inlineConeT dm stopAt fuel a with
+    | error err => rw [ha] at h; simp [Bind.bind, Except.bind] at h
+    | ok a' =>
+      rw [ha] at h
+      cases hr : inlineConeTL dm stopAt fuel rest with
+      | error err => rw [hr] at h; simp [Bind.bind, Except.bind] at h
+      | ok rest' =>
+        rw [hr] at h
+        simp [Bind.bind, Except.bind, pure, Except.pure] at h
+        subst h
+        simp only [evalList, iha a' ha, ihrest rest' hr]
+
+/-- `buildDefMap` membership: a binding in the def-map came from an
+    assign in the body. -/
+theorem buildDefMap_mem :
+    ∀ (body : List Stmt) (m0 : Sparkle.IR.Optimize.DefMap) (n : String)
+      (rhs : Expr),
+    (body.foldl (fun m s => match s with
+      | .assign lhs r => m.insert lhs r
+      | _ => m) m0).get? n = some rhs →
+    Stmt.assign n rhs ∈ body ∨ m0.get? n = some rhs
+  | [], _, _, _, h => Or.inr h
+  | s :: rest, m0, n, rhs, h => by
+    cases s with
+    | assign l r =>
+      rcases buildDefMap_mem rest _ n rhs h with hmem | hget
+      · exact Or.inl (List.mem_cons_of_mem _ hmem)
+      · by_cases hln : l = n
+        · subst hln
+          simp only [Std.HashMap.get?_insert] at hget
+          simp at hget
+          cases hget
+          exact Or.inl (List.mem_cons_self ..)
+        · simp only [Std.HashMap.get?_insert] at hget
+          simp [hln] at hget
+          exact Or.inr hget
+    | register o c rs i iv =>
+      rcases buildDefMap_mem rest _ n rhs h with hmem | hget
+      · exact Or.inl (List.mem_cons_of_mem _ hmem)
+      · exact Or.inr hget
+    | memory a b c d e f g i j k mm nn =>
+      rcases buildDefMap_mem rest _ n rhs h with hmem | hget
+      · exact Or.inl (List.mem_cons_of_mem _ hmem)
+      · exact Or.inr hget
+    | inst a b c =>
+      rcases buildDefMap_mem rest _ n rhs h with hmem | hget
+      · exact Or.inl (List.mem_cons_of_mem _ hmem)
+      · exact Or.inr hget
+
+/-- THE SEAM, composed: on a well-ordered, memory-free, self-loop-free
+    body, evaluating a fully-inlined cone in the environment the
+    combinational fold produced gives the same value as the original
+    expression — the two certified arcs now speak about the same
+    numbers.  `hwf` is BFrag.assign's width discipline; everything
+    else is decidable per instance. -/
+theorem cone_agrees_with_fold (we : WEnv) (mems : MEnv)
+    {done : List String} {body : List Stmt} {env0 env1 : Env}
+    (stopAt : Std.HashMap String Bool)
+    (hWO : Sparkle.IR.Reorder.WO done body)
+    (hm : memFree body) (hsr : noSelfRead body)
+    (hrun : evalAssigns we mems body env0 = some env1)
+    (hwf : ∀ n rhs,
+      (Sparkle.IR.Optimize.buildDefMap body).get? n = some rhs →
+      stopAt.contains n = false → widthOf we rhs = we n)
+    {fuel : Nat} {e e' : Expr}
+    (hinl : inlineConeT (Sparkle.IR.Optimize.buildDefMap body)
+      stopAt fuel e = .ok e') :
+    evalExpr we env1 e' = evalExpr we env1 e := by
+  apply inlineConeT_eval _ _ we env1 hwf ?hfix fuel e e' hinl
+  case hfix =>
+    intro n rhs hget hstop
+    have hmem : Stmt.assign n rhs ∈ body := by
+      rcases buildDefMap_mem body {} n rhs hget with hmem | hget0
+      · exact hmem
+      · simp at hget0
+    exact evalAssigns_fixpoint we mems done body env0 env1
+      hWO hm hsr hrun n rhs hmem
+
+end Preserve
+
 end Tools.ConeFold
