@@ -65,4 +65,12 @@ theorem cnt8_irTrace_step (t : Nat) {env1 : Env}
 #check @twoReg_signal_runModule
 #check @fsm3_signal_runModule
 
+-- THE FULL CHAIN: Signal ≡ the VERILOG SEMANTICS of the certified
+-- twin emission (M4's runModuleSV), per instance, every cycle
+#check @cnt8_signal_sv
+#check @accEn_signal_sv
+#check @twoReg_signal_sv
+#check @rstCnt_signal_sv
+#check @fsm3_signal_sv
+
 end Sparkle.Tests.ConeBridgeDemo

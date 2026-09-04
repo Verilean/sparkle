@@ -594,11 +594,15 @@ elab "#verify_elab" id:ident : command => do
                   | (split <;> simp)
                   | (simp
                      first
+                       | done
                        | exact BitVec.isLt _
                        | (split <;> simp)
                        | omega)
                   | omega)
-             | (simp [$weId:ident]; omega))))
+             | (simp [$weId:ident]
+                first
+                  | done
+                  | omega))))
   for i in List.range regs.length do
     let (rn, _, _) := regs[i]!
     let stepId := mkI s!"{base}_step_{Sparkle.Backend.Verilog.sanitizeName rn}"
@@ -723,17 +727,61 @@ elab "#verify_elab" id:ident : command => do
           acc ← `(if n == $(quote n) then $v else $acc)
         for i in (List.range nRegs).reverse do
           let (rn, _, _) := regs[i]!
-          acc ← `(if n == $(quote rn) then st $(quote rn) else $acc)
+          acc ← `(if n == $(quote rn) then
+            Sparkle.IR.Semantics.mask $(quote regWs[i]!) (st $(quote rn))
+            else $acc)
         pure acc
       elabCommand (← `(def $envStId $paramBinders* (t : Nat)
           (st : String → Nat) : Sparkle.IR.Semantics.Env :=
         fun n => $envStBody))
+      -- bounded for EVERY state (the register arms are masked), which
+      -- is exactly the seed discipline the M4 capstone quantifies over
+      let envStBndId := mkI s!"{base}_envSt_bounded"
+      elabCommand (← `(theorem $envStBndId $paramBinders* (t : Nat)
+          (st : String → Nat) :
+          ∀ n, $envStId $appArgs* t st n < 2 ^ $weId n := by
+        intro n
+        simp only [$envStId:ident]
+        repeat' split
+        all_goals
+          first
+            | exact Nat.two_pow_pos _
+            | (simp only [beq_iff_eq] at *
+               subst_vars
+               first
+                 | (simp only [$weId:ident]
+                    first
+                      | exact Nat.mod_lt _ (Nat.two_pow_pos _)
+                      | exact BitVec.isLt _
+                      | (split <;> simp)
+                      | (simp
+                         first
+                           | done
+                           | exact Nat.mod_lt _ (Nat.two_pow_pos _)
+                           | exact BitVec.isLt _
+                           | (split <;> simp)
+                           | omega)
+                      | omega)
+                 | (simp [$weId:ident]
+                    first
+                      | done
+                      | omega))))
       let st0Body ← do
         let mut acc ← `((0 : Nat))
         for (rn, _, init) in regs.reverse do
           acc ← `(if n == $(quote rn) then $(quote init.toNat) else $acc)
         pure acc
       elabCommand (← `(def $st0Id : String → Nat := fun n => $st0Body))
+      -- the width map in the Option form the M4 capstone consumes;
+      -- defined as `some ∘ weM` so `weOf` collapses back to the
+      -- generated width env DEFINITIONALLY (the capstone is ∀-wof, and
+      -- the emitters only consult it at names the body mentions)
+      let wofMId := mkI s!"{base}_wofM"
+      elabCommand (← `(def $wofMId : String → Option Nat :=
+        fun n => some ($weId n)))
+      let weOfEqId := mkI s!"{base}_weOf_eq"
+      elabCommand (← `(theorem $weOfEqId :
+          Tools.SVParser.EmitSem.weOf $wofMId = $weId := rfl))
       let stateTraceId := mkI s!"{base}_state_trace"
       let stateConj ← do
         let sTerm : Term ← `($trId $appArgs* t)
@@ -769,8 +817,12 @@ elab "#verify_elab" id:ident : command => do
             have ihc := ih hprev
             have henv : $envStId $appArgs* t st
                 = $envId $appArgs* ($trId $appArgs* t) t := by
+              have hbb := $bndId $appArgs* t
               funext n
-              simp only [$envStId:ident, $envId:ident, ihc]
+              simp only [$envStId:ident, $envId:ident, ihc,
+                Sparkle.IR.Semantics.mask]
+              repeat' split
+              all_goals first | rfl | omega
             rw [henv] at h
             simp only [Sparkle.IR.Semantics.stepModule,
               Option.bind_eq_bind] at h
@@ -900,8 +952,12 @@ elab "#verify_elab" id:ident : command => do
       have ihc := $stateTraceId $appArgs* t hstep
       have henv : $envStId $appArgs* t st
           = $envId $appArgs* ($trId $appArgs* t) t := by
+        have hbb := $bndId $appArgs* t
         funext n
-        simp only [$envStId:ident, $envId:ident, ihc]
+        simp only [$envStId:ident, $envId:ident, ihc,
+          Sparkle.IR.Semantics.mask]
+        repeat' split
+        all_goals first | rfl | omega
       rw [henv] at hrun
       have hout := $stepOutId $appArgs* t hrun
         (show Sparkle.IR.Semantics.evalExpr $weId env1
@@ -947,6 +1003,53 @@ elab "#verify_elab" id:ident : command => do
         rw [← h0]
         exact hev
       exact $sigFoldId $appArgs* t hsi' hev'))
+    -- THE M4 COMPOSITION: Signal ≡ the VERILOG SEMANTICS of the
+    -- certified twin emission (certified_forward_trace_module), for
+    -- every cycle of a successful run.
+    let wofMId := mkI s!"{base}_wofM"
+    let weOfEqId := mkI s!"{base}_weOf_eq"
+    let envStBndId := mkI s!"{base}_envSt_bounded"
+    let sigSvId := mkI s!"{base}_signal_sv"
+    elabCommand (← `(theorem $sigSvId $paramBinders* :
+        ∃ pairs regs mprog,
+        Tools.SVParser.EmitSem.emitAssigns $wofMId $bodyId = some pairs
+        ∧ Tools.SVParser.EmitSem.emitRegs $wofMId $bodyId = some regs
+        ∧ Tools.SVParser.EmitSem.emitMemWrites $wofMId $bodyId
+            = some mprog
+        ∧ ∀ (K : Nat) (envs : List Sparkle.IR.Semantics.Env),
+            Tools.SVParser.EmitSem.runModuleSV $wofMId pairs regs mprog
+              (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id
+              (fun _ _ => 0) = some envs →
+            ∀ t, t < K → ∃ env1, envs[t]? = some env1
+              ∧ (($(id) $appArgs*).val t).toNat
+                  = env1 $(quote outName) := by
+      have hchk : Tools.SVParser.EmitSem.seqCheck $wofMId
+          (Tools.SVParser.EmitSem.weOf $wofMId) $bodyId = true := by
+        native_decide
+      have hbnd : ∀ (K t : Nat) (st : String → Nat),
+          Sparkle.IR.Semantics.Bounded
+            (Tools.SVParser.EmitSem.weOf $wofMId)
+            ($envStId $appArgs* (K - 1 - t) st) := by
+        intro K t st
+        rw [$weOfEqId:ident]
+        exact $envStBndId $appArgs* (K - 1 - t) st
+      obtain ⟨pairs, regs, mprog, h1, h2, h3, _⟩ :=
+        Tools.SVParser.EmitSem.certified_forward_trace_module hchk
+          (fun td s => $envStId $appArgs* (1 - 1 - td) s) (hbnd 1)
+      refine ⟨pairs, regs, mprog, h1, h2, h3, ?_⟩
+      intro K envs hSV t ht
+      obtain ⟨pairs', regs', mprog', h1', h2', h3', heq⟩ :=
+        Tools.SVParser.EmitSem.certified_forward_trace_module hchk
+          (fun td s => $envStId $appArgs* (K - 1 - td) s) (hbnd K)
+      rw [h1] at h1'
+      rw [h2] at h2'
+      rw [h3] at h3'
+      cases h1'
+      cases h2'
+      cases h3'
+      have hrunM := heq K $st0Id (fun _ _ => 0)
+      rw [$weOfEqId:ident, hSV] at hrunM
+      exact $sigRunId $appArgs* K hrunM t ht))
   -- honesty check
   let axioms ← liftCoreM <| Lean.collectAxioms thId.getId
   if axioms.contains ``sorryAx then
