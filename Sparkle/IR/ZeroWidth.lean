@@ -102,7 +102,16 @@ def dzStmt (wm : WidthMap) : Stmt → Option Stmt
   | .inst mn i conns =>
     some (.inst mn i (conns.map fun p => (p.1, dzExpr wm p.2)))
 
+/-- A module with any SYMBOLIC-width port/wire (`W`, `W+1`, …) is left
+    untouched: `buildWidthMap`/`bitWidth` panic on non-concrete dims,
+    and the zero-width pack tails this pass removes only ever occur in
+    fully concrete `circuit do` designs anyway (the `Unit`/`PUnit`
+    HList terminator).  `bitWidth?` is the total, panic-free probe. -/
+def allConcrete (m : Module) : Bool :=
+  (m.inputs ++ m.outputs ++ m.wires).all fun p => p.ty.bitWidth?.isSome
+
 def dropZeroWidthModule (m : Module) : Module :=
+  if !allConcrete m then m else
   let wm := buildWidthMap m
   { m with
     body := m.body.filterMap (dzStmt wm),
