@@ -1,4 +1,5 @@
 import Tools.ConeFold
+import Tools.ConcatNorm
 
 /-!
   The seam, slice-resolution half.
@@ -1520,6 +1521,232 @@ theorem hwt_of_assoc (we : WEnv) (l : List (String × Nat))
   rcases assocMap_mem l {} n w hget with hin | hempty
   · exact h (n, w) hin
   · simp at hempty
+
+/- ---- width-environment congruence ----
+   `evalExpr` consults the width environment ONLY at `.ref` nodes
+   (through `widthOf`, including the widths `evalOp`'s not/asr/signed
+   arms and the concat combiner read).  Two width envs agreeing on an
+   expression's references evaluate it identically — the deep pipeline
+   needs this to move between its register+input-keyed `weOfC` and the
+   full-width-table env the bridge theorems require. -/
+
+theorem refsList_mem :
+    ∀ (args : List Expr) (a : Expr), a ∈ args →
+    ∀ n ∈ refsOf a, n ∈ refsOf.refsList args
+  | [], _, ha, _, _ => by simp at ha
+  | b :: rest, a, ha, n, hn => by
+    simp only [refsOf.refsList, List.mem_append]
+    rcases List.mem_cons.mp ha with h | h
+    · subst h; exact Or.inl hn
+    · exact Or.inr (refsList_mem rest a h n hn)
+
+mutual
+theorem widthOf_we_congr (we we' : WEnv) :
+    ∀ (e : Expr), (∀ n ∈ refsOf e, we n = we' n) →
+      widthOf we e = widthOf we' e
+  | .const .., _ => rfl
+  | .ref n, h => by simp [widthOf, h n (by simp [refsOf])]
+  | .op o args, h => by
+    have hl : ∀ a ∈ args, widthOf we a = widthOf we' a := fun a ha =>
+      widthOf_we_congr we we' a (fun n hn => h n (by
+        simp only [refsOf]
+        exact refsList_mem args a ha n hn))
+    cases o <;>
+      (cases args with
+       | nil => rfl
+       | cons a1 t1 =>
+         cases t1 with
+         | nil => simp [widthOf, hl a1 (by simp)]
+         | cons a2 t2 =>
+           cases t2 with
+           | nil => simp [widthOf, hl a1 (by simp), hl a2 (by simp)]
+           | cons a3 t3 =>
+             cases t3 with
+             | nil => simp [widthOf, hl a1 (by simp), hl a2 (by simp),
+                 hl a3 (by simp)]
+             | cons a4 t4 => simp [widthOf])
+  | .concat args, h => by
+    simp only [widthOf]
+    exact widthOfGo_we_congr we we' args (fun a ha n hn =>
+      h n (by simp only [refsOf]; exact refsList_mem args a ha n hn))
+  | .slice e hi lo, _ => rfl
+  | .sliceDim .., _ => rfl
+  | .index .., _ => rfl
+
+theorem widthOfGo_we_congr (we we' : WEnv) :
+    ∀ (args : List Expr),
+      (∀ a ∈ args, ∀ n ∈ refsOf a, we n = we' n) →
+      widthOf.go we args = widthOf.go we' args
+  | [], _ => rfl
+  | a :: rest, h => by
+    simp only [widthOf.go,
+      widthOf_we_congr we we' a (h a (by simp)),
+      widthOfGo_we_congr we we' rest (fun b hb => h b (by simp [hb]))]
+end
+
+theorem zipFoldW_we_congr (we we' : WEnv) :
+    ∀ (as : List Expr), (∀ a ∈ as, widthOf we a = widthOf we' a) →
+    ∀ (vs : List Nat) (acc : Nat),
+      ((as.zip vs).foldl (fun a (p : Expr × Nat) =>
+        a + widthOf we p.1) acc)
+      = ((as.zip vs).foldl (fun a (p : Expr × Nat) =>
+        a + widthOf we' p.1) acc)
+  | [], _, _, _ => rfl
+  | a :: as', h, vs, acc => by
+    cases vs with
+    | nil => rfl
+    | cons v vs' =>
+      simp only [List.zip_cons_cons, List.foldl_cons, h a (by simp)]
+      exact zipFoldW_we_congr we we' as' (fun b hb => h b (by simp [hb]))
+        vs' _
+
+theorem evalOp_we_congr (we we' : WEnv) (o : Operator) :
+    ∀ (args : List Expr),
+      (∀ a ∈ args, widthOf we a = widthOf we' a) →
+      ∀ (vals : List Nat) (w : Nat),
+      evalOp we o args vals w = evalOp we' o args vals w := by
+  intro args h vals w
+  cases o <;>
+    (cases args with
+     | nil =>
+       (cases vals with
+         | nil => simp_all [evalOp]
+         | cons v1 u1 =>
+           cases u1 with
+           | nil => simp_all [evalOp]
+           | cons v2 u2 =>
+             cases u2 with
+             | nil => simp_all [evalOp]
+             | cons v3 u3 =>
+               cases u3 with
+               | nil => simp_all [evalOp]
+               | cons v4 u4 => simp_all [evalOp])
+     | cons a1 t1 =>
+       have h1 := h a1 (by simp)
+       cases t1 with
+       | nil =>
+         (cases vals with
+           | nil => simp_all [evalOp]
+           | cons v1 u1 =>
+             cases u1 with
+             | nil => simp_all [evalOp]
+             | cons v2 u2 =>
+               cases u2 with
+               | nil => simp_all [evalOp]
+               | cons v3 u3 =>
+                 cases u3 with
+                 | nil => simp_all [evalOp]
+                 | cons v4 u4 => simp_all [evalOp])
+       | cons a2 t2 =>
+         have h2 := h a2 (by simp)
+         cases t2 with
+         | nil =>
+           (cases vals with
+             | nil => simp_all [evalOp]
+             | cons v1 u1 =>
+               cases u1 with
+               | nil => simp_all [evalOp]
+               | cons v2 u2 =>
+                 cases u2 with
+                 | nil => simp_all [evalOp]
+                 | cons v3 u3 =>
+                   cases u3 with
+                   | nil => simp_all [evalOp]
+                   | cons v4 u4 => simp_all [evalOp])
+         | cons a3 t3 =>
+           cases t3 with
+           | nil =>
+             (cases vals with
+               | nil => simp_all [evalOp]
+               | cons v1 u1 =>
+                 cases u1 with
+                 | nil => simp_all [evalOp]
+                 | cons v2 u2 =>
+                   cases u2 with
+                   | nil => simp_all [evalOp]
+                   | cons v3 u3 =>
+                     cases u3 with
+                     | nil => simp_all [evalOp]
+                     | cons v4 u4 => simp_all [evalOp])
+           | cons a4 t4 =>
+             (cases vals with
+               | nil => simp_all [evalOp]
+               | cons v1 u1 =>
+                 cases u1 with
+                 | nil => simp_all [evalOp]
+                 | cons v2 u2 =>
+                   cases u2 with
+                   | nil => simp_all [evalOp]
+                   | cons v3 u3 =>
+                     cases u3 with
+                     | nil => simp_all [evalOp]
+                     | cons v4 u4 => simp_all [evalOp]))
+
+theorem evalGo_we_congr (we we' : WEnv) :
+    ∀ (args : List Expr), (∀ a ∈ args, widthOf we a = widthOf we' a) →
+    ∀ (vals : List Nat),
+      evalExpr.go we args vals = evalExpr.go we' args vals
+  | [], _, _ => rfl
+  | a :: rest, h, vals => by
+    cases vals with
+    | nil => rfl
+    | cons v vs =>
+      simp only [evalExpr.go, h a (by simp),
+        zipFoldW_we_congr we we' rest
+          (fun b hb => h b (by simp [hb])) vs,
+        evalGo_we_congr we we' rest (fun b hb => h b (by simp [hb])) vs]
+
+mutual
+/-- Two width environments agreeing on an expression's references
+    evaluate it identically. -/
+theorem evalExpr_we_congr (we we' : WEnv) (env : Env) :
+    ∀ (e : Expr), (∀ n ∈ refsOf e, we n = we' n) →
+      evalExpr we env e = evalExpr we' env e
+  | .const .., _ => rfl
+  | .ref .., _ => rfl
+  | .op o args, h => by
+    have hargs := evalList_we_congr we we' env args
+      (fun a ha n hn => h n (by
+        simp only [refsOf]; exact refsList_mem args a ha n hn))
+    have hwl : ∀ a ∈ args, widthOf we a = widthOf we' a := fun a ha =>
+      widthOf_we_congr we we' a (fun n hn => h n (by
+        simp only [refsOf]; exact refsList_mem args a ha n hn))
+    have hw := widthOf_we_congr we we' (.op o args) h
+    simp only [evalExpr, hargs, hw]
+    cases evalList we' env args with
+    | none => rfl
+    | some vals =>
+      simp only [Option.bind_eq_bind, Option.bind_some]
+      rw [evalOp_we_congr we we' o args hwl vals _]
+  | .concat args, h => by
+    have hargs := evalList_we_congr we we' env args
+      (fun a ha n hn => h n (by
+        simp only [refsOf]; exact refsList_mem args a ha n hn))
+    have hwl : ∀ a ∈ args, widthOf we a = widthOf we' a := fun a ha =>
+      widthOf_we_congr we we' a (fun n hn => h n (by
+        simp only [refsOf]; exact refsList_mem args a ha n hn))
+    simp only [evalExpr, hargs]
+    cases evalList we' env args with
+    | none => rfl
+    | some vals =>
+      simp only [Option.bind_eq_bind, Option.bind_some,
+        evalGo_we_congr we we' args hwl vals]
+  | .slice e hi lo, h => by
+    simp only [evalExpr,
+      evalExpr_we_congr we we' env e (by simpa [refsOf] using h)]
+  | .sliceDim .., _ => rfl
+  | .index .., _ => rfl
+
+theorem evalList_we_congr (we we' : WEnv) (env : Env) :
+    ∀ (args : List Expr),
+      (∀ a ∈ args, ∀ n ∈ refsOf a, we n = we' n) →
+      evalList we env args = evalList we' env args
+  | [], _ => rfl
+  | a :: rest, h => by
+    simp only [evalList,
+      evalExpr_we_congr we we' env a (h a (by simp)),
+      evalList_we_congr we we' env rest (fun b hb => h b (by simp [hb]))]
+end
 
 /- ---- the cycle-level iteration ---- -/
 
