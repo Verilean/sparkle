@@ -990,6 +990,176 @@ elab "#verify_elab_deep" id:ident : command => do
       CExpr.compile $nmId (Cdo.out $deepId) = $outQ := by
       simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
       try simp))
+    -- ===== deep-side seam glue (G1) =====
+    -- The capstone / Cdo.irState evaluate cones as
+    -- `evalExpr (weOfC …) env (CExpr.compile nm (next/out))`; these
+    -- lemmas rewrite each such term to plain `evalExpr weM env cone`
+    -- over the RESOLVED cone constant and the FULL width-table env —
+    -- fidelity ∘ concatNorm_eval (singleton-freedom by native_decide)
+    -- ∘ evalExpr_we_congr (the cone's refs are stop-set names, where
+    -- the register+input-keyed weOfC agrees with weM).  This lands the
+    -- deep conclusions on exactly the expressions and width env the
+    -- ConeFold bridge theorems consume.
+    let weMId := mkI s!"{base}_deep_weM"
+    let bodyId := mkI s!"{base}_deep_body"
+    let stopLId := mkI s!"{base}_deep_stopL"
+    let stopAtMId := mkI s!"{base}_deep_stopAtM"
+    let wtLId := mkI s!"{base}_deep_wtL"
+    let wtMId := mkI s!"{base}_deep_wtM"
+    if k == 0 then
+      let weBody ← do
+        let mut acc ← `((0 : Nat))
+        for (n, w) in wt.toList do
+          acc ← `(if n == $(quote n) then $(quote w) else $acc)
+        pure acc
+      elabCommand (← `(def $weMId : Sparkle.IR.Semantics.WEnv :=
+        fun n => $weBody))
+      liftCoreM <| addAndCompile <| .defnDecl {
+        name := bodyId.getId, levelParams := []
+        type := mkApp (mkConst ``List [levelZero])
+          (mkConst ``Sparkle.IR.AST.Stmt)
+        value := toExpr (Tools.SVParser.Lower.topoSortBody m.body),
+        hints := .abbrev, safety := .safe }
+      liftCoreM <| Lean.enableRealizationsForConst bodyId.getId
+      let stopL : List String := (ins.map (·.1)) ++ (regs.map (·.1))
+      liftCoreM <| addAndCompile <| .defnDecl {
+        name := stopLId.getId, levelParams := []
+        type := mkApp (mkConst ``List [levelZero]) (mkConst ``String)
+        value := toExpr stopL, hints := .abbrev, safety := .safe }
+      liftCoreM <| Lean.enableRealizationsForConst stopLId.getId
+      elabCommand (← `(def $stopAtMId : Std.HashMap String Bool :=
+        ($stopLId).foldl (fun h n => h.insert n true) {}))
+      liftCoreM <| addAndCompile <| .defnDecl {
+        name := wtLId.getId, levelParams := []
+        type := mkApp (mkConst ``List [levelZero])
+          (mkApp2 (mkConst ``Prod [levelZero, levelZero])
+            (mkConst ``String) (mkConst ``Nat))
+        value := toExpr wt.toList, hints := .abbrev, safety := .safe }
+      liftCoreM <| Lean.enableRealizationsForConst wtLId.getId
+      elabCommand (← `(def $wtMId : Std.HashMap String Nat :=
+        ($wtLId).foldl (fun m p => m.insert p.1 p.2) {}))
+      for i in List.range nR do
+        let (rn, input, _) := regs[i]!
+        let sanit := Sparkle.Backend.Verilog.sanitizeName rn
+        let coneRawId := mkI s!"{base}_deep_coneRaw_{sanit}"
+        let coneId := mkI s!"{base}_deep_cone_{sanit}"
+        let regInId := mkI s!"{base}_deep_regIn_{sanit}"
+        let craw ← match Tools.ConeFold.inlineConeT dm stopAt 10000 input with
+          | .ok c => pure c
+          | .error e => throwError "#verify_elab_deep bridge: cone of {rn}: {e}"
+        liftCoreM <| addAndCompile <| .defnDecl {
+          name := coneRawId.getId, levelParams := []
+          type := mkConst ``Sparkle.IR.AST.Expr
+          value := toExpr craw, hints := .abbrev, safety := .safe }
+        liftCoreM <| Lean.enableRealizationsForConst coneRawId.getId
+        liftCoreM <| addAndCompile <| .defnDecl {
+          name := coneId.getId, levelParams := []
+          type := mkConst ``Sparkle.IR.AST.Expr
+          value := toExpr conesIR[i]!, hints := .abbrev, safety := .safe }
+        liftCoreM <| Lean.enableRealizationsForConst coneId.getId
+        liftCoreM <| addAndCompile <| .defnDecl {
+          name := regInId.getId, levelParams := []
+          type := mkConst ``Sparkle.IR.AST.Expr
+          value := toExpr input, hints := .abbrev, safety := .safe }
+        liftCoreM <| Lean.enableRealizationsForConst regInId.getId
+        let fidId := fidIds[i]!
+        let g1Id := mkI s!"{base}_deep_coneEval_r{i}"
+        elabCommand (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
+            Sparkle.IR.Semantics.evalExpr
+                (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
+                env (CExpr.compile $nmId
+                  (Cdo.next $deepId ⟨$(quote i), by decide⟩))
+              = Sparkle.IR.Semantics.evalExpr $weMId env $coneId := by
+          have hnorm : CExpr.compile $nmId
+              (Cdo.next $deepId ⟨$(quote i), by decide⟩)
+              = Tools.ConcatNorm.concatNorm 10000 $coneId := by
+            rw [$fidId:ident]
+            native_decide
+          have hinl : Tools.ConeFold.inlineConeT
+              (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
+              $regInId = .ok $coneRawId := by native_decide
+          have hres : $coneId
+              = Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId := by
+            native_decide
+          have hag : ∀ n ∈ $stopLId,
+              (weOfC $nmId
+                (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j)) n
+                = $weMId n := by native_decide
+          rw [hnorm,
+            Tools.ConeFold.concatNorm_eval _ env 10000 $coneId
+              (by native_decide)]
+          refine Tools.ConeFold.evalExpr_we_congr _ $weMId env $coneId ?_
+          intro n hn
+          have h1 : n ∈ Sparkle.IR.Reorder.refsOf
+              (Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId) := by
+            rw [← hres]; exact hn
+          have href := Tools.ConeFold.inlineConeT_refs
+            (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
+            $regInId $coneRawId hinl n
+            (Tools.ConeFold.resolveSlicesT_refs $wtMId 10000 $coneRawId
+              n h1)
+          have hmem : n ∈ $stopLId := by
+            rcases Tools.ConeFold.stopFold_mem $stopLId {} n href
+              with h | h
+            · exact h
+            · simp at h
+          exact hag n hmem))
+    -- per-port: the output cone's G1
+    let outConeRawId := mkI s!"{base}{suffix}_deep_coneRaw_out"
+    let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
+    let outRawIR ← match Tools.ConeFold.inlineConeT dm stopAt 10000
+        (.ref portName) with
+      | .ok c => pure c
+      | .error e => throwError "#verify_elab_deep bridge: out cone: {e}"
+    liftCoreM <| addAndCompile <| .defnDecl {
+      name := outConeRawId.getId, levelParams := []
+      type := mkConst ``Sparkle.IR.AST.Expr
+      value := toExpr outRawIR, hints := .abbrev, safety := .safe }
+    liftCoreM <| Lean.enableRealizationsForConst outConeRawId.getId
+    liftCoreM <| addAndCompile <| .defnDecl {
+      name := outConeId.getId, levelParams := []
+      type := mkConst ``Sparkle.IR.AST.Expr
+      value := toExpr outIR, hints := .abbrev, safety := .safe }
+    liftCoreM <| Lean.enableRealizationsForConst outConeId.getId
+    let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
+    elabCommand (← `(theorem $g1OutId (env : Sparkle.IR.Semantics.Env) :
+        Sparkle.IR.Semantics.evalExpr
+            (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
+            env (CExpr.compile $nmId (Cdo.out $deepId))
+          = Sparkle.IR.Semantics.evalExpr $weMId env $outConeId := by
+      have hnorm : CExpr.compile $nmId (Cdo.out $deepId)
+          = Tools.ConcatNorm.concatNorm 10000 $outConeId := by
+        rw [$fidOutId:ident]
+        native_decide
+      have hinl : Tools.ConeFold.inlineConeT
+          (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
+          (.ref $(quote portName)) = .ok $outConeRawId := by
+        native_decide
+      have hres : $outConeId
+          = Tools.ConeFold.resolveSlicesT $wtMId 10000 $outConeRawId := by
+        native_decide
+      have hag : ∀ n ∈ $stopLId,
+          (weOfC $nmId
+            (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j)) n
+            = $weMId n := by native_decide
+      rw [hnorm,
+        Tools.ConeFold.concatNorm_eval _ env 10000 $outConeId
+          (by native_decide)]
+      refine Tools.ConeFold.evalExpr_we_congr _ $weMId env $outConeId ?_
+      intro n hn
+      have h1 : n ∈ Sparkle.IR.Reorder.refsOf
+          (Tools.ConeFold.resolveSlicesT $wtMId 10000 $outConeRawId) := by
+        rw [← hres]; exact hn
+      have href := Tools.ConeFold.inlineConeT_refs
+        (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
+        (.ref $(quote portName)) $outConeRawId hinl n
+        (Tools.ConeFold.resolveSlicesT_refs $wtMId 10000 $outConeRawId
+          n h1)
+      have hmem : n ∈ $stopLId := by
+        rcases Tools.ConeFold.stopFold_mem $stopLId {} n href with h | h
+        · exact h
+        · simp at h
+      exact hag n hmem))
     -- the pack: HList of stateAt components
     let packBody ← do
       let mut acc : Term ← `(())
