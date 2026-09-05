@@ -2216,6 +2216,144 @@ theorem runModule_stepIter (we : WEnv) (body : List Stmt)
                 exact hev
               · simpa using hget
 
+/- ---- absolute fold-success (evalOk) ----
+   evalExpr fails ONLY on shape (sliceDim / index / operator arity),
+   never on the environment (Session 8's gift).  A decidable `evalOk`
+   checker therefore discharges the fold-success hypotheses
+   (`hrun`/`hstep`) UNCONDITIONALLY — per instance by native_decide,
+   removing them from the generated corollaries. -/
+
+def arityOk (o : Operator) (n : Nat) : Bool :=
+  match o with
+  | .not | .neg => n == 1
+  | .mux => n == 3
+  | _ => n == 2
+
+-- evalOp is total when the arity matches (and vals has that many).
+theorem evalOp_isSome (we : WEnv) (o : Operator) (args : List Expr)
+    (vals : List Nat) (w : Nat)
+    (ha : arityOk o args.length = true) (hlen : vals.length = args.length) :
+    (evalOp we o args vals w).isSome := by
+  cases o <;>
+    simp only [arityOk, beq_iff_eq] at ha <;>
+    (cases args with
+     | nil => simp_all
+     | cons a1 s1 =>
+       cases vals with
+       | nil => simp_all
+       | cons v1 t1 =>
+         cases s1 with
+         | nil =>
+           cases t1 with
+           | nil => simp_all [evalOp]
+           | cons v2 t2 => simp_all
+         | cons a2 s2 =>
+           cases t1 with
+           | nil => simp_all
+           | cons v2 t2 =>
+             cases s2 with
+             | nil =>
+               cases t2 with
+               | nil => simp_all [evalOp]
+               | cons v3 t3 => simp_all
+             | cons a3 s3 =>
+               cases t2 with
+               | nil => simp_all
+               | cons v3 t3 =>
+                 cases s3 with
+                 | nil =>
+                   cases t3 with
+                   | nil => simp_all [evalOp]
+                   | cons => simp_all
+                 | cons a4 s4 => simp_all [evalOp, arityOk])
+mutual
+def evalOk : Expr → Bool
+  | .const _ _ => true
+  | .ref _ => true
+  | .op o args => arityOk o args.length && evalOkL args
+  | .concat args => evalOkL args
+  | .slice e _ _ => evalOk e
+  | .sliceDim _ _ _ => false
+  | .index _ _ => false
+
+def evalOkL : List Expr → Bool
+  | [] => true
+  | a :: rest => evalOk a && evalOkL rest
+end
+
+mutual
+theorem evalOk_isSome (we : WEnv) (env : Env) :
+    ∀ e, evalOk e = true → (evalExpr we env e).isSome
+  | .const _ _, _ => rfl
+  | .ref _, _ => rfl
+  | .op o args, h => by
+    simp only [evalOk, Bool.and_eq_true] at h
+    have hl := evalOkL_isSome we env args h.2
+    simp only [evalExpr, Option.bind_eq_bind]
+    obtain ⟨vals, hv⟩ := Option.isSome_iff_exists.mp hl
+    rw [hv]
+    simp only [Option.bind_some]
+    have hlen := evalList_len hv
+    exact evalOp_isSome we o args vals _ h.1 hlen
+  | .concat args, h => by
+    simp only [evalOk] at h
+    have hl := evalOkL_isSome we env args h
+    simp only [evalExpr, Option.bind_eq_bind]
+    obtain ⟨vals, hv⟩ := Option.isSome_iff_exists.mp hl
+    rw [hv]; simp
+  | .slice e hi lo, h => by
+    simp only [evalOk] at h
+    have he := evalOk_isSome we env e h
+    simp only [evalExpr, Option.bind_eq_bind]
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp he
+    rw [hv]; simp
+  | .sliceDim _ _ _, h => by simp [evalOk] at h
+  | .index _ _, h => by simp [evalOk] at h
+
+theorem evalOkL_isSome (we : WEnv) (env : Env) :
+    ∀ args, evalOkL args = true → (evalList we env args).isSome
+  | [], _ => rfl
+  | a :: rest, h => by
+    simp only [evalOkL, Bool.and_eq_true] at h
+    have ha := evalOk_isSome we env a h.1
+    have hr := evalOkL_isSome we env rest h.2
+    simp only [evalList, Option.bind_eq_bind]
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp ha
+    obtain ⟨vs, hvs⟩ := Option.isSome_iff_exists.mp hr
+    rw [hv, hvs]; simp
+end
+
+open Sparkle.IR.Reorder in
+/-- Every assignment's RHS is in the total fragment (memory-free body). -/
+def bodyEvalOk : List Sparkle.IR.AST.Stmt → Bool
+  | [] => true
+  | .assign _ r :: rest => evalOk r && bodyEvalOk rest
+  | .register _ _ _ i _ :: rest => evalOk i && bodyEvalOk rest
+  | _ :: _ => false
+
+open Sparkle.IR.Reorder in
+/-- On a memory-free body whose assignments are all in the total
+    fragment, the combinational fold always succeeds — ABSOLUTE
+    discharge of the `hrun`/`hstep` hypotheses (decidable, by
+    native_decide per instance). -/
+theorem evalAssigns_isSome (we : WEnv) (mems : MEnv) :
+    ∀ (body : List Sparkle.IR.AST.Stmt), bodyEvalOk body = true →
+    ∀ (env0 : Env), (evalAssigns we mems body env0).isSome
+  | [], _, env0 => rfl
+  | .assign l r :: rest, h, env0 => by
+    simp only [bodyEvalOk, Bool.and_eq_true] at h
+    simp only [evalAssigns, Option.bind_eq_bind]
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env0 r h.1)
+    rw [hv]
+    simp only [Option.bind_some]
+    exact evalAssigns_isSome we mems rest h.2 _
+  | .register o c rs i iv :: rest, h, env0 => by
+    simp only [bodyEvalOk, Bool.and_eq_true] at h
+    simp only [evalAssigns]
+    exact evalAssigns_isSome we mems rest h.2 env0
+  | .memory .. :: _, h, _ => by simp [bodyEvalOk] at h
+  | .inst .. :: _, h, _ => by simp [bodyEvalOk] at h
+
 end Bridge
 
 end Tools.ConeFold
