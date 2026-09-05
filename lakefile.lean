@@ -52,6 +52,8 @@ extern_lib «sparkle_jit» pkg := do
 -- A missing entry shows up as an undefined-symbol load error naming the module.
 def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Backend_CSim.so",
+    "-l:sparkle_Sparkle_Backend_CudaIntra.so",
+    "-l:sparkle_Sparkle_Backend_CudaSim.so",
     "-l:sparkle_Sparkle_Backend_VCD.so",
     "-l:sparkle_Sparkle_Backend_Verilog.so",
     "-l:sparkle_Sparkle_Compiler_DRC.so",
@@ -85,7 +87,11 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_IR_AST.so",
     "-l:sparkle_Sparkle_IR_Builder.so",
     "-l:sparkle_Sparkle_IR_Optimize.so",
+    "-l:sparkle_Sparkle_IR_ReorderInvariance.so",
+    "-l:sparkle_Sparkle_IR_Semantics.so",
+    "-l:sparkle_Sparkle_IR_Specialize.so",
     "-l:sparkle_Sparkle_IR_Type.so",
+    "-l:sparkle_Sparkle_IR_ZeroWidth.so",
     "-l:sparkle_Sparkle.so",
     "-l:sparkle_Sparkle_Utils_HexLoader.so",
     "-l:sparkle_Sparkle_Verification_Equivalence.so",
@@ -247,6 +253,13 @@ lean_lib «IP.Control» where
 
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
+  -- See `sparkleDynlibLinkArgs` above: the precompiled shared lib's
+  -- object code references Sparkle.IR.{Semantics,ReorderInvariance}
+  -- symbols (weWithReads/applyNexts via EmitSem/RoundtripProof), which
+  -- must be recorded as NEEDED per-module dynlibs or the interpreter
+  -- load fails with an undefined-symbol error (seen at
+  -- Sparkle.Verification.CounterProps on cold CI builds).
+  moreLinkArgs := sparkleDynlibLinkArgs
 
 -- `#verify_elab` — the Signal↔IR link (see Tools/VerifyElab.lean)
 lean_lib «Tools.VerifyElab» where
