@@ -260,7 +260,8 @@ if [ -f "$ELAB_FILE" ]; then
   # instantiated on cnt8; checker hypotheses by native_decide)
   BRIDGE_FILE=Tests/Verification/ConeBridgeDemo.lean
   if [ -f "$BRIDGE_FILE" ]; then
-    lake build Tools.ConeFoldSlices >> "$WORK/deep_build.log" 2>&1 || {
+    lake build Tools.ConeFoldSlices Tests.Verification.VerifyElabDemo \
+        >> "$WORK/deep_build.log" 2>&1 || {
       echo "FAIL: could not build the cone-bridge import closure"; fail=1; }
     if lake env lean "$BRIDGE_FILE" > "$WORK/cone_bridge.log" 2>&1; then
       echo "cone-bridge (seam per-instance): cnt8 step agreement proven"
