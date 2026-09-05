@@ -3090,6 +3090,62 @@ inductive TraceCheck where
   | bad
   deriving Repr, DecidableEq
 
+/- Alias canonicalization for the OPTIMIZER-FALLBACK comparison only
+   (the `.optRewritten` classifier, which carries no theorem): the
+   lowering's wire-inliner and `optimizeDesign` both collapse pure
+   alias chains (`x = ref y`) but can pick DIFFERENT surviving names
+   for the same alias class, which made semantically identical outputs
+   compare `.bad` (seen on elaborator modules with two registers: the
+   reparse kept `_tmp_reg_input_4`, the optimized image kept
+   `_tmp_arg1_1`).  Collapsing every non-kept alias on both sides
+   before `isPermOf` removes the tie-break sensitivity. -/
+
+mutual
+def renameRefE (a b : String) : Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | .ref n => if n == a then .ref b else .ref n
+  | .op o args => .op o (renameRefL a b args)
+  | .concat args => .concat (renameRefL a b args)
+  | .slice e hi lo => .slice (renameRefE a b e) hi lo
+  | .sliceDim e d i => .sliceDim (renameRefE a b e) d i
+  | .index x i => .index (renameRefE a b x) (renameRefE a b i)
+  | e => e
+
+def renameRefL (a b : String) :
+    List Sparkle.IR.AST.Expr → List Sparkle.IR.AST.Expr
+  | [] => []
+  | e :: rest => renameRefE a b e :: renameRefL a b rest
+end
+
+def renameRefStmt (a b : String) : Sparkle.IR.AST.Stmt →
+    Sparkle.IR.AST.Stmt
+  | .assign l r => .assign l (renameRefE a b r)
+  | .register o c rs i iv => .register o c rs (renameRefE a b i) iv
+  | .memory nm aw dw c wa wd wen ra rd cr ew er =>
+    .memory nm aw dw c (renameRefE a b wa) (renameRefE a b wd)
+      (renameRefE a b wen) (renameRefE a b ra) rd cr
+      (ew.map fun p => (renameRefE a b p.1, renameRefE a b p.2.1,
+        renameRefE a b p.2.2))
+      (er.map fun p => (renameRefE a b p.1, p.2))
+  | .inst mn i conns =>
+    .inst mn i (conns.map fun p => (p.1, renameRefE a b p.2))
+
+/-- Collapse pure alias assigns (`x = ref y`, `x ∉ keep`) by
+    substituting the alias away, to a fixpoint (fuel = statement
+    count). -/
+def collapseAliases (keep : List String) (body : List Sparkle.IR.AST.Stmt) :
+    List Sparkle.IR.AST.Stmt := Id.run do
+  let mut cur := body
+  for _ in List.range body.length do
+    match cur.find? (fun st => match st with
+      | .assign l (.ref r) => !keep.contains l && l != r
+      | _ => false) with
+    | some (.assign l (.ref r)) =>
+      cur := (cur.filter (fun st => match st with
+        | .assign l' (.ref _) => l' != l
+        | _ => true)).map (renameRefStmt l r)
+    | _ => break
+  return cur
+
 /-- End-to-end validation for one module: run the SHIPPING pipeline on
     the module's own emission and check its output against the
     statement-wise twin image with `bodyReorderCheck`. -/
@@ -3121,7 +3177,10 @@ def bodyTraceCheck (m : Sparkle.IR.AST.Module) : TraceCheck :=
             (Sparkle.IR.Optimize.optimizeDesign imgDesign)
           let bimgOpt := opt.modules.foldl
             (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) []
-          if Sparkle.IR.Reorder.isPermOf body' bimgOpt then .optRewritten
+          let keep := (m.outputs ++ m.inputs).map
+            (fun p => Sparkle.Backend.Verilog.sanitizeName p.name)
+          if Sparkle.IR.Reorder.isPermOf (collapseAliases keep body')
+              (collapseAliases keep bimgOpt) then .optRewritten
           else .bad
 
 /- ------------------------------------------------------------------ -/
