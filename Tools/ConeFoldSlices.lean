@@ -2354,6 +2354,72 @@ theorem evalAssigns_isSome (we : WEnv) (mems : MEnv) :
   | .memory .. :: _, h, _ => by simp [bodyEvalOk] at h
   | .inst .. :: _, h, _ => by simp [bodyEvalOk] at h
 
+theorem regNexts_isSome (we : WEnv) (mems : MEnv) :
+    ∀ (body : List Stmt), memFree body → bodyEvalOk body = true →
+    ∀ (env : Env), (regNexts we mems body env).isSome
+  | [], _, _, _ => rfl
+  | .assign l r :: rest, hm, h, env => by
+    simp only [bodyEvalOk, Bool.and_eq_true] at h
+    simp only [regNexts]
+    exact regNexts_isSome we mems rest (by simpa [memFree] using hm) h.2 env
+  | .register o c rs i iv :: rest, hm, h, env => by
+    simp only [bodyEvalOk, Bool.and_eq_true] at h
+    simp only [regNexts, Option.bind_eq_bind]
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env i h.1)
+    rw [hv]
+    simp only [Option.bind_some]
+    obtain ⟨ns, hns⟩ := Option.isSome_iff_exists.mp
+      (regNexts_isSome we mems rest (by simpa [memFree] using hm) h.2 env)
+    rw [hns]; simp
+  | .memory .. :: _, hm, _, _ => by simp [memFree] at hm
+  | .inst .. :: _, _, h, _ => by simp [bodyEvalOk] at h
+
+theorem stepModule_isSome (we : WEnv) (body : List Stmt)
+    (hm : memFree body) (h : bodyEvalOk body = true) (env0 : Env) :
+    (stepModule we body env0 (fun _ _ => 0)).isSome := by
+  simp only [stepModule, Option.bind_eq_bind]
+  obtain ⟨envF, hF⟩ := Option.isSome_iff_exists.mp
+    (evalAssigns_isSome we (fun _ _ => 0) body h env0)
+  rw [hF]
+  simp only [Option.bind_some]
+  obtain ⟨ns, hns⟩ := Option.isSome_iff_exists.mp
+    (regNexts_isSome we (fun _ _ => 0) body hm h envF)
+  rw [hns]
+  simp only [Option.bind_some]
+  rw [memNexts_memFree we body hm]
+  simp
+
+theorem runModule_isSome (we : WEnv) (body : List Stmt)
+    (hm : memFree body) (h : bodyEvalOk body = true)
+    (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : String → Nat), (runModule we body seed k st (fun _ _ => 0)).isSome
+  | 0, _ => rfl
+  | k + 1, st => by
+    simp only [runModule, Option.bind_eq_bind]
+    obtain ⟨trip, ht⟩ := Option.isSome_iff_exists.mp
+      (stepModule_isSome we body hm h (seed k st))
+    rw [ht]
+    obtain ⟨envF, ns, mems'⟩ := trip
+    simp only [Option.bind_some]
+    obtain ⟨rest, hr⟩ := Option.isSome_iff_exists.mp
+      (runModule_isSome we body hm h seed k (applyNexts st ns))
+    -- mems' is (fun _ _ => 0) on memFree bodies
+    have : mems' = (fun _ _ => 0) := by
+      have := memNexts_memFree we body hm
+      simp only [stepModule, Option.bind_eq_bind] at ht
+      cases hA : evalAssigns we (fun _ _ => 0) body (seed k st) with
+      | none => rw [hA] at ht; simp at ht
+      | some eA =>
+        rw [hA] at ht; simp only [Option.bind_some] at ht
+        cases hN : regNexts we (fun _ _ => 0) body eA with
+        | none => rw [hN] at ht; simp at ht
+        | some nn =>
+          rw [hN, memNexts_memFree we body hm] at ht
+          simp only [Option.bind_some, Option.some_inj] at ht
+          exact (congrArg (fun p => p.2.2) ht).symm
+    subst this
+    rw [hr]; simp
+
 end Bridge
 
 end Tools.ConeFold

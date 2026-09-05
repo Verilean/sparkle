@@ -349,6 +349,7 @@ partial def resolveSlicesW (wt : Std.HashMap String Nat) :
     | e' => .slice e' hi lo
   | e => e
 
+set_option maxHeartbeats 1000000 in
 elab "#verify_elab" id:ident : command => do
   let declName ← liftTermElabM <|
     Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
@@ -1003,6 +1004,22 @@ elab "#verify_elab" id:ident : command => do
         rw [← h0]
         exact hev
       exact $sigFoldId $appArgs* t hsi' hev'))
+    -- UNCONDITIONAL form: the run itself always succeeds (evalOk —
+    -- the body is memory-free with all-fragment RHSs, both decidable),
+    -- so no `hrunM` hypothesis is needed.
+    let sigRunU := mkI s!"{base}_signal_run"
+    elabCommand (← `(theorem $sigRunU $paramBinders* (K : Nat) :
+        ∃ envs, Sparkle.IR.Semantics.runModule $weId $bodyId
+            (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id
+            (fun _ _ => 0) = some envs
+          ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1
+            ∧ (($(id) $appArgs*).val t).toNat = env1 $(quote outName) := by
+      obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
+        (Tools.ConeFold.runModule_isSome $weId $bodyId
+          (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+          (by native_decide)
+          (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id)
+      exact ⟨envs, henvs, $sigRunId $appArgs* K henvs⟩))
     -- THE M4 COMPOSITION: Signal ≡ the VERILOG SEMANTICS of the
     -- certified twin emission (certified_forward_trace_module), for
     -- every cycle of a successful run.
