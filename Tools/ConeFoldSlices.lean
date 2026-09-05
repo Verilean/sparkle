@@ -1510,6 +1510,24 @@ theorem assocMap_mem :
         exact List.mem_cons_self ..
       · exact Or.inr hm0
 
+/-- A membership in a Bool-fold-built stop set came from the list. -/
+theorem stopFold_mem :
+    ∀ (l : List String) (m0 : Std.HashMap String Bool) (n : String),
+    (l.foldl (fun h x => h.insert x true) m0).contains n = true →
+    n ∈ l ∨ m0.contains n = true
+  | [], _, _, h => Or.inr h
+  | x :: rest, m0, n, h => by
+    simp only [List.foldl_cons] at h
+    rcases stopFold_mem rest (m0.insert x true) n h with hin | hm0
+    · exact Or.inl (List.mem_cons_of_mem _ hin)
+    · rw [Std.HashMap.contains_insert] at hm0
+      rcases Bool.or_eq_true_iff.mp hm0 with heq | hc
+      · left
+        simp only [beq_iff_eq] at heq
+        subst heq
+        exact List.mem_cons_self ..
+      · exact Or.inr hc
+
 /-- The capstone's `hwt` from a finite width list: if the width env
     agrees with every listed pair, it agrees with the map built from
     the list.  The premise is a decidable finite conjunction. -/
