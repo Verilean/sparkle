@@ -1748,6 +1748,274 @@ theorem evalList_we_congr (we we' : WEnv) (env : Env) :
       evalList_we_congr we we' env rest (fun b hb => h b (by simp [hb]))]
 end
 
+/- ---- concatNorm preservation ----
+   The deep pipeline quotes its cones through
+   `Tools.ConcatNorm.concatNorm` (binary-cat normalization matching
+   `CExpr.compile`'s output shape).  `norm2` collapses a SINGLETON
+   concat to its bare element — unmasked — so semantics are preserved
+   only on singleton-free expressions; real cones never contain one
+   (decidable `noSingle`, discharged per instance). -/
+
+section ConcatNormBridge
+
+open Tools.ConcatNorm
+
+mutual
+def noSingle : Expr → Bool
+  | .concat args => args.length != 1 && noSingleL args
+  | .op _ args => noSingleL args
+  | .slice e _ _ => noSingle e
+  | .sliceDim e _ _ => noSingle e
+  | .index a i => noSingle a && noSingle i
+  | _ => true
+
+def noSingleL : List Expr → Bool
+  | [] => true
+  | a :: rest => noSingle a && noSingleL rest
+end
+
+theorem noSingleL_mem :
+    ∀ (args : List Expr), noSingleL args = true →
+    ∀ a ∈ args, noSingle a = true
+  | [], _, a, ha => by simp at ha
+  | b :: rest, h, a, ha => by
+    simp only [noSingleL, Bool.and_eq_true] at h
+    rcases List.mem_cons.mp ha with heq | hm
+    · subst heq; exact h.1
+    · exact noSingleL_mem rest h.2 a hm
+
+theorem cN_zero (e : Expr) : concatNorm 0 e = e := by
+  rw [concatNorm.eq_def]
+
+theorem cN_op (fuel : Nat) (o : Operator) (args : List Expr) :
+    concatNorm (fuel + 1) (.op o args)
+      = .op o (concatNormL fuel args) := by
+  rw [concatNorm.eq_def]
+
+theorem cN_concat (fuel : Nat) (args : List Expr) :
+    concatNorm (fuel + 1) (.concat args)
+      = norm2 (concatNormL fuel args) := by
+  rw [concatNorm.eq_def]
+
+theorem cN_slice (fuel : Nat) (e : Expr) (hi lo : Nat) :
+    concatNorm (fuel + 1) (.slice e hi lo)
+      = .slice (concatNorm fuel e) hi lo := by
+  rw [concatNorm.eq_def]
+
+theorem cN_const (fuel : Nat) (v : Int) (w : Nat) :
+    concatNorm (fuel + 1) (.const v w) = .const v w := by
+  rw [concatNorm.eq_def]
+
+theorem cN_ref (fuel : Nat) (n : String) :
+    concatNorm (fuel + 1) (.ref n) = .ref n := by
+  rw [concatNorm.eq_def]
+
+theorem cN_sliceDim (fuel : Nat) (e : Expr)
+    (d i : Sparkle.IR.Type.DimExpr) :
+    concatNorm (fuel + 1) (.sliceDim e d i) = .sliceDim e d i := by
+  rw [concatNorm.eq_def]
+
+theorem cN_index (fuel : Nat) (a i : Expr) :
+    concatNorm (fuel + 1) (.index a i) = .index a i := by
+  rw [concatNorm.eq_def]
+
+theorem cNL_nil (fuel : Nat) : concatNormL fuel [] = [] := by
+  rw [concatNormL.eq_def]
+
+theorem cNL_cons (fuel : Nat) (a : Expr) (rest : List Expr) :
+    concatNormL fuel (a :: rest)
+      = concatNorm fuel a :: concatNormL fuel rest := by
+  rw [concatNormL.eq_def]
+
+theorem cNL_length (fuel : Nat) :
+    ∀ (args : List Expr), (concatNormL fuel args).length = args.length
+  | [] => by rw [cNL_nil]
+  | a :: rest => by
+    rw [cNL_cons]
+    simp [cNL_length fuel rest]
+
+theorem norm2_width_all (we : WEnv) :
+    ∀ (l : List Expr), l.length ≠ 1 →
+      widthOf we (norm2 l) = widthOf we (.concat l)
+  | [], _ => rfl
+  | [a], h => by simp at h
+  | a :: b :: rest, _ => norm2_width we a b rest
+
+theorem norm2_eval_all (we : WEnv) (env : Env) :
+    ∀ (l : List Expr), l.length ≠ 1 →
+      evalExpr we env (norm2 l) = evalExpr we env (.concat l)
+  | [], _ => rfl
+  | [a], h => by simp at h
+  | a :: b :: rest, _ => norm2_eval we env a b rest
+
+theorem norm2_refs :
+    ∀ (l : List Expr), refsOf (norm2 l) = refsOf.refsList l
+  | [] => rfl
+  | [a] => by simp [norm2, refsOf.refsList]
+  | a :: b :: rest => by
+    show refsOf (.concat [a, norm2 (b :: rest)]) = _
+    simp only [refsOf, refsOf.refsList, norm2_refs (b :: rest),
+      List.append_nil]
+
+/-- `concatNorm` preserves widths on singleton-free expressions. -/
+theorem concatNorm_width (we : WEnv) :
+    ∀ fuel e, noSingle e = true →
+      widthOf we (concatNorm fuel e) = widthOf we e := by
+  intro fuel e
+  induction fuel, e using concatNorm.induct
+    (motive_2 := fun fuel args => noSingleL args = true →
+      WidthMatch we args (concatNormL fuel args)) with
+  | case1 e =>
+    intro _
+    rw [cN_zero]
+  | case2 fuel o args ih =>
+    intro hns
+    rw [cN_op]
+    simp only [noSingle] at hns
+    exact widthOf_op_shape we o (ih hns)
+  | case3 fuel args ih =>
+    intro hns
+    rw [cN_concat]
+    simp only [noSingle, Bool.and_eq_true, bne_iff_ne] at hns
+    rw [norm2_width_all we _ (by rw [cNL_length]; exact hns.1)]
+    simp only [widthOf]
+    exact widthOfGo_congr we (ih hns.2)
+  | case4 fuel e hi lo ih =>
+    intro _
+    rw [cN_slice]
+    simp [widthOf]
+  | case5 x e h1 h2 h3 =>
+    intro _
+    cases e with
+    | op o args => exact (h1 o args rfl).elim
+    | concat args => exact (h2 args rfl).elim
+    | slice s a b => exact (h3 s a b rfl).elim
+    | const v w => rw [cN_const]
+    | ref n => rw [cN_ref]
+    | sliceDim i d j => rw [cN_sliceDim]
+    | index a i => rw [cN_index]
+  | case6 fuel hns =>
+    rw [cNL_nil]
+    exact .nil
+  | case7 fuel a rest iha ihrest hns =>
+    simp only [noSingleL, Bool.and_eq_true] at hns
+    rw [cNL_cons]
+    exact .cons (iha hns.1) (ihrest hns.2)
+
+theorem concatNormL_widthMatch (we : WEnv) (fuel : Nat) :
+    ∀ (args : List Expr), noSingleL args = true →
+      WidthMatch we args (concatNormL fuel args)
+  | [], _ => by rw [cNL_nil]; exact .nil
+  | a :: rest, h => by
+    simp only [noSingleL, Bool.and_eq_true] at h
+    rw [cNL_cons]
+    exact .cons (concatNorm_width we fuel a h.1)
+      (concatNormL_widthMatch we fuel rest h.2)
+
+/-- `concatNorm` preserves evaluation on singleton-free expressions. -/
+theorem concatNorm_eval (we : WEnv) (env : Env) :
+    ∀ fuel e, noSingle e = true →
+      evalExpr we env (concatNorm fuel e) = evalExpr we env e := by
+  intro fuel e
+  induction fuel, e using concatNorm.induct
+    (motive_2 := fun fuel args => noSingleL args = true →
+      evalList we env (concatNormL fuel args) = evalList we env args) with
+  | case1 e =>
+    intro _
+    rw [cN_zero]
+  | case2 fuel o args ih =>
+    intro hns
+    rw [cN_op]
+    simp only [noSingle] at hns
+    have hwm := concatNormL_widthMatch we fuel args hns
+    simp only [evalExpr, ih hns, widthOf_op_shape we o hwm]
+    cases evalList we env args with
+    | none => rfl
+    | some vals =>
+      simp only [Option.bind_eq_bind, Option.bind_some]
+      rw [evalOp_congr we hwm o vals _]
+  | case3 fuel args ih =>
+    intro hns
+    rw [cN_concat]
+    simp only [noSingle, Bool.and_eq_true, bne_iff_ne] at hns
+    have hwm := concatNormL_widthMatch we fuel args hns.2
+    rw [norm2_eval_all we env _ (by rw [cNL_length]; exact hns.1)]
+    simp only [evalExpr, ih hns.2]
+    cases evalList we env args with
+    | none => rfl
+    | some vals =>
+      simp only [Option.bind_eq_bind, Option.bind_some,
+        evalGo_congr we hwm vals]
+  | case4 fuel e hi lo ih =>
+    intro hns
+    rw [cN_slice]
+    simp only [noSingle] at hns
+    simp only [evalExpr, ih hns]
+  | case5 x e h1 h2 h3 =>
+    intro _
+    cases e with
+    | op o args => exact (h1 o args rfl).elim
+    | concat args => exact (h2 args rfl).elim
+    | slice s a b => exact (h3 s a b rfl).elim
+    | const v w => rw [cN_const]
+    | ref n => rw [cN_ref]
+    | sliceDim i d j => rw [cN_sliceDim]
+    | index a i => rw [cN_index]
+  | case6 fuel hns =>
+    rw [cNL_nil]
+  | case7 fuel a rest iha ihrest hns =>
+    simp only [noSingleL, Bool.and_eq_true] at hns
+    rw [cNL_cons]
+    simp only [evalList, iha hns.1, ihrest hns.2]
+
+/-- Normalization never introduces a reference. -/
+theorem concatNorm_refs :
+    ∀ fuel e, ∀ n ∈ refsOf (concatNorm fuel e), n ∈ refsOf e := by
+  intro fuel e
+  induction fuel, e using concatNorm.induct
+    (motive_2 := fun fuel args =>
+      ∀ n ∈ refsOf.refsList (concatNormL fuel args),
+        n ∈ refsOf.refsList args) with
+  | case1 e =>
+    rw [cN_zero]
+    exact fun n hn => hn
+  | case2 fuel o args ih =>
+    rw [cN_op]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    exact ih n hn
+  | case3 fuel args ih =>
+    rw [cN_concat]
+    intro n hn
+    rw [norm2_refs] at hn
+    simp only [refsOf]
+    exact ih n hn
+  | case4 fuel e hi lo ih =>
+    rw [cN_slice]
+    intro n hn
+    simp only [refsOf] at hn ⊢
+    exact ih n hn
+  | case5 x e h1 h2 h3 =>
+    cases e with
+    | op o args => exact (h1 o args rfl).elim
+    | concat args => exact (h2 args rfl).elim
+    | slice s a b => exact (h3 s a b rfl).elim
+    | const v w => rw [cN_const]; exact fun n hn => hn
+    | ref nn => rw [cN_ref]; exact fun n hn => hn
+    | sliceDim i d j => rw [cN_sliceDim]; exact fun n hn => hn
+    | index a i => rw [cN_index]; exact fun n hn => hn
+  | case6 fuel n hn =>
+    rw [cNL_nil] at hn
+    exact hn
+  | case7 fuel a rest iha ihrest n hn =>
+    rw [cNL_cons] at hn
+    simp only [refsOf.refsList, List.mem_append] at hn ⊢
+    rcases hn with hn | hn
+    · exact Or.inl (iha n hn)
+    · exact Or.inr (ihrest n hn)
+
+end ConcatNormBridge
+
 /- ---- the cycle-level iteration ---- -/
 
 /-- Upward-counting register-state iteration of the module step
