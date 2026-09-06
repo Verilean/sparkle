@@ -13,10 +13,15 @@ group is rough priority.  Update as items land.
   `signal_runModule` / `signal_sv` (Signal ≡ runModule ≡ runModuleSV).
 - [x] Deep-side G1 glue (`{f}_deep_coneEval_*`): the general-theorem
   route's `Cdo.irState` cone terms land on the bridge language.
-- [ ] **Replay the bridge stack over `Cdo.irState`** — deep analogues
-  of regstep/state_trace/signal_runModule/signal_sv, using G1 +
-  `irState_eq`-based boundedness (`irState = stateAt.toNat < 2^w` is
-  free).  This finishes the deep route's end-to-end chain.
+- [~] **Replay the bridge stack over `Cdo.irState`** — deep analogues
+  of regstep/state_trace/signal_runModule/signal_sv.  DONE so far:
+  `{f}_deep_signalM` lands the Signal value on the seam's language
+  (`evalExpr weM (envOfC (natJoin (irState t) inp)) outCone`) via the
+  G1_out glue; `envOfC_natJoin_reg` (the seed reader) proven in
+  scratch.  REMAINING: identify `envOfC (natJoin (irState t) inp)`
+  with a stepModule seed (register names ← irState, input names ←
+  inp), then replay regstep/state_trace/signal_run over the deep
+  body.  `irState = stateAt.toNat < 2^w` gives boundedness free.
 - [x] **`evalOk` — absolute fold-success.**  `evalExpr` fails only on
   shape, so a decidable `evalOk` checker + soundness discharges fold
   success unconditionally; `{f}_signal_run` is the resulting
