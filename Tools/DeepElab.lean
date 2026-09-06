@@ -1417,6 +1417,25 @@ elab "#verify_elab_deep" id:ident : command => do
       logInfo m!"#verify_elab_deep {declName}.{portName}: defs only (SPARKLE_DEEP_NOTHM)"
       continue
     elabCommand thmCmd
+    -- DEEP-BRIDGE (first landing): rewrite the capstone's RHS through
+    -- the G1_out glue so the Signal value is stated as
+    -- `evalExpr weM (envOfC …) outCone` — the ConeFold bridge's
+    -- language (full width-table env, resolved cone constant), the
+    -- same object #verify_elab's chain consumes.  The env is still the
+    -- deep `envOfC (natJoin (irState t) inp)`; matching it to a
+    -- stepModule seed and replaying regstep/state_trace is the next
+    -- deep step.
+    let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
+    let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
+    let sigMId := mkI s!"{base}{suffix}_deep_signalM"
+    elabCommand (← `(theorem $sigMId $paramBinders* (t : Nat) :
+        (($lhsSig).val t).toNat
+        = (Sparkle.IR.Semantics.evalExpr $weMId
+            (envOfC $nmId (natJoin
+              (Cdo.irState $deepId $nmId (fun t j => (($inpS) j).val t) t)
+              (fun j => ((($inpS) j).val t).toNat)))
+            $outConeId).getD 0 := by
+      rw [$thId $appArgs* t, $g1OutId _]))
     -- audit the capstone AND every fidelity theorem: elabCommand
     -- recovers failed tactic blocks as sorry, and a sorry'd fidelity
     -- proof would silently demote the result to the unverified twin
