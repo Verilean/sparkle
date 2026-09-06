@@ -256,6 +256,23 @@ which side is wrong before writing the story down.
    `3'h7` — all-ones — hiding the value error behind a width
    disagreement that read like a proof limitation (Test 76).
 
+14. The elaborator materializes an HList `Unit`/`PUnit` loop-state
+   terminator as a zero-width wire (`_tmp_b = const 0 0`) and packs it
+   into the loop-state concat.  In the IR that is inert — a width-0
+   element contributes no bits, and CSim agrees — but SystemVerilog has
+   no zero-width nets: the backend declared it `logic [0:0]` and emitted
+   it as a REAL bit, so the pack concat was one bit too wide and the
+   implicit assignment truncation shifted every register left each
+   cycle.  An 8-bit `circuit do` counter counted 2, 6, 14, 30, 62 under
+   iverilog.  EVERY `circuit do` design's emitted Verilog was affected;
+   the IR/CSim paths were always correct, so no simulation-vs-IR test
+   saw it — it surfaced only when the M4 fragment checker flagged the
+   `const 0 0` shape as outside the SystemVerilog subset and the "why
+   can't a zero-width net exist" question was pressed.  Fixed by a total
+   IR pass (`Sparkle/IR/ZeroWidth.lean`) at the end of synthesis that
+   drops width-0 concat elements, assigns, and wire decls; it skips
+   symbolic-width modules (`bitWidth` panics on `W+1`).
+
 Bugs 2/4/7 share a blind spot: the co-sim gate only exercises the FIRST
 emission, never the second parse; only the IR metric (and now the
 roundtrip checks) see reparse fidelity.  Bug 8 is a different blind
@@ -266,8 +283,9 @@ executables to surface it.  Bugs 9–13 sharpen the pattern: 9 and 12
 are width-bookkeeping errors whose VALUES were right on every shape
 any executable ever ran, and 10 and 11 are miscompiles of shapes the
 corpus simply lacks.  (#13 combines both: a value error on shapes the corpus lacks, hidden
-on the shapes it has by an all-ones prefix.)  None of the five is
-reachable by testing the implementation against itself; each fell out
+on the shapes it has by an all-ones prefix.)  #14 is a further case: correct in the IR and CSim, wrong only in the
+emitted TEXT, so invisible to every simulation-vs-IR check.  None of
+these is reachable by testing the implementation against itself; each fell out
 of trying to prove a statement and refusing to accept "the proof
 doesn't cover this" until it was established WHICH side was wrong.
 
@@ -276,6 +294,47 @@ Two IR width rules were also corrected, in `widthOf` and its CSim twin
 amount's width used to leak in through the generic max, so
 `_GEN >> (idx * 32'd4)` measured 32 bits), which moved the forward
 census from 1008 to 1025 expressions and 41 to 44 traces.
+
+## Composition — Signal ≡ emitted-SystemVerilog semantics
+
+The two arcs above are stated over different objects (Arc 1 over
+`evalExpr` of inlined cones, Arc 2 over `stepModule`/`runModule`
+folds).  `Tools/ConeFold.lean` + `Tools/ConeFoldSlices.lean`
+(sorry-free) close that seam, and the `#verify_elab` generator now
+composes the whole chain per circuit.
+
+* **The seam** (`cone_agrees_with_fold`,
+  `cone_resolved_agrees_with_fold`): total twins `inlineConeT` /
+  `resolveSlicesT` of the shipping cone passes, `#guard`-tied to them,
+  with width- and eval-preservation proofs.  On a well-ordered,
+  memory-free, self-loop-free body with the assignment-width discipline
+  (literally `BFrag.assign`'s condition — where the two arcs' hypotheses
+  meet), a fully inlined, slice-resolved cone evaluates in the fold's
+  environment to the original.  The goal generators call the twins, so
+  the spliced cones ARE the theorems' functions.
+* **Per-circuit corollaries**, hypotheses discharged by `native_decide`
+  on the emitted body constant: `regstep` (`regNexts` = the recurrence's
+  next state — the mask killed by the generated `irTrace_bound`, the
+  reset wire read 0 because the fold never writes it), `state_trace`
+  (the `stepModule` iteration's register state IS `irTrace`),
+  `signal_runModule` and its unconditional form `signal_run` (Signal
+  value = the `runModule` trace's output wire, every cycle — the run
+  success discharged internally via `evalOk`), and `signal_sv` (the
+  same against `runModuleSV`, the M4 subset semantics of the certified
+  twin emission).  So per circuit, one kernel-checked chain:
+  Signal ≡ IR ≡ stepModule ≡ runModule ≡ emitted-Verilog
+  semantics.
+* **`evalOk`** (`Tools/ConeFoldSlices.lean`): a decidable checker
+  certifying that a memory-free body whose assignment RHSs are all in
+  the total fragment folds to `some` for ANY seed — `evalExpr` fails
+  only on shape, never on the environment (the reorder work's gift), so
+  the fold-success hypotheses become `native_decide` obligations rather
+  than caller-supplied.
+* **Deep-side glue** (`{f}_deep_coneEval_*`): the general-theorem
+  route's `Cdo.irState` cone terms rewrite to `evalExpr weM (resolved
+  cone)`, the seam's language, via fidelity ∘ `concatNorm_eval` ∘ a
+  width-environment congruence; holds on `crc32Engine`.  Replaying the
+  full bridge stack over `Cdo.irState` is the remaining deep step.
 
 ## Compile cost
 
@@ -297,4 +356,13 @@ the oleans at no cost.
   classical hard next step, and the last piece between the current
   state and an end-to-end statement about TEXT rather than ASTs.
 * Swapping the twins in as the shipping emitter/lowerer, which would
-  collapse the twin↔shipping half of the trusted base.
+  collapse the twin↔shipping half of the trusted base.  (The cone
+  passes are already the twins on the `#verify_elab` path; the file-
+  level gap with the shipping emitter now reduces exactly to optimizer
+  preservation — every elaborator module classifies `.optRewritten`,
+  none `.bad`.)
+* Replaying the `regstep`/`state_trace`/`signal_run`/`signal_sv` stack
+  over `Cdo.irState` for the general-theorem (deep) route — the G1
+  glue lands its cone terms on the seam's language already.
+
+See `docs/CertifiedRoundtrip-TODO.md` for the tracked open-work list.

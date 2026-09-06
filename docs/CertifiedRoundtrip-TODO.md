@@ -17,11 +17,11 @@ group is rough priority.  Update as items land.
   of regstep/state_trace/signal_runModule/signal_sv, using G1 +
   `irState_eq`-based boundedness (`irState = stateAt.toNat < 2^w` is
   free).  This finishes the deep route's end-to-end chain.
-- [ ] **`evalOk` — absolute fold-success.**  `hrun`/`hSV`/`hstep` are
-  hypotheses today; `evalExpr` fails only on shape (sliceDim / index /
-  arity), so a decidable `evalOk` checker + soundness discharges fold
-  success unconditionally.  Removes the last hypotheses from the
-  per-instance corollaries.
+- [x] **`evalOk` — absolute fold-success.**  `evalExpr` fails only on
+  shape, so a decidable `evalOk` checker + soundness discharges fold
+  success unconditionally; `{f}_signal_run` is the resulting
+  hypothesis-free corollary.  (Deep-side / `signal_sv` still take a
+  run hypothesis — wiring those is follow-up.)
 
 ## B. IR → Verilog remainders
 
@@ -66,13 +66,11 @@ group is rough priority.  Update as items land.
 - [x] CI green (Build: umbrella imports + `sparkleModuleDeps` +
   SVParser hard-link args; zero-width symbolic-width guard).
 - [x] PR #134 body refreshed (seam / composition / bug #14).
-- [ ] `docs/CertifiedRoundtrip-design.md` — add the seam / composition
-  / bug #14 sections; the bug numbering there and in older session
-  notes drifted (an earlier "bugs 9–12" batch overlaps a separately
-  numbered "#9 zero-width"; the canonical list is the PR table, now 14).
-- [ ] Zero-width pin test (`Tests/…`): assert emitted Verilog carries
-  no `logic [0:0]` pack remnant and an 8-bit counter counts 1..N —
-  belt-and-suspenders beyond the M4 checker + iverilog spot check.
+- [x] `docs/CertifiedRoundtrip-design.md` — seam / composition / bug
+  #14 sections added; bug numbering aligned to the PR table (14).
+- [x] Zero-width pin test — a compile-time `run_cmd` in VerifyElabDemo
+  asserts no `logic [0:0]` remnant (the exe path hits the circuit-do
+  inline-synth gap, so the pin lives in the `lake env lean` file).
 - [ ] Untracked scratch files at repo root (`episode.json`,
   `multiDeck.json`, `schedule`, resubmission draft) — decide keep vs
   gitignore vs remove.
