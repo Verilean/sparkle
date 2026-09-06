@@ -52,6 +52,8 @@ extern_lib «sparkle_jit» pkg := do
 -- A missing entry shows up as an undefined-symbol load error naming the module.
 def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Backend_CSim.so",
+    "-l:sparkle_Sparkle_Backend_CudaIntra.so",
+    "-l:sparkle_Sparkle_Backend_CudaSim.so",
     "-l:sparkle_Sparkle_Backend_VCD.so",
     "-l:sparkle_Sparkle_Backend_Verilog.so",
     "-l:sparkle_Sparkle_Compiler_DRC.so",
@@ -85,7 +87,11 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_IR_AST.so",
     "-l:sparkle_Sparkle_IR_Builder.so",
     "-l:sparkle_Sparkle_IR_Optimize.so",
+    "-l:sparkle_Sparkle_IR_ReorderInvariance.so",
+    "-l:sparkle_Sparkle_IR_Semantics.so",
+    "-l:sparkle_Sparkle_IR_Specialize.so",
     "-l:sparkle_Sparkle_IR_Type.so",
+    "-l:sparkle_Sparkle_IR_ZeroWidth.so",
     "-l:sparkle_Sparkle.so",
     "-l:sparkle_Sparkle_Utils_HexLoader.so",
     "-l:sparkle_Sparkle_Verification_Equivalence.so",
@@ -104,6 +110,28 @@ def sparkleModuleDeps : Array String := #[
 -- below: on macOS/Windows fall back to Lake's default linking (empty extra
 -- args), which is also all the IP libs need there since the editor force-load
 -- path that triggers the bug is the Linux interpreter/LSP.
+-- SVParser's `:shared` dynlib is linked by a HARD `cc`/`ld` step
+-- (a native dep of `verilog!` consumers like CounterProps), unlike the
+-- IP libs whose monolithic is only ever `--load-dynlib`-ed by the
+-- interpreter.  A hard link cannot tolerate `-l:` naming a file Lake
+-- never produces, so this variant (a) drops the two phantom entries
+-- from `sparkleModuleDeps` — `sparkle_Sparkle.so` (the root is only
+-- ever the aggregate `libsparkle_Sparkle.so`) and
+-- `..._Verification_LoopProps.so` (not built by default) — and (b)
+-- links the aggregate by name for the root module's initializer
+-- symbols.
+def sparkleSVParserLinkArgs : Array String :=
+  if System.Platform.isOSX || System.Platform.isWindows then
+    #[]
+  else
+    #["-L", "./.lake/build/lib/lean", "-L", "./.lake/build/lib",
+      "-Wl,--no-as-needed"]
+      ++ (sparkleModuleDeps.filter fun a =>
+           a != "-l:sparkle_Sparkle.so"
+           && a != "-l:sparkle_Sparkle_Verification_LoopProps.so")
+      ++ #["-l:libsparkle_Sparkle.so",
+           "-Wl,--as-needed", "-Wl,-rpath,$ORIGIN/lean", "-Wl,-rpath,$ORIGIN"]
+
 def sparkleDynlibLinkArgs : Array String :=
   if System.Platform.isOSX || System.Platform.isWindows then
     #[]
@@ -247,6 +275,39 @@ lean_lib «IP.Control» where
 
 lean_lib «Tools.SVParser» where
   roots := #[`Tools.SVParser]
+  -- The `«Tools.SVParser»:shared` dynlib is a required native dep of
+  -- consumers whose `verilog!` macro imports Tools.SVParser.Macro
+  -- (e.g. Sparkle.Verification.CounterProps).  Since this branch's
+  -- umbrella pulls in RoundtripProof→EmitSem, that .so's object code
+  -- references Sparkle.IR.{Optimize,Semantics,…} symbols, which must
+  -- be recorded NEEDED against the per-module Sparkle dynlibs — same
+  -- as the IP libs.  (Kept minimal: RoundtripProof was ALSO removed
+  -- from the Tools.SVParser umbrella, but Lower→Optimize alone still
+  -- pulls Optimize specializations, so the link args are required.)
+  -- Uses the SVParser-specific variant that survives a HARD link
+  -- (the IP libs' args name two files Lake never builds, tolerated
+  -- only by the interpreter's soft load).
+  moreLinkArgs := sparkleSVParserLinkArgs
+
+-- `#verify_elab` — the Signal↔IR link (see Tools/VerifyElab.lean)
+lean_lib «Tools.VerifyElab» where
+  roots := #[`Tools.VerifyElab]
+
+-- The GENERAL Signal↔IR theorem over the deep circuit grammar
+lean_lib «Tools.ConcatNorm» where
+  roots := #[`Tools.ConcatNorm]
+
+lean_lib «Tools.ConeFold» where
+  roots := #[`Tools.ConeFold]
+
+lean_lib «Tools.ConeFoldSlices» where
+  roots := #[`Tools.ConeFoldSlices]
+
+lean_lib «Tools.ConeFoldProbes» where
+  roots := #[`Tools.ConeFoldProbes]
+
+lean_lib «Tools.DeepElab» where
+  roots := #[`Tools.DeepElab]
 
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
@@ -349,6 +410,13 @@ lean_exe «smt-bmc-test» where
 -- of .sv files, cataloguing failure classes (bench/xiangshan/README.md).
 lean_exe «sv-roundtrip» where
   root := `Tests.Drivers.SvRoundtripMain
+  supportInterpreter := true
+
+-- Certified-trace census at production scale: which fraction of a
+-- corpus do the M4 theorems actually cover (same decidable checkers
+-- the capstones consume).
+lean_exe «sv-cert-census» where
+  root := `Tests.Drivers.SvCertCensusMain
   supportInterpreter := true
 
 -- Phase-2 three-way co-sim: iverilog(original)=golden vs iverilog(roundtrip)

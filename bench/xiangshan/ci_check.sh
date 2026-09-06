@@ -196,5 +196,82 @@ if [ -f "$DSL_FILE" ]; then
   echo "dsl-printable on the CI corpus: ${printable:-0}"
 fi
 
+# == phase 5: the Signal↔IR link (#verify_elab) ======================
+# Generates and kernel-checks, per demo circuit, that the elaborated
+# IR's register/output trace under the PROVEN evalExpr equals the
+# circuit's own Signal semantics.  The command aborts itself if any
+# generated proof smuggles in sorryAx, so grepping PROVEN is sound.
+ELAB_FILE=Tests/Verification/VerifyElabDemo.lean
+if [ -f "$ELAB_FILE" ]; then
+  echo "== phase 5: Signal ↔ IR (#verify_elab)"
+  lake build Sparkle Tools.VerifyElab > "$WORK/velab_build.log" 2>&1 || {
+    echo "FAIL: could not build the verify-elab import closure"
+    tail -5 "$WORK/velab_build.log" | sed 's/^/    /'
+    fail=1
+  }
+  if lake env lean "$ELAB_FILE" > "$WORK/verify_elab.log" 2>&1; then
+    vproven=$(grep -c 'PROVEN' "$WORK/verify_elab.log")
+    echo "verify-elab: $vproven circuits proven (axioms audited)"
+    if [ "$vproven" -lt 7 ]; then
+      echo "FAIL: verify-elab proved $vproven < 7 demo circuits"; fail=1
+    fi
+  else
+    echo "FAIL: #verify_elab demo did not close"
+    grep -m3 -E "error" "$WORK/verify_elab.log" | sed 's/^/    /'
+    fail=1
+  fi
+  # the GENERAL-theorem route: same circuits reified into the deep
+  # grammar, certified through Cdo.elab_general
+  DEEP_FILE=Tests/Verification/DeepElabReifyDemo.lean
+  if [ -f "$DEEP_FILE" ]; then
+    lake build Tools.DeepElab > "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the deep-elab import closure"; fail=1; }
+    if lake env lean "$DEEP_FILE" > "$WORK/deep_elab.log" 2>&1; then
+      dproven=$(grep -c 'PROVEN' "$WORK/deep_elab.log")
+      echo "deep-elab (general theorem): $dproven circuits proven"
+      if [ "$dproven" -lt 13 ]; then
+        echo "FAIL: deep-elab proved $dproven < 13 demo circuits"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep demo did not close"
+      grep -m3 -E "error" "$WORK/deep_elab.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # the general theorem on REAL shipping IP (crc32Engine, …)
+  REAL_FILE=Tests/Verification/DeepElabRealIP.lean
+  if [ -f "$REAL_FILE" ]; then
+    lake build IP.Net.CRC32 >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the real-IP import closure"; fail=1; }
+    if lake env lean "$REAL_FILE" > "$WORK/deep_real.log" 2>&1; then
+      rproven=$(grep -c 'PROVEN' "$WORK/deep_real.log")
+      echo "deep-elab (real IP): $rproven circuits proven"
+      if [ "$rproven" -lt 1 ]; then
+        echo "FAIL: deep-elab real-IP proved $rproven < 1 circuits"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep real-IP did not close"
+      grep -m3 -E "error" "$WORK/deep_real.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # the SEAM bridge: per-instance composition of the generated
+  # recurrence with the module-level fold semantics (ConeFold capstone
+  # instantiated on cnt8; checker hypotheses by native_decide)
+  BRIDGE_FILE=Tests/Verification/ConeBridgeDemo.lean
+  if [ -f "$BRIDGE_FILE" ]; then
+    lake build Tools.ConeFoldSlices Tests.Verification.VerifyElabDemo \
+        >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the cone-bridge import closure"; fail=1; }
+    if lake env lean "$BRIDGE_FILE" > "$WORK/cone_bridge.log" 2>&1; then
+      echo "cone-bridge (seam per-instance): cnt8 step agreement proven"
+    else
+      echo "FAIL: cone-bridge demo did not close"
+      grep -m3 -E "error" "$WORK/cone_bridge.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+fi
+
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi
 echo "== XiangShan gate: OK (roundtrip ${wall}s, equiv $equiv_ok proven/$equiv_skip skipped)"

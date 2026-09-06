@@ -9,6 +9,8 @@
 import Tools.SVParser
 import Sparkle.Backend.Verilog
 import Sparkle.Backend.CSim
+import Tools.SVParser.EmitAst
+import Tools.SVParser.RoundtripProof
 import Sparkle.Core.JIT
 
 open Tools.SVParser.AST
@@ -24,6 +26,9 @@ open Sparkle.Core.JIT
 -- tests.  Bumping the budget keeps the whole file building without
 -- splitting tests into many `lean_exe` drivers.
 set_option maxRecDepth 1024
+-- The compiler pass over the (very long) `main` needs a larger
+-- heartbeat budget as well.
+set_option maxHeartbeats 800000
 
 def containsSubstr (s sub : String) : Bool :=
   (s.splitOn sub).length > 1
@@ -2493,6 +2498,583 @@ endmodule
       IO.println s!"FAIL: {r} (want [1]; 0 = the amount was read as a pointer)"
       failed := failed + 1
   catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 64 (certified-roundtrip M0): `emitAstExpr` is the shipping
+  -- emitter, at the AST level — validated by PARSE-equality over every
+  -- expression of the real XiangShan CI corpus.  For each parsed+lowered
+  -- module, every assign RHS and register input must satisfy
+  --   parse (Verilog.emitExpr widthOf e) = emitAstExpr widthOf e.
+  -- Skips gracefully when the corpus is absent (it is downloaded in CI).
+  IO.print "  Test 64: emitAst{Expr,Module} ≡ shipping emitter on the CI corpus... "
+  try
+    let corpusDir := "bench/xiangshan/corpus"
+    if ← System.FilePath.pathExists corpusDir then
+      let mut exprs := 0
+      let mut bad := 0
+      let mut firstBad := ""
+      let entries ← System.FilePath.readDir corpusDir
+      for ent in entries do
+        if ent.fileName.endsWith ".sv" then
+          let src ← IO.FS.readFile ent.path
+          match parseAndLowerHierarchical src with
+          | .error _ => pure ()
+          | .ok design =>
+            for m in design.modules do
+              -- the widthOf the shipping emitStmt builds: wires by
+              -- SANITIZED name
+              let wof : String → Option Nat := fun n =>
+                ((m.wires ++ m.inputs ++ m.outputs).find? (fun p =>
+                  Sparkle.Backend.Verilog.sanitizeName p.name == n)).bind
+                  fun p => match p.ty with
+                    | .bitVector w => some w
+                    | .bit => some 1
+                    | _ => none
+              let es : List Sparkle.IR.AST.Expr := m.body.foldl (fun acc st =>
+                match st with
+                | .assign _ rhs => rhs :: acc
+                | .register _ _ _ input _ => input :: acc
+                | _ => acc) []
+              for e in es do
+                exprs := exprs + 1
+                let rendered := Sparkle.Backend.Verilog.emitExpr wof e
+                match Tools.SVParser.EmitAst.parseExprString rendered with
+                | .ok sv =>
+                  if Tools.SVParser.EmitAst.emitAstExpr wof e != some sv then
+                    bad := bad + 1
+                    if firstBad == "" then
+                      firstBad := s!"{ent.fileName}/{m.name}: {rendered.take 80}"
+                | .error err =>
+                  bad := bad + 1
+                  if firstBad == "" then
+                    firstBad := s!"{ent.fileName}/{m.name} (parse: {err.take 40}): {rendered.take 60}"
+              -- module level: whole-module parse-equality
+              exprs := exprs + 1
+              match Tools.SVParser.Parser.parseModuleFromString
+                  (Sparkle.Backend.Verilog.emitModule m) with
+              | .ok sv =>
+                if Tools.SVParser.EmitAst.emitAstModule m != some sv then
+                  bad := bad + 1
+                  if firstBad == "" then
+                    firstBad := s!"MODULE {ent.fileName}/{m.name}"
+              | .error err =>
+                bad := bad + 1
+                if firstBad == "" then
+                  firstBad := s!"MODULE {ent.fileName}/{m.name} (parse: {err.take 60})"
+      if bad == 0 && exprs > 0 then
+        IO.println s!"PASS ({exprs} expressions)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: {bad}/{exprs} disagree; first: {firstBad}"
+        failed := failed + 1
+    else
+      IO.println "SKIP (corpus not present)"
+      passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 65 (certified-roundtrip M1): a REGISTER survives re-parsing
+  -- Sparkle's own emission.  `logic r = 8'h3;` is a register
+  -- INITIALIZER when r is procedurally assigned in an always block; the
+  -- lowering used to also emit `assign r = 3`, the register-vs-assign
+  -- dedup kept the constant assign, and the register folded away —
+  -- q became `assign q = 3'd3` and the feedback loop vanished.
+  IO.print "  Test 65: registers survive self-reparse... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "selfrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 8⟩]
+      outputs := [⟨"q", .bitVector 8⟩]
+      wires := [⟨"w", .bitVector 8⟩, ⟨"r", .bitVector 8⟩, ⟨"q", .bitVector 8⟩]
+      body := [
+        .assign "w" (.op .add [.ref "a", .ref "r"]),
+        .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3,
+        .assign "q" (.ref "r")]
+      assertions := [] }
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let regs := d.modules.foldl (fun acc lm =>
+        acc + (lm.body.filter fun st => match st with
+          | .register out _ _ _ _ => out == "r" | _ => false).length) 0
+      if regs == 1 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: register count {regs} (folded to a constant?)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 66 (certified-roundtrip): a SYNC-READ memory survives
+  -- re-parsing Sparkle's own emission as exactly the original stmt.
+  -- `rdata <= Mem[ra]` used to be claimed as the memory's sync read
+  -- AND lowered as a scalar register whose input was a garbage
+  -- bit-select of the ARRAY (`(Mem >> ra) & 1`) — a duplicate driver.
+  IO.print "  Test 66: sync-read memory survives self-reparse... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "syncrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩, ⟨"wd", .bitVector 8⟩,
+                 ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩]
+      outputs := [⟨"rdata", .bitVector 8⟩]
+      wires := [⟨"rdata", .bitVector 8⟩]
+      body := [
+        .memory "Mem" 2 8 "clock" (.ref "wa") (.ref "wd") (.ref "wen")
+          (.ref "ra") "rdata" false [] []]
+      assertions := [] }
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let bodies := d.modules.foldl (fun acc lm => acc ++ lm.body) []
+      if bodies == m.body then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: lowered body ≠ original ({bodies.length} stmts)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 67 (certified-roundtrip): emit∘parse is an IR FIXPOINT after
+  -- one trip — parse(emit(parse(emit(m)))) equals parse(emit(m)) as a
+  -- statement multiset.  Pins the three amplifier fixes (cast-of-
+  -- literal, cast-encode re-wrapping, redundant reset mux): each used
+  -- to grow the body by one wrapper per generation.
+  IO.print "  Test 67: emit∘parse reaches an IR fixpoint... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "fixrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"rst", .bit⟩, ⟨"a", .bitVector 8⟩]
+      outputs := [⟨"q", .bitVector 8⟩]
+      wires := [⟨"w", .bitVector 8⟩, ⟨"r", .bitVector 8⟩, ⟨"q", .bitVector 8⟩]
+      body := [
+        .assign "w" (.op .not [.op .add [.ref "a", .ref "r"]]),
+        .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3,
+        .assign "q" (.ref "r")]
+      assertions := [] }
+    let reparse (mm : Sparkle.IR.AST.Module) :
+        Except String Sparkle.IR.AST.Module := do
+      let d ← parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule mm)
+      match d.modules with
+      | [one] => pure one
+      | _ => throw "expected one module"
+    -- one trip normalizes value representations (e.g. const -1/32 →
+    -- its two's-complement Nat); the FIXPOINT claim is gen2 == gen3
+    match do { let g1 ← reparse m; let g2 ← reparse g1;
+               let g3 ← reparse g2; pure (g2, g3) } with
+    | .error e => IO.println s!"FAIL: {e}"; failed := failed + 1
+    | .ok (g2, g3) =>
+      let key := fun (st : Sparkle.IR.AST.Stmt) => s!"{repr st}"
+      let s2 := (g2.body.map key).mergeSort (· ≤ ·)
+      let s3 := (g3.body.map key).mergeSort (· ≤ ·)
+      if s2 == s3 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: gen2 {g2.body.length} stmts ≠ gen3 {g3.body.length} stmts (or shapes drifted)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 68 (certified-roundtrip, module boundary): on every corpus
+  -- module inside the v1 reorder fragment, the SHIPPING pipeline's
+  -- output on the module's own emission is a WELL-ORDERED PERMUTATION
+  -- of the statement-wise twin image (bodyReorderCheck) — exactly the
+  -- checkable hypotheses of `body_trace_roundtrip`, so the full-
+  -- pipeline trace theorem applies to each passing module.
+  IO.print "  Test 68: shipping output ≡ well-ordered permutation of the image... "
+  try
+    let corpusDir := "bench/xiangshan/corpus"
+    if ← System.FilePath.pathExists corpusDir then
+      let mut ok := 0
+      let mut certified := 0
+      let mut outFrag := 0
+      let mut optRw := 0
+      let mut bad := 0
+      let mut firstBad := ""
+      let entries ← System.FilePath.readDir corpusDir
+      for ent in entries do
+        if ent.fileName.endsWith ".sv" then
+          let src ← IO.FS.readFile ent.path
+          match parseAndLowerHierarchical src with
+          | .error _ => pure ()
+          | .ok design =>
+            for m in design.modules do
+              match Tools.SVParser.RoundtripProof.bodyTraceCheck m with
+              | .outside => outFrag := outFrag + 1
+              | .ok =>
+                ok := ok + 1
+                -- census: also fully inside the PROVEN semantic
+                -- fragment (BFrag), i.e. body_trace_roundtrip applies
+                -- end to end
+                if Tools.SVParser.RoundtripProof.semFragCheck m then
+                  certified := certified + 1
+              | .optRewritten => optRw := optRw + 1
+              | .bad =>
+                bad := bad + 1
+                if firstBad == "" then
+                  firstBad := s!"{ent.fileName}/{m.name}"
+      if bad == 0 && ok > 0 then
+        IO.println s!"PASS ({ok} theorem-checked / {certified} fully in the semantic fragment, {optRw} behind the optimizer, {outFrag} outside)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: {bad} modules failed (first: {firstBad}); ok={ok} optRw={optRw} outFrag={outFrag}"
+        failed := failed + 1
+    else
+      IO.println "SKIP (corpus not present)"
+      passed := passed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 69 (certified-roundtrip): an OVER-wide slice keeps its
+  -- zero-extension.  `{2'd1, w[7:0], 2'd3}` with 4-bit w used to emit
+  -- as `{2'd1, w, 2'd3}` — the elided slice shrank from 8 to 4 bits
+  -- and every element above it shifted (silent miscompile of the
+  -- FIRST emission, not just the roundtrip).
+  IO.print "  Test 69: over-wide slice keeps its zero-extension... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "ow"
+      inputs := [⟨"w", .bitVector 4⟩]
+      outputs := [⟨"q", .bitVector 12⟩]
+      wires := [⟨"q", .bitVector 12⟩]
+      body := [.assign "q"
+        (.concat [.const 1 2, .slice (.ref "w") 7 0, .const 3 2])]
+      assertions := [] }
+    let origRhs : Sparkle.IR.AST.Expr :=
+      .concat [.const 1 2, .slice (.ref "w") 7 0, .const 3 2]
+    let we : Sparkle.IR.Semantics.WEnv := fun n => if n == "w" then 4 else 12
+    let env : Sparkle.IR.Semantics.Env := fun n => if n == "w" then 5 else 0
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let vOrig := Sparkle.IR.Semantics.evalExpr we env origRhs
+      let mut vRep : Option Nat := none
+      for lm in d.modules do
+        for st in lm.body do
+          match st with
+          | .assign "q" rhs => vRep := Sparkle.IR.Semantics.evalExpr we env rhs
+          | _ => pure ()
+      if vOrig == some 1047 && vRep == some 1047 then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println s!"FAIL: orig={repr vOrig} reparsed={repr vRep} (expected 1047)"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 70 (certified-roundtrip): byte-strobe RMW write data keeps
+  -- its array reads on self-reparse.  `Memory[addr] & ~mask | data`
+  -- used to lower as a BIT-SELECT of the array on the second parse
+  -- ("Memory" misses the isArrayName heuristic); the regDecl scan now
+  -- extracts reads of its OWN array before lowering.
+  IO.print "  Test 70: RMW write data keeps its array reads... "
+  try
+    let m : Sparkle.IR.AST.Module := {
+      name := "rmwrt"
+      inputs := [⟨"clock", .bit⟩, ⟨"wa", .bitVector 2⟩,
+                 ⟨"wd", .bitVector 8⟩, ⟨"wm", .bitVector 8⟩,
+                 ⟨"wen", .bit⟩, ⟨"ra", .bitVector 2⟩]
+      outputs := [⟨"rdata", .bitVector 8⟩]
+      wires := [⟨"rdata", .bitVector 8⟩]
+      body := [
+        .memory "Memory" 2 8 "clock" (.ref "wa")
+          (.op .or [
+            .op .and [.index (.ref "Memory") (.ref "wa"),
+              .op .xor [.ref "wm", .const (-1) 8]],
+            .op .and [.ref "wd", .ref "wm"]])
+          (.ref "wen") (.ref "ra") "rdata" true [] []]
+      assertions := [] }
+    match parseAndLowerHierarchical (Sparkle.Backend.Verilog.emitModule m) with
+    | .error e => IO.println s!"FAIL: reparse error {e}"; failed := failed + 1
+    | .ok d =>
+      let hasIdx : Sparkle.IR.AST.Expr → Bool := fun e =>
+        -- shallow scan is enough: the RMW read sits under and/or ops
+        let isRead : Sparkle.IR.AST.Expr → Bool := fun x =>
+          match x with
+          | .index (.ref a) _ => a == "Memory"
+          | _ => false
+        match e with
+        | .op _ args => args.any fun x =>
+            isRead x || (match x with
+              | .op _ args2 => args2.any isRead
+              | _ => false)
+        | _ => isRead e
+      let mut ok := false
+      for lm in d.modules do
+        for st in lm.body do
+          match st with
+          | .memory _ _ _ _ _ wd _ _ _ _ _ _ =>
+            if hasIdx wd then ok := true
+          | _ => pure ()
+      if ok then
+        IO.println "PASS"; passed := passed + 1
+      else
+        IO.println "FAIL: array read lost from the write data"
+        failed := failed + 1
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 71 (certified-roundtrip / CSim bug #8): operand-exact masking.
+  -- CSim's store-mask invariant only covers `.ref` reads; an unmasked
+  -- intermediate keeps its carry in the C scalar, so width-sensitive
+  -- CONSUMERS saw wrong values: `((x+y)==4'h0)` compared 16 not 0,
+  -- `(x+y) ? a : b` took the wrong arm, `(x+y)>>1` shifted the phantom
+  -- carry down into live bits.  Expectations pinned by iverilog
+  -- (x=15, y=1, z=0): q=16 p=1 m=7 s=0.  q documents that CSim and
+  -- Verilog AGREE on mixed-width bare arithmetic (both keep the inner
+  -- carry at context width) — the formal IR semantics masks per node
+  -- and gives 0 there, which is the parser-side open item, not CSim's.
+  IO.print "  Test 71: CSim masks width-sensitive operands... "
+  let opmaskVerilog := "module opmask(input [3:0] x, input [3:0] y, input [7:0] z,
+  output [7:0] q, output p, output [7:0] m, output [3:0] s);
+  assign q = (x + y) + z;
+  assign p = ((x + y) == 4'h0);
+  assign m = (x + y) ? 8'd5 : 8'd7;
+  assign s = (x + y) >> 1;
+endmodule"
+  match parseAndLower opmaskVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m71 =>
+      let jitPath := "/tmp/sparkle_sv_opmask_jit.c"
+      IO.FS.writeFile jitPath (toCJIT { topModule := m71.name, modules := [m71] })
+      try
+        let handle ← JIT.compileAndLoad jitPath
+        JIT.reset handle
+        JIT.setInput handle 0 15  -- x
+        JIT.setInput handle 1 1   -- y
+        JIT.setInput handle 2 0   -- z
+        JIT.eval handle
+        let q ← JIT.getOutput handle 0
+        let pv ← JIT.getOutput handle 1
+        let mv ← JIT.getOutput handle 2
+        let sv ← JIT.getOutput handle 3
+        JIT.destroy handle
+        if q == 16 && pv == 1 && mv == 7 && sv == 0 then
+          IO.println "PASS (q=16 p=1 m=7 s=0, matches iverilog)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: got q={q} p={pv} m={mv} s={sv}, want q=16 p=1 m=7 s=0"
+          failed := failed + 1
+      catch e =>
+        IO.println s!"FAIL (JIT): {toString e}"
+        failed := failed + 1
+
+  -- Test 72 (certified-roundtrip, M4 forward direction): census of the
+  -- proven forward fragment.  `sf4Check` is the decidable mirror of
+  -- `SF4` (soundness: `sf4Check_sound`), so every counted RHS carries
+  -- the `emit_sem` theorem — the emitted Verilog computes the IR value;
+  -- `seqCheck` likewise carries `certified_forward_trace`, the
+  -- cycle-by-cycle statement.  The ONE expression outside is the
+  -- fragment's honest boundary: an up-cast of bare arithmetic, where
+  -- Verilog keeps the inner carry at the cast width and the IR masks
+  -- per node.  The 8 modules outside are the memory arrays (their
+  -- combinational read ports are the next layer) and CVT32ModuleS0.
+  IO.print "  Test 72: forward fragment census (emit_sem coverage)... "
+  try
+    let corpusDir := "bench/xiangshan/corpus"
+    if ← System.FilePath.pathExists corpusDir then
+      let mut ok := 0
+      let mut total := 0
+      let mut mok := 0
+      let mut tok := 0
+      let mut mtotal := 0
+      let entries ← System.FilePath.readDir corpusDir
+      for ent in entries do
+        if ent.fileName.endsWith ".sv" then
+          let src ← IO.FS.readFile ent.path
+          match parseAndLowerHierarchical src with
+          | .error _ => pure ()
+          | .ok design =>
+            for m in design.modules do
+              let wof := Tools.SVParser.RoundtripProof.moduleWof m
+              -- the SAME environment the module-form capstone uses,
+              -- so a passing census hands `certified_forward_trace_module`
+              -- its hypothesis directly
+              let we := Tools.SVParser.EmitSem.weOf wof
+              mtotal := mtotal + 1
+              -- whole combinational phase certified
+              -- (`emit_sem_assigns` applies to the module)
+              if Tools.SVParser.EmitSem.assignsCheck wof we m.body then
+                mok := mok + 1
+              -- full cycle-trace certified
+              -- (`certified_forward_trace` applies to the module)
+              if Tools.SVParser.EmitSem.seqCheck wof we m.body then
+                tok := tok + 1
+              for st in m.body do
+                match st with
+                | .assign _ r =>
+                  total := total + 1
+                  if Tools.SVParser.EmitSem.sf4Check wof we r then
+                    ok := ok + 1
+                | _ => pure ()
+      -- trace pin history: 49 → 51 (byte-strobe RMW arrays entered
+      -- via payloadCheckC) → 52 (bug #13: the CVT32 cone's ~ mask kept
+      -- its 32-bit fallback over a replication, and the "genuinely
+      -- divergent sub cone" was that defect, not a boundary).  TOTAL
+      -- coverage: every corpus module has a certified cycle trace.
+      if ok == 1026 && total == 1026 && mok == 52 && tok == 52
+          && mtotal == 52 then
+        IO.println s!"PASS ({ok}/{total} assign RHSs; {mok}/{mtotal} combinational phases; {tok}/{mtotal} full cycle traces)"
+        passed := passed + 1
+      else if ok ≥ 1026 && total == 1026 && mok ≥ 52 && tok ≥ 52
+          && mtotal == 52 then
+        IO.println s!"PASS ({ok}/{total}, comb {mok}, trace {tok} of {mtotal} — fragment GREW past the pin; update the pin)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: exprs {ok}/{total} (want 1026/1026), comb {mok} (want 52), trace {tok} (want 52) of {mtotal}"
+        failed := failed + 1
+    else
+      IO.println "SKIP (corpus not present)"
+  catch e => IO.println s!"FAIL: {e}"; failed := failed + 1
+
+  -- Test 73 (shipping bug #10): a blocking write to a BIT RANGE inside
+  -- `always @(posedge)` is a read-modify-write, not a whole-signal
+  -- assignment.  `exprToName` answers "q" for the LHS `q[5]`, so both
+  -- blocking collectors used to capture the bare RHS: `q = init;
+  -- q[5] = d; q[1] = d;` on an 8-bit q emitted `assign q = d` — the
+  -- scatter gone, a 1-bit value driving 8 bits, and the CLOCK gone.
+  -- Expectations pinned by iverilog on the ORIGINAL source:
+  --   init=0x00 d=1 -> 34 (bits 5,1);  init=0xFF d=0 -> 221.
+  IO.print "  Test 73: blocking bit-range write scatters correctly... "
+  let bitwrVerilog := "module bw2(input clk, input d, input [7:0] init, output reg [7:0] q);
+  always @(posedge clk) begin
+    q    = init;
+    q[5] = d;
+    q[1] = d;
+  end
+endmodule"
+  match parseAndLower bitwrVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m73 =>
+      -- find q's driver and evaluate it directly
+      let wof := Tools.SVParser.RoundtripProof.moduleWof m73
+      let we := Tools.SVParser.EmitSem.weOf wof
+      let mut got : Option (Nat × Nat) := none
+      for st in m73.body do
+        match st with
+        | .assign l r =>
+          if l == "q" then
+            let e1 : Sparkle.IR.Semantics.Env := fun n =>
+              if n == "d" then 1 else 0
+            let e2 : Sparkle.IR.Semantics.Env := fun n =>
+              if n == "init" then 255 else 0
+            match Sparkle.IR.Semantics.evalExpr we e1 r,
+                  Sparkle.IR.Semantics.evalExpr we e2 r with
+            | some v1, some v2 => got := some (v1, v2)
+            | _, _ => pure ()
+        | _ => pure ()
+      match got with
+      | some (v1, v2) =>
+        if v1 == 34 && v2 == 221 then
+          IO.println s!"PASS (34/221, matches iverilog)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: got {v1}/{v2}, want 34/221"
+          failed := failed + 1
+      | none =>
+        IO.println "FAIL: q has no driver (the bit writes were dropped)"
+        failed := failed + 1
+
+  -- Test 74 (shipping bug #11): a concat-LHS write whose fields reach
+  -- above bit 31.  `lowerConcatLhsAssign` declared every shift amount
+  -- 32, so `widthOf` pinned the OR-chain at 32 bits and
+  -- `{q[103:96], q[7:0]} <= {a, b}` on a 128-bit q lost the high field
+  -- entirely — only q[7:0] survived.  iverilog on the original sets
+  -- q[103:96]=ab and q[7:0]=cd, i.e. (0xAB << 96) | 0xCD.
+  IO.print "  Test 74: concat-LHS fields above bit 31 survive... "
+  let wideVerilog := "module w128(input clk, input [7:0] a, input [7:0] b,
+  output reg [127:0] q);
+  always @(posedge clk) {q[103:96], q[7:0]} <= {a, b};
+endmodule"
+  match parseAndLower wideVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m74 =>
+      let wof := Tools.SVParser.RoundtripProof.moduleWof m74
+      let we := Tools.SVParser.EmitSem.weOf wof
+      let want := (0xAB <<< 96) ||| 0xCD
+      let mut got : Option Nat := none
+      for st in m74.body do
+        match st with
+        | .register _ _ _ x _ =>
+          let env : Sparkle.IR.Semantics.Env := fun n =>
+            if n == "a" then 0xAB else if n == "b" then 0xCD else 0
+          match Sparkle.IR.Semantics.evalExpr we env x with
+          | some v => got := some v
+          | none => pure ()
+        | _ => pure ()
+      match got with
+      | some v =>
+        if v == want then
+          IO.println s!"PASS (high field preserved, matches iverilog)"
+          passed := passed + 1
+        else
+          IO.println s!"FAIL: got {v}, want {want}"
+          failed := failed + 1
+      | none =>
+        IO.println "FAIL: no register driver found"
+        failed := failed + 1
+
+  -- Test 75 (shipping bug #12): the REFERENCE semantics evaluated a
+  -- payload's own read placeholders under the caller's plain `we`,
+  -- whose `weOf` default is 0 — so an arithmetic RMW like
+  -- `Mem[a] <= Mem[a] + Mem[a]` on a 10-bit memory had its sum masked
+  -- by 2^0 and computed 0 where Verilog computes 10.  The byte-strobe
+  -- corpus shapes never caught it because their full-width masks
+  -- dominate the placeholder's width.  `evalPayload` (and its SV
+  -- mirror) now declare the widths of the names they invent.
+  IO.print "  Test 75: arithmetic RMW payload width (evalPayload)... "
+  let rmwPayload : Sparkle.IR.AST.Expr := .op .add
+    [.index (.ref "M") (.ref "a"), .index (.ref "M") (.ref "a")]
+  let wof75 : String → Option Nat := fun n =>
+    if n == "a" then some 4 else none
+  let we75 := Tools.SVParser.EmitSem.weOf wof75
+  let env75 : Sparkle.IR.Semantics.Env := fun n => if n == "a" then 3 else 0
+  let mems75 : Sparkle.IR.Semantics.MEnv := fun _ _ => 5
+  let r75 := Sparkle.IR.Semantics.evalPayload we75 mems75 env75 "M" 4 10
+    rmwPayload
+  if r75 == some 10 then
+    IO.println "PASS ((5+5) mod 2^10 = 10, matches Verilog)"
+    passed := passed + 1
+  else
+    IO.println s!"FAIL: got {r75}, want some 10"
+    failed := failed + 1
+
+  -- Test 76 (shipping bug #13): `~` lowers to `x ^ 32'(-1)` and a
+  -- post-pass narrows the mask to x's inferred width — but the
+  -- inference did not know arithmetic, and the replication lowering
+  -- `{n{bit}}` = `(0 - bit) & mask` contains a `sub`.  So the mask
+  -- under `~({7{b}})` SILENTLY stayed 32 bits wide and
+  -- `{3'h5, ~({7{x[0]}})}` read the NOT's phantom high ones where the
+  -- concat prefix belongs: 1023 where iverilog computes 767.
+  -- (XiangShan's CVT32 had exactly this shape with prefix 3'h7 — all
+  -- ones — which masked the value error and left only the width
+  -- disagreement the M4 fragment refused.)
+  IO.print "  Test 76: NOT over replication keeps its width... "
+  let notVerilog := "module t(input [6:0] x, output [9:0] y);
+  assign y = {3'h5, ~({7{x[0]}})};
+endmodule"
+  match parseAndLower notVerilog with
+  | .error e => IO.println s!"FAIL (lower): {e}"; failed := failed + 1
+  | .ok design =>
+    match design.modules.head? with
+    | none => IO.println "FAIL: no modules"; failed := failed + 1
+    | some m76 =>
+      let wof := Tools.SVParser.RoundtripProof.moduleWof m76
+      let we := Tools.SVParser.EmitSem.weOf wof
+      let mut got : Option Nat := none
+      for st in m76.body do
+        match st with
+        | .assign l r =>
+          if l == "y" then
+            let env : Sparkle.IR.Semantics.Env := fun _ => 0
+            got := Sparkle.IR.Semantics.evalExpr we env r
+        | _ => pure ()
+      if got == some 767 then
+        IO.println "PASS (767, matches iverilog)"
+        passed := passed + 1
+      else
+        IO.println s!"FAIL: got {got}, want some 767"
+        failed := failed + 1
 
   IO.println s!"\n=== Results: {passed} passed, {failed} failed ==="
   return if failed == 0 then 0 else 1
