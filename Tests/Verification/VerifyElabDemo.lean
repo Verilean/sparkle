@@ -50,6 +50,21 @@ def cnt8 : Signal defaultDomain (BitVec 8) :=
 
 #verify_elab cnt8
 
+-- Zero-width pin (shipping bug #14): the emitted Verilog of a
+-- `circuit do` design must carry NO `logic [0:0]` pack remnant (the
+-- HList `Unit` terminator), and the register keeps its full width.
+-- Runs under `lake env lean` (this file is not a compiled exe, so the
+-- circuit-do inline-synth path is available, unlike verilog-tests).
+run_cmd Lean.Elab.Command.liftTermElabM do
+  let design ← Sparkle.Compiler.Elab.synthesizeHierarchical
+    ``Sparkle.Tests.VerifyElabDemo.cnt8
+  let sv := Sparkle.Backend.Verilog.toVerilogDesign design
+  if (sv.splitOn "[0:0]").length > 1 then
+    throwError "zero-width pin (bug #14): emitted Verilog still has a [0:0] net:\n{sv}"
+  unless (sv.splitOn "[7:0]").length > 1 do
+    throwError "zero-width pin: expected an 8-bit register width in:\n{sv}"
+
+
 /-- Subtracting accumulator with a nonzero initial value — the shape
     whose failed proof motivated the axiom check. -/
 def subEn (en : Signal defaultDomain (BitVec 1))
