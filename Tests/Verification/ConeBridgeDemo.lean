@@ -73,4 +73,16 @@ theorem cnt8_irTrace_step (t : Nat) {env1 : Env}
 #check @rstCnt_signal_sv
 #check @fsm3_signal_sv
 
+-- THE OPTIMIZER BRIDGE: Signal ≡ the SV semantics of the emission of the
+-- OPTIMIZED body — the module `toVerilog (optimizeModule m)` actually
+-- prints (Tools/ConeFoldOpt.lean: stripMask + stripMask_eval; the
+-- optimized cones are the original cones after identity-mask removal)
+#check @cnt8_signal_runOpt
+#check @cnt8_signal_svOpt
+#check @accEn_signal_svOpt
+#check @twoReg_signal_svOpt
+#check @rstCnt_signal_svOpt
+#check @fsm3_signal_svOpt
+#check @twoIf_signal_svOpt
+
 end Sparkle.Tests.ConeBridgeDemo

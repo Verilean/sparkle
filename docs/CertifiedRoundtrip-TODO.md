@@ -33,11 +33,27 @@ group is rough priority.  Update as items land.
 
 ## B. IR → Verilog remainders
 
-- [ ] **Optimizer preservation.**  File-level identity with the
-  shipping emitter now reduces exactly to this: every elaborator
-  module classifies `.optRewritten` (alias-canonical fallback), none
-  `.bad`.  Prove `optimizeDesign` trace-preserving on the fragment (or
-  keep `#verify_emit` per-instance validation as the validated shell).
+- [x] **Optimizer — as translation validation, formally.**  Instead of
+  proving `optimizeModule` (1.1 kloc, ten partial defs), the chain is
+  CARRIED ACROSS it per instance.  Measured on every certified circuit,
+  the optimizer changes an elaborator module's fully-inlined,
+  slice-resolved cones in exactly one way — `inlineSingleUseWires`
+  re-inserts identity width masks `and [e, const (2^w-1) w]` — and after
+  `stripMask` (Tools/ConeFoldOpt.lean, with `stripMask_eval` on bounded
+  envs via `sfrag_eval_bounded`) the optimized cones are SYNTACTICALLY
+  the original ones.  `#verify_elab` now emits, over the OPTIMIZED body
+  (the module `toVerilog (optimizeModule m)` actually prints; raw
+  statement order, no topo-sort needed): `{f}_bodyOpt`, per-register
+  `_maskEq_*` (native_decide), `_stepOpt_*`, `_regstepOpt`,
+  `_state_traceOpt`, `_stepOpt_out`, `_signal_foldOpt`,
+  `_signal_runModuleOpt`, `_signal_runOpt`, and **`{f}_signal_svOpt`** —
+  Signal ≡ the Verilog-subset semantics of the emission of the optimized
+  module, every cycle.  All 7 #verify_elab circuits (the optimizer may
+  re-root a register at an alias-free input wire — twoReg — so cones
+  are rooted at the OPTIMIZED registers, identities checked equal).
+  Formalizes #verify_emit's informal "stepwise ⇒ sequential" claim.
+  Remaining (optional): the same opt-bridge on the deep route; genuine
+  per-pass optimizer proofs are no longer needed for circuit-do designs.
 - [ ] **M3 string layer** — printed text ↔ `SVExpr` parse/print
   inverse (or a tested-TCB framing).  Currently the twin↔shipping-text
   join rests on M0 parse-equality + corpus validation.
