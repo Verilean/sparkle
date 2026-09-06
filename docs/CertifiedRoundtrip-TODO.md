@@ -13,15 +13,18 @@ group is rough priority.  Update as items land.
   `signal_runModule` / `signal_sv` (Signal ≡ runModule ≡ runModuleSV).
 - [x] Deep-side G1 glue (`{f}_deep_coneEval_*`): the general-theorem
   route's `Cdo.irState` cone terms land on the bridge language.
-- [~] **Replay the bridge stack over `Cdo.irState`** — deep analogues
-  of regstep/state_trace/signal_runModule/signal_sv.  DONE so far:
-  `{f}_deep_signalM` lands the Signal value on the seam's language
-  (`evalExpr weM (envOfC (natJoin (irState t) inp)) outCone`) via the
-  G1_out glue; `envOfC_natJoin_reg` (the seed reader) proven in
-  scratch.  REMAINING: identify `envOfC (natJoin (irState t) inp)`
-  with a stepModule seed (register names ← irState, input names ←
-  inp), then replay regstep/state_trace/signal_run over the deep
-  body.  `irState = stateAt.toNat < 2^w` gives boundedness free.
+- [x] **Replay the bridge stack over `Cdo.irState`** — DONE.
+  `#verify_elab_deep` emits per circuit: `{f}_deep_envAt` (the seed
+  `envOfC nm (natJoin (irState t) inp)`), `_deep_seed_bounded`
+  (`envOfC_bounded` + `irState_eq` + `BitVec.isLt` — no fold-side
+  bounds), pointwise seed readers (`_deep_envAt_r{i}` / `_i{j}` /
+  `_other`), `_deep_step_{reg}`, `_deep_regstep`, `_deep_envSt` /
+  `_deep_st0` / `_deep_envSt_bounded`, `_deep_state_trace`, and per
+  output port `_deep_signalM0` / `_deep_step_out` / `_deep_signal_fold`
+  / **`_deep_signal_run`** (unconditional: Signal ≡ runModule trace).
+  Struct outputs share one recurrence via `Cdo.irState_congr` (irState
+  reads only next/inits).  Holds on all 13 demos + crc32Engine; the
+  bridge lemmas are sorryAx-audited like the capstone.
 - [x] **`evalOk` — absolute fold-success.**  `evalExpr` fails only on
   shape, so a decidable `evalOk` checker + soundness discharges fold
   success unconditionally; `{f}_signal_run` is the resulting
