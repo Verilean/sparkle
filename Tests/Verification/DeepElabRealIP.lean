@@ -28,7 +28,8 @@ import Tools.DeepElab
 
   Known boundaries (each is a worklist item, not a silent skip):
   * non-Signal value parameters (`biquad`'s `lim`, `mulQSig`'s
-    `w f`) — need a specialized wrapper def, as for synthesis;
+    `w f`) go through a specialized wrapper def, as for synthesis
+    (demos `accK15` / `accN200` in DeepElabReifyDemo);
   * arithmetic size: `closedLoopCircuit` (PID + plant, 32/64-bit
     fixed-point multiplies, nested; 3 registers once RegDedup merges
     the two-pass copies) times out in the definition phase (`isDefEq`

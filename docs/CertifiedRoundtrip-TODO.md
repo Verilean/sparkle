@@ -144,7 +144,17 @@ group is rough priority.  Update as items land.
   aliases so no name disappears.  Runs right after zero-width cleanup
   in `synthesizeCombinational`.  `closedLoopCircuit` 5 → 3, `outerFb`
   5 → 3 (pinned in DeepElabReifyDemo).
-- [ ] Non-Signal value parameters.
+- [x] **Non-Signal value parameters — DONE** via the specialized-wrapper
+  pattern synthesis already needs (`def accK15 d := accK 0x0F#8 d`).
+  The wrapper's body is an application, not a `runCircuitH`; the
+  generator now follows the head chain by delta-unfolding (arguments
+  substituted, so the inner circuit's `inits` are closed) and unfolds
+  it in the proof with the constants' first equations (`rw [accK.eq_1]`).
+  Demos `accK15` (BitVec param) and `accN200` (Nat param →
+  `BitVec.ofNat`) in DeepElabReifyDemo.  Found on the way: `Signal.lt`
+  is not synthesizable at all ("Cannot infer hardware type from Nat" —
+  a synth-elaborator gap, not a deep-route one; recorded in the
+  synth-gotchas memo).
 - [ ] Memories / sub-instances (`.inst`) in the deep grammar.
 - [ ] Bridge v1 limits: register inputs that aren't `.ref` wires
   (emission currently skipped); memory-bearing modules (memFree

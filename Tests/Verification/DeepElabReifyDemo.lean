@@ -239,6 +239,43 @@ def outerFb (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
 
 #verify_elab_deep outerFb
 
+/-! NON-SIGNAL VALUE PARAMETERS: a circuit taking a `BitVec` / `Nat`
+    parameter is certified through a specialized wrapper def — the same
+    pattern synthesis needs.  The wrapper's body is an application of
+    the parameterized circuit, not a `runCircuitH`; the generator follows
+    the head chain by delta-unfolding (`accK15 → accK`) and unfolds it in
+    the proof with the constants' first equations. -/
+
+/-- BitVec value parameter `k`. -/
+def accK (k : BitVec 8) (d : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg (0#8)
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let kk := (Signal.pure k : Signal defaultDomain (BitVec 8))
+    acc <~ a + (d &&& kk)
+    return a
+
+def accK15 (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  accK 0x0F#8 d
+
+#verify_elab_deep accK15
+
+/-- Nat value parameter turned into a constant inside the circuit. -/
+def accN (lim : Nat) (d : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg (0#8)
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let l := (Signal.pure (BitVec.ofNat 8 lim) : Signal defaultDomain (BitVec 8))
+    acc <~ a + d + l
+    return a
+
+def accN200 (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  accN 200 d
+
+#verify_elab_deep accN200
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -254,6 +291,10 @@ def outerFb (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
 #print axioms flipRegDemo_deep_trace
 #print axioms outerNest_deep_trace
 #print axioms outerFb_deep_trace
+#print axioms accK15_deep_trace
+#print axioms accN200_deep_trace
+#check @accK15_deep_signal_run
+#check @accN200_deep_signal_run
 
 -- nested-circuit pins: the merged register set (RegDedup: 3 registers
 -- for outerFb, not 5) and the readers the Signal-side bridge is

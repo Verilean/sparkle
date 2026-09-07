@@ -1023,7 +1023,7 @@ elab "#verify_elab_deep" id:ident : command =>
   -- identical recurrences).  Each node's slot signature (width, init,
   -- Bool-ness) locates its candidate register blocks in the IR; the
   -- Signal-side proof tries the candidates.
-  let loopNodes : Array LoopNode ← liftTermElabM do
+  let (loopNodes, headChain) ← liftTermElabM do
     let env ← getEnv
     -- open a definition's leading lambdas; a `DomainConfig` binder is
     -- instantiated at `defaultDomain` (the statement's domain), the rest
@@ -1038,6 +1038,17 @@ elab "#verify_elab_deep" id:ident : command =>
             (Lean.mkConst ``Sparkle.Core.Domain.defaultDomain)) fuel k
         else
           Lean.Meta.withLocalDecl n bi ty fun x => openLams (b.instantiate1 x) fuel k
+      | _, _ => k e
+    let rec openLams' (e : Lean.Expr) (fuel : Nat)
+        (k : Lean.Expr → Lean.MetaM (Array (Lean.Expr × Bool) × Array Name)) :
+        Lean.MetaM (Array (Lean.Expr × Bool) × Array Name) := do
+      match fuel, e with
+      | fuel + 1, .lam n ty b bi =>
+        if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then
+          openLams' (b.instantiate1
+            (Lean.mkConst ``Sparkle.Core.Domain.defaultDomain)) fuel k
+        else
+          Lean.Meta.withLocalDecl n bi ty fun x => openLams' (b.instantiate1 x) fuel k
       | _, _ => k e
     -- the head application of a body (through lets and outer apps)
     let rec findRC (e : Lean.Expr) (fuel : Nat) : Option Lean.Expr :=
@@ -1129,13 +1140,39 @@ elab "#verify_elab_deep" id:ident : command =>
       let some inits ← initVals inits tysE.size | return none
       return some { isBool, widths, inits, tys, isTop }
     let mut nodes : Array LoopNode := #[]
-    -- the definition itself: head node = top, the rest nested
+    -- the definition itself: head node = top, the rest nested.  A
+    -- SPECIALIZED WRAPPER (`def accK15 d := accK 0x0F#8 d`, the pattern
+    -- for circuits with non-Signal value parameters) has no runCircuitH
+    -- at its head: follow the head application by delta-unfolding
+    -- (arguments substituted, so the inner circuit's `inits` are
+    -- closed) and remember the unfolded constants for the proof
+    let rec headChain (e : Lean.Expr) (acc : Array Name) (fuel : Nat) :
+        Lean.MetaM (Option Lean.Expr × Array Name) := do
+      match fuel with
+      | 0 => pure (none, acc)
+      | fuel + 1 =>
+        match findRC e 64 with
+        | some rc => pure (some rc, acc)
+        | none =>
+          let e := e.headBeta
+          match e.getAppFn with
+          | .const c _ =>
+            let base := (privateToUserName? c).getD c
+            if (`Sparkle.Core).isPrefixOf base || (`Sparkle.IR).isPrefixOf base then
+              pure (none, acc)
+            else match ← Lean.Meta.unfoldDefinition? e with
+              | some e' => headChain e' (acc.push c) fuel
+              | none => pure (none, acc)
+          | _ => pure (none, acc)
     let root ← getConstInfo declName
+    let mut chain : Array Name := #[]
     if let some val := root.value? then
-      let apps ← openLams val 64 fun body => do
-        let top? := findRC body 64
+      let (apps, ch) ← openLams' val 64 fun body => do
+        let (top?, ch) ← headChain body #[] 16
         let all := collect body
-        pure <| all.map fun a => (a, top?.any (· == a))
+        let nested := all.map fun a => (a, false)
+        pure ((match top? with | some t => #[(t, true)] | none => #[]) ++ nested, ch)
+      chain := ch
       for (a, isTop) in apps do
         if let some n ← nodeOf a isTop then nodes := nodes.push n
     -- the helpers: every runCircuitH inside is nested
@@ -1153,13 +1190,18 @@ elab "#verify_elab_deep" id:ident : command =>
       if out.any (fun m => m.isTop == n.isTop && m.isBool == n.isBool
           && m.widths == n.widths && m.inits == n.inits) then continue
       out := out.push n
-    pure out
+    pure (out, chain)
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     for n in loopNodes do
       logInfo m!"#verify_elab_deep loop node (top={n.isTop}): widths {n.widths} inits {n.inits} bool {n.isBool}"
   let some topNode := loopNodes.find? (·.isTop)
     | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
-  let nestedNodes := loopNodes.filter (!·.isTop)
+  -- the top node is also collected as an ordinary application of the
+  -- body; a nested node with the top's own signature is that echo
+  let nestedNodes := loopNodes.filter fun n => !n.isTop &&
+    !(n.isBool == topNode.isBool && n.widths == topNode.widths && n.inits == topNode.inits)
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome && !headChain.isEmpty then
+    logInfo m!"#verify_elab_deep head chain: {headChain}"
   -- candidate register blocks of a node: contiguous IR registers whose
   -- (width, init) signature matches slot for slot
   let blocksFor (n : LoopNode) : List Nat :=
@@ -1666,6 +1708,11 @@ elab "#verify_elab_deep" id:ident : command =>
         -- matchable.
         `(tactic| rw [$eq1Id:ident])
       | none => `(tactic| simp only [$id:ident])
+    -- a specialized wrapper's head chain: each constant's first
+    -- equation exposes the next application, down to runCircuitH
+    let chainUnfold : Array (Lean.TSyntax `tactic) ← headChain.mapM fun c => do
+      let eqId : Ident := mkIdent (c ++ `eq_1)
+      `(tactic| rw [$eqId:ident])
     let projRw : Lean.TSyntax `tactic ← match proj? with
       | some pj => `(tactic| rw [runCircuitH_proj_eq $pj])
       | none => `(tactic| rw [runCircuitH_eq])
@@ -1749,6 +1796,7 @@ elab "#verify_elab_deep" id:ident : command =>
       -- (the loop's STATE is projection-independent), landing on the
       -- same outFOf shape a single Signal output produces.
       $idUnfold:tactic
+      ($[$chainUnfold:tactic]*)
       $projRw:tactic
       simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
         $[$outUnfoldIds:ident],*]
