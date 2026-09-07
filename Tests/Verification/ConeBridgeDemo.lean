@@ -85,4 +85,14 @@ theorem cnt8_irTrace_step (t : Nat) {env1 : Env}
 #check @fsm3_signal_svOpt
 #check @twoIf_signal_svOpt
 
+-- THE STRING LAYER, per instance: the printed Verilog ({f}_text), re-read
+-- by the shipping parser+lowerer, yields {f}_bodyRT ({f}_text_parses, the
+-- parser as an evaluated oracle), and the chain replays over it —
+-- Signal ≡ runModule of what the printed text denotes.
+#check @cnt8_text_parses
+#check @cnt8_signal_runRT
+#check @twoReg_signal_runRT
+#check @fsm3_signal_runRT
+#check @twoIf_signal_runRT
+
 end Sparkle.Tests.ConeBridgeDemo

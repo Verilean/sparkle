@@ -336,6 +336,30 @@ composes the whole chain per circuit.
   width-environment congruence; holds on `crc32Engine`.  Replaying the
   full bridge stack over `Cdo.irState` is the remaining deep step.
 
+### Across the optimizer and the printed text (per instance)
+
+Two more bodies are bridged the same way, per circuit, by the
+`#verify_elab` generator (Tools/ConeFoldOpt.lean for the semantic
+core):
+
+* **The optimized body** `(optimizeModule m).body` — the module
+  `toVerilog` actually prints.  Measured on every certified circuit,
+  the optimizer changes the fully-inlined, slice-resolved cones in
+  exactly one way (re-inserted identity width masks); `stripMask`
+  removes them with a proof (`stripMask_eval`, via
+  `sfrag_eval_bounded`), the result is syntactically the original cone
+  (`native_decide`), and the chain replays: `{f}_signal_runOpt`,
+  `{f}_signal_svOpt` — Signal ≡ the Verilog-subset semantics of the
+  emission of the optimized module.  Registers are matched by name
+  (the optimizer may re-root one at an alias-free input wire).
+* **The printed text, read back** — `{f}_text` is the Verilog string,
+  `{f}_text_parses` states that the shipping parser+lowerer maps it to
+  `{f}_bodyRT` (discharged by `native_decide`: the parser runs as an
+  evaluated oracle), and `{f}_signal_runRT` replays the chain over
+  `bodyRT`.  This turns the M3 tested TCB ("parse-equality on every
+  corpus expression") into a per-instance kernel-checked statement
+  about THIS module's text; it does not prove the parser.
+
 ## Compile cost
 
 The two proof files (`RoundtripProof.lean` ~3.6 kloc,
@@ -351,10 +375,12 @@ the oleans at no cost.
 * Closed hierarchical semantics (state trees or a verified flatten) —
   today instances are open-module no-ops and composition is covered
   dynamically by the hierarchical co-sim.
-* M3: the string layer — today a tested TCB (parse-equality on every
-  corpus expression); a verified printer/parser inverse is the
-  classical hard next step, and the last piece between the current
-  state and an end-to-end statement about TEXT rather than ASTs.
+* M3: a verified printer/parser inverse remains the classical hard
+  step.  Per instance the gap is now closed differently — the printed
+  text is re-read by the shipping parser inside a `native_decide`
+  obligation (`{f}_text_parses`) and the chain replays over the result
+  (`{f}_signal_runRT`) — so the parser is trusted as an executable
+  oracle on the specific text, not as a proof.
 * Swapping the twins in as the shipping emitter/lowerer, which would
   collapse the twin↔shipping half of the trusted base.  (The cone
   passes are already the twins on the `#verify_elab` path; the file-

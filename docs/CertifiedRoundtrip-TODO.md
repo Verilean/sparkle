@@ -54,9 +54,21 @@ group is rough priority.  Update as items land.
   Formalizes #verify_emit's informal "stepwise ⇒ sequential" claim.
   Remaining (optional): the same opt-bridge on the deep route; genuine
   per-pass optimizer proofs are no longer needed for circuit-do designs.
-- [ ] **M3 string layer** — printed text ↔ `SVExpr` parse/print
-  inverse (or a tested-TCB framing).  Currently the twin↔shipping-text
-  join rests on M0 parse-equality + corpus validation.
+- [x] **M3 string layer — per instance.**  `#verify_elab` now emits
+  `{f}_text := toVerilog (optimizeModule m)` (the printed Verilog),
+  `{f}_text_parses` (the shipping parser+lowerer applied to that text
+  yields `{f}_bodyRT`, by `native_decide` — the parser is trusted as an
+  EVALUATED ORACLE, not proven), and replays the chain over `bodyRT`:
+  **`{f}_signal_runRT`** — Signal ≡ runModule of the body the shipping
+  parser reads back from the printed text, every cycle.  Registers are
+  matched by name (the reparse lists them in another order); cones are
+  mask-equal after `stripMask`.  All 7 #verify_elab circuits.
+  What remains research-scale and is NOT claimed: a verified
+  printer/parser inverse for the SV sub-language (a total renderer
+  proven equal to the shipping printer + correctness of the 1 kloc,
+  26-partial-def recursive-descent parser).  The trusted base here is
+  "the parser as executed on this text", the same class as the
+  native_decide checker discharges.
 - [ ] **M4 residual fragment** — the honest exclusions: byte-strobe
   RMW `shl` width rule, `CVT32ModuleS0`'s `sub 0'7 x` cone (not
   carry-free).  Revisit only via a width-indexed `emit_sem` if ever
