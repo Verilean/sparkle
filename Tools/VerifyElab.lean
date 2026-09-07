@@ -140,6 +140,30 @@ theorem loop_trace_at {dom : Sparkle.Core.Domain.DomainConfig} {α : Type} [Inha
     (Sparkle.Core.Signal.Signal.loop F).val t = trace t :=
   loop_trace F trace hstep t
 
+/-- The trace lemma for a loop NESTED inside another circuit's body: its
+    body `F` may read the enclosing loop's live signal `pre`, about which
+    only a guarded prefix is known (`pre.val i = tro i` for `i < t` — the
+    enclosing `hstep`'s own agreement hypothesis, or the enclosing trace
+    itself).  The step obligation receives both prefixes.  Registers
+    delay by one, so at cycle `t` the inner body reads `pre` only at
+    cycles `< t`, which is exactly what the guard provides. -/
+theorem loop_trace_guarded_at {dom : Sparkle.Core.Domain.DomainConfig} {α β : Type}
+    [Inhabited α]
+    (F : Sparkle.Core.Signal.Signal dom α → Sparkle.Core.Signal.Signal dom α) (trace : Nat → α)
+    {pre : Sparkle.Core.Signal.Signal dom β} {tro : Nat → β}
+    (hstep : ∀ t (q : Sparkle.Core.Signal.Signal dom α),
+      (∀ i, i < t → q.val i = trace i) →
+      (∀ i, i < t → pre.val i = tro i) →
+      (F q).val t = trace t)
+    (t : Nat) (hg : ∀ i, i < t → pre.val i = tro i) :
+    (Sparkle.Core.Signal.Signal.loop F).val t = trace t := by
+  induction t using Nat.strongRecOn with
+  | ind t ih =>
+    show Sparkle.Core.Signal.Signal.loopGo F t = trace t
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    exact hstep t _ (fun i hi => by
+      simp [hi]; exact ih i hi (fun j hj => hg j (by omega))) hg
+
 /-! `.val`-pushing lemmas: every Signal-level operator instance,
     pointwise.  The deep route's bridge uses these instead of
     unfolding the `H*` class projections — a global `HXor.hXor`

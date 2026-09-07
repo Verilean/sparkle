@@ -351,6 +351,19 @@ composes the whole chain per circuit.
   recurrence step, abstracts the readers to variables and lets
   `bv_decide` close.  Holds on the 13 demos, `crc32Engine` and
   `uartTxHW` (4 registers, struct output, literal-width `++`).
+* **Nested `circuit do`.**  The IR flattens a circuit that instantiates
+  another into one register list (and, since `runCircuitH` evaluates
+  its body twice, holds the inner registers twice), while the Signal
+  side keeps one `Signal.loop` per `runCircuitH` node.  The generator
+  discovers every node with its slot signature, abstracts the top loop
+  and proves its trace once, and discharges each inner loop with
+  `loop_trace_guarded_at` — the inner body may read the enclosing live
+  signal, about which only the enclosing step's prefix hypothesis is
+  known — against a candidate register block of matching signature,
+  trying candidates in turn; duplicate copies are identified by
+  generated equalities between their readers.  Demos `outerNest` /
+  `outerFb` (feedback through the outer register, a Bool inner
+  register, output reading the inner circuit).
 
 ### Across the optimizer and the printed text (per instance)
 

@@ -181,6 +181,64 @@ def flipRegDemo (en : Signal defaultDomain Bool) :
 
 #verify_elab_deep flipRegDemo
 
+/-! NESTED `circuit do`: a helper circuit instantiated inside another
+    circuit's body.  The IR flattens both into one register list — and,
+    because `runCircuitH` evaluates its body twice (next-state and
+    output), the inner circuit's registers appear TWICE (identical
+    recurrences; the copy the output reads is separate from the copy
+    the outer register reads).  The Signal side keeps one `Signal.loop`
+    per node; the bridge discharges each inner loop with
+    `loop_trace_guarded_at` (its body may read the outer live signal,
+    known only as a prefix) against a candidate register block, and
+    normalises duplicate copies with generated `_dup_r*` equalities. -/
+
+/-- Inner counter: independent of the outer state. -/
+def innerCnt (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let c ← Signal.reg (3#4)
+    let cs := (c : Signal defaultDomain (BitVec 4))
+    let one := (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    c <~ Signal.mux en (cs + one) cs
+    return cs
+
+/-- Outer accumulator zero-extending the inner count. -/
+def outerNest (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg (5#8)
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let c := innerCnt en
+    let z := (Signal.pure 0#4 : Signal defaultDomain (BitVec 4))
+    let ext := (z ++ c : Signal defaultDomain (BitVec 8))
+    acc <~ a + ext
+    return a
+
+#verify_elab_deep outerNest
+
+/-- Inner circuit with a Bool register that READS the outer register
+    (feedback through the enclosing live signal — the guarded case). -/
+def innerAcc (en : Signal defaultDomain Bool) (x : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let a ← Signal.reg (1#8)
+    let f ← Signal.reg false
+    let as := (a : Signal defaultDomain (BitVec 8))
+    let fs := (f : Signal defaultDomain Bool)
+    a <~ Signal.mux en (as + x) as
+    f <~ Signal.mux fs (Signal.pure false) (Signal.pure true)
+    return Signal.mux fs as (as + x)
+
+/-- Outer: feeds its register into the inner circuit and OUTPUTS the
+    inner result (so the output reads the second IR copy). -/
+def outerFb (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg (0#8)
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let y := innerAcc en a
+    acc <~ y
+    return y
+
+#verify_elab_deep outerFb
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -194,6 +252,17 @@ def flipRegDemo (en : Signal defaultDomain Bool) :
 #print axioms packerDemo_deep_trace
 #print axioms selRegDemo_deep_trace
 #print axioms flipRegDemo_deep_trace
+#print axioms outerNest_deep_trace
+#print axioms outerFb_deep_trace
+
+-- nested-circuit pins: the inner copies' duplicate equalities (IR
+-- registers 3,4 are the output-side copy of registers 0,1) and the
+-- readers the Signal-side bridge is stated over
+#check @outerFb_deep_dup_r3
+#check @outerFb_deep_dup_r4
+#check @outerFb_deep_rd2_succ
+#check @outerNest_deep_signal_run
+#check @outerFb_deep_signal_run
 
 
 -- deep-bridge replay pins: the general-theorem route's per-instance

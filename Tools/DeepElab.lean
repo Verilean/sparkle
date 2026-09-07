@@ -732,6 +732,20 @@ partial def toShallow (slot : String → Option Nat) (nR : Nat)
   | e => throwError "#verify_elab_deep: {repr e} outside the deep grammar"
 where go := toShallow slot nR rdOf inOf
 
+/-- One `runCircuitH` node of the definition (the top-level `circuit do`
+    or a NESTED one reached through a helper / an inline sub-circuit):
+    its register slots as the Signal side sees them.  `widths`/`inits`
+    are the IR-side signature used to locate the node's register block
+    among the flattened module's registers. -/
+structure LoopNode where
+  isBool : Array Bool
+  widths : Array Nat
+  inits  : Array Nat
+  /-- element types, as syntax (`BitVec 8`, `Bool`) -/
+  tys    : Array Term
+  isTop  : Bool
+  deriving Inhabited
+
 end Tools.DeepElab
 
 namespace Tools.DeepElab
@@ -768,55 +782,6 @@ elab "#verify_elab_deep" id:ident : command =>
   let wt := widthTable m
   let regWs := regs.map fun (n, _, _) => wt.getD n 0
   let inWs := ins.map fun (_, w) => w
-  -- Which registers are Bool-typed on the Signal side.  The IR gives
-  -- them width 1, but the loop-state HList holds them as `Bool`, so
-  -- their pack slot must be `bif`-encoded back from `BitVec 1`.  Read
-  -- the element types from `runCircuitH`'s `αs` (a `List Type`) in the
-  -- elaborated value.
-  let regIsBool : Array Bool ← liftTermElabM do
-    let info ← getConstInfo declName
-    let some val := info.value? | pure (Array.replicate nR false)
-    -- open the leading lambdas PROPERLY (loose bvars from a naive
-    -- descent break inferType), then find the runCircuitH application
-    Lean.Meta.lambdaTelescope val fun _ body => do
-    let rec findRC (e : Lean.Expr) (fuel : Nat) : Option Lean.Expr :=
-      match fuel with
-      | 0 => none
-      | fuel + 1 =>
-        let e := e.headBeta
-        match e with
-        | .letE _ _ v body _ => findRC (body.instantiate1 v) fuel
-        | _ =>
-          if e.getAppFn.isConstOf ``Sparkle.Core.runCircuitH then some e
-          else match e with
-            | .app f _ => findRC f fuel
-            | _ => none
-    match findRC body 64 with
-    | none => pure (Array.replicate nR false)
-    | some rc =>
-      -- runCircuitH {dom} {αs} {ρ} … : αs is the `List Type` argument
-      let args := rc.getAppArgs
-      let mut αs? : Option Lean.Expr := none
-      for a in args do
-        if a.hasLooseBVars then continue
-        let ty ← Lean.Meta.inferType a
-        if ty.isAppOf ``List && (ty.getAppArgs[0]?.map (·.isSort)).getD false then
-          αs? := some a
-      match αs? with
-      | none => pure (Array.replicate nR false)
-      | some αs =>
-        -- unfold the List literal into element types
-        let rec elems (e : Lean.Expr) (acc : Array Bool)
-            (fuel : Nat) : Array Bool :=
-          match fuel with
-          | 0 => acc
-          | fuel + 1 =>
-            match e.getAppFnArgs with
-            | (``List.cons, #[_, hd, tl]) =>
-              elems tl (acc.push (hd.isConstOf ``Bool)) fuel
-            | _ => acc
-        let bs := elems (← Lean.Meta.whnf αs) #[] 64
-        pure (if bs.size == nR then bs else Array.replicate nR false)
   let stopAt : Std.HashMap String Bool :=
     (ins.foldl (fun (h : Std.HashMap String Bool) (n, _) =>
       h.insert n true) {})
@@ -1000,17 +965,18 @@ elab "#verify_elab_deep" id:ident : command =>
   -- names hit the environment directly) into the top-level unfold.
   let helperIds : Array Ident ← liftTermElabM do
     let env ← getEnv
-    let stop (n : Name) : Bool :=
-      let r := n.getRoot
-      r == `Sparkle && !(`Sparkle.IP).isPrefixOf n.eraseMacroScopes
-        |> fun inCore =>
-          inCore || r == `Init || r == `Lean || r == `Std
-          || r == `Nat || r == `BitVec || r == `List
     let isCore (n : Name) : Bool :=
-      -- keep Sparkle.Core / stdlib out; user IP helpers stay
+      -- keep the Sparkle core/compiler namespaces and the stdlib out;
+      -- user circuits stay (IP.*, Tests.*, and anything else a design
+      -- defines — a helper circuit under `Sparkle.Tests` is a helper)
       let base := (privateToUserName? n).getD n
-      stop base || (`Sparkle.Core).isPrefixOf base
+      let r := base.getRoot
+      r == `Init || r == `Lean || r == `Std
+        || r == `Nat || r == `BitVec || r == `List || r == `Tools
+        || (`Sparkle.Core).isPrefixOf base
         || (`Sparkle.IR).isPrefixOf base
+        || (`Sparkle.Compiler).isPrefixOf base
+        || (`Sparkle.Backend).isPrefixOf base
     let mentionsSignal (e : Lean.Expr) : Bool :=
       Option.isSome <| e.find? fun x =>
         match x with
@@ -1049,6 +1015,162 @@ elab "#verify_elab_deep" id:ident : command =>
       ⟨Lean.mkCIdentFrom Lean.Syntax.missing n (canonical := true)⟩
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     logInfo m!"#verify_elab_deep helpers: {helperIds.map (·.getId)}"
+  -- ===== loop nodes: the top `runCircuitH` and every NESTED one =====
+  -- The IR flattens nested `circuit do`s into one register list, but the
+  -- Signal side keeps one `Signal.loop` per `runCircuitH` node — and
+  -- `runCircuitH` evaluates its body TWICE (next-state and output), so a
+  -- nested circuit's registers appear twice in the IR (the copies are
+  -- identical recurrences).  Each node's slot signature (width, init,
+  -- Bool-ness) locates its candidate register blocks in the IR; the
+  -- Signal-side proof tries the candidates.
+  let loopNodes : Array LoopNode ← liftTermElabM do
+    let env ← getEnv
+    -- open a definition's leading lambdas; a `DomainConfig` binder is
+    -- instantiated at `defaultDomain` (the statement's domain), the rest
+    -- become fvars
+    let rec openLams (e : Lean.Expr) (fuel : Nat)
+        (k : Lean.Expr → Lean.MetaM (Array (Lean.Expr × Bool))) :
+        Lean.MetaM (Array (Lean.Expr × Bool)) := do
+      match fuel, e with
+      | fuel + 1, .lam n ty b bi =>
+        if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then
+          openLams (b.instantiate1
+            (Lean.mkConst ``Sparkle.Core.Domain.defaultDomain)) fuel k
+        else
+          Lean.Meta.withLocalDecl n bi ty fun x => openLams (b.instantiate1 x) fuel k
+      | _, _ => k e
+    -- the head application of a body (through lets and outer apps)
+    let rec findRC (e : Lean.Expr) (fuel : Nat) : Option Lean.Expr :=
+      match fuel with
+      | 0 => none
+      | fuel + 1 =>
+        let e := e.headBeta
+        match e with
+        | .letE _ _ v body _ => findRC (body.instantiate1 v) fuel
+        | _ =>
+          if e.getAppFn.isConstOf ``Sparkle.Core.runCircuitH then some e
+          else match e with
+            | .app f _ => findRC f fuel
+            | _ => none
+    -- every saturated runCircuitH application in a term (DAG-aware)
+    let collect (root : Lean.Expr) : Array Lean.Expr := Id.run do
+      let mut seen : Std.HashSet Lean.Expr := {}
+      let mut acc : Array Lean.Expr := #[]
+      let mut work : List Lean.Expr := [root]
+      let mut fuel := 200000
+      while fuel > 0 do
+        fuel := fuel - 1
+        match work with
+        | [] => break
+        | e :: rest =>
+          work := rest
+          if seen.contains e then continue
+          seen := seen.insert e
+          if e.isAppOf ``Sparkle.Core.runCircuitH && e.getAppNumArgs ≥ 8 then
+            acc := acc.push e
+          match e with
+          | .app f a => work := f :: a :: work
+          | .lam _ t b _ | .forallE _ t b _ => work := t :: b :: work
+          | .letE _ t v b _ => work := t :: v :: b :: work
+          | .mdata _ b | .proj _ _ b => work := b :: work
+          | _ => pure ()
+      return acc
+    let elemTys (αs : Lean.Expr) : Lean.MetaM (Array Lean.Expr) := do
+      let mut e ← Lean.Meta.whnf αs
+      let mut acc := #[]
+      for _ in [0:64] do
+        match e.getAppFnArgs with
+        | (``List.cons, #[_, hd, tl]) =>
+          acc := acc.push hd
+          e ← Lean.Meta.whnf tl
+        | _ => break
+      return acc
+    let initVals (h : Lean.Expr) (k : Nat) : Lean.MetaM (Option (Array Nat)) := do
+      let mut e ← Lean.Meta.whnf h
+      let mut acc : Array Nat := #[]
+      for _ in [0:k] do
+        match e.getAppFnArgs with
+        | (``Prod.mk, #[_, _, a, rest]) =>
+          -- reducible whnf only: default transparency would unfold
+          -- `BitVec.ofNat` itself into its `ofFin` body
+          let a ← Lean.Meta.whnfR a
+          let v? ← match a.getAppFnArgs with
+            | (``BitVec.ofNat, #[_, v]) => Lean.Meta.evalNat v
+            | (``Bool.true, _) => pure (some 1)
+            | (``Bool.false, _) => pure (some 0)
+            | _ => pure none
+          match v? with
+          | some v => acc := acc.push v
+          | none => return none
+          e ← Lean.Meta.whnf rest
+        | _ => return none
+      return some acc
+    let nodeOf (rc : Lean.Expr) (isTop : Bool) : Lean.MetaM (Option LoopNode) := do
+      let args := rc.getAppArgs
+      let αs := args[1]!
+      let inits := args[6]!
+      if αs.hasLooseBVars || inits.hasLooseBVars then return none
+      let tysE ← elemTys αs
+      let mut isBool := #[]
+      let mut widths := #[]
+      let mut tys := #[]
+      for ty in tysE do
+        if ty.isConstOf ``Bool then
+          isBool := isBool.push true; widths := widths.push 1
+        else
+          let ty' ← Lean.Meta.whnf ty
+          match ty'.getAppFnArgs with
+          | (``BitVec, #[w]) =>
+            match ← Lean.Meta.evalNat w with
+            | some n => isBool := isBool.push false; widths := widths.push n
+            | none => return none
+          | _ => return none
+        tys := tys.push (← Lean.PrettyPrinter.delab ty)
+      let some inits ← initVals inits tysE.size | return none
+      return some { isBool, widths, inits, tys, isTop }
+    let mut nodes : Array LoopNode := #[]
+    -- the definition itself: head node = top, the rest nested
+    let root ← getConstInfo declName
+    if let some val := root.value? then
+      let apps ← openLams val 64 fun body => do
+        let top? := findRC body 64
+        let all := collect body
+        pure <| all.map fun a => (a, top?.any (· == a))
+      for (a, isTop) in apps do
+        if let some n ← nodeOf a isTop then nodes := nodes.push n
+    -- the helpers: every runCircuitH inside is nested
+    for hid in helperIds do
+      match env.find? hid.getId.eraseMacroScopes with
+      | some (.defnInfo v) =>
+        let apps ← openLams v.value 64 fun body =>
+          pure <| (collect body).map (·, false)
+        for (a, _) in apps do
+          if let some n ← nodeOf a false then nodes := nodes.push n
+      | _ => pure ()
+    -- dedupe by signature (a helper instantiated twice is one node)
+    let mut out : Array LoopNode := #[]
+    for n in nodes do
+      if out.any (fun m => m.isTop == n.isTop && m.isBool == n.isBool
+          && m.widths == n.widths && m.inits == n.inits) then continue
+      out := out.push n
+    pure out
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    for n in loopNodes do
+      logInfo m!"#verify_elab_deep loop node (top={n.isTop}): widths {n.widths} inits {n.inits} bool {n.isBool}"
+  let some topNode := loopNodes.find? (·.isTop)
+    | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
+  let nestedNodes := loopNodes.filter (!·.isTop)
+  -- candidate register blocks of a node: contiguous IR registers whose
+  -- (width, init) signature matches slot for slot
+  let blocksFor (n : LoopNode) : List Nat :=
+    let k := n.widths.size
+    (List.range (nR + 1 - k)).filter fun s =>
+      (List.range k).all fun j =>
+        regWs[s + j]! == n.widths[j]! &&
+        (regs[s + j]!).2.2.toNat == n.inits[j]!
+  let topBlocks := blocksFor topNode
+  if topBlocks.isEmpty then
+    throwError "#verify_elab_deep: no IR register block matches the top-level circuit's registers {topNode.widths} / {topNode.inits}"
   -- fidelity quoting (see the FIDELITY comment below)
   let quoteIR (e : Sparkle.IR.AST.Expr) : CommandElabM Term := do
     match Lean.Parser.runParserCategory (← getEnv) `term
@@ -1340,19 +1462,93 @@ elab "#verify_elab_deep" id:ident : command =>
       show CExpr.denote _ _ = _
       rw [Cdo.stateSig_eq]
       rfl))
-    -- the pack: HList of reader components
-    let packBody ← do
+    -- ===== packs, duplicate copies, and the nested-loop machinery =====
+    let uId := mkI "u"
+    let mId := mkI "m"
+    let preId := mkI "pre"
+    let hpreId := mkI "hpre"
+    let qId := mkI "q"
+    let hqId := mkI "hq"
+    let hgId := mkI "hg"
+    let LId := mkI "L"
+    let hLId := mkI "hL"
+    let hLtId := mkI "hLt"
+    let iId := mkI "i"
+    let hiId := mkI "hi"
+    let ihId := mkI "ih"
+    -- the pack of a node's register block starting at IR register `b`,
+    -- at time `tv`: the HList of its readers (a Bool register's slot is
+    -- `Bool`, the reader yields `BitVec 1` — decode it)
+    let packOf (node : LoopNode) (b : Nat) (tv : Term) : CommandElabM Term := do
+      let k := node.widths.size
       let mut acc : Term ← `(())
-      for i in (List.range nR).reverse do
-        let rdId : Ident := rdIds[i]!
-        let slot ← `($rdId $appArgs* $sId)
-        -- a Bool register's HList slot is `Bool`, but the reader yields
-        -- `BitVec 1`; decode it so the pack has the loop-state type
-        let slot ← if regIsBool.getD i false then
-            `(($slot == 1#1))
-          else pure slot
+      for j in (List.range k).reverse do
+        let rdId : Ident := rdIds[b + j]!
+        let slot ← `($rdId $appArgs* $tv)
+        let slot ← if node.isBool[j]! then `(($slot == 1#1)) else pure slot
         acc ← `(($slot, $acc))
       pure acc
+    -- Duplicate copies of a nested node's block (runCircuitH evaluates
+    -- its body twice): identical recurrences — cones equal modulo the
+    -- block's own register names — so every copy equals the canonical
+    -- (first) one, cycle by cycle, by induction on the readers' step
+    -- lemmas.  The Signal-side proof picks SOME copy for each inner
+    -- loop; these equalities normalise the choice.
+    let projOf (baseT : Term) (j : Nat) : CommandElabM Term := do
+      let mut rest : Term := baseT
+      for _ in [0:j] do rest ← `(($rest).2)
+      `(($rest).1)
+    let mut dupIds : Array Ident := #[]
+    for node in nestedNodes do
+      match blocksFor node with
+      | [] => pure ()
+      | b0 :: others =>
+        let k := node.widths.size
+        for b in others do
+          let subst : Std.HashMap String String :=
+            (List.range k).foldl (fun m j =>
+              m.insert (regs[b + j]!).1 (regs[b0 + j]!).1) {}
+          let same := (List.range k).all fun j =>
+            Sparkle.IR.Optimize.renameRefs subst conesIR[b + j]! == conesIR[b0 + j]!
+          if !same then continue
+          let dupId := mkI s!"{base}{suffix}_deep_dup_b{b}"
+          let stmt ← do
+            let mut acc : Term ← `(True)
+            for j in (List.range k).reverse do
+              let r1 : Ident := rdIds[b + j]!
+              let r0 : Ident := rdIds[b0 + j]!
+              acc ← `(($r1 $appArgs* $nId = $r0 $appArgs* $nId) ∧ $acc)
+            pure acc
+          let ihT : Term ← `($ihId)
+          let projs : Array Term ← (List.range k).toArray.mapM fun j =>
+            projOf ihT j
+          let zeroIdsB : Array Ident := (List.range k).toArray.map fun j => rdZeroIds[b + j]!
+          let zeroIds0 : Array Ident := (List.range k).toArray.map fun j => rdZeroIds[b0 + j]!
+          let succIdsB : Array Ident := (List.range k).toArray.map fun j => rdSuccIds[b + j]!
+          let succIds0 : Array Ident := (List.range k).toArray.map fun j => rdSuccIds[b0 + j]!
+          let zeroTs : Array Term := (zeroIdsB ++ zeroIds0).map fun i => ⟨i.raw⟩
+          let succTs : Array Term := ((succIdsB ++ succIds0).map fun i => (⟨i.raw⟩ : Term)) ++ projs
+          elabCommand (← `(theorem $dupId $paramBinders* : ∀ ($nId : Nat), $stmt := by
+            intro $nId:ident
+            induction $nId:ident with
+            | zero =>
+              simp only [$[$zeroTs:term],*]
+              all_goals (repeat' apply And.intro)
+              all_goals (first | rfl | trivial)
+            | succ $nId $ihId =>
+              simp only [$[$succTs:term],*]
+              all_goals (repeat' apply And.intro)
+              all_goals (first | rfl | trivial)))
+          for j in List.range k do
+            let dupRId := mkI s!"{base}{suffix}_deep_dup_r{b + j}"
+            let r1 : Ident := rdIds[b + j]!
+            let r0 : Ident := rdIds[b0 + j]!
+            let pj ← projOf (← `($dupId $appArgs* $sId)) j
+            elabCommand (← `(theorem $dupRId $paramBinders* ($sId : Nat) :
+              $r1 $appArgs* $sId = $r0 $appArgs* $sId := $pj))
+            dupIds := dupIds.push dupRId
+    let dupSimp : Lean.TSyntax `tactic ← if dupIds.isEmpty then `(tactic| skip)
+      else `(tactic| all_goals (try simp only [$[$dupIds:ident],*]))
     -- After the step lemmas the only state terms left are the readers
     -- at the previous cycle; abstract them to plain literal-width
     -- variables (the time index is left to unification) so the
@@ -1383,7 +1579,66 @@ elab "#verify_elab_deep" id:ident : command =>
             BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
             $[$inpAtIds:ident],*]; done)
         | bv_omega
-        | (simp; done)))
+        | (simp; done)
+        | fail "#verify_elab_deep: closers exhausted on this goal"))
+    -- stage 1: unfold a loop body down to `.val`-level Signal plumbing.
+    -- The sigval_* family pushes each operator instance pointwise;
+    -- unfolding the `H*` class projections instead would rewrite the
+    -- BitVec level too and leave the goal's two sides in different head
+    -- forms (`XorOp.xor` vs `^^^`), blinding both simp and bv_decide.
+    let stage1 (extra : Array Term) : CommandElabM (Lean.TSyntax `tactic) := do
+      let extraAll : Array Term := (inpAtIds.map fun i => (⟨i.raw⟩ : Term)) ++ extra
+      `(tactic| simp [loopFOf, packRegister, Signal.register, Circuit.next,
+        Circuit.pure', Circuit.bind, mkHolds, Signal.map,
+        Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
+        Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
+        $[$extraAll:term],*])
+    -- NESTED loops (`runCircuitH` inside the body, via helpers or
+    -- inline): after stage 1 each appears as `(Signal.loop F).val n`
+    -- (under a `Signal.map Prod.fst` output projection).  Its body may
+    -- read the enclosing live signal, about which only the prefix
+    -- `guard` is known, so `loop_trace_guarded_at` replaces it by the
+    -- pack of one of its candidate register blocks; the step obligation
+    -- is the same recipe.  Candidates are tried in turn — a wrong block
+    -- fails its step proof and the next is tried — until no loop is left.
+    let innerBlock (guard : Term) : CommandElabM (Lean.TSyntax `tactic) := do
+      let mut alts : Array (Lean.TSyntax `tactic) := #[]
+      for node in nestedNodes do
+        for b in blocksFor node do
+          let packS ← packOf node b (← `($sId))
+          let st1z ← stage1 #[]
+          let st1s ← stage1 #[← `($hqId $mId (Nat.lt_succ_self $mId)),
+            ← `($hgId $mId (Nat.lt_succ_self $mId))]
+          alts := alts.push (← `(tactic| (
+            rw [loop_trace_guarded_at _ (fun $sId => $packS) ?hs _ $guard]
+            case hs =>
+              intro $uId:ident $qId:ident $hqId:ident $hgId:ident
+              cases $uId:ident with
+              | zero =>
+                $st1z:tactic
+                $appendFix:tactic
+                all_goals (try simp only [$[$rdZeroIds:ident],*])
+                $closers:tactic
+              | succ $mId =>
+                $st1s:tactic
+                $appendFix:tactic
+                all_goals (try simp only [$[$rdSuccIds:ident],*])
+                $dupSimp:tactic
+                ($[$genLines:tactic]*)
+                $closers:tactic)))
+      if alts.isEmpty then `(tactic| skip) else do
+      let mut alt : Lean.TSyntax `tactic := alts.back!
+      for a in alts.pop.reverse do
+        alt ← `(tactic| first | $a:tactic | $alt:tactic)
+      -- expose the nested loops: unfold their runCircuitH and push the
+      -- inner body's OUTPUT expression (which surfaces here for the
+      -- first time) down to `.val` level with the stage-1 set, so each
+      -- loop appears as `(Signal.loop F).val n`
+      let expose ← stage1 #[← `(runCircuitH_eq), ← `(outFOf)]
+      `(tactic| (
+        all_goals (try $expose:tactic)
+        $appendFix:tactic
+        all_goals (repeat $alt:tactic)))
     -- LHS signal: struct ports project their field; Bool-typed
     -- outputs enter as their 1-bit encoding (same as Bool inputs)
     let lhsSig : Term ← match proj? with
@@ -1417,6 +1672,63 @@ elab "#verify_elab_deep" id:ident : command =>
     let outUnfoldIds : Array Ident := match proj? with
       | some pj => helperIds.push pj
       | none => helperIds
+    -- The top loop, per candidate block: abstract the loop signal as
+    -- `L`, prove its trace once (`hLt`, via loop_trace_at with the
+    -- step recipe — nested loops inside the step are discharged with
+    -- the `hpre` prefix as guard), then the output side against the
+    -- shallow output equation, with `hLt` itself as the guard for the
+    -- nested loops the output reads.
+    let retTyStx : Term ← liftTermElabM (Lean.PrettyPrinter.delab retTy)
+    let topTys := topNode.tys
+    let mkTopProof (b : Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+      let packS ← packOf topNode b (← `($sId))
+      let packU ← packOf topNode b (← `($uId))
+      let hpreGuard ← `((fun $iId $hiId => $hpreId $iId (by omega)))
+      let hLtGuard ← `((fun $iId _ => $hLtId $iId))
+      let innerHpre ← innerBlock hpreGuard
+      let innerHLt ← innerBlock hLtGuard
+      let st1z ← stage1 #[]
+      let st1s ← stage1 #[← `($hpreId $nId (Nat.lt_succ_self $nId))]
+      `(tactic| (
+        generalize $hLId : Signal.loop (loopFOf
+          (dom := Sparkle.Core.Domain.defaultDomain)
+          (αs := [$topTys,*]) (ρ := $retTyStx) _ _) = $LId
+        have $hLtId : ∀ ($uId : Nat), ($LId).val $uId = $packU := by
+          intro $uId:ident
+          rw [← $hLId:ident]
+          refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
+          intro $uId:ident $preId:ident $hpreId:ident
+          cases $uId:ident with
+          | zero =>
+            $st1z:tactic
+            $appendFix:tactic
+            -- stage 2: the spec side is the readers at cycle 0
+            all_goals (try simp only [$[$rdZeroIds:ident],*])
+            $closers:tactic
+          | succ $nId =>
+            $st1s:tactic
+            $appendFix:tactic
+            $innerHpre:tactic
+            -- stage 2: one step of the spec recurrence, as the shallow
+            -- literal-width expressions over the readers at cycle n
+            all_goals (try simp only [$[$rdSuccIds:ident],*])
+            $dupSimp:tactic
+            ($[$genLines:tactic]*)
+            $closers:tactic
+        -- the output side: outSig against the packed projection, via
+        -- the shallow output equation
+        rw [$outSId:ident]
+        all_goals (try simp only [$hLtId:ident])
+        $innerHLt:tactic
+        $dupSimp:tactic
+        ($[$genLines:tactic]*)
+        $closers:tactic))
+    let topProof : Lean.TSyntax `tactic ← do
+      let alts ← topBlocks.toArray.mapM mkTopProof
+      let mut alt : Lean.TSyntax `tactic := alts.back!
+      for a in alts.pop.reverse do
+        alt ← `(tactic| first | $a:tactic | $alt:tactic)
+      pure alt
     -- the theorem: general theorem + per-instance Signal bridge
     let thmCmd ← `(set_option maxRecDepth 65536 in
       set_option maxHeartbeats 1600000 in
@@ -1441,44 +1753,7 @@ elab "#verify_elab_deep" id:ident : command =>
       simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
         $[$outUnfoldIds:ident],*]
       $appendFix:tactic
-      rw [loop_trace_at _ (fun $sId => $packBody) ?hstep]
-      case hstep =>
-        intro u pre hpre
-        cases u with
-        | zero =>
-          -- stage 1: unfold the loop body down to `.val`-level Signal
-          -- plumbing.  The sigval_* family pushes each operator
-          -- instance pointwise; unfolding the `H*` class projections
-          -- instead would rewrite the BitVec level too and leave the
-          -- goal's two sides in different head forms (`XorOp.xor`
-          -- vs `^^^`), blinding both simp and bv_decide.
-          simp [loopFOf, packRegister, Signal.register, Circuit.next,
-            Circuit.pure', Circuit.bind, mkHolds, Signal.map,
-            Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
-            Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
-            $[$inpAtIds:ident],*]
-          $appendFix:tactic
-          -- stage 2: the spec side is the readers at cycle 0
-          all_goals (try simp only [$[$rdZeroIds:ident],*])
-          $closers:tactic
-        | succ $nId =>
-          simp [loopFOf, packRegister, Signal.register, Circuit.next,
-            Circuit.pure', Circuit.bind, mkHolds, Signal.map,
-            Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
-            Signal.ap, Signal.seq, hpre $nId (Nat.lt_succ_self $nId),
-            sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
-            $[$inpAtIds:ident],*]
-          $appendFix:tactic
-          -- stage 2: one step of the spec recurrence, as the shallow
-          -- literal-width expressions over the readers at cycle n
-          all_goals (try simp only [$[$rdSuccIds:ident],*])
-          ($[$genLines:tactic]*)
-          $closers:tactic
-      · -- the output side: outSig against the packed projection, via
-        -- the shallow output equation
-        rw [$outSId:ident]
-        ($[$genLines:tactic]*)
-        $closers:tactic)
+      $topProof:tactic)
     if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
       logInfo m!"{thmCmd}"
     if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then

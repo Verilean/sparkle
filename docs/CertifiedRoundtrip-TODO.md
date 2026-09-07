@@ -103,7 +103,39 @@ group is rough priority.  Update as items land.
   constants (`crc32`'s `private abbrev poly`) are unfolded with the
   Signal helpers.  `uartTxHW` joined `Tests/Verification/
   DeepElabRealIP.lean`; all 13 demos + crc32 still PROVEN.
-- [ ] Nested `circuit do` composition.
+- [x] **Nested `circuit do` composition — DONE** (Tools/DeepElab.lean;
+  demos `outerNest` / `outerFb` in DeepElabReifyDemo).  Facts learned:
+  the IR flattens nested circuits into one register list, and because
+  `runCircuitH` evaluates its body twice (next-state and output) the
+  elaborator emits a nested circuit's registers TWICE (identical
+  recurrences; the output reads one copy, the outer registers the
+  other) — e.g. `closedLoopCircuit` has 5 registers for a 3-register
+  design.  The Signal side keeps one `Signal.loop` per `runCircuitH`
+  node.  Generator: discovers every `runCircuitH` node (top + nested,
+  through the collected helpers) with its slot signature (width, init,
+  Bool-ness), locates candidate register blocks in the IR by signature,
+  abstracts the top loop as `L` and proves its trace once (`hLt`); each
+  nested loop is discharged by the new `loop_trace_guarded_at`
+  (Tools/VerifyElab.lean — the inner body may read the enclosing live
+  signal, known only as a prefix) against a candidate block, trying the
+  candidates in turn; duplicate copies get generated `_dup_r*`
+  equalities (induction on the readers' step lemmas) that normalise
+  whichever copy the proof picked.  Also fixed: the helper filter
+  treated every `Sparkle.*` name as core, so helpers under
+  `Sparkle.Tests.*` were never unfolded.  Depth-2 nesting (a loop inside
+  a nested loop) is not handled yet.
+- [ ] **Arithmetic size frontier** — `closedLoopCircuit` (PID + plant,
+  32/64-bit fixed-point multiplies) times out at `isDefEq` in the
+  definition phase (readers' `rfl` step lemmas / fidelity over the
+  multiply cones) before the bridge runs; bv_decide on 64-bit multiply
+  would be the next wall anyway.  Needs a different closer strategy
+  (toNat-level arithmetic lemmas, or `decide`-free normalisation).
+- [ ] **Elaborator: duplicated nested-circuit registers.**  Not a proof
+  issue — the emitted Verilog really has the copies (measured 5 vs 3 on
+  `closedLoopCircuit`; the observer memo in Elab.lean notes an
+  ELEVEN-fold case that the expression cache only partly fixed).  The
+  two copies differ only in their live-signal context, so a cache keyed
+  modulo the loop binder could merge them.  Synthesis-quality item.
 - [ ] Non-Signal value parameters.
 - [ ] Memories / sub-instances (`.inst`) in the deep grammar.
 - [ ] Bridge v1 limits: register inputs that aren't `.ref` wires

@@ -27,11 +27,12 @@ import Tools.DeepElab
     instead of `Cdo.stateAt`'s `Γr.get i`-typed values.
 
   Known boundaries (each is a worklist item, not a silent skip):
-  * nested `circuit do` composition (e.g. `closedLoopCircuit` embeds
-    `demoPID`'s own 2-register circuit) — the Signal bridge assumes
-    a single top-level `runCircuitH`;
   * non-Signal value parameters (`biquad`'s `lim`, `mulQSig`'s
-    `w f`) — need a specialized wrapper def, as for synthesis.
+    `w f`) — need a specialized wrapper def, as for synthesis;
+  * arithmetic size: `closedLoopCircuit` (PID + plant, 32/64-bit
+    fixed-point multiplies, nested) times out in the definition phase
+    (`isDefEq` on the multiply cones) before the bridge runs — the
+    nesting itself is covered by the `DeepElabReifyDemo` nested demos.
 -/
 
 namespace Sparkle.Tests.DeepElabRealIP
