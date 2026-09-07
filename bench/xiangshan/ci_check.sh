@@ -230,9 +230,9 @@ if [ -f "$ELAB_FILE" ]; then
       dproven=$(grep -c 'PROVEN' "$WORK/deep_elab.log")
       echo "deep-elab (general theorem): $dproven circuits proven"
       # 13 flat demos + 3 nested-circuit demos (outerNest, outerFb, lvl0)
-      # + 2 value-parameter wrappers (accK15, accN200)
-      if [ "$dproven" -lt 18 ]; then
-        echo "FAIL: deep-elab proved $dproven < 18 demo circuits"; fail=1
+      # + 2 value-parameter wrappers (accK15, accN200) + 1 memory (memAcc)
+      if [ "$dproven" -lt 19 ]; then
+        echo "FAIL: deep-elab proved $dproven < 19 demo circuits"; fail=1
       fi
     else
       echo "FAIL: #verify_elab_deep demo did not close"

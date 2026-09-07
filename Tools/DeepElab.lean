@@ -586,6 +586,151 @@ theorem Cdo.elab_general {Γr Γi wOut} (c : Cdo Γr Γi wOut)
   unfold Cdo.outSig
   simp only [c.stateSig_eq inpS t]
 
+/-! E2m: deep circuits WITH synchronous memories.
+
+A `Signal.memory` in a `circuit do` body lowers to an IR `.memory`
+statement: contents (state, updated by the write port after the cycle)
+plus a read-data wire that LATCHES `contents[readAddr]` at the clock
+edge (read-old — the IR's `syncReadLatches`, the Verilog `always_ff`,
+and `Signal.memState`).  `CdoM` extends `Cdo` with a memory context:
+a state slot's next value is either a combinational cone or such a
+latch, and every memory carries one write port.  Cones never read a
+memory directly (only its latch wire, an ordinary state slot), so
+`CExpr`, `compile` and `compile_correct` are unchanged; only the state
+recurrence changes. -/
+
+/-- (address width, data width) -/
+abbrev MemSig := Nat × Nat
+
+/-- Memory contents: one array per memory. -/
+def CMem (Γm : List MemSig) :=
+  ∀ k : Fin Γm.length, BitVec (Γm.get k).1 → BitVec (Γm.get k).2
+
+instance {Γm : List MemSig} : Inhabited (CMem Γm) := ⟨fun _ _ => default⟩
+
+/-- Next value of a state slot of width `w`. -/
+inductive NextM (Γ : List Nat) (Γm : List MemSig) : Nat → Type where
+  | cone {w : Nat} (e : CExpr Γ w) : NextM Γ Γm w
+  | latch (k : Fin Γm.length) (addr : CExpr Γ (Γm.get k).1) : NextM Γ Γm (Γm.get k).2
+
+def NextM.denote {Γ : List Nat} {Γm : List MemSig} {w : Nat}
+    (ρ : CEnv Γ) (μ : CMem Γm) : NextM Γ Γm w → BitVec w
+  | .cone e => e.denote ρ
+  | .latch k a => μ k (a.denote ρ)
+
+/-- The IR cone of a cone slot (fidelity checks); a latch has none. -/
+def NextM.compileCone {Γ : List Nat} {Γm : List MemSig} {w : Nat}
+    (names : Fin Γ.length → String) : NextM Γ Γm w → Option Expr
+  | .cone e => some (e.compile names)
+  | .latch _ _ => none
+
+structure CdoM (Γr Γi : List Nat) (Γm : List MemSig) (wOut : Nat) where
+  inits  : CEnv Γr
+  minits : CMem Γm
+  next   : ∀ i : Fin Γr.length, NextM (Γr ++ Γi) Γm (Γr.get i)
+  /-- the write port of memory `k`: (address, data, enable) -/
+  writes : ∀ k : Fin Γm.length,
+    CExpr (Γr ++ Γi) (Γm.get k).1 × CExpr (Γr ++ Γi) (Γm.get k).2
+      × CExpr (Γr ++ Γi) 1
+  out    : CExpr (Γr ++ Γi) wOut
+
+/-- The contents after one cycle's write (evaluated in this cycle's
+    environment; a single port, so no port-order question). -/
+def CdoM.memUpd {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (ρ : CEnv (Γr ++ Γi)) (μ : CMem Γm) : CMem Γm := fun k =>
+  let wa := (c.writes k).1
+  let wd := (c.writes k).2.1
+  let we := (c.writes k).2.2
+  fun addr =>
+    if we.denote ρ = 1#1 ∧ addr = wa.denote ρ then wd.denote ρ else μ k addr
+
+/-- The state recurrence (registers and latches, contents). -/
+def CdoM.stateAt {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inp : Nat → CEnv Γi) : Nat → CEnv Γr × CMem Γm
+  | 0 => (c.inits, c.minits)
+  | t+1 =>
+    let st := c.stateAt inp t
+    let ρ := CEnv.join st.1 (inp t)
+    (fun i => (c.next i).denote ρ st.2, c.memUpd ρ st.2)
+
+/-- The Signal-level loop body: registers/latches and contents delay by
+    one; next state from the previous state and the inputs. -/
+def CdoM.loopF {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) :
+    Sparkle.Core.Signal.Signal dom (CEnv Γr × CMem Γm) →
+    Sparkle.Core.Signal.Signal dom (CEnv Γr × CMem Γm) :=
+  fun live => ⟨fun t => match t with
+    | 0 => (c.inits, c.minits)
+    | t+1 =>
+      let ρ := CEnv.join (live.val t).1 (fun j => (inpS j).val t)
+      (fun i => (c.next i).denote ρ (live.val t).2, c.memUpd ρ (live.val t).2)⟩
+
+def CdoM.stateSig {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) :
+    Sparkle.Core.Signal.Signal dom (CEnv Γr × CMem Γm) :=
+  Sparkle.Core.Signal.Signal.loop (c.loopF inpS)
+
+theorem CdoM.stateSig_eq {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) (t : Nat) :
+    (c.stateSig (dom := dom) inpS).val t
+      = c.stateAt (fun t j => (inpS j).val t) t := by
+  unfold CdoM.stateSig
+  rw [loop_trace_at _ (fun s => c.stateAt (fun t j => (inpS j).val t) s)
+    ?hstep]
+  case hstep =>
+    intro u pre hpre
+    cases u with
+    | zero => rfl
+    | succ n =>
+      show (fun i => (c.next i).denote
+            (CEnv.join (pre.val n).1 (fun j => (inpS j).val n)) (pre.val n).2,
+          c.memUpd (CEnv.join (pre.val n).1 (fun j => (inpS j).val n)) (pre.val n).2)
+        = _
+      rw [hpre n (Nat.lt_succ_self n)]
+      rfl
+
+def CdoM.outSig {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) :
+    Sparkle.Core.Signal.Signal dom (BitVec wOut) :=
+  ⟨fun t => c.out.denote
+    (CEnv.join ((c.stateSig inpS).val t).1 (fun j => (inpS j).val t))⟩
+
+/-- The IR-side view of the register/latch state: `toNat` of the spec. -/
+def CdoM.irState {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inp : Nat → CEnv Γi) (t : Nat) : Fin Γr.length → Nat :=
+  fun i => ((c.stateAt inp t).1 i).toNat
+
+/-- **The general Signal↔IR theorem with memories**: the Signal-level
+    output equals the compiled output cone under the proven IR
+    semantics at the deep state.  Same proof as `Cdo.elab_general`:
+    the output cone reads only state slots and inputs. -/
+theorem CdoM.elab_general {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (names : Fin (Γr ++ Γi).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) (t : Nat) :
+    ((c.outSig (dom := dom) inpS).val t).toNat
+      = (evalExpr (weOfC names (fun j => (Γr ++ Γi).get j))
+          (envOfC names (natJoin
+            (c.irState (fun t j => (inpS j).val t) t)
+            (fun j => ((inpS j).val t).toNat)))
+          (c.out.compile names)).getD 0 := by
+  rw [CExpr.compile_correct names _ _
+    (CEnv.join (c.stateAt (fun t j => (inpS j).val t) t).1
+      (fun j => (inpS j).val t))
+    (fun j => weOfC_names names _ hinj j)
+    (fun j => by
+      rw [envOfC_names names _ hinj j, ← natJoin_eq_join]
+      rfl)]
+  show ((c.outSig (dom := dom) inpS).val t).toNat
+      = (c.out.denote _).toNat
+  unfold CdoM.outSig
+  simp only [c.stateSig_eq inpS t]
+
 /-! E3: reifying elaborated circuits into `Cdo` values.
 
 The meta side lives here: turn an inlined IR cone back into a `CExpr`
@@ -767,6 +912,13 @@ elab "#verify_elab_deep" id:ident : command =>
   -- the recovery sorry) land only later, and a failed bridge would be
   -- reported PROVEN — so everything here elaborates synchronously
   withScope (fun sc => { sc with opts := Lean.Elab.async.set sc.opts false }) do
+  -- Every generated theorem is elaborated and kernel-checked
+  -- SYNCHRONOUSLY (`set_option Elab.async false in`): the sorryAx /
+  -- kernel audit below reads the constant right after its command, and
+  -- an asynchronously elaborated theorem is not there yet (the audit
+  -- then silently passed, or reported a kernel-rejected proof PROVEN).
+  let elabSync (c : Lean.TSyntax `command) : CommandElabM Unit := do
+    elabCommand (← `(set_option Elab.async false in $c:command))
   let declName ← liftTermElabM <|
     Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
   let design ← liftTermElabM
@@ -774,13 +926,32 @@ elab "#verify_elab_deep" id:ident : command =>
   let m ← match design.modules with
     | [m] => pure m
     | _ => throwError "#verify_elab_deep: single-module designs only"
-  let regs := theRegisters m
+  let regsOnly := theRegisters m
+  -- Synchronous single-port memories (`Signal.memory`): contents state
+  -- plus a read latch.  The latch wire becomes a STATE SLOT after the
+  -- registers (init 0; its "cone" is the read address, a `.latch`).
+  let memsRaw := m.body.filterMap fun st => match st with
+    | .memory name aw dw _ wa wd we ra rd cr ew er =>
+      some (name, aw, dw, wa, wd, we, ra, rd, cr, ew.length + er.length)
+    | _ => none
+  for (name, _, _, _, _, _, _, _, cr, extra) in memsRaw do
+    if cr then throwError "#verify_elab_deep: memory {name} has a combinational read port (memoryComboRead is not synthesizable and outside the deep grammar)"
+    if extra != 0 then throwError "#verify_elab_deep: memory {name}: multi-port memories are outside the deep grammar"
+  let mems : List (String × Nat × Nat × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
+      × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr × String) :=
+    memsRaw.map fun (name, aw, dw, wa, wd, we, ra, rd, _, _) => (name, aw, dw, wa, wd, we, ra, rd)
+  let hasMem := !mems.isEmpty
+  let nM := mems.length
+  let nReg := regsOnly.length
+  let regs : List (String × Sparkle.IR.AST.Expr × Int) :=
+    regsOnly ++ mems.map fun (_, _, _, _, _, _, ra, rd) => (rd, ra, (0 : Int))
   let nR := regs.length
   if nR == 0 then throwError "#verify_elab_deep: no registers"
   let ins := dataInputs m
   let nI := ins.length
   let wt := widthTable m
-  let regWs := regs.map fun (n, _, _) => wt.getD n 0
+  let regWs := (regsOnly.map fun (n, _, _) => wt.getD n 0)
+    ++ mems.map fun (_, _, dw, _, _, _, _, _) => dw
   let inWs := ins.map fun (_, w) => w
   let stopAt : Std.HashMap String Bool :=
     (ins.foldl (fun (h : Std.HashMap String Bool) (n, _) =>
@@ -796,6 +967,15 @@ elab "#verify_elab_deep" id:ident : command =>
     | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
     | .error e => throwError "#verify_elab_deep: cone of {n}: {e}"
   let cones ← conesIR.mapM (toCExpr slotIdx)
+  -- write ports (address, data, enable) per memory, as resolved cones
+  let memConesIR ← mems.mapM fun (name, _, _, wa, wd, we, _, _) => do
+    let cone (e : Sparkle.IR.AST.Expr) : CommandElabM Sparkle.IR.AST.Expr :=
+      match Tools.ConeFold.inlineConeT dm stopAt 10000 e with
+      | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
+      | .error err => throwError "#verify_elab_deep: write port of memory {name}: {err}"
+    pure (← cone wa, ← cone wd, ← cone we)
+  let memCs ← memConesIR.mapM fun (wa, wd, we) => do
+    pure (← toCExpr slotIdx wa, ← toCExpr slotIdx wd, ← toCExpr slotIdx we)
   -- ALL output ports.  A struct-returning `circuit do` flattens its
   -- fields into one port per field, named after the field; each port
   -- gets its own Cdo (sharing the register cones) and its own theorem.
@@ -816,6 +996,9 @@ elab "#verify_elab_deep" id:ident : command =>
   let inWsT : Array Term := inWs.toArray.map fun w => quote w
   let ΓrT : Term ← `([$regWsT,*])
   let ΓiT : Term ← `([$inWsT,*])
+  let memSigT : Array Term ← mems.toArray.mapM fun (_, aw, dw, _, _, _, _, _) =>
+    `((($(quote aw), $(quote dw)) : Nat × Nat))
+  let ΓmT : Term ← `([$memSigT,*])
   -- param binders from the DSL signature
   let paramOf (n : String) : String :=
     match n.dropPrefix? "_gen_" with
@@ -887,6 +1070,18 @@ elab "#verify_elab_deep" id:ident : command =>
   let nextArms ← (List.range nR).toArray.mapM fun i => do
     `(Lean.Parser.Term.matchAltExpr|
       | ⟨$(quote i), _⟩ => $(cones[i]!))
+  -- CdoM form: register slots are cones, latch slots read their memory
+  let nextArmsM ← (List.range nR).toArray.mapM fun i => do
+    if i < nReg then
+      `(Lean.Parser.Term.matchAltExpr|
+        | ⟨$(quote i), _⟩ => NextM.cone $(cones[i]!))
+    else
+      `(Lean.Parser.Term.matchAltExpr|
+        | ⟨$(quote i), _⟩ => NextM.latch ⟨$(quote (i - nReg)), by decide⟩ $(cones[i]!))
+  let writesArms ← (List.range nM).toArray.mapM fun k => do
+    let (wa, wd, we) := memCs[k]!
+    `(Lean.Parser.Term.matchAltExpr|
+      | ⟨$(quote k), _⟩ => ($wa, $wd, $we))
   -- slot names
   let nmArms ← (List.range (nR + nI)).toArray.mapM fun i => do
     let s := if h : i < nR then (regs[i]!).1 else (ins[i - nR]!).1
@@ -949,12 +1144,12 @@ elab "#verify_elab_deep" id:ident : command =>
   let inpAtIds : Array Ident ← (List.range nI).toArray.flatMapM fun j => do
     let rhs ← inpValRhs[j]! (← `(tv))
     let atId := mkI s!"{base}_inp_at_{j}"
-    elabCommand (← `(theorem $atId $paramBinders* (tv : Nat) :
+    elabSync (← `(theorem $atId $paramBinders* (tv : Nat) :
       ($inpId $appArgs* $(quote j)).val tv = $rhs := rfl))
     -- the applied index appears in BOTH OfNat-literal and Fin.mk
     -- forms depending on which normalization reached it; cover both
     let atMkId := mkI s!"{base}_inp_at_mk_{j}"
-    elabCommand (← `(theorem $atMkId $paramBinders* (tv : Nat) :
+    elabSync (← `(theorem $atMkId $paramBinders* (tv : Nat) :
       ($inpId $appArgs* ⟨$(quote j), by decide⟩).val tv = $rhs := rfl))
     pure #[atId, atMkId]
   -- Helper Signal functions called from the body (e.g. a private
@@ -1233,19 +1428,35 @@ elab "#verify_elab_deep" id:ident : command =>
     let nextEqId := mkI s!"{base}{suffix}_deep_next"
     let initsEqId := mkI s!"{base}{suffix}_deep_inits"
     let outEqId := mkI s!"{base}{suffix}_deep_out"
-    elabCommand (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
-      inits := fun i => match i with $initArms:matchAlt*
-      next := fun i => match i with $nextArms:matchAlt*
-      out := $outC))
-    -- projection equations (rfl): rewrite `f_deep.next` etc. WITHOUT
-    -- ever exposing the anonymous structure literal — a literal that
-    -- appears in some hypotheses but not others (the pack references
-    -- the NAME) leaves simp_all unable to see two forms of one fact
-    elabCommand (← `(theorem $nextEqId :
-      Cdo.next $deepId = fun i => match i with $nextArms:matchAlt* := rfl))
-    elabCommand (← `(theorem $initsEqId :
-      Cdo.inits $deepId = fun i => match i with $initArms:matchAlt* := rfl))
-    elabCommand (← `(theorem $outEqId : Cdo.out $deepId = $outC := rfl))
+    let writesEqId := mkI s!"{base}{suffix}_deep_writes"
+    if hasMem then
+      elabCommand (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $(quote wOut) where
+        inits := fun i => match i with $initArms:matchAlt*
+        minits := fun _ _ => 0
+        next := fun i => match i with $nextArmsM:matchAlt*
+        writes := fun k => match k with $writesArms:matchAlt*
+        out := $outC))
+      elabSync (← `(theorem $nextEqId :
+        CdoM.next $deepId = fun i => match i with $nextArmsM:matchAlt* := rfl))
+      elabSync (← `(theorem $initsEqId :
+        CdoM.inits $deepId = fun i => match i with $initArms:matchAlt* := rfl))
+      elabSync (← `(theorem $writesEqId :
+        CdoM.writes $deepId = fun k => match k with $writesArms:matchAlt* := rfl))
+      elabSync (← `(theorem $outEqId : CdoM.out $deepId = $outC := rfl))
+    else
+      elabCommand (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
+        inits := fun i => match i with $initArms:matchAlt*
+        next := fun i => match i with $nextArms:matchAlt*
+        out := $outC))
+      -- projection equations (rfl): rewrite `f_deep.next` etc. WITHOUT
+      -- ever exposing the anonymous structure literal — a literal that
+      -- appears in some hypotheses but not others (the pack references
+      -- the NAME) leaves simp_all unable to see two forms of one fact
+      elabSync (← `(theorem $nextEqId :
+        Cdo.next $deepId = fun i => match i with $nextArms:matchAlt* := rfl))
+      elabSync (← `(theorem $initsEqId :
+        Cdo.inits $deepId = fun i => match i with $initArms:matchAlt* := rfl))
+      elabSync (← `(theorem $outEqId : Cdo.out $deepId = $outC := rfl))
     -- FIDELITY: the compiled reification IS the elaborated cone.
     -- Without this the capstone talks about `compile (toCExpr cone)`,
     -- an intended-identical but unverified twin of the elaborator's
@@ -1254,25 +1465,59 @@ elab "#verify_elab_deep" id:ident : command =>
     -- can't reproduce the original.  Register cones are checked once
     -- (they're shared syntax across the per-port Cdos).
     let fidIds ← if k == 0 then
-        (List.range nR).toArray.mapM fun i => do
+        (List.range nR).toArray.filterMapM fun i => do
           let fidId := mkI s!"{base}{suffix}_deep_fidelity_r{i}"
           let coneQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 conesIR[i]!)
-          elabCommand (← `(theorem $fidId :
-            CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)
-              = $coneQ := by
-            simp only [$nextEqId:ident, CExpr.compile, $nmId:ident]
-            -- residual `Expr.const v (Γr.get ⟨i, _⟩) = Expr.const v w`
-            -- width shapes: closed, so `rfl`; simp alone strands
-            -- `Fin.val` of literals ≥ 3 (no `Fin.val_three`)
-            all_goals (first | rfl | (simp; done) | (simp; rfl))))
-          pure fidId
+          if hasMem then
+            if i < nReg then
+              elabSync (← `(theorem $fidId :
+                NextM.compileCone $nmId (CdoM.next $deepId ⟨$(quote i), by decide⟩)
+                  = some $coneQ := by
+                simp only [$nextEqId:ident, NextM.compileCone, CExpr.compile, $nmId:ident]
+                all_goals (first | rfl | (simp; done) | (simp; rfl))))
+              pure (some fidId)
+            else pure none
+          else
+            elabSync (← `(theorem $fidId :
+              CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)
+                = $coneQ := by
+              simp only [$nextEqId:ident, CExpr.compile, $nmId:ident]
+              -- residual `Expr.const v (Γr.get ⟨i, _⟩) = Expr.const v w`
+              -- width shapes: closed, so `rfl`; simp alone strands
+              -- `Fin.val` of literals ≥ 3 (no `Fin.val_three`)
+              all_goals (first | rfl | (simp; done) | (simp; rfl))))
+            pure (some fidId)
+      else pure #[]
+    -- write-port fidelity (memories): the reified address/data/enable
+    -- cones compile back to the elaborated ones
+    let fidMemIds ← if k == 0 && hasMem then
+        (List.range nM).toArray.flatMapM fun kk => do
+          let (waIR, wdIR, weIR) := memConesIR[kk]!
+          let mk (tag : String) (ir : Sparkle.IR.AST.Expr) (proj : Term) : CommandElabM Ident := do
+            let fid := mkI s!"{base}{suffix}_deep_fidelity_m{kk}_{tag}"
+            let q ← quoteIR (Tools.ConcatNorm.concatNorm 10000 ir)
+            elabSync (← `(theorem $fid :
+              CExpr.compile $nmId $proj = $q := by
+              simp only [$writesEqId:ident, CExpr.compile, $nmId:ident]
+              all_goals (first | rfl | (simp; done) | (simp; rfl))))
+            pure fid
+          let a ← mk "wa" waIR (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).1))
+          let d ← mk "wd" wdIR (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.1))
+          let e ← mk "we" weIR (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.2))
+          pure #[a, d, e]
       else pure #[]
     let fidOutId := mkI s!"{base}{suffix}_deep_fidelity_out"
     let outQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 outIR)
-    elabCommand (← `(theorem $fidOutId :
-      CExpr.compile $nmId (Cdo.out $deepId) = $outQ := by
-      simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
-      all_goals (first | rfl | (simp; done) | (simp; rfl))))
+    if hasMem then
+      elabSync (← `(theorem $fidOutId :
+        CExpr.compile $nmId (CdoM.out $deepId) = $outQ := by
+        simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
+        all_goals (first | rfl | (simp; done) | (simp; rfl))))
+    else
+      elabSync (← `(theorem $fidOutId :
+        CExpr.compile $nmId (Cdo.out $deepId) = $outQ := by
+        simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
+        all_goals (first | rfl | (simp; done) | (simp; rfl))))
     -- ===== deep-side seam glue (G1) =====
     -- The capstone / Cdo.irState evaluate cones as
     -- `evalExpr (weOfC …) env (CExpr.compile nm (next/out))`; these
@@ -1289,7 +1534,8 @@ elab "#verify_elab_deep" id:ident : command =>
     let stopAtMId := mkI s!"{base}_deep_stopAtM"
     let wtLId := mkI s!"{base}_deep_wtL"
     let wtMId := mkI s!"{base}_deep_wtM"
-    if k == 0 then
+    -- the seam glue / IR replay assume a memory-free body (v1)
+    if k == 0 && !hasMem then
       let weBody ← do
         let mut acc ← `((0 : Nat))
         for (n, w) in wt.toList do
@@ -1347,7 +1593,7 @@ elab "#verify_elab_deep" id:ident : command =>
         liftCoreM <| Lean.enableRealizationsForConst regInId.getId
         let fidId := fidIds[i]!
         let g1Id := mkI s!"{base}_deep_coneEval_r{i}"
-        elabCommand (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
+        elabSync (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
             Sparkle.IR.Semantics.evalExpr
                 (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
                 env (CExpr.compile $nmId
@@ -1405,7 +1651,7 @@ elab "#verify_elab_deep" id:ident : command =>
       value := toExpr outIR, hints := .abbrev, safety := .safe }
     liftCoreM <| Lean.enableRealizationsForConst outConeId.getId
     let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
-    elabCommand (← `(theorem $g1OutId (env : Sparkle.IR.Semantics.Env) :
+    if !hasMem then elabSync (← `(theorem $g1OutId (env : Sparkle.IR.Semantics.Env) :
         Sparkle.IR.Semantics.evalExpr
             (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
             env (CExpr.compile $nmId (Cdo.out $deepId))
@@ -1469,6 +1715,8 @@ elab "#verify_elab_deep" id:ident : command =>
       mkI s!"{base}{suffix}_deep_rd{i}_zero"
     let rdSuccIds : Array Ident := (List.range nR).toArray.map fun i =>
       mkI s!"{base}{suffix}_deep_rd{i}_succ"
+    -- (the memory contents readers' lemmas are appended below, once the
+    -- readers exist; see `rdZeroAll` / `rdSuccAll`)
     let gIds : Array Ident := (List.range nR).toArray.map fun i =>
       mkI s!"g{i}"
     let shallowAt (tv : Term) (e : Sparkle.IR.AST.Expr) :
@@ -1478,32 +1726,81 @@ elab "#verify_elab_deep" id:ident : command =>
         (fun j => inpValRhs[j]! tv) e
     -- all readers first: a register's step lemma mentions every
     -- register its cone reads
+    let addrId := mkI "addr"
+    let mdIds : Array Ident := (List.range nM).toArray.map fun kk =>
+      mkI s!"{base}{suffix}_deep_md{kk}"
     for i in List.range nR do
       let w := regWs[i]!
       let rdId : Ident := rdIds[i]!
-      elabCommand (← `(def $rdId $paramBinders* ($sId : Nat) :
-          BitVec $(quote w) :=
-        Cdo.stateAt $deepId (fun t j => (($inpS) j).val t) $sId
-          ⟨$(quote i), by decide⟩))
+      if hasMem then
+        elabCommand (← `(def $rdId $paramBinders* ($sId : Nat) :
+            BitVec $(quote w) :=
+          (CdoM.stateAt $deepId (fun t j => (($inpS) j).val t) $sId).1
+            ⟨$(quote i), by decide⟩))
+      else
+        elabCommand (← `(def $rdId $paramBinders* ($sId : Nat) :
+            BitVec $(quote w) :=
+          Cdo.stateAt $deepId (fun t j => (($inpS) j).val t) $sId
+            ⟨$(quote i), by decide⟩))
+    -- memory contents readers: `md_k s : BitVec aw → BitVec dw`
+    for kk in List.range nM do
+      let (_, aw, dw, _, _, _, _, _) := mems[kk]!
+      let mdId : Ident := mdIds[kk]!
+      elabCommand (← `(def $mdId $paramBinders* ($sId : Nat) :
+          BitVec $(quote aw) → BitVec $(quote dw) :=
+        (CdoM.stateAt $deepId (fun t j => (($inpS) j).val t) $sId).2
+          ⟨$(quote kk), by decide⟩))
     for i in List.range nR do
       let (_, _, init) := regs[i]!
       let w := regWs[i]!
       let rdId : Ident := rdIds[i]!
       let rdZeroId : Ident := rdZeroIds[i]!
       let rdSuccId : Ident := rdSuccIds[i]!
-      elabCommand (← `(theorem $rdZeroId $paramBinders* :
+      elabSync (← `(theorem $rdZeroId $paramBinders* :
         $rdId $appArgs* 0
           = BitVec.ofNat $(quote w) $(quote init.toNat) := rfl))
-      let rhs ← shallowAt (← `($sId)) conesIR[i]!
-      elabCommand (← `(theorem $rdSuccId $paramBinders* ($sId : Nat) :
+      let rhs ← if i < nReg then shallowAt (← `($sId)) conesIR[i]!
+        else do
+          -- latch: the contents at the previous cycle, at the read address
+          let mdId : Ident := mdIds[i - nReg]!
+          let addrS ← shallowAt (← `($sId)) conesIR[i]!
+          `(($mdId $appArgs* $sId $addrS))
+      elabSync (← `(theorem $rdSuccId $paramBinders* ($sId : Nat) :
         $rdId $appArgs* ($sId + 1) = $rhs := rfl))
+    let mdZeroIds : Array Ident := (List.range nM).toArray.map fun kk =>
+      mkI s!"{base}{suffix}_deep_md{kk}_zero"
+    let mdSuccIds : Array Ident := (List.range nM).toArray.map fun kk =>
+      mkI s!"{base}{suffix}_deep_md{kk}_succ"
+    for kk in List.range nM do
+      let mdId : Ident := mdIds[kk]!
+      let (waIR, wdIR, weIR) := memConesIR[kk]!
+      let waS ← shallowAt (← `($sId)) waIR
+      let wdS ← shallowAt (← `($sId)) wdIR
+      let weS ← shallowAt (← `($sId)) weIR
+      let mz : Ident := mdZeroIds[kk]!
+      let ms : Ident := mdSuccIds[kk]!
+      elabSync (← `(theorem $mz $paramBinders* :
+        $mdId $appArgs* 0 = fun _ => 0 := rfl))
+      elabSync (← `(theorem $ms $paramBinders* ($sId : Nat) :
+        $mdId $appArgs* ($sId + 1)
+          = fun $addrId => if $weS = 1#1 ∧ $addrId = $waS then $wdS
+              else $mdId $appArgs* $sId $addrId := rfl))
+    let rdZeroAll : Array Ident := rdZeroIds ++ mdZeroIds
+    let rdSuccAll : Array Ident := rdSuccIds ++ mdSuccIds
     let outSId := mkI s!"{base}{suffix}_deep_outS"
     let outRhs ← shallowAt (← `($sId)) outIR
-    elabCommand (← `(theorem $outSId $paramBinders* ($sId : Nat) :
-        (Cdo.outSig $deepId $inpS).val $sId = $outRhs := by
-      show CExpr.denote _ _ = _
-      rw [Cdo.stateSig_eq]
-      rfl))
+    if hasMem then
+      elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+          (CdoM.outSig $deepId $inpS).val $sId = $outRhs := by
+        show CExpr.denote _ _ = _
+        rw [CdoM.stateSig_eq]
+        rfl))
+    else
+      elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+          (Cdo.outSig $deepId $inpS).val $sId = $outRhs := by
+        show CExpr.denote _ _ = _
+        rw [Cdo.stateSig_eq]
+        rfl))
     -- ===== packs, duplicate copies, and the nested-loop machinery =====
     let uId := mkI "u"
     let mId := mkI "m"
@@ -1570,7 +1867,7 @@ elab "#verify_elab_deep" id:ident : command =>
           let succIds0 : Array Ident := (List.range k).toArray.map fun j => rdSuccIds[b0 + j]!
           let zeroTs : Array Term := (zeroIdsB ++ zeroIds0).map fun i => ⟨i.raw⟩
           let succTs : Array Term := ((succIdsB ++ succIds0).map fun i => (⟨i.raw⟩ : Term)) ++ projs
-          elabCommand (← `(theorem $dupId $paramBinders* : ∀ ($nId : Nat), $stmt := by
+          elabSync (← `(theorem $dupId $paramBinders* : ∀ ($nId : Nat), $stmt := by
             intro $nId:ident
             induction $nId:ident with
             | zero =>
@@ -1586,7 +1883,7 @@ elab "#verify_elab_deep" id:ident : command =>
             let r1 : Ident := rdIds[b + j]!
             let r0 : Ident := rdIds[b0 + j]!
             let pj ← projOf (← `($dupId $appArgs* $sId)) j
-            elabCommand (← `(theorem $dupRId $paramBinders* ($sId : Nat) :
+            elabSync (← `(theorem $dupRId $paramBinders* ($sId : Nat) :
               $r1 $appArgs* $sId = $r0 $appArgs* $sId := $pj))
             dupIds := dupIds.push dupRId
     let dupSimp : Lean.TSyntax `tactic ← if dupIds.isEmpty then `(tactic| skip)
@@ -1602,6 +1899,11 @@ elab "#verify_elab_deep" id:ident : command =>
         let gId : Ident := gIds[i]!
         let rdApp ← `($rdId $appArgs* _)
         `(tactic| all_goals (try generalize $rdApp = $gId))
+    -- (the memory contents readers `md_k` are NOT generalized: bv_decide
+    -- treats `md_k … n addr` as an atom already, and `generalize` on the
+    -- function-valued partial application left an unassigned
+    -- metavariable in the proof term — kernel "declaration has
+    -- metavariables")
     -- `sigval_append`'s LHS type is `Signal dom (BitVec (m + n))`; a
     -- user ascription `(a ++ b : Signal dom (BitVec 10))` leaves the
     -- literal in the instance's type argument, which simp's
@@ -1630,7 +1932,7 @@ elab "#verify_elab_deep" id:ident : command =>
     -- forms (`XorOp.xor` vs `^^^`), blinding both simp and bv_decide.
     let stage1 (extra : Array Term) : CommandElabM (Lean.TSyntax `tactic) := do
       let extraAll : Array Term := (inpAtIds.map fun i => (⟨i.raw⟩ : Term)) ++ extra
-      `(tactic| simp [loopFOf, packRegister, Signal.register, Circuit.next,
+      `(tactic| simp [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
         Circuit.pure', Circuit.bind, mkHolds, Signal.map,
         Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
         Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
@@ -1685,14 +1987,57 @@ elab "#verify_elab_deep" id:ident : command =>
               | zero =>
                 $st1z:tactic
                 $appendFix:tactic
-                all_goals (try simp only [$[$rdZeroIds:ident],*])
+                all_goals (try simp only [$[$rdZeroAll:ident],*])
                 $closers:tactic
               | succ $mId =>
                 $st1s:tactic
                 $appendFix:tactic
                 $deeper:tactic
-                all_goals (try simp only [$[$rdSuccIds:ident],*])
+                all_goals (try simp only [$[$rdSuccAll:ident],*])
                 $dupSimp:tactic
+                ($[$genLines:tactic]*)
+                $closers:tactic)))
+      -- memories (`memory_eq_loops`): the read latch is a one-slot loop
+      -- with pack `rd_latch s`, the contents a loop with pack `md_k s`
+      -- (function-valued: `funext` before the closers)
+      let skip := ((← IO.getEnv "SPARKLE_DEEP_SKIP").getD "").splitOn ","
+      for kk in (if skip.contains "memalts" then [] else List.range nM) do
+        let mdId : Ident := mdIds[kk]!
+        let rdL : Ident := rdIds[nReg + kk]!
+        let pL ← `($rdL $appArgs* $sId)
+        let pLI ← `($rdL $appArgs* $iId)
+        let pM ← `($mdId $appArgs* $sId)
+        let pMI ← `($mdId $appArgs* $iId)
+        for (packS, packI, isContents) in [(pL, pLI, false), (pM, pMI, true)] do
+          let st1z ← stage1 #[]
+          let st1s ← stage1 #[← `($hqId $mId (Nat.lt_succ_self $mId)),
+            ← `($hgId $mId (Nat.lt_succ_self $mId))]
+          let deeper ← match depth with
+            | 0 => `(tactic| skip)
+            | d + 1 =>
+              innerBlock (← `((($qId).val $iId = $packI) ∧ $gBody))
+                (← `((fun $iId $hiId => ⟨$hqId $iId (by omega), $hgId $iId (by omega)⟩))) d (lvl + 1)
+          let fx ← if isContents && !skip.contains "funext" then
+              `(tactic| all_goals (try funext $addrId:ident))
+            else `(tactic| skip)
+          alts := alts.push (← `(tactic| (
+            rw [loop_trace_guardedP_at _ (fun $sId => $packS) (fun $iId => $gBody) ?$hsId _ $guard]
+            case $hsId:ident =>
+              intro $uId:ident $qId:ident $hqId:ident $hgId:ident
+              cases $uId:ident with
+              | zero =>
+                $st1z:tactic
+                $appendFix:tactic
+                all_goals (try simp only [$[$rdZeroAll:ident],*])
+                $fx:tactic
+                $closers:tactic
+              | succ $mId =>
+                $st1s:tactic
+                $appendFix:tactic
+                $deeper:tactic
+                all_goals (try simp only [$[$rdSuccAll:ident],*])
+                $dupSimp:tactic
+                $fx:tactic
                 ($[$genLines:tactic]*)
                 $closers:tactic)))
       if alts.isEmpty then `(tactic| skip) else do
@@ -1756,6 +2101,10 @@ elab "#verify_elab_deep" id:ident : command =>
     let outUnfoldIds : Array Ident := match proj? with
       | some pj => helperIds.push pj
       | none => helperIds
+    -- memories become loops for the bridge (`Signal.memory_eq_loops`)
+    let outUnfoldIds : Array Ident := if hasMem then
+        outUnfoldIds.push (mkIdent ``Sparkle.Core.Signal.Signal.memory_eq_loops)
+      else outUnfoldIds
     -- The top loop, per candidate block: abstract the loop signal as
     -- `L`, prove its trace once (`hLt`, via loop_trace_at with the
     -- step recipe — nested loops inside the step are discharged with
@@ -1776,11 +2125,18 @@ elab "#verify_elab_deep" id:ident : command =>
       -- recurse as deep as the alternative count allows: the generated
       -- script has (#alternatives)^depth leaves, kept ≤ 64, depth ≤ 5
       let nAlts := nestedNodes.foldl (fun acc n => acc + (blocksFor n).length) 0
+      -- term nesting needs at most two levels per nested circuit (its
+      -- input carries the enclosing loop's term) and one below a memory
+      -- latch (it reads the contents loop); the script has
+      -- (#alternatives)^depth leaves, so also cap by size
+      let nAlts := nAlts + 2 * nM
+      let want := (if nestedNodes.isEmpty then 0 else 2 * nestedNodes.size + 1)
+        + (if hasMem then 2 else 0)
       let depth := Id.run do
-        let mut d := 1
-        for k in [2:6] do
-          if nAlts ^ k ≤ 64 then d := k
-        return d
+        let mut d := 0
+        for k in [1:6] do
+          if k ≤ want && nAlts ^ k ≤ 64 then d := k
+        return max d (if hasMem then 1 else 0)
       let innerHpre ← innerBlock (← `(($preId).val $iId = $packI)) hpreGuard depth 0
       let innerHLt ← innerBlock (← `(($LId).val $iId = $packI)) hLtGuard depth 0
       let st1z ← stage1 #[]
@@ -1799,7 +2155,7 @@ elab "#verify_elab_deep" id:ident : command =>
             $st1z:tactic
             $appendFix:tactic
             -- stage 2: the spec side is the readers at cycle 0
-            all_goals (try simp only [$[$rdZeroIds:ident],*])
+            all_goals (try simp only [$[$rdZeroAll:ident],*])
             $closers:tactic
           | succ $nId =>
             $st1s:tactic
@@ -1807,7 +2163,7 @@ elab "#verify_elab_deep" id:ident : command =>
             $innerHpre:tactic
             -- stage 2: one step of the spec recurrence, as the shallow
             -- literal-width expressions over the readers at cycle n
-            all_goals (try simp only [$[$rdSuccIds:ident],*])
+            all_goals (try simp only [$[$rdSuccAll:ident],*])
             $dupSimp:tactic
             ($[$genLines:tactic]*)
             $closers:tactic
@@ -1826,6 +2182,13 @@ elab "#verify_elab_deep" id:ident : command =>
         alt ← `(tactic| first | $a:tactic | $alt:tactic)
       pure alt
     -- the theorem: general theorem + per-instance Signal bridge
+    let irStateT : Term ← if hasMem then
+        `(CdoM.irState $deepId (fun t j => (($inpS) j).val t) t)
+      else `(Cdo.irState $deepId $nmId (fun t j => (($inpS) j).val t) t)
+    let outT : Term ← if hasMem then `(CdoM.out $deepId) else `(Cdo.out $deepId)
+    let elabGenRw : Lean.TSyntax `tactic ← if hasMem then
+        `(tactic| rw [← CdoM.elab_general $deepId $nmId (by decide) $inpS t])
+      else `(tactic| rw [← Cdo.elab_general $deepId $nmId (by decide) $inpS t])
     let thmCmd ← `(set_option maxRecDepth 65536 in
       set_option maxHeartbeats 1600000 in
       theorem $thId $paramBinders* (t : Nat) :
@@ -1833,10 +2196,10 @@ elab "#verify_elab_deep" id:ident : command =>
         = (Sparkle.IR.Semantics.evalExpr
             (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
             (envOfC $nmId (natJoin
-              (Cdo.irState $deepId $nmId (fun t j => (($inpS) j).val t) t)
+              $irStateT
               (fun j => ((($inpS) j).val t).toNat)))
-            (CExpr.compile $nmId (Cdo.out $deepId))).getD 0 := by
-      rw [← Cdo.elab_general $deepId $nmId (by decide) $inpS t]
+            (CExpr.compile $nmId $outT)).getD 0 := by
+      $elabGenRw:tactic
       congr 1
       -- the Signal-side bridge: f's runCircuitH loop against the deep
       -- spec recurrence, both through loop_trace.  For a struct
@@ -1856,7 +2219,27 @@ elab "#verify_elab_deep" id:ident : command =>
     if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then
       logInfo m!"#verify_elab_deep {declName}.{portName}: defs only (SPARKLE_DEEP_NOTHM)"
       continue
-    elabCommand thmCmd
+    elabSync thmCmd
+    if hasMem then
+      -- v1: the seam glue and the IR replay assume a memory-free body;
+      -- for memory-bearing circuits the certified statement is the
+      -- capstone (Signal ≡ compiled output cone at the deep state)
+      for aud in #[thId] ++ fidIds ++ fidMemIds ++ #[fidOutId] do
+        -- a kernel-rejected declaration ("has metavariables") is absent:
+        -- getConstInfo throws, so it can never be reported PROVEN
+        -- synchronous elaboration (`elabSync`): a failed or kernel-rejected
+        -- theorem is absent, so the lookup throws.  The generated names are
+        -- SIMPLE and land in the current namespace — resolve them there (a
+        -- bare-name lookup silently found nothing inside `namespace …`).
+        let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload aud
+        let ci ← liftCoreM <| Lean.getConstInfo full
+        if ci.type.hasExprMVar || (ci.value?.map (·.hasExprMVar)).getD false then
+          throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (metavariables)"
+        let axioms ← liftCoreM <| Lean.collectAxioms full
+        if axioms.contains ``sorryAx then
+          throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (sorryAx) — see the errors above"
+      logInfo m!"#verify_elab_deep {declName}{if structName?.isSome then s!".{portName}" else ""}: PROVEN via CdoM.elab_general — {thId.getId} ({nReg} registers, {nM} memories, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + {fidMemIds.size} write-port cones + out; IR replay not emitted for memory-bearing bodies)"
+      continue
     -- DEEP-BRIDGE (first landing): rewrite the capstone's RHS through
     -- the G1_out glue so the Signal value is stated as
     -- `evalExpr weM (envOfC …) outCone` — the ConeFold bridge's
@@ -1868,7 +2251,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
     let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
     let sigMId := mkI s!"{base}{suffix}_deep_signalM"
-    elabCommand (← `(theorem $sigMId $paramBinders* (t : Nat) :
+    elabSync (← `(theorem $sigMId $paramBinders* (t : Nat) :
         (($lhsSig).val t).toNat
         = (Sparkle.IR.Semantics.evalExpr $weMId
             (envOfC $nmId (natJoin
@@ -1956,12 +2339,12 @@ elab "#verify_elab_deep" id:ident : command =>
         envOfC $nmId (natJoin
           (Cdo.irState $deepId $nmId $inpFam t)
           (fun j => ((($inpS) j).val t).toNat))))
-      elabCommand (← `(theorem $irFunextId $paramBinders* (t : Nat) :
+      elabSync (← `(theorem $irFunextId $paramBinders* (t : Nat) :
           Cdo.irState $deepId $nmId $inpFam t
             = fun i => (Cdo.stateAt $deepId $inpFam t i).toNat := by
         funext i
         exact Cdo.irState_eq _ _ (by decide) _ t i))
-      elabCommand (← `(theorem $seedBndId $paramBinders* (t : Nat) :
+      elabSync (← `(theorem $seedBndId $paramBinders* (t : Nat) :
           ∀ n, $deepEnvAtId $appArgs* t n < 2 ^ $weMId n := by
         intro n
         unfold $deepEnvAtId
@@ -1982,7 +2365,7 @@ elab "#verify_elab_deep" id:ident : command =>
             `(Cdo.irState $deepId $nmId $inpFam t ⟨$(quote idx), by decide⟩)
           else
             `(((($inpS) ⟨$(quote (idx - nR)), by decide⟩).val t).toNat)
-        elabCommand (← `(theorem $rdId $paramBinders* (t : Nat) :
+        elabSync (← `(theorem $rdId $paramBinders* (t : Nat) :
             $deepEnvAtId $appArgs* t $(quote nmS) = $rhs := by
           unfold $deepEnvAtId
           rw [show $(quote nmS) = $nmId ⟨$(quote idx), by decide⟩ from rfl,
@@ -1996,7 +2379,7 @@ elab "#verify_elab_deep" id:ident : command =>
         fun idx => do
           let h : Ident := hneIds[idx]!
           `(Ne.symm $h:ident)
-      elabCommand (← `(theorem $rdOtherId $paramBinders* (t : Nat)
+      elabSync (← `(theorem $rdOtherId $paramBinders* (t : Nat)
           (n : String) $hneBinders* :
           $deepEnvAtId $appArgs* t n = 0 := by
         simp [$deepEnvAtId:ident, envOfC, chainMap, List.finRange,
@@ -2012,7 +2395,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let stepId := mkI s!"{base}_deep_step_{sanit}"
         stepIds := stepIds.push stepId
         bridgeAudit := bridgeAudit.push stepId
-        elabCommand (← `(theorem $stepId $paramBinders* (t : Nat)
+        elabSync (← `(theorem $stepId $paramBinders* (t : Nat)
             {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
             (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
               $bodyId ($deepEnvAtId $appArgs* t) = some env1)
@@ -2090,7 +2473,7 @@ elab "#verify_elab_deep" id:ident : command =>
         finalArgs := finalArgs.push (← `($hnextId:ident))
         closers := closers.push (← `(tactic| all_goals (try exact ($hnextId:ident).symm)))
         closers := closers.push (← `(tactic| all_goals (try exact $hnextId:ident)))
-      elabCommand (← `(theorem $dRegstepId $paramBinders* (t : Nat)
+      elabSync (← `(theorem $dRegstepId $paramBinders* (t : Nat)
           {env1 : Sparkle.IR.Semantics.Env}
           (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
             $bodyId ($deepEnvAtId $appArgs* t) = some env1) :
@@ -2128,7 +2511,7 @@ elab "#verify_elab_deep" id:ident : command =>
             (Cdo.inits $deepId ⟨$(quote i), by decide⟩).toNat else $acc)
         pure acc
       elabCommand (← `(def $dSt0Id : String → Nat := fun n => $st0Body))
-      elabCommand (← `(theorem $dEnvStBndId $paramBinders* (t : Nat)
+      elabSync (← `(theorem $dEnvStBndId $paramBinders* (t : Nat)
           (st : String → Nat) :
           ∀ n, $dEnvStId $appArgs* t st n < 2 ^ $weMId n := by
         intro n
@@ -2170,7 +2553,7 @@ elab "#verify_elab_deep" id:ident : command =>
           rw [Cdo.irState_eq _ _ (by decide)]
           exact BitVec.isLt _))
       let henvTacs ← mkHenv ihcId hbndIds
-      elabCommand (← `(theorem $dStateTraceId $paramBinders* :
+      elabSync (← `(theorem $dStateTraceId $paramBinders* :
           ∀ (t : Nat) {st : String → Nat},
           Tools.ConeFold.stepIter $weMId $bodyId ($dEnvStId $appArgs*)
             $dSt0Id t = some st → $stateConj := by
@@ -2224,7 +2607,7 @@ elab "#verify_elab_deep" id:ident : command =>
       -- Cdo of a struct circuit shares syntactically
       let sigM0Id := mkI s!"{base}{suffix}_deep_signalM0"
       if k == 0 then
-        elabCommand (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
+        elabSync (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
             (($lhsSig).val t).toNat
             = (Sparkle.IR.Semantics.evalExpr $weMId
                 (envOfC $nmId (natJoin
@@ -2232,7 +2615,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   (fun j => ((($inpS) j).val t).toNat)))
                 $outConeId).getD 0 := $sigMId $appArgs* t))
       else
-        elabCommand (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
+        elabSync (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
             (($lhsSig).val t).toNat
             = (Sparkle.IR.Semantics.evalExpr $weMId
                 (envOfC $nmId (natJoin
@@ -2241,7 +2624,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 $outConeId).getD 0 := by
           rw [$sigMId $appArgs* t,
             Cdo.irState_congr $deepId $deep0Id $nmId $inpFam rfl rfl]))
-      elabCommand (← `(theorem $dStepOutId $paramBinders* (t : Nat)
+      elabSync (← `(theorem $dStepOutId $paramBinders* (t : Nat)
           {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
           (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
             $bodyId ($deepEnvAtId $appArgs* t) = some env1)
@@ -2278,7 +2661,7 @@ elab "#verify_elab_deep" id:ident : command =>
           rw [Cdo.irState_eq _ _ (by decide)]
           exact BitVec.isLt _))
       let henvTacs ← mkHenv ihcId hbndIds
-      elabCommand (← `(theorem $dSigFoldId $paramBinders* (t : Nat)
+      elabSync (← `(theorem $dSigFoldId $paramBinders* (t : Nat)
           {st : String → Nat} {env1 : Sparkle.IR.Semantics.Env}
           (hstep : Tools.ConeFold.stepIter $weMId $bodyId
             ($dEnvStId $appArgs*) $dSt0Id t = some st)
@@ -2299,7 +2682,7 @@ elab "#verify_elab_deep" id:ident : command =>
           $outConeId).getD 0 = _
         rw [hout]
         rfl))
-      elabCommand (← `(theorem $dSigRunId $paramBinders* (K : Nat) :
+      elabSync (← `(theorem $dSigRunId $paramBinders* (K : Nat) :
           ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyId
               (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id
               (fun _ _ => 0) = some envs
@@ -2343,7 +2726,11 @@ elab "#verify_elab_deep" id:ident : command =>
     -- recovers failed tactic blocks as sorry, and a sorry'd fidelity
     -- proof would silently demote the result to the unverified twin
     for aud in #[thId] ++ fidIds ++ #[fidOutId] ++ bridgeAudit do
-      let axioms ← liftCoreM <| Lean.collectAxioms aud.getId
+      let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload aud
+      let ci ← liftCoreM <| Lean.getConstInfo full
+      if ci.type.hasExprMVar || (ci.value?.map (·.hasExprMVar)).getD false then
+        throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (metavariables)"
+      let axioms ← liftCoreM <| Lean.collectAxioms full
       if axioms.contains ``sorryAx then
         throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (sorryAx) — see the errors above"
     logInfo m!"#verify_elab_deep {declName}{if structName?.isSome then s!".{portName}" else ""}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + out = the elaborated IR, by unfolding)"

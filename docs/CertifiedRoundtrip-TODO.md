@@ -189,10 +189,34 @@ group is rough priority.  Update as items land.
   `Tests/MemorySpecTest.lean` (64 scripted cycles, all three).  The
   simulator, the IR semantics (`syncReadLatches` read-old) and the
   Verilog `always_ff` agree on timing — checked, no sim/synth gap.
-  Remaining: memory state in `Cdo` (`CMem`, `memRead` CExpr, write
-  ports), `compile_correct` over the IR's `MEnv` rules, generator
-  reification of `.memory`, and a Signal-side bridge lemma from
-  `memory_val_succ` (array state in the trace, no bv_decide).
+  **Capstone landed** (single-port synchronous `Signal.memory`): the
+  deep circuit is a `CdoM` (Tools/DeepElab.lean — `CMem` contents per
+  memory, `NextM` = cone | latch, one write port per memory, `memUpd`,
+  `stateAt`/`stateSig_eq`/`elab_general` mirroring `Cdo`; cones never
+  read a memory directly, only its latch slot, so `CExpr`/`compile`/
+  `compile_correct` are untouched).  Signal side: `Signal.memory_eq_loops`
+  presents a memory as two nested loops — the read latch as a one-slot
+  loop (`eq_loop_const`) over the contents loop (`memStep`,
+  `memState_eq_loop`) — so the nested-loop discharge handles it with two
+  more alternatives (packs `rd_latch s` / `md_k s`, `funext` before the
+  closers; `md_k` is not `generalize`d: that left a metavariable).  The
+  generator reifies `.memory` (latch slot after the registers, write-port
+  fidelity lemmas) and emits the capstone `{f}_deep_trace` via
+  `CdoM.elab_general`; the seam glue / IR replay are NOT emitted for
+  memory-bearing bodies (v1: `memFree` premise).  Demo `memAcc` in
+  DeepElabReifyDemo.  RegDedup now merges duplicated `.memory` statements
+  (single-port sync) too.  **Audit fixes found on the way:** the sorryAx
+  audit looked up the generated theorems by their SIMPLE name, which
+  inside a `namespace` found nothing — it had never checked anything in
+  the test files (now resolved in the current namespace); and theorems
+  were elaborated asynchronously, so a kernel-rejected proof
+  ("declaration has metavariables") was reported PROVEN — every generated
+  theorem is now `set_option Elab.async false in` (`elabSync`) and the
+  proof term is checked for metavariables.
+  Remaining: seam theorems with `MEnv` (weaken `memFree` to
+  "no combinational-read memories"), `memNexts` in the replay
+  (`_deep_regstep` with latches, a `_deep_memstep`), `memoryWithInit`
+  (no synth support today), multi-port memories.
 - [ ] Bridge v1 limits: register inputs that aren't `.ref` wires
   (emission currently skipped); memory-bearing modules (memFree
   premise).

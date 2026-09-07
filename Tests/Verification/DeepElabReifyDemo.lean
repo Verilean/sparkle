@@ -311,6 +311,27 @@ def accN200 (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec
 
 #verify_elab_deep accN200
 
+/-! A SYNCHRONOUS MEMORY (`Signal.memory`): the deep circuit is a `CdoM`
+    (contents state + a read latch slot), the Signal side sees the memory
+    as two nested loops (`Signal.memory_eq_loops`: the latch as a one-slot
+    loop over the contents loop), and the certified statement is the
+    capstone `CdoM.elab_general` — the IR replay chain is not emitted for
+    memory-bearing bodies (v1).  `Signal.memory` itself is a `def` with a
+    pure `memState` specification since the memory-spec commit. -/
+def memAcc (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (BitVec 8))
+    (we : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let ptr ← Signal.reg (0#4)
+    let acc ← Signal.reg (0#8)
+    let p := (ptr : Signal defaultDomain (BitVec 4))
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let rd := Signal.memory wa wd we p
+    ptr <~ p + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    acc <~ a + rd
+    return a
+
+#verify_elab_deep memAcc
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -330,6 +351,17 @@ def accN200 (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec
 #print axioms accN200_deep_trace
 #print axioms lvl0_deep_trace
 #check @lvl0_deep_signal_run
+#print axioms memAcc_deep_trace
+#check @memAcc_deep_md0_succ
+#check @memAcc_deep_rd2_succ
+-- the two-pass duplicate of the memory is merged (RegDedup): one memory
+run_cmd do
+  let d ← Lean.Elab.Command.liftTermElabM
+    (Sparkle.Compiler.Elab.synthesizeHierarchical ``Sparkle.Tests.DeepElabReifyDemo.memAcc)
+  for m in d.modules do
+    let n := (m.body.filter fun st => match st with | .memory .. => true | _ => false).length
+    unless n == 1 do
+      throwError "memAcc: expected exactly one memory after duplicate merging, got {n}"
 #check @accK15_deep_signal_run
 #check @accN200_deep_signal_run
 
