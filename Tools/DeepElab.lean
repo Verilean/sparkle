@@ -664,21 +664,73 @@ partial def toCExpr (slot : String → Option Nat) :
       "#verify_elab_deep: operator {o.toString}/{args.length} outside the deep grammar"
   | e => throwError "#verify_elab_deep: {repr e} outside the deep grammar"
 
-/-- Does the cone contain bitwise / shift / concat / slice structure?
-    Chooses the proof pipeline: bitwise cones need the `simp only` +
-    simproc stage-2 (the default simp set Nat-ifies them into goals no
-    closing tactic handles), while arithmetic cones need the plain-simp
-    stage-2 (the `simp only` form churns on `CEnv.join`'s dependent
-    lookups for them).  Both pipelines share stage 1 and the closers. -/
-partial def coneHasBitwise : Sparkle.IR.AST.Expr → Bool
-  | .op o args =>
-    (match o with
-     | .and | .or | .xor | .not | .shl | .shr | .asr => true
-     | _ => false)
-    || args.any coneHasBitwise
-  | .concat args => true
-  | .slice e _ _ => true
-  | _ => false
+/-- The literal-width SHALLOW term of an inlined cone: the same tree
+    `toCExpr` builds, but written directly as a BitVec expression over
+    the register readers (`rdOf i`) and the input values (`inOf j`),
+    constructor-for-constructor the way `CExpr.denote` unfolds each
+    node.  `denote (toCExpr e) ρ` and `toShallow e` are therefore
+    definitionally equal — `rfl` proves the per-register step lemmas —
+    while every width in the shallow term is a literal.  Mirror
+    `toCExpr` exactly (n-ary concat nesting, gt/ge mirroring): a
+    divergence makes those `rfl`s fail loudly, never silently. -/
+partial def toShallow (slot : String → Option Nat) (nR : Nat)
+    (rdOf : Nat → CommandElabM Term) (inOf : Nat → CommandElabM Term) :
+    Sparkle.IR.AST.Expr → CommandElabM Term
+  | .const v w => do
+    if v < 0 then throwError "#verify_elab_deep: negative const"
+    `((BitVec.ofNat $(quote w) $(quote v.toNat)))
+  | .ref n => do
+    match slot n with
+    | some i => if i < nR then rdOf i else inOf (i - nR)
+    | none => throwError "#verify_elab_deep: unknown ref {n}"
+  | .op .add [a, b] => do `(($(← go a) + $(← go b)))
+  | .op .sub [a, b] => do `(($(← go a) - $(← go b)))
+  | .op .mux [c, t, e] => do
+    let c ← go c; let t ← go t; let e ← go e
+    `((if $c = 1#1 then $t else $e))
+  | .op .eq [a, b] => do
+    let a ← go a; let b ← go b
+    `((if $a = $b then 1#1 else 0#1))
+  | .op .and [a, b] => do `(($(← go a) &&& $(← go b)))
+  | .op .or [a, b] => do `(($(← go a) ||| $(← go b)))
+  | .op .xor [a, b] => do `(($(← go a) ^^^ $(← go b)))
+  | .op .mul [a, b] => do `(($(← go a) * $(← go b)))
+  | .op .shl [a, b] => do `(($(← go a) <<< ($(← go b)).toNat))
+  | .op .shr [a, b] => do `(($(← go a) >>> ($(← go b)).toNat))
+  | .op .lt_u [a, b] => do
+    let a ← go a; let b ← go b
+    `((if $a < $b then 1#1 else 0#1))
+  | .op .le_u [a, b] => do
+    let a ← go a; let b ← go b
+    `((if $a ≤ $b then 1#1 else 0#1))
+  | .op .lt_s [a, b] => do
+    let a ← go a; let b ← go b
+    `((if ($a).toInt < ($b).toInt then 1#1 else 0#1))
+  | .op .le_s [a, b] => do
+    let a ← go a; let b ← go b
+    `((if ($a).toInt ≤ ($b).toInt then 1#1 else 0#1))
+  | .op .gt_s [a, b] => do
+    let a ← go a; let b ← go b
+    `((if ($b).toInt < ($a).toInt then 1#1 else 0#1))
+  | .op .ge_s [a, b] => do
+    let a ← go a; let b ← go b
+    `((if ($b).toInt ≤ ($a).toInt then 1#1 else 0#1))
+  | .slice e hi lo => do
+    `((($(← go e)).extractLsb' $(quote lo) $(quote (hi - lo + 1))))
+  | .op .not [a] => do `((~~~$(← go a)))
+  | .op .neg [a] => do `((-$(← go a)))
+  | .op .gt_u [a, b] => do
+    let a ← go a; let b ← go b
+    `((if $b < $a then 1#1 else 0#1))
+  | .op .ge_u [a, b] => do
+    let a ← go a; let b ← go b
+    `((if $b ≤ $a then 1#1 else 0#1))
+  | .concat [a] => go a
+  | .concat (a :: rest) => do `(($(← go a) ++ $(← go (.concat rest))))
+  | .op o args => throwError
+      "#verify_elab_deep: operator {o.toString}/{args.length} outside the deep grammar"
+  | e => throwError "#verify_elab_deep: {repr e} outside the deep grammar"
+where go := toShallow slot nR rdOf inOf
 
 end Tools.DeepElab
 
@@ -695,7 +747,12 @@ set_option maxHeartbeats 1000000 in
     `Cdo.elab_general`.  The only per-circuit proof left is the
     Signal-side bridge (the validated recipe); everything about the IR
     is the one general theorem.  v0 scope: BitVec inputs. -/
-elab "#verify_elab_deep" id:ident : command => do
+elab "#verify_elab_deep" id:ident : command =>
+  -- the sorryAx audit inspects each generated theorem right after its
+  -- elabCommand; under async proof elaboration the tactic errors (and
+  -- the recovery sorry) land only later, and a failed bridge would be
+  -- reported PROVEN — so everything here elaborates synchronously
+  withScope (fun sc => { sc with opts := Lean.Elab.async.set sc.opts false }) do
   let declName ← liftTermElabM <|
     Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
   let design ← liftTermElabM
@@ -786,7 +843,6 @@ elab "#verify_elab_deep" id:ident : command => do
     | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
     | .error e => throwError "#verify_elab_deep: output cone {n}: {e}"
   let outCs ← outIRs.mapM (toCExpr slotIdx)
-  let bitwise := conesIR.any coneHasBitwise || outIRs.any coneHasBitwise
   -- names / syntax scaffolding
   let base := declName.componentsRev.headD (Name.mkSimple "x") |>.toString
   let mkI (s : String) : Ident := mkIdent (Name.mkSimple s)
@@ -976,7 +1032,11 @@ elab "#verify_elab_deep" id:ident : command => do
         then go fuel rest seen acc else
         match env.find? c with
         | some (.defnInfo v) =>
-          if !isCore c && mentionsSignal v.type then
+          -- closed BitVec constants (`private abbrev poly : BitVec 32
+          -- := …`) ride along: the shallow side carries the literal,
+          -- and bv_decide treats an un-unfolded constant as an atom
+          let isBvConst := v.type.isAppOf ``BitVec
+          if !isCore c && (mentionsSignal v.type || isBvConst) then
             let deps := v.value.getUsedConstants.toList
             go fuel (deps ++ rest) seen (acc.push c)
           else go fuel rest seen acc
@@ -1037,7 +1097,10 @@ elab "#verify_elab_deep" id:ident : command => do
             CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)
               = $coneQ := by
             simp only [$nextEqId:ident, CExpr.compile, $nmId:ident]
-            try simp))
+            -- residual `Expr.const v (Γr.get ⟨i, _⟩) = Expr.const v w`
+            -- width shapes: closed, so `rfl`; simp alone strands
+            -- `Fin.val` of literals ≥ 3 (no `Fin.val_three`)
+            all_goals (first | rfl | (simp; done) | (simp; rfl))))
           pure fidId
       else pure #[]
     let fidOutId := mkI s!"{base}{suffix}_deep_fidelity_out"
@@ -1045,7 +1108,7 @@ elab "#verify_elab_deep" id:ident : command => do
     elabCommand (← `(theorem $fidOutId :
       CExpr.compile $nmId (Cdo.out $deepId) = $outQ := by
       simp only [$outEqId:ident, CExpr.compile, $nmId:ident]
-      try simp))
+      all_goals (first | rfl | (simp; done) | (simp; rfl))))
     -- ===== deep-side seam glue (G1) =====
     -- The capstone / Cdo.irState evaluate cones as
     -- `evalExpr (weOfC …) env (CExpr.compile nm (next/out))`; these
@@ -1216,109 +1279,111 @@ elab "#verify_elab_deep" id:ident : command => do
         · exact h
         · simp at h
       exact hag n hmem))
-    -- the pack: HList of stateAt components
+    -- ===== literal-width state readers (the shallow bridge) =====
+    -- `Cdo.stateAt … ⟨i, _⟩ : BitVec (Γr.get ⟨i, _⟩)` — a width that is
+    -- defeq to the literal but never syntactically it, and every
+    -- Signal-side closer needs the literal: simp refuses the mixed
+    -- goal ("not type-correct under instances transparency"),
+    -- bv_decide / bv_omega reject the atom outright, and simp cannot
+    -- normalise the width in dependent positions anyway (`Fin.val` of
+    -- a literal ≥ 3 has no simp lemma at all — only
+    -- `Fin.val_zero/one/two` exist, so 4+ registers were unreachable).
+    -- So the bridge never sees `stateAt`: per register a reader
+    -- `rd_i : params → Nat → BitVec w_i` (definitionally `stateAt`),
+    -- its initial value, and its one-step unfolding as the shallow
+    -- literal-width BitVec expression of the cone (`toShallow`), each
+    -- proven by `rfl` — the deep semantics is structural and
+    -- `CEnv.join`'s casts K-reduce on closed widths.  The output cone
+    -- gets the same treatment against `Cdo.outSig`.  The trace
+    -- theorem's pack, hypotheses and closers then live entirely in
+    -- literal-width land.
+    let sId := mkI "s"
+    let nId := mkI "n"
+    let rdIds : Array Ident := (List.range nR).toArray.map fun i =>
+      mkI s!"{base}{suffix}_deep_rd{i}"
+    let rdZeroIds : Array Ident := (List.range nR).toArray.map fun i =>
+      mkI s!"{base}{suffix}_deep_rd{i}_zero"
+    let rdSuccIds : Array Ident := (List.range nR).toArray.map fun i =>
+      mkI s!"{base}{suffix}_deep_rd{i}_succ"
+    let gIds : Array Ident := (List.range nR).toArray.map fun i =>
+      mkI s!"g{i}"
+    let shallowAt (tv : Term) (e : Sparkle.IR.AST.Expr) :
+        CommandElabM Term :=
+      toShallow slotIdx nR
+        (fun i => do let rdId : Ident := rdIds[i]!; `(($rdId $appArgs* $tv)))
+        (fun j => inpValRhs[j]! tv) e
+    -- all readers first: a register's step lemma mentions every
+    -- register its cone reads
+    for i in List.range nR do
+      let w := regWs[i]!
+      let rdId : Ident := rdIds[i]!
+      elabCommand (← `(def $rdId $paramBinders* ($sId : Nat) :
+          BitVec $(quote w) :=
+        Cdo.stateAt $deepId (fun t j => (($inpS) j).val t) $sId
+          ⟨$(quote i), by decide⟩))
+    for i in List.range nR do
+      let (_, _, init) := regs[i]!
+      let w := regWs[i]!
+      let rdId : Ident := rdIds[i]!
+      let rdZeroId : Ident := rdZeroIds[i]!
+      let rdSuccId : Ident := rdSuccIds[i]!
+      elabCommand (← `(theorem $rdZeroId $paramBinders* :
+        $rdId $appArgs* 0
+          = BitVec.ofNat $(quote w) $(quote init.toNat) := rfl))
+      let rhs ← shallowAt (← `($sId)) conesIR[i]!
+      elabCommand (← `(theorem $rdSuccId $paramBinders* ($sId : Nat) :
+        $rdId $appArgs* ($sId + 1) = $rhs := rfl))
+    let outSId := mkI s!"{base}{suffix}_deep_outS"
+    let outRhs ← shallowAt (← `($sId)) outIR
+    elabCommand (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+        (Cdo.outSig $deepId $inpS).val $sId = $outRhs := by
+      show CExpr.denote _ _ = _
+      rw [Cdo.stateSig_eq]
+      rfl))
+    -- the pack: HList of reader components
     let packBody ← do
       let mut acc : Term ← `(())
       for i in (List.range nR).reverse do
-        let slot ← `(Cdo.stateAt $deepId
-          (fun t j => (($inpS) j).val t) s ⟨$(quote i), by decide⟩)
-        -- a Bool register's HList slot is `Bool`, but stateAt yields
+        let rdId : Ident := rdIds[i]!
+        let slot ← `($rdId $appArgs* $sId)
+        -- a Bool register's HList slot is `Bool`, but the reader yields
         -- `BitVec 1`; decode it so the pack has the loop-state type
         let slot ← if regIsBool.getD i false then
             `(($slot == 1#1))
           else pure slot
         acc ← `(($slot, $acc))
       pure acc
-    -- Bool-register closer: per Bool register, generalize its stateAt
-    -- reads (concrete deep + concrete Fin index — with metavariable
-    -- widths the `: BitVec 1` ascription is stuck at elaboration and
-    -- the generalize never fires), twice for two time instants, then
-    -- normalize the abstracted variables' `List.get` widths so
-    -- bv_decide sees literal `BitVec 1`s.
-    -- One generalize pair per register (two time instants), index in
-    -- OfNat-literal form (the bridge's plain simp normalizes the
-    -- pack's `⟨k, by decide⟩` via Fin.zero_eta-style lemmas, and
-    -- kabstract's instances-level defeq cannot cross the mk/OfNat
-    -- gap).  Each abstracted variable's width is `Γr.get k`-shaped —
-    -- defeq to the literal but not syntactically it, which bv_decide
-    -- rejects — so a rfl-rw pins it to the literal immediately.
-    let regGenLines : Array (Lean.TSyntax `tactic) ←
-      (List.range nR).toArray.mapM fun k => do
-        `(tactic| (
-          try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gA)
-          try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gB)
-          try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gC)
-          try (generalize (Cdo.stateAt $deepId _ _
-              $(quote k)) = gD)
-          ))
-    -- Extra lemmas for the OUTER simp_all fallbacks, only when the
-    -- circuit has a Bool register: the input-family application
-    -- lemmas + Signal.map let the fallback reduce the Bool-encoded
-    -- input conditions in the same pass that toNat-normalizes.
-    -- (Unconditionally they reshape goals of Bool-free circuits, e.g.
-    -- fsm3's match-driven muxes, out of the closers' reach.)
-    let hasBoolReg := regIsBool.any (fun b => b)
-    -- the input-family application lemmas are needed by the outer
-    -- fallbacks UNCONDITIONALLY (split hypotheses mention `inp k`
-    -- applications on any circuit); Signal.map only for Bool
-    -- registers (on Bool-free circuits it reshapes match-driven mux
-    -- goals out of the closers' reach — fsm3)
-    let outerExtra : Array Ident :=
-      if hasBoolReg then
-        inpAtIds.push (mkIdent ``Sparkle.Core.Signal.Signal.map)
-      else inpAtIds
-    let boolCloser : Lean.TSyntax `tactic ←
-      -- The generalizes must be kept even when the closing tactic
-      -- fails (an all-or-nothing try rolls the abstraction back and
-      -- later stages see the raw stateAt again), so abstraction,
-      -- re-splitting (spec-side ite conditions become splittable once
-      -- the reads are variables), and closing are separate steps.
-      `(tactic| (
-        -- normalize the input family to ONE form first: the goal mixes
-        -- folded `Signal.map f x` (from the statement's inpS, entering
-        -- via hpre) and its unfolded `{val := …}` (from stage-1), and
-        -- the SAME state read would otherwise abstract into TWO
-        -- different variables — bv_decide then sees a (spurious)
-        -- counterexample
-        all_goals (try (simp only [Signal.map]))
-        all_goals (try ($[$regGenLines:tactic]*))
-        -- cheap exact lemmas first; then the input-family reduction
-        -- (residual `if (inp …).toNat = 1` conditions from the split
-        -- hypotheses); bv_decide LAST — on a Nat-conditioned ite it
-        -- burns the whole heartbeat budget before failing, starving
-        -- the later alternatives
-        all_goals (try (first
-          | rfl
-          | exact bif_beq_ofBool_toNat _
-          | exact bif_beq_ofBool _
-          | exact beq_not_bv1 _
-          | (simp_all [$[$inpAtIds:ident],*, Signal.map]
-             all_goals (try (repeat' split <;> simp_all))
-             first
-             | rfl
-             | exact bif_beq_ofBool_toNat _
-             | exact bif_beq_ofBool _
-             | exact beq_not_bv1 _
-             | bv_decide)
-          | bv_decide
-          -- (simp; done): closes CLOSED arithmetic side-goals like
-          -- width-table lookups; `decide` here is unusable — its
-          -- free-variable error escapes both `try` and `first`
-          | (simp; done)))))
-    -- stage-2 of the bridge, pipeline-selected (see `coneHasBitwise`)
-    let stage2 : Lean.TSyntax `tactic ← if bitwise then
-        `(tactic| all_goals (simp +decide only [Cdo.stateAt,
-          CExpr.denote, CEnv.join, toNat_cast,
-          $nextEqId:ident, $initsEqId:ident,
-          List.length_cons, List.length_nil, List.get,
-          reduceDIte, reduceIte, Nat.reduceAdd, Nat.reduceSub,
-          Nat.reduceLT]))
-      else
-        `(tactic| all_goals (simp [Cdo.stateAt, CExpr.denote,
-          CEnv.join, toNat_cast, $nextEqId:ident, $initsEqId:ident]))
+    -- After the step lemmas the only state terms left are the readers
+    -- at the previous cycle; abstract them to plain literal-width
+    -- variables (the time index is left to unification) so the
+    -- closers see atoms.  Done BEFORE any split, so the split
+    -- hypotheses are about the variables too.
+    let genLines : Array (Lean.TSyntax `tactic) ←
+      (List.range nR).toArray.mapM fun i => do
+        let rdId : Ident := rdIds[i]!
+        let gId : Ident := gIds[i]!
+        let rdApp ← `($rdId $appArgs* _)
+        `(tactic| all_goals (try generalize $rdApp = $gId))
+    -- `sigval_append`'s LHS type is `Signal dom (BitVec (m + n))`; a
+    -- user ascription `(a ++ b : Signal dom (BitVec 10))` leaves the
+    -- literal in the instance's type argument, which simp's
+    -- discrimination tree indexes — so the lemma is never even
+    -- retrieved.  `-index` matches on the head symbol and defeq.
+    let appendFix : Lean.TSyntax `tactic ←
+      `(tactic| all_goals (try simp -index only [sigval_append,
+          sigval_append_c, sigval_c_append]))
+    -- Every goal is now a literal-width BitVec/Bool identity over the
+    -- reader variables and the input values; bv_decide is the closer,
+    -- rfl/simp for the degenerate ones, bv_omega for Nat-cast shapes.
+    let closers : Lean.TSyntax `tactic ←
+      `(tactic| all_goals (first
+        | rfl
+        | bv_decide
+        | (simp_all [BitVec.toNat_eq, BitVec.toNat_add,
+            BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
+            $[$inpAtIds:ident],*]; done)
+        | bv_omega
+        | (simp; done)))
     -- LHS signal: struct ports project their field; Bool-typed
     -- outputs enter as their 1-bit encoding (same as Bool inputs)
     let lhsSig : Term ← match proj? with
@@ -1375,7 +1440,8 @@ elab "#verify_elab_deep" id:ident : command => do
       $projRw:tactic
       simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
         $[$outUnfoldIds:ident],*]
-      rw [loop_trace_at _ (fun s => $packBody) ?hstep]
+      $appendFix:tactic
+      rw [loop_trace_at _ (fun $sId => $packBody) ?hstep]
       case hstep =>
         intro u pre hpre
         cases u with
@@ -1391,82 +1457,28 @@ elab "#verify_elab_deep" id:ident : command => do
             Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
             Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
             $[$inpAtIds:ident],*]
-          $stage2:tactic
-          repeat' apply And.intro
-          all_goals (repeat' split)
-          all_goals (try (first | rfl | bv_decide))
-          all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
-            toNat_SubSub, BitVec.toNat_add,
-            BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat,
-            bif_beq_ofBool, bif_beq_ofBool_toNat,
-            $[$outerExtra:ident],*])
-          all_goals (try (rw [bif_beq_ofBool_toNat]))
-          all_goals (try (rw [bif_beq_ofBool]))
-          -- Bool-register 1-bit identities: generalize the (recursive,
-          -- so bv_decide-opaque) stateAt function to a variable, then
-          -- bv_decide settles the Bool/BitVec1 bridge
-          $boolCloser:tactic
-          all_goals (first
-            | rfl
-            | (with_unfolding_all rfl)
-            | bv_decide
-            | bv_omega
-            | (simp; done))
-        | succ n =>
+          $appendFix:tactic
+          -- stage 2: the spec side is the readers at cycle 0
+          all_goals (try simp only [$[$rdZeroIds:ident],*])
+          $closers:tactic
+        | succ $nId =>
           simp [loopFOf, packRegister, Signal.register, Circuit.next,
             Circuit.pure', Circuit.bind, mkHolds, Signal.map,
             Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq,
-            Signal.ap, Signal.seq, hpre n (Nat.lt_succ_self n),
+            Signal.ap, Signal.seq, hpre $nId (Nat.lt_succ_self $nId),
             sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
             $[$inpAtIds:ident],*]
-          $stage2:tactic
-          repeat' apply And.intro
-          all_goals (repeat' split)
-          all_goals (try (first | rfl | bv_decide))
-          all_goals (try simp_all [BitVec.toNat_eq, toNat_AddAdd,
-            toNat_SubSub, BitVec.toNat_add,
-            BitVec.extractLsb'_eq_extractLsb, BitVec.toNat_ofNat,
-            bif_beq_ofBool, bif_beq_ofBool_toNat,
-            $[$outerExtra:ident],*])
-          all_goals (try (rw [bif_beq_ofBool_toNat]))
-          all_goals (try (rw [bif_beq_ofBool]))
-          -- Bool-register 1-bit identities: generalize the (recursive,
-          -- so bv_decide-opaque) stateAt function to a variable, then
-          -- bv_decide settles the Bool/BitVec1 bridge
-          $boolCloser:tactic
-          all_goals (first
-            | rfl
-            | (with_unfolding_all rfl)
-            | bv_decide
-            | bv_omega
-            | (simp; done))
-      · -- the output side: outSig against the packed projection
-        simp only [Cdo.outSig]
-        simp only [Cdo.stateSig_eq]
-        simp [CExpr.denote, CEnv.join, Cdo.stateAt, toNat_cast,
-          $nextEqId:ident, $initsEqId:ident, $outEqId:ident,
-          Signal.map]
-        -- Bool-register decode BEFORE split (split collapses the bif
-        -- into a case analysis, hiding the `bif (x==1#1)…` head the
-        -- decode lemma matches)
-        all_goals (try simp only [bif_beq_ofBool, bif_beq_ofBool_toNat])
-        repeat' split
-        all_goals (try simp only [bif_beq_ofBool, bif_beq_ofBool_toNat])
-        all_goals (try (first | rfl | bv_decide))
-        all_goals (try simp_all [BitVec.toNat_eq, BitVec.toNat_add,
-          BitVec.toNat_ofNat, bif_beq_ofBool, bif_beq_ofBool_toNat,
-          $[$outerExtra:ident],*])
-        -- residual Bool-register decode goals: (bif (x==1#1)…).toNat
-        -- = x.toNat, closed by the decode identity applied directly
-        all_goals (try (rw [bif_beq_ofBool_toNat]))
-        all_goals (try (rw [bif_beq_ofBool]))
-        $boolCloser:tactic
-        all_goals (first
-            | rfl
-            | (with_unfolding_all rfl)
-            | bv_decide
-            | bv_omega
-            | (simp; done)))
+          $appendFix:tactic
+          -- stage 2: one step of the spec recurrence, as the shallow
+          -- literal-width expressions over the readers at cycle n
+          all_goals (try simp only [$[$rdSuccIds:ident],*])
+          ($[$genLines:tactic]*)
+          $closers:tactic
+      · -- the output side: outSig against the packed projection, via
+        -- the shallow output equation
+        rw [$outSId:ident]
+        ($[$genLines:tactic]*)
+        $closers:tactic)
     if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
       logInfo m!"{thmCmd}"
     if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then

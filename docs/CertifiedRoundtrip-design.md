@@ -330,11 +330,27 @@ composes the whole chain per circuit.
   only on shape, never on the environment (the reorder work's gift), so
   the fold-success hypotheses become `native_decide` obligations rather
   than caller-supplied.
-* **Deep-side glue** (`{f}_deep_coneEval_*`): the general-theorem
-  route's `Cdo.irState` cone terms rewrite to `evalExpr weM (resolved
-  cone)`, the seam's language, via fidelity ∘ `concatNorm_eval` ∘ a
-  width-environment congruence; holds on `crc32Engine`.  Replaying the
-  full bridge stack over `Cdo.irState` is the remaining deep step.
+* **Deep-side glue and replay** (`{f}_deep_coneEval_*`, `{f}_deep_*`):
+  the general-theorem route's `Cdo.irState` cone terms rewrite to
+  `evalExpr weM (resolved cone)`, the seam's language, via fidelity ∘
+  `concatNorm_eval` ∘ a width-environment congruence, and the whole
+  `regstep` / `state_trace` / `signal_fold` / `signal_run` stack is
+  replayed over `Cdo.irState` per circuit (struct outputs share one
+  recurrence via `Cdo.irState_congr`).
+* **The deep route's Signal-side bridge is stated over literal
+  widths.**  `Cdo.stateAt … ⟨i, _⟩` has type `BitVec (Γr.get ⟨i, _⟩)`
+  — defeq to the literal, never syntactically it — and no closer
+  tolerates that (simp's instance check, bv_decide, bv_omega); simp
+  cannot normalise it either (`Fin.val` of a literal ≥ 3 has no simp
+  lemma, so 4-register circuits were out of reach).  The generator
+  therefore emits per port literal-width readers `{f}_deep_rd{i}`
+  (definitionally `stateAt`) with `rfl` lemmas for their initial value,
+  their one-step unfolding as a shallow BitVec expression of the cone
+  (`toShallow`, mirroring `CExpr.denote` node for node), and the output
+  (`{f}_deep_outS`); the trace proof packs the readers, rewrites one
+  recurrence step, abstracts the readers to variables and lets
+  `bv_decide` close.  Holds on the 13 demos, `crc32Engine` and
+  `uartTxHW` (4 registers, struct output, literal-width `++`).
 
 ### Across the optimizer and the printed text (per instance)
 
@@ -387,8 +403,9 @@ the oleans at no cost.
   level gap with the shipping emitter now reduces exactly to optimizer
   preservation — every elaborator module classifies `.optRewritten`,
   none `.bad`.)
-* Replaying the `regstep`/`state_trace`/`signal_run`/`signal_sv` stack
-  over `Cdo.irState` for the general-theorem (deep) route — the G1
-  glue lands its cone terms on the seam's language already.
+* Deep-route coverage: nested `circuit do` composition, non-Signal
+  value parameters, memories / `.inst` in the deep grammar; the
+  optimizer / printed-text bridges (`_signal_svOpt`, `_signal_runRT`)
+  exist on the `#verify_elab` route only.
 
 See `docs/CertifiedRoundtrip-TODO.md` for the tracked open-work list.

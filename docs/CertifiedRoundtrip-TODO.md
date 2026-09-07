@@ -76,10 +76,33 @@ group is rough priority.  Update as items land.
 
 ## C. Deep-elaborator coverage
 
-- [ ] **uart orphan goal** — `uartTxHW` is 21→1; the last is an
-  ill-scoped postponed-unifier side goal.  Needs a deep-API change:
-  remove `Γr.get` from the cone types (per-circuit literal-width
-  fields, or an explicit width-vector variant), not another tactic.
+- [x] **uart orphan goal — DONE (`uartTxHW` PROVEN, both `TxOut`
+  ports, in ~4 s).**  Root cause was generic, not uart's: `Cdo.stateAt
+  … ⟨i, _⟩ : BitVec (Γr.get ⟨i, _⟩)` puts a defeq-but-not-literal width
+  on every state read, and Lean's simp set has `Fin.val_zero/one/two`
+  only — a register index ≥ 3 stays `[…][↑3]` forever (uart was the
+  first 4-register circuit).  simp then refuses the mixed goals
+  ("not type-correct under instances transparency"), bv_decide /
+  bv_omega reject the atoms, and `generalize` left the contradictory
+  split hypotheses untouched.  Fix (Tools/DeepElab.lean): the Signal-
+  side bridge never sees `stateAt`.  Per port the generator emits
+  literal-width readers `{f}_deep_rd{i} : params → Nat → BitVec w_i`
+  (definitionally `stateAt`), `_rd{i}_zero`, `_rd{i}_succ` (the cone
+  as a shallow literal-width BitVec expression, `toShallow` mirroring
+  `CExpr.denote` node for node) and `_deep_outS` — all `rfl`, since the
+  deep semantics is structural and `CEnv.join`'s casts K-reduce on
+  closed widths.  The trace proof packs the readers, rewrites one
+  recurrence step with the `_succ` lemmas, generalizes the readers to
+  plain variables BEFORE any split, and closes with `bv_decide`.  Two
+  more generic fixes fell out: `sigval_append` was never retrieved for
+  literal-width `++` ascriptions (simp indexes the implicit result type
+  `BitVec (m+n)` — `simp -index` fixes it), and the fidelity lemmas
+  now close by `rfl` rather than `simp`.  Also: the sorryAx audit ran
+  under async proof elaboration and could report a failed bridge as
+  PROVEN — the command now elaborates synchronously.  Closed BitVec
+  constants (`crc32`'s `private abbrev poly`) are unfolded with the
+  Signal helpers.  `uartTxHW` joined `Tests/Verification/
+  DeepElabRealIP.lean`; all 13 demos + crc32 still PROVEN.
 - [ ] Nested `circuit do` composition.
 - [ ] Non-Signal value parameters.
 - [ ] Memories / sub-instances (`.inst`) in the deep grammar.

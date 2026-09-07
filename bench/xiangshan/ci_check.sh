@@ -241,13 +241,14 @@ if [ -f "$ELAB_FILE" ]; then
   # the general theorem on REAL shipping IP (crc32Engine, …)
   REAL_FILE=Tests/Verification/DeepElabRealIP.lean
   if [ -f "$REAL_FILE" ]; then
-    lake build IP.Net.CRC32 >> "$WORK/deep_build.log" 2>&1 || {
+    lake build IP.Net.CRC32 IP.Net.UART >> "$WORK/deep_build.log" 2>&1 || {
       echo "FAIL: could not build the real-IP import closure"; fail=1; }
     if lake env lean "$REAL_FILE" > "$WORK/deep_real.log" 2>&1; then
+      # one PROVEN line per output port: crc32Engine (1) + uartTxHW (2)
       rproven=$(grep -c 'PROVEN' "$WORK/deep_real.log")
-      echo "deep-elab (real IP): $rproven circuits proven"
-      if [ "$rproven" -lt 1 ]; then
-        echo "FAIL: deep-elab real-IP proved $rproven < 1 circuits"; fail=1
+      echo "deep-elab (real IP): $rproven ports proven"
+      if [ "$rproven" -lt 3 ]; then
+        echo "FAIL: deep-elab real-IP proved $rproven < 3 ports"; fail=1
       fi
     else
       echo "FAIL: #verify_elab_deep real-IP did not close"

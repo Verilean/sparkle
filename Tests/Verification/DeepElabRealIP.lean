@@ -2,6 +2,7 @@ import Sparkle
 import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
 import IP.Net.CRC32
+import IP.Net.UART
 import Tools.DeepElab
 
 /-!
@@ -16,28 +17,34 @@ import Tools.DeepElab
   * `crc32Engine` — CRC-32 byte engine (IP/Net): xor/shr/and/sub/
     concat/mux over 32 bits, a private two-level helper chain
     (`crc32StepSig` → 8 × `crc32BitSig`) unfolded via the collected-
-    helper mechanism.
+    helper mechanism, plus a private `abbrev poly : BitVec 32`
+    constant (closed BitVec constants ride along with the helpers).
+  * `uartTxHW` — UART transmitter (IP/Net): 4 registers (10/4/16-bit
+    plus a Bool `busy`), 3 inputs (one Bool), a struct output `TxOut`
+    with two Bool ports, literal-width `++` ascriptions.  The first
+    circuit with a register index ≥ 3 — the case that forced the
+    Signal-side bridge onto literal-width readers (`{f}_deep_rd{i}`)
+    instead of `Cdo.stateAt`'s `Γr.get i`-typed values.
 
   Known boundaries (each is a worklist item, not a silent skip):
   * nested `circuit do` composition (e.g. `closedLoopCircuit` embeds
     `demoPID`'s own 2-register circuit) — the Signal bridge assumes
     a single top-level `runCircuitH`;
-  * struct outputs (`TxOut`, `FramerOut`) — the command requires
-    exactly one output;
   * non-Signal value parameters (`biquad`'s `lim`, `mulQSig`'s
     `w f`) — need a specialized wrapper def, as for synthesis.
 -/
 
 namespace Sparkle.Tests.DeepElabRealIP
 
-open Sparkle.IP.Net.CRC32
+open Sparkle.IP.Net.CRC32 Sparkle.IP.Net.UART
 
 #verify_elab_deep crc32Engine
+#verify_elab_deep uartTxHW
 
 /-- The theorems above are build-time facts; the exe is a formality
     so `lake build` has an anchor. -/
 def main : IO Unit := do
-  IO.println "deep-elab real-IP: crc32Engine PROVEN (build-time)"
+  IO.println "deep-elab real-IP: crc32Engine, uartTxHW PROVEN (build-time)"
 
 
 -- deep-bridge replay pins: the general-theorem route's per-instance
@@ -48,5 +55,16 @@ def main : IO Unit := do
 #check @crc32Engine_deep_state_trace
 #check @crc32Engine_deep_signal_fold
 #check @crc32Engine_deep_signal_run
+
+-- uart: the capstone per struct port, the shared register chain, and
+-- the literal-width readers the Signal-side bridge is stated over
+#check @uartTxHW_txLine_deep_trace
+#check @uartTxHW_txReady_deep_trace
+#check @uartTxHW_txLine_deep_rd3_succ
+#check @uartTxHW_deep_seed_bounded
+#check @uartTxHW_deep_regstep
+#check @uartTxHW_deep_state_trace
+#check @uartTxHW_txLine_deep_signal_run
+#check @uartTxHW_txReady_deep_signal_run
 
 end Sparkle.Tests.DeepElabRealIP
