@@ -310,6 +310,9 @@ lean_lib «Tools.ConeFoldProbes» where
 lean_lib «Tools.ConeFoldOpt» where
   roots := #[`Tools.ConeFoldOpt]
 
+lean_lib «Tools.ConeFoldMem» where
+  roots := #[`Tools.ConeFoldMem]
+
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
