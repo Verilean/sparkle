@@ -92,6 +92,7 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_IR_Specialize.so",
     "-l:sparkle_Sparkle_IR_Type.so",
     "-l:sparkle_Sparkle_IR_ZeroWidth.so",
+    "-l:sparkle_Sparkle_IR_RegDedup.so",
     "-l:sparkle_Sparkle.so",
     "-l:sparkle_Sparkle_Utils_HexLoader.so",
     "-l:sparkle_Sparkle_Verification_Equivalence.so",

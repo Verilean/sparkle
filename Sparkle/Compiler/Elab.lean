@@ -17,6 +17,7 @@ import Sparkle.Backend.CudaSim
 import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
 import Sparkle.IR.ZeroWidth
+import Sparkle.IR.RegDedup
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
@@ -822,6 +823,29 @@ private initialize sparkleFvarValueMap : IO.Ref (Std.HashMap Lean.Name Lean.Expr
     top-level synth alongside the other caches. -/
 private initialize sparkleLetWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
 
+/-- `Signal.loop` expression cache, keyed like `sparkleLetWireCache` (the loop
+    lambda's structure plus the wires its free variables denote).
+
+    `runCircuitH` evaluates the user's body TWICE — once inside its own
+    `Signal.loop` for the register next-state, once outside for the returned
+    value — and `@[reducible]` unfolding zeta-reduces its `let`s, so a NESTED
+    circuit's `Signal.loop` reaches the loop handler as a bare expression in
+    each pass, and the hardware-`let` cache never sees it.  Without this
+    cache every nested `circuit do` was emitted twice (measured: 3 registers
+    for a 2-register design, 5 for `closedLoopCircuit`'s 3), the second copy
+    read only by the returned value.  The two passes differ only in how they
+    name the enclosing loop's live signal — the loop binder's fvar versus the
+    `let stateLoop := Signal.loop …` binder — which `sparkleWireCanon`
+    identifies, so the canonical keys coincide and the second pass reuses
+    the first pass's wire.  Reset per synth alongside the other caches. -/
+private initialize sparkleLoopWireCache : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+
+/-- Wire aliases for canonical-key purposes: a `Signal.loop`'s result wire
+    is the same hardware as the loop wire its body binder denotes
+    (`assign loopWire = resultWire`), so keys built from either name must
+    agree.  Maps `resultWire ↦ loopWire`. -/
+private initialize sparkleWireCanon : IO.Ref (Std.HashMap String String) ← IO.mkRef {}
+
 /-- Cache of previously-synthesised sub-modules.  Without this,
     the multi-output sub-module projection shortcut would re-
     invoke `synthesizeCombinational` once per `<call>.<field>`
@@ -975,16 +999,84 @@ private def profHandler {α} (_idx : Nat) (k : CompilerM α) : CompilerM α := d
     the correct INSTANCE identity for multi-output sub-modules: calls with
     different argument wires get different keys (issue #120), while repeated
     projections of one `let engine := …` binder share one key (issue #71). -/
-def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
+partial def canonHardwareExpr (value : Lean.Expr) : CompilerM Lean.Expr := do
+  let canon ← CompilerM.liftMetaM (sparkleWireCanon.get : IO _)
+  let canonOf (w : String) : String := Id.run do
+    let mut w := w
+    -- a loop's result wire and its loop wire are one piece of hardware
+    for _ in [0:8] do
+      match canon.get? w with
+      | some w' => w := w'
+      | none => break
+    return w
+  -- Logic `let`s (`runCircuitH`'s `idRead`/`idLift`, a `circuit do`'s
+  -- non-hardware bindings) are opened as let-bound fvars, FRESH per
+  -- traversal, with no wire.  Left in the key they would make the two
+  -- evaluations of one body hash differently; substitute their values.
+  let mut value := value
+  for _ in [0:16] do
+    let mut repl : Std.HashMap Lean.Name Lean.Expr := {}
+    for fv in (Lean.collectFVars {} value).fvarIds do
+      if (← CompilerM.lookupVar fv).isSome then continue
+      if let some decl ← CompilerM.liftMetaM fv.findDecl? then
+        if let some v := decl.value? then repl := repl.insert fv.name v
+    if repl.isEmpty then break
+    value := value.replace fun sub =>
+      match sub with
+      | .fvar fid => repl.get? fid.name
+      | _ => none
+  -- An enclosing loop's live signal reaches the two evaluations of a body
+  -- as the loop binder's fvar (mapped to the loop wire) in one and as the
+  -- `Signal.loop …` expression itself (zeta-reduced `stateLoop`) in the
+  -- other.  Every already-translated `Signal.loop` sub-expression is
+  -- therefore replaced by the wire it denotes, canonicalised — the key
+  -- then agrees with the fvar form.  (Proper sub-expressions only; the
+  -- loop handler keys the loop expression itself.)
+  let loops : Array Lean.Expr := Id.run do
+    let mut acc : Array Lean.Expr := #[]
+    let mut seen : Std.HashSet Lean.Expr := {}
+    let mut work : List Lean.Expr := [value]
+    let mut fuel := 200000
+    while fuel > 0 do
+      fuel := fuel - 1
+      match work with
+      | [] => break
+      | e :: rest =>
+        work := rest
+        if seen.contains e then continue
+        seen := seen.insert e
+        if e != value && e.isAppOf ``Sparkle.Core.Signal.Signal.loop
+            && e.getAppNumArgs ≥ 1 then
+          acc := acc.push e
+          continue
+        match e with
+        | .app f a => work := f :: a :: work
+        | .lam _ t b _ | .forallE _ t b _ => work := t :: b :: work
+        | .letE _ t v b _ => work := t :: v :: b :: work
+        | .mdata _ b | .proj _ _ b => work := b :: work
+        | _ => pure ()
+    return acc
+  if !loops.isEmpty then
+    let cache ← CompilerM.liftMetaM (sparkleLoopWireCache.get : IO _)
+    let mut loopRepl : Std.HashMap Lean.Expr Lean.Expr := {}
+    for l in loops do
+      let k := toString (← canonHardwareExpr l).hash
+      if let some w := cache.get? k then
+        loopRepl := loopRepl.insert l
+          (Lean.mkConst (Lean.Name.mkSimple s!"«wire:{canonOf w}»"))
+    if !loopRepl.isEmpty then
+      value := value.replace fun sub => loopRepl.get? sub
   let mut repl : Std.HashMap Lean.Name Lean.Expr := {}
   for fv in (Lean.collectFVars {} value).fvarIds do
-    let w := (← CompilerM.lookupVar fv).getD s!"?{fv.name}"
+    let w := canonOf ((← CompilerM.lookupVar fv).getD s!"?{fv.name}")
     repl := repl.insert fv.name (Lean.mkConst (Lean.Name.mkSimple s!"«wire:{w}»"))
-  let abstracted := value.replace fun sub =>
+  return value.replace fun sub =>
     match sub with
     | .fvar fid => repl.get? fid.name
     | _ => none
-  return toString abstracted.hash
+
+def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
+  return toString (← canonHardwareExpr value).hash
 
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
@@ -2696,6 +2788,15 @@ mutual
         | _ => CompilerM.liftMetaM (Lean.Meta.whnf f)
       match fReduced with
       | .lam binderName binderType body _ =>
+        -- one `Signal.loop` per distinct hardware: the second evaluation
+        -- of a `runCircuitH` body (see `sparkleLoopWireCache`) reaches
+        -- the same loop expression modulo the enclosing live signal's
+        -- name; canonicalised, it is a cache hit and NOT a second copy
+        -- of the nested circuit's registers
+        let loopKey ← canonHardwareKey e
+        if let some w := (← CompilerM.liftMetaM (sparkleLoopWireCache.get : IO _)).get? loopKey then
+          trace[sparkle.compiler] "→ loop (cache hit: {w})"
+          return some w
         let exprType ← cachedInferType e
         let hwType ← inferHWTypeFromSignal exprType
         let loopWire ← CompilerM.makeWire "loop" hwType
@@ -2715,6 +2816,9 @@ mutual
           CompilerM.withVarMapping fvar.fvarId! loopWire do
             translateExprToWire bodyInst "loop_body"
         CompilerM.emitAssign loopWire (.ref resultWire)
+        CompilerM.liftMetaM do
+          sparkleWireCanon.modify (·.insert resultWire loopWire)
+          sparkleLoopWireCache.modify (·.insert loopKey resultWire)
         return some resultWire
       | _ => CompilerM.liftMetaM $ throwError "Signal.loop argument must be a lambda"
 
@@ -3730,6 +3834,8 @@ mutual
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
       sparkleLetWireCache.set {}
+      sparkleLoopWireCache.set {}
+      sparkleWireCanon.set {}
     else
       -- Nested synth: fresh fvar map (the parent's fvars are
       -- scoped to the parent's body and can't be visible
@@ -3739,6 +3845,8 @@ mutual
       sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
       sparkleLetWireCache.set {}
+      sparkleLoopWireCache.set {}
+      sparkleWireCanon.set {}
     sparkleSynthDepth.set (depth + 1)
     -- Extract the body into a local closure so `try ... finally`
     -- can wrap the entire synthesis path (including the
@@ -3935,15 +4043,21 @@ mutual
   partial def synthesizeCombinational (declName : Name) :
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let (m, d) ← synthesizeCombinationalCore declName [] false
-    return (Sparkle.IR.ZeroWidth.dropZeroWidthModule m,
-      Sparkle.IR.ZeroWidth.dropZeroWidthDesign d)
+    -- zero-width cleanup, then merge the duplicate hardware the two-pass
+    -- body evaluation leaves behind (see Sparkle/IR/RegDedup.lean)
+    return (Sparkle.IR.RegDedup.mergeDuplicates
+        (Sparkle.IR.ZeroWidth.dropZeroWidthModule m),
+      Sparkle.IR.RegDedup.mergeDuplicatesDesign
+        (Sparkle.IR.ZeroWidth.dropZeroWidthDesign d))
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let (m, d) ← synthesizeCombinationalCore declName parameters true
-    return (Sparkle.IR.ZeroWidth.dropZeroWidthModule m,
-      Sparkle.IR.ZeroWidth.dropZeroWidthDesign d)
+    return (Sparkle.IR.RegDedup.mergeDuplicates
+        (Sparkle.IR.ZeroWidth.dropZeroWidthModule m),
+      Sparkle.IR.RegDedup.mergeDuplicatesDesign
+        (Sparkle.IR.ZeroWidth.dropZeroWidthDesign d))
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do

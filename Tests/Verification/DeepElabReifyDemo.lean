@@ -182,15 +182,15 @@ def flipRegDemo (en : Signal defaultDomain Bool) :
 #verify_elab_deep flipRegDemo
 
 /-! NESTED `circuit do`: a helper circuit instantiated inside another
-    circuit's body.  The IR flattens both into one register list — and,
-    because `runCircuitH` evaluates its body twice (next-state and
-    output), the inner circuit's registers appear TWICE (identical
-    recurrences; the copy the output reads is separate from the copy
-    the outer register reads).  The Signal side keeps one `Signal.loop`
-    per node; the bridge discharges each inner loop with
+    circuit's body.  The IR flattens both into one register list.  (The
+    elaborator used to emit the inner registers TWICE — `runCircuitH`
+    evaluates its body for the next-state and again for the output —
+    which `Sparkle.IR.RegDedup` now merges; the bridge still carries
+    the duplicate-copy machinery, generated `_dup_r*` equalities, for
+    any copy the merge cannot identify.)  The Signal side keeps one
+    `Signal.loop` per node; the bridge discharges each inner loop with
     `loop_trace_guarded_at` (its body may read the outer live signal,
-    known only as a prefix) against a candidate register block, and
-    normalises duplicate copies with generated `_dup_r*` equalities. -/
+    known only as a prefix) against a candidate register block. -/
 
 /-- Inner counter: independent of the outer state. -/
 def innerCnt (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
@@ -255,14 +255,19 @@ def outerFb (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
 #print axioms outerNest_deep_trace
 #print axioms outerFb_deep_trace
 
--- nested-circuit pins: the inner copies' duplicate equalities (IR
--- registers 3,4 are the output-side copy of registers 0,1) and the
--- readers the Signal-side bridge is stated over
-#check @outerFb_deep_dup_r3
-#check @outerFb_deep_dup_r4
+-- nested-circuit pins: the merged register set (RegDedup: 3 registers
+-- for outerFb, not 5) and the readers the Signal-side bridge is
+-- stated over
 #check @outerFb_deep_rd2_succ
 #check @outerNest_deep_signal_run
 #check @outerFb_deep_signal_run
+run_cmd do
+  let d ← Lean.Elab.Command.liftTermElabM
+    (Sparkle.Compiler.Elab.synthesizeHierarchical ``Sparkle.Tests.DeepElabReifyDemo.outerFb)
+  for m in d.modules do
+    let n := (Tools.VerifyElab.theRegisters m).length
+    unless n == 3 do
+      throwError "outerFb: expected 3 registers after duplicate merging, got {n}"
 
 
 -- deep-bridge replay pins: the general-theorem route's per-instance

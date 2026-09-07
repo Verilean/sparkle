@@ -130,12 +130,20 @@ group is rough priority.  Update as items land.
   multiply cones) before the bridge runs; bv_decide on 64-bit multiply
   would be the next wall anyway.  Needs a different closer strategy
   (toNat-level arithmetic lemmas, or `decide`-free normalisation).
-- [ ] **Elaborator: duplicated nested-circuit registers.**  Not a proof
-  issue — the emitted Verilog really has the copies (measured 5 vs 3 on
-  `closedLoopCircuit`; the observer memo in Elab.lean notes an
-  ELEVEN-fold case that the expression cache only partly fixed).  The
-  two copies differ only in their live-signal context, so a cache keyed
-  modulo the loop binder could merge them.  Synthesis-quality item.
+- [x] **Elaborator: duplicated nested-circuit registers — FIXED.**  The
+  emitted hardware really was doubled (5 registers for
+  `closedLoopCircuit`'s 3).  Two layers: (1) the elaborator's
+  `Signal.loop` handler now has a canonical-key cache (with logic-`let`
+  zeta and a result-wire ↔ loop-wire alias), which catches nested
+  circuits that do not read the enclosing state; (2) the two body
+  passes reduce an outer register read differently (`Reg.mk … live`
+  projection vs a named let wire), so no syntactic key is stable for
+  the feedback case — `Sparkle/IR/RegDedup.lean` merges the copies at
+  the IR level by partition refinement (coarsest bisimulation over
+  assigns and registers, alias-aware); non-representatives become
+  aliases so no name disappears.  Runs right after zero-width cleanup
+  in `synthesizeCombinational`.  `closedLoopCircuit` 5 → 3, `outerFb`
+  5 → 3 (pinned in DeepElabReifyDemo).
 - [ ] Non-Signal value parameters.
 - [ ] Memories / sub-instances (`.inst`) in the deep grammar.
 - [ ] Bridge v1 limits: register inputs that aren't `.ref` wires

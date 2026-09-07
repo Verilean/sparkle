@@ -30,9 +30,10 @@ import Tools.DeepElab
   * non-Signal value parameters (`biquad`'s `lim`, `mulQSig`'s
     `w f`) — need a specialized wrapper def, as for synthesis;
   * arithmetic size: `closedLoopCircuit` (PID + plant, 32/64-bit
-    fixed-point multiplies, nested) times out in the definition phase
-    (`isDefEq` on the multiply cones) before the bridge runs — the
-    nesting itself is covered by the `DeepElabReifyDemo` nested demos.
+    fixed-point multiplies, nested; 3 registers once RegDedup merges
+    the two-pass copies) times out in the definition phase (`isDefEq`
+    on the multiply cones) before the bridge runs — the nesting itself
+    is covered by the `DeepElabReifyDemo` nested demos.
 -/
 
 namespace Sparkle.Tests.DeepElabRealIP
