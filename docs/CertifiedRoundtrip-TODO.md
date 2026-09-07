@@ -177,6 +177,22 @@ group is rough priority.  Update as items land.
   a synth-elaborator gap, not a deep-route one; recorded in the
   synth-gotchas memo).
 - [ ] Memories / sub-instances (`.inst`) in the deep grammar.
+  **Prerequisite landed:** `Signal.memory` / `memoryComboRead` /
+  `memoryWithInit` were `opaque` + `implemented_by` — no logical
+  definition, so NOTHING about a memory-bearing circuit was provable
+  on either route.  They are now `def`s whose bodies are the pure
+  `Signal.memState` recurrence (contents after the writes of cycles
+  `< t`; registered read = `memState n (readAddr n)` at `n+1`,
+  read-old; combo read at `t`; withInit starts from `initData`), with
+  `_val_zero/_succ`, `memState_zero/succ` rfl lemmas; the array
+  implementations are unchanged and pinned to the spec by
+  `Tests/MemorySpecTest.lean` (64 scripted cycles, all three).  The
+  simulator, the IR semantics (`syncReadLatches` read-old) and the
+  Verilog `always_ff` agree on timing — checked, no sim/synth gap.
+  Remaining: memory state in `Cdo` (`CMem`, `memRead` CExpr, write
+  ports), `compile_correct` over the IR's `MEnv` rules, generator
+  reification of `.memory`, and a Signal-side bridge lemma from
+  `memory_val_succ` (array state in the trace, no bv_decide).
 - [ ] Bridge v1 limits: register inputs that aren't `.ref` wires
   (emission currently skipped); memory-bearing modules (memFree
   premise).
