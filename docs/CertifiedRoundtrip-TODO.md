@@ -122,8 +122,18 @@ group is rough priority.  Update as items land.
   equalities (induction on the readers' step lemmas) that normalise
   whichever copy the proof picked.  Also fixed: the helper filter
   treated every `Sparkle.*` name as core, so helpers under
-  `Sparkle.Tests.*` were never unfolded.  Depth-2 nesting (a loop inside
-  a nested loop) is not handled yet.
+  `Sparkle.Tests.*` were never unfolded.
+- [x] **Deeper nesting — DONE** (`lvl0 ⊃ lvl1 ⊃ lvl2`, the innermost
+  reading both enclosing registers).  Term nesting exceeds circuit
+  nesting (the inner circuit's input carries the mid loop's term, whose
+  body carries the inner circuit again — four levels for a two-level
+  design), and a deep step obligation needs prefix facts about EVERY
+  enclosing live signal: `loop_trace_guardedP_at` takes an arbitrary
+  prefix predicate `G` (a conjunction, extended by one equation per
+  level) and the discharge recurses with level-indexed hypothesis names
+  (shadowing was the first failure mode).  Recursion depth is adaptive:
+  (#candidate alternatives)^depth ≤ 64, depth ≤ 5.
+  `SPARKLE_DEEP_NOFIRST=k` runs alternative k unguarded for debugging.
 - [ ] **Arithmetic size frontier** — `closedLoopCircuit` (PID + plant,
   32/64-bit fixed-point multiplies) times out at `isDefEq` in the
   definition phase (readers' `rfl` step lemmas / fidelity over the
@@ -143,7 +153,18 @@ group is rough priority.  Update as items land.
   assigns and registers, alias-aware); non-representatives become
   aliases so no name disappears.  Runs right after zero-width cleanup
   in `synthesizeCombinational`.  `closedLoopCircuit` 5 → 3, `outerFb`
-  5 → 3 (pinned in DeepElabReifyDemo).
+  5 → 3 (pinned in DeepElabReifyDemo).  Follow-ups from the first CI
+  round (Build + IP Tests red): (a) user-named nodes (`_gen_*`, module
+  outputs) keep their own statement — the JIT reads them by name and a
+  plain alias is folded away; (b) the representative is the FIRST
+  member in body order, or the alias points forward and the certified
+  chain's `woCheck` rejects the body (every `#verify_elab` optimizer
+  bridge was silently SKIPPED); (c) the optimizer's DCE phases 2/4 now
+  treat OBSERVABLE wires as used — with more cache hits the elaborator
+  emits `_gen_done := _gen__done` aliases whose uses constant-propagate
+  away, and the pruned alias was exactly the wire `JIT.resolveWires`
+  looked up (`h264-bitstream-test`, `oracle-accuracy-test`).
+  `SPARKLE_NO_REGDEDUP=1` / `SPARKLE_NO_LOOPCACHE=1` A/B switches.
 - [x] **Non-Signal value parameters — DONE** via the specialized-wrapper
   pattern synthesis already needs (`def accK15 d := accK 0x0F#8 d`).
   The wrapper's body is an application, not a `runCircuitH`; the

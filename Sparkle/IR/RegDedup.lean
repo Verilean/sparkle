@@ -75,12 +75,10 @@ def sigOf (alias : HashMap String String) (cls : HashMap String Nat) (self : Nat
     s!"{self}|R|{clk}|{rstN}|{repr rk}|{init}|{repr (canonExpr alias cls input)}"
   | _ => s!"{self}|?"
 
-/-- Merge bisimilar nodes.  No name disappears: every non-representative
-    member of a class becomes a plain alias `n := rep` (a duplicate
-    register's output turns into an alias of the surviving register), so
-    wires read BY NAME at runtime (waveform taps, the SoC JIT's wire
-    table) stay addressable while the hardware is shared once.  Module
-    outputs are preferred as representatives. -/
+/-- Merge bisimilar nodes.  Internal (`_tmp_*`) non-representatives become
+    plain aliases `n := rep` (a duplicate register's output turns into an
+    alias of the surviving register); user-named nodes keep their own
+    statement — see `userNamed` below. -/
 def mergeDuplicates (m : Module) : Module := Id.run do
   let nodes : List (String × Stmt) := m.body.filterMap fun st =>
     (definedNode st).map fun n => (n, st)
@@ -110,20 +108,24 @@ def mergeDuplicates (m : Module) : Module := Id.run do
     if n' == nClasses then break
     nClasses := n'
   if nClasses == nodes.length then return m
-  -- representatives: a module output if the class has one, else the
-  -- first member in body order
+  -- User-named nodes (`_gen_<binder>`, module outputs — anything not an
+  -- elaborator-internal `_tmp_*`) are read BY NAME at runtime (the JIT's
+  -- wire table: `_gen_trap_taken`, `_gen_done`), and a plain alias would
+  -- be folded away by the optimizer's copy propagation.  They therefore
+  -- keep their own defining statement (with references renamed); only
+  -- internal nodes are aliased.
+  -- The representative is the FIRST member in body order: an alias must
+  -- point at an already-defined node, or the body's definition-before-use
+  -- order (which the certified chain's `woCheck` requires) would break.
+  let userNamed (n : String) : Bool := outputSet.contains n || !n.startsWith "_tmp_"
   let mut rep : HashMap Nat String := {}
   for (n, _) in nodes do
     let k := cls.getD n 0
-    match rep.get? k with
-    | none => rep := rep.insert k n
-    | some r =>
-      if outputSet.contains n && !outputSet.contains r then
-        rep := rep.insert k n
+    if !rep.contains k then rep := rep.insert k n
   let mut subst : HashMap String String := {}
   for (n, _) in nodes do
     let r := rep.getD (cls.getD n 0) n
-    if r != n then subst := subst.insert n r
+    if r != n && !userNamed n then subst := subst.insert n r
   if subst.isEmpty then return m
   let rename := Sparkle.IR.Optimize.renameRefs subst
   let body := m.body.map fun st =>

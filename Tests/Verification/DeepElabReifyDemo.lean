@@ -239,6 +239,41 @@ def outerFb (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :
 
 #verify_elab_deep outerFb
 
+/-! TWO-LEVEL NESTING: the innermost circuit reads a signal mixing the
+    mid-level and the outer register.  Term nesting exceeds circuit
+    nesting here (the inner circuit's input carries the mid loop's term,
+    whose body carries the inner circuit again), and the innermost step
+    obligation needs prefix facts about BOTH enclosing live signals —
+    `loop_trace_guardedP_at` with a conjunction guard, accumulated by the
+    recursive discharge. -/
+
+def lvl2 (en : Signal defaultDomain Bool) (x : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let c ← Signal.reg (1#8)
+    let cs := (c : Signal defaultDomain (BitVec 8))
+    c <~ Signal.mux en (cs + x) cs
+    return cs
+
+def lvl1 (en : Signal defaultDomain Bool) (y : Signal defaultDomain (BitVec 8)) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let m ← Signal.reg (2#8)
+    let ms := (m : Signal defaultDomain (BitVec 8))
+    let z := lvl2 en (ms + y)
+    m <~ z
+    return ms + z
+
+def lvl0 (en : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let o ← Signal.reg (0#8)
+    let os := (o : Signal defaultDomain (BitVec 8))
+    let w := lvl1 en os
+    o <~ w
+    return w
+
+#verify_elab_deep lvl0
+
 /-! NON-SIGNAL VALUE PARAMETERS: a circuit taking a `BitVec` / `Nat`
     parameter is certified through a specialized wrapper def — the same
     pattern synthesis needs.  The wrapper's body is an application of
@@ -293,6 +328,8 @@ def accN200 (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec
 #print axioms outerFb_deep_trace
 #print axioms accK15_deep_trace
 #print axioms accN200_deep_trace
+#print axioms lvl0_deep_trace
+#check @lvl0_deep_signal_run
 #check @accK15_deep_signal_run
 #check @accN200_deep_signal_run
 

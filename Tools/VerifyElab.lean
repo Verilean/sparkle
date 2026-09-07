@@ -164,6 +164,53 @@ theorem loop_trace_guarded_at {dom : Sparkle.Core.Domain.DomainConfig} {α β : 
     exact hstep t _ (fun i hi => by
       simp [hi]; exact ih i hi (fun j hj => hg j (by omega))) hg
 
+/-- The guarded trace lemma with an ARBITRARY prefix predicate `G`: a
+    loop nested several levels deep reads several enclosing live
+    signals, and the facts known about them (each a prefix equation) are
+    bundled as a conjunction `G i`.  The nesting recursion in
+    `#verify_elab_deep` extends `G` by one equation per level. -/
+theorem loop_trace_guardedP_at {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
+    [Inhabited α]
+    (F : Sparkle.Core.Signal.Signal dom α → Sparkle.Core.Signal.Signal dom α) (trace : Nat → α)
+    (G : Nat → Prop)
+    (hstep : ∀ t (q : Sparkle.Core.Signal.Signal dom α),
+      (∀ i, i < t → q.val i = trace i) →
+      (∀ i, i < t → G i) →
+      (F q).val t = trace t)
+    (t : Nat) (hg : ∀ i, i < t → G i) :
+    (Sparkle.Core.Signal.Signal.loop F).val t = trace t := by
+  induction t using Nat.strongRecOn with
+  | ind t ih =>
+    show Sparkle.Core.Signal.Signal.loopGo F t = trace t
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    exact hstep t _ (fun i hi => by
+      simp [hi]; exact ih i hi (fun j hj => hg j (by omega))) hg
+
+/-- Two enclosing loops (a loop nested two levels deep may read both the
+    mid-level and the outer live signal): `loop_trace_guarded_at` with
+    two prefix guards. -/
+theorem loop_trace_guarded2_at {dom : Sparkle.Core.Domain.DomainConfig} {α β γ : Type}
+    [Inhabited α]
+    (F : Sparkle.Core.Signal.Signal dom α → Sparkle.Core.Signal.Signal dom α) (trace : Nat → α)
+    {pre₁ : Sparkle.Core.Signal.Signal dom β} {tro₁ : Nat → β}
+    {pre₂ : Sparkle.Core.Signal.Signal dom γ} {tro₂ : Nat → γ}
+    (hstep : ∀ t (q : Sparkle.Core.Signal.Signal dom α),
+      (∀ i, i < t → q.val i = trace i) →
+      (∀ i, i < t → pre₁.val i = tro₁ i) →
+      (∀ i, i < t → pre₂.val i = tro₂ i) →
+      (F q).val t = trace t)
+    (t : Nat) (hg₁ : ∀ i, i < t → pre₁.val i = tro₁ i)
+    (hg₂ : ∀ i, i < t → pre₂.val i = tro₂ i) :
+    (Sparkle.Core.Signal.Signal.loop F).val t = trace t := by
+  induction t using Nat.strongRecOn with
+  | ind t ih =>
+    show Sparkle.Core.Signal.Signal.loopGo F t = trace t
+    rw [Sparkle.Core.Signal.Signal.loopGo_eq]
+    exact hstep t _ (fun i hi => by
+      simp [hi]
+      exact ih i hi (fun j hj => hg₁ j (by omega)) (fun j hj => hg₂ j (by omega)))
+      hg₁ hg₂
+
 /-! `.val`-pushing lemmas: every Signal-level operator instance,
     pointwise.  The deep route's bridge uses these instead of
     unfolding the `H*` class projections — a global `HXor.hXor`

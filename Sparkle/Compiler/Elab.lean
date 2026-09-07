@@ -2794,7 +2794,8 @@ mutual
         -- name; canonicalised, it is a cache hit and NOT a second copy
         -- of the nested circuit's registers
         let loopKey ← canonHardwareKey e
-        if let some w := (← CompilerM.liftMetaM (sparkleLoopWireCache.get : IO _)).get? loopKey then
+        if (← IO.getEnv "SPARKLE_NO_LOOPCACHE").isNone then
+         if let some w := (← CompilerM.liftMetaM (sparkleLoopWireCache.get : IO _)).get? loopKey then
           trace[sparkle.compiler] "→ loop (cache hit: {w})"
           return some w
         let exprType ← cachedInferType e
@@ -4045,19 +4046,22 @@ mutual
     let (m, d) ← synthesizeCombinationalCore declName [] false
     -- zero-width cleanup, then merge the duplicate hardware the two-pass
     -- body evaluation leaves behind (see Sparkle/IR/RegDedup.lean)
-    return (Sparkle.IR.RegDedup.mergeDuplicates
-        (Sparkle.IR.ZeroWidth.dropZeroWidthModule m),
-      Sparkle.IR.RegDedup.mergeDuplicatesDesign
-        (Sparkle.IR.ZeroWidth.dropZeroWidthDesign d))
+    -- (`SPARKLE_NO_REGDEDUP=1` skips the merge, for A/B diagnosis)
+    let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+    let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
+    if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
+    return (Sparkle.IR.RegDedup.mergeDuplicates m,
+      Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let (m, d) ← synthesizeCombinationalCore declName parameters true
-    return (Sparkle.IR.RegDedup.mergeDuplicates
-        (Sparkle.IR.ZeroWidth.dropZeroWidthModule m),
-      Sparkle.IR.RegDedup.mergeDuplicatesDesign
-        (Sparkle.IR.ZeroWidth.dropZeroWidthDesign d))
+    let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+    let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
+    if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
+    return (Sparkle.IR.RegDedup.mergeDuplicates m,
+      Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
 end
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do

@@ -1643,17 +1643,43 @@ elab "#verify_elab_deep" id:ident : command =>
     -- pack of one of its candidate register blocks; the step obligation
     -- is the same recipe.  Candidates are tried in turn — a wrong block
     -- fails its step proof and the next is tried — until no loop is left.
-    let innerBlock (guard : Term) : CommandElabM (Lean.TSyntax `tactic) := do
+    -- The prefix knowledge about the ENCLOSING live signals is one
+    -- predicate `G i` (a conjunction of prefix equations, one per
+    -- enclosing loop) with a proof `guard : ∀ i < t, G i`; the step
+    -- obligation receives it (`loop_trace_guardedP_at`) and, one level
+    -- down, extends it with its own live signal's prefix and discharges
+    -- ITS nested loops the same way.  Term nesting can exceed circuit
+    -- nesting (an inner circuit's input carries the mid loop's term,
+    -- whose body carries the inner circuit again), so the recursion goes
+    -- `depth` levels below the current one.
+    let rec innerBlock (gBody : Term) (guard : Term) (depth : Nat) (lvl : Nat) :
+        CommandElabM (Lean.TSyntax `tactic) := do
+      -- level-indexed names: a deeper level's `intro` must not shadow the
+      -- enclosing level's `q`/`hg`, which the handed-down guard refers to
+      let qId := mkI s!"q{lvl}"
+      let hqId := mkI s!"hq{lvl}"
+      let hgId := mkI s!"hg{lvl}"
+      let uId := mkI s!"u{lvl}"
+      let mId := mkI s!"m{lvl}"
+      let hsId := mkI s!"hs{lvl}"
       let mut alts : Array (Lean.TSyntax `tactic) := #[]
       for node in nestedNodes do
         for b in blocksFor node do
           let packS ← packOf node b (← `($sId))
+          let packI ← packOf node b (← `($iId))
           let st1z ← stage1 #[]
+          -- `hg m _ : G m` is a conjunction; simp splits it into rewrites
           let st1s ← stage1 #[← `($hqId $mId (Nat.lt_succ_self $mId)),
             ← `($hgId $mId (Nat.lt_succ_self $mId))]
+          -- one level down: this loop's own prefix, then everything known
+          let deeper ← match depth with
+            | 0 => `(tactic| skip)
+            | d + 1 =>
+              innerBlock (← `((($qId).val $iId = $packI) ∧ $gBody))
+                (← `((fun $iId $hiId => ⟨$hqId $iId (by omega), $hgId $iId (by omega)⟩))) d (lvl + 1)
           alts := alts.push (← `(tactic| (
-            rw [loop_trace_guarded_at _ (fun $sId => $packS) ?hs _ $guard]
-            case hs =>
+            rw [loop_trace_guardedP_at _ (fun $sId => $packS) (fun $iId => $gBody) ?$hsId _ $guard]
+            case $hsId:ident =>
               intro $uId:ident $qId:ident $hqId:ident $hgId:ident
               cases $uId:ident with
               | zero =>
@@ -1664,11 +1690,22 @@ elab "#verify_elab_deep" id:ident : command =>
               | succ $mId =>
                 $st1s:tactic
                 $appendFix:tactic
+                $deeper:tactic
                 all_goals (try simp only [$[$rdSuccIds:ident],*])
                 $dupSimp:tactic
                 ($[$genLines:tactic]*)
                 $closers:tactic)))
       if alts.isEmpty then `(tactic| skip) else do
+      -- SPARKLE_DEEP_NOFIRST=k: debugging aid — run alternative k alone,
+      -- unguarded, so its failure surfaces instead of being backtracked
+      if let some k := (← IO.getEnv "SPARKLE_DEEP_NOFIRST") then
+        let k := k.toNat!
+        let a := alts[k % alts.size]!
+        let expose ← stage1 #[← `(runCircuitH_eq), ← `(outFOf)]
+        return ← `(tactic| (
+          all_goals (try $expose:tactic)
+          $appendFix:tactic
+          $a:tactic))
       let mut alt : Lean.TSyntax `tactic := alts.back!
       for a in alts.pop.reverse do
         alt ← `(tactic| first | $a:tactic | $alt:tactic)
@@ -1730,10 +1767,22 @@ elab "#verify_elab_deep" id:ident : command =>
     let mkTopProof (b : Nat) : CommandElabM (Lean.TSyntax `tactic) := do
       let packS ← packOf topNode b (← `($sId))
       let packU ← packOf topNode b (← `($uId))
+      let packI ← packOf topNode b (← `($iId))
       let hpreGuard ← `((fun $iId $hiId => $hpreId $iId (by omega)))
       let hLtGuard ← `((fun $iId _ => $hLtId $iId))
-      let innerHpre ← innerBlock hpreGuard
-      let innerHLt ← innerBlock hLtGuard
+      -- nested loops: term nesting exceeds circuit nesting (an inner
+      -- circuit's input carries the mid loop's term, whose body carries
+      -- the inner circuit again — a two-level design needs four), so
+      -- recurse as deep as the alternative count allows: the generated
+      -- script has (#alternatives)^depth leaves, kept ≤ 64, depth ≤ 5
+      let nAlts := nestedNodes.foldl (fun acc n => acc + (blocksFor n).length) 0
+      let depth := Id.run do
+        let mut d := 1
+        for k in [2:6] do
+          if nAlts ^ k ≤ 64 then d := k
+        return d
+      let innerHpre ← innerBlock (← `(($preId).val $iId = $packI)) hpreGuard depth 0
+      let innerHLt ← innerBlock (← `(($LId).val $iId = $packI)) hLtGuard depth 0
       let st1z ← stage1 #[]
       let st1s ← stage1 #[← `($hpreId $nId (Nat.lt_succ_self $nId))]
       `(tactic| (
