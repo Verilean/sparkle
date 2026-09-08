@@ -992,6 +992,18 @@ theorem memory_eq_register_loop {addrWidth dataWidth : Nat}
     show memState (fun _ => 0#dataWidth) wa wd we n (ra.val n) = _
     rw [memState_eq_loop]
 
+/-- A combinational-read memory IS the contents loop read at the read
+    address, same cycle (the bridge form of `memoryComboRead`). -/
+theorem memoryComboRead_eq_loop {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) :
+    memoryComboRead wa wd we ra
+      = ⟨fun t => (loop (memStep (fun _ => 0#dataWidth) wa wd we)).val t (ra.val t)⟩ := by
+  unfold memoryComboRead
+  congr 1
+  funext t
+  rw [memState_eq_loop]
+
 /-- Any signal is the (constant-body) loop of itself — used to present a
     memory's read latch as a one-slot nested loop to the bridge. -/
 theorem eq_loop_const {α : Type} [Inhabited α] (x : Signal dom α) :

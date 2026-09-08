@@ -418,9 +418,9 @@ the oleans at no cost.
   none `.bad`.)
 * Deep-route coverage: sub-instances (`.inst`), multi-port memories
   and `memoryWithInit` are outside the deep grammar (nested `circuit do`
-  composition, value parameters and single-port synchronous memories —
-  capstone AND IR replay over `stepIterM` — are in); the optimizer /
-  printed-text bridges (`_signal_svOpt`, `_signal_runRT`) exist on the
-  `#verify_elab` route only.
+  composition, value parameters and single-port memories — synchronous
+  and combinational read, capstone AND IR replay over `stepIterM` — are
+  in); the optimizer / printed-text bridges (`_signal_svOpt`,
+  `_signal_runRT`) exist on the `#verify_elab` route only.
 
 See `docs/CertifiedRoundtrip-TODO.md` for the tracked open-work list.

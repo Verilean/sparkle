@@ -356,6 +356,26 @@ def memTwo (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (Bi
 
 #verify_elab_deep memTwo
 
+/-! A COMBINATIONAL-READ memory (`Signal.memoryComboRead`, the register-
+    file / KV-cache primitive): the read data is not state but a READ
+    SLOT of the deep context (`CdoM`'s `Γc`), valued from the contents at
+    the address cone; the Signal side sees `memoryComboRead_eq_loop` (the
+    contents loop read at the address, same cycle).  The output reads the
+    memory directly. -/
+def comboAcc (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (BitVec 8))
+    (we : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let ptr ← Signal.reg (0#4)
+    let acc ← Signal.reg (0#8)
+    let p := (ptr : Signal defaultDomain (BitVec 4))
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let rd := Signal.memoryComboRead wa wd we p
+    ptr <~ p + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    acc <~ a + rd
+    return a + rd
+
+#verify_elab_deep comboAcc
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -384,6 +404,17 @@ def memTwo (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (Bi
 #print axioms memAcc_deep_signal_run
 #check @memTwo_deep_memstep
 #print axioms memTwo_deep_signal_run
+#print axioms comboAcc_deep_trace
+#check @comboAcc_deep_signal_run
+#print axioms comboAcc_deep_signal_run
+-- the two-pass duplicate of the combinational-read memory is merged too
+run_cmd do
+  let d ← Lean.Elab.Command.liftTermElabM
+    (Sparkle.Compiler.Elab.synthesizeHierarchical ``Sparkle.Tests.DeepElabReifyDemo.comboAcc)
+  for m in d.modules do
+    let n := (m.body.filter fun st => match st with | .memory .. => true | _ => false).length
+    unless n == 1 do
+      throwError "comboAcc: expected exactly one memory after duplicate merging, got {n}"
 -- the two-pass duplicate of the memory is merged (RegDedup): one memory
 run_cmd do
   let d ← Lean.Elab.Command.liftTermElabM

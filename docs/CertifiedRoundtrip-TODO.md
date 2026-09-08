@@ -241,14 +241,45 @@ group is rough priority.  Update as items land.
   plain `generalize rd _ = g` of an absent reader succeeds vacuously
   and leaves the hole as a metavariable, rejected by the kernel with no
   tactic error to point at).
-  Remaining: `memoryComboRead` (combinational read — synthesizable and
-  used by Regfile/KVCache; needs read slots in the deep context and a
-  "seeded read is a no-op" seam lemma for the replay), `memoryWithInit`
-  (no synth support today), multi-port memories, sub-instances
-  (`.inst`).
+  **Combinational reads landed** (`Signal.memoryComboRead`, the
+  Regfile / KVCache primitive; capstone AND replay, demo `comboAcc`).
+  The read data is not state but a READ SLOT: `CdoM` gained a context
+  `Γc` of read widths, `reads : Fin Γc.length → CRead` (memory index +
+  address cone over registers and inputs — a read address reading
+  another combinational read is outside v1) with the width side
+  condition `hreads` (rfl slot by slot), and the cones live over
+  `Γr ++ Γi ++ Γc`; the IR seed is `CdoM.irEnv` (registers, inputs,
+  reads).  Signal side: `memoryComboRead_eq_loop` (the contents loop
+  read at the address, same cycle) — one more inner-loop alternative.
+  Replay: the seed carries the deep read value (`comboReads` recomputes
+  and OVERWRITES it, so the IR trace is the IR's own), and the read
+  statement is dropped from the fold by `evalAssigns_comboSeeded`
+  (Tools/ConeFoldMem.lean): the read address's value after the memory-
+  free prefix is the address cone at the seed (the seam on the prefix
+  body `_deep_bodyP{c}`), which is what the read slot holds
+  (`CdoM.irReads_eq`).  Only synchronous reads are stripped up front
+  (`stripSyncOnly`, unconditional); `bodyEvalOkM` admits both kinds.
+  Two things this exposed: (1) `topoSortBody` puts every memory first,
+  which is WRONG for a combinational read whose address is a local wire
+  (`evalAssigns` evaluates `comboReads` at the statement's position) —
+  the deep route now orders its body with `deepOrderBody` (Kahn over
+  assignments and combinational reads; the SV lowering's `topoSortBody`
+  is untouched, its theorems are guarded by `woCheck`); (2) RegDedup now
+  merges duplicated combinational-read memories too (the two-pass copy
+  was two BRAMs).
+  Remaining: `memoryWithInit` (no synth support today), multi-port
+  memories, sub-instances (`.inst`), read addresses that read another
+  combinational read.
 - [ ] Bridge v1 limits: register inputs / memory ports that aren't
   `.ref` wires (the replay is skipped with a message; the capstone is
   still emitted).
+
+- [x] **Generator compile time** — `Tools/DeepElab.lean` went from
+  ~220 s to a 1287 s LCNF-compiler heartbeat timeout as the one
+  `#verify_elab_deep` do-block grew (~2,500 lines): the compiler's cost
+  on a single function is superlinear.  The per-port bridge and the
+  replay are now `let rec` blocks (lambda-lifted into their own
+  compilation units): 108 s.  Keep new phases as blocks.
 
 ## D. Trust base
 

@@ -31,7 +31,7 @@
   outputs are preferred as representatives).
 
   References to nodes this pass does not classify (module inputs,
-  memory read ports, sub-instance outputs) stay as themselves —
+  multi-port memory read ports, sub-instance outputs) stay as themselves —
   distinct free symbols — so the analysis is conservative.
 -/
 import Sparkle.IR.AST
@@ -63,9 +63,13 @@ partial def canonExpr (alias : HashMap String String) (cls : HashMap String Nat)
 def definedNode : Stmt → Option String
   | .assign lhs _ => some lhs
   | .register out _ _ _ _ => some out
-  -- a single-port synchronous memory is a state node named by its read
-  -- latch (multi-port / combinational-read memories are left alone)
-  | .memory _ _ _ _ _ _ _ _ rd false [] [] => some rd
+  -- a single-port memory is a node named by its read data: a state node
+  -- (the read latch) for a synchronous read, a combinational node
+  -- (`contents[ra]`, same cycle) for a combinational read — two copies
+  -- with the same write port hold the same contents at every cycle
+  -- (both start at 0), so same read address ⇒ same read data either
+  -- way (multi-port memories are left alone)
+  | .memory _ _ _ _ _ _ _ _ rd _ [] [] => some rd
   | _ => none
 
 /-- A node's refinement signature: its own current class (so classes
@@ -76,10 +80,10 @@ def sigOf (alias : HashMap String String) (cls : HashMap String Nat) (self : Nat
   | .assign _ rhs => s!"{self}|A|{repr (canonExpr alias cls rhs)}"
   | .register _ clk (rstN, rk) input init =>
     s!"{self}|R|{clk}|{rstN}|{repr rk}|{init}|{repr (canonExpr alias cls input)}"
-  | .memory _ aw dw clk wa wd we ra _ _ _ _ =>
+  | .memory _ aw dw clk wa wd we ra _ cr _ _ =>
     -- same write port ⇒ same contents at every cycle (both start at 0);
-    -- same read address ⇒ same latch
-    s!"{self}|M|{aw}|{dw}|{clk}|{repr (canonExpr alias cls wa)}|{repr (canonExpr alias cls wd)}|{repr (canonExpr alias cls we)}|{repr (canonExpr alias cls ra)}"
+    -- same read address (and read kind) ⇒ same read data
+    s!"{self}|M|{cr}|{aw}|{dw}|{clk}|{repr (canonExpr alias cls wa)}|{repr (canonExpr alias cls wd)}|{repr (canonExpr alias cls we)}|{repr (canonExpr alias cls ra)}"
   | _ => s!"{self}|?"
 
 /-- Merge bisimilar nodes.  Internal (`_tmp_*`) non-representatives become

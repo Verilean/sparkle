@@ -260,69 +260,50 @@ theorem evalPayload_evalOk (we : WEnv) (mems : MEnv) (env : Env)
   simp only [evalPayload, extractReads_evalOk arr e 0 h, weWithReads_zero,
     spliceReads, Option.bind_some]
 
-/-- `bodyEvalOk` admitting synchronous single-port memories whose ports
-    are in the total fragment. -/
+/-- `bodyEvalOk` admitting single-port memories (synchronous or
+    combinational read) whose ports are in the total fragment. -/
 def bodyEvalOkM : List Stmt → Bool
   | [] => true
   | .assign _ r :: rest => evalOk r && bodyEvalOkM rest
   | .register _ _ _ i _ :: rest => evalOk i && bodyEvalOkM rest
-  | .memory _ _ _ _ wa wd wen ra _ false [] [] :: rest =>
+  | .memory _ _ _ _ wa wd wen ra _ _ [] [] :: rest =>
     evalOk wa && evalOk wd && evalOk wen && evalOk ra && bodyEvalOkM rest
   | _ :: _ => false
 
-theorem bodyEvalOkM_sync : ∀ body, bodyEvalOkM body = true → syncMemOnly body
-  | [], _ => trivial
-  | .assign .. :: rest, h => by
+theorem evalAssigns_isSomeM (we : WEnv) (mems : MEnv) :
+    ∀ (body : List Stmt), bodyEvalOkM body = true →
+    ∀ (env : Env), (evalAssigns we mems body env).isSome
+  | [], _, _ => rfl
+  | .assign l r :: rest, h, env => by
     simp only [bodyEvalOkM, Bool.and_eq_true] at h
-    exact bodyEvalOkM_sync rest h.2
-  | .register .. :: rest, h => by
+    simp only [evalAssigns, Option.bind_eq_bind]
+    obtain ⟨v, hv⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env r h.1)
+    rw [hv]
+    simp only [Option.bind_some]
+    exact evalAssigns_isSomeM we mems rest h.2 _
+  | .register .. :: rest, h, env => by
     simp only [bodyEvalOkM, Bool.and_eq_true] at h
-    exact bodyEvalOkM_sync rest h.2
-  | .memory n aw dw c wa wd wen ra rd cr ew er :: rest, h => by
-    cases cr with
-    | true => simp [bodyEvalOkM] at h
-    | false =>
-      cases ew with
+    simp only [evalAssigns]
+    exact evalAssigns_isSomeM we mems rest h.2 env
+  | .memory n aw dw c wa wd wen ra rd cr ew er :: rest, h, env => by
+    cases ew with
+    | cons _ _ => simp [bodyEvalOkM] at h
+    | nil =>
+      cases er with
       | cons _ _ => simp [bodyEvalOkM] at h
       | nil =>
-        cases er with
-        | cons _ _ => simp [bodyEvalOkM] at h
-        | nil =>
-          simp only [bodyEvalOkM, Bool.and_eq_true] at h
-          exact ⟨rfl, rfl, rfl, bodyEvalOkM_sync rest h.2⟩
-  | .inst .. :: _, h => by simp [bodyEvalOkM] at h
-
-theorem bodyEvalOkM_strip : ∀ body, bodyEvalOkM body = true →
-    bodyEvalOk (stripSyncMem body) = true
-  | [], _ => rfl
-  | .assign .. :: rest, h => by
-    simp only [bodyEvalOkM, Bool.and_eq_true] at h
-    simp only [stripSyncMem, bodyEvalOk, Bool.and_eq_true]
-    exact ⟨h.1, bodyEvalOkM_strip rest h.2⟩
-  | .register .. :: rest, h => by
-    simp only [bodyEvalOkM, Bool.and_eq_true] at h
-    simp only [stripSyncMem, bodyEvalOk, Bool.and_eq_true]
-    exact ⟨h.1, bodyEvalOkM_strip rest h.2⟩
-  | .memory n aw dw c wa wd wen ra rd cr ew er :: rest, h => by
-    cases cr with
-    | true => simp [bodyEvalOkM] at h
-    | false =>
-      cases ew with
-      | cons _ _ => simp [bodyEvalOkM] at h
-      | nil =>
-        cases er with
-        | cons _ _ => simp [bodyEvalOkM] at h
-        | nil =>
-          simp only [bodyEvalOkM, Bool.and_eq_true] at h
-          simp only [stripSyncMem]
-          exact bodyEvalOkM_strip rest h.2
-  | .inst .. :: _, h => by simp [bodyEvalOkM] at h
-
-theorem evalAssigns_isSomeM (we : WEnv) (mems : MEnv) (body : List Stmt)
-    (h : bodyEvalOkM body = true) (env0 : Env) :
-    (evalAssigns we mems body env0).isSome := by
-  rw [evalAssigns_stripSyncMem we mems body (bodyEvalOkM_sync body h)]
-  exact evalAssigns_isSome we mems _ (bodyEvalOkM_strip body h) env0
+        simp only [bodyEvalOkM, Bool.and_eq_true] at h
+        cases cr with
+        | false =>
+          simp only [evalAssigns, Bool.false_eq_true, ↓reduceIte]
+          exact evalAssigns_isSomeM we mems rest h.2 env
+        | true =>
+          simp only [evalAssigns, ↓reduceIte, comboReads, Option.bind_eq_bind]
+          obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env ra h.1.2)
+          rw [hav]
+          simp only [Option.bind_some]
+          exact evalAssigns_isSomeM we mems rest h.2 _
+  | .inst .. :: _, h, _ => by simp [bodyEvalOkM] at h
 
 theorem regNexts_isSomeM (we : WEnv) (mems : MEnv) :
     ∀ (body : List Stmt), bodyEvalOkM body = true →
@@ -341,16 +322,18 @@ theorem regNexts_isSomeM (we : WEnv) (mems : MEnv) :
     obtain ⟨ns, hns⟩ := Option.isSome_iff_exists.mp (regNexts_isSomeM we mems rest h.2 env)
     rw [hns]; simp
   | .memory n aw dw c wa wd wen ra rd cr ew er :: rest, h, env => by
-    cases cr with
-    | true => simp [bodyEvalOkM] at h
-    | false =>
-      cases ew with
+    cases ew with
+    | cons _ _ => simp [bodyEvalOkM] at h
+    | nil =>
+      cases er with
       | cons _ _ => simp [bodyEvalOkM] at h
       | nil =>
-        cases er with
-        | cons _ _ => simp [bodyEvalOkM] at h
-        | nil =>
-          simp only [bodyEvalOkM, Bool.and_eq_true] at h
+        simp only [bodyEvalOkM, Bool.and_eq_true] at h
+        cases cr with
+        | true =>
+          simp only [regNexts, ↓reduceIte]
+          exact regNexts_isSomeM we mems rest h.2 env
+        | false =>
           simp only [regNexts, Bool.false_eq_true, ↓reduceIte, Option.bind_eq_bind,
             syncReadLatches]
           obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env ra h.1.2)
@@ -373,27 +356,24 @@ theorem memNexts_isSomeM (we : WEnv) :
     simp only [memNexts]
     exact memNexts_isSomeM we rest h.2 mems env
   | .memory n aw dw c wa wd wen ra rd cr ew er :: rest, h, mems, env => by
-    cases cr with
-    | true => simp [bodyEvalOkM] at h
-    | false =>
-      cases ew with
+    cases ew with
+    | cons _ _ => simp [bodyEvalOkM] at h
+    | nil =>
+      cases er with
       | cons _ _ => simp [bodyEvalOkM] at h
       | nil =>
-        cases er with
-        | cons _ _ => simp [bodyEvalOkM] at h
-        | nil =>
-          simp only [bodyEvalOkM, Bool.and_eq_true] at h
-          obtain ⟨⟨⟨⟨hwa, hwd⟩, hwen⟩, hra⟩, hrest⟩ := h
-          simp only [memNexts, memWritePorts, Option.bind_eq_bind,
-            evalPayload_evalOk we mems env n aw dw wen hwen,
-            evalPayload_evalOk we mems env n aw dw wa hwa,
-            evalPayload_evalOk we mems env n aw dw wd hwd]
-          obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env wen hwen)
-          obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env wa hwa)
-          obtain ⟨dv, hdv⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env wd hwd)
-          rw [hev, hav, hdv]
-          simp only [Option.bind_some]
-          exact memNexts_isSomeM we rest hrest _ env
+        simp only [bodyEvalOkM, Bool.and_eq_true] at h
+        obtain ⟨⟨⟨⟨hwa, hwd⟩, hwen⟩, hra⟩, hrest⟩ := h
+        simp only [memNexts, memWritePorts, Option.bind_eq_bind,
+          evalPayload_evalOk we mems env n aw dw wen hwen,
+          evalPayload_evalOk we mems env n aw dw wa hwa,
+          evalPayload_evalOk we mems env n aw dw wd hwd]
+        obtain ⟨ev, hev⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env wen hwen)
+        obtain ⟨av, hav⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env wa hwa)
+        obtain ⟨dv, hdv⟩ := Option.isSome_iff_exists.mp (evalOk_isSome we env wd hwd)
+        rw [hev, hav, hdv]
+        simp only [Option.bind_some]
+        exact memNexts_isSomeM we rest hrest _ env
   | .inst .. :: _, h, _, _ => by simp [bodyEvalOkM] at h
 
 theorem stepModule_isSomeM (we : WEnv) (body : List Stmt)
@@ -422,5 +402,102 @@ theorem runModule_isSomeM (we : WEnv) (body : List Stmt)
     obtain ⟨rest, hr⟩ := Option.isSome_iff_exists.mp
       (runModule_isSomeM we body h seed k (applyNexts st ns) mems')
     rw [hr]; simp
+
+
+/-! ### Stripping only the synchronous reads (bodies with combinational
+reads keep those statements for the seeded-read lemma below) -/
+
+/-- The body without its synchronous-read memory statements (a
+    combinational read stays: `comboReads` writes its read data). -/
+def stripSyncOnly : List Stmt → List Stmt
+  | [] => []
+  | .memory _ _ _ _ _ _ _ _ _ false _ _ :: rest => stripSyncOnly rest
+  | s :: rest => s :: stripSyncOnly rest
+
+/-- A synchronous-read memory is a no-op for `evalAssigns` whatever its
+    ports, so stripping them needs no side condition. -/
+theorem evalAssigns_stripSyncOnly (we : WEnv) (mems : MEnv) :
+    ∀ body env, evalAssigns we mems body env = evalAssigns we mems (stripSyncOnly body) env
+  | [], _ => rfl
+  | .assign l r :: rest, env => by
+    simp only [evalAssigns, stripSyncOnly, Option.bind_eq_bind]
+    cases evalExpr we env r with
+    | none => rfl
+    | some v =>
+      simp only [Option.bind_some]
+      exact evalAssigns_stripSyncOnly we mems rest _
+  | .register .. :: rest, env => by
+    simp only [evalAssigns, stripSyncOnly]
+    exact evalAssigns_stripSyncOnly we mems rest env
+  | .memory n aw dw c wa wd wen ra rd cr ew er :: rest, env => by
+    cases cr with
+    | false =>
+      simp only [evalAssigns, stripSyncOnly, Bool.false_eq_true, ↓reduceIte]
+      exact evalAssigns_stripSyncOnly we mems rest env
+    | true =>
+      simp only [evalAssigns, stripSyncOnly, ↓reduceIte, Option.bind_eq_bind]
+      cases comboReads we mems n aw dw ((ra, rd) :: er) env with
+      | none => rfl
+      | some env' =>
+        simp only [Option.bind_some]
+        exact evalAssigns_stripSyncOnly we mems rest env'
+  | .inst .. :: rest, env => by
+    simp only [evalAssigns, stripSyncOnly]
+    exact evalAssigns_stripSyncOnly we mems rest env
+
+/-! ### Combinational reads: a seeded read is a no-op for the fold -/
+
+theorem evalAssigns_append (we : WEnv) (mems : MEnv) :
+    ∀ (P Q : List Stmt) (env : Env),
+    evalAssigns we mems (P ++ Q) env
+      = (evalAssigns we mems P env).bind (evalAssigns we mems Q)
+  | [], Q, env => by simp [evalAssigns]
+  | .assign l r :: rest, Q, env => by
+    simp only [List.cons_append, evalAssigns, Option.bind_eq_bind]
+    cases evalExpr we env r with
+    | none => rfl
+    | some v =>
+      simp only [Option.bind_some]
+      exact evalAssigns_append we mems rest Q _
+  | .register .. :: rest, Q, env => by
+    simp only [List.cons_append, evalAssigns]
+    exact evalAssigns_append we mems rest Q env
+  | .memory name aw dw c wa wd wen ra rd cr ew er :: rest, Q, env => by
+    simp only [List.cons_append, evalAssigns]
+    cases cr with
+    | false =>
+      simp only [Bool.false_eq_true, ↓reduceIte]
+      exact evalAssigns_append we mems rest Q env
+    | true =>
+      simp only [↓reduceIte, Option.bind_eq_bind]
+      cases comboReads we mems name aw dw ((ra, rd) :: er) env with
+      | none => rfl
+      | some env' =>
+        simp only [Option.bind_some]
+        exact evalAssigns_append we mems rest Q env'
+  | .inst .. :: rest, Q, env => by
+    simp only [List.cons_append, evalAssigns]
+    exact evalAssigns_append we mems rest Q env
+
+/-- A single-port combinational read is a no-op for the fold when the
+    environment it runs in already carries the read value (`comboReads`
+    rewrites `rd` to exactly that value): the memory statement can be
+    dropped from the body. -/
+theorem evalAssigns_comboSeeded (we : WEnv) (mems : MEnv) (P Q : List Stmt)
+    (name : String) (aw dw : Nat) (clk : String) (wa wd wen ra : Expr) (rd : String)
+    (ew : List (Expr × Expr × Expr)) (env0 envP : Env) (v : Nat)
+    (hP : evalAssigns we mems P env0 = some envP)
+    (hra : evalExpr we envP ra = some v)
+    (hrd : envP rd = mask dw (mems name (mask aw v))) :
+    evalAssigns we mems (P ++ .memory name aw dw clk wa wd wen ra rd true ew [] :: Q) env0
+      = evalAssigns we mems (P ++ Q) env0 := by
+  rw [evalAssigns_append, evalAssigns_append, hP]
+  simp only [Option.bind_some, evalAssigns, ↓reduceIte, comboReads, hra, Option.bind_eq_bind]
+  have henv : (fun n => if n = rd then mask dw (mems name (mask aw v)) else envP n) = envP := by
+    funext n
+    by_cases h : n = rd
+    · subst h; simp [hrd]
+    · simp [h]
+  rw [henv]
 
 end Tools.ConeFold
