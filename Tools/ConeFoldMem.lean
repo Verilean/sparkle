@@ -587,7 +587,7 @@ theorem shr_bounded {a b w : Nat} (ha : a < 2 ^ w) : a >>> b < 2 ^ w :=
 /-- `mux` is unmasked but returns one of its arms, whose width is the
     node's. -/
 theorem mux_bounded {c t f w : Nat} (ht : t < 2 ^ w) (hf : f < 2 ^ w) :
-    (if c = 0 then f else t) < 2 ^ w := by
+    (if c ≠ 0 then t else f) < 2 ^ w := by
   split <;> assumption
 
 /-- The `widthOf` rules the unmasked cases rely on. -/
@@ -605,5 +605,209 @@ theorem widthOf_asr (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) :
     Sparkle.IR.Semantics.widthOf we (.op .asr [a, b])
       = max (Sparkle.IR.Semantics.widthOf we a)
             (Sparkle.IR.Semantics.widthOf we b) := rfl
+
+/-! ### The per-operator bounds
+
+`evalOp` is NOT recursive, so it has no functional-induction principle,
+and a shared `first` cascade over `split at h` keeps claiming the wrong
+branch (the mux and masked closers overlap).  One named lemma per
+operator is mechanical but deterministic. -/
+
+theorem evalOp_bounded_and (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .and [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .and [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .and [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_or (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .or [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .or [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .or [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_xor (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .xor [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .xor [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .xor [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_add (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .add [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .add [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .add [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_sub (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .sub [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .sub [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .sub [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_mul (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .mul [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .mul [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .mul [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_shl (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .shl [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .shl [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .shl [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_neg (we : Sparkle.IR.Semantics.WEnv) (a : Expr) (va r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .neg [a] [va]
+      (Sparkle.IR.Semantics.widthOf we (.op .neg [a])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .neg [a]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_not (we : Sparkle.IR.Semantics.WEnv) (a : Expr) (va r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .not [a] [va]
+      (Sparkle.IR.Semantics.widthOf we (.op .not [a])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .not [a]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalOp_bounded_eq (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .eq [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .eq [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .eq [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_lt_u (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .lt_u [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .lt_u [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .lt_u [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_lt_s (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .lt_s [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .lt_s [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .lt_s [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_le_u (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .le_u [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .le_u [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .le_u [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_le_s (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .le_s [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .le_s [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .le_s [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_gt_u (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .gt_u [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .gt_u [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .gt_u [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_gt_s (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .gt_s [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .gt_s [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .gt_s [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_ge_u (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .ge_u [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .ge_u [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .ge_u [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_ge_s (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .ge_s [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .ge_s [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .ge_s [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact compare_bounded _
+
+theorem evalOp_bounded_shr (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (hb : va < 2 ^ Sparkle.IR.Semantics.widthOf we a)
+    (h : Sparkle.IR.Semantics.evalOp we .shr [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .shr [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .shr [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; rw [widthOf_shr]; exact shr_bounded hb
+
+theorem evalOp_bounded_asr (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) (va vb r : Nat)
+    (h : Sparkle.IR.Semantics.evalOp we .asr [a, b] [va, vb]
+      (Sparkle.IR.Semantics.widthOf we (.op .asr [a, b])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .asr [a, b]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; exact mask_lt_of_le (Nat.le_max_left _ _)
+
+theorem evalOp_bounded_mux (we : Sparkle.IR.Semantics.WEnv) (c t f : Expr) (vc vt vf r : Nat)
+    (ht : vt < 2 ^ Sparkle.IR.Semantics.widthOf we t)
+    (hf : vf < 2 ^ Sparkle.IR.Semantics.widthOf we t)
+    (h : Sparkle.IR.Semantics.evalOp we .mux [c, t, f] [vc, vt, vf]
+      (Sparkle.IR.Semantics.widthOf we (.op .mux [c, t, f])) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.op .mux [c, t, f]) := by
+  simp only [Sparkle.IR.Semantics.evalOp, Option.some.injEq] at h
+  subst h; rw [widthOf_mux]; exact mux_bounded ht hf
+
+/-! ### The expression-shape bounds
+
+`evalExpr` IS recursive (mutual with `evalList`), so it has functional
+induction with exactly five value-producing cases: `const` (masked),
+`ref` (the env's own bound), `op` (the per-operator lemmas above),
+`slice` (masked) and `concat` (shift-or, bounded by the SUM of element
+widths — `concat_elem_bounded`). -/
+
+/-- One concat element: `mask wa v <<< restW ||| rest`, bounded by
+    `2 ^ (wa + restW)`.  Both disjuncts are below that power, so core's
+    `Nat.or_lt_two_pow` applies. -/
+theorem concat_elem_bounded {wa restW x y : Nat}
+    (hx : x < 2 ^ wa) (hy : y < 2 ^ restW) :
+    x <<< restW ||| y < 2 ^ (wa + restW) := by
+  apply Nat.or_lt_two_pow
+  · rw [Nat.shiftLeft_eq, Nat.pow_add]
+    exact Nat.mul_lt_mul_of_lt_of_le hx (Nat.le_refl _) (Nat.two_pow_pos _)
+  · exact Nat.lt_of_lt_of_le hy
+      (Nat.pow_le_pow_right (by omega) (Nat.le_add_left _ _))
+
+/-- `const` and `slice` results are masked at the node's width. -/
+theorem evalExpr_bounded_const (we : Sparkle.IR.Semantics.WEnv)
+    (env : Sparkle.IR.Semantics.Env) (v : Int) (w r : Nat)
+    (h : Sparkle.IR.Semantics.evalExpr we env (.const v w) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.const v w) := by
+  simp only [Sparkle.IR.Semantics.evalExpr, Option.some.injEq] at h
+  subst h; exact mask_lt_sem _ _
+
+theorem evalExpr_bounded_ref (we : Sparkle.IR.Semantics.WEnv)
+    (env : Sparkle.IR.Semantics.Env) (n : String) (r : Nat)
+    (hb : ∀ m, env m < 2 ^ we m)
+    (h : Sparkle.IR.Semantics.evalExpr we env (.ref n) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.ref n) := by
+  simp only [Sparkle.IR.Semantics.evalExpr, Option.some.injEq] at h
+  subst h; exact hb n
+
+theorem evalExpr_bounded_slice (we : Sparkle.IR.Semantics.WEnv)
+    (env : Sparkle.IR.Semantics.Env) (e : Expr) (hi lo r : Nat)
+    (h : Sparkle.IR.Semantics.evalExpr we env (.slice e hi lo) = some r) :
+    r < 2 ^ Sparkle.IR.Semantics.widthOf we (.slice e hi lo) := by
+  simp only [Sparkle.IR.Semantics.evalExpr, Option.bind_eq_bind] at h
+  cases hv : Sparkle.IR.Semantics.evalExpr we env e with
+  | none => rw [hv] at h; simp at h
+  | some v =>
+    rw [hv] at h; simp only [Option.bind_some, Option.some.injEq] at h
+    subst h; exact mask_lt_sem _ _
 
 end Tools.ConeFold
