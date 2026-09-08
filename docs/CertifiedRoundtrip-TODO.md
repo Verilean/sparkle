@@ -376,14 +376,22 @@ group is rough priority.  Update as items land.
   width-bounded", i.e. an expression-level bound.  One exists
   (`sfrag_eval_bounded`) but only inside the heavy `SFrag` fragment,
   which the seam deliberately avoids.
-  **The fragment-free version is provable** — checked against
-  `evalOp`: every arithmetic/bitwise/negate case already `mask w`s its
-  result to the node width, the compares return 0/1, and the only two
-  unmasked cases are `shr` (bounded by its left operand) and `mux`
-  (bounded by the arm it selects), both inductive.  So the work is:
-  (1) `evalExpr_bounded` — fragment-free, needing `widthOf we rhs =
-  we n` (already the seam's `hwfCheck`, already discharged per
-  instance); (2) `evalAssigns_bounded` over the fold; (3) the generator
+  **The fragment-free version's per-case facts are PROVEN and landed**
+  (`Tools/ConeFoldMem.lean`): `evalOp` has exactly five result shapes
+  and each one's bound is now a checked lemma — `mask_lt_sem` (the
+  masked cases: and/or/xor/add/sub/mul/shl/neg, plus not/asr which mask
+  at their operand's width), `compare_bounded` (0/1 at node width 1),
+  `shr_bounded` (unmasked but only drops bits, so bounded by its value
+  operand) and `mux_bounded` (returns one of its arms), together with
+  the three `widthOf` rules those rely on (`widthOf_shr`,
+  `widthOf_mux`, `widthOf_cmp`).
+  Remaining: (1) assemble them into `evalOp_bounded` /
+  `evalExpr_bounded` over the 20-constructor enumeration — this is
+  tactic bookkeeping, not mathematics, and it is where the work stopped:
+  `split at h` over `evalOp` leaves ~260 arity-mismatch branches and the
+  reachable/unreachable ones need different closers, so it wants a
+  functional-induction (`evalOp.induct`) treatment rather than nested
+  `first`; (2) `evalAssigns_bounded` over the fold; (3) the generator
   computes the multiply-read stop set and routes `_deep_step_*` /
   `_deep_regstep` through `shared_cone_agrees_at_settled`.
 
