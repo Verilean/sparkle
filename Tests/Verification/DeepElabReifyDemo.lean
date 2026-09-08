@@ -336,6 +336,26 @@ def memAcc (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (Bi
 
 #verify_elab_deep memAcc
 
+/-! TWO memories in one module: the second memory's write ports are
+    evaluated (by `memNexts`) against the state already updated by the
+    first, and a latch reader can be absent from a bridge goal — the
+    case that exposed the vacuous `generalize` (`gen_occ`). -/
+def memTwo (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (BitVec 8))
+    (we : Signal defaultDomain Bool) (wd2 : Signal defaultDomain (BitVec 6))
+    : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let ptr ← Signal.reg (0#4)
+    let acc ← Signal.reg (0#8)
+    let p := (ptr : Signal defaultDomain (BitVec 4))
+    let a := (acc : Signal defaultDomain (BitVec 8))
+    let rd := Signal.memory wa wd we p
+    let rd2 := Signal.memory p wd2 we wa
+    ptr <~ p + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    acc <~ a + rd + (rd2 ++ (Signal.pure 0#2 : Signal defaultDomain (BitVec 2)))
+    return a
+
+#verify_elab_deep memTwo
+
 #print axioms cnt8_deep_trace
 #print axioms accEn_deep_trace
 #print axioms subEn_deep_trace
@@ -362,6 +382,8 @@ def memAcc (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (Bi
 #check @memAcc_deep_memstep
 #check @memAcc_deep_signal_run
 #print axioms memAcc_deep_signal_run
+#check @memTwo_deep_memstep
+#print axioms memTwo_deep_signal_run
 -- the two-pass duplicate of the memory is merged (RegDedup): one memory
 run_cmd do
   let d ← Lean.Elab.Command.liftTermElabM

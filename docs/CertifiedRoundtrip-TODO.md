@@ -233,10 +233,19 @@ group is rough priority.  Update as items land.
   ("declaration has metavariables") was reported PROVEN — every generated
   theorem is now `set_option Elab.async false in` (`elabSync`) and the
   proof term is checked for metavariables.
-  Remaining: `memoryWithInit` (no synth support today), multi-port
-  memories, more than one memory per module in the replay's `memstep`
-  (generated as a `split`/`simp_all` if-tree; exercised for one memory
-  only), sub-instances (`.inst`).
+  Two memories per module: demo `memTwo` (capstone + replay) — the
+  second memory's ports are evaluated against the state the first
+  already updated (`memNexts` threads it), so the payload lemmas are
+  generic in the resolution state; and the bridge's reader abstraction
+  is `gen_occ` (a `generalize` that FAILS when the pattern is absent —
+  plain `generalize rd _ = g` of an absent reader succeeds vacuously
+  and leaves the hole as a metavariable, rejected by the kernel with no
+  tactic error to point at).
+  Remaining: `memoryComboRead` (combinational read — synthesizable and
+  used by Regfile/KVCache; needs read slots in the deep context and a
+  "seeded read is a no-op" seam lemma for the replay), `memoryWithInit`
+  (no synth support today), multi-port memories, sub-instances
+  (`.inst`).
 - [ ] Bridge v1 limits: register inputs / memory ports that aren't
   `.ref` wires (the replay is skipped with a message; the capstone is
   still emitted).

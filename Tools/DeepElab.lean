@@ -1094,6 +1094,28 @@ open Tools.VerifyElab (theRegisters dataInputs resolveSlicesW)
 open Tools.SVParser.VerifyEmit (inlineCone widthTable)
 open Sparkle.IR.Optimize (buildDefMap)
 
+/-- `gen_occ e = x` — `generalize e = x`, but FAILING when `e` (with its
+    `_` holes) does not occur in the goal.  Plain `generalize` of a
+    non-occurring pattern succeeds vacuously and leaves the holes as
+    unassigned metavariables in the proof term — the kernel then rejects
+    the whole theorem ("declaration has metavariables") with no tactic
+    error to point at.  The generated bridge abstracts every state reader
+    under `try`, and a reader can be absent from a goal (a latch of a
+    second memory, say), so the vacuous case is real. -/
+elab "gen_occ " e:term:51 " = " x:ident : tactic => do
+  let goal ← Lean.Elab.Tactic.getMainGoal
+  goal.withContext do
+    let tgt ← Lean.instantiateMVars (← goal.getType)
+    let e ← Lean.Elab.Tactic.elabTerm e none
+    let abst ← Lean.Meta.kabstract tgt e
+    unless abst.hasLooseBVars do
+      throwError "gen_occ: pattern does not occur in the goal"
+    let e ← Lean.instantiateMVars e
+    if e.hasMVar then
+      throwError "gen_occ: pattern still has metavariables after matching"
+    let (_, goal') ← goal.generalize #[{ expr := e, xName? := x.getId, hName? := none }]
+    Lean.Elab.Tactic.replaceMainGoal [goal']
+
 set_option maxHeartbeats 1000000 in
 -- the generator is one long `do` block; its desugaring exceeds the
 -- default recursion depth
@@ -1132,7 +1154,7 @@ elab "#verify_elab_deep" id:ident : command =>
       some (name, aw, dw, wa, wd, we, ra, rd, cr, ew.length + er.length)
     | _ => none
   for (name, _, _, _, _, _, _, _, cr, extra) in memsRaw do
-    if cr then throwError "#verify_elab_deep: memory {name} has a combinational read port (memoryComboRead is not synthesizable and outside the deep grammar)"
+    if cr then throwError "#verify_elab_deep: memory {name} has a combinational read port (Signal.memoryComboRead) — outside the deep grammar for now (sync-read `Signal.memory` only)"
     if extra != 0 then throwError "#verify_elab_deep: memory {name}: multi-port memories are outside the deep grammar"
   let mems : List (String × Nat × Nat × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
       × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr × String) :=
@@ -2120,7 +2142,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let rdId : Ident := rdIds[i]!
         let gId : Ident := gIds[i]!
         let rdApp ← `($rdId $appArgs* _)
-        `(tactic| all_goals (try generalize $rdApp = $gId))
+        `(tactic| all_goals (try gen_occ $rdApp = $gId))
     -- (the memory contents readers `md_k` are NOT generalized: bv_decide
     -- treats `md_k … n addr` as an atom already, and `generalize` on the
     -- function-valued partial application left an unassigned
@@ -2871,9 +2893,15 @@ elab "#verify_elab_deep" id:ident : command =>
                   $proj).toNat = env1 $(quote w) :=
               CdoM.toNat_denote $deepId $nmId (by decide) $inpFam t _
                 (by rw [$g1Id:ident]; exact $hstepId:ident)))
+            -- generic in the resolution state: `memNexts` threads the
+            -- state updated by the EARLIER memories into a later
+            -- memory's port evaluation (a payload in the total fragment
+            -- never reads it)
             mpre := mpre.push (← `(tactic| have $hpayId:ident :
-                Sparkle.IR.Semantics.evalPayload $weMId $memsT env1 $(quote name)
+                ∀ mems : Sparkle.IR.Semantics.MEnv,
+                Sparkle.IR.Semantics.evalPayload $weMId mems env1 $(quote name)
                   $(quote aw) $(quote dw) $portQ = some (env1 $(quote w)) := by
+              intro mems
               rw [Tools.ConeFold.evalPayload_evalOk _ _ _ _ _ _ _ (by native_decide)]
               simp [Sparkle.IR.Semantics.evalExpr]))
             payRws := payRws.push ⟨hpayId.raw⟩
