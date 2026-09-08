@@ -202,10 +202,30 @@ group is rough priority.  Update as items land.
   closers; `md_k` is not `generalize`d: that left a metavariable).  The
   generator reifies `.memory` (latch slot after the registers, write-port
   fidelity lemmas) and emits the capstone `{f}_deep_trace` via
-  `CdoM.elab_general`; the seam glue / IR replay are NOT emitted for
-  memory-bearing bodies (v1: `memFree` premise).  Demo `memAcc` in
-  DeepElabReifyDemo.  RegDedup now merges duplicated `.memory` statements
-  (single-port sync) too.  **Audit fixes found on the way:** the sorryAx
+  `CdoM.elab_general`.  Demo `memAcc` in DeepElabReifyDemo.  RegDedup
+  now merges duplicated `.memory` statements (single-port sync) too.
+  **IR replay landed** (`memAcc_deep_signal_run`, the same `runModule`
+  statement as for memory-free circuits, sorry-free): the seam facts are
+  applied to the body WITHOUT its memory statements
+  (`Tools/ConeFoldMem.lean`: `stripSyncMem`, `evalAssigns_stripSyncMem` —
+  a synchronous memory is a no-op for `evalAssigns`, so the memory-free
+  seam theorems apply to the stripped body verbatim), while the state
+  step keeps the full body: `stepIterM` threads an `MEnv`,
+  `runModule_stepIterM` / `runModule_isSomeM` (`bodyEvalOkM`) redo the
+  reindexing and fold success without `memFree`.  Generator side: the
+  IR memory contents at cycle t are `{f}_deep_memAt t` = `CMem.natView`
+  of the deep contents (in-range indices read the array, others 0 — the
+  IR never writes them), `_deep_regstep` lists the updates in BODY order
+  with the latch entry via `syncReadLatches` on `memAt t`
+  (`CMem.natView_latch`), `_deep_memstep` shows `memNexts` lands on
+  `memAt (t+1)` (`CdoM.memUpd_natView` = `memWritePorts`' single-port
+  update), state_trace/signal_fold/signal_run run over `stepIterM`.  A
+  cone slot's IR step is `CdoM.irState_succ_cone` (through
+  `compileCone`), a latch slot's `CdoM.irState_succ_latch` (through
+  `NextM.latchAddr?`; the address cone's width is made explicit with
+  `@CExpr.compile` — a type ascription is lost on the way into the
+  implicit argument).  Write-port cones get their own G1 glue and step
+  lemmas (`_deep_coneEval_m{k}_{wa,wd,we}`, `_deep_step_m{k}_…`).  **Audit fixes found on the way:** the sorryAx
   audit looked up the generated theorems by their SIMPLE name, which
   inside a `namespace` found nothing — it had never checked anything in
   the test files (now resolved in the current namespace); and theorems
@@ -213,13 +233,13 @@ group is rough priority.  Update as items land.
   ("declaration has metavariables") was reported PROVEN — every generated
   theorem is now `set_option Elab.async false in` (`elabSync`) and the
   proof term is checked for metavariables.
-  Remaining: seam theorems with `MEnv` (weaken `memFree` to
-  "no combinational-read memories"), `memNexts` in the replay
-  (`_deep_regstep` with latches, a `_deep_memstep`), `memoryWithInit`
-  (no synth support today), multi-port memories.
-- [ ] Bridge v1 limits: register inputs that aren't `.ref` wires
-  (emission currently skipped); memory-bearing modules (memFree
-  premise).
+  Remaining: `memoryWithInit` (no synth support today), multi-port
+  memories, more than one memory per module in the replay's `memstep`
+  (generated as a `split`/`simp_all` if-tree; exercised for one memory
+  only), sub-instances (`.inst`).
+- [ ] Bridge v1 limits: register inputs / memory ports that aren't
+  `.ref` wires (the replay is skipped with a message; the capstone is
+  still emitted).
 
 ## D. Trust base
 

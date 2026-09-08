@@ -35,6 +35,7 @@
 import Sparkle.IR.Semantics
 import Tools.VerifyElab
 import Tools.ConcatNorm
+import Tools.ConeFoldMem
 open Sparkle.IR.AST Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
 
@@ -731,6 +732,199 @@ theorem CdoM.elab_general {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
   unfold CdoM.outSig
   simp only [c.stateSig_eq inpS t]
 
+/-! E2m-replay: the IR-side view of a `CdoM` step.
+
+`Cdo.irState` is DEFINED through `evalExpr`, so the memory-free replay
+reads a register's next value off it by unfolding.  `CdoM.irState` is
+`toNat` of the BitVec recurrence; the lemmas below give the replay the
+same three facts through `compile_correct`: a cone slot's next value is
+its compiled cone's IR evaluation, a latch slot's is the contents at the
+IR-evaluated address, and the contents after a cycle — seen through
+`CMem.natView`, the `MEnv` view where in-range indices read the array
+and out-of-range ones 0 — are exactly `memWritePorts`' single
+enabled-port update. -/
+
+/-- The latch slot's memory and address (a cone slot has none). -/
+def NextM.latchAddr? {Γ : List Nat} {Γm : List MemSig} {w : Nat} :
+    NextM Γ Γm w → Option (Σ k : Fin Γm.length, CExpr Γ (Γm.get k).1)
+  | .cone _ => none
+  | .latch k a => some ⟨k, a⟩
+
+/-- A cone slot's next value, read off the IR evaluation of its compiled
+    cone (the `NextM` analogue of `Cdo.irState`'s defining clause). -/
+theorem NextM.toNat_denote_cone {Γ : List Nat} {Γm : List MemSig} {w : Nat}
+    (nx : NextM Γ Γm w) (names : Fin Γ.length → String)
+    (we : WEnv) (env : Env) (ρ : CEnv Γ) (μ : CMem Γm)
+    (hw : ∀ i, we (names i) = Γ.get i)
+    (hv : ∀ i : Fin Γ.length, env (names i) = (ρ i).toNat)
+    {ir : Expr} {v : Nat}
+    (hc : nx.compileCone names = some ir)
+    (h : evalExpr we env ir = some v) :
+    (nx.denote ρ μ).toNat = v := by
+  cases nx with
+  | cone e =>
+    simp only [NextM.compileCone, Option.some.injEq] at hc
+    subst hc
+    rw [CExpr.compile_correct names we env ρ hw hv e] at h
+    exact Option.some.inj h
+  | latch k a => simp [NextM.compileCone] at hc
+
+/-- A latch slot's next value: the contents at the (IR-evaluated) address. -/
+theorem NextM.toNat_denote_latch {Γ : List Nat} {Γm : List MemSig} {w : Nat}
+    (nx : NextM Γ Γm w) (names : Fin Γ.length → String)
+    (we : WEnv) (env : Env) (ρ : CEnv Γ) (μ : CMem Γm)
+    (hw : ∀ i, we (names i) = Γ.get i)
+    (hv : ∀ i : Fin Γ.length, env (names i) = (ρ i).toNat)
+    (k : Fin Γm.length) (a : CExpr Γ (Γm.get k).1) {v : Nat}
+    (hl : nx.latchAddr? = some ⟨k, a⟩)
+    (h : evalExpr we env (a.compile names) = some v) :
+    (nx.denote ρ μ).toNat = (μ k (BitVec.ofNat _ v)).toNat := by
+  cases nx with
+  | cone e => simp [NextM.latchAddr?] at hl
+  | latch k' a' =>
+    simp only [NextM.latchAddr?, Option.some.injEq, Sigma.mk.injEq] at hl
+    obtain ⟨hk, ha⟩ := hl
+    subst hk
+    cases eq_of_heq ha
+    simp only [NextM.denote]
+    rw [CExpr.compile_correct names we env ρ hw hv _] at h
+    rw [← Option.some.inj h, BitVec.ofNat_toNat, BitVec.setWidth_eq]
+
+/-- The deep seed's pointwise reading (`envOfC` of the joined IR state
+    equals the joined BitVec state's `toNat`). -/
+theorem CdoM.envOfC_irState {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (names : Fin (Γr ++ Γi).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) (j : Fin (Γr ++ Γi).length) :
+    envOfC names (natJoin (c.irState inp t) (fun j => (inp t j).toNat)) (names j)
+      = (CEnv.join (c.stateAt inp t).1 (inp t) j).toNat := by
+  rw [envOfC_names names _ hinj j, ← natJoin_eq_join]
+  rfl
+
+theorem CdoM.irState_zero {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inp : Nat → CEnv Γi) (i : Fin Γr.length) :
+    c.irState inp 0 i = (c.inits i).toNat := rfl
+
+/-- Cone slot: the IR recurrence step, phrased over the compiled cone. -/
+theorem CdoM.irState_succ_cone {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (names : Fin (Γr ++ Γi).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) (i : Fin Γr.length) {ir : Expr} {v : Nat}
+    (hc : (c.next i).compileCone names = some ir)
+    (h : evalExpr (weOfC names (fun j => (Γr ++ Γi).get j))
+      (envOfC names (natJoin (c.irState inp t) (fun j => (inp t j).toNat))) ir
+      = some v) :
+    c.irState inp (t + 1) i = v :=
+  NextM.toNat_denote_cone (c.next i) names _ _ _ (c.stateAt inp t).2
+    (fun j => weOfC_names names _ hinj j) (c.envOfC_irState names hinj inp t) hc h
+
+/-- Latch slot: the IR recurrence step reads the contents at the
+    IR-evaluated address. -/
+theorem CdoM.irState_succ_latch {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (names : Fin (Γr ++ Γi).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) (i : Fin Γr.length)
+    (k : Fin Γm.length) (a : CExpr (Γr ++ Γi) (Γm.get k).1) {v : Nat}
+    (hl : (c.next i).latchAddr? = some ⟨k, a⟩)
+    (h : evalExpr (weOfC names (fun j => (Γr ++ Γi).get j))
+      (envOfC names (natJoin (c.irState inp t) (fun j => (inp t j).toNat)))
+      (a.compile names) = some v) :
+    c.irState inp (t + 1) i = ((c.stateAt inp t).2 k (BitVec.ofNat _ v)).toNat :=
+  NextM.toNat_denote_latch (c.next i) names _ _ _ (c.stateAt inp t).2
+    (fun j => weOfC_names names _ hinj j) (c.envOfC_irState names hinj inp t) k a hl h
+
+/-- Any cone's `toNat` at the deep state, from its IR evaluation (write
+    ports). -/
+theorem CdoM.toNat_denote {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (names : Fin (Γr ++ Γi).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) {w : Nat} (e : CExpr (Γr ++ Γi) w) {v : Nat}
+    (h : evalExpr (weOfC names (fun j => (Γr ++ Γi).get j))
+      (envOfC names (natJoin (c.irState inp t) (fun j => (inp t j).toNat)))
+      (e.compile names) = some v) :
+    (e.denote (CEnv.join (c.stateAt inp t).1 (inp t))).toNat = v := by
+  rw [CExpr.compile_correct names _ _ _ (fun j => weOfC_names names _ hinj j)
+    (c.envOfC_irState names hinj inp t) e] at h
+  exact Option.some.inj h
+
+/-- The IR (`MEnv`) view of one memory's contents: in-range indices read
+    the array, out-of-range ones 0 (the IR never writes them). -/
+def CMem.natView {Γm : List MemSig} (μ : CMem Γm) (k : Fin Γm.length) (i : Nat) : Nat :=
+  if i < 2 ^ (Γm.get k).1 then (μ k (BitVec.ofNat _ i)).toNat else 0
+
+theorem CdoM.stateAt_succ_mem {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (inp : Nat → CEnv Γi) (t : Nat) :
+    (c.stateAt inp (t + 1)).2
+      = c.memUpd (CEnv.join (c.stateAt inp t).1 (inp t)) (c.stateAt inp t).2 := rfl
+
+/-- One cycle's write, in the IR view: exactly `memWritePorts`' single
+    enabled-port update. -/
+theorem CdoM.memUpd_natView {Γr Γi Γm wOut} (c : CdoM Γr Γi Γm wOut)
+    (ρ : CEnv (Γr ++ Γi)) (μ : CMem Γm) (k : Fin Γm.length) {av dv ev : Nat}
+    (hwa : ((c.writes k).1.denote ρ).toNat = av)
+    (hwd : ((c.writes k).2.1.denote ρ).toNat = dv)
+    (hwe : ((c.writes k).2.2.denote ρ).toNat = ev) (i : Nat) :
+    (c.memUpd ρ μ).natView k i
+      = if ev ≠ 0 then
+          (if i = mask (Γm.get k).1 av then mask (Γm.get k).2 dv else μ.natView k i)
+        else μ.natView k i := by
+  have hav : av < 2 ^ (Γm.get k).1 := hwa ▸ BitVec.isLt _
+  have hdv : dv < 2 ^ (Γm.get k).2 := hwd ▸ BitVec.isLt _
+  have hev : ev < 2 := hwe ▸ BitVec.isLt _
+  have hen : ((c.writes k).2.2.denote ρ = 1#1) ↔ ev ≠ 0 := by
+    rw [BitVec.toNat_eq, hwe]
+    show _ ↔ ev ≠ 0
+    simp only [BitVec.toNat_ofNat, Nat.pow_one]
+    omega
+  simp only [CMem.natView, CdoM.memUpd, mask, Nat.mod_eq_of_lt hav, Nat.mod_eq_of_lt hdv]
+  by_cases hi : i < 2 ^ (Γm.get k).1
+  · rw [if_pos hi, if_pos hi]
+    have haddr : (BitVec.ofNat (Γm.get k).1 i = (c.writes k).1.denote ρ) ↔ i = av := by
+      rw [BitVec.toNat_eq, BitVec.toNat_ofNat, Nat.mod_eq_of_lt hi, hwa]
+    by_cases he : ev ≠ 0
+    · rw [if_pos he]
+      by_cases hia : i = av
+      · rw [if_pos hia, if_pos ⟨hen.mpr he, haddr.mpr hia⟩, hwd]
+      · rw [if_neg hia, if_neg (fun h => hia (haddr.mp h.2))]
+    · rw [if_neg he, if_neg (fun h => he (hen.mp h.1))]
+  · have : ¬ i = av := by omega
+    rw [if_neg hi, if_neg this, ite_self, if_neg hi]
+
+
+/-- The IR's synchronous read: the latched `mask dw (mems name (mask aw
+    av))` is the contents at the address `av` (in the deep view). -/
+theorem CMem.natView_latch {Γm : List MemSig} (μ : CMem Γm) (k : Fin Γm.length)
+    {aw dw : Nat} (haw : (Γm.get k).1 = aw) (hdw : (Γm.get k).2 = dw) (av : Nat) :
+    mask dw (μ.natView k (mask aw av)) = (μ k (BitVec.ofNat _ av)).toNat := by
+  subst haw; subst hdw
+  simp only [CMem.natView, mask]
+  rw [if_pos (Nat.mod_lt _ (Nat.two_pow_pos _)), Nat.mod_eq_of_lt (BitVec.isLt _)]
+  congr 2
+  apply BitVec.eq_of_toNat_eq
+  simp only [BitVec.toNat_ofNat, Nat.mod_mod]
+
+theorem CdoM.stateAt_congr {Γr Γi Γm wOut wOut'} (c : CdoM Γr Γi Γm wOut)
+    (c' : CdoM Γr Γi Γm wOut') (inp : Nat → CEnv Γi)
+    (hn : c.next = c'.next) (hi : c.inits = c'.inits)
+    (hw : c.writes = c'.writes) (hm : c.minits = c'.minits) :
+    c.stateAt inp = c'.stateAt inp := by
+  funext t
+  induction t with
+  | zero => simp only [CdoM.stateAt, hi, hm]
+  | succ t ih =>
+    have hupd : c.memUpd = c'.memUpd := by
+      funext ρ μ k
+      simp only [CdoM.memUpd, hw]
+    simp only [CdoM.stateAt, ih, hn, hupd]
+
+theorem CdoM.irState_congr {Γr Γi Γm wOut wOut'} (c : CdoM Γr Γi Γm wOut)
+    (c' : CdoM Γr Γi Γm wOut') (inp : Nat → CEnv Γi)
+    (hn : c.next = c'.next) (hi : c.inits = c'.inits)
+    (hw : c.writes = c'.writes) (hm : c.minits = c'.minits) :
+    c.irState inp = c'.irState inp := by
+  funext t i
+  simp only [CdoM.irState, CdoM.stateAt_congr c c' inp hn hi hw hm]
+
 /-! E3: reifying elaborated circuits into `Cdo` values.
 
 The meta side lives here: turn an inlined IR cone back into a `CExpr`
@@ -901,6 +1095,9 @@ open Tools.SVParser.VerifyEmit (inlineCone widthTable)
 open Sparkle.IR.Optimize (buildDefMap)
 
 set_option maxHeartbeats 1000000 in
+-- the generator is one long `do` block; its desugaring exceeds the
+-- default recursion depth
+set_option maxRecDepth 8192 in
 /-- `#verify_elab_deep f` — reify `f`'s elaborated circuit into a deep
     `Cdo` value and certify it through the GENERAL theorem
     `Cdo.elab_general`.  The only per-circuit proof left is the
@@ -1429,6 +1626,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let initsEqId := mkI s!"{base}{suffix}_deep_inits"
     let outEqId := mkI s!"{base}{suffix}_deep_out"
     let writesEqId := mkI s!"{base}{suffix}_deep_writes"
+    let minitsEqId := mkI s!"{base}{suffix}_deep_minits"
     if hasMem then
       elabCommand (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
@@ -1442,6 +1640,8 @@ elab "#verify_elab_deep" id:ident : command =>
         CdoM.inits $deepId = fun i => match i with $initArms:matchAlt* := rfl))
       elabSync (← `(theorem $writesEqId :
         CdoM.writes $deepId = fun k => match k with $writesArms:matchAlt* := rfl))
+      elabSync (← `(theorem $minitsEqId :
+        CdoM.minits $deepId = fun _ _ => 0 := rfl))
       elabSync (← `(theorem $outEqId : CdoM.out $deepId = $outC := rfl))
     else
       elabCommand (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
@@ -1476,7 +1676,27 @@ elab "#verify_elab_deep" id:ident : command =>
                 simp only [$nextEqId:ident, NextM.compileCone, CExpr.compile, $nmId:ident]
                 all_goals (first | rfl | (simp; done) | (simp; rfl))))
               pure (some fidId)
-            else pure none
+            else
+              -- latch slot: the reified read address compiles back to the
+              -- elaborated address cone, and the slot IS that latch
+              -- the address is ascribed the memory's address width (the
+              -- type the slot's `latchAddr?` carries), so the replay's
+              -- rewrites match syntactically
+              let compT ← `(@CExpr.compile ($ΓrT ++ $ΓiT)
+                (($ΓmT : List MemSig).get ⟨$(quote (i - nReg)), by decide⟩).1
+                $nmId $(cones[i]!))
+              elabSync (← `(theorem $fidId :
+                $compT = $coneQ := by
+                simp only [CExpr.compile, $nmId:ident]
+                all_goals (first | rfl | (simp; done) | (simp; rfl))))
+              let fidLId := mkI s!"{base}{suffix}_deep_fidelity_latch{i}"
+              elabSync (← `(theorem $fidLId :
+                NextM.latchAddr? (CdoM.next $deepId ⟨$(quote i), by decide⟩)
+                  = some ⟨⟨$(quote (i - nReg)), by decide⟩, $(cones[i]!)⟩ := by
+                first
+                  | rfl
+                  | (simp only [$nextEqId:ident, NextM.latchAddr?])))
+              pure (some fidId)
           else
             elabSync (← `(theorem $fidId :
               CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)
@@ -1488,6 +1708,10 @@ elab "#verify_elab_deep" id:ident : command =>
               all_goals (first | rfl | (simp; done) | (simp; rfl))))
             pure (some fidId)
       else pure #[]
+    let fidLIds : Array Ident := if k == 0 && hasMem then
+        (List.range nR).toArray.filterMap fun i =>
+          if i < nReg then none else some (mkI s!"{base}{suffix}_deep_fidelity_latch{i}")
+      else #[]
     -- write-port fidelity (memories): the reified address/data/enable
     -- cones compile back to the elaborated ones
     let fidMemIds ← if k == 0 && hasMem then
@@ -1528,14 +1752,68 @@ elab "#verify_elab_deep" id:ident : command =>
     -- the register+input-keyed weOfC agrees with weM).  This lands the
     -- deep conclusions on exactly the expressions and width env the
     -- ConeFold bridge theorems consume.
+    -- For a memory-bearing body the combinational seam facts are stated
+    -- over the body WITHOUT its memory statements (`stripSyncMem`: a
+    -- synchronous memory is a no-op for `evalAssigns`), which is
+    -- memory-free and hence inside the seam theorems' premises; the
+    -- state step (regstep/memstep) keeps the full body.
     let weMId := mkI s!"{base}_deep_weM"
     let bodyId := mkI s!"{base}_deep_body"
     let stopLId := mkI s!"{base}_deep_stopL"
     let stopAtMId := mkI s!"{base}_deep_stopAtM"
     let wtLId := mkI s!"{base}_deep_wtL"
     let wtMId := mkI s!"{base}_deep_wtM"
-    -- the seam glue / IR replay assume a memory-free body (v1)
-    if k == 0 && !hasMem then
+    let bodyC : Term ← if hasMem then `(Tools.ConeFold.stripSyncMem $bodyId)
+      else `($bodyId)
+    let outT0 : Term ← if hasMem then `(CdoM.out $deepId) else `(Cdo.out $deepId)
+    let addExprConst (id : Ident) (e : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
+      liftCoreM <| addAndCompile <| .defnDecl {
+        name := id.getId, levelParams := []
+        type := mkConst ``Sparkle.IR.AST.Expr
+        value := toExpr e, hints := .abbrev, safety := .safe }
+      liftCoreM <| Lean.enableRealizationsForConst id.getId
+    -- one G1 lemma: `lhs` is the compiled reification (or its literal),
+    -- `hnormTac` proves `lhs = concatNorm cone`, `eIn` the IR expression
+    -- whose cone `coneRaw` is (the inlining hypothesis is recomputed)
+    let mkG1 (g1Id : Ident) (lhs : Term) (hnormTac : Lean.TSyntax `tactic)
+        (coneRawId coneId : Ident) (eIn : Term) : CommandElabM Unit := do
+      elabSync (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
+          Sparkle.IR.Semantics.evalExpr
+              (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
+              env $lhs
+            = Sparkle.IR.Semantics.evalExpr $weMId env $coneId := by
+        have hnorm : $lhs = Tools.ConcatNorm.concatNorm 10000 $coneId := by
+          $hnormTac:tactic
+        have hinl : Tools.ConeFold.inlineConeT
+            (Sparkle.IR.Optimize.buildDefMap $bodyC) $stopAtMId 10000
+            $eIn = .ok $coneRawId := by native_decide
+        have hres : $coneId
+            = Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId := by
+          native_decide
+        have hag : ∀ n ∈ $stopLId,
+            (weOfC $nmId
+              (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j)) n
+              = $weMId n := by native_decide
+        rw [hnorm,
+          Tools.ConeFold.concatNorm_eval _ env 10000 $coneId
+            (by native_decide)]
+        refine Tools.ConeFold.evalExpr_we_congr _ $weMId env $coneId ?_
+        intro n hn
+        have h1 : n ∈ Sparkle.IR.Reorder.refsOf
+            (Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId) := by
+          rw [← hres]; exact hn
+        have href := Tools.ConeFold.inlineConeT_refs
+          (Sparkle.IR.Optimize.buildDefMap $bodyC) $stopAtMId 10000
+          $eIn $coneRawId hinl n
+          (Tools.ConeFold.resolveSlicesT_refs $wtMId 10000 $coneRawId
+            n h1)
+        have hmem : n ∈ $stopLId := by
+          rcases Tools.ConeFold.stopFold_mem $stopLId {} n href
+            with h | h
+          · exact h
+          · simp at h
+        exact hag n hmem))
+    if k == 0 then
       let weBody ← do
         let mut acc ← `((0 : Nat))
         for (n, w) in wt.toList do
@@ -1576,63 +1854,50 @@ elab "#verify_elab_deep" id:ident : command =>
         let craw ← match Tools.ConeFold.inlineConeT dm stopAt 10000 input with
           | .ok c => pure c
           | .error e => throwError "#verify_elab_deep bridge: cone of {rn}: {e}"
-        liftCoreM <| addAndCompile <| .defnDecl {
-          name := coneRawId.getId, levelParams := []
-          type := mkConst ``Sparkle.IR.AST.Expr
-          value := toExpr craw, hints := .abbrev, safety := .safe }
-        liftCoreM <| Lean.enableRealizationsForConst coneRawId.getId
-        liftCoreM <| addAndCompile <| .defnDecl {
-          name := coneId.getId, levelParams := []
-          type := mkConst ``Sparkle.IR.AST.Expr
-          value := toExpr conesIR[i]!, hints := .abbrev, safety := .safe }
-        liftCoreM <| Lean.enableRealizationsForConst coneId.getId
-        liftCoreM <| addAndCompile <| .defnDecl {
-          name := regInId.getId, levelParams := []
-          type := mkConst ``Sparkle.IR.AST.Expr
-          value := toExpr input, hints := .abbrev, safety := .safe }
-        liftCoreM <| Lean.enableRealizationsForConst regInId.getId
+        addExprConst coneRawId craw
+        addExprConst coneId conesIR[i]!
+        addExprConst regInId input
         let fidId := fidIds[i]!
         let g1Id := mkI s!"{base}_deep_coneEval_r{i}"
-        elabSync (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
-            Sparkle.IR.Semantics.evalExpr
-                (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
-                env (CExpr.compile $nmId
-                  (Cdo.next $deepId ⟨$(quote i), by decide⟩))
-              = Sparkle.IR.Semantics.evalExpr $weMId env $coneId := by
-          have hnorm : CExpr.compile $nmId
-              (Cdo.next $deepId ⟨$(quote i), by decide⟩)
-              = Tools.ConcatNorm.concatNorm 10000 $coneId := by
-            rw [$fidId:ident]
-            native_decide
-          have hinl : Tools.ConeFold.inlineConeT
-              (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
-              $regInId = .ok $coneRawId := by native_decide
-          have hres : $coneId
-              = Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId := by
-            native_decide
-          have hag : ∀ n ∈ $stopLId,
-              (weOfC $nmId
-                (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j)) n
-                = $weMId n := by native_decide
-          rw [hnorm,
-            Tools.ConeFold.concatNorm_eval _ env 10000 $coneId
-              (by native_decide)]
-          refine Tools.ConeFold.evalExpr_we_congr _ $weMId env $coneId ?_
-          intro n hn
-          have h1 : n ∈ Sparkle.IR.Reorder.refsOf
-              (Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId) := by
-            rw [← hres]; exact hn
-          have href := Tools.ConeFold.inlineConeT_refs
-            (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
-            $regInId $coneRawId hinl n
-            (Tools.ConeFold.resolveSlicesT_refs $wtMId 10000 $coneRawId
-              n h1)
-          have hmem : n ∈ $stopLId := by
-            rcases Tools.ConeFold.stopFold_mem $stopLId {} n href
-              with h | h
-            · exact h
-            · simp at h
-          exact hag n hmem))
+        if !hasMem then
+          mkG1 g1Id (← `(CExpr.compile $nmId (Cdo.next $deepId ⟨$(quote i), by decide⟩)))
+            (← `(tactic| (rw [$fidId:ident]; native_decide))) coneRawId coneId (← `($regInId))
+        else if i < nReg then
+          -- cone slot of a CdoM: fidelity is `compileCone … = some lit`,
+          -- so G1 is stated over the literal itself
+          let coneQ ← quoteIR (Tools.ConcatNorm.concatNorm 10000 conesIR[i]!)
+          mkG1 g1Id coneQ (← `(tactic| native_decide)) coneRawId coneId (← `($regInId))
+        else
+          -- latch slot: over the compiled read address (ascribed as in
+          -- its fidelity theorem)
+          let compT ← `(@CExpr.compile ($ΓrT ++ $ΓiT)
+            (($ΓmT : List MemSig).get ⟨$(quote (i - nReg)), by decide⟩).1
+            $nmId $(cones[i]!))
+          mkG1 g1Id compT
+            (← `(tactic| (rw [$fidId:ident]; native_decide))) coneRawId coneId (← `($regInId))
+      -- write ports: address / data / enable cones of every memory
+      if hasMem then
+        for kk in List.range nM do
+          let (name, _, _, waIR, wdIR, weIR, _, _) := mems[kk]!
+          let (waC, wdC, weC) := memConesIR[kk]!
+          let portG1 (tag : String) (portIR coneIR : Sparkle.IR.AST.Expr) (proj : Term) :
+              CommandElabM Unit := do
+            let coneRawId := mkI s!"{base}_deep_coneRaw_m{kk}_{tag}"
+            let coneId := mkI s!"{base}_deep_cone_m{kk}_{tag}"
+            let portInId := mkI s!"{base}_deep_portIn_m{kk}_{tag}"
+            let craw ← match Tools.ConeFold.inlineConeT dm stopAt 10000 portIR with
+              | .ok c => pure c
+              | .error e => throwError "#verify_elab_deep bridge: write port {tag} of memory {name}: {e}"
+            addExprConst coneRawId craw
+            addExprConst coneId coneIR
+            addExprConst portInId portIR
+            let fidId := mkI s!"{base}{suffix}_deep_fidelity_m{kk}_{tag}"
+            let g1Id := mkI s!"{base}_deep_coneEval_m{kk}_{tag}"
+            mkG1 g1Id (← `(CExpr.compile $nmId $proj))
+              (← `(tactic| (rw [$fidId:ident]; native_decide))) coneRawId coneId (← `($portInId))
+          portG1 "wa" waIR waC (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).1))
+          portG1 "wd" wdIR wdC (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.1))
+          portG1 "we" weIR weC (← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.2))
     -- per-port: the output cone's G1
     let outConeRawId := mkI s!"{base}{suffix}_deep_coneRaw_out"
     let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
@@ -1640,55 +1905,12 @@ elab "#verify_elab_deep" id:ident : command =>
         (.ref portName) with
       | .ok c => pure c
       | .error e => throwError "#verify_elab_deep bridge: out cone: {e}"
-    liftCoreM <| addAndCompile <| .defnDecl {
-      name := outConeRawId.getId, levelParams := []
-      type := mkConst ``Sparkle.IR.AST.Expr
-      value := toExpr outRawIR, hints := .abbrev, safety := .safe }
-    liftCoreM <| Lean.enableRealizationsForConst outConeRawId.getId
-    liftCoreM <| addAndCompile <| .defnDecl {
-      name := outConeId.getId, levelParams := []
-      type := mkConst ``Sparkle.IR.AST.Expr
-      value := toExpr outIR, hints := .abbrev, safety := .safe }
-    liftCoreM <| Lean.enableRealizationsForConst outConeId.getId
+    addExprConst outConeRawId outRawIR
+    addExprConst outConeId outIR
     let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
-    if !hasMem then elabSync (← `(theorem $g1OutId (env : Sparkle.IR.Semantics.Env) :
-        Sparkle.IR.Semantics.evalExpr
-            (weOfC $nmId (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j))
-            env (CExpr.compile $nmId (Cdo.out $deepId))
-          = Sparkle.IR.Semantics.evalExpr $weMId env $outConeId := by
-      have hnorm : CExpr.compile $nmId (Cdo.out $deepId)
-          = Tools.ConcatNorm.concatNorm 10000 $outConeId := by
-        rw [$fidOutId:ident]
-        native_decide
-      have hinl : Tools.ConeFold.inlineConeT
-          (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
-          (.ref $(quote portName)) = .ok $outConeRawId := by
-        native_decide
-      have hres : $outConeId
-          = Tools.ConeFold.resolveSlicesT $wtMId 10000 $outConeRawId := by
-        native_decide
-      have hag : ∀ n ∈ $stopLId,
-          (weOfC $nmId
-            (fun j => (($ΓrT ++ $ΓiT : List Nat)).get j)) n
-            = $weMId n := by native_decide
-      rw [hnorm,
-        Tools.ConeFold.concatNorm_eval _ env 10000 $outConeId
-          (by native_decide)]
-      refine Tools.ConeFold.evalExpr_we_congr _ $weMId env $outConeId ?_
-      intro n hn
-      have h1 : n ∈ Sparkle.IR.Reorder.refsOf
-          (Tools.ConeFold.resolveSlicesT $wtMId 10000 $outConeRawId) := by
-        rw [← hres]; exact hn
-      have href := Tools.ConeFold.inlineConeT_refs
-        (Sparkle.IR.Optimize.buildDefMap $bodyId) $stopAtMId 10000
-        (.ref $(quote portName)) $outConeRawId hinl n
-        (Tools.ConeFold.resolveSlicesT_refs $wtMId 10000 $outConeRawId
-          n h1)
-      have hmem : n ∈ $stopLId := by
-        rcases Tools.ConeFold.stopFold_mem $stopLId {} n href with h | h
-        · exact h
-        · simp at h
-      exact hag n hmem))
+    mkG1 g1OutId (← `(CExpr.compile $nmId $outT0))
+      (← `(tactic| (rw [$fidOutId:ident]; native_decide))) outConeRawId outConeId
+      (← `(Sparkle.IR.AST.Expr.ref $(quote portName)))
     -- ===== literal-width state readers (the shallow bridge) =====
     -- `Cdo.stateAt … ⟨i, _⟩ : BitVec (Γr.get ⟨i, _⟩)` — a width that is
     -- defeq to the literal but never syntactically it, and every
@@ -2220,26 +2442,6 @@ elab "#verify_elab_deep" id:ident : command =>
       logInfo m!"#verify_elab_deep {declName}.{portName}: defs only (SPARKLE_DEEP_NOTHM)"
       continue
     elabSync thmCmd
-    if hasMem then
-      -- v1: the seam glue and the IR replay assume a memory-free body;
-      -- for memory-bearing circuits the certified statement is the
-      -- capstone (Signal ≡ compiled output cone at the deep state)
-      for aud in #[thId] ++ fidIds ++ fidMemIds ++ #[fidOutId] do
-        -- a kernel-rejected declaration ("has metavariables") is absent:
-        -- getConstInfo throws, so it can never be reported PROVEN
-        -- synchronous elaboration (`elabSync`): a failed or kernel-rejected
-        -- theorem is absent, so the lookup throws.  The generated names are
-        -- SIMPLE and land in the current namespace — resolve them there (a
-        -- bare-name lookup silently found nothing inside `namespace …`).
-        let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload aud
-        let ci ← liftCoreM <| Lean.getConstInfo full
-        if ci.type.hasExprMVar || (ci.value?.map (·.hasExprMVar)).getD false then
-          throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (metavariables)"
-        let axioms ← liftCoreM <| Lean.collectAxioms full
-        if axioms.contains ``sorryAx then
-          throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (sorryAx) — see the errors above"
-      logInfo m!"#verify_elab_deep {declName}{if structName?.isSome then s!".{portName}" else ""}: PROVEN via CdoM.elab_general — {thId.getId} ({nReg} registers, {nM} memories, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + {fidMemIds.size} write-port cones + out; IR replay not emitted for memory-bearing bodies)"
-      continue
     -- DEEP-BRIDGE (first landing): rewrite the capstone's RHS through
     -- the G1_out glue so the Signal value is stated as
     -- `evalExpr weM (envOfC …) outCone` — the ConeFold bridge's
@@ -2251,43 +2453,74 @@ elab "#verify_elab_deep" id:ident : command =>
     let outConeId := mkI s!"{base}{suffix}_deep_cone_out"
     let g1OutId := mkI s!"{base}{suffix}_deep_coneEval_out"
     let sigMId := mkI s!"{base}{suffix}_deep_signalM"
+    let inpFam : Term ← `((fun t j => (($inpS) j).val t))
+    -- the IR state recurrence of a deep circuit (Cdo / CdoM) at cycle `tt`
+    let irStateAt (d : Ident) (tt : Term) : CommandElabM Term :=
+      if hasMem then `(CdoM.irState $d $inpFam $tt)
+      else `(Cdo.irState $d $nmId $inpFam $tt)
+    -- the IR memory contents at cycle `tt` (memory-free: the zero MEnv)
+    let memAtId := mkI s!"{base}_deep_memAt"
+    let memAtZeroId := mkI s!"{base}_deep_memAt_zero"
+    let memsAt (tt : Term) : CommandElabM Term :=
+      if hasMem then `($memAtId $appArgs* $tt) else `((fun _ _ => (0 : Nat)))
+    let irT ← irStateAt deepId (← `(t))
     elabSync (← `(theorem $sigMId $paramBinders* (t : Nat) :
         (($lhsSig).val t).toNat
         = (Sparkle.IR.Semantics.evalExpr $weMId
-            (envOfC $nmId (natJoin
-              (Cdo.irState $deepId $nmId (fun t j => (($inpS) j).val t) t)
-              (fun j => ((($inpS) j).val t).toNat)))
+            (envOfC $nmId (natJoin $irT (fun j => ((($inpS) j).val t).toNat)))
             $outConeId).getD 0 := by
       rw [$thId $appArgs* t, $g1OutId _]))
     -- ===== DEEP-BRIDGE REPLAY =====
     -- The #verify_elab chain (step / regstep / state_trace /
     -- signal_fold / signal_run) replayed over the general-theorem
-    -- route's recurrence `Cdo.irState`.  The seed the deep recurrence
-    -- evaluates cones in is `envOfC nm (natJoin (irState t) inp)`;
-    -- pointwise readers (register / input / other) identify it with a
-    -- stepModule map-state seed, boundedness comes free from
-    -- `irState_eq` (irState = stateAt.toNat < 2^w), and the register
-    -- phase's mask is killed the same way.  Hypotheses are discharged
-    -- by native_decide on the emitted body/stop/width constants.
+    -- route's recurrence `Cdo.irState` / `CdoM.irState`.  The seed the
+    -- deep recurrence evaluates cones in is
+    -- `envOfC nm (natJoin (irState t) inp)`; pointwise readers
+    -- (register / input / other) identify it with a stepModule
+    -- map-state seed, boundedness comes free from the BitVec state
+    -- (irState = stateAt.toNat < 2^w), and the register phase's mask is
+    -- killed the same way.  Hypotheses are discharged by native_decide
+    -- on the emitted body/stop/width constants.  With memories the
+    -- iteration is `stepIterM` (state × MEnv): the memory contents at
+    -- cycle t are `memAt t` (the `CMem.natView` of the deep contents),
+    -- a latch slot's next value comes from `syncReadLatches` on `memAt t`,
+    -- and `memstep` shows `memNexts` lands on `memAt (t+1)`.
     let deepEnvAtId := mkI s!"{base}_deep_envAt"
     let irFunextId := mkI s!"{base}_deep_irState_funext"
     let seedBndId := mkI s!"{base}_deep_seed_bounded"
     let rdOtherId := mkI s!"{base}_deep_envAt_other"
     let dRegstepId := mkI s!"{base}_deep_regstep"
+    let dMemstepId := mkI s!"{base}_deep_memstep"
     let dEnvStId := mkI s!"{base}_deep_envSt"
     let dSt0Id := mkI s!"{base}_deep_st0"
     let dEnvStBndId := mkI s!"{base}_deep_envSt_bounded"
     let dStateTraceId := mkI s!"{base}_deep_state_trace"
-    let inpFam : Term ← `((fun t j => (($inpS) j).val t))
     let regRstsD : List String := m.body.filterMap fun st =>
       match st with
       | .register _ _ (rstName, _) _ _ => some rstName
       | _ => none
+    -- every state slot's input (register input / latch read address) is
+    -- a wire reference, so `hv` is `simp [evalExpr]`
     let refWiresD? : Option (List String) := regs.foldr
       (fun (r : String × Sparkle.IR.AST.Expr × Int) acc =>
         match r.2.1, acc with
         | .ref w, some l => some (w :: l)
         | _, _ => none) (some [])
+    -- likewise the write ports (address, data, enable) of every memory
+    let memPortWires? : Option (List (String × String × String)) := mems.foldr
+      (fun (mm : String × Nat × Nat × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr
+          × Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr × String) acc =>
+        match mm.2.2.2.1, mm.2.2.2.2.1, mm.2.2.2.2.2.1, acc with
+        | .ref a, .ref d, .ref e, some l => some ((a, d, e) :: l)
+        | _, _, _, _ => none) (some [])
+    -- the register phase lists state updates in BODY order (a memory's
+    -- latch comes where its `.memory` statement is)
+    let regNames := regs.map (·.1)
+    let stateOrder : List Nat := (Tools.SVParser.Lower.topoSortBody m.body).filterMap
+      fun st => match st with
+        | .register out _ _ _ _ => regNames.idxOf? out
+        | .memory _ _ _ _ _ _ _ _ rd _ _ _ => regNames.idxOf? rd
+        | _ => none
     -- nm order: registers 0..nR-1, then inputs nR..nR+nI-1
     let nmNames : List String :=
       (regs.map (·.1)) ++ (ins.map (·.1))
@@ -2330,39 +2563,69 @@ elab "#verify_elab_deep" id:ident : command =>
       let rdApp : Term ← `($rdOtherId $appArgs* t n $hneTerms*)
       tacs := tacs.push (← `(tactic| simp [$rdApp:term, $[$hneTerms:term],*]))
       pure tacs
-    let bridgeOk := nR > 0 && refWiresD?.isSome && regRstsD.length == nR
+    -- `irState t ⟨i⟩ < 2^w` for the recurrence `d`
+    let mkHbnd (d : Ident) (hbndId : Ident) (i : Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+      let irTi ← irStateAt d (← `(t))
+      if hasMem then
+        `(tactic| have $hbndId:ident : $irTi ⟨$(quote i), by decide⟩ < 2 ^ $(quote regWs[i]!) := by
+          simp only [CdoM.irState]
+          exact BitVec.isLt _)
+      else
+        `(tactic| have $hbndId:ident : $irTi ⟨$(quote i), by decide⟩ < 2 ^ $(quote regWs[i]!) := by
+          rw [Cdo.irState_eq _ _ (by decide)]
+          exact BitVec.isLt _)
+    let bridgeOk := nR > 0 && refWiresD?.isSome && regRstsD.length == nReg
+      && memPortWires?.isSome && stateOrder.length == nR
     let mut bridgeAudit : Array Ident := #[]
     if bridgeOk && k == 0 then
       let regWiresD := refWiresD?.getD []
+      let memPortWires := memPortWires?.getD []
+      let irTt ← irStateAt deepId (← `(t))
+      let irTs ← irStateAt deepId (← `(t + 1))
+      let memsT ← memsAt (← `(t))
       elabCommand (← `(def $deepEnvAtId $paramBinders* (t : Nat) :
           Sparkle.IR.Semantics.Env :=
-        envOfC $nmId (natJoin
-          (Cdo.irState $deepId $nmId $inpFam t)
-          (fun j => ((($inpS) j).val t).toNat))))
-      elabSync (← `(theorem $irFunextId $paramBinders* (t : Nat) :
-          Cdo.irState $deepId $nmId $inpFam t
-            = fun i => (Cdo.stateAt $deepId $inpFam t i).toNat := by
-        funext i
-        exact Cdo.irState_eq _ _ (by decide) _ t i))
-      elabSync (← `(theorem $seedBndId $paramBinders* (t : Nat) :
-          ∀ n, $deepEnvAtId $appArgs* t n < 2 ^ $weMId n := by
-        intro n
-        unfold $deepEnvAtId
-        apply envOfC_bounded
-        intro i
-        have hag : ∀ i : Fin (($ΓrT ++ $ΓiT : List Nat)).length,
-            $weMId ($nmId i) = (($ΓrT ++ $ΓiT : List Nat)).get i := by
-          native_decide
-        rw [hag i, $irFunextId $appArgs*]
-        rw [natJoin_eq_join (Cdo.stateAt $deepId $inpFam t)
-          (fun j => (($inpS) j).val t) i]
-        exact BitVec.isLt _))
+        envOfC $nmId (natJoin $irTt (fun j => ((($inpS) j).val t).toNat))))
+      if hasMem then
+        elabSync (← `(theorem $irFunextId $paramBinders* (t : Nat) :
+            $irTt = fun i => ((CdoM.stateAt $deepId $inpFam t).1 i).toNat := rfl))
+        elabSync (← `(theorem $seedBndId $paramBinders* (t : Nat) :
+            ∀ n, $deepEnvAtId $appArgs* t n < 2 ^ $weMId n := by
+          intro n
+          unfold $deepEnvAtId
+          apply envOfC_bounded
+          intro i
+          have hag : ∀ i : Fin (($ΓrT ++ $ΓiT : List Nat)).length,
+              $weMId ($nmId i) = (($ΓrT ++ $ΓiT : List Nat)).get i := by
+            native_decide
+          rw [hag i, $irFunextId $appArgs*]
+          rw [natJoin_eq_join (CdoM.stateAt $deepId $inpFam t).1
+            (fun j => (($inpS) j).val t) i]
+          exact BitVec.isLt _))
+      else
+        elabSync (← `(theorem $irFunextId $paramBinders* (t : Nat) :
+            $irTt = fun i => (Cdo.stateAt $deepId $inpFam t i).toNat := by
+          funext i
+          exact Cdo.irState_eq _ _ (by decide) _ t i))
+        elabSync (← `(theorem $seedBndId $paramBinders* (t : Nat) :
+            ∀ n, $deepEnvAtId $appArgs* t n < 2 ^ $weMId n := by
+          intro n
+          unfold $deepEnvAtId
+          apply envOfC_bounded
+          intro i
+          have hag : ∀ i : Fin (($ΓrT ++ $ΓiT : List Nat)).length,
+              $weMId ($nmId i) = (($ΓrT ++ $ΓiT : List Nat)).get i := by
+            native_decide
+          rw [hag i, $irFunextId $appArgs*]
+          rw [natJoin_eq_join (Cdo.stateAt $deepId $inpFam t)
+            (fun j => (($inpS) j).val t) i]
+          exact BitVec.isLt _))
       -- pointwise readers
       for idx in List.range (nR + nI) do
         let nmS := nmNames[idx]!
         let rdId := rdIds[idx]!
         let rhs : Term ← if idx < nR then
-            `(Cdo.irState $deepId $nmId $inpFam t ⟨$(quote idx), by decide⟩)
+            `($irTt ⟨$(quote idx), by decide⟩)
           else
             `(((($inpS) ⟨$(quote (idx - nR)), by decide⟩).val t).toNat)
         elabSync (← `(theorem $rdId $paramBinders* (t : Nat) :
@@ -2384,7 +2647,62 @@ elab "#verify_elab_deep" id:ident : command =>
           $deepEnvAtId $appArgs* t n = 0 := by
         simp [$deepEnvAtId:ident, envOfC, chainMap, List.finRange,
           $nmId:ident, $[$hneSymm:term],*]))
-      -- per-register step + the register phase
+      -- the IR memory contents at cycle t: the natView of the deep contents
+      if hasMem then
+        let memAtBody ← do
+          let mut acc ← `((0 : Nat))
+          for kk in (List.range nM).reverse do
+            let (name, _, _, _, _, _, _, _) := mems[kk]!
+            acc ← `(if nm == $(quote name) then
+              CMem.natView (CdoM.stateAt $deepId $inpFam t).2 ⟨$(quote kk), by decide⟩ i
+              else $acc)
+          pure acc
+        elabCommand (← `(def $memAtId $paramBinders* (t : Nat) :
+            Sparkle.IR.Semantics.MEnv := fun nm i => $memAtBody))
+        elabSync (← `(theorem $memAtZeroId $paramBinders* :
+            $memAtId $appArgs* 0 = fun _ _ => 0 := by
+          funext nm i
+          simp [$memAtId:ident, CMem.natView, CdoM.stateAt, $minitsEqId:ident]))
+        bridgeAudit := bridgeAudit.push memAtZeroId
+      -- the stripped-body run, for the seam facts (memories only)
+      let hrunCTac : Lean.TSyntax `tactic ← if hasMem then
+          `(tactic| (rw [← Tools.ConeFold.evalAssigns_stripSyncMem $weMId _ $bodyId
+              (Tools.ConeFold.syncMemOnlyCheck_sound _ (by native_decide))]; exact hrun))
+        else `(tactic| exact hrun)
+      -- one step lemma: the cone of `eIn` at the seed evaluates to what
+      -- `eIn` evaluates to after the combinational fold
+      let mkStep (stepId : Ident) (coneId coneRawId : Ident) (eIn : Term) :
+          CommandElabM Unit := do
+        elabSync (← `(theorem $stepId $paramBinders* (t : Nat)
+            {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
+            (hrun : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
+              $bodyId ($deepEnvAtId $appArgs* t) = some env1)
+            (hv : Sparkle.IR.Semantics.evalExpr $weMId env1 $eIn = some v) :
+            Sparkle.IR.Semantics.evalExpr $weMId ($deepEnvAtId $appArgs* t)
+              $coneId = some v := by
+          have hres : $coneId
+              = Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId := by
+            native_decide
+          rw [hres]
+          have hrunC : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
+              $bodyC ($deepEnvAtId $appArgs* t) = some env1 := by
+            $hrunCTac:tactic
+          exact Tools.ConeFold.cone_resolved_agrees_at_seed $weMId
+            $memsT $stopAtMId $wtMId
+            (Sparkle.IR.Reorder.woCheck_sound [] $bodyC (by native_decide))
+            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+            (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
+            hrunC
+            (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyC
+              (by native_decide))
+            (Tools.ConeFold.hwt_of_assoc $weMId $wtLId (by native_decide))
+            ($seedBndId $appArgs* t)
+            (Tools.ConeFold.stopAtFrozenCheck_sound $stopAtMId $bodyC
+              (by native_decide))
+            (fuel := 10000) (e := $eIn)
+            (hinl := by native_decide)
+            10000 hv))
+      -- per-slot step + the register phase
       let mut stepIds : Array Ident := #[]
       for i in List.range nR do
         let (rn, _, _) := regs[i]!
@@ -2395,98 +2713,194 @@ elab "#verify_elab_deep" id:ident : command =>
         let stepId := mkI s!"{base}_deep_step_{sanit}"
         stepIds := stepIds.push stepId
         bridgeAudit := bridgeAudit.push stepId
-        elabSync (← `(theorem $stepId $paramBinders* (t : Nat)
-            {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
-            (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
-              $bodyId ($deepEnvAtId $appArgs* t) = some env1)
-            (hv : Sparkle.IR.Semantics.evalExpr $weMId env1 $regInId
-              = some v) :
-            Sparkle.IR.Semantics.evalExpr $weMId ($deepEnvAtId $appArgs* t)
-              $coneId = some v := by
-          have hres : $coneId
-              = Tools.ConeFold.resolveSlicesT $wtMId 10000 $coneRawId := by
-            native_decide
-          rw [hres]
-          exact Tools.ConeFold.cone_resolved_agrees_at_seed $weMId
-            (fun _ _ => 0) $stopAtMId $wtMId
-            (Sparkle.IR.Reorder.woCheck_sound [] $bodyId (by native_decide))
-            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-            (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
-            hrun
-            (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyId
-              (by native_decide))
-            (Tools.ConeFold.hwt_of_assoc $weMId $wtLId (by native_decide))
-            ($seedBndId $appArgs* t)
-            (Tools.ConeFold.stopAtFrozenCheck_sound $stopAtMId $bodyId
-              (by native_decide))
-            (fuel := 10000) (e := $regInId)
-            (hinl := by native_decide)
-            10000 hv))
+        mkStep stepId coneId coneRawId (← `($regInId))
+      -- per-write-port step (memories)
+      if hasMem then
+        for kk in List.range nM do
+          for tag in ["wa", "wd", "we"] do
+            let stepId := mkI s!"{base}_deep_step_m{kk}_{tag}"
+            bridgeAudit := bridgeAudit.push stepId
+            mkStep stepId (mkI s!"{base}_deep_cone_m{kk}_{tag}")
+              (mkI s!"{base}_deep_coneRaw_m{kk}_{tag}")
+              (← `($(mkI s!"{base}_deep_portIn_m{kk}_{tag}")))
       -- regstep
       let mut nextsItems : Array Term := #[]
       let mut pre : Array (Lean.TSyntax `tactic) := #[]
       let mut finalArgs : Array Term := #[]
       let mut closers : Array (Lean.TSyntax `tactic) := #[]
+      let mut slRws : Array Term := #[]
+      if hasMem then
+        pre := pre.push (← `(tactic| have hrunC : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
+            $bodyC ($deepEnvAtId $appArgs* t) = some env1 := by
+          $hrunCTac:tactic))
+      let hrunCRef : Term ← if hasMem then `(hrunC) else `(hrun)
+      for i in stateOrder do
+        let (rn, _, _) := regs[i]!
+        nextsItems := nextsItems.push (← `(($(quote rn), $irTs ⟨$(quote i), by decide⟩)))
       for i in List.range nR do
         let (rn, _, _) := regs[i]!
         let sanit := Sparkle.Backend.Verilog.sanitizeName rn
         let coneId := mkI s!"{base}_deep_cone_{sanit}"
         let regInId := mkI s!"{base}_deep_regIn_{sanit}"
         let g1Id := mkI s!"{base}_deep_coneEval_r{i}"
-        let rstName := regRstsD[i]!
         let w := regWiresD[i]!
         let hrstId := mkI s!"hrst{i}"
         let hstepId := mkI s!"hstep{i}"
         let hnextId := mkI s!"hnext{i}"
         let hbndId := mkI s!"hbnd{i}"
-        nextsItems := nextsItems.push (← `(($(quote rn),
-          Cdo.irState $deepId $nmId $inpFam (t + 1) ⟨$(quote i), by decide⟩)))
-        pre := pre.push (← `(tactic| have $hrstId:ident :
-            env1 $(quote rstName) = 0 := by
-          have hfr := Tools.ConeFold.evalAssigns_frame $weMId (fun _ _ => 0)
-            $bodyId _ env1 hrun
-            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-            $(quote rstName) (by native_decide)
-          rw [hfr]
-          simp [$deepEnvAtId:ident, envOfC, chainMap, List.finRange,
-            $nmId:ident]))
         pre := pre.push (← `(tactic| have $hstepId:ident :=
           $(stepIds[i]!) $appArgs* t hrun
             (show Sparkle.IR.Semantics.evalExpr $weMId env1 $regInId
                 = some (env1 $(quote w)) by
               simp [$regInId:ident, Sparkle.IR.Semantics.evalExpr])))
-        pre := pre.push (← `(tactic| have $hnextId:ident :
-            Cdo.irState $deepId $nmId $inpFam (t + 1) ⟨$(quote i), by decide⟩
-              = env1 $(quote w) := by
-          simp only [Cdo.irState]
-          rw [$g1Id:ident]
-          show (Sparkle.IR.Semantics.evalExpr $weMId
-            ($deepEnvAtId $appArgs* t) $coneId).getD 0 = _
-          rw [$hstepId:ident]
-          rfl))
-        pre := pre.push (← `(tactic| have $hbndId:ident :
-            env1 $(quote w) < 2 ^ $(quote regWs[i]!) := by
-          rw [← $hnextId:ident, Cdo.irState_eq _ _ (by decide)]
-          exact BitVec.isLt _))
-        finalArgs := finalArgs.push (← `(Nat.mod_eq_of_lt $hbndId:ident))
-        finalArgs := finalArgs.push (← `($hrstId:ident))
-        finalArgs := finalArgs.push (← `($hnextId:ident))
-        closers := closers.push (← `(tactic| all_goals (try exact ($hnextId:ident).symm)))
-        closers := closers.push (← `(tactic| all_goals (try exact $hnextId:ident)))
+        if i < nReg then
+          let rstName := regRstsD[i]!
+          pre := pre.push (← `(tactic| have $hrstId:ident :
+              env1 $(quote rstName) = 0 := by
+            have hfr := Tools.ConeFold.evalAssigns_frame $weMId $memsT
+              $bodyC _ env1 $hrunCRef
+              (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+              $(quote rstName) (by native_decide)
+            rw [hfr]
+            simp [$deepEnvAtId:ident, envOfC, chainMap, List.finRange,
+              $nmId:ident]))
+          if hasMem then
+            let fidId := fidIds[i]!
+            pre := pre.push (← `(tactic| have $hnextId:ident :
+                $irTs ⟨$(quote i), by decide⟩ = env1 $(quote w) :=
+              CdoM.irState_succ_cone $deepId $nmId (by decide) $inpFam t
+                ⟨$(quote i), by decide⟩ $fidId
+                (by rw [$g1Id:ident]; exact $hstepId:ident)))
+            pre := pre.push (← `(tactic| have $hbndId:ident :
+                env1 $(quote w) < 2 ^ $(quote regWs[i]!) := by
+              rw [← $hnextId:ident]
+              simp only [CdoM.irState]
+              exact BitVec.isLt _))
+          else
+            pre := pre.push (← `(tactic| have $hnextId:ident :
+                $irTs ⟨$(quote i), by decide⟩ = env1 $(quote w) := by
+              simp only [Cdo.irState]
+              rw [$g1Id:ident]
+              show (Sparkle.IR.Semantics.evalExpr $weMId
+                ($deepEnvAtId $appArgs* t) $coneId).getD 0 = _
+              rw [$hstepId:ident]
+              rfl))
+            pre := pre.push (← `(tactic| have $hbndId:ident :
+                env1 $(quote w) < 2 ^ $(quote regWs[i]!) := by
+              rw [← $hnextId:ident, Cdo.irState_eq _ _ (by decide)]
+              exact BitVec.isLt _))
+          finalArgs := finalArgs.push (← `(Nat.mod_eq_of_lt $hbndId:ident))
+          finalArgs := finalArgs.push (← `($hrstId:ident))
+          finalArgs := finalArgs.push (← `($hnextId:ident))
+          closers := closers.push (← `(tactic| all_goals (try exact ($hnextId:ident).symm)))
+          closers := closers.push (← `(tactic| all_goals (try exact $hnextId:ident)))
+        else
+          -- latch slot of memory kk: its next value is the contents at
+          -- the read address; `syncReadLatches` on `memAt t` lands there
+          let kk := i - nReg
+          let (name, aw, dw, _, _, _, raIR, rd) := mems[kk]!
+          let fidLId := mkI s!"{base}{suffix}_deep_fidelity_latch{i}"
+          let hslId := mkI s!"hsl{i}"
+          let raQ ← quoteIR raIR
+          pre := pre.push (← `(tactic| have $hnextId:ident :
+              $irTs ⟨$(quote i), by decide⟩
+                = ((CdoM.stateAt $deepId $inpFam t).2 ⟨$(quote kk), by decide⟩
+                    (BitVec.ofNat $(quote aw) (env1 $(quote w)))).toNat :=
+            CdoM.irState_succ_latch $deepId $nmId (by decide) $inpFam t
+              ⟨$(quote i), by decide⟩ ⟨$(quote kk), by decide⟩ _ $fidLId
+              (by rw [$g1Id:ident]; exact $hstepId:ident)))
+          pre := pre.push (← `(tactic| have $hslId:ident :
+              Sparkle.IR.Semantics.syncReadLatches $weMId $memsT $(quote name)
+                $(quote aw) $(quote dw) [($raQ, $(quote rd))] env1
+              = some [($(quote rd), $irTs ⟨$(quote i), by decide⟩)] := by
+            simp only [Sparkle.IR.Semantics.syncReadLatches,
+              Sparkle.IR.Semantics.evalExpr, Option.bind_eq_bind, Option.bind_some]
+            rw [$hnextId:ident]
+            have hm : ∀ x, $memAtId $appArgs* t $(quote name) x
+                = CMem.natView (CdoM.stateAt $deepId $inpFam t).2
+                    ⟨$(quote kk), by decide⟩ x := by
+              intro x; simp [$memAtId:ident]
+            rw [hm, CMem.natView_latch (CdoM.stateAt $deepId $inpFam t).2
+              ⟨$(quote kk), by decide⟩ (aw := $(quote aw)) (dw := $(quote dw)) rfl rfl]
+            rfl))
+          slRws := slRws.push ⟨hslId.raw⟩
       elabSync (← `(theorem $dRegstepId $paramBinders* (t : Nat)
           {env1 : Sparkle.IR.Semantics.Env}
-          (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
+          (hrun : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
             $bodyId ($deepEnvAtId $appArgs* t) = some env1) :
-          Sparkle.IR.Semantics.regNexts $weMId (fun _ _ => 0) $bodyId env1
+          Sparkle.IR.Semantics.regNexts $weMId $memsT $bodyId env1
             = some [$nextsItems,*] := by
         $[$pre:tactic]*
         simp only [$bodyId:ident, Sparkle.IR.Semantics.regNexts,
           Sparkle.IR.Semantics.evalExpr, Option.bind_eq_bind,
-          Option.bind_some]
+          Option.bind_some, Bool.false_eq_true, ↓reduceIte,
+          List.cons_append, List.nil_append, $[$slRws:term],*]
         simp [Sparkle.IR.Semantics.mask, $weMId:ident, -Fin.zero_eta,
           -Fin.mk_zero, -Fin.mk_one, $[$finalArgs:term],*]
         repeat' (apply And.intro)
         $[$closers:tactic]*))
+      -- memstep: the memory phase lands on the next cycle's contents
+      if hasMem then
+        let mut mpre : Array (Lean.TSyntax `tactic) := #[]
+        let mut payRws : Array Term := #[]
+        let mut viewRws : Array Term := #[]
+        for kk in List.range nM do
+          let (name, aw, dw, waIR, wdIR, weIR, _, _) := mems[kk]!
+          let (waW, wdW, weW) := memPortWires[kk]!
+          let ports : List (String × String × Sparkle.IR.AST.Expr × Term) :=
+            [("wa", waW, waIR, ← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).1)),
+             ("wd", wdW, wdIR, ← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.1)),
+             ("we", weW, weIR, ← `((CdoM.writes $deepId ⟨$(quote kk), by decide⟩).2.2))]
+          let mut hdenIds : Array Ident := #[]
+          for (tag, w, portIR, proj) in ports do
+            let stepId := mkI s!"{base}_deep_step_m{kk}_{tag}"
+            let g1Id := mkI s!"{base}_deep_coneEval_m{kk}_{tag}"
+            let portInId := mkI s!"{base}_deep_portIn_m{kk}_{tag}"
+            let hstepId := mkI s!"hstep_m{kk}_{tag}"
+            let hdenId := mkI s!"hden_m{kk}_{tag}"
+            let hpayId := mkI s!"hpay_m{kk}_{tag}"
+            let portQ ← quoteIR portIR
+            hdenIds := hdenIds.push hdenId
+            mpre := mpre.push (← `(tactic| have $hstepId:ident :=
+              $stepId $appArgs* t hrun
+                (show Sparkle.IR.Semantics.evalExpr $weMId env1 $portInId
+                    = some (env1 $(quote w)) by
+                  simp [$portInId:ident, Sparkle.IR.Semantics.evalExpr])))
+            mpre := mpre.push (← `(tactic| have $hdenId:ident :
+                (CExpr.denote (CEnv.join (CdoM.stateAt $deepId $inpFam t).1 ($inpFam t))
+                  $proj).toNat = env1 $(quote w) :=
+              CdoM.toNat_denote $deepId $nmId (by decide) $inpFam t _
+                (by rw [$g1Id:ident]; exact $hstepId:ident)))
+            mpre := mpre.push (← `(tactic| have $hpayId:ident :
+                Sparkle.IR.Semantics.evalPayload $weMId $memsT env1 $(quote name)
+                  $(quote aw) $(quote dw) $portQ = some (env1 $(quote w)) := by
+              rw [Tools.ConeFold.evalPayload_evalOk _ _ _ _ _ _ _ (by native_decide)]
+              simp [Sparkle.IR.Semantics.evalExpr]))
+            payRws := payRws.push ⟨hpayId.raw⟩
+          viewRws := viewRws.push (← `(CdoM.memUpd_natView $deepId _ _
+            ⟨$(quote kk), by decide⟩ $(hdenIds[0]!) $(hdenIds[1]!) $(hdenIds[2]!) i))
+        elabSync (← `(theorem $dMemstepId $paramBinders* (t : Nat)
+            {env1 : Sparkle.IR.Semantics.Env}
+            (hrun : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
+              $bodyId ($deepEnvAtId $appArgs* t) = some env1) :
+            Sparkle.IR.Semantics.memNexts $weMId $bodyId $memsT env1
+              = some ($memAtId $appArgs* (t + 1)) := by
+          $[$mpre:tactic]*
+          simp only [$bodyId:ident, Sparkle.IR.Semantics.memNexts,
+            Sparkle.IR.Semantics.memWritePorts, Option.bind_eq_bind,
+            $[$payRws:term],* , Option.bind_some]
+          congr 1
+          funext nm i
+          -- the IR's update is an `ite` at the function level
+          have ite_app : ∀ {c : Prop} [Decidable c]
+              (f g : Sparkle.IR.Semantics.MEnv) (nm : String) (i : Nat),
+              (if c then f else g) nm i = if c then f nm i else g nm i := by
+            intro c _ f g nm i
+            split <;> rfl
+          simp only [ite_app, $memAtId:ident, CdoM.stateAt_succ_mem, $[$viewRws:term],*]
+          repeat' split
+          all_goals simp_all))
+        bridgeAudit := bridgeAudit.push dMemstepId
       -- map-state seed, initial state, boundedness
       let envStBody ← do
         let mut acc ← `((0 : Nat))
@@ -2507,8 +2921,9 @@ elab "#verify_elab_deep" id:ident : command =>
         let mut acc ← `((0 : Nat))
         for i in (List.range nR).reverse do
           let (rn, _, _) := regs[i]!
-          acc ← `(if n == $(quote rn) then
-            (Cdo.inits $deepId ⟨$(quote i), by decide⟩).toNat else $acc)
+          let initT : Term ← if hasMem then `((CdoM.inits $deepId ⟨$(quote i), by decide⟩).toNat)
+            else `((Cdo.inits $deepId ⟨$(quote i), by decide⟩).toNat)
+          acc ← `(if n == $(quote rn) then $initT else $acc)
         pure acc
       elabCommand (← `(def $dSt0Id : String → Nat := fun n => $st0Body))
       elabSync (← `(theorem $dEnvStBndId $paramBinders* (t : Nat)
@@ -2537,8 +2952,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let mut conjs : Array Term := #[]
         for i in List.range nR do
           let (rn, _, _) := regs[i]!
-          conjs := conjs.push (← `(st $(quote rn)
-            = Cdo.irState $deepId $nmId $inpFam t ⟨$(quote i), by decide⟩))
+          conjs := conjs.push (← `(st $(quote rn) = $irTt ⟨$(quote i), by decide⟩))
         let mut acc : Term := conjs.back!
         for c in conjs.pop.reverse do
           acc ← `($c ∧ $acc)
@@ -2547,33 +2961,27 @@ elab "#verify_elab_deep" id:ident : command =>
         (List.range nR).toArray.map fun i => mkI s!"hbnd{i}"
       let mut hbndTacs : Array (Lean.TSyntax `tactic) := #[]
       for i in List.range nR do
-        hbndTacs := hbndTacs.push (← `(tactic| have $(hbndIds[i]!):ident :
-            Cdo.irState $deepId $nmId $inpFam t ⟨$(quote i), by decide⟩
-              < 2 ^ $(quote regWs[i]!) := by
-          rw [Cdo.irState_eq _ _ (by decide)]
-          exact BitVec.isLt _))
+        hbndTacs := hbndTacs.push (← mkHbnd deepId hbndIds[i]! i)
       let henvTacs ← mkHenv ihcId hbndIds
-      elabSync (← `(theorem $dStateTraceId $paramBinders* :
-          ∀ (t : Nat) {st : String → Nat},
-          Tools.ConeFold.stepIter $weMId $bodyId ($dEnvStId $appArgs*)
-            $dSt0Id t = some st → $stateConj := by
-        intro t
-        induction t with
-        | zero =>
-          intro st h
-          simp only [Tools.ConeFold.stepIter, Option.some_inj] at h
-          subst h
-          simp [$dSt0Id:ident, Cdo.irState]
-        | succ t ih =>
-          intro st' h
-          simp only [Tools.ConeFold.stepIter, Option.bind_eq_bind] at h
-          cases hprev : Tools.ConeFold.stepIter $weMId $bodyId
-              ($dEnvStId $appArgs*) $dSt0Id t with
+      let stateZeroSimp : Lean.TSyntax `tactic ← if hasMem then
+          `(tactic| simp [$dSt0Id:ident, CdoM.irState, CdoM.stateAt])
+        else `(tactic| simp [$dSt0Id:ident, Cdo.irState])
+      if hasMem then
+        -- the induction step, as its own quotation (one quotation for the
+        -- whole theorem exceeds the elaborator's recursion depth)
+        let succTac : Lean.TSyntax `tactic ← `(tactic| (
+          intro st' ms' h
+          simp only [Tools.ConeFold.stepIterM, Option.bind_eq_bind] at h
+          cases hprev : Tools.ConeFold.stepIterM $weMId $bodyId
+              ($dEnvStId $appArgs*) $dSt0Id ($memAtId $appArgs* 0) t with
           | none => rw [hprev] at h; simp at h
-          | some st =>
+          | some p =>
+            obtain ⟨st, ms⟩ := p
             rw [hprev] at h
             simp only [Option.bind_some] at h
-            have $ihcId:ident := ih hprev
+            have $ihcId:ident := (ih hprev).1
+            have hms := (ih hprev).2
+            subst hms
             $[$hbndTacs:tactic]*
             have henv : $dEnvStId $appArgs* t st
                 = $deepEnvAtId $appArgs* t := by
@@ -2582,18 +2990,77 @@ elab "#verify_elab_deep" id:ident : command =>
             simp only [Sparkle.IR.Semantics.stepModule,
               Option.bind_eq_bind] at h
             cases hrun : Sparkle.IR.Semantics.evalAssigns $weMId
-                (fun _ _ => 0) $bodyId ($deepEnvAtId $appArgs* t) with
+                ($memAtId $appArgs* t) $bodyId ($deepEnvAtId $appArgs* t) with
             | none => rw [hrun] at h; simp at h
             | some env1 =>
               rw [hrun] at h
               simp only [Option.bind_some] at h
-              rw [$dRegstepId $appArgs* t hrun] at h
-              rw [Tools.ConeFold.memNexts_memFree $weMId $bodyId
-                (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))]
-                at h
-              simp only [Option.bind_some, Option.some_inj] at h
-              subst h
+              rw [$dRegstepId $appArgs* t hrun, $dMemstepId $appArgs* t hrun] at h
+              simp only [Option.bind_some, Option.some_inj, Prod.mk.injEq] at h
+              obtain ⟨h1, h2⟩ := h
+              subst h1
+              subst h2
+              refine ⟨?_, rfl⟩
               simp [Sparkle.IR.Semantics.applyNexts]))
+        let zeroTac : Lean.TSyntax `tactic ← `(tactic| (
+          intro st ms h
+          simp only [Tools.ConeFold.stepIterM, Option.some_inj, Prod.mk.injEq] at h
+          obtain ⟨h1, h2⟩ := h
+          subst h1
+          subst h2
+          refine ⟨?_, rfl⟩
+          $stateZeroSimp:tactic))
+        elabSync (← `(theorem $dStateTraceId $paramBinders* :
+            ∀ (t : Nat) {st : String → Nat} {ms : Sparkle.IR.Semantics.MEnv},
+            Tools.ConeFold.stepIterM $weMId $bodyId ($dEnvStId $appArgs*)
+              $dSt0Id ($memAtId $appArgs* 0) t = some (st, ms)
+              → ($stateConj) ∧ ms = $memAtId $appArgs* t := by
+          intro t
+          induction t with
+          | zero => $zeroTac:tactic
+          | succ t ih => $succTac:tactic))
+      else
+        elabSync (← `(theorem $dStateTraceId $paramBinders* :
+            ∀ (t : Nat) {st : String → Nat},
+            Tools.ConeFold.stepIter $weMId $bodyId ($dEnvStId $appArgs*)
+              $dSt0Id t = some st → $stateConj := by
+          intro t
+          induction t with
+          | zero =>
+            intro st h
+            simp only [Tools.ConeFold.stepIter, Option.some_inj] at h
+            subst h
+            $stateZeroSimp:tactic
+          | succ t ih =>
+            intro st' h
+            simp only [Tools.ConeFold.stepIter, Option.bind_eq_bind] at h
+            cases hprev : Tools.ConeFold.stepIter $weMId $bodyId
+                ($dEnvStId $appArgs*) $dSt0Id t with
+            | none => rw [hprev] at h; simp at h
+            | some st =>
+              rw [hprev] at h
+              simp only [Option.bind_some] at h
+              have $ihcId:ident := ih hprev
+              $[$hbndTacs:tactic]*
+              have henv : $dEnvStId $appArgs* t st
+                  = $deepEnvAtId $appArgs* t := by
+                $[$henvTacs:tactic]*
+              rw [henv] at h
+              simp only [Sparkle.IR.Semantics.stepModule,
+                Option.bind_eq_bind] at h
+              cases hrun : Sparkle.IR.Semantics.evalAssigns $weMId
+                  (fun _ _ => 0) $bodyId ($deepEnvAtId $appArgs* t) with
+              | none => rw [hrun] at h; simp at h
+              | some env1 =>
+                rw [hrun] at h
+                simp only [Option.bind_some] at h
+                rw [$dRegstepId $appArgs* t hrun] at h
+                rw [Tools.ConeFold.memNexts_memFree $weMId $bodyId
+                  (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))]
+                  at h
+                simp only [Option.bind_some, Option.some_inj] at h
+                subst h
+                simp [Sparkle.IR.Semantics.applyNexts]))
     if bridgeOk && k == 0 then
       bridgeAudit := bridgeAudit ++ #[seedBndId, rdOtherId, dRegstepId,
         dEnvStBndId, dStateTraceId]
@@ -2602,31 +3069,40 @@ elab "#verify_elab_deep" id:ident : command =>
       let dStepOutId := mkI s!"{base}{suffix}_deep_step_out"
       let dSigFoldId := mkI s!"{base}{suffix}_deep_signal_fold"
       let dSigRunId := mkI s!"{base}{suffix}_deep_signal_run"
+      let memsT ← memsAt (← `(t))
+      let hrunCTac : Lean.TSyntax `tactic ← if hasMem then
+          `(tactic| (rw [← Tools.ConeFold.evalAssigns_stripSyncMem $weMId _ $bodyId
+              (Tools.ConeFold.syncMemOnlyCheck_sound _ (by native_decide))]; exact hrun))
+        else `(tactic| exact hrun)
       -- this port's Signal value over the SHARED recurrence (the first
-      -- port's Cdo): irState only reads next/inits, which every port's
-      -- Cdo of a struct circuit shares syntactically
+      -- port's Cdo): irState only reads next/inits (and writes/minits),
+      -- which every port's Cdo of a struct circuit shares syntactically
       let sigM0Id := mkI s!"{base}{suffix}_deep_signalM0"
+      let ir0T ← irStateAt deep0Id (← `(t))
       if k == 0 then
         elabSync (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
             (($lhsSig).val t).toNat
             = (Sparkle.IR.Semantics.evalExpr $weMId
-                (envOfC $nmId (natJoin
-                  (Cdo.irState $deep0Id $nmId $inpFam t)
+                (envOfC $nmId (natJoin $ir0T
                   (fun j => ((($inpS) j).val t).toNat)))
                 $outConeId).getD 0 := $sigMId $appArgs* t))
       else
+        let congrRw : Lean.TSyntax `tactic ← if hasMem then
+            `(tactic| rw [$sigMId $appArgs* t,
+              CdoM.irState_congr $deepId $deep0Id $inpFam rfl rfl rfl rfl])
+          else
+            `(tactic| rw [$sigMId $appArgs* t,
+              Cdo.irState_congr $deepId $deep0Id $nmId $inpFam rfl rfl])
         elabSync (← `(theorem $sigM0Id $paramBinders* (t : Nat) :
             (($lhsSig).val t).toNat
             = (Sparkle.IR.Semantics.evalExpr $weMId
-                (envOfC $nmId (natJoin
-                  (Cdo.irState $deep0Id $nmId $inpFam t)
+                (envOfC $nmId (natJoin $ir0T
                   (fun j => ((($inpS) j).val t).toNat)))
                 $outConeId).getD 0 := by
-          rw [$sigMId $appArgs* t,
-            Cdo.irState_congr $deepId $deep0Id $nmId $inpFam rfl rfl]))
+          $congrRw:tactic))
       elabSync (← `(theorem $dStepOutId $paramBinders* (t : Nat)
           {env1 : Sparkle.IR.Semantics.Env} {v : Nat}
-          (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
+          (hrun : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
             $bodyId ($deepEnvAtId $appArgs* t) = some env1)
           (hv : Sparkle.IR.Semantics.evalExpr $weMId env1
             (.ref $(quote portName)) = some v) :
@@ -2636,17 +3112,20 @@ elab "#verify_elab_deep" id:ident : command =>
             = Tools.ConeFold.resolveSlicesT $wtMId 10000 $outConeRawId := by
           native_decide
         rw [hres]
+        have hrunC : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
+            $bodyC ($deepEnvAtId $appArgs* t) = some env1 := by
+          $hrunCTac:tactic
         exact Tools.ConeFold.cone_resolved_agrees_at_seed $weMId
-          (fun _ _ => 0) $stopAtMId $wtMId
-          (Sparkle.IR.Reorder.woCheck_sound [] $bodyId (by native_decide))
+          $memsT $stopAtMId $wtMId
+          (Sparkle.IR.Reorder.woCheck_sound [] $bodyC (by native_decide))
           (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
           (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
-          hrun
-          (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyId
+          hrunC
+          (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyC
             (by native_decide))
           (Tools.ConeFold.hwt_of_assoc $weMId $wtLId (by native_decide))
           ($seedBndId $appArgs* t)
-          (Tools.ConeFold.stopAtFrozenCheck_sound $stopAtMId $bodyId
+          (Tools.ConeFold.stopAtFrozenCheck_sound $stopAtMId $bodyC
             (by native_decide))
           (fuel := 10000) (e := .ref $(quote portName))
           (hinl := by native_decide)
@@ -2655,77 +3134,145 @@ elab "#verify_elab_deep" id:ident : command =>
         (List.range nR).toArray.map fun i => mkI s!"hbnd{i}"
       let mut hbndTacs : Array (Lean.TSyntax `tactic) := #[]
       for i in List.range nR do
-        hbndTacs := hbndTacs.push (← `(tactic| have $(hbndIds[i]!):ident :
-            Cdo.irState $deep0Id $nmId $inpFam t ⟨$(quote i), by decide⟩
-              < 2 ^ $(quote regWs[i]!) := by
-          rw [Cdo.irState_eq _ _ (by decide)]
-          exact BitVec.isLt _))
+        hbndTacs := hbndTacs.push (← mkHbnd deep0Id hbndIds[i]! i)
       let henvTacs ← mkHenv ihcId hbndIds
-      elabSync (← `(theorem $dSigFoldId $paramBinders* (t : Nat)
-          {st : String → Nat} {env1 : Sparkle.IR.Semantics.Env}
-          (hstep : Tools.ConeFold.stepIter $weMId $bodyId
-            ($dEnvStId $appArgs*) $dSt0Id t = some st)
-          (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
-            $bodyId ($dEnvStId $appArgs* t st) = some env1) :
-          (($lhsSig).val t).toNat = env1 $(quote portName) := by
-        have $ihcId:ident := $dStateTraceId $appArgs* t hstep
-        $[$hbndTacs:tactic]*
-        have henv : $dEnvStId $appArgs* t st = $deepEnvAtId $appArgs* t := by
-          $[$henvTacs:tactic]*
-        rw [henv] at hrun
-        have hout := $dStepOutId $appArgs* t hrun
-          (show Sparkle.IR.Semantics.evalExpr $weMId env1
-              (.ref $(quote portName)) = some (env1 $(quote portName)) by
-            simp [Sparkle.IR.Semantics.evalExpr])
-        rw [$sigM0Id $appArgs* t]
-        show (Sparkle.IR.Semantics.evalExpr $weMId ($deepEnvAtId $appArgs* t)
-          $outConeId).getD 0 = _
-        rw [hout]
-        rfl))
-      elabSync (← `(theorem $dSigRunId $paramBinders* (K : Nat) :
-          ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyId
+      if hasMem then
+        elabSync (← `(theorem $dSigFoldId $paramBinders* (t : Nat)
+            {st : String → Nat} {ms : Sparkle.IR.Semantics.MEnv}
+            {env1 : Sparkle.IR.Semantics.Env}
+            (hstep : Tools.ConeFold.stepIterM $weMId $bodyId
+              ($dEnvStId $appArgs*) $dSt0Id ($memAtId $appArgs* 0) t = some (st, ms))
+            (hrun : Sparkle.IR.Semantics.evalAssigns $weMId ms
+              $bodyId ($dEnvStId $appArgs* t st) = some env1) :
+            (($lhsSig).val t).toNat = env1 $(quote portName) := by
+          have $ihcId:ident := ($dStateTraceId $appArgs* t hstep).1
+          have hms := ($dStateTraceId $appArgs* t hstep).2
+          subst hms
+          $[$hbndTacs:tactic]*
+          have henv : $dEnvStId $appArgs* t st = $deepEnvAtId $appArgs* t := by
+            $[$henvTacs:tactic]*
+          rw [henv] at hrun
+          have hout := $dStepOutId $appArgs* t hrun
+            (show Sparkle.IR.Semantics.evalExpr $weMId env1
+                (.ref $(quote portName)) = some (env1 $(quote portName)) by
+              simp [Sparkle.IR.Semantics.evalExpr])
+          rw [$sigM0Id $appArgs* t]
+          show (Sparkle.IR.Semantics.evalExpr $weMId ($deepEnvAtId $appArgs* t)
+            $outConeId).getD 0 = _
+          rw [hout]
+          rfl))
+        elabSync (← `(theorem $dSigRunId $paramBinders* (K : Nat) :
+            ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyId
+                (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id
+                (fun _ _ => 0) = some envs
+              ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1
+                ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
+          rw [← $memAtZeroId $appArgs*]
+          obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
+            (Tools.ConeFold.runModule_isSomeM $weMId $bodyId (by native_decide)
               (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id
-              (fun _ _ => 0) = some envs
-            ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1
-              ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
-        obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
-          (Tools.ConeFold.runModule_isSome $weMId $bodyId
-            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-            (by native_decide)
-            (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id)
-        refine ⟨envs, henvs, ?_⟩
-        intro t ht
-        have henvs' : Sparkle.IR.Semantics.runModule $weMId $bodyId
-            (fun td s => $dEnvStId $appArgs* (0 + (K - 1 - td)) s) K $dSt0Id
-            (fun _ _ => 0) = some envs := by
-          rw [Tools.ConeFold.runModule_seed_congr $weMId $bodyId K
-            (fun td s => $dEnvStId $appArgs* (0 + (K - 1 - td)) s)
-            (fun td s => $dEnvStId $appArgs* (K - 1 - td) s)
-            (fun td htd => by simp only [Nat.zero_add])]
-          exact henvs
-        obtain ⟨st', env1, hsi, hev, hget⟩ :=
-          Tools.ConeFold.runModule_stepIter $weMId $bodyId
-            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-            ($dEnvStId $appArgs*) K 0 $dSt0Id envs henvs' t ht
-        refine ⟨env1, hget, ?_⟩
-        have hsi' : Tools.ConeFold.stepIter $weMId $bodyId
-            ($dEnvStId $appArgs*) $dSt0Id t = some st' := by
-          rw [Tools.ConeFold.stepIter_seed_congr $weMId $bodyId
-            ($dEnvStId $appArgs*)
-            (fun tt s => $dEnvStId $appArgs* (0 + tt) s) $dSt0Id t
-            (fun tt htt => by simp only [Nat.zero_add])]
-          exact hsi
-        have hev' : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
-            $bodyId ($dEnvStId $appArgs* t st') = some env1 := by
-          have h0 : (0 : Nat) + t = t := by omega
-          rw [← h0]
-          exact hev
-        exact $dSigFoldId $appArgs* t hsi' hev'))
+              ($memAtId $appArgs* 0))
+          refine ⟨envs, henvs, ?_⟩
+          intro t ht
+          have henvs' : Sparkle.IR.Semantics.runModule $weMId $bodyId
+              (fun td s => $dEnvStId $appArgs* (0 + (K - 1 - td)) s) K $dSt0Id
+              ($memAtId $appArgs* 0) = some envs := by
+            rw [Tools.ConeFold.runModule_seed_congr $weMId $bodyId K
+              (fun td s => $dEnvStId $appArgs* (0 + (K - 1 - td)) s)
+              (fun td s => $dEnvStId $appArgs* (K - 1 - td) s)
+              (fun td htd => by simp only [Nat.zero_add])]
+            exact henvs
+          obtain ⟨st', ms', env1, hsi, hev, hget⟩ :=
+            Tools.ConeFold.runModule_stepIterM $weMId $bodyId
+              ($dEnvStId $appArgs*) K 0 $dSt0Id ($memAtId $appArgs* 0) envs henvs' t ht
+          refine ⟨env1, hget, ?_⟩
+          have hsi' : Tools.ConeFold.stepIterM $weMId $bodyId
+              ($dEnvStId $appArgs*) $dSt0Id ($memAtId $appArgs* 0) t = some (st', ms') := by
+            rw [Tools.ConeFold.stepIterM_seed_congr $weMId $bodyId
+              ($dEnvStId $appArgs*)
+              (fun tt s => $dEnvStId $appArgs* (0 + tt) s) $dSt0Id
+              ($memAtId $appArgs* 0) t
+              (fun tt htt => by simp only [Nat.zero_add])]
+            exact hsi
+          have hev' : Sparkle.IR.Semantics.evalAssigns $weMId ms'
+              $bodyId ($dEnvStId $appArgs* t st') = some env1 := by
+            have h0 : (0 : Nat) + t = t := by omega
+            rw [← h0]
+            exact hev
+          exact $dSigFoldId $appArgs* t hsi' hev'))
+      else
+        elabSync (← `(theorem $dSigFoldId $paramBinders* (t : Nat)
+            {st : String → Nat} {env1 : Sparkle.IR.Semantics.Env}
+            (hstep : Tools.ConeFold.stepIter $weMId $bodyId
+              ($dEnvStId $appArgs*) $dSt0Id t = some st)
+            (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
+              $bodyId ($dEnvStId $appArgs* t st) = some env1) :
+            (($lhsSig).val t).toNat = env1 $(quote portName) := by
+          have $ihcId:ident := $dStateTraceId $appArgs* t hstep
+          $[$hbndTacs:tactic]*
+          have henv : $dEnvStId $appArgs* t st = $deepEnvAtId $appArgs* t := by
+            $[$henvTacs:tactic]*
+          rw [henv] at hrun
+          have hout := $dStepOutId $appArgs* t hrun
+            (show Sparkle.IR.Semantics.evalExpr $weMId env1
+                (.ref $(quote portName)) = some (env1 $(quote portName)) by
+              simp [Sparkle.IR.Semantics.evalExpr])
+          rw [$sigM0Id $appArgs* t]
+          show (Sparkle.IR.Semantics.evalExpr $weMId ($deepEnvAtId $appArgs* t)
+            $outConeId).getD 0 = _
+          rw [hout]
+          rfl))
+        elabSync (← `(theorem $dSigRunId $paramBinders* (K : Nat) :
+            ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyId
+                (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id
+                (fun _ _ => 0) = some envs
+              ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1
+                ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
+          obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
+            (Tools.ConeFold.runModule_isSome $weMId $bodyId
+              (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+              (by native_decide)
+              (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id)
+          refine ⟨envs, henvs, ?_⟩
+          intro t ht
+          have henvs' : Sparkle.IR.Semantics.runModule $weMId $bodyId
+              (fun td s => $dEnvStId $appArgs* (0 + (K - 1 - td)) s) K $dSt0Id
+              (fun _ _ => 0) = some envs := by
+            rw [Tools.ConeFold.runModule_seed_congr $weMId $bodyId K
+              (fun td s => $dEnvStId $appArgs* (0 + (K - 1 - td)) s)
+              (fun td s => $dEnvStId $appArgs* (K - 1 - td) s)
+              (fun td htd => by simp only [Nat.zero_add])]
+            exact henvs
+          obtain ⟨st', env1, hsi, hev, hget⟩ :=
+            Tools.ConeFold.runModule_stepIter $weMId $bodyId
+              (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+              ($dEnvStId $appArgs*) K 0 $dSt0Id envs henvs' t ht
+          refine ⟨env1, hget, ?_⟩
+          have hsi' : Tools.ConeFold.stepIter $weMId $bodyId
+              ($dEnvStId $appArgs*) $dSt0Id t = some st' := by
+            rw [Tools.ConeFold.stepIter_seed_congr $weMId $bodyId
+              ($dEnvStId $appArgs*)
+              (fun tt s => $dEnvStId $appArgs* (0 + tt) s) $dSt0Id t
+              (fun tt htt => by simp only [Nat.zero_add])]
+            exact hsi
+          have hev' : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0)
+              $bodyId ($dEnvStId $appArgs* t st') = some env1 := by
+            have h0 : (0 : Nat) + t = t := by omega
+            rw [← h0]
+            exact hev
+          exact $dSigFoldId $appArgs* t hsi' hev'))
       bridgeAudit := bridgeAudit ++ #[sigM0Id, dStepOutId, dSigFoldId, dSigRunId]
+    else
+      logInfo m!"#verify_elab_deep {declName}: IR replay skipped (a state or memory-port input is not a wire reference, or the register/reset bookkeeping is irregular); the certified statement is the capstone {thId.getId}"
     -- audit the capstone AND every fidelity theorem: elabCommand
     -- recovers failed tactic blocks as sorry, and a sorry'd fidelity
-    -- proof would silently demote the result to the unverified twin
-    for aud in #[thId] ++ fidIds ++ #[fidOutId] ++ bridgeAudit do
+    -- proof would silently demote the result to the unverified twin.
+    -- A kernel-rejected declaration ("has metavariables") is absent:
+    -- getConstInfo throws, so it can never be reported PROVEN.  The
+    -- generated names are SIMPLE and land in the current namespace —
+    -- resolve them there (a bare-name lookup silently found nothing
+    -- inside `namespace …`).
+    for aud in #[thId] ++ fidIds ++ fidLIds ++ fidMemIds ++ #[fidOutId] ++ bridgeAudit do
       let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload aud
       let ci ← liftCoreM <| Lean.getConstInfo full
       if ci.type.hasExprMVar || (ci.value?.map (·.hasExprMVar)).getD false then
@@ -2733,6 +3280,11 @@ elab "#verify_elab_deep" id:ident : command =>
       let axioms ← liftCoreM <| Lean.collectAxioms full
       if axioms.contains ``sorryAx then
         throwError "#verify_elab_deep {declName}: generated proof {aud.getId} FAILED (sorryAx) — see the errors above"
-    logInfo m!"#verify_elab_deep {declName}{if structName?.isSome then s!".{portName}" else ""}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + out = the elaborated IR, by unfolding)"
+    let portTag := if structName?.isSome then s!".{portName}" else ""
+    let replayTag := if bridgeOk then s!"; IR replay {base}{suffix}_deep_signal_run" else "; IR replay skipped"
+    if hasMem then
+      logInfo m!"#verify_elab_deep {declName}{portTag}: PROVEN via CdoM.elab_general — {thId.getId} ({nReg} registers, {nM} memories, {nI} inputs; axioms clean; fidelity: {fidIds.size} slot cones + {fidMemIds.size} write-port cones + out = the elaborated IR, by unfolding{replayTag})"
+    else
+      logInfo m!"#verify_elab_deep {declName}{portTag}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + out = the elaborated IR, by unfolding{replayTag})"
 
 end Tools.DeepElab

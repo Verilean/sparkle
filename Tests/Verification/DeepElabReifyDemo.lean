@@ -314,10 +314,14 @@ def accN200 (d : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec
 /-! A SYNCHRONOUS MEMORY (`Signal.memory`): the deep circuit is a `CdoM`
     (contents state + a read latch slot), the Signal side sees the memory
     as two nested loops (`Signal.memory_eq_loops`: the latch as a one-slot
-    loop over the contents loop), and the certified statement is the
-    capstone `CdoM.elab_general` — the IR replay chain is not emitted for
-    memory-bearing bodies (v1).  `Signal.memory` itself is a `def` with a
-    pure `memState` specification since the memory-spec commit. -/
+    loop over the contents loop), the certified statement is the capstone
+    `CdoM.elab_general`, and the IR replay runs over `stepIterM` (state ×
+    memory contents): the latch slot is stepped by `syncReadLatches`, the
+    contents by `memNexts`, both landing on the deep recurrence
+    (`memAcc_deep_memstep`), so `memAcc_deep_signal_run` is the same
+    `runModule` statement as for memory-free circuits.  `Signal.memory`
+    itself is a `def` with a pure `memState` specification since the
+    memory-spec commit. -/
 def memAcc (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (BitVec 8))
     (we : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 8) :=
   circuit do
@@ -354,6 +358,10 @@ def memAcc (wa : Signal defaultDomain (BitVec 4)) (wd : Signal defaultDomain (Bi
 #print axioms memAcc_deep_trace
 #check @memAcc_deep_md0_succ
 #check @memAcc_deep_rd2_succ
+-- the memory replay: contents step and the runModule statement
+#check @memAcc_deep_memstep
+#check @memAcc_deep_signal_run
+#print axioms memAcc_deep_signal_run
 -- the two-pass duplicate of the memory is merged (RegDedup): one memory
 run_cmd do
   let d ← Lean.Elab.Command.liftTermElabM
