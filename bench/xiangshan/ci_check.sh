@@ -261,6 +261,23 @@ if [ -f "$ELAB_FILE" ]; then
       fail=1
     fi
   fi
+  # STATE CORRESPONDENCE + duplication-freedom: the trace theorems are
+  # invariant under duplicated hardware (two copies of one register hold
+  # the same value every cycle), so this is what catches the three
+  # duplication bugs the chain could not see.  The file's negative
+  # section pins non-vacuity, so a build failure here means either a
+  # real duplication or a broken checker.
+  CORR_FILE=Tests/Verification/StateCorrespondenceTest.lean
+  if [ -f "$CORR_FILE" ]; then
+    if lake build Tests.Verification.StateCorrespondenceTest \
+        > "$WORK/state_corr.log" 2>&1; then
+      echo "state correspondence: 6 shipping circuits, duplication-free"
+    else
+      echo "FAIL: state correspondence / duplication-freedom regressed"
+      grep -m5 -E "error" "$WORK/state_corr.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

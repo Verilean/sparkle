@@ -309,6 +309,34 @@ group is rough priority.  Update as items land.
   `List.ofFn` that simp will not unfold (over a literal `Fin 18` it
   does).  Both pieces are needed together.
 
+- [x] **State correspondence + duplication-freedom** (2026-09-08) —
+  `Sparkle/IR/StateCorrespondence.lean`, pinned by
+  `Tests/Verification/StateCorrespondenceTest.lean` and wired into the
+  gate.  The trace theorems are INVARIANT under duplicated hardware
+  (two copies of one register hold the same value at every cycle), which
+  is why all three duplication bugs on this branch were found by eye.
+  Two decidable checkers with soundness proofs close it:
+  * `stateCorrespondence` — the DSL's state bindings map one-to-one onto
+    emitted registers/memories (`matchSlots`, order-insensitive since
+    the emitter may reorder); `stateCorrespondence_count` derives the
+    count equality that a doubling violates.
+  * `noDuplicateDefs` — no two defining statements share a canonical
+    form modulo their own name (`noDupSigs_nodup`).
+  Measured on all six proven shipping circuits: state counts match the
+  DSL exactly and all six are duplication-free.
+  **A size bound was considered and rejected as the primary property:**
+  a constant factor loose enough to allow legitimate fan-out also allows
+  a doubling, which is precisely the bug class.  (A monotonic
+  emitted-weight metric is still useful as a CI bloat guard — separate
+  from correctness.)
+  **Calibration that mattered:** the first canonical form counted plain
+  wire ALIASES (`x := y`) as duplication, so five of six circuits
+  "failed" — `crc32Engine` alone carries one wire under eight names.
+  Aliases are naming, not hardware (copy propagation collapses them),
+  so they are excluded.  The test file's negative section pins
+  non-vacuity against the real historical shapes: duplicated register
+  block, duplicated BRAM, dropped state, repeated logic.
+
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).
