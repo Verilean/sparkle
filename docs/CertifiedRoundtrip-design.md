@@ -404,6 +404,12 @@ the oleans at no cost.
 * Closed hierarchical semantics (state trees or a verified flatten) —
   today instances are open-module no-ops and composition is covered
   dynamically by the hierarchical co-sim.
+(For how these relate to a CompCert-style guarantee — universal
+quantification over the DSL, `native_decide` in the obligations, the
+printer/parser, the `partial def`s, optimizer preservation, hierarchical
+composition, and the stated synthesis boundary — see section F of
+`docs/CertifiedRoundtrip-TODO.md`.)
+
 * M3: a verified printer/parser inverse remains the classical hard
   step.  Per instance the gap is now closed differently — the printed
   text is re-read by the shipping parser inside a `native_decide`

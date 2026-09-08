@@ -411,7 +411,7 @@ group is rough priority.  Update as items land.
   lookup lemmas.
 - [ ] Closed hierarchical semantics (`.inst` as state trees /
   flattening proof).  Research boundary; hier co-sim covers it
-  dynamically today.
+  dynamically today.  Also blocks the CompCert claim — see F6.
 
 ## E. Housekeeping
 
@@ -426,3 +426,86 @@ group is rough priority.  Update as items land.
 - [ ] Untracked scratch files at repo root (`episode.json`,
   `multiDeck.json`, `schedule`, resubmission draft) — decide keep vs
   gitignore vs remove.
+
+## F. CompCert-class guarantee
+
+The sections above are coverage frontiers of THIS design.  This section
+is the different question the user asked (2026-09-09): what separates
+the current guarantee from a CompCert-style one?  Each entry names a
+specific difference, not an aspiration, so it can be argued with.
+
+Where Sparkle already matches or exceeds CompCert: a proven end-to-end
+semantic chain (Signal ≡ emitted SystemVerilog), per-instance
+kernel-checked validation, fourteen real compiler bugs found (several
+silent miscompiles), and — with no CompCert analogue, since resource
+duplication does not arise for a software compiler — the
+state-correspondence property of section C.
+
+The gaps, in the order they weaken the claim:
+
+- [ ] **F1. Universal quantification over the input language.**  THE
+  headline difference.  CompCert's theorem is "for every well-formed
+  input"; Sparkle's is "for every module of this corpus (52/52,
+  1026/1026 assign RHSs) and for each circuit checked".  Per-instance
+  validation is CompCert-legitimate for the optimizer, but the CHAIN
+  itself is instantiated per circuit rather than quantified over the
+  DSL.  `Cdo.elab_general` / `CdoM.elab_general` are the general
+  theorems and are the right shape — what is missing is that reification
+  into `Cdo`/`CdoM` is a per-circuit meta-program (`#verify_elab_deep`),
+  so a circuit outside the deep grammar has no theorem at all.  Closing
+  this means a proven reifier: `∀ (c : circuit-do syntax), reify c`
+  succeeds and its `Cdo` denotes the same Signal — i.e. the DSL's own
+  elaboration proven correct, not replayed per instance.  Research-scale
+  and the honest headline item.
+- [ ] **F2. `native_decide` out of the per-instance obligations.**
+  88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
+  `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
+  first pass (2026-09-08) moved the list-shaped body checkers to kernel
+  `decide` and cut one theorem's trusted axioms 108 → 76, so the method
+  works; what remains is everything keyed on a `Std.HashMap` (USize
+  hashing cannot kernel-reduce) plus the cone-inlining and
+  concat-normalisation equations.  Fix: list-backed stop sets and width
+  tables carrying their own lookup lemmas.  CompCert's checkers are
+  kernel-reducible, so this is a real difference in kind, not degree.
+- [ ] **F3. The printer/parser (M3).**  CompCert trusts its assembly
+  PRINTER but not a parser of its own output.  Sparkle's roundtrip
+  direction trusts the 26-`partial def` recursive-descent parser as an
+  executable oracle on the specific text (`{f}_text_parses` under
+  `native_decide`).  Two routes, both open: a verified printer with a
+  proven inverse on the emitted sub-language, or — cheaper and probably
+  the right call — make the FORWARD direction (`emit_sem`, which needs
+  no parser at all) the primary guarantee and demote the roundtrip
+  direction to validation.  The forward chain already has total corpus
+  coverage, so this may be mostly a framing and documentation change.
+- [ ] **F4. `partial def`s on the shipping path.**  77 remain (Parser 26,
+  Lower 38, Optimize 10, Verilog 3).  A `partial def` has no unfolding
+  equations, so nothing is provable about the shipping code as written;
+  the verified-core/validated-shell split (total twins + `#guard`
+  agreement) is the current answer.  CompCert has no such split: the
+  verified code IS the shipping code.  Fix: swap the twins in as the
+  shipping emitter/lowerer, which the design doc already scopes — the
+  cone passes are already the twins on the `#verify_elab` path, and the
+  file-level gap reduces to optimizer preservation.
+- [ ] **F5. Optimizer preservation, proven rather than validated.**
+  Today the optimizer is covered per instance (`#verify_emit`
+  translation validation, which CompCert also uses for some passes) and
+  every elaborator module classifies `.optRewritten`, none `.bad`.  A
+  proven preservation theorem per pass (DCE, copy propagation, CSE,
+  RegDedup) would remove the validation step.  RegDedup is the
+  interesting one: its correctness argument is a coarsest-bisimulation
+  fixpoint, currently executed but not proven (see section C).
+- [ ] **F6. Closed hierarchical semantics.**  Duplicated from section D
+  because it also blocks the CompCert claim: instances are open-module
+  no-ops, so a multi-module design's composition is covered dynamically
+  by hierarchical co-sim, not proven.  CompCert's theorem composes
+  across compilation units.  Research-scale.
+- [ ] **F7. Synthesis and silicon.**  Out of scope and worth stating so
+  the claim is not overread: the chain ends at emitted SystemVerilog.
+  Trusting the synthesis tool and the fabric is the same class of trust
+  CompCert places in the assembler and the ISA — a stated boundary, not
+  a defect.
+
+Sequencing note: F2 and F3 are incremental and would meaningfully
+tighten the claim.  F4 and F5 are large but bounded.  F1 and F6 are the
+research items, and F1 is the one that actually decides whether the word
+"CompCert-class" applies.
