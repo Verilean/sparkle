@@ -385,15 +385,21 @@ group is rough priority.  Update as items land.
   operand) and `mux_bounded` (returns one of its arms), together with
   the three `widthOf` rules those rely on (`widthOf_shr`,
   `widthOf_mux`, `widthOf_cmp`).
-  Remaining: (1) assemble them into `evalOp_bounded` /
-  `evalExpr_bounded` over the 20-constructor enumeration — this is
-  tactic bookkeeping, not mathematics, and it is where the work stopped:
-  `split at h` over `evalOp` leaves ~260 arity-mismatch branches and the
-  reachable/unreachable ones need different closers, so it wants a
-  functional-induction (`evalOp.induct`) treatment rather than nested
-  `first`; (2) `evalAssigns_bounded` over the fold; (3) the generator
-  computes the multiply-read stop set and routes `_deep_step_*` /
-  `_deep_regstep` through `shared_cone_agrees_at_settled`.
+  **All 21 per-operator bounds landed** (`evalOp_bounded_*`), one named
+  lemma per constructor.  `evalOp` is NOT recursive so it has no
+  functional-induction principle, and a shared `first` cascade over
+  `split at h` keeps claiming the wrong branch (the mux and masked
+  closers overlap) — hence one lemma each: mechanical but deterministic.
+  **The expression shapes landed too**: `evalExpr` IS recursive, so
+  functional induction gives exactly five value-producing cases —
+  `const`/`ref`/`slice` proven directly, `op` from the per-operator set,
+  and `concat` via `concat_elem_bounded` (shift-or of two disjoint
+  ranges, using core's `Nat.or_lt_two_pow`).
+  Remaining: (1) assemble into `evalExpr_bounded` over
+  `evalExpr.induct` — every case's fact is now in hand; (2)
+  `evalAssigns_bounded` over the fold; (3) the generator computes the
+  multiply-read stop set and routes `_deep_step_*` / `_deep_regstep`
+  through `shared_cone_agrees_at_settled`.
 
 ## D. Trust base
 
