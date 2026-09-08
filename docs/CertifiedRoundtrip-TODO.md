@@ -281,6 +281,27 @@ group is rough priority.  Update as items land.
   replay are now `let rec` blocks (lambda-lifted into their own
   compilation units): 108 s.  Keep new phases as blocks.
 
+- [x] **Real shipping IP: four more circuits** (2026-09-08) —
+  `regFile` (ECDSA signer's 64×256 BRAM: the first shipping memory on
+  the route, capstone AND replay), `transferIdTrackerHW` and
+  `frameAccumulatorHW` (DroneCAN / S.BUS), `spiMasterHW` (SPI master, 7
+  registers — the widest state chain).  17 ports total with crc32Engine
+  and uartTxHW; CI gate raised.  Two generator fixes fell out:
+  * seed boundedness is now an explicit case cascade.  `repeat' split`
+    was used before, and at 7 registers `split`'s internal simp exceeds
+    its step limit; `repeat'` SWALLOWS that failure, leaving the `ite`
+    chain unsplit and the residual goal to `omega`, which cannot see
+    through it.  Beware `repeat'` over a tactic that can fail loudly.
+  * every generated declaration is elaborated with `maxRecDepth`
+    raised (the `Fin`-literal name table is deep).
+  Two new named boundaries: `crc16CcittHW` (cone TREE blowup —
+  `crc16Step` unrolled 8× with 3 reads each is ~3^8 copies of the input
+  in a `CExpr` that has no sharing, while the IR does; a `let`-sharing
+  `CExpr` is the fix) and `kvHw` (≥ 16 state slots + inputs: the match
+  compiler stops enumerating `Fin` literals past 15 arms, and neither a
+  `i.val` match nor a catch-all arm survives the reader proofs — the fix
+  is a name table that is not a `match`).
+
 ## D. Trust base
 
 - [ ] **`native_decide` → `decide` hardening** where feasible.  Many

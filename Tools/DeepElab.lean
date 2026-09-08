@@ -1268,8 +1268,14 @@ elab "#verify_elab_deep" id:ident : command =>
   -- kernel audit below reads the constant right after its command, and
   -- an asynchronously elaborated theorem is not there yet (the audit
   -- then silently passed, or reported a kernel-rejected proof PROVEN).
+  -- every generated declaration: synchronous (a failed or kernel-rejected
+  -- one is then ABSENT, so the audit's lookup throws) and with the
+  -- recursion depth raised — a `match i with | ⟨0, _⟩ … | ⟨17, _⟩` over
+  -- `Fin 18` (a real IP's 13 registers + 5 inputs) exhausts the default
+  -- depth in the match compiler ("Missing cases")
   let elabSync (c : Lean.TSyntax `command) : CommandElabM Unit := do
-    elabCommand (← `(set_option Elab.async false in $c:command))
+    elabCommand (← `(set_option maxRecDepth 65536 in
+      set_option Elab.async false in $c:command))
   let declName ← liftTermElabM <|
     Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
   let design ← liftTermElabM
@@ -1490,7 +1496,18 @@ elab "#verify_elab_deep" id:ident : command =>
       else if i < nR + nI then (ins[i - nR]!).1
       else (combos[i - nR - nI]!).2.1
     `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(quote s))
-  elabCommand (← `(def $nmId :
+  -- The arms match on the `Fin` PATTERN (`⟨i, _⟩`) with NO catch-all.
+  -- Both alternatives were tried and both break the bridge: matching on
+  -- `i.val` stops `nm ⟨i, _⟩` from iota-reducing (the pointwise reader
+  -- proofs are `rfl` on it), and appending `| _ => ""` defeats the
+  -- `simp` that discharges the "n is none of the slots" reader.  The
+  -- consequence is a hard slot ceiling: past 15 arms the match compiler
+  -- stops enumerating `Fin` literals and reports the tail as a missing
+  -- case, so a circuit with ≥ 16 state slots + inputs (the memcached
+  -- engine: 13 + 5) cannot be reified yet.  The fix is a name table
+  -- that is not a `match` at all (a `List String` with `getD`, whose
+  -- lookups reduce by `decide`) — a separate change.
+  elabSync (← `(def $nmId :
       Fin (($ΓAllT).length) → String := fun i =>
     match i with $nmArms:matchAlt*))
   -- the names restricted to registers and inputs (read addresses are
@@ -1501,7 +1518,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let nm0Arms ← (List.range (nR + nI)).toArray.mapM fun i => do
       let s := if i < nR then (regs[i]!).1 else (ins[i - nR]!).1
       `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(quote s))
-    elabCommand (← `(def $nm0Id :
+    elabSync (← `(def $nm0Id :
         Fin (($ΓrT ++ $ΓiT : List Nat).length) → String := fun i =>
       match i with $nm0Arms:matchAlt*))
     elabSync (← `(theorem $nm0EqId : ∀ i : Fin (($ΓrT ++ $ΓiT : List Nat).length),
@@ -1527,14 +1544,14 @@ elab "#verify_elab_deep" id:ident : command =>
   -- constants).  One def = one matcher = one form everywhere.
   let inpId := mkI s!"{base}_inp"
   if nI == 0 then
-    elabCommand (← `(def $inpId :
+    elabSync (← `(def $inpId :
         ∀ j : Fin ($ΓiT : List Nat).length,
           Sparkle.Core.Signal.Signal
             Sparkle.Core.Domain.defaultDomain
             (BitVec (($ΓiT : List Nat).get j)) :=
       fun j => nomatch j))
   else
-    elabCommand (← `(def $inpId $paramBinders* :
+    elabSync (← `(def $inpId $paramBinders* :
         ∀ j : Fin ($ΓiT : List Nat).length,
           Sparkle.Core.Signal.Signal
             Sparkle.Core.Domain.defaultDomain
@@ -1850,7 +1867,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let minitsEqId := mkI s!"{base}{suffix}_deep_minits"
     let readsEqId := mkI s!"{base}{suffix}_deep_reads"
     if hasMem then
-      elabCommand (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $ΓcT $(quote wOut) where
+      elabSync (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $ΓcT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         minits := fun _ _ => 0
         reads := $readsFn
@@ -1871,7 +1888,7 @@ elab "#verify_elab_deep" id:ident : command =>
         CdoM.minits $deepId = fun _ _ => 0 := rfl))
       elabSync (← `(theorem $outEqId : CdoM.out $deepId = $outC := rfl))
     else
-      elabCommand (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
+      elabSync (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         next := fun i => match i with $nextArms:matchAlt*
         out := $outC))
@@ -2090,7 +2107,7 @@ elab "#verify_elab_deep" id:ident : command =>
         for (n, w) in wt.toList do
           acc ← `(if n == $(quote n) then $(quote w) else $acc)
         pure acc
-      elabCommand (← `(def $weMId : Sparkle.IR.Semantics.WEnv :=
+      elabSync (← `(def $weMId : Sparkle.IR.Semantics.WEnv :=
         fun n => $weBody))
       liftCoreM <| addAndCompile <| .defnDecl {
         name := bodyId.getId, levelParams := []
@@ -2112,7 +2129,7 @@ elab "#verify_elab_deep" id:ident : command =>
         type := mkApp (mkConst ``List [levelZero]) (mkConst ``String)
         value := toExpr stopL, hints := .abbrev, safety := .safe }
       liftCoreM <| Lean.enableRealizationsForConst stopLId.getId
-      elabCommand (← `(def $stopAtMId : Std.HashMap String Bool :=
+      elabSync (← `(def $stopAtMId : Std.HashMap String Bool :=
         ($stopLId).foldl (fun h n => h.insert n true) {}))
       liftCoreM <| addAndCompile <| .defnDecl {
         name := wtLId.getId, levelParams := []
@@ -2121,7 +2138,7 @@ elab "#verify_elab_deep" id:ident : command =>
             (mkConst ``String) (mkConst ``Nat))
         value := toExpr wt.toList, hints := .abbrev, safety := .safe }
       liftCoreM <| Lean.enableRealizationsForConst wtLId.getId
-      elabCommand (← `(def $wtMId : Std.HashMap String Nat :=
+      elabSync (← `(def $wtMId : Std.HashMap String Nat :=
         ($wtLId).foldl (fun m p => m.insert p.1 p.2) {}))
       for i in List.range nR do
         let (rn, input, _) := regs[i]!
@@ -2268,12 +2285,12 @@ elab "#verify_elab_deep" id:ident : command =>
         let w := regWs[i]!
         let rdId : Ident := rdIds[i]!
         if hasMem then
-          elabCommand (← `(def $rdId $paramBinders* ($sId : Nat) :
+          elabSync (← `(def $rdId $paramBinders* ($sId : Nat) :
               BitVec $(quote w) :=
             (CdoM.stateAt $deepId (fun t j => (($inpS) j).val t) $sId).1
               ⟨$(quote i), by decide⟩))
         else
-          elabCommand (← `(def $rdId $paramBinders* ($sId : Nat) :
+          elabSync (← `(def $rdId $paramBinders* ($sId : Nat) :
               BitVec $(quote w) :=
             Cdo.stateAt $deepId (fun t j => (($inpS) j).val t) $sId
               ⟨$(quote i), by decide⟩))
@@ -2281,7 +2298,7 @@ elab "#verify_elab_deep" id:ident : command =>
       for kk in List.range nM do
         let (_, aw, dw, _, _, _, _, _) := mems[kk]!
         let mdId : Ident := mdIds[kk]!
-        elabCommand (← `(def $mdId $paramBinders* ($sId : Nat) :
+        elabSync (← `(def $mdId $paramBinders* ($sId : Nat) :
             BitVec $(quote aw) → BitVec $(quote dw) :=
           (CdoM.stateAt $deepId (fun t j => (($inpS) j).val t) $sId).2
             ⟨$(quote kk), by decide⟩))
@@ -3020,7 +3037,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let irTs ← irStateAt deepId (← `(t + 1))
         let irEt ← irEnvAt deepId (← `(t))
         let memsT ← memsAt (← `(t))
-        elabCommand (← `(def $deepEnvAtId $paramBinders* (t : Nat) :
+        elabSync (← `(def $deepEnvAtId $paramBinders* (t : Nat) :
             Sparkle.IR.Semantics.Env :=
           envOfC $nmId $irEt))
         if hasMem then
@@ -3092,7 +3109,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 CMem.natView (CdoM.stateAt $deepId $inpFam t).2 ⟨$(quote kk), by decide⟩ i
                 else $acc)
             pure acc
-          elabCommand (← `(def $memAtId $paramBinders* (t : Nat) :
+          elabSync (← `(def $memAtId $paramBinders* (t : Nat) :
               Sparkle.IR.Semantics.MEnv := fun nm i => $memAtBody))
           elabSync (← `(theorem $memAtZeroId $paramBinders* :
               $memAtId $appArgs* 0 = fun _ _ => 0 := by
@@ -3361,7 +3378,7 @@ elab "#verify_elab_deep" id:ident : command =>
               Sparkle.IR.Semantics.mask $(quote regWs[i]!) (st $(quote rn))
               else $acc)
           pure acc
-        elabCommand (← `(def $dEnvStId $paramBinders* (t : Nat)
+        elabSync (← `(def $dEnvStId $paramBinders* (t : Nat)
             (st : String → Nat) : Sparkle.IR.Semantics.Env :=
           fun n => $envStBody))
         let st0Body ← do
@@ -3372,29 +3389,45 @@ elab "#verify_elab_deep" id:ident : command =>
               else `((Cdo.inits $deepId ⟨$(quote i), by decide⟩).toNat)
             acc ← `(if n == $(quote rn) then $initT else $acc)
           pure acc
-        elabCommand (← `(def $dSt0Id : String → Nat := fun n => $st0Body))
+        elabSync (← `(def $dSt0Id : String → Nat := fun n => $st0Body))
+        -- boundedness of the seed, by an EXPLICIT case cascade over the
+        -- chain (registers, inputs, read slots — the seed's own order).
+        -- `repeat' split` was used before; on a 7-register seed `split`'s
+        -- internal simp exceeds its step limit, and `repeat'` swallows
+        -- that failure and leaves the chain unsplit (the residual goal
+        -- then went to `omega`, which cannot see through the `ite`).
+        let chainEntries : List (String × Nat × Nat) :=
+          (List.range nR).map (fun i => ((regs[i]!).1, regWs[i]!, (0 : Nat)))
+          ++ (List.range nI).map (fun j => ((ins[j]!).1, inWs[j]!, (1 : Nat)))
+          ++ (List.range nC).map (fun c => ((combos[c]!).2.1, comboWs[c]!, (2 : Nat)))
+        -- built as a FLAT tactic array (the file's established shape for
+        -- generated scripts): nesting `by_cases` with `case`/`·` blocks
+        -- inside one `(tactic| ( … ))` quotation does not parse.
+        -- `rotate_left` moves the remaining (negative) goal to the front,
+        -- so the chain is walked without focusing syntax.
+        let mut bndTacs : Array (Lean.TSyntax `tactic) := #[]
+        for (e, idx) in chainEntries.toArray.zipIdx do
+          let (name, w, kind) := e
+          let hId := mkI s!"hc{idx}"
+          let predT : Term ← `((n == $(quote name)) = true)
+          let wRfl : Term ← `(show $weMId $(quote name) = $(quote w) from rfl)
+          let closer : Lean.TSyntax `tactic ← match kind with
+            | 0 => `(tactic| exact Nat.mod_lt _ (Nat.two_pow_pos _))
+            | 1 => `(tactic| exact BitVec.isLt _)
+            | _ => `(tactic| (simp only [CdoM.irReads]; exact BitVec.isLt _))
+          bndTacs := bndTacs.push (← `(tactic| by_cases $hId:ident : $predT:term))
+          bndTacs := bndTacs.push (← `(tactic| rotate_left))
+          bndTacs := bndTacs.push (← `(tactic| rw [if_neg $hId:ident]))
+          bndTacs := bndTacs.push (← `(tactic| rotate_left))
+          bndTacs := bndTacs.push (← `(tactic| rw [if_pos $hId:ident, beq_iff_eq.mp $hId:ident, $wRfl:term]))
+          bndTacs := bndTacs.push closer
+        bndTacs := bndTacs.push (← `(tactic| exact Nat.two_pow_pos _))
         elabSync (← `(theorem $dEnvStBndId $paramBinders* (t : Nat)
             (st : String → Nat) :
             ∀ n, $dEnvStId $appArgs* t st n < 2 ^ $weMId n := by
           intro n
           simp only [$dEnvStId:ident]
-          repeat' split
-          all_goals
-            first
-              | exact Nat.two_pow_pos _
-              | (simp only [beq_iff_eq] at *
-                 subst_vars
-                 simp only [$weMId:ident]
-                 first
-                   | exact Nat.mod_lt _ (Nat.two_pow_pos _)
-                   | exact BitVec.isLt _
-                   | (simp only [CdoM.irReads]; exact BitVec.isLt _)
-                   | (simp
-                      first
-                        | done
-                        | exact Nat.mod_lt _ (Nat.two_pow_pos _)
-                        | exact BitVec.isLt _
-                        | omega))))
+          $[$bndTacs:tactic]*))
         -- state_trace
         let stateConj ← do
           let mut conjs : Array Term := #[]
