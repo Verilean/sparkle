@@ -56,18 +56,28 @@ import Tools.DeepElab
     on the multiply cones) before the bridge runs — the nesting itself
     is covered by the `DeepElabReifyDemo` nested demos;
   * cone size: `crc16CcittHW` (DroneCAN) unrolls `crc16Step` 8 times,
-    each step reading its input 3 times — the inlined cone TREE is
-    ~3^8 copies of the input, and the reified definition times out at
-    `whnf`.  The IR keeps the sharing; the tree-shaped `CExpr` does
-    not (a `let`-sharing `CExpr` is the fix);
+    each step reading its input 3 times.  Measured: the module is 94
+    statements and its single register's INLINED CONE is 16 MB of
+    `repr` text — the blowup is in `inlineConeT` (which substitutes a
+    wire's definition at every use), not in the reification, so a
+    `let`-sharing `CExpr` alone would not help.  The whole certified
+    chain (`cone_resolved_agrees_at_seed` and everything above it) is
+    stated over the fully-inlined cone, so sharing has to enter at the
+    cone level with its own agreement theorem — a design change, not a
+    patch;
   * slot count: `kvHw` (memcached key-value engine, 13 registers + 5
     inputs + 4 memories) hits a hard ceiling in the generated name
     table — past 15 arms the match compiler stops enumerating `Fin`
     literals and calls the tail a missing case.  Neither escape works:
     matching on `i.val` stops `nm ⟨i, _⟩` from iota-reducing (the
     pointwise readers are `rfl` on it) and a catch-all arm defeats the
-    `simp` that discharges the "not a slot" reader.  The fix is a name
-    table that is not a `match` (a `List String` read with `getD`).
+    `simp` that discharges the "not a slot" reader.  A `List String`
+    read with `getD` clears the exhaustiveness failure (measured) but
+    is NOT sufficient on its own: with a symbolic context length the
+    "not a slot" reader's `List.finRange` becomes a `List.ofFn` over
+    `Fin (Γ.length)` that simp will not unfold, whereas over a literal
+    `Fin 18` it does.  So this boundary needs both the list-backed
+    table and a `finRange` enumeration keyed on the literal slot count.
 -/
 
 namespace Sparkle.Tests.DeepElabRealIP

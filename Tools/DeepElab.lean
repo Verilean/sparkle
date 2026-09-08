@@ -2947,7 +2947,7 @@ elab "#verify_elab_deep" id:ident : command =>
         if !hasMem then return ← `(tactic| exact hrun)
         if !hasCombo then
           return ← `(tactic| (rw [← Tools.ConeFold.evalAssigns_stripSyncMem $weMId _ $bodyId
-              (Tools.ConeFold.syncMemOnlyCheck_sound _ (by native_decide))]; exact hrun))
+              (Tools.ConeFold.syncMemOnlyCheck_sound _ (by decide))]; exact hrun))
         let comboRaWires := comboRaWires?.getD []
         let mut tacs : Array (Lean.TSyntax `tactic) := #[]
         tacs := tacs.push (← `(tactic| have hb : Sparkle.IR.Semantics.evalAssigns $weMId $memsT
@@ -2990,9 +2990,9 @@ elab "#verify_elab_deep" id:ident : command =>
             rw [hres]
             exact Tools.ConeFold.cone_resolved_agrees_at_seed $weMId
               $memsT $stopAtMId $wtMId
-              (Sparkle.IR.Reorder.woCheck_sound [] $bodyPId (by native_decide))
-              (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-              (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
+              (Sparkle.IR.Reorder.woCheck_sound [] $bodyPId (by decide))
+              (Tools.ConeFold.memFreeCheck_sound _ (by decide))
+              (Tools.ConeFold.noSelfReadCheck_sound _ (by decide))
               $hPId
               (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyPId
                 (by native_decide))
@@ -3014,7 +3014,7 @@ elab "#verify_elab_deep" id:ident : command =>
               = Sparkle.IR.Semantics.mask $(quote dw) ($memsT $(quote name)
                   (Sparkle.IR.Semantics.mask $(quote aw) ($envPId $(quote raW)))) := by
             rw [Tools.ConeFold.evalAssigns_frame $weMId $memsT $bodyPId _ $envPId $hPId
-              (Tools.ConeFold.memFreeCheck_sound _ (by native_decide)) $(quote rd)
+              (Tools.ConeFold.memFreeCheck_sound _ (by decide)) $(quote rd)
               (by native_decide)]
             rw [$rdC $appArgs* t]
             have hm : ∀ x, $memAtId $appArgs* t $(quote name) x
@@ -3138,9 +3138,9 @@ elab "#verify_elab_deep" id:ident : command =>
               $hrunCTac:tactic
             exact Tools.ConeFold.cone_resolved_agrees_at_seed $weMId
               $memsT $stopAtMId $wtMId
-              (Sparkle.IR.Reorder.woCheck_sound [] $bodyC (by native_decide))
-              (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-              (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
+              (Sparkle.IR.Reorder.woCheck_sound [] $bodyC (by decide))
+              (Tools.ConeFold.memFreeCheck_sound _ (by decide))
+              (Tools.ConeFold.noSelfReadCheck_sound _ (by decide))
               hrunC
               (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyC
                 (by native_decide))
@@ -3208,7 +3208,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 env1 $(quote rstName) = 0 := by
               have hfr := Tools.ConeFold.evalAssigns_frame $weMId $memsT
                 $bodyC _ env1 $hrunCRef
-                (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+                (Tools.ConeFold.memFreeCheck_sound _ (by decide))
                 $(quote rstName) (by native_decide)
               rw [hfr]
               simp [$deepEnvAtId:ident, envOfC, chainMap, List.finRange,
@@ -3537,7 +3537,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   simp only [Option.bind_some] at h
                   rw [$dRegstepId $appArgs* t hrun] at h
                   rw [Tools.ConeFold.memNexts_memFree $weMId $bodyId
-                    (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))]
+                    (Tools.ConeFold.memFreeCheck_sound _ (by decide))]
                     at h
                   simp only [Option.bind_some, Option.some_inj] at h
                   subst h
@@ -3594,9 +3594,9 @@ elab "#verify_elab_deep" id:ident : command =>
             $hrunCTac:tactic
           exact Tools.ConeFold.cone_resolved_agrees_at_seed $weMId
             $memsT $stopAtMId $wtMId
-            (Sparkle.IR.Reorder.woCheck_sound [] $bodyC (by native_decide))
-            (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
-            (Tools.ConeFold.noSelfReadCheck_sound _ (by native_decide))
+            (Sparkle.IR.Reorder.woCheck_sound [] $bodyC (by decide))
+            (Tools.ConeFold.memFreeCheck_sound _ (by decide))
+            (Tools.ConeFold.noSelfReadCheck_sound _ (by decide))
             hrunC
             (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyC
               (by native_decide))
@@ -3646,7 +3646,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
             rw [← $memAtZeroId $appArgs*]
             obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
-              (Tools.ConeFold.runModule_isSomeM $weMId $bodyId (by native_decide)
+              (Tools.ConeFold.runModule_isSomeM $weMId $bodyId (by decide)
                 (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id
                 ($memAtId $appArgs* 0))
             refine ⟨envs, henvs, ?_⟩
@@ -3707,7 +3707,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
             obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
               (Tools.ConeFold.runModule_isSome $weMId $bodyId
-                (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+                (Tools.ConeFold.memFreeCheck_sound _ (by decide))
                 (by native_decide)
                 (fun td s => $dEnvStId $appArgs* (K - 1 - td) s) K $dSt0Id)
             refine ⟨envs, henvs, ?_⟩
@@ -3722,7 +3722,7 @@ elab "#verify_elab_deep" id:ident : command =>
               exact henvs
             obtain ⟨st', env1, hsi, hev, hget⟩ :=
               Tools.ConeFold.runModule_stepIter $weMId $bodyId
-                (Tools.ConeFold.memFreeCheck_sound _ (by native_decide))
+                (Tools.ConeFold.memFreeCheck_sound _ (by decide))
                 ($dEnvStId $appArgs*) K 0 $dSt0Id envs henvs' t ht
             refine ⟨env1, hget, ?_⟩
             have hsi' : Tools.ConeFold.stepIter $weMId $bodyId

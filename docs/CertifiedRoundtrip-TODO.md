@@ -294,20 +294,35 @@ group is rough priority.  Update as items land.
     through it.  Beware `repeat'` over a tactic that can fail loudly.
   * every generated declaration is elaborated with `maxRecDepth`
     raised (the `Fin`-literal name table is deep).
-  Two new named boundaries: `crc16CcittHW` (cone TREE blowup —
-  `crc16Step` unrolled 8× with 3 reads each is ~3^8 copies of the input
-  in a `CExpr` that has no sharing, while the IR does; a `let`-sharing
-  `CExpr` is the fix) and `kvHw` (≥ 16 state slots + inputs: the match
+  Two new named boundaries: `crc16CcittHW` (cone blowup — measured at
+  16 MB of `repr` text for a 94-statement module's single register
+  cone; the duplication happens in `inlineConeT`, which substitutes a
+  wire's definition at every use, so it is the CONE that needs sharing,
+  not just the reified `CExpr` — and every theorem above
+  `cone_resolved_agrees_at_seed` is stated over the inlined shape) and
+  `kvHw` (≥ 16 state slots + inputs: the match
   compiler stops enumerating `Fin` literals past 15 arms, and neither a
-  `i.val` match nor a catch-all arm survives the reader proofs — the fix
-  is a name table that is not a `match`).
+  `i.val` match nor a catch-all arm survives the reader proofs).  The
+  list-backed table was then built and measured: it DOES clear the
+  exhaustiveness failure, but the "not a slot" reader still fails,
+  because with a symbolic context length `List.finRange` presents as a
+  `List.ofFn` that simp will not unfold (over a literal `Fin 18` it
+  does).  Both pieces are needed together.
 
 ## D. Trust base
 
-- [ ] **`native_decide` → `decide` hardening** where feasible.  Many
-  checker/equation discharges ride `ofReduceBool`.  HashMap paths
-  can't kernel-reduce (USize hashing); list-shaped stop sets / width
-  tables could.
+- [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).
+  The body-only, list-shaped checkers now discharge by KERNEL `decide`
+  in the deep generator: `memFreeCheck`, `noSelfReadCheck`,
+  `syncMemOnlyCheck`, `woCheck` and `bodyEvalOkM` (16 sites).  Measured
+  on `regFile_rdata_deep_signal_run`: 108 → 76 `native_decide` axioms,
+  all 45 PROVEN lines unchanged.
+  Remaining 36 sites are the ones that genuinely cannot kernel-reduce:
+  everything keyed on a `Std.HashMap` (`stopAtM` / `wtM` — USize
+  hashing), the `inlineConeT` / `resolveSlicesT` cone equations, and
+  the `concatNorm` singleton-freedom check.  Making those kernel-checkable
+  means list-backed stop sets and width tables carrying their own
+  lookup lemmas.
 - [ ] Closed hierarchical semantics (`.inst` as state trees /
   flattening proof).  Research boundary; hier co-sim covers it
   dynamically today.
