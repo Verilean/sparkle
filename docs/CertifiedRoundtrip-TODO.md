@@ -367,10 +367,25 @@ group is rough priority.  Update as items land.
   ONCE (26 of them on crc16CcittHW) takes the cone from 16 MB to 954
   chars — a ~17000× reduction, and exactly the wires whose inlining
   duplicates work.
-  Remaining for this item: teach the generator to compute that stop set
-  and route its per-slot step lemmas through the new theorem, which
-  means the replay's `hv` hypotheses arrive at `env1` rather than
-  `env0` (a plumbing change through `_deep_step_*` and `_deep_regstep`).
+  Remaining for this item, and it is NOT just plumbing (scoped
+  2026-09-08): the new theorem needs the SETTLED env bounded (`hb1`),
+  where the seed-side one needed only the seed (`hb0`) — the seam's own
+  design note says boundedness is required of the seed only, precisely
+  because the frame argument moves the cone back before slice
+  resolution.  A settled-env bound means "the fold's own writes are
+  width-bounded", i.e. an expression-level bound.  One exists
+  (`sfrag_eval_bounded`) but only inside the heavy `SFrag` fragment,
+  which the seam deliberately avoids.
+  **The fragment-free version is provable** — checked against
+  `evalOp`: every arithmetic/bitwise/negate case already `mask w`s its
+  result to the node width, the compares return 0/1, and the only two
+  unmasked cases are `shr` (bounded by its left operand) and `mux`
+  (bounded by the arm it selects), both inductive.  So the work is:
+  (1) `evalExpr_bounded` — fragment-free, needing `widthOf we rhs =
+  we n` (already the seam's `hwfCheck`, already discharged per
+  instance); (2) `evalAssigns_bounded` over the fold; (3) the generator
+  computes the multiply-read stop set and routes `_deep_step_*` /
+  `_deep_regstep` through `shared_cone_agrees_at_settled`.
 
 ## D. Trust base
 
