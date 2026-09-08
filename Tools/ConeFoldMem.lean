@@ -547,4 +547,63 @@ theorem shared_cone_agrees_at_settled (we : WEnv) (mems : MEnv)
     exact hv
   exact resolveSlicesT_eval wt we env1 hwt hb1 rfuel e' v h1
 
+/-! ### Toward a fragment-free width bound (for shared cones)
+
+`shared_cone_agrees_at_settled` needs the SETTLED environment bounded,
+where the seed-side theorem needed only the seed (see the design note on
+`cone_resolved_agrees_at_seed`: the frame argument moves the cone back to
+`env0` BEFORE slice resolution, so the fold's own writes never had to be
+bounded).  A settled bound is an expression-level bound, and the existing
+one (`sfrag_eval_bounded`) lives inside the heavy `SFrag` fragment the
+seam avoids.
+
+The fragment-free bound IS available: `evalOp` has exactly five result
+shapes and each one's fact is proven here.  Assembling them over the
+20-constructor enumeration is the remaining step. -/
+
+/-- Masked results (and/or/xor/add/sub/mul/shl/neg): immediate. -/
+theorem mask_lt_sem (w v : Nat) :
+    Sparkle.IR.Semantics.mask w v < 2 ^ w :=
+  Nat.mod_lt _ (Nat.two_pow_pos w)
+
+/-- A `mask` at a width no larger than the target is still bounded —
+    needed for `asr`, which masks at its LEFT operand's width while its
+    node width is the generic `max` of both operands. -/
+theorem mask_lt_of_le {wa w v : Nat} (h : wa ≤ w) :
+    Sparkle.IR.Semantics.mask wa v < 2 ^ w :=
+  Nat.lt_of_lt_of_le (Nat.mod_lt _ (Nat.two_pow_pos wa))
+    (Nat.pow_le_pow_right (by omega) h)
+
+/-- Compare results: 0 or 1, and the node width of every compare is 1. -/
+theorem compare_bounded (b : Prop) [Decidable b] :
+    (if b then 1 else 0) < 2 ^ 1 := by
+  split <;> decide
+
+/-- `shr` is unmasked but only DROPS bits: bounded by its value
+    operand, whose width IS the node's. -/
+theorem shr_bounded {a b w : Nat} (ha : a < 2 ^ w) : a >>> b < 2 ^ w :=
+  Nat.lt_of_le_of_lt (Nat.shiftRight_le a b) ha
+
+/-- `mux` is unmasked but returns one of its arms, whose width is the
+    node's. -/
+theorem mux_bounded {c t f w : Nat} (ht : t < 2 ^ w) (hf : f < 2 ^ w) :
+    (if c = 0 then f else t) < 2 ^ w := by
+  split <;> assumption
+
+/-- The `widthOf` rules the unmasked cases rely on. -/
+theorem widthOf_shr (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) :
+    Sparkle.IR.Semantics.widthOf we (.op .shr [a, b])
+      = Sparkle.IR.Semantics.widthOf we a := rfl
+theorem widthOf_mux (we : Sparkle.IR.Semantics.WEnv) (c t f : Expr) :
+    Sparkle.IR.Semantics.widthOf we (.op .mux [c, t, f])
+      = Sparkle.IR.Semantics.widthOf we t := rfl
+theorem widthOf_cmp_u (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) :
+    Sparkle.IR.Semantics.widthOf we (.op .lt_u [a, b]) = 1 := rfl
+theorem widthOf_cmp_s (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) :
+    Sparkle.IR.Semantics.widthOf we (.op .lt_s [a, b]) = 1 := rfl
+theorem widthOf_asr (we : Sparkle.IR.Semantics.WEnv) (a b : Expr) :
+    Sparkle.IR.Semantics.widthOf we (.op .asr [a, b])
+      = max (Sparkle.IR.Semantics.widthOf we a)
+            (Sparkle.IR.Semantics.widthOf we b) := rfl
+
 end Tools.ConeFold
