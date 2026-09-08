@@ -500,4 +500,51 @@ theorem evalAssigns_comboSeeded (we : WEnv) (mems : MEnv) (P Q : List Stmt)
     · simp [h]
   rw [henv]
 
+/-! ### Shared cones
+
+`inlineConeT` substitutes a wire's definition at every use, so a cone
+duplicates every multiply-read wire.  Measured on `crc16CcittHW`
+(`crc16Step` unrolled 8× reading its input 3× each): the fully inlined
+cone is 16 MB of `repr` text, while stopping at the 26 multiply-read
+wires gives 954 chars — a ~17000× reduction.  The emitted Verilog is
+unaffected either way; the blowup exists only inside the proof.
+
+The seam theorem `cone_resolved_agrees_at_seed` cannot host such a cone:
+it reindexes to the SEED environment and therefore needs every stop-set
+name to be unwritten by the body (`hfrozen`), which an intermediate wire
+never is.  Stated at the SETTLED environment the premise is unnecessary
+— `cone_agrees_with_fold` is already generic in the stop set, and
+`evalAssigns_fixpoint` (its engine) is exactly the fact that each
+assigned wire holds its own RHS's value there. -/
+
+/-- **Shared-cone agreement at the SETTLED environment.**
+
+    The existing seam theorem reindexes a cone to the seed env `env0`,
+    which forces every stop-set name to be unwritten by the body
+    (`hfrozen`) — impossible for an intermediate wire, so a cone that
+    STOPS at intermediate wires (keeping the body's sharing instead of
+    inlining it, 16 MB → 43 chars on crc16CcittHW) cannot use it.
+
+    Stated at `env1` instead, the frozen premise is unnecessary: the
+    cone's refs are wires that have settled, and `cone_agrees_with_fold`
+    is already generic in the stop set. -/
+theorem shared_cone_agrees_at_settled (we : WEnv) (mems : MEnv)
+    {done : List String} {body : List Stmt} {env0 env1 : Env}
+    (stopAt : Std.HashMap String Bool) (wt : Std.HashMap String Nat)
+    (hWO : Sparkle.IR.Reorder.WO done body)
+    (hm : memFree body) (hsr : noSelfRead body)
+    (hrun : evalAssigns we mems body env0 = some env1)
+    (hwf : ∀ n rhs, (Sparkle.IR.Optimize.buildDefMap body).get? n = some rhs →
+      stopAt.contains n = false → widthOf we rhs = we n)
+    (hwt : ∀ n w, wt.get? n = some w → we n = w)
+    (hb1 : ∀ n, env1 n < 2 ^ we n)
+    {fuel : Nat} {e e' : Expr}
+    (hinl : inlineConeT (Sparkle.IR.Optimize.buildDefMap body) stopAt fuel e = .ok e')
+    (rfuel : Nat) {v : Nat} (hv : evalExpr we env1 e = some v) :
+    evalExpr we env1 (resolveSlicesT wt rfuel e') = some v := by
+  have h1 : evalExpr we env1 e' = some v := by
+    rw [cone_agrees_with_fold we mems stopAt hWO hm hsr hrun hwf hinl]
+    exact hv
+  exact resolveSlicesT_eval wt we env1 hwt hb1 rfuel e' v h1
+
 end Tools.ConeFold

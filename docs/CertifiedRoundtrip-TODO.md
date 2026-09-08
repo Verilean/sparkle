@@ -176,7 +176,10 @@ group is rough priority.  Update as items land.
   is not synthesizable at all ("Cannot infer hardware type from Nat" —
   a synth-elaborator gap, not a deep-route one; recorded in the
   synth-gotchas memo).
-- [ ] Memories / sub-instances (`.inst`) in the deep grammar.
+- [ ] Sub-instances (`.inst`) in the deep grammar; `memoryWithInit`
+  (no synth support) and multi-port memories.  (Single-port memories,
+  synchronous AND combinational read, are DONE — capstone and replay,
+  on demos and on shipping IP.)
   **Prerequisite landed:** `Signal.memory` / `memoryComboRead` /
   `memoryWithInit` were `opaque` + `implemented_by` — no logical
   definition, so NOTHING about a memory-bearing circuit was provable
@@ -336,6 +339,38 @@ group is rough priority.  Update as items land.
   so they are excluded.  The test file's negative section pins
   non-vacuity against the real historical shapes: duplicated register
   block, duplicated BRAM, dropped state, repeated logic.
+
+- [ ] **Cone sharing** (the CRC16 / arithmetic-size blocker, now scoped).
+  MEASURED on `crc16CcittHW`: inlined cone 16 MB of `repr` text,
+  sharing-preserved cone 43 chars, whole module body 14 KB — a ~1200×
+  blowup from `inlineConeT` alone, which substitutes each wire's
+  definition at every use (`crc16Step` unrolled 8× reading its input 3×).
+  Note the emitted VERILOG is fine; the 16 MB exists only inside the
+  proof, so a circuit-size bound would pass and the replay would still
+  fail.  Affects the replay chain only — the CAPSTONE proves
+  (`crc16Fixed_elab_trace`, per-instance route, 1 register).
+  **Scoped, 2026-09-08:** `cone_agrees_with_fold` is already generic in
+  the stop set (checked: re-proving it with a widened `stopAt` is
+  literally the same term), so stopping early needs no new mathematics
+  there.  The blocker is one premise of the seam theorem
+  `cone_resolved_agrees_at_seed`: `hfrozen : ∀ n, stopAt.contains n →
+  n ∉ writesOf body`.  The cone is evaluated at the SEED environment,
+  where an intermediate wire has not settled yet, and `writesOf`
+  collects every statement's LHS — so an intermediate wire can never be
+  frozen and the shared cone cannot go through this theorem unchanged.
+  **The enabling theorem LANDED** (`Tools/ConeFoldMem.lean`):
+  `shared_cone_agrees_at_settled` states the agreement at the SETTLED
+  environment, where the frozen premise is unnecessary — no
+  `evalAssigns_frame` reindexing, so intermediate wires may be stop-set
+  members.  It is additive, so the proven circuits are untouched.
+  **Stop-set policy measured:** stopping at the wires READ MORE THAN
+  ONCE (26 of them on crc16CcittHW) takes the cone from 16 MB to 954
+  chars — a ~17000× reduction, and exactly the wires whose inlining
+  duplicates work.
+  Remaining for this item: teach the generator to compute that stop set
+  and route its per-slot step lemmas through the new theorem, which
+  means the replay's `hv` hypotheses arrive at `env1` rather than
+  `env0` (a plumbing change through `_deep_step_*` and `_deep_regstep`).
 
 ## D. Trust base
 
