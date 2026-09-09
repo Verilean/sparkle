@@ -810,4 +810,35 @@ theorem evalExpr_bounded_slice (we : Sparkle.IR.Semantics.WEnv)
     rw [hv] at h; simp only [Option.bind_some, Option.some.injEq] at h
     subst h; exact mask_lt_sem _ _
 
+/-! ### Operand bounds for an argument list -/
+
+/-- Operand bounds for an argument list, indexed.  This is the half of
+    the assembly that the `op` case consumes, and it is independent of
+    the per-operator dispatch. -/
+theorem evalList_bounded (we : Sparkle.IR.Semantics.WEnv) (env : Sparkle.IR.Semantics.Env)
+    (hrec : ∀ (e : Expr) (r : Nat), Sparkle.IR.Semantics.evalExpr we env e = some r →
+      r < 2 ^ Sparkle.IR.Semantics.widthOf we e) :
+    ∀ (args : List Expr) (vs : List Nat), Sparkle.IR.Semantics.evalList we env args = some vs →
+    ∀ (i : Nat) (a : Expr) (v : Nat),
+      args[i]? = some a → vs[i]? = some v → v < 2 ^ Sparkle.IR.Semantics.widthOf we a
+  | [], vs, hvs, i, a, v, ha, hv => by simp at ha
+  | a :: rest, vs, hvs, i, a', v, ha, hv => by
+    simp only [Sparkle.IR.Semantics.evalList, Option.bind_eq_bind] at hvs
+    cases hva : Sparkle.IR.Semantics.evalExpr we env a with
+    | none => rw [hva] at hvs; simp at hvs
+    | some va =>
+      rw [hva] at hvs; simp only [Option.bind_some] at hvs
+      cases hvr : Sparkle.IR.Semantics.evalList we env rest with
+      | none => rw [hvr] at hvs; simp at hvs
+      | some vrest =>
+        rw [hvr] at hvs; simp only [Option.bind_some, Option.some.injEq] at hvs
+        subst hvs
+        cases i with
+        | zero =>
+          simp only [List.getElem?_cons_zero, Option.some.injEq] at ha hv
+          subst ha; subst hv; exact hrec a va hva
+        | succ i' =>
+          simp only [List.getElem?_cons_succ] at ha hv
+          exact evalList_bounded we env hrec rest vrest hvr i' a' v ha hv
+
 end Tools.ConeFold

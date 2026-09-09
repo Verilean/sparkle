@@ -395,11 +395,24 @@ group is rough priority.  Update as items land.
   `const`/`ref`/`slice` proven directly, `op` from the per-operator set,
   and `concat` via `concat_elem_bounded` (shift-or of two disjoint
   ranges, using core's `Nat.or_lt_two_pow`).
-  Remaining: (1) assemble into `evalExpr_bounded` over
-  `evalExpr.induct` — every case's fact is now in hand; (2)
-  `evalAssigns_bounded` over the fold; (3) the generator computes the
-  multiply-read stop set and routes `_deep_step_*` / `_deep_regstep`
-  through `shared_cone_agrees_at_settled`.
+  **`evalList_bounded` landed** — indexed operand bounds for an
+  argument list, the half of the assembly the `op` case consumes,
+  standalone and independent of the per-operator dispatch.
+  Remaining: (1) finish `evalExpr_bounded` over `evalExpr.induct`.  The
+  induction itself works (`const`/`ref`/`slice` and BOTH list-motive
+  cases discharge; the motive shape that makes the `op` case usable is
+  `∀ i a v, args[i]? = some a → vs[i]? = some v → v < 2 ^ widthOf we a`).
+  What is left is the `op` case's DISPATCH: 21 constructors x arity, and
+  a `match args, vs with | [a, b], [va, vb] => … | _, _ => …` leaves the
+  wrong-arity catch-all open because `evalOp`'s `none` fallthrough does
+  not reduce for an abstract operator.  It wants either an arity
+  side-lemma (`evalOp … = some r → args.length = arity o`) or 21
+  hand-written branches; the former is smaller.  NOTE: this is the third
+  time this proof has turned into tactic-mechanics iteration — bank the
+  standalone lemma and take the arity-lemma route next, do not retry the
+  cascade.  (2) `evalAssigns_bounded` over the fold; (3) the generator
+  computes the multiply-read stop set and routes `_deep_step_*` /
+  `_deep_regstep` through `shared_cone_agrees_at_settled`.
 
 ## D. Trust base
 
