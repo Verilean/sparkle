@@ -528,3 +528,91 @@ Sequencing note: F2 and F3 are incremental and would meaningfully
 tighten the claim.  F4 and F5 are large but bounded.  F1 and F6 are the
 research items, and F1 is the one that actually decides whether the word
 "CompCert-class" applies.
+
+## G. Finding what nobody put on the list
+
+The user asked (2026-09-10) whether a TODO list is the right instrument
+for catching OMISSIONS in this work, noting that STAMP/STPA does not
+transfer: Sparkle is a compiler, not an operating plant — there is no
+control loop to lose, no hazard to trace, no dataflow to protect.  That
+reading is right, and the honest answer is that a TODO list is a WEAK
+instrument for omissions, because it only ever records what someone
+already thought of.
+
+But this project already has a working mechanism, and it is documented
+in the design doc's bug inventory rather than in any process: **all 14
+shipping bugs came from a proof REFUSING a shape, and from treating the
+refusal as a bug report rather than as a proof limitation.**  The
+inventory's own closing paragraph says it: "None of these is reachable
+by testing the implementation against itself; each fell out of trying to
+prove a statement and refusing to accept 'the proof is just weak here'."
+
+Read the other way, that is a falsifiable claim about blind spots, and
+the inventory names them concretely:
+
+* bugs 2/4/7 — the co-sim gate exercises only the FIRST emission, never
+  the second parse;
+* bug 8 — co-sim compares two executables on the shapes the corpus
+  happens to contain; the width-sensitive-consumer shapes were absent,
+  and it took a formal semantics disagreeing with BOTH executables;
+* bugs 9/12 — width bookkeeping wrong while every VALUE any executable
+  ever produced was right;
+* bugs 10/11/13 — miscompiles of shapes the corpus simply lacks;
+* bug 14 — correct in the IR and in CSim, wrong only in the emitted
+  TEXT, so invisible to every simulation-vs-IR check.
+
+So the generalisable rule is: **a shape the fragment refuses is a
+hypothesis about a bug, until measured otherwise.**  Bug 9 was found
+exactly by pressing a width disagreement that "read like a proof
+limitation"; bug 14 by pressing "why can't a zero-width net exist".
+Conversely this session produced two refusals that measurement showed
+were NOT bugs (the CRC16 cone size, the `Fin`-literal slot ceiling) —
+which is the same rule working correctly in the negative direction.
+
+- [x] **G1. The refusal ledger exists** — `docs/RefusalLedger.md`
+  (2026-09-10).  Every checker refusal in the deep route, the cone
+  level and the M4 forward fragment, each with a verdict of BUG / REAL /
+  COST / UNEXAMINED and the evidence.  Pressing one UNEXAMINED row
+  immediately paid: "negative const" measured as COST (the semantics
+  encodes `-1` at width 8 to 255, exactly what the reifier could emit,
+  so it is a one-line reifier fix, not a semantic gap; 0 occurrences in
+  spiMasterHW/uartTxHW, so left refused rather than fixed blind).
+  The UNEXAMINED rows are now the omission-hunting worklist:
+  multi-port memories, read-address-reads-a-combinational-read,
+  non-literal register inits, and symbolic-width slices (where
+  `bitWidth` PANICS on `W+1` and the zero-width pass skips such
+  modules — nobody has checked what that hides).
+- [ ] **G1b. Keep the ledger honest.**  Today a refused shape
+  lives wherever it was noticed: a `throwError` string in the
+  generator, a "known boundary" paragraph, or nothing at all.  There is
+  no place that lists what the checkers currently reject, so nobody can
+  scan for "which refusals have never been investigated?".  Cheap
+  version: have the fragment checkers' `whyNot` classifiers (they exist
+  for SF4 — `sf4census`) emit a machine-readable tally over the corpus,
+  and record for each class whether it was measured to be a real
+  divergence, a proof limitation, or still unexamined.
+- [ ] **G2. Differential-shape generation, not corpus sampling.**  The
+  deepest blind spot in the inventory is "shapes the corpus lacks"
+  (bugs 10/11/13, and 8 for the consumer positions).  Testing against a
+  fixed corpus cannot find these by construction.  A generator that
+  enumerates SHAPES — nested concat-LHS writes, bit-range writes above
+  bit 31, mixed-width arithmetic under bitwise cones, zero-width
+  elements — and runs formal semantics against iverilog would attack
+  that class directly.  Note this is exactly how bugs 8-13 were found,
+  but by hand each time.
+- [ ] **G3. Three-way disagreement as a standing gate.**  Bug 8 needed
+  formal-vs-SV-semantics-vs-iverilog-vs-CSim.  That comparison was run
+  once, as an experiment, and is not a gate.  Making it standing would
+  catch the "both executables agree and are both wrong" class.
+- [ ] **G4. Cross-layer invariants nobody currently states.**  Bug 14's
+  shape (right in the IR, wrong in the text) suggests a class of
+  property that spans layers: every IR construct that survives to the
+  emitted text must have a text-level counterpart with the same width
+  and the same driver count.  The state-correspondence work of section C
+  is one instance of this shape; there are probably others (port
+  directions, clock/reset domains, driver uniqueness).
+
+Not proposed: STAMP/STPA, FMEA, or a hazard analysis.  They assume a
+system with a control structure and an accident to avoid.  The failure
+mode here is a silent miscompile, and the instrument that has actually
+caught those is an unwilling proof.
