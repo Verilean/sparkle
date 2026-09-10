@@ -284,6 +284,14 @@ group is rough priority.  Update as items land.
   arrived through a wrapper), and — more important — the generator
   should REFUSE with a reason instead of erroring internally, because
   an internal error is indistinguishable from a silent gap to a caller.
+  **Diagnosed further (2026-09-11):** the cause is NOT init reification
+  — `findRC` never reaches the `runCircuitH` for this shape.  It stops
+  at a chain of traversal gaps: `have` is `letFun` not `letE` (fixed,
+  kept), then a `Prod.fst` projection whose ARGUMENT holds the loop
+  (the walk descends only the function), then a `match_1` auxiliary
+  needing unfolding.  So the fix is to rewrite `findRC` as a
+  whnf-driven search instead of accumulating special cases; three
+  patches would only postpone the fourth.
 - [ ] Bridge v1 limits: register inputs / memory ports that aren't
   `.ref` wires (the replay is skipped with a message; the capstone is
   still emitted).

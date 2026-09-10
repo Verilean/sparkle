@@ -1688,7 +1688,17 @@ elab "#verify_elab_deep" id:ident : command =>
         let e := e.headBeta
         match e with
         | .letE _ _ v body _ => findRC (body.instantiate1 v) fuel
+        -- `have x := v; body` is NOT a `letE`: it elaborates to
+        -- `letFun`, an application of `letFun` whose body is a lambda.
+        -- Missing this made the walk stop at the `have` and report
+        -- `unknown free variable` downstream instead of finding the
+        -- loop — the register-init-from-a-value-parameter defect.
         | _ =>
+          if e.getAppFn.isConstOf ``letFun then
+            match e.getAppArgs with
+            | #[_, _, v, body] => findRC (body.headBeta.instantiate1 v) fuel
+            | _ => none
+          else
           if e.getAppFn.isConstOf ``Sparkle.Core.runCircuitH then some e
           else match e with
             | .app f _ => findRC f fuel
