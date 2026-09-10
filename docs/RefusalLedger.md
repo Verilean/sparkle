@@ -18,7 +18,7 @@ the one that finds omissions, and a TODO list cannot answer it, because
 a TODO only records what someone already thought of.
 
 **The rule:** a refused shape is a HYPOTHESIS ABOUT A BUG until
-measured otherwise.  Every entry below must end in one of three
+measured otherwise.  Every entry below must end in one of four
 verdicts:
 
 * **BUG** — investigating it found a real defect (with the bug number).
@@ -49,7 +49,7 @@ verdicts:
 | Refusal | Verdict | Evidence |
 |---|---|---|
 | memories / dynamic indexing in a cone | BUG-adjacent | The `.index` path is where bug 7 (RMW write data losing its array reads) and bug 12 (the reference semantics' own placeholder-width defect) lived. Now modelled by `evalPayload`; the cone-level refusal remains for `#verify_emit` v1. |
-| symbolic-width slices | UNEXAMINED | `sliceDim` is refused everywhere. XiangShan modules with symbolic widths exist (the zero-width pass skips them because `bitWidth` panics on `W+1`) — nobody has checked whether that panic hides anything. |
+| symbolic-width slices | UNEXAMINED (partially pressed 2026-09-10) | `sliceDim` is refused everywhere. Related claim CHECKED but not settled: `ZeroWidth.lean` skips any module with a symbolic-width port, on the stated grounds that zero-width pack tails "only ever occur in fully concrete `circuit do` designs". That is falsifiable and matters, because bug 14 WAS a zero-width tail reaching the emitted text. Measured so far: `spiMasterHW` and `uartTxHW` are both fully concrete with 0 zero-width wires, so they cannot refute it — and no symbolic-width Sparkle-native design was found to test against. Still open: find one, or prove the claim. |
 
 ## M4 forward fragment (`Tools/SVParser/EmitSem.lean`)
 
