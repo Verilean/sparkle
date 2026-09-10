@@ -33,7 +33,7 @@ verdicts:
 
 | Refusal | Verdict | Evidence |
 |---|---|---|
-| multi-port memories | UNEXAMINED | Never pressed.  Single-port, both read kinds, are proven; nothing says the multi-port IR semantics is right. |
+| multi-port memories | COST, semantics validated (pressed 2026-09-10) | The refusal is the DEEP ROUTE's (`CdoM` carries one write port per memory), not the semantics'. The IR semantics DOES model multi-port: `memWritePorts` folds extra ports in order, later enabled port wins. That rule is pinned by `#guard`s in `Semantics.lean` (incl. a collision case), and re-measured here: two ports writing address 3 in one cycle with data 0xAA then 0xBB yields 0xBB. So extending `CdoM` to a port LIST is reification work against an already-validated rule, not a semantic unknown. |
 | memory read address reads another combinational read | UNEXAMINED | v1 restriction; no measurement of whether the IR/Verilog timing agrees for that shape. |
 | combinational read inside a read address (`read slot … inside a read address`) | UNEXAMINED | Same class as above. |
 | `.inst` / non-single-module designs | REAL | Instances are open-module no-ops by design; closed hierarchical semantics is a research item (F6/D). Composition covered dynamically by hier co-sim. |
@@ -49,7 +49,7 @@ verdicts:
 | Refusal | Verdict | Evidence |
 |---|---|---|
 | memories / dynamic indexing in a cone | BUG-adjacent | The `.index` path is where bug 7 (RMW write data losing its array reads) and bug 12 (the reference semantics' own placeholder-width defect) lived. Now modelled by `evalPayload`; the cone-level refusal remains for `#verify_emit` v1. |
-| symbolic-width slices | UNEXAMINED (partially pressed 2026-09-10) | `sliceDim` is refused everywhere. Related claim CHECKED but not settled: `ZeroWidth.lean` skips any module with a symbolic-width port, on the stated grounds that zero-width pack tails "only ever occur in fully concrete `circuit do` designs". That is falsifiable and matters, because bug 14 WAS a zero-width tail reaching the emitted text. Measured so far: `spiMasterHW` and `uartTxHW` are both fully concrete with 0 zero-width wires, so they cannot refute it — and no symbolic-width Sparkle-native design was found to test against. Still open: find one, or prove the claim. |
+| symbolic-width slices | REAL for `sliceDim`; the ZeroWidth SKIP is UNREACHABLE today (pressed 2026-09-10) | `sliceDim` is refused everywhere by the cone passes. The load-bearing related claim — `ZeroWidth.lean` skips modules with symbolic-width ports, asserting zero-width tails "only ever occur in fully concrete `circuit do` designs" — was pressed, because bug 14 WAS a zero-width tail reaching the text. MEASURED, both directions: (a) a Sparkle-native symbolic-width `circuit do` cannot reach the emitter at all — synthesis refuses it ("Cannot synthesise runCircuitH: not inlinable and not a hardware module"), and `dividerQ` (the one `W+1` design in the tree) instantiates at concrete widths, emitting `allConcrete=true, 0 zero-width wires, 0 symbolic ports`; (b) the XiangShan corpus has 0 modules with `parameter`. So the skip is currently unreachable from both directions and the claim holds vacuously. It becomes live the moment either a parameterised SV module enters the corpus or native symbolic-width synthesis is supported — worth a guard then, not now. |
 
 ## M4 forward fragment (`Tools/SVParser/EmitSem.lean`)
 
