@@ -273,6 +273,17 @@ group is rough priority.  Update as items land.
   Remaining: `memoryWithInit` (no synth support today), multi-port
   memories, sub-instances (`.inst`), read addresses that read another
   combinational read.
+- [ ] **Register init from a value parameter — generator defect**
+  (found 2026-09-10 by pressing a refusal-ledger row).  `Signal.reg k`
+  where `k` is a value parameter: the EMITTER is correct (the wrapper
+  resolves it, IR carries `init=7`), but `#verify_elab_deep` fails with
+  `unknown free variable`, an internal elaboration error rather than
+  the designed `throwError`.  Isolated against a control: the same
+  parameter used in the BODY proves (`accK9`).  Two fixes wanted: the
+  leak itself (loop-node discovery / reification of an init that
+  arrived through a wrapper), and — more important — the generator
+  should REFUSE with a reason instead of erroring internally, because
+  an internal error is indistinguishable from a silent gap to a caller.
 - [ ] Bridge v1 limits: register inputs / memory ports that aren't
   `.ref` wires (the replay is skipped with a message; the capstone is
   still emitted).
