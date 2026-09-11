@@ -284,14 +284,17 @@ group is rough priority.  Update as items land.
   arrived through a wrapper), and — more important — the generator
   should REFUSE with a reason instead of erroring internally, because
   an internal error is indistinguishable from a silent gap to a caller.
-  **Diagnosed further (2026-09-11):** the cause is NOT init reification
-  — `findRC` never reaches the `runCircuitH` for this shape.  It stops
-  at a chain of traversal gaps: `have` is `letFun` not `letE` (fixed,
-  kept), then a `Prod.fst` projection whose ARGUMENT holds the loop
-  (the walk descends only the function), then a `match_1` auxiliary
-  needing unfolding.  So the fix is to rewrite `findRC` as a
-  whnf-driven search instead of accumulating special cases; three
-  patches would only postpone the fourth.
+  **Repro is permanent:** `Tests/Verification/ValueParamInitRepro.lean`
+  (failing shape + two passing controls + an IR-init assertion).
+  **Failing stage OBSERVED (2026-09-11):** with `SPARKLE_DEEP_DEBUG=1`
+  the circuit logs `STAGE ok: helpers collected` then dies before any
+  loop node is logged — the failure is inside LOOP-NODE DISCOVERY.
+  Measured: expressions collected inside `openLams`' `withLocalDecl`
+  scope carry free variables out of it (`hasFVar = true`) and `nodeOf`
+  analyses them outside — the leading candidate, not yet a proven cause.
+  `findRC` traversal gaps (`have`/`letFun` fixed; `Prod.fst` argument;
+  `match_1` auxiliary) are a SEPARATE concern to be tested separately,
+  per the workflow review — do not bundle them with the scope fix.
 - [ ] Bridge v1 limits: register inputs / memory ports that aren't
   `.ref` wires (the replay is skipped with a message; the capstone is
   still emitted).

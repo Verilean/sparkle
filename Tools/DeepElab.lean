@@ -1284,6 +1284,8 @@ elab "#verify_elab_deep" id:ident : command =>
     | [m] => pure m
     | _ => throwError "#verify_elab_deep: single-module designs only"
   let regsOnly := theRegisters m
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    logInfo m!"#verify_elab_deep STAGE ok: synthesis + single module"
   -- Synchronous single-port memories (`Signal.memory`): contents state
   -- plus a read latch.  The latch wire becomes a STATE SLOT after the
   -- registers (init 0; its "cone" is the read address, a `.latch`).
@@ -1430,6 +1432,8 @@ elab "#verify_elab_deep" id:ident : command =>
   -- Output shape: a `Signal dom τ` return is single-port (τ decides
   -- the Bool encoding); anything else must be a structure whose
   -- fields ARE the ports (matched by name), each field a Signal.
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    logInfo m!"#verify_elab_deep STAGE ok: param types + retTy"
   let retHead := retTy.getAppFn
   let structName? : Option Name ←
     if retHead.isConstOf ``Sparkle.Core.Signal.Signal then pure none
@@ -1655,6 +1659,8 @@ elab "#verify_elab_deep" id:ident : command =>
   -- identical recurrences).  Each node's slot signature (width, init,
   -- Bool-ness) locates its candidate register blocks in the IR; the
   -- Signal-side proof tries the candidates.
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    logInfo m!"#verify_elab_deep STAGE ok: helpers collected"
   let (loopNodes, headChain) ← liftTermElabM do
     let env ← getEnv
     -- open a definition's leading lambdas; a `DomainConfig` binder is
@@ -1838,6 +1844,8 @@ elab "#verify_elab_deep" id:ident : command =>
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     for n in loopNodes do
       logInfo m!"#verify_elab_deep loop node (top={n.isTop}): widths {n.widths} inits {n.inits} bool {n.isBool}"
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    logInfo m!"#verify_elab_deep STAGE ok: loop nodes discovered"
   let some topNode := loopNodes.find? (·.isTop)
     | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
   -- the top node is also collected as an ordinary application of the
@@ -1863,6 +1871,8 @@ elab "#verify_elab_deep" id:ident : command =>
         (toString (repr e)) with
     | .ok stx => pure ⟨stx⟩
     | .error err => throwError "#verify_elab_deep: fidelity quote: {err}"
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    logInfo m!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0
