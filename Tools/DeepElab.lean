@@ -1417,6 +1417,8 @@ elab "#verify_elab_deep" id:ident : command =>
             (Lean.mkConst ``Sparkle.Core.Domain.defaultDomain))
             tys bools fuel
         else
+          if dty.hasFVar then
+            throwError "#verify_elab_deep: parameter type mentions an earlier binder (dependent DSL signature): {dty}"
           let stx ← Lean.PrettyPrinter.delab dty
           let isB := (← Lean.Meta.whnf dty).getAppArgs.any
             fun a => a.isConstOf ``Bool
@@ -1776,6 +1778,8 @@ elab "#verify_elab_deep" id:ident : command =>
             | some n => isBool := isBool.push false; widths := widths.push n
             | none => return none
           | _ => return none
+        if ty.hasFVar then
+          throwError "#verify_elab_deep: loop element type mentions a local binder: {ty}"
         tys := tys.push (← Lean.PrettyPrinter.delab ty)
       let some inits ← initVals inits tysE.size | return none
       return some { isBool, widths, inits, tys, isTop }
@@ -2680,7 +2684,10 @@ elab "#verify_elab_deep" id:ident : command =>
       -- the `hpre` prefix as guard), then the output side against the
       -- shallow output equation, with `hLt` itself as the guard for the
       -- nested loops the output reads.
-      let retTyStx : Term ← liftTermElabM (Lean.PrettyPrinter.delab retTy)
+      let retTyStx : Term ← liftTermElabM do
+        if retTy.hasFVar then
+          throwError "#verify_elab_deep: return type mentions a local binder: {retTy}"
+        Lean.PrettyPrinter.delab retTy
       let topTys := topNode.tys
       let mkTopProof (b : Nat) : CommandElabM (Lean.TSyntax `tactic) := do
         let packS ← packOf topNode b (← `($sId))
