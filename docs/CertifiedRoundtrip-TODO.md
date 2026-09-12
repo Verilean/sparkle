@@ -291,8 +291,10 @@ group is rough priority.  Update as items land.
   `initCirc7`, from 7 replay lemmas) — the F2 trust boundary, `Lean.
   ofReduceBool`.  No `sorryAx`.  CI checks the five circuit NAMES in
   the PROVEN lines and a per-circuit `VPI OK:` line emitted by a
-  `run_cmd` that verifies both theorems exist with exactly those axiom
-  classes; a missing test file fails the gate.  Full suite exit 0.
+  `run_cmd` that verifies both theorems exist and use ONLY allowed
+  axioms (subset check; `native_decide` auxiliaries recognised by name
+  structure, not substring; negatives confirmed rejected); a missing
+  test file fails the gate.  Full suite exit 0.
   The `have`/`letFun` case in `findRC` was also fixed (separately,
   earlier) and kept.
   **Retracted:** the "`Prod.fst` argument / `match_1` auxiliary

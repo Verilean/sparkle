@@ -7,7 +7,8 @@
   rather than a designed refusal — while `accK9` (the same parameter
   used in the BODY) and `litInit` (a literal init) passed.  Fixed on
   2026-09-12; every circuit in this file now proves, and the CI gate
-  (`bench/xiangshan/ci_check.sh`) requires exactly 5 PROVEN lines here.
+  (`bench/xiangshan/ci_check.sh`) checks the five circuits BY NAME here,
+  plus the allowed-axioms policy and its negative cases (end of file).
 
   Cause (observed before the change, confirmed by the change):
 
@@ -31,9 +32,11 @@
   After the change:   PROVEN; `initCirc7_deep_trace` and
                       `initCirc7_deep_signal_run` both exist.
 
-  Axiom dependencies (checked by the `run_cmd` at the end of this file,
-  and CORRECTED from an earlier note that claimed "standard axioms only"
-  for both — that was read off a truncated line):
+  Axiom dependencies (checked by the allowed-axioms policy at the end
+  of this file — a SUBSET check: every axiom must be allowed, the
+  allowed set need not be exhausted.  CORRECTED from an earlier note
+  that claimed "standard axioms only" for both, read off a truncated
+  line):
 
   * `{f}_deep_trace` (capstone): `propext`, `Classical.choice`,
     `Quot.sound` only.
@@ -142,19 +145,61 @@ run_cmd do
   unless inits == [7] do
     throwError "initCirc7: expected exactly one register with init 7, got {inits}"
 
--- For EVERY circuit above: the capstone `_deep_trace` and the IR replay
--- `_deep_signal_run` both exist; the capstone depends on the three
--- standard axioms only; the replay depends on those plus
--- `native_decide`-generated axioms and NOTHING else (in particular no
--- `sorryAx`).  One `VPI OK:` line per circuit — the CI gate greps for
--- them by name, so a missing theorem, a stray axiom, or a silently
+/-! ### Axiom policy for the generated theorems
+
+ALLOWED AXIOMS ONLY — a subset check, not an exact match.  Every axiom a
+theorem depends on must be in its allowed set; the set may be used
+partially (a small circuit may not exercise every replay lemma).
+
+* Capstone `{f}_deep_trace`: the standard set `propext`,
+  `Classical.choice`, `Quot.sound`.
+* Replay `{f}_deep_signal_run`: the standard set, plus `Lean.ofReduceBool`
+  (the axiom `native_decide` reduces to), plus the auxiliary axioms
+  `native_decide` generates — recognised STRUCTURALLY, not by substring:
+  the name must be `ns.<circuit>_deep_<lemma>._native.native_decide.ax_<digits>`
+  with `ns` this namespace and `<circuit>` the circuit being checked.
+  A user-declared axiom that merely contains "native_decide" in its name
+  does not match (negative case below).
+
+Anything else — `sorryAx`, a user axiom, a native_decide auxiliary from
+some OTHER circuit or namespace — is rejected. -/
+
+open Lean in
+def vpiIsStd (a : Name) : Bool :=
+  a == ``propext || a == ``Classical.choice || a == ``Quot.sound
+
+open Lean in
+/-- `ns.<c>_deep_<…>._native.native_decide.ax_<digits>`, structurally. -/
+def vpiIsNativeAuxOf (ns c : Name) : Name → Bool
+  | .str (.str (.str lemma "_native") "native_decide") ax =>
+    let digits := ax.drop 3
+    ax.startsWith "ax_" && !digits.isEmpty && digits.all Char.isDigit
+      && lemma.getPrefix == ns
+      && (match lemma with
+          | .str _ l => l.startsWith (c.toString ++ "_deep_")
+          | _ => false)
+  | _ => false
+
+open Lean in
+/-- Classify a theorem's axioms under the policy.  Returns the number of
+    `native_decide` auxiliaries accepted, or the first rejected axiom. -/
+def vpiClassify (ns c : Name) (allowNative : Bool) (axs : Array Name) :
+    Except Name Nat := do
+  let mut n := 0
+  for a in axs do
+    if vpiIsStd a then pure ()
+    else if allowNative && a == ``Lean.ofReduceBool then pure ()
+    else if allowNative && vpiIsNativeAuxOf ns c a then n := n + 1
+    else throw a
+  return n
+
+-- Positive: for EVERY circuit above, both theorems exist and pass the
+-- policy.  One `VPI OK:` line per circuit — the CI gate greps for them
+-- by name, so a missing theorem, a disallowed axiom, or a silently
 -- skipped circuit fails the build rather than lowering a count.
 open Lean Elab Command in
 run_cmd do
   let circuits : List Name := [`accK9, `litInit, `initCirc7, `natInit5, `initCirc7Again]
-  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
-  let isNativeDecide (a : Name) : Bool :=
-    a == ``Lean.ofReduceBool || (a.toString.splitOn "native_decide").length > 1
   let ns := `Sparkle.Tests.ValueParamInitRepro
   for c in circuits do
     let tr := ns ++ c.appendAfter "_deep_trace"
@@ -162,15 +207,46 @@ run_cmd do
     for thm in [tr, rp] do
       unless (← getEnv).contains thm do
         throwError "VPI: missing theorem {thm}"
-    let axT ← collectAxioms tr
-    for a in axT do
-      unless std.contains a do
-        throwError "VPI: {tr} depends on unexpected axiom {a}"
-    let mut nNative : Nat := 0
-    for a in (← collectAxioms rp) do
-      if std.contains a then pure ()
-      else if isNativeDecide a then nNative := nNative + 1
-      else throwError "VPI: {rp} depends on unexpected axiom {a}"
-    logInfo m!"VPI OK: {c} trace=[std] replay=[std + {nNative} native_decide]"
+    match vpiClassify ns c false (← collectAxioms tr) with
+    | .error a => throwError "VPI: {tr} depends on disallowed axiom {a}"
+    | .ok _ => pure ()
+    match vpiClassify ns c true (← collectAxioms rp) with
+    | .error a => throwError "VPI: {rp} depends on disallowed axiom {a}"
+    | .ok nNative =>
+      logInfo m!"VPI OK: {c} trace=[std] replay=[std + {nNative} native_decide aux]"
+
+-- Negative: the policy REJECTS what it should.  Without these the
+-- positive lines would also pass under a classifier that accepts
+-- everything.
+axiom vpiBogusAxiom : True
+theorem vpiUsesBogus : True := vpiBogusAxiom
+
+/-- Contains "native_decide" as a substring but is not a generated
+    auxiliary — the old substring check accepted this shape. -/
+axiom vpi_native_decide_ax_1 : True
+theorem vpiLooksNative : True := vpi_native_decide_ax_1
+
+open Lean Elab Command in
+run_cmd do
+  let ns := `Sparkle.Tests.ValueParamInitRepro
+  -- a user axiom is rejected on both policies
+  match vpiClassify ns `initCirc7 true (← collectAxioms (ns ++ `vpiUsesBogus)) with
+  | .error a => unless a == ns ++ `vpiBogusAxiom do throwError "VPI NEG: wrong culprit {a}"
+  | .ok _ => throwError "VPI NEG: user axiom was ACCEPTED"
+  -- a substring look-alike is rejected by the structural check
+  match vpiClassify ns `initCirc7 true (← collectAxioms (ns ++ `vpiLooksNative)) with
+  | .error a => unless a == ns ++ `vpi_native_decide_ax_1 do throwError "VPI NEG: wrong culprit {a}"
+  | .ok _ => throwError "VPI NEG: substring look-alike was ACCEPTED"
+  -- a genuine auxiliary of ANOTHER circuit is rejected for this one
+  let foreign := ns ++ `accK9_deep_regstep ++ `_native ++ `native_decide ++ `ax_1
+  if vpiIsNativeAuxOf ns `initCirc7 foreign then
+    throwError "VPI NEG: another circuit's auxiliary was ACCEPTED"
+  unless vpiIsNativeAuxOf ns `accK9 foreign do
+    throwError "VPI NEG: structural recogniser rejects a well-formed auxiliary"
+  -- the capstone policy (no native) rejects a genuine auxiliary too
+  match vpiClassify ns `accK9 false #[``propext, foreign] with
+  | .error a => unless a == foreign do throwError "VPI NEG: wrong culprit {a}"
+  | .ok _ => throwError "VPI NEG: capstone policy ACCEPTED a native_decide auxiliary"
+  logInfo "VPI NEG OK: user axiom, substring look-alike, foreign auxiliary, capstone/native all rejected"
 
 end Sparkle.Tests.ValueParamInitRepro

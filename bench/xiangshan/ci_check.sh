@@ -285,11 +285,14 @@ if [ -f "$ELAB_FILE" ]; then
   # two-level wrapper chain, plus a run_cmd pinning the IR init value.
   # Checked BY NAME, not by count: each of the five circuits must have
   # its PROVEN line, and the file's own run_cmd must emit a `VPI OK:`
-  # line for it — that line is printed only after both `_deep_trace`
-  # and `_deep_signal_run` are found in the environment with exactly
-  # the expected axiom classes (standard for the capstone; standard +
-  # native_decide for the replay; never sorryAx).  A missing file is a
-  # failure, not a skip.
+  # line for it — printed only after both `_deep_trace` and
+  # `_deep_signal_run` are found in the environment and pass the
+  # ALLOWED-AXIOMS policy (a subset check: capstone → standard axioms
+  # only; replay → standard + Lean.ofReduceBool + native_decide
+  # auxiliaries recognised by name STRUCTURE for that circuit; anything
+  # else, incl. sorryAx, rejects).  The file's negative cases must also
+  # report `VPI NEG OK`, so a classifier that accepts everything fails
+  # here.  A missing file is a failure, not a skip.
   VPI_FILE=Tests/Verification/ValueParamInitRepro.lean
   VPI_CIRCUITS="accK9 litInit initCirc7 natInit5 initCirc7Again"
   if [ ! -f "$VPI_FILE" ]; then
@@ -304,8 +307,10 @@ if [ -f "$ELAB_FILE" ]; then
       grep -q "VPI OK: $c " "$WORK/vpi.log" || {
         echo "FAIL: value-param inits — $c trace/replay theorem check missing"; vpi_ok=0; }
     done
+    grep -q "VPI NEG OK" "$WORK/vpi.log" || {
+      echo "FAIL: value-param inits — axiom-policy negative cases did not run"; vpi_ok=0; }
     if [ "$vpi_ok" -eq 1 ]; then
-      echo "value-param register inits: 5 named circuits proven, trace+replay theorems present (deep route)"
+      echo "value-param register inits: 5 named circuits proven, trace+replay under allowed-axioms policy, negatives rejected"
     else
       fail=1
     fi
