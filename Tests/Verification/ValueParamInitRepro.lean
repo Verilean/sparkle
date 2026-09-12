@@ -28,9 +28,25 @@
   for any shape in this file, including the two-level wrapper chain.
 
   Before the change:  `#verify_elab_deep initCirc7` → unknown free variable
-  After the change:   PROVEN, `initCirc7_deep_trace` and
-                      `initCirc7_deep_signal_run` exist, axioms
-                      [propext, Classical.choice, Quot.sound].
+  After the change:   PROVEN; `initCirc7_deep_trace` and
+                      `initCirc7_deep_signal_run` both exist.
+
+  Axiom dependencies (checked by the `run_cmd` at the end of this file,
+  and CORRECTED from an earlier note that claimed "standard axioms only"
+  for both — that was read off a truncated line):
+
+  * `{f}_deep_trace` (capstone): `propext`, `Classical.choice`,
+    `Quot.sound` only.
+  * `{f}_deep_signal_run` (IR replay): the three above PLUS
+    `native_decide`-generated axioms (`{lemma}._native.native_decide.ax_N`,
+    23 of them for `initCirc7`, from 7 replay lemmas: `coneEval_out`,
+    `coneEval_r0`, `regstep`, `seed_bounded`, `step_*`, and the run
+    itself).  These ride `Lean.ofReduceBool`, i.e. they trust the Lean
+    compiler's evaluation of the checker, not the kernel.  This is the
+    documented trust boundary of the replay chain — see
+    `docs/CertifiedRoundtrip-design.md` ("`native_decide` in the
+    obligations") and TODO item F2, which tracks moving these to kernel
+    `decide`.  No `sorryAx` on either theorem.
 
   Corrected record: an earlier note claimed the failure happened
   "before any definition is emitted", because it failed under
@@ -126,12 +142,35 @@ run_cmd do
   unless inits == [7] do
     throwError "initCirc7: expected exactly one register with init 7, got {inits}"
 
--- All three circuits' deep-route theorems exist and are clean, and the
--- previously-failing one has a working IR replay too.
-#print axioms accK9_deep_trace
-#print axioms litInit_deep_trace
-#print axioms initCirc7_deep_trace
-#check @initCirc7_deep_signal_run
-#print axioms initCirc7_deep_signal_run
+-- For EVERY circuit above: the capstone `_deep_trace` and the IR replay
+-- `_deep_signal_run` both exist; the capstone depends on the three
+-- standard axioms only; the replay depends on those plus
+-- `native_decide`-generated axioms and NOTHING else (in particular no
+-- `sorryAx`).  One `VPI OK:` line per circuit — the CI gate greps for
+-- them by name, so a missing theorem, a stray axiom, or a silently
+-- skipped circuit fails the build rather than lowering a count.
+open Lean Elab Command in
+run_cmd do
+  let circuits : List Name := [`accK9, `litInit, `initCirc7, `natInit5, `initCirc7Again]
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  let isNativeDecide (a : Name) : Bool :=
+    a == ``Lean.ofReduceBool || (a.toString.splitOn "native_decide").length > 1
+  let ns := `Sparkle.Tests.ValueParamInitRepro
+  for c in circuits do
+    let tr := ns ++ c.appendAfter "_deep_trace"
+    let rp := ns ++ c.appendAfter "_deep_signal_run"
+    for thm in [tr, rp] do
+      unless (← getEnv).contains thm do
+        throwError "VPI: missing theorem {thm}"
+    let axT ← collectAxioms tr
+    for a in axT do
+      unless std.contains a do
+        throwError "VPI: {tr} depends on unexpected axiom {a}"
+    let mut nNative : Nat := 0
+    for a in (← collectAxioms rp) do
+      if std.contains a then pure ()
+      else if isNativeDecide a then nNative := nNative + 1
+      else throwError "VPI: {rp} depends on unexpected axiom {a}"
+    logInfo m!"VPI OK: {c} trace=[std] replay=[std + {nNative} native_decide]"
 
 end Sparkle.Tests.ValueParamInitRepro

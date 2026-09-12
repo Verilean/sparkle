@@ -283,23 +283,36 @@ if [ -f "$ELAB_FILE" ]; then
   # ran outside the lambda scope it opened).  The file carries the
   # once-failing circuit, its controls, a Nat-derived init and a
   # two-level wrapper chain, plus a run_cmd pinning the IR init value.
-  # Exactly 5 PROVEN lines: a lower count means one shape regressed.
+  # Checked BY NAME, not by count: each of the five circuits must have
+  # its PROVEN line, and the file's own run_cmd must emit a `VPI OK:`
+  # line for it — that line is printed only after both `_deep_trace`
+  # and `_deep_signal_run` are found in the environment with exactly
+  # the expected axiom classes (standard for the capstone; standard +
+  # native_decide for the replay; never sorryAx).  A missing file is a
+  # failure, not a skip.
   VPI_FILE=Tests/Verification/ValueParamInitRepro.lean
-  if [ -f "$VPI_FILE" ]; then
-    if lake build Tests.Verification.ValueParamInitRepro \
-        > "$WORK/vpi.log" 2>&1; then
-      vpi=$(grep -c 'PROVEN' "$WORK/vpi.log")
-      if [ "$vpi" -eq 5 ]; then
-        echo "value-param register inits: 5/5 circuits proven (deep route)"
-      else
-        echo "FAIL: value-param inits — expected 5 PROVEN, got $vpi"
-        fail=1
-      fi
+  VPI_CIRCUITS="accK9 litInit initCirc7 natInit5 initCirc7Again"
+  if [ ! -f "$VPI_FILE" ]; then
+    echo "FAIL: $VPI_FILE is missing (value-param init regression gate)"
+    fail=1
+  elif lake build Tests.Verification.ValueParamInitRepro \
+      > "$WORK/vpi.log" 2>&1; then
+    vpi_ok=1
+    for c in $VPI_CIRCUITS; do
+      grep -q "ValueParamInitRepro\.$c: PROVEN" "$WORK/vpi.log" || {
+        echo "FAIL: value-param inits — $c not PROVEN"; vpi_ok=0; }
+      grep -q "VPI OK: $c " "$WORK/vpi.log" || {
+        echo "FAIL: value-param inits — $c trace/replay theorem check missing"; vpi_ok=0; }
+    done
+    if [ "$vpi_ok" -eq 1 ]; then
+      echo "value-param register inits: 5 named circuits proven, trace+replay theorems present (deep route)"
     else
-      echo "FAIL: ValueParamInitRepro did not build"
-      grep -m5 -E "error" "$WORK/vpi.log" | sed 's/^/    /'
       fail=1
     fi
+  else
+    echo "FAIL: ValueParamInitRepro did not build"
+    grep -m5 -E "error" "$WORK/vpi.log" | sed 's/^/    /'
+    fail=1
   fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone

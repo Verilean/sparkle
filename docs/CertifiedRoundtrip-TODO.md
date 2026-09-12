@@ -284,8 +284,15 @@ group is rough priority.  Update as items land.
   validated `LoopNode`s cross the boundary.  Evidence and regression
   gate: `Tests/Verification/ValueParamInitRepro.lean` (literal init,
   param-in-body, param-as-init, `Nat`-derived init, two-level wrapper
-  chain — all PROVEN with `_deep_trace` + `_deep_signal_run`, standard
-  axioms only; CI requires exactly 5 PROVEN).  Full suite exit 0.
+  chain — all PROVEN with `_deep_trace` + `_deep_signal_run`).  Axioms,
+  CORRECTED from an earlier "standard only" claim: the capstone
+  `_deep_trace` uses the three standard axioms; the replay
+  `_deep_signal_run` additionally rides `native_decide` axioms (23 for
+  `initCirc7`, from 7 replay lemmas) — the F2 trust boundary, `Lean.
+  ofReduceBool`.  No `sorryAx`.  CI checks the five circuit NAMES in
+  the PROVEN lines and a per-circuit `VPI OK:` line emitted by a
+  `run_cmd` that verifies both theorems exist with exactly those axiom
+  classes; a missing test file fails the gate.  Full suite exit 0.
   The `have`/`letFun` case in `findRC` was also fixed (separately,
   earlier) and kept.
   **Retracted:** the "`Prod.fst` argument / `match_1` auxiliary
