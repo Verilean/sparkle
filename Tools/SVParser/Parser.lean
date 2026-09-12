@@ -763,6 +763,22 @@ partial def parseModuleItems : P (List SVModuleItem) := do
         semi
         return [SVModuleItem.packedArrayDecl n dims init]
       let n ← identifier
+      -- Unpacked array dimension: `logic [w-1:0] Mem [0:N];` — Sparkle's
+      -- OWN memory emission.  Only the `reg` arm accepted this, so the
+      -- parser could not re-parse its own emitted memories (firtool
+      -- writes `reg`, which is why the corpus never noticed; the metric
+      -- recorded rtNodes=0 "not measured" and the gap stayed silent).
+      match ← attempt (do
+        let _ ← lbracket
+        let lo ← token digits
+        colon
+        let hi ← token digits
+        rbracket
+        pure (hi.toNat! - lo.toNat! + 1)) with
+      | some size =>
+        semi
+        pure [SVModuleItem.regDecl n w (some size)]
+      | none =>
       match ← attempt eqSign with
       | some _ => let e ← parseExpr; semi; pure [SVModuleItem.wireDecl n w (some e)]
       | none =>

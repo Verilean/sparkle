@@ -493,13 +493,65 @@ private unsafe def memoryImpl {addrWidth dataWidth : Nat}
     | .ok sig => sig
     | .error _ => ⟨fun _ => 0#dataWidth⟩
 
+/-- Memory contents after the writes of cycles `< t`, starting from
+    `init`: the pure specification shared by `memory`,
+    `memoryComboRead` and `memoryWithInit`.  At cycle `n` the write port
+    (`writeEnable`/`writeAddr`/`writeData` sampled at `n`) updates one
+    word; everything else carries over.  This is what the `implemented_by`
+    array/HashMap implementations compute (and what the IR semantics'
+    `MEnv` / the Verilog `always_ff` describe), stated without `IO`. -/
+def memState {addrWidth dataWidth : Nat}
+    (init : BitVec addrWidth → BitVec dataWidth)
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool) :
+    Nat → BitVec addrWidth → BitVec dataWidth
+  | 0 => init
+  | n + 1 => fun addr =>
+    if writeEnable.val n && addr == writeAddr.val n then writeData.val n
+    else memState init writeAddr writeData writeEnable n addr
+
+/-- Logically: registered (read-old) read.  `(memory …).val (n+1)` is the
+    word at `readAddr.val n` of the contents after the writes of cycles
+    `< n` — the write of cycle `n` itself is not yet visible, exactly as
+    the `always_ff` nonblocking read and the IR's `syncReadLatches`.
+    `.val 0 = 0`.  Executed via the array-backed `memoryImpl`. -/
 @[implemented_by memoryImpl]
-opaque memory {addrWidth dataWidth : Nat}
+def memory {addrWidth dataWidth : Nat}
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
     (writeEnable : Signal dom Bool)
     (readAddr : Signal dom (BitVec addrWidth))
-    : Signal dom (BitVec dataWidth)
+    : Signal dom (BitVec dataWidth) :=
+  ⟨fun t => match t with
+    | 0 => 0#dataWidth
+    | n + 1 => memState (fun _ => 0#dataWidth) writeAddr writeData writeEnable n
+        (readAddr.val n)⟩
+
+theorem memory_val_zero {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) :
+    (memory wa wd we ra).val 0 = 0#dataWidth := rfl
+
+theorem memory_val_succ {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) (n : Nat) :
+    (memory wa wd we ra).val (n + 1)
+      = memState (fun _ => 0#dataWidth) wa wd we n (ra.val n) := rfl
+
+theorem memState_zero {addrWidth dataWidth : Nat}
+    (init : BitVec addrWidth → BitVec dataWidth)
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) :
+    memState init wa wd we 0 = init := rfl
+
+theorem memState_succ {addrWidth dataWidth : Nat}
+    (init : BitVec addrWidth → BitVec dataWidth)
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (n : Nat) (addr : BitVec addrWidth) :
+    memState init wa wd we (n + 1) addr
+      = if we.val n && addr == wa.val n then wd.val n
+        else memState init wa wd we n addr := rfl
 
 /--
   Memory with combinational (same-cycle) reads.
@@ -593,13 +645,24 @@ private unsafe def memoryComboReadImpl {addrWidth dataWidth : Nat}
     | .ok sig => sig
     | .error _ => ⟨fun _ => 0#dataWidth⟩
 
+/-- Logically: combinational read of the contents after the writes of
+    cycles `< t`, at `readAddr.val t` (the write of cycle `t` is not
+    visible).  Executed via `memoryComboReadImpl`. -/
 @[implemented_by memoryComboReadImpl]
-opaque memoryComboRead {addrWidth dataWidth : Nat}
+def memoryComboRead {addrWidth dataWidth : Nat}
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
     (writeEnable : Signal dom Bool)
     (readAddr : Signal dom (BitVec addrWidth))
-    : Signal dom (BitVec dataWidth)
+    : Signal dom (BitVec dataWidth) :=
+  ⟨fun t => memState (fun _ => 0#dataWidth) writeAddr writeData writeEnable t
+      (readAddr.val t)⟩
+
+theorem memoryComboRead_val {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) (t : Nat) :
+    (memoryComboRead wa wd we ra).val t
+      = memState (fun _ => 0#dataWidth) wa wd we t (ra.val t) := rfl
 
 /--
   Synchronous memory with initial contents (RAM/BRAM).
@@ -682,14 +745,27 @@ private unsafe def memoryWithInitImpl {addrWidth dataWidth : Nat}
     | .ok sig => sig
     | .error _ => ⟨fun _ => initData (readAddr.val 0)⟩
 
+/-- Logically: `memory` starting from `initData` (`.val 0` reads the
+    initial contents at `readAddr.val 0`, matching the implementation).
+    Executed via `memoryWithInitImpl`. -/
 @[implemented_by memoryWithInitImpl]
-opaque memoryWithInit {addrWidth dataWidth : Nat}
+def memoryWithInit {addrWidth dataWidth : Nat}
     (initData : BitVec addrWidth → BitVec dataWidth)
     (writeAddr : Signal dom (BitVec addrWidth))
     (writeData : Signal dom (BitVec dataWidth))
     (writeEnable : Signal dom Bool)
     (readAddr : Signal dom (BitVec addrWidth))
-    : Signal dom (BitVec dataWidth)
+    : Signal dom (BitVec dataWidth) :=
+  ⟨fun t => match t with
+    | 0 => initData (readAddr.val 0)
+    | n + 1 => memState initData writeAddr writeData writeEnable n (readAddr.val n)⟩
+
+theorem memoryWithInit_val_succ {addrWidth dataWidth : Nat}
+    (initData : BitVec addrWidth → BitVec dataWidth)
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) (n : Nat) :
+    (memoryWithInit initData wa wd we ra).val (n + 1)
+      = memState initData wa wd we n (ra.val n) := rfl
 
 -- Fixed-point combinator for feedback loops.
 -- Uses memoized evaluation via C FFI barriers (cacheGet/evalSignalAt)
@@ -853,6 +929,118 @@ theorem loopGo_eq {dom : DomainConfig} {α : Type} [Inhabited α]
     (f : Signal dom α → Signal dom α) (t : Nat) :
     loopGo f t = (f ⟨fun i => if i < t then loopGo f i else default⟩).val t := by
   rw [loopGo]
+
+/-! ### Loop view of a memory
+
+`memState` is the trace of a `Signal.loop` over the contents, and a
+registered memory is a register over that loop read at the read
+address.  To the certification bridge a memory inside a `circuit do`
+body is therefore a NESTED LOOP whose state is the contents array — the
+same shape as an instantiated sub-circuit. -/
+
+/-- The contents recurrence as a loop body: at cycle `n+1` the write
+    port sampled at `n` updates one word of the previous contents. -/
+def memStep {addrWidth dataWidth : Nat}
+    (init : BitVec addrWidth → BitVec dataWidth)
+    (writeAddr : Signal dom (BitVec addrWidth))
+    (writeData : Signal dom (BitVec dataWidth))
+    (writeEnable : Signal dom Bool) :
+    Signal dom (BitVec addrWidth → BitVec dataWidth) →
+    Signal dom (BitVec addrWidth → BitVec dataWidth) :=
+  fun live => ⟨fun t => match t with
+    | 0 => init
+    | n + 1 => fun addr =>
+      if writeEnable.val n && addr == writeAddr.val n then writeData.val n
+      else live.val n addr⟩
+
+theorem memState_eq_loop {addrWidth dataWidth : Nat}
+    (init : BitVec addrWidth → BitVec dataWidth)
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (t : Nat) :
+    memState init wa wd we t = (loop (memStep init wa wd we)).val t := by
+  induction t with
+  | zero =>
+    show init = loopGo (memStep init wa wd we) 0
+    rw [loopGo_eq]
+    rfl
+  | succ n ih =>
+    show (fun addr => if we.val n && addr == wa.val n then wd.val n
+        else memState init wa wd we n addr)
+      = loopGo (memStep init wa wd we) (n + 1)
+    rw [loopGo_eq]
+    funext addr
+    show _ = (if we.val n && addr == wa.val n then wd.val n
+        else (if n < n + 1 then loopGo (memStep init wa wd we) n else default) addr)
+    rw [if_pos (Nat.lt_succ_self n)]
+    rw [ih]
+    rfl
+
+/-- A registered memory IS a register over the contents loop, read at
+    the read address (a `Signal` equation, usable anywhere). -/
+theorem memory_eq_register_loop {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) :
+    memory wa wd we ra
+      = register 0#dataWidth
+          ⟨fun t => (loop (memStep (fun _ => 0#dataWidth) wa wd we)).val t (ra.val t)⟩ := by
+  unfold memory register
+  congr 1
+  funext t
+  cases t with
+  | zero => rfl
+  | succ n =>
+    show memState (fun _ => 0#dataWidth) wa wd we n (ra.val n) = _
+    rw [memState_eq_loop]
+
+/-- A combinational-read memory IS the contents loop read at the read
+    address, same cycle (the bridge form of `memoryComboRead`). -/
+theorem memoryComboRead_eq_loop {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) :
+    memoryComboRead wa wd we ra
+      = ⟨fun t => (loop (memStep (fun _ => 0#dataWidth) wa wd we)).val t (ra.val t)⟩ := by
+  unfold memoryComboRead
+  congr 1
+  funext t
+  rw [memState_eq_loop]
+
+/-- Any signal is the (constant-body) loop of itself — used to present a
+    memory's read latch as a one-slot nested loop to the bridge. -/
+theorem eq_loop_const {α : Type} [Inhabited α] (x : Signal dom α) :
+    x = loop (fun _ => x) := by
+  show x = ⟨loopGo (fun _ => x)⟩
+  cases x with
+  | mk v =>
+    congr 1
+    funext t
+    rw [loopGo_eq]
+
+/-- The bridge form of a registered memory: a one-slot loop (the latch,
+    `Signal.register 0 …`) reading the contents loop at the read address. -/
+theorem memory_eq_loops {addrWidth dataWidth : Nat}
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) :
+    memory wa wd we ra
+      = loop (fun _ => register 0#dataWidth
+          ⟨fun t => (loop (memStep (fun _ => 0#dataWidth) wa wd we)).val t (ra.val t)⟩) := by
+  rw [memory_eq_register_loop]
+  exact eq_loop_const _
+
+theorem memoryWithInit_eq_register_loop {addrWidth dataWidth : Nat}
+    (initData : BitVec addrWidth → BitVec dataWidth)
+    (wa : Signal dom (BitVec addrWidth)) (wd : Signal dom (BitVec dataWidth))
+    (we : Signal dom Bool) (ra : Signal dom (BitVec addrWidth)) :
+    memoryWithInit initData wa wd we ra
+      = register (initData (ra.val 0))
+          ⟨fun t => (loop (memStep initData wa wd we)).val t (ra.val t)⟩ := by
+  unfold memoryWithInit register
+  congr 1
+  funext t
+  cases t with
+  | zero => rfl
+  | succ n =>
+    show memState initData wa wd we n (ra.val n) = _
+    rw [memState_eq_loop]
 
 /-- Memoize an existing Signal so each `.val t` is computed
     at most once.  Same C-FFI cache trick as `loop`, but for

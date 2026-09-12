@@ -124,3 +124,10 @@ bench/xiangshan/corpus/
 bench/systolic/systolic_cpu
 bench/systolic/systolic_gpu
 bench/systolic/systolic_gpu_grid
+
+# harness outputs written to the repo root
+sv-roundtrip-catalog*.tsv
+sv-to-dsl-printable.tsv
+# XiangShan mill build tree / generated scratch probes
+out/
+scratchgen/

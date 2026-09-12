@@ -196,5 +196,146 @@ if [ -f "$DSL_FILE" ]; then
   echo "dsl-printable on the CI corpus: ${printable:-0}"
 fi
 
+# == phase 5: the Signal↔IR link (#verify_elab) ======================
+# Generates and kernel-checks, per demo circuit, that the elaborated
+# IR's register/output trace under the PROVEN evalExpr equals the
+# circuit's own Signal semantics.  The command aborts itself if any
+# generated proof smuggles in sorryAx, so grepping PROVEN is sound.
+ELAB_FILE=Tests/Verification/VerifyElabDemo.lean
+if [ -f "$ELAB_FILE" ]; then
+  echo "== phase 5: Signal ↔ IR (#verify_elab)"
+  lake build Sparkle Tools.VerifyElab > "$WORK/velab_build.log" 2>&1 || {
+    echo "FAIL: could not build the verify-elab import closure"
+    tail -5 "$WORK/velab_build.log" | sed 's/^/    /'
+    fail=1
+  }
+  if lake env lean "$ELAB_FILE" > "$WORK/verify_elab.log" 2>&1; then
+    vproven=$(grep -c 'PROVEN' "$WORK/verify_elab.log")
+    echo "verify-elab: $vproven circuits proven (axioms audited)"
+    if [ "$vproven" -lt 7 ]; then
+      echo "FAIL: verify-elab proved $vproven < 7 demo circuits"; fail=1
+    fi
+  else
+    echo "FAIL: #verify_elab demo did not close"
+    grep -m3 -E "error" "$WORK/verify_elab.log" | sed 's/^/    /'
+    fail=1
+  fi
+  # the GENERAL-theorem route: same circuits reified into the deep
+  # grammar, certified through Cdo.elab_general
+  DEEP_FILE=Tests/Verification/DeepElabReifyDemo.lean
+  if [ -f "$DEEP_FILE" ]; then
+    lake build Tools.DeepElab > "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the deep-elab import closure"; fail=1; }
+    if lake env lean "$DEEP_FILE" > "$WORK/deep_elab.log" 2>&1; then
+      dproven=$(grep -c 'PROVEN' "$WORK/deep_elab.log")
+      echo "deep-elab (general theorem): $dproven circuits proven"
+      # 13 flat demos + 3 nested-circuit demos (outerNest, outerFb, lvl0)
+      # + 2 value-parameter wrappers (accK15, accN200)
+      # + 3 memory demos (memAcc, memTwo, comboAcc)
+      if [ "$dproven" -lt 21 ]; then
+        echo "FAIL: deep-elab proved $dproven < 21 demo circuits"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep demo did not close"
+      grep -m3 -E "error" "$WORK/deep_elab.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # the general theorem on REAL shipping IP (crc32Engine, …)
+  REAL_FILE=Tests/Verification/DeepElabRealIP.lean
+  if [ -f "$REAL_FILE" ]; then
+    lake build IP.Net.CRC32 IP.Net.UART IP.Crypto.EcdsaSignSmall IP.Bus.DroneCANHW IP.Bus.SBUSHW IP.Bus.SPIHW >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the real-IP import closure"; fail=1; }
+    if lake env lean "$REAL_FILE" > "$WORK/deep_real.log" 2>&1; then
+      # one PROVEN line per output port: crc32Engine (1) + uartTxHW (2)
+      # + regFile (2) + transferIdTrackerHW (3) + frameAccumulatorHW (4)
+      # + spiMasterHW (5)
+      rproven=$(grep -c 'PROVEN' "$WORK/deep_real.log")
+      echo "deep-elab (real IP): $rproven ports proven"
+      if [ "$rproven" -lt 17 ]; then
+        echo "FAIL: deep-elab real-IP proved $rproven < 17 ports"; fail=1
+      fi
+    else
+      echo "FAIL: #verify_elab_deep real-IP did not close"
+      grep -m3 -E "error" "$WORK/deep_real.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # STATE CORRESPONDENCE + duplication-freedom: the trace theorems are
+  # invariant under duplicated hardware (two copies of one register hold
+  # the same value every cycle), so this is what catches the three
+  # duplication bugs the chain could not see.  The file's negative
+  # section pins non-vacuity, so a build failure here means either a
+  # real duplication or a broken checker.
+  CORR_FILE=Tests/Verification/StateCorrespondenceTest.lean
+  if [ -f "$CORR_FILE" ]; then
+    if lake build Tests.Verification.StateCorrespondenceTest \
+        > "$WORK/state_corr.log" 2>&1; then
+      echo "state correspondence: 6 shipping circuits, duplication-free"
+    else
+      echo "FAIL: state correspondence / duplication-freedom regressed"
+      grep -m5 -E "error" "$WORK/state_corr.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+  # value-parameter register inits: the shape the deep route used to
+  # die on with an internal `unknown free variable` (loop-node analysis
+  # ran outside the lambda scope it opened).  The file carries the
+  # once-failing circuit, its controls, a Nat-derived init and a
+  # two-level wrapper chain, plus a run_cmd pinning the IR init value.
+  # Checked BY NAME, not by count: each of the five circuits must have
+  # its PROVEN line, and the file's own run_cmd must emit a `VPI OK:`
+  # line for it — printed only after both `_deep_trace` and
+  # `_deep_signal_run` are found in the environment and pass the
+  # ALLOWED-AXIOMS policy (a subset check: capstone → standard axioms
+  # only; replay → standard + Lean.ofReduceBool + native_decide
+  # auxiliaries recognised by name STRUCTURE for that circuit; anything
+  # else, incl. sorryAx, rejects).  The file's negative cases must also
+  # report `VPI NEG OK`, so a classifier that accepts everything fails
+  # here.  A missing file is a failure, not a skip.
+  VPI_FILE=Tests/Verification/ValueParamInitRepro.lean
+  VPI_CIRCUITS="accK9 litInit initCirc7 natInit5 initCirc7Again"
+  if [ ! -f "$VPI_FILE" ]; then
+    echo "FAIL: $VPI_FILE is missing (value-param init regression gate)"
+    fail=1
+  elif lake build Tests.Verification.ValueParamInitRepro \
+      > "$WORK/vpi.log" 2>&1; then
+    vpi_ok=1
+    for c in $VPI_CIRCUITS; do
+      grep -q "ValueParamInitRepro\.$c: PROVEN" "$WORK/vpi.log" || {
+        echo "FAIL: value-param inits — $c not PROVEN"; vpi_ok=0; }
+      grep -q "VPI OK: $c " "$WORK/vpi.log" || {
+        echo "FAIL: value-param inits — $c trace/replay theorem check missing"; vpi_ok=0; }
+    done
+    grep -q "VPI NEG OK" "$WORK/vpi.log" || {
+      echo "FAIL: value-param inits — axiom-policy negative cases did not run"; vpi_ok=0; }
+    if [ "$vpi_ok" -eq 1 ]; then
+      echo "value-param register inits: 5 named circuits proven, trace+replay under allowed-axioms policy, negatives rejected"
+    else
+      fail=1
+    fi
+  else
+    echo "FAIL: ValueParamInitRepro did not build"
+    grep -m5 -E "error" "$WORK/vpi.log" | sed 's/^/    /'
+    fail=1
+  fi
+  # the SEAM bridge: per-instance composition of the generated
+  # recurrence with the module-level fold semantics (ConeFold capstone
+  # instantiated on cnt8; checker hypotheses by native_decide)
+  BRIDGE_FILE=Tests/Verification/ConeBridgeDemo.lean
+  if [ -f "$BRIDGE_FILE" ]; then
+    lake build Tools.ConeFoldSlices Tests.Verification.VerifyElabDemo \
+        >> "$WORK/deep_build.log" 2>&1 || {
+      echo "FAIL: could not build the cone-bridge import closure"; fail=1; }
+    if lake env lean "$BRIDGE_FILE" > "$WORK/cone_bridge.log" 2>&1; then
+      echo "cone-bridge (seam per-instance): cnt8 step agreement proven"
+    else
+      echo "FAIL: cone-bridge demo did not close"
+      grep -m3 -E "error" "$WORK/cone_bridge.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
+fi
+
 if [ "$fail" != "0" ]; then echo "== XiangShan gate: FAILED"; exit 1; fi
 echo "== XiangShan gate: OK (roundtrip ${wall}s, equiv $equiv_ok proven/$equiv_skip skipped)"

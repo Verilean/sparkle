@@ -1,0 +1,604 @@
+/-
+  Sparkle IR — mathematical semantics (proof-facing).
+
+  A TOTAL evaluator for the scalar fragment of `Expr`, intended as the
+  denotation that certified-roundtrip theorems are stated against:
+
+      ⟦ lower (emit x) ⟧ = ⟦ x ⟧
+
+  Design notes, in order of importance:
+
+  * TOTAL, not `partial`.  A `partial def` produces no unfolding
+    equations, so nothing can be proven about it — this is why the
+    shipping pipeline (73 `partial def`s across Parser/Lower/Verilog/
+    Optimize) cannot be the direct subject of theorems.  The verified
+    core is written total; the shipping code is tied to it by
+    cross-checking tests (verified-core / validated-shell split).
+
+  * Values are `Nat` with EXPLICIT masking to the context width, not
+    `BitVec n`.  The IR is width-annotated at consts/slices only, so a
+    width-indexed value type would force every theorem through `Σ n,
+    BitVec n` casts.  `Nat`+mask mirrors what both backends actually
+    compute (CSim's `& mask` discipline, Verilog's context truncation)
+    and keeps lemmas cast-free.  Two-state only: X/Z are outside the
+    model, exactly as in CSim.
+
+  * `Env` maps names to values, `WEnv` to widths.  Refs are looked up
+    unmasked — well-formedness (every stored value already masked) is a
+    hypothesis of the preservation theorems, not re-enforced per read.
+
+  * The fragment: const/ref, the bitwise/arith/compare/shift/mux ops,
+    concat, and constant-bound slice.  `sliceDim` (symbolic widths) and
+    `index` (memories) return `none`; they enter the semantics when the
+    proof reaches memories.
+-/
+
+import Sparkle.IR.AST
+
+namespace Sparkle.IR.Semantics
+
+open Sparkle.IR.AST
+
+abbrev Env := String → Nat
+abbrev WEnv := String → Nat
+
+/-- Truncate to `w` bits. -/
+def mask (w : Nat) (v : Nat) : Nat := v % (2 ^ w)
+
+/-- Two's-complement interpretation of a masked value, for signed ops. -/
+def toSigned (w : Nat) (v : Nat) : Int :=
+  if v < 2 ^ (w - 1) then (v : Int) else (v : Int) - (2 ^ w : Nat)
+
+/-- Width of an expression under a width environment (the proof-facing
+    twin of the backends' `inferExprWidth`; binary ops take the MAX of
+    their operands, matching hardware and the fixed CSim rule). -/
+def widthOf (we : WEnv) : Expr → Nat
+  | .const _ w => w
+  | .ref n => we n
+  | .op .mux args =>
+    match args with
+    | [_, t, _] => widthOf we t
+    | _ => 0
+  | .op .eq _ | .op .lt_u _ | .op .lt_s _ | .op .le_u _ | .op .le_s _
+  | .op .gt_u _ | .op .gt_s _ | .op .ge_u _ | .op .ge_s _ => 1
+  | .op .not args =>
+    match args with
+    | [a] => widthOf we a
+    | _ => 0
+  -- A right shift only DROPS bits: its width is its VALUE operand's,
+  -- matching Verilog's self-determined rule (the amount's width used
+  -- to leak in through the generic max — a 32-bit literal amount made
+  -- an 8-bit shift "32 bits wide", `_GEN >> (idx * 32'd4)`).
+  | .op .shr args =>
+    match args with
+    | [a, _] => widthOf we a
+    | _ => 0
+  | .op _ args =>
+    match args with
+    | [a, b] => max (widthOf we a) (widthOf we b)
+    | [a] => widthOf we a
+    | _ => 0
+  | .concat args => go args
+  | .slice _ hi lo => hi - lo + 1
+  | .sliceDim _ _ _ => 0
+  | .index _ _ => 0
+where
+  go : List Expr → Nat
+    | [] => 0
+    | a :: rest => widthOf we a + go rest
+
+/-- Evaluate one operator over already-evaluated, already-masked operand
+    values.  `w` is the result's context width. -/
+def evalOp (we : WEnv) (operator : Operator) (args : List Expr)
+    (vals : List Nat) (w : Nat) : Option Nat :=
+  match operator, args, vals with
+  | .and, _, [a, b] => some (mask w (a &&& b))
+  | .or,  _, [a, b] => some (mask w (a ||| b))
+  | .xor, _, [a, b] => some (mask w (a ^^^ b))
+  | .not, [x], [a] =>
+    let wx := widthOf we x
+    some (mask wx (a ^^^ (2 ^ wx - 1)))
+  | .add, _, [a, b] => some (mask w (a + b))
+  | .sub, _, [a, b] => some (mask w (a + (2 ^ w - mask w b)))
+  | .mul, _, [a, b] => some (mask w (a * b))
+  | .eq,  _, [a, b] => some (if a = b then 1 else 0)
+  | .lt_u, _, [a, b] => some (if a < b then 1 else 0)
+  | .le_u, _, [a, b] => some (if a ≤ b then 1 else 0)
+  | .gt_u, _, [a, b] => some (if b < a then 1 else 0)
+  | .ge_u, _, [a, b] => some (if b ≤ a then 1 else 0)
+  | .lt_s, [x, y], [a, b] =>
+    let wc := max (widthOf we x) (widthOf we y)
+    some (if toSigned wc a < toSigned wc b then 1 else 0)
+  | .le_s, [x, y], [a, b] =>
+    let wc := max (widthOf we x) (widthOf we y)
+    some (if toSigned wc a ≤ toSigned wc b then 1 else 0)
+  | .gt_s, [x, y], [a, b] =>
+    let wc := max (widthOf we x) (widthOf we y)
+    some (if toSigned wc b < toSigned wc a then 1 else 0)
+  | .ge_s, [x, y], [a, b] =>
+    let wc := max (widthOf we x) (widthOf we y)
+    some (if toSigned wc b ≤ toSigned wc a then 1 else 0)
+  | .shl, _, [a, b] => some (mask w (a <<< b))
+  | .shr, _, [a, b] => some (a >>> b)
+  | .asr, [x, _], [a, b] =>
+    let wx := widthOf we x
+    let s := toSigned wx a
+    some (mask wx (Int.toNat ((s >>> b) % (2 ^ wx : Nat))))
+  | .mux, _, [c, t, f] => some (if c ≠ 0 then t else f)
+  | .neg, _, [a] => some (mask w (2 ^ w - mask w a))
+  | _, _, _ => none
+
+mutual
+/-- Total evaluator for the scalar fragment.  `none` = outside the
+    fragment (symbolic widths, memory reads) or malformed arity. -/
+def evalExpr (we : WEnv) (env : Env) : Expr → Option Nat
+  | .const v w =>
+    -- Two's-complement encode negatives into w bits, like the emitters.
+    some (mask w (Int.toNat (((v % (2 ^ w : Nat)) + (2 ^ w : Nat)) % (2 ^ w : Nat))))
+  | .ref n => some (env n)
+  | .op operator args => do
+    let vals ← evalList we env args
+    evalOp we operator args vals (widthOf we (.op operator args))
+  | .concat args => do
+    let vals ← evalList we env args
+    -- MSB-first: the FIRST element lands in the high bits.
+    some (go args vals)
+  | .slice e hi lo => do
+    let v ← evalExpr we env e
+    some (mask (hi - lo + 1) (v >>> lo))
+  | .sliceDim _ _ _ => none
+  | .index _ _ => none
+where
+  go : List Expr → List Nat → Nat
+    | a :: as, v :: vs =>
+      let restW := (as.zip vs).foldl (fun acc (p : Expr × Nat) => acc + widthOf we p.1) 0
+      (mask (widthOf we a) v) <<< restW ||| go as vs
+    | _, _ => 0
+
+def evalList (we : WEnv) (env : Env) : List Expr → Option (List Nat)
+  | [] => some []
+  | a :: rest => do
+    let v ← evalExpr we env a
+    let vs ← evalList we env rest
+    some (v :: vs)
+end
+
+/- ------------------------------------------------------------------ -/
+/- Module-level step semantics (M1).
+
+   One clock cycle of a module, in two phases exactly mirroring the
+   backends' eval/tick split:
+
+   * `evalAssigns` — combinational elaboration: fold the body's assigns
+     IN ORDER over an environment seeded with inputs and current
+     register values.  Correctness relies on the body being
+     topologically sorted, which is a WELL-FORMEDNESS assumption here
+     and a guarantee of `topoSortBody` on the shipping pipeline.
+
+   * `regNexts` — the register phase: each register's next value is
+     `if reset ≠ 0 then init else ⟦input⟧` under the POST-elaboration
+     environment.  Reset KIND (sync/async) is deliberately ignored: in
+     the cycle-level model both kinds sample reset once per cycle, which
+     is also why the parser losing the `or posedge rst` sensitivity is
+     semantically inert.
+
+   Memories follow the `Stmt.memory` contract documented in the AST:
+   all ports share the clock, reads see the state BEFORE this cycle's
+   writes (read-old), and simultaneous writes to the same address are
+   resolved by port order (last enabled port wins).  Memory state is an
+   `MEnv`; combinational reads extend the environment during
+   elaboration, synchronous reads latch like registers, and writes are
+   evaluated under the POST-elaboration environment (the backends'
+   tick phase).
+
+   INSTANCES are no-ops in this OPEN-module semantics: an instance's
+   outputs are free inputs of the enclosing module (driven by the
+   seed), so the trace theorems quantify over EVERY behavior of the
+   instantiated modules.  The actual composition is covered dynamically
+   by the hierarchical co-sim; a closed hierarchical semantics is
+   future work. -/
+
+/-- Memory state: array contents by memory name. -/
+abbrev MEnv := String → Nat → Nat
+
+/-- Combinational read ports: extend the env with `rd ↦ mem[addr]`,
+    in port order (mirrors the emitted `assign` per port). -/
+def comboReads (we : WEnv) (mems : MEnv) (name : String) (aw dw : Nat) :
+    List (Expr × String) → Env → Option Env
+  | [], env => some env
+  | (a, rd) :: rest, env => do
+    let av ← evalExpr we env a
+    comboReads we mems name aw dw rest
+      (fun n => if n = rd then mask dw (mems name (mask aw av)) else env n)
+
+def evalAssigns (we : WEnv) (mems : MEnv) : List Stmt → Env → Option Env
+  | [], env => some env
+  | .assign l r :: rest, env => do
+    let v ← evalExpr we env r
+    evalAssigns we mems rest (fun n => if n = l then v else env n)
+  | .register _ _ _ _ _ :: rest, env => evalAssigns we mems rest env
+  | .memory name aw dw _ _ _ _ ra rd cr _ er :: rest, env =>
+    if cr then do
+      let env' ← comboReads we mems name aw dw ((ra, rd) :: er) env
+      evalAssigns we mems rest env'
+    else
+      -- sync-read data is register-like state, seeded into env0
+      evalAssigns we mems rest env
+  | .inst _ _ _ :: rest, env =>
+    -- open-module view: instance outputs are free inputs
+    evalAssigns we mems rest env
+
+/-- Encode a register's reset value the way `evalExpr` encodes
+    constants. -/
+def encodeInit (v : Int) (w : Nat) : Nat :=
+  mask w (Int.toNat (((v % (2 ^ w : Nat)) + (2 ^ w : Nat)) % (2 ^ w : Nat)))
+
+/-- Synchronous read ports: latch `mem[addr]` (read-old — `mems` is the
+    pre-write state) into the register-update list. -/
+def syncReadLatches (we : WEnv) (mems : MEnv) (name : String)
+    (aw dw : Nat) :
+    List (Expr × String) → Env → Option (List (String × Nat))
+  | [], _ => some []
+  | (a, rd) :: rest, env => do
+    let av ← evalExpr we env a
+    let latches ← syncReadLatches we mems name aw dw rest env
+    some ((rd, mask dw (mems name (mask aw av))) :: latches)
+
+/-- Next values for every register (and sync-read latch), under the
+    post-elaboration env. -/
+def regNexts (we : WEnv) (mems : MEnv) :
+    List Stmt → Env → Option (List (String × Nat))
+  | [], _ => some []
+  | .register out _ (rstName, _) input init :: rest, env => do
+    let vin ← evalExpr we env input
+    let nexts ← regNexts we mems rest env
+    let next := if env rstName ≠ 0 then encodeInit init (we out)
+                else mask (we out) vin
+    some ((out, next) :: nexts)
+  | .memory name aw dw _ _ _ _ ra rd cr _ er :: rest, env =>
+    if cr then regNexts we mems rest env
+    else do
+      let latches ← syncReadLatches we mems name aw dw ((ra, rd) :: er) env
+      let nexts ← regNexts we mems rest env
+      some (latches ++ nexts)
+  | .assign _ _ :: rest, env => regNexts we mems rest env
+  | .inst _ _ _ :: rest, env => regNexts we mems rest env
+
+mutual
+/-- Extract reads of ONE array (`.index (.ref arr) idx`) from an IR
+    expression, replacing each with a placeholder ref (semantics-side
+    mirror of the lowering's `extractArrayReads`).  Nested reads (an
+    index whose address itself reads the array) stay in place and make
+    the payload evaluation fail — outside the v1 model. -/
+def extractReads (arr : String) : Expr → Nat → (Expr × List (String × Expr) × Nat)
+  | .index (.ref a) idx, k =>
+    if a = arr then
+      (.ref (s!"__memread_{arr}_{k}"), [(s!"__memread_{arr}_{k}", idx)], k + 1)
+    else (.index (.ref a) idx, [], k)
+  | .op o args, k =>
+    let (args', l, k') := extractReadsList arr args k
+    (.op o args', l, k')
+  | .concat args, k =>
+    let (args', l, k') := extractReadsList arr args k
+    (.concat args', l, k')
+  | .slice x hi lo, k =>
+    let (x', l, k') := extractReads arr x k
+    (.slice x' hi lo, l, k')
+  | e, k => (e, [], k)
+
+def extractReadsList (arr : String) : List Expr → Nat → (List Expr × List (String × Expr) × Nat)
+  | [], k => ([], [], k)
+  | a :: rest, k =>
+    let (a', l1, k1) := extractReads arr a k
+    let (rest', l2, k2) := extractReadsList arr rest k1
+    (a' :: rest', l1 ++ l2, k2)
+end
+
+mutual
+/-- Counter monotonicity: extraction never decreases the counter. -/
+theorem extractReads_mono {arr : String} :
+    ∀ (e : Expr) (k0 : Nat), k0 ≤ (extractReads arr e k0).2.2
+  | .index (.ref a) idx, k0 => by
+    by_cases h : a = arr <;> simp [extractReads, h]
+  | .op o args, k0 => by
+    simpa [extractReads] using extractReadsList_mono args k0
+  | .concat args, k0 => by
+    simpa [extractReads] using extractReadsList_mono args k0
+  | .slice x hi lo, k0 => by
+    simpa [extractReads] using extractReads_mono x k0
+  | .ref n, k0 => by simp [extractReads]
+  | .const v w, k0 => by simp [extractReads]
+  | .sliceDim x d i, k0 => by simp [extractReads]
+  | .index (.const v w) idx, k0 => by simp [extractReads]
+  | .index (.op o args) idx, k0 => by simp [extractReads]
+  | .index (.concat args) idx, k0 => by simp [extractReads]
+  | .index (.slice x hi lo) idx, k0 => by simp [extractReads]
+  | .index (.sliceDim x d i) idx, k0 => by simp [extractReads]
+  | .index (.index a i) idx, k0 => by simp [extractReads]
+
+theorem extractReadsList_mono {arr : String} :
+    ∀ (l : List Expr) (k0 : Nat), k0 ≤ (extractReadsList arr l k0).2.2
+  | [], k0 => by simp [extractReadsList]
+  | a :: rest, k0 => by
+    have h1 := extractReads_mono (arr := arr) a k0
+    have h2 := extractReadsList_mono (arr := arr) rest
+      (extractReads arr a k0).2.2
+    show k0 ≤ (extractReadsList arr rest (extractReads arr a k0).2.2).2.2
+    omega
+end
+
+mutual
+/-- Placeholder-name characterization: every read the extractor
+    collects is named `__memread_arr_j` with `j` inside the counter
+    window — the fact that lets a payload's splice facts and bounds be
+    established for names the extractor invented. -/
+theorem extractReads_names {arr : String} :
+    ∀ (e : Expr) (k0 : Nat),
+      ∀ p ∈ (extractReads arr e k0).2.1,
+        ∃ j, k0 ≤ j ∧ j < (extractReads arr e k0).2.2
+          ∧ p.1 = s!"__memread_{arr}_{j}"
+  | .index (.ref a) idx, k0 => by
+    by_cases h : a = arr
+    · subst h
+      intro p hp
+      simp only [extractReads, if_true, List.mem_singleton] at hp
+      refine ⟨k0, Nat.le_refl _, by simp [extractReads], ?_⟩
+      rw [hp]
+    · intro p hp
+      simp [extractReads, h] at hp
+  | .op o args, k0 => by
+    intro p hp
+    simp only [extractReads] at hp ⊢
+    exact extractReadsList_names args k0 p hp
+  | .concat args, k0 => by
+    intro p hp
+    simp only [extractReads] at hp ⊢
+    exact extractReadsList_names args k0 p hp
+  | .slice x hi lo, k0 => by
+    intro p hp
+    simp only [extractReads] at hp ⊢
+    exact extractReads_names x k0 p hp
+  | .ref n, k0 => by intro p hp; simp [extractReads] at hp
+  | .const v w, k0 => by intro p hp; simp [extractReads] at hp
+  | .sliceDim x d i, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.const v w) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.op o args) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.concat args) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.slice x hi lo) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.sliceDim x d i) idx, k0 => by intro p hp; simp [extractReads] at hp
+  | .index (.index a i) idx, k0 => by intro p hp; simp [extractReads] at hp
+
+theorem extractReadsList_names {arr : String} :
+    ∀ (l : List Expr) (k0 : Nat),
+      ∀ p ∈ (extractReadsList arr l k0).2.1,
+        ∃ j, k0 ≤ j ∧ j < (extractReadsList arr l k0).2.2
+          ∧ p.1 = s!"__memread_{arr}_{j}"
+  | [], k0 => by intro p hp; simp [extractReadsList] at hp
+  | a :: rest, k0 => by
+    intro p hp
+    have hsplit : (extractReadsList arr (a :: rest) k0).2.1
+        = (extractReads arr a k0).2.1
+          ++ (extractReadsList arr rest (extractReads arr a k0).2.2).2.1 :=
+      rfl
+    have hk : (extractReadsList arr (a :: rest) k0).2.2
+        = (extractReadsList arr rest (extractReads arr a k0).2.2).2.2 :=
+      rfl
+    rw [hsplit] at hp
+    rw [hk]
+    rcases List.mem_append.mp hp with hL | hR
+    · obtain ⟨j, hj0, hjk, hn⟩ := extractReads_names a k0 p hL
+      have := extractReadsList_mono (arr := arr) rest
+        (extractReads arr a k0).2.2
+      exact ⟨j, hj0, by omega, hn⟩
+    · obtain ⟨j, hj0, hjk, hn⟩ := extractReadsList_names rest
+        (extractReads arr a k0).2.2 p hR
+      have := extractReads_mono (arr := arr) a k0
+      exact ⟨j, by omega, hjk, hn⟩
+end
+
+/-- Evaluate a memory-port payload: reads of the memory's OWN array are
+    resolved against the PRE-cycle memory state (nonblocking RHS
+    evaluate before any write lands), then the payload evaluates as an
+    ordinary expression with the read values spliced in as fresh
+    names.  Payloads without such reads evaluate exactly as before. -/
+def spliceReads (we : WEnv) (mems : MEnv) (env : Env)
+    (arr : String) (aw dw : Nat) :
+    List (String × Expr) → Env → Option Env
+  | [], acc => some acc
+  | (ph, idx) :: rest, acc => do
+    let vi ← evalExpr we env idx
+    spliceReads we mems env arr aw dw rest
+      (fun n => if n = ph then mask dw (mems arr (mask aw vi)) else acc n)
+
+/-- The width environment extended with a payload's read placeholders,
+    each at the memory's data width.  `extractReads` invents these
+    names, so their widths are the extractor's to declare: a
+    placeholder holds a `dw`-bit word by construction.  Leaving them to
+    `we`'s default (0 under `weOf`) made the reference semantics mask an
+    arithmetic RMW like `Mem[a] + Mem[a]` by `2^0` — the sum of two 5s
+    in a 10-bit memory evaluated to 0 where Verilog computes 10. -/
+def weWithReads (we : WEnv) (arr : String) (dw n : Nat) : WEnv :=
+  fun x =>
+    if (List.range n).any (fun k => x == s!"__memread_{arr}_{k}")
+    then dw else we x
+
+/-- Extending for zero placeholders changes nothing. -/
+theorem weWithReads_zero (we : WEnv) (arr : String) (dw : Nat) :
+    weWithReads we arr dw 0 = we :=
+  funext fun n => by simp [weWithReads]
+
+def evalPayload (we : WEnv) (mems : MEnv) (env : Env)
+    (arr : String) (aw dw : Nat) (e : Expr) : Option Nat :=
+  let (e', reads, k) := extractReads arr e 0
+  -- the WHOLE payload evaluation happens under the extended widths:
+  -- the stripped form mentions the placeholders, and the splice's
+  -- address evaluations never do (extraction pulled the reads out), so
+  -- extending uniformly changes nothing for them while keeping one
+  -- environment throughout
+  let we' := weWithReads we arr dw k
+  (spliceReads we' mems env arr aw dw reads env).bind fun spl =>
+    evalExpr we' spl e'
+
+/-- Write ports of one memory, in port order: an enabled port stores
+    `mask dw data` at `mask aw addr`; a later port overwrites an earlier
+    one on the same address (the Verilog `always_ff` sequential-`if`
+    rule). -/
+def memWritePorts (we : WEnv) (mems0 : MEnv) (env : Env) (name : String)
+    (aw dw : Nat) :
+    List (Expr × Expr × Expr) → MEnv → Option MEnv
+  | [], m => some m
+  | (a, d, en) :: rest, m => do
+    let ev ← evalPayload we mems0 env name aw dw en
+    let av ← evalPayload we mems0 env name aw dw a
+    let dv ← evalPayload we mems0 env name aw dw d
+    memWritePorts we mems0 env name aw dw rest
+      (if ev ≠ 0 then
+        (fun nm i => if nm = name ∧ i = mask aw av then mask dw dv
+                     else m nm i)
+       else m)
+
+/-- Memory state after this cycle's writes, evaluated under the
+    post-elaboration env. -/
+def memNexts (we : WEnv) : List Stmt → MEnv → Env → Option MEnv
+  | [], mems, _ => some mems
+  | .memory name aw dw _ wa wd wen _ _ _ ew _ :: rest, mems, env => do
+    let mems' ← memWritePorts we mems env name aw dw ((wa, wd, wen) :: ew) mems
+    memNexts we rest mems' env
+  | .assign _ _ :: rest, mems, env => memNexts we rest mems env
+  | .register _ _ _ _ _ :: rest, mems, env => memNexts we rest mems env
+  | .inst _ _ _ :: rest, mems, env => memNexts we rest mems env
+
+/-- One cycle: elaborate, then step the registers.  Returns the final
+    combinational environment (outputs are read from it) and the
+    register updates. -/
+def stepModule (we : WEnv) (body : List Stmt) (env0 : Env)
+    (mems : MEnv := fun _ _ => 0) :
+    Option (Env × List (String × Nat) × MEnv) := do
+  let envF ← evalAssigns we mems body env0
+  let nexts ← regNexts we mems body envF
+  let mems' ← memNexts we body mems envF
+  some (envF, nexts, mems')
+
+section StepGuards
+private def weS : WEnv := fun _ => 8
+private def envS : Env := fun n =>
+  if n == "a" then 0xA5 else if n == "rst" then 0 else if n == "r" then 7 else 0
+private def bodyS : List Stmt :=
+  [ .assign "w" (.op .add [.ref "a", .ref "r"]),
+    .register "r" "clock" ("rst", .asynchronous) (.ref "w") 3 ]
+-- combinational: w = a + r = 0xA5 + 7 = 0xAC
+#guard (stepModule weS bodyS envS).map (fun p => p.1 "w") = some 0xAC
+-- register next: rst=0 → w's value
+#guard (stepModule weS bodyS envS).map (fun p => p.2.1) = some [("r", 0xAC)]
+-- under reset: init encoded
+private def envR : Env := fun n => if n == "rst" then 1 else envS n
+#guard (stepModule weS bodyS envR).map (fun p => p.2.1) = some [("r", 3)]
+end StepGuards
+
+/-- Width-bounded environment: every name's value fits its width.
+    Hardware invariant — inputs are port-width bounded and every write
+    the semantics performs is masked.  Recovers the env-dependent
+    fragment side conditions (signed-compare value bounds, exact-elide
+    range) for module-level use. -/
+def Bounded (we : WEnv) (env : Env) : Prop :=
+  ∀ n, env n < 2 ^ we n
+
+/-- Apply a register-update list to a state. -/
+def applyNexts (st : String → Nat) (nexts : List (String × Nat)) :
+    String → Nat :=
+  fun n => match nexts.find? (fun p => p.1 == n) with
+    | some p => p.2
+    | none => st n
+
+/-- Run `k` cycles.  `seed t st` builds cycle `t`'s starting environment
+    from the register state (module plumbing — typically inputs overlaid
+    on registers — is the CALLER's, so the trace theorem quantifies over
+    every seeding discipline).  Returns the per-cycle post-elaboration
+    environments, oldest first — the observable trace.  (The cycle
+    index passed to `seed` counts DOWN from `k-1`; a caller wanting
+    wall-clock indices maps `t ↦ k-1-t`.) -/
+def runModule (we : WEnv) (body : List Stmt)
+    (seed : Nat → (String → Nat) → Env) :
+    Nat → (String → Nat) → MEnv → Option (List Env)
+  | 0, _, _ => some []
+  | k + 1, st, mems => do
+    let (envF, nexts, mems') ← stepModule we body (seed k st) mems
+    let rest ← runModule we body seed k (applyNexts st nexts) mems'
+    some (envF :: rest)
+
+-- memory pins: combo read sees PRE-write state (read-old); writes land
+-- masked at the masked address; last enabled port wins on collision;
+-- sync read latches old data into the register-update list.
+private def memBody (combo : Bool) : List Stmt :=
+  [ .memory "Mem" 2 8 "clock"
+      (.ref "wa") (.ref "wd") (.ref "wen")   -- write port 0
+      (.ref "ra") "rdata" combo
+      [(.ref "wa2", .ref "wd2", .ref "wen2")]  -- extra write port
+      [] ]
+private def memEnv : Env := fun n =>
+  if n == "wa" then 1 else if n == "wd" then 0x51 else
+  if n == "wen" then 1 else
+  if n == "wa2" then 1 else if n == "wd2" then 0x62 else
+  if n == "wen2" then 0 else
+  if n == "ra" then 1 else 0
+private def mems0 : MEnv := fun nm i =>
+  if nm == "Mem" && i == 1 then 0x33 else 0
+-- combo read: rdata = old Mem[1] = 0x33 (NOT this cycle's 0x51)
+#guard (stepModule (fun _ => 8) (memBody true) memEnv mems0).map
+    (fun p => p.1 "rdata") = some 0x33
+-- write port 0 enabled, extra port disabled → Mem[1] = 0x51 after tick
+#guard (stepModule (fun _ => 8) (memBody true) memEnv mems0).map
+    (fun p => p.2.2 "Mem" 1) = some 0x51
+-- collision, both enabled: LAST port wins → 0x62
+private def memEnv2 : Env := fun n => if n == "wen2" then 1 else memEnv n
+#guard (stepModule (fun _ => 8) (memBody true) memEnv2 mems0).map
+    (fun p => p.2.2 "Mem" 1) = some 0x62
+-- byte-strobe RMW: the write data reads the array's OWN row (pre-cycle):
+-- Mem[1] := (Mem[1] & ~0x0F) | (wd & 0x0F) = (0x33 & 0xF0) | (0x51 & 0x0F)
+private def rmwBody : List Stmt :=
+  [ .memory "Mem" 2 8 "clock"
+      (.ref "wa")
+      (.op .or [
+        .op .and [.index (.ref "Mem") (.ref "wa"),
+          .const (Int.ofNat 0xF0) 8],
+        .op .and [.ref "wd", .const (Int.ofNat 0x0F) 8]])
+      (.ref "wen") (.ref "ra") "rdata" true [] [] ]
+#guard (stepModule (fun _ => 8) rmwBody memEnv mems0).map
+    (fun p => p.2.2 "Mem" 1) = some ((0x33 &&& 0xF0) ||| (0x51 &&& 0x0F))
+
+-- sync read: rdata latches old Mem[1] into the update list
+#guard (stepModule (fun _ => 8) (memBody false) memEnv mems0).map
+    (fun p => p.2.1) = some [("rdata", 0x33)]
+-- masking: address masked to aw bits, data masked to dw bits
+private def memEnvM : Env := fun n =>
+  if n == "wa" then 5 else if n == "wd" then 0x151 else memEnv n
+#guard (stepModule (fun _ => 8) (memBody true) memEnvM mems0).map
+    (fun p => p.2.2 "Mem" 1) = some 0x51
+
+-- multi-cycle: seed each cycle from register state with a=1, rst=0;
+-- r accumulates 7, 8, 9 → trace of w = r+1 each cycle
+private def seedS : Nat → (String → Nat) → Env := fun _ st n =>
+  if n == "a" then 1 else if n == "rst" then 0 else st n
+#guard (runModule weS bodyS seedS 3 (fun n => if n == "r" then 7 else 0)
+    (fun _ _ => 0)).map
+    (fun tr => tr.map (fun e => e "w")) = some [8, 9, 10]
+
+/- Behavioral pins: the semantics agrees with hardware intuition on
+   small cases (evaluated at compile time). -/
+section Guards
+private def we0 : WEnv := fun _ => 8
+private def env0 : Env := fun n => if n == "a" then 0xA5 else 0x3C
+#guard evalExpr we0 env0 (.op .and [.ref "a", .ref "b"]) = some 0x24
+#guard evalExpr we0 env0 (.op .add [.ref "a", .ref "b"]) = some 0xE1
+-- 8-bit overflow wraps: 0xA5 + 0xA5 = 0x14A → 0x4A
+#guard evalExpr we0 env0 (.op .add [.ref "a", .ref "a"]) = some 0x4A
+-- NOT is width-bounded (the emitter bug class, at the semantics level)
+#guard evalExpr we0 env0 (.op .not [.ref "a"]) = some 0x5A
+-- concat is MSB-first; slice picks the middle byte back out
+#guard evalExpr we0 env0 (.concat [.ref "a", .ref "b"]) = some 0xA53C
+#guard evalExpr we0 env0 (.slice (.concat [.ref "a", .ref "b"]) 15 8) = some 0xA5
+-- mux takes the else arm on 0
+#guard evalExpr we0 env0 (.op .mux [.const 0 1, .ref "a", .ref "b"]) = some 0x3C
+end Guards
+
+end Sparkle.IR.Semantics
