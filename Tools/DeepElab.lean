@@ -1286,6 +1286,9 @@ elab "#verify_elab_deep" id:ident : command =>
   let regsOnly := theRegisters m
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     logInfo m!"#verify_elab_deep STAGE ok: synthesis + single module"
+    -- streamed too: logInfo is buffered until the command ends, so a
+    -- hang after this point would otherwise leave no trace
+    IO.eprintln s!"#verify_elab_deep STAGE ok: synthesis + single module"
   -- Synchronous single-port memories (`Signal.memory`): contents state
   -- plus a read latch.  The latch wire becomes a STATE SLOT after the
   -- registers (init 0; its "cone" is the read address, a `.latch`).
@@ -1434,6 +1437,9 @@ elab "#verify_elab_deep" id:ident : command =>
   -- fields ARE the ports (matched by name), each field a Signal.
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     logInfo m!"#verify_elab_deep STAGE ok: param types + retTy"
+    -- streamed too: logInfo is buffered until the command ends, so a
+    -- hang after this point would otherwise leave no trace
+    IO.eprintln s!"#verify_elab_deep STAGE ok: param types + retTy"
   let retHead := retTy.getAppFn
   let structName? : Option Name ←
     if retHead.isConstOf ``Sparkle.Core.Signal.Signal then pure none
@@ -1661,6 +1667,9 @@ elab "#verify_elab_deep" id:ident : command =>
   -- Signal-side proof tries the candidates.
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     logInfo m!"#verify_elab_deep STAGE ok: helpers collected"
+    -- streamed too: logInfo is buffered until the command ends, so a
+    -- hang after this point would otherwise leave no trace
+    IO.eprintln s!"#verify_elab_deep STAGE ok: helpers collected"
   let (loopNodes, headChain) ← liftTermElabM do
     let env ← getEnv
     -- open a definition's leading lambdas; a `DomainConfig` binder is
@@ -1857,6 +1866,9 @@ elab "#verify_elab_deep" id:ident : command =>
       logInfo m!"#verify_elab_deep loop node (top={n.isTop}): widths {n.widths} inits {n.inits} bool {n.isBool}"
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     logInfo m!"#verify_elab_deep STAGE ok: loop nodes discovered"
+    -- streamed too: logInfo is buffered until the command ends, so a
+    -- hang after this point would otherwise leave no trace
+    IO.eprintln s!"#verify_elab_deep STAGE ok: loop nodes discovered"
   let some topNode := loopNodes.find? (·.isTop)
     | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
   -- the top node is also collected as an ordinary application of the
@@ -1884,6 +1896,9 @@ elab "#verify_elab_deep" id:ident : command =>
     | .error err => throwError "#verify_elab_deep: fidelity quote: {err}"
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
     logInfo m!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
+    -- streamed too: logInfo is buffered until the command ends, so a
+    -- hang after this point would otherwise leave no trace
+    IO.eprintln s!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0
