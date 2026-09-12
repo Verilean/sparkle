@@ -1667,8 +1667,8 @@ elab "#verify_elab_deep" id:ident : command =>
     -- instantiated at `defaultDomain` (the statement's domain), the rest
     -- become fvars
     let rec openLams (e : Lean.Expr) (fuel : Nat)
-        (k : Lean.Expr → Lean.MetaM (Array (Lean.Expr × Bool))) :
-        Lean.MetaM (Array (Lean.Expr × Bool)) := do
+        (k : Lean.Expr → Lean.MetaM (Array LoopNode)) :
+        Lean.MetaM (Array LoopNode) := do
       match fuel, e with
       | fuel + 1, .lam n ty b bi =>
         if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then
@@ -1678,8 +1678,8 @@ elab "#verify_elab_deep" id:ident : command =>
           Lean.Meta.withLocalDecl n bi ty fun x => openLams (b.instantiate1 x) fuel k
       | _, _ => k e
     let rec openLams' (e : Lean.Expr) (fuel : Nat)
-        (k : Lean.Expr → Lean.MetaM (Array (Lean.Expr × Bool) × Array Name)) :
-        Lean.MetaM (Array (Lean.Expr × Bool) × Array Name) := do
+        (k : Lean.Expr → Lean.MetaM (Array LoopNode × Array Name)) :
+        Lean.MetaM (Array LoopNode × Array Name) := do
       match fuel, e with
       | fuel + 1, .lam n ty b bi =>
         if ty.isConstOf ``Sparkle.Core.Domain.DomainConfig then
@@ -1817,22 +1817,33 @@ elab "#verify_elab_deep" id:ident : command =>
     let root ← getConstInfo declName
     let mut chain : Array Name := #[]
     if let some val := root.value? then
-      let (apps, ch) ← openLams' val 64 fun body => do
+      -- ANALYSE INSIDE THE SCOPE.  `openLams` opens the definition's
+      -- lambdas with `withLocalDecl`, so every expression collected in
+      -- the callback may mention those fvars.  Returning them and
+      -- calling `nodeOf` afterwards analysed them OUTSIDE their local
+      -- context; only validated `LoopNode`s (closed literal widths and
+      -- inits, plus delaborated types) may cross the boundary.
+      let (ns, ch) ← openLams' val 64 fun body => do
         let (top?, ch) ← headChain body #[] 16
         let all := collect body
-        let nested := all.map fun a => (a, false)
-        pure ((match top? with | some t => #[(t, true)] | none => #[]) ++ nested, ch)
+        let mut acc : Array LoopNode := #[]
+        if let some t := top? then
+          if let some n ← nodeOf t true then acc := acc.push n
+        for a in all do
+          if let some n ← nodeOf a false then acc := acc.push n
+        pure (acc, ch)
       chain := ch
-      for (a, isTop) in apps do
-        if let some n ← nodeOf a isTop then nodes := nodes.push n
+      nodes := nodes ++ ns
     -- the helpers: every runCircuitH inside is nested
     for hid in helperIds do
       match env.find? hid.getId.eraseMacroScopes with
       | some (.defnInfo v) =>
-        let apps ← openLams v.value 64 fun body =>
-          pure <| (collect body).map (·, false)
-        for (a, _) in apps do
-          if let some n ← nodeOf a false then nodes := nodes.push n
+        let ns ← openLams v.value 64 fun body => do
+          let mut acc : Array LoopNode := #[]
+          for a in collect body do
+            if let some n ← nodeOf a false then acc := acc.push n
+          pure acc
+        nodes := nodes ++ ns
       | _ => pure ()
     -- dedupe by signature (a helper instantiated twice is one node)
     let mut out : Array LoopNode := #[]

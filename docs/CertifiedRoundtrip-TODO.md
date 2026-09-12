@@ -273,28 +273,32 @@ group is rough priority.  Update as items land.
   Remaining: `memoryWithInit` (no synth support today), multi-port
   memories, sub-instances (`.inst`), read addresses that read another
   combinational read.
-- [ ] **Register init from a value parameter — generator defect**
-  (found 2026-09-10 by pressing a refusal-ledger row).  `Signal.reg k`
-  where `k` is a value parameter: the EMITTER is correct (the wrapper
-  resolves it, IR carries `init=7`), but `#verify_elab_deep` fails with
-  `unknown free variable`, an internal elaboration error rather than
-  the designed `throwError`.  Isolated against a control: the same
-  parameter used in the BODY proves (`accK9`).  Two fixes wanted: the
-  leak itself (loop-node discovery / reification of an init that
-  arrived through a wrapper), and — more important — the generator
-  should REFUSE with a reason instead of erroring internally, because
-  an internal error is indistinguishable from a silent gap to a caller.
-  **Repro is permanent:** `Tests/Verification/ValueParamInitRepro.lean`
-  (failing shape + two passing controls + an IR-init assertion).
-  **Failing stage OBSERVED (2026-09-11):** with `SPARKLE_DEEP_DEBUG=1`
-  the circuit logs `STAGE ok: helpers collected` then dies before any
-  loop node is logged — the failure is inside LOOP-NODE DISCOVERY.
-  Measured: expressions collected inside `openLams`' `withLocalDecl`
-  scope carry free variables out of it (`hasFVar = true`) and `nodeOf`
-  analyses them outside — the leading candidate, not yet a proven cause.
-  `findRC` traversal gaps (`have`/`letFun` fixed; `Prod.fst` argument;
-  `match_1` auxiliary) are a SEPARATE concern to be tested separately,
-  per the workflow review — do not bundle them with the scope fix.
+- [x] **Register init from a value parameter — generator scope leak
+  (found 2026-09-10, FIXED 2026-09-12).**  `Signal.reg k` with `k` a
+  value parameter died in `#verify_elab_deep` with an internal `unknown
+  free variable` while the emitter was correct.  Cause: `openLams` /
+  `openLams'` opened the definition's lambdas with `withLocalDecl` and
+  returned the collected `runCircuitH` applications OUT of that scope
+  (root and helper sites); `nodeOf` then analysed them outside the
+  local context they mention.  Fix: analyse inside the callback — only
+  validated `LoopNode`s cross the boundary.  Evidence and regression
+  gate: `Tests/Verification/ValueParamInitRepro.lean` (literal init,
+  param-in-body, param-as-init, `Nat`-derived init, two-level wrapper
+  chain — all PROVEN with `_deep_trace` + `_deep_signal_run`, standard
+  axioms only; CI requires exactly 5 PROVEN).  Full suite exit 0.
+  The `have`/`letFun` case in `findRC` was also fixed (separately,
+  earlier) and kept.
+  **Retracted:** the "`Prod.fst` argument / `match_1` auxiliary
+  traversal gaps" recorded on 2026-09-11 were observations of a scratch
+  probe that over-unfolded the wrapper, NOT of the generator — the
+  generator's `headChain` finds `runCircuitH` before reaching either,
+  and the two-level wrapper chain proves with no traversal change.  No
+  open traversal item remains from this defect.
+  **Still open (small):** the generator has no designed refusal for a
+  genuinely non-literal init (e.g. one that depends on a Signal); today
+  `nodeOf` returns `none` and the top-level "could not locate the
+  top-level runCircuitH" message fires, which names the symptom rather
+  than the cause.  Worth a targeted message when a case appears.
 - [ ] Bridge v1 limits: register inputs / memory ports that aren't
   `.ref` wires (the replay is skipped with a message; the capstone is
   still emitted).

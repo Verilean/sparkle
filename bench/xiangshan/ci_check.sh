@@ -278,6 +278,29 @@ if [ -f "$ELAB_FILE" ]; then
       fail=1
     fi
   fi
+  # value-parameter register inits: the shape the deep route used to
+  # die on with an internal `unknown free variable` (loop-node analysis
+  # ran outside the lambda scope it opened).  The file carries the
+  # once-failing circuit, its controls, a Nat-derived init and a
+  # two-level wrapper chain, plus a run_cmd pinning the IR init value.
+  # Exactly 5 PROVEN lines: a lower count means one shape regressed.
+  VPI_FILE=Tests/Verification/ValueParamInitRepro.lean
+  if [ -f "$VPI_FILE" ]; then
+    if lake build Tests.Verification.ValueParamInitRepro \
+        > "$WORK/vpi.log" 2>&1; then
+      vpi=$(grep -c 'PROVEN' "$WORK/vpi.log")
+      if [ "$vpi" -eq 5 ]; then
+        echo "value-param register inits: 5/5 circuits proven (deep route)"
+      else
+        echo "FAIL: value-param inits — expected 5 PROVEN, got $vpi"
+        fail=1
+      fi
+    else
+      echo "FAIL: ValueParamInitRepro did not build"
+      grep -m5 -E "error" "$WORK/vpi.log" | sed 's/^/    /'
+      fail=1
+    fi
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)
