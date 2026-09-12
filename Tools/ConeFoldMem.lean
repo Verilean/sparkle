@@ -841,4 +841,166 @@ theorem evalList_bounded (we : Sparkle.IR.Semantics.WEnv) (env : Sparkle.IR.Sema
           simp only [List.getElem?_cons_succ] at ha hv
           exact evalList_bounded we env hrec rest vrest hvr i' a' v ha hv
 
+/-! ### Width well-formedness for the settled-env bound
+
+`evalExpr` is NOT width-bounded in general: `mux` returns an arm
+unmasked at the TRUE arm's width, so a wider false arm escapes.  Every
+other operator masks (or is a comparison, or only drops bits).  The one
+side condition is therefore: every mux's false arm is no wider than its
+true arm.  Decidable, and for elaborator-emitted IR trivially true (both
+arms carry the DSL type's width). -/
+
+/-- The mux arm-width condition, operator-generic so `widthOk` has one
+    `op` equation. -/
+def muxArmOk (we : WEnv) (o : Operator) (args : List Expr) : Bool :=
+  match o, args with
+  | .mux, [_, t, f] => decide (widthOf we f ≤ widthOf we t)
+  | _, _ => true
+
+mutual
+def widthOk (we : WEnv) : Expr → Bool
+  | .const _ _ => true
+  | .ref _ => true
+  | .op o args => muxArmOk we o args && widthOkL we args
+  | .concat args => widthOkL we args
+  | .slice e _ _ => widthOk we e
+  | .sliceDim _ _ _ => true
+  | .index _ _ => true
+
+def widthOkL (we : WEnv) : List Expr → Bool
+  | [] => true
+  | a :: rest => widthOk we a && widthOkL we rest
+end
+
+/-- Operator dispatch, standalone: given bounded operands and the mux
+    side condition, `evalOp` at the node width is bounded by it.
+    `evalOp` matches `args` as a WILDCARD for most operators (only
+    `vals` has forced arity), so this is stated over both lists with
+    their length agreement — an "args.length = arity o" lemma would be
+    false. -/
+theorem evalOp_bounded_gen (we : WEnv) (o : Operator) (args : List Expr)
+    (vals : List Nat) (r : Nat)
+    (hlen : vals.length = args.length)
+    (hv : ∀ (i : Nat) (a : Expr) (v : Nat), args[i]? = some a → vals[i]? = some v → v < 2 ^ widthOf we a)
+    (hmux : muxArmOk we o args = true)
+    (h : evalOp we o args vals (widthOf we (.op o args)) = some r) :
+    r < 2 ^ widthOf we (.op o args) := by
+  cases o <;>
+  rcases args with _ | ⟨a, _ | ⟨b, _ | ⟨c, _ | ⟨d, rest⟩⟩⟩⟩ <;>
+  rcases vals with _ | ⟨va, _ | ⟨vb, _ | ⟨vc, _ | ⟨vd, vrest⟩⟩⟩⟩ <;>
+  simp at hlen <;>
+  first
+  | exact evalOp_bounded_and we a b va vb r h
+  | exact evalOp_bounded_or we a b va vb r h
+  | exact evalOp_bounded_xor we a b va vb r h
+  | exact evalOp_bounded_add we a b va vb r h
+  | exact evalOp_bounded_sub we a b va vb r h
+  | exact evalOp_bounded_mul we a b va vb r h
+  | exact evalOp_bounded_shl we a b va vb r h
+  | exact evalOp_bounded_neg we a va r h
+  | exact evalOp_bounded_not we a va r h
+  | exact evalOp_bounded_eq we a b va vb r h
+  | exact evalOp_bounded_lt_u we a b va vb r h
+  | exact evalOp_bounded_lt_s we a b va vb r h
+  | exact evalOp_bounded_le_u we a b va vb r h
+  | exact evalOp_bounded_le_s we a b va vb r h
+  | exact evalOp_bounded_gt_u we a b va vb r h
+  | exact evalOp_bounded_gt_s we a b va vb r h
+  | exact evalOp_bounded_ge_u we a b va vb r h
+  | exact evalOp_bounded_ge_s we a b va vb r h
+  | exact evalOp_bounded_asr we a b va vb r h
+  | exact evalOp_bounded_shr we a b va vb r (hv 0 a va rfl rfl) h
+  | exact evalOp_bounded_mux we a b c va vb vc r (hv 1 b vb rfl rfl)
+      (Nat.lt_of_lt_of_le (hv 2 c vc rfl rfl)
+        (Nat.pow_le_pow_right (by decide) (by simpa [muxArmOk] using hmux))) h
+  | (simp [evalOp] at h; done)
+
+/-- The concat evaluator's per-element rest width equals `widthOf.go` of
+    the remaining args when the value list is as long. -/
+theorem go_restW (we : WEnv) :
+    ∀ (as : List Expr) (vs : List Nat) (acc : Nat), vs.length = as.length →
+      (as.zip vs).foldl (fun acc (p : Expr × Nat) => acc + widthOf we p.1) acc
+        = acc + widthOf.go we as
+  | [], _, acc, _ => by simp [widthOf.go]
+  | a :: as, [], acc, hl => by simp at hl
+  | a :: as, v :: vs, acc, hl => by
+    simp only [List.length_cons, Nat.add_right_cancel_iff] at hl
+    simp only [List.zip_cons_cons, List.foldl_cons, widthOf.go]
+    rw [go_restW we as vs (acc + widthOf we a) hl]
+    omega
+
+/-- Concat is bounded by the sum of its element widths (each element is
+    masked at its own width — no operand bound needed). -/
+theorem go_bounded (we : WEnv) :
+    ∀ (args : List Expr) (vals : List Nat), vals.length = args.length →
+      evalExpr.go we args vals < 2 ^ widthOf.go we args
+  | [], [], _ => by simp [evalExpr.go, widthOf.go]
+  | [], _ :: _, hl => by simp at hl
+  | _ :: _, [], hl => by simp at hl
+  | a :: as, v :: vs, hl => by
+    simp only [List.length_cons, Nat.add_right_cancel_iff] at hl
+    simp only [evalExpr.go, widthOf.go]
+    rw [go_restW we as vs 0 hl, Nat.zero_add]
+    exact concat_elem_bounded (mask_lt_sem _ _) (go_bounded we as vs hl)
+
+mutual
+/-- **The settled-environment bound.**  Under a bounded environment and
+    the mux side condition, every value `evalExpr` produces is bounded by
+    the node's width. -/
+theorem evalExpr_bounded (we : WEnv) (env : Env) (hb : ∀ n, env n < 2 ^ we n) :
+    ∀ (e : Expr) (r : Nat), widthOk we e = true → evalExpr we env e = some r →
+      r < 2 ^ widthOf we e
+  | .const v w, r, _, h => evalExpr_bounded_const we env v w r h
+  | .ref n, r, _, h => evalExpr_bounded_ref we env n r hb h
+  | .op o args, r, hok, h => by
+    simp only [widthOk, Bool.and_eq_true] at hok
+    simp only [evalExpr, Option.bind_eq_bind] at h
+    cases hv : evalList we env args with
+    | none => rw [hv] at h; simp at h
+    | some vals =>
+      rw [hv] at h
+      simp only [Option.bind_some] at h
+      exact evalOp_bounded_gen we o args vals r (evalList_len hv)
+        (evalListL_bounded we env hb args vals hok.2 hv) hok.1 h
+  | .concat args, r, _, h => by
+    simp only [evalExpr, Option.bind_eq_bind] at h
+    cases hv : evalList we env args with
+    | none => rw [hv] at h; simp at h
+    | some vals =>
+      rw [hv] at h
+      simp only [Option.bind_some, Option.some.injEq] at h
+      subst h
+      exact go_bounded we args vals (evalList_len hv)
+  | .slice e hi lo, r, _, h => evalExpr_bounded_slice we env e hi lo r h
+  | .sliceDim _ _ _, r, _, h => by simp [evalExpr] at h
+  | .index _ _, r, _, h => by simp [evalExpr] at h
+
+theorem evalListL_bounded (we : WEnv) (env : Env) (hb : ∀ n, env n < 2 ^ we n) :
+    ∀ (args : List Expr) (vals : List Nat), widthOkL we args = true →
+      evalList we env args = some vals →
+      ∀ (i : Nat) (a : Expr) (v : Nat), args[i]? = some a → vals[i]? = some v → v < 2 ^ widthOf we a
+  | [], _, _, _, _, _, _, ha, _ => by simp at ha
+  | e :: rest, vals, hok, hvs, i, a, v, ha, hv => by
+    simp only [widthOkL, Bool.and_eq_true] at hok
+    simp only [evalList, Option.bind_eq_bind] at hvs
+    cases he : evalExpr we env e with
+    | none => rw [he] at hvs; simp at hvs
+    | some ve =>
+      rw [he] at hvs
+      cases hr : evalList we env rest with
+      | none => rw [hr] at hvs; simp at hvs
+      | some vrest =>
+        rw [hr] at hvs
+        simp only [Option.bind_some, Option.some.injEq] at hvs
+        subst hvs
+        cases i with
+        | zero =>
+          simp only [List.getElem?_cons_zero, Option.some.injEq] at ha hv
+          subst ha; subst hv
+          exact evalExpr_bounded we env hb e ve hok.1 he
+        | succ i =>
+          simp only [List.getElem?_cons_succ] at ha hv
+          exact evalListL_bounded we env hb rest vrest hok.2 hr i a v ha hv
+end
+
 end Tools.ConeFold

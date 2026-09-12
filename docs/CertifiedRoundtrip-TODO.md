@@ -433,21 +433,33 @@ group is rough priority.  Update as items land.
   **`evalList_bounded` landed** — indexed operand bounds for an
   argument list, the half of the assembly the `op` case consumes,
   standalone and independent of the per-operator dispatch.
-  Remaining: (1) finish `evalExpr_bounded` over `evalExpr.induct`.  The
-  induction itself works (`const`/`ref`/`slice` and BOTH list-motive
-  cases discharge; the motive shape that makes the `op` case usable is
-  `∀ i a v, args[i]? = some a → vs[i]? = some v → v < 2 ^ widthOf we a`).
-  What is left is the `op` case's DISPATCH: 21 constructors x arity, and
-  a `match args, vs with | [a, b], [va, vb] => … | _, _ => …` leaves the
-  wrong-arity catch-all open because `evalOp`'s `none` fallthrough does
-  not reduce for an abstract operator.  It wants either an arity
-  side-lemma (`evalOp … = some r → args.length = arity o`) or 21
-  hand-written branches; the former is smaller.  NOTE: this is the third
-  time this proof has turned into tactic-mechanics iteration — bank the
-  standalone lemma and take the arity-lemma route next, do not retry the
-  cascade.  (2) `evalAssigns_bounded` over the fold; (3) the generator
-  computes the multiply-read stop set and routes `_deep_step_*` /
-  `_deep_regstep` through `shared_cone_agrees_at_settled`.
+  **`evalExpr_bounded` LANDED (2026-09-13, `Tools/ConeFoldMem.lean`),
+  standard axioms only.**  Two corrections to the plan above, both
+  found by reading the definitions rather than retrying tactics:
+  (a) the proposed arity side-lemma `evalOp … = some r → args.length =
+  arity o` is FALSE — `evalOp` matches `args` as a wildcard for most
+  operators; only `vals` has forced arity.  The dispatch lemma
+  `evalOp_bounded_gen` is therefore stated over both lists with
+  `vals.length = args.length` and closes by `cases o <;> rcases args <;>
+  rcases vals <;> simp at hlen <;> first | exact <21 landed lemmas> |
+  (simp [evalOp] at h; done)` — length mismatch kills 20/25 shapes per
+  operator, so the `first` alternatives never overlap.
+  (b) the bound is FALSE in general: `mux` returns an arm unmasked at
+  the TRUE arm's width, so a wider false arm escapes.  Every other
+  operator masks, compares, or only drops bits.  Hence the new
+  decidable side condition `widthOk` (mutual with `widthOkL`, mirroring
+  `evalOk`): every mux's false arm is no wider than its true arm —
+  trivially true for elaborator IR (both arms carry the DSL type).
+  The induction is a MUTUAL THEOREM by structural recursion on the
+  `evalOk_isSome` pattern, not `evalExpr.induct`.  Concat needs no
+  recursive bound at all: `evalExpr.go` masks each element (`go_bounded`
+  via `go_restW`, the zip-fold rest width = `widthOf.go` of the rest).
+  Remaining: (2) `evalAssigns_bounded` over the fold (memory-free
+  bodies, matching the seam theorem's `hm`; `comboReads` masks at `dw`
+  so memories can follow); (3) the generator computes the multiply-read
+  stop set, discharges `bodyWidthOk` by `decide`, and routes
+  `_deep_step_*` / `_deep_regstep` through
+  `shared_cone_agrees_at_settled`.
 
 ## D. Trust base
 
