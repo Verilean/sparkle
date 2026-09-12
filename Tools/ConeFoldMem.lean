@@ -1003,4 +1003,56 @@ theorem evalListL_bounded (we : WEnv) (env : Env) (hb : ∀ n, env n < 2 ^ we n)
           exact evalListL_bounded we env hb rest vrest hok.2 hr i a v ha hv
 end
 
+/-- Decidable body-level width well-formedness: every `assign`'s
+    right-hand side passes `widthOk` and has its target's declared width.
+    Registers, instances and memories are not constrained here (the
+    fold's own writes are the assigns; memory bodies are excluded by
+    `memFree` in the theorem below). -/
+def bodyWidthOk (we : WEnv) : List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest => widthOk we r && (widthOf we r == we l) && bodyWidthOk we rest
+  | _ :: rest => bodyWidthOk we rest
+
+/-- **The fold preserves width bounds.**  On a memory-free body whose
+    assigns are width well-formed, a bounded seed environment folds to a
+    bounded settled environment — the `hb1` premise of
+    `shared_cone_agrees_at_settled`. -/
+theorem evalAssigns_bounded (we : WEnv) (mems : MEnv) :
+    ∀ (body : List Stmt) (env0 env1 : Env),
+      memFree body → bodyWidthOk we body = true →
+      (∀ n, env0 n < 2 ^ we n) →
+      evalAssigns we mems body env0 = some env1 →
+      ∀ n, env1 n < 2 ^ we n
+  | [], env0, env1, _, _, hb, h, n => by
+    simp only [evalAssigns, Option.some.injEq] at h
+    subst h; exact hb n
+  | .assign l r :: rest, env0, env1, hm, hwf, hb, h, n => by
+    simp only [bodyWidthOk, Bool.and_eq_true, beq_iff_eq] at hwf
+    simp only [evalAssigns, Option.bind_eq_bind] at h
+    cases hv : evalExpr we env0 r with
+    | none => rw [hv] at h; simp at h
+    | some v =>
+      rw [hv] at h
+      simp only [Option.bind_some] at h
+      have hvb : v < 2 ^ we l := by
+        rw [← hwf.1.2]; exact evalExpr_bounded we env0 hb r v hwf.1.1 hv
+      refine evalAssigns_bounded we mems rest _ env1 hm hwf.2 ?_ h n
+      intro m
+      by_cases hml : m = l
+      · subst hml; simpa using hvb
+      · rw [if_neg hml]; exact hb m
+  | .register .. :: rest, env0, env1, hm, hwf, hb, h, n =>
+    evalAssigns_bounded we mems rest env0 env1 hm hwf hb h n
+  | .memory .. :: _, _, _, hm, _, _, _, _ => (hm : False).elim
+  | .inst .. :: rest, env0, env1, hm, hwf, hb, h, n =>
+    evalAssigns_bounded we mems rest env0 env1 hm hwf hb h n
+
+-- Non-vacuity of the side condition: a width-mismatched mux is REJECTED
+-- and a well-formed one accepted (we = 8 everywhere).
+private def we8 : WEnv := fun _ => 8
+#guard widthOk we8 (.op .mux [.ref "c", .ref "t", .ref "f"]) = true
+#guard widthOk we8 (.op .mux [.ref "c", .slice (.ref "t") 3 0, .ref "f"]) = false
+#guard bodyWidthOk we8 [.assign "x" (.op .add [.ref "a", .ref "b"])] = true
+#guard bodyWidthOk we8 [.assign "x" (.slice (.ref "a") 3 0)] = false  -- width 4 ≠ 8
+
 end Tools.ConeFold
