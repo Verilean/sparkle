@@ -331,6 +331,19 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: cone-sharing premises on crc16 regressed"
     grep -m5 -E "error" "$WORK/csp.log" | sed 's/^/    /'; fail=1
   fi
+  # cone-sharing PROTOTYPE: the CdoW route on shareX4 (the inlined route
+  # fails this circuit); must build with no sorryAx in the trace theorem
+  CSPROTO_FILE=Tests/Verification/ConeSharingProto.lean
+  if [ ! -f "$CSPROTO_FILE" ]; then
+    echo "FAIL: $CSPROTO_FILE is missing (cone-sharing prototype gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingProto > "$WORK/csproto.log" 2>&1 \
+      && grep -q "ShareW.trace' depends on axioms" "$WORK/csproto.log" \
+      && ! grep -q "sorryAx" "$WORK/csproto.log"; then
+    echo "cone-sharing prototype: shareX4 trace theorem proven on the CdoW route"
+  else
+    echo "FAIL: cone-sharing prototype (ConeSharingProto) regressed"
+    grep -m5 -E "error|sorryAx" "$WORK/csproto.log" | sed 's/^/    /'; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

@@ -510,7 +510,35 @@ group is rough priority.  Update as items land.
   same family, same conditions, n up to 14 and beyond.
   **`CdoW` semantics landed** (`Tools/DeepElab.lean`, root namespace,
   2026-09-13): `wiresAt`/`wenv`/`full`, both recurrences, and
-  `CdoW.elab_general`, standard axioms.  Generator does not use it yet.
+  `CdoW.elab_general`, standard axioms (statement without `let` — a
+  `let` there broke `rw ←`'s syntactic match).  Generator does not use
+  it yet.
+  **Step 3 SHARED-ROUTE PROTOTYPE (2026-09-13)** — hand-emitted in the
+  generator's output shape (`bench/cone-sharing/emit_shareW.py` +
+  `shareW_trace.tpl`; n=4 pinned as `Tests/Verification/
+  ConeSharingProto.lean`, CI-gated).  Same family, same conditions as
+  the baseline (600 s, 24G, one run each):
+  | n | shared route | inlined baseline |
+  | 4 | PROVEN, 4 s | FAILED (heartbeats) |
+  | 8 | PROVEN, 16 s | FAILED |
+  | 12 | PROVEN, 46 s | FAILED |
+  | 14 | "Missing cases" in the `nm` `Fin`-literal match (17 slots) — the KNOWN slot-count ceiling, not sharing | FAILED |
+  Axioms: standard three + `bv_decide`'s native axioms (same trust class
+  as the baseline's closer).  Every per-wire lemma is `rfl` on a
+  one-wire cone; the trace theorem takes the wire equations as
+  hypotheses and `bv_decide` bitblasts linearly on the IR side.
+  **Honest limit:** the DSL side is still zeta-expanded by stage-1 simp
+  (2^n); bv_decide absorbs it to n=12 here.  For crc16 (3^8 copies of
+  `crc16Step`) that may not suffice — the DSL side needs LET-FLOATING
+  (push projections/applications into `letFun` bodies so the `have`
+  chain reaches the goal top, then `extract_lets` + per-wire `.val`
+  equations; validated on a mini goal).  A `g (letFun v f) = letFun v
+  (fun x => g (f x))` simp lemma has a metavariable head, so this needs
+  a simproc or a small custom tactic.  Next: (a) let-floating; (b) the
+  slot-count ceiling (list-backed `nm`) which sharing now makes urgent
+  (crc16 has 26 wires + 1 reg + 5 inputs = 32 slots); (c) generator
+  integration behind `SPARKLE_DEEP_SHARE=1`; (d) the replay half
+  (per-wire `_deep_wstep` via `shared_cone_agrees_at_settled`).
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
