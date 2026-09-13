@@ -463,13 +463,13 @@ group is rough priority.  Update as items land.
   | inlined IR cone (`coneRaw`) | 16.25 M chars |
   | slice-resolved cone | 14.3 M |
   | reified `Cdo.next` arms SYNTAX | 26.8 M |
-  | shallow bridge rhs (`_rd0_succ`) | 64.4 M — `rfl` never finishes |
+  | shallow bridge rhs (`_rd0_succ`) | 64.4 M — its `rfl` had not finished at the 1500 s timeout (NOTHM defs-only, MemoryMax=24G, single run) |
   Findings: (a) the reifier reifies the INLINED IR cone, so the deep
   side is as large as the IR side (correcting "blowup is not in
   reification"); (b) the constants add and the G1 glue CLOSES, because
-  `native_decide` evaluates compiled code with sharing; (c) the stall is
-  the Signal-side bridge, kernel `rfl` over a 64 M-char term with no
-  sharing.  Therefore sharing has to enter the deep grammar itself: a
+  `native_decide` evaluates compiled code with sharing; (c) the run's last
+  marker before the timeout is the Signal-side bridge's `_rd0_succ`, a
+  kernel `rfl` over a 64 M-char term with no sharing.  Therefore sharing has to enter the deep grammar itself: a
   BINDING LAYER in `Cdo`/`CdoM` (ordered wire slots `Γw` with small
   per-wire `CExpr`s, `next`/`out` referring to wires), whose denotation
   evaluates wires in order before `next`/`out`.  That makes every

@@ -62,8 +62,9 @@ import Tools.DeepElab
     slice-resolved cone 14.3 M, the REIFIED `Cdo.next` syntax 26.8 M
     (the reifier reifies the inlined IR cone, so — correcting an earlier
     note — reification blows up too), and the Signal-side bridge's
-    shallow `_rd0_succ` right-hand side 64.4 M chars, whose `rfl` is
-    where the run stalls.  The constants add fine and the G1 glue
+    shallow `_rd0_succ` right-hand side 64.4 M chars; its `rfl` had not
+    finished when the run hit its 1500 s timeout (defs-only mode
+    `SPARKLE_DEEP_NOTHM=1`, `MemoryMax=24G`, one run, 2026-09-13).  The constants add fine and the G1 glue
     closes (compiled `native_decide` evaluates with sharing); only the
     kernel-defeq bridge has none.  So sharing must enter the DEEP
     GRAMMAR — a binding layer of wire slots with small per-wire cones —

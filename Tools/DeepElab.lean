@@ -1278,20 +1278,23 @@ elab "#verify_elab_deep" id:ident : command =>
   -- when the command ENDS (measured: a run killed by timeout leaves an
   -- empty log even after an explicit flush), so the STAGE markers also
   -- append to the file named by SPARKLE_DEEP_TRACE when it is set.
-  let deepTrace (msg : String) : CommandElabM Unit := do
+  -- The message is a THUNK: several markers report the `repr` size of
+  -- multi-megabyte terms, and an eager `s!"…"` would compute those
+  -- strings even with tracing disabled.
+  let deepTrace (msg : Unit → String) : CommandElabM Unit := do
     if let some f ← IO.getEnv "SPARKLE_DEEP_TRACE" then
-      IO.FS.withFile f .append fun h => h.putStrLn msg
+      IO.FS.withFile f .append fun h => h.putStrLn (msg ())
   let elabSync (c : Lean.TSyntax `command) : CommandElabM Unit := do
     elabCommand (← `(set_option maxRecDepth 65536 in
       set_option Elab.async false in $c:command))
   let declName ← liftTermElabM <|
     Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
-    deepTrace s!"#verify_elab_deep STAGE start: {declName}"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE start: {declName}"
   let design ← liftTermElabM
     (Sparkle.Compiler.Elab.synthesizeHierarchical declName)
   if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
-    deepTrace s!"#verify_elab_deep STAGE ok: synthesis returned ({design.modules.length} modules)"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE ok: synthesis returned ({design.modules.length} modules)"
   let m ← match design.modules with
     | [m] => pure m
     | _ => throwError "#verify_elab_deep: single-module designs only"
@@ -1300,7 +1303,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: synthesis + single module"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    deepTrace s!"#verify_elab_deep STAGE ok: synthesis + single module"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE ok: synthesis + single module"
   -- Synchronous single-port memories (`Signal.memory`): contents state
   -- plus a read latch.  The latch wire becomes a STATE SLOT after the
   -- registers (init 0; its "cone" is the read address, a `.latch`).
@@ -1451,7 +1454,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: param types + retTy"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    deepTrace s!"#verify_elab_deep STAGE ok: param types + retTy"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE ok: param types + retTy"
   let retHead := retTy.getAppFn
   let structName? : Option Name ←
     if retHead.isConstOf ``Sparkle.Core.Signal.Signal then pure none
@@ -1681,7 +1684,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: helpers collected"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    deepTrace s!"#verify_elab_deep STAGE ok: helpers collected"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE ok: helpers collected"
   let (loopNodes, headChain) ← liftTermElabM do
     let env ← getEnv
     -- open a definition's leading lambdas; a `DomainConfig` binder is
@@ -1880,7 +1883,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: loop nodes discovered"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    deepTrace s!"#verify_elab_deep STAGE ok: loop nodes discovered"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE ok: loop nodes discovered"
   let some topNode := loopNodes.find? (·.isTop)
     | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
   -- the top node is also collected as an ordinary application of the
@@ -1910,7 +1913,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    deepTrace s!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0
@@ -1929,7 +1932,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let minitsEqId := mkI s!"{base}{suffix}_deep_minits"
     let readsEqId := mkI s!"{base}{suffix}_deep_reads"
     if hasMem then
-      deepTrace s!"#verify_elab_deep STAGE port {k}: reifying _deep (next-arms syntax chars={(nextArmsM.map fun a => (toString a).length).foldl (· + ·) 0})"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: reifying _deep (next-arms syntax chars={(nextArmsM.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $ΓcT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         minits := fun _ _ => 0
@@ -1951,7 +1954,7 @@ elab "#verify_elab_deep" id:ident : command =>
         CdoM.minits $deepId = fun _ _ => 0 := rfl))
       elabSync (← `(theorem $outEqId : CdoM.out $deepId = $outC := rfl))
     else
-      deepTrace s!"#verify_elab_deep STAGE port {k}: reifying _deep (Cdo; next-arms syntax chars={(nextArms.map fun a => (toString a).length).foldl (· + ·) 0})"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: reifying _deep (Cdo; next-arms syntax chars={(nextArms.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         next := fun i => match i with $nextArms:matchAlt*
@@ -2120,19 +2123,19 @@ elab "#verify_elab_deep" id:ident : command =>
       liftCoreM <| Lean.enableRealizationsForConst id.getId
     let outT0 : Term ← if hasMem then `(CdoM.out $deepId) else `(Cdo.out $deepId)
     let addExprConst (id : Ident) (e : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
-      deepTrace s!"#verify_elab_deep STAGE addExprConst {id.getId} repr-chars={(repr e).pretty.length}"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE addExprConst {id.getId} repr-chars={(repr e).pretty.length}"
       liftCoreM <| addAndCompile <| .defnDecl {
         name := id.getId, levelParams := []
         type := mkConst ``Sparkle.IR.AST.Expr
         value := toExpr e, hints := .abbrev, safety := .safe }
       liftCoreM <| Lean.enableRealizationsForConst id.getId
-      deepTrace s!"#verify_elab_deep STAGE ok: addExprConst {id.getId}"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE ok: addExprConst {id.getId}"
     -- one G1 lemma: `lhs` is the compiled reification (or its literal),
     -- `hnormTac` proves `lhs = concatNorm cone`, `eIn` the IR expression
     -- whose cone `coneRaw` is (the inlining hypothesis is recomputed)
     let mkG1 (g1Id : Ident) (lhs : Term) (hnormTac : Lean.TSyntax `tactic)
         (coneRawId coneId : Ident) (eIn : Term) : CommandElabM Unit := do
-      deepTrace s!"#verify_elab_deep STAGE G1 {g1Id.getId} begin (lhs chars={(toString lhs).length})"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE G1 {g1Id.getId} begin (lhs chars={(toString lhs).length})"
       elabSync (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
           Sparkle.IR.Semantics.evalExpr
               (weOfC $nmId (fun j => ($ΓAllT).get j))
@@ -2168,7 +2171,7 @@ elab "#verify_elab_deep" id:ident : command =>
           · exact h
           · simp at h
         exact hag n hmem))
-      deepTrace s!"#verify_elab_deep STAGE ok: G1 {g1Id.getId}"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE ok: G1 {g1Id.getId}"
     if k == 0 then
       let weBody ← do
         let mut acc ← `((0 : Nat))
@@ -2296,7 +2299,7 @@ elab "#verify_elab_deep" id:ident : command =>
     -- readers + Signal-side bridge + capstone, as its own compilation
     -- unit (see replayBlock below); it hands the replay the LHS signal
     let rec bridgeBlock : Unit → CommandElabM (Option Term) := fun _ => do
-      deepTrace s!"#verify_elab_deep STAGE port {k}: bridgeBlock begin"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: bridgeBlock begin"
       -- ===== literal-width state readers (the shallow bridge) =====
       -- `Cdo.stateAt … ⟨i, _⟩ : BitVec (Γr.get ⟨i, _⟩)` — a width that is
       -- defeq to the literal but never syntactically it, and every
@@ -2386,10 +2389,10 @@ elab "#verify_elab_deep" id:ident : command =>
             let mdId : Ident := mdIds[syncIdx[i - nReg]!]!
             let addrS ← shallowAt (← `($sId)) conesIR[i]!
             `(($mdId $appArgs* $sId $addrS))
-        deepTrace s!"#verify_elab_deep STAGE bridge {rdSuccId.getId} begin (shallow rhs syntax chars={(toString rhs).length})"
+        deepTrace fun _ => s!"#verify_elab_deep STAGE bridge {rdSuccId.getId} begin (shallow rhs syntax chars={(toString rhs).length})"
         elabSync (← `(theorem $rdSuccId $paramBinders* ($sId : Nat) :
           $rdId $appArgs* ($sId + 1) = $rhs := rfl))
-        deepTrace s!"#verify_elab_deep STAGE ok: bridge {rdSuccId.getId}"
+        deepTrace fun _ => s!"#verify_elab_deep STAGE ok: bridge {rdSuccId.getId}"
       let mdZeroIds : Array Ident := (List.range nM).toArray.map fun kk =>
         mkI s!"{base}{suffix}_deep_md{kk}_zero"
       let mdSuccIds : Array Ident := (List.range nM).toArray.map fun kk =>
@@ -2861,7 +2864,7 @@ elab "#verify_elab_deep" id:ident : command =>
     -- was superlinear (16 min and a heartbeat timeout for the whole
     -- generator).
     let rec replayBlock : Unit → CommandElabM Unit := fun _ => do
-      deepTrace s!"#verify_elab_deep STAGE port {k}: replayBlock begin"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: replayBlock begin"
       -- DEEP-BRIDGE (first landing): rewrite the capstone's RHS through
       -- the G1_out glue so the Signal value is stated as
       -- `evalExpr weM (envOfC …) outCone` — the ConeFold bridge's
