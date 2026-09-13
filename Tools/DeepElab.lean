@@ -1273,13 +1273,25 @@ elab "#verify_elab_deep" id:ident : command =>
   -- recursion depth raised — a `match i with | ⟨0, _⟩ … | ⟨17, _⟩` over
   -- `Fin 18` (a real IP's 13 registers + 5 inputs) exhausts the default
   -- depth in the match compiler ("Missing cases")
+  -- Progress trace that survives a hang.  `IO.eprintln` inside a command
+  -- is captured by the frontend's stream isolation and only surfaces
+  -- when the command ENDS (measured: a run killed by timeout leaves an
+  -- empty log even after an explicit flush), so the STAGE markers also
+  -- append to the file named by SPARKLE_DEEP_TRACE when it is set.
+  let deepTrace (msg : String) : CommandElabM Unit := do
+    if let some f ← IO.getEnv "SPARKLE_DEEP_TRACE" then
+      IO.FS.withFile f .append fun h => h.putStrLn msg
   let elabSync (c : Lean.TSyntax `command) : CommandElabM Unit := do
     elabCommand (← `(set_option maxRecDepth 65536 in
       set_option Elab.async false in $c:command))
   let declName ← liftTermElabM <|
     Lean.Elab.realizeGlobalConstNoOverloadWithInfo id
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    deepTrace s!"#verify_elab_deep STAGE start: {declName}"
   let design ← liftTermElabM
     (Sparkle.Compiler.Elab.synthesizeHierarchical declName)
+  if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+    deepTrace s!"#verify_elab_deep STAGE ok: synthesis returned ({design.modules.length} modules)"
   let m ← match design.modules with
     | [m] => pure m
     | _ => throwError "#verify_elab_deep: single-module designs only"
@@ -1288,7 +1300,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: synthesis + single module"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    IO.eprintln s!"#verify_elab_deep STAGE ok: synthesis + single module"
+    deepTrace s!"#verify_elab_deep STAGE ok: synthesis + single module"
   -- Synchronous single-port memories (`Signal.memory`): contents state
   -- plus a read latch.  The latch wire becomes a STATE SLOT after the
   -- registers (init 0; its "cone" is the read address, a `.latch`).
@@ -1439,7 +1451,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: param types + retTy"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    IO.eprintln s!"#verify_elab_deep STAGE ok: param types + retTy"
+    deepTrace s!"#verify_elab_deep STAGE ok: param types + retTy"
   let retHead := retTy.getAppFn
   let structName? : Option Name ←
     if retHead.isConstOf ``Sparkle.Core.Signal.Signal then pure none
@@ -1669,7 +1681,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: helpers collected"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    IO.eprintln s!"#verify_elab_deep STAGE ok: helpers collected"
+    deepTrace s!"#verify_elab_deep STAGE ok: helpers collected"
   let (loopNodes, headChain) ← liftTermElabM do
     let env ← getEnv
     -- open a definition's leading lambdas; a `DomainConfig` binder is
@@ -1868,7 +1880,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: loop nodes discovered"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    IO.eprintln s!"#verify_elab_deep STAGE ok: loop nodes discovered"
+    deepTrace s!"#verify_elab_deep STAGE ok: loop nodes discovered"
   let some topNode := loopNodes.find? (·.isTop)
     | throwError "#verify_elab_deep: could not locate the top-level runCircuitH (register types / initial values must be closed literals)"
   -- the top node is also collected as an ordinary application of the
@@ -1898,7 +1910,7 @@ elab "#verify_elab_deep" id:ident : command =>
     logInfo m!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
-    IO.eprintln s!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
+    deepTrace s!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0
