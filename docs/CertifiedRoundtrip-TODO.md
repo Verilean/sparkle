@@ -487,6 +487,30 @@ group is rough priority.  Update as items land.
   sharing depth, comparing generated size AND proof time against the
   inlined route — completion is "proofs finish and reduction does not
   re-expand", not "syntax is smaller"; (4) apply to crc16; CdoM after.
+  **Step 3 baseline (2026-09-13, current inlined route).**  Family
+  `shareX_n`: `r ← reg 0; w0 := r + i; w_k := (w_{k-1} + w_{k-1}) ^^^ i;
+  r <~ w_n + w_{n-1}; out w_n` (add/xor only — a first `*`-based family
+  hit the arithmetic-size frontier at n=4 and was discarded as
+  confounded).  Conditions: `lake env lean`, timeout 600 s per file,
+  `MemoryMax=24G`, one run each:
+  | n | result | wall | inlined cone (`coneRaw`) | bridge rhs |
+  | 2 | PROVEN | 28 s | 2,030 chars | 6,852 |
+  | 4 | FAILED — `shareX4_deep_trace`: heartbeat timeout at `whnf` (1.6 M) | 87 s | 11,474 | 36,738 |
+  | 6 | FAILED (isDefEq heartbeats) | 89 s | 56,762 | 188,163 |
+  | 8 | FAILED (whnf heartbeats) | 95 s | 312,026 | 902,298 |
+  | 10 | FAILED (whnf heartbeats) | 113 s | 1,546,586 | 4,237,859 |
+  | 12 | FAILED (whnf heartbeats) | 63 s | 7,071,578 | 22,740,506 |
+  | 14 | FAILED (whnf heartbeats) | 80 s | 35,594,074 | 104,373,795 |
+  Both sizes grow ≈ 5× per step (2^n behaviour).  At n=4 the bridge
+  `_rd0_succ` (37 K chars, `rfl`) still COMPLETES; the failure is the
+  Signal-side TRACE THEOREM — so the binding layer's job is (a) small
+  readers/bridge lemmas and (b) a trace proof that generalises wire
+  readers to atoms and keeps their defining equations as hypotheses,
+  never re-inlining them.  Comparison target for the shared route: the
+  same family, same conditions, n up to 14 and beyond.
+  **`CdoW` semantics landed** (`Tools/DeepElab.lean`, root namespace,
+  2026-09-13): `wiresAt`/`wenv`/`full`, both recurrences, and
+  `CdoW.elab_general`, standard axioms.  Generator does not use it yet.
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
