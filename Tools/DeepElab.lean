@@ -1013,6 +1013,242 @@ already computes), so a circuit's deep value can be GENERATED and the
 general theorem applied, leaving only the Signal-side bridge as a
 per-instance proof. -/
 
+/-! # CdoW — deep circuits with a binding layer of shared wires
+
+Prototype for cone sharing (step 3 of the staged plan).  `Cdo` has one
+fully-inlined cone per register; on `crc16CcittHW` that cone is 16 M
+chars and its bridge term 64 M.  `CdoW` adds an ordered list of WIRE
+slots `Γw`: each wire has a small cone over registers, inputs and the
+EARLIER wires; registers' next cones and the output refer to wires.
+Everything is stated over the joined context `(Γr ++ Γi) ++ Γw`, so
+`CExpr`, `compile` and `compile_correct` are reused unchanged.
+
+Wire evaluation is a fuel recursion in slot order (`wiresAt n` has the
+first `n` wires set, the rest 0).  No ordering side condition is needed
+for the SEMANTICS — a wire that read a later wire would just read 0 —
+the ordering only matters when linking to the IR fold, where it is a
+per-instance decidable fact about the reified cones. -/
+
+structure CdoW (Γr Γi Γw : List Nat) (wOut : Nat) where
+  inits : CEnv Γr
+  wires : ∀ j : Fin Γw.length, CExpr ((Γr ++ Γi) ++ Γw) (Γw.get j)
+  next  : ∀ i : Fin Γr.length, CExpr ((Γr ++ Γi) ++ Γw) (Γr.get i)
+  out   : CExpr ((Γr ++ Γi) ++ Γw) wOut
+
+variable {Γr Γi Γw : List Nat} {wOut : Nat}
+
+/-- The first `n` wires evaluated in order; unset wires read 0. -/
+def CdoW.wiresAt (c : CdoW Γr Γi Γw wOut) (ρ : CEnv (Γr ++ Γi)) :
+    Nat → CEnv Γw
+  | 0 => fun _ => 0
+  | n+1 => fun j =>
+    if j.val = n then (c.wires j).denote (CEnv.join ρ (c.wiresAt ρ n))
+    else c.wiresAt ρ n j
+
+/-- All wires evaluated. -/
+def CdoW.wenv (c : CdoW Γr Γi Γw wOut) (ρ : CEnv (Γr ++ Γi)) : CEnv Γw :=
+  c.wiresAt ρ Γw.length
+
+/-- The full cone environment: registers, inputs, then the wires. -/
+def CdoW.full (c : CdoW Γr Γi Γw wOut) (ρ : CEnv (Γr ++ Γi)) :
+    CEnv ((Γr ++ Γi) ++ Γw) :=
+  CEnv.join ρ (c.wenv ρ)
+
+/-- Spec-side state recurrence. -/
+def CdoW.stateAt (c : CdoW Γr Γi Γw wOut) (inp : Nat → CEnv Γi) :
+    Nat → CEnv Γr
+  | 0 => c.inits
+  | t+1 => fun i =>
+    (c.next i).denote (c.full (CEnv.join (c.stateAt inp t) (inp t)))
+
+variable {dom : Sparkle.Core.Domain.DomainConfig}
+
+def CdoW.loopF (c : CdoW Γr Γi Γw wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) :
+    Sparkle.Core.Signal.Signal dom (CEnv Γr) →
+    Sparkle.Core.Signal.Signal dom (CEnv Γr) :=
+  fun live => ⟨fun t => match t with
+    | 0 => c.inits
+    | t+1 => fun i => (c.next i).denote
+        (c.full (CEnv.join (live.val t) (fun j => (inpS j).val t)))⟩
+
+def CdoW.stateSig (c : CdoW Γr Γi Γw wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) :
+    Sparkle.Core.Signal.Signal dom (CEnv Γr) :=
+  Sparkle.Core.Signal.Signal.loop (c.loopF inpS)
+
+theorem CdoW.stateSig_eq (c : CdoW Γr Γi Γw wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) (t : Nat) :
+    (c.stateSig (dom := dom) inpS).val t
+      = c.stateAt (fun t j => (inpS j).val t) t := by
+  unfold CdoW.stateSig
+  rw [loop_trace_at _
+    (fun s => c.stateAt (fun t j => (inpS j).val t) s) ?hstep]
+  case hstep =>
+    intro u pre hpre
+    cases u with
+    | zero => rfl
+    | succ n =>
+      show (fun i => (c.next i).denote
+          (c.full (CEnv.join (pre.val n) (fun j => (inpS j).val n)))) = _
+      rw [hpre n (Nat.lt_succ_self n)]
+      rfl
+
+def CdoW.outSig (c : CdoW Γr Γi Γw wOut)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) :
+    Sparkle.Core.Signal.Signal dom (BitVec wOut) :=
+  ⟨fun t => c.out.denote
+    (c.full (CEnv.join ((c.stateSig inpS).val t) (fun j => (inpS j).val t)))⟩
+
+/-! ## IR side -/
+
+/-- The IR-side wire recurrence: compiled wire cones under the proven
+    `evalExpr`, in slot order, over the register/input valuation `ρn`. -/
+def CdoW.irWiresAt (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (ρn : Fin (Γr ++ Γi).length → Nat) : Nat → Fin Γw.length → Nat
+  | 0 => fun _ => 0
+  | n+1 => fun j =>
+    if j.val = n then
+      (evalExpr (weOfC names (fun k => ((Γr ++ Γi) ++ Γw).get k))
+        (envOfC names (natJoin ρn (c.irWiresAt names ρn n)))
+        ((c.wires j).compile names)).getD 0
+    else c.irWiresAt names ρn n j
+
+def CdoW.irWires (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (ρn : Fin (Γr ++ Γi).length → Nat) : Fin Γw.length → Nat :=
+  c.irWiresAt names ρn Γw.length
+
+/-- IR-side state recurrence: each register's compiled (shared) cone at
+    the register/input valuation extended with the IR wire values. -/
+def CdoW.irState (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (inp : Nat → CEnv Γi) : Nat → Fin Γr.length → Nat
+  | 0 => fun i => (c.inits i).toNat
+  | t+1 => fun i =>
+    let ρn := natJoin (c.irState names inp t) (fun j => (inp t j).toNat)
+    (evalExpr (weOfC names (fun k => ((Γr ++ Γi) ++ Γw).get k))
+      (envOfC names (natJoin ρn (c.irWires names ρn)))
+      ((c.next i).compile names)).getD 0
+
+/-- Wires: IR recurrence = spec recurrence, in order. -/
+theorem CdoW.irWiresAt_eq (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (ρ : CEnv (Γr ++ Γi)) (n : Nat) (j : Fin Γw.length) :
+    c.irWiresAt names (fun k => (ρ k).toNat) n j = (c.wiresAt ρ n j).toNat := by
+  induction n generalizing j with
+  | zero => simp [CdoW.irWiresAt, CdoW.wiresAt]
+  | succ n ih =>
+    simp only [CdoW.irWiresAt, CdoW.wiresAt]
+    by_cases hj : j.val = n
+    · rw [if_pos hj, if_pos hj]
+      rw [CExpr.compile_correct names _ _ (CEnv.join ρ (c.wiresAt ρ n))
+        (fun k => weOfC_names names _ hinj k)
+        (fun k => by
+          rw [envOfC_names names _ hinj k, ← natJoin_eq_join]
+          congr 1
+          funext m
+          exact ih m)]
+      rfl
+    · rw [if_neg hj, if_neg hj]
+      exact ih j
+
+theorem CdoW.irWires_eq (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (ρ : CEnv (Γr ++ Γi)) (j : Fin Γw.length) :
+    c.irWires names (fun k => (ρ k).toNat) j = (c.wenv ρ j).toNat :=
+  c.irWiresAt_eq names hinj ρ Γw.length j
+
+/-- The IR-side full environment agrees with the spec's `full`. -/
+theorem CdoW.natJoin_full (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (ρ : CEnv (Γr ++ Γi)) (k : Fin ((Γr ++ Γi) ++ Γw).length) :
+    natJoin (fun m => (ρ m).toNat) (c.irWires names (fun m => (ρ m).toNat)) k
+      = (c.full ρ k).toNat := by
+  unfold CdoW.full
+  rw [← natJoin_eq_join]
+  congr 1
+  funext j
+  exact c.irWires_eq names hinj ρ j
+
+/-- Registers: IR recurrence = spec recurrence. -/
+theorem CdoW.irState_eq (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) (i : Fin Γr.length) :
+    c.irState names inp t i = (c.stateAt inp t i).toNat := by
+  induction t generalizing i with
+  | zero => rfl
+  | succ n ih =>
+    show (evalExpr _ (envOfC names (natJoin
+        (natJoin (c.irState names inp n) (fun j => (inp n j).toNat))
+        (c.irWires names (natJoin (c.irState names inp n) (fun j => (inp n j).toNat)))))
+        ((c.next i).compile names)).getD 0 = _
+    have hρ : natJoin (c.irState names inp n) (fun j => (inp n j).toNat)
+        = fun m => (CEnv.join (c.stateAt inp n) (inp n) m).toNat := by
+      funext m
+      rw [← natJoin_eq_join]
+      congr 1
+      funext k
+      exact ih k
+    rw [hρ]
+    rw [CExpr.compile_correct names _ _
+      (c.full (CEnv.join (c.stateAt inp n) (inp n)))
+      (fun k => weOfC_names names _ hinj k)
+      (fun k => by
+        rw [envOfC_names names _ hinj k]
+        exact c.natJoin_full names hinj _ k)]
+    rfl
+
+/-- **The general Signal ↔ IR theorem for deep circuits WITH shared
+    wires.**  Same shape as `Cdo.elab_general`; the cones are small. -/
+theorem CdoW.elab_general (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String)
+    (hinj : ∀ i j, names i = names j → i = j)
+    (inpS : ∀ j : Fin Γi.length,
+      Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) (t : Nat) :
+    ((c.outSig (dom := dom) inpS).val t).toNat
+      = (let ρn := natJoin
+            (c.irState names (fun t j => (inpS j).val t) t)
+            (fun j => ((inpS j).val t).toNat)
+         (evalExpr (weOfC names (fun k => ((Γr ++ Γi) ++ Γw).get k))
+          (envOfC names (natJoin ρn (c.irWires names ρn)))
+          (c.out.compile names)).getD 0) := by
+  show _ = (evalExpr _ (envOfC names (natJoin
+      (natJoin (c.irState names (fun t j => (inpS j).val t) t)
+        (fun j => ((inpS j).val t).toNat))
+      (c.irWires names (natJoin (c.irState names (fun t j => (inpS j).val t) t)
+        (fun j => ((inpS j).val t).toNat)))))
+      (c.out.compile names)).getD 0
+  have hρ : natJoin (c.irState names (fun t j => (inpS j).val t) t)
+      (fun j => ((inpS j).val t).toNat)
+      = fun m => (CEnv.join (c.stateAt (fun t j => (inpS j).val t) t)
+          (fun j => (inpS j).val t) m).toNat := by
+    funext m
+    rw [← natJoin_eq_join]
+    congr 1
+    funext k
+    exact c.irState_eq names hinj _ t k
+  rw [hρ]
+  rw [CExpr.compile_correct names _ _
+    (c.full (CEnv.join (c.stateAt (fun t j => (inpS j).val t) t)
+      (fun j => (inpS j).val t)))
+    (fun k => weOfC_names names _ hinj k)
+    (fun k => by
+      rw [envOfC_names names _ hinj k]
+      exact c.natJoin_full names hinj _ k)]
+  show ((c.outSig (dom := dom) inpS).val t).toNat = (c.out.denote _).toNat
+  unfold CdoW.outSig
+  simp only [c.stateSig_eq inpS t]
+
 namespace Tools.DeepElab
 
 open Lean Elab Command
