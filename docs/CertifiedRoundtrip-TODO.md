@@ -477,9 +477,17 @@ group is rough priority.  Update as items land.
   wire via `shared_cone_agrees_at_settled` (stop set = the wire slots),
   `_deep_step_w` per wire at the settled env.  Touches `Cdo.elab_general`
   (a wire-evaluation lemma) and the reifier's stop set.  Estimated a
-  multi-session item; needs the user's go-ahead since it changes the
-  deep grammar and the general theorem.  Until then crc16 / arithmetic-
-  size circuits remain capstone-only (per-instance route).
+  multi-session item.  **Go-ahead given 2026-09-13**, staged: (1) trace
+  strings lazy [done]; (2) premises on crc16's REAL body [done —
+  `Tests/Verification/ConeSharingPremises.lean`, build-time, CI-gated:
+  26 shared wires, register cone 954 chars, per-wire ≤ 589, memFree /
+  noSelfRead / woCheck / bodyWidthOk / hwfCheck all true, frozen check
+  false as predicted]; (3) prove the binding layer on a small memory-
+  free circuit end to end (reification, bridge, replay) and scale the
+  sharing depth, comparing generated size AND proof time against the
+  inlined route — completion is "proofs finish and reduction does not
+  re-expand", not "syntax is smaller"; (4) apply to crc16; CdoM after.
+  Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
 

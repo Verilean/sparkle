@@ -319,6 +319,18 @@ if [ -f "$ELAB_FILE" ]; then
     grep -m5 -E "error" "$WORK/vpi.log" | sed 's/^/    /'
     fail=1
   fi
+  # cone-sharing premises on crc16's REAL body (build-time run_cmd that
+  # throws on any failed premise; see the file header for the numbers)
+  CSP_FILE=Tests/Verification/ConeSharingPremises.lean
+  if [ ! -f "$CSP_FILE" ]; then
+    echo "FAIL: $CSP_FILE is missing (cone-sharing premise gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingPremises > "$WORK/csp.log" 2>&1 \
+      && grep -q "CONE-SHARING crc16: 26 shared wires" "$WORK/csp.log"; then
+    echo "cone-sharing premises: crc16 body, 26 shared wires, all premises hold"
+  else
+    echo "FAIL: cone-sharing premises on crc16 regressed"
+    grep -m5 -E "error" "$WORK/csp.log" | sed 's/^/    /'; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)
