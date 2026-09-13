@@ -454,12 +454,32 @@ group is rough priority.  Update as items land.
   `evalOk_isSome` pattern, not `evalExpr.induct`.  Concat needs no
   recursive bound at all: `evalExpr.go` masks each element (`go_bounded`
   via `go_restW`, the zip-fold rest width = `widthOf.go` of the rest).
-  Remaining: (2) `evalAssigns_bounded` over the fold (memory-free
-  bodies, matching the seam theorem's `hm`; `comboReads` masks at `dw`
-  so memories can follow); (3) the generator computes the multiply-read
-  stop set, discharges `bodyWidthOk` by `decide`, and routes
-  `_deep_step_*` / `_deep_regstep` through
-  `shared_cone_agrees_at_settled`.
+  **`evalAssigns_bounded` LANDED (2026-09-13)** — memory-free bodies,
+  `bodyWidthOk` decidable side condition with non-vacuity guards.
+  Every premise of `shared_cone_agrees_at_settled` is now provable.
+  **Step (3) is a DESIGN DECISION, not a reroute — measured on crc16
+  (2026-09-13, `SPARKLE_DEEP_TRACE` markers, the run otherwise stalls
+  silently):**
+  | inlined IR cone (`coneRaw`) | 16.25 M chars |
+  | slice-resolved cone | 14.3 M |
+  | reified `Cdo.next` arms SYNTAX | 26.8 M |
+  | shallow bridge rhs (`_rd0_succ`) | 64.4 M — `rfl` never finishes |
+  Findings: (a) the reifier reifies the INLINED IR cone, so the deep
+  side is as large as the IR side (correcting "blowup is not in
+  reification"); (b) the constants add and the G1 glue CLOSES, because
+  `native_decide` evaluates compiled code with sharing; (c) the stall is
+  the Signal-side bridge, kernel `rfl` over a 64 M-char term with no
+  sharing.  Therefore sharing has to enter the deep grammar itself: a
+  BINDING LAYER in `Cdo`/`CdoM` (ordered wire slots `Γw` with small
+  per-wire `CExpr`s, `next`/`out` referring to wires), whose denotation
+  evaluates wires in order before `next`/`out`.  That makes every
+  reified term, bridge lemma and G1 small; the IR side links wire-for-
+  wire via `shared_cone_agrees_at_settled` (stop set = the wire slots),
+  `_deep_step_w` per wire at the settled env.  Touches `Cdo.elab_general`
+  (a wire-evaluation lemma) and the reifier's stop set.  Estimated a
+  multi-session item; needs the user's go-ahead since it changes the
+  deep grammar and the general theorem.  Until then crc16 / arithmetic-
+  size circuits remain capstone-only (per-instance route).
 
 ## D. Trust base
 

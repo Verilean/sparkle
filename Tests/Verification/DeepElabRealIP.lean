@@ -56,15 +56,21 @@ import Tools.DeepElab
     on the multiply cones) before the bridge runs — the nesting itself
     is covered by the `DeepElabReifyDemo` nested demos;
   * cone size: `crc16CcittHW` (DroneCAN) unrolls `crc16Step` 8 times,
-    each step reading its input 3 times.  Measured: the module is 94
-    statements and its single register's INLINED CONE is 16 MB of
-    `repr` text — the blowup is in `inlineConeT` (which substitutes a
-    wire's definition at every use), not in the reification, so a
-    `let`-sharing `CExpr` alone would not help.  The whole certified
-    chain (`cone_resolved_agrees_at_seed` and everything above it) is
-    stated over the fully-inlined cone, so sharing has to enter at the
-    cone level with its own agreement theorem — a design change, not a
-    patch;
+    each step reading its input 3 times.  Measured (2026-09-13, with
+    `SPARKLE_DEEP_TRACE` stage markers): the module is 94 statements;
+    the register's inlined IR cone is 16.25 M chars of `repr`, the
+    slice-resolved cone 14.3 M, the REIFIED `Cdo.next` syntax 26.8 M
+    (the reifier reifies the inlined IR cone, so — correcting an earlier
+    note — reification blows up too), and the Signal-side bridge's
+    shallow `_rd0_succ` right-hand side 64.4 M chars, whose `rfl` is
+    where the run stalls.  The constants add fine and the G1 glue
+    closes (compiled `native_decide` evaluates with sharing); only the
+    kernel-defeq bridge has none.  So sharing must enter the DEEP
+    GRAMMAR — a binding layer of wire slots with small per-wire cones —
+    which fixes reification, bridge and replay together.  The cone-level
+    agreement theorem and all its premises are proven
+    (`shared_cone_agrees_at_settled`, `evalAssigns_bounded`); the grammar
+    extension is a design decision, tracked in the TODO;
   * slot count: `kvHw` (memcached key-value engine, 13 registers + 5
     inputs + 4 memories) hits a hard ceiling in the generated name
     table — past 15 arms the match compiler stops enumerating `Fin`

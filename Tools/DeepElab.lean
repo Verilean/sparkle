@@ -1929,6 +1929,7 @@ elab "#verify_elab_deep" id:ident : command =>
     let minitsEqId := mkI s!"{base}{suffix}_deep_minits"
     let readsEqId := mkI s!"{base}{suffix}_deep_reads"
     if hasMem then
+      deepTrace s!"#verify_elab_deep STAGE port {k}: reifying _deep (next-arms syntax chars={(nextArmsM.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $ΓcT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         minits := fun _ _ => 0
@@ -1950,6 +1951,7 @@ elab "#verify_elab_deep" id:ident : command =>
         CdoM.minits $deepId = fun _ _ => 0 := rfl))
       elabSync (← `(theorem $outEqId : CdoM.out $deepId = $outC := rfl))
     else
+      deepTrace s!"#verify_elab_deep STAGE port {k}: reifying _deep (Cdo; next-arms syntax chars={(nextArms.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
         inits := fun i => match i with $initArms:matchAlt*
         next := fun i => match i with $nextArms:matchAlt*
@@ -2118,16 +2120,19 @@ elab "#verify_elab_deep" id:ident : command =>
       liftCoreM <| Lean.enableRealizationsForConst id.getId
     let outT0 : Term ← if hasMem then `(CdoM.out $deepId) else `(Cdo.out $deepId)
     let addExprConst (id : Ident) (e : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
+      deepTrace s!"#verify_elab_deep STAGE addExprConst {id.getId} repr-chars={(repr e).pretty.length}"
       liftCoreM <| addAndCompile <| .defnDecl {
         name := id.getId, levelParams := []
         type := mkConst ``Sparkle.IR.AST.Expr
         value := toExpr e, hints := .abbrev, safety := .safe }
       liftCoreM <| Lean.enableRealizationsForConst id.getId
+      deepTrace s!"#verify_elab_deep STAGE ok: addExprConst {id.getId}"
     -- one G1 lemma: `lhs` is the compiled reification (or its literal),
     -- `hnormTac` proves `lhs = concatNorm cone`, `eIn` the IR expression
     -- whose cone `coneRaw` is (the inlining hypothesis is recomputed)
     let mkG1 (g1Id : Ident) (lhs : Term) (hnormTac : Lean.TSyntax `tactic)
         (coneRawId coneId : Ident) (eIn : Term) : CommandElabM Unit := do
+      deepTrace s!"#verify_elab_deep STAGE G1 {g1Id.getId} begin (lhs chars={(toString lhs).length})"
       elabSync (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
           Sparkle.IR.Semantics.evalExpr
               (weOfC $nmId (fun j => ($ΓAllT).get j))
@@ -2163,6 +2168,7 @@ elab "#verify_elab_deep" id:ident : command =>
           · exact h
           · simp at h
         exact hag n hmem))
+      deepTrace s!"#verify_elab_deep STAGE ok: G1 {g1Id.getId}"
     if k == 0 then
       let weBody ← do
         let mut acc ← `((0 : Nat))
@@ -2290,6 +2296,7 @@ elab "#verify_elab_deep" id:ident : command =>
     -- readers + Signal-side bridge + capstone, as its own compilation
     -- unit (see replayBlock below); it hands the replay the LHS signal
     let rec bridgeBlock : Unit → CommandElabM (Option Term) := fun _ => do
+      deepTrace s!"#verify_elab_deep STAGE port {k}: bridgeBlock begin"
       -- ===== literal-width state readers (the shallow bridge) =====
       -- `Cdo.stateAt … ⟨i, _⟩ : BitVec (Γr.get ⟨i, _⟩)` — a width that is
       -- defeq to the literal but never syntactically it, and every
@@ -2379,8 +2386,10 @@ elab "#verify_elab_deep" id:ident : command =>
             let mdId : Ident := mdIds[syncIdx[i - nReg]!]!
             let addrS ← shallowAt (← `($sId)) conesIR[i]!
             `(($mdId $appArgs* $sId $addrS))
+        deepTrace s!"#verify_elab_deep STAGE bridge {rdSuccId.getId} begin (shallow rhs syntax chars={(toString rhs).length})"
         elabSync (← `(theorem $rdSuccId $paramBinders* ($sId : Nat) :
           $rdId $appArgs* ($sId + 1) = $rhs := rfl))
+        deepTrace s!"#verify_elab_deep STAGE ok: bridge {rdSuccId.getId}"
       let mdZeroIds : Array Ident := (List.range nM).toArray.map fun kk =>
         mkI s!"{base}{suffix}_deep_md{kk}_zero"
       let mdSuccIds : Array Ident := (List.range nM).toArray.map fun kk =>
@@ -2852,6 +2861,7 @@ elab "#verify_elab_deep" id:ident : command =>
     -- was superlinear (16 min and a heartbeat timeout for the whole
     -- generator).
     let rec replayBlock : Unit → CommandElabM Unit := fun _ => do
+      deepTrace s!"#verify_elab_deep STAGE port {k}: replayBlock begin"
       -- DEEP-BRIDGE (first landing): rewrite the capstone's RHS through
       -- the G1_out glue so the Signal value is stated as
       -- `evalExpr weM (envOfC …) outCone` — the ConeFold bridge's
