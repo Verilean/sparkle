@@ -1216,18 +1216,16 @@ theorem CdoW.elab_general (c : CdoW Γr Γi Γw wOut)
     (inpS : ∀ j : Fin Γi.length,
       Sparkle.Core.Signal.Signal dom (BitVec (Γi.get j))) (t : Nat) :
     ((c.outSig (dom := dom) inpS).val t).toNat
-      = (let ρn := natJoin
-            (c.irState names (fun t j => (inpS j).val t) t)
-            (fun j => ((inpS j).val t).toNat)
-         (evalExpr (weOfC names (fun k => ((Γr ++ Γi) ++ Γw).get k))
-          (envOfC names (natJoin ρn (c.irWires names ρn)))
-          (c.out.compile names)).getD 0) := by
-  show _ = (evalExpr _ (envOfC names (natJoin
-      (natJoin (c.irState names (fun t j => (inpS j).val t) t)
-        (fun j => ((inpS j).val t).toNat))
-      (c.irWires names (natJoin (c.irState names (fun t j => (inpS j).val t) t)
-        (fun j => ((inpS j).val t).toNat)))))
-      (c.out.compile names)).getD 0
+      = (evalExpr (weOfC names (fun k => ((Γr ++ Γi) ++ Γw).get k))
+          (envOfC names (natJoin
+            (natJoin (c.irState names (fun t j => (inpS j).val t) t)
+              (fun j => ((inpS j).val t).toNat))
+            (c.irWires names (natJoin (c.irState names (fun t j => (inpS j).val t) t)
+              (fun j => ((inpS j).val t).toNat)))))
+          (c.out.compile names)).getD 0 := by
+  -- (no `let` in the statement: `rw [← CdoW.elab_general …]` must match
+  -- syntactically; a `let` there made `rw` fall back to defeq and unfold
+  -- the recurrences — measured as a 4 M-heartbeat timeout)
   have hρ : natJoin (c.irState names (fun t j => (inpS j).val t) t)
       (fun j => ((inpS j).val t).toNat)
       = fun m => (CEnv.join (c.stateAt (fun t j => (inpS j).val t) t)
