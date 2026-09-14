@@ -344,6 +344,20 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: cone-sharing prototype (ConeSharingProto) regressed"
     grep -m5 -E "error|sorryAx" "$WORK/csproto.log" | sed 's/^/    /'; fail=1
   fi
+  # cone-sharing REPLAY (plan step 2): signal_run on the shared route for
+  # shareX4, with an in-file axiom policy (std + decision-procedure
+  # auxiliaries only, never sorryAx); both policy lines must appear
+  CSR_FILE=Tests/Verification/ConeSharingReplay.lean
+  if [ ! -f "$CSR_FILE" ]; then
+    echo "FAIL: $CSR_FILE is missing (cone-sharing replay gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingReplay > "$WORK/csr.log" 2>&1 \
+      && grep -q "CONE-SHARING REPLAY OK: Sparkle.Tests.ShareW.trace" "$WORK/csr.log" \
+      && grep -q "CONE-SHARING REPLAY OK: Sparkle.Tests.ShareW.signal_run" "$WORK/csr.log"; then
+    echo "cone-sharing replay: shareX4 trace + signal_run proven on the CdoW route (axiom policy ok)"
+  else
+    echo "FAIL: cone-sharing replay (ConeSharingReplay) regressed"
+    grep -m5 -E "error|disallowed" "$WORK/csr.log" | sed 's/^/    /'; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

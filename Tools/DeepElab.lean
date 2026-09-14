@@ -1247,6 +1247,37 @@ theorem CdoW.elab_general (c : CdoW Γr Γi Γw wOut)
   unfold CdoW.outSig
   simp only [c.stateSig_eq inpS t]
 
+/-! ### Wire recurrence: stability in the fuel and the one-step view (used by the replay) -/
+theorem CdoW.irWiresAt_stable {Γr Γi Γw : List Nat} {wOut : Nat} (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String) (ρ : Fin (Γr ++ Γi).length → Nat) :
+    ∀ (n : Nat) (j : Fin Γw.length), j.val < n →
+      c.irWiresAt names ρ n j = c.irWiresAt names ρ (j.val + 1) j := by
+  intro n
+  induction n with
+  | zero => intro j h; omega
+  | succ n ih =>
+    intro j hj
+    by_cases h : j.val = n
+    · subst h; rfl
+    · have hlt : j.val < n := by omega
+      show (if j.val = n then _ else c.irWiresAt names ρ n j) = _
+      rw [if_neg h]
+      exact ih j hlt
+
+theorem CdoW.irWires_eq_at {Γr Γi Γw : List Nat} {wOut : Nat} (c : CdoW Γr Γi Γw wOut)
+    (names : Fin ((Γr ++ Γi) ++ Γw).length → String) (ρ : Fin (Γr ++ Γi).length → Nat)
+    (j : Fin Γw.length) :
+    c.irWires names ρ j
+      = (evalExpr (weOfC names (fun k => ((Γr ++ Γi) ++ Γw).get k))
+          (envOfC names (natJoin ρ (c.irWiresAt names ρ j.val)))
+          ((c.wires j).compile names)).getD 0 := by
+  unfold CdoW.irWires
+  rw [c.irWiresAt_stable names ρ Γw.length j j.isLt]
+  show (if j.val = j.val then _ else _) = _
+  rw [if_pos rfl]
+
+
+
 namespace Tools.DeepElab
 
 open Lean Elab Command

@@ -561,10 +561,34 @@ group is rough priority.  Update as items land.
   `rw_k_eq` `rfl` unfolds k levels of `wiresAt`, so Phase A is
   quadratic (a `wiresAt` step lemma would make it linear; not needed
   yet); the trace theorem itself takes ~3 / 12 / 31 s, bv_decide over
-  2n+ hypotheses.  Next: (2) replay via
-  `shared_cone_agrees_at_settled` on this circuit; (3) slot ceiling
-  (crc16 = 32 slots); (4) generator integration behind
-  `SPARKLE_DEEP_SHARE=1`; (5) crc16.
+  2n+ hypotheses.
+  **Plan item 2 DONE (2026-09-14): REPLAY on the shared route, shareX4**
+  (`Tests/Verification/ConeSharingReplay.lean`, hand-written in the
+  generator's output shape, builds in 8 s, CI-gated with an in-file
+  axiom policy).  Chain: per-slot G1 glue `coneEval_*` (each cone =
+  ONE wire's definition, stopping at the other shared wires — a wire's
+  own stop set excludes itself, otherwise inlining `.ref w` returns
+  `.ref w`); seed `envAt` = registers, inputs AND deep wire values, its
+  bound (via `CdoW.natJoin_full`), pointwise readers; per wire in slot
+  order `settled_w*` (from `shared_cone_agrees_at_settled` with the
+  wire's stop set and `hb1` from `evalAssigns_bounded`) then `wire_w*`
+  (settled value = deep wire value, by `evalExpr_congr` on the cone's
+  refs: registers/inputs by `evalAssigns_frame`, earlier wires by
+  induction, using the new general lemmas `CdoW.irWiresAt_stable` /
+  `CdoW.irWires_eq_at`, landed next to `CdoW`); `step_r` / `step_out`
+  (seed-side evaluation by the same congruence); `regstep`; `envSt`
+  (state-indexed seed, masked so it is bounded for ANY state), `henv`
+  (agreement with the seed when the state matches the spec), `state_trace`,
+  `signal_fold`, **`signal_run`**.  Axioms: `trace` std + 2 bv_decide
+  aux; `signal_run` std + 61 native_decide/bv_decide aux; no sorryAx.
+  Demo-only: `weM := fun _ => 8` (all wires 8-bit here); the generator
+  will use the module's width table.  Lessons for the generator: the
+  settled lemmas need an explicit expected type and `(e' := coneRaw)`
+  or `native_decide` sees a metavariable; `congr 1`/`try exact`
+  cascades time out — use explicit cases; the G1 statements must use the
+  literal context list, not an abbrev, for `rw` to match.
+  Next: (3) slot ceiling (crc16 = 32 slots); (4) generator integration
+  behind `SPARKLE_DEEP_SHARE=1`; (5) crc16.
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
