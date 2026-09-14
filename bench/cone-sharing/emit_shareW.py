@@ -1,6 +1,7 @@
 import sys
 import os
 S=os.environ.get("SHAREW_OUT", os.path.dirname(os.path.abspath(__file__)))
+TPLDIR=os.path.dirname(os.path.abspath(__file__))  # templates live next to this script
 def emit(n, with_trace):
     W=n+1  # wires w0..wn
     body=["    let r ← Signal.reg (0#8)","    let a := (r : Signal defaultDomain (BitVec 8))","    let w0 := a + i"]
@@ -61,9 +62,27 @@ def rd0 (i : Signal defaultDomain (BitVec 8)) (s : Nat) : BitVec 8 :=
   rw [CdoW.stateSig_eq]
   rfl''')
     if with_trace:
-        tpl=open(f"{S}/shareW_trace.tpl").read().replace("{n}",str(n)).replace("{n1}",str(n-1)).replace("GW",gw)
+        hb=os.environ.get("SHAREW_HB","1600000")
+        tplname=os.environ.get("SHAREW_TPL","shareW_trace.tpl")
+        tpl=open(f"{TPLDIR}/{tplname}").read().replace("{n}",str(n)).replace("{n1}",str(n-1)).replace("GW",gw).replace("HEARTBEATS",hb)
         hm="\n".join(f"      have f{k} := rw{k}_eq i m" for k in range(W))
         ht="\n".join(f"  have f{k} := rw{k}_eq i t" for k in range(W))
+        # DSL-side per-wire `.val` equations on the extract_lets local defs
+        # (names preserved: a, w0..wn); `a` is the register read, tied to
+        # the reader by hpre
+        dsl=["      have ea : a.val m = rd0 i m := by simp [a, mkRegList, Signal.map, hpre m (Nat.lt_succ_self m)]",
+             "      have e0 : w0.val m = a.val m + i.val m := by simp only [w0, sigval_add]"]
+        for k in range(1,W):
+            dsl.append(f"      have e{k} : w{k}.val m = (w{k-1}.val m + w{k-1}.val m) ^^^ i.val m := by simp only [w{k}, sigval_add, sigval_xor]")
+        names=" ".join(["a"]+[f"w{k}" for k in range(W)]+["p"])
+        namesO=" ".join(["ao"]+[f"wo{k}" for k in range(W)])
+        tpl=tpl.replace("EXTRACTNAMES_OUT",namesO).replace("EXTRACTNAMES",names)
+        dslT=["  have eao : ao.val t = rd0 i t := by simp [ao, Signal.map, hLt]",
+              "  have eo0 : wo0.val t = ao.val t + i.val t := by simp only [wo0, sigval_add]"]
+        for k in range(1,W):
+            dslT.append(f"  have eo{k} : wo{k}.val t = (wo{k-1}.val t + wo{k-1}.val t) ^^^ i.val t := by simp only [wo{k}, sigval_add, sigval_xor]")
+        tpl=tpl.replace("  DSLWIREEQS_T","\n".join(dslT))
+        tpl=tpl.replace("      DSLWIREEQS_M","\n".join(dsl))
         tpl=tpl.replace("      WIREHYPS_M",hm).replace("  WIREHYPS_T",ht)
         L.append(tpl)
     L.append("end Sparkle.Tests.ShareW\n")

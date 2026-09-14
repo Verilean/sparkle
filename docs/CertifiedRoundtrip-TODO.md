@@ -524,21 +524,47 @@ group is rough priority.  Update as items land.
   | 12 | PROVEN, 46 s | FAILED |
   | 14 | "Missing cases" in the `nm` `Fin`-literal match (17 slots) — the KNOWN slot-count ceiling, not sharing | FAILED |
   Axioms: standard three + `bv_decide`'s native axioms (same trust class
-  as the baseline's closer).  Every per-wire lemma is `rfl` on a
+  as the baseline's closer).  **Heartbeat limits (2026-09-14):** the
+  generator fixes its trace theorem at `maxHeartbeats 1600000`
+  internally (`Tools/DeepElab.lean`, the `set_option … in` around the
+  trace command), so an outer `set_option` on `#verify_elab_deep` does
+  NOT raise it — a "baseline at 4 M" attempt still reported 1.6 M and
+  is not a valid comparison.  The prototype's trace theorem is
+  therefore run at 1,600,000 too (emitter default), and its `sorry`
+  fallback closers were replaced by hard `fail`s.  **Equal-limit
+  measurement (1,600,000 heartbeats both routes, 600 s, 24G, emitted
+  files gated to contain the limit and no `sorry`):** shared route
+  n=4 3 s, n=8 16 s, n=12 46 s, all PROVEN; inlined route FAILED at
+  every n ≥ 4 (heartbeat timeouts, table above).  The prototype's
+  advantage is therefore not an artefact of a higher limit.  Every per-wire lemma is `rfl` on a
   one-wire cone; the trace theorem takes the wire equations as
   hypotheses and `bv_decide` bitblasts linearly on the IR side.
-  **Honest limit:** the DSL side is still zeta-expanded by stage-1 simp
-  (2^n); bv_decide absorbs it to n=12 here.  For crc16 (3^8 copies of
-  `crc16Step`) that may not suffice — the DSL side needs LET-FLOATING
-  (push projections/applications into `letFun` bodies so the `have`
-  chain reaches the goal top, then `extract_lets` + per-wire `.val`
-  equations; validated on a mini goal).  A `g (letFun v f) = letFun v
-  (fun x => g (f x))` simp lemma has a metavariable head, so this needs
-  a simproc or a small custom tactic.  Next: (a) let-floating; (b) the
-  slot-count ceiling (list-backed `nm`) which sharing now makes urgent
-  (crc16 has 26 wires + 1 reg + 5 inputs = 32 slots); (c) generator
-  integration behind `SPARKLE_DEEP_SHARE=1`; (d) the replay half
-  (per-wire `_deep_wstep` via `shared_cone_agrees_at_settled`).
+  **DSL side made LINEAR too (2026-09-14, plan item 1 DONE).**  No
+  custom let-floating was needed: core `extract_lets` descends into
+  subterms and under binders and merges equal values by default.
+  Recipe (`shareW_trace_lin.tpl`, now the committed prototype): stage-1
+  `simp -zeta` keeps the `have` chain, `extract_lets a w0 … wn p` lifts
+  it to NAMED local defs (the binders are anonymous, so names must be
+  given), per-wire `have e_k : w_k.val m = … := by simp only [w_k,
+  sigval_*]` ties each def to its predecessor, the register read to the
+  reader via `hpre`/`hLt`, the pack binding `p` is unfolded (small), the
+  pair goal split, and `bv_decide` sees only atoms + linear hypotheses.
+  Measured with a goal-size probe (`shareW_trace_lin_diag.tpl`,
+  `Expr.sizeWithoutSharing`), 1.6 M heartbeats, 600 s, 24G:
+  | n | goal before extract (step / out) | goal before bv_decide (step / out) | wall |
+  | 4 | 2,942 / 2,708 | 194 / 40 | 4 s |
+  | 8 | 4,134 / 3,900 | 194 / 40 | 17 s |
+  | 12 | 5,326 / 5,092 | 194 / 40 | 46 s |
+  Pre-extract sizes grow by a constant per step (linear); the goals the
+  closer sees are CONSTANT.  Wall time still grows: definitions + rfl
+  lemmas alone (Phase A) take 1 / 5 / 15 s at n = 4 / 8 / 12 — each
+  `rw_k_eq` `rfl` unfolds k levels of `wiresAt`, so Phase A is
+  quadratic (a `wiresAt` step lemma would make it linear; not needed
+  yet); the trace theorem itself takes ~3 / 12 / 31 s, bv_decide over
+  2n+ hypotheses.  Next: (2) replay via
+  `shared_cone_agrees_at_settled` on this circuit; (3) slot ceiling
+  (crc16 = 32 slots); (4) generator integration behind
+  `SPARKLE_DEEP_SHARE=1`; (5) crc16.
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base

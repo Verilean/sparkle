@@ -25,15 +25,27 @@ theorem trace (i : Signal defaultDomain (BitVec 8)) (t : Nat) :
       all_goals (try simp only [rd0_zero])
       all_goals first | rfl | bv_decide | (simp; done) | fail "cone-sharing prototype: closers exhausted on this goal"
     | succ m =>
-      simp [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next, Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap, Signal.seq, sigval_add, sigval_xor, inp_at_0, inp_at_mk_0, hpre m (Nat.lt_succ_self m)]
+      -- LINEAR recipe: keep the DSL `have` chain (zeta off), lift it into
+      -- local defs (extract_lets descends and merges equal values), then
+      -- reduce the plumbing around the now-opaque wires
+      simp -zeta only [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next, Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap, Signal.seq, hpre m (Nat.lt_succ_self m)]
+      extract_lets EXTRACTNAMES
+      simp only [packRegister, Signal.register, Signal.memStep, Circuit.next, Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap, Signal.seq, sigval_add, sigval_xor, inp_at_0, inp_at_mk_0, hpre m (Nat.lt_succ_self m)]
       all_goals (try simp only [rd0_succ])
-      -- IR-side wire equations as HYPOTHESES (never rewritten in):
-      -- bv_decide sees rw_k i m and rd0 i m as atoms and bitblasts the
-      -- conjunction linearly
+      DSLWIREEQS_M
+      -- the pack binding is small (it refers to the wire atoms): unfold it
+      -- and push `.val` through; the wires themselves stay opaque
+      simp only [p, packRegister, Signal.register, Signal.memStep, Circuit.next, Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure, Functor.map, Seq.seq, Signal.ap, Signal.seq, sigval_add, sigval_xor]
       WIREHYPS_M
-      all_goals first | bv_decide | fail "cone-sharing prototype: closers exhausted on this goal"
+      all_goals (try simp only [Prod.mk.injEq, and_true])
+      all_goals first | bv_decide | fail "cone-sharing prototype (linear): closers exhausted"
   rw [outS]
-  simp only [Signal.map, sigval_add, sigval_xor, hLt]
+  -- output side, same linear recipe: keep the `have` chain, lift it, tie the
+  -- register read to the reader via hLt, then per-wire `.val` equations
+  simp -zeta only [Signal.map, hLt]
+  extract_lets EXTRACTNAMES_OUT
+  DSLWIREEQS_T
+  simp only [sigval_add, sigval_xor]
   WIREHYPS_T
   all_goals first | bv_decide | fail "cone-sharing prototype: closers exhausted on this goal"
 
