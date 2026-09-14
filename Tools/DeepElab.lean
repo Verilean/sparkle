@@ -2226,6 +2226,215 @@ elab "#verify_elab_deep" id:ident : command =>
     -- streamed too: logInfo is buffered until the command ends, so a
     -- hang after this point would otherwise leave no trace
     deepTrace fun _ => s!"#verify_elab_deep STAGE ok: pre-port setup (nm, inp, cones)"
+  -- ================= SHARED ROUTE (cone sharing; behind SPARKLE_DEEP_SHARE=1) =================
+  -- v1 scope: memory-free, single-port, no nested loops.  Mirrors
+  -- Tests/Verification/ConeSharingProto.lean / ConeSharingReplay.lean:
+  -- the reification is a `CdoW` whose wire slots are the wires read more
+  -- than once, every cone is one definition deep, and the trace proof is
+  -- the linear recipe (`signal_lets` + wire equations as hypotheses).
+  if (← IO.getEnv "SPARKLE_DEEP_SHARE").isSome then
+    if hasMem || hasCombo then
+      throwError "#verify_elab_deep (shared route): memories are not supported yet (v1 is memory-free)"
+    if structName?.isSome || outPorts.length != 1 then
+      throwError "#verify_elab_deep (shared route): single-port circuits only (v1)"
+    if !nestedNodes.isEmpty then
+      throwError "#verify_elab_deep (shared route): nested circuit-do loops are not supported yet (v1)"
+    let bodyO := deepOrderBody m.body
+    -- shared wires: defined by a non-alias assign and read at least twice
+    -- (alias reads do not count — an alias is naming, not a use)
+    let isAlias : Sparkle.IR.AST.Expr → Bool := fun e => match e with | .ref _ => true | _ => false
+    let mut cnt : Std.HashMap String Nat := {}
+    for st in bodyO do
+      match st with
+      | .assign _ r => if !isAlias r then for n in Sparkle.IR.Reorder.refsOf r do cnt := cnt.insert n (cnt.getD n 0 + 1)
+      | .register _ _ _ input _ => for n in Sparkle.IR.Reorder.refsOf input do cnt := cnt.insert n (cnt.getD n 0 + 1)
+      | _ => pure ()
+    let shared : List String := bodyO.filterMap fun st => match st with
+      | .assign l r => if !isAlias r && cnt.getD l 0 ≥ 2 then some l else none
+      | _ => none
+    let nW := shared.length
+    let regNs : List String := regs.map (·.1)
+    let inNs : List String := ins.map (·.1)
+    let slotNames : List String := regNs ++ inNs ++ shared
+    let stopS : Std.HashMap String Bool := slotNames.foldl (fun h x => h.insert x true) {}
+    let slotS : String → Option Nat := fun s => slotNames.idxOf? s
+    let coneOf (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (what : String) :
+        CommandElabM Sparkle.IR.AST.Expr := do
+      match Tools.ConeFold.inlineConeT dm stop 10000 e with
+      | .ok c => pure (Tools.ConeFold.resolveSlicesT wt 10000 c)
+      | .error err => throwError "#verify_elab_deep (shared route): cone of {what}: {err}"
+    let regConesIR ← regs.mapM fun (n, input, _) => coneOf stopS input n
+    -- a wire's own cone inlines ITS definition: its stop set excludes the wire
+    let wireConesIR ← shared.mapM fun w => coneOf (stopS.erase w) (.ref w) w
+    let (portName, wOut) := outPorts.head!
+    let outConeIR ← coneOf stopS (.ref portName) portName
+    let regCs ← regConesIR.mapM (toCExpr slotS)
+    let wireCs ← wireConesIR.mapM (toCExpr slotS)
+    let outC ← toCExpr slotS outConeIR
+    let wireWs : List Nat := shared.map fun w => wt.getD w 0
+    deepTrace fun _ => s!"#verify_elab_deep STAGE shared: {nW} shared wires {shared}; cones reg={regConesIR.map fun c => (repr c).pretty.length} wires={wireConesIR.map fun c => (repr c).pretty.length} out={(repr outConeIR).pretty.length}"
+    -- ---- names / contexts ----
+    let wireWsT : Array Term := wireWs.toArray.map fun w => quote w
+    let ΓwT : Term ← `(([$wireWsT,*] : List Nat))
+    let ΓAllS : Term ← `((($ΓrT ++ $ΓiT) ++ $ΓwT : List Nat))
+    let snmLId := mkI s!"{base}_snmL"
+    let snmId := mkI s!"{base}_snm"
+    let sdeepId := mkI s!"{base}_sdeep"
+    let wlId := mkI s!"{base}_swl"
+    let wlOkId := mkI s!"{base}_swlOk"
+    let nameTs : Array Term := slotNames.toArray.map fun n => quote n
+    elabSync (← `(def $snmLId : List String := [$nameTs,*]))
+    elabSync (← `(def $snmId : Fin ($ΓAllS).length → String := fun i => ($snmLId).getD i.val ""))
+    -- ---- the CdoW ----
+    let sigTs : Array Term ← (List.range nW).toArray.mapM fun k => do
+      `((⟨$(quote wireWs[k]!), $(wireCs[k]!)⟩ : Σ w : Nat, CExpr $ΓAllS w))
+    elabSync (← `(def $wlId : List (Σ w : Nat, CExpr $ΓAllS w) := [$sigTs,*]))
+    elabSync (← `(theorem $wlOkId : ∀ j : Fin ($ΓwT).length,
+        (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).1 = ($ΓwT).get j := by decide))
+    let snextArms ← (List.range nR).toArray.mapM fun i => do
+      `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(regCs[i]!))
+    elabSync (← `(def $sdeepId : CdoW $ΓrT $ΓiT $ΓwT $(quote wOut) where
+      inits := fun i => match i with $initArms:matchAlt*
+      wires := fun j => ($wlOkId j) ▸ (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).2
+      next := fun i => match i with $snextArms:matchAlt*
+      out := $outC))
+    -- ---- readers (registers, wires), their equations, the output ----
+    let sId := mkI "s"
+    let inpFam : Term ← `((fun t j => (($inpS) j).val t))
+    let rdIdsS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}"
+    let rwIdsS : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}"
+    let ρSId := mkI s!"{base}_sdeep_rho"
+    for i in List.range nR do
+      let rdId := rdIdsS[i]!
+      elabSync (← `(def $rdId $paramBinders* ($sId : Nat) : BitVec $(quote regWs[i]!) :=
+        CdoW.stateAt $sdeepId $inpFam $sId ⟨$(quote i), by decide⟩))
+    elabSync (← `(def $ρSId $paramBinders* ($sId : Nat) : CEnv ($ΓrT ++ $ΓiT) :=
+      CEnv.join (CdoW.stateAt $sdeepId $inpFam $sId) (fun j => (($inpS) j).val $sId)))
+    for k in List.range nW do
+      let rwId := rwIdsS[k]!
+      elabSync (← `(def $rwId $paramBinders* ($sId : Nat) : BitVec $(quote wireWs[k]!) :=
+        CdoW.wenv $sdeepId ($ρSId $appArgs* $sId) ⟨$(quote k), by decide⟩))
+    let shallowS (tv : Term) (e : Sparkle.IR.AST.Expr) : CommandElabM Term :=
+      toShallow slotS nR nI
+        (fun i => do let rdId : Ident := rdIdsS[i]!; `(($rdId $appArgs* $tv)))
+        (fun j => inpValRhs[j]! tv)
+        (fun k => do let rwId : Ident := rwIdsS[k]!; `(($rwId $appArgs* $tv))) e
+    let rwEqIds : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}_eq"
+    for k in List.range nW do
+      let rhs ← shallowS (← `($sId)) wireConesIR[k]!
+      elabSync (← `(theorem $(rwEqIds[k]!) $paramBinders* ($sId : Nat) :
+        $(rwIdsS[k]!) $appArgs* $sId = $rhs := rfl))
+    let rdZeroS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_zero"
+    let rdSuccS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_succ"
+    for i in List.range nR do
+      let (_, _, init) := regs[i]!
+      elabSync (← `(theorem $(rdZeroS[i]!) $paramBinders* :
+        $(rdIdsS[i]!) $appArgs* 0 = BitVec.ofNat $(quote regWs[i]!) $(quote init.toNat) := rfl))
+      let rhs ← shallowS (← `($sId)) regConesIR[i]!
+      elabSync (← `(theorem $(rdSuccS[i]!) $paramBinders* ($sId : Nat) :
+        $(rdIdsS[i]!) $appArgs* ($sId + 1) = $rhs := rfl))
+    let outSId := mkI s!"{base}_sdeep_outS"
+    let outRhs ← shallowS (← `($sId)) outConeIR
+    elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+        (CdoW.outSig $sdeepId $inpS).val $sId = $outRhs := by
+      show CExpr.denote _ _ = _
+      rw [CdoW.stateSig_eq]
+      rfl))
+    deepTrace fun _ => s!"#verify_elab_deep STAGE shared: readers + equations emitted"
+    -- ---- the trace theorem (linear recipe) ----
+    let thId := mkI s!"{base}_sdeep_trace"
+    let declIdent : Ident := mkIdent declName
+    let retTyS : Term ← liftTermElabM (Lean.PrettyPrinter.delab retTy)
+    let topTys := topNode.tys
+    -- the register pack at time tv: (rd0, (rd1, … ()))
+    let packAt (tv : Term) : CommandElabM Term := do
+      let mut acc : Term ← `(())
+      for j in (List.range nR).reverse do
+        let rdId : Ident := rdIdsS[j]!
+        let slot ← `($rdId $appArgs* $tv)
+        let slot ← if topNode.isBool[j]! then `(($slot == 1#1)) else pure slot
+        acc ← `(($slot, $acc))
+      pure acc
+    let uId := mkI "u"; let mId := mkI "m"; let LId := mkI "L"; let hLId := mkI "hL"
+    let hLtId := mkI "hLt"; let preId := mkI "pre"; let hpreId := mkI "hpre"
+    let packU ← packAt (← `($uId)); let packS ← packAt (← `($sId))
+    let fIdsM : Array Ident := (List.range nW).toArray.map fun k => mkI s!"fm{k}"
+    let fIdsT : Array Ident := (List.range nW).toArray.map fun k => mkI s!"ft{k}"
+    let hpreApp : Term ← `($hpreId $mId (Nat.lt_succ_self $mId))
+    let wireHypsM : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
+      let fId : Ident := fIdsM[k]!; let eqId : Ident := rwEqIds[k]!
+      `(tactic| have $fId:ident := $eqId $appArgs* $mId)
+    let wireHypsT : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
+      let fId : Ident := fIdsT[k]!; let eqId : Ident := rwEqIds[k]!
+      `(tactic| have $fId:ident := $eqId $appArgs* t)
+    let inpAtTs : Array Term := inpAtIds.map fun i => (⟨i.raw⟩ : Term)
+    let irSt : Term ← `(CdoW.irState $sdeepId $snmId $inpFam t)
+    let ρnT : Term ← `(natJoin $irSt (fun j => ((($inpS) j).val t).toNat))
+    let thmCmd ← `(theorem $thId $paramBinders* (t : Nat) :
+        ((($declIdent $appArgs*)).val t).toNat
+          = (Sparkle.IR.Semantics.evalExpr (weOfC $snmId (fun k => ($ΓAllS).get k))
+              (envOfC $snmId (natJoin $ρnT (CdoW.irWires $sdeepId $snmId $ρnT)))
+              (CExpr.compile $snmId (CdoW.out $sdeepId))).getD 0 := by
+      rw [← CdoW.elab_general $sdeepId $snmId (by native_decide) $inpS t]
+      refine congrArg BitVec.toNat ?_
+      simp -zeta only [$declIdent:ident, $[$helperIds:ident],*]
+      rw [runCircuitH_eq]
+      simp -zeta only [outFOf, mkHolds, Signal.map]
+      generalize $hLId : Signal.loop (loopFOf
+        (dom := Sparkle.Core.Domain.defaultDomain)
+        (αs := [$topTys,*]) (ρ := $retTyS) _ _) = $LId
+      have $hLtId : ∀ ($uId : Nat), ($LId).val $uId = $packU := by
+        intro $uId:ident
+        rw [← $hLId:ident]
+        refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
+        intro $uId:ident $preId:ident $hpreId:ident
+        cases $uId:ident with
+        | zero =>
+          simp -zeta [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
+            Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure,
+            Functor.map, Seq.seq, Signal.ap, Signal.seq, $[$inpAtTs:term],*]
+          all_goals (try simp only [$[$rdZeroS:ident],*])
+          all_goals (first | rfl | bv_decide | (simp; done) | fail "#verify_elab_deep (shared route): zero case closers exhausted")
+        | succ $mId =>
+          simp -zeta only [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
+            Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure,
+            Functor.map, Seq.seq, Signal.ap, Signal.seq, $hpreApp:term]
+          signal_lets $mId [$hpreApp:term, mkRegList]
+          simp only [packRegister, Signal.register, Signal.memStep, Circuit.next, Circuit.pure',
+            Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure, Functor.map,
+            Seq.seq, Signal.ap, Signal.seq, sigval_add, sigval_sub, sigval_mul, sigval_and,
+            sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c,
+            sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c,
+            sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and,
+            sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b,
+            sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq,
+            sigval_pure, $[$inpAtTs:term],*, $hpreApp:term]
+          all_goals (try simp only [$[$rdSuccS:ident],*])
+          $[$wireHypsM:tactic]*
+          all_goals (try simp only [Prod.mk.injEq, and_true])
+          all_goals (first | bv_decide | fail "#verify_elab_deep (shared route): step case closers exhausted")
+      rw [$outSId:ident]
+      simp -zeta only [Signal.map, $hLtId:ident]
+      signal_lets t [$hLtId:ident]
+      simp only [sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl,
+        sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c,
+        sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add,
+        sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl,
+        sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not,
+        sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure, $[$inpAtTs:term],*]
+      $[$wireHypsT:tactic]*
+      all_goals (first | bv_decide | fail "#verify_elab_deep (shared route): output closers exhausted"))
+    if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+      logInfo m!"{thmCmd}"
+    deepTrace fun _ => s!"#verify_elab_deep STAGE shared: trace theorem begin"
+    elabSync (← `(set_option maxHeartbeats 1600000 in $thmCmd:command))
+    -- audit: the theorem must exist, with no sorryAx
+    let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload thId
+    let axs ← liftCoreM <| Lean.collectAxioms full
+    if axs.contains ``sorryAx then
+      throwError "#verify_elab_deep (shared route) {declName}: generated proof {thId.getId} FAILED (sorryAx) — see the errors above"
+    logInfo m!"#verify_elab_deep {declName}: PROVEN via CdoW.elab_general — {thId.getId} (SHARED route: {nR} registers, {nI} inputs, {nW} shared wires; axioms: {axs.size}; replay: not yet on this route)"
+    return
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0

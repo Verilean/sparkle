@@ -613,9 +613,15 @@ group is rough priority.  Update as items land.
   step lemma (`wenv ρ ⟨k⟩ = (wires k).denote (join ρ (wiresAt ρ k))`,
   stated once, used by `rw`) would make it linear — do this when crc16's
   numbers say so, not before.
+  **Generic DSL half (`signal_lets`, 2026-09-14):** the tactic replaces
+  the hand-named `extract_lets` + equations; `shareW_trace_gen.tpl`:
+  17 / 23 / 32 slots in 51 / 144 / 476 s (named variant 73 / 143 /
+  473 s) — the generator no longer needs to count or name the DSL's
+  `have`-bound wires.
   Next: (4) generator integration behind `SPARKLE_DEEP_SHARE=1`
-  (memory-free, single-port; list-backed `nm` and wire list; the replay
-  chain as in `ConeSharingReplay.lean`); (5) crc16 (32 slots, 26 wires).
+  (memory-free, single-port, no nested loops; list-backed `nm` and wire
+  list; stage 1 = trace theorem, stage 2 = the replay chain as in
+  `ConeSharingReplay.lean`); (5) crc16 (32 slots, 26 wires).
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
