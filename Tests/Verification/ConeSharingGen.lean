@@ -5,9 +5,17 @@
   theorem with the linear recipe.  These circuits FAIL on the default
   (inlined) route from n=4 (heartbeat timeouts, see the TODO's baseline
   table); here they prove in seconds.  v1 scope: memory-free,
-  single-port, no nested loops; the replay half is stage 2.
+  single-port, no nested loops.
 
-  Expected output: one "PROVEN via CdoW.elab_general" line per circuit.
+  Each circuit's PROVEN line must carry the WHOLE chain to the printed
+  Verilog (CI checks every clause, and that nothing was SKIPPED):
+  `_sdeep_trace` (Signal ≡ CdoW), `_sdeep_signal_run` (≡ runModule of the
+  elaborator's IR body), `_sdeep_signal_runOpt` (≡ runModule of
+  `optimizeModule m`, the module that is printed), `_sdeep_signal_svOpt`
+  (≡ the M4 Verilog-subset semantics of that module's emission),
+  `_sdeep_signal_runRT` + `_sdeep_text_parses` (≡ runModule of the body
+  the shipping parser+lowerer reads back from the printed text).  See
+  docs/SharedRoute-Guarantees.md for what each link trusts.
 -/
 import Sparkle
 import Sparkle.Core.CircuitMonad

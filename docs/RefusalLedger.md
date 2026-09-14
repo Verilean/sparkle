@@ -55,7 +55,7 @@ verdicts:
 
 | Refusal | Verdict | Evidence |
 |---|---|---|
-| `x1 << 32'd9` (1-bit value, 32-bit literal amount) | REAL (bookkeeping) | Measured against iverilog at widths 1/5/10/32/40: VALUES agree everywhere; only `widthSV = widthOf` fails. Two repair routes tried and both closed (change `widthOf` breaks roundtrip congruence; weaken the invariant kills the immunity bridge). |
+| `x1 << 32'd9` (1-bit value, 32-bit literal amount) | REAL (bookkeeping) | Measured against iverilog at widths 1/5/10/32/40: VALUES agree everywhere; only `widthSV = widthOf` fails. Two repair routes tried and both closed (change `widthOf` breaks roundtrip congruence; weaken the invariant kills the immunity bridge). **Hit again 2026-09-14 on the shared route's forward link:** crc16CcittHW's `(byte << 8)` — `shl [x16, const 8 16]` under `and … 16'hFFFF` — fails `bitwiseShl`'s fit condition (`16 + 8 ≤ 16`), so `seqCheck` refuses the optimized body and `crc16CcittHW_sdeep_signal_svOpt` is SKIPPED (named statement in the warning). The roundtrip link (`_text_parses` + `_signal_runRT`) closes the same gap from the other side and IS proven. The relaxation that would admit it (a shift under the node-width mask is context-immune) is a new `SF4` rule + `emit_sem` case — scoped, not done. |
 | `sub 0'7 x` under a 32-bit xor (CVT32 cone) | REAL | Measured: subtraction is not carry-free, so the cone genuinely diverges (W=32: emission 0 vs IR 4294967168). Permanent exclusion, confirmed in indexed form too. |
 | mixed-width bare arithmetic `(x4+y4)+z8` | REAL | Measured 3 ways: formal 0, evalSV 16, iverilog 16, CSim 16 — the FORMAL semantics was the outlier, and the census already classified such modules outside. Full fix is context-directed widening in lowering; parked. |
 

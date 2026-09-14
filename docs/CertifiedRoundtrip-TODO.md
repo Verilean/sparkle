@@ -69,6 +69,25 @@ group is rough priority.  Update as items land.
   26-partial-def recursive-descent parser).  The trusted base here is
   "the parser as executed on this text", the same class as the
   native_decide checker discharges.
+- [x] **Shared-route bridges to the printed Verilog (2026-09-14).**
+  The `#verify_elab_deep` shared route (`sparkle.deepShare`) now
+  replays its chain over the OPTIMIZED body and over the body the
+  shipping parser reads back from the printed text, at shared-wire
+  granularity: `{f}_sdeep_signal_runOpt`, `{f}_sdeep_signal_svOpt`
+  (M4 forward semantics, when `seqCheck` admits the body),
+  `{f}_sdeep_text_parses` + `{f}_sdeep_signal_runRT`.  Per-slot
+  `native_decide` mask equations `rtNorm ∘ stripMask` (new
+  `Tools/ConeFoldRT.lean`: the printer's 1-bit `not` form
+  `1'(x ^ 1'd1)` comes back as `slice (concat [0, xor [x,1]]) 0 0`;
+  `rtNorm_eval` proven) + `rtBridge_eval`.  Generator pre-checks every
+  bridge precondition and SKIPs with a named reason; the PROVEN line
+  lists exactly what holds; CI greps every clause and rejects any
+  SKIPPED (except crc16's documented SV skip).  Measured: shareX4/8
+  fully connected (55 s both); crc16CcittHW trace + replay + Opt + RT
+  proven, SV skipped by the shl fit rule (754 s).  The link-by-link
+  guarantee list with trust per link: `docs/SharedRoute-Guarantees.md`.
+  Follow-up (scoped, not done): an `SF4` rule for a literal shift
+  under the node-width mask, which would give crc16 the forward link.
 - [ ] **M4 residual fragment** — the honest exclusions: byte-strobe
   RMW `shl` width rule, `CVT32ModuleS0`'s `sub 0'7 x` cone (not
   carry-free).  Revisit only via a width-indexed `emit_sem` if ever
@@ -648,7 +667,8 @@ group is rough priority.  Update as items land.
   **Plan item 5 DONE (2026-09-14): crc16CcittHW PROVEN on the shared
   route — trace theorem AND IR replay** (`Tests/Verification/
   ConeSharingCrc16.lean`, CI-gated as its own step): 1 register, 3
-  inputs, 17 shared wires (alias reads excluded from the count), replay
+  inputs, 17 shared wires (alias reads excluded from the count; 16 since
+  2026-09-14, when a full-width slice of a slot became an alias), replay
   axioms = standard + 160 decision-procedure auxiliaries, no sorryAx.
   709 s wall (`lake env lean`, 24G, 1.6 M heartbeats per generated
   declaration).  The default route's inlined cone for this circuit is

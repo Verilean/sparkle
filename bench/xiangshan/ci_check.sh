@@ -366,8 +366,13 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: $CSGEN_FILE is missing (generator cone-sharing gate)"; fail=1
   elif lake build Tests.Verification.ConeSharingGen > "$WORK/csgen.log" 2>&1 \
       && [ "$(grep -c 'PROVEN via CdoW.elab_general' "$WORK/csgen.log")" -eq 2 ] \
-      && [ "$(grep -c 'IR replay .* PROVEN' "$WORK/csgen.log")" -eq 2 ]; then
-    echo "generator cone-sharing route: shareX4 + shareX8 trace and replay proven"
+      && [ "$(grep -c 'IR replay .* PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_signal_runOpt PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_signal_svOpt PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_signal_runRT PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c '_sdeep_text_parses PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && ! grep -q 'SKIPPED' "$WORK/csgen.log"; then
+    echo "generator cone-sharing route: shareX4 + shareX8 trace, replay, optimizer + SV + text bridges proven"
   else
     echo "FAIL: generator cone-sharing route (ConeSharingGen) regressed"
     grep -m5 -E "error|FAILED" "$WORK/csgen.log" | sed 's/^/    /'; fail=1
@@ -379,8 +384,13 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: $CRC_FILE is missing (crc16 cone-sharing gate)"; fail=1
   elif lake build Tests.Verification.ConeSharingCrc16 > "$WORK/crc16share.log" 2>&1 \
       && grep -q "crc16CcittHW: PROVEN via CdoW.elab_general" "$WORK/crc16share.log" \
-      && grep -q "IR replay crc16CcittHW_sdeep_signal_run PROVEN" "$WORK/crc16share.log"; then
-    echo "crc16 cone-sharing route: trace + IR replay proven"
+      && grep -q "IR replay crc16CcittHW_sdeep_signal_run PROVEN" "$WORK/crc16share.log" \
+      && grep -q "crc16CcittHW_sdeep_signal_runOpt PROVEN" "$WORK/crc16share.log" \
+      && grep -q "crc16CcittHW_sdeep_signal_runRT PROVEN" "$WORK/crc16share.log" \
+      && grep -q "crc16CcittHW_sdeep_text_parses PROVEN" "$WORK/crc16share.log" \
+      && [ "$(grep -c 'SKIPPED' "$WORK/crc16share.log")" -eq 1 ] \
+      && grep -q "Opt SV-semantics theorem SKIPPED" "$WORK/crc16share.log"; then
+    echo "crc16 cone-sharing route: trace, IR replay, optimizer + text bridges proven (SV-semantics theorem skipped by the M4 shl rule, as documented)"
   else
     echo "FAIL: crc16 on the cone-sharing route regressed"
     grep -m5 -E "error|FAILED" "$WORK/crc16share.log" | sed 's/^/    /'; fail=1
