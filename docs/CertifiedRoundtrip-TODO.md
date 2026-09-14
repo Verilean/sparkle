@@ -606,10 +606,13 @@ group is rough priority.  Update as items land.
   | 19 | 16 | PROVEN | 74 s |
   | 23 | 20 | PROVEN | 143 s |
   | 32 | 29 | PROVEN | 473 s |
-  (inlined route: FAILED from n=4.)  Wall time grows faster than linear:
-  Phase A (definitions + per-wire `rfl` lemmas, quadratic by
-  construction) is measured separately below; a `wiresAt` step lemma
-  would make it linear when it matters.
+  (inlined route: FAILED from n=4.)  Wall time grows faster than linear.
+  Breakdown at 32 slots: Phase A (definitions + per-wire `rfl` lemmas)
+  204 s, trace theorem ≈ 269 s.  Phase A is quadratic by construction
+  (each `rw_k_eq` `rfl` unfolds k levels of `wiresAt`); a `wiresAt`
+  step lemma (`wenv ρ ⟨k⟩ = (wires k).denote (join ρ (wiresAt ρ k))`,
+  stated once, used by `rw`) would make it linear — do this when crc16's
+  numbers say so, not before.
   Next: (4) generator integration behind `SPARKLE_DEEP_SHARE=1`
   (memory-free, single-port; list-backed `nm` and wire list; the replay
   chain as in `ConeSharingReplay.lean`); (5) crc16 (32 slots, 26 wires).

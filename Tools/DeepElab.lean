@@ -1279,6 +1279,53 @@ theorem CdoW.irWires_eq_at {Γr Γi Γw : List Nat} {wOut : Nat} (c : CdoW Γr �
 
 
 namespace Tools.DeepElab
+open Lean Elab Tactic Meta
+
+/-- `signal_lets tv [extra,*]` — the DSL half of the linear (cone-sharing)
+trace recipe, generically.
+
+1. Extracts every `let`/`have` in the goal (core `extractLets`: descends
+   into subterms and under binders, merges syntactically equal values),
+   so the `circuit do` body's wire chain becomes local definitions
+   `w := v` instead of a term that stage-1 `simp` would zeta-expand to
+   exponential size.
+2. For each extracted definition of `Signal` type it adds
+   `hval_w : (v).val tv = w.val tv`, then pushes `.val` through the Signal
+   operators on the LEFT (the `sigval_*` set plus the `extra` lemmas,
+   e.g. the loop prefix `hpre m …`); the right-hand side `w.val tv` is an
+   atom for `bv_decide`, and the left mentions only earlier definitions'
+   atoms and the inputs.  The chain of equations is linear in the number
+   of wires; nothing is ever substituted back into the goal. -/
+syntax (name := signalLets) "signal_lets" term:max (" [" term,* "]")? : tactic
+
+elab_rules : tactic
+  | `(tactic| signal_lets $tv:term $[[$extra:term,*]]?) => do
+    let g ← getMainGoal
+    -- accessible names for every extracted definition (the circuit-do
+    -- binders are anonymous); more names than lets is harmless
+    let given := (List.range 256).map fun k => Name.mkSimple s!"sl_{k}"
+    let ((fvars, _), g') ← g.extractLets given {}
+    replaceMainGoal [g']
+    let extraTs : Array Term := match extra with
+      | some xs => xs.getElems
+      | none => #[]
+    for fv in fvars do
+      let decl ← g'.withContext (fv.getDecl)
+      let some v := decl.value? | continue
+      let ty ← g'.withContext (instantiateMVars decl.type)
+      let wId := mkIdent decl.userName
+      unless ty.isAppOf ``Sparkle.Core.Signal.Signal do
+        -- a non-Signal binding (the register pack): small, unfold it in place
+        evalTactic (← `(tactic| all_goals (try simp only [$wId:ident])))
+        continue
+      let hId := mkIdent (Name.mkSimple s!"hval_{decl.userName}")
+      let vStx ← g'.withContext (Lean.PrettyPrinter.delab v)
+      evalTactic (← `(tactic| have $hId:ident : ($vStx : Sparkle.Core.Signal.Signal _ _).val $tv = ($wId).val $tv := rfl))
+      evalTactic (← `(tactic| simp only [Sparkle.Core.Signal.Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure, $[$extraTs:term],*] at $hId:ident))
+
+end Tools.DeepElab
+
+namespace Tools.DeepElab
 
 open Lean Elab Command
 
