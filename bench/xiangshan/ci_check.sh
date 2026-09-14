@@ -358,6 +358,20 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: cone-sharing replay (ConeSharingReplay) regressed"
     grep -m5 -E "error|disallowed" "$WORK/csr.log" | sed 's/^/    /'; fail=1
   fi
+  # the GENERATOR's cone-sharing route (set_option sparkle.deepShare true):
+  # trace + IR replay for shareX4 / shareX8, which the default route cannot
+  # prove; both "PROVEN via CdoW.elab_general … IR replay … PROVEN" lines
+  CSGEN_FILE=Tests/Verification/ConeSharingGen.lean
+  if [ ! -f "$CSGEN_FILE" ]; then
+    echo "FAIL: $CSGEN_FILE is missing (generator cone-sharing gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingGen > "$WORK/csgen.log" 2>&1 \
+      && [ "$(grep -c 'PROVEN via CdoW.elab_general' "$WORK/csgen.log")" -eq 2 ] \
+      && [ "$(grep -c 'IR replay .* PROVEN' "$WORK/csgen.log")" -eq 2 ]; then
+    echo "generator cone-sharing route: shareX4 + shareX8 trace and replay proven"
+  else
+    echo "FAIL: generator cone-sharing route (ConeSharingGen) regressed"
+    grep -m5 -E "error|FAILED" "$WORK/csgen.log" | sed 's/^/    /'; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

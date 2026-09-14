@@ -618,10 +618,34 @@ group is rough priority.  Update as items land.
   17 / 23 / 32 slots in 51 / 144 / 476 s (named variant 73 / 143 /
   473 s) — the generator no longer needs to count or name the DSL's
   `have`-bound wires.
-  Next: (4) generator integration behind `SPARKLE_DEEP_SHARE=1`
-  (memory-free, single-port, no nested loops; list-backed `nm` and wire
-  list; stage 1 = trace theorem, stage 2 = the replay chain as in
-  `ConeSharingReplay.lean`); (5) crc16 (32 slots, 26 wires).
+  **Plan item 4 DONE (2026-09-14): the GENERATOR's shared route**
+  (`set_option sparkle.deepShare true` or `SPARKLE_DEEP_SHARE=1`;
+  v1 scope memory-free / single-port / no nested loops, anything else
+  refused with a named message — verified on `memAcc`).  From
+  `#verify_elab_deep`, trace theorem AND IR replay, real IR names, the
+  module's width table (`lake env lean`, 24G, 1.6 M heartbeats):
+  | circuit | slots | wall | replay axioms |
+  | shareX4 | 7 | 7 s | std + 57 aux |
+  | shareX8 | 11 | 33 s | std + 89 aux |
+  | shareX14 | 17 | 241 s | std + 137 aux |
+  (default route: FAILED from n=4).  `Tests/Verification/ConeSharingGen.lean`
+  pins shareX4 + shareX8, CI-gated on both PROVEN lines.  Default route
+  unchanged (43 PROVEN across RealIP / ValueParamInit / ReifyDemo).
+  Cost note: `Tools.DeepElab` now compiles in ~425 s (was ~140 s) — the
+  shared block is one large `do`; split into `let rec` sub-blocks if it
+  grows further.  The replay dominates wall time at n=14 (241 s vs 51 s
+  trace-only in the prototype): each wire's settled lemma re-checks
+  `hwfCheck` on its own stop set by `native_decide`.
+  Generator-side gotchas (recorded for the next integration): identifiers
+  introduced inside quotations are hygienic — `intro n`, `rcases … with
+  ⟨kv, hk⟩`, `{v : Nat}` cannot be referred to from another quotation
+  (use `mkI` names, positional args); resolved cones must be `def`s
+  (delta-unfoldable), not literal constants, for `exact` against
+  `resolveSlicesT wt coneRaw`; `a | b` is an `rcasesPatMed` — build case
+  splits as sequences of two-way `rcases` with focused bullets; after
+  `simp`, Fin literals normalise (`⟨0,_⟩` → `0`) so close with `exact`
+  up to defeq rather than `rw`.
+  Next: (5) crc16 (32 slots, 26 wires) under the flag.
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
