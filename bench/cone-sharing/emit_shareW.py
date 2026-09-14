@@ -14,6 +14,24 @@ def emit(n, with_trace):
     wireArms=[f"    | ⟨0, _⟩ => CExpr.add {var(0)} {var(1)}"]
     for k in range(1,W):
         wireArms.append(f"    | ⟨{k}, _⟩ => CExpr.xor (CExpr.add {var(2+k-1)} {var(2+k-1)}) {var(1)}")
+    if os.environ.get("SHAREW_NMLIST")=="1":
+        nmdef=("def nmL : List String := ["+", ".join(names)+"]\n"
+               f"def nm : Fin (([8] ++ [8]) ++ {gw} : List Nat).length → String := fun i => nmL.getD i.val \"\"")
+    else:
+        nmdef=(f"def nm : Fin (([8] ++ [8]) ++ {gw} : List Nat).length → String := fun i =>\n  match i with\n{nmArms}")
+    if os.environ.get("SHAREW_NMLIST")=="1":
+        # width-tagged cone list + decidable width agreement + cast (K-reduces on closed widths)
+        sig=[]
+        for k in range(W):
+            e=f"CExpr.add {var(0)} {var(1)}" if k==0 else f"CExpr.xor (CExpr.add {var(2+k-1)} {var(2+k-1)}) {var(1)}"
+            sig.append(f"    ⟨8, {e}⟩")
+        wl="[\n"+",\n".join(sig)+" ]"
+        wiresdef=("fun j => (wlOk j) ▸ (wl.getD j.val ⟨0, CExpr.const 0 0⟩).2")
+        wlpre=(f"def wl : List (Σ w : Nat, CExpr (([8] ++ [8]) ++ {gw} : List Nat) w) := {wl}\n"
+               f"theorem wlOk : ∀ j : Fin ({gw} : List Nat).length, (wl.getD j.val ⟨0, CExpr.const 0 0⟩).1 = ({gw} : List Nat).get j := by decide\n")
+    else:
+        wiresdef="fun j => match j with\n"+chr(10).join(wireArms)
+        wlpre=""
     L=[]
     L.append(f'''import Sparkle
 import Sparkle.Core.CircuitMonad
@@ -27,19 +45,16 @@ def shareX{n} (i : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitV
 {chr(10).join(body)}
 
 /-! hand-emitted SHARED deep route (prototype of the generator's output) -/
-def nm : Fin (([8] ++ [8]) ++ {gw} : List Nat).length → String := fun i =>
-  match i with
-{nmArms}
+{nmdef}
 def inp (i : Signal defaultDomain (BitVec 8)) :
     ∀ j : Fin ([8] : List Nat).length, Signal defaultDomain (BitVec (([8] : List Nat).get j)) :=
   fun j => match j with | ⟨0, _⟩ => i
 theorem inp_at_0 (i : Signal defaultDomain (BitVec 8)) (tv : Nat) : (inp i 0).val tv = i.val tv := rfl
 theorem inp_at_mk_0 (i : Signal defaultDomain (BitVec 8)) (tv : Nat) : (inp i ⟨0, by decide⟩).val tv = i.val tv := rfl
 
-def deep : CdoW [8] [8] {gw} 8 where
+{wlpre}def deep : CdoW [8] [8] {gw} 8 where
   inits := fun i => match i with | ⟨0, _⟩ => 0#8
-  wires := fun j => match j with
-{chr(10).join(wireArms)}
+  wires := {wiresdef}
   next := fun i => match i with
     | ⟨0, _⟩ => CExpr.add {var(2+n)} {var(2+n-1)}
   out := {var(2+n)}
@@ -77,6 +92,8 @@ def rd0 (i : Signal defaultDomain (BitVec 8)) (s : Nat) : BitVec 8 :=
         names=" ".join(["a"]+[f"w{k}" for k in range(W)]+["p"])
         namesO=" ".join(["ao"]+[f"wo{k}" for k in range(W)])
         tpl=tpl.replace("EXTRACTNAMES_OUT",namesO).replace("EXTRACTNAMES",names)
+        if os.environ.get("SHAREW_NMLIST")=="1":
+            tpl=tpl.replace("rw [← CdoW.elab_general deep nm (by decide) (inp i) t]","rw [← CdoW.elab_general deep nm (by native_decide) (inp i) t]")
         dslT=["  have eao : ao.val t = rd0 i t := by simp [ao, Signal.map, hLt]",
               "  have eo0 : wo0.val t = ao.val t + i.val t := by simp only [wo0, sigval_add]"]
         for k in range(1,W):

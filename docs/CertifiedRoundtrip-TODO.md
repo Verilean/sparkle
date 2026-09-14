@@ -587,8 +587,32 @@ group is rough priority.  Update as items land.
   or `native_decide` sees a metavariable; `congr 1`/`try exact`
   cascades time out — use explicit cases; the G1 statements must use the
   literal context list, not an abbrev, for `rw` to match.
-  Next: (3) slot ceiling (crc16 = 32 slots); (4) generator integration
-  behind `SPARKLE_DEEP_SHARE=1`; (5) crc16.
+  **Plan item 3 DONE (2026-09-14): slot ceiling cleared on the shared
+  route, verified to 32 slots.**  Two `Fin`-literal matches hit the
+  15-arm ceiling: the name table `nm` (17 slots) and, once that was
+  cleared, the `CdoW.wires` field (one arm per wire).  Fixes, both in
+  the emitter (`SHAREW_NMLIST=1`): `nm := fun i => nmL.getD i.val ""`
+  over a `List String` (the shared route reads `nm` only through
+  `envOfC_names` / `envOfC_notin` / decidable facts — never by simp
+  unfolding, which is what broke the earlier list-backed attempt on the
+  inlined route); and `wires := fun j => (wlOk j) ▸ (wl.getD j.val
+  default).2` over a width-tagged list `wl : List (Σ w, CExpr Γ w)` with
+  `wlOk : ∀ j, (wl.getD j.val _).1 = Γw.get j` by `decide` — the cast
+  K-reduces on closed widths, so every `rfl` lemma still closes.
+  `hinj` moves to `native_decide` (32² string comparisons).  Linear
+  recipe, 1.6 M heartbeats, 900 s, 24G, one run each:
+  | slots | n | result | wall |
+  | 17 | 14 | PROVEN | 73 s |
+  | 19 | 16 | PROVEN | 74 s |
+  | 23 | 20 | PROVEN | 143 s |
+  | 32 | 29 | PROVEN | 473 s |
+  (inlined route: FAILED from n=4.)  Wall time grows faster than linear:
+  Phase A (definitions + per-wire `rfl` lemmas, quadratic by
+  construction) is measured separately below; a `wiresAt` step lemma
+  would make it linear when it matters.
+  Next: (4) generator integration behind `SPARKLE_DEEP_SHARE=1`
+  (memory-free, single-port; list-backed `nm` and wire list; the replay
+  chain as in `ConeSharingReplay.lean`); (5) crc16 (32 slots, 26 wires).
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base
