@@ -645,7 +645,41 @@ group is rough priority.  Update as items land.
   splits as sequences of two-way `rcases` with focused bullets; after
   `simp`, Fin literals normalise (`⟨0,_⟩` → `0`) so close with `exact`
   up to defeq rather than `rw`.
-  Next: (5) crc16 (32 slots, 26 wires) under the flag.
+  **Plan item 5 DONE (2026-09-14): crc16CcittHW PROVEN on the shared
+  route — trace theorem AND IR replay** (`Tests/Verification/
+  ConeSharingCrc16.lean`, CI-gated as its own step): 1 register, 3
+  inputs, 17 shared wires (alias reads excluded from the count), replay
+  axioms = standard + 160 decision-procedure auxiliaries, no sorryAx.
+  709 s wall (`lake env lean`, 24G, 1.6 M heartbeats per generated
+  declaration).  The default route's inlined cone for this circuit is
+  16 M chars and never got past its bridge.
+  What it took beyond the shareX family, each found by measurement and
+  recorded in the code: (a) every generated declaration under the 1.6 M
+  heartbeat limit (a per-wire `rfl` on 16-bit cones exceeded the
+  200 000 default, logged not thrown); (b) `signal_lets` builds its
+  equations as EXPRESSIONS (`mkAppM` + `mkEqRefl` + `assert`), not by
+  re-elaborating delaborated values (unknown-identifier errors with
+  recovery → sorryAx); (c) `clear_value *` on the extracted bindings so
+  bv_decide cannot zeta-expand them into one opaque nested term
+  (spurious counterexample); (d) width normalisation — `dsimp` with the
+  Nat simprocs on each equation and `change` on each binding's type —
+  because `BitVec (8 + 8)` from `++` made bv_decide abstract the two
+  widened-byte equations as Boolean atoms and cut the chain; (e) lemma
+  lists built from QUOTATIONS (resolved in the generator's scope), since
+  runtime `mkIdent` names resolve in the caller's file, which need not
+  open `Sparkle.Core`; (f) the output half as `first | zeta-off +
+  extraction | zeta-on without extraction`: with zeta off the register
+  `match` on the pack cannot reduce (the pack sits behind mkRegList's own
+  lets) and extraction reached under the lambda; with zeta on the
+  next-chain expands only linearly when no helper body is unfolded, and
+  such circuits' output is a register read.  Cost: `Tools.DeepElab` now
+  compiles in ~760 s (shared block + tactic); the replay dominates the
+  709 s (per-wire `hwfCheck` by native_decide on each wire's stop set).
+  Remaining v1 limits (refused with a named message): memories, more
+  than one output port, Bool-typed outputs, nested loops.
+  Follow-ups: Phase-A/replay time (a `wiresAt` step lemma; share one
+  `hwfCheck` per wire family); multi-port outputs; memories (CdoM) —
+  out of scope until asked.
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
 ## D. Trust base

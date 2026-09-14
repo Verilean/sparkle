@@ -372,6 +372,19 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: generator cone-sharing route (ConeSharingGen) regressed"
     grep -m5 -E "error|FAILED" "$WORK/csgen.log" | sed 's/^/    /'; fail=1
   fi
+  # crc16CcittHW on the generator's cone-sharing route: trace + replay
+  # (the default route cannot finish this circuit).  ~12 min; its own step.
+  CRC_FILE=Tests/Verification/ConeSharingCrc16.lean
+  if [ ! -f "$CRC_FILE" ]; then
+    echo "FAIL: $CRC_FILE is missing (crc16 cone-sharing gate)"; fail=1
+  elif lake build Tests.Verification.ConeSharingCrc16 > "$WORK/crc16share.log" 2>&1 \
+      && grep -q "crc16CcittHW: PROVEN via CdoW.elab_general" "$WORK/crc16share.log" \
+      && grep -q "IR replay crc16CcittHW_sdeep_signal_run PROVEN" "$WORK/crc16share.log"; then
+    echo "crc16 cone-sharing route: trace + IR replay proven"
+  else
+    echo "FAIL: crc16 on the cone-sharing route regressed"
+    grep -m5 -E "error|FAILED" "$WORK/crc16share.log" | sed 's/^/    /'; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

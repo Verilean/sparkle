@@ -66,12 +66,16 @@ import Tools.DeepElab
     finished when the run hit its 1500 s timeout (defs-only mode
     `SPARKLE_DEEP_NOTHM=1`, `MemoryMax=24G`, one run, 2026-09-13).  The constants add fine and the G1 glue
     closes (compiled `native_decide` evaluates with sharing); only the
-    kernel-defeq bridge has none.  So sharing must enter the DEEP
+    kernel-defeq bridge has none.  So sharing had to enter the DEEP
     GRAMMAR — a binding layer of wire slots with small per-wire cones —
-    which fixes reification, bridge and replay together.  The cone-level
-    agreement theorem and all its premises are proven
-    (`shared_cone_agrees_at_settled`, `evalAssigns_bounded`); the grammar
-    extension is a design decision, tracked in the TODO;
+    which fixes reification, bridge and replay together.  DONE
+    (2026-09-14): the `CdoW` cone-sharing route, enabled with
+    `set_option sparkle.deepShare true`, proves crc16CcittHW's trace
+    theorem AND IR replay (17 shared wires, 709 s at 1.6 M heartbeats
+    per generated declaration) — `Tests/Verification/ConeSharingCrc16.lean`.
+    The DEFAULT route still refuses the circuit for size, which is why it
+    stays listed here; the shared route is v1 (no memories, one output
+    port, no Bool outputs, no nested loops);
   * slot count: `kvHw` (memcached key-value engine, 13 registers + 5
     inputs + 4 memories) hits a hard ceiling in the generated name
     table — past 15 arms the match compiler stops enumerating `Fin`
