@@ -264,6 +264,93 @@ theorem rtBridge_eval (wof : String → Option Nat) (env : Env)
   rw [← rtNorm_eval _ env hb cO hokO, ← heq, rtNorm_eval _ env hb _ hokX,
     stripMask_eval wof env hb]
 
+/-! ### F2: a LIST-backed stop set
+
+`hwfCheck` / `stopAtFrozenCheck` consult the stop set only through
+`contains`, but `Std.HashMap.contains` hashes through `USize` and the
+KERNEL cannot reduce it — measured 2026-09-16 on shareX4: `decide`
+fails on `stopAtM.contains "_gen_w0" = true` itself, so every checker
+keyed on the map is stuck on `native_decide` no matter how simple it
+is.  A `List String` stop set with `elem` decides fine, so the checkers
+get list-keyed twins here and the SOUNDNESS route stays the existing
+HashMap theorems, bridged by `stopOfL_contains` — the generator proves
+ONE agreement fact per stop set and keeps using the proven
+`hwfCheck_sound` / `stopAtFrozenCheck_sound`.
+
+This does NOT unblock `inlineConeT`'s equations: those also read the
+DEFINITION MAP (`dm.get?`), the same `USize` problem one table over.
+The cone equations therefore stay `native_decide` until the definition
+map is list-backed too — a separate change. -/
+
+/-- The HashMap a list stop set induces (what the generator builds). -/
+def stopOfL (l : List String) : Std.HashMap String Bool :=
+  l.foldl (fun h x => h.insert x true) {}
+
+/-- List-keyed `hwfCheck`. -/
+def hwfCheckL (we : WEnv) (stop : List String) : List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    (stop.elem l || widthOf we r == we l) && hwfCheckL we stop rest
+  | _ :: rest => hwfCheckL we stop rest
+
+/-- List-keyed `stopAtFrozenCheck`. -/
+def stopAtFrozenCheckL (stop : List String) : List Stmt → Bool
+  | [] => true
+  | s :: rest =>
+    (Sparkle.IR.Reorder.stmtWrites s).all (fun n => !stop.elem n)
+      && stopAtFrozenCheckL stop rest
+
+/-- **The bridge**, proven per stop set by the generator (`decide` on
+    the list side, one `native_decide` for the map side): the two
+    lookups agree on every name the body can mention.  Stated over the
+    names actually consulted, so it is a closed Boolean. -/
+def stopAgreeOn (l : List String) (names : List String) : Prop :=
+  ∀ n ∈ names, (stopOfL l).contains n = l.elem n
+
+/-- With agreement on the assign targets, the list checker implies the
+    HashMap one's hypothesis — so `hwfCheck_sound` applies unchanged. -/
+theorem hwfCheckL_to_hwfCheck (we : WEnv) (l : List String) :
+    ∀ (body : List Stmt),
+      (∀ n ∈ body.filterMap (fun s => match s with
+        | .assign t _ => some t | _ => none), (stopOfL l).contains n = l.elem n) →
+      hwfCheckL we l body = true → hwfCheck we (stopOfL l) body = true
+  | [], _, _ => rfl
+  | .assign t r :: rest, hag, h => by
+    simp only [hwfCheckL, Bool.and_eq_true] at h
+    simp only [hwfCheck, Bool.and_eq_true]
+    refine ⟨?_, hwfCheckL_to_hwfCheck we l rest (fun n hn => hag n (by simp [hn])) h.2⟩
+    have ht : (stopOfL l).contains t = l.elem t := hag t (by simp)
+    rw [ht]; exact h.1
+  | .register .. :: rest, hag, h => by
+    simp only [hwfCheckL] at h
+    simpa only [hwfCheck] using hwfCheckL_to_hwfCheck we l rest (fun n hn => hag n (by simpa using hn)) h
+  | .memory .. :: rest, hag, h => by
+    simp only [hwfCheckL] at h
+    simpa only [hwfCheck] using hwfCheckL_to_hwfCheck we l rest (fun n hn => hag n (by simpa using hn)) h
+  | .inst .. :: rest, hag, h => by
+    simp only [hwfCheckL] at h
+    simpa only [hwfCheck] using hwfCheckL_to_hwfCheck we l rest (fun n hn => hag n (by simpa using hn)) h
+
+/-- Same for the frozen check, over the names statements WRITE. -/
+theorem stopAtFrozenCheckL_to_check (l : List String) :
+    ∀ (body : List Stmt),
+      (∀ n ∈ body.flatMap Sparkle.IR.Reorder.stmtWrites,
+        (stopOfL l).contains n = l.elem n) →
+      stopAtFrozenCheckL l body = true → stopAtFrozenCheck (stopOfL l) body = true
+  | [], _, _ => rfl
+  | s :: rest, hag, h => by
+    simp only [stopAtFrozenCheckL, Bool.and_eq_true, List.all_eq_true] at h
+    simp only [stopAtFrozenCheck, Bool.and_eq_true, List.all_eq_true]
+    refine ⟨fun n hn => ?_, stopAtFrozenCheckL_to_check l rest
+      (fun n hn => hag n (by
+        simp only [List.flatMap_cons, List.mem_append]
+        exact .inr hn)) h.2⟩
+    have := h.1 n hn
+    rw [hag n (by
+      simp only [List.flatMap_cons, List.mem_append]
+      exact .inl hn)]
+    exact this
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)

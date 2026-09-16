@@ -809,11 +809,40 @@ The gaps, in the order they weaken the claim:
   body).  Total ≈ 13 s of the 765 s run — the kernel cost of this step
   is real but small against the proof search; the two ~4 s kinds are
   the ones that walk the 94-statement body or the 94-entry table.
-  Remaining: the HashMap-keyed kinds, which need list-backed
-  `dm`/`stopAt`/`wt` with lookup lemmas (the big block: 24 G1 glue + 6
-  `hwfCheck` + 6 `hinl` + 6 `hsub` on shareX4) — a separate change, per
-  the user's instruction.  The default deep route still has the
-  width-table kind at 3 sites and its own copies of these (not moved).
+  **Step 3 (2026-09-17), the STOP SET — the first HashMap-keyed table.**
+  BOUNDARY MEASURED FIRST: on shareX4 the kernel cannot reduce
+  `stopAtM.contains "_gen_w0" = true` at all (`decide` fails on the
+  `Std.HashMap` lookup itself), so every checker keyed on the map is
+  stuck regardless of how simple it is — and `inlineConeT` reads the
+  stop set AND the definition map (`dm.get?`), so a list stop set alone
+  cannot reach the cone equations.  Scope therefore stayed at the two
+  checkers that consult the stop set ONLY through `contains`.
+  `Tools/ConeFoldRT.lean` adds `stopOfL` (the map a list induces),
+  list-keyed `hwfCheckL` / `stopAtFrozenCheckL`, and the bridges
+  `hwfCheckL_to_hwfCheck` / `stopAtFrozenCheckL_to_check` (proven: with
+  lookup agreement on the names the body mentions, the list check
+  implies the map check, so the EXISTING `hwfCheck_sound` applies
+  unchanged).  The generator now builds both stop sets through
+  `stopOfL` and emits one `{f}_sdeep_hwfL_*` per stop set.
+  **What changed is WHAT is trusted, not the count.**  Each site used
+  to trust a `native_decide` WALK OVER EVERY STATEMENT; it now runs
+  that walk in the KERNEL and trusts only a lookup-agreement fact over
+  the body's assign targets.  Measured on crc16 (one run each):
+  the kernel walk `hwfCheckL` 4524 ms, the remaining trusted agreement
+  fact 7 ms, the old fully-trusted walk 1 ms.
+  Counts move by one per theorem only (the shared stop set is now
+  proven once instead of once per step lemma): shareX4 replay 44 → 43,
+  Opt 62 → 61, svOpt 63 → 62, RT 61; shareX8 72 → 71, 102 → 101, 103 →
+  102, 101; crc16 replay 127 → 126, Opt 181 → 180, RT 180.
+  Cost, same harness for both (lake build, MemoryMax 24G, cgroup
+  `memory.peak`): crc16 765 s → 864 s (+13 %), 2.757 GB → 2.781 GB
+  (+0.9 %).  The time is the kernel doing what the compiler used to.
+  Remaining HashMap-keyed kinds, all blocked on the DEFINITION MAP:
+  the 24 G1 glue equations, the `hinl` cone equations and the `hsub`
+  refs-membership facts (the latter over cones defined through
+  `resolveSlicesT wtM`).  Those need list-backed `dm` and `wt` with
+  lookup lemmas — a separate change.  The default deep route still has
+  the width-table kind at 3 sites and its own copies (not moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
   `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
   first pass (2026-09-08) moved the list-shaped body checkers to kernel

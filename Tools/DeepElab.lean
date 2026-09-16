@@ -2661,11 +2661,10 @@ elab "#verify_elab_deep" id:ident : command =>
       let hagKId := P "hagK"
       elabSyncS (← `(theorem $hagKId : ∀ k : Fin ($ΓAllS).length, $weMId ($snmId k) = ($ΓAllS).get k := by decide))
       elabSyncS (← `(def $stopLId : List String := [$nameTs,*]))
-      elabSyncS (← `(def $stopAtMId : Std.HashMap String Bool :=
-        ($stopLId).foldl (fun h x => h.insert x true) {}))
+      elabSyncS (← `(def $stopAtMId : Std.HashMap String Bool := Tools.ConeFold.stopOfL $stopLId))
       elabSyncS (← `(def $stopLwId (w : String) : List String := ($stopLId).erase w))
       elabSyncS (← `(def $stopAtMwId (w : String) : Std.HashMap String Bool :=
-        ($stopLwId w).foldl (fun h x => h.insert x true) {}))
+        Tools.ConeFold.stopOfL ($stopLwId w)))
       elabSyncS (← `(def $dmId : Sparkle.IR.Optimize.DefMap := Sparkle.IR.Optimize.buildDefMap $bodyId))
       let addExprC (id : Ident) (e : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
         liftCoreM <| addAndCompile <| .defnDecl {
@@ -2944,6 +2943,31 @@ elab "#verify_elab_deep" id:ident : command =>
         let hrunBinder ← `(Lean.Parser.Term.bracketedBinderF| (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envAtId $appArgs* t) = some env1))
         let env1Binder ← `(Lean.Parser.Term.bracketedBinderF| {env1 : Sparkle.IR.Semantics.Env})
         let xB : Array (Lean.TSyntax ``Lean.Parser.Term.bracketedBinder) := #[env1Binder, hrunBinder]
+        -- F2 (stop set): `hwfCheck` reads the stop set only through `contains`,
+        -- which the kernel cannot reduce on a `Std.HashMap` (measured: even
+        -- `stopAtM.contains "…" = true` fails `decide`).  So the CHECK runs on
+        -- the LIST (kernel `decide`) and one agreement fact per stop set
+        -- (`native_decide`, over the body's assign targets only) carries it to
+        -- the proven `hwfCheck_sound`.  Net per body: the per-wire and shared
+        -- hwfCheck sites (nW + 2 on a body) become nW + 2 agreement facts, so
+        -- the count is unchanged — what changes is WHAT is trusted: a
+        -- lookup-agreement fact instead of a walk over every statement.
+        let hwfOf (tagS : String) (stopT : Term) (stopLT : Term) : CommandElabM Ident := do
+          let id := Q s!"hwfL_{tagS}"
+          let cmd ← `(theorem $id : ∀ n rhs,
+              (Sparkle.IR.Optimize.buildDefMap $bodyXId).get? n = some rhs →
+              ($stopT).contains n = false → Sparkle.IR.Semantics.widthOf $weMId rhs = $weMId n :=
+            Tools.ConeFold.hwfCheck_sound $weMId $stopT $bodyXId
+              (Tools.ConeFold.hwfCheckL_to_hwfCheck $weMId $stopLT $bodyXId
+                (by native_decide) (by decide)))
+          elabSyncS cmd
+          pure id
+        let hwfSharedId ← hwfOf "stop" (← `($stopAtMId)) (← `($stopLId))
+        let mut hwfWireIds : Array Ident := #[]
+        for k in List.range nW do
+          let w := shared[k]!
+          hwfWireIds := hwfWireIds.push
+            (← hwfOf s!"w{k}" (← `($stopAtMwId $(quote w))) (← `($stopLwId $(quote w))))
         let hb1Id := Q "hb1_of"
         elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
             ∀ n, env1 n < 2 ^ $weMId n :=
@@ -3006,7 +3030,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) ($stopAtMwId $(quote w)) $wtMId
                   (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
                   (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
-                  (Tools.ConeFold.hwfCheck_sound $weMId ($stopAtMwId $(quote w)) $bodyXId (by native_decide))
+                  $(hwfWireIds[k]!)
                   (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
                   (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}")) (hinl := by native_decide) 10000
                   (v := env1 $(quote w)) (by simp [Sparkle.IR.Semantics.evalExpr]))]
@@ -3048,7 +3072,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) $stopAtMId $wtMId
                   (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
                   (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
-                  (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyXId (by native_decide))
+                  $hwfSharedId
                   (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
                   (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x)) (hinl := by native_decide) 10000 hv),
               ← `(tactic| have hc : Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x)
