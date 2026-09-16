@@ -788,12 +788,32 @@ The gaps, in the order they weaken the claim:
   53 s → 55 s for both circuits (noise); crc16CcittHW replay 152 → 134,
   Opt 206 → 188, RT 206 → 188, wall 752 s → 757 s (noise).  The kernel
   `decide` on crc16's 94-entry table took no measurable time.
-  Next kinds, kernel-feasible as-is: the six list-shaped singletons
-  (`bodyWidthOk`, `bodyEvalOk`, `hag`, `hinj`, `nm_mem_stop`, the seed
-  width fact — 6 sites → kernel); then the HashMap-keyed kinds, which
-  need list-backed `dm`/`stopAt`/`wt` with lookup lemmas (the big
-  block: 24 + 6 + 6 + 6 on shareX4).  The default deep route has the
-  same width-table kind at 3 sites (not yet moved).
+  **Step 2 DONE (2026-09-16), the six list-shaped kinds.**  All moved to
+  kernel `decide`: the name table's injectivity (`{f}_sdeep_hinj`, now
+  proven ONCE before the trace and reused as `CdoW.elab_general`'s side
+  condition AND by the replay), the slot-width fact (hoisted to
+  `{f}_sdeep_hagK`, was a `native_decide` `have` inside both
+  `seed_bounded` and `envSt_bounded`), `{f}_sdeep_hag`,
+  `{f}_sdeep_nm_mem_stop`, `bodyWidthOk` (in `hb1_of`, per body) and
+  `bodyEvalOk` (in `signal_run`, per body).  Measured, auxiliaries
+  before → after: shareX4 replay 51 → 44, Opt 69 → 62, svOpt 70 → 63,
+  RT 69 → 62; shareX8 79 → 72, 109 → 102, 110 → 103, 102; crc16 replay
+  134 → 127, Opt 188 → 181, RT 188 → 181.  Wall: shareX4+8 55 → 57 s,
+  crc16 757 → 765 s (noise).  Cumulative over steps 1+2: shareX4 57 →
+  44 (−23 %), crc16 152 → 127 (−16 %).
+  Per-kind KERNEL check time, measured on crc16's own constants by
+  re-proving each statement with `decide` (one run each): width table
+  3929 ms, `bodyWidthOk` (elaborator body) 3876 ms, `bodyWidthOk` (Opt
+  body) 1093 ms, slot widths 1140 ms, `hag` 1249 ms, injectivity
+  442 ms, `nm_mem_stop` 250 ms, `bodyEvalOk` 22 ms (23 ms on the RT
+  body).  Total ≈ 13 s of the 765 s run — the kernel cost of this step
+  is real but small against the proof search; the two ~4 s kinds are
+  the ones that walk the 94-statement body or the 94-entry table.
+  Remaining: the HashMap-keyed kinds, which need list-backed
+  `dm`/`stopAt`/`wt` with lookup lemmas (the big block: 24 G1 glue + 6
+  `hwfCheck` + 6 `hinl` + 6 `hsub` on shareX4) — a separate change, per
+  the user's instruction.  The default deep route still has the
+  width-table kind at 3 sites and its own copies of these (not moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
   `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
   first pass (2026-09-08) moved the list-shaped body checkers to kernel

@@ -22,7 +22,7 @@
   SKIPPED line and nothing else skipped (docs/SharedRoute-Guarantees.md
   §4a; docs/RefusalLedger.md, shl width rule).
 
-  Measured 2026-09-14: 752 s wall, `lake build`, MemoryMax=24G,
+  Measured 2026-09-16: 765 s wall, `lake build`, MemoryMax=24G,
   maxHeartbeats 1,600,000 per generated declaration (was 709 s before the
   two bridges).  Expensive; CI runs it as its own step.
 -/

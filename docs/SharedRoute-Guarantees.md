@@ -30,9 +30,10 @@ is an error.
   part is the reification `{f}_sdeep` and the Signal-side bridge).
 * Proof: readers `_sdeep_rd*`, wire equations `_rw*_eq` (`rfl`), the
   linear `signal_lets` recipe, `bv_decide` per step.
-* Trust: kernel + `bv_decide` auxiliaries (2 on shareX4) + 1
-  `native_decide` auxiliary (the name-table side condition handed to
-  `CdoW.elab_general`).
+* Trust: kernel + `bv_decide` auxiliaries (2 on shareX4).  The
+  name-table side condition handed to `CdoW.elab_general` is kernel
+  `decide` since 2026-09-16, so the trace theorem carries no
+  `native_decide` auxiliary.
 * Reification is a meta-program (F1 in the TODO): a circuit outside the
   deep grammar gets NO theorem and a named refusal.
 
@@ -50,13 +51,15 @@ is an error.
 * Trust: kernel for all structural lemmas; kernel `decide` for
   `woCheck`, `memFreeCheck`, `noSelfReadCheck`; `native_decide` for the
   `Std.HashMap`-keyed checkers (`hwfCheck`, `hwt_of_assoc`), the
-  cone-inlining equations (`inlineConeT … = .ok cone`), `bodyWidthOk`,
-  `bodyEvalOk`, and the G1 equations (51 auxiliaries on shareX4, 134 on
-  crc16 as of 2026-09-16).  The width-table fact (`∀ p ∈ wtL, weM p.1 =
-  p.2`) is ONE kernel-`decide` theorem `{f}_sdeep_hwt` since 2026-09-16
-  (F2 step 1: −6 auxiliaries per body on shareX4, −18 on crc16, no
-  measurable time change).  TODO F2 tracks the remaining kinds, with the
-  inventory by kind.
+  cone-inlining equations (`inlineConeT … = .ok cone`) and the G1
+  equations (44 auxiliaries on shareX4, 127 on crc16 as of 2026-09-16).
+  KERNEL `decide`, not `native_decide`, for every list-shaped kind:
+  `woCheck`, `memFreeCheck`, `noSelfReadCheck`, the width table
+  (`{f}_sdeep_hwt`), the name table's injectivity (`{f}_sdeep_hinj`,
+  also `CdoW.elab_general`'s side condition in §1), the slot widths
+  (`{f}_sdeep_hagK`), `{f}_sdeep_hag`, `{f}_sdeep_nm_mem_stop`,
+  `bodyWidthOk` and `bodyEvalOk`.  TODO F2 carries the inventory by kind,
+  the per-kind kernel times, and the remaining HashMap-keyed block.
 
 ## 3. IR body ≡ the OPTIMIZED body — `{f}_sdeep_signal_runOpt`
 
@@ -171,7 +174,7 @@ not by proving the optimizer:
   declaration that produced it (measured 2026-09-14 on crc16: a bare
   `have` after the output goal had closed).
 
-## 6. Status per circuit (2026-09-16, after F2 step 1)
+## 6. Status per circuit (2026-09-16, after F2 steps 1-2)
 
 crc16CcittHW's guarantee to the printed text is the ROUNDTRIP link
 (§4b: the shipping parser trusted as an evaluated oracle on this text);
@@ -180,9 +183,9 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 
 | circuit | §1 trace | §2 replay | §3 Opt | §4a SV | §4b RT | wall |
 |---|---|---|---|---|---|---|
-| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv + 1 nd) | PROVEN (+51) | PROVEN (+69) | PROVEN (+70) | PROVEN (+69; parse +1) | 55 s for both shareX* |
-| shareX8 (8 wires) | PROVEN | PROVEN (+79) | PROVEN (+109) | PROVEN (+110) | PROVEN (+109) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+134) | PROVEN (+188) | SKIPPED (shl fit rule, statement named) | PROVEN (+188; parse +1) | 757 s |
+| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+44) | PROVEN (+62) | PROVEN (+63) | PROVEN (+62; parse +1) | 57 s for both shareX* |
+| shareX8 (8 wires) | PROVEN | PROVEN (+72) | PROVEN (+102) | PROVEN (+103) | PROVEN (+102) | (same run) |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+127) | PROVEN (+181) | SKIPPED (shl fit rule, statement named) | PROVEN (+181; parse +1) | 765 s |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms.
 Conditions: `lake build`, MemoryMax 24G, 1.6 M heartbeats per generated

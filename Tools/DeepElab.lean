@@ -2419,6 +2419,11 @@ elab "#verify_elab_deep" id:ident : command =>
     let nameTs : Array Term := slotNames.toArray.map fun n => quote n
     elabSyncS (← `(def $snmLId : List String := [$nameTs,*]))
     elabSyncS (← `(def $snmId : Fin ($ΓAllS).length → String := fun i => ($snmLId).getD i.val ""))
+    -- F2: the name table's injectivity ONCE, by KERNEL decide (Fin × Fin over a
+    -- literal list of string literals); it is the side condition of
+    -- `CdoW.elab_general` in the trace AND the replay's `hinj`
+    let hinjId := mkI s!"{base}_sdeep_hinj"
+    elabSyncS (← `(theorem $hinjId : ∀ a b : Fin ($ΓAllS).length, $snmId a = $snmId b → a = b := by decide))
     -- ---- the CdoW ----
     let sigTs : Array Term ← (List.range nW).toArray.mapM fun k => do
       `((⟨$(quote wireWs[k]!), $(wireCs[k]!)⟩ : Σ w : Nat, CExpr $ΓAllS w))
@@ -2566,7 +2571,7 @@ elab "#verify_elab_deep" id:ident : command =>
           = (Sparkle.IR.Semantics.evalExpr (weOfC $snmId (fun k => ($ΓAllS).get k))
               (envOfC $snmId (natJoin $ρnT (CdoW.irWires $sdeepId $snmId $ρnT)))
               (CExpr.compile $snmId (CdoW.out $sdeepId))).getD 0 := by
-      rw [← CdoW.elab_general $sdeepId $snmId (by native_decide) $inpS t]
+      rw [← CdoW.elab_general $sdeepId $snmId $hinjId $inpS t]
       refine congrArg BitVec.toNat ?_
       $[$headTacs:tactic]*
       simp -zeta only [outFOf, mkHolds, Signal.map, $[$outUnfoldS:term],*]
@@ -2651,6 +2656,10 @@ elab "#verify_elab_deep" id:ident : command =>
       -- one native_decide per settled/step lemma (6 sites per body on shareX4)
       let hwtId := P "hwt"
       elabSyncS (← `(theorem $hwtId : ∀ p ∈ $wtLId, $weMId p.1 = p.2 := by decide))
+      -- F2: the slot-width fact ONCE (kernel decide) — it was a native_decide
+      -- `have` inside both `seed_bounded` and `envSt_bounded`
+      let hagKId := P "hagK"
+      elabSyncS (← `(theorem $hagKId : ∀ k : Fin ($ΓAllS).length, $weMId ($snmId k) = ($ΓAllS).get k := by decide))
       elabSyncS (← `(def $stopLId : List String := [$nameTs,*]))
       elabSyncS (← `(def $stopAtMId : Std.HashMap String Bool :=
         ($stopLId).foldl (fun h x => h.insert x true) {}))
@@ -2677,7 +2686,7 @@ elab "#verify_elab_deep" id:ident : command =>
       let weCT : Term ← `(weOfC $snmId (fun k => ($ΓAllS).get k))
       -- G1 glue per slot
       let hagId := P "hag"
-      elabSyncS (← `(theorem $hagId : ∀ n ∈ $stopLId, $weCT n = $weMId n := by native_decide))
+      elabSyncS (← `(theorem $hagId : ∀ n ∈ $stopLId, $weCT n = $weMId n := by decide))
       let g1 (x : String) (lhs : Term) (eIn : Term) (sl : Term) (hagT : Term) : CommandElabM Unit := do
         let g1Id := P s!"coneEval_{x}"
         elabSyncS (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
@@ -2704,7 +2713,6 @@ elab "#verify_elab_deep" id:ident : command =>
         natJoin (CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t) (fun j => ((($inpS) j).val t).toNat)))
       elabSyncS (← `(def $envAtId $paramBinders* (t : Nat) : Sparkle.IR.Semantics.Env :=
         envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t)))))
-      elabSyncS (← `(theorem $hinjId : ∀ a b : Fin ($ΓAllS).length, $snmId a = $snmId b → a = b := by native_decide))
       elabSyncS (← `(theorem $ρnEqId $paramBinders* (t : Nat) :
           $ρnId $appArgs* t = fun m => (CEnv.join (CdoW.stateAt $sdeepId ($inpFId $appArgs*) t) ($inpFId $appArgs* t) m).toNat := by
         funext m
@@ -2718,7 +2726,7 @@ elab "#verify_elab_deep" id:ident : command =>
         unfold $envAtId
         apply envOfC_bounded
         intro k
-        have hag : ∀ k : Fin ($ΓAllS).length, $weMId ($snmId k) = ($ΓAllS).get k := by native_decide
+        have hag := $hagKId
         rw [hag k, $ρnEqId $appArgs* t, CdoW.natJoin_full $sdeepId $snmId $hinjId]
         exact BitVec.isLt _))
       -- pointwise readers of the seed
@@ -2744,7 +2752,7 @@ elab "#verify_elab_deep" id:ident : command =>
           show envOfC $snmId _ ($snmId ⟨$(quote (nR + nI + k)), by decide⟩) = _
           rw [envOfC_names $snmId _ $hinjId]
           rfl))
-      elabSyncS (← `(theorem $nmMemId : ∀ k : Fin ($ΓAllS).length, $snmId k ∈ $stopLId := by native_decide))
+      elabSyncS (← `(theorem $nmMemId : ∀ k : Fin ($ΓAllS).length, $snmId k ∈ $stopLId := by decide))
       elabSyncS (← `(theorem $otherId $paramBinders* (t : Nat) (n : String) (h : n ∉ $stopLId) :
           $envAtId $appArgs* t n = 0 := by
         unfold $envAtId
@@ -2806,7 +2814,7 @@ elab "#verify_elab_deep" id:ident : command =>
         unfold $envStId
         apply envOfC_bounded
         intro k
-        have hag : ∀ k : Fin ($ΓAllS).length, $weMId ($snmId k) = ($ΓAllS).get k := by native_decide
+        have hag := $hagKId
         rw [hag k, $ρnSEqId $appArgs* t st, CdoW.natJoin_full $sdeepId $snmId $hinjId]
         exact BitVec.isLt _))
       -- henv: st agrees with the spec recurrence ⇒ the seeds coincide
@@ -2940,7 +2948,7 @@ elab "#verify_elab_deep" id:ident : command =>
         elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
             ∀ n, env1 n < 2 ^ $weMId n :=
           Tools.ConeFold.evalAssigns_bounded $weMId _ $bodyXId _ env1
-            (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by native_decide) ($seedBndId $appArgs* t) hrun))
+            (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide) ($seedBndId $appArgs* t) hrun))
         let frameOf (x : String) (nameS : String) : CommandElabM Unit := do
           let fId := Q s!"frame_{x}"
           elabSyncS (← `(theorem $fId $paramBinders* (t : Nat) $xB* :
@@ -3174,7 +3182,7 @@ elab "#verify_elab_deep" id:ident : command =>
             ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs
               ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
           obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
-            (Tools.ConeFold.runModule_isSome $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by native_decide)
+            (Tools.ConeFold.runModule_isSome $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide)
               (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id)
           exact ⟨envs, henvs, $sigRunModId $appArgs* K henvs⟩))
         deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: replay chain emitted"
