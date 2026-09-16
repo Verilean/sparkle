@@ -51,9 +51,12 @@ is an error.
   `woCheck`, `memFreeCheck`, `noSelfReadCheck`; `native_decide` for the
   `Std.HashMap`-keyed checkers (`hwfCheck`, `hwt_of_assoc`), the
   cone-inlining equations (`inlineConeT … = .ok cone`), `bodyWidthOk`,
-  `bodyEvalOk`, and the G1 equations (57 auxiliaries on shareX4, 160 on
-  crc16 before §3 was added).  TODO F2 tracks moving these to kernel
-  `decide` (list-backed tables).
+  `bodyEvalOk`, and the G1 equations (51 auxiliaries on shareX4, 134 on
+  crc16 as of 2026-09-16).  The width-table fact (`∀ p ∈ wtL, weM p.1 =
+  p.2`) is ONE kernel-`decide` theorem `{f}_sdeep_hwt` since 2026-09-16
+  (F2 step 1: −6 auxiliaries per body on shareX4, −18 on crc16, no
+  measurable time change).  TODO F2 tracks the remaining kinds, with the
+  inventory by kind.
 
 ## 3. IR body ≡ the OPTIMIZED body — `{f}_sdeep_signal_runOpt`
 
@@ -168,13 +171,18 @@ not by proving the optimizer:
   declaration that produced it (measured 2026-09-14 on crc16: a bare
   `have` after the output goal had closed).
 
-## 6. Status per circuit (2026-09-14)
+## 6. Status per circuit (2026-09-16, after F2 step 1)
+
+crc16CcittHW's guarantee to the printed text is the ROUNDTRIP link
+(§4b: the shipping parser trusted as an evaluated oracle on this text);
+the forward emitter-semantics theorem (§4a) is a separate, open item
+for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 
 | circuit | §1 trace | §2 replay | §3 Opt | §4a SV | §4b RT | wall |
 |---|---|---|---|---|---|---|
-| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv + 1 nd) | PROVEN (+57) | PROVEN (+75) | PROVEN (+76) | PROVEN (+75; parse +1) | 55 s for both shareX* |
-| shareX8 (8 wires) | PROVEN | PROVEN (+89) | PROVEN (+119) | PROVEN (+120) | PROVEN (+119) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+152) | PROVEN (+206) | SKIPPED (shl fit rule, statement named) | PROVEN (+206; parse +1) | 754 s |
+| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv + 1 nd) | PROVEN (+51) | PROVEN (+69) | PROVEN (+70) | PROVEN (+69; parse +1) | 55 s for both shareX* |
+| shareX8 (8 wires) | PROVEN | PROVEN (+79) | PROVEN (+109) | PROVEN (+110) | PROVEN (+109) | (same run) |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+134) | PROVEN (+188) | SKIPPED (shl fit rule, statement named) | PROVEN (+188; parse +1) | 757 s |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms.
 Conditions: `lake build`, MemoryMax 24G, 1.6 M heartbeats per generated

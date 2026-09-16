@@ -765,6 +765,35 @@ The gaps, in the order they weaken the claim:
   elaboration proven correct, not replayed per instance.  Research-scale
   and the honest headline item.
 - [ ] **F2. `native_decide` out of the per-instance obligations.**
+  **Shared-route inventory (shareX4 `_sdeep_signal_run`, 57 auxiliaries,
+  measured 2026-09-16 by grouping `#print axioms`):** G1 glue
+  `coneEval_*` 24 (4 per slot — compile / concatNorm / inlineConeT /
+  resolveSlicesT equations, keyed on `Std.HashMap` `dm`/`wtM`/`stopAtM`);
+  `settled_w*` 12 and `step_*` 8 (per lemma: `hwfCheck` [HashMap stop
+  set], `hwt_of_assoc` [list], `hinl` = `inlineConeT … = .ok` [HashMap],
+  plus `hsub` refs-membership in the steps [`refsOf` of a cone DEFINED
+  through `resolveSlicesT wtM` — HashMap]); `wire_w*` 4 (`hsub`);
+  singletons `hag`, `hinj`, `nm_mem_stop`, `seed_bounded`'s width fact,
+  `hb1_of` (`bodyWidthOk`), `signal_run` (`bodyEvalOk`) — all
+  list-shaped; trace 1 (`CdoW.elab_general`'s name-table condition).
+  Each replayed body (Opt/RT) repeats the per-body kinds.
+  **Step 1 DONE (2026-09-16), one kind: the width-table fact.**  The
+  identical proposition `∀ p ∈ wtL, weM p.1 = p.2` was proven by
+  `native_decide` inside every settled/step lemma; now ONE theorem
+  `{f}_sdeep_hwt` by KERNEL `decide` (literal association list, `weM`
+  an if-chain on string literals), referenced from all sites of every
+  replayed body.  Measured (equal conditions, `lake build`, 24G, 1.6 M
+  heartbeats): shareX4 replay 57 → 51, Opt 75 → 69, svOpt 76 → 70,
+  RT 75 → 69; shareX8 89 → 79, 119 → 109, 120 → 110, 119 → 109; wall
+  53 s → 55 s for both circuits (noise); crc16CcittHW replay 152 → 134,
+  Opt 206 → 188, RT 206 → 188, wall 752 s → 757 s (noise).  The kernel
+  `decide` on crc16's 94-entry table took no measurable time.
+  Next kinds, kernel-feasible as-is: the six list-shaped singletons
+  (`bodyWidthOk`, `bodyEvalOk`, `hag`, `hinj`, `nm_mem_stop`, the seed
+  width fact — 6 sites → kernel); then the HashMap-keyed kinds, which
+  need list-backed `dm`/`stopAt`/`wt` with lookup lemmas (the big
+  block: 24 + 6 + 6 + 6 on shareX4).  The default deep route has the
+  same width-table kind at 3 sites (not yet moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
   `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
   first pass (2026-09-08) moved the list-shaped body checkers to kernel

@@ -2646,6 +2646,11 @@ elab "#verify_elab_deep" id:ident : command =>
       liftCoreM <| Lean.enableRealizationsForConst wtLId.getId
       elabSyncS (← `(def $wtMId : Std.HashMap String Nat :=
         ($wtLId).foldl (fun m p => m.insert p.1 p.2) {}))
+      -- F2: the width-table fact ONCE, by KERNEL decide (list-shaped: the
+      -- table is a literal association list, `weM` an if-chain), instead of
+      -- one native_decide per settled/step lemma (6 sites per body on shareX4)
+      let hwtId := P "hwt"
+      elabSyncS (← `(theorem $hwtId : ∀ p ∈ $wtLId, $weMId p.1 = p.2 := by decide))
       elabSyncS (← `(def $stopLId : List String := [$nameTs,*]))
       elabSyncS (← `(def $stopAtMId : Std.HashMap String Bool :=
         ($stopLId).foldl (fun h x => h.insert x true) {}))
@@ -2994,7 +2999,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
                   (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
                   (Tools.ConeFold.hwfCheck_sound $weMId ($stopAtMwId $(quote w)) $bodyXId (by native_decide))
-                  (Tools.ConeFold.hwt_of_assoc $weMId $wtLId (by native_decide)) ($hb1Id $appArgs* t hrun)
+                  (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
                   (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}")) (hinl := by native_decide) 10000
                   (v := env1 $(quote w)) (by simp [Sparkle.IR.Semantics.evalExpr]))]
             ++ conv ++ #[← `(tactic| exact h)]
@@ -3036,7 +3041,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
                   (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
                   (Tools.ConeFold.hwfCheck_sound $weMId $stopAtMId $bodyXId (by native_decide))
-                  (Tools.ConeFold.hwt_of_assoc $weMId $wtLId (by native_decide)) ($hb1Id $appArgs* t hrun)
+                  (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
                   (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x)) (hinl := by native_decide) 10000 hv),
               ← `(tactic| have hc : Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x)
                   = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x) := by
