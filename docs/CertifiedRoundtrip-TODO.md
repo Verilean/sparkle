@@ -870,10 +870,54 @@ The gaps, in the order they weaken the claim:
   change than a table swap and is NOT attempted here; the transfer
   theorem above is the piece of it that is already done.  Same applies
   to `resolveSlicesT` (width table) for the `hsub` facts.
+  **Step 5 (2026-09-17): the lookups are now PROVEN equal, and the real
+  blocker turns out to be the WALK's recursion, not the tables.**
+  Done and shipped in `Tools/ConeFoldRT.lean`, all kernel, no
+  `native_decide`:
+  * duplicate-key semantics reconciled FIRST — `buildDefMap` folds
+    `insert` left to right so the LAST assign to a name wins, while
+    `List.find?` returns the first (measured on `[x := 1, x := 2]`: map
+    gives 2, `find?` gives 1).  `dmGetR` therefore scans from the RIGHT,
+    which is also what makes the fold induction go through;
+  * `dmOfL_get?_eq` / `buildDefMap_get?_eq`: the shipping map's `get?`
+    IS `dmGetR` of the assign list — proven by induction on the fold from
+    `Std.HashMap.get?_insert` and `getElem?_empty`, generalised over the
+    accumulator.  `stopOfL_contains_elem` likewise for the stop set.
+    **No `native_decide` anywhere in these.**
+  * `inlineConeG` — the walk with its two table reads as FUNCTION
+    arguments — plus `inlineConeT_eq_G` (the shipping walk IS this walk
+    at the HashMap reads) and `inlineConeG_congr` (pointwise-equal
+    lookups give the same run).  So there is ONE algorithm at two
+    instantiations, not a second copy; `inlineConeT_of_list` composes
+    them and moves a cone equation entirely to the list side.  This is
+    the "rewrite the existing function by lemma" route, and it works.
+  **But the kernel still cannot run it, for a different reason.**
+  MEASURED: `decide` fails on `inlineConeG` even with a two-element
+  literal table and a ref that stops immediately (no recursion, no
+  generated constants) — and `#print axioms inlineConeG` shows
+  `propext, Quot.sound`, the signature of WELL-FOUNDED recursion.  Its
+  defining equations hold only propositionally, so the kernel cannot
+  compute with it at all; a structurally-recursive walk on the same data
+  reduces fine (checked).  The shipping `inlineConeT` has the same
+  shape, which is the real reason these equations were always on
+  `native_decide` — the `Std.HashMap` lookups were only the first of two
+  blockers, and the tables are now cleared.
+  What remains for the cone equations is therefore a STRUCTURALLY
+  recursive formulation of the walk (recursing on fuel with the
+  expression handled by an inner structural recursion, or on a
+  size-indexed expression), related to `inlineConeG` by a proven
+  equality.  `inlineConeT_of_list` is already the socket it would plug
+  into.  Not attempted here — it is a third change, and the instruction
+  was to measure one slot first.
+  A `decide`-friendly result comparison is also in place (`isOkEq` /
+  `eq_ok_of_isOkEq`): comparing `Except String Expr` directly gets stuck
+  on the interpolated error messages, so the Boolean never compares
+  error strings.
   So the remaining shared-route `native_decide` block stands at: 24 G1
   glue equations + `hinl` (per slot, per body) + `hsub` (per slot) on
-  shareX4.  The default deep route still has the width-table kind at 3
-  sites and its own copies (not moved).
+  shareX4 — all now blocked on the walk's recursion, with the table
+  halves proven.  The default deep route still has the width-table kind
+  at 3 sites and its own copies (not moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
   `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
   first pass (2026-09-08) moved the list-shaped body checkers to kernel

@@ -444,6 +444,242 @@ theorem inlineConeT_dm_congr (dm1 dm2 : Sparkle.IR.Optimize.DefMap)
   | case11 => simp [inlineConeTL]
   | case12 fuel a rest ih1 ih2 => simp only [inlineConeTL, ih1, ih2]
 
+/-! ### F2: moving the LOOKUP itself to the list (no new trusted axiom)
+
+The step-4 attempt showed that a list-BUILT `Std.HashMap` is no help:
+the kernel cannot reduce the LOOKUP, wherever the map came from.  The
+way out is not to ask it to — prove `dm.get? n = dmGetR l n` ONCE from
+the HashMap's own `get?_insert` / `getElem?_empty` lemmas (kernel, no
+`native_decide`), then rewrite the cone equation's map argument to the
+list side with `inlineConeT_dm_congr` and let the kernel run the walk
+over the list lookup.
+
+**Duplicate keys.**  `buildDefMap` folds `insert` left to right, so for
+a repeated assign target the LAST one wins; `List.find?` returns the
+FIRST.  Measured on `[x := 1, x := 2]`: the map gives 2, `find?` gives
+1.  So the list lookup must scan from the RIGHT — `dmGetR` below — and
+that is exactly what makes the fold induction go through. -/
+
+/-- List lookup with the FOLD's duplicate-key semantics: the last
+    binding for a name wins, so scan from the right. -/
+def dmGetR (l : List (String × Expr)) (n : String) : Option Expr :=
+  match l with
+  | [] => none
+  | (k, v) :: rest => match dmGetR rest n with
+    | some r => some r
+    | none => if k == n then some v else none
+
+/-- **Lookup agreement, proven — not evaluated.**  Induction on the
+    fold, using only `get?_insert` and `getElem?_empty`.  Generalised
+    over the accumulator so the induction is available at every prefix. -/
+theorem dmOfL_get?_eq (l : List (String × Expr)) :
+    ∀ (m : Sparkle.IR.Optimize.DefMap) (n : String),
+      (l.foldl (fun m p => m.insert p.1 p.2) m).get? n
+        = match dmGetR l n with
+          | some r => some r
+          | none => m.get? n := by
+  induction l with
+  | nil => intro m n; rfl
+  | cons hd tl ih =>
+    intro m n
+    simp only [List.foldl_cons, dmGetR]
+    rw [ih (m.insert hd.1 hd.2) n]
+    cases hr : dmGetR tl n with
+    | some r => rfl
+    | none =>
+      simp only
+      rw [Std.HashMap.get?_insert]
+      by_cases hk : hd.1 == n
+      · simp [hk]
+      · simp [hk]
+
+/-- The shipping map's lookup IS the right-scanning list lookup. -/
+theorem buildDefMap_get?_eq (body : List Stmt) (n : String) :
+    (Sparkle.IR.Optimize.buildDefMap body).get? n = dmGetR (dmListOf body) n := by
+  rw [buildDefMap_dmOfL, dmOfL]
+  rw [dmOfL_get?_eq (dmListOf body) {} n]
+  cases dmGetR (dmListOf body) n with
+  | some r => rfl
+  | none => exact Std.HashMap.getElem?_empty
+
+/-- A map whose lookup is defined directly by the list — what the
+    kernel CAN reduce.  It is not a `Std.HashMap`; `inlineConeTList`
+    below is `inlineConeT` with this in place of the map. -/
+def dmListLookup (l : List (String × Expr)) : String → Option Expr := dmGetR l
+
+/-! ### The walk, parameterised by its lookup
+
+`inlineConeT` reads its two tables only as `dm.get? n` and
+`stopAt.contains n`.  `inlineConeG` below is the SAME walk with those
+two reads as function arguments, so the shipping call and the
+list-backed call are one function at two instantiations — no second
+copy of the algorithm to keep in step.
+
+`inlineConeT_eq_G` states that the shipping function IS this walk at
+the HashMap lookups (`rfl`-level: same recursion, same order), and
+`inlineConeG_congr` transports a run between pointwise-equal lookups.
+Composing them with `buildDefMap_get?_eq` moves a cone equation onto
+the list side, where the kernel can run it — with no new axiom, since
+every step is a proven rewrite. -/
+
+mutual
+/-- The cone walk with its two table reads as parameters. -/
+def inlineConeG (get : String → Option Expr) (stop : String → Bool) :
+    Nat → Expr → Except String Expr
+  | fuel, .ref n =>
+    if stop n then .ok (.ref n)
+    else match fuel, get n with
+      | 0, _ => .error s!"cone inlining fuel exhausted at `{n}` (combinational cycle?)"
+      | _, none => .error s!"`{n}` is neither an input, a register, nor assigned"
+      | fuel + 1, some rhs => inlineConeG get stop fuel rhs
+  | fuel, .op o args => do
+    .ok (.op o (← inlineConeGL get stop fuel args))
+  | fuel, .concat args => do
+    .ok (.concat (← inlineConeGL get stop fuel args))
+  | fuel, .slice e hi lo => do
+    .ok (.slice (← inlineConeG get stop fuel e) hi lo)
+  | _, .index .. => .error "memories/dynamic indexing unsupported by #verify_emit (v1)"
+  | _, .sliceDim .. => .error "symbolic-width slices unsupported by #verify_emit (v1)"
+  | _, e => .ok e
+
+def inlineConeGL (get : String → Option Expr) (stop : String → Bool) :
+    Nat → List Expr → Except String (List Expr)
+  | _, [] => .ok []
+  | fuel, a :: rest => do
+    .ok ((← inlineConeG get stop fuel a) :: (← inlineConeGL get stop fuel rest))
+end
+
+mutual
+/-- The shipping walk is the generic walk at the HashMap reads. -/
+theorem inlineConeT_eq_G (dm : Sparkle.IR.Optimize.DefMap)
+    (stopAt : Std.HashMap String Bool) :
+    ∀ fuel e, inlineConeT dm stopAt fuel e
+      = inlineConeG (fun n => dm.get? n) (fun n => stopAt.contains n) fuel e
+  | fuel, .ref n => by
+    rw [inlineConeT.eq_def, inlineConeG.eq_def]
+    dsimp only
+    by_cases hs : stopAt.contains n
+    · simp only [hs, if_pos]
+    · simp only [hs, Bool.false_eq_true, if_false]
+      cases fuel with
+      | zero => cases hg : dm.get? n <;> simp only [hg]
+      | succ f =>
+        cases hg : dm.get? n with
+        | none => simp only [hg]
+        | some rhs => simp only [hg]; exact inlineConeT_eq_G dm stopAt f rhs
+  | fuel, .op o args => by
+    simp only [inlineConeT, inlineConeG, inlineConeTL_eq_GL dm stopAt fuel args]
+  | fuel, .concat args => by
+    simp only [inlineConeT, inlineConeG, inlineConeTL_eq_GL dm stopAt fuel args]
+  | fuel, .slice e hi lo => by
+    simp only [inlineConeT, inlineConeG, inlineConeT_eq_G dm stopAt fuel e]
+  | _, .index .. => by rw [inlineConeT.eq_def, inlineConeG.eq_def]
+  | _, .sliceDim .. => by rw [inlineConeT.eq_def, inlineConeG.eq_def]
+  | _, .const .. => by rw [inlineConeT.eq_def, inlineConeG.eq_def]
+
+theorem inlineConeTL_eq_GL (dm : Sparkle.IR.Optimize.DefMap)
+    (stopAt : Std.HashMap String Bool) :
+    ∀ fuel args, inlineConeTL dm stopAt fuel args
+      = inlineConeGL (fun n => dm.get? n) (fun n => stopAt.contains n) fuel args
+  | _, [] => by rw [inlineConeTL.eq_def, inlineConeGL.eq_def]
+  | fuel, a :: rest => by
+    simp only [inlineConeTL, inlineConeGL, inlineConeT_eq_G dm stopAt fuel a,
+      inlineConeTL_eq_GL dm stopAt fuel rest]
+end
+
+mutual
+/-- Pointwise-equal lookups give the same run. -/
+theorem inlineConeG_congr (g1 g2 : String → Option Expr) (s1 s2 : String → Bool)
+    (hg : ∀ n, g1 n = g2 n) (hs : ∀ n, s1 n = s2 n) :
+    ∀ fuel e, inlineConeG g1 s1 fuel e = inlineConeG g2 s2 fuel e
+  | fuel, .ref n => by
+    rw [inlineConeG.eq_def, inlineConeG.eq_def]
+    dsimp only
+    rw [hs n]
+    by_cases h : s2 n
+    · simp only [h, if_pos]
+    · simp only [h, Bool.false_eq_true, if_false]
+      cases fuel with
+      | zero => rw [hg n]
+      | succ f =>
+        rw [hg n]
+        cases g2 n with
+        | none => simp only
+        | some rhs => simp only; exact inlineConeG_congr g1 g2 s1 s2 hg hs f rhs
+  | fuel, .op o args => by
+    simp only [inlineConeG, inlineConeGL_congr g1 g2 s1 s2 hg hs fuel args]
+  | fuel, .concat args => by
+    simp only [inlineConeG, inlineConeGL_congr g1 g2 s1 s2 hg hs fuel args]
+  | fuel, .slice e hi lo => by
+    simp only [inlineConeG, inlineConeG_congr g1 g2 s1 s2 hg hs fuel e]
+  | _, .index .. => by rw [inlineConeG.eq_def, inlineConeG.eq_def]
+  | _, .sliceDim .. => by rw [inlineConeG.eq_def, inlineConeG.eq_def]
+  | _, .const .. => by rw [inlineConeG.eq_def, inlineConeG.eq_def]
+
+theorem inlineConeGL_congr (g1 g2 : String → Option Expr) (s1 s2 : String → Bool)
+    (hg : ∀ n, g1 n = g2 n) (hs : ∀ n, s1 n = s2 n) :
+    ∀ fuel args, inlineConeGL g1 s1 fuel args = inlineConeGL g2 s2 fuel args
+  | _, [] => by rw [inlineConeGL.eq_def, inlineConeGL.eq_def]
+  | fuel, a :: rest => by
+    simp only [inlineConeGL, inlineConeG_congr g1 g2 s1 s2 hg hs fuel a,
+      inlineConeGL_congr g1 g2 s1 s2 hg hs fuel rest]
+end
+
+/-- Stop-set lookup agreement, proven the same way (no `native_decide`). -/
+theorem stopOfL_contains_elem (l : List String) :
+    ∀ n, (stopOfL l).contains n = l.elem n := by
+  have gen : ∀ (l : List String) (m : Std.HashMap String Bool) (n : String),
+      (l.foldl (fun h x => h.insert x true) m).contains n
+        = (l.elem n || m.contains n) := by
+    intro l
+    induction l with
+    | nil => intro m n; simp
+    | cons hd tl ih =>
+      intro m n
+      simp only [List.foldl_cons, List.elem_cons]
+      rw [ih (m.insert hd true) n, Std.HashMap.contains_insert]
+      by_cases hk : hd == n
+      · have : (n == hd) = true := by
+          simp only [beq_iff_eq] at hk ⊢; exact hk.symm
+        simp [hk, this]
+      · have hne : hd ≠ n := by simpa using hk
+        have : (n == hd) = false := by
+          simp only [beq_eq_false_iff_ne, ne_eq]
+          exact fun h => hne h.symm
+        simp [hk, this]
+  intro n
+  rw [stopOfL, gen l {} n]
+  simp
+
+/-- The `.ok` test, as a Boolean that never compares error STRINGS.
+    `decide` on an `Except String Expr` equation gets stuck on the
+    interpolated messages' `Decidable` instance (measured: it fails on a
+    two-element literal body), so the kernel is asked this instead. -/
+def isOkEq (r : Except String Expr) (e : Expr) : Bool :=
+  match r with
+  | .ok c => decide (c = e)
+  | .error _ => false
+
+theorem eq_ok_of_isOkEq {r : Except String Expr} {e : Expr}
+    (h : isOkEq r e = true) : r = .ok e := by
+  cases r with
+  | error msg => simp [isOkEq] at h
+  | ok c =>
+    simp only [isOkEq, decide_eq_true_eq] at h
+    exact congrArg (fun x => (Except.ok x : Except String Expr)) h
+
+/-- **The cone equation, moved to the list side.**  Everything here is a
+    proven rewrite, so a `decide` on the right-hand side discharges the
+    shipping statement with NO new trusted axiom. -/
+theorem inlineConeT_of_list (body : List Stmt) (stopL : List String)
+    (fuel : Nat) (e cone : Expr)
+    (h : isOkEq (inlineConeG (dmGetR (dmListOf body)) (fun n => stopL.elem n) fuel e) cone = true) :
+    inlineConeT (Sparkle.IR.Optimize.buildDefMap body) (stopOfL stopL) fuel e = .ok cone := by
+  rw [inlineConeT_eq_G]
+  rw [inlineConeG_congr _ (dmGetR (dmListOf body)) _ (fun n => stopL.elem n)
+    (fun n => buildDefMap_get?_eq body n) (fun n => stopOfL_contains_elem stopL n)]
+  exact eq_ok_of_isOkEq h
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)
