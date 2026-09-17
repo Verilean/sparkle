@@ -63,8 +63,13 @@ is an error.
   (`{f}_sdeep_hwfL_*`, via `hwfCheckL_to_hwfCheck`); what stays trusted
   there is only a lookup-agreement fact between the list and the
   `Std.HashMap` the cone functions take.  The kernel cannot reduce a
-  `Std.HashMap` lookup at all (measured), which is why the tables, not
-  the checkers, are the remaining obstacle.  TODO F2 carries the inventory by kind,
+  `Std.HashMap` lookup at all — and, measured 2026-09-17, not even when
+  the map is BUILT from a literal list, so the obstacle is the lookup
+  itself, not the table's provenance.  Kernelising the cone equations
+  (`hinl`) therefore needs a list-keyed `inlineConeT`, not a swapped
+  table; the transfer theorem for that is proven
+  (`inlineConeT_dm_congr`) but the variant function is not written.
+  See TODO F2 step 4.  TODO F2 carries the inventory by kind,
   the per-kind kernel times, and the remaining HashMap-keyed block.
 
 ## 3. IR body ≡ the OPTIMIZED body — `{f}_sdeep_signal_runOpt`

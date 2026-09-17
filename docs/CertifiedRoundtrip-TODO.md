@@ -835,14 +835,45 @@ The gaps, in the order they weaken the claim:
   Opt 62 → 61, svOpt 63 → 62, RT 61; shareX8 72 → 71, 102 → 101, 103 →
   102, 101; crc16 replay 127 → 126, Opt 181 → 180, RT 180.
   Cost, same harness for both (lake build, MemoryMax 24G, cgroup
-  `memory.peak`): crc16 765 s → 864 s (+13 %), 2.757 GB → 2.781 GB
-  (+0.9 %).  The time is the kernel doing what the compiler used to.
-  Remaining HashMap-keyed kinds, all blocked on the DEFINITION MAP:
-  the 24 G1 glue equations, the `hinl` cone equations and the `hsub`
-  refs-membership facts (the latter over cones defined through
-  `resolveSlicesT wtM`).  Those need list-backed `dm` and `wt` with
-  lookup lemmas — a separate change.  The default deep route still has
-  the width-table kind at 3 sites and its own copies (not moved).
+  `memory.peak`), ONE run per side: crc16 765 s → 864 s (+99 s, +13 %),
+  2.757 GB → 2.781 GB (+0.9 %).
+  **Attribution not established.**  What IS measured is the per-kind
+  kernel cost in isolation: `hwfCheckL` 4524 ms on crc16, and the step-2
+  kinds ≈ 13 s in total.  Those do not account for 99 s, and with one
+  run per side the difference is not separated from run-to-run
+  variation.  Treat "+99 s" as the observed end-to-end delta, not as the
+  kernel's cost; the breakdown needs repeated runs and a per-declaration
+  profile before any cause is claimed.
+  **Step 4 attempt (2026-09-17), the DEFINITION MAP — NEGATIVE RESULT,
+  scope boundary found.**  The plan was the stop set's recipe one table
+  over: `inlineConeT` reads the map only through `get?`, so a
+  list-backed map plus a transfer theorem should kernelise the `hinl`
+  cone equations.  The transfer theorem IS proven and shipped
+  (`Tools/ConeFoldRT.lean`: `dmGetL`, `dmOfL`, `dmListOf`,
+  `buildDefMap_dmOfL`, and `inlineConeT_dm_congr` — agreeing lookups
+  give an identical walk, by the walk's own induction).  But the kernel
+  still cannot discharge the cone equation.  MEASURED on shareX4,
+  three propositions:
+  * `dmGetL (dmListOf body) "_gen_w0" |>.isSome = true` — kernel OK;
+  * `(dmOfL (dmListOf body)).get? "_gen_w0" |>.isSome = true` — FAILS;
+  * `(stopOfL stopL).contains "_gen_w0" = true` — FAILS.
+  So building the table FROM a list does not help: what blocks the
+  kernel is the `Std.HashMap` LOOKUP, wherever the map came from.  (The
+  shipped stop-set step is unaffected — it never asks the kernel to do a
+  map lookup; it runs the checker on the list and trusts only the
+  agreement fact.)
+  Converting the cone equations therefore needs a LIST-KEYED
+  `inlineConeT` — a variant function, with the seam theorems
+  (`cone_agrees_with_fold`, `shared_cone_agrees_at_settled`,
+  `g1_shared`, `inlineConeT_refs`) either restated over it or bridged by
+  `inlineConeT_dm_congr`-style congruences.  That is a materially larger
+  change than a table swap and is NOT attempted here; the transfer
+  theorem above is the piece of it that is already done.  Same applies
+  to `resolveSlicesT` (width table) for the `hsub` facts.
+  So the remaining shared-route `native_decide` block stands at: 24 G1
+  glue equations + `hinl` (per slot, per body) + `hsub` (per slot) on
+  shareX4.  The default deep route still has the width-table kind at 3
+  sites and its own copies (not moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
   `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
   first pass (2026-09-08) moved the list-shaped body checkers to kernel

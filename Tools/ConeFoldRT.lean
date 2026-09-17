@@ -351,6 +351,99 @@ theorem stopAtFrozenCheckL_to_check (l : List String) :
       exact .inl hn)]
     exact this
 
+/-! ### F2: a LIST-backed DEFINITION MAP
+
+`inlineConeT` consumes the definition map only through `dm.get?` — the
+same shape the stop set had with `contains`, one table over.  So the
+cone equation `inlineConeT dm stop fuel e = .ok cone` can run on a LIST
+definition map in the kernel, provided the list lookup agrees with the
+HashMap one on the names the walk actually consults.
+
+The agreement cannot be stated over "the names consulted" without
+re-running the walk, so it is stated over the WHOLE list of assign
+targets (a closed Boolean, and a superset of what any cone reads).  The
+generator proves it once per body and rewrites the map argument. -/
+
+/-- List-backed definition map lookup. -/
+def dmGetL (l : List (String × Expr)) (n : String) : Option Expr :=
+  (l.find? (fun p => p.1 == n)).map (·.2)
+
+/-- The HashMap a list definition map induces (what `buildDefMap`
+    builds, as a fold over the body's assigns). -/
+def dmOfL (l : List (String × Expr)) : Sparkle.IR.Optimize.DefMap :=
+  l.foldl (fun m p => m.insert p.1 p.2) {}
+
+/-- The body's assign targets and right-hand sides, in body order — the
+    list `buildDefMap` folds over. -/
+def dmListOf : List Stmt → List (String × Expr)
+  | [] => []
+  | .assign l r :: rest => (l, r) :: dmListOf rest
+  | _ :: rest => dmListOf rest
+
+/-- `buildDefMap` IS the fold of `dmListOf` (both walk the body's
+    assigns in order, inserting into the same empty map). -/
+theorem buildDefMap_eq_dmOfL :
+    ∀ (body : List Stmt) (m : Sparkle.IR.Optimize.DefMap),
+      body.foldl (fun m s => match s with
+        | .assign lhs rhs => m.insert lhs rhs
+        | _ => m) m
+      = (dmListOf body).foldl (fun m p => m.insert p.1 p.2) m
+  | [], _ => rfl
+  | .assign l r :: rest, m => by
+    simp only [List.foldl_cons, dmListOf]
+    exact buildDefMap_eq_dmOfL rest (m.insert l r)
+  | .register .. :: rest, m => by
+    simp only [List.foldl_cons, dmListOf]; exact buildDefMap_eq_dmOfL rest m
+  | .memory .. :: rest, m => by
+    simp only [List.foldl_cons, dmListOf]; exact buildDefMap_eq_dmOfL rest m
+  | .inst .. :: rest, m => by
+    simp only [List.foldl_cons, dmListOf]; exact buildDefMap_eq_dmOfL rest m
+
+theorem buildDefMap_dmOfL (body : List Stmt) :
+    Sparkle.IR.Optimize.buildDefMap body = dmOfL (dmListOf body) :=
+  buildDefMap_eq_dmOfL body {}
+
+/-- **The cone equation on a list map transfers to the HashMap one**,
+    given lookup agreement on every assign target.  `inlineConeT` reads
+    the map only at `.ref` nodes through `get?`, so agreeing lookups
+    give an identical walk — proven by the walk's own induction. -/
+theorem inlineConeT_dm_congr (dm1 dm2 : Sparkle.IR.Optimize.DefMap)
+    (stopAt : Std.HashMap String Bool)
+    (hag : ∀ n, dm1.get? n = dm2.get? n) :
+    ∀ fuel e, inlineConeT dm1 stopAt fuel e = inlineConeT dm2 stopAt fuel e := by
+  intro fuel e
+  induction fuel, e using inlineConeT.induct dm1 stopAt
+    (motive2 := fun fuel args => inlineConeTL dm1 stopAt fuel args
+      = inlineConeTL dm2 stopAt fuel args) with
+  | case1 fuel n hs =>
+    rw [inlineConeT.eq_def, inlineConeT.eq_def]
+    simp only [hs, if_pos]
+  | case2 n hs =>
+    rw [inlineConeT.eq_def, inlineConeT.eq_def]
+  | case3 fuel n hs hg hf =>
+    rw [inlineConeT.eq_def, inlineConeT.eq_def]
+    simp only [hs, Bool.false_eq_true, ← hag n, hg]
+  | case4 n hs fuel rhs hg ih =>
+    rw [inlineConeT.eq_def, inlineConeT.eq_def]
+    simp only [hs, Bool.false_eq_true, ← hag n, hg]
+    exact ih
+  | case5 fuel o args ih => simp only [inlineConeT, ih]
+  | case6 fuel args ih => simp only [inlineConeT, ih]
+  | case7 fuel e hi lo ih => simp only [inlineConeT, ih]
+  | case8 => simp [inlineConeT]
+  | case9 => simp [inlineConeT]
+  | case10 x e h1 h2 h3 h4 h5 h6 =>
+    cases e with
+    | ref n => exact absurd rfl (h1 n)
+    | op o args => exact absurd rfl (h2 o args)
+    | concat args => exact absurd rfl (h3 args)
+    | slice a b c => exact absurd rfl (h4 a b c)
+    | index a b => exact absurd rfl (h5 a b)
+    | sliceDim a b c => exact absurd rfl (h6 a b c)
+    | const v w => rw [inlineConeT.eq_def, inlineConeT.eq_def]
+  | case11 => simp [inlineConeTL]
+  | case12 fuel a rest ih1 ih2 => simp only [inlineConeTL, ih1, ih2]
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)
