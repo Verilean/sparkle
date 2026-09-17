@@ -379,6 +379,28 @@ if [ -f "$ELAB_FILE" ]; then
   fi
   # crc16CcittHW on the generator's cone-sharing route: trace + replay
   # (the default route cannot finish this circuit).  ~12 min; its own step.
+  # F2: a cone equation discharged by the KERNEL (no native_decide).
+  # Both slots must depend on the standard three axioms only.
+  # (the two circuits' test modules cannot be imported into one file)
+  kslot_ok=1
+  for ks in ShareX Crc16; do
+    KSLOT_FILE=Tests/Verification/ConeKernelSlot$ks.lean
+    if [ ! -f "$KSLOT_FILE" ]; then
+      echo "FAIL: $KSLOT_FILE is missing (kernel cone-equation gate)"; kslot_ok=0
+    elif lake build Tests.Verification.ConeKernelSlot$ks > "$WORK/kslot$ks.log" 2>&1 \
+        && grep -q "depends on axioms: \[propext, Classical.choice, Quot.sound\]" "$WORK/kslot$ks.log" \
+        && ! grep -q "native_decide\|sorryAx" "$WORK/kslot$ks.log"; then
+      :
+    else
+      echo "FAIL: kernel cone-equation slot $ks regressed (or picked up a decision-procedure axiom)"
+      grep -m5 -E "error|axioms" "$WORK/kslot$ks.log" | sed 's/^/    /'; kslot_ok=0
+    fi
+  done
+  if [ "$kslot_ok" = 1 ]; then
+    echo "kernel cone equations: shareX4 + crc16 slots proven, standard axioms only"
+  else
+    fail=1
+  fi
   CRC_FILE=Tests/Verification/ConeSharingCrc16.lean
   if [ ! -f "$CRC_FILE" ]; then
     echo "FAIL: $CRC_FILE is missing (crc16 cone-sharing gate)"; fail=1

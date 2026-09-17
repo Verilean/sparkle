@@ -913,11 +913,40 @@ The gaps, in the order they weaken the claim:
   `eq_ok_of_isOkEq`): comparing `Except String Expr` directly gets stuck
   on the interpolated error messages, so the Boolean never compares
   error strings.
-  So the remaining shared-route `native_decide` block stands at: 24 G1
-  glue equations + `hinl` (per slot, per body) + `hsub` (per slot) on
-  shareX4 — all now blocked on the walk's recursion, with the table
-  halves proven.  The default deep route still has the width-table kind
-  at 3 sites and its own copies (not moved).
+  **Step 6 DONE (2026-09-17): a cone equation proven with NO new trusted
+  axiom, on both circuits.**  Two findings made it work.
+  (a) `decide` failing is not unprovability: the tiny stopping-reference
+  case closes by rewriting with the DEFINING EQUATION
+  (`rw [inlineConeG.eq_def]; simp`), axioms standard — so the obstacle
+  was always computation, never truth.
+  (b) The well-founded compilation came from recursing on the PAIR
+  (fuel, expression).  Splitting the two recursions fixes it: `stepE` /
+  `stepEL` walk the expression STRUCTURALLY at one fuel level and hand a
+  non-stop reference to a `rec` callback, and `inlineConeS` recurses
+  structurally on `fuel`, passing a `rec` that expands the reference and
+  drops one fuel — exactly where the original consumes it, so the
+  fuel-exhausted error agrees too.  `#print axioms inlineConeS` →
+  `propext` only, and the KERNEL computes with it.
+  `stepE_eq_G` / `stepEL_eq_GL` / `inlineConeS_eq_G` prove the agreement
+  with the generic walk (results, errors and fuel accounting), and
+  `inlineConeT_of_listS` chains structural walk → generic walk →
+  shipping `inlineConeT` over `buildDefMap`/`stopOfL`.
+  **Measured, one slot, shipping statement, `#print axioms` = the
+  standard three (no `native_decide`, no `sorryAx`):**
+  | circuit | slot | kernel | `native_decide` | file peak |
+  |---|---|---|---|---|
+  | shareX4 | `_tmp_op_a_9` (w0) | 145 ms | 3 ms | 303 MB |
+  | crc16CcittHW | `_gen_shifted_4` (w9) | 418 ms | 4 ms | 367 MB |
+  So a kernel cone equation costs ~50-100x the compiled one but is
+  absolute: on crc16 the per-slot `hinl` sites are ~0.4 s each.
+  NOT yet done: wiring this into the generator.  That replaces `hinl`
+  at 2 sites per slot per replayed body; on crc16 (16 wires, 3 bodies)
+  the arithmetic says roughly +40 s, which is worth measuring against
+  the 864 s run before committing to it.  `hsub` (refs-membership, over
+  `resolveSlicesT`) and the 24 G1 glue equations need the same treatment
+  for `resolveSlicesT` / `concatNorm` and are untouched.
+  The default deep route still has the width-table kind at 3 sites and
+  its own copies (not moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding
   `ofReduceBool`, i.e. trusting the Lean compiler's evaluation.  The
   first pass (2026-09-08) moved the list-shaped body checkers to kernel

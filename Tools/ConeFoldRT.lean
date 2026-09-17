@@ -680,6 +680,150 @@ theorem inlineConeT_of_list (body : List Stmt) (stopL : List String)
     (fun n => buildDefMap_get?_eq body n) (fun n => stopOfL_contains_elem stopL n)]
   exact eq_ok_of_isOkEq h
 
+/-! ### A STRUCTURALLY recursive walk, so the kernel can compute
+
+`inlineConeG` (and the shipping `inlineConeT`) recurse on the PAIR
+(fuel, expression): fuel drops when a reference is expanded, the
+expression shrinks everywhere else.  Lean compiles that by WELL-FOUNDED
+recursion, so `#print axioms` shows `propext, Quot.sound` and the
+defining equations hold only propositionally — the kernel cannot
+compute with it.  MEASURED: `decide` fails even on a two-element
+literal table with a reference that stops immediately, while the same
+statement IS provable by rewriting with the defining equation
+(`tiny_stop` in the tests).  So the obstacle is computation, not truth.
+
+`inlineConeS` below is the same walk written so Lean accepts it
+STRUCTURALLY: the outer recursion is on `fuel`, and within one fuel
+step an inner structural recursion on the expression handles
+`op`/`concat`/`slice`.  Fuel is consumed exactly where the original
+consumes it — when a `.ref` is expanded to its definition — so runs
+agree including the fuel-exhausted error.  `inlineConeS_eq_G` proves
+the agreement, failure behaviour included. -/
+
+mutual
+/-- One fuel level: walk the expression STRUCTURALLY.  A reference that
+    is not a stop name is handed to `rec`, which owns the fuel — so this
+    function recurses only on the expression and Lean accepts it
+    structurally (measured: `#print axioms` shows `propext` only, and
+    the kernel computes with it). -/
+def stepE (get : String → Option Expr) (stop : String → Bool)
+    (rec : String → Except String Expr) : Expr → Except String Expr
+  | .ref n => if stop n then .ok (.ref n) else rec n
+  | .op o args => match stepEL get stop rec args with
+    | .ok as => .ok (.op o as)
+    | .error e => .error e
+  | .concat args => match stepEL get stop rec args with
+    | .ok as => .ok (.concat as)
+    | .error e => .error e
+  | .slice e hi lo => match stepE get stop rec e with
+    | .ok e' => .ok (.slice e' hi lo)
+    | .error er => .error er
+  | .index .. => .error "memories/dynamic indexing unsupported by #verify_emit (v1)"
+  | .sliceDim .. => .error "symbolic-width slices unsupported by #verify_emit (v1)"
+  | e => .ok e
+
+def stepEL (get : String → Option Expr) (stop : String → Bool)
+    (rec : String → Except String Expr) : List Expr → Except String (List Expr)
+  | [] => .ok []
+  | a :: rest => match stepE get stop rec a with
+    | .ok a' => match stepEL get stop rec rest with
+      | .ok rest' => .ok (a' :: rest')
+      | .error e => .error e
+    | .error e => .error e
+end
+
+/-- The walk, structural in BOTH recursions: outer on `fuel`, inner on
+    the expression.  Fuel is consumed exactly where the original
+    consumes it — expanding a `.ref` to its definition — so the runs
+    agree, fuel-exhausted error included. -/
+def inlineConeS (get : String → Option Expr) (stop : String → Bool) :
+    Nat → Expr → Except String Expr
+  | 0, e => stepE get stop
+      (fun n => .error s!"cone inlining fuel exhausted at `{n}` (combinational cycle?)") e
+  | fuel + 1, e => stepE get stop
+      (fun n => match get n with
+        | none => .error s!"`{n}` is neither an input, a register, nor assigned"
+        | some rhs => inlineConeS get stop fuel rhs) e
+
+mutual
+/-- `stepE` at the original's own ref-handler IS one level of the
+    generic walk. -/
+theorem stepE_eq_G (get : String → Option Expr) (stop : String → Bool)
+    (fuel : Nat) :
+    ∀ e, stepE get stop
+        (fun n => match fuel, get n with
+          | 0, _ => .error s!"cone inlining fuel exhausted at `{n}` (combinational cycle?)"
+          | _, none => .error s!"`{n}` is neither an input, a register, nor assigned"
+          | f + 1, some rhs => inlineConeG get stop f rhs) e
+      = inlineConeG get stop fuel e
+  | .ref n => by
+    rw [stepE.eq_def, inlineConeG.eq_def]
+  | .op o args => by
+    rw [stepE.eq_def, inlineConeG.eq_def]
+    dsimp only
+    rw [stepEL_eq_GL get stop fuel args]
+    cases inlineConeGL get stop fuel args <;> rfl
+  | .concat args => by
+    rw [stepE.eq_def, inlineConeG.eq_def]
+    dsimp only
+    rw [stepEL_eq_GL get stop fuel args]
+    cases inlineConeGL get stop fuel args <;> rfl
+  | .slice e hi lo => by
+    rw [stepE.eq_def, inlineConeG.eq_def]
+    dsimp only
+    rw [stepE_eq_G get stop fuel e]
+    cases inlineConeG get stop fuel e <;> rfl
+  | .index .. => by rw [stepE.eq_def, inlineConeG.eq_def]
+  | .sliceDim .. => by rw [stepE.eq_def, inlineConeG.eq_def]
+  | .const .. => by rw [stepE.eq_def, inlineConeG.eq_def]
+
+theorem stepEL_eq_GL (get : String → Option Expr) (stop : String → Bool)
+    (fuel : Nat) :
+    ∀ args, stepEL get stop
+        (fun n => match fuel, get n with
+          | 0, _ => .error s!"cone inlining fuel exhausted at `{n}` (combinational cycle?)"
+          | _, none => .error s!"`{n}` is neither an input, a register, nor assigned"
+          | f + 1, some rhs => inlineConeG get stop f rhs) args
+      = inlineConeGL get stop fuel args
+  | [] => by rw [stepEL.eq_def, inlineConeGL.eq_def]
+  | a :: rest => by
+    rw [stepEL.eq_def, inlineConeGL.eq_def]
+    dsimp only
+    rw [stepE_eq_G get stop fuel a, stepEL_eq_GL get stop fuel rest]
+    cases inlineConeG get stop fuel a with
+    | error e => rfl
+    | ok a' => cases inlineConeGL get stop fuel rest <;> rfl
+end
+
+/-- The structural walk agrees with the generic one — same results,
+    same errors, same fuel accounting. -/
+theorem inlineConeS_eq_G (get : String → Option Expr) (stop : String → Bool) :
+    ∀ fuel e, inlineConeS get stop fuel e = inlineConeG get stop fuel e
+  | 0, e => by
+    rw [inlineConeS.eq_def]
+    dsimp only
+    rw [← stepE_eq_G get stop 0 e]
+  | fuel + 1, e => by
+    rw [inlineConeS.eq_def]
+    dsimp only
+    rw [← stepE_eq_G get stop (fuel + 1) e]
+    congr 1
+    funext n
+    cases get n with
+    | none => rfl
+    | some rhs => exact inlineConeS_eq_G get stop fuel rhs
+
+/-- **The cone equation on the STRUCTURAL walk over list lookups.**
+    Every step from here to the shipping statement is a proven rewrite,
+    so `decide` on this discharges it with no new trusted axiom. -/
+theorem inlineConeT_of_listS (body : List Stmt) (stopL : List String)
+    (fuel : Nat) (e cone : Expr)
+    (h : isOkEq (inlineConeS (dmGetR (dmListOf body)) (fun n => stopL.elem n) fuel e) cone = true) :
+    inlineConeT (Sparkle.IR.Optimize.buildDefMap body) (stopOfL stopL) fuel e = .ok cone := by
+  refine inlineConeT_of_list body stopL fuel e cone ?_
+  rw [← inlineConeS_eq_G]
+  exact h
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)

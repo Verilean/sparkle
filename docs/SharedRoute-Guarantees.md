@@ -70,11 +70,14 @@ is an error.
   DONE and proven (`buildDefMap_get?_eq`, `stopOfL_contains_elem`, both
   from the HashMap's own lemmas, no `native_decide`; `inlineConeG` is
   the walk with its reads as arguments, `inlineConeT_of_list` composes
-  them).  A second, independent blocker remains: the walk is compiled by
-  WELL-FOUNDED recursion (`#print axioms` shows `propext, Quot.sound`),
-  so its equations hold only propositionally and the kernel cannot
-  compute with it even on a two-element table.  A structurally recursive
-  formulation is what these equations now wait on.  See TODO F2 step 5.  TODO F2 carries the inventory by kind,
+  them).  The second blocker — the walk was compiled by WELL-FOUNDED recursion,
+  so the kernel could not compute with it — is also cleared: splitting
+  the fuel recursion from the expression recursion (`stepE` +
+  `inlineConeS`, agreement proven including fuel accounting) gives a
+  structural walk the kernel runs.  A cone equation for ONE slot is now
+  proven in the shipping form with only the standard axioms: 145 ms on
+  shareX4, 418 ms on crc16 (vs 3-4 ms for `native_decide`).  Wiring it
+  into the generator is the remaining step.  See TODO F2 step 6.  TODO F2 carries the inventory by kind,
   the per-kind kernel times, and the remaining HashMap-keyed block.
 
 ## 3. IR body ≡ the OPTIMIZED body — `{f}_sdeep_signal_runOpt`
