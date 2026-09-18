@@ -2348,1055 +2348,1070 @@ elab "#verify_elab_deep" id:ident : command =>
   -- the reification is a `CdoW` whose wire slots are the wires read more
   -- than once, every cone is one definition deep, and the trace proof is
   -- the linear recipe (`signal_lets` + wire equations as hypotheses).
-  if (← IO.getEnv "SPARKLE_DEEP_SHARE").isSome || sparkle.deepShare.get (← getOptions) then
-    -- every generated declaration of this route elaborates under the trace
-    -- theorem's heartbeat limit: a per-wire `rfl` lemma on 16-bit cones
-    -- exceeded the 200 000 default on crc16 (logged, not thrown — the
-    -- downstream failure surfaced as "closers exhausted")
-    let elabSyncS (c : Lean.TSyntax `command) : CommandElabM Unit := do
-      elabSync (← `(set_option maxHeartbeats 1600000 in $c:command))
-    if hasMem || hasCombo then
-      throwError "#verify_elab_deep (shared route): memories are not supported yet (v1 is memory-free)"
-    if outPorts.length != 1 then
-      throwError "#verify_elab_deep (shared route): single-port circuits only (v1; {outPorts.length} ports)"
-    let (proj?, isBoolOut) := portMeta.head!
-    if isBoolOut then
-      throwError "#verify_elab_deep (shared route): Bool-typed outputs are not supported yet (v1)"
-    if !nestedNodes.isEmpty then
-      throwError "#verify_elab_deep (shared route): nested circuit-do loops are not supported yet (v1)"
-    let bodyO := deepOrderBody m.body
-    -- shared wires: defined by a non-alias assign and read at least twice
-    -- (alias reads do not count — an alias is naming, not a use)
-    -- an alias is naming, not a use: a bare reference, or the elaborator's
-    -- full-width slice of a slot (`slice (ref r) (w-1) 0` with `w` r's
-    -- width — printed as the bare name and dropped by the reparse)
-    let isAlias : Sparkle.IR.AST.Expr → Bool := fun e => match e with
-      | .ref _ => true
-      | .slice (.ref r) hi 0 => hi + 1 == wt.getD r 0
-      | _ => false
-    let mut cnt : Std.HashMap String Nat := {}
-    for st in bodyO do
-      match st with
-      | .assign _ r => if !isAlias r then for n in Sparkle.IR.Reorder.refsOf r do cnt := cnt.insert n (cnt.getD n 0 + 1)
-      | .register _ _ _ input _ => for n in Sparkle.IR.Reorder.refsOf input do cnt := cnt.insert n (cnt.getD n 0 + 1)
-      | _ => pure ()
-    let shared : List String := bodyO.filterMap fun st => match st with
-      | .assign l r => if !isAlias r && cnt.getD l 0 ≥ 2 then some l else none
-      | _ => none
-    let nW := shared.length
-    let regNs : List String := regs.map (·.1)
-    let inNs : List String := ins.map (·.1)
-    let slotNames : List String := regNs ++ inNs ++ shared
-    let stopS : Std.HashMap String Bool := slotNames.foldl (fun h x => h.insert x true) {}
-    let slotS : String → Option Nat := fun s => slotNames.idxOf? s
-    let coneOf2 (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (what : String) :
-        CommandElabM (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr) := do
-      match Tools.ConeFold.inlineConeT dm stop 10000 e with
-      | .ok c => pure (c, Tools.ConeFold.resolveSlicesT wt 10000 c)
-      | .error err => throwError "#verify_elab_deep (shared route): cone of {what}: {err}"
-    let regCones2 ← regs.mapM fun (n, input, _) => coneOf2 stopS input n
-    -- a wire's own cone inlines ITS definition: its stop set excludes the wire
-    let wireCones2 ← shared.mapM fun w => coneOf2 (stopS.erase w) (.ref w) w
-    let (portName, wOut) := outPorts.head!
-    let outCone2 ← coneOf2 stopS (.ref portName) portName
-    let regConesIR := regCones2.map (·.2)
-    let wireConesIR := wireCones2.map (·.2)
-    let outConeIR := outCone2.2
-    let regCs ← regConesIR.mapM (toCExpr slotS)
-    let wireCs ← wireConesIR.mapM (toCExpr slotS)
-    let outC ← toCExpr slotS outConeIR
-    let wireWs : List Nat := shared.map fun w => wt.getD w 0
-    deepTrace fun _ => s!"#verify_elab_deep STAGE shared: {nW} shared wires {shared}; cones reg={regConesIR.map fun c => (repr c).pretty.length} wires={wireConesIR.map fun c => (repr c).pretty.length} out={(repr outConeIR).pretty.length}"
-    -- ---- names / contexts ----
-    let wireWsT : Array Term := wireWs.toArray.map fun w => quote w
-    let ΓwT : Term ← `(([$wireWsT,*] : List Nat))
-    let ΓAllS : Term ← `((($ΓrT ++ $ΓiT) ++ $ΓwT : List Nat))
-    let snmLId := mkI s!"{base}_snmL"
-    let snmId := mkI s!"{base}_snm"
-    let sdeepId := mkI s!"{base}_sdeep"
-    let wlId := mkI s!"{base}_swl"
-    let wlOkId := mkI s!"{base}_swlOk"
-    let nameTs : Array Term := slotNames.toArray.map fun n => quote n
-    elabSyncS (← `(def $snmLId : List String := [$nameTs,*]))
-    elabSyncS (← `(def $snmId : Fin ($ΓAllS).length → String := fun i => ($snmLId).getD i.val ""))
-    -- F2: the name table's injectivity ONCE, by KERNEL decide (Fin × Fin over a
-    -- literal list of string literals); it is the side condition of
-    -- `CdoW.elab_general` in the trace AND the replay's `hinj`
-    let hinjId := mkI s!"{base}_sdeep_hinj"
-    elabSyncS (← `(theorem $hinjId : ∀ a b : Fin ($ΓAllS).length, $snmId a = $snmId b → a = b := by decide))
-    -- ---- the CdoW ----
-    let sigTs : Array Term ← (List.range nW).toArray.mapM fun k => do
-      `((⟨$(quote wireWs[k]!), $(wireCs[k]!)⟩ : Σ w : Nat, CExpr $ΓAllS w))
-    elabSyncS (← `(def $wlId : List (Σ w : Nat, CExpr $ΓAllS w) := [$sigTs,*]))
-    elabSyncS (← `(theorem $wlOkId : ∀ j : Fin ($ΓwT).length,
-        (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).1 = ($ΓwT).get j := by decide))
-    let snextArms ← (List.range nR).toArray.mapM fun i => do
-      `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(regCs[i]!))
-    elabSyncS (← `(def $sdeepId : CdoW $ΓrT $ΓiT $ΓwT $(quote wOut) where
-      inits := fun i => match i with $initArms:matchAlt*
-      wires := fun j => ($wlOkId j) ▸ (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).2
-      next := fun i => match i with $snextArms:matchAlt*
-      out := $outC))
-    -- ---- readers (registers, wires), their equations, the output ----
-    let sId := mkI "s"
-    let inpFam : Term ← `((fun t j => (($inpS) j).val t))
-    let rdIdsS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}"
-    let rwIdsS : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}"
-    let ρSId := mkI s!"{base}_sdeep_rho"
-    for i in List.range nR do
-      let rdId := rdIdsS[i]!
-      elabSyncS (← `(def $rdId $paramBinders* ($sId : Nat) : BitVec $(quote regWs[i]!) :=
-        CdoW.stateAt $sdeepId $inpFam $sId ⟨$(quote i), by decide⟩))
-    elabSyncS (← `(def $ρSId $paramBinders* ($sId : Nat) : CEnv ($ΓrT ++ $ΓiT) :=
-      CEnv.join (CdoW.stateAt $sdeepId $inpFam $sId) (fun j => (($inpS) j).val $sId)))
-    for k in List.range nW do
-      let rwId := rwIdsS[k]!
-      elabSyncS (← `(def $rwId $paramBinders* ($sId : Nat) : BitVec $(quote wireWs[k]!) :=
-        CdoW.wenv $sdeepId ($ρSId $appArgs* $sId) ⟨$(quote k), by decide⟩))
-    let shallowS (tv : Term) (e : Sparkle.IR.AST.Expr) : CommandElabM Term :=
-      toShallow slotS nR nI
-        (fun i => do let rdId : Ident := rdIdsS[i]!; `(($rdId $appArgs* $tv)))
-        (fun j => inpValRhs[j]! tv)
-        (fun k => do let rwId : Ident := rwIdsS[k]!; `(($rwId $appArgs* $tv))) e
-    let rwEqIds : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}_eq"
-    for k in List.range nW do
-      let rhs ← shallowS (← `($sId)) wireConesIR[k]!
-      elabSyncS (← `(theorem $(rwEqIds[k]!) $paramBinders* ($sId : Nat) :
-        $(rwIdsS[k]!) $appArgs* $sId = $rhs := rfl))
-    let rdZeroS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_zero"
-    let rdSuccS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_succ"
-    for i in List.range nR do
-      let (_, _, init) := regs[i]!
-      elabSyncS (← `(theorem $(rdZeroS[i]!) $paramBinders* :
-        $(rdIdsS[i]!) $appArgs* 0 = BitVec.ofNat $(quote regWs[i]!) $(quote init.toNat) := rfl))
-      let rhs ← shallowS (← `($sId)) regConesIR[i]!
-      elabSyncS (← `(theorem $(rdSuccS[i]!) $paramBinders* ($sId : Nat) :
-        $(rdIdsS[i]!) $appArgs* ($sId + 1) = $rhs := rfl))
-    let outSId := mkI s!"{base}_sdeep_outS"
-    let outRhs ← shallowS (← `($sId)) outConeIR
-    elabSyncS (← `(theorem $outSId $paramBinders* ($sId : Nat) :
-        (CdoW.outSig $sdeepId $inpS).val $sId = $outRhs := by
-      show CExpr.denote _ _ = _
-      rw [CdoW.stateSig_eq]
-      rfl))
-    deepTrace fun _ => s!"#verify_elab_deep STAGE shared: readers + equations emitted"
-    -- ---- the trace theorem (linear recipe) ----
-    let thId := mkI s!"{base}_sdeep_trace"
-    let declIdent : Ident := mkIdent declName
-    -- struct outputs project their field; the def unfolds through its first
-    -- equation (a plain `simp only [f]` would reduce past the projection)
-    let lhsSig : Term ← match proj? with
-      | some pj => `(($pj ($declIdent $appArgs*)))
-      | none => `(($declIdent $appArgs*))
-    let eq1Id : Ident := mkIdent (declName ++ `eq_1)
-    let unfoldTac : Lean.TSyntax `tactic ← match proj? with
-      | some _ => `(tactic| rw [$eq1Id:ident])
-      | none => `(tactic| simp -zeta only [$declIdent:ident, $[$helperIds:ident],*])
-    let chainUnfoldS : Array (Lean.TSyntax `tactic) ← headChain.mapM fun c => do
-      let eqId : Ident := mkIdent (c ++ `eq_1)
-      `(tactic| rw [$eqId:ident])
-    let projRwS : Lean.TSyntax `tactic ← match proj? with
-      | some pj => `(tactic| rw [runCircuitH_proj_eq $pj])
-      | none => `(tactic| rw [runCircuitH_eq])
-    let outUnfoldS : Array Term := match proj? with
-      | some pj => #[(⟨pj.raw⟩ : Term)]
-      | none => #[]
-    -- one NON-EMPTY splice: an empty tactic-array splice between two tactics
-    -- silently dropped the remainder of the script (measured: the goal was
-    -- left exactly as after the unfold, with no error from any later tactic)
-    let headTacs : Array (Lean.TSyntax `tactic) := #[unfoldTac] ++ chainUnfoldS ++ #[projRwS]
-    let goalDump : Lean.TSyntax `tactic ← if (← IO.getEnv "SPARKLE_DEEP_GOALS").isSome
-      then `(tactic| trace_state) else `(tactic| skip)
-    -- with goal dumps on, run the closer bare so its own diagnosis surfaces
-    let stepCloser : Lean.TSyntax `tactic ← if (← IO.getEnv "SPARKLE_DEEP_GOALS").isSome
-      then `(tactic| all_goals bv_decide)
-      else `(tactic| all_goals (first | bv_decide | fail "#verify_elab_deep (shared route): step case closers exhausted"))
-    let helperTs : Array Term := helperIds.map fun i => (⟨i.raw⟩ : Term)
-    -- lemma lists as QUOTATIONS: identifiers inside a quotation are resolved
-    -- in this file's scope (Sparkle.Core… open); a runtime `mkIdent` resolves
-    -- in the CALLER's scope, which need not open those namespaces — measured
-    -- on crc16 ("Unknown identifier packRegister/mkHolds" aborted the simp)
-    let sigvalSet : Array Term := #[← `(sigval_add), ← `(sigval_sub), ← `(sigval_mul), ← `(sigval_and), ← `(sigval_or), ← `(sigval_xor), ← `(sigval_shl), ← `(sigval_shr), ← `(sigval_append), ← `(sigval_add_c), ← `(sigval_sub_c), ← `(sigval_mul_c), ← `(sigval_and_c), ← `(sigval_or_c), ← `(sigval_xor_c), ← `(sigval_shl_c), ← `(sigval_shr_c), ← `(sigval_append_c), ← `(sigval_c_add), ← `(sigval_c_sub), ← `(sigval_c_mul), ← `(sigval_c_and), ← `(sigval_c_or), ← `(sigval_c_xor), ← `(sigval_c_shl), ← `(sigval_c_shr), ← `(sigval_c_append), ← `(sigval_and_b), ← `(sigval_or_b), ← `(sigval_xor_b), ← `(sigval_not), ← `(sigval_not_b), ← `(sigval_neg), ← `(sigval_mux), ← `(sigval_beq), ← `(sigval_pure)]
-    let plumbing : Array Term := #[← `(packRegister), ← `(Signal.register), ← `(Signal.memStep), ← `(Circuit.next), ← `(Circuit.pure'), ← `(Circuit.bind), ← `(mkHolds), ← `(Signal.map), ← `(Signal.mux), ← `(bundle2), ← `(Signal.pure), ← `(Functor.map), ← `(Seq.seq), ← `(Signal.ap), ← `(Signal.seq)]
-    let retTyS : Term ← liftTermElabM (Lean.PrettyPrinter.delab retTy)
-    let topTys := topNode.tys
-    -- the register pack at time tv: (rd0, (rd1, … ()))
-    let packAt (tv : Term) : CommandElabM Term := do
-      let mut acc : Term ← `(())
-      for j in (List.range nR).reverse do
-        let rdId : Ident := rdIdsS[j]!
-        let slot ← `($rdId $appArgs* $tv)
-        let slot ← if topNode.isBool[j]! then `(($slot == 1#1)) else pure slot
-        acc ← `(($slot, $acc))
-      pure acc
-    let uId := mkI "u"; let mId := mkI "m"; let LId := mkI "L"; let hLId := mkI "hL"
-    let hLtId := mkI "hLt"; let preId := mkI "pre"; let hpreId := mkI "hpre"
-    let packU ← packAt (← `($uId)); let packS ← packAt (← `($sId))
-    let fIdsM : Array Ident := (List.range nW).toArray.map fun k => mkI s!"fm{k}"
-    let fIdsT : Array Ident := (List.range nW).toArray.map fun k => mkI s!"ft{k}"
-    let hpreApp : Term ← `($hpreId $mId (Nat.lt_succ_self $mId))
-    let inpAtTs : Array Term := inpAtIds.map fun i => (⟨i.raw⟩ : Term)
-    let extrasM : Array Term := #[hpreApp, ← `(mkRegList)] ++ helperTs ++ outUnfoldS
-    let postM : Array Term := plumbing ++ outUnfoldS ++ sigvalSet ++ inpAtTs ++ #[hpreApp]
-    let rdSuccRws : Array (Lean.TSyntax `tactic) ← rdSuccS.mapM fun r => `(tactic| all_goals (try rw [$r:ident]))
-    -- the wire equations as hypotheses, under `all_goals`: when an earlier
-    -- simp already closed the goal (crc16's output IS its register once the
-    -- full-width slice alias is inlined), a bare `have` raises "No goals to
-    -- be solved" AFTER the proof is complete — the term is sorry-free, the
-    -- audit passes, and the build still fails (measured 2026-09-14)
-    let wireHypsM : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
-      let fId : Ident := fIdsM[k]!; let eqId : Ident := rwEqIds[k]!
-      `(tactic| all_goals (have $fId:ident := $eqId $appArgs* $mId))
-    let wireHypsT : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
-      let fId : Ident := fIdsT[k]!; let eqId : Ident := rwEqIds[k]!
-      `(tactic| all_goals (have $fId:ident := $eqId $appArgs* t))
-    let extrasT : Array Term := #[(⟨hLtId.raw⟩ : Term)] ++ helperTs ++ outUnfoldS
-    let postT : Array Term := outUnfoldS ++ sigvalSet ++ inpAtTs
-    let preOutT : Array Term := #[← `(outFOf)] ++ plumbing ++ outUnfoldS ++ #[(⟨hLtId.raw⟩ : Term)]
-    let outA : Array (Lean.TSyntax `tactic) := #[
-      ← `(tactic| simp -zeta only [$[$preOutT:term],*]),
-      goalDump,
-      ← `(tactic| signal_lets t [$[$extrasT:term],*]),
-      ← `(tactic| all_goals (try simp only [$[$postT:term],*]))]
-      ++ wireHypsT ++ #[← `(tactic| all_goals bv_decide)]
-    let outB : Array (Lean.TSyntax `tactic) := #[
-      ← `(tactic| simp only [$[$preOutT:term],*]),
-      goalDump,
-      ← `(tactic| all_goals (try simp only [$[$postT:term],*]))]
-      ++ wireHypsT ++ #[← `(tactic| all_goals (first | rfl | bv_decide | fail "#verify_elab_deep (shared route): output closers exhausted"))]
-    let irSt : Term ← `(CdoW.irState $sdeepId $snmId $inpFam t)
-    let ρnT : Term ← `(natJoin $irSt (fun j => ((($inpS) j).val t).toNat))
-    let thmCmd ← `(theorem $thId $paramBinders* (t : Nat) :
-        (($lhsSig).val t).toNat
-          = (Sparkle.IR.Semantics.evalExpr (weOfC $snmId (fun k => ($ΓAllS).get k))
-              (envOfC $snmId (natJoin $ρnT (CdoW.irWires $sdeepId $snmId $ρnT)))
-              (CExpr.compile $snmId (CdoW.out $sdeepId))).getD 0 := by
-      rw [← CdoW.elab_general $sdeepId $snmId $hinjId $inpS t]
-      refine congrArg BitVec.toNat ?_
-      $[$headTacs:tactic]*
-      simp -zeta only [outFOf, mkHolds, Signal.map, $[$outUnfoldS:term],*]
-      generalize $hLId : Signal.loop (loopFOf
-        (dom := Sparkle.Core.Domain.defaultDomain)
-        (αs := [$topTys,*]) (ρ := $retTyS) _ _) = $LId
-      have $hLtId : ∀ ($uId : Nat), ($LId).val $uId = $packU := by
-        intro $uId:ident
-        rw [← $hLId:ident]
-        refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
-        intro $uId:ident $preId:ident $hpreId:ident
-        cases $uId:ident with
-        | zero =>
-          simp -zeta [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
-            Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure,
-            Functor.map, Seq.seq, Signal.ap, Signal.seq, $[$inpAtTs:term],*]
-          all_goals (try simp only [$[$rdZeroS:ident],*])
-          all_goals (first | rfl | bv_decide | (simp; done) | fail "#verify_elab_deep (shared route): zero case closers exhausted")
-        | succ $mId =>
-          simp -zeta only [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
-            Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure,
-            Functor.map, Seq.seq, Signal.ap, Signal.seq, $hpreApp:term]
-          signal_lets $mId [$[$extrasM:term],*]
-          $goalDump:tactic
-          all_goals (try simp only [$[$postM:term],*])
-          all_goals (try simp only [$[$rdSuccS:ident],*])
-          $[$rdSuccRws:tactic]*
-          $[$wireHypsM:tactic]*
-          all_goals (try simp only [Prod.mk.injEq, and_true])
-          all_goals (try (rw [Prod.mk.injEq]; refine ⟨?_, rfl⟩))
-          $goalDump:tactic
-          $stepCloser:tactic
-      rw [$outSId:ident]
-      -- OUTPUT half, two recipes.  (A) zeta OFF + signal_lets: linear when the
-      -- output chain re-uses wires (shareX).  It fails when the register
-      -- `match` cannot reduce with zeta off (the pack sits behind mkRegList's
-      -- own lets — crc16), so (B) zeta ON without extraction: the next-chain
-      -- expands only LINEARLY when no helper body is unfolded, and the output
-      -- of such circuits is small (a register read).
-      first
-        | ($[$outA:tactic]*)
-        | ($[$outB:tactic]*))
-    if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
-      logInfo m!"{thmCmd}"
-    deepTrace fun _ => s!"#verify_elab_deep STAGE shared: trace theorem begin"
-    elabSyncS (← `(set_option maxHeartbeats 1600000 in $thmCmd:command))
-    -- audit: the theorem must exist, with no sorryAx
-    let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload thId
-    let axs ← liftCoreM <| Lean.collectAxioms full
-    if axs.contains ``sorryAx then
-      throwError "#verify_elab_deep (shared route) {declName}: generated proof {thId.getId} FAILED (sorryAx) — see the errors above"
-    -- ================= SHARED ROUTE, stage 2: the IR replay =================
-    -- Mirrors Tests/Verification/ConeSharingReplay.lean, generically.
-    let rec sharedReplay : Unit → CommandElabM (Ident × Array (Ident × String)) := fun _ => do
-      deepTrace fun _ => s!"#verify_elab_deep STAGE shared: replay begin"
-      let P (x : String) : Ident := mkI s!"{base}_sdeep_{x}"
-      let bodyId := P "body"; let weMId := P "weM"; let wtLId := P "wtL"; let wtMId := P "wtM"
-      let stopLId := P "stopL"; let stopAtMId := P "stopAtM"; let dmId := P "dm"
-      let stopLwId := P "stopLw"; let stopAtMwId := P "stopAtMw"
-      -- constants
-      liftCoreM <| addAndCompile <| .defnDecl {
-        name := bodyId.getId, levelParams := []
-        type := mkApp (mkConst ``List [levelZero]) (mkConst ``Sparkle.IR.AST.Stmt)
-        value := toExpr bodyO, hints := .abbrev, safety := .safe }
-      liftCoreM <| Lean.enableRealizationsForConst bodyId.getId
-      let weBody ← do
-        let mut acc ← `((0 : Nat))
-        for (n, w) in wt.toList do
-          acc ← `(if n == $(quote n) then $(quote w) else $acc)
-        pure acc
-      elabSyncS (← `(def $weMId : Sparkle.IR.Semantics.WEnv := fun n => $weBody))
-      liftCoreM <| addAndCompile <| .defnDecl {
-        name := wtLId.getId, levelParams := []
-        type := mkApp (mkConst ``List [levelZero])
-          (mkApp2 (mkConst ``Prod [levelZero, levelZero]) (mkConst ``String) (mkConst ``Nat))
-        value := toExpr wt.toList, hints := .abbrev, safety := .safe }
-      liftCoreM <| Lean.enableRealizationsForConst wtLId.getId
-      elabSyncS (← `(def $wtMId : Std.HashMap String Nat :=
-        ($wtLId).foldl (fun m p => m.insert p.1 p.2) {}))
-      -- F2: the width-table fact ONCE, by KERNEL decide (list-shaped: the
-      -- table is a literal association list, `weM` an if-chain), instead of
-      -- one native_decide per settled/step lemma (6 sites per body on shareX4)
-      let hwtId := P "hwt"
-      elabSyncS (← `(theorem $hwtId : ∀ p ∈ $wtLId, $weMId p.1 = p.2 := by decide))
-      -- F2: the slot-width fact ONCE (kernel decide) — it was a native_decide
-      -- `have` inside both `seed_bounded` and `envSt_bounded`
-      let hagKId := P "hagK"
-      elabSyncS (← `(theorem $hagKId : ∀ k : Fin ($ΓAllS).length, $weMId ($snmId k) = ($ΓAllS).get k := by decide))
-      elabSyncS (← `(def $stopLId : List String := [$nameTs,*]))
-      elabSyncS (← `(def $stopAtMId : Std.HashMap String Bool := Tools.ConeFold.stopOfL $stopLId))
-      elabSyncS (← `(def $stopLwId (w : String) : List String := ($stopLId).erase w))
-      elabSyncS (← `(def $stopAtMwId (w : String) : Std.HashMap String Bool :=
-        Tools.ConeFold.stopOfL ($stopLwId w)))
-      elabSyncS (← `(def $dmId : Sparkle.IR.Optimize.DefMap := Sparkle.IR.Optimize.buildDefMap $bodyId))
-      let addExprC (id : Ident) (e : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
-        liftCoreM <| addAndCompile <| .defnDecl {
-          name := id.getId, levelParams := []
-          type := mkConst ``Sparkle.IR.AST.Expr
-          value := toExpr e, hints := .abbrev, safety := .safe }
-        liftCoreM <| Lean.enableRealizationsForConst id.getId
-      let craw (x : String) : Ident := P s!"coneRaw_{x}"
-      let cres (x : String) : Ident := P s!"cone_{x}"
-      let defCone (x : String) : CommandElabM Unit := do
-        let rid := craw x; let cid := cres x
-        elabSyncS (← `(def $cid : Sparkle.IR.AST.Expr := Tools.ConeFold.resolveSlicesT $wtMId 10000 $rid))
+  -- The shared route lives in its own `let rec` closure.  MEASURED
+  -- 2026-09-19: `compilation (LCNF base)` is superlinear in a function's
+  -- body size, and with this block inline `#verify_elab_deep` cost 598 s
+  -- of LCNF time on its own (elaboration of the whole module: 1.1 s).
+  -- Splitting it out is a pure restructuring — same code, same order,
+  -- same obligations.
+  let rec sharedRoute : Unit → CommandElabM Unit := fun _ => do
+      -- every generated declaration of this route elaborates under the trace
+      -- theorem's heartbeat limit: a per-wire `rfl` lemma on 16-bit cones
+      -- exceeded the 200 000 default on crc16 (logged, not thrown — the
+      -- downstream failure surfaced as "closers exhausted")
+      let elabSyncS (c : Lean.TSyntax `command) : CommandElabM Unit := do
+        elabSync (← `(set_option maxHeartbeats 1600000 in $c:command))
+      if hasMem || hasCombo then
+        throwError "#verify_elab_deep (shared route): memories are not supported yet (v1 is memory-free)"
+      if outPorts.length != 1 then
+        throwError "#verify_elab_deep (shared route): single-port circuits only (v1; {outPorts.length} ports)"
+      let (proj?, isBoolOut) := portMeta.head!
+      if isBoolOut then
+        throwError "#verify_elab_deep (shared route): Bool-typed outputs are not supported yet (v1)"
+      if !nestedNodes.isEmpty then
+        throwError "#verify_elab_deep (shared route): nested circuit-do loops are not supported yet (v1)"
+      let bodyO := deepOrderBody m.body
+      -- shared wires: defined by a non-alias assign and read at least twice
+      -- (alias reads do not count — an alias is naming, not a use)
+      -- an alias is naming, not a use: a bare reference, or the elaborator's
+      -- full-width slice of a slot (`slice (ref r) (w-1) 0` with `w` r's
+      -- width — printed as the bare name and dropped by the reparse)
+      let isAlias : Sparkle.IR.AST.Expr → Bool := fun e => match e with
+        | .ref _ => true
+        | .slice (.ref r) hi 0 => hi + 1 == wt.getD r 0
+        | _ => false
+      let mut cnt : Std.HashMap String Nat := {}
+      for st in bodyO do
+        match st with
+        | .assign _ r => if !isAlias r then for n in Sparkle.IR.Reorder.refsOf r do cnt := cnt.insert n (cnt.getD n 0 + 1)
+        | .register _ _ _ input _ => for n in Sparkle.IR.Reorder.refsOf input do cnt := cnt.insert n (cnt.getD n 0 + 1)
+        | _ => pure ()
+      let shared : List String := bodyO.filterMap fun st => match st with
+        | .assign l r => if !isAlias r && cnt.getD l 0 ≥ 2 then some l else none
+        | _ => none
+      let nW := shared.length
+      let regNs : List String := regs.map (·.1)
+      let inNs : List String := ins.map (·.1)
+      let slotNames : List String := regNs ++ inNs ++ shared
+      let stopS : Std.HashMap String Bool := slotNames.foldl (fun h x => h.insert x true) {}
+      let slotS : String → Option Nat := fun s => slotNames.idxOf? s
+      let coneOf2 (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (what : String) :
+          CommandElabM (Sparkle.IR.AST.Expr × Sparkle.IR.AST.Expr) := do
+        match Tools.ConeFold.inlineConeT dm stop 10000 e with
+        | .ok c => pure (c, Tools.ConeFold.resolveSlicesT wt 10000 c)
+        | .error err => throwError "#verify_elab_deep (shared route): cone of {what}: {err}"
+      let regCones2 ← regs.mapM fun (n, input, _) => coneOf2 stopS input n
+      -- a wire's own cone inlines ITS definition: its stop set excludes the wire
+      let wireCones2 ← shared.mapM fun w => coneOf2 (stopS.erase w) (.ref w) w
+      let (portName, wOut) := outPorts.head!
+      let outCone2 ← coneOf2 stopS (.ref portName) portName
+      let regConesIR := regCones2.map (·.2)
+      let wireConesIR := wireCones2.map (·.2)
+      let outConeIR := outCone2.2
+      let regCs ← regConesIR.mapM (toCExpr slotS)
+      let wireCs ← wireConesIR.mapM (toCExpr slotS)
+      let outC ← toCExpr slotS outConeIR
+      let wireWs : List Nat := shared.map fun w => wt.getD w 0
+      deepTrace fun _ => s!"#verify_elab_deep STAGE shared: {nW} shared wires {shared}; cones reg={regConesIR.map fun c => (repr c).pretty.length} wires={wireConesIR.map fun c => (repr c).pretty.length} out={(repr outConeIR).pretty.length}"
+      -- ---- names / contexts ----
+      let wireWsT : Array Term := wireWs.toArray.map fun w => quote w
+      let ΓwT : Term ← `(([$wireWsT,*] : List Nat))
+      let ΓAllS : Term ← `((($ΓrT ++ $ΓiT) ++ $ΓwT : List Nat))
+      let snmLId := mkI s!"{base}_snmL"
+      let snmId := mkI s!"{base}_snm"
+      let sdeepId := mkI s!"{base}_sdeep"
+      let wlId := mkI s!"{base}_swl"
+      let wlOkId := mkI s!"{base}_swlOk"
+      let nameTs : Array Term := slotNames.toArray.map fun n => quote n
+      elabSyncS (← `(def $snmLId : List String := [$nameTs,*]))
+      elabSyncS (← `(def $snmId : Fin ($ΓAllS).length → String := fun i => ($snmLId).getD i.val ""))
+      -- F2: the name table's injectivity ONCE, by KERNEL decide (Fin × Fin over a
+      -- literal list of string literals); it is the side condition of
+      -- `CdoW.elab_general` in the trace AND the replay's `hinj`
+      let hinjId := mkI s!"{base}_sdeep_hinj"
+      elabSyncS (← `(theorem $hinjId : ∀ a b : Fin ($ΓAllS).length, $snmId a = $snmId b → a = b := by decide))
+      -- ---- the CdoW ----
+      let sigTs : Array Term ← (List.range nW).toArray.mapM fun k => do
+        `((⟨$(quote wireWs[k]!), $(wireCs[k]!)⟩ : Σ w : Nat, CExpr $ΓAllS w))
+      elabSyncS (← `(def $wlId : List (Σ w : Nat, CExpr $ΓAllS w) := [$sigTs,*]))
+      elabSyncS (← `(theorem $wlOkId : ∀ j : Fin ($ΓwT).length,
+          (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).1 = ($ΓwT).get j := by decide))
+      let snextArms ← (List.range nR).toArray.mapM fun i => do
+        `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => $(regCs[i]!))
+      elabSyncS (← `(def $sdeepId : CdoW $ΓrT $ΓiT $ΓwT $(quote wOut) where
+        inits := fun i => match i with $initArms:matchAlt*
+        wires := fun j => ($wlOkId j) ▸ (($wlId).getD j.val ⟨0, CExpr.const 0 0⟩).2
+        next := fun i => match i with $snextArms:matchAlt*
+        out := $outC))
+      -- ---- readers (registers, wires), their equations, the output ----
+      let sId := mkI "s"
+      let inpFam : Term ← `((fun t j => (($inpS) j).val t))
+      let rdIdsS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}"
+      let rwIdsS : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}"
+      let ρSId := mkI s!"{base}_sdeep_rho"
       for i in List.range nR do
-        addExprC (craw s!"r{i}") regCones2[i]!.1; defCone s!"r{i}"
+        let rdId := rdIdsS[i]!
+        elabSyncS (← `(def $rdId $paramBinders* ($sId : Nat) : BitVec $(quote regWs[i]!) :=
+          CdoW.stateAt $sdeepId $inpFam $sId ⟨$(quote i), by decide⟩))
+      elabSyncS (← `(def $ρSId $paramBinders* ($sId : Nat) : CEnv ($ΓrT ++ $ΓiT) :=
+        CEnv.join (CdoW.stateAt $sdeepId $inpFam $sId) (fun j => (($inpS) j).val $sId)))
       for k in List.range nW do
-        addExprC (craw s!"w{k}") wireCones2[k]!.1; defCone s!"w{k}"
-      addExprC (craw "out") outCone2.1; defCone "out"
-      let weCT : Term ← `(weOfC $snmId (fun k => ($ΓAllS).get k))
-      -- G1 glue per slot
-      let hagId := P "hag"
-      elabSyncS (← `(theorem $hagId : ∀ n ∈ $stopLId, $weCT n = $weMId n := by decide))
-      let g1 (x : String) (lhs : Term) (eIn : Term) (sl : Term) (hagT : Term) : CommandElabM Unit := do
-        let g1Id := P s!"coneEval_{x}"
-        elabSyncS (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
-            Sparkle.IR.Semantics.evalExpr $weCT env $lhs
-              = Sparkle.IR.Semantics.evalExpr $weMId env $(cres x) :=
-          g1_shared $dmId $wtMId $weCT $weMId $sl _ $(cres x) $(craw x) $eIn
-            (by native_decide) (by native_decide) (by native_decide) (by native_decide) $hagT env))
+        let rwId := rwIdsS[k]!
+        elabSyncS (← `(def $rwId $paramBinders* ($sId : Nat) : BitVec $(quote wireWs[k]!) :=
+          CdoW.wenv $sdeepId ($ρSId $appArgs* $sId) ⟨$(quote k), by decide⟩))
+      let shallowS (tv : Term) (e : Sparkle.IR.AST.Expr) : CommandElabM Term :=
+        toShallow slotS nR nI
+          (fun i => do let rdId : Ident := rdIdsS[i]!; `(($rdId $appArgs* $tv)))
+          (fun j => inpValRhs[j]! tv)
+          (fun k => do let rwId : Ident := rwIdsS[k]!; `(($rwId $appArgs* $tv))) e
+      let rwEqIds : Array Ident := (List.range nW).toArray.map fun k => mkI s!"{base}_sdeep_rw{k}_eq"
+      for k in List.range nW do
+        let rhs ← shallowS (← `($sId)) wireConesIR[k]!
+        elabSyncS (← `(theorem $(rwEqIds[k]!) $paramBinders* ($sId : Nat) :
+          $(rwIdsS[k]!) $appArgs* $sId = $rhs := rfl))
+      let rdZeroS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_zero"
+      let rdSuccS : Array Ident := (List.range nR).toArray.map fun i => mkI s!"{base}_sdeep_rd{i}_succ"
       for i in List.range nR do
-        let (rn, input, _) := regs[i]!
-        let inQ ← quoteIR input
-        g1 s!"r{i}" (← `(CExpr.compile $snmId (CdoW.next $sdeepId ⟨$(quote i), by decide⟩))) inQ (← `($stopLId)) (← `($hagId))
-      for k in List.range nW do
-        let w := shared[k]!
-        g1 s!"w{k}" (← `(CExpr.compile $snmId (CdoW.wires $sdeepId ⟨$(quote k), by decide⟩)))
-          (← `(Sparkle.IR.AST.Expr.ref $(quote w))) (← `($stopLwId $(quote w)))
-          (← `((fun n hn => $hagId n (List.mem_of_mem_erase hn))))
-      g1 "out" (← `(CExpr.compile $snmId (CdoW.out $sdeepId))) (← `(Sparkle.IR.AST.Expr.ref $(quote portName))) (← `($stopLId)) (← `($hagId))
-      deepTrace fun _ => s!"#verify_elab_deep STAGE shared: G1 glue emitted"
-      -- the seed and its readers
-      let inpFId := P "inpF"; let ρnId := P "rhoN"; let envAtId := P "envAt"; let hinjId := P "hinj"
-      let ρnEqId := P "rhoN_eq"; let seedBndId := P "seed_bounded"; let nmMemId := P "nm_mem_stop"; let otherId := P "envAt_other"
-      elabSyncS (← `(def $inpFId $paramBinders* : Nat → CEnv $ΓiT := fun t j => (($inpS) j).val t))
-      elabSyncS (← `(def $ρnId $paramBinders* (t : Nat) : Fin ($ΓrT ++ $ΓiT : List Nat).length → Nat :=
-        natJoin (CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t) (fun j => ((($inpS) j).val t).toNat)))
-      elabSyncS (← `(def $envAtId $paramBinders* (t : Nat) : Sparkle.IR.Semantics.Env :=
-        envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t)))))
-      elabSyncS (← `(theorem $ρnEqId $paramBinders* (t : Nat) :
-          $ρnId $appArgs* t = fun m => (CEnv.join (CdoW.stateAt $sdeepId ($inpFId $appArgs*) t) ($inpFId $appArgs* t) m).toNat := by
-        funext m
-        unfold $ρnId
-        rw [← natJoin_eq_join]
-        congr 1
-        funext k
-        exact CdoW.irState_eq $sdeepId $snmId $hinjId ($inpFId $appArgs*) t k))
-      elabSyncS (← `(theorem $seedBndId $paramBinders* (t : Nat) : ∀ n, $envAtId $appArgs* t n < 2 ^ $weMId n := by
-        intro n
-        unfold $envAtId
-        apply envOfC_bounded
-        intro k
-        have hag := $hagKId
-        rw [hag k, $ρnEqId $appArgs* t, CdoW.natJoin_full $sdeepId $snmId $hinjId]
-        exact BitVec.isLt _))
-      -- pointwise readers of the seed
-      let rdAt (x : String) : Ident := P s!"envAt_{x}"
-      for i in List.range nR do
-        let (rn, _, _) := regs[i]!
-        elabSyncS (← `(theorem $(rdAt s!"r{i}") $paramBinders* (t : Nat) :
-            $envAtId $appArgs* t $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩ := by
-          show envOfC $snmId _ ($snmId ⟨$(quote i), by decide⟩) = _
-          rw [envOfC_names $snmId _ $hinjId]
-          rfl))
-      for j in List.range nI do
-        let (inn, _) := ins[j]!
-        elabSyncS (← `(theorem $(rdAt s!"i{j}") $paramBinders* (t : Nat) :
-            $envAtId $appArgs* t $(quote inn) = ((($inpS) ⟨$(quote j), by decide⟩).val t).toNat := by
-          show envOfC $snmId _ ($snmId ⟨$(quote (nR + j)), by decide⟩) = _
-          rw [envOfC_names $snmId _ $hinjId]
-          rfl))
-      for k in List.range nW do
-        let w := shared[k]!
-        elabSyncS (← `(theorem $(rdAt s!"w{k}") $paramBinders* (t : Nat) :
-            $envAtId $appArgs* t $(quote w) = CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t) ⟨$(quote k), by decide⟩ := by
-          show envOfC $snmId _ ($snmId ⟨$(quote (nR + nI + k)), by decide⟩) = _
-          rw [envOfC_names $snmId _ $hinjId]
-          rfl))
-      elabSyncS (← `(theorem $nmMemId : ∀ k : Fin ($ΓAllS).length, $snmId k ∈ $stopLId := by decide))
-      elabSyncS (← `(theorem $otherId $paramBinders* (t : Nat) (n : String) (h : n ∉ $stopLId) :
-          $envAtId $appArgs* t n = 0 := by
-        unfold $envAtId
-        apply envOfC_notin
-        intro k hk
-        exact h (hk ▸ $nmMemId k)))
-      deepTrace fun _ => s!"#verify_elab_deep STAGE shared: seed + readers emitted"
-      -- ===== body-independent plumbing: the state-indexed seed, and the
-      -- Signal value as the output cone at the seed (shared by every
-      -- body the chain is replayed over) =====
-      let stvId := P "stv"; let ρnSId := P "rhoNS"; let envStId := P "envSt"; let st0Id := P "st0"
-      let stvArms ← (List.range nR).toArray.mapM fun i => do
-        let (rn, _, _) := regs[i]!
-        `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => st $(quote rn) % 2 ^ $(quote regWs[i]!))
-      elabSyncS (← `(def $stvId (st : String → Nat) : Fin ($ΓrT : List Nat).length → Nat := fun j => match j with $stvArms:matchAlt*))
-      elabSyncS (← `(def $ρnSId $paramBinders* (t : Nat) (st : String → Nat) : Fin ($ΓrT ++ $ΓiT : List Nat).length → Nat :=
-        natJoin ($stvId st) (fun j => ((($inpS) j).val t).toNat)))
-      elabSyncS (← `(def $envStId $paramBinders* (t : Nat) (st : String → Nat) : Sparkle.IR.Semantics.Env :=
-        envOfC $snmId (natJoin ($ρnSId $appArgs* t st) (CdoW.irWires $sdeepId $snmId ($ρnSId $appArgs* t st)))))
-      let st0Body ← do
-        let mut acc ← `((0 : Nat))
-        for i in (List.range nR).reverse do
-          let (rn, _, _) := regs[i]!
-          acc ← `(if n == $(quote rn) then (CdoW.inits $sdeepId ⟨$(quote i), by decide⟩).toNat else $acc)
-        pure acc
-      elabSyncS (← `(def $st0Id : String → Nat := fun n => $st0Body))
-      let bvArms ← (List.range nR).toArray.mapM fun i => do
-        let (rn, _, _) := regs[i]!
-        `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => BitVec.ofNat $(quote regWs[i]!) (st $(quote rn)))
-      let ρnSEqId := P "rhoNS_eq"; let envStBndId := P "envSt_bounded"; let henvId := P "henv"
-      -- Nat index `kv < nR`: nR two-way splits with a focused bullet each, then
-      -- the impossible tail closes by omega
-      let natSeq (bullets : Array (Lean.TSyntax `tactic)) (v : Ident) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
-        let mut out : Array (Lean.TSyntax `tactic) := #[]
-        for b in bullets do
-          out := out.push (← `(tactic| rcases $v:ident with _ | $v:ident))
-          out := out.push (← `(tactic| · $b:tactic))
-        out := out.push (← `(tactic| exfalso))
-        out := out.push (← `(tactic| omega))
-        pure out
-      let stvCases ← (List.range nR).toArray.mapM fun _ => do
-        `(tactic| simp [$stvId:ident])
-      let kvId := mkI "kv"; let hkId := mkI "hk"; let jvId := mkI "jv"; let hjId := mkI "hj"
-      let stvSeq ← natSeq stvCases kvId
-      elabSyncS (← `(theorem $ρnSEqId $paramBinders* (t : Nat) (st : String → Nat) :
-          $ρnSId $appArgs* t st = fun m => (CEnv.join
-            ((fun j => match j with $bvArms:matchAlt*) : CEnv $ΓrT) ($inpFId $appArgs* t) m).toNat := by
-        funext m
-        unfold $ρnSId
-        rw [← natJoin_eq_join]
-        congr 1
-        funext k
-        rcases k with ⟨$kvId:ident, $hkId:ident⟩
-        simp only [List.length_cons, List.length_nil] at $hkId:ident
-        $[$stvSeq:tactic]*))
-      elabSyncS (← `(theorem $envStBndId $paramBinders* (t : Nat) (st : String → Nat) :
-          ∀ n, $envStId $appArgs* t st n < 2 ^ $weMId n := by
-        intro n
-        unfold $envStId
-        apply envOfC_bounded
-        intro k
-        have hag := $hagKId
-        rw [hag k, $ρnSEqId $appArgs* t st, CdoW.natJoin_full $sdeepId $snmId $hinjId]
-        exact BitVec.isLt _))
-      -- henv: st agrees with the spec recurrence ⇒ the seeds coincide
-      let hstBinders ← (List.range nR).toArray.mapM fun i => do
-        let (rn, _, _) := regs[i]!
-        let hId := mkI s!"hst{i}"
-        `(Lean.Parser.Term.bracketedBinderF| ($hId : st $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩))
-      let hstvCases ← (List.range nR).toArray.mapM fun i => do
-        let (rn, _, _) := regs[i]!
-        let hId := mkI s!"hst{i}"
-        `(tactic| (show st $(quote rn) % 2 ^ $(quote regWs[i]!) = _; rw [$hId:ident]; exact Nat.mod_eq_of_lt (by rw [CdoW.irState_eq $sdeepId $snmId $hinjId]; exact BitVec.isLt _)))
-      let hstvSeq ← natSeq hstvCases jvId
-      elabSyncS (← `(theorem $henvId $paramBinders* (t : Nat) (st : String → Nat) $hstBinders* :
-          $envStId $appArgs* t st = $envAtId $appArgs* t := by
-        have hstv : $stvId st = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t := by
-          funext j
-          rcases j with ⟨$jvId:ident, $hjId:ident⟩
-          simp only [List.length_cons, List.length_nil] at $hjId:ident
-          $[$hstvSeq:tactic]*
-        unfold $envStId $envAtId $ρnSId $ρnId
-        rw [hstv]))
-      -- the M4 width function (`weOf wofM = weM` definitionally) and the
-      -- Signal value as the output cone at the seed
-      let wofMId := P "wofM"; let weOfEqId := P "weOf_eq"
-      elabSyncS (← `(def $wofMId : String → Option Nat := fun n => some ($weMId n)))
-      elabSyncS (← `(theorem $weOfEqId : Tools.SVParser.EmitSem.weOf $wofMId = $weMId := rfl))
-      let sigMId := P "signalM"
-      let g1Out : Ident := P "coneEval_out"
-      elabSyncS (← `(theorem $sigMId $paramBinders* (t : Nat) :
-          (($lhsSig).val t).toNat
-            = (Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres "out")).getD 0 := by
-        rw [$thId $appArgs* t]
-        show (Sparkle.IR.Semantics.evalExpr _ (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t))))
-          (CExpr.compile $snmId (CdoW.out $sdeepId))).getD 0 = _
-        rw [$g1Out:ident]
+        let (_, _, init) := regs[i]!
+        elabSyncS (← `(theorem $(rdZeroS[i]!) $paramBinders* :
+          $(rdIdsS[i]!) $appArgs* 0 = BitVec.ofNat $(quote regWs[i]!) $(quote init.toNat) := rfl))
+        let rhs ← shallowS (← `($sId)) regConesIR[i]!
+        elabSyncS (← `(theorem $(rdSuccS[i]!) $paramBinders* ($sId : Nat) :
+          $(rdIdsS[i]!) $appArgs* ($sId + 1) = $rhs := rfl))
+      let outSId := mkI s!"{base}_sdeep_outS"
+      let outRhs ← shallowS (← `($sId)) outConeIR
+      elabSyncS (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+          (CdoW.outSig $sdeepId $inpS).val $sId = $outRhs := by
+        show CExpr.denote _ _ = _
+        rw [CdoW.stateSig_eq]
         rfl))
-      let ihProjsSt : Array Term ← (List.range nR).toArray.mapM fun i => do
-        let mut t : Term ← `(ihc)
-        for _ in List.range i do t ← `(($t).2)
-        if i + 1 < nR then `(($t).1) else pure t
-      -- `hm : n = a ∨ n = b ∨ …` handled as a SEQUENCE of two-way splits, each
-      -- followed by a focused bullet (no alternative patterns needed)
-      let hmId := mkI "hm"; let nId := mkI "n"; let hnId := mkI "hn"; let hsubId := mkI "hsub"
-      let splitSeq (bullets : Array (Lean.TSyntax `tactic)) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
-        let mut out : Array (Lean.TSyntax `tactic) := #[]
-        let cnt := bullets.size
-        for idx in List.range cnt do
-          let b := bullets[idx]!
-          if idx + 1 < cnt then
-            out := out.push (← `(tactic| rcases $hmId:ident with $hmId:ident | $hmId:ident))
-            out := out.push (← `(tactic| · (subst $hmId:ident; $b:tactic)))
-          else
-            out := out.push (← `(tactic| subst $hmId:ident))
-            out := out.push b
-        pure out
-      -- the state-trace conjunction (over the ORIGINAL register order — it
-      -- states the spec recurrence, whichever body is folded)
-      let stateConj ← do
-        let mut conjs : Array Term := #[]
-        for i in List.range nR do
-          let (rn, _, _) := regs[i]!
-          conjs := conjs.push (← `(st $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩))
-        let mut acc : Term := conjs.back!
-        for c in conjs.pop.reverse do
-          acc ← `($c ∧ $acc)
+      deepTrace fun _ => s!"#verify_elab_deep STAGE shared: readers + equations emitted"
+      -- ---- the trace theorem (linear recipe) ----
+      let thId := mkI s!"{base}_sdeep_trace"
+      let declIdent : Ident := mkIdent declName
+      -- struct outputs project their field; the def unfolds through its first
+      -- equation (a plain `simp only [f]` would reduce past the projection)
+      let lhsSig : Term ← match proj? with
+        | some pj => `(($pj ($declIdent $appArgs*)))
+        | none => `(($declIdent $appArgs*))
+      let eq1Id : Ident := mkIdent (declName ++ `eq_1)
+      let unfoldTac : Lean.TSyntax `tactic ← match proj? with
+        | some _ => `(tactic| rw [$eq1Id:ident])
+        | none => `(tactic| simp -zeta only [$declIdent:ident, $[$helperIds:ident],*])
+      let chainUnfoldS : Array (Lean.TSyntax `tactic) ← headChain.mapM fun c => do
+        let eqId : Ident := mkIdent (c ++ `eq_1)
+        `(tactic| rw [$eqId:ident])
+      let projRwS : Lean.TSyntax `tactic ← match proj? with
+        | some pj => `(tactic| rw [runCircuitH_proj_eq $pj])
+        | none => `(tactic| rw [runCircuitH_eq])
+      let outUnfoldS : Array Term := match proj? with
+        | some pj => #[(⟨pj.raw⟩ : Term)]
+        | none => #[]
+      -- one NON-EMPTY splice: an empty tactic-array splice between two tactics
+      -- silently dropped the remainder of the script (measured: the goal was
+      -- left exactly as after the unfold, with no error from any later tactic)
+      let headTacs : Array (Lean.TSyntax `tactic) := #[unfoldTac] ++ chainUnfoldS ++ #[projRwS]
+      let goalDump : Lean.TSyntax `tactic ← if (← IO.getEnv "SPARKLE_DEEP_GOALS").isSome
+        then `(tactic| trace_state) else `(tactic| skip)
+      -- with goal dumps on, run the closer bare so its own diagnosis surfaces
+      let stepCloser : Lean.TSyntax `tactic ← if (← IO.getEnv "SPARKLE_DEEP_GOALS").isSome
+        then `(tactic| all_goals bv_decide)
+        else `(tactic| all_goals (first | bv_decide | fail "#verify_elab_deep (shared route): step case closers exhausted"))
+      let helperTs : Array Term := helperIds.map fun i => (⟨i.raw⟩ : Term)
+      -- lemma lists as QUOTATIONS: identifiers inside a quotation are resolved
+      -- in this file's scope (Sparkle.Core… open); a runtime `mkIdent` resolves
+      -- in the CALLER's scope, which need not open those namespaces — measured
+      -- on crc16 ("Unknown identifier packRegister/mkHolds" aborted the simp)
+      let sigvalSet : Array Term := #[← `(sigval_add), ← `(sigval_sub), ← `(sigval_mul), ← `(sigval_and), ← `(sigval_or), ← `(sigval_xor), ← `(sigval_shl), ← `(sigval_shr), ← `(sigval_append), ← `(sigval_add_c), ← `(sigval_sub_c), ← `(sigval_mul_c), ← `(sigval_and_c), ← `(sigval_or_c), ← `(sigval_xor_c), ← `(sigval_shl_c), ← `(sigval_shr_c), ← `(sigval_append_c), ← `(sigval_c_add), ← `(sigval_c_sub), ← `(sigval_c_mul), ← `(sigval_c_and), ← `(sigval_c_or), ← `(sigval_c_xor), ← `(sigval_c_shl), ← `(sigval_c_shr), ← `(sigval_c_append), ← `(sigval_and_b), ← `(sigval_or_b), ← `(sigval_xor_b), ← `(sigval_not), ← `(sigval_not_b), ← `(sigval_neg), ← `(sigval_mux), ← `(sigval_beq), ← `(sigval_pure)]
+      let plumbing : Array Term := #[← `(packRegister), ← `(Signal.register), ← `(Signal.memStep), ← `(Circuit.next), ← `(Circuit.pure'), ← `(Circuit.bind), ← `(mkHolds), ← `(Signal.map), ← `(Signal.mux), ← `(bundle2), ← `(Signal.pure), ← `(Functor.map), ← `(Seq.seq), ← `(Signal.ap), ← `(Signal.seq)]
+      let retTyS : Term ← liftTermElabM (Lean.PrettyPrinter.delab retTy)
+      let topTys := topNode.tys
+      -- the register pack at time tv: (rd0, (rd1, … ()))
+      let packAt (tv : Term) : CommandElabM Term := do
+        let mut acc : Term ← `(())
+        for j in (List.range nR).reverse do
+          let rdId : Ident := rdIdsS[j]!
+          let slot ← `($rdId $appArgs* $tv)
+          let slot ← if topNode.isBool[j]! then `(($slot == 1#1)) else pure slot
+          acc ← `(($slot, $acc))
         pure acc
-      let ihProjs : Array Term ← (List.range nR).toArray.mapM fun i => do
-        let mut t : Term ← `(ihc)
-        for _ in List.range i do t ← `(($t).2)
-        if i + 1 < nR then `(($t).1) else pure t
-      -- ===== the replay over ONE body =====
-      -- `tag = ""` replays the elaborator's own body (`{base}_sdeep_body`,
-      -- whose cones ARE the CdoW's).  A non-empty tag replays another body
-      -- — `optimizeModule m` ("Opt"), or what the shipping parser reads
-      -- back from the printed text ("RT") — whose per-slot cones, after
-      -- `rtNorm ∘ stripMask` (Tools/ConeFoldRT.lean), are SYNTACTICALLY the
-      -- normalised original cones (one `native_decide` per cone,
-      -- `{base}_sdeep_maskEq{tag}_*`); `rtBridge_eval` then makes them
-      -- evaluate alike on the settled environment, and the rest of the
-      -- chain is the same text with `{tag}` appended to every
-      -- body-dependent name.  Registers are matched BY NAME (the replayed
-      -- body may list them in another order or re-root one at another
-      -- input wire); the spec recurrence's slot order is the original's.
-      let replayOver (tag : String) (bodyX : List Sparkle.IR.AST.Stmt)
-          (regsX : List (String × Sparkle.IR.AST.Expr × Int)) : CommandElabM Ident := do
-        let Q (x : String) : Ident := P s!"{x}{tag}"
-        let masked := tag != ""
-        let bodyXId := Q "body"
-        let crawX (x : String) : Ident := Q s!"coneRaw_{x}"
-        let cresX (x : String) : Ident := Q s!"cone_{x}"
-        let meqX (x : String) : Ident := Q s!"maskEq_{x}"
-        let rinOf (rn : String) : CommandElabM String := do
-          match regsX.find? (·.1 == rn) with
-          | some (_, .ref r, _) => pure r
-          | _ => throwError "#verify_elab_deep (shared route{tag}): register {rn}'s input is not a wire reference"
-        let rstNamesX : List String := (regsX.filterMap fun (rn, _, _) =>
-          bodyX.findSome? fun st => match st with
-            | .register out _ (rstName, _) _ _ => if out == rn then some rstName else none
-            | _ => none).eraseDups
-        if masked then
-          liftCoreM <| addAndCompile <| .defnDecl {
-            name := bodyXId.getId, levelParams := []
-            type := mkApp (mkConst ``List [levelZero]) (mkConst ``Sparkle.IR.AST.Stmt)
-            value := toExpr bodyX, hints := .abbrev, safety := .safe }
-          liftCoreM <| Lean.enableRealizationsForConst bodyXId.getId
-          let dmX := Sparkle.IR.Optimize.buildDefMap bodyX
-          let coneX (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (what : String) :
-              CommandElabM Sparkle.IR.AST.Expr := do
-            match Tools.ConeFold.inlineConeT dmX stop 10000 e with
-            | .ok c => pure c
-            | .error err => throwError "#verify_elab_deep (shared route{tag}): cone of {what}: {err}"
-          let defX (x : String) (c : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
-            addExprC (crawX x) c
-            elabSyncS (← `(def $(cresX x) : Sparkle.IR.AST.Expr := Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX x)))
-            elabSyncS (← `(theorem $(meqX x) :
-                Tools.ConeFold.rtNorm $weMId (Tools.ConeFold.stripMask $wofMId $(cresX x))
-                  = Tools.ConeFold.rtNorm $weMId $(cres x) := by native_decide))
-          for i in List.range nR do
-            let rin ← rinOf (regs[i]!).1
-            defX s!"r{i}" (← coneX stopS (.ref rin) s!"register {i}")
-          for k in List.range nW do
-            let w := shared[k]!
-            defX s!"w{k}" (← coneX (stopS.erase w) (.ref w) w)
-          defX "out" (← coneX stopS (.ref portName) portName)
-          deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: body + cones + mask equations emitted"
-        -- settled-environment facts
-        let hrunBinder ← `(Lean.Parser.Term.bracketedBinderF| (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envAtId $appArgs* t) = some env1))
-        let env1Binder ← `(Lean.Parser.Term.bracketedBinderF| {env1 : Sparkle.IR.Semantics.Env})
-        let xB : Array (Lean.TSyntax ``Lean.Parser.Term.bracketedBinder) := #[env1Binder, hrunBinder]
-        -- F2 (stop set): `hwfCheck` reads the stop set only through `contains`,
-        -- which the kernel cannot reduce on a `Std.HashMap` (measured: even
-        -- `stopAtM.contains "…" = true` fails `decide`).  So the CHECK runs on
-        -- the LIST (kernel `decide`) and one agreement fact per stop set
-        -- (`native_decide`, over the body's assign targets only) carries it to
-        -- the proven `hwfCheck_sound`.  Net per body: the per-wire and shared
-        -- hwfCheck sites (nW + 2 on a body) become nW + 2 agreement facts, so
-        -- the count is unchanged — what changes is WHAT is trusted: a
-        -- lookup-agreement fact instead of a walk over every statement.
-        let hwfOf (tagS : String) (stopT : Term) (stopLT : Term) : CommandElabM Ident := do
-          let id := Q s!"hwfL_{tagS}"
-          let cmd ← `(theorem $id : ∀ n rhs,
-              (Sparkle.IR.Optimize.buildDefMap $bodyXId).get? n = some rhs →
-              ($stopT).contains n = false → Sparkle.IR.Semantics.widthOf $weMId rhs = $weMId n :=
-            Tools.ConeFold.hwfCheck_sound $weMId $stopT $bodyXId
-              (Tools.ConeFold.hwfCheckL_to_hwfCheck $weMId $stopLT $bodyXId
-                (by native_decide) (by decide)))
-          elabSyncS cmd
-          pure id
-        let hwfSharedId ← hwfOf "stop" (← `($stopAtMId)) (← `($stopLId))
-        -- F2: the cone equation `inlineConeT … = .ok coneRaw` by KERNEL
-        -- decide, via the structural walk (Tools/ConeFoldRT.lean).  Each
-        -- distinct (stop set, root) pair is proven ONCE as a named theorem
-        -- and referenced; there is no `native_decide` fallback — a failure
-        -- is an error, like every other obligation on this route.
-        let hinlOf (tagS : String) (stopLT : Term) (rootT : Term) (coneT : Term) :
-            CommandElabM Ident := do
-          let id := Q s!"hinl_{tagS}"
-          let cmd ← `(theorem $id :
-              Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyXId)
-                  (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $coneT :=
-            Tools.ConeFold.inlineConeT_of_listS $bodyXId $stopLT 10000 $rootT $coneT (by decide))
-          elabSyncS cmd
-          pure id
-        let mut hwfWireIds : Array Ident := #[]
-        for k in List.range nW do
-          let w := shared[k]!
-          hwfWireIds := hwfWireIds.push
-            (← hwfOf s!"w{k}" (← `($stopAtMwId $(quote w))) (← `($stopLwId $(quote w))))
-        let hb1Id := Q "hb1_of"
-        elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
-            ∀ n, env1 n < 2 ^ $weMId n :=
-          Tools.ConeFold.evalAssigns_bounded $weMId _ $bodyXId _ env1
-            (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide) ($seedBndId $appArgs* t) hrun))
-        let frameOf (x : String) (nameS : String) : CommandElabM Unit := do
-          let fId := Q s!"frame_{x}"
-          elabSyncS (← `(theorem $fId $paramBinders* (t : Nat) $xB* :
-              env1 $(quote nameS) = $envAtId $appArgs* t $(quote nameS) :=
-            Tools.ConeFold.evalAssigns_frame $weMId _ $bodyXId _ env1 hrun
-              (Tools.ConeFold.memFreeCheck_sound _ (by decide)) _ (by decide)))
-        for i in List.range nR do frameOf s!"r{i}" (regs[i]!).1
-        for j in List.range nI do frameOf s!"i{j}" (ins[j]!).1
-        for (r, idx) in rstNamesX.toArray.zipIdx do frameOf s!"rst{idx}" r
-        -- from the replayed body's cone (as `shared_cone_agrees_at_settled`
-        -- states it) to the ORIGINAL cone: definitional for the elaborator's
-        -- body, `rtBridge_eval` + the mask equation otherwise
-        let toOrig (x : String) (hb : Term) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
-          if masked then
-            pure #[← `(tactic| have hm : Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x)
-                  = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cresX x) :=
-                Tools.ConeFold.rtBridge_eval $wofMId env1 $hb $(cresX x) $(cres x) $(meqX x)
-                  (by native_decide) (by native_decide)),
-              ← `(tactic| rw [hm])]
-          else pure #[]
-        -- a case bullet closing `envA n = env1 n` (or its symm) for slot name #idx
-        let slotBullet (idx : Nat) (kAt : Nat) (symm : Bool) : CommandElabM (Lean.TSyntax `tactic) := do
-          -- idx < nR: register; nR ≤ idx < nR+nI: input; else wire idx-nR-nI (< kAt)
-          if idx < nR then
-            let fId := Q s!"frame_r{idx}"; let rId := rdAt s!"r{idx}"
-            if symm then `(tactic| exact ($fId $appArgs* t hrun).symm)
-            else `(tactic| (rw [$fId $appArgs* t hrun, $rId:ident]; show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _; rw [envOfC_names $snmId _ $hinjId]; rfl))
-          else if idx < nR + nI then
-            let j := idx - nR
-            let fId := Q s!"frame_i{j}"; let rId := rdAt s!"i{j}"
-            if symm then `(tactic| exact ($fId $appArgs* t hrun).symm)
-            else `(tactic| (rw [$fId $appArgs* t hrun, $rId:ident]; show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _; rw [envOfC_names $snmId _ $hinjId]; rfl))
-          else
-            let j := idx - nR - nI
-            let wId := Q s!"wire_w{j}"; let rId := rdAt s!"w{j}"
-            if symm then `(tactic| exact ($wId $appArgs* t hrun).symm)
-            else `(tactic| (
-              rw [$wId $appArgs* t hrun, $rId:ident]
-              show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _
-              rw [envOfC_names $snmId _ $hinjId]
-              show CdoW.irWiresAt $sdeepId $snmId ($ρnId $appArgs* t) $(quote kAt) ⟨$(quote j), by decide⟩
-                = CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t) ⟨$(quote j), by decide⟩
-              rw [CdoW.irWiresAt_stable $sdeepId $snmId ($ρnId $appArgs* t) $(quote kAt) ⟨$(quote j), by decide⟩ (by decide)]
-              unfold CdoW.irWires
-              rw [CdoW.irWiresAt_stable $sdeepId $snmId ($ρnId $appArgs* t) ($ΓwT).length ⟨$(quote j), by decide⟩ (by decide)]))
-        -- per wire, in slot order
-        for k in List.range nW do
-          let w := shared[k]!
-          let setId := Q s!"settled_w{k}"; let wireId := Q s!"wire_w{k}"
-          let rdW : Ident := rdAt s!"w{k}"; let g1W : Ident := P s!"coneEval_w{k}"
-          let conv ← toOrig s!"w{k}" (← `($hb1Id $appArgs* t hrun))
-          let setTacs : Array (Lean.TSyntax `tactic) :=
-            #[← `(tactic| have h : Sparkle.IR.Semantics.evalExpr $weMId env1
-                  (Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX s!"w{k}")) = some (env1 $(quote w)) :=
-                Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) ($stopAtMwId $(quote w)) $wtMId
-                  (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
-                  (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
-                  $(hwfWireIds[k]!)
-                  (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
-                  (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}"))
-                  (hinl := $(← hinlOf s!"w{k}" (← `($stopLwId $(quote w))) (← `(Sparkle.IR.AST.Expr.ref $(quote w))) (← `($(crawX s!"w{k}"))))) 10000
-                  (v := env1 $(quote w)) (by simp [Sparkle.IR.Semantics.evalExpr]))]
-            ++ conv ++ #[← `(tactic| exact h)]
-          elabSyncS (← `(theorem $setId $paramBinders* (t : Nat) $xB* :
-              Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres s!"w{k}") = some (env1 $(quote w)) := by
-            $[$setTacs:tactic]*))
-          let nEarlier := nR + nI + k
-          let earlierNames : Array Term := (slotNames.take nEarlier).toArray.map fun n => quote n
-          let bullets ← (List.range nEarlier).toArray.mapM fun idx => slotBullet idx k false
-          let seqTacs ← splitSeq bullets
-          elabSyncS (← `(theorem $wireId $paramBinders* (t : Nat) $xB* :
-              env1 $(quote w) = $envAtId $appArgs* t $(quote w) := by
-            have hs := $setId $appArgs* t hrun
-            rw [$rdW $appArgs* t, CdoW.irWires_eq_at, $g1W:ident]
-            have hc : Sparkle.IR.Semantics.evalExpr $weMId
-                (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWiresAt $sdeepId $snmId ($ρnId $appArgs* t) $(quote k))))
-                $(cres s!"w{k}")
-                = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres s!"w{k}") := by
-              apply Sparkle.IR.Reorder.evalExpr_congr
-              intro $nId:ident $hnId:ident
-              have $hsubId:ident : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres s!"w{k}"), m ∈ [$earlierNames,*] := by native_decide
-              have $hmId:ident := $hsubId $nId $hnId
-              simp only [List.mem_cons, List.not_mem_nil, or_false] at $hmId:ident
-              $[$seqTacs:tactic]*
-            rw [hc, hs]
-            rfl))
-        deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: wire lemmas emitted"
-        -- steps at the seed (register inputs, output)
-        let allNames : Array Term := slotNames.toArray.map fun n => quote n
-        let bulletsAll ← (List.range slotNames.length).toArray.mapM fun idx => slotBullet idx nW true
-        let seqAll ← splitSeq bulletsAll
-        let stepOf (x : String) (eIn : String) : CommandElabM Unit := do
-          let sId := Q s!"step_{x}"
-          let conv ← toOrig x (← `($hb1Id $appArgs* t hrun))
-          let tacs : Array (Lean.TSyntax `tactic) :=
-            #[← `(tactic| have h : Sparkle.IR.Semantics.evalExpr $weMId env1
-                  (Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX x)) = some v :=
-                Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) $stopAtMId $wtMId
-                  (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
-                  (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
-                  $hwfSharedId
-                  (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
-                  (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x))
-                  (hinl := $(← hinlOf x (← `($stopLId)) (← `(Sparkle.IR.AST.Expr.ref $(quote eIn))) (← `($(crawX x))))) 10000 hv),
-              ← `(tactic| have hc : Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x)
-                  = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x) := by
-                apply Sparkle.IR.Reorder.evalExpr_congr
-                intro $nId:ident $hnId:ident
-                have $hsubId:ident : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres x), m ∈ [$allNames,*] := by native_decide
-                have $hmId:ident := $hsubId $nId $hnId
-                simp only [List.mem_cons, List.not_mem_nil, or_false] at $hmId:ident
-                $[$seqAll:tactic]*),
-              ← `(tactic| rw [hc])]
-            ++ conv ++ #[← `(tactic| exact h)]
-          elabSyncS (← `(theorem $sId $paramBinders* (t : Nat) $xB* (v : Nat)
-              (hv : Sparkle.IR.Semantics.evalExpr $weMId env1 (.ref $(quote eIn)) = some v) :
-              Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x) = some v := by
-            $[$tacs:tactic]*))
-        let mut rinX : Array String := #[]
-        for i in List.range nR do
-          let rin ← rinOf (regs[i]!).1
-          rinX := rinX.push rin
-          stepOf s!"r{i}" rin
-        stepOf "out" portName
-        -- the register phase (nexts listed in the replayed body's register order)
-        let regstepId := Q "regstep"
-        let origIdx (rn : String) : Nat := ((regs.map (·.1)).idxOf? rn).getD 0
-        let nextsItems : Array Term ← regsX.toArray.mapM fun (rn, _, _) => do
-          `(($(quote rn), CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) (t + 1) ⟨$(quote (origIdx rn)), by decide⟩))
-        let mut pre : Array (Lean.TSyntax `tactic) := #[]
-        let mut rws : Array Term := #[]
-        for i in List.range nR do
-          let rin := rinX[i]!
-          let hnextId := mkI s!"hnext{i}"; let hbId := mkI s!"hb{i}"
-          let g1R : Ident := P s!"coneEval_r{i}"
-          pre := pre.push (← `(tactic| have $hnextId:ident : CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) (t + 1) ⟨$(quote i), by decide⟩ = env1 $(quote rin) := by
-            show (Sparkle.IR.Semantics.evalExpr $weCT (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t))))
-              (CExpr.compile $snmId (CdoW.next $sdeepId ⟨$(quote i), by decide⟩))).getD 0 = _
-            rw [$g1R:ident]
-            show (Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres s!"r{i}")).getD 0 = _
-            rw [$(Q s!"step_r{i}") $appArgs* t hrun (env1 $(quote rin)) (by simp [Sparkle.IR.Semantics.evalExpr])]
-            rfl))
-          pre := pre.push (← `(tactic| have $hbId:ident : env1 $(quote rin) < 2 ^ $(quote regWs[i]!) := $hb1Id $appArgs* t hrun _))
-          rws := rws.push (← `(Nat.mod_eq_of_lt $hbId)); rws := rws.push (← `($hnextId))
-        -- after simp the index literal is normalised (`⟨0, _⟩` → `0`), so the
-        -- rewrite by hnext may not fire syntactically; close up to defeq
-        let mut nextClosers : Array (Lean.TSyntax `tactic) := #[]
-        for i in List.range nR do
-          let hnextId := mkI s!"hnext{i}"
-          nextClosers := nextClosers.push (← `(tactic| all_goals (try exact ($hnextId:ident).symm)))
-          nextClosers := nextClosers.push (← `(tactic| all_goals (try exact $hnextId:ident)))
-        let mut hrsts : Array (Lean.TSyntax `tactic) := #[]
-        let mut hrstTs : Array Term := #[]
-        for (r, idx) in rstNamesX.toArray.zipIdx do
-          let hId := mkI s!"hrst{idx}"
-          hrsts := hrsts.push (← `(tactic| have $hId:ident : env1 $(quote r) = 0 := by
-            rw [$(Q s!"frame_rst{idx}") $appArgs* t hrun]; exact $otherId $appArgs* t $(quote r) (by decide)))
-          hrstTs := hrstTs.push (← `($hId))
-        elabSyncS (← `(theorem $regstepId $paramBinders* (t : Nat) $xB* :
-            Sparkle.IR.Semantics.regNexts $weMId (fun _ _ => 0) $bodyXId env1 = some [$nextsItems,*] := by
-          $[$pre:tactic]*
-          $[$hrsts:tactic]*
-          simp only [$bodyXId:ident, Sparkle.IR.Semantics.regNexts, Sparkle.IR.Semantics.evalExpr,
-            Option.bind_eq_bind, Option.bind_some, $[$hrstTs:term],*, ne_eq, not_true_eq_false, ↓reduceIte]
-          simp [Sparkle.IR.Semantics.mask, $weMId:ident, $[$rws:term],*]
-          all_goals (repeat' (apply And.intro))
-          $[$nextClosers:tactic]*))
-        deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: steps + regstep emitted"
-        -- state trace: stepIter's state equals the spec recurrence
-        let stateTraceId := Q "state_trace"
-        elabSyncS (← `(theorem $stateTraceId $paramBinders* : ∀ (t : Nat) {st : String → Nat},
-            Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st → $stateConj := by
-          intro t
-          induction t with
+      let uId := mkI "u"; let mId := mkI "m"; let LId := mkI "L"; let hLId := mkI "hL"
+      let hLtId := mkI "hLt"; let preId := mkI "pre"; let hpreId := mkI "hpre"
+      let packU ← packAt (← `($uId)); let packS ← packAt (← `($sId))
+      let fIdsM : Array Ident := (List.range nW).toArray.map fun k => mkI s!"fm{k}"
+      let fIdsT : Array Ident := (List.range nW).toArray.map fun k => mkI s!"ft{k}"
+      let hpreApp : Term ← `($hpreId $mId (Nat.lt_succ_self $mId))
+      let inpAtTs : Array Term := inpAtIds.map fun i => (⟨i.raw⟩ : Term)
+      let extrasM : Array Term := #[hpreApp, ← `(mkRegList)] ++ helperTs ++ outUnfoldS
+      let postM : Array Term := plumbing ++ outUnfoldS ++ sigvalSet ++ inpAtTs ++ #[hpreApp]
+      let rdSuccRws : Array (Lean.TSyntax `tactic) ← rdSuccS.mapM fun r => `(tactic| all_goals (try rw [$r:ident]))
+      -- the wire equations as hypotheses, under `all_goals`: when an earlier
+      -- simp already closed the goal (crc16's output IS its register once the
+      -- full-width slice alias is inlined), a bare `have` raises "No goals to
+      -- be solved" AFTER the proof is complete — the term is sorry-free, the
+      -- audit passes, and the build still fails (measured 2026-09-14)
+      let wireHypsM : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
+        let fId : Ident := fIdsM[k]!; let eqId : Ident := rwEqIds[k]!
+        `(tactic| all_goals (have $fId:ident := $eqId $appArgs* $mId))
+      let wireHypsT : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
+        let fId : Ident := fIdsT[k]!; let eqId : Ident := rwEqIds[k]!
+        `(tactic| all_goals (have $fId:ident := $eqId $appArgs* t))
+      let extrasT : Array Term := #[(⟨hLtId.raw⟩ : Term)] ++ helperTs ++ outUnfoldS
+      let postT : Array Term := outUnfoldS ++ sigvalSet ++ inpAtTs
+      let preOutT : Array Term := #[← `(outFOf)] ++ plumbing ++ outUnfoldS ++ #[(⟨hLtId.raw⟩ : Term)]
+      let outA : Array (Lean.TSyntax `tactic) := #[
+        ← `(tactic| simp -zeta only [$[$preOutT:term],*]),
+        goalDump,
+        ← `(tactic| signal_lets t [$[$extrasT:term],*]),
+        ← `(tactic| all_goals (try simp only [$[$postT:term],*]))]
+        ++ wireHypsT ++ #[← `(tactic| all_goals bv_decide)]
+      let outB : Array (Lean.TSyntax `tactic) := #[
+        ← `(tactic| simp only [$[$preOutT:term],*]),
+        goalDump,
+        ← `(tactic| all_goals (try simp only [$[$postT:term],*]))]
+        ++ wireHypsT ++ #[← `(tactic| all_goals (first | rfl | bv_decide | fail "#verify_elab_deep (shared route): output closers exhausted"))]
+      let irSt : Term ← `(CdoW.irState $sdeepId $snmId $inpFam t)
+      let ρnT : Term ← `(natJoin $irSt (fun j => ((($inpS) j).val t).toNat))
+      let thmCmd ← `(theorem $thId $paramBinders* (t : Nat) :
+          (($lhsSig).val t).toNat
+            = (Sparkle.IR.Semantics.evalExpr (weOfC $snmId (fun k => ($ΓAllS).get k))
+                (envOfC $snmId (natJoin $ρnT (CdoW.irWires $sdeepId $snmId $ρnT)))
+                (CExpr.compile $snmId (CdoW.out $sdeepId))).getD 0 := by
+        rw [← CdoW.elab_general $sdeepId $snmId $hinjId $inpS t]
+        refine congrArg BitVec.toNat ?_
+        $[$headTacs:tactic]*
+        simp -zeta only [outFOf, mkHolds, Signal.map, $[$outUnfoldS:term],*]
+        generalize $hLId : Signal.loop (loopFOf
+          (dom := Sparkle.Core.Domain.defaultDomain)
+          (αs := [$topTys,*]) (ρ := $retTyS) _ _) = $LId
+        have $hLtId : ∀ ($uId : Nat), ($LId).val $uId = $packU := by
+          intro $uId:ident
+          rw [← $hLId:ident]
+          refine loop_trace_at _ (fun $sId => $packS) ?_ $uId
+          intro $uId:ident $preId:ident $hpreId:ident
+          cases $uId:ident with
           | zero =>
-            intro st h
-            simp only [Tools.ConeFold.stepIter, Option.some_inj] at h
-            subst h
-            simp [$st0Id:ident, CdoW.irState]
-          | succ t ih =>
-            intro st' h
-            simp only [Tools.ConeFold.stepIter, Option.bind_eq_bind] at h
-            cases hprev : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t with
-            | none => rw [hprev] at h; simp at h
-            | some st =>
-              rw [hprev] at h
-              simp only [Option.bind_some] at h
-              have ihc := ih hprev
-              rw [$henvId $appArgs* t st $ihProjs*] at h
-              simp only [Sparkle.IR.Semantics.stepModule, Option.bind_eq_bind] at h
-              cases hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envAtId $appArgs* t) with
-              | none => rw [hrun] at h; simp at h
-              | some env1 =>
-                rw [hrun] at h
-                simp only [Option.bind_some] at h
-                rw [$regstepId $appArgs* t hrun,
-                  Tools.ConeFold.memNexts_memFree $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide))] at h
-                simp only [Option.bind_some, Option.some_inj] at h
-                subst h
-                simp [Sparkle.IR.Semantics.applyNexts]))
-        -- fold; runModule forms
-        let sigFoldId := Q "signal_fold"; let sigRunModId := Q "signal_runModule"; let sigRunId := Q "signal_run"
-        elabSyncS (← `(theorem $sigFoldId $paramBinders* (t : Nat) {st : String → Nat} {env1 : Sparkle.IR.Semantics.Env}
-            (hstep : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st)
-            (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envStId $appArgs* t st) = some env1) :
-            (($lhsSig).val t).toNat = env1 $(quote portName) := by
-          have ihc := $stateTraceId $appArgs* t hstep
-          rw [$henvId $appArgs* t st $ihProjsSt*] at hrun
-          have hout := $(Q "step_out") $appArgs* t hrun (env1 $(quote portName)) (by simp [Sparkle.IR.Semantics.evalExpr])
-          rw [$sigMId $appArgs* t, hout]
-          rfl))
-        elabSyncS (← `(theorem $sigRunModId $paramBinders* (K : Nat) {envs : List Sparkle.IR.Semantics.Env}
-            (hrunM : Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs) :
-            ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
-          intro t ht
-          have henvs' : Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (0 + (K - 1 - td)) s) K $st0Id (fun _ _ => 0) = some envs := by
-            rw [Tools.ConeFold.runModule_seed_congr $weMId $bodyXId K (fun td s => $envStId $appArgs* (0 + (K - 1 - td)) s)
-              (fun td s => $envStId $appArgs* (K - 1 - td) s) (fun td htd => by simp only [Nat.zero_add])]
-            exact hrunM
-          obtain ⟨st', env1, hsi, hev, hget⟩ :=
-            Tools.ConeFold.runModule_stepIter $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) ($envStId $appArgs*) K 0 $st0Id envs henvs' t ht
-          refine ⟨env1, hget, ?_⟩
-          have hsi' : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st' := by
-            rw [Tools.ConeFold.stepIter_seed_congr $weMId $bodyXId ($envStId $appArgs*) (fun tt s => $envStId $appArgs* (0 + tt) s) $st0Id t
-              (fun tt htt => by simp only [Nat.zero_add])]
-            exact hsi
-          have hev' : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envStId $appArgs* t st') = some env1 := by
-            have h0 : (0 : Nat) + t = t := by omega
-            rw [← h0]
-            exact hev
-          exact $sigFoldId $appArgs* t hsi' hev'))
-        elabSyncS (← `(theorem $sigRunId $paramBinders* (K : Nat) :
-            ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs
-              ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
-          obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
-            (Tools.ConeFold.runModule_isSome $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide)
-              (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id)
-          exact ⟨envs, henvs, $sigRunModId $appArgs* K henvs⟩))
-        deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: replay chain emitted"
-        pure sigRunId
-      -- ===== the elaborator's body =====
-      let sigRunId ← replayOver "" bodyO regs
-      -- ===== the bodies the printed Verilog is about =====
-      -- Pre-checked in the generator so a body outside the bridge fragment
-      -- is reported with its reason (a failed obligation inside the proofs
-      -- would surface only as sorryAx).  A skipped bridge is a WARNING and
-      -- is absent from the PROVEN line — never reported as proven.
-      let extras : IO.Ref (Array (Ident × String)) ← IO.mkRef #[]
-      let weF : Sparkle.IR.Semantics.WEnv := fun n => wt.getD n 0
-      let wofF : String → Option Nat := fun n => some (weF n)
-      let normOf (c : Sparkle.IR.AST.Expr) : Sparkle.IR.AST.Expr := Tools.ConeFold.rtNorm weF (Tools.ConeFold.stripMask wofF c)
-      let sharedBridge (tag : String) (mx : Sparkle.IR.AST.Module) (withSv : Bool) : CommandElabM (Option Ident) := do
-        let bodyX := mx.body
-        let regsX := theRegisters mx
-        let dmX := Sparkle.IR.Optimize.buildDefMap bodyX
-        let skip (why : String) : CommandElabM (Option Ident) := do
-          logWarning m!"#verify_elab_deep {declName}: {tag} bridge SKIPPED — {why}"
-          pure none
-        -- register identities by name; inputs are wire references; resets are not slots
-        if regsX.length != regs.length then return ← skip s!"the replayed body has {regsX.length} registers, the elaborator's {regs.length}"
-        for (rn, _, init) in regs do
-          match regsX.find? (·.1 == rn) with
-          | none => return ← skip s!"register {rn} is missing from the replayed body"
-          | some (_, inputX, initX) =>
-            if init != initX then return ← skip s!"register {rn}'s initial value changed ({init} → {initX})"
-            match inputX with
-            | .ref _ => pure ()
-            | _ => return ← skip s!"register {rn}'s input is not a wire reference in the replayed body"
-        let rstsX : List String := bodyX.filterMap fun st => match st with
-          | .register _ _ (rstName, _) _ _ => some rstName
-          | _ => none
-        if rstsX.any (fun r => slotNames.contains r) then return ← skip "a reset wire is a state slot"
-        -- the fold-side checkers the replay discharges
-        unless Sparkle.IR.Reorder.woCheck [] bodyX do return ← skip "the replayed body is not well-ordered (woCheck)"
-        unless Tools.ConeFold.memFreeCheck bodyX do return ← skip "the replayed body has memories"
-        unless Tools.ConeFold.noSelfReadCheck bodyX do return ← skip "the replayed body has a self-reading assign"
-        unless Tools.ConeFold.bodyEvalOk bodyX do return ← skip "the replayed body is outside evalOk"
-        unless Tools.ConeFold.bodyWidthOk weF bodyX do return ← skip "the replayed body fails bodyWidthOk (a mux false arm wider than its true arm, or an assign not at its wire's width)"
-        unless Tools.ConeFold.hwfCheck weF stopS bodyX do return ← skip "the replayed body fails hwfCheck at the slot stop set"
-        for w in shared do
-          unless Tools.ConeFold.hwfCheck weF (stopS.erase w) bodyX do return ← skip s!"the replayed body fails hwfCheck at the stop set of wire {w}"
-        -- every slot cone of the replayed body normalises to the original's
-        let coneEq (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (orig : Sparkle.IR.AST.Expr) (what : String) :
-            CommandElabM (Option String) := do
-          match Tools.ConeFold.inlineConeT dmX stop 10000 e with
-          | .error err => pure (some s!"cone of {what} in the replayed body: {err}")
-          | .ok c =>
-            let nX := normOf (Tools.ConeFold.resolveSlicesT wt 10000 c)
-            let nO := Tools.ConeFold.rtNorm weF orig
-            if nX != nO then pure (some s!"cone of {what} differs after normalisation ({(repr nX).pretty.length} vs {(repr nO).pretty.length} chars)")
-            else if !(Tools.ConeFold.widthOk weF nX && Tools.ConeFold.widthOk weF nO) then pure (some s!"cone of {what} fails widthOk")
-            else pure none
-        for i in List.range nR do
-          let (rn, _, _) := regs[i]!
-          let some (_, .ref rin, _) := regsX.find? (·.1 == rn) | return ← skip "unreachable"
-          if let some why ← coneEq stopS (.ref rin) regConesIR[i]! s!"register {rn}" then return ← skip why
-        for k in List.range nW do
-          let w := shared[k]!
-          if let some why ← coneEq (stopS.erase w) (.ref w) wireConesIR[k]! s!"wire {w}" then return ← skip why
-        if let some why ← coneEq stopS (.ref portName) outConeIR s!"output {portName}" then return ← skip why
-        -- the replay
-        let sigRunX ← replayOver tag bodyX regsX
-        extras.modify (·.push (sigRunX, s!"Signal ≡ runModule of the {tag} body"))
-        if withSv then
-          -- the M4 forward semantics of the emission of this body (needs the
-          -- sequential fragment check; reported per statement when it fails)
-          let wofSeq := Tools.SVParser.EmitSem.weOf wofF
-          match bodyX.find? (fun st => !Tools.SVParser.EmitSem.seqCheck wofF wofSeq [st]) with
-          | some st =>
-            let nm := match st with | .assign l _ => l | .register o _ _ _ _ => o | _ => "?"
-            logWarning m!"#verify_elab_deep {declName}: {tag} SV-semantics theorem SKIPPED — statement `{nm}` of the {tag} body is outside the M4 sequential fragment (seqCheck); see docs/RefusalLedger.md (M4 residual fragment)"
-          | none =>
-            let sigSvId := P s!"signal_sv{tag}"; let sigRunModX := P s!"signal_runModule{tag}"; let bodyXId := P s!"body{tag}"
-            elabSyncS (← `(theorem $sigSvId $paramBinders* :
-                ∃ pairs regs mprog,
-                Tools.SVParser.EmitSem.emitAssigns $wofMId $bodyXId = some pairs
-                ∧ Tools.SVParser.EmitSem.emitRegs $wofMId $bodyXId = some regs
-                ∧ Tools.SVParser.EmitSem.emitMemWrites $wofMId $bodyXId = some mprog
-                ∧ ∀ (K : Nat) (envs : List Sparkle.IR.Semantics.Env),
-                    Tools.SVParser.EmitSem.runModuleSV $wofMId pairs regs mprog
-                      (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs →
-                    ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
-              have hchk : Tools.SVParser.EmitSem.seqCheck $wofMId (Tools.SVParser.EmitSem.weOf $wofMId) $bodyXId = true := by
-                native_decide
-              have hbnd : ∀ (K t : Nat) (st : String → Nat),
-                  Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf $wofMId) ($envStId $appArgs* (K - 1 - t) st) := by
-                intro K t st
-                rw [$weOfEqId:ident]
-                exact $envStBndId $appArgs* (K - 1 - t) st
-              obtain ⟨pairs, regs, mprog, h1, h2, h3, _⟩ :=
-                Tools.SVParser.EmitSem.certified_forward_trace_module hchk
-                  (fun td s => $envStId $appArgs* (1 - 1 - td) s) (hbnd 1)
-              refine ⟨pairs, regs, mprog, h1, h2, h3, ?_⟩
-              intro K envs hSV t ht
-              obtain ⟨pairs', regs', mprog', h1', h2', h3', heq⟩ :=
-                Tools.SVParser.EmitSem.certified_forward_trace_module hchk
-                  (fun td s => $envStId $appArgs* (K - 1 - td) s) (hbnd K)
-              rw [h1] at h1'
-              rw [h2] at h2'
-              rw [h3] at h3'
-              cases h1'
-              cases h2'
-              cases h3'
-              have hrunM := heq K $st0Id (fun _ _ => 0)
-              rw [$weOfEqId:ident, hSV] at hrunM
-              exact $sigRunModX $appArgs* K hrunM t ht))
-            extras.modify (·.push (sigSvId, s!"Signal ≡ Verilog-subset semantics of the emission of the {tag} body"))
-        pure (some sigRunX)
-      -- (1) the OPTIMIZED body — the module `toVerilog (optimizeModule m)` prints
-      let mo := Sparkle.IR.Optimize.optimizeModule m
-      let _ ← sharedBridge "Opt" mo true
-      -- (2) the printed text, read back by the shipping parser+lowerer
-      -- (evaluated by native_decide in `{base}_sdeep_text_parses` — the
-      -- parser is trusted as an executable oracle on THIS text, not proven)
-      let text := Sparkle.Backend.Verilog.toVerilog mo
-      match Tools.SVParser.Lower.parseAndLowerHierarchical text with
-      | .error e =>
-        logWarning m!"#verify_elab_deep {declName}: text bridge SKIPPED — the printed Verilog did not re-parse: {e}"
-      | .ok dRT =>
-        let bodyRT := dRT.modules.foldl (fun acc lm => acc ++ lm.body) []
-        match dRT.modules.head? with
-        | none => logWarning m!"#verify_elab_deep {declName}: text bridge SKIPPED — empty design"
-        | some mrt0 =>
-          let mrt := { mrt0 with body := bodyRT }
-          if let some _ ← sharedBridge "RT" mrt false then
-            let textId := P "text"; let parsesId := P "text_parses"; let bodyRTId := P "bodyRT"
-            liftCoreM <| addAndCompile <| .defnDecl {
-              name := textId.getId, levelParams := []
-              type := mkConst ``String
-              value := toExpr text, hints := .abbrev, safety := .safe }
-            liftCoreM <| Lean.enableRealizationsForConst textId.getId
-            elabSyncS (← `(theorem $parsesId :
-                (Tools.SVParser.Lower.parseAndLowerHierarchical $textId).map
-                    (fun d => d.modules.foldl (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) [])
-                  = .ok $bodyRTId := by native_decide))
-            extras.modify (·.push (parsesId, "the shipping parser+lowerer maps the printed text to the RT body"))
-      pure (sigRunId, ← extras.get)
-    let (sigRunId, extras) ← sharedReplay ()
-    -- audit: exists, no sorryAx, only decision-procedure auxiliaries beyond
-    -- the standard axioms — for the replay AND every bridge theorem
-    let isAux (a : Name) : Bool := a == ``Lean.ofReduceBool ||
-      (match a with
-       | .str (.str (.str _ "_native") "native_decide") ax => ax.startsWith "ax_"
-       | .str (.str (.str _ "_native") "bv_decide") ax => ax.startsWith "ax_"
-       | _ => false)
-    let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
-    let audit (id : Ident) (what : String) : CommandElabM Nat := do
-      let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload id
+            simp -zeta [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
+              Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure,
+              Functor.map, Seq.seq, Signal.ap, Signal.seq, $[$inpAtTs:term],*]
+            all_goals (try simp only [$[$rdZeroS:ident],*])
+            all_goals (first | rfl | bv_decide | (simp; done) | fail "#verify_elab_deep (shared route): zero case closers exhausted")
+          | succ $mId =>
+            simp -zeta only [loopFOf, packRegister, Signal.register, Signal.memStep, Circuit.next,
+              Circuit.pure', Circuit.bind, mkHolds, Signal.map, Signal.mux, bundle2, Signal.pure,
+              Functor.map, Seq.seq, Signal.ap, Signal.seq, $hpreApp:term]
+            signal_lets $mId [$[$extrasM:term],*]
+            $goalDump:tactic
+            all_goals (try simp only [$[$postM:term],*])
+            all_goals (try simp only [$[$rdSuccS:ident],*])
+            $[$rdSuccRws:tactic]*
+            $[$wireHypsM:tactic]*
+            all_goals (try simp only [Prod.mk.injEq, and_true])
+            all_goals (try (rw [Prod.mk.injEq]; refine ⟨?_, rfl⟩))
+            $goalDump:tactic
+            $stepCloser:tactic
+        rw [$outSId:ident]
+        -- OUTPUT half, two recipes.  (A) zeta OFF + signal_lets: linear when the
+        -- output chain re-uses wires (shareX).  It fails when the register
+        -- `match` cannot reduce with zeta off (the pack sits behind mkRegList's
+        -- own lets — crc16), so (B) zeta ON without extraction: the next-chain
+        -- expands only LINEARLY when no helper body is unfolded, and the output
+        -- of such circuits is small (a register read).
+        first
+          | ($[$outA:tactic]*)
+          | ($[$outB:tactic]*))
+      if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
+        logInfo m!"{thmCmd}"
+      deepTrace fun _ => s!"#verify_elab_deep STAGE shared: trace theorem begin"
+      elabSyncS (← `(set_option maxHeartbeats 1600000 in $thmCmd:command))
+      -- audit: the theorem must exist, with no sorryAx
+      let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload thId
       let axs ← liftCoreM <| Lean.collectAxioms full
       if axs.contains ``sorryAx then
-        throwError "#verify_elab_deep (shared route) {declName}: {what} {id.getId} FAILED (sorryAx) — see the errors above"
-      for a in axs do
-        unless std.contains a || isAux a do
-          throwError "#verify_elab_deep (shared route) {declName}: {what} {id.getId} depends on unexpected axiom {a}"
-      pure (axs.foldl (fun c a => if isAux a then c + 1 else c) 0)
-    let nAux ← audit sigRunId "replay"
-    let mut bridgeMsg : String := ""
-    for (id, what) in extras do
-      let n ← audit id "bridge theorem"
-      bridgeMsg := bridgeMsg ++ s!"; {id.getId} PROVEN ({what}; axioms: standard + {n} decision-procedure auxiliaries)"
-    logInfo m!"#verify_elab_deep {declName}: PROVEN via CdoW.elab_general — {thId.getId} (SHARED route: {nR} registers, {nI} inputs, {nW} shared wires); IR replay {sigRunId.getId} PROVEN (axioms: standard + {nAux} decision-procedure auxiliaries){bridgeMsg}"
+        throwError "#verify_elab_deep (shared route) {declName}: generated proof {thId.getId} FAILED (sorryAx) — see the errors above"
+      -- ================= SHARED ROUTE, stage 2: the IR replay =================
+      -- Mirrors Tests/Verification/ConeSharingReplay.lean, generically.
+      let rec sharedReplay : Unit → CommandElabM (Ident × Array (Ident × String)) := fun _ => do
+        deepTrace fun _ => s!"#verify_elab_deep STAGE shared: replay begin"
+        let P (x : String) : Ident := mkI s!"{base}_sdeep_{x}"
+        let bodyId := P "body"; let weMId := P "weM"; let wtLId := P "wtL"; let wtMId := P "wtM"
+        let stopLId := P "stopL"; let stopAtMId := P "stopAtM"; let dmId := P "dm"
+        let stopLwId := P "stopLw"; let stopAtMwId := P "stopAtMw"
+        -- constants
+        liftCoreM <| addAndCompile <| .defnDecl {
+          name := bodyId.getId, levelParams := []
+          type := mkApp (mkConst ``List [levelZero]) (mkConst ``Sparkle.IR.AST.Stmt)
+          value := toExpr bodyO, hints := .abbrev, safety := .safe }
+        liftCoreM <| Lean.enableRealizationsForConst bodyId.getId
+        let weBody ← do
+          let mut acc ← `((0 : Nat))
+          for (n, w) in wt.toList do
+            acc ← `(if n == $(quote n) then $(quote w) else $acc)
+          pure acc
+        elabSyncS (← `(def $weMId : Sparkle.IR.Semantics.WEnv := fun n => $weBody))
+        liftCoreM <| addAndCompile <| .defnDecl {
+          name := wtLId.getId, levelParams := []
+          type := mkApp (mkConst ``List [levelZero])
+            (mkApp2 (mkConst ``Prod [levelZero, levelZero]) (mkConst ``String) (mkConst ``Nat))
+          value := toExpr wt.toList, hints := .abbrev, safety := .safe }
+        liftCoreM <| Lean.enableRealizationsForConst wtLId.getId
+        elabSyncS (← `(def $wtMId : Std.HashMap String Nat :=
+          ($wtLId).foldl (fun m p => m.insert p.1 p.2) {}))
+        -- F2: the width-table fact ONCE, by KERNEL decide (list-shaped: the
+        -- table is a literal association list, `weM` an if-chain), instead of
+        -- one native_decide per settled/step lemma (6 sites per body on shareX4)
+        let hwtId := P "hwt"
+        elabSyncS (← `(theorem $hwtId : ∀ p ∈ $wtLId, $weMId p.1 = p.2 := by decide))
+        -- F2: the slot-width fact ONCE (kernel decide) — it was a native_decide
+        -- `have` inside both `seed_bounded` and `envSt_bounded`
+        let hagKId := P "hagK"
+        elabSyncS (← `(theorem $hagKId : ∀ k : Fin ($ΓAllS).length, $weMId ($snmId k) = ($ΓAllS).get k := by decide))
+        elabSyncS (← `(def $stopLId : List String := [$nameTs,*]))
+        elabSyncS (← `(def $stopAtMId : Std.HashMap String Bool := Tools.ConeFold.stopOfL $stopLId))
+        elabSyncS (← `(def $stopLwId (w : String) : List String := ($stopLId).erase w))
+        elabSyncS (← `(def $stopAtMwId (w : String) : Std.HashMap String Bool :=
+          Tools.ConeFold.stopOfL ($stopLwId w)))
+        elabSyncS (← `(def $dmId : Sparkle.IR.Optimize.DefMap := Sparkle.IR.Optimize.buildDefMap $bodyId))
+        let addExprC (id : Ident) (e : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
+          liftCoreM <| addAndCompile <| .defnDecl {
+            name := id.getId, levelParams := []
+            type := mkConst ``Sparkle.IR.AST.Expr
+            value := toExpr e, hints := .abbrev, safety := .safe }
+          liftCoreM <| Lean.enableRealizationsForConst id.getId
+        let craw (x : String) : Ident := P s!"coneRaw_{x}"
+        let cres (x : String) : Ident := P s!"cone_{x}"
+        let defCone (x : String) : CommandElabM Unit := do
+          let rid := craw x; let cid := cres x
+          elabSyncS (← `(def $cid : Sparkle.IR.AST.Expr := Tools.ConeFold.resolveSlicesT $wtMId 10000 $rid))
+        for i in List.range nR do
+          addExprC (craw s!"r{i}") regCones2[i]!.1; defCone s!"r{i}"
+        for k in List.range nW do
+          addExprC (craw s!"w{k}") wireCones2[k]!.1; defCone s!"w{k}"
+        addExprC (craw "out") outCone2.1; defCone "out"
+        let weCT : Term ← `(weOfC $snmId (fun k => ($ΓAllS).get k))
+        -- G1 glue per slot
+        let hagId := P "hag"
+        elabSyncS (← `(theorem $hagId : ∀ n ∈ $stopLId, $weCT n = $weMId n := by decide))
+        let g1 (x : String) (lhs : Term) (eIn : Term) (sl : Term) (hagT : Term) : CommandElabM Unit := do
+          let g1Id := P s!"coneEval_{x}"
+          elabSyncS (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
+              Sparkle.IR.Semantics.evalExpr $weCT env $lhs
+                = Sparkle.IR.Semantics.evalExpr $weMId env $(cres x) :=
+            g1_shared $dmId $wtMId $weCT $weMId $sl _ $(cres x) $(craw x) $eIn
+              (by native_decide) (by native_decide) (by native_decide) (by native_decide) $hagT env))
+        for i in List.range nR do
+          let (rn, input, _) := regs[i]!
+          let inQ ← quoteIR input
+          g1 s!"r{i}" (← `(CExpr.compile $snmId (CdoW.next $sdeepId ⟨$(quote i), by decide⟩))) inQ (← `($stopLId)) (← `($hagId))
+        for k in List.range nW do
+          let w := shared[k]!
+          g1 s!"w{k}" (← `(CExpr.compile $snmId (CdoW.wires $sdeepId ⟨$(quote k), by decide⟩)))
+            (← `(Sparkle.IR.AST.Expr.ref $(quote w))) (← `($stopLwId $(quote w)))
+            (← `((fun n hn => $hagId n (List.mem_of_mem_erase hn))))
+        g1 "out" (← `(CExpr.compile $snmId (CdoW.out $sdeepId))) (← `(Sparkle.IR.AST.Expr.ref $(quote portName))) (← `($stopLId)) (← `($hagId))
+        deepTrace fun _ => s!"#verify_elab_deep STAGE shared: G1 glue emitted"
+        -- the seed and its readers
+        let inpFId := P "inpF"; let ρnId := P "rhoN"; let envAtId := P "envAt"; let hinjId := P "hinj"
+        let ρnEqId := P "rhoN_eq"; let seedBndId := P "seed_bounded"; let nmMemId := P "nm_mem_stop"; let otherId := P "envAt_other"
+        elabSyncS (← `(def $inpFId $paramBinders* : Nat → CEnv $ΓiT := fun t j => (($inpS) j).val t))
+        elabSyncS (← `(def $ρnId $paramBinders* (t : Nat) : Fin ($ΓrT ++ $ΓiT : List Nat).length → Nat :=
+          natJoin (CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t) (fun j => ((($inpS) j).val t).toNat)))
+        elabSyncS (← `(def $envAtId $paramBinders* (t : Nat) : Sparkle.IR.Semantics.Env :=
+          envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t)))))
+        elabSyncS (← `(theorem $ρnEqId $paramBinders* (t : Nat) :
+            $ρnId $appArgs* t = fun m => (CEnv.join (CdoW.stateAt $sdeepId ($inpFId $appArgs*) t) ($inpFId $appArgs* t) m).toNat := by
+          funext m
+          unfold $ρnId
+          rw [← natJoin_eq_join]
+          congr 1
+          funext k
+          exact CdoW.irState_eq $sdeepId $snmId $hinjId ($inpFId $appArgs*) t k))
+        elabSyncS (← `(theorem $seedBndId $paramBinders* (t : Nat) : ∀ n, $envAtId $appArgs* t n < 2 ^ $weMId n := by
+          intro n
+          unfold $envAtId
+          apply envOfC_bounded
+          intro k
+          have hag := $hagKId
+          rw [hag k, $ρnEqId $appArgs* t, CdoW.natJoin_full $sdeepId $snmId $hinjId]
+          exact BitVec.isLt _))
+        -- pointwise readers of the seed
+        let rdAt (x : String) : Ident := P s!"envAt_{x}"
+        for i in List.range nR do
+          let (rn, _, _) := regs[i]!
+          elabSyncS (← `(theorem $(rdAt s!"r{i}") $paramBinders* (t : Nat) :
+              $envAtId $appArgs* t $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩ := by
+            show envOfC $snmId _ ($snmId ⟨$(quote i), by decide⟩) = _
+            rw [envOfC_names $snmId _ $hinjId]
+            rfl))
+        for j in List.range nI do
+          let (inn, _) := ins[j]!
+          elabSyncS (← `(theorem $(rdAt s!"i{j}") $paramBinders* (t : Nat) :
+              $envAtId $appArgs* t $(quote inn) = ((($inpS) ⟨$(quote j), by decide⟩).val t).toNat := by
+            show envOfC $snmId _ ($snmId ⟨$(quote (nR + j)), by decide⟩) = _
+            rw [envOfC_names $snmId _ $hinjId]
+            rfl))
+        for k in List.range nW do
+          let w := shared[k]!
+          elabSyncS (← `(theorem $(rdAt s!"w{k}") $paramBinders* (t : Nat) :
+              $envAtId $appArgs* t $(quote w) = CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t) ⟨$(quote k), by decide⟩ := by
+            show envOfC $snmId _ ($snmId ⟨$(quote (nR + nI + k)), by decide⟩) = _
+            rw [envOfC_names $snmId _ $hinjId]
+            rfl))
+        elabSyncS (← `(theorem $nmMemId : ∀ k : Fin ($ΓAllS).length, $snmId k ∈ $stopLId := by decide))
+        elabSyncS (← `(theorem $otherId $paramBinders* (t : Nat) (n : String) (h : n ∉ $stopLId) :
+            $envAtId $appArgs* t n = 0 := by
+          unfold $envAtId
+          apply envOfC_notin
+          intro k hk
+          exact h (hk ▸ $nmMemId k)))
+        deepTrace fun _ => s!"#verify_elab_deep STAGE shared: seed + readers emitted"
+        -- ===== body-independent plumbing: the state-indexed seed, and the
+        -- Signal value as the output cone at the seed (shared by every
+        -- body the chain is replayed over) =====
+        let stvId := P "stv"; let ρnSId := P "rhoNS"; let envStId := P "envSt"; let st0Id := P "st0"
+        let stvArms ← (List.range nR).toArray.mapM fun i => do
+          let (rn, _, _) := regs[i]!
+          `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => st $(quote rn) % 2 ^ $(quote regWs[i]!))
+        elabSyncS (← `(def $stvId (st : String → Nat) : Fin ($ΓrT : List Nat).length → Nat := fun j => match j with $stvArms:matchAlt*))
+        elabSyncS (← `(def $ρnSId $paramBinders* (t : Nat) (st : String → Nat) : Fin ($ΓrT ++ $ΓiT : List Nat).length → Nat :=
+          natJoin ($stvId st) (fun j => ((($inpS) j).val t).toNat)))
+        elabSyncS (← `(def $envStId $paramBinders* (t : Nat) (st : String → Nat) : Sparkle.IR.Semantics.Env :=
+          envOfC $snmId (natJoin ($ρnSId $appArgs* t st) (CdoW.irWires $sdeepId $snmId ($ρnSId $appArgs* t st)))))
+        let st0Body ← do
+          let mut acc ← `((0 : Nat))
+          for i in (List.range nR).reverse do
+            let (rn, _, _) := regs[i]!
+            acc ← `(if n == $(quote rn) then (CdoW.inits $sdeepId ⟨$(quote i), by decide⟩).toNat else $acc)
+          pure acc
+        elabSyncS (← `(def $st0Id : String → Nat := fun n => $st0Body))
+        let bvArms ← (List.range nR).toArray.mapM fun i => do
+          let (rn, _, _) := regs[i]!
+          `(Lean.Parser.Term.matchAltExpr| | ⟨$(quote i), _⟩ => BitVec.ofNat $(quote regWs[i]!) (st $(quote rn)))
+        let ρnSEqId := P "rhoNS_eq"; let envStBndId := P "envSt_bounded"; let henvId := P "henv"
+        -- Nat index `kv < nR`: nR two-way splits with a focused bullet each, then
+        -- the impossible tail closes by omega
+        let natSeq (bullets : Array (Lean.TSyntax `tactic)) (v : Ident) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
+          let mut out : Array (Lean.TSyntax `tactic) := #[]
+          for b in bullets do
+            out := out.push (← `(tactic| rcases $v:ident with _ | $v:ident))
+            out := out.push (← `(tactic| · $b:tactic))
+          out := out.push (← `(tactic| exfalso))
+          out := out.push (← `(tactic| omega))
+          pure out
+        let stvCases ← (List.range nR).toArray.mapM fun _ => do
+          `(tactic| simp [$stvId:ident])
+        let kvId := mkI "kv"; let hkId := mkI "hk"; let jvId := mkI "jv"; let hjId := mkI "hj"
+        let stvSeq ← natSeq stvCases kvId
+        elabSyncS (← `(theorem $ρnSEqId $paramBinders* (t : Nat) (st : String → Nat) :
+            $ρnSId $appArgs* t st = fun m => (CEnv.join
+              ((fun j => match j with $bvArms:matchAlt*) : CEnv $ΓrT) ($inpFId $appArgs* t) m).toNat := by
+          funext m
+          unfold $ρnSId
+          rw [← natJoin_eq_join]
+          congr 1
+          funext k
+          rcases k with ⟨$kvId:ident, $hkId:ident⟩
+          simp only [List.length_cons, List.length_nil] at $hkId:ident
+          $[$stvSeq:tactic]*))
+        elabSyncS (← `(theorem $envStBndId $paramBinders* (t : Nat) (st : String → Nat) :
+            ∀ n, $envStId $appArgs* t st n < 2 ^ $weMId n := by
+          intro n
+          unfold $envStId
+          apply envOfC_bounded
+          intro k
+          have hag := $hagKId
+          rw [hag k, $ρnSEqId $appArgs* t st, CdoW.natJoin_full $sdeepId $snmId $hinjId]
+          exact BitVec.isLt _))
+        -- henv: st agrees with the spec recurrence ⇒ the seeds coincide
+        let hstBinders ← (List.range nR).toArray.mapM fun i => do
+          let (rn, _, _) := regs[i]!
+          let hId := mkI s!"hst{i}"
+          `(Lean.Parser.Term.bracketedBinderF| ($hId : st $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩))
+        let hstvCases ← (List.range nR).toArray.mapM fun i => do
+          let (rn, _, _) := regs[i]!
+          let hId := mkI s!"hst{i}"
+          `(tactic| (show st $(quote rn) % 2 ^ $(quote regWs[i]!) = _; rw [$hId:ident]; exact Nat.mod_eq_of_lt (by rw [CdoW.irState_eq $sdeepId $snmId $hinjId]; exact BitVec.isLt _)))
+        let hstvSeq ← natSeq hstvCases jvId
+        elabSyncS (← `(theorem $henvId $paramBinders* (t : Nat) (st : String → Nat) $hstBinders* :
+            $envStId $appArgs* t st = $envAtId $appArgs* t := by
+          have hstv : $stvId st = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t := by
+            funext j
+            rcases j with ⟨$jvId:ident, $hjId:ident⟩
+            simp only [List.length_cons, List.length_nil] at $hjId:ident
+            $[$hstvSeq:tactic]*
+          unfold $envStId $envAtId $ρnSId $ρnId
+          rw [hstv]))
+        -- the M4 width function (`weOf wofM = weM` definitionally) and the
+        -- Signal value as the output cone at the seed
+        let wofMId := P "wofM"; let weOfEqId := P "weOf_eq"
+        elabSyncS (← `(def $wofMId : String → Option Nat := fun n => some ($weMId n)))
+        elabSyncS (← `(theorem $weOfEqId : Tools.SVParser.EmitSem.weOf $wofMId = $weMId := rfl))
+        let sigMId := P "signalM"
+        let g1Out : Ident := P "coneEval_out"
+        elabSyncS (← `(theorem $sigMId $paramBinders* (t : Nat) :
+            (($lhsSig).val t).toNat
+              = (Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres "out")).getD 0 := by
+          rw [$thId $appArgs* t]
+          show (Sparkle.IR.Semantics.evalExpr _ (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t))))
+            (CExpr.compile $snmId (CdoW.out $sdeepId))).getD 0 = _
+          rw [$g1Out:ident]
+          rfl))
+        let ihProjsSt : Array Term ← (List.range nR).toArray.mapM fun i => do
+          let mut t : Term ← `(ihc)
+          for _ in List.range i do t ← `(($t).2)
+          if i + 1 < nR then `(($t).1) else pure t
+        -- `hm : n = a ∨ n = b ∨ …` handled as a SEQUENCE of two-way splits, each
+        -- followed by a focused bullet (no alternative patterns needed)
+        let hmId := mkI "hm"; let nId := mkI "n"; let hnId := mkI "hn"; let hsubId := mkI "hsub"
+        let splitSeq (bullets : Array (Lean.TSyntax `tactic)) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
+          let mut out : Array (Lean.TSyntax `tactic) := #[]
+          let cnt := bullets.size
+          for idx in List.range cnt do
+            let b := bullets[idx]!
+            if idx + 1 < cnt then
+              out := out.push (← `(tactic| rcases $hmId:ident with $hmId:ident | $hmId:ident))
+              out := out.push (← `(tactic| · (subst $hmId:ident; $b:tactic)))
+            else
+              out := out.push (← `(tactic| subst $hmId:ident))
+              out := out.push b
+          pure out
+        -- the state-trace conjunction (over the ORIGINAL register order — it
+        -- states the spec recurrence, whichever body is folded)
+        let stateConj ← do
+          let mut conjs : Array Term := #[]
+          for i in List.range nR do
+            let (rn, _, _) := regs[i]!
+            conjs := conjs.push (← `(st $(quote rn) = CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) t ⟨$(quote i), by decide⟩))
+          let mut acc : Term := conjs.back!
+          for c in conjs.pop.reverse do
+            acc ← `($c ∧ $acc)
+          pure acc
+        let ihProjs : Array Term ← (List.range nR).toArray.mapM fun i => do
+          let mut t : Term ← `(ihc)
+          for _ in List.range i do t ← `(($t).2)
+          if i + 1 < nR then `(($t).1) else pure t
+        -- ===== the replay over ONE body =====
+        -- `tag = ""` replays the elaborator's own body (`{base}_sdeep_body`,
+        -- whose cones ARE the CdoW's).  A non-empty tag replays another body
+        -- — `optimizeModule m` ("Opt"), or what the shipping parser reads
+        -- back from the printed text ("RT") — whose per-slot cones, after
+        -- `rtNorm ∘ stripMask` (Tools/ConeFoldRT.lean), are SYNTACTICALLY the
+        -- normalised original cones (one `native_decide` per cone,
+        -- `{base}_sdeep_maskEq{tag}_*`); `rtBridge_eval` then makes them
+        -- evaluate alike on the settled environment, and the rest of the
+        -- chain is the same text with `{tag}` appended to every
+        -- body-dependent name.  Registers are matched BY NAME (the replayed
+        -- body may list them in another order or re-root one at another
+        -- input wire); the spec recurrence's slot order is the original's.
+        let replayOver (tag : String) (bodyX : List Sparkle.IR.AST.Stmt)
+            (regsX : List (String × Sparkle.IR.AST.Expr × Int)) : CommandElabM Ident := do
+          let Q (x : String) : Ident := P s!"{x}{tag}"
+          let masked := tag != ""
+          let bodyXId := Q "body"
+          let crawX (x : String) : Ident := Q s!"coneRaw_{x}"
+          let cresX (x : String) : Ident := Q s!"cone_{x}"
+          let meqX (x : String) : Ident := Q s!"maskEq_{x}"
+          let rinOf (rn : String) : CommandElabM String := do
+            match regsX.find? (·.1 == rn) with
+            | some (_, .ref r, _) => pure r
+            | _ => throwError "#verify_elab_deep (shared route{tag}): register {rn}'s input is not a wire reference"
+          let rstNamesX : List String := (regsX.filterMap fun (rn, _, _) =>
+            bodyX.findSome? fun st => match st with
+              | .register out _ (rstName, _) _ _ => if out == rn then some rstName else none
+              | _ => none).eraseDups
+          if masked then
+            liftCoreM <| addAndCompile <| .defnDecl {
+              name := bodyXId.getId, levelParams := []
+              type := mkApp (mkConst ``List [levelZero]) (mkConst ``Sparkle.IR.AST.Stmt)
+              value := toExpr bodyX, hints := .abbrev, safety := .safe }
+            liftCoreM <| Lean.enableRealizationsForConst bodyXId.getId
+            let dmX := Sparkle.IR.Optimize.buildDefMap bodyX
+            let coneX (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (what : String) :
+                CommandElabM Sparkle.IR.AST.Expr := do
+              match Tools.ConeFold.inlineConeT dmX stop 10000 e with
+              | .ok c => pure c
+              | .error err => throwError "#verify_elab_deep (shared route{tag}): cone of {what}: {err}"
+            let defX (x : String) (c : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
+              addExprC (crawX x) c
+              elabSyncS (← `(def $(cresX x) : Sparkle.IR.AST.Expr := Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX x)))
+              elabSyncS (← `(theorem $(meqX x) :
+                  Tools.ConeFold.rtNorm $weMId (Tools.ConeFold.stripMask $wofMId $(cresX x))
+                    = Tools.ConeFold.rtNorm $weMId $(cres x) := by native_decide))
+            for i in List.range nR do
+              let rin ← rinOf (regs[i]!).1
+              defX s!"r{i}" (← coneX stopS (.ref rin) s!"register {i}")
+            for k in List.range nW do
+              let w := shared[k]!
+              defX s!"w{k}" (← coneX (stopS.erase w) (.ref w) w)
+            defX "out" (← coneX stopS (.ref portName) portName)
+            deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: body + cones + mask equations emitted"
+          -- settled-environment facts
+          let hrunBinder ← `(Lean.Parser.Term.bracketedBinderF| (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envAtId $appArgs* t) = some env1))
+          let env1Binder ← `(Lean.Parser.Term.bracketedBinderF| {env1 : Sparkle.IR.Semantics.Env})
+          let xB : Array (Lean.TSyntax ``Lean.Parser.Term.bracketedBinder) := #[env1Binder, hrunBinder]
+          -- F2 (stop set): `hwfCheck` reads the stop set only through `contains`,
+          -- which the kernel cannot reduce on a `Std.HashMap` (measured: even
+          -- `stopAtM.contains "…" = true` fails `decide`).  So the CHECK runs on
+          -- the LIST (kernel `decide`) and one agreement fact per stop set
+          -- (`native_decide`, over the body's assign targets only) carries it to
+          -- the proven `hwfCheck_sound`.  Net per body: the per-wire and shared
+          -- hwfCheck sites (nW + 2 on a body) become nW + 2 agreement facts, so
+          -- the count is unchanged — what changes is WHAT is trusted: a
+          -- lookup-agreement fact instead of a walk over every statement.
+          let hwfOf (tagS : String) (stopT : Term) (stopLT : Term) : CommandElabM Ident := do
+            let id := Q s!"hwfL_{tagS}"
+            let cmd ← `(theorem $id : ∀ n rhs,
+                (Sparkle.IR.Optimize.buildDefMap $bodyXId).get? n = some rhs →
+                ($stopT).contains n = false → Sparkle.IR.Semantics.widthOf $weMId rhs = $weMId n :=
+              Tools.ConeFold.hwfCheck_sound $weMId $stopT $bodyXId
+                (Tools.ConeFold.hwfCheckL_to_hwfCheck $weMId $stopLT $bodyXId
+                  (by native_decide) (by decide)))
+            elabSyncS cmd
+            pure id
+          let hwfSharedId ← hwfOf "stop" (← `($stopAtMId)) (← `($stopLId))
+          -- F2: the cone equation `inlineConeT … = .ok coneRaw` by KERNEL
+          -- decide, via the structural walk (Tools/ConeFoldRT.lean).  Each
+          -- distinct (stop set, root) pair is proven ONCE as a named theorem
+          -- and referenced; there is no `native_decide` fallback — a failure
+          -- is an error, like every other obligation on this route.
+          let hinlOf (tagS : String) (stopLT : Term) (rootT : Term) (coneT : Term) :
+              CommandElabM Ident := do
+            let id := Q s!"hinl_{tagS}"
+            let cmd ← `(theorem $id :
+                Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyXId)
+                    (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $coneT :=
+              Tools.ConeFold.inlineConeT_of_listS $bodyXId $stopLT 10000 $rootT $coneT (by decide))
+            elabSyncS cmd
+            pure id
+          let mut hwfWireIds : Array Ident := #[]
+          for k in List.range nW do
+            let w := shared[k]!
+            hwfWireIds := hwfWireIds.push
+              (← hwfOf s!"w{k}" (← `($stopAtMwId $(quote w))) (← `($stopLwId $(quote w))))
+          let hb1Id := Q "hb1_of"
+          elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
+              ∀ n, env1 n < 2 ^ $weMId n :=
+            Tools.ConeFold.evalAssigns_bounded $weMId _ $bodyXId _ env1
+              (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide) ($seedBndId $appArgs* t) hrun))
+          let frameOf (x : String) (nameS : String) : CommandElabM Unit := do
+            let fId := Q s!"frame_{x}"
+            elabSyncS (← `(theorem $fId $paramBinders* (t : Nat) $xB* :
+                env1 $(quote nameS) = $envAtId $appArgs* t $(quote nameS) :=
+              Tools.ConeFold.evalAssigns_frame $weMId _ $bodyXId _ env1 hrun
+                (Tools.ConeFold.memFreeCheck_sound _ (by decide)) _ (by decide)))
+          for i in List.range nR do frameOf s!"r{i}" (regs[i]!).1
+          for j in List.range nI do frameOf s!"i{j}" (ins[j]!).1
+          for (r, idx) in rstNamesX.toArray.zipIdx do frameOf s!"rst{idx}" r
+          -- from the replayed body's cone (as `shared_cone_agrees_at_settled`
+          -- states it) to the ORIGINAL cone: definitional for the elaborator's
+          -- body, `rtBridge_eval` + the mask equation otherwise
+          let toOrig (x : String) (hb : Term) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
+            if masked then
+              pure #[← `(tactic| have hm : Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x)
+                    = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cresX x) :=
+                  Tools.ConeFold.rtBridge_eval $wofMId env1 $hb $(cresX x) $(cres x) $(meqX x)
+                    (by native_decide) (by native_decide)),
+                ← `(tactic| rw [hm])]
+            else pure #[]
+          -- a case bullet closing `envA n = env1 n` (or its symm) for slot name #idx
+          let slotBullet (idx : Nat) (kAt : Nat) (symm : Bool) : CommandElabM (Lean.TSyntax `tactic) := do
+            -- idx < nR: register; nR ≤ idx < nR+nI: input; else wire idx-nR-nI (< kAt)
+            if idx < nR then
+              let fId := Q s!"frame_r{idx}"; let rId := rdAt s!"r{idx}"
+              if symm then `(tactic| exact ($fId $appArgs* t hrun).symm)
+              else `(tactic| (rw [$fId $appArgs* t hrun, $rId:ident]; show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _; rw [envOfC_names $snmId _ $hinjId]; rfl))
+            else if idx < nR + nI then
+              let j := idx - nR
+              let fId := Q s!"frame_i{j}"; let rId := rdAt s!"i{j}"
+              if symm then `(tactic| exact ($fId $appArgs* t hrun).symm)
+              else `(tactic| (rw [$fId $appArgs* t hrun, $rId:ident]; show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _; rw [envOfC_names $snmId _ $hinjId]; rfl))
+            else
+              let j := idx - nR - nI
+              let wId := Q s!"wire_w{j}"; let rId := rdAt s!"w{j}"
+              if symm then `(tactic| exact ($wId $appArgs* t hrun).symm)
+              else `(tactic| (
+                rw [$wId $appArgs* t hrun, $rId:ident]
+                show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _
+                rw [envOfC_names $snmId _ $hinjId]
+                show CdoW.irWiresAt $sdeepId $snmId ($ρnId $appArgs* t) $(quote kAt) ⟨$(quote j), by decide⟩
+                  = CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t) ⟨$(quote j), by decide⟩
+                rw [CdoW.irWiresAt_stable $sdeepId $snmId ($ρnId $appArgs* t) $(quote kAt) ⟨$(quote j), by decide⟩ (by decide)]
+                unfold CdoW.irWires
+                rw [CdoW.irWiresAt_stable $sdeepId $snmId ($ρnId $appArgs* t) ($ΓwT).length ⟨$(quote j), by decide⟩ (by decide)]))
+          -- per wire, in slot order
+          for k in List.range nW do
+            let w := shared[k]!
+            let setId := Q s!"settled_w{k}"; let wireId := Q s!"wire_w{k}"
+            let rdW : Ident := rdAt s!"w{k}"; let g1W : Ident := P s!"coneEval_w{k}"
+            let conv ← toOrig s!"w{k}" (← `($hb1Id $appArgs* t hrun))
+            let setTacs : Array (Lean.TSyntax `tactic) :=
+              #[← `(tactic| have h : Sparkle.IR.Semantics.evalExpr $weMId env1
+                    (Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX s!"w{k}")) = some (env1 $(quote w)) :=
+                  Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) ($stopAtMwId $(quote w)) $wtMId
+                    (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
+                    (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
+                    $(hwfWireIds[k]!)
+                    (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
+                    (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}"))
+                    (hinl := $(← hinlOf s!"w{k}" (← `($stopLwId $(quote w))) (← `(Sparkle.IR.AST.Expr.ref $(quote w))) (← `($(crawX s!"w{k}"))))) 10000
+                    (v := env1 $(quote w)) (by simp [Sparkle.IR.Semantics.evalExpr]))]
+              ++ conv ++ #[← `(tactic| exact h)]
+            elabSyncS (← `(theorem $setId $paramBinders* (t : Nat) $xB* :
+                Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres s!"w{k}") = some (env1 $(quote w)) := by
+              $[$setTacs:tactic]*))
+            let nEarlier := nR + nI + k
+            let earlierNames : Array Term := (slotNames.take nEarlier).toArray.map fun n => quote n
+            let bullets ← (List.range nEarlier).toArray.mapM fun idx => slotBullet idx k false
+            let seqTacs ← splitSeq bullets
+            elabSyncS (← `(theorem $wireId $paramBinders* (t : Nat) $xB* :
+                env1 $(quote w) = $envAtId $appArgs* t $(quote w) := by
+              have hs := $setId $appArgs* t hrun
+              rw [$rdW $appArgs* t, CdoW.irWires_eq_at, $g1W:ident]
+              have hc : Sparkle.IR.Semantics.evalExpr $weMId
+                  (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWiresAt $sdeepId $snmId ($ρnId $appArgs* t) $(quote k))))
+                  $(cres s!"w{k}")
+                  = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres s!"w{k}") := by
+                apply Sparkle.IR.Reorder.evalExpr_congr
+                intro $nId:ident $hnId:ident
+                have $hsubId:ident : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres s!"w{k}"), m ∈ [$earlierNames,*] := by native_decide
+                have $hmId:ident := $hsubId $nId $hnId
+                simp only [List.mem_cons, List.not_mem_nil, or_false] at $hmId:ident
+                $[$seqTacs:tactic]*
+              rw [hc, hs]
+              rfl))
+          deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: wire lemmas emitted"
+          -- steps at the seed (register inputs, output)
+          let allNames : Array Term := slotNames.toArray.map fun n => quote n
+          let bulletsAll ← (List.range slotNames.length).toArray.mapM fun idx => slotBullet idx nW true
+          let seqAll ← splitSeq bulletsAll
+          let stepOf (x : String) (eIn : String) : CommandElabM Unit := do
+            let sId := Q s!"step_{x}"
+            let conv ← toOrig x (← `($hb1Id $appArgs* t hrun))
+            let tacs : Array (Lean.TSyntax `tactic) :=
+              #[← `(tactic| have h : Sparkle.IR.Semantics.evalExpr $weMId env1
+                    (Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX x)) = some v :=
+                  Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) $stopAtMId $wtMId
+                    (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
+                    (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
+                    $hwfSharedId
+                    (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
+                    (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x))
+                    (hinl := $(← hinlOf x (← `($stopLId)) (← `(Sparkle.IR.AST.Expr.ref $(quote eIn))) (← `($(crawX x))))) 10000 hv),
+                ← `(tactic| have hc : Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x)
+                    = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x) := by
+                  apply Sparkle.IR.Reorder.evalExpr_congr
+                  intro $nId:ident $hnId:ident
+                  have $hsubId:ident : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres x), m ∈ [$allNames,*] := by native_decide
+                  have $hmId:ident := $hsubId $nId $hnId
+                  simp only [List.mem_cons, List.not_mem_nil, or_false] at $hmId:ident
+                  $[$seqAll:tactic]*),
+                ← `(tactic| rw [hc])]
+              ++ conv ++ #[← `(tactic| exact h)]
+            elabSyncS (← `(theorem $sId $paramBinders* (t : Nat) $xB* (v : Nat)
+                (hv : Sparkle.IR.Semantics.evalExpr $weMId env1 (.ref $(quote eIn)) = some v) :
+                Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x) = some v := by
+              $[$tacs:tactic]*))
+          let mut rinX : Array String := #[]
+          for i in List.range nR do
+            let rin ← rinOf (regs[i]!).1
+            rinX := rinX.push rin
+            stepOf s!"r{i}" rin
+          stepOf "out" portName
+          -- the register phase (nexts listed in the replayed body's register order)
+          let regstepId := Q "regstep"
+          let origIdx (rn : String) : Nat := ((regs.map (·.1)).idxOf? rn).getD 0
+          let nextsItems : Array Term ← regsX.toArray.mapM fun (rn, _, _) => do
+            `(($(quote rn), CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) (t + 1) ⟨$(quote (origIdx rn)), by decide⟩))
+          let mut pre : Array (Lean.TSyntax `tactic) := #[]
+          let mut rws : Array Term := #[]
+          for i in List.range nR do
+            let rin := rinX[i]!
+            let hnextId := mkI s!"hnext{i}"; let hbId := mkI s!"hb{i}"
+            let g1R : Ident := P s!"coneEval_r{i}"
+            pre := pre.push (← `(tactic| have $hnextId:ident : CdoW.irState $sdeepId $snmId ($inpFId $appArgs*) (t + 1) ⟨$(quote i), by decide⟩ = env1 $(quote rin) := by
+              show (Sparkle.IR.Semantics.evalExpr $weCT (envOfC $snmId (natJoin ($ρnId $appArgs* t) (CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t))))
+                (CExpr.compile $snmId (CdoW.next $sdeepId ⟨$(quote i), by decide⟩))).getD 0 = _
+              rw [$g1R:ident]
+              show (Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres s!"r{i}")).getD 0 = _
+              rw [$(Q s!"step_r{i}") $appArgs* t hrun (env1 $(quote rin)) (by simp [Sparkle.IR.Semantics.evalExpr])]
+              rfl))
+            pre := pre.push (← `(tactic| have $hbId:ident : env1 $(quote rin) < 2 ^ $(quote regWs[i]!) := $hb1Id $appArgs* t hrun _))
+            rws := rws.push (← `(Nat.mod_eq_of_lt $hbId)); rws := rws.push (← `($hnextId))
+          -- after simp the index literal is normalised (`⟨0, _⟩` → `0`), so the
+          -- rewrite by hnext may not fire syntactically; close up to defeq
+          let mut nextClosers : Array (Lean.TSyntax `tactic) := #[]
+          for i in List.range nR do
+            let hnextId := mkI s!"hnext{i}"
+            nextClosers := nextClosers.push (← `(tactic| all_goals (try exact ($hnextId:ident).symm)))
+            nextClosers := nextClosers.push (← `(tactic| all_goals (try exact $hnextId:ident)))
+          let mut hrsts : Array (Lean.TSyntax `tactic) := #[]
+          let mut hrstTs : Array Term := #[]
+          for (r, idx) in rstNamesX.toArray.zipIdx do
+            let hId := mkI s!"hrst{idx}"
+            hrsts := hrsts.push (← `(tactic| have $hId:ident : env1 $(quote r) = 0 := by
+              rw [$(Q s!"frame_rst{idx}") $appArgs* t hrun]; exact $otherId $appArgs* t $(quote r) (by decide)))
+            hrstTs := hrstTs.push (← `($hId))
+          elabSyncS (← `(theorem $regstepId $paramBinders* (t : Nat) $xB* :
+              Sparkle.IR.Semantics.regNexts $weMId (fun _ _ => 0) $bodyXId env1 = some [$nextsItems,*] := by
+            $[$pre:tactic]*
+            $[$hrsts:tactic]*
+            simp only [$bodyXId:ident, Sparkle.IR.Semantics.regNexts, Sparkle.IR.Semantics.evalExpr,
+              Option.bind_eq_bind, Option.bind_some, $[$hrstTs:term],*, ne_eq, not_true_eq_false, ↓reduceIte]
+            simp [Sparkle.IR.Semantics.mask, $weMId:ident, $[$rws:term],*]
+            all_goals (repeat' (apply And.intro))
+            $[$nextClosers:tactic]*))
+          deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: steps + regstep emitted"
+          -- state trace: stepIter's state equals the spec recurrence
+          let stateTraceId := Q "state_trace"
+          elabSyncS (← `(theorem $stateTraceId $paramBinders* : ∀ (t : Nat) {st : String → Nat},
+              Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st → $stateConj := by
+            intro t
+            induction t with
+            | zero =>
+              intro st h
+              simp only [Tools.ConeFold.stepIter, Option.some_inj] at h
+              subst h
+              simp [$st0Id:ident, CdoW.irState]
+            | succ t ih =>
+              intro st' h
+              simp only [Tools.ConeFold.stepIter, Option.bind_eq_bind] at h
+              cases hprev : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t with
+              | none => rw [hprev] at h; simp at h
+              | some st =>
+                rw [hprev] at h
+                simp only [Option.bind_some] at h
+                have ihc := ih hprev
+                rw [$henvId $appArgs* t st $ihProjs*] at h
+                simp only [Sparkle.IR.Semantics.stepModule, Option.bind_eq_bind] at h
+                cases hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envAtId $appArgs* t) with
+                | none => rw [hrun] at h; simp at h
+                | some env1 =>
+                  rw [hrun] at h
+                  simp only [Option.bind_some] at h
+                  rw [$regstepId $appArgs* t hrun,
+                    Tools.ConeFold.memNexts_memFree $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide))] at h
+                  simp only [Option.bind_some, Option.some_inj] at h
+                  subst h
+                  simp [Sparkle.IR.Semantics.applyNexts]))
+          -- fold; runModule forms
+          let sigFoldId := Q "signal_fold"; let sigRunModId := Q "signal_runModule"; let sigRunId := Q "signal_run"
+          elabSyncS (← `(theorem $sigFoldId $paramBinders* (t : Nat) {st : String → Nat} {env1 : Sparkle.IR.Semantics.Env}
+              (hstep : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st)
+              (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envStId $appArgs* t st) = some env1) :
+              (($lhsSig).val t).toNat = env1 $(quote portName) := by
+            have ihc := $stateTraceId $appArgs* t hstep
+            rw [$henvId $appArgs* t st $ihProjsSt*] at hrun
+            have hout := $(Q "step_out") $appArgs* t hrun (env1 $(quote portName)) (by simp [Sparkle.IR.Semantics.evalExpr])
+            rw [$sigMId $appArgs* t, hout]
+            rfl))
+          elabSyncS (← `(theorem $sigRunModId $paramBinders* (K : Nat) {envs : List Sparkle.IR.Semantics.Env}
+              (hrunM : Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs) :
+              ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
+            intro t ht
+            have henvs' : Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (0 + (K - 1 - td)) s) K $st0Id (fun _ _ => 0) = some envs := by
+              rw [Tools.ConeFold.runModule_seed_congr $weMId $bodyXId K (fun td s => $envStId $appArgs* (0 + (K - 1 - td)) s)
+                (fun td s => $envStId $appArgs* (K - 1 - td) s) (fun td htd => by simp only [Nat.zero_add])]
+              exact hrunM
+            obtain ⟨st', env1, hsi, hev, hget⟩ :=
+              Tools.ConeFold.runModule_stepIter $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) ($envStId $appArgs*) K 0 $st0Id envs henvs' t ht
+            refine ⟨env1, hget, ?_⟩
+            have hsi' : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st' := by
+              rw [Tools.ConeFold.stepIter_seed_congr $weMId $bodyXId ($envStId $appArgs*) (fun tt s => $envStId $appArgs* (0 + tt) s) $st0Id t
+                (fun tt htt => by simp only [Nat.zero_add])]
+              exact hsi
+            have hev' : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envStId $appArgs* t st') = some env1 := by
+              have h0 : (0 : Nat) + t = t := by omega
+              rw [← h0]
+              exact hev
+            exact $sigFoldId $appArgs* t hsi' hev'))
+          elabSyncS (← `(theorem $sigRunId $paramBinders* (K : Nat) :
+              ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs
+                ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
+            obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
+              (Tools.ConeFold.runModule_isSome $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide)
+                (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id)
+            exact ⟨envs, henvs, $sigRunModId $appArgs* K henvs⟩))
+          deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: replay chain emitted"
+          pure sigRunId
+        -- ===== the elaborator's body =====
+        let sigRunId ← replayOver "" bodyO regs
+        -- ===== the bodies the printed Verilog is about =====
+        -- Pre-checked in the generator so a body outside the bridge fragment
+        -- is reported with its reason (a failed obligation inside the proofs
+        -- would surface only as sorryAx).  A skipped bridge is a WARNING and
+        -- is absent from the PROVEN line — never reported as proven.
+        let extras : IO.Ref (Array (Ident × String)) ← IO.mkRef #[]
+        let weF : Sparkle.IR.Semantics.WEnv := fun n => wt.getD n 0
+        let wofF : String → Option Nat := fun n => some (weF n)
+        let normOf (c : Sparkle.IR.AST.Expr) : Sparkle.IR.AST.Expr := Tools.ConeFold.rtNorm weF (Tools.ConeFold.stripMask wofF c)
+        let sharedBridge (tag : String) (mx : Sparkle.IR.AST.Module) (withSv : Bool) : CommandElabM (Option Ident) := do
+          let bodyX := mx.body
+          let regsX := theRegisters mx
+          let dmX := Sparkle.IR.Optimize.buildDefMap bodyX
+          let skip (why : String) : CommandElabM (Option Ident) := do
+            logWarning m!"#verify_elab_deep {declName}: {tag} bridge SKIPPED — {why}"
+            pure none
+          -- register identities by name; inputs are wire references; resets are not slots
+          if regsX.length != regs.length then return ← skip s!"the replayed body has {regsX.length} registers, the elaborator's {regs.length}"
+          for (rn, _, init) in regs do
+            match regsX.find? (·.1 == rn) with
+            | none => return ← skip s!"register {rn} is missing from the replayed body"
+            | some (_, inputX, initX) =>
+              if init != initX then return ← skip s!"register {rn}'s initial value changed ({init} → {initX})"
+              match inputX with
+              | .ref _ => pure ()
+              | _ => return ← skip s!"register {rn}'s input is not a wire reference in the replayed body"
+          let rstsX : List String := bodyX.filterMap fun st => match st with
+            | .register _ _ (rstName, _) _ _ => some rstName
+            | _ => none
+          if rstsX.any (fun r => slotNames.contains r) then return ← skip "a reset wire is a state slot"
+          -- the fold-side checkers the replay discharges
+          unless Sparkle.IR.Reorder.woCheck [] bodyX do return ← skip "the replayed body is not well-ordered (woCheck)"
+          unless Tools.ConeFold.memFreeCheck bodyX do return ← skip "the replayed body has memories"
+          unless Tools.ConeFold.noSelfReadCheck bodyX do return ← skip "the replayed body has a self-reading assign"
+          unless Tools.ConeFold.bodyEvalOk bodyX do return ← skip "the replayed body is outside evalOk"
+          unless Tools.ConeFold.bodyWidthOk weF bodyX do return ← skip "the replayed body fails bodyWidthOk (a mux false arm wider than its true arm, or an assign not at its wire's width)"
+          unless Tools.ConeFold.hwfCheck weF stopS bodyX do return ← skip "the replayed body fails hwfCheck at the slot stop set"
+          for w in shared do
+            unless Tools.ConeFold.hwfCheck weF (stopS.erase w) bodyX do return ← skip s!"the replayed body fails hwfCheck at the stop set of wire {w}"
+          -- every slot cone of the replayed body normalises to the original's
+          let coneEq (stop : Std.HashMap String Bool) (e : Sparkle.IR.AST.Expr) (orig : Sparkle.IR.AST.Expr) (what : String) :
+              CommandElabM (Option String) := do
+            match Tools.ConeFold.inlineConeT dmX stop 10000 e with
+            | .error err => pure (some s!"cone of {what} in the replayed body: {err}")
+            | .ok c =>
+              let nX := normOf (Tools.ConeFold.resolveSlicesT wt 10000 c)
+              let nO := Tools.ConeFold.rtNorm weF orig
+              if nX != nO then pure (some s!"cone of {what} differs after normalisation ({(repr nX).pretty.length} vs {(repr nO).pretty.length} chars)")
+              else if !(Tools.ConeFold.widthOk weF nX && Tools.ConeFold.widthOk weF nO) then pure (some s!"cone of {what} fails widthOk")
+              else pure none
+          for i in List.range nR do
+            let (rn, _, _) := regs[i]!
+            let some (_, .ref rin, _) := regsX.find? (·.1 == rn) | return ← skip "unreachable"
+            if let some why ← coneEq stopS (.ref rin) regConesIR[i]! s!"register {rn}" then return ← skip why
+          for k in List.range nW do
+            let w := shared[k]!
+            if let some why ← coneEq (stopS.erase w) (.ref w) wireConesIR[k]! s!"wire {w}" then return ← skip why
+          if let some why ← coneEq stopS (.ref portName) outConeIR s!"output {portName}" then return ← skip why
+          -- the replay
+          let sigRunX ← replayOver tag bodyX regsX
+          extras.modify (·.push (sigRunX, s!"Signal ≡ runModule of the {tag} body"))
+          if withSv then
+            -- the M4 forward semantics of the emission of this body (needs the
+            -- sequential fragment check; reported per statement when it fails)
+            let wofSeq := Tools.SVParser.EmitSem.weOf wofF
+            match bodyX.find? (fun st => !Tools.SVParser.EmitSem.seqCheck wofF wofSeq [st]) with
+            | some st =>
+              let nm := match st with | .assign l _ => l | .register o _ _ _ _ => o | _ => "?"
+              logWarning m!"#verify_elab_deep {declName}: {tag} SV-semantics theorem SKIPPED — statement `{nm}` of the {tag} body is outside the M4 sequential fragment (seqCheck); see docs/RefusalLedger.md (M4 residual fragment)"
+            | none =>
+              let sigSvId := P s!"signal_sv{tag}"; let sigRunModX := P s!"signal_runModule{tag}"; let bodyXId := P s!"body{tag}"
+              elabSyncS (← `(theorem $sigSvId $paramBinders* :
+                  ∃ pairs regs mprog,
+                  Tools.SVParser.EmitSem.emitAssigns $wofMId $bodyXId = some pairs
+                  ∧ Tools.SVParser.EmitSem.emitRegs $wofMId $bodyXId = some regs
+                  ∧ Tools.SVParser.EmitSem.emitMemWrites $wofMId $bodyXId = some mprog
+                  ∧ ∀ (K : Nat) (envs : List Sparkle.IR.Semantics.Env),
+                      Tools.SVParser.EmitSem.runModuleSV $wofMId pairs regs mprog
+                        (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs →
+                      ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
+                have hchk : Tools.SVParser.EmitSem.seqCheck $wofMId (Tools.SVParser.EmitSem.weOf $wofMId) $bodyXId = true := by
+                  native_decide
+                have hbnd : ∀ (K t : Nat) (st : String → Nat),
+                    Sparkle.IR.Semantics.Bounded (Tools.SVParser.EmitSem.weOf $wofMId) ($envStId $appArgs* (K - 1 - t) st) := by
+                  intro K t st
+                  rw [$weOfEqId:ident]
+                  exact $envStBndId $appArgs* (K - 1 - t) st
+                obtain ⟨pairs, regs, mprog, h1, h2, h3, _⟩ :=
+                  Tools.SVParser.EmitSem.certified_forward_trace_module hchk
+                    (fun td s => $envStId $appArgs* (1 - 1 - td) s) (hbnd 1)
+                refine ⟨pairs, regs, mprog, h1, h2, h3, ?_⟩
+                intro K envs hSV t ht
+                obtain ⟨pairs', regs', mprog', h1', h2', h3', heq⟩ :=
+                  Tools.SVParser.EmitSem.certified_forward_trace_module hchk
+                    (fun td s => $envStId $appArgs* (K - 1 - td) s) (hbnd K)
+                rw [h1] at h1'
+                rw [h2] at h2'
+                rw [h3] at h3'
+                cases h1'
+                cases h2'
+                cases h3'
+                have hrunM := heq K $st0Id (fun _ _ => 0)
+                rw [$weOfEqId:ident, hSV] at hrunM
+                exact $sigRunModX $appArgs* K hrunM t ht))
+              extras.modify (·.push (sigSvId, s!"Signal ≡ Verilog-subset semantics of the emission of the {tag} body"))
+          pure (some sigRunX)
+        -- (1) the OPTIMIZED body — the module `toVerilog (optimizeModule m)` prints
+        let mo := Sparkle.IR.Optimize.optimizeModule m
+        let _ ← sharedBridge "Opt" mo true
+        -- (2) the printed text, read back by the shipping parser+lowerer
+        -- (evaluated by native_decide in `{base}_sdeep_text_parses` — the
+        -- parser is trusted as an executable oracle on THIS text, not proven)
+        let text := Sparkle.Backend.Verilog.toVerilog mo
+        match Tools.SVParser.Lower.parseAndLowerHierarchical text with
+        | .error e =>
+          logWarning m!"#verify_elab_deep {declName}: text bridge SKIPPED — the printed Verilog did not re-parse: {e}"
+        | .ok dRT =>
+          let bodyRT := dRT.modules.foldl (fun acc lm => acc ++ lm.body) []
+          match dRT.modules.head? with
+          | none => logWarning m!"#verify_elab_deep {declName}: text bridge SKIPPED — empty design"
+          | some mrt0 =>
+            let mrt := { mrt0 with body := bodyRT }
+            if let some _ ← sharedBridge "RT" mrt false then
+              let textId := P "text"; let parsesId := P "text_parses"; let bodyRTId := P "bodyRT"
+              liftCoreM <| addAndCompile <| .defnDecl {
+                name := textId.getId, levelParams := []
+                type := mkConst ``String
+                value := toExpr text, hints := .abbrev, safety := .safe }
+              liftCoreM <| Lean.enableRealizationsForConst textId.getId
+              elabSyncS (← `(theorem $parsesId :
+                  (Tools.SVParser.Lower.parseAndLowerHierarchical $textId).map
+                      (fun d => d.modules.foldl (fun acc (lm : Sparkle.IR.AST.Module) => acc ++ lm.body) [])
+                    = .ok $bodyRTId := by native_decide))
+              extras.modify (·.push (parsesId, "the shipping parser+lowerer maps the printed text to the RT body"))
+        pure (sigRunId, ← extras.get)
+      let (sigRunId, extras) ← sharedReplay ()
+      -- audit: exists, no sorryAx, only decision-procedure auxiliaries beyond
+      -- the standard axioms — for the replay AND every bridge theorem
+      let isAux (a : Name) : Bool := a == ``Lean.ofReduceBool ||
+        (match a with
+         | .str (.str (.str _ "_native") "native_decide") ax => ax.startsWith "ax_"
+         | .str (.str (.str _ "_native") "bv_decide") ax => ax.startsWith "ax_"
+         | _ => false)
+      let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+      let audit (id : Ident) (what : String) : CommandElabM Nat := do
+        let full ← liftCoreM <| Lean.resolveGlobalConstNoOverload id
+        let axs ← liftCoreM <| Lean.collectAxioms full
+        if axs.contains ``sorryAx then
+          throwError "#verify_elab_deep (shared route) {declName}: {what} {id.getId} FAILED (sorryAx) — see the errors above"
+        for a in axs do
+          unless std.contains a || isAux a do
+            throwError "#verify_elab_deep (shared route) {declName}: {what} {id.getId} depends on unexpected axiom {a}"
+        pure (axs.foldl (fun c a => if isAux a then c + 1 else c) 0)
+      let nAux ← audit sigRunId "replay"
+      let mut bridgeMsg : String := ""
+      for (id, what) in extras do
+        let n ← audit id "bridge theorem"
+        bridgeMsg := bridgeMsg ++ s!"; {id.getId} PROVEN ({what}; axioms: standard + {n} decision-procedure auxiliaries)"
+      logInfo m!"#verify_elab_deep {declName}: PROVEN via CdoW.elab_general — {thId.getId} (SHARED route: {nR} registers, {nI} inputs, {nW} shared wires); IR replay {sigRunId.getId} PROVEN (axioms: standard + {nAux} decision-procedure auxiliaries){bridgeMsg}"
+  if (← IO.getEnv "SPARKLE_DEEP_SHARE").isSome || sparkle.deepShare.get (← getOptions) then
+    sharedRoute ()
     return
 
   -- ================= per-output-port generation =================
   let jobs := ((outPorts.zip portMeta).zip (outCs.zip outIRs))
   let mut portIdx := 0
   let mut deep0Id : Ident := mkI s!"{base}_deep"
-  for (((portName, wOut), proj?, isBoolOut), outC, outIR) in jobs do
-    let k := portIdx
-    portIdx := portIdx + 1
+  -- MEASURED 2026-09-19: `compilation (LCNF base)` is superlinear in one
+  -- function's body size — extracting the shared route cut this module
+  -- 1042 s -> 598 s with no change to logic or obligations, and this
+  -- 1931-line region is what remains.  Same restructuring: the loop body
+  -- becomes a closure, the loop keeps the `deep0Id` accumulator.
+  let rec portBlock (k : Nat) (portName : String) (wOut : Nat) (proj? : Option Ident)
+      (isBoolOut : Bool) (outC : Term) (outIR : Sparkle.IR.AST.Expr)
+      (deep0IdIn : Ident) : CommandElabM Ident := do
+    -- `k` and `deep0Id` come in as parameters (the loop keeps the state)
+    let mut deep0Id := deep0IdIn
     let suffix := if structName?.isSome then s!"_{portName}" else ""
     let deepId := mkI s!"{base}{suffix}_deep"
     if k == 0 then deep0Id := deepId
@@ -4334,7 +4349,9 @@ elab "#verify_elab_deep" id:ident : command =>
         return none
       elabSync thmCmd
       return some lhsSig
-    let some lhsSig ← bridgeBlock () | continue
+    -- defs-only mode: this port contributes no theorems (was `continue`
+    -- when this body was a loop body)
+    let some lhsSig ← bridgeBlock () | return deep0Id
     -- The per-port replay is a separate compilation unit (`let rec`
     -- lambda-lifts it): the LCNF compiler's cost on one giant do-block
     -- was superlinear (16 min and a heartbeat timeout for the whole
@@ -5318,5 +5335,11 @@ elab "#verify_elab_deep" id:ident : command =>
       else
         logInfo m!"#verify_elab_deep {declName}{portTag}: PROVEN via Cdo.elab_general — {thId.getId} ({nR} registers, {nI} inputs; axioms clean; fidelity: {fidIds.size} register cones + out = the elaborated IR, by unfolding{replayTag})"
     replayBlock ()
+    pure deep0Id
+
+  for (((portName, wOut), proj?, isBoolOut), outC, outIR) in jobs do
+    let k := portIdx
+    portIdx := portIdx + 1
+    deep0Id := ← portBlock k portName wOut proj? isBoolOut outC outIR deep0Id
 
 end Tools.DeepElab
