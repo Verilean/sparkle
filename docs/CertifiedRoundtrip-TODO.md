@@ -939,12 +939,40 @@ The gaps, in the order they weaken the claim:
   | crc16CcittHW | `_gen_shifted_4` (w9) | 418 ms | 4 ms | 367 MB |
   So a kernel cone equation costs ~50-100x the compiled one but is
   absolute: on crc16 the per-slot `hinl` sites are ~0.4 s each.
-  NOT yet done: wiring this into the generator.  That replaces `hinl`
-  at 2 sites per slot per replayed body; on crc16 (16 wires, 3 bodies)
-  the arithmetic says roughly +40 s, which is worth measuring against
-  the 864 s run before committing to it.  `hsub` (refs-membership, over
-  `resolveSlicesT`) and the 24 G1 glue equations need the same treatment
-  for `resolveSlicesT` / `concatNorm` and are untouched.
+  **Step 7 DONE (2026-09-18): applied to EVERY cone equation of the
+  shared route, all three bodies.**  The generator emits one named
+  theorem `{f}_sdeep_hinl_{slot}{tag}` per distinct (stop set, root)
+  pair, proven by `inlineConeT_of_listS` + kernel `decide`, and
+  references it from the settled-wire and step sites — so a proposition
+  used twice is proven once.  No `native_decide` fallback: a failure is
+  an error, like every other obligation here.
+  Auxiliaries before → after, per theorem:
+  | circuit | replay | Opt | svOpt | RT |
+  |---|---|---|---|---|
+  | shareX4 | 43 → 37 | 61 → 55 | 62 → 56 | 61 → 55 |
+  | shareX8 | 71 → 61 | 101 → 91 | 102 → 92 | 101 → 91 |
+  | crc16 | 126 → 108 | 180 → 162 | (skipped) | 180 → 162 |
+  The drop is 1 per shared wire plus 1 per register/output root, per
+  body — the `settled_*` auxiliaries disappear entirely and the `step_*`
+  sites go from 2 to 1 (the survivor is the excluded `hsub`).
+  Cost, same harness both sides (`lake build`, MemoryMax 24G, cgroup
+  `memory.peak`), ONE run per side:
+  | | before | after |
+  |---|---|---|
+  | shareX4+8 wall | 74 s | 79 s |
+  | shareX4+8 peak | — | 1.04 GB |
+  | crc16 wall | 864 s | 880 s |
+  | crc16 peak | 2.781 GB | 2.797 GB |
+  So crc16 costs +16 s MEASURED (+1.9 %) and +16 MB.  The earlier
+  "roughly +40 s" was an ESTIMATE from per-slot timings and came out
+  high; the per-slot figures (145/418 ms) do not compose linearly,
+  since the generator proves each equation once and reuses it.
+  Verification held throughout: shareX4/8 prove every clause with
+  nothing skipped, crc16 keeps exactly its one documented SV skip.
+  Still excluded from this change, as instructed: `hsub`
+  (refs-membership over `resolveSlicesT`), the 24 G1 glue equations, and
+  the default deep route (which keeps the width-table kind at 3 sites
+  and its own cone equations on `native_decide`).
   The default deep route still has the width-table kind at 3 sites and
   its own copies (not moved).
   88 sites remain (52 in VerifyElab, 36 in DeepElab) riding

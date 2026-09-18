@@ -2963,6 +2963,20 @@ elab "#verify_elab_deep" id:ident : command =>
           elabSyncS cmd
           pure id
         let hwfSharedId ← hwfOf "stop" (← `($stopAtMId)) (← `($stopLId))
+        -- F2: the cone equation `inlineConeT … = .ok coneRaw` by KERNEL
+        -- decide, via the structural walk (Tools/ConeFoldRT.lean).  Each
+        -- distinct (stop set, root) pair is proven ONCE as a named theorem
+        -- and referenced; there is no `native_decide` fallback — a failure
+        -- is an error, like every other obligation on this route.
+        let hinlOf (tagS : String) (stopLT : Term) (rootT : Term) (coneT : Term) :
+            CommandElabM Ident := do
+          let id := Q s!"hinl_{tagS}"
+          let cmd ← `(theorem $id :
+              Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyXId)
+                  (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $coneT :=
+            Tools.ConeFold.inlineConeT_of_listS $bodyXId $stopLT 10000 $rootT $coneT (by decide))
+          elabSyncS cmd
+          pure id
         let mut hwfWireIds : Array Ident := #[]
         for k in List.range nW do
           let w := shared[k]!
@@ -3032,7 +3046,8 @@ elab "#verify_elab_deep" id:ident : command =>
                   (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
                   $(hwfWireIds[k]!)
                   (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
-                  (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}")) (hinl := by native_decide) 10000
+                  (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}"))
+                  (hinl := $(← hinlOf s!"w{k}" (← `($stopLwId $(quote w))) (← `(Sparkle.IR.AST.Expr.ref $(quote w))) (← `($(crawX s!"w{k}"))))) 10000
                   (v := env1 $(quote w)) (by simp [Sparkle.IR.Semantics.evalExpr]))]
             ++ conv ++ #[← `(tactic| exact h)]
           elabSyncS (← `(theorem $setId $paramBinders* (t : Nat) $xB* :
@@ -3074,7 +3089,8 @@ elab "#verify_elab_deep" id:ident : command =>
                   (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
                   $hwfSharedId
                   (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
-                  (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x)) (hinl := by native_decide) 10000 hv),
+                  (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x))
+                  (hinl := $(← hinlOf x (← `($stopLId)) (← `(Sparkle.IR.AST.Expr.ref $(quote eIn))) (← `($(crawX x))))) 10000 hv),
               ← `(tactic| have hc : Sparkle.IR.Semantics.evalExpr $weMId ($envAtId $appArgs* t) $(cres x)
                   = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x) := by
                 apply Sparkle.IR.Reorder.evalExpr_congr

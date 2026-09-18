@@ -74,10 +74,14 @@ is an error.
   so the kernel could not compute with it — is also cleared: splitting
   the fuel recursion from the expression recursion (`stepE` +
   `inlineConeS`, agreement proven including fuel accounting) gives a
-  structural walk the kernel runs.  A cone equation for ONE slot is now
-  proven in the shipping form with only the standard axioms: 145 ms on
-  shareX4, 418 ms on crc16 (vs 3-4 ms for `native_decide`).  Wiring it
-  into the generator is the remaining step.  See TODO F2 step 6.  TODO F2 carries the inventory by kind,
+  structural walk the kernel runs.  Since 2026-09-18 EVERY cone equation of this
+  route is discharged that way, on all three bodies: the generator emits
+  one `{f}_sdeep_hinl_*` theorem per distinct (stop set, root) pair and
+  reuses it, with no `native_decide` fallback.  Measured: crc16's replay
+  auxiliaries 126 → 108 and each body bridge 180 → 162, for +16 s on an
+  880 s run.  What is still `native_decide` here: the G1 glue equations,
+  the refs-membership facts, and `hwfCheck`'s lookup-agreement fact.
+  See TODO F2 step 7.  TODO F2 carries the inventory by kind,
   the per-kind kernel times, and the remaining HashMap-keyed block.
 
 ## 3. IR body ≡ the OPTIMIZED body — `{f}_sdeep_signal_runOpt`
@@ -193,7 +197,7 @@ not by proving the optimizer:
   declaration that produced it (measured 2026-09-14 on crc16: a bare
   `have` after the output goal had closed).
 
-## 6. Status per circuit (2026-09-17, after F2 steps 1-3)
+## 6. Status per circuit (2026-09-18, after F2 steps 1-7)
 
 crc16CcittHW's guarantee to the printed text is the ROUNDTRIP link
 (§4b: the shipping parser trusted as an evaluated oracle on this text);
@@ -202,9 +206,9 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 
 | circuit | §1 trace | §2 replay | §3 Opt | §4a SV | §4b RT | wall |
 |---|---|---|---|---|---|---|
-| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+43) | PROVEN (+61) | PROVEN (+62) | PROVEN (+61; parse +1) | 74 s for both shareX* |
-| shareX8 (8 wires) | PROVEN | PROVEN (+71) | PROVEN (+101) | PROVEN (+102) | PROVEN (+101) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+126) | PROVEN (+180) | SKIPPED (shl fit rule, statement named) | PROVEN (+180; parse +1) | 864 s, peak 2.78 GB |
+| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+37) | PROVEN (+55) | PROVEN (+56) | PROVEN (+55; parse +1) | 79 s for both shareX*, peak 1.04 GB |
+| shareX8 (8 wires) | PROVEN | PROVEN (+61) | PROVEN (+91) | PROVEN (+92) | PROVEN (+91) | (same run) |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+108) | PROVEN (+162) | SKIPPED (shl fit rule, statement named) | PROVEN (+162; parse +1) | 880 s, peak 2.80 GB |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms.
 Conditions: `lake build`, MemoryMax 24G, 1.6 M heartbeats per generated
