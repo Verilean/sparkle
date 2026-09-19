@@ -197,7 +197,7 @@ not by proving the optimizer:
   declaration that produced it (measured 2026-09-14 on crc16: a bare
   `have` after the output goal had closed).
 
-## 6. Status per circuit (2026-09-18, after F2 steps 1-7)
+## 6. Status per circuit (2026-09-19, after F2 steps 1-7 and the reader fix)
 
 crc16CcittHW's guarantee to the printed text is the ROUNDTRIP link
 (§4b: the shipping parser trusted as an evaluated oracle on this text);
@@ -208,7 +208,7 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 |---|---|---|---|---|---|---|
 | shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+37) | PROVEN (+55) | PROVEN (+56) | PROVEN (+55; parse +1) | 79 s for both shareX*, peak 1.04 GB |
 | shareX8 (8 wires) | PROVEN | PROVEN (+61) | PROVEN (+91) | PROVEN (+92) | PROVEN (+91) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+108) | PROVEN (+162) | SKIPPED (shl fit rule, statement named) | PROVEN (+162; parse +1) | 880 s, peak 2.80 GB |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+108) | PROVEN (+162) | SKIPPED (shl fit rule, statement named) | PROVEN (+162; parse +1) | 593 s, peak 2.87 GB |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms.
 Conditions: `lake build`, MemoryMax 24G, 1.6 M heartbeats per generated

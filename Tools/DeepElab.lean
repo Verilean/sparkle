@@ -456,6 +456,22 @@ def natJoin {Γr Γi : List Nat} (r : Fin Γr.length → Nat)
   else x ⟨j.val - Γr.length, by
     have := j.isLt; simp [List.length_append] at this; omega⟩
 
+/-- `natJoin` at an index in the RIGHT block is the right function.
+    MEASURED 2026-09-19 on crc16: the wire readers `{f}_sdeep_envAt_w*`
+    closed this by a bare `rfl`, and the kernel decided it by lazy delta
+    — unfolding `CdoW.irWires`, the whole wire recurrence — at 19.3 s per
+    reader, 16 readers, 44 % of the circuit's type-checking time, with a
+    30 k-node proof term (the 5.3 M-node trace theorem takes the same
+    time: the cost was reduction, not term size).  The same statement
+    through this lemma: 6 ms.  Standard axioms either way. -/
+theorem natJoin_right {Γr Γi : List Nat} (r : Fin Γr.length → Nat) (x : Fin Γi.length → Nat)
+    (k : Nat) (hk : k < Γi.length) (h : Γr.length + k < (Γr ++ Γi).length) :
+    natJoin r x ⟨Γr.length + k, h⟩ = x ⟨k, hk⟩ := by
+  unfold natJoin
+  rw [dif_neg (Nat.not_lt.mpr (Nat.le_add_right _ _))]
+  congr 1
+  exact Fin.ext (Nat.add_sub_cancel_left _ _)
+
 theorem natJoin_eq_join {Γr Γi : List Nat} (ρr : CEnv Γr) (ρi : CEnv Γi)
     (j : Fin (Γr ++ Γi).length) :
     natJoin (fun i => (ρr i).toNat) (fun i => (ρi i).toNat) j
@@ -2756,7 +2772,8 @@ elab "#verify_elab_deep" id:ident : command =>
               $envAtId $appArgs* t $(quote w) = CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t) ⟨$(quote k), by decide⟩ := by
             show envOfC $snmId _ ($snmId ⟨$(quote (nR + nI + k)), by decide⟩) = _
             rw [envOfC_names $snmId _ $hinjId]
-            rfl))
+            -- not `rfl`: see `natJoin_right` (19.3 s → 6 ms per reader)
+            exact natJoin_right _ _ $(quote k) (by decide) _))
         elabSyncS (← `(theorem $nmMemId : ∀ k : Fin ($ΓAllS).length, $snmId k ∈ $stopLId := by decide))
         elabSyncS (← `(theorem $otherId $paramBinders* (t : Nat) (n : String) (h : n ∉ $stopLId) :
             $envAtId $appArgs* t n = 0 := by

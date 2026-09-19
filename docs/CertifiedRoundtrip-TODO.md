@@ -764,10 +764,53 @@ point for the measurement itself.
 Verification after the first two: shareX4 37/55/56/55, shareX8
 61/91/92/91, nothing skipped — identical to before.
 
-Generator work stops after the third row is measured; the next item is
-ONE representative slow crc16 declaration, separating proof-term size
-from unfolding/reduction cost (harness: per-theorem synchronous
-`addDecl` re-check with `sizeWithoutSharing` of the proof).
+Generator work stopped after the third row (190 s), per instruction.
+
+**crc16, per DECLARATION with names (2026-09-19).**  Every generated
+theorem re-added to the kernel synchronously (`Elab.async false` —
+with it on, `addDecl` only enqueues and a timer measures nothing) under
+a fresh name, timed, with the proof term's `sizeWithoutSharing`.
+348 theorems, re-check total 697 s — consistent with the profiler's
+702 s of type checking, so the attribution is complete.
+| declaration | kernel | proof nodes | type nodes |
+|---|---|---|---|
+| `_sdeep_trace` | 22.4 s | 5,286,453 | 4,119 |
+| `_sdeep_envAt_w{0..15}` (each) | 19.2–19.4 s | 30,489 | 1,609 |
+| remaining ~331 | ≈ 366 s total, mean ≈ 1.1 s | | |
+The 16 readers cost ≈ 309 s = 44 % of crc16's type checking.  They are
+BODY-INDEPENDENT (emitted once, not per replayed body).
+**Separation, term size vs reduction, on the reader:** the trace and a
+reader take the same kernel time with a 173× difference in proof size
+(5.3 M vs 30 k nodes).  At the trace's per-node rate a reader would be
+~0.13 s; it is 19.3 s.  So the reader's cost is REDUCTION, not term
+size; the trace's is the term (the `bv_decide` certificate).  The
+reader's proof ends in a bare `rfl` closing
+`natJoin ρ (irWires …) ⟨nR+nI+k, _⟩ = irWires … ⟨k, _⟩`, which the
+kernel decides by lazy delta — the candidate being unfolded is
+`CdoW.irWires`, i.e. the whole 16-wire recurrence.  **One-declaration experiment, DONE (2026-09-19), same conditions
+(`Elab.async false`, one run each), same statement
+(`type_of% crc16CcittHW_sdeep_envAt_w3`):**
+| proof of the last step | kernel + elab |
+|---|---|
+| `rfl` (the generator's) | 18 959 ms |
+| `exact natJoin_right _ _ 3 (by decide) _` | 6 ms |
+Axioms of the lemma route: the standard three.  Cause CONFIRMED: lazy
+delta through `CdoW.irWires`.  `natJoin_right` (generic, kernel-cheap:
+`natJoin r x ⟨Γr.length + k, h⟩ = x ⟨k, hk⟩`) is now in
+`Tools/DeepElab.lean` and the 16 reader sites use it; nothing else
+changed, no check weakened.  Expected crc16 saving ≈ 16 × 19.3 s ≈
+309 s of 880 s — an ESTIMATE until the row below is measured.
+| crc16, same harness (lake build, 24G, cgroup peak) | wall | peak |
+|---|---|---|
+| before (`rfl` readers) | 880 s | 2.797 GB |
+| after (`natJoin_right` readers) | 593 s | 2.867 GB |
+MEASURED saving 287 s (−33 %) against the 309 s estimate; peak +70 MB
+(+2.5 %).  Auxiliaries unchanged (replay 108, Opt 162, RT 162), the one
+documented SV skip preserved, shareX4/8 unchanged (37/55/56/55,
+61/91/92/91, nothing skipped).  crc16's remaining 593 s: the next
+per-declaration pass will say where; the `_sdeep_trace` theorem
+(22 s, 5.3 M-node `bv_decide` certificate) is the largest single item
+known so far.
 
 ## D. Trust base
 
