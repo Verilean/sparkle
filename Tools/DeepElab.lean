@@ -2708,13 +2708,35 @@ elab "#verify_elab_deep" id:ident : command =>
         -- G1 glue per slot
         let hagId := P "hag"
         elabSyncS (← `(theorem $hagId : ∀ n ∈ $stopLId, $weCT n = $weMId n := by decide))
+        -- F2 (G1 glue): the four obligations of `g1_shared` by the KERNEL.
+        -- MEASURED 2026-09-20 on shareX4 slot 3 / crc16 slot 15: `concatNorm`,
+        -- `noSingle`, `CExpr.compile` and the CdoW slot cone all reduce in the
+        -- kernel as they are (axioms: propext / none), so nothing new is
+        -- implemented — `hres` is the cone constant's definition (`rfl`),
+        -- `hinl` is the per-slot kernel theorem the replay also uses (emitted
+        -- here, before the glue; the replay skips re-emitting it), and
+        -- `hnorm`/`hns` are `decide` after rewriting the cone to the
+        -- structural resolver (`resolveSlicesT_list`).  21 / 2 / 1 / 0 ms per
+        -- slot against 4-6 / 1 ms for `native_decide`; standard axioms.
+        let hresL (x : String) : Ident := P s!"hresL_{x}"
+        let hinlOrigOf (x : String) (stopLT : Term) (rootT : Term) : CommandElabM Ident := do
+          let id := P s!"hinl_{x}"
+          elabSyncS (← `(theorem $(hresL x) : $(cres x)
+              = Tools.ConeFold.resolveSlicesS (Tools.ConeFold.assocGetR $wtLId) 10000 $(craw x) :=
+            Tools.ConeFold.resolveSlicesT_list $wtLId 10000 $(craw x)))
+          elabSyncS (← `(theorem $id :
+              Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyId)
+                  (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $(craw x) :=
+            Tools.ConeFold.inlineConeT_of_listS $bodyId $stopLT 10000 $rootT $(craw x) (by decide)))
+          pure id
         let g1 (x : String) (lhs : Term) (eIn : Term) (sl : Term) (hagT : Term) : CommandElabM Unit := do
           let g1Id := P s!"coneEval_{x}"
+          let hinlId ← hinlOrigOf x sl eIn
           elabSyncS (← `(theorem $g1Id (env : Sparkle.IR.Semantics.Env) :
               Sparkle.IR.Semantics.evalExpr $weCT env $lhs
                 = Sparkle.IR.Semantics.evalExpr $weMId env $(cres x) :=
             g1_shared $dmId $wtMId $weCT $weMId $sl _ $(cres x) $(craw x) $eIn
-              (by native_decide) (by native_decide) (by native_decide) (by native_decide) $hagT env))
+              (by rw [$(hresL x):ident]; decide) (by rw [$(hresL x):ident]; decide) $hinlId rfl $hagT env))
         for i in List.range nR do
           let (rn, input, _) := regs[i]!
           let inQ ← quoteIR input
@@ -3031,12 +3053,20 @@ elab "#verify_elab_deep" id:ident : command =>
           let hinlOf (tagS : String) (stopLT : Term) (rootT : Term) (coneT : Term) :
               CommandElabM Ident := do
             let id := Q s!"hinl_{tagS}"
-            let cmd ← `(theorem $id :
-                Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyXId)
-                    (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $coneT :=
-              Tools.ConeFold.inlineConeT_of_listS $bodyXId $stopLT 10000 $rootT $coneT (by decide))
-            elabSyncS cmd
-            pure id
+            -- the original body's cone equations are emitted before the G1 glue
+            -- (which reuses them); do not emit them twice.  Decided by the body
+            -- tag, not by an environment lookup: a simple-name `contains` misses
+            -- declarations made inside a `namespace` (measured: duplicate
+            -- `hinl_w*` in ConeSharingGen, none in the namespace-free crc16 test)
+            if tag == "" then
+              pure id
+            else
+              let cmd ← `(theorem $id :
+                  Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyXId)
+                      (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $coneT :=
+                Tools.ConeFold.inlineConeT_of_listS $bodyXId $stopLT 10000 $rootT $coneT (by decide))
+              elabSyncS cmd
+              pure id
           let mut hwfWireIds : Array Ident := #[]
           for k in List.range nW do
             let w := shared[k]!

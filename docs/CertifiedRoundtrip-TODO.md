@@ -962,12 +962,32 @@ Generator: `hsub` is body-independent, so ONE theorem per slot
 | shareX4+8 wall | 42 s | 43 s |
 | skips | crc16 1 (documented), shareX 0 | unchanged |
 The drop is one per wire plus two per body's steps (−6 / −10 / −18),
-exactly the removed sites.  Still `native_decide` on the shared route:
-the G1 glue (`coneEval_*`: `compile`/`concatNorm`/`inlineConeT`/
-`resolveSlicesT` equations — now unlockable slot by slot with
-`inlineConeT_of_listS` + `resolveSlicesT_list`), the `hwfL` agreement
-facts, the mask equations (`rtNorm ∘ stripMask ∘ resolveSlicesT`, now
-also reachable), and the parse oracle.
+exactly the removed sites.  **F2 step 9 DONE (2026-09-20): the G1 glue's four obligations by the
+kernel — no new implementation.**  Checked directly first: `concatNorm`
+and `noSingle` are already structural (axioms `propext` only),
+`CExpr.compile` and `CdoW.wires` axiom-free, so the kernel computes
+them as they are.  Per slot: `hres` is the cone constant's definition
+(`rfl`, 0 ms); `hinl` is the step-7 kernel theorem reused (1 ms; the
+original body's `hinl_*` are now emitted before the glue and the replay
+skips re-emitting them, decided by body tag — an environment lookup by
+simple name misses namespaced declarations, measured as a duplicate in
+ConeSharingGen); `hns` and `hnorm` are `decide` after rewriting the
+cone to the structural resolver (`{f}_sdeep_hresL_*`): 2 ms and 21 ms
+vs 1 and 4-6 ms native.  Whole glue theorem per slot: standard axioms.
+| | before | after |
+|---|---|---|
+| shareX4 aux (replay/Opt/svOpt/RT) | 31/49/50/49 | 7/25/26/25 |
+| shareX8 aux | 51/81/82/81 | 11/41/42/41 |
+| crc16 aux (replay/Opt/RT) | 90/144/144 | 18/72/72 |
+| crc16 wall / peak | 203 s / 2.191 GB | 211 s / 2.287 GB |
+| shareX4+8 wall | 43 s | 45 s |
+| skips | crc16 1 (documented), shareX 0 | unchanged |
+The drop is 4 per slot (24 on shareX4's 6 slots, 72 on crc16's 18).
+crc16's replay is now at 18 auxiliaries (from 152 on 2026-09-16).
+Still `native_decide` on the shared route: the `hwfL` agreement facts
+(1 per stop set per body), the mask equations (Opt/RT bodies), the
+parse oracle, and `bv_decide` in the trace; the bridges' 72 are the
+mask equations (18 per body) + hwfL (17) + inherited.
 
 ## D. Trust base
 
