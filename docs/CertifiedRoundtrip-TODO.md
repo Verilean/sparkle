@@ -937,6 +937,38 @@ width fact, not by sharing); the trace is one 5.3 M-node certificate;
 item; a `wiresAt` step lemma would make them cheap).  Per instruction,
 build-time work stops here and F2 resumes.
 
+**F2 step 8 DONE (2026-09-19): `resolveSlicesT` kernelised; the
+refs-membership facts (`hsub`) leave `native_decide`.**  Same two
+blockers as the cone walk (table read through `wt.get?`; recursion on
+(fuel, expression) with same-fuel re-entry ⇒ well-founded), same two
+fixes in `Tools/ConeFoldRT.lean`: `assocGetR` + `foldInsert_get?_eq` /
+`wtFold_get?_eq` (lookup agreement from `get?_insert`, no
+`native_decide`); `stepR` / `resolveSlicesS` (fuel-outer, `stepR` not
+even recursive; axioms `propext` only); `resolveSlicesT_eq_S` by
+induction on FUEL (every call from level f+1 is at level f, so one
+hypothesis covers the re-entries; the `rsT_*` reduction lemmas expose
+the arms; both sides then differ only in compiled `match` auxiliaries,
+closed by `rfl`); `resolveSlicesT_list` composes.
+Real `hsub` obligations, kernel vs `native_decide`, standard axioms:
+shareX4 slot 3 27 ms vs 3 ms; crc16 slot 15 60 ms vs 4 ms.
+Generator: `hsub` is body-independent, so ONE theorem per slot
+(`{f}_sdeep_hsub_{slot}`) referenced from all three replays.
+| | before | after |
+|---|---|---|
+| shareX4 aux (replay/Opt/svOpt/RT) | 37/55/56/55 | 31/49/50/49 |
+| shareX8 aux | 61/91/92/91 | 51/81/82/81 |
+| crc16 aux (replay/Opt/RT) | 108/162/162 | 90/144/144 |
+| crc16 wall / peak | 202 s / 2.192 GB | 203 s / 2.191 GB |
+| shareX4+8 wall | 42 s | 43 s |
+| skips | crc16 1 (documented), shareX 0 | unchanged |
+The drop is one per wire plus two per body's steps (−6 / −10 / −18),
+exactly the removed sites.  Still `native_decide` on the shared route:
+the G1 glue (`coneEval_*`: `compile`/`concatNorm`/`inlineConeT`/
+`resolveSlicesT` equations — now unlockable slot by slot with
+`inlineConeT_of_listS` + `resolveSlicesT_list`), the `hwfL` agreement
+facts, the mask equations (`rtNorm ∘ stripMask ∘ resolveSlicesT`, now
+also reachable), and the parse oracle.
+
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).

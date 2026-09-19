@@ -2907,6 +2907,25 @@ elab "#verify_elab_deep" id:ident : command =>
           let mut t : Term ← `(ihc)
           for _ in List.range i do t ← `(($t).2)
           if i + 1 < nR then `(($t).1) else pure t
+        -- F2 (resolveSlicesT): the refs-membership facts `hsub` — one per slot,
+        -- BODY-INDEPENDENT (the cone is the original's and the slot names are
+        -- the same for every replayed body), so proven ONCE here and referenced
+        -- from all three replays.  Kernel `decide` on the STRUCTURAL resolver
+        -- over the list width table (Tools/ConeFoldRT.lean: `resolveSlicesS`,
+        -- `resolveSlicesT_list`), no `native_decide`.  Measured 2026-09-19:
+        -- shareX4 slot 27 ms, crc16 slot 60 ms, standard axioms.
+        let allNamesH : Array Term := slotNames.toArray.map fun n => quote n
+        let hsubOf (x : String) (names : Array Term) : CommandElabM Unit := do
+          let id := P s!"hsub_{x}"
+          elabSyncS (← `(theorem $id : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres x), m ∈ [$names,*] := by
+            have h : $(cres x) = Tools.ConeFold.resolveSlicesS (Tools.ConeFold.assocGetR $wtLId) 10000 $(craw x) :=
+              Tools.ConeFold.resolveSlicesT_list $wtLId 10000 $(craw x)
+            rw [h]
+            decide))
+        for k in List.range nW do
+          hsubOf s!"w{k}" ((slotNames.take (nR + nI + k)).toArray.map fun n => quote n)
+        for i in List.range nR do hsubOf s!"r{i}" allNamesH
+        hsubOf "out" allNamesH
         -- ===== the replay over ONE body =====
         -- `tag = ""` replays the elaborator's own body (`{base}_sdeep_body`,
         -- whose cones ARE the CdoW's).  A non-empty tag replays another body
@@ -3113,7 +3132,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres s!"w{k}") := by
                 apply Sparkle.IR.Reorder.evalExpr_congr
                 intro $nId:ident $hnId:ident
-                have $hsubId:ident : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres s!"w{k}"), m ∈ [$earlierNames,*] := by native_decide
+                have $hsubId:ident := $(P s!"hsub_w{k}")
                 have $hmId:ident := $hsubId $nId $hnId
                 simp only [List.mem_cons, List.not_mem_nil, or_false] at $hmId:ident
                 $[$seqTacs:tactic]*
@@ -3141,7 +3160,7 @@ elab "#verify_elab_deep" id:ident : command =>
                     = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x) := by
                   apply Sparkle.IR.Reorder.evalExpr_congr
                   intro $nId:ident $hnId:ident
-                  have $hsubId:ident : ∀ m ∈ Sparkle.IR.Reorder.refsOf $(cres x), m ∈ [$allNames,*] := by native_decide
+                  have $hsubId:ident := $(P s!"hsub_{x}")
                   have $hmId:ident := $hsubId $nId $hnId
                   simp only [List.mem_cons, List.not_mem_nil, or_false] at $hmId:ident
                   $[$seqAll:tactic]*),

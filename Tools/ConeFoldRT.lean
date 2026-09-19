@@ -824,6 +824,213 @@ theorem inlineConeT_of_listS (body : List Stmt) (stopL : List String)
   rw [← inlineConeS_eq_G]
   exact h
 
+/-! ### F2: `resolveSlicesT` — the same two blockers, the same two fixes
+
+`resolveSlicesT` (Tools/ConeFold.lean) reads the width table only as
+`wt.get? n` (in `widthOfPartT` and the `.ref` branch) and recurses on
+the pair (fuel, expression) with re-entry at the SAME fuel on a rebuilt
+slice — so, like `inlineConeT`, it is compiled by well-founded
+recursion and the kernel can neither look up nor compute.  The recipe
+that worked for the cone walk is reused verbatim: a right-scanning list
+lookup with a fold-agreement theorem (`assocGetR`, generic in the value
+type), and a fuel-outer structural version whose every sub-call goes
+through the previous level (`stepR` / `resolveSlicesS`), tied to the
+shipping function by a proven equality. -/
+
+/-- Right-scanning association lookup with the fold's last-wins
+    semantics, for any value type. -/
+def assocGetR {β : Type} (l : List (String × β)) (n : String) : Option β :=
+  match l with
+  | [] => none
+  | (k, v) :: rest => match assocGetR rest n with
+    | some r => some r
+    | none => if k == n then some v else none
+
+theorem foldInsert_get?_eq {β : Type} (l : List (String × β)) :
+    ∀ (m : Std.HashMap String β) (n : String),
+      (l.foldl (fun m p => m.insert p.1 p.2) m).get? n
+        = match assocGetR l n with
+          | some r => some r
+          | none => m.get? n := by
+  induction l with
+  | nil => intro m n; rfl
+  | cons hd tl ih =>
+    intro m n
+    simp only [List.foldl_cons, assocGetR]
+    rw [ih (m.insert hd.1 hd.2) n]
+    cases hr : assocGetR tl n with
+    | some r => rfl
+    | none =>
+      simp only
+      rw [Std.HashMap.get?_insert]
+      by_cases hk : hd.1 == n
+      · simp [hk]
+      · simp [hk]
+
+/-- The generator's width table (`wtL.foldl insert {}`) looks up as the
+    list does.  Proven from `get?_insert` / `getElem?_empty`. -/
+theorem wtFold_get?_eq (l : List (String × Nat)) (n : String) :
+    (l.foldl (fun m p => m.insert p.1 p.2) ({} : Std.HashMap String Nat)).get? n
+      = assocGetR l n := by
+  rw [foldInsert_get?_eq l {} n]
+  cases assocGetR l n with
+  | some r => rfl
+  | none => exact Std.HashMap.getElem?_empty
+
+/-- `widthOfPartT` with its one table read as a parameter. -/
+def widthOfPartG (get : String → Option Nat) : Expr → Option Nat
+  | .const _ w => some w
+  | .ref n => get n
+  | .slice _ h l => some (h - l + 1)
+  | _ => none
+
+theorem widthOfPartT_eq_G (wt : Std.HashMap String Nat) :
+    widthOfPartT wt = widthOfPartG (fun n => wt.get? n) := by
+  funext e; cases e <;> rfl
+
+/-- One fuel level of slice resolution.  Every call the original makes
+    at the next-lower fuel goes through `rec`, so this is not recursive
+    at all — the kernel computes it by unfolding. -/
+def stepR (get : String → Option Nat) (rec : Expr → Expr) : Expr → Expr
+  | .slice e0 hi lo =>
+    match e0 with
+    | .concat parts0 =>
+      let parts := (flattenL parts0).map rec
+      match parts.mapM (widthOfPartG get) with
+      | none => .slice (.concat parts) hi lo
+      | some ws =>
+        match findWindow hi lo parts ws (ws.foldl (· + ·) 0) with
+        | some r => r
+        | none => .slice (.concat parts) hi lo
+    | e =>
+      match rec e with
+      | .concat parts => rec (.slice (.concat parts) hi lo)
+      | .ref n => if lo == 0 && get n == some (hi + 1) then .ref n else .slice (.ref n) hi lo
+      | .slice inner ihi ilo =>
+        if ilo + hi ≤ ihi ∧ lo ≤ hi then rec (.slice inner (ilo + hi) (ilo + lo))
+        else .slice (.slice inner ihi ilo) hi lo
+      | e' => .slice e' hi lo
+  | .op o args => .op o (args.map rec)
+  | .concat args => .concat (args.map rec)
+  | e => e
+
+/-- Slice resolution, structural in fuel. -/
+def resolveSlicesS (get : String → Option Nat) : Nat → Expr → Expr
+  | 0, e => e
+  | fuel + 1, e => stepR get (resolveSlicesS get fuel) e
+
+/-- Pointwise-equal lookups give the same resolution. -/
+theorem resolveSlicesS_congr (g1 g2 : String → Option Nat) (h : ∀ n, g1 n = g2 n) :
+    ∀ fuel e, resolveSlicesS g1 fuel e = resolveSlicesS g2 fuel e := by
+  have hg : g1 = g2 := funext h
+  subst hg
+  intro fuel e; rfl
+
+/-- The list twin of the shipping list pass, given the element agreement
+    at this fuel. -/
+theorem resolveSlicesTL_eq_map (wt : Std.HashMap String Nat) (fuel : Nat)
+    (ih : ∀ e, resolveSlicesT wt fuel e = resolveSlicesS (fun n => wt.get? n) fuel e) :
+    ∀ l, resolveSlicesTL wt fuel l = l.map (resolveSlicesS (fun n => wt.get? n) fuel)
+  | [] => by simp [resolveSlicesTL]
+  | a :: rest => by
+    simp only [resolveSlicesTL, List.map_cons, ih a, resolveSlicesTL_eq_map wt fuel ih rest]
+
+/-- The `.slice e0 hi lo` arm for a non-concat `e0`: after the per-shape
+    reduction lemma, every recursive call is at level `f`, covered by `ih`. -/
+theorem rsS_nonConcat (wt : Std.HashMap String Nat) (f : Nat)
+    (ih : ∀ e, resolveSlicesT wt f e = resolveSlicesS (fun n => wt.get? n) f e)
+    (hi lo : Nat) (e0 : Expr) (hne : ∀ ps, e0 ≠ Expr.concat ps) :
+    resolveSlicesT wt (f + 1) (.slice e0 hi lo)
+      = stepR (fun n => wt.get? n) (resolveSlicesS (fun n => wt.get? n) f) (.slice e0 hi lo) := by
+  rw [rsT_slice_reduce wt f e0 hi lo hne, ih e0]
+  -- the outer match of `stepR` on `e0` reduces once `e0` is a constructor
+  cases e0 with
+  | concat ps => exact absurd rfl (hne ps)
+  | const v w => simp only [stepR]; exact rsS_tail wt f ih hi lo _
+  | ref m => simp only [stepR]; exact rsS_tail wt f ih hi lo _
+  | op o args => simp only [stepR]; exact rsS_tail wt f ih hi lo _
+  | slice a b c => simp only [stepR]; exact rsS_tail wt f ih hi lo _
+  | sliceDim a b c => simp only [stepR]; exact rsS_tail wt f ih hi lo _
+  | index a b => simp only [stepR]; exact rsS_tail wt f ih hi lo _
+where
+  /-- the inner match on the resolved operand, both sides -/
+  rsS_tail (wt : Std.HashMap String Nat) (f : Nat)
+      (ih : ∀ e, resolveSlicesT wt f e = resolveSlicesS (fun n => wt.get? n) f e)
+      (hi lo : Nat) (r : Expr) :
+      (match r with
+        | .concat parts => resolveSlicesT wt f (.slice (.concat parts) hi lo)
+        | .ref n => if lo == 0 && wt.get? n == some (hi + 1) then .ref n else .slice (.ref n) hi lo
+        | .slice inner ihi ilo =>
+          if ilo + hi ≤ ihi ∧ lo ≤ hi then resolveSlicesT wt f (.slice inner (ilo + hi) (ilo + lo))
+          else .slice (.slice inner ihi ilo) hi lo
+        | e' => .slice e' hi lo)
+      = (match r with
+        | .concat parts => resolveSlicesS (fun n => wt.get? n) f (.slice (.concat parts) hi lo)
+        | .ref n => if lo == 0 && (fun n => wt.get? n) n == some (hi + 1) then .ref n else .slice (.ref n) hi lo
+        | .slice inner ihi ilo =>
+          if ilo + hi ≤ ihi ∧ lo ≤ hi then resolveSlicesS (fun n => wt.get? n) f (.slice inner (ilo + hi) (ilo + lo))
+          else .slice (.slice inner ihi ilo) hi lo
+        | e' => .slice e' hi lo) := by
+    cases r with
+    | concat parts => exact ih _
+    | ref n => rfl
+    | slice inner ihi ilo =>
+      dsimp only
+      by_cases hc : ilo + hi ≤ ihi ∧ lo ≤ hi
+      · rw [if_pos hc, if_pos hc]; exact ih _
+      · rw [if_neg hc, if_neg hc]
+    | const v w => rfl
+    | op o args => rfl
+    | sliceDim a b c => rfl
+    | index a b => rfl
+
+/-- **The shipping resolver IS the structural one at the HashMap read.**
+    Induction on fuel: every call the original makes from level
+    `fuel + 1` is at level `fuel` (including the re-entries on rebuilt
+    slices), so the induction hypothesis covers all of them; the
+    per-shape reduction lemmas `rsT_*` (Tools/ConeFoldSlices.lean)
+    expose the arms. -/
+theorem resolveSlicesT_eq_S (wt : Std.HashMap String Nat) :
+    ∀ fuel e, resolveSlicesT wt fuel e = resolveSlicesS (fun n => wt.get? n) fuel e := by
+  intro fuel
+  induction fuel with
+  | zero => intro e; rw [rsT_zero]; rfl
+  | succ f ih =>
+    intro e
+    have hL := resolveSlicesTL_eq_map wt f ih
+    simp only [resolveSlicesS]
+    cases e with
+    | slice e0 hi lo =>
+      cases e0 with
+      | concat parts0 =>
+        rw [rsT_slice_concat]
+        simp only [stepR, hL, widthOfPartT_eq_G]
+        -- both sides now print identically; they differ only in the two
+        -- functions' compiled `match` auxiliaries, which `rfl` unfolds
+        rfl
+      | const v w => exact rsS_nonConcat wt f ih hi lo (.const v w) (fun _ h => by cases h)
+      | ref n => exact rsS_nonConcat wt f ih hi lo (.ref n) (fun _ h => by cases h)
+      | op o args => exact rsS_nonConcat wt f ih hi lo (.op o args) (fun _ h => by cases h)
+      | slice a b c => exact rsS_nonConcat wt f ih hi lo (.slice a b c) (fun _ h => by cases h)
+      | sliceDim a b c => exact rsS_nonConcat wt f ih hi lo (.sliceDim a b c) (fun _ h => by cases h)
+      | index a b => exact rsS_nonConcat wt f ih hi lo (.index a b) (fun _ h => by cases h)
+    | op o args => rw [rsT_op]; simp only [stepR, hL]
+    | concat args => rw [rsT_concat]; simp only [stepR, hL]
+    | const v w => rw [resolveSlicesT.eq_def]; simp [stepR]
+    | ref n => rw [resolveSlicesT.eq_def]; simp [stepR]
+    | sliceDim a b c => rw [resolveSlicesT.eq_def]; simp [stepR]
+    | index a b => rw [resolveSlicesT.eq_def]; simp [stepR]
+
+/-- **Composed:** the generator's width table (a fold of its literal
+    list) resolves exactly as the structural resolver over the list
+    lookup — every step a proven rewrite, so `decide` on the right-hand
+    side discharges facts about the shipping cone. -/
+theorem resolveSlicesT_list (wtL : List (String × Nat)) (fuel : Nat) (e : Expr) :
+    resolveSlicesT (wtL.foldl (fun m p => m.insert p.1 p.2) {}) fuel e
+      = resolveSlicesS (assocGetR wtL) fuel e := by
+  rw [resolveSlicesT_eq_S]
+  exact resolveSlicesS_congr _ _ (fun n => wtFold_get?_eq wtL n) fuel e
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)
