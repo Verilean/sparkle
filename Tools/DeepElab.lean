@@ -1711,7 +1711,10 @@ elab "#verify_elab_deep" id:ident : command =>
   -- strings even with tracing disabled.
   let deepTrace (msg : Unit → String) : CommandElabM Unit := do
     if let some f ← IO.getEnv "SPARKLE_DEEP_TRACE" then
-      IO.FS.withFile f .append fun h => h.putStrLn (msg ())
+      -- monotonic milliseconds first, so an external memory sampler can be
+      -- correlated with the stage boundaries (memory study, 2026-09-20)
+      let ms ← IO.monoMsNow
+      IO.FS.withFile f .append fun h => h.putStrLn s!"[{ms}] {msg ()}"
   -- Every generated declaration goes through here.  Under
   -- SPARKLE_DEEP_TRACE each error message a declaration logs is
   -- attributed to it in the trace file: an error raised AFTER a proof's
@@ -3072,6 +3075,7 @@ elab "#verify_elab_deep" id:ident : command =>
             let w := shared[k]!
             hwfWireIds := hwfWireIds.push
               (← hwfOf s!"w{k}" (← `($stopAtMwId $(quote w))) (← `($stopLwId $(quote w))))
+          deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: hwfL facts emitted"
           let hb1Id := Q "hb1_of"
           elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
               ∀ n, env1 n < 2 ^ $weMId n :=
@@ -3086,6 +3090,7 @@ elab "#verify_elab_deep" id:ident : command =>
           for i in List.range nR do frameOf s!"r{i}" (regs[i]!).1
           for j in List.range nI do frameOf s!"i{j}" (ins[j]!).1
           for (r, idx) in rstNamesX.toArray.zipIdx do frameOf s!"rst{idx}" r
+          deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: hb1 + frames emitted"
           -- from the replayed body's cone (as `shared_cone_agrees_at_settled`
           -- states it) to the ORIGINAL cone: definitional for the elaborator's
           -- body, `rtBridge_eval` + the mask equation otherwise
@@ -3148,6 +3153,7 @@ elab "#verify_elab_deep" id:ident : command =>
             elabSyncS (← `(theorem $setId $paramBinders* (t : Nat) $xB* :
                 Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres s!"w{k}") = some (env1 $(quote w)) := by
               $[$setTacs:tactic]*))
+            deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: settled w{k}"
             let nEarlier := nR + nI + k
             let earlierNames : Array Term := (slotNames.take nEarlier).toArray.map fun n => quote n
             let bullets ← (List.range nEarlier).toArray.mapM fun idx => slotBullet idx k false
@@ -3168,6 +3174,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 $[$seqTacs:tactic]*
               rw [hc, hs]
               rfl))
+            deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: wire w{k}"
           deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: wire lemmas emitted"
           -- steps at the seed (register inputs, output)
           let allNames : Array Term := slotNames.toArray.map fun n => quote n
@@ -3459,6 +3466,11 @@ elab "#verify_elab_deep" id:ident : command =>
                     = .ok $bodyRTId := by native_decide))
               extras.modify (·.push (parsesId, "the shipping parser+lowerer maps the printed text to the RT body"))
         pure (sigRunId, ← extras.get)
+      -- diagnostic: stop after the trace theorem (its audit passed above) so
+      -- the trace and the replay/bridges can be measured separately
+      if (← IO.getEnv "SPARKLE_DEEP_TRACE_ONLY").isSome then
+        logInfo m!"#verify_elab_deep {declName}: SPARKLE_DEEP_TRACE_ONLY — trace {thId.getId} PROVEN, replay and bridges NOT run"
+        return
       let (sigRunId, extras) ← sharedReplay ()
       -- audit: exists, no sorryAx, only decision-procedure auxiliaries beyond
       -- the standard axioms — for the replay AND every bridge theorem

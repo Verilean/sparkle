@@ -989,6 +989,107 @@ Still `native_decide` on the shared route: the `hwfL` agreement facts
 parse oracle, and `bv_decide` in the trace; the bridges' 72 are the
 mask equations (18 per body) + hwfL (17) + inherited.
 
+### C3. crc16 memory, by stage (measured 2026-09-20)
+
+Dependencies prebuilt; each stage in a FRESH `systemd-run --scope`
+cgroup; one run each.  Two peak metrics, which measure different
+things and must not be subtracted from each other as if they were one:
+`child_maxrss` = `getrusage(RUSAGE_CHILDREN).ru_maxrss` of the `lake
+env lean` child (includes the ~1.6 GB of `.olean` files it maps, which
+are shared page-cache pages); `cgroup_peak` = `memory.peak` of the
+fresh cgroup (charges only pages first touched in it, so the already
+cached `.olean` pages are excluded).  `memory.stat` read after exit is
+near-empty and says nothing about the peak, so the breakdown below was
+SAMPLED every second and the sample at the highest `memory.current`
+kept (re-runs of stages 3 and 4, fresh cgroups; wall 55 s and 204 s,
+peaks 1.536 GB and 2.241 GB — within 1 % of the first runs):
+| at peak | anon | kernel | file | file_mapped |
+|---|---|---|---|---|
+| stage 3 (trace) | 1.29 GB (of which THP 0.86 GB) | 74 MB | 0 | 74 KB |
+| stage 4 (full) | 1.70 GB (THP 0.39 GB) | 75 MB | 0 | 74 KB |
+So the cgroup peak is the `lean` process's anonymous heap; there is no
+file-cache or kernel component of note, and the mapped `.olean` pages
+do not appear here (they are charged elsewhere), which is exactly why
+`child_maxrss` sits ~1.4 GB above `cgroup_peak` at every stage.
+
+| stage | wall | child_maxrss | cgroup_peak |
+|---|---|---|---|
+| 1. imports only (`IP.Bus.DroneCANHW`, `Tools.DeepElab`) | 0.6 s | 1.66 GB | 264 MB |
+| 2. + synthesize crc16 to IR (94 statements) | 0.7 s | 1.69 GB | 282 MB |
+| 3. + trace theorem only (`SPARKLE_DEEP_TRACE_ONLY=1`, new diagnostic switch) | 58.5 s | 2.78 GB | 1.54 GB |
+| 4. + replay, optimized body, reparsed body (the full command) | 212 s | 3.23 GB | 2.25 GB |
+
+Reading, stated as deltas of the cgroup metric only and as an
+indication, not an exact accounting: synthesis is negligible (+18 MB);
+the trace stage is the largest step (+1.25 GB) at 58 s; the replay and
+the two bridges add +0.71 GB over 154 s.  **What the command RETAINS (harness `retained.lean`: every generated
+constant, value sized as a DAG — what occupies memory — and as a tree;
+`ConstantInfo.value?` returns none for theorems here, the value is read
+directly):**
+| stage / kind | constants | DAG nodes | tree nodes |
+|---|---|---|---|
+| trace / theorems | 22 | 18 377 | 5 321 212 |
+| trace / definitions | 21 | 2 244 | 99 171 |
+| replay+bridges / theorems | 378 | 236 957 | 63 193 247 |
+| replay+bridges / definitions | 131 | 8 936 | 33 745 |
+| total | 552 | ≈ 266 k | ≈ 68.6 M |
+Largest: `_sdeep_trace` 17 209 DAG nodes; each `wire_w{k}` 4–6 k
+(identical across the three bodies — the same proof three times; the
+congruence inside it is body-independent, a dedupe candidate for size
+but not for memory); the biggest DEFINITIONS are `weM` 1 028, the three
+bodies 537–848, `wtL` 522, `swl` 410 DAG nodes (71 k as a tree — the
+wire-list literal is heavily shared).  At ~100 bytes a node the whole
+retained environment is on the order of tens of MB, against a 1.29 GB
+anonymous peak in the trace stage and 1.70 GB in the full run.
+CONCLUSION: retention is not the memory; the peaks are TRANSIENT
+elaboration memory (SAT/LRAT for `bv_decide`, `simp`/`signal_lets`
+state, kernel checking).  Tree-vs-DAG matters only where something
+materialises the tree (none found retained).  **Attributed IN TIME** (STAGE markers now timestamped; `memory.current`
+sampled every 0.5 s in the same clock; full run, fresh cgroup, peak
+2.27 GB, 204 s).  `memory.current` is the resident high-water mark of a
+heap that does not shrink between stages, so the table reads as
+"where the level rose", not as per-stage usage:
+| segment | wall | level at end |
+|---|---|---|
+| start → CdoW reified (16 wires), readers + equations | 30 s | 0.25 → 0.69 GB |
+| trace theorem (`bv_decide`) | 25 s | → **1.53 GB** (+0.84) |
+| replay: G1 glue | 20 s | 1.55 GB (flat) |
+| seed + readers | 0.4 s | flat |
+| ORIGINAL body: hwfL, hb1/frames, settled + wire lemmas | 95 s | → **2.26 GB** (+0.75) |
+| steps, regstep, state trace, run | 0.5 s | flat |
+| Opt body, all of it | 15 s | 2.24 GB (flat — heap reused) |
+| RT body, all of it | 16 s | 2.27 GB (flat) |
+So the peak is set by two places: the trace theorem's `bv_decide`
+(+0.84 GB in 25 s) and the original body's wire-lemma segment (+0.75 GB
+in 95 s); the two later bodies fit in the heap the first one grew.
+The 95 s segment also contains the known kernel `decide`s over the
+94-statement original body (`hwfL` ×17 ≈ 35 s, `bodyWidthOk` 4 s),
+which the Opt/RT bodies (20 statements) do not pay — which is why they
+take 15 s.  **Split further (per-phase and per-wire markers; rerun, peak 2.27 GB,
+204 s):**
+| sub-phase of the ORIGINAL body | wall | level |
+|---|---|---|
+| seed + readers → **hwfL facts emitted** (17 kernel `decide`s of `hwfCheckL` over the 94-statement body, one per stop set) | **87.3 s** | 1.54 → **2.25 GB** |
+| hwfL → hb1 + frames | 5.1 s | 2.26 GB |
+| each `settled w{k}` / `wire w{k}` (32 lemmas) | 0.0–0.2 s each, 2.3 s total | flat |
+| steps + regstep + state trace + run | 0.5 s | flat |
+| Opt body: hwfL facts (20-statement body) | 9.8 s | flat |
+| RT body: hwfL facts | 9.9 s | flat |
+So the second contributor to the peak is identified: the kernel
+evaluation of `hwfCheckL we stop body` over the 94-statement original
+body, repeated for 17 stop sets (16 per-wire + the shared one) — this
+is the "large definition expanded 17 times" of the study.  The wire
+lemmas themselves, which dominated the TIME profile before the
+`natJoin_right` fix, cost nothing here.  With the trace theorem's
+`bv_decide` (+0.84 GB, 25 s) these two places account for the whole
+rise from 0.69 GB to 2.25 GB.
+Fix candidate (not applied; one change, to be measured): derive each
+per-wire check from ONE full-stop-set walk plus a single-statement
+width fact — `hwfCheckL_erase : hwfCheckL we stop body = true →
+(the one assign to w has widthOf = we w) → hwfCheckL we (stop.erase w)
+body = true` — so a body pays one 94-statement walk instead of 17.
+Estimate only until measured: the segment 87 s → ~5–10 s and most of
+its +0.7 GB.
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).
