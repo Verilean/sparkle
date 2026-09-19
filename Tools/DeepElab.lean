@@ -3055,8 +3055,13 @@ elab "#verify_elab_deep" id:ident : command =>
                 rw [$wId $appArgs* t hrun, $rId:ident]
                 show envOfC $snmId _ ($snmId ⟨$(quote idx), by decide⟩) = _
                 rw [envOfC_names $snmId _ $hinjId]
-                show CdoW.irWiresAt $sdeepId $snmId ($ρnId $appArgs* t) $(quote kAt) ⟨$(quote j), by decide⟩
-                  = CdoW.irWires $sdeepId $snmId ($ρnId $appArgs* t) ⟨$(quote j), by decide⟩
+                -- MEASURED 2026-09-19 on crc16's wire_w15: closing this right-block
+                -- natJoin projection by `show` (different heads on the two sides)
+                -- made the kernel lazy-delta-unfold `irWiresAt … k` — 16.8 s for
+                -- the bullet of wire 0 alone, 18.7 s for the lemma.  Keeping the
+                -- head `natJoin` on both sides via the generic lemma: 246 ms for
+                -- all 15 bullets.
+                refine (natJoin_right _ _ $(quote j) (by decide) _).trans ?_
                 rw [CdoW.irWiresAt_stable $sdeepId $snmId ($ρnId $appArgs* t) $(quote kAt) ⟨$(quote j), by decide⟩ (by decide)]
                 unfold CdoW.irWires
                 rw [CdoW.irWiresAt_stable $sdeepId $snmId ($ρnId $appArgs* t) ($ΓwT).length ⟨$(quote j), by decide⟩ (by decide)]))

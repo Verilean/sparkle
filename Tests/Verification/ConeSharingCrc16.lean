@@ -22,8 +22,9 @@
   SKIPPED line and nothing else skipped (docs/SharedRoute-Guarantees.md
   §4a; docs/RefusalLedger.md, shl width rule).
 
-  Measured 2026-09-19: 593 s wall (peak 2.87 GB; was 880 s before the
-  wire readers stopped closing by `rfl` — see `natJoin_right`), `lake build`, MemoryMax=24G,
+  Measured 2026-09-19: 343 s wall (peak 2.82 GB; was 880 s the same
+  morning — two kernel-unfolding `rfl`/`show` steps replaced by the
+  generic `natJoin_right`, see its docstring), `lake build`, MemoryMax=24G,
   maxHeartbeats 1,600,000 per generated declaration (was 709 s before the
   two bridges).  Expensive; CI runs it as its own step.
 -/

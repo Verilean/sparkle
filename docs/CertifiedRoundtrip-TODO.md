@@ -807,10 +807,101 @@ changed, no check weakened.  Expected crc16 saving ≈ 16 × 19.3 s ≈
 MEASURED saving 287 s (−33 %) against the 309 s estimate; peak +70 MB
 (+2.5 %).  Auxiliaries unchanged (replay 108, Opt 162, RT 162), the one
 documented SV skip preserved, shareX4/8 unchanged (37/55/56/55,
-61/91/92/91, nothing skipped).  crc16's remaining 593 s: the next
-per-declaration pass will say where; the `_sdeep_trace` theorem
-(22 s, 5.3 M-node `bv_decide` certificate) is the largest single item
-known so far.
+61/91/92/91, nothing skipped).  **Post-fix per-declaration profile with names, aggregated by KIND
+(2026-09-19; same harness, 348 theorems, re-check total 412 s):**
+| kind | sum | n | mean proof nodes | reading |
+|---|---|---|---|---|
+| `wire_w*` (orig / Opt / RT, 80.5 s each) | 241 s (59 %) | 48 | 1.19 M, growing ≈ 127 k per wire index (w12 1.77 M → w15 2.15 M; 9.6 s → 18.3 s) | term-size-bound; O(k) per wire ⇒ O(nW²) total |
+| `settled` [orig] | 52.5 s | 16 | 442 | tiny term, 3.3 s each; the same kind on Opt/RT is 0.19 s |
+| `hwfL` [orig] | 33.4 s | 16 | 321 | tiny term, 2.1 s each; Opt/RT 0.25 s |
+| `trace` | 22.4 s | 1 | 5.29 M | the `bv_decide` certificate |
+| `rwN_eq` + `rdN_succ` | 24 s | 17 | 53–77 | `rfl` readers on the Signal side (reduction) |
+| everything else | ≈ 40 s | 250 | | |
+The orig/Opt-RT asymmetry has an obvious candidate: the ORIGINAL body is
+the un-optimized module (94 statements) while Opt/RT are 20, and every
+settled/step lemma re-proves `woCheck` / `memFreeCheck` /
+`noSelfReadCheck` over it by kernel `decide` — the same proposition,
+34 times per body.  MEASURED one decide at a time (kernel, same conditions):
+| fact | body | statements | kernel |
+|---|---|---|---|
+| `woCheck [] body` | orig | 94 | 6817 ms |
+| `noSelfReadCheck body` | orig | 94 | 347 ms |
+| `memFreeCheck body` | orig | 94 | 4 ms |
+| `woCheck [] bodyOpt` | Opt | 20 | 374 ms |
+So the asymmetry is `woCheck` over the un-optimized 94-statement body,
+re-proven by every settled and step lemma of that body (33 sites).
+Fix (queued, one change at a time): prove `woCheck`/`memFreeCheck`/
+`noSelfReadCheck` ONCE per body as named theorems and reference them —
+the F2-step-1 pattern.
+**`wire_w*` separated on w15:** the proof is 2.15 M nodes as a TREE but
+5615 nodes as a DAG (depth 110); the kernel works on the DAG, so 18 s
+on a 5.6 k-node term is REDUCTION, not size — the earlier "term-size-
+bound" reading was a tree-count artefact and is withdrawn.  The growth
+with the wire index points at the fuel-indexed `irWiresAt … k` being
+unfolded by the wire-slot bullets' `show` (a right-block `natJoin`
+projection decided definitionally, the same shape as the readers).
+That hypothesis was KILLED by measurement: the projection alone is
+10 ms by `rfl` at fuel 15 (5 ms via the lemma, 7 ms at fuel 3, 4 ms for
+the left-block bullet).  So `wire_w15`'s proof was RECONSTRUCTED from
+the generator's script in a scratch (faithful: 18 653 ms vs the 18.3 s
+measured on the real theorem) and split: body WITHOUT the congruence
+`hc` 4 ms; `hc` ALONE 18 680 ms.  All of the cost is inside `hc` (the
+`evalExpr_congr` with one bullet per earlier slot: `hsub` by
+`native_decide`, the membership `simp`, an `rcases` chain, then per
+slot `rw [wire_wj, envAt_wj]; show …; rw [envOfC_names]; …`).  Bisected
+within `hc` (each row = the same `hc` with the wire bullets' tail cut
+by `sorry` after the named step; register/input bullets real):
+| cut after | ms |
+|---|---|
+| prefix only, every bullet `sorry` | 20 |
+| wire bullets: `rw [wire_wj, envAt_wj]` | 54 |
+| + `show envOfC … (snm ⟨idx⟩) = _` | 88 |
+| + `rw [envOfC_names …]` | 104 |
+| + `show irWiresAt … k ⟨j⟩ = irWires … ⟨j⟩` | **18 648** |
+| + `rw [irWiresAt_stable … k …]` | 18 827 |
+| + `unfold irWires` | 18 964 |
+| full | 19 093 |
+One step — the second `show`, a right-block `natJoin` projection
+decided by definitional unfolding (different heads on the two sides,
+so the kernel's lazy delta unfolds `irWiresAt … k`, the fuel-k wire
+recurrence) — carries the entire cost.  It is the same shape as the
+fixed readers.  Note the interaction: a SINGLE wire bullet with that
+step is 59 ms; 15 of them are 18.6 s — the cost across bullets is
+strongly superlinear, so the per-bullet isolated measurement (10 ms)
+under-read it.  Count curve and fix, MEASURED (same `hc`, same conditions):
+| real wire bullets | ms |
+|---|---|
+| 2 | 16 210 |
+| 4 | 16 764 |
+| 8 | 17 445 |
+| 12 | 18 547 |
+| 15 | 19 241 |
+| only wire 0 (full) | 16 757 |
+| only wire 14 (full) | 61 |
+| all 15, `show` → `refine (natJoin_right …).trans ?_` | **246** |
+So the cost is not per-bullet: ONE bullet — wire index 0, whose
+projection the kernel decides by unfolding `irWiresAt … k ⟨0⟩` — is
+16.8 s, the rest add ~0.2 s each, and the earlier per-bullet
+measurement at index 14 (10 ms) missed it because it was the wrong
+index.  The fix keeps the head `natJoin` on both sides so the kernel
+never unfolds: 18.7 s → 0.25 s for the congruence, standard axioms.
+Applied at the generator's wire-bullet site (one line).  MEASURED,
+same harness (lake build, 24G, cgroup peak, one run each):
+| crc16 | wall | peak |
+|---|---|---|
+| before (`show` bullet) | 593 s | 2.867 GB |
+| after (`natJoin_right` bullet) | 343 s | 2.824 GB |
+Saving 250 s (−42 %) against the ≈ 240 s estimate; peak −43 MB.
+Auxiliaries unchanged (108 / 162 / 162), the one documented SV skip
+preserved; shareX4/8 unchanged (37/55/56/55, 61/91/92/91, nothing
+skipped), 65 s.  Cumulative for crc16 today: 880 s → 343 s (−61 %),
+with no change to any obligation.
+Next single change (queued): prove `woCheck` / `memFreeCheck` /
+`noSelfReadCheck` ONCE per body and reference them — `woCheck` over the
+94-statement original body is 6.8 s per kernel `decide` and is
+re-proven at 33 sites of that body (`settled` + `step`); the by-kind
+table puts `settled`+`hwfL` [orig] at 86 s.  Estimate only until
+measured.
 
 ## D. Trust base
 
