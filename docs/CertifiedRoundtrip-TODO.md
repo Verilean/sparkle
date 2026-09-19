@@ -702,6 +702,73 @@ group is rough priority.  Update as items land.
   out of scope until asked.
   Until then crc16 / arithmetic-size circuits remain capstone-only.
 
+## C2. Build time of the generator and of crc16 (measured 2026-09-19)
+
+Method rule from the review: measure first, one change, same conditions,
+and never report an inferred cause as measured.  Conditions for every
+row below: `lake env lean`, MemoryMax 30G (generator) / 24G (crc16), 32
+cores, dependencies prebuilt, no other heavy job running, one run each.
+
+**The three measurements asked for.**
+1. No-change rebuild of `Tools.DeepElab`: 0 s.  Caching works.
+2. `Tools/DeepElab.lean` alone (profiler, 2 s threshold): total 1042 s,
+   of which `compilation (LCNF base)` 1010 s, `do element elaborator`
+   13.5 s, `elaboration` 1.13 s.  The generator's cost is Lean compiling
+   the elaborator's own code to native, not proving anything.  LCNF is
+   superlinear in a single function's body size.
+3. crc16 verification alone (3 s threshold): total 877 s, `type
+   checking` 702 s, `tactic execution` 159 s, `interpretation` 10.6 s,
+   `elaboration` 0.15 s.  61 per-item `type checking` entries ≥ 3 s,
+   max 24.2 s, mean ≈ 10 s, summing to 614 s; the 88 s remainder is
+   entries under the threshold.  No nesting: the 159 s is a separate
+   phase.  A run of 14 consecutive entries at 19.2–19.3 s is a repeated
+   per-slot cost.  CONCLUSION HELD AT: crc16's time is concentrated in
+   kernel type checking.  Nothing further claimed yet.
+
+**Attributing the generator's largest LCNF item to a function.**  The
+profiler's items are anonymous.  Recompiling an existing constant is a
+no-op (measured: 0 ms), and with `Elab.async` on, `addAndCompile` only
+ENQUEUES — the timer around it measures nothing while the real compile
+runs later (measured: every closure "0–1 ms", 488 s of wall).  Both
+were artefacts and are NOT reported as measurements.  With
+`Elab.async false` and a fresh copy of each lifted closure compiled
+individually:
+
+| closure | LCNF time |
+|---|---|
+| `sharedRoute.sharedReplay` | 361.6 s |
+| `sharedRoute` | 68.6 s |
+| `portBlock.replayBlock` | 39.4 s |
+| main body | 12.1 s |
+| `portBlock.bridgeBlock` | 3.1 s |
+| `portBlock` | 1.8 s |
+
+So the 365 s item is `sharedReplay` — whose `replayOver` and
+`sharedBridge` were plain `let` lambdas inlined into one ~770-line body
+— and NOT `replayBlock`, which two earlier inferences had pointed at.
+
+**Changes, each a pure restructuring (same code, order, obligations):**
+
+| step | total | LCNF base | largest item | elaboration |
+|---|---|---|---|---|
+| baseline | 1042 s | 1010 s | 598 s | 1.13 s |
+| shared route → `let rec sharedRoute` | 598 s | 565 s | 369 s | 1.15 s |
+| port loop body → `let rec portBlock` | 519 s | 487 s | 365 s | 1.21 s |
+| `replayOver`/`sharedBridge` → `let rec` | 190 s | 163 s | 67 s | 1.2 s |
+
+The third row removed the 365 s item outright: it became 35.8 s + 4 s,
+and the largest remaining item is `sharedRoute` at 67 s.  An unchanged
+re-run between rows 2 and 3 (an edit that failed its assertion and wrote
+nothing) gave 520 s / 365 s against 519 s / 365 s — a reproducibility
+point for the measurement itself.
+Verification after the first two: shareX4 37/55/56/55, shareX8
+61/91/92/91, nothing skipped — identical to before.
+
+Generator work stops after the third row is measured; the next item is
+ONE representative slow crc16 declaration, separating proof-term size
+from unfolding/reduction cost (harness: per-theorem synchronous
+`addDecl` re-check with `sizeWithoutSharing` of the proof).
+
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).

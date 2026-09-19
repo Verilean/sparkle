@@ -2903,7 +2903,12 @@ elab "#verify_elab_deep" id:ident : command =>
         -- body-dependent name.  Registers are matched BY NAME (the replayed
         -- body may list them in another order or re-root one at another
         -- input wire); the spec recurrence's slot order is the original's.
-        let replayOver (tag : String) (bodyX : List Sparkle.IR.AST.Stmt)
+        -- MEASURED 2026-09-19 (per-closure recompilation, synchronous):
+        -- `sharedReplay` alone cost 361.6 s of LCNF time — the module's
+        -- largest item — because `replayOver` and `sharedBridge` were plain
+        -- `let` lambdas inlined into its body.  `let rec` lifts each into
+        -- its own compilation unit.  Pure restructuring.
+        let rec replayOver (tag : String) (bodyX : List Sparkle.IR.AST.Stmt)
             (regsX : List (String × Sparkle.IR.AST.Expr × Int)) : CommandElabM Ident := do
           let Q (x : String) : Ident := P s!"{x}{tag}"
           let masked := tag != ""
@@ -3244,7 +3249,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let weF : Sparkle.IR.Semantics.WEnv := fun n => wt.getD n 0
         let wofF : String → Option Nat := fun n => some (weF n)
         let normOf (c : Sparkle.IR.AST.Expr) : Sparkle.IR.AST.Expr := Tools.ConeFold.rtNorm weF (Tools.ConeFold.stripMask wofF c)
-        let sharedBridge (tag : String) (mx : Sparkle.IR.AST.Module) (withSv : Bool) : CommandElabM (Option Ident) := do
+        let rec sharedBridge (tag : String) (mx : Sparkle.IR.AST.Module) (withSv : Bool) : CommandElabM (Option Ident) := do
           let bodyX := mx.body
           let regsX := theRegisters mx
           let dmX := Sparkle.IR.Optimize.buildDefMap bodyX
