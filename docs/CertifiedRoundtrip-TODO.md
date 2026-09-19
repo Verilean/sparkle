@@ -896,12 +896,46 @@ Auxiliaries unchanged (108 / 162 / 162), the one documented SV skip
 preserved; shareX4/8 unchanged (37/55/56/55, 61/91/92/91, nothing
 skipped), 65 s.  Cumulative for crc16 today: 880 s → 343 s (−61 %),
 with no change to any obligation.
-Next single change (queued): prove `woCheck` / `memFreeCheck` /
-`noSelfReadCheck` ONCE per body and reference them — `woCheck` over the
-94-statement original body is 6.8 s per kernel `decide` and is
-re-proven at 33 sites of that body (`settled` + `step`); the by-kind
-table puts `settled`+`hwfL` [orig] at 86 s.  Estimate only until
-measured.
+**Shared body facts, DONE (2026-09-19).**  Proposition identity checked
+on ALL arguments: inside `replayOver` every site is `woCheck []
+$bodyXId` (`done = []` everywhere), `memFreeCheck $bodyXId` (the `_`
+unifies to the same constant from the lemma's statement) and
+`noSelfReadCheck $bodyXId` — the same three propositions per body,
+re-proven at 2 / 7 / 2 kinds of site.  Now one theorem per body
+(`{f}_sdeep_hWO{tag}` / `_hMF{tag}` / `_hNSR{tag}`; orig / Opt / RT are
+distinct constants and keep distinct theorems).  Measured, same
+harness, one run each:
+| | before | after |
+|---|---|---|
+| shareX4+8 wall | 65 s | 42 s |
+| crc16 wall | 343 s | 202 s |
+| crc16 peak | 2.824 GB | 2.192 GB |
+| crc16 auxiliaries | 108 / 162 / 162 | unchanged |
+| SV skip | 1 | 1 |
+| shareX4/8 auxiliaries, skips | 37/55/56/55, 61/91/92/91, none | unchanged |
+The peak fell by 630 MB — the duplicated decide proofs were also the
+memory.  crc16 today: 880 s → 202 s (−77 %) with no obligation changed.
+**Post-change by-kind aggregation** (357 theorems, re-check total
+108.7 s, was 412 s):
+| kind | sum | n | mean proof nodes |
+|---|---|---|---|
+| `hwfL` [orig] | 33.3 s | 16 | 321 |
+| `trace` | 22.4 s | 1 | 5.29 M |
+| `rwN_eq` [orig] | 18.1 s | 16 | 53 |
+| `rdN_succ` [orig] | 6.0 s | 1 | 77 |
+| `hinl` [orig] | 5.3 s | 17 | 236 |
+| `hwfL` [Opt] / [RT] | 4.0 s / 3.9 s | 16 / 16 | 321 |
+| `hWO` [orig] | 3.3 s | 1 | 77 |
+| everything else | ≈ 12 s | | |
+`wire_w*` and `settled` no longer appear.  JUDGEMENT: no COMMON waste
+(the same proposition re-proven) remains.  What is left is per-item:
+`hwfL` [orig] is 16 DISTINCT propositions (one stop set per wire, each
+a kernel walk over the 94-statement body — reducible only by a new
+lemma deriving the per-wire check from the full-stop-set one plus one
+width fact, not by sharing); the trace is one 5.3 M-node certificate;
+`rwN_eq`/`rdN_succ` are Signal-side `rfl` readers (the known Phase-A
+item; a `wiresAt` step lemma would make them cheap).  Per instruction,
+build-time work stops here and F2 resumes.
 
 ## D. Trust base
 

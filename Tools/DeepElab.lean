@@ -2971,6 +2971,19 @@ elab "#verify_elab_deep" id:ident : command =>
           let hrunBinder ← `(Lean.Parser.Term.bracketedBinderF| (hrun : Sparkle.IR.Semantics.evalAssigns $weMId (fun _ _ => 0) $bodyXId ($envAtId $appArgs* t) = some env1))
           let env1Binder ← `(Lean.Parser.Term.bracketedBinderF| {env1 : Sparkle.IR.Semantics.Env})
           let xB : Array (Lean.TSyntax ``Lean.Parser.Term.bracketedBinder) := #[env1Binder, hrunBinder]
+          -- MEASURED 2026-09-19: `woCheck [] body` over the 94-statement original
+          -- body is 6.8 s per kernel `decide`, and the SAME proposition (same
+          -- `done = []`, same body constant) was re-proven at every settled and
+          -- step lemma; `memFree` at 7 kinds of site, `noSelfRead` at 2.  Each is
+          -- now ONE theorem per replayed body (orig / Opt / RT stay distinct —
+          -- they are different body constants) and the sites reference it.
+          let hWOId := Q "hWO"; let hMFId := Q "hMF"; let hNSRId := Q "hNSR"
+          elabSyncS (← `(theorem $hWOId : Sparkle.IR.Reorder.WO [] $bodyXId :=
+            Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide)))
+          elabSyncS (← `(theorem $hMFId : Tools.ConeFold.memFree $bodyXId :=
+            Tools.ConeFold.memFreeCheck_sound _ (by decide)))
+          elabSyncS (← `(theorem $hNSRId : Tools.ConeFold.noSelfRead $bodyXId :=
+            Tools.ConeFold.noSelfReadCheck_sound _ (by decide)))
           -- F2 (stop set): `hwfCheck` reads the stop set only through `contains`,
           -- which the kernel cannot reduce on a `Std.HashMap` (measured: even
           -- `stopAtM.contains "…" = true` fails `decide`).  So the CHECK runs on
@@ -3014,13 +3027,13 @@ elab "#verify_elab_deep" id:ident : command =>
           elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
               ∀ n, env1 n < 2 ^ $weMId n :=
             Tools.ConeFold.evalAssigns_bounded $weMId _ $bodyXId _ env1
-              (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide) ($seedBndId $appArgs* t) hrun))
+              $hMFId (by decide) ($seedBndId $appArgs* t) hrun))
           let frameOf (x : String) (nameS : String) : CommandElabM Unit := do
             let fId := Q s!"frame_{x}"
             elabSyncS (← `(theorem $fId $paramBinders* (t : Nat) $xB* :
                 env1 $(quote nameS) = $envAtId $appArgs* t $(quote nameS) :=
               Tools.ConeFold.evalAssigns_frame $weMId _ $bodyXId _ env1 hrun
-                (Tools.ConeFold.memFreeCheck_sound _ (by decide)) _ (by decide)))
+                $hMFId _ (by decide)))
           for i in List.range nR do frameOf s!"r{i}" (regs[i]!).1
           for j in List.range nI do frameOf s!"i{j}" (ins[j]!).1
           for (r, idx) in rstNamesX.toArray.zipIdx do frameOf s!"rst{idx}" r
@@ -3075,8 +3088,8 @@ elab "#verify_elab_deep" id:ident : command =>
               #[← `(tactic| have h : Sparkle.IR.Semantics.evalExpr $weMId env1
                     (Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX s!"w{k}")) = some (env1 $(quote w)) :=
                   Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) ($stopAtMwId $(quote w)) $wtMId
-                    (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
-                    (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
+                    $hWOId
+                    $hMFId $hNSRId hrun
                     $(hwfWireIds[k]!)
                     (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
                     (fuel := 10000) (e := .ref $(quote w)) (e' := $(crawX s!"w{k}"))
@@ -3118,8 +3131,8 @@ elab "#verify_elab_deep" id:ident : command =>
               #[← `(tactic| have h : Sparkle.IR.Semantics.evalExpr $weMId env1
                     (Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX x)) = some v :=
                   Tools.ConeFold.shared_cone_agrees_at_settled $weMId (fun _ _ => 0) $stopAtMId $wtMId
-                    (Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide))
-                    (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (Tools.ConeFold.noSelfReadCheck_sound _ (by decide)) hrun
+                    $hWOId
+                    $hMFId $hNSRId hrun
                     $hwfSharedId
                     (Tools.ConeFold.hwt_of_assoc $weMId $wtLId $hwtId) ($hb1Id $appArgs* t hrun)
                     (fuel := 10000) (e := .ref $(quote eIn)) (e' := $(crawX x))
@@ -3216,7 +3229,7 @@ elab "#verify_elab_deep" id:ident : command =>
                   rw [hrun] at h
                   simp only [Option.bind_some] at h
                   rw [$regstepId $appArgs* t hrun,
-                    Tools.ConeFold.memNexts_memFree $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide))] at h
+                    Tools.ConeFold.memNexts_memFree $weMId $bodyXId $hMFId] at h
                   simp only [Option.bind_some, Option.some_inj] at h
                   subst h
                   simp [Sparkle.IR.Semantics.applyNexts]))
@@ -3240,7 +3253,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 (fun td s => $envStId $appArgs* (K - 1 - td) s) (fun td htd => by simp only [Nat.zero_add])]
               exact hrunM
             obtain ⟨st', env1, hsi, hev, hget⟩ :=
-              Tools.ConeFold.runModule_stepIter $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) ($envStId $appArgs*) K 0 $st0Id envs henvs' t ht
+              Tools.ConeFold.runModule_stepIter $weMId $bodyXId $hMFId ($envStId $appArgs*) K 0 $st0Id envs henvs' t ht
             refine ⟨env1, hget, ?_⟩
             have hsi' : Tools.ConeFold.stepIter $weMId $bodyXId ($envStId $appArgs*) $st0Id t = some st' := by
               rw [Tools.ConeFold.stepIter_seed_congr $weMId $bodyXId ($envStId $appArgs*) (fun tt s => $envStId $appArgs* (0 + tt) s) $st0Id t
@@ -3255,7 +3268,7 @@ elab "#verify_elab_deep" id:ident : command =>
               ∃ envs, Sparkle.IR.Semantics.runModule $weMId $bodyXId (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id (fun _ _ => 0) = some envs
                 ∧ ∀ t, t < K → ∃ env1, envs[t]? = some env1 ∧ (($lhsSig).val t).toNat = env1 $(quote portName) := by
             obtain ⟨envs, henvs⟩ := Option.isSome_iff_exists.mp
-              (Tools.ConeFold.runModule_isSome $weMId $bodyXId (Tools.ConeFold.memFreeCheck_sound _ (by decide)) (by decide)
+              (Tools.ConeFold.runModule_isSome $weMId $bodyXId $hMFId (by decide)
                 (fun td s => $envStId $appArgs* (K - 1 - td) s) K $st0Id)
             exact ⟨envs, henvs, $sigRunModId $appArgs* K henvs⟩))
           deepTrace fun _ => s!"#verify_elab_deep STAGE shared{tag}: replay chain emitted"
