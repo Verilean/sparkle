@@ -212,9 +212,9 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 
 | circuit | §1 trace | §2 replay | §3 Opt | §4a SV | §4b RT | wall |
 |---|---|---|---|---|---|---|
-| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+7) | PROVEN (+25) | PROVEN (+26) | PROVEN (+25; parse +1) | 45 s for both shareX* |
+| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+7) | PROVEN (+25) | PROVEN (+26) | PROVEN (+25; parse +1) | 28 s for both shareX* |
 | shareX8 (8 wires) | PROVEN | PROVEN (+11) | PROVEN (+41) | PROVEN (+42) | PROVEN (+41) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+18) | PROVEN (+72) | SKIPPED (shl fit rule, statement named) | PROVEN (+72; parse +1) | 211 s, peak 2.29 GB |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+18) | PROVEN (+72) | SKIPPED (shl fit rule, statement named) | PROVEN (+72; parse +1) | 109 s, peak 2.07 GB |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms.
 Conditions: `lake build`, MemoryMax 24G, 1.6 M heartbeats per generated

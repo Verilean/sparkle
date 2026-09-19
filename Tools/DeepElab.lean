@@ -3028,6 +3028,14 @@ elab "#verify_elab_deep" id:ident : command =>
             Tools.ConeFold.memFreeCheck_sound _ (by decide)))
           elabSyncS (← `(theorem $hNSRId : Tools.ConeFold.noSelfRead $bodyXId :=
             Tools.ConeFold.noSelfReadCheck_sound _ (by decide)))
+          -- MEASURED 2026-09-20 (memory timeline): the 17 per-stop-set `hwfCheckL`
+          -- kernel walks over the 94-statement original body were 87 s and
+          -- +0.75 GB of crc16's peak.  `bodyWidthOk` (already needed by
+          -- `evalAssigns_bounded`) is strictly stronger, so it is proven ONCE per
+          -- body here and every hwfL fact is an instance of
+          -- `hwfCheckL_of_bodyWidthOk` — same `weM`, same body constant.
+          let hBWOId := Q "hBWO"
+          elabSyncS (← `(theorem $hBWOId : Tools.ConeFold.bodyWidthOk $weMId $bodyXId = true := by decide))
           -- F2 (stop set): `hwfCheck` reads the stop set only through `contains`,
           -- which the kernel cannot reduce on a `Std.HashMap` (measured: even
           -- `stopAtM.contains "…" = true` fails `decide`).  So the CHECK runs on
@@ -3044,7 +3052,7 @@ elab "#verify_elab_deep" id:ident : command =>
                 ($stopT).contains n = false → Sparkle.IR.Semantics.widthOf $weMId rhs = $weMId n :=
               Tools.ConeFold.hwfCheck_sound $weMId $stopT $bodyXId
                 (Tools.ConeFold.hwfCheckL_to_hwfCheck $weMId $stopLT $bodyXId
-                  (by native_decide) (by decide)))
+                (by native_decide) (Tools.ConeFold.hwfCheckL_of_bodyWidthOk $weMId $stopLT $bodyXId $hBWOId)))
             elabSyncS cmd
             pure id
           let hwfSharedId ← hwfOf "stop" (← `($stopAtMId)) (← `($stopLId))
@@ -3080,7 +3088,7 @@ elab "#verify_elab_deep" id:ident : command =>
           elabSyncS (← `(theorem $hb1Id $paramBinders* (t : Nat) $xB* :
               ∀ n, env1 n < 2 ^ $weMId n :=
             Tools.ConeFold.evalAssigns_bounded $weMId _ $bodyXId _ env1
-              $hMFId (by decide) ($seedBndId $appArgs* t) hrun))
+              $hMFId $hBWOId ($seedBndId $appArgs* t) hrun))
           let frameOf (x : String) (nameS : String) : CommandElabM Unit := do
             let fId := Q s!"frame_{x}"
             elabSyncS (← `(theorem $fId $paramBinders* (t : Nat) $xB* :

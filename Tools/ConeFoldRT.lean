@@ -1031,6 +1031,32 @@ theorem resolveSlicesT_list (wtL : List (String × Nat)) (fuel : Nat) (e : Expr)
   rw [resolveSlicesT_eq_S]
   exact resolveSlicesS_congr _ _ (fun n => wtFold_get?_eq wtL n) fuel e
 
+/-- **`bodyWidthOk` implies `hwfCheckL` at EVERY stop set.**  The
+    body-wide width discipline (`widthOf we r = we l` for every assign) is
+    strictly stronger than what `hwfCheck` asks (that, OR the target is a
+    stop name).  MEASURED 2026-09-20 on crc16: the generator proved
+    `hwfCheckL we stop body` by kernel `decide` once per stop set — 17
+    walks over the 94-statement original body, 87 s and +0.75 GB of the
+    run's peak.  `bodyWidthOk we body` is already a kernel fact per body
+    (for `evalAssigns_bounded`), so this lemma replaces the 17 walks with
+    17 instances of one theorem. -/
+theorem hwfCheckL_of_bodyWidthOk (we : WEnv) (stop : List String) :
+    ∀ (body : List Stmt), bodyWidthOk we body = true → hwfCheckL we stop body = true
+  | [], _ => rfl
+  | .assign l r :: rest, h => by
+    simp only [bodyWidthOk, Bool.and_eq_true] at h
+    simp only [hwfCheckL, Bool.and_eq_true, Bool.or_eq_true]
+    exact ⟨Or.inr h.1.2, hwfCheckL_of_bodyWidthOk we stop rest h.2⟩
+  | .register .. :: rest, h => by
+    simp only [bodyWidthOk] at h
+    simpa only [hwfCheckL] using hwfCheckL_of_bodyWidthOk we stop rest h
+  | .memory .. :: rest, h => by
+    simp only [bodyWidthOk] at h
+    simpa only [hwfCheckL] using hwfCheckL_of_bodyWidthOk we stop rest h
+  | .inst .. :: rest, h => by
+    simp only [bodyWidthOk] at h
+    simpa only [hwfCheckL] using hwfCheckL_of_bodyWidthOk we stop rest h
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)

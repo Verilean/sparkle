@@ -1083,13 +1083,31 @@ lemmas themselves, which dominated the TIME profile before the
 `natJoin_right` fix, cost nothing here.  With the trace theorem's
 `bv_decide` (+0.84 GB, 25 s) these two places account for the whole
 rise from 0.69 GB to 2.25 GB.
-Fix candidate (not applied; one change, to be measured): derive each
-per-wire check from ONE full-stop-set walk plus a single-statement
-width fact — `hwfCheckL_erase : hwfCheckL we stop body = true →
-(the one assign to w has widthOf = we w) → hwfCheckL we (stop.erase w)
-body = true` — so a body pays one 94-statement walk instead of 17.
-Estimate only until measured: the segment 87 s → ~5–10 s and most of
-its +0.7 GB.
+**Fix DONE (2026-09-20), the user's better derivation:** `bodyWidthOk we
+body` (every assign at its wire's width) is strictly stronger than
+`hwfCheck` at ANY stop set, and was already a per-body kernel fact
+(inline in `hb1_of`).  New generic lemma `hwfCheckL_of_bodyWidthOk`
+(Tools/ConeFoldRT.lean); the generator proves `bodyWidthOk` once per
+body as `{f}_sdeep_hBWO{tag}` and all 17 hwfL sites (same `weM`, same
+body constant — checked) and `hb1_of` reuse it.  No per-stop-set walk
+remains; the per-stop-set `native_decide` agreement fact is unchanged.
+Measured, same harness, one run each:
+| | before | after |
+|---|---|---|
+| crc16 wall | 204 s | **109 s** |
+| crc16 cgroup peak | 2.27 GB | 2.07 GB |
+| segment "seed → hwfL facts" (orig body) | 87.3 s, → 2.25 GB | 12.9 s, → 2.07 GB |
+| same segment, Opt / RT bodies | 9.8 s / 9.9 s | 1.6 s / 1.6 s |
+| shareX4+8 wall | 45 s | 28 s |
+| auxiliaries (all theorems, both circuits) | | unchanged |
+| skips | crc16 1 (documented), shareX 0 | unchanged |
+What remains in that segment (12.9 s, +0.58 GB) is now the three
+per-body kernel `decide`s over the 94-statement body themselves —
+`woCheck` 6.8 s, `bodyWidthOk` 3.9 s, `noSelfRead` 0.35 s (measured
+individually on 2026-09-19) — proven once each.  The trace theorem's
+`bv_decide` (+0.8 GB, 25 s) is untouched, per instruction.
+crc16 today: 880 s → 109 s; peak 2.80 → 2.07 GB; auxiliaries 152 → 18
+on the replay; every obligation, skip and axiom policy unchanged.
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).
