@@ -3052,7 +3052,10 @@ elab "#verify_elab_deep" id:ident : command =>
                 ($stopT).contains n = false → Sparkle.IR.Semantics.widthOf $weMId rhs = $weMId n :=
               Tools.ConeFold.hwfCheck_sound $weMId $stopT $bodyXId
                 (Tools.ConeFold.hwfCheckL_to_hwfCheck $weMId $stopLT $bodyXId
-                (by native_decide) (Tools.ConeFold.hwfCheckL_of_bodyWidthOk $weMId $stopLT $bodyXId $hBWOId)))
+                  -- lookup agreement: the proven general theorem (`stopOfL l` IS the
+                  -- map constant, `stopOfL stopL` / `stopOfL (stopLw w)`), no evaluation
+                  (fun n _ => Tools.ConeFold.stopOfL_contains_elem $stopLT n)
+                  (Tools.ConeFold.hwfCheckL_of_bodyWidthOk $weMId $stopLT $bodyXId $hBWOId)))
             elabSyncS cmd
             pure id
           let hwfSharedId ← hwfOf "stop" (← `($stopAtMId)) (← `($stopLId))

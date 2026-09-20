@@ -984,10 +984,36 @@ vs 1 and 4-6 ms native.  Whole glue theorem per slot: standard axioms.
 | skips | crc16 1 (documented), shareX 0 | unchanged |
 The drop is 4 per slot (24 on shareX4's 6 slots, 72 on crc16's 18).
 crc16's replay is now at 18 auxiliaries (from 152 on 2026-09-16).
-Still `native_decide` on the shared route: the `hwfL` agreement facts
-(1 per stop set per body), the mask equations (Opt/RT bodies), the
-parse oracle, and `bv_decide` in the trace; the bridges' 72 are the
-mask equations (18 per body) + hwfL (17) + inherited.
+**F2 step 10 DONE (2026-09-20): the hwfL lookup-agreement facts are
+instances of `stopOfL_contains_elem`.**  The stop-set entity is the
+same on both sides (the map constants are `stopOfL stopL` /
+`stopOfL (stopLw w)`, the very lists the lemma receives), so the
+per-stop-set `native_decide` hypothesis became
+`fun n _ => stopOfL_contains_elem stopL n`.  One line; no new checker,
+no fallback.  Measured, same harness, one run each:
+| | before | after |
+|---|---|---|
+| shareX4 aux (replay/Opt/svOpt/RT) | 7/25/26/25 | **2**/20/21/20 |
+| shareX8 aux | 11/41/42/41 | **2**/32/33/32 |
+| crc16 aux (replay/Opt/RT) | 18/72/72 | **1**/55/55 |
+| crc16 wall / peak | 109 s / 2.07 GB | 107 s / 2.10 GB |
+| shareX4+8 wall | 28 s | 28 s |
+| skips | crc16 1 (documented), shareX 0 | unchanged |
+The replay theorems now carry ONLY the trace theorem's `bv_decide`
+auxiliaries (2 on shareX4, 1 on crc16; confirmed by `#print axioms`).
+Everything else on the replay side of the shared route — inlining,
+resolution, G1 glue, refs-membership, hwfCheck and its lookup agreement,
+the width table, the body facts — is kernel-checked.  Still
+`native_decide`, read off `#print axioms` of shareX4's Opt bridge: per
+replayed body, the 18 mask equations `maskEq_*` (1 per slot) and the
+two `widthOk` side conditions handed to `rtBridge_eval` in every
+settled/step lemma (2 per slot = 36 on crc16) — 54 per body, + the
+trace's 1 = the 55 reported; plus the parse oracle (1).  Both kinds are
+statements about `rtNorm (stripMask (cresX …))` / `rtNorm (cres …)`,
+i.e. about the shipping resolver's output, so `resolveSlicesT_list` +
+`hresL_*` make them kernel-decidable slot by slot — the natural next
+step.  `bv_decide` in the trace is a separate item, untouched by
+instruction.
 
 ### C3. crc16 memory, by stage (measured 2026-09-20)
 
