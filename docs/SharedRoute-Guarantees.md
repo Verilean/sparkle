@@ -88,10 +88,15 @@ is an error.
   2026-09-20 (step 10) the `hwfCheck` lookup-agreement facts are
   instances of `stopOfL_contains_elem` too, so §2's replay theorem
   carries NO `native_decide` auxiliary any more — only the trace's
-  `bv_decide` ones (crc16 replay: 1).  What is still `native_decide` on
-  this route: per replayed Opt/RT body, the mask equations and the two
-  `widthOk` side conditions of `rtBridge_eval` per slot (54 per body on
-  crc16; §3/§4b), and the parse oracle (§4b).
+  `bv_decide` ones (crc16 replay: 1).  Since 2026-09-20 (step 11) the
+  mask equations and the two `widthOk` side conditions per slot are
+  kernel `decide`s too, through `stripMaskK` (§3), so the Opt and RT
+  replay theorems carry exactly the trace's `bv_decide` auxiliaries
+  (crc16: 55 → 1 each).  What is still `native_decide` on this route,
+  by name: the parse oracle `{f}_sdeep_text_parses._native.
+  native_decide.ax_1` (§4b) and, in the SV-semantics theorem only, the
+  M4 fragment check `seqCheck` (`{f}_sdeep_signal_svOpt._native.
+  native_decide.ax_1`, §4a).
   See TODO F2 step 7.  TODO F2 carries the inventory by kind,
   the per-kind kernel times, and the remaining HashMap-keyed block.
 
@@ -105,10 +110,16 @@ not by proving the optimizer:
   (register input, shared wire, output) the optimized body's cone,
   stopping at the same slots, is re-inlined and slice-resolved; the
   theorem `{f}_sdeep_maskEqOpt_*` states
-  `rtNorm weM (stripMask wofM coneOpt) = rtNorm weM coneOrig`
-  (`native_decide`).  `rtBridge_eval` (Tools/ConeFoldRT.lean, kernel,
-  via `stripMask_eval` and `rtNorm_eval` on the bounded settled
-  environment) then makes the two cones evaluate alike, and §2's chain
+  `rtNorm weM (stripMaskK wofM coneOpt) = rtNorm weM coneOrig` — a
+  kernel `decide` after rewriting both cones to their structural
+  resolutions (`{f}_sdeep_hresL_*`); `stripMaskK` is `stripMask` with
+  the structural guard `widthOk` in place of the well-founded
+  `sfragCheck`, which the kernel cannot reduce (measured 2026-09-20).
+  `rtBridgeK_eval` (Tools/ConeFoldRT.lean, kernel, via
+  `stripMaskK_eval` — bound from `evalExpr_bounded` — and `rtNorm_eval`
+  on the bounded settled environment, with the two `widthOk` side
+  conditions `{f}_sdeep_wokX_*` / `_wokO_*` also kernel `decide`s)
+  then makes the two cones evaluate alike, and §2's chain
   is replayed verbatim over the optimized body
   (`_hb1_ofOpt`, `_settledOpt_*`, `_wireOpt_*`, `_stepOpt_*`,
   `_regstepOpt`, `_state_traceOpt`, `_signal_foldOpt`,
@@ -217,11 +228,16 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 
 | circuit | §1 trace | §2 replay | §3 Opt | §4a SV | §4b RT | wall |
 |---|---|---|---|---|---|---|
-| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+2, the trace's bv) | PROVEN (+20) | PROVEN (+21) | PROVEN (+20; parse +1) | 28 s for both shareX* |
-| shareX8 (8 wires) | PROVEN | PROVEN (+2) | PROVEN (+32) | PROVEN (+33) | PROVEN (+32) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+1, the trace's bv) | PROVEN (+55) | SKIPPED (shl fit rule, statement named) | PROVEN (+55; parse +1) | 107 s, peak 2.10 GB |
+| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+2, the trace's bv) | PROVEN (+2, the trace's bv) | PROVEN (+3: trace's bv + seqCheck) | PROVEN (+2; parse +1) | 31 s for both shareX* |
+| shareX8 (8 wires) | PROVEN | PROVEN (+2) | PROVEN (+2) | PROVEN (+3) | PROVEN (+2) | (same run) |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+1, the trace's bv) | PROVEN (+1, the trace's bv) | SKIPPED (shl fit rule, statement named) | PROVEN (+1; parse +1) | 122 s, peak 2.13 GB |
 
-`+N` = decision-procedure auxiliaries beyond the standard axioms.
+`+N` = decision-procedure auxiliaries beyond the standard axioms
+(2026-09-20, F2 step 11).  By name: the replay/Opt/RT theorems depend
+on `{f}_sdeep_trace._native.bv_decide.ax_*` only; `_text_parses` on
+`{f}_sdeep_text_parses._native.native_decide.ax_1`; `_signal_svOpt`
+additionally on `{f}_sdeep_signal_svOpt._native.native_decide.ax_1`
+(the M4 `seqCheck`).
 Conditions: `lake build`, MemoryMax 24G, 1.6 M heartbeats per generated
 declaration.  Permanent tests: `Tests/Verification/ConeSharingGen.lean`
 (shareX4/8, every clause CI-gated), `Tests/Verification/ConeSharingCrc16.lean`.

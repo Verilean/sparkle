@@ -1009,11 +1009,65 @@ replayed body, the 18 mask equations `maskEq_*` (1 per slot) and the
 two `widthOk` side conditions handed to `rtBridge_eval` in every
 settled/step lemma (2 per slot = 36 on crc16) — 54 per body, + the
 trace's 1 = the 55 reported; plus the parse oracle (1).  Both kinds are
-statements about `rtNorm (stripMask (cresX …))` / `rtNorm (cres …)`,
-i.e. about the shipping resolver's output, so `resolveSlicesT_list` +
-`hresL_*` make them kernel-decidable slot by slot — the natural next
-step.  `bv_decide` in the trace is a separate item, untouched by
-instruction.
+statements about `rtNorm (stripMask (cresX …))` / `rtNorm (cres …)`.
+**Step 11 probe (2026-09-20):** with the resolver rewrite they
+kernel-decide on crc16's slot w15 RT (mask equation 12 ms, both
+`widthOk` 2 ms) and the original-side `widthOk` on shareX4 (2 ms) — but
+shareX4's Opt slot w3 STALLS on the mask equation and the replayed-side
+`widthOk`.  Measured cause, each alone in the kernel: `sfragCheck wof
+(.ref "_gen_i") = true` does not reduce (its axioms are the
+well-founded signature); `maskOf` on an identity mask stalls through it;
+`stripMask` on a mask-free cone computes.  The optimizer's masks are
+present in shareX4's Opt cones and absent from crc16's w15 RT cone,
+which is the whole difference.  **Step 11 DONE (2026-09-20):**
+`stripMaskK` (Tools/ConeFoldRT.lean) — the same pass with the guard
+`widthOk (weW wof) e` (structural; axioms of the definition: propext
+only) instead of `sfragCheck`; the bound the guard exists for comes from
+the fragment-free `evalExpr_bounded` on the bounded environment
+`rtBridge_eval` already had (`maskOfK_eval`, `stripMaskK_eval`,
+`stripMaskK_width`, `rtBridgeK_eval` mirror the originals).  Runtime
+check on EVERY slot of both replayed bodies of both circuits (shareX4
+6/6, crc16 18/18, Opt and RT): `stripMaskK` strips exactly what
+`stripMask` strips and the normal forms equal the originals'.
+Generator: per slot ONCE `{f}_sdeep_wokO_*` (body-independent), per
+slot per body `{f}_sdeep_hresL_*{tag}`, `{f}_sdeep_maskEq_*{tag}`,
+`{f}_sdeep_wokX_*{tag}`, all `rw [hresL…]; decide`; `toOrig` calls
+`rtBridgeK_eval` with the three named facts; the pre-check's runtime
+normal form uses `stripMaskK`.  Parse oracle and trace untouched.
+Measured (same harness as steps 9/10, fresh cgroup, one run each):
+
+| | before (step 10) | after (step 11) |
+|---|---|---|
+| shareX4 run / runOpt / svOpt / runRT / parses aux | 2 / 20 / 21 / 20 / 1 | 2 / 2 / 3 / 2 / 1 |
+| shareX8 runOpt / svOpt / runRT aux | 32 / 33 / 32 | 2 / 3 / 2 |
+| crc16 run / runOpt / runRT / parses aux | 1 / 55 / 55 / 1 | 1 / 1 / 1 / 1 |
+| ConeSharingGen (both shareX*) wall | 28 s | 31 s |
+| crc16 wall / cgroup peak | 107 s / 2.10 GB | 122 s / 2.13 GB |
+| skips | none / crc16 exactly the one SV skip | unchanged |
+
+The wall/peak deltas are single runs on a shared machine, not
+attributed (the earlier 107 s vs 109 s spread was of that size too).
+Remaining axioms of each FINAL theorem, by name (`#print axioms`):
+`{f}_sdeep_signal_run`, `_signal_runOpt`, `_signal_runRT` — standard +
+the trace's `{f}_sdeep_trace._native.bv_decide.ax_*` only (shareX4:
+ax_14, ax_15; shareX8: ax_2, ax_3; crc16: ax_15); `_text_parses` —
+standard + `{f}_sdeep_text_parses._native.native_decide.ax_1` (the
+parse oracle); `shareX4/8_sdeep_signal_svOpt` — the trace's bv axioms
+PLUS `{f}_sdeep_signal_svOpt._native.native_decide.ax_1`, which is the
+M4 fragment check `seqCheck wofM (weOf wofM) bodyOpt = true` handed to
+`certified_forward_trace_module` (Tools/DeepElab.lean, `hchk`).  So the
+expected endpoint — trace `bv_decide` + parse oracle only — holds for
+the replay/Opt/RT/text theorems of all three circuits; the SV-semantics
+theorem (shareX* only; crc16's is the documented skip) carries one
+more, the seqCheck, which is neither the trace nor the parse oracle and
+is the next candidate.  Probed (2026-09-20): a bare `decide` on
+`seqCheck shareX4_sdeep_wofM (weOf shareX4_sdeep_wofM)
+shareX4_sdeep_bodyOpt = true` fails in 3 ms with "did not reduce to
+isTrue or isFalse" (a stuck instance, not a timeout; `seqCheck`'s own
+axioms are the standard three, so the block is the recursion form or a
+`HashMap` lookup inside it, the same two causes met on the cone walk) —
+it needs the structural-twin treatment, a separate change.  `bv_decide`
+in the trace is a separate item, untouched by instruction.
 
 ### C3. crc16 memory, by stage (measured 2026-09-20)
 

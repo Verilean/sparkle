@@ -2727,6 +2727,11 @@ elab "#verify_elab_deep" id:ident : command =>
           elabSyncS (← `(theorem $(hresL x) : $(cres x)
               = Tools.ConeFold.resolveSlicesS (Tools.ConeFold.assocGetR $wtLId) 10000 $(craw x) :=
             Tools.ConeFold.resolveSlicesT_list $wtLId 10000 $(craw x)))
+          -- F2 step 11: the original side's `widthOk` for `rtBridgeK_eval`, once per
+          -- slot (body-independent), kernel `decide` through the resolver rewrite
+          elabSyncS (← `(theorem $(P s!"wokO_{x}") :
+              Tools.ConeFold.widthOk $weMId (Tools.ConeFold.rtNorm $weMId $(cres x)) = true := by
+            rw [$(hresL x):ident]; decide))
           elabSyncS (← `(theorem $id :
               Tools.ConeFold.inlineConeT (Sparkle.IR.Optimize.buildDefMap $bodyId)
                   (Tools.ConeFold.stopOfL $stopLT) 10000 $rootT = .ok $(craw x) :=
@@ -3000,9 +3005,19 @@ elab "#verify_elab_deep" id:ident : command =>
             let defX (x : String) (c : Sparkle.IR.AST.Expr) : CommandElabM Unit := do
               addExprC (crawX x) c
               elabSyncS (← `(def $(cresX x) : Sparkle.IR.AST.Expr := Tools.ConeFold.resolveSlicesT $wtMId 10000 $(crawX x)))
+              -- F2 step 11: `stripMaskK` (guard `widthOk`, not the well-founded
+              -- `sfragCheck` that stalled the kernel on shareX4's Opt cones); the
+              -- replayed cone rewritten to the structural resolver, then `decide`
+              elabSyncS (← `(theorem $(Q s!"hresL_{x}") : $(cresX x)
+                  = Tools.ConeFold.resolveSlicesS (Tools.ConeFold.assocGetR $wtLId) 10000 $(crawX x) :=
+                Tools.ConeFold.resolveSlicesT_list $wtLId 10000 $(crawX x)))
               elabSyncS (← `(theorem $(meqX x) :
-                  Tools.ConeFold.rtNorm $weMId (Tools.ConeFold.stripMask $wofMId $(cresX x))
-                    = Tools.ConeFold.rtNorm $weMId $(cres x) := by native_decide))
+                  Tools.ConeFold.rtNorm $weMId (Tools.ConeFold.stripMaskK $wofMId $(cresX x))
+                    = Tools.ConeFold.rtNorm $weMId $(cres x) := by
+                rw [$(Q s!"hresL_{x}"):ident, $(hresL x):ident]; decide))
+              elabSyncS (← `(theorem $(Q s!"wokX_{x}") :
+                  Tools.ConeFold.widthOk $weMId (Tools.ConeFold.rtNorm $weMId (Tools.ConeFold.stripMaskK $wofMId $(cresX x))) = true := by
+                rw [$(Q s!"hresL_{x}"):ident]; decide))
             for i in List.range nR do
               let rin ← rinOf (regs[i]!).1
               defX s!"r{i}" (← coneX stopS (.ref rin) s!"register {i}")
@@ -3109,8 +3124,8 @@ elab "#verify_elab_deep" id:ident : command =>
             if masked then
               pure #[← `(tactic| have hm : Sparkle.IR.Semantics.evalExpr $weMId env1 $(cres x)
                     = Sparkle.IR.Semantics.evalExpr $weMId env1 $(cresX x) :=
-                  Tools.ConeFold.rtBridge_eval $wofMId env1 $hb $(cresX x) $(cres x) $(meqX x)
-                    (by native_decide) (by native_decide)),
+                  Tools.ConeFold.rtBridgeK_eval $wofMId env1 $hb $(cresX x) $(cres x) $(meqX x)
+                    $(Q s!"wokX_{x}") $(P s!"wokO_{x}")),
                 ← `(tactic| rw [hm])]
             else pure #[]
           -- a case bullet closing `envA n = env1 n` (or its symm) for slot name #idx
@@ -3350,7 +3365,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let extras : IO.Ref (Array (Ident × String)) ← IO.mkRef #[]
         let weF : Sparkle.IR.Semantics.WEnv := fun n => wt.getD n 0
         let wofF : String → Option Nat := fun n => some (weF n)
-        let normOf (c : Sparkle.IR.AST.Expr) : Sparkle.IR.AST.Expr := Tools.ConeFold.rtNorm weF (Tools.ConeFold.stripMask wofF c)
+        let normOf (c : Sparkle.IR.AST.Expr) : Sparkle.IR.AST.Expr := Tools.ConeFold.rtNorm weF (Tools.ConeFold.stripMaskK wofF c)
         let rec sharedBridge (tag : String) (mx : Sparkle.IR.AST.Module) (withSv : Bool) : CommandElabM (Option Ident) := do
           let bodyX := mx.body
           let regsX := theRegisters mx

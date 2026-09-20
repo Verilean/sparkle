@@ -358,6 +358,19 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: cone-sharing replay (ConeSharingReplay) regressed"
     grep -m5 -E "error|disallowed" "$WORK/csr.log" | sed 's/^/    /'; fail=1
   fi
+  # F2 step 11 gate: the Opt and RT replay theorems must report the SAME
+  # decision-procedure auxiliary count as the plain IR replay — i.e. the
+  # optimizer/text bridges add no native_decide of their own; only the
+  # trace's bv_decide auxiliaries remain (docs/SharedRoute-Guarantees.md
+  # status table).  Reads the generator's "axioms: standard + N" clauses.
+  replay_aux_match() {
+    local log=$1 f=$2 n0 n1 n2
+    n0=$(grep -oE "IR replay ${f}_sdeep_signal_run PROVEN \(axioms: standard \+ [0-9]+" "$log" | grep -oE '[0-9]+$')
+    n1=$(grep -oE "${f}_sdeep_signal_runOpt PROVEN \([^)]*standard \+ [0-9]+" "$log" | grep -oE '[0-9]+$')
+    n2=$(grep -oE "${f}_sdeep_signal_runRT PROVEN \([^)]*standard \+ [0-9]+" "$log" | grep -oE '[0-9]+$')
+    if [ -n "$n0" ] && [ "$n0" = "$n1" ] && [ "$n0" = "$n2" ]; then return 0; fi
+    echo "  replay auxiliaries differ for $f: run=$n0 runOpt=$n1 runRT=$n2"; return 1
+  }
   # the GENERATOR's cone-sharing route (set_option sparkle.deepShare true):
   # trace + IR replay for shareX4 / shareX8, which the default route cannot
   # prove; both "PROVEN via CdoW.elab_general … IR replay … PROVEN" lines
@@ -371,8 +384,10 @@ if [ -f "$ELAB_FILE" ]; then
       && [ "$(grep -c '_sdeep_signal_svOpt PROVEN' "$WORK/csgen.log")" -eq 2 ] \
       && [ "$(grep -c '_sdeep_signal_runRT PROVEN' "$WORK/csgen.log")" -eq 2 ] \
       && [ "$(grep -c '_sdeep_text_parses PROVEN' "$WORK/csgen.log")" -eq 2 ] \
+      && replay_aux_match "$WORK/csgen.log" shareX4 \
+      && replay_aux_match "$WORK/csgen.log" shareX8 \
       && ! grep -q 'SKIPPED' "$WORK/csgen.log"; then
-    echo "generator cone-sharing route: shareX4 + shareX8 trace, replay, optimizer + SV + text bridges proven"
+    echo "generator cone-sharing route: shareX4 + shareX8 trace, replay, optimizer + SV + text bridges proven (Opt/RT replay axioms = the trace's)"
   else
     echo "FAIL: generator cone-sharing route (ConeSharingGen) regressed"
     grep -m5 -E "error|FAILED" "$WORK/csgen.log" | sed 's/^/    /'; fail=1
@@ -410,9 +425,10 @@ if [ -f "$ELAB_FILE" ]; then
       && grep -q "crc16CcittHW_sdeep_signal_runOpt PROVEN" "$WORK/crc16share.log" \
       && grep -q "crc16CcittHW_sdeep_signal_runRT PROVEN" "$WORK/crc16share.log" \
       && grep -q "crc16CcittHW_sdeep_text_parses PROVEN" "$WORK/crc16share.log" \
+      && replay_aux_match "$WORK/crc16share.log" crc16CcittHW \
       && [ "$(grep -c 'SKIPPED' "$WORK/crc16share.log")" -eq 1 ] \
       && grep -q "Opt SV-semantics theorem SKIPPED" "$WORK/crc16share.log"; then
-    echo "crc16 cone-sharing route: trace, IR replay, optimizer + text bridges proven (SV-semantics theorem skipped by the M4 shl rule, as documented)"
+    echo "crc16 cone-sharing route: trace, IR replay, optimizer + text bridges proven (Opt/RT replay axioms = the trace's; SV-semantics theorem skipped by the M4 shl rule, as documented)"
   else
     echo "FAIL: crc16 on the cone-sharing route regressed"
     grep -m5 -E "error|FAILED" "$WORK/crc16share.log" | sed 's/^/    /'; fail=1

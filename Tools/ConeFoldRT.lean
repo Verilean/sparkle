@@ -1057,6 +1057,198 @@ theorem hwfCheckL_of_bodyWidthOk (we : WEnv) (stop : List String) :
     simp only [bodyWidthOk] at h
     simpa only [hwfCheckL] using hwfCheckL_of_bodyWidthOk we stop rest h
 
+/-! ### F2: `stripMask` with a kernel-computable guard
+
+`stripMask` (Tools/ConeFoldOpt.lean) removes an identity mask
+`and [e, const (2^w-1) w]` when `widthOf e = w` AND `sfragCheck wof e`
+— the fragment check that lets `sfrag_eval_bounded` prove `e < 2^w`.
+MEASURED 2026-09-20: `sfragCheck` is compiled by well-founded recursion
+(axioms `Classical.choice, Quot.sound`) and the kernel cannot evaluate
+it even on `.ref "_gen_i"`; `maskOf` stalls through it, while
+`stripMask` on a mask-free cone computes.  So the mask equations of a
+body whose cones carry the optimizer's masks (shareX4's Opt body) were
+stuck on `native_decide` for that reason alone.
+
+`stripMaskK` is the same pass with the guard `widthOk (weW wof) e`
+(structural, kernel-computable); the bound `e < 2^w` then comes from
+the fragment-free `evalExpr_bounded` (Tools/ConeFoldMem.lean) on a
+bounded environment — exactly the hypotheses `rtBridge_eval` already
+carries.  Nothing else changes; the mask a cone loses is decided by a
+width fact instead of a fragment membership. -/
+
+def maskOfK (wof : String → Option Nat) : Expr → Expr
+  | .op .and [e, .const c w] =>
+    if c == Int.ofNat (2 ^ w - 1) && widthOf (weW wof) e == w
+        && widthOk (weW wof) e then e
+    else .op .and [e, .const c w]
+  | e => e
+
+mutual
+def stripMaskK (wof : String → Option Nat) : Expr → Expr
+  | .op o args => maskOfK wof (.op o (stripMaskKL wof args))
+  | .concat args => .concat (stripMaskKL wof args)
+  | .slice e hi lo => .slice (stripMaskK wof e) hi lo
+  | e => e
+def stripMaskKL (wof : String → Option Nat) : List Expr → List Expr
+  | [] => []
+  | a :: rest => stripMaskK wof a :: stripMaskKL wof rest
+end
+
+theorem maskOfK_width (wof : String → Option Nat) (x : Expr) :
+    widthOf (weW wof) (maskOfK wof x) = widthOf (weW wof) x := by
+  cases x with
+  | op o args =>
+    cases o <;> simp only [maskOfK]
+    case and =>
+      match args with
+      | [e, .const c w] =>
+        simp only
+        split
+        · rename_i h
+          simp only [Bool.and_eq_true, beq_iff_eq] at h
+          simp [widthOf, h.1.2]
+        · rfl
+      | [] => simp
+      | [_] => simp
+      | [_, .ref _] => simp
+      | [_, .op _ _] => simp
+      | [_, .concat _] => simp
+      | [_, .slice _ _ _] => simp
+      | [_, .sliceDim _ _ _] => simp
+      | [_, .index _ _] => simp
+      | _ :: _ :: _ :: _ => simp
+  | _ => simp [maskOfK]
+
+/-- The identity mask evaluates to its operand on bounded environments —
+    the bound from `evalExpr_bounded` under the `widthOk` guard. -/
+theorem maskOfK_eval (wof : String → Option Nat) (env : Env)
+    (hb : Bounded (weW wof) env) (x : Expr) :
+    evalExpr (weW wof) env (maskOfK wof x) = evalExpr (weW wof) env x := by
+  cases x with
+  | op o args =>
+    cases o <;> simp only [maskOfK]
+    case and =>
+      match args with
+      | [e, .const c w] =>
+        simp only
+        split
+        · rename_i h
+          simp only [Bool.and_eq_true, beq_iff_eq] at h
+          obtain ⟨⟨hc, hw⟩, hok⟩ := h
+          subst hc
+          cases he : evalExpr (weW wof) env e with
+          | none => simp [evalExpr, evalList, he]
+          | some v =>
+            have hlt : v < 2 ^ w := by
+              rw [← hw]
+              exact evalExpr_bounded (weW wof) env hb e v hok he
+            have hconst : evalExpr (weW wof) env (.const (Int.ofNat (2 ^ w - 1)) w)
+                = some (2 ^ w - 1) :=
+              eval_const_ofNat _ _ _ _ (by have := Nat.two_pow_pos w; omega)
+            have hW : widthOf (weW wof)
+                (.op .and [e, .const (Int.ofNat (2 ^ w - 1)) w]) = w := by
+              simp [widthOf, hw]
+            rw [show evalExpr (weW wof) env
+                  (.op .and [e, .const (Int.ofNat (2 ^ w - 1)) w])
+                = ((evalList (weW wof) env [e, .const (Int.ofNat (2 ^ w - 1)) w]).bind
+                    fun vals => evalOp (weW wof) .and
+                      [e, .const (Int.ofNat (2 ^ w - 1)) w] vals
+                      (widthOf (weW wof)
+                        (.op .and [e, .const (Int.ofNat (2 ^ w - 1)) w])))
+                from rfl]
+            rw [show evalList (weW wof) env [e, .const (Int.ofNat (2 ^ w - 1)) w]
+                = (evalExpr (weW wof) env e).bind fun v0 =>
+                    (evalExpr (weW wof) env (.const (Int.ofNat (2 ^ w - 1)) w)).bind
+                      fun vc => some [v0, vc]
+                from rfl]
+            rw [he, hconst, hW]
+            simp only [Option.bind_some, evalOp, mask, and_pow_two_sub_one,
+              Nat.mod_eq_of_lt hlt]
+        · rfl
+      | [] => simp
+      | [_] => simp
+      | [_, .ref _] => simp
+      | [_, .op _ _] => simp
+      | [_, .concat _] => simp
+      | [_, .slice _ _ _] => simp
+      | [_, .sliceDim _ _ _] => simp
+      | [_, .index _ _] => simp
+      | _ :: _ :: _ :: _ => simp
+  | _ => simp [maskOfK]
+
+mutual
+theorem stripMaskK_width (wof : String → Option Nat) :
+    ∀ e, widthOf (weW wof) (stripMaskK wof e) = widthOf (weW wof) e
+  | .op o args => by
+    simp only [stripMaskK]
+    rw [maskOfK_width]
+    exact widthOf_op_shape _ o (stripMaskKL_widthMatch wof args)
+  | .concat args => by
+    simp only [stripMaskK, widthOf]
+    exact widthOfGo_congr _ (stripMaskKL_widthMatch wof args)
+  | .slice e hi lo => by simp [stripMaskK, widthOf]
+  | .const .. => by simp [stripMaskK]
+  | .ref .. => by simp [stripMaskK]
+  | .sliceDim .. => by simp [stripMaskK]
+  | .index .. => by simp [stripMaskK]
+
+theorem stripMaskKL_widthMatch (wof : String → Option Nat) :
+    ∀ args, WidthMatch (weW wof) args (stripMaskKL wof args)
+  | [] => by simp only [stripMaskKL]; exact .nil
+  | a :: rest => by
+    simp only [stripMaskKL]
+    exact .cons (stripMaskK_width wof a) (stripMaskKL_widthMatch wof rest)
+end
+
+mutual
+theorem stripMaskK_eval (wof : String → Option Nat) (env : Env)
+    (hb : Bounded (weW wof) env) :
+    ∀ e, evalExpr (weW wof) env (stripMaskK wof e) = evalExpr (weW wof) env e
+  | .op o args => by
+    simp only [stripMaskK]
+    rw [maskOfK_eval wof env hb]
+    have hwm := stripMaskKL_widthMatch wof args
+    simp only [evalExpr, stripMaskKL_eval wof env hb args,
+      widthOf_op_shape _ o hwm]
+    cases evalList (weW wof) env args with
+    | none => rfl
+    | some vals =>
+      simp only [Option.bind_eq_bind, Option.bind_some]
+      rw [evalOp_congr _ hwm o vals _]
+  | .concat args => by
+    simp only [stripMaskK, evalExpr, stripMaskKL_eval wof env hb args]
+    cases evalList (weW wof) env args with
+    | none => rfl
+    | some vals =>
+      simp only [Option.bind_eq_bind, Option.bind_some,
+        evalGo_congr _ (stripMaskKL_widthMatch wof args) vals]
+  | .slice e hi lo => by
+    simp only [stripMaskK, evalExpr, stripMaskK_eval wof env hb e]
+  | .const .. => by simp [stripMaskK]
+  | .ref .. => by simp [stripMaskK]
+  | .sliceDim .. => by simp [stripMaskK]
+  | .index .. => by simp [stripMaskK]
+
+theorem stripMaskKL_eval (wof : String → Option Nat) (env : Env)
+    (hb : Bounded (weW wof) env) :
+    ∀ args, evalList (weW wof) env (stripMaskKL wof args)
+      = evalList (weW wof) env args
+  | [] => by simp [stripMaskKL]
+  | a :: rest => by
+    simp only [stripMaskKL, evalList, stripMaskK_eval wof env hb a,
+      stripMaskKL_eval wof env hb rest]
+end
+
+/-- `rtBridge_eval` with the kernel-computable mask pass. -/
+theorem rtBridgeK_eval (wof : String → Option Nat) (env : Env)
+    (hb : ∀ n, env n < 2 ^ weW wof n) (cX cO : Expr)
+    (heq : rtNorm (weW wof) (stripMaskK wof cX) = rtNorm (weW wof) cO)
+    (hokX : widthOk (weW wof) (rtNorm (weW wof) (stripMaskK wof cX)) = true)
+    (hokO : widthOk (weW wof) (rtNorm (weW wof) cO) = true) :
+    evalExpr (weW wof) env cO = evalExpr (weW wof) env cX := by
+  rw [← rtNorm_eval _ env hb cO hokO, ← heq, rtNorm_eval _ env hb _ hokX,
+    stripMaskK_eval wof env hb]
+
 -- the crc16 shapes, pinned
 #guard rtNorm (fun _ => 1)
   (.slice (.concat [.const (.ofNat 0) 1, .op .xor [.ref "c", .const (.ofNat 1) 1]]) 0 0)
