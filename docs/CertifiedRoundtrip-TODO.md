@@ -1278,6 +1278,74 @@ transient kernel working memory (it does not survive the check and is
 gone now); the retained part of the trace theorem is the ~0.5 MB
 listed above.
 
+### C3c. The original body's seed → hwfL segment, per declaration (2026-09-22)
+
+Instrument: `elabSyncS` now writes `DECL <name> begin/end rss_kb=…`
+markers (monotonic ms + VmRSS) into the `SPARKLE_DEEP_TRACE` file
+around every generated declaration; the generator elaborates each one
+with `Elab.async false`, so a marker pair covers elaboration AND the
+kernel check.  Full crc16 run, synchronous, 100 ms cgroup sampler
+(`mem/s34_sync.lean`, `mem/full1.trace`): 578 declarations, 96.8 s of
+declaration time in a 99 s run.
+
+The segment (`seed + readers emitted` → `hwfL facts emitted`, original
+body): 13.2 s, 50 declarations, ΣΔRSS +605 MB.  What is in it TODAY
+(names and proof methods as generated — the 17 `hwfCheckL` walks of the
+2026-09-20 study are gone; the `hwfL_*` facts are term-mode instances of
+`hwfCheckL_of_bodyWidthOk` and do not appear in the top 15):
+| declaration | proof | time | ΔRSS |
+|---|---|---|---|
+| `crc16CcittHW_sdeep_hWO` | `woCheck_sound [] body (by decide)` | **7 156 ms** | **+623 MB** (the largest RSS step of the whole run) |
+| `crc16CcittHW_sdeep_hBWO` | `bodyWidthOk weM body = true := by decide` | 3 915 ms | +2 MB |
+| `crc16CcittHW_sdeep_hNSR` | `noSelfReadCheck_sound _ (by decide)` | 371 ms | 0 |
+| `hsub_r0`, `hsub_w0`, `hsub_out` | `rw [resolveSlicesT_list]; decide` | 250–300 ms each | ≤ 21 MB |
+| the other 45 (`hsub_w*`, `stv`, `rhoNS`, `envSt`, `st0`, `rhoNS_eq`, `envSt_bounded`, `henv`, `wofM`, `weOf_eq`, `signalM`, `hMF`, 17 `hwfL_*`) | — | < 90 ms each | ≈ 0 |
+(For the record, the largest declarations of the WHOLE run: `rw14_eq`
+8.8 s / +149 MB, `rd0_succ` 7.7 s, `hWO` 7.2 s / +623 MB, `rw12_eq`
+4.1 s, `hwt` 4.1 s / +466 MB, `hBWO` 3.9 s.)
+
+**`hWO`, split.**  `woCheck done body` walks the 94 statements; per
+statement it recomputes `writesOf rest` for every read and every write
+name and tests membership with `List.contains` on `String`.  Counted at
+runtime: 13 740 string comparisons (upper bound; almost every `contains`
+scans the full list because the answer is "absent"), 9 696 statement
+visits by `writesOf`, names ≈ 11 characters.  Measured in a fresh
+process (`mem/kwo.lean`):
+| | time | note |
+|---|---|---|
+| fresh `by decide` | 6 851 ms | elaborator evaluation + kernel check |
+| fresh `by decide +kernel` | 3 320 ms | kernel only |
+| kernel re-check of the declared `hWO` | 3 316 ms, **RSS +1 264 MB** | first big allocation in that process |
+| 93 names each looked up in the 93-name write list (≈ 4.4 k string comparisons), `decide +kernel` | 1 718 ms | ≈ 0.3–0.4 ms per kernel string comparison |
+| the `writesOf` recomputation alone (lengths only, no string compare), `decide +kernel` | 75 ms | the checker's list walking is not the cost |
+So: (i) the default `decide` evaluates the checker TWICE — once in the
+elaborator, once in the kernel — the elaborator half is 3.5 s of the
+7.2 s and is pure duplication; (ii) the kernel half is almost entirely
+`String` equality on literals (~13 k comparisons at ~0.3 ms; the kernel
+unfolds `String.decEq` through `List Char`), and that is also where the
++0.6–1.3 GB is allocated; the checker's own structural work is < 0.1 s.
+
+**Change (one declaration): `hWO` by `decide +kernel`.**  The proof is
+`of_decide_eq_true (Eq.refl true)` behind an auxiliary lemma checked by
+the kernel; axioms of the result: `propext` only (checked).  Before /
+after, same instrumented full run, one each:
+| | before | after |
+|---|---|---|
+| `hWO` | 7 156 ms, +623 MB | 3 401 ms, +619 MB |
+| `hWOOpt` / `hWORT` (20-statement bodies, same line) | 402 / 357 ms | 189 / 171 ms |
+| segment seed → hwfL | 13.2 s | 9.4 s |
+| total declaration time | 96.8 s | 92.6 s |
+| cgroup peak (sampler) | 1.95 GB | 1.94 GB |
+| `lake build` ConeSharingCrc16 | 97 s, peak 2.07 GB | 93 s, peak 2.02 GB |
+Every PROVEN clause, auxiliary count, skip and axiom unchanged
+(shareX4/8 and crc16).  The +0.6 GB of `hWO` is NOT the elaborator
+pass: it stays with the kernel's string comparisons.  Next candidate,
+not done here: make `woCheck`'s membership tests kernel-cheap (names
+indexed once, or a `String` equality the kernel reduces without
+`List Char`), which would take both the remaining 3.3 s and the 0.6 GB;
+`hBWO` (3.9 s) is the same shape (`weM` lookups by string) and the same
+`decide` duplication.
+
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).

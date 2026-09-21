@@ -2423,7 +2423,22 @@ elab "#verify_elab_deep" id:ident : command =>
       -- exceeded the 200 000 default on crc16 (logged, not thrown — the
       -- downstream failure surfaced as "closers exhausted")
       let elabSyncS (c : Lean.TSyntax `command) : CommandElabM Unit := do
+        -- per-declaration markers for the memory/time studies (TODO C3): name,
+        -- monotonic ms and this process's RSS before and after, into the
+        -- SPARKLE_DEEP_TRACE file; nothing is computed when tracing is off
+        let traceOn := (← IO.getEnv "SPARKLE_DEEP_TRACE").isSome
+        let declName : String := match c.raw.find? (·.isIdent) with
+          | some s => s.getId.toString | none => "?"
+        let rssKb : IO Nat := do
+          let st ← IO.FS.readFile "/proc/self/status"
+          let v := ((st.splitOn "\n").findSome? fun l =>
+            if l.startsWith "VmRSS:" then some (((l.drop 6).trimAscii.toString.replace " kB" "").replace "\t" "") else none).getD "0"
+          return v.trimAscii.toString.toNat!
+        let r0 ← if traceOn then rssKb else pure 0
+        deepTrace fun _ => s!"#verify_elab_deep DECL {declName} begin rss_kb={r0}"
         elabSync (← `(set_option maxHeartbeats 1600000 in $c:command))
+        let r1 ← if traceOn then rssKb else pure 0
+        deepTrace fun _ => s!"#verify_elab_deep DECL {declName} end rss_kb={r1}"
       if hasMem || hasCombo then
         throwError "#verify_elab_deep (shared route): memories are not supported yet (v1 is memory-free)"
       if outPorts.length != 1 then
@@ -3109,8 +3124,13 @@ elab "#verify_elab_deep" id:ident : command =>
           -- now ONE theorem per replayed body (orig / Opt / RT stay distinct —
           -- they are different body constants) and the sites reference it.
           let hWOId := Q "hWO"; let hMFId := Q "hMF"; let hNSRId := Q "hNSR"
+          -- `decide +kernel`: the default `decide` evaluates `woCheck` TWICE — once
+          -- in the elaborator (Meta whnf) and once more when the kernel checks
+          -- the proof; the kernel-only form keeps the proof (`of_decide_eq_true
+          -- (Eq.refl true)`, no extra axiom) and drops the elaborator pass.
+          -- Measured on crc16 (2026-09-22): 6.9 s → 3.3 s for this declaration.
           elabSyncS (← `(theorem $hWOId : Sparkle.IR.Reorder.WO [] $bodyXId :=
-            Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide)))
+            Sparkle.IR.Reorder.woCheck_sound [] $bodyXId (by decide +kernel)))
           elabSyncS (← `(theorem $hMFId : Tools.ConeFold.memFree $bodyXId :=
             Tools.ConeFold.memFreeCheck_sound _ (by decide)))
           elabSyncS (← `(theorem $hNSRId : Tools.ConeFold.noSelfRead $bodyXId :=
