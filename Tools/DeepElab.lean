@@ -2622,7 +2622,12 @@ elab "#verify_elab_deep" id:ident : command =>
             signal_lets $mId [$[$extrasM:term],*]
             $goalDump:tactic
             all_goals (try simp only [$[$postM:term],*])
-            all_goals (try simp only [$[$rdSuccS:ident],*])
+            -- the reader equations `rd{i}_succ` are proven by `rfl`, so `simp only`
+            -- would use them as DEFINITIONAL rewrites (no proof term, an `id`
+            -- ascription) and the kernel re-derives the whole `CdoW.stateAt`
+            -- unfolding at every use site (measured on crc16, 2026-09-21: 6.1 s
+            -- and +0.31 GB per re-derivation, ~22 s of the trace theorem's kernel
+            -- time).  `rw` rewrites WITH the theorem, which the kernel checked once.
             $[$rdSuccRws:tactic]*
             $[$wireHypsM:tactic]*
             all_goals (try simp only [Prod.mk.injEq, and_true])
