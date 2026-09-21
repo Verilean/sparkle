@@ -230,7 +230,7 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 |---|---|---|---|---|---|---|
 | shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+2, the trace's bv) | PROVEN (+2, the trace's bv) | PROVEN (+3: trace's bv + seqCheck) | PROVEN (+2; parse +1) | 31 s for both shareX* |
 | shareX8 (8 wires) | PROVEN | PROVEN (+2) | PROVEN (+2) | PROVEN (+3) | PROVEN (+2) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+1, the trace's bv) | PROVEN (+1, the trace's bv) | SKIPPED (shl fit rule, statement named) | PROVEN (+1; parse +1) | 122 s, peak 2.13 GB |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+1, the trace's bv) | PROVEN (+1, the trace's bv) | SKIPPED (shl fit rule, statement named) | PROVEN (+1; parse +1) | 97 s, peak 2.07 GB |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms
 (2026-09-20, F2 step 11).  By name: the replay/Opt/RT theorems depend

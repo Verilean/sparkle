@@ -1188,6 +1188,96 @@ individually on 2026-09-19) — proven once each.  The trace theorem's
 `bv_decide` (+0.8 GB, 25 s) is untouched, per instruction.
 crc16 today: 880 s → 109 s; peak 2.80 → 2.07 GB; auxiliaries 152 → 18
 on the replay; every obligation, skip and axiom policy unchanged.
+
+### C3b. The trace stage's memory, attributed (2026-09-21)
+
+Question: split the trace stage's +0.84 GB into SAT-problem generation,
+solver run, and certificate construction/check; separate what is
+retained from what is transient.  Method: a scratch harness that
+OVERRIDES the `bv_decide` elaborator with a copy of the real pipeline
+(`bvNormalize` → `closeWithBVReflection` → bitblast → CNF → `satQuery`
+→ `LratCert.load` → `lratProofToString` → the two `addAndCompile`s →
+`nativeEqTrue`), recording monotonic ms + this process's VmRSS/VmHWM at
+every phase boundary into the `SPARKLE_DEEP_TRACE` file; a
+`sat.solver` wrapper for cadical's own rusage and the CNF/LRAT files;
+the 100 ms cgroup sampler; `Elab.async false`; trace-only mode.  (A
+first attempt with `trace.profiler` was discarded: recording the trace
+tree itself took the run to 153 s and a 3.26 GB peak at the final
+print — the profiler is not a memory instrument here.)
+
+**Result: the bv_decide pipeline is not where the memory goes.**  All
+its phases together, on the UNSAT call that proves the theorem (crc16,
+one run):
+| phase | wall | RSS delta |
+|---|---|---|
+| preprocessing (`bv_normalize`) | 0.16 s | 0 |
+| reflection + bitblast (AIG 5 012 nodes) + CNF (5 846 vars, 14 200 clauses, 203 KB DIMACS) | < 10 ms | 0 |
+| cadical (own process; exit 20) | 23 ms, 14 MB RSS | — |
+| LRAT parse + trim (8 757 steps, 328 KB binary) → certificate string 405 867 B | < 10 ms | 0 |
+| compile expr def (13 269 nodes) + cert def + compile-and-run `verifyBVExpr` (the `ax_15` axiom) | 30 ms | 0 |
+A second `bv_decide` inside `first | rfl | bv_decide | …` reaches the
+solver and is SAT (exit 10, 3 207 vars): that attempt fails as designed
+and the next closer runs; its cost is the same order.  RETAINED from
+the pipeline, in the environment and the `.olean`: `_cert_def_14`
+(405 867-byte string literal), `_expr_def_14` (13 269 tree nodes), the
+axiom `_native.bv_decide.ax_15`, and the theorem itself (tree 5.29 M,
+DAG 17 k).  Nothing else survives the tactic.
+
+**Where it goes: the KERNEL check of the trace theorem's proof term.**
+Re-checking the declared theorem alone (`addDecl` of a copy,
+`Elab.async false`): 22.4 s, RSS +0.77 GB, high-water +0.97 GB — the
+whole trace-stage growth, and the timeline's steady climb from the
+last `bv_decide` mark to the theorem's addition matches it.  Bisecting
+the proof by kernel-checking sub-terms level by level (each candidate
+closed over its context and re-added under a fresh name) found two
+sources:
+
+1. `simp only [rd0_succ]` (6.3 s, one occurrence): the reader equation
+   is proven by `rfl`, so `simp` used it as a DEFINITIONAL rewrite — no
+   proof term, an `id` type ascription whose two sides differ by the
+   unfolding of `rd0 (m+1)` — and the kernel re-derived the whole
+   `CdoW.stateAt` step (re-checking `rd0_succ` alone: 6.1 s, +0.31 GB).
+   Fix: drop the `simp only` line; the `rw [rd0_succ]` that followed it
+   now fires and rewrites WITH the theorem the kernel checked once.
+   Commit `347b6b7`: 22.4 → 16.1 s, +0.77 → +0.61 GB.
+2. bv_decide's reflection proof (16 s): a chain of 71 `sat_and` nodes,
+   one per hypothesis, each closed by the defeq `eval atoms E ≡ hyp`.
+   Marginal-cost profile along the chain (kernel time of the sub-chain
+   from node k: 16.1 s at k = 0…40, 12.7 s at 48, 8.2 s at 56, 3.7 s at
+   64, 0 at the end): the 40 DSL-side hypotheses (`hval_sl_*`, atoms
+   are fvars) cost nothing; the 16 IR-side wire equations `fm_k :
+   rw{k} args m = cone` cost ~1 s each.  Same shape, same size — the
+   difference is that the IR atoms `rw{k} args m` / `rd0 args m` are
+   DEFINITIONS of large height, so the kernel's lazy delta unfolds them
+   (the symbolic `CdoW.wenv` evaluation) while matching.  Fix: make the
+   atoms opaque variables before `bv_decide`.  Core `generalize … at *`
+   does this in the elaborator but NOT in the kernel term: it assigns
+   `(fun a … => ?body) e …` and `instantiateMVars` beta-reduces the
+   redex, putting `e` back (measured: proof restructured, 16.0 s
+   unchanged, atoms still constants in the chain).  `sparkle_opaque e
+   as a` (Tools/DeepElab.lean) closes the goal with `letFun e (fun a =>
+   ?body)` instead — a constant application, left alone by
+   `instantiateMVars`, checked by the kernel with `a` opaque — after
+   reverting every hypothesis mentioning `e`; no `e = a` equation is
+   kept.  Applied to every `rw{k} args m` and `rd{i} args m` before the
+   step closer and before the output closers' `bv_decide`.
+
+Measured after both (same harness, one run each; every PROVEN clause,
+auxiliary count, skip and axiom unchanged on shareX4/8 and crc16):
+| | before | after 1 | after 1+2 |
+|---|---|---|---|
+| trace theorem kernel re-check | 22.4 s, RSS +0.77 GB | 16.1 s, +0.61 GB | **0.08 s, +15 MB** |
+| crc16 trace-only stage (`SPARKLE_DEEP_TRACE_ONLY`) | 58 s, cgroup peak 1.48 GB | 50 s, 1.14 GB | **32 s, 0.73 GB** |
+| the trace theorem inside it (begin → added) | 26 s | 19 s | **1.0 s** |
+| crc16 full build | 122 s, peak 2.13 GB | 114 s, 2.10 GB | **97 s, 2.07 GB** |
+| ConeSharingGen (shareX4+8) | 31 s | 31 s | 27 s |
+The full build's peak is now set by the original body's hwfL kernel
+`decide`s (the +0.71 GB segment above), which is the next candidate.
+Transient vs retained, answered: the trace stage's growth was
+transient kernel working memory (it does not survive the check and is
+gone now); the retained part of the trace theorem is the ~0.5 MB
+listed above.
+
 ## D. Trust base
 
 - [x] **`native_decide` → `decide` hardening, first pass** (2026-09-08).

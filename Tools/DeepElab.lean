@@ -1439,6 +1439,50 @@ elab_rules : tactic
       | _ => pure ()
     checkPhase "change"
 
+
+/-- `sparkle_opaque e as a` — `generalize e = a at *` whose abstraction SURVIVES into
+the kernel-checked proof term.  Core `generalize` assigns the goal to
+`(fun a … => ?body) e …`, and `instantiateMVars` beta-reduces that redex, so the
+final proof mentions `e` again wherever `a` was used: for the trace theorem this
+put the IR atoms `rw{k} args m` (definitions of large height) back into
+`bv_decide`'s reflection hypotheses, where the kernel's lazy delta unfolds them
+(measured on crc16, 2026-09-21: ~1 s per wire equation, 16 s of the theorem's
+kernel time).  Here the goal is closed by `letFun e (fun a => ?body)` — a
+constant application, which `instantiateMVars` leaves alone and which the kernel
+checks with `a` as an opaque local.  Every hypothesis whose type mentions `e` is
+reverted first and re-introduced after, as `generalize … at *` does.  No equation
+`e = a` is kept (bv_decide would reflect it and re-import the definition). -/
+syntax (name := sparkleOpaque) "sparkle_opaque " term:max " as " ident : tactic
+
+elab_rules : tactic
+  | `(tactic| sparkle_opaque $e:term as $a:ident) => withMainContext do
+    let e ← instantiateMVars (← Lean.Elab.Term.elabTerm e none)
+    let g ← getMainGoal
+    let lctx ← getLCtx
+    let mut hyps : Array FVarId := #[]
+    for d in lctx do
+      if d.isImplementationDetail then continue
+      let ty ← instantiateMVars d.type
+      if (← kabstract ty e).hasLooseBVars then hyps := hyps.push d.fvarId
+    let (fvars, g) ← g.revert hyps (preserveOrder := true)
+    g.withContext do
+      let target ← instantiateMVars (← g.getType)
+      let tAbs ← kabstract target e
+      unless tAbs.hasLooseBVars do
+        throwError "sparkle_opaque: {e} does not occur in the goal"
+      let α ← inferType e
+      let u ← getLevel α
+      let β := Lean.mkLambda a.getId .default α tAbs
+      let g'' ← withLocalDeclD a.getId α fun av => do
+        let goalTy := tAbs.instantiate1 av
+        let v ← getLevel goalTy
+        let g' ← mkFreshExprSyntheticOpaqueMVar goalTy
+        let f ← mkLambdaFVars #[av] g'
+        g.assign (mkApp4 (mkConst ``letFun [u, v]) α β e f)
+        pure g'.mvarId!
+      let (_, g3) ← g''.introNP fvars.size
+      replaceMainGoal [g3]
+
 end Tools.DeepElab
 
 namespace Tools.DeepElab
@@ -2575,6 +2619,27 @@ elab "#verify_elab_deep" id:ident : command =>
       let wireHypsT : Array (Lean.TSyntax `tactic) ← (List.range nW).toArray.mapM fun k => do
         let fId : Ident := fIdsT[k]!; let eqId : Ident := rwEqIds[k]!
         `(tactic| all_goals (have $fId:ident := $eqId $appArgs* t))
+      -- KERNEL cost of bv_decide's reflection proof: each hypothesis is closed by a
+      -- defeq `eval atoms E ≡ hyp`.  The IR atoms `rw{k} args m` / `rd{i} args m` are
+      -- DEFINITIONS of large height, so the kernel's lazy delta unfolds them (the
+      -- whole symbolic `CdoW.wenv`/`stateAt` evaluation) while matching — measured on
+      -- crc16 (2026-09-21): the 16 IR-side wire equations cost ~1 s each in the kernel,
+      -- the DSL-side ones (atoms are fvars) ~0.  Generalizing the atoms to variables
+      -- first (no equation kept, so bv_decide never sees the definitions) removes it;
+      -- `sparkle_opaque`, not `generalize`, because the latter's abstraction is
+      -- beta-reduced away by `instantiateMVars` before the kernel sees the proof.
+      let genAtomsAt (tv : Term) (tag : String) : CommandElabM (Array (Lean.TSyntax `tactic)) := do
+        let mut acc : Array (Lean.TSyntax `tactic) := #[]
+        for k in List.range nW do
+          let rwId : Ident := rwIdsS[k]!; let aId := mkI s!"aw{k}{tag}"
+          acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rwId $appArgs* $tv) as $aId:ident)))
+        for i in List.range nR do
+          let rdId : Ident := rdIdsS[i]!; let aId := mkI s!"ar{i}{tag}"
+          acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rdId $appArgs* $tv) as $aId:ident)))
+        pure acc
+      let genAtomsM ← genAtomsAt (← `($mId)) "m"
+      let genAtomsT ← genAtomsAt (← `(t)) "t"
+      let genBvT : Array (Lean.TSyntax `tactic) := genAtomsT ++ #[← `(tactic| bv_decide)]
       let extrasT : Array Term := #[(⟨hLtId.raw⟩ : Term)] ++ helperTs ++ outUnfoldS
       let postT : Array Term := outUnfoldS ++ sigvalSet ++ inpAtTs
       let preOutT : Array Term := #[← `(outFOf)] ++ plumbing ++ outUnfoldS ++ #[(⟨hLtId.raw⟩ : Term)]
@@ -2583,12 +2648,12 @@ elab "#verify_elab_deep" id:ident : command =>
         goalDump,
         ← `(tactic| signal_lets t [$[$extrasT:term],*]),
         ← `(tactic| all_goals (try simp only [$[$postT:term],*]))]
-        ++ wireHypsT ++ #[← `(tactic| all_goals bv_decide)]
+        ++ wireHypsT ++ genAtomsT ++ #[← `(tactic| all_goals bv_decide)]
       let outB : Array (Lean.TSyntax `tactic) := #[
         ← `(tactic| simp only [$[$preOutT:term],*]),
         goalDump,
         ← `(tactic| all_goals (try simp only [$[$postT:term],*]))]
-        ++ wireHypsT ++ #[← `(tactic| all_goals (first | rfl | bv_decide | fail "#verify_elab_deep (shared route): output closers exhausted"))]
+        ++ wireHypsT ++ #[← `(tactic| all_goals (first | rfl | ($[$genBvT:tactic]*) | fail "#verify_elab_deep (shared route): output closers exhausted"))]
       let irSt : Term ← `(CdoW.irState $sdeepId $snmId $inpFam t)
       let ρnT : Term ← `(natJoin $irSt (fun j => ((($inpS) j).val t).toNat))
       let thmCmd ← `(theorem $thId $paramBinders* (t : Nat) :
@@ -2632,6 +2697,8 @@ elab "#verify_elab_deep" id:ident : command =>
             $[$wireHypsM:tactic]*
             all_goals (try simp only [Prod.mk.injEq, and_true])
             all_goals (try (rw [Prod.mk.injEq]; refine ⟨?_, rfl⟩))
+            $goalDump:tactic
+            $[$genAtomsM:tactic]*
             $goalDump:tactic
             $stepCloser:tactic
         rw [$outSId:ident]

@@ -22,9 +22,13 @@
   SKIPPED line and nothing else skipped (docs/SharedRoute-Guarantees.md
   §4a; docs/RefusalLedger.md, shl width rule).
 
-  Measured 2026-09-20: 122 s wall (cgroup peak 2.13 GB; 107–109 s /
-  2.07–2.10 GB earlier the same day before the mask equations moved to
-  the kernel — single runs, spread not attributed; was 880 s on
+  Measured 2026-09-21: 97 s wall (cgroup peak 2.07 GB) after the trace
+  theorem's kernel check went from 22 s / +0.77 GB to 0.08 s (TODO C3b:
+  the reader equation rewritten with `rw`, the IR atoms made opaque
+  before `bv_decide`); 2026-09-20: 122 s wall (cgroup peak 2.13 GB;
+  107–109 s / 2.07–2.10 GB earlier the same day before the mask
+  equations moved to the kernel — single runs, spread not attributed;
+  was 880 s on
   2026-09-19 — kernel-unfolding `rfl`/`show` steps replaced by the
   generic `natJoin_right`, and each body's woCheck / memFree /
   noSelfRead / bodyWidthOk proven once, the 17 hwfCheckL facts derived
