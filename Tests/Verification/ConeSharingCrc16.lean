@@ -22,7 +22,8 @@
   SKIPPED line and nothing else skipped (docs/SharedRoute-Guarantees.md
   §4a; docs/RefusalLedger.md, shl width rule).
 
-  Measured 2026-09-22: 93 s wall (cgroup peak 2.02 GB) with `hWO` by
+  Measured 2026-09-22 (clean rebuild, final regression): 93 s wall
+  (cgroup peak 1.98 GB) with `hWO` by
   `decide +kernel` (TODO C3c); 2026-09-21: 97 s wall (cgroup peak
   2.07 GB) after the trace
   theorem's kernel check went from 22 s / +0.77 GB to 0.08 s (TODO C3b:

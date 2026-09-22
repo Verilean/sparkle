@@ -228,9 +228,9 @@ for it (the M4 shl fit rule).  Keep the two apart when quoting it.
 
 | circuit | §1 trace | §2 replay | §3 Opt | §4a SV | §4b RT | wall |
 |---|---|---|---|---|---|---|
-| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+2, the trace's bv) | PROVEN (+2, the trace's bv) | PROVEN (+3: trace's bv + seqCheck) | PROVEN (+2; parse +1) | 31 s for both shareX* |
+| shareX4 (1 reg, 1 in, 4 wires) | PROVEN (std + 2 bv) | PROVEN (+2, the trace's bv) | PROVEN (+2, the trace's bv) | PROVEN (+3: trace's bv + seqCheck) | PROVEN (+2; parse +1) | 25 s for both shareX* |
 | shareX8 (8 wires) | PROVEN | PROVEN (+2) | PROVEN (+2) | PROVEN (+3) | PROVEN (+2) | (same run) |
-| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+1, the trace's bv) | PROVEN (+1, the trace's bv) | SKIPPED (shl fit rule, statement named) | PROVEN (+1; parse +1) | 93 s, peak 2.02 GB |
+| crc16CcittHW (1 reg, 3 in, 16 wires) | PROVEN | PROVEN (+1, the trace's bv) | PROVEN (+1, the trace's bv) | SKIPPED (shl fit rule, statement named) | PROVEN (+1; parse +1) | 93 s, peak 1.98 GB |
 
 `+N` = decision-procedure auxiliaries beyond the standard axioms
 (2026-09-20, F2 step 11).  By name: the replay/Opt/RT theorems depend
@@ -244,15 +244,45 @@ declaration.  Permanent tests: `Tests/Verification/ConeSharingGen.lean`
 
 ## 7. Not connected / remaining trust, in order of weight
 
-1. `native_decide` in the obligations (F2): checkers keyed on
-   `Std.HashMap`, cone-inlining and G1 equations, the mask equations,
-   `seqCheck`, the parse oracle.  Method exists (first pass moved the
-   list-shaped body checkers to kernel `decide`).
-2. The shipping printer is bridged by re-parsing (4b), not by a
-   printer proof; the proven emitter (4a) is the twin, not `toVerilog`
-   (F3/F4).
-3. 4a is unavailable for circuits with a truncating literal-amount
-   shift (crc16).
-4. Per-instance instantiation of the whole chain (F1); v1 scope
-   (memories, multi-port outputs, Bool outputs, nested loops refused).
-5. Synthesis and silicon are outside the chain (F7).
+As of 2026-09-22 (F2 closed for this route, steps 1–11).  Every
+per-instance checker obligation is kernel-checked; what remains is
+listed here and each item names its next-milestone entry.
+
+1. **The trace theorem's `bv_decide`** (§1, 1–2 auxiliaries per
+   circuit).  The SAT route's LRAT certificate is verified by
+   kernel-reducible code, but the verification is run by the compiled
+   program, leaving one `bv_decide.ax_*` per call.  This is the only
+   remaining trust in the replay / optimizer / re-parse theorems
+   (§2/§3/§4b) — they inherit it and add nothing.
+2. **The parse oracle** (§4b, 1 auxiliary).  `_text_parses` evaluates
+   the shipping `parseAndLowerHierarchical` on the printed text; nothing
+   is proven about the parser (F3).  The printer is bridged by
+   re-parsing, not by a printer proof; the proven emitter (§4a) is a
+   twin of `toVerilog`, not `toVerilog` itself (F3/F4).
+3. **`seqCheck` in the forward SV theorem** (§4a, 1 auxiliary,
+   shareX* only).  The M4 fragment check handed to
+   `certified_forward_trace_module`; a bare `decide` on it does not
+   reduce (stuck in 3 ms), so it needs the structural-twin treatment
+   the other checkers got.
+4. §4a is unavailable for circuits with a truncating literal-amount
+   shift — crc16's one documented SKIP (the `bitwiseShl` fit rule).
+5. Per-instance instantiation rather than universal quantification over
+   the language (F1); and the v1 scope of this route, which REFUSES
+   with a named error rather than skipping silently: memories,
+   multi-port outputs, Bool-typed outputs, nested loops.
+6. Synthesis and silicon are outside the chain (F7).
+
+Performance, for the record (not a guarantee).  Final regression,
+clean rebuild of each test, `lake build`, MemoryMax 24G, cgroup
+`memory.peak`, one run each (2026-09-22):
+
+| test | wall | peak |
+|---|---|---|
+| `ConeSharingGen.lean` (shareX4 + shareX8) | 25 s | 0.90 GB |
+| `ConeSharingCrc16.lean` (crc16CcittHW) | 93 s | 1.98 GB |
+| `ConeKernelSlotShareX` / `Crc16` | 1 s each | — |
+
+crc16 began this PR at 880 s / 2.80 GB.  The remaining hot spots are
+kernel `String` matching in `woCheck` and the width-table walk (TODO
+C3d — measured; the fix needs shorter IR wire names, which changes
+generated RTL, so it belongs to the next milestone).

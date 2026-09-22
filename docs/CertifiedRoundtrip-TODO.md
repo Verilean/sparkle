@@ -1316,14 +1316,18 @@ process (`mem/kwo.lean`):
 | fresh `by decide` | 6 851 ms | elaborator evaluation + kernel check |
 | fresh `by decide +kernel` | 3 320 ms | kernel only |
 | kernel re-check of the declared `hWO` | 3 316 ms, **RSS +1 264 MB** | first big allocation in that process |
-| 93 names each looked up in the 93-name write list (≈ 4.4 k string comparisons), `decide +kernel` | 1 718 ms | ≈ 0.3–0.4 ms per kernel string comparison |
+| 93 names each looked up in the 93-name write list (93 × 93 comparisons), `decide +kernel` | 1 718 ms | the membership sweep alone, over half of the kernel half |
 | the `writesOf` recomputation alone (lengths only, no string compare), `decide +kernel` | 75 ms | the checker's list walking is not the cost |
 So: (i) the default `decide` evaluates the checker TWICE — once in the
 elaborator, once in the kernel — the elaborator half is 3.5 s of the
 7.2 s and is pure duplication; (ii) the kernel half is almost entirely
-`String` equality on literals (~13 k comparisons at ~0.3 ms; the kernel
-unfolds `String.decEq` through `List Char`), and that is also where the
-+0.6–1.3 GB is allocated; the checker's own structural work is < 0.1 s.
+`String` equality (the kernel unfolds `String.decEq` down the character
+list), and that is also where the +0.6–1.3 GB is allocated; the
+checker's own structural work is < 0.1 s.  (C3d measures the
+per-comparison cost properly — ≈ 0.04 ms, scaling with name length —
+and withdraws a "0.3 ms per comparison" figure that an earlier draft of
+this section obtained by dividing a whole sweep by its comparison
+count.)
 
 **Change (one declaration): `hWO` by `decide +kernel`.**  The proof is
 `of_decide_eq_true (Eq.refl true)` behind an auxiliary lemma checked by
@@ -1339,12 +1343,77 @@ after, same instrumented full run, one each:
 | `lake build` ConeSharingCrc16 | 97 s, peak 2.07 GB | 93 s, peak 2.02 GB |
 Every PROVEN clause, auxiliary count, skip and axiom unchanged
 (shareX4/8 and crc16).  The +0.6 GB of `hWO` is NOT the elaborator
-pass: it stays with the kernel's string comparisons.  Next candidate,
-not done here: make `woCheck`'s membership tests kernel-cheap (names
-indexed once, or a `String` equality the kernel reduces without
-`List Char`), which would take both the remaining 3.3 s and the 0.6 GB;
-`hBWO` (3.9 s) is the same shape (`weM` lookups by string) and the same
-`decide` duplication.
+pass: it stays with the kernel's string comparisons.
+
+Same change measured on the small circuits (fresh process, one run
+each; axioms of the result: `propext` only):
+| | `by decide` | `by decide +kernel` |
+|---|---|---|
+| shareX4 (25 statements, 24 names) | 515 ms, +114 MB | 241 ms, +0 MB |
+| shareX8 (41 statements, 40 names) | 1 487 ms, +201 MB | 703 ms, −1 MB |
+
+### C3d. `woCheck`'s string matching: measured, NOT fixed (2026-09-22)
+
+The remaining 3.3 s / +0.6 GB of `hWO` is the kernel deciding `String`
+equality.  Four reformulations were measured before stopping; each is
+recorded because the numbers, not the intuitions, decide this.
+
+**What the cost actually is.**  Per-comparison, on realistic names,
+`decide +kernel` over 1 000 repetitions: `==` between two distinct
+17-character names 40 ms, `<` 56 ms, shared-prefix pair 40/63 ms — i.e.
+≈ 0.04–0.06 ms per comparison, NOT the 0.3 ms quoted in C3c (that
+figure divided a whole `contains` sweep by its comparison count and is
+withdrawn).  The cost scales with NAME LENGTH at a fixed comparison
+count — 93 × 93 `List.contains` over string literals:
+| names | time | ΔRSS |
+|---|---|---|
+| 93 × 2-character literals (`n0`…`n92`) | 795 ms | +312 MB |
+| 93 real crc16 names (avg 12, max 17 chars) | 1 686 ms | +12 MB |
+| 93 × 28-character literals | 7 245 ms | +2 602 MB |
+| 93 identical 1-character names (no mismatch scan) | 8 ms | 0 |
+So the kernel unfolds `String.decEq` down the character list; `List
+String` membership over long generated names is inherently expensive
+for it.  `String.hash` does not reduce in the kernel at all (`decide`
+gets stuck), so a hash pre-filter is not available; even
+`String.length` over the 93 names costs 901 ms.
+
+**Reformulations tried.**
+1. *Sorted association list, name → writing statement index*
+   (`insSorted`/`lookSorted`/`writeIndex`/`readsBefore`, drafted in
+   `mem/wofast.lean`): O(N log N) comparisons instead of O(N²), runtime
+   agreement with `woCheck` on all three crc16 bodies (orig/Opt/RT).
+   Kernel cost: **6 867 ms, +1 962 MB — 2× WORSE** than the 3 286 ms /
+   +27 MB of `woCheck` itself.  The `Option`/`bind` allocation in the
+   fold outweighs the comparisons saved.  Discarded.
+2. *Name-erased Nat-keyed twin* (names replaced by table indices): the
+   Nat-keyed membership pattern costs **115 ms** — a genuine 30× win —
+   but it needs the side condition that the name table is duplicate
+   free, and THAT obligation is 93 × 93 String comparisons: **3 204 ms,
+   +1 099 MB**, i.e. exactly the cost being removed.  Net zero.
+   Discarded.
+3. *Shorter IR wire names* (the measured lever: 2-char names would put
+   the sweep at ~0.8 s).  The names are emitted by
+   `Sparkle/IR/Builder.lean` (`_gen_*`) and the expression flattener
+   (`_tmp_op_a_*`), and they appear in the printed Verilog, in
+   `Backend/Partition.lean`'s prefix tests, and in `Backend/CSim.lean`.
+   Renaming them changes generated RTL and ripples through three
+   backends — a design change well outside this PR.  **Recorded as the
+   next milestone's candidate, not attempted.**
+4. *Proving the check by a general lemma instead of evaluating it*:
+   `∀ l, l.all (fun n => l.contains n) = true` is instant (0 ms), but
+   `woCheck`'s real content is not a tautology — it is a property OF
+   this body — so there is nothing general to appeal to.  The obligation
+   has to be evaluated on the body, one way or another.
+
+**Conclusion and limitation.**  Within this PR's scope the string
+matching is measured but not removed: every local reformulation either
+loses (1), moves the same cost to a side condition (2), or requires
+renaming IR wires across the backends (3).  `hWO` stays at 3.4 s /
++0.6 GB on crc16 (with the `decide +kernel` win of C3c banked), and
+`hBWO` at 3.9 s has the same shape (`weM` lookups keyed by string).
+Both are name-length-bound kernel `String` work; the lever is (3) and
+it belongs to the next milestone together with the other performance
+items.
 
 ## D. Trust base
 
@@ -1628,6 +1697,32 @@ The gaps, in the order they weaken the claim:
   concat-normalisation equations.  Fix: list-backed stop sets and width
   tables carrying their own lookup lemmas.  CompCert's checkers are
   kernel-reducible, so this is a real difference in kind, not degree.
+
+  **F2 CLOSED for the shared route (2026-09-20, steps 1–11).**  Every
+  per-instance obligation of `sparkle.deepShare` is kernel-checked.
+  Final axiom dependency of each shipped theorem, by name:
+  | theorem | beyond `propext` / `Classical.choice` / `Quot.sound` |
+  |---|---|
+  | `{f}_sdeep_trace` | `{f}_sdeep_trace._native.bv_decide.ax_*` |
+  | `{f}_sdeep_signal_run` / `_runOpt` / `_runRT` | the same trace axioms, nothing else |
+  | `{f}_sdeep_text_parses` | `{f}_sdeep_text_parses._native.native_decide.ax_1` (the parse oracle) |
+  | `{f}_sdeep_signal_svOpt` (shareX* only) | the trace axioms + `{f}_sdeep_signal_svOpt._native.native_decide.ax_1` (the M4 `seqCheck`) |
+  Counts: shareX4 2/2/3/2/1, shareX8 2/2/3/2/1, crc16 1/1/—/1/1.
+  The 11 steps, in order: width table (1), the six list-shaped kinds
+  (2), stop sets as lists (3–4), `inlineConeT` structurally (5–6),
+  `resolveSlicesT` structurally (8), the G1 glue's four obligations (9),
+  the `hwfCheck` lookup agreement (10), the mask equations and their two
+  `widthOk` side conditions via `stripMaskK` (11).  The
+  `Std.HashMap`-keyed blocker of the first pass was solved by giving
+  every checker a structural, list-backed twin with an agreement
+  theorem, not by trusting the map.
+  **Deliberately still trusted on this route**, each a next-milestone
+  item: the trace theorem's `bv_decide` (LRAT certificate evaluated by
+  the compiled checker), the parse oracle (`parseAndLowerHierarchical`
+  evaluated on the printed text — F3), and `seqCheck` in the SV
+  theorem (a bare `decide` on it is stuck in 3 ms, "did not reduce"; it
+  needs the same structural-twin treatment).  The DEFAULT deep route
+  is unchanged and keeps its own `native_decide` sites.
 - [ ] **F3. The printer/parser (M3).**  CompCert trusts its assembly
   PRINTER but not a parser of its own output.  Sparkle's roundtrip
   direction trusts the 26-`partial def` recursive-descent parser as an
