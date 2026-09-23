@@ -143,16 +143,16 @@ def register (init : α) (input : Signal dom α) : Signal dom α :=
 
   When enable is true: register updates normally
   When enable is false: register holds its current value
+
+  At time 0: outputs the initial value.
+  At time n + 1: captures input[n] if enabled, otherwise retains output[n].
 -/
 def registerWithEnable (init : α) (en : Signal dom Bool) (input : Signal dom α) : Signal dom α :=
-  let rec go (t : Nat) (prev : α) : α :=
-    match t with
+  let rec go : Nat → α
     | 0 => init
     | n + 1 =>
-      if en.val n then input.val n else prev
-  ⟨fun t => match t with
-    | 0 => init
-    | n + 1 => if en.val n then input.val n else go n init⟩
+      if en.val n then input.val n else go n
+  ⟨go⟩
 
 /-- Helper to create a signal from a stream -/
 def fromStream (s : Stream α) : Signal dom α := ⟨s⟩
