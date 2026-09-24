@@ -1528,11 +1528,35 @@ The gaps, in the order they weaken the claim:
   DSL.  `Cdo.elab_general` / `CdoM.elab_general` are the general
   theorems and are the right shape — what is missing is that reification
   into `Cdo`/`CdoM` is a per-circuit meta-program (`#verify_elab_deep`),
-  so a circuit outside the deep grammar has no theorem at all.  Closing
-  this means a proven reifier: `∀ (c : circuit-do syntax), reify c`
-  succeeds and its `Cdo` denotes the same Signal — i.e. the DSL's own
-  elaboration proven correct, not replayed per instance.  Research-scale
-  and the honest headline item.
+  so a circuit outside the deep grammar has no theorem at all.
+  **Completion criterion clarified with the user (2026-09-24):** prove
+  `shippingCompile source = success ir → SemanticsPreserved source ir`.
+  Failure is allowed; success of the existing compiler defines the domain.
+  Neither success on every Lean program nor restricting the theorem to the
+  new typed frontend is the target. This includes successful paths outside
+  the current deep grammar. The MetaM/environment interface and semantics for
+  hierarchical/stateful outputs must be modeled, not hidden in a replay premise.
+  See `ShippingCompiler-Soundness.md` for the actual entry points and proof plan.
+
+  **Shipping-compiler worklist:**
+  - [x] Identify actual success boundaries: synthesis core, zero-width cleanup,
+    register deduplication, symbolic-width entry and hierarchical entry.
+  - [x] Measure and fix an accepted miscompile in applicative lowering:
+    `fun x y => y - x`, 8-bit inputs 3/10, source 7 versus old IR 249.
+    Lower the actual body with scoped argument-to-wire mappings. General
+    source application rule proved in `Tools/ApplicativeLowering.lean`; nine
+    shipping compilations exhaustively checked at small widths.
+  - [x] Prove actual `CircuitM.emitAssign` preserves execution of the existing
+    finalized prefix and all other wires (`Tools/ShippingBuilderSoundness.lean`).
+    This quantifies over builder states and environments, with local RHS and
+    freshness hypotheses; no whole-circuit replay premise.
+  - [ ] Prove the scalar lowering/builder simulation invariant (including
+    expression-cache validity, operand widths and fresh names), then connect
+    the applicative rule to it. The current rule alone is NOT compiler soundness.
+  - [ ] Connect Lean.Expr recognition/unfolding to source denotation and cover
+    every successful handler, state initialization/reset and interface packing.
+  - [ ] Prove mandatory cleanup/deduplication passes and compose the success
+    theorem for flat, symbolic and hierarchical entry points.
 
   **Current bounded worklist (2026-09-24; F1 itself stays open):**
   - [x] Require a complete original/Opt/reparsed/text acceptance artifact.

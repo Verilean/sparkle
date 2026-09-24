@@ -76,6 +76,7 @@ import Tests.IP.Control.LQRTest
 import Tests.IP.Control.PrecisionSweepTest
 import Tests.IP.Control.ObserverTest
 import Tests.Compiler.RtlStructureTest
+import Tests.Compiler.ApplicativeSemanticsTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim

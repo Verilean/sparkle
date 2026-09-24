@@ -2336,150 +2336,34 @@ mutual
 
     return none
 
-  /-- Handle Signal.ap — binary op lifting, concat/sshiftRight special cases.
-
-      Also handles N-ary applicative chains
-      `f <$> a₁ <*> a₂ <*> ... <*> aₙ`  (n ≥ 2).
-      These desugar to nested `Signal.ap` calls — the
-      outermost is `Signal.ap (Signal.ap (... (Signal.map f a₁) ...) aₙ₋₁) aₙ`.
-      We strip the chain into the inner `Signal.map f a₁` plus
-      the trailing argument signals `[a₂, ..., aₙ]`, then apply
-      `f` to the wires sequentially.  For chains whose `f` is
-      a pure op (or / and / xor / add / etc.) operating
-      pairwise on a left-fold, this resolves into a chain of
-      binary IR ops. -/
-  partial def handleApplicative (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
-    if name == ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
-      -- Walk the nested ap-chain to its innermost Signal.map.
-      -- Collect the trailing arguments in order.
-      let rec collectAp (acc : Array Lean.Expr) (cur : Lean.Expr) :
-          Option (Lean.Expr × Array Lean.Expr) :=
-        let fn := cur.getAppFn
-        let cArgs := cur.getAppArgs
-        if fn.isConstOf ``Sparkle.Core.Signal.Signal.ap ∧ cArgs.size ≥ 2 then
-          collectAp (acc.push cArgs[cArgs.size-1]!) cArgs[cArgs.size-2]!
-        else if fn.isConstOf ``Sparkle.Core.Signal.Signal.map ∧ cArgs.size ≥ 2 then
-          some (cur, acc.reverse)
-        else
-          none
-      let chainStart : Lean.Expr :=
-        Lean.mkAppN (Lean.mkConst ``Sparkle.Core.Signal.Signal.ap)
-                    args[:args.size]
-      let chainStart := if args.size > 2 then e else chainStart
-      let _ := chainStart
-      let topAcc : Array Lean.Expr := #[args[args.size-1]!]
-      match collectAp topAcc args[args.size-2]! with
-      | some (mapExpr, trailingArgs) =>
-        -- `mapExpr` is `Signal.map f a₁`.  `trailingArgs` is
-        -- `[a₂, a₃, ..., aₙ]` in left-to-right order.
-        if trailingArgs.size ≥ 2 then
-          trace[sparkle.compiler] s!"→ applicative (N-ary, n = {trailingArgs.size + 1})"
-          let mapArgs := mapExpr.getAppArgs
-          let f := mapArgs[mapArgs.size-2]!
-          let a₁ := mapArgs[mapArgs.size-1]!
-          let opName ← getPrimitiveNameFromLambda f
-          match getOperator opName with
-          | some op =>
-            -- f is binop-shaped: apply pairwise left-fold.
-            -- This handles `(fun x y => x | y) <$> a <*> b <*> c <*> d`
-            -- as `((a | b) | c) | d` — matches Lean's
-            -- left-associative `<*>` parse.
-            let wireA1 ← translateExprToWire a₁ "a"
-            let mut accWire := wireA1
-            let mut idx := 0
-            let exprType ← cachedInferType e
-            let hwType ← inferHWTypeFromSignal exprType
-            for nextArg in trailingArgs do
-              let isLast := idx + 1 == trailingArgs.size
-              let nextWire ← translateExprToWire nextArg s!"a{idx + 2}"
-              let resWire ←
-                if isLast then
-                  CompilerM.makeWire hint hwType (named := isNamed)
-                else
-                  CompilerM.makeWire s!"{hint}_acc" hwType (named := false)
-              CompilerM.emitAssign resWire (.op op [.ref accWire, .ref nextWire])
-              accWire := resWire
-              idx := idx + 1
-            return some accWire
-          | none => pure ()
-        -- Fall through to the 2-ary path when chain isn't a
-        -- single-op left-fold.
-      | none => pure ()
-      let sf := args[args.size-2]!
-      let b := args[args.size-1]!
-      let sfFn := sf.getAppFn
-      let sfArgs := sf.getAppArgs
-      if sfFn.isConstOf ``Sparkle.Core.Signal.Signal.map && sfArgs.size >= 2 then
-        trace[sparkle.compiler] "→ applicative (Signal.ap)"
-        let f := sfArgs[sfArgs.size-2]!
-        let a := sfArgs[sfArgs.size-1]!
-        let wireA ← translateExprToWire a "a"
-        let wireB ← translateExprToWire b "b"
-        -- COMPOUND-body special case: `fun x y => !(x OP y)`.
-        -- `getPrimitiveNameFromLambda` returns just the outermost
-        -- `not`, losing the inner `OP`, so the fast path below would
-        -- emit `.op .not [a, b]` — a unary op with two args, which the
-        -- Verilog/CSim backends render as
-        -- `/* ERROR: not requires 1 argument */`.  Recognise this exact
-        -- shape (the bit-serial engines' `busy = !(isIdle || isFinish)`)
-        -- and emit the correct nested `not (a OP b)`.
-        let compoundNot? : Option Operator :=
-          match f with
-          | .lam _ _ (.lam _ _ notBody _) _ =>
-            let nfn := notBody.getAppFn
-            let nargs := notBody.getAppArgs
-            -- outer must be a unary complement/not with one arg…
-            if (nfn.isConstOf ``not || nfn.isConstOf ``Bool.not
-                || nfn.isConstOf ``Complement.complement || nfn.isConstOf ``BitVec.not)
-               && nargs.size >= 1 then
-              let inner := nargs[nargs.size-1]!
-              let ifn := inner.getAppFn
-              let iargs := inner.getAppArgs
-              -- …applied to a single binary op on the two bound vars.
-              match ifn with
-              | .const iname _ =>
-                if iargs.size >= 2 && iargs[iargs.size-2]!.isBVar
-                   && iargs[iargs.size-1]!.isBVar then
-                  getOperator iname
-                else none
-              | _ => none
-            else none
-          | _ => none
-        match compoundNot? with
-        | some innerOp =>
-          let exprType ← cachedInferType e
-          let hwType ← inferHWTypeFromSignal exprType
-          let innerWire ← CompilerM.makeWire s!"{hint}_inner" hwType (named := false)
-          CompilerM.emitAssign innerWire (.op innerOp [.ref wireA, .ref wireB])
-          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-          CompilerM.emitAssign resWire (.op .not [.ref innerWire])
-          return some resWire
-        | none => pure ()
-        let opName ← getPrimitiveNameFromLambda f
-        match getOperator opName with
-        | some op =>
-          let exprType ← cachedInferType e
-          let hwType ← inferHWTypeFromSignal exprType
-          let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-          CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
-          return some resWire
-        | none =>
-          -- Special: BitVec.append / HAppend → concat
-          if opName == ``HAppend.hAppend || opName == ``BitVec.append then
-            let exprType ← cachedInferType e
-            let hwType ← inferHWTypeFromSignal exprType
-            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-            CompilerM.emitAssign resWire (.concat [.ref wireA, .ref wireB])
-            return some resWire
-          -- Special: BitVec.sshiftRight → asr (Nat arg handled via signal wire)
-          if opName == ``BitVec.sshiftRight then
-            let exprType ← cachedInferType e
-            let hwType ← inferHWTypeFromSignal exprType
-            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-            CompilerM.emitAssign resWire (.op .asr [.ref wireA, .ref wireB])
-            return some resWire
-          CompilerM.liftMetaM $ throwError s!"Complex lift of {opName} not yet supported: operator not found"
-    return none
+  /-- Lower the actual applicative function body, preserving argument order,
+      duplication, constants and nesting. Looking only at its outer operator
+      is unsound: `fun x y => y - x` is not `fun x y => x - y`. -/
+  partial def handleApplicative (e : Lean.Expr) (name : Name) (_args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
+    unless name == ``Sparkle.Core.Signal.Signal.ap do return none
+    let rec collect (cur : Lean.Expr) (rest : List Lean.Expr) :
+        Option (Lean.Expr × List Lean.Expr) :=
+      let args := cur.getAppArgs
+      if cur.isAppOf ``Sparkle.Core.Signal.Signal.ap && args.size >= 2 then
+        collect args[args.size - 2]! (args.back! :: rest)
+      else if cur.isAppOf ``Sparkle.Core.Signal.Signal.map && args.size >= 2 then
+        some (args[args.size - 2]!, args.back! :: rest)
+      else none
+    let some (f, signals) := collect e [] | return none
+    -- Every scalar binder and its wire mapping stays in scope until the
+    -- complete body is lowered. No expression containing it escapes.
+    let rec lower (f : Lean.Expr) (signals : List Lean.Expr) : CompilerM String := do
+      match signals with
+      | [] => translateExprToWire f hint (isNamed := isNamed)
+      | sig :: rest =>
+        let ty ← CompilerM.liftMetaM <| whnf (← inferType f)
+        let .forallE binder argTy _ _ := ty
+          | CompilerM.liftMetaM <| throwError "Applicative lowering: function arity mismatch"
+        let wire ← translateExprToWire sig "app_arg"
+        CompilerM.withLocalDecl binder argTy fun scalar =>
+          CompilerM.withVarMapping scalar.fvarId! wire do
+            lower (Lean.mkApp f scalar).headBeta rest
+    return some (← lower f signals)
 
   /-- Handle BitVec.extractLsb', shifts, concat, isPrimitive dispatch -/
   partial def handleBitVecOps (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do

@@ -462,6 +462,13 @@ if [ -f "$ELAB_FILE" ]; then
   else
     echo "FAIL: strict roundtrip certification gate"; fail=1
   fi
+  if [ -f Tests/Compiler/ApplicativeSemanticsTest.lean ] \
+      && lake build Tests.Compiler.ApplicativeSemanticsTest > "$WORK/applicative-semantics.log" 2>&1 \
+      && grep -Fq "APPLICATIVE SEMANTICS OK:" "$WORK/applicative-semantics.log"; then
+    echo "applicative semantics: shipping compiler regression and general source rule checked"
+  else
+    echo "FAIL: shipping applicative semantics gate"; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

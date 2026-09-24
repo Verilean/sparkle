@@ -31,6 +31,14 @@ verdicts:
 
 ## Deep route (`#verify_elab_deep`, `Tools/DeepElab.lean`)
 
+**Accepted counterexample (2026-09-24):** auditing the stronger requirement
+"shipping compilation succeeds ⇒ semantics preserved" found a failure without
+a refusal. Applicative lowering compiled `fun x y => y - x` as `x - y`.
+At width 8, inputs 3/10 gave source 7 and IR 249. **BUG, fixed:** lower the actual
+function body with scoped operand bindings. The shipping regression covers nine
+cases including permutation, repetition, constants, nesting and higher arities.
+See `ShippingCompiler-Soundness.md`; no language-wide theorem is claimed yet.
+
 | Refusal | Verdict | Evidence |
 |---|---|---|
 | multi-port memories | COST, semantics validated (pressed 2026-09-10) | The refusal is the DEEP ROUTE's (`CdoM` carries one write port per memory), not the semantics'. The IR semantics DOES model multi-port: `memWritePorts` folds extra ports in order, later enabled port wins. That rule is pinned by `#guard`s in `Semantics.lean` (incl. a collision case), and re-measured here: two ports writing address 3 in one cycle with data 0xAA then 0xBB yields 0xBB. So extending `CdoM` to a port LIST is reification work against an already-validated rule, not a semantic unknown. |

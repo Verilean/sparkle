@@ -340,6 +340,12 @@ lean_lib «Tools.VerifiedSource» where
 lean_lib «Tools.ReflectSource» where
   roots := #[`Tools.ReflectSource]
 
+lean_lib «Tools.ApplicativeLowering» where
+  roots := #[`Tools.ApplicativeLowering]
+
+lean_lib «Tools.ShippingBuilderSoundness» where
+  roots := #[`Tools.ShippingBuilderSoundness]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"

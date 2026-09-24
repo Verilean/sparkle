@@ -274,7 +274,15 @@ the cycle-level IR semantics, not external SystemVerilog event semantics.
   absence of partial artifacts after refusal.
 - All eight are required by `bench/xiangshan/ci_check.sh` after the shared tests.
 
-F1 stays open for the shipping DSL. Typed statement extraction, its compiler and
+F1 stays open for the shipping DSL. The agreed target is now explicitly
+**successful existing compilation implies semantic preservation**; it does not
+require compilation to succeed for all Lean programs. The next work is on that
+shipping path, rather than enlarging the separate typed frontend and treating
+that as completion. See [the shipping-compiler proof plan](ShippingCompiler-Soundness.md)
+for the accepted miscompile found during this audit, its fix, the source-side
+application rule and the actual builder's first general simulation theorem.
+
+Typed statement extraction, its compiler and
 the single-register runner bridge are proved. A bounded Lean Expr reader now
 connects actual definitions by per-definition kernel validation. Reader coverage
 and sharing remain open; no universal reader theorem is claimed. Register banks,
