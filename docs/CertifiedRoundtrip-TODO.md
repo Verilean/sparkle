@@ -483,6 +483,7 @@ group is rough priority.  Update as items land.
   | slice-resolved cone | 14.3 M |
   | reified `Cdo.next` arms SYNTAX | 26.8 M |
   | shallow bridge rhs (`_rd0_succ`) | 64.4 M — its `rfl` had not finished at the 1500 s timeout (NOTHM defs-only, MemoryMax=24G, single run) |
+
   Findings: (a) the reifier reifies the INLINED IR cone, so the deep
   side is as large as the IR side (correcting "blowup is not in
   reification"); (b) the constants add and the G1 glue CLOSES, because
@@ -520,6 +521,7 @@ group is rough priority.  Update as items land.
   | 10 | FAILED (whnf heartbeats) | 113 s | 1,546,586 | 4,237,859 |
   | 12 | FAILED (whnf heartbeats) | 63 s | 7,071,578 | 22,740,506 |
   | 14 | FAILED (whnf heartbeats) | 80 s | 35,594,074 | 104,373,795 |
+
   Both sizes grow ≈ 5× per step (2^n behaviour).  At n=4 the bridge
   `_rd0_succ` (37 K chars, `rfl`) still COMPLETES; the failure is the
   Signal-side TRACE THEOREM — so the binding layer's job is (a) small
@@ -542,6 +544,7 @@ group is rough priority.  Update as items land.
   | 8 | PROVEN, 16 s | FAILED |
   | 12 | PROVEN, 46 s | FAILED |
   | 14 | "Missing cases" in the `nm` `Fin`-literal match (17 slots) — the KNOWN slot-count ceiling, not sharing | FAILED |
+
   Axioms: standard three + `bv_decide`'s native axioms (same trust class
   as the baseline's closer).  **Heartbeat limits (2026-09-14):** the
   generator fixes its trace theorem at `maxHeartbeats 1600000`
@@ -574,6 +577,7 @@ group is rough priority.  Update as items land.
   | 4 | 2,942 / 2,708 | 194 / 40 | 4 s |
   | 8 | 4,134 / 3,900 | 194 / 40 | 17 s |
   | 12 | 5,326 / 5,092 | 194 / 40 | 46 s |
+
   Pre-extract sizes grow by a constant per step (linear); the goals the
   closer sees are CONSTANT.  Wall time still grows: definitions + rfl
   lemmas alone (Phase A) take 1 / 5 / 15 s at n = 4 / 8 / 12 — each
@@ -625,6 +629,7 @@ group is rough priority.  Update as items land.
   | 19 | 16 | PROVEN | 74 s |
   | 23 | 20 | PROVEN | 143 s |
   | 32 | 29 | PROVEN | 473 s |
+
   (inlined route: FAILED from n=4.)  Wall time grows faster than linear.
   Breakdown at 32 slots: Phase A (definitions + per-wire `rfl` lemmas)
   204 s, trace theorem ≈ 269 s.  Phase A is quadratic by construction
@@ -647,6 +652,7 @@ group is rough priority.  Update as items land.
   | shareX4 | 7 | 7 s | std + 57 aux |
   | shareX8 | 11 | 33 s | std + 89 aux |
   | shareX14 | 17 | 241 s | std + 137 aux |
+
   (default route: FAILED from n=4).  `Tests/Verification/ConeSharingGen.lean`
   pins shareX4 + shareX8, CI-gated on both PROVEN lines.  Default route
   unchanged (43 PROVEN across RealIP / ValueParamInit / ReifyDemo).
@@ -777,6 +783,7 @@ a fresh name, timed, with the proof term's `sizeWithoutSharing`.
 | `_sdeep_trace` | 22.4 s | 5,286,453 | 4,119 |
 | `_sdeep_envAt_w{0..15}` (each) | 19.2–19.4 s | 30,489 | 1,609 |
 | remaining ~331 | ≈ 366 s total, mean ≈ 1.1 s | | |
+
 The 16 readers cost ≈ 309 s = 44 % of crc16's type checking.  They are
 BODY-INDEPENDENT (emitted once, not per replayed body).
 **Separation, term size vs reduction, on the reader:** the trace and a
@@ -794,6 +801,7 @@ kernel decides by lazy delta — the candidate being unfolded is
 |---|---|
 | `rfl` (the generator's) | 18 959 ms |
 | `exact natJoin_right _ _ 3 (by decide) _` | 6 ms |
+
 Axioms of the lemma route: the standard three.  Cause CONFIRMED: lazy
 delta through `CdoW.irWires`.  `natJoin_right` (generic, kernel-cheap:
 `natJoin r x ⟨Γr.length + k, h⟩ = x ⟨k, hk⟩`) is now in
@@ -804,6 +812,7 @@ changed, no check weakened.  Expected crc16 saving ≈ 16 × 19.3 s ≈
 |---|---|---|
 | before (`rfl` readers) | 880 s | 2.797 GB |
 | after (`natJoin_right` readers) | 593 s | 2.867 GB |
+
 MEASURED saving 287 s (−33 %) against the 309 s estimate; peak +70 MB
 (+2.5 %).  Auxiliaries unchanged (replay 108, Opt 162, RT 162), the one
 documented SV skip preserved, shareX4/8 unchanged (37/55/56/55,
@@ -817,6 +826,7 @@ documented SV skip preserved, shareX4/8 unchanged (37/55/56/55,
 | `trace` | 22.4 s | 1 | 5.29 M | the `bv_decide` certificate |
 | `rwN_eq` + `rdN_succ` | 24 s | 17 | 53–77 | `rfl` readers on the Signal side (reduction) |
 | everything else | ≈ 40 s | 250 | | |
+
 The orig/Opt-RT asymmetry has an obvious candidate: the ORIGINAL body is
 the un-optimized module (94 statements) while Opt/RT are 20, and every
 settled/step lemma re-proves `woCheck` / `memFreeCheck` /
@@ -828,6 +838,7 @@ settled/step lemma re-proves `woCheck` / `memFreeCheck` /
 | `noSelfReadCheck body` | orig | 94 | 347 ms |
 | `memFreeCheck body` | orig | 94 | 4 ms |
 | `woCheck [] bodyOpt` | Opt | 20 | 374 ms |
+
 So the asymmetry is `woCheck` over the un-optimized 94-statement body,
 re-proven by every settled and step lemma of that body (33 sites).
 Fix (queued, one change at a time): prove `woCheck`/`memFreeCheck`/
@@ -861,6 +872,7 @@ by `sorry` after the named step; register/input bullets real):
 | + `rw [irWiresAt_stable … k …]` | 18 827 |
 | + `unfold irWires` | 18 964 |
 | full | 19 093 |
+
 One step — the second `show`, a right-block `natJoin` projection
 decided by definitional unfolding (different heads on the two sides,
 so the kernel's lazy delta unfolds `irWiresAt … k`, the fuel-k wire
@@ -879,6 +891,7 @@ under-read it.  Count curve and fix, MEASURED (same `hc`, same conditions):
 | only wire 0 (full) | 16 757 |
 | only wire 14 (full) | 61 |
 | all 15, `show` → `refine (natJoin_right …).trans ?_` | **246** |
+
 So the cost is not per-bullet: ONE bullet — wire index 0, whose
 projection the kernel decides by unfolding `irWiresAt … k ⟨0⟩` — is
 16.8 s, the rest add ~0.2 s each, and the earlier per-bullet
@@ -891,6 +904,7 @@ same harness (lake build, 24G, cgroup peak, one run each):
 |---|---|---|
 | before (`show` bullet) | 593 s | 2.867 GB |
 | after (`natJoin_right` bullet) | 343 s | 2.824 GB |
+
 Saving 250 s (−42 %) against the ≈ 240 s estimate; peak −43 MB.
 Auxiliaries unchanged (108 / 162 / 162), the one documented SV skip
 preserved; shareX4/8 unchanged (37/55/56/55, 61/91/92/91, nothing
@@ -913,6 +927,7 @@ harness, one run each:
 | crc16 auxiliaries | 108 / 162 / 162 | unchanged |
 | SV skip | 1 | 1 |
 | shareX4/8 auxiliaries, skips | 37/55/56/55, 61/91/92/91, none | unchanged |
+
 The peak fell by 630 MB — the duplicated decide proofs were also the
 memory.  crc16 today: 880 s → 202 s (−77 %) with no obligation changed.
 **Post-change by-kind aggregation** (357 theorems, re-check total
@@ -927,6 +942,7 @@ memory.  crc16 today: 880 s → 202 s (−77 %) with no obligation changed.
 | `hwfL` [Opt] / [RT] | 4.0 s / 3.9 s | 16 / 16 | 321 |
 | `hWO` [orig] | 3.3 s | 1 | 77 |
 | everything else | ≈ 12 s | | |
+
 `wire_w*` and `settled` no longer appear.  JUDGEMENT: no COMMON waste
 (the same proposition re-proven) remains.  What is left is per-item:
 `hwfL` [orig] is 16 DISTINCT propositions (one stop set per wire, each
@@ -961,6 +977,7 @@ Generator: `hsub` is body-independent, so ONE theorem per slot
 | crc16 wall / peak | 202 s / 2.192 GB | 203 s / 2.191 GB |
 | shareX4+8 wall | 42 s | 43 s |
 | skips | crc16 1 (documented), shareX 0 | unchanged |
+
 The drop is one per wire plus two per body's steps (−6 / −10 / −18),
 exactly the removed sites.  **F2 step 9 DONE (2026-09-20): the G1 glue's four obligations by the
 kernel — no new implementation.**  Checked directly first: `concatNorm`
@@ -982,6 +999,7 @@ vs 1 and 4-6 ms native.  Whole glue theorem per slot: standard axioms.
 | crc16 wall / peak | 203 s / 2.191 GB | 211 s / 2.287 GB |
 | shareX4+8 wall | 43 s | 45 s |
 | skips | crc16 1 (documented), shareX 0 | unchanged |
+
 The drop is 4 per slot (24 on shareX4's 6 slots, 72 on crc16's 18).
 crc16's replay is now at 18 auxiliaries (from 152 on 2026-09-16).
 **F2 step 10 DONE (2026-09-20): the hwfL lookup-agreement facts are
@@ -999,6 +1017,7 @@ no fallback.  Measured, same harness, one run each:
 | crc16 wall / peak | 109 s / 2.07 GB | 107 s / 2.10 GB |
 | shareX4+8 wall | 28 s | 28 s |
 | skips | crc16 1 (documented), shareX 0 | unchanged |
+
 The replay theorems now carry ONLY the trace theorem's `bv_decide`
 auxiliaries (2 on shareX4, 1 on crc16; confirmed by `#print axioms`).
 Everything else on the replay side of the shared route — inlining,
@@ -1087,6 +1106,7 @@ peaks 1.536 GB and 2.241 GB — within 1 % of the first runs):
 |---|---|---|---|---|
 | stage 3 (trace) | 1.29 GB (of which THP 0.86 GB) | 74 MB | 0 | 74 KB |
 | stage 4 (full) | 1.70 GB (THP 0.39 GB) | 75 MB | 0 | 74 KB |
+
 So the cgroup peak is the `lean` process's anonymous heap; there is no
 file-cache or kernel component of note, and the mapped `.olean` pages
 do not appear here (they are charged elsewhere), which is exactly why
@@ -1113,6 +1133,7 @@ directly):**
 | replay+bridges / theorems | 378 | 236 957 | 63 193 247 |
 | replay+bridges / definitions | 131 | 8 936 | 33 745 |
 | total | 552 | ≈ 266 k | ≈ 68.6 M |
+
 Largest: `_sdeep_trace` 17 209 DAG nodes; each `wire_w{k}` 4–6 k
 (identical across the three bodies — the same proof three times; the
 congruence inside it is body-independent, a dedupe candidate for size
@@ -1139,6 +1160,7 @@ heap that does not shrink between stages, so the table reads as
 | steps, regstep, state trace, run | 0.5 s | flat |
 | Opt body, all of it | 15 s | 2.24 GB (flat — heap reused) |
 | RT body, all of it | 16 s | 2.27 GB (flat) |
+
 So the peak is set by two places: the trace theorem's `bv_decide`
 (+0.84 GB in 25 s) and the original body's wire-lemma segment (+0.75 GB
 in 95 s); the two later bodies fit in the heap the first one grew.
@@ -1155,6 +1177,7 @@ take 15 s.  **Split further (per-phase and per-wire markers; rerun, peak 2.27 GB
 | steps + regstep + state trace + run | 0.5 s | flat |
 | Opt body: hwfL facts (20-statement body) | 9.8 s | flat |
 | RT body: hwfL facts | 9.9 s | flat |
+
 So the second contributor to the peak is identified: the kernel
 evaluation of `hwfCheckL we stop body` over the 94-statement original
 body, repeated for 17 stop sets (16 per-wire + the shared one) — this
@@ -1181,6 +1204,7 @@ Measured, same harness, one run each:
 | shareX4+8 wall | 45 s | 28 s |
 | auxiliaries (all theorems, both circuits) | | unchanged |
 | skips | crc16 1 (documented), shareX 0 | unchanged |
+
 What remains in that segment (12.9 s, +0.58 GB) is now the three
 per-body kernel `decide`s over the 94-statement body themselves —
 `woCheck` 6.8 s, `bodyWidthOk` 3.9 s, `noSelfRead` 0.35 s (measured
@@ -1215,6 +1239,7 @@ one run):
 | cadical (own process; exit 20) | 23 ms, 14 MB RSS | — |
 | LRAT parse + trim (8 757 steps, 328 KB binary) → certificate string 405 867 B | < 10 ms | 0 |
 | compile expr def (13 269 nodes) + cert def + compile-and-run `verifyBVExpr` (the `ax_15` axiom) | 30 ms | 0 |
+
 A second `bv_decide` inside `first | rfl | bv_decide | …` reaches the
 solver and is SAT (exit 10, 3 207 vars): that attempt fails as designed
 and the next closer runs; its cost is the same order.  RETAINED from
@@ -1271,6 +1296,7 @@ auxiliary count, skip and axiom unchanged on shareX4/8 and crc16):
 | the trace theorem inside it (begin → added) | 26 s | 19 s | **1.0 s** |
 | crc16 full build | 122 s, peak 2.13 GB | 114 s, 2.10 GB | **97 s, 2.07 GB** |
 | ConeSharingGen (shareX4+8) | 31 s | 31 s | 27 s |
+
 The full build's peak is now set by the original body's hwfL kernel
 `decide`s (the +0.71 GB segment above), which is the next candidate.
 Transient vs retained, answered: the trace stage's growth was
@@ -1300,6 +1326,7 @@ body): 13.2 s, 50 declarations, ΣΔRSS +605 MB.  What is in it TODAY
 | `crc16CcittHW_sdeep_hNSR` | `noSelfReadCheck_sound _ (by decide)` | 371 ms | 0 |
 | `hsub_r0`, `hsub_w0`, `hsub_out` | `rw [resolveSlicesT_list]; decide` | 250–300 ms each | ≤ 21 MB |
 | the other 45 (`hsub_w*`, `stv`, `rhoNS`, `envSt`, `st0`, `rhoNS_eq`, `envSt_bounded`, `henv`, `wofM`, `weOf_eq`, `signalM`, `hMF`, 17 `hwfL_*`) | — | < 90 ms each | ≈ 0 |
+
 (For the record, the largest declarations of the WHOLE run: `rw14_eq`
 8.8 s / +149 MB, `rd0_succ` 7.7 s, `hWO` 7.2 s / +623 MB, `rw12_eq`
 4.1 s, `hwt` 4.1 s / +466 MB, `hBWO` 3.9 s.)
@@ -1318,6 +1345,7 @@ process (`mem/kwo.lean`):
 | kernel re-check of the declared `hWO` | 3 316 ms, **RSS +1 264 MB** | first big allocation in that process |
 | 93 names each looked up in the 93-name write list (93 × 93 comparisons), `decide +kernel` | 1 718 ms | the membership sweep alone, over half of the kernel half |
 | the `writesOf` recomputation alone (lengths only, no string compare), `decide +kernel` | 75 ms | the checker's list walking is not the cost |
+
 So: (i) the default `decide` evaluates the checker TWICE — once in the
 elaborator, once in the kernel — the elaborator half is 3.5 s of the
 7.2 s and is pure duplication; (ii) the kernel half is almost entirely
@@ -1341,6 +1369,7 @@ after, same instrumented full run, one each:
 | total declaration time | 96.8 s | 92.6 s |
 | cgroup peak (sampler) | 1.95 GB | 1.94 GB |
 | `lake build` ConeSharingCrc16 | 97 s, peak 2.07 GB | 93 s, peak 2.02 GB |
+
 Every PROVEN clause, auxiliary count, skip and axiom unchanged
 (shareX4/8 and crc16).  The +0.6 GB of `hWO` is NOT the elaborator
 pass: it stays with the kernel's string comparisons.
@@ -1371,6 +1400,7 @@ count — 93 × 93 `List.contains` over string literals:
 | 93 real crc16 names (avg 12, max 17 chars) | 1 686 ms | +12 MB |
 | 93 × 28-character literals | 7 245 ms | +2 602 MB |
 | 93 identical 1-character names (no mismatch scan) | 8 ms | 0 |
+
 So the kernel unfolds `String.decEq` down the character list; `List
 String` membership over long generated names is inherently expensive
 for it.  `String.hash` does not reduce in the kernel at all (`decide`
@@ -1650,6 +1680,7 @@ The gaps, in the order they weaken the claim:
   |---|---|---|---|---|
   | shareX4 | `_tmp_op_a_9` (w0) | 145 ms | 3 ms | 303 MB |
   | crc16CcittHW | `_gen_shifted_4` (w9) | 418 ms | 4 ms | 367 MB |
+
   So a kernel cone equation costs ~50-100x the compiled one but is
   absolute: on crc16 the per-slot `hinl` sites are ~0.4 s each.
   **Step 7 DONE (2026-09-18): applied to EVERY cone equation of the
@@ -1665,6 +1696,7 @@ The gaps, in the order they weaken the claim:
   | shareX4 | 43 → 37 | 61 → 55 | 62 → 56 | 61 → 55 |
   | shareX8 | 71 → 61 | 101 → 91 | 102 → 92 | 101 → 91 |
   | crc16 | 126 → 108 | 180 → 162 | (skipped) | 180 → 162 |
+
   The drop is 1 per shared wire plus 1 per register/output root, per
   body — the `settled_*` auxiliaries disappear entirely and the `step_*`
   sites go from 2 to 1 (the survivor is the excluded `hsub`).
@@ -1676,6 +1708,7 @@ The gaps, in the order they weaken the claim:
   | shareX4+8 peak | — | 1.04 GB |
   | crc16 wall | 864 s | 880 s |
   | crc16 peak | 2.781 GB | 2.797 GB |
+
   So crc16 costs +16 s MEASURED (+1.9 %) and +16 MB.  The earlier
   "roughly +40 s" was an ESTIMATE from per-slot timings and came out
   high; the per-slot figures (145/418 ms) do not compose linearly,
@@ -1707,6 +1740,7 @@ The gaps, in the order they weaken the claim:
   | `{f}_sdeep_signal_run` / `_runOpt` / `_runRT` | the same trace axioms, nothing else |
   | `{f}_sdeep_text_parses` | `{f}_sdeep_text_parses._native.native_decide.ax_1` (the parse oracle) |
   | `{f}_sdeep_signal_svOpt` (shareX* only) | the trace axioms + `{f}_sdeep_signal_svOpt._native.native_decide.ax_1` (the M4 `seqCheck`) |
+
   Counts: shareX4 2/2/3/2/1, shareX8 2/2/3/2/1, crc16 1/1/—/1/1.
   The 11 steps, in order: width table (1), the six list-shaped kinds
   (2), stop sets as lists (3–4), `inlineConeT` structurally (5–6),
