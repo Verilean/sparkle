@@ -334,6 +334,9 @@ lean_lib «Tools.VerifiedState» where
 lean_lib «Tools.VerifiedCircuit» where
   roots := #[`Tools.VerifiedCircuit]
 
+lean_lib «Tools.VerifiedSource» where
+  roots := #[`Tools.VerifiedSource]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"

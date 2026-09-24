@@ -185,6 +185,46 @@ not by a now-verified `Sparkle.Compiler.Elab`. This closes the Signal-loop bridg
 for the supported template; it does not establish coverage of all `circuit do`
 definitions or correctness of the shipping reifier.
 
+## Total statement extraction (fifth F1 milestone)
+
+`Tools/VerifiedSource.lean` supplies the previously missing general body
+correspondence for a declared typed statement language. `Program Γ r w` contains
+let-bindings, next-state writes, return and delayed bindings. Interpretation is
+separate from extraction: expressions use shipping Signal combinators, delayed
+bindings use `Signal.register`, and pending writes are threaded through statements.
+`Source.body` submits the output and pending write with the explicit sampled-reset
+policy through the actual register handle; `Source.run` uses `runCircuitH`.
+
+`Program.extract` is structurally recursive and returns a typed `Step` or an
+error. It carries a pending expression, initially the live register. Let-bindings
+weaken its variable indices; `weaken_denote` proves absence of capture, including
+a write followed by later bindings of the same width. No write means hold.
+Duplicate writes are rejected even when separated by lets, matching the surface
+macro's straight-line restriction. Delayed bindings have real source semantics
+but are refused because they require another register.
+
+`extract_iff_supported` proves extraction succeeds exactly for programs without
+delayed bindings or duplicate writes (relative to its incoming write flag).
+Naming/width checks are subsequent and may still refuse such a program.
+`extract_correct` proves pointwise preservation; `Source.extract_bodyMatches`
+derives the loop bridge's obligation for every successful extraction.
+`Source.compile_sound` composes extraction and IR compilation into Signal-to-IR
+correctness, with neither a manually chosen Step nor a body/trace theorem as a
+premise. Seed and initialization plumbing remain explicit. All these generic
+theorems are audited to use standard axioms only.
+
+`Source.certify` connects to the artifact API. The test identifies the interpreted
+source with the existing enabled/resettable `circuit do` accumulator by `rfl`,
+then obtains its actual printed-text theorem without the old hand-written
+`body_matches`. Parsing remains an evaluated oracle; the optimizer is identity
+in this test.
+
+**Representation boundary:** this is a typed-AST frontend, not a parser or
+Lean.Expr reifier. The test's input AST is manually written; the `rfl` pin
+validates it for one surface definition. General extraction FROM this AST is
+proved, general conversion of Lean source TO it is not. The TODO separates these
+obligations rather than marking all surface extraction complete.
+
 ## Validation and next milestone
 
 - `CertifiedRoundtripTest`: shareX4/shareX8 certificates, source-to-parsed-text
@@ -204,12 +244,14 @@ definitions or correctness of the shipping reifier.
 - `VerifiedCircuitTest`: actual macro expansion, pointwise body correspondence,
   arbitrary Signal-to-IR/text replay, a future-register-read counterexample, and
   source/artifact axiom audits.
-- All six are required by `bench/xiangshan/ci_check.sh` after the shared tests.
+- `VerifiedSourceTest`: all-program extraction/body theorems, actual surface
+  replay/text, hold and pending-write capture avoidance, delayed-binding and
+  duplicate-write refusals, downstream layout rejection and axiom audits.
+- All seven are required by `bench/xiangshan/ci_check.sh` after the shared tests.
 
-F1 stays open for the shipping DSL. The explicit-syntax compiler and its
-single-register shipping-runner bridge are complete. Next define the precise
-supported surface statements and prove their total extraction to a typed Step,
-with a general body-correspondence theorem; another manually matched example
-does not discharge that task. Register banks, direct printer/SV correspondence
-and hierarchical semantics remain separate milestones. No claim of a completed
-CompCert-class compiler is made.
+F1 stays open for the shipping DSL. Typed statement extraction, its compiler and
+the single-register runner bridge are proved. Next connect actual Lean syntax/Expr
+to that AST, checking identity with the requested definition and distinguishing
+a universally proved reader from per-definition validation. Register banks,
+direct printer/SV correspondence and hierarchical semantics remain separate
+milestones. No claim of a completed CompCert-class compiler is made.

@@ -1542,12 +1542,15 @@ The gaps, in the order they weaken the claim:
   - [x] Connect the shipping single-register `runCircuitH` / `circuit do` form
     to that compiler using a general loop/body theorem; test a real surface
     definition with enable and reset (`Tools/VerifiedCircuit.lean`).
-  - [ ] Prove/expose the source-to-typed-step extraction for a precisely defined
-    surface fragment. **Next task.** A per-definition body correspondence is not
-    this theorem. First define the supported typed source statements and their
-    interpretation through the shipping runner; require total extraction and
-    a general `BodyMatches` proof, plus an unsupported-form rejection test.
-    Do not substitute another hand-written example for this acceptance criterion.
+  - [x] Define typed source statements and shipping-runner semantics; prove
+    total extraction, exact supported-fragment characterization and general
+    `BodyMatches`; reject delayed bindings and duplicate writes
+    (`Tools/VerifiedSource.lean`). No per-program `BodyMatches` proof is needed.
+  - [ ] Connect actual Lean syntax/Expr to that typed statement language.
+    **Next task.** The former extraction item is now split at this representation
+    boundary: typed-AST extraction is proved, arbitrary `circuit do` reflection
+    is not. Require checked identity with the requested source, coverage/refusal
+    tests, and state whether the reader is proved or validated per definition.
   - [ ] Expand the verified source fragment to register banks and memories;
     independent printer/SV semantics remains a separate downstream milestone.
 
@@ -1605,6 +1608,22 @@ The gaps, in the order they weaken the claim:
   still manual. The IR is produced by the new verified compiler, not by a
   newly verified shipping `Sparkle.Compiler.Elab` reifier. The next unchecked
   worklist item above is therefore still required before closing F1.
+
+  **Fifth bounded milestone (2026-09-24):** `Tools/VerifiedSource.lean`
+  defines typed let/next/return statements with independent Signal-combinator
+  semantics. A real delayed binding also has semantics but is refused by the
+  one-register extractor; duplicate next writes are refused too. `extract` is
+  structurally total; `extract_iff_supported` characterizes its exact fragment.
+  `extract_correct` proves pending writes survive later lexical bindings via
+  `weaken_denote`. `Source.extract_bodyMatches` proves the formerly manual
+  correspondence for every successful extraction; `Source.compile_sound`
+  composes directly to Signal-to-IR correctness, without a machine or body
+  proof supplied by the caller. All use standard axioms only. `VerifiedSourceTest`
+  pins the existing surface accumulator to the interpreted source by `rfl`,
+  certifies its actual text, and tests hold, capture avoidance, duplicate-write,
+  additional-register and layout refusals. Only parsing adds the existing oracle.
+  Raw Lean-to-Source conversion remains unverified: this is a verified typed-AST
+  frontend, not completion of F1 for arbitrary Lean.
 - [ ] **F2. `native_decide` out of the per-instance obligations.**
   **Shared-route inventory (shareX4 `_sdeep_signal_run`, 57 auxiliaries,
   measured 2026-09-16 by grouping `#print axioms`):** G1 glue
