@@ -483,6 +483,13 @@ if [ -f "$ELAB_FILE" ]; then
   else
     echo "FAIL: fresh name soundness gate"; fail=1
   fi
+  if [ -f Tests/Compiler/ShippingBindingsSoundnessTest.lean ] \
+      && lake build Tests.Compiler.ShippingBindingsSoundnessTest > "$WORK/shipping-bindings.log" 2>&1 \
+      && grep -Fq "SHIPPING BINDINGS OK:" "$WORK/shipping-bindings.log"; then
+    echo "shipping bindings: scoped/persistent invariants and restoration checked"
+  else
+    echo "FAIL: shipping bindings soundness gate"; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

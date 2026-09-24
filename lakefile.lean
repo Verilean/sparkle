@@ -353,6 +353,9 @@ lean_lib «Tools.ShippingScalarSoundness» where
 lean_lib «Tools.ShippingAllocationSoundness» where
   roots := #[`Tools.ShippingAllocationSoundness]
 
+lean_lib «Tools.ShippingBindingsSoundness» where
+  roots := #[`Tools.ShippingBindingsSoundness]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"

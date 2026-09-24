@@ -1568,6 +1568,18 @@ The gaps, in the order they weaken the claim:
   - [ ] Prove the scalar lowering/builder simulation invariant (including
     expression-cache validity, operand widths and fresh names), then connect
     the applicative rule to it. The current rule alone is NOT compiler soundness.
+    - [x] Prove scoped/persistent binding transition rules on the actual list
+      and Name HashMap: shadowing, persistent insert, reservation preservation,
+      and fresh allocation/write preserving BOTH outer and inner scopes.
+      `Tools/ShippingBindingsSoundness.lean` also proves the exact execution
+      equation of the shipping `withVarMapping`. A visible-only invariant has
+      a pinned counterexample. This is not yet a proof of IO.Ref lifecycle or
+      expression-cache validity; no such assumption was added as an axiom.
+    - [ ] Connect the persistent IO snapshots and expression-cache operations
+      to these transition rules; discharge source-value/width invariants.
+  - [ ] Instantiate the completed GENERAL success theorem on crc16's successful
+    compilation. Track coverage in `ShippingCompiler-Soundness.md`; generating
+    a separate crc16 replay theorem does not discharge this item.
   - [ ] Connect Lean.Expr recognition/unfolding to source denotation and cover
     every successful handler, state initialization/reset and interface packing.
   - [ ] Prove mandatory cleanup/deduplication passes and compose the success

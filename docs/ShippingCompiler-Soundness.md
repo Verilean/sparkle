@@ -163,3 +163,55 @@ scope boundaries. The per-module expression cache is written both by the
 `translateExprToWire` wrapper and by the top-level output-leaf loop. Both write
 sites, local-map shadowing and nested-module save/restore must be covered; a
 proof about only the main cache wrapper would miss a successful path.
+
+## Scoped/persistent binding rules (2026-09-24)
+
+`Tools/ShippingBindingsSoundness.lean` keeps local and persistent valuations
+separate. Its `Valid` relation requires value agreement and reserved names in
+both maps, including persistent entries hidden by a local binding. The table
+operations are the existing `List.lookup` and `Std.HashMap Name String.insert`.
+`Valid.enter`, `insert_persistent`, `allocate_write` and `restore` prove their
+transition rules. `scope_allocate_restore` composes entering a local scope,
+actual fresh allocation and a wire write, and proves both the inner AND original
+outer relations afterwards. It protects older local bindings too, by retaining
+the original invariant alongside the inner one. Merely validating the inner
+visible lookup is insufficient; the test proves a counterexample with the SAME
+source valuations before and after restoration.
+
+`Valid.allocate_emit` additionally composes this stronger invariant with the
+actual allocator and assignment emitter for the six canonical binary operators.
+It proves prefix execution, the new result value and preservation of both maps;
+freshness follows from reservations rather than being assumed by the caller.
+
+`withVarMapping_run` is an exact equation for the existing compiler action,
+not a model copy. The `visible` lookup is a pure model of the local-first rule;
+the IO.Ref fallback snapshot is NOT yet connected by an execution theorem.
+A direct attempt to simplify the MetaM action with monad laws exposed that this
+Lean version does not supply `LawfulMonad MetaM`. No law was postulated to get
+past it. This is a proof-interface boundary, not evidence that lookup is wrong:
+connect successful executions to the snapshots, or extract a proved core and
+explicitly connect its IO shell. Runtime tests of shadowing/restoration are
+regressions only, not a proof of that connection. Expression-cache key semantics,
+context stability and lifecycle remain separate obligations.
+
+## Applying the general theorem to crc16
+
+The desired application is: check successful shipping compilation (and any
+explicit admissibility conditions), then apply the general preservation theorem.
+It must not invoke a circuit-specific semantic replay proof. No such complete
+shipping success theorem exists yet. Source inspection of `crc16CcittHW` and
+`crc16Step` identifies the following coverage obligations; this table is not an
+execution trace or an exhaustiveness proof for the handlers they invoke.
+
+| crc16 construct / compiler stage | General proof status |
+|---|---|
+| map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved; actual recognition and dispatch still open |
+| local bindings, wire allocation | Actual allocation/emission and scoped binding rules proved; global source/width/cache invariant still open |
+| pure constants, concat, shift, equality, Bool not, mux | Their shipping handler preservation still needs connecting/proving |
+| register init `0xFFFF`, update, feedback, start/valid mux | Temporal simulation of the shipping stateful path remains open |
+| helper unfolding, output record packing, Bool/BitVec ports | Source recognition and interface correspondence remain open |
+| zero-width cleanup and register deduplication | Composition with the shipping success theorem remains open |
+
+The current bounded frontend and crc16's per-instance certificates do not close
+these rows. This proof-only milestone checks the new generic theorems and their
+axioms plus the focused scope regression. It does not re-run crc16 certification.
