@@ -436,7 +436,7 @@ if [ -f "$ELAB_FILE" ]; then
   # Strict roundtrip acceptance: a proof-carrying artifact requires all links,
   # and composes the parse theorem with replay. Partial PROVEN is not accepted.
   cert_files_ok=1
-  for ct in CertifiedRoundtripTest CertifySharedCommandTest CertifiedRoundtripCrc16 VerifiedBlockTest VerifiedStateTest VerifiedCircuitTest VerifiedSourceTest; do
+  for ct in CertifiedRoundtripTest CertifySharedCommandTest CertifiedRoundtripCrc16 VerifiedBlockTest VerifiedStateTest VerifiedCircuitTest VerifiedSourceTest ReflectSourceTest; do
     if [ ! -f "Tests/Verification/$ct.lean" ]; then
       echo "FAIL: missing strict certification test $ct"; cert_files_ok=0
     fi
@@ -448,14 +448,16 @@ if [ -f "$ELAB_FILE" ]; then
         Tests.Verification.VerifiedBlockTest \
         Tests.Verification.VerifiedStateTest \
         Tests.Verification.VerifiedCircuitTest \
-        Tests.Verification.VerifiedSourceTest > "$WORK/certification.log" 2>&1 \
+        Tests.Verification.VerifiedSourceTest \
+        Tests.Verification.ReflectSourceTest > "$WORK/certification.log" 2>&1 \
       && grep -Fq "CERTIFICATION TEST OK:" "$WORK/certification.log" \
       && grep -Fq "CERTIFIED_ROUNDTRIP Sparkle.Tests.CertifySharedCommandTest.counter:" "$WORK/certification.log" \
       && grep -Fq "CRC16 CERTIFICATION OK:" "$WORK/certification.log" \
       && grep -Fq "VERIFIED BLOCK OK:" "$WORK/certification.log" \
       && grep -Fq "VERIFIED STATE OK:" "$WORK/certification.log" \
       && grep -Fq "VERIFIED CIRCUIT OK:" "$WORK/certification.log" \
-      && grep -Fq "VERIFIED SOURCE OK:" "$WORK/certification.log"; then
+      && grep -Fq "VERIFIED SOURCE OK:" "$WORK/certification.log" \
+      && grep -Fq "REFLECT SOURCE OK:" "$WORK/certification.log"; then
     echo "certification: complete roundtrip artifacts, general soundness, negative cases checked"
   else
     echo "FAIL: strict roundtrip certification gate"; fail=1

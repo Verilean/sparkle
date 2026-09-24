@@ -225,6 +225,28 @@ validates it for one surface definition. General extraction FROM this AST is
 proved, general conversion of Lean source TO it is not. The TODO separates these
 obligations rather than marking all surface extraction complete.
 
+## Automatic source reading with per-definition validation
+
+`Tools/ReflectSource.lean` provides `#reflect_verified f => model`. It reads
+the elaborated definition into a `Source`, creates input/reset functions, and
+submits `model_source_eq` to the kernel. This equality pins the candidate's
+actual `Source.run` to the requested definition for all its parameters.
+The reader itself is unverified; acceptance requires standard axioms only.
+A wrong candidate is rejected, and command failure restores declaration state.
+
+The initial fragment is monomorphic, a direct `runCircuitH` body with one
+BitVec register, constant initialization, BitVec Signal inputs/output and
+optionally one Bool reset as the outer next-state mux. Expressions support
+variables, constants, add/subtract/multiply, bitwise operations and mux with
+a one-bit equality-to-one condition. Lets are unfolded, not shared: reading
+refuses after 2048 visits. This is not the scalable shared-cone reifier.
+
+`ReflectSourceTest` reads two existing surface definitions without handwritten
+ASTs. The resettable accumulator uses `Source.compile_sound` to obtain replay
+and an artifact for the shipping printer's actual text. Optimization is identity;
+the parser remains an evaluated oracle. Reset-kind equality is only within
+the cycle-level IR semantics, not external SystemVerilog event semantics.
+
 ## Validation and next milestone
 
 - `CertifiedRoundtripTest`: shareX4/shareX8 certificates, source-to-parsed-text
@@ -247,11 +269,14 @@ obligations rather than marking all surface extraction complete.
 - `VerifiedSourceTest`: all-program extraction/body theorems, actual surface
   replay/text, hold and pending-write capture avoidance, delayed-binding and
   duplicate-write refusals, downstream layout rejection and axiom audits.
-- All seven are required by `bench/xiangshan/ci_check.sh` after the shared tests.
+- `ReflectSourceTest`: automatic ASTs, requested-source identity, generic replay
+  and text, named refusals, fabricated-candidate rejection, axiom audits and
+  absence of partial artifacts after refusal.
+- All eight are required by `bench/xiangshan/ci_check.sh` after the shared tests.
 
 F1 stays open for the shipping DSL. Typed statement extraction, its compiler and
-the single-register runner bridge are proved. Next connect actual Lean syntax/Expr
-to that AST, checking identity with the requested definition and distinguishing
-a universally proved reader from per-definition validation. Register banks,
+the single-register runner bridge are proved. A bounded Lean Expr reader now
+connects actual definitions by per-definition kernel validation. Reader coverage
+and sharing remain open; no universal reader theorem is claimed. Register banks,
 direct printer/SV correspondence and hierarchical semantics remain separate
 milestones. No claim of a completed CompCert-class compiler is made.

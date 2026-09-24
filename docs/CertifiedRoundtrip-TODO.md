@@ -1546,11 +1546,14 @@ The gaps, in the order they weaken the claim:
     total extraction, exact supported-fragment characterization and general
     `BodyMatches`; reject delayed bindings and duplicate writes
     (`Tools/VerifiedSource.lean`). No per-program `BodyMatches` proof is needed.
-  - [ ] Connect actual Lean syntax/Expr to that typed statement language.
-    **Next task.** The former extraction item is now split at this representation
-    boundary: typed-AST extraction is proved, arbitrary `circuit do` reflection
-    is not. Require checked identity with the requested source, coverage/refusal
-    tests, and state whether the reader is proved or validated per definition.
+  - [x] Connect a bounded actual Lean Expr fragment to that typed statement
+    language (`Tools/ReflectSource.lean`). The reader is unverified; each accepted
+    definition carries a kernel-checked equality to the requested source.
+    Automatic AST, generic replay, printed text and refusal tests are pinned.
+  - [ ] Prove reader coverage or extend it beyond the bounded single-register
+    fragment. Current reading inlines expressions, with a 2048-visit refusal
+    budget; it does not provide the shared route's scalability or a universal
+    correctness/completeness theorem about arbitrary Lean reflection.
   - [ ] Expand the verified source fragment to register banks and memories;
     independent printer/SV semantics remains a separate downstream milestone.
 
@@ -1624,6 +1627,19 @@ The gaps, in the order they weaken the claim:
   additional-register and layout refusals. Only parsing adds the existing oracle.
   Raw Lean-to-Source conversion remains unverified: this is a verified typed-AST
   frontend, not completion of F1 for arbitrary Lean.
+  **Sixth bounded milestone (2026-09-24):** `#reflect_verified f => model`
+  reads a monomorphic single-register BitVec `runCircuitH` definition, with
+  BitVec Signal inputs and an optional Bool reset in the outer next-state mux.
+  It generates the typed source, input/reset functions and `model_source_eq`.
+  Acceptance requires kernel equality to the requested definition, with standard
+  axioms only. Two existing surface circuits pass without handwritten ASTs;
+  one is connected through the general compiler to actual printed text.
+  Multiple registers, parameter-dependent initialization, mismatched reset,
+  nested register, name collision and fabricated candidate are negative tests.
+  Failed commands restore declaration state. Text still adds the parser oracle;
+  the test uses identity optimization and cycle-level reset semantics.
+  **Boundary:** this validates each reader result; it does not prove the reader
+  universally or certify the shipping elaborator, printer or external SV semantics.
 - [ ] **F2. `native_decide` out of the per-instance obligations.**
   **Shared-route inventory (shareX4 `_sdeep_signal_run`, 57 auxiliaries,
   measured 2026-09-16 by grouping `#print axioms`):** G1 glue
