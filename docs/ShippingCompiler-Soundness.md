@@ -276,12 +276,15 @@ MetaM synthesizer preserves them.
 The first pass left two hypotheses. Both have now been narrowed, and one is
 gone as a hypothesis about hash maps.
 
-**`InsertSpec` is discharged generically.** `insertSpec_of_lawful` proves
-`(m.insert key v).get? k = if key == k then some v else m.get? k` for EVERY key
-with `EquivBEq`/`LawfulHashable`, with the standard axioms. So nothing is
-assumed about `Std.HashMap` any more; what remains is solely lawfulness of the
-key type the shipping cache uses. `InsertSpec` survives only as the
-instantiation at that one un-lawful key.
+**Correction (2026-09-25).** An earlier version of this section, and the commit
+message of `bf3d4a5`, claimed `InsertSpec` had been "discharged". That was
+wrong and is withdrawn. `insertSpec_of_lawful` is a general lemma about lawful
+keys, but `Valid.insert` — the theorem the compiler's write-back would actually
+use — still takes `spec : InsertSpec cache key wire` as a parameter. No caller
+can supply it for the shipping key, so nothing was removed from the trusted
+surface: a generic lemma that the actual theorem does not consume is not a
+discharged hypothesis. The count of unproven premises on the real cache path
+was unchanged by that commit.
 
 **`KeyFaithful` is split by owner.** It was one hypothesis mixing two unrelated
 claims:
@@ -309,6 +312,63 @@ not a proof obligation that more effort discharges — the key must change.
 unsound as a design, not merely weak: it is irreflexive, so `EquivBEq` fails
 and with it every HashMap lemma, including the one just proved. Verified.
 
+### Key specification (2026-09-25, third pass)
+
+Before any more conditional lemmas: fix WHAT the cache is keyed on. The
+findings above constrain this more than the earlier plan admitted.
+
+**Requirement.** `Valid.insert` must apply to the real table without an
+external `InsertSpec`. That needs `EquivBEq` and `LawfulHashable` for the key
+type, which needs a `BEq` that is reflexive, symmetric, transitive and
+hash-compatible. `KeySound` additionally needs it antisymmetric (equal keys ⇒
+equal `Expr`).
+
+**What is ruled out, with reasons measured rather than argued.**
+
+| Candidate key | Verdict |
+|---|---|
+| `ExprStructEq` (the current one, `Expr.equal`) | `opaque` extern; no `EquivBEq` in core, `KeySound` reduces to the opaque constant and can only be closed by `sorry` |
+| Delegate `mdata` to core's `BEq KVMap` | UNSOUND: `KVMap.eqv` is `subset ∧ subset`, so `{a↦1,b↦2} == {b↦2,a↦1}` is `true` while the entry lists differ (measured). `KeySound` would be FALSE |
+| Return `false` on `mdata` | Irreflexive, so `EquivBEq` fails and every HashMap lemma is lost (measured) |
+| `toString`/format projection | Lawful `BEq` for free, but injectivity on `Expr` is not provable, so `KeySound` fails |
+| Derive `DecidableEq Expr` outright | Blocked: `Syntax` is nested-inductive (`Array Syntax`), `deriving` refuses; `Level` additionally carries a `computed_field` |
+
+**The specification that survives.** Key on a structural equality `exprEq`
+written in Lean, with:
+
+- `Level` — hand-written; `computed_field` blocks deriving. Feasibility proved:
+  `levEq a b = true ↔ a = b` with `[propext, Quot.sound]`.
+- `Literal`, `BinderInfo` — derive cleanly.
+- `Name`, `FVarId`, `MVarId` — core instances suffice.
+- `mdata` — compared as VALUES on the entry list (never via `KVMap.eqv`), and
+  `DataValue.ofSyntax` is the one case that cannot be decided structurally.
+  Since `Syntax` cannot be derived, the specification must either treat any key
+  containing `ofSyntax` metadata as NON-CACHEABLE, or carry `Syntax` equality
+  as an explicitly named axiom. The first keeps the axiom count at zero and is
+  the recommendation.
+
+**Consequence for the eligibility test.** Excluding `ofSyntax`-bearing keys
+changes `cacheable`, hence which lookups hit. That is a change to the shipping
+compiler and is governed by the re-translation conditions below.
+
+### Hit-rate changes in BOTH directions
+
+The earlier text only considered misses replacing hits. A key change can also
+make hits INCREASE, and that direction is the dangerous one:
+
+- **More hits.** `Expr.equal` distinguishes binder names and annotations that a
+  coarser structural comparison might identify. Any key that equates two
+  expressions the current one separates will REUSE a wire where the shipping
+  compiler emits two. If the two expressions denote different values, that is a
+  miscompile introduced by the proof work. So the key must be at least as fine
+  as `Expr.equal` on cacheable expressions — which is exactly `KeySound`, and
+  is why `KeySound` cannot be dropped in favour of "it only misses more".
+- **Fewer hits.** Covered by the re-translation conditions (value agreement, no
+  observable duplication, no non-idempotent handler, cost).
+
+Neither direction is currently proved. Until the key is fixed and `KeySound`
+holds for it, a key change is not a neutral refactor in either direction.
+
 ### Plan: connect the real comparison, key, lookup and insert
 
 The goal is that the operations the compiler ACTUALLY performs are the ones the
@@ -321,13 +381,16 @@ assumed — "we wrote a structural twin" is not itself an argument.
    `[propext, Quot.sound]` only. `Literal` and `BinderInfo` derive cleanly.
    `Name`, `FVarId`, `MVarId` already have what is needed.
 2. **`mdata`.** `MData = KVMap` and `DataValue` reaches `Syntax`, whose
-   `DecidableEq` does not derive (`SourceInfo` blocks it). Core does provide
-   `BEq` for `KVMap`/`DataValue`/`Syntax`, and `KVMap.eqv` is structural
-   (mutual `subset`), so the `mdata` case can delegate rather than recurse into
-   `Syntax`. What must then be proved is that this delegation is reflexive and
-   symmetric/transitive — enough for `EquivBEq`, which is what the HashMap
-   lemmas need. Full antisymmetry (`KeySound` for `mdata`) is a separate,
-   heavier question.
+   `DecidableEq` does not derive (`SourceInfo` blocks it).
+
+   **Delegating to core's `BEq KVMap` is NOT available**, and the reason is
+   decisive rather than a matter of proof effort: `KVMap.eqv` is
+   `subset m₁ m₂ && subset m₂ m₁`, so it identifies maps that differ in
+   STORAGE ORDER. Measured: with `d1 = {a↦1, b↦2}` and `d2 = {b↦2, a↦1}`,
+   `d1 == d2` is `true` while `d1.entries == d2.entries` is `false`. A key
+   comparison built on it would therefore equate `mdata d1 e` with
+   `mdata d2 e`, making `KeySound` (equal keys ⇒ equal `Expr`) FALSE, not
+   merely unproven. Any `mdata` case must compare the entry lists as values.
 3. **`exprEq` and its characterisation.** A structural comparison over the
    twelve constructors plus `exprEq_iff`. Mechanical given (1) and (2); the
    `stripMaskK` work on the certified-roundtrip side is the precedent for the

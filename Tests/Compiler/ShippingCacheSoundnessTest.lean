@@ -61,6 +61,6 @@ run_cmd do
         throwError "unexpected cache axiom: {name}: {a}"
   logInfo "SHIPPING CACHE OK: hit/stripped-hit/congruent-hit, insert under an explicit lookup spec, reserve, empty, fresh-write non-interference, shipping eligibility equations, standard axioms only"
   logInfo "CACHE KEY OK: withLocalDeclD freshness and structural-key separation checked at runtime"
-  logInfo "CACHE HYPOTHESES: InsertSpec proved for any lawful key (insertSpec_of_lawful); KeyFaithful reduced to the syntactic KeySound; scope stability split out as StableBetween. Remaining assumptions: KeySound and EquivBEq for the Expr key (both blocked by opaque Expr.equal), and that handlers maintain Valid."
+  logInfo "CACHE HYPOTHESES (none discharged on the shipping path): Valid.insert still TAKES InsertSpec; insertSpec_of_lawful applies only to lawful keys and the Expr key is not one. KeyFaithful is reduced to the syntactic KeySound, scope stability is split out as StableBetween (separate open item). Remaining assumptions: InsertSpec at the real table, KeySound, EquivBEq/LawfulHashable for the key, consumeMData denotation preservation, and that handlers maintain Valid."
 
 end Sparkle.Tests.Compiler.ShippingCacheSoundnessTest

@@ -203,28 +203,32 @@ theorem Valid.hit_congr {cache : Cache} {env : Env} {sourceValue : SourceValue}
 key this is `Std.HashMap.get?_insert`; `ExprStructEq` has no such instance (see
 the header), so for the SHIPPING table it is a hypothesis.
 
-It is not, however, an assumption about HashMaps in general:
-`insertSpec_of_lawful` below proves it outright for every lawful key, so the
-only thing still missing is lawfulness of the `Expr` key itself. That is the
-single remaining gap, and `docs/ShippingCompiler-Soundness.md` states the plan
-for closing it. -/
+NOT discharged for the shipping cache. `insertSpec_of_lawful` below proves the
+same equation for every LAWFUL key, but `Valid.insert` still takes this as a
+parameter and no caller can supply it for the `Expr` key, so the trusted
+surface on the real path is unchanged. An earlier commit message claimed
+otherwise; that claim is withdrawn. See the key specification in
+`docs/ShippingCompiler-Soundness.md`. -/
 def InsertSpec (cache : Cache) (key : Lean.Expr) (wire : String) : Prop :=
   ∀ k : Lean.Expr, (cache.insert ⟨key⟩ wire).get? ⟨k⟩ =
     if (ExprStructEq.mk key == ExprStructEq.mk k) = true then some wire
     else cache.get? ⟨k⟩
 
-/-- `InsertSpec` is a THEOREM, not an assumption, for any key with a lawful
-`BEq`. Proved with the standard axioms only. This removes "the HashMap might
-not behave this way" from the trusted surface: what remains is exactly the
-lawfulness of the key type the shipping cache uses. -/
+/-- The insert/lookup equation for any key with a lawful `BEq`, standard axioms
+only.
+
+This is NOT a discharge of `InsertSpec` on the shipping path: `Valid.insert`
+takes `InsertSpec` as a parameter and the `Expr` key is not lawful, so this
+lemma has no applicable instance there yet. It records what becomes available
+once the key specification is implemented. -/
 theorem insertSpec_of_lawful {K V : Type} [BEq K] [Hashable K] [EquivBEq K]
     [LawfulHashable K] (m : Std.HashMap K V) (key : K) (v : V) (k : K) :
     (m.insert key v).get? k = if (key == k) = true then some v else m.get? k := by
   rw [Std.HashMap.get?_insert]
 
-/-- The shape `Valid.insert` consumes, for a lawful key: the table's own
-behaviour, with nothing assumed. Instantiating this at the shipping cache is
-blocked ONLY by `EquivBEq ExprStructEq`. -/
+/-- The shape `Valid.insert` consumes, for a lawful key. Instantiating it at the
+shipping cache is blocked by `EquivBEq ExprStructEq`, which core does not
+provide; until the key changes this has no instance on the real path. -/
 theorem insertSpec_holds {K V : Type} [BEq K] [Hashable K] [EquivBEq K]
     [LawfulHashable K] (m : Std.HashMap K V) (key : K) (v : V) :
     ∀ k : K, (m.insert key v).get? k =
