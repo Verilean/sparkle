@@ -103,7 +103,7 @@ theorem BindingsAgree.cons {Key : Type} [BEq Key]
     simpa [hk] using h k n hn'
 
 /-- The reader-scoped map used by the shipping compiler is an instance of the
-relation. The persistent IO fallback in lookupVar is deliberately not hidden. -/
+relation. ShippingBindingsSoundness connects the persistent state-backed fallback. -/
 def LocalBindingsAgree (state : CompilerState) (values : Lean.FVarId → Nat)
     (env : Env) : Prop := BindingsAgree (fun k => state.varMap.lookup k) values env
 

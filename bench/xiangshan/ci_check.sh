@@ -485,7 +485,8 @@ if [ -f "$ELAB_FILE" ]; then
   fi
   if [ -f Tests/Compiler/ShippingBindingsSoundnessTest.lean ] \
       && lake build Tests.Compiler.ShippingBindingsSoundnessTest > "$WORK/shipping-bindings.log" 2>&1 \
-      && grep -Fq "SHIPPING BINDINGS OK:" "$WORK/shipping-bindings.log"; then
+      && grep -Fq "SHIPPING BINDINGS OK:" "$WORK/shipping-bindings.log" \
+      && grep -Fq "BINDING STATE OK:" "$WORK/shipping-bindings.log"; then
     echo "shipping bindings: scoped/persistent invariants and restoration checked"
   else
     echo "FAIL: shipping bindings soundness gate"; fail=1

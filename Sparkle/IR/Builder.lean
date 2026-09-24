@@ -31,11 +31,23 @@ structure CircuitState where
   -- `_gen_b_1 … _gen_b_{k-1}` linearly → O(k²) for a hot base.  Start
   -- probing where we left off so each named allocation is O(1).
   nextSuffix : Std.HashMap String Nat := {}
+  -- Source-binder provenance for this synthesis only. This is builder metadata,
+  -- not part of the emitted IR. Keeping it here gives nested synthesis its own
+  -- table and makes lookup/update pure, rather than a global IO.Ref lifecycle.
+  sourceBindings : Std.HashMap Lean.Name String := {}
 
 /-- Circuit builder monad -/
 abbrev CircuitM := StateM CircuitState
 
 namespace CircuitM
+
+/-- Resolve a source binder, preferring a reader-scoped local hit. -/
+def lookupSourceBinding (localHit : Option String) (key : Lean.Name) : CircuitM (Option String) :=
+  fun s => (localHit.orElse (fun _ => s.sourceBindings.get? key), s)
+
+/-- Remember a source binder for later consumers in the SAME synthesis. -/
+def bindSourceVariable (key : Lean.Name) (wire : String) : CircuitM Unit :=
+  fun s => ((), { s with sourceBindings := s.sourceBindings.insert key wire })
 
 /-- Create initial circuit state -/
 def init (topModuleName : String) : CircuitState :=
@@ -153,6 +165,16 @@ theorem freshName_spec (hint : String) (named : Bool) (s : CircuitState) :
   | true =>
     exact freshNamed_spec _ _
 
+/-- Allocating a name preserves source-binder provenance. -/
+theorem freshName_sourceBindings (hint : String) (named : Bool) (s : CircuitState) :
+    (freshName hint named s).2.sourceBindings = s.sourceBindings := by
+  have stable (base : String) : (freshNamed base s).2.sourceBindings = s.sourceBindings := by
+    unfold freshNamed
+    split <;> rfl
+  cases named with
+  | false => rfl
+  | true => exact stable _
+
 /-- Sanitize a name to be a valid Verilog identifier -/
 def sanitizeName (name : String) : String :=
   name.replace "." "_"  |>.replace "-" "_"  |>.replace " " "_"  |>.replace "'" "_prime"
@@ -195,6 +217,10 @@ theorem makeWire_spec (hint : String) (ty : HWType) (named : Bool) (s : CircuitS
   · change _ :: (freshName (sanitizeName hint) named s).2.module.wires = _
     rw [h.2.2]
     rfl
+
+theorem makeWire_sourceBindings (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (makeWire hint ty named s).2.sourceBindings = s.sourceBindings :=
+  freshName_sourceBindings (sanitizeName hint) named s
 
 /--
   Emit a continuous assignment statement.

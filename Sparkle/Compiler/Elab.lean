@@ -85,31 +85,18 @@ def getCompilerState : CompilerM CompilerState :=
 
 end CompilerM
 
-/-- Persistent fvar-to-wire-name map.  Complements
-    `CompilerState.varMap` (which is reader-scoped and
-    expires at the end of each `withVarMapping` block).
-    `Signal.loop`'s lambda binder needs to be resolvable
-    for the ENTIRE synth pass — its body's wire references
-    are cached by the expression cache and revisited by
-    later `splitReturnLeaves` leaves after the original
-    `withVarMapping` block has exited.  Without a persistent
-    fallback, those revisits resolve the loop fvar through
-    the unfolder, which picks the wrong wire. -/
-private initialize sparkleFvarWireMap :
-    IO.Ref (Std.HashMap Lean.Name String) ← IO.mkRef {}
-
 namespace CompilerM
 
 /-- Lookup a variable mapping.  Consults the reader-scoped
-    `varMap` first, then falls back to the persistent
-    `sparkleFvarWireMap` IORef. -/
-def lookupVar (fvarId : FVarId) : CompilerM (Option String) := do
-  let s ← getCompilerState
-  match s.varMap.lookup fvarId with
-  | some w => return some w
-  | none =>
-    let m ← liftMetaM (sparkleFvarWireMap.get : IO _)
-    return m.get? fvarId.name
+    `varMap` first, then the synthesis-local builder table. Later return
+    leaves can revisit loop binders after their reader scope has ended. -/
+def lookupVar (fvarId : FVarId) : CompilerM (Option String) :=
+  fun context s => pure (CircuitM.lookupSourceBinding
+    (context.varMap.lookup fvarId) fvarId.name s)
+
+/-- Persistent within one synthesis, automatically isolated from nested ones. -/
+def bindSourceVariable (fvarId : FVarId) (wire : String) : CompilerM Unit :=
+  fun _ s => pure (CircuitM.bindSourceVariable fvarId.name wire s)
 
 /-- Lookup a retained symbolic dimension variable. -/
 def lookupDimVar (fvarId : FVarId) : CompilerM (Option DimExpr) := do
@@ -2692,12 +2679,11 @@ mutual
           -- Register the loop fvar → loopWire mapping in BOTH
           -- the reader-scoped varMap (for the body's
           -- translation) and the persistent
-          -- `sparkleFvarWireMap` (so later leaves that
+          -- builder's sourceBindings (so later leaves that
           -- revisit body sub-expressions via the expression
           -- cache can still resolve the loop binder after
           -- `withVarMapping` scope has exited).
-          CompilerM.liftMetaM
-            (sparkleFvarWireMap.modify (·.insert fvar.fvarId!.name loopWire))
+          CompilerM.bindSourceVariable fvar.fvarId! loopWire
           CompilerM.withVarMapping fvar.fvarId! loopWire do
             translateExprToWire bodyInst "loop_body"
         CompilerM.emitAssign loopWire (.ref resultWire)
@@ -3690,8 +3676,6 @@ mutual
     -- fvar-value map.
     let savedFvarMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name Lean.Expr)
                        else sparkleFvarValueMap.get
-    let savedFvarWireMap ← if depth == 0 then pure ({} : Std.HashMap Lean.Name String)
-                           else sparkleFvarWireMap.get
     -- `sparkleWireWidthCache` is keyed by wire NAME (e.g.
     -- `_tmp_loop_0`).  Wire names are allocated per-`CircuitM`
     -- (i.e. per-module) so a parent module and a nested
@@ -3716,7 +3700,6 @@ mutual
       sparkleSubInstanceOutputs.set {}
       sparkleSingleOutInstanceCache.set {}
       sparkleFvarValueMap.set {}
-      sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
       sparkleLetWireCache.set {}
       sparkleLoopWireCache.set {}
@@ -3727,7 +3710,6 @@ mutual
       -- inside the child's body either) and fresh wire-width
       -- cache (wire names are per-module).
       sparkleFvarValueMap.set {}
-      sparkleFvarWireMap.set {}
       sparkleWireWidthCache.set {}
       sparkleLetWireCache.set {}
       sparkleLoopWireCache.set {}
@@ -3923,7 +3905,6 @@ mutual
       -- Restore parent's per-module caches after a nested synth.
       if depth != 0 then
         sparkleFvarValueMap.set savedFvarMap
-        sparkleFvarWireMap.set savedFvarWireMap
         sparkleWireWidthCache.set savedWireWidthCache
   partial def synthesizeCombinational (declName : Name) :
       MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do

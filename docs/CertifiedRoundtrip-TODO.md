@@ -1575,8 +1575,15 @@ The gaps, in the order they weaken the claim:
       equation of the shipping `withVarMapping`. A visible-only invariant has
       a pinned counterexample. This is not yet a proof of IO.Ref lifecycle or
       expression-cache validity; no such assumption was added as an axiom.
-    - [ ] Connect the persistent IO snapshots and expression-cache operations
-      to these transition rules; discharge source-value/width invariants.
+    - [x] Remove the persistent wire-binding IO snapshot boundary: store the
+      table in the actual `CircuitState`, use pure lookup/register operations,
+      and prove exact `CompilerM.lookupVar`/`bindSourceVariable` run equations.
+      Connect hits and registration to the source-value/reservation invariant.
+      Fresh synthesis has an empty table; nested actions no longer share a
+      global wire-binding ref. Other IO caches and full MetaM execution remain
+      outside this local result.
+    - [ ] Connect expression-cache operations to the invariant and discharge
+      source-value/width invariants across every successful handler.
   - [ ] Instantiate the completed GENERAL success theorem on crc16's successful
     compilation. Track coverage in `ShippingCompiler-Soundness.md`; generating
     a separate crc16 replay theorem does not discharge this item.

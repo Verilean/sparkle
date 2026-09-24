@@ -104,8 +104,9 @@ hypotheses.
 translator always provides the required widths, values and fresh names.
 Canonical `BitVec.add` is covered; recognizing an overloaded `HAdd.hAdd` with
 its actual instance is not proved by identifying the operator name. The local
-map relation does not cover `lookupVar`'s persistent IO fallback. Its lifecycle,
-the expression cache and changes of local scope still need a simulation proof.
+map relation alone did not cover the former persistent IO fallback. The later
+state-backed lookup rules below close that local connection. Expression-cache
+validity and preservation by all handlers still need a simulation proof.
 The generic relation can describe cached keys, but this does not yet prove
 correctness of the shipping cache implementation.
 
@@ -157,9 +158,9 @@ boundaries, sanitization/hygiene, the actual `CompilerM.makeWire` wrapper and
 10,000 consecutive same-base allocations. All new general theorems are audited
 for standard axioms only. The test does not stand in for a complexity proof.
 
-The next concrete cache boundary is now inventoried in `Elab.lean`: the
-persistent fvar map is written in `handleLoop`, and cleared/restored at synthesis
-scope boundaries. The per-module expression cache is written both by the
+The concrete cache boundary is inventoried in `Elab.lean`: the persistent fvar
+map is written in `handleLoop`; it now lives in the synthesis's `CircuitState`
+and starts empty in `CircuitM.init`. The per-module expression cache is written both by the
 `translateExprToWire` wrapper and by the top-level output-leaf loop. Both write
 sites, local-map shadowing and nested-module save/restore must be covered; a
 proof about only the main cache wrapper would miss a successful path.
@@ -183,16 +184,41 @@ actual allocator and assignment emitter for the six canonical binary operators.
 It proves prefix execution, the new result value and preservation of both maps;
 freshness follows from reservations rather than being assumed by the caller.
 
-`withVarMapping_run` is an exact equation for the existing compiler action,
-not a model copy. The `visible` lookup is a pure model of the local-first rule;
-the IO.Ref fallback snapshot is NOT yet connected by an execution theorem.
-A direct attempt to simplify the MetaM action with monad laws exposed that this
-Lean version does not supply `LawfulMonad MetaM`. No law was postulated to get
-past it. This is a proof-interface boundary, not evidence that lookup is wrong:
-connect successful executions to the snapshots, or extract a proved core and
-explicitly connect its IO shell. Runtime tests of shadowing/restoration are
-regressions only, not a proof of that connection. Expression-cache key semantics,
-context stability and lifecycle remain separate obligations.
+`withVarMapping_run` is an exact equation for the existing compiler action.
+Originally, `visible` was only a pure model of the local-first rule: an external
+IO.Ref snapshot was not connected. This boundary has now been removed from the
+implementation rather than postulating `LawfulMonad MetaM` or IO laws.
+
+`CircuitState.sourceBindings` holds the table as builder-only metadata (it is
+absent from the emitted IR). `CircuitM.lookupSourceBinding` and
+`bindSourceVariable` are pure operations used by the actual compiler wrappers.
+`lookupVar_run` and `bindSourceVariable_run` prove their exact MetaM result
+expressions for arbitrary states, both lookup branches included.
+`Valid.lookupVar` connects a hit to the source valuation and reserved wire;
+`Valid.bindSourceVariable` proves the registration transition. The allocator's
+metadata-preservation theorem connects `Valid.allocate_write_state` to the table
+in the resulting actual state. These require the entry value/reservation
+invariant, not an external IO snapshot or a whole-circuit replay premise.
+
+`handleLoop` now uses the state-backed registration. Each synthesis constructs
+its own `CircuitM.init`; `init_sourceBindings` proves its table empty. The global
+wire-binding ref and its clear/save/restore code are gone. Parent and child
+actions therefore receive separate tables, including after child failure.
+Focused runtime tests cover those integration paths, local priority, repeated
+fallback after allocation/emission, and a subsequent fresh synthesis. They are
+regressions, not proofs of the full recursive MetaM synthesizer or exception
+semantics. The other global caches (including fvar-to-expression and width
+caches) are unchanged. Expression-cache key semantics, context stability and
+lifecycle remain separate obligations.
+
+The next cache proof must cover open expressions: the shipping eligibility test
+excludes `e.isFVar`, not all expressions containing free variables. Therefore
+"the expression key is unchanged" alone does not prove a hit remains valid
+across scope changes. Establish stability of the bindings used by cached
+expressions (or revise the implementation if that invariant fails), metadata
+stripping in the fallback lookup, both insertion sites and preservation of the
+cached wire's value/width/reservation. This is an outstanding proof obligation,
+not a measured miscompile.
 
 ## Applying the general theorem to crc16
 
@@ -213,5 +239,6 @@ execution trace or an exhaustiveness proof for the handlers they invoke.
 | zero-width cleanup and register deduplication | Composition with the shipping success theorem remains open |
 
 The current bounded frontend and crc16's per-instance certificates do not close
-these rows. This proof-only milestone checks the new generic theorems and their
-axioms plus the focused scope regression. It does not re-run crc16 certification.
+these rows. Generic theorem/axiom checks are the primary criterion. For the
+state-storage change, synthesis and scope regressions check integration; they
+do not discharge additional rows of the general proof.

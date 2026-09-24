@@ -54,8 +54,7 @@ theorem Valid.visible_reserved (h : Valid state persistent lv pv env used) :
     exact h.localReserved key w hk
   | none => exact h.persistentReserved key.name wire (by simpa [visible, hk] using hw)
 
-/-- Local-hit rule for the local-first lookup model. Connecting the IO read
-on a miss to a snapshot of the private persistent ref remains an obligation. -/
+/-- Local-hit rule for the local-first lookup. -/
 theorem visible_local (state : CompilerState) (persistent : Persistent)
     (key : FVarId) (wire : String)
     (hit : state.varMap.lookup key = some wire) :
@@ -67,6 +66,29 @@ theorem withVarMapping_run {α : Type} (key : FVarId) (wire : String)
     (action : CompilerM α) (state : CompilerState) (circuit : CircuitState) :
     (CompilerM.withVarMapping key wire action state).run circuit =
       (action { state with varMap := (key, wire) :: state.varMap }).run circuit := rfl
+
+/-- Both branches of the ACTUAL lookup now use the pure builder state. There
+is no IO snapshot premise and no lawfulness assumption on MetaM. -/
+theorem lookupVar_run (state : CompilerState) (circuit : CircuitState) (key : FVarId) :
+    (CompilerM.lookupVar key state).run circuit =
+      pure (visible state circuit.sourceBindings key, circuit) := by
+  cases h : state.varMap.lookup key <;>
+    simp [CompilerM.lookupVar, CircuitM.lookupSourceBinding, visible, h, StateT.run]
+
+theorem bindSourceVariable_run (state : CompilerState) (circuit : CircuitState)
+    (key : FVarId) (wire : String) :
+    (CompilerM.bindSourceVariable key wire state).run circuit =
+      pure ((), { circuit with sourceBindings := circuit.sourceBindings.insert key.name wire }) := rfl
+
+/-- Every successful lookup returns the source value and a reserved wire,
+provided the compiler simulation's two-map invariant holds on entry. -/
+theorem Valid.lookupVar (h : Valid state circuit.sourceBindings lv pv env circuit.usedNames)
+    (key : FVarId) (wire : String)
+    (hit : visible state circuit.sourceBindings key = some wire) :
+    (CompilerM.lookupVar key state).run circuit = pure (some wire, circuit) ∧
+    env wire = visibleValues state lv pv key ∧ circuit.usedNames.contains wire = true := by
+  refine ⟨?_, h.visible_correct key wire hit, h.visible_reserved key wire hit⟩
+  rw [lookupVar_run, hit]
 
 theorem Valid.enter (h : Valid state persistent lv pv env used)
     (key : FVarId) (wire : String) (value : Nat) (hv : env wire = value)
@@ -110,6 +132,22 @@ theorem Valid.insert_persistent (h : Valid state persistent lv pv env used)
       exact hr
     · exact h.persistentReserved k n hn
 
+/-- The shipping binder-registration operation preserves the invariant;
+unlike the old rule over an external snapshot, the table is in its real state. -/
+theorem Valid.bindSourceVariable
+    (h : Valid state circuit.sourceBindings lv pv env circuit.usedNames)
+    (key : FVarId) (wire : String) (value : Nat) (hv : env wire = value)
+    (hr : circuit.usedNames.contains wire = true) :
+    let result := (CircuitM.bindSourceVariable key.name wire circuit).2
+    Valid state result.sourceBindings lv
+      (fun k => if key.name == k then value else pv k) env result.usedNames :=
+  h.insert_persistent key.name wire value hv hr
+
+/-- Fresh synthesis starts with no persistent source bindings, regardless of
+the map in any parent state. No global clear/save/restore is involved. -/
+theorem init_sourceBindings (name : String) :
+    (CircuitM.init name).sourceBindings = ({} : Persistent) := rfl
+
 /-- A write to an actually allocated name preserves even hidden bindings.
 This is the condition needed to restore an outer scope after emitted code. -/
 theorem Valid.allocate_write (h : Valid state persistent lv pv env s.usedNames)
@@ -136,6 +174,17 @@ theorem Valid.scope_allocate_restore (h : Valid state persistent lv pv env s.use
     Valid state persistent lv pv after a.2.usedNames := by
   exact ⟨(h.enter key wire value hv hr).allocate_write hint ty named written,
     h.allocate_write hint ty named written⟩
+
+/-- Allocation/write preserves the invariant indexed by the ACTUAL state's
+table, not merely an unchanged external snapshot. -/
+theorem Valid.allocate_write_state
+    (h : Valid state s.sourceBindings lv pv env s.usedNames)
+    (hint : String) (ty : Sparkle.IR.Type.HWType) (named : Bool) (value : Nat) :
+    let a := CircuitM.makeWire hint ty named s
+    Valid state a.2.sourceBindings lv pv (write env a.1 value) a.2.usedNames := by
+  dsimp only
+  rw [CircuitM.makeWire_sourceBindings]
+  exact h.allocate_write hint ty named value
 
 /-- Compose the hidden-binding invariant with actual allocation and assignment
 emission. The prefix and operand hypotheses are local simulation premises;
