@@ -1509,12 +1509,13 @@ is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a
 specific difference, not an aspiration, so it can be argued with.
 
-Where Sparkle already matches or exceeds CompCert: a proven end-to-end
-semantic chain (Signal ≡ emitted SystemVerilog), per-instance
-kernel-checked validation, fourteen real compiler bugs found (several
-silent miscompiles), and — with no CompCert analogue, since resource
-duplication does not arise for a software compiler — the
-state-correspondence property of section C.
+Current achieved guarantee: bounded, per-instance semantic chains, with
+kernel-checked proofs and explicit residual axioms. The shared route's final
+text guarantee is through the shipping parser and IR execution; independent
+SV semantics is a separate link and still skips crc16. This is not an
+unqualified Signal-to-SystemVerilog or language-wide compiler theorem. The
+state-correspondence property is tracked separately in section C. Current
+scope/trust: `SharedRoute-Guarantees.md` and `CertifiedAcceptance.md`.
 
 The gaps, in the order they weaken the claim:
 
@@ -1532,6 +1533,78 @@ The gaps, in the order they weaken the claim:
   succeeds and its `Cdo` denotes the same Signal — i.e. the DSL's own
   elaboration proven correct, not replayed per instance.  Research-scale
   and the honest headline item.
+
+  **Current bounded worklist (2026-09-24; F1 itself stays open):**
+  - [x] Require a complete original/Opt/reparsed/text acceptance artifact.
+  - [x] Prove the checked explicit combinational compiler correct and complete
+    under its naming/width conditions.
+  - [x] Extend to one arbitrary-width register and prove full-cycle preservation.
+  - [x] Connect the shipping single-register `runCircuitH` / `circuit do` form
+    to that compiler using a general loop/body theorem; test a real surface
+    definition with enable and reset (`Tools/VerifiedCircuit.lean`).
+  - [ ] Prove/expose the source-to-typed-step extraction for a precisely defined
+    surface fragment. **Next task.** A per-definition body correspondence is not
+    this theorem. First define the supported typed source statements and their
+    interpretation through the shipping runner; require total extraction and
+    a general `BodyMatches` proof, plus an unsupported-form rejection test.
+    Do not substitute another hand-written example for this acceptance criterion.
+  - [ ] Expand the verified source fragment to register banks and memories;
+    independent printer/SV semantics remains a separate downstream milestone.
+
+  **First acceptance milestone (2026-09-24):** `Tools/CertifiedRoundtrip.lean`
+  provides proof-carrying `Certificate`, `Certificate.sound`, and
+  `accepted_sound`; `Tools/CertifyShared.lean` adds strict commands requiring
+  original/Opt/RT replay and the parse equality before emitting an artifact.
+  The general theorem connects the exact text through the shipping parser to
+  the source observation, so a partial PROVEN chain is not acceptance.
+  Tested on shareX4/shareX8, a fresh command invocation, and crc16, plus negative
+  cases. This composes existing proofs; it does NOT prove reifier correctness,
+  input-language coverage, termination, or independent SV semantics. F1 remains
+  open. Contract, trust, and next milestone: `CertifiedAcceptance.md`.
+
+  **Second bounded milestone (2026-09-24):** `Tools/VerifiedBlock.lean`
+  implements a total checked compiler from typed combinational let-blocks to
+  actual IR assignments. `compileChecked_sound` proves `RunCorrect` for every
+  accepted block and every input trace/horizon, without a per-instance replay
+  premise; `compileChecked_complete` establishes acceptance under the syntactic
+  naming/width checks. Both use standard axioms only. It reuses CExpr's expression
+  theorem, adds binding/IR-fold/cycle proofs, and connects via `Block.certify`.
+  `VerifiedBlockTest` covers the shipping printer's output and its inlined,
+  masked reparse using the generic compiler theorem (parser oracle remains).
+  This is a new explicit combinational source API, not a verified shallow DSL
+  reifier or, by itself, a stateful compiler. The state layer is covered by the
+  next milestone below. Details and exact assumptions are in
+  `CertifiedAcceptance.md`.
+
+  **Third bounded milestone (2026-09-24):** `Tools/VerifiedState.lean`
+  adds a total checked compiler for an explicit typed machine with one
+  arbitrary-width register, shared let-bindings, one output, and sampled reset.
+  `Machine.compileChecked_sound` supplies `RunCorrect` for every accepted source,
+  input/reset trace and horizon by a register-state invariant over `runModule`.
+  The source observes old state and resets/updates next state; initial target
+  state and seed plumbing are explicit hypotheses. `VerifiedStateTest` covers
+  init=7, enable/hold, mid-run reset, overflow, refusals and a shipping-printer
+  roundtrip; general compiler and replay proofs use standard axioms only, the
+  final text proof also uses the parse oracle. The parser's reset-kind change
+  is benign only under the existing cycle-level IR semantics, not independent
+  SV event semantics. `Machine.certify` and the general step-to-run congruence
+  connect this to the acceptance API. F1 remains open for the shipping reifier;
+  no register-bank, memory, or universal printer/optimizer proof is claimed.
+
+  **Fourth bounded milestone (2026-09-24):** `Tools/VerifiedCircuit.lean`
+  proves the shipping single-register `runCircuitH` loop agrees with `Machine`
+  from a pointwise `BodyMatches` obligation quantified over every live signal
+  and time. It then composes the checked compiler theorem into
+  `compileChecked_signal_sound` and `certifyCircuit`. `VerifiedCircuitTest`
+  pins an actual `circuit do` definition's expansion by `rfl`, proves its
+  enable/reset body correspondence without SAT, and obtains Signal-to-IR and
+  Signal-to-printed-text theorems for arbitrary input signals/horizons. The
+  source-to-IR theorems have standard axioms only; text adds the same parser
+  oracle as before. A future-register-reading body provably fails the contract.
+  **Boundary:** body extraction/correspondence for this surface definition is
+  still manual. The IR is produced by the new verified compiler, not by a
+  newly verified shipping `Sparkle.Compiler.Elab` reifier. The next unchecked
+  worklist item above is therefore still required before closing F1.
 - [ ] **F2. `native_decide` out of the per-instance obligations.**
   **Shared-route inventory (shareX4 `_sdeep_signal_run`, 57 auxiliaries,
   measured 2026-09-16 by grouping `#print axioms`):** G1 glue

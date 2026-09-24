@@ -319,6 +319,21 @@ lean_lib «Tools.ConeFoldRT» where
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
+lean_lib «Tools.CertifiedRoundtrip» where
+  roots := #[`Tools.CertifiedRoundtrip]
+
+lean_lib «Tools.CertifyShared» where
+  roots := #[`Tools.CertifyShared]
+
+lean_lib «Tools.VerifiedBlock» where
+  roots := #[`Tools.VerifiedBlock]
+
+lean_lib «Tools.VerifiedState» where
+  roots := #[`Tools.VerifiedState]
+
+lean_lib «Tools.VerifiedCircuit» where
+  roots := #[`Tools.VerifiedCircuit]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"

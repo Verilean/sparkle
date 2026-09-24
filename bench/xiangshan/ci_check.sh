@@ -433,6 +433,31 @@ if [ -f "$ELAB_FILE" ]; then
     echo "FAIL: crc16 on the cone-sharing route regressed"
     grep -m5 -E "error|FAILED" "$WORK/crc16share.log" | sed 's/^/    /'; fail=1
   fi
+  # Strict roundtrip acceptance: a proof-carrying artifact requires all links,
+  # and composes the parse theorem with replay. Partial PROVEN is not accepted.
+  cert_files_ok=1
+  for ct in CertifiedRoundtripTest CertifySharedCommandTest CertifiedRoundtripCrc16 VerifiedBlockTest VerifiedStateTest VerifiedCircuitTest; do
+    if [ ! -f "Tests/Verification/$ct.lean" ]; then
+      echo "FAIL: missing strict certification test $ct"; cert_files_ok=0
+    fi
+  done
+  if [ "$cert_files_ok" -eq 1 ] \
+      && lake build Tests.Verification.CertifiedRoundtripTest \
+        Tests.Verification.CertifySharedCommandTest \
+        Tests.Verification.CertifiedRoundtripCrc16 \
+        Tests.Verification.VerifiedBlockTest \
+        Tests.Verification.VerifiedStateTest \
+        Tests.Verification.VerifiedCircuitTest > "$WORK/certification.log" 2>&1 \
+      && grep -Fq "CERTIFICATION TEST OK:" "$WORK/certification.log" \
+      && grep -Fq "CERTIFIED_ROUNDTRIP Sparkle.Tests.CertifySharedCommandTest.counter:" "$WORK/certification.log" \
+      && grep -Fq "CRC16 CERTIFICATION OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED BLOCK OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED STATE OK:" "$WORK/certification.log" \
+      && grep -Fq "VERIFIED CIRCUIT OK:" "$WORK/certification.log"; then
+    echo "certification: complete roundtrip artifacts, general soundness, negative cases checked"
+  else
+    echo "FAIL: strict roundtrip certification gate"; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)
