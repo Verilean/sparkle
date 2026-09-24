@@ -6,6 +6,7 @@
 -/
 
 import Sparkle.IR.AST
+import Sparkle.IR.FreshNames
 import Std.Data.HashSet
 import Std.Data.HashMap
 
@@ -94,6 +95,22 @@ private def stripHygiene (s : String) : String :=
     String.mk trimmed
   | []     => s
 
+/-- Allocate a stable base or its next unused numeric suffix. -/
+def freshNamed (base : String) : CircuitM String := fun s =>
+  if s.usedNames.contains base then
+    let n := FreshNames.freshSuffix s.usedNames base (s.nextSuffix.getD base 1)
+    let candidate := FreshNames.numbered base n
+    (candidate, { s with usedNames := s.usedNames.insert candidate
+                        , nextSuffix := s.nextSuffix.insert base (n + 1) })
+  else
+    (base, { s with usedNames := s.usedNames.insert base })
+
+/-- Allocate a temporary, respecting reservations even at the current counter. -/
+def freshTemporary (base : String) : CircuitM String := fun s =>
+  let n := FreshNames.freshSuffix s.usedNames base s.counter
+  let name := FreshNames.numbered base n
+  (name, { s with counter := n + 1, usedNames := s.usedNames.insert name })
+
 /-- Generate a fresh wire name.
     When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
     When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered.
@@ -101,32 +118,40 @@ private def stripHygiene (s : String) : String :=
     The hint is stripped of any Lean macro-hygiene suffix
     (`...__@_...__hygCtx__hyg_N`) so the resulting wire name is
     a valid Verilog identifier. -/
-def freshName (hint : String) (named : Bool := false) : CircuitM String := do
-  let s ← get
+def freshName (hint : String) (named : Bool := false) : CircuitM String :=
   let hint := stripHygiene hint
   let baseName := if hint.isEmpty then "wire" else hint
   if named then
-    -- Stable name: try `_gen_{hint}`, then `_gen_{hint}_1`, `_gen_{hint}_2`, ...
-    let base := s!"_gen_{baseName}"
-    if !s.usedNames.contains base then
-      set { s with usedNames := s.usedNames.insert base }
-      return base
-    else
-      -- Resume probing at the last suffix we reached for this base
-      -- (persisted in `nextSuffix`) so k collisions on one base cost
-      -- O(k) total, not O(k²).
-      let mut n := s.nextSuffix.getD base 1
-      let mut candidate := s!"{base}_{n}"
-      while s.usedNames.contains candidate do
-        n := n + 1
-        candidate := s!"{base}_{n}"
-      set { s with usedNames := s.usedNames.insert candidate
-                 , nextSuffix := s.nextSuffix.insert base (n + 1) }
-      return candidate
+    -- The suffix cache avoids repeatedly searching from one for a hot base.
+    freshNamed s!"_gen_{baseName}"
   else
-    let name := s!"_tmp_{baseName}_{s.counter}"
-    set { s with counter := s.counter + 1, usedNames := s.usedNames.insert name }
-    return name
+    -- Input/output reservations can already occupy a numbered temporary.
+    -- Search from the counter rather than assuming the candidate is unused.
+    freshTemporary s!"_tmp_{baseName}"
+
+theorem freshNamed_spec (base : String) (s : CircuitState) :
+    let result := freshNamed base s
+    s.usedNames.contains result.1 = false ∧
+    result.2.usedNames = s.usedNames.insert result.1 ∧
+    result.2.module = s.module := by
+  unfold freshNamed
+  split
+  · exact ⟨(FreshNames.freshSuffix_spec _ _ _).1, rfl, rfl⟩
+  · exact ⟨by simpa using ‹¬ s.usedNames.contains base = true›, rfl, rfl⟩
+
+/-- The actual allocator always returns an unused name, reserves it without
+dropping previous reservations, and leaves the built module unchanged. -/
+theorem freshName_spec (hint : String) (named : Bool) (s : CircuitState) :
+    let result := freshName hint named s
+    s.usedNames.contains result.1 = false ∧
+    result.2.usedNames = s.usedNames.insert result.1 ∧
+    result.2.module = s.module := by
+  cases named with
+  | false =>
+    dsimp [freshName, freshTemporary]
+    exact ⟨(FreshNames.freshSuffix_spec _ _ _).1, rfl, rfl⟩
+  | true =>
+    exact freshNamed_spec _ _
 
 /-- Sanitize a name to be a valid Verilog identifier -/
 def sanitizeName (name : String) : String :=
@@ -150,6 +175,26 @@ def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CircuitM St
   let m ← getModule
   setModule (m.addWire { name := name, ty := ty })
   return name
+
+/-- Allocation preserves executable statements and adds the advertised typed
+wire, while satisfying the same freshness/reservation contract. -/
+theorem makeWire_spec (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    let result := makeWire hint ty named s
+    s.usedNames.contains result.1 = false ∧
+    result.2.usedNames = s.usedNames.insert result.1 ∧
+    result.2.module.body = s.module.body ∧
+    result.2.module.wires = { name := result.1, ty := ty } :: s.module.wires := by
+  have h := freshName_spec (sanitizeName hint) named s
+  change s.usedNames.contains (freshName (sanitizeName hint) named s).1 = false ∧
+    (freshName (sanitizeName hint) named s).2.usedNames =
+      s.usedNames.insert (freshName (sanitizeName hint) named s).1 ∧
+    (freshName (sanitizeName hint) named s).2.module.body = s.module.body ∧
+    _
+  refine ⟨h.1, h.2.1, ?_, ?_⟩
+  · rw [h.2.2]
+  · change _ :: (freshName (sanitizeName hint) named s).2.module.wires = _
+    rw [h.2.2]
+    rfl
 
 /--
   Emit a continuous assignment statement.

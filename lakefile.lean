@@ -86,6 +86,7 @@ def sparkleModuleDeps : Array String := #[
     "-l:sparkle_Sparkle_Display_Synthesise.so",
     "-l:sparkle_Sparkle_IR_AST.so",
     "-l:sparkle_Sparkle_IR_Builder.so",
+    "-l:sparkle_Sparkle_IR_FreshNames.so",
     "-l:sparkle_Sparkle_IR_Optimize.so",
     "-l:sparkle_Sparkle_IR_ReorderInvariance.so",
     "-l:sparkle_Sparkle_IR_Semantics.so",
@@ -348,6 +349,9 @@ lean_lib «Tools.ShippingBuilderSoundness» where
 
 lean_lib «Tools.ShippingScalarSoundness» where
   roots := #[`Tools.ShippingScalarSoundness]
+
+lean_lib «Tools.ShippingAllocationSoundness» where
+  roots := #[`Tools.ShippingAllocationSoundness]
 
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]

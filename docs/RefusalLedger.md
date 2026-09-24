@@ -31,6 +31,14 @@ verdicts:
 
 ## Deep route (`#verify_elab_deep`, `Tools/DeepElab.lean`)
 
+**Allocator audit (2026-09-24):** the public builder's unnamed `freshName`
+reused `_tmp_x_0` after that exact name had been reserved. **BUG in the builder
+contract, fixed:** both naming modes now use a total suffix search with a
+general freshness theorem. This is a builder-state counterexample; no user
+circuit reaching that reservation pattern was demonstrated. Normal generated
+names and the stable-name suffix cache are retained. The proof composes with
+scalar emission under the live-binding reservation invariant.
+
 **Accepted counterexample (2026-09-24):** auditing the stronger requirement
 "shipping compilation succeeds ⇒ semantics preserved" found a failure without
 a refusal. Applicative lowering compiled `fun x y => y - x` as `x - y`.

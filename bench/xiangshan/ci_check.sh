@@ -476,6 +476,13 @@ if [ -f "$ELAB_FILE" ]; then
   else
     echo "FAIL: shipping scalar soundness gate"; fail=1
   fi
+  if [ -f Tests/Compiler/FreshNameSoundnessTest.lean ] \
+      && lake build Tests.Compiler.FreshNameSoundnessTest > "$WORK/fresh-name.log" 2>&1 \
+      && grep -Fq "FRESH NAME OK:" "$WORK/fresh-name.log"; then
+    echo "fresh names: total allocator and allocation-to-emission invariant checked"
+  else
+    echo "FAIL: fresh name soundness gate"; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

@@ -1557,6 +1557,14 @@ The gaps, in the order they weaken the claim:
     and fresh destination are explicit hypotheses, not yet established for all
     successful MetaM executions. Overloaded instance recognition, persistent
     variable-map fallback and cache lifecycle remain open.
+  - [x] Replace the actual name allocator's suffix loop with a total search
+    proved to succeed within `used.size + 1` candidates. Prove freshness and
+    preservation of reservations/module for both naming modes, and wire/body
+    preservation for `makeWire`. Reserved temporary names are now skipped.
+    Compose allocation with scalar emission: no fresh-destination premise
+    remains in `allocate_emit_correct`; live bindings must still be reserved.
+    See `Sparkle/IR/FreshNames.lean`, `Tools/ShippingAllocationSoundness.lean`
+    and the public-builder collision reproduction in the proof plan.
   - [ ] Prove the scalar lowering/builder simulation invariant (including
     expression-cache validity, operand widths and fresh names), then connect
     the applicative rule to it. The current rule alone is NOT compiler soundness.

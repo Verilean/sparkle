@@ -78,6 +78,7 @@ import Tests.IP.Control.ObserverTest
 import Tests.Compiler.RtlStructureTest
 import Tests.Compiler.ApplicativeSemanticsTest
 import Tests.Compiler.ShippingScalarSoundnessTest
+import Tests.Compiler.FreshNameSoundnessTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim

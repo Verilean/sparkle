@@ -12,6 +12,12 @@ refuse inputs. A theorem about `Source.compile` alone, a corpus of successful
 proofs, or a wrapper requiring replay as an argument does not establish it.
 Do not silently shrink the target to programs the new reflector understands.
 
+General theorem checks are the primary acceptance criterion. Re-running crc16
+certification is not a prerequisite for a general lemma and cannot discharge
+its hypotheses. Use it at implementation-impact checkpoints (such as changing
+the shipping allocator) or for performance measurements, rather than after
+every proof-only change. Report regression status separately from proof progress.
+
 ## Actual boundary
 
 `Sparkle/Compiler/Elab.lean` implements synthesis in `MetaM`, with partial
@@ -109,8 +115,51 @@ do not overwrite live bindings, and executing the emitted statement suffix
 preserves existing values and produces the source value. First prove the pure
 builder/primitive steps and connect those SAME operations to the shipping path.
 Assignment emission, six canonical primitive RHSs and local binding extension
-are now proved. Name allocation, remaining primitives, source recognition and
-cache validity remain. Then lift through scoped lambdas, lets and
+are now proved. Name allocation and its composition are covered below; remaining
+primitives, source recognition and cache validity remain. Then lift through scoped lambdas, lets and
 application using the rule above.
 Sequential handlers require a temporal state relation in addition to this
 combinational invariant. No replay hypothesis may stand in for these obligations.
+
+## Total allocation and the reservation invariant
+
+`Sparkle/IR/FreshNames.lean` proves that numeric suffixes are injective (using
+decimal-digit decoding), and that `used.size + 1` consecutive candidates cannot
+all occur in a set of `used.size` names. `seek` is structurally recursive in this
+bound; `seek_exists` proves success for any starting index. Thus `freshSuffix`'s
+computational default is unreachable. The cardinality/list argument is erased
+proof code: runtime still uses HashSet lookup and stops at the first free suffix.
+
+The shipping `CircuitM.freshName` now uses this search in both branches. Stable
+names retain the `nextSuffix` cache; unnamed temporaries search from `counter`
+and advance it beyond the chosen index. Normal names are preserved. The old
+unnamed branch did not check reservations: reserving `_tmp_x_0` and then calling
+`freshName "x" false` returned `_tmp_x_0` again. It now returns `_tmp_x_1`.
+This was reproduced at the public builder API; reachability of that reservation
+pattern from a user circuit was NOT established and no shipping-circuit bug is
+claimed from this example alone.
+
+`CircuitM.freshName_spec` universally proves freshness, exact reservation-set
+insertion and unchanged module. `makeWire_spec` proves the typed wire addition
+and preservation of executable statements. These concern the functions actually
+called by the compiler, not reference copies.
+
+`Tools/ShippingAllocationSoundness.lean` defines `Reserved`: every live binding
+points to a reserved name. It proves preservation under allocation and scoped
+binding extension, and composes allocation with `Binary.emit_correct`.
+`allocate_emit_correct` no longer assumes destination freshness: the actual
+allocator supplies it. Operand widths/values and the entry reservation invariant
+remain explicit. This does not yet prove that every MetaM handler, persistent
+fallback or expression-cache update maintains that invariant.
+
+`FreshNameSoundnessTest` checks reserved temporary/name collisions, decimal
+boundaries, sanitization/hygiene, the actual `CompilerM.makeWire` wrapper and
+10,000 consecutive same-base allocations. All new general theorems are audited
+for standard axioms only. The test does not stand in for a complexity proof.
+
+The next concrete cache boundary is now inventoried in `Elab.lean`: the
+persistent fvar map is written in `handleLoop`, and cleared/restored at synthesis
+scope boundaries. The per-module expression cache is written both by the
+`translateExprToWire` wrapper and by the top-level output-leaf loop. Both write
+sites, local-map shadowing and nested-module save/restore must be covered; a
+proof about only the main cache wrapper would miss a successful path.
