@@ -1,5 +1,7 @@
 # Existing compiler: success implies semantic preservation
 
+For resuming work in Claude Code, start with [CompCert-Handoff.md](CompCert-Handoff.md).
+
 The target agreed on 2026-09-24 is the existing compiler's successful domain:
 
 ```
@@ -220,6 +222,55 @@ stripping in the fallback lookup, both insertion sites and preservation of the
 cached wire's value/width/reservation. This is an outstanding proof obligation,
 not a measured miscompile.
 
+## Expression cache (2026-09-25)
+
+`Tools/ShippingCacheSoundness.lean` takes the first step of that obligation.
+
+What the soundness rests on is the KEY, not the expression. The eligibility
+test `!isNamed && !e.isFVar && !isTopLevel` is reproduced verbatim as
+`cacheable`, and `cacheable_open_application` proves the sharp form of the
+concern: an application containing a free variable IS cacheable. So "cached
+expressions are closed" is false and cannot be the argument.
+
+The argument that does work: every scoped binder enters through
+`CompilerM.withLocalDecl`, i.e. `Lean.Meta.withLocalDeclD`, which mints a fresh
+`FVarId` per entry, and `ExprStructMap` keys on `ExprStructEq`, whose `BEq` is
+the structural `Expr.equal` distinguishing `fvar` by id. An expression
+mentioning a binder from an exited scope is therefore a DIFFERENT key from the
+same shape under a new binder, so a stale hit cannot occur silently. Two
+runtime checks in the test pin this: three successive `withLocalDeclD` entries
+give distinct ids, and two structurally identical bodies built in different
+scopes compare unequal. They are checks of the MetaM implementation, not
+proofs; `Expr.equal` is `opaque`, so nothing in the file unfolds it.
+
+Proved, with standard axioms only: `Valid.hit` (a hit returns a wire carrying
+the key's source value), `Valid.hit_stripped` (the `consumeMData` fallback
+lookup, under an explicit hypothesis that stripping preserves the denotation),
+`Valid.hit_congr` (a structurally equal key, under `KeyFaithful`),
+`Valid.insert` (the shim's write-back), `Valid.reserve` (allocation may extend
+the reserved set), `valid_empty` / `valid_at_synthesis_start` (each synthesis
+begins in the invariant, since the ref starts empty) and `Valid.write_fresh`
+(emitting to a fresh name cannot disturb a cached entry, because
+`CacheReserved` says every cached wire is already reserved).
+
+Two obligations are explicit hypotheses rather than hidden:
+
+- `KeyFaithful` — structurally equal keys denote the same source value. This is
+  where the fresh-binder argument is consumed.
+- `InsertSpec` — the lookup behaviour of `insert`. Normally this is
+  `Std.HashMap.get?_insert`, but that lemma needs `EquivBEq`/`LawfulHashable`,
+  and **core provides no `EquivBEq ExprStructEq` instance** (`#synth` fails,
+  checked in the test) precisely because `Expr.equal` is opaque. Assuming a
+  lawful key here would have been unsound bookkeeping, so the required equation
+  is stated instead. The test logs a NOTE if core ever gains the instance.
+
+Still open for the cache, and not claimed: the second insertion site (the
+top-level output-leaf loop) and the top-level bypass interact with per-leaf
+translation; width and reservation of a cached wire across composition units;
+and that every handler actually maintains `Valid` — these theorems are
+transition rules, like the binding rules above, not a proof that the recursive
+MetaM synthesizer preserves them.
+
 ## Applying the general theorem to crc16
 
 The desired application is: check successful shipping compilation (and any
@@ -232,7 +283,7 @@ execution trace or an exhaustiveness proof for the handlers they invoke.
 | crc16 construct / compiler stage | General proof status |
 |---|---|
 | map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved; actual recognition and dispatch still open |
-| local bindings, wire allocation | Actual allocation/emission and scoped binding rules proved; global source/width/cache invariant still open |
+| local bindings, wire allocation | Actual allocation/emission and scoped binding rules proved; cache hit/insert rules proved (2026-09-25) under explicit key hypotheses; global source/width invariant still open |
 | pure constants, concat, shift, equality, Bool not, mux | Their shipping handler preservation still needs connecting/proving |
 | register init `0xFFFF`, update, feedback, start/valid mux | Temporal simulation of the shipping stateful path remains open |
 | helper unfolding, output record packing, Bool/BitVec ports | Source recognition and interface correspondence remain open |

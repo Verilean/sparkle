@@ -1555,8 +1555,14 @@ The gaps, in the order they weaken the claim:
     and the scoped `CompilerState.varMap` binding invariant
     (`Tools/ShippingScalarSoundness.lean`). Widths, source/operand correspondence
     and fresh destination are explicit hypotheses, not yet established for all
-    successful MetaM executions. Overloaded instance recognition, persistent
-    variable-map fallback and cache lifecycle remain open.
+    successful MetaM executions. Overloaded instance recognition remains open;
+    the later state-backed binding step below connects the persistent
+    variable-map fallback locally, and the expression-cache step
+    (`Tools/ShippingCacheSoundness.lean`, 2026-09-25) proves the hit and
+    insertion rules under two explicit key hypotheses — see
+    docs/ShippingCompiler-Soundness.md for what those are and why one of them
+    cannot be discharged from core today (`Expr.equal` is opaque, so there is
+    no `EquivBEq ExprStructEq`).
   - [x] Replace the actual name allocator's suffix loop with a total search
     proved to succeed within `used.size + 1` candidates. Prove freshness and
     preservation of reservations/module for both naming modes, and wire/body
