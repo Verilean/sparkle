@@ -778,6 +778,7 @@ with it on, `addDecl` only enqueues and a timer measures nothing) under
 a fresh name, timed, with the proof term's `sizeWithoutSharing`.
 348 theorems, re-check total 697 s — consistent with the profiler's
 702 s of type checking, so the attribution is complete.
+
 | declaration | kernel | proof nodes | type nodes |
 |---|---|---|---|
 | `_sdeep_trace` | 22.4 s | 5,286,453 | 4,119 |
@@ -797,6 +798,7 @@ kernel decides by lazy delta — the candidate being unfolded is
 `CdoW.irWires`, i.e. the whole 16-wire recurrence.  **One-declaration experiment, DONE (2026-09-19), same conditions
 (`Elab.async false`, one run each), same statement
 (`type_of% crc16CcittHW_sdeep_envAt_w3`):**
+
 | proof of the last step | kernel + elab |
 |---|---|
 | `rfl` (the generator's) | 18 959 ms |
@@ -808,6 +810,7 @@ delta through `CdoW.irWires`.  `natJoin_right` (generic, kernel-cheap:
 `Tools/DeepElab.lean` and the 16 reader sites use it; nothing else
 changed, no check weakened.  Expected crc16 saving ≈ 16 × 19.3 s ≈
 309 s of 880 s — an ESTIMATE until the row below is measured.
+
 | crc16, same harness (lake build, 24G, cgroup peak) | wall | peak |
 |---|---|---|
 | before (`rfl` readers) | 880 s | 2.797 GB |
@@ -818,6 +821,7 @@ MEASURED saving 287 s (−33 %) against the 309 s estimate; peak +70 MB
 documented SV skip preserved, shareX4/8 unchanged (37/55/56/55,
 61/91/92/91, nothing skipped).  **Post-fix per-declaration profile with names, aggregated by KIND
 (2026-09-19; same harness, 348 theorems, re-check total 412 s):**
+
 | kind | sum | n | mean proof nodes | reading |
 |---|---|---|---|---|
 | `wire_w*` (orig / Opt / RT, 80.5 s each) | 241 s (59 %) | 48 | 1.19 M, growing ≈ 127 k per wire index (w12 1.77 M → w15 2.15 M; 9.6 s → 18.3 s) | term-size-bound; O(k) per wire ⇒ O(nW²) total |
@@ -832,6 +836,7 @@ the un-optimized module (94 statements) while Opt/RT are 20, and every
 settled/step lemma re-proves `woCheck` / `memFreeCheck` /
 `noSelfReadCheck` over it by kernel `decide` — the same proposition,
 34 times per body.  MEASURED one decide at a time (kernel, same conditions):
+
 | fact | body | statements | kernel |
 |---|---|---|---|
 | `woCheck [] body` | orig | 94 | 6817 ms |
@@ -862,6 +867,7 @@ measured on the real theorem) and split: body WITHOUT the congruence
 slot `rw [wire_wj, envAt_wj]; show …; rw [envOfC_names]; …`).  Bisected
 within `hc` (each row = the same `hc` with the wire bullets' tail cut
 by `sorry` after the named step; register/input bullets real):
+
 | cut after | ms |
 |---|---|
 | prefix only, every bullet `sorry` | 20 |
@@ -881,6 +887,7 @@ fixed readers.  Note the interaction: a SINGLE wire bullet with that
 step is 59 ms; 15 of them are 18.6 s — the cost across bullets is
 strongly superlinear, so the per-bullet isolated measurement (10 ms)
 under-read it.  Count curve and fix, MEASURED (same `hc`, same conditions):
+
 | real wire bullets | ms |
 |---|---|
 | 2 | 16 210 |
@@ -900,6 +907,7 @@ index.  The fix keeps the head `natJoin` on both sides so the kernel
 never unfolds: 18.7 s → 0.25 s for the congruence, standard axioms.
 Applied at the generator's wire-bullet site (one line).  MEASURED,
 same harness (lake build, 24G, cgroup peak, one run each):
+
 | crc16 | wall | peak |
 |---|---|---|
 | before (`show` bullet) | 593 s | 2.867 GB |
@@ -919,6 +927,7 @@ re-proven at 2 / 7 / 2 kinds of site.  Now one theorem per body
 (`{f}_sdeep_hWO{tag}` / `_hMF{tag}` / `_hNSR{tag}`; orig / Opt / RT are
 distinct constants and keep distinct theorems).  Measured, same
 harness, one run each:
+
 | | before | after |
 |---|---|---|
 | shareX4+8 wall | 65 s | 42 s |
@@ -932,6 +941,7 @@ The peak fell by 630 MB — the duplicated decide proofs were also the
 memory.  crc16 today: 880 s → 202 s (−77 %) with no obligation changed.
 **Post-change by-kind aggregation** (357 theorems, re-check total
 108.7 s, was 412 s):
+
 | kind | sum | n | mean proof nodes |
 |---|---|---|---|
 | `hwfL` [orig] | 33.3 s | 16 | 321 |
@@ -969,6 +979,7 @@ Real `hsub` obligations, kernel vs `native_decide`, standard axioms:
 shareX4 slot 3 27 ms vs 3 ms; crc16 slot 15 60 ms vs 4 ms.
 Generator: `hsub` is body-independent, so ONE theorem per slot
 (`{f}_sdeep_hsub_{slot}`) referenced from all three replays.
+
 | | before | after |
 |---|---|---|
 | shareX4 aux (replay/Opt/svOpt/RT) | 37/55/56/55 | 31/49/50/49 |
@@ -991,6 +1002,7 @@ simple name misses namespaced declarations, measured as a duplicate in
 ConeSharingGen); `hns` and `hnorm` are `decide` after rewriting the
 cone to the structural resolver (`{f}_sdeep_hresL_*`): 2 ms and 21 ms
 vs 1 and 4-6 ms native.  Whole glue theorem per slot: standard axioms.
+
 | | before | after |
 |---|---|---|
 | shareX4 aux (replay/Opt/svOpt/RT) | 31/49/50/49 | 7/25/26/25 |
@@ -1009,6 +1021,7 @@ same on both sides (the map constants are `stopOfL stopL` /
 per-stop-set `native_decide` hypothesis became
 `fun n _ => stopOfL_contains_elem stopL n`.  One line; no new checker,
 no fallback.  Measured, same harness, one run each:
+
 | | before | after |
 |---|---|---|
 | shareX4 aux (replay/Opt/svOpt/RT) | 7/25/26/25 | **2**/20/21/20 |
@@ -1102,6 +1115,7 @@ near-empty and says nothing about the peak, so the breakdown below was
 SAMPLED every second and the sample at the highest `memory.current`
 kept (re-runs of stages 3 and 4, fresh cgroups; wall 55 s and 204 s,
 peaks 1.536 GB and 2.241 GB — within 1 % of the first runs):
+
 | at peak | anon | kernel | file | file_mapped |
 |---|---|---|---|---|
 | stage 3 (trace) | 1.29 GB (of which THP 0.86 GB) | 74 MB | 0 | 74 KB |
@@ -1126,6 +1140,7 @@ the two bridges add +0.71 GB over 154 s.  **What the command RETAINS (harness `r
 constant, value sized as a DAG — what occupies memory — and as a tree;
 `ConstantInfo.value?` returns none for theorems here, the value is read
 directly):**
+
 | stage / kind | constants | DAG nodes | tree nodes |
 |---|---|---|---|
 | trace / theorems | 22 | 18 377 | 5 321 212 |
@@ -1150,6 +1165,7 @@ sampled every 0.5 s in the same clock; full run, fresh cgroup, peak
 2.27 GB, 204 s).  `memory.current` is the resident high-water mark of a
 heap that does not shrink between stages, so the table reads as
 "where the level rose", not as per-stage usage:
+
 | segment | wall | level at end |
 |---|---|---|
 | start → CdoW reified (16 wires), readers + equations | 30 s | 0.25 → 0.69 GB |
@@ -1169,6 +1185,7 @@ The 95 s segment also contains the known kernel `decide`s over the
 which the Opt/RT bodies (20 statements) do not pay — which is why they
 take 15 s.  **Split further (per-phase and per-wire markers; rerun, peak 2.27 GB,
 204 s):**
+
 | sub-phase of the ORIGINAL body | wall | level |
 |---|---|---|
 | seed + readers → **hwfL facts emitted** (17 kernel `decide`s of `hwfCheckL` over the 94-statement body, one per stop set) | **87.3 s** | 1.54 → **2.25 GB** |
@@ -1195,6 +1212,7 @@ body as `{f}_sdeep_hBWO{tag}` and all 17 hwfL sites (same `weM`, same
 body constant — checked) and `hb1_of` reuse it.  No per-stop-set walk
 remains; the per-stop-set `native_decide` agreement fact is unchanged.
 Measured, same harness, one run each:
+
 | | before | after |
 |---|---|---|
 | crc16 wall | 204 s | **109 s** |
@@ -1232,6 +1250,7 @@ print — the profiler is not a memory instrument here.)
 **Result: the bv_decide pipeline is not where the memory goes.**  All
 its phases together, on the UNSAT call that proves the theorem (crc16,
 one run):
+
 | phase | wall | RSS delta |
 |---|---|---|
 | preprocessing (`bv_normalize`) | 0.16 s | 0 |
@@ -1289,6 +1308,7 @@ sources:
 
 Measured after both (same harness, one run each; every PROVEN clause,
 auxiliary count, skip and axiom unchanged on shareX4/8 and crc16):
+
 | | before | after 1 | after 1+2 |
 |---|---|---|---|
 | trace theorem kernel re-check | 22.4 s, RSS +0.77 GB | 16.1 s, +0.61 GB | **0.08 s, +15 MB** |
@@ -1319,6 +1339,7 @@ body): 13.2 s, 50 declarations, ΣΔRSS +605 MB.  What is in it TODAY
 (names and proof methods as generated — the 17 `hwfCheckL` walks of the
 2026-09-20 study are gone; the `hwfL_*` facts are term-mode instances of
 `hwfCheckL_of_bodyWidthOk` and do not appear in the top 15):
+
 | declaration | proof | time | ΔRSS |
 |---|---|---|---|
 | `crc16CcittHW_sdeep_hWO` | `woCheck_sound [] body (by decide)` | **7 156 ms** | **+623 MB** (the largest RSS step of the whole run) |
@@ -1338,6 +1359,7 @@ runtime: 13 740 string comparisons (upper bound; almost every `contains`
 scans the full list because the answer is "absent"), 9 696 statement
 visits by `writesOf`, names ≈ 11 characters.  Measured in a fresh
 process (`mem/kwo.lean`):
+
 | | time | note |
 |---|---|---|
 | fresh `by decide` | 6 851 ms | elaborator evaluation + kernel check |
@@ -1361,6 +1383,7 @@ count.)
 `of_decide_eq_true (Eq.refl true)` behind an auxiliary lemma checked by
 the kernel; axioms of the result: `propext` only (checked).  Before /
 after, same instrumented full run, one each:
+
 | | before | after |
 |---|---|---|
 | `hWO` | 7 156 ms, +623 MB | 3 401 ms, +619 MB |
@@ -1376,6 +1399,7 @@ pass: it stays with the kernel's string comparisons.
 
 Same change measured on the small circuits (fresh process, one run
 each; axioms of the result: `propext` only):
+
 | | `by decide` | `by decide +kernel` |
 |---|---|---|
 | shareX4 (25 statements, 24 names) | 515 ms, +114 MB | 241 ms, +0 MB |
@@ -1394,6 +1418,7 @@ recorded because the numbers, not the intuitions, decide this.
 figure divided a whole `contains` sweep by its comparison count and is
 withdrawn).  The cost scales with NAME LENGTH at a fixed comparison
 count — 93 × 93 `List.contains` over string literals:
+
 | names | time | ΔRSS |
 |---|---|---|
 | 93 × 2-character literals (`n0`…`n92`) | 795 ms | +312 MB |
@@ -1676,6 +1701,7 @@ The gaps, in the order they weaken the claim:
   shipping `inlineConeT` over `buildDefMap`/`stopOfL`.
   **Measured, one slot, shipping statement, `#print axioms` = the
   standard three (no `native_decide`, no `sorryAx`):**
+
   | circuit | slot | kernel | `native_decide` | file peak |
   |---|---|---|---|---|
   | shareX4 | `_tmp_op_a_9` (w0) | 145 ms | 3 ms | 303 MB |
@@ -1691,6 +1717,7 @@ The gaps, in the order they weaken the claim:
   used twice is proven once.  No `native_decide` fallback: a failure is
   an error, like every other obligation here.
   Auxiliaries before → after, per theorem:
+
   | circuit | replay | Opt | svOpt | RT |
   |---|---|---|---|---|
   | shareX4 | 43 → 37 | 61 → 55 | 62 → 56 | 61 → 55 |
@@ -1702,6 +1729,7 @@ The gaps, in the order they weaken the claim:
   sites go from 2 to 1 (the survivor is the excluded `hsub`).
   Cost, same harness both sides (`lake build`, MemoryMax 24G, cgroup
   `memory.peak`), ONE run per side:
+
   | | before | after |
   |---|---|---|
   | shareX4+8 wall | 74 s | 79 s |
@@ -1734,6 +1762,7 @@ The gaps, in the order they weaken the claim:
   **F2 CLOSED for the shared route (2026-09-20, steps 1–11).**  Every
   per-instance obligation of `sparkle.deepShare` is kernel-checked.
   Final axiom dependency of each shipped theorem, by name:
+
   | theorem | beyond `propext` / `Classical.choice` / `Quot.sound` |
   |---|---|
   | `{f}_sdeep_trace` | `{f}_sdeep_trace._native.bv_decide.ax_*` |
