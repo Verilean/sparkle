@@ -469,6 +469,13 @@ if [ -f "$ELAB_FILE" ]; then
   else
     echo "FAIL: shipping applicative semantics gate"; fail=1
   fi
+  if [ -f Tests/Compiler/ShippingScalarSoundnessTest.lean ] \
+      && lake build Tests.Compiler.ShippingScalarSoundnessTest > "$WORK/shipping-scalar.log" 2>&1 \
+      && grep -Fq "SHIPPING SCALAR OK:" "$WORK/shipping-scalar.log"; then
+    echo "shipping scalar: canonical primitives and local binding invariant checked"
+  else
+    echo "FAIL: shipping scalar soundness gate"; fail=1
+  fi
   # the SEAM bridge: per-instance composition of the generated
   # recurrence with the module-level fold semantics (ConeFold capstone
   # instantiated on cnt8; checker hypotheses by native_decide)

@@ -1550,6 +1550,13 @@ The gaps, in the order they weaken the claim:
     finalized prefix and all other wires (`Tools/ShippingBuilderSoundness.lean`).
     This quantifies over builder states and environments, with local RHS and
     freshness hypotheses; no whole-circuit replay premise.
+  - [x] Prove the actual registry mapping and IR RHS semantics of six canonical
+    BitVec binary primitives at arbitrary widths; compose with actual emission
+    and the scoped `CompilerState.varMap` binding invariant
+    (`Tools/ShippingScalarSoundness.lean`). Widths, source/operand correspondence
+    and fresh destination are explicit hypotheses, not yet established for all
+    successful MetaM executions. Overloaded instance recognition, persistent
+    variable-map fallback and cache lifecycle remain open.
   - [ ] Prove the scalar lowering/builder simulation invariant (including
     expression-cache validity, operand widths and fresh names), then connect
     the applicative rule to it. The current rule alone is NOT compiler soundness.

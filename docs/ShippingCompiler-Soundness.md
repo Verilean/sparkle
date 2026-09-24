@@ -78,13 +78,39 @@ explicit LOCAL obligations, not a whole-circuit replay assumption.
 
 ## Next proof boundary
 
+`Tools/ShippingScalarSoundness.lean` now discharges the RHS premise for six
+canonical same-width BitVec functions: add, sub, mul, and, or, xor. The
+`Binary.registry` theorem pins their mapping in the actual shipping operator
+registry; `rhs_correct` proves their real IR expression semantics for arbitrary
+widths (including zero), operand values, names and environments. `emit_correct`
+composes that fact with actual `CircuitM.emitAssign`; callers supply operand
+values/widths and prefix execution, not a proof of the emitted RHS.
+
+`BindingsAgree` states the source-value/wire correspondence. A fresh destination
+preserves it, and first-wins list extension uses the same Boolean comparison as
+the shipping `CompilerState.varMap`. `emit_local` composes emission with the
+scoped binding extension. These are general theorems with standard axioms only.
+Tests instantiate the actual builder at arbitrary width, check the six shipping
+compilations on edge values, and pin counterexamples to dropping width/freshness
+hypotheses.
+
+**Remaining boundary:** none of these theorems establishes that the MetaM
+translator always provides the required widths, values and fresh names.
+Canonical `BitVec.add` is covered; recognizing an overloaded `HAdd.hAdd` with
+its actual instance is not proved by identifying the operator name. The local
+map relation does not cover `lookupVar`'s persistent IO fallback. Its lifecycle,
+the expression cache and changes of local scope still need a simulation proof.
+The generic relation can describe cached keys, but this does not yet prove
+correctness of the shipping cache implementation.
+
 Establish the scalar translator's invariant: mapped source values agree with
 wire values, cached results remain valid, widths agree, newly allocated wires
 do not overwrite live bindings, and executing the emitted statement suffix
 preserves existing values and produces the source value. First prove the pure
 builder/primitive steps and connect those SAME operations to the shipping path.
-The assignment-emission step is now proved; name allocation, primitive RHS
-lowering and cache validity remain. Then lift through scoped lambdas, lets and
+Assignment emission, six canonical primitive RHSs and local binding extension
+are now proved. Name allocation, remaining primitives, source recognition and
+cache validity remain. Then lift through scoped lambdas, lets and
 application using the rule above.
 Sequential handlers require a temporal state relation in addition to this
 combinational invariant. No replay hypothesis may stand in for these obligations.
