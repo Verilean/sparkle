@@ -1440,7 +1440,7 @@ elab_rules : tactic
     checkPhase "change"
 
 
-/-- `sparkle_opaque e as a` — `generalize e = a at *` whose abstraction SURVIVES into
+/-- `sparkle_opaque e => a` — `generalize e = a at *` whose abstraction SURVIVES into
 the kernel-checked proof term.  Core `generalize` assigns the goal to
 `(fun a … => ?body) e …`, and `instantiateMVars` beta-reduces that redex, so the
 final proof mentions `e` again wherever `a` was used: for the trace theorem this
@@ -1451,11 +1451,16 @@ kernel time).  Here the goal is closed by `letFun e (fun a => ?body)` — a
 constant application, which `instantiateMVars` leaves alone and which the kernel
 checks with `a` as an opaque local.  Every hypothesis whose type mentions `e` is
 reverted first and re-introduced after, as `generalize … at *` does.  No equation
-`e = a` is kept (bv_decide would reflect it and re-import the definition). -/
-syntax (name := sparkleOpaque) "sparkle_opaque " term:max " as " ident : tactic
+`e = a` is kept (bv_decide would reflect it and re-import the definition).
+
+The binder token is `=>`, not `as`: `as` is not a reserved keyword, so
+declaring it in a `syntax` rule would reserve it GLOBALLY and break every
+existing `let as := …` binding (36 of them in this repo — it broke
+`DeepElabReifyDemo`'s `innerAcc` on CI, 2026-09-22). -/
+syntax (name := sparkleOpaque) "sparkle_opaque " term:max " => " ident : tactic
 
 elab_rules : tactic
-  | `(tactic| sparkle_opaque $e:term as $a:ident) => withMainContext do
+  | `(tactic| sparkle_opaque $e:term => $a:ident) => withMainContext do
     let e ← instantiateMVars (← Lean.Elab.Term.elabTerm e none)
     let g ← getMainGoal
     let lctx ← getLCtx
@@ -2647,10 +2652,10 @@ elab "#verify_elab_deep" id:ident : command =>
         let mut acc : Array (Lean.TSyntax `tactic) := #[]
         for k in List.range nW do
           let rwId : Ident := rwIdsS[k]!; let aId := mkI s!"aw{k}{tag}"
-          acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rwId $appArgs* $tv) as $aId:ident)))
+          acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rwId $appArgs* $tv) => $aId:ident)))
         for i in List.range nR do
           let rdId : Ident := rdIdsS[i]!; let aId := mkI s!"ar{i}{tag}"
-          acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rdId $appArgs* $tv) as $aId:ident)))
+          acc := acc.push (← `(tactic| all_goals (try sparkle_opaque ($rdId $appArgs* $tv) => $aId:ident)))
         pure acc
       let genAtomsM ← genAtomsAt (← `($mId)) "m"
       let genAtomsT ← genAtomsAt (← `(t)) "t"
