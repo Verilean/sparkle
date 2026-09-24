@@ -271,6 +271,107 @@ and that every handler actually maintains `Valid` — these theorems are
 transition rules, like the binding rules above, not a proof that the recursive
 MetaM synthesizer preserves them.
 
+### Reducing the hypotheses (2026-09-25, second pass)
+
+The first pass left two hypotheses. Both have now been narrowed, and one is
+gone as a hypothesis about hash maps.
+
+**`InsertSpec` is discharged generically.** `insertSpec_of_lawful` proves
+`(m.insert key v).get? k = if key == k then some v else m.get? k` for EVERY key
+with `EquivBEq`/`LawfulHashable`, with the standard axioms. So nothing is
+assumed about `Std.HashMap` any more; what remains is solely lawfulness of the
+key type the shipping cache uses. `InsertSpec` survives only as the
+instantiation at that one un-lawful key.
+
+**`KeyFaithful` is split by owner.** It was one hypothesis mixing two unrelated
+claims:
+
+- `KeySound` — structurally equal keys are equal expressions. A statement about
+  `Expr.equal` only. `keyFaithful_of_keySound` proves it suffices, so the open
+  obligation is now this single syntactic fact rather than a claim quantified
+  over all source valuations.
+- `StableBetween` — between the insert and the hit, neither the environment at
+  the cached wire nor the source valuation of the key moved. A statement about
+  the COMPILER's scoping, not about `Expr`. `hit_across` proves the reuse step
+  from it, and `stableBetween_refl` covers the within-one-environment case.
+
+Separating them matters because `Valid` is indexed by a single environment
+whereas the cache spans a whole synthesis: key soundness alone never justifies
+"insert here, read there". That step is `hit_across`, and its premise is now
+explicit.
+
+**`KeySound` is not provable for the current key, and this is a design fact.**
+Reducing it lands on `Expr.equal`, which is `opaque` (an `@[extern]` C
+function); the goal can only be closed by `sorry` (checked). It is therefore
+not a proof obligation that more effort discharges — the key must change.
+
+**The rejected shortcut.** Making the comparison return `false` on `mdata` is
+unsound as a design, not merely weak: it is irreflexive, so `EquivBEq` fails
+and with it every HashMap lemma, including the one just proved. Verified.
+
+### Plan: connect the real comparison, key, lookup and insert
+
+The goal is that the operations the compiler ACTUALLY performs are the ones the
+theorems are about. Equivalence with the opaque comparison must be proved, not
+assumed — "we wrote a structural twin" is not itself an argument.
+
+1. **Leaf equalities.** `Level` needs a hand-written structural equality with a
+   `levEq a b = true ↔ a = b` proof: it carries a `computed_field`, so
+   `deriving` fails. Done as a feasibility check — the proof goes through with
+   `[propext, Quot.sound]` only. `Literal` and `BinderInfo` derive cleanly.
+   `Name`, `FVarId`, `MVarId` already have what is needed.
+2. **`mdata`.** `MData = KVMap` and `DataValue` reaches `Syntax`, whose
+   `DecidableEq` does not derive (`SourceInfo` blocks it). Core does provide
+   `BEq` for `KVMap`/`DataValue`/`Syntax`, and `KVMap.eqv` is structural
+   (mutual `subset`), so the `mdata` case can delegate rather than recurse into
+   `Syntax`. What must then be proved is that this delegation is reflexive and
+   symmetric/transitive — enough for `EquivBEq`, which is what the HashMap
+   lemmas need. Full antisymmetry (`KeySound` for `mdata`) is a separate,
+   heavier question.
+3. **`exprEq` and its characterisation.** A structural comparison over the
+   twelve constructors plus `exprEq_iff`. Mechanical given (1) and (2); the
+   `stripMaskK` work on the certified-roundtrip side is the precedent for the
+   shape.
+4. **Make it the key.** Define the cache key as a wrapper whose `BEq` is
+   `exprEq` with `LawfulBEq`, derive `EquivBEq`/`LawfulHashable`, and
+   instantiate `insertSpec_of_lawful`. This discharges `InsertSpec` at the real
+   table and makes `KeySound` provable, because the comparison is no longer
+   opaque.
+5. **Equivalence with the shipping behaviour.** Changing the key changes which
+   lookups hit. Two options, and the choice must be recorded rather than
+   glossed: either prove `exprEq = Expr.equal` (impossible while the latter is
+   opaque, so it would need a core-level axiom or an upstream lemma), or accept
+   that `exprEq` may MISS where `Expr.equal` would hit and prove that a miss is
+   harmless. The second is the honest route and needs the re-translation
+   condition below.
+
+### If a miss replaces a hit: the re-translation condition
+
+Both the `mdata`-exclusion variant and any conservative `exprEq` turn some hits
+into misses. A miss re-runs the handler chain, which EMITS AGAIN. That is only
+harmless under a condition that must be stated, because it is not obvious:
+
+- **Value agreement.** The freshly translated wire carries the same source
+  value as the one already cached. This is what makes the extra wire redundant
+  rather than wrong.
+- **No observable duplication.** Re-emission adds an assign and consumes a
+  fresh name. The emitted module therefore differs from the cached-hit module
+  by duplicated combinational definitions. For semantics this is benign only
+  because the duplicates are pure and separately named — a statement about the
+  IR, provable from the existing well-ordering/freshness invariants, but NOT
+  yet proved.
+- **Effectful handlers are excluded.** Any handler whose re-execution is not
+  idempotent (memory statements, register declarations, sub-module instances)
+  must not be reached by the re-translation. The memory path already has its
+  own dedupe keyed on IR shape, which is evidence the concern is real: the
+  expression cache is not the only mechanism preventing duplicate BRAMs.
+- **Termination/cost.** Misses multiply work; the existing
+  `SPARKLE_TRANSLATE_LIMIT` backstop bounds it but a systematic miss regression
+  would be a performance fault, to be measured rather than assumed away.
+
+Until those are proved, excluding `mdata` from caching is a change to the
+shipping compiler's output, not a neutral refactor, and it is not taken here.
+
 ## Applying the general theorem to crc16
 
 The desired application is: check successful shipping compilation (and any

@@ -52,11 +52,15 @@ run_cmd do
       ``Valid.insert, ``Valid.reserve, ``valid_empty, ``Valid.write_fresh,
       ``cacheable_open_application, ``not_cacheable_fvar,
       ``not_cacheable_named, ``not_cacheable_toplevel,
-      ``exprCache_of_state, ``valid_at_synthesis_start] do
+      ``exprCache_of_state, ``valid_at_synthesis_start,
+      -- the hypotheses, now proved or split
+      ``insertSpec_of_lawful, ``insertSpec_holds,
+      ``keyFaithful_of_keySound, ``stableBetween_refl, ``hit_across] do
     for a in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains a do
         throwError "unexpected cache axiom: {name}: {a}"
   logInfo "SHIPPING CACHE OK: hit/stripped-hit/congruent-hit, insert under an explicit lookup spec, reserve, empty, fresh-write non-interference, shipping eligibility equations, standard axioms only"
   logInfo "CACHE KEY OK: withLocalDeclD freshness and structural-key separation checked at runtime"
+  logInfo "CACHE HYPOTHESES: InsertSpec proved for any lawful key (insertSpec_of_lawful); KeyFaithful reduced to the syntactic KeySound; scope stability split out as StableBetween. Remaining assumptions: KeySound and EquivBEq for the Expr key (both blocked by opaque Expr.equal), and that handlers maintain Valid."
 
 end Sparkle.Tests.Compiler.ShippingCacheSoundnessTest

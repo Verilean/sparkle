@@ -32,11 +32,26 @@ hit guarantees, given that hypothesis.
 A consequence worth recording, found while proving this: core provides NO
 `EquivBEq ExprStructEq` / `LawfulHashable ExprStructEq` instance — `#synth`
 fails — precisely because `Expr.equal` is opaque. So `Std.HashMap.get?_insert`
-and friends, which require those, are NOT available for this cache. The
-insertion rule below therefore takes the lookup behaviour it needs as an
-explicit hypothesis (`InsertSpec`) instead of silently assuming a lawful key.
-Discharging `InsertSpec` and `KeyFaithful` for the real `Expr` key is an open
-obligation on the core-level `Expr.equal`, not something this file hides.
+and friends, which require those, are NOT available for this cache.
+
+Two things follow, and they are kept apart below.
+
+* The HashMap half is NOT an assumption about hash maps: `insertSpec_of_lawful`
+  proves the insert/lookup equation outright for every lawful key. What is
+  missing is only lawfulness of the `Expr` key, so `InsertSpec` remains a
+  hypothesis for the shipping table alone.
+* The key half is split into `KeySound` (equal keys are equal expressions — a
+  fact about `Expr.equal`) and `StableBetween` (the denotation did not move
+  between write and read — a fact about the compiler). `KeyFaithful` follows
+  from `KeySound` by `keyFaithful_of_keySound`.
+
+`KeySound` is NOT provable while the cache keys on `Expr.equal`: reducing it
+lands on the opaque constant, and the goal can only be closed by `sorry`
+(checked). It is therefore a design obligation, not a proof obligation — the
+plan for discharging it is in docs/ShippingCompiler-Soundness.md. Note also
+that a comparison returning `false` on `mdata` is NOT an option: it is
+irreflexive, so `EquivBEq` fails and every HashMap lemma is lost with it
+(checked).
 
 Scope. These are rules for the cache table, in the same style as the binding
 rules of `ShippingBindingsSoundness`. They do NOT claim that every MetaM
@@ -72,15 +87,66 @@ and silently overwrite a live cached value. -/
 def CacheReserved (cache : Cache) (used : Std.HashSet String) : Prop :=
   ∀ key wire, cache.get? ⟨key⟩ = some wire → used.contains wire = true
 
-/-- The key discipline the fresh-binder argument provides: structurally equal
-keys denote the same source value. This is what rules out a stale hit across a
-scope change — a body mentioning an exited binder is a DIFFERENT key, because
-`withLocalDecl` mints a fresh `FVarId` each entry.
+/-! ### The key hypothesis, split in two
 
-Stated as a hypothesis because `Lean.Expr.equal` is `opaque`. -/
+Lumping these together hid which half is a statement about `Expr` equality and
+which is a statement about the COMPILER's scoping. They are different
+obligations with different owners, so they are separated here. -/
+
+/-- (i) Key equality is real equality: the table's `BEq` on keys identifies only
+structurally identical expressions.
+
+This is a property of `Lean.Expr.equal` alone — no compiler notion enters. It
+is exactly `LawfulBEq`-style soundness for the key, and it is the statement that
+`Expr.equal`'s opacity blocks today. -/
+def KeySound : Prop :=
+  ∀ a b : Lean.Expr, (ExprStructEq.mk a == ExprStructEq.mk b) = true → a = b
+
+/-- (ii) A cached entry is still about the same value when it is READ as when it
+was WRITTEN. This is the scope/value-stability half, and it is a property of the
+compiler, not of `Expr`: between the insertion and the hit, the environment and
+the source valuation of that key must not have moved.
+
+Keeping it separate matters because (i) alone does NOT give it: two occurrences
+of the same closed key at different program points still need their denotation
+to agree, which is a fact about how the compiler reuses wires. -/
+def StableBetween (envAtWrite envAtRead : Env) (valueAtWrite valueAtRead : SourceValue)
+    (key : Lean.Expr) (wire : String) : Prop :=
+  envAtWrite wire = envAtRead wire ∧ valueAtWrite key = valueAtRead key
+
+/-- The combined property the rules below consume. `KeyFaithful` follows from
+`KeySound` (`keyFaithful_of_keySound`), so the `Expr`-level obligation is now
+isolated in a single, purely syntactic statement. -/
 def KeyFaithful (sourceValue : SourceValue) : Prop :=
   ∀ a b : Lean.Expr, (ExprStructEq.mk a == ExprStructEq.mk b) = true →
     sourceValue a = sourceValue b
+
+/-- Key soundness is enough for faithfulness, for ANY valuation. Proved, so the
+open obligation shrinks from "for every source valuation, equal keys agree" to
+the single syntactic fact `KeySound`. -/
+theorem keyFaithful_of_keySound (sound : KeySound) (sourceValue : SourceValue) :
+    KeyFaithful sourceValue := by
+  intro a b hab
+  exact congrArg sourceValue (sound a b hab)
+
+/-- Stability is reflexive when nothing moved between write and read — the case
+the shipping cache is in when a later leaf revisits a sub-expression within the
+same synthesis without re-entering a binder for it. -/
+theorem stableBetween_refl (env : Env) (sourceValue : SourceValue)
+    (key : Lean.Expr) (wire : String) :
+    StableBetween env env sourceValue sourceValue key wire := ⟨rfl, rfl⟩
+
+/-- A hit is correct in the READ environment given the entry was correct at
+write time and the two are stable. This is the statement that actually covers
+"insert here, use there", which `Valid.hit` alone does not: `Valid` is indexed
+by one environment, whereas the cache spans the whole synthesis. -/
+theorem hit_across (envW envR : Env) (valW valR : SourceValue)
+    (key : Lean.Expr) (wire : String)
+    (written : envW wire = valW key)
+    (stable : StableBetween envW envR valW valR key wire) :
+    envR wire = valR key := by
+  obtain ⟨henv, hval⟩ := stable
+  rw [← henv, written, hval]
 
 /-- The cache invariant carried by the compiler state. -/
 structure Valid (cache : Cache) (env : Env) (sourceValue : SourceValue)
@@ -135,11 +201,35 @@ theorem Valid.hit_congr {cache : Cache} {env : Env} {sourceValue : SourceValue}
 
 /-- The lookup behaviour of `insert` that the rules below need. With a lawful
 key this is `Std.HashMap.get?_insert`; `ExprStructEq` has no such instance (see
-the header), so it is a hypothesis about the actual table. -/
+the header), so for the SHIPPING table it is a hypothesis.
+
+It is not, however, an assumption about HashMaps in general:
+`insertSpec_of_lawful` below proves it outright for every lawful key, so the
+only thing still missing is lawfulness of the `Expr` key itself. That is the
+single remaining gap, and `docs/ShippingCompiler-Soundness.md` states the plan
+for closing it. -/
 def InsertSpec (cache : Cache) (key : Lean.Expr) (wire : String) : Prop :=
   ∀ k : Lean.Expr, (cache.insert ⟨key⟩ wire).get? ⟨k⟩ =
     if (ExprStructEq.mk key == ExprStructEq.mk k) = true then some wire
     else cache.get? ⟨k⟩
+
+/-- `InsertSpec` is a THEOREM, not an assumption, for any key with a lawful
+`BEq`. Proved with the standard axioms only. This removes "the HashMap might
+not behave this way" from the trusted surface: what remains is exactly the
+lawfulness of the key type the shipping cache uses. -/
+theorem insertSpec_of_lawful {K V : Type} [BEq K] [Hashable K] [EquivBEq K]
+    [LawfulHashable K] (m : Std.HashMap K V) (key : K) (v : V) (k : K) :
+    (m.insert key v).get? k = if (key == k) = true then some v else m.get? k := by
+  rw [Std.HashMap.get?_insert]
+
+/-- The shape `Valid.insert` consumes, for a lawful key: the table's own
+behaviour, with nothing assumed. Instantiating this at the shipping cache is
+blocked ONLY by `EquivBEq ExprStructEq`. -/
+theorem insertSpec_holds {K V : Type} [BEq K] [Hashable K] [EquivBEq K]
+    [LawfulHashable K] (m : Std.HashMap K V) (key : K) (v : V) :
+    ∀ k : K, (m.insert key v).get? k =
+      if (key == k) = true then some v else m.get? k :=
+  fun k => insertSpec_of_lawful m key v k
 
 /-- Inserting a freshly translated result keeps the invariant, given that the
 new wire really carries the key's value and is reserved. This is the shim's
