@@ -106,7 +106,7 @@ theorem wires_render (ps : List Port) (h : ∀ p ∈ ps, PrintableType p.ty) :
     · simp [List.mapM_cons, renderWire, ht, hr]
 
 theorem body_lines (body : List Stmt) (widths resetWires : List Port)
-    (h : ∀ st ∈ body, ∃ lhs rhs, st = .assign lhs rhs ∧ Shape rhs) :
+    (h : ∀ st ∈ body, ∃ lhs rhs, st = .assign lhs rhs ∧ PrintShape rhs) :
     ∃ items, body.mapM (emitAstStmt (printWidths widths) resetWires) = some items ∧
       items.flatten.mapM (renderItem "    ") = some (body.map fun st =>
         Sparkle.Backend.Verilog.emitStmt st "    " widths) := by
@@ -114,7 +114,7 @@ theorem body_lines (body : List Stmt) (widths resetWires : List Port)
   | nil => exact ⟨[], rfl, rfl⟩
   | cons st body ih =>
     obtain ⟨lhs, rhs, rfl, hs⟩ := h st (by simp)
-    obtain ⟨item, hi, hr⟩ := emitStmt_render hs lhs "    " widths
+    obtain ⟨item, hi, hr⟩ := emitStmt_render_all hs lhs "    " widths
     have hi' : emitAstStmt (printWidths widths) resetWires (.assign lhs rhs) = some [item] := by
       simpa only [emitAstStmt] using hi
     obtain ⟨items, his, hrs⟩ := ih (fun s hs => h s (by simp [hs]))
@@ -122,7 +122,7 @@ theorem body_lines (body : List Stmt) (widths resetWires : List Port)
       by simp [List.mapM_cons, hr, hrs]⟩
 
 theorem filterMap_assigns {α : Type} (body : List Stmt)
-    (h : ∀ st ∈ body, ∃ lhs rhs, st = .assign lhs rhs ∧ Shape rhs)
+    (h : ∀ st ∈ body, ∃ lhs rhs, st = .assign lhs rhs ∧ PrintShape rhs)
     (f : Stmt → Option α) (hf : ∀ l r, f (.assign l r) = none) :
     body.filterMap f = [] := by
   apply List.filterMap_eq_nil_iff.mpr
@@ -137,7 +137,7 @@ grammar are explicit hypotheses, not yet derived from the synthesis entry. -/
 theorem emitModule_render (m : Sparkle.IR.AST.Module)
     (hprim : m.isPrimitive = false) (hparams : m.parameters = [])
     (htypes : ∀ p ∈ m.inputs ++ m.outputs ++ m.wires, PrintableType p.ty)
-    (hbody : ∀ st ∈ m.body, ∃ lhs rhs, st = .assign lhs rhs ∧ Shape rhs) :
+    (hbody : ∀ st ∈ m.body, ∃ lhs rhs, st = .assign lhs rhs ∧ PrintShape rhs) :
     ∃ sv, emitAstModule m = some sv ∧
       renderModule m.name
         (m.wires.filter fun p => !((m.inputs ++ m.outputs).map (·.name)).contains p.name).length sv
@@ -175,7 +175,7 @@ theorem emitModule_render (m : Sparkle.IR.AST.Module)
     split <;> simp_all [String.append_assoc]
 
 /-- The optimizer check discharges the body-shape hypothesis. Declaration
-types and module metadata remain explicit; `optCheck` does not check them. -/
+premises are explicit here; the entry bridge derives them on both branches. -/
 theorem acceptedOptimizer_module_render {m o : Sparkle.IR.AST.Module}
     (h : Sparkle.IR.OptCheck.optCheck m o = true)
     (hprim : o.isPrimitive = false) (hparams : o.parameters = [])
@@ -185,11 +185,14 @@ theorem acceptedOptimizer_module_render {m o : Sparkle.IR.AST.Module}
         (o.wires.filter fun p => !((o.inputs ++ o.outputs).map (·.name)).contains p.name).length sv
         = some (Sparkle.Backend.Verilog.toVerilog o) := by
   apply emitModule_render o hprim hparams htypes
-  unfold Sparkle.IR.OptCheck.optCheck at h
+  have h := (Bool.and_eq_true_iff.mp h).1
+  unfold Sparkle.IR.OptCheck.optCheckCore at h
   dsimp only at h
   split at h
   · rename_i dm ds hm ho
-    exact normBody_input_shape _ _ _ _ _ ho
+    intro st hs
+    obtain ⟨l, r, he, hr⟩ := normBody_input_shape _ _ _ _ _ ho st hs
+    exact ⟨l, r, he, PrintShape.ofShape hr⟩
   · cases h
 
 end Tools.ShippingModulePrintSoundness

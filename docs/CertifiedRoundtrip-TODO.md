@@ -1516,12 +1516,30 @@ to the ENTIRE module (headers/ports/wires included), under explicit concrete
 positive-width declaration and assignment-shape hypotheses. The optimizer
 check supplies the body-shape hypothesis via `acceptedOptimizer_module_render`.
 Tests include an arbitrary-width family and the real optimized `fragA` string.
-Still open: deriving the module metadata/type hypotheses at the source entry,
-identifier legality (sanitize-fixed is not enough: `1bad`, `module`), fallback
-width/`assignsCheck` derivation, and
-composition back to the user's declaration. Do not mark the printer complete.
+`ShippingPrintEntrySoundness.printedModule_render` now derives all renderer
+premises from the SAME actual synthesis run, under the existing `EnvDefines`,
+fragment well-formedness and positive-width assumptions. The translator's
+`DeclFrame` and entry's `DeclReady` carry metadata/type facts; cleanup supplies
+positive wire widths. The shipping optimizer now preserves `printDeclsCheck`
+when the input satisfies it, otherwise retaining the original module via the
+existing fallback. Both accepted and fallback body grammars are proved.
+`fragA_text_render` applies the theorem to the real declaration; negative tests
+reject metadata/type changes the old semantic checker alone would accept.
+Still open: identifier legality (sanitize-fixed is not enough: `1bad`,
+`module`), fallback width/`assignsCheck` derivation, and composition of the
+source semantics with SV evaluation. Byte equality is not parsing or RTL
+semantic equivalence. Do not mark the printer complete.
 See the printer continuation section of `ShippingCompiler-Soundness.md` for
 the ordered next steps and review of option A.
+
+**2026-09-26 tutorial / theorem packaging:**
+`compiledFragment_artifact` combines source/optimized-IR agreement and
+AST/printed-byte correspondence for one actual synthesis run. It does not
+claim SV semantic equivalence or expand the source fragment. The executable
+[tutorial chapter 7c](tutorial/md/Ch07c_VerifiedCompiler.md) applies it to the
+real `plus8` declaration and audits its axioms, with the remaining connections
+shown explicitly. Next proof work remains lexical validity and deriving
+`assignsCheck`/width-environment conditions on both optimizer arms.
 
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates

@@ -64,7 +64,7 @@ def normBody (we : WEnv) (ins : List String) :
 /-- Accept `o` as an optimisation of `m`: same ports, and every output
 normalises to the same expression, which reads only inputs declared with the
 same width in both modules (`o`'s normalisation trusts only those inputs). -/
-def optCheck (m o : Module) : Bool :=
+def optCheckCore (m o : Module) : Bool :=
   let ins := m.inputs.map (·.name)
   let wm := Sparkle.IR.RegDedup.declWidth m
   let wo := Sparkle.IR.RegDedup.declWidth o
@@ -78,6 +78,21 @@ def optCheck (m o : Module) : Bool :=
         decide (em = eo) && (Sparkle.IR.Reorder.refsOf em).all (fun x => insO.contains x)
       | _, _ => false
   | _, _ => false
+
+/-- Concrete declarations supported by the proved module renderer. This
+checks syntax/metadata only, not identifiers or expression width agreement. -/
+def printDeclsCheck (m : Module) : Bool :=
+  !m.isPrimitive && m.parameters.isEmpty &&
+    (m.inputs ++ m.outputs ++ m.wires).all fun p => match p.ty with
+      | .bit => true
+      | .bitVector n => 0 < n
+      | _ => false
+
+/-- Preserve printable declarations when the input already has them. The
+normal-form check alone says nothing about primitive/parameter metadata or
+unused wire types. Failing candidates use the existing unchanged fallback. -/
+def optCheck (m o : Module) : Bool :=
+  optCheckCore m o && (!printDeclsCheck m || printDeclsCheck o)
 
 /-- The statement shapes the synthesis entry produces: an `assign` of a
 constant, a reference, or one of the six operators on two references. -/

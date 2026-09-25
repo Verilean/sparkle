@@ -74,6 +74,7 @@ def renderBin : SVBinOp → Option String
 /-- A deliberately small, total AST renderer. Unsupported forms fail. -/
 def renderExpr : SVExpr → Option String
   | .lit (.decimal (some w) v) => some s!"{w}'d{v}"
+  | .lit (.hex (some w) v) => some s!"{w}'h{String.ofList (Nat.toDigits 16 v)}"
   | .ident n => some n
   | .binary op a b => do
     let tok ← renderBin op
@@ -81,6 +82,53 @@ def renderExpr : SVExpr → Option String
     let sb ← renderExpr b
     some s!"({sa} {tok} {sb})"
   | _ => none
+
+/-- Byte rendering needs no numerical fit premise. Negative constants are
+printed in hexadecimal by the shipping emitter; this is separate from the
+stronger hypotheses needed for SV evaluation. -/
+inductive PrintShape : Expr → Prop
+  | const (v : Int) (w : Nat) : PrintShape (.const v w)
+  | ref (x : String) : PrintShape (.ref x)
+  | bin {o : Operator} {a b : Expr} : isBinOp o = true → PrintShape a → PrintShape b →
+      PrintShape (.op o [a, b])
+
+theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
+  induction h with
+  | const _ _ => exact .const _ _
+  | ref x => exact .ref x
+  | bin ho _ _ ha hb => exact .bin ho ha hb
+
+theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := by
+  match e, h with
+  | .const v w, _ => exact .const v w
+  | .ref x, _ => exact .ref x
+  | .op o [.ref a, .ref b], h => exact .bin h (.ref a) (.ref b)
+
+theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
+    ∃ sv, emitAstExpr wof e = some sv ∧
+      renderExpr sv = some (Sparkle.Backend.Verilog.emitExpr wof e) := by
+  induction h with
+  | const v w =>
+    cases v with
+    | ofNat v =>
+      refine ⟨.lit (.decimal (some (if w == 0 then 1 else w)) v), ?_, ?_⟩
+      · simp [emitAstExpr]
+      · simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, Int.repr]
+        intro hneg; omega
+    | negSucc v =>
+      have hn : Int.negSucc v < 0 := by omega
+      refine ⟨.lit (.hex (some (if w == 0 then 1 else w))
+        (encodeConst (Int.negSucc v) (if w == 0 then 1 else w))), ?_, ?_⟩
+      · simp [emitAstExpr, hn]
+      · simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hn, encodeConst]
+  | ref x => exact ⟨.ident _, rfl, by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr]⟩
+  | @bin op a b hop _ _ ia ib =>
+    obtain ⟨sa, hsa, hra⟩ := ia
+    obtain ⟨sb, hsb, hrb⟩ := ib
+    cases op <;> simp_all [isBinOp]
+    all_goals
+      simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
+        Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
 
 /-- Arbitrarily nested expressions, including optimizer-inserted masks. -/
 theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :
@@ -144,6 +192,37 @@ theorem emitStmt_render {e : Expr} (h : Shape e) (lhs indent : String)
   · simp [renderItem, hr, Sparkle.Backend.Verilog.emitStmt]
     rfl
 
+theorem emitStmt_render_all {e : Expr} (h : PrintShape e) (lhs indent : String)
+    (wires : List Port) :
+    ∃ item, emitAstStmt (printWidths wires) wires (.assign lhs e) = some [item] ∧
+      renderItem indent item = some (Sparkle.Backend.Verilog.emitStmt (.assign lhs e) indent wires) := by
+  obtain ⟨sv, hs, hr⟩ := emitExpr_render_all h (printWidths wires)
+  refine ⟨.contAssign (.ident (Sparkle.Backend.Verilog.sanitizeName lhs)) sv, ?_, ?_⟩
+  · simp [emitAstStmt, hs]
+  · simp [renderItem, hr, Sparkle.Backend.Verilog.emitStmt]
+    rfl
+
+theorem checkedOptimize_printShape {m : Sparkle.IR.AST.Module} (hgate : simpleBody m = true) :
+    ∀ st ∈ (checkedOptimize m).body, ∃ l r, st = .assign l r ∧ PrintShape r := by
+  unfold checkedOptimize
+  simp only [hgate, if_true]
+  split
+  · rename_i hc
+    have hc := (Bool.and_eq_true_iff.mp hc).1
+    unfold optCheckCore at hc
+    dsimp only at hc
+    split at hc
+    · rename_i dm ds hm ho
+      intro st hs
+      obtain ⟨l, r, he, hr⟩ := normBody_input_shape _ _ _ _ _ ho st hs
+      exact ⟨l, r, he, PrintShape.ofShape hr⟩
+    · cases hc
+  · intro st hs
+    have hr := List.all_eq_true.mp hgate st hs
+    cases st with
+    | assign l r => exact ⟨l, r, rfl, printShape_simple hr⟩
+    | _ => cases hr
+
 /-- This is the emitted continuous-assignment body, not a module header or
 declaration renderer. Each item is tied to `emitAstStmt`. -/
 def renderItems (indent : String) (items : List SVModuleItem) : Option String := do
@@ -182,7 +261,8 @@ theorem acceptedOptimizer_body_render {m o : Sparkle.IR.AST.Module}
       renderItems indent items.flatten = some (String.intercalate "\n\n"
         (o.body.map fun st => Sparkle.Backend.Verilog.emitStmt st indent
           (o.wires ++ o.inputs ++ o.outputs))) := by
-  unfold optCheck at h
+  have h := (Bool.and_eq_true_iff.mp h).1
+  unfold optCheckCore at h
   dsimp only at h
   split at h
   · rename_i dm ds hm ho

@@ -270,3 +270,7 @@ Reference solution in `Solutions/Ch07.lean`.
 
 end Notebooks.Ch07
 ```
+
+Next: [Chapter 7c — 証明を、出力ファイルまで届ける](Ch07c_VerifiedCompiler.md)
+follows the general compiler proof from a user's Signal declaration to the
+actual generated artifact, and explains the remaining RTL-semantics boundary.

@@ -49,7 +49,7 @@ theorem identityModule_prints (n : Nat) (hn : 0 < n) :
     simp only [identityModule, List.cons_append, List.nil_append, List.mem_cons,
       List.not_mem_nil, or_false] at hp
     rcases hp with rfl | rfl | rfl <;> exact .bits n hn
-  have hb : ∀ st ∈ (identityModule n).body, ∃ l r, st = .assign l r ∧ Shape r := by
+  have hb : ∀ st ∈ (identityModule n).body, ∃ l r, st = .assign l r ∧ PrintShape r := by
     intro st hs
     simp only [identityModule, List.mem_cons, List.not_mem_nil, or_false] at hs
     subst st
@@ -78,8 +78,16 @@ run_cmd do
     throwError "expected documented zero-width type-rendering discrepancy"
 
 run_cmd do
+  -- Rendering itself needs no constant-fit premise, unlike SV evaluation.
+  for e in [Sparkle.IR.AST.Expr.const (-1) 8, .const (-3) 0, .const 300 8] do
+    let some sv := emitAstExpr (fun _ => none) e | throwError "constant AST failed"
+    unless renderExpr sv == some (Sparkle.Backend.Verilog.emitExpr (fun _ => none) e) do
+      throwError "constant byte rendering differs from shipping emitter"
+
+run_cmd do
   if (← get).messages.hasErrors then throwError "printer regression failed"
   for name in [``normE_input_shape, ``normBody_input_shape, ``emitExpr_render,
+      ``emitExpr_render_all, ``checkedOptimize_printShape,
       ``printedExpr_semantics, ``emitStmt_render, ``emitBody_render,
       ``acceptedOptimizer_body_render, ``type_render, ``port_render, ``ports_render,
       ``wires_render, ``body_lines, ``filterMap_assigns, ``emitModule_render,

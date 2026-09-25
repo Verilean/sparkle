@@ -223,11 +223,12 @@ theorem bindInputPort_returns {α : Type} {id : FVarId} {nm : String} {ty : HWTy
 
 
 theorem Grows.refl (s : CircuitState) : Grows s s :=
-  ⟨fun _ h => h, fun _ h => h, fun h => h, fun _ h => h⟩
+  ⟨fun _ h => h, fun _ h => h, fun h => h, fun _ h => h, DeclFrame.refl s⟩
 
 theorem Grows.trans {a b c : CircuitState} (h1 : Grows a b) (h2 : Grows b c) : Grows a c :=
   ⟨fun z hz => h2.1 z (h1.1 z hz), fun p hp => h2.2.1 p (h1.2.1 p hp),
-   fun h => h2.2.2.1 (h1.2.2.1 h), fun p hp => h2.2.2.2 p (h1.2.2.2 p hp)⟩
+   fun h => h2.2.2.1 (h1.2.2.1 h), fun p hp => h2.2.2.2.1 p (h1.2.2.2.1 p hp),
+   h1.2.2.2.2.trans h2.2.2.2.2⟩
 
 theorem WiresOk.mono_used {s t : CircuitState} (hw : t.module.wires = s.module.wires)
     (hu : ∀ x, s.usedNames.contains x = true → t.usedNames.contains x = true)
@@ -342,12 +343,15 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
     have hw0N : (CircuitM.addInput w0 (.bitVector n) sA).2.usedNames.contains w0 = true := by
       rw [hNu]; simp [Std.HashSet.contains_insert]
     have gN : Grows s (CircuitM.addInput w0 (.bitVector n) sA).2 := by
-      refine ⟨huN, fun p hp => ?_, fun hok => ?_, fun p hp => ?_⟩
+      refine ⟨huN, fun p hp => ?_, fun hok => ?_, fun p hp => ?_, ?_⟩
       · rw [hNw, hwires]; exact List.mem_cons_of_mem _ hp
       · exact WiresOk.mono_used hNw
           (fun x hx => by rw [hNu]; simp [Std.HashSet.contains_insert, hx])
           (WiresOk.fresh hfresh hused hwires hok)
       · rw [hNi, hinA]; exact List.mem_cons_of_mem _ hp
+      · have hf : DeclFrame s sA := by rw [← hsA]; exact DeclFrame.makeWire _ _ _ _
+        rw [addInput_state]
+        exact ⟨hf.parameters, hf.primitive, hf.wireTypes⟩
     refine ⟨ctx', s1, some w0 :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, Grows.trans gN hg,
       by rw [hb, hNb]; exact hbody, by rw [hr, hNr]; exact hrecA, by rw [hsb, hNs]; exact hsbA,
       by rw [hout, addInput_state]; exact houtA, ?_⟩
@@ -361,7 +365,7 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
         refine ⟨w0, rfl, ?_, ?_, ?_⟩
         · rw [hlook id hnotin]; exact lookup_cons_self id w0 ctx.varMap
         · exact hg.2.1 _ (by rw [hNw, hwires]; simp)
-        · exact hg.2.2.2 _ (by rw [hNi]; simp)
+        · exact hg.2.2.2.1 _ (by rw [hNi]; simp)
       | succ j =>
         obtain ⟨w, hw, rest'⟩ := hsig j nm' n' id' (by simpa using hj)
         exact ⟨w, by simpa using hw, rest'⟩
@@ -496,6 +500,15 @@ theorem addClockReset_assigns (m : Sparkle.IR.AST.Module)
     simp at hf
   · rfl
 
+theorem addClockReset_metadata (m : Sparkle.IR.AST.Module) :
+    (addClockResetIfSequential m).parameters = m.parameters ∧
+    (addClockResetIfSequential m).isPrimitive = m.isPrimitive := by
+  unfold addClockResetIfSequential
+  dsimp only
+  split
+  · split <;> split <;> exact ⟨rfl, rfl⟩
+  · exact ⟨rfl, rfl⟩
+
 theorem finishSynth_returns {declName : Name} {st : CircuitState} {M : Sparkle.IR.AST.Module} {D : Design}
     (h : MReturns (finishSynth declName [] false st) (M, D)) :
     M = (addClockResetIfSequential st.module).finalize ∧ D = st.design := by
@@ -589,13 +602,17 @@ theorem translateExprToWire_grows {ctx : CompilerState} {ρ : Valuation} {e : Le
 
 /-- Facts about a module the entry returned, READ OFF its construction, that
 the post-processing proofs need (`Tools/ShippingPostSoundness.lean`). -/
+def DeclReady (M : Sparkle.IR.AST.Module) : Prop :=
+  M.parameters = [] ∧ M.isPrimitive = false ∧
+  ∀ p ∈ M.wires, ∃ k, p.ty = .bitVector k
+
 def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
   (M.wires.map (·.name)).Nodup ∧
   "out" ∉ M.wires.map (·.name) ∧
   (∀ st ∈ M.body, ∃ l r, st = .assign l r ∧
     ((ShapedRhs r ∧ ({ name := l, ty := .bitVector n } : Port) ∈ M.wires) ∨
      (l = "out" ∧ ∃ w, r = .ref w))) ∧
-  (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }])
+  (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }]) ∧ DeclReady M
 
 /-- What synthesis success guarantees for a certified-shape declaration:
 distinct input ports for the `Signal` binders, and for ALL binder values, the
@@ -695,7 +712,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       obtain ⟨j, nm, hj, -⟩ := rhoOf_some _ vals id n' x' hx
       obtain ⟨w', -, hl, hwire, -⟩ := hsig' j nm n' id hj
       exact ⟨w', Tools.ShippingBindingsSoundness.visible_local ctx' _ id w' hl, hok1.2 _ hwire⟩
-    obtain ⟨⟨gu, gw, gk, gi⟩, -, -, hemit⟩ := translateExprToWire_grows hden htr hbl
+    obtain ⟨⟨gu, gw, gk, gi, gf⟩, -, -, hemit⟩ := translateExprToWire_grows hden htr hbl
     have hok2 : WiresOk s2 := gk hok1
     have hwid : WidthsAgree (weOf M) s2 := widthsAgree_weOf hok2 hMw
     have hinv : Inv ctx' (rhoOf (bs.zip ids) vals) (weOf M) mems initial s1 initial := by
@@ -731,7 +748,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       cases hp'
       exact hMi _ (gi _ hin)
     · obtain ⟨hout2, -, pre, hbody2, hpre⟩ := hemit
-      refine ⟨?_, ?_, ?_, ?_⟩
+      refine ⟨?_, ?_, ?_, ?_, ?_⟩
       · rw [hMw, List.map_reverse]; exact nodup_reverse hok2.1
       · intro hm
         rw [hMw, List.map_reverse, List.mem_reverse] at hm
@@ -768,6 +785,21 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
         rw [hM]
         simp only [Module.finalize, co, hst_o, hout2, hout1, hty']
         rfl
+      · have hf := hg.2.2.2.2.trans gf
+        obtain ⟨cp, cm⟩ := addClockReset_metadata st.module
+        refine ⟨?_, ?_, ?_⟩
+        · rw [hM]; simp only [Module.finalize, cp]
+          rw [hst]
+          change s2.module.parameters.reverse = []
+          rw [hf.parameters]; rfl
+        · rw [hM]; simp only [Module.finalize, cm]
+          rw [hst]
+          exact hf.primitive
+        · intro p hp
+          rw [hMw, List.mem_reverse] at hp
+          rcases hf.wireTypes p hp with hp | hp
+          · simp [CircuitM.init, Module.empty] at hp
+          · exact hp
     · obtain ⟨-, hin2, pre, hbody2, hpre⟩ := hemit
       -- no registers: no clock/reset ports, so the inputs are the binder ports
       have hall : ∀ stm ∈ st.module.body, ∃ l r, stm = Stmt.assign l r := by

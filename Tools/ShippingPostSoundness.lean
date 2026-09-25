@@ -520,7 +520,7 @@ theorem dropZeroWidth_entry (M : Sparkle.IR.AST.Module) (n : Nat) (hn : 0 < n)
     (dropZeroWidthModule M).body = M.body ∧ weOf (dropZeroWidthModule M) = weOf M ∧
     (dropZeroWidthModule M).inputs = M.inputs ∧ (dropZeroWidthModule M).outputs = M.outputs ∧
     ((dropZeroWidthModule M).wires.map (·.name)).Nodup := by
-  obtain ⟨hnd, hout, hbody, houts⟩ := hpr
+  obtain ⟨hnd, hout, hbody, houts, _⟩ := hpr
   unfold dropZeroWidthModule
   split
   · exact ⟨rfl, rfl, rfl, rfl, hnd⟩

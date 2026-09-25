@@ -247,7 +247,8 @@ theorem optCheck_sound {m o : Sparkle.IR.AST.Module} (hchk : optCheck m o = true
     ∃ envO, evalAssigns (Sparkle.IR.RegDedup.declWidth o) mems o.body init = some envO ∧
       (∀ p ∈ m.outputs, envO p.name = envM p.name) ∧
       o.inputs = m.inputs ∧ o.outputs = m.outputs := by
-  unfold optCheck at hchk
+  have hchk := (Bool.and_eq_true_iff.mp hchk).1
+  unfold optCheckCore at hchk
   simp only at hchk
   split at hchk
   · rename_i dm dO hm ho
@@ -309,7 +310,8 @@ theorem checkedOptimize_sound {m : Sparkle.IR.AST.Module} (hgate : simpleBody m 
 
 theorem optCheck_ports {m o : Sparkle.IR.AST.Module} (h : optCheck m o = true) :
     o.inputs = m.inputs ∧ o.outputs = m.outputs := by
-  unfold optCheck at h
+  have h := (Bool.and_eq_true_iff.mp h).1
+  unfold optCheckCore at h
   simp only at h
   split at h
   · simp only [Bool.and_eq_true, decide_eq_true_eq] at h

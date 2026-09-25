@@ -298,11 +298,42 @@ theorem WiresOk.fresh {s t : CircuitState} {r : String} {ty : HWType}
     · simp [Std.HashSet.contains_insert, hin p hp]
 
 /-- Names and declarations only grow, and declared names stay distinct. -/
+structure DeclFrame (s0 s1 : CircuitState) : Prop where
+  parameters : s1.module.parameters = s0.module.parameters
+  primitive : s1.module.isPrimitive = s0.module.isPrimitive
+  wireTypes : ∀ p ∈ s1.module.wires, p ∈ s0.module.wires ∨ ∃ n, p.ty = .bitVector n
+
+theorem DeclFrame.refl (s : CircuitState) : DeclFrame s s :=
+  ⟨rfl, rfl, fun _ hp => Or.inl hp⟩
+
+theorem DeclFrame.trans {s t u : CircuitState} (h : DeclFrame s t) (k : DeclFrame t u) :
+    DeclFrame s u := by
+  refine ⟨k.parameters.trans h.parameters, k.primitive.trans h.primitive, ?_⟩
+  intro p hp
+  rcases k.wireTypes p hp with hp | hp
+  · exact h.wireTypes p hp
+  · exact Or.inr hp
+
+theorem DeclFrame.makeWire (hint : String) (n : Nat) (named : Bool) (s : CircuitState) :
+    DeclFrame s (CircuitM.makeWire hint (.bitVector n) named s).2 := by
+  constructor
+  · rw [makeWire_module]; rfl
+  · rw [makeWire_module]; rfl
+  · intro p hp
+    rw [makeWire_module] at hp
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact Or.inr ⟨n, rfl⟩
+    · exact Or.inl hp
+
+theorem DeclFrame.emitAssign (l : String) (r : Sparkle.IR.AST.Expr) (s : CircuitState) :
+    DeclFrame s (CircuitM.emitAssign l r s).2 :=
+  ⟨rfl, rfl, fun _ hp => Or.inl hp⟩
+
 def Grows (s0 s1 : CircuitState) : Prop :=
   (∀ x, s0.usedNames.contains x = true → s1.usedNames.contains x = true) ∧
   (∀ p ∈ s0.module.wires, p ∈ s1.module.wires) ∧
   (WiresOk s0 → WiresOk s1) ∧
-  (∀ p ∈ s0.module.inputs, p ∈ s1.module.inputs)
+  (∀ p ∈ s0.module.inputs, p ∈ s1.module.inputs) ∧ DeclFrame s0 s1
 
 open Tools.ShippingBindingsSoundness (visible lookupVar_run)
 
@@ -669,13 +700,15 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
   rw [← hres] at hfresh hused hwires
   rw [← hsA] at hused hbody hwires hsbA hrecA
   rw [hs1]
-  refine ⟨res, hr, ⟨⟨?_, ?_, ?_, ?_⟩, ?_, ?_, hfresh, ?_⟩, ?_⟩
+  refine ⟨res, hr, ⟨⟨?_, ?_, ?_, ?_, ?_⟩, ?_, ?_, hfresh, ?_⟩, ?_⟩
   · intro z hz; rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert, hz]
   · intro p hp; rw [hsB, emitAssign_wires, hwires]; simp [hp]
   · intro hok
     exact (WiresOk.fresh hfresh hused hwires hok).congr
       (by rw [hsB, emitAssign_wires]) (by rw [hsB, emitAssign_usedNames])
   · intro p hp; rw [hsB, emitAssign_inputs, hsA, makeWire_inputs]; exact hp
+  · rw [hsB, hsA]
+    exact (DeclFrame.makeWire hint n named s0).trans (DeclFrame.emitAssign _ _ _)
   · rw [hsB, emitAssign_sourceBindings, hsbA]
   · rw [hsB, emitAssign_translateRecord, hrecA]
   · refine ⟨by rw [hsB, emitAssign_outputs, hsA, makeWire_outputs],
@@ -776,9 +809,9 @@ theorem translateCanonicalSignalBinary_branch
     intro z hz; rw [hused]; simp [Std.HashSet.contains_insert, hz]
   have hresA : sA.usedNames.contains res = true := by rw [hused]; simp [Std.HashSet.contains_insert]
   have hblA : BoundLookup ctx ρ sA := hbl.transfer huA hsbA
-  obtain ⟨⟨gAu, gAw, gAk, gAi⟩, sbB, rfB, eA⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
+  obtain ⟨⟨gAu, gAw, gAk, gAi, gAf⟩, sbB, rfB, eA⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
   have hblB : BoundLookup ctx ρ sB := hblA.transfer gAu sbB
-  obtain ⟨⟨gBu, gBw, gBk, gBi⟩, sbC, rfC, eB⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
+  obtain ⟨⟨gBu, gBw, gBk, gBi, gBf⟩, sbC, rfC, eB⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
   have wiresD : ∀ p ∈ sC.module.wires, p ∈ sD.module.wires := by
     intro p hp; rw [hsD, emitAssign_wires]; exact hp
   have huD : ∀ z, sC.usedNames.contains z = true → sD.usedNames.contains z = true := by
@@ -795,7 +828,11 @@ theorem translateCanonicalSignalBinary_branch
         (by rw [hsD, emitAssign_wires]) (by rw [hsD, emitAssign_usedNames]),
       fun p hp => by
         rw [hsD, emitAssign_inputs]
-        exact gBi p (gAi p (by rw [hsA, makeWire_inputs]; exact hp))⟩,
+        exact gBi p (gAi p (by rw [hsA, makeWire_inputs]; exact hp)),
+      by
+        have hfA : DeclFrame s0 sA := by rw [hsA]; exact DeclFrame.makeWire _ _ _ _
+        rw [hsD]
+        exact ((hfA.trans gAf).trans gBf).trans (DeclFrame.emitAssign _ _ _)⟩,
     by rw [hsD, emitAssign_sourceBindings, sbC, sbB, hsbA], rfAll, hfresh, ?_⟩, ?_⟩
   · obtain ⟨hoA, hiA, preA, hbA, hA⟩ := eA
     obtain ⟨hoB, hiB, preB, hbB, hB⟩ := eB
@@ -904,7 +941,7 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     obtain ⟨hw, hs1⟩ := Returns.pure k
     rw [hsc] at hs1
     rw [hs1, hw]
-    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he,
+    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp, DeclFrame.refl _⟩, rfl, fun w e' he => Or.inl he,
       Emits.refl _ _⟩, ?_⟩
     intro env0 hinv _
     obtain ⟨hv, hwid⟩ := hinv.values id _ _ w' hρ hw'
@@ -916,12 +953,12 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     · simp [Lean.Expr.getAppFn] at hfn
     · rw [hfn] at hcore
       simp only [beq_self_eq_true, if_true] at hcore
-      obtain ⟨w', hr, ⟨⟨gu, gw, gk, gi⟩, sb, hrec, hfr, em⟩, hsem⟩ :=
+      obtain ⟨w', hr, ⟨⟨gu, gw, gk, gi, gf⟩, sb, hrec, hfr, em⟩, hsem⟩ :=
         translateSignalPureLiteral_branch (we := we) (mems := mems) (initial := initial) hfn
           (Denotes.pureLit hfn hback hlit) hcore
       obtain ⟨hs1, hw⟩ := after w' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_, em⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi, ⟨gf.parameters, gf.primitive, gf.wireTypes⟩⟩, sb, ?_, em⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -949,11 +986,11 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
       obtain ⟨w'', sd, htr, kk⟩ := Returns.bind hcore
       obtain ⟨hr, hsd⟩ := Returns.pure kk
       rw [← hsd] at htr
-      obtain ⟨⟨⟨gu, gw, gk, gi⟩, sb, rf, hfr, em⟩, hsem⟩ :=
+      obtain ⟨⟨⟨gu, gw, gk, gi, gf⟩, sb, rf, hfr, em⟩, hsem⟩ :=
         translateCanonicalSignalBinary_branch ih hfn hop hden htr hbl
       obtain ⟨hs1, hw⟩ := after w'' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_, em⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi, ⟨gf.parameters, gf.primitive, gf.wireTypes⟩⟩, sb, ?_, em⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -990,7 +1027,7 @@ theorem translateStepWith_run {fallback : TranslateFn → TranslateFn} {rec : Tr
       obtain ⟨hw, hs1⟩ := Returns.pure k
       have hrec := hval w' rfl
       rw [hs1, hs2, hw]
-      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he,
+      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp, DeclFrame.refl _⟩, rfl, fun w e' he => Or.inl he,
       Emits.refl _ _⟩, ?_⟩
       intro env0 hinv _
       obtain ⟨hu, hv, hwid⟩ := hinv.record w' e hrec n x hden

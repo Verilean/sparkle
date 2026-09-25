@@ -886,14 +886,14 @@ that tree equals the shipping `toVerilog` string, including comments, ports,
 internal-wire filtering and whitespace. Its hypotheses are: nonprimitive,
 no parameters, concrete bit/positive-bitvector declarations, and assignment
 bodies in the proved expression grammar. These declaration hypotheses have
-NOT yet been derived at the source entry.
+now been derived at the source entry (see the entry continuation below).
 
 The renderer receives only the SV AST and two formatting parameters: the
 original module name for the comment, and the wire-declaration prefix length.
 Both item portions are checked for the appropriate AST constructors; a wrong
 split is rejected. `acceptedOptimizer_module_render` derives the body grammar
-from the shipping `optCheck`, but retains the metadata/type hypotheses since
-that checker does not check them.
+from the shipping `optCheck`; that helper retains explicit metadata/type
+hypotheses, which the entry continuation now discharges.
 
 Tests cover empty ports/body, internal wires, port/wire duplicates, bit and
 one-bit-vector declarations, original versus sanitized module names, an
@@ -903,6 +903,35 @@ shipping type is `logic [0:0]` while `widthAstOf` gives a scalar. The existing
 `fragA` integration test now compares the real optimized module's AST rendering
 with the exact string handed out by the shipping printer. That comparison is
 an integration regression, not a per-circuit semantic proof.
+
+**Entry continuation:** `Tools/ShippingPrintEntrySoundness.lean` proves
+`printedModule_render` for the SAME successful `synthesizeCombinational` run
+as the source theorem, under `EnvDefines`, fragment well-formedness and positive
+width. There are no additional renderer premises. `DeclFrame` follows actual
+allocation/translation, `DeclReady` records the entry's empty parameters,
+nonprimitive status and concrete wire types, and zero-width cleanup supplies
+positive internal-wire widths. The statement grammar follows both optimizer
+arms: normalization supplies the accepted arm; the entry's simple statements
+supply fallback. `PrintShape` permits arbitrary integer constants for byte
+rendering; this does not weaken any SV evaluation condition.
+
+The shipping validator now separates `optCheckCore` (the previous semantic
+check) and a declaration-preservation guard. If the original module satisfies
+`printDeclsCheck`, an accepted proposal must too. Otherwise the existing
+unoptimized fallback is used; there is no new compilation refusal. Negative
+tests change only primitive metadata or add an unused zero-width wire: the
+old core accepts, the strengthened checker rejects. The real `fragA` optimizer
+result remains accepted. `fragA_text_render` applies the general entry theorem
+to the actual declaration, and the test audits its axioms against the standard
+three. This closes byte rendering, **not** the lexical or SV evaluation bridge.
+
+`compiledFragment_artifact` now packages the two established results in
+`FragmentArtifact`: all-input source/optimized-IR agreement and the AST/byte
+correspondence for the SAME returned module. Packaging does not discharge the
+remaining SV semantics conditions. The executable tutorial
+[Chapter 7c](tutorial/md/Ch07c_VerifiedCompiler.md) applies this theorem to a real
+adder declaration, checks its quoted body by `rfl`, and audits standard axioms.
+Its diagram keeps the lexical and SV evaluation links explicitly unfinished.
 
 **Review of proposed option A:** retaining an optimizer result only after a
 forward-fragment check is sensible, but the fallback's check must be proved
@@ -918,8 +947,8 @@ complete SystemVerilog keyword specification.
 Next, in order:
 
 1. **Done for the stated module fragment:** full module rendering equality.
-   Deriving its metadata/type hypotheses from both paths of the checked
-   optimizer remains open; do not silently assume those at the source entry.
+   Metadata/type and body-shape hypotheses are now derived from the real source
+   entry through both paths of the checked optimizer.
 2. Establish the lexical contract for the source fragment and generated names.
    Until then byte equality is NOT a theorem that an SV tool parses the string.
 3. Derive `assignsCheck` and its width/environment conditions for the fallback,
@@ -936,8 +965,7 @@ Next, in order:
   the existing SV-subset semantics (`evalSV`, `emit_sem_assigns` in
   `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
   Rendering equality is now proved on the stated module fragment. Remaining:
-  deriving that fragment's declaration hypotheses at the source entry, lexical
-  validity, the width conditions `assignsCheck` needs, and the output-port
+  lexical validity, the width conditions `assignsCheck` needs, and the output-port
   width environment.
   The SV grammar (that tools read the rendered text as that AST) will remain
   the trusted step.

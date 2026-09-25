@@ -1,6 +1,6 @@
 import Tools.ShippingPostSoundness
 import Tools.ShippingOptSoundness
-import Tools.ShippingModulePrintSoundness
+import Tools.ShippingPrintEntrySoundness
 
 /-! The synthesis-entry theorems on REAL declarations: the quotation matches what
 Lean elaborates, the user's definition is `denoteFE` by `rfl`, the certified
@@ -75,6 +75,22 @@ entry on `fragA` whose environment defines `fragA` that way. -/
 #def_decl_value fragAValue of fragA
 
 theorem fragAValue_eq : fragAValue = quoteDecl `dom [`a, `b] 8 feA := rfl
+
+/-- The general byte-rendering theorem applies to the same real declaration
+and synthesis run, without separate metadata or body-shape hypotheses. -/
+theorem fragA_text_render {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (M, D) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
+    let o := Sparkle.IR.OptCheck.checkedOptimize M
+    ∃ sv, Tools.SVParser.EmitAst.emitAstModule o = some sv ∧
+      Tools.ShippingModulePrintSoundness.renderModule o.name
+        (o.wires.filter fun p => !((o.inputs ++ o.outputs).map (·.name)).contains p.name).length sv
+        = some (Sparkle.Backend.Verilog.toVerilog o) := by
+  rw [fragAValue_eq] at henv
+  exact Tools.ShippingPrintEntrySoundness.printedModule_render h henv
+    (by simp [feA, FExpr.WF]) (by decide)
 
 theorem feA_wf : feA.WF 2 8 := by simp [feA, FExpr.WF]
 
@@ -271,6 +287,12 @@ run_cmd liftTermElabM do
     throwError "optCheck rejected the real optimizer's result on fragA"
   unless Sparkle.IR.OptCheck.checkedOptimize m == o do
     throwError "checkedOptimize did not keep the accepted optimisation"
+  for bad in [{o with isPrimitive := true},
+      {o with wires := o.wires ++ [{name := "unused_zero", ty := .bitVector 0}]}] do
+    unless Sparkle.IR.OptCheck.optCheckCore m bad do
+      throwError "metadata negative control must pass the old semantic checker"
+    unless !(Sparkle.IR.OptCheck.optCheck m bad) do
+      throwError "optCheck accepted a proposal with unsupported printed declarations"
   -- Integration check for the general module-rendering theorem: compare the
   -- SAME optimized module the shipping command hands to toVerilog. This is
   -- a byte regression, not a new per-circuit semantic certificate.
@@ -288,7 +310,11 @@ run_cmd liftTermElabM do
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "entry regression failed"
-  for name in [``fragA_printed_correct, ``printedModule_fragment,
+  for name in [``fragA_text_render, ``fragA_printed_correct, ``printedModule_fragment,
+      ``Tools.ShippingPrintEntrySoundness.printedModule_render,
+      ``Tools.ShippingPrintEntrySoundness.compiledFragment_artifact,
+      ``Tools.ShippingPrintEntrySoundness.synthesized_printFacts,
+      ``Tools.ShippingPrintEntrySoundness.checkedOptimize_printDecls,
       ``Tools.ShippingOptSoundness.optCheck_sound,
       ``Tools.ShippingOptSoundness.checkedOptimize_sound, ``postprocess_facts,
       ``fragA_ir_correct, ``fragAValue_eq, ``fragmentDecl_of_env,
