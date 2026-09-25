@@ -8,8 +8,8 @@ fragment, rendering `emitAstExpr` is proved equal to the SHIPPING `emitExpr`.
 This is a byte equality, not a parser experiment. `printedExpr_semantics`
 also connects that same tree to the existing SV-subset evaluation theorem.
 
-This does not yet certify module text: declarations, identifier legality and
-the module renderer remain to be connected. In particular, sanitize-fixed
+`ShippingModulePrintSoundness` extends byte equality to declarations and full
+module text. Identifier legality remains separate. In particular, sanitize-fixed
 names need not be legal SV identifiers (digits at the start and keywords).
 No parser correctness or identifier legality is asserted by byte equality.
 -/

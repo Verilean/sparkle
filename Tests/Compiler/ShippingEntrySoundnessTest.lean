@@ -1,5 +1,6 @@
 import Tools.ShippingPostSoundness
 import Tools.ShippingOptSoundness
+import Tools.ShippingModulePrintSoundness
 
 /-! The synthesis-entry theorems on REAL declarations: the quotation matches what
 Lean elaborates, the user's definition is `denoteFE` by `rfl`, the certified
@@ -270,6 +271,15 @@ run_cmd liftTermElabM do
     throwError "optCheck rejected the real optimizer's result on fragA"
   unless Sparkle.IR.OptCheck.checkedOptimize m == o do
     throwError "checkedOptimize did not keep the accepted optimisation"
+  -- Integration check for the general module-rendering theorem: compare the
+  -- SAME optimized module the shipping command hands to toVerilog. This is
+  -- a byte regression, not a new per-circuit semantic certificate.
+  let some sv := Tools.SVParser.EmitAst.emitAstModule o
+    | throwError "fragA: optimized module has no SV AST"
+  let wireCount := (o.wires.filter fun p => !((o.inputs ++ o.outputs).map (·.name)).contains p.name).length
+  unless Tools.ShippingModulePrintSoundness.renderModule o.name wireCount sv ==
+      some (Sparkle.Backend.Verilog.toVerilog o) do
+    throwError "fragA: shipping module text differs from SV AST rendering"
   let ins := m.inputs.map (·.name)
   let bogus : Sparkle.IR.AST.Module :=
     { o with body := [.assign "out" (.op .add [.ref ins[0]!, .ref ins[1]!])] }

@@ -875,9 +875,34 @@ SV AST for fitting nonnegative constants, references and arbitrarily nested
   optimized body. It does not cover the fallback arm merely by naming it.
 
 The proof/test modules are registered in Lake and `Tests.AllTests`. The test
-audits the seven bridge/shape theorems for standard axioms only, exercises a
+audits the bridge/shape theorems for standard axioms only, exercises a
 nested masked expression, and checks rejection of unsupported rendering forms.
 No compiler, optimizer, or printer behavior changed in this step.
+
+**Module rendering continuation:** `Tools/ShippingModulePrintSoundness.lean`
+now closes the byte-rendering part for the whole module. `emitModule_render`
+produces the existing `emitAstModule` tree and proves that `renderModule` of
+that tree equals the shipping `toVerilog` string, including comments, ports,
+internal-wire filtering and whitespace. Its hypotheses are: nonprimitive,
+no parameters, concrete bit/positive-bitvector declarations, and assignment
+bodies in the proved expression grammar. These declaration hypotheses have
+NOT yet been derived at the source entry.
+
+The renderer receives only the SV AST and two formatting parameters: the
+original module name for the comment, and the wire-declaration prefix length.
+Both item portions are checked for the appropriate AST constructors; a wrong
+split is rejected. `acceptedOptimizer_module_render` derives the body grammar
+from the shipping `optCheck`, but retains the metadata/type hypotheses since
+that checker does not check them.
+
+Tests cover empty ports/body, internal wires, port/wire duplicates, bit and
+one-bit-vector declarations, original versus sanitized module names, an
+arbitrary-positive-width identity-module theorem, and rejection of a wrong
+layout split. Width zero is a pinned counterexample to byte equality: the
+shipping type is `logic [0:0]` while `widthAstOf` gives a scalar. The existing
+`fragA` integration test now compares the real optimized module's AST rendering
+with the exact string handed out by the shipping printer. That comparison is
+an integration regression, not a per-circuit semantic proof.
 
 **Review of proposed option A:** retaining an optimizer result only after a
 forward-fragment check is sensible, but the fallback's check must be proved
@@ -892,10 +917,9 @@ complete SystemVerilog keyword specification.
 
 Next, in order:
 
-1. Prove rendering of module headers, ports and wire declarations, and compose
-   with assignment-body rendering to relate `toVerilog` to `emitAstModule`.
-   Preserve the original module-name comment and distinguish zero-width ports
-   (the two emitters do not currently print identical type syntax there).
+1. **Done for the stated module fragment:** full module rendering equality.
+   Deriving its metadata/type hypotheses from both paths of the checked
+   optimizer remains open; do not silently assume those at the source entry.
 2. Establish the lexical contract for the source fragment and generated names.
    Until then byte equality is NOT a theorem that an SV tool parses the string.
 3. Derive `assignsCheck` and its width/environment conditions for the fallback,
@@ -911,8 +935,10 @@ Next, in order:
 * **Text ↔ SV semantics (next).** Relate `toVerilog (checkedOptimize M)` to
   the existing SV-subset semantics (`evalSV`, `emit_sem_assigns` in
   `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
-  Remaining: the printed string is the rendering of that SV AST, the width
-  conditions `assignsCheck` needs, and the output-port width environment.
+  Rendering equality is now proved on the stated module fragment. Remaining:
+  deriving that fragment's declaration hypotheses at the source entry, lexical
+  validity, the width conditions `assignsCheck` needs, and the output-port
+  width environment.
   The SV grammar (that tools read the rendered text as that AST) will remain
   the trusted step.
 * Width 0, `EnvDefines`, registers/memories/instances, as before.

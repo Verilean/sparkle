@@ -1511,8 +1511,14 @@ fragment. A successful `optCheck` derives the optimized body's shape premise.
 Expression-level SV semantics composes with the rendering equality under the
 existing explicit `sf4Check`/boundedness hypotheses. Standard-axiom audit and
 focused tests are in `ShippingPrintSoundnessTest`, imported by `Tests.AllTests`.
-Still open: module headers/ports/wires, identifier legality (sanitize-fixed is
-not enough: `1bad`, `module`), fallback width/`assignsCheck` derivation, and
+`ShippingModulePrintSoundness.emitModule_render` now extends byte equality
+to the ENTIRE module (headers/ports/wires included), under explicit concrete
+positive-width declaration and assignment-shape hypotheses. The optimizer
+check supplies the body-shape hypothesis via `acceptedOptimizer_module_render`.
+Tests include an arbitrary-width family and the real optimized `fragA` string.
+Still open: deriving the module metadata/type hypotheses at the source entry,
+identifier legality (sanitize-fixed is not enough: `1bad`, `module`), fallback
+width/`assignsCheck` derivation, and
 composition back to the user's declaration. Do not mark the printer complete.
 See the printer continuation section of `ShippingCompiler-Soundness.md` for
 the ordered next steps and review of option A.
