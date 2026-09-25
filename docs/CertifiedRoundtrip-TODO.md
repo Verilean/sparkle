@@ -1539,6 +1539,19 @@ The gaps, in the order they weaken the claim:
   See `ShippingCompiler-Soundness.md` for the actual entry points and proof plan.
 
   **Shipping-compiler worklist:**
+  - [x] Fix the formal shape of success/preservation for the real `CompilerM`
+    and prove two branches of the actual translator in it (2026-09-25,
+    `Tools/ShippingTranslateSoundness.lean`): success predicate with
+    bind/pure/lift/throw/get/set rules, oracle model for MetaM, source semantics
+    on `Lean.Expr` tied to the library by `rfl`, fuel-knot induction; Signal×Signal
+    canonical operators and `Signal.pure` literals. Found and fixed an accepted
+    miscompile (operator instance ignored). Remaining premises are listed in
+    docs/ShippingCompiler-Soundness.md, "Formal shape".
+  - [ ] Make the shipping knot a fuel-bounded fixpoint of a non-partial step.
+  - [ ] Extend `Spec` with the source-binding invariant; prove the `fvar` leaf.
+  - [ ] Move IR-affecting `IO.Ref` caches into pure builder state.
+  - [ ] Lower non-canonical operator instances by their actual body instead of
+    refusing them.
   - [x] Identify actual success boundaries: synthesis core, zero-width cleanup,
     register deduplication, symbolic-width entry and hierarchical entry.
   - [x] Measure and fix an accepted miscompile in applicative lowering:

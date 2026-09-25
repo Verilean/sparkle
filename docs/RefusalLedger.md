@@ -31,6 +31,18 @@ verdicts:
 
 ## Deep route (`#verify_elab_deep`, `Tools/DeepElab.lean`)
 
+**Operator instances (2026-09-25):** the operator lowering dispatched on the
+method name (`HAdd.hAdd ↦ .add`) whatever the instance. **BUG, accepted
+miscompile, fixed:** a user `HAdd (Signal dom (BitVec 8)) …` whose `+` is
+subtraction gave source 3 + 10 = 249 and RTL 13, with synthesis reporting
+success. The Signal intercept and the `primitiveRegistry` path now require a
+listed library instance, including the inner instance of core's generic
+wrappers. **New refusal, legitimate program:** such a user instance is now
+REFUSED ("Cannot instantiate HAdd.hAdd"). That is sound but not complete. The
+better fix is to lower the instance's actual body, as the applicative fix
+(`01b09bc`) does for lambdas. That is the next item for this entry, not
+something to leave refused indefinitely.
+
 **Allocator audit (2026-09-24):** the public builder's unnamed `freshName`
 reused `_tmp_x_0` after that exact name had been reserved. **BUG in the builder
 contract, fixed:** both naming modes now use a total suffix search with a

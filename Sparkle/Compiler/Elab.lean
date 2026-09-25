@@ -283,6 +283,116 @@ def addParameter (name : String) (defaultValue : Nat) : CompilerM Unit := do
 
 end CompilerM
 
+/-- Library instances the Signal operator intercept may lower directly, with the
+    operand kinds each one fixes: `(method, instance, lhsIsSignal, rhsIsSignal)`.
+
+    The source meaning of `a + b` is decided by the INSTANCE, not by the method
+    name. Dispatching on `HAdd.hAdd` alone compiled a user instance whose `+` is
+    subtraction as an adder: source 3 + 10 = 249, emitted RTL 13 (measured
+    2026-09-25). An application whose instance is not listed here is left to
+    the general unfolding path, which lowers the instance's actual body. -/
+def canonicalSignalBinInsts : List (Name × Name × Bool × Bool) :=
+  [ (``HAdd.hAdd, ``Sparkle.Core.Signal.instHAddSignalBitVec, true, true),
+    (``HAdd.hAdd, ``Sparkle.Core.Signal.instHAddSignalBitVec_1, true, false),
+    (``HAdd.hAdd, ``Sparkle.Core.Signal.instHAddBitVecSignal, false, true),
+    (``HSub.hSub, ``Sparkle.Core.Signal.instHSubSignalBitVec, true, true),
+    (``HSub.hSub, ``Sparkle.Core.Signal.instHSubSignalBitVec_1, true, false),
+    (``HSub.hSub, ``Sparkle.Core.Signal.instHSubBitVecSignal, false, true),
+    (``HMul.hMul, ``Sparkle.Core.Signal.instHMulSignalBitVec, true, true),
+    (``HMul.hMul, ``Sparkle.Core.Signal.instHMulSignalBitVec_1, true, false),
+    (``HMul.hMul, ``Sparkle.Core.Signal.instHMulBitVecSignal, false, true),
+    (``HAnd.hAnd, ``Sparkle.Core.Signal.instHAndSignalBitVec, true, true),
+    (``HAnd.hAnd, ``Sparkle.Core.Signal.instHAndSignalBitVec_1, true, false),
+    (``HAnd.hAnd, ``Sparkle.Core.Signal.instHAndBitVecSignal, false, true),
+    (``HAnd.hAnd, ``Sparkle.Core.Signal.instHAndSignalBool, true, true),
+    (``HOr.hOr, ``Sparkle.Core.Signal.instHOrSignalBitVec, true, true),
+    (``HOr.hOr, ``Sparkle.Core.Signal.instHOrSignalBitVec_1, true, false),
+    (``HOr.hOr, ``Sparkle.Core.Signal.instHOrBitVecSignal, false, true),
+    (``HOr.hOr, ``Sparkle.Core.Signal.instHOrSignalBool, true, true),
+    (``HXor.hXor, ``Sparkle.Core.Signal.instHXorSignalBitVec, true, true),
+    (``HXor.hXor, ``Sparkle.Core.Signal.instHXorSignalBitVec_1, true, false),
+    (``HXor.hXor, ``Sparkle.Core.Signal.instHXorBitVecSignal, false, true),
+    (``HXor.hXor, ``Sparkle.Core.Signal.instHXorSignalBool, true, true),
+    (``HShiftLeft.hShiftLeft, ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec_1, true, true),
+    (``HShiftLeft.hShiftLeft, ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec, true, false),
+    (``HShiftLeft.hShiftLeft, ``Sparkle.Core.Signal.instHShiftLeftBitVecSignal, false, true),
+    (``HShiftRight.hShiftRight, ``Sparkle.Core.Signal.instHShiftRightSignalBitVec_1, true, true),
+    (``HShiftRight.hShiftRight, ``Sparkle.Core.Signal.instHShiftRightSignalBitVec, true, false),
+    (``HShiftRight.hShiftRight, ``Sparkle.Core.Signal.instHShiftRightBitVecSignal, false, true),
+    (``HAppend.hAppend, ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat, true, true),
+    (``HAppend.hAppend, ``Sparkle.Core.Signal.instHAppendSignalBitVecHAddNat_1, true, false),
+    (``HAppend.hAppend, ``Sparkle.Core.Signal.instHAppendBitVecSignalHAddNat, false, true) ]
+
+/-- The operand kinds of a canonical Signal operator application, read from its
+    instance argument (index `size - 3` of `method α β γ inst a b`). `none` when
+    the instance is not a listed library instance. Pure: no MetaM oracle. -/
+def canonicalSignalBinKinds (method : Name) (args : Array Lean.Expr) : Option (Bool × Bool) :=
+  if args.size < 3 then none else
+  match args[args.size - 3]!.getAppFn with
+  | .const inst _ =>
+    (canonicalSignalBinInsts.find? fun (m, i, _, _) => m == method && i == inst).map
+      fun (_, _, s1, s2) => (s1, s2)
+  | _ => none
+
+/-- Core (scalar) instances the primitive registry may lower by method name:
+    `(method, outerInstance, innerInstance?)`. Generic core wrappers such as
+    `instHAdd` take the real instance as their last argument, so a user
+    `Add (BitVec n)` arrives as `instHAdd _ userAdd` and must be checked there.
+    `instBEqOfDecidableEq` needs no inner check: any `DecidableEq` instance
+    decides propositional equality, because it carries the proof. -/
+def canonicalScalarMethodInsts : List (Name × Name × Option Name) :=
+  [ (``HAdd.hAdd, ``instHAdd, some ``BitVec.instAdd),
+    (``HSub.hSub, ``instHSub, some ``BitVec.instSub),
+    (``HMul.hMul, ``instHMul, some ``BitVec.instMul),
+    (``HAnd.hAnd, ``instHAndOfAndOp, some ``BitVec.instAndOp),
+    (``HOr.hOr, ``instHOrOfOrOp, some ``BitVec.instOrOp),
+    (``HXor.hXor, ``instHXorOfXorOp, some ``BitVec.instXorOp),
+    (``HShiftLeft.hShiftLeft, ``BitVec.instHShiftLeft, none),
+    (``HShiftLeft.hShiftLeft, ``BitVec.instHShiftLeftNat, none),
+    (``HShiftRight.hShiftRight, ``BitVec.instHShiftRight, none),
+    (``HShiftRight.hShiftRight, ``BitVec.instHShiftRightNat, none),
+    (``HAppend.hAppend, ``BitVec.instHAppendHAddNat, none),
+    (``Neg.neg, ``BitVec.instNeg, none),
+    (``Complement.complement, ``BitVec.instComplement, none),
+    -- Signal-level unary instances (library): `(!·) <$> a`, `(~~~·) <$> a`, `(-·) <$> a`
+    (``Complement.complement, ``Sparkle.Core.Signal.instComplementSignalBool, none),
+    (``Complement.complement, ``Sparkle.Core.Signal.instComplementSignalBitVec, none),
+    (``Neg.neg, ``Sparkle.Core.Signal.instNegSignalBitVec, none),
+    (``BEq.beq, ``instBEqOfDecidableEq, none),
+    (``LT.lt, ``instLTBitVec, none),
+    (``LE.le, ``instLEBitVec, none) ]
+
+/-- Typeclass METHODS in the primitive registry: their meaning depends on the
+    instance, so they may only be lowered by name when the instance is canonical.
+    Concrete functions (`BitVec.add`, `Bool.and`, ...) are unaffected. -/
+def overloadedPrimitiveMethods : List Name :=
+  [``HAdd.hAdd, ``HSub.hSub, ``HMul.hMul, ``HAnd.hAnd, ``HOr.hOr, ``HXor.hXor,
+   ``HShiftLeft.hShiftLeft, ``HShiftRight.hShiftRight, ``ShiftLeft.shiftLeft,
+   ``ShiftRight.shiftRight, ``HAppend.hAppend, ``Neg.neg, ``Complement.complement,
+   ``BEq.beq, ``LT.lt, ``LE.le]
+
+/-- Is this application of an overloaded method using an instance whose meaning
+    the IR operator matches? Pure; reads only the instance argument. Unknown
+    methods and unlisted instances answer `false`, so the caller falls back to
+    unfolding the instance's actual definition. -/
+def canonicalMethodInst (method : Name) (args : Array Lean.Expr) : Bool :=
+  let unary := method == ``Neg.neg || method == ``Complement.complement
+  let k := if unary then 2 else 3
+  if args.size < k then false else
+  let inst := args[args.size - k]!
+  match inst.getAppFn with
+  | .const c _ =>
+    (canonicalSignalBinInsts.any fun (m, i, _, _) => m == method && i == c) ||
+    (canonicalScalarMethodInsts.any fun (m, outer, inner?) =>
+      m == method && outer == c &&
+      match inner? with
+      | none => true
+      | some inner =>
+        match inst.getAppArgs.back? with
+        | some ia => ia.getAppFn.isConstOf inner
+        | none => false)
+  | _ => false
+
 /--
   Primitive Registry: Maps Lean function names to IR operators
 -/
@@ -1065,6 +1175,108 @@ partial def canonHardwareExpr (value : Lean.Expr) : CompilerM Lean.Expr := do
 def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
   return toString (← canonHardwareExpr value).hash
 
+/-- The IR operator the Signal intercept emits for a method name (shipping
+    dispatch table, formerly an inline `match` in `translateExprToWireImpl`). -/
+def signalBinOpOf : Name → Option Operator
+  | ``HAdd.hAdd => some .add
+  | ``HSub.hSub => some .sub
+  | ``HMul.hMul => some .mul
+  | ``HAnd.hAnd => some .and
+  | ``HOr.hOr => some .or
+  | ``HXor.hXor => some .xor
+  | ``HShiftLeft.hShiftLeft => some .shl
+  | ``HShiftRight.hShiftRight => some .shr
+  | _ => none
+
+/-- A natural-number literal, recognised purely: a raw literal or
+    `OfNat.ofNat Nat (lit k) _`. -/
+def natLitValue? : Lean.Expr → Option Nat
+  | .lit (.natVal k) => some k
+  | .app (.app (.app (.const ``OfNat.ofNat _) _) (.lit (.natVal k))) _ => some k
+  | _ => none
+
+/-- The width `n` of a canonical `BitVec`-valued Signal operator instance
+    (`@inst dom n`), when it is a literal. Pure; `none` for the `Bool`
+    instances and for symbolic widths, which keep the oracle path. -/
+def canonicalSignalBitVecWidth (args : Array Lean.Expr) : Option Nat :=
+  if args.size < 3 then none else
+  let inst := args[args.size - 3]!
+  match inst.getAppFn with
+  | .const c _ =>
+    if canonicalSignalBinInsts.any (fun (_, i, _, _) => i == c) &&
+        !(c.toString.endsWith "Bool") then
+      (inst.getAppArgs.back?).bind natLitValue?
+    else none
+  | _ => none
+
+/-- A `BitVec` literal recognised purely: `BitVec.ofNat w v`, or
+    `OfNat.ofNat (BitVec w) v inst` whose instance is the LIBRARY
+    `BitVec.instOfNat` (a user `OfNat (BitVec w)` instance is not a literal).
+    Returns `(width, value)` only when `value < 2 ^ width`, the case in which
+    the oracle path emits the same `.const value width`. -/
+def bitVecLitValue? : Lean.Expr → Option (Nat × Nat)
+  | .app (.app (.const ``BitVec.ofNat _) wE) vE =>
+    match natLitValue? wE, natLitValue? vE with
+    | some w, some v => if v < 2 ^ w then some (w, v) else none
+    | _, _ => none
+  | .app (.app (.app (.const ``OfNat.ofNat _) (.app (.const ``BitVec _) wE)) (.lit (.natVal v))) inst =>
+    if inst.getAppFn.isConstOf ``BitVec.instOfNat then
+      match natLitValue? wE with
+      | some w => if v < 2 ^ w then some (w, v) else none
+      | none => none
+    else none
+  | _ => none
+
+/-- `Signal.pure` of a pure-recognised `BitVec` literal. SHIPPING code: tried by
+    `translateExprToWireImpl` before the `whnf`-based constant path, which it
+    leaves in place for every other payload. Non-recursive and oracle-free. -/
+def translateSignalPureLiteral? (args : Array Lean.Expr) (hint : String) (isNamed : Bool) :
+    CompilerM (Option String) := do
+  match args.back?.bind bitVecLitValue? with
+  | some (w, v) =>
+    let resWire ← CompilerM.makeWire hint (.bitVector w) (named := isNamed)
+    CompilerM.emitAssign resWire (.const v w)
+    return some resWire
+  | none => return none
+
+/-- The translator's recursive entry, as a first-class argument. -/
+abbrev TranslateFn := Lean.Expr → String → Bool → Bool → CompilerM String
+
+/-- Lower a canonical library Signal operator application. SHIPPING code:
+    `translateExprToWireImpl` calls this with the real translator as
+    `translate`. It is a plain (non-`partial`) definition so its behaviour can
+    be proved about; the recursion it depends on is the `translate` argument.
+    The result width comes from the instance's literal width argument when
+    there is one (no MetaM oracle), else from the inferred type. -/
+def translateCanonicalSignalBinary (translate : TranslateFn) (e : Lean.Expr)
+    (op : Operator) (args : Array Lean.Expr) (isSignal1 isSignal2 : Bool)
+    (hint : String) (isNamed : Bool) : CompilerM String := do
+  let arg1 := args[args.size - 2]!
+  let arg2 := args[args.size - 1]!
+  let hwType ← match canonicalSignalBitVecWidth args with
+    | some n => pure (HWType.bitVector n)
+    | none => do
+      let exprType ← cachedInferType e
+      inferHWTypeFromSignal exprType
+  let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
+  -- For mixed Signal/BitVec: use extractBitVecLiteral for the constant arg
+  let wireA ← if isSignal1 then
+    translate arg1 "op_a" false false
+  else do
+    let (cVal, cWidth) ← extractBitVecLiteral arg1
+    let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
+    CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+    pure constWire
+  let wireB ← if isSignal2 then
+    translate arg2 "op_b" false false
+  else do
+    let (cVal, cWidth) ← extractBitVecLiteral arg2
+    let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
+    CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
+    pure constWire
+  CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
+  return resWire
+
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
       intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
@@ -1224,55 +1436,18 @@ mutual
     -- are applied to Signals (or mixed Signal/BitVec), intercept before WHNF
     -- to avoid OfNat.ofNat expansion failures and domain metavariable stalls.
     if let .const instName _ := fn then
-      -- General binary operator interception
-      let binOp? : Option Operator := match instName with
-        | ``HAdd.hAdd => some .add
-        | ``HSub.hSub => some .sub
-        | ``HMul.hMul => some .mul
-        | ``HAnd.hAnd => some .and
-        | ``HOr.hOr   => some .or
-        | ``HXor.hXor => some .xor
-        | ``HShiftLeft.hShiftLeft => some .shl
-        | ``HShiftRight.hShiftRight => some .shr
-        | _ => none
-      if let some op := binOp? then
-        if args.size >= 2 then
-          let arg1 := args[args.size - 2]!
-          let arg2 := args[args.size - 1]!
-          let type1 ← CompilerM.liftMetaM (Lean.Meta.inferType arg1)
-          let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
-          let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
-          let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
+      -- General binary operator interception (canonical instances only)
+      if let some op := signalBinOpOf instName then
+        if let some (isSignal1, isSignal2) := canonicalSignalBinKinds instName args then
           if isSignal1 || isSignal2 then
-            let exprType ← cachedInferType e
-            let hwType ← inferHWTypeFromSignal exprType
-            let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-            -- For mixed Signal/BitVec: use extractBitVecLiteral for the constant arg
-            let wireA ← if isSignal1 then
-              translateExprToWire arg1 "op_a" (isTopLevel := false)
-            else
-              let (cVal, cWidth) ← extractBitVecLiteral arg1
-              let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
-              CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
-              pure constWire
-            let wireB ← if isSignal2 then
-              translateExprToWire arg2 "op_b" (isTopLevel := false)
-            else
-              let (cVal, cWidth) ← extractBitVecLiteral arg2
-              let constWire ← CompilerM.makeWire "op_const" (.bitVector cWidth)
-              CompilerM.emitAssign constWire (.const (Int.ofNat cVal) cWidth)
-              pure constWire
-            CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
-            return resWire
+            return ← translateCanonicalSignalBinary
+              (fun e' h t n => translateExprToWire e' h t n) e op args isSignal1 isSignal2 hint isNamed
 
       -- HAppend (concat) — separate because it uses .concat not .op
-      if instName == ``HAppend.hAppend && args.size >= 2 then
+      if let some (isSignal1, isSignal2) :=
+          (if instName == ``HAppend.hAppend then canonicalSignalBinKinds instName args else none) then
         let arg1 := args[args.size - 2]!
         let arg2 := args[args.size - 1]!
-        let type1 ← CompilerM.liftMetaM (Lean.Meta.inferType arg1)
-        let type2 ← CompilerM.liftMetaM (Lean.Meta.inferType arg2)
-        let isSignal1 := type1.isAppOf ``Sparkle.Core.Signal.Signal
-        let isSignal2 := type2.isAppOf ``Sparkle.Core.Signal.Signal
         -- Both Signal case: translate directly to concat
         if isSignal1 && isSignal2 then
           let exprType ← cachedInferType e
@@ -1343,6 +1518,9 @@ mutual
 
         -- Signal.pure / Signal.lit (constant signals)
         if (name == ``Sparkle.Core.Signal.Signal.pure || name == ``Sparkle.Core.Signal.Signal.lit) && args.size >= 1 then
+           if name == ``Sparkle.Core.Signal.Signal.pure then
+             if let some w ← translateSignalPureLiteral? args hint isNamed then
+               return w
            let constValue := args[args.size-1]!
            -- Check for Bool constants first
            let constReduced ← CompilerM.liftMetaM (whnf constValue)
@@ -2390,7 +2568,8 @@ mutual
       return some resWire
 
     -- BitVec.append / HAppend.hAppend: concatenation
-    if (name == ``HAppend.hAppend || name == ``BitVec.append) && args.size >= 2 then
+    if (name == ``BitVec.append ||
+          (name == ``HAppend.hAppend && canonicalMethodInst name args)) && args.size >= 2 then
       trace[sparkle.compiler] "→ concat"
       let hiWire ← translateExprToWire args[args.size - 2]! "concat_hi"
       let loWire ← translateExprToWire args[args.size - 1]! "concat_lo"
@@ -2400,8 +2579,10 @@ mutual
       CompilerM.emitAssign resWire (.concat [.ref hiWire, .ref loWire])
       return some resWire
 
-    -- isPrimitive dispatch
-    if isPrimitive name then
+    -- isPrimitive dispatch.  An overloaded method is lowered by name only when
+    -- its instance is canonical; otherwise fall through to unfolding.
+    if isPrimitive name &&
+        (!overloadedPrimitiveMethods.contains name || canonicalMethodInst name args) then
       trace[sparkle.compiler] "→ primitive {name}"
       match getOperator name with
       | some op =>

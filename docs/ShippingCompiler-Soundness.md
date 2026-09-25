@@ -435,6 +435,99 @@ harmless under a condition that must be stated, because it is not obvious:
 Until those are proved, excluding `mdata` from caching is a change to the
 shipping compiler's output, not a neutral refactor, and it is not taken here.
 
+## Formal shape of success and preservation (2026-09-25)
+
+`Tools/ShippingTranslateSoundness.lean` fixes how "the existing compiler, when
+it succeeds, preserves meaning" is stated, and proves two branches of the real
+translator in that shape. It checks the METHOD on the actual code; it is not a
+reduction of the target.
+
+### Decisions, each forced by a measured fact
+
+| Decision | Forcing fact |
+|---|---|
+| **Success** is `Returns m ctx s a s'`: some MetaM/Core environment and world in which the real `CompilerM` action returns `a` with builder state `s'`. Theorems are `Returns … → Q`, so they hold in every environment. | `IO` in this toolchain is the exposed `EST` monad, so `Returns.bind/pure/liftMetaM/throw/get/set` are proved by definitional unfolding, with no `LawfulMonad MetaM` (the obstacle recorded in the handoff). |
+| **MetaM queries are oracles**: the result is unconstrained, only the builder state is. What the IR depends on must be computed purely or be a named assumption. | `Returns.liftMetaM` is all that can be said about `inferType`/`whnf`. |
+| **Branches are plain definitions parametrised by the recursive call** (`TranslateFn`); the shipping translator passes itself. | The translator is a `mutual` block of `partial def`s; `#print translateExprToWire` shows `opaque`: no equations, nothing provable. |
+| **The knot must become a fuel-bounded fixpoint** (`fuelFix`). | `fuelFix_spec` (proved) discharges the recursion hypothesis by induction on fuel; fuel 0 throws, so `Returns.throw` makes it vacuous. Fuel exhaustion is a compile error, like the existing `SPARKLE_TRANSLATE_LIMIT`. |
+| **Source semantics** `Denotes ρ e n x` is a big-step relation on the `Lean.Expr` the compiler consumes, defined only for canonical LIBRARY instances. | Each clause is tied to the library by `rfl` (`library_add … library_xor`, `library_pure`, `library_ofNat_literal`), so it is not a free-standing specification. |
+| **CompCert-style statement**: if the source has a defined meaning and the compiler succeeds, the result wire carries it. | Coverage (success ⇒ defined meaning) is separate and open; see below. |
+
+### The miscompile this exposed
+
+The operator path dispatched on the METHOD name and ignored the INSTANCE. With a
+user instance `HAdd (Signal dom (BitVec 8)) …` whose `+` is subtraction, the
+source gives 3 + 10 = 249 and the compiler reported success emitting an adder
+(RTL 13). Two sites did this: the Signal intercept and the `primitiveRegistry`
+path (`→ primitive HAdd.hAdd`), which caught the application again after the
+first fix. Both now require the instance to be a listed library instance
+(`canonicalSignalBinInsts`, `canonicalScalarMethodInsts`, including the INNER
+instance of core's generic wrappers such as `instHAdd _ BitVec.instAdd`); an
+unlisted instance is refused ("Cannot instantiate HAdd.hAdd"). The first version
+of the table missed the Signal unary instances (`~~~` on `Signal Bool` and on
+`Signal (BitVec n)`, `-` on `Signal (BitVec n)`): `lake test` failed on the
+YOLOv8 SPPF/C2f controllers and `FPGABench`, and they were added. Under the
+semantics decision this bug is exactly a table row with no `library_*` lemma.
+
+### What is proved (standard axioms only)
+
+- `translateCanonicalSignalBinary_sound`: the Signal×Signal branch of the
+  SHIPPING operator lowering, for `+ - * &&& ||| ^^^` at every literal width,
+  given a `translate` satisfying `Spec` (the recursion hypothesis).
+- `translateSignalPureLiteral_sound`: `Signal.pure` of a `BitVec` literal, a leaf
+  (no recursion hypothesis). Constants such as `a + 3#8` reach the translator
+  this way: the elaborator coerces `3#8` to `Signal.pure (BitVec.ofNat 8 3)` and
+  picks the Signal×Signal instance.
+- Supporting: `makeWire_returns`, `emitAssign_returns`, `evalExpr_const_lt`,
+  `bitVecLitValue?_lt`, `WidthsAgree.mono`, `fuelFix_spec`, `spec_of_never`.
+
+Both branches are the code that runs. `translateCanonicalSignalBinary` and
+`translateSignalPureLiteral?` were extracted from `translateExprToWireImpl`
+without changing behaviour, except that the width and literal value are now read
+purely from the instance/literal when possible. That is what makes the proof
+oracle-free. Output was compared with the original compiler on the operator and
+literal probes (including `300#8`, which falls back to the oracle path): it is
+byte-identical.
+
+### Existing proofs used
+
+| Existing result | Used for |
+|---|---|
+| `CircuitM.makeWire_spec` (Builder) | the result wire is fresh, then reserved; statements unchanged; declaration added |
+| `emitAssign_sound` (ShippingBuilderSoundness) | the emitted assignment extends execution by exactly its RHS value |
+| `Binary.rhs_correct` (ShippingScalarSoundness) | the IR operator computes the `BitVec` operation at width `n` |
+| `Binary` / `Binary.apply` (ShippingScalarSoundness) | the operator vocabulary the semantics and the table share |
+
+### Premises that remain (none is the preservation claim itself)
+
+1. **The recursion hypothesis** `Spec translate …` in the operator theorem.
+   `fuelFix_spec` discharges it once (a) the shipping knot is `fuelFix step N`
+   rather than `partial`, and (b) every branch of `step` is proved. Both are
+   open; (b) is the bulk of the work. A step spec covers every successful
+   branch, so unproved handlers block the unconditional theorem.
+2. **Defined source meaning** (`Denotes ρ e n x`). Coverage — success implies
+   `Denotes` — is open. For the operator branch it needs the operands' widths to
+   equal the instance width, which Lean typing guarantees but the proof cannot
+   see. It needs either a typing argument or a compiler-side width check.
+3. **`WidthsAgree we s1`** on the final state: satisfiable by taking `we` from
+   the final module; the knot-level theorem must instantiate it.
+4. **Source bindings.** `Spec` does not yet carry the binding invariant, so the
+   `fvar` leaf (lookup of an input wire) is not a proved branch. The existing
+   `Valid.lookupVar` supplies it once `Spec` is extended.
+5. **Declaration ↔ `Denotes`.** Each clause agrees with the library by `rfl`, but
+   the link from a user declaration's body to its Lean value (reflection) is not
+   formalised here.
+6. **Coverage of the two branches.** Only canonical `BitVec` instances with a
+   LITERAL width and literals below `2^w` take the oracle-free path. `Bool`
+   instances, shifts, the mixed Signal×BitVec branch, symbolic widths and
+   out-of-range literals take the unchanged oracle path and are not covered.
+7. **Mutable `IO.Ref` state.** Its contents are not modelled. Any ref whose
+   content affects the IR — the expression cache, `sparkleTypeCache` (widths),
+   `sparkleWireWidthCache`, the loop/wire-canon caches — must become pure state
+   (as `sourceBindings` did in `9935dfe`) before the knot-level theorem.
+   Profiling and limit refs only log or throw, which partial correctness
+   tolerates.
+
 ## Applying the general theorem to crc16
 
 The desired application is: check successful shipping compilation (and any
@@ -446,9 +539,9 @@ execution trace or an exhaustiveness proof for the handlers they invoke.
 
 | crc16 construct / compiler stage | General proof status |
 |---|---|
-| map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved; actual recognition and dispatch still open |
+| map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved. Signal×Signal operator branch of the ACTUAL translator proved under the recursion hypothesis (2026-09-25); recognition is now instance-checked (a name-only dispatch miscompile was fixed). Knot and remaining dispatch still open |
 | local bindings, wire allocation | Actual allocation/emission and scoped binding rules proved; cache hit/insert rules proved (2026-09-25) under explicit key hypotheses; global source/width invariant still open |
-| pure constants, concat, shift, equality, Bool not, mux | Their shipping handler preservation still needs connecting/proving |
+| pure constants, concat, shift, equality, Bool not, mux | `Signal.pure` of a `BitVec` literal proved as a leaf branch of the actual translator (2026-09-25); concat, shift, equality, Bool not and mux still open |
 | register init `0xFFFF`, update, feedback, start/valid mux | Temporal simulation of the shipping stateful path remains open |
 | helper unfolding, output record packing, Bool/BitVec ports | Source recognition and interface correspondence remain open |
 | zero-width cleanup and register deduplication | Composition with the shipping success theorem remains open |
