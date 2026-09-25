@@ -969,6 +969,35 @@ still accepts it (output semantics unchanged), but `forwardCheck` rejects it.
 Thus deriving the forward condition merely from current `optCheck` would be
 false. No shipping behavior or acceptance policy changes in this step.
 
+**Core width derivation (2026-09-26):** the real translator's `Inv` now also
+carries `SizedBody`. `SizedExpr we rhs n` states uniform operand/constant
+widths through the six-operator expression grammar. Constant and binary
+branches establish it at emission; recursive calls, record updates and cache
+hits preserve it. The entry establishes it from its empty body. The added
+translator invariant is therefore not an extra premise of the source-entry
+theorem. `PostReady M n` now exports `SizedExpr (weOf M) rhs n` for EVERY
+assignment RHS, including the final output read.
+
+`core_forwardCheck` uses those facts to derive the ENTIRE `forwardCheck` on
+the actual `synthesizeCombinationalCore` result, assuming only the existing
+environment/fragment/positive-width conditions and sanitizer stability of its
+wire names. No arithmetic width premise is supplied by the caller. The
+printer lookup at `out` is derived from its output declaration; lookups at
+positive-width references are derived from actual wire declarations. Uniform
+sizing implies the six-operator cases of `sf4Check`, even for nested RHSs.
+`dropZeroWidth_sized` also transports sizing through zero-width cleanup using
+the already proved body/width-environment equality.
+
+This is still BEFORE merging and optimizer selection: the final
+`compiledFragment_forward` keeps its `forwardCheck` premise. Transporting
+sizing through validated merge and preserving the forward check through
+optimizer acceptance remain open, as does bounded initialization. Sanitizer
+stability is separate from lexical validity and is NOT assumed automatically:
+a real declaration with binder `«a#»` synthesizes, but its allocated name is
+changed by the printer and its forward check fails. That negative case is
+pinned alongside the general `fragA_core_forward` application and the axiom
+audit. The shipping compiler is unchanged in this step.
+
 **Review of proposed option A:** retaining an optimizer result only after a
 forward-fragment check is sensible, but the fallback's check must be proved
 before claiming all returned modules satisfy it. Do not add an unproved check

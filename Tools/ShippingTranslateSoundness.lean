@@ -377,6 +377,25 @@ def Emits (n : Nat) (s0 s1 : CircuitState) : Prop :=
 theorem Emits.refl (n : Nat) (s : CircuitState) : Emits n s s :=
   ⟨rfl, rfl, [], by simp, by simp⟩
 
+/-- Uniform widths through the supported expression grammar. Zero is allowed
+here; positive width is established separately at the certified entry. -/
+inductive SizedExpr (we : WEnv) : Sparkle.IR.AST.Expr → Nat → Prop
+  | ref (x : String) : SizedExpr we (.ref x) (we x)
+  | const (v : Int) (n : Nat) : SizedExpr we (.const v n) n
+  | bin (op : Binary) {a b : Sparkle.IR.AST.Expr} {n : Nat} :
+      SizedExpr we a n → SizedExpr we b n → SizedExpr we (.op op.operator [a, b]) n
+
+theorem SizedExpr.width {we e n} (h : SizedExpr we e n) : widthOf we e = n := by
+  induction h with
+  | ref => rfl
+  | const => rfl
+  | bin op _ _ ha hb => cases op <;> simp [Binary.operator, widthOf, ha, hb]
+
+/-- Before output-port emission, every assignment has a uniform-width RHS
+at its target's declared width. This is preserved by the actual translator. -/
+def SizedBody (we : WEnv) (body : List Stmt) : Prop :=
+  ∀ l r, Stmt.assign l r ∈ body → SizedExpr we r (we l)
+
 /-- The invariant a translation call starts in and ends in. -/
 structure Inv (ctx : CompilerState) (ρ : Valuation) (we : WEnv) (mems : MEnv)
     (initial : Env) (s : CircuitState) (env : Env) : Prop where
@@ -384,6 +403,7 @@ structure Inv (ctx : CompilerState) (ρ : Valuation) (we : WEnv) (mems : MEnv)
   lookup : BoundLookup ctx ρ s
   values : BoundValues ctx ρ we s env
   record : RecordOk ρ we s env
+  sized : SizedBody we s.module.body
 
 theorem BoundLookup.transfer {ctx ρ} {s t : CircuitState} (h : BoundLookup ctx ρ s)
     (hu : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true)
@@ -396,11 +416,12 @@ theorem BoundLookup.transfer {ctx ρ} {s t : CircuitState} (h : BoundLookup ctx 
 and the same values at every previously reserved name, keeps the invariant. -/
 theorem Inv.transfer {ctx ρ we mems initial} {s t : CircuitState} {env env' : Env}
     (h : Inv ctx ρ we mems initial s env) (hr : Runs we mems initial t env')
+    (hsize : SizedBody we t.module.body)
     (hu : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true)
     (hb : t.sourceBindings = s.sourceBindings) (hrec : t.translateRecord = s.translateRecord)
     (hv : ∀ z, s.usedNames.contains z = true → env' z = env z) :
     Inv ctx ρ we mems initial t env' := by
-  refine ⟨hr, h.lookup.transfer hu hb, ?_, ?_⟩
+  refine ⟨hr, h.lookup.transfer hu hb, ?_, ?_, hsize⟩
   · intro id n x w hx hw
     rw [hb] at hw
     obtain ⟨w', hw', hu'⟩ := h.lookup id n x hx
@@ -623,13 +644,14 @@ theorem emitAssign_body_cons (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : Cir
 neither a bound variable's wire nor a recorded wire with a meaning. -/
 theorem Inv.transfer_except {ctx ρ we mems initial} {s t : CircuitState} {env env' : Env}
     (h : Inv ctx ρ we mems initial s env) (hr : Runs we mems initial t env')
+    (hsize : SizedBody we t.module.body)
     (hu : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true)
     (hb : t.sourceBindings = s.sourceBindings) (hrec : t.translateRecord = s.translateRecord)
     (r : String) (hv : ∀ z, s.usedNames.contains z = true → z ≠ r → env' z = env z)
     (hnb : ∀ id n (x : BitVec n), ρ id = some ⟨n, x⟩ → visible ctx s.sourceBindings id ≠ some r)
     (hnr : ∀ e' n (x : BitVec n), s.translateRecord.get? r = some e' → ¬ Denotes ρ e' n x) :
     Inv ctx ρ we mems initial t env' := by
-  refine ⟨hr, h.lookup.transfer hu hb, ?_, ?_⟩
+  refine ⟨hr, h.lookup.transfer hu hb, ?_, ?_, hsize⟩
   · intro id n x w hx hw
     rw [hb] at hw
     obtain ⟨w', hw', hu'⟩ := h.lookup id n x hx
@@ -728,7 +750,16 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
     have hvals : ∀ z, s0.usedNames.contains z = true → z ≠ res →
         (fun m => if m = res then v else env0 m) z = env0 z := by
       intro z _ hne; simp [hne]
-    refine ⟨_, hinv.transfer_except hrunB huse
+    have hresWidth : we res = n := by
+      exact hw1 ({ name := res, ty := .bitVector n } : Port)
+        (by rw [hsB, emitAssign_wires, hwires]; simp) n rfl
+    have hsize : SizedBody we sB.module.body := by
+      rw [hsB, emitAssign_body_cons, hbody]
+      intro l r hmem
+      rcases List.mem_cons.mp hmem with heq | hmem
+      · cases heq; rw [hresWidth]; exact .const _ _
+      · exact hinv.sized l r hmem
+    refine ⟨_, hinv.transfer_except hrunB hsize huse
       (by rw [hsB, emitAssign_sourceBindings, hsbA]) (by rw [hsB, emitAssign_translateRecord, hrecA])
       res hvals (fresh_not_bound hinv.lookup hfresh) (fresh_not_recorded hinv.record hfresh),
       ?_, ?_, ?_, ?_⟩
@@ -853,7 +884,8 @@ theorem translateCanonicalSignalBinary_branch
   have hwC : WidthsAgree we sC := hw1.mono wiresD
   have hwB : WidthsAgree we sB := hwC.mono gBw
   have hinvA : Inv ctx ρ we mems initial sA env0 :=
-    hinv.transfer (runs_of_body_eq hbody hinv.runs) huA hsbA hrecA (fun _ _ => rfl)
+    hinv.transfer (runs_of_body_eq hbody hinv.runs)
+      (by rw [hbody]; exact hinv.sized) huA hsbA hrecA (fun _ _ => rfl)
   obtain ⟨envB, hinvB, frB, useA, wA, valA⟩ := ih.sem _ _ _ _ _ _ _ _ _ hd1 htA hinvA hwB
   obtain ⟨envC, hinvC, frC, useB, wB, valB⟩ := ih.sem _ _ _ _ _ _ _ _ _ hd2 htB hinvB hwC
   have valA' : envC wa = x1.toNat := by rw [frC wa useA]; exact valA
@@ -877,7 +909,17 @@ theorem translateCanonicalSignalBinary_branch
   have hvD : ∀ z, sC.usedNames.contains z = true → z ≠ res →
       (fun m => if m = res then (bop.apply x1 x2).toNat else envC m) z = envC z := by
     intro z _ hne; simp [hne]
-  refine ⟨_, hinvC.transfer_except hrunD huD
+  have hresWidth : we res = n := by
+    exact hw1 ({ name := res, ty := .bitVector n } : Port)
+      (wiresD _ (gBw _ (gAw _ (by rw [hwires]; simp)))) n rfl
+  have hsize : SizedBody we sD.module.body := by
+    rw [hsD, emitAssign_body_cons]
+    intro l r hmem
+    rcases List.mem_cons.mp hmem with heq | hmem
+    · cases heq; rw [hresWidth]
+      exact .bin bop (wA ▸ SizedExpr.ref wa) (wB ▸ SizedExpr.ref wb)
+    · exact hinvC.sized l r hmem
+  refine ⟨_, hinvC.transfer_except hrunD hsize huD
       (by rw [hsD, emitAssign_sourceBindings]) (by rw [hsD, emitAssign_translateRecord])
       res hvD hnbC hnrC, ?_, huD res (gBu res (gAu res hresA)), ?_, by simp⟩
   · intro z hz
@@ -901,7 +943,7 @@ theorem Inv.record_insert {ctx ρ we mems initial} {s : CircuitState} {env : Env
     (hd : Denotes ρ e n x) (hused : s.usedNames.contains w = true)
     (hval : env w = x.toNat) (hwid : we w = n) :
     Inv ctx ρ we mems initial { s with translateRecord := s.translateRecord.insert w e } env :=
-  ⟨h.runs, h.lookup, h.values, h.record.insert hd hused hval hwid⟩
+  ⟨h.runs, h.lookup, h.values, h.record.insert hd hused hval hwid, h.sized⟩
 
 /-- The core followed by the step's continuation (record, then return). -/
 theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}

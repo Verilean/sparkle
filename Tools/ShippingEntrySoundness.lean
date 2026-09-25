@@ -612,7 +612,8 @@ def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
   (∀ st ∈ M.body, ∃ l r, st = .assign l r ∧
     ((ShapedRhs r ∧ ({ name := l, ty := .bitVector n } : Port) ∈ M.wires) ∨
      (l = "out" ∧ ∃ w, r = .ref w))) ∧
-  (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }]) ∧ DeclReady M
+  (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }]) ∧ DeclReady M ∧
+  (∀ l r, Stmt.assign l r ∈ M.body → SizedExpr (weOf M) r n)
 
 /-- What synthesis success guarantees for a certified-shape declaration:
 distinct input ports for the `Signal` binders, and for ALL binder values, the
@@ -716,7 +717,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
     have hok2 : WiresOk s2 := gk hok1
     have hwid : WidthsAgree (weOf M) s2 := widthsAgree_weOf hok2 hMw
     have hinv : Inv ctx' (rhoOf (bs.zip ids) vals) (weOf M) mems initial s1 initial := by
-      refine ⟨?_, hbl, ?_, ?_⟩
+      refine ⟨?_, hbl, ?_, ?_, ?_⟩
       · show evalAssigns _ _ s1.module.finalize.body initial = some initial
         simp [Module.finalize, hs1b, evalAssigns]
       · intro id n' x' w' hx hv
@@ -731,6 +732,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
         rw [hinit j nm n' w'' hbj hp, hxv]
       · intro w' e' he
         rw [hs1r] at he; simp at he
+      · rw [hs1b]; intro l r hr; cases hr
     obtain ⟨env1, hinv1, -, -, hwn, hval⟩ := translateExprToWire_sound hden htr hinv hwid
     refine ⟨fun n => if n = "out" then env1 w else env1 n, ?_, by simp [hval], hMo, ?_, ?_, ?_⟩
     · rw [hMb]
@@ -748,7 +750,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       cases hp'
       exact hMi _ (gi _ hin)
     · obtain ⟨hout2, -, pre, hbody2, hpre⟩ := hemit
-      refine ⟨?_, ?_, ?_, ?_, ?_⟩
+      refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
       · rw [hMw, List.map_reverse]; exact nodup_reverse hok2.1
       · intro hm
         rw [hMw, List.map_reverse, List.mem_reverse] at hm
@@ -800,6 +802,19 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
           rcases hf.wireTypes p hp with hp | hp
           · simp [CircuitM.init, Module.empty] at hp
           · exact hp
+      · intro l r hstm
+        rw [hMb] at hstm
+        simp only [Module.finalize, List.mem_reverse] at hstm
+        rw [hst_b] at hstm
+        rcases List.mem_cons.mp hstm with heq | hstm
+        · cases heq
+          exact hwn ▸ SizedExpr.ref w
+        · have hsz := hinv1.sized l r hstm
+          rw [hbody2, hs1b, List.append_nil] at hstm
+          obtain ⟨l', r', heq, _, hl⟩ := hpre _ hstm
+          cases heq
+          have hlw := hwid ({name := l, ty := .bitVector n} : Port) hl n rfl
+          simpa only [hlw] using hsz
     · obtain ⟨-, hin2, pre, hbody2, hpre⟩ := hemit
       -- no registers: no clock/reset ports, so the inputs are the binder ports
       have hall : ∀ stm ∈ st.module.body, ∃ l r, stm = Stmt.assign l r := by

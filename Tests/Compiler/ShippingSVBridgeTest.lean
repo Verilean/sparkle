@@ -8,6 +8,28 @@ open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.Compiler.Elab Sparkle.IR.OptChe
 open Tools.SVParser.AST Tools.SVParser.EmitAst Tools.SVParser.EmitSem
 open Tools.ShippingPrintSoundness Tools.ShippingSVBridge
 open Sparkle.Tests.Compiler.ShippingEntrySoundnessTest
+open Tools.ShippingEntrySoundness Tools.ShippingTranslateSoundness
+
+/-- Apply the general width derivation to a real declaration and the actual
+core entry. Only the explicitly separate name-stability condition remains. -/
+theorem fragA_core_forward {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (h : RunsTo (synthesizeCombinationalCore ``fragA [] false) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    forwardCheck m = true := by
+  rw [fragAValue_eq] at henv
+  exact core_forwardCheck h henv feA_wf (by decide) hs
+
+example : ¬ SizedExpr (fun _ => 8) (.op .add [.const 1 8, .const 2 8]) 16 := by
+  intro h
+  have hw := h.width
+  simp [widthOf] at hw
+
+def hashBinder {dom : Sparkle.Core.Domain.DomainConfig}
+    («a#» : Sparkle.Core.Signal.Signal dom (BitVec 8)) : Sparkle.Core.Signal.Signal dom (BitVec 8) :=
+  «a#»
 
 -- The wrapper is tied to the printed tree, and does not silently discard
 -- unsupported semantics when reading its items.
@@ -17,6 +39,9 @@ example : combItems [.wireDecl "w" none (some (.lit (.decimal (some 8) 0)))] = n
 
 run_cmd liftTermElabM do
   for name in [``fragA, ``fragB, ``fragC, ``fragD] do
+    let (core, _) ← synthesizeCombinationalCore name [] false
+    unless forwardCheck core do
+      throwError "forward check rejected the core entry result: {name}"
     let (m, _) ← synthesizeCombinational name
     for o in [m, checkedOptimize m] do
       let wof := printWidths (o.wires ++ o.inputs ++ o.outputs)
@@ -46,6 +71,11 @@ run_cmd liftTermElabM do
     throwError "negative control must pass the output-only optimizer check"
   unless !(forwardCheck bad) do
     throwError "forward check accepted mismatched assignment width"
+  let (named, _) ← synthesizeCombinationalCore ``hashBinder [] false
+  unless named.wires.any (fun p => Sparkle.Backend.Verilog.sanitizeName p.name != p.name) do
+    throwError "name-stability negative control unexpectedly has stable names"
+  unless !(forwardCheck named) do
+    throwError "forward check unexpectedly accepted the unstable-name core module"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "SV bridge regression failed"
@@ -55,6 +85,13 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected SV bridge axiom: {name}: {ax}"
-  logInfo "SHIPPING SV BRIDGE OK: actual AST assignments, width transport, conditional source/SV fold theorem; forwardCheck and initialization obligations still open at entry"
+  for name in [``fragA_core_forward, ``core_forwardCheck, ``postReady_forwardCheck,
+      ``dropZeroWidth_sized, ``Tools.ShippingTranslateSoundness.SizedExpr.width,
+      ``Tools.ShippingSVBridge.SizedExpr.forward] do
+    for ax in (← liftCoreM <| collectAxioms name) do
+      unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
+        throwError "unexpected core-width axiom: {name}: {ax}"
+  logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only; final optimized check still open"
+  logInfo "SHIPPING SV BRIDGE OK: actual AST assignments, width transport, conditional source/SV fold theorem; final forwardCheck and initialization obligations still open"
 
 end Sparkle.Tests.Compiler.ShippingSVBridgeTest

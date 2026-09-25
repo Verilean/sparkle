@@ -1555,6 +1555,16 @@ check premise. Next: prove the fallback's check and initialization conditions,
 then preserve them through optimizer acceptance; lexical/text interpretation
 and independent AST declaration widths remain explicit boundaries.
 
+**2026-09-26 core width premise derived:** `Inv.sized` is preserved by the
+actual translator and initialized at the entry, so `PostReady` now exposes
+uniform sizing of every emitted RHS, including the output read. Under wire
+sanitizer stability, `core_forwardCheck` derives `forwardCheck` for the actual
+CORE result, without a width premise. `dropZeroWidth_sized` carries the sizing
+invariant through cleanup. This does NOT discharge the final optimized-run
+check: merge transport and optimizer preservation remain to be proved.
+Name stability also remains separate; a real `«a#»` binder demonstrates it is
+not automatic. Bounded initialization and lexical validity are still open.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a
