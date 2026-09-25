@@ -597,25 +597,95 @@ that evaluates to the source value.
 
 ### Open, and kept separate from the theorem
 
-1. **Correspondence with the user's declaration.** `Denotes` is a relation on
-   the `Lean.Expr` the compiler consumes; each clause agrees with the library by
-   `rfl`, but the step from a declaration's body to its Lean value (reflection)
-   is not formalised here.
-2. **Coverage of the success region.** The theorem is CompCert-style: it assumes
-   the source has a meaning. "The compiler succeeded ⇒ `Denotes` holds" is open.
-   For this fragment it would need the operands' widths to match the instance
-   width (Lean typing guarantees it; the proof cannot see typing), and it says
-   nothing about expressions the fallback compiles.
-3. **The entry invariant.** `Inv` at the call (inputs bound to wires carrying
-   their values, record entries meaningful) and `WidthsAgree` for the final
-   module must be established by the synthesis entry
-   (`synthesizeCombinationalCore`, the leaf loop, post-processing). This is not
-   yet proved.
+Items 1–3 were discharged at the synthesis entry for the fragment's
+declarations on 2026-09-25; see the next section. What remains of each is
+stated there.
+
+1. **Correspondence with the user's declaration.** Was: `Denotes` is a relation
+   on the `Lean.Expr`; the step to the declaration's Lean value was missing.
+2. **Coverage of the success region.** Was: "success ⇒ `Denotes`" open.
+3. **The entry invariant.** Was: `Inv` and `WidthsAgree` not established by
+   `synthesizeCombinationalCore`.
 4. **The fragment.** Every other handler is the unchanged `partial` fallback:
    mixed Signal×BitVec operators, `Bool` instances, shifts, comparisons, mux,
    registers and time, memories, hierarchy, symbolic widths.
 5. **After translation.** `dropZeroWidth`, `mergeDuplicates`, the printer, and
    the Verilog semantics.
+
+## Synthesis entry: `Inv`, `WidthsAgree` and `Denotes` discharged (2026-09-25)
+
+`Tools/ShippingEntrySoundness.lean` (standard axioms only, audited in
+`Tests/Compiler/ShippingEntrySoundnessTest.lean`). The theorem is about the
+REAL entry `synthesizeCombinationalCore declName [] false`, i.e. the step of
+`#synthesizeVerilog` before post-processing:
+
+* `synthesizeCombinationalCore_sound`: if the entry returns `(M, D)`, then for
+  the constant `ci` it read, `certifiedShape? ci = some (bs, body)` implies
+  `Preserves bs body M`: distinct input ports for the `Signal` binders, and for
+  ALL binder values, if the instantiated body `Denotes` `x`, then
+  `evalAssigns (weOf M) mems M.body initial = some env` with `env "out" = x`.
+* `fragmentDecl_sound` / `fragmentDecl_sound_signal`: if moreover `ci`'s value
+  is `quoteDecl dn names n fe` for a well-formed `fe : FExpr`, then no
+  `Denotes` premise remains: `out` carries `evalFE n vals fe`, which is
+  `(denoteFE n sigs fe).val t`, the Lean meaning built from the library
+  operators.
+
+### Premises that disappeared from the entry theorem
+
+| Premise of `translateExprToWire_sound` | How it is now derived |
+|---|---|
+| `Inv ctx ρ we mems initial s0 env0` at the leaf call | From the entry's own construction: `CircuitM.init` (empty body, record, bindings), the binder walk `bindCertifiedInputs` (fresh wire per `Signal` binder, reader-scoped binding found by the real `lookupVar` path, input port), the valuation `rhoOf` of the binder values, and `env0 = initial` (`bindCertifiedInputs_returns`, `rhoOf_some`) |
+| `WidthsAgree we s1` | `we := weOf M`, the widths READ OFF the returned module's wires. Holds because wire names stay distinct: `WiresOk` is now part of `Grows` and carried through every translator branch (`widthsAgree_weOf`) |
+| `Denotes ρ e n x` | For `quoteDecl … fe`: the gate accepts it (`certifiedShape_quote`), the entry's instantiated body is the quotation over its fvars (`instFVars_quoteBody`), and it denotes `evalFE` (`denotes_quote`); `evalFE` is the library meaning by `rfl` (`denoteFE_val`) |
+| (implicit) the leaf call happens, with that state, and `out` is driven by it | `emitLeaves_single`, `finishSynth_returns`, and the MetaM success rules `MReturns.bind/pure/throw/try_finally/ite` through the entry's profiling, depth bookkeeping and `try … finally` |
+
+### What changed in the shipping entry, and why it is still the same compiler
+
+1. The entry was a `partial def` inside the translator's `partial` block: to
+   the kernel an `opaque`. It is now an ordinary definition
+   `synthesizeCombinationalCoreWith (translate)`, moved before the block with
+   `splitReturnLeaves`, `openRecordInputs`, `stripMemoizeWrappers` (which never
+   used the translator). `synthesizeCombinationalCore` after the block passes
+   the real translator.
+2. The binder walk (`bindInputsLegacy` / `bindInputPort`), the leaf loop
+   (`emitLeaves`, explicit recursion instead of a `for` with `mut`) and the
+   module finish (`finishSynth`, `addClockResetIfSequential`) are plain
+   definitions shared by both front ends.
+3. For the certified shape — `DomainConfig` and `Signal dom (BitVec n)`
+   binders over a body of binders, `Signal.pure` literals and canonical
+   operators at one literal width — the front end is pure: `certifiedShape?`,
+   fresh fvars checked distinct, `instFVars` (a pure twin of the `extern`
+   `instantiateRev`), and the single leaf `out`. The legacy front end
+   (`openRecordInputs`, `stripMemoizeWrappers`, `lambdaTelescope`,
+   `splitReturnLeaves`) is `partial` or `extern`-based; on this shape it
+   computes the same thing. Checked: the test compares both front ends on real
+   declarations (identical `Module`, identical Verilog); the corpus is
+   byte-identical.
+4. New refusals (both measured never to fire on the corpus): a leaf's port name
+   that is already a name of the module (its `assign` would overwrite that
+   wire), and non-distinct fresh fvars.
+5. `canonicalSignalBitVecWidth` tests the `Bool` instances by an explicit list
+   (`canonicalSignalBoolInsts`) instead of `toString.endsWith "Bool"`; same
+   result on the table, but the suffix test does not reduce in proofs.
+
+### What remains (named)
+
+1. **`getConstInfo` is an oracle.** The Core state is behind an `ST.Ref`, so
+   the theorem quantifies over the constant the entry READ. That it is the
+   user's declaration, and that the kernel's `f := value` holds, is Lean's
+   runtime. The test checks `value = quoteDecl … fe` with the Lean-level
+   `exprDecEq`, and `f = denoteFE … fe` by `rfl`, for real declarations.
+2. **Post-processing is excluded.** `synthesizeCombinational` then applies
+   `dropZeroWidthModule` and `mergeDuplicates`; the theorems stop at the
+   entry's result (`module.finalize` plus clock/reset ports).
+3. **Coverage beyond quotations.** "Gate accepted ⇒ a meaning exists" is proved
+   for quotations of `FExpr` (`+ - * &&& ||| ^^^`, literals, inputs). The gate
+   also accepts canonical shifts (the translator core lowers them), but
+   `Denotes` has no shift clause, so for shifts `Preserves` holds vacuously:
+   on the certified front end, NOT proved. Declarations outside the gate take
+   the legacy front end and are not covered.
+4. **Verilog.** The IR semantics is `evalAssigns`; printing and Verilog
+   semantics are separate.
 
 ## Applying the general theorem to crc16
 

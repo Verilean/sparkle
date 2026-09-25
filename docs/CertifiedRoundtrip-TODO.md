@@ -1556,10 +1556,18 @@ The gaps, in the order they weaken the claim:
     the canonical operators in any combination: `translateExprToWire_sound`.
   - [x] Expression-cache hits on the proved path validated against a pure
     record with `exprDecEq` (no `KeySound`/`InsertSpec` needed on that path).
-  - [ ] Establish `Inv` and `WidthsAgree` at the synthesis entry (leaf loop,
-    input bindings, post-processing).
-  - [ ] Coverage: success ⇒ `Denotes` (needs typing or a compiler-side width
-    check); declaration ↔ `Denotes` (reflection). Both kept separate.
+  - [x] Establish `Inv` and `WidthsAgree` at the synthesis entry, and connect
+    declarations to `Denotes` (2026-09-25): `fragmentDecl_sound` — for
+    declarations that quote an `FExpr`, success of the REAL
+    `synthesizeCombinationalCore` ⇒ the IR computes the Lean meaning. Entry made
+    a plain definition with a pure front end for the certified shape (corpus
+    byte-identical). Post-processing NOT included.
+  - [ ] Include post-processing (`dropZeroWidthModule`, `mergeDuplicates`) in
+    the entry theorem.
+  - [ ] Give shifts a `Denotes` clause (they are on the certified front end but
+    unproved); widen the certified shape (mixed widths, Bool, comparisons, mux).
+  - [ ] Coverage beyond quotations: gate accepted ⇒ a meaning exists for every
+    accepted body (needs the shift clause and a width argument).
   - [ ] Move the remaining IR-affecting `IO.Ref` caches (types, widths, loops)
     into pure builder state as further handlers are proved.
   - [ ] Lower non-canonical operator instances by their actual body instead of

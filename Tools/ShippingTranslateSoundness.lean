@@ -152,6 +152,28 @@ theorem emitAssign_usedNames (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : Cir
 theorem emitAssign_wires (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitState) :
     (CircuitM.emitAssign lhs rhs s).2.module.wires = s.module.wires := rfl
 
+theorem emitAssign_inputs (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitState) :
+    (CircuitM.emitAssign lhs rhs s).2.module.inputs = s.module.inputs := rfl
+
+/-- Allocation touches the module only by declaring the wire. -/
+theorem makeWire_module (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (CircuitM.makeWire hint ty named s).2.module =
+      s.module.addWire { name := (CircuitM.makeWire hint ty named s).1, ty := ty } := by
+  have fresh : (CircuitM.freshName (CircuitM.sanitizeName hint) named s).2.module = s.module := by
+    have stable (base : String) : (CircuitM.freshNamed base s).2.module = s.module := by
+      unfold CircuitM.freshNamed
+      split <;> rfl
+    cases named with
+    | false => rfl
+    | true => exact stable _
+  show (CircuitM.freshName (CircuitM.sanitizeName hint) named s).2.module.addWire
+      { name := (CircuitM.freshName (CircuitM.sanitizeName hint) named s).1, ty := ty } = _
+  rw [fresh]; rfl
+
+theorem makeWire_inputs (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (CircuitM.makeWire hint ty named s).2.module.inputs = s.module.inputs := by
+  rw [makeWire_module]; rfl
+
 /-! ## 3. Source semantics of the fragment -/
 
 /-- Values of the free variables the fragment reads (inputs, at one cycle). -/
@@ -238,10 +260,41 @@ theorem WidthsAgree.mono {we : WEnv} {s t : CircuitState}
     (h : WidthsAgree we t) (sub : ∀ p ∈ s.module.wires, p ∈ t.module.wires) :
     WidthsAgree we s := fun p hp k hk => h p (sub p hp) k hk
 
-/-- Names and declarations only grow. -/
+/-- Declared wires have distinct names, all reserved. What lets a width
+environment be READ OFF the final module (`Tools.ShippingEntrySoundness`). -/
+def WiresOk (s : CircuitState) : Prop :=
+  (s.module.wires.map (·.name)).Nodup ∧ ∀ p ∈ s.module.wires, s.usedNames.contains p.name = true
+
+theorem WiresOk.congr {s t : CircuitState} (hw : t.module.wires = s.module.wires)
+    (hu : t.usedNames = s.usedNames) (h : WiresOk s) : WiresOk t := by
+  unfold WiresOk; rw [hw, hu]; exact h
+
+/-- Declaring a wire under a fresh name keeps the names distinct. -/
+theorem WiresOk.fresh {s t : CircuitState} {r : String} {ty : HWType}
+    (hfresh : s.usedNames.contains r = false) (hused : t.usedNames = s.usedNames.insert r)
+    (hwires : t.module.wires = { name := r, ty := ty } :: s.module.wires) (h : WiresOk s) :
+    WiresOk t := by
+  obtain ⟨hnd, hin⟩ := h
+  refine ⟨?_, ?_⟩
+  · rw [hwires, List.map_cons, List.nodup_cons]
+    refine ⟨?_, hnd⟩
+    intro hm
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp hm
+    have := hin p hp
+    rw [hpn, hfresh] at this; cases this
+  · intro p hp
+    rw [hused]
+    rw [hwires] at hp
+    rcases List.mem_cons.mp hp with hp | hp
+    · subst hp; simp [Std.HashSet.contains_insert]
+    · simp [Std.HashSet.contains_insert, hin p hp]
+
+/-- Names and declarations only grow, and declared names stay distinct. -/
 def Grows (s0 s1 : CircuitState) : Prop :=
   (∀ x, s0.usedNames.contains x = true → s1.usedNames.contains x = true) ∧
-  (∀ p ∈ s0.module.wires, p ∈ s1.module.wires)
+  (∀ p ∈ s0.module.wires, p ∈ s1.module.wires) ∧
+  (WiresOk s0 → WiresOk s1) ∧
+  (∀ p ∈ s0.module.inputs, p ∈ s1.module.inputs)
 
 open Tools.ShippingBindingsSoundness (visible lookupVar_run)
 
@@ -591,9 +644,13 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
   rw [← hres] at hfresh hused hwires
   rw [← hsA] at hused hbody hwires hsbA hrecA
   rw [hs1]
-  refine ⟨res, hr, ⟨⟨?_, ?_⟩, ?_, ?_, hfresh⟩, ?_⟩
+  refine ⟨res, hr, ⟨⟨?_, ?_, ?_, ?_⟩, ?_, ?_, hfresh⟩, ?_⟩
   · intro z hz; rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert, hz]
   · intro p hp; rw [hsB, emitAssign_wires, hwires]; simp [hp]
+  · intro hok
+    exact (WiresOk.fresh hfresh hused hwires hok).congr
+      (by rw [hsB, emitAssign_wires]) (by rw [hsB, emitAssign_usedNames])
+  · intro p hp; rw [hsB, emitAssign_inputs, hsA, makeWire_inputs]; exact hp
   · rw [hsB, emitAssign_sourceBindings, hsbA]
   · rw [hsB, emitAssign_translateRecord, hrecA]
   · intro env0 hinv hw1
@@ -687,9 +744,9 @@ theorem translateCanonicalSignalBinary_branch
     intro z hz; rw [hused]; simp [Std.HashSet.contains_insert, hz]
   have hresA : sA.usedNames.contains res = true := by rw [hused]; simp [Std.HashSet.contains_insert]
   have hblA : BoundLookup ctx ρ sA := hbl.transfer huA hsbA
-  obtain ⟨⟨gAu, gAw⟩, sbB, rfB⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
+  obtain ⟨⟨gAu, gAw, gAk, gAi⟩, sbB, rfB⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
   have hblB : BoundLookup ctx ρ sB := hblA.transfer gAu sbB
-  obtain ⟨⟨gBu, gBw⟩, sbC, rfC⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
+  obtain ⟨⟨gBu, gBw, gBk, gBi⟩, sbC, rfC⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
   have wiresD : ∀ p ∈ sC.module.wires, p ∈ sD.module.wires := by
     intro p hp; rw [hsD, emitAssign_wires]; exact hp
   have huD : ∀ z, sC.usedNames.contains z = true → sD.usedNames.contains z = true := by
@@ -701,7 +758,12 @@ theorem translateCanonicalSignalBinary_branch
     rw [hsD, emitAssign_translateRecord] at he
     exact rf0C w e' he
   refine ⟨⟨⟨fun z hz => huD z (gBu z (gAu z (huA z hz))), fun p hp => wiresD p (gBw p (gAw p
-      (by rw [hwires]; exact List.mem_cons_of_mem _ hp)))⟩,
+      (by rw [hwires]; exact List.mem_cons_of_mem _ hp))),
+      fun hok => (gBk (gAk (WiresOk.fresh hfresh hused hwires hok))).congr
+        (by rw [hsD, emitAssign_wires]) (by rw [hsD, emitAssign_usedNames]),
+      fun p hp => by
+        rw [hsD, emitAssign_inputs]
+        exact gBi p (gAi p (by rw [hsA, makeWire_inputs]; exact hp))⟩,
     by rw [hsD, emitAssign_sourceBindings, sbC, sbB, hsbA], rfAll, hfresh⟩, ?_⟩
   -- semantics
   intro env0 hinv hw1
@@ -796,7 +858,7 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     obtain ⟨hw, hs1⟩ := Returns.pure k
     rw [hsc] at hs1
     rw [hs1, hw]
-    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
+    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
     intro env0 hinv _
     obtain ⟨hv, hwid⟩ := hinv.values id _ _ w' hρ hw'
     exact ⟨env0, hinv, fun _ _ => rfl, hu', hwid, hv⟩
@@ -807,12 +869,12 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     · simp [Lean.Expr.getAppFn] at hfn
     · rw [hfn] at hcore
       simp only [beq_self_eq_true, if_true] at hcore
-      obtain ⟨w', hr, ⟨⟨gu, gw⟩, sb, hrec, hfr⟩, hsem⟩ :=
+      obtain ⟨w', hr, ⟨⟨gu, gw, gk, gi⟩, sb, hrec, hfr⟩, hsem⟩ :=
         translateSignalPureLiteral_branch (we := we) (mems := mems) (initial := initial) hfn
           (Denotes.pureLit hfn hback hlit) hcore
       obtain ⟨hs1, hw⟩ := after w' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw⟩, sb, ?_⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -840,11 +902,11 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
       obtain ⟨w'', sd, htr, kk⟩ := Returns.bind hcore
       obtain ⟨hr, hsd⟩ := Returns.pure kk
       rw [← hsd] at htr
-      obtain ⟨⟨⟨gu, gw⟩, sb, rf, hfr⟩, hsem⟩ :=
+      obtain ⟨⟨⟨gu, gw, gk, gi⟩, sb, rf, hfr⟩, hsem⟩ :=
         translateCanonicalSignalBinary_branch ih hfn hop hden htr hbl
       obtain ⟨hs1, hw⟩ := after w'' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw⟩, sb, ?_⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -881,7 +943,7 @@ theorem translateStepWith_run {fallback : TranslateFn → TranslateFn} {rec : Tr
       obtain ⟨hw, hs1⟩ := Returns.pure k
       have hrec := hval w' rfl
       rw [hs1, hs2, hw]
-      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
+      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
       intro env0 hinv _
       obtain ⟨hu, hv, hwid⟩ := hinv.record w' e hrec n x hden
       exact ⟨env0, hinv, fun _ _ => rfl, hu, hwid, hv⟩

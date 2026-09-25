@@ -43,6 +43,15 @@ better fix is to lower the instance's actual body, as the applicative fix
 (`01b09bc`) does for lambdas. That is the next item for this entry, not
 something to leave refused indefinitely.
 
+**Synthesis entry (2026-09-25):** two refusals added while proving the entry
+(`Tools/ShippingEntrySoundness.lean`). (1) A return leaf whose port name is
+already a name of the module is refused: its `assign` would overwrite that
+wire, so accepting it could silently change a value. REAL guard, never fires
+on the corpus (163/163 byte-identical). (2) Non-distinct fresh fvars on the
+certified front end: impossible by construction of `mkFreshFVarId`, refused so
+the proof need not trust it. Neither rejects a program the old entry compiled
+correctly on the corpus.
+
 **Allocator audit (2026-09-24):** the public builder's unnamed `freshName`
 reused `_tmp_x_0` after that exact name had been reserved. **BUG in the builder
 contract, fixed:** both naming modes now use a total suffix search with a

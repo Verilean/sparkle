@@ -362,6 +362,9 @@ lean_lib «Tools.ShippingCacheSoundness» where
 lean_lib «Tools.ShippingTranslateSoundness» where
   roots := #[`Tools.ShippingTranslateSoundness]
 
+lean_lib «Tools.ShippingEntrySoundness» where
+  roots := #[`Tools.ShippingEntrySoundness]
+
 lean_lib «TutorialExtended» where
   roots := #[`TutorialExtended]
   srcDir := "tutorial-extended"
