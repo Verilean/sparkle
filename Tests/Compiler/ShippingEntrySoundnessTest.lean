@@ -55,6 +55,50 @@ example {dom : DomainConfig} (x : Signal dom (BitVec 16)) :
 example {dom : DomainConfig} (a : Signal dom (BitVec 8)) :
     fragD a = denoteFE 8 (sigsOf [a]) feD := rfl
 
+/-! ## The general theorem applied to the REAL `fragA`
+
+`fragAValue` is `fragA`'s value as Lean elaborated it (read from the
+environment by `#def_decl_value`), and it IS the quotation, by `rfl`. The
+corollary then follows from `fragmentDecl_of_env` for any run of the real
+entry on `fragA` whose environment defines `fragA` that way. -/
+
+#def_decl_value fragAValue of fragA
+
+theorem fragAValue_eq : fragAValue = quoteDecl `dom [`a, `b] 8 feA := rfl
+
+theorem feA_wf : feA.WF 2 8 := by simp [feA, FExpr.WF]
+
+/-- **`fragA` and its IR agree on every input.** For any successful run of
+`synthesizeCombinationalCore ``fragA`, in an environment that defines `fragA`
+as elaborated here: the module has two distinct input ports `pa`, `pb`, and for
+every domain, all signals `a b` and every cycle `t`, driving `pa`, `pb` with
+`a`, `b` at `t` makes `out` equal `(fragA a b).val t`. -/
+theorem fragA_ir_correct {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinationalCore ``fragA [] false) mctx mref cctx cref w (M, D) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
+    ∃ pa pb : String, pa ≠ pb ∧
+      ∀ {dom : DomainConfig} (a b : Signal dom (BitVec 8)) (t : Nat)
+        (mems : Sparkle.IR.Semantics.MEnv) (initial : Sparkle.IR.Semantics.Env),
+        initial pa = (a.val t).toNat → initial pb = (b.val t).toNat →
+        ∃ env, Sparkle.IR.Semantics.evalAssigns (weOf M) mems M.body initial = some env ∧
+          env "out" = ((fragA a b).val t).toNat := by
+  rw [fragAValue_eq] at henv
+  obtain ⟨port, hdist, hex, hsem⟩ := fragmentDecl_of_env (names := [`a, `b]) h henv feA_wf
+  obtain ⟨pa, hpa⟩ := hex 0 (by decide)
+  obtain ⟨pb, hpb⟩ := hex 1 (by decide)
+  refine ⟨pa, pb, fun he => by subst he; exact absurd (hdist 0 1 pa hpa hpb) (by decide), ?_⟩
+  intro dom a b t mems initial ha hb
+  have hinit : ∀ j w, j < [`a, `b].length → port j = some w →
+      initial w = ((sigsOf [a, b] j).val t).toNat := by
+    intro j w hj hw
+    match j, hj with
+    | 0, _ => rw [hpa] at hw; cases hw; exact ha
+    | 1, _ => rw [hpb] at hw; cases hw; exact hb
+  obtain ⟨env, hev, hout⟩ := hsem (sigsOf [a, b]) t mems initial hinit
+  exact ⟨env, hev, hout⟩
+
 /-- Evaluate a synthesized combinational module on input values, under the
 widths the module itself declares (`weOf`, as in the theorems). -/
 def evalOut (m : Sparkle.IR.AST.Module) (inputs : List (String × Nat)) : Option Nat :=
@@ -113,7 +157,10 @@ run_cmd liftTermElabM do
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "entry regression failed"
-  for name in [``MReturns.bind, ``MReturns.pure, ``MReturns.throw, ``MReturns.run,
+  for name in [``fragA_ir_correct, ``fragAValue_eq, ``fragmentDecl_of_env,
+      ``synthesizeCombinationalCore_reads, ``synthesizeFromConst_sound, ``outcome_quote,
+      ``RunsTo.bind, ``RunsTo.ite, ``RunsTo.try_finally, ``RunsTo.mreturns,
+      ``MReturns.bind, ``MReturns.pure, ``MReturns.throw, ``MReturns.run,
       ``MReturns.try_finally, ``MReturns.ite, ``addInput_returns, ``addOutput_returns,
       ``withVarMapping_returns, ``bindInputPort_returns, ``bindCertifiedInputs_returns,
       ``emitLeaves_single, ``finishSynth_returns, ``addClockReset_facts,
@@ -125,6 +172,6 @@ run_cmd do
     for a in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains a do
         throwError "unexpected entry axiom: {name}: {a}"
-  logInfo "SHIPPING ENTRY OK: fragmentDecl_sound — synthesizeCombinationalCore success ⇒ the IR computes the declaration's Lean meaning (Inv, WidthsAgree, Denotes discharged; post-processing excluded); standard axioms only"
+  logInfo "SHIPPING ENTRY OK: fragA_ir_correct — any run of synthesizeCombinationalCore ``fragA whose environment defines fragA as elaborated yields IR equal to fragA on every input (constant read in the SAME run; post-processing excluded); standard axioms only"
 
 end Sparkle.Tests.Compiler.ShippingEntrySoundnessTest

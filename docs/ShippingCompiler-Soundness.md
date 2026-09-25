@@ -617,18 +617,53 @@ stated there.
 `Tools/ShippingEntrySoundness.lean` (standard axioms only, audited in
 `Tests/Compiler/ShippingEntrySoundnessTest.lean`). The theorem is about the
 REAL entry `synthesizeCombinationalCore declName [] false`, i.e. the step of
-`#synthesizeVerilog` before post-processing:
+`#synthesizeVerilog` before post-processing.
 
-* `synthesizeCombinationalCore_sound`: if the entry returns `(M, D)`, then for
-  the constant `ci` it read, `certifiedShape? ci = some (bs, body)` implies
-  `Preserves bs body M`: distinct input ports for the `Signal` binders, and for
-  ALL binder values, if the instantiated body `Denotes` `x`, then
-  `evalAssigns (weOf M) mems M.body initial = some env` with `env "out" = x`.
-* `fragmentDecl_sound` / `fragmentDecl_sound_signal`: if moreover `ci`'s value
-  is `quoteDecl dn names n fe` for a well-formed `fe : FExpr`, then no
-  `Denotes` premise remains: `out` carries `evalFE n vals fe`, which is
-  `(denoteFE n sigs fe).val t`, the Lean meaning built from the library
-  operators.
+**Correction (2026-09-25, second pass).** The first version of this section
+claimed the entry was "connected to the user's declaration without premises".
+That was not true. Its theorem said `∃ ci, CertifiedOutcome ci M` with
+`MReturns`, which closes over contexts and worlds, so `ci` was not tied to the
+run that produced `M`. Nothing applied it to a real declaration either; the
+test checked the quotation, `rfl` and sample evaluations separately. Fixed as
+follows:
+
+* **The run and the constant it read.** Runs are stated in fixed contexts and
+  state references (`RunsTo m mctx mref cctx cref w a w'`).
+  `synthesizeCombinationalCore_reads`: a successful run executes
+  `getConstInfo declName` IN THE SAME contexts and references (worlds
+  `w1 → w2`), returning `ci`, and then runs `synthesizeFromConst … ci` from
+  `w2` to the result.
+* **Post-read processing as a function of `ci`.** `synthesizeFromConst`
+  (shipping code) is everything after the read. The real entry calls it with
+  the result of `getConstInfo`, and `synthesizeFromConst_sound` proves
+  `CertifiedOutcome ci M` for it. `synthesizeCombinationalCore_sound`
+  combines the two: `∃ ci w1 w2, RunsTo (getConstInfo declName) … w1 ci w2 ∧
+  CertifiedOutcome ci M`.
+* **Applied to a real declaration.** `fragA_ir_correct` (in the test module)
+  holds for ANY successful run of `synthesizeCombinationalCore ``fragA` whose
+  environment satisfies `EnvDefines … ``fragA fragAValue`. It gives two
+  distinct input ports `pa ≠ pb`, and for every domain, all signals `a b` and
+  every cycle `t`, the IR drives `out` with `(fragA a b).val t`. Here
+  `fragAValue` is `fragA`'s value read from the environment
+  (`#def_decl_value`), and `fragAValue = quoteDecl … feA` is proved by `rfl`.
+
+What remains assumed is exactly one statement about Lean's environment:
+`EnvDefines mctx mref cctx cref declName v`, "in the run's contexts every
+`getConstInfo declName` returns a definition with value `v`". It cannot be
+derived in the logic, because the Core state sits behind an `ST.Ref` whose
+operations are opaque. It is a hypothesis of the corollary, not hidden.
+`fragAValue` comes from the same `getConstInfo` at elaboration time.
+
+Main theorems:
+
+* `synthesizeCombinationalCore_sound`: see above; `CertifiedOutcome ci M`
+  means `certifiedShape? ci = some (bs, body)` implies `Preserves bs body M`
+  (distinct input ports, and for all binder values, if the instantiated body
+  `Denotes` `x`, then `evalAssigns (weOf M) mems M.body initial = some env`
+  with `env "out" = x`).
+* `fragmentDecl_sound` / `fragmentDecl_sound_signal` (entry, same-run `ci`),
+  `outcome_quote` (for a constant quoting `fe`, no `Denotes` premise),
+  `fragmentDecl_of_env` (with `EnvDefines`), and `fragA_ir_correct`.
 
 ### Premises that disappeared from the entry theorem
 
@@ -670,11 +705,10 @@ REAL entry `synthesizeCombinationalCore declName [] false`, i.e. the step of
 
 ### What remains (named)
 
-1. **`getConstInfo` is an oracle.** The Core state is behind an `ST.Ref`, so
-   the theorem quantifies over the constant the entry READ. That it is the
-   user's declaration, and that the kernel's `f := value` holds, is Lean's
-   runtime. The test checks `value = quoteDecl … fe` with the Lean-level
-   `exprDecEq`, and `f = denoteFE … fe` by `rfl`, for real declarations.
+1. **`EnvDefines`.** The constant is the one the run read (proved), but that
+   the run's environment defines the declaration as elaborated is the
+   hypothesis `EnvDefines` (the Core state is behind an opaque `ST.Ref`).
+   `fragAValue` is taken from the same `getConstInfo` at elaboration time.
 2. **Post-processing is excluded.** `synthesizeCombinational` then applies
    `dropZeroWidthModule` and `mergeDuplicates`; the theorems stop at the
    entry's result (`module.finalize` plus clock/reset ports).

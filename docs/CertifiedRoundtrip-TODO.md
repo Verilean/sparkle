@@ -1557,11 +1557,13 @@ The gaps, in the order they weaken the claim:
   - [x] Expression-cache hits on the proved path validated against a pure
     record with `exprDecEq` (no `KeySound`/`InsertSpec` needed on that path).
   - [x] Establish `Inv` and `WidthsAgree` at the synthesis entry, and connect
-    declarations to `Denotes` (2026-09-25): `fragmentDecl_sound` — for
-    declarations that quote an `FExpr`, success of the REAL
-    `synthesizeCombinationalCore` ⇒ the IR computes the Lean meaning. Entry made
-    a plain definition with a pure front end for the certified shape (corpus
-    byte-identical). Post-processing NOT included.
+    declarations to `Denotes` (2026-09-25). Entry made a plain definition with
+    a pure front end for the certified shape (corpus byte-identical).
+    Post-processing NOT included. CORRECTED (second pass): the first version's
+    `∃ ci` was not tied to the run; now `RunsTo` states the same-run
+    `getConstInfo`, post-read processing is `synthesizeFromConst ci`, and
+    `fragA_ir_correct` applies the theorem to the real `fragA`, with the single
+    environment hypothesis `EnvDefines` named.
   - [ ] Include post-processing (`dropZeroWidthModule`, `mergeDuplicates`) in
     the entry theorem.
   - [ ] Give shifts a `Denotes` clause (they are on the certified front end but

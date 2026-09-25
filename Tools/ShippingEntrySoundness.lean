@@ -13,12 +13,18 @@ synthesis entry `synthesizeCombinationalCore`, for declarations of the form
 
 Main results (standard axioms only, audited in the test):
 
-* `synthesizeCombinationalCore_sound` — whatever declaration the entry read,
-  if it has the certified shape, the module it returned satisfies `Preserves`.
-* `fragmentDecl_sound` / `fragmentDecl_sound_signal` — for a declaration whose
-  value is `quoteDecl … fe`: distinct input ports, and for all input values the
-  module's statements under its own declared widths drive `out` with
-  `evalFE n vals fe` = `(denoteFE n sigs fe).val t`, the Lean meaning.
+* `synthesizeCombinationalCore_reads` — a run of the real entry executes
+  `getConstInfo declName` in the SAME contexts and state references
+  (`RunsTo`) and then `synthesizeFromConst … ci` on the constant it read.
+* `synthesizeCombinationalCore_sound` — for that same-run `ci`,
+  `CertifiedOutcome ci M`.
+* `fragmentDecl_sound` / `fragmentDecl_sound_signal` / `outcome_quote` — if
+  `ci`'s value is `quoteDecl … fe`: distinct input ports, and for all input
+  values the module's statements under its own declared widths drive `out`
+  with `evalFE n vals fe` = `(denoteFE n sigs fe).val t`, the Lean meaning.
+* `fragmentDecl_of_env` — the same from `EnvDefines … declName (quoteDecl …)`,
+  the one statement about Lean's environment; applied to the real `fragA` in
+  the test (`fragA_ir_correct`).
 
 ## How each premise disappeared
 
@@ -50,11 +56,10 @@ reduce in proofs).
 
 ## Remaining trust and scope (named, not hidden)
 
-* `getConstInfo` is an oracle here (the Core state sits behind an `ST.Ref`),
-  so the theorems quantify over the constant the entry READ. That it is the
-  user's declaration is Lean's runtime, as is the kernel's `f := value`. The
-  test checks `value = quoteDecl … fe` by the Lean-level `exprDecEq` and
-  `f = denoteFE … fe` by `rfl` for real declarations.
+* `EnvDefines` is a hypothesis: the Core state sits behind an opaque
+  `ST.Ref`, so "the run's environment defines `f := v`" cannot be derived. The
+  constant is proved to be the one the run read; `#def_decl_value` takes `v`
+  from the same `getConstInfo` at elaboration time.
 * Post-processing is NOT included: `synthesizeCombinational` applies
   `dropZeroWidthModule` and `mergeDuplicates` after the entry; the theorems
   stop at the entry's result (`module.finalize` plus clock/reset ports).
@@ -674,8 +679,8 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       exact hMi _ (gi _ hin)
 
 
-/-- Whatever declaration the entry read: if it has the certified shape, the
-module the entry returns preserves its meaning. -/
+/-- What the returned module guarantees for a constant `ci`: if `ci` has the
+certified shape, the module preserves its meaning. -/
 def CertifiedOutcome (ci : ConstantInfo) (M : Sparkle.IR.AST.Module) : Prop :=
   ∀ bs body, certifiedShape? false [] ci = some (bs, body) → Preserves bs body M
 
@@ -685,44 +690,143 @@ theorem MReturns.ite {α : Type} {c : Prop} [Decidable c] {a b : MetaM α} {r : 
   · left; rw [if_pos hc] at h; exact h
   · right; rw [if_neg hc] at h; exact h
 
-/-- The program of an `MReturns` hypothesis, if its head is the constant `c`. -/
-meta def mreturnsHeadIs (h : Lean.Name) (c : Lean.Name) : Lean.Elab.Tactic.TacticM Bool :=
+/-! ## One run, in ONE context
+
+`MReturns` closes over the contexts, state references and worlds, so two
+`MReturns` facts may describe two different runs. To relate the synthesis to the
+constant IT read, a run is stated in a fixed Meta/Core context and state
+references (`RunsTo`): the sub-run of `getConstInfo` found below happens in the
+same contexts and references as the synthesis, at a world between its start
+and end. -/
+
+/-- `m` run in exactly these contexts and state references, from world `w`,
+returns `a` at world `w'`. -/
+def RunsTo {α : Type} (m : MetaM α) (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld)
+    (a : α) (w' : Void IO.RealWorld) : Prop :=
+  m mctx mref cctx cref w = EST.Out.ok a w'
+
+theorem RunsTo.mreturns {α : Type} {m : MetaM α} {mctx mref cctx cref w a w'}
+    (h : RunsTo m mctx mref cctx cref w a w') : MReturns m a :=
+  ⟨mctx, mref, cctx, cref, w, w', h⟩
+
+theorem RunsTo.bind {α β : Type} {m : MetaM α} {f : α → MetaM β} {mctx mref cctx cref w b w''}
+    (h : RunsTo (m >>= f) mctx mref cctx cref w b w'') :
+    ∃ a w1, RunsTo m mctx mref cctx cref w a w1 ∧ RunsTo (f a) mctx mref cctx cref w1 b w'' := by
+  unfold RunsTo at h
+  change (EST.bind (m mctx mref cctx cref) fun a => f a mctx mref cctx cref) w = _ at h
+  unfold EST.bind at h
+  split at h
+  · rename_i a w1 heq
+    exact ⟨a, w1, heq, h⟩
+  · cases h
+
+theorem RunsTo.ite {α : Type} {c : Prop} [Decidable c] {a b : MetaM α} {mctx mref cctx cref w r w'}
+    (h : RunsTo (if c then a else b) mctx mref cctx cref w r w') :
+    RunsTo a mctx mref cctx cref w r w' ∨ RunsTo b mctx mref cctx cref w r w' := by
+  by_cases hc : c
+  · left; rw [if_pos hc] at h; exact h
+  · right; rw [if_neg hc] at h; exact h
+
+theorem RunsTo.try_finally {α β : Type} {x : MetaM α} {fin : MetaM β} {mctx mref cctx cref w a w'}
+    (h : RunsTo (_root_.tryFinally x fin) mctx mref cctx cref w a w') :
+    ∃ w1, RunsTo x mctx mref cctx cref w a w1 := by
+  unfold RunsTo at h
+  change (EST.bind (@MonadFinally.tryFinally' (EST Exception IO.RealWorld) _ _ _
+      (x mctx mref cctx cref) (fun _ => fin mctx mref cctx cref)) (fun p => EST.pure p.1)) w = _
+    at h
+  unfold EST.bind at h
+  split at h
+  · rename_i p w1 heq
+    simp only [MonadFinally.tryFinally'] at heq
+    split at heq
+    · rename_i v w2 hx
+      split at heq
+      · cases heq
+        simp only [EST.pure] at h
+        cases h
+        exact ⟨w2, hx⟩
+      · cases heq
+    · split at heq <;> cases heq
+  · cases h
+
+/-- `some isRunsTo` if the hypothesis is `MReturns`/`RunsTo` of a program with
+head `c`. -/
+meta def runHeadIs (h : Lean.Name) (c : Lean.Name) : Lean.Elab.Tactic.TacticM (Option Bool) :=
   Lean.Elab.Tactic.withMainContext do
     let d ← Lean.Meta.getLocalDeclFromUserName h
     let ty ← Lean.instantiateMVars d.type
     let args := ty.getAppArgs
-    if ty.isAppOf ``MReturns && args.size == 3 then
-      return args[1]!.isAppOf c
-    return false
+    if ty.isAppOf ``MReturns && args.size == 3 && args[1]!.isAppOf c then return some false
+    if ty.isAppOf ``RunsTo && args.size == 9 && args[1]!.isAppOf c then return some true
+    return none
 
 /-- Peel a SYNTACTIC bind (never one exposed by unfolding the head). -/
 elab "peel_bind " h:ident : tactic => do
-  unless ← mreturnsHeadIs h.getId ``Bind.bind do throwError "head is not a bind"
-  Lean.Elab.Tactic.evalTactic (← `(tactic| obtain ⟨_, -, $h:ident⟩ := MReturns.bind $h:ident))
+  match ← runHeadIs h.getId ``Bind.bind with
+  | some false =>
+    Lean.Elab.Tactic.evalTactic (← `(tactic| obtain ⟨_, -, $h:ident⟩ := MReturns.bind $h:ident))
+  | some true =>
+    Lean.Elab.Tactic.evalTactic (← `(tactic| obtain ⟨_, _, -, $h:ident⟩ := RunsTo.bind $h:ident))
+  | none => throwError "head is not a bind"
 
 /-- Case on a SYNTACTIC `if` at the head. -/
 elab "peel_ite " h:ident : tactic => do
-  unless ← mreturnsHeadIs h.getId ``ite do throwError "head is not an if"
-  Lean.Elab.Tactic.evalTactic (← `(tactic| rcases MReturns.ite $h:ident with $h:ident | $h:ident))
+  match ← runHeadIs h.getId ``ite with
+  | some false =>
+    Lean.Elab.Tactic.evalTactic (← `(tactic| rcases MReturns.ite $h:ident with $h:ident | $h:ident))
+  | some true =>
+    Lean.Elab.Tactic.evalTactic (← `(tactic| rcases RunsTo.ite $h:ident with $h:ident | $h:ident))
+  | none => throwError "head is not an if"
 
-theorem synthesizeCombinationalCore_sound {declName : Name} {M : Sparkle.IR.AST.Module}
-    {D : Design} (h : MReturns (synthesizeCombinationalCore declName [] false) (M, D)) :
-    ∃ ci, CertifiedOutcome ci M := by
+/-- Everything after reading the declaration, as a function of the constant. -/
+theorem synthesizeFromConst_sound {logProf : String → IO Unit} {declName : Name}
+    {ci : ConstantInfo} {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : MReturns (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+      declName [] false true ci) (M, D)) :
+    CertifiedOutcome ci M := by
+  intro bs body hshape
+  unfold synthesizeFromConst at h
+  simp only [↓reduceIte, hshape] at h
+  peel_bind h
+  obtain ⟨result, hres, h⟩ := MReturns.bind h
+  peel_bind h
+  have := MReturns.pure h
+  subst this
+  exact synthesizeCertified_sound hres
+
+/-- The real entry reads the declaration with `getConstInfo`, then runs
+`synthesizeFromConst` on THAT constant — in the same contexts and state
+references, from the world `getConstInfo` returned. -/
+theorem synthesizeCombinationalCore_reads {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
+    ∃ (logProf : String → IO Unit) (ci : ConstantInfo) (w1 w2 w3 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      RunsTo (synthesizeFromConst (fun e h t n => translateExprToWire e h t n) logProf
+        declName [] false true ci) mctx mref cctx cref w2 (M, D) w3 := by
   unfold synthesizeCombinationalCore synthesizeCombinationalCoreWith at h
   simp only [Bool.false_eq_true, ↓reduceIte] at h
   iterate 40 (all_goals (first | peel_bind h | peel_ite h | skip))
   all_goals (
-    have h := MReturns.try_finally h
-    obtain ⟨ci, -, h⟩ := MReturns.bind h
-    refine ⟨ci, fun bs body hshape => ?_⟩
-    simp only [↓reduceIte, hshape] at h
-    peel_bind h
-    obtain ⟨result, hres, h⟩ := MReturns.bind h
-    peel_bind h
-    have := MReturns.pure h
-    subst this
-    exact synthesizeCertified_sound hres)
+    obtain ⟨_, h⟩ := RunsTo.try_finally h
+    obtain ⟨ci, w2, hget, h⟩ := RunsTo.bind h
+    exact ⟨_, ci, _, w2, _, hget, h⟩)
 
+/-- **The entry theorem.** A successful run of the real entry read SOME
+constant `ci` with `getConstInfo declName` in the same contexts and state
+references, and the module it returned satisfies `CertifiedOutcome ci`. -/
+theorem synthesizeCombinationalCore_sound {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧ CertifiedOutcome ci M := by
+  obtain ⟨logProf, ci, w1, w2, w3, hget, hrest⟩ := synthesizeCombinationalCore_reads h
+  exact ⟨ci, w1, w2, hget, synthesizeFromConst_sound hrest.mreturns⟩
 
 /-! ## Item 3: the declaration's Lean meaning
 
@@ -1073,19 +1177,11 @@ theorem denotes_quote {L : List ((Name × GateBinder) × FVarId)} {vals : Nat �
     exact Denotes.binary (bop := op) ck.1 ck.2.1 ck.2.2.1 ck.2.2.2.1 da db
 
 
-/-- **Items 1–3 at the synthesis entry, for the fragment.** Whatever
-declaration `synthesizeCombinationalCore` read: if its value is the quotation of
-a well-formed fragment term `fe` — i.e. it is
-`def f {dom} (x₀ … : Signal dom (BitVec n)) : Signal dom (BitVec n) := fe` —
-then the module the entry returned has a distinct input port per `xⱼ`, and
-for ALL input values its statements, under the widths it declares, drive
-`out` with `evalFE` of those values (= the Lean meaning, `denoteFE_val`).
-No invariant, width environment or source meaning is assumed. -/
-theorem fragmentDecl_sound {declName : Name} {M : Sparkle.IR.AST.Module} {D : Design}
-    (h : MReturns (synthesizeCombinationalCore declName [] false) (M, D)) :
-    ∃ ci : ConstantInfo, ∀ (d : DefinitionVal) (dn : Name) (names : List Name) (n : Nat)
-      (fe : FExpr), ci = .defnInfo d → d.value = quoteDecl dn names n fe →
-      fe.WF names.length n →
+/-- For a constant whose value quotes a well-formed `fe`, `CertifiedOutcome`
+needs no `Denotes` premise: `out` carries `evalFE` of the inputs. -/
+theorem outcome_quote {M : Sparkle.IR.AST.Module} {d : DefinitionVal} {dn : Name}
+    {names : List Name} {n : Nat} {fe : FExpr} (hci : CertifiedOutcome (.defnInfo d) M)
+    (hv : d.value = quoteDecl dn names n fe) (hwf : fe.WF names.length n) :
       ∃ port : Nat → Option String,
         (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
         (∀ j, j < names.length → ∃ w, port j = some w) ∧
@@ -1095,9 +1191,6 @@ theorem fragmentDecl_sound {declName : Name} {M : Sparkle.IR.AST.Module} {D : De
             env "out" = (evalFE n vals fe).toNat ∧ "out" ∈ M.outputs.map (·.name) ∧
             (∀ j w, j < names.length → port j = some w →
               ({ name := w, ty := .bitVector n } : Port) ∈ M.inputs) := by
-  obtain ⟨ci, hci⟩ := synthesizeCombinationalCore_sound h
-  refine ⟨ci, fun d dn names n fe hcid hv hwf => ?_⟩
-  subst hcid
   obtain ⟨ids, hnd, hlen, port0, hdist, hex, hsem⟩ := hci _ _ (certifiedShape_quote hv hwf)
   have hlenB : (quoteBinders dn names n).length = names.length + 1 := by simp [quoteBinders]
   have hbs : ∀ j (hj : j < names.length),
@@ -1153,13 +1246,45 @@ theorem fragmentDecl_sound {declName : Name} {M : Sparkle.IR.AST.Module} {D : De
     obtain ⟨env, hev, hout, hmo, hin⟩ := hsem vals' mems initial hinit' n (evalFE n vals fe) hden
     exact ⟨env, hev, hout, hmo, fun j w hj hp => hin (j + 1) names[j] n w (hbs j hj) hp⟩
 
-/-- The same, stated with Signals: at every cycle `t`, `out` carries the value
-of the Lean function `denoteFE n sigs fe` (the user's definition, by `rfl`). -/
-theorem fragmentDecl_sound_signal {declName : Name} {M : Sparkle.IR.AST.Module} {D : Design}
-    (h : MReturns (synthesizeCombinationalCore declName [] false) (M, D)) :
-    ∃ ci : ConstantInfo, ∀ (d : DefinitionVal) (dn : Name) (names : List Name) (n : Nat)
-      (fe : FExpr), ci = .defnInfo d → d.value = quoteDecl dn names n fe →
-      fe.WF names.length n →
+/-- **Items 1–3 at the synthesis entry, for the fragment.** A successful run
+of the real entry read a constant `ci` with `getConstInfo declName` IN THE SAME
+contexts and state references; if that constant's value quotes a well-formed
+fragment term `fe`, the returned module has a distinct input port per input and,
+for all input values, drives `out` with `evalFE n vals fe`. -/
+theorem fragmentDecl_sound {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ (d : DefinitionVal) (dn : Name) (names : List Name) (n : Nat) (fe : FExpr),
+      ci = .defnInfo d → d.value = quoteDecl dn names n fe → fe.WF names.length n →
+      ∃ port : Nat → Option String,
+        (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
+        (∀ j, j < names.length → ∃ w, port j = some w) ∧
+        ∀ (vals : Nat → BitVec n) (mems : MEnv) (initial : Env),
+          (∀ j w, j < names.length → port j = some w → initial w = (vals j).toNat) →
+          ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
+            env "out" = (evalFE n vals fe).toNat ∧ "out" ∈ M.outputs.map (·.name) ∧
+            (∀ j w, j < names.length → port j = some w →
+              ({ name := w, ty := .bitVector n } : Port) ∈ M.inputs) := by
+  obtain ⟨ci, w1, w2, hget, hci⟩ := synthesizeCombinationalCore_sound h
+  refine ⟨ci, w1, w2, hget, fun d dn names n fe hcid hv hwf => ?_⟩
+  subst hcid
+  exact outcome_quote hci hv hwf
+
+/-- The same with Signals: at every cycle `t`, `out` carries
+`(denoteFE n sigs fe).val t`, the Lean meaning. -/
+theorem fragmentDecl_sound_signal {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design}
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w') :
+    ∃ (ci : ConstantInfo) (w1 w2 : Void IO.RealWorld),
+      RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 ∧
+      ∀ (d : DefinitionVal) (dn : Name) (names : List Name) (n : Nat) (fe : FExpr),
+      ci = .defnInfo d → d.value = quoteDecl dn names n fe → fe.WF names.length n →
       ∃ port : Nat → Option String,
         (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
         (∀ j, j < names.length → ∃ w, port j = some w) ∧
@@ -1169,11 +1294,105 @@ theorem fragmentDecl_sound_signal {declName : Name} {M : Sparkle.IR.AST.Module} 
           (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
           ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
             env "out" = ((denoteFE n sigs fe).val t).toNat := by
-  obtain ⟨ci, hci⟩ := fragmentDecl_sound h
-  refine ⟨ci, fun d dn names n fe hcid hv hwf => ?_⟩
+  obtain ⟨ci, w1, w2, hget, hci⟩ := fragmentDecl_sound h
+  refine ⟨ci, w1, w2, hget, fun d dn names n fe hcid hv hwf => ?_⟩
   obtain ⟨port, hdist, hex, hsem⟩ := hci d dn names n fe hcid hv hwf
   refine ⟨port, hdist, hex, fun sigs t mems initial hinit => ?_⟩
   obtain ⟨env, hev, hout, -, -⟩ := hsem (fun j => (sigs j).val t) mems initial hinit
   exact ⟨env, hev, by rw [hout, denoteFE_val]⟩
+
+/-- The ONE fact about Lean's environment the declaration-level statements use,
+stated for the contexts and state references of the run: every lookup of
+`declName` there returns a definition whose value is `v`. (The Core state sits
+behind an `ST.Ref`, so this cannot be derived inside the logic; it is what
+"the environment defines `declName := v`" means for `getConstInfo`.) -/
+def EnvDefines (mctx : Meta.Context) (mref : ST.Ref IO.RealWorld Meta.State)
+    (cctx : Core.Context) (cref : ST.Ref IO.RealWorld Core.State) (declName : Name)
+    (v : Lean.Expr) : Prop :=
+  ∀ w1 ci w2, RunsTo (getConstInfo declName) mctx mref cctx cref w1 ci w2 →
+    ∃ d : DefinitionVal, ci = .defnInfo d ∧ d.value = v
+
+/-- A successful run of the real entry for a declaration that the run's own
+environment defines as `quoteDecl dn names n fe`: the IR computes the Lean
+meaning at every cycle, on distinct input ports. The constant is the one THIS
+run read (via `synthesizeCombinationalCore_reads`), not one read elsewhere. -/
+theorem fragmentDecl_of_env {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) :
+    ∃ port : Nat → Option String,
+      (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
+      (∀ j, j < names.length → ∃ w, port j = some w) ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv)
+        (initial : Env),
+        (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
+        ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
+          env "out" = ((denoteFE n sigs fe).val t).toNat := by
+  obtain ⟨ci, w1, w2, hget, hci⟩ := fragmentDecl_sound_signal h
+  obtain ⟨d, hcid, hv⟩ := henv w1 ci w2 hget
+  exact hci d dn names n fe hcid hv hwf
+
+/-! ## Naming a declaration's value in a theorem -/
+
+section
+open Lean Elab Command
+
+/-- The `Expr` that constructs `l`. -/
+partial def reflLevel : Level → Except String Lean.Expr
+  | .zero => pure (mkConst ``Level.zero)
+  | .succ l => return mkApp (mkConst ``Level.succ) (← reflLevel l)
+  | l => throw s!"level {l} not supported"
+
+def reflBinderInfo : BinderInfo → Lean.Expr
+  | .default => mkConst ``BinderInfo.default
+  | .implicit => mkConst ``BinderInfo.implicit
+  | .strictImplicit => mkConst ``BinderInfo.strictImplicit
+  | .instImplicit => mkConst ``BinderInfo.instImplicit
+
+/-- The `Expr` that constructs `e` (the forms a fragment declaration uses). -/
+partial def reflExpr : Lean.Expr → Except String Lean.Expr
+  | .bvar i => pure (mkApp (mkConst ``Lean.Expr.bvar) (toExpr i))
+  | .const n ls => do
+    let ls ← ls.mapM reflLevel
+    return mkApp2 (mkConst ``Lean.Expr.const) (toExpr n) (← pure (ls.foldr
+      (fun l acc => mkApp3 (mkConst ``List.cons [.zero]) (mkConst ``Level) l acc)
+      (mkApp (mkConst ``List.nil [.zero]) (mkConst ``Level))))
+  | .app f a => return mkApp2 (mkConst ``Lean.Expr.app) (← reflExpr f) (← reflExpr a)
+  | .lam n t b bi => do
+    let rt ← reflExpr t
+    let rb ← reflExpr b
+    return mkApp4 (mkConst ``Lean.Expr.lam) (toExpr n) rt rb (reflBinderInfo bi)
+  | .lit (.natVal k) =>
+    pure (mkApp (mkConst ``Lean.Expr.lit) (mkApp (mkConst ``Literal.natVal) (toExpr k)))
+  | e => throw s!"unsupported expression form {e}"
+
+/-- `#def_decl_value v of f` adds `def v : Lean.Expr := <the value of f, as
+elaborated>`, so a declaration's value can be named in a theorem. It reads the
+same `getConstInfo` the synthesis entry reads; `EnvDefines … f v` is then the
+statement that the run's environment is this one. -/
+elab "#def_decl_value " n:ident " of " d:ident : command => do
+  let declName ← liftCoreM <| realizeGlobalConstNoOverloadWithInfo d
+  let ci ← getConstInfo declName
+  let some v := ci.value? | throwError "{declName} has no value"
+  let r ← match reflExpr v with
+    | .ok r => pure r
+    | .error msg => throwError msg
+  let nm := (← getCurrNamespace) ++ n.getId
+  let ty := mkConst ``Lean.Expr
+  let dv : DefinitionVal :=
+    { name := nm
+      levelParams := []
+      type := ty
+      value := r
+      hints := ReducibilityHints.abbrev
+      safety := DefinitionSafety.safe }
+  liftCoreM <| addDecl (Declaration.defnDecl dv)
+
+end
 
 end Tools.ShippingEntrySoundness

@@ -1808,6 +1808,88 @@ def synthesizeCertified (translate : TranslateFn) (logProf : String → IO Unit)
   else
     throw (Exception.error .missing "fresh free variables are not distinct")
 
+/-- Everything the entry does AFTER reading the declaration, as a function of the
+    `ConstantInfo` it read.  `synthesizeCombinationalCoreWith` calls it with the
+    result of `getConstInfo declName`, so a theorem about this function applies to
+    the constant that the SAME run read (Tools/ShippingEntrySoundness.lean). -/
+def synthesizeFromConst (translate : TranslateFn) (logProf : String → IO Unit)
+    (declName : Name) (parameters : List (String × Nat)) (symbolicMode : Bool)
+    (certifiedFrontEnd : Bool) (constInfo : ConstantInfo) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  match (if certifiedFrontEnd then certifiedShape? symbolicMode parameters constInfo else none) with
+  | some (bs, body) =>
+    logProf s!"[profile] synthesizeCombinational {declName} certified front end"
+    let result ← synthesizeCertified translate logProf declName bs body
+    sparkleSubModuleCache.modify (·.insert declName result)
+    return result
+  | none =>
+  -- Issue #67: memoise the (Module × Design) result by declName
+  -- for the duration of one outermost synth.  A `@[hardware_module]`
+  -- projected across many output fields (e.g. Keccak's 25 lane
+  -- fields, each a leaf of the parent's return) otherwise re-walks
+  -- this whole body once per projection — and its own sub-modules
+  -- (e.g. keccakRcHW) O(N) times on top, giving the O(N²) blow-up.
+  -- The cache is reset at depth==0 alongside the other per-synth
+  -- caches, so it can't alias across independent top-level synths.
+  if !symbolicMode then
+    let memo ← sparkleSubModuleCache.get
+    if let some cached := memo.get? declName then
+      logProf s!"[profile] synthesizeCombinational {declName} MEMO HIT"
+      return cached
+  logProf s!"[profile] getConstInfo done"
+  match constInfo with
+  | .defnInfo defnInfo =>
+    logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
+    let t0 ← IO.monoMsNow
+    logProf s!"[profile] calling openRecordInputs"
+    let body0 ← openRecordInputs defnInfo.value
+    -- Strip sim-only Signal.memoize wrappers from the body
+    -- BEFORE translation.  This breaks the FSM memoize-cycle
+    -- root cause (see stripMemoizeWrappers doc).
+    let body := stripMemoizeWrappers body0
+    let t1 ← IO.monoMsNow
+    logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
+    -- Open the lambda telescope ONCE so every leaf sees the
+    -- same fresh fvars.  Previously each leaf re-entered
+    -- `withLocalDecl` independently, giving the same source
+    -- argument fresh fvars per leaf — distinct enough that
+    -- `Expr.equal` rejected structurally identical sub-trees
+    -- and the per-synth cache missed across leaf boundaries
+    -- (Issue #67).
+    Lean.Meta.lambdaTelescope body fun xs innerBody => do
+      logProf s!"[profile] calling splitReturnLeaves"
+      if symbolicMode then
+        for (parameterName, _) in parameters do
+          let mut foundNatBinder := false
+          for x in xs do
+            let decl ← x.fvarId!.getDecl
+            if decl.userName.toString == parameterName then
+              let binderType ← whnf decl.type
+              if binderType.isConstOf ``Nat then
+                foundNatBinder := true
+          if !foundNatBinder then
+            throwError
+              s!"Requested retained hardware parameter '{parameterName}' is not a top-level Nat binder of {declName}"
+
+      let leaves ← splitReturnLeaves innerBody
+      let t2 ← IO.monoMsNow
+      logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
+      let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
+      let compilerBody :=
+        emitLeaves translate cacheRef logProf leaves.toList none 0
+      let compiler := bindInputsLegacy parameters symbolicMode xs 0 compilerBody
+      let circuitState := CircuitM.init declName.toString
+      let (_, finalCircuitState) ←
+        (compiler.run (entryCompilerState symbolicMode cacheRef)).run circuitState
+      let result ← finishSynth declName parameters symbolicMode finalCircuitState
+      -- Issue #67: cache the result by declName for reuse by
+      -- later projections/instantiations within this synth.
+      if !symbolicMode then
+        sparkleSubModuleCache.modify (·.insert declName result)
+      return result
+  | _ =>
+    throwError s!"Cannot synthesize {declName}: not a definition"
+
 /-- The synthesis entry, with the translator's recursive entry as a parameter
     (`synthesizeCombinationalCore` after the translator block passes the real
     one).  A plain definition: it is not recursive itself — nested synthesis
@@ -1916,79 +1998,8 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
   -- of which return path or exception fires.
   let doSynth : MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
     let constInfo ← getConstInfo declName
-    match (if certifiedFrontEnd then certifiedShape? symbolicMode parameters constInfo else none) with
-    | some (bs, body) =>
-      logProf s!"[profile] synthesizeCombinational {declName} certified front end"
-      let result ← synthesizeCertified translate logProf declName bs body
-      sparkleSubModuleCache.modify (·.insert declName result)
-      return result
-    | none =>
-    -- Issue #67: memoise the (Module × Design) result by declName
-    -- for the duration of one outermost synth.  A `@[hardware_module]`
-    -- projected across many output fields (e.g. Keccak's 25 lane
-    -- fields, each a leaf of the parent's return) otherwise re-walks
-    -- this whole body once per projection — and its own sub-modules
-    -- (e.g. keccakRcHW) O(N) times on top, giving the O(N²) blow-up.
-    -- The cache is reset at depth==0 alongside the other per-synth
-    -- caches, so it can't alias across independent top-level synths.
-    if !symbolicMode then
-      let memo ← sparkleSubModuleCache.get
-      if let some cached := memo.get? declName then
-        logProf s!"[profile] synthesizeCombinational {declName} MEMO HIT"
-        return cached
-    logProf s!"[profile] getConstInfo done"
-    match constInfo with
-    | .defnInfo defnInfo =>
-      logProf s!"[profile] synthesizeCombinational {declName} starting (defnInfo)"
-      let t0 ← IO.monoMsNow
-      logProf s!"[profile] calling openRecordInputs"
-      let body0 ← openRecordInputs defnInfo.value
-      -- Strip sim-only Signal.memoize wrappers from the body
-      -- BEFORE translation.  This breaks the FSM memoize-cycle
-      -- root cause (see stripMemoizeWrappers doc).
-      let body := stripMemoizeWrappers body0
-      let t1 ← IO.monoMsNow
-      logProf s!"[profile] openRecordInputs done ({t1 - t0} ms)"
-      -- Open the lambda telescope ONCE so every leaf sees the
-      -- same fresh fvars.  Previously each leaf re-entered
-      -- `withLocalDecl` independently, giving the same source
-      -- argument fresh fvars per leaf — distinct enough that
-      -- `Expr.equal` rejected structurally identical sub-trees
-      -- and the per-synth cache missed across leaf boundaries
-      -- (Issue #67).
-      Lean.Meta.lambdaTelescope body fun xs innerBody => do
-        logProf s!"[profile] calling splitReturnLeaves"
-        if symbolicMode then
-          for (parameterName, _) in parameters do
-            let mut foundNatBinder := false
-            for x in xs do
-              let decl ← x.fvarId!.getDecl
-              if decl.userName.toString == parameterName then
-                let binderType ← whnf decl.type
-                if binderType.isConstOf ``Nat then
-                  foundNatBinder := true
-            if !foundNatBinder then
-              throwError
-                s!"Requested retained hardware parameter '{parameterName}' is not a top-level Nat binder of {declName}"
-
-        let leaves ← splitReturnLeaves innerBody
-        let t2 ← IO.monoMsNow
-        logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
-        let cacheRef ← IO.mkRef ({} : Lean.ExprStructMap String)
-        let compilerBody :=
-          emitLeaves translate cacheRef logProf leaves.toList none 0
-        let compiler := bindInputsLegacy parameters symbolicMode xs 0 compilerBody
-        let circuitState := CircuitM.init declName.toString
-        let (_, finalCircuitState) ←
-          (compiler.run (entryCompilerState symbolicMode cacheRef)).run circuitState
-        let result ← finishSynth declName parameters symbolicMode finalCircuitState
-        -- Issue #67: cache the result by declName for reuse by
-        -- later projections/instantiations within this synth.
-        if !symbolicMode then
-          sparkleSubModuleCache.modify (·.insert declName result)
-        return result
-    | _ =>
-      throwError s!"Cannot synthesize {declName}: not a definition"
+    synthesizeFromConst translate logProf declName parameters symbolicMode
+      certifiedFrontEnd constInfo
   try
     doSynth
   finally
