@@ -4,7 +4,8 @@ import Tools.ShippingPrintEntrySoundness
 
 The forward-emission theorem returns `CombStep`s, while the shipping printer
 bridge returns an `SVModule`. This file connects those representations before
-composing with the source theorem. The forward check and initial boundedness
+composing with the source theorem. The source-derived printing invariant is
+preserved by optimizer selection. Name stability and initial boundedness
 remain explicit; no lexical or external-tool correctness is asserted.
 -/
 namespace Tools.ShippingSVBridge
@@ -70,7 +71,8 @@ def forwardWidths (m : Sparkle.IR.AST.Module) : WEnv := fun x =>
 
 /-- A forward check plus the width agreement needed to transport the OLD IR
 evaluation to the printer's width environment. Checks all read names, not
-only output expressions. This is not yet automatically discharged at entry. -/
+only output expressions. `compiled_forwardCheck` derives it for the source
+fragment through the actual optimizer selection. -/
 def forwardCheck (m : Sparkle.IR.AST.Module) : Bool :=
   m.body.all (fun st => match st with
     | .assign _ rhs => (Sparkle.IR.Reorder.refsOf rhs).all fun x =>
@@ -214,6 +216,141 @@ theorem postReady_forwardCheck {m : Sparkle.IR.AST.Module} {n : Nat}
   · exact Or.inl (Tools.ShippingPostSoundness.declWidth_of_mem hpr.1 hl)
   · exact Or.inr hl
 
+/-- The executable guard recognizes the uniform-width source invariant. -/
+theorem printExpr_of_sized {m : Sparkle.IR.AST.Module} {e : Sparkle.IR.AST.Expr} {n : Nat}
+    (h : SizedExpr (Tools.ShippingEntrySoundness.weOf m) e n)
+    (hr : ∀ x ∈ Sparkle.IR.Reorder.refsOf e,
+      Sparkle.Backend.Verilog.sanitizeName x = x ∧ Sparkle.IR.PrintCheck.widths m x = some n) :
+    Sparkle.IR.PrintCheck.exprCheck m n e = true := by
+  induction h with
+  | ref x =>
+    obtain ⟨hs, hw⟩ := hr x (by simp [Sparkle.IR.Reorder.refsOf])
+    simp [Sparkle.IR.PrintCheck.exprCheck, hs, hw]
+    rfl
+  | const => simp [Sparkle.IR.PrintCheck.exprCheck]
+  | bin op ha hb ia ib =>
+    have ia := ia (fun x hx => hr x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    have ib := ib (fun x hx => hr x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+    cases op <;> simp [Sparkle.IR.PrintCheck.exprCheck, Binary.operator, ia, ib]
+
+theorem printExpr_sound (m : Sparkle.IR.AST.Module) (n : Nat) :
+    ∀ e, Sparkle.IR.PrintCheck.exprCheck m n e = true →
+      SizedExpr (Tools.ShippingEntrySoundness.weOf m) e n ∧
+      (∀ x ∈ Sparkle.IR.Reorder.refsOf e,
+        Sparkle.Backend.Verilog.sanitizeName x = x ∧ Sparkle.IR.PrintCheck.widths m x = some n) := by
+  intro e
+  induction e using Sparkle.IR.PrintCheck.exprCheck.induct with
+  | case1 x =>
+    intro h
+    simp only [Sparkle.IR.PrintCheck.exprCheck, Bool.and_eq_true, beq_iff_eq] at h
+    refine ⟨?_, ?_⟩
+    · have hw : Tools.ShippingEntrySoundness.weOf m x = n := h.2
+      simpa only [hw] using SizedExpr.ref (we := Tools.ShippingEntrySoundness.weOf m) x
+    · intro y hy
+      have he : y = x := by simpa [Sparkle.IR.Reorder.refsOf] using hy
+      subst y
+      exact h.1
+  | case2 v k =>
+    intro h
+    have hk : k = n := by simpa [Sparkle.IR.PrintCheck.exprCheck] using h
+    subst k
+    exact ⟨.const v n, by simp [Sparkle.IR.Reorder.refsOf]⟩
+  | case3 op a b ia ib =>
+    intro h
+    simp only [Sparkle.IR.PrintCheck.exprCheck, Bool.and_eq_true] at h
+    obtain ⟨ha, hna⟩ := ia h.1.2
+    obtain ⟨hb, hnb⟩ := ib h.2
+    refine ⟨?_, ?_⟩
+    · have hop := h.1.1
+      cases op <;> simp_all
+      all_goals first | exact SizedExpr.bin .add ha hb | exact SizedExpr.bin .sub ha hb |
+        exact SizedExpr.bin .mul ha hb | exact SizedExpr.bin .and ha hb |
+        exact SizedExpr.bin .or ha hb | exact SizedExpr.bin .xor ha hb
+    · intro x hx
+      simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
+        List.append_nil, List.mem_append] at hx
+      exact hx.elim (hna x) (hnb x)
+  | case4 e h1 h2 h3 =>
+    intro h
+    simp only [Sparkle.IR.PrintCheck.exprCheck] at h
+    cases h
+
+theorem printCheck_of_uniform {m : Sparkle.IR.AST.Module} {n : Nat}
+    (hu : Tools.ShippingPostSoundness.UniformStmts (Tools.ShippingEntrySoundness.weOf m) n m.body)
+    (hn : 0 < n)
+    (ho : printWidths (m.wires ++ m.inputs ++ m.outputs) "out" = some n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    Sparkle.IR.PrintCheck.moduleCheck m = true := by
+  apply List.all_eq_true.mpr
+  intro st hm
+  obtain ⟨l, e, rfl, he, hl⟩ := hu st hm
+  have hlw : Sparkle.Backend.Verilog.sanitizeName l = l ∧
+      Sparkle.IR.PrintCheck.widths m l = some n := by
+    rcases hl with hl | rfl
+    · exact printWidths_wire hn hl hs
+    · exact ⟨by simp [Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq], ho⟩
+  have hc := printExpr_of_sized he (fun x hx => printWidths_wire hn (SizedExpr.refs_width he x hx) hs)
+  simp only [hlw.1, hlw.2, beq_self_eq_true, hc, decide_eq_true hn, Bool.true_and]
+
+theorem printCheck_forward {m : Sparkle.IR.AST.Module}
+    (hc : Sparkle.IR.PrintCheck.moduleCheck m = true) : forwardCheck m = true := by
+  have hall := List.all_eq_true.mp hc
+  have facts : ∀ st ∈ m.body, ∃ l r n, st = .assign l r ∧
+      Sparkle.Backend.Verilog.sanitizeName l = l ∧
+      printWidths (m.wires ++ m.inputs ++ m.outputs) l = some n ∧ 0 < n ∧
+      SizedExpr (Tools.ShippingEntrySoundness.weOf m) r n ∧
+      (∀ x ∈ Sparkle.IR.Reorder.refsOf r, Sparkle.Backend.Verilog.sanitizeName x = x ∧
+        printWidths (m.wires ++ m.inputs ++ m.outputs) x = some n) := by
+    intro st hm
+    have hc := hall st hm
+    cases st with
+    | assign l r =>
+      cases hw : Sparkle.IR.PrintCheck.widths m l with
+      | none => simp [hw] at hc
+      | some n =>
+        simp only [hw, Bool.and_eq_true, beq_iff_eq, decide_eq_true_eq] at hc
+        obtain ⟨he, hr⟩ := printExpr_sound m n r hc.2
+        exact ⟨l, r, n, rfl, hc.1.1, hw, hc.1.2, he, hr⟩
+    | _ => cases hc
+  have readWidths : ∀ l r, Stmt.assign l r ∈ m.body →
+      ∀ x ∈ Sparkle.IR.Reorder.refsOf r, Sparkle.IR.RegDedup.declWidth m x = forwardWidths m x := by
+    intro l r hm x hx
+    obtain ⟨_, _, n, heq, _, _, _, he, hr⟩ := facts _ hm
+    cases heq
+    rw [show forwardWidths m x = n by simp only [forwardWidths, (hr x hx).2, Option.getD_some]]
+    exact SizedExpr.refs_width he x hx
+  apply Bool.and_eq_true_iff.mpr
+  constructor
+  · apply List.all_eq_true.mpr
+    intro st hm
+    obtain ⟨l, r, _, rfl, _⟩ := facts st hm
+    exact List.all_eq_true.mpr (fun x hx => beq_iff_eq.mpr (readWidths l r hm x hx))
+  · apply assignsCheck_of_singletons _ _ _
+      (fun st hm => by obtain ⟨l, r, _, h, _⟩ := facts st hm; exact ⟨l, r, h⟩)
+    intro l r hm
+    obtain ⟨_, _, n, heq, hl, hw, hn, he, hr⟩ := facts _ hm
+    cases heq
+    have he' := SizedExpr.we_congr he (readWidths l r hm)
+    have hf := SizedExpr.forward he' hn (printWidths (m.wires ++ m.inputs ++ m.outputs)) (fun x hx => by
+      refine ⟨(hr x hx).1, ?_⟩
+      rw [← readWidths l r hm x hx]
+      change _ = some (Tools.ShippingEntrySoundness.weOf m x)
+      rw [SizedExpr.refs_width he x hx]
+      exact (hr x hx).2)
+    have hwl : forwardWidths m l = n := by simp only [forwardWidths, hw, Option.getD_some]
+    simp only [assignsCheck, hl, hw, hwl, he'.width, hf, beq_self_eq_true, Bool.and_true]
+
+theorem checkedOptimize_printCheck {m : Sparkle.IR.AST.Module}
+    (hg : simpleBody m = true) (hc : Sparkle.IR.PrintCheck.moduleCheck m = true) :
+    Sparkle.IR.PrintCheck.moduleCheck (checkedOptimize m) = true := by
+  unfold checkedOptimize
+  simp only [hg, if_true]
+  split
+  · rename_i ho
+    have ho := (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp ho).2).2
+    simpa only [hc, Bool.not_true, Bool.false_or] using ho
+  · exact hc
+
 /-- On the actual CORE entry, no width-check premise is supplied by the
 caller. `synthesized_forwardCheck` below transports this result through
 cleanup and checked merging; optimizer selection remains separate. -/
@@ -243,7 +380,7 @@ theorem core_forwardCheck {declName : Name} {mctx : Meta.Context}
 /-- On the actual synthesis result, including zero-width cleanup and checked
 duplicate merging, all forward-check width conditions are derived. The wire
 name hypothesis remains explicit; this is still before optimizer selection. -/
-theorem synthesized_forwardCheck {declName : Name} {mctx : Meta.Context}
+theorem synthesized_printCheck {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
@@ -252,7 +389,7 @@ theorem synthesized_forwardCheck {declName : Name} {mctx : Meta.Context}
     (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
     (hwf : fe.WF names.length n) (hn : 0 < n)
     (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
-    forwardCheck m = true := by
+    Sparkle.IR.PrintCheck.moduleCheck m = true := by
   obtain ⟨m0, d0, w1, hcore, hm⟩ := Tools.ShippingPostSoundness.synthesizeCombinational_reads h
   obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
   obtain ⟨env, hev, _, hpr, hins, _, _⟩ :=
@@ -262,7 +399,7 @@ theorem synthesized_forwardCheck {declName : Name} {mctx : Meta.Context}
   obtain ⟨_, hi, _, hwire⟩ := Tools.ShippingPostSoundness.postprocess_facts hn hpr hm
   obtain ⟨_, _, ho⟩ := Tools.ShippingPostSoundness.postprocess_sound hn hpr hm hev
   have hsub := Tools.ShippingPostSoundness.postprocess_wires_subset hn hpr hm
-  apply uniform_forwardCheck (Tools.ShippingPostSoundness.postprocess_sized hn hpr hm) hn ?_ hs
+  apply printCheck_of_uniform (Tools.ShippingPostSoundness.postprocess_sized hn hpr hm) hn ?_ hs
   apply printWidths_out_of ?_ (ho.trans (hpr.2.2.2.1 hn)) ?_ hs
   · intro hmout
     obtain ⟨p, hp, heq⟩ := List.mem_map.mp hmout
@@ -274,6 +411,33 @@ theorem synthesized_forwardCheck {declName : Name} {mctx : Meta.Context}
     simp only at hty
     subst pty
     exact hwire pn hpwire
+
+theorem synthesized_forwardCheck {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    forwardCheck m = true :=
+  printCheck_forward (synthesized_printCheck h henv hwf hn hs)
+
+/-- Both optimizer arms preserve the forward condition established by the
+source entry. The caller supplies no condition on the optimizer's output. -/
+theorem compiled_forwardCheck {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    forwardCheck (checkedOptimize m) = true :=
+  printCheck_forward (checkedOptimize_printCheck (synthesized_printFacts h henv hwf hn).2
+    (synthesized_printCheck h henv hwf hn hs))
 
 /-- Zero-width cleanup preserves the newly derived sizing invariant: its
 body and wire-width environment agree with the core module on this fragment. -/
@@ -430,8 +594,9 @@ theorem module_forward {m : Sparkle.IR.AST.Module} {sv : SVModule} {we : WEnv}
   exact ⟨pairs', env, hcitems, hir, hsv⟩
 
 /-- Source-to-SV assignment-fold agreement for the actual emitted tree and
-bytes, CONDITIONAL on the forward check and initial width bounds. These are
-not yet derived by the source entry, and this is not full SV tool semantics. -/
+bytes. The final forward check is derived from the source run and optimizer
+selection. Wire sanitizer stability and initial width bounds remain explicit;
+this is not full SV tool semantics. -/
 theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -440,7 +605,7 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
     (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
     (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
     (hwf : fe.WF names.length n) (hn : 0 < n)
-    (hc : forwardCheck (checkedOptimize m) = true) :
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
     let o := checkedOptimize m
     let wof := printWidths (o.wires ++ o.inputs ++ o.outputs)
     ∃ (sv : SVModule) (port : Nat → Option String) (pairs : List CombStep),
@@ -459,6 +624,7 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
         ∃ env, evalAssignsSV wof mems pairs initial = some env ∧
           env "out" = ((denoteFE n sigs fe).val t).toNat := by
   obtain ⟨sv, port, htree, htext, hdist, hex, hsem⟩ := compiledFragment_artifact h henv hwf hn
+  have hc := compiled_forwardCheck h henv hwf hn hs
   obtain ⟨hp, hg⟩ := synthesized_printFacts h henv hwf hn
   have hpo := checkedOptimize_printDecls hg hp
   have hshape := checkedOptimize_printShape hg

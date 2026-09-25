@@ -1579,6 +1579,19 @@ Next: preserve the check through optimizer selection. The final optimized
 `compiledFragment_forward` premise is NOT discharged yet; name stability,
 bounded initialization, lexical validity and the text/grammar boundary remain.
 
+**2026-09-26 optimized forward premise discharged:** shipping
+`PrintCheck.moduleCheck` is a pure sufficient check, proved to imply
+`forwardCheck` by `printCheck_forward`. The source entry establishes it
+(`synthesized_printCheck`), and `optCheck` now requires accepted candidates
+to preserve it whenever the original passes. `checkedOptimize_printCheck`
+proves both the accepted-candidate and unchanged-fallback branches.
+`compiled_forwardCheck` connects the complete selection to the actual run;
+`compiledFragment_forward` now has NO optimized-check hypothesis. Remaining:
+wire sanitizer stability, bounded initialization, lexical validity and the
+text/grammar boundary (plus the existing fragment and `EnvDefines` scope).
+Tests require the real small-fragment optimizer proposals to be accepted,
+reject the old unused-width counterexample, and audit standard axioms only.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

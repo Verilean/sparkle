@@ -34,6 +34,18 @@ theorem fragA_synthesized_forward {mctx : Meta.Context} {mref : ST.Ref IO.RealWo
   rw [fragAValue_eq] at henv
   exact synthesized_forwardCheck h henv feA_wf (by decide) hs
 
+/-- No hypothesis about the optimized module: the real optimizer selection
+now preserves the source-derived check on either returned branch. -/
+theorem fragA_compiled_forward {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    forwardCheck (checkedOptimize m) = true := by
+  rw [fragAValue_eq] at henv
+  exact compiled_forwardCheck h henv feA_wf (by decide) hs
+
 -- A genuine duplicate-constant merge, with an output absent from the wire
 -- table. Equal target widths are essential even for equal RHS syntax.
 private def mergeOld : List Stmt :=
@@ -76,6 +88,9 @@ run_cmd liftTermElabM do
     unless forwardCheck core do
       throwError "forward check rejected the core entry result: {name}"
     let (m, _) ← synthesizeCombinational name
+    unless Sparkle.IR.PrintCheck.moduleCheck m &&
+        optCheck m (Sparkle.IR.Optimize.optimizeModule m) do
+      throwError "expected the guarded optimizer to accept the real candidate: {name}"
     for o in [m, checkedOptimize m] do
       let wof := printWidths (o.wires ++ o.inputs ++ o.outputs)
       unless Sparkle.IR.RegDedup.declWidth o "out" == 0 && wof "out" != some 0 do
@@ -100,8 +115,10 @@ run_cmd liftTermElabM do
   let (m, _) ← synthesizeCombinational ``fragA
   let o := checkedOptimize m
   let bad := {o with wires := o.wires ++ [{name := "unused_bad_width", ty := .bitVector 8}], body := o.body ++ [.assign "unused_bad_width" (.const 300 16)]}
-  unless optCheck m bad do
+  unless optCheckCore m bad do
     throwError "negative control must pass the output-only optimizer check"
+  unless !(optCheck m bad) do
+    throwError "guarded optimizer accepted the mismatched-width candidate"
   unless !(forwardCheck bad) do
     throwError "forward check accepted mismatched assignment width"
   let (named, _) ← synthesizeCombinationalCore ``hashBinder [] false
@@ -129,12 +146,14 @@ run_cmd do
       ``Tools.ShippingPostSoundness.validateMerge_sized,
       ``Tools.ShippingPostSoundness.mergeDuplicates_sized,
       ``Tools.ShippingPostSoundness.postprocess_sized,
-      ``Tools.ShippingPostSoundness.synthesizeCombinational_sized] do
+      ``Tools.ShippingPostSoundness.synthesizeCombinational_sized,
+      ``printExpr_sound, ``printCheck_forward, ``synthesized_printCheck,
+      ``checkedOptimize_printCheck, ``compiled_forwardCheck, ``fragA_compiled_forward] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected postprocessing-width axiom: {name}: {ax}"
-  logInfo "SHIPPING SYNTHESIZED WIDTH OK: cleanup and checked merge preserve sizing; full synthesis forwardCheck derived under name stability; optimized check still open"
-  logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only; final optimized check still open"
-  logInfo "SHIPPING SV BRIDGE OK: actual AST assignments, width transport, conditional source/SV fold theorem; final forwardCheck and initialization obligations still open"
+  logInfo "SHIPPING SYNTHESIZED WIDTH OK: cleanup, merge and guarded optimizer preserve the source-derived check; standard axioms only"
+  logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only"
+  logInfo "SHIPPING SV BRIDGE OK: final forwardCheck premise discharged; name stability, bounded initialization and text interpretation remain explicit"
 
 end Sparkle.Tests.Compiler.ShippingSVBridgeTest

@@ -35,7 +35,7 @@
 ## 7c.2 小さな加算器から始める
 
 ```lean
-import Tools.ShippingPrintEntrySoundness
+import Tools.ShippingSVBridge
 
 open Lean Elab Command
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
@@ -181,9 +181,9 @@ flowchart TD
 このうち AST から振る舞いへの接続は、現在
 `ShippingSVBridge.compiledFragment_forward` という**条件付きの一般定理**に
 なっています。実際の AST から取り出した代入列について、既存の SV サブセットの
-逐次的な代入評価がソースと一致します。ただし、幅・名前の検査に合格することと、
-初期環境の値が幅に収まることを、まだ仮定しています。四つの実回路で検査が通った
-ことは確認しましたが、それは対象断片すべてについて仮定を消した証明ではありません。
+逐次的な代入評価がソースと一致します。名前変換が wire 名を変えないことと、
+初期環境の値が幅に収まることは、まだ仮定しています。一方、最終 IR の幅検査に
+合格するという仮定は、以下の一般証明によって消せました。
 
 ここで実際に見つかった接続の問題が、出力ポートの幅でした。ソース側の IR 評価は
 内部 wire の幅表を使い、そこにない `out` は幅 0。一方、プリンタは出力ポートの
@@ -205,14 +205,45 @@ flowchart TD
 `out` は内部 wire ではないので、その例外も別に扱っています。
 
 `synthesized_forwardCheck` は、この結果から最適化前の IR の検査合格を導きます。
-次は、最適化した候補を採用する場合にも同じ条件を成立させる接続です。
-最適化前で仮定を消せたことと、最終定理から消せたことは区別しています。
+そして、最適化の採否を決める実装にも接続しました。入力がこの幅条件を満たすなら、
+最適化した候補にも同じ条件を要求します。候補が検査に落ちれば、証明済みの元の
+IR に戻ります。「候補を採用する」と「元に戻す」のどちらも正しいので、最終定理の
+利用者が最適化後の幅検査を証明する必要はなくなりました。
+
+ここは、個別回路の検査に成功したという話とは違います。検査器が通した候補は
+必ず条件を満たすこと、元の IR はソースの不変条件から条件を満たすことを一般に
+証明し、実際のコンパイラの選択へ適用しています。`compiledFragment_forward`
+から幅検査の仮定が一つ消えたのは、この接続の結果です。
+
+先ほどの `plus8` に適用してみます。最適化後の IR を実行して検査するのではなく、
+任意の成功した実行について、一般定理から検査の合格を導いています。
+
+```lean
+theorem plus8_forward_check
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinational ``plus8)
+      mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``plus8 plus8Value)
+    (hnames : ∀ p ∈ m.wires,
+      Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    Tools.ShippingSVBridge.forwardCheck (Sparkle.IR.OptCheck.checkedOptimize m) = true := by
+  rw [plus8Value_eq] at henv
+  exact Tools.ShippingSVBridge.compiled_forwardCheck h henv
+    (by simp [plus8Expr, FExpr.WF]) (by decide) hnames
+
+#print axioms plus8_forward_check
+```
+
+`hnames` はまだ残っている名前の条件です。これを幅の証明に紛れ込ませず、
+識別子の検討として次に扱える形にしています。
 
 - **識別子。** 先頭文字、予約語、生成名、名前の衝突を扱います。名前変換で
   変わらないことだけでは足りません。`1bad` や `module` がその例です。
-- **SV 意味保存の条件。** 既存の `emit_sem_assigns` が要求する `assignsCheck`、
-  幅環境、初期値の有界性を、対象の合成結果から導きます。最適化を採用する場合も、
-  元の IR に戻る場合も必要です。
+- **初期値。** 幅検査は最適化の両分岐まで導けました。次は、入力の値から
+  初期環境を作り、既存の SV 意味保存定理が要求する有界性を導きます。
 - **合成。** 同じ AST・同じ文字列について、ソースの意味と SV サブセットの
   意味をつなぎます。外部ツールが文字列をその文法どおり読むという信頼境界は、
   別途明記します。
@@ -229,9 +260,10 @@ flowchart TD
 ```lean
 -- Keep the chapter's trust claim executable, rather than only printing it.
 run_cmd do
-  for ax in (← liftCoreM <| collectAxioms ``plus8_artifact) do
-    unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
-      throwError "unexpected tutorial axiom: {ax}"
+  for name in [``plus8_artifact, ``plus8_forward_check] do
+    for ax in (← liftCoreM <| collectAxioms name) do
+      unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
+        throwError "unexpected tutorial axiom: {name}: {ax}"
 
 end Notebooks.Ch07c
 ```

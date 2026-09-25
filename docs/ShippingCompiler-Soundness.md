@@ -937,9 +937,11 @@ Its diagram keeps the lexical and SV evaluation links explicitly unfinished.
 `Tools/ShippingSVBridge.lean` proves `compiledFragment_forward`. For the SAME
 synthesis run and emitted tree/bytes, the existing SV-subset **in-order
 assignment fold** agrees with the source on every input, conditional on
-`forwardCheck (checkedOptimize m) = true` and a bounded initial environment.
-This is not yet a theorem that the source entry discharges that check, and
-not external-tool or full concurrent SystemVerilog semantics.
+wire sanitizer stability and a bounded initial environment. The final
+`forwardCheck (checkedOptimize m) = true` premise was discharged by the
+optimizer-guard step described below.
+This is not external-tool or full concurrent SystemVerilog semantics; the
+remaining name and initialization premises must still be discharged.
 
 Two representation gaps are now closed in that conditional composition:
 
@@ -965,9 +967,9 @@ before and after optimization, and audits the general theorems for standard
 axioms only. Those concrete checks are non-vacuity/regression evidence, not
 proof that every accepted source declaration passes. A negative control adds
 an unused 8-bit assignment with a 16-bit RHS: the shipping optimizer check
-still accepts it (output semantics unchanged), but `forwardCheck` rejects it.
-Thus deriving the forward condition merely from current `optCheck` would be
-false. No shipping behavior or acceptance policy changes in this step.
+still passes `optCheckCore` (output semantics unchanged), but `forwardCheck`
+rejects it. The new guarded `optCheck` rejects it too. Before that guard,
+deriving the forward condition merely from `optCheck` would have been false.
 
 **Core width derivation (2026-09-26):** the real translator's `Inv` now also
 carries `SizedBody`. `SizedExpr we rhs n` states uniform operand/constant
@@ -1006,9 +1008,40 @@ in `out`, a rejected unequal-width alias, and forward-check execution on
 the real `dupLit` as well as `fragA/B/C/D`. All new audited proofs use only
 the standard axioms. The shipping compiler is unchanged.
 
-This reaches the unoptimized fallback, BEFORE optimizer selection: the final
-`compiledFragment_forward` still keeps its `forwardCheck` premise. Preserving
-the check through optimizer acceptance remains open, as does bounded initialization. Sanitizer
+**Through optimizer selection (2026-09-26):** the executable
+`Sparkle.IR.PrintCheck.moduleCheck` checks positive, uniform operand widths,
+sanitizer-fixed names and agreement between wire and printer lookups. It is
+a sufficient check for this fragment, not a general SV or lexical checker.
+It imports no `Tools` proof modules. `printExpr_sound` and
+`printCheck_forward` prove that passing it implies the existing full forward
+condition; `synthesized_printCheck` derives it from the actual source run.
+
+The shipping `optCheck` now requires the candidate to preserve that check
+when the original module passes it. A failed candidate falls back to the
+original module; modules outside this printing fragment keep the old policy.
+`checkedOptimize_printCheck` covers both arms, and `compiled_forwardCheck`
+connects them to the real synthesis entry. Consequently
+`compiledFragment_forward` no longer takes a final `forwardCheck` hypothesis.
+It takes sanitizer stability of the source result's wires instead, and
+derives all width/check conditions through the real pipeline. Existing
+`EnvDefines`, source-fragment and positive-width restrictions still apply.
+The real `fragA/B/C/D` and `dupLit` optimizer proposals are accepted in tests;
+an unused mismatched-width assignment passes the old output check and is
+rejected by the guarded one. The general proofs are audited for standard
+axioms only.
+
+Validation for the optimizer-guard step: `lake test` and
+`lake build TutorialNotebooks` pass, including the executable
+`plus8_forward_check` application. A temporary differential command applied
+the old and new optimizer-selection policies to the SAME synthesized IR:
+298 successful command invocations across 119 files emitted byte-identical
+Verilog. This is not a claim that all 163 files in the historical sweep list
+build: that list also contains comments-only/library sources, existing error
+examples and an external tutorial package. Five missing-dependency cases were
+built and rerun successfully. No whole-run performance comparison is claimed
+from this two-policy harness.
+
+Bounded initialization remains explicit. Sanitizer
 stability is separate from lexical validity and is NOT assumed automatically:
 a real declaration with binder `«a#»` synthesizes, but its allocated name is
 changed by the printer and its forward check fails. That negative case is
@@ -1033,10 +1066,9 @@ Next, in order:
    entry through both paths of the checked optimizer.
 2. Establish the lexical contract for the source fragment and generated names.
    Until then byte equality is NOT a theorem that an SV tool parses the string.
-3. The fallback's full forward check is now derived under name stability.
-   Strengthen optimizer acceptance and prove both returned branches meet
-   those conditions. Avoid importing proof-only `Tools` dependencies into the
-   shipping IR layer; factor the executable checker if needed.
+3. **Done under wire sanitizer stability:** the fallback's check is derived,
+   and the shipping optimizer preserves it on both returned branches. Next
+   derive the bounded initial environment from the input-port values.
 4. Compose the existing declaration theorem with the module rendering and SV
    evaluation theorems. Any trusted rendering-to-grammar interpretation must
    remain explicit, distinct from the proved byte equalities.

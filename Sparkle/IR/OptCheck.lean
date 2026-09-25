@@ -18,6 +18,7 @@ import Sparkle.IR.Semantics
 import Sparkle.IR.Optimize
 import Sparkle.IR.RegDedup
 import Sparkle.IR.ReorderInvariance
+import Sparkle.IR.PrintCheck
 
 namespace Sparkle.IR.OptCheck
 
@@ -88,11 +89,14 @@ def printDeclsCheck (m : Module) : Bool :=
       | .bitVector n => 0 < n
       | _ => false
 
-/-- Preserve printable declarations when the input already has them. The
-normal-form check alone says nothing about primitive/parameter metadata or
-unused wire types. Failing candidates use the existing unchanged fallback. -/
+/-- Preserve printable declarations and the uniform-width printing check
+when the input already satisfies them. The normal-form check alone says
+nothing about unused assignments' widths. Failing candidates use the
+existing unchanged fallback. Inputs outside the printing fragment retain
+the previous acceptance policy. -/
 def optCheck (m o : Module) : Bool :=
-  optCheckCore m o && (!printDeclsCheck m || printDeclsCheck o)
+  optCheckCore m o && ((!printDeclsCheck m || printDeclsCheck o) &&
+    (!PrintCheck.moduleCheck m || PrintCheck.moduleCheck o))
 
 /-- The statement shapes the synthesis entry produces: an `assign` of a
 constant, a reference, or one of the six operators on two references. -/
