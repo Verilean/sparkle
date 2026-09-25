@@ -2009,6 +2009,19 @@ def synthesizeCombinationalCoreWith (translate : TranslateFn) (declName : Name)
       sparkleFvarValueMap.set savedFvarMap
       sparkleWireWidthCache.set savedWireWidthCache
 
+/-- `#synthesizeVerilog`'s synthesis: the entry, then zero-width cleanup, then
+    the merge of the duplicate hardware the two-pass body evaluation leaves
+    behind (see Sparkle/IR/RegDedup.lean; `SPARKLE_NO_REGDEDUP=1` skips the
+    merge, for A/B diagnosis).  A plain definition, like the entry. -/
+def synthesizeCombinationalWith (translate : TranslateFn) (declName : Name) :
+    MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
+  let (m, d) ← synthesizeCombinationalCoreWith translate declName [] false
+  let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
+  let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
+  if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
+  return (Sparkle.IR.RegDedup.mergeDuplicates m,
+    Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
+
 /-! The translator block below takes its recursive entry as a PARAMETER
 (`translateExprToWire`, a section variable), so it no longer ties its own knot.
 The knot is `translateExprToWire` after the block: an ordinary definition,
@@ -4296,17 +4309,8 @@ mutual
       | _ => CompilerM.liftMetaM $ throwError s!"Could not identify primitive in lambda body: {e}"
 
   partial def synthesizeCombinational (declName : Name) :
-      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) := do
-    let (m, d) ← synthesizeCombinationalCoreWith (fun e h t n => translateExprToWire e h t n)
-      declName [] false
-    -- zero-width cleanup, then merge the duplicate hardware the two-pass
-    -- body evaluation leaves behind (see Sparkle/IR/RegDedup.lean)
-    -- (`SPARKLE_NO_REGDEDUP=1` skips the merge, for A/B diagnosis)
-    let m := Sparkle.IR.ZeroWidth.dropZeroWidthModule m
-    let d := Sparkle.IR.ZeroWidth.dropZeroWidthDesign d
-    if (← IO.getEnv "SPARKLE_NO_REGDEDUP").isSome then return (m, d)
-    return (Sparkle.IR.RegDedup.mergeDuplicates m,
-      Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
+      MetaM (Sparkle.IR.AST.Module × Sparkle.IR.AST.Design) :=
+    synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n) declName
 
   partial def synthesizeCombinationalWithParameters (declName : Name)
       (parameters : List (String × Nat)) :
@@ -4449,8 +4453,9 @@ def translateShiftAmount := Rec.translateShiftAmount (fun e h t n => translateEx
 def getPrimitiveNameFromLambda := Rec.getPrimitiveNameFromLambda (fun e h t n => translateExprToWire e h t n)
 /-- The synthesis entry with the real translator as its recursive entry. -/
 def synthesizeCombinationalCore := synthesizeCombinationalCoreWith (fun e h t n => translateExprToWire e h t n)
-/-- `Rec.synthesizeCombinational` with the real translator as its recursive entry. -/
-def synthesizeCombinational := Rec.synthesizeCombinational (fun e h t n => translateExprToWire e h t n)
+/-- `#synthesizeVerilog`'s synthesis with the real translator (a plain
+    definition, so the post-processing theorems apply to it directly). -/
+def synthesizeCombinational := synthesizeCombinationalWith (fun e h t n => translateExprToWire e h t n)
 /-- `Rec.synthesizeCombinationalWithParameters` with the real translator as its recursive entry. -/
 def synthesizeCombinationalWithParameters := Rec.synthesizeCombinationalWithParameters (fun e h t n => translateExprToWire e h t n)
 

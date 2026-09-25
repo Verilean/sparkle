@@ -1,4 +1,4 @@
-import Tools.ShippingEntrySoundness
+import Tools.ShippingPostSoundness
 
 /-! The synthesis-entry theorems on REAL declarations: the quotation matches what
 Lean elaborates, the user's definition is `denoteFE` by `rfl`, the certified
@@ -8,6 +8,7 @@ the axiom audit. -/
 namespace Sparkle.Tests.Compiler.ShippingEntrySoundnessTest
 
 open Lean Elab Command Meta Tools.ShippingEntrySoundness Tools.ShippingScalarSoundness
+open Tools.ShippingPostSoundness
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
 
 def fragA {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
@@ -35,6 +36,13 @@ def feD : FExpr := .inp 0
 only for front-end agreement and against the Lean value. -/
 def fragS {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
   (a <<< b) + (a >>> b)
+
+/-- Two spellings of the literal 5 elaborate to different `Expr`s, so the
+translator emits two `const 5 8` wires and two adders; `mergeDuplicates` merges
+them, and the checker must ACCEPT that merge. -/
+def dupLit {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  (a + (Signal.pure (5 : BitVec 8) : Signal dom (BitVec 8))) ^^^
+    (a + (Signal.pure (BitVec.ofNat 8 5) : Signal dom (BitVec 8)))
 
 /-- Outside the certified shape (a width-changing concatenation): the legacy
 front end handles it. -/
@@ -68,15 +76,17 @@ theorem fragAValue_eq : fragAValue = quoteDecl `dom [`a, `b] 8 feA := rfl
 
 theorem feA_wf : feA.WF 2 8 := by simp [feA, FExpr.WF]
 
-/-- **`fragA` and its IR agree on every input.** For any successful run of
-`synthesizeCombinationalCore ``fragA`, in an environment that defines `fragA`
-as elaborated here: the module has two distinct input ports `pa`, `pb`, and for
-every domain, all signals `a b` and every cycle `t`, driving `pa`, `pb` with
-`a`, `b` at `t` makes `out` equal `(fragA a b).val t`. -/
+/-- **`fragA` and its IR agree on every input, after post-processing.** For any
+successful run of `synthesizeCombinational ``fragA` (the entry, then
+`dropZeroWidthModule`, then `mergeDuplicates` unless `SPARKLE_NO_REGDEDUP` is
+set — what `#synthesizeVerilog` compiles), in an environment that defines
+`fragA` as elaborated here: the RETURNED module has two distinct input ports
+`pa`, `pb`, and for every domain, all signals `a b` and every cycle `t`, driving
+`pa`, `pb` with `a`, `b` at `t` makes `out` equal `(fragA a b).val t`. -/
 theorem fragA_ir_correct {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
-    (h : RunsTo (synthesizeCombinationalCore ``fragA [] false) mctx mref cctx cref w (M, D) w')
+    (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (M, D) w')
     (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
     ∃ pa pb : String, pa ≠ pb ∧
       ∀ {dom : DomainConfig} (a b : Signal dom (BitVec 8)) (t : Nat)
@@ -85,7 +95,8 @@ theorem fragA_ir_correct {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
         ∃ env, Sparkle.IR.Semantics.evalAssigns (weOf M) mems M.body initial = some env ∧
           env "out" = ((fragA a b).val t).toNat := by
   rw [fragAValue_eq] at henv
-  obtain ⟨port, hdist, hex, hsem⟩ := fragmentDecl_of_env (names := [`a, `b]) h henv feA_wf
+  obtain ⟨port, hdist, hex, hsem⟩ :=
+    synthesizeCombinational_fragment (names := [`a, `b]) h henv feA_wf (by decide)
   obtain ⟨pa, hpa⟩ := hex 0 (by decide)
   obtain ⟨pb, hpb⟩ := hex 1 (by decide)
   refine ⟨pa, pb, fun he => by subst he; exact absurd (hdist 0 1 pa hpa hpb) (by decide), ?_⟩
@@ -149,15 +160,70 @@ run_cmd liftTermElabM do
       (Signal.pure (BitVec.ofNat 8 y))).val 0).toNat
     let got := evalOut s1 [(sp[0]!, x), (sp[1]!, y)]
     unless got == some want do throwError "fragS: IR gives {got}, source gives {want}"
-  -- (6) outside the shape: not certified, still synthesized by the legacy front end
+  -- (6) a real merge on a certified-shape module, accepted by the checker
+  let (d0, _) ← synthesizeCombinationalCoreWith tr ``dupLit [] false true
+  let dz := Sparkle.IR.ZeroWidth.dropZeroWidthModule d0
+  let raw := Sparkle.IR.RegDedup.mergeDuplicatesRaw dz
+  unless toString (repr raw.body) != toString (repr dz.body) do
+    throwError "dupLit: expected mergeDuplicates to merge something"
+  unless toString (repr (Sparkle.IR.RegDedup.mergeDuplicates dz).body) == toString (repr raw.body) do
+    throwError "dupLit: the merge checker rejected a merge"
+  let (dm, _) ← synthesizeCombinational ``dupLit
+  let dp := dm.inputs.map (·.name)
+  for x in [0, 1, 7, 200, 255] do
+    let want := ((dupLit (dom := defaultDomain) (Signal.pure (BitVec.ofNat 8 x))).val 0).toNat
+    let got := evalOut dm [(dp[0]!, x)]
+    unless got == some want do throwError "dupLit: IR gives {got}, source gives {want}"
+  -- (7) outside the shape: not certified, still synthesized by the legacy front end
   let ci ← getConstInfo ``notCertified
   unless (certifiedShape? false [] ci).isNone do
     throwError "notCertified: gate accepted a concatenation"
   let _ ← synthesizeCombinationalCoreWith tr ``notCertified [] false true
 
+
+/-! ## The merge checker REJECTS a width-changing merge
+
+Two wires with the same right-hand side but different declared widths (8 and
+16 bits) feed a concatenation. The merge's signature ignores declared widths,
+so the proposal merges them, which changes the concatenation's value. The
+checker must reject it, and the shipped `mergeDuplicates` must return the
+module unchanged. -/
+
+open Sparkle.IR.AST in
+def widthMismatch : Sparkle.IR.AST.Module :=
+  { name := "widthMismatch"
+    inputs := [{ name := "x", ty := .bitVector 8 }]
+    outputs := [{ name := "out", ty := .bitVector 24 }]
+    wires := [{ name := "_tmp_a", ty := .bitVector 8 }, { name := "_tmp_b", ty := .bitVector 16 }]
+    body := [.assign "_tmp_a" (.ref "x"), .assign "_tmp_b" (.ref "x"),
+      .assign "out" (.concat [.ref "_tmp_a", .ref "_tmp_b"])] }
+
+def evalMod (m : Sparkle.IR.AST.Module) (x : Nat) : Option Nat :=
+  (Sparkle.IR.Semantics.evalAssigns (weOf m) (fun _ _ => 0) m.body
+    (fun s => if s = "x" then x else 0)).map (· "out")
+
+run_cmd liftTermElabM do
+  let m := widthMismatch
+  let raw := Sparkle.IR.RegDedup.mergeDuplicatesRaw m
+  unless toString (repr raw.body) != toString (repr m.body) do
+    throwError "widthMismatch: expected the merge proposal to merge the two wires"
+  -- the proposal is WRONG: it changes the value
+  unless evalMod raw 1 != evalMod m 1 do
+    throwError "widthMismatch: expected the unchecked merge to change the value"
+  unless !(Sparkle.IR.RegDedup.validateMerge (Sparkle.IR.RegDedup.declWidth m) m.body raw.body) do
+    throwError "widthMismatch: the checker accepted a width-changing merge"
+  -- the shipped pass returns the module unchanged
+  unless (Sparkle.IR.RegDedup.mergeDuplicates m) == m do
+    throwError "widthMismatch: mergeDuplicates did not fall back to the original module"
+  unless evalMod (Sparkle.IR.RegDedup.mergeDuplicates m) 1 == some 65537 do
+    throwError "widthMismatch: wrong value after mergeDuplicates"
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "entry regression failed"
   for name in [``fragA_ir_correct, ``fragAValue_eq, ``fragmentDecl_of_env,
+      ``synthesizeCombinational_fragment, ``synthesizeCombinational_reads, ``postprocess_sound,
+      ``dropZeroWidth_entry, ``mergeDuplicates_sound, ``validateMerge_sound,
+      ``validateStep_sound, ``renameE_sound, ``weOf_dropWires,
       ``synthesizeCombinationalCore_reads, ``synthesizeFromConst_sound, ``outcome_quote,
       ``RunsTo.bind, ``RunsTo.ite, ``RunsTo.try_finally, ``RunsTo.mreturns,
       ``MReturns.bind, ``MReturns.pure, ``MReturns.throw, ``MReturns.run,
@@ -172,6 +238,6 @@ run_cmd do
     for a in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains a do
         throwError "unexpected entry axiom: {name}: {a}"
-  logInfo "SHIPPING ENTRY OK: fragA_ir_correct — any run of synthesizeCombinationalCore ``fragA whose environment defines fragA as elaborated yields IR equal to fragA on every input (constant read in the SAME run; post-processing excluded); standard axioms only"
+  logInfo "SHIPPING ENTRY OK: fragA_ir_correct — any run of synthesizeCombinational ``fragA (entry + dropZeroWidth + mergeDuplicates) whose environment defines fragA as elaborated yields IR equal to fragA on every input (constant read in the SAME run); standard axioms only"
 
 end Sparkle.Tests.Compiler.ShippingEntrySoundnessTest

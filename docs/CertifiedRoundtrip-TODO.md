@@ -1564,8 +1564,16 @@ The gaps, in the order they weaken the claim:
     `getConstInfo`, post-read processing is `synthesizeFromConst ci`, and
     `fragA_ir_correct` applies the theorem to the real `fragA`, with the single
     environment hypothesis `EnvDefines` named.
-  - [ ] Include post-processing (`dropZeroWidthModule`, `mergeDuplicates`) in
-    the entry theorem.
+  - [x] Include post-processing (`dropZeroWidthModule`, `mergeDuplicates`)
+    (2026-09-25): `synthesizeCombinational_fragment`, `fragA_ir_correct` on the
+    IR `synthesizeCombinational` returns. `mergeDuplicates` is result-checked on
+    combinational bodies (`validateMerge`, proved sound; never rejects on the
+    corpus).
+  - [ ] Check or prove the merge on bodies with registers/memories/instances
+    (and cover the `assertions` the merge rewrites).
+  - [ ] Width 0 inside the success region: a width-0 fragment declaration
+    synthesizes but is not covered (`n > 0`). Decide: a specification under
+    which a dropped zero-width output keeps the meaning, or an explicit refusal.
   - [ ] Give shifts a `Denotes` clause (they are on the certified front end but
     unproved); widen the certified shape (mixed widths, Bool, comparisons, mux).
   - [ ] Coverage beyond quotations: gate accepted ⇒ a meaning exists for every

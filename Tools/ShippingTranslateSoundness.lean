@@ -170,6 +170,13 @@ theorem makeWire_module (hint : String) (ty : HWType) (named : Bool) (s : Circui
       { name := (CircuitM.freshName (CircuitM.sanitizeName hint) named s).1, ty := ty } = _
   rw [fresh]; rfl
 
+theorem makeWire_outputs (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (CircuitM.makeWire hint ty named s).2.module.outputs = s.module.outputs := by
+  rw [makeWire_module]; rfl
+
+theorem emitAssign_outputs (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitState) :
+    (CircuitM.emitAssign lhs rhs s).2.module.outputs = s.module.outputs := rfl
+
 theorem makeWire_inputs (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
     (CircuitM.makeWire hint ty named s).2.module.inputs = s.module.inputs := by
   rw [makeWire_module]; rfl
@@ -322,6 +329,24 @@ def RecordFresh (s0 s1 : CircuitState) : Prop :=
   ∀ w e', s1.translateRecord.get? w = some e' →
     s0.translateRecord.get? w = some e' ∨ s0.usedNames.contains w = false
 
+/-- The right-hand sides the fragment's translation emits. -/
+def ShapedRhs : Sparkle.IR.AST.Expr → Prop
+  | .const _ _ => True
+  | .op _ [.ref _, .ref _] => True
+  | _ => False
+
+/-- A translation at width `n` only PREPENDS statements, each an `assign` of a
+const or an operator on two references to a declared width-`n` wire. What the
+post-processing proofs need to read off the generated module. -/
+def Emits (n : Nat) (s0 s1 : CircuitState) : Prop :=
+  s1.module.outputs = s0.module.outputs ∧
+  ∃ pre, s1.module.body = pre ++ s0.module.body ∧
+    ∀ st ∈ pre, ∃ l r, st = .assign l r ∧ ShapedRhs r ∧
+      ({ name := l, ty := .bitVector n } : Port) ∈ s1.module.wires
+
+theorem Emits.refl (n : Nat) (s : CircuitState) : Emits n s s :=
+  ⟨rfl, [], by simp, by simp⟩
+
 /-- The invariant a translation call starts in and ends in. -/
 structure Inv (ctx : CompilerState) (ρ : Valuation) (we : WEnv) (mems : MEnv)
     (initial : Env) (s : CircuitState) (env : Env) : Prop where
@@ -429,7 +454,7 @@ structure Spec (translate : TranslateFn) (ctx : CompilerState) (we : WEnv) (mems
     (initial : Env) (ρ : Valuation) : Prop where
   grows : ∀ e hint named n (x : BitVec n) s0 w s1, Denotes ρ e n x →
     Returns (translate e hint false named) ctx s0 w s1 → BoundLookup ctx ρ s0 →
-    Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1
+    Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧ Emits n s0 s1
   sem : ∀ e hint named n (x : BitVec n) s0 env0 w s1, Denotes ρ e n x →
     Returns (translate e hint false named) ctx s0 w s1 →
     Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
@@ -618,7 +643,8 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
     (hrun : Returns (translateSignalPureLiteral? e.getAppArgs hint named) ctx s0 r s1) :
     ∃ w, r = some w ∧
       (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧
-        s1.translateRecord = s0.translateRecord ∧ s0.usedNames.contains w = false) ∧
+        s1.translateRecord = s0.translateRecord ∧ s0.usedNames.contains w = false ∧
+        Emits n s0 s1) ∧
       (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
         ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
           (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
@@ -644,7 +670,7 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
   rw [← hres] at hfresh hused hwires
   rw [← hsA] at hused hbody hwires hsbA hrecA
   rw [hs1]
-  refine ⟨res, hr, ⟨⟨?_, ?_, ?_, ?_⟩, ?_, ?_, hfresh⟩, ?_⟩
+  refine ⟨res, hr, ⟨⟨?_, ?_, ?_, ?_⟩, ?_, ?_, hfresh, ?_⟩, ?_⟩
   · intro z hz; rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert, hz]
   · intro p hp; rw [hsB, emitAssign_wires, hwires]; simp [hp]
   · intro hok
@@ -653,6 +679,12 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
   · intro p hp; rw [hsB, emitAssign_inputs, hsA, makeWire_inputs]; exact hp
   · rw [hsB, emitAssign_sourceBindings, hsbA]
   · rw [hsB, emitAssign_translateRecord, hrecA]
+  · refine ⟨by rw [hsB, emitAssign_outputs, hsA, makeWire_outputs],
+      [.assign res _], by rw [hsB, emitAssign_body_cons, hbody]; rfl, ?_⟩
+    intro st hst
+    simp only [List.mem_singleton] at hst
+    subst hst
+    exact ⟨res, _, rfl, trivial, by rw [hsB, emitAssign_wires, hwires]; simp⟩
   · intro env0 hinv hw1
     have hsA0 : Runs we mems initial sA env0 := runs_of_body_eq hbody hinv.runs
     have hrunB := emitAssign_sound sA we mems initial env0 res _ _ hsA0
@@ -705,7 +737,7 @@ theorem translateCanonicalSignalBinary_branch
       hint named) ctx s0 w s1)
     (hbl : BoundLookup ctx ρ s0) :
     (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧
-      s0.usedNames.contains w = false) ∧
+      s0.usedNames.contains w = false ∧ Emits n s0 s1) ∧
     (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
       ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
         (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
@@ -744,9 +776,9 @@ theorem translateCanonicalSignalBinary_branch
     intro z hz; rw [hused]; simp [Std.HashSet.contains_insert, hz]
   have hresA : sA.usedNames.contains res = true := by rw [hused]; simp [Std.HashSet.contains_insert]
   have hblA : BoundLookup ctx ρ sA := hbl.transfer huA hsbA
-  obtain ⟨⟨gAu, gAw, gAk, gAi⟩, sbB, rfB⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
+  obtain ⟨⟨gAu, gAw, gAk, gAi⟩, sbB, rfB, eA⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
   have hblB : BoundLookup ctx ρ sB := hblA.transfer gAu sbB
-  obtain ⟨⟨gBu, gBw, gBk, gBi⟩, sbC, rfC⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
+  obtain ⟨⟨gBu, gBw, gBk, gBi⟩, sbC, rfC, eB⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
   have wiresD : ∀ p ∈ sC.module.wires, p ∈ sD.module.wires := by
     intro p hp; rw [hsD, emitAssign_wires]; exact hp
   have huD : ∀ z, sC.usedNames.contains z = true → sD.usedNames.contains z = true := by
@@ -764,7 +796,20 @@ theorem translateCanonicalSignalBinary_branch
       fun p hp => by
         rw [hsD, emitAssign_inputs]
         exact gBi p (gAi p (by rw [hsA, makeWire_inputs]; exact hp))⟩,
-    by rw [hsD, emitAssign_sourceBindings, sbC, sbB, hsbA], rfAll, hfresh⟩, ?_⟩
+    by rw [hsD, emitAssign_sourceBindings, sbC, sbB, hsbA], rfAll, hfresh, ?_⟩, ?_⟩
+  · obtain ⟨hoA, preA, hbA, hA⟩ := eA
+    obtain ⟨hoB, preB, hbB, hB⟩ := eB
+    refine ⟨?_, .assign res (.op bop.operator [.ref wa, .ref wb]) :: (preB ++ preA), ?_, ?_⟩
+    · rw [hsD, emitAssign_outputs, hoB, hoA, hsA, makeWire_outputs]
+    · rw [hsD, emitAssign_body_cons, hbB, hbA, hbody]; simp
+    · intro st hst
+      rcases List.mem_cons.mp hst with rfl | hst
+      · exact ⟨res, _, rfl, trivial, wiresD _ (gBw _ (gAw _ (by rw [hwires]; simp)))⟩
+      · rcases List.mem_append.mp hst with h | h
+        · obtain ⟨l, r, rfl, hr, hl⟩ := hB st h
+          exact ⟨l, r, rfl, hr, wiresD _ hl⟩
+        · obtain ⟨l, r, rfl, hr, hl⟩ := hA st h
+          exact ⟨l, r, rfl, hr, wiresD _ (gBw _ hl)⟩
   -- semantics
   intro env0 hinv hw1
   have hwC : WidthsAgree we sC := hw1.mono wiresD
@@ -832,7 +877,7 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     (hden : Denotes ρ e n x)
     (hrun : Returns (translateCore rec e hint false named >>= K) ctx s0 w s1)
     (hbl : BoundLookup ctx ρ s0) :
-    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1) ∧
+    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧ Emits n s0 s1) ∧
     (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
       ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
         (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
@@ -858,7 +903,8 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     obtain ⟨hw, hs1⟩ := Returns.pure k
     rw [hsc] at hs1
     rw [hs1, hw]
-    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
+    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he,
+      Emits.refl _ _⟩, ?_⟩
     intro env0 hinv _
     obtain ⟨hv, hwid⟩ := hinv.values id _ _ w' hρ hw'
     exact ⟨env0, hinv, fun _ _ => rfl, hu', hwid, hv⟩
@@ -869,12 +915,12 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
     · simp [Lean.Expr.getAppFn] at hfn
     · rw [hfn] at hcore
       simp only [beq_self_eq_true, if_true] at hcore
-      obtain ⟨w', hr, ⟨⟨gu, gw, gk, gi⟩, sb, hrec, hfr⟩, hsem⟩ :=
+      obtain ⟨w', hr, ⟨⟨gu, gw, gk, gi⟩, sb, hrec, hfr, em⟩, hsem⟩ :=
         translateSignalPureLiteral_branch (we := we) (mems := mems) (initial := initial) hfn
           (Denotes.pureLit hfn hback hlit) hcore
       obtain ⟨hs1, hw⟩ := after w' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_, em⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -902,11 +948,11 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
       obtain ⟨w'', sd, htr, kk⟩ := Returns.bind hcore
       obtain ⟨hr, hsd⟩ := Returns.pure kk
       rw [← hsd] at htr
-      obtain ⟨⟨⟨gu, gw, gk, gi⟩, sb, rf, hfr⟩, hsem⟩ :=
+      obtain ⟨⟨⟨gu, gw, gk, gi⟩, sb, rf, hfr, em⟩, hsem⟩ :=
         translateCanonicalSignalBinary_branch ih hfn hop hden htr hbl
       obtain ⟨hs1, hw⟩ := after w'' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi⟩, sb, ?_, em⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -927,7 +973,7 @@ theorem translateStepWith_run {fallback : TranslateFn → TranslateFn} {rec : Tr
     (hden : Denotes ρ e n x)
     (hrun : Returns (translateStepWith fallback rec e hint false named) ctx s0 w s1)
     (hbl : BoundLookup ctx ρ s0) :
-    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1) ∧
+    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧ Emits n s0 s1) ∧
     (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
       ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
         (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
@@ -943,7 +989,8 @@ theorem translateStepWith_run {fallback : TranslateFn → TranslateFn} {rec : Tr
       obtain ⟨hw, hs1⟩ := Returns.pure k
       have hrec := hval w' rfl
       rw [hs1, hs2, hw]
-      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
+      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp, fun h => h, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he,
+      Emits.refl _ _⟩, ?_⟩
       intro env0 hinv _
       obtain ⟨hu, hv, hwid⟩ := hinv.record w' e hrec n x hden
       exact ⟨env0, hinv, fun _ _ => rfl, hu, hwid, hv⟩

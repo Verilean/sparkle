@@ -60,9 +60,8 @@ reduce in proofs).
   `ST.Ref`, so "the run's environment defines `f := v`" cannot be derived. The
   constant is proved to be the one the run read; `#def_decl_value` takes `v`
   from the same `getConstInfo` at elaboration time.
-* Post-processing is NOT included: `synthesizeCombinational` applies
-  `dropZeroWidthModule` and `mergeDuplicates` after the entry; the theorems
-  stop at the entry's result (`module.finalize` plus clock/reset ports).
+* Post-processing is covered separately in `Tools/ShippingPostSoundness.lean`
+  (`synthesizeCombinational_fragment`).
 * Declarations outside the certified shape take the legacy front end and are
   not covered; the entry theorem says nothing about them (`CertifiedOutcome`
   is vacuous there). The gate also accepts the canonical shifts `<<< >>>`
@@ -271,15 +270,15 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
       (∀ (j j' : Nat) (w : String), ws[j]? = some (some w) → ws[j']? = some (some w) → j = j') ∧
       (∀ id, id ∉ L.map Prod.snd → ctx'.varMap.lookup id = ctx.varMap.lookup id) ∧
       Grows s s1 ∧ s1.module.body = s.module.body ∧ s1.translateRecord = s.translateRecord ∧
-      s1.sourceBindings = s.sourceBindings
+      s1.sourceBindings = s.sourceBindings ∧ s1.module.outputs = s.module.outputs
   | [], ctx, s, s', a, _, h =>
     ⟨ctx, s, [], h, rfl, fun j _ _ _ hj => by simp at hj, fun j w hj => by simp at hj,
-     fun j _ w hj => by simp at hj, fun _ _ => rfl, Grows.refl s, rfl, rfl, rfl⟩
+     fun j _ w hj => by simp at hj, fun _ _ => rfl, Grows.refl s, rfl, rfl, rfl, rfl⟩
   | ((nm, .domain), id) :: rest, ctx, s, s', a, hnd, h => by
     have hnd' : (rest.map Prod.snd).Nodup := (List.nodup_cons.mp hnd).2
-    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb⟩ :=
+    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb, hout⟩ :=
       bindCertifiedInputs_returns rest hnd' h
-    refine ⟨ctx', s1, none :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, hg, hb, hr, hsb⟩
+    refine ⟨ctx', s1, none :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, hg, hb, hr, hsb, hout⟩
     · intro j nm' n id' hj
       cases j with
       | zero => simp at hj
@@ -304,13 +303,14 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
     have h1 := bindInputPort_returns (h : Returns (bindInputPort id nm.toString (.bitVector n)
       (bindCertifiedInputs k rest)) ctx s a s')
     dsimp only at h1
-    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb⟩ :=
+    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb, hout⟩ :=
       bindCertifiedInputs_returns rest hnd' h1
     obtain ⟨hfresh, hused, hbody, hwires⟩ :=
       CircuitM.makeWire_spec nm.toString (.bitVector n) true s
     have hsbA := CircuitM.makeWire_sourceBindings nm.toString (.bitVector n) true s
     have hrecA := CircuitM.makeWire_translateRecord nm.toString (.bitVector n) true s
     have hinA := makeWire_inputs nm.toString (.bitVector n) true s
+    have houtA := makeWire_outputs nm.toString (.bitVector n) true s
     generalize hw0 : (CircuitM.makeWire nm.toString (.bitVector n) true s).1 = w0 at *
     generalize hsA : (CircuitM.makeWire nm.toString (.bitVector n) true s).2 = sA at *
     -- the state after the head binder
@@ -340,7 +340,8 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
           (WiresOk.fresh hfresh hused hwires hok)
       · rw [hNi, hinA]; exact List.mem_cons_of_mem _ hp
     refine ⟨ctx', s1, some w0 :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, Grows.trans gN hg,
-      by rw [hb, hNb]; exact hbody, by rw [hr, hNr]; exact hrecA, by rw [hsb, hNs]; exact hsbA⟩
+      by rw [hb, hNb]; exact hbody, by rw [hr, hNr]; exact hrecA, by rw [hsb, hNs]; exact hsbA,
+      by rw [hout, addInput_state]; exact houtA⟩
     · intro j nm' n' id' hj
       cases j with
       | zero =>
@@ -412,6 +413,15 @@ theorem Returns.guard_throw {β : Type} {c : Bool} {ex : Exception} {K : Unit �
     exact (Returns.throw ht).elim
   · rename_i hc; exact ⟨by simpa using hc, h⟩
 
+/-- The type the leaf loop gives an output port driven by wire `w`. -/
+def leafOutputType (s : CircuitState) (w : String) : HWType :=
+  match s.module.wires.find? (fun p => p.name == w) with
+  | some decl => decl.ty
+  | none =>
+    match s.module.inputs.find? (fun p => p.name == w) with
+    | some inputPort => inputPort.ty
+    | none => .bitVector 8
+
 /-- One return leaf: the translator's run, the port-name check, the port and
 its `assign`. -/
 theorem emitLeaves_single {tr : TranslateFn} {cacheRef : IO.Ref (Lean.ExprStructMap String)}
@@ -419,7 +429,8 @@ theorem emitLeaves_single {tr : TranslateFn} {cacheRef : IO.Ref (Lean.ExprStruct
     {ctx : CompilerState} {s s' : CircuitState} {r : String}
     (h : Returns (emitLeaves tr cacheRef logProf [(port, e)] none 0) ctx s r s') :
     ∃ w s1 ty, Returns (tr e port false true) ctx s w s1 ∧ s1.usedNames.contains port = false ∧
-      s' = (CircuitM.emitAssign port (.ref w) (CircuitM.addOutput port ty s1).2).2 := by
+      s' = (CircuitM.emitAssign port (.ref w) (CircuitM.addOutput port ty s1).2).2 ∧
+      ty = leafOutputType s1 w := by
   unfold emitLeaves at h
   peel_lift h; peel_lift h; peel_lift h; peel_lift h
   obtain ⟨w, s1, htr, h⟩ := Returns.bind h
@@ -436,8 +447,8 @@ theorem emitLeaves_single {tr : TranslateFn} {cacheRef : IO.Ref (Lean.ExprStruct
   have hs6 := emitAssign_returns hem
   unfold emitLeaves at h5
   obtain ⟨-, hs'⟩ := Returns.pure h5
-  rw [hcs] at hfresh
-  exact ⟨w, _, _, htr, hfresh, by rw [hs', hs6, hs5, hs3]⟩
+  rw [hcs] at hfresh hs5
+  exact ⟨w, _, leafOutputType _ w, htr, hfresh, by rw [hs', hs6, hs5, hs3]; rfl, rfl⟩
 
 
 /-! ## Finishing the module -/
@@ -543,10 +554,20 @@ theorem translateExprToWire_grows {ctx : CompilerState} {ρ : Valuation} {e : Le
     {s1 : CircuitState} (hden : Denotes ρ e n x)
     (hrun : Returns (translateExprToWire e hint false named) ctx s0 w s1)
     (hbl : BoundLookup ctx ρ s0) :
-    Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 :=
+    Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧ Emits n s0 s1 :=
   (translateFuelFix_spec (step := translateStep) (we := fun _ => 0) (mems := fun _ _ => 0)
     (initial := fun _ => 0) (fun _ ih => translateStepWith_spec ih)
     translateFuelLimit).grows e hint named n x s0 w s1 hden hrun hbl
+
+/-- Facts about a module the entry returned, READ OFF its construction, that
+the post-processing proofs need (`Tools/ShippingPostSoundness.lean`). -/
+def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
+  (M.wires.map (·.name)).Nodup ∧
+  "out" ∉ M.wires.map (·.name) ∧
+  (∀ st ∈ M.body, ∃ l r, st = .assign l r ∧
+    ((ShapedRhs r ∧ ({ name := l, ty := .bitVector n } : Port) ∈ M.wires) ∨
+     (l = "out" ∧ ∃ w, r = .ref w))) ∧
+  (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }])
 
 /-- What synthesis success guarantees for a certified-shape declaration:
 distinct input ports for the `Signal` binders, and for ALL binder values, the
@@ -566,7 +587,8 @@ def Preserves (bs : List (Name × GateBinder)) (body : Lean.Expr)
         ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧ env "out" = x.toNat ∧
           "out" ∈ M.outputs.map (·.name) ∧
           (∀ j nm n' w, bs[j]? = some (nm, GateBinder.signal n') → port j = some w →
-            ({ name := w, ty := .bitVector n' } : Port) ∈ M.inputs)
+            ({ name := w, ty := .bitVector n' } : Port) ∈ M.inputs) ∧
+          PostReady M n
 
 theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Name}
     {bs : List (Name × GateBinder)} {body : Lean.Expr} {M : Sparkle.IR.AST.Module} {D : Design}
@@ -588,9 +610,9 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
   dsimp only at hr
   have hnd : ((bs.zip ids).map Prod.snd).Nodup := by
     rw [List.map_snd_zip (by rw [hids.2]; exact Nat.le_refl _)]; exact hids.1
-  obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hrec, hsb⟩ :=
+  obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hrec, hsb, hout1⟩ :=
     bindCertifiedInputs_returns _ hnd hr
-  obtain ⟨w, s2, ty, htr, hfresh, hst⟩ := emitLeaves_single hk
+  obtain ⟨w, s2, ty, htr, hfresh, hst, hty⟩ := emitLeaves_single hk
   -- the module the entry returns
   obtain ⟨cb, cw, co, ci⟩ := addClockReset_facts st.module
   have hst_w : st.module.wires = s2.module.wires := by rw [hst]; rfl
@@ -642,7 +664,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       obtain ⟨j, nm, hj, -⟩ := rhoOf_some _ vals id n' x' hx
       obtain ⟨w', -, hl, hwire, -⟩ := hsig' j nm n' id hj
       exact ⟨w', Tools.ShippingBindingsSoundness.visible_local ctx' _ id w' hl, hok1.2 _ hwire⟩
-    obtain ⟨⟨gu, gw, gk, gi⟩, -, -⟩ := translateExprToWire_grows hden htr hbl
+    obtain ⟨⟨gu, gw, gk, gi⟩, -, -, hemit⟩ := translateExprToWire_grows hden htr hbl
     have hok2 : WiresOk s2 := gk hok1
     have hwid : WidthsAgree (weOf M) s2 := widthsAgree_weOf hok2 hMw
     have hinv : Inv ctx' (rhoOf (bs.zip ids) vals) (weOf M) mems initial s1 initial := by
@@ -661,8 +683,8 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
         rw [hinit j nm n' w'' hbj hp, hxv]
       · intro w' e' he
         rw [hs1r] at he; simp at he
-    obtain ⟨env1, hinv1, -, -, -, hval⟩ := translateExprToWire_sound hden htr hinv hwid
-    refine ⟨fun n => if n = "out" then env1 w else env1 n, ?_, by simp [hval], hMo, ?_⟩
+    obtain ⟨env1, hinv1, -, -, hwn, hval⟩ := translateExprToWire_sound hden htr hinv hwid
+    refine ⟨fun n => if n = "out" then env1 w else env1 n, ?_, by simp [hval], hMo, ?_, ?_⟩
     · rw [hMb]
       have hpre : evalAssigns (weOf M) mems
           (CircuitM.addOutput "out" ty s2).2.module.finalize.body initial = some env1 := by
@@ -677,6 +699,44 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       rw [hp] at hp'
       cases hp'
       exact hMi _ (gi _ hin)
+    · obtain ⟨hout2, pre, hbody2, hpre⟩ := hemit
+      refine ⟨?_, ?_, ?_, ?_⟩
+      · rw [hMw, List.map_reverse]; exact nodup_reverse hok2.1
+      · intro hm
+        rw [hMw, List.map_reverse, List.mem_reverse] at hm
+        obtain ⟨p, hp, hpn⟩ := List.mem_map.mp hm
+        have := hok2.2 p hp
+        rw [hpn, hfresh] at this; cases this
+      · intro stm hstm
+        rw [hMb] at hstm
+        simp only [Module.finalize, List.mem_reverse] at hstm
+        rw [hst_b] at hstm
+        rcases List.mem_cons.mp hstm with rfl | hstm
+        · exact ⟨"out", _, rfl, Or.inr ⟨rfl, w, rfl⟩⟩
+        · rw [hbody2, hs1b, List.append_nil] at hstm
+          obtain ⟨l, r, rfl, hr, hl⟩ := hpre _ hstm
+          exact ⟨l, r, rfl, Or.inl ⟨hr, by rw [hMw, List.mem_reverse]; exact hl⟩⟩
+      · intro hn
+        -- the output port's type is the leaf wire's declared width
+        have hty' : ty = .bitVector n := by
+          rw [hty]
+          cases hf : M.wires.find? (fun p => p.name == w) with
+          | none =>
+            simp only [weOf, hf] at hwn; omega
+          | some p =>
+            have hpM : p ∈ M.wires := List.mem_of_find?_eq_some hf
+            have hpn : p.name = w := by simpa using List.find?_some hf
+            have hp2 : p ∈ s2.module.wires := by rw [hMw, List.mem_reverse] at hpM; exact hpM
+            have hf2 := find?_of_nodup hok2.1 hp2
+            rw [hpn] at hf2
+            unfold leafOutputType
+            rw [hf2]
+            obtain ⟨pn, pty⟩ := p
+            simp only [weOf, hf] at hwn
+            cases pty <;> simp at hwn <;> first | omega | (subst hwn; rfl)
+        rw [hM]
+        simp only [Module.finalize, co, hst_o, hout2, hout1, hty']
+        rfl
 
 
 /-- What the returned module guarantees for a constant `ci`: if `ci` has the
@@ -1190,7 +1250,8 @@ theorem outcome_quote {M : Sparkle.IR.AST.Module} {d : DefinitionVal} {dn : Name
           ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
             env "out" = (evalFE n vals fe).toNat ∧ "out" ∈ M.outputs.map (·.name) ∧
             (∀ j w, j < names.length → port j = some w →
-              ({ name := w, ty := .bitVector n } : Port) ∈ M.inputs) := by
+              ({ name := w, ty := .bitVector n } : Port) ∈ M.inputs) ∧
+            PostReady M n := by
   obtain ⟨ids, hnd, hlen, port0, hdist, hex, hsem⟩ := hci _ _ (certifiedShape_quote hv hwf)
   have hlenB : (quoteBinders dn names n).length = names.length + 1 := by simp [quoteBinders]
   have hbs : ∀ j (hj : j < names.length),
@@ -1243,8 +1304,8 @@ theorem outcome_quote {M : Sparkle.IR.AST.Module} {d : DefinitionVal} {dn : Name
     have hfun : (fun j => BitVec.ofNat n (vals' (j + 1))) = vals := by
       funext j; simp [vals']
     rw [hfun, ← instFVars_quoteBody hxs fe hwf] at hden
-    obtain ⟨env, hev, hout, hmo, hin⟩ := hsem vals' mems initial hinit' n (evalFE n vals fe) hden
-    exact ⟨env, hev, hout, hmo, fun j w hj hp => hin (j + 1) names[j] n w (hbs j hj) hp⟩
+    obtain ⟨env, hev, hout, hmo, hin, hpr⟩ := hsem vals' mems initial hinit' n (evalFE n vals fe) hden
+    exact ⟨env, hev, hout, hmo, fun j w hj hp => hin (j + 1) names[j] n w (hbs j hj) hp, hpr⟩
 
 /-- **Items 1–3 at the synthesis entry, for the fragment.** A successful run
 of the real entry read a constant `ci` with `getConstInfo declName` IN THE SAME
@@ -1268,7 +1329,8 @@ theorem fragmentDecl_sound {declName : Name} {mctx : Meta.Context}
           ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
             env "out" = (evalFE n vals fe).toNat ∧ "out" ∈ M.outputs.map (·.name) ∧
             (∀ j w, j < names.length → port j = some w →
-              ({ name := w, ty := .bitVector n } : Port) ∈ M.inputs) := by
+              ({ name := w, ty := .bitVector n } : Port) ∈ M.inputs) ∧
+            PostReady M n := by
   obtain ⟨ci, w1, w2, hget, hci⟩ := synthesizeCombinationalCore_sound h
   refine ⟨ci, w1, w2, hget, fun d dn names n fe hcid hv hwf => ?_⟩
   subst hcid
@@ -1293,13 +1355,13 @@ theorem fragmentDecl_sound_signal {declName : Name} {mctx : Meta.Context}
           (initial : Env),
           (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
           ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
-            env "out" = ((denoteFE n sigs fe).val t).toNat := by
+            env "out" = ((denoteFE n sigs fe).val t).toNat ∧ PostReady M n := by
   obtain ⟨ci, w1, w2, hget, hci⟩ := fragmentDecl_sound h
   refine ⟨ci, w1, w2, hget, fun d dn names n fe hcid hv hwf => ?_⟩
   obtain ⟨port, hdist, hex, hsem⟩ := hci d dn names n fe hcid hv hwf
   refine ⟨port, hdist, hex, fun sigs t mems initial hinit => ?_⟩
-  obtain ⟨env, hev, hout, -, -⟩ := hsem (fun j => (sigs j).val t) mems initial hinit
-  exact ⟨env, hev, by rw [hout, denoteFE_val]⟩
+  obtain ⟨env, hev, hout, -, -, hpr⟩ := hsem (fun j => (sigs j).val t) mems initial hinit
+  exact ⟨env, hev, by rw [hout, denoteFE_val], hpr⟩
 
 /-- The ONE fact about Lean's environment the declaration-level statements use,
 stated for the contexts and state references of the run: every lookup of
@@ -1332,7 +1394,7 @@ theorem fragmentDecl_of_env {declName : Name} {mctx : Meta.Context}
         (initial : Env),
         (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
         ∃ env, evalAssigns (weOf M) mems M.body initial = some env ∧
-          env "out" = ((denoteFE n sigs fe).val t).toNat := by
+          env "out" = ((denoteFE n sigs fe).val t).toNat ∧ PostReady M n := by
   obtain ⟨ci, w1, w2, hget, hci⟩ := fragmentDecl_sound_signal h
   obtain ⟨d, hcid, hv⟩ := henv w1 ci w2 hget
   exact hci d dn names n fe hcid hv hwf

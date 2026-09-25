@@ -36,6 +36,7 @@
 -/
 import Sparkle.IR.AST
 import Sparkle.IR.Optimize
+import Sparkle.IR.ReorderInvariance
 
 namespace Sparkle.IR.RegDedup
 
@@ -86,11 +87,149 @@ def sigOf (alias : HashMap String String) (cls : HashMap String Nat) (self : Nat
     s!"{self}|M|{cr}|{aw}|{dw}|{clk}|{repr (canonExpr alias cls wa)}|{repr (canonExpr alias cls wd)}|{repr (canonExpr alias cls we)}|{repr (canonExpr alias cls ra)}"
   | _ => s!"{self}|?"
 
+/-! ### Validation of a merge on a combinational body
+
+Instead of proving the implementation below directly, the merge is treated
+as an untrusted proposal: for a body made only of `assign`s, its RESULT is
+kept only if `validateMerge` accepts it, a pure checker proved sound in
+`Tools/ShippingPostSoundness.lean`. If the check fails, the module is returned
+unchanged. The checker covers the evaluation of the statement list; the
+`assertions` the merge also rewrites are not checked. -/
+
+mutual
+/-- Structural equality of IR expressions (the derived `BEq` is not proved lawful). -/
+def exprEqB : Expr → Expr → Bool
+  | .const v w, .const v' w' => decide (v = v') && decide (w = w')
+  | .ref n, .ref n' => decide (n = n')
+  | .op o as, .op o' as' => decide (o = o') && listEqB as as'
+  | .concat as, .concat as' => listEqB as as'
+  | .slice e h l, .slice e' h' l' => exprEqB e e' && decide (h = h') && decide (l = l')
+  | .sliceDim e h l, .sliceDim e' h' l' => exprEqB e e' && decide (h = h') && decide (l = l')
+  | .index a i, .index a' i' => exprEqB a a' && exprEqB i i'
+  | _, _ => false
+
+def listEqB : List Expr → List Expr → Bool
+  | [], [] => true
+  | a :: as, b :: bs => exprEqB a b && listEqB as bs
+  | _, _ => false
+end
+
+mutual
+theorem exprEqB_iff : ∀ a b : Expr, exprEqB a b = true ↔ a = b
+  | .const v w, b => by cases b <;> simp [exprEqB]
+  | .ref n, b => by cases b <;> simp [exprEqB]
+  | .op o as, b => by
+    cases b with
+    | op o' as' => simp [exprEqB, listEqB_iff as as']
+    | _ => simp [exprEqB]
+  | .concat as, b => by
+    cases b with
+    | concat as' => simp [exprEqB, listEqB_iff as as']
+    | _ => simp [exprEqB]
+  | .slice e h l, b => by
+    cases b with
+    | slice e' h' l' => simp [exprEqB, exprEqB_iff e e', and_assoc]
+    | _ => simp [exprEqB]
+  | .sliceDim e h l, b => by
+    cases b with
+    | sliceDim e' h' l' => simp [exprEqB, exprEqB_iff e e', and_assoc]
+    | _ => simp [exprEqB]
+  | .index a i, b => by
+    cases b with
+    | index a' i' => simp [exprEqB, exprEqB_iff a a', exprEqB_iff i i']
+    | _ => simp [exprEqB]
+
+theorem listEqB_iff : ∀ as bs : List Expr, listEqB as bs = true ↔ as = bs
+  | [], bs => by cases bs <;> simp [listEqB]
+  | a :: as, bs => by
+    cases bs with
+    | nil => simp [listEqB]
+    | cons b bs => simp [listEqB, exprEqB_iff a b, listEqB_iff as bs]
+end
+
+instance instDecidableEqIRExpr : DecidableEq Expr := fun a b =>
+  decidable_of_iff _ (exprEqB_iff a b)
+
+/-- Rename references through a substitution function (pure). -/
+def renameE (σ : String → String) : Expr → Expr
+  | .const v w => .const v w
+  | .ref n => .ref (σ n)
+  | .op o args => .op o (renameL σ args)
+  | .concat args => .concat (renameL σ args)
+  | .slice e hi lo => .slice (renameE σ e) hi lo
+  | .sliceDim e hi lo => .sliceDim (renameE σ e) hi lo
+  | .index a i => .index (renameE σ a) (renameE σ i)
+where
+  renameL (σ : String → String) : List Expr → List Expr
+    | [] => []
+    | a :: rest => renameE σ a :: renameL σ rest
+
+/-- Look a name up in an association list of aliases (itself if absent). -/
+def aliasOf (A : List (String × String)) (x : String) : String := (A.lookup x).getD x
+
+/-- The declared width of a wire (`0` if undeclared or not a bit vector). -/
+def declWidth (m : Module) (x : String) : Nat :=
+  match m.wires.find? (fun p => p.name == x) with
+  | some { ty := .bitVector k, .. } => k
+  | _ => 0
+
+/-- Validation state: names defined so far, the substitution aliases `S`
+(what the output's references use), the value aliases `V` (substitution plus
+equal-width plain aliases), and the canonical right-hand side of each
+representative. -/
+structure MergeCheck where
+  defined : List String := []
+  S : List (String × String) := []
+  V : List (String × String) := []
+  R : List (String × Expr) := []
+
+/-- One statement of the old body against the same statement of the new one. -/
+def validateStep (wOf : String → Nat) (allLhs : List String) (st : MergeCheck) :
+    Stmt → Stmt → Option MergeCheck
+  | .assign l e, .assign l' e' =>
+    if l' ≠ l ∨ l ∈ st.defined then none
+    else if !(Sparkle.IR.Reorder.refsOf e).all (fun x => !allLhs.contains x || st.defined.contains x)
+    then none
+    else
+      let cV := renameE (aliasOf st.V) e
+      if e' = renameE (aliasOf st.S) e then
+        let V := match e with
+          | .ref x => if x ≠ l ∧ wOf l = wOf x then (l, aliasOf st.V x) :: st.V else st.V
+          | _ => st.V
+        some { defined := l :: st.defined, S := st.S, V := V, R := (l, cV) :: st.R }
+      else match e' with
+        | .ref y =>
+          if y ≠ l ∧ st.defined.contains y ∧ (st.S.lookup y).isNone ∧
+              st.R.lookup y = some cV ∧ wOf l = wOf y then
+            some { defined := l :: st.defined, S := (l, y) :: st.S,
+                   V := (l, aliasOf st.V y) :: st.V, R := st.R }
+          else none
+        | _ => none
+  | _, _ => none
+
+/-- `new` computes the same environment as `old`: checked statement by statement. -/
+def validateMerge (wOf : String → Nat) (old new : List Stmt) : Bool :=
+  let allLhs := old.filterMap fun st => match st with
+    | .assign l _ => some l
+    | _ => none
+  let rec go (st : MergeCheck) : List Stmt → List Stmt → Bool
+    | [], [] => true
+    | a :: as, b :: bs =>
+      match validateStep wOf allLhs st a b with
+      | some st' => go st' as bs
+      | none => false
+    | _, _ => false
+  go {} old new
+
+def isAssign : Stmt → Bool
+  | .assign .. => true
+  | _ => false
+
 /-- Merge bisimilar nodes.  Internal (`_tmp_*`) non-representatives become
     plain aliases `n := rep` (a duplicate register's output turns into an
     alias of the surviving register); user-named nodes keep their own
     statement is replaced by the alias as well (see below). -/
-def mergeDuplicates (m : Module) : Module := Id.run do
+def mergeDuplicatesRaw (m : Module) : Module := Id.run do
   let nodes : List (String × Stmt) := m.body.filterMap fun st =>
     (definedNode st).map fun n => (n, st)
   if nodes.length < 2 then return m
@@ -152,6 +291,18 @@ def mergeDuplicates (m : Module) : Module := Id.run do
   return { m with
     body := body,
     assertions := m.assertions.map fun (n, e) => (n, rename e) }
+
+/-- The merge, validated on combinational bodies: a combinational module's
+merge is kept only if `validateMerge` accepts it (else the module is returned
+unchanged). Bodies with registers, memories or instances keep the unvalidated
+merge. -/
+def mergeDuplicates (m : Module) : Module :=
+  let r := mergeDuplicatesRaw m
+  if m.body.all isAssign then
+    if validateMerge (declWidth m) m.body r.body then
+      { m with body := r.body, assertions := r.assertions }
+    else m
+  else r
 
 def mergeDuplicatesDesign (d : Design) : Design :=
   { d with modules := d.modules.map mergeDuplicates }

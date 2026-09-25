@@ -52,6 +52,17 @@ certified front end: impossible by construction of `mkFreshFVarId`, refused so
 the proof need not trust it. Neither rejects a program the old entry compiled
 correctly on the corpus.
 
+**Merge checker (2026-09-25):** `mergeDuplicates` on a combinational body now
+keeps its merge only if the pure checker `validateMerge` accepts it, and
+otherwise returns the module unchanged. This is a fallback, not a refusal:
+synthesis still succeeds. Never taken on the corpus. The checker requires
+equal DECLARED widths for merged wires, which the old signature did not
+compare: a latent width-mismatch merge (it would change an enclosing
+concatenation) is now excluded. No instance of it was found in the corpus.
+A hand-built IR module (`widthMismatch`, test) shows the unchecked proposal
+does make that merge and changes the value (65537 → 257), and pins the
+fallback.
+
 **Allocator audit (2026-09-24):** the public builder's unnamed `freshName`
 reused `_tmp_x_0` after that exact name had been reserved. **BUG in the builder
 contract, fixed:** both naming modes now use a total suffix search with a

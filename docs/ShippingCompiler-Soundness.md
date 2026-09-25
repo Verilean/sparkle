@@ -709,9 +709,8 @@ Main theorems:
    the run's environment defines the declaration as elaborated is the
    hypothesis `EnvDefines` (the Core state is behind an opaque `ST.Ref`).
    `fragAValue` is taken from the same `getConstInfo` at elaboration time.
-2. **Post-processing is excluded.** `synthesizeCombinational` then applies
-   `dropZeroWidthModule` and `mergeDuplicates`; the theorems stop at the
-   entry's result (`module.finalize` plus clock/reset ports).
+2. **Post-processing** is now included (next section): the theorems reach the
+   IR `synthesizeCombinational` returns.
 3. **Coverage beyond quotations.** "Gate accepted ⇒ a meaning exists" is proved
    for quotations of `FExpr` (`+ - * &&& ||| ^^^`, literals, inputs). The gate
    also accepts canonical shifts (the translator core lowers them), but
@@ -720,6 +719,88 @@ Main theorems:
    the legacy front end and are not covered.
 4. **Verilog.** The IR semantics is `evalAssigns`; printing and Verilog
    semantics are separate.
+
+## Post-processing: `dropZeroWidthModule` and `mergeDuplicates` (2026-09-25)
+
+`Tools/ShippingPostSoundness.lean` (standard axioms only, audited). The
+theorems now reach the IR returned by `synthesizeCombinational`, which is what
+`#synthesizeVerilog` compiles: the entry, then `dropZeroWidthModule`, then
+`mergeDuplicates` (skipped when `SPARKLE_NO_REGDEDUP` is set; both branches are
+covered).
+
+* `synthesizeCombinational_reads`: a run of `synthesizeCombinational` runs the
+  entry in the SAME contexts and state references, and returns
+  `dropZeroWidthModule M` or `mergeDuplicates (dropZeroWidthModule M)`.
+* `dropZeroWidth_entry`: on a module with the entry's shape at width `n > 0`,
+  the pass changes no statement, and the widths read off are unchanged.
+* `mergeDuplicates_sound`: on a combinational module the pass yields the SAME
+  environment under the module's declared widths, with the same ports.
+* `postprocess_sound`: the two composed in call order.
+* `synthesizeCombinational_fragment` and, in the test, `fragA_ir_correct`: for
+  any successful run of `synthesizeCombinational ``fragA` whose environment
+  satisfies `EnvDefines … ``fragA fragAValue`, the RETURNED module drives `out`
+  with `(fragA a b).val t` on every input and cycle.
+
+### Premises, and where they come from
+
+| Needed by | Premise | Derived from |
+|---|---|---|
+| `dropZeroWidthModule` | Wire names distinct; `out` not a wire; every statement assigns a const or op-of-refs to a declared width-`n` wire, or is `out := w`; `outputs = [out : n]` | `PostReady M n`, read off the entry's construction. The translator now carries `Emits n` (prepended statements have that shape; outputs unchanged) through every branch. The output port's type is the leaf wire's declared type, width `n` because `weOf M w = n` |
+| `dropZeroWidthModule` | `n > 0` | A property of the declaration (`decide` for `fragA`). At `n = 0` the pass does drop the `out` assignment, so the exact statement would be false |
+| `mergeDuplicates` | Body is combinational (only `assign`) | `PostReady` |
+| `mergeDuplicates` | The merge is value- and width-preserving | Checked, not assumed (below) |
+
+### What changed in the compiler, and why
+
+Rather than prove the current implementation directly, the result-checking
+approach is used: the merge is an untrusted proposal, and on a combinational
+body only a result accepted by `validateMerge`, a pure checker proved sound in
+general (`validateMerge_sound`), is kept. Statement by statement, the checker
+requires:
+
+* the new statement assigns the same name;
+* every reference the old statement makes to a name the body assigns points at
+  an EARLIER statement;
+* the new right-hand side equals the old one with references renamed through
+  the accepted merges; OR it is a reference to an earlier representative whose
+  canonical right-hand side is equal, with the same declared width.
+
+If the check fails, the module is returned unchanged. Bodies with registers,
+memories or instances keep the unchecked merge, outside the fragment.
+Measured: the corpus is byte-identical (163/163), so the checker never rejects.
+A test (`dupLit`) exercises a real merge on a certified-shape module and checks
+that it is accepted. The width condition is new: the old signature ignored
+declared widths, so two wires with equal right-hand sides but different
+declared widths could have been merged, which changes an enclosing
+concatenation. The corpus has no such case. A hand-built IR regression
+(`widthMismatch` in the test) pins the rejection side: the unchecked proposal
+merges an 8-bit and a 16-bit wire and changes `out` from 65537 to 257 at
+`x = 1`; the checker rejects it, and the shipped `mergeDuplicates` returns the
+module unchanged. This is not a demonstration from a user circuit.
+
+`synthesizeCombinational` was a `partial def` in the translator block; it is
+now an ordinary definition `synthesizeCombinationalWith`, like the entry.
+
+### Scope of the guarantee
+
+The guarantee is about evaluating the statement list (`evalAssigns` on the
+body) under the declared widths, plus ports. `mergeDuplicates` also rewrites
+`assertions`; neither the checker nor the theorems cover that. The fragment's
+modules have no assertions, so nothing is lost for them. This is NOT a claim
+of semantic preservation for whole arbitrary combinational modules.
+
+### What remains
+
+* `EnvDefines`, as before.
+* **Width 0 is an open item inside the success region.** The theorems need
+  `n > 0`. A width-0 declaration of the fragment still synthesizes, and
+  `dropZeroWidthModule` removes its `out` assignment, so "what synthesizes is
+  equivalent" is not yet met there. Still to decide: either a specification
+  under which dropping a zero-width output keeps the meaning, or an explicit
+  refusal.
+* Registers, memories and instances are outside the fragment; their merge path
+  is unchecked.
+* Verilog printing and Verilog semantics.
 
 ## Applying the general theorem to crc16
 
