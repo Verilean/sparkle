@@ -856,6 +856,56 @@ They are now ordinary definitions with the same code: `attach` in the concat
 case, and a named match giving the termination proof. The corpus is
 byte-identical.
 
+### Shipping printer bridge: expression and assignment text (2026-09-25)
+
+`Tools/ShippingPrintSoundness.lean` now proves byte equality, without a
+parser oracle, between the shipping printer and a renderer over the existing
+SV AST for fitting nonnegative constants, references and arbitrarily nested
+`+ - * & | ^` expressions. This includes the optimizer's mask expressions.
+
+* `emitExpr_render`: `emitAstExpr` succeeds and rendering that SAME tree
+  equals the shipping `emitExpr` string.
+* `printedExpr_semantics`: composes this with `emit_sem_evalSV`; it retains
+  the explicit `sf4Check` and bounded-environment hypotheses. These are NOT
+  yet derived at the declaration entry.
+* `emitStmt_render` / `emitBody_render`: the same for assignment statements
+  and their body text, with the shipping printer's blank-line separator.
+* `acceptedOptimizer_body_render`: a successful shipping `optCheck` itself
+  supplies the expression-shape premise for every statement of the accepted
+  optimized body. It does not cover the fallback arm merely by naming it.
+
+The proof/test modules are registered in Lake and `Tests.AllTests`. The test
+audits the seven bridge/shape theorems for standard axioms only, exercises a
+nested masked expression, and checks rejection of unsupported rendering forms.
+No compiler, optimizer, or printer behavior changed in this step.
+
+**Review of proposed option A:** retaining an optimizer result only after a
+forward-fragment check is sensible, but the fallback's check must be proved
+before claiming all returned modules satisfy it. Do not add an unproved check
+premise to the source-to-text theorem. The proposed binder-character condition
+`[A-Za-z0-9_$]` is insufficient for valid unescaped SV identifiers: e.g. `1bad`
+and `module` are sanitize-fixed but not ordinary legal identifiers. The lexical
+contract must address the first character, keywords, module/port/wire names,
+and name collisions. Sanitize stability and lexical validity are separate.
+The existing lexer has a subset keyword list; it must not be advertised as a
+complete SystemVerilog keyword specification.
+
+Next, in order:
+
+1. Prove rendering of module headers, ports and wire declarations, and compose
+   with assignment-body rendering to relate `toVerilog` to `emitAstModule`.
+   Preserve the original module-name comment and distinguish zero-width ports
+   (the two emitters do not currently print identical type syntax there).
+2. Establish the lexical contract for the source fragment and generated names.
+   Until then byte equality is NOT a theorem that an SV tool parses the string.
+3. Derive `assignsCheck` and its width/environment conditions for the fallback,
+   then strengthen optimizer acceptance and prove both returned branches meet
+   those conditions. Avoid importing proof-only `Tools` dependencies into the
+   shipping IR layer; factor the executable checker if needed.
+4. Compose the existing declaration theorem with the module rendering and SV
+   evaluation theorems. Any trusted rendering-to-grammar interpretation must
+   remain explicit, distinct from the proved byte equalities.
+
 ### Still open on this path
 
 * **Text ↔ SV semantics (next).** Relate `toVerilog (checkedOptimize M)` to

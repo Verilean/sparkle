@@ -1504,6 +1504,19 @@ items.
 
 ## F. CompCert-class guarantee
 
+**2026-09-25 printer continuation (partial, not an end-to-end text theorem):**
+`Tools/ShippingPrintSoundness.lean` proves shipping expression/assignment/body
+text equals rendering of the existing SV AST, for the nested six-operator
+fragment. A successful `optCheck` derives the optimized body's shape premise.
+Expression-level SV semantics composes with the rendering equality under the
+existing explicit `sf4Check`/boundedness hypotheses. Standard-axiom audit and
+focused tests are in `ShippingPrintSoundnessTest`, imported by `Tests.AllTests`.
+Still open: module headers/ports/wires, identifier legality (sanitize-fixed is
+not enough: `1bad`, `module`), fallback width/`assignsCheck` derivation, and
+composition back to the user's declaration. Do not mark the printer complete.
+See the printer continuation section of `ShippingCompiler-Soundness.md` for
+the ordered next steps and review of option A.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a
