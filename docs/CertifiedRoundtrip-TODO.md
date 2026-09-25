@@ -1560,10 +1560,24 @@ actual translator and initialized at the entry, so `PostReady` now exposes
 uniform sizing of every emitted RHS, including the output read. Under wire
 sanitizer stability, `core_forwardCheck` derives `forwardCheck` for the actual
 CORE result, without a width premise. `dropZeroWidth_sized` carries the sizing
-invariant through cleanup. This does NOT discharge the final optimized-run
-check: merge transport and optimizer preservation remain to be proved.
+invariant through cleanup. This did NOT discharge the final optimized-run
+check; merge transport and optimizer preservation were the next steps.
 Name stability also remains separate; a real `«a#»` binder demonstrates it is
 not automatic. Bounded initialization and lexical validity are still open.
+
+**2026-09-26 merge transport and fallback check derived:**
+`validateMerge_sized` proves the actual checker's accepted body has uniform
+RHS sizing, including the output read, without assuming anything about the
+raw merge proposal. `postprocess_sized` and `synthesizeCombinational_sized`
+connect it through cleanup/merge to the returned module.
+`synthesized_forwardCheck` now derives the entire pre-optimizer forward
+check under wire sanitizer stability; there is no width/check hypothesis.
+Tests audit standard axioms, apply the theorem to the real `fragA`, exercise
+an accepted duplicate-constant merge and reject an unequal-width alias.
+The runtime forward checks also include the real `dupLit` merge example.
+Next: preserve the check through optimizer selection. The final optimized
+`compiledFragment_forward` premise is NOT discharged yet; name stability,
+bounded initialization, lexical validity and the text/grammar boundary remain.
 
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates

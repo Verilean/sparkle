@@ -988,10 +988,27 @@ sizing implies the six-operator cases of `sf4Check`, even for nested RHSs.
 `dropZeroWidth_sized` also transports sizing through zero-width cleanup using
 the already proved body/width-environment equality.
 
-This is still BEFORE merging and optimizer selection: the final
-`compiledFragment_forward` keeps its `forwardCheck` premise. Transporting
-sizing through validated merge and preserving the forward check through
-optimizer acceptance remain open, as does bounded initialization. Sanitizer
+**Through post-processing (2026-09-26):** `validateMerge_sized` now proves
+uniform RHS sizing for every body accepted by the actual duplicate-merge
+checker. Its induction maintains the widths of aliases and previously
+defined targets. An alias must name an earlier, distinct target of equal
+width. This also handles `out`, whose wire-only width is zero: two distinct
+targets cannot both be that one exceptional name. No equality or behavior
+of the raw optimizer is assumed.
+
+`postprocess_sized` combines that result with zero-width cleanup, and
+`synthesizeCombinational_sized` applies it to the actual full synthesis run.
+`synthesized_forwardCheck` derives the full forward check on the RETURNED
+module, under the same environment/fragment/positive-width conditions and
+wire sanitizer stability. No width/check premise is added. Tests include a
+general application to `fragA`, an accepted duplicate-constant merge ending
+in `out`, a rejected unequal-width alias, and forward-check execution on
+the real `dupLit` as well as `fragA/B/C/D`. All new audited proofs use only
+the standard axioms. The shipping compiler is unchanged.
+
+This reaches the unoptimized fallback, BEFORE optimizer selection: the final
+`compiledFragment_forward` still keeps its `forwardCheck` premise. Preserving
+the check through optimizer acceptance remains open, as does bounded initialization. Sanitizer
 stability is separate from lexical validity and is NOT assumed automatically:
 a real declaration with binder `«a#»` synthesizes, but its allocated name is
 changed by the printer and its forward check fails. That negative case is
@@ -1016,8 +1033,8 @@ Next, in order:
    entry through both paths of the checked optimizer.
 2. Establish the lexical contract for the source fragment and generated names.
    Until then byte equality is NOT a theorem that an SV tool parses the string.
-3. Derive `assignsCheck` and its width/environment conditions for the fallback,
-   then strengthen optimizer acceptance and prove both returned branches meet
+3. The fallback's full forward check is now derived under name stability.
+   Strengthen optimizer acceptance and prove both returned branches meet
    those conditions. Avoid importing proof-only `Tools` dependencies into the
    shipping IR layer; factor the executable checker if needed.
 4. Compose the existing declaration theorem with the module rendering and SV

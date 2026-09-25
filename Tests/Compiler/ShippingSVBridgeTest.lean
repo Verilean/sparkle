@@ -22,6 +22,39 @@ theorem fragA_core_forward {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Met
   rw [fragAValue_eq] at henv
   exact core_forwardCheck h henv feA_wf (by decide) hs
 
+/-- The same real declaration, now at the full synthesis entry after cleanup
+and validated merging. The forward check is a conclusion, not a premise. -/
+theorem fragA_synthesized_forward {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    forwardCheck m = true := by
+  rw [fragAValue_eq] at henv
+  exact synthesized_forwardCheck h henv feA_wf (by decide) hs
+
+-- A genuine duplicate-constant merge, with an output absent from the wire
+-- table. Equal target widths are essential even for equal RHS syntax.
+private def mergeOld : List Stmt :=
+  [.assign "x" (.const 7 8), .assign "y" (.const 7 8), .assign "out" (.ref "y")]
+private def mergeNew : List Stmt :=
+  [.assign "x" (.const 7 8), .assign "y" (.ref "x"), .assign "out" (.ref "x")]
+private def mergeWidths (x : String) : Nat := if x = "out" then 0 else 8
+
+example : Sparkle.IR.RegDedup.validateMerge mergeWidths mergeOld mergeNew = true := by decide
+example : Sparkle.IR.RegDedup.validateMerge
+    (fun x => if x = "y" then 16 else mergeWidths x) mergeOld mergeNew = false := by decide
+
+theorem merged_uniform : Tools.ShippingPostSoundness.UniformStmts mergeWidths 8 mergeNew := by
+  apply Tools.ShippingPostSoundness.validateMerge_sized (old := mergeOld) (by decide)
+  intro s hs
+  simp only [mergeOld, List.mem_cons, List.not_mem_nil, or_false] at hs
+  rcases hs with rfl | rfl | rfl
+  · exact ⟨_, _, rfl, .const 7 8, Or.inl (by decide)⟩
+  · exact ⟨_, _, rfl, .const 7 8, Or.inl (by decide)⟩
+  · exact ⟨_, _, rfl, SizedExpr.ref "y", Or.inr rfl⟩
+
 example : ¬ SizedExpr (fun _ => 8) (.op .add [.const 1 8, .const 2 8]) 16 := by
   intro h
   have hw := h.width
@@ -38,7 +71,7 @@ example : combItems [.instantiation "sub" "u" []] = none := rfl
 example : combItems [.wireDecl "w" none (some (.lit (.decimal (some 8) 0)))] = none := rfl
 
 run_cmd liftTermElabM do
-  for name in [``fragA, ``fragB, ``fragC, ``fragD] do
+  for name in [``fragA, ``fragB, ``fragC, ``fragD, ``dupLit] do
     let (core, _) ← synthesizeCombinationalCore name [] false
     unless forwardCheck core do
       throwError "forward check rejected the core entry result: {name}"
@@ -91,6 +124,16 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected core-width axiom: {name}: {ax}"
+  for name in [``fragA_synthesized_forward, ``synthesized_forwardCheck, ``uniform_forwardCheck,
+      ``merged_uniform, ``Tools.ShippingPostSoundness.validateStep_sized,
+      ``Tools.ShippingPostSoundness.validateMerge_sized,
+      ``Tools.ShippingPostSoundness.mergeDuplicates_sized,
+      ``Tools.ShippingPostSoundness.postprocess_sized,
+      ``Tools.ShippingPostSoundness.synthesizeCombinational_sized] do
+    for ax in (← liftCoreM <| collectAxioms name) do
+      unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
+        throwError "unexpected postprocessing-width axiom: {name}: {ax}"
+  logInfo "SHIPPING SYNTHESIZED WIDTH OK: cleanup and checked merge preserve sizing; full synthesis forwardCheck derived under name stability; optimized check still open"
   logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only; final optimized check still open"
   logInfo "SHIPPING SV BRIDGE OK: actual AST assignments, width transport, conditional source/SV fold theorem; final forwardCheck and initialization obligations still open"
 

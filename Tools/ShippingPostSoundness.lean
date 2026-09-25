@@ -815,4 +815,180 @@ theorem printedModule_fragment {declName : Name} {mctx : Meta.Context}
     refine ⟨envO, hevO, ?_⟩
     rw [← hpn, houtO p hp, hpn, hout]
 
+/-! ## 6. Uniform expression widths survive the checked merge
+
+`out` is a port, not an internal wire, so `weOf M "out"` is zero.
+The exceptional target must therefore remain explicit: an accepted alias has
+equal target widths and names an earlier, different target. Two exceptional
+targets cannot be different, which rules out losing the RHS width at `out`. -/
+
+theorem sized_rename {we : WEnv} {e : Sparkle.IR.AST.Expr} {n : Nat}
+    (h : SizedExpr we e n) (σ : String → String) (hw : ∀ x, we (σ x) = we x) :
+    SizedExpr we (renameE σ e) n := by
+  induction h with
+  | ref x => simpa only [renameE, ← hw x] using SizedExpr.ref (we := we) (σ x)
+  | const v n => exact .const v n
+  | bin op _ _ ih₁ ih₂ =>
+    simpa only [renameE, renameE.renameL] using SizedExpr.bin op ih₁ ih₂
+
+/-- Uniform RHS widths, allowing the single output port as an exceptional
+target in the wire-only width environment. -/
+def UniformStmts (we : WEnv) (n : Nat) (body : List Stmt) : Prop :=
+  ∀ s ∈ body, ∃ l e, s = .assign l e ∧ SizedExpr we e n ∧ (we l = n ∨ l = "out")
+
+theorem validateStep_sized {we : WEnv} {n : Nat} {allLhs : List String}
+    {st st' : MergeCheck} {l : String} {e : Sparkle.IR.AST.Expr} {new : Stmt}
+    (h : validateStep we allLhs st (.assign l e) new = some st')
+    (hs : SizedExpr we e n) (hl : we l = n ∨ l = "out")
+    (hS : ∀ x, we (aliasOf st.S x) = we x)
+    (hd : ∀ x ∈ st.defined, we x = n ∨ x = "out") :
+    (∃ e', new = .assign l e' ∧ SizedExpr we e' n) ∧
+    (∀ x, we (aliasOf st'.S x) = we x) ∧
+    (∀ x ∈ st'.defined, we x = n ∨ x = "out") := by
+  cases new with
+  | assign l' e' =>
+    simp only [validateStep] at h
+    by_cases h1 : l' ≠ l ∨ l ∈ st.defined
+    · rw [if_pos h1] at h; cases h
+    rw [if_neg h1] at h
+    have heq : l = l' := Classical.byContradiction fun hne => h1 (Or.inl (Ne.symm hne))
+    subst heq
+    by_cases h2 : (!(refsOf e).all (fun x => !allLhs.contains x || st.defined.contains x)) = true
+    · rw [if_pos h2] at h; cases h
+    rw [if_neg h2] at h
+    have hd' : ∀ x ∈ l :: st.defined, we x = n ∨ x = "out" := by
+      intro x hx
+      rcases List.mem_cons.mp hx with rfl | hx
+      · exact hl
+      · exact hd x hx
+    by_cases h3 : e' = renameE (aliasOf st.S) e
+    · rw [if_pos h3] at h
+      cases h
+      exact ⟨⟨_, rfl, h3 ▸ sized_rename hs _ hS⟩, hS, hd'⟩
+    · rw [if_neg h3] at h
+      cases e' with
+      | ref y =>
+        simp only at h
+        split at h
+        · rename_i hc
+          obtain ⟨hne, hyd, _, _, hwy⟩ := hc
+          cases h
+          have hyd' : y ∈ st.defined := by simpa using hyd
+          have hyn : we y = n := by
+            rcases hl with hl | hl
+            · exact hwy.symm.trans hl
+            · rcases hd y hyd' with hy | hy
+              · exact hy
+              · exact False.elim (hne (hy.trans hl.symm))
+          refine ⟨⟨_, rfl, ?_⟩, ?_, hd'⟩
+          · simpa only [hyn] using SizedExpr.ref (we := we) y
+          · intro x
+            rw [aliasOf_cons]
+            split
+            · rename_i hx; subst x; exact hwy.symm
+            · exact hS x
+        · cases h
+      | _ => simp at h
+  | _ => simp [validateStep] at h
+
+theorem validateMerge_go_sized {we : WEnv} {n : Nat} {allLhs : List String} :
+    ∀ (old new : List Stmt) (st : MergeCheck),
+      validateMerge.go we allLhs st old new = true → UniformStmts we n old →
+      (∀ x, we (aliasOf st.S x) = we x) →
+      (∀ x ∈ st.defined, we x = n ∨ x = "out") → UniformStmts we n new
+  | [], [], _, _, _, _, _ => fun _ h => by cases h
+  | [], _ :: _, _, h, _, _, _ => by simp [validateMerge.go] at h
+  | _ :: _, [], _, h, _, _, _ => by simp [validateMerge.go] at h
+  | a :: as, b :: bs, st, h, hs, hS, hd => by
+    obtain ⟨l, e, rfl, he, hl⟩ := hs a List.mem_cons_self
+    simp only [validateMerge.go] at h
+    split at h
+    · rename_i st' hstep
+      obtain ⟨⟨e', rfl, he'⟩, hS', hd'⟩ := validateStep_sized hstep he hl hS hd
+      have ht := validateMerge_go_sized as bs st' h
+        (fun s hm => hs s (List.mem_cons_of_mem _ hm)) hS' hd'
+      intro s hm
+      rcases List.mem_cons.mp hm with rfl | hm
+      · exact ⟨l, e', rfl, he', hl⟩
+      · exact ht s hm
+    · cases h
+
+theorem validateMerge_sized {we : WEnv} {n : Nat} {old new : List Stmt}
+    (h : validateMerge we old new = true) (hs : UniformStmts we n old) :
+    UniformStmts we n new :=
+  validateMerge_go_sized old new {} h hs (fun _ => rfl) (fun _ hm => by cases hm)
+
+theorem mergeDuplicates_sized {m : Sparkle.IR.AST.Module} {n : Nat}
+    (hs : UniformStmts (weOf m) n m.body) :
+    UniformStmts (weOf (mergeDuplicates m)) n (mergeDuplicates m).body := by
+  have hall : m.body.all isAssign = true := by
+    rw [List.all_eq_true]
+    intro s hm
+    obtain ⟨l, e, rfl, _, _⟩ := hs s hm
+    rfl
+  unfold mergeDuplicates
+  simp only [hall, if_true]
+  split
+  · rename_i hv
+    exact validateMerge_sized hv hs
+  · exact hs
+
+theorem postprocess_sized {m m' : Sparkle.IR.AST.Module} {n : Nat}
+    (hn : 0 < n) (hpr : PostReady m n)
+    (hm : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
+    UniformStmts (weOf m') n m'.body := by
+  obtain ⟨hb, hw, _, _, _⟩ := dropZeroWidth_entry m n hn hpr
+  have hs : UniformStmts (weOf (dropZeroWidthModule m)) n (dropZeroWidthModule m).body := by
+    rw [hb, hw]
+    intro s hm
+    obtain ⟨l, e, rfl, hshape⟩ := hpr.2.2.1 s hm
+    refine ⟨l, e, rfl, hpr.2.2.2.2.2 l e hm, ?_⟩
+    rcases hshape with ⟨_, hl⟩ | ⟨hl, _⟩
+    · exact Or.inl (declWidth_of_mem hpr.1 hl)
+    · exact Or.inr hl
+  rcases hm with rfl | rfl
+  · exact hs
+  · exact mergeDuplicates_sized hs
+
+theorem postprocess_wires_subset {m m' : Sparkle.IR.AST.Module} {n : Nat}
+    (hn : 0 < n) (hpr : PostReady m n)
+    (hm : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
+    ∀ p ∈ m'.wires, p ∈ m.wires := by
+  have hdz : ∀ p ∈ (dropZeroWidthModule m).wires, p ∈ m.wires := by
+    unfold dropZeroWidthModule
+    split
+    · exact fun _ hp => hp
+    · exact fun _ hp => (List.mem_filter.mp hp).1
+  rcases hm with rfl | rfl
+  · exact hdz
+  · have hu := postprocess_sized hn hpr (Or.inl rfl)
+    have hall : (dropZeroWidthModule m).body.all isAssign = true := by
+      rw [List.all_eq_true]
+      intro s hs
+      obtain ⟨l, e, rfl, _, _⟩ := hu s hs
+      rfl
+    unfold mergeDuplicates
+    simp only [hall, if_true]
+    split <;> exact hdz
+
+/-- Widths of every RHS at the actual synthesis entry, after both cleanup
+passes. No checker or sizing hypothesis is supplied by the caller. This is
+before `checkedOptimize`, which may introduce mixed-width expressions. -/
+theorem synthesizeCombinational_sized {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
+    UniformStmts (weOf m) n m.body := by
+  obtain ⟨m0, d0, w1, hcore, hm⟩ := synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, _, _, hpr, _, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  exact postprocess_sized hn hpr hm
+
 end Tools.ShippingPostSoundness
