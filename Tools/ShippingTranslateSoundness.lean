@@ -1,4 +1,5 @@
 import Tools.ShippingAllocationSoundness
+import Sparkle.IR.OptCheck
 import Tools.ShippingBindingsSoundness
 
 /-! # Success and semantic preservation of the SHIPPING translator
@@ -329,23 +330,21 @@ def RecordFresh (s0 s1 : CircuitState) : Prop :=
   ∀ w e', s1.translateRecord.get? w = some e' →
     s0.translateRecord.get? w = some e' ∨ s0.usedNames.contains w = false
 
-/-- The right-hand sides the fragment's translation emits. -/
-def ShapedRhs : Sparkle.IR.AST.Expr → Prop
-  | .const _ _ => True
-  | .op _ [.ref _, .ref _] => True
-  | _ => False
+/-- The right-hand sides the fragment's translation emits: exactly the simple
+shapes `Sparkle.IR.OptCheck.simpleRhs` recognises. -/
+def ShapedRhs (r : Sparkle.IR.AST.Expr) : Prop := Sparkle.IR.OptCheck.simpleRhs r = true
 
 /-- A translation at width `n` only PREPENDS statements, each an `assign` of a
 const or an operator on two references to a declared width-`n` wire. What the
 post-processing proofs need to read off the generated module. -/
 def Emits (n : Nat) (s0 s1 : CircuitState) : Prop :=
-  s1.module.outputs = s0.module.outputs ∧
+  s1.module.outputs = s0.module.outputs ∧ s1.module.inputs = s0.module.inputs ∧
   ∃ pre, s1.module.body = pre ++ s0.module.body ∧
     ∀ st ∈ pre, ∃ l r, st = .assign l r ∧ ShapedRhs r ∧
       ({ name := l, ty := .bitVector n } : Port) ∈ s1.module.wires
 
 theorem Emits.refl (n : Nat) (s : CircuitState) : Emits n s s :=
-  ⟨rfl, [], by simp, by simp⟩
+  ⟨rfl, rfl, [], by simp, by simp⟩
 
 /-- The invariant a translation call starts in and ends in. -/
 structure Inv (ctx : CompilerState) (ρ : Valuation) (we : WEnv) (mems : MEnv)
@@ -680,11 +679,12 @@ theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mem
   · rw [hsB, emitAssign_sourceBindings, hsbA]
   · rw [hsB, emitAssign_translateRecord, hrecA]
   · refine ⟨by rw [hsB, emitAssign_outputs, hsA, makeWire_outputs],
+      by rw [hsB, emitAssign_inputs, hsA, makeWire_inputs],
       [.assign res _], by rw [hsB, emitAssign_body_cons, hbody]; rfl, ?_⟩
     intro st hst
     simp only [List.mem_singleton] at hst
     subst hst
-    exact ⟨res, _, rfl, trivial, by rw [hsB, emitAssign_wires, hwires]; simp⟩
+    exact ⟨res, _, rfl, rfl, by rw [hsB, emitAssign_wires, hwires]; simp⟩
   · intro env0 hinv hw1
     have hsA0 : Runs we mems initial sA env0 := runs_of_body_eq hbody hinv.runs
     have hrunB := emitAssign_sound sA we mems initial env0 res _ _ hsA0
@@ -797,14 +797,15 @@ theorem translateCanonicalSignalBinary_branch
         rw [hsD, emitAssign_inputs]
         exact gBi p (gAi p (by rw [hsA, makeWire_inputs]; exact hp))⟩,
     by rw [hsD, emitAssign_sourceBindings, sbC, sbB, hsbA], rfAll, hfresh, ?_⟩, ?_⟩
-  · obtain ⟨hoA, preA, hbA, hA⟩ := eA
-    obtain ⟨hoB, preB, hbB, hB⟩ := eB
-    refine ⟨?_, .assign res (.op bop.operator [.ref wa, .ref wb]) :: (preB ++ preA), ?_, ?_⟩
+  · obtain ⟨hoA, hiA, preA, hbA, hA⟩ := eA
+    obtain ⟨hoB, hiB, preB, hbB, hB⟩ := eB
+    refine ⟨?_, ?_, .assign res (.op bop.operator [.ref wa, .ref wb]) :: (preB ++ preA), ?_, ?_⟩
     · rw [hsD, emitAssign_outputs, hoB, hoA, hsA, makeWire_outputs]
+    · rw [hsD, emitAssign_inputs, hiB, hiA, hsA, makeWire_inputs]
     · rw [hsD, emitAssign_body_cons, hbB, hbA, hbody]; simp
     · intro st hst
       rcases List.mem_cons.mp hst with rfl | hst
-      · exact ⟨res, _, rfl, trivial, wiresD _ (gBw _ (gAw _ (by rw [hwires]; simp)))⟩
+      · exact ⟨res, _, rfl, by cases bop <;> rfl, wiresD _ (gBw _ (gAw _ (by rw [hwires]; simp)))⟩
       · rcases List.mem_append.mp hst with h | h
         · obtain ⟨l, r, rfl, hr, hl⟩ := hB st h
           exact ⟨l, r, rfl, hr, wiresD _ hl⟩

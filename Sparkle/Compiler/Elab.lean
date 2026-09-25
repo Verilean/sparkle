@@ -19,6 +19,7 @@ import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
+import Sparkle.IR.OptCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
@@ -4489,6 +4490,12 @@ def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
     for w in warnings do
       Lean.logWarning m!"{w}"
 
+/-- The text `#synthesizeVerilog` / `#showVerilog` print for a synthesized
+    module: the IR optimizer (result-checked on small combinational modules,
+    `Sparkle.IR.OptCheck.checkedOptimize`), then the Verilog printer. -/
+def verilogOf (module : Sparkle.IR.AST.Module) : String :=
+  toVerilog (Sparkle.IR.OptCheck.checkedOptimize module)
+
 /-- Plain-text Verilog elaborator.
 
     `#synthesizeVerilog id` synthesises `id` and prints the resulting
@@ -4527,8 +4534,7 @@ elab "#synthesizeVerilog" id:ident : command => do
     -- `bundle2 _ (Signal.pure ())`) are stripped before emission —
     -- without this we'd output `assign x = 0'd0;`, an invalid
     -- 0-width SystemVerilog literal that yosys/iverilog reject.
-    let optimized := Sparkle.IR.Optimize.optimizeModule module
-    let verilog := toVerilog optimized
+    let verilog := verilogOf module
     -- NB: `IO.println`, not `logInfo`.  This command's primary role
     -- is CLI / `lake build` smoke-testing — the synthesis check is
     -- what matters; the printed Verilog is for terminal use only.
@@ -4583,8 +4589,7 @@ elab "#showVerilog" id:ident : command => do
     for w in warnings do
       Lean.logWarning m!"{w}"
     -- Optimize before emission — same rationale as #synthesizeVerilog.
-    let optimized := Sparkle.IR.Optimize.optimizeModule module
-    let src := toVerilog optimized
+    let src := verilogOf module
     let escSrc := src
       |>.replace "&" "&amp;"
       |>.replace "<" "&lt;"

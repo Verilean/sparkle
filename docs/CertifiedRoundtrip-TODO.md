@@ -1569,6 +1569,13 @@ The gaps, in the order they weaken the claim:
     IR `synthesizeCombinational` returns. `mergeDuplicates` is result-checked on
     combinational bodies (`validateMerge`, proved sound; never rejects on the
     corpus).
+  - [x] The optimizer before printing (2026-09-25): `checkedOptimize` keeps
+    `optimizeModule`'s result on simple-shaped modules only if `optCheck`
+    (proved sound) accepts it; `printedModule_fragment` /
+    `fragA_printed_correct` reach the module `toVerilog` prints. Corpus
+    byte-identical. Printer `emitExpr`/`exprWidthV` made total.
+  - [ ] Printed text ↔ SV-subset semantics for the fragment (render the SV AST,
+    derive `assignsCheck`, output-port width environment).
   - [ ] Check or prove the merge on bodies with registers/memories/instances
     (and cover the `assertions` the merge rewrites).
   - [ ] Width 0 inside the success region: a width-0 fragment declaration

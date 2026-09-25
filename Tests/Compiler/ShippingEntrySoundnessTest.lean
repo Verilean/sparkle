@@ -1,4 +1,5 @@
 import Tools.ShippingPostSoundness
+import Tools.ShippingOptSoundness
 
 /-! The synthesis-entry theorems on REAL declarations: the quotation matches what
 Lean elaborates, the user's definition is `denoteFE` by `rfl`, the certified
@@ -100,6 +101,44 @@ theorem fragA_ir_correct {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.
   obtain ⟨pa, hpa⟩ := hex 0 (by decide)
   obtain ⟨pb, hpb⟩ := hex 1 (by decide)
   refine ⟨pa, pb, fun he => by subst he; exact absurd (hdist 0 1 pa hpa hpb) (by decide), ?_⟩
+  intro dom a b t mems initial ha hb
+  have hinit : ∀ j w, j < [`a, `b].length → port j = some w →
+      initial w = ((sigsOf [a, b] j).val t).toNat := by
+    intro j w hj hw
+    match j, hj with
+    | 0, _ => rw [hpa] at hw; cases hw; exact ha
+    | 1, _ => rw [hpb] at hw; cases hw; exact hb
+  obtain ⟨env, hev, hout⟩ := hsem (sigsOf [a, b]) t mems initial hinit
+  exact ⟨env, hev, hout⟩
+
+/-- **`fragA` and the module `#synthesizeVerilog` prints agree on every
+input.** `verilogOf M = toVerilog (checkedOptimize M)`; for any successful run
+of `synthesizeCombinational ``fragA` under `EnvDefines`, the printed module has
+input ports `pa ≠ pb` and drives `out` with `(fragA a b).val t`. -/
+theorem fragA_printed_correct {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (M, D) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
+    verilogOf M = Sparkle.Backend.Verilog.toVerilog (Sparkle.IR.OptCheck.checkedOptimize M) ∧
+    ∃ pa pb : String, pa ≠ pb ∧
+      pa ∈ (Sparkle.IR.OptCheck.checkedOptimize M).inputs.map (·.name) ∧
+      pb ∈ (Sparkle.IR.OptCheck.checkedOptimize M).inputs.map (·.name) ∧
+      ∀ {dom : DomainConfig} (a b : Signal dom (BitVec 8)) (t : Nat)
+        (mems : Sparkle.IR.Semantics.MEnv) (initial : Sparkle.IR.Semantics.Env),
+        initial pa = (a.val t).toNat → initial pb = (b.val t).toNat →
+        ∃ env, Sparkle.IR.Semantics.evalAssigns
+            (Sparkle.IR.RegDedup.declWidth (Sparkle.IR.OptCheck.checkedOptimize M)) mems
+            (Sparkle.IR.OptCheck.checkedOptimize M).body initial = some env ∧
+          env "out" = ((fragA a b).val t).toNat := by
+  refine ⟨rfl, ?_⟩
+  rw [fragAValue_eq] at henv
+  obtain ⟨port, hdist, hex, hsem⟩ :=
+    printedModule_fragment (names := [`a, `b]) h henv feA_wf (by decide)
+  obtain ⟨pa, hpa, hpaIn⟩ := hex 0 (by decide)
+  obtain ⟨pb, hpb, hpbIn⟩ := hex 1 (by decide)
+  refine ⟨pa, pb, fun he => by subst he; exact absurd (hdist 0 1 pa hpa hpb) (by decide),
+    hpaIn, hpbIn, ?_⟩
   intro dom a b t mems initial ha hb
   have hinit : ∀ j w, j < [`a, `b].length → port j = some w →
       initial w = ((sigsOf [a, b] j).val t).toNat := by
@@ -218,9 +257,31 @@ run_cmd liftTermElabM do
   unless evalMod (Sparkle.IR.RegDedup.mergeDuplicates m) 1 == some 65537 do
     throwError "widthMismatch: wrong value after mergeDuplicates"
 
+/-! ## The optimizer checker rejects a wrong "optimization"
+
+A hand-built module claiming to optimise `fragA`'s module but computing
+`a + b` instead: `optCheck` must reject it (so `checkedOptimize` would keep the
+unoptimised module). And on the real module the real optimizer's result is
+accepted. -/
+run_cmd liftTermElabM do
+  let (m, _) ← synthesizeCombinational ``fragA
+  let o := Sparkle.IR.Optimize.optimizeModule m
+  unless Sparkle.IR.OptCheck.optCheck m o do
+    throwError "optCheck rejected the real optimizer's result on fragA"
+  unless Sparkle.IR.OptCheck.checkedOptimize m == o do
+    throwError "checkedOptimize did not keep the accepted optimisation"
+  let ins := m.inputs.map (·.name)
+  let bogus : Sparkle.IR.AST.Module :=
+    { o with body := [.assign "out" (.op .add [.ref ins[0]!, .ref ins[1]!])] }
+  unless !(Sparkle.IR.OptCheck.optCheck m bogus) do
+    throwError "optCheck accepted a module computing a different output"
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "entry regression failed"
-  for name in [``fragA_ir_correct, ``fragAValue_eq, ``fragmentDecl_of_env,
+  for name in [``fragA_printed_correct, ``printedModule_fragment,
+      ``Tools.ShippingOptSoundness.optCheck_sound,
+      ``Tools.ShippingOptSoundness.checkedOptimize_sound, ``postprocess_facts,
+      ``fragA_ir_correct, ``fragAValue_eq, ``fragmentDecl_of_env,
       ``synthesizeCombinational_fragment, ``synthesizeCombinational_reads, ``postprocess_sound,
       ``dropZeroWidth_entry, ``mergeDuplicates_sound, ``validateMerge_sound,
       ``validateStep_sound, ``renameE_sound, ``weOf_dropWires,

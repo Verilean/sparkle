@@ -802,6 +802,71 @@ of semantic preservation for whole arbitrary combinational modules.
   is unchecked.
 * Verilog printing and Verilog semantics.
 
+## Toward the printed Verilog: the optimizer and the printer (2026-09-25)
+
+`#synthesizeVerilog` prints `verilogOf M = toVerilog (checkedOptimize M)`,
+where `M` is `synthesizeCombinational`'s module. There was one more stage
+between the post-processed IR and the text: the IR optimizer `optimizeModule`
+(constant/alias propagation, CSE, dead code, single-use inlining; it also
+inserts `& mask` so that Verilog's context-width arithmetic matches the IR's
+per-node masking).
+
+### The optimizer: result-checked
+
+`Sparkle/IR/OptCheck.lean`, proved in `Tools/ShippingOptSoundness.lean`. As
+with the merge, the optimizer's output is an untrusted proposal:
+
+* `checkedOptimize m`: if `m`'s body has the simple shape (every statement
+  an `assign` of a constant, a reference, or one of `+ - * & | ^` on two
+  references), the optimised module is kept only if `optCheck` accepts it;
+  otherwise `m` is printed unoptimised. Other modules get `optimizeModule`
+  unchanged.
+* `optCheck m o`: requires the same ports, and every output normalising to the
+  same expression in both modules. Normalisation inlines each assignment's
+  normal form into later uses, only when the wire's declared width equals the
+  expression's width. It drops `e & (2^w-1)` when `e` has width `w` and reads
+  only inputs. The optimised side trusts only inputs declared with the same
+  width in both modules.
+* `optCheck_sound`: an accepted `o` evaluates, and every output has the same
+  value, for every input assignment whose values fit the declared input
+  widths. `checkedOptimize_sound`: the same for whatever `checkedOptimize`
+  returns on a simple-shaped module.
+* Measured: the corpus is byte-identical (163/163). On `fragA`, `fragC` and
+  `fragD` the real optimizer's result is accepted. A test pins the rejection of
+  a hand-built wrong "optimisation".
+
+`printedModule_fragment` (in `Tools/ShippingPostSoundness.lean`) and
+`fragA_printed_correct` (test): for any successful run of
+`synthesizeCombinational` on a quoted fragment declaration, under
+`EnvDefines`, the module `checkedOptimize M` (exactly what `toVerilog`
+receives) drives `out` with the Lean meaning on every input and cycle. The
+premises of `checkedOptimize_sound` are derived, not assumed:
+
+* **Simple shape:** the translator's emitted shape IS `simpleRhs`. It survives
+  `dropZeroWidthModule` (body unchanged) and an accepted merge (each new
+  statement is a renamed old one or a reference; `validateStep_shape`).
+* **Input bounds:** the entry now proves that the module's inputs are exactly
+  the binder ports, declared at width `n`. The translator records that inputs
+  are unchanged, and no clock/reset is added for an assign-only body.
+
+### The printer: made total
+
+`emitExpr` and `exprWidthV` in `Sparkle/Backend/Verilog.lean` were `partial`.
+They are now ordinary definitions with the same code: `attach` in the concat
+case, and a named match giving the termination proof. The corpus is
+byte-identical.
+
+### Still open on this path
+
+* **Text ↔ SV semantics (next).** Relate `toVerilog (checkedOptimize M)` to
+  the existing SV-subset semantics (`evalSV`, `emit_sem_assigns` in
+  `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
+  Remaining: the printed string is the rendering of that SV AST, the width
+  conditions `assignsCheck` needs, and the output-port width environment.
+  The SV grammar (that tools read the rendered text as that AST) will remain
+  the trusted step.
+* Width 0, `EnvDefines`, registers/memories/instances, as before.
+
 ## Applying the general theorem to crc16
 
 The desired application is: check successful shipping compilation (and any

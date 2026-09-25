@@ -88,7 +88,7 @@ def emitOperator (op : Operator) : String :=
     `(({6'd0, x} >> 0) & 6'h3f)` (a lowered size cast) is the 12-bit
     concat width, not the 6-bit value width — the sign bit lands on a
     padding zero and the comparison degenerates. -/
-partial def exprWidthV (widthOf : String → Option Nat) : Expr → Option Nat
+def exprWidthV (widthOf : String → Option Nat) : Expr → Option Nat
   | .const _ w => some w
   | .ref n => widthOf n
   | .slice _ hi lo => some (hi - lo + 1)
@@ -120,7 +120,7 @@ partial def exprWidthV (widthOf : String → Option Nat) : Expr → Option Nat
     so a full-width / scalar `.slice` can be elided — Verilog forbids a
     part-select on a scalar (`s[0:0]` → "can not select part of
     scalar"). -/
-partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
+def emitExpr (widthOf : String → Option Nat := fun _ => none)
     (e : Expr) : String :=
   match e with
   | .const value width =>
@@ -150,7 +150,7 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
     -- kept.  Cast each operator element to its IR width so the emitted
     -- concat's layout matches the IR's.  Refs, constants and slices
     -- already carry their exact width.
-    let one := fun (a : Expr) =>
+    let one := fun (a : Expr) (_ : a ∈ args) =>
       let rendered := emitExpr widthOf a
       match a with
       | .op _ _ =>
@@ -158,14 +158,14 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
         | some w => if w > 0 then s!"{w}'({rendered})" else rendered
         | none => rendered
       | _ => rendered
-    s!"\{{String.intercalate ", " (args.map one)}}"
+    s!"\{{String.intercalate ", " (args.attach.map fun ⟨a, h⟩ => one a h)}}"
 
   | .slice e hi lo =>
     -- Elide a slice that selects the FULL width of a known wire (in
     -- particular `s[0:0]` on a scalar, which Verilog rejects with
     -- "can not select part of scalar").  Only when the source is a
     -- `.ref` with a known width and the range covers [width-1 : 0].
-    match e with
+    match he : e with
     | .ref name =>
       match widthOf (sanitizeName name) with
       | some w =>
@@ -296,6 +296,10 @@ partial def emitExpr (widthOf : String → Option Nat := fun _ => none)
       | _ =>
         s!"({emitExpr widthOf arg1} {emitOperator operator} {emitExpr widthOf arg2})"
     | _ => s!"/* ERROR: operator {operator} with wrong arity */"
+decreasing_by
+  all_goals first
+    | decreasing_tactic
+    | (subst he; simp_wf; omega)
 
 /-- Emit a single statement.
     The optional `wires` parameter provides wire declarations for register

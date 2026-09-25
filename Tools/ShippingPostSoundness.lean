@@ -1,5 +1,6 @@
 import Tools.ShippingEntrySoundness
 import Tools.ConeFoldSlices
+import Tools.ShippingOptSoundness
 
 /-! # Post-processing: `dropZeroWidthModule` and `mergeDuplicates`
 
@@ -504,8 +505,10 @@ theorem weOf_dropWires (M : Sparkle.IR.AST.Module) (hnd : (M.wires.map (·.name)
 theorem dzExpr_shaped (wm : Sparkle.IR.Optimize.WidthMap) (r : Sparkle.IR.AST.Expr)
     (hr : ShapedRhs r ∨ ∃ w, r = .ref w) : dzExpr wm r = r := by
   rcases hr with hr | ⟨w, rfl⟩
-  · match r, hr with
+  · unfold ShapedRhs at hr
+    match r, hr with
     | .const _ _, _ => simp [dzExpr]
+    | .ref _, _ => simp [dzExpr]
     | .op _ [.ref _, .ref _], _ => simp [dzExpr, dzList]
   · simp [dzExpr]
 
@@ -621,8 +624,195 @@ theorem synthesizeCombinational_fragment {declName : Name} {mctx : Meta.Context}
   obtain ⟨M, D, w1, hcore, hM'⟩ := synthesizeCombinational_reads h
   obtain ⟨port, hdist, hex, hsem⟩ := fragmentDecl_of_env hcore henv hwf
   refine ⟨port, hdist, hex, fun sigs t mems initial hinit => ?_⟩
-  obtain ⟨env, hev, hout, hpr⟩ := hsem sigs t mems initial hinit
+  obtain ⟨env, hev, hout, hpr, -, -, -⟩ := hsem sigs t mems initial hinit
   obtain ⟨hev', -, -⟩ := postprocess_sound hn hpr hM' hev
   exact ⟨env, hev', hout⟩
+
+/-! ## 5. Through the optimizer: the module `toVerilog` prints
+
+`#synthesizeVerilog` prints `verilogOf M' = toVerilog (checkedOptimize M')`.
+`checkedOptimize` keeps `optimizeModule`'s result only if the proved checker
+accepts it; its precondition is that the body has the simple shape, which is
+carried from the translator through both passes. -/
+
+open Sparkle.IR.OptCheck (simpleRhs simpleBody checkedOptimize)
+
+theorem simpleRhs_renameE (σ : String → String) :
+    ∀ e, simpleRhs e = true → simpleRhs (renameE σ e) = true
+  | .const _ _, _ => rfl
+  | .ref _, _ => rfl
+  | .op _ [.ref _, .ref _], h => by simpa [renameE, renameE.renameL, simpleRhs] using h
+
+theorem validateStep_shape {wOf : String → Nat} {allLhs : List String} {st st' : MergeCheck}
+    {l : String} {e : Sparkle.IR.AST.Expr} {new : Stmt}
+    (h : validateStep wOf allLhs st (.assign l e) new = some st') :
+    ∃ e', new = .assign l e' ∧ (e' = renameE (aliasOf st.S) e ∨ ∃ y, e' = .ref y) := by
+  cases new with
+  | assign l' e' =>
+    simp only [validateStep] at h
+    by_cases h1 : (l' ≠ l ∨ l ∈ st.defined)
+    · rw [if_pos h1] at h; cases h
+    rw [if_neg h1] at h
+    have hl' : l = l' := Classical.byContradiction fun hne => h1 (Or.inl (Ne.symm hne))
+    subst hl'
+    by_cases h2 : (!(refsOf e).all (fun x => !allLhs.contains x || st.defined.contains x)) = true
+    · rw [if_pos h2] at h; cases h
+    rw [if_neg h2] at h
+    by_cases h3 : e' = renameE (aliasOf st.S) e
+    · exact ⟨e', rfl, Or.inl h3⟩
+    · rw [if_neg h3] at h
+      cases e' with
+      | ref y => exact ⟨_, rfl, Or.inr ⟨y, rfl⟩⟩
+      | _ => simp at h
+  | _ => simp [validateStep] at h
+
+/-- All statements are assigns of the simple shapes. -/
+def SimpleStmts (body : List Stmt) : Prop :=
+  ∀ st ∈ body, ∃ l r, st = .assign l r ∧ simpleRhs r = true
+
+theorem simpleBody_of (m : Sparkle.IR.AST.Module) (h : SimpleStmts m.body) :
+    simpleBody m = true := by
+  unfold simpleBody
+  rw [List.all_eq_true]
+  intro st hst
+  obtain ⟨l, r, rfl, hr⟩ := h st hst
+  exact hr
+
+theorem validateMerge_go_simple {wOf : String → Nat} {allLhs : List String} :
+    ∀ (old new : List Stmt) (st : MergeCheck),
+      validateMerge.go wOf allLhs st old new = true → SimpleStmts old → SimpleStmts new
+  | [], [], _, _, _ => fun _ h => by cases h
+  | [], _ :: _, _, hgo, _ => by simp [validateMerge.go] at hgo
+  | _ :: _, [], _, hgo, _ => by simp [validateMerge.go] at hgo
+  | a :: as, b :: bs, st, hgo, hs => by
+    obtain ⟨l, e, rfl, he⟩ := hs a List.mem_cons_self
+    simp only [validateMerge.go] at hgo
+    split at hgo
+    · rename_i st' hstep
+      obtain ⟨e', rfl, h'⟩ := validateStep_shape hstep
+      have hrest := validateMerge_go_simple as bs st' hgo
+        (fun s hs' => hs s (List.mem_cons_of_mem _ hs'))
+      intro s hs'
+      rcases List.mem_cons.mp hs' with rfl | hs'
+      · refine ⟨l, e', rfl, ?_⟩
+        rcases h' with rfl | ⟨y, rfl⟩
+        · exact simpleRhs_renameE _ e he
+        · rfl
+      · exact hrest s hs'
+    · cases hgo
+
+theorem mergeDuplicates_simple (m : Sparkle.IR.AST.Module) (h : SimpleStmts m.body) :
+    SimpleStmts (mergeDuplicates m).body := by
+  have hall : m.body.all isAssign = true := by
+    rw [List.all_eq_true]; intro st hst
+    obtain ⟨l, r, rfl, -⟩ := h st hst; rfl
+  unfold mergeDuplicates
+  simp only [hall, if_true]
+  split
+  · rename_i hv
+    exact validateMerge_go_simple m.body _ {} hv h
+  · exact h
+
+/-- A name declared once at width `k` has declared width `k`. -/
+theorem declWidth_of_mem {m : Sparkle.IR.AST.Module} (hnd : (m.wires.map (·.name)).Nodup)
+    {x : String} {k : Nat} (hx : ({ name := x, ty := .bitVector k } : Port) ∈ m.wires) :
+    Sparkle.IR.RegDedup.declWidth m x = k := by
+  unfold Sparkle.IR.RegDedup.declWidth
+  rw [find?_of_nodup hnd hx]
+
+/-- The post-processed module keeps the simple shape, the ports, the width-`n`
+declarations and distinct wire names. -/
+theorem postprocess_facts {M M' : Sparkle.IR.AST.Module} {n : Nat} (hn : 0 < n)
+    (hpr : PostReady M n)
+    (hM' : M' = dropZeroWidthModule M ∨ M' = mergeDuplicates (dropZeroWidthModule M)) :
+    SimpleStmts M'.body ∧ M'.inputs = M.inputs ∧ (M'.wires.map (·.name)).Nodup ∧
+      ∀ x, ({ name := x, ty := .bitVector n } : Port) ∈ M.wires →
+        ({ name := x, ty := .bitVector n } : Port) ∈ M'.wires := by
+  obtain ⟨hb, -, hi, -, hnd⟩ := dropZeroWidth_entry M n hn hpr
+  have hsM : SimpleStmts (dropZeroWidthModule M).body := by
+    rw [hb]
+    intro st hst
+    obtain ⟨l, r, rfl, hlr⟩ := hpr.2.2.1 st hst
+    rcases hlr with ⟨hr, -⟩ | ⟨-, w, rfl⟩
+    · exact ⟨l, r, rfl, hr⟩
+    · exact ⟨l, _, rfl, rfl⟩
+  have hwdz : ∀ x, ({ name := x, ty := .bitVector n } : Port) ∈ M.wires →
+      ({ name := x, ty := .bitVector n } : Port) ∈ (dropZeroWidthModule M).wires := by
+    intro x hx
+    unfold dropZeroWidthModule
+    split
+    · exact hx
+    · exact List.mem_filter.mpr ⟨hx, by simp [HWType.bitWidth]; omega⟩
+  rcases hM' with rfl | rfl
+  · exact ⟨hsM, hi, hnd, hwdz⟩
+  · have hall : (dropZeroWidthModule M).body.all isAssign = true := by
+      rw [List.all_eq_true]; intro st hst
+      obtain ⟨l, r, rfl, -⟩ := hsM st hst; rfl
+    have hwi : (mergeDuplicates (dropZeroWidthModule M)).wires = (dropZeroWidthModule M).wires ∧
+        (mergeDuplicates (dropZeroWidthModule M)).inputs = (dropZeroWidthModule M).inputs := by
+      unfold mergeDuplicates
+      simp only [hall, if_true]
+      split <;> exact ⟨rfl, rfl⟩
+    refine ⟨mergeDuplicates_simple _ hsM, hwi.2.trans hi, by rw [hwi.1]; exact hnd,
+      fun x hx => by rw [hwi.1]; exact hwdz x hx⟩
+
+/-- **The module `#synthesizeVerilog` prints, for the fragment.** For a
+successful run of `synthesizeCombinational` on a declaration that the run's
+environment defines as `quoteDecl dn names n fe` (`n > 0`), the module
+`checkedOptimize M'` — the one `verilogOf M' = toVerilog (checkedOptimize M')`
+prints — has a distinct input port per input and, for every domain, all input
+signals and every cycle, its statements under its declared widths drive `out`
+with the Lean meaning. -/
+theorem printedModule_fragment {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (M', D') w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
+    ∃ port : Nat → Option String,
+      (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
+      (∀ j, j < names.length → ∃ w, port j = some w ∧
+        w ∈ (checkedOptimize M').inputs.map (·.name)) ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv)
+        (initial : Env),
+        (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
+        ∃ env, evalAssigns (Sparkle.IR.RegDedup.declWidth (checkedOptimize M')) mems
+            (checkedOptimize M').body initial = some env ∧
+          env "out" = ((denoteFE n sigs fe).val t).toNat := by
+  obtain ⟨M, D, w1, hcore, hM'⟩ := synthesizeCombinational_reads h
+  obtain ⟨port, hdist, hex, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  -- the module's structure does not depend on the values: read it at one valuation
+  obtain ⟨env0, hev0, -, hpr, -, hmo, hinM⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun j w _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  obtain ⟨-, hin', ho'⟩ := postprocess_sound hn hpr hM' hev0
+  obtain ⟨hsimp, -, hnd', hdecl'⟩ := postprocess_facts hn hpr hM'
+  have hgate : simpleBody M' = true := simpleBody_of M' hsimp
+  obtain ⟨hinO, houtO'⟩ := Tools.ShippingOptSoundness.checkedOptimize_ports hgate
+  refine ⟨port, hdist, ?_, fun sigs t mems initial hinit => ?_⟩
+  · intro j hj
+    obtain ⟨wj, hwj⟩ := hex j hj
+    refine ⟨wj, hwj, ?_⟩
+    rw [hinO, hin']
+    exact List.mem_map.mpr ⟨_, hinM j wj hj hwj, rfl⟩
+  · obtain ⟨env, hev, hout, hpr, hins, -, -⟩ := hsem sigs t mems initial hinit
+    obtain ⟨hev', -, -⟩ := postprocess_sound hn hpr hM' hev
+    have hinsM' : ∀ x ∈ M'.inputs.map (·.name),
+        initial x < 2 ^ Sparkle.IR.RegDedup.declWidth M' x := by
+      intro x hx
+      rw [hin'] at hx
+      obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+      obtain ⟨j, hj, hpj, hty, hdecl⟩ := hins p hp
+      rw [declWidth_of_mem hnd' (hdecl' _ hdecl), hinit j p.name hj hpj]
+      exact BitVec.isLt _
+    obtain ⟨envO, hevO, houtO, -, -⟩ :=
+      Tools.ShippingOptSoundness.checkedOptimize_sound hgate hinsM' hev'
+    obtain ⟨p, hp, hpn⟩ := List.mem_map.mp (ho' ▸ hmo)
+    refine ⟨envO, hevO, ?_⟩
+    rw [← hpn, houtO p hp, hpn, hout]
 
 end Tools.ShippingPostSoundness
