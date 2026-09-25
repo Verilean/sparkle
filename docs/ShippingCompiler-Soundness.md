@@ -933,6 +933,42 @@ remaining SV semantics conditions. The executable tutorial
 adder declaration, checks its quoted body by `rfl`, and audits standard axioms.
 Its diagram keeps the lexical and SV evaluation links explicitly unfinished.
 
+**Conditional SV continuation (2026-09-26):**
+`Tools/ShippingSVBridge.lean` proves `compiledFragment_forward`. For the SAME
+synthesis run and emitted tree/bytes, the existing SV-subset **in-order
+assignment fold** agrees with the source on every input, conditional on
+`forwardCheck (checkedOptimize m) = true` and a bounded initial environment.
+This is not yet a theorem that the source entry discharges that check, and
+not external-tool or full concurrent SystemVerilog semantics.
+
+Two representation gaps are now closed in that conditional composition:
+
+* `combItems` reads the assignment steps from the actual `SVModule.items`;
+  `module_combItems` proves they are exactly the steps of `emitAssigns`.
+  Unsupported statements and initialized wire declarations fail extraction,
+  rather than being silently ignored.
+* `declWidth` used by the source IR proof looks only at `m.wires`. In real
+  fragment modules `out` is an output port, so `declWidth m "out" = 0`, whereas
+  the printer reads its actual positive width. `forwardWidths` uses the
+  printer's declaration lookup, including ports. `evalAssigns_widths` proves
+  the transport between the two width environments from agreement on every
+  RHS reference; `forwardCheck` includes that agreement plus `assignsCheck`.
+
+The initial printer-width bound follows from `Bounded forwardWidths initial`;
+it is not a second caller premise. That bounded initialization itself remains
+to be derived from the source input mapping. The SV evaluation still uses the
+printer's width lookup; an independent interpretation of the AST declarations
+and textual grammar is not claimed here.
+
+`ShippingSVBridgeTest` checks the forward conditions on real `fragA/B/C/D`,
+before and after optimization, and audits the general theorems for standard
+axioms only. Those concrete checks are non-vacuity/regression evidence, not
+proof that every accepted source declaration passes. A negative control adds
+an unused 8-bit assignment with a 16-bit RHS: the shipping optimizer check
+still accepts it (output semantics unchanged), but `forwardCheck` rejects it.
+Thus deriving the forward condition merely from current `optCheck` would be
+false. No shipping behavior or acceptance policy changes in this step.
+
 **Review of proposed option A:** retaining an optimizer result only after a
 forward-fragment check is sensible, but the fallback's check must be proved
 before claiming all returned modules satisfy it. Do not add an unproved check

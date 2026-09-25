@@ -1541,6 +1541,20 @@ real `plus8` declaration and audits its axioms, with the remaining connections
 shown explicitly. Next proof work remains lexical validity and deriving
 `assignsCheck`/width-environment conditions on both optimizer arms.
 
+**2026-09-26 conditional SV bridge:** `compiledFragment_forward` now composes
+source semantics with the existing SV assignment-fold semantics of the ACTUAL
+emitted AST, under explicit `forwardCheck` and bounded-initialization premises.
+`module_combItems` identifies the AST's assignments with `emitAssigns`;
+`evalAssigns_widths` bridges source wire-only widths to printer widths including
+output ports. The old width environment gives `out` width zero, so using it
+directly for `assignsCheck` rejects even the real positive-width fragment.
+Tests cover four real declarations, raw/optimized, and a counterexample to
+`optCheck ⇒ forwardCheck` (unused assignment with mismatched target width).
+This step changes no compiler behavior and discharges NO source-entry forward
+check premise. Next: prove the fallback's check and initialization conditions,
+then preserve them through optimizer acceptance; lexical/text interpretation
+and independent AST declaration widths remain explicit boundaries.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a
