@@ -1547,9 +1547,21 @@ The gaps, in the order they weaken the claim:
     canonical operators and `Signal.pure` literals. Found and fixed an accepted
     miscompile (operator instance ignored). Remaining premises are listed in
     docs/ShippingCompiler-Soundness.md, "Formal shape".
-  - [ ] Make the shipping knot a fuel-bounded fixpoint of a non-partial step.
-  - [ ] Extend `Spec` with the source-binding invariant; prove the `fvar` leaf.
-  - [ ] Move IR-affecting `IO.Ref` caches into pure builder state.
+  - [x] Make the shipping knot a fuel-bounded fixpoint of a non-partial step
+    (2026-09-25): `translateExprToWire` is now an ordinary definition; the
+    `partial` handler block takes the entry as a parameter. Corpus output
+    byte-identical (163/163 files, 297 modules), +5% time.
+  - [x] Extend `Spec` with the source-binding invariant; prove the `fvar` leaf.
+  - [x] One general theorem through the actual entry for inputs, literals and
+    the canonical operators in any combination: `translateExprToWire_sound`.
+  - [x] Expression-cache hits on the proved path validated against a pure
+    record with `exprDecEq` (no `KeySound`/`InsertSpec` needed on that path).
+  - [ ] Establish `Inv` and `WidthsAgree` at the synthesis entry (leaf loop,
+    input bindings, post-processing).
+  - [ ] Coverage: success ⇒ `Denotes` (needs typing or a compiler-side width
+    check); declaration ↔ `Denotes` (reflection). Both kept separate.
+  - [ ] Move the remaining IR-affecting `IO.Ref` caches (types, widths, loops)
+    into pure builder state as further handlers are proved.
   - [ ] Lower non-canonical operator instances by their actual body instead of
     refusing them.
   - [x] Identify actual success boundaries: synthesis core, zero-width cleanup,

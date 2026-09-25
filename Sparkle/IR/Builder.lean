@@ -9,6 +9,7 @@ import Sparkle.IR.AST
 import Sparkle.IR.FreshNames
 import Std.Data.HashSet
 import Std.Data.HashMap
+import Lean.Expr
 
 namespace Sparkle.IR.Builder
 
@@ -35,6 +36,10 @@ structure CircuitState where
   -- not part of the emitted IR. Keeping it here gives nested synthesis its own
   -- table and makes lookup/update pure, rather than a global IO.Ref lifecycle.
   sourceBindings : Std.HashMap Lean.Name String := {}
+  /-- Wire → the expression the proved translator core produced it for. Pure
+      builder metadata (absent from the emitted IR); it validates hits of the
+      `IO.Ref` expression cache, whose key equality is opaque. -/
+  translateRecord : Std.HashMap String Lean.Expr := {}
 
 /-- Circuit builder monad -/
 abbrev CircuitM := StateM CircuitState
@@ -221,6 +226,20 @@ theorem makeWire_spec (hint : String) (ty : HWType) (named : Bool) (s : CircuitS
 theorem makeWire_sourceBindings (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
     (makeWire hint ty named s).2.sourceBindings = s.sourceBindings :=
   freshName_sourceBindings (sanitizeName hint) named s
+
+/-- Allocating a name preserves the translation record. -/
+theorem freshName_translateRecord (hint : String) (named : Bool) (s : CircuitState) :
+    (freshName hint named s).2.translateRecord = s.translateRecord := by
+  have stable (base : String) : (freshNamed base s).2.translateRecord = s.translateRecord := by
+    unfold freshNamed
+    split <;> rfl
+  cases named with
+  | false => rfl
+  | true => exact stable _
+
+theorem makeWire_translateRecord (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (makeWire hint ty named s).2.translateRecord = s.translateRecord :=
+  freshName_translateRecord (sanitizeName hint) named s
 
 /--
   Emit a continuous assignment statement.

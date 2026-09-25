@@ -1,4 +1,5 @@
 import Tools.ShippingAllocationSoundness
+import Tools.ShippingBindingsSoundness
 
 /-! # Success and semantic preservation of the SHIPPING translator
 
@@ -217,11 +218,17 @@ theorem signalBinOpOf_binary :
     signalBinOpOf ``HXor.hXor = some Binary.xor.operator := by
   refine ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
 
-/-! ## 4. The simulation relation and the specification of a translation -/
+/-! ## 4. The state the translator runs in, and its invariants -/
 
 /-- The builder's statements evaluate, in one combinational cycle, to `env`. -/
 def Runs (we : WEnv) (mems : MEnv) (initial : Env) (s : CircuitState) (env : Env) : Prop :=
   evalAssigns we mems s.module.finalize.body initial = some env
+
+theorem runs_of_body_eq {we : WEnv} {mems : MEnv} {initial : Env} {s t : CircuitState}
+    {env : Env} (hb : t.module.body = s.module.body) (h : Runs we mems initial s env) :
+    Runs we mems initial t env := by
+  unfold Runs at *
+  simpa [Module.finalize, hb] using h
 
 /-- Declared widths agree with the width environment of the final module. -/
 def WidthsAgree (we : WEnv) (s : CircuitState) : Prop :=
@@ -231,150 +238,243 @@ theorem WidthsAgree.mono {we : WEnv} {s t : CircuitState}
     (h : WidthsAgree we t) (sub : ∀ p ∈ s.module.wires, p ∈ t.module.wires) :
     WidthsAgree we s := fun p hp k hk => h p (sub p hp) k hk
 
-/-- Structural effect of a translation: names and declarations only grow. This
-is stated separately from the semantic clause because the width argument needs
-it before the semantic clause of a later call is available. -/
+/-- Names and declarations only grow. -/
 def Grows (s0 s1 : CircuitState) : Prop :=
   (∀ x, s0.usedNames.contains x = true → s1.usedNames.contains x = true) ∧
   (∀ p ∈ s0.module.wires, p ∈ s1.module.wires)
 
-/-- What a successful translation of `e` guarantees. -/
-structure Spec (translate : TranslateFn) (ctx : CompilerState) (we : WEnv)
-    (mems : MEnv) (initial : Env) (ρ : Valuation) : Prop where
-  grows : ∀ e hint s0 w s1, Returns (translate e hint false false) ctx s0 w s1 → Grows s0 s1
-  sem : ∀ e hint (n : Nat) (x : BitVec n) s0 env0 w s1,
-    Denotes ρ e n x →
-    Returns (translate e hint false false) ctx s0 w s1 →
-    Runs we mems initial s0 env0 →
-    WidthsAgree we s1 →
-    ∃ env1, Runs we mems initial s1 env1 ∧
+open Tools.ShippingBindingsSoundness (visible lookupVar_run)
+
+/-- Every variable the valuation gives a value to is found by the REAL lookup
+(`lookupVar`: reader-scoped first, then the persistent table) at a reserved
+wire. Environment-free, so it can be carried through a call before that call's
+semantic facts are known. -/
+def BoundLookup (ctx : CompilerState) (ρ : Valuation) (s : CircuitState) : Prop :=
+  ∀ id n (x : BitVec n), ρ id = some ⟨n, x⟩ →
+    ∃ w, visible ctx s.sourceBindings id = some w ∧ s.usedNames.contains w = true
+
+/-- ... and that wire carries the variable's value at its width. -/
+def BoundValues (ctx : CompilerState) (ρ : Valuation) (we : WEnv) (s : CircuitState)
+    (env : Env) : Prop :=
+  ∀ id n (x : BitVec n) w, ρ id = some ⟨n, x⟩ → visible ctx s.sourceBindings id = some w →
+    env w = x.toNat ∧ we w = n
+
+/-- A recorded wire carries the meaning of the expression it was produced for. -/
+def RecordOk (ρ : Valuation) (we : WEnv) (s : CircuitState) (env : Env) : Prop :=
+  ∀ w e', s.translateRecord.get? w = some e' → ∀ n (x : BitVec n), Denotes ρ e' n x →
+    s.usedNames.contains w = true ∧ env w = x.toNat ∧ we w = n
+
+/-- Record entries added during a run are for wires that were fresh at its start. -/
+def RecordFresh (s0 s1 : CircuitState) : Prop :=
+  ∀ w e', s1.translateRecord.get? w = some e' →
+    s0.translateRecord.get? w = some e' ∨ s0.usedNames.contains w = false
+
+/-- The invariant a translation call starts in and ends in. -/
+structure Inv (ctx : CompilerState) (ρ : Valuation) (we : WEnv) (mems : MEnv)
+    (initial : Env) (s : CircuitState) (env : Env) : Prop where
+  runs : Runs we mems initial s env
+  lookup : BoundLookup ctx ρ s
+  values : BoundValues ctx ρ we s env
+  record : RecordOk ρ we s env
+
+theorem BoundLookup.transfer {ctx ρ} {s t : CircuitState} (h : BoundLookup ctx ρ s)
+    (hu : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true)
+    (hb : t.sourceBindings = s.sourceBindings) : BoundLookup ctx ρ t := by
+  intro id n x hx
+  obtain ⟨w, hw, hu'⟩ := h id n x hx
+  exact ⟨w, by rw [hb]; exact hw, hu w hu'⟩
+
+/-- Moving to a state with the same bindings and record, more reserved names,
+and the same values at every previously reserved name, keeps the invariant. -/
+theorem Inv.transfer {ctx ρ we mems initial} {s t : CircuitState} {env env' : Env}
+    (h : Inv ctx ρ we mems initial s env) (hr : Runs we mems initial t env')
+    (hu : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true)
+    (hb : t.sourceBindings = s.sourceBindings) (hrec : t.translateRecord = s.translateRecord)
+    (hv : ∀ z, s.usedNames.contains z = true → env' z = env z) :
+    Inv ctx ρ we mems initial t env' := by
+  refine ⟨hr, h.lookup.transfer hu hb, ?_, ?_⟩
+  · intro id n x w hx hw
+    rw [hb] at hw
+    obtain ⟨w', hw', hu'⟩ := h.lookup id n x hx
+    have hww : w' = w := by rw [hw'] at hw; exact Option.some.inj hw
+    subst hww
+    obtain ⟨h1, h2⟩ := h.values id n x w' hx hw
+    exact ⟨by rw [hv w' hu']; exact h1, h2⟩
+  · intro w e' he n x hd
+    rw [hrec] at he
+    obtain ⟨hu', h1, h2⟩ := h.record w e' he n x hd
+    exact ⟨hu w hu', by rw [hv w hu']; exact h1, h2⟩
+
+/-! ### Determinism of the source semantics -/
+
+theorem Binary.operator_inj {a b : Binary} (h : a.operator = b.operator) : a = b := by
+  cases a <;> cases b <;> first | rfl | (simp [Binary.operator] at h)
+
+theorem signalBinOpOf_pure : signalBinOpOf ``Sparkle.Core.Signal.Signal.pure = none := rfl
+
+theorem Denotes.det {ρ : Valuation} {e : Lean.Expr} {n n' : Nat} {x : BitVec n} {x' : BitVec n'}
+    (h : Denotes ρ e n x) (h' : Denotes ρ e n' x') : n = n' ∧ x.toNat = x'.toNat := by
+  induction h generalizing n' x' with
+  | fvar hρ =>
+    cases h' with
+    | fvar hρ' => rw [hρ] at hρ'; cases hρ'; exact ⟨rfl, rfl⟩
+    | binary hfn _ _ _ _ _ => simp [Lean.Expr.getAppFn] at hfn
+    | pureLit hfn _ _ => simp [Lean.Expr.getAppFn] at hfn
+  | @binary e m us bop n x1 x2 hfn hop hk hw hd1 hd2 ih1 ih2 =>
+    cases h' with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hfn
+    | @binary _ m' us' bop' n' y1 y2 hfn' hop' hk' hw' hd1' hd2' =>
+      rw [hfn] at hfn'; cases hfn'
+      rw [hw] at hw'; cases hw'
+      rw [hop] at hop'
+      have hb : bop = bop' := Binary.operator_inj (Option.some.inj hop')
+      subst hb
+      obtain ⟨-, e1⟩ := ih1 hd1'
+      obtain ⟨-, e2⟩ := ih2 hd2'
+      have h1 : x1 = y1 := BitVec.eq_of_toNat_eq e1
+      have h2 : x2 = y2 := BitVec.eq_of_toNat_eq e2
+      subst h1 h2
+      exact ⟨rfl, rfl⟩
+    | pureLit hfn' _ _ =>
+      rw [hfn] at hfn'; cases hfn'
+      rw [signalBinOpOf_pure] at hop; cases hop
+  | pureLit hfn hb hl =>
+    cases h' with
+    | fvar _ => simp [Lean.Expr.getAppFn] at hfn
+    | binary hfn' hop' _ _ _ _ =>
+      rw [hfn] at hfn'; cases hfn'
+      rw [signalBinOpOf_pure] at hop'; cases hop'
+    | pureLit hfn' hb' hl' =>
+      rw [hb] at hb'; cases hb'
+      rw [hl] at hl'; cases hl'
+      exact ⟨rfl, rfl⟩
+
+/-- Recording a result that carries its expression's meaning keeps `RecordOk`. -/
+theorem RecordOk.insert {ρ we} {s : CircuitState} {env : Env} (h : RecordOk ρ we s env)
+    {e : Lean.Expr} {w : String} {n : Nat} {x : BitVec n}
+    (hd : Denotes ρ e n x) (hused : s.usedNames.contains w = true)
+    (hval : env w = x.toNat) (hwid : we w = n) :
+    RecordOk ρ we { s with translateRecord := s.translateRecord.insert w e } env := by
+  intro w' e' he n' x' hd'
+  simp only [Std.HashMap.get?_insert] at he
+  split at he
+  · rename_i heq
+    have hw : w = w' := by simpa using heq
+    subst hw
+    cases he
+    obtain ⟨hn, hx⟩ := Denotes.det hd hd'
+    subst hn
+    exact ⟨hused, hval.trans hx, hwid⟩
+  · exact h w' e' he n' x' hd'
+
+/-! ## 5. What a translation guarantees, and the recursion -/
+
+/-- The specification of a translation entry. `grows` needs only the
+environment-free binding fact, which is what lets the width argument of a
+parent call use a LATER sibling call's growth before its semantics. -/
+structure Spec (translate : TranslateFn) (ctx : CompilerState) (we : WEnv) (mems : MEnv)
+    (initial : Env) (ρ : Valuation) : Prop where
+  grows : ∀ e hint named n (x : BitVec n) s0 w s1, Denotes ρ e n x →
+    Returns (translate e hint false named) ctx s0 w s1 → BoundLookup ctx ρ s0 →
+    Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1
+  sem : ∀ e hint named n (x : BitVec n) s0 env0 w s1, Denotes ρ e n x →
+    Returns (translate e hint false named) ctx s0 w s1 →
+    Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
+    ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
       (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
       s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat
 
-/-! ## 5. The recursion: a fuel-bounded fixpoint and its induction -/
-
-/-- The shape the shipping knot must take: a fuel-bounded fixpoint of a
-non-recursive step. Fuel exhaustion is a compile error, like the existing
-`SPARKLE_TRANSLATE_LIMIT` backstop. -/
-def fuelFix (step : TranslateFn → TranslateFn) : Nat → TranslateFn
-  | 0 => fun _ _ _ _ => throw (Exception.error .missing "translation fuel exhausted")
-  | k + 1 => step (fuelFix step k)
-
-/-- A translator that never succeeds satisfies the specification vacuously. -/
 theorem spec_of_never {t : TranslateFn} {ctx we mems initial ρ}
     (never : ∀ e h a b s w s', ¬ Returns (t e h a b) ctx s w s') :
     Spec t ctx we mems initial ρ :=
-  ⟨fun e h s0 w s1 hr => absurd hr (never e h false false s0 w s1),
-   fun e h _ _ s0 _ w s1 _ hr => absurd hr (never e h false false s0 w s1)⟩
+  ⟨fun e h nm _ _ s0 w s1 _ hr => absurd hr (never e h false nm s0 w s1),
+   fun e h nm _ _ s0 _ w s1 _ hr => absurd hr (never e h false nm s0 w s1)⟩
 
-/-- The induction that discharges the recursive hypothesis: if one step
-preserves the specification, every fuel-bounded iterate satisfies it. -/
-theorem fuelFix_spec {step : TranslateFn → TranslateFn} {ctx we mems initial ρ}
+/-- The induction that discharges the recursion hypothesis for the SHIPPING
+fixpoint `translateFuelFix`. -/
+theorem translateFuelFix_spec {step : TranslateFn → TranslateFn} {ctx we mems initial ρ}
     (hstep : ∀ t, Spec t ctx we mems initial ρ → Spec (step t) ctx we mems initial ρ) :
-    ∀ k, Spec (fuelFix step k) ctx we mems initial ρ
+    ∀ k, Spec (translateFuelFix step k) ctx we mems initial ρ
   | 0 => spec_of_never fun _ _ _ _ _ _ _ hr => Returns.throw hr
-  | k + 1 => hstep _ (fuelFix_spec hstep k)
+  | k + 1 => hstep _ (translateFuelFix_spec hstep k)
 
-/-! ## 6. One branch of the real translator: canonical Signal×Signal operators -/
+/-! ## 6. Success rules for the operations of the step -/
 
-theorem runs_of_body_eq {we : WEnv} {mems : MEnv} {initial : Env} {s t : CircuitState}
-    {env : Env} (hb : t.module.body = s.module.body) (h : Runs we mems initial s env) :
-    Runs we mems initial t env := by
-  unfold Runs at *
-  simpa [Module.finalize, hb] using h
+theorem Returns.read {ctx : CompilerState} {s s' : CircuitState} {c : CompilerState}
+    (h : Returns CompilerM.getCompilerState ctx s c s') : c = ctx ∧ s' = s := by
+  obtain ⟨mctx, mref, cctx, cref, w, w', hrun⟩ := h
+  change EST.Out.ok (ctx, s) w = _ at hrun
+  cases hrun; exact ⟨rfl, rfl⟩
 
-/-- The Signal×Signal branch of the SHIPPING operator lowering preserves
-meaning, for every canonical operator of `Binary`, at every width, for every
-`translate` that satisfies the specification (the recursion hypothesis).
+theorem Returns.modify {ctx : CompilerState} {s s' : CircuitState} {f : CircuitState → CircuitState}
+    {u : PUnit} (h : Returns (modify f : CompilerM PUnit) ctx s u s') : s' = f s := by
+  obtain ⟨mctx, mref, cctx, cref, w, w', hrun⟩ := h
+  change EST.Out.ok (PUnit.unit, f s) w = _ at hrun
+  cases hrun; rfl
 
-Existing proofs used: `CircuitM.makeWire_spec` (freshness of the result wire,
-reservation, unchanged statements), `emitAssign_sound` (the emitted assignment
-extends execution by exactly its RHS), `Binary.rhs_correct` (the IR operator
-computes the `BitVec` operation), and the `library_*` lemmas above (the
-`BitVec` operation is what the library instance computes). -/
-theorem translateCanonicalSignalBinary_sound
-    {translate : TranslateFn} {ctx : CompilerState} {we : WEnv} {mems : MEnv}
-    {initial : Env} {ρ : Valuation}
-    (ih : Spec translate ctx we mems initial ρ)
-    {e : Lean.Expr} {op : Operator} {hint : String} {isNamed : Bool}
-    {m : Name} {us : List Level}
-    (hfn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op)
-    {n : Nat} {x : BitVec n} {s0 : CircuitState} {env0 : Env} {w : String}
-    {s1 : CircuitState}
-    (hden : Denotes ρ e n x)
-    (hrun : Returns (translateCanonicalSignalBinary translate e op e.getAppArgs true true
-      hint isNamed) ctx s0 w s1)
-    (hs0 : Runs we mems initial s0 env0) (hw1 : WidthsAgree we s1) :
-    ∃ env1, Runs we mems initial s1 env1 ∧
-      (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
-      s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat := by
-  -- the source term is a canonical binary application (the fvar clause is
-  -- impossible: an fvar's head is not a constant)
-  cases hden with
-  | fvar _ => simp [Lean.Expr.getAppFn] at hfn
-  | pureLit hfn' _ _ =>
-    rw [hfn] at hfn'; cases hfn'
-    have : signalBinOpOf ``Sparkle.Core.Signal.Signal.pure = none := rfl
-    rw [this] at hop; cases hop
-  | @binary _ m' us' bop _ x1 x2 hfn' hop' _ hwid hd1 hd2 =>
-  rw [hfn] at hfn'
-  cases hfn'
-  have hopeq : op = bop.operator := by rw [hop] at hop'; exact Option.some.inj hop'
-  subst hopeq
-  -- run the shipping code, one bind at a time
-  unfold translateCanonicalSignalBinary at hrun
-  simp only [hwid] at hrun
-  obtain ⟨hw, sA0, hwty, k1⟩ := Returns.bind hrun
-  obtain ⟨hhw, hsA0⟩ := Returns.pure hwty
-  rw [hhw] at k1
-  obtain ⟨res, sA, hmk, k2⟩ := Returns.bind k1
-  rw [hsA0] at hmk
-  obtain ⟨hres, hsA⟩ := makeWire_returns hmk
-  obtain ⟨wa, sB, htA, k3⟩ := Returns.bind k2
-  obtain ⟨wb, sC, htB, k4⟩ := Returns.bind k3
-  obtain ⟨u, sD, hem, k5⟩ := Returns.bind k4
-  obtain ⟨hwres, hs1⟩ := Returns.pure k5
-  rw [hs1] at hw1
-  rw [hwres, hs1]
-  have hsD := emitAssign_returns hem
-  -- facts about the allocation
-  obtain ⟨hfresh, hused, hbody, hwires⟩ := CircuitM.makeWire_spec hint (.bitVector n) isNamed s0
-  rw [← hres] at hfresh hused hwires
-  rw [← hsA] at hused hbody hwires
-  -- structural growth, needed for widths before the semantic facts
-  obtain ⟨gAu, gAw⟩ := ih.grows _ _ _ _ _ htA
-  obtain ⟨gBu, gBw⟩ := ih.grows _ _ _ _ _ htB
-  have wiresD : ∀ p ∈ sC.module.wires, p ∈ sD.module.wires := by
-    intro p hp; rw [hsD, emitAssign_wires]; exact hp
-  have hwC : WidthsAgree we sC := hw1.mono wiresD
-  have hwB : WidthsAgree we sB := hwC.mono gBw
-  -- operands
-  have hsA0 : Runs we mems initial sA env0 := runs_of_body_eq hbody hs0
-  obtain ⟨envB, hrB, frB, useA, wA, valA⟩ := ih.sem _ _ _ _ _ _ _ _ hd1 htA hsA0 hwB
-  obtain ⟨envC, hrC, frC, useB, wB, valB⟩ := ih.sem _ _ _ _ _ _ _ _ hd2 htB hrB hwC
-  have valA' : envC wa = x1.toNat := by rw [frC wa useA]; exact valA
-  -- the emitted assignment
-  have hrhs := Binary.rhs_correct bop we envC wa wb x1 x2 wA wB valA' valB
-  have hrunD := emitAssign_sound sC we mems initial envC res _ _ hrC hrhs
-  rw [← hsD] at hrunD
-  refine ⟨_, hrunD, ?_, ?_, ?_, ?_⟩
-  · -- names reserved before the call keep their values
-    intro z hz
-    have hzA : sA.usedNames.contains z = true := by
-      rw [hused]; simp [Std.HashSet.contains_insert, hz]
-    have hne : z ≠ res := by
-      intro h; subst h; rw [hfresh] at hz; exact absurd hz (by simp)
-    simp only [hne, if_false]
-    rw [frC z (gAu z hzA), frB z hzA]
-  · rw [hsD, emitAssign_usedNames]
-    apply gBu; apply gAu; rw [hused]; simp [Std.HashSet.contains_insert]
-  · -- the result wire was declared at width n, and declarations only grow
-    have hdecl : ({ name := res, ty := .bitVector n } : Port) ∈ sD.module.wires := by
-      apply wiresD; apply gBw; apply gAw; rw [hwires]; simp
-    exact hw1 _ hdecl n rfl
-  · simp
+/-- The real `lookupVar` (existing equation `lookupVar_run`). -/
+theorem lookupVar_returns {id : FVarId} {ctx : CompilerState} {s s' : CircuitState}
+    {r : Option String} (h : Returns (CompilerM.lookupVar id) ctx s r s') :
+    r = visible ctx s.sourceBindings id ∧ s' = s := by
+  obtain ⟨mctx, mref, cctx, cref, w, w', hrun⟩ := h
+  have hl := lookupVar_run ctx s id
+  simp only [StateT.run] at hl
+  rw [hl] at hrun
+  change EST.Out.ok (visible ctx s.sourceBindings id, s) w = _ at hrun
+  cases hrun; exact ⟨rfl, rfl⟩
 
-/-! ## 7. A leaf branch of the real translator: `Signal.pure` of a literal -/
+/-- A validated cache hit is a wire the record says was produced for `e`. -/
+theorem cacheLookupValidated_returns {e : Lean.Expr} {ctx : CompilerState}
+    {s s' : CircuitState} {r : Option String}
+    (h : Returns (cacheLookupValidated e) ctx s r s') :
+    s' = s ∧ ∀ w, r = some w → s.translateRecord.get? w = some e := by
+  unfold cacheLookupValidated at h
+  obtain ⟨c, s1, hread, k1⟩ := Returns.bind h
+  obtain ⟨-, hs1⟩ := Returns.read hread
+  subst hs1
+  split at k1
+  · obtain ⟨hr, hs⟩ := Returns.pure k1
+    exact ⟨hs, fun w hw => by rw [hr] at hw; cases hw⟩
+  · obtain ⟨hit, s2, hlift, k2⟩ := Returns.bind k1
+    have h2 : s2 = s1 := Returns.liftMetaM hlift
+    subst h2
+    split at k2
+    · obtain ⟨hr, hs⟩ := Returns.pure k2
+      exact ⟨hs, fun w hw => by rw [hr] at hw; cases hw⟩
+    · obtain ⟨st, s3, hget, k3⟩ := Returns.bind k2
+      obtain ⟨hst, hs3⟩ := Returns.get hget
+      subst hst hs3
+      split at k3
+      · rename_i e' heq
+        obtain ⟨hr, hs⟩ := Returns.pure k3
+        refine ⟨hs, fun w' hw' => ?_⟩
+        rw [hr] at hw'
+        split at hw'
+        · rename_i hdec
+          cases hw'
+          have : e' = e := @of_decide_eq_true _ (Sparkle.Compiler.ExprDecEq.exprDecEq e' e) hdec
+          rw [heq, this]
+        · cases hw'
+      · obtain ⟨hr, hs⟩ := Returns.pure k3
+        exact ⟨hs, fun w hw => by rw [hr] at hw; cases hw⟩
+
+theorem recordTranslation_returns {e : Lean.Expr} {w : String} {c : Bool}
+    {ctx : CompilerState} {s s' : CircuitState} {u : Unit}
+    (h : Returns (recordTranslation e w c) ctx s u s') :
+    s' = { s with translateRecord := s.translateRecord.insert w e } := by
+  unfold recordTranslation at h
+  obtain ⟨u1, s1, hmod, k1⟩ := Returns.bind h
+  have hs1 := Returns.modify hmod
+  split at k1
+  · obtain ⟨c', s2, hread, k2⟩ := Returns.bind k1
+    obtain ⟨-, hs2⟩ := Returns.read hread
+    subst hs2
+    split at k2
+    · have := Returns.liftMetaM k2; rw [this, hs1]
+    · obtain ⟨-, hs⟩ := Returns.pure k2; rw [hs, hs1]
+  · obtain ⟨-, hs⟩ := Returns.pure k1; rw [hs, hs1]
+
+/-! ## 7. The three branches of the core, in the invariant -/
 
 theorem evalExpr_const_lt (we : WEnv) (env : Env) (v w : Nat) (h : v < 2 ^ w) :
     evalExpr we env (.const (v : Int) w) = some v := by
@@ -401,27 +501,80 @@ theorem bitVecLitValue?_lt {c : Lean.Expr} {w v : Nat} (h : bitVecLitValue? c = 
     · cases h
   · cases h
 
-/-- The literal branch of the SHIPPING constant lowering preserves meaning. It
-is a leaf: no recursion hypothesis. Existing proofs used:
-`CircuitM.makeWire_spec`, `emitAssign_sound`; new: `evalExpr_const_lt`. -/
-theorem translateSignalPureLiteral_sound {ctx : CompilerState} {we : WEnv} {mems : MEnv}
+
+theorem emitAssign_sourceBindings (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitState) :
+    (CircuitM.emitAssign lhs rhs s).2.sourceBindings = s.sourceBindings := rfl
+
+theorem emitAssign_translateRecord (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitState) :
+    (CircuitM.emitAssign lhs rhs s).2.translateRecord = s.translateRecord := rfl
+
+theorem emitAssign_body_cons (lhs : String) (rhs : Sparkle.IR.AST.Expr) (s : CircuitState) :
+    (CircuitM.emitAssign lhs rhs s).2.module.body = .assign lhs rhs :: s.module.body := rfl
+
+/-- Like `Inv.transfer`, except that ONE wire `r` may change value: it is
+neither a bound variable's wire nor a recorded wire with a meaning. -/
+theorem Inv.transfer_except {ctx ρ we mems initial} {s t : CircuitState} {env env' : Env}
+    (h : Inv ctx ρ we mems initial s env) (hr : Runs we mems initial t env')
+    (hu : ∀ z, s.usedNames.contains z = true → t.usedNames.contains z = true)
+    (hb : t.sourceBindings = s.sourceBindings) (hrec : t.translateRecord = s.translateRecord)
+    (r : String) (hv : ∀ z, s.usedNames.contains z = true → z ≠ r → env' z = env z)
+    (hnb : ∀ id n (x : BitVec n), ρ id = some ⟨n, x⟩ → visible ctx s.sourceBindings id ≠ some r)
+    (hnr : ∀ e' n (x : BitVec n), s.translateRecord.get? r = some e' → ¬ Denotes ρ e' n x) :
+    Inv ctx ρ we mems initial t env' := by
+  refine ⟨hr, h.lookup.transfer hu hb, ?_, ?_⟩
+  · intro id n x w hx hw
+    rw [hb] at hw
+    obtain ⟨w', hw', hu'⟩ := h.lookup id n x hx
+    have hww : w' = w := by rw [hw'] at hw; exact Option.some.inj hw
+    subst hww
+    have hne : w' ≠ r := fun heq => hnb id n x hx (by rw [hw', heq])
+    obtain ⟨h1, h2⟩ := h.values id n x w' hx hw
+    exact ⟨by rw [hv w' hu' hne]; exact h1, h2⟩
+  · intro w e' he n x hd
+    rw [hrec] at he
+    have hne : w ≠ r := fun heq => hnr e' n x (heq ▸ he) hd
+    obtain ⟨hu', h1, h2⟩ := h.record w e' he n x hd
+    exact ⟨hu w hu', by rw [hv w hu' hne]; exact h1, h2⟩
+
+/-- A fresh wire (unreserved in `s`) is neither a bound wire nor a recorded
+wire with a meaning, given the invariant's reservation facts. -/
+theorem fresh_not_bound {ctx ρ} {s : CircuitState} {r : String} (hl : BoundLookup ctx ρ s)
+    (hfresh : s.usedNames.contains r = false) :
+    ∀ id n (x : BitVec n), ρ id = some ⟨n, x⟩ → visible ctx s.sourceBindings id ≠ some r := by
+  intro id n x hx hv
+  obtain ⟨w, hw, hu⟩ := hl id n x hx
+  rw [hv] at hw; cases hw
+  rw [hfresh] at hu; cases hu
+
+theorem fresh_not_recorded {ρ we} {s : CircuitState} {env : Env} {r : String}
+    (hrec : RecordOk ρ we s env) (hfresh : s.usedNames.contains r = false) :
+    ∀ e' n (x : BitVec n), s.translateRecord.get? r = some e' → ¬ Denotes ρ e' n x := by
+  intro e' n x he hd
+  have := (hrec r e' he n x hd).1
+  rw [hfresh] at this; cases this
+
+/-- The literal branch, in the invariant. A leaf: no recursion hypothesis.
+Existing proofs used: `CircuitM.makeWire_spec`, `makeWire_sourceBindings`,
+`makeWire_translateRecord`, `emitAssign_sound`. -/
+theorem translateSignalPureLiteral_branch {ctx : CompilerState} {we : WEnv} {mems : MEnv}
     {initial : Env} {ρ : Valuation} {e : Lean.Expr} {us : List Level}
-    {hint : String} {isNamed : Bool}
+    {hint : String} {named : Bool}
     (hfn : e.getAppFn = .const ``Sparkle.Core.Signal.Signal.pure us)
-    {n : Nat} {x : BitVec n} {s0 : CircuitState} {env0 : Env} {w : String}
-    {s1 : CircuitState}
+    {n : Nat} {x : BitVec n} {s0 : CircuitState} {r : Option String} {s1 : CircuitState}
     (hden : Denotes ρ e n x)
-    (hrun : Returns (translateSignalPureLiteral? e.getAppArgs hint isNamed) ctx s0 (some w) s1)
-    (hs0 : Runs we mems initial s0 env0) (hw1 : WidthsAgree we s1) :
-    ∃ env1, Runs we mems initial s1 env1 ∧
-      (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
-      s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat := by
+    (hrun : Returns (translateSignalPureLiteral? e.getAppArgs hint named) ctx s0 r s1) :
+    ∃ w, r = some w ∧
+      (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧
+        s1.translateRecord = s0.translateRecord ∧ s0.usedNames.contains w = false) ∧
+      (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
+        ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
+          (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
+          s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat) := by
   cases hden with
   | fvar _ => simp [Lean.Expr.getAppFn] at hfn
   | binary hfn' hop' _ _ _ _ =>
     rw [hfn] at hfn'; cases hfn'
-    have : signalBinOpOf ``Sparkle.Core.Signal.Signal.pure = none := rfl
-    rw [this] at hop'; cases hop'
+    rw [signalBinOpOf_pure] at hop'; cases hop'
   | @pureLit _ _ c _ v _ hback hlit =>
   have hlt := bitVecLitValue?_lt hlit
   unfold translateSignalPureLiteral? at hrun
@@ -430,27 +583,339 @@ theorem translateSignalPureLiteral_sound {ctx : CompilerState} {we : WEnv} {mems
   obtain ⟨res, sA, hmk, k1⟩ := Returns.bind hrun
   obtain ⟨hres, hsA⟩ := makeWire_returns hmk
   obtain ⟨u, sB, hem, k2⟩ := Returns.bind k1
-  obtain ⟨hwres, hs1⟩ := Returns.pure k2
+  obtain ⟨hr, hs1⟩ := Returns.pure k2
   have hsB := emitAssign_returns hem
-  obtain ⟨hfresh, hused, hbody, hwires⟩ := CircuitM.makeWire_spec hint (.bitVector n) isNamed s0
+  obtain ⟨hfresh, hused, hbody, hwires⟩ := CircuitM.makeWire_spec hint (.bitVector n) named s0
+  have hsbA := CircuitM.makeWire_sourceBindings hint (.bitVector n) named s0
+  have hrecA := CircuitM.makeWire_translateRecord hint (.bitVector n) named s0
   rw [← hres] at hfresh hused hwires
-  rw [← hsA] at hused hbody hwires
-  have hw : w = res := (Option.some.inj hwres)
-  rw [hs1] at hw1
-  rw [hw, hs1]
-  have hsA0 : Runs we mems initial sA env0 := runs_of_body_eq hbody hs0
-  have hrunB := emitAssign_sound sA we mems initial env0 res _ _ hsA0
-    (evalExpr_const_lt we env0 v n hlt)
-  rw [← hsB] at hrunB
-  refine ⟨_, hrunB, ?_, ?_, ?_, ?_⟩
+  rw [← hsA] at hused hbody hwires hsbA hrecA
+  rw [hs1]
+  refine ⟨res, hr, ⟨⟨?_, ?_⟩, ?_, ?_, hfresh⟩, ?_⟩
+  · intro z hz; rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert, hz]
+  · intro p hp; rw [hsB, emitAssign_wires, hwires]; simp [hp]
+  · rw [hsB, emitAssign_sourceBindings, hsbA]
+  · rw [hsB, emitAssign_translateRecord, hrecA]
+  · intro env0 hinv hw1
+    have hsA0 : Runs we mems initial sA env0 := runs_of_body_eq hbody hinv.runs
+    have hrunB := emitAssign_sound sA we mems initial env0 res _ _ hsA0
+      (evalExpr_const_lt we env0 v n hlt)
+    rw [← hsB] at hrunB
+    have huse : ∀ z, s0.usedNames.contains z = true → sB.usedNames.contains z = true := by
+      intro z hz; rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert, hz]
+    have hvals : ∀ z, s0.usedNames.contains z = true → z ≠ res →
+        (fun m => if m = res then v else env0 m) z = env0 z := by
+      intro z _ hne; simp [hne]
+    refine ⟨_, hinv.transfer_except hrunB huse
+      (by rw [hsB, emitAssign_sourceBindings, hsbA]) (by rw [hsB, emitAssign_translateRecord, hrecA])
+      res hvals (fresh_not_bound hinv.lookup hfresh) (fresh_not_recorded hinv.record hfresh),
+      ?_, ?_, ?_, ?_⟩
+    · intro z hz
+      have hne : z ≠ res := by intro h; subst h; rw [hfresh] at hz; cases hz
+      simp [hne]
+    · rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert]
+    · have hdecl : ({ name := res, ty := .bitVector n } : Port) ∈ sB.module.wires := by
+        rw [hsB, emitAssign_wires, hwires]; simp
+      exact hw1 _ hdecl n rfl
+    · simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt]
+
+theorem RecordFresh.trans {a b c : CircuitState}
+    (hab : RecordFresh a b) (hbc : RecordFresh b c)
+    (hu : ∀ z, a.usedNames.contains z = true → b.usedNames.contains z = true) :
+    RecordFresh a c := by
+  intro w e' he
+  rcases hbc w e' he with hb | hb
+  · exact hab w e' hb
+  · right
+    cases h : a.usedNames.contains w with
+    | false => rfl
+    | true => have := hu w h; rw [hb] at this; cases this
+
+/-- The operator branch, in the invariant, for any `translate` satisfying the
+specification (the recursion hypothesis, discharged by `translateFuelFix_spec`).
+Existing proofs used: `CircuitM.makeWire_spec`, `makeWire_sourceBindings`,
+`makeWire_translateRecord`, `emitAssign_sound`, `Binary.rhs_correct`. -/
+theorem translateCanonicalSignalBinary_branch
+    {translate : TranslateFn} {ctx : CompilerState} {we : WEnv} {mems : MEnv}
+    {initial : Env} {ρ : Valuation}
+    (ih : Spec translate ctx we mems initial ρ)
+    {e : Lean.Expr} {op : Operator} {hint : String} {named : Bool}
+    {m : Name} {us : List Level}
+    (hfn : e.getAppFn = .const m us) (hop : signalBinOpOf m = some op)
+    {n : Nat} {x : BitVec n} {s0 : CircuitState} {w : String} {s1 : CircuitState}
+    (hden : Denotes ρ e n x)
+    (hrun : Returns (translateCanonicalSignalBinary translate e op e.getAppArgs true true
+      hint named) ctx s0 w s1)
+    (hbl : BoundLookup ctx ρ s0) :
+    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1 ∧
+      s0.usedNames.contains w = false) ∧
+    (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
+      ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
+        (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
+        s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat) := by
+  cases hden with
+  | fvar _ => simp [Lean.Expr.getAppFn] at hfn
+  | pureLit hfn' _ _ =>
+    rw [hfn] at hfn'; cases hfn'
+    rw [signalBinOpOf_pure] at hop; cases hop
+  | @binary _ m' us' bop _ x1 x2 hfn' hop' _ hwid hd1 hd2 =>
+  rw [hfn] at hfn'
+  cases hfn'
+  have hopeq : op = bop.operator := by rw [hop] at hop'; exact Option.some.inj hop'
+  subst hopeq
+  unfold translateCanonicalSignalBinary at hrun
+  simp only [hwid] at hrun
+  obtain ⟨hw, sA0, hwty, k1⟩ := Returns.bind hrun
+  obtain ⟨hhw, hsA0⟩ := Returns.pure hwty
+  rw [hhw] at k1
+  obtain ⟨res, sA, hmk, k2⟩ := Returns.bind k1
+  rw [hsA0] at hmk
+  obtain ⟨hres, hsA⟩ := makeWire_returns hmk
+  obtain ⟨wa, sB, htA, k3⟩ := Returns.bind k2
+  obtain ⟨wb, sC, htB, k4⟩ := Returns.bind k3
+  obtain ⟨u, sD, hem, k5⟩ := Returns.bind k4
+  obtain ⟨hwres, hs1⟩ := Returns.pure k5
+  have hsD := emitAssign_returns hem
+  obtain ⟨hfresh, hused, hbody, hwires⟩ := CircuitM.makeWire_spec hint (.bitVector n) named s0
+  have hsbA := CircuitM.makeWire_sourceBindings hint (.bitVector n) named s0
+  have hrecA := CircuitM.makeWire_translateRecord hint (.bitVector n) named s0
+  rw [← hres] at hfresh hused hwires
+  rw [← hsA] at hused hbody hwires hsbA hrecA
+  rw [hwres, hs1]
+  -- structural facts, environment-free
+  have huA : ∀ z, s0.usedNames.contains z = true → sA.usedNames.contains z = true := by
+    intro z hz; rw [hused]; simp [Std.HashSet.contains_insert, hz]
+  have hresA : sA.usedNames.contains res = true := by rw [hused]; simp [Std.HashSet.contains_insert]
+  have hblA : BoundLookup ctx ρ sA := hbl.transfer huA hsbA
+  obtain ⟨⟨gAu, gAw⟩, sbB, rfB⟩ := ih.grows _ _ _ _ _ _ _ _ hd1 htA hblA
+  have hblB : BoundLookup ctx ρ sB := hblA.transfer gAu sbB
+  obtain ⟨⟨gBu, gBw⟩, sbC, rfC⟩ := ih.grows _ _ _ _ _ _ _ _ hd2 htB hblB
+  have wiresD : ∀ p ∈ sC.module.wires, p ∈ sD.module.wires := by
+    intro p hp; rw [hsD, emitAssign_wires]; exact hp
+  have huD : ∀ z, sC.usedNames.contains z = true → sD.usedNames.contains z = true := by
+    intro z hz; rw [hsD, emitAssign_usedNames]; exact hz
+  have rfA : RecordFresh s0 sA := by intro w e' he; left; rw [← hrecA]; exact he
+  have rfAll : RecordFresh s0 sD := by
+    have rf0C := (rfA.trans rfB huA).trans rfC (fun z hz => gAu z (huA z hz))
+    intro w e' he
+    rw [hsD, emitAssign_translateRecord] at he
+    exact rf0C w e' he
+  refine ⟨⟨⟨fun z hz => huD z (gBu z (gAu z (huA z hz))), fun p hp => wiresD p (gBw p (gAw p
+      (by rw [hwires]; exact List.mem_cons_of_mem _ hp)))⟩,
+    by rw [hsD, emitAssign_sourceBindings, sbC, sbB, hsbA], rfAll, hfresh⟩, ?_⟩
+  -- semantics
+  intro env0 hinv hw1
+  have hwC : WidthsAgree we sC := hw1.mono wiresD
+  have hwB : WidthsAgree we sB := hwC.mono gBw
+  have hinvA : Inv ctx ρ we mems initial sA env0 :=
+    hinv.transfer (runs_of_body_eq hbody hinv.runs) huA hsbA hrecA (fun _ _ => rfl)
+  obtain ⟨envB, hinvB, frB, useA, wA, valA⟩ := ih.sem _ _ _ _ _ _ _ _ _ hd1 htA hinvA hwB
+  obtain ⟨envC, hinvC, frC, useB, wB, valB⟩ := ih.sem _ _ _ _ _ _ _ _ _ hd2 htB hinvB hwC
+  have valA' : envC wa = x1.toNat := by rw [frC wa useA]; exact valA
+  have hrhs := Binary.rhs_correct bop we envC wa wb x1 x2 wA wB valA' valB
+  have hrunD := emitAssign_sound sC we mems initial envC res _ _ hinvC.runs hrhs
+  rw [← hsD] at hrunD
+  -- `res` is neither bound nor recorded-with-meaning in sC
+  have hnbC : ∀ id n' (x' : BitVec n'), ρ id = some ⟨n', x'⟩ →
+      visible ctx sC.sourceBindings id ≠ some res := by
+    rw [sbC, sbB, hsbA]; exact fresh_not_bound hbl hfresh
+  have hnrC : ∀ e' n' (x' : BitVec n'), sC.translateRecord.get? res = some e' →
+      ¬ Denotes ρ e' n' x' := by
+    intro e' n' x' he hd'
+    have resB : sB.usedNames.contains res = true := gAu res hresA
+    rcases rfC res e' he with hB | hB
+    · rcases rfB res e' hB with hA' | hA'
+      · rw [hrecA] at hA'
+        exact fresh_not_recorded hinv.record hfresh e' n' x' hA' hd'
+      · rw [hresA] at hA'; cases hA'
+    · rw [resB] at hB; cases hB
+  have hvD : ∀ z, sC.usedNames.contains z = true → z ≠ res →
+      (fun m => if m = res then (bop.apply x1 x2).toNat else envC m) z = envC z := by
+    intro z _ hne; simp [hne]
+  refine ⟨_, hinvC.transfer_except hrunD huD
+      (by rw [hsD, emitAssign_sourceBindings]) (by rw [hsD, emitAssign_translateRecord])
+      res hvD hnbC hnrC, ?_, huD res (gBu res (gAu res hresA)), ?_, by simp⟩
   · intro z hz
-    have hne : z ≠ res := by
-      intro h; subst h; rw [hfresh] at hz; exact absurd hz (by simp)
-    simp [hne]
-  · rw [hsB, emitAssign_usedNames, hused]; simp [Std.HashSet.contains_insert]
-  · have hdecl : ({ name := res, ty := .bitVector n } : Port) ∈ sB.module.wires := by
-      rw [hsB, emitAssign_wires, hwires]; simp
+    have hzA := huA z hz
+    have hne : z ≠ res := by intro h; subst h; rw [hfresh] at hz; cases hz
+    simp only [hne, if_false]
+    rw [frC z (gAu z hzA), frB z hzA]
+  · have hdecl : ({ name := res, ty := .bitVector n } : Port) ∈ sD.module.wires := by
+      apply wiresD; apply gBw; apply gAw; rw [hwires]; simp
     exact hw1 _ hdecl n rfl
-  · simp [BitVec.toNat_ofNat, Nat.mod_eq_of_lt hlt]
+
+/-! ## 8. The step of the SHIPPING knot, and the end-to-end theorem -/
+
+theorem isFVar_false_of_const {e : Lean.Expr} {m : Name} {us : List Level}
+    (h : e.getAppFn = .const m us) : e.isFVar = false := by
+  cases e <;> simp_all [Lean.Expr.getAppFn, Lean.Expr.isFVar]
+
+/-- Inserting into the record changes nothing the other invariant parts read. -/
+theorem Inv.record_insert {ctx ρ we mems initial} {s : CircuitState} {env : Env}
+    (h : Inv ctx ρ we mems initial s env) {e : Lean.Expr} {w : String} {n : Nat} {x : BitVec n}
+    (hd : Denotes ρ e n x) (hused : s.usedNames.contains w = true)
+    (hval : env w = x.toNat) (hwid : we w = n) :
+    Inv ctx ρ we mems initial { s with translateRecord := s.translateRecord.insert w e } env :=
+  ⟨h.runs, h.lookup, h.values, h.record.insert hd hused hval hwid⟩
+
+/-- The core followed by the step's continuation (record, then return). -/
+theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
+    {mems : MEnv} {initial : Env} {ρ : Valuation}
+    (ih : Spec rec ctx we mems initial ρ)
+    {e : Lean.Expr} {hint : String} {named : Bool} {c : Bool}
+    {K : Option String → CompilerM String}
+    (hK : ∀ w', K (some w') =
+      if e.isFVar = true then pure w' else (recordTranslation e w' c >>= fun _ => pure w'))
+    {n : Nat} {x : BitVec n} {s0 : CircuitState} {w : String} {s1 : CircuitState}
+    (hden : Denotes ρ e n x)
+    (hrun : Returns (translateCore rec e hint false named >>= K) ctx s0 w s1)
+    (hbl : BoundLookup ctx ρ s0) :
+    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1) ∧
+    (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
+      ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
+        (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
+        s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat) := by
+  obtain ⟨r, sc, hcore, k⟩ := Returns.bind hrun
+  -- the record step after a core result `w'` produced at `sc`
+  have after : ∀ w', r = some w' → e.isFVar = false →
+      s1 = { sc with translateRecord := sc.translateRecord.insert w' e } ∧ w = w' := by
+    intro w' hr hnf
+    rw [hr, hK, hnf] at k
+    simp only [Bool.false_eq_true, if_false] at k
+    obtain ⟨u, s2, hrec, k2⟩ := Returns.bind k
+    have hs2 := recordTranslation_returns hrec
+    obtain ⟨hw, hs1⟩ := Returns.pure k2
+    exact ⟨hs1.trans hs2, hw⟩
+  cases hden with
+  | @fvar id _ _ hρ =>
+    obtain ⟨hr, hsc⟩ := lookupVar_returns (id := id) hcore
+    obtain ⟨w', hw', hu'⟩ := hbl id _ _ hρ
+    rw [hw'] at hr
+    rw [hr, hK] at k
+    simp only [Lean.Expr.isFVar, if_true] at k
+    obtain ⟨hw, hs1⟩ := Returns.pure k
+    rw [hsc] at hs1
+    rw [hs1, hw]
+    refine ⟨⟨⟨fun z hz => hz, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
+    intro env0 hinv _
+    obtain ⟨hv, hwid⟩ := hinv.values id _ _ w' hρ hw'
+    exact ⟨env0, hinv, fun _ _ => rfl, hu', hwid, hv⟩
+  | @pureLit _ us cc _ v hfn hback hlit =>
+    have hnf := isFVar_false_of_const hfn
+    unfold translateCore at hcore
+    split at hcore
+    · simp [Lean.Expr.getAppFn] at hfn
+    · rw [hfn] at hcore
+      simp only [beq_self_eq_true, if_true] at hcore
+      obtain ⟨w', hr, ⟨⟨gu, gw⟩, sb, hrec, hfr⟩, hsem⟩ :=
+        translateSignalPureLiteral_branch (we := we) (mems := mems) (initial := initial) hfn
+          (Denotes.pureLit hfn hback hlit) hcore
+      obtain ⟨hs1, hw⟩ := after w' hr hnf
+      rw [hs1, hw]
+      refine ⟨⟨⟨gu, gw⟩, sb, ?_⟩, ?_⟩
+      · intro w e' he
+        simp only [Std.HashMap.get?_insert] at he
+        split at he
+        · right; rename_i heq; have : w' = w := by simpa using heq
+          subst this; exact hfr
+        · left; rw [← hrec]; exact he
+      · intro env0 hinv hw1
+        obtain ⟨env1, hinv1, fr, hu, hwid, hval⟩ := hsem env0 hinv hw1
+        exact ⟨env1, hinv1.record_insert (Denotes.pureLit hfn hback hlit) hu hval hwid,
+          fr, hu, hwid, hval⟩
+  | @binary _ m us bop _ x1 x2 hfn hop hk hwid hd1 hd2 =>
+    have hnf := isFVar_false_of_const hfn
+    have hden := Denotes.binary hfn hop hk hwid hd1 hd2
+    unfold translateCore at hcore
+    split at hcore
+    · simp [Lean.Expr.getAppFn] at hfn
+    · rw [hfn] at hcore
+      have hm : (m == ``Sparkle.Core.Signal.Signal.pure) = false := by
+        cases h : (m == ``Sparkle.Core.Signal.Signal.pure) with
+        | false => rfl
+        | true =>
+          have : m = ``Sparkle.Core.Signal.Signal.pure := by simpa using h
+          rw [this, signalBinOpOf_pure] at hop; cases hop
+      simp only [hm, Bool.false_eq_true, if_false, hop, hk, hwid] at hcore
+      obtain ⟨w'', sd, htr, kk⟩ := Returns.bind hcore
+      obtain ⟨hr, hsd⟩ := Returns.pure kk
+      rw [← hsd] at htr
+      obtain ⟨⟨⟨gu, gw⟩, sb, rf, hfr⟩, hsem⟩ :=
+        translateCanonicalSignalBinary_branch ih hfn hop hden htr hbl
+      obtain ⟨hs1, hw⟩ := after w'' hr hnf
+      rw [hs1, hw]
+      refine ⟨⟨⟨gu, gw⟩, sb, ?_⟩, ?_⟩
+      · intro w e' he
+        simp only [Std.HashMap.get?_insert] at he
+        split at he
+        · right; rename_i heq; have : w'' = w := by simpa using heq
+          subst this; exact hfr
+        · exact rf w e' he
+      · intro env0 hinv hw1
+        obtain ⟨env1, hinv1, fr, hu, hwid', hval⟩ := hsem env0 hinv hw1
+        exact ⟨env1, hinv1.record_insert hden hu hval hwid', fr, hu, hwid', hval⟩
+
+/-- One step of the SHIPPING knot: validated cache hit, or core then record.
+The fallback is never reached for an expression with a meaning. -/
+theorem translateStepWith_run {fallback : TranslateFn → TranslateFn} {rec : TranslateFn}
+    {ctx : CompilerState} {we : WEnv} {mems : MEnv} {initial : Env} {ρ : Valuation}
+    (ih : Spec rec ctx we mems initial ρ)
+    {e : Lean.Expr} {hint : String} {named : Bool}
+    {n : Nat} {x : BitVec n} {s0 : CircuitState} {w : String} {s1 : CircuitState}
+    (hden : Denotes ρ e n x)
+    (hrun : Returns (translateStepWith fallback rec e hint false named) ctx s0 w s1)
+    (hbl : BoundLookup ctx ρ s0) :
+    (Grows s0 s1 ∧ s1.sourceBindings = s0.sourceBindings ∧ RecordFresh s0 s1) ∧
+    (∀ env0, Inv ctx ρ we mems initial s0 env0 → WidthsAgree we s1 →
+      ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
+        (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
+        s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat) := by
+  unfold translateStepWith at hrun
+  dsimp only at hrun
+  by_cases hc0 : ((!named && !e.isFVar && !false) && translateCoreShape e) = true
+  · rw [if_pos hc0] at hrun
+    obtain ⟨r, s2, hc, k⟩ := Returns.bind hrun
+    obtain ⟨hs2, hval⟩ := cacheLookupValidated_returns hc
+    split at k
+    · rename_i w'
+      obtain ⟨hw, hs1⟩ := Returns.pure k
+      have hrec := hval w' rfl
+      rw [hs1, hs2, hw]
+      refine ⟨⟨⟨fun z hz => hz, fun p hp => hp⟩, rfl, fun w e' he => Or.inl he⟩, ?_⟩
+      intro env0 hinv _
+      obtain ⟨hu, hv, hwid⟩ := hinv.record w' e hrec n x hden
+      exact ⟨env0, hinv, fun _ _ => rfl, hu, hwid, hv⟩
+    · rw [hs2] at k
+      exact translateStep_core ih (fun _ => rfl) hden k hbl
+  · rw [if_neg hc0] at hrun
+    exact translateStep_core ih (fun _ => rfl) hden hrun hbl
+
+theorem translateStepWith_spec {fallback : TranslateFn → TranslateFn} {rec : TranslateFn}
+    {ctx : CompilerState} {we : WEnv} {mems : MEnv} {initial : Env} {ρ : Valuation}
+    (ih : Spec rec ctx we mems initial ρ) :
+    Spec (translateStepWith fallback rec) ctx we mems initial ρ :=
+  ⟨fun _ _ _ _ _ _ _ _ hd hr hbl => (translateStepWith_run ih hd hr hbl).1,
+   fun _ _ _ _ _ _ env0 _ _ hd hr hinv hw =>
+     (translateStepWith_run ih hd hr hinv.lookup).2 env0 hinv hw⟩
+
+/-- **The general theorem for the fragment.** For the SHIPPING translator
+`translateExprToWire` — the real entry, an ordinary definition — and for every
+expression built from inputs, `BitVec` literals under `Signal.pure`, and the
+canonical library operators `+ - * &&& ||| ^^^` in any combination and at any
+literal width: if the expression has a meaning and the translation succeeds, the
+returned wire carries that meaning, and the state invariant (statements
+evaluate, bindings, record) is preserved. No recursion hypothesis remains: it is
+discharged by induction on the shipping fuel. -/
+theorem translateExprToWire_sound {ctx : CompilerState} {we : WEnv} {mems : MEnv}
+    {initial : Env} {ρ : Valuation} {e : Lean.Expr} {hint : String} {named : Bool}
+    {n : Nat} {x : BitVec n} {s0 : CircuitState} {env0 : Env} {w : String} {s1 : CircuitState}
+    (hden : Denotes ρ e n x)
+    (hrun : Returns (translateExprToWire e hint false named) ctx s0 w s1)
+    (hinv : Inv ctx ρ we mems initial s0 env0) (hw : WidthsAgree we s1) :
+    ∃ env1, Inv ctx ρ we mems initial s1 env1 ∧
+      (∀ z, s0.usedNames.contains z = true → env1 z = env0 z) ∧
+      s1.usedNames.contains w = true ∧ we w = n ∧ env1 w = x.toNat :=
+  (translateFuelFix_spec (step := translateStep) (fun _ ih => translateStepWith_spec ih)
+    translateFuelLimit).sem e hint named n x s0 env0 w s1 hden hrun hinv hw
 
 end Tools.ShippingTranslateSoundness

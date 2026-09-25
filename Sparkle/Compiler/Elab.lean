@@ -5,6 +5,7 @@
   This bridges the gap between high-level Signal code and low-level IR.
 -/
 
+import Sparkle.Compiler.ExprDecEq
 import Lean
 import Sparkle.IR.Builder
 import Sparkle.IR.AST
@@ -1277,6 +1278,17 @@ def translateCanonicalSignalBinary (translate : TranslateFn) (e : Lean.Expr)
   CompilerM.emitAssign resWire (.op op [.ref wireA, .ref wireB])
   return resWire
 
+/-! The translator block below takes its recursive entry as a PARAMETER
+(`translateExprToWire`, a section variable), so it no longer ties its own knot.
+The knot is `translateExprToWire` after the block: an ordinary definition,
+`fuelFix translateStep translateFuelLimit`, whose every recursive call goes
+through the fuel. `partial` handlers remain, but only as the fallback of that
+step — which is what lets the recursion be discharged by induction
+(Tools/ShippingTranslateSoundness.lean). -/
+section TranslatorBlock
+variable (translateExprToWire : (e : Lean.Expr) → (hint : String := "wire") →
+  (isTopLevel : Bool := false) → (isNamed : Bool := false) → CompilerM String)
+namespace Rec
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
       intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
@@ -1285,7 +1297,7 @@ mutual
       means **every** successful translate caches its result —
       so subsequent identical sub-trees become a HashMap lookup
       instead of a full re-walk through ~10 handlers + Meta. -/
-  partial def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
+  partial def translateExprToWireCached (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false) (isNamed : Bool := false) : CompilerM String := do
     let cacheRef? := (← CompilerM.getCompilerState).exprCache
     -- Cache only when there's no fresh wire name to emit
     -- (`isNamed` would force a specific user-facing name) and
@@ -4109,6 +4121,147 @@ mutual
     return (Sparkle.IR.RegDedup.mergeDuplicates m,
       Sparkle.IR.RegDedup.mergeDuplicatesDesign d)
 end
+end Rec
+end TranslatorBlock
+
+
+/-- A hit of the `IO.Ref` expression cache, accepted only if the pure record says
+    the wire was produced for a structurally identical expression. -/
+def cacheLookupValidated (e : Lean.Expr) : CompilerM (Option String) := do
+  match (← CompilerM.getCompilerState).exprCache with
+  | none => pure none
+  | some ref =>
+    let hit ← CompilerM.liftMetaM (do return (← (ref.get : IO _)).get? ⟨e⟩)
+    match hit with
+    | none => pure none
+    | some w =>
+      let s ← get
+      match s.translateRecord.get? w with
+      | some e' => pure (if @decide (e' = e) (Sparkle.Compiler.ExprDecEq.exprDecEq e' e) then some w else none)
+      | none => pure none
+
+/-- Record a core result (always), and insert it into the `IO.Ref` cache when the
+    call is cacheable — exactly as the old caching wrapper did. -/
+def recordTranslation (e : Lean.Expr) (w : String) (cacheable : Bool) : CompilerM Unit := do
+  -- `modify`, not `get`/`set`: holding `s` while inserting would share the map
+  -- and force a full copy per insert (O(n²) overall).
+  modify fun s => { s with translateRecord := s.translateRecord.insert w e }
+  if cacheable then
+    if let some ref := (← CompilerM.getCompilerState).exprCache then
+      CompilerM.liftMetaM (ref.modify (·.insert ⟨e⟩ w))
+
+/-- The shapes `translateCore` handles (decides whether the validated lookup is
+    tried before the core). -/
+def translateCoreShape (e : Lean.Expr) : Bool :=
+  match e.getAppFn with
+  | .const m _ =>
+    m == ``Sparkle.Core.Signal.Signal.pure ||
+      (match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
+          canonicalSignalBitVecWidth e.getAppArgs with
+       | some _, some (true, true), some _ => true
+       | _, _, _ => false)
+  | _ => false
+
+/-- The shapes the proved core handles, tried before the `partial` fallback:
+    an `fvar` bound by `lookupVar`, `Signal.pure` of a `BitVec` literal, and a
+    canonical library Signal operator (both operands Signal, literal width).
+    `none` means "not a core shape"; it never fails for those shapes. -/
+def translateCore (translate : TranslateFn) (e : Lean.Expr) (hint : String)
+    (_isTopLevel isNamed : Bool) : CompilerM (Option String) :=
+  match e with
+  | .fvar id => CompilerM.lookupVar id
+  | _ =>
+    match e.getAppFn with
+    | .const m _ =>
+      if m == ``Sparkle.Core.Signal.Signal.pure then
+        translateSignalPureLiteral? e.getAppArgs hint isNamed
+      else
+        match signalBinOpOf m, canonicalSignalBinKinds m e.getAppArgs,
+            canonicalSignalBitVecWidth e.getAppArgs with
+        | some op, some (true, true), some _ => do
+          let w ← translateCanonicalSignalBinary translate e op e.getAppArgs true true hint isNamed
+          pure (some w)
+        | _, _, _ => pure none
+    | _ => pure none
+
+/-- One step of the knot: the core, else `fallback` (given the same `rec`). -/
+def translateStepWith (fallback : TranslateFn → TranslateFn) (rec : TranslateFn) : TranslateFn :=
+  fun e hint top named => do
+    let cacheable := !named && !e.isFVar && !top
+    if cacheable && translateCoreShape e then
+      if let some w ← cacheLookupValidated e then
+        return w
+    match ← translateCore rec e hint top named with
+    | some w =>
+      -- An `fvar` result is an EXISTING wire (the variable's binding), not one
+      -- produced for `e`; recording it would overwrite what the wire was made
+      -- for. `fvar`s are never cache keys (the old wrapper excluded them too).
+      unless e.isFVar do recordTranslation e w cacheable
+      pure w
+    | none => fallback rec e hint top named
+
+/-- A fuel-bounded fixpoint of a non-recursive step. Fuel exhaustion is a
+    compile error, like the `SPARKLE_TRANSLATE_LIMIT` backstop. -/
+def translateFuelFix (step : TranslateFn → TranslateFn) : Nat → TranslateFn
+  | 0 => fun _ _ _ _ => throw (Exception.error .missing "translation fuel exhausted")
+  | k + 1 => step (translateFuelFix step k)
+
+/-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
+def translateFallback (rec : TranslateFn) : TranslateFn :=
+  fun e hint top named => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+
+def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
+
+/-- Nesting depth bound of the translator's recursion. -/
+def translateFuelLimit : Nat := 1 <<< 20
+
+/-- The shipping translator: an ORDINARY definition (not `partial`), so it has
+    equations and can be reasoned about. -/
+def translateExprToWire (e : Lean.Expr) (hint : String := "wire") (isTopLevel : Bool := false)
+    (isNamed : Bool := false) : CompilerM String :=
+  translateFuelFix translateStep translateFuelLimit e hint isTopLevel isNamed
+
+/-- `Rec.translateExprToWireImpl` with the real translator as its recursive entry. -/
+def translateExprToWireImpl := Rec.translateExprToWireImpl (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleErrorPatterns` with the real translator as its recursive entry. -/
+def handleErrorPatterns := Rec.handleErrorPatterns (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleTupleProjections` with the real translator as its recursive entry. -/
+def handleTupleProjections := Rec.handleTupleProjections (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleApplicative` with the real translator as its recursive entry. -/
+def handleApplicative := Rec.handleApplicative (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleBitVecOps` with the real translator as its recursive entry. -/
+def handleBitVecOps := Rec.handleBitVecOps (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleRegister` with the real translator as its recursive entry. -/
+def handleRegister := Rec.handleRegister (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleMux` with the real translator as its recursive entry. -/
+def handleMux := Rec.handleMux (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleMemory` with the real translator as its recursive entry. -/
+def handleMemory := Rec.handleMemory (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleLoop` with the real translator as its recursive entry. -/
+def handleLoop := Rec.handleLoop (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleCircuitMonad` with the real translator as its recursive entry. -/
+def handleCircuitMonad := Rec.handleCircuitMonad (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.handleDefinitionUnfold` with the real translator as its recursive entry. -/
+def handleDefinitionUnfold := Rec.handleDefinitionUnfold (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.translateExprToWireApp` with the real translator as its recursive entry. -/
+def translateExprToWireApp := Rec.translateExprToWireApp (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.translateShiftAmount` with the real translator as its recursive entry. -/
+def translateShiftAmount := Rec.translateShiftAmount (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.getPrimitiveNameFromLambda` with the real translator as its recursive entry. -/
+def getPrimitiveNameFromLambda := Rec.getPrimitiveNameFromLambda (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.splitReturnLeaves` with the real translator as its recursive entry. -/
+def splitReturnLeaves := Rec.splitReturnLeaves (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.openRecordInputs` with the real translator as its recursive entry. -/
+def openRecordInputs := Rec.openRecordInputs (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.stripMemoizeWrappers` with the real translator as its recursive entry. -/
+def stripMemoizeWrappers := Rec.stripMemoizeWrappers (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.synthesizeCombinationalCore` with the real translator as its recursive entry. -/
+def synthesizeCombinationalCore := Rec.synthesizeCombinationalCore (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.synthesizeCombinational` with the real translator as its recursive entry. -/
+def synthesizeCombinational := Rec.synthesizeCombinational (fun e h t n => translateExprToWire e h t n)
+/-- `Rec.synthesizeCombinationalWithParameters` with the real translator as its recursive entry. -/
+def synthesizeCombinationalWithParameters := Rec.synthesizeCombinationalWithParameters (fun e h t n => translateExprToWire e h t n)
+
 
 def printModule (m : Sparkle.IR.AST.Module) : MetaM Unit := do
   IO.println s!"Module: {m.name}"

@@ -528,6 +528,95 @@ byte-identical.
    Profiling and limit refs only log or throw, which partial correctness
    tolerates.
 
+## End-to-end theorem for a fragment of the real translator (2026-09-25)
+
+`translateExprToWire_sound` (Tools/ShippingTranslateSoundness.lean, standard
+axioms only) is about the SHIPPING entry `translateExprToWire`. For every
+expression built from **inputs, `BitVec` literals under `Signal.pure`, and the
+canonical library operators `+ - * &&& ||| ^^^`, in any combination and at any
+literal width**, it says: if the expression has a meaning (`Denotes`) and the
+translation succeeds, the returned wire carries that meaning at that width. The
+state invariant `Inv` (statements evaluate, bindings, translation record) is
+preserved, and every previously reserved wire keeps its value. **No recursion
+hypothesis remains.**
+
+### What had to change on the actual path, and why it is still the same compiler
+
+1. **The knot is an ordinary definition.** The translator block now takes its
+   recursive entry as a section `variable`, so the handler bodies are textually
+   unchanged, and the entry is `translateExprToWire := translateFuelFix
+   translateStep translateFuelLimit`. It is non-partial, so it has equations.
+   Every recursive call, including those from the `partial` fallback handlers,
+   goes through the fuel. A `partial` entry could not have worked: it is opaque,
+   so a theorem about the fixpoint would not transfer to it. Fuel exhaustion
+   (depth 2^20) is a compile error, like the existing `SPARKLE_TRANSLATE_LIMIT`.
+2. **A proved core is tried first.** `translateCore` handles an `fvar` bound by
+   `lookupVar`, a `Signal.pure` literal, and a canonical operator with literal
+   width; anything else returns `none` and reaches the unchanged handler chain.
+   For the three shapes, the core runs the same code the chain ran before.
+3. **The expression cache is consulted, and each hit is validated.** Bypassing
+   the cache changed 84/163 corpus files (α-equivalent: only wire numbers
+   shifted, because a second translation allocated and `mergeDuplicates` later
+   removed the copy). So the core path looks up the same `IO.Ref` cache, but
+   accepts a hit only if a PURE record (`CircuitState.translateRecord`, wire →
+   the expression the core produced it for) holds a structurally identical
+   expression, decided by `exprDecEq`. This sidesteps the earlier cache problem
+   (`KeySound`, `InsertSpec`): the opaque `Expr.equal` only proposes a
+   candidate, and the pure data decides. Recording `fvar` results is excluded:
+   they reuse an existing wire, and recording them overwrote what the wire was
+   made for (found through the one remaining α-equivalent file).
+4. **`exprDecEq`** (Sparkle/Compiler/ExprDecEq.lean) is a `Decidable (a = b)`
+   for `Lean.Expr` written in Lean. It has a pointer fast path at every node
+   (`withPtrEqDecEq`), a hand-written `Syntax` equality (a nested inductive
+   `deriving` refuses) and a hand-written `Level` equality (`computed_field`).
+   A tree walk without the fast path unfolded DAGs: Keccak256Sponge went from
+   3.3 s to 54 s.
+
+**Output identity, measured.** All 163 files that synthesize Verilog (297
+modules) were run before and after. The final compiler's output is
+**byte-identical on 163/163**. Corpus time is 207 s against 197 s (+5%). The
+heaviest regressed files carry ~+2 s each (validation), down from +50 s.
+
+### Existing proofs used by the end-to-end theorem
+
+| Existing result | Where |
+|---|---|
+| `CircuitM.makeWire_spec`, `makeWire_sourceBindings` (Builder) | fresh result wire; bindings untouched |
+| `emitAssign_sound` (ShippingBuilderSoundness) | an emitted assignment extends execution by exactly its RHS |
+| `Binary.rhs_correct` (ShippingScalarSoundness) | the IR operator computes the `BitVec` operation |
+| `lookupVar_run`, `visible` (ShippingBindingsSoundness) | the `fvar` leaf: the real lookup, local-first then persistent |
+| `Returns.*`, `library_*` (this file, earlier) | success rules; semantics tied to the library by `rfl` |
+
+New, all standard axioms: `Denotes.det`, `Inv.transfer(_except)`,
+`RecordOk.insert`, `translateFuelFix_spec`, the three branch theorems,
+`translateStep_core`, `translateStepWith_spec`, `exprDecEq`, `synEq_iff`,
+`levEq_iff`. The regression test also goes through the actual synthesis entry
+(`synthesizeCombinational`). It fails on the pre-fix compiler (negative
+control) and passes on the fixed one, and the canonical `+` synthesizes to IR
+that evaluates to the source value.
+
+### Open, and kept separate from the theorem
+
+1. **Correspondence with the user's declaration.** `Denotes` is a relation on
+   the `Lean.Expr` the compiler consumes; each clause agrees with the library by
+   `rfl`, but the step from a declaration's body to its Lean value (reflection)
+   is not formalised here.
+2. **Coverage of the success region.** The theorem is CompCert-style: it assumes
+   the source has a meaning. "The compiler succeeded ⇒ `Denotes` holds" is open.
+   For this fragment it would need the operands' widths to match the instance
+   width (Lean typing guarantees it; the proof cannot see typing), and it says
+   nothing about expressions the fallback compiles.
+3. **The entry invariant.** `Inv` at the call (inputs bound to wires carrying
+   their values, record entries meaningful) and `WidthsAgree` for the final
+   module must be established by the synthesis entry
+   (`synthesizeCombinationalCore`, the leaf loop, post-processing). This is not
+   yet proved.
+4. **The fragment.** Every other handler is the unchanged `partial` fallback:
+   mixed Signal×BitVec operators, `Bool` instances, shifts, comparisons, mux,
+   registers and time, memories, hierarchy, symbolic widths.
+5. **After translation.** `dropZeroWidth`, `mergeDuplicates`, the printer, and
+   the Verilog semantics.
+
 ## Applying the general theorem to crc16
 
 The desired application is: check successful shipping compilation (and any
@@ -539,7 +628,7 @@ execution trace or an exhaustiveness proof for the handlers they invoke.
 
 | crc16 construct / compiler stage | General proof status |
 |---|---|
-| map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved. Signal×Signal operator branch of the ACTUAL translator proved under the recursion hypothesis (2026-09-25); recognition is now instance-checked (a name-only dispatch miscompile was fixed). Knot and remaining dispatch still open |
+| map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved. Canonical Signal×Signal operators, literals and inputs: end-to-end theorem for the ACTUAL entry `translateExprToWire`, recursion discharged (2026-09-25); recognition instance-checked. Other dispatch still the unproved fallback |
 | local bindings, wire allocation | Actual allocation/emission and scoped binding rules proved; cache hit/insert rules proved (2026-09-25) under explicit key hypotheses; global source/width invariant still open |
 | pure constants, concat, shift, equality, Bool not, mux | `Signal.pure` of a `BitVec` literal proved as a leaf branch of the actual translator (2026-09-25); concat, shift, equality, Bool not and mux still open |
 | register init `0xFFFF`, update, feedback, start/valid mux | Temporal simulation of the shipping stateful path remains open |
