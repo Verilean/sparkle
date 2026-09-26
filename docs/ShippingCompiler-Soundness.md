@@ -52,6 +52,59 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed-width post-processing connected (2026-09-27)
+
+**Zero-width cleanup and checked duplicate merging now preserve the typed
+comparison/mux fragment, with a separate positive width for each assignment.**
+`Tools/ShippingTypedPostSoundness.lean` replaces the uniform-width premise at
+this boundary with `TypedStmts`/`TypedPostReady`. Its `typed_postprocess_sound`
+theorem covers the actual sequence `dropZeroWidthModule`, followed optionally
+by `mergeDuplicates`: the same initial environment yields the same complete
+result environment, and the typed assignment invariant and input/output ports
+are preserved. This is a general module theorem, not a per-example replay.
+
+A concrete width mismatch had to be fixed first. Shipping comparisons and
+Bool inputs produce scalar `HWType.bit` declarations, but `RegDedup.declWidth`
+and the proof's matching `weOf` previously returned zero for them. Both now
+return one. The duplicate-merge validator can therefore equate `bit` with
+`bitVector 1`, while distinguishing them from width-zero/undeclared names.
+This is a runtime validation-policy correction and can change which merge
+proposals are accepted; it is not a byte-identity claim. The RTL emitter and
+source front-end acceptance are unchanged. The existing uniform BitVec source
+proof was updated to derive its exact output type from the declaration-frame
+invariant, rather than using positive width alone to exclude `bit`.
+
+The new proofs preserve `TypedExpr` through width-preserving reference
+renaming, every accepted merge-check step, and the complete merge validator.
+The `out` target remains an explicit exception to the internal width map;
+positive internal target widths prevent aliases from conflating it with an
+internal definition. Cleanup leaves typed RHS expressions and positive-width
+assignments unchanged, while unused zero-width wire declarations may disappear.
+The structural premises include unique internal declaration names, the typed
+body, internal width zero at `out`, and a cleanup lookup at `out` that is not
+`some 0`. They do not by themselves prove output declaration validity, source
+translation, assignment ordering, or the final optimizer-selection connection.
+
+`ShippingTypedPostSoundnessTest` instantiates the theorem for every positive
+width on a module containing duplicate comparisons represented as `bit` and
+`bitVector 1`, duplicate wide muxes, and an unused zero-width declaration.
+Executable checks at 1, 8 and 65 bits require cleanup to remove a declaration
+and the actual merge to accept a changed body, then compare every live wire.
+Actual Bool-input mux and comparison/mux source modules now agree with the
+printer's width lookup and pass the existing RTL forward checker. These source
+checks are regressions; the source entry still must derive `TypedPostReady`.
+An 8-bit postprocessed IR fixture passes Icarus `-g2012` simulation for all
+65,536 input pairs. Standard-axiom audits include the new module theorem and
+the existing source-to-execution theorem.
+`lake build Tests.AllTests` passes (582 jobs), including the compiler regressions.
+This is the test-module build, not execution of the `lake test` binary.
+
+The quoted source domain remains the original eight uniform-width binary
+operators. Bool/comparison/mux source representation, recursive translation,
+result-type determination and checked optimizer selection still need their
+connections. The post-processing preservation lemma is now available to use
+in that proof; `EnvDefines` and the adopted delta execution model are unchanged.
+
 ## Shipping mux result lowering (2026-09-27)
 
 **The actual mux result allocation/emission step now has a local source-value

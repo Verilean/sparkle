@@ -547,6 +547,7 @@ theorem finishSynth_returns {declName : Name} {st : CircuitState} {M : Sparkle.I
 def weOf (M : Sparkle.IR.AST.Module) : WEnv := fun name =>
   match M.wires.find? (fun p => p.name == name) with
   | some { ty := .bitVector k, .. } => k
+  | some { ty := .bit, .. } => 1
   | _ => 0
 
 theorem nodup_reverse {α : Type} {l : List α} (h : l.Nodup) : l.reverse.Nodup :=
@@ -810,9 +811,14 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
             rw [hpn] at hf2
             unfold leafOutputType
             rw [hf2]
-            obtain ⟨pn, pty⟩ := p
-            simp only [weOf, hf] at hwn
-            cases pty <;> simp at hwn <;> first | omega | (subst hwn; rfl)
+            rcases (hg.2.2.2.2.trans gf).wireTypes p hp2 with hp0 | ⟨k, hpk⟩
+            · cases hp0
+            · rcases p with ⟨pn, pty⟩
+              change pty = .bitVector k at hpk
+              subst pty
+              simp only [weOf, hf] at hwn
+              change HWType.bitVector k = .bitVector n
+              rw [hwn]
         rw [hM]
         simp only [Module.finalize, co, hst_o, hout2, hout1, hty']
         rfl

@@ -167,10 +167,12 @@ where
 /-- Look a name up in an association list of aliases (itself if absent). -/
 def aliasOf (A : List (String × String)) (x : String) : String := (A.lookup x).getD x
 
-/-- The declared width of a wire (`0` if undeclared or not a bit vector). -/
+/-- The declared width of a scalar wire (`bit` is one bit; `0` for undeclared
+    names or unsupported types). Output ports are not internal wires. -/
 def declWidth (m : Module) (x : String) : Nat :=
   match m.wires.find? (fun p => p.name == x) with
   | some { ty := .bitVector k, .. } => k
+  | some { ty := .bit, .. } => 1
   | _ => 0
 
 /-- Validation state: names defined so far, the substitution aliases `S`
