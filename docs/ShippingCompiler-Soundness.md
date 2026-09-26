@@ -52,6 +52,38 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Recursive mux sequence connected (2026-09-27)
+
+`Tools/ShippingMuxRecursionSoundness.lean` now proves the composition of the
+three recursive child translations and the result emitter. The production
+`Rec.handleMux` calls the new ordinary definition `translateMuxWith`, which
+preserves the original order: condition, then branch, else branch, type query,
+allocation/emission. Both branches are translated even for a constant condition.
+The type query still runs after child translation and sees its cache updates.
+
+`translateMuxWith_correct` derives the actual library mux value, a typed
+assignment body, a fresh result wire of the selected width, and preservation
+of every wire reserved at entry. Its child contract permits existing-wire
+results (including cache hits). Crucially, the contract preserves earlier
+reserved wires and their values; correctness of each returned value alone
+would not justify retaining the condition while translating the branches.
+
+This is a recursive composition theorem, not yet a full source induction.
+The three child contracts, a front-end invariant implying a typed body,
+final declaration widths, and the state-preserving result-type query returning
+`bitVector n` are explicit hypotheses. It does not prove the partial handler's
+name dispatch, MetaM type inference, or source/cache invariants for Bool and
+comparison expressions. Those must still be discharged before mux can enter
+`compiledFragment_execution`; the proved top-level source fragment is unchanged.
+
+Validation: the new theorem's axiom audit permits only `propext`,
+`Classical.choice`, and `Quot.sound`. Shipping recursion regressions cover
+nested muxes, repeated branches, child flags/order, the real type query, and
+failure in the else branch before type inference. The emitted 8-bit mux RTL
+also agrees on all 131,072 input combinations in Icarus.
+`lake build Tests.AllTests` passes (586 jobs); this is the regression-module
+build, not a claim that the platform-specific `lake test` executable was run.
+
 ## Comparison/mux optimizer selection connected (2026-09-27)
 
 **Flat comparison/mux modules now enter the shipping checked optimizer route,

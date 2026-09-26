@@ -1260,6 +1260,17 @@ def emitMuxResult (cond thenWire elseWire hint : String) (isNamed : Bool)
   CompilerM.emitAssign result (.op .mux [.ref cond, .ref thenWire, .ref elseWire])
   return result
 
+/-- The shipping mux sequence, with recursion and result-type inference exposed
+    as arguments. Type inference runs after all three children, as in the
+    original handler; in particular it observes their cache updates. -/
+def translateMuxWith (translate : TranslateFn) (resultType : CompilerM HWType)
+    (cond thenSig elseSig : Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM String := do
+  let cW ← translate cond "mux_cond" false false
+  let tW ← translate thenSig "mux_then" false false
+  let eW ← translate elseSig "mux_else" false false
+  let hwType ← resultType
+  emitMuxResult cW tW eW hint isNamed hwType
+
 /-- Lower a canonical library Signal operator application. SHIPPING code:
     `translateExprToWireImpl` calls this with the real translator as
     `translate`. It is a plain (non-`partial`) definition so its behaviour can
@@ -3448,12 +3459,10 @@ mutual
       let cond := args[args.size-3]!
       let thenSig := args[args.size-2]!
       let elseSig := args[args.size-1]!
-      let cW ← translateExprToWire cond "mux_cond"
-      let tW ← translateExprToWire thenSig "mux_then"
-      let eW ← translateExprToWire elseSig "mux_else"
-      let exprType ← cachedInferType e
-      let hwType ← inferHWTypeFromSignal exprType
-      return some (← emitMuxResult cW tW eW hint isNamed hwType)
+      return some (← translateMuxWith
+        (fun e h t n => translateExprToWire e h t n)
+        (do let exprType ← cachedInferType e; inferHWTypeFromSignal exprType)
+        cond thenSig elseSig hint isNamed)
 
     return none
 
