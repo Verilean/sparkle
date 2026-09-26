@@ -1,4 +1,4 @@
-import Tools.ShippingTranslationOrder
+import Tools.ShippingPendingSoundness
 
 namespace Sparkle.Tests.Compiler.ShippingSettledSoundnessTest
 open Lean Elab Command
@@ -101,6 +101,45 @@ example : ¬ Acyclic ((CircuitM.emitAssign "result" (.ref "result") reservedOnly
   cases h with
   | cons _ hr _ => exact (hr "result" (by simp [refsOf])).1 rfl
 
+open Tools.ShippingPendingSoundness
+
+private def nestedExpr : Lean.Expr :=
+  Tools.ShippingEntrySoundness.quoteF (.const ``Sparkle.Core.Domain.defaultDomain [])
+    8 (fun _ => .bvar 0) (.bin .add (.lit 3) (.bin .mul (.lit 2) (.lit 4)))
+
+private theorem nested_denotes : Denotes (fun _ => none) nestedExpr 8 (11#8) := by
+  apply Denotes.binary (bop := .add) (x := 3#8) (y := 8#8) rfl rfl rfl rfl
+  · exact Denotes.pureLit rfl rfl rfl
+  · apply Denotes.binary (bop := .mul) (x := 2#8) (y := 4#8) rfl rfl rfl rfl
+    · exact Denotes.pureLit rfl rfl rfl
+    · exact Denotes.pureLit rfl rfl rfl
+
+theorem nested_entry_acyclic {ctx : CompilerState} {t : CircuitState} {name : String}
+    {we : WEnv}
+    (h : Returns (translateExprToWire nestedExpr "result" false false)
+      ctx (CircuitM.init "nested") name t) (hw : WidthsAgree we t) :
+    Acyclic t.module.finalize.body := by
+  have hi : Inv ctx (fun _ => none) we (fun _ _ => 0) (fun _ => 0)
+      (CircuitM.init "nested") (fun _ => 0) := by
+    constructor
+    · rfl
+    · intro id n x hx; cases hx
+    · intro id n x w hx; cases hx
+    · intro w e he
+      simp [CircuitM.init] at he
+    · intro l r hm; cases hm
+  exact (translateExprToWire_orders _ _ _ _ _ _ _ _ _ nested_denotes h hi hw
+    (OrderInv.empty rfl)).1
+
+-- A body-empty, reserved name may still be an observable cache result.
+-- Pending + reserved alone is insufficient; Protected must exclude this case.
+private def cachedParent : CircuitState :=
+  {reservedOnly with translateRecord := ({} : Std.HashMap String Lean.Expr).insert "result" literalExpr}
+example (ctx : CompilerState) : ¬ Protected ctx (fun _ => none) cachedParent "result" := by
+  intro hp
+  exact hp.unrecorded literalExpr 8 (7#8)
+    (by simp [cachedParent]) (Denotes.pureLit rfl rfl rfl)
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "settled semantics regression failed"
   for name in [``assign_frame, ``assign_equations, ``equations_eval, ``equations_unique,
@@ -109,10 +148,14 @@ run_cmd do
       ``candidate_not_acyclic, ``candidate_not_settled,
       ``acyclic_snoc, ``makeWire_order, ``emitAssign_order, ``translateSignalPureLiteral_order,
       ``core_leaf_order, ``step_leaf_order, ``translateFuelFix_leaf_order,
-      ``translateExprToWire_leaf_order, ``translateExprToWire_leaf_settled, ``literal_entry_acyclic] do
+      ``translateExprToWire_leaf_order, ``translateExprToWire_leaf_settled, ``literal_entry_acyclic,
+      ``Protected.transfer, ``Protected.makeWire, ``literal_protects, ``binary_protects,
+      ``core_protects, ``step_protects, ``fuel_protects, ``translateExprToWire_protects,
+      ``binary_orders, ``core_orders, ``step_orders, ``fuel_orders,
+      ``translateExprToWire_orders, ``translateExprToWire_settled, ``nested_entry_acyclic] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected settled-semantics axiom: {name}: {ax}"
-  logInfo "SHIPPING LEAF ORDER OK: real translator preserves order for inputs and literals, including cache paths; recursive binary and full pipeline ordering remain open"
+  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; entry/postprocessing/optimizer ordering remain open"
   logInfo "SHIPPING SETTLED OK: ordered emitted assignments have a unique bounded simultaneous solution; shipping acyclicity remains an explicit obligation; standard axioms only"
 end Sparkle.Tests.Compiler.ShippingSettledSoundnessTest

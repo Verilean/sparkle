@@ -40,7 +40,7 @@ this fragment.
 ## 7c.2 Start with a small adder
 
 ```lean
-import Tools.ShippingTranslationOrder
+import Tools.ShippingPendingSoundness
 
 open Lean Elab Command
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
@@ -407,11 +407,26 @@ recording. It assumes no recursive order theorem. The companion
 obtain a unique simultaneous solution carrying the source value, under the
 translator's initial semantic, binding, width and order invariants.
 
-This does **not** discharge the whole-pipeline `Acyclic` hypothesis yet. The
-recursive binary case must show that operand translation does not touch the
-pending parent result; a cache hit's state preservation alone does not show
-that its returned wire is ready. Entry initialization, output emission,
-cleanup, merging and optimization must then carry the invariant through.
+The recursive binary case is now proved too. `Protected` combines four facts
+about the pending parent result: it is reserved, absent from the body's reads
+and writes, absent from meaningful source bindings, and absent from meaningful
+cache records. The last condition matters: a cache hit does not change the
+body, but could still return the parent's unfinished wire if we did not rule
+that out.
+
+`translateExprToWire_protects` proves that arbitrary nested operand translation
+neither touches nor returns a protected name. Fresh allocation supplies the
+protection facts using the existing binding and cache invariants. The binary
+proof then emits its result only after both operands, without self-reference.
+Fuel induction closes the recursive hypotheses at the **actual entry**.
+
+`translateExprToWire_orders` and `translateExprToWire_settled` extend the leaf
+results to arbitrary combinations of supported operators, inputs and literals.
+They do not ask the caller for a recursive theorem or a `Protected` premise.
+The translator's initial semantic/order invariants and final width agreement
+are still explicit. This does **not** yet discharge the whole-pipeline
+`Acyclic` hypothesis: entry initialization, output emission, cleanup, merging
+and optimization must carry the invariant through.
 
 The remaining boundaries are concrete:
 
@@ -448,7 +463,8 @@ connection.
 run_cmd do
   for name in [``plus8_artifact, ``plus8_forward_check, ``plus8_sv_correct,
       ``Tools.ShippingSettledSoundness.compiledFragment_settled,
-      ``Tools.ShippingTranslationOrder.translateExprToWire_leaf_settled] do
+      ``Tools.ShippingTranslationOrder.translateExprToWire_leaf_settled,
+      ``Tools.ShippingPendingSoundness.translateExprToWire_settled] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"

@@ -1219,6 +1219,44 @@ Validation: the order/settled tests, English tutorial, `lake build` and
 audit. Tests distinguish reserved-but-pending names from a self-dependent
 assignment and apply the entry theorem to a concrete quoted literal.
 
+**2026-09-26 recursive translator order — binary case closed:**
+`ShippingPendingSoundness.Protected` records a reserved parent result absent
+from the current body's footprint, meaningful source bindings and meaningful
+cache records. `translateExprToWire_protects` proves arbitrary nested
+translation cannot read, write or return it, including validated cache hits.
+This is proved by fuel induction alongside the existing structural `Spec`;
+there is no recursive hypothesis at the real entry.
+
+`binary_orders` derives protection for its freshly allocated result from the
+existing `Inv.lookup` and `Inv.record`, preserves it through both operand
+translations, and uses the resulting non-self-reference to emit the assignment
+last. `translateExprToWire_orders` closes the order induction for all supported
+combinations of inputs, literals and canonical `+ - * &&& ||| ^^^`.
+`translateExprToWire_settled` consumes this theorem with existing semantic
+preservation: the actual translated body's unique simultaneous solution
+carries the source value. It has no leaf restriction, recursive premise or
+caller-supplied `Protected` condition.
+
+The translator boundary still takes initial `Inv`/`OrderInv` and final
+`WidthsAgree`. The FULL synthesis-to-SV theorem's `Acyclic` premise is still
+open: connect initialization and output emission, then preserve order through
+cleanup, checked merging and optimizer selection. This step does not enlarge
+the source-language fragment or change compiler behavior. In particular it is
+not a proof for the unverified fallback handlers.
+
+Tests apply the actual-entry theorem to a nested add/multiply expression and
+show that a reserved, body-absent name with a meaningful cache record fails
+`Protected`. The cache condition is not silently equated with body absence.
+Validation: targeted tests, the executable English tutorial, `lake build` and
+`lake test` pass. All new audited proofs use only the three standard axioms.
+
+Integration note: before importing this proof into `ShippingEntrySoundness`,
+move the foundational `Acyclic`/IR-equation lemmas out of the downstream SV
+bridge and make `ShippingTranslationOrder` import that lower module plus
+`ShippingTranslateSoundness`. Its current transitive SV import would otherwise
+create an import cycle. Then use the already-constructed `hinv` and empty-body
+fact at `synthesizeCertified_sound` to derive order before output emission.
+
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
 previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed
