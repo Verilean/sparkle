@@ -510,6 +510,7 @@ theorem dzExpr_shaped (wm : Sparkle.IR.Optimize.WidthMap) (r : Sparkle.IR.AST.Ex
     | .const _ _, _ => simp [dzExpr]
     | .ref _, _ => simp [dzExpr]
     | .op _ [.ref _, .ref _], _ => simp [dzExpr, dzList]
+    | .op .mux [.ref _, .ref _, .ref _], _ => simp [dzExpr, dzList]
   · simp [dzExpr]
 
 /-- **`dropZeroWidthModule` on the entry's modules.** For a module with the
@@ -642,6 +643,7 @@ theorem simpleRhs_renameE (σ : String → String) :
   | .const _ _, _ => rfl
   | .ref _, _ => rfl
   | .op _ [.ref _, .ref _], h => by simpa [renameE, renameE.renameL, simpleRhs] using h
+  | .op .mux [.ref _, .ref _, .ref _], _ => rfl
 
 theorem validateStep_shape {wOf : String → Nat} {allLhs : List String} {st st' : MergeCheck}
     {l : String} {e : Sparkle.IR.AST.Expr} {new : Stmt}

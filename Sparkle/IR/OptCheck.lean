@@ -37,6 +37,12 @@ remains smaller: a shift-bearing original cannot pass `optCheckCore`, so the
 checked route retains that original rather than accepting an unchecked result. -/
 def isPrintBinOp (op : Operator) : Bool := isBinOp op || op == .shr || op == .shl
 
+/-- Unsigned comparison nodes admitted to the checked route. Their semantic
+normalization is not yet supported, so the original module is retained. -/
+def isControlBinOp : Operator → Bool
+  | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
+  | _ => false
+
 /-- Normalise one expression against the definitions seen so far. `ins`: the
 input names (values fit their declared widths). -/
 def normE (we : WEnv) (ins : List String) (defs : List (String × Expr)) : Expr → Option Expr
@@ -108,11 +114,13 @@ def optCheck (m o : Module) : Bool :=
 
 /-- The statement shapes the synthesis entry produces: an `assign` of a
 constant, a reference, or one of the six normalizer operators or logical
-left/right shift on two references. -/
+left/right shift or unsigned comparison on two references, or a mux on
+three references. -/
 def simpleRhs : Expr → Bool
   | .const _ _ => true
   | .ref _ => true
-  | .op o [.ref _, .ref _] => isPrintBinOp o
+  | .op o [.ref _, .ref _] => isPrintBinOp o || isControlBinOp o
+  | .op .mux [.ref _, .ref _, .ref _] => true
   | _ => false
 
 def simpleBody (m : Module) : Bool :=

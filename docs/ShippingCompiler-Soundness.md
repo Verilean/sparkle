@@ -52,6 +52,56 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Comparison/mux optimizer selection connected (2026-09-27)
+
+**Flat comparison/mux modules now enter the shipping checked optimizer route,
+and their postprocessed original is provably retained.** `simpleRhs` now
+accepts equality and unsigned `<`, `<=`, `>`, `>=` on two references, and mux
+on three references. Constants, references and the previous eight operators
+remain supported. The normalizer's `isBinOp` remains the original six
+operators; this change does not trust its handling of new operators.
+The proof-side comparison predicate shares the production routing table.
+
+`Tools/ShippingControlOptSoundness.lean` proves `checkedOptimize_control`:
+any simple module containing a comparison/mux assignment fails original-body
+normalization and therefore retains the original module. This changes the
+previous unchecked optimization policy for these modules and may reduce
+optimization; no performance or byte-identity claim is made. Modules outside
+the flat checked shape, including unsupported operators/stateful bodies,
+retain their previous policy and are not covered by this extension.
+
+Control-operation presence is derived through the actual merge checker.
+`validateMerge_hasControl` proves that an accepted duplicate merge cannot
+remove the last comparison/mux node: replacing one with an alias requires
+an earlier representative with the same canonical expression. Reference
+renaming preserves the root operator. Thus no caller needs to supply a
+control-presence certificate about the selected postprocessed module.
+
+`typed_postprocess_checked_control` composes the preceding typed cleanup/merge
+proof with optimizer selection. Starting with `TypedPostReady`, the original
+flat shape, a comparison/mux in the original body, and a successful original
+IR evaluation, it proves that cleanup, optional checked duplicate merging,
+and `checkedOptimize` preserve the entire result environment, typed body and
+input/output ports. The optimizer-selection connection for this IR fragment
+is now closed. The source entry still must derive these original-module
+premises; the quoted `compiledFragment_execution` domain remains the previous
+eight binary operators. Bool/comparison/mux source representation, recursive
+translation and result-type determination remain outstanding, as does proving
+all required source-to-RTL invariants for the larger source grammar.
+`EnvDefines` and the adopted delta execution model are unchanged.
+
+Validation: `ShippingControlOptSoundnessTest` instantiates the composed theorem
+at every positive width and audits standard axioms. Runtime regressions check
+1-, 8- and 65-bit postprocessed modules, all five comparison operators in
+isolation, and actual Bool-result comparison, comparison/mux and Bool-input
+mux source declarations. Shift-free examples ensure that control operations
+themselves cause the checked fallback. An 8-bit DSL comparison/mux, synthesized
+and passed through the actual `checkedOptimize`, emits RTL that passes Icarus
+`-g2012` simulation for all 65,536 input pairs.
+`lake build Tests.AllTests` passes (584 jobs), including the existing compiler
+regressions and theorem axiom audits. This is a test-module build, not execution
+of the `lake test` binary.
+
 ## Mixed-width post-processing connected (2026-09-27)
 
 **Zero-width cleanup and checked duplicate merging now preserve the typed

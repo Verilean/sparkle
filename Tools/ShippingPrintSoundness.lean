@@ -93,9 +93,7 @@ def renderExpr : SVExpr → Option String
   | _ => none
 
 /-- Unsigned comparison operators, independent of optimizer acceptance. -/
-def isCompareOp : Operator → Bool
-  | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
-  | _ => false
+abbrev isCompareOp : Operator → Bool := isControlBinOp
 
 /-- Byte rendering needs no numerical fit premise. Negative constants are
 printed in hexadecimal by the shipping emitter; this is separate from the
@@ -120,7 +118,11 @@ theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := 
   match e, h with
   | .const v w, _ => exact .const v w
   | .ref x, _ => exact .ref x
-  | .op o [.ref a, .ref b], h => exact .bin h (.ref a) (.ref b)
+  | .op o [.ref a, .ref b], h =>
+    rcases Bool.or_eq_true_iff.mp h with h | h
+    · exact .bin h (.ref a) (.ref b)
+    · exact .compare h (.ref a) (.ref b)
+  | .op .mux [.ref c, .ref t, .ref f], _ => exact .mux (.ref c) (.ref t) (.ref f)
 
 theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Option Nat) :
     ∃ sv, emitAstExpr wof e = some sv ∧
@@ -152,7 +154,7 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
   | @compare op a b hop _ _ ia ib =>
     obtain ⟨sa, hsa, hra⟩ := ia
     obtain ⟨sb, hsb, hrb⟩ := ib
-    cases op <;> simp_all [isCompareOp]
+    cases op <;> simp_all [isCompareOp, isControlBinOp]
     all_goals
       simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
         Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]

@@ -31,7 +31,7 @@ theorem TypedExpr.width {we e n} (h : TypedExpr we e n) : widthOf we e = n := by
   | ref => rfl
   | const => rfl
   | bin op _ _ _ ha hb => cases op <;> simp [Binary.operator, widthOf, ha, hb]
-  | compare hop _ _ ha hb => cases ‹Operator› <;> simp_all [isCompareOp, widthOf]
+  | compare hop _ _ ha hb => cases ‹Operator› <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, widthOf]
   | mux _ _ _ _ ht _ => simp [widthOf, ht]
 
 theorem TypedExpr.positive {we e n} (h : TypedExpr we e n) : 0 < n := by
@@ -65,7 +65,7 @@ theorem TypedExpr.notShl {we e n} (h : TypedExpr we e n) :
     | @bin op a b n ha hb hs =>
       cases op <;> cases b <;>
         simp_all [Binary.operator, Sparkle.IR.PrintCheck.shiftShape, isShlLit]
-    | compare ho => cases ‹Operator› <;> simp_all [isCompareOp, isShlLit]
+    | compare ho => cases ‹Operator› <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, isShlLit]
   exact ⟨hn, shlOperand_id hn⟩
 
 theorem TypedExpr.forward {we e n} (h : TypedExpr we e n)
@@ -90,7 +90,7 @@ theorem TypedExpr.forward {we e n} (h : TypedExpr we e n)
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
     have ib := ib (fun x hx => hname x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
-    cases ‹Operator› <;> simp_all [isCompareOp]
+    cases ‹Operator› <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp]
     all_goals simp [sf4Check, ha.width, hb.width, ha.notShl.1, ha.notShl.2, ia, ib]
   | mux hc ht hf ic it iff =>
     have ic := ic (fun x hx => hname x (by

@@ -89,7 +89,7 @@ theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hsa
     have bb := ib (fun x hx => hr x (by
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hsb
-    cases op <;> simp_all [isCompareOp, emitAstExpr, binOpOf]
+    cases op <;> simp_all [isCompareOp, Sparkle.IR.OptCheck.isControlBinOp, emitAstExpr, binOpOf]
     all_goals subst sv; exact ⟨ba, bb⟩
   | mux hc ht hf ic it iff =>
     obtain ⟨sc, hsc, _⟩ := emitExpr_render_all hc wof

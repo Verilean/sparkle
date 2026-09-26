@@ -93,6 +93,7 @@ import Tests.Compiler.ShippingLeftShiftSoundnessTest
 import Tests.Compiler.ShippingTypedExprSoundnessTest
 import Tests.Compiler.ShippingMuxLoweringSoundnessTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
+import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
