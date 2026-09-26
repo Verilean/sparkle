@@ -1707,6 +1707,33 @@ Validation: new settled-semantics tests, executable English tutorial,
 `lake build` and `lake test` pass. The new conditional source theorem and
 supporting lemmas use only the standard axioms. No compiler behavior changed.
 
+**2026-09-26 shipping leaf order:** `ShippingTranslationOrder.OrderInv`
+records acyclicity of the reversed builder body and reservation of every
+read/written name. `Pending` is stronger than reservation: the existing body
+has not read or written that name. This distinction is necessary because the
+binary handler allocates its result before translating its operands.
+
+`makeWire_order` and `emitAssign_order` follow the actual builder operations.
+`translateSignalPureLiteral_order` covers both literal emission and the
+unsupported-payload no-op. `translateExprToWire_leaf_order` follows the actual
+recursive entry for fvars and supported literals, including cache hit/miss and
+recording, with no recursive order assumption. `translateExprToWire_leaf_settled`
+consumes it with the existing semantic theorem to produce a unique simultaneous
+solution carrying the source value. At this translator boundary, initial
+semantic/order/binding invariants and final width agreement remain explicit.
+
+This is a separate structural invariant, not yet incorporated into the full
+recursive `Spec`. Remaining: prove that binary operand translation preserves
+the pending parent result and returns a usable wire (including cache records),
+then establish the invariant at the synthesis entry and transport it through
+output emission, cleanup, merging and optimizer selection. The final
+`compiledFragment_settled` acyclicity premise is NOT discharged by this step.
+No compiler behavior, acceptance rule or previous theorem premise changed.
+Validation: the order/settled tests, English tutorial, `lake build` and
+`lake test` pass. The leaf entry and settled corollary pass the standard-axiom
+audit. Tests distinguish reserved-but-pending names from a self-dependent
+assignment and apply the entry theorem to a concrete quoted literal.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

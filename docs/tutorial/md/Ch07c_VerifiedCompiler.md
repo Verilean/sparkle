@@ -40,7 +40,7 @@ this fragment.
 ## 7c.2 Start with a small adder
 
 ```lean
-import Tools.ShippingSettledSoundness
+import Tools.ShippingTranslationOrder
 
 open Lean Elab Command
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
@@ -391,6 +391,28 @@ does not yet certify a simulator's event scheduling, delays or four-state
 SystemVerilog behavior. The earlier `plus8_sv_correct` theorem has not acquired
 the new hypothesis: its conclusion remains the established in-order result.
 
+The first part of deriving the ordering condition now follows the actual
+translator. `ShippingTranslationOrder.OrderInv` says the builder's reversed
+body is acyclic and every name it reads or writes is reserved. `Pending s x`
+says that the body has neither read nor written `x`. These facts differ:
+binary translation reserves its result wire **before** translating operands.
+A reserved result is not necessarily computed yet.
+
+`makeWire_order` proves that actual allocation creates such a pending name;
+`emitAssign_order` proves that assigning it preserves order when the right-hand
+side does not read it. `translateExprToWire_leaf_order` carries this through
+the real entry for inputs and literals, including cache hits, cache misses and
+recording. It assumes no recursive order theorem. The companion
+`translateExprToWire_leaf_settled` combines it with semantic preservation to
+obtain a unique simultaneous solution carrying the source value, under the
+translator's initial semantic, binding, width and order invariants.
+
+This does **not** discharge the whole-pipeline `Acyclic` hypothesis yet. The
+recursive binary case must show that operand translation does not touch the
+pending parent result; a cache hit's state preservation alone does not show
+that its returned wire is ready. Entry initialization, output emission,
+cleanup, merging and optimization must then carry the invariant through.
+
 The remaining boundaries are concrete:
 
 - **Identifiers.** Stability under sanitization is not lexical validity:
@@ -425,7 +447,8 @@ connection.
 -- Keep the chapter's trust claim executable, rather than only printing it.
 run_cmd do
   for name in [``plus8_artifact, ``plus8_forward_check, ``plus8_sv_correct,
-      ``Tools.ShippingSettledSoundness.compiledFragment_settled] do
+      ``Tools.ShippingSettledSoundness.compiledFragment_settled,
+      ``Tools.ShippingTranslationOrder.translateExprToWire_leaf_settled] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"
