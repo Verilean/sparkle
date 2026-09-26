@@ -1280,6 +1280,36 @@ Validation: entry/settled regressions and their standard-axiom audits, English
 executable tutorial, `lake build` and `lake test`. No compiler corpus or
 performance rerun is claimed for this proof-only change.
 
+**2026-09-26 post-processing order — checked merging connected:**
+`validateStep_order` follows the shipping validator: targets are unchanged,
+new references are either original references or point into `st.defined`,
+and substitution aliases only target that completed prefix.
+`validateMerge_go_order` carries this invariant along the checked statement
+pairs and proves both target-list equality and `Acyclic` preservation.
+`mergeDuplicates_order` covers accepted proposals and unchanged fallbacks;
+`postprocess_order` also covers the environment-variable path that skips merging.
+No extra runtime validator or compiler behavior change is needed.
+
+`synthesizeCombinational_settled` now reaches the actual returned IR after
+zero-width cleanup and checked merging. Under the existing environment,
+fragment, positive-width and input-valuation conditions, it supplies the
+assignment order and a unique simultaneous IR solution whose output is the
+Signal declaration's value. `fragA_synthesized_settled` applies the general
+theorem to the real declaration without a circuit-specific certificate.
+
+The next order obligation is **optimizer selection only**: the final SV theorem
+still assumes `Acyclic (checkedOptimize m).body`. Output equivalence alone does
+not imply this, as the existing negative test shows. First inspect the actual
+optimizer's transformations for order preservation; do not strengthen a theorem
+by silently assuming the existing `optCheck` establishes it. Lexical validity,
+text interpretation, external RTL execution, and larger source fragments remain
+separate unfinished work.
+
+Validation: a successful alias-producing merge with a later rewritten use,
+rejections of forward/self-reference proposals, actual-entry application,
+standard-axiom audit, English executable tutorial, `lake build`, and `lake test`.
+This is a proof-only change; no corpus or performance measurement is claimed.
+
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
 previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed

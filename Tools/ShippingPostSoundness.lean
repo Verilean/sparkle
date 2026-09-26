@@ -999,4 +999,161 @@ theorem synthesizeCombinational_sized {declName : Name} {mctx : Meta.Context}
       (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
   exact postprocess_sized hn hpr hm
 
+/-! ## Assignment order through checked merging -/
+
+open Tools.ShippingSettledSoundness Sparkle.IR.Reorder
+
+/-- Substitution aliases always point into the already-emitted prefix. -/
+def AliasOrder (st : MergeCheck) : Prop :=
+  ∀ x y, st.S.lookup x = some y → y ∈ st.defined
+
+/-- A checked step keeps its target and can introduce only references to the
+completed prefix. This is independent of any particular evaluation. -/
+theorem validateStep_order {wOf : String → Nat} {allLhs : List String}
+    {st st' : MergeCheck} {l : String} {e : Sparkle.IR.AST.Expr} {new : Stmt}
+    (h : validateStep wOf allLhs st (.assign l e) new = some st')
+    (hs : AliasOrder st) :
+    ∃ e', new = .assign l e' ∧ st'.defined = l :: st.defined ∧ AliasOrder st' ∧
+      ∀ x ∈ refsOf e', x ∈ st.defined ∨ x ∈ refsOf e := by
+  cases new with
+  | assign l' e' =>
+    simp only [validateStep] at h
+    split at h
+    · cases h
+    rename_i h1
+    have hl : l = l' := Classical.byContradiction fun hn => h1 (Or.inl (Ne.symm hn))
+    subst hl
+    split at h
+    · cases h
+    split at h
+    · rename_i he
+      cases h
+      refine ⟨e', rfl, rfl, ?_, ?_⟩
+      · intro x y hy
+        exact List.mem_cons_of_mem _ (hs x y hy)
+      · intro x hx
+        rw [he] at hx
+        obtain ⟨z, hz, rfl⟩ := refs_renameE _ e x hx
+        cases hh : st.S.lookup z with
+        | none => exact Or.inr (by simpa [aliasOf, hh] using hz)
+        | some y => exact Or.inl (by simpa [aliasOf, hh] using hs z y hh)
+    · cases e' with
+      | ref y =>
+        simp only at h
+        split at h
+        · rename_i hc
+          have hy : y ∈ st.defined := by simpa using hc.2.1
+          cases h
+          refine ⟨_, rfl, rfl, ?_, ?_⟩
+          · intro x z hz
+            rw [lookup_cons_eq] at hz
+            split at hz
+            · cases hz; exact List.mem_cons_of_mem _ hy
+            · exact List.mem_cons_of_mem _ (hs x z hz)
+          · intro x hx
+            have : x = y := by simpa [refsOf] using hx
+            subst x; exact Or.inl hy
+        · cases h
+      | _ => simp at h
+  | _ => simp [validateStep] at h
+
+/-- The checker preserves the target list and topological order. The prefix
+cannot contain a target that is still to be assigned. -/
+theorem validateMerge_go_order {wOf : String → Nat} {allLhs : List String} :
+    ∀ (old new : List Stmt) (st : MergeCheck),
+      validateMerge.go wOf allLhs st old new = true →
+      Acyclic old → AliasOrder st →
+      (∀ x ∈ st.defined, x ∉ writesOf old) →
+      writesOf new = writesOf old ∧ Acyclic new
+  | [], [], _, _, _, _, _ => ⟨rfl, .nil⟩
+  | [], _ :: _, _, h, _, _, _ => by simp [validateMerge.go] at h
+  | _ :: _, [], _, h, _, _, _ => by simp [validateMerge.go] at h
+  | a :: as, b :: bs, st, h, ha, hs, hd => by
+    cases ha with
+    | @cons l e rest hl hr ha =>
+      simp only [validateMerge.go] at h
+      split at h
+      · rename_i st' hstep
+        obtain ⟨e', rfl, hdef, hs', href⟩ := validateStep_order hstep hs
+        have hd' : ∀ x ∈ st'.defined, x ∉ writesOf as := by
+          rw [hdef]
+          intro x hx
+          rcases List.mem_cons.mp hx with rfl | hx
+          · exact hl
+          · exact fun hm => hd x hx (by simp [writes_cons, hm])
+        obtain ⟨hw, ho⟩ := validateMerge_go_order as bs st' h ha hs' hd'
+        refine ⟨by simp [writes_cons, hw], .cons (hw ▸ hl) ?_ ho⟩
+        intro x hx
+        rw [hw]
+        rcases href x hx with hx | hx
+        · have := hd x hx
+          simpa [writes_cons] using this
+        · exact hr x hx
+      · cases h
+
+/-- This applies to the actual merge validator, not an additional check. -/
+theorem validateMerge_order {wOf : String → Nat} {old new : List Stmt}
+    (h : validateMerge wOf old new = true) (ha : Acyclic old) : Acyclic new := by
+  exact (validateMerge_go_order old new {} h ha
+    (by intro x y h; simp at h) (by intro x h; simp at h)).2
+
+theorem mergeDuplicates_order {m : Sparkle.IR.AST.Module} (ha : Acyclic m.body) :
+    Acyclic (mergeDuplicates m).body := by
+  have hall : m.body.all isAssign = true := by
+    have aux : ∀ {body}, Acyclic body → body.all isAssign = true := by
+      intro body hb
+      induction hb with
+      | nil => rfl
+      | cons _ _ _ ih => simpa [isAssign] using ih
+    exact aux ha
+  unfold mergeDuplicates
+  simp only [hall, if_true]
+  split
+  · exact validateMerge_order (by assumption) ha
+  · exact ha
+
+theorem postprocess_order {m m' : Sparkle.IR.AST.Module} {n : Nat}
+    (hn : 0 < n) (hpr : PostReady m n)
+    (hm : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
+    Acyclic m'.body := by
+  have ha := dropZeroWidth_entry_order hn hpr
+  rcases hm with rfl | rfl
+  · exact ha
+  · exact mergeDuplicates_order ha
+
+/-- Successful shipping synthesis, including both post-processing choices,
+produces the unique simultaneous IR solution with the source output.
+Optimization before printing remains a separate order obligation. -/
+theorem synthesizeCombinational_settled {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M' : Sparkle.IR.AST.Module} {D' : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (M', D') w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
+    ∃ port : Nat → Option String,
+      (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
+      (∀ j, j < names.length → ∃ w, port j = some w) ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv)
+        (initial : Env),
+        (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
+        Acyclic M'.body ∧
+        ∃ env, evalAssigns (weOf M') mems M'.body initial = some env ∧
+          env "out" = ((denoteFE n sigs fe).val t).toNat ∧
+          IREquations (weOf M') M'.body env ∧ ExternalValues M'.body initial env ∧
+          ∀ other, IREquations (weOf M') M'.body other →
+            ExternalValues M'.body initial other → other = env := by
+  obtain ⟨M, D, w1, hcore, hM'⟩ := synthesizeCombinational_reads h
+  obtain ⟨port, hdist, hex, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  refine ⟨port, hdist, hex, fun sigs t mems initial hinit => ?_⟩
+  obtain ⟨env, hev, hout, hpr, _, _, _⟩ := hsem sigs t mems initial hinit
+  obtain ⟨hev', _, _⟩ := postprocess_sound hn hpr hM' hev
+  have ha := postprocess_order hn hpr hM'
+  have hq := assign_equations ha hev'
+  have hx := assign_frame ha hev'
+  exact ⟨ha, env, hev', hout, hq, hx,
+    fun other hq' hx' => equations_unique ha hq' hx' hq hx⟩
+
 end Tools.ShippingPostSoundness

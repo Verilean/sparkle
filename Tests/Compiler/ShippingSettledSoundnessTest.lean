@@ -38,6 +38,32 @@ example : ¬ Acyclic [.assign "x" (.const 0 8), .assign "x" (.const 1 8)] := by
   intro h; cases h with
   | cons ht _ _ => simp [writesOf, stmtWrites] at ht
 
+/-- A real checked merge introduces an alias, then rewrites a later use. -/
+def beforeMerge : List Stmt :=
+  [.assign "x" (.const 5 8), .assign "y" (.const 5 8), .assign "out" (.ref "y")]
+def afterMerge : List Stmt :=
+  [.assign "x" (.const 5 8), .assign "y" (.ref "x"), .assign "out" (.ref "x")]
+
+#guard Sparkle.IR.RegDedup.validateMerge (fun _ => 8) beforeMerge afterMerge
+#guard !Sparkle.IR.RegDedup.validateMerge (fun _ => 8) beforeMerge
+  [.assign "x" (.ref "y"), .assign "y" (.const 5 8), .assign "out" (.ref "y")]
+#guard !Sparkle.IR.RegDedup.validateMerge (fun _ => 8) beforeMerge
+  [.assign "x" (.const 5 8), .assign "y" (.ref "y"), .assign "out" (.ref "y")]
+
+theorem checked_merge_order : Acyclic afterMerge := by
+  apply Tools.ShippingPostSoundness.validateMerge_order (old := beforeMerge)
+    (wOf := fun _ => 8) (by decide)
+  apply Acyclic.cons
+  · simp [writesOf, stmtWrites]
+  · simp [refsOf]
+  · apply Acyclic.cons
+    · simp [writesOf, stmtWrites]
+    · simp [refsOf]
+    · apply Acyclic.cons
+      · simp [writesOf]
+      · simp [refsOf, writesOf]
+      · exact .nil
+
 /-- Both modules compute the same output, but the candidate contains an
 unused forward dependency. The existing optimizer checker does not rule it out. -/
 def original : Sparkle.IR.AST.Module :=
@@ -143,7 +169,13 @@ example (ctx : CompilerState) : ¬ Protected ctx (fun _ => none) cachedParent "r
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "settled semantics regression failed"
-  for name in [``assign_frame, ``assign_equations, ``equations_eval, ``equations_unique,
+  for name in [``checked_merge_order,
+      ``Tools.ShippingPostSoundness.validateStep_order,
+      ``Tools.ShippingPostSoundness.validateMerge_go_order,
+      ``Tools.ShippingPostSoundness.validateMerge_order,
+      ``Tools.ShippingPostSoundness.mergeDuplicates_order,
+      ``Tools.ShippingPostSoundness.postprocess_order,
+      ``Tools.ShippingPostSoundness.synthesizeCombinational_settled,``assign_frame, ``assign_equations, ``equations_eval, ``equations_unique,
       ``equations_perm, ``equations_emitted_iff, ``emitted_targets, ``svEquations_perm,
       ``module_settled, ``compiledFragment_settled, ``ordered_solution,
       ``candidate_not_acyclic, ``candidate_not_settled,
@@ -157,6 +189,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected settled-semantics axiom: {name}: {ax}"
-  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; core entry and output ordering connected; merging/optimizer ordering remain open"
+  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; core entry and output ordering connected; checked merging ordering proved; optimizer ordering remains open"
   logInfo "SHIPPING SETTLED OK: ordered emitted assignments have a unique bounded simultaneous solution; shipping acyclicity remains an explicit obligation; standard axioms only"
 end Sparkle.Tests.Compiler.ShippingSettledSoundnessTest

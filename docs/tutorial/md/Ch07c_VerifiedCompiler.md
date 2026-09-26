@@ -439,8 +439,21 @@ the quoted source declaration. This is a general theorem, even when applied
 to a particular declaration such as `fragA`.
 
 Positive-width cleanup preserves this result's order because it leaves the
-body unchanged. Checked merging and optimizer selection must still preserve
-order before the final SV theorem can drop its `Acyclic` hypothesis.
+body unchanged. Checked merging now preserves order too. The validator may
+replace a repeated computation by an alias, but the alias must point into the
+prefix that has already been assigned. Its substitutions keep that property
+when rewriting later uses. An induction over the actual validator proves that
+neither self-reference nor a new forward dependency can appear.
+
+`synthesizeCombinational_settled` composes these facts with the core theorem:
+the IR returned by shipping synthesis, after both post-processing passes,
+has a unique simultaneous solution with the source output. The branch that
+skips merging is covered too. This proof reuses the existing validator;
+it introduces no new runtime check.
+
+Optimizer selection still needs an order-preservation proof before the final
+SV theorem can drop its `Acyclic` hypothesis. Preserving the sequentially
+computed output alone is insufficient, as the counterexample above shows.
 
 The remaining boundaries are concrete:
 
@@ -480,7 +493,8 @@ run_cmd do
       ``Tools.ShippingTranslationOrder.translateExprToWire_leaf_settled,
       ``Tools.ShippingPendingSoundness.translateExprToWire_settled,
       ``Tools.ShippingEntrySoundness.fragmentDecl_core_settled,
-      ``Tools.ShippingPostSoundness.dropZeroWidth_entry_order] do
+      ``Tools.ShippingPostSoundness.dropZeroWidth_entry_order,
+      ``Tools.ShippingPostSoundness.synthesizeCombinational_settled] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"
