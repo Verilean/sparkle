@@ -1,5 +1,5 @@
 import Tools.ShippingNameBinding
-import Tools.ShippingModuleNames
+import Tools.ShippingSyntaxSoundness
 import Tools.ShippingAssignmentOrder
 
 /-! # Simultaneous equations for emitted combinational assignments
@@ -164,6 +164,7 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
       Tools.ShippingNameBinding.AssignmentsBound sv pairs ∧
       (sv.name = Sparkle.Backend.Verilog.sanitizeName o.name ∧
         Sparkle.IR.ModuleNames.legal sv.name = true) ∧
+      Tools.SVParser.ConcreteSyntax.Module sv (verilogOf m) ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv),
         let initial := inputEnv names.length port (fun j => (sigs j).val t)
@@ -187,7 +188,12 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
     compiled_astDataNames h henv hwf hn ht,
     compiled_astDeclarations_nodup h henv hwf hn ht,
     Tools.ShippingNameBinding.compiled_astBindings h henv hwf hn ht hi,
-    Tools.ShippingModuleNames.compiled_moduleName h henv hwf hn ht, ?_⟩
+    Tools.ShippingModuleNames.compiled_moduleName h henv hwf hn ht,
+    Tools.ShippingSyntaxSoundness.renderModule_syntax htext
+      (Tools.ShippingModuleNames.compiled_moduleName h henv hwf hn ht).2
+      (fun entry he => Tools.ShippingSyntaxSoundness.dataName_identifier
+        (compiled_astDataNames h henv hwf hn ht entry he)) hi
+      (Tools.ShippingNameBinding.compiled_astBindings h henv hwf hn ht hi), ?_⟩
   intro dom sigs t mems
   obtain ⟨hb, env, hev, hout, hobs⟩ := hsem sigs t mems
   have hb' : Bounded (forwardWidths (checkedOptimize m))

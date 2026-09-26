@@ -29,6 +29,8 @@ bounded simultaneous two-state solution. The output equals the source Signal
 value at every cycle. Assignment order is derived internally. Data declarations
 are unique; every assignment target and RHS reference is bound to a declaration.
 The module name satisfies the explicit simple-identifier/keyword contract.
+The entire actual output string derives that same AST in the independent
+`ConcreteSyntax.Module` grammar, including names, numerals, comments and layout.
 
 The compiler now refuses invalid normalized module names and normalization
 collisions. This refusal policy was explicitly chosen by the user: the objective
@@ -36,10 +38,64 @@ is preservation on successful compilation, not acceptance of every possible
 source spelling. Ordinary accepted output names and RTL text are unchanged.
 
 This does not cover all successfully compiled Signal programs. `EnvDefines`,
-fragment coverage, full rendered-text grammar interpretation and operational
-RTL execution semantics remain explicit boundaries. Module-name validity and
+fragment coverage and operational RTL execution semantics remain explicit
+boundaries. The concrete grammar is an explicit SystemVerilog subset
+specification, not a verified implementation of an external parser. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
+
+## Full concrete syntax connected (2026-09-27)
+
+**The name/syntax milestone is closed for the stated fragment.**
+`compiledFragment_settled` now concludes
+`Tools.SVParser.ConcreteSyntax.Module sv (verilogOf m)` for the very same `sv`
+whose declarations, bindings, widths and unique bounded solution it proves.
+The hypotheses are unchanged: actual successful synthesis, `EnvDefines`,
+well-formed canonical `FExpr`, and positive width. There is no parser-success
+hypothesis or per-circuit syntax certificate.
+
+`Tools/SVParser/ConcreteSyntax.lean` specifies concrete character productions
+independently of the printer, IR emitter and existing partial parser. It covers
+unsigned ANSI logic ports, literal packed ranges, internal logic declarations,
+continuous assignments and parenthesized add/subtract/multiply/AND/OR/XOR.
+A numeral derivation records its positional value; `numeral_toDigits` proves
+the emitted decimal/hexadecimal digit strings for arbitrary natural values.
+Sized literals require positive widths. Identifier tokens use the explicit
+simple-name/keyword contract. Punctuation and whitespace separate tokens;
+line comments consume their terminating newline. The module derivation covers
+the complete string, not just a prefix.
+
+`Tools/ShippingSyntaxSoundness.lean` proves the bridge from actual rendering to
+this grammar. Declaration-name facts imply legal identifiers, and structural
+binding carries that guarantee to all assignment targets and RHS leaves.
+The proof follows every rendered port, wire and assignment, then joins their
+concrete productions with the actual comments and whitespace. Thus a renderer
+returning a string containing an illegal identifier alone is insufficient.
+
+Only the proof-side `renderExpr` changed: it now refuses zero-sized literal
+ASTs. Its existing equality theorem still covers every shipping-emitted
+constant, including negative hexadecimal constants and the shipping emitter's
+zero-width-to-one normalization. No RTL backend, compiler acceptance check,
+or emitted text changed in this step.
+
+This closes the direct syntax connection to the specified subset AST. It does
+not verify Icarus, Verilator or the in-tree parser, establish correspondence to
+a full IEEE formalization, or give concurrent/four-state/delay semantics.
+The two larger outstanding proof tasks are now:
+
+1. Connect the simultaneous equations to an explicit RTL execution and stable
+   observation model (initially fixed inputs, two states and no delays).
+2. Extend preservation over the remaining successfully compiled DSL paths:
+   shifts/comparisons/mux/Bool/mixed widths, state/reset, memory and hierarchy.
+
+`EnvDefines` remains a separate environment trust boundary.
+
+Validation: focused printer, syntax, settled-source and module-name tests,
+including standard-axiom audits. Syntax regressions cover arbitrary constants
+and labels, empty modules, zero-sized literals, and identifier injection.
+The real `fragA` final-theorem application now includes whole-text syntax and
+source-equivalent simultaneous solutions together. Whole-suite execution is
+not claimed; the previously recorded macOS `dlmopen` linker blocker remains.
 
 ## Declaration multiplicity (2026-09-27)
 

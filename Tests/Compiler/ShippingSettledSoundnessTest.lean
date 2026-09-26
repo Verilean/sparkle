@@ -191,6 +191,7 @@ theorem fragA_final_settled {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Me
       ((declarationTable sv).map Prod.fst).Nodup ∧
       Tools.ShippingNameBinding.AssignmentsBound sv pairs ∧
       Sparkle.IR.ModuleNames.legal sv.name = true ∧
+      Tools.SVParser.ConcreteSyntax.Module sv (Sparkle.Compiler.Elab.verilogOf m) ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (a b : Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
         let initial := Tools.ShippingSVBridge.inputEnv 2 port
@@ -200,9 +201,9 @@ theorem fragA_final_settled {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Me
           ∀ other, Bounded (fun x => (astWidths sv x).getD 0) other →
             SVSolution (astWidths sv) pairs initial other → other = env := by
   rw [fragAValue_eq] at henv
-  obtain ⟨sv, port, pairs, ht, _, _, _, hi, _, _, _, _, _, hnd, hbound, hmodule, hs⟩ :=
+  obtain ⟨sv, port, pairs, ht, _, _, _, hi, _, _, _, _, _, hnd, hbound, hmodule, hsyntax, hs⟩ :=
     compiledFragment_settled h henv feA_wf (by decide)
-  refine ⟨sv, port, pairs, ht, hi, hnd, hbound, hmodule.2, fun a b t => ?_⟩
+  refine ⟨sv, port, pairs, ht, hi, hnd, hbound, hmodule.2, hsyntax, fun a b t => ?_⟩
   obtain ⟨_, env, _, hv, _, he, hu⟩ := hs (sigsOf [a, b]) t (fun _ _ => 0)
   exact ⟨env, he, hv, hu⟩
 

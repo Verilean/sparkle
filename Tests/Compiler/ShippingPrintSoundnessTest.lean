@@ -112,6 +112,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected printer axiom: {name}: {ax}"
-  logInfo "SHIPPING PRINT OK: full module text equals SV AST rendering on the positive-width fragment; standard axioms only; text grammar and external RTL execution remain open"
+  logInfo "SHIPPING PRINT OK: full module text equals SV AST rendering on the positive-width fragment; standard axioms only; grammar is proved separately in ShippingSyntaxSoundness; external RTL execution remains open"
 
 end Sparkle.Tests.Compiler.ShippingPrintSoundnessTest

@@ -6,7 +6,7 @@ The renderer consumes only an SVModule, a comment label and a layout count.
 The latter separates declaration lines from assignments for blank-line layout;
 both portions are checked against their AST constructors. It is not another
 IR emitter. Identifier legality and the interpretation of text as SV grammar
-remain separate from the byte-equality theorem.
+are established separately in `ShippingSyntaxSoundness`.
 -/
 namespace Tools.ShippingModulePrintSoundness
 

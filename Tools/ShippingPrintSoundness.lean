@@ -73,8 +73,8 @@ def renderBin : SVBinOp → Option String
 
 /-- A deliberately small, total AST renderer. Unsupported forms fail. -/
 def renderExpr : SVExpr → Option String
-  | .lit (.decimal (some w) v) => some s!"{w}'d{v}"
-  | .lit (.hex (some w) v) => some s!"{w}'h{String.ofList (Nat.toDigits 16 v)}"
+  | .lit (.decimal (some w) v) => if w = 0 then none else some s!"{w}'d{v}"
+  | .lit (.hex (some w) v) => if w = 0 then none else some s!"{w}'h{String.ofList (Nat.toDigits 16 v)}"
   | .ident n => some n
   | .binary op a b => do
     let tok ← renderBin op
@@ -109,18 +109,19 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
       renderExpr sv = some (Sparkle.Backend.Verilog.emitExpr wof e) := by
   induction h with
   | const v w =>
+    have hw : (if w = 0 then 1 else w) ≠ 0 := by split <;> simp_all
     cases v with
     | ofNat v =>
       refine ⟨.lit (.decimal (some (if w == 0 then 1 else w)) v), ?_, ?_⟩
       · simp [emitAstExpr]
-      · simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, Int.repr]
+      · simp [renderExpr, hw, Sparkle.Backend.Verilog.emitExpr, Int.repr]
         intro hneg; omega
     | negSucc v =>
       have hn : Int.negSucc v < 0 := by omega
       refine ⟨.lit (.hex (some (if w == 0 then 1 else w))
         (encodeConst (Int.negSucc v) (if w == 0 then 1 else w))), ?_, ?_⟩
       · simp [emitAstExpr, hn]
-      · simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, hn, encodeConst]
+      · simp [renderExpr, hw, Sparkle.Backend.Verilog.emitExpr, hn, encodeConst]
   | ref x => exact ⟨.ident _, rfl, by simp [renderExpr, Sparkle.Backend.Verilog.emitExpr]⟩
   | @bin op a b hop _ _ ia ib =>
     obtain ⟨sa, hsa, hra⟩ := ia
@@ -136,12 +137,13 @@ theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :
       renderExpr sv = some (Sparkle.Backend.Verilog.emitExpr wof e) := by
   induction h with
   | @const v w h0 hlt =>
+    have hw : (if w = 0 then 1 else w) ≠ 0 := by split <;> simp_all
     have hn : ¬ v < 0 := by omega
     refine ⟨.lit (.decimal (some (if w == 0 then 1 else w)) v.toNat), ?_, ?_⟩
     · simp [emitAstExpr, hn]
     · cases v with
       | ofNat v =>
-        simp [renderExpr, Sparkle.Backend.Verilog.emitExpr, Int.repr]
+        simp [renderExpr, hw, Sparkle.Backend.Verilog.emitExpr, Int.repr]
         intro hneg
         omega
       | negSucc v => omega

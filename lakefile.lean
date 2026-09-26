@@ -389,6 +389,9 @@ lean_lib «Tools.ShippingAssignmentOrder» where
 lean_lib «Tools.ShippingTranslationOrder» where
   roots := #[`Tools.ShippingTranslationOrder]
 
+lean_lib «Tools.ShippingSyntaxSoundness» where
+  roots := #[`Tools.ShippingSyntaxSoundness]
+
 lean_lib «Tools.ShippingSettledSoundness» where
   roots := #[`Tools.ShippingSettledSoundness]
 
