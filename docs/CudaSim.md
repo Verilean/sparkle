@@ -122,9 +122,10 @@ bit widths. Re-run the command for each desired width; the generated CUDA ABI
 and state layout are concrete for that configuration.
 
 There is intentionally no `#writeParameterizedCudaIntraDesign` command yet.
-Native retained-width synthesis currently supports combinational modules only
-and rejects registers, memories, and `.inst` statements, while the intra
-backend requires a hierarchical top containing `.inst` statements. The
+Native retained-width synthesis supports registers (and `circuit do`) but
+still rejects memories and `.inst` statements, while the intra backend
+requires a hierarchical top containing `.inst` statements — a parameterized
+top would need per-instance parameter overrides, which the IR does not encode. The
 `toCudaIntraDesignWithParameters` IR API is still useful for a hand-built
 retained-parameter `Design`; it specializes first and then applies all normal
 intra-backend restrictions.

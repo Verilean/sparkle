@@ -660,6 +660,37 @@ def eliminateZeroBits (m : Module) : Module :=
   let wires' := m.wires.filter (·.ty.bitWidth > 0)
   { m with body := body', wires := wires' }
 
+/-- 0-bit elimination for modules that keep symbolic (parameter) widths,
+    where the full optimizer cannot run.  Only wires whose width is
+    concretely zero are touched: they are dropped from concatenations, and
+    their declarations and assignments are removed.  Without this a
+    `circuit do` state packed as `BitVec W × Unit` would concatenate a
+    placeholder bit into a W-bit wire. -/
+partial def eliminateZeroBitsSymbolic (m : Module) : Module :=
+  let zero : Std.HashSet String := (m.wires ++ m.inputs ++ m.outputs).foldl
+    (fun acc p => if p.ty.bitWidth? == some 0 then acc.insert p.name else acc) {}
+  if zero.isEmpty then m else
+  let isZero : Expr → Bool
+    | .ref n => zero.contains n
+    | .const _ 0 => true
+    | _ => false
+  let rec clean : Expr → Expr
+    | .op o args => .op o (args.map clean)
+    | .concat args =>
+      match (args.map clean).filter (!isZero ·) with
+      | [] => .const 0 0
+      | [x] => x
+      | xs => .concat xs
+    | .slice e hi lo => .slice (clean e) hi lo
+    | .sliceDim e hi lo => .sliceDim (clean e) hi lo
+    | .index a i => .index (clean a) (clean i)
+    | e => e
+  let body := m.body.filterMap fun
+    | .assign lhs rhs => if zero.contains lhs then none else some (.assign lhs (clean rhs))
+    | .register o c r i v => some (.register o c r (clean i) v)
+    | st => some st
+  { m with body, wires := m.wires.filter (!zero.contains ·.name) }
+
 /-- Resolve a wire name through the CSE substitution map, following
     chains (`w2 → w1 → w0`).  Chains are acyclic by construction —
     a wire only enters the map when its defining statement is
