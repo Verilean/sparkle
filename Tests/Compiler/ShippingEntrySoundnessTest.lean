@@ -330,6 +330,16 @@ A hand-built module claiming to optimise `fragA`'s module but computing
 unoptimised module). And on the real module the real optimizer's result is
 accepted. -/
 run_cmd liftTermElabM do
+  for decl in [``fragA, ``fragB, ``fragC, ``fragD, ``dupLit] do
+    let (m, _) ← synthesizeCombinational decl
+    let o := Sparkle.IR.Optimize.optimizeModule m
+    unless Sparkle.IR.OptCheck.assignmentOrderCheck m.body do
+      throwError "unordered synthesis body: {decl}"
+    if Sparkle.IR.OptCheck.optCheck m o then
+      unless Sparkle.IR.OptCheck.assignmentOrderCheck o.body do
+        throwError "new order check rejects previously accepted optimization: {decl}"
+      unless Sparkle.IR.OptCheck.checkedOptimize m == o do
+        throwError "optimizer selection failed: {decl}"
   let (m, _) ← synthesizeCombinational ``fragA
   let o := Sparkle.IR.Optimize.optimizeModule m
   unless Sparkle.IR.OptCheck.optCheck m o do

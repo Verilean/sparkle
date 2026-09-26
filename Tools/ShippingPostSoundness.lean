@@ -1156,4 +1156,22 @@ theorem synthesizeCombinational_settled {declName : Name} {mctx : Meta.Context}
   exact ⟨ha, env, hev', hout, hq, hx,
     fun other hq' hx' => equations_unique ha hq' hx' hq hx⟩
 
+/-- The returned body is ordered independently of a particular input valuation.
+Zero signals instantiate the entry theorem only to extract this structural fact. -/
+theorem synthesized_order {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n) : Acyclic m.body := by
+  obtain ⟨m0, d0, w1, hcore, hm⟩ := synthesizeCombinational_reads h
+  obtain ⟨port, _, _, hs⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨env, _, _, hpr, _⟩ := hs
+    (dom := Sparkle.Core.Domain.defaultDomain)
+    (fun _ => Sparkle.Core.Signal.Signal.pure 0) 0 (fun _ _ => 0) (fun _ => 0)
+    (by intros; rfl)
+  exact postprocess_order hn hpr hm
+
 end Tools.ShippingPostSoundness

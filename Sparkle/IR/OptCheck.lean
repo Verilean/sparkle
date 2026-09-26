@@ -114,13 +114,26 @@ def simpleBody (m : Module) : Bool :=
     | .assign _ r => simpleRhs r
     | _ => false
 
+/-- Topological, single-assignment order for combinational bodies. External
+names are permitted; targets cannot read themselves or be assigned again.
+This structural check is proved equivalent to Acyclic in the proof layer. -/
+def assignmentOrderCheck : List Stmt → Bool
+  | [] => true
+  | .assign l r :: rest =>
+    let later := Sparkle.IR.Reorder.writesOf rest
+    !later.contains l &&
+      (Sparkle.IR.Reorder.refsOf r).all (fun x => x != l && !later.contains x) &&
+      assignmentOrderCheck rest
+  | _ => false
+
 /-- `optimizeModule`, result-checked on modules of simple shape: there the
-optimised module is kept only if `optCheck` accepts it, else the input module
+optimised module is kept only if `optCheck` and the assignment-order check
+accept it, else the input module
 is returned unoptimised. Other modules get `optimizeModule` unchanged. -/
 def checkedOptimize (m : Module) : Module :=
   let o := Sparkle.IR.Optimize.optimizeModule m
   if simpleBody m then
-    if optCheck m o then o else m
+    if optCheck m o && assignmentOrderCheck o.body then o else m
   else o
 
 end Sparkle.IR.OptCheck

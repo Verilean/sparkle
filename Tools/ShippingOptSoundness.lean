@@ -305,7 +305,7 @@ theorem checkedOptimize_sound {m : Sparkle.IR.AST.Module} (hgate : simpleBody m 
   simp only [hgate, if_true]
   split
   · rename_i hchk
-    exact optCheck_sound hchk hins hevM
+    exact optCheck_sound (Bool.and_eq_true_iff.mp hchk).1 hins hevM
   · exact ⟨envM, hevM, fun _ _ => rfl, rfl, rfl⟩
 
 theorem optCheck_ports {m o : Sparkle.IR.AST.Module} (h : optCheck m o = true) :
@@ -323,7 +323,7 @@ theorem checkedOptimize_ports {m : Sparkle.IR.AST.Module} (hgate : simpleBody m 
   unfold checkedOptimize
   simp only [hgate, if_true]
   split
-  · rename_i hc; exact optCheck_ports hc
+  · rename_i hc; exact optCheck_ports (Bool.and_eq_true_iff.mp hc).1
   · exact ⟨rfl, rfl⟩
 
 set_option maxRecDepth 4096 in

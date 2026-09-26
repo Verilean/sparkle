@@ -378,19 +378,23 @@ example {wof env} {a b : Tools.SVParser.EmitSem.CombStep} :
 #print axioms Tools.ShippingSettledSoundness.compiledFragment_settled
 ```
 
-There is an important unfinished connection: `compiledFragment_settled`
-currently takes `Acyclic (checkedOptimize m).body` as an **additional
-hypothesis**. Shipping success has not yet been proved to imply it. The
-existing optimizer check is insufficient by itself: it can accept an unused
-forward dependency while correctly preserving the output's sequential value.
-That is a counterexample to relying on the check alone, not evidence that the
-actual optimizer emits such a body. The next proof must carry ordering through
-translation, cleanup, merging and optimizer selection.
+The ordering connection is now closed for the supported fragment:
+`compiledFragment_settled` **does not ask the caller for an acyclicity
+hypothesis**. Translation and post-processing establish order, and shipping
+optimizer selection checks it before accepting the optimized module. These
+are connected to the same successful compilation run.
 
-Thus this establishes unique two-state equation solutions conditionally; it
-does not yet certify a simulator's event scheduling, delays or four-state
-SystemVerilog behavior. The earlier `plus8_sv_correct` theorem has not acquired
-the new hypothesis: its conclusion remains the established in-order result.
+Why check optimizer order separately? The output-equivalence check can accept
+an unused forward dependency while preserving the sequential output value.
+That is a counterexample to the check's sufficiency, not evidence that the
+actual optimizer emits such a body. The new acceptance condition rejects such
+proposals and retains the original ordered module.
+
+The conclusion is a unique bounded two-state equation solution whose output
+is the source value, together with the connection to the actual rendered
+artifact. It does not certify a simulator's event scheduling, delays or
+four-state SystemVerilog behavior. The quoted fragment and `EnvDefines`
+remain explicit conditions.
 
 The first part of deriving the ordering condition now follows the actual
 translator. `ShippingTranslationOrder.OrderInv` says the builder's reversed
@@ -451,9 +455,13 @@ has a unique simultaneous solution with the source output. The branch that
 skips merging is covered too. This proof reuses the existing validator;
 it introduces no new runtime check.
 
-Optimizer selection still needs an order-preservation proof before the final
-SV theorem can drop its `Acyclic` hypothesis. Preserving the sequentially
-computed output alone is insufficient, as the counterexample above shows.
+Finally, `assignmentOrderCheck_iff` proves that the shipping order check
+exactly characterizes `Acyclic`. The selected optimization must pass both
+the existing semantic check and this order check; otherwise shipping returns
+the already-proved original module. Thus `checkedOptimize_order` handles
+both outcomes. This is what removes the last caller-supplied order condition
+from `compiledFragment_settled`: no separate ordering certificate is needed
+for each circuit.
 
 The remaining boundaries are concrete:
 
@@ -468,7 +476,8 @@ The remaining boundaries are concrete:
   internal states, register initialization, or reset.
 - **Text interpretation and execution.** Every evaluator width now comes
   from the AST declarations. Unique simultaneous solutions are proved under
-  `Acyclic`; deriving that condition from shipping success remains open.
+  the supported shipping success conditions, with assignment order derived
+  internally.
   Recognizing the rendered text and connecting to a concurrent RTL execution
   model remain distinct obligations.
 
@@ -494,7 +503,9 @@ run_cmd do
       ``Tools.ShippingPendingSoundness.translateExprToWire_settled,
       ``Tools.ShippingEntrySoundness.fragmentDecl_core_settled,
       ``Tools.ShippingPostSoundness.dropZeroWidth_entry_order,
-      ``Tools.ShippingPostSoundness.synthesizeCombinational_settled] do
+      ``Tools.ShippingPostSoundness.synthesizeCombinational_settled,
+      ``Tools.ShippingSettledSoundness.assignmentOrderCheck_iff,
+      ``Tools.ShippingSettledSoundness.checkedOptimize_order] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"

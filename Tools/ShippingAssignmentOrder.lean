@@ -1,4 +1,5 @@
 import Sparkle.IR.ReorderInvariance
+import Sparkle.IR.OptCheck
 
 /-! # Ordered IR assignments and simultaneous equations
 
@@ -94,5 +95,31 @@ theorem equations_perm {we body body' env} (hp : body.Perm body') :
   constructor
   · exact fun h l r hm => h l r (hp.mem_iff.mpr hm)
   · exact fun h l r hm => h l r (hp.mem_iff.mp hm)
+
+/-- The shipping acceptance check exactly characterizes ordered assignments. -/
+theorem assignmentOrderCheck_iff (body : List Stmt) :
+    Sparkle.IR.OptCheck.assignmentOrderCheck body = true ↔ Acyclic body := by
+  induction body with
+  | nil => simp [Sparkle.IR.OptCheck.assignmentOrderCheck]; exact .nil
+  | cons st rest ih =>
+    cases st with
+    | assign l r =>
+      simp only [Sparkle.IR.OptCheck.assignmentOrderCheck, Bool.and_eq_true,
+        Bool.not_eq_true', List.all_eq_true, bne_iff_ne, ih]
+      simp only [List.contains_eq_mem, decide_eq_false_iff_not]
+      constructor
+      · rintro ⟨⟨ht, hr⟩, ha⟩; exact .cons ht hr ha
+      · intro ha; cases ha with | cons ht hr ha => exact ⟨⟨ht, hr⟩, ha⟩
+    | _ => constructor <;> intro h <;> cases h
+
+theorem checkedOptimize_order {m : Sparkle.IR.AST.Module}
+    (hg : Sparkle.IR.OptCheck.simpleBody m = true) (ha : Acyclic m.body) :
+    Acyclic (Sparkle.IR.OptCheck.checkedOptimize m).body := by
+  unfold Sparkle.IR.OptCheck.checkedOptimize
+  simp only [hg, if_true]
+  split
+  · rename_i hc
+    exact (assignmentOrderCheck_iff _).mp (Bool.and_eq_true_iff.mp hc).2
+  · exact ha
 
 end Tools.ShippingSettledSoundness

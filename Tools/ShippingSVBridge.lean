@@ -380,6 +380,7 @@ theorem checkedOptimize_printCheck {m : Sparkle.IR.AST.Module}
   simp only [hg, if_true]
   split
   · rename_i ho
+    have ho := (Bool.and_eq_true_iff.mp ho).1
     have ho := (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp ho).2).2
     have ho : Sparkle.IR.PrintCheck.moduleCheck (Sparkle.IR.Optimize.optimizeModule m) = true ∧
         Sparkle.IR.PrintCheck.inputWidthsAgree m (Sparkle.IR.Optimize.optimizeModule m) = true := by simpa [hc] using ho
@@ -455,6 +456,7 @@ theorem checkedOptimize_inputWidths {m : Sparkle.IR.AST.Module}
   simp only [hg, if_true]
   split
   · rename_i ho
+    have ho := (Bool.and_eq_true_iff.mp ho).1
     have ho := (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp ho).2).2
     have ho : Sparkle.IR.PrintCheck.moduleCheck (Sparkle.IR.Optimize.optimizeModule m) = true ∧
         Sparkle.IR.PrintCheck.inputWidthsAgree m (Sparkle.IR.Optimize.optimizeModule m) = true := by simpa [hc] using ho

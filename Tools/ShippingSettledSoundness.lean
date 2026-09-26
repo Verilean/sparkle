@@ -132,8 +132,8 @@ theorem module_settled {m : Sparkle.IR.AST.Module} {sv : SVModule} {we : WEnv}
       (by simpa only [htargets, ExternalValues] using hso.2) heq hframe
 
 /-- The shipping source theorem strengthened to simultaneous equations.
-Acyclicity of the returned optimized body is the one NEW, explicit obligation;
-it is not yet derived from shipping success. All previous scope conditions
+The assignment order of the selected optimized body follows from the actual
+synthesis run and the shipping acceptance check. All previous scope conditions
 and the environment identity assumption remain unchanged. -/
 theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
@@ -142,8 +142,7 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
     {fe : FExpr}
     (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
     (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
-    (hwf : fe.WF names.length n) (hn : 0 < n)
-    (ha : Acyclic (checkedOptimize m).body) :
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
     let o := checkedOptimize m
     ∃ (sv : SVModule) (port : Nat → Option String) (pairs : List CombStep),
       emitAstModule o = some sv ∧
@@ -169,6 +168,8 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
             SVSolution (astWidths sv) pairs initial other → other = env := by
   obtain ⟨sv, port, pairs, ht, htext, hi, hd, hex, hdecl, houtWidth, hsem⟩ :=
     compiledFragment_astWidths h henv hwf hn
+  have ha := checkedOptimize_order (synthesized_printFacts h henv hwf hn).2
+    (Tools.ShippingPostSoundness.synthesized_order h henv hwf hn)
   have hwidth := compiled_astWidths h henv hwf hn ht
   have hc := (forwardCheck_sound (compiled_forwardCheck h henv hwf hn
     (synthesized_names h henv hwf hn))).2

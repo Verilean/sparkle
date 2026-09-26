@@ -209,6 +209,7 @@ theorem checkedOptimize_printShape {m : Sparkle.IR.AST.Module} (hgate : simpleBo
   split
   · rename_i hc
     have hc := (Bool.and_eq_true_iff.mp hc).1
+    have hc := (Bool.and_eq_true_iff.mp hc).1
     unfold optCheckCore at hc
     dsimp only at hc
     split at hc

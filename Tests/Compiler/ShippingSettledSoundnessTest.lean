@@ -1,5 +1,6 @@
 import Tools.ShippingPendingSoundness
 import Tools.ShippingSettledSoundness
+import Tests.Compiler.ShippingEntrySoundnessTest
 
 namespace Sparkle.Tests.Compiler.ShippingSettledSoundnessTest
 open Lean Elab Command
@@ -75,6 +76,12 @@ def candidate : Sparkle.IR.AST.Module :=
     .assign "x" (.ref "y"), .assign "y" (.const 1 8)]}
 
 #guard optCheck original candidate
+-- Output-equivalence alone accepts this proposal; shipping selection now rejects it.
+#guard !(optCheck original candidate && assignmentOrderCheck candidate.body)
+#guard !assignmentOrderCheck [.assign "x" (.ref "x")]
+#guard !assignmentOrderCheck [.assign "x" (.const 0 8), .assign "x" (.const 1 8)]
+#guard assignmentOrderCheck ordered
+#guard assignmentOrderCheck afterMerge
 
 theorem candidate_not_acyclic : ¬ Acyclic candidate.body := by
   intro h
@@ -167,15 +174,45 @@ example (ctx : CompilerState) : ¬ Protected ctx (fun _ => none) cachedParent "r
   exact hp.unrecorded literalExpr 8 (7#8)
     (by simp [cachedParent]) (Denotes.pureLit rfl rfl rfl)
 
+open Sparkle.Tests.Compiler.ShippingEntrySoundnessTest
+open Tools.ShippingEntrySoundness Tools.ShippingDeclWidths
+open Sparkle.Compiler.Elab
+
+/-- Apply the final source-to-emitted-equations theorem to the real fragA.
+There is no caller-supplied assignment order or per-circuit certificate. -/
+theorem fragA_final_settled {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {m : Sparkle.IR.AST.Module} {d : Design}
+    (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
+    ∃ sv port pairs,
+      Tools.SVParser.EmitAst.emitAstModule (checkedOptimize m) = some sv ∧
+      Tools.ShippingSVBridge.combItems sv.items = some pairs ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (a b : Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
+        let initial := Tools.ShippingSVBridge.inputEnv 2 port
+          (fun j => (sigsOf [a, b] j).val t)
+        ∃ env, SVSolution (astWidths sv) pairs initial env ∧
+          env "out" = ((fragA a b).val t).toNat ∧
+          ∀ other, Bounded (fun x => (astWidths sv x).getD 0) other →
+            SVSolution (astWidths sv) pairs initial other → other = env := by
+  rw [fragAValue_eq] at henv
+  obtain ⟨sv, port, pairs, ht, _, hi, _, _, _, _, hs⟩ :=
+    compiledFragment_settled h henv feA_wf (by decide)
+  refine ⟨sv, port, pairs, ht, hi, fun a b t => ?_⟩
+  obtain ⟨_, env, _, hv, _, he, hu⟩ := hs (sigsOf [a, b]) t (fun _ _ => 0)
+  exact ⟨env, he, hv, hu⟩
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "settled semantics regression failed"
-  for name in [``checked_merge_order,
+  for name in [``fragA_final_settled, ``Tools.ShippingPostSoundness.synthesized_order,
+      ``assignmentOrderCheck_iff, ``checkedOptimize_order, ``checked_merge_order,
       ``Tools.ShippingPostSoundness.validateStep_order,
       ``Tools.ShippingPostSoundness.validateMerge_go_order,
       ``Tools.ShippingPostSoundness.validateMerge_order,
       ``Tools.ShippingPostSoundness.mergeDuplicates_order,
       ``Tools.ShippingPostSoundness.postprocess_order,
-      ``Tools.ShippingPostSoundness.synthesizeCombinational_settled,``assign_frame, ``assign_equations, ``equations_eval, ``equations_unique,
+      ``Tools.ShippingPostSoundness.synthesizeCombinational_settled, ``assign_frame, ``assign_equations, ``equations_eval, ``equations_unique,
       ``equations_perm, ``equations_emitted_iff, ``emitted_targets, ``svEquations_perm,
       ``module_settled, ``compiledFragment_settled, ``ordered_solution,
       ``candidate_not_acyclic, ``candidate_not_settled,
@@ -189,6 +226,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected settled-semantics axiom: {name}: {ax}"
-  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; core entry and output ordering connected; checked merging ordering proved; optimizer ordering remains open"
-  logInfo "SHIPPING SETTLED OK: ordered emitted assignments have a unique bounded simultaneous solution; shipping acyclicity remains an explicit obligation; standard axioms only"
+  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; core entry and output ordering connected; checked merging ordering proved; optimizer selection now checks order"
+  logInfo "SHIPPING SETTLED OK: ordered emitted assignments have a unique bounded simultaneous solution; shipping acyclicity is derived from success and checked optimizer selection; standard axioms only"
 end Sparkle.Tests.Compiler.ShippingSettledSoundnessTest

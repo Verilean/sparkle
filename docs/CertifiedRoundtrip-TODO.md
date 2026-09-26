@@ -1825,6 +1825,46 @@ rejections of forward/self-reference proposals, actual-entry application,
 standard-axiom audit, English executable tutorial, `lake build`, and `lake test`.
 This is a proof-only change; no corpus or performance measurement is claimed.
 
+**2026-09-26 optimizer selection connected — final order premise discharged:**
+The shipping `checkedOptimize` now requires `assignmentOrderCheck o.body` in
+addition to its existing `optCheck m o` before accepting a proposal on the
+simple-body route. Rejected proposals return the original module as before;
+other routes still use the unchecked optimizer. The structural checker permits
+external reads, rejects duplicate targets, self-reads and forward dependencies,
+and is proved equivalent to `Acyclic` by `assignmentOrderCheck_iff`.
+`checkedOptimize_order` therefore covers accepted and fallback branches.
+This certifies result selection, not the implementation of each optimizer pass.
+
+`synthesized_order` derives order from the same successful synthesis run and
+its environment/fragment conditions. `compiledFragment_settled` now consumes
+this fact and the optimizer-selection theorem internally: its former
+`Acyclic (checkedOptimize m).body` hypothesis is REMOVED. The theorem combines
+actual text rendering, declared AST widths, source input initialization, output
+observation and a unique bounded simultaneous two-state solution for the
+emitted assignments. `fragA_final_settled` applies it to the real declaration
+without an order hypothesis or a circuit-specific semantic certificate.
+
+The remaining boundaries have not disappeared: `EnvDefines`, the quoted
+positive-width combinational fragment, complete lexical validity and text
+interpretation, and external RTL scheduling/four-state behavior. Other accepted
+handlers, registers, memories, hierarchy and larger language coverage remain
+outside this theorem. This is the completion of the assignment-order connection
+for the fragment, not a whole-language CompCert claim.
+
+Tests retain the old counterexample: `optCheck` alone accepts the unused forward
+dependency, but the new combined acceptance rejects it. Self-reference and
+duplicate targets are rejected too. Real fragA/B/C/D and dupLit optimizations
+that the old policy accepts still pass the added check. The final theorem and
+its real-declaration application are audited for standard axioms only.
+
+Validation: the 119-file synthesis sweep compared the old selection expression
+(`optCheck` only) with the new shipping selection in the same process. All
+298 emitted modules were byte-identical. File exit statuses matched the prior
+sweep, including the existing failures in VerifyVerilog and TestErrorDetection;
+this is not a claim that all 119 files passed. Entry/settled tests, executable
+English tutorial, `lake build` and `lake test` pass. No new performance estimate
+is inferred from this run.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

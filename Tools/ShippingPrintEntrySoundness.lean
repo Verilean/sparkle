@@ -53,6 +53,7 @@ theorem checkedOptimize_printDecls {m : Sparkle.IR.AST.Module}
   simp only [hgate, if_true]
   split
   · rename_i hc
+    have hc := (Bool.and_eq_true_iff.mp hc).1
     have hc := (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp hc).2).1
     rw [(printDeclsCheck_iff m).mpr hp] at hc
     simp only [Bool.not_true, Bool.false_or] at hc
