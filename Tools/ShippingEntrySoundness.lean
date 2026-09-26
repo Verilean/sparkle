@@ -1,4 +1,4 @@
-import Tools.ShippingTranslateSoundness
+import Tools.ShippingPendingSoundness
 
 /-! # Synthesis success and semantic preservation at the ENTRY
 
@@ -13,6 +13,8 @@ synthesis entry `synthesizeCombinationalCore`, for declarations of the form
 
 Main results (standard axioms only, audited in the test):
 
+* `fragmentDecl_core_settled` — the core body has a unique simultaneous
+  solution with the source output, with assignment order derived from the run.
 * `synthesizeCombinationalCore_reads` — a run of the real entry executes
   `getConstInfo declName` in the SAME contexts and state references
   (`RunsTo`) and then `synthesizeFromConst … ci` on the constant it read.
@@ -614,7 +616,8 @@ def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
     ((ShapedRhs r ∧ ({ name := l, ty := .bitVector n } : Port) ∈ M.wires) ∨
      (l = "out" ∧ ∃ w, r = .ref w))) ∧
   (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }]) ∧ DeclReady M ∧
-  (∀ l r, Stmt.assign l r ∈ M.body → SizedExpr (weOf M) r n)
+  (∀ l r, Stmt.assign l r ∈ M.body → SizedExpr (weOf M) r n) ∧
+  Tools.ShippingSettledSoundness.Acyclic M.body
 
 /-- What synthesis success guarantees for a certified-shape declaration:
 distinct input ports for the `Signal` binders, and for ALL binder values, the
@@ -734,7 +737,9 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       · intro w' e' he
         rw [hs1r] at he; simp at he
       · rw [hs1b]; intro l r hr; cases hr
-    obtain ⟨env1, hinv1, -, -, hwn, hval⟩ := translateExprToWire_sound hden htr hinv hwid
+    have horder := Tools.ShippingPendingSoundness.translateExprToWire_orders
+      _ _ _ _ _ _ _ _ _ hden htr hinv hwid (Tools.ShippingTranslationOrder.OrderInv.empty hs1b)
+    obtain ⟨env1, hinv1, -, hreserved, hwn, hval⟩ := translateExprToWire_sound hden htr hinv hwid
     refine ⟨fun n => if n = "out" then env1 w else env1 n, ?_, by simp [hval], hMo, ?_, ?_, ?_⟩
     · rw [hMb]
       have hpre : evalAssigns (weOf M) mems
@@ -751,7 +756,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       cases hp'
       exact hMi _ (gi _ hin)
     · obtain ⟨hout2, -, pre, hbody2, hpre⟩ := hemit
-      refine ⟨?_, ?_, ?_, ?_, ?_, ?_⟩
+      refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
       · rw [hMw, List.map_reverse]; exact nodup_reverse hok2.1
       · intro hm
         rw [hMw, List.map_reverse, List.mem_reverse] at hm
@@ -821,6 +826,21 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
           cases heq
           have hlw := hwid ({name := l, ty := .bitVector n} : Port) hl n rfl
           simpa only [hlw] using hsz
+      · have houtPending : "out" ∉ Tools.ShippingTranslationOrder.footprint s2.module.body := by
+          intro hm
+          have := horder.2 "out" hm
+          rw [hfresh] at this
+          cases this
+        have hwo : w ≠ "out" := by
+          intro heq
+          rw [heq, hfresh] at hreserved
+          cases hreserved
+        rw [hMb]
+        change Tools.ShippingSettledSoundness.Acyclic st.module.body.reverse
+        rw [hst_b, List.reverse_cons]
+        exact Tools.ShippingTranslationOrder.acyclic_snoc horder.1
+          (fun hm => houtPending ((Tools.ShippingTranslationOrder.footprint_reverse_mem _ _).mp hm))
+          (by simpa [Sparkle.IR.Reorder.refsOf] using Ne.symm hwo)
     · obtain ⟨-, hin2, pre, hbody2, hpre⟩ := hemit
       -- no registers: no clock/reset ports, so the inputs are the binder ports
       have hall : ∀ stm ∈ st.module.body, ∃ l r, stm = Stmt.assign l r := by
@@ -1525,6 +1545,39 @@ theorem fragmentDecl_of_env {declName : Name} {mctx : Meta.Context}
   obtain ⟨ci, w1, w2, hget, hci⟩ := fragmentDecl_sound_signal h
   obtain ⟨d, hcid, hv⟩ := henv w1 ci w2 hget
   exact hci d dn names n fe hcid hv hwf
+
+/-- The actual synthesis core yields a unique simultaneous IR solution on the
+supported fragment, including its final output assignment. The environment
+boundary is unchanged. No assignment-order premise is supplied by the caller;
+post-processing and optimization are not part of this core theorem. -/
+theorem fragmentDecl_core_settled {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinationalCore declName [] false) mctx mref cctx cref w (M, D) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) :
+    ∃ port : Nat → Option String,
+      (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
+      (∀ j, j < names.length → ∃ w, port j = some w) ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (initial : Env),
+        (∀ j w, j < names.length → port j = some w → initial w = ((sigs j).val t).toNat) →
+        Tools.ShippingSettledSoundness.Acyclic M.body ∧
+        ∃ env, Tools.ShippingSettledSoundness.IREquations (weOf M) M.body env ∧
+          Tools.ShippingSettledSoundness.ExternalValues M.body initial env ∧
+          env "out" = ((denoteFE n sigs fe).val t).toNat ∧
+          ∀ other, Tools.ShippingSettledSoundness.IREquations (weOf M) M.body other →
+            Tools.ShippingSettledSoundness.ExternalValues M.body initial other → other = env := by
+  obtain ⟨port, hd, hex, hsem⟩ := fragmentDecl_of_env h henv hwf
+  refine ⟨port, hd, hex, fun sigs t initial hi => ?_⟩
+  obtain ⟨env, he, hv, hp, _⟩ := hsem sigs t (fun _ _ => 0) initial hi
+  have ha := hp.2.2.2.2.2.2
+  have hq := Tools.ShippingSettledSoundness.assign_equations ha he
+  have hx := Tools.ShippingSettledSoundness.assign_frame ha he
+  exact ⟨ha, env, hq, hx, hv, fun other hq' hx' =>
+    Tools.ShippingSettledSoundness.equations_unique ha hq' hx' hq hx⟩
 
 /-! ## Naming a declaration's value in a theorem -/
 

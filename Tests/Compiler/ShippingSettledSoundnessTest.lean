@@ -1,4 +1,5 @@
 import Tools.ShippingPendingSoundness
+import Tools.ShippingSettledSoundness
 
 namespace Sparkle.Tests.Compiler.ShippingSettledSoundnessTest
 open Lean Elab Command
@@ -156,6 +157,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected settled-semantics axiom: {name}: {ax}"
-  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; entry/postprocessing/optimizer ordering remain open"
+  logInfo "SHIPPING TRANSLATOR ORDER OK: arbitrary nested canonical operators, inputs and literals preserve order at the real entry; recursion and pending-parent/cache protection proved; core entry and output ordering connected; merging/optimizer ordering remain open"
   logInfo "SHIPPING SETTLED OK: ordered emitted assignments have a unique bounded simultaneous solution; shipping acyclicity remains an explicit obligation; standard axioms only"
 end Sparkle.Tests.Compiler.ShippingSettledSoundnessTest

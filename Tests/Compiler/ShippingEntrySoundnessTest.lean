@@ -94,6 +94,30 @@ theorem fragA_text_render {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta
 
 theorem feA_wf : feA.WF 2 8 := by simp [feA, FExpr.WF]
 
+/-- A real declaration uses the general core theorem; no per-circuit SAT
+certificate or caller-supplied assignment order is involved. -/
+theorem fragA_core_settled {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {M : Sparkle.IR.AST.Module} {D : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinationalCore ``fragA [] false) mctx mref cctx cref w (M, D) w')
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
+    ∃ port : Nat → Option String,
+      ∀ {dom : DomainConfig} (a b : Signal dom (BitVec 8)) (t : Nat)
+        (initial : Sparkle.IR.Semantics.Env),
+        (∀ j wire, j < 2 → port j = some wire →
+          initial wire = ((sigsOf [a, b] j).val t).toNat) →
+        Tools.ShippingSettledSoundness.Acyclic M.body ∧
+        ∃ env, Tools.ShippingSettledSoundness.IREquations
+            (Tools.ShippingEntrySoundness.weOf M) M.body env ∧
+          Tools.ShippingSettledSoundness.ExternalValues M.body initial env ∧
+          env "out" = ((fragA a b).val t).toNat ∧
+          ∀ other, Tools.ShippingSettledSoundness.IREquations
+              (Tools.ShippingEntrySoundness.weOf M) M.body other →
+            Tools.ShippingSettledSoundness.ExternalValues M.body initial other → other = env := by
+  rw [fragAValue_eq] at henv
+  obtain ⟨port, _, _, hs⟩ := fragmentDecl_core_settled h henv feA_wf
+  exact ⟨port, fun a b t initial hi => hs (sigsOf [a, b]) t initial hi⟩
+
 /-- **`fragA` and its IR agree on every input, after post-processing.** For any
 successful run of `synthesizeCombinational ``fragA` (the entry, then
 `dropZeroWidthModule`, then `mergeDuplicates` unless `SPARKLE_NO_REGDEDUP` is
@@ -310,7 +334,8 @@ run_cmd liftTermElabM do
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "entry regression failed"
-  for name in [``fragA_text_render, ``fragA_printed_correct, ``printedModule_fragment,
+  for name in [``fragA_core_settled, ``fragmentDecl_core_settled, ``dropZeroWidth_entry_order,
+      ``fragA_text_render, ``fragA_printed_correct, ``printedModule_fragment,
       ``Tools.ShippingPrintEntrySoundness.printedModule_render,
       ``Tools.ShippingPrintEntrySoundness.compiledFragment_artifact,
       ``Tools.ShippingPrintEntrySoundness.synthesized_printFacts,

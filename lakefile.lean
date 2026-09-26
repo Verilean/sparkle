@@ -383,6 +383,9 @@ lean_lib «Tools.ShippingSVBridge» where
 lean_lib «Tools.ShippingPendingSoundness» where
   roots := #[`Tools.ShippingPendingSoundness]
 
+lean_lib «Tools.ShippingAssignmentOrder» where
+  roots := #[`Tools.ShippingAssignmentOrder]
+
 lean_lib «Tools.ShippingTranslationOrder» where
   roots := #[`Tools.ShippingTranslationOrder]
 

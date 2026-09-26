@@ -244,7 +244,7 @@ theorem postReady_forwardCheck {m : Sparkle.IR.AST.Module} {n : Nat}
   apply uniform_forwardCheck ?_ hn (printWidths_out hpr hn hi hs) hs
   intro s hm
   obtain ⟨l, r, rfl, hc⟩ := hpr.2.2.1 s hm
-  refine ⟨l, r, rfl, hpr.2.2.2.2.2 l r hm, ?_⟩
+  refine ⟨l, r, rfl, hpr.2.2.2.2.2.1 l r hm, ?_⟩
   rcases hc with ⟨_, hl⟩ | ⟨hl, _⟩
   · exact Or.inl (Tools.ShippingPostSoundness.declWidth_of_mem hpr.1 hl)
   · exact Or.inr hl
@@ -605,7 +605,7 @@ theorem dropZeroWidth_sized {m : Sparkle.IR.AST.Module} {n : Nat}
       SizedExpr (Tools.ShippingEntrySoundness.weOf (Sparkle.IR.ZeroWidth.dropZeroWidthModule m)) r n := by
   obtain ⟨hb, hw, _⟩ := Tools.ShippingPostSoundness.dropZeroWidth_entry m n hn hpr
   rw [hb, hw]
-  exact hpr.2.2.2.2.2
+  exact hpr.2.2.2.2.2.1
 
 theorem evalAssigns_widths (body : List Stmt) (we we' : WEnv) (mems : MEnv)
     (hs : ∀ st ∈ body, ∃ l r, st = .assign l r ∧ PrintShape r)

@@ -933,6 +933,14 @@ theorem mergeDuplicates_sized {m : Sparkle.IR.AST.Module} {n : Nat}
     exact validateMerge_sized hv hs
   · exact hs
 
+/-- Zero-width cleanup leaves the positive-width entry body unchanged, so its
+simultaneous-equation order guarantee survives without another check. -/
+theorem dropZeroWidth_entry_order {m : Sparkle.IR.AST.Module} {n : Nat}
+    (hn : 0 < n) (hpr : PostReady m n) :
+    Tools.ShippingSettledSoundness.Acyclic (dropZeroWidthModule m).body := by
+  rw [(dropZeroWidth_entry m n hn hpr).1]
+  exact hpr.2.2.2.2.2.2
+
 theorem postprocess_sized {m m' : Sparkle.IR.AST.Module} {n : Nat}
     (hn : 0 < n) (hpr : PostReady m n)
     (hm : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
@@ -942,7 +950,7 @@ theorem postprocess_sized {m m' : Sparkle.IR.AST.Module} {n : Nat}
     rw [hb, hw]
     intro s hm
     obtain ⟨l, e, rfl, hshape⟩ := hpr.2.2.1 s hm
-    refine ⟨l, e, rfl, hpr.2.2.2.2.2 l e hm, ?_⟩
+    refine ⟨l, e, rfl, hpr.2.2.2.2.2.1 l e hm, ?_⟩
     rcases hshape with ⟨_, hl⟩ | ⟨hl, _⟩
     · exact Or.inl (declWidth_of_mem hpr.1 hl)
     · exact Or.inr hl

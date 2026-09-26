@@ -41,6 +41,7 @@ this fragment.
 
 ```lean
 import Tools.ShippingPendingSoundness
+import Tools.ShippingSettledSoundness
 
 open Lean Elab Command
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
@@ -424,9 +425,22 @@ Fuel induction closes the recursive hypotheses at the **actual entry**.
 results to arbitrary combinations of supported operators, inputs and literals.
 They do not ask the caller for a recursive theorem or a `Protected` premise.
 The translator's initial semantic/order invariants and final width agreement
-are still explicit. This does **not** yet discharge the whole-pipeline
-`Acyclic` hypothesis: entry initialization, output emission, cleanup, merging
-and optimization must carry the invariant through.
+are explicit at this lower-level boundary. They are now discharged by the
+synthesis core: its body starts empty, and its input construction supplies the
+semantic invariant and width agreement. When the final assignment is emitted,
+the result wire is reserved but the name `out` is not. Thus `out := w`
+neither reads itself nor overwrites an earlier wire.
+
+This yields `fragmentDecl_core_settled`: a successful run of the real
+`synthesizeCombinationalCore` on the supported fragment produces a unique
+simultaneous solution with the source value at `out`. The caller supplies no
+assignment-order premise. `EnvDefines` still ties the run's environment to
+the quoted source declaration. This is a general theorem, even when applied
+to a particular declaration such as `fragA`.
+
+Positive-width cleanup preserves this result's order because it leaves the
+body unchanged. Checked merging and optimizer selection must still preserve
+order before the final SV theorem can drop its `Acyclic` hypothesis.
 
 The remaining boundaries are concrete:
 
@@ -464,7 +478,9 @@ run_cmd do
   for name in [``plus8_artifact, ``plus8_forward_check, ``plus8_sv_correct,
       ``Tools.ShippingSettledSoundness.compiledFragment_settled,
       ``Tools.ShippingTranslationOrder.translateExprToWire_leaf_settled,
-      ``Tools.ShippingPendingSoundness.translateExprToWire_settled] do
+      ``Tools.ShippingPendingSoundness.translateExprToWire_settled,
+      ``Tools.ShippingEntrySoundness.fragmentDecl_core_settled,
+      ``Tools.ShippingPostSoundness.dropZeroWidth_entry_order] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"

@@ -1250,12 +1250,35 @@ show that a reserved, body-absent name with a meaningful cache record fails
 Validation: targeted tests, the executable English tutorial, `lake build` and
 `lake test` pass. All new audited proofs use only the three standard axioms.
 
-Integration note: before importing this proof into `ShippingEntrySoundness`,
-move the foundational `Acyclic`/IR-equation lemmas out of the downstream SV
-bridge and make `ShippingTranslationOrder` import that lower module plus
-`ShippingTranslateSoundness`. Its current transitive SV import would otherwise
-create an import cycle. Then use the already-constructed `hinv` and empty-body
-fact at `synthesizeCertified_sound` to derive order before output emission.
+**2026-09-26 synthesis core order — initialization and output connected:**
+The foundational IR assignment/equation theory now lives in
+`Tools/ShippingAssignmentOrder.lean` (same theorem namespace), removing the
+import cycle between translator order and the synthesis entry. In
+`synthesizeCertified_sound`, the empty initial body supplies `OrderInv`;
+the already-derived `Inv` and width agreement instantiate the recursive order
+theorem. The final `out := w` cannot read itself: the returned wire is reserved,
+while the actual output-name check establishes that `out` is not reserved.
+The footprint invariant likewise excludes `out` from all earlier reads/writes.
+
+`PostReady` now includes `Acyclic M.body`, derived at the actual core entry.
+`fragmentDecl_core_settled` gives a unique simultaneous IR solution whose
+output equals the Signal declaration at every cycle, with no caller-supplied
+order premise. It retains the same `EnvDefines`, quoted-fragment and input
+valuation boundaries. `fragA_core_settled` applies it to the real declaration;
+it does not perform a per-instance semantic certification.
+`dropZeroWidth_entry_order` transports order across positive-width cleanup,
+using the already-proved body identity.
+
+Remaining: prove order preservation of checked merging and optimizer selection,
+then remove the extra `Acyclic (checkedOptimize m).body` premise from the final
+SV theorem. The existing optimizer output-equivalence check alone does not
+imply order (the earlier accepted forward-reference counterexample still
+applies). No compiler behavior, supported fragment, lexical/text boundary or
+external RTL execution model changed in this step.
+
+Validation: entry/settled regressions and their standard-axiom audits, English
+executable tutorial, `lake build` and `lake test`. No compiler corpus or
+performance rerun is claimed for this proof-only change.
 
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
