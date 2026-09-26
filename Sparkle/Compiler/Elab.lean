@@ -4403,6 +4403,26 @@ def recordTranslation (e : Lean.Expr) (w : String) (cacheable : Bool) : Compiler
     if let some ref := (← CompilerM.getCompilerState).exprCache then
       CompilerM.liftMetaM (ref.modify (·.insert ⟨e⟩ w))
 
+/-- Bool library controls whose fallback translations use the validated cache.
+    Exact applications only: unrelated names and other forms keep their existing path. -/
+def isBoolControl : Lean.Expr → Bool
+  | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _)
+      (.const ``Bool _)) _ => true
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ult _) _) _) _) _ => true
+  | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) _) _ => true
+  | e => match canonicalMuxType? e with | some .bit => true | _ => false
+
+/-- The cache wrapper for Bool controls, exposed for simulation proofs. A miss
+    calls the uncached handler and records its result before returning it. -/
+def translateControlCachedWith (lower : TranslateFn) : TranslateFn :=
+  fun e hint top named => do
+    let cacheable := !named && !e.isFVar && !top
+    if cacheable then
+      if let some w ← cacheLookupValidated e then return w
+    let w ← lower e hint top named
+    recordTranslation e w cacheable
+    return w
+
 /-- The shapes `translateCore` handles (decides whether the validated lookup is
     tried before the core). -/
 def translateCoreShape (e : Lean.Expr) : Bool :=
@@ -4461,7 +4481,12 @@ def translateFuelFix (step : TranslateFn → TranslateFn) : Nat → TranslateFn
 
 /-- The existing handler chain (cache wrapper + dispatch) as the fallback. -/
 def translateFallback (rec : TranslateFn) : TranslateFn :=
-  fun e hint top named => Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
+  fun e hint top named =>
+    if isBoolControl e then
+      translateControlCachedWith
+        (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n)
+        e hint top named
+    else Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
 def translateStep : TranslateFn → TranslateFn := translateStepWith translateFallback
 

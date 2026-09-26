@@ -52,6 +52,44 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Bool source meanings and validated cache connected (2026-09-27)
+
+`Tools/ShippingBoolSourceSoundness.lean` gives Bool inputs, Bool constants,
+unsigned `Signal.ult`/`Signal.ule`, and nested Bool-result muxes a source
+semantics on the actual input `Lean.Expr`. Comparison operands use the existing
+BitVec fragment, including arithmetic and shifts. `BoolDenotes.det` proves
+uniqueness. The quoted `BExpr` grammar is tied to actual library Signal
+operations by `denoteB_val` and to the Expr relation by `denotesB_quote`.
+The arithmetic quotation lemma now also works under mixed input binders.
+
+The shipping fallback previously used the legacy unvalidated cache for these
+controls. Exact Bool controls now pass through `translateControlCachedWith`:
+it validates hits against `translateRecord` using the existing proved Expr
+equality check, and records successful uncached results on a miss. Other
+fallback forms retain their previous route. Metadata-stripped legacy lookup
+is not used for the recognized controls. `quotedBool_control` and
+`translateFallback_bool` connect this route to the quoted source forms.
+
+`BoolRecordOk.insert` and `.transfer` establish the Bool record invariant;
+`validatedQuotedBoolHit` returns the actual library Bool value encoded as one
+bit. `translateControlCachedWith_correct` composes both hit and miss behavior
+with assignment execution, conditional on the uncached lowering's simulation.
+These theorems require no lawfulness assumption about the mutable Expr cache:
+even an arbitrary candidate must pass the pure translation-record check.
+
+Still open: proving the uncached Bool/comparison handlers, maintaining the
+joint Bool/BitVec invariant through all recursive paths and binders, and
+connecting it to complete synthesis. The Bool record invariant is a component,
+not a claim that every handler maintains the full invariant. The source
+fragment of `compiledFragment_execution` remains unchanged.
+
+Validation checks the quotation against a real elaborated Bool-returning
+source, audits standard axioms, and exercises the actual shipping translator
+with valid, unrecorded and mismatched-record cache candidates. The generated
+RTL for `mux c (ult (a + b) b) (ule a b)` agrees on all 131,072 combinations
+of a Bool input and two 8-bit inputs in Icarus, including addition overflow.
+`lake build Tests.AllTests` passes (590 jobs).
+
 ## Canonical mux result-type oracle removed (2026-09-27)
 
 The shipping mux handler now uses `muxResultType`. For an exact fully applied
