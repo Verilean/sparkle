@@ -23,12 +23,18 @@ every proof-only change. Report regression status separately from proof progress
 ## Current proved endpoint (2026-09-27)
 
 For the quoted positive-width combinational fragment,
-`compiledFragment_settled` connects successful shipping synthesis and checked
-optimizer selection to the rendered artifact and the emitted AST's unique
-bounded simultaneous two-state solution. The output equals the source Signal
-value at every cycle. Assignment order is derived internally. Data declarations
-are unique; every assignment target and RHS reference is bound to a declaration.
-The module name satisfies the explicit simple-identifier/keyword contract.
+`compiledFragment_execution` connects successful shipping synthesis and checked
+optimizer selection to the complete output text and finite operational
+settling of its emitted AST. The adopted execution model uses two-state,
+zero-delay parallel delta rounds with fixed inputs. From any bounded internal
+initialization, a trace exists and every trace reaches the same stable state
+within the number of emitted assignments. Its output equals the source Signal
+value at each source observation time. Delta rounds are not source clock cycles.
+
+The supporting `compiledFragment_settled` theorem still supplies the unique
+bounded simultaneous solution. Assignment order is derived internally. Data
+declarations are unique, every assignment target and RHS reference is bound,
+and the module name satisfies the explicit simple-identifier/keyword contract.
 The entire actual output string derives that same AST in the independent
 `ConcreteSyntax.Module` grammar, including names, numerals, comments and layout.
 
@@ -38,11 +44,63 @@ is preservation on successful compilation, not acceptance of every possible
 source spelling. Ordinary accepted output names and RTL text are unchanged.
 
 This does not cover all successfully compiled Signal programs. `EnvDefines`,
-fragment coverage and operational RTL execution semantics remain explicit
-boundaries. The concrete grammar is an explicit SystemVerilog subset
-specification, not a verified implementation of an external parser. Module-name validity and
+fragment coverage and correspondence to an external RTL simulator remain
+explicit boundaries. Both the concrete grammar and delta execution model are
+explicit subset specifications. Arbitrary asynchronous event scheduling,
+X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
+
+## Finite operational settling connected (2026-09-27)
+
+**The execution connection is now proved for the adopted two-state,
+zero-delay, fixed-input delta-round model.** This strengthens the earlier
+simultaneous-equation result with progress and a finite convergence bound.
+It does not claim a theorem about every external simulator's scheduling rules.
+
+`Tools/ShippingDeltaSemantics.lean` defines `DeltaStep` directly on the emitted
+`CombStep` assignments using the existing width-aware `evalSV`. Every RHS reads
+the old environment; every destination receives its masked result in the next
+environment; undriven names retain their values. This is not the in-order fold:
+for `a = input; out = a`, a round can change `a` while `out` still contains the
+old `a`. `delta_perm` proves that reordering the assignment list leaves the
+step relation unchanged. `delta_fixed_iff` identifies its fixed points with
+the existing simultaneous equations.
+
+`irRound_spec` constructs a total round witness under the derived checker
+facts, discharging every option fallback. `step_emitted_iff` transports a
+parallel round between the IR and the very same emitted SV expressions.
+`ir_converges` inducts on the dependency order: each round fixes at least one
+more ordered prefix, even if internal wires initially contain arbitrary values.
+`deltaTrace_exists`, `deltaTrace_bounded`, and `deltaTrace_converges` consequently
+prove existence, preserved width bounds, and equality to the stable environment
+at every round `k ≥ pairs.length`. This is a conservative bound, not a claim
+about physical propagation time or optimized dependency depth.
+
+`Tools/ShippingExecutionSoundness.lean` composes these results with actual
+successful synthesis, checked optimization, full concrete syntax, declaration
+binding, port mapping and source denotation. `compiledFragment_execution`
+concludes `SettlesTo` at every source time: all admissible internal seeds admit
+a trace; all such traces reach one shared stable state; observing its declared
+unsigned output returns the source value. Initial values of undriven names are
+fixed, while driven internal values may vary. No caller provides a scheduling,
+termination, expression-check, order or per-circuit certificate.
+
+The remaining large coverage task is preservation for all successfully compiled
+DSL paths: additional operators/types, state/reset, memory and hierarchy.
+`EnvDefines` remains a separate environment trust boundary. If the intended
+RTL execution model is expanded to arbitrary fair event interleavings, X/Z or
+physical delays, corresponding semantics and refinement proofs are still needed;
+those are not supplied by the delta-round theorem.
+
+Validation: `ShippingExecutionSoundnessTest` applies the actual-entry theorem
+to `fragA` for all inputs and source times and audits the general execution
+proofs for standard axioms only. Regressions distinguish parallel rounds from
+an in-order fold, show a two-assignment chain is still unsettled after one
+round, cover arbitrary bounded seeds, assignment permutation and the empty
+assignment case. The syntax and settled tests also pass. Whole-suite runtime
+execution is not claimed; the previously recorded macOS `dlmopen` linker
+blocker remains.
 
 ## Full concrete syntax connected (2026-09-27)
 
@@ -81,7 +139,8 @@ or emitted text changed in this step.
 This closes the direct syntax connection to the specified subset AST. It does
 not verify Icarus, Verilator or the in-tree parser, establish correspondence to
 a full IEEE formalization, or give concurrent/four-state/delay semantics.
-The two larger outstanding proof tasks are now:
+The two follow-up tasks identified at the syntax milestone were
+(the execution-model result above now addresses the first):
 
 1. Connect the simultaneous equations to an explicit RTL execution and stable
    observation model (initially fixed inputs, two states and no delays).

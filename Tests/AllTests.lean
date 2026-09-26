@@ -87,6 +87,7 @@ import Tests.Compiler.ShippingPrintSoundnessTest
 import Tests.Compiler.ShippingSVBridgeTest
 import Tests.Compiler.ShippingSettledSoundnessTest
 import Tests.Compiler.ShippingSyntaxSoundnessTest
+import Tests.Compiler.ShippingExecutionSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
