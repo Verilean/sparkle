@@ -76,6 +76,7 @@ import Tests.IP.Control.PrecisionSweepTest
 import Tests.IP.Control.ObserverTest
 import Tests.Compiler.RtlStructureTest
 import Tests.CircuitDoTest
+import Tests.CircuitSeqTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
 import Tests.TestCudaSim
@@ -527,6 +528,8 @@ def main : IO UInt32 := do
   Sparkle.Tests.SignalLoopTest.main
   IO.println ""
   Sparkle.Tests.CircuitDoTest.main
+  IO.println ""
+  Sparkle.Tests.CircuitSeqTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
   IO.println ""

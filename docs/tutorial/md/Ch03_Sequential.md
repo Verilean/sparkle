@@ -420,6 +420,54 @@ def fsm {dom : DomainConfig}
     return state
 
 ```
+## 3.4b The same FSM as a program — `circuit seq do`
+
+§3.4 spells out the state encoding and every transition by hand.
+When the behaviour is really a *sequence* — wait, then do this for a
+while, then that — `circuit seq do` lets you write the sequence and
+generates the state register for you:
+
+```lean
+def fsmSeq {dom : DomainConfig}
+    (start : Signal dom Bool) : Signal dom (BitVec 2) :=
+  circuit seq do
+    let state ← Signal.reg IDLE
+    let count ← Signal.reg 0#8
+    waitUntil start                       -- idle until `start`
+    step                                  -- one cycle
+      state <~ RUN
+    while Signal.ult count (Signal.pure 255#8) do
+      step                                -- one cycle per iteration
+        count <~ count + 1#8
+    step
+      state <~ DONE
+      count <~ 0#8
+    step
+      state <~ IDLE
+    return state
+
+#synthesizeVerilog fsmSeq
+```
+
+The statements:
+
+| Statement | Cycles |
+|-----------|--------|
+| `step` *stmts* | one; *stmts* are ordinary `circuit do` statements (`<~`, `let`, `if`, `match`) |
+| `pause` | one idle cycle |
+| `waitUntil c` | until `c` is true, then continue on the next cycle |
+| `while c do` … | a single-`step` body: one cycle per iteration; otherwise the test takes its own cycle; leaving takes one |
+| `if c then` … `else` … | one for the test, then the chosen branch |
+| `halt` | stays until reset |
+
+After the last statement the program starts again from the first.
+Each condition is evaluated in its own cycle, so it sees every register
+written by the statements before it; registers not written in a cycle
+keep their value. The macro numbers the states, adds a hidden state
+register, and turns the program into one `match` on it inside an
+ordinary `circuit do` — the same `Signal.mux` chain you would write by
+hand, with the same simulation and Verilog.
+
 ## 3.5 Verilog generation
 
 Each circuit above synthesises to clean SystemVerilog.  Watch

@@ -314,6 +314,12 @@ lean_exe «circuit-do-test» where
   root := `Tests.Drivers.CircuitDoTestMain
   supportInterpreter := true
 
+-- Multi-cycle `circuit seq do` programs: waitUntil / while / if / pause /
+-- halt traces, and a cross-check against a hand-written `circuit do` FSM.
+lean_exe «circuit-seq-test» where
+  root := `Tests.Drivers.CircuitSeqTestMain
+  supportInterpreter := true
+
 -- Sim + synth check for the HList-based generic `runCircuitH`
 -- — the sole register-DSL helper after the per-arity
 -- `runCircuit{1..4}` were removed.  Covers N=1..4 plus
