@@ -253,7 +253,7 @@ theorem compiled_declarations {declName : Name} {mctx : Meta.Context}
   constructor
   · intro p hp
     rcases hsub p hp with hp | rfl
-    · exact sanitizeName_of_clean (hpr.2.2.2.2.1.2.2.2 p hp)
+    · exact sanitizeName_of_clean (hpr.2.2.2.2.1.2.2.2 p hp).1
     · simp [Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq]
   · intro p hp q hq he
     rcases hsub p hp with hp | rfl <;> rcases hsub q hq with hq | rfl
@@ -268,6 +268,64 @@ theorem compiled_declarations {declName : Name} {mctx : Meta.Context}
       have hm := List.mem_map_of_mem (f := Port.name) hq
       simpa only [← he] using hm
     · rfl
+
+/-- Every emitted data declaration is an allocated underscore-leading name
+or the fixed output name, inherited from the actual synthesis run. -/
+theorem compiled_dataNames {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
+    ∀ p ∈ (checkedOptimize m).wires ++ (checkedOptimize m).inputs ++
+        (checkedOptimize m).outputs, Sparkle.IR.NameHints.DataName p.name := by
+  have hg := (synthesized_printFacts h henv hwf hn).2
+  obtain ⟨hiO, hoO⟩ := checkedOptimize_ports hg
+  obtain ⟨m0, _, _, hcore, hm⟩ := synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, hev, _, hpr, hins, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  obtain ⟨_, hi, ho⟩ := postprocess_sound hn hpr hm hev
+  have hsub : ∀ p ∈ (checkedOptimize m).wires ++ (checkedOptimize m).inputs ++
+      (checkedOptimize m).outputs, p ∈ m0.wires ∨ p = {name := "out", ty := .bitVector n} := by
+    intro p hp
+    simp only [List.mem_append, hiO, hoO, hi, ho, hpr.2.2.2.1 hn, List.mem_singleton] at hp
+    rcases hp with (hp | hp) | hp
+    · exact Or.inl (postprocess_wires_subset hn hpr hm p (checkedOptimize_wires_subset m p hp))
+    · obtain ⟨_, _, _, hty, hw⟩ := hins p hp
+      have he : p = {name := p.name, ty := .bitVector n} := by cases p; simp_all
+      exact Or.inl (he ▸ hw)
+    · exact Or.inr hp
+  intro p hp
+  rcases hsub p hp with hp | rfl
+  · exact Or.inl (hpr.2.2.2.2.1.2.2.2 p hp)
+  · exact Or.inr rfl
+
+/-- Name class of the actual AST's declared ports and wires. Module names,
+references and textual tokenization are not asserted by this declaration fact. -/
+theorem compiled_astDataNames {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr} {sv : SVModule}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (ht : emitAstModule (checkedOptimize m) = some sv) :
+    ∀ entry ∈ declarationTable sv, Sparkle.IR.NameHints.DataName entry.1 := by
+  obtain ⟨hnames, hc⟩ := compiled_declarations h henv hwf hn
+  rw [declarationTable_emitted (printed_printDecls h henv hwf hn)
+    (checkedOptimize_printShape (synthesized_printFacts h henv hwf hn).2) ht]
+  intro entry he
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.mp he
+  have hm := (visibleDecls_mem hc p).mp hp
+  simp only
+  rw [hnames p hm]
+  exact compiled_dataNames h henv hwf hn p hm
 
 /-- All widths supplied to SV evaluation can be recovered from the actual
 emitted AST, including internal wires. No declaration premise is added. -/

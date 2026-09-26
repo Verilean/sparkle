@@ -302,7 +302,7 @@ structure DeclFrame (s0 s1 : CircuitState) : Prop where
   parameters : s1.module.parameters = s0.module.parameters
   primitive : s1.module.isPrimitive = s0.module.isPrimitive
   wireTypes : ∀ p ∈ s1.module.wires, p ∈ s0.module.wires ∨ ∃ n, p.ty = .bitVector n
-  wireNames : ∀ p ∈ s1.module.wires, p ∈ s0.module.wires ∨ Sparkle.IR.NameHints.Clean p.name
+  wireNames : ∀ p ∈ s1.module.wires, p ∈ s0.module.wires ∨ Sparkle.IR.NameHints.Allocated p.name
 
 theorem DeclFrame.refl (s : CircuitState) : DeclFrame s s :=
   ⟨rfl, rfl, fun _ hp => Or.inl hp, fun _ hp => Or.inl hp⟩
@@ -332,7 +332,7 @@ theorem DeclFrame.makeWire (hint : String) (n : Nat) (named : Bool) (s : Circuit
   · intro p hp
     rw [makeWire_module] at hp
     rcases List.mem_cons.mp hp with rfl | hp
-    · exact Or.inr (CircuitM.makeWire_clean hint (.bitVector n) named s)
+    · exact Or.inr (CircuitM.makeWire_allocated hint (.bitVector n) named s)
     · exact Or.inl hp
 
 theorem DeclFrame.emitAssign (l : String) (r : Sparkle.IR.AST.Expr) (s : CircuitState) :

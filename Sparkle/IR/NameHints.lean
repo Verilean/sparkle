@@ -11,6 +11,14 @@ def charOk (c : Char) : Bool := c.isAlphanum || c == '_' || c == '$'
 
 def Clean (s : String) : Prop := ∀ c ∈ s.toList, charOk c = true
 
+/-- Stronger than sanitizer stability: allocated names start with underscore.
+This does not impose a lexical policy on arbitrary module names. -/
+def Allocated (s : String) : Prop := Clean s ∧ s.toList.head? = some '_'
+
+/-- The naming class of emitted data declarations: allocated names or the
+fixed output name. This is not a specification of the complete SV lexer. -/
+def DataName (s : String) : Prop := Allocated s ∨ s = "out"
+
 /-- Keep existing ASCII identifier characters; normalize all others before
 allocation. The fast path avoids copying the usual already-clean hint. -/
 def clean (s : String) : String :=

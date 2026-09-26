@@ -48,7 +48,7 @@ theorem synthesized_names {declName : Name} {mctx : Meta.Context}
       (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
   intro p hp
   exact sanitizeName_of_clean (hpr.2.2.2.2.1.2.2.2 p
-    (Tools.ShippingPostSoundness.postprocess_wires_subset hn hpr hm p hp))
+    (Tools.ShippingPostSoundness.postprocess_wires_subset hn hpr hm p hp)).1
 
 theorem SizedExpr.refs_width {we e n} (h : SizedExpr we e n) :
     ∀ x ∈ Sparkle.IR.Reorder.refsOf e, we x = n := by

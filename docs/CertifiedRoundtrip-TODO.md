@@ -1865,6 +1865,39 @@ this is not a claim that all 119 files passed. Entry/settled tests, executable
 English tutorial, `lake build` and `lake test` pass. No new performance estimate
 is inferred from this run.
 
+**2026-09-26 declaration-name class connected:**
+`NameHints.Allocated` strengthens character cleanliness with an underscore
+first character. `freshName_allocated` / `makeWire_allocated` prove it for the
+actual allocator, including reserved-name suffix searches and temporary names.
+`DeclFrame.wireNames` and the entry's `DeclReady` now carry this stronger fact.
+No allocator behavior, accepted program or printed spelling changed.
+
+`compiled_dataNames` transports it through cleanup, checked merging and
+optimizer wire filtering, retaining input ports and the fixed output `out`.
+`compiled_astDataNames` applies it to the actual emitted AST's declaration
+table, including port/wire suppression. The final `compiledFragment_settled`
+now includes this fact as a conclusion: each declared data name contains only
+the allowed characters and starts with underscore, or is exactly `out`.
+The caller supplies no name-class premise.
+
+This settles the leading-character examples for DATA DECLARATIONS: a binder
+spelled `1bad` or `module` is an allocator hint, never that raw identifier.
+The new synthesis regression also reparses its emitted text and compares the
+AST; that is a test, not a parser correctness theorem. The general name theorem
+and strengthened final theorem have only standard axioms.
+
+Still open: the module-name path, the raw source-name comment (including line
+breaks), completeness of a lexical/keyword specification, name binding of all
+expression references, and tokenization/rendered-text correctness. The existing
+parser keyword list is intentionally limited and is not used as a complete
+SystemVerilog standard. This step does not claim to close the lexical boundary
+or external RTL execution semantics. Next inspect module-name/comment handling
+before claiming a complete artifact grammar theorem.
+
+Validation: SV-bridge and settled tests with axiom audits, executable English
+tutorial, `lake build`, `lake test`. This is a proof-only strengthening; no
+corpus byte-comparison or performance rerun is claimed.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

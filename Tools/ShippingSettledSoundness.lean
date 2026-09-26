@@ -156,6 +156,7 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
         ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
           declaredPortWidth sp = some n ∧ sp.isSigned = false) ∧
       declaredOutputWidth sv "out" = some n ∧
+      (∀ entry ∈ declarationTable sv, Sparkle.IR.NameHints.DataName entry.1) ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv),
         let initial := inputEnv names.length port (fun j => (sigs j).val t)
@@ -174,7 +175,8 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
   have hc := (forwardCheck_sound (compiled_forwardCheck h henv hwf hn
     (synthesized_names h henv hwf hn))).2
   rw [← hwidth] at hc
-  refine ⟨sv, port, pairs, ht, htext, hi, hd, hex, hdecl, houtWidth, ?_⟩
+  refine ⟨sv, port, pairs, ht, htext, hi, hd, hex, hdecl, houtWidth,
+    compiled_astDataNames h henv hwf hn ht, ?_⟩
   intro dom sigs t mems
   obtain ⟨hb, env, hev, hout, hobs⟩ := hsem sigs t mems
   have hb' : Bounded (forwardWidths (checkedOptimize m))

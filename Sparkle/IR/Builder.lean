@@ -178,6 +178,16 @@ theorem freshName_clean (hint : String) (named : Bool) (s : CircuitState) :
     have hg := (by simp [NameHints.Clean, NameHints.charOk] : NameHints.Clean "_gen_").append hb
     exact freshNamed_clean hg s
 
+theorem freshName_allocated (hint : String) (named : Bool) (s : CircuitState) :
+    NameHints.Allocated (freshName hint named s).1 := by
+  refine ⟨freshName_clean hint named s, ?_⟩
+  cases named with
+  | false => simp [freshName, freshTemporary, FreshNames.numbered, String.toList_append, toString]
+  | true =>
+    simp only [freshName, ite_true]
+    unfold freshNamed
+    repeat' split <;> simp [FreshNames.numbered, String.toList_append, toString]
+
 theorem freshNamed_spec (base : String) (s : CircuitState) :
     let result := freshNamed base s
     s.usedNames.contains result.1 = false ∧
@@ -239,6 +249,10 @@ def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CircuitM St
 theorem makeWire_clean (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
     NameHints.Clean (makeWire hint ty named s).1 :=
   freshName_clean (sanitizeName hint) named s
+
+theorem makeWire_allocated (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    NameHints.Allocated (makeWire hint ty named s).1 :=
+  freshName_allocated (sanitizeName hint) named s
 
 /-- Allocation preserves executable statements and adds the advertised typed
 wire, while satisfying the same freshness/reservation contract. -/

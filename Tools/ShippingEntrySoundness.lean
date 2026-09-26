@@ -607,7 +607,7 @@ the post-processing proofs need (`Tools/ShippingPostSoundness.lean`). -/
 def DeclReady (M : Sparkle.IR.AST.Module) : Prop :=
   M.parameters = [] ∧ M.isPrimitive = false ∧
   (∀ p ∈ M.wires, ∃ k, p.ty = .bitVector k) ∧
-  (∀ p ∈ M.wires, Sparkle.IR.NameHints.Clean p.name)
+  (∀ p ∈ M.wires, Sparkle.IR.NameHints.Allocated p.name)
 
 def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
   (M.wires.map (·.name)).Nodup ∧

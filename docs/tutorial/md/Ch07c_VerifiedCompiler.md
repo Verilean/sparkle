@@ -463,14 +463,28 @@ both outcomes. This is what removes the last caller-supplied order condition
 from `compiledFragment_settled`: no separate ordering certificate is needed
 for each circuit.
 
+The final theorem also carries a naming fact about the emitted declarations.
+`freshName_allocated` proves that allocation always returns an underscore-leading
+name containing only allowed characters; suffix allocation preserves the prefix.
+That fact now travels with the translation invariant, through both post-processing
+passes and optimizer wire filtering, into `declarationTable sv`.
+`compiled_astDataNames` says every declared port or wire has that form or is
+the fixed output `out`. A source binder spelled `1bad` or `module` is a hint
+for allocation, so its raw spelling is not emitted as a data identifier.
+
+This is deliberately narrower than a lexer theorem. It says nothing yet about
+module names, source-name comments, identifier binding in expressions, or the
+interpretation of the entire rendered string as tokens. It is now a conclusion
+of `compiledFragment_settled`, not another condition the user must prove.
+
 The remaining boundaries are concrete:
 
 - **Identifiers.** Stability under sanitization is not lexical validity:
-  `1bad` and `module` illustrate the distinction. Fresh names, collisions,
-  leading characters, and reserved words need a complete lexical contract.
-  The allocated-wire collision above is repaired, and the name premise is
-  discharged on the proved fragment. Module names, arbitrary external port
-  names and the complete text grammar are not thereby certified.
+  `1bad` and `module` illustrate the distinction for raw names. Generated
+  data declarations now have the stronger underscore-leading-or-`out` guarantee.
+  Module names, raw source comments, reference binding and the complete lexical
+  and text grammar still need a contract. The limited keyword table in the
+  project parser is not treated as the full SystemVerilog keyword specification.
 - **Initialization is connected.** Bounds now follow for the environment
   constructed from source inputs. This is not a result about arbitrary
   internal states, register initialization, or reset.
@@ -505,7 +519,8 @@ run_cmd do
       ``Tools.ShippingPostSoundness.dropZeroWidth_entry_order,
       ``Tools.ShippingPostSoundness.synthesizeCombinational_settled,
       ``Tools.ShippingSettledSoundness.assignmentOrderCheck_iff,
-      ``Tools.ShippingSettledSoundness.checkedOptimize_order] do
+      ``Tools.ShippingSettledSoundness.checkedOptimize_order,
+      ``Tools.ShippingDeclWidths.compiled_astDataNames] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"

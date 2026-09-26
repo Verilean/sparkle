@@ -286,9 +286,34 @@ run_cmd liftTermElabM do
     unless env "out" == 13 do throwError "input bindings changed during name normalization"
   logInfo "SHIPPING NAME REPAIR OK: distinct inputs remain distinct after printing, including equal normalized hints"
 
+/-- Awkward binder spellings are hints, not raw RTL identifiers. -/
+def lexicalHints {dom : Sparkle.Core.Domain.DomainConfig}
+    («1bad» «module» : Sparkle.Core.Signal.Signal dom (BitVec 8)) :
+    Sparkle.Core.Signal.Signal dom (BitVec 8) :=
+  «1bad» + «module»
+
+example : ¬ Sparkle.IR.NameHints.DataName "1bad" := by
+  simp [Sparkle.IR.NameHints.DataName, Sparkle.IR.NameHints.Allocated]
+example : ¬ Sparkle.IR.NameHints.DataName "module" := by
+  simp [Sparkle.IR.NameHints.DataName, Sparkle.IR.NameHints.Allocated]
+
+run_cmd liftTermElabM do
+  let (m, _) ← synthesizeCombinational ``lexicalHints
+  let o := checkedOptimize m
+  let some sv := emitAstModule o | throwError "name probe emission failed"
+  let .ok parsed := Tools.SVParser.Parser.parseModuleFromString (verilogOf m)
+    | throwError "awkward binder hints produced unparseable text"
+  unless parsed == sv do throwError "awkward binder text does not match its AST"
+  for entry in declarationTable sv do
+    let name := entry.1
+    unless name == "out" || (name.startsWith "_" && name.all Sparkle.IR.NameHints.charOk) do
+      throwError "unexpected emitted data name: {name}"
+
 run_cmd do
   if (← get).messages.hasErrors then throwError "SV bridge regression failed"
-  for name in [``evalAssigns_widths, ``forwardCheck_sound, ``combItems_append,
+  for name in [``compiled_dataNames, ``compiled_astDataNames,
+      ``Sparkle.IR.Builder.CircuitM.freshName_allocated,
+      ``Sparkle.IR.Builder.CircuitM.makeWire_allocated, ``evalAssigns_widths, ``forwardCheck_sound, ``combItems_append,
       ``combItems_wires, ``body_combItems, ``module_combItems, ``module_forward,
       ``compiledFragment_forward, ``compiledFragment_forward_with_initial,
       ``compiledFragment_astWidths, ``compiled_astWidths, ``compiled_declarations,
