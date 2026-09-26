@@ -509,6 +509,32 @@ theorem compiled_inputDecls {declName : Name} {mctx : Meta.Context}
   obtain ⟨ht, hname⟩ := compiled_inputTypes h henv hwf hn hs p hp
   simpa only [hname] using emitAstModule_input htree hp ht hn
 
+/-- Synthesis, both cleanup choices, and either optimizer branch preserve
+the single source-width output. Its width is read from the actual AST. -/
+theorem compiled_outputWidth {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    {sv : SVModule} (htree : emitAstModule (checkedOptimize m) = some sv) :
+    declaredOutputWidth sv "out" = some n := by
+  have hg := (synthesized_printFacts h henv hwf hn).2
+  obtain ⟨_, hoO⟩ := Tools.ShippingOptSoundness.checkedOptimize_ports hg
+  obtain ⟨m0, _, _, hcore, hm⟩ := Tools.ShippingPostSoundness.synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, hev, _, hpr, _, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  obtain ⟨_, _, ho⟩ := Tools.ShippingPostSoundness.postprocess_sound hn hpr hm hev
+  have hout : (checkedOptimize m).outputs = [{name := "out", ty := .bitVector n}] :=
+    hoO.trans (ho.trans (hpr.2.2.2.1 hn))
+  have hw := emitAstModule_outputWidth htree hout rfl hn
+  simpa [Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq] using hw
+
 /-- Every source input has width `n` in the optimized printer lookup,
 including unused inputs. The width is derived, not supplied by the caller. -/
 theorem compiled_inputWidths {declName : Name} {mctx : Meta.Context}
@@ -819,7 +845,8 @@ theorem inputEnv_bounded {n count : Nat} {port : Nat → Option String}
 
 /-- Source values construct a bounded initial environment for the actual
 emitted tree, and every source input has a matching unsigned SV port whose
-literal range has width `n`. No declaration-width, forward-check,
+literal range has width `n`. The actual unsigned output also declares `n`
+bits, and observing those bits agrees with the source. No declaration-width, forward-check,
 initial-environment, boundedness or wire-name premise is supplied. Environment
 identity and fragment scope remain explicit; the conclusion uses
 in-order SV assignment semantics, not concurrent module semantics. -/
@@ -844,16 +871,19 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
       (∀ j x, j < names.length → port j = some x →
         ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
           declaredPortWidth sp = some n ∧ sp.isSigned = false) ∧
+      declaredOutputWidth sv "out" = some n ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv),
         let initial := inputEnv names.length port (fun j => (sigs j).val t)
         Bounded (forwardWidths o) initial ∧
         ∃ env, evalAssignsSV wof mems pairs initial = some env ∧
-          env "out" = ((denoteFE n sigs fe).val t).toNat := by
+          env "out" = ((denoteFE n sigs fe).val t).toNat ∧
+          observeUnsignedOutput sv env "out" = some ((denoteFE n sigs fe).val t).toNat := by
   have hs := synthesized_names h henv hwf hn
   obtain ⟨sv, port, pairs, htree, htext, hitems, hd, hex, hsem⟩ :=
     compiledFragment_forward_with_initial h henv hwf hn hs
-  refine ⟨sv, port, pairs, htree, htext, hitems, hd, hex, ?_, ?_⟩
+  have houtWidth := compiled_outputWidth h henv hwf hn htree
+  refine ⟨sv, port, pairs, htree, htext, hitems, hd, hex, ?_, houtWidth, ?_⟩
   · intro j x hj hx
     obtain ⟨x', hx', hmem⟩ := hex j hj
     have heq : x = x' := Option.some.inj (hx.symm.trans hx')
@@ -866,6 +896,7 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
         have heq : x = x' := Option.some.inj (hp.symm.trans hp')
         subst x'
         exact compiled_inputWidths h henv hwf hn hs x hx')
-    exact ⟨hb, hsem sigs t mems _ (fun _ _ hj hp => inputEnv_input hd _ hj hp) hb⟩
+    obtain ⟨env, heval, hout⟩ := hsem sigs t mems _ (fun _ _ hj hp => inputEnv_input hd _ hj hp) hb
+    exact ⟨hb, env, heval, hout, observeUnsignedOutput_eq houtWidth hout⟩
 
 end Tools.ShippingSVBridge

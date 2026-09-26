@@ -1654,6 +1654,22 @@ values. The saved pre-repair corpus comparison covers 302 module texts from
 298 synthesis commands in 119 files: byte-identical, with unchanged exit
 statuses (two existing error-example files remain errors).
 
+**2026-09-26 output observation:** `declaredOutputWidth` reads the actual
+unsigned output port's range without consulting IR widths.
+`emitAstModule_outputWidth` and `compiled_outputWidth` derive width `n` from
+the same successful run, including both cleanup and optimizer branches.
+`compiledFragment_forward` now concludes both that declaration-width fact and
+that `observeUnsignedOutput` of the final assignment environment equals the
+source. No new caller premise. The mask cannot change a `BitVec n` value,
+which is bounded by construction. `fragA`, `hashCollision` and tutorial
+`plus8` retain the observation conclusion; new general lemmas are audited for
+standard axioms only. This closes the observed output boundary, NOT the
+entire evaluator width map or concurrent RTL semantics. Next: internal
+declarations and lookup/shadowing agreement, together with the still-open
+lexical/text contract. No shipping compiler behavior changed in this step.
+Validation: bridge tests, executable tutorial and `lake test` pass, with
+standard axioms only in the new general proofs and real-source applications.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

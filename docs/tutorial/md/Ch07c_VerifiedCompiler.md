@@ -292,17 +292,20 @@ theorem plus8_sv_correct
         ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
           Tools.ShippingModulePrintSoundness.declaredPortWidth sp = some 8 ∧
           sp.isSigned = false) ∧
+      Tools.ShippingModulePrintSoundness.declaredOutputWidth sv "out" = some 8 ∧
       ∀ {dom : DomainConfig} (sigs : Nat → Signal dom (BitVec 8)) (t : Nat),
         ∃ env, Tools.SVParser.EmitSem.evalAssignsSV
           (Sparkle.IR.PrintCheck.widths (Sparkle.IR.OptCheck.checkedOptimize m))
           (fun _ _ => 0) pairs
           (Tools.ShippingSVBridge.inputEnv 2 port (fun j => (sigs j).val t)) = some env ∧
-          env "out" = ((plus8 (sigs 0) (sigs 1)).val t).toNat := by
+          env "out" = ((plus8 (sigs 0) (sigs 1)).val t).toNat ∧
+          Tools.ShippingModulePrintSoundness.observeUnsignedOutput sv env "out" =
+            some ((plus8 (sigs 0) (sigs 1)).val t).toNat := by
   rw [plus8Value_eq] at henv
-  obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, hsem⟩ :=
+  obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, houtWidth, hsem⟩ :=
     Tools.ShippingSVBridge.compiledFragment_forward h henv
       (by simp [plus8Expr, FExpr.WF]) (by decide)
-  exact ⟨sv, port, pairs, ht, hi, hdecl, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
+  exact ⟨sv, port, pairs, ht, hi, hdecl, houtWidth, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
 
 #print axioms plus8_sv_correct
 ```
@@ -314,6 +317,22 @@ from the port, independently of the IR width table: no range means one bit;
 bridge. `compiled_inputDecls` derives the matching declaration and width
 through synthesis, cleanup, and either optimizer branch, including for unused
 inputs. This is a new conclusion, not a new assumption.
+
+The output connection goes one step further. `declaredOutputWidth` searches
+the actual AST for an unsigned, non-register output and interprets its literal
+range. It does not use the IR width table. `compiled_outputWidth` derives that
+this declaration has width `n`, through cleanup and both optimizer branches.
+
+`observeUnsignedOutput` reads the low `n` bits of the final assignment
+environment at that output. The theorem now proves that this **declared-width
+observation**, as well as the raw environment value, equals the source.
+Because the source is a `BitVec n`, its value is already below `2^n`: observing
+those bits cannot change it. For example, observing 300 through an eight-bit
+output would give 44, so connecting the declaration is a real obligation;
+merely proving a value for an untyped name would not establish it.
+
+This observes the existing in-order evaluator. It does not introduce or prove
+a concurrent scheduling or four-state SystemVerilog model.
 
 The remaining boundaries are concrete:
 
@@ -327,8 +346,9 @@ The remaining boundaries are concrete:
   constructed from source inputs. This is not a result about arbitrary
   internal states, register initialization, or reset.
 - **Declared widths and text interpretation.** The evaluator still obtains
-  widths from the IR/printer lookup. Input declarations are now connected;
-  relating the entire lookup, including internal wires and outputs, to the AST
+  widths from the IR/printer lookup. Input declarations and the observed output
+  width are now connected. Relating the entire evaluator lookup, including
+  internal wires and any shadowing declarations, to the AST
   declarations, recognizing the rendered text, and connecting assignment
   evaluation to concurrent RTL semantics remain distinct obligations.
 

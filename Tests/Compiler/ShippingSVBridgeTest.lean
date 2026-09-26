@@ -58,17 +58,19 @@ theorem fragA_initialized_sv {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld M
       (∀ j x, j < 2 → port j = some x →
         ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
           declaredPortWidth sp = some 8 ∧ sp.isSigned = false) ∧
+      declaredOutputWidth sv "out" = some 8 ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
         let initial := inputEnv 2 port (fun j => (sigs j).val t)
         Bounded (forwardWidths (checkedOptimize m)) initial ∧
         ∃ env, evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize m))
           (fun _ _ => 0) pairs initial = some env ∧
-          env "out" = ((fragA (sigs 0) (sigs 1)).val t).toNat := by
+          env "out" = ((fragA (sigs 0) (sigs 1)).val t).toNat ∧
+          observeUnsignedOutput sv env "out" = some ((fragA (sigs 0) (sigs 1)).val t).toNat := by
   rw [fragAValue_eq] at henv
-  obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, hsem⟩ :=
+  obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, houtWidth, hsem⟩ :=
     compiledFragment_forward h henv feA_wf (by decide)
-  refine ⟨sv, port, pairs, ht, hi, hdecl, ?_⟩
+  refine ⟨sv, port, pairs, ht, hi, hdecl, houtWidth, ?_⟩
   intro dom sigs t
   exact hsem sigs t (fun _ _ => 0)
 
@@ -77,6 +79,20 @@ example : declaredPortWidth {dir := .input, name := "scalar", width := none} = s
 example : declaredPortWidth {dir := .input, name := "descending", width := some (7, 0)} = some 8 := rfl
 example : declaredPortWidth {dir := .input, name := "ascending", width := some (0, 7)} = some 8 := rfl
 example : declaredPortWidth {dir := .input, name := "symbolic", width := none, widthExpr := some (.ident "N", .ident "L")} = none := rfl
+
+private def observedOutput (width : Option (Nat × Nat)) : SVModule :=
+  { name := "observed", ports := [{dir := .input, name := "out", width := some (31, 0)},
+      {dir := .output, name := "out", width := width}], items := [] }
+
+-- Lookup unit test, not a well-formed module: an input declaration must not
+-- count as the output. Actual compiled modules have a single output port.
+example : declaredOutputWidth (observedOutput (some (7, 0))) "out" = some 8 := rfl
+example : observeUnsignedOutput (observedOutput (some (7, 0))) (fun _ => 300) "out" = some 44 := rfl
+example : observeUnsignedOutput (observedOutput none) (fun _ => 3) "out" = some 1 := rfl
+example : observeUnsignedOutput (observedOutput (some (7, 0))) (fun _ => 300) "missing" = none := rfl
+example : declaredOutputWidth
+    {name := "signed", ports := [{dir := .output, name := "out", width := none, isSigned := true}], items := []}
+    "out" = none := rfl
 
 private def unusedInput : Sparkle.IR.AST.Module :=
   { name := "unused", inputs := [{name := "x", ty := .bitVector 8}], outputs := [{name := "out", ty := .bitVector 8}], wires := [{name := "x", ty := .bitVector 8}], body := [.assign "out" (.const 0 8)] }
@@ -163,9 +179,10 @@ theorem hashCollision_sv_correct
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
         ∃ env, evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize m))
           (fun _ _ => 0) pairs (inputEnv 2 port (fun j => (sigs j).val t)) = some env ∧
-          env "out" = ((hashCollision (sigs 0) (sigs 1)).val t).toNat := by
+          env "out" = ((hashCollision (sigs 0) (sigs 1)).val t).toNat ∧
+          observeUnsignedOutput sv env "out" = some ((hashCollision (sigs 0) (sigs 1)).val t).toNat := by
   rw [hashCollisionValue_eq] at henv
-  obtain ⟨sv, port, pairs, ht, _, hi, _, _, _, hsem⟩ :=
+  obtain ⟨sv, port, pairs, ht, _, hi, _, _, _, _, hsem⟩ :=
     compiledFragment_forward h henv (by simp [FExpr.WF]) (by decide)
   exact ⟨sv, port, pairs, ht, hi, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
 
@@ -254,6 +271,7 @@ run_cmd do
       ``compiled_inputWidths, ``checkedOptimize_inputWidths,
       ``compiled_inputTypes, ``compiled_inputDecls, ``emitAstModule_input,
       ``emitAstModule_ports, ``astPort_bits,
+      ``compiled_outputWidth, ``emitAstModule_outputWidth, ``ports_dir, ``observeUnsignedOutput_eq,
       ``synthesized_names, ``sanitizeName_of_clean, ``hashCollision_sv_correct,
       ``inputEnv_input, ``inputEnv_bounded, ``fragA_initialized_sv] do
     for ax in (← liftCoreM <| collectAxioms name) do
@@ -278,6 +296,6 @@ run_cmd do
         throwError "unexpected postprocessing-width axiom: {name}: {ax}"
   logInfo "SHIPPING SYNTHESIZED WIDTH OK: cleanup, merge and guarded optimizer preserve the source-derived check; standard axioms only"
   logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only"
-  logInfo "SHIPPING SV BRIDGE OK: width, initialization and wire-name premises discharged; source inputs reach actual unsigned SV port declarations; full lexical and text interpretation remain open"
+  logInfo "SHIPPING SV BRIDGE OK: width, initialization and wire-name premises discharged; actual input and output declarations connected; declared-width output observation equals the source; internal declaration lookup and full RTL semantics remain open"
 
 end Sparkle.Tests.Compiler.ShippingSVBridgeTest

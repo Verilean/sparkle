@@ -135,6 +135,67 @@ theorem emitAstModule_input {m : Sparkle.IR.AST.Module} {sv : SVModule}
   obtain ⟨sp, hsp, hs⟩ := mapM_mem hi hp
   exact ⟨sp, he ▸ List.mem_append_left outs hsp, astPort_bits ht hn .input hs⟩
 
+/-- Read a combinational unsigned output's width from the emitted AST alone.
+Input ports of the same spelling do not count as output declarations. -/
+def declaredOutputWidth (sv : SVModule) (name : String) : Option Nat :=
+  (sv.ports.find? fun p => p.dir == .output && p.name == name).bind fun p =>
+    if p.isSigned || p.isReg then none else declaredPortWidth p
+
+/-- Observe the low declared-width bits of an assignment environment at an
+unsigned output. This is an observation of the subset evaluator, not a model
+of concurrent scheduling or four-state SystemVerilog. -/
+def observeUnsignedOutput (sv : SVModule) (env : String → Nat) (name : String) : Option Nat := do
+  let n ← declaredOutputWidth sv name
+  some (env name % 2 ^ n)
+
+private theorem astPort_dir {dir : SVPortDir} {p : Port} {sp : SVPort}
+    (h : astPort dir p = some sp) : sp.dir = dir := by
+  simp only [astPort, bind, Option.bind_eq_some_iff] at h
+  obtain ⟨w, _, he⟩ := h
+  cases he
+  rfl
+
+theorem ports_dir {ps : List Port} {sps : List SVPort} {dir : SVPortDir}
+    (h : ps.mapM (astPort dir) = some sps) : ∀ p ∈ sps, p.dir = dir := by
+  induction ps generalizing sps with
+  | nil => simp only [List.mapM_nil, pure, Option.some.injEq] at h; subst sps; simp
+  | cons p ps ih =>
+    simp only [List.mapM_cons, bind, Option.bind_eq_some_iff] at h
+    obtain ⟨sp, hp, sps', hps, he⟩ := h
+    cases he
+    intro q hq
+    rcases List.mem_cons.mp hq with rfl | hq
+    · exact astPort_dir hp
+    · exact ih hps q hq
+
+/-- The declared range of the actual emitted single output has the source
+width. This includes the scalar spelling at width one. -/
+theorem emitAstModule_outputWidth {m : Sparkle.IR.AST.Module} {sv : SVModule}
+    {p : Port} {n : Nat} (h : emitAstModule m = some sv) (ho : m.outputs = [p])
+    (ht : p.ty = .bitVector n) (hn : 0 < n) :
+    declaredOutputWidth sv (sanitizeName p.name) = some n := by
+  obtain ⟨ins, outs, hi, hs, he⟩ := emitAstModule_ports h
+  obtain ⟨w, hw, _⟩ := type_render (PrintableType.bits n hn)
+  rw [ho] at hs
+  simp [List.mapM_cons, astPort, ht, hw] at hs
+  subst outs
+  have hb := astPort_bits ht hn .output (p := p)
+    (show astPort .output p = some { dir := .output, name := sanitizeName p.name, width := w } by
+      simp [astPort, ht, hw])
+  unfold declaredOutputWidth
+  rw [he, List.find?_append]
+  have hnone : ins.find? (fun sp => sp.dir == .output && sp.name == sanitizeName p.name) = none := by
+    apply List.find?_eq_none.mpr
+    intro sp hp
+    simp [ports_dir hi sp hp, show (SVPortDir.input == .output) = false from rfl]
+  simp [hnone, show (SVPortDir.output == .output) = true from rfl, hb.2.2.1]
+
+theorem observeUnsignedOutput_eq {sv : SVModule} {env : String → Nat} {name : String}
+    {n : Nat} {value : BitVec n} (hw : declaredOutputWidth sv name = some n)
+    (hv : env name = value.toNat) :
+    observeUnsignedOutput sv env name = some value.toNat := by
+  simp [observeUnsignedOutput, hw, hv, Nat.mod_eq_of_lt value.isLt]
+
 theorem port_render (p : Port) (h : PrintableType p.ty)
     (dir : SVPortDir) (hd : dir = .input ∨ dir = .output) :
     ∃ sp, astPort dir p = some sp ∧ renderPort sp = some

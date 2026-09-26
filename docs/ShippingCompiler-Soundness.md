@@ -1094,6 +1094,31 @@ module, and not concurrent or four-state RTL semantics.
 Validation for this step: the bridge test and generated tutorial build,
 `lake test` passes, and the new general lemmas plus the `fragA` and `plus8`
 applications pass the standard-axiom audit. The tutorial is now in English.
+
+**Actual output declaration and observation (2026-09-26):**
+`declaredOutputWidth` searches the actual AST's output ports and reads the
+literal range, independently of the IR/printer lookup. Signed, register and
+symbolic-range outputs are outside this observation function. `ports_dir`
+and `emitAstModule_outputWidth` connect this lookup to the emitted single
+positive-width output. `compiled_outputWidth` derives its width `n` from the
+source entry through both cleanup choices and both optimizer branches.
+The final `compiledFragment_forward` includes this as a conclusion; there is
+no output-declaration premise supplied by the caller.
+
+`observeUnsignedOutput` masks the final assignment environment's value to
+the width read from that actual output declaration. The final theorem now
+also proves this observation equals the source, because its `BitVec n` value
+is already below `2^n`. The `fragA`, `hashCollision` and tutorial `plus8`
+applications consume the stronger result. Tests cover the scalar spelling,
+eight-bit truncation (300 becomes 44), absent outputs, direction filtering,
+and refusal of signed observations. The general lemmas and applications
+pass the standard-axiom audit. This is an observation of the existing
+in-order assignment evaluator, NOT a new proof of concurrent/four-state SV
+semantics. The entire evaluation width lookup, including internal declarations
+and shadowing, still needs to be connected to the AST.
+The bridge tests, generated tutorial and `lake test` pass. This step changes
+proofs and their examples only; the shipping compiler is unchanged.
+
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
 previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed
@@ -1164,9 +1189,10 @@ Next, in order:
   `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
   Rendering equality, the assignment check and constructed initialization
   are proved, with allocated-wire name stability derived. Actual input-port
-  declarations are connected too. Remaining: the complete lexical contract
-  (module names included); derive the whole evaluator width lookup from AST
-  declarations (internal wires and outputs included); connect in-order
+  declarations and declared-width output observation are connected too.
+  Remaining: the complete lexical contract (module names included); derive
+  the whole evaluator width lookup from AST declarations, including internal
+  wires and shadowing; connect in-order
   assignment evaluation to concurrent RTL semantics and the emitted text's
   grammar. Any interpretation by external tools remains an explicit boundary.
 * Width 0, `EnvDefines`, registers/memories/instances, as before.
