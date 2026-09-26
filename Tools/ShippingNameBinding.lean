@@ -17,6 +17,7 @@ def ExprBound (declared : String → Prop) : SVExpr → Prop
   | .lit _ => True
   | .ident x => declared x
   | .binary _ a b => ExprBound declared a ∧ ExprBound declared b
+  | .ternary c t f => ExprBound declared c ∧ ExprBound declared t ∧ ExprBound declared f
   | _ => False
 
 def Declared (sv : SVModule) (x : String) : Prop :=
@@ -80,6 +81,25 @@ theorem emitExpr_bound {e : Sparkle.IR.AST.Expr} {sv : SVExpr}
       simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hsb
     cases op <;> simp_all [isPrintBinOp_eq_true, isBinOp, emitAstExpr, binOpOf]
     all_goals subst sv; exact ⟨ba, bb⟩
+
+  | @compare op a b hop ha hb ia ib =>
+    obtain ⟨sa, hsa, _⟩ := emitExpr_render_all ha wof
+    obtain ⟨sb, hsb, _⟩ := emitExpr_render_all hb wof
+    have ba := ia (fun x hx => hr x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hsa
+    have bb := ib (fun x hx => hr x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hsb
+    cases op <;> simp_all [isCompareOp, emitAstExpr, binOpOf]
+    all_goals subst sv; exact ⟨ba, bb⟩
+  | mux hc ht hf ic it iff =>
+    obtain ⟨sc, hsc, _⟩ := emitExpr_render_all hc wof
+    obtain ⟨st, hst, _⟩ := emitExpr_render_all ht wof
+    obtain ⟨sf, hsf, _⟩ := emitExpr_render_all hf wof
+    simp only [emitAstExpr, hsc, hst, hsf, bind, Option.bind_some] at he
+    cases he
+    refine ⟨ic ?_ hsc, it ?_ hst, iff ?_ hsf⟩
+    all_goals intro x hx; exact hr x (by
+      simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])
 
 /-- The checked expression facts supply widths for every read, not merely
 for wires that contribute to the final output. -/

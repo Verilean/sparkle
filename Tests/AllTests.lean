@@ -90,6 +90,7 @@ import Tests.Compiler.ShippingSyntaxSoundnessTest
 import Tests.Compiler.ShippingExecutionSoundnessTest
 import Tests.Compiler.ShippingRightShiftSoundnessTest
 import Tests.Compiler.ShippingLeftShiftSoundnessTest
+import Tests.Compiler.ShippingTypedExprSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest

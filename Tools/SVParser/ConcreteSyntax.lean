@@ -32,6 +32,11 @@ inductive BinaryToken : SVBinOp → String → Prop
   | bitXor : BinaryToken .bitXor "^"
   | shr : BinaryToken .shr ">>"
   | shl : BinaryToken .shl "<<"
+  | eq : BinaryToken .eq "=="
+  | lt : BinaryToken .lt "<"
+  | le : BinaryToken .le "<="
+  | gt : BinaryToken .gt ">"
+  | ge : BinaryToken .ge ">="
 
 inductive Expression : SVExpr → String → Prop
   | decimal {w v sw sv} : 0 < w → Numeral 10 w sw → Numeral 10 v sv →
@@ -41,6 +46,9 @@ inductive Expression : SVExpr → String → Prop
   | ident {name} : Identifier name → Expression (.ident name) name
   | binary {op a b tok sa sb} : BinaryToken op tok → Expression a sa → Expression b sb →
       Expression (.binary op a b) ("(" ++ sa ++ " " ++ tok ++ " " ++ sb ++ ")")
+
+  | ternary {c t f sc st sf} : Expression c sc → Expression t st → Expression f sf →
+      Expression (.ternary c t f) ("(" ++ sc ++ " ? " ++ st ++ " : " ++ sf ++ ")")
 
 inductive LogicType : Option (Nat × Nat) → String → Prop
   | scalar : LogicType none "logic"

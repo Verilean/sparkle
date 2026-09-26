@@ -71,6 +71,8 @@ def renderBin : SVBinOp → Option String
   | .bitAnd => some "&" | .bitOr => some "|" | .bitXor => some "^"
   | .shr => some ">>"
   | .shl => some "<<"
+  | .eq => some "==" | .lt => some "<" | .le => some "<="
+  | .gt => some ">" | .ge => some ">="
   | _ => none
 
 /-- A deliberately small, total AST renderer. Unsupported forms fail. -/
@@ -83,7 +85,17 @@ def renderExpr : SVExpr → Option String
     let sa ← renderExpr a
     let sb ← renderExpr b
     some s!"({sa} {tok} {sb})"
+  | .ternary c t f => do
+    let sc ← renderExpr c
+    let st ← renderExpr t
+    let sf ← renderExpr f
+    some s!"({sc} ? {st} : {sf})"
   | _ => none
+
+/-- Unsigned comparison operators, independent of optimizer acceptance. -/
+def isCompareOp : Operator → Bool
+  | .eq | .lt_u | .le_u | .gt_u | .ge_u => true
+  | _ => false
 
 /-- Byte rendering needs no numerical fit premise. Negative constants are
 printed in hexadecimal by the shipping emitter; this is separate from the
@@ -93,6 +105,10 @@ inductive PrintShape : Expr → Prop
   | ref (x : String) : PrintShape (.ref x)
   | bin {o : Operator} {a b : Expr} : isPrintBinOp o = true → PrintShape a → PrintShape b →
       PrintShape (.op o [a, b])
+  | compare {o : Operator} {a b : Expr} : isCompareOp o = true → PrintShape a → PrintShape b →
+      PrintShape (.op o [a, b])
+  | mux {c t f : Expr} : PrintShape c → PrintShape t → PrintShape f →
+      PrintShape (.op .mux [c, t, f])
 
 theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
   induction h with
@@ -132,6 +148,20 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
     all_goals
       simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
         Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
+
+  | @compare op a b hop _ _ ia ib =>
+    obtain ⟨sa, hsa, hra⟩ := ia
+    obtain ⟨sb, hsb, hrb⟩ := ib
+    cases op <;> simp_all [isCompareOp]
+    all_goals
+      simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
+        Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
+  | mux _ _ _ ic it iff =>
+    obtain ⟨sc, hsc, hrc⟩ := ic
+    obtain ⟨st, hst, hrt⟩ := it
+    obtain ⟨sf, hsf, hrf⟩ := iff
+    exact ⟨.ternary sc st sf, by simp [emitAstExpr, hsc, hst, hsf],
+      by simp [renderExpr, hrc, hrt, hrf, Sparkle.Backend.Verilog.emitExpr]⟩
 
 /-- Arbitrarily nested expressions, including optimizer-inserted masks. -/
 theorem emitExpr_render {e : Expr} (h : Shape e) (wof : String → Option Nat) :

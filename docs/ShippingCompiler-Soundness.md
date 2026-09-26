@@ -52,6 +52,52 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Comparison/mux backend connection (2026-09-27)
+
+**Unsigned comparisons and mux now have a width-indexed backend proof.**
+This is progress on the output side of the next source-coverage extension;
+it does not yet enlarge the `compiledFragment_execution` source grammar.
+
+`Tools/ShippingTypedExprSoundness.lean` introduces `TypedExpr`. It distinguishes
+one-bit comparison results and mux conditions from positive-width data values.
+Comparison operands and mux branches must have matching widths; the entire
+expression no longer needs one uniform width. The grammar permits equality,
+unsigned `<`, `<=`, `>`, `>=`, mux, and arbitrary nesting with the eight already
+proved binary operators. `TypedExpr.ofSized` embeds the existing invariant.
+The left-shift shape restriction is preserved.
+
+`typedExpr_printed` proves that the actual shipping expression text denotes
+an AST in the independent concrete grammar and that AST's evaluation equals
+the IR evaluation for every bounded environment. The existing forward checker
+condition is derived from the width-indexed invariant, not supplied as an
+extra semantic premise. `PrintShape`, identifier binding and concrete syntax
+now support these comparisons and ternaries, so the existing generic module
+printing results cover their assignment bodies as well.
+`typedBody_assignsCheck` derives the execution check used by the generic
+module-settling and delta-convergence theorems, for typed assignment bodies
+with matching destination widths and valid names/width lookups. Assignment
+ordering and module-level conditions are still required by those theorems.
+
+The remaining source connection is explicit: model Bool-valued declarations
+and comparison/mux source expressions, prove their actual translation preserves
+this invariant and their values, carry varying widths through cleanup and the
+optimizer-selection bridge, and apply the final source-to-execution theorem.
+No production compiler, optimizer acceptance policy or RTL emitter changes
+are made in this milestone. In particular, an executable synthesis regression
+for `Signal.mux (Signal.ult a b) ...` is not a source-level preservation proof.
+The `EnvDefines` and two-state delta-model boundaries remain unchanged.
+
+Validation is in `ShippingTypedExprSoundnessTest`: a generic positive-width
+comparison/mux expression instantiates the syntax/evaluation theorem with
+standard-axiom audits, and executable checks exercise all five comparisons
+at 1, 8 and 65 bits, nested mux/shift branches, boundary/oversized amounts and
+actual source synthesis. The shipping backend's output for five IR comparison/mux
+modules passes Icarus `-g2012` simulation on all 131,072 combinations of two
+8-bit data inputs and one Boolean input per comparison. These module fixtures
+are constructed at the IR level; the separate source synthesis regression does
+not upgrade this to a source proof. `lake build Tests.AllTests` passes (578 jobs);
+this is the test-module build, not execution of the `lake test` binary.
+
 ## Logical left shift connected (2026-09-27)
 
 **Canonical `Signal (BitVec n) <<< Signal (BitVec n)` is now covered by the

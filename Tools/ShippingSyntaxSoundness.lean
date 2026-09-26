@@ -59,6 +59,12 @@ theorem renderExpr_syntax {e text} (hr : renderExpr e = some text)
     obtain ⟨tok, ht, sa, ha, sb, hb, he⟩ := hr
     cases he
     exact .binary (renderBin_syntax ht) (renderExpr_syntax ha hn.1) (renderExpr_syntax hb hn.2)
+  | ternary c t f =>
+    simp only [renderExpr, bind, Option.bind_eq_some_iff] at hr
+    obtain ⟨sc, hc, st, ht, sf, hf, he⟩ := hr
+    cases he
+    exact .ternary (renderExpr_syntax hc hn.1) (renderExpr_syntax ht hn.2.1)
+      (renderExpr_syntax hf hn.2.2)
   | _ => simp [renderExpr] at hr
 
 termination_by sizeOf e
@@ -150,6 +156,8 @@ private theorem exprBound_mono {P Q : String → Prop} {e : SVExpr}
   | lit => trivial
   | ident x => exact hi x h
   | binary op a b => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2 hi⟩
+  | ternary c t f => exact ⟨exprBound_mono h.1 hi, exprBound_mono h.2.1 hi,
+      exprBound_mono h.2.2 hi⟩
   | _ => exact False.elim h
 
 termination_by sizeOf e
