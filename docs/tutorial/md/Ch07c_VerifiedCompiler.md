@@ -477,12 +477,24 @@ module names, source-name comments, identifier binding in expressions, or the
 interpretation of the entire rendered string as tokens. It is now a conclusion
 of `compiledFragment_settled`, not another condition the user must prove.
 
+Comments are another boundary between metadata and syntax. The backend used
+to paste the source name directly into `// Module: ...`. A newline in that
+name could end the comment. `commentLabel` now maps LF and CR to spaces,
+while `commentLabel_eq` proves that an already-single-line name is unchanged.
+`renderModule_comment` connects this fact to the actual rendered prefix,
+and the final theorem carries that prefix equality for the output file.
+
+This repair is local: the name appearing after the `module` keyword is a
+separate occurrence. A safe comment does not make an invalid module identifier
+valid. The theorem therefore still does not assert that arbitrary emitted text
+is accepted by a complete SystemVerilog grammar.
+
 The remaining boundaries are concrete:
 
 - **Identifiers.** Stability under sanitization is not lexical validity:
   `1bad` and `module` illustrate the distinction for raw names. Generated
   data declarations now have the stronger underscore-leading-or-`out` guarantee.
-  Module names, raw source comments, reference binding and the complete lexical
+  Module names, reference binding and the complete lexical
   and text grammar still need a contract. The limited keyword table in the
   project parser is not treated as the full SystemVerilog keyword specification.
 - **Initialization is connected.** Bounds now follow for the environment
@@ -520,7 +532,9 @@ run_cmd do
       ``Tools.ShippingPostSoundness.synthesizeCombinational_settled,
       ``Tools.ShippingSettledSoundness.assignmentOrderCheck_iff,
       ``Tools.ShippingSettledSoundness.checkedOptimize_order,
-      ``Tools.ShippingDeclWidths.compiled_astDataNames] do
+      ``Tools.ShippingDeclWidths.compiled_astDataNames,
+      ``Tools.ShippingModulePrintSoundness.commentLabel_lineText,
+      ``Tools.ShippingModulePrintSoundness.renderModule_comment] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"

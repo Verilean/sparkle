@@ -1400,6 +1400,40 @@ Validation: SV-bridge and settled tests with axiom audits, executable English
 tutorial, `lake build`, `lake test`. This is a proof-only strengthening; no
 corpus byte-comparison or performance rerun is claimed.
 
+**2026-09-26 source-name comments — actual prefix protected:**
+The backend previously interpolated `m.name` directly into line comments.
+A label containing LF or CR could terminate the comment early. Shipping
+`commentLabel` now replaces those two characters with spaces, preserving
+single-line labels exactly; both normal and primitive/blackbox comments use it.
+`moduleComment` constructs the normal header, and the AST renderer uses the same
+label policy. This changes comment text only for labels containing LF/CR.
+
+`commentLabel_lineText` proves that the result contains neither LF nor CR;
+`commentLabel_eq` proves identity on labels already satisfying this condition.
+`renderModule_comment` ties it to a successful rendering: the actual returned
+string starts with `moduleComment name`, whose embedded label is single-line.
+The final `compiledFragment_settled` now includes both the safe-label fact and
+this prefix equality for the actual `verilogOf m` artifact, with no new premise.
+All proofs use standard axioms only.
+
+The malicious-label regression checks the shipping emitter's header for both
+normal and primitive modules. It deliberately does NOT assert that the entire
+module has become legal: `sanitizeName` still has a separate incomplete contract
+for module identifiers. Its misleading "valid identifier" docstring is corrected.
+Names such as `1bad` and `module`, and arbitrary unsupported characters, remain
+outside a complete module-name lexical guarantee. The change does not repair
+module-identifier collisions or establish parser/lexer correctness.
+
+Next: define and connect the module-identifier policy (including references to
+modules and collision/compatibility consequences), then the remaining expression
+identifier and token/grammar correspondence. Do not infer a complete text
+certificate from a protected comment prefix or from roundtrip smoke tests.
+
+Validation: printer and final-theorem tests with standard-axiom audits,
+executable English tutorial, `lake build` and `lake test`. Normal-name comment
+identity is proved generally; no full corpus comparison or performance rerun is
+claimed for this step.
+
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
 previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed

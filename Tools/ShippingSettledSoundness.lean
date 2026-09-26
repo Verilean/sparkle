@@ -149,6 +149,8 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
       renderModule o.name
         (o.wires.filter fun p => !((o.inputs ++ o.outputs).map (·.name)).contains p.name).length sv
         = some (verilogOf m) ∧
+      LineText (Sparkle.Backend.Verilog.commentLabel o.name) ∧
+      (∃ rest, verilogOf m = Sparkle.Backend.Verilog.moduleComment o.name ++ rest) ∧
       combItems sv.items = some pairs ∧
       (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
       (∀ j, j < names.length → ∃ w, port j = some w ∧ w ∈ o.inputs.map (·.name)) ∧
@@ -175,7 +177,8 @@ theorem compiledFragment_settled {declName : Name} {mctx : Meta.Context}
   have hc := (forwardCheck_sound (compiled_forwardCheck h henv hwf hn
     (synthesized_names h henv hwf hn))).2
   rw [← hwidth] at hc
-  refine ⟨sv, port, pairs, ht, htext, hi, hd, hex, hdecl, houtWidth,
+  obtain ⟨hlabel, hprefix⟩ := renderModule_comment htext
+  refine ⟨sv, port, pairs, ht, htext, hlabel, hprefix, hi, hd, hex, hdecl, houtWidth,
     compiled_astDataNames h henv hwf hn ht, ?_⟩
   intro dom sigs t mems
   obtain ⟨hb, env, hev, hout, hobs⟩ := hsem sigs t mems
