@@ -985,6 +985,39 @@ def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
     | _ => none
   return toString abstracted.hash
 
+/-- The fix hint for a "not inlinable" failure, chosen from the constant the
+    inner failure names ("Cannot instantiate X: …").  Falls back to the list
+    of common sim-pass/synth-fail patterns when the cause is not recognised. -/
+def synthFailHint (innerMsg : String) : String :=
+  let culprit := ((innerMsg.splitOn "Cannot instantiate ")[1]?).map
+    (fun s => (s.splitOn ":").headD s)
+  let boolConst := "`sig.map (fun _ => true)` / `(fun _ => false)` lifts a Bool constant the\n    synth elaborator has no rule for: use `Signal.pure true`, or drop the\n    redundant `&& true`."
+  let iteConst := "`sig.map (fun b => if b then C1 else C2)` for BitVec constants: use\n    `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`."
+  let boolNot := "`(· != ·) <$> a <*> b` or `Bool.not <$> sig`: use\n    `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`."
+  let more := "\n  (catalogue of such patterns: docs/known-issues/KnownIssues.md; run\n  `#check_synthesizable` on the definition for a lint)"
+  match culprit with
+  | some c =>
+    if c == "Bool.true" || c == "Bool.false" then s!"\n\nLikely cause:\n  · {boolConst}{more}"
+    else if c == "ite" || c == "dite" || c == "cond" || c == "Bool.rec" then
+      s!"\n\nLikely cause:\n  · {iteConst}{more}"
+    else if c == "bne" || c == "Bool.not" || c == "not" then s!"\n\nLikely cause:\n  · {boolNot}{more}"
+    else s!"\n\nCommon causes (sim-pass but synth-fail patterns):\n  · {boolConst}\n  · {iteConst}\n  · {boolNot}{more}"
+  | none => s!"\n\nCommon causes (sim-pass but synth-fail patterns):\n  · {boolConst}\n  · {iteConst}\n  · {boolNot}{more}"
+
+/-- Refuse, with the fix, a top-level output whose payload has no hardware
+    port layout (`Vector`, `Array`).  Without this the leaf splitter treats
+    the container as a one-field record and fails with an internal message
+    ("incorrect number of universe levels Vector.toArray"). -/
+def checkOutputPayload (declName : Name) (body : Lean.Expr) : MetaM Unit := do
+  let ty ← whnf (← inferType body)
+  if ty.isAppOf ``Sparkle.Core.Signal.Signal && ty.getAppNumArgs == 2 then
+    let payload := ty.appArg!
+    match payload.getAppFn with
+    | .const n _ =>
+      if n == ``Vector || n == ``Array then
+        throwError m!"Cannot synthesize {declName}: its output is a Signal of `{n}` ({payload}), which has no hardware port layout.\n  fix: return one Signal per element as a tuple or a structure of Signals (one output port each), or pack the elements into one BitVec with `++`."
+    | _ => pure ()
+
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
       intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
@@ -3079,7 +3112,7 @@ mutual
         match lastFail with
         | some ex => do
           let msg ← CompilerM.liftMetaM ex.toMessageData.toString
-          pure s!"\n\nInline expansion failed with:\n{msg}\n\nCommon causes (sim-pass but synth-fail patterns):\n  · `sig.map (fun _ => true)` / `(fun _ => false)` — lifts a Bool constant\n    the synth elaborator has no rule for.  Use Signal.pure or drop the\n    redundant `&& true`.\n  · `sig.map (fun b => if b then C1 else C2)` for BitVec constants —\n    replace with `Signal.mux sig (Signal.pure C1) (Signal.pure C2)`.\n  · `(· != ·) <$> a <*> b` or `Bool.not <$> sig` —\n    use `(fun a b => !(a == b)) <$> a <*> b` and `(fun b => !b) <$> sig`.\n  · Returning a tuple from `circuit do` — wrap in a structure with\n    `HasDomain` (see IP/Net/Ethernet.lean RxOut)."
+          pure s!"\n\nInline expansion failed with:\n{msg}{synthFailHint msg}"
         | none => pure ""
       CompilerM.liftMetaM $ throwError
         s!"Cannot synthesise {name}: not inlinable and not a hardware module.{detail}"
@@ -3793,6 +3826,7 @@ mutual
                 throwError
                   s!"Requested retained hardware parameter '{parameterName}' is not a top-level Nat binder of {declName}"
 
+          checkOutputPayload declName innerBody
           let leaves ← splitReturnLeaves innerBody
           let t2 ← IO.monoMsNow
           logProf s!"[profile] splitReturnLeaves done ({t2 - t1} ms, leaves={leaves.size})"
@@ -3964,11 +3998,31 @@ elab "#synthesize" id:ident : command => do
     printModule module
     IO.println "\n-- IR successfully generated!"
 
-def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit := do
-  for m in design.modules do
-    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs m
-    for w in warnings do
-      Lean.logWarning m!"{w}"
+register_option sparkle.drc.strict : Bool := {
+  defValue := false
+  descr := "Fail synthesis commands on DRC error-class findings (combinational loops, multiple or missing drivers, undeclared names)."
+}
+
+/-- Report DRC findings.  Every finding is a warning unless
+    `set_option sparkle.drc.strict true`, which turns error-class findings
+    into errors and fails the command. -/
+def reportDRC (diags : List Sparkle.Compiler.DRC.Diag) : MetaM Unit := do
+  let strict := sparkle.drc.strict.get (← getOptions)
+  let mut nErr := 0
+  for d in diags do
+    if strict && d.severity == .error then
+      nErr := nErr + 1
+      Lean.logError m!"{d.render}"
+    else
+      Lean.logWarning m!"{d.render}"
+  if nErr > 0 then
+    throwError s!"DRC failed with {nErr} error(s) (sparkle.drc.strict is on)"
+
+def runModuleDRC (module : Sparkle.IR.AST.Module) : MetaM Unit :=
+  reportDRC (Sparkle.Compiler.DRC.checkModule module)
+
+def runDesignDRC (design : Sparkle.IR.AST.Design) : MetaM Unit :=
+  reportDRC (Sparkle.Compiler.DRC.checkDesign design)
 
 /-- Plain-text Verilog elaborator.
 
@@ -4000,10 +4054,11 @@ elab "#synthesizeVerilog" id:ident : command => do
   logProf s!"[profile] declName resolved: {declName}"
   Lean.Elab.Command.liftTermElabM do
     logProf s!"[profile] entering liftTermElabM, calling synthesizeCombinational"
+    let tSynth0 ← IO.monoMsNow
     let (module, _) ← synthesizeCombinational declName
-    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
-    for w in warnings do
-      Lean.logWarning m!"{w}"
+    let tSynth1 ← IO.monoMsNow
+    runModuleDRC module
+    let tDrc ← IO.monoMsNow
     -- Run the IR optimizer so 0-bit shapes (from `runCircuitH` /
     -- `bundle2 _ (Signal.pure ())`) are stripped before emission —
     -- without this we'd output `assign x = 0'd0;`, an invalid
@@ -4017,6 +4072,9 @@ elab "#synthesizeVerilog" id:ident : command => do
     -- the browser DevTools console — use `#showVerilog` (which
     -- emits via `logInfo`) for notebook display.
     IO.println verilog
+    let tEmit ← IO.monoMsNow
+    -- One-line phase summary (SPARKLE_PROFILE=1): where the time went.
+    logProf s!"[profile] #synthesizeVerilog {declName}: synth {tSynth1 - tSynth0} ms, drc {tDrc - tSynth1} ms, optimize+print {tEmit - tDrc} ms ({module.wires.length} wires, {module.body.length} statements)"
     IO.println "\n-- Verilog successfully generated!"
 
 declare_syntax_cat sparkleParameterBinding
@@ -4038,9 +4096,7 @@ elab_rules : command
       Lean.resolveGlobalConstNoOverload id
     Lean.Elab.Command.liftTermElabM do
       let (module, _) ← synthesizeCombinationalWithParameters declName parameters
-      let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
-      for warning in warnings do
-        Lean.logWarning m!"{warning}"
+      runModuleDRC module
       IO.println (toVerilog module)
       IO.println "\n// Native parameterized Verilog successfully generated."
 
@@ -4060,9 +4116,7 @@ elab "#showVerilog" id:ident : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let (module, _) ← synthesizeCombinational declName
-    let warnings := Sparkle.Compiler.DRC.checkRegisteredOutputs module
-    for w in warnings do
-      Lean.logWarning m!"{w}"
+    runModuleDRC module
     -- Optimize before emission — same rationale as #synthesizeVerilog.
     let optimized := Sparkle.IR.Optimize.optimizeModule module
     let src := toVerilog optimized
@@ -4148,6 +4202,7 @@ elab "#writeCppSimDesign" id:ident str:str : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
+    runDesignDRC design
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let cSrc := Sparkle.Backend.CSim.toCDesign optimized
     let path := str.getString
@@ -4197,6 +4252,7 @@ elab "#writeCudaDesign" id:ident str:str : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
+    runDesignDRC design
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     let cu := Sparkle.Backend.CudaSim.toCudaSimDesign optimized
     let path := str.getString
@@ -4249,6 +4305,7 @@ elab "#writeCudaIntraDesign" id:ident str:str : command => do
     Lean.resolveGlobalConstNoOverload id
   Lean.Elab.Command.liftTermElabM do
     let design ← synthesizeHierarchical declName
+    runDesignDRC design
     let optimized := Sparkle.IR.Optimize.optimizeDesign design
     match Sparkle.Backend.CudaIntra.toCudaIntraDesign optimized with
     | .error e => throwError "CUDA intra backend: {e}"

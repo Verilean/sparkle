@@ -1,5 +1,14 @@
 # Known Limitations and Troubleshooting — Sparkle Synthesis
 
+> **First stop:** every synthesis command runs a design rule check and
+> prints findings as `[DRC <rule> <severity>] … fix: …`.
+> `set_option sparkle.drc.strict true` makes the error-class rules
+> (combinational loops, multiple/missing drivers, undeclared names,
+> undeclared clock/reset) fail the build. Rules, examples and a
+> pre-FPGA checklist: tutorial Chapter 9b
+> (`docs/tutorial/md/Ch09b_DRC_Debugging.md`). `SPARKLE_PROFILE=1`
+> prints a per-phase timing line for each `#synthesizeVerilog`.
+
 ## Imperative Syntax with `Signal.circuit`
 
 **`Signal.circuit` provides imperative-style hardware description with `<~` register assignment.**

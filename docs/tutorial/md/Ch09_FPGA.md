@@ -238,6 +238,10 @@ typed IR is countable without lowering to a netlist.
 
 ## 9.8 Where to go next
 
+- **Ch 9b — Design Rule Checks and Debugging Synthesis**: the
+  pre-board checklist (strict DRC, simulation, `#verify_fpga`, pin
+  map, registered boundaries) and how to read "does not synthesize"
+  errors.
 - **Ch 10 — Architecture**: how the Sparkle compiler
   produces the SystemVerilog you've been feeding to Yosys.
 - `docs/ip-catalog/RV32.md` — a full RISC-V SoC built in
