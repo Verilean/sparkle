@@ -40,7 +40,7 @@ this fragment.
 ## 7c.2 Start with a small adder
 
 ```lean
-import Tools.ShippingSVBridge
+import Tools.ShippingDeclWidths
 
 open Lean Elab Command
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
@@ -194,7 +194,7 @@ crc16 alone would not enlarge the general theorem's scope.
 The next task is to justify the unfinished arrows.
 
 The AST-to-evaluation connection is now the **conditional general theorem**
-`ShippingSVBridge.compiledFragment_forward`. It extracts assignments from
+`ShippingDeclWidths.compiledFragment_astWidths`. It extracts assignments from
 the actual emitted AST and proves that their in-order SV-subset evaluation
 agrees with the source. Final IR width checks, initial-environment bounds,
 and stability of allocated wire names under sanitization are now derived
@@ -295,7 +295,7 @@ theorem plus8_sv_correct
       Tools.ShippingModulePrintSoundness.declaredOutputWidth sv "out" = some 8 ∧
       ∀ {dom : DomainConfig} (sigs : Nat → Signal dom (BitVec 8)) (t : Nat),
         ∃ env, Tools.SVParser.EmitSem.evalAssignsSV
-          (Sparkle.IR.PrintCheck.widths (Sparkle.IR.OptCheck.checkedOptimize m))
+          (Tools.ShippingDeclWidths.astWidths sv)
           (fun _ _ => 0) pairs
           (Tools.ShippingSVBridge.inputEnv 2 port (fun j => (sigs j).val t)) = some env ∧
           env "out" = ((plus8 (sigs 0) (sigs 1)).val t).toNat ∧
@@ -303,7 +303,7 @@ theorem plus8_sv_correct
             some ((plus8 (sigs 0) (sigs 1)).val t).toNat := by
   rw [plus8Value_eq] at henv
   obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, houtWidth, hsem⟩ :=
-    Tools.ShippingSVBridge.compiledFragment_forward h henv
+    Tools.ShippingDeclWidths.compiledFragment_astWidths h henv
       (by simp [plus8Expr, FExpr.WF]) (by decide)
   exact ⟨sv, port, pairs, ht, hi, hdecl, houtWidth, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
 
@@ -331,6 +331,21 @@ those bits cannot change it. For example, observing 300 through an eight-bit
 output would give 44, so connecting the declaration is a real obligation;
 merely proving a value for an untyped name would not establish it.
 
+The internal wires are connected too. `astWidths sv` constructs a lookup
+using only the emitted ports and wire declarations. The printer suppresses a
+wire declaration when a port already has its name; its own lookup, however,
+searches wires before ports. Those choices agree only if matching names have
+matching types. For example, a 16-bit wire hidden by an 8-bit input port would
+make the two lookups disagree.
+
+`compiled_declarations` derives the required consistency from the actual
+synthesis entry: wire names are distinct, inputs refer to those same wires,
+and the output name is separate. Cleanup and the actual optimizer only filter
+wire declarations. `compiled_astWidths` then proves equality of the two
+lookups **for every name**, accounting for both suppression and search order.
+The final theorem above uses `astWidths sv`; no IR width environment or new
+consistency premise is supplied by the caller.
+
 This observes the existing in-order evaluator. It does not introduce or prove
 a concurrent scheduling or four-state SystemVerilog model.
 
@@ -345,12 +360,10 @@ The remaining boundaries are concrete:
 - **Initialization is connected.** Bounds now follow for the environment
   constructed from source inputs. This is not a result about arbitrary
   internal states, register initialization, or reset.
-- **Declared widths and text interpretation.** The evaluator still obtains
-  widths from the IR/printer lookup. Input declarations and the observed output
-  width are now connected. Relating the entire evaluator lookup, including
-  internal wires and any shadowing declarations, to the AST
-  declarations, recognizing the rendered text, and connecting assignment
-  evaluation to concurrent RTL semantics remain distinct obligations.
+- **Text interpretation and execution.** Every evaluator width now comes
+  from the AST declarations. Recognizing the rendered text and connecting
+  in-order assignment evaluation to concurrent RTL semantics remain distinct
+  obligations.
 
 Closing these boundaries would complete the connection for this fragment.
 Generalizing to state, memory, hierarchy, and the other accepted handlers is
@@ -361,8 +374,8 @@ Implementation status is recorded in
 [ShippingCompiler-Soundness.md](../../ShippingCompiler-Soundness.md).
 Read `compiledFragment_artifact` and `FragmentArtifact` in
 [ShippingPrintEntrySoundness.lean](../../../Tools/ShippingPrintEntrySoundness.lean),
-and `compiledFragment_forward` in
-[ShippingSVBridge.lean](../../../Tools/ShippingSVBridge.lean) for the evaluation
+and `compiledFragment_astWidths` in
+[ShippingDeclWidths.lean](../../../Tools/ShippingDeclWidths.lean) for the evaluation
 connection.
 
 ```lean

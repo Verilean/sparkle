@@ -1670,6 +1670,24 @@ lexical/text contract. No shipping compiler behavior changed in this step.
 Validation: bridge tests, executable tutorial and `lake test` pass, with
 standard axioms only in the new general proofs and real-source applications.
 
+**2026-09-26 whole declaration lookup:** `ShippingDeclWidths.astWidths`
+reads all evaluation widths from the actual emitted AST. The new
+`optimizeModule_wires_subset` proves directly that the shipping optimizer
+only filters declarations. Together with entry uniqueness, input bindings,
+output separation and cleanup preservation, `compiled_declarations` derives
+that a name has one declaration type. This justifies both suppression of
+port-backed wires and reordering the lookup from wires-first to ports-first.
+`compiled_astWidths` proves lookup equality at every name;
+`compiledFragment_astWidths` now evaluates using the AST-only lookup and
+retains the source-value and declared-output observation conclusions.
+There is no new premise or compiler change. A malformed same-name 16-bit
+wire/8-bit port demonstrates why emission alone is insufficient.
+Next boundaries: lexical/text interpretation and concurrent RTL semantics;
+`EnvDefines` and the restricted source fragment remain explicit.
+Validation: bridge tests, generated English tutorial, `lake build`, and
+`lake test` pass; new general theorems and source applications use only the
+three standard axioms. No shipping compiler change or new assumption.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

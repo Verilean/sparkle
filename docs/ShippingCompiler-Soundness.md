@@ -1114,10 +1114,35 @@ eight-bit truncation (300 becomes 44), absent outputs, direction filtering,
 and refusal of signed observations. The general lemmas and applications
 pass the standard-axiom audit. This is an observation of the existing
 in-order assignment evaluator, NOT a new proof of concurrent/four-state SV
-semantics. The entire evaluation width lookup, including internal declarations
-and shadowing, still needs to be connected to the AST.
+semantics. The subsequent declaration-lookup result below connects internal
+declarations and shadowing as well.
 The bridge tests, generated tutorial and `lake test` pass. This step changes
 proofs and their examples only; the shipping compiler is unchanged.
+
+**Whole emitted declaration lookup (2026-09-26):**
+`Tools/ShippingDeclWidths.lean` defines `astWidths` using only SV ports and
+internal wire declarations. `declarationTable_emitted` extracts this table
+from the actual emitted tree, accounting for port-name wire suppression.
+`compiled_declarations` derives name/type consistency from the source entry.
+The new structural theorem `optimizeModule_wires_subset` proves that the
+shipping optimizer only filters wire declarations; no semantic optimizer
+assumption is needed for this fact. Together with the cleanup subset theorem,
+this transports declaration consistency through the actual pipeline.
+
+`compiled_astWidths` proves equality with the printer's lookup for every
+name, despite the different search order (IR wires first, AST ports first).
+`compiledFragment_astWidths` composes this with the source theorem: both
+initial boundedness and assignment evaluation use the emitted AST's own
+widths. It retains rendering equality, input/output declarations and output
+observation, with no new premise, checker or compiler behavior change.
+`fragA`, `hashCollision` and the English tutorial use this theorem.
+A conflicting 16-bit wire/8-bit port is a negative test: emission alone does
+not ensure agreement, whereas generated modules satisfy the proved invariant.
+The lexical/text contract and concurrent/four-state semantics remain open.
+Validation: bridge tests, generated English tutorial, `lake build` and
+`lake test` pass. The new general theorems and source applications pass the
+standard-axiom-only audit. No synthesis corpus rerun was needed for this
+proof-only change.
 
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
@@ -1190,9 +1215,9 @@ Next, in order:
   Rendering equality, the assignment check and constructed initialization
   are proved, with allocated-wire name stability derived. Actual input-port
   declarations and declared-width output observation are connected too.
-  Remaining: the complete lexical contract (module names included); derive
-  the whole evaluator width lookup from AST declarations, including internal
-  wires and shadowing; connect in-order
+  The whole evaluator width lookup, including internal wires and shadowing,
+  is now derived from those AST declarations. Remaining: the complete lexical
+  contract (module names included); connect in-order
   assignment evaluation to concurrent RTL semantics and the emitted text's
   grammar. Any interpretation by external tools remains an explicit boundary.
 * Width 0, `EnvDefines`, registers/memories/instances, as before.

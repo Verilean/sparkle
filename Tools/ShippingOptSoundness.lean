@@ -326,4 +326,32 @@ theorem checkedOptimize_ports {m : Sparkle.IR.AST.Module} (hgate : simpleBody m 
   · rename_i hc; exact optCheck_ports hc
   · exact ⟨rfl, rfl⟩
 
+set_option maxRecDepth 4096 in
+/-- A structural property of the shipping optimizer itself: declarations
+are filtered, never renamed or retyped. This does not assume the optimizer's
+semantic correctness or evaluate its opaque expression helpers. -/
+theorem optimizeModule_wires_subset (m : Sparkle.IR.AST.Module) :
+    ∀ p ∈ (Sparkle.IR.Optimize.optimizeModule m).wires, p ∈ m.wires := by
+  intro p hp
+  unfold Sparkle.IR.Optimize.optimizeModule at hp
+  split at hp
+  · exact hp
+  · dsimp only [Sparkle.IR.Optimize.eliminateZeroBits] at hp
+    split at hp
+    all_goals
+      dsimp only [Sparkle.IR.Optimize.inlineSingleUseWires] at hp
+      repeat' (rcases List.mem_filter.mp hp with ⟨hp, _⟩)
+      exact hp
+
+theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
+    ∀ p ∈ (checkedOptimize m).wires, p ∈ m.wires := by
+  intro p hp
+  unfold checkedOptimize at hp
+  split at hp
+  · dsimp only at hp
+    split at hp
+    · exact optimizeModule_wires_subset m p hp
+    · exact hp
+  · exact optimizeModule_wires_subset m p hp
+
 end Tools.ShippingOptSoundness

@@ -1,4 +1,4 @@
-import Tools.ShippingSVBridge
+import Tools.ShippingDeclWidths
 import Tests.Compiler.ShippingEntrySoundnessTest
 
 namespace Sparkle.Tests.Compiler.ShippingSVBridgeTest
@@ -7,7 +7,7 @@ open Lean Elab Command
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.Compiler.Elab Sparkle.IR.OptCheck
 open Tools.SVParser.AST Tools.SVParser.EmitAst Tools.SVParser.EmitSem
 open Tools.ShippingPrintSoundness Tools.ShippingSVBridge
-open Tools.ShippingModulePrintSoundness
+open Tools.ShippingModulePrintSoundness Tools.ShippingDeclWidths
 open Sparkle.Tests.Compiler.ShippingEntrySoundnessTest
 open Tools.ShippingEntrySoundness Tools.ShippingTranslateSoundness
 
@@ -62,14 +62,14 @@ theorem fragA_initialized_sv {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld M
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
         let initial := inputEnv 2 port (fun j => (sigs j).val t)
-        Bounded (forwardWidths (checkedOptimize m)) initial ∧
-        ∃ env, evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize m))
+        Bounded (fun x => (astWidths sv x).getD 0) initial ∧
+        ∃ env, evalAssignsSV (astWidths sv)
           (fun _ _ => 0) pairs initial = some env ∧
           env "out" = ((fragA (sigs 0) (sigs 1)).val t).toNat ∧
           observeUnsignedOutput sv env "out" = some ((fragA (sigs 0) (sigs 1)).val t).toNat := by
   rw [fragAValue_eq] at henv
   obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, houtWidth, hsem⟩ :=
-    compiledFragment_forward h henv feA_wf (by decide)
+    compiledFragment_astWidths h henv feA_wf (by decide)
   refine ⟨sv, port, pairs, ht, hi, hdecl, houtWidth, ?_⟩
   intro dom sigs t
   exact hsem sigs t (fun _ _ => 0)
@@ -79,6 +79,26 @@ example : declaredPortWidth {dir := .input, name := "scalar", width := none} = s
 example : declaredPortWidth {dir := .input, name := "descending", width := some (7, 0)} = some 8 := rfl
 example : declaredPortWidth {dir := .input, name := "ascending", width := some (0, 7)} = some 8 := rfl
 example : declaredPortWidth {dir := .input, name := "symbolic", width := none, widthExpr := some (.ident "N", .ident "L")} = none := rfl
+
+private def conflictingDecls : Sparkle.IR.AST.Module :=
+  { name := "conflicting", inputs := [{name := "x", ty := .bitVector 8}],
+    outputs := [], wires := [{name := "x", ty := .bitVector 16}], body := [] }
+private def conflictingAst : SVModule :=
+  {name := "conflicting", ports := [{dir := .input, name := "x", width := some (7, 0)}], items := []}
+example : emitAstModule conflictingDecls = some conflictingAst := by
+  simp [emitAstModule, conflictingDecls, conflictingAst, widthAstOf,
+    Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq]
+example : astWidths conflictingAst "x" = some 8 := rfl
+example : printWidths (conflictingDecls.wires ++ conflictingDecls.inputs ++ conflictingDecls.outputs) "x" = some 16 := by
+  simp [printWidths, conflictingDecls, Sparkle.Backend.Verilog.sanitizeName, String.all_bool_eq]
+-- This malformed module is emitted, but cannot satisfy compiled_declarations.
+example : ¬ (∀ p ∈ conflictingDecls.wires ++ conflictingDecls.inputs ++ conflictingDecls.outputs,
+    ∀ q ∈ conflictingDecls.wires ++ conflictingDecls.inputs ++ conflictingDecls.outputs,
+      p.name = q.name → p = q) := by
+  intro h
+  have he := h ⟨"x", .bitVector 16⟩ (by simp [conflictingDecls])
+    ⟨"x", .bitVector 8⟩ (by simp [conflictingDecls]) rfl
+  cases he
 
 private def observedOutput (width : Option (Nat × Nat)) : SVModule :=
   { name := "observed", ports := [{dir := .input, name := "out", width := some (31, 0)},
@@ -177,13 +197,13 @@ theorem hashCollision_sv_correct
       combItems sv.items = some pairs ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
-        ∃ env, evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize m))
+        ∃ env, evalAssignsSV (astWidths sv)
           (fun _ _ => 0) pairs (inputEnv 2 port (fun j => (sigs j).val t)) = some env ∧
           env "out" = ((hashCollision (sigs 0) (sigs 1)).val t).toNat ∧
           observeUnsignedOutput sv env "out" = some ((hashCollision (sigs 0) (sigs 1)).val t).toNat := by
   rw [hashCollisionValue_eq] at henv
   obtain ⟨sv, port, pairs, ht, _, hi, _, _, _, _, hsem⟩ :=
-    compiledFragment_forward h henv (by simp [FExpr.WF]) (by decide)
+    compiledFragment_astWidths h henv (by simp [FExpr.WF]) (by decide)
   exact ⟨sv, port, pairs, ht, hi, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
 
 def unusedSignalInput {dom : Sparkle.Core.Domain.DomainConfig}
@@ -217,11 +237,14 @@ run_cmd liftTermElabM do
         throwError "forward check rejected actual unoptimized/optimized fragment: {name}"
       let some sv := emitAstModule o | throwError "AST emission failed"
       let some pairs := combItems sv.items | throwError "AST item extraction failed"
+      for p in o.wires ++ o.inputs ++ o.outputs do
+        unless astWidths sv p.name == wof p.name do
+          throwError "emitted declaration lookup disagrees at {p.name}"
       -- A smoke check of the actual tree, not the general proof's substitute.
       let initial : Env := fun _ => 0
       let some ir := evalAssigns (Sparkle.IR.RegDedup.declWidth o) (fun _ _ => 0) o.body initial
         | throwError "IR execution failed"
-      let some rtl := evalAssignsSV wof (fun _ _ => 0) pairs initial
+      let some rtl := evalAssignsSV (astWidths sv) (fun _ _ => 0) pairs initial
         | throwError "SV assignment-fold execution failed"
       unless ir "out" == rtl "out" do
         throwError "IR and emitted-tree smoke check disagree"
@@ -258,7 +281,7 @@ run_cmd liftTermElabM do
       throwError "forward check rejected normalized collision regression"
     let initial : Env := fun x => if x == inputNames[0]! then 3 else if x == inputNames[1]! then 10 else 0
     let some pairs := combItems sv.items | throwError "missing assignments"
-    let some env := evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize collision))
+    let some env := evalAssignsSV (astWidths sv)
         (fun _ _ => 0) pairs initial | throwError "SV evaluation failed"
     unless env "out" == 13 do throwError "input bindings changed during name normalization"
   logInfo "SHIPPING NAME REPAIR OK: distinct inputs remain distinct after printing, including equal normalized hints"
@@ -268,6 +291,10 @@ run_cmd do
   for name in [``evalAssigns_widths, ``forwardCheck_sound, ``combItems_append,
       ``combItems_wires, ``body_combItems, ``module_combItems, ``module_forward,
       ``compiledFragment_forward, ``compiledFragment_forward_with_initial,
+      ``compiledFragment_astWidths, ``compiled_astWidths, ``compiled_declarations,
+      ``declarationTable_emitted, ``astWidths_emitted,
+      ``Tools.ShippingOptSoundness.optimizeModule_wires_subset,
+      ``Tools.ShippingOptSoundness.checkedOptimize_wires_subset,
       ``compiled_inputWidths, ``checkedOptimize_inputWidths,
       ``compiled_inputTypes, ``compiled_inputDecls, ``emitAstModule_input,
       ``emitAstModule_ports, ``astPort_bits,
@@ -296,6 +323,6 @@ run_cmd do
         throwError "unexpected postprocessing-width axiom: {name}: {ax}"
   logInfo "SHIPPING SYNTHESIZED WIDTH OK: cleanup, merge and guarded optimizer preserve the source-derived check; standard axioms only"
   logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only"
-  logInfo "SHIPPING SV BRIDGE OK: width, initialization and wire-name premises discharged; actual input and output declarations connected; declared-width output observation equals the source; internal declaration lookup and full RTL semantics remain open"
+  logInfo "SHIPPING SV BRIDGE OK: width, initialization and wire-name premises discharged; all evaluator widths come from the emitted declarations; declared-width output observation equals the source; text grammar and concurrent RTL semantics remain open"
 
 end Sparkle.Tests.Compiler.ShippingSVBridgeTest
