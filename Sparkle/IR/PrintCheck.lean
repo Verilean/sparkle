@@ -34,4 +34,9 @@ def moduleCheck (m : Module) : Bool :=
       | none => false
     | _ => false
 
+/-- Preserve even unused input widths: initialization supplies every input,
+not just the names read by the optimized assignment list. -/
+def inputWidthsAgree (m o : Module) : Bool :=
+  m.inputs.all fun p => widths o p.name == widths m p.name
+
 end Sparkle.IR.PrintCheck

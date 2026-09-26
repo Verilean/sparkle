@@ -91,12 +91,15 @@ def printDeclsCheck (m : Module) : Bool :=
 
 /-- Preserve printable declarations and the uniform-width printing check
 when the input already satisfies them. The normal-form check alone says
-nothing about unused assignments' widths. Failing candidates use the
+nothing about unused assignments' widths or unused inputs' width lookups.
+The input-width check preserves initialization for every supplied input.
+Failing candidates use the
 existing unchanged fallback. Inputs outside the printing fragment retain
 the previous acceptance policy. -/
 def optCheck (m o : Module) : Bool :=
   optCheckCore m o && ((!printDeclsCheck m || printDeclsCheck o) &&
-    (!PrintCheck.moduleCheck m || PrintCheck.moduleCheck o))
+    (!PrintCheck.moduleCheck m ||
+      (PrintCheck.moduleCheck o && PrintCheck.inputWidthsAgree m o)))
 
 /-- The statement shapes the synthesis entry produces: an `assign` of a
 constant, a reference, or one of the six operators on two references. -/

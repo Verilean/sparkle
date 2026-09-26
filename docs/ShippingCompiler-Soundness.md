@@ -937,11 +937,12 @@ Its diagram keeps the lexical and SV evaluation links explicitly unfinished.
 `Tools/ShippingSVBridge.lean` proves `compiledFragment_forward`. For the SAME
 synthesis run and emitted tree/bytes, the existing SV-subset **in-order
 assignment fold** agrees with the source on every input, conditional on
-wire sanitizer stability and a bounded initial environment. The final
+wire sanitizer stability. Its initial environment is now constructed from
+source inputs, with boundedness proved (see below). The final
 `forwardCheck (checkedOptimize m) = true` premise was discharged by the
 optimizer-guard step described below.
 This is not external-tool or full concurrent SystemVerilog semantics; the
-remaining name and initialization premises must still be discharged.
+remaining name and text-interpretation boundaries must still be discharged.
 
 Two representation gaps are now closed in that conditional composition:
 
@@ -957,8 +958,8 @@ Two representation gaps are now closed in that conditional composition:
   RHS reference; `forwardCheck` includes that agreement plus `assignsCheck`.
 
 The initial printer-width bound follows from `Bounded forwardWidths initial`;
-it is not a second caller premise. That bounded initialization itself remains
-to be derived from the source input mapping. The SV evaluation still uses the
+it is not a second caller premise. The final theorem now derives boundedness
+for `inputEnv` from the source input mapping. The SV evaluation still uses the
 printer's width lookup; an independent interpretation of the AST declarations
 and textual grammar is not claimed here.
 
@@ -1041,12 +1042,71 @@ examples and an external tutorial package. Five missing-dependency cases were
 built and rerun successfully. No whole-run performance comparison is claimed
 from this two-policy harness.
 
-Bounded initialization remains explicit. Sanitizer
-stability is separate from lexical validity and is NOT assumed automatically:
+**Constructed initialization (2026-09-26):** `compiledFragment_forward` now
+takes no initial environment or boundedness hypothesis. Its executable
+`inputEnv` assigns each source input's sampled value to its port and zero to
+all other names. `inputEnv_input` uses the proved injectivity of the port map;
+`inputEnv_bounded` uses `BitVec.isLt`. Boundedness is a CONCLUSION alongside
+the emitted AST's evaluation result for every input and cycle. The previous
+arbitrary-initial-environment theorem remains available as
+`compiledFragment_forward_with_initial`.
+
+This required preserving unused input widths too. The expression guard does
+not inspect unused inputs: a constant-output candidate can narrow an unused
+input's wire declaration from 8 to 1 and still pass it, but 255 then violates
+the printer-width bound. `PrintCheck.inputWidthsAgree` now checks every input
+when the original passes the printing guard. `compiled_inputWidths` connects
+these checks to the real entry's input declarations. Tests pin that negative
+case and apply the final theorem to `fragA`; the tutorial applies it to
+`plus8`. This is combinational zero-internal-state initialization, not a
+register/reset theorem or arbitrary internal-state guarantee.
+
+Initialization-step validation: the soundness test, `lake test` and the
+executable tutorial pass; the general theorem and its `fragA`/`plus8`
+applications use standard axioms only. Comparing the previous guard with
+the new all-input-width guard on the same synthesized modules produced
+298 byte-identical Verilog outputs across the 119 emitting files used in
+the prior differential sweep. The two existing error-example files still
+report their unrelated errors; this is not a claim of a clean whole-corpus
+build. The runtime tests also include a real source with an unused input.
+
+Sanitizer stability is separate from lexical validity and is NOT assumed automatically:
 a real declaration with binder `«a#»` synthesizes, but its allocated name is
 changed by the printer and its forward check fails. That negative case is
 pinned alongside the general `fragA_core_forward` application and the axiom
-audit. The shipping compiler is unchanged in this step.
+audit. The sanitizer itself is unchanged by the optimizer-guard steps.
+
+**Actual input declarations (2026-09-26):** `declaredPortWidth` interprets a
+literal range from an `SVPort` itself, independently of the IR width lookup
+(scalar = 1; either range direction = `max hi lo - min hi lo + 1`; symbolic
+ranges return `none`). `emitAstModule_input` proves that a positive-width IR
+input is emitted as an unsigned input of that width in the actual AST.
+`compiled_inputTypes` derives the input types and stable names through the
+real synthesis/cleanup/optimizer path, and `compiled_inputDecls` composes the
+two. `compiledFragment_forward` now includes this fact for each source input
+in its CONCLUSION. The `fragA` and tutorial `plus8` applications retain it.
+There is no new caller premise. This connects input declarations only, not
+the entire internal-wire/output width lookup to an independently interpreted
+module, and not concurrent or four-state RTL semantics.
+
+Validation for this step: the bridge test and generated tutorial build,
+`lake test` passes, and the new general lemmas plus the `fragA` and `plus8`
+applications pass the standard-axiom audit. The tutorial is now in English.
+The known naming counterexample below remains an explicit failing property
+of the shipping compiler despite these proof/test builds passing.
+
+**Confirmed naming defect (2026-09-26), NOT FIXED:** the real declaration
+`hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
+synthesizes successfully with distinct inputs `_gen_«a#»` and `_gen_«a##»`.
+Both print as `_gen_«a»`. The emitted AST has two inputs with the same name;
+the byte-equal rendering consequently repeats that identifier. This is not
+just a hypothetical weakness in the proof contract. The current theorem's
+name-stability premise excludes this run, so it is not a counterexample to
+that theorem. It IS an obstruction to the unrestricted IR-success-to-RTL
+goal. `ShippingSVBridgeTest` pins the successful run and the duplicate names
+as a KNOWN BUG, not as a correctness pass. Repair naming before claiming
+coverage of all accepted binders. Merely adding a source-name assumption or
+calling a later printer refusal “IR failure” would change the stated goal.
 
 **Review of proposed option A:** retaining an optimizer result only after a
 forward-fragment check is sensible, but the fallback's check must be proved
@@ -1067,8 +1127,9 @@ Next, in order:
 2. Establish the lexical contract for the source fragment and generated names.
    Until then byte equality is NOT a theorem that an SV tool parses the string.
 3. **Done under wire sanitizer stability:** the fallback's check is derived,
-   and the shipping optimizer preserves it on both returned branches. Next
-   derive the bounded initial environment from the input-port values.
+   and the shipping optimizer preserves it on both returned branches.
+   Initialization from input-port values is now also derived. Both are
+   conclusions of the actual-run theorem, not caller-supplied checks.
 4. Compose the existing declaration theorem with the module rendering and SV
    evaluation theorems. Any trusted rendering-to-grammar interpretation must
    remain explicit, distinct from the proved byte equalities.
@@ -1078,11 +1139,13 @@ Next, in order:
 * **Text ↔ SV semantics (next).** Relate `toVerilog (checkedOptimize M)` to
   the existing SV-subset semantics (`evalSV`, `emit_sem_assigns` in
   `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
-  Rendering equality is now proved on the stated module fragment. Remaining:
-  lexical validity, the width conditions `assignsCheck` needs, and the output-port
-  width environment.
-  The SV grammar (that tools read the rendered text as that AST) will remain
-  the trusted step.
+  Rendering equality, the assignment check and constructed initialization
+  are proved under name stability. Actual input-port declarations are now
+  connected too. Remaining: repair the confirmed naming collision and prove
+  the lexical contract; derive the whole evaluator width lookup from AST
+  declarations (internal wires and outputs included); connect in-order
+  assignment evaluation to concurrent RTL semantics and the emitted text's
+  grammar. Any interpretation by external tools remains an explicit boundary.
 * Width 0, `EnvDefines`, registers/memories/instances, as before.
 
 ## Applying the general theorem to crc16

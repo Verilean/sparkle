@@ -1592,6 +1592,45 @@ text/grammar boundary (plus the existing fragment and `EnvDefines` scope).
 Tests require the real small-fragment optimizer proposals to be accepted,
 reject the old unused-width counterexample, and audit standard axioms only.
 
+**2026-09-26 constructed initialization:** `inputEnv` supplies source values
+at their allocated input ports and zero elsewhere. `inputEnv_input` proves
+the correspondence using the source-derived injective port map;
+`inputEnv_bounded` derives bounds from `BitVec.isLt`. The actual shipping
+optimizer now preserves printer widths of ALL inputs on the checked route,
+including unused ones (`inputWidthsAgree`). A pinned negative example changes
+an unused input's internal declaration from 8 bits to 1: output and expression
+checks still pass, but initializing that input to 255 breaks boundedness.
+The new guard rejects this proposal. `compiled_inputWidths` derives the
+required widths from the source entry through both optimizer branches.
+`compiledFragment_forward` now constructs initialization itself and has no
+boundedness/input-environment hypothesis; the old arbitrary-environment form
+is retained as `compiledFragment_forward_with_initial`. General applications
+to `fragA` and tutorial `plus8` reach actual SV assignment-fold evaluation.
+Remaining: source-result name stability, lexical/text interpretation and
+independent AST declaration semantics, plus `EnvDefines` and fragment scope.
+
+**2026-09-26 actual input-port declarations:** `emitAstModule_input` interprets
+the actual port's literal range without consulting IR widths.
+`compiled_inputTypes` and `compiled_inputDecls` derive, from the same successful
+source run, an unsigned SV input declaration of width `n` for every source
+input, including unused inputs. The result is now part of
+`compiledFragment_forward`, not a disconnected helper or another premise.
+The `fragA` and English tutorial `plus8` theorems retain that conclusion;
+all new general lemmas are axiom-audited. Internal/output declarations and
+concurrent semantics remain open.
+
+**Next priority — confirmed naming BUG, not fixed:** `hashCollision` with
+inputs `«a#»` and `«a##»` succeeds at `synthesizeCombinational`, but printing
+maps its two distinct IR input names to the same `_gen_«a»`. The current
+name-stability hypothesis excludes the example; it cannot be discharged for
+all successful runs as the compiler stands. The bridge test pins this known
+failure and checks that `forwardCheck` excludes it. Repair spelling and
+freshness together, preserving bindings across declarations and uses; cover
+module/port/wire names, lexical validity and collisions. Do not silently
+replace the user's IR-success goal with a narrower printing-success goal.
+Keep `EnvDefines`, fragment coverage, whole-AST width interpretation and
+text/concurrent semantics explicit while doing this.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

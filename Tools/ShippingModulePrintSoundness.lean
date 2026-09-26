@@ -71,6 +71,70 @@ def astWire (p : Port) : Option SVModuleItem := do
   let w ← widthAstOf p.ty
   some (.wireDecl (sanitizeName p.name) w none)
 
+/-- Interpret a literal packed range from the emitted port itself, without
+consulting the IR width table. Symbolic ranges remain outside this bridge. -/
+def declaredPortWidth (p : SVPort) : Option Nat :=
+  if p.widthExpr.isSome then none else
+    some (match p.width with
+      | none => 1
+      | some (hi, lo) => max hi lo - min hi lo + 1)
+
+theorem astPort_bits {p : Port} {n : Nat} (ht : p.ty = .bitVector n) (hn : 0 < n)
+    (dir : SVPortDir) {sp : SVPort} (h : astPort dir p = some sp) :
+    sp.dir = dir ∧ sp.name = sanitizeName p.name ∧
+      declaredPortWidth sp = some n ∧ sp.isSigned = false := by
+  cases n with
+  | zero => omega
+  | succ n =>
+    cases n with
+    | zero =>
+      simp [astPort, ht, widthAstOf] at h
+      subst sp
+      exact ⟨rfl, rfl, rfl, rfl⟩
+    | succ n =>
+      simp [astPort, ht, widthAstOf] at h
+      subst sp
+      simp [declaredPortWidth]
+
+private theorem mapM_mem {α β : Type} {f : α → Option β} {xs : List α} {ys : List β}
+    (h : xs.mapM f = some ys) {x : α} (hx : x ∈ xs) :
+    ∃ y ∈ ys, f x = some y := by
+  induction xs generalizing ys with
+  | nil => cases hx
+  | cons a xs ih =>
+    simp only [List.mapM_cons, bind, Option.bind_eq_some_iff] at h
+    obtain ⟨b, hb, bs, hbs, he⟩ := h
+    cases he
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact ⟨b, by simp, hb⟩
+    · obtain ⟨y, hy, he⟩ := ih hbs hx
+      exact ⟨y, List.mem_cons_of_mem _ hy, he⟩
+
+theorem emitAstModule_ports {m : Sparkle.IR.AST.Module} {sv : SVModule}
+    (h : emitAstModule m = some sv) :
+    ∃ ins outs, m.inputs.mapM (astPort .input) = some ins ∧
+      m.outputs.mapM (astPort .output) = some outs ∧ sv.ports = ins ++ outs := by
+  unfold emitAstModule at h
+  split at h
+  · cases h
+  · split at h
+    · cases h
+    · simp only [bind, Option.bind_eq_some_iff] at h
+      obtain ⟨ins, hi, outs, ho, ws, hw, bs, hb, he⟩ := h
+      cases he
+      exact ⟨ins, outs, hi, ho, rfl⟩
+
+/-- Every positive-width IR input becomes an unsigned port of that width
+in the actual emitted tree. This includes unused inputs. -/
+theorem emitAstModule_input {m : Sparkle.IR.AST.Module} {sv : SVModule}
+    (h : emitAstModule m = some sv) {p : Port} (hp : p ∈ m.inputs)
+    {n : Nat} (ht : p.ty = .bitVector n) (hn : 0 < n) :
+    ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = sanitizeName p.name ∧
+      declaredPortWidth sp = some n ∧ sp.isSigned = false := by
+  obtain ⟨ins, outs, hi, _, he⟩ := emitAstModule_ports h
+  obtain ⟨sp, hsp, hs⟩ := mapM_mem hi hp
+  exact ⟨sp, he ▸ List.mem_append_left outs hsp, astPort_bits ht hn .input hs⟩
+
 theorem port_render (p : Port) (h : PrintableType p.ty)
     (dir : SVPortDir) (hd : dir = .input ∨ dir = .output) :
     ∃ sp, astPort dir p = some sp ∧ renderPort sp = some

@@ -1,38 +1,43 @@
-# Chapter 7c — 証明を、出力ファイルまで届ける
+# Chapter 7c — Carrying a Proof to the Output File
 
-第7章では、二つの回路を Lean の中で比較しました。ここでは、その先を
-考えます。Lean で正しいと証明した回路をコンパイルしたとき、**出力された
-回路にも、その正しさが届いているでしょうか。**
+Chapter 7 compared two circuits inside Lean. Now consider what happens next.
+After compiling a circuit whose properties we proved in Lean, **do those
+properties still hold for the circuit we actually emit?**
 
-加算を間違って減算として出力するコンパイラなら、ソースの証明は通っても、
-できた回路は別物です。変数の取り違え、幅の切り詰め、最適化、名前の印字も、
-同じように意味を変える可能性があります。ソースの証明から出力の保証へ
-進むには、この間を証明でつなぐ必要があります。
+A compiler that emits subtraction for addition can pass every source-level
+proof and still produce the wrong circuit. Variable bindings, truncation,
+optimization, and printed names can all change meaning. We need proofs that
+connect the source to the output.
 
-この章は、その接続を実際のコードで追います。目標はコンパイラ全体の意味保存
-ですが、現在一般証明が通っているのは限定された組合せ回路の範囲です。
-**完成済みの RTL 正当性定理としては紹介しません。** どこまで届いたか、
-どの矢印が最後に残っているかも、定理の一部として読んでいきます。
+This chapter follows that connection through executable examples. The goal is
+compiler-wide semantic preservation; the current general theorem covers a
+restricted combinational fragment. This is a work in progress, **not a claim
+that complete RTL correctness has already been proved**. We will read both the
+connections and the remaining gaps as part of the theorem.
 
-## 7c.1 証明したいのは「成功した変換」の正しさ
+## 7c.1 Correctness of successful compilation
 
-目標の形を、まず日本語で書いてみましょう。
+The intended goal is:
 
 ```text
-許容される環境でソース f をコンパイルして、RTL v の生成に成功したなら、
-すべての入力について、v の振る舞いは f の振る舞いと一致する。
+If compiling source f in an admissible environment succeeds and produces RTL v,
+then v behaves like f for every input.
 ```
 
-任意の Lean プログラムを回路に変換する必要はありません。変換できない形は
-拒否できます。ただし、**成功したのに違う意味を持つ回路を出す**ことは許せません。
+The compiler need not accept every Lean program. It may refuse unsupported
+forms. What it must not do is **succeed while producing a different meaning**.
+An IR-generation success and a successful, valid RTL emission are distinct
+stages; a proof must connect them rather than silently change the meaning of
+“success.”
 
-現在の一般定理には、さらに対象の制限があります。入力と結果が同じ正の固定幅の
-`BitVec` の Signal で、入力参照・ビットベクトル定数・標準の
-`+ - * &&& ||| ^^^` から組み立てられた宣言を扱います。
-レジスタ、メモリ、階層、シフトなどまで含めた、コンパイラの成功領域全体は
-まだ覆っていません。以下の例は、この証明済みの範囲から選びます。
+The current general theorem has a narrower scope: declarations whose inputs
+and result are Signals of the same positive, literal BitVec width, built from
+input references, bit-vector literals, and the canonical operators
+`+ - * &&& ||| ^^^`. Registers, memories, hierarchy, shifts, and the rest of
+the compiler's accepted language are not yet covered. Our examples lie inside
+this fragment.
 
-## 7c.2 小さな加算器から始める
+## 7c.2 Start with a small adder
 
 ```lean
 import Tools.ShippingSVBridge
@@ -53,12 +58,12 @@ def plus8 {dom : DomainConfig}
 #eval ((250 : BitVec 8) + 10).toNat -- 4
 ```
 
-`#synthesizeVerilog` は、普段使っている合成入口です。証明専用の別コンパイラ
-を動かしているわけではありません。しかし、この実行例だけでは一つの変換が
-動いたことしか分かりません。すべての入力で正しいことは、次の一般定理から得ます。
+`#synthesizeVerilog` is the usual synthesis entry, not a separate compiler
+built only for the proof. Running it demonstrates one translation. Correctness
+for every input comes from applying the general theorem below.
 
-証明で扱う式の表現も用意します。`.inp 0` と `.inp 1` は二つの入力、
-`.bin .add` は加算です。
+We also describe the expression in the proof's syntax. `.inp 0` and
+`.inp 1` are its two inputs; `.bin .add` is addition.
 
 ```lean
 def plus8Expr : FExpr := .bin .add (.inp 0) (.inp 1)
@@ -73,22 +78,24 @@ theorem plus8Value_eq :
     plus8Value = quoteDecl `dom [`a, `b] 8 plus8Expr := rfl
 ```
 
-ここには、別々の二つの接続があります。
+These are two different connections:
 
-- `plus8_source` は、式の意味が利用者の書いた `plus8` と同じことを示します。
-- `plus8Value_eq` は、Lean が実際に elaboration した宣言の本体が、その式の
-  引用と一致することを示します。`#def_decl_value` で取り出した本体を、
-  `rfl` で検査しています。
+- `plus8_source` identifies the expression's meaning with the user's `plus8`.
+- `plus8Value_eq` identifies Lean's elaborated declaration body with the
+  quoted expression. `#def_decl_value` retrieves the body, and `rfl` checks
+  the equality.
 
-手で「これが加算器の仕様だ」と書いただけでは、実際にコンパイルする宣言との
-取り違えを防げません。この二つの小さな証明が、その取り違えを防ぐ入口です。
-キャッシュや演算子の型クラスを扱う際にも、見た目の演算子名ではなく、
-実際に読まれた式とその意味を結び付けることが重要になります。
+Writing down an adder specification by hand would not prevent us from proving
+a theorem about the wrong declaration. These two proofs establish the source
+connection. The same discipline matters for caches and operator instances:
+we must connect the expression actually read to its meaning, rather than rely
+on the spelling of an operator.
 
-## 7c.3 出力につながる一本の実行を固定する
+## 7c.3 Fix the run that produced the output
 
-一般定理を適用します。引数が長く見えるのは、**同じ合成実行**の環境・状態・
-入出力を明示しているためです。証明本体は最後の2行です。
+The argument list is long because it identifies the environment, state, and
+output of **one particular synthesis run**. The application proof itself is
+the final two lines.
 
 ```lean
 theorem plus8_artifact
@@ -107,116 +114,121 @@ theorem plus8_artifact
 #print axioms plus8_artifact
 ```
 
-`RunsTo` は、実際の `synthesizeCombinational` がこの実行で `m` を返した、
-という条件です。別の実行で読んだ宣言と、この実行の出力を結び付けてはいません。
+`RunsTo` says that the actual `synthesizeCombinational` returned `m` in
+this run. It does not attach a declaration read in some other run to this
+run's output.
 
-`EnvDefines` は明示的に残る信頼境界です。その環境で `plus8` を問い合わせたら、
-引用した本体が返る、と仮定しています。Lean の実行環境を保持する参照の内容
-まで、ここで無条件に証明したわけではありません。
+`EnvDefines` remains an explicit assumption: querying `plus8` in that
+environment returns the quoted body. We have not unconditionally proved the
+contents of the reference holding Lean's runtime environment.
 
-この定理の公理依存は `propext`、`Classical.choice`、`Quot.sound` の範囲です。
-ただし、公理一覧が標準のものだけでも、**定理の引数にある仮定が消えるわけでは
-ありません**。`EnvDefines` と対象断片の制限は、定理を読むときにも残ります。
+The theorem depends only on the standard axioms `propext`,
+`Classical.choice`, and `Quot.sound`. An axiom audit does **not** discharge
+the hypotheses in a theorem's argument list. The environment assumption and
+the fragment restriction still matter.
 
-## 7c.4 この定理は何を保証しているか
+## 7c.4 What does the theorem guarantee?
 
-`FragmentArtifact` は、同じ出力について次の二つをまとめています。
+`FragmentArtifact` combines two results about the same output:
 
-| 接続 | 現在証明されていること |
+| Connection | What is proved |
 |---|---|
-| ソース → 印字直前の IR | すべての入力信号と時刻について、入力を対応するポートに与えると、最適化後 IR の `out` はソースの値と一致する |
-| 印字直前の IR → AST → 文字列 | その IR の SV AST が存在し、その AST のレンダリングは出荷版プリンタの文字列と完全に一致する |
+| Source → IR immediately before printing | For every input signal and time, supplying the corresponding input ports makes the optimized IR's `out` equal the source value. |
+| IR → AST → text | That IR has an SV AST whose rendering is byte-for-byte equal to the shipping printer's output. |
 
-入力ポートの対応も結論に含まれ、異なる入力が同じポートへ潰れないことが
-保証されます。対象は組合せ回路なので、時刻についての量化は各時点の入力を
-読むという意味です。レジスタの時間方向の保存証明を済ませたという意味ではありません。
+The conclusion includes an injective input-to-port mapping: distinct inputs
+do not collapse onto one IR port. Since the fragment is combinational, the
+time quantifier samples the inputs at each instant. It does not establish
+preservation of register state over time.
 
 ```mermaid
 flowchart TD
-    S[利用者の Signal 宣言] -->|一般意味保存定理| I[実際の合成・後処理・最適化後 IR]
+    S[User Signal declaration] -->|General preservation theorem| I[Actual synthesized and optimized IR]
     I -->|emitAstModule| A[SV AST]
-    A -->|証明済みのレンダリング一致| T[実際に出力される文字列]
-    A -. 条件付き一般定理・条件の導出は未完 .-> V[SV サブセットでの振る舞い]
-    T -. 字句規則と文法の解釈 .-> V
+    A -->|Proved rendering equality| T[Actual emitted text]
+    A -->|Assignment evaluation under name stability| V[SV subset evaluation]
+    T -. Lexical and grammatical interpretation .-> V
 ```
 
-図の実線が増えたことには大きな意味があります。コンパイラのモデルについての
-補題だけでなく、普段の合成入口、実際の最適化結果、実際の出力文字列が、
-同じ定理の中で指し示されるようになりました。
+These connections matter because the theorem now refers to the ordinary
+compiler entry, its actual optimizer selection, and its actual output text.
+It is not merely a theorem about an idealized compiler model.
 
-一方、**文字列の一致だけから、その文字列の RTL としての意味の一致は出ません。**
-たとえば不正な識別子を二つのレンダラが同じように出力しても、文字列一致は成立します。
-また、IR と Verilog では、演算や代入の幅の扱いが同じとは限りません。
-そのため図には破線を残しています。
+However, **equal strings do not by themselves imply correct RTL meaning**.
+Two renderers can produce the same invalid identifier. The later proof handles
+the IR-to-SV width boundary and assignment evaluation. The text-to-grammar
+connection remains open, as does the connection from an in-order assignment
+fold to concurrent RTL behavior.
 
-## 7c.5 短い適用証明の裏で、何を証明したのか
+## 7c.5 What makes the short application possible?
 
-最後の `exact` が短いのは、必要な仕事を前段の一般定理で済ませたからです。
+The final `exact` is short because earlier general theorems do the work:
 
-1. **変換器の再帰。** 入力参照・定数・演算の分岐について不変条件の保存を証明し、
-   燃料についての帰納法で再帰呼び出しへの仮定を解消しました。
-2. **変数とキャッシュ。** wire の新鮮性、束縛された入力の値と幅、生成した式と
-   wire の対応を保持します。証明対象の経路では、従来のキャッシュの候補を、
-   純粋な記録と証明可能な式の等価性で検査してから再利用します。
-3. **後処理と最適化。** ゼロ幅除去の条件を生成結果から導きます。重複除去や
-   最適化では、変換候補を健全性が証明された検査器に通し、不合格なら元を使います。
-   最適化アルゴリズム自体の一般正当性を証明した、という主張ではありません。
-4. **プリンタの前提。** 宣言の型やモジュール属性を、合成・後処理・最適化の
-   両分岐から導きます。「印字できると仮定する」を利用者に残してはいません。
+1. **Translator recursion.** The input, literal, and operator branches preserve
+   an invariant. Induction on fuel discharges the recursive-call hypotheses.
+2. **Bindings and caches.** The invariant tracks fresh wires, bound input
+   values and widths, and the correspondence between expressions and wires.
+   On the proved path, the old cache supplies candidates; pure records and a
+   provable expression equality check validate candidates before reuse.
+3. **Cleanup and optimization.** The generated module supplies the zero-width
+   pass's conditions. Deduplication and optimization submit candidates to
+   proved-sound checkers, falling back to the original on rejection. This is
+   not an unconditional correctness proof of the optimizer algorithm itself.
+4. **Printer prerequisites.** Declaration types and module attributes follow
+   from synthesis, cleanup, and both optimizer-selection branches. The caller
+   does not have to assume that the module is printable.
 
-最適化の検査は有限個の入力で試すテストではありません。**検査に合格した候補は
-すべての許容入力で同じ出力を持つ**という定理が、検査器について証明されています。
-変換候補の生成を信頼しなくても、この定理を通して意味保存を得られます。
+The optimizer checker does not test a few sample inputs. Its theorem says
+that **every accepted candidate has the same outputs for all admissible
+inputs**. Candidate generation can remain untrusted because the checker has
+that general soundness theorem.
 
-この方式と、個別回路の意味を毎回 SAT 等で認証する方式は区別しましょう。
-この章の `plus8_artifact` は個別の意味認証を生成していません。一般定理に、
-宣言が対象に入るという事実を渡しています。crc16 へ進む際にも、目指すのは
-その構文・状態を一般証明が扱えるようにすることです。crc16 だけを再認証しても、
-一般証明の範囲は広がりません。
+This also differs from generating a SAT-based semantic certificate separately
+for each circuit. `plus8_artifact` applies a general theorem using evidence
+that its declaration belongs to the fragment. Extending the result to crc16
+requires extending the general proof to its syntax and state. Re-certifying
+crc16 alone would not enlarge the general theorem's scope.
 
-## 7c.6 クライマックスへ、残っている接続
+## 7c.6 Closing the remaining connections
 
-次に必要なのは、図の破線を根拠のある矢印へ変えることです。
+The next task is to justify the unfinished arrows.
 
-このうち AST から振る舞いへの接続は、現在
-`ShippingSVBridge.compiledFragment_forward` という**条件付きの一般定理**に
-なっています。実際の AST から取り出した代入列について、既存の SV サブセットの
-逐次的な代入評価がソースと一致します。名前変換が wire 名を変えないことと、
-初期環境の値が幅に収まることは、まだ仮定しています。一方、最終 IR の幅検査に
-合格するという仮定は、以下の一般証明によって消せました。
+The AST-to-evaluation connection is now the **conditional general theorem**
+`ShippingSVBridge.compiledFragment_forward`. It extracts assignments from
+the actual emitted AST and proves that their in-order SV-subset evaluation
+agrees with the source. Wire names remaining unchanged by sanitization is
+still a hypothesis. Final IR width checks and initial-environment bounds are
+now derived rather than supplied by the caller.
 
-ここで実際に見つかった接続の問題が、出力ポートの幅でした。ソース側の IR 評価は
-内部 wire の幅表を使い、そこにない `out` は幅 0。一方、プリンタは出力ポートの
-宣言も読むので幅 8 です。右辺が読む名前で幅が一致すれば IR の評価を変えずに
-幅環境を移せる、という一般補題で、二つの定理をつなぎました。個々の補題が正しくても、
-つなぐ箇所で同じ対象を指しているかを確認する仕事が必要なのです。
+An actual issue at this boundary was the output width. Source-side IR evaluation
+uses an internal-wire table, where the absent `out` has width zero. The
+printer also reads output declarations, giving `out` width eight. A general
+lemma transfers evaluation between width environments when they agree on the
+names read by right-hand sides. Individually correct lemmas still need this
+work to establish that they talk about compatible objects.
 
-さらに、合成の core 入口では幅条件を仮定から結論へ移せました。
-変換器が代入を追加するたびに「右辺は代入先と同じ幅」という不変条件を保ち、
-空の初期状態からこれを成立させます。`core_forwardCheck` は、この事実から
-名前変換が安定している場合の検査合格を導きます。利用者に幅の証明を追加で
-要求してはいません。
+The translator maintains “each right-hand side has its destination's width”
+when adding assignments, starting from an empty state. This supplies
+`core_forwardCheck` under name stability. The caller owes no additional
+width proof.
 
-この不変条件は、今ではゼロ幅の除去と重複除去を越え、実際の
-`synthesizeCombinational` の返す IR まで届いています。重複除去では、同じ式を
-計算する二本目の wire を、一本目への参照に置き換えます。「同じ式」だけでは
-足りず、検査器が代入先どうしの幅の一致も確かめていることが証明に効きます。
-置換表が幅を保つことを一段ずつ示すと、置換後の右辺も元の幅を保ちます。
-`out` は内部 wire ではないので、その例外も別に扱っています。
+The invariant survives zero-width removal and deduplication, reaching the
+actual result of `synthesizeCombinational`. Deduplication replaces a second
+computation with a reference to the first. Equal expressions are not enough:
+the checker also requires equal destination widths. Proving that the
+substitution table preserves widths establishes the new right-hand side's
+width. The output `out`, which is not an internal wire, needs its own case.
 
-`synthesized_forwardCheck` は、この結果から最適化前の IR の検査合格を導きます。
-そして、最適化の採否を決める実装にも接続しました。入力がこの幅条件を満たすなら、
-最適化した候補にも同じ条件を要求します。候補が検査に落ちれば、証明済みの元の
-IR に戻ります。「候補を採用する」と「元に戻す」のどちらも正しいので、最終定理の
-利用者が最適化後の幅検査を証明する必要はなくなりました。
+`synthesized_forwardCheck` then establishes the condition before optimization.
+If the input has this property, the shipping optimizer guard requires its
+candidate to have it too. A rejected candidate falls back to the proved input.
+Both selection branches are covered, so the caller no longer supplies the
+optimized module's width check.
 
-ここは、個別回路の検査に成功したという話とは違います。検査器が通した候補は
-必ず条件を満たすこと、元の IR はソースの不変条件から条件を満たすことを一般に
-証明し、実際のコンパイラの選択へ適用しています。`compiledFragment_forward`
-から幅検査の仮定が一つ消えたのは、この接続の結果です。
-
-先ほどの `plus8` に適用してみます。最適化後の IR を実行して検査するのではなく、
-任意の成功した実行について、一般定理から検査の合格を導いています。
+This is a general argument about the actual compiler's selection, not an
+observation that one circuit passed a check. Apply it to `plus8`: we derive
+check success for any successful run without executing that run's optimized
+IR inside the proof.
 
 ```lean
 theorem plus8_forward_check
@@ -237,30 +249,97 @@ theorem plus8_forward_check
 #print axioms plus8_forward_check
 ```
 
-`hnames` はまだ残っている名前の条件です。これを幅の証明に紛れ込ませず、
-識別子の検討として次に扱える形にしています。
+`hnames` is the remaining name-stability condition. Keeping it explicit
+prevents a naming assumption from being hidden inside a width argument.
 
-- **識別子。** 先頭文字、予約語、生成名、名前の衝突を扱います。名前変換で
-  変わらないことだけでは足りません。`1bad` や `module` がその例です。
-- **初期値。** 幅検査は最適化の両分岐まで導けました。次は、入力の値から
-  初期環境を作り、既存の SV 意味保存定理が要求する有界性を導きます。
-- **合成。** 同じ AST・同じ文字列について、ソースの意味と SV サブセットの
-  意味をつなぎます。外部ツールが文字列をその文法どおり読むという信頼境界は、
-  別途明記します。
+Next, `inputEnv` puts each source Signal's sampled value at its input port
+and zero at every other name. A `BitVec n` value is below `2^n`, so
+preserving input widths makes this initial environment bounded.
 
-ここを越えると、限定断片について「ソースで証明した性質が、生成された RTL の
-意味にも届く」と言うための接続が揃います。その後に、状態・メモリ・階層などへ
-一般定理を広げる仕事が続きます。
+**Unused inputs matter too.** If the output is constant, narrowing an unused
+input from eight bits to one does not change the output check. But supplying
+255 then violates boundedness. The optimizer guard now also requires width
+preservation for every input, closing that gap.
 
-実装と現在地は [ShippingCompiler-Soundness.md](../../ShippingCompiler-Soundness.md)
-に記録しています。読みたい定理は
-[ShippingPrintEntrySoundness.lean](../../../Tools/ShippingPrintEntrySoundness.lean) の
-`compiledFragment_artifact` と、その結論 `FragmentArtifact` です。
+In the following application, the caller supplies neither an initial
+environment nor a boundedness proof. Evaluating the actual AST's assignments
+from the constructed input environment gives the original `plus8` value,
+for every input and every time.
+
+```lean
+theorem plus8_sv_correct
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
+    (h : RunsTo (synthesizeCombinational ``plus8) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``plus8 plus8Value)
+    (hnames : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    ∃ sv port pairs,
+      Tools.SVParser.EmitAst.emitAstModule (Sparkle.IR.OptCheck.checkedOptimize m) = some sv ∧
+      Tools.ShippingSVBridge.combItems sv.items = some pairs ∧
+      (∀ j x, j < 2 → port j = some x →
+        ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
+          Tools.ShippingModulePrintSoundness.declaredPortWidth sp = some 8 ∧
+          sp.isSigned = false) ∧
+      ∀ {dom : DomainConfig} (sigs : Nat → Signal dom (BitVec 8)) (t : Nat),
+        ∃ env, Tools.SVParser.EmitSem.evalAssignsSV
+          (Sparkle.IR.PrintCheck.widths (Sparkle.IR.OptCheck.checkedOptimize m))
+          (fun _ _ => 0) pairs
+          (Tools.ShippingSVBridge.inputEnv 2 port (fun j => (sigs j).val t)) = some env ∧
+          env "out" = ((plus8 (sigs 0) (sigs 1)).val t).toNat := by
+  rw [plus8Value_eq] at henv
+  obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, hsem⟩ :=
+    Tools.ShippingSVBridge.compiledFragment_forward h henv
+      (by simp [plus8Expr, FExpr.WF]) (by decide) hnames
+  exact ⟨sv, port, pairs, ht, hi, hdecl, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
+
+#print axioms plus8_sv_correct
+```
+
+The conclusion also connects each source input to an **actual unsigned input
+declaration in that same SV AST**. `declaredPortWidth` reads the literal range
+from the port, independently of the IR width table: no range means one bit;
+`[hi:lo]` has `max hi lo - min hi lo + 1` bits. Symbolic ranges are outside this
+bridge. `compiled_inputDecls` derives the matching declaration and width
+through synthesis, cleanup, and either optimizer branch, including for unused
+inputs. This is a new conclusion, not a new assumption.
+
+The remaining boundaries are concrete:
+
+- **Identifiers.** Stability under sanitization is not lexical validity:
+  `1bad` and `module` illustrate the distinction. Fresh names, collisions,
+  leading characters, and reserved words need a connected proof or a safe
+  implementation change. A real synthesis probe with inputs `«a#»` and
+  `«a##»` currently emits the same input spelling twice after sanitization.
+  The name hypothesis excludes this example; the compiler still accepts it.
+  Thus the unrestricted successful-compilation goal is not yet established.
+- **Initialization is connected.** Bounds now follow for the environment
+  constructed from source inputs. This is not a result about arbitrary
+  internal states, register initialization, or reset.
+- **Declared widths and text interpretation.** The evaluator still obtains
+  widths from the IR/printer lookup. Input declarations are now connected;
+  relating the entire lookup, including internal wires and outputs, to the AST
+  declarations, recognizing the rendered text, and connecting assignment
+  evaluation to concurrent RTL semantics remain distinct obligations.
+
+Closing these boundaries would complete the connection for this fragment.
+Generalizing to state, memory, hierarchy, and the other accepted handlers is
+further work. The goal is useful precisely because it makes these obligations
+visible instead of treating a passing axiom audit as completion.
+
+Implementation status is recorded in
+[ShippingCompiler-Soundness.md](../../ShippingCompiler-Soundness.md).
+Read `compiledFragment_artifact` and `FragmentArtifact` in
+[ShippingPrintEntrySoundness.lean](../../../Tools/ShippingPrintEntrySoundness.lean),
+and `compiledFragment_forward` in
+[ShippingSVBridge.lean](../../../Tools/ShippingSVBridge.lean) for the evaluation
+connection.
 
 ```lean
 -- Keep the chapter's trust claim executable, rather than only printing it.
 run_cmd do
-  for name in [``plus8_artifact, ``plus8_forward_check] do
+  for name in [``plus8_artifact, ``plus8_forward_check, ``plus8_sv_correct] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"

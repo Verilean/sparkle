@@ -5,8 +5,9 @@ import Tools.ShippingPrintEntrySoundness
 The forward-emission theorem returns `CombStep`s, while the shipping printer
 bridge returns an `SVModule`. This file connects those representations before
 composing with the source theorem. The source-derived printing invariant is
-preserved by optimizer selection. Name stability and initial boundedness
-remain explicit; no lexical or external-tool correctness is asserted.
+preserved by optimizer selection. Source inputs construct a bounded initial
+environment. Name stability remains explicit; no lexical or external-tool
+correctness is asserted.
 -/
 namespace Tools.ShippingSVBridge
 
@@ -348,7 +349,9 @@ theorem checkedOptimize_printCheck {m : Sparkle.IR.AST.Module}
   split
   · rename_i ho
     have ho := (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp ho).2).2
-    simpa only [hc, Bool.not_true, Bool.false_or] using ho
+    have ho : Sparkle.IR.PrintCheck.moduleCheck (Sparkle.IR.Optimize.optimizeModule m) = true ∧
+        Sparkle.IR.PrintCheck.inputWidthsAgree m (Sparkle.IR.Optimize.optimizeModule m) = true := by simpa [hc] using ho
+    exact ho.1
   · exact hc
 
 /-- On the actual CORE entry, no width-check premise is supplied by the
@@ -411,6 +414,103 @@ theorem synthesized_printCheck {declName : Name} {mctx : Meta.Context}
     simp only at hty
     subst pty
     exact hwire pn hpwire
+
+theorem checkedOptimize_inputWidths {m : Sparkle.IR.AST.Module}
+    (hg : simpleBody m = true) (hc : Sparkle.IR.PrintCheck.moduleCheck m = true) :
+    ∀ p ∈ m.inputs, Sparkle.IR.PrintCheck.widths (checkedOptimize m) p.name =
+      Sparkle.IR.PrintCheck.widths m p.name := by
+  unfold checkedOptimize
+  simp only [hg, if_true]
+  split
+  · rename_i ho
+    have ho := (Bool.and_eq_true_iff.mp (Bool.and_eq_true_iff.mp ho).2).2
+    have ho : Sparkle.IR.PrintCheck.moduleCheck (Sparkle.IR.Optimize.optimizeModule m) = true ∧
+        Sparkle.IR.PrintCheck.inputWidthsAgree m (Sparkle.IR.Optimize.optimizeModule m) = true := by simpa [hc] using ho
+    intro p hp
+    exact beq_iff_eq.mp (List.all_eq_true.mp ho.2 p hp)
+  · exact fun _ _ => rfl
+
+/-- Input declarations retain the source width through cleanup and either
+optimizer branch. Name stability is inherited from the source module's wires. -/
+theorem compiled_inputTypes {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    ∀ p ∈ (checkedOptimize m).inputs,
+      p.ty = .bitVector n ∧ Sparkle.Backend.Verilog.sanitizeName p.name = p.name := by
+  have hg := (synthesized_printFacts h henv hwf hn).2
+  obtain ⟨hiO, _⟩ := Tools.ShippingOptSoundness.checkedOptimize_ports hg
+  obtain ⟨m0, _, _, hcore, hm⟩ := Tools.ShippingPostSoundness.synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, _, _, hpr, hins, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  obtain ⟨_, hi, _, hwire⟩ := Tools.ShippingPostSoundness.postprocess_facts hn hpr hm
+  intro p hp
+  rw [hiO, hi] at hp
+  obtain ⟨_, _, _, ht, hpwire⟩ := hins p hp
+  exact ⟨ht, hs { name := p.name, ty := .bitVector n } (hwire p.name hpwire)⟩
+
+/-- Read the width from the actual SV input declaration, not from an IR
+lookup. This closes the input-port part of the declaration/evaluator boundary. -/
+theorem compiled_inputDecls {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name)
+    {sv : SVModule} (htree : emitAstModule (checkedOptimize m) = some sv) :
+    ∀ x ∈ (checkedOptimize m).inputs.map (·.name),
+      ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
+        declaredPortWidth sp = some n ∧ sp.isSigned = false := by
+  intro x hx
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+  obtain ⟨ht, hname⟩ := compiled_inputTypes h henv hwf hn hs p hp
+  simpa only [hname] using emitAstModule_input htree hp ht hn
+
+/-- Every source input has width `n` in the optimized printer lookup,
+including unused inputs. The width is derived, not supplied by the caller. -/
+theorem compiled_inputWidths {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    ∀ x ∈ (checkedOptimize m).inputs.map (·.name), forwardWidths (checkedOptimize m) x = n := by
+  have hg := (synthesized_printFacts h henv hwf hn).2
+  have hc := synthesized_printCheck h henv hwf hn hs
+  obtain ⟨hiO, _⟩ := Tools.ShippingOptSoundness.checkedOptimize_ports hg
+  obtain ⟨m0, _, _, hcore, hm⟩ := Tools.ShippingPostSoundness.synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, _, _, hpr, hins, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  obtain ⟨_, hi, hnd, hwire⟩ := Tools.ShippingPostSoundness.postprocess_facts hn hpr hm
+  intro x hx
+  rw [hiO] at hx
+  obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hx
+  have he := checkedOptimize_inputWidths hg hc p hp
+  have hp0 : p ∈ m0.inputs := hi ▸ hp
+  obtain ⟨_, _, _, _, hpwire⟩ := hins p hp0
+  have hw := (printWidths_wire hn (Tools.ShippingPostSoundness.declWidth_of_mem hnd
+    (hwire p.name hpwire)) hs).2
+  change Sparkle.IR.PrintCheck.widths m p.name = some n at hw
+  change (Sparkle.IR.PrintCheck.widths (checkedOptimize m) p.name).getD 0 = n
+  rw [he, hw]
+  rfl
 
 theorem synthesized_forwardCheck {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
@@ -597,7 +697,7 @@ theorem module_forward {m : Sparkle.IR.AST.Module} {sv : SVModule} {we : WEnv}
 bytes. The final forward check is derived from the source run and optimizer
 selection. Wire sanitizer stability and initial width bounds remain explicit;
 this is not full SV tool semantics. -/
-theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
+theorem compiledFragment_forward_with_initial {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
     {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
@@ -648,5 +748,92 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
   rw [hir] at hir'
   cases hir'
   exact ⟨env, hsv, hout⟩
+
+/-- Supply each source input at its allocated port; all other names start
+at zero. The finite search makes this environment executable. -/
+def inputEnv {n : Nat} (count : Nat) (port : Nat → Option String)
+    (values : Nat → BitVec n) : Env := fun x =>
+  match (List.range count).find? (fun j => port j == some x) with
+  | some j => (values j).toNat
+  | none => 0
+
+theorem inputEnv_input {n count : Nat} {port : Nat → Option String}
+    (hd : ∀ j j' w, port j = some w → port j' = some w → j = j')
+    (values : Nat → BitVec n) {j : Nat} {x : String}
+    (hj : j < count) (hp : port j = some x) :
+    inputEnv count port values x = (values j).toNat := by
+  unfold inputEnv
+  cases hf : (List.range count).find? (fun k => port k == some x) with
+  | none =>
+    have hfalse := List.find?_eq_none.mp hf j (List.mem_range.mpr hj)
+    exact False.elim (hfalse (by simp [hp]))
+  | some k =>
+    have hk : port k = some x := by have hb := List.find?_some hf; simpa using hb
+    rw [hd k j x hk hp]
+
+theorem inputEnv_bounded {n count : Nat} {port : Nat → Option String}
+    (we : WEnv) (values : Nat → BitVec n)
+    (hw : ∀ j x, j < count → port j = some x → we x = n) :
+    Bounded we (inputEnv count port values) := by
+  intro x
+  unfold inputEnv
+  cases hf : (List.range count).find? (fun k => port k == some x) with
+  | none => exact Nat.two_pow_pos _
+  | some j =>
+    have hj := List.mem_range.mp (List.mem_of_find?_eq_some hf)
+    have hp : port j = some x := by have hb := List.find?_some hf; simpa using hb
+    rw [hw j x hj hp]
+    exact (values j).isLt
+
+/-- Source values construct a bounded initial environment for the actual
+emitted tree, and every source input has a matching unsigned SV port whose
+literal range has width `n`. No declaration-width, forward-check,
+initial-environment or boundedness premise is supplied. Environment identity,
+fragment scope and wire name stability remain explicit; the conclusion uses
+in-order SV assignment semantics, not concurrent module semantics. -/
+theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    let o := checkedOptimize m
+    let wof := printWidths (o.wires ++ o.inputs ++ o.outputs)
+    ∃ (sv : SVModule) (port : Nat → Option String) (pairs : List CombStep),
+      emitAstModule o = some sv ∧
+      renderModule o.name
+        (o.wires.filter fun p => !((o.inputs ++ o.outputs).map (·.name)).contains p.name).length sv
+        = some (verilogOf m) ∧
+      combItems sv.items = some pairs ∧
+      (∀ j j' w, port j = some w → port j' = some w → j = j') ∧
+      (∀ j, j < names.length → ∃ w, port j = some w ∧ w ∈ o.inputs.map (·.name)) ∧
+      (∀ j x, j < names.length → port j = some x →
+        ∃ sp ∈ sv.ports, sp.dir = .input ∧ sp.name = x ∧
+          declaredPortWidth sp = some n ∧ sp.isSigned = false) ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec n)) (t : Nat) (mems : MEnv),
+        let initial := inputEnv names.length port (fun j => (sigs j).val t)
+        Bounded (forwardWidths o) initial ∧
+        ∃ env, evalAssignsSV wof mems pairs initial = some env ∧
+          env "out" = ((denoteFE n sigs fe).val t).toNat := by
+  obtain ⟨sv, port, pairs, htree, htext, hitems, hd, hex, hsem⟩ :=
+    compiledFragment_forward_with_initial h henv hwf hn hs
+  refine ⟨sv, port, pairs, htree, htext, hitems, hd, hex, ?_, ?_⟩
+  · intro j x hj hx
+    obtain ⟨x', hx', hmem⟩ := hex j hj
+    have heq : x = x' := Option.some.inj (hx.symm.trans hx')
+    subst x'
+    exact compiled_inputDecls h henv hwf hn hs htree x hmem
+  · intro dom sigs t mems
+    have hb := inputEnv_bounded (forwardWidths (checkedOptimize m)) (fun j => (sigs j).val t)
+      (port := port) (count := names.length) (fun j x hj hp => by
+        obtain ⟨x', hp', hx'⟩ := hex j hj
+        have heq : x = x' := Option.some.inj (hp.symm.trans hp')
+        subst x'
+        exact compiled_inputWidths h henv hwf hn hs x hx')
+    exact ⟨hb, hsem sigs t mems _ (fun _ _ hj hp => inputEnv_input hd _ hj hp) hb⟩
 
 end Tools.ShippingSVBridge
