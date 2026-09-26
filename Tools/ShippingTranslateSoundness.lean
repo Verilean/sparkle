@@ -302,17 +302,22 @@ structure DeclFrame (s0 s1 : CircuitState) : Prop where
   parameters : s1.module.parameters = s0.module.parameters
   primitive : s1.module.isPrimitive = s0.module.isPrimitive
   wireTypes : ∀ p ∈ s1.module.wires, p ∈ s0.module.wires ∨ ∃ n, p.ty = .bitVector n
+  wireNames : ∀ p ∈ s1.module.wires, p ∈ s0.module.wires ∨ Sparkle.IR.NameHints.Clean p.name
 
 theorem DeclFrame.refl (s : CircuitState) : DeclFrame s s :=
-  ⟨rfl, rfl, fun _ hp => Or.inl hp⟩
+  ⟨rfl, rfl, fun _ hp => Or.inl hp, fun _ hp => Or.inl hp⟩
 
 theorem DeclFrame.trans {s t u : CircuitState} (h : DeclFrame s t) (k : DeclFrame t u) :
     DeclFrame s u := by
-  refine ⟨k.parameters.trans h.parameters, k.primitive.trans h.primitive, ?_⟩
-  intro p hp
-  rcases k.wireTypes p hp with hp | hp
-  · exact h.wireTypes p hp
-  · exact Or.inr hp
+  refine ⟨k.parameters.trans h.parameters, k.primitive.trans h.primitive, ?_, ?_⟩
+  · intro p hp
+    rcases k.wireTypes p hp with hp | hp
+    · exact h.wireTypes p hp
+    · exact Or.inr hp
+  · intro p hp
+    rcases k.wireNames p hp with hp | hp
+    · exact h.wireNames p hp
+    · exact Or.inr hp
 
 theorem DeclFrame.makeWire (hint : String) (n : Nat) (named : Bool) (s : CircuitState) :
     DeclFrame s (CircuitM.makeWire hint (.bitVector n) named s).2 := by
@@ -324,10 +329,15 @@ theorem DeclFrame.makeWire (hint : String) (n : Nat) (named : Bool) (s : Circuit
     rcases List.mem_cons.mp hp with rfl | hp
     · exact Or.inr ⟨n, rfl⟩
     · exact Or.inl hp
+  · intro p hp
+    rw [makeWire_module] at hp
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact Or.inr (CircuitM.makeWire_clean hint (.bitVector n) named s)
+    · exact Or.inl hp
 
 theorem DeclFrame.emitAssign (l : String) (r : Sparkle.IR.AST.Expr) (s : CircuitState) :
     DeclFrame s (CircuitM.emitAssign l r s).2 :=
-  ⟨rfl, rfl, fun _ hp => Or.inl hp⟩
+  ⟨rfl, rfl, fun _ hp => Or.inl hp, fun _ hp => Or.inl hp⟩
 
 def Grows (s0 s1 : CircuitState) : Prop :=
   (∀ x, s0.usedNames.contains x = true → s1.usedNames.contains x = true) ∧
@@ -1000,7 +1010,7 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
           (Denotes.pureLit hfn hback hlit) hcore
       obtain ⟨hs1, hw⟩ := after w' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw, gk, gi, ⟨gf.parameters, gf.primitive, gf.wireTypes⟩⟩, sb, ?_, em⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi, ⟨gf.parameters, gf.primitive, gf.wireTypes, gf.wireNames⟩⟩, sb, ?_, em⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he
@@ -1032,7 +1042,7 @@ theorem translateStep_core {rec : TranslateFn} {ctx : CompilerState} {we : WEnv}
         translateCanonicalSignalBinary_branch ih hfn hop hden htr hbl
       obtain ⟨hs1, hw⟩ := after w'' hr hnf
       rw [hs1, hw]
-      refine ⟨⟨⟨gu, gw, gk, gi, ⟨gf.parameters, gf.primitive, gf.wireTypes⟩⟩, sb, ?_, em⟩, ?_⟩
+      refine ⟨⟨⟨gu, gw, gk, gi, ⟨gf.parameters, gf.primitive, gf.wireTypes, gf.wireNames⟩⟩, sb, ?_, em⟩, ?_⟩
       · intro w e' he
         simp only [Std.HashMap.get?_insert] at he
         split at he

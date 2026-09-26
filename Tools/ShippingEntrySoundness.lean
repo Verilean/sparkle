@@ -351,7 +351,7 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
       · rw [hNi, hinA]; exact List.mem_cons_of_mem _ hp
       · have hf : DeclFrame s sA := by rw [← hsA]; exact DeclFrame.makeWire _ _ _ _
         rw [addInput_state]
-        exact ⟨hf.parameters, hf.primitive, hf.wireTypes⟩
+        exact ⟨hf.parameters, hf.primitive, hf.wireTypes, hf.wireNames⟩
     refine ⟨ctx', s1, some w0 :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, Grows.trans gN hg,
       by rw [hb, hNb]; exact hbody, by rw [hr, hNr]; exact hrecA, by rw [hsb, hNs]; exact hsbA,
       by rw [hout, addInput_state]; exact houtA, ?_⟩
@@ -604,7 +604,8 @@ theorem translateExprToWire_grows {ctx : CompilerState} {ρ : Valuation} {e : Le
 the post-processing proofs need (`Tools/ShippingPostSoundness.lean`). -/
 def DeclReady (M : Sparkle.IR.AST.Module) : Prop :=
   M.parameters = [] ∧ M.isPrimitive = false ∧
-  ∀ p ∈ M.wires, ∃ k, p.ty = .bitVector k
+  (∀ p ∈ M.wires, ∃ k, p.ty = .bitVector k) ∧
+  (∀ p ∈ M.wires, Sparkle.IR.NameHints.Clean p.name)
 
 def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
   (M.wires.map (·.name)).Nodup ∧
@@ -789,7 +790,7 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
         rfl
       · have hf := hg.2.2.2.2.trans gf
         obtain ⟨cp, cm⟩ := addClockReset_metadata st.module
-        refine ⟨?_, ?_, ?_⟩
+        refine ⟨?_, ?_, ?_, ?_⟩
         · rw [hM]; simp only [Module.finalize, cp]
           rw [hst]
           change s2.module.parameters.reverse = []
@@ -800,6 +801,11 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
         · intro p hp
           rw [hMw, List.mem_reverse] at hp
           rcases hf.wireTypes p hp with hp | hp
+          · simp [CircuitM.init, Module.empty] at hp
+          · exact hp
+        · intro p hp
+          rw [hMw, List.mem_reverse] at hp
+          rcases hf.wireNames p hp with hp | hp
           · simp [CircuitM.init, Module.empty] at hp
           · exact hp
       · intro l r hstm

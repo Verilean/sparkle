@@ -936,8 +936,9 @@ Its diagram keeps the lexical and SV evaluation links explicitly unfinished.
 **Conditional SV continuation (2026-09-26):**
 `Tools/ShippingSVBridge.lean` proves `compiledFragment_forward`. For the SAME
 synthesis run and emitted tree/bytes, the existing SV-subset **in-order
-assignment fold** agrees with the source on every input, conditional on
-wire sanitizer stability. Its initial environment is now constructed from
+assignment fold** agrees with the source on every input. Wire sanitizer
+stability is now derived from allocation (see the repair below), not a
+caller premise. Its initial environment is constructed from
 source inputs, with boundedness proved (see below). The final
 `forwardCheck (checkedOptimize m) = true` premise was discharged by the
 optimizer-guard step described below.
@@ -1023,8 +1024,9 @@ original module; modules outside this printing fragment keep the old policy.
 `checkedOptimize_printCheck` covers both arms, and `compiled_forwardCheck`
 connects them to the real synthesis entry. Consequently
 `compiledFragment_forward` no longer takes a final `forwardCheck` hypothesis.
-It takes sanitizer stability of the source result's wires instead, and
-derives all width/check conditions through the real pipeline. Existing
+At this stage it still took sanitizer stability of the source result's wires
+and derived all width/check conditions through the real pipeline; the naming
+repair below also discharges that remaining name premise. Existing
 `EnvDefines`, source-fragment and positive-width restrictions still apply.
 The real `fragA/B/C/D` and `dupLit` optimizer proposals are accepted in tests;
 an unused mismatched-width assignment passes the old output check and is
@@ -1092,21 +1094,41 @@ module, and not concurrent or four-state RTL semantics.
 Validation for this step: the bridge test and generated tutorial build,
 `lake test` passes, and the new general lemmas plus the `fragA` and `plus8`
 applications pass the standard-axiom audit. The tutorial is now in English.
-The known naming counterexample below remains an explicit failing property
-of the shipping compiler despite these proof/test builds passing.
-
-**Confirmed naming defect (2026-09-26), NOT FIXED:** the real declaration
+**Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
-synthesizes successfully with distinct inputs `_gen_«a#»` and `_gen_«a##»`.
-Both print as `_gen_«a»`. The emitted AST has two inputs with the same name;
-the byte-equal rendering consequently repeats that identifier. This is not
-just a hypothetical weakness in the proof contract. The current theorem's
-name-stability premise excludes this run, so it is not a counterexample to
-that theorem. It IS an obstruction to the unrestricted IR-success-to-RTL
-goal. `ShippingSVBridgeTest` pins the successful run and the duplicate names
-as a KNOWN BUG, not as a correctness pass. Repair naming before claiming
-coverage of all accepted binders. Merely adding a source-name assumption or
-calling a later printer refusal “IR failure” would change the stated goal.
+previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed
+as `_gen_«a»`. The old theorem excluded it through its name premise.
+`freshName` now normalizes remaining characters AFTER hygiene stripping but
+BEFORE fresh allocation. `NameHints.clean_ok`, `freshName_clean` and
+`makeWire_clean` prove the selected names use only printer-stable characters;
+the existing fresh-name proof prevents aliases even when hints normalize to
+the same base. Common punctuation spellings and clean names are retained.
+
+The actual translator's `DeclFrame.wireNames` carries this property through
+all proved branches, including cache reuse. It becomes `DeclReady` at the
+entry, starting from the empty wire list. Cleanup/merge wire inclusion and
+`sanitizeName_of_clean` yield `synthesized_names`. The final
+`compiledFragment_forward` consumes that theorem and no longer takes `hs`.
+This removes a premise on the real compilation path rather than relocating
+it to another hypothesis. `hashCollision_sv_correct` now applies the general
+source-to-SV theorem to the formerly excluded source, for all inputs. Runtime
+tests also cover two hints that normalize to exactly the same base, verifying
+distinct emitted input names and correct use of values 3 and 10.
+
+Scope: this repairs allocator-produced wire names (and input ports backed by
+them), not arbitrary module names or independently created port names.
+The complete lexical/text contract is still open. No new source-name
+restriction or compiler refusal was added.
+
+Validation of the repair: the allocator/bridge tests and executable tutorial
+build; the new lemmas and `hashCollision_sv_correct` pass the standard-axiom
+audit; `lake test` passes. The two collision regressions also reparse the
+actual printed text and compare its AST before checking values (a regression
+test, not a parser assumption in the theorem). Compared with the saved
+pre-repair sweep, all 302 emitted module texts from 298 command invocations
+across 119 files are byte-identical. Exit statuses are unchanged, including
+the existing failures of `Tests/VerifyVerilog.lean` and
+`Tests/TestErrorDetection.lean`; this is not a 119-file all-green claim.
 
 **Review of proposed option A:** retaining an optimizer result only after a
 forward-fragment check is sensible, but the fallback's check must be proved
@@ -1126,10 +1148,11 @@ Next, in order:
    entry through both paths of the checked optimizer.
 2. Establish the lexical contract for the source fragment and generated names.
    Until then byte equality is NOT a theorem that an SV tool parses the string.
-3. **Done under wire sanitizer stability:** the fallback's check is derived,
+3. **Done on the proved fragment:** the fallback's check is derived,
    and the shipping optimizer preserves it on both returned branches.
    Initialization from input-port values is now also derived. Both are
    conclusions of the actual-run theorem, not caller-supplied checks.
+   Allocated-wire sanitizer stability is derived too.
 4. Compose the existing declaration theorem with the module rendering and SV
    evaluation theorems. Any trusted rendering-to-grammar interpretation must
    remain explicit, distinct from the proved byte equalities.
@@ -1140,9 +1163,9 @@ Next, in order:
   the existing SV-subset semantics (`evalSV`, `emit_sem_assigns` in
   `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
   Rendering equality, the assignment check and constructed initialization
-  are proved under name stability. Actual input-port declarations are now
-  connected too. Remaining: repair the confirmed naming collision and prove
-  the lexical contract; derive the whole evaluator width lookup from AST
+  are proved, with allocated-wire name stability derived. Actual input-port
+  declarations are connected too. Remaining: the complete lexical contract
+  (module names included); derive the whole evaluator width lookup from AST
   declarations (internal wires and outputs included); connect in-order
   assignment evaluation to concurrent RTL semantics and the emitted text's
   grammar. Any interpretation by external tools remains an explicit boundary.

@@ -31,20 +31,22 @@ verdicts:
 
 ## Deep route (`#verify_elab_deep`, `Tools/DeepElab.lean`)
 
-**Shipping name-stability boundary (2026-09-26): BUG, accepted invalid output,
-NOT FIXED.** The general SV bridge excludes unstable wire names, but synthesis
-does not. `hashCollision` in `Tests/Compiler/ShippingSVBridgeTest.lean` uses
-Signal inputs `«a#»` and `«a##»`: `synthesizeCombinational` succeeds, allocating
-distinct `_gen_«a#»` and `_gen_«a##»`, while the shipping printer maps both to
-`_gen_«a»`. The emitted AST and text contain duplicate input names.
-The existing `forwardCheck` rejects this module; the theorem's explicit name
-premise is therefore necessary for the current implementation. This is a
-known-bug reproduction, not a repaired-regression claim. Next: normalize or
-encode names before collision-aware allocation, consistently across their
-uses, and prove the resulting lexical/freshness contract. This must include
-module and output names rather than only input binders. Adding a hypothesis
-that excludes these accepted sources does not meet the all-successful-inputs
-goal.
+**Shipping name-stability boundary (2026-09-26): BUG, repaired for allocated
+wire/input names.** `hashCollision` in
+`Tests/Compiler/ShippingSVBridgeTest.lean` uses Signal inputs `«a#»` and
+`«a##»`. Previously synthesis allocated distinct `_gen_«a#»` and `_gen_«a##»`,
+but the shipping printer mapped both to `_gen_«a»`, emitting duplicate inputs.
+The old forward theorem excluded the example by an explicit name premise.
+`freshName` now normalizes characters after hygiene stripping and before
+collision-aware allocation. Equal normalized hints still get distinct names.
+The property is proved for allocation, transported through the actual
+translator and cleanup, and consumed as `synthesized_names` by the final
+theorem: its wire-name premise is removed. `hashCollision_sv_correct` covers
+the formerly excluded source for every input; runtime regressions check
+distinct printed names and preservation of input bindings. No new refusal
+or binder-name restriction. Still open: a complete lexical contract for
+module names, independently created output ports, and the emitted text; this
+fix does not certify those other naming paths.
 
 **Operator instances (2026-09-25):** the operator lowering dispatched on the
 method name (`HAdd.hAdd ↦ .add`) whatever the instance. **BUG, accepted

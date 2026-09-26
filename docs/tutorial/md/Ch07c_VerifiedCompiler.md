@@ -146,7 +146,7 @@ flowchart TD
     S[User Signal declaration] -->|General preservation theorem| I[Actual synthesized and optimized IR]
     I -->|emitAstModule| A[SV AST]
     A -->|Proved rendering equality| T[Actual emitted text]
-    A -->|Assignment evaluation under name stability| V[SV subset evaluation]
+    A -->|Proved assignment evaluation| V[SV subset evaluation]
     T -. Lexical and grammatical interpretation .-> V
 ```
 
@@ -196,9 +196,9 @@ The next task is to justify the unfinished arrows.
 The AST-to-evaluation connection is now the **conditional general theorem**
 `ShippingSVBridge.compiledFragment_forward`. It extracts assignments from
 the actual emitted AST and proves that their in-order SV-subset evaluation
-agrees with the source. Wire names remaining unchanged by sanitization is
-still a hypothesis. Final IR width checks and initial-environment bounds are
-now derived rather than supplied by the caller.
+agrees with the source. Final IR width checks, initial-environment bounds,
+and stability of allocated wire names under sanitization are now derived
+rather than supplied by the caller.
 
 An actual issue at this boundary was the output width. Source-side IR evaluation
 uses an internal-wire table, where the absent `out` has width zero. The
@@ -238,19 +238,30 @@ theorem plus8_forward_check
     {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (h : RunsTo (synthesizeCombinational ``plus8)
       mctx mref cctx cref w (m, d) w')
-    (henv : EnvDefines mctx mref cctx cref ``plus8 plus8Value)
-    (hnames : ∀ p ∈ m.wires,
-      Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    (henv : EnvDefines mctx mref cctx cref ``plus8 plus8Value) :
     Tools.ShippingSVBridge.forwardCheck (Sparkle.IR.OptCheck.checkedOptimize m) = true := by
   rw [plus8Value_eq] at henv
   exact Tools.ShippingSVBridge.compiled_forwardCheck h henv
-    (by simp [plus8Expr, FExpr.WF]) (by decide) hnames
+    (by simp [plus8Expr, FExpr.WF]) (by decide)
+    (Tools.ShippingSVBridge.synthesized_names h henv
+      (by simp [plus8Expr, FExpr.WF]) (by decide))
 
 #print axioms plus8_forward_check
 ```
 
-`hnames` is the remaining name-stability condition. Keeping it explicit
-prevents a naming assumption from being hidden inside a width argument.
+The final theorem no longer assumes stable wire names. This used to be a
+real obstacle: inputs named `«a#»` and `«a##»` compiled successfully but
+printed with the same name. The fix normalizes characters **before** fresh
+allocation. Even if two hints normalize to the same base, the allocator
+disambiguates them. Its general theorem proves that the selected name has
+only characters the printer leaves unchanged.
+
+The translator carries this property through every proved branch, including
+cache hits, and the entry starts with no wires. Cleanup and checked merging
+retain only wires from that result. `synthesized_names` therefore derives
+name stability for the actual returned module. This is why we can remove the
+premise instead of merely asking users to avoid the counterexample. The real
+collision example now has a source-to-SV assignment theorem for all inputs.
 
 Next, `inputEnv` puts each source Signal's sampled value at its input port
 and zero at every other name. A `BitVec n` value is below `2^n`, so
@@ -273,8 +284,7 @@ theorem plus8_sv_correct
     {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {d : Sparkle.IR.AST.Design}
     (h : RunsTo (synthesizeCombinational ``plus8) mctx mref cctx cref w (m, d) w')
-    (henv : EnvDefines mctx mref cctx cref ``plus8 plus8Value)
-    (hnames : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    (henv : EnvDefines mctx mref cctx cref ``plus8 plus8Value) :
     ∃ sv port pairs,
       Tools.SVParser.EmitAst.emitAstModule (Sparkle.IR.OptCheck.checkedOptimize m) = some sv ∧
       Tools.ShippingSVBridge.combItems sv.items = some pairs ∧
@@ -291,7 +301,7 @@ theorem plus8_sv_correct
   rw [plus8Value_eq] at henv
   obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, hsem⟩ :=
     Tools.ShippingSVBridge.compiledFragment_forward h henv
-      (by simp [plus8Expr, FExpr.WF]) (by decide) hnames
+      (by simp [plus8Expr, FExpr.WF]) (by decide)
   exact ⟨sv, port, pairs, ht, hi, hdecl, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
 
 #print axioms plus8_sv_correct
@@ -309,11 +319,10 @@ The remaining boundaries are concrete:
 
 - **Identifiers.** Stability under sanitization is not lexical validity:
   `1bad` and `module` illustrate the distinction. Fresh names, collisions,
-  leading characters, and reserved words need a connected proof or a safe
-  implementation change. A real synthesis probe with inputs `«a#»` and
-  `«a##»` currently emits the same input spelling twice after sanitization.
-  The name hypothesis excludes this example; the compiler still accepts it.
-  Thus the unrestricted successful-compilation goal is not yet established.
+  leading characters, and reserved words need a complete lexical contract.
+  The allocated-wire collision above is repaired, and the name premise is
+  discharged on the proved fragment. Module names, arbitrary external port
+  names and the complete text grammar are not thereby certified.
 - **Initialization is connected.** Bounds now follow for the environment
   constructed from source inputs. This is not a result about arbitrary
   internal states, register initialization, or reset.

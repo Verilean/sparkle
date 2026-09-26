@@ -64,7 +64,7 @@ theorem postprocess_printDecls {m m' : Sparkle.IR.AST.Module} {n : Nat}
     (hins : ∀ p ∈ m.inputs, p.ty = .bitVector n)
     (hout : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
     PrintableDecls m' := by
-  obtain ⟨hparams, hprim, hwires⟩ := hpr.2.2.2.2.1
+  obtain ⟨hparams, hprim, hwires, _⟩ := hpr.2.2.2.2.1
   have houtputs := hpr.2.2.2.1 hn
   have hc : allConcrete m = true := by
     unfold allConcrete

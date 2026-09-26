@@ -1606,8 +1606,9 @@ required widths from the source entry through both optimizer branches.
 boundedness/input-environment hypothesis; the old arbitrary-environment form
 is retained as `compiledFragment_forward_with_initial`. General applications
 to `fragA` and tutorial `plus8` reach actual SV assignment-fold evaluation.
-Remaining: source-result name stability, lexical/text interpretation and
-independent AST declaration semantics, plus `EnvDefines` and fragment scope.
+Remaining at that stage: source-result name stability (discharged by the
+repair below), lexical/text interpretation and independent AST declaration
+semantics, plus `EnvDefines` and fragment scope.
 
 **2026-09-26 actual input-port declarations:** `emitAstModule_input` interprets
 the actual port's literal range without consulting IR widths.
@@ -1619,17 +1620,39 @@ The `fragA` and English tutorial `plus8` theorems retain that conclusion;
 all new general lemmas are axiom-audited. Internal/output declarations and
 concurrent semantics remain open.
 
-**Next priority — confirmed naming BUG, not fixed:** `hashCollision` with
-inputs `«a#»` and `«a##»` succeeds at `synthesizeCombinational`, but printing
-maps its two distinct IR input names to the same `_gen_«a»`. The current
-name-stability hypothesis excludes the example; it cannot be discharged for
-all successful runs as the compiler stands. The bridge test pins this known
-failure and checks that `forwardCheck` excludes it. Repair spelling and
-freshness together, preserving bindings across declarations and uses; cover
-module/port/wire names, lexical validity and collisions. Do not silently
-replace the user's IR-success goal with a narrower printing-success goal.
-Keep `EnvDefines`, fragment coverage, whole-AST width interpretation and
-text/concurrent semantics explicit while doing this.
+**Naming BUG identified before the repair below:** `hashCollision` with
+inputs `«a#»` and `«a##»` succeeded at `synthesizeCombinational`, but printing
+mapped its two distinct IR input names to the same `_gen_«a»`. The old
+name-stability hypothesis excluded the example and could not be discharged
+without changing the compiler. The initial reproduction checked that
+`forwardCheck` excluded it; after the repair it checks correct acceptance.
+The fix must preserve bindings across declarations and uses, rather than
+silently replacing the user's IR-success goal with a narrower
+printing-success goal. `EnvDefines`, fragment coverage, whole-AST width
+interpretation and text/concurrent semantics remain explicit.
+
+**2026-09-26 naming repair and premise discharge:** `freshName` now normalizes
+non-identifier characters after stripping hygiene and BEFORE searching for a
+fresh name. `NameHints.clean_ok`, `freshName_clean`, and `makeWire_clean` are
+general proofs; existing freshness covers distinct hints with equal normalized
+forms. The actual translator carries `DeclFrame.wireNames`, the entry derives
+`DeclReady` from an empty initial module, and cleanup/merge retain those wires.
+`synthesized_names` closes the printer-stability obligation from the same run.
+The final `compiledFragment_forward` no longer accepts a wire-name hypothesis.
+`fragA`, tutorial `plus8`, and the previously failing `hashCollision` all apply
+that stronger general theorem with standard axioms only. Regression cases
+exercise both the original printer collision and equal normalized hints.
+No source restriction or refusal is added. Module naming and independently
+created port names are not covered by this allocation repair; the complete
+lexical/text contract and concurrent semantics remain open, together with
+whole-AST width interpretation, `EnvDefines`, and the fragment restriction.
+
+Repair validation: allocator/bridge tests, tutorial and `lake test` pass;
+new general lemmas and the real collision-source theorem use only standard
+axioms. Both collision regressions reparse actual output and preserve input
+values. The saved pre-repair corpus comparison covers 302 module texts from
+298 synthesis commands in 119 files: byte-identical, with unchanged exit
+statuses (two existing error-example files remain errors).
 
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates

@@ -7,6 +7,7 @@
 
 import Sparkle.IR.AST
 import Sparkle.IR.FreshNames
+import Sparkle.IR.NameHints
 import Std.Data.HashSet
 import Std.Data.HashMap
 import Lean.Expr
@@ -128,15 +129,26 @@ def freshTemporary (base : String) : CircuitM String := fun s =>
   let name := FreshNames.numbered base n
   (name, { s with counter := n + 1, usedNames := s.usedNames.insert name })
 
+theorem freshNamed_clean {base : String} (h : NameHints.Clean base) (s : CircuitState) :
+    NameHints.Clean (freshNamed base s).1 := by
+  unfold freshNamed
+  split
+  · exact NameHints.numbered h _
+  · exact h
+
+theorem freshTemporary_clean {base : String} (h : NameHints.Clean base) (s : CircuitState) :
+    NameHints.Clean (freshTemporary base s).1 :=
+  NameHints.numbered h _
+
 /-- Generate a fresh wire name.
     When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
     When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered.
 
-    The hint is stripped of any Lean macro-hygiene suffix
-    (`...__@_...__hygCtx__hyg_N`) so the resulting wire name is
-    a valid Verilog identifier. -/
+    Strip Lean macro-hygiene suffixes (`...__@_...__hygCtx__hyg_N`), then
+    normalize the remaining characters BEFORE the collision search. Distinct
+    hints may normalize alike; the allocator still returns distinct names. -/
 def freshName (hint : String) (named : Bool := false) : CircuitM String :=
-  let hint := stripHygiene hint
+  let hint := NameHints.clean (stripHygiene hint)
   let baseName := if hint.isEmpty then "wire" else hint
   if named then
     -- The suffix cache avoids repeatedly searching from one for a hot base.
@@ -145,6 +157,26 @@ def freshName (hint : String) (named : Bool := false) : CircuitM String :=
     -- Input/output reservations can already occupy a numbered temporary.
     -- Search from the counter rather than assuming the candidate is unused.
     freshTemporary s!"_tmp_{baseName}"
+
+/-- Normalization happens before the collision search, so every allocated
+name survives the backend's character sanitizer unchanged. -/
+theorem freshName_clean (hint : String) (named : Bool) (s : CircuitState) :
+    NameHints.Clean (freshName hint named s).1 := by
+  have hc := NameHints.clean_ok (stripHygiene hint)
+  unfold freshName
+  have hb : NameHints.Clean
+      (if (NameHints.clean (stripHygiene hint)).isEmpty then "wire"
+       else NameHints.clean (stripHygiene hint)) := by
+    split
+    · simp [NameHints.Clean, NameHints.charOk]
+    · exact hc
+  cases named with
+  | false =>
+    exact freshTemporary_clean
+      ((by simp [NameHints.Clean, NameHints.charOk] : NameHints.Clean "_tmp_").append hb) s
+  | true =>
+    have hg := (by simp [NameHints.Clean, NameHints.charOk] : NameHints.Clean "_gen_").append hb
+    exact freshNamed_clean hg s
 
 theorem freshNamed_spec (base : String) (s : CircuitState) :
     let result := freshNamed base s
@@ -180,7 +212,8 @@ theorem freshName_sourceBindings (hint : String) (named : Bool) (s : CircuitStat
   | false => rfl
   | true => exact stable _
 
-/-- Sanitize a name to be a valid Verilog identifier -/
+/-- Preserve the historical spelling of common hint punctuation. Full
+character normalization is performed by `freshName` before allocation. -/
 def sanitizeName (name : String) : String :=
   name.replace "." "_"  |>.replace "-" "_"  |>.replace " " "_"  |>.replace "'" "_prime"
 
@@ -202,6 +235,10 @@ def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CircuitM St
   let m ← getModule
   setModule (m.addWire { name := name, ty := ty })
   return name
+
+theorem makeWire_clean (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    NameHints.Clean (makeWire hint ty named s).1 :=
+  freshName_clean (sanitizeName hint) named s
 
 /-- Allocation preserves executable statements and adds the advertised typed
 wire, while satisfying the same freshness/reservation contract. -/

@@ -52,8 +52,7 @@ theorem fragA_initialized_sv {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld M
     {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     {m : Sparkle.IR.AST.Module} {d : Design}
     (h : RunsTo (synthesizeCombinational ``fragA) mctx mref cctx cref w (m, d) w')
-    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue)
-    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    (henv : EnvDefines mctx mref cctx cref ``fragA fragAValue) :
     ∃ sv port pairs, emitAstModule (checkedOptimize m) = some sv ∧
       combItems sv.items = some pairs ∧
       (∀ j x, j < 2 → port j = some x →
@@ -68,7 +67,7 @@ theorem fragA_initialized_sv {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld M
           env "out" = ((fragA (sigs 0) (sigs 1)).val t).toNat := by
   rw [fragAValue_eq] at henv
   obtain ⟨sv, port, pairs, ht, _, hi, _, _, hdecl, hsem⟩ :=
-    compiledFragment_forward h henv feA_wf (by decide) hs
+    compiledFragment_forward h henv feA_wf (by decide)
   refine ⟨sv, port, pairs, ht, hi, hdecl, ?_⟩
   intro dom sigs t
   exact hsem sigs t (fun _ _ => 0)
@@ -137,12 +136,38 @@ def hashBinder {dom : Sparkle.Core.Domain.DomainConfig}
     («a#» : Sparkle.Core.Signal.Signal dom (BitVec 8)) : Sparkle.Core.Signal.Signal dom (BitVec 8) :=
   «a#»
 
--- Known shipping defect, not a passing correctness example. Keep the real
--- successful source-to-text reproduction until naming is repaired. The
--- forward theorem excludes it through its explicit name-stability premise.
+-- Previously accepted with two identical printed inputs. This now also has
+-- a general theorem below, with no name-stability hypothesis.
 def hashCollision {dom : Sparkle.Core.Domain.DomainConfig}
     («a#» «a##» : Sparkle.Core.Signal.Signal dom (BitVec 8)) :
     Sparkle.Core.Signal.Signal dom (BitVec 8) := «a#» + «a##»
+
+-- These hints normalize to the SAME base; allocation must disambiguate them.
+def sameNormalized {dom : Sparkle.Core.Domain.DomainConfig}
+    («a#» «a?» : Sparkle.Core.Signal.Signal dom (BitVec 8)) :
+    Sparkle.Core.Signal.Signal dom (BitVec 8) := «a#» + «a?»
+
+#def_decl_value hashCollisionValue of hashCollision
+theorem hashCollisionValue_eq :
+    hashCollisionValue = quoteDecl `dom [`«a#», `«a##»] 8 (.bin .add (.inp 0) (.inp 1)) := rfl
+
+theorem hashCollision_sv_correct
+    {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Meta.State}
+    {cctx : Core.Context} {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design}
+    (h : RunsTo (synthesizeCombinational ``hashCollision) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref ``hashCollision hashCollisionValue) :
+    ∃ sv port pairs, emitAstModule (checkedOptimize m) = some sv ∧
+      combItems sv.items = some pairs ∧
+      ∀ {dom : Sparkle.Core.Domain.DomainConfig}
+        (sigs : Nat → Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
+        ∃ env, evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize m))
+          (fun _ _ => 0) pairs (inputEnv 2 port (fun j => (sigs j).val t)) = some env ∧
+          env "out" = ((hashCollision (sigs 0) (sigs 1)).val t).toNat := by
+  rw [hashCollisionValue_eq] at henv
+  obtain ⟨sv, port, pairs, ht, _, hi, _, _, _, hsem⟩ :=
+    compiledFragment_forward h henv (by simp [FExpr.WF]) (by decide)
+  exact ⟨sv, port, pairs, ht, hi, fun sigs t => (hsem sigs t (fun _ _ => 0)).2⟩
 
 def unusedSignalInput {dom : Sparkle.Core.Domain.DomainConfig}
     (_a : Sparkle.Core.Signal.Signal dom (BitVec 8)) : Sparkle.Core.Signal.Signal dom (BitVec 8) :=
@@ -196,21 +221,30 @@ run_cmd liftTermElabM do
   unless !(forwardCheck bad) do
     throwError "forward check accepted mismatched assignment width"
   let (named, _) ← synthesizeCombinationalCore ``hashBinder [] false
-  unless named.wires.any (fun p => Sparkle.Backend.Verilog.sanitizeName p.name != p.name) do
-    throwError "name-stability negative control unexpectedly has stable names"
-  unless !(forwardCheck named) do
-    throwError "forward check unexpectedly accepted the unstable-name core module"
-  let (collision, _) ← synthesizeCombinational ``hashCollision
-  unless collision.inputs.length == 2 && (collision.inputs.map (·.name)).Nodup do
-    throwError "collision probe must start with two distinct IR input names"
-  let some sv := emitAstModule (checkedOptimize collision)
-    | throwError "collision reproduction unexpectedly failed AST emission"
-  let inputNames := (sv.ports.filter (fun p => p.dir == .input)).map (·.name)
-  unless inputNames.length == 2 && !(decide inputNames.Nodup) do
-    throwError "known printed-name collision changed: update the ledger and this reproduction"
-  unless !(forwardCheck (checkedOptimize collision)) do
-    throwError "forward check must exclude the known printed-name collision"
-  logInfo "KNOWN NAME BUG: successful synthesis of hashCollision emits duplicate AST input names; excluded by the theorem's name premise, not fixed"
+  unless named.wires.all (fun p => Sparkle.Backend.Verilog.sanitizeName p.name == p.name) do
+    throwError "allocated names changed in the printer"
+  unless forwardCheck named do
+    throwError "forward check rejected normalized names"
+  for decl in [``hashCollision, ``sameNormalized] do
+    let (collision, _) ← synthesizeCombinational decl
+    let some sv := emitAstModule (checkedOptimize collision)
+      | throwError "collision regression failed AST emission"
+    -- Executable regression on the shipping TEXT as well as the AST. This
+    -- parser check is a test, not a premise of the general theorem above.
+    let .ok reparsed := Tools.SVParser.Parser.parseModuleFromString (verilogOf collision)
+      | throwError "normalized names did not produce parseable module text"
+    unless reparsed == sv do throwError "printed collision regression differs from its emitted AST"
+    let inputNames := (sv.ports.filter (fun p => p.dir == .input)).map (·.name)
+    unless inputNames.length == 2 && (decide inputNames.Nodup) do
+      throwError "normalization collapsed distinct inputs: {decl}"
+    unless forwardCheck (checkedOptimize collision) do
+      throwError "forward check rejected normalized collision regression"
+    let initial : Env := fun x => if x == inputNames[0]! then 3 else if x == inputNames[1]! then 10 else 0
+    let some pairs := combItems sv.items | throwError "missing assignments"
+    let some env := evalAssignsSV (Sparkle.IR.PrintCheck.widths (checkedOptimize collision))
+        (fun _ _ => 0) pairs initial | throwError "SV evaluation failed"
+    unless env "out" == 13 do throwError "input bindings changed during name normalization"
+  logInfo "SHIPPING NAME REPAIR OK: distinct inputs remain distinct after printing, including equal normalized hints"
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "SV bridge regression failed"
@@ -220,6 +254,7 @@ run_cmd do
       ``compiled_inputWidths, ``checkedOptimize_inputWidths,
       ``compiled_inputTypes, ``compiled_inputDecls, ``emitAstModule_input,
       ``emitAstModule_ports, ``astPort_bits,
+      ``synthesized_names, ``sanitizeName_of_clean, ``hashCollision_sv_correct,
       ``inputEnv_input, ``inputEnv_bounded, ``fragA_initialized_sv] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
@@ -243,6 +278,6 @@ run_cmd do
         throwError "unexpected postprocessing-width axiom: {name}: {ax}"
   logInfo "SHIPPING SYNTHESIZED WIDTH OK: cleanup, merge and guarded optimizer preserve the source-derived check; standard axioms only"
   logInfo "SHIPPING CORE WIDTH OK: core forwardCheck derived under name stability; standard axioms only"
-  logInfo "SHIPPING SV BRIDGE OK: forwardCheck and bounded-initialization premises discharged; source inputs reach actual unsigned SV port declarations at the proved width; names and text interpretation remain explicit"
+  logInfo "SHIPPING SV BRIDGE OK: width, initialization and wire-name premises discharged; source inputs reach actual unsigned SV port declarations; full lexical and text interpretation remain open"
 
 end Sparkle.Tests.Compiler.ShippingSVBridgeTest

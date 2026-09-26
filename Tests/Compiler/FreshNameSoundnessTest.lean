@@ -37,6 +37,10 @@ run_cmd liftTermElabM do
   let (empty, _) := CircuitM.freshName "" true sh
   unless a == "_gen_a_b" && b == "_gen_a_b_1" && hygiene == "_gen_local" && empty == "_gen_wire" do
     throwError "sanitization/hygiene naming changed"
+  let (c, sc) := CircuitM.makeWire "a#" .bit true initial
+  let (d, _) := CircuitM.makeWire "a?" .bit true sc
+  unless c == "_gen_a_" && d == "_gen_a__1" do
+    throwError "equal normalized hints did not receive distinct names"
   let digits := (CircuitM.reserveName "_gen_hot" initial).2
   let digits := (CircuitM.reserveName "_gen_hot_999" digits).2
   let digits := { digits with nextSuffix := digits.nextSuffix.insert "_gen_hot" 999 }
@@ -63,6 +67,8 @@ run_cmd do
   if (← get).messages.hasErrors then throwError "fresh name regression failed"
   for name in [``numbered_injective, ``seek_sound, ``seek_none, ``seek_exists,
       ``freshSuffix_spec, ``CircuitM.freshName_spec, ``CircuitM.makeWire_spec,
+      ``CircuitM.freshName_clean, ``CircuitM.makeWire_clean,
+      ``Sparkle.IR.NameHints.clean_ok, ``Sparkle.IR.NameHints.numbered,
       ``Reserved.not_live, ``Reserved.insert, ``Reserved.cons,
       ``makeWire_not_live, ``makeWire_reserved, ``allocate_emit_correct] do
     for a in (← liftCoreM <| collectAxioms name) do

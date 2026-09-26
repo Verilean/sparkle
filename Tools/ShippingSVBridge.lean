@@ -6,8 +6,9 @@ The forward-emission theorem returns `CombStep`s, while the shipping printer
 bridge returns an `SVModule`. This file connects those representations before
 composing with the source theorem. The source-derived printing invariant is
 preserved by optimizer selection. Source inputs construct a bounded initial
-environment. Name stability remains explicit; no lexical or external-tool
-correctness is asserted.
+environment. Allocated-wire name stability follows from the builder and is
+no longer a final-theorem premise. Full lexical and external-tool correctness
+are not asserted.
 -/
 namespace Tools.ShippingSVBridge
 
@@ -17,6 +18,37 @@ open Tools.ShippingPrintSoundness Tools.ShippingModulePrintSoundness
 open Tools.ShippingPrintEntrySoundness Tools.ShippingEntrySoundness
 open Sparkle.Compiler.Elab Sparkle.IR.OptCheck
 open Tools.ShippingTranslateSoundness Tools.ShippingScalarSoundness
+
+theorem sanitizeName_of_clean {s : String} (h : Sparkle.IR.NameHints.Clean s) :
+    Sparkle.Backend.Verilog.sanitizeName s = s := by
+  have ha : s.all Sparkle.IR.NameHints.charOk = true := by
+    simpa [Sparkle.IR.NameHints.Clean, String.all_bool_eq] using h
+  simpa [Sparkle.Backend.Verilog.sanitizeName, Sparkle.IR.NameHints.charOk] using
+    (if_pos ha : (if s.all Sparkle.IR.NameHints.charOk = true then s else
+      s.replace "." "_" |>.replace "-" "_" |>.replace " " "_"
+        |>.replace "'" "_prime" |>.replace "#" "") = s)
+
+/-- The name premise follows from actual allocation and the translator's
+declaration invariant, through cleanup and checked merging. No source-name
+restriction or post-hoc rejection is used. -/
+theorem synthesized_names {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
+    ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name := by
+  obtain ⟨m0, _, _, hcore, hm⟩ := Tools.ShippingPostSoundness.synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, _, _, hpr, _, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  intro p hp
+  exact sanitizeName_of_clean (hpr.2.2.2.2.1.2.2.2 p
+    (Tools.ShippingPostSoundness.postprocess_wires_subset hn hpr hm p hp))
 
 theorem SizedExpr.refs_width {we e n} (h : SizedExpr we e n) :
     ∀ x ∈ Sparkle.IR.Reorder.refsOf e, we x = n := by
@@ -788,8 +820,8 @@ theorem inputEnv_bounded {n count : Nat} {port : Nat → Option String}
 /-- Source values construct a bounded initial environment for the actual
 emitted tree, and every source input has a matching unsigned SV port whose
 literal range has width `n`. No declaration-width, forward-check,
-initial-environment or boundedness premise is supplied. Environment identity,
-fragment scope and wire name stability remain explicit; the conclusion uses
+initial-environment, boundedness or wire-name premise is supplied. Environment
+identity and fragment scope remain explicit; the conclusion uses
 in-order SV assignment semantics, not concurrent module semantics. -/
 theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
@@ -798,8 +830,7 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
     {fe : FExpr}
     (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
     (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
-    (hwf : fe.WF names.length n) (hn : 0 < n)
-    (hs : ∀ p ∈ m.wires, Sparkle.Backend.Verilog.sanitizeName p.name = p.name) :
+    (hwf : fe.WF names.length n) (hn : 0 < n) :
     let o := checkedOptimize m
     let wof := printWidths (o.wires ++ o.inputs ++ o.outputs)
     ∃ (sv : SVModule) (port : Nat → Option String) (pairs : List CombStep),
@@ -819,6 +850,7 @@ theorem compiledFragment_forward {declName : Name} {mctx : Meta.Context}
         Bounded (forwardWidths o) initial ∧
         ∃ env, evalAssignsSV wof mems pairs initial = some env ∧
           env "out" = ((denoteFE n sigs fe).val t).toNat := by
+  have hs := synthesized_names h henv hwf hn
   obtain ⟨sv, port, pairs, htree, htext, hitems, hd, hex, hsem⟩ :=
     compiledFragment_forward_with_initial h henv hwf hn hs
   refine ⟨sv, port, pairs, htree, htext, hitems, hd, hex, ?_, ?_⟩
