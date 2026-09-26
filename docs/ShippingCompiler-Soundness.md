@@ -52,6 +52,40 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Canonical mux result-type oracle removed (2026-09-27)
+
+The shipping mux handler now uses `muxResultType`. For an exact fully applied
+library `Signal.mux`, it reads a literal `BitVec n` or `Bool` result-type argument
+directly from the source expression. Other types, aliases and symbolic widths
+retain the existing MetaM inference path. The action still runs after the
+three recursive translations, preserving the fallback's cache-observation order.
+
+The new `canonicalNatLitValue?` accepts raw Nat literals and the standard
+`OfNat Nat` instance with matching indices. It does not mistake a user's
+`OfNat Nat 8` whose value is 9 for width 8. This stricter recognizer is used
+by the new mux path; it does not change the older binary-width recognizer.
+
+`Tools/ShippingMuxTypeSoundness.lean` proves the classifier on the exact
+quoted library application, and proves that the selected type action returns
+that type without changing circuit state. `translateQuotedMux_correct`
+therefore removes the result-type-query hypothesis of the preceding recursive
+mux theorem for literal-width BitVec muxes. Its hypotheses still include
+the three child contracts, a front-end invariant implying a typed body, and
+agreement with final declaration widths. Bool result types are classified,
+but the recursive value theorem here still has a BitVec result.
+
+This closes the literal-width mux type-oracle obligation. Source induction,
+Bool/comparison cache invariants and the connection through the partial
+dispatcher to the complete synthesis entry remain open. The source domain of
+`compiledFragment_execution` has not yet expanded.
+
+Validation compares the quoted applications with real elaboration at widths
+1, 8 and 65, audits standard axioms, and exercises Bool results, aliases and
+a user numeral instance whose actual width is 9. Negative cases include
+symbolic widths, mismatched instance indices, unrelated `.mux` names, partial
+applications and overapplications. The emitted 8-bit mux RTL agrees on all
+131,072 inputs in Icarus. `lake build Tests.AllTests` passes (588 jobs).
+
 ## Recursive mux sequence connected (2026-09-27)
 
 `Tools/ShippingMuxRecursionSoundness.lean` now proves the composition of the

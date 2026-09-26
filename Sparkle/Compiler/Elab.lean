@@ -1260,6 +1260,35 @@ def emitMuxResult (cond thenWire elseWire hint : String) (isNamed : Bool)
   CompilerM.emitAssign result (.op .mux [.ref cond, .ref thenWire, .ref elseWire])
   return result
 
+/-- A Nat literal whose meaning does not depend on a user `OfNat` instance.
+    Used for type arguments in the canonical mux path. -/
+def canonicalNatLitValue? : Lean.Expr → Option Nat
+  | .lit (.natVal n) => some n
+  | .app (.app (.app (.const ``OfNat.ofNat _) (.const ``Nat _)) (.lit (.natVal n)))
+      (.app (.const ``instOfNatNat _) (.lit (.natVal k))) =>
+    if n == k then some n else none
+  | _ => none
+
+/-- Read the result type only from an exact library mux application. Aliases,
+    symbolic widths and other result types retain the existing inference path. -/
+def canonicalMuxType? : Lean.Expr → Option HWType
+  | .app (.app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.mux _) _dom)
+      ty) _cond) _thenSig) _elseSig =>
+    match ty with
+    | .const ``Bool _ => some .bit
+    | .app (.const ``BitVec _) width => (canonicalNatLitValue? width).map HWType.bitVector
+    | _ => none
+  | _ => none
+
+/-- Exact canonical muxes need no MetaM result-type oracle. Kept as an action
+    so the fallback inference still occurs after recursive child translation. -/
+def muxResultType (e : Lean.Expr) : CompilerM HWType :=
+  match canonicalMuxType? e with
+  | some ty => pure ty
+  | none => do
+    let exprType ← cachedInferType e
+    inferHWTypeFromSignal exprType
+
 /-- The shipping mux sequence, with recursion and result-type inference exposed
     as arguments. Type inference runs after all three children, as in the
     original handler; in particular it observes their cache updates. -/
@@ -3461,7 +3490,7 @@ mutual
       let elseSig := args[args.size-1]!
       return some (← translateMuxWith
         (fun e h t n => translateExprToWire e h t n)
-        (do let exprType ← cachedInferType e; inferHWTypeFromSignal exprType)
+        (muxResultType e)
         cond thenSig elseSig hint isNamed)
 
     return none
