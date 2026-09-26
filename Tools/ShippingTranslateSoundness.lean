@@ -226,6 +226,9 @@ open Sparkle.Core.Signal in
 theorem library_or (dom) (n : Nat) (a b : Signal dom (BitVec n)) (t : Nat) :
     (a ||| b).val t = Binary.or.apply (a.val t) (b.val t) := rfl
 open Sparkle.Core.Signal in
+theorem library_shl (dom) (n : Nat) (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a <<< b).val t = Binary.shl.apply (a.val t) (b.val t) := rfl
+open Sparkle.Core.Signal in
 theorem library_shr (dom) (n : Nat) (a b : Signal dom (BitVec n)) (t : Nat) :
     (a >>> b).val t = Binary.shr.apply (a.val t) (b.val t) := rfl
 open Sparkle.Core.Signal in
@@ -390,19 +393,22 @@ def Emits (n : Nat) (s0 s1 : CircuitState) : Prop :=
 theorem Emits.refl (n : Nat) (s : CircuitState) : Emits n s s :=
   ⟨rfl, rfl, [], by simp, by simp⟩
 
-/-- Uniform widths through the supported expression grammar. Zero is allowed
-here; positive width is established separately at the certified entry. -/
+/-- Uniform widths and the shipping wire-based shift shape. Literal amounts
+of left shifts are stored in separate wires, rather than inlined into this
+expression. Zero width is allowed here; positivity is established at entry. -/
 inductive SizedExpr (we : WEnv) : Sparkle.IR.AST.Expr → Nat → Prop
   | ref (x : String) : SizedExpr we (.ref x) (we x)
   | const (v : Int) (n : Nat) : SizedExpr we (.const v n) n
   | bin (op : Binary) {a b : Sparkle.IR.AST.Expr} {n : Nat} :
-      SizedExpr we a n → SizedExpr we b n → SizedExpr we (.op op.operator [a, b]) n
+      SizedExpr we a n → SizedExpr we b n →
+      Sparkle.IR.PrintCheck.shiftShape op.operator b = true →
+      SizedExpr we (.op op.operator [a, b]) n
 
 theorem SizedExpr.width {we e n} (h : SizedExpr we e n) : widthOf we e = n := by
   induction h with
   | ref => rfl
   | const => rfl
-  | bin op _ _ ha hb => cases op <;> simp [Binary.operator, widthOf, ha, hb]
+  | bin op _ _ _ ha hb => cases op <;> simp [Binary.operator, widthOf, ha, hb]
 
 /-- Before output-port emission, every assignment has a uniform-width RHS
 at its target's declared width. This is preserved by the actual translator. -/
@@ -930,7 +936,7 @@ theorem translateCanonicalSignalBinary_branch
     intro l r hmem
     rcases List.mem_cons.mp hmem with heq | hmem
     · cases heq; rw [hresWidth]
-      exact .bin bop (wA ▸ SizedExpr.ref wa) (wB ▸ SizedExpr.ref wb)
+      exact .bin bop (wA ▸ SizedExpr.ref wa) (wB ▸ SizedExpr.ref wb) (by cases bop <;> rfl)
     · exact hinvC.sized l r hmem
   refine ⟨_, hinvC.transfer_except hrunD hsize huD
       (by rw [hsD, emitAssign_sourceBindings]) (by rw [hsD, emitAssign_translateRecord])

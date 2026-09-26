@@ -23,7 +23,7 @@ every proof-only change. Report regression status separately from proof progress
 ## Current proved endpoint (2026-09-27)
 
 For the quoted positive-width combinational fragment (inputs, constants,
-`+ - * &&& ||| ^^^`, and same-width logical right shift `>>>`),
+`+ - * &&& ||| ^^^`, and same-width logical shifts `>>>` and `<<<`),
 `compiledFragment_execution` connects successful shipping synthesis and checked
 optimizer selection to the complete output text and finite operational
 settling of its emitted AST. The adopted execution model uses two-state,
@@ -51,6 +51,45 @@ explicit subset specifications. Arbitrary asynchronous event scheduling,
 X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
+
+## Logical left shift connected (2026-09-27)
+
+**Canonical `Signal (BitVec n) <<< Signal (BitVec n)` is now covered by the
+same `compiledFragment_execution` theorem.** The source grammar supports all
+eight binary operators, including arbitrary nesting of left and right shifts
+with inputs and `Signal.pure` constants. Width remains positive and uniform;
+shift amounts include every width-`n` value, even amounts at least `n`.
+Intermediate results are truncated at their declared width, including before
+a subsequent right shift. The concrete syntax proof now includes `<<`.
+
+An internal shape invariant bridges the existing forward checker: a left
+shift's amount is not an inlined IR constant. Actual shipping translation
+allocates source constants to wires, and renaming preserves this shape.
+`SizedExpr` carries the invariant and `PrintCheck.shiftShape` checks it.
+It is derived from successful translation, not added as a caller premise;
+source expressions using `Signal.pure` amounts remain covered. This avoids
+changing the forward checker's separate rule for inlined literal shifts.
+
+`isPrintBinOp` now includes `.shl`. Simple left-shift modules therefore enter
+the checked optimizer route. The semantic normalizer remains restricted to
+the original six operators; `normBody_shift_none` and `checkedOptimize_shl`
+prove that shift-bearing originals are retained. This can reduce optimization
+relative to the former unchecked route. The source translator and RTL emitter
+are unchanged.
+
+`ShippingLeftShiftSoundnessTest` instantiates the general execution theorem
+on a real declaration mixing both shift directions and a constant amount.
+It audits theorem axioms and exercises 1-, 8- and 65-bit shipping synthesis,
+including zero, boundary and oversized amounts and checked fallback. An 8-bit
+module emitted by the shipping backend compiles under Icarus `-g2012` and
+simulates all 65,536 input/amount pairs successfully.
+`lake build Tests.AllTests` passes (576 jobs), including the new theorem axiom
+audit. This is a test-module build, not execution of the `lake test` binary.
+
+Arithmetic shifts, mixed-width or mixed Signal/scalar overloads, comparisons,
+mux, Bool, registers/reset, memory and hierarchy remain outside this theorem.
+The `EnvDefines` trust boundary and the two-state, zero-delay, fixed-input
+parallel delta-round execution model are unchanged.
 
 ## First operator-coverage extension: logical right shift (2026-09-27)
 

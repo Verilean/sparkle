@@ -67,8 +67,8 @@ reduce in proofs).
 * Declarations outside the certified shape take the legacy front end and are
   not covered; the entry theorem says nothing about them (`CertifiedOutcome`
   is vacuous there). `Denotes` covers the canonical same-width operators
-  `+ - * &&& ||| ^^^ >>>`. The gate also accepts left shift `<<<`, but that
-  operation remains outside this denotation and is NOT proved.
+  `+ - * &&& ||| ^^^ >>> <<<`. Other accepted operators and source forms
+  remain outside this denotation and are NOT proved.
 * IR semantics is `evalAssigns` (one combinational cycle); Verilog printing
   and Verilog semantics are separate. -/
 
@@ -1083,6 +1083,7 @@ def binSig {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat} :
   | .add => (· + ·) | .sub => (· - ·) | .mul => (· * ·)
   | .and => (· &&& ·) | .or => (· ||| ·) | .xor => (· ^^^ ·)
   | .shr => (· >>> ·)
+  | .shl => (· <<< ·)
 
 open Sparkle.Core.Signal in
 /-- The Lean meaning: the library Signal operators applied to the inputs. -/
@@ -1111,6 +1112,7 @@ theorem denoteFE_val {dom : Sparkle.Core.Domain.DomainConfig} (n : Nat)
     · exact library_or dom n _ _ t
     · exact library_xor dom n _ _ t
     · exact library_shr dom n _ _ t
+    · exact library_shl dom n _ _ t
 
 def natE (n : Nat) : Lean.Expr :=
   mkApp3 (.const ``OfNat.ofNat [.zero]) (.const ``Nat []) (.lit (.natVal n))
@@ -1123,6 +1125,7 @@ def binMethod : Binary → Name
   | .add => ``HAdd.hAdd | .sub => ``HSub.hSub | .mul => ``HMul.hMul
   | .and => ``HAnd.hAnd | .or => ``HOr.hOr | .xor => ``HXor.hXor
   | .shr => ``HShiftRight.hShiftRight
+  | .shl => ``HShiftLeft.hShiftLeft
 
 def binInst : Binary → Name
   | .add => ``Sparkle.Core.Signal.instHAddSignalBitVec
@@ -1132,6 +1135,7 @@ def binInst : Binary → Name
   | .or => ``Sparkle.Core.Signal.instHOrSignalBitVec
   | .xor => ``Sparkle.Core.Signal.instHXorSignalBitVec
   | .shr => ``Sparkle.Core.Signal.instHShiftRightSignalBitVec_1
+  | .shl => ``Sparkle.Core.Signal.instHShiftLeftSignalBitVec_1
 
 /-- A canonical width-`n` operator application, as Lean elaborates it. -/
 def binE (dom : Lean.Expr) (n : Nat) (op : Binary) (a b : Lean.Expr) : Lean.Expr :=

@@ -70,6 +70,7 @@ def renderBin : SVBinOp → Option String
   | .add => some "+" | .sub => some "-" | .mul => some "*"
   | .bitAnd => some "&" | .bitOr => some "|" | .bitXor => some "^"
   | .shr => some ">>"
+  | .shl => some "<<"
   | _ => none
 
 /-- A deliberately small, total AST renderer. Unsupported forms fail. -/
@@ -273,17 +274,17 @@ theorem acceptedOptimizer_body_render {m o : Sparkle.IR.AST.Module}
     exact emitBody_render _ _ _ (normBody_input_shape _ _ _ _ _ ho)
   · cases h
 
-/-- The semantic normalizer still refuses right shifts. Expanding the shipping
+/-- The semantic normalizer still refuses logical shifts. Expanding the shipping
 checked-route domain does not silently expand the trusted normalization rules. -/
-theorem normBody_shr_none {body : List Stmt} {l : String} {a b : Expr}
-    (hm : .assign l (.op .shr [a, b]) ∈ body)
+theorem normBody_shift_none {body : List Stmt} {l : String} {a b : Expr} {op : Operator}
+    (hop : op = .shr ∨ op = .shl) (hm : .assign l (.op op [a, b]) ∈ body)
     (we : WEnv) (ins : List String) (defs : List (String × Expr)) :
     normBody we ins defs body = none := by
   induction body generalizing defs with
   | nil => cases hm
   | cons st rest ih =>
     rcases List.mem_cons.mp hm with he | htail
-    · subst st; simp [normBody, normE, isBinOp]
+    · subst st; rcases hop with rfl | rfl <;> simp [normBody, normE, isBinOp]
     · cases st with
       | assign l r =>
         simp only [normBody]
@@ -292,12 +293,26 @@ theorem normBody_shr_none {body : List Stmt} {l : String} {a b : Expr}
         | some e => exact ih htail _
       | _ => rfl
 
+theorem normBody_shr_none {body : List Stmt} {l : String} {a b : Expr}
+    (hm : .assign l (.op .shr [a, b]) ∈ body)
+    (we : WEnv) (ins : List String) (defs : List (String × Expr)) :
+    normBody we ins defs body = none :=
+  normBody_shift_none (Or.inl rfl) hm we ins defs
+
 /-- Shift-bearing simple modules now take the proved original-module fallback.
 The full optimizer's shift rewrites remain proposals, not trusted proof steps. -/
 theorem checkedOptimize_shr {m : Sparkle.IR.AST.Module} {l : String} {a b : Expr}
     (hg : simpleBody m = true) (hm : .assign l (.op .shr [a, b]) ∈ m.body) :
     checkedOptimize m = m := by
   have hnorm := normBody_shr_none hm (Sparkle.IR.RegDedup.declWidth m)
+    (m.inputs.map (·.name)) []
+  simp [checkedOptimize, hg, optCheck, optCheckCore, hnorm]
+
+/-- The same checked fallback covers logical left shift. -/
+theorem checkedOptimize_shl {m : Sparkle.IR.AST.Module} {l : String} {a b : Expr}
+    (hg : simpleBody m = true) (hm : .assign l (.op .shl [a, b]) ∈ m.body) :
+    checkedOptimize m = m := by
+  have hnorm := normBody_shift_none (Or.inr rfl) hm (Sparkle.IR.RegDedup.declWidth m)
     (m.inputs.map (·.name)) []
   simp [checkedOptimize, hg, optCheck, optCheckCore, hnorm]
 

@@ -15,13 +15,21 @@ def widths (m : Module) (x : String) : Option Nat :=
       | .bit => some 1
       | _ => none
 
+/-- Keep literal-amount left shifts as separate wire assignments. The existing
+forward checker has a special inlined-shift route; this uniform fragment uses
+its ordinary route. Shipping source literals are already allocated as wires. -/
+def shiftShape (op : Operator) (amount : Expr) : Bool :=
+  match op, amount with
+  | .shl, .const .. => false
+  | _, _ => true
+
 def exprCheck (m : Module) (n : Nat) : Expr → Bool
   | .ref x =>
     Sparkle.Backend.Verilog.sanitizeName x == x &&
       widths m x == some n && Sparkle.IR.RegDedup.declWidth m x == n
   | .const _ k => k == n
   | .op op [a, b] =>
-    (match op with | .add | .sub | .mul | .and | .or | .xor | .shr => true | _ => false) &&
+    (match op with | .add | .sub | .mul | .and | .or | .xor | .shr | .shl => true | _ => false) && shiftShape op b &&
       exprCheck m n a && exprCheck m n b
   | _ => false
 

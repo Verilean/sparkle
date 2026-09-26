@@ -34,9 +34,9 @@ def fragD {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 
 
 def feD : FExpr := .inp 0
 
-/-- Left shift remains outside `Denotes`; this mixed shift example is checked
-only for front-end agreement and against the Lean value. Right-shift-only
-source-to-execution coverage is tested in ShippingRightShiftSoundnessTest. -/
+/-- Both logical shifts are now in `Denotes`. This example checks frontend
+agreement; the shift soundness tests additionally instantiate the general
+source-to-execution theorem on nested and mixed shift sources. -/
 def fragS {dom : DomainConfig} (a b : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
   (a <<< b) + (a >>> b)
 

@@ -31,6 +31,7 @@ inductive BinaryToken : SVBinOp → String → Prop
   | bitOr : BinaryToken .bitOr "|"
   | bitXor : BinaryToken .bitXor "^"
   | shr : BinaryToken .shr ">>"
+  | shl : BinaryToken .shl "<<"
 
 inductive Expression : SVExpr → String → Prop
   | decimal {w v sw sv} : 0 < w → Numeral 10 w sw → Numeral 10 v sv →

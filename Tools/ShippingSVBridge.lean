@@ -58,7 +58,7 @@ theorem SizedExpr.refs_width {we e n} (h : SizedExpr we e n) :
     have hxy : x = y := by simpa [Sparkle.IR.Reorder.refsOf] using hx
     exact congrArg we hxy
   | const => simp [Sparkle.IR.Reorder.refsOf]
-  | bin op ha hb ia ib =>
+  | bin op ha hb hshape ia ib =>
     intro x hx
     simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
       List.append_nil, List.mem_append] at hx
@@ -69,17 +69,21 @@ theorem SizedExpr.we_congr {we we' e n} (h : SizedExpr we e n)
   induction h with
   | ref x => rw [heq x (by simp [Sparkle.IR.Reorder.refsOf])]; exact .ref _
   | const v n => exact .const v n
-  | bin op ha hb ia ib =>
+  | bin op ha hb hshape ia ib =>
     exact .bin op
       (ia fun x hx => heq x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
-      (ib fun x hx => heq x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
+      (ib fun x hx => heq x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx])) hshape
 
 theorem SizedExpr.notShl {we e n} (h : SizedExpr we e n) :
     isShlLit e = false ∧ shlOperand e = e := by
   cases h with
   | ref => exact ⟨rfl, rfl⟩
   | const => exact ⟨rfl, rfl⟩
-  | bin op => cases op <;> exact ⟨rfl, rfl⟩
+  | @bin op a b n ha hb hs =>
+    have hnot : isShlLit (.op op.operator [a, b]) = false := by
+      cases op <;> cases b <;>
+        simp_all [Binary.operator, Sparkle.IR.PrintCheck.shiftShape, isShlLit]
+    exact ⟨hnot, shlOperand_id hnot⟩
 
 theorem SizedExpr.forward {we e n} (h : SizedExpr we e n) (hn : 0 < n)
     (wof : String → Option Nat)
@@ -91,7 +95,7 @@ theorem SizedExpr.forward {we e n} (h : SizedExpr we e n) (hn : 0 < n)
     obtain ⟨hs, hw⟩ := hname x (by simp [Sparkle.IR.Reorder.refsOf])
     simp [sf4Check, hs, hw]
   | const => simpa [sf4Check] using hn
-  | bin op ha hb ia ib =>
+  | bin op ha hb hshape ia ib =>
     have ia := ia hn (fun x hx => hname x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
     have ib := ib hn (fun x hx => hname x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
     cases op <;> simp [Binary.operator, sf4Check, ha.width, hb.width,
@@ -261,10 +265,10 @@ theorem printExpr_of_sized {m : Sparkle.IR.AST.Module} {e : Sparkle.IR.AST.Expr}
     simp [Sparkle.IR.PrintCheck.exprCheck, hs, hw]
     rfl
   | const => simp [Sparkle.IR.PrintCheck.exprCheck]
-  | bin op ha hb ia ib =>
+  | bin op ha hb hshape ia ib =>
     have ia := ia (fun x hx => hr x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
     have ib := ib (fun x hx => hr x (by simp [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList, hx]))
-    cases op <;> simp [Sparkle.IR.PrintCheck.exprCheck, Binary.operator, ia, ib]
+    cases op <;> simpa [Sparkle.IR.PrintCheck.exprCheck, Binary.operator, ia, ib] using hshape
 
 theorem printExpr_sound (m : Sparkle.IR.AST.Module) (n : Nat) :
     ∀ e, Sparkle.IR.PrintCheck.exprCheck m n e = true →
@@ -294,12 +298,14 @@ theorem printExpr_sound (m : Sparkle.IR.AST.Module) (n : Nat) :
     obtain ⟨ha, hna⟩ := ia h.1.2
     obtain ⟨hb, hnb⟩ := ib h.2
     refine ⟨?_, ?_⟩
-    · have hop := h.1.1
+    · have hop := h.1.1.1
+      have hshape := h.1.1.2
       cases op <;> simp_all
-      all_goals first | exact SizedExpr.bin .add ha hb | exact SizedExpr.bin .sub ha hb |
-        exact SizedExpr.bin .mul ha hb | exact SizedExpr.bin .and ha hb |
-        exact SizedExpr.bin .or ha hb | exact SizedExpr.bin .xor ha hb |
-        exact SizedExpr.bin .shr ha hb
+      all_goals first | exact SizedExpr.bin .add ha hb hshape | exact SizedExpr.bin .sub ha hb hshape |
+        exact SizedExpr.bin .mul ha hb hshape | exact SizedExpr.bin .and ha hb hshape |
+        exact SizedExpr.bin .or ha hb hshape | exact SizedExpr.bin .xor ha hb hshape |
+        exact SizedExpr.bin .shr ha hb hshape |
+        exact SizedExpr.bin .shl ha hb hshape
     · intro x hx
       simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
         List.append_nil, List.mem_append] at hx

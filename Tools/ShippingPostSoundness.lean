@@ -828,8 +828,11 @@ theorem sized_rename {we : WEnv} {e : Sparkle.IR.AST.Expr} {n : Nat}
   induction h with
   | ref x => simpa only [renameE, ← hw x] using SizedExpr.ref (we := we) (σ x)
   | const v n => exact .const v n
-  | bin op _ _ ih₁ ih₂ =>
-    simpa only [renameE, renameE.renameL] using SizedExpr.bin op ih₁ ih₂
+  | @bin op a b n ha hb hshape ih₁ ih₂ =>
+    have hs : Sparkle.IR.PrintCheck.shiftShape op.operator (renameE σ b) = true := by
+      cases op <;> cases b <;> simpa only [ShippingScalarSoundness.Binary.operator, renameE,
+        Sparkle.IR.PrintCheck.shiftShape] using hshape
+    simpa only [renameE, renameE.renameL] using SizedExpr.bin op ih₁ ih₂ hs
 
 /-- Uniform RHS widths, allowing the single output port as an exceptional
 target in the wire-only width environment. -/
