@@ -1251,6 +1251,15 @@ def translateSignalPureLiteral? (args : Array Lean.Expr) (hint : String) (isName
 /-- The translator's recursive entry, as a first-class argument. -/
 abbrev TranslateFn := Lean.Expr → String → Bool → Bool → CompilerM String
 
+/-- Emit the result of the shipping mux handler after its operands and result
+    type have been translated. Kept non-recursive so allocation and emission
+    can be proved independently of recursive operand translation/type inference. -/
+def emitMuxResult (cond thenWire elseWire hint : String) (isNamed : Bool)
+    (hwType : HWType) : CompilerM String := do
+  let result ← CompilerM.makeWire hint hwType (named := isNamed)
+  CompilerM.emitAssign result (.op .mux [.ref cond, .ref thenWire, .ref elseWire])
+  return result
+
 /-- Lower a canonical library Signal operator application. SHIPPING code:
     `translateExprToWireImpl` calls this with the real translator as
     `translate`. It is a plain (non-`partial`) definition so its behaviour can
@@ -3444,9 +3453,7 @@ mutual
       let eW ← translateExprToWire elseSig "mux_else"
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
-      let rW ← CompilerM.makeWire hint hwType (named := isNamed)
-      CompilerM.emitAssign rW (.op .mux [.ref cW, .ref tW, .ref eW])
-      return some rW
+      return some (← emitMuxResult cW tW eW hint isNamed hwType)
 
     return none
 

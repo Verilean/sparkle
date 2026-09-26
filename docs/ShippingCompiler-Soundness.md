@@ -52,6 +52,52 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Shipping mux result lowering (2026-09-27)
+
+**The actual mux result allocation/emission step now has a local source-value
+preservation proof.** `emitMuxResult` is a non-recursive definition used by
+`Rec.handleMux` in place of its former inline `makeWire`/`emitAssign` tail.
+Operand translation, type inference, allocation order, hints, naming mode and
+the emitted assignment are preserved. No front-end acceptance or optimizer
+policy changes accompany this extraction.
+
+`Tools/ShippingMuxLoweringSoundness.lean` makes the Bool encoding explicit
+(false = 0, true = 1) and ties the mux value to the actual library `Signal.mux`
+at every observation time. `emitMuxResult_returns` proves the exact state
+transition for every successful execution of the shipping helper.
+`emitMuxResult_correct` connects that transition to source values and derives
+fresh allocation, the declared result width, the typed RHS, preservation of
+all other wires, and preservation of live source bindings. Freshness is
+proved from the real allocator, not assumed. `emitMuxResult_typedBody`
+preserves the width-indexed assignment-body invariant, ready for composition
+with the previous backend execution checker. `mux_printed` connects the
+actual expression text and AST evaluation to the same source mux value.
+
+The local premises remain explicit: the child wires already carry the
+condition/branch source values, their widths are 1/n/n, the selected output
+type is positive-width `BitVec n`, existing live bindings are reserved, and
+the final declarations agree with the semantic width environment. These are
+future recursive-translation obligations, not new claims that the entry
+proves them. The `partial` handler dispatch, child recursion, result-type
+inference, Bool-capable source quotation, cleanup and optimizer-selection
+bridge still need to be connected. The general `compiledFragment_execution`
+source domain remains the eight uniform-width binary operators. In
+particular, this milestone does not prove successful synthesis of arbitrary
+Bool/mux declarations or remove `EnvDefines`.
+
+Validation: standard-axiom audits cover all new main theorems. Executable
+tests run the real helper at 1, 8 and 65 bits in named and anonymous modes,
+with colliding/repeated hints, and verify input preservation, output values
+and the compiler width cache. Real Bool-input `Signal.mux` declarations and
+a nested mux/shift declaration synthesize and agree with source values on
+boundary inputs. An 8-bit mux generated from the actual DSL declaration
+passes Icarus `-g2012` simulation for all 131,072 condition/data combinations.
+The simulated text is the synthesis result before `checkedOptimize`; this
+regression is not a proof of the remaining source or optimization connection.
+`lake build Tests.AllTests` passes (580 jobs), including the existing compiler
+regressions and new standard-axiom audits. This is a test-module build, not
+execution of the `lake test` binary.
+
 ## Comparison/mux backend connection (2026-09-27)
 
 **Unsigned comparisons and mux now have a width-indexed backend proof.**
