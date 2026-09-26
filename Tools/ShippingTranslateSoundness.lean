@@ -226,6 +226,9 @@ open Sparkle.Core.Signal in
 theorem library_or (dom) (n : Nat) (a b : Signal dom (BitVec n)) (t : Nat) :
     (a ||| b).val t = Binary.or.apply (a.val t) (b.val t) := rfl
 open Sparkle.Core.Signal in
+theorem library_shr (dom) (n : Nat) (a b : Signal dom (BitVec n)) (t : Nat) :
+    (a >>> b).val t = Binary.shr.apply (a.val t) (b.val t) := rfl
+open Sparkle.Core.Signal in
 theorem library_xor (dom) (n : Nat) (a b : Signal dom (BitVec n)) (t : Nat) :
     (a ^^^ b).val t = Binary.xor.apply (a.val t) (b.val t) := rfl
 

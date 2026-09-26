@@ -21,7 +21,7 @@ def exprCheck (m : Module) (n : Nat) : Expr → Bool
       widths m x == some n && Sparkle.IR.RegDedup.declWidth m x == n
   | .const _ k => k == n
   | .op op [a, b] =>
-    (match op with | .add | .sub | .mul | .and | .or | .xor => true | _ => false) &&
+    (match op with | .add | .sub | .mul | .and | .or | .xor | .shr => true | _ => false) &&
       exprCheck m n a && exprCheck m n b
   | _ => false
 

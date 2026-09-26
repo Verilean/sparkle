@@ -5,7 +5,7 @@ import Sparkle.IR.ModuleNames
 relate source characters to the AST they denote. This specification imports
 neither the IR emitter nor the auxiliary AST renderer or in-tree parser.
 It deliberately covers only unsigned ANSI logic ports, logic declarations,
-continuous assignments and the six binary operators used by the source proof.
+continuous assignments and the binary operators used by the source proof.
 It is not a claim about all IEEE syntax or any external parser implementation.
 -/
 namespace Tools.SVParser.ConcreteSyntax
@@ -30,6 +30,7 @@ inductive BinaryToken : SVBinOp → String → Prop
   | bitAnd : BinaryToken .bitAnd "&"
   | bitOr : BinaryToken .bitOr "|"
   | bitXor : BinaryToken .bitXor "^"
+  | shr : BinaryToken .shr ">>"
 
 inductive Expression : SVExpr → String → Prop
   | decimal {w v sw sv} : 0 < w → Numeral 10 w sw → Numeral 10 v sv →

@@ -32,6 +32,11 @@ def isBinOp : Operator → Bool
   | .add | .sub | .mul | .and | .or | .xor => true
   | _ => false
 
+/-- Source/printing operators include right shift. The normalizer deliberately
+remains smaller: a shift-bearing original cannot pass `optCheckCore`, so the
+checked route retains that original rather than accepting an unchecked result. -/
+def isPrintBinOp (op : Operator) : Bool := isBinOp op || op == .shr
+
 /-- Normalise one expression against the definitions seen so far. `ins`: the
 input names (values fit their declared widths). -/
 def normE (we : WEnv) (ins : List String) (defs : List (String × Expr)) : Expr → Option Expr
@@ -102,11 +107,12 @@ def optCheck (m o : Module) : Bool :=
       (PrintCheck.moduleCheck o && PrintCheck.inputWidthsAgree m o)))
 
 /-- The statement shapes the synthesis entry produces: an `assign` of a
-constant, a reference, or one of the six operators on two references. -/
+constant, a reference, or one of the six normalizer operators or logical
+right shift on two references. -/
 def simpleRhs : Expr → Bool
   | .const _ _ => true
   | .ref _ => true
-  | .op o [.ref _, .ref _] => isBinOp o
+  | .op o [.ref _, .ref _] => isPrintBinOp o
   | _ => false
 
 def simpleBody (m : Module) : Bool :=

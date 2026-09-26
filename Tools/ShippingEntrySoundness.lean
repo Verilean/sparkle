@@ -66,10 +66,9 @@ reduce in proofs).
   (`synthesizeCombinational_fragment`).
 * Declarations outside the certified shape take the legacy front end and are
   not covered; the entry theorem says nothing about them (`CertifiedOutcome`
-  is vacuous there). The gate also accepts the canonical shifts `<<< >>>`
-  (the translator core lowers them), but `Denotes` gives meaning only to
-  `+ - * &&& ||| ^^^`, so for a shift `Preserves` holds vacuously: shifts are
-  on the certified front end but NOT proved.
+  is vacuous there). `Denotes` covers the canonical same-width operators
+  `+ - * &&& ||| ^^^ >>>`. The gate also accepts left shift `<<<`, but that
+  operation remains outside this denotation and is NOT proved.
 * IR semantics is `evalAssigns` (one combinational cycle); Verilog printing
   and Verilog semantics are separate. -/
 
@@ -1083,6 +1082,7 @@ def binSig {dom : Sparkle.Core.Domain.DomainConfig} {n : Nat} :
     Binary → Signal dom (BitVec n) → Signal dom (BitVec n) → Signal dom (BitVec n)
   | .add => (· + ·) | .sub => (· - ·) | .mul => (· * ·)
   | .and => (· &&& ·) | .or => (· ||| ·) | .xor => (· ^^^ ·)
+  | .shr => (· >>> ·)
 
 open Sparkle.Core.Signal in
 /-- The Lean meaning: the library Signal operators applied to the inputs. -/
@@ -1110,6 +1110,7 @@ theorem denoteFE_val {dom : Sparkle.Core.Domain.DomainConfig} (n : Nat)
     · exact library_and dom n _ _ t
     · exact library_or dom n _ _ t
     · exact library_xor dom n _ _ t
+    · exact library_shr dom n _ _ t
 
 def natE (n : Nat) : Lean.Expr :=
   mkApp3 (.const ``OfNat.ofNat [.zero]) (.const ``Nat []) (.lit (.natVal n))
@@ -1121,6 +1122,7 @@ def sigT (dom : Lean.Expr) (n : Nat) : Lean.Expr :=
 def binMethod : Binary → Name
   | .add => ``HAdd.hAdd | .sub => ``HSub.hSub | .mul => ``HMul.hMul
   | .and => ``HAnd.hAnd | .or => ``HOr.hOr | .xor => ``HXor.hXor
+  | .shr => ``HShiftRight.hShiftRight
 
 def binInst : Binary → Name
   | .add => ``Sparkle.Core.Signal.instHAddSignalBitVec
@@ -1129,6 +1131,7 @@ def binInst : Binary → Name
   | .and => ``Sparkle.Core.Signal.instHAndSignalBitVec
   | .or => ``Sparkle.Core.Signal.instHOrSignalBitVec
   | .xor => ``Sparkle.Core.Signal.instHXorSignalBitVec
+  | .shr => ``Sparkle.Core.Signal.instHShiftRightSignalBitVec_1
 
 /-- A canonical width-`n` operator application, as Lean elaborates it. -/
 def binE (dom : Lean.Expr) (n : Nat) (op : Binary) (a b : Lean.Expr) : Lean.Expr :=
@@ -1159,6 +1162,7 @@ def quoteDecl (domName : Name) (names : List Name) (n : Nat) (fe : FExpr) : Lean
 def quoteBinders (domName : Name) (names : List Name) (n : Nat) : List (Name × GateBinder) :=
   (domName, .domain) :: names.map (·, .signal n)
 
+set_option maxHeartbeats 800000 in
 /-- The per-operator facts the gate and `Denotes` read, all by computation. -/
 theorem op_checks (op : Binary) (dom a b : Lean.Expr) (n : Nat) :
     let e := binE dom n op a b

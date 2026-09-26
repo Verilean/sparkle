@@ -22,7 +22,8 @@ every proof-only change. Report regression status separately from proof progress
 
 ## Current proved endpoint (2026-09-27)
 
-For the quoted positive-width combinational fragment,
+For the quoted positive-width combinational fragment (inputs, constants,
+`+ - * &&& ||| ^^^`, and same-width logical right shift `>>>`),
 `compiledFragment_execution` connects successful shipping synthesis and checked
 optimizer selection to the complete output text and finite operational
 settling of its emitted AST. The adopted execution model uses two-state,
@@ -50,6 +51,54 @@ explicit subset specifications. Arbitrary asynchronous event scheduling,
 X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
+
+## First operator-coverage extension: logical right shift (2026-09-27)
+
+**Canonical `Signal (BitVec n) >>> Signal (BitVec n)` is now covered end to end,**
+including arbitrary nesting with the six previously proved operators and
+`Signal.pure` literals. The existing `compiledFragment_execution` theorem is
+extended through its `Binary`/`FExpr` source grammar; this is not a separate
+per-circuit replay theorem. Source quotations are checked against real Lean
+declarations and source meaning uses the actual library Signal instance.
+Shift amounts range over all width-`n` values, including amounts greater than
+or equal to `n`. The final theorem still requires `0 < n`.
+
+The connection extends `Binary.rhs_correct`, `Denotes`, the declaration
+quotation, uniform-width printing facts, the emitted AST renderer and the
+independent concrete grammar's `>>` token. Existing translation/cache/order,
+post-processing, binding and delta-convergence proofs then apply to the larger
+source grammar. No new environment or expression-evaluation assumption was
+introduced. The underlying source translator and RTL emitter are unchanged.
+
+One compiler policy change was necessary: previously, right-shift modules
+fell outside `simpleBody` and could receive unchecked optimizer output.
+`isPrintBinOp` now includes `.shr`, so a module whose assignments consist of
+references, constants and the supported operators on two references enters
+the checked optimizer route. The semantic normalizer's `isBinOp` intentionally
+remains the original six operators. Consequently, a shift-bearing original
+cannot pass normalization and the checked route retains that original.
+`normBody_shr_none` and `checkedOptimize_shr` prove this fallback generally.
+This can reduce optimization for these modules; no area/performance claim or
+byte-identity claim with the previous optimizer policy is made. The fallback
+is after the already checked synthesis cleanup/merge stage.
+
+Coverage remains specific: logical right shift with both operands represented
+as same-width Signals is proved. Left/arithmetic shifts, mixed-width inputs,
+mixed Signal/scalar overloads, comparisons, mux, Bool, registers/reset, memory
+and hierarchy still require their own connections. A `Signal.pure` shift
+amount is covered; that does not imply the unproved mixed Signal/scalar path.
+The delta model and `EnvDefines` boundary are unchanged.
+
+Validation: `ShippingRightShiftSoundnessTest` applies the general theorem to a
+real nested shift declaration, with standard-axiom audits. It synthesizes
+1-, 8- and 65-bit examples and checks zero, boundary and oversized shift
+amounts against source evaluation. It also checks the actual optimizer fallback.
+An 8-bit module emitted by the shipping backend compiles under Icarus
+`-g2012` and simulates all 65,536 input/amount pairs successfully.
+`lake build Tests.AllTests` passes (575 jobs), including the existing compiler
+regressions and proof audits. This is the whole test module's build, not a claim
+that the `lake test` executable ran; its earlier macOS `dlmopen` linker blocker
+is still recorded below.
 
 ## Finite operational settling connected (2026-09-27)
 

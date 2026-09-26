@@ -16,7 +16,7 @@ open Sparkle.Compiler.Elab Tools.ShippingBuilderSoundness
 /-- Canonical same-width binary functions, independently of syntax/typeclass
 recognition. Other registry entries are not covered by this theorem. -/
 inductive Binary where
-  | add | sub | mul | and | or | xor
+  | add | sub | mul | and | or | xor | shr
   deriving DecidableEq, Repr
 
 def Binary.name : Binary → Lean.Name
@@ -26,6 +26,7 @@ def Binary.name : Binary → Lean.Name
   | .and => ``BitVec.and
   | .or => ``BitVec.or
   | .xor => ``BitVec.xor
+  | .shr => ``HShiftRight.hShiftRight
 
 def Binary.operator : Binary → Operator
   | .add => .add
@@ -34,6 +35,7 @@ def Binary.operator : Binary → Operator
   | .and => .and
   | .or => .or
   | .xor => .xor
+  | .shr => .shr
 
 def Binary.apply {w : Nat} : Binary → BitVec w → BitVec w → BitVec w
   | .add => BitVec.add
@@ -42,6 +44,7 @@ def Binary.apply {w : Nat} : Binary → BitVec w → BitVec w → BitVec w
   | .and => BitVec.and
   | .or => BitVec.or
   | .xor => BitVec.xor
+  | .shr => fun a b => a.ushiftRight b.toNat
 
 /-- Connect the specification to the ACTUAL shipping operator registry. -/
 theorem Binary.registry (op : Binary) : getOperator op.name = some op.operator := by

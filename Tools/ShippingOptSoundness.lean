@@ -13,6 +13,10 @@ namespace Tools.ShippingOptSoundness
 open Sparkle.IR.AST Sparkle.IR.Semantics Sparkle.IR.OptCheck
 open Sparkle.IR.Reorder (refsOf evalExpr_congr)
 
+theorem isPrintBinOp_eq_true (op : Operator) :
+    isPrintBinOp op = true ↔ isBinOp op = true ∨ op = .shr := by
+  cases op <;> decide
+
 /-! ## 1. The normal-form grammar -/
 
 inductive Shape : Expr → Prop

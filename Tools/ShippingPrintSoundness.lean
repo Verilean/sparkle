@@ -3,7 +3,7 @@ import Tools.SVParser.EmitSem
 
 /-! # Shipping expression text and the semantic SV tree
 
-The renderer below consumes the SV AST, not the IR. On the six-operator
+The renderer below consumes the SV AST, not the IR. On the supported binary-operator
 fragment, rendering `emitAstExpr` is proved equal to the SHIPPING `emitExpr`.
 This is a byte equality, not a parser experiment. `printedExpr_semantics`
 also connects that same tree to the existing SV-subset evaluation theorem.
@@ -69,6 +69,7 @@ theorem normBody_input_shape (we : WEnv) (ins : List String) :
 def renderBin : SVBinOp → Option String
   | .add => some "+" | .sub => some "-" | .mul => some "*"
   | .bitAnd => some "&" | .bitOr => some "|" | .bitXor => some "^"
+  | .shr => some ">>"
   | _ => none
 
 /-- A deliberately small, total AST renderer. Unsupported forms fail. -/
@@ -89,14 +90,14 @@ stronger hypotheses needed for SV evaluation. -/
 inductive PrintShape : Expr → Prop
   | const (v : Int) (w : Nat) : PrintShape (.const v w)
   | ref (x : String) : PrintShape (.ref x)
-  | bin {o : Operator} {a b : Expr} : isBinOp o = true → PrintShape a → PrintShape b →
+  | bin {o : Operator} {a b : Expr} : isPrintBinOp o = true → PrintShape a → PrintShape b →
       PrintShape (.op o [a, b])
 
 theorem PrintShape.ofShape {e : Expr} (h : Shape e) : PrintShape e := by
   induction h with
   | const _ _ => exact .const _ _
   | ref x => exact .ref x
-  | bin ho _ _ ha hb => exact .bin ho ha hb
+  | bin ho _ _ ha hb => exact .bin (by simp [isPrintBinOp, ho]) ha hb
 
 theorem printShape_simple {e : Expr} (h : simpleRhs e = true) : PrintShape e := by
   match e, h with
@@ -126,7 +127,7 @@ theorem emitExpr_render_all {e : Expr} (h : PrintShape e) (wof : String → Opti
   | @bin op a b hop _ _ ia ib =>
     obtain ⟨sa, hsa, hra⟩ := ia
     obtain ⟨sb, hsb, hrb⟩ := ib
-    cases op <;> simp_all [isBinOp]
+    cases op <;> simp_all [isPrintBinOp_eq_true, isBinOp]
     all_goals
       simp [emitAstExpr, hsa, hsb, binOpOf, renderExpr, renderBin, hra, hrb,
         Sparkle.Backend.Verilog.emitExpr, Sparkle.Backend.Verilog.emitOperator]
@@ -271,5 +272,33 @@ theorem acceptedOptimizer_body_render {m o : Sparkle.IR.AST.Module}
   · rename_i dm ds hm ho
     exact emitBody_render _ _ _ (normBody_input_shape _ _ _ _ _ ho)
   · cases h
+
+/-- The semantic normalizer still refuses right shifts. Expanding the shipping
+checked-route domain does not silently expand the trusted normalization rules. -/
+theorem normBody_shr_none {body : List Stmt} {l : String} {a b : Expr}
+    (hm : .assign l (.op .shr [a, b]) ∈ body)
+    (we : WEnv) (ins : List String) (defs : List (String × Expr)) :
+    normBody we ins defs body = none := by
+  induction body generalizing defs with
+  | nil => cases hm
+  | cons st rest ih =>
+    rcases List.mem_cons.mp hm with he | htail
+    · subst st; simp [normBody, normE, isBinOp]
+    · cases st with
+      | assign l r =>
+        simp only [normBody]
+        cases he : normE we ins defs r with
+        | none => rfl
+        | some e => exact ih htail _
+      | _ => rfl
+
+/-- Shift-bearing simple modules now take the proved original-module fallback.
+The full optimizer's shift rewrites remain proposals, not trusted proof steps. -/
+theorem checkedOptimize_shr {m : Sparkle.IR.AST.Module} {l : String} {a b : Expr}
+    (hg : simpleBody m = true) (hm : .assign l (.op .shr [a, b]) ∈ m.body) :
+    checkedOptimize m = m := by
+  have hnorm := normBody_shr_none hm (Sparkle.IR.RegDedup.declWidth m)
+    (m.inputs.map (·.name)) []
+  simp [checkedOptimize, hg, optCheck, optCheckCore, hnorm]
 
 end Tools.ShippingPrintSoundness

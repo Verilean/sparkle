@@ -298,7 +298,8 @@ theorem printExpr_sound (m : Sparkle.IR.AST.Module) (n : Nat) :
       cases op <;> simp_all
       all_goals first | exact SizedExpr.bin .add ha hb | exact SizedExpr.bin .sub ha hb |
         exact SizedExpr.bin .mul ha hb | exact SizedExpr.bin .and ha hb |
-        exact SizedExpr.bin .or ha hb | exact SizedExpr.bin .xor ha hb
+        exact SizedExpr.bin .or ha hb | exact SizedExpr.bin .xor ha hb |
+        exact SizedExpr.bin .shr ha hb
     · intro x hx
       simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
         List.append_nil, List.mem_append] at hx
