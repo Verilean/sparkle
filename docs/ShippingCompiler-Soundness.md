@@ -20,22 +20,154 @@ its hypotheses. Use it at implementation-impact checkpoints (such as changing
 the shipping allocator) or for performance measurements, rather than after
 every proof-only change. Report regression status separately from proof progress.
 
-## Current proved endpoint (2026-09-26)
+## Current proved endpoint (2026-09-27)
 
 For the quoted positive-width combinational fragment,
 `compiledFragment_settled` connects successful shipping synthesis and checked
 optimizer selection to the rendered artifact and the emitted AST's unique
 bounded simultaneous two-state solution. The output equals the source Signal
-value at every cycle. Assignment order is derived internally; it is no longer
-a caller-supplied premise. The optimizer proposal is untrusted and checked for
-both output equivalence and order. Emitted data declarations additionally
-carry the proved underscore-leading allowed-character name class (or the
-fixed output `out`); this does not cover module names or the complete lexer.
+value at every cycle. Assignment order is derived internally. Data declarations
+are unique; every assignment target and RHS reference is bound to a declaration.
+The module name satisfies the explicit simple-identifier/keyword contract.
+
+The compiler now refuses invalid normalized module names and normalization
+collisions. This refusal policy was explicitly chosen by the user: the objective
+is preservation on successful compilation, not acceptance of every possible
+source spelling. Ordinary accepted output names and RTL text are unchanged.
 
 This does not cover all successfully compiled Signal programs. `EnvDefines`,
-fragment coverage, complete lexical/text interpretation and external RTL
-execution semantics remain explicit boundaries. The dated entries below record
-the earlier intermediate hypotheses as well as their subsequent discharge.
+fragment coverage, full rendered-text grammar interpretation and operational
+RTL execution semantics remain explicit boundaries. Module-name validity and
+normalization collisions are no longer outstanding on the checked synthesis
+paths described below. The dated entries preserve earlier intermediate states.
+
+## Declaration multiplicity (2026-09-27)
+
+`compiledFragment_settled` now additionally concludes
+`((declarationTable sv).map Prod.fst).Nodup` for the actual emitted AST.
+This is distinct from the older name/type consistency theorem: repeating the
+same declaration twice satisfies consistency but is not a legal way to avoid
+repeated declarations.
+
+The proof starts at `bindCertifiedInputs_returns`: the input list remains a
+sublist of allocated wires, beginning with empty lists. Wire-name freshness
+therefore yields input-name uniqueness at the actual synthesis entry.
+`PostReady` carries that fact through the existing source theorem. Cleanup
+preserves input ports and wire uniqueness; `checkedOptimize_wires_sublist`
+proves the optimizer cannot duplicate wires. Finally, `visibleDecls_nodup`
+accounts for the printer suppressing wire declarations already present as
+ports. `compiled_astDeclarations_nodup` transports the result to the AST's
+own declaration table, with sanitizer stability derived as before.
+
+No new caller premise, source restriction, runtime check or compiler behavior
+change is introduced. The final theorem still assumes `EnvDefines` and the
+positive-width canonical combinational source fragment.
+
+**Closed:** repeated data declarations in the emitted module, including
+input/output/internal-wire overlap. **Still open:** module identifiers and
+collisions, a general rendered-text/grammar connection, operational concurrent
+RTL semantics, and coverage of the remaining successful DSL paths. This does
+not close the whole name/syntax milestone or either of the larger semantics
+and coverage tasks.
+
+Validation: `lake build Tools.ShippingSettledSoundness` and the focused
+`ShippingSettledSoundnessTest`, `ShippingPrintSoundnessTest`, and
+`ShippingEntrySoundnessTest` targets pass on Lean 4.32.1. The settled test
+applies the strengthened theorem to `fragA`, checks the duplicate-declaration
+counterexample and wire/port suppression, and audits the new general theorems
+for standard axioms only. No whole-suite or external-simulator run is claimed
+for this proof-only change.
+
+## Binding every emitted reference (2026-09-27)
+
+`compiledFragment_settled` additionally concludes `AssignmentsBound sv pairs`.
+Every assignment destination and every identifier leaf of its emitted RHS
+belongs to `declarationTable sv`. This covers all emitted assignments, including
+unused ones, and nested expressions introduced by checked optimization.
+`ExprBound` rejects unsupported syntax; it does not silently skip it.
+
+`compiled_astBindings` derives this from the actual shipping print check,
+expression emission, AST-derived widths, and the exact `combItems` extraction
+from that same AST. It takes no new caller-supplied binding or checking premise.
+`declared_unique` combines membership with the preceding `Nodup` theorem to
+obtain a unique declaration for each bound name. The existing data-name theorem
+therefore applies to references and destinations as well as declarations.
+
+This is a structural binding theorem, not a claim inferred from a successful
+numerical evaluation. Binding and acyclicity remain separate: a declared
+self-reference satisfies binding, but fails the independently proved acyclic
+fragment condition.
+
+Validation: `lake build Tests.Compiler.ShippingSettledSoundnessTest` passes,
+including application to the actual `fragA` entry and standard-axiom audits.
+Negative regressions cover an undeclared destination, an undeclared name nested
+in an RHS, and an unsupported expression constructor. Positive binding of a
+self-reference checks that binding does not silently assert acyclicity.
+
+Still open: module identifiers and module-name collisions, rendered text's
+general grammar interpretation, operational RTL semantics, and the successful
+DSL paths outside the proved fragment. In particular, module definitions and
+instance references currently share `sanitizeName`; changing only one would
+break linkage. No module-name fix or complete lexical contract is claimed here.
+
+## Module names: checked refusal boundary (2026-09-27)
+
+**Closed:** module identifier validity and name aliases caused by Verilog
+normalization, for successful shipping synthesis. There is no new naming
+encoding and no extra caller-supplied naming hypothesis.
+
+`Sparkle.IR.ModuleNames.legal` checks the first character, every remaining
+character, and keyword exclusion. Its keyword table is a conservative set
+cross-checked against the 1364/1800 entries of
+[Icarus Verilog v12_0](https://github.com/steveicarus/iverilog/blob/v12_0/lexor_keyword.gperf),
+including legacy/configuration spellings. The table and simple-identifier
+rules are the explicit lexical specification; the in-tree parser's incomplete
+keyword list is not used as evidence of standards completeness.
+
+`ModuleNameCheck.check` examines the existing `sanitizeName` result for every
+module definition and instance target. It rejects invalid names and any pair
+of different raw names that normalize to the same identifier. Multiple uses
+of the same raw name are allowed. The real `finishSynth` runs this check before
+returning, on the current module and its child design. The hierarchy entry
+also checks definition multiplicity and that the selected top module exists.
+Both ordinary and parameterized hierarchical entry points call this boundary.
+
+Examples: a root declaration named `module` or `1bad` is refused. A design
+containing distinct names `a.b` and `a_b` is refused, including when one is an
+external instance target. A design containing only `a.b` and references to
+that same name remains accepted and still prints `a_b`. Existing accepted
+names are not renamed differently.
+
+`finishSynth_returns` derives name validity from actual success and carries it
+through `PostReady`. `compiled_moduleName` proves cleanup, checked merging,
+optimization and AST emission retain it; `compiledFragment_settled` now includes
+the AST name equality and validity. Separately, `hierarchical_linkage` derives
+unique printed definition names and no aliases from successful hierarchy
+synthesis, with no source-fragment premise. `emitted_name`,
+`emitted_instance_target`, and `hierarchical_instance_linkage` connect the
+shared normalization to actual AST headers and instance targets.
+
+Scope: collisions are checked within the returned compilation/design, not
+across files compiled independently and later combined by a user. Matching a
+reference to its intended raw name does not prove the existence or behavior of
+an external vendor module. Hierarchical circuit semantics and the general
+text parser/printer theorem remain open. Direct calls to the low-level printer
+on arbitrary hand-built IR do not run synthesis validation.
+
+Validation of the module-name boundary: Lean 4.32.1 builds
+`ShippingModuleNamesTest`, `ShippingSettledSoundnessTest`, `HierarchyTest`, and
+`SymbolicParameterEmit`. The actual DSL rejection regression covers root
+keyword/digit-leading declarations and two `@[hardware_module]` definitions
+whose names normalize to the same spelling. The tests check the specific
+name-validation error, not merely any synthesis failure. General theorems pass
+the standard-axiom audit. An accepted hierarchy emitted by the real backend
+also compiles and simulates with Icarus Verilog (`iverilog -g2012`, `vvp`).
+
+`lake test` built `Tests.AllTests` and its C object, then failed linking
+`test:exe` on this macOS host: the existing `c_src/sparkle_jit.c` references
+`dlmopen`, which is unresolved here. That file is unchanged from HEAD. Thus
+whole-suite execution is **not** claimed to pass; the failure is separate from
+the successful focused proofs and regressions above.
 
 ## Actual boundary
 

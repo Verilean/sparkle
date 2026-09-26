@@ -20,6 +20,7 @@ import Sparkle.IR.Optimize
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
 import Sparkle.IR.OptCheck
+import Sparkle.IR.ModuleNameCheck
 import Sparkle.Compiler.DRC
 import Sparkle.Compiler.InlineAttr
 import Sparkle.Core.Signal
@@ -1664,7 +1665,11 @@ def finishSynth (declName : Name) (parameters : List (String × Nat)) (symbolicM
       if !module.parameters.any (fun parameter => parameter.name == parameterName) then
         throwError
           s!"Requested retained hardware parameter '{parameterName}' was not added to module {declName}"
-  return ((addClockResetIfSequential module).finalize, finalCircuitState.design)
+  if Sparkle.IR.ModuleNameCheck.check (module :: finalCircuitState.design.modules) then
+    return ((addClockResetIfSequential module).finalize, finalCircuitState.design)
+  else
+    throw (Exception.error .missing
+      m!"Invalid or colliding Verilog module names while synthesizing {declName}; names after Verilog normalization must be legal non-keyword identifiers and distinct raw names must remain distinct")
 
 /-! ### The certified front end
 
@@ -4624,16 +4629,23 @@ elab "#showVerilog" id:ident : command => do
     -- bytes the same way it did before.
     Sparkle.Display.Mime.logHtml html
 
+/-- The final design boundary checks definition multiplicity as well as
+normalized names of every definition and instance target. -/
+def validateDesignNames (design : Sparkle.IR.AST.Design) : MetaM Sparkle.IR.AST.Design :=
+  if Sparkle.IR.ModuleNameCheck.checkDesign design then pure design
+  else throw (Exception.error .missing
+    "Invalid, duplicate or colliding Verilog module names in synthesized design")
+
 def synthesizeHierarchicalWithParameters (declName : Name)
     (parameters : List (String × Nat)) : MetaM Sparkle.IR.AST.Design := do
   let (module, design) ← synthesizeCombinationalWithParameters declName parameters
   let design' := if (design.modules.any (·.name == module.name)) then design else design.addModule module
-  return design'
+  validateDesignNames design'
 
 def synthesizeHierarchical (declName : Name) : MetaM Sparkle.IR.AST.Design := do
   let (module, design) ← synthesizeCombinational declName
   let design' := if (design.modules.any (·.name == module.name)) then design else design.addModule module
-  return design'
+  validateDesignNames design'
 
 elab "#synthesizeDesign" id:ident : command => do
   let declName ← Lean.Elab.Command.liftCoreM do

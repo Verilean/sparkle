@@ -277,16 +277,17 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
       (∀ p ∈ s1.module.inputs, p ∈ s.module.inputs ∨
         ∃ (j : Nat) (nm : Name) (n : Nat) (id : FVarId) (w : String),
           L[j]? = some ((nm, GateBinder.signal n), id) ∧ ws[j]? = some (some w) ∧
-          p = { name := w, ty := .bitVector n })
+          p = { name := w, ty := .bitVector n }) ∧
+      (s.module.inputs.Sublist s.module.wires → s1.module.inputs.Sublist s1.module.wires)
   | [], ctx, s, s', a, _, h =>
     ⟨ctx, s, [], h, rfl, fun j _ _ _ hj => by simp at hj, fun j w hj => by simp at hj,
      fun j _ w hj => by simp at hj, fun _ _ => rfl, Grows.refl s, rfl, rfl, rfl, rfl,
-     fun p hp => Or.inl hp⟩
+     fun p hp => Or.inl hp, fun h => h⟩
   | ((nm, .domain), id) :: rest, ctx, s, s', a, hnd, h => by
     have hnd' : (rest.map Prod.snd).Nodup := (List.nodup_cons.mp hnd).2
-    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb, hout, hinp⟩ :=
+    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb, hout, hinp, hsub⟩ :=
       bindCertifiedInputs_returns rest hnd' h
-    refine ⟨ctx', s1, none :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, hg, hb, hr, hsb, hout, ?_⟩
+    refine ⟨ctx', s1, none :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, hg, hb, hr, hsb, hout, ?_, hsub⟩
     · intro j nm' n id' hj
       cases j with
       | zero => simp at hj
@@ -315,7 +316,7 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
     have h1 := bindInputPort_returns (h : Returns (bindInputPort id nm.toString (.bitVector n)
       (bindCertifiedInputs k rest)) ctx s a s')
     dsimp only at h1
-    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb, hout, hinp⟩ :=
+    obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hr, hsb, hout, hinp, hsub⟩ :=
       bindCertifiedInputs_returns rest hnd' h1
     obtain ⟨hfresh, hused, hbody, hwires⟩ :=
       CircuitM.makeWire_spec nm.toString (.bitVector n) true s
@@ -356,7 +357,7 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
         exact ⟨hf.parameters, hf.primitive, hf.wireTypes, hf.wireNames⟩
     refine ⟨ctx', s1, some w0 :: ws, hk, by simp [hlen], ?_, ?_, ?_, ?_, Grows.trans gN hg,
       by rw [hb, hNb]; exact hbody, by rw [hr, hNr]; exact hrecA, by rw [hsb, hNs]; exact hsbA,
-      by rw [hout, addInput_state]; exact houtA, ?_⟩
+      by rw [hout, addInput_state]; exact houtA, ?_, ?_⟩
     · intro j nm' n' id' hj
       cases j with
       | zero =>
@@ -410,6 +411,11 @@ theorem bindCertifiedInputs_returns {α : Type} {k : CompilerM α} :
         · exact Or.inr ⟨0, nm, n, id, w0, by simp, by simp, rfl⟩
         · exact Or.inl h
       · exact Or.inr ⟨j + 1, nm', n', id', w, by simpa using hj, by simpa using hw, rfl⟩
+
+    · intro hs
+      apply hsub
+      rw [hNi, hNw, hinA, hwires]
+      exact List.Sublist.cons_cons _ hs
 
 
 /-- Peel one oracle step (`CompilerM.liftMetaM _`) off a successful run. -/
@@ -513,12 +519,28 @@ theorem addClockReset_metadata (m : Sparkle.IR.AST.Module) :
 
 theorem finishSynth_returns {declName : Name} {st : CircuitState} {M : Sparkle.IR.AST.Module} {D : Design}
     (h : MReturns (finishSynth declName [] false st) (M, D)) :
-    M = (addClockResetIfSequential st.module).finalize ∧ D = st.design := by
+    M = (addClockResetIfSequential st.module).finalize ∧ D = st.design ∧
+      Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName M.name) = true := by
   unfold finishSynth at h
   simp only [Bool.false_eq_true, ↓reduceIte] at h
-  have := MReturns.pure h
-  simp only [Prod.mk.injEq] at this
-  exact this
+  split at h
+  · rename_i hc
+    have he := MReturns.pure h
+    simp only [Prod.mk.injEq] at he
+    have hp := he
+    refine ⟨hp.1, hp.2, ?_⟩
+    have hn := (Sparkle.IR.ModuleNameCheck.check_sound hc).1 st.module.name
+      (Sparkle.IR.ModuleNameCheck.definition_mem (by simp))
+    rw [hp.1]
+    have hname : (addClockResetIfSequential st.module).name = st.module.name := by
+      unfold addClockResetIfSequential
+      dsimp only
+      split
+      · split <;> split <;> rfl
+      · rfl
+    simpa only [Module.finalize, hname] using hn
+  · exact (MReturns.throw h).elim
+
 
 /-! ## The width environment of the final module -/
 
@@ -617,7 +639,9 @@ def PostReady (M : Sparkle.IR.AST.Module) (n : Nat) : Prop :=
      (l = "out" ∧ ∃ w, r = .ref w))) ∧
   (0 < n → M.outputs = [{ name := "out", ty := .bitVector n }]) ∧ DeclReady M ∧
   (∀ l r, Stmt.assign l r ∈ M.body → SizedExpr (weOf M) r n) ∧
-  Tools.ShippingSettledSoundness.Acyclic M.body
+  Tools.ShippingSettledSoundness.Acyclic M.body ∧
+  (M.inputs.map (·.name)).Nodup ∧
+  Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName M.name) = true
 
 /-- What synthesis success guarantees for a certified-shape declaration:
 distinct input ports for the `Signal` binders, and for ALL binder values, the
@@ -658,12 +682,12 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
   obtain ⟨cacheRef, -, h2⟩ := MReturns.bind h1
   obtain ⟨⟨u, st⟩, hp, h3⟩ := MReturns.bind h2
   dsimp only at h3
-  obtain ⟨hM, -⟩ := finishSynth_returns h3
+  obtain ⟨hM, -, hModuleName⟩ := finishSynth_returns h3
   have hr := MReturns.run hp
   dsimp only at hr
   have hnd : ((bs.zip ids).map Prod.snd).Nodup := by
     rw [List.map_snd_zip (by rw [hids.2]; exact Nat.le_refl _)]; exact hids.1
-  obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hrec, hsb, hout1, hinp1⟩ :=
+  obtain ⟨ctx', s1, ws, hk, hlen, hsig, hfr, hdist, hlook, hg, hb, hrec, hsb, hout1, hinp1, hsub1⟩ :=
     bindCertifiedInputs_returns _ hnd hr
   obtain ⟨w, s2, ty, htr, hfresh, hst, hty⟩ := emitLeaves_single hk
   -- the module the entry returns
@@ -755,8 +779,8 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
       rw [hp] at hp'
       cases hp'
       exact hMi _ (gi _ hin)
-    · obtain ⟨hout2, -, pre, hbody2, hpre⟩ := hemit
-      refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
+    · obtain ⟨hout2, hin2, pre, hbody2, hpre⟩ := hemit
+      refine ⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, hModuleName⟩
       · rw [hMw, List.map_reverse]; exact nodup_reverse hok2.1
       · intro hm
         rw [hMw, List.map_reverse, List.mem_reverse] at hm
@@ -841,6 +865,20 @@ theorem synthesizeCertified_sound {logProf : String → IO Unit} {declName : Nam
         exact Tools.ShippingTranslationOrder.acyclic_snoc horder.1
           (fun hm => houtPending ((Tools.ShippingTranslationOrder.footprint_reverse_mem _ _).mp hm))
           (by simpa [Sparkle.IR.Reorder.refsOf] using Ne.symm hwo)
+      · have hall : ∀ stm ∈ st.module.body, ∃ l r, stm = Stmt.assign l r := by
+          intro stm hstm
+          rw [hst_b] at hstm
+          rcases List.mem_cons.mp hstm with rfl | hstm
+          · exact ⟨_, _, rfl⟩
+          · rw [hbody2, hs1b, List.append_nil] at hstm
+            obtain ⟨l, r, rfl, -, -⟩ := hpre _ hstm
+            exact ⟨l, r, rfl⟩
+        have hMin : M.inputs = s1.module.inputs.reverse := by
+          rw [hM, addClockReset_assigns _ hall]
+          simp [Module.finalize, hst_i, hin2]
+        rw [hMin, List.map_reverse]
+        apply nodup_reverse
+        exact hok1.1.sublist ((hsub1 (by simp [CircuitM.init, Module.empty])).map _)
     · obtain ⟨-, hin2, pre, hbody2, hpre⟩ := hemit
       -- no registers: no clock/reset ports, so the inputs are the binder ports
       have hall : ∀ stm ∈ st.module.body, ∃ l r, stm = Stmt.assign l r := by
@@ -1573,7 +1611,7 @@ theorem fragmentDecl_core_settled {declName : Name} {mctx : Meta.Context}
   obtain ⟨port, hd, hex, hsem⟩ := fragmentDecl_of_env h henv hwf
   refine ⟨port, hd, hex, fun sigs t initial hi => ?_⟩
   obtain ⟨env, he, hv, hp, _⟩ := hsem sigs t (fun _ _ => 0) initial hi
-  have ha := hp.2.2.2.2.2.2
+  have ha := hp.2.2.2.2.2.2.1
   have hq := Tools.ShippingSettledSoundness.assign_equations ha he
   have hx := Tools.ShippingSettledSoundness.assign_frame ha he
   exact ⟨ha, env, hq, hx, hv, fun other hq' hx' =>

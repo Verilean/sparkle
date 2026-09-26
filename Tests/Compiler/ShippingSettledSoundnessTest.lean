@@ -188,6 +188,9 @@ theorem fragA_final_settled {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Me
     ∃ sv port pairs,
       Tools.SVParser.EmitAst.emitAstModule (checkedOptimize m) = some sv ∧
       Tools.ShippingSVBridge.combItems sv.items = some pairs ∧
+      ((declarationTable sv).map Prod.fst).Nodup ∧
+      Tools.ShippingNameBinding.AssignmentsBound sv pairs ∧
+      Sparkle.IR.ModuleNames.legal sv.name = true ∧
       ∀ {dom : Sparkle.Core.Domain.DomainConfig}
         (a b : Sparkle.Core.Signal.Signal dom (BitVec 8)) (t : Nat),
         let initial := Tools.ShippingSVBridge.inputEnv 2 port
@@ -197,11 +200,56 @@ theorem fragA_final_settled {mctx : Meta.Context} {mref : ST.Ref IO.RealWorld Me
           ∀ other, Bounded (fun x => (astWidths sv x).getD 0) other →
             SVSolution (astWidths sv) pairs initial other → other = env := by
   rw [fragAValue_eq] at henv
-  obtain ⟨sv, port, pairs, ht, _, _, _, hi, _, _, _, _, _, hs⟩ :=
+  obtain ⟨sv, port, pairs, ht, _, _, _, hi, _, _, _, _, _, hnd, hbound, hmodule, hs⟩ :=
     compiledFragment_settled h henv feA_wf (by decide)
-  refine ⟨sv, port, pairs, ht, hi, fun a b t => ?_⟩
+  refine ⟨sv, port, pairs, ht, hi, hnd, hbound, hmodule.2, fun a b t => ?_⟩
   obtain ⟨_, env, _, hv, _, he, hu⟩ := hs (sigsOf [a, b]) t (fun _ _ => 0)
   exact ⟨env, he, hv, hu⟩
+
+/-- Identical duplicate declarations satisfy the old consistency property.
+It does not imply the new multiplicity guarantee. -/
+private def repeatedPort : Sparkle.IR.AST.Module :=
+  { name := "duplicate_probe", inputs := [⟨"_in", .bitVector 8⟩, ⟨"_in", .bitVector 8⟩],
+    outputs := [], wires := [], body := [] }
+
+example : ∀ p ∈ repeatedPort.inputs, ∀ q ∈ repeatedPort.inputs,
+    p.name = q.name → p = q := by
+  simp [repeatedPort]
+
+example : ¬ ((visibleDecls repeatedPort).map Port.name).Nodup := by
+  decide
+
+/-- The intentional wire/port overlap is suppressed, leaving one declaration
+per name. This exercises the boundary between the IR and printed declarations. -/
+private def overlappingPort : Sparkle.IR.AST.Module :=
+  { name := "overlap_probe", inputs := [⟨"_in", .bitVector 8⟩],
+    outputs := [⟨"out", .bitVector 8⟩],
+    wires := [⟨"_in", .bitVector 8⟩, ⟨"_tmp", .bitVector 8⟩], body := [] }
+
+example : ((visibleDecls overlappingPort).map Port.name).Nodup :=
+  visibleDecls_nodup (by decide) (by decide)
+
+open Tools.ShippingNameBinding
+
+private def bindingModule : SVModule :=
+  {name := "binding_probe", ports := [], items := [.wireDecl "out" (some (7, 0)) none]}
+
+/-- A declared destination does not excuse an undeclared nested RHS name. -/
+example : ¬ AssignmentsBound bindingModule
+    [.assign "out" (.binary .add (.lit (.decimal (some 8) 0)) (.ident "missing"))] := by
+  simp [AssignmentsBound, ExprBound, Declared, bindingModule, declarationTable, wireEntry]
+
+example : ¬ AssignmentsBound bindingModule
+    [.assign "missing" (.lit (.decimal (some 8) 0))] := by
+  simp [AssignmentsBound, ExprBound, Declared, bindingModule, declarationTable, wireEntry]
+
+/-- Unsupported constructs do not acquire a vacuous binding certificate. -/
+example : ¬ ExprBound (fun _ => True) (.index (.ident "mem") (.ident "addr")) := by
+  simp [ExprBound]
+
+example : AssignmentsBound bindingModule [.assign "out" (.ident "out")] := by
+  simp [AssignmentsBound, ExprBound, Declared, bindingModule, declarationTable, wireEntry]
+-- Binding is separate from acyclicity: the last example is a self-reference.
 
 run_cmd do
   if (← get).messages.hasErrors then throwError "settled semantics regression failed"
@@ -214,7 +262,11 @@ run_cmd do
       ``Tools.ShippingPostSoundness.postprocess_order,
       ``Tools.ShippingPostSoundness.synthesizeCombinational_settled, ``assign_frame, ``assign_equations, ``equations_eval, ``equations_unique,
       ``equations_perm, ``equations_emitted_iff, ``emitted_targets, ``svEquations_perm,
-      ``module_settled, ``compiledFragment_settled, ``ordered_solution,
+      ``module_settled, ``compiledFragment_settled, ``compiled_astDeclarations_nodup,
+      ``Tools.ShippingModuleNames.compiled_moduleName,
+      ``Tools.ShippingNameBinding.compiled_astBindings,
+      ``Tools.ShippingNameBinding.declared_unique, ``Tools.ShippingNameBinding.emitExpr_bound,
+      ``Tools.ShippingNameBinding.emitAssigns_bound, ``visibleDecls_nodup, ``Tools.ShippingOptSoundness.checkedOptimize_wires_sublist, ``ordered_solution,
       ``candidate_not_acyclic, ``candidate_not_settled,
       ``acyclic_snoc, ``makeWire_order, ``emitAssign_order, ``translateSignalPureLiteral_order,
       ``core_leaf_order, ``step_leaf_order, ``translateFuelFix_leaf_order,

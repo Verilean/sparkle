@@ -343,6 +343,30 @@ theorem optimizeModule_wires_subset (m : Sparkle.IR.AST.Module) :
       repeat' (rcases List.mem_filter.mp hp with ⟨hp, _⟩)
       exact hp
 
+set_option maxRecDepth 4096 in
+/-- Filtering preserves multiplicity as well as membership. -/
+theorem optimizeModule_wires_sublist (m : Sparkle.IR.AST.Module) :
+    (Sparkle.IR.Optimize.optimizeModule m).wires.Sublist m.wires := by
+  unfold Sparkle.IR.Optimize.optimizeModule
+  split
+  · exact List.Sublist.refl _
+  · dsimp only [Sparkle.IR.Optimize.eliminateZeroBits]
+    split
+    all_goals
+      dsimp only [Sparkle.IR.Optimize.inlineSingleUseWires]
+      repeat' apply List.Sublist.trans List.filter_sublist
+      exact List.Sublist.refl _
+
+theorem checkedOptimize_wires_sublist (m : Sparkle.IR.AST.Module) :
+    (checkedOptimize m).wires.Sublist m.wires := by
+  unfold checkedOptimize
+  split
+  · dsimp only
+    split
+    · exact optimizeModule_wires_sublist m
+    · exact List.Sublist.refl _
+  · exact optimizeModule_wires_sublist m
+
 theorem checkedOptimize_wires_subset (m : Sparkle.IR.AST.Module) :
     ∀ p ∈ (checkedOptimize m).wires, p ∈ m.wires := by
   intro p hp

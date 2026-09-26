@@ -392,6 +392,12 @@ lean_lib «Tools.ShippingTranslationOrder» where
 lean_lib «Tools.ShippingSettledSoundness» where
   roots := #[`Tools.ShippingSettledSoundness]
 
+lean_lib «Tools.ShippingModuleNames» where
+  roots := #[`Tools.ShippingModuleNames]
+
+lean_lib «Tools.ShippingNameBinding» where
+  roots := #[`Tools.ShippingNameBinding]
+
 lean_lib «Tools.ShippingDeclWidths» where
   roots := #[`Tools.ShippingDeclWidths]
 

@@ -939,7 +939,7 @@ theorem dropZeroWidth_entry_order {m : Sparkle.IR.AST.Module} {n : Nat}
     (hn : 0 < n) (hpr : PostReady m n) :
     Tools.ShippingSettledSoundness.Acyclic (dropZeroWidthModule m).body := by
   rw [(dropZeroWidth_entry m n hn hpr).1]
-  exact hpr.2.2.2.2.2.2
+  exact hpr.2.2.2.2.2.2.1
 
 theorem postprocess_sized {m m' : Sparkle.IR.AST.Module} {n : Nat}
     (hn : 0 < n) (hpr : PostReady m n)

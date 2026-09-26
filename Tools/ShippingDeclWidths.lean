@@ -269,6 +269,67 @@ theorem compiled_declarations {declName : Name} {mctx : Meta.Context}
       simpa only [← he] using hm
     · rfl
 
+/-- Port suppression removes the intentional wire/port overlap. Within each
+list, multiplicity must be ruled out separately from name/type consistency. -/
+theorem visibleDecls_nodup {m : Sparkle.IR.AST.Module}
+    (hp : ((m.inputs ++ m.outputs).map Port.name).Nodup)
+    (hw : (m.wires.map Port.name).Nodup) :
+    ((visibleDecls m).map Port.name).Nodup := by
+  unfold visibleDecls
+  rw [List.map_append, List.nodup_append]
+  refine ⟨hp, hw.sublist (List.filter_sublist.map _), ?_⟩
+  intro x hx y hy heq
+  subst y
+  obtain ⟨p, hpf, rfl⟩ := List.mem_map.mp hy
+  have hn := (List.mem_filter.mp hpf).2
+  have hnot : p.name ∉ (m.inputs ++ m.outputs).map Port.name := by
+    simpa only [Bool.not_eq_true', List.contains_eq_mem, decide_eq_false_iff_not] using hn
+  exact hnot hx
+
+/-- No repeated emitted declarations, derived from the real binder allocator,
+cleanup and both branches of checked optimization. -/
+theorem compiled_astDeclarations_nodup {declName : Name} {mctx : Meta.Context}
+    {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
+    {cref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    {m : Sparkle.IR.AST.Module} {d : Design} {dn : Name} {names : List Name} {n : Nat}
+    {fe : FExpr} {sv : SVModule}
+    (h : RunsTo (synthesizeCombinational declName) mctx mref cctx cref w (m, d) w')
+    (henv : EnvDefines mctx mref cctx cref declName (quoteDecl dn names n fe))
+    (hwf : fe.WF names.length n) (hn : 0 < n)
+    (ht : emitAstModule (checkedOptimize m) = some sv) :
+    ((declarationTable sv).map Prod.fst).Nodup := by
+  have hg := (synthesized_printFacts h henv hwf hn).2
+  obtain ⟨hiO, hoO⟩ := checkedOptimize_ports hg
+  obtain ⟨m0, _, _, hcore, hm⟩ := synthesizeCombinational_reads h
+  obtain ⟨_, _, _, hsem⟩ := fragmentDecl_of_env hcore henv hwf
+  obtain ⟨_, hev, _, hpr, hins, _, _⟩ :=
+    hsem (dom := Sparkle.Core.Domain.defaultDomain) (fun _ => Sparkle.Core.Signal.Signal.pure 0)
+      0 (fun _ _ => 0) (fun _ => 0)
+      (fun _ _ _ _ => by show 0 = (0#n : BitVec n).toNat; simp)
+  obtain ⟨_, hi, ho⟩ := postprocess_sound hn hpr hm hev
+  have hw := (postprocess_facts hn hpr hm).2.2.1
+  have hports : (((checkedOptimize m).inputs ++ (checkedOptimize m).outputs).map Port.name).Nodup := by
+    rw [hiO, hoO, hi, ho, hpr.2.2.2.1 hn, List.map_append, List.nodup_append]
+    refine ⟨hpr.2.2.2.2.2.2.2.1, by simp, ?_⟩
+    intro x hx y hxout hxy
+    have he : x = "out" := by simpa [← hxy] using hxout
+    obtain ⟨p, hp, hpx⟩ := List.mem_map.mp hx
+    obtain ⟨_, _, _, _, hw⟩ := hins p hp
+    apply hpr.2.1
+    exact List.mem_map.mpr ⟨_, hw, hpx.trans he⟩
+  have hv := visibleDecls_nodup hports (hw.sublist ((checkedOptimize_wires_sublist m).map _))
+  obtain ⟨hnames, hc⟩ := compiled_declarations h henv hwf hn
+  rw [declarationTable_emitted (printed_printDecls h henv hwf hn)
+    (checkedOptimize_printShape hg) ht]
+  have he : (irTable (visibleDecls (checkedOptimize m))).map Prod.fst =
+      (visibleDecls (checkedOptimize m)).map Port.name := by
+    simp only [irTable, List.map_map]
+    apply List.map_congr_left
+    intro p hp
+    exact hnames p ((visibleDecls_mem hc p).mp hp)
+  rw [he]
+  exact hv
+
 /-- Every emitted data declaration is an allocated underscore-leading name
 or the fixed output name, inherited from the actual synthesis run. -/
 theorem compiled_dataNames {declName : Name} {mctx : Meta.Context}
