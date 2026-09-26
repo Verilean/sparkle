@@ -85,6 +85,7 @@ import Tests.Compiler.ShippingTranslateSoundnessTest
 import Tests.Compiler.ShippingEntrySoundnessTest
 import Tests.Compiler.ShippingPrintSoundnessTest
 import Tests.Compiler.ShippingSVBridgeTest
+import Tests.Compiler.ShippingSettledSoundnessTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim

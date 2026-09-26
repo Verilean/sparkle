@@ -1144,6 +1144,54 @@ Validation: bridge tests, generated English tutorial, `lake build` and
 standard-axiom-only audit. No synthesis corpus rerun was needed for this
 proof-only change.
 
+**Simultaneous assignment equations (2026-09-26):**
+`Tools/ShippingSettledSoundness.lean` adds an explicit `Acyclic` condition:
+each target is written once, and RHS references do not include that target or
+any later target. Undriven names are external values. `assign_equations`
+proves a successful ordered fold satisfies all equations in its final
+environment; `equations_eval` proves any solution with the same external
+values is reproduced by that fold. `equations_unique` therefore gives
+uniqueness of all values, including internal wires. These are general results,
+not circuit-specific certificates.
+
+`equations_emitted_iff` relates the IR and emitted SV equation systems on
+bounded values. `module_settled` applies it to the actual emitted tree using
+`astWidths`: the resulting two-state simultaneous solution is unique among
+bounded environments with the same undriven values. The equation relation is
+permutation-invariant; a permuted list need not be a valid evaluation schedule.
+
+`compiledFragment_settled` connects this result to the existing successful-run
+source theorem, retaining source equality, actual text rendering and declared
+output observation. **It has one additional, unresolved hypothesis:**
+`Acyclic (checkedOptimize m).body`. This is not a completed unconditional
+shipping-to-simultaneous-semantics theorem. The prior
+`compiledFragment_astWidths` keeps its old assumptions and in-order conclusion.
+
+A committed counterexample shows why the existing optimizer check cannot
+supply this premise alone: it accepts a candidate with unchanged constant
+output plus `x := y; y := 1`. From zero, the fold ends with `x = 0, y = 1`,
+so not all equations hold. This is a limitation of the check's implication,
+NOT a demonstrated output of the actual optimizer or a newly found shipping
+miscompile. Separate tests reject duplicate targets and self-reference.
+
+Next: derive ordering from actual translation and preserve it through cleanup,
+validated merging and optimizer selection. Prefer a preservation proof; if a
+check is introduced, its soundness and the fallback's ordering must both be
+proved. Do not hide this obligation in an unnamed premise or count it as
+closed because the conditional theorem has standard axioms. External event
+scheduling, delays, four-state semantics and text grammar remain distinct.
+The concrete entry point is `ShippingTranslateSoundness.Emits`/`Spec`: they
+currently record statement shape and destination declarations, not the
+dependency order. Strengthen the translator invariant using fresh targets
+and already-bound operand wires, taking the builder's reversed body storage
+into account. Then transport that invariant through each postprocessing
+stage; checking a particular circuit is not a replacement for this proof.
+Validation: `lake build`, `lake test`, the new settled-semantics regression
+and generated English tutorial all pass. The connected conditional theorem
+and supporting results pass the standard-axiom audit. Shipping compiler
+behavior is unchanged; no corpus performance or external simulator claim is
+made by this step.
+
 **Naming defect and repair (2026-09-26):** the real declaration
 `hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
 previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed

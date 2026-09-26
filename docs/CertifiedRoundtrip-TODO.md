@@ -1688,6 +1688,25 @@ Validation: bridge tests, generated English tutorial, `lake build`, and
 `lake test` pass; new general theorems and source applications use only the
 three standard axioms. No shipping compiler change or new assumption.
 
+**2026-09-26 simultaneous equations — conditional bridge completed:**
+`ShippingSettledSoundness` proves ordered single-assignment folds produce
+unique simultaneous solutions with fixed undriven inputs. Equation membership
+is order-independent. `module_settled` connects this to the actual emitted
+AST and its own widths; `compiledFragment_settled` retains the source/text
+conclusions but has an explicit NEW `Acyclic (checkedOptimize m).body`
+hypothesis. The shipping pipeline has not yet discharged it. Existing
+in-order theorems are unchanged.
+
+A negative control passes `optCheck` yet has an unused forward dependency,
+so output equivalence alone cannot establish this ordering property. This
+is a checker counterexample, not evidence the actual optimizer produces it.
+The next proof obligation is ordering through actual translation, cleanup,
+merging and both optimizer branches. Simulator scheduling, four-state values
+and lexical/text interpretation are still outside this result.
+Validation: new settled-semantics tests, executable English tutorial,
+`lake build` and `lake test` pass. The new conditional source theorem and
+supporting lemmas use only the standard axioms. No compiler behavior changed.
+
 The sections above are coverage frontiers of THIS design.  This section
 is the different question the user asked (2026-09-09): what separates
 the current guarantee from a CompCert-style one?  Each entry names a

@@ -40,7 +40,7 @@ this fragment.
 ## 7c.2 Start with a small adder
 
 ```lean
-import Tools.ShippingDeclWidths
+import Tools.ShippingSettledSoundness
 
 open Lean Elab Command
 open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Compiler.Elab
@@ -346,8 +346,50 @@ lookups **for every name**, accounting for both suppression and search order.
 The final theorem above uses `astWidths sv`; no IR width environment or new
 consistency premise is supplied by the caller.
 
-This observes the existing in-order evaluator. It does not introduce or prove
-a concurrent scheduling or four-state SystemVerilog model.
+This observes the existing in-order evaluator. The next result relates it
+to simultaneous equations, under an explicit ordering condition.
+
+### From an execution order to simultaneous equations
+
+Continuous assignments describe equations that should all hold in the same
+environment. Executing a list once is not enough to establish that. For
+example, starting from zero, `out := x; x := 1` leaves `out = 0` and `x = 1`.
+The equation `out = x` is then false.
+
+`ShippingSettledSoundness.Acyclic` requires a single assignment per target
+and forbids each right-hand side from reading its own target or a target
+assigned later. External names are held at their supplied input values.
+Under this condition, `assign_equations` proves that the final environment
+satisfies every equation simultaneously. `equations_eval` proves the converse:
+any solution with those external values is reproduced by the ordered fold.
+Together they establish uniqueness, including the internal wires.
+
+`module_settled` transfers this result to the **actual emitted AST**, using
+its declared widths and SV expression evaluator. The simultaneous equation
+relation does not depend on assignment order:
+
+```lean
+example {wof env} {a b : Tools.SVParser.EmitSem.CombStep} :
+    Tools.ShippingSettledSoundness.SVEquations wof [a, b] env ↔
+      Tools.ShippingSettledSoundness.SVEquations wof [b, a] env :=
+  Tools.ShippingSettledSoundness.svEquations_perm (List.Perm.swap _ _ [])
+
+#print axioms Tools.ShippingSettledSoundness.compiledFragment_settled
+```
+
+There is an important unfinished connection: `compiledFragment_settled`
+currently takes `Acyclic (checkedOptimize m).body` as an **additional
+hypothesis**. Shipping success has not yet been proved to imply it. The
+existing optimizer check is insufficient by itself: it can accept an unused
+forward dependency while correctly preserving the output's sequential value.
+That is a counterexample to relying on the check alone, not evidence that the
+actual optimizer emits such a body. The next proof must carry ordering through
+translation, cleanup, merging and optimizer selection.
+
+Thus this establishes unique two-state equation solutions conditionally; it
+does not yet certify a simulator's event scheduling, delays or four-state
+SystemVerilog behavior. The earlier `plus8_sv_correct` theorem has not acquired
+the new hypothesis: its conclusion remains the established in-order result.
 
 The remaining boundaries are concrete:
 
@@ -361,9 +403,10 @@ The remaining boundaries are concrete:
   constructed from source inputs. This is not a result about arbitrary
   internal states, register initialization, or reset.
 - **Text interpretation and execution.** Every evaluator width now comes
-  from the AST declarations. Recognizing the rendered text and connecting
-  in-order assignment evaluation to concurrent RTL semantics remain distinct
-  obligations.
+  from the AST declarations. Unique simultaneous solutions are proved under
+  `Acyclic`; deriving that condition from shipping success remains open.
+  Recognizing the rendered text and connecting to a concurrent RTL execution
+  model remain distinct obligations.
 
 Closing these boundaries would complete the connection for this fragment.
 Generalizing to state, memory, hierarchy, and the other accepted handlers is
@@ -381,7 +424,8 @@ connection.
 ```lean
 -- Keep the chapter's trust claim executable, rather than only printing it.
 run_cmd do
-  for name in [``plus8_artifact, ``plus8_forward_check, ``plus8_sv_correct] do
+  for name in [``plus8_artifact, ``plus8_forward_check, ``plus8_sv_correct,
+      ``Tools.ShippingSettledSoundness.compiledFragment_settled] do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected tutorial axiom: {name}: {ax}"
