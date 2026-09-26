@@ -404,6 +404,9 @@ lean_lib «Tools.ShippingMuxTypeSoundness» where
 lean_lib «Tools.ShippingBoolSourceSoundness» where
   roots := #[`Tools.ShippingBoolSourceSoundness]
 
+lean_lib «Tools.ShippingCompareLoweringSoundness» where
+  roots := #[`Tools.ShippingCompareLoweringSoundness]
+
 lean_lib «Tools.ShippingControlOptSoundness» where
   roots := #[`Tools.ShippingControlOptSoundness]
 

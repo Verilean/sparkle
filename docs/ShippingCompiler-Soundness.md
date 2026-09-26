@@ -52,6 +52,38 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Unsigned comparison cache-miss lowering proved (2026-09-27)
+
+Exact `Signal.ult` and `Signal.ule` applications now use the ordinary
+`translateUnsignedCompare` definition on a validated-cache miss. It translates
+the two operands in order, allocates a scalar `.bit` result and emits the
+unsigned comparison. The result type is known from the library operator;
+neither MetaM type inference nor applicative unfolding is needed for this node.
+Other control forms retain their existing uncached handlers.
+
+`Tools/ShippingCompareLoweringSoundness.lean` proves the real emitter and
+recursive node: source comparison value, result width one, typed assignment
+body, fresh result allocation, preservation of previously reserved wire values,
+and preservation of the Bool translation-record invariant. Its width agreement
+includes `.bit` declarations as well as BitVec declarations.
+
+`translateFallback_compare_correct` connects that simulation to the actual
+shipping fallback, through both validated cache hits and misses. It no longer
+assumes correctness of the uncached comparison handler. The remaining
+translation hypotheses are the two recursive operand contracts, the source
+meanings of those operands, a front-end invariant supplying typing and Bool
+record facts, and agreement with the final declarations. These are not yet
+derived for the whole mixed Bool/BitVec source entry. Bool literals, Bool mux
+misses and full recursive invariant closure still need to be connected before
+the source fragment of `compiledFragment_execution` can expand.
+
+Validation audits standard axioms and checks widths 1, 8 and 65, equality
+boundaries, aliased operands and allocator-name collisions. A failing legacy
+handler confirms that canonical comparisons select the total route. The
+actual generated comparison/addition/Bool-mux RTL still agrees on all
+131,072 input combinations in Icarus. `lake build Tests.AllTests` passes
+(592 jobs).
+
 ## Bool source meanings and validated cache connected (2026-09-27)
 
 `Tools/ShippingBoolSourceSoundness.lean` gives Bool inputs, Bool constants,

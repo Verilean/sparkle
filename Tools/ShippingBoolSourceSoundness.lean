@@ -153,7 +153,8 @@ wrapper, using the uncached partial handler only on a miss. -/
 theorem translateFallback_bool (rec : TranslateFn) (e : Lean.Expr) (hint : String)
     (top named : Bool) (he : isBoolControl e = true) :
     translateFallback rec e hint top named = translateControlCachedWith
-      (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n)
+      (translateBoolUncachedWith rec
+        (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n))
       e hint top named := by simp [translateFallback, he]
 
 /-- The old arithmetic quotation theorem without its uniform entry telescope,

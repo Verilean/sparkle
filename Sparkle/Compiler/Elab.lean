@@ -4423,6 +4423,33 @@ def translateControlCachedWith (lower : TranslateFn) : TranslateFn :=
     recordTranslation e w cacheable
     return w
 
+/-- Exact unsigned library comparisons have Bool results without type inference. -/
+def unsignedCompareOp (le : Bool) : Operator := if le then .le_u else .lt_u
+
+def emitCompareResult (le : Bool) (a b hint : String) (named : Bool) : CompilerM String := do
+  let w ← CompilerM.makeWire hint .bit (named := named)
+  CompilerM.emitAssign w (.op (unsignedCompareOp le) [.ref a, .ref b])
+  return w
+
+/-- Recursive comparison lowering, exposed to proofs. The child order and
+    hints match the applicative lowering used before this direct route. -/
+def translateUnsignedCompare (rec : TranslateFn) (le : Bool) (a b : Lean.Expr)
+    (hint : String) (named : Bool) : CompilerM String := do
+  let aw ← rec a "a" false false
+  let bw ← rec b "b" false false
+  emitCompareResult le aw bw hint named
+
+/-- Canonical comparisons use the total lowering above. Other Bool forms
+    still use their existing handlers on a validated-cache miss. -/
+def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
+  fun e hint top named =>
+    match e with
+    | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ult _) _) _) a) b =>
+      translateUnsignedCompare rec false a b hint named
+    | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) a) b =>
+      translateUnsignedCompare rec true a b hint named
+    | _ => legacy e hint top named
+
 /-- The shapes `translateCore` handles (decides whether the validated lookup is
     tried before the core). -/
 def translateCoreShape (e : Lean.Expr) : Bool :=
@@ -4484,7 +4511,8 @@ def translateFallback (rec : TranslateFn) : TranslateFn :=
   fun e hint top named =>
     if isBoolControl e then
       translateControlCachedWith
-        (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n)
+        (translateBoolUncachedWith rec
+          (fun e h t n => Rec.translateExprToWireImpl (fun e h t n => rec e h t n) e h t n))
         e hint top named
     else Rec.translateExprToWireCached (fun e h t n => rec e h t n) e hint top named
 
