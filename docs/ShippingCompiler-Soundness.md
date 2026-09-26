@@ -1,0 +1,1536 @@
+# Existing compiler: success implies semantic preservation
+
+For resuming work in Claude Code, start with [CompCert-Handoff.md](CompCert-Handoff.md).
+
+The target agreed on 2026-09-24 is the existing compiler's successful domain:
+
+```
+shippingCompile source = success ir
+  → source and ir agree for every admissible input trace and observation time
+```
+
+This is a target specification, not an existing Lean theorem. Compilation may
+refuse inputs. A theorem about `Source.compile` alone, a corpus of successful
+proofs, or a wrapper requiring replay as an argument does not establish it.
+Do not silently shrink the target to programs the new reflector understands.
+
+General theorem checks are the primary acceptance criterion. Re-running crc16
+certification is not a prerequisite for a general lemma and cannot discharge
+its hypotheses. Use it at implementation-impact checkpoints (such as changing
+the shipping allocator) or for performance measurements, rather than after
+every proof-only change. Report regression status separately from proof progress.
+
+## Current proved endpoint (2026-09-26)
+
+For the quoted positive-width combinational fragment,
+`compiledFragment_settled` connects successful shipping synthesis and checked
+optimizer selection to the rendered artifact and the emitted AST's unique
+bounded simultaneous two-state solution. The output equals the source Signal
+value at every cycle. Assignment order is derived internally; it is no longer
+a caller-supplied premise. The optimizer proposal is untrusted and checked for
+both output equivalence and order. Emitted data declarations additionally
+carry the proved underscore-leading allowed-character name class (or the
+fixed output `out`); this does not cover module names or the complete lexer.
+
+This does not cover all successfully compiled Signal programs. `EnvDefines`,
+fragment coverage, complete lexical/text interpretation and external RTL
+execution semantics remain explicit boundaries. The dated entries below record
+the earlier intermediate hypotheses as well as their subsequent discharge.
+
+## Actual boundary
+
+`Sparkle/Compiler/Elab.lean` implements synthesis in `MetaM`, with partial
+recursive handlers, a Lean environment/local context, mutable expression and
+module caches, compiler mappings and a circuit builder. Thus an equation about
+a pure `compile : Source → Except Error IR` does not yet describe this program.
+The proof model must account for successful executions and their environments,
+or the implementation must be refactored to a proved core with a checked shell.
+Any remaining checked shell must be named explicitly.
+
+| Existing entry/stage | Required connection |
+|---|---|
+| `synthesizeCombinationalCore` | Lean source denotation, elaborated-expression transformations, input/output packing and emitted body/design |
+| `translateExprToWire` and handlers | Valid variable/cache-to-wire relation, widths, fresh names and preservation by emitted statement suffixes |
+| `Module.finalize` | Restore natural statement order from builder prepend order |
+| `synthesizeCombinational` | Core followed by `dropZeroWidthModule/Design` and normally `mergeDuplicates/Design` |
+| `synthesizeCombinationalWithParameters` | Retained symbolic dimensions and specialization, plus the same cleanup passes |
+| `synthesizeHierarchical*` | Closed design semantics and instance connections, not open `.inst` no-ops |
+
+`SPARKLE_NO_REGDEDUP` selects a real alternate successful path. Both paths need
+coverage. Source initialization, sampled reset, port packing, memory behavior
+and admissible input widths must be explicit in the eventual theorem. Existing
+IR semantics has unsupported symbolic expressions and open instance semantics;
+successful synthesis of those forms is not evidence that this model covers them.
+The Verilog printer is a later preservation obligation, outside this first IR target.
+
+## First obstruction, reproduced and fixed
+
+The old `handleApplicative` identified the outer operator of a lambda and
+applied it to the input wires in positional order. It did not preserve the
+lambda's operand order, repeated arguments, constants or expression nesting.
+The real shipping entry accepted `Signal.ap (Signal.map (fun x y => y - x) a) b`.
+At width 8, inputs 3 and 10 yielded source 7 and IR 249. This directly refutes
+the desired theorem for that implementation; more proof automation cannot fix it.
+
+The handler now collects the applicative spine, binds each scalar argument to
+the corresponding translated input wire, beta-applies the actual function,
+and lowers its body while all binders remain in scope. It no longer guesses a
+binary left fold from the head operator. Existing scalar lowering is reused.
+
+`Tools.ApplicativeLowering.Arguments.correct` and `map_start` prove the source
+rule for arbitrary heterogeneous argument spines, functions and times, with
+standard axioms only. **They do not prove the MetaM reader or scalar lowering.**
+The implementation follows that rule, but connecting it to the compiler's state
+simulation invariant remains the next proof obligation.
+
+`Tests/Compiler/ApplicativeSemanticsTest.lean` invokes the shipping compiler
+on nine cases and checks all 4-bit input combinations (including a 4-argument
+case), with an 8-bit concatenation result and a Bool comparison result. It tests
+actual emitted IR values, including mandatory cleanup passes. Tests are evidence
+and regression protection; they are not the universal compiler theorem.
+
+## Actual builder: first general simulation step
+
+`Tools/ShippingBuilderSoundness.lean` proves `emitAssign_sound` about the actual
+`CircuitM.emitAssign`, not a second builder. For arbitrary builder state, width
+environment, memories and input environment, executing the finalized prefix
+followed by the emitted assignment produces exactly the evaluated RHS at the
+destination and preserves every other wire. `emitAssign_body` connects builder
+prepend order to finalized execution order; `emitAssign_preserves_live` states
+the frame condition for a destination disjoint from live source bindings.
+These theorems use standard axioms only. RHS evaluation and name freshness are
+explicit LOCAL obligations, not a whole-circuit replay assumption.
+
+## Next proof boundary
+
+`Tools/ShippingScalarSoundness.lean` now discharges the RHS premise for six
+canonical same-width BitVec functions: add, sub, mul, and, or, xor. The
+`Binary.registry` theorem pins their mapping in the actual shipping operator
+registry; `rhs_correct` proves their real IR expression semantics for arbitrary
+widths (including zero), operand values, names and environments. `emit_correct`
+composes that fact with actual `CircuitM.emitAssign`; callers supply operand
+values/widths and prefix execution, not a proof of the emitted RHS.
+
+`BindingsAgree` states the source-value/wire correspondence. A fresh destination
+preserves it, and first-wins list extension uses the same Boolean comparison as
+the shipping `CompilerState.varMap`. `emit_local` composes emission with the
+scoped binding extension. These are general theorems with standard axioms only.
+Tests instantiate the actual builder at arbitrary width, check the six shipping
+compilations on edge values, and pin counterexamples to dropping width/freshness
+hypotheses.
+
+**Remaining boundary:** none of these theorems establishes that the MetaM
+translator always provides the required widths, values and fresh names.
+Canonical `BitVec.add` is covered; recognizing an overloaded `HAdd.hAdd` with
+its actual instance is not proved by identifying the operator name. The local
+map relation alone did not cover the former persistent IO fallback. The later
+state-backed lookup rules below close that local connection. Expression-cache
+validity and preservation by all handlers still need a simulation proof.
+The generic relation can describe cached keys, but this does not yet prove
+correctness of the shipping cache implementation.
+
+Establish the scalar translator's invariant: mapped source values agree with
+wire values, cached results remain valid, widths agree, newly allocated wires
+do not overwrite live bindings, and executing the emitted statement suffix
+preserves existing values and produces the source value. First prove the pure
+builder/primitive steps and connect those SAME operations to the shipping path.
+Assignment emission, six canonical primitive RHSs and local binding extension
+are now proved. Name allocation and its composition are covered below; remaining
+primitives, source recognition and cache validity remain. Then lift through scoped lambdas, lets and
+application using the rule above.
+Sequential handlers require a temporal state relation in addition to this
+combinational invariant. No replay hypothesis may stand in for these obligations.
+
+## Total allocation and the reservation invariant
+
+`Sparkle/IR/FreshNames.lean` proves that numeric suffixes are injective (using
+decimal-digit decoding), and that `used.size + 1` consecutive candidates cannot
+all occur in a set of `used.size` names. `seek` is structurally recursive in this
+bound; `seek_exists` proves success for any starting index. Thus `freshSuffix`'s
+computational default is unreachable. The cardinality/list argument is erased
+proof code: runtime still uses HashSet lookup and stops at the first free suffix.
+
+The shipping `CircuitM.freshName` now uses this search in both branches. Stable
+names retain the `nextSuffix` cache; unnamed temporaries search from `counter`
+and advance it beyond the chosen index. Normal names are preserved. The old
+unnamed branch did not check reservations: reserving `_tmp_x_0` and then calling
+`freshName "x" false` returned `_tmp_x_0` again. It now returns `_tmp_x_1`.
+This was reproduced at the public builder API; reachability of that reservation
+pattern from a user circuit was NOT established and no shipping-circuit bug is
+claimed from this example alone.
+
+`CircuitM.freshName_spec` universally proves freshness, exact reservation-set
+insertion and unchanged module. `makeWire_spec` proves the typed wire addition
+and preservation of executable statements. These concern the functions actually
+called by the compiler, not reference copies.
+
+`Tools/ShippingAllocationSoundness.lean` defines `Reserved`: every live binding
+points to a reserved name. It proves preservation under allocation and scoped
+binding extension, and composes allocation with `Binary.emit_correct`.
+`allocate_emit_correct` no longer assumes destination freshness: the actual
+allocator supplies it. Operand widths/values and the entry reservation invariant
+remain explicit. This does not yet prove that every MetaM handler, persistent
+fallback or expression-cache update maintains that invariant.
+
+`FreshNameSoundnessTest` checks reserved temporary/name collisions, decimal
+boundaries, sanitization/hygiene, the actual `CompilerM.makeWire` wrapper and
+10,000 consecutive same-base allocations. All new general theorems are audited
+for standard axioms only. The test does not stand in for a complexity proof.
+
+The concrete cache boundary is inventoried in `Elab.lean`: the persistent fvar
+map is written in `handleLoop`; it now lives in the synthesis's `CircuitState`
+and starts empty in `CircuitM.init`. The per-module expression cache is written both by the
+`translateExprToWire` wrapper and by the top-level output-leaf loop. Both write
+sites, local-map shadowing and nested-module save/restore must be covered; a
+proof about only the main cache wrapper would miss a successful path.
+
+## Scoped/persistent binding rules (2026-09-24)
+
+`Tools/ShippingBindingsSoundness.lean` keeps local and persistent valuations
+separate. Its `Valid` relation requires value agreement and reserved names in
+both maps, including persistent entries hidden by a local binding. The table
+operations are the existing `List.lookup` and `Std.HashMap Name String.insert`.
+`Valid.enter`, `insert_persistent`, `allocate_write` and `restore` prove their
+transition rules. `scope_allocate_restore` composes entering a local scope,
+actual fresh allocation and a wire write, and proves both the inner AND original
+outer relations afterwards. It protects older local bindings too, by retaining
+the original invariant alongside the inner one. Merely validating the inner
+visible lookup is insufficient; the test proves a counterexample with the SAME
+source valuations before and after restoration.
+
+`Valid.allocate_emit` additionally composes this stronger invariant with the
+actual allocator and assignment emitter for the six canonical binary operators.
+It proves prefix execution, the new result value and preservation of both maps;
+freshness follows from reservations rather than being assumed by the caller.
+
+`withVarMapping_run` is an exact equation for the existing compiler action.
+Originally, `visible` was only a pure model of the local-first rule: an external
+IO.Ref snapshot was not connected. This boundary has now been removed from the
+implementation rather than postulating `LawfulMonad MetaM` or IO laws.
+
+`CircuitState.sourceBindings` holds the table as builder-only metadata (it is
+absent from the emitted IR). `CircuitM.lookupSourceBinding` and
+`bindSourceVariable` are pure operations used by the actual compiler wrappers.
+`lookupVar_run` and `bindSourceVariable_run` prove their exact MetaM result
+expressions for arbitrary states, both lookup branches included.
+`Valid.lookupVar` connects a hit to the source valuation and reserved wire;
+`Valid.bindSourceVariable` proves the registration transition. The allocator's
+metadata-preservation theorem connects `Valid.allocate_write_state` to the table
+in the resulting actual state. These require the entry value/reservation
+invariant, not an external IO snapshot or a whole-circuit replay premise.
+
+`handleLoop` now uses the state-backed registration. Each synthesis constructs
+its own `CircuitM.init`; `init_sourceBindings` proves its table empty. The global
+wire-binding ref and its clear/save/restore code are gone. Parent and child
+actions therefore receive separate tables, including after child failure.
+Focused runtime tests cover those integration paths, local priority, repeated
+fallback after allocation/emission, and a subsequent fresh synthesis. They are
+regressions, not proofs of the full recursive MetaM synthesizer or exception
+semantics. The other global caches (including fvar-to-expression and width
+caches) are unchanged. Expression-cache key semantics, context stability and
+lifecycle remain separate obligations.
+
+The next cache proof must cover open expressions: the shipping eligibility test
+excludes `e.isFVar`, not all expressions containing free variables. Therefore
+"the expression key is unchanged" alone does not prove a hit remains valid
+across scope changes. Establish stability of the bindings used by cached
+expressions (or revise the implementation if that invariant fails), metadata
+stripping in the fallback lookup, both insertion sites and preservation of the
+cached wire's value/width/reservation. This is an outstanding proof obligation,
+not a measured miscompile.
+
+## Expression cache (2026-09-25)
+
+`Tools/ShippingCacheSoundness.lean` takes the first step of that obligation.
+
+What the soundness rests on is the KEY, not the expression. The eligibility
+test `!isNamed && !e.isFVar && !isTopLevel` is reproduced verbatim as
+`cacheable`, and `cacheable_open_application` proves the sharp form of the
+concern: an application containing a free variable IS cacheable. So "cached
+expressions are closed" is false and cannot be the argument.
+
+The argument that does work: every scoped binder enters through
+`CompilerM.withLocalDecl`, i.e. `Lean.Meta.withLocalDeclD`, which mints a fresh
+`FVarId` per entry, and `ExprStructMap` keys on `ExprStructEq`, whose `BEq` is
+the structural `Expr.equal` distinguishing `fvar` by id. An expression
+mentioning a binder from an exited scope is therefore a DIFFERENT key from the
+same shape under a new binder, so a stale hit cannot occur silently. Two
+runtime checks in the test pin this: three successive `withLocalDeclD` entries
+give distinct ids, and two structurally identical bodies built in different
+scopes compare unequal. They are checks of the MetaM implementation, not
+proofs; `Expr.equal` is `opaque`, so nothing in the file unfolds it.
+
+Proved, with standard axioms only: `Valid.hit` (a hit returns a wire carrying
+the key's source value), `Valid.hit_stripped` (the `consumeMData` fallback
+lookup, under an explicit hypothesis that stripping preserves the denotation),
+`Valid.hit_congr` (a structurally equal key, under `KeyFaithful`),
+`Valid.insert` (the shim's write-back), `Valid.reserve` (allocation may extend
+the reserved set), `valid_empty` / `valid_at_synthesis_start` (each synthesis
+begins in the invariant, since the ref starts empty) and `Valid.write_fresh`
+(emitting to a fresh name cannot disturb a cached entry, because
+`CacheReserved` says every cached wire is already reserved).
+
+Two obligations are explicit hypotheses rather than hidden:
+
+- `KeyFaithful` — structurally equal keys denote the same source value. This is
+  where the fresh-binder argument is consumed.
+- `InsertSpec` — the lookup behaviour of `insert`. Normally this is
+  `Std.HashMap.get?_insert`, but that lemma needs `EquivBEq`/`LawfulHashable`,
+  and **core provides no `EquivBEq ExprStructEq` instance** (`#synth` fails,
+  checked in the test) precisely because `Expr.equal` is opaque. Assuming a
+  lawful key here would have been unsound bookkeeping, so the required equation
+  is stated instead. The test logs a NOTE if core ever gains the instance.
+
+Still open for the cache, and not claimed: the second insertion site (the
+top-level output-leaf loop) and the top-level bypass interact with per-leaf
+translation; width and reservation of a cached wire across composition units;
+and that every handler actually maintains `Valid` — these theorems are
+transition rules, like the binding rules above, not a proof that the recursive
+MetaM synthesizer preserves them.
+
+### Reducing the hypotheses (2026-09-25, second pass)
+
+The first pass left two hypotheses. Both have now been narrowed, and one is
+gone as a hypothesis about hash maps.
+
+**Correction (2026-09-25).** An earlier version of this section, and the commit
+message of `bf3d4a5`, claimed `InsertSpec` had been "discharged". That was
+wrong and is withdrawn. `insertSpec_of_lawful` is a general lemma about lawful
+keys, but `Valid.insert` — the theorem the compiler's write-back would actually
+use — still takes `spec : InsertSpec cache key wire` as a parameter. No caller
+can supply it for the shipping key, so nothing was removed from the trusted
+surface: a generic lemma that the actual theorem does not consume is not a
+discharged hypothesis. The count of unproven premises on the real cache path
+was unchanged by that commit.
+
+**`KeyFaithful` is split by owner.** It was one hypothesis mixing two unrelated
+claims:
+
+- `KeySound` — structurally equal keys are equal expressions. A statement about
+  `Expr.equal` only. `keyFaithful_of_keySound` proves it suffices, so the open
+  obligation is now this single syntactic fact rather than a claim quantified
+  over all source valuations.
+- `StableBetween` — between the insert and the hit, neither the environment at
+  the cached wire nor the source valuation of the key moved. A statement about
+  the COMPILER's scoping, not about `Expr`. `hit_across` proves the reuse step
+  from it, and `stableBetween_refl` covers the within-one-environment case.
+
+Separating them matters because `Valid` is indexed by a single environment
+whereas the cache spans a whole synthesis: key soundness alone never justifies
+"insert here, read there". That step is `hit_across`, and its premise is now
+explicit.
+
+**`KeySound` is not provable for the current key, and this is a design fact.**
+Reducing it lands on `Expr.equal`, which is `opaque` (an `@[extern]` C
+function); the goal can only be closed by `sorry` (checked). It is therefore
+not a proof obligation that more effort discharges — the key must change.
+
+**The rejected shortcut.** Making the comparison return `false` on `mdata` is
+unsound as a design, not merely weak: it is irreflexive, so `EquivBEq` fails
+and with it every HashMap lemma, including the one just proved. Verified.
+
+### Key specification (2026-09-25, third pass)
+
+Before any more conditional lemmas: fix WHAT the cache is keyed on. The
+findings above constrain this more than the earlier plan admitted.
+
+**Requirement.** `Valid.insert` must apply to the real table without an
+external `InsertSpec`. That needs `EquivBEq` and `LawfulHashable` for the key
+type, which needs a `BEq` that is reflexive, symmetric, transitive and
+hash-compatible. `KeySound` additionally needs it antisymmetric (equal keys ⇒
+equal `Expr`).
+
+**What is ruled out, with reasons measured rather than argued.**
+
+| Candidate key | Verdict |
+|---|---|
+| `ExprStructEq` (the current one, `Expr.equal`) | `opaque` extern; no `EquivBEq` in core, `KeySound` reduces to the opaque constant and can only be closed by `sorry` |
+| Delegate `mdata` to core's `BEq KVMap` | UNSOUND: `KVMap.eqv` is `subset ∧ subset`, so `{a↦1,b↦2} == {b↦2,a↦1}` is `true` while the entry lists differ (measured). `KeySound` would be FALSE |
+| Return `false` on `mdata` | Irreflexive, so `EquivBEq` fails and every HashMap lemma is lost (measured) |
+| `toString`/format projection | Lawful `BEq` for free, but injectivity on `Expr` is not provable, so `KeySound` fails |
+| Derive `DecidableEq Expr` outright | Blocked: `Syntax` is nested-inductive (`Array Syntax`), `deriving` refuses; `Level` additionally carries a `computed_field` |
+
+**The specification that survives.** Key on a structural equality `exprEq`
+written in Lean, with:
+
+- `Level` — hand-written; `computed_field` blocks deriving. Feasibility proved:
+  `levEq a b = true ↔ a = b` with `[propext, Quot.sound]`.
+- `Literal`, `BinderInfo` — derive cleanly.
+- `Name`, `FVarId`, `MVarId` — core instances suffice.
+- `mdata` — compared as VALUES on the entry list (never via `KVMap.eqv`), and
+  `DataValue.ofSyntax` is the one case that cannot be decided structurally.
+  Since `Syntax` cannot be derived, the specification must either treat any key
+  containing `ofSyntax` metadata as NON-CACHEABLE, or carry `Syntax` equality
+  as an explicitly named axiom. The first keeps the axiom count at zero and is
+  the recommendation.
+
+**Consequence for the eligibility test.** Excluding `ofSyntax`-bearing keys
+changes `cacheable`, hence which lookups hit. That is a change to the shipping
+compiler and is governed by the re-translation conditions below.
+
+### Hit-rate changes in BOTH directions
+
+The earlier text only considered misses replacing hits. A key change can also
+make hits INCREASE, and that direction is the dangerous one:
+
+- **More hits.** `Expr.equal` distinguishes binder names and annotations that a
+  coarser structural comparison might identify. Any key that equates two
+  expressions the current one separates will REUSE a wire where the shipping
+  compiler emits two. If the two expressions denote different values, that is a
+  miscompile introduced by the proof work. So the key must be at least as fine
+  as `Expr.equal` on cacheable expressions — which is exactly `KeySound`, and
+  is why `KeySound` cannot be dropped in favour of "it only misses more".
+- **Fewer hits.** Covered by the re-translation conditions (value agreement, no
+  observable duplication, no non-idempotent handler, cost).
+
+Neither direction is currently proved. Until the key is fixed and `KeySound`
+holds for it, a key change is not a neutral refactor in either direction.
+
+### Plan: connect the real comparison, key, lookup and insert
+
+The goal is that the operations the compiler ACTUALLY performs are the ones the
+theorems are about. Equivalence with the opaque comparison must be proved, not
+assumed — "we wrote a structural twin" is not itself an argument.
+
+1. **Leaf equalities.** `Level` needs a hand-written structural equality with a
+   `levEq a b = true ↔ a = b` proof: it carries a `computed_field`, so
+   `deriving` fails. Done as a feasibility check — the proof goes through with
+   `[propext, Quot.sound]` only. `Literal` and `BinderInfo` derive cleanly.
+   `Name`, `FVarId`, `MVarId` already have what is needed.
+2. **`mdata`.** `MData = KVMap` and `DataValue` reaches `Syntax`, whose
+   `DecidableEq` does not derive (`SourceInfo` blocks it).
+
+   **Delegating to core's `BEq KVMap` is NOT available**, and the reason is
+   decisive rather than a matter of proof effort: `KVMap.eqv` is
+   `subset m₁ m₂ && subset m₂ m₁`, so it identifies maps that differ in
+   STORAGE ORDER. Measured: with `d1 = {a↦1, b↦2}` and `d2 = {b↦2, a↦1}`,
+   `d1 == d2` is `true` while `d1.entries == d2.entries` is `false`. A key
+   comparison built on it would therefore equate `mdata d1 e` with
+   `mdata d2 e`, making `KeySound` (equal keys ⇒ equal `Expr`) FALSE, not
+   merely unproven. Any `mdata` case must compare the entry lists as values.
+3. **`exprEq` and its characterisation.** A structural comparison over the
+   twelve constructors plus `exprEq_iff`. Mechanical given (1) and (2); the
+   `stripMaskK` work on the certified-roundtrip side is the precedent for the
+   shape.
+4. **Make it the key.** Define the cache key as a wrapper whose `BEq` is
+   `exprEq` with `LawfulBEq`, derive `EquivBEq`/`LawfulHashable`, and
+   instantiate `insertSpec_of_lawful`. This discharges `InsertSpec` at the real
+   table and makes `KeySound` provable, because the comparison is no longer
+   opaque.
+5. **Equivalence with the shipping behaviour.** Changing the key changes which
+   lookups hit. Two options, and the choice must be recorded rather than
+   glossed: either prove `exprEq = Expr.equal` (impossible while the latter is
+   opaque, so it would need a core-level axiom or an upstream lemma), or accept
+   that `exprEq` may MISS where `Expr.equal` would hit and prove that a miss is
+   harmless. The second is the honest route and needs the re-translation
+   condition below.
+
+### If a miss replaces a hit: the re-translation condition
+
+Both the `mdata`-exclusion variant and any conservative `exprEq` turn some hits
+into misses. A miss re-runs the handler chain, which EMITS AGAIN. That is only
+harmless under a condition that must be stated, because it is not obvious:
+
+- **Value agreement.** The freshly translated wire carries the same source
+  value as the one already cached. This is what makes the extra wire redundant
+  rather than wrong.
+- **No observable duplication.** Re-emission adds an assign and consumes a
+  fresh name. The emitted module therefore differs from the cached-hit module
+  by duplicated combinational definitions. For semantics this is benign only
+  because the duplicates are pure and separately named — a statement about the
+  IR, provable from the existing well-ordering/freshness invariants, but NOT
+  yet proved.
+- **Effectful handlers are excluded.** Any handler whose re-execution is not
+  idempotent (memory statements, register declarations, sub-module instances)
+  must not be reached by the re-translation. The memory path already has its
+  own dedupe keyed on IR shape, which is evidence the concern is real: the
+  expression cache is not the only mechanism preventing duplicate BRAMs.
+- **Termination/cost.** Misses multiply work; the existing
+  `SPARKLE_TRANSLATE_LIMIT` backstop bounds it but a systematic miss regression
+  would be a performance fault, to be measured rather than assumed away.
+
+Until those are proved, excluding `mdata` from caching is a change to the
+shipping compiler's output, not a neutral refactor, and it is not taken here.
+
+## Formal shape of success and preservation (2026-09-25)
+
+`Tools/ShippingTranslateSoundness.lean` fixes how "the existing compiler, when
+it succeeds, preserves meaning" is stated, and proves two branches of the real
+translator in that shape. It checks the METHOD on the actual code; it is not a
+reduction of the target.
+
+### Decisions, each forced by a measured fact
+
+| Decision | Forcing fact |
+|---|---|
+| **Success** is `Returns m ctx s a s'`: some MetaM/Core environment and world in which the real `CompilerM` action returns `a` with builder state `s'`. Theorems are `Returns … → Q`, so they hold in every environment. | `IO` in this toolchain is the exposed `EST` monad, so `Returns.bind/pure/liftMetaM/throw/get/set` are proved by definitional unfolding, with no `LawfulMonad MetaM` (the obstacle recorded in the handoff). |
+| **MetaM queries are oracles**: the result is unconstrained, only the builder state is. What the IR depends on must be computed purely or be a named assumption. | `Returns.liftMetaM` is all that can be said about `inferType`/`whnf`. |
+| **Branches are plain definitions parametrised by the recursive call** (`TranslateFn`); the shipping translator passes itself. | The translator is a `mutual` block of `partial def`s; `#print translateExprToWire` shows `opaque`: no equations, nothing provable. |
+| **The knot must become a fuel-bounded fixpoint** (`fuelFix`). | `fuelFix_spec` (proved) discharges the recursion hypothesis by induction on fuel; fuel 0 throws, so `Returns.throw` makes it vacuous. Fuel exhaustion is a compile error, like the existing `SPARKLE_TRANSLATE_LIMIT`. |
+| **Source semantics** `Denotes ρ e n x` is a big-step relation on the `Lean.Expr` the compiler consumes, defined only for canonical LIBRARY instances. | Each clause is tied to the library by `rfl` (`library_add … library_xor`, `library_pure`, `library_ofNat_literal`), so it is not a free-standing specification. |
+| **CompCert-style statement**: if the source has a defined meaning and the compiler succeeds, the result wire carries it. | Coverage (success ⇒ defined meaning) is separate and open; see below. |
+
+### The miscompile this exposed
+
+The operator path dispatched on the METHOD name and ignored the INSTANCE. With a
+user instance `HAdd (Signal dom (BitVec 8)) …` whose `+` is subtraction, the
+source gives 3 + 10 = 249 and the compiler reported success emitting an adder
+(RTL 13). Two sites did this: the Signal intercept and the `primitiveRegistry`
+path (`→ primitive HAdd.hAdd`), which caught the application again after the
+first fix. Both now require the instance to be a listed library instance
+(`canonicalSignalBinInsts`, `canonicalScalarMethodInsts`, including the INNER
+instance of core's generic wrappers such as `instHAdd _ BitVec.instAdd`); an
+unlisted instance is refused ("Cannot instantiate HAdd.hAdd"). The first version
+of the table missed the Signal unary instances (`~~~` on `Signal Bool` and on
+`Signal (BitVec n)`, `-` on `Signal (BitVec n)`): `lake test` failed on the
+YOLOv8 SPPF/C2f controllers and `FPGABench`, and they were added. Under the
+semantics decision this bug is exactly a table row with no `library_*` lemma.
+
+### What is proved (standard axioms only)
+
+- `translateCanonicalSignalBinary_sound`: the Signal×Signal branch of the
+  SHIPPING operator lowering, for `+ - * &&& ||| ^^^` at every literal width,
+  given a `translate` satisfying `Spec` (the recursion hypothesis).
+- `translateSignalPureLiteral_sound`: `Signal.pure` of a `BitVec` literal, a leaf
+  (no recursion hypothesis). Constants such as `a + 3#8` reach the translator
+  this way: the elaborator coerces `3#8` to `Signal.pure (BitVec.ofNat 8 3)` and
+  picks the Signal×Signal instance.
+- Supporting: `makeWire_returns`, `emitAssign_returns`, `evalExpr_const_lt`,
+  `bitVecLitValue?_lt`, `WidthsAgree.mono`, `fuelFix_spec`, `spec_of_never`.
+
+Both branches are the code that runs. `translateCanonicalSignalBinary` and
+`translateSignalPureLiteral?` were extracted from `translateExprToWireImpl`
+without changing behaviour, except that the width and literal value are now read
+purely from the instance/literal when possible. That is what makes the proof
+oracle-free. Output was compared with the original compiler on the operator and
+literal probes (including `300#8`, which falls back to the oracle path): it is
+byte-identical.
+
+### Existing proofs used
+
+| Existing result | Used for |
+|---|---|
+| `CircuitM.makeWire_spec` (Builder) | the result wire is fresh, then reserved; statements unchanged; declaration added |
+| `emitAssign_sound` (ShippingBuilderSoundness) | the emitted assignment extends execution by exactly its RHS value |
+| `Binary.rhs_correct` (ShippingScalarSoundness) | the IR operator computes the `BitVec` operation at width `n` |
+| `Binary` / `Binary.apply` (ShippingScalarSoundness) | the operator vocabulary the semantics and the table share |
+
+### Premises that remain (none is the preservation claim itself)
+
+1. **The recursion hypothesis** `Spec translate …` in the operator theorem.
+   `fuelFix_spec` discharges it once (a) the shipping knot is `fuelFix step N`
+   rather than `partial`, and (b) every branch of `step` is proved. Both are
+   open; (b) is the bulk of the work. A step spec covers every successful
+   branch, so unproved handlers block the unconditional theorem.
+2. **Defined source meaning** (`Denotes ρ e n x`). Coverage — success implies
+   `Denotes` — is open. For the operator branch it needs the operands' widths to
+   equal the instance width, which Lean typing guarantees but the proof cannot
+   see. It needs either a typing argument or a compiler-side width check.
+3. **`WidthsAgree we s1`** on the final state: satisfiable by taking `we` from
+   the final module; the knot-level theorem must instantiate it.
+4. **Source bindings.** `Spec` does not yet carry the binding invariant, so the
+   `fvar` leaf (lookup of an input wire) is not a proved branch. The existing
+   `Valid.lookupVar` supplies it once `Spec` is extended.
+5. **Declaration ↔ `Denotes`.** Each clause agrees with the library by `rfl`, but
+   the link from a user declaration's body to its Lean value (reflection) is not
+   formalised here.
+6. **Coverage of the two branches.** Only canonical `BitVec` instances with a
+   LITERAL width and literals below `2^w` take the oracle-free path. `Bool`
+   instances, shifts, the mixed Signal×BitVec branch, symbolic widths and
+   out-of-range literals take the unchanged oracle path and are not covered.
+7. **Mutable `IO.Ref` state.** Its contents are not modelled. Any ref whose
+   content affects the IR — the expression cache, `sparkleTypeCache` (widths),
+   `sparkleWireWidthCache`, the loop/wire-canon caches — must become pure state
+   (as `sourceBindings` did in `9935dfe`) before the knot-level theorem.
+   Profiling and limit refs only log or throw, which partial correctness
+   tolerates.
+
+## End-to-end theorem for a fragment of the real translator (2026-09-25)
+
+`translateExprToWire_sound` (Tools/ShippingTranslateSoundness.lean, standard
+axioms only) is about the SHIPPING entry `translateExprToWire`. For every
+expression built from **inputs, `BitVec` literals under `Signal.pure`, and the
+canonical library operators `+ - * &&& ||| ^^^`, in any combination and at any
+literal width**, it says: if the expression has a meaning (`Denotes`) and the
+translation succeeds, the returned wire carries that meaning at that width. The
+state invariant `Inv` (statements evaluate, bindings, translation record) is
+preserved, and every previously reserved wire keeps its value. **No recursion
+hypothesis remains.**
+
+### What had to change on the actual path, and why it is still the same compiler
+
+1. **The knot is an ordinary definition.** The translator block now takes its
+   recursive entry as a section `variable`, so the handler bodies are textually
+   unchanged, and the entry is `translateExprToWire := translateFuelFix
+   translateStep translateFuelLimit`. It is non-partial, so it has equations.
+   Every recursive call, including those from the `partial` fallback handlers,
+   goes through the fuel. A `partial` entry could not have worked: it is opaque,
+   so a theorem about the fixpoint would not transfer to it. Fuel exhaustion
+   (depth 2^20) is a compile error, like the existing `SPARKLE_TRANSLATE_LIMIT`.
+2. **A proved core is tried first.** `translateCore` handles an `fvar` bound by
+   `lookupVar`, a `Signal.pure` literal, and a canonical operator with literal
+   width; anything else returns `none` and reaches the unchanged handler chain.
+   For the three shapes, the core runs the same code the chain ran before.
+3. **The expression cache is consulted, and each hit is validated.** Bypassing
+   the cache changed 84/163 corpus files (α-equivalent: only wire numbers
+   shifted, because a second translation allocated and `mergeDuplicates` later
+   removed the copy). So the core path looks up the same `IO.Ref` cache, but
+   accepts a hit only if a PURE record (`CircuitState.translateRecord`, wire →
+   the expression the core produced it for) holds a structurally identical
+   expression, decided by `exprDecEq`. This sidesteps the earlier cache problem
+   (`KeySound`, `InsertSpec`): the opaque `Expr.equal` only proposes a
+   candidate, and the pure data decides. Recording `fvar` results is excluded:
+   they reuse an existing wire, and recording them overwrote what the wire was
+   made for (found through the one remaining α-equivalent file).
+4. **`exprDecEq`** (Sparkle/Compiler/ExprDecEq.lean) is a `Decidable (a = b)`
+   for `Lean.Expr` written in Lean. It has a pointer fast path at every node
+   (`withPtrEqDecEq`), a hand-written `Syntax` equality (a nested inductive
+   `deriving` refuses) and a hand-written `Level` equality (`computed_field`).
+   A tree walk without the fast path unfolded DAGs: Keccak256Sponge went from
+   3.3 s to 54 s.
+
+**Output identity, measured.** All 163 files that synthesize Verilog (297
+modules) were run before and after. The final compiler's output is
+**byte-identical on 163/163**. Corpus time is 207 s against 197 s (+5%). The
+heaviest regressed files carry ~+2 s each (validation), down from +50 s.
+
+### Existing proofs used by the end-to-end theorem
+
+| Existing result | Where |
+|---|---|
+| `CircuitM.makeWire_spec`, `makeWire_sourceBindings` (Builder) | fresh result wire; bindings untouched |
+| `emitAssign_sound` (ShippingBuilderSoundness) | an emitted assignment extends execution by exactly its RHS |
+| `Binary.rhs_correct` (ShippingScalarSoundness) | the IR operator computes the `BitVec` operation |
+| `lookupVar_run`, `visible` (ShippingBindingsSoundness) | the `fvar` leaf: the real lookup, local-first then persistent |
+| `Returns.*`, `library_*` (this file, earlier) | success rules; semantics tied to the library by `rfl` |
+
+New, all standard axioms: `Denotes.det`, `Inv.transfer(_except)`,
+`RecordOk.insert`, `translateFuelFix_spec`, the three branch theorems,
+`translateStep_core`, `translateStepWith_spec`, `exprDecEq`, `synEq_iff`,
+`levEq_iff`. The regression test also goes through the actual synthesis entry
+(`synthesizeCombinational`). It fails on the pre-fix compiler (negative
+control) and passes on the fixed one, and the canonical `+` synthesizes to IR
+that evaluates to the source value.
+
+### Open, and kept separate from the theorem
+
+Items 1–3 were discharged at the synthesis entry for the fragment's
+declarations on 2026-09-25; see the next section. What remains of each is
+stated there.
+
+1. **Correspondence with the user's declaration.** Was: `Denotes` is a relation
+   on the `Lean.Expr`; the step to the declaration's Lean value was missing.
+2. **Coverage of the success region.** Was: "success ⇒ `Denotes`" open.
+3. **The entry invariant.** Was: `Inv` and `WidthsAgree` not established by
+   `synthesizeCombinationalCore`.
+4. **The fragment.** Every other handler is the unchanged `partial` fallback:
+   mixed Signal×BitVec operators, `Bool` instances, shifts, comparisons, mux,
+   registers and time, memories, hierarchy, symbolic widths.
+5. **After translation.** `dropZeroWidth`, `mergeDuplicates`, the printer, and
+   the Verilog semantics.
+
+## Synthesis entry: `Inv`, `WidthsAgree` and `Denotes` discharged (2026-09-25)
+
+`Tools/ShippingEntrySoundness.lean` (standard axioms only, audited in
+`Tests/Compiler/ShippingEntrySoundnessTest.lean`). The theorem is about the
+REAL entry `synthesizeCombinationalCore declName [] false`, i.e. the step of
+`#synthesizeVerilog` before post-processing.
+
+**Correction (2026-09-25, second pass).** The first version of this section
+claimed the entry was "connected to the user's declaration without premises".
+That was not true. Its theorem said `∃ ci, CertifiedOutcome ci M` with
+`MReturns`, which closes over contexts and worlds, so `ci` was not tied to the
+run that produced `M`. Nothing applied it to a real declaration either; the
+test checked the quotation, `rfl` and sample evaluations separately. Fixed as
+follows:
+
+* **The run and the constant it read.** Runs are stated in fixed contexts and
+  state references (`RunsTo m mctx mref cctx cref w a w'`).
+  `synthesizeCombinationalCore_reads`: a successful run executes
+  `getConstInfo declName` IN THE SAME contexts and references (worlds
+  `w1 → w2`), returning `ci`, and then runs `synthesizeFromConst … ci` from
+  `w2` to the result.
+* **Post-read processing as a function of `ci`.** `synthesizeFromConst`
+  (shipping code) is everything after the read. The real entry calls it with
+  the result of `getConstInfo`, and `synthesizeFromConst_sound` proves
+  `CertifiedOutcome ci M` for it. `synthesizeCombinationalCore_sound`
+  combines the two: `∃ ci w1 w2, RunsTo (getConstInfo declName) … w1 ci w2 ∧
+  CertifiedOutcome ci M`.
+* **Applied to a real declaration.** `fragA_ir_correct` (in the test module)
+  holds for ANY successful run of `synthesizeCombinationalCore ``fragA` whose
+  environment satisfies `EnvDefines … ``fragA fragAValue`. It gives two
+  distinct input ports `pa ≠ pb`, and for every domain, all signals `a b` and
+  every cycle `t`, the IR drives `out` with `(fragA a b).val t`. Here
+  `fragAValue` is `fragA`'s value read from the environment
+  (`#def_decl_value`), and `fragAValue = quoteDecl … feA` is proved by `rfl`.
+
+What remains assumed is exactly one statement about Lean's environment:
+`EnvDefines mctx mref cctx cref declName v`, "in the run's contexts every
+`getConstInfo declName` returns a definition with value `v`". It cannot be
+derived in the logic, because the Core state sits behind an `ST.Ref` whose
+operations are opaque. It is a hypothesis of the corollary, not hidden.
+`fragAValue` comes from the same `getConstInfo` at elaboration time.
+
+Main theorems:
+
+* `synthesizeCombinationalCore_sound`: see above; `CertifiedOutcome ci M`
+  means `certifiedShape? ci = some (bs, body)` implies `Preserves bs body M`
+  (distinct input ports, and for all binder values, if the instantiated body
+  `Denotes` `x`, then `evalAssigns (weOf M) mems M.body initial = some env`
+  with `env "out" = x`).
+* `fragmentDecl_sound` / `fragmentDecl_sound_signal` (entry, same-run `ci`),
+  `outcome_quote` (for a constant quoting `fe`, no `Denotes` premise),
+  `fragmentDecl_of_env` (with `EnvDefines`), and `fragA_ir_correct`.
+
+### Premises that disappeared from the entry theorem
+
+| Premise of `translateExprToWire_sound` | How it is now derived |
+|---|---|
+| `Inv ctx ρ we mems initial s0 env0` at the leaf call | From the entry's own construction: `CircuitM.init` (empty body, record, bindings), the binder walk `bindCertifiedInputs` (fresh wire per `Signal` binder, reader-scoped binding found by the real `lookupVar` path, input port), the valuation `rhoOf` of the binder values, and `env0 = initial` (`bindCertifiedInputs_returns`, `rhoOf_some`) |
+| `WidthsAgree we s1` | `we := weOf M`, the widths READ OFF the returned module's wires. Holds because wire names stay distinct: `WiresOk` is now part of `Grows` and carried through every translator branch (`widthsAgree_weOf`) |
+| `Denotes ρ e n x` | For `quoteDecl … fe`: the gate accepts it (`certifiedShape_quote`), the entry's instantiated body is the quotation over its fvars (`instFVars_quoteBody`), and it denotes `evalFE` (`denotes_quote`); `evalFE` is the library meaning by `rfl` (`denoteFE_val`) |
+| (implicit) the leaf call happens, with that state, and `out` is driven by it | `emitLeaves_single`, `finishSynth_returns`, and the MetaM success rules `MReturns.bind/pure/throw/try_finally/ite` through the entry's profiling, depth bookkeeping and `try … finally` |
+
+### What changed in the shipping entry, and why it is still the same compiler
+
+1. The entry was a `partial def` inside the translator's `partial` block: to
+   the kernel an `opaque`. It is now an ordinary definition
+   `synthesizeCombinationalCoreWith (translate)`, moved before the block with
+   `splitReturnLeaves`, `openRecordInputs`, `stripMemoizeWrappers` (which never
+   used the translator). `synthesizeCombinationalCore` after the block passes
+   the real translator.
+2. The binder walk (`bindInputsLegacy` / `bindInputPort`), the leaf loop
+   (`emitLeaves`, explicit recursion instead of a `for` with `mut`) and the
+   module finish (`finishSynth`, `addClockResetIfSequential`) are plain
+   definitions shared by both front ends.
+3. For the certified shape — `DomainConfig` and `Signal dom (BitVec n)`
+   binders over a body of binders, `Signal.pure` literals and canonical
+   operators at one literal width — the front end is pure: `certifiedShape?`,
+   fresh fvars checked distinct, `instFVars` (a pure twin of the `extern`
+   `instantiateRev`), and the single leaf `out`. The legacy front end
+   (`openRecordInputs`, `stripMemoizeWrappers`, `lambdaTelescope`,
+   `splitReturnLeaves`) is `partial` or `extern`-based; on this shape it
+   computes the same thing. Checked: the test compares both front ends on real
+   declarations (identical `Module`, identical Verilog); the corpus is
+   byte-identical.
+4. New refusals (both measured never to fire on the corpus): a leaf's port name
+   that is already a name of the module (its `assign` would overwrite that
+   wire), and non-distinct fresh fvars.
+5. `canonicalSignalBitVecWidth` tests the `Bool` instances by an explicit list
+   (`canonicalSignalBoolInsts`) instead of `toString.endsWith "Bool"`; same
+   result on the table, but the suffix test does not reduce in proofs.
+
+### What remains (named)
+
+1. **`EnvDefines`.** The constant is the one the run read (proved), but that
+   the run's environment defines the declaration as elaborated is the
+   hypothesis `EnvDefines` (the Core state is behind an opaque `ST.Ref`).
+   `fragAValue` is taken from the same `getConstInfo` at elaboration time.
+2. **Post-processing** is now included (next section): the theorems reach the
+   IR `synthesizeCombinational` returns.
+3. **Coverage beyond quotations.** "Gate accepted ⇒ a meaning exists" is proved
+   for quotations of `FExpr` (`+ - * &&& ||| ^^^`, literals, inputs). The gate
+   also accepts canonical shifts (the translator core lowers them), but
+   `Denotes` has no shift clause, so for shifts `Preserves` holds vacuously:
+   on the certified front end, NOT proved. Declarations outside the gate take
+   the legacy front end and are not covered.
+4. **Verilog.** The IR semantics is `evalAssigns`; printing and Verilog
+   semantics are separate.
+
+## Post-processing: `dropZeroWidthModule` and `mergeDuplicates` (2026-09-25)
+
+`Tools/ShippingPostSoundness.lean` (standard axioms only, audited). The
+theorems now reach the IR returned by `synthesizeCombinational`, which is what
+`#synthesizeVerilog` compiles: the entry, then `dropZeroWidthModule`, then
+`mergeDuplicates` (skipped when `SPARKLE_NO_REGDEDUP` is set; both branches are
+covered).
+
+* `synthesizeCombinational_reads`: a run of `synthesizeCombinational` runs the
+  entry in the SAME contexts and state references, and returns
+  `dropZeroWidthModule M` or `mergeDuplicates (dropZeroWidthModule M)`.
+* `dropZeroWidth_entry`: on a module with the entry's shape at width `n > 0`,
+  the pass changes no statement, and the widths read off are unchanged.
+* `mergeDuplicates_sound`: on a combinational module the pass yields the SAME
+  environment under the module's declared widths, with the same ports.
+* `postprocess_sound`: the two composed in call order.
+* `synthesizeCombinational_fragment` and, in the test, `fragA_ir_correct`: for
+  any successful run of `synthesizeCombinational ``fragA` whose environment
+  satisfies `EnvDefines … ``fragA fragAValue`, the RETURNED module drives `out`
+  with `(fragA a b).val t` on every input and cycle.
+
+### Premises, and where they come from
+
+| Needed by | Premise | Derived from |
+|---|---|---|
+| `dropZeroWidthModule` | Wire names distinct; `out` not a wire; every statement assigns a const or op-of-refs to a declared width-`n` wire, or is `out := w`; `outputs = [out : n]` | `PostReady M n`, read off the entry's construction. The translator now carries `Emits n` (prepended statements have that shape; outputs unchanged) through every branch. The output port's type is the leaf wire's declared type, width `n` because `weOf M w = n` |
+| `dropZeroWidthModule` | `n > 0` | A property of the declaration (`decide` for `fragA`). At `n = 0` the pass does drop the `out` assignment, so the exact statement would be false |
+| `mergeDuplicates` | Body is combinational (only `assign`) | `PostReady` |
+| `mergeDuplicates` | The merge is value- and width-preserving | Checked, not assumed (below) |
+
+### What changed in the compiler, and why
+
+Rather than prove the current implementation directly, the result-checking
+approach is used: the merge is an untrusted proposal, and on a combinational
+body only a result accepted by `validateMerge`, a pure checker proved sound in
+general (`validateMerge_sound`), is kept. Statement by statement, the checker
+requires:
+
+* the new statement assigns the same name;
+* every reference the old statement makes to a name the body assigns points at
+  an EARLIER statement;
+* the new right-hand side equals the old one with references renamed through
+  the accepted merges; OR it is a reference to an earlier representative whose
+  canonical right-hand side is equal, with the same declared width.
+
+If the check fails, the module is returned unchanged. Bodies with registers,
+memories or instances keep the unchecked merge, outside the fragment.
+Measured: the corpus is byte-identical (163/163), so the checker never rejects.
+A test (`dupLit`) exercises a real merge on a certified-shape module and checks
+that it is accepted. The width condition is new: the old signature ignored
+declared widths, so two wires with equal right-hand sides but different
+declared widths could have been merged, which changes an enclosing
+concatenation. The corpus has no such case. A hand-built IR regression
+(`widthMismatch` in the test) pins the rejection side: the unchecked proposal
+merges an 8-bit and a 16-bit wire and changes `out` from 65537 to 257 at
+`x = 1`; the checker rejects it, and the shipped `mergeDuplicates` returns the
+module unchanged. This is not a demonstration from a user circuit.
+
+`synthesizeCombinational` was a `partial def` in the translator block; it is
+now an ordinary definition `synthesizeCombinationalWith`, like the entry.
+
+### Scope of the guarantee
+
+The guarantee is about evaluating the statement list (`evalAssigns` on the
+body) under the declared widths, plus ports. `mergeDuplicates` also rewrites
+`assertions`; neither the checker nor the theorems cover that. The fragment's
+modules have no assertions, so nothing is lost for them. This is NOT a claim
+of semantic preservation for whole arbitrary combinational modules.
+
+### What remains
+
+* `EnvDefines`, as before.
+* **Width 0 is an open item inside the success region.** The theorems need
+  `n > 0`. A width-0 declaration of the fragment still synthesizes, and
+  `dropZeroWidthModule` removes its `out` assignment, so "what synthesizes is
+  equivalent" is not yet met there. Still to decide: either a specification
+  under which dropping a zero-width output keeps the meaning, or an explicit
+  refusal.
+* Registers, memories and instances are outside the fragment; their merge path
+  is unchecked.
+* Verilog printing and Verilog semantics.
+
+## Toward the printed Verilog: the optimizer and the printer (2026-09-25)
+
+`#synthesizeVerilog` prints `verilogOf M = toVerilog (checkedOptimize M)`,
+where `M` is `synthesizeCombinational`'s module. There was one more stage
+between the post-processed IR and the text: the IR optimizer `optimizeModule`
+(constant/alias propagation, CSE, dead code, single-use inlining; it also
+inserts `& mask` so that Verilog's context-width arithmetic matches the IR's
+per-node masking).
+
+### The optimizer: result-checked
+
+`Sparkle/IR/OptCheck.lean`, proved in `Tools/ShippingOptSoundness.lean`. As
+with the merge, the optimizer's output is an untrusted proposal:
+
+* `checkedOptimize m`: if `m`'s body has the simple shape (every statement
+  an `assign` of a constant, a reference, or one of `+ - * & | ^` on two
+  references), the optimised module is kept only if `optCheck` accepts it;
+  otherwise `m` is printed unoptimised. Other modules get `optimizeModule`
+  unchanged.
+* `optCheck m o`: requires the same ports, and every output normalising to the
+  same expression in both modules. Normalisation inlines each assignment's
+  normal form into later uses, only when the wire's declared width equals the
+  expression's width. It drops `e & (2^w-1)` when `e` has width `w` and reads
+  only inputs. The optimised side trusts only inputs declared with the same
+  width in both modules.
+* `optCheck_sound`: an accepted `o` evaluates, and every output has the same
+  value, for every input assignment whose values fit the declared input
+  widths. `checkedOptimize_sound`: the same for whatever `checkedOptimize`
+  returns on a simple-shaped module.
+* Measured: the corpus is byte-identical (163/163). On `fragA`, `fragC` and
+  `fragD` the real optimizer's result is accepted. A test pins the rejection of
+  a hand-built wrong "optimisation".
+
+`printedModule_fragment` (in `Tools/ShippingPostSoundness.lean`) and
+`fragA_printed_correct` (test): for any successful run of
+`synthesizeCombinational` on a quoted fragment declaration, under
+`EnvDefines`, the module `checkedOptimize M` (exactly what `toVerilog`
+receives) drives `out` with the Lean meaning on every input and cycle. The
+premises of `checkedOptimize_sound` are derived, not assumed:
+
+* **Simple shape:** the translator's emitted shape IS `simpleRhs`. It survives
+  `dropZeroWidthModule` (body unchanged) and an accepted merge (each new
+  statement is a renamed old one or a reference; `validateStep_shape`).
+* **Input bounds:** the entry now proves that the module's inputs are exactly
+  the binder ports, declared at width `n`. The translator records that inputs
+  are unchanged, and no clock/reset is added for an assign-only body.
+
+### The printer: made total
+
+`emitExpr` and `exprWidthV` in `Sparkle/Backend/Verilog.lean` were `partial`.
+They are now ordinary definitions with the same code: `attach` in the concat
+case, and a named match giving the termination proof. The corpus is
+byte-identical.
+
+### Shipping printer bridge: expression and assignment text (2026-09-25)
+
+`Tools/ShippingPrintSoundness.lean` now proves byte equality, without a
+parser oracle, between the shipping printer and a renderer over the existing
+SV AST for fitting nonnegative constants, references and arbitrarily nested
+`+ - * & | ^` expressions. This includes the optimizer's mask expressions.
+
+* `emitExpr_render`: `emitAstExpr` succeeds and rendering that SAME tree
+  equals the shipping `emitExpr` string.
+* `printedExpr_semantics`: composes this with `emit_sem_evalSV`; it retains
+  the explicit `sf4Check` and bounded-environment hypotheses. These are NOT
+  yet derived at the declaration entry.
+* `emitStmt_render` / `emitBody_render`: the same for assignment statements
+  and their body text, with the shipping printer's blank-line separator.
+* `acceptedOptimizer_body_render`: a successful shipping `optCheck` itself
+  supplies the expression-shape premise for every statement of the accepted
+  optimized body. It does not cover the fallback arm merely by naming it.
+
+The proof/test modules are registered in Lake and `Tests.AllTests`. The test
+audits the bridge/shape theorems for standard axioms only, exercises a
+nested masked expression, and checks rejection of unsupported rendering forms.
+No compiler, optimizer, or printer behavior changed in this step.
+
+**Module rendering continuation:** `Tools/ShippingModulePrintSoundness.lean`
+now closes the byte-rendering part for the whole module. `emitModule_render`
+produces the existing `emitAstModule` tree and proves that `renderModule` of
+that tree equals the shipping `toVerilog` string, including comments, ports,
+internal-wire filtering and whitespace. Its hypotheses are: nonprimitive,
+no parameters, concrete bit/positive-bitvector declarations, and assignment
+bodies in the proved expression grammar. These declaration hypotheses have
+now been derived at the source entry (see the entry continuation below).
+
+The renderer receives only the SV AST and two formatting parameters: the
+original module name for the comment, and the wire-declaration prefix length.
+Both item portions are checked for the appropriate AST constructors; a wrong
+split is rejected. `acceptedOptimizer_module_render` derives the body grammar
+from the shipping `optCheck`; that helper retains explicit metadata/type
+hypotheses, which the entry continuation now discharges.
+
+Tests cover empty ports/body, internal wires, port/wire duplicates, bit and
+one-bit-vector declarations, original versus sanitized module names, an
+arbitrary-positive-width identity-module theorem, and rejection of a wrong
+layout split. Width zero is a pinned counterexample to byte equality: the
+shipping type is `logic [0:0]` while `widthAstOf` gives a scalar. The existing
+`fragA` integration test now compares the real optimized module's AST rendering
+with the exact string handed out by the shipping printer. That comparison is
+an integration regression, not a per-circuit semantic proof.
+
+**Entry continuation:** `Tools/ShippingPrintEntrySoundness.lean` proves
+`printedModule_render` for the SAME successful `synthesizeCombinational` run
+as the source theorem, under `EnvDefines`, fragment well-formedness and positive
+width. There are no additional renderer premises. `DeclFrame` follows actual
+allocation/translation, `DeclReady` records the entry's empty parameters,
+nonprimitive status and concrete wire types, and zero-width cleanup supplies
+positive internal-wire widths. The statement grammar follows both optimizer
+arms: normalization supplies the accepted arm; the entry's simple statements
+supply fallback. `PrintShape` permits arbitrary integer constants for byte
+rendering; this does not weaken any SV evaluation condition.
+
+The shipping validator now separates `optCheckCore` (the previous semantic
+check) and a declaration-preservation guard. If the original module satisfies
+`printDeclsCheck`, an accepted proposal must too. Otherwise the existing
+unoptimized fallback is used; there is no new compilation refusal. Negative
+tests change only primitive metadata or add an unused zero-width wire: the
+old core accepts, the strengthened checker rejects. The real `fragA` optimizer
+result remains accepted. `fragA_text_render` applies the general entry theorem
+to the actual declaration, and the test audits its axioms against the standard
+three. This closes byte rendering, **not** the lexical or SV evaluation bridge.
+
+`compiledFragment_artifact` now packages the two established results in
+`FragmentArtifact`: all-input source/optimized-IR agreement and the AST/byte
+correspondence for the SAME returned module. Packaging does not discharge the
+remaining SV semantics conditions. The executable tutorial
+[Chapter 7c](tutorial/md/Ch07c_VerifiedCompiler.md) applies this theorem to a real
+adder declaration, checks its quoted body by `rfl`, and audits standard axioms.
+Its diagram keeps the lexical and SV evaluation links explicitly unfinished.
+
+**Conditional SV continuation (2026-09-26):**
+`Tools/ShippingSVBridge.lean` proves `compiledFragment_forward`. For the SAME
+synthesis run and emitted tree/bytes, the existing SV-subset **in-order
+assignment fold** agrees with the source on every input. Wire sanitizer
+stability is now derived from allocation (see the repair below), not a
+caller premise. Its initial environment is constructed from
+source inputs, with boundedness proved (see below). The final
+`forwardCheck (checkedOptimize m) = true` premise was discharged by the
+optimizer-guard step described below.
+This is not external-tool or full concurrent SystemVerilog semantics; the
+remaining name and text-interpretation boundaries must still be discharged.
+
+Two representation gaps are now closed in that conditional composition:
+
+* `combItems` reads the assignment steps from the actual `SVModule.items`;
+  `module_combItems` proves they are exactly the steps of `emitAssigns`.
+  Unsupported statements and initialized wire declarations fail extraction,
+  rather than being silently ignored.
+* `declWidth` used by the source IR proof looks only at `m.wires`. In real
+  fragment modules `out` is an output port, so `declWidth m "out" = 0`, whereas
+  the printer reads its actual positive width. `forwardWidths` uses the
+  printer's declaration lookup, including ports. `evalAssigns_widths` proves
+  the transport between the two width environments from agreement on every
+  RHS reference; `forwardCheck` includes that agreement plus `assignsCheck`.
+
+The initial printer-width bound follows from `Bounded forwardWidths initial`;
+it is not a second caller premise. The final theorem now derives boundedness
+for `inputEnv` from the source input mapping. The SV evaluation still uses the
+printer's width lookup; an independent interpretation of the AST declarations
+and textual grammar is not claimed here.
+
+`ShippingSVBridgeTest` checks the forward conditions on real `fragA/B/C/D`,
+before and after optimization, and audits the general theorems for standard
+axioms only. Those concrete checks are non-vacuity/regression evidence, not
+proof that every accepted source declaration passes. A negative control adds
+an unused 8-bit assignment with a 16-bit RHS: the shipping optimizer check
+still passes `optCheckCore` (output semantics unchanged), but `forwardCheck`
+rejects it. The new guarded `optCheck` rejects it too. Before that guard,
+deriving the forward condition merely from `optCheck` would have been false.
+
+**Core width derivation (2026-09-26):** the real translator's `Inv` now also
+carries `SizedBody`. `SizedExpr we rhs n` states uniform operand/constant
+widths through the six-operator expression grammar. Constant and binary
+branches establish it at emission; recursive calls, record updates and cache
+hits preserve it. The entry establishes it from its empty body. The added
+translator invariant is therefore not an extra premise of the source-entry
+theorem. `PostReady M n` now exports `SizedExpr (weOf M) rhs n` for EVERY
+assignment RHS, including the final output read.
+
+`core_forwardCheck` uses those facts to derive the ENTIRE `forwardCheck` on
+the actual `synthesizeCombinationalCore` result, assuming only the existing
+environment/fragment/positive-width conditions and sanitizer stability of its
+wire names. No arithmetic width premise is supplied by the caller. The
+printer lookup at `out` is derived from its output declaration; lookups at
+positive-width references are derived from actual wire declarations. Uniform
+sizing implies the six-operator cases of `sf4Check`, even for nested RHSs.
+`dropZeroWidth_sized` also transports sizing through zero-width cleanup using
+the already proved body/width-environment equality.
+
+**Through post-processing (2026-09-26):** `validateMerge_sized` now proves
+uniform RHS sizing for every body accepted by the actual duplicate-merge
+checker. Its induction maintains the widths of aliases and previously
+defined targets. An alias must name an earlier, distinct target of equal
+width. This also handles `out`, whose wire-only width is zero: two distinct
+targets cannot both be that one exceptional name. No equality or behavior
+of the raw optimizer is assumed.
+
+`postprocess_sized` combines that result with zero-width cleanup, and
+`synthesizeCombinational_sized` applies it to the actual full synthesis run.
+`synthesized_forwardCheck` derives the full forward check on the RETURNED
+module, under the same environment/fragment/positive-width conditions and
+wire sanitizer stability. No width/check premise is added. Tests include a
+general application to `fragA`, an accepted duplicate-constant merge ending
+in `out`, a rejected unequal-width alias, and forward-check execution on
+the real `dupLit` as well as `fragA/B/C/D`. All new audited proofs use only
+the standard axioms. The shipping compiler is unchanged.
+
+**Through optimizer selection (2026-09-26):** the executable
+`Sparkle.IR.PrintCheck.moduleCheck` checks positive, uniform operand widths,
+sanitizer-fixed names and agreement between wire and printer lookups. It is
+a sufficient check for this fragment, not a general SV or lexical checker.
+It imports no `Tools` proof modules. `printExpr_sound` and
+`printCheck_forward` prove that passing it implies the existing full forward
+condition; `synthesized_printCheck` derives it from the actual source run.
+
+The shipping `optCheck` now requires the candidate to preserve that check
+when the original module passes it. A failed candidate falls back to the
+original module; modules outside this printing fragment keep the old policy.
+`checkedOptimize_printCheck` covers both arms, and `compiled_forwardCheck`
+connects them to the real synthesis entry. Consequently
+`compiledFragment_forward` no longer takes a final `forwardCheck` hypothesis.
+At this stage it still took sanitizer stability of the source result's wires
+and derived all width/check conditions through the real pipeline; the naming
+repair below also discharges that remaining name premise. Existing
+`EnvDefines`, source-fragment and positive-width restrictions still apply.
+The real `fragA/B/C/D` and `dupLit` optimizer proposals are accepted in tests;
+an unused mismatched-width assignment passes the old output check and is
+rejected by the guarded one. The general proofs are audited for standard
+axioms only.
+
+Validation for the optimizer-guard step: `lake test` and
+`lake build TutorialNotebooks` pass, including the executable
+`plus8_forward_check` application. A temporary differential command applied
+the old and new optimizer-selection policies to the SAME synthesized IR:
+298 successful command invocations across 119 files emitted byte-identical
+Verilog. This is not a claim that all 163 files in the historical sweep list
+build: that list also contains comments-only/library sources, existing error
+examples and an external tutorial package. Five missing-dependency cases were
+built and rerun successfully. No whole-run performance comparison is claimed
+from this two-policy harness.
+
+**Constructed initialization (2026-09-26):** `compiledFragment_forward` now
+takes no initial environment or boundedness hypothesis. Its executable
+`inputEnv` assigns each source input's sampled value to its port and zero to
+all other names. `inputEnv_input` uses the proved injectivity of the port map;
+`inputEnv_bounded` uses `BitVec.isLt`. Boundedness is a CONCLUSION alongside
+the emitted AST's evaluation result for every input and cycle. The previous
+arbitrary-initial-environment theorem remains available as
+`compiledFragment_forward_with_initial`.
+
+This required preserving unused input widths too. The expression guard does
+not inspect unused inputs: a constant-output candidate can narrow an unused
+input's wire declaration from 8 to 1 and still pass it, but 255 then violates
+the printer-width bound. `PrintCheck.inputWidthsAgree` now checks every input
+when the original passes the printing guard. `compiled_inputWidths` connects
+these checks to the real entry's input declarations. Tests pin that negative
+case and apply the final theorem to `fragA`; the tutorial applies it to
+`plus8`. This is combinational zero-internal-state initialization, not a
+register/reset theorem or arbitrary internal-state guarantee.
+
+Initialization-step validation: the soundness test, `lake test` and the
+executable tutorial pass; the general theorem and its `fragA`/`plus8`
+applications use standard axioms only. Comparing the previous guard with
+the new all-input-width guard on the same synthesized modules produced
+298 byte-identical Verilog outputs across the 119 emitting files used in
+the prior differential sweep. The two existing error-example files still
+report their unrelated errors; this is not a claim of a clean whole-corpus
+build. The runtime tests also include a real source with an unused input.
+
+Sanitizer stability is separate from lexical validity and is NOT assumed automatically:
+a real declaration with binder `«a#»` synthesizes, but its allocated name is
+changed by the printer and its forward check fails. That negative case is
+pinned alongside the general `fragA_core_forward` application and the axiom
+audit. The sanitizer itself is unchanged by the optimizer-guard steps.
+
+**Actual input declarations (2026-09-26):** `declaredPortWidth` interprets a
+literal range from an `SVPort` itself, independently of the IR width lookup
+(scalar = 1; either range direction = `max hi lo - min hi lo + 1`; symbolic
+ranges return `none`). `emitAstModule_input` proves that a positive-width IR
+input is emitted as an unsigned input of that width in the actual AST.
+`compiled_inputTypes` derives the input types and stable names through the
+real synthesis/cleanup/optimizer path, and `compiled_inputDecls` composes the
+two. `compiledFragment_forward` now includes this fact for each source input
+in its CONCLUSION. The `fragA` and tutorial `plus8` applications retain it.
+There is no new caller premise. This connects input declarations only, not
+the entire internal-wire/output width lookup to an independently interpreted
+module, and not concurrent or four-state RTL semantics.
+
+Validation for this step: the bridge test and generated tutorial build,
+`lake test` passes, and the new general lemmas plus the `fragA` and `plus8`
+applications pass the standard-axiom audit. The tutorial is now in English.
+
+**Actual output declaration and observation (2026-09-26):**
+`declaredOutputWidth` searches the actual AST's output ports and reads the
+literal range, independently of the IR/printer lookup. Signed, register and
+symbolic-range outputs are outside this observation function. `ports_dir`
+and `emitAstModule_outputWidth` connect this lookup to the emitted single
+positive-width output. `compiled_outputWidth` derives its width `n` from the
+source entry through both cleanup choices and both optimizer branches.
+The final `compiledFragment_forward` includes this as a conclusion; there is
+no output-declaration premise supplied by the caller.
+
+`observeUnsignedOutput` masks the final assignment environment's value to
+the width read from that actual output declaration. The final theorem now
+also proves this observation equals the source, because its `BitVec n` value
+is already below `2^n`. The `fragA`, `hashCollision` and tutorial `plus8`
+applications consume the stronger result. Tests cover the scalar spelling,
+eight-bit truncation (300 becomes 44), absent outputs, direction filtering,
+and refusal of signed observations. The general lemmas and applications
+pass the standard-axiom audit. This is an observation of the existing
+in-order assignment evaluator, NOT a new proof of concurrent/four-state SV
+semantics. The subsequent declaration-lookup result below connects internal
+declarations and shadowing as well.
+The bridge tests, generated tutorial and `lake test` pass. This step changes
+proofs and their examples only; the shipping compiler is unchanged.
+
+**Whole emitted declaration lookup (2026-09-26):**
+`Tools/ShippingDeclWidths.lean` defines `astWidths` using only SV ports and
+internal wire declarations. `declarationTable_emitted` extracts this table
+from the actual emitted tree, accounting for port-name wire suppression.
+`compiled_declarations` derives name/type consistency from the source entry.
+The new structural theorem `optimizeModule_wires_subset` proves that the
+shipping optimizer only filters wire declarations; no semantic optimizer
+assumption is needed for this fact. Together with the cleanup subset theorem,
+this transports declaration consistency through the actual pipeline.
+
+`compiled_astWidths` proves equality with the printer's lookup for every
+name, despite the different search order (IR wires first, AST ports first).
+`compiledFragment_astWidths` composes this with the source theorem: both
+initial boundedness and assignment evaluation use the emitted AST's own
+widths. It retains rendering equality, input/output declarations and output
+observation, with no new premise, checker or compiler behavior change.
+`fragA`, `hashCollision` and the English tutorial use this theorem.
+A conflicting 16-bit wire/8-bit port is a negative test: emission alone does
+not ensure agreement, whereas generated modules satisfy the proved invariant.
+The lexical/text contract and concurrent/four-state semantics remain open.
+Validation: bridge tests, generated English tutorial, `lake build` and
+`lake test` pass. The new general theorems and source applications pass the
+standard-axiom-only audit. No synthesis corpus rerun was needed for this
+proof-only change.
+
+**Simultaneous assignment equations (2026-09-26):**
+`Tools/ShippingSettledSoundness.lean` adds an explicit `Acyclic` condition:
+each target is written once, and RHS references do not include that target or
+any later target. Undriven names are external values. `assign_equations`
+proves a successful ordered fold satisfies all equations in its final
+environment; `equations_eval` proves any solution with the same external
+values is reproduced by that fold. `equations_unique` therefore gives
+uniqueness of all values, including internal wires. These are general results,
+not circuit-specific certificates.
+
+`equations_emitted_iff` relates the IR and emitted SV equation systems on
+bounded values. `module_settled` applies it to the actual emitted tree using
+`astWidths`: the resulting two-state simultaneous solution is unique among
+bounded environments with the same undriven values. The equation relation is
+permutation-invariant; a permuted list need not be a valid evaluation schedule.
+
+`compiledFragment_settled` connects this result to the existing successful-run
+source theorem, retaining source equality, actual text rendering and declared
+output observation. **It has one additional, unresolved hypothesis:**
+`Acyclic (checkedOptimize m).body`. This is not a completed unconditional
+shipping-to-simultaneous-semantics theorem. The prior
+`compiledFragment_astWidths` keeps its old assumptions and in-order conclusion.
+
+A committed counterexample shows why the existing optimizer check cannot
+supply this premise alone: it accepts a candidate with unchanged constant
+output plus `x := y; y := 1`. From zero, the fold ends with `x = 0, y = 1`,
+so not all equations hold. This is a limitation of the check's implication,
+NOT a demonstrated output of the actual optimizer or a newly found shipping
+miscompile. Separate tests reject duplicate targets and self-reference.
+
+Next: derive ordering from actual translation and preserve it through cleanup,
+validated merging and optimizer selection. Prefer a preservation proof; if a
+check is introduced, its soundness and the fallback's ordering must both be
+proved. Do not hide this obligation in an unnamed premise or count it as
+closed because the conditional theorem has standard axioms. External event
+scheduling, delays, four-state semantics and text grammar remain distinct.
+The concrete entry point is `ShippingTranslateSoundness.Emits`/`Spec`: they
+currently record statement shape and destination declarations, not the
+dependency order. Strengthen the translator invariant using fresh targets
+and already-bound operand wires, taking the builder's reversed body storage
+into account. Then transport that invariant through each postprocessing
+stage; checking a particular circuit is not a replacement for this proof.
+Validation: `lake build`, `lake test`, the new settled-semantics regression
+and generated English tutorial all pass. The connected conditional theorem
+and supporting results pass the standard-axiom audit. Shipping compiler
+behavior is unchanged; no corpus performance or external simulator claim is
+made by this step.
+
+**2026-09-26 shipping leaf order:** `ShippingTranslationOrder.OrderInv`
+records acyclicity of the reversed builder body and reservation of every
+read/written name. `Pending` is stronger than reservation: the existing body
+has not read or written that name. This distinction is necessary because the
+binary handler allocates its result before translating its operands.
+
+`makeWire_order` and `emitAssign_order` follow the actual builder operations.
+`translateSignalPureLiteral_order` covers both literal emission and the
+unsupported-payload no-op. `translateExprToWire_leaf_order` follows the actual
+recursive entry for fvars and supported literals, including cache hit/miss and
+recording, with no recursive order assumption. `translateExprToWire_leaf_settled`
+consumes it with the existing semantic theorem to produce a unique simultaneous
+solution carrying the source value. At this translator boundary, initial
+semantic/order/binding invariants and final width agreement remain explicit.
+
+This is a separate structural invariant, not yet incorporated into the full
+recursive `Spec`. Remaining: prove that binary operand translation preserves
+the pending parent result and returns a usable wire (including cache records),
+then establish the invariant at the synthesis entry and transport it through
+output emission, cleanup, merging and optimizer selection. The final
+`compiledFragment_settled` acyclicity premise is NOT discharged by this step.
+No compiler behavior, acceptance rule or previous theorem premise changed.
+Validation: the order/settled tests, English tutorial, `lake build` and
+`lake test` pass. The leaf entry and settled corollary pass the standard-axiom
+audit. Tests distinguish reserved-but-pending names from a self-dependent
+assignment and apply the entry theorem to a concrete quoted literal.
+
+**2026-09-26 recursive translator order — binary case closed:**
+`ShippingPendingSoundness.Protected` records a reserved parent result absent
+from the current body's footprint, meaningful source bindings and meaningful
+cache records. `translateExprToWire_protects` proves arbitrary nested
+translation cannot read, write or return it, including validated cache hits.
+This is proved by fuel induction alongside the existing structural `Spec`;
+there is no recursive hypothesis at the real entry.
+
+`binary_orders` derives protection for its freshly allocated result from the
+existing `Inv.lookup` and `Inv.record`, preserves it through both operand
+translations, and uses the resulting non-self-reference to emit the assignment
+last. `translateExprToWire_orders` closes the order induction for all supported
+combinations of inputs, literals and canonical `+ - * &&& ||| ^^^`.
+`translateExprToWire_settled` consumes this theorem with existing semantic
+preservation: the actual translated body's unique simultaneous solution
+carries the source value. It has no leaf restriction, recursive premise or
+caller-supplied `Protected` condition.
+
+The translator boundary still takes initial `Inv`/`OrderInv` and final
+`WidthsAgree`. The FULL synthesis-to-SV theorem's `Acyclic` premise is still
+open: connect initialization and output emission, then preserve order through
+cleanup, checked merging and optimizer selection. This step does not enlarge
+the source-language fragment or change compiler behavior. In particular it is
+not a proof for the unverified fallback handlers.
+
+Tests apply the actual-entry theorem to a nested add/multiply expression and
+show that a reserved, body-absent name with a meaningful cache record fails
+`Protected`. The cache condition is not silently equated with body absence.
+Validation: targeted tests, the executable English tutorial, `lake build` and
+`lake test` pass. All new audited proofs use only the three standard axioms.
+
+**2026-09-26 synthesis core order — initialization and output connected:**
+The foundational IR assignment/equation theory now lives in
+`Tools/ShippingAssignmentOrder.lean` (same theorem namespace), removing the
+import cycle between translator order and the synthesis entry. In
+`synthesizeCertified_sound`, the empty initial body supplies `OrderInv`;
+the already-derived `Inv` and width agreement instantiate the recursive order
+theorem. The final `out := w` cannot read itself: the returned wire is reserved,
+while the actual output-name check establishes that `out` is not reserved.
+The footprint invariant likewise excludes `out` from all earlier reads/writes.
+
+`PostReady` now includes `Acyclic M.body`, derived at the actual core entry.
+`fragmentDecl_core_settled` gives a unique simultaneous IR solution whose
+output equals the Signal declaration at every cycle, with no caller-supplied
+order premise. It retains the same `EnvDefines`, quoted-fragment and input
+valuation boundaries. `fragA_core_settled` applies it to the real declaration;
+it does not perform a per-instance semantic certification.
+`dropZeroWidth_entry_order` transports order across positive-width cleanup,
+using the already-proved body identity.
+
+Remaining: prove order preservation of checked merging and optimizer selection,
+then remove the extra `Acyclic (checkedOptimize m).body` premise from the final
+SV theorem. The existing optimizer output-equivalence check alone does not
+imply order (the earlier accepted forward-reference counterexample still
+applies). No compiler behavior, supported fragment, lexical/text boundary or
+external RTL execution model changed in this step.
+
+Validation: entry/settled regressions and their standard-axiom audits, English
+executable tutorial, `lake build` and `lake test`. No compiler corpus or
+performance rerun is claimed for this proof-only change.
+
+**2026-09-26 post-processing order — checked merging connected:**
+`validateStep_order` follows the shipping validator: targets are unchanged,
+new references are either original references or point into `st.defined`,
+and substitution aliases only target that completed prefix.
+`validateMerge_go_order` carries this invariant along the checked statement
+pairs and proves both target-list equality and `Acyclic` preservation.
+`mergeDuplicates_order` covers accepted proposals and unchanged fallbacks;
+`postprocess_order` also covers the environment-variable path that skips merging.
+No extra runtime validator or compiler behavior change is needed.
+
+`synthesizeCombinational_settled` now reaches the actual returned IR after
+zero-width cleanup and checked merging. Under the existing environment,
+fragment, positive-width and input-valuation conditions, it supplies the
+assignment order and a unique simultaneous IR solution whose output is the
+Signal declaration's value. `fragA_synthesized_settled` applies the general
+theorem to the real declaration without a circuit-specific certificate.
+
+The next order obligation is **optimizer selection only**: the final SV theorem
+still assumes `Acyclic (checkedOptimize m).body`. Output equivalence alone does
+not imply this, as the existing negative test shows. First inspect the actual
+optimizer's transformations for order preservation; do not strengthen a theorem
+by silently assuming the existing `optCheck` establishes it. Lexical validity,
+text interpretation, external RTL execution, and larger source fragments remain
+separate unfinished work.
+
+Validation: a successful alias-producing merge with a later rewritten use,
+rejections of forward/self-reference proposals, actual-entry application,
+standard-axiom audit, English executable tutorial, `lake build`, and `lake test`.
+This is a proof-only change; no corpus or performance measurement is claimed.
+
+**2026-09-26 optimizer selection connected — final order premise discharged:**
+The shipping `checkedOptimize` now requires `assignmentOrderCheck o.body` in
+addition to its existing `optCheck m o` before accepting a proposal on the
+simple-body route. Rejected proposals return the original module as before;
+other routes still use the unchecked optimizer. The structural checker permits
+external reads, rejects duplicate targets, self-reads and forward dependencies,
+and is proved equivalent to `Acyclic` by `assignmentOrderCheck_iff`.
+`checkedOptimize_order` therefore covers accepted and fallback branches.
+This certifies result selection, not the implementation of each optimizer pass.
+
+`synthesized_order` derives order from the same successful synthesis run and
+its environment/fragment conditions. `compiledFragment_settled` now consumes
+this fact and the optimizer-selection theorem internally: its former
+`Acyclic (checkedOptimize m).body` hypothesis is REMOVED. The theorem combines
+actual text rendering, declared AST widths, source input initialization, output
+observation and a unique bounded simultaneous two-state solution for the
+emitted assignments. `fragA_final_settled` applies it to the real declaration
+without an order hypothesis or a circuit-specific semantic certificate.
+
+The remaining boundaries have not disappeared: `EnvDefines`, the quoted
+positive-width combinational fragment, complete lexical validity and text
+interpretation, and external RTL scheduling/four-state behavior. Other accepted
+handlers, registers, memories, hierarchy and larger language coverage remain
+outside this theorem. This is the completion of the assignment-order connection
+for the fragment, not a whole-language CompCert claim.
+
+Tests retain the old counterexample: `optCheck` alone accepts the unused forward
+dependency, but the new combined acceptance rejects it. Self-reference and
+duplicate targets are rejected too. Real fragA/B/C/D and dupLit optimizations
+that the old policy accepts still pass the added check. The final theorem and
+its real-declaration application are audited for standard axioms only.
+
+Validation: the 119-file synthesis sweep compared the old selection expression
+(`optCheck` only) with the new shipping selection in the same process. All
+298 emitted modules were byte-identical. File exit statuses matched the prior
+sweep, including the existing failures in VerifyVerilog and TestErrorDetection;
+this is not a claim that all 119 files passed. Entry/settled tests, executable
+English tutorial, `lake build` and `lake test` pass. No new performance estimate
+is inferred from this run.
+
+**2026-09-26 declaration-name class connected:**
+`NameHints.Allocated` strengthens character cleanliness with an underscore
+first character. `freshName_allocated` / `makeWire_allocated` prove it for the
+actual allocator, including reserved-name suffix searches and temporary names.
+`DeclFrame.wireNames` and the entry's `DeclReady` now carry this stronger fact.
+No allocator behavior, accepted program or printed spelling changed.
+
+`compiled_dataNames` transports it through cleanup, checked merging and
+optimizer wire filtering, retaining input ports and the fixed output `out`.
+`compiled_astDataNames` applies it to the actual emitted AST's declaration
+table, including port/wire suppression. The final `compiledFragment_settled`
+now includes this fact as a conclusion: each declared data name contains only
+the allowed characters and starts with underscore, or is exactly `out`.
+The caller supplies no name-class premise.
+
+This settles the leading-character examples for DATA DECLARATIONS: a binder
+spelled `1bad` or `module` is an allocator hint, never that raw identifier.
+The new synthesis regression also reparses its emitted text and compares the
+AST; that is a test, not a parser correctness theorem. The general name theorem
+and strengthened final theorem have only standard axioms.
+
+Still open: the module-name path, the raw source-name comment (including line
+breaks), completeness of a lexical/keyword specification, name binding of all
+expression references, and tokenization/rendered-text correctness. The existing
+parser keyword list is intentionally limited and is not used as a complete
+SystemVerilog standard. This step does not claim to close the lexical boundary
+or external RTL execution semantics. Next inspect module-name/comment handling
+before claiming a complete artifact grammar theorem.
+
+Validation: SV-bridge and settled tests with axiom audits, executable English
+tutorial, `lake build`, `lake test`. This is a proof-only strengthening; no
+corpus byte-comparison or performance rerun is claimed.
+
+**2026-09-26 source-name comments — actual prefix protected:**
+The backend previously interpolated `m.name` directly into line comments.
+A label containing LF or CR could terminate the comment early. Shipping
+`commentLabel` now replaces those two characters with spaces, preserving
+single-line labels exactly; both normal and primitive/blackbox comments use it.
+`moduleComment` constructs the normal header, and the AST renderer uses the same
+label policy. This changes comment text only for labels containing LF/CR.
+
+`commentLabel_lineText` proves that the result contains neither LF nor CR;
+`commentLabel_eq` proves identity on labels already satisfying this condition.
+`renderModule_comment` ties it to a successful rendering: the actual returned
+string starts with `moduleComment name`, whose embedded label is single-line.
+The final `compiledFragment_settled` now includes both the safe-label fact and
+this prefix equality for the actual `verilogOf m` artifact, with no new premise.
+All proofs use standard axioms only.
+
+The malicious-label regression checks the shipping emitter's header for both
+normal and primitive modules. It deliberately does NOT assert that the entire
+module has become legal: `sanitizeName` still has a separate incomplete contract
+for module identifiers. Its misleading "valid identifier" docstring is corrected.
+Names such as `1bad` and `module`, and arbitrary unsupported characters, remain
+outside a complete module-name lexical guarantee. The change does not repair
+module-identifier collisions or establish parser/lexer correctness.
+
+Next: define and connect the module-identifier policy (including references to
+modules and collision/compatibility consequences), then the remaining expression
+identifier and token/grammar correspondence. Do not infer a complete text
+certificate from a protected comment prefix or from roundtrip smoke tests.
+
+Validation: printer and final-theorem tests with standard-axiom audits,
+executable English tutorial, `lake build` and `lake test`. Normal-name comment
+identity is proved generally; no full corpus comparison or performance rerun is
+claimed for this step.
+
+**Naming defect and repair (2026-09-26):** the real declaration
+`hashCollision («a#» «a##» : Signal dom (BitVec 8)) := «a#» + «a##»`
+previously synthesized with distinct `_gen_«a#»` and `_gen_«a##»`, both printed
+as `_gen_«a»`. The old theorem excluded it through its name premise.
+`freshName` now normalizes remaining characters AFTER hygiene stripping but
+BEFORE fresh allocation. `NameHints.clean_ok`, `freshName_clean` and
+`makeWire_clean` prove the selected names use only printer-stable characters;
+the existing fresh-name proof prevents aliases even when hints normalize to
+the same base. Common punctuation spellings and clean names are retained.
+
+The actual translator's `DeclFrame.wireNames` carries this property through
+all proved branches, including cache reuse. It becomes `DeclReady` at the
+entry, starting from the empty wire list. Cleanup/merge wire inclusion and
+`sanitizeName_of_clean` yield `synthesized_names`. The final
+`compiledFragment_forward` consumes that theorem and no longer takes `hs`.
+This removes a premise on the real compilation path rather than relocating
+it to another hypothesis. `hashCollision_sv_correct` now applies the general
+source-to-SV theorem to the formerly excluded source, for all inputs. Runtime
+tests also cover two hints that normalize to exactly the same base, verifying
+distinct emitted input names and correct use of values 3 and 10.
+
+Scope: this repairs allocator-produced wire names (and input ports backed by
+them), not arbitrary module names or independently created port names.
+The complete lexical/text contract is still open. No new source-name
+restriction or compiler refusal was added.
+
+Validation of the repair: the allocator/bridge tests and executable tutorial
+build; the new lemmas and `hashCollision_sv_correct` pass the standard-axiom
+audit; `lake test` passes. The two collision regressions also reparse the
+actual printed text and compare its AST before checking values (a regression
+test, not a parser assumption in the theorem). Compared with the saved
+pre-repair sweep, all 302 emitted module texts from 298 command invocations
+across 119 files are byte-identical. Exit statuses are unchanged, including
+the existing failures of `Tests/VerifyVerilog.lean` and
+`Tests/TestErrorDetection.lean`; this is not a 119-file all-green claim.
+
+**Review of proposed option A:** retaining an optimizer result only after a
+forward-fragment check is sensible, but the fallback's check must be proved
+before claiming all returned modules satisfy it. Do not add an unproved check
+premise to the source-to-text theorem. The proposed binder-character condition
+`[A-Za-z0-9_$]` is insufficient for valid unescaped SV identifiers: e.g. `1bad`
+and `module` are sanitize-fixed but not ordinary legal identifiers. The lexical
+contract must address the first character, keywords, module/port/wire names,
+and name collisions. Sanitize stability and lexical validity are separate.
+The existing lexer has a subset keyword list; it must not be advertised as a
+complete SystemVerilog keyword specification.
+
+Next, in order:
+
+1. **Done for the stated module fragment:** full module rendering equality.
+   Metadata/type and body-shape hypotheses are now derived from the real source
+   entry through both paths of the checked optimizer.
+2. Establish the lexical contract for the source fragment and generated names.
+   Until then byte equality is NOT a theorem that an SV tool parses the string.
+3. **Done on the proved fragment:** the fallback's check is derived,
+   and the shipping optimizer preserves it on both returned branches.
+   Initialization from input-port values is now also derived. Both are
+   conclusions of the actual-run theorem, not caller-supplied checks.
+   Allocated-wire sanitizer stability is derived too.
+4. Compose the existing declaration theorem with the module rendering and SV
+   evaluation theorems. Any trusted rendering-to-grammar interpretation must
+   remain explicit, distinct from the proved byte equalities.
+
+### Still open on this path
+
+* **Text ↔ SV semantics (next).** Relate `toVerilog (checkedOptimize M)` to
+  the existing SV-subset semantics (`evalSV`, `emit_sem_assigns` in
+  `Tools/SVParser/EmitSem.lean`, which relate the IR to an SV AST).
+  Rendering equality, the assignment check and constructed initialization
+  are proved, with allocated-wire name stability derived. Actual input-port
+  declarations and declared-width output observation are connected too.
+  The whole evaluator width lookup, including internal wires and shadowing,
+  is now derived from those AST declarations. Remaining: the complete lexical
+  contract (module names included); connect in-order
+  assignment evaluation to concurrent RTL semantics and the emitted text's
+  grammar. Any interpretation by external tools remains an explicit boundary.
+* Width 0, `EnvDefines`, registers/memories/instances, as before.
+
+## Applying the general theorem to crc16
+
+The desired application is: check successful shipping compilation (and any
+explicit admissibility conditions), then apply the general preservation theorem.
+It must not invoke a circuit-specific semantic replay proof. No such complete
+shipping success theorem exists yet. Source inspection of `crc16CcittHW` and
+`crc16Step` identifies the following coverage obligations; this table is not an
+execution trace or an exhaustiveness proof for the handlers they invoke.
+
+| crc16 construct / compiler stage | General proof status |
+|---|---|
+| map/application, BitVec AND/XOR | Source application rule and canonical scalar RHS rules proved. Canonical Signal×Signal operators, literals and inputs: end-to-end theorem for the ACTUAL entry `translateExprToWire`, recursion discharged (2026-09-25); recognition instance-checked. Other dispatch still the unproved fallback |
+| local bindings, wire allocation | Actual allocation/emission and scoped binding rules proved; cache hit/insert rules proved (2026-09-25) under explicit key hypotheses; global source/width invariant still open |
+| pure constants, concat, shift, equality, Bool not, mux | `Signal.pure` of a `BitVec` literal proved as a leaf branch of the actual translator (2026-09-25); concat, shift, equality, Bool not and mux still open |
+| register init `0xFFFF`, update, feedback, start/valid mux | Temporal simulation of the shipping stateful path remains open |
+| helper unfolding, output record packing, Bool/BitVec ports | Source recognition and interface correspondence remain open |
+| zero-width cleanup and register deduplication | Composition with the shipping success theorem remains open |
+
+The current bounded frontend and crc16's per-instance certificates do not close
+these rows. Generic theorem/axiom checks are the primary criterion. For the
+state-storage change, synthesis and scope regressions check integration; they
+do not discharge additional rows of the general proof.

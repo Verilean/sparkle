@@ -6,8 +6,11 @@
 -/
 
 import Sparkle.IR.AST
+import Sparkle.IR.FreshNames
+import Sparkle.IR.NameHints
 import Std.Data.HashSet
 import Std.Data.HashMap
+import Lean.Expr
 
 namespace Sparkle.IR.Builder
 
@@ -30,11 +33,27 @@ structure CircuitState where
   -- `_gen_b_1 … _gen_b_{k-1}` linearly → O(k²) for a hot base.  Start
   -- probing where we left off so each named allocation is O(1).
   nextSuffix : Std.HashMap String Nat := {}
+  -- Source-binder provenance for this synthesis only. This is builder metadata,
+  -- not part of the emitted IR. Keeping it here gives nested synthesis its own
+  -- table and makes lookup/update pure, rather than a global IO.Ref lifecycle.
+  sourceBindings : Std.HashMap Lean.Name String := {}
+  /-- Wire → the expression the proved translator core produced it for. Pure
+      builder metadata (absent from the emitted IR); it validates hits of the
+      `IO.Ref` expression cache, whose key equality is opaque. -/
+  translateRecord : Std.HashMap String Lean.Expr := {}
 
 /-- Circuit builder monad -/
 abbrev CircuitM := StateM CircuitState
 
 namespace CircuitM
+
+/-- Resolve a source binder, preferring a reader-scoped local hit. -/
+def lookupSourceBinding (localHit : Option String) (key : Lean.Name) : CircuitM (Option String) :=
+  fun s => (localHit.orElse (fun _ => s.sourceBindings.get? key), s)
+
+/-- Remember a source binder for later consumers in the SAME synthesis. -/
+def bindSourceVariable (key : Lean.Name) (wire : String) : CircuitM Unit :=
+  fun s => ((), { s with sourceBindings := s.sourceBindings.insert key wire })
 
 /-- Create initial circuit state -/
 def init (topModuleName : String) : CircuitState :=
@@ -94,41 +113,117 @@ private def stripHygiene (s : String) : String :=
     String.mk trimmed
   | []     => s
 
+/-- Allocate a stable base or its next unused numeric suffix. -/
+def freshNamed (base : String) : CircuitM String := fun s =>
+  if s.usedNames.contains base then
+    let n := FreshNames.freshSuffix s.usedNames base (s.nextSuffix.getD base 1)
+    let candidate := FreshNames.numbered base n
+    (candidate, { s with usedNames := s.usedNames.insert candidate
+                        , nextSuffix := s.nextSuffix.insert base (n + 1) })
+  else
+    (base, { s with usedNames := s.usedNames.insert base })
+
+/-- Allocate a temporary, respecting reservations even at the current counter. -/
+def freshTemporary (base : String) : CircuitM String := fun s =>
+  let n := FreshNames.freshSuffix s.usedNames base s.counter
+  let name := FreshNames.numbered base n
+  (name, { s with counter := n + 1, usedNames := s.usedNames.insert name })
+
+theorem freshNamed_clean {base : String} (h : NameHints.Clean base) (s : CircuitState) :
+    NameHints.Clean (freshNamed base s).1 := by
+  unfold freshNamed
+  split
+  · exact NameHints.numbered h _
+  · exact h
+
+theorem freshTemporary_clean {base : String} (h : NameHints.Clean base) (s : CircuitState) :
+    NameHints.Clean (freshTemporary base s).1 :=
+  NameHints.numbered h _
+
 /-- Generate a fresh wire name.
     When `named=true` (user let-bindings), produces `_gen_{hint}` — stable across recompilations.
     When `named=false` (compiler intermediates), produces `_tmp_{hint}_{counter}` — numbered.
 
-    The hint is stripped of any Lean macro-hygiene suffix
-    (`...__@_...__hygCtx__hyg_N`) so the resulting wire name is
-    a valid Verilog identifier. -/
-def freshName (hint : String) (named : Bool := false) : CircuitM String := do
-  let s ← get
-  let hint := stripHygiene hint
+    Strip Lean macro-hygiene suffixes (`...__@_...__hygCtx__hyg_N`), then
+    normalize the remaining characters BEFORE the collision search. Distinct
+    hints may normalize alike; the allocator still returns distinct names. -/
+def freshName (hint : String) (named : Bool := false) : CircuitM String :=
+  let hint := NameHints.clean (stripHygiene hint)
   let baseName := if hint.isEmpty then "wire" else hint
   if named then
-    -- Stable name: try `_gen_{hint}`, then `_gen_{hint}_1`, `_gen_{hint}_2`, ...
-    let base := s!"_gen_{baseName}"
-    if !s.usedNames.contains base then
-      set { s with usedNames := s.usedNames.insert base }
-      return base
-    else
-      -- Resume probing at the last suffix we reached for this base
-      -- (persisted in `nextSuffix`) so k collisions on one base cost
-      -- O(k) total, not O(k²).
-      let mut n := s.nextSuffix.getD base 1
-      let mut candidate := s!"{base}_{n}"
-      while s.usedNames.contains candidate do
-        n := n + 1
-        candidate := s!"{base}_{n}"
-      set { s with usedNames := s.usedNames.insert candidate
-                 , nextSuffix := s.nextSuffix.insert base (n + 1) }
-      return candidate
+    -- The suffix cache avoids repeatedly searching from one for a hot base.
+    freshNamed s!"_gen_{baseName}"
   else
-    let name := s!"_tmp_{baseName}_{s.counter}"
-    set { s with counter := s.counter + 1, usedNames := s.usedNames.insert name }
-    return name
+    -- Input/output reservations can already occupy a numbered temporary.
+    -- Search from the counter rather than assuming the candidate is unused.
+    freshTemporary s!"_tmp_{baseName}"
 
-/-- Sanitize a name to be a valid Verilog identifier -/
+/-- Normalization happens before the collision search, so every allocated
+name survives the backend's character sanitizer unchanged. -/
+theorem freshName_clean (hint : String) (named : Bool) (s : CircuitState) :
+    NameHints.Clean (freshName hint named s).1 := by
+  have hc := NameHints.clean_ok (stripHygiene hint)
+  unfold freshName
+  have hb : NameHints.Clean
+      (if (NameHints.clean (stripHygiene hint)).isEmpty then "wire"
+       else NameHints.clean (stripHygiene hint)) := by
+    split
+    · simp [NameHints.Clean, NameHints.charOk]
+    · exact hc
+  cases named with
+  | false =>
+    exact freshTemporary_clean
+      ((by simp [NameHints.Clean, NameHints.charOk] : NameHints.Clean "_tmp_").append hb) s
+  | true =>
+    have hg := (by simp [NameHints.Clean, NameHints.charOk] : NameHints.Clean "_gen_").append hb
+    exact freshNamed_clean hg s
+
+theorem freshName_allocated (hint : String) (named : Bool) (s : CircuitState) :
+    NameHints.Allocated (freshName hint named s).1 := by
+  refine ⟨freshName_clean hint named s, ?_⟩
+  cases named with
+  | false => simp [freshName, freshTemporary, FreshNames.numbered, String.toList_append, toString]
+  | true =>
+    simp only [freshName, ite_true]
+    unfold freshNamed
+    repeat' split <;> simp [FreshNames.numbered, String.toList_append, toString]
+
+theorem freshNamed_spec (base : String) (s : CircuitState) :
+    let result := freshNamed base s
+    s.usedNames.contains result.1 = false ∧
+    result.2.usedNames = s.usedNames.insert result.1 ∧
+    result.2.module = s.module := by
+  unfold freshNamed
+  split
+  · exact ⟨(FreshNames.freshSuffix_spec _ _ _).1, rfl, rfl⟩
+  · exact ⟨by simpa using ‹¬ s.usedNames.contains base = true›, rfl, rfl⟩
+
+/-- The actual allocator always returns an unused name, reserves it without
+dropping previous reservations, and leaves the built module unchanged. -/
+theorem freshName_spec (hint : String) (named : Bool) (s : CircuitState) :
+    let result := freshName hint named s
+    s.usedNames.contains result.1 = false ∧
+    result.2.usedNames = s.usedNames.insert result.1 ∧
+    result.2.module = s.module := by
+  cases named with
+  | false =>
+    dsimp [freshName, freshTemporary]
+    exact ⟨(FreshNames.freshSuffix_spec _ _ _).1, rfl, rfl⟩
+  | true =>
+    exact freshNamed_spec _ _
+
+/-- Allocating a name preserves source-binder provenance. -/
+theorem freshName_sourceBindings (hint : String) (named : Bool) (s : CircuitState) :
+    (freshName hint named s).2.sourceBindings = s.sourceBindings := by
+  have stable (base : String) : (freshNamed base s).2.sourceBindings = s.sourceBindings := by
+    unfold freshNamed
+    split <;> rfl
+  cases named with
+  | false => rfl
+  | true => exact stable _
+
+/-- Preserve the historical spelling of common hint punctuation. Full
+character normalization is performed by `freshName` before allocation. -/
 def sanitizeName (name : String) : String :=
   name.replace "." "_"  |>.replace "-" "_"  |>.replace " " "_"  |>.replace "'" "_prime"
 
@@ -150,6 +245,52 @@ def makeWire (hint : String) (ty : HWType) (named : Bool := false) : CircuitM St
   let m ← getModule
   setModule (m.addWire { name := name, ty := ty })
   return name
+
+theorem makeWire_clean (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    NameHints.Clean (makeWire hint ty named s).1 :=
+  freshName_clean (sanitizeName hint) named s
+
+theorem makeWire_allocated (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    NameHints.Allocated (makeWire hint ty named s).1 :=
+  freshName_allocated (sanitizeName hint) named s
+
+/-- Allocation preserves executable statements and adds the advertised typed
+wire, while satisfying the same freshness/reservation contract. -/
+theorem makeWire_spec (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    let result := makeWire hint ty named s
+    s.usedNames.contains result.1 = false ∧
+    result.2.usedNames = s.usedNames.insert result.1 ∧
+    result.2.module.body = s.module.body ∧
+    result.2.module.wires = { name := result.1, ty := ty } :: s.module.wires := by
+  have h := freshName_spec (sanitizeName hint) named s
+  change s.usedNames.contains (freshName (sanitizeName hint) named s).1 = false ∧
+    (freshName (sanitizeName hint) named s).2.usedNames =
+      s.usedNames.insert (freshName (sanitizeName hint) named s).1 ∧
+    (freshName (sanitizeName hint) named s).2.module.body = s.module.body ∧
+    _
+  refine ⟨h.1, h.2.1, ?_, ?_⟩
+  · rw [h.2.2]
+  · change _ :: (freshName (sanitizeName hint) named s).2.module.wires = _
+    rw [h.2.2]
+    rfl
+
+theorem makeWire_sourceBindings (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (makeWire hint ty named s).2.sourceBindings = s.sourceBindings :=
+  freshName_sourceBindings (sanitizeName hint) named s
+
+/-- Allocating a name preserves the translation record. -/
+theorem freshName_translateRecord (hint : String) (named : Bool) (s : CircuitState) :
+    (freshName hint named s).2.translateRecord = s.translateRecord := by
+  have stable (base : String) : (freshNamed base s).2.translateRecord = s.translateRecord := by
+    unfold freshNamed
+    split <;> rfl
+  cases named with
+  | false => rfl
+  | true => exact stable _
+
+theorem makeWire_translateRecord (hint : String) (ty : HWType) (named : Bool) (s : CircuitState) :
+    (makeWire hint ty named s).2.translateRecord = s.translateRecord :=
+  freshName_translateRecord (sanitizeName hint) named s
 
 /--
   Emit a continuous assignment statement.

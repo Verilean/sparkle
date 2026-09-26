@@ -69,12 +69,23 @@ import Tests.YOLOv8.TestNeck
 -- Tests.X` (and hence `lake test`) directly — no separate exe
 -- run is needed for the synth side.
 import Tests.SignalLoopTest
+import Tests.MemorySpecTest
 import Tests.IP.Control.IIRBiquadTest
 import Tests.IP.Control.PIDTest
 import Tests.IP.Control.LQRTest
 import Tests.IP.Control.PrecisionSweepTest
 import Tests.IP.Control.ObserverTest
 import Tests.Compiler.RtlStructureTest
+import Tests.Compiler.ApplicativeSemanticsTest
+import Tests.Compiler.ShippingScalarSoundnessTest
+import Tests.Compiler.FreshNameSoundnessTest
+import Tests.Compiler.ShippingBindingsSoundnessTest
+import Tests.Compiler.ShippingCacheSoundnessTest
+import Tests.Compiler.ShippingTranslateSoundnessTest
+import Tests.Compiler.ShippingEntrySoundnessTest
+import Tests.Compiler.ShippingPrintSoundnessTest
+import Tests.Compiler.ShippingSVBridgeTest
+import Tests.Compiler.ShippingSettledSoundnessTest
 import Tests.CircuitDoTest
 import Tests.RunCircuitHTest
 import Tests.TestCppSim
@@ -529,6 +540,9 @@ def main : IO UInt32 := do
   Sparkle.Tests.CircuitDoTest.main
   IO.println ""
   Sparkle.Tests.RunCircuitHTest.main
+  IO.println ""
+  -- memory primitives: implementation vs the pure `memState` spec
+  Sparkle.Tests.MemorySpecTest.main
   IO.println ""
 
   -- Fixed-point control datapaths (IIR biquad / PID / LQR).  These use
