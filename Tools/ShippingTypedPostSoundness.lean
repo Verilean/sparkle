@@ -132,6 +132,46 @@ theorem mergeDuplicates_typed {m : Sparkle.IR.AST.Module}
     exact validateMerge_typed hz hv hs
   · exact hs
 
+/-- The distinguished Bool output keeps its one-bit RHS through merging. -/
+def OutputTyped (we : WEnv) (body : List Stmt) : Prop :=
+  ∀ e, Stmt.assign "out" e ∈ body → TypedExpr we e 1
+
+theorem validateMerge_go_output {we : WEnv} {allLhs : List String} (hz : we "out" = 0) :
+    ∀ (old new : List Stmt) (st : MergeCheck),
+      validateMerge.go we allLhs st old new = true → TypedStmts we old → OutputTyped we old →
+      (∀ x, we (aliasOf st.S x) = we x) →
+      (∀ x ∈ st.defined, 0 < we x ∨ x = "out") → OutputTyped we new
+  | [], [], _, _, _, _, _, _ => fun _ h => by cases h
+  | [], _ :: _, _, h, _, _, _, _ => by simp [validateMerge.go] at h
+  | _ :: _, [], _, h, _, _, _, _ => by simp [validateMerge.go] at h
+  | a :: as, b :: bs, st, h, hs, ho, hS, hd => by
+    obtain ⟨l, e, n, rfl, he, hl⟩ := hs a List.mem_cons_self
+    simp only [validateMerge.go] at h
+    split at h
+    · rename_i st' hstep
+      obtain ⟨⟨e', rfl, he'⟩, hS', hd'⟩ := validateStep_typed hz hstep he hl hS hd
+      have ht := validateMerge_go_output hz as bs st' h
+        (fun s hm => hs s (List.mem_cons_of_mem _ hm))
+        (fun e hm => ho e (List.mem_cons_of_mem _ hm)) hS' hd'
+      intro rhs hm
+      rcases List.mem_cons.mp hm with eq | hm
+      · cases eq
+        have hn := he.width.symm.trans (ho e List.mem_cons_self).width
+        exact hn ▸ he'
+      · exact ht rhs hm
+    · cases h
+
+theorem mergeDuplicates_output {m : Sparkle.IR.AST.Module}
+    (hz : weOf m "out" = 0) (hs : TypedStmts (weOf m) m.body)
+    (ho : OutputTyped (weOf m) m.body) :
+    OutputTyped (weOf (mergeDuplicates m)) (mergeDuplicates m).body := by
+  unfold mergeDuplicates
+  simp only [hs.isAssign, if_true]
+  split
+  · rename_i hv
+    exact validateMerge_go_output hz _ _ {} hv hs ho (fun _ => rfl) (fun _ hm => by cases hm)
+  · exact ho
+
 theorem dzExpr_typed {we e n} (h : TypedExpr we e n) (wm : Sparkle.IR.Optimize.WidthMap) :
     dzExpr wm e = e := by
   induction h with

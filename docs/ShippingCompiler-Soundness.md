@@ -52,6 +52,67 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed concrete syntax and binding connected (2026-09-27)
+
+`Tools/ShippingMixedBindingSoundness.lean` closes the concrete grammar and
+reference/target-binding connection for the current mixed Bool/BitVec source
+fragment. `synthesizeCombinational_mixed_syntax` follows the actual synthesis
+entry, cleanup, optional checked duplicate merging, checked optimizer and
+`verilogOf`. `syntax_source_of_env` combines the syntax result with the existing
+library Signal value theorem, at every source observation time. The returned
+`SyntaxValue` supplies:
+
+* the selected IR's output equals the source value;
+* the actual whole output string derives its emitted AST in
+  `ConcreteSyntax.Module`;
+* module/data identifiers are legal, data declarations are unique, and their
+  width lookup matches the printer;
+* every assignment target and every RHS reference is declared in that AST.
+
+Both optimizer branches are proved. Comparison/mux modules retain the
+postprocessed original, whose typed expressions establish binding. For flat
+modules without control expressions, `post_printCheck` derives the existing
+printing guard from the source invariant, so accepted optimized modules inherit
+it. A new `OutputTyped` invariant carries the Bool output's one-bit RHS through
+checked merging; `emitLeaves_postReady` derives it and the actual one-bit output
+port from the real translator. Module-name legality comes from the existing
+`finishSynth` success branch. Neither the public source theorem nor its caller
+supplies a binding, syntax, optimizer-selection or printing-check certificate.
+
+The old BitVec-only syntax theorem was not broken. Its single-width arithmetic
+premises do not directly cover an 8-bit comparison producing a 1-bit Bool, or
+scalar Bool declarations. This change generalizes the supporting arguments and
+connects the new domain to the existing grammar; it changes neither the grammar
+specification nor compiler behavior or accepted source programs.
+
+Current boundaries by source domain:
+
+| Domain | Concrete syntax/binding | Selected IR value | SV execution/settling |
+| --- | --- | --- | --- |
+| Original positive-width BitVec fragment | proved | proved | proved in the two-state, zero-delay delta model |
+| Current Bool/comparison/Bool-mux mixed fragment | proved | proved | still to connect |
+| Other successful DSL paths, including state/reset, memory and hierarchy | incomplete | incomplete | incomplete |
+
+These are coverage obligations for each domain, not three independent global
+checkboxes. Extending the source domain requires preserving the syntax and
+semantic connections for that extension. The mixed fragment still does not
+include BitVec-result mux, general width-changing operators or sequential
+circuits. `EnvDefines` remains explicit. The next mixed-domain work is the
+per-expression/assignment transfer to SV semantics and dependency-order proof
+needed by the settling theorem; a grammar derivation is not an RTL execution
+proof and does not model X/Z or physical delays.
+
+Validation: `ShippingMixedBindingTest` instantiates the complete public theorem
+for the real nested source declaration and all Signal inputs/times. Its 15
+actual synthesis/cleanup/merge paths cover 6 optimizer acceptances and 9
+retentions, including direct Bool input/literal, BitVec 1, nested comparison/mux
+and an unused 17-bit argument. All emitted targets and references are checked
+against the actual declaration table, as are identifiers and complete text
+rendering. The new endpoint and supporting output-width, binding and grammar
+lemmas pass standard-axiom audits (only `propext`, `Classical.choice`,
+`Quot.sound`; no `sorry` dependency). `lake build Tests.AllTests` passes
+(618 jobs).
+
 ## Mixed declarations connected (2026-09-27)
 
 The existing `synthesizeCombinational_mixed_rendered` and

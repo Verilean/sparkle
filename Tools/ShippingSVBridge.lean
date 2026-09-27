@@ -704,8 +704,58 @@ theorem body_combItems (body : List Stmt) (wof : String → Option Nat)
     · simp [emitAssigns, hv, hp]
     · simp [combItems, hc]
 
+theorem body_combItems_names (body : List Stmt) (wof : String → Option Nat)
+    (wires : List Port)
+    (hshape : ∀ st ∈ body, ∃ l r, st = .assign l r ∧ PrintShape r)
+    (hnames : ∀ l r, Stmt.assign l r ∈ body → Sparkle.Backend.Verilog.sanitizeName l = l) :
+    ∃ items pairs,
+      body.mapM (emitAstStmt wof wires) = some items ∧
+      emitAssigns wof body = some pairs ∧ combItems items.flatten = some pairs := by
+  induction body with
+  | nil => exact ⟨[], [], rfl, rfl, rfl⟩
+  | cons st rest ih =>
+    obtain ⟨l, r, rfl, hr⟩ := hshape st (by simp)
+    have hs := hnames l r (by simp)
+    obtain ⟨sv, hv, _⟩ := emitExpr_render_all hr wof
+    obtain ⟨items, pairs, hi, hp, hc⟩ := ih
+      (fun st hm => hshape st (by simp [hm]))
+      (fun l r hm => hnames l r (List.mem_cons_of_mem _ hm))
+    refine ⟨[.contAssign (.ident l) sv] :: items, .assign l sv :: pairs, ?_, ?_, ?_⟩
+    · simp [List.mapM_cons, emitAstStmt, hv, hs, hi]
+    · simp [emitAssigns, hv, hp]
+    · simp [combItems, hc]
+
 /-- The steps in the forward semantics are precisely the assignments of the
 SV tree emitted for this module, rather than an unrelated auxiliary program. -/
+theorem module_combItems_names (m : Sparkle.IR.AST.Module) (hp : PrintableDecls m)
+    (hshape : ∀ st ∈ m.body, ∃ l r, st = .assign l r ∧ PrintShape r)
+    (hnames : ∀ l r, Stmt.assign l r ∈ m.body → Sparkle.Backend.Verilog.sanitizeName l = l) :
+    ∃ sv pairs, emitAstModule m = some sv ∧
+      emitAssigns (printWidths (m.wires ++ m.inputs ++ m.outputs)) m.body = some pairs ∧
+      combItems sv.items = some pairs := by
+  obtain ⟨hprim, hparams, htypes⟩ := hp
+  let iw := m.wires.filter fun p => !((m.inputs ++ m.outputs).map (·.name)).contains p.name
+  obtain ⟨ins, hi, _⟩ := ports_render m.inputs (fun p hp => htypes p (by simp [hp]))
+    .input (Or.inl rfl)
+  obtain ⟨outs, ho, _⟩ := ports_render m.outputs (fun p hp => htypes p (by simp [hp]))
+    .output (Or.inr rfl)
+  obtain ⟨ws, hw, _, _⟩ := wires_render iw (fun p hp =>
+    htypes p (by have := (List.mem_filter.mp hp).1; simp [this]))
+  obtain ⟨bs, pairs, hb, he, hcomb⟩ := body_combItems_names m.body
+    (printWidths (m.wires ++ m.inputs ++ m.outputs)) m.wires hshape hnames
+  refine ⟨{name := Sparkle.Backend.Verilog.sanitizeName m.name, params := [], ports := ins ++ outs, items := ws ++ bs.flatten}, pairs, ?_, he, ?_⟩
+  · simp only [emitAstModule, hprim, hparams,
+      List.isEmpty_nil, Bool.not_true, Bool.false_eq_true, ↓reduceIte]
+    simp (disch := (intros; rfl)) only [filterMap_assigns m.body hshape]
+    simp only [List.find?_nil]
+    change ((m.inputs.mapM (astPort .input)).bind fun ins =>
+      (m.outputs.mapM (astPort .output)).bind fun outs =>
+      (iw.mapM astWire).bind fun wires =>
+      (m.body.mapM (emitAstStmt (printWidths (m.wires ++ m.inputs ++ m.outputs)) m.wires)).bind fun body =>
+      some ({name := Sparkle.Backend.Verilog.sanitizeName m.name, params := [], ports := ins ++ outs, items := wires ++ body.flatten} : SVModule)) = _
+    simp only [hi, ho, hw, hb, Option.bind_some]
+  · simpa [combItems_append, combItems_wires iw ws hw] using hcomb
+
 theorem module_combItems (m : Sparkle.IR.AST.Module) {we : WEnv} (hp : PrintableDecls m)
     (hshape : ∀ st ∈ m.body, ∃ l r, st = .assign l r ∧ PrintShape r)
     (hc : assignsCheck (printWidths (m.wires ++ m.inputs ++ m.outputs))

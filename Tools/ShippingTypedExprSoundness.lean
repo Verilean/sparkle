@@ -41,6 +41,26 @@ theorem TypedExpr.positive {we e n} (h : TypedExpr we e n) : 0 < n := by
   | compare => decide
   | mux _ _ _ _ ht _ => exact ht
 
+/-- Every typed reference has a positive internal declaration width. -/
+theorem TypedExpr.refs_positive {we e n} (h : TypedExpr we e n) :
+    ∀ x ∈ Sparkle.IR.Reorder.refsOf e, 0 < we x := by
+  induction h with
+  | ref x hn => simpa [Sparkle.IR.Reorder.refsOf] using hn
+  | const => simp [Sparkle.IR.Reorder.refsOf]
+  | bin op _ _ _ ha hb | compare _ _ _ ha hb =>
+    intro x hx
+    simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
+      List.append_nil, List.mem_append] at hx
+    exact hx.elim (ha x) (hb x)
+  | mux _ _ _ hc ht hf =>
+    intro x hx
+    simp only [Sparkle.IR.Reorder.refsOf, Sparkle.IR.Reorder.refsOf.refsList,
+      List.append_nil, List.mem_append] at hx
+    rcases hx with hx | hx | hx
+    · exact hc x hx
+    · exact ht x hx
+    · exact hf x hx
+
 theorem TypedExpr.ofSized {we e n} (h : SizedExpr we e n) (hn : 0 < n) :
     TypedExpr we e n := by
   induction h with

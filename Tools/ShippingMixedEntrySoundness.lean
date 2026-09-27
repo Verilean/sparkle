@@ -311,7 +311,8 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
     (hr : Returns (emitLeaves (fun e hint top named => translateExprToWire e hint top named)
       cache logProf [("out", quoteB dom n (fun j => .fvar (binp j)) (fun j => .fvar (vinp j)) e)] none 0)
       ctx s returned t) :
-    weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) := by
+    weOf m = declaredWidths t ∧ TypedPostReady m ∧ (∀ p ∈ m.outputs, PrintableType p.ty) ∧
+      OutputTyped (weOf m) m.body ∧ (∀ p ∈ m.outputs, p.ty.bitWidth = 1) := by
   have contract := translateExprToWire_bool_contract (ctx := ctx) (we := declaredWidths t)
     (mems := mems) (initial := initial) (dom := dom) hn hb hv e he
   obtain ⟨unique, result, run, value, out, typed, rest⟩ := emitLeaves_bool_from_ports (mems := mems) hn hb hv e he body record wires ports hr
@@ -350,7 +351,7 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
   have mo' : m.outputs = [{name := "out", ty := ty}] := by
     rw [mo, ht, emitAssign_outputs, addOutput_state]
     simp [Module.addOutput, frame.outputs, outputs]
-  refine ⟨wm, ⟨?_, ?_, ?_, ?_⟩, ?_⟩
+  refine ⟨wm, ⟨?_, ?_, ?_, ?_⟩, ?_, ?_, ?_⟩
   · rw [mw, List.map_reverse]; exact nodup_reverse unique.1
   · unfold weOf
     have none : m.wires.find? (fun p => p.name == "out") = none := by
@@ -381,6 +382,33 @@ theorem emitLeaves_postReady {mems : MEnv} {ctx ρ β initial s t dom n kb kv ca
     rw [mo', List.mem_singleton] at hp
     subst p
     exact printTy
+  · intro rhs hs
+    rw [mb] at hs
+    change Stmt.assign "out" rhs ∈ t.module.body.reverse at hs
+    rw [List.mem_reverse, ht, emitAssign_body_cons] at hs
+    rcases List.mem_cons.mp hs with eq | hs
+    · cases eq
+      rw [wm, ← step.width_eq]
+      exact .ref w (by rw [step.width_eq]; decide)
+    · obtain ⟨result, inv, _⟩ := step.execution
+      obtain ⟨l, r, eq, rhsTyped⟩ := inv.typed _ hs
+      cases eq
+      have pos := rhsTyped.positive
+      have zero : declaredWidths t "out" = 0 := by
+        unfold declaredWidths
+        rw [ht, emitAssign_wires]
+        have none : sm.module.wires.find? (fun p => p.name == "out") = none := by
+          apply List.find?_eq_none.mpr
+          intro p hp he
+          have eq : p.name = "out" := by simpa using he
+          have used := smWires.2 p hp
+          rw [eq, fresh] at used; cases used
+        change ((sm.module.wires.find? (fun p => p.name == "out")).map (fun p => p.ty.bitWidth)).getD 0 = 0
+        simp [none]
+      rw [zero] at pos; omega
+  · intro p hp
+    rw [mo', List.mem_singleton] at hp
+    subst p; exact tyWidth
 
 /-- No inferred-type premise: this decomposes the actual mixed synthesis run. -/
 theorem synthesizeMixedCertified_returns {logProf declName bs body m d}
@@ -477,17 +505,23 @@ structure PrintBase (m : Sparkle.IR.AST.Module) : Prop where
   inputNames : (m.inputs.map Port.name).Nodup
   inputWires : ∀ p ∈ m.inputs, p ∈ m.wires
   output : ∃ ty, m.outputs = [{name := "out", ty := ty}]
+  outputTyped : OutputTyped (weOf m) m.body
+  outputWidth : ∀ p ∈ m.outputs, p.ty.bitWidth = 1
+  moduleName : Sparkle.IR.ModuleNames.legal (Sparkle.Backend.Verilog.sanitizeName m.name) = true
 
 /-- The raw entry establishes both value preservation and the preconditions
 needed by the real cleanup and optimizer passes. -/
-def MixedPreserves (declName : Name) (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
-    (m : Sparkle.IR.AST.Module) : Prop :=
-  MixedSourcePreserves declName bs body fun initial mems expected =>
+def RawValue (bs : List (Name × MixedGateBinder)) (m : Sparkle.IR.AST.Module)
+    (initial : Env) (mems : MEnv) (expected : Nat) : Prop :=
     ∃ result, evalAssigns (moduleWidths m) mems m.body initial = some result ∧
       result "out" = expected ∧
       TypedPostReady m ∧ SimpleStmts m.body ∧ weOf m = moduleWidths m ∧ "out" ∈ m.outputs.map (·.name) ∧
       (∀ p ∈ m.inputs, initial p.name < 2 ^ weOf m p.name) ∧
       (PositiveBinders bs → PrintBase m)
+
+def MixedPreserves (declName : Name) (bs : List (Name × MixedGateBinder)) (body : Lean.Expr)
+    (m : Sparkle.IR.AST.Module) : Prop :=
+  MixedSourcePreserves declName bs body (RawValue bs m)
 
 theorem MixedSourcePreserves.map {declName bs body P Q}
     (h : MixedSourcePreserves declName bs body P)
@@ -502,7 +536,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
     (hr : MReturns (synthesizeMixedCertified
       (fun e hint top named => translateExprToWire e hint top named) logProf declName bs body) (m, d)) :
     MixedPreserves declName bs body m := by
-  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, _⟩ := synthesizeMixedCertified_returns hr
+  obtain ⟨ids, cache, returned, st, nd, len, run, hm, _, nameLegal⟩ := synthesizeMixedCertified_returns hr
   refine ⟨ids, nd, len, cache, ?_⟩
   intro bools bits initial mems a p values dom n kb kv binp vinp bvals vvals e hn he hb hv quote
   have empty := empty_layout (entryCompilerState false cache) declName.toString initial
@@ -518,7 +552,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
   have outputEq : m.outputs = st.module.outputs.reverse := by
     rw [hm]; simp only [Module.finalize, (addClockReset_facts st.module).2.2.1]
   have shape := prepare_shape (bools := bools) (bits := bits) (bs.zip ids) a (by intro p hp; cases hp)
-  obtain ⟨wm, ready, printOutputs⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
+  obtain ⟨wm, ready, printOutputs, outputTyped, outputWidth⟩ := emitLeaves_postReady (mems := mems) hn hb hv e he
     prepared.2.2.1 prepared.2.2.2 prepared.2.1 prepared.1 shape.1 shape.2 wireEq bodyEq outputEq leaf
   have ib := prepare_inputBounds (bs.zip ids) a (by intro p hp; cases hp) values
   have contract := translateExprToWire_bool_contract (ctx := p.context) (we := declaredWidths st)
@@ -560,7 +594,7 @@ theorem synthesizeMixedCertified_sound {logProf declName bs body m d}
     have mi : m.inputs = st.module.inputs.reverse := by rw [hm, noSeq]; rfl
     have decls := prepare_declarations (bools := bools) (bits := bits) (bs.zip ids) a
       (List.Sublist.refl []) (by intro port hp; cases hp)
-    refine ⟨?_, ?_, ?_, printOutputs, ?_, ?_, ?_, ?_, ?_⟩
+    refine ⟨?_, ?_, ?_, printOutputs, ?_, ?_, ?_, ?_, ?_, outputTyped, outputWidth, nameLegal⟩
     · rw [hm, noSeq]
       change st.module.isPrimitive = false
       rw [ht]; change sm.module.isPrimitive = false

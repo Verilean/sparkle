@@ -98,21 +98,23 @@ theorem mixedShape_positive {ci bs body} (h : mixedCertifiedShape? false [] ci =
     · cases h
   · cases h
 
+/-- The source value and the complete shipping text describe the same selected
+IR module. This rendering relation is not yet the concrete grammar judgment. -/
+def RenderedValue (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (expected : Nat) : Prop :=
+  ∃ result sv, evalAssigns (weOf (checkedOptimize m)) mems (checkedOptimize m).body initial = some result ∧
+    result "out" = expected ∧ emitAstModule (checkedOptimize m) = some sv ∧
+    renderModule (checkedOptimize m).name
+      ((checkedOptimize m).wires.filter fun p =>
+        !(((checkedOptimize m).inputs ++ (checkedOptimize m).outputs).map (·.name)).contains p.name).length sv
+      = some (verilogOf m) ∧ Declarations (checkedOptimize m) sv
+
 /-- Full printed module equality on the actual postprocessing and checked
 optimizer path, alongside the source value. Positivity is a pure source-binder
 condition, discharged by `mixedShape_positive` at the real entry. -/
-theorem mixed_rendered {declName bs body m m'} (source : MixedPreserves declName bs body m)
-    (positive : PositiveBinders bs)
+theorem rendered_of_entry {bs m m' initial mems expected}
+    (h : RawValue bs m initial mems expected) (positive : PositiveBinders bs)
     (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
-    MixedSourcePreserves declName bs body fun initial mems expected =>
-      ∃ result sv, evalAssigns (weOf (checkedOptimize m')) mems (checkedOptimize m').body initial = some result ∧
-        result "out" = expected ∧ emitAstModule (checkedOptimize m') = some sv ∧
-        renderModule (checkedOptimize m').name
-          ((checkedOptimize m').wires.filter fun p =>
-            !(((checkedOptimize m').inputs ++ (checkedOptimize m').outputs).map (·.name)).contains p.name).length sv
-          = some (verilogOf m') ∧ Declarations (checkedOptimize m') sv := by
-  apply MixedSourcePreserves.map source
-  intro initial mems expected h
+    RenderedValue m' initial mems expected := by
   obtain ⟨result, run, value, ready, simple, widths, out, bounds, base⟩ := h
   rw [← widths] at run
   have postWidths := typed_postprocess_widths ready post run
@@ -133,15 +135,11 @@ theorem mixed_rendered {declName bs body m m'} (source : MixedPreserves declName
   exact ⟨final, sv, finalRun, val, ast, text,
     checked_declarations (base positive) ready simple post pd (checkedOptimize_printShape gate) ast⟩
 
-/-- The source value and the complete shipping text describe the same selected
-IR module. This rendering relation is not yet the concrete grammar judgment. -/
-def RenderedValue (m : Sparkle.IR.AST.Module) (initial : Env) (mems : MEnv) (expected : Nat) : Prop :=
-  ∃ result sv, evalAssigns (weOf (checkedOptimize m)) mems (checkedOptimize m).body initial = some result ∧
-    result "out" = expected ∧ emitAstModule (checkedOptimize m) = some sv ∧
-    renderModule (checkedOptimize m).name
-      ((checkedOptimize m).wires.filter fun p =>
-        !(((checkedOptimize m).inputs ++ (checkedOptimize m).outputs).map (·.name)).contains p.name).length sv
-      = some (verilogOf m) ∧ Declarations (checkedOptimize m) sv
+theorem mixed_rendered {declName bs body m m'} (source : MixedPreserves declName bs body m)
+    (positive : PositiveBinders bs)
+    (post : m' = dropZeroWidthModule m ∨ m' = mergeDuplicates (dropZeroWidthModule m)) :
+    MixedSourcePreserves declName bs body (RenderedValue m') :=
+  MixedSourcePreserves.map source (fun _ _ _ h => rendered_of_entry h positive post)
 
 theorem synthesizeCombinational_mixed_rendered {declName : Name} {mctx : Meta.Context}
     {mref : ST.Ref IO.RealWorld Meta.State} {cctx : Core.Context}
