@@ -96,6 +96,7 @@ import Tests.Compiler.ShippingMuxRecursionSoundnessTest
 import Tests.Compiler.ShippingMuxTypeSoundnessTest
 import Tests.Compiler.ShippingBoolSourceSoundnessTest
 import Tests.Compiler.ShippingCompareLoweringSoundnessTest
+import Tests.Compiler.ShippingBoolLiteralSoundnessTest
 import Tests.Compiler.ShippingTypedPostSoundnessTest
 import Tests.Compiler.ShippingControlOptSoundnessTest
 import Tests.Compiler.ShippingModuleNamesTest

@@ -23,13 +23,13 @@ theorem compare_rhs_correct {n : Nat} (le : Bool) (x y : BitVec n)
   cases le <;> simp [unsignedCompareOp, compareValue, evalExpr, evalList, evalOp,
     ha, hb, encodeBool, BitVec.ult_eq_decide, BitVec.ule_eq_decide]
 
-theorem emitCompareResult_returns {le : Bool} {a b hint w : String} {named : Bool}
+theorem emitBoolResult_returns {rhs : Sparkle.IR.AST.Expr} {hint w : String} {named : Bool}
     {ctx : CompilerState} {s s' : CircuitState}
-    (h : Returns (emitCompareResult le a b hint named) ctx s w s') :
+    (h : Returns (emitBoolResult rhs hint named) ctx s w s') :
     w = (CircuitM.makeWire hint .bit named s).1 ∧
-    s' = (CircuitM.emitAssign w (.op (unsignedCompareOp le) [.ref a, .ref b])
+    s' = (CircuitM.emitAssign w rhs
       (CircuitM.makeWire hint .bit named s).2).2 := by
-  unfold emitCompareResult at h
+  unfold emitBoolResult at h
   obtain ⟨r, sm, hm, h⟩ := Returns.bind h
   obtain ⟨hr, hs⟩ := makeWire_returns hm
   obtain ⟨u, se, he, h⟩ := Returns.bind h
@@ -37,6 +37,13 @@ theorem emitCompareResult_returns {le : Bool} {a b hint w : String} {named : Boo
   have hem := emitAssign_returns he
   subst w s'
   exact ⟨hr, by rw [hem, hs]⟩
+
+theorem emitCompareResult_returns {le : Bool} {a b hint w : String} {named : Bool}
+    {ctx : CompilerState} {s s' : CircuitState}
+    (h : Returns (emitCompareResult le a b hint named) ctx s w s') :
+    w = (CircuitM.makeWire hint .bit named s).1 ∧
+    s' = (CircuitM.emitAssign w (.op (unsignedCompareOp le) [.ref a, .ref b])
+      (CircuitM.makeWire hint .bit named s).2).2 := emitBoolResult_returns h
 
 /-- Facts needed by parent control nodes and by the validated cache wrapper. -/
 structure BoolStep (ρ : BoolValuation) (β : Valuation) (we : WEnv) (mems : MEnv)
@@ -50,15 +57,15 @@ structure BoolStep (ρ : BoolValuation) (β : Valuation) (we : WEnv) (mems : MEn
     result w = encodeBool value ∧
     (∀ x, s.usedNames.contains x = true → result x = prior x)
 
-theorem emitCompareResult_correct {ρ β we mems initial prior s s' ctx}
-    {a b hint w : String} {named le : Bool} {n : Nat} (x y : BitVec n)
-    (hr : Returns (emitCompareResult le a b hint named) ctx s w s')
+theorem emitBoolResult_correct {ρ β we mems initial prior s s' ctx}
+    {rhs : Sparkle.IR.AST.Expr} {hint w : String} {named value : Bool}
+    (hr : Returns (emitBoolResult rhs hint named) ctx s w s')
     (hp : Runs we mems initial s prior) (hrec : BoolRecordOk ρ β we s prior)
-    (hbody : TypedBody we s) (hn : 0 < n)
-    (ha : prior a = x.toNat) (hb : prior b = y.toNat)
-    (wa : we a = n) (wb : we b = n) (hwidth : ScalarWidthsAgree we s') :
-    BoolStep ρ β we mems initial prior s s' w (compareValue le x y) := by
-  obtain ⟨hrw, hs⟩ := emitCompareResult_returns hr
+    (hbody : TypedBody we s) (typed : TypedExpr we rhs 1)
+    (heval : evalExpr we prior rhs = some (encodeBool value))
+    (hwidth : ScalarWidthsAgree we s') :
+    BoolStep ρ β we mems initial prior s s' w value := by
+  obtain ⟨hrw, hs⟩ := emitBoolResult_returns hr
   have hm := CircuitM.makeWire_spec hint .bit named s
   have fresh : s.usedNames.contains w = false := by rw [hrw]; exact hm.1
   have used : s'.usedNames = s.usedNames.insert w := by
@@ -66,13 +73,9 @@ theorem emitCompareResult_correct {ρ β we mems initial prior s s' ctx}
   have decl : ({name := w, ty := .bit} : Port) ∈ s'.module.wires := by
     rw [hs, emitAssign_wires, hm.2.2.2, hrw]; simp
   have ww : we w = 1 := hwidth _ decl
-  have typed : TypedExpr we (.op (unsignedCompareOp le) [.ref a, .ref b]) 1 :=
-    .compare (n := n) (by cases le <;> rfl)
-      (wa ▸ TypedExpr.ref (we := we) a (by omega))
-      (wb ▸ TypedExpr.ref (we := we) b (by omega))
   have grows : ∀ z, s.usedNames.contains z = true → s'.usedNames.contains z = true := by
     intro z hz; simp [used, Std.HashSet.contains_insert, hz]
-  let result := write prior w (encodeBool (compareValue le x y))
+  let result := write prior w (encodeBool value)
   have frame : ∀ z, s.usedNames.contains z = true → result z = prior z := by
     intro z hz
     have hne : z ≠ w := by intro he; subst z; simp [fresh] at hz
@@ -86,10 +89,24 @@ theorem emitCompareResult_correct {ρ β we mems initial prior s s' ctx}
     · exact hbody st hst
   · rw [hs]
     exact emitAssign_sound _ we mems initial prior w _ _ (runs_of_body_eq hm.2.2.1 hp)
-      (compare_rhs_correct le x y we prior a b ha hb)
+      heval
   · apply hrec.transfer ?_ grows frame
     rw [hs, emitAssign_translateRecord, CircuitM.makeWire_translateRecord]
   · simp [result, write]
+
+theorem emitCompareResult_correct {ρ β we mems initial prior s s' ctx}
+    {a b hint w : String} {named le : Bool} {n : Nat} (x y : BitVec n)
+    (hr : Returns (emitCompareResult le a b hint named) ctx s w s')
+    (hp : Runs we mems initial s prior) (hrec : BoolRecordOk ρ β we s prior)
+    (hbody : TypedBody we s) (hn : 0 < n)
+    (ha : prior a = x.toNat) (hb : prior b = y.toNat)
+    (wa : we a = n) (wb : we b = n) (hwidth : ScalarWidthsAgree we s') :
+    BoolStep ρ β we mems initial prior s s' w (compareValue le x y) :=
+  emitBoolResult_correct hr hp hrec hbody
+    (.compare (n := n) (by cases le <;> rfl)
+      (wa ▸ TypedExpr.ref (we := we) a (by omega))
+      (wb ▸ TypedExpr.ref (we := we) b (by omega)))
+    (compare_rhs_correct le x y we prior a b ha hb) hwidth
 
 /-- Both recursive operand calls are visible in the successful run. -/
 theorem translateUnsignedCompare_returns {rec : TranslateFn} {le : Bool} {a b : Lean.Expr}

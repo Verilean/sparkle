@@ -4426,10 +4426,16 @@ def translateControlCachedWith (lower : TranslateFn) : TranslateFn :=
 /-- Exact unsigned library comparisons have Bool results without type inference. -/
 def unsignedCompareOp (le : Bool) : Operator := if le then .le_u else .lt_u
 
-def emitCompareResult (le : Bool) (a b hint : String) (named : Bool) : CompilerM String := do
+def emitBoolResult (rhs : Sparkle.IR.AST.Expr) (hint : String) (named : Bool) : CompilerM String := do
   let w ← CompilerM.makeWire hint .bit (named := named)
-  CompilerM.emitAssign w (.op (unsignedCompareOp le) [.ref a, .ref b])
+  CompilerM.emitAssign w rhs
   return w
+
+def emitCompareResult (le : Bool) (a b hint : String) (named : Bool) : CompilerM String :=
+  emitBoolResult (.op (unsignedCompareOp le) [.ref a, .ref b]) hint named
+
+def emitBoolLiteral (value : Bool) (hint : String) (named : Bool) : CompilerM String :=
+  emitBoolResult (.const (if value then 1 else 0) 1) hint named
 
 /-- Recursive comparison lowering, exposed to proofs. The child order and
     hints match the applicative lowering used before this direct route. -/
@@ -4439,11 +4445,15 @@ def translateUnsignedCompare (rec : TranslateFn) (le : Bool) (a b : Lean.Expr)
   let bw ← rec b "b" false false
   emitCompareResult le aw bw hint named
 
-/-- Canonical comparisons use the total lowering above. Other Bool forms
+/-- Canonical literals and comparisons use the total lowering above. Other Bool forms
     still use their existing handlers on a validated-cache miss. -/
 def translateBoolUncachedWith (rec legacy : TranslateFn) : TranslateFn :=
   fun e hint top named =>
     match e with
+    | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+        (.const ``Bool.true _) => emitBoolLiteral true hint named
+    | .app (.app (.app (.const ``Sparkle.Core.Signal.Signal.pure _) _) (.const ``Bool _))
+        (.const ``Bool.false _) => emitBoolLiteral false hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ult _) _) _) a) b =>
       translateUnsignedCompare rec false a b hint named
     | .app (.app (.app (.app (.const ``Sparkle.Core.Signal.Signal.ule _) _) _) a) b =>

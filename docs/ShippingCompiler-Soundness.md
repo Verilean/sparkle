@@ -52,6 +52,35 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Bool literals connected to the shipping translator (2026-09-27)
+
+Exact library `Signal.pure true` and `Signal.pure false` applications now emit
+a scalar `.bit` wire assigned the one-bit constant directly. Computed Bool
+payloads retain their existing uncached route. The shared `emitBoolResult`
+helper is used by both literals and unsigned comparisons; its general proof
+preserves execution, typed assignments, reserved-wire values and Bool records.
+
+`Tools/ShippingBoolLiteralSoundness.lean` proves
+`translateExprToWire_literal_correct` for the actual shipping fuel-bounded
+translator. It covers the outer core cache, the fallback cache and new
+allocation. This leaf theorem has no recursive-child, legacy-handler or
+MetaM type-query hypothesis. Initial execution/typing/Bool-record invariants
+and agreement with final declaration widths remain explicit premises.
+The cache-compatible outcome also preserves all reserved values and names.
+
+This closes literal Bool translation under those state invariants, not the
+entire mixed-source entry theorem. Bool mux misses, recursive closure of the
+joint Bool/BitVec invariant and its initialization at synthesis still remain;
+`compiledFragment_execution` retains its previous source domain.
+
+Validation checks exact elaborated literal syntax, both cache layers,
+enabled/disabled caches, named/top-level calls, poisoned raw-cache candidates,
+name collisions and preservation of live input values. A failing recursive
+and legacy handler confirms that literal lowering calls neither. Whole-entry
+true/false RTL and the existing 131,072-case mixed Bool circuit pass Icarus;
+the theorem audit permits only the standard axioms.
+`lake build Tests.AllTests` passes (594 jobs).
+
 ## Unsigned comparison cache-miss lowering proved (2026-09-27)
 
 Exact `Signal.ult` and `Signal.ule` applications now use the ordinary
