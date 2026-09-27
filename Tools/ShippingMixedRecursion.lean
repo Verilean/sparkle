@@ -9,6 +9,7 @@ open Tools.ShippingMixedLiteralSoundness Tools.ShippingMixedBinarySoundness
 open Tools.ShippingCompareLoweringSoundness Tools.ShippingBoolSourceSoundness
 open Tools.ShippingBoolLiteralSoundness Tools.ShippingBoolMuxSoundness
 open Tools.ShippingMuxLoweringSoundness Tools.ShippingMuxRecursionSoundness
+open Tools.ShippingPostSoundness Sparkle.IR.OptCheck
 open Tools.ShippingTypedExprSoundness Tools.ShippingScalarSoundness
 open Tools.ShippingEntrySoundness Tools.ShippingMuxTypeSoundness
 
@@ -59,10 +60,20 @@ theorem bits_core_frame {rec ctx β s t e us hint top named r n} {x : BitVec n}
   · simp [Lean.Expr.getAppFn] at fn
   · rw [fn] at hr
     simp only [beq_self_eq_true, if_true] at hr
-    obtain ⟨w, he, ⟨growth, bindings, records, fresh, _⟩, _⟩ := translateSignalPureLiteral_branch
+    obtain ⟨w, he, ⟨growth, bindings, records, fresh, emits⟩, _⟩ := translateSignalPureLiteral_branch
       (we := fun _ => 0) (mems := fun _ _ => 0) (initial := fun _ => 0) fn hd hr
-    exact ⟨w, he, ⟨growth.2.1, growth.1, bindings,
-      fun _ _ hr => Or.inl (by rw [records] at hr; exact hr), growth.2.2.1⟩, fresh⟩
+    refine ⟨w, he, ⟨growth.2.1, growth.1, bindings,
+      fun _ _ hr => Or.inl (by rw [records] at hr; exact hr), growth.2.2.1, fun hs p hp => by
+        rcases growth.2.2.2.2.wireTypes p hp with old | new
+        · exact hs p old
+        · exact Or.inr new, emits.1, emits.2.1, ?_⟩, fresh⟩
+    intro hs stmt hmem
+    obtain ⟨pre, eq, simple⟩ := emits.2.2
+    rw [eq] at hmem
+    rcases List.mem_append.mp hmem with hp | hp
+    · obtain ⟨l, rhs, eq, shape, _⟩ := simple stmt hp
+      exact ⟨l, rhs, eq, shape⟩
+    · exact hs stmt hp
 
 theorem bits_recorded_frame {rec ctx β s t e us hint top named w n cacheable}
     {x : BitVec n} {K : Option String → CompilerM String}
@@ -137,11 +148,12 @@ structure FreshAction (action : CompilerM String) (ctx : CompilerState)
   fresh : ∀ s t w, Lookup ctx ρ β s → Returns action ctx s w t → s.usedNames.contains w = false
 
 theorem emit_bool_frame {ctx s t w rhs hint named}
+    (shape : simpleRhs rhs = true)
     (hr : Returns (emitBoolResult rhs hint named) ctx s w t) :
     Frame s t ∧ s.usedNames.contains w = false := by
   obtain ⟨hw, ht⟩ := emitBoolResult_returns hr
   have hm := CircuitM.makeWire_spec hint .bit named s
-  refine ⟨⟨?_, ?_, ?_, ?_, ?_⟩, ?_⟩
+  refine ⟨⟨?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩, ?_⟩
   · intro p hp; rw [ht, emitAssign_wires, hm.2.2.2]; exact List.mem_cons_of_mem _ hp
   · intro z hz; rw [ht, emitAssign_usedNames, hm.2.1]; simp [Std.HashSet.contains_insert, hz]
   · rw [ht, emitAssign_sourceBindings, CircuitM.makeWire_sourceBindings]
@@ -152,6 +164,18 @@ theorem emit_bool_frame {ctx s t w rhs hint named}
     apply (WiresOk.fresh hm.1 hm.2.1 hm.2.2.2 hok).congr
     · rw [ht, emitAssign_wires]
     · rw [ht, emitAssign_usedNames]
+  · intro hs p hp
+    rw [ht, emitAssign_wires, hm.2.2.2] at hp
+    rcases List.mem_cons.mp hp with rfl | hp
+    · exact Or.inl rfl
+    · exact hs p hp
+  · rw [ht, emitAssign_outputs, makeWire_outputs]
+  · rw [ht, emitAssign_inputs, makeWire_inputs]
+  · intro hs stmt hmem
+    rw [ht, emitAssign_body_cons, hm.2.2.1] at hmem
+    rcases List.mem_cons.mp hmem with rfl | hp
+    · exact ⟨_, _, rfl, shape⟩
+    · exact hs stmt hp
   · rw [hw]; exact hm.1
 
 theorem cached_action {ctx ρ β we mems initial lower e hint top named b}
@@ -169,8 +193,8 @@ theorem cached_action {ctx ρ β we mems initial lower e hint top named b}
 
 theorem literal_fresh {ctx ρ β we mems initial hint named} (b : Bool) :
     FreshAction (emitBoolLiteral b hint named) ctx ρ β we mems initial 1 (encodeBool b) := by
-  refine ⟨⟨fun _ _ _ _ hr => (emit_bool_frame hr).1, ?_⟩,
-    fun _ _ _ _ hr => (emit_bool_frame hr).2⟩
+  refine ⟨⟨fun _ _ _ _ hr => (emit_bool_frame rfl hr).1, ?_⟩,
+    fun _ _ _ _ hr => (emit_bool_frame rfl hr).2⟩
   intro s t w prior h widths hr
   apply emitBoolResult_mixed h (.const _ 1 (by decide)) ?_ widths hr
   have he := evalExpr_const_lt we prior (encodeBool b) 1 (encodeBool_lt b)
@@ -221,7 +245,7 @@ theorem compare_shape {ctx ρ β we mems initial rec ae be le hint named n va vb
   obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
   have fa := ca.frame s sa a lookup ra
   have fb := cb.frame sa sb b (lookup.transfer fa) rb
-  obtain ⟨fe, fresh⟩ := emit_bool_frame re
+  obtain ⟨fe, fresh⟩ := emit_bool_frame (by cases le <;> rfl) re
   refine ⟨(fa.trans fb).trans fe, ?_⟩
   cases hu : s.usedNames.contains w
   · rfl
@@ -239,7 +263,7 @@ theorem compare_fresh {ctx ρ β we mems initial rec ae be le hint named n}
   obtain ⟨a, b, sa, sb, ra, rb, re⟩ := translateUnsignedCompare_returns hr
   have fa := ca.frame s sa a (Lookup.ofInputs h.inputs) ra
   have fb := cb.frame sa sb b ((Lookup.ofInputs h.inputs).transfer fa) rb
-  have fe := (emit_bool_frame re).1
+  have fe := (emit_bool_frame (by cases le <;> rfl) re).1
   have aout := ca.sem s sa a prior h ((fb.decls.trans fe.decls).widths widths) ra
   obtain ⟨va, ia, av, af⟩ := aout.execution
   have bout := cb.sem sa sb b va ia (fe.decls.widths widths) rb
@@ -294,7 +318,7 @@ theorem mux_shape {ctx ρ β we mems initial rec ce ae be hint named vc va vb s 
   have fc := cc.frame s sc c lookup rc
   have fa := ca.frame sc sa a (lookup.transfer fc) ra
   have fb := cb.frame sa sb b ((lookup.transfer fc).transfer fa) rb
-  obtain ⟨fe, fresh⟩ := emit_bool_frame re
+  obtain ⟨fe, fresh⟩ := emit_bool_frame rfl re
   refine ⟨((fc.trans fa).trans fb).trans fe, ?_⟩
   cases hu : s.usedNames.contains w
   · rfl
@@ -317,7 +341,7 @@ theorem mux_fresh {ctx ρ β we mems initial rec ce ae be hint named}
   have fc := cc.frame s sc cw lookup rc
   have fa := ca.frame sc sa aw (lookup.transfer fc) ra
   have fb := cb.frame sa sb bw ((lookup.transfer fc).transfer fa) rb
-  have fe := (emit_bool_frame re).1
+  have fe := (emit_bool_frame rfl re).1
   have cout := cc.sem s sc cw prior h (((fa.decls.trans fb.decls).trans fe.decls).widths widths) rc
   obtain ⟨vc, ic, cv, cf⟩ := cout.execution
   have aout := ca.sem sc sa aw vc ic ((fb.decls.trans fe.decls).widths widths) ra

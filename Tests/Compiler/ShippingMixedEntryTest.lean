@@ -72,6 +72,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected mixed entry axiom: {name}: {ax}"
-  logInfo "SHIPPING MIXED ENTRY: actual input walk, dispatcher and same-read entry proved; 250 source/legacy comparisons; postprocessing/text/settling connection remains open"
+  logInfo "SHIPPING MIXED ENTRY: actual input walk, dispatcher and same-read entry proved; 250 source/legacy comparisons; postprocessing is covered by ShippingMixedPostTest; text/settling remains open"
 
 end Sparkle.Tests.Compiler.ShippingMixedEntryTest

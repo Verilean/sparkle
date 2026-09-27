@@ -96,6 +96,6 @@ run_cmd do
     for ax in (← liftCoreM <| collectAxioms name) do
       unless [``propext, ``Classical.choice, ``Quot.sound].contains ax do
         throwError "unexpected recursive mixed axiom: {name}: {ax}"
-  logInfo "SHIPPING MIXED RECURSION CLOSED: no child contracts; actual input binder and output emitter; final widths and separation derived; top-level entry/postprocess/text connection remains open"
+  logInfo "SHIPPING MIXED RECURSION CLOSED: no child contracts; actual input binder and output emitter; final widths and separation derived; entry/postprocessing are covered by ShippingMixedPostTest; text/settling remains open"
 
 end Sparkle.Tests.Compiler.ShippingMixedRecursionTest

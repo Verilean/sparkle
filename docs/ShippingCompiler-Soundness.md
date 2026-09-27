@@ -52,6 +52,58 @@ X/Z and physical delays are not modeled. Module-name validity and
 normalization collisions are no longer outstanding on the checked synthesis
 paths described below. The dated entries preserve earlier intermediate states.
 
+## Mixed entry through checked optimization (2026-09-27)
+
+`Tools/ShippingMixedPostSoundness.lean` now proves
+`synthesizeCombinational_mixed_checked`: a successful run of the actual
+`synthesizeCombinational` entry, including zero-width cleanup and optional
+checked duplicate merging, produces a module whose `checkedOptimize` result
+agrees with the quoted mixed source. This is the exact IR module passed to the
+printer by `verilogOf`. The theorem retains the same-run `getConstInfo` link and
+the explicit source quotation/input correspondence of the mixed entry.
+
+Readiness is **derived**, not moved into a caller-supplied certificate:
+
+* The recursive `Frame` preserves scalar wire types, input/output interfaces
+  and flat assignment shape, including validated-cache hits and fresh lowering.
+* The actual binder walk establishes bounds for every physical input, including
+  unused arguments of other widths. The output emitter derives the Bool output
+  width, absence of an internal `out` declaration, declaration uniqueness and
+  typed statements. Module finishing's reversal preserves the width lookup;
+  assignment-only bodies receive no clock/reset inputs.
+* `MixedPreserves` now carries `TypedPostReady`, flat shape, width-environment
+  equality, the output declaration and bounded physical inputs. Cleanup and
+  merging preserve the facts needed by the checked optimizer.
+
+The compiler's `checkedOptimize` name does not mean its arbitrary-module path
+is proved: when `simpleBody` is false, it returns the optimizer's result without
+this checker. The mixed proof derives `simpleBody = true`; both accepted and
+retained branches **inside that gate** are covered. No outside-gate correctness
+assumption was added, and compiler behavior was not changed in this step.
+
+`MixedSourcePreserves` factors out the common source relation so the actual raw
+entry theorem composes directly with postprocessing. Its source quotation,
+well-formedness, valuation lookup and admissible source-port values remain
+explicit. The final theorem does not ask callers for readiness, a final-width
+oracle, bounded RTL inputs, optimizer success or recursive-child correctness.
+
+**Remaining for this mixed domain:** derive the general mixed declaration's
+source/input correspondence in the final Signal-level theorem; connect the
+optimized result to the full output text grammar and parallel settling model.
+The old `compiledFragment_execution` domain is unchanged. This is an in-order
+IR evaluation theorem through the actual optimization pipeline, not yet the
+mixed source-to-text/concurrent-execution theorem. Whole successful-domain
+coverage (other operations, width changes, state/reset, memory and hierarchy)
+and `EnvDefines` remain outstanding as documented above.
+
+Validation: `lake build Tests.AllTests` passes (611 jobs). The focused regression
+checks 750 value cases across cleanup alone,
+cleanup plus merging, and the actual shipping postprocessing choice. It covers
+6 accepted optimizer selections and 9 retained selections, including nested
+Bool mux/comparison/arithmetic, direct inputs, constants, BitVec 1 and an unused
+17-bit input. The new endpoint theorem and all strengthened dependencies pass
+the standard-axiom audit (`propext`, `Classical.choice`, `Quot.sound` only).
+
 ## Mixed synthesis entry connected (2026-09-27)
 
 The shipping dispatcher now recognizes an additional syntax-only mixed
@@ -82,7 +134,7 @@ statement still explicitly requires source quotation, well-formedness, valuation
 lookup and admissible port values. It is not yet a theorem that every gate
 acceptance produces such a source witness, nor a whole-DSL success theorem.
 
-**Remaining:** compose this mixed entry with postprocessing, checked
+**At that checkpoint (superseded by the mixed-postprocessing section above):** compose this mixed entry with postprocessing, checked
 optimization, full text grammar and operational settling. Derive the source
 and input correspondence from a general mixed declaration telescope in the
 final source-Signal theorem. The old `compiledFragment_execution` still covers
